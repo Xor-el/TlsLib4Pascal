@@ -1,0 +1,14 @@
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  h_878efc035442cc 14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "dc071d5f109bb168ffabfd88e2dcb5bd887ffa9d",
+  "prompts": {},
+  "humans": {
+    "h_878efc035442cc": {
+      "author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
