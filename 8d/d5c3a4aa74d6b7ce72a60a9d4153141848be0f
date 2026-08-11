@@ -1,0 +1,15 @@
+.github/FUNDING.yml
+  h_878efc035442cc 11-14
+  h_878efc035442cc 15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "8dd5c3a4aa74d6b7ce72a60a9d4153141848be0f",
+  "prompts": {},
+  "humans": {
+    "h_878efc035442cc": {
+      "author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
