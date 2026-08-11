@@ -1,0 +1,22 @@
+TlsLib.Interop/FreePascal.Interop/InteropSelfTest.lpr
+  s_3957973a090260::t_1ca10764fd3782 257-261
+  s_3957973a090260::t_636f61f99e8387 178-184
+  s_3957973a090260::t_44e27221cb0b2f 223-226,228-241
+  s_3957973a090260::t_1ac235320d72ba 295
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "bbedb61766657b91a59d5182446d5344e1805cb1",
+  "prompts": {},
+  "sessions": {
+    "s_3957973a090260": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6deaf670-7f07-4977-8d0c-c1e8159f395d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
