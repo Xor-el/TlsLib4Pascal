@@ -1,0 +1,746 @@
+.gitattributes
+  h_878efc035442cc 1-19
+.github/FUNDING.yml
+  h_878efc035442cc 1-12
+.github/dependabot.yml
+  h_878efc035442cc 1-7
+.github/workflows/ci/arm32-install.sh
+  h_878efc035442cc 1-9
+.github/workflows/ci/arm32-run.sh
+  h_878efc035442cc 1-14
+.github/workflows/ci/interop/bogo-classify.py
+  h_878efc035442cc 1-213
+.github/workflows/ci/interop/bogo-shim-config.json
+  h_878efc035442cc 1-265
+.github/workflows/ci/interop/fuzz-discovery.sh
+  h_878efc035442cc 1-62
+.github/workflows/ci/interop/interop-build.sh
+  h_878efc035442cc 1-108
+.github/workflows/ci/interop/interop-harness/action.yml
+  h_878efc035442cc 1-82
+.github/workflows/ci/interop/run-bogo.sh
+  h_878efc035442cc 1-127
+.github/workflows/ci/interop/run-openssl-matrix.sh
+  h_878efc035442cc 1-253
+.github/workflows/ci/native-build.sh
+  h_878efc035442cc 1-10
+.github/workflows/ci/openssl-libssl11-shim-macos.sh
+  h_878efc035442cc 1-9
+.github/workflows/ci/openssl-libssl11-shim-unix.sh
+  h_878efc035442cc 1-72
+.github/workflows/ci/openssl-libssl11-shim-windows.sh
+  h_878efc035442cc 1-43
+.github/workflows/ci/ppc64-be-build.sh
+  h_878efc035442cc 1-49
+.github/workflows/ci/ppc64-be-images.env
+  h_878efc035442cc 1-29
+.github/workflows/ci/ppc64-be-inner.sh
+  h_878efc035442cc 1-10
+.github/workflows/ci/ppc64-qemu-setup.sh
+  h_878efc035442cc 1-38
+.github/workflows/ci/resolve-targets.sh
+  h_878efc035442cc 1-70
+.github/workflows/ci/shared/common.sh
+  h_878efc035442cc 1-295
+.github/workflows/ci/shared/csu-stubs.c
+  h_878efc035442cc 1-5
+.github/workflows/ci/shared/lazarus-bootstrap.sh
+  h_878efc035442cc 1-38
+.github/workflows/ci/shared/runtime-endian-probe.c
+  h_878efc035442cc 1-7
+.github/workflows/ci/targets.json
+  h_878efc035442cc 1-18
+.github/workflows/ci/vm-dragonfly-prepare.sh
+  h_878efc035442cc 1-46
+.github/workflows/ci/vm-freebsd-prepare.sh
+  h_878efc035442cc 1-33
+.github/workflows/ci/vm-freebsd-run.sh
+  h_878efc035442cc 1-23
+.github/workflows/ci/vm-netbsd-prepare.sh
+  h_878efc035442cc 1-12
+.github/workflows/ci/vm-run-shared.sh
+  h_878efc035442cc 1-14
+.github/workflows/ci/vm-solaris-prepare.sh
+  h_878efc035442cc 1-17
+.github/workflows/fuzz-nightly.yml
+  h_878efc035442cc 1-76
+.github/workflows/install-fpc-lazarus.sh
+  h_878efc035442cc 1-284
+.github/workflows/make.pas
+  h_878efc035442cc 1-2585
+.github/workflows/make.yml
+  h_878efc035442cc 1-427
+.github/workflows/mirror-to-gitlab.yml
+  h_878efc035442cc 1-59
+.gitignore
+  h_878efc035442cc 1-111
+BuildConfig/FPC/TlsLibFPCMessages.cfg
+  h_878efc035442cc 1-48
+LICENSE
+  h_878efc035442cc 1-21
+README.md
+  h_878efc035442cc 1-283
+SECURITY.md
+  h_878efc035442cc 1-72
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  h_878efc035442cc 1-535
+TlsLib.Adapters/FclNet/Examples/Lazarus/FclNetLoopback.lpi
+  h_878efc035442cc 1-51
+TlsLib.Adapters/FclNet/Examples/Lazarus/FclNetLoopback.lpr
+  h_878efc035442cc 1-16
+TlsLib.Adapters/FclNet/Examples/Lazarus/FclNetRealWorld.lpi
+  h_878efc035442cc 1-51
+TlsLib.Adapters/FclNet/Examples/Lazarus/FclNetRealWorld.lpr
+  h_878efc035442cc 1-16
+TlsLib.Adapters/FclNet/Examples/data/isrg-roots.pem
+  h_878efc035442cc 1-51
+TlsLib.Adapters/FclNet/Examples/src/FclNetLoopbackExample.pas
+  h_878efc035442cc 1-302
+TlsLib.Adapters/FclNet/Examples/src/FclNetRealWorldExample.pas
+  h_878efc035442cc 1-246
+TlsLib.Adapters/FclNet/Packages/FPC/TlsLib.Adapter.FclNet.lpk
+  h_878efc035442cc 1-44
+TlsLib.Adapters/FclNet/Packages/FPC/TlsLib.Adapter.FclNet.pas
+  h_878efc035442cc 1-15
+TlsLib.Adapters/FclNet/README.md
+  h_878efc035442cc 1-140
+TlsLib.Adapters/Indy/Adapter/TlsLibIndyTls.pas
+  h_878efc035442cc 1-545
+TlsLib.Adapters/Indy/Examples/Delphi/IndyLoopback.dpr
+  h_878efc035442cc 1-12
+TlsLib.Adapters/Indy/Examples/Delphi/IndyRealWorld.dpr
+  h_878efc035442cc 1-12
+TlsLib.Adapters/Indy/Examples/Lazarus/IndyLoopback.lpi
+  h_878efc035442cc 1-51
+TlsLib.Adapters/Indy/Examples/Lazarus/IndyLoopback.lpr
+  h_878efc035442cc 1-16
+TlsLib.Adapters/Indy/Examples/Lazarus/IndyRealWorld.lpi
+  h_878efc035442cc 1-51
+TlsLib.Adapters/Indy/Examples/Lazarus/IndyRealWorld.lpr
+  h_878efc035442cc 1-16
+TlsLib.Adapters/Indy/Examples/data/isrg-roots.pem
+  h_878efc035442cc 1-51
+TlsLib.Adapters/Indy/Examples/src/IndyLoopbackExample.pas
+  h_878efc035442cc 1-209
+TlsLib.Adapters/Indy/Examples/src/IndyRealWorldExample.pas
+  h_878efc035442cc 1-189
+TlsLib.Adapters/Indy/Packages/Delphi/TlsLib.Adapter.Indy.dpk
+  h_878efc035442cc 1-43
+TlsLib.Adapters/Indy/Packages/FPC/TlsLib.Adapter.Indy.lpk
+  h_878efc035442cc 1-47
+TlsLib.Adapters/Indy/Packages/FPC/TlsLib.Adapter.Indy.pas
+  h_878efc035442cc 1-15
+TlsLib.Adapters/Indy/README.md
+  h_878efc035442cc 1-100
+TlsLib.Adapters/Synapse/Adapter/TlsLibSynapseTls.pas
+  h_878efc035442cc 1-508
+TlsLib.Adapters/Synapse/Examples/Delphi/SynapseLoopback.dpr
+  h_878efc035442cc 1-12
+TlsLib.Adapters/Synapse/Examples/Delphi/SynapseRealWorld.dpr
+  h_878efc035442cc 1-15
+TlsLib.Adapters/Synapse/Examples/Lazarus/SynapseLoopback.lpi
+  h_878efc035442cc 1-51
+TlsLib.Adapters/Synapse/Examples/Lazarus/SynapseLoopback.lpr
+  h_878efc035442cc 1-16
+TlsLib.Adapters/Synapse/Examples/Lazarus/SynapseRealWorld.lpi
+  h_878efc035442cc 1-51
+TlsLib.Adapters/Synapse/Examples/Lazarus/SynapseRealWorld.lpr
+  h_878efc035442cc 1-16
+TlsLib.Adapters/Synapse/Examples/data/isrg-roots.pem
+  h_878efc035442cc 1-51
+TlsLib.Adapters/Synapse/Examples/src/SynapseLoopbackExample.pas
+  h_878efc035442cc 1-233
+TlsLib.Adapters/Synapse/Examples/src/SynapseRealWorldExample.pas
+  h_878efc035442cc 1-214
+TlsLib.Adapters/Synapse/Packages/Delphi/TlsLib.Adapter.Synapse.dpk
+  h_878efc035442cc 1-40
+TlsLib.Adapters/Synapse/Packages/FPC/TlsLib.Adapter.Synapse.lpk
+  h_878efc035442cc 1-47
+TlsLib.Adapters/Synapse/Packages/FPC/TlsLib.Adapter.Synapse.pas
+  h_878efc035442cc 1-15
+TlsLib.Adapters/Synapse/README.md
+  h_878efc035442cc 1-103
+TlsLib.Adapters/mORMot/Adapter/TlsLibMormotTls.pas
+  h_878efc035442cc 1-444
+TlsLib.Adapters/mORMot/Examples/Delphi/MormotLoopback.dpr
+  h_878efc035442cc 1-12
+TlsLib.Adapters/mORMot/Examples/Delphi/MormotRealWorld.dpr
+  h_878efc035442cc 1-15
+TlsLib.Adapters/mORMot/Examples/Lazarus/MormotLoopback.lpi
+  h_878efc035442cc 1-51
+TlsLib.Adapters/mORMot/Examples/Lazarus/MormotLoopback.lpr
+  h_878efc035442cc 1-16
+TlsLib.Adapters/mORMot/Examples/Lazarus/MormotRealWorld.lpi
+  h_878efc035442cc 1-51
+TlsLib.Adapters/mORMot/Examples/Lazarus/MormotRealWorld.lpr
+  h_878efc035442cc 1-16
+TlsLib.Adapters/mORMot/Examples/data/isrg-roots.pem
+  h_878efc035442cc 1-51
+TlsLib.Adapters/mORMot/Examples/src/MormotLoopbackExample.pas
+  h_878efc035442cc 1-238
+TlsLib.Adapters/mORMot/Examples/src/MormotRealWorldExample.pas
+  h_878efc035442cc 1-193
+TlsLib.Adapters/mORMot/Packages/Delphi/TlsLib.Adapter.mORMot.dpk
+  h_878efc035442cc 1-40
+TlsLib.Adapters/mORMot/Packages/FPC/TlsLib.Adapter.mORMot.lpk
+  h_878efc035442cc 1-47
+TlsLib.Adapters/mORMot/Packages/FPC/TlsLib.Adapter.mORMot.pas
+  h_878efc035442cc 1-15
+TlsLib.Adapters/mORMot/README.md
+  h_878efc035442cc 1-92
+TlsLib.Benchmark/Lazarus/AeadHotPathBench.lpi
+  h_878efc035442cc 1-68
+TlsLib.Benchmark/Lazarus/AeadHotPathBench.lpr
+  h_878efc035442cc 1-141
+TlsLib.Interop/Data/Certs/EcP256Chain.txt
+  h_878efc035442cc 1-11
+TlsLib.Interop/Data/Certs/OcspStapling.txt
+  h_878efc035442cc 1-24
+TlsLib.Interop/Data/Corpus/regress/README.md
+  h_878efc035442cc 1-6
+TlsLib.Interop/Data/Corpus/rfc8448_client_hello.hex
+  h_878efc035442cc 1
+TlsLib.Interop/FreePascal.Interop/BoGoShim.lpi
+  h_878efc035442cc 1-77
+TlsLib.Interop/FreePascal.Interop/BoGoShim.lpr
+  h_878efc035442cc 1-16
+TlsLib.Interop/FreePascal.Interop/InteropSelfTest.lpi
+  h_878efc035442cc 1-73
+TlsLib.Interop/FreePascal.Interop/InteropSelfTest.lpr
+  h_878efc035442cc 1-332
+TlsLib.Interop/FreePascal.Interop/OpenSslInterop.lpi
+  h_878efc035442cc 1-77
+TlsLib.Interop/FreePascal.Interop/OpenSslInterop.lpr
+  h_878efc035442cc 1-15
+TlsLib.Interop/FreePascal.Interop/TlsFuzzer.lpi
+  h_878efc035442cc 1-73
+TlsLib.Interop/FreePascal.Interop/TlsFuzzer.lpr
+  h_878efc035442cc 1-16
+TlsLib.Interop/src/BoGoShimRunner.pas
+  h_878efc035442cc 1-1176
+TlsLib.Interop/src/InteropCredentials.pas
+  h_878efc035442cc 1-170
+TlsLib.Interop/src/InteropEngine.pas
+  h_878efc035442cc 1-375
+TlsLib.Interop/src/InteropPump.pas
+  h_878efc035442cc 1-288
+TlsLib.Interop/src/InteropSocket.pas
+  h_878efc035442cc 1-296
+TlsLib.Interop/src/InteropUtils.pas
+  h_878efc035442cc 1-391
+TlsLib.Interop/src/OpenSslInteropRunner.pas
+  h_878efc035442cc 1-343
+TlsLib.Interop/src/TlsFuzzerRunner.pas
+  h_878efc035442cc 1-1017
+TlsLib.Net/Examples/Delphi/RealPeerRevocationProbe.dpr
+  h_878efc035442cc 1-12
+TlsLib.Net/Examples/Lazarus/RealPeerRevocationProbe.lpi
+  h_878efc035442cc 1-51
+TlsLib.Net/Examples/Lazarus/RealPeerRevocationProbe.lpr
+  h_878efc035442cc 1-15
+TlsLib.Net/Examples/src/RealPeerRevocationProbeExample.pas
+  h_878efc035442cc 1-158
+TlsLib.Net/TlpSocketHttpFetcher.pas
+  h_878efc035442cc 1-224
+TlsLib.Tests/Data/Certs/EcP256Chain.txt
+  h_878efc035442cc 1-11
+TlsLib.Tests/Data/Certs/ImportKeys.txt
+  h_878efc035442cc 1-45
+TlsLib.Tests/Data/Certs/KeyUsagePss.txt
+  h_878efc035442cc 1-11
+TlsLib.Tests/Data/Certs/LiveRevocation.txt
+  h_878efc035442cc 1-10
+TlsLib.Tests/Data/Certs/OcspStapling.txt
+  h_878efc035442cc 1-24
+TlsLib.Tests/Data/Certs/Pkcs12.txt
+  h_878efc035442cc 1-15
+TlsLib.Tests/Data/Certs/RealPeerRevocation.txt
+  h_878efc035442cc 1-7
+TlsLib.Tests/Data/Certs/SignatureKeys.txt
+  h_878efc035442cc 1-9
+TlsLib.Tests/Data/Crypto/ChaCha/ChaCha20Poly1305.txt
+  h_878efc035442cc 1-7
+TlsLib.Tests/Data/Crypto/Digest/Sha2.txt
+  h_878efc035442cc 1-5
+TlsLib.Tests/Data/Crypto/Ecdh/X25519Rfc7748.txt
+  h_878efc035442cc 1-4
+TlsLib.Tests/Data/Crypto/Gcm/Aes128Gcm.txt
+  h_878efc035442cc 1-7
+TlsLib.Tests/Data/Crypto/Gcm/Aes256Gcm.txt
+  h_878efc035442cc 1-7
+TlsLib.Tests/Data/Crypto/Hkdf/HkdfSha256.txt
+  h_878efc035442cc 1-7
+TlsLib.Tests/Data/Crypto/Hmac/HmacSha256.txt
+  h_878efc035442cc 1-4
+TlsLib.Tests/Data/Rfc8448/HandshakeMessages.txt
+  h_878efc035442cc 1-14
+TlsLib.Tests/Data/Rfc8448/HelloRetryRequest.txt
+  h_878efc035442cc 1-14
+TlsLib.Tests/Data/Rfc8448/HkdfLabel.txt
+  h_878efc035442cc 1-15
+TlsLib.Tests/Data/Rfc8448/Tls13KeySchedule.txt
+  h_878efc035442cc 1-25
+TlsLib.Tests/Data/Rfc8448/Tls13RecordFinished.txt
+  h_878efc035442cc 1-9
+TlsLib.Tests/Data/Tls12/PrfSha256.txt
+  h_878efc035442cc 1-8
+TlsLib.Tests/Data/Tls12Aead/Tls12Aes128GcmRecord.txt
+  h_878efc035442cc 1-10
+TlsLib.Tests/Delphi.Tests/Mobile/MobileTestHostFormUnit.fmx
+  h_878efc035442cc 1-81
+TlsLib.Tests/Delphi.Tests/Mobile/MobileTestHostFormUnit.pas
+  h_878efc035442cc 1-155
+TlsLib.Tests/Delphi.Tests/Mobile/MobileTestRunner.pas
+  h_878efc035442cc 1-212
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  h_878efc035442cc 1-182
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  h_878efc035442cc 1-1774
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  h_878efc035442cc 1-203
+TlsLib.Tests/FreePascal.Tests/TlsLib.Tests.lpi
+  h_878efc035442cc 1-293
+TlsLib.Tests/FreePascal.Tests/TlsLib.lpr
+  h_878efc035442cc 1-76
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpi
+  h_878efc035442cc 1-287
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpr
+  h_878efc035442cc 1-86
+TlsLib.Tests/src/AlertProtocolTests.pas
+  h_878efc035442cc 1-205
+TlsLib.Tests/src/AlertTests.pas
+  h_878efc035442cc 1-117
+TlsLib.Tests/src/AppleAlertMapTests.pas
+  h_878efc035442cc 1-117
+TlsLib.Tests/src/AsyncVerdictTests.pas
+  h_878efc035442cc 1-601
+TlsLib.Tests/src/BundleTrustTests.pas
+  h_878efc035442cc 1-114
+TlsLib.Tests/src/CertificateCheckTests.pas
+  h_878efc035442cc 1-177
+TlsLib.Tests/src/CertificateCompressionCacheTests.pas
+  h_878efc035442cc 1-579
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  h_878efc035442cc 1-152
+TlsLib.Tests/src/ClientAuthTests.pas
+  h_878efc035442cc 1-341
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  h_878efc035442cc 1-701
+TlsLib.Tests/src/ConfigResumptionTests.pas
+  h_878efc035442cc 1-398
+TlsLib.Tests/src/CredentialImportTests.pas
+  h_878efc035442cc 1-306
+TlsLib.Tests/src/DataEncodingTests.pas
+  h_878efc035442cc 1-106
+TlsLib.Tests/src/EndpointIdentityTests.pas
+  h_878efc035442cc 1-154
+TlsLib.Tests/src/EngineSkeletonTests.pas
+  h_878efc035442cc 1-358
+TlsLib.Tests/src/ExceptionTests.pas
+  h_878efc035442cc 1-159
+TlsLib.Tests/src/ExtensionCodecTests.pas
+  h_878efc035442cc 1-590
+TlsLib.Tests/src/ExtensionNegotiationTests.pas
+  h_878efc035442cc 1-1017
+TlsLib.Tests/src/HandshakeDriverTests.pas
+  h_878efc035442cc 1-274
+TlsLib.Tests/src/HandshakeMessageTests.pas
+  h_878efc035442cc 1-202
+TlsLib.Tests/src/HandshakeMessagesTests.pas
+  h_878efc035442cc 1-293
+TlsLib.Tests/src/HelloRetryRequestTests.pas
+  h_878efc035442cc 1-486
+TlsLib.Tests/src/HkdfLabelTests.pas
+  h_878efc035442cc 1-160
+TlsLib.Tests/src/LiveRevocationTests.pas
+  h_878efc035442cc 1-501
+TlsLib.Tests/src/MockCryptoProvider.pas
+  h_878efc035442cc 1-510
+TlsLib.Tests/src/MockRandom.pas
+  h_878efc035442cc 1-76
+TlsLib.Tests/src/MockSessionStores.pas
+  h_878efc035442cc 1-201
+TlsLib.Tests/src/MockTests.pas
+  h_878efc035442cc 1-105
+TlsLib.Tests/src/NamedGroupTests.pas
+  h_878efc035442cc 1-327
+TlsLib.Tests/src/NegotiationTests.pas
+  h_878efc035442cc 1-356
+TlsLib.Tests/src/OcspStaplingTests.pas
+  h_878efc035442cc 1-494
+TlsLib.Tests/src/Pkcs12ImportTests.pas
+  h_878efc035442cc 1-239
+TlsLib.Tests/src/PresetTests.pas
+  h_878efc035442cc 1-139
+TlsLib.Tests/src/ProviderTests.pas
+  h_878efc035442cc 1-454
+TlsLib.Tests/src/RecordHeaderTests.pas
+  h_878efc035442cc 1-182
+TlsLib.Tests/src/RecordLayerTests.pas
+  h_878efc035442cc 1-491
+TlsLib.Tests/src/RecordProtectionTests.pas
+  h_878efc035442cc 1-471
+TlsLib.Tests/src/ResourceLimitTests.pas
+  h_878efc035442cc 1-366
+TlsLib.Tests/src/RootGenKeyingTests.pas
+  h_878efc035442cc 1-147
+TlsLib.Tests/src/ScheduleInstallTests.pas
+  h_878efc035442cc 1-205
+TlsLib.Tests/src/SecretTests.pas
+  h_878efc035442cc 1-271
+TlsLib.Tests/src/SessionStoreTests.pas
+  h_878efc035442cc 1-343
+TlsLib.Tests/src/SignatureTests.pas
+  h_878efc035442cc 1-232
+TlsLib.Tests/src/SystemTrustTests.pas
+  h_878efc035442cc 1-450
+TlsLib.Tests/src/Tls12DualVersionTests.pas
+  h_878efc035442cc 1-555
+TlsLib.Tests/src/Tls12KeyScheduleTests.pas
+  h_878efc035442cc 1-174
+TlsLib.Tests/src/Tls12LoopbackTests.pas
+  h_878efc035442cc 1-624
+TlsLib.Tests/src/Tls12ResumptionTests.pas
+  h_878efc035442cc 1-598
+TlsLib.Tests/src/Tls13ClientReplayTests.pas
+  h_878efc035442cc 1-625
+TlsLib.Tests/src/Tls13KeyScheduleTests.pas
+  h_878efc035442cc 1-428
+TlsLib.Tests/src/Tls13KeyUpdateTests.pas
+  h_878efc035442cc 1-302
+TlsLib.Tests/src/Tls13LoopbackTests.pas
+  h_878efc035442cc 1-911
+TlsLib.Tests/src/Tls13ResumptionTests.pas
+  h_878efc035442cc 1-786
+TlsLib.Tests/src/Tls13ServerReplayTests.pas
+  h_878efc035442cc 1-484
+TlsLib.Tests/src/TlsLibTestBase.pas
+  h_878efc035442cc 1-137
+TlsLib.Tests/src/TlsLibTestResourceLoader.pas
+  h_878efc035442cc 1-135
+TlsLib.Tests/src/TlsStreamLoopbackTests.pas
+  h_878efc035442cc 1-722
+TlsLib.Tests/src/TranscriptHashTests.pas
+  h_878efc035442cc 1-261
+TlsLib.Tests/src/TrustCompositionTests.pas
+  h_878efc035442cc 1-170
+TlsLib.Tests/src/WireCodecTests.pas
+  h_878efc035442cc 1-386
+TlsLib.Tools/RootGen/Delphi/RootGen.dpr
+  h_878efc035442cc 1-34
+TlsLib.Tools/RootGen/FreePascal/RootGen.lpi
+  h_878efc035442cc 1-48
+TlsLib.Tools/RootGen/FreePascal/RootGen.lpr
+  h_878efc035442cc 1-39
+TlsLib.Tools/RootGen/src/TlpRootGen.pas
+  h_878efc035442cc 1-460
+TlsLib.Trust.Bundle/Packages/Delphi/TlsLib.Trust.Bundle.dpk
+  h_878efc035442cc 1-39
+TlsLib.Trust.Bundle/Packages/FPC/TlsLib.Trust.Bundle.lpk
+  h_878efc035442cc 1-41
+TlsLib.Trust.Bundle/Packages/FPC/TlsLib.Trust.Bundle.pas
+  h_878efc035442cc 1-15
+TlsLib.Trust.Bundle/src/TlpBundleTrust.pas
+  h_878efc035442cc 1-80
+TlsLib.Trust.System/Examples/Delphi/README.md
+  h_878efc035442cc 1-61
+TlsLib.Trust.System/Examples/Delphi/SystemTrustDemo.dpr
+  h_878efc035442cc 1-19
+TlsLib.Trust.System/Examples/Delphi/SystemTrustDemo.dproj
+  h_878efc035442cc 1-317
+TlsLib.Trust.System/Examples/Delphi/SystemTrustDemoFormUnit.fmx
+  h_878efc035442cc 1-58
+TlsLib.Trust.System/Examples/Delphi/SystemTrustDemoFormUnit.pas
+  h_878efc035442cc 1-154
+TlsLib.Trust.System/Examples/Lazarus/README.md
+  h_878efc035442cc 1-47
+TlsLib.Trust.System/Examples/Lazarus/SystemTrustDemo.lpi
+  h_878efc035442cc 1-51
+TlsLib.Trust.System/Examples/Lazarus/SystemTrustDemo.lpr
+  h_878efc035442cc 1-16
+TlsLib.Trust.System/Examples/Lazarus/src/SystemTrustExample.pas
+  h_878efc035442cc 1-184
+TlsLib.Trust.System/Packages/Delphi/TlsLib.Trust.System.dpk
+  h_878efc035442cc 1-48
+TlsLib.Trust.System/Packages/FPC/TlsLib.Trust.System.lpk
+  h_878efc035442cc 1-77
+TlsLib.Trust.System/Packages/FPC/TlsLib.Trust.System.pas
+  h_878efc035442cc 1-18
+TlsLib.Trust.System/src/TlpAndroidSystemTrust.pas
+  h_878efc035442cc 1-653
+TlsLib.Trust.System/src/TlpAppleSystemTrust.pas
+  h_878efc035442cc 1-575
+TlsLib.Trust.System/src/TlpFileSystemTrust.pas
+  h_878efc035442cc 1-235
+TlsLib.Trust.System/src/TlpOSSystemTrust.pas
+  h_878efc035442cc 1-133
+TlsLib.Trust.System/src/TlpPosixDynLib.pas
+  h_878efc035442cc 1-91
+TlsLib.Trust.System/src/TlpSystemTrustBase.pas
+  h_878efc035442cc 1-148
+TlsLib.Trust.System/src/TlpSystemTrustExceptions.pas
+  h_878efc035442cc 1-38
+TlsLib.Trust.System/src/TlpSystemTrustFacade.pas
+  h_878efc035442cc 1-106
+TlsLib.Trust.System/src/TlpUnixSystemTrust.pas
+  h_878efc035442cc 1-105
+TlsLib.Trust.System/src/TlpWindowsSystemTrust.pas
+  h_878efc035442cc 1-470
+TlsLib/src/CertCompression/TlpCertificateCompression.pas
+  h_878efc035442cc 1-186
+TlsLib/src/CertCompression/TlpInMemoryCertificateCompressionCache.pas
+  h_878efc035442cc 1-190
+TlsLib/src/CertCompression/TlpZlibCertificateCompression.pas
+  h_878efc035442cc 1-177
+TlsLib/src/Codec/TlpWireReader.pas
+  h_878efc035442cc 1-188
+TlsLib/src/Codec/TlpWireVectorMarker.pas
+  h_878efc035442cc 1-44
+TlsLib/src/Codec/TlpWireWriter.pas
+  h_878efc035442cc 1-190
+TlsLib/src/Common/TlpAlertMapping.pas
+  h_878efc035442cc 1-72
+TlsLib/src/Common/TlpArrayUtilities.pas
+  h_878efc035442cc 1-187
+TlsLib/src/Common/TlpBinaryPrimitives.pas
+  h_878efc035442cc 1-821
+TlsLib/src/Common/TlpBitOperations.pas
+  h_878efc035442cc 1-544
+TlsLib/src/Common/TlpClock.pas
+  h_878efc035442cc 1-38
+TlsLib/src/Common/TlpCodeKeyedRegistry.pas
+  h_878efc035442cc 1-95
+TlsLib/src/Common/TlpDataEncoding.pas
+  h_878efc035442cc 1-116
+TlsLib/src/Common/TlpDateTimeUtilities.pas
+  h_878efc035442cc 1-189
+TlsLib/src/Common/TlpEnumUtilities.pas
+  h_878efc035442cc 1-258
+TlsLib/src/Common/TlpTlsAlert.pas
+  h_878efc035442cc 1-159
+TlsLib/src/Common/TlpTlsAlertProtocol.pas
+  h_878efc035442cc 1-130
+TlsLib/src/Common/TlpTlsContentType.pas
+  h_878efc035442cc 1-71
+TlsLib/src/Common/TlpTlsError.pas
+  h_878efc035442cc 1-58
+TlsLib/src/Common/TlpTlsLibExceptions.pas
+  h_878efc035442cc 1-98
+TlsLib/src/Common/TlpTlsVersion.pas
+  h_878efc035442cc 1-106
+TlsLib/src/Crypto/TlpCryptoAlgorithms.pas
+  h_878efc035442cc 1-202
+TlsLib/src/Crypto/TlpDefaultCryptoProvider.pas
+  h_878efc035442cc 1-2333
+TlsLib/src/Crypto/TlpNamedGroups.pas
+  h_878efc035442cc 1-410
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  h_878efc035442cc 1-1809
+TlsLib/src/Engine/TlpTlsConnectionInfo.pas
+  h_878efc035442cc 1-46
+TlsLib/src/Engine/TlpTlsEngine.pas
+  h_878efc035442cc 1-988
+TlsLib/src/Engine/TlpTlsEngineEvents.pas
+  h_878efc035442cc 1-205
+TlsLib/src/Engine/TlpTlsEngineFactory.pas
+  h_878efc035442cc 1-426
+TlsLib/src/Engine/TlpTlsLib.pas
+  h_878efc035442cc 1-125
+TlsLib/src/Engine/TlpTlsPresets.pas
+  h_878efc035442cc 1-121
+TlsLib/src/Engine/TlpTlsStream.pas
+  h_878efc035442cc 1-220
+TlsLib/src/Engine/TlpTlsStreamPump.pas
+  h_878efc035442cc 1-358
+TlsLib/src/Extensions/TlpCoreExtensions.pas
+  h_878efc035442cc 1-1051
+TlsLib/src/Extensions/TlpExtensionBlockCodec.pas
+  h_878efc035442cc 1-211
+TlsLib/src/Extensions/TlpExtensionContext.pas
+  h_878efc035442cc 1-151
+TlsLib/src/Extensions/TlpGrease.pas
+  h_878efc035442cc 1-96
+TlsLib/src/Extensions/TlpSessionExtensions.pas
+  h_878efc035442cc 1-340
+TlsLib/src/Handshake/TlpCertificateVerify.pas
+  h_878efc035442cc 1-153
+TlsLib/src/Handshake/TlpHandshakeChannel.pas
+  h_878efc035442cc 1-96
+TlsLib/src/Handshake/TlpHandshakeConductor.pas
+  h_878efc035442cc 1-276
+TlsLib/src/Handshake/TlpHandshakeDriver.pas
+  h_878efc035442cc 1-156
+TlsLib/src/Handshake/TlpHandshakeEffect.pas
+  h_878efc035442cc 1-255
+TlsLib/src/Handshake/TlpHandshakeMachineBase.pas
+  h_878efc035442cc 1-122
+TlsLib/src/Handshake/TlpHandshakeMessage.pas
+  h_878efc035442cc 1-239
+TlsLib/src/Handshake/TlpHandshakeMessages.pas
+  h_878efc035442cc 1-952
+TlsLib/src/Handshake/TlpHelloRetryCookie.pas
+  h_878efc035442cc 1-114
+TlsLib/src/Handshake/TlpTls12ClientStateMachine.pas
+  h_878efc035442cc 1-1004
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  h_878efc035442cc 1-1013
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  h_878efc035442cc 1-1568
+TlsLib/src/Handshake/TlpTls13HandshakeBase.pas
+  h_878efc035442cc 1-161
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  h_878efc035442cc 1-1588
+TlsLib/src/Handshake/TlpTlsCredential.pas
+  h_878efc035442cc 1-60
+TlsLib/src/Handshake/TlpTranscriptHash.pas
+  h_878efc035442cc 1-185
+TlsLib/src/Handshake/TlpVersionDispatchMachine.pas
+  h_878efc035442cc 1-385
+TlsLib/src/Include/TlsLib.inc
+  h_878efc035442cc 1-117
+TlsLib/src/Include/TlsLibFPC.inc
+  h_878efc035442cc 1-115
+TlsLib/src/Interfaces/CertCompression/TlpICertificateCompression.pas
+  h_878efc035442cc 1-54
+TlsLib/src/Interfaces/CertCompression/TlpICertificateCompressionCache.pas
+  h_878efc035442cc 1-42
+TlsLib/src/Interfaces/Codec/TlpIWireWriter.pas
+  h_878efc035442cc 1-54
+TlsLib/src/Interfaces/Common/TlpIClock.pas
+  h_878efc035442cc 1-34
+TlsLib/src/Interfaces/Crypto/TlpICryptoProvider.pas
+  h_878efc035442cc 1-343
+TlsLib/src/Interfaces/Crypto/TlpINamedGroup.pas
+  h_878efc035442cc 1-87
+TlsLib/src/Interfaces/Crypto/TlpISigningKey.pas
+  h_878efc035442cc 1-45
+TlsLib/src/Interfaces/Engine/TlpITlsConfig.pas
+  h_878efc035442cc 1-170
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  h_878efc035442cc 1-322
+TlsLib/src/Interfaces/Engine/TlpITlsEngine.pas
+  h_878efc035442cc 1-254
+TlsLib/src/Interfaces/Engine/TlpITlsEventSink.pas
+  h_878efc035442cc 1-45
+TlsLib/src/Interfaces/Engine/TlpITlsTransport.pas
+  h_878efc035442cc 1-43
+TlsLib/src/Interfaces/Extensions/TlpITlsExtension.pas
+  h_878efc035442cc 1-73
+TlsLib/src/Interfaces/Handshake/TlpIHandshakeChannel.pas
+  h_878efc035442cc 1-48
+TlsLib/src/Interfaces/Handshake/TlpIHandshakeMachine.pas
+  h_878efc035442cc 1-115
+TlsLib/src/Interfaces/Handshake/TlpITranscriptHash.pas
+  h_878efc035442cc 1-78
+TlsLib/src/Interfaces/KeySchedule/TlpIKeySchedule.pas
+  h_878efc035442cc 1-151
+TlsLib/src/Interfaces/Negotiation/TlpINegotiation.pas
+  h_878efc035442cc 1-70
+TlsLib/src/Interfaces/Record/TlpIRecordProtection.pas
+  h_878efc035442cc 1-68
+TlsLib/src/Interfaces/Security/TlpISecretBuffer.pas
+  h_878efc035442cc 1-61
+TlsLib/src/Interfaces/Session/TlpISession.pas
+  h_878efc035442cc 1-216
+TlsLib/src/Interfaces/Trust/TlpICertificateTrust.pas
+  h_878efc035442cc 1-50
+TlsLib/src/Interfaces/Trust/TlpIHttpFetcher.pas
+  h_878efc035442cc 1-51
+TlsLib/src/KeySchedule/TlpHkdfLabel.pas
+  h_878efc035442cc 1-110
+TlsLib/src/KeySchedule/TlpTls12KeySchedule.pas
+  h_878efc035442cc 1-325
+TlsLib/src/KeySchedule/TlpTls13KeySchedule.pas
+  h_878efc035442cc 1-410
+TlsLib/src/KeySchedule/TlpTrafficKeys.pas
+  h_878efc035442cc 1-56
+TlsLib/src/Negotiation/TlpCipherSuiteRegistry.pas
+  h_878efc035442cc 1-158
+TlsLib/src/Negotiation/TlpNegotiationPolicy.pas
+  h_878efc035442cc 1-311
+TlsLib/src/Negotiation/TlpNegotiationTypes.pas
+  h_878efc035442cc 1-161
+TlsLib/src/Negotiation/TlpSignatureSchemeRegistry.pas
+  h_878efc035442cc 1-77
+TlsLib/src/Packages/Delphi/TlsLib4PascalPackage.dpk
+  h_878efc035442cc 1-144
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
+  h_878efc035442cc 1-474
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.pas
+  h_878efc035442cc 1-46
+TlsLib/src/Record/TlpRecordHeader.pas
+  h_878efc035442cc 1-131
+TlsLib/src/Record/TlpRecordLayer.pas
+  h_878efc035442cc 1-524
+TlsLib/src/Record/TlpRecordProtection.pas
+  h_878efc035442cc 1-529
+TlsLib/src/Record/TlpRecordProtectionFactory.pas
+  h_878efc035442cc 1-60
+TlsLib/src/Security/TlpSecretBuffer.pas
+  h_878efc035442cc 1-140
+TlsLib/src/Security/TlpSecureMemory.pas
+  h_878efc035442cc 1-103
+TlsLib/src/Session/TlpAntiReplay.pas
+  h_878efc035442cc 1-164
+TlsLib/src/Session/TlpExternalPskImporter.pas
+  h_878efc035442cc 1-128
+TlsLib/src/Session/TlpInMemorySessionCache.pas
+  h_878efc035442cc 1-195
+TlsLib/src/Session/TlpInMemorySessionStore.pas
+  h_878efc035442cc 1-225
+TlsLib/src/Session/TlpSession.pas
+  h_878efc035442cc 1-356
+TlsLib/src/Session/TlpSessionTicketKeys.pas
+  h_878efc035442cc 1-190
+TlsLib/src/Session/TlpSessionTicketStrategy.pas
+  h_878efc035442cc 1-304
+TlsLib/src/Trust/TlpCertificateLimits.pas
+  h_878efc035442cc 1-52
+TlsLib/src/Trust/TlpCertificateVerifier.pas
+  h_878efc035442cc 1-423
+TlsLib/src/Trust/TlpEndpointIdentity.pas
+  h_878efc035442cc 1-259
+TlsLib/src/Trust/TlpLiveRevocation.pas
+  h_878efc035442cc 1-243
+TlsLib/src/Trust/TlpTrustPolicy.pas
+  h_878efc035442cc 1-89
+assets/branding/BRAND.md
+  h_878efc035442cc 1-57
+assets/branding/README.md
+  h_878efc035442cc 1-34
+assets/branding/export/README.md
+  h_878efc035442cc 1-13
+assets/branding/icons/README.md
+  h_878efc035442cc 1-22
+assets/branding/logo-dark.svg
+  h_878efc035442cc 1-20
+assets/branding/logo.svg
+  h_878efc035442cc 1-23
+docs/README.md
+  h_878efc035442cc 1-89
+docs/certificate-compression.md
+  h_878efc035442cc 1-56
+docs/certificate-verification.md
+  h_878efc035442cc 1-276
+docs/cookbook.md
+  h_878efc035442cc 1-508
+docs/getting-started.md
+  h_878efc035442cc 1-189
+docs/security-model.md
+  h_878efc035442cc 1-127
+docs/system-trust.md
+  h_878efc035442cc 1-221
+scripts/maintenance/sync-mobile-testdata.ps1
+  h_878efc035442cc 1-89
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "7d91106c0d01f3e23fee056387568a6ef39860a0",
+  "prompts": {},
+  "humans": {
+    "h_878efc035442cc": {
+      "author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
