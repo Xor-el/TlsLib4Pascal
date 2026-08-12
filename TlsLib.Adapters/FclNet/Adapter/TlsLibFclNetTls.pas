@@ -113,9 +113,14 @@ type
     FVerifyCallback: TTlsCertificateVerifyCallback;
     FVerdictResolver: TTlsVerdictResolver;
     FVerdictDeadlineMs: Cardinal;
+    FClientConfig: ITlsClientConfig;
+    FServerConfig: ITlsServerConfig;
     function LoadFileBytes(const APath: string): TBytes;
     function SSLDataBytes(const AData: TSSLData): TBytes;
     function HasTrustSource: Boolean;
+    /// <summary>Raises when a supplied config is set together with cert/trust properties a
+    /// fully-built config replaces (APropertyName names the config property in the message).</summary>
+    procedure GuardNoConflict(const APropertyName: string);
     procedure ApplyClientTrust(const ABuilder: ITlsClientConfigBuilder);
     procedure ApplyServerClientAuth(const ABuilder: ITlsServerConfigBuilder);
     function BuildClientEngine(const AHost: string): ITlsEngine;
@@ -134,6 +139,8 @@ type
     function BytesAvailable: Integer; override;
     /// <summary>The negotiated protocol version once the handshake completes.</summary>
     function NegotiatedVersion: TTlsVersion;
+    /// <summary>The negotiated cipher-suite wire codepoint once the handshake completes (0 if none).</summary>
+    function NegotiatedCipherSuite: UInt16;
     /// <summary>A human-readable description of the last Connect/Accept/Send/Recv failure.</summary>
     property LastErrorDesc: string read FLastErrorDesc;
     /// <summary>Opt into the OS system-trust anchors (Windows crypt32 / macOS SecTrust / Unix
@@ -168,6 +175,16 @@ type
     /// <summary>The advisory deadline (ms) for an awaited verdict; 0 leaves it to the resolver.</summary>
     property VerdictDeadlineMs: Cardinal read FVerdictDeadlineMs
       write FVerdictDeadlineMs;
+    /// <summary>A fully-built client config that REPLACES the property-driven build: when set, the
+    /// cert/trust properties (CertificateData trust/cert, UseSystemTrust, a custom store/verifier,
+    /// ALPN) are not allowed alongside it (the handler raises). VerdictResolver still applies - it is
+    /// a runtime stream hook, not part of the frozen config. The escape hatch to the full builder API
+    /// - cipher order, groups, resumption. For a stock TFPHTTPClient, set it in an OnGetSocketHandler
+    /// hook.</summary>
+    property ClientConfig: ITlsClientConfig read FClientConfig write FClientConfig;
+    /// <summary>A fully-built server config that REPLACES the property-driven build (the server-side
+    /// counterpart of ClientConfig; same conflict rule).</summary>
+    property ServerConfig: ITlsServerConfig read FServerConfig write FServerConfig;
   end;
 
 var
@@ -196,6 +213,8 @@ resourcestring
   SNoHostForNameCheck = 'CheckHostName is on but the socket carries no host to verify the ' +
     'certificate identity against (RFC 6125); connect through a TInetSocket that carries the ' +
     'host, or set CheckHostName := False to verify the chain only';
+  SConfigAndOptionsConflict = '%s is set together with cert/trust properties that a fully-built ' +
+    'config replaces; supply either the config or the cert/trust properties, not both';
 
 { TFclNetSocketTransport }
 
@@ -301,6 +320,17 @@ begin
     (FCustomTrustStore <> nil);
 end;
 
+procedure TTlsLibSocketHandler.GuardNoConflict(const APropertyName: string);
+begin
+  // a supplied config owns trust/credential entirely; naming these alongside it would be silently
+  // dropped, so fail loud. VerdictResolver is excluded: it is a runtime stream hook (not part of
+  // the frozen config) and still applies with a supplied config.
+  if HasTrustSource or (not CertificateData.Certificate.Empty) or
+    (System.Length(FAlpnProtocols) > 0) or Assigned(FVerifyCallback) then
+    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
+      Format(SConfigAndOptionsConflict, [APropertyName]));
+end;
+
 procedure TTlsLibSocketHandler.ApplyClientTrust(
   const ABuilder: ITlsClientConfigBuilder);
 begin
@@ -338,6 +368,13 @@ function TTlsLibSocketHandler.BuildClientEngine(const AHost: string): ITlsEngine
 var
   LClient: ITlsClientConfigBuilder;
 begin
+  // a fully-built config supplied by the app REPLACES the property-driven build outright; naming
+  // cert/trust properties alongside it fails loud rather than dropping them silently
+  if FClientConfig <> nil then
+  begin
+    GuardNoConflict('ClientConfig');
+    Exit(TTlsEngineFactory.CreateClientEngine(FClientConfig, AHost));
+  end;
   FProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
   LClient := TTlsPresets.Compatible(FProvider).Client;
   // VerifyPeerCert is fcl-net's native verify switch: True runs real verification (and fails closed
@@ -380,6 +417,13 @@ function TTlsLibSocketHandler.BuildServerEngine: ITlsEngine;
 var
   LServer: ITlsServerConfigBuilder;
 begin
+  // a fully-built config supplied by the app REPLACES the property-driven build outright; naming
+  // cert/trust properties alongside it fails loud rather than dropping them silently
+  if FServerConfig <> nil then
+  begin
+    GuardNoConflict('ServerConfig');
+    Exit(TTlsEngineFactory.CreateServerEngine(FServerConfig));
+  end;
   // a clear message when no cert is configured, rather than an opaque file-open error
   // (DriveHandshake wraps this into FLastError/FLastErrorDesc - no exception escapes)
   if CertificateData.Certificate.Empty then
@@ -527,6 +571,14 @@ begin
     Result := FStream.ConnectionInfo.NegotiatedVersion
   else
     Result := TTlsVersion.Create(0);
+end;
+
+function TTlsLibSocketHandler.NegotiatedCipherSuite: UInt16;
+begin
+  if FStream <> nil then
+    Result := FStream.ConnectionInfo.CipherSuite
+  else
+    Result := 0;
 end;
 
 initialization

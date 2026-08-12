@@ -20,6 +20,11 @@ uses
   TlpCryptoAlgorithms;
 
 type
+  /// <summary>How a server resolves the cipher suite when more than one is mutually supported:
+  /// ServerOrder (the default) imposes the server's own preference order; ClientOrder honors the
+  /// client's offered order, selecting the client's most-preferred mutually supported suite.</summary>
+  TServerCipherPreference = (ServerOrder, ClientOrder);
+
   /// <summary>TLS 1.3 cipher-suite wire codepoints (RFC 8446 B.4).</summary>
   TCipherSuites13 = class sealed(TObject)
   public const

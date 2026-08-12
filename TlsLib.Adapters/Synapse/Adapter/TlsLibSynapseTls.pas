@@ -89,9 +89,14 @@ type
     FEngine: ITlsEngine;
     FProvider: ICryptoProvider;
     FUseSystemTrust: Boolean;
+    FClientConfig: ITlsClientConfig;
+    FServerConfig: ITlsServerConfig;
     function LoadFileBytes(const APath: string): TBytes;
     function BuildClientEngine: ITlsEngine;
     function BuildServerEngine: ITlsEngine;
+    /// <summary>Raises when a supplied config is set together with cert/trust properties a
+    /// fully-built config replaces (APropertyName names the config property in the message).</summary>
+    procedure GuardNoConflict(const APropertyName: string);
     function DriveHandshake(AIsClient: Boolean; const AHost: string): Boolean;
     /// <summary>The peer leaf certificate (DER), or empty when none was presented.</summary>
     function PeerLeaf: TBytes;
@@ -112,6 +117,9 @@ type
     function WaitingData: Integer; override;
     function GetSSLVersion: string; override;
     function GetCipherName: string; override;
+    /// <summary>The negotiated cipher-suite wire codepoint once the handshake completes (0 if none).
+    /// Synapse's TCustomSSL has no such accessor, so cast Sock.SSL to TSSLTlsLib to read it.</summary>
+    function NegotiatedCipherSuite: UInt16;
     // native peer-certificate accessors an OnVerifyCert handler reads (no OpenSSL type)
     function GetPeerSubject: string; override;
     function GetPeerIssuer: string; override;
@@ -125,6 +133,14 @@ type
     /// name a source (this or CertCAFile) or the build fails closed. Per-connection (never a
     /// process-wide global), so it composes and stays thread-safe.</summary>
     property UseSystemTrust: Boolean read FUseSystemTrust write FUseSystemTrust;
+    /// <summary>A fully-built client config that REPLACES the property-driven build: when set, the
+    /// cert/trust properties (CertCAFile, CertificateFile, UseSystemTrust) are not allowed alongside
+    /// it (the plugin raises). The escape hatch to the full builder API - cipher order, groups,
+    /// resumption, ALPN. Cast Sock.SSL to TSSLTlsLib to set it.</summary>
+    property ClientConfig: ITlsClientConfig read FClientConfig write FClientConfig;
+    /// <summary>A fully-built server config that REPLACES the property-driven build (the server-side
+    /// counterpart of ClientConfig; same conflict rule).</summary>
+    property ServerConfig: ITlsServerConfig read FServerConfig write FServerConfig;
   end;
 
 implementation
@@ -134,6 +150,8 @@ resourcestring
   SPeerVerifyRejected = 'the OnVerifyCert handler rejected the peer certificate';
   SNoTrustSource = 'VerifyCert is on but no trust source was named; set a CertCAFile bundle ' +
     'and/or UseSystemTrust (system trust is never implicit), or set VerifyCert := False to skip';
+  SConfigAndOptionsConflict = '%s is set together with cert/trust properties that a fully-built ' +
+    'config replaces; supply either the config or the cert/trust properties, not both';
 
 var
   // process-wide neutral hooks the per-socket plugin threads into each client handshake
@@ -229,11 +247,29 @@ begin
   end;
 end;
 
+procedure TSSLTlsLib.GuardNoConflict(const APropertyName: string);
+begin
+  // a supplied config owns trust/credential entirely; naming these alongside it would be silently
+  // dropped, so fail loud. The native OnVerifyCert hook and the process-wide verdict resolver are
+  // runtime hooks (not part of the frozen config) and still apply, so they are not conflicts.
+  if (FCertificateFile <> '') or (FPrivateKeyFile <> '') or (FCertCAFile <> '') or
+    FUseSystemTrust then
+    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
+      Format(SConfigAndOptionsConflict, [APropertyName]));
+end;
+
 function TSSLTlsLib.BuildClientEngine: ITlsEngine;
 var
   LClient: ITlsClientConfigBuilder;
 begin
   FProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  // a fully-built config supplied by the app REPLACES the property-driven build outright; naming
+  // cert/trust properties alongside it fails loud rather than dropping them silently
+  if FClientConfig <> nil then
+  begin
+    GuardNoConflict('ClientConfig');
+    Exit(TTlsEngineFactory.CreateClientEngine(FClientConfig, FSNIHost));
+  end;
   LClient := TTlsPresets.Compatible(FProvider).Client;
   // Synapse exposes no dedicated system-trust switch, so we compose peer trust from the props it
   // already has (CertCAFile + VerifyCert) plus our per-connection UseSystemTrust. System trust is
@@ -275,11 +311,18 @@ function TSSLTlsLib.BuildServerEngine: ITlsEngine;
 var
   LServer: ITlsServerConfigBuilder;
 begin
+  FProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  // a fully-built config supplied by the app REPLACES the property-driven build outright; naming
+  // cert/trust properties alongside it fails loud rather than dropping them silently
+  if FServerConfig <> nil then
+  begin
+    GuardNoConflict('ServerConfig');
+    Exit(TTlsEngineFactory.CreateServerEngine(FServerConfig));
+  end;
   // a clear message when no cert is configured, rather than an opaque file-open error
   // (DriveHandshake wraps this into FLastError/FLastErrorDesc - no exception escapes)
   if FCertificateFile = '' then
     raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SNoServerCredential);
-  FProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
   LServer := TTlsPresets.Compatible(FProvider).Server
     .WithCredential(LoadFileBytes(FCertificateFile), LoadFileBytes(FPrivateKeyFile),
     FKeyPassword);
@@ -432,6 +475,14 @@ end;
 function TSSLTlsLib.GetCipherName: string;
 begin
   Result := GetSSLVersion;
+end;
+
+function TSSLTlsLib.NegotiatedCipherSuite: UInt16;
+begin
+  if FStream <> nil then
+    Result := FEngine.NegotiatedCipherSuite
+  else
+    Result := 0;
 end;
 
 function TSSLTlsLib.GetPeerSubject: string;

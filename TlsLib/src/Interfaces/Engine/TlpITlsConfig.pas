@@ -20,6 +20,7 @@ uses
   TlpICryptoProvider,
   TlpINamedGroup,
   TlpINegotiation,
+  TlpNegotiationTypes,
   TlpICertificateTrust,
   TlpICertificateCompression,
   TlpICertificateCompressionCache,
@@ -85,6 +86,10 @@ type
     /// <summary>Whether a server that received a server_name (SNI) echoes the empty
     /// server_name acknowledgement (RFC 6066 3); default True.</summary>
     function ServerNameAcknowledgement: Boolean;
+    /// <summary>How the server resolves the cipher suite: ServerOrder (default) imposes the
+    /// server's own preference; ClientOrder honors the client's offered order. Server-only; a
+    /// client config ignores it.</summary>
+    function CipherSuitePreference: TServerCipherPreference;
     /// <summary>Whether a server rejects ALPN unconditionally: on any client ALPN offer it
     /// aborts with no_application_protocol (RFC 7301) rather than selecting or declining;
     /// default False.</summary>

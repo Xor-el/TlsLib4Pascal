@@ -213,7 +213,7 @@ begin
     TNamedGroups.CreateDefaultRegistry(Provider),
     TSignatureSchemeRegistry.CreateDefault,
     TArray<UInt16>.Create(TNamedGroupCatalog.X25519),
-    TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12));
+    TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12), TServerCipherPreference.ServerOrder);
   Result.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Provider);
   Result.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   Result.Group := TNamedGroups.CreateX25519(Provider);

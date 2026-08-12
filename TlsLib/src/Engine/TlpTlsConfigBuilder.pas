@@ -23,6 +23,7 @@ uses
   TlpICryptoProvider,
   TlpINamedGroup,
   TlpINegotiation,
+  TlpNegotiationTypes,
   TlpICertificateTrust,
   TlpCertificateVerifier,
   TlpICertificateCompression,
@@ -78,6 +79,7 @@ type
     FCertificateCompressionCache: ICertificateCompressionCache;
     FRequireExtendedMasterSecret: Boolean;
     FServerNameAck: Boolean;
+    FCipherPreference: TServerCipherPreference;
     FAlpnRejectAll: Boolean;
     FClientCertificateAuthorities: TArray<TBytes>;
     FGrease: Boolean;
@@ -143,6 +145,7 @@ type
       const ACache: ICertificateCompressionCache): TTlsConfigBuilder;
     function WithExtendedMasterSecret(ARequire: Boolean): TTlsConfigBuilder;
     function WithServerNameAcknowledgement(ASend: Boolean): TTlsConfigBuilder;
+    function WithCipherSuitePreference(APreference: TServerCipherPreference): TTlsConfigBuilder;
     function WithAlpnRejection(AReject: Boolean): TTlsConfigBuilder;
     function WithClientCertificateAuthorities(const AAuthorities: TArray<TBytes>): TTlsConfigBuilder;
     function WithGrease(AEnable: Boolean): TTlsConfigBuilder;
@@ -235,6 +238,7 @@ type
     FAsyncVerdict: TAsyncCertificateVerdict;
     FRequireExtendedMasterSecret: Boolean;
     FServerNameAck: Boolean;
+    FCipherPreference: TServerCipherPreference;
     FAlpnRejectAll: Boolean;
     FClientCertificateAuthorities: TArray<TBytes>;
     FGrease: Boolean;
@@ -262,6 +266,7 @@ type
     function AsyncCertificateVerdict: TAsyncCertificateVerdict;
     function RequireExtendedMasterSecret: Boolean;
     function ServerNameAcknowledgement: Boolean;
+    function CipherSuitePreference: TServerCipherPreference;
     function AlpnRejectAll: Boolean;
     function ClientCertificateAuthorities: TArray<TBytes>;
     function Grease: Boolean;
@@ -375,6 +380,7 @@ type
     function WithPreferredGroups(const AGroups: TArray<UInt16>): ITlsServerConfigBuilder;
     function WithAlpnProtocols(const AProtocols: TArray<string>): ITlsServerConfigBuilder;
     function WithServerNameAcknowledgement(ASend: Boolean): ITlsServerConfigBuilder;
+    function WithCipherSuitePreference(APreference: TServerCipherPreference): ITlsServerConfigBuilder;
     function WithAlpnRejection(AReject: Boolean): ITlsServerConfigBuilder;
     function WithClientCertificateAuthorities(const AAuthorities: TArray<TBytes>): ITlsServerConfigBuilder;
     function WithTrustStore(const AStore: ITrustAnchorStore): ITlsServerConfigBuilder;
@@ -565,6 +571,11 @@ end;
 function TFrozenCommonConfig.ServerNameAcknowledgement: Boolean;
 begin
   Result := FServerNameAck;
+end;
+
+function TFrozenCommonConfig.CipherSuitePreference: TServerCipherPreference;
+begin
+  Result := FCipherPreference;
 end;
 
 function TFrozenCommonConfig.AlpnRejectAll: Boolean;
@@ -926,6 +937,13 @@ begin
   Result := Self;
 end;
 
+function TTlsServerConfigBuilder.WithCipherSuitePreference(
+  APreference: TServerCipherPreference): ITlsServerConfigBuilder;
+begin
+  FOwner.WithCipherSuitePreference(APreference);
+  Result := Self;
+end;
+
 function TTlsServerConfigBuilder.WithAlpnRejection(
   AReject: Boolean): ITlsServerConfigBuilder;
 begin
@@ -1248,6 +1266,8 @@ begin
   // (RFC 6066) by default; both are optional and a caller may turn them off
   FGrease := True;
   FServerNameAck := True;
+  // server-preference cipher selection by default; a caller may opt into honoring the client's order
+  FCipherPreference := TServerCipherPreference.ServerOrder;
   // configuring an external PSK is an explicit "authenticate with this key" statement, so a
   // non-PSK server response is refused by default; a caller may opt into a certificate fallback
   FExternalPskRequired := True;
@@ -1473,6 +1493,14 @@ function TTlsConfigBuilder.WithServerNameAcknowledgement(
 begin
   GuardMutable;
   FServerNameAck := ASend;
+  Result := Self;
+end;
+
+function TTlsConfigBuilder.WithCipherSuitePreference(
+  APreference: TServerCipherPreference): TTlsConfigBuilder;
+begin
+  GuardMutable;
+  FCipherPreference := APreference;
   Result := Self;
 end;
 
@@ -1728,6 +1756,7 @@ begin
   LConfig.FAsyncVerdict := FAsyncVerdict;
   LConfig.FRequireExtendedMasterSecret := FRequireExtendedMasterSecret;
   LConfig.FServerNameAck := FServerNameAck;
+  LConfig.FCipherPreference := FCipherPreference;
   LConfig.FAlpnRejectAll := FAlpnRejectAll;
   LConfig.FClientCertificateAuthorities := FClientCertificateAuthorities;
   LConfig.FGrease := FGrease;
@@ -1789,6 +1818,7 @@ begin
   LConfig.FAsyncVerdict := FAsyncVerdict;
   LConfig.FRequireExtendedMasterSecret := FRequireExtendedMasterSecret;
   LConfig.FServerNameAck := FServerNameAck;
+  LConfig.FCipherPreference := FCipherPreference;
   LConfig.FAlpnRejectAll := FAlpnRejectAll;
   LConfig.FClientCertificateAuthorities := FClientCertificateAuthorities;
   LConfig.FGrease := FGrease;

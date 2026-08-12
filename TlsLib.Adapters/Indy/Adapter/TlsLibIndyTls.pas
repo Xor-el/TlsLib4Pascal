@@ -73,9 +73,25 @@ type
     FVerifyCallback: TTlsCertificateVerifyCallback;
     FVerdictResolver: TTlsVerdictResolver;
     FVerdictDeadlineMs: Cardinal;
+    FClientConfig: ITlsClientConfig;
+    FServerConfig: ITlsServerConfig;
+  private
+    /// <summary>Raises when a supplied config is set together with cert/trust options a fully-built
+    /// config would replace (APropertyName names the config property in the message). The IOHandler
+    /// calls it at build time so a silently-dropped source fails loud.</summary>
+    procedure GuardNoConflict(const APropertyName: string);
   public
     constructor Create;
     procedure Assign(ASource: TPersistent); override;
+    /// <summary>A fully-built client config that REPLACES the options-driven build: when set, the
+    /// cert/trust options here are not allowed alongside it (the adapter raises). VerdictResolver/
+    /// VerdictDeadlineMs are the exception - a runtime stream hook, not part of the frozen config -
+    /// and still apply (arm them with WithAsyncCertificateVerdict). The escape hatch to the full
+    /// builder API (cipher order, groups, resumption, ALPN, ...).</summary>
+    property ClientConfig: ITlsClientConfig read FClientConfig write FClientConfig;
+    /// <summary>A fully-built server config that REPLACES the options-driven build (the server-side
+    /// counterpart of ClientConfig; same conflict rule).</summary>
+    property ServerConfig: ITlsServerConfig read FServerConfig write FServerConfig;
     /// <summary>An augment-only peer-certificate hook: it runs after the built-in pipeline and
     /// can only additionally reject (never loosen it). The neutral bridge for an app's own
     /// verify rule.</summary>
@@ -155,6 +171,8 @@ type
     procedure AfterAccept; override;
     /// <summary>The negotiated protocol version once the handshake completes.</summary>
     function NegotiatedVersion: TTlsVersion;
+    /// <summary>The negotiated cipher-suite wire codepoint once the handshake completes (0 if none).</summary>
+    function NegotiatedCipherSuite: UInt16;
   published
     property SSLOptions: TTlsLibSSLOptions read FOptions;
   end;
@@ -185,6 +203,8 @@ resourcestring
   SNoClientTrust = 'VerifyPeer is on but no trust source was named; set a RootCertFile bundle, ' +
     'UseSystemTrust, or a CustomTrustStore/CustomVerifier (system trust is never implicit), or ' +
     'set VerifyPeer := False to skip verification';
+  SConfigAndOptionsConflict = 'SSLOptions.%s is set together with cert/trust options that a ' +
+    'fully-built config replaces; supply either the config or the cert/trust options, not both';
 
 { TTlsLibSSLOptions }
 
@@ -215,9 +235,22 @@ begin
     FVerifyCallback := LSrc.FVerifyCallback;
     FVerdictResolver := LSrc.FVerdictResolver;
     FVerdictDeadlineMs := LSrc.FVerdictDeadlineMs;
+    FClientConfig := LSrc.FClientConfig;
+    FServerConfig := LSrc.FServerConfig;
   end
   else
     inherited Assign(ASource);
+end;
+
+procedure TTlsLibSSLOptions.GuardNoConflict(const APropertyName: string);
+begin
+  // a supplied config owns trust/credential entirely; naming these alongside it would be silently
+  // dropped, so fail loud. VerdictResolver is deliberately excluded: it is a runtime stream hook
+  // (not part of the frozen config) and still applies with a supplied config.
+  if (FCertFile <> '') or (FKeyFile <> '') or (FRootCertFile <> '') or FUseSystemTrust or
+    (FCustomVerifier <> nil) or (FCustomTrustStore <> nil) or Assigned(FVerifyCallback) then
+    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
+      Format(SConfigAndOptionsConflict, [APropertyName]));
 end;
 
 { TIndySocketTransport }
@@ -307,6 +340,18 @@ var
   end;
 
 begin
+  // a fully-built config supplied by the app REPLACES the options-driven build outright; naming
+  // cert/trust options alongside it fails loud rather than dropping them silently
+  if AIsClient and (FOptions.ClientConfig <> nil) then
+  begin
+    FOptions.GuardNoConflict('ClientConfig');
+    Exit(TTlsEngineFactory.CreateClientEngine(FOptions.ClientConfig, Host));
+  end;
+  if (not AIsClient) and (FOptions.ServerConfig <> nil) then
+  begin
+    FOptions.GuardNoConflict('ServerConfig');
+    Exit(TTlsEngineFactory.CreateServerEngine(FOptions.ServerConfig));
+  end;
   LProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
   if AIsClient then
   begin
@@ -470,6 +515,14 @@ begin
     Result := FStream.ConnectionInfo.NegotiatedVersion
   else
     Result := TTlsVersion.Create(0);
+end;
+
+function TTlsLibIOHandlerSocket.NegotiatedCipherSuite: UInt16;
+begin
+  if FStream <> nil then
+    Result := FStream.ConnectionInfo.CipherSuite
+  else
+    Result := 0;
 end;
 
 function TTlsLibIOHandlerSocket.Clone: TIdSSLIOHandlerSocketBase;

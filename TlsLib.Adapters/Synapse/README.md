@@ -101,3 +101,11 @@ against a **pinned** root (`data/isrg-roots.pem`, the self-signed ISRG roots; **
 test gate**: it needs outbound HTTPS and exits 0 (PASS) / 2 (SKIP, offline) / 1 (FAIL). `THTTPSend`
 keeps the socket alive, so both verbs run over **one reused TLS connection** — exercising the
 adapter's connection-reuse path end to end.
+
+`Examples/` also carries an **advanced-config** demo (`src/SynapseAdvancedConfigExample.pas`,
+`Lazarus/SynapseAdvancedConfig.lpi` / `Delphi/SynapseAdvancedConfig.dproj`): instead of the
+`TCustomSSL` cert/CA properties, it hands each socket a fully-built config through
+`(Sock.SSL as TSSLTlsLib).ServerConfig` / `ClientConfig` — an ordered, bound cipher-suite
+preference pinned to TLS 1.2, so the negotiated 1.2 (the preset would pick 1.3) proves the injected
+config replaced the built-in build. This is the escape hatch to the whole builder API (cipher
+order, groups, resumption, ALPN, …).

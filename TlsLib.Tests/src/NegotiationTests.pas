@@ -49,6 +49,8 @@ type
       ADescription: TTlsAlertDescription): Boolean;
   published
     procedure TestCipherSuiteServerPreferenceHonored;
+    procedure TestCipherSuiteHonorClientOrderWhenEnabled;
+    procedure TestClientOrderOverridesHardwareAesTiebreak;
     procedure TestCpuAdaptiveTiebreakPrefersAesWithHardware;
     procedure TestCpuAdaptiveTiebreakPrefersChaChaWithoutHardware;
     procedure TestSuitePreferenceOrderUnifiedAcrossProtocols;
@@ -96,6 +98,49 @@ begin
   CheckEquals(TCipherSuites13.Aes128GcmSha256,
     LPolicy.SelectCipherSuite(TArray<UInt16>.Create(TCipherSuites13.Aes256GcmSha384,
     TCipherSuites13.Aes128GcmSha256), TlsWireVersionTls13), 'server prefers AES-128-GCM');
+end;
+
+procedure TTestNegotiation.TestCipherSuiteHonorClientOrderWhenEnabled;
+var
+  LProvider: ICryptoProvider;
+  LPolicy: INegotiationPolicy;
+begin
+  // same hardware-AES setup as above (server order prefers AES-128), but with honor-client-order
+  // on: the client's most-preferred suite (AES-256) wins instead of the server's AES-128
+  LProvider := TFixedAesProvider.Create(Provider, True);
+  LPolicy := TNegotiationPolicy.Create(LProvider,
+    TCipherSuiteRegistry.CreateDefault(LProvider),
+    TNamedGroups.CreateDefaultRegistry(LProvider),
+    TSignatureSchemeRegistry.CreateDefault,
+    TArray<UInt16>.Create(TNamedGroupCatalog.X25519, TNamedGroupCatalog.Secp256r1),
+    TArray<UInt16>.Create(TlsWireVersionTls13),
+    TServerCipherPreference.ClientOrder);
+  CheckEquals(TCipherSuites13.Aes256GcmSha384,
+    LPolicy.SelectCipherSuite(TArray<UInt16>.Create(TCipherSuites13.Aes256GcmSha384,
+    TCipherSuites13.Aes128GcmSha256), TlsWireVersionTls13),
+    'honor-client-order: the client''s AES-256 preference wins over the server''s AES-128');
+end;
+
+procedure TTestNegotiation.TestClientOrderOverridesHardwareAesTiebreak;
+var
+  LProvider: ICryptoProvider;
+  LPolicy: INegotiationPolicy;
+begin
+  // the hardware-AES tiebreak lives in the SERVER's order (AES-GCM ahead of ChaCha with hardware
+  // AES). Under ClientOrder the client's order decides and that tiebreak is bypassed: a ChaCha-
+  // first client gets ChaCha even from a hardware-AES server (the mobile-client case)
+  LProvider := TFixedAesProvider.Create(Provider, True);
+  LPolicy := TNegotiationPolicy.Create(LProvider,
+    TCipherSuiteRegistry.CreateDefault(LProvider),
+    TNamedGroups.CreateDefaultRegistry(LProvider),
+    TSignatureSchemeRegistry.CreateDefault,
+    TArray<UInt16>.Create(TNamedGroupCatalog.X25519, TNamedGroupCatalog.Secp256r1),
+    TArray<UInt16>.Create(TlsWireVersionTls13),
+    TServerCipherPreference.ClientOrder);
+  CheckEquals(TCipherSuites13.ChaCha20Poly1305Sha256,
+    LPolicy.SelectCipherSuite(TArray<UInt16>.Create(TCipherSuites13.ChaCha20Poly1305Sha256,
+    TCipherSuites13.Aes128GcmSha256), TlsWireVersionTls13),
+    'ClientOrder overrides the hardware-AES tiebreak: a ChaCha-first client gets ChaCha');
 end;
 
 procedure TTestNegotiation.TestCpuAdaptiveTiebreakPrefersAesWithHardware;
@@ -211,7 +256,7 @@ begin
     TNamedGroups.CreateDefaultRegistry(Provider),
     TSignatureSchemeRegistry.CreateDefault,
     TArray<UInt16>.Create(TNamedGroupCatalog.X25519),
-    TArray<UInt16>.Create(TlsWireVersionTls13));
+    TArray<UInt16>.Create(TlsWireVersionTls13), TServerCipherPreference.ServerOrder);
   CheckTrue(SelectSuiteRaises(LPolicy, TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256),
     TTlsAlertDescription.HandshakeFailure), 'a pruned suite is no longer negotiable');
 end;
@@ -312,7 +357,7 @@ begin
     TCipherSuiteRegistry.CreateDualVersion(Provider), LGroups,
     TSignatureSchemeRegistry.CreateDefault,
     TArray<UInt16>.Create(TNamedGroupCatalog.X25519MlKem768, TNamedGroupCatalog.Secp256r1),
-    TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12));
+    TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12), TServerCipherPreference.ServerOrder);
   LSelected := LPolicy.SelectGroup(TArray<UInt16>.Create(
     TNamedGroupCatalog.X25519MlKem768, TNamedGroupCatalog.Secp256r1), TlsWireVersionTls12);
   CheckTrue(LSelected <> TNamedGroupCatalog.X25519MlKem768,
@@ -335,7 +380,7 @@ begin
     TNamedGroups.CreateDefaultRegistry(Provider),
     TSignatureSchemeRegistry.CreateDefault,
     TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1),
-    TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12));
+    TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12), TServerCipherPreference.ServerOrder);
   LSelected := LPolicy.SelectCipherSuite(TArray<UInt16>.Create(
     TCipherSuites13.Aes128GcmSha256, TCipherSuites12.EcdheEcdsaAes128GcmSha256),
     TlsWireVersionTls12);

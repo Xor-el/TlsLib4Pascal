@@ -138,3 +138,10 @@ certificate verification, real HTTP over our records, zero OpenSSL. It runs twic
 `AfterSocketHandlerCreate`, leg B uses the OS system-trust store via `OnGetSocketHandler`.
 `KeepConnection` reuses **one** TLS connection for both verbs. It is a **network-gated demo,
 not a test gate**: it needs outbound HTTPS and exits 0 (PASS) / 2 (SKIP, offline) / 1 (FAIL).
+
+`Examples/` also carries an **advanced-config** demo (`src/FclNetAdvancedConfigExample.pas`,
+`Lazarus/FclNetAdvancedConfig.lpi`): instead of the `CertificateData` cert/trust slots, it hands
+each handler a fully-built config through `ServerConfig` / `ClientConfig` — an ordered, bound
+cipher-suite preference pinned to TLS 1.2, so the negotiated 1.2 (the preset would pick 1.3) proves
+the injected config replaced the built-in build. This is the escape hatch to the whole builder API
+(cipher order, groups, resumption, ALPN, …).

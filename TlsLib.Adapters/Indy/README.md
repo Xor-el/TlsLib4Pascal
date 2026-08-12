@@ -98,3 +98,14 @@ outbound HTTPS and exits 0 (PASS) / 2 (SKIP, offline) / 1 (FAIL). One `TIdHTTP` 
 the adapter handshakes each connection Indy opens, so the second request works whether Indy keeps
 the socket alive or reconnects (`ConnectClient` discards the prior TLS session so a reconnect
 re-handshakes rather than reusing the closed session's keys).
+
+`Examples/` also carries an **advanced-config** demo (`src/IndyAdvancedConfigExample.pas`,
+`Lazarus/IndyAdvancedConfig.lpi` / `Delphi/IndyAdvancedConfig.dproj`): it hands the IOHandlers
+fully-built configs through `SSLOptions.ServerConfig` / `SSLOptions.ClientConfig` — the escape
+hatch to the whole builder API (cipher order, groups, resumption, ALPN, …) — and drives the
+server's `WithCipherSuitePreference` both ways: `ServerOrder` (default) imposes the server's own
+order, `ClientOrder` honors the client's. It reads the result back through the adapter's
+`NegotiatedCipherSuite` accessor and asserts that under `ClientOrder` the client's most-preferred
+suite always wins (flip the client's order, flip the result), while under `ServerOrder` the
+negotiated suite is stable regardless of the client's order — proving, through the real handshake,
+that only the server guides selection and can defer to the client when it chooses to.

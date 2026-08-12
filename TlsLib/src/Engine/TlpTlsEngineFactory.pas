@@ -318,7 +318,7 @@ begin
   L13.Clock := AConfig.Clock;
   L13.Policy := TNegotiationPolicy.Create(AConfig.Provider, AConfig.CipherSuites,
     AConfig.NamedGroups, AConfig.SignatureSchemes, AConfig.PreferredGroups,
-    AConfig.SupportedVersions);
+    AConfig.SupportedVersions, AConfig.CipherSuitePreference);
   L13.CipherSuites := AConfig.CipherSuites;
   L13.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   // the server offers all its preferred groups and selects one the client offered (RFC 8446

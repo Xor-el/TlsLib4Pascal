@@ -48,6 +48,7 @@ type
     FSignatureSchemes: ISignatureSchemeRegistry;
     FPreferredGroups: TArray<UInt16>;
     FSupportedVersions: TArray<UInt16>;
+    FCipherPreference: TServerCipherPreference;
     /// <summary>The offered suites for ANegotiatedVersion in preference order (the
     /// hardware-AES tiebreak applied), filtered to that version's protocol.</summary>
     function EffectiveSuiteOrder(ANegotiatedVersion: UInt16): TArray<UInt16>;
@@ -56,7 +57,8 @@ type
     constructor Create(const AProvider: ICryptoProvider;
       const ACipherSuites: ICipherSuiteRegistry; const AGroups: INamedGroupRegistry;
       const ASignatureSchemes: ISignatureSchemeRegistry;
-      const APreferredGroups, ASupportedVersions: TArray<UInt16>);
+      const APreferredGroups, ASupportedVersions: TArray<UInt16>;
+      ACipherPreference: TServerCipherPreference);
 
     function SelectVersion(const AClientVersions: TArray<UInt16>): UInt16;
     function SelectCipherSuite(const AClientSuites: TArray<UInt16>;
@@ -120,7 +122,8 @@ resourcestring
 constructor TNegotiationPolicy.Create(const AProvider: ICryptoProvider;
   const ACipherSuites: ICipherSuiteRegistry; const AGroups: INamedGroupRegistry;
   const ASignatureSchemes: ISignatureSchemeRegistry;
-  const APreferredGroups, ASupportedVersions: TArray<UInt16>);
+  const APreferredGroups, ASupportedVersions: TArray<UInt16>;
+  ACipherPreference: TServerCipherPreference);
 begin
   inherited Create;
   FProvider := AProvider;
@@ -129,6 +132,7 @@ begin
   FSignatureSchemes := ASignatureSchemes;
   FPreferredGroups := APreferredGroups;
   FSupportedVersions := ASupportedVersions;
+  FCipherPreference := ACipherPreference;
 end;
 
 class function TNegotiationPolicy.ProtocolOf(
@@ -198,10 +202,23 @@ function TNegotiationPolicy.SelectCipherSuite(
   const AClientSuites: TArray<UInt16>; ANegotiatedVersion: UInt16): UInt16;
 var
   LCode: UInt16;
+  LServerOrder: TArray<UInt16>;
 begin
-  for LCode in EffectiveSuiteOrder(ANegotiatedVersion) do
-    if TArrayUtilities.Contains<UInt16>(AClientSuites, LCode) then
-      Exit(LCode);
+  LServerOrder := EffectiveSuiteOrder(ANegotiatedVersion);
+  if FCipherPreference = TServerCipherPreference.ClientOrder then
+  begin
+    // honor the client's preference: the client's most-preferred suite the server also offers
+    for LCode in AClientSuites do
+      if TArrayUtilities.Contains<UInt16>(LServerOrder, LCode) then
+        Exit(LCode);
+  end
+  else
+  begin
+    // server preference (default): the server's most-preferred suite the client also offered
+    for LCode in LServerOrder do
+      if TArrayUtilities.Contains<UInt16>(AClientSuites, LCode) then
+        Exit(LCode);
+  end;
   raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.HandshakeFailure,
     @SNoCommonSuite);
 end;
@@ -245,7 +262,7 @@ begin
     TSignatureSchemeRegistry.CreateDefault,
     TArray<UInt16>.Create(TNamedGroupCatalog.X25519MlKem768, TNamedGroupCatalog.X25519, TNamedGroupCatalog.Secp256r1,
     TNamedGroupCatalog.Secp384r1, TNamedGroupCatalog.Secp521r1),
-    TArray<UInt16>.Create(TlsWireVersionTls13));
+    TArray<UInt16>.Create(TlsWireVersionTls13), TServerCipherPreference.ServerOrder);
 end;
 
 { THelloRetryRequest }
