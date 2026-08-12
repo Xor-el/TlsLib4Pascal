@@ -1,0 +1,25 @@
+.github/workflows/fuzz-nightly.yml
+  s_3957973a090260::t_6dc834f005fc63 39
+  s_3957973a090260::t_1f5606047862ec 50-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "ec96384d16f701cad48fb5f6ec95388cb5981592",
+  "prompts": {},
+  "humans": {
+    "h_878efc035442cc": {
+      "author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  },
+  "sessions": {
+    "s_3957973a090260": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6deaf670-7f07-4977-8d0c-c1e8159f395d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
