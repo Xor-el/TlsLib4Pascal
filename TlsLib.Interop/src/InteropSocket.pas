@@ -182,26 +182,29 @@ end;
 
 procedure TInteropSocket.DrainAndClose;
 const
-  // a finished peer sends at most its residual flight (a few small records) and then
-  // its FIN; the cap only guards the pathological case of a peer that never closes
-  MaxDrainReads = 64;
+  // an overall wall-clock backstop so a peer that floods without ever closing cannot spin
+  // this loop forever; a well-behaved peer reaches its FIN in well under this
+  DrainDeadlineMs = 5000;
 var
-  LScratch: array [0 .. 1023] of Byte;
-  LReads: Int32;
+  LScratch: array [0 .. 4095] of Byte;
+  LStart: QWord;
 begin
-  // On Windows a closesocket() with data still unread in the receive buffer sends a
-  // RST rather than a FIN, and the RST discards any bytes we wrote but the peer has
-  // not yet read - including a fatal alert emitted while rejecting the handshake. The
-  // peer's next flight (e.g. a TLS 1.2 client's CCS+Finished) is often still unread at
-  // that point, so we send our FIN and drain to the peer's FIN before closing.
+  // On Windows a closesocket() with data still unread in the receive buffer - or still
+  // arriving - resets the connection, and an incoming reset discards the peer's receive
+  // queue, including a fatal alert we sent that the peer has not read yet. Half-close our
+  // send side (our FIN follows our final bytes), then drain to the peer's FIN before
+  // closing, so the close cannot reset. The drain runs to the FIN, not a fixed read count:
+  // a peer that fragments one byte per record (BoGo's SplitHandshakeRecords) delivers its
+  // residual flight as hundreds of tiny segments, and any read-count cap abandons the
+  // drain mid-flight, closing with data still unread - which is the reset this prevents.
   fpShutdown(FHandle, 1);
-  LReads := 0;
-  while LReads < MaxDrainReads do
-  begin
+  LStart := GetTickCount64;
+  repeat
+    // 0 = the peer's FIN: the receive queue is empty and no more data can arrive, so the
+    // close below is graceful. < 0 = the peer is gone; nothing left to protect either way.
     if fpRecv(FHandle, @LScratch[0], SizeOf(LScratch), 0) <= 0 then
       Break;
-    Inc(LReads);
-  end;
+  until GetTickCount64 - LStart >= DrainDeadlineMs;
   CloseSocket(FHandle);
 end;
 
