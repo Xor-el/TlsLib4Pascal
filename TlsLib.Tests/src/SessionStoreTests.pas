@@ -27,6 +27,7 @@ uses
 {$ENDIF FPC}
   TlpCryptoAlgorithms,
   TlpTlsVersion,
+  TlpIClock,
   TlpISecretBuffer,
   TlpSecretBuffer,
   TlpISession,
@@ -57,6 +58,7 @@ type
     procedure TestStekRotationChangesCurrent;
     procedure TestStekWindowRetiresOldKeys;
     procedure TestStekInstallKey;
+    procedure TestStekAutoRotatesOnInterval;
     procedure TestAntiReplayDetectsReplay;
     procedure TestAntiReplayFreshAfterExpiry;
     procedure TestAntiReplayRejectsEmpty;
@@ -64,6 +66,33 @@ type
   end;
 
 implementation
+
+type
+  // a clock the test advances by hand, to drive STEK auto-rotation deterministically
+  TAdjustableClock = class sealed(TInterfacedObject, ITlsClock)
+  strict private
+    FNowMillis: UInt64;
+  public
+    constructor Create(AStartMillis: UInt64);
+    function NowUnixMillis: UInt64;
+    procedure Advance(AMillis: UInt64);
+  end;
+
+constructor TAdjustableClock.Create(AStartMillis: UInt64);
+begin
+  inherited Create;
+  FNowMillis := AStartMillis;
+end;
+
+function TAdjustableClock.NowUnixMillis: UInt64;
+begin
+  Result := FNowMillis;
+end;
+
+procedure TAdjustableClock.Advance(AMillis: UInt64);
+begin
+  Inc(FNowMillis, AMillis);
+end;
 
 { TTestSessionStore }
 
@@ -285,6 +314,29 @@ begin
   LStek.CurrentKey(LName, LCurrent);
   CheckTrue(LKey.ConstantTimeAreEqual(LCurrent),
     'an installed key becomes the current key');
+end;
+
+procedure TTestSessionStore.TestStekAutoRotatesOnInterval;
+var
+  LClockObj: TAdjustableClock;
+  LClock: ITlsClock;
+  LStek: ISessionTicketKeyManager;
+  LName1, LName2, LName3: TBytes;
+  LKey, LFound: ISecretBuffer;
+begin
+  LClockObj := TAdjustableClock.Create(1000000);
+  LClock := LClockObj; // the interface reference governs lifetime
+  // a 10-second auto-rotation interval driven by the injected clock
+  LStek := TStekTicketKeyManager.Create(Provider.GetRandom, 0, LClock, 10);
+  LStek.CurrentKey(LName1, LKey);
+  LClockObj.Advance(5000); // within the interval: the current key is unchanged
+  LStek.CurrentKey(LName2, LKey);
+  CheckTrue(AreEqual(LName1, LName2), 'no rotation before the interval elapses');
+  LClockObj.Advance(6000); // past the interval: a fresh current key is promoted
+  LStek.CurrentKey(LName3, LKey);
+  CheckFalse(AreEqual(LName1, LName3), 'the elapsed interval rotates the current key');
+  CheckTrue(LStek.KeyByName(LName1, LFound),
+    'the rotated-out key still opens tickets within the decrypt window');
 end;
 
 procedure TTestSessionStore.TestAntiReplayDetectsReplay;

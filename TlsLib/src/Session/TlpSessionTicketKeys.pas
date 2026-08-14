@@ -21,6 +21,9 @@ uses
   Generics.Collections,
   TlpArrayUtilities,
   TlpICryptoProvider,
+  TlpDefaultCryptoProvider,
+  TlpIClock,
+  TlpClock,
   TlpISecretBuffer,
   TlpSecretBuffer,
   TlpSecureMemory,
@@ -48,11 +51,31 @@ type
     FKeys: TList<TStekKey>; // oldest .. current (the last entry is current)
     FWindow: Int32;
     FLock: TCriticalSection;
+    // optional time-based auto-rotation: when a clock and interval are set, the current key is
+    // promoted to a fresh one once the interval elapses, on the encrypt path (no timers/threads)
+    FClock: ITlsClock;
+    FRotateIntervalMillis: UInt64;
+    FNextRotateMillis: UInt64;
     procedure TrimToWindow;
+    procedure RotateLocked; // adds a fresh current key + trims; caller holds FLock
+    procedure MaybeRotateLocked; // rotates if the auto-rotation interval has elapsed; FLock held
+  class var
+    FShared: ISessionTicketKeyManager;
+    FSharedLock: TCriticalSection;
   public
-    /// <summary>A manager with a fresh current key and an AWindowSize decrypt
-    /// window (defaults applied when 0 or less).</summary>
-    constructor Create(const ARandom: IRandom; AWindowSize: Int32 = 0);
+    class constructor Create;
+    class destructor Destroy;
+    /// <summary>A process-wide, lazily-created STEK manager keyed from the shared default
+    /// provider's RNG - the default server ticket key for the adapters, stable for the process
+    /// so tickets issued on one connection resume on another; auto-rotates on a bounded interval.</summary>
+    class function Shared: ISessionTicketKeyManager; static;
+    /// <summary>A manager with a fresh current key and an AWindowSize decrypt window (a default
+    /// applies when 0 or less). Never auto-rotates.</summary>
+    constructor Create(const ARandom: IRandom; AWindowSize: Int32 = 0); overload;
+    /// <summary>As above, plus time-based auto-rotation: a fresh current key is promoted once
+    /// ARotateIntervalSeconds elapse on AClock (lazily, on the encrypt path - no timers).</summary>
+    constructor Create(const ARandom: IRandom; AWindowSize: Int32;
+      const AClock: ITlsClock; ARotateIntervalSeconds: UInt32); overload;
     destructor Destroy; override;
 
     function CurrentKey(out AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
@@ -71,11 +94,45 @@ const
   StekKeyNameLength = Int32(16);
   StekKeyLength = Int32(32); // AES-256-GCM
   DefaultDecryptWindow = Int32(3);
+  // the shared STEK rotates about once per ticket lifetime (RFC 8446 4.6.1 default), which with
+  // the decrypt window bounds the forgery exposure of a leaked key to a small number of intervals
+  SharedRotateIntervalSeconds = UInt32(7200);
 
 { TStekTicketKeyManager }
 
+class constructor TStekTicketKeyManager.Create;
+begin
+  FSharedLock := TCriticalSection.Create;
+end;
+
+class destructor TStekTicketKeyManager.Destroy;
+begin
+  FShared := nil;
+  FSharedLock.Free;
+end;
+
+class function TStekTicketKeyManager.Shared: ISessionTicketKeyManager;
+begin
+  FSharedLock.Acquire;
+  try
+    if FShared = nil then
+      FShared := TStekTicketKeyManager.Create(
+        TDefaultCryptoProvider.Shared.GetRandom, 0,
+        TSystemClock.Create, SharedRotateIntervalSeconds) as ISessionTicketKeyManager;
+    Result := FShared;
+  finally
+    FSharedLock.Release;
+  end;
+end;
+
 constructor TStekTicketKeyManager.Create(const ARandom: IRandom;
   AWindowSize: Int32);
+begin
+  Create(ARandom, AWindowSize, nil, 0);
+end;
+
+constructor TStekTicketKeyManager.Create(const ARandom: IRandom;
+  AWindowSize: Int32; const AClock: ITlsClock; ARotateIntervalSeconds: UInt32);
 begin
   inherited Create;
   FRandom := ARandom;
@@ -83,9 +140,13 @@ begin
     FWindow := AWindowSize
   else
     FWindow := DefaultDecryptWindow;
+  FClock := AClock;
+  FRotateIntervalMillis := UInt64(ARotateIntervalSeconds) * 1000;
   FKeys := TList<TStekKey>.Create;
   FLock := TCriticalSection.Create;
   Rotate; // start with one fresh current key
+  if (FClock <> nil) and (FRotateIntervalMillis > 0) then
+    FNextRotateMillis := FClock.NowUnixMillis + FRotateIntervalMillis;
 end;
 
 destructor TStekTicketKeyManager.Destroy;
@@ -110,6 +171,7 @@ begin
   AKey := nil;
   FLock.Enter;
   try
+    MaybeRotateLocked; // promote a fresh key if the auto-rotation interval elapsed
     Result := FKeys.Count > 0;
     if not Result then
       Exit;
@@ -143,7 +205,7 @@ begin
   end;
 end;
 
-procedure TStekTicketKeyManager.Rotate;
+procedure TStekTicketKeyManager.RotateLocked;
 var
   LEntry: TStekKey;
   LRaw: TBytes;
@@ -157,10 +219,29 @@ begin
   finally
     TSecureMemory.WipeBytes(LRaw);
   end;
+  FKeys.Add(LEntry);
+  TrimToWindow;
+end;
+
+procedure TStekTicketKeyManager.MaybeRotateLocked;
+var
+  LNow: UInt64;
+begin
+  if (FClock = nil) or (FRotateIntervalMillis = 0) then
+    Exit;
+  LNow := FClock.NowUnixMillis;
+  if LNow >= FNextRotateMillis then
+  begin
+    RotateLocked;
+    FNextRotateMillis := LNow + FRotateIntervalMillis;
+  end;
+end;
+
+procedure TStekTicketKeyManager.Rotate;
+begin
   FLock.Enter;
   try
-    FKeys.Add(LEntry);
-    TrimToWindow;
+    RotateLocked;
   finally
     FLock.Leave;
   end;

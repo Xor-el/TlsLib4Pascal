@@ -42,7 +42,16 @@ type
     FCapacity: Int32;
     FLock: TCriticalSection;
     class function KeyFor(const AServerIdentity, AServerName: string): string; static;
+  class var
+    FShared: ISessionCache;
+    FSharedLock: TCriticalSection;
   public
+    class constructor Create;
+    class destructor Destroy;
+    /// <summary>A process-wide, lazily-created session cache - the default client resumption
+    /// store for the adapters, stable for the process so a ticket cached on one connection is
+    /// offered on a reconnect. Keyed by (server identity, SNI), so it never cross-resumes hosts.</summary>
+    class function Shared: ISessionCache; static;
     /// <summary>A cache holding up to ACapacity sessions (default when 0 or less).</summary>
     constructor Create(ACapacity: Int32 = 0);
     destructor Destroy; override;
@@ -64,6 +73,29 @@ const
   KeySeparator = Char(#0);
 
 { TInMemorySessionCache }
+
+class constructor TInMemorySessionCache.Create;
+begin
+  FSharedLock := TCriticalSection.Create;
+end;
+
+class destructor TInMemorySessionCache.Destroy;
+begin
+  FShared := nil;
+  FSharedLock.Free;
+end;
+
+class function TInMemorySessionCache.Shared: ISessionCache;
+begin
+  FSharedLock.Acquire;
+  try
+    if FShared = nil then
+      FShared := TInMemorySessionCache.Create as ISessionCache;
+    Result := FShared;
+  finally
+    FSharedLock.Release;
+  end;
+end;
 
 constructor TInMemorySessionCache.Create(ACapacity: Int32);
 begin

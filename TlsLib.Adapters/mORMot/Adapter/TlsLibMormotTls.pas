@@ -47,6 +47,8 @@ uses
   TlpITlsConfigMemo,
   TlpTlsConfigMemo,
   TlpTlsSignatureBuilder,
+  TlpSessionTicketKeys,
+  TlpInMemorySessionCache,
   TlpITlsTransport,
   TlpTlsStreamPump,
   TlpTlsStream,
@@ -69,6 +71,19 @@ procedure SetTlsLibMormotClientConfig(const AConfig: ITlsClientConfig);
 /// <summary>Sets a process-wide, fully-built server config that REPLACES the context-driven build
 /// (the server-side counterpart of SetTlsLibMormotClientConfig). nil clears it.</summary>
 procedure SetTlsLibMormotServerConfig(const AConfig: ITlsServerConfig);
+/// <summary>Sets a process-wide crypto provider for the context-driven build (hashing, RNG, cert
+/// parsing). nil (the default) uses the shared default; set it to inject a custom backend (HSM,
+/// FIPS, a test mock). A process-wide config-in (SetTlsLibMormot{Client,Server}Config) carries its
+/// own provider and takes precedence; this only governs the context-driven path.</summary>
+procedure SetTlsLibMormotProvider(const AProvider: ICryptoProvider);
+/// <summary>Enables/disables TLS session resumption for the context-driven build (a server issues
+/// tickets; a client caches and reuses them), so a reconnect skips the asymmetric handshake.
+/// Forward-secret (TLS 1.3 psk_dhe_ke); 0-RTT is never enabled. Default True.</summary>
+procedure SetTlsLibMormotSessionResumption(AEnabled: Boolean);
+/// <summary>Clears the process-wide build-once config caches so the next handshake rebuilds from
+/// current inputs. Call after rotating a certificate/key to purge the retired credential (a cached
+/// config holds its private key alive). Call only with no TLS traffic in flight.</summary>
+procedure FlushTlsLibMormotConfigCache;
 
 type
   /// <summary>An ITlsTransport over a mORMot TNetSocket: raw ciphertext moves through the
@@ -100,6 +115,8 @@ type
     /// <summary>Whether the context names any cert/trust field a process-wide config would replace.</summary>
     class function ContextCarriesTrustOrCredential(
       const AContext: TNetTlsContext): Boolean; static;
+    /// <summary>The injected process-wide provider, or the shared default when none is set.</summary>
+    class function EffectiveProvider: ICryptoProvider; static;
     class function BuildClientConfig(const AContext: TNetTlsContext): ITlsClientConfig; static;
     class function BuildServerConfig(const AContext: TNetTlsContext): ITlsServerConfig; static;
     class function ClientSignature(const AContext: TNetTlsContext): string; static;
@@ -156,6 +173,10 @@ var
   // path live process-wide
   GServerConfigMemo: ITlsServerConfigMemo;
   GClientConfigMemo: ITlsClientConfigMemo;
+  // an injected provider for the context-driven build; nil uses the shared default
+  GProvider: ICryptoProvider;
+  // whether the context-driven build enables session resumption (default True, set in init)
+  GSessionResumption: Boolean;
 
 procedure SetTlsLibMormotVerifyCallback(
   const ACallback: TTlsCertificateVerifyCallback);
@@ -178,6 +199,22 @@ end;
 procedure SetTlsLibMormotServerConfig(const AConfig: ITlsServerConfig);
 begin
   GServerConfig := AConfig;
+end;
+
+procedure SetTlsLibMormotProvider(const AProvider: ICryptoProvider);
+begin
+  GProvider := AProvider;
+end;
+
+procedure SetTlsLibMormotSessionResumption(AEnabled: Boolean);
+begin
+  GSessionResumption := AEnabled;
+end;
+
+procedure FlushTlsLibMormotConfigCache;
+begin
+  GServerConfigMemo.Clear;
+  GClientConfigMemo.Clear;
 end;
 
 { TMormotSocketTransport }
@@ -272,6 +309,14 @@ begin
     (AContext.CACertificatesRaw <> nil);
 end;
 
+class function TTlsLibNetTls.EffectiveProvider: ICryptoProvider;
+begin
+  if GProvider <> nil then
+    Result := GProvider
+  else
+    Result := TDefaultCryptoProvider.Shared;
+end;
+
 class function TTlsLibNetTls.BuildClientConfig(
   const AContext: TNetTlsContext): ITlsClientConfig;
 var
@@ -279,7 +324,7 @@ var
   LClient: ITlsClientConfigBuilder;
   LHasTrust: Boolean;
 begin
-  LProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  LProvider := EffectiveProvider;
   LClient := TTlsPresets.Compatible(LProvider).Client;
   LHasTrust := False;
   // trust: a CASystemStores set that names an anchor-bearing store (the ROOT and/or CA store -
@@ -318,6 +363,13 @@ begin
     LClient.WithCertificateVerifyCallback(GVerifyCallback);
   if Assigned(GVerdictResolver) then
     LClient.WithAsyncCertificateVerdict(True, GVerdictDeadlineMs);
+  if GSessionResumption then
+  begin
+    LClient.WithResumption(True);
+    LClient.WithSessionCache(TInMemorySessionCache.Shared);
+  end
+  else
+    LClient.WithResumption(False);
   Result := LClient.Build;
 end;
 
@@ -327,7 +379,7 @@ var
   LProvider: ICryptoProvider;
   LServer: ITlsServerConfigBuilder;
 begin
-  LProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  LProvider := EffectiveProvider;
   LServer := TTlsPresets.Compatible(LProvider).Server;
   if AContext.CertificateFile <> '' then
     LServer.WithCredential(LoadFile(AContext.CertificateFile),
@@ -348,17 +400,28 @@ begin
     if AContext.CACertificatesFile <> '' then
       LServer.WithTrustAnchors(LoadFile(AContext.CACertificatesFile));
   end;
+  if GSessionResumption then
+  begin
+    LServer.WithResumption(True);
+    LServer.WithSessionTicketKeys(TStekTicketKeyManager.Shared);
+  end
+  else
+    LServer.WithResumption(False);
   Result := LServer.Build;
 end;
 
 class function TTlsLibNetTls.ClientSignature(const AContext: TNetTlsContext): string;
 var
   LSig: TTlsSignatureBuilder;
+  LProvider: ICryptoProvider;
 begin
-  LSig := TTlsSignatureBuilder.Create(nil); // mORMot inputs are all files/scalars
+  LProvider := EffectiveProvider;
+  LSig := TTlsSignatureBuilder.Create(LProvider);
+  LSig.AddPointer('provider', LProvider);
+  LSig.AddFlag('resume', GSessionResumption);
   LSig.AddFile('cert', Utf8ToString(AContext.CertificateFile));
   LSig.AddFile('key', Utf8ToString(AContext.PrivateKeyFile));
-  LSig.AddText('keypw', Utf8ToString(AContext.PrivatePassword));
+  LSig.AddSecret('keypw', Utf8ToString(AContext.PrivatePassword));
   LSig.AddFile('ca', Utf8ToString(AContext.CACertificatesFile));
   LSig.AddFlag('scsRoot', scsRoot in AContext.CASystemStores);
   LSig.AddFlag('scsCA', scsCA in AContext.CASystemStores);
@@ -372,11 +435,15 @@ end;
 class function TTlsLibNetTls.ServerSignature(const AContext: TNetTlsContext): string;
 var
   LSig: TTlsSignatureBuilder;
+  LProvider: ICryptoProvider;
 begin
-  LSig := TTlsSignatureBuilder.Create(nil);
+  LProvider := EffectiveProvider;
+  LSig := TTlsSignatureBuilder.Create(LProvider);
+  LSig.AddPointer('provider', LProvider);
+  LSig.AddFlag('resume', GSessionResumption);
   LSig.AddFile('cert', Utf8ToString(AContext.CertificateFile));
   LSig.AddFile('key', Utf8ToString(AContext.PrivateKeyFile));
-  LSig.AddText('keypw', Utf8ToString(AContext.PrivatePassword));
+  LSig.AddSecret('keypw', Utf8ToString(AContext.PrivatePassword));
   LSig.AddFlag('clientAuth', AContext.ClientCertificateAuthentication);
   LSig.AddFile('ca', Utf8ToString(AContext.CACertificatesFile));
   LSig.AddFlag('scsRoot', scsRoot in AContext.CASystemStores);
@@ -563,5 +630,6 @@ end;
 initialization
   GServerConfigMemo := NewTlsServerConfigMemo;
   GClientConfigMemo := NewTlsClientConfigMemo;
+  GSessionResumption := True;
 
 end.

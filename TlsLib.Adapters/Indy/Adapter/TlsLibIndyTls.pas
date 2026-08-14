@@ -49,6 +49,8 @@ uses
   TlpITlsConfigMemo,
   TlpTlsConfigMemo,
   TlpTlsSignatureBuilder,
+  TlpSessionTicketKeys,
+  TlpInMemorySessionCache,
   TlpITlsTransport,
   TlpTlsStreamPump,
   TlpTlsStream,
@@ -78,6 +80,8 @@ type
     FVerdictDeadlineMs: Cardinal;
     FClientConfig: ITlsClientConfig;
     FServerConfig: ITlsServerConfig;
+    FProvider: ICryptoProvider;
+    FSessionResumption: Boolean;
   private
     /// <summary>Raises when a supplied config is set together with cert/trust options a fully-built
     /// config would replace (APropertyName names the config property in the message). The IOHandler
@@ -95,6 +99,11 @@ type
     /// <summary>A fully-built server config that REPLACES the options-driven build (the server-side
     /// counterpart of ClientConfig; same conflict rule).</summary>
     property ServerConfig: ITlsServerConfig read FServerConfig write FServerConfig;
+    /// <summary>The crypto provider the options-driven build uses (hashing, RNG, cert parsing).
+    /// nil (the default) uses the process-wide shared default. Set it to inject a custom backend
+    /// (HSM, FIPS, a test mock). Not allowed alongside a supplied ClientConfig/ServerConfig, which
+    /// carries its own provider.</summary>
+    property Provider: ICryptoProvider read FProvider write FProvider;
     /// <summary>An augment-only peer-certificate hook: it runs after the built-in pipeline and
     /// can only additionally reject (never loosen it). The neutral bridge for an app's own
     /// verify rule.</summary>
@@ -132,6 +141,11 @@ type
     /// when VerifyPeer is on you must name at least one source or the build fails closed. Defaults
     /// to False.</summary>
     property UseSystemTrust: Boolean read FUseSystemTrust write FUseSystemTrust;
+    /// <summary>TLS session resumption (a server issues session tickets; a client caches and
+    /// reuses them), so a reconnect skips the asymmetric handshake. Forward-secret (TLS 1.3
+    /// psk_dhe_ke); 0-RTT is never enabled. Default True; set False to force a full handshake
+    /// every connection.</summary>
+    property SessionResumption: Boolean read FSessionResumption write FSessionResumption default True;
   end;
 
   /// <summary>An ITlsTransport over an Indy socket binding: raw ciphertext moves through the
@@ -163,6 +177,8 @@ type
     procedure DoHandshake;
     procedure ResetTlsSession;
     function LoadFileBytes(const APath: string): TBytes;
+    /// <summary>The injected provider, or the process-wide shared default when none is set.</summary>
+    function EffectiveProvider: ICryptoProvider;
     function BuildClientConfig: ITlsClientConfig;
     function BuildServerConfig: ITlsServerConfig;
     function ClientSignature: string;
@@ -186,6 +202,9 @@ type
     function NegotiatedVersion: TTlsVersion;
     /// <summary>The negotiated cipher-suite wire codepoint once the handshake completes (0 if none).</summary>
     function NegotiatedCipherSuite: UInt16;
+    /// <summary>Clears this handler's build-once client config cache, so the next connect rebuilds
+    /// from current SSLOptions. Call after rotating the client credential to purge the retired key.</summary>
+    procedure FlushConfigCache;
   published
     property SSLOptions: TTlsLibSSLOptions read FOptions;
   end;
@@ -206,6 +225,10 @@ type
     function MakeClientIOHandler: TIdSSLIOHandlerSocketBase; override;
     function MakeFTPSvrPort: TIdSSLIOHandlerSocketBase; override;
     function MakeFTPSvrPasv: TIdSSLIOHandlerSocketBase; override;
+    /// <summary>Clears the build-once server config cache shared by this listener's peers, so the
+    /// next accepted connection rebuilds from current SSLOptions. Call after rotating the server
+    /// certificate/key to purge the retired credential (a cached config holds its private key alive).</summary>
+    procedure FlushConfigCache;
   published
     property SSLOptions: TTlsLibSSLOptions read FOptions;
   end;
@@ -228,6 +251,7 @@ begin
   FVerifyPeer := True;
   FInsecureSkipVerify := False;
   FUseSystemTrust := False;
+  FSessionResumption := True;
 end;
 
 procedure TTlsLibSSLOptions.Assign(ASource: TPersistent);
@@ -251,6 +275,8 @@ begin
     FVerdictDeadlineMs := LSrc.FVerdictDeadlineMs;
     FClientConfig := LSrc.FClientConfig;
     FServerConfig := LSrc.FServerConfig;
+    FProvider := LSrc.FProvider;
+    FSessionResumption := LSrc.FSessionResumption;
   end
   else
     inherited Assign(ASource);
@@ -262,7 +288,8 @@ begin
   // dropped, so fail loud. VerdictResolver is deliberately excluded: it is a runtime stream hook
   // (not part of the frozen config) and still applies with a supplied config.
   if (FCertFile <> '') or (FKeyFile <> '') or (FRootCertFile <> '') or FUseSystemTrust or
-    (FCustomVerifier <> nil) or (FCustomTrustStore <> nil) or Assigned(FVerifyCallback) then
+    (FCustomVerifier <> nil) or (FCustomTrustStore <> nil) or Assigned(FVerifyCallback) or
+    (FProvider <> nil) then
     raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
       Format(SConfigAndOptionsConflict, [APropertyName]));
 end;
@@ -352,13 +379,21 @@ begin
   FServerMemo := AMemo;
 end;
 
+function TTlsLibIOHandlerSocket.EffectiveProvider: ICryptoProvider;
+begin
+  if FOptions.Provider <> nil then
+    Result := FOptions.Provider
+  else
+    Result := TDefaultCryptoProvider.Shared;
+end;
+
 function TTlsLibIOHandlerSocket.BuildClientConfig: ITlsClientConfig;
 var
   LProvider: ICryptoProvider;
   LClient: ITlsClientConfigBuilder;
   LHasSource: Boolean;
 begin
-  LProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  LProvider := EffectiveProvider;
   LClient := TTlsPresets.Compatible(LProvider).Client;
   // compose peer trust from orthogonal sources: a whole-verifier REPLACES the pipeline, else a
   // RootCertFile bundle + the OS anchors + a custom store all UNION. Adding both a verifier and
@@ -392,6 +427,13 @@ begin
     LClient.WithCertificateVerifyCallback(FOptions.VerifyCallback);
   if Assigned(FOptions.VerdictResolver) then
     LClient.WithAsyncCertificateVerdict(True, FOptions.VerdictDeadlineMs);
+  if FOptions.SessionResumption then
+  begin
+    LClient.WithResumption(True);
+    LClient.WithSessionCache(TInMemorySessionCache.Shared);
+  end
+  else
+    LClient.WithResumption(False);
   Result := LClient.Build;
 end;
 
@@ -403,7 +445,7 @@ var
 begin
   if FOptions.CertFile = '' then
     raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SNoServerCredential);
-  LProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  LProvider := EffectiveProvider;
   LServer := TTlsPresets.Compatible(LProvider).Server
     .WithCredential(LoadFileBytes(FOptions.CertFile),
     LoadFileBytes(FOptions.KeyFile), FOptions.KeyPassword);
@@ -427,17 +469,28 @@ begin
         LServer.WithTrustStore(FOptions.CustomTrustStore);
     end;
   end;
+  if FOptions.SessionResumption then
+  begin
+    LServer.WithResumption(True);
+    LServer.WithSessionTicketKeys(TStekTicketKeyManager.Shared);
+  end
+  else
+    LServer.WithResumption(False);
   Result := LServer.Build;
 end;
 
 function TTlsLibIOHandlerSocket.ClientSignature: string;
 var
   LSig: TTlsSignatureBuilder;
+  LProvider: ICryptoProvider;
 begin
-  LSig := TTlsSignatureBuilder.Create(nil); // all inputs are files/scalars/pointers - no hashing
+  LProvider := EffectiveProvider;
+  LSig := TTlsSignatureBuilder.Create(LProvider);
+  LSig.AddPointer('provider', LProvider);
+  LSig.AddFlag('resume', FOptions.SessionResumption);
   LSig.AddFile('cert', FOptions.CertFile);
   LSig.AddFile('key', FOptions.KeyFile);
-  LSig.AddText('keypw', FOptions.KeyPassword);
+  LSig.AddSecret('keypw', FOptions.KeyPassword);
   LSig.AddFile('root', FOptions.RootCertFile);
   LSig.AddFlag('verifyPeer', FOptions.VerifyPeer);
   LSig.AddFlag('skipVerify', FOptions.InsecureSkipVerify);
@@ -453,11 +506,15 @@ end;
 function TTlsLibIOHandlerSocket.ServerSignature: string;
 var
   LSig: TTlsSignatureBuilder;
+  LProvider: ICryptoProvider;
 begin
-  LSig := TTlsSignatureBuilder.Create(nil);
+  LProvider := EffectiveProvider;
+  LSig := TTlsSignatureBuilder.Create(LProvider);
+  LSig.AddPointer('provider', LProvider);
+  LSig.AddFlag('resume', FOptions.SessionResumption);
   LSig.AddFile('cert', FOptions.CertFile);
   LSig.AddFile('key', FOptions.KeyFile);
-  LSig.AddText('keypw', FOptions.KeyPassword);
+  LSig.AddSecret('keypw', FOptions.KeyPassword);
   LSig.AddFlag('verifyPeer', FOptions.VerifyPeer);
   LSig.AddFile('root', FOptions.RootCertFile);
   LSig.AddFlag('systemTrust', FOptions.UseSystemTrust);
@@ -606,6 +663,12 @@ begin
     Result := 0;
 end;
 
+procedure TTlsLibIOHandlerSocket.FlushConfigCache;
+begin
+  if FClientMemo <> nil then
+    FClientMemo.Clear;
+end;
+
 function TTlsLibIOHandlerSocket.Clone: TIdSSLIOHandlerSocketBase;
 var
   LClone: TTlsLibIOHandlerSocket;
@@ -677,6 +740,12 @@ end;
 function TTlsLibServerIOHandler.MakeFTPSvrPasv: TIdSSLIOHandlerSocketBase;
 begin
   Result := MakeClientIOHandler;
+end;
+
+procedure TTlsLibServerIOHandler.FlushConfigCache;
+begin
+  if FServerMemo <> nil then
+    FServerMemo.Clear;
 end;
 
 end.

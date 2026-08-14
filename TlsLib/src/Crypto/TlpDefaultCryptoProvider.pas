@@ -164,6 +164,8 @@ type
   class var
     FTrustAnchors: TTrustAnchorRing;
     FTrustAnchorLock: TCriticalSection;
+    FShared: ICryptoProvider;
+    FSharedLock: TCriticalSection;
   var
     FHasHardwareAes: Boolean;
     FRandom: ISecureRandom;
@@ -186,6 +188,10 @@ type
     constructor Create;
     class constructor Create;
     class destructor Destroy;
+    /// <summary>A process-wide, lazily-created default provider: the fallback when no provider
+    /// is injected, and the hasher for memo signatures. One CSPRNG seed for the process, shared
+    /// (the provider is a stateless service factory), so no per-connection provider is stood up.</summary>
+    class function Shared: ICryptoProvider; static;
 
     function GetRandom: IRandom;
     function CreateHash(AAlgorithm: THashAlgorithm): IHash;
@@ -1816,11 +1822,26 @@ class constructor TDefaultCryptoProvider.Create;
 begin
   FTrustAnchors := TTrustAnchorRing.Init;
   FTrustAnchorLock := TCriticalSection.Create;
+  FSharedLock := TCriticalSection.Create;
 end;
 
 class destructor TDefaultCryptoProvider.Destroy;
 begin
+  FShared := nil;
+  FSharedLock.Free;
   FTrustAnchorLock.Free;
+end;
+
+class function TDefaultCryptoProvider.Shared: ICryptoProvider;
+begin
+  FSharedLock.Acquire;
+  try
+    if FShared = nil then
+      FShared := TDefaultCryptoProvider.Create as ICryptoProvider;
+    Result := FShared;
+  finally
+    FSharedLock.Release;
+  end;
 end;
 
 function TDefaultCryptoProvider.TrustAnchorKey(

@@ -44,14 +44,25 @@ type
     procedure AddText(const AName, AValue: string);
     procedure AddFlag(const AName: string; AValue: Boolean);
     procedure AddCardinal(const AName: string; AValue: Cardinal);
-    /// <summary>Identity of an injected interface (nil contributes a stable marker).</summary>
+    /// <summary>
+    /// Identity of an injected interface (nil contributes a stable marker). Pointer identity is
+    /// sound only under the retain-or-irrelevant rule: each signed input must be either retained
+    /// by the built artifact - so its address cannot be recycled while the signature naming it is
+    /// live - or ignored by it, so an address reuse still yields an equal build. Do not sign an
+    /// interface the build merely samples then drops. AddMethod relies on the same rule.
+    /// </summary>
     procedure AddPointer(const AName: string; const AInstance: IInterface);
-    /// <summary>Identity of an of-object callback (its code+data pair).</summary>
+    /// <summary>Identity of an of-object callback (its code+data pair); see AddPointer's rule.</summary>
     procedure AddMethod(const AName: string; const AMethod: TMethod);
-    /// <summary>A file by path + size + mtime - a stat, never a read; a rotated file changes it.</summary>
+    /// <summary>A file by path + size + mtime - a stat, never a read; a rotated file changes it.
+    /// FPC/Unix mtime is second-granularity, so a same-size in-place rewrite within one second of
+    /// the last can be missed.</summary>
     procedure AddFile(const AName, APath: string);
     /// <summary>An in-memory byte input by its SHA-256 (needs a provider); empty is a stable marker.</summary>
     procedure AddBytesDigest(const AName: string; const AData: TBytes);
+    /// <summary>A secret string by its SHA-256 (needs a provider) - never embeds the value in the
+    /// signature; a change still forces a rebuild.</summary>
+    procedure AddSecret(const AName, AValue: string);
     function Value: string;
   end;
 
@@ -72,7 +83,8 @@ end;
 
 procedure TTlsSignatureBuilder.Append(const APart: string);
 begin
-  FBuffer := FBuffer + APart + FieldSep;
+  // length-prefix each field so no value can alias a field boundary (injective encoding)
+  FBuffer := FBuffer + UIntToStr(Cardinal(System.Length(APart))) + ':' + APart + FieldSep;
 end;
 
 procedure TTlsSignatureBuilder.AddText(const AName, AValue: string);
@@ -132,6 +144,11 @@ begin
   LHash.Update(AData, 0, System.Length(AData));
   LDigest := LHash.DoFinal;
   Append(AName + PairSep + TDataEncoding.HexEncode(LDigest));
+end;
+
+procedure TTlsSignatureBuilder.AddSecret(const AName, AValue: string);
+begin
+  AddBytesDigest(AName, TEncoding.UTF8.GetBytes(AValue));
 end;
 
 function TTlsSignatureBuilder.Value: string;
