@@ -42,6 +42,11 @@ peer.SSLAcceptConnection;             // handshake
 | `OnVerifyCert` (native hook)                         | augment-only bridge (see below)          |
 | `SSLType`                                            | accepted and ignored (we are TLS 1.2+)   |
 
+**Certificate chain**: `CertificateFile` is the chain the server *presents* — put your leaf **followed
+by any intermediates** in one PEM file so clients build a complete chain. `CertCAFile` is a **trust
+source** (used to verify the *peer*), never part of what you send; putting intermediates only there
+leaves the presented chain incomplete, forcing clients to fetch the missing CA.
+
 **PKCS#12 (`.pfx`)**: Synapse also exposes `PFX`/`PFXfile`. To use a `.pfx`, build the credential
 with the provider's `WithCredentialPkcs12(pfxBytes, password)` and drive `TTlsConfigBuilder`
 directly; the `CertificateFile`/`PrivateKeyFile` path here covers PEM/DER pairs.

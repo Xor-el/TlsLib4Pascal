@@ -26,10 +26,12 @@ type
   /// Times full 1-RTT TLS handshakes for TlsLib against OpenSSL, in memory, across the
   /// supported ECDHE groups (X25519 and the NIST P-256/384/521 curves) for both TLS 1.3
   /// and hardened TLS 1.2 - X25519 and the classical curves are all version-agnostic
-  /// ECDHE groups per RFC 8422, usable in 1.2 and 1.3 alike. Each side also offers the
-  /// leaf certificate's own curve so it is present in supported_groups (RFC 8422 5.4),
-  /// and uses the same EC P-256 certificate with peer verification disabled, so the figure
-  /// reflects the handshake proper (ECDHE + the ECDSA CertificateVerify) rather than PKIX.
+  /// ECDHE groups per RFC 8422, usable in 1.2 and 1.3 alike. The whole matrix runs once
+  /// per leaf certificate - an EC P-256 leaf (ECDSA CertificateVerify) and an RSA-2048 leaf
+  /// (RSA-PSS CertificateVerify in 1.3, ECDHE-RSA in 1.2), the Let's-Encrypt-style case that
+  /// the EC-only rows never exercised. An ECDSA leaf also offers its own curve in
+  /// supported_groups (RFC 8422 5.4). Peer verification is disabled, so the figure reflects
+  /// the handshake proper (ECDHE key exchange + the certificate signature) rather than PKIX.
   ///
   /// Caveat by design: the handshake cost is dominated by the asymmetric crypto, which
   /// TlsLib delegates to CryptoLib. This is therefore an end-to-end, user-facing figure
@@ -73,6 +75,12 @@ type
     Name: string;
   end;
 
+  TBenchCert = record
+    Cred: TTlsBenchmarkCredential;
+    CertLabel: string;  // section label, e.g. 'EC P-256 certificate'
+    AuthLabel: string;  // per-row auth tag, e.g. 'ECDSA-P256' / 'RSA-2048'
+  end;
+
 class function TTlsHandshakeBenchmark.Run(ALogProc: TBenchmarkLogProc): Int32;
 var
   LProvider: ICryptoProvider;
@@ -81,9 +89,10 @@ var
   LDeferred: TArray<string>;
   LCurves: array [0 .. 3] of TBenchCurve;
   LVersions: array [0 .. 1] of TBenchVersion;
+  LCerts: array [0 .. 1] of TBenchCert;
   LCertCode: UInt16;
   LCertOssl, LRowName, LOsslGroups: string;
-  LVi, LCi: Int32;
+  LKi, LVi, LCi: Int32;
   LTlsMs, LOslMs: Double;
 
   function HsPerSec(AMs: Double): String;
@@ -170,7 +179,6 @@ var
 begin
   Result := BENCH_LABEL_COL_WIDTH + 5 * BENCH_HS_VALUE_COL_WIDTH;
   LProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
-  LCredential := TTlsBenchmarkData.LoadEcP256;
   LOpenSslAvailable := TOpenSslHandshakePeer.IsAvailable;
   LDeferred := nil;
 
@@ -180,52 +188,66 @@ begin
   LCurves[3].Code := TNamedGroupCatalog.Secp521r1; LCurves[3].OsslName := 'P-521';  LCurves[3].Name := 'secp521r1';
   LVersions[0].Wire := TlsWireVersionTls13; LVersions[0].Name := 'TLS 1.3';
   LVersions[1].Wire := TlsWireVersionTls12; LVersions[1].Name := 'TLS 1.2';
+  LCerts[0].Cred := TTlsBenchmarkData.LoadEcP256;
+  LCerts[0].CertLabel := 'EC P-256 certificate';  LCerts[0].AuthLabel := 'ECDSA-P256';
+  LCerts[1].Cred := TTlsBenchmarkData.LoadRsa2048;
+  LCerts[1].CertLabel := 'RSA-2048 certificate';  LCerts[1].AuthLabel := 'RSA-2048';
 
-  LCertCode := CertGroupCode;
-  LCertOssl := OsslNameOf(LCertCode);
-
-  ALogProc('TLS handshake throughput - ECDHE per row, EC P-256 certificate, peer verification off');
-  ALogProc('reusable config / SSL_CTX built once; a fresh engine/SSL + full 1-RTT handshake is timed');
   if not LOpenSslAvailable then
     ALogProc('OpenSSL not loaded - reporting TlsLib only (put libssl / libcrypto next to the executable)');
-  ALogProc(TBenchmarkReport.BuildSeparator(Result));
-  ALogProc(TBenchmarkReport.BuildHeaderRow('Scenario',
-    ['TlsLib hs/s', 'OpenSSL hs/s', 'TlsLib ms', 'OpenSSL ms', 'TlsLib/OpenSSL'],
-    BENCH_HS_VALUE_COL_WIDTH));
-  ALogProc(TBenchmarkReport.BuildSeparator(Result));
 
-  for LVi := System.Low(LVersions) to System.High(LVersions) do
+  for LKi := System.Low(LCerts) to System.High(LCerts) do
   begin
-    if LVi > System.Low(LVersions) then
+    // the nested measure helpers read LCredential, so pin the current certificate first
+    LCredential := LCerts[LKi].Cred;
+    LCertCode := CertGroupCode;
+    LCertOssl := OsslNameOf(LCertCode);
+
+    if LKi > System.Low(LCerts) then
       ALogProc('');
-    for LCi := System.Low(LCurves) to System.High(LCurves) do
+    ALogProc('TLS handshake throughput - ECDHE per row, ' + LCerts[LKi].CertLabel
+      + ', peer verification off');
+    ALogProc('reusable config / SSL_CTX built once; a fresh engine/SSL + full 1-RTT handshake is timed');
+    ALogProc(TBenchmarkReport.BuildSeparator(Result));
+    ALogProc(TBenchmarkReport.BuildHeaderRow('Scenario',
+      ['TlsLib hs/s', 'OpenSSL hs/s', 'TlsLib ms', 'OpenSSL ms', 'TlsLib/OpenSSL'],
+      BENCH_HS_VALUE_COL_WIDTH));
+    ALogProc(TBenchmarkReport.BuildSeparator(Result));
+
+    for LVi := System.Low(LVersions) to System.High(LVersions) do
     begin
-      LRowName := LVersions[LVi].Name + ' (' + LCurves[LCi].Name + ')';
+      if LVi > System.Low(LVersions) then
+        ALogProc('');
+      for LCi := System.Low(LCurves) to System.High(LCurves) do
+      begin
+        LRowName := LVersions[LVi].Name + ' ' + LCerts[LKi].AuthLabel
+          + ' (' + LCurves[LCi].Name + ')';
 
-      // the OpenSSL groups list: the ECDHE curve, plus the certificate's curve when it
-      // differs (TlsLib derives the same fallback from the certificate itself)
-      LOsslGroups := LCurves[LCi].OsslName;
-      if (LCertOssl <> '') and (LCertCode <> LCurves[LCi].Code) then
-        LOsslGroups := LOsslGroups + ':' + LCertOssl;
+        // the OpenSSL groups list: the ECDHE curve, plus the certificate's curve when it
+        // differs (TlsLib derives the same fallback from the certificate itself)
+        LOsslGroups := LCurves[LCi].OsslName;
+        if (LCertOssl <> '') and (LCertCode <> LCurves[LCi].Code) then
+          LOsslGroups := LOsslGroups + ':' + LCertOssl;
 
-      LTlsMs := MeasureTls(LVersions[LVi].Wire, LCurves[LCi].Code, LRowName);
-      LOslMs := MeasureOssl(LVersions[LVi].Wire, LOsslGroups, LRowName);
+        LTlsMs := MeasureTls(LVersions[LVi].Wire, LCurves[LCi].Code, LRowName);
+        LOslMs := MeasureOssl(LVersions[LVi].Wire, LOsslGroups, LRowName);
 
-      ALogProc(TBenchmarkReport.BuildDataRow(LRowName,
-        [HsPerSec(LTlsMs),
-         IfThen(LOpenSslAvailable, HsPerSec(LOslMs), 'N/A'),
-         TBenchmarkFormat.FormatMeanMilliseconds(LTlsMs),
-         IfThen(LOpenSslAvailable, TBenchmarkFormat.FormatMeanMilliseconds(LOslMs), 'N/A'),
-         IfThen((LTlsMs > 0.0) and (LOslMs > 0.0),
-           FormatFloat('0.00', LOslMs / LTlsMs, TBenchmarkReport.FloatFormat) + 'x', 'N/A')],
-        BENCH_HS_VALUE_COL_WIDTH));
+        ALogProc(TBenchmarkReport.BuildDataRow(LRowName,
+          [HsPerSec(LTlsMs),
+           IfThen(LOpenSslAvailable, HsPerSec(LOslMs), 'N/A'),
+           TBenchmarkFormat.FormatMeanMilliseconds(LTlsMs),
+           IfThen(LOpenSslAvailable, TBenchmarkFormat.FormatMeanMilliseconds(LOslMs), 'N/A'),
+           IfThen((LTlsMs > 0.0) and (LOslMs > 0.0),
+             FormatFloat('0.00', LOslMs / LTlsMs, TBenchmarkReport.FloatFormat) + 'x', 'N/A')],
+          BENCH_HS_VALUE_COL_WIDTH));
+      end;
     end;
+
+    ALogProc(TBenchmarkReport.BuildSeparator(Result));
   end;
 
   for LVi := System.Low(LDeferred) to System.High(LDeferred) do
     ALogProc('  ! ' + LDeferred[LVi]);
-
-  ALogProc(TBenchmarkReport.BuildSeparator(Result));
 end;
 
 end.

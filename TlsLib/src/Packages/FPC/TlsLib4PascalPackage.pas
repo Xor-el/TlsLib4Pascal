@@ -39,7 +39,8 @@ uses
   TlpITlsTransport, TlpTlsConnectionInfo, TlpTlsStreamPump, TlpTlsStream, 
   TlpIHttpFetcher, TlpLiveRevocation, TlpExternalPskImporter, TlpIClock, 
   TlpClock, TlpICertificateCompressionCache, 
-  TlpInMemoryCertificateCompressionCache;
+  TlpInMemoryCertificateCompressionCache, TlpTlsConfigMemo, 
+  TlpTlsSignatureBuilder, TlpITlsConfigMemo;
 
 implementation
 

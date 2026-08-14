@@ -26,38 +26,44 @@ type
   /// OpenSSL, a non-completing handshake).</summary>
   ETlsBenchmarkError = class(Exception);
 
-  /// <summary>The EC P-256 test credential shared by both handshake peers: a leaf
-  /// certificate + its PKCS#8 private key (server side) and the issuing root (the
-  /// TlsLib client's trust anchor). DER bytes, decoded from the interop test vector.</summary>
+  /// <summary>A test credential shared by both handshake peers: a leaf certificate +
+  /// its PKCS#8 private key (server side) and the issuing root (the TlsLib client's
+  /// trust anchor). DER bytes, decoded from a chain test vector. IsRsaLeaf drives the
+  /// OpenSSL peer's 1.2 cipher family (ECDHE-RSA vs ECDHE-ECDSA).</summary>
   TTlsBenchmarkCredential = record
     LeafCertDer: TBytes;
     LeafKeyDer: TBytes;
     RootCertDer: TBytes;
+    IsRsaLeaf: Boolean;
   end;
 
-  /// <summary>Locates and decodes the shared EC P-256 chain used by the handshake
-  /// benchmarks. Self-contained (no interop-harness dependency) so the benchmark's
-  /// only real dependencies are the TlsLib package and mORMot's OpenSSL binding.</summary>
+  /// <summary>Locates and decodes the shared chain vectors used by the handshake
+  /// benchmarks (EC P-256 and RSA-2048). Self-contained (no interop-harness dependency)
+  /// so the benchmark's only real dependencies are the TlsLib package and mORMot's
+  /// OpenSSL binding.</summary>
   TTlsBenchmarkData = class sealed(TObject)
   strict private
     class function DecodeHex(const AHex: string): TBytes; static;
-    class function LocateChainFile: string; static;
+    class function LocateChainFile(const AFileName: string): string; static;
+    class function LoadChain(const AFileName: string;
+      AIsRsaLeaf: Boolean): TTlsBenchmarkCredential; static;
   public
     class function LoadEcP256: TTlsBenchmarkCredential; static;
+    class function LoadRsa2048: TTlsBenchmarkCredential; static;
   end;
 
 implementation
 
 resourcestring
   SChainFileNotFound =
-    'benchmark: could not locate EcP256Chain.txt (searched up from the executable)';
-  SMissingField = 'benchmark: EcP256Chain.txt is missing the "%s" field';
+    'benchmark: could not locate %s (searched up from the executable)';
+  SMissingField = 'benchmark: %0:s is missing the "%1:s" field';
 
 const
-  // relative to a repository root; the first that resolves wins
-  CChainCandidates: array [0 .. 1] of string = (
-    'TlsLib.Interop' + PathDelim + 'Data' + PathDelim + 'Certs' + PathDelim + 'EcP256Chain.txt',
-    'TlsLib.Tests' + PathDelim + 'Data' + PathDelim + 'Certs' + PathDelim + 'EcP256Chain.txt');
+  // repository-relative directories holding the chain vectors; the first that resolves wins
+  CCertDirs: array [0 .. 1] of string = (
+    'TlsLib.Interop' + PathDelim + 'Data' + PathDelim + 'Certs',
+    'TlsLib.Tests' + PathDelim + 'Data' + PathDelim + 'Certs');
 
 class function TTlsBenchmarkData.DecodeHex(const AHex: string): TBytes;
 var
@@ -90,7 +96,7 @@ begin
       or NibbleOf(LClean[LI * 2 + 2]));
 end;
 
-class function TTlsBenchmarkData.LocateChainFile: string;
+class function TTlsBenchmarkData.LocateChainFile(const AFileName: string): string;
 var
   LDir, LCandidate: string;
   LDepth, LI: Int32;
@@ -98,9 +104,10 @@ begin
   LDir := ExtractFilePath(ExpandFileName(ParamStr(0)));
   for LDepth := 0 to 9 do
   begin
-    for LI := System.Low(CChainCandidates) to System.High(CChainCandidates) do
+    for LI := System.Low(CCertDirs) to System.High(CCertDirs) do
     begin
-      LCandidate := IncludeTrailingPathDelimiter(LDir) + CChainCandidates[LI];
+      LCandidate := IncludeTrailingPathDelimiter(LDir) + CCertDirs[LI]
+        + PathDelim + AFileName;
       if FileExists(LCandidate) then
         Exit(LCandidate);
     end;
@@ -108,34 +115,43 @@ begin
     if LDir = '' then
       Break;
   end;
-  raise EFileNotFoundException.Create(SChainFileNotFound);
+  raise EFileNotFoundException.CreateFmt(SChainFileNotFound, [AFileName]);
 end;
 
-class function TTlsBenchmarkData.LoadEcP256: TTlsBenchmarkCredential;
+class function TTlsBenchmarkData.LoadChain(const AFileName: string;
+  AIsRsaLeaf: Boolean): TTlsBenchmarkCredential;
 var
   LFields: TStringList;
 
   function Field(const AName: string): TBytes;
-  var
-    LHex: string;
   begin
     if LFields.IndexOfName(AName) < 0 then
-      raise EArgumentException.CreateFmt(SMissingField, [AName]);
-    LHex := LFields.Values[AName];
-    Result := DecodeHex(LHex);
+      raise EArgumentException.CreateFmt(SMissingField, [AFileName, AName]);
+    Result := DecodeHex(LFields.Values[AName]);
   end;
 
 begin
   LFields := TStringList.Create;
   try
     LFields.NameValueSeparator := '=';
-    LFields.LoadFromFile(LocateChainFile);
+    LFields.LoadFromFile(LocateChainFile(AFileName));
     Result.LeafCertDer := Field('leaf_cert');
     Result.LeafKeyDer := Field('leaf_key');
     Result.RootCertDer := Field('root_cert');
+    Result.IsRsaLeaf := AIsRsaLeaf;
   finally
     LFields.Free;
   end;
+end;
+
+class function TTlsBenchmarkData.LoadEcP256: TTlsBenchmarkCredential;
+begin
+  Result := LoadChain('EcP256Chain.txt', False);
+end;
+
+class function TTlsBenchmarkData.LoadRsa2048: TTlsBenchmarkCredential;
+begin
+  Result := LoadChain('Rsa2048Chain.txt', True);
 end;
 
 end.

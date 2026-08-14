@@ -45,6 +45,12 @@ when the protocol says "go secure", set `IO.PassThrough := False` and the handsh
 | `VerifyCallback`                  | neutral augment-only hook (`WithCertificateVerifyCallback`) |
 | `VerdictResolver` + `VerdictDeadlineMs` | out-of-band async verdict, e.g. live OCSP/CRL      |
 
+**Certificate chain**: `CertFile` is the chain the server *presents* — put your leaf **followed by any
+intermediates** in one PEM file (a concatenation) so clients build a complete chain. `RootCertFile` is
+a **trust source** (used to verify the *peer*), never part of what you send; putting intermediates only
+there leaves the presented chain incomplete, forcing clients to fetch the missing CA (slow, and it fails
+where fetching is blocked).
+
 **PKCS#12 (`.pfx`)**: map a `.pfx` by building the credential with the provider's
 `WithCredentialPkcs12(pfxBytes, password)` and driving `TTlsConfigBuilder` directly (the
 file-based `SSLOptions` cover PEM/DER cert+key pairs).

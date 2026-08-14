@@ -1,0 +1,324 @@
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <PropertyGroup>
+        <ProjectGuid>{8EA49929-3DCA-496D-AD39-913D1C2A2F0F}</ProjectGuid>
+        <MainSource>TlsLib.Tests.dpr</MainSource>
+        <Base>True</Base>
+        <Config Condition="'$(Config)'==''">Release</Config>
+        <TargetedPlatforms>3</TargetedPlatforms>
+        <AppType>Application</AppType>
+        <FrameworkType>VCL</FrameworkType>
+        <ProjectVersion>19.2</ProjectVersion>
+        <Platform Condition="'$(Platform)'==''">Win32</Platform>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''">
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="('$(Platform)'=='Win32' and '$(Base)'=='true') or '$(Base_Win32)'!=''">
+        <Base_Win32>true</Base_Win32>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="('$(Platform)'=='Win64' and '$(Base)'=='true') or '$(Base_Win64)'!=''">
+        <Base_Win64>true</Base_Win64>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Config)'=='Release' or '$(Cfg_1)'!=''">
+        <Cfg_1>true</Cfg_1>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="('$(Platform)'=='Win32' and '$(Cfg_1)'=='true') or '$(Cfg_1_Win32)'!=''">
+        <Cfg_1_Win32>true</Cfg_1_Win32>
+        <CfgParent>Cfg_1</CfgParent>
+        <Cfg_1>true</Cfg_1>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="('$(Platform)'=='Win64' and '$(Cfg_1)'=='true') or '$(Cfg_1_Win64)'!=''">
+        <Cfg_1_Win64>true</Cfg_1_Win64>
+        <CfgParent>Cfg_1</CfgParent>
+        <Cfg_1>true</Cfg_1>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Config)'=='Debug' or '$(Cfg_2)'!=''">
+        <Cfg_2>true</Cfg_2>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="('$(Platform)'=='Win32' and '$(Cfg_2)'=='true') or '$(Cfg_2_Win32)'!=''">
+        <Cfg_2_Win32>true</Cfg_2_Win32>
+        <CfgParent>Cfg_2</CfgParent>
+        <Cfg_2>true</Cfg_2>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="('$(Platform)'=='Win64' and '$(Cfg_2)'=='true') or '$(Cfg_2_Win64)'!=''">
+        <Cfg_2_Win64>true</Cfg_2_Win64>
+        <CfgParent>Cfg_2</CfgParent>
+        <Cfg_2>true</Cfg_2>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Base)'!=''">
+        <DCC_E>false</DCC_E>
+        <DCC_F>false</DCC_F>
+        <DCC_K>false</DCC_K>
+        <DCC_N>false</DCC_N>
+        <DCC_S>false</DCC_S>
+        <DCC_ImageBase>00400000</DCC_ImageBase>
+        <SanitizedProjectName>TlsLib_Tests</SanitizedProjectName>
+        <DCC_Namespace>Vcl;Vcl.Imaging;Vcl.Touch;Vcl.Samples;Vcl.Shell;System;Xml;Data;Datasnap;Web;Soap;DUnitX;$(DCC_Namespace)</DCC_Namespace>
+        <VerInfo_Locale>1033</VerInfo_Locale>
+        <VerInfo_Keys>CompanyName=;FileDescription=;FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProductName=;ProductVersion=1.0.0.0;Comments=;CFBundleName=</VerInfo_Keys>
+        <DCC_UnitSearchPath>..\..\TlsLib.Trust.System\src;..\..\TlsLib.Tools\RootGen\src;..\..\TlsLib.Trust.Bundle\src;C:\DelphiDevLibs\CryptoLib4Pascal;C:\DelphiDevLibs\HashLib4Pascal;C:\DelphiDevLibs\SimpleBaseLib4Pascal;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Base_Win32)'!=''">
+        <DCC_Namespace>Winapi;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;Bde;$(DCC_Namespace)</DCC_Namespace>
+        <BT_BuildType>Debug</BT_BuildType>
+        <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
+        <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProductName=$(MSBuildProjectName);ProductVersion=1.0.0.0;Comments=;ProgramID=com.embarcadero.$(MSBuildProjectName)</VerInfo_Keys>
+        <Manifest_File>$(BDS)\bin\default_app.manifest</Manifest_File>
+        <UWP_DelphiLogo44>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_44.png</UWP_DelphiLogo44>
+        <UWP_DelphiLogo150>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_150.png</UWP_DelphiLogo150>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Base_Win64)'!=''">
+        <UWP_DelphiLogo44>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_44.png</UWP_DelphiLogo44>
+        <UWP_DelphiLogo150>$(BDS)\bin\Artwork\Windows\UWP\delphi_UwpDefault_150.png</UWP_DelphiLogo150>
+        <DCC_Namespace>Winapi;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;$(DCC_Namespace)</DCC_Namespace>
+        <BT_BuildType>Debug</BT_BuildType>
+        <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
+        <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=$(MSBuildProjectName);ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
+        <Manifest_File>$(BDS)\bin\default_app.manifest</Manifest_File>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Cfg_1)'!=''">
+        <DCC_Define>RELEASE;$(DCC_Define)</DCC_Define>
+        <DCC_DebugInformation>0</DCC_DebugInformation>
+        <DCC_LocalDebugSymbols>false</DCC_LocalDebugSymbols>
+        <DCC_SymbolReferenceInfo>0</DCC_SymbolReferenceInfo>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Cfg_1_Win32)'!=''">
+        <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
+        <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProductName=$(MSBuildProjectName);ProductVersion=1.0.0.0;Comments=;ProgramID=com.embarcadero.$(MSBuildProjectName)</VerInfo_Keys>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Cfg_1_Win64)'!=''">
+        <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
+        <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=$(MSBuildProjectName);ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Cfg_2)'!=''">
+        <DCC_Define>DEBUG;$(DCC_Define)</DCC_Define>
+        <DCC_Optimize>false</DCC_Optimize>
+        <DCC_GenerateStackFrames>true</DCC_GenerateStackFrames>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Cfg_2_Win32)'!=''">
+        <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
+        <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProductName=$(MSBuildProjectName);ProductVersion=1.0.0.0;Comments=;ProgramID=com.embarcadero.$(MSBuildProjectName)</VerInfo_Keys>
+        <DCC_MapFile>3</DCC_MapFile>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Cfg_2_Win64)'!=''">
+        <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
+        <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=$(MSBuildProjectName);ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
+    </PropertyGroup>
+    <ItemGroup>
+        <DelphiCompile Include="$(MainSource)">
+            <MainSource>MainSource</MainSource>
+        </DelphiCompile>
+        <DCCReference Include="..\..\TlsLib\src\Common\TlpTlsAlert.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Common\TlpTlsContentType.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Common\TlpTlsVersion.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Common\TlpTlsLibExceptions.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Common\TlpTlsError.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Security\TlpISecretBuffer.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Security\TlpSecureMemory.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Security\TlpSecretBuffer.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Codec\TlpWireReader.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Codec\TlpWireVectorMarker.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Codec\TlpIWireWriter.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Codec\TlpWireWriter.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Crypto\TlpCryptoAlgorithms.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Crypto\TlpICryptoProvider.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Crypto\TlpISigningKey.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Crypto\TlpDefaultCryptoProvider.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Crypto\TlpINamedGroup.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Crypto\TlpNamedGroups.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Common\TlpArrayUtilities.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Common\TlpDataEncoding.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Common\TlpDateTimeUtilities.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Common\TlpIClock.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Common\TlpClock.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Session\TlpSessionTicketStrategy.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Common\TlpCodeKeyedRegistry.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Common\TlpBitOperations.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Common\TlpBinaryPrimitives.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Common\TlpEnumUtilities.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Record\TlpRecordHeader.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Record\TlpIRecordProtection.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Record\TlpRecordProtection.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Record\TlpRecordLayer.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Common\TlpTlsAlertProtocol.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Common\TlpAlertMapping.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Engine\TlpITlsEngine.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Engine\TlpITlsEventSink.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsEngineEvents.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsEngine.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\KeySchedule\TlpHkdfLabel.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\KeySchedule\TlpIKeySchedule.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\KeySchedule\TlpTrafficKeys.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\KeySchedule\TlpTls13KeySchedule.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\KeySchedule\TlpTls12KeySchedule.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Record\TlpRecordProtectionFactory.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Handshake\TlpHandshakeMessage.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Handshake\TlpITranscriptHash.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Handshake\TlpIHandshakeChannel.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Handshake\TlpTranscriptHash.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Handshake\TlpHandshakeMessages.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Handshake\TlpHandshakeEffect.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Handshake\TlpIHandshakeMachine.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Handshake\TlpHandshakeChannel.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Handshake\TlpHandshakeDriver.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Handshake\TlpTls13HandshakeBase.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Handshake\TlpHandshakeMachineBase.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Handshake\TlpTls12ServerStateMachine.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Handshake\TlpTls12ClientStateMachine.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Handshake\TlpVersionDispatchMachine.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Handshake\TlpHelloRetryCookie.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\CertCompression\TlpCertificateCompression.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Trust\TlpCertificateLimits.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Trust\TlpTrustPolicy.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Engine\TlpITlsTransport.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsConnectionInfo.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsStreamPump.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsStream.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Trust\TlpIHttpFetcher.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Trust\TlpLiveRevocation.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\CertCompression\TlpICertificateCompression.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\CertCompression\TlpICertificateCompressionCache.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\CertCompression\TlpZlibCertificateCompression.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\CertCompression\TlpInMemoryCertificateCompressionCache.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Handshake\TlpTls13ClientStateMachine.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Handshake\TlpTls13ServerStateMachine.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Handshake\TlpHandshakeConductor.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Handshake\TlpCertificateVerify.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Trust\TlpICertificateTrust.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Trust\TlpEndpointIdentity.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Trust\TlpCertificateVerifier.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Handshake\TlpTlsCredential.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Engine\TlpITlsConfig.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Engine\TlpITlsConfigBuilder.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsConfigBuilder.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsPresets.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsLib.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Engine\TlpITlsConfigMemo.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsConfigMemo.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsSignatureBuilder.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsEngineFactory.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Extensions\TlpExtensionContext.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Extensions\TlpITlsExtension.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Extensions\TlpExtensionBlockCodec.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Extensions\TlpCoreExtensions.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Extensions\TlpSessionExtensions.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Extensions\TlpGrease.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Negotiation\TlpNegotiationTypes.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Negotiation\TlpINegotiation.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Negotiation\TlpCipherSuiteRegistry.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Negotiation\TlpSignatureSchemeRegistry.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Negotiation\TlpNegotiationPolicy.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Session\TlpISession.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Session\TlpSession.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Session\TlpExternalPskImporter.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Session\TlpInMemorySessionCache.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Session\TlpInMemorySessionStore.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Session\TlpSessionTicketKeys.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Session\TlpAntiReplay.pas"/>
+        <DCCReference Include="..\src\TlsLibTestResourceLoader.pas"/>
+        <DCCReference Include="..\src\TlsLibTestBase.pas"/>
+        <DCCReference Include="..\src\SecretTests.pas"/>
+        <DCCReference Include="..\src\AlertTests.pas"/>
+        <DCCReference Include="..\src\ExceptionTests.pas"/>
+        <DCCReference Include="..\src\WireCodecTests.pas"/>
+        <DCCReference Include="..\src\ProviderTests.pas"/>
+        <DCCReference Include="..\src\NamedGroupTests.pas"/>
+        <DCCReference Include="..\src\MockRandom.pas"/>
+        <DCCReference Include="..\src\MockCryptoProvider.pas"/>
+        <DCCReference Include="..\src\MockTests.pas"/>
+        <DCCReference Include="..\src\RecordHeaderTests.pas"/>
+        <DCCReference Include="..\src\RecordProtectionTests.pas"/>
+        <DCCReference Include="..\src\RecordLayerTests.pas"/>
+        <DCCReference Include="..\src\AlertProtocolTests.pas"/>
+        <DCCReference Include="..\src\EngineSkeletonTests.pas"/>
+        <DCCReference Include="..\src\HkdfLabelTests.pas"/>
+        <DCCReference Include="..\src\Tls13KeyScheduleTests.pas"/>
+        <DCCReference Include="..\src\Tls12KeyScheduleTests.pas"/>
+        <DCCReference Include="..\src\ScheduleInstallTests.pas"/>
+        <DCCReference Include="..\src\HandshakeMessageTests.pas"/>
+        <DCCReference Include="..\src\TranscriptHashTests.pas"/>
+        <DCCReference Include="..\src\HandshakeMessagesTests.pas"/>
+        <DCCReference Include="..\src\HandshakeDriverTests.pas"/>
+        <DCCReference Include="..\src\Tls13ClientReplayTests.pas"/>
+        <DCCReference Include="..\src\Tls13ServerReplayTests.pas"/>
+        <DCCReference Include="..\src\HelloRetryRequestTests.pas"/>
+        <DCCReference Include="..\src\ExtensionNegotiationTests.pas"/>
+        <DCCReference Include="..\src\ResourceLimitTests.pas"/>
+        <DCCReference Include="..\src\Tls13LoopbackTests.pas"/>
+        <DCCReference Include="..\src\Tls12LoopbackTests.pas"/>
+        <DCCReference Include="..\src\Tls12DualVersionTests.pas"/>
+        <DCCReference Include="..\src\ClientAuthTests.pas"/>
+        <DCCReference Include="..\src\SessionStoreTests.pas"/>
+        <DCCReference Include="..\src\CertificateCompressionCacheTests.pas"/>
+        <DCCReference Include="..\src\DataEncodingTests.pas"/>
+        <DCCReference Include="..\src\MockSessionStores.pas"/>
+        <DCCReference Include="..\src\Tls13ResumptionTests.pas"/>
+        <DCCReference Include="..\src\Tls12ResumptionTests.pas"/>
+        <DCCReference Include="..\src\ConfigResumptionTests.pas"/>
+        <DCCReference Include="..\src\Tls13KeyUpdateTests.pas"/>
+        <DCCReference Include="..\src\SignatureTests.pas"/>
+        <DCCReference Include="..\src\CredentialImportTests.pas"/>
+        <DCCReference Include="..\src\Pkcs12ImportTests.pas"/>
+        <DCCReference Include="..\src\TlsStreamLoopbackTests.pas"/>
+        <DCCReference Include="..\src\EndpointIdentityTests.pas"/>
+        <DCCReference Include="..\src\CertificateVerifierTests.pas"/>
+        <DCCReference Include="..\src\OcspStaplingTests.pas"/>
+        <DCCReference Include="..\src\CertificateCheckTests.pas"/>
+        <DCCReference Include="..\src\AsyncVerdictTests.pas"/>
+        <DCCReference Include="..\src\LiveRevocationTests.pas"/>
+        <DCCReference Include="..\src\ConfigBuilderTests.pas"/>
+        <DCCReference Include="..\src\TrustCompositionTests.pas"/>
+        <DCCReference Include="..\src\SystemTrustTests.pas"/>
+        <DCCReference Include="..\src\AppleAlertMapTests.pas"/>
+        <DCCReference Include="..\src\RootGenKeyingTests.pas"/>
+        <DCCReference Include="..\src\BundleTrustTests.pas"/>
+        <DCCReference Include="..\src\PresetTests.pas"/>
+        <DCCReference Include="..\src\ExtensionCodecTests.pas"/>
+        <DCCReference Include="..\src\NegotiationTests.pas"/>
+        <BuildConfiguration Include="Debug">
+            <Key>Cfg_2</Key>
+            <CfgParent>Base</CfgParent>
+        </BuildConfiguration>
+        <BuildConfiguration Include="Base">
+            <Key>Base</Key>
+        </BuildConfiguration>
+        <BuildConfiguration Include="Release">
+            <Key>Cfg_1</Key>
+            <CfgParent>Base</CfgParent>
+        </BuildConfiguration>
+    </ItemGroup>
+    <ProjectExtensions>
+        <Borland.Personality>Delphi.Personality.12</Borland.Personality>
+        <Borland.ProjectType/>
+        <BorlandProject>
+            <Delphi.Personality>
+                <Source>
+                    <Source Name="MainSource">TlsLib.Tests.dpr</Source>
+                </Source>
+                <Excluded_Packages>
+                    <Excluded_Packages Name="$(BDSBIN)\dcloffice2k270.bpl">Microsoft Office 2000 Sample Automation Server Wrapper Components</Excluded_Packages>
+                    <Excluded_Packages Name="$(BDSBIN)\dclofficexp270.bpl">Microsoft Office XP Sample Automation Server Wrapper Components</Excluded_Packages>
+                </Excluded_Packages>
+            </Delphi.Personality>
+            <Platforms>
+                <Platform value="Win32">True</Platform>
+                <Platform value="Win64">True</Platform>
+            </Platforms>
+        </BorlandProject>
+        <ProjectFileVersion>12</ProjectFileVersion>
+    </ProjectExtensions>
+    <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Delphi.Targets')"/>
+    <Import Project="$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj" Condition="Exists('$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj')"/>
+</Project>

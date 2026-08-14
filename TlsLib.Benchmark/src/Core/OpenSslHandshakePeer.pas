@@ -52,9 +52,10 @@ implementation
 const
   CScratchBuffer = 16384;
   CMaxRounds = 64;
-  // pin an ECDHE-ECDSA AEAD for the 1.2 rows so it uses the EC leaf (the 1.3 suite set is
+  // pin an ECDHE AEAD for the 1.2 rows matching the leaf's key type (the 1.3 suite set is
   // negotiated from the fixed 1.3 ciphers); the AEAD choice is irrelevant to handshake cost
-  CCipherTls12 = 'ECDHE-ECDSA-AES128-GCM-SHA256';
+  CCipherTls12Ecdsa = 'ECDHE-ECDSA-AES128-GCM-SHA256';
+  CCipherTls12Rsa = 'ECDHE-RSA-AES128-GCM-SHA256';
 
 class function TOpenSslHandshakePeer.IsAvailable: Boolean;
 begin
@@ -70,10 +71,12 @@ begin
   if not TOpenSslBench.Available then
     raise ETlsBenchmarkError.Create('OpenSSL libraries are not available');
   SetLength(FScratch, CScratchBuffer);
-  if AWireVersion = TLS1_2_VERSION then
-    LCipher := CCipherTls12
+  if AWireVersion <> TLS1_2_VERSION then
+    LCipher := ''
+  else if ACredential.IsRsaLeaf then
+    LCipher := CCipherTls12Rsa
   else
-    LCipher := '';
+    LCipher := CCipherTls12Ecdsa;
   FClientCtx := TOpenSslBench.NewClientCtx(AWireVersion, LCipher, AGroups);
   FServerCtx := TOpenSslBench.NewServerCtx(ACredential, AWireVersion, LCipher, AGroups);
 end;

@@ -19,6 +19,7 @@ uses
   SysUtils,
   Classes,
   Rtti,
+  SyncObjs,
   ClpISecureRandom,
   ClpSecureRandom,
   ClpIDigest,
@@ -117,6 +118,8 @@ uses
   ClpValueHelper,
   ClpCryptoLibExceptions,
   TlpCryptoAlgorithms,
+  TlpBinaryPrimitives,
+  TlpArrayUtilities,
   TlpEnumUtilities,
   TlpICryptoProvider,
   TlpISigningKey,
@@ -139,10 +142,33 @@ type
     TlsFeatureExtensionOid = '1.3.6.1.5.5.7.1.24';
     // PKCS#1 id-RSASSA-PSS: the restricted RSA-PSS key type (RFC 4055)
     RsaSsaPssKeyOid = '1.2.840.113549.1.1.10';
+  type
+    // parsed trust anchors keyed by a digest of the anchor set, so a reused
+    // config does not re-parse its (possibly large) anchor store on every verify
+    TTrustAnchorRing = record
+    strict private
+    const
+      TrustAnchorCacheSize = Int32(8);
+    strict private
+      FKeys: TArray<TBytes>;
+      FSets: TArray<TArray<ITrustAnchor>>;
+      FCount: Int32;
+      FNext: Int32;
+    public
+      class function Init: TTrustAnchorRing; static;
+      function TryGet(const AKey: TBytes;
+        out AAnchors: TArray<ITrustAnchor>): Boolean;
+      procedure Remember(const AKey: TBytes;
+        const AAnchors: TArray<ITrustAnchor>);
+    end;
+  class var
+    FTrustAnchors: TTrustAnchorRing;
+    FTrustAnchorLock: TCriticalSection;
   var
     FHasHardwareAes: Boolean;
     FRandom: ISecureRandom;
     function ResolveDigest(AAlgorithm: THashAlgorithm): IDigest;
+    function TrustAnchorKey(const ATrustAnchors: TArray<TBytes>): TBytes;
     class function SignerMechanismForScheme(AScheme: TSignatureScheme): string; static;
     /// <summary>
     /// Whether AResponse is signed by the certificate issuer itself or by a
@@ -158,6 +184,8 @@ type
       AValidityDate: TDateTime): Boolean; static;
   public
     constructor Create;
+    class constructor Create;
+    class destructor Destroy;
 
     function GetRandom: IRandom;
     function CreateHash(AAlgorithm: THashAlgorithm): IHash;
@@ -401,25 +429,30 @@ type
     function GetPassword: TArray<Char>;
   end;
 
-  // The provider-internal face of an imported signing key: it hands back the
-  // canonical PKCS#8 so the signer can materialize and wipe it per sign. This is
-  // kept off ISigningKey so no key bytes appear on the public surface.
+  // The provider-internal face of an imported signing key: it hands back the parsed
+  // key parameter (parsed and validated once at import, reused for every sign) plus the
+  // canonical PKCS#8 bytes. Kept off ISigningKey so no key material appears on the
+  // public surface.
   IProviderSigningKey = interface(IInterface)
     ['{6A7F0E2C-1B94-4D8A-9F3C-2E5B7C8D1A64}']
     function PrivateKeyInfo: ISecretBuffer;
+    function KeyParameter: IAsymmetricKeyParameter;
   end;
 
   TSigningKey = class(TInterfacedObject, ISigningKey, IProviderSigningKey)
   strict private
   var
     FPrivateKeyInfo: ISecretBuffer;
+    FKeyParameter: IAsymmetricKeyParameter;
     FCapableSchemes: TArray<TSignatureScheme>;
   public
     constructor Create(const APrivateKeyInfo: ISecretBuffer;
+      const AKeyParameter: IAsymmetricKeyParameter;
       const ACapableSchemes: TArray<TSignatureScheme>);
     function CapableSchemes: TArray<TSignatureScheme>;
     function WithPreferredSchemes(const ASchemes: TArray<TSignatureScheme>): ISigningKey;
     function PrivateKeyInfo: ISecretBuffer;
+    function KeyParameter: IAsymmetricKeyParameter;
   end;
 
   // The shape of a DER-encoded private key, distinguished by its first inner elements.
@@ -1111,10 +1144,12 @@ end;
 { TSigningKey }
 
 constructor TSigningKey.Create(const APrivateKeyInfo: ISecretBuffer;
+  const AKeyParameter: IAsymmetricKeyParameter;
   const ACapableSchemes: TArray<TSignatureScheme>);
 begin
   inherited Create;
   FPrivateKeyInfo := APrivateKeyInfo;
+  FKeyParameter := AKeyParameter;
   FCapableSchemes := ACapableSchemes;
 end;
 
@@ -1134,7 +1169,7 @@ begin
     Exit(Self);
   LNarrowed := nil;
   // keep the requested schemes this key can actually sign, in the requested order;
-  // the new handle shares the same wipeable key material
+  // the new handle shares the same parsed key and canonical bytes
   for LPref in ASchemes do
     for LCapable in FCapableSchemes do
       if LPref = LCapable then
@@ -1144,12 +1179,17 @@ begin
         LNarrowed[LN] := LPref;
         Break;
       end;
-  Result := TSigningKey.Create(FPrivateKeyInfo, LNarrowed);
+  Result := TSigningKey.Create(FPrivateKeyInfo, FKeyParameter, LNarrowed);
 end;
 
 function TSigningKey.PrivateKeyInfo: ISecretBuffer;
 begin
   Result := FPrivateKeyInfo;
+end;
+
+function TSigningKey.KeyParameter: IAsymmetricKeyParameter;
+begin
+  Result := FKeyParameter;
 end;
 
 { TCredentialImport }
@@ -1365,7 +1405,8 @@ begin
   if (AKeyParam = nil) or (not AKeyParam.IsPrivate) then
     raise EArgumentTlsLibException.CreateRes(@SMalformedPrivateKey);
   LInfo := TPrivateKeyInfoFactory.CreatePrivateKeyInfo(AKeyParam);
-  // capability comes straight off the parsed key info; then hold canonical PKCS#8
+  // capability comes straight off the parsed key info; hold the parsed key (reused for
+  // every sign) plus canonical PKCS#8 (the wipeable export form)
   LSchemes := SchemesForKeyInfo(LInfo);
   LPkcs8 := LInfo.GetDerEncoded;
   try
@@ -1373,7 +1414,7 @@ begin
   finally
     TSecureMemory.WipeBytes(LPkcs8);
   end;
-  Result := TSigningKey.Create(LBuffer, LSchemes);
+  Result := TSigningKey.Create(LBuffer, AKeyParam, LSchemes);
 end;
 
 // Imports a signing key in any supported encoding: normalizes it to canonical
@@ -1506,17 +1547,13 @@ function TDefaultCryptoProvider.CreateSignatureSigner(AScheme: TSignatureScheme;
 var
   LProviderKey: IProviderSigningKey;
   LKey: IAsymmetricKeyParameter;
-  LKeyBytes: TBytes;
 begin
   if not Supports(AKey, IProviderSigningKey, LProviderKey) then
     raise EArgumentTlsLibException.CreateRes(@SForeignSigningKey);
-  // the raw key materializes only here, inside the provider boundary, and is wiped
-  LKeyBytes := LProviderKey.PrivateKeyInfo.ToBytes;
-  try
-    LKey := TPrivateKeyFactory.CreateKey(LKeyBytes);
-  finally
-    TSecureMemory.WipeBytes(LKeyBytes);
-  end;
+  // the key was parsed and validated once at import; reuse it rather than re-parsing and
+  // re-validating it on every sign - InitSigner still makes a fresh per-call signer for
+  // the digest state, so concurrent handshakes stay independent
+  LKey := LProviderKey.KeyParameter;
   Result := TSignatureSignerAdapter.Create(
     TSignerUtilities.InitSigner(SignerMechanismForScheme(AScheme), True, LKey, FRandom),
     TEnumUtilities.GetName<TSignatureScheme>(AScheme));
@@ -1742,12 +1779,79 @@ begin
     end;
 end;
 
+class function TDefaultCryptoProvider.TTrustAnchorRing.Init: TTrustAnchorRing;
+begin
+  SetLength(Result.FKeys, TrustAnchorCacheSize);
+  SetLength(Result.FSets, TrustAnchorCacheSize);
+  Result.FCount := 0;
+  Result.FNext := 0;
+end;
+
+function TDefaultCryptoProvider.TTrustAnchorRing.TryGet(const AKey: TBytes;
+  out AAnchors: TArray<ITrustAnchor>): Boolean;
+var
+  LI: Int32;
+begin
+  AAnchors := nil;
+  for LI := 0 to FCount - 1 do
+    if TArrayUtilities.AreEqual(FKeys[LI], AKey) then
+    begin
+      AAnchors := FSets[LI];
+      Exit(True);
+    end;
+  Result := False;
+end;
+
+procedure TDefaultCryptoProvider.TTrustAnchorRing.Remember(const AKey: TBytes;
+  const AAnchors: TArray<ITrustAnchor>);
+begin
+  FKeys[FNext] := AKey;
+  FSets[FNext] := AAnchors;
+  FNext := (FNext + 1) mod TrustAnchorCacheSize;
+  if FCount < TrustAnchorCacheSize then
+    Inc(FCount);
+end;
+
+class constructor TDefaultCryptoProvider.Create;
+begin
+  FTrustAnchors := TTrustAnchorRing.Init;
+  FTrustAnchorLock := TCriticalSection.Create;
+end;
+
+class destructor TDefaultCryptoProvider.Destroy;
+begin
+  FTrustAnchorLock.Free;
+end;
+
+function TDefaultCryptoProvider.TrustAnchorKey(
+  const ATrustAnchors: TArray<TBytes>): TBytes;
+var
+  LDigest: IDigest;
+  LI, LN: Int32;
+  LLen: TBytes;
+begin
+  LDigest := ResolveDigest(THashAlgorithm.SHA_256);
+  System.SetLength(LLen, 4);
+  for LI := 0 to System.High(ATrustAnchors) do
+  begin
+    // length-prefix each anchor so distinct groupings cannot alias one another
+    LN := System.Length(ATrustAnchors[LI]);
+    TBinaryPrimitives.WriteUInt32LittleEndian(LLen, 0, UInt32(LN));
+    LDigest.BlockUpdate(LLen, 0, 4);
+    if LN > 0 then
+      LDigest.BlockUpdate(ATrustAnchors[LI], 0, LN);
+  end;
+  Result := LDigest.DoFinal;
+end;
+
 procedure TDefaultCryptoProvider.ValidateCertificatePath(const AChain,
   ATrustAnchors: TArray<TBytes>; const AValidationTimeUtc: TDateTime);
 var
   LParser: IX509CertificateParser;
   LCerts: TArray<IX509Certificate>;
   LAnchors: TArray<ITrustAnchor>;
+  LAnchorKey: TBytes;
+  LHit: Boolean;
   LParams: IPkixParameters;
   LPath: IPkixCertPath;
   LValidator: IPkixCertPathValidator;
@@ -1775,12 +1879,39 @@ begin
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.UnknownCa, @SUntrustedChain);
 
+  // parsing the anchor store dominates a reused-config verify, so memoise the
+  // parsed anchors keyed by a digest of the anchor set; the parse itself runs
+  // outside the lock so concurrent cold verifies do not serialise on it
+  LAnchorKey := TrustAnchorKey(ATrustAnchors);
+  FTrustAnchorLock.Acquire;
+  try
+    LHit := FTrustAnchors.TryGet(LAnchorKey, LAnchors);
+  finally
+    FTrustAnchorLock.Release;
+  end;
+
+  if not LHit then
+  begin
+    try
+      SetLength(LAnchors, System.Length(ATrustAnchors));
+      for LI := 0 to High(ATrustAnchors) do
+        LAnchors[LI] := TTrustAnchor.Create(
+          LParser.ReadCertificate(ATrustAnchors[LI]), nil);
+    except
+      on E: ECryptoLibException do
+        raise EFatalAlertTlsLibException.CreateRes(
+          TTlsAlertDescription.UnknownCa, @SUntrustedChain);
+    end;
+    FTrustAnchorLock.Acquire;
+    try
+      FTrustAnchors.Remember(LAnchorKey, LAnchors);
+    finally
+      FTrustAnchorLock.Release;
+    end;
+  end;
+
   // build the PKIX path to a trusted anchor; anything else is unknown_ca
   try
-    SetLength(LAnchors, System.Length(ATrustAnchors));
-    for LI := 0 to High(ATrustAnchors) do
-      LAnchors[LI] := TTrustAnchor.Create(
-        LParser.ReadCertificate(ATrustAnchors[LI]), nil);
     LParams := TPkixParameters.Create(LAnchors);
     LParams.SetIsRevocationEnabled(False);
     // pin the PKIX path date to the same source as the notBefore/notAfter check

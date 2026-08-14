@@ -46,6 +46,9 @@ uses
   TlpTlsPresets,
   TlpITlsEngine,
   TlpTlsEngineFactory,
+  TlpITlsConfigMemo,
+  TlpTlsConfigMemo,
+  TlpTlsSignatureBuilder,
   TlpITlsTransport,
   TlpTlsStreamPump,
   TlpTlsStream,
@@ -155,9 +158,19 @@ type
     FStream: TTlsStream;
     FTransport: ITlsTransport;
     FEngine: ITlsEngine;
+    FClientMemo: ITlsClientConfigMemo;   // reuses the client config across reconnects
+    FServerMemo: ITlsServerConfigMemo;   // shared with the listener; server peers reuse one config
     procedure DoHandshake;
     procedure ResetTlsSession;
+    function LoadFileBytes(const APath: string): TBytes;
+    function BuildClientConfig: ITlsClientConfig;
+    function BuildServerConfig: ITlsServerConfig;
+    function ClientSignature: string;
+    function ServerSignature: string;
     function BuildEngine(AIsClient: Boolean): ITlsEngine;
+  private
+    /// <summary>The listener hands each server peer its shared config memo (same-unit only).</summary>
+    procedure AdoptServerMemo(const AMemo: ITlsServerConfigMemo);
   protected
     procedure InitComponent; override;
     procedure SetPassThrough(const AValue: Boolean); override;
@@ -183,6 +196,7 @@ type
   strict private
   var
     FOptions: TTlsLibSSLOptions;
+    FServerMemo: ITlsServerConfigMemo;   // the listener builds its server config once, all peers reuse it
   protected
     procedure InitComponent; override;
   public
@@ -303,6 +317,7 @@ procedure TTlsLibIOHandlerSocket.InitComponent;
 begin
   inherited InitComponent;
   FOptions := TTlsLibSSLOptions.Create;
+  FClientMemo := NewTlsClientConfigMemo;
   // Indy's base defaults PassThrough to True (connect plaintext, upgrade later). We default it to
   // False so assigning this handler to a raw client means "do TLS on connect" without extra setup -
   // the ergonomic common case. Callers that want plaintext override it: TIdHTTP sets it True for
@@ -317,109 +332,175 @@ begin
   inherited Destroy;
 end;
 
-function TTlsLibIOHandlerSocket.BuildEngine(AIsClient: Boolean): ITlsEngine;
+function TTlsLibIOHandlerSocket.LoadFileBytes(const APath: string): TBytes;
+var
+  LStream: TFileStream;
+begin
+  Result := nil;
+  LStream := TFileStream.Create(APath, fmOpenRead or fmShareDenyWrite);
+  try
+    SetLength(Result, LStream.Size);
+    if LStream.Size > 0 then
+      LStream.ReadBuffer(Result[0], LStream.Size);
+  finally
+    LStream.Free;
+  end;
+end;
+
+procedure TTlsLibIOHandlerSocket.AdoptServerMemo(const AMemo: ITlsServerConfigMemo);
+begin
+  FServerMemo := AMemo;
+end;
+
+function TTlsLibIOHandlerSocket.BuildClientConfig: ITlsClientConfig;
 var
   LProvider: ICryptoProvider;
   LClient: ITlsClientConfigBuilder;
+  LHasSource: Boolean;
+begin
+  LProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  LClient := TTlsPresets.Compatible(LProvider).Client;
+  // compose peer trust from orthogonal sources: a whole-verifier REPLACES the pipeline, else a
+  // RootCertFile bundle + the OS anchors + a custom store all UNION. Adding both a verifier and
+  // an anchor source is left to fail as the builder's typed conflict. System trust is never
+  // implicit; verifying with no source named fails closed.
+  LHasSource := (FOptions.CustomVerifier <> nil) or (FOptions.RootCertFile <> '') or
+    FOptions.UseSystemTrust or (FOptions.CustomTrustStore <> nil);
+  if FOptions.CustomVerifier <> nil then
+    LClient.WithCertificateVerifier(FOptions.CustomVerifier);
+  if FOptions.RootCertFile <> '' then
+    LClient.WithTrustAnchors(LoadFileBytes(FOptions.RootCertFile));
+  if FOptions.UseSystemTrust then
+    TSystemTrust.WithSystemTrust(LClient, LProvider);
+  if FOptions.CustomTrustStore <> nil then
+    LClient.WithTrustStore(FOptions.CustomTrustStore);
+  if not LHasSource then
+  begin
+    if FOptions.VerifyPeer and (not FOptions.InsecureSkipVerify) then
+      raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SNoClientTrust);
+    // skipping verification still needs a source to satisfy the builder
+    LClient.WithTrustStore(TTrustAnchorStore.Create(nil) as ITrustAnchorStore);
+  end;
+  if FOptions.InsecureSkipVerify or (not FOptions.VerifyPeer) then
+    LClient.WithDangerousInsecureSkipVerify(True);
+  if FOptions.CertFile <> '' then
+    LClient.WithCredential(LoadFileBytes(FOptions.CertFile),
+      LoadFileBytes(FOptions.KeyFile), FOptions.KeyPassword);
+  // an app's augment-only verify rule, and the async-verdict flag (the resolver itself is a
+  // runtime stream hook applied in DoHandshake, not part of the frozen config)
+  if Assigned(FOptions.VerifyCallback) then
+    LClient.WithCertificateVerifyCallback(FOptions.VerifyCallback);
+  if Assigned(FOptions.VerdictResolver) then
+    LClient.WithAsyncCertificateVerdict(True, FOptions.VerdictDeadlineMs);
+  Result := LClient.Build;
+end;
+
+function TTlsLibIOHandlerSocket.BuildServerConfig: ITlsServerConfig;
+var
+  LProvider: ICryptoProvider;
   LServer: ITlsServerConfigBuilder;
   LHasSource: Boolean;
-
-  function LoadFileBytes(const APath: string): TBytes;
-  var
-    LStream: TFileStream;
+begin
+  if FOptions.CertFile = '' then
+    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SNoServerCredential);
+  LProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  LServer := TTlsPresets.Compatible(LProvider).Server
+    .WithCredential(LoadFileBytes(FOptions.CertFile),
+    LoadFileBytes(FOptions.KeyFile), FOptions.KeyPassword);
+  if FOptions.VerifyPeer then
   begin
-    Result := nil;
-    LStream := TFileStream.Create(APath, fmOpenRead or fmShareDenyWrite);
-    try
-      SetLength(Result, LStream.Size);
-      if LStream.Size > 0 then
-        LStream.ReadBuffer(Result[0], LStream.Size);
-    finally
-      LStream.Free;
+    // client-cert auth is optional: request+verify only when a client-trust source is named
+    // (same composable model as the client). Note UseSystemTrust here validates CLIENT certs
+    // against the OS public web-PKI roots - a broad surface most mTLS servers do not want.
+    LHasSource := (FOptions.CustomVerifier <> nil) or (FOptions.RootCertFile <> '') or
+      FOptions.UseSystemTrust or (FOptions.CustomTrustStore <> nil);
+    if LHasSource then
+    begin
+      LServer.WithPeerAuth(TClientAuthMode.Required);
+      if FOptions.CustomVerifier <> nil then
+        LServer.WithCertificateVerifier(FOptions.CustomVerifier);
+      if FOptions.RootCertFile <> '' then
+        LServer.WithTrustAnchors(LoadFileBytes(FOptions.RootCertFile));
+      if FOptions.UseSystemTrust then
+        TSystemTrust.WithSystemTrust(LServer, LProvider);
+      if FOptions.CustomTrustStore <> nil then
+        LServer.WithTrustStore(FOptions.CustomTrustStore);
     end;
   end;
+  Result := LServer.Build;
+end;
 
+function TTlsLibIOHandlerSocket.ClientSignature: string;
+var
+  LSig: TTlsSignatureBuilder;
+begin
+  LSig := TTlsSignatureBuilder.Create(nil); // all inputs are files/scalars/pointers - no hashing
+  LSig.AddFile('cert', FOptions.CertFile);
+  LSig.AddFile('key', FOptions.KeyFile);
+  LSig.AddText('keypw', FOptions.KeyPassword);
+  LSig.AddFile('root', FOptions.RootCertFile);
+  LSig.AddFlag('verifyPeer', FOptions.VerifyPeer);
+  LSig.AddFlag('skipVerify', FOptions.InsecureSkipVerify);
+  LSig.AddFlag('systemTrust', FOptions.UseSystemTrust);
+  LSig.AddPointer('customVerifier', FOptions.CustomVerifier);
+  LSig.AddPointer('customStore', FOptions.CustomTrustStore);
+  LSig.AddMethod('verifyCb', TMethod(FOptions.VerifyCallback));
+  LSig.AddFlag('asyncVerdict', Assigned(FOptions.VerdictResolver));
+  LSig.AddCardinal('deadline', FOptions.VerdictDeadlineMs);
+  Result := LSig.Value;
+end;
+
+function TTlsLibIOHandlerSocket.ServerSignature: string;
+var
+  LSig: TTlsSignatureBuilder;
+begin
+  LSig := TTlsSignatureBuilder.Create(nil);
+  LSig.AddFile('cert', FOptions.CertFile);
+  LSig.AddFile('key', FOptions.KeyFile);
+  LSig.AddText('keypw', FOptions.KeyPassword);
+  LSig.AddFlag('verifyPeer', FOptions.VerifyPeer);
+  LSig.AddFile('root', FOptions.RootCertFile);
+  LSig.AddFlag('systemTrust', FOptions.UseSystemTrust);
+  LSig.AddPointer('customVerifier', FOptions.CustomVerifier);
+  LSig.AddPointer('customStore', FOptions.CustomTrustStore);
+  Result := LSig.Value;
+end;
+
+function TTlsLibIOHandlerSocket.BuildEngine(AIsClient: Boolean): ITlsEngine;
+var
+  LClientCfg: ITlsClientConfig;
+  LServerCfg: ITlsServerConfig;
+  LSig: string;
 begin
   // a fully-built config supplied by the app REPLACES the options-driven build outright; naming
   // cert/trust options alongside it fails loud rather than dropping them silently
-  if AIsClient and (FOptions.ClientConfig <> nil) then
+  if AIsClient then
   begin
-    FOptions.GuardNoConflict('ClientConfig');
-    Exit(TTlsEngineFactory.CreateClientEngine(FOptions.ClientConfig, Host));
+    if FOptions.ClientConfig <> nil then
+    begin
+      FOptions.GuardNoConflict('ClientConfig');
+      Exit(TTlsEngineFactory.CreateClientEngine(FOptions.ClientConfig, Host));
+    end;
+    // build the frozen config once and reuse it across reconnects on this handler
+    LSig := ClientSignature;
+    if not FClientMemo.TryGet(LSig, LClientCfg) then
+      LClientCfg := FClientMemo.StoreOrAdopt(LSig, BuildClientConfig);
+    Exit(TTlsEngineFactory.CreateClientEngine(LClientCfg, Host));
   end;
-  if (not AIsClient) and (FOptions.ServerConfig <> nil) then
+  if FOptions.ServerConfig <> nil then
   begin
     FOptions.GuardNoConflict('ServerConfig');
     Exit(TTlsEngineFactory.CreateServerEngine(FOptions.ServerConfig));
   end;
-  LProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
-  if AIsClient then
+  // a server peer reuses the listener's shared memo, so all peers bind to one config identity
+  if FServerMemo <> nil then
   begin
-    LClient := TTlsPresets.Compatible(LProvider).Client;
-    // compose peer trust from orthogonal sources: a whole-verifier REPLACES the pipeline, else a
-    // RootCertFile bundle + the OS anchors + a custom store all UNION. Adding both a verifier and
-    // an anchor source is left to fail as the builder's typed conflict. System trust is never
-    // implicit; verifying with no source named fails closed.
-    LHasSource := (FOptions.CustomVerifier <> nil) or (FOptions.RootCertFile <> '') or
-      FOptions.UseSystemTrust or (FOptions.CustomTrustStore <> nil);
-    if FOptions.CustomVerifier <> nil then
-      LClient.WithCertificateVerifier(FOptions.CustomVerifier);
-    if FOptions.RootCertFile <> '' then
-      LClient.WithTrustAnchors(LoadFileBytes(FOptions.RootCertFile));
-    if FOptions.UseSystemTrust then
-      TSystemTrust.WithSystemTrust(LClient, LProvider);
-    if FOptions.CustomTrustStore <> nil then
-      LClient.WithTrustStore(FOptions.CustomTrustStore);
-    if not LHasSource then
-    begin
-      if FOptions.VerifyPeer and (not FOptions.InsecureSkipVerify) then
-        raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SNoClientTrust);
-      // skipping verification still needs a source to satisfy the builder
-      LClient.WithTrustStore(TTrustAnchorStore.Create(nil) as ITrustAnchorStore);
-    end;
-    if FOptions.InsecureSkipVerify or (not FOptions.VerifyPeer) then
-      LClient.WithDangerousInsecureSkipVerify(True);
-    if FOptions.CertFile <> '' then
-      LClient.WithCredential(LoadFileBytes(FOptions.CertFile),
-        LoadFileBytes(FOptions.KeyFile), FOptions.KeyPassword);
-    // an app's augment-only verify rule, and an out-of-band verdict resolver (live
-    // revocation etc.) that parks the handshake for a decision
-    if Assigned(FOptions.VerifyCallback) then
-      LClient.WithCertificateVerifyCallback(FOptions.VerifyCallback);
-    if Assigned(FOptions.VerdictResolver) then
-      LClient.WithAsyncCertificateVerdict(True, FOptions.VerdictDeadlineMs);
-    Result := TTlsEngineFactory.CreateClientEngine(LClient.Build, Host);
-  end
-  else
-  begin
-    if FOptions.CertFile = '' then
-      raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
-        SNoServerCredential);
-    LServer := TTlsPresets.Compatible(LProvider).Server
-      .WithCredential(LoadFileBytes(FOptions.CertFile),
-      LoadFileBytes(FOptions.KeyFile), FOptions.KeyPassword);
-    if FOptions.VerifyPeer then
-    begin
-      // client-cert auth is optional: request+verify only when a client-trust source is named
-      // (same composable model as the client). Note UseSystemTrust here validates CLIENT certs
-      // against the OS public web-PKI roots - a broad surface most mTLS servers do not want.
-      LHasSource := (FOptions.CustomVerifier <> nil) or (FOptions.RootCertFile <> '') or
-        FOptions.UseSystemTrust or (FOptions.CustomTrustStore <> nil);
-      if LHasSource then
-      begin
-        LServer.WithPeerAuth(TClientAuthMode.Required);
-        if FOptions.CustomVerifier <> nil then
-          LServer.WithCertificateVerifier(FOptions.CustomVerifier);
-        if FOptions.RootCertFile <> '' then
-          LServer.WithTrustAnchors(LoadFileBytes(FOptions.RootCertFile));
-        if FOptions.UseSystemTrust then
-          TSystemTrust.WithSystemTrust(LServer, LProvider);
-        if FOptions.CustomTrustStore <> nil then
-          LServer.WithTrustStore(FOptions.CustomTrustStore);
-      end;
-    end;
-    Result := TTlsEngineFactory.CreateServerEngine(LServer.Build);
+    LSig := ServerSignature;
+    if not FServerMemo.TryGet(LSig, LServerCfg) then
+      LServerCfg := FServerMemo.StoreOrAdopt(LSig, BuildServerConfig);
+    Exit(TTlsEngineFactory.CreateServerEngine(LServerCfg));
   end;
+  Exit(TTlsEngineFactory.CreateServerEngine(BuildServerConfig));
 end;
 
 procedure TTlsLibIOHandlerSocket.DoHandshake;
@@ -540,6 +621,7 @@ procedure TTlsLibServerIOHandler.InitComponent;
 begin
   inherited InitComponent;
   FOptions := TTlsLibSSLOptions.Create;
+  FServerMemo := NewTlsServerConfigMemo;
 end;
 
 destructor TTlsLibServerIOHandler.Destroy;
@@ -564,6 +646,7 @@ begin
         begin
           LIO.IsPeer := True;
           LIO.SSLOptions.Assign(FOptions);
+          LIO.AdoptServerMemo(FServerMemo); // all peers share the listener's build-once config
           LIO.PassThrough := False; // a straight TLS server upgrades on accept
           LIO.AfterAccept;
           Result := LIO;
@@ -582,6 +665,7 @@ begin
   LIO := TTlsLibIOHandlerSocket.Create(nil);
   LIO.PassThrough := True;
   LIO.SSLOptions.Assign(FOptions);
+  LIO.AdoptServerMemo(FServerMemo);
   Result := LIO;
 end;
 

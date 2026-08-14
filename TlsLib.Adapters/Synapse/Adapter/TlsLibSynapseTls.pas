@@ -45,6 +45,9 @@ uses
   TlpTlsPresets,
   TlpITlsEngine,
   TlpTlsEngineFactory,
+  TlpITlsConfigMemo,
+  TlpTlsConfigMemo,
+  TlpTlsSignatureBuilder,
   TlpITlsTransport,
   TlpTlsStreamPump,
   TlpTlsStream,
@@ -92,6 +95,10 @@ type
     FClientConfig: ITlsClientConfig;
     FServerConfig: ITlsServerConfig;
     function LoadFileBytes(const APath: string): TBytes;
+    function BuildClientConfig: ITlsClientConfig;
+    function BuildServerConfig: ITlsServerConfig;
+    function ClientSignature: string;
+    function ServerSignature: string;
     function BuildClientEngine: ITlsEngine;
     function BuildServerEngine: ITlsEngine;
     /// <summary>Raises when a supplied config is set together with cert/trust properties a
@@ -158,6 +165,10 @@ var
   GVerifyCallback: TTlsCertificateVerifyCallback;
   GVerdictResolver: TTlsVerdictResolver;
   GVerdictDeadlineMs: Cardinal;
+  // the plugin is created per socket, so the build-once memos live process-wide (like the hooks
+  // above); keyed so several servers with different certs in one process do not thrash
+  GServerConfigMemo: ITlsServerConfigMemo;
+  GClientConfigMemo: ITlsClientConfigMemo;
 
 procedure SetTlsLibSynapseVerifyCallback(
   const ACallback: TTlsCertificateVerifyCallback);
@@ -258,19 +269,13 @@ begin
       Format(SConfigAndOptionsConflict, [APropertyName]));
 end;
 
-function TSSLTlsLib.BuildClientEngine: ITlsEngine;
+function TSSLTlsLib.BuildClientConfig: ITlsClientConfig;
 var
+  LProvider: ICryptoProvider;
   LClient: ITlsClientConfigBuilder;
 begin
-  FProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
-  // a fully-built config supplied by the app REPLACES the property-driven build outright; naming
-  // cert/trust properties alongside it fails loud rather than dropping them silently
-  if FClientConfig <> nil then
-  begin
-    GuardNoConflict('ClientConfig');
-    Exit(TTlsEngineFactory.CreateClientEngine(FClientConfig, FSNIHost));
-  end;
-  LClient := TTlsPresets.Compatible(FProvider).Client;
+  LProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  LClient := TTlsPresets.Compatible(LProvider).Client;
   // Synapse exposes no dedicated system-trust switch, so we compose peer trust from the props it
   // already has (CertCAFile + VerifyCert) plus our per-connection UseSystemTrust. System trust is
   // never implicit - it must be asked for:
@@ -287,7 +292,7 @@ begin
     if FCertCAFile <> '' then
       LClient.WithTrustAnchors(LoadFileBytes(FCertCAFile));
     if FUseSystemTrust then
-      TSystemTrust.WithSystemTrust(LClient, FProvider);
+      TSystemTrust.WithSystemTrust(LClient, LProvider);
   end
   else
   begin
@@ -304,29 +309,90 @@ begin
     LClient.WithCertificateVerifyCallback(GVerifyCallback);
   if Assigned(GVerdictResolver) then
     LClient.WithAsyncCertificateVerdict(True, GVerdictDeadlineMs);
-  Result := TTlsEngineFactory.CreateClientEngine(LClient.Build, FSNIHost);
+  Result := LClient.Build;
 end;
 
-function TSSLTlsLib.BuildServerEngine: ITlsEngine;
+function TSSLTlsLib.BuildServerConfig: ITlsServerConfig;
 var
+  LProvider: ICryptoProvider;
   LServer: ITlsServerConfigBuilder;
 begin
-  FProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
-  // a fully-built config supplied by the app REPLACES the property-driven build outright; naming
-  // cert/trust properties alongside it fails loud rather than dropping them silently
-  if FServerConfig <> nil then
-  begin
-    GuardNoConflict('ServerConfig');
-    Exit(TTlsEngineFactory.CreateServerEngine(FServerConfig));
-  end;
   // a clear message when no cert is configured, rather than an opaque file-open error
   // (DriveHandshake wraps this into FLastError/FLastErrorDesc - no exception escapes)
   if FCertificateFile = '' then
     raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SNoServerCredential);
-  LServer := TTlsPresets.Compatible(FProvider).Server
+  LProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  LServer := TTlsPresets.Compatible(LProvider).Server
     .WithCredential(LoadFileBytes(FCertificateFile), LoadFileBytes(FPrivateKeyFile),
     FKeyPassword);
-  Result := TTlsEngineFactory.CreateServerEngine(LServer.Build);
+  Result := LServer.Build;
+end;
+
+function TSSLTlsLib.ClientSignature: string;
+var
+  LSig: TTlsSignatureBuilder;
+begin
+  LSig := TTlsSignatureBuilder.Create(nil);
+  LSig.AddFile('cert', FCertificateFile);
+  LSig.AddFile('key', FPrivateKeyFile);
+  LSig.AddText('keypw', FKeyPassword);
+  LSig.AddFile('ca', FCertCAFile);
+  LSig.AddFlag('verifyCert', FVerifyCert);
+  LSig.AddFlag('systemTrust', FUseSystemTrust);
+  // the process-wide hooks are baked into the built config, so they belong in the key
+  LSig.AddMethod('verifyCb', TMethod(GVerifyCallback));
+  LSig.AddFlag('asyncVerdict', Assigned(GVerdictResolver));
+  LSig.AddCardinal('deadline', GVerdictDeadlineMs);
+  Result := LSig.Value;
+end;
+
+function TSSLTlsLib.ServerSignature: string;
+var
+  LSig: TTlsSignatureBuilder;
+begin
+  LSig := TTlsSignatureBuilder.Create(nil);
+  LSig.AddFile('cert', FCertificateFile);
+  LSig.AddFile('key', FPrivateKeyFile);
+  LSig.AddText('keypw', FKeyPassword);
+  Result := LSig.Value;
+end;
+
+function TSSLTlsLib.BuildClientEngine: ITlsEngine;
+var
+  LCfg: ITlsClientConfig;
+  LSig: string;
+begin
+  // a fully-built config supplied by the app REPLACES the property-driven build outright; naming
+  // cert/trust properties alongside it fails loud rather than dropping them silently
+  if FClientConfig <> nil then
+  begin
+    GuardNoConflict('ClientConfig');
+    FProvider := FClientConfig.Provider;
+    Exit(TTlsEngineFactory.CreateClientEngine(FClientConfig, FSNIHost));
+  end;
+  LSig := ClientSignature;
+  if not GClientConfigMemo.TryGet(LSig, LCfg) then
+    LCfg := GClientConfigMemo.StoreOrAdopt(LSig, BuildClientConfig);
+  FProvider := LCfg.Provider; // the peer-info accessors reuse the config's provider
+  Result := TTlsEngineFactory.CreateClientEngine(LCfg, FSNIHost);
+end;
+
+function TSSLTlsLib.BuildServerEngine: ITlsEngine;
+var
+  LCfg: ITlsServerConfig;
+  LSig: string;
+begin
+  if FServerConfig <> nil then
+  begin
+    GuardNoConflict('ServerConfig');
+    FProvider := FServerConfig.Provider;
+    Exit(TTlsEngineFactory.CreateServerEngine(FServerConfig));
+  end;
+  LSig := ServerSignature;
+  if not GServerConfigMemo.TryGet(LSig, LCfg) then
+    LCfg := GServerConfigMemo.StoreOrAdopt(LSig, BuildServerConfig);
+  FProvider := LCfg.Provider;
+  Result := TTlsEngineFactory.CreateServerEngine(LCfg);
 end;
 
 function TSSLTlsLib.DriveHandshake(AIsClient: Boolean;
@@ -555,5 +621,7 @@ end;
 
 initialization
   SSLImplementation := TSSLTlsLib;
+  GServerConfigMemo := NewTlsServerConfigMemo;
+  GClientConfigMemo := NewTlsClientConfigMemo;
 
 end.

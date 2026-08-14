@@ -28,7 +28,7 @@
     <Description Value="Opinionated yet Modular TLS for Modern Object Pascal"/>
     <License Value="MIT License"/>
     <Version Major="1"/>
-    <Files Count="106">
+    <Files Count="109">
       <Item1>
         <Filename Value="..\..\Crypto\TlpCryptoAlgorithms.pas"/>
         <UnitName Value="TlpCryptoAlgorithms"/>
@@ -453,6 +453,18 @@
         <Filename Value="..\..\CertCompression\TlpInMemoryCertificateCompressionCache.pas"/>
         <UnitName Value="TlpInMemoryCertificateCompressionCache"/>
       </Item106>
+      <Item107>
+        <Filename Value="..\..\Engine\TlpTlsConfigMemo.pas"/>
+        <UnitName Value="TlpTlsConfigMemo"/>
+      </Item107>
+      <Item108>
+        <Filename Value="..\..\Engine\TlpTlsSignatureBuilder.pas"/>
+        <UnitName Value="TlpTlsSignatureBuilder"/>
+      </Item108>
+      <Item109>
+        <Filename Value="..\..\Interfaces\Engine\TlpITlsConfigMemo.pas"/>
+        <UnitName Value="TlpITlsConfigMemo"/>
+      </Item109>
     </Files>
     <CompatibilityMode Value="True"/>
     <RequiredPkgs Count="2">

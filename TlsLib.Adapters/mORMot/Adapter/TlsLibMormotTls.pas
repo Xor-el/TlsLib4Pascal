@@ -44,6 +44,9 @@ uses
   TlpTlsPresets,
   TlpITlsEngine,
   TlpTlsEngineFactory,
+  TlpITlsConfigMemo,
+  TlpTlsConfigMemo,
+  TlpTlsSignatureBuilder,
   TlpITlsTransport,
   TlpTlsStreamPump,
   TlpTlsStream,
@@ -97,6 +100,10 @@ type
     /// <summary>Whether the context names any cert/trust field a process-wide config would replace.</summary>
     class function ContextCarriesTrustOrCredential(
       const AContext: TNetTlsContext): Boolean; static;
+    class function BuildClientConfig(const AContext: TNetTlsContext): ITlsClientConfig; static;
+    class function BuildServerConfig(const AContext: TNetTlsContext): ITlsServerConfig; static;
+    class function ClientSignature(const AContext: TNetTlsContext): string; static;
+    class function ServerSignature(const AContext: TNetTlsContext): string; static;
     class function BuildClientEngine(var AContext: TNetTlsContext;
       const AHost: string): ITlsEngine; static;
     class function BuildServerEngine(const AContext: TNetTlsContext): ITlsEngine; static;
@@ -145,6 +152,10 @@ var
   // process-wide fully-built configs that, when set, REPLACE the context-driven build
   GClientConfig: ITlsClientConfig;
   GServerConfig: ITlsServerConfig;
+  // mORMot builds an INetTls per connection, so the build-once memos for the context-driven
+  // path live process-wide
+  GServerConfigMemo: ITlsServerConfigMemo;
+  GClientConfigMemo: ITlsClientConfigMemo;
 
 procedure SetTlsLibMormotVerifyCallback(
   const ACallback: TTlsCertificateVerifyCallback);
@@ -261,32 +272,16 @@ begin
     (AContext.CACertificatesRaw <> nil);
 end;
 
-class function TTlsLibNetTls.BuildClientEngine(var AContext: TNetTlsContext;
-  const AHost: string): ITlsEngine;
+class function TTlsLibNetTls.BuildClientConfig(
+  const AContext: TNetTlsContext): ITlsClientConfig;
 var
   LProvider: ICryptoProvider;
   LClient: ITlsClientConfigBuilder;
   LHasTrust: Boolean;
 begin
-  // a process-wide fully-built config REPLACES the context-driven build outright; a context that
-  // also carries cert/trust fields fails loud rather than dropping them silently (the verify
-  // callback and verdict resolver are runtime hooks and still apply)
-  if GClientConfig <> nil then
-  begin
-    if ContextCarriesTrustOrCredential(AContext) then
-      raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
-        Format(SConfigAndContextConflict, ['SetTlsLibMormotClientConfig']));
-    AContext.Enabled := True;
-    Exit(TTlsEngineFactory.CreateClientEngine(GClientConfig, AHost));
-  end;
   LProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
   LClient := TTlsPresets.Compatible(LProvider).Client;
   LHasTrust := False;
-  // CACertificatesRaw carries live OpenSSL X509 handles - honoring it would reintroduce the very
-  // OpenSSL dependency this adapter exists to remove, so fail loud and actionable rather than
-  // silently dropping the trust the caller thinks they configured
-  if AContext.CACertificatesRaw <> nil then
-    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SCARawUnsupported);
   // trust: a CASystemStores set that names an anchor-bearing store (the ROOT and/or CA store -
   // exactly what our OS harvester collects) routes to the OS trust store (Windows crypt32 /
   // macOS SecTrust / Unix bundle). scsMY (personal identity) and scsSpc (code-signing) are not
@@ -323,29 +318,17 @@ begin
     LClient.WithCertificateVerifyCallback(GVerifyCallback);
   if Assigned(GVerdictResolver) then
     LClient.WithAsyncCertificateVerdict(True, GVerdictDeadlineMs);
-  Result := TTlsEngineFactory.CreateClientEngine(LClient.Build, AHost);
-  AContext.Enabled := True;
+  Result := LClient.Build;
 end;
 
-class function TTlsLibNetTls.BuildServerEngine(
-  const AContext: TNetTlsContext): ITlsEngine;
+class function TTlsLibNetTls.BuildServerConfig(
+  const AContext: TNetTlsContext): ITlsServerConfig;
 var
   LProvider: ICryptoProvider;
   LServer: ITlsServerConfigBuilder;
 begin
-  // a context that also carries cert/trust fields fails loud rather than being dropped silently
-  if GServerConfig <> nil then
-  begin
-    if ContextCarriesTrustOrCredential(AContext) then
-      raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
-        Format(SConfigAndContextConflict, ['SetTlsLibMormotServerConfig']));
-    Exit(TTlsEngineFactory.CreateServerEngine(GServerConfig));
-  end;
   LProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
   LServer := TTlsPresets.Compatible(LProvider).Server;
-  // as on the client: we cannot consume in-memory OpenSSL X509 handles
-  if AContext.CACertificatesRaw <> nil then
-    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SCARawUnsupported);
   if AContext.CertificateFile <> '' then
     LServer.WithCredential(LoadFile(AContext.CertificateFile),
       LoadFile(AContext.PrivateKeyFile), Utf8ToString(AContext.PrivatePassword))
@@ -365,7 +348,90 @@ begin
     if AContext.CACertificatesFile <> '' then
       LServer.WithTrustAnchors(LoadFile(AContext.CACertificatesFile));
   end;
-  Result := TTlsEngineFactory.CreateServerEngine(LServer.Build);
+  Result := LServer.Build;
+end;
+
+class function TTlsLibNetTls.ClientSignature(const AContext: TNetTlsContext): string;
+var
+  LSig: TTlsSignatureBuilder;
+begin
+  LSig := TTlsSignatureBuilder.Create(nil); // mORMot inputs are all files/scalars
+  LSig.AddFile('cert', Utf8ToString(AContext.CertificateFile));
+  LSig.AddFile('key', Utf8ToString(AContext.PrivateKeyFile));
+  LSig.AddText('keypw', Utf8ToString(AContext.PrivatePassword));
+  LSig.AddFile('ca', Utf8ToString(AContext.CACertificatesFile));
+  LSig.AddFlag('scsRoot', scsRoot in AContext.CASystemStores);
+  LSig.AddFlag('scsCA', scsCA in AContext.CASystemStores);
+  LSig.AddFlag('ignoreErrors', AContext.IgnoreCertificateErrors);
+  LSig.AddMethod('verifyCb', TMethod(GVerifyCallback));
+  LSig.AddFlag('asyncVerdict', Assigned(GVerdictResolver));
+  LSig.AddCardinal('deadline', GVerdictDeadlineMs);
+  Result := LSig.Value;
+end;
+
+class function TTlsLibNetTls.ServerSignature(const AContext: TNetTlsContext): string;
+var
+  LSig: TTlsSignatureBuilder;
+begin
+  LSig := TTlsSignatureBuilder.Create(nil);
+  LSig.AddFile('cert', Utf8ToString(AContext.CertificateFile));
+  LSig.AddFile('key', Utf8ToString(AContext.PrivateKeyFile));
+  LSig.AddText('keypw', Utf8ToString(AContext.PrivatePassword));
+  LSig.AddFlag('clientAuth', AContext.ClientCertificateAuthentication);
+  LSig.AddFile('ca', Utf8ToString(AContext.CACertificatesFile));
+  LSig.AddFlag('scsRoot', scsRoot in AContext.CASystemStores);
+  LSig.AddFlag('scsCA', scsCA in AContext.CASystemStores);
+  Result := LSig.Value;
+end;
+
+class function TTlsLibNetTls.BuildClientEngine(var AContext: TNetTlsContext;
+  const AHost: string): ITlsEngine;
+var
+  LCfg: ITlsClientConfig;
+  LSig: string;
+begin
+  // a process-wide fully-built config REPLACES the context-driven build outright; a context that
+  // also carries cert/trust fields fails loud rather than dropping them silently (the verify
+  // callback and verdict resolver are runtime hooks and still apply)
+  if GClientConfig <> nil then
+  begin
+    if ContextCarriesTrustOrCredential(AContext) then
+      raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
+        Format(SConfigAndContextConflict, ['SetTlsLibMormotClientConfig']));
+    AContext.Enabled := True;
+    Exit(TTlsEngineFactory.CreateClientEngine(GClientConfig, AHost));
+  end;
+  // CACertificatesRaw carries live OpenSSL X509 handles we cannot consume; reject before the memo
+  // (it is per-context, never part of the build signature)
+  if AContext.CACertificatesRaw <> nil then
+    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SCARawUnsupported);
+  LSig := ClientSignature(AContext);
+  if not GClientConfigMemo.TryGet(LSig, LCfg) then
+    LCfg := GClientConfigMemo.StoreOrAdopt(LSig, BuildClientConfig(AContext));
+  AContext.Enabled := True;
+  Result := TTlsEngineFactory.CreateClientEngine(LCfg, AHost);
+end;
+
+class function TTlsLibNetTls.BuildServerEngine(
+  const AContext: TNetTlsContext): ITlsEngine;
+var
+  LCfg: ITlsServerConfig;
+  LSig: string;
+begin
+  // a context that also carries cert/trust fields fails loud rather than being dropped silently
+  if GServerConfig <> nil then
+  begin
+    if ContextCarriesTrustOrCredential(AContext) then
+      raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
+        Format(SConfigAndContextConflict, ['SetTlsLibMormotServerConfig']));
+    Exit(TTlsEngineFactory.CreateServerEngine(GServerConfig));
+  end;
+  if AContext.CACertificatesRaw <> nil then
+    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SCARawUnsupported);
+  LSig := ServerSignature(AContext);
+  if not GServerConfigMemo.TryGet(LSig, LCfg) then
+    LCfg := GServerConfigMemo.StoreOrAdopt(LSig, BuildServerConfig(AContext));
+  Result := TTlsEngineFactory.CreateServerEngine(LCfg);
 end;
 
 procedure TTlsLibNetTls.DriveHandshake(ASocket: TNetSocket;
@@ -493,5 +559,9 @@ procedure RegisterTlsLib4PascalTls;
 begin
   NewNetTls := NewTlsLib4PascalTls;
 end;
+
+initialization
+  GServerConfigMemo := NewTlsServerConfigMemo;
+  GClientConfigMemo := NewTlsClientConfigMemo;
 
 end.

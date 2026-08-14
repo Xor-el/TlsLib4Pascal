@@ -94,6 +94,12 @@ trust the familiar way. Only what fcl-net lacks is added as extension properties
 | `VerifyCallback` / `VerdictResolver` + `VerdictDeadlineMs` | augment-only hook / out-of-band verdict (live OCSP/CRL) |
 | `OnVerifyCertificate` (fcl-net native)                | augment-only reject after our pipeline             |
 
+**Certificate chain**: `CertificateData.Certificate` is the chain the server *presents* — put your leaf
+**followed by any intermediates** (a concatenated PEM, or a multi-cert byte slot) so clients build a
+complete chain. `CertCA` / `TrustedCertificate` are **trust sources** (used to verify the *peer*), never
+part of what you send; putting intermediates only there leaves the presented chain incomplete, forcing
+clients to fetch the missing CA.
+
 **Verification is on by default — safer than fcl-net.** fcl-net's own OpenSSL handler leaves
 `VerifyPeerCert` at `False` (so stock `TFPHTTPClient` does **not** verify — a well-known footgun);
 this adapter's constructor defaults it to **`True`**. Trust is therefore **fail-closed**: a client

@@ -29,6 +29,11 @@ assigns `NewNetTls`; if you prefer, assign it yourself: `NewNetTls := NewTlsLib4
 | `IgnoreCertificateErrors`                | **`dangerous` `WithDangerousInsecureSkipVerify`** (see below) |
 | `CipherName` (out)                       | filled with the negotiated version (`TLSv1.3`/`TLSv1.2`) |
 
+**Certificate chain**: `CertificateFile` is the chain the server *presents* — put your leaf **followed
+by any intermediates** in one PEM file so clients build a complete chain. `CACertificatesFile` is a
+**trust source** (used to verify the *peer*), never part of what you send; putting intermediates only
+there leaves the presented chain incomplete, forcing clients to fetch the missing CA.
+
 Accepted **and ignored** (documented no-ops — we are TLS 1.2+ and never renegotiate; they never
 silently weaken the connection): `DisableTls13`, `AllowDeprecatedTls`, `ClientAllowUnsafeRenegotation`.
 

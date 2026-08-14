@@ -44,6 +44,9 @@ uses
   TlpTlsPresets,
   TlpITlsEngine,
   TlpTlsEngineFactory,
+  TlpITlsConfigMemo,
+  TlpTlsConfigMemo,
+  TlpTlsSignatureBuilder,
   TlpITlsTransport,
   TlpTlsStreamPump,
   TlpTlsStream,
@@ -123,6 +126,10 @@ type
     procedure GuardNoConflict(const APropertyName: string);
     procedure ApplyClientTrust(const ABuilder: ITlsClientConfigBuilder);
     procedure ApplyServerClientAuth(const ABuilder: ITlsServerConfigBuilder);
+    function BuildClientConfig: ITlsClientConfig;
+    function BuildServerConfig: ITlsServerConfig;
+    function ClientSignature: string;
+    function ServerSignature: string;
     function BuildClientEngine(const AHost: string): ITlsEngine;
     function BuildServerEngine: ITlsEngine;
     function DriveHandshake(AIsClient: Boolean; const AHost: string): Boolean;
@@ -215,6 +222,23 @@ resourcestring
     'host, or set CheckHostName := False to verify the chain only';
   SConfigAndOptionsConflict = '%s is set together with cert/trust properties that a fully-built ' +
     'config replaces; supply either the config or the cert/trust properties, not both';
+
+var
+  // fcl-net creates the handler per connection, so the build-once memos and the hashing provider
+  // for the signature (an fcl-net cert slot may be in-memory bytes, not a file) live process-wide
+  GServerConfigMemo: ITlsServerConfigMemo;
+  GClientConfigMemo: ITlsClientConfigMemo;
+  GSignatureProvider: ICryptoProvider;
+
+// a cert slot is either inline bytes or a file path; sign the bytes by digest, the file by stat
+procedure SignSslData(var ASig: TTlsSignatureBuilder; const AName: string;
+  const AData: TSSLData);
+begin
+  if System.Length(AData.Value) > 0 then
+    ASig.AddBytesDigest(AName, AData.Value)
+  else
+    ASig.AddFile(AName, AData.FileName);
+end;
 
 { TFclNetSocketTransport }
 
@@ -364,17 +388,10 @@ begin
     ABuilder.WithTrustStore(FCustomTrustStore);
 end;
 
-function TTlsLibSocketHandler.BuildClientEngine(const AHost: string): ITlsEngine;
+function TTlsLibSocketHandler.BuildClientConfig: ITlsClientConfig;
 var
   LClient: ITlsClientConfigBuilder;
 begin
-  // a fully-built config supplied by the app REPLACES the property-driven build outright; naming
-  // cert/trust properties alongside it fails loud rather than dropping them silently
-  if FClientConfig <> nil then
-  begin
-    GuardNoConflict('ClientConfig');
-    Exit(TTlsEngineFactory.CreateClientEngine(FClientConfig, AHost));
-  end;
   FProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
   LClient := TTlsPresets.Compatible(FProvider).Client;
   // VerifyPeerCert is fcl-net's native verify switch: True runs real verification (and fails closed
@@ -393,37 +410,26 @@ begin
   if not VerifyPeerCert then
     LClient.WithDangerousInsecureSkipVerify(True);
   if not FCheckHostName then
-    LClient.WithNameCheck(False)
-  else if VerifyPeerCert and (AHost = '') then
-    // host-name verification is requested but the socket carries no host to check the identity
-    // against: fail closed rather than silently verify only the chain and skip RFC 6125
-    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SNoHostForNameCheck);
+    LClient.WithNameCheck(False);
   if System.Length(FAlpnProtocols) > 0 then
     LClient.WithAlpnProtocols(FAlpnProtocols);
   // an optional client credential for mutual TLS
   if not CertificateData.Certificate.Empty then
     LClient.WithCredential(SSLDataBytes(CertificateData.Certificate),
       SSLDataBytes(CertificateData.PrivateKey), FKeyPassword);
-  // an app's augment-only verify rule, and an out-of-band verdict resolver (live revocation etc.)
-  // that parks the handshake for a decision
+  // an app's augment-only verify rule, and the async-verdict flag (the resolver itself is a
+  // runtime stream hook applied in DriveHandshake, not part of the frozen config)
   if Assigned(FVerifyCallback) then
     LClient.WithCertificateVerifyCallback(FVerifyCallback);
   if Assigned(FVerdictResolver) then
     LClient.WithAsyncCertificateVerdict(True, FVerdictDeadlineMs);
-  Result := TTlsEngineFactory.CreateClientEngine(LClient.Build, AHost);
+  Result := LClient.Build;
 end;
 
-function TTlsLibSocketHandler.BuildServerEngine: ITlsEngine;
+function TTlsLibSocketHandler.BuildServerConfig: ITlsServerConfig;
 var
   LServer: ITlsServerConfigBuilder;
 begin
-  // a fully-built config supplied by the app REPLACES the property-driven build outright; naming
-  // cert/trust properties alongside it fails loud rather than dropping them silently
-  if FServerConfig <> nil then
-  begin
-    GuardNoConflict('ServerConfig');
-    Exit(TTlsEngineFactory.CreateServerEngine(FServerConfig));
-  end;
   // a clear message when no cert is configured, rather than an opaque file-open error
   // (DriveHandshake wraps this into FLastError/FLastErrorDesc - no exception escapes)
   if CertificateData.Certificate.Empty then
@@ -442,7 +448,88 @@ begin
     LServer.WithPeerAuth(TClientAuthMode.Required);
     ApplyServerClientAuth(LServer);
   end;
-  Result := TTlsEngineFactory.CreateServerEngine(LServer.Build);
+  Result := LServer.Build;
+end;
+
+function TTlsLibSocketHandler.ClientSignature: string;
+var
+  LSig: TTlsSignatureBuilder;
+  LProto: string;
+begin
+  LSig := TTlsSignatureBuilder.Create(GSignatureProvider);
+  SignSslData(LSig, 'cert', CertificateData.Certificate);
+  SignSslData(LSig, 'key', CertificateData.PrivateKey);
+  SignSslData(LSig, 'ca', CertificateData.CertCA);
+  SignSslData(LSig, 'trusted', CertificateData.TrustedCertificate);
+  LSig.AddText('keypw', FKeyPassword);
+  LSig.AddFlag('verifyPeer', VerifyPeerCert);
+  LSig.AddFlag('checkHost', FCheckHostName);
+  LSig.AddFlag('systemTrust', FUseSystemTrust);
+  LSig.AddPointer('customVerifier', FCustomVerifier);
+  LSig.AddPointer('customStore', FCustomTrustStore);
+  for LProto in FAlpnProtocols do
+    LSig.AddText('alpn', LProto);
+  LSig.AddMethod('verifyCb', TMethod(FVerifyCallback));
+  LSig.AddFlag('asyncVerdict', Assigned(FVerdictResolver));
+  LSig.AddCardinal('deadline', FVerdictDeadlineMs);
+  Result := LSig.Value;
+end;
+
+function TTlsLibSocketHandler.ServerSignature: string;
+var
+  LSig: TTlsSignatureBuilder;
+  LProto: string;
+begin
+  LSig := TTlsSignatureBuilder.Create(GSignatureProvider);
+  SignSslData(LSig, 'cert', CertificateData.Certificate);
+  SignSslData(LSig, 'key', CertificateData.PrivateKey);
+  SignSslData(LSig, 'ca', CertificateData.CertCA);
+  SignSslData(LSig, 'trusted', CertificateData.TrustedCertificate);
+  LSig.AddText('keypw', FKeyPassword);
+  LSig.AddFlag('systemTrust', FUseSystemTrust);
+  LSig.AddPointer('customVerifier', FCustomVerifier);
+  LSig.AddPointer('customStore', FCustomTrustStore);
+  for LProto in FAlpnProtocols do
+    LSig.AddText('alpn', LProto);
+  Result := LSig.Value;
+end;
+
+function TTlsLibSocketHandler.BuildClientEngine(const AHost: string): ITlsEngine;
+var
+  LCfg: ITlsClientConfig;
+  LSig: string;
+begin
+  // a fully-built config supplied by the app REPLACES the property-driven build outright; naming
+  // cert/trust properties alongside it fails loud rather than dropping them silently
+  if FClientConfig <> nil then
+  begin
+    GuardNoConflict('ClientConfig');
+    Exit(TTlsEngineFactory.CreateClientEngine(FClientConfig, AHost));
+  end;
+  // host-name verification requested but the socket carries no host to check against: fail closed
+  // rather than silently verify only the chain and skip RFC 6125 (a per-connection check)
+  if FCheckHostName and VerifyPeerCert and (AHost = '') then
+    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SNoHostForNameCheck);
+  LSig := ClientSignature;
+  if not GClientConfigMemo.TryGet(LSig, LCfg) then
+    LCfg := GClientConfigMemo.StoreOrAdopt(LSig, BuildClientConfig);
+  Result := TTlsEngineFactory.CreateClientEngine(LCfg, AHost);
+end;
+
+function TTlsLibSocketHandler.BuildServerEngine: ITlsEngine;
+var
+  LCfg: ITlsServerConfig;
+  LSig: string;
+begin
+  if FServerConfig <> nil then
+  begin
+    GuardNoConflict('ServerConfig');
+    Exit(TTlsEngineFactory.CreateServerEngine(FServerConfig));
+  end;
+  LSig := ServerSignature;
+  if not GServerConfigMemo.TryGet(LSig, LCfg) then
+    LCfg := GServerConfigMemo.StoreOrAdopt(LSig, BuildServerConfig);
+  Result := TTlsEngineFactory.CreateServerEngine(LCfg);
 end;
 
 function TTlsLibSocketHandler.DriveHandshake(AIsClient: Boolean;
@@ -582,6 +669,9 @@ begin
 end;
 
 initialization
+  GServerConfigMemo := NewTlsServerConfigMemo;
+  GClientConfigMemo := NewTlsClientConfigMemo;
+  GSignatureProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
   TSSLSocketHandler.SetDefaultHandlerClass(TTlsLibSocketHandler);
 
 end.
