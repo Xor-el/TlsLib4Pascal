@@ -1,0 +1,25 @@
+.github/workflows/ci/interop/run-bogo.sh
+  s_3957973a090260::t_f845c6a9a99658 6-9
+.github/workflows/ci/interop/interop-harness/action.yml
+  s_3957973a090260::t_d590786291c296 76
+  s_3957973a090260::t_df6bb2591482a2 32-38
+.github/workflows/ci/interop/bogo-classify.py
+  s_3957973a090260::t_0aedaccb2c3144 16
+  s_3957973a090260::t_75e783035cbec5 145-147
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "9f0bbb17c2d4df708344d56423b8519242cca0a9",
+  "prompts": {},
+  "sessions": {
+    "s_3957973a090260": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6deaf670-7f07-4977-8d0c-c1e8159f395d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
