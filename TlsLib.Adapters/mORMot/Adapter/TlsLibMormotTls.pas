@@ -92,8 +92,13 @@ type
   strict private
   var
     FSocket: TNetSocket;
+    FReadTimeoutMs: Int32; // > 0 bounds a read (the handshake phase); 0 = block (app data)
   public
     constructor Create(ASocket: TNetSocket);
+    /// <summary>Bounds each Read to AMs milliseconds (0 = block indefinitely). SO_RCVTIMEO is
+    /// unusable here because TNetSocket.Recv reports a receive-timeout as nrRetry, which the
+    /// read loop would spin on; a WaitFor(neRead) before each Recv gives a real timeout.</summary>
+    procedure SetReadTimeout(AMs: Int32);
     function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
     procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
   end;
@@ -225,6 +230,11 @@ begin
   FSocket := ASocket;
 end;
 
+procedure TMormotSocketTransport.SetReadTimeout(AMs: Int32);
+begin
+  FReadTimeoutMs := AMs;
+end;
+
 function TMormotSocketTransport.Read(var ABuffer: TBytes; AOffset,
   AMaxLength: Int32): Int32;
 var
@@ -232,6 +242,12 @@ var
   LRes: TNetResult;
 begin
   repeat
+    // during the handshake a bounded wait keeps a peer that connects but never sends its flight
+    // from parking this thread; a timeout (WaitFor returns without neRead) surfaces as EOF, which
+    // the pump treats as a truncated handshake. App-data reads (timeout 0) block normally.
+    if (FReadTimeoutMs > 0) and
+      (not (neRead in FSocket.WaitFor(FReadTimeoutMs, [neRead]))) then
+      Exit(0);
     LLen := AMaxLength;
     LRes := FSocket.Recv(@ABuffer[AOffset], LLen);
     case LRes of
@@ -503,14 +519,27 @@ end;
 
 procedure TTlsLibNetTls.DriveHandshake(ASocket: TNetSocket;
   const AEngine: ITlsEngine; AIsClient: Boolean; const AHost: string);
+const
+  // a peer that connects but never sends its flight (a browser speculative/backup socket) must
+  // not park this thread forever; the transport's WaitFor bounds the handshake reads, then the
+  // cap is cleared so application reads block normally
+  HandshakeReadTimeoutMs = 20000;
+var
+  LTransport: TMormotSocketTransport;
 begin
   FEngine := AEngine;
   FServerName := AHost;
-  FTransport := TMormotSocketTransport.Create(ASocket) as ITlsTransport;
+  LTransport := TMormotSocketTransport.Create(ASocket);
+  LTransport.SetReadTimeout(HandshakeReadTimeoutMs);
+  FTransport := LTransport as ITlsTransport;
   FStream := TTlsStream.Create(FTransport, FEngine, AIsClient, AHost);
   if AIsClient and Assigned(GVerdictResolver) then
     FStream.SetCertificateVerdictResolver(GVerdictResolver);
-  FStream.Handshake;
+  try
+    FStream.Handshake;
+  finally
+    LTransport.SetReadTimeout(0); // handshake done: application reads block normally
+  end;
 end;
 
 procedure TTlsLibNetTls.AfterConnection(Socket: TNetSocket;

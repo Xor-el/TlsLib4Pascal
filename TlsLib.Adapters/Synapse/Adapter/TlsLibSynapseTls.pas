@@ -453,6 +453,8 @@ end;
 
 function TSSLTlsLib.DriveHandshake(AIsClient: Boolean;
   const AHost: string): Boolean;
+const
+  HandshakeReadTimeoutMs = 20000;
 begin
   Result := False;
   try
@@ -470,7 +472,15 @@ begin
     FStream := TTlsStream.Create(FTransport, FEngine, AIsClient, AHost);
     if Assigned(GVerdictResolver) then
       FStream.SetCertificateVerdictResolver(GVerdictResolver);
-    FStream.Handshake;
+    // a peer that connects but never sends its flight (a browser speculative/backup socket) must
+    // not park this thread forever; SO_RCVTIMEO bounds the transport's blocking Recv during the
+    // handshake (both share FSocket.Socket), then is cleared so application reads block normally
+    FSocket.SetRecvTimeout(HandshakeReadTimeoutMs);
+    try
+      FStream.Handshake;
+    finally
+      FSocket.SetRecvTimeout(0);
+    end;
     // Synapse's native OnVerifyCert hook (RFC-agnostic, no OpenSSL type): the app inspects
     // the peer via GetPeer* and returns False to reject - fail-closed
     if not RunPeerVerifyHook then

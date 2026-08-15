@@ -595,6 +595,8 @@ end;
 
 function TTlsLibSocketHandler.DriveHandshake(AIsClient: Boolean;
   const AHost: string): Boolean;
+const
+  HandshakeReadTimeoutMs = 20000;
 begin
   Result := False;
   FLastError := 0;
@@ -614,7 +616,15 @@ begin
     FStream := TTlsStream.Create(FTransport, FEngine, AIsClient, AHost);
     if Assigned(FVerdictResolver) then
       FStream.SetCertificateVerdictResolver(FVerdictResolver);
-    FStream.Handshake;
+    // a peer that connects but never sends its flight (a browser speculative/backup socket) must
+    // not park this thread forever; IOTimeout sets SO_RCVTIMEO on the handle, which bounds the
+    // transport's blocking fpRecv during the handshake, then is cleared so app reads block
+    Socket.IOTimeout := HandshakeReadTimeoutMs;
+    try
+      FStream.Handshake;
+    finally
+      Socket.IOTimeout := 0;
+    end;
     // fcl-net's native OnVerifyCertificate hook runs after our pipeline accepts the chain and can
     // only additionally reject (augment-only, fail-closed)
     if not DoVerifyCert then
