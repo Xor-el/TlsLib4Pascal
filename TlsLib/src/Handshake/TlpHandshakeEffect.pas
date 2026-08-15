@@ -67,6 +67,7 @@ type
     CipherSuite: UInt16;         // ConnectionParams (the negotiated cipher suite code)
     NamedGroup: UInt16;          // ConnectionParams (0 when none / non-(EC)DHE)
     Resumed: Boolean;            // ConnectionParams (a resumed/abbreviated handshake)
+    ServerName: string;          // ConnectionParams (the SNI in play; empty when none)
     Alert: TTlsAlertDescription; // Fail
   end;
 
@@ -109,7 +110,7 @@ type
     /// <summary>Surfaces the negotiated cipher suite, named group (0 when none / non-(EC)DHE),
     /// and whether the handshake was resumed/abbreviated, for read-only connection info.</summary>
     class function ConnectionParams(ACipherSuite, ANamedGroup: UInt16;
-      AResumed: Boolean): THandshakeEffect; static;
+      AResumed: Boolean; const AServerName: string): THandshakeEffect; static;
     class function HandshakeEstablished: THandshakeEffect; static;
     class function Fail(AAlert: TTlsAlertDescription): THandshakeEffect; static;
   end;
@@ -229,13 +230,14 @@ begin
 end;
 
 class function THandshakeEffects.ConnectionParams(ACipherSuite, ANamedGroup: UInt16;
-  AResumed: Boolean): THandshakeEffect;
+  AResumed: Boolean; const AServerName: string): THandshakeEffect;
 begin
   Result := Default(THandshakeEffect);
   Result.Kind := THandshakeEffectKind.ConnectionParams;
   Result.CipherSuite := ACipherSuite;
   Result.NamedGroup := ANamedGroup;
   Result.Resumed := AResumed;
+  Result.ServerName := AServerName;
 end;
 
 class function THandshakeEffects.HandshakeEstablished: THandshakeEffect;

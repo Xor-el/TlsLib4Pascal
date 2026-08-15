@@ -218,6 +218,12 @@ type
     function NegotiatedVersion: TTlsVersion;
     /// <summary>The negotiated cipher-suite wire codepoint once the handshake completes (0 if none).</summary>
     function NegotiatedCipherSuite: UInt16;
+    /// <summary>The negotiated named group (key_share curve) wire codepoint once the handshake
+    /// completes (0 if none).</summary>
+    function NegotiatedGroup: UInt16;
+    /// <summary>The SNI server_name for this connection once the handshake completes: the host a
+    /// client requested (server side) or the host we sent (client side); empty when none.</summary>
+    function PeerServerName: string;
     /// <summary>Clears this handler's build-once client config cache, so the next connect rebuilds
     /// from current SSLOptions. Call after rotating the client credential to purge the retired key.</summary>
     procedure FlushConfigCache;
@@ -748,6 +754,22 @@ begin
     Result := FStream.ConnectionInfo.CipherSuite
   else
     Result := 0;
+end;
+
+function TTlsLibIOHandlerSocket.NegotiatedGroup: UInt16;
+begin
+  if FStream <> nil then
+    Result := FStream.ConnectionInfo.NamedGroup
+  else
+    Result := 0;
+end;
+
+function TTlsLibIOHandlerSocket.PeerServerName: string;
+begin
+  if FStream <> nil then
+    Result := FStream.ConnectionInfo.ServerName
+  else
+    Result := '';
 end;
 
 procedure TTlsLibIOHandlerSocket.FlushConfigCache;

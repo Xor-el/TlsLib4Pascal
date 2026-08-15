@@ -106,8 +106,10 @@ type
     /// CertificateRequest (RFC 8446 4.2.4 / RFC 5246 7.4.4) - surfaced read-only on ITlsEngine.</summary>
     procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>);
     /// <summary>Reports the negotiated cipher suite, named group (0 when none / non-(EC)DHE),
-    /// and whether the handshake resumed - surfaced read-only on ITlsEngine.</summary>
-    procedure OnConnectionParams(ACipherSuite, ANamedGroup: UInt16; AResumed: Boolean);
+    /// whether the handshake resumed, and the SNI server_name in play (the host a client
+    /// requested, as seen by a server; empty when none) - surfaced read-only on ITlsEngine.</summary>
+    procedure OnConnectionParams(ACipherSuite, ANamedGroup: UInt16; AResumed: Boolean;
+      const AServerName: string);
   end;
 
 implementation

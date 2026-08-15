@@ -141,6 +141,12 @@ type
     /// <summary>The negotiated cipher-suite wire codepoint once the handshake completes (0 if none).
     /// Synapse's TCustomSSL has no such accessor, so cast Sock.SSL to TSSLTlsLib to read it.</summary>
     function NegotiatedCipherSuite: UInt16;
+    /// <summary>The negotiated named group (key_share curve) wire codepoint once the handshake
+    /// completes (0 if none). Cast Sock.SSL to TSSLTlsLib to read it.</summary>
+    function NegotiatedGroup: UInt16;
+    /// <summary>The SNI server_name for this connection: the host a client requested (server side)
+    /// or the host we sent (client side); empty when none. Cast Sock.SSL to TSSLTlsLib to read it.</summary>
+    function PeerServerName: string;
     // native peer-certificate accessors an OnVerifyCert handler reads (no OpenSSL type)
     function GetPeerSubject: string; override;
     function GetPeerIssuer: string; override;
@@ -629,6 +635,22 @@ begin
     Result := FEngine.NegotiatedCipherSuite
   else
     Result := 0;
+end;
+
+function TSSLTlsLib.NegotiatedGroup: UInt16;
+begin
+  if FStream <> nil then
+    Result := FEngine.NegotiatedGroup
+  else
+    Result := 0;
+end;
+
+function TSSLTlsLib.PeerServerName: string;
+begin
+  if FStream <> nil then
+    Result := FEngine.PeerServerName
+  else
+    Result := '';
 end;
 
 function TSSLTlsLib.GetPeerSubject: string;

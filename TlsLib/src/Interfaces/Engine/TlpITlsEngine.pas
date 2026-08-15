@@ -205,6 +205,10 @@ type
     /// <summary>The negotiated named group (IANA) used for key exchange, or 0 when none applies
     /// (a non-(EC)DHE TLS 1.2 key exchange). Read after the handshake.</summary>
     function NegotiatedGroup: UInt16;
+    /// <summary>The SNI server_name in play for this connection (RFC 6066): the host_name a
+    /// client requested, as seen by a server, or the host_name a client sent. Empty when the
+    /// client offered no SNI. Read after the handshake.</summary>
+    function PeerServerName: string;
     /// <summary>Whether the handshake was resumed/abbreviated (a TLS 1.3 PSK resumption or a
     /// TLS 1.2 abbreviated handshake), so the peer presented no certificate.</summary>
     function IsResumed: Boolean;

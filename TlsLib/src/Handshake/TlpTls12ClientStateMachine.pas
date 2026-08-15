@@ -822,7 +822,7 @@ begin
   // a full TLS 1.2 handshake here is ECDHE (the only 1.2 key exchange), so FCurrentGroup is set
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code,
-    FCurrentGroup.Code, False));
+    FCurrentGroup.Code, False, FParams.ServerName));
   if System.Length(FRequestedCertificateAuthorities) > 0 then
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.RequestedCertificateAuthorities(
@@ -915,7 +915,8 @@ begin
   Result := TArrayUtilities.Concat<THandshakeEffect>(Result, CacheCompletedSession);
   // an abbreviated resumption performs no fresh key exchange, so there is no negotiated group
   TArrayUtilities.Append<THandshakeEffect>(Result,
-    THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code, 0, True));
+    THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code, 0, True,
+    FParams.ServerName));
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.HandshakeEstablished);
 end;

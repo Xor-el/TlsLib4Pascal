@@ -165,6 +165,12 @@ type
     function NegotiatedVersion: TTlsVersion;
     /// <summary>The negotiated cipher-suite wire codepoint once the handshake completes (0 if none).</summary>
     function NegotiatedCipherSuite: UInt16;
+    /// <summary>The negotiated named group (key_share curve) wire codepoint once the handshake
+    /// completes (0 if none).</summary>
+    function NegotiatedGroup: UInt16;
+    /// <summary>The SNI server_name for this connection: the host a client requested (server side)
+    /// or the host we sent (client side); empty when none.</summary>
+    function PeerServerName: string;
     /// <summary>A human-readable description of the last Connect/Accept/Send/Recv failure.</summary>
     property LastErrorDesc: string read FLastErrorDesc;
     /// <summary>Opt into the OS system-trust anchors (Windows crypt32 / macOS SecTrust / Unix
@@ -759,6 +765,22 @@ begin
     Result := FStream.ConnectionInfo.CipherSuite
   else
     Result := 0;
+end;
+
+function TTlsLibSocketHandler.NegotiatedGroup: UInt16;
+begin
+  if FStream <> nil then
+    Result := FStream.ConnectionInfo.NamedGroup
+  else
+    Result := 0;
+end;
+
+function TTlsLibSocketHandler.PeerServerName: string;
+begin
+  if FStream <> nil then
+    Result := FStream.ConnectionInfo.ServerName
+  else
+    Result := '';
 end;
 
 procedure FlushTlsLibFclNetConfigCache;

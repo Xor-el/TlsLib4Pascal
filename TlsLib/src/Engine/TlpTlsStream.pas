@@ -137,7 +137,11 @@ begin
   Result := Default(TTlsConnectionInfo);
   Result.NegotiatedVersion := FEngine.NegotiatedVersion;
   Result.AlpnProtocol := FEngine.NegotiatedAlpnProtocol;
+  // the client-side construction host, or (server side, where that is empty) the SNI the
+  // client requested, as the handshake resolved it
   Result.ServerName := FServerName;
+  if Result.ServerName = '' then
+    Result.ServerName := FEngine.PeerServerName;
   Result.PeerOcspStaple := FEngine.PeerOcspStaple;
   Result.PeerCertificates := FEngine.PeerCertificates;
   Result.CipherSuite := FEngine.NegotiatedCipherSuite;

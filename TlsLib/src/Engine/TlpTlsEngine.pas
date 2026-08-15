@@ -83,6 +83,7 @@ type
     FRequestedCertificateAuthorities: TArray<TBytes>;
     FNegotiatedCipherSuite: UInt16;
     FNegotiatedGroup: UInt16;
+    FPeerServerName: string;
     FIsResumed: Boolean;
     // async peer-certificate verdict: whether the handshake is parked awaiting a verdict,
     // and the advisory deadline the driver enforces (the engine owns no timer)
@@ -151,6 +152,7 @@ type
     function RequestedCertificateAuthorities: TArray<TBytes>;
     function NegotiatedCipherSuite: UInt16;
     function NegotiatedGroup: UInt16;
+    function PeerServerName: string;
     function IsResumed: Boolean;
 
     // installer + sink operations the handshake bridge forwards to (the engine no
@@ -170,7 +172,8 @@ type
       const AHostName: string);
     procedure OnPeerCertificateChain(const AChain: TArray<TBytes>);
     procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>);
-    procedure OnConnectionParams(ACipherSuite, ANamedGroup: UInt16; AResumed: Boolean);
+    procedure OnConnectionParams(ACipherSuite, ANamedGroup: UInt16; AResumed: Boolean;
+      const AServerName: string);
     procedure OnHandshakeEstablished;
     procedure OnHandshakeFailed(AAlert: TTlsAlertDescription);
     // ITlsEventSource
@@ -226,7 +229,8 @@ type
       const AHostName: string);
     procedure OnPeerCertificateChain(const AChain: TArray<TBytes>);
     procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>);
-    procedure OnConnectionParams(ACipherSuite, ANamedGroup: UInt16; AResumed: Boolean);
+    procedure OnConnectionParams(ACipherSuite, ANamedGroup: UInt16; AResumed: Boolean;
+      const AServerName: string);
     procedure OnHandshakeEstablished;
     procedure OnHandshakeFailed(AAlert: TTlsAlertDescription);
   end;
@@ -316,9 +320,9 @@ begin
 end;
 
 procedure TEngineHandshakeBridge.OnConnectionParams(ACipherSuite,
-  ANamedGroup: UInt16; AResumed: Boolean);
+  ANamedGroup: UInt16; AResumed: Boolean; const AServerName: string);
 begin
-  FEngine.OnConnectionParams(ACipherSuite, ANamedGroup, AResumed);
+  FEngine.OnConnectionParams(ACipherSuite, ANamedGroup, AResumed, AServerName);
 end;
 
 procedure TEngineHandshakeBridge.OnHandshakeEstablished;
@@ -352,6 +356,7 @@ begin
   FAsyncVerdictDeadlineMs := 0;
   FNegotiatedCipherSuite := 0;
   FNegotiatedGroup := 0;
+  FPeerServerName := '';
   FIsResumed := False;
   FNegotiatedAlpn := '';
   // a zero wire code until an epoch's keys name the negotiated version
@@ -840,6 +845,11 @@ begin
   Result := FNegotiatedGroup;
 end;
 
+function TTlsEngine.PeerServerName: string;
+begin
+  Result := FPeerServerName;
+end;
+
 function TTlsEngine.IsResumed: Boolean;
 begin
   Result := FIsResumed;
@@ -933,10 +943,11 @@ begin
 end;
 
 procedure TTlsEngine.OnConnectionParams(ACipherSuite, ANamedGroup: UInt16;
-  AResumed: Boolean);
+  AResumed: Boolean; const AServerName: string);
 begin
   FNegotiatedCipherSuite := ACipherSuite;
   FNegotiatedGroup := ANamedGroup;
+  FPeerServerName := AServerName;
   FIsResumed := AResumed;
 end;
 

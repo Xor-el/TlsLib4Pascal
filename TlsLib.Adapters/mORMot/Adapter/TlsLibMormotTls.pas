@@ -145,6 +145,13 @@ type
     function Receive(Buffer: pointer; var Length: integer): TNetResult;
     function ReceivePending: integer;
     function Send(Buffer: pointer; var Length: integer): TNetResult;
+    // beyond INetTls: cast the INetTls to TTlsLibNetTls to read these post-handshake
+    /// <summary>The negotiated named group (key_share curve) wire codepoint once the handshake
+    /// completes (0 if none).</summary>
+    function NegotiatedGroup: UInt16;
+    /// <summary>The SNI server_name for this connection: the host a client requested (server side)
+    /// or the host we sent (client side); empty when none.</summary>
+    function PeerServerName: string;
   end;
 
 /// <summary>The factory to point mORMot's global at: `NewNetTls := @NewTlsLib4PascalTls;`.</summary>
@@ -584,6 +591,22 @@ begin
     Result := 'TLSv1.3'
   else if LVersion.WireValue = TlsWireVersionTls12 then
     Result := 'TLSv1.2'
+  else
+    Result := '';
+end;
+
+function TTlsLibNetTls.NegotiatedGroup: UInt16;
+begin
+  if FEngine <> nil then
+    Result := FEngine.NegotiatedGroup
+  else
+    Result := 0;
+end;
+
+function TTlsLibNetTls.PeerServerName: string;
+begin
+  if FEngine <> nil then
+    Result := FEngine.PeerServerName
   else
     Result := '';
 end;

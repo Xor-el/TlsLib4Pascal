@@ -1483,7 +1483,7 @@ begin
     TTlsVersion.Tls13));
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code,
-    FCurrentGroupCode, FPskAccepted));
+    FCurrentGroupCode, FPskAccepted, FParams.ServerName));
   if System.Length(FRequestedCertificateAuthorities) > 0 then
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.RequestedCertificateAuthorities(

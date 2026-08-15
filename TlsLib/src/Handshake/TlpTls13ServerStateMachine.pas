@@ -195,6 +195,7 @@ type
     /// accepted when the ALPN negotiated on the resumed handshake matches it (RFC 8446 4.2.11).</summary>
     FAcceptedSessionAlpn: string;
     FClientSentServerName: Boolean;
+    FRequestedServerName: string;
     FPeerRecordSizeLimit: Int32;
     /// <summary>The CertificateVerify scheme negotiated in NegotiateFrom: the first of
     /// the credential's schemes the client also offered.</summary>
@@ -593,6 +594,7 @@ begin
   // a client host_name is acknowledged with an empty server_name in EncryptedExtensions
   // (RFC 6066 3)
   FClientSentServerName := AContext.ServerName <> '';
+  FRequestedServerName := AContext.ServerName;
   // ALPN + record_size_limit are negotiated from the same ClientHello extensions and
   // echoed later in EncryptedExtensions
   FSelectedAlpn := SelectAlpn(AContext.AlpnProtocols);
@@ -1469,7 +1471,7 @@ begin
     THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
     TTlsDirection.ClientWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13),
     THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code,
-    FSelectedGroup.Code, FPskAccepted),
+    FSelectedGroup.Code, FPskAccepted, FRequestedServerName),
     THandshakeEffects.HandshakeEstablished);
   // issue resumption tickets under the freshly-installed application write keys
   EmitNewSessionTickets(Result);

@@ -146,6 +146,7 @@ type
     FUseExtendedMasterSecret: Boolean;
     FEchoRenegotiationInfo: Boolean;
     FClientSentServerName: Boolean;
+    FRequestedServerName: string;
     FSelectedScheme: TSignatureScheme;
     FSchedule: ITls12KeySchedule;
     /// <summary>The stateless ticket strategy (STEK) when configured; session-id
@@ -431,6 +432,7 @@ begin
     // a client host_name is acknowledged with an empty server_name in the ServerHello
     // (RFC 6066 3)
     FClientSentServerName := LContext.ServerName <> '';
+    FRequestedServerName := LContext.ServerName;
 
     // resumption is attempted before any full-handshake negotiation; any mismatch
     // (bad/expired ticket or session id, suite/EMS conflict) falls through to a full
@@ -903,7 +905,8 @@ begin
   FPhase := TPhase.Connected;
   // an abbreviated resumption performs no fresh key exchange, so there is no negotiated group
   Result := TArray<THandshakeEffect>.Create(
-    THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code, 0, True),
+    THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code, 0, True,
+    FRequestedServerName),
     THandshakeEffects.HandshakeEstablished);
 end;
 
@@ -953,7 +956,8 @@ begin
     THandshakeEffects.SendHandshake(LServerFinished));
   // a full TLS 1.2 handshake is always ECDHE (the only 1.2 key exchange): report FGroupCode
   TArrayUtilities.Append<THandshakeEffect>(Result,
-    THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code, FGroupCode, False));
+    THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code, FGroupCode, False,
+    FRequestedServerName));
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.HandshakeEstablished);
 end;
