@@ -1,0 +1,76 @@
+TlsLib.Adapters/Indy/Examples/src/IndyCustomizationExample.pas
+  s_3957973a090260::t_fe8b7f3a318a3c 64-65
+  s_3957973a090260::t_19f21cef7b412d 1-63,66-132,137-481
+  s_3957973a090260::t_1debafb42731b9 133-136
+TlsLib/src/Engine/TlpTlsEngine.pas
+  s_3957973a090260::t_4f97373bfa4ca4 232-233
+  s_3957973a090260::t_4042ded883dd1d 359
+  s_3957973a090260::t_303745d62f02b6 86
+  s_3957973a090260::t_1db4a2ce25e498 848-852
+  s_3957973a090260::t_db0d58655b1143 155
+  s_3957973a090260::t_83e0b487789a0c 175-176
+  s_3957973a090260::t_054051511de929 946,950
+  s_3957973a090260::t_4471d618e4b6c0 323,325
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_3957973a090260::t_528d3dd08c9e49 597
+  s_3957973a090260::t_81ec45c773a1b1 1474
+  s_3957973a090260::t_4000583e12e9e8 198
+TlsLib.Adapters/Indy/Adapter/TlsLibIndyTls.pas
+  s_3957973a090260::t_7f40612c523b6d 759-766
+  s_3957973a090260::t_e591bb2bc5ad3f 221-223
+  s_3957973a090260::t_fbae753ef8dc70 224-226
+  s_3957973a090260::t_cb897ff0f2fa3f 767-774
+TlsLib/src/Handshake/TlpTls12ClientStateMachine.pas
+  s_3957973a090260::t_301729f328799d 825
+  s_3957973a090260::t_c8eddf2864ecf6 918-919
+TlsLib/src/Handshake/TlpHandshakeEffect.pas
+  s_3957973a090260::t_ba2476e16b4e92 113
+  s_3957973a090260::t_8ccfe98ff63515 233,240
+  s_3957973a090260::t_20be973d35fa13 70
+TlsLib/src/Handshake/TlpHandshakeDriver.pas
+  s_3957973a090260::t_422207af8f945a 140
+TlsLib.Adapters/Synapse/Adapter/TlsLibSynapseTls.pas
+  s_3957973a090260::t_7c9f45c77032e3 640-655
+  s_3957973a090260::t_535695648f81b4 144-149
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_3957973a090260::t_d40cf15af30fc9 959-960
+  s_3957973a090260::t_894a8a05606b27 435
+  s_3957973a090260::t_8a96238678920e 149
+  s_3957973a090260::t_10815ec69f04f0 908-909
+TlsLib/src/Engine/TlpTlsStream.pas
+  s_3957973a090260::t_12f5ae6a8a0f24 140-141,143-144
+TlsLib.Adapters/Indy/Examples/Lazarus/IndyCustomization.lpr
+  s_3957973a090260::t_2326032e3705d8 1-16
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_3957973a090260::t_1f78d70baa143a 1486
+TlsLib.Adapters/Indy/Examples/Delphi/IndyCustomization.dpr
+  s_3957973a090260::t_9433368189a9c5 1-12
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_3957973a090260::t_96296fdde817fc 168-173
+  s_3957973a090260::t_2c68906437068b 770-785
+TlsLib/src/Interfaces/Handshake/TlpIHandshakeMachine.pas
+  s_3957973a090260::t_c76b1cccfcdaee 109-112
+TlsLib.Adapters/mORMot/Adapter/TlsLibMormotTls.pas
+  s_3957973a090260::t_24ba73a9a33888 148-154
+  s_3957973a090260::t_ff7c78fa63c857 598-613
+TlsLib/src/Interfaces/Engine/TlpITlsEngine.pas
+  s_3957973a090260::t_f748976ee39657 208-211
+TlsLib.Adapters/Indy/Examples/Lazarus/IndyCustomization.lpi
+  s_3957973a090260::t_cee134e429238b 1-51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "111b9edd06042a5515290f8dea460b93314ced69",
+  "prompts": {},
+  "sessions": {
+    "s_3957973a090260": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6deaf670-7f07-4977-8d0c-c1e8159f395d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
