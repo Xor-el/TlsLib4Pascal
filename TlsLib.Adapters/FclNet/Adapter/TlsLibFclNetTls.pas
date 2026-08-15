@@ -62,8 +62,10 @@ type
   strict private
   var
     FHandle: THandle;
+    FReadTimeoutMs: Int32; // > 0 during the handshake: a fpRecv error is our SO_RCVTIMEO firing
   public
     constructor Create(AHandle: THandle);
+    procedure SetReadTimeout(AMs: Int32);
     function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
     procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
   end;
@@ -276,12 +278,24 @@ begin
   FHandle := AHandle;
 end;
 
+procedure TFclNetSocketTransport.SetReadTimeout(AMs: Int32);
+begin
+  FReadTimeoutMs := AMs;
+end;
+
 function TFclNetSocketTransport.Read(var ABuffer: TBytes; AOffset,
   AMaxLength: Int32): Int32;
 begin
   Result := fpRecv(FHandle, @ABuffer[AOffset], AMaxLength, TRANSPORT_FLAGS);
-  if Result <= 0 then
-    Result := 0; // <0 error or 0 orderly close: surface as EOF to the pump
+  if Result > 0 then
+    Exit;
+  if Result = 0 then
+    Exit(0); // orderly close (peer FIN): the pump reports it as a truncated handshake
+  // Result < 0: while the handshake timeout is armed this is our SO_RCVTIMEO firing
+  if FReadTimeoutMs > 0 then
+    raise ETlsHandshakeTimeout.Create(TTlsAlertDescription.InternalError,
+      Format('the peer sent no handshake data within %d ms', [FReadTimeoutMs]));
+  Result := 0; // app phase: surface any error as EOF, as before
 end;
 
 procedure TFclNetSocketTransport.Write(const ABuffer: TBytes; AOffset,
@@ -596,9 +610,9 @@ end;
 function TTlsLibSocketHandler.DriveHandshake(AIsClient: Boolean;
   const AHost: string): Boolean;
 const
-  // handshake read bound when the app sets no IOTimeout
-  DefaultHandshakeReadTimeoutMs = 30000;
+  DefaultHandshakeReadTimeoutMs = 30000; // when the app sets no IOTimeout
 var
+  LTransport: TFclNetSocketTransport;
   LPriorTimeoutMs, LEffectiveMs: Integer;
 begin
   Result := False;
@@ -615,7 +629,8 @@ begin
       FEngine := BuildClientEngine(AHost)
     else
       FEngine := BuildServerEngine;
-    FTransport := TFclNetSocketTransport.Create(Socket.Handle) as ITlsTransport;
+    LTransport := TFclNetSocketTransport.Create(Socket.Handle);
+    FTransport := LTransport as ITlsTransport;
     FStream := TTlsStream.Create(FTransport, FEngine, AIsClient, AHost);
     if Assigned(FVerdictResolver) then
       FStream.SetCertificateVerdictResolver(FVerdictResolver);
@@ -624,11 +639,13 @@ begin
     LEffectiveMs := LPriorTimeoutMs;
     if LEffectiveMs <= 0 then
       LEffectiveMs := DefaultHandshakeReadTimeoutMs;
+    LTransport.SetReadTimeout(LEffectiveMs);
     Socket.IOTimeout := LEffectiveMs;
     try
       FStream.Handshake;
     finally
       Socket.IOTimeout := LPriorTimeoutMs;
+      LTransport.SetReadTimeout(0);
     end;
     // fcl-net's native OnVerifyCertificate hook runs after our pipeline accepts the chain and can
     // only additionally reject (augment-only, fail-closed)

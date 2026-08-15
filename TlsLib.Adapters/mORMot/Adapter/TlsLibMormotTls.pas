@@ -241,10 +241,11 @@ var
   LRes: TNetResult;
 begin
   repeat
-    // bounded during the handshake; a timeout reads as EOF (a truncated handshake)
+    // bounded during the handshake; distinct from a peer close (nrClosed / 0 below)
     if (FReadTimeoutMs > 0) and
       (not (neRead in FSocket.WaitFor(FReadTimeoutMs, [neRead]))) then
-      Exit(0);
+      raise ETlsHandshakeTimeout.Create(TTlsAlertDescription.InternalError,
+        Format('the peer sent no handshake data within %d ms', [FReadTimeoutMs]));
     LLen := AMaxLength;
     LRes := FSocket.Recv(@ABuffer[AOffset], LLen);
     case LRes of
@@ -517,8 +518,7 @@ end;
 procedure TTlsLibNetTls.DriveHandshake(ASocket: TNetSocket;
   const AEngine: ITlsEngine; AIsClient: Boolean; const AHost: string);
 const
-  // no readable user timeout at the INetTls seam; fixed 30 s
-  DefaultHandshakeReadTimeoutMs = 30000;
+  DefaultHandshakeReadTimeoutMs = 30000; // no readable user timeout at the INetTls seam
 var
   LTransport: TMormotSocketTransport;
 begin

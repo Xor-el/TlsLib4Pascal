@@ -46,9 +46,17 @@ type
   /// <summary>
   /// The peer closed the transport (EOF) with the exchange unfinished and without a
   /// close_notify - a possible truncation attack (RFC 8446 6.1). Distinct from a clean
-  /// close_notify shutdown, which the stream surfaces as an ordinary EOF.
+  /// close_notify shutdown, which the stream surfaces as an ordinary EOF. On a server this
+  /// is usually benign - a client that walked away mid-handshake - and belongs at info level.
   /// </summary>
   ETlsTransportTruncated = class(ETlsStreamError);
+
+  /// <summary>
+  /// The adapter's handshake read timeout elapsed with the peer sending nothing - a silent
+  /// or dead connection reaped. Distinct from ETlsTransportTruncated (a peer close): this is
+  /// "we timed out", that is "the client closed". Also benign on a server.
+  /// </summary>
+  ETlsHandshakeTimeout = class(ETlsStreamError);
 
   /// <summary>
   /// Decides a parked peer-certificate verdict out-of-band (RFC 8446 deferred-verdict seam):
@@ -246,6 +254,7 @@ class procedure TTlsStreamPump.DriveHandshake(const AEngine: ITlsEngine;
 var
   LBuf: TBytes;
   LGot: Int32;
+  LTotal: Int64;
   LPeerClosed: Boolean;
   LCertEvent: ICertificateReceivedEvent;
 begin
@@ -253,6 +262,7 @@ begin
   // reads the ClientHello
   if AIsClient then
     AEngine.StartHandshake;
+  LTotal := 0;
   LBuf := nil;
   SetLength(LBuf, TransportChunk);
   LCertEvent := nil;
@@ -270,7 +280,8 @@ begin
     LGot := ATransport.Read(LBuf, 0, TransportChunk);
     if LGot = 0 then
       raise ETlsTransportTruncated.Create(TTlsAlertDescription.InternalError,
-        STruncatedHandshake);
+        Format('%s (after %d handshake bytes from the peer)', [STruncatedHandshake, LTotal]));
+    Inc(LTotal, LGot);
     AEngine.ProcessInput(LBuf, 0, LGot);
     Flush(AEngine, ATransport);
     RaiseIfFatal(AEngine);

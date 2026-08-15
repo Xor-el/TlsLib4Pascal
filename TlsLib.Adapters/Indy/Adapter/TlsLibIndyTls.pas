@@ -83,6 +83,7 @@ type
     FServerConfig: ITlsServerConfig;
     FProvider: ICryptoProvider;
     FSessionResumption: Boolean;
+    FHandshakeTimeoutMs: Integer;
   private
     /// <summary>Raises when a supplied config is set together with cert/trust options a fully-built
     /// config would replace (APropertyName names the config property in the message). The IOHandler
@@ -147,6 +148,11 @@ type
     /// psk_dhe_ke); 0-RTT is never enabled. Default True; set False to force a full handshake
     /// every connection.</summary>
     property SessionResumption: Boolean read FSessionResumption write FSessionResumption default True;
+    /// <summary>The read timeout (ms) bounding the server/client handshake, so a peer that
+    /// connects but sends no data cannot park the connection's thread. Deliberately NOT
+    /// IOHandler.ReadTimeout (that is an app-read deadline). 0 (default) uses the 30 s library
+    /// default; set a positive value to override.</summary>
+    property HandshakeTimeoutMs: Integer read FHandshakeTimeoutMs write FHandshakeTimeoutMs;
   end;
 
   /// <summary>An ITlsTransport over an Indy socket binding: raw ciphertext moves through the
@@ -287,6 +293,7 @@ begin
     FServerConfig := LSrc.FServerConfig;
     FProvider := LSrc.FProvider;
     FSessionResumption := LSrc.FSessionResumption;
+    FHandshakeTimeoutMs := LSrc.FHandshakeTimeoutMs;
   end
   else
     inherited Assign(ASource);
@@ -322,9 +329,10 @@ function TIndySocketTransport.Read(var ABuffer: TBytes; AOffset,
 var
   LTmp: TIdBytes;
 begin
-  // bounded during the handshake; a timeout reads as EOF (a truncated handshake)
+  // bounded during the handshake; distinct from a peer close (which returns 0 below)
   if (FReadTimeoutMs > 0) and (not FBinding.Readable(FReadTimeoutMs)) then
-    Exit(0);
+    raise ETlsHandshakeTimeout.Create(TTlsAlertDescription.InternalError,
+      Format('the peer sent no handshake data within %d ms', [FReadTimeoutMs]));
   LTmp := nil;
   SetLength(LTmp, AMaxLength);
   Result := FBinding.Receive(LTmp); // 0 on an orderly close, else the byte count
@@ -609,8 +617,7 @@ end;
 
 procedure TTlsLibIOHandlerSocket.DoHandshake;
 const
-  // handshake read bound when the integrator sets no ReadTimeout
-  DefaultHandshakeReadTimeoutMs = Int32(30000);
+  DefaultHandshakeReadTimeoutMs = Int32(30000); // when HandshakeTimeoutMs is left 0
 var
   LTransport: TIndySocketTransport;
   LTimeoutMs: Int32;
@@ -625,8 +632,9 @@ begin
       Exit;
     FEngine := BuildEngine(not IsPeer);
     LTransport := TIndySocketTransport.Create(Binding);
-    // bound the handshake read: ReadTimeout when set, else the default
-    LTimeoutMs := ReadTimeout;
+    // bound the handshake read by the dedicated HandshakeTimeoutMs option, NOT app ReadTimeout
+    // (a short app-read deadline would wrongly abort slow-but-valid handshakes)
+    LTimeoutMs := FOptions.HandshakeTimeoutMs;
     if LTimeoutMs <= 0 then
       LTimeoutMs := DefaultHandshakeReadTimeoutMs;
     LTransport.SetReadTimeout(LTimeoutMs);

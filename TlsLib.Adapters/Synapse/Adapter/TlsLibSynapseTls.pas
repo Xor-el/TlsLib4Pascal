@@ -228,9 +228,10 @@ end;
 function TSynapseSocketTransport.Read(var ABuffer: TBytes; AOffset,
   AMaxLength: Int32): Int32;
 begin
-  // bounded during the handshake; a timeout reads as EOF (a truncated handshake)
+  // bounded during the handshake; distinct from a peer close (which returns 0 below)
   if (FReadTimeoutMs > 0) and (not FSocket.CanRead(FReadTimeoutMs)) then
-    Exit(0);
+    raise ETlsHandshakeTimeout.Create(TTlsAlertDescription.InternalError,
+      Format('the peer sent no handshake data within %d ms', [FReadTimeoutMs]));
   Result := synsock.Recv(FSocket.Socket, @ABuffer[AOffset], AMaxLength, MSG_NOSIGNAL);
   if Result <= 0 then
     Result := 0; // <0 error or 0 orderly close: surface as EOF to the pump
@@ -466,8 +467,7 @@ end;
 function TSSLTlsLib.DriveHandshake(AIsClient: Boolean;
   const AHost: string): Boolean;
 const
-  // no user read timeout in Synapse's SSL layer; fixed 30 s
-  DefaultHandshakeReadTimeoutMs = 30000;
+  DefaultHandshakeReadTimeoutMs = 30000; // no user read timeout in Synapse's SSL layer
 var
   LTransport: TSynapseSocketTransport;
 begin
