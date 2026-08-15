@@ -3,8 +3,10 @@
 # allowlist). Every test must PASS or match a disable glob, else this leg fails - a FAIL,
 # an in-scope UNIMPLEMENTED, a now-passing policy disable (stale), or a policy glob that
 # matches nothing (dead). The coverage boundary is printed and archived every run.
-# -num-workers 1, peer pinned at BOGO_REF, -loose-errors, no -allow-unimplemented on the
-# gate pass.
+# Peer pinned at BOGO_REF, -loose-errors, no -allow-unimplemented on the gate pass. Runs at
+# -num-workers=BOGO_WORKERS: this local default is 1 for deterministic triage; CI passes 4
+# for speed (a truncated/crashed run is still caught precisely by BoGo's interrupted flag,
+# so parallelism never turns an incomplete run into a spurious PASS).
 #
 # REVIEW RULE: a broad [out-of-scope]/[deferred] disable glob can silently shadow an in-scope
 # (modern-TLS) test that would FAIL - and a disabled test never runs, so the gate cannot see it.

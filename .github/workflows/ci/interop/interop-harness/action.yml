@@ -29,6 +29,13 @@ inputs:
     description: The BoringSSL peer commit to pin the BoGo run against.
     required: false
     default: ae49d2681a56ca7b8609f6039a770fda2a8eb550
+  bogo-workers:
+    description: >-
+      BoGo runner parallelism (-num-workers). CI runs at 4 for speed; a local run of
+      run-bogo.sh still defaults to 1 for deterministic triage. Dial back if a
+      timing-sensitive test flakes under load on a slower runner.
+    required: false
+    default: '4'
   go-version:
     description: The Go toolchain version for the BoGo runner.
     required: false
@@ -66,6 +73,7 @@ runs:
         MAKE_RUN_BOGO: ${{ inputs.run-bogo }}
         MAKE_RUN_OPENSSL: ${{ inputs.run-openssl }}
         BOGO_REF: ${{ inputs.bogo-ref }}
+        BOGO_WORKERS: ${{ inputs.bogo-workers }}
         FPC_TARGET: ${{ inputs.fpc-target }}
         BOGO_SRC: ${{ runner.temp }}/boringssl
         BOGO_LOG_DIR: ${{ runner.temp }}/bogo-boundary

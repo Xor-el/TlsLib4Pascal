@@ -13,6 +13,7 @@
 #          sole exclusion source.
 
 import json
+import os
 import re
 import sys
 from fnmatch import fnmatchcase
@@ -141,7 +142,9 @@ def cmd_gate(config_path, gate_path, audit_path):
 
     print("")
     print("================= BoGo hard-gate coverage boundary =================")
-    print(f"  peer-pinned full-suite run; determinism at -num-workers 1")
+    workers = os.environ.get("BOGO_WORKERS", "1")
+    print(f"  peer-pinned full-suite run; -num-workers {workers}"
+          + ("" if workers == "1" else " (parallel; verdict is worker-count-independent)"))
     print(f"  PASS (in-scope, required): {len(passed)}")
     print(f"  DISABLED ledger: {len(disabled)} globs "
           f"-> out-of-scope {len(out_of_scope)}, "
