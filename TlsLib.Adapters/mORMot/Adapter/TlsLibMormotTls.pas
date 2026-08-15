@@ -95,9 +95,8 @@ type
     FReadTimeoutMs: Int32; // > 0 bounds a read (the handshake phase); 0 = block (app data)
   public
     constructor Create(ASocket: TNetSocket);
-    /// <summary>Bounds each Read to AMs milliseconds (0 = block indefinitely). SO_RCVTIMEO is
-    /// unusable here because TNetSocket.Recv reports a receive-timeout as nrRetry, which the
-    /// read loop would spin on; a WaitFor(neRead) before each Recv gives a real timeout.</summary>
+    /// <summary>Bounds each Read to AMs ms (0 = block); the Read uses WaitFor, not SO_RCVTIMEO
+    /// (which Recv maps to nrRetry, spinning the read loop).</summary>
     procedure SetReadTimeout(AMs: Int32);
     function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
     procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
@@ -242,9 +241,7 @@ var
   LRes: TNetResult;
 begin
   repeat
-    // during the handshake a bounded wait keeps a peer that connects but never sends its flight
-    // from parking this thread; a timeout (WaitFor returns without neRead) surfaces as EOF, which
-    // the pump treats as a truncated handshake. App-data reads (timeout 0) block normally.
+    // bounded during the handshake; a timeout reads as EOF (a truncated handshake)
     if (FReadTimeoutMs > 0) and
       (not (neRead in FSocket.WaitFor(FReadTimeoutMs, [neRead]))) then
       Exit(0);
@@ -520,17 +517,16 @@ end;
 procedure TTlsLibNetTls.DriveHandshake(ASocket: TNetSocket;
   const AEngine: ITlsEngine; AIsClient: Boolean; const AHost: string);
 const
-  // a peer that connects but never sends its flight (a browser speculative/backup socket) must
-  // not park this thread forever; the transport's WaitFor bounds the handshake reads, then the
-  // cap is cleared so application reads block normally
-  HandshakeReadTimeoutMs = 20000;
+  // no readable user timeout at the INetTls seam; fixed 30 s
+  DefaultHandshakeReadTimeoutMs = 30000;
 var
   LTransport: TMormotSocketTransport;
 begin
   FEngine := AEngine;
   FServerName := AHost;
   LTransport := TMormotSocketTransport.Create(ASocket);
-  LTransport.SetReadTimeout(HandshakeReadTimeoutMs);
+  // bound the handshake read (the transport uses WaitFor - see SetReadTimeout)
+  LTransport.SetReadTimeout(DefaultHandshakeReadTimeoutMs);
   FTransport := LTransport as ITlsTransport;
   FStream := TTlsStream.Create(FTransport, FEngine, AIsClient, AHost);
   if AIsClient and Assigned(GVerdictResolver) then

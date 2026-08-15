@@ -158,8 +158,7 @@ type
     FReadTimeoutMs: Int32; // > 0 bounds a read (the handshake phase); 0 = block (app data)
   public
     constructor Create(ABinding: TIdSocketHandle);
-    /// <summary>Bounds each Read to AMs milliseconds (0 = block indefinitely). Used to cap the
-    /// handshake so a peer that connects but never sends its flight cannot park the thread.</summary>
+    /// <summary>Bounds each Read to AMs ms (0 = block); caps the handshake read.</summary>
     procedure SetReadTimeout(AMs: Int32);
     function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
     procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
@@ -323,10 +322,7 @@ function TIndySocketTransport.Read(var ABuffer: TBytes; AOffset,
 var
   LTmp: TIdBytes;
 begin
-  // during the handshake a bounded wait keeps a peer that connects but never sends its
-  // flight (e.g. a browser speculative/backup socket) from parking this connection's thread
-  // indefinitely; a timeout reads as EOF, which the pump treats as a truncated handshake.
-  // App-data reads run with the timeout cleared (0) and block normally.
+  // bounded during the handshake; a timeout reads as EOF (a truncated handshake)
   if (FReadTimeoutMs > 0) and (not FBinding.Readable(FReadTimeoutMs)) then
     Exit(0);
   LTmp := nil;
@@ -613,11 +609,11 @@ end;
 
 procedure TTlsLibIOHandlerSocket.DoHandshake;
 const
-  // a peer that connects but never sends its flight (a browser speculative/backup socket)
-  // must not park this thread forever; each handshake read is bounded, app data is not
-  HandshakeReadTimeoutMs = Int32(20000);
+  // handshake read bound when the integrator sets no ReadTimeout
+  DefaultHandshakeReadTimeoutMs = Int32(30000);
 var
   LTransport: TIndySocketTransport;
+  LTimeoutMs: Int32;
 begin
   if FStream <> nil then
     Exit; // fast path: handshake already run
@@ -629,7 +625,11 @@ begin
       Exit;
     FEngine := BuildEngine(not IsPeer);
     LTransport := TIndySocketTransport.Create(Binding);
-    LTransport.SetReadTimeout(HandshakeReadTimeoutMs);
+    // bound the handshake read: ReadTimeout when set, else the default
+    LTimeoutMs := ReadTimeout;
+    if LTimeoutMs <= 0 then
+      LTimeoutMs := DefaultHandshakeReadTimeoutMs;
+    LTransport.SetReadTimeout(LTimeoutMs);
     FTransport := LTransport as ITlsTransport;
     FStream := TTlsStream.Create(FTransport, FEngine, not IsPeer, Host);
     if Assigned(FOptions.VerdictResolver) then
@@ -789,10 +789,8 @@ begin
           LIO.IsPeer := True;
           LIO.SSLOptions.Assign(FOptions);
           LIO.AdoptServerMemo(FServerMemo); // all peers share the listener's build-once config
-          // a straight TLS server wants TLS on accept, but the handshake must NOT run here:
-          // Accept executes on the single listener thread, so a peer that stalls mid-handshake
-          // (a browser speculative/backup socket that never sends a ClientHello) would park the
-          // listener and starve every other connection. Defer it to this peer's worker thread.
+          // do NOT handshake here: Accept runs on the single listener thread, so a silent peer
+          // would wedge every connection. Defer it to this peer's worker thread.
           LIO.PrepareServerHandshakeDeferred;
           Result := LIO;
           LIO := nil;
