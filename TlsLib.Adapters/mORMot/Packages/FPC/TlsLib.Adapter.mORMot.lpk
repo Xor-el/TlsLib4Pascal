@@ -12,6 +12,11 @@
         <OtherUnitFiles Value="..\..\Adapter"/>
         <UnitOutputDirectory Value="lib\$(TargetCPU)-$(TargetOS)"/>
       </SearchPaths>
+      <CodeGeneration>
+        <Optimizations>
+          <OptimizationLevel Value="4"/>
+        </Optimizations>
+      </CodeGeneration>
     </CompilerOptions>
     <Description Value="mORMot INetTls adapter for TlsLib4Pascal"/>
     <License Value="MIT License"/>

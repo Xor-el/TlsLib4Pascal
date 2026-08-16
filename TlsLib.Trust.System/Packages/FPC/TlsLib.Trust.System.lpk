@@ -12,6 +12,11 @@
         <OtherUnitFiles Value="..\..\src"/>
         <UnitOutputDirectory Value="lib\$(TargetCPU)-$(TargetOS)"/>
       </SearchPaths>
+      <CodeGeneration>
+        <Optimizations>
+          <OptimizationLevel Value="4"/>
+        </Optimizations>
+      </CodeGeneration>
     </CompilerOptions>
     <Description Value="Optional OS system-trust sources (anchors + delegate) for TlsLib4Pascal"/>
     <License Value="MIT License"/>

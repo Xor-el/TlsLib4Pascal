@@ -12,6 +12,11 @@
         <OtherUnitFiles Value="..\..\Adapter"/>
         <UnitOutputDirectory Value="lib\$(TargetCPU)-$(TargetOS)"/>
       </SearchPaths>
+      <CodeGeneration>
+        <Optimizations>
+          <OptimizationLevel Value="4"/>
+        </Optimizations>
+      </CodeGeneration>
     </CompilerOptions>
     <Description Value="Synapse TCustomSSL plugin adapter for TlsLib4Pascal (one SSL plugin per project)"/>
     <License Value="MIT License"/>

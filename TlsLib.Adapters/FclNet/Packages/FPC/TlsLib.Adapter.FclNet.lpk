@@ -12,6 +12,11 @@
         <OtherUnitFiles Value="..\..\Adapter"/>
         <UnitOutputDirectory Value="lib\$(TargetCPU)-$(TargetOS)"/>
       </SearchPaths>
+      <CodeGeneration>
+        <Optimizations>
+          <OptimizationLevel Value="4"/>
+        </Optimizations>
+      </CodeGeneration>
     </CompilerOptions>
     <Description Value="fcl-net TSSLSocketHandler adapter for TlsLib4Pascal (managed TLS for TFPHTTPClient / TInetSocket)"/>
     <License Value="MIT License"/>
