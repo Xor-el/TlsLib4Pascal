@@ -1,0 +1,31 @@
+TlsLib.Adapters/Synapse/Packages/FPC/TlsLib.Adapter.Synapse.lpk
+  s_3957973a090260::t_f35c2505250eda 15-19
+TlsLib.Trust.Bundle/Packages/FPC/TlsLib.Trust.Bundle.lpk
+  s_3957973a090260::t_f1e080753a32f4 15-19
+TlsLib.Adapters/FclNet/Packages/FPC/TlsLib.Adapter.FclNet.lpk
+  s_3957973a090260::t_edfdbc8236b4a2 15-19
+TlsLib.Trust.System/Packages/FPC/TlsLib.Trust.System.lpk
+  s_3957973a090260::t_adad37d322eedb 15-19
+TlsLib.Adapters/mORMot/Packages/FPC/TlsLib.Adapter.mORMot.lpk
+  s_3957973a090260::t_5ecad96572cea6 15-19
+TlsLib.Adapters/Indy/Packages/FPC/TlsLib.Adapter.Indy.lpk
+  s_3957973a090260::t_4847e9338483bb 15-19
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
+  s_3957973a090260::t_80d0867edb4851 18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "4eec56116b18743ee880a4807e0748b2063d41be",
+  "prompts": {},
+  "sessions": {
+    "s_3957973a090260": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6deaf670-7f07-4977-8d0c-c1e8159f395d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
