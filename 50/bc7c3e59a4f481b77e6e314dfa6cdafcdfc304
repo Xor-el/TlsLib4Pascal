@@ -1,0 +1,42 @@
+TlsLib/src/Engine/TlpTlsConfigMemo.pas
+  s_3957973a090260::t_d63c29edfcd8e1 87-90
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_3957973a090260::t_07e3a680e02ef5 519
+TlsLib.Adapters/mORMot/Adapter/TlsLibMormotTls.pas
+  s_3957973a090260::t_df3c372b7bb89a 426
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_3957973a090260::t_aed18b2a004ffa 277-282
+TlsLib.Adapters/Synapse/Adapter/TlsLibSynapseTls.pas
+  s_3957973a090260::t_81d52049d2fa0e 390
+TlsLib/src/Session/TlpSessionTicketKeys.pas
+  s_3957973a090260::t_f1acb59a98c96a 93,95
+  s_3957973a090260::t_892d069555cbd1 99-100,102-103
+  s_3957973a090260::t_5d4996d5dd61dd 61-67
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_3957973a090260::t_4f2eac2490d963 423
+  s_3957973a090260::t_5318d7f4722b95 1657-1665
+  s_3957973a090260::t_a96e3f52863d8c 1849-1854
+  s_3957973a090260::t_fe9f24b1c0a07b 39
+  s_3957973a090260::t_84c36aad31ca5b 95
+  s_3957973a090260::t_2e0166618077d2 172
+  s_3957973a090260::t_d69550bd09d4bc 1084-1089
+TlsLib.Adapters/Indy/Adapter/TlsLibIndyTls.pas
+  s_3957973a090260::t_10a9ab6c6aca9d 612-621
+  s_3957973a090260::t_712d14fe57cc1c 535
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "50bc7c3e59a4f481b77e6e314dfa6cdafcdfc304",
+  "prompts": {},
+  "sessions": {
+    "s_3957973a090260": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6deaf670-7f07-4977-8d0c-c1e8159f395d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
