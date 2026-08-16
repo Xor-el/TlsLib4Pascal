@@ -36,6 +36,7 @@ uses
   TlpIClock,
   TlpClock,
   TlpSession,
+  TlpSessionTicketKeys,
   TlpITlsConfig,
   TlpITlsConfigBuilder;
 
@@ -91,6 +92,7 @@ type
     FClientEarlyData: Boolean;
     FSessionStore: ISessionStore;
     FSessionTicketKeys: ISessionTicketKeyManager;
+    FWantDefaultSessionTicketKeys: Boolean;
     FAntiReplay: IAntiReplayStrategy;
     FTicketLifetimeSeconds: UInt32;
     FTicketCount: Int32;
@@ -167,6 +169,7 @@ type
     function WithClock(const AClock: ITlsClock): TTlsConfigBuilder;
     function WithSessionStore(const AStore: ISessionStore): TTlsConfigBuilder;
     function WithSessionTicketKeys(const AKeys: ISessionTicketKeyManager): TTlsConfigBuilder;
+    function WithDefaultSessionTicketKeys: TTlsConfigBuilder;
     function WithTicketLifetime(ASeconds: UInt32): TTlsConfigBuilder;
     function WithTicketCount(ACount: Int32): TTlsConfigBuilder;
     function WithClientEarlyData(AEnabled: Boolean): TTlsConfigBuilder;
@@ -417,6 +420,7 @@ type
       const APsks: TArray<TExternalPsk>): ITlsServerConfigBuilder;
     function WithSessionStore(const AStore: ISessionStore): ITlsServerConfigBuilder;
     function WithSessionTicketKeys(const AKeys: ISessionTicketKeyManager): ITlsServerConfigBuilder;
+    function WithDefaultSessionTicketKeys: ITlsServerConfigBuilder;
     function WithClock(const AClock: ITlsClock): ITlsServerConfigBuilder;
     function WithTicketLifetime(ASeconds: UInt32): ITlsServerConfigBuilder;
     function WithTicketCount(ACount: Int32): ITlsServerConfigBuilder;
@@ -1077,6 +1081,12 @@ begin
   Result := Self;
 end;
 
+function TTlsServerConfigBuilder.WithDefaultSessionTicketKeys: ITlsServerConfigBuilder;
+begin
+  FOwner.WithDefaultSessionTicketKeys;
+  Result := Self;
+end;
+
 function TTlsServerConfigBuilder.WithClock(
   const AClock: ITlsClock): ITlsServerConfigBuilder;
 begin
@@ -1644,6 +1654,15 @@ begin
   Result := Self;
 end;
 
+function TTlsConfigBuilder.WithDefaultSessionTicketKeys: TTlsConfigBuilder;
+begin
+  GuardMutable;
+  // request a default STEK minted from THIS builder's provider + clock at BuildServer time;
+  // an explicit WithSessionTicketKeys always wins (resolved in BuildServer, order-insensitive)
+  FWantDefaultSessionTicketKeys := True;
+  Result := Self;
+end;
+
 function TTlsConfigBuilder.WithTicketLifetime(ASeconds: UInt32): TTlsConfigBuilder;
 begin
   GuardMutable;
@@ -1827,7 +1846,12 @@ begin
   LConfig.FClock := FClock;
   LConfig.FClientAuth := FClientAuth;
   LConfig.FSessionStore := FSessionStore;
-  LConfig.FSessionTicketKeys := FSessionTicketKeys;
+  // explicit keys always win; otherwise mint the requested default STEK from THIS builder's
+  // injected provider + clock (never a concrete default provider), scoped to the config's life
+  if FSessionTicketKeys <> nil then
+    LConfig.FSessionTicketKeys := FSessionTicketKeys
+  else if FWantDefaultSessionTicketKeys then
+    LConfig.FSessionTicketKeys := TStekTicketKeyManager.CreateDefault(FProvider, FClock);
   LConfig.FAntiReplay := FAntiReplay;
   LConfig.FTicketLifetimeSeconds := FTicketLifetimeSeconds;
   LConfig.FTicketCount := FTicketCount;

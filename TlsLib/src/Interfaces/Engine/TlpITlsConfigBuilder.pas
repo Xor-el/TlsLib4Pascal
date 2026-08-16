@@ -274,6 +274,12 @@ type
     function WithSessionStore(const AStore: ISessionStore): ITlsServerConfigBuilder;
     /// <summary>The session-ticket encryption keys for stateless (STEK) tickets.</summary>
     function WithSessionTicketKeys(const AKeys: ISessionTicketKeyManager): ITlsServerConfigBuilder;
+    /// <summary>Requests a default STEK, minted at build time from this configuration's own
+    /// provider RNG and clock, so stateless tickets honor an injected crypto provider rather than
+    /// any concrete default. An explicit WithSessionTicketKeys always overrides this. The keys are
+    /// scoped to the built config's lifetime; share a STEK across servers/a fleet via a manager's
+    /// InstallKey (e.g. from a KMS).</summary>
+    function WithDefaultSessionTicketKeys: ITlsServerConfigBuilder;
     /// <summary>The clock the server reads for ticket issue time, 0-RTT anti-replay windows and
     /// certificate/OCSP freshness; nil (the default) uses the system clock. Injectable primarily
     /// so tests can drive a deterministic time.</summary>

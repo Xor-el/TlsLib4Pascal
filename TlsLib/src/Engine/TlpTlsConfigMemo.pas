@@ -84,9 +84,10 @@ begin
 end;
 
 const
-  // enough distinct configs for a multi-listener process without unbounded growth; the oldest
-  // entry is evicted when full and simply rebuilt if seen again
-  MemoCapacity = 8;
+  // enough distinct configs for a multi-listener / multi-cert process without unbounded growth;
+  // the oldest entry is evicted when full and simply rebuilt if seen again. A rebuild now also
+  // mints a fresh default STEK, so headroom here reduces needless ticket-key churn under load.
+  MemoCapacity = 16;
 
 { TTlsServerConfigMemo }
 

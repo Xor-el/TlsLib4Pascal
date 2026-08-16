@@ -47,7 +47,6 @@ uses
   TlpITlsConfigMemo,
   TlpTlsConfigMemo,
   TlpTlsSignatureBuilder,
-  TlpSessionTicketKeys,
   TlpInMemorySessionCache,
   TlpITlsTransport,
   TlpTlsStreamPump,
@@ -424,7 +423,7 @@ begin
   if GSessionResumption then
   begin
     LServer.WithResumption(True);
-    LServer.WithSessionTicketKeys(TStekTicketKeyManager.Shared);
+    LServer.WithDefaultSessionTicketKeys;
   end
   else
     LServer.WithResumption(False);

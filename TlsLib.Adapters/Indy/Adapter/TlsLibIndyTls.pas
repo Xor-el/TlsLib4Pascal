@@ -50,7 +50,6 @@ uses
   TlpITlsConfigMemo,
   TlpTlsConfigMemo,
   TlpTlsSignatureBuilder,
-  TlpSessionTicketKeys,
   TlpInMemorySessionCache,
   TlpITlsTransport,
   TlpTlsStreamPump,
@@ -533,7 +532,7 @@ begin
   if FOptions.SessionResumption then
   begin
     LServer.WithResumption(True);
-    LServer.WithSessionTicketKeys(TStekTicketKeyManager.Shared);
+    LServer.WithDefaultSessionTicketKeys;
   end
   else
     LServer.WithResumption(False);
@@ -610,15 +609,16 @@ begin
     FOptions.GuardNoConflict('ServerConfig');
     Exit(TTlsEngineFactory.CreateServerEngine(FOptions.ServerConfig));
   end;
-  // a server peer reuses the listener's shared memo, so all peers bind to one config identity
-  if FServerMemo <> nil then
-  begin
-    LSig := ServerSignature;
-    if not FServerMemo.TryGet(LSig, LServerCfg) then
-      LServerCfg := FServerMemo.StoreOrAdopt(LSig, BuildServerConfig);
-    Exit(TTlsEngineFactory.CreateServerEngine(LServerCfg));
-  end;
-  Exit(TTlsEngineFactory.CreateServerEngine(BuildServerConfig));
+  // a server peer reuses the listener's shared memo so all peers bind to one config identity; a
+  // standalone handler doing its own accepts (no TTlsLibServerIOHandler listener) lazily owns one,
+  // like it already owns FClientMemo, so its config - and the default STEK minted into it - stay
+  // stable across the connections it serves (this is serialized by the handshake lock)
+  if FServerMemo = nil then
+    FServerMemo := NewTlsServerConfigMemo;
+  LSig := ServerSignature;
+  if not FServerMemo.TryGet(LSig, LServerCfg) then
+    LServerCfg := FServerMemo.StoreOrAdopt(LSig, BuildServerConfig);
+  Exit(TTlsEngineFactory.CreateServerEngine(LServerCfg));
 end;
 
 procedure TTlsLibIOHandlerSocket.DoHandshake;

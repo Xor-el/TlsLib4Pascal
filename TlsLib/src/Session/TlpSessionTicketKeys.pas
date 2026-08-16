@@ -21,9 +21,7 @@ uses
   Generics.Collections,
   TlpArrayUtilities,
   TlpICryptoProvider,
-  TlpDefaultCryptoProvider,
   TlpIClock,
-  TlpClock,
   TlpISecretBuffer,
   TlpSecretBuffer,
   TlpSecureMemory,
@@ -59,16 +57,14 @@ type
     procedure TrimToWindow;
     procedure RotateLocked; // adds a fresh current key + trims; caller holds FLock
     procedure MaybeRotateLocked; // rotates if the auto-rotation interval has elapsed; FLock held
-  class var
-    FShared: ISessionTicketKeyManager;
-    FSharedLock: TCriticalSection;
   public
-    class constructor Create;
-    class destructor Destroy;
-    /// <summary>A process-wide, lazily-created STEK manager keyed from the shared default
-    /// provider's RNG - the default server ticket key for the adapters, stable for the process
-    /// so tickets issued on one connection resume on another; auto-rotates on a bounded interval.</summary>
-    class function Shared: ISessionTicketKeyManager; static;
+    /// <summary>A default STEK manager built from a caller-supplied provider's RNG and clock: a
+    /// fresh current key, the default decrypt window, and time-based auto-rotation on the default
+    /// interval. The natural per-config default server ticket key - it honors whatever provider
+    /// and clock the caller injected, with no tie to any concrete default provider. Tickets are
+    /// scoped to this manager's lifetime; share a STEK across servers/a fleet with InstallKey.</summary>
+    class function CreateDefault(const AProvider: ICryptoProvider;
+      const AClock: ITlsClock): ISessionTicketKeyManager; static;
     /// <summary>A manager with a fresh current key and an AWindowSize decrypt window (a default
     /// applies when 0 or less). Never auto-rotates.</summary>
     constructor Create(const ARandom: IRandom; AWindowSize: Int32 = 0); overload;
@@ -94,35 +90,17 @@ const
   StekKeyNameLength = Int32(16);
   StekKeyLength = Int32(32); // AES-256-GCM
   DefaultDecryptWindow = Int32(3);
-  // the shared STEK rotates about once per ticket lifetime (RFC 8446 4.6.1 default), which with
+  // the default STEK rotates about once per ticket lifetime (RFC 8446 4.6.1 default), which with
   // the decrypt window bounds the forgery exposure of a leaked key to a small number of intervals
-  SharedRotateIntervalSeconds = UInt32(7200);
+  DefaultStekRotateSeconds = UInt32(7200);
 
 { TStekTicketKeyManager }
 
-class constructor TStekTicketKeyManager.Create;
+class function TStekTicketKeyManager.CreateDefault(const AProvider: ICryptoProvider;
+  const AClock: ITlsClock): ISessionTicketKeyManager;
 begin
-  FSharedLock := TCriticalSection.Create;
-end;
-
-class destructor TStekTicketKeyManager.Destroy;
-begin
-  FShared := nil;
-  FSharedLock.Free;
-end;
-
-class function TStekTicketKeyManager.Shared: ISessionTicketKeyManager;
-begin
-  FSharedLock.Acquire;
-  try
-    if FShared = nil then
-      FShared := TStekTicketKeyManager.Create(
-        TDefaultCryptoProvider.Shared.GetRandom, 0,
-        TSystemClock.Create, SharedRotateIntervalSeconds) as ISessionTicketKeyManager;
-    Result := FShared;
-  finally
-    FSharedLock.Release;
-  end;
+  Result := TStekTicketKeyManager.Create(AProvider.GetRandom, 0, AClock,
+    DefaultStekRotateSeconds) as ISessionTicketKeyManager;
 end;
 
 constructor TStekTicketKeyManager.Create(const ARandom: IRandom;
