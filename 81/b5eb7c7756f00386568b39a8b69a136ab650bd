@@ -1,0 +1,101 @@
+TlsLib.Adapters/Indy/Packages/Delphi/TlsLib.Adapter.Indy.dpk
+  s_3957973a090260::t_bac2bbcbdf4aaa 41
+TlsLib.Adapters/Indy/README.md
+  s_3957973a090260::t_5ce987f7681386 13
+TlsLib.Adapters/Indy/Examples/src/IndyRealWorldExample.pas
+  s_3957973a090260::t_de791a96ffb67a 64
+TlsLib.Adapters/FclNet/README.md
+  s_3957973a090260::t_5ce987f7681386 18,28
+TlsLib.Adapters/FclNet/Examples/src/FclNetRealWorldExample.pas
+  s_3957973a090260::t_3a68031c59201d 61,177
+TlsLib.Adapters/mORMot/README.md
+  s_3957973a090260::t_5ce987f7681386 8,12
+TlsLib.Adapters/Synapse/README.md
+  s_3957973a090260::t_5ce987f7681386 13
+TlsLib.Trust.System/Examples/Delphi/README.md
+  s_3957973a090260::t_5ce987f7681386 39
+TlsLib.Adapters/Synapse/Examples/src/SynapseAdvancedConfigExample.pas
+  s_3957973a090260::t_8e3a63d11a3d30 53
+TlsLib.Adapters/Synapse/Adapter/TlpSynapseTls.pas
+  s_3957973a090260::t_8e3a63d11a3d30 1-728
+TlsLib.Adapters/Synapse/Examples/src/SynapseRealWorldExample.pas
+  s_3957973a090260::t_8e3a63d11a3d30 68,124
+TlsLib.Adapters/Synapse/Packages/FPC/TlsLib.Adapter.Synapse.lpk
+  s_3957973a090260::t_8e3a63d11a3d30 26-27
+TlsLib.Adapters/FclNet/Packages/FPC/TlsLib.Adapter.FclNet.pas
+  s_3957973a090260::t_3a68031c59201d 11
+docs/system-trust.md
+  s_3957973a090260::t_5ce987f7681386 185
+README.md
+  s_3957973a090260::t_5ce987f7681386 228
+TlsLib.Adapters/Indy/Adapter/TlpIndyTls.pas
+  s_3957973a090260::t_de791a96ffb67a 1-861
+TlsLib.Adapters/FclNet/Packages/FPC/TlsLib.Adapter.FclNet.lpk
+  s_3957973a090260::t_3a68031c59201d 26-27
+TlsLib.Adapters/Synapse/Examples/src/SynapseLoopbackExample.pas
+  s_3957973a090260::t_8e3a63d11a3d30 42
+TlsLib.Adapters/FclNet/Examples/src/FclNetLoopbackExample.pas
+  s_3957973a090260::t_3a68031c59201d 47
+docs/cookbook.md
+  s_3957973a090260::t_5ce987f7681386 160,167,175,182,187
+TlsLib.Adapters/Indy/Packages/FPC/TlsLib.Adapter.Indy.pas
+  s_3957973a090260::t_de791a96ffb67a 11
+TlsLib.Adapters/Indy/Packages/FPC/TlsLib.Adapter.Indy.lpk
+  s_3957973a090260::t_de791a96ffb67a 26-27
+TlsLib.Adapters/Synapse/Packages/FPC/TlsLib.Adapter.Synapse.pas
+  s_3957973a090260::t_8e3a63d11a3d30 11
+TlsLib.Adapters/mORMot/Packages/Delphi/TlsLib.Adapter.mORMot.dpk
+  s_3957973a090260::t_bac2bbcbdf4aaa 38
+TlsLib.Adapters/FclNet/Adapter/TlpFclNetTls.pas
+  s_3957973a090260::t_3a68031c59201d 1-797
+TlsLib.Adapters/Indy/Examples/src/IndyLoopbackExample.pas
+  s_3957973a090260::t_de791a96ffb67a 43
+TlsLib.Adapters/Indy/Examples/src/IndyAdvancedConfigExample.pas
+  s_3957973a090260::t_de791a96ffb67a 59
+TlsLib.Adapters/Synapse/Packages/Delphi/TlsLib.Adapter.Synapse.dpk
+  s_3957973a090260::t_bac2bbcbdf4aaa 38
+TlsLib.Trust.System/Examples/Lazarus/src/SystemTrustExample.pas
+  s_3957973a090260::t_3a68031c59201d 58
+TlsLib.Adapters/Indy/Examples/src/IndyCustomizationExample.pas
+  s_3957973a090260::t_de791a96ffb67a 75
+TlsLib.Adapters/FclNet/Examples/src/FclNetAdvancedConfigExample.pas
+  s_3957973a090260::t_3a68031c59201d 52
+TlsLib.Trust.System/Examples/Delphi/SystemTrustDemoFormUnit.pas
+  s_3957973a090260::t_de791a96ffb67a 66
+TlsLib.Adapters/mORMot/Adapter/TlpMormotTls.pas
+  s_d73146a41790f9::t_fa0b24e6653896 19
+TlsLib.Adapters/mORMot/Examples/src/MormotAdvancedConfigExample.pas
+  s_d73146a41790f9::t_59da47d9dae1c4 56
+TlsLib.Adapters/mORMot/Examples/src/MormotLoopbackExample.pas
+  s_d73146a41790f9::t_a0b5f6719a2c75 44
+TlsLib.Adapters/mORMot/Examples/src/MormotRealWorldExample.pas
+  s_d73146a41790f9::t_896f034f6c1e08 69
+TlsLib.Adapters/mORMot/Packages/FPC/TlsLib.Adapter.mORMot.lpk
+  s_d73146a41790f9::t_cdd7a8335197ee 26-27
+TlsLib.Adapters/mORMot/Packages/FPC/TlsLib.Adapter.mORMot.pas
+  s_d73146a41790f9::t_aa6372a03b0c1f 11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "81b5eb7c7756f00386568b39a8b69a136ab650bd",
+  "prompts": {},
+  "sessions": {
+    "s_3957973a090260": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6deaf670-7f07-4977-8d0c-c1e8159f395d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_d73146a41790f9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c9014869-1fdc-43f4-9bbb-f1e1e9e01b78",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
