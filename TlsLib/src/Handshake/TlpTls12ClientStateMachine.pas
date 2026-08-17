@@ -800,7 +800,8 @@ begin
     Exit;
   LSession := TResumableSession.CreateTls12(FSelectedSuite.Common.Code,
     FSelectedSuite.Common.Hash, FSchedule.MasterSecret, FServerSessionId,
-    FReceivedTicket, FUseExtendedMasterSecret, '', FReceivedTicketLifetime, 0,
+    FReceivedTicket, FUseExtendedMasterSecret, '', FParams.ServerName,
+    FReceivedTicketLifetime, 0,
     FParams.Clock.NowUnixMillis);
   FParams.SessionCache.Store(CacheServerIdentity, FParams.ServerName, LSession);
   if System.Length(FReceivedTicket) > 0 then

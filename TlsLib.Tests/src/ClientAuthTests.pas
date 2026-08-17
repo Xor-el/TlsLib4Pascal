@@ -44,6 +44,7 @@ uses
   TlpICertificateTrust,
   TlpCertificateVerifier,
   TlpTlsCredential,
+  TlpCredentialResolvers,
   TlpTls13ClientStateMachine,
   TlpTls13ServerStateMachine,
   TlpTls12ClientStateMachine,
@@ -160,7 +161,7 @@ begin
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.Group := TNamedGroups.CreateX25519(Provider);
   LParams.ServerRandom := Filled($22, 32);
-  LParams.Credential := Credential;
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(Credential);
   LParams.ClientAuth := AMode;
   LParams.ClientAuthSignatureSchemes := TArray<UInt16>.Create(EcdsaSecp256r1Sha256);
   LParams.ClientCertificateVerifier := PeerVerifier;
@@ -207,7 +208,7 @@ begin
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.Group := TNamedGroups.CreateX25519(Provider);
   LParams.ServerRandom := Filled($22, 32);
-  LParams.Credential := Credential;
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(Credential);
   LParams.ClientAuth := AMode;
   LParams.ClientAuthSignatureSchemes := TArray<UInt16>.Create(EcdsaSecp256r1Sha256);
   LParams.ClientCertificateVerifier := PeerVerifier;

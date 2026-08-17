@@ -107,13 +107,13 @@ end;
 function TTestSessionStore.MakeSession(const ATag: TBytes): IResumableSession;
 begin
   Result := TResumableSession.CreateTls13($1301, THashAlgorithm.SHA_256,
-    TSecretBuffer.From(ATag), $001D, '', ATag, 7200, 0, 0, 0);
+    TSecretBuffer.From(ATag), $001D, '', '', ATag, 7200, 0, 0, 0);
 end;
 
 function TTestSessionStore.MakeTls12Session(const ATag: TBytes): IResumableSession;
 begin
   Result := TResumableSession.CreateTls12($C02B, THashAlgorithm.SHA_256,
-    TSecretBuffer.From(ATag), ATag, ATag, True, '', 7200, 0, 0);
+    TSecretBuffer.From(ATag), ATag, ATag, True, '', '', 7200, 0, 0);
 end;
 
 procedure TTestSessionStore.TestCacheStoreAndTakeSingleUse;

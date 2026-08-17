@@ -660,7 +660,8 @@ begin
     Exit;
   LPsk := FSchedule.ResumptionPsk(FResumptionTranscriptHash, LNst.TicketNonce);
   LSession := TResumableSession.CreateTls13(FSelectedSuite.Common.Code,
-    FSelectedSuite.Common.Hash, LPsk, FCurrentGroupCode, FNegotiatedAlpn, LNst.Ticket,
+    FSelectedSuite.Common.Hash, LPsk, FCurrentGroupCode, FNegotiatedAlpn,
+    FParams.ServerName, LNst.Ticket,
     LNst.TicketLifetime, LNst.TicketAgeAdd, NowUnixMillis,
     LMaxEarlyData);
   FParams.SessionCache.Store(CacheServerIdentity, FParams.ServerName, LSession);

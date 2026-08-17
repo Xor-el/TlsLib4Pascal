@@ -28,7 +28,7 @@
     <Description Value="Opinionated yet Modular TLS for Modern Object Pascal"/>
     <License Value="MIT License"/>
     <Version Major="1"/>
-    <Files Count="109">
+    <Files Count="111">
       <Item1>
         <Filename Value="..\..\Crypto\TlpCryptoAlgorithms.pas"/>
         <UnitName Value="TlpCryptoAlgorithms"/>
@@ -465,6 +465,14 @@
         <Filename Value="..\..\Interfaces\Engine\TlpITlsConfigMemo.pas"/>
         <UnitName Value="TlpITlsConfigMemo"/>
       </Item109>
+      <Item110>
+        <Filename Value="..\..\Interfaces\Handshake\TlpITlsCredentialResolver.pas"/>
+        <UnitName Value="TlpITlsCredentialResolver"/>
+      </Item110>
+      <Item111>
+        <Filename Value="..\..\Handshake\TlpCredentialResolvers.pas"/>
+        <UnitName Value="TlpCredentialResolvers"/>
+      </Item111>
     </Files>
     <CompatibilityMode Value="True"/>
     <RequiredPkgs Count="2">

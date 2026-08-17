@@ -11,7 +11,7 @@
 /// Handshake customization over the Indy adapter, as a runnable check: SNI, cipher suites,
 /// and the named group (key_share curve), with PEM certificates.
 ///
-/// It stands up a loopback TIdTCPServer + TIdTCPClient and drives two handshakes:
+/// It stands up a loopback TIdTCPServer + TIdTCPClient and drives three handshakes:
 ///
 ///   Run A - the SSLOptions.ServerConfig / ClientConfig escape hatch, fed PEM bytes. It
 ///           pins the named groups so the key_share curve is secp256r1 (NOT the x25519
@@ -23,6 +23,13 @@
 ///   Run B - the plain SSLOptions.CertFile / KeyFile / RootCertFile properties pointed at
 ///           real *.pem files (written from the same fixture). This proves a PEM file loads
 ///           as-is: no hex/DER conversion is required. Both PEM and DER are auto-detected.
+///
+///   Run C - virtual hosting: one server, two certificates keyed by SNI via WithSniCredential.
+///           A 'localhost' host maps to the localhost leaf, and an 'other.example' host maps to
+///           a second (decoy) certificate. The client connects to 'localhost', so a broken
+///           selector that sent the 'other.example' certificate would fail the client's name
+///           check. A clean, name-verified echo proves the server picked the localhost cert by
+///           SNI - the per-host selection a single WithCredential could never do.
 ///
 /// Feeding a TIdHTTPServer looks the same - the IOHandler is configured identically:
 ///
@@ -48,7 +55,7 @@ interface
 type
   TIndyCustomizationExample = class sealed(TObject)
   public
-    /// <summary>Runs both checks; returns 0 on success, 1 on failure.</summary>
+    /// <summary>Runs all three checks; returns 0 on success, 1 on failure.</summary>
     class function Run: Integer; static;
   end;
 
@@ -77,7 +84,9 @@ uses
 const
   PORT_A = 28470;
   PORT_B = 28471;
+  PORT_C = 28472;
   SNI_HOST = 'localhost'; // matches the leaf's CN/SAN in the fixture
+  OTHER_HOST = 'other.example'; // the decoy virtual host (SAN of wrongname_cert)
   PING = 'ping';
 
 // ---------------------------------------------------------------- fixture plumbing
@@ -413,13 +422,85 @@ begin
   end;
 end;
 
+// ---- Run C: virtual hosting - two certificates on one server, selected by SNI ----
+
+// Builds a server that answers for two hosts: 'localhost' -> the localhost leaf, and
+// 'other.example' -> the decoy wrongname cert. The decoy pairs the wrongname certificate with
+// the leaf key; that pairing is never exercised because a 'localhost' client never selects it,
+// but it proves the resolver keys on SNI (the leaf would fail the client's name check for
+// 'other.example', and vice-versa).
+function BuildVirtualHostServerConfig(const ALeafPem, AKeyPem,
+  AWrongNamePem: TBytes): ITlsServerConfig;
+var
+  LServer: ITlsServerConfigBuilder;
+begin
+  LServer := TTlsPresets.Compatible(TDefaultCryptoProvider.Shared).Server;
+  LServer.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13));
+  LServer.WithServerNameAcknowledgement(True);
+  LServer.WithSniCredential(SNI_HOST, ALeafPem, AKeyPem);
+  LServer.WithSniCredential(OTHER_HOST, AWrongNamePem, AKeyPem);
+  Result := LServer.Build;
+end;
+
+// Connects a 'localhost' client to the two-host server and returns True only on a clean,
+// name-verified echo - which is only possible if the server sent the localhost leaf.
+function RunVirtualHosting(const ALeafPem, AKeyPem, AWrongNamePem, ARootPem: TBytes;
+  out AServerSni, AFailReason: string): Boolean;
+var
+  LServer: TIdTCPServer;
+  LServerIO: TTlsLibServerIOHandler;
+  LClient: TIdTCPClient;
+  LClientIO: TTlsLibIOHandlerSocket;
+  LObs: TServerObserver;
+  LEcho, LErr: string;
+  LGroup, LSuite: UInt16;
+begin
+  Result := False;
+  AServerSni := ''; AFailReason := '';
+  LObs := TServerObserver.Create;
+  LServer := TIdTCPServer.Create(nil);
+  LClient := TIdTCPClient.Create(nil);
+  try
+    LServerIO := TTlsLibServerIOHandler.Create(LServer);
+    LServerIO.SSLOptions.ServerConfig :=
+      BuildVirtualHostServerConfig(ALeafPem, AKeyPem, AWrongNamePem);
+    LServer.IOHandler := LServerIO;
+    LServer.DefaultPort := PORT_C;
+    LServer.OnExecute := LObs.DoExecute;
+    LServer.Active := True;
+
+    LClientIO := TTlsLibIOHandlerSocket.Create(LClient);
+    LClientIO.SSLOptions.ClientConfig := BuildClientConfig(ARootPem);
+    LClient.IOHandler := LClientIO;
+    LClient.Host := SNI_HOST; // SNI = 'localhost' selects the localhost credential server-side
+    LClient.Port := PORT_C;
+    LClient.Connect;
+    try
+      LClientIO.WriteLn(PING);
+      LEcho := LClientIO.ReadLn;
+    finally
+      LClient.Disconnect;
+    end;
+    LObs.Snapshot(AServerSni, LGroup, LSuite, LErr);
+    LServer.Active := False;
+    if LEcho = PING then
+      Result := True
+    else
+      AFailReason := 'virtual-host handshake did not echo (' + LEcho + ')';
+  finally
+    LClient.Free;
+    LServer.Free;
+    LObs.Free;
+  end;
+end;
+
 // ---------------------------------------------------------------- entry point
 
 class function TIndyCustomizationExample.Run: Integer;
 var
   LVector: string;
-  LLeafDer, LKeyDer, LRootDer: TBytes;
-  LLeafPem, LKeyPem, LRootPem: TBytes;
+  LLeafDer, LKeyDer, LRootDer, LWrongNameDer: TBytes;
+  LLeafPem, LKeyPem, LRootPem, LWrongNamePem: TBytes;
   LCertFile, LKeyFile, LRootFile: string;
   LClientSuite, LClientGroup, LServerSuite, LServerGroup: UInt16;
   LServerSni, LReason: string;
@@ -431,9 +512,11 @@ begin
     LLeafDer := FieldDer(LVector, 'leaf_cert');
     LKeyDer := FieldDer(LVector, 'leaf_key');
     LRootDer := FieldDer(LVector, 'root_cert');
+    LWrongNameDer := FieldDer(LVector, 'wrongname_cert');
     LLeafPem := PemBytes(LLeafDer, 'CERTIFICATE');
     LKeyPem := PemBytes(LKeyDer, 'PRIVATE KEY');
     LRootPem := PemBytes(LRootDer, 'CERTIFICATE');
+    LWrongNamePem := PemBytes(LWrongNameDer, 'CERTIFICATE');
 
     // ---- Run A: customization asserted through the adapter accessors ----
     if not RunEscapeHatch(LLeafPem, LKeyPem, LRootPem, LClientSuite, LClientGroup,
@@ -469,6 +552,22 @@ begin
       Exit;
     end;
     Writeln('Run B OK: SSLOptions.CertFile/KeyFile/RootCertFile accepted PEM files as-is');
+
+    // ---- Run C: SNI-keyed virtual hosting (two certs, one server) ----
+    if not RunVirtualHosting(LLeafPem, LKeyPem, LWrongNamePem, LRootPem,
+      LServerSni, LReason) then
+    begin
+      Writeln('Indy customization FAIL (Run C): ', LReason);
+      Exit;
+    end;
+    if LServerSni <> SNI_HOST then
+    begin
+      Writeln('Indy customization FAIL (Run C): server saw SNI="', LServerSni,
+        '", expected "', SNI_HOST, '"');
+      Exit;
+    end;
+    Writeln('Run C OK: two SNI credentials configured; client SNI="', LServerSni,
+      '" selected the localhost cert (the other.example decoy would have failed name check)');
 
     Writeln('Indy customization PASS');
     Result := 0;

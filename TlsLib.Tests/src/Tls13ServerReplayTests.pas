@@ -53,6 +53,8 @@ uses
   TlpHandshakeEffect,
   TlpHandshakeDriver,
   TlpTls13ServerStateMachine,
+  TlpTlsCredential,
+  TlpCredentialResolvers,
   MockCryptoProvider,
   Tls13ClientReplayTests,
   TlsLibTestBase;
@@ -247,6 +249,7 @@ var
   LParams: TServerHandshakeParams;
   LServerHello: TBytes;
   LServerShare: TBytes;
+  LCred: TTlsCredential;
 begin
   // the server's key_share pubshare and 32-byte random come straight from the RFC
   // ServerHello (the mock KEM returns this share and the recorded shared secret)
@@ -272,8 +275,9 @@ begin
   LParams.CertificateVerifyOverride := DecodeHex(FHs.Values['cert_verify']);
   // the RFC 8448 server signs with rsa_pss_rsae_sha256, which the RFC client offers;
   // the CertificateVerify is replayed verbatim, so the key only drives scheme selection
-  LParams.Credential.PrivateKey := Provider.ImportSigningKey(
-    DecodeHex(FKeys.Values['rsa_key']));
+  LCred := Default(TTlsCredential);
+  LCred.PrivateKey := Provider.ImportSigningKey(DecodeHex(FKeys.Values['rsa_key']));
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(LCred);
   FSm := TTls13ServerStateMachine.Create(LParams);
   BuildDriver(LParams.Provider);
   FSm.Start;
@@ -413,6 +417,7 @@ procedure TTestTls13ServerReplay.ArrangeMultiSchemeRsa;
 var
   LParams: TServerHandshakeParams;
   LFill: TBytes;
+  LCred: TTlsCredential;
 begin
   LFill := DecodeHex(StringOfChar('a', 64)); // 32 bytes; the mock KEM ignores its value
   LParams := Default(TServerHandshakeParams);
@@ -425,10 +430,10 @@ begin
   LParams.ServerRandom := LFill;
   // one RSA key; its capable schemes are the three rsa_pss_rsae_* variants, and the
   // machine signs for real (no CertificateVerifyOverride)
-  LParams.Credential.CertificateChain := TArray<TBytes>.Create(
-    DecodeHex(FKeys.Values['rsa_cert']));
-  LParams.Credential.PrivateKey := Provider.ImportSigningKey(
-    DecodeHex(FKeys.Values['rsa_key']));
+  LCred := Default(TTlsCredential);
+  LCred.CertificateChain := TArray<TBytes>.Create(DecodeHex(FKeys.Values['rsa_cert']));
+  LCred.PrivateKey := Provider.ImportSigningKey(DecodeHex(FKeys.Values['rsa_key']));
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(LCred);
   FSm := TTls13ServerStateMachine.Create(LParams);
   BuildDriver(Provider);
   FSm.Start;

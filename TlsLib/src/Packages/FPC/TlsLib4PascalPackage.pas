@@ -40,7 +40,8 @@ uses
   TlpIHttpFetcher, TlpLiveRevocation, TlpExternalPskImporter, TlpIClock, 
   TlpClock, TlpICertificateCompressionCache, 
   TlpInMemoryCertificateCompressionCache, TlpTlsConfigMemo, 
-  TlpTlsSignatureBuilder, TlpITlsConfigMemo;
+  TlpTlsSignatureBuilder, TlpITlsConfigMemo, TlpITlsCredentialResolver, 
+  TlpCredentialResolvers;
 
 implementation
 

@@ -240,6 +240,8 @@ const
   CertificateStatusTypeOcsp = Byte(1); // RFC 6066 8 CertificateStatusType.ocsp
   StatusRequestExtensionCode = UInt16(5); // IANA TLS ExtensionType status_request
   SctExtensionCode = UInt16(18); // IANA TLS ExtensionType signed_certificate_timestamp
+  // "Servers MUST NOT use any value greater than 604800 seconds (7 days)" (RFC 8446 4.6.1)
+  MaxTicketLifetimeSeconds = UInt32(604800);
 
 implementation
 

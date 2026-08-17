@@ -27,6 +27,7 @@ uses
   TlpCertificateLimits,
   TlpTrustPolicy,
   TlpTlsCredential,
+  TlpITlsCredentialResolver,
   TlpISession,
   TlpIClock,
   TlpSession;
@@ -159,6 +160,11 @@ type
     /// <summary>The session-ticket encryption keys for stateless tickets; nil disables
     /// stateless ticket issuance.</summary>
     function SessionTicketKeys: ISessionTicketKeyManager;
+    /// <summary>Selects the server certificate per handshake from the client's SNI (virtual
+    /// hosting). Composed at build from WithCredential / WithSniCredential / a custom
+    /// WithCredentialResolver. nil for a PSK-only server (no certificate). The Credential
+    /// accessor still returns the no-SNI / no-match default.</summary>
+    function CredentialResolver: ITlsServerCredentialResolver;
     /// <summary>The anti-replay register guarding accepted 0-RTT early data; required for
     /// the server to accept early data.</summary>
     function AntiReplay: IAntiReplayStrategy;

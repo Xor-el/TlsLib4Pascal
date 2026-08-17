@@ -105,6 +105,8 @@ contains
   TlpEndpointIdentity in '..\..\Trust\TlpEndpointIdentity.pas',
   TlpCertificateVerifier in '..\..\Trust\TlpCertificateVerifier.pas',
   TlpTlsCredential in '..\..\Handshake\TlpTlsCredential.pas',
+  TlpITlsCredentialResolver in '..\..\Interfaces\Handshake\TlpITlsCredentialResolver.pas',
+  TlpCredentialResolvers in '..\..\Handshake\TlpCredentialResolvers.pas',
   TlpITlsConfig in '..\..\Interfaces\Engine\TlpITlsConfig.pas',
   TlpITlsConfigBuilder in '..\..\Interfaces\Engine\TlpITlsConfigBuilder.pas',
   TlpTlsConfigBuilder in '..\..\Engine\TlpTlsConfigBuilder.pas',

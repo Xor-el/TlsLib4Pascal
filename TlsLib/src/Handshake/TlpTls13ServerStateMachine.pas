@@ -53,6 +53,7 @@ uses
   TlpCertificateVerify,
   TlpICertificateTrust,
   TlpTlsCredential,
+  TlpITlsCredentialResolver,
   TlpHandshakeEffect,
   TlpIHandshakeMachine,
   TlpTls13HandshakeBase;
@@ -107,11 +108,12 @@ type
     /// <summary>Memoizes the compressed Certificate across connections (RFC 8879), so a
     /// stable certificate deflates once; nil compresses on every handshake.</summary>
     CertificateCompressionCache: ICertificateCompressionCache;
-    /// <summary>The credential the Certificate and CertificateVerify are produced from:
-    /// the chain is sent, the private key signs the CertificateVerify, and its OCSP staple
-    /// (if any) is stapled in the leaf CertificateEntry when the client offered
-    /// status_request (RFC 8446 4.4.2.1).</summary>
-    Credential: TTlsCredential;
+    /// <summary>Selects the credential the Certificate and CertificateVerify are produced from,
+    /// per handshake from the client's SNI (virtual hosting). The selected chain is sent, its
+    /// private key signs the CertificateVerify, and its OCSP staple (if any) is stapled in the
+    /// leaf CertificateEntry when the client offered status_request (RFC 8446 4.4.2.1). nil for
+    /// a PSK-only server.</summary>
+    CredentialResolver: ITlsServerCredentialResolver;
     /// <summary>Whether the server requests a client certificate (mutual TLS) and how
     /// strictly it is enforced.</summary>
     ClientAuth: TClientAuthMode;
@@ -196,6 +198,8 @@ type
     FAcceptedSessionAlpn: string;
     FClientSentServerName: Boolean;
     FRequestedServerName: string;
+    // the credential the resolver selected for this handshake, from the client's SNI
+    FResolvedCredential: TTlsCredential;
     FPeerRecordSizeLimit: Int32;
     /// <summary>The CertificateVerify scheme negotiated in NegotiateFrom: the first of
     /// the credential's schemes the client also offered.</summary>
@@ -381,6 +385,9 @@ resourcestring
   SNoSignatureAlgorithms = 'the client offered no signature_algorithms';
   SNoCompatibleScheme = 'the server credential cannot satisfy the client signature_algorithms';
   SNoPskOrCertificate = 'no offered pre_shared_key matched and the server has no certificate';
+  SNoCredentialForServerName = 'no server certificate is configured for the requested SNI host';
+  SNoDefaultCredential = 'the client sent no server_name and no default certificate is configured';
+  SCredentialNoSigningKey = 'the selected server credential has no signing key';
   SBadClientFinished = 'the client Finished did not verify';
   SBadPskBinder = 'the pre_shared_key binder did not validate';
   SPskBinderCountMismatch = 'the pre_shared_key offers unequal identity and binder counts';
@@ -500,6 +507,7 @@ procedure TTls13ServerStateMachine.NegotiateFrom(
   out ASelectedGroup: UInt16);
 var
   LSuiteCode, LGroupCode: UInt16;
+  LClientHelloInfo: TTlsClientHelloInfo;
 begin
   FCodec.ConsumeBlock(AContext, TTlsExtensionContextKind.ClientHello,
     AClientHello.Extensions);
@@ -525,6 +533,12 @@ begin
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.MissingExtension, @SGroupsKeyShareMismatch);
 
+  // capture the client's SNI host_name up front (RFC 6066 3): it drives the certificate
+  // selection on the non-PSK path below and guards resumption against a host mismatch, both of
+  // which precede the EncryptedExtensions where the acknowledgement is later echoed
+  FClientSentServerName := AContext.ServerName <> '';
+  FRequestedServerName := AContext.ServerName;
+
   // try PSK auth before the certificate path: an accepted PSK (a resumption ticket or an
   // out-of-band external PSK) picks the suite and authenticates the peer, so no server
   // certificate is sent. A matching external PSK is preferred over the certificate.
@@ -540,9 +554,32 @@ begin
     // no PSK matched: fall back to the server certificate. A PSK-only server (external PSKs
     // configured, no certificate) has nothing to fall back on, so an unmatched offer is a
     // handshake failure (RFC 8446 4.2.11 / e.g. no common PSK)
-    if not Assigned(FParams.Credential.PrivateKey) then
+    // select the server certificate for this handshake from the client's SNI (virtual hosting);
+    // a PSK-only server (nil resolver) has nothing to fall back on
+    if FParams.CredentialResolver = nil then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.HandshakeFailure, @SNoPskOrCertificate);
+    LClientHelloInfo.ServerName := FRequestedServerName;
+    LClientHelloInfo.SignatureSchemes := AContext.SignatureSchemes;
+    LClientHelloInfo.AlpnProtocols := AContext.AlpnProtocols;
+    LClientHelloInfo.CipherSuites := AClientHello.CipherSuites;
+    LClientHelloInfo.SupportedGroups := AContext.SupportedGroups;
+    LClientHelloInfo.ProtocolVersion := TTlsVersion.Tls13;
+    if not FParams.CredentialResolver.TryResolve(LClientHelloInfo, FResolvedCredential) then
+    begin
+      // no certificate for the requested host: unrecognized_name when the client named one,
+      // else handshake_failure (RFC 6066 3)
+      if FRequestedServerName <> '' then
+        raise EFatalAlertTlsLibException.CreateRes(
+          TTlsAlertDescription.UnrecognizedName, @SNoCredentialForServerName);
+      // the resolver had certificates but no default for a no-SNI client: no name to be
+      // "unrecognized", so handshake_failure (RFC 8446 6.2)
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.HandshakeFailure, @SNoDefaultCredential);
+    end;
+    if not Assigned(FResolvedCredential.PrivateKey) then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.HandshakeFailure, @SCredentialNoSigningKey);
     // certificate-based auth requires the client to offer signature_algorithms
     // (RFC 8446 4.4.2.2 / 4.4.3); the CertificateVerify scheme is then the first of the
     // credential's key-compatible schemes the client also offered
@@ -591,10 +628,6 @@ begin
     FSelectedGroup := FParams.Group;
   end;
 
-  // a client host_name is acknowledged with an empty server_name in EncryptedExtensions
-  // (RFC 6066 3)
-  FClientSentServerName := AContext.ServerName <> '';
-  FRequestedServerName := AContext.ServerName;
   // ALPN + record_size_limit are negotiated from the same ClientHello extensions and
   // echoed later in EncryptedExtensions
   FSelectedAlpn := SelectAlpn(AContext.AlpnProtocols);
@@ -695,6 +728,10 @@ begin
   if not FTicketStrategy.Open(AContext.OfferedPskIdentities[0], LSession) then
     Exit;
   if not LSession.Version.Equals(TTlsVersion.Tls13) then
+    Exit;
+  // a ticket issued under one SNI host must not resume as another (virtual-hosting guard): a
+  // host mismatch falls through to a full handshake under the name the client now requests
+  if not SameText(LSession.ServerName, FRequestedServerName) then
     Exit;
   // the client must still offer the PSK's suite (RFC 8446 4.2.11)
   if not (TArrayUtilities.Contains<UInt16>(AClientHello.CipherSuites,
@@ -902,7 +939,7 @@ begin
   // the key reports only schemes it can sign; take the first (owner preference) the
   // client also offered. The legacy rsa_pkcs1_* schemes are certificate-only in TLS 1.3
   // and MUST NOT sign a CertificateVerify (RFC 8446 4.2.3), so skip them here.
-  for LScheme in FParams.Credential.PrivateKey.CapableSchemes do
+  for LScheme in FResolvedCredential.PrivateKey.CapableSchemes do
     if LScheme.IsValidForHandshake(TTlsVersion.Tls13) and
       (TArrayUtilities.Contains<UInt16>(AClientSchemes, LScheme.ToCode)) then
     begin
@@ -1257,10 +1294,10 @@ end;
 
 function TTls13ServerStateMachine.ResolveOcspStaple: TBytes;
 begin
-  if Assigned(FParams.Credential.OcspStapleCallback) then
-    Result := FParams.Credential.OcspStapleCallback
+  if Assigned(FResolvedCredential.OcspStapleCallback) then
+    Result := FResolvedCredential.OcspStapleCallback
   else
-    Result := FParams.Credential.OcspStaple;
+    Result := FResolvedCredential.OcspStaple;
 end;
 
 function TTls13ServerStateMachine.BuildCertificate: TBytes;
@@ -1272,10 +1309,10 @@ var
   LMsg: TTlsCompressedCertificate;
 begin
   LCert.RequestContext := nil; // empty in the server's first flight
-  SetLength(LCert.Entries, System.Length(FParams.Credential.CertificateChain));
-  for LI := 0 to High(FParams.Credential.CertificateChain) do
+  SetLength(LCert.Entries, System.Length(FResolvedCredential.CertificateChain));
+  for LI := 0 to High(FResolvedCredential.CertificateChain) do
   begin
-    LCert.Entries[LI].CertData := FParams.Credential.CertificateChain[LI];
+    LCert.Entries[LI].CertData := FResolvedCredential.CertificateChain[LI];
     // the per-certificate extensions are stored as their framed vector; empty = 00 00
     LCert.Entries[LI].Extensions := TBytes.Create($00, $00);
   end;
@@ -1428,7 +1465,7 @@ var
 begin
   LContent := TCertificateVerify.SignatureContent(True, ATranscriptHash);
   LSigner := FParams.Provider.CreateSignatureSigner(
-    FSelectedSignatureScheme, FParams.Credential.PrivateKey);
+    FSelectedSignatureScheme, FResolvedCredential.PrivateKey);
   LSigner.Update(LContent, 0, System.Length(LContent));
   LVerify.Algorithm := FSelectedSignatureScheme.ToCode;
   LVerify.Signature := LSigner.Sign;
@@ -1488,9 +1525,15 @@ var
   LHandle: TBytes;
   LNst: TTlsNewSessionTicket;
   LContext: TExtensionContext;
+  LLifetime: UInt32;
 begin
   if (FTicketStrategy = nil) or (FParams.IssueTicketCount <= 0) then
     Exit;
+  // a server MUST NOT advertise a lifetime above the RFC 8446 4.6.1 ceiling, and MUST NOT honour
+  // a resumption beyond it either, so clamp the value the session stores and the ticket carries
+  LLifetime := FParams.TicketLifetimeSeconds;
+  if LLifetime > MaxTicketLifetimeSeconds then
+    LLifetime := MaxTicketLifetimeSeconds;
   for LI := 0 to FParams.IssueTicketCount - 1 do
   begin
     LNonce := FParams.Provider.GetRandom.GenerateBytes(TicketNonceLength);
@@ -1502,12 +1545,13 @@ begin
     // the ticket identity is the sealed/handle output, so the session's own id is unused;
     // MaxEarlyData authorizes 0-RTT on the resumed connection
     LSession := TResumableSession.CreateTls13(FSelectedSuite.Common.Code,
-      FSelectedSuite.Common.Hash, LPsk, FSelectedGroup.Code, FSelectedAlpn, nil,
-      FParams.TicketLifetimeSeconds, LAgeAdd, FParams.Clock.NowUnixMillis,
+      FSelectedSuite.Common.Hash, LPsk, FSelectedGroup.Code, FSelectedAlpn,
+      FRequestedServerName, nil,
+      LLifetime, LAgeAdd, FParams.Clock.NowUnixMillis,
       FParams.MaxEarlyData);
     LHandle := FTicketStrategy.Seal(LSession);
     LNst := Default(TTlsNewSessionTicket);
-    LNst.TicketLifetime := FParams.TicketLifetimeSeconds;
+    LNst.TicketLifetime := LLifetime;
     LNst.TicketAgeAdd := LAgeAdd;
     LNst.TicketNonce := LNonce;
     LNst.Ticket := LHandle;

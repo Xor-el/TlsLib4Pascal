@@ -47,6 +47,7 @@ uses
   TlpCertificateLimits,
   TlpTrustPolicy,
   TlpTlsCredential,
+  TlpCredentialResolvers,
   TlpTls12ClientStateMachine,
   TlpTls12ServerStateMachine,
   TlsLibTestBase;
@@ -181,7 +182,7 @@ begin
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.Group := TNamedGroups.CreateX25519(Provider);
   LParams.ServerRandom := Filled($22, 32);
-  LParams.Credential := ServerCredential;
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
   LParams.RequireExtendedMasterSecret := ARequireEms;
   Result := TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine;
 end;
@@ -201,6 +202,7 @@ end;
 function TTestTls12Loopback.NewStaplingServer(const AStaple: TBytes): ITlsEngine;
 var
   LParams: TServer12HandshakeParams;
+  LCred: TTlsCredential;
 begin
   LParams := Default(TServer12HandshakeParams);
   LParams.Clock := TSystemClock.Create;
@@ -210,10 +212,12 @@ begin
   LParams.Group := TNamedGroups.CreateX25519(Provider);
   LParams.ServerRandom := Filled($22, 32);
   // the leaf's issuer travels in the chain so the client can authenticate the staple
-  LParams.Credential.CertificateChain := TArray<TBytes>.Create(
+  LCred := Default(TTlsCredential);
+  LCred.CertificateChain := TArray<TBytes>.Create(
     OcspField('leaf_cert'), OcspField('issuer_cert'));
-  LParams.Credential.PrivateKey := Provider.ImportSigningKey(OcspField('leaf_key'));
-  LParams.Credential.OcspStaple := AStaple;
+  LCred.PrivateKey := Provider.ImportSigningKey(OcspField('leaf_key'));
+  LCred.OcspStaple := AStaple;
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(LCred);
   Result := TTlsEngine.CreateConfigured(
     TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
 end;

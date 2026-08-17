@@ -55,6 +55,7 @@ uses
   TlpCertificateVerifier,
   TlpSecretBuffer,
   TlpTlsCredential,
+  TlpCredentialResolvers,
   TlpTls13ClientStateMachine,
   TlpTls13ServerStateMachine,
   TlsLibTestBase;
@@ -247,7 +248,7 @@ begin
   LParams.ServerRandom := DecodeHex(StringOfChar('2', 64));
   LParams.AlpnProtocols := AAlpn;
   LParams.RecordSizeLimit := ARecordSizeLimit;
-  LParams.Credential := ServerCredential;
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
   Result := TTlsEngine.CreateConfigured(
     TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
 end;
@@ -382,7 +383,7 @@ begin
   LParams.Group := TNamedGroups.CreateX25519(Provider);
   LParams.ServerRandom := DecodeHex(StringOfChar('2', 64));
   LParams.AlpnProtocols := AAlpn;
-  LParams.Credential := ServerCredential;
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
   Result := TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine;
 end;
 
@@ -401,7 +402,7 @@ begin
   LParams.Group := TNamedGroups.CreateX25519(Provider);
   LParams.ServerRandom := DecodeHex(StringOfChar('2', 64));
   LParams.CertificateCompressors := ACompressors;
-  LParams.Credential := CredentialWithChain(AChain);
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(CredentialWithChain(AChain));
   Result := TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine;
 end;
 

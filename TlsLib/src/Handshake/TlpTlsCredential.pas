@@ -17,6 +17,7 @@ interface
 
 uses
   SysUtils,
+  TlpTlsVersion,
   TlpISigningKey;
 
 type
@@ -48,6 +49,20 @@ type
   /// RFC 5246 7.4.4): None never requests one, Requested asks but tolerates a client
   /// that sends none, Required aborts when the client presents no certificate.</summary>
   TClientAuthMode = (None, Requested, Required);
+
+  /// <summary>A read-only snapshot of the ClientHello facts a server credential resolver may
+  /// select on (SNI virtual hosting). ServerName is the raw SNI host_name (RFC 6066), empty
+  /// when the client sent none; the arrays are the client's offers verbatim as IANA wire
+  /// codepoints (SignatureSchemes, CipherSuites, SupportedGroups) or protocol names (Alpn).
+  /// ProtocolVersion is the version of the server machine performing the lookup.</summary>
+  TTlsClientHelloInfo = record
+    ServerName: string;
+    SignatureSchemes: TArray<UInt16>;
+    AlpnProtocols: TArray<string>;
+    CipherSuites: TArray<UInt16>;
+    SupportedGroups: TArray<UInt16>;
+    ProtocolVersion: TTlsVersion;
+  end;
 
 implementation
 

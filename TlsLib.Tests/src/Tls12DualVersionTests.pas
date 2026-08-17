@@ -53,6 +53,7 @@ uses
   TlpICertificateTrust,
   TlpCertificateVerifier,
   TlpTlsCredential,
+  TlpCredentialResolvers,
   TlpTls13ClientStateMachine,
   TlpTls13ServerStateMachine,
   TlpTls12ClientStateMachine,
@@ -219,7 +220,7 @@ begin
   Result.Group := TNamedGroups.CreateX25519(Provider);
   Result.ServerRandom := Filled($22, 32);
   Result.CookieSecret := TSecretBuffer.From(Provider.GetRandom.GenerateBytes(32));
-  Result.Credential := ServerCredential;
+  Result.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
 end;
 
 function TTestTls12DualVersion.Server12Params: TServer12HandshakeParams;
@@ -231,7 +232,7 @@ begin
   Result.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   Result.Group := TNamedGroups.CreateX25519(Provider);
   Result.ServerRandom := Filled($22, 32);
-  Result.Credential := ServerCredential;
+  Result.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
 end;
 
 function TTestTls12DualVersion.NewDualClient: ITlsEngine;

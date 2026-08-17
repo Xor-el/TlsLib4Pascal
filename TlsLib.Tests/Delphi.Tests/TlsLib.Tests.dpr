@@ -107,6 +107,8 @@ uses
   TlpEndpointIdentity in '..\..\TlsLib\src\Trust\TlpEndpointIdentity.pas',
   TlpCertificateVerifier in '..\..\TlsLib\src\Trust\TlpCertificateVerifier.pas',
   TlpTlsCredential in '..\..\TlsLib\src\Handshake\TlpTlsCredential.pas',
+  TlpITlsCredentialResolver in '..\..\TlsLib\src\Interfaces\Handshake\TlpITlsCredentialResolver.pas',
+  TlpCredentialResolvers in '..\..\TlsLib\src\Handshake\TlpCredentialResolvers.pas',
   TlpITlsConfig in '..\..\TlsLib\src\Interfaces\Engine\TlpITlsConfig.pas',
   TlpITlsConfigBuilder in '..\..\TlsLib\src\Interfaces\Engine\TlpITlsConfigBuilder.pas',
   TlpTlsConfigBuilder in '..\..\TlsLib\src\Engine\TlpTlsConfigBuilder.pas',

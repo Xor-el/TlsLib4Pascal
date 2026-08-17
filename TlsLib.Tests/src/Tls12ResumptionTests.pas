@@ -43,6 +43,7 @@ uses
   TlpICertificateTrust,
   TlpCertificateVerifier,
   TlpTlsCredential,
+  TlpCredentialResolvers,
   TlpISession,
   TlpSession,
   TlpDateTimeUtilities,
@@ -88,6 +89,8 @@ type
     function DriveObservingServerCert(const AClient, AServer: ITlsEngine): Boolean;
     function MakeTicketSession(const ATicket: TBytes;
       AExtendedMasterSecret: Boolean): IResumableSession;
+    function MakeStoredSession(const AIdentity: TBytes; const ASecret: ISecretBuffer;
+      const AHost: string): IResumableSession;
   published
     procedure TestSessionIdResumeIsAbbreviated;
     procedure TestTicketResumeIsAbbreviated;
@@ -97,6 +100,7 @@ type
     procedure TestBogusTicketFallsBackToFullHandshake;
     procedure TestNoResumptionWithoutCache;
     procedure TestDualVersionClientResumesTls12;
+    procedure TestSessionIssuedUnderDifferentSniFallsBackToFullHandshake;
   end;
 
 implementation
@@ -239,7 +243,7 @@ begin
   LParams.Group := TNamedGroups.CreateX25519(Provider);
   LParams.ServerRandom := Provider.GetRandom.GenerateBytes(32);
   if AWithCredential then
-    LParams.Credential := ServerCredential;
+    LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
   LParams.SessionStore := AStore;
   LParams.SessionTicketKeys := AStek;
   LParams.TicketLifetimeSeconds := ALifetime;
@@ -380,7 +384,16 @@ function TTestTls12Resumption.MakeTicketSession(const ATicket: TBytes;
 begin
   Result := TResumableSession.CreateTls12(TlsSuite, THashAlgorithm.SHA_256,
     TSecretBuffer.From(Provider.GetRandom.GenerateBytes(48)), nil, ATicket,
-    AExtendedMasterSecret, '', 7200, 0, UInt64(TDateTimeUtilities.CurrentUnixMs));
+    AExtendedMasterSecret, '', '', 7200, 0, UInt64(TDateTimeUtilities.CurrentUnixMs));
+end;
+
+function TTestTls12Resumption.MakeStoredSession(const AIdentity: TBytes;
+  const ASecret: ISecretBuffer; const AHost: string): IResumableSession;
+begin
+  // a session-id session (RFC 5246 7.3): the id resumes via the store, AHost is the host it was
+  // issued under and what the cross-host guard checks
+  Result := TResumableSession.CreateTls12(TlsSuite, THashAlgorithm.SHA_256, ASecret, AIdentity,
+    nil, True, '', AHost, 7200, 0, UInt64(TDateTimeUtilities.CurrentUnixMs));
 end;
 
 procedure TTestTls12Resumption.TestSessionIdResumeIsAbbreviated;
@@ -585,6 +598,44 @@ begin
   CheckFalse(LClient.IsHandshaking, 'the resumed dual-version handshake completed');
   CheckFalse(LServer.IsTerminal, 'the resumed handshake did not fail');
   CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestTls12Resumption.TestSessionIssuedUnderDifferentSniFallsBackToFullHandshake;
+var
+  LCache: ISessionCache;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+  LIdentity: TBytes;
+  LSecret: ISecretBuffer;
+begin
+  // the 1.2 cross-host resumption guard: a session issued while serving one host must not resume
+  // a client that requests another (RFC 6066 3). The client always requests ServerHost, so the
+  // server-stored session carries the issuing host the guard checks
+  LIdentity := Provider.GetRandom.GenerateBytes(32);
+  LSecret := TSecretBuffer.From(Provider.GetRandom.GenerateBytes(48));
+
+  // control: issued under the requested host -> resumes (abbreviated, no Certificate)
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Provider.GetRandom);
+  LCache.Store(ServerHost + ':443', ServerHost, MakeStoredSession(LIdentity, LSecret, ServerHost));
+  LStore.PutWithId(LIdentity, MakeStoredSession(LIdentity, LSecret, ServerHost));
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(LStore, nil, 7200, True);
+  CheckFalse(DriveObservingServerCert(LClient, LServer),
+    'a session issued under the requested host resumes');
+  CheckTrue(LServer.IsResumed, 'the control 1.2 handshake resumed');
+
+  // guarded: issued under a different host -> the credentialed server ignores the session id and
+  // runs a full handshake (Certificate sent) instead of resuming under the wrong identity
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Provider.GetRandom);
+  LCache.Store(ServerHost + ':443', ServerHost, MakeStoredSession(LIdentity, LSecret, ServerHost));
+  LStore.PutWithId(LIdentity, MakeStoredSession(LIdentity, LSecret, 'other.example'));
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(LStore, nil, 7200, True);
+  CheckTrue(DriveObservingServerCert(LClient, LServer),
+    'a session issued under a different host falls back to a full handshake');
+  CheckFalse(LServer.IsResumed, 'a session issued under a different host does not resume');
 end;
 
 initialization

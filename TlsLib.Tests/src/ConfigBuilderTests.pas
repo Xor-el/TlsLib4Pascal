@@ -96,6 +96,10 @@ type
     procedure TestWithCertificatePinningLandsInFrozenConfig;
     procedure TestServerWithOcspStapleLandsInFrozenConfig;
     procedure TestFieldwiseCredentialClearsPriorStaple;
+    // RFC 8446 4.6.1: a server MUST NOT advertise a ticket lifetime over 604800 seconds
+    procedure TestTicketLifetimeAboveCapIsRejected;
+    procedure TestTicketLifetimeAtCapIsAccepted;
+    procedure TestClientRejectsServerSniCredential;
   end;
 
 implementation
@@ -696,6 +700,56 @@ begin
     .Build;
   CheckEquals(0, System.Length(LConfig.Credential.OcspStaple),
     'the field-wise credential cleared the prior staple');
+end;
+
+procedure TTestConfigBuilder.TestTicketLifetimeAboveCapIsRejected;
+var
+  LServer: ITlsServerConfigBuilder;
+  LRaised: Boolean;
+begin
+  LServer := TTlsPresets.Compatible(Provider).Server;
+  LRaised := False;
+  try
+    LServer.WithTicketLifetime(604801); // one second over the RFC 8446 4.6.1 ceiling
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a ticket lifetime above 604800 seconds is rejected');
+end;
+
+procedure TTestConfigBuilder.TestTicketLifetimeAtCapIsAccepted;
+var
+  LConfig: ITlsServerConfig;
+begin
+  // the boundary value is legal; only a strictly-greater lifetime is refused
+  LConfig := TTlsPresets.Compatible(Provider).Server
+    .WithCredential(ServerCredential)
+    .WithTicketLifetime(604800)
+    .Build;
+  CheckNotNull(LConfig, 'the boundary ticket lifetime (604800) is accepted');
+end;
+
+procedure TTestConfigBuilder.TestClientRejectsServerSniCredential;
+var
+  LBuilder: ITlsConfigBuilder;
+  LRaised: Boolean;
+begin
+  // SNI-keyed server credential selection is server-only; building a client from a builder that
+  // carries it is a configuration error, not a silent drop
+  LBuilder := TTlsConfigBuilder.Create(Provider);
+  LBuilder.Server.WithSniCredential('localhost', ServerCredential);
+  // a trust store makes an otherwise-valid client, so the only thing that can fail Build is the
+  // server-only SNI credential guard (not a missing trust source)
+  LBuilder.Client.WithTrustStore(ClientTrust);
+  LRaised := False;
+  try
+    LBuilder.Client.Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a client configuration rejects server-only SNI credential settings');
 end;
 
 initialization

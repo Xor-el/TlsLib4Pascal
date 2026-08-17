@@ -44,6 +44,7 @@ uses
   TlpICertificateTrust,
   TlpCertificateVerifier,
   TlpTlsCredential,
+  TlpCredentialResolvers,
   TlpISession,
   TlpSession,
   TlpDateTimeUtilities,
@@ -86,6 +87,8 @@ type
     procedure CheckAppDataFlows(const AClient, AServer: ITlsEngine);
     function MakeSession(const AIdentity: TBytes;
       const ASecret: ISecretBuffer; ALifetime: UInt32): IResumableSession;
+    function MakeSessionForHost(const AIdentity: TBytes; const ASecret: ISecretBuffer;
+      ALifetime: UInt32; const AHost: string): IResumableSession;
   published
     procedure TestResumptionCompletesPskDheKe;
     procedure TestSingleUseTicketReplayRejected;
@@ -101,6 +104,7 @@ type
     procedure TestZeroRttReplayCaughtByStrikeRegister;
     procedure TestEarlyDataOffByDefault;
     procedure TestMutualAuthResumptionCompletes;
+    procedure TestTicketIssuedUnderDifferentSniFallsBackToFullHandshake;
   end;
 
 implementation
@@ -185,7 +189,7 @@ begin
   LParams.Group := TNamedGroups.CreateX25519(Provider);
   LParams.ServerRandom := Provider.GetRandom.GenerateBytes(32);
   if AWithCredential then
-    LParams.Credential := ServerCredential;
+    LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
   LParams.SessionTicketKeys := AStek;
   LParams.SessionStore := AStore;
   LParams.IssueTicketCount := AIssueTickets;
@@ -297,8 +301,14 @@ end;
 function TTestTls13Resumption.MakeSession(const AIdentity: TBytes;
   const ASecret: ISecretBuffer; ALifetime: UInt32): IResumableSession;
 begin
+  Result := MakeSessionForHost(AIdentity, ASecret, ALifetime, ServerHost);
+end;
+
+function TTestTls13Resumption.MakeSessionForHost(const AIdentity: TBytes;
+  const ASecret: ISecretBuffer; ALifetime: UInt32; const AHost: string): IResumableSession;
+begin
   Result := TResumableSession.CreateTls13(TCipherSuites13.Aes128GcmSha256,
-    THashAlgorithm.SHA_256, ASecret, TNamedGroupCatalog.X25519, '', AIdentity,
+    THashAlgorithm.SHA_256, ASecret, TNamedGroupCatalog.X25519, '', AHost, AIdentity,
     ALifetime, 0, UInt64(TDateTimeUtilities.CurrentUnixMs), 0);
 end;
 
@@ -737,7 +747,7 @@ var
     LP.Group := TNamedGroups.CreateX25519(Provider);
     LP.ServerRandom := Provider.GetRandom.GenerateBytes(32);
     if AWithCredential then
-      LP.Credential := ServerCredential;
+      LP.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
     LP.SessionTicketKeys := LStek;
     LP.IssueTicketCount := AIssue;
     LP.TicketLifetimeSeconds := 7200;
@@ -773,6 +783,44 @@ begin
   CheckFalse(LServer.IsHandshaking, 'the mutual-TLS resumption completed');
   CheckFalse(LServer.IsTerminal, 'no failure resuming a mutual-TLS session');
   CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestTls13Resumption.TestTicketIssuedUnderDifferentSniFallsBackToFullHandshake;
+var
+  LCache: ISessionCache;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+  LIdentity: TBytes;
+  LSecret: ISecretBuffer;
+begin
+  // the cross-host resumption guard: a ticket the server issued while serving one host must not
+  // resume a connection that requests a different host (RFC 6066 3), even with a matching binder.
+  // The client always requests ServerHost, so the server-stored session carries the issuing host
+  LIdentity := Provider.GetRandom.GenerateBytes(32);
+  LSecret := TSecretBuffer.From(Provider.GetRandom.GenerateBytes(32));
+
+  // control: issued under the requested host -> resumes
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Provider.GetRandom);
+  LCache.Store(ServerHost, ServerHost, MakeSession(LIdentity, LSecret, 7200));
+  LStore.PutWithId(LIdentity, MakeSessionForHost(LIdentity, LSecret, 7200, ServerHost));
+  LClient := NewClient(LCache);
+  LServer := NewServer(LStore, 0, 7200, True);
+  DriveHandshake(LClient, LServer);
+  CheckTrue(LServer.IsResumed, 'a ticket issued under the requested host resumes');
+
+  // guarded: issued under a different host -> the credentialed server ignores the PSK and runs a
+  // full handshake instead of resuming under the wrong identity
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Provider.GetRandom);
+  LCache.Store(ServerHost, ServerHost, MakeSession(LIdentity, LSecret, 7200));
+  LStore.PutWithId(LIdentity, MakeSessionForHost(LIdentity, LSecret, 7200, 'other.example'));
+  LClient := NewClient(LCache);
+  LServer := NewServer(LStore, 0, 7200, True);
+  DriveHandshake(LClient, LServer);
+  CheckFalse(LServer.IsHandshaking, 'the guarded handshake completed');
+  CheckFalse(LServer.IsTerminal, 'the guarded handshake did not fail');
+  CheckFalse(LServer.IsResumed, 'a ticket issued under a different host does not resume');
 end;
 
 initialization

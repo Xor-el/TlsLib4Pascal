@@ -47,6 +47,8 @@ uses
   TlpTrustPolicy,
   TlpSecretBuffer,
   TlpTlsCredential,
+  TlpCredentialResolvers,
+  TlpITlsCredentialResolver,
   TlpTls13ClientStateMachine,
   TlpTls13ServerStateMachine,
   TlsLibTestBase;
@@ -57,8 +59,12 @@ type
     function Filled(AByte: Byte; ACount: Int32): TBytes;
     function TestRootCertificate: TBytes;
     function ServerCredential: TTlsCredential;
+    function WrongNameCredential: TTlsCredential;
     function NewClient: ITlsEngine;
+    function NewClientForSni(const ASni, AExpectedHost: string): ITlsEngine;
     function NewServer: ITlsEngine;
+    function NewServerWithResolver(
+      const AResolver: ITlsServerCredentialResolver): ITlsEngine;
     function NewHrrClient: ITlsEngine;
     function NewHrrServer: ITlsEngine;
     function NewP256OnlyClient: ITlsEngine;
@@ -90,6 +96,9 @@ type
     procedure TestMiddleboxChangeCipherSpecIgnored;
     procedure TestStapledGoodOcspCompletesUnderHardPosture;
     procedure TestMissingStapleAbortsUnderHardPosture;
+    procedure TestSniSelectsHostCredentialAmongMany;
+    procedure TestUnknownSniWithoutDefaultAbortsUnrecognizedName;
+    procedure TestSniResolverMatchingMatrix;
   end;
 
 implementation
@@ -107,6 +116,13 @@ begin
 end;
 
 function TTestTls13Loopback.NewClient: ITlsEngine;
+begin
+  // no SNI on the wire; the leaf is name-checked against localhost
+  Result := NewClientForSni('', 'localhost');
+end;
+
+function TTestTls13Loopback.NewClientForSni(const ASni,
+  AExpectedHost: string): ITlsEngine;
 var
   LParams: TClientHandshakeParams;
 begin
@@ -122,11 +138,12 @@ begin
   LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
   LParams.ClientRandom := Filled($11, 32);
   LParams.LegacySessionId := Filled($33, 32);
-  // the client trusts the test root and expects the leaf to be valid for localhost
+  // ServerName is the SNI sent on the wire; ExpectedHostName is the name the leaf is checked against
+  LParams.ServerName := ASni;
   LParams.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
     True) as ICertificateVerifier;
-  LParams.ExpectedHostName := 'localhost';
+  LParams.ExpectedHostName := AExpectedHost;
 
   Result := TTlsEngine.CreateConfigured(
     TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
@@ -158,7 +175,30 @@ begin
   end;
 end;
 
+function TTestTls13Loopback.WrongNameCredential: TTlsCredential;
+var
+  LCerts: TStringList;
+begin
+  // the wrongname leaf carries SAN=other.example; it is paired here with the localhost key
+  // purely as an opaque decoy entry - a localhost client never selects it, so the mismatched
+  // key is never used to sign
+  LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
+  try
+    Result.CertificateChain := TArray<TBytes>.Create(
+      DecodeHex(LCerts.Values['wrongname_cert']));
+    Result.PrivateKey := Provider.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
+  finally
+    LCerts.Free;
+  end;
+end;
+
 function TTestTls13Loopback.NewServer: ITlsEngine;
+begin
+  Result := NewServerWithResolver(TSniCredentialResolver.ForCredential(ServerCredential));
+end;
+
+function TTestTls13Loopback.NewServerWithResolver(
+  const AResolver: ITlsServerCredentialResolver): ITlsEngine;
 var
   LParams: TServerHandshakeParams;
 begin
@@ -171,8 +211,8 @@ begin
   LParams.Group := TNamedGroups.CreateX25519(Provider);
   LParams.ServerRandom := Filled($22, 32);
   // the machine serializes EncryptedExtensions itself; the Certificate +
-  // CertificateVerify are produced and signed from a real credential
-  LParams.Credential := ServerCredential;
+  // CertificateVerify are produced and signed from the credential the resolver picks by SNI
+  LParams.CredentialResolver := AResolver;
 
   Result := TTlsEngine.CreateConfigured(
     TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
@@ -193,6 +233,7 @@ end;
 function TTestTls13Loopback.NewStaplingServer(const AStaple: TBytes): ITlsEngine;
 var
   LParams: TServerHandshakeParams;
+  LCred: TTlsCredential;
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
@@ -203,10 +244,12 @@ begin
   LParams.Group := TNamedGroups.CreateX25519(Provider);
   LParams.ServerRandom := Filled($22, 32);
   // the leaf's issuer travels in the chain so the client can authenticate the staple
-  LParams.Credential.CertificateChain := TArray<TBytes>.Create(
+  LCred := Default(TTlsCredential);
+  LCred.CertificateChain := TArray<TBytes>.Create(
     OcspField('leaf_cert'), OcspField('issuer_cert'));
-  LParams.Credential.PrivateKey := Provider.ImportSigningKey(OcspField('leaf_key'));
-  LParams.Credential.OcspStaple := AStaple;
+  LCred.PrivateKey := Provider.ImportSigningKey(OcspField('leaf_key'));
+  LCred.OcspStaple := AStaple;
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(LCred);
 
   Result := TTlsEngine.CreateConfigured(
     TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
@@ -283,7 +326,7 @@ begin
   LParams.Group := TNamedGroups.CreateNistEcdh(Provider, 'secp256r1');
   LParams.ServerRandom := Filled($22, 32);
   LParams.CookieSecret := TSecretBuffer.From(Provider.GetRandom.GenerateBytes(32));
-  LParams.Credential := ServerCredential;
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
 
   Result := TTlsEngine.CreateConfigured(
     TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
@@ -335,7 +378,7 @@ begin
   LParams.ServerRandom := Filled($22, 32);
   // a cookie secret lets it answer with a HelloRetryRequest if it ever needed to (it must not)
   LParams.CookieSecret := TSecretBuffer.From(Provider.GetRandom.GenerateBytes(32));
-  LParams.Credential := ServerCredential;
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
 
   Result := TTlsEngine.CreateConfigured(
     TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
@@ -379,7 +422,7 @@ begin
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.Group := TNamedGroups.CreateX25519MlKem768(Provider);
   LParams.ServerRandom := Filled($22, 32);
-  LParams.Credential := ServerCredential;
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
 
   Result := TTlsEngine.CreateConfigured(
     TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
@@ -428,7 +471,7 @@ begin
   LParams.Group := TNamedGroups.CreateX25519MlKem768(Provider);
   LParams.ServerRandom := Filled($22, 32);
   LParams.CookieSecret := TSecretBuffer.From(Provider.GetRandom.GenerateBytes(32));
-  LParams.Credential := ServerCredential;
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
 
   Result := TTlsEngine.CreateConfigured(
     TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
@@ -898,6 +941,138 @@ begin
 
   CheckTrue(LClient.IsTerminal,
     'the client aborted the handshake for a missing staple under hard-fail');
+end;
+
+procedure TTestTls13Loopback.TestSniSelectsHostCredentialAmongMany;
+var
+  LClient, LServer: ITlsEngine;
+  LEntries: TArray<TSniCredentialEntry>;
+  LIterations: Int32;
+  LPing: TBytes;
+begin
+  // a virtual-hosting server: 'localhost' -> the localhost leaf, 'other.example' -> a decoy.
+  // A client that requests SNI 'localhost' must be served the localhost leaf (the decoy would
+  // fail the client's name check), so a completed, name-verified handshake proves the resolver
+  // selected by SNI rather than by config order (the decoy is listed first)
+  SetLength(LEntries, 2);
+  LEntries[0].Host := 'other.example';
+  LEntries[0].Credential := WrongNameCredential;
+  LEntries[1].Host := 'localhost';
+  LEntries[1].Credential := ServerCredential;
+
+  LClient := NewClientForSni('localhost', 'localhost');
+  LServer := NewServerWithResolver(
+    TSniCredentialResolver.Create(LEntries, False, Default(TTlsCredential))
+      as ITlsServerCredentialResolver);
+
+  LClient.StartHandshake;
+  LIterations := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LIterations);
+  end;
+
+  CheckFalse(LClient.IsHandshaking, 'the client completed the handshake');
+  CheckFalse(LClient.IsTerminal, 'the client accepted the localhost leaf it was served by SNI');
+  CheckFalse(LServer.IsTerminal, 'the server completed the handshake');
+
+  LPing := DecodeHex('70696e67'); // "ping"
+  LClient.Write(LPing, 0, System.Length(LPing));
+  Pump(LClient, LServer);
+  CheckEqualBytes('application data flows over the SNI-selected credential', LPing,
+    ReadAllApp(LServer));
+end;
+
+procedure TTestTls13Loopback.TestUnknownSniWithoutDefaultAbortsUnrecognizedName;
+var
+  LClient, LServer: ITlsEngine;
+  LEntries: TArray<TSniCredentialEntry>;
+  LIterations: Int32;
+begin
+  // the server knows only 'localhost' and has no default credential; a client requesting an
+  // unknown host must be rejected with unrecognized_name(112) per RFC 6066 3, not served some
+  // arbitrary certificate. This is the discriminator that proves the resolver gates on SNI
+  SetLength(LEntries, 1);
+  LEntries[0].Host := 'localhost';
+  LEntries[0].Credential := ServerCredential;
+
+  LClient := NewClientForSni('unknown.example', 'unknown.example');
+  LServer := NewServerWithResolver(
+    TSniCredentialResolver.Create(LEntries, False, Default(TTlsCredential))
+      as ITlsServerCredentialResolver);
+
+  LClient.StartHandshake;
+  LIterations := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LIterations);
+  end;
+
+  CheckTrue(LServer.IsTerminal, 'the server aborted the unresolvable-SNI handshake');
+  CheckEquals(Ord(TTlsAlertDescription.UnrecognizedName),
+    Ord(LServer.LastError.Alert.Description),
+    'the server aborts an unknown SNI with unrecognized_name(112)');
+end;
+
+procedure TTestTls13Loopback.TestSniResolverMatchingMatrix;
+var
+  LEntries: TArray<TSniCredentialEntry>;
+  LExact, LWildcard, LDefault: TTlsCredential;
+  LResolver: ITlsServerCredentialResolver;
+  LHello: TTlsClientHelloInfo;
+  LGot: TTlsCredential;
+
+  function ResolveFor(const ASni: string; out ACred: TTlsCredential): Boolean;
+  begin
+    LHello := Default(TTlsClientHelloInfo);
+    LHello.ServerName := ASni;
+    Result := LResolver.TryResolve(LHello, ACred);
+  end;
+
+  function LeafOf(const ACred: TTlsCredential): TBytes;
+  begin
+    Result := ACred.CertificateChain[0];
+  end;
+
+begin
+  // exercise the resolver's matching rules directly (no handshake): the credentials are opaque
+  // payloads distinguished by their leaf bytes, so wildcard and case-folding are testable
+  // without needing a certificate that actually carries those names
+  LExact := ServerCredential;        // stands in for host.example.com
+  LWildcard := WrongNameCredential;  // stands in for *.wild.example
+  LDefault := Default(TTlsCredential);
+  LDefault.CertificateChain := TArray<TBytes>.Create(TestRootCertificate);
+
+  SetLength(LEntries, 2);
+  LEntries[0].Host := 'host.example.com';
+  LEntries[0].Credential := LExact;
+  LEntries[1].Host := '*.wild.example';
+  LEntries[1].Credential := LWildcard;
+  LResolver := TSniCredentialResolver.Create(LEntries, True, LDefault);
+
+  CheckTrue(ResolveFor('host.example.com', LGot), 'exact host resolves');
+  CheckEqualBytes('exact host -> its credential', LeafOf(LExact), LeafOf(LGot));
+
+  CheckTrue(ResolveFor('HOST.Example.COM', LGot), 'exact host is case-insensitive');
+  CheckEqualBytes('case-folded exact host -> its credential', LeafOf(LExact), LeafOf(LGot));
+
+  CheckTrue(ResolveFor('api.wild.example', LGot), 'single-label wildcard resolves');
+  CheckEqualBytes('wildcard host -> its credential', LeafOf(LWildcard), LeafOf(LGot));
+
+  CheckTrue(ResolveFor('deep.nested.wild.example', LGot),
+    'a wildcard matches only one label but still resolves via the default');
+  CheckEqualBytes('multi-label host falls through to the default', LeafOf(LDefault),
+    LeafOf(LGot));
+
+  CheckTrue(ResolveFor('', LGot), 'a no-SNI handshake resolves to the default');
+  CheckEqualBytes('no SNI -> the default credential', LeafOf(LDefault), LeafOf(LGot));
+
+  CheckTrue(ResolveFor('unrelated.example', LGot), 'an unmatched host resolves to the default');
+  CheckEqualBytes('unmatched host -> the default credential', LeafOf(LDefault), LeafOf(LGot));
 end;
 
 initialization

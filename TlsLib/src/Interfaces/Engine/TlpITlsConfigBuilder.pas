@@ -26,6 +26,7 @@ uses
   TlpCertificateLimits,
   TlpTrustPolicy,
   TlpTlsCredential,
+  TlpITlsCredentialResolver,
   TlpISession,
   TlpIClock,
   TlpSession,
@@ -239,6 +240,25 @@ type
     /// staple an OCSP response, compose the returned credential and pass WithCredential.</summary>
     function WithCredentialPkcs12(const AData: TBytes;
       const APassword: string): ITlsServerConfigBuilder;
+    /// <summary>Maps a certificate credential to an SNI host_name for virtual hosting: the
+    /// server presents this certificate when the client's SNI matches AHost, which may be an
+    /// exact name or a single left-most-label wildcard (*.example.com). Call it once per host.
+    /// The certificate must cover AHost (its dNSName SANs) or Build fails. A WithCredential set
+    /// alongside is the no-SNI / no-match default; without one, an unmatched host is rejected
+    /// with unrecognized_name.</summary>
+    function WithSniCredential(const AHost: string;
+      const ACredential: TTlsCredential): ITlsServerConfigBuilder; overload;
+    /// <summary>As above, from a certificate chain and an unencrypted private key.</summary>
+    function WithSniCredential(const AHost: string; const ACertificateChainData,
+      APrivateKeyData: TBytes): ITlsServerConfigBuilder; overload;
+    /// <summary>As above, decrypting an encrypted private key with APassword.</summary>
+    function WithSniCredential(const AHost: string; const ACertificateChainData,
+      APrivateKeyData: TBytes; const APassword: string): ITlsServerConfigBuilder; overload;
+    /// <summary>Full custom control over per-handshake certificate selection (e.g. selecting
+    /// by client signature-scheme capability as well as SNI). Mutually exclusive with
+    /// WithCredential / WithSniCredential.</summary>
+    function WithCredentialResolver(
+      const AResolver: ITlsServerCredentialResolver): ITlsServerConfigBuilder;
     /// <summary>Whether the server requests a client certificate (mutual TLS) and how
     /// strictly. A server that requests one also needs a trust source (WithTrustStore).
     /// Defaults to None.</summary>

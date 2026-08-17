@@ -81,6 +81,10 @@ type
     function NamedGroup: UInt16;
     /// <summary>The negotiated ALPN protocol, or the empty string.</summary>
     function Alpn: string;
+    /// <summary>The SNI host_name the session was established under (empty when none). A server
+    /// binds it into the ticket and refuses a resumption whose ClientHello names a different host,
+    /// so a ticket issued for one virtual host cannot resume as another.</summary>
+    function ServerName: string;
     /// <summary>The opaque ticket that identifies this session on resumption.</summary>
     function TicketIdentity: TBytes;
     /// <summary>The ticket lifetime hint in seconds.</summary>

@@ -32,6 +32,7 @@ uses
   TlpCertificateVerifier,
   TlpTrustPolicy,
   TlpTlsCredential,
+  TlpITlsCredentialResolver,
   TlpISession,
   TlpAntiReplay,
   TlpCoreExtensions,
@@ -333,9 +334,10 @@ begin
   L13.CertificateCompressionCache := AConfig.CertificateCompressionCache;
   // a per-server-instance secret so the server can answer with a stateless HelloRetryRequest
   L13.CookieSecret := TSecretBuffer.From(AConfig.Provider.GetRandom.GenerateBytes(32));
-  // the credential carries the chain, key, and (when set) the OCSP staple the server
-  // sends for its leaf once the client offers status_request
-  L13.Credential := AConfig.Credential;
+  // the resolver selects the credential per handshake from the client's SNI (virtual hosting);
+  // each credential carries the chain, key, and (when set) the OCSP staple the server sends for
+  // its leaf once the client offers status_request
+  L13.CredentialResolver := AConfig.CredentialResolver;
   L13.ServerNameAck := AConfig.ServerNameAcknowledgement;
   L13.AlpnRejectAll := AConfig.AlpnRejectAll;
   // mutual TLS: request a client certificate and verify it against the trust store
@@ -367,7 +369,7 @@ begin
   if LOffers12 then
     L12.Group := PreferredEcdheGroup(AConfig);
   L12.ServerRandom := LServerRandom;
-  L12.Credential := AConfig.Credential;
+  L12.CredentialResolver := AConfig.CredentialResolver;
   L12.RequireExtendedMasterSecret := AConfig.RequireExtendedMasterSecret;
   L12.ServerNameAck := AConfig.ServerNameAcknowledgement;
   L12.AlpnRejectAll := AConfig.AlpnRejectAll;

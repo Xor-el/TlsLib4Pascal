@@ -19,6 +19,7 @@ uses
   SysUtils,
   TlpArrayUtilities,
   TlpTlsVersion,
+  TlpHandshakeMessages,
   TlpTlsLibExceptions,
   TlpICryptoProvider,
   TlpINamedGroup,
@@ -32,6 +33,9 @@ uses
   TlpCertificateLimits,
   TlpTrustPolicy,
   TlpTlsCredential,
+  TlpITlsCredentialResolver,
+  TlpCredentialResolvers,
+  TlpEndpointIdentity,
   TlpISession,
   TlpIClock,
   TlpClock,
@@ -70,6 +74,8 @@ type
     FChainLimits: TCertificateChainLimits;
     FCredential: TTlsCredential;
     FHasCredential: Boolean;
+    FSniCredentialEntries: TArray<TSniCredentialEntry>;
+    FCredentialResolver: ITlsServerCredentialResolver;
     FClientAuth: TClientAuthMode;
     FRevocationPosture: TRevocationPosture;
     FCertificatePins: TArray<TBytes>;
@@ -116,6 +122,14 @@ type
     /// <summary>Enforces the trust-composition rule at build: a whole-verifier is exclusive
     /// of any anchor source and of a second verifier (typed error).</summary>
     procedure ValidateTrustComposition;
+    /// <summary>Composes the server credential resolver at build: a custom resolver (exclusive
+    /// of the built-in map/credential), else the SNI map plus the single credential as the
+    /// default fallback, else nil for a PSK-only server.</summary>
+    function ComposeCredentialResolver: ITlsServerCredentialResolver;
+    /// <summary>Fails the build (typed error) when an SNI entry's certificate does not cover
+    /// its host, so a swapped cert/host mapping is caught up front, not per handshake.</summary>
+    procedure ValidateSniEntryCoversHost(const AHost: string;
+      const ACredential: TTlsCredential);
   public
     constructor Create(const AProvider: ICryptoProvider);
 
@@ -139,6 +153,14 @@ type
       const APassword: string): TTlsConfigBuilder; overload;
     function WithCredentialPkcs12(const AData: TBytes;
       const APassword: string): TTlsConfigBuilder;
+    function WithSniCredential(const AHost: string;
+      const ACredential: TTlsCredential): TTlsConfigBuilder; overload;
+    function WithSniCredential(const AHost: string; const ACertificateChainData,
+      APrivateKeyData: TBytes): TTlsConfigBuilder; overload;
+    function WithSniCredential(const AHost: string; const ACertificateChainData,
+      APrivateKeyData: TBytes; const APassword: string): TTlsConfigBuilder; overload;
+    function WithCredentialResolver(
+      const AResolver: ITlsServerCredentialResolver): TTlsConfigBuilder;
     function WithCertificateCompressors(
       const ACompressors: TArray<ICertificateCompressor>): TTlsConfigBuilder;
     function WithCertificateDecompressors(
@@ -199,6 +221,16 @@ resourcestring
   SNoTrustStore = 'a client configuration requires a trust source (no silent-insecure)';
   SNoCredential = 'a server configuration requires a certificate credential';
   SNoClientAuthTrustStore = 'client authentication requires a trust source for the client certificate chain';
+  SSniCertMissing = 'the SNI credential for host "%s" has no certificate chain';
+  SSniCertMismatch = 'the certificate mapped to SNI host "%s" does not cover it: its ' +
+    'SubjectAltName dNSName entries do not match the host';
+  SSniResolverConflict = 'a custom WithCredentialResolver cannot be combined with ' +
+    'WithCredential or WithSniCredential; supply one or the other';
+  SClientSideServerCredential = 'WithSniCredential and WithCredentialResolver select a server ' +
+    'certificate by SNI and cannot be used on a client configuration';
+  SSniDuplicateHost = 'the SNI host "%s" is mapped by more than one WithSniCredential entry';
+  SSniWildcardMalformed = 'the SNI host "%s" is not a supported wildcard; only a single ' +
+    'left-most label wildcard (*.example.com) is allowed';
   SVerifierAnchorConflict = 'a custom certificate verifier is exclusive; it cannot be combined with any trust anchor source';
   SDualVerifier = 'only one custom certificate verifier may be configured';
   STls13NotOffered = 'TLS 1.3 settings were configured but TLS 1.3 is not in the offered versions';
@@ -211,6 +243,8 @@ resourcestring
     'has no revocation status; a server cannot request a client OCSP staple, so Hard ' +
     'client-certificate revocation requires a live OCSP/CRL verdict resolver ' +
     '(WithAsyncCertificateVerdict)';
+  STicketLifetimeTooLong = 'the session-ticket lifetime must not exceed 604800 seconds ' +
+    '(7 days), the maximum a server may advertise (RFC 8446 4.6.1)';
 
 const
   DefaultTicketLifetimeSeconds = UInt32(7200);
@@ -300,6 +334,7 @@ type
     FClientAuth: TClientAuthMode;
     FSessionStore: ISessionStore;
     FSessionTicketKeys: ISessionTicketKeyManager;
+    FCredentialResolver: ITlsServerCredentialResolver;
     FAntiReplay: IAntiReplayStrategy;
     FTicketLifetimeSeconds: UInt32;
     FTicketCount: Int32;
@@ -308,6 +343,7 @@ type
     function ClientAuth: TClientAuthMode;
     function SessionStore: ISessionStore;
     function SessionTicketKeys: ISessionTicketKeyManager;
+    function CredentialResolver: ITlsServerCredentialResolver;
     function AntiReplay: IAntiReplayStrategy;
     function TicketLifetimeSeconds: UInt32;
     function TicketCount: Int32;
@@ -399,6 +435,14 @@ type
       const APassword: string): ITlsServerConfigBuilder; overload;
     function WithCredentialPkcs12(const AData: TBytes;
       const APassword: string): ITlsServerConfigBuilder;
+    function WithSniCredential(const AHost: string;
+      const ACredential: TTlsCredential): ITlsServerConfigBuilder; overload;
+    function WithSniCredential(const AHost: string; const ACertificateChainData,
+      APrivateKeyData: TBytes): ITlsServerConfigBuilder; overload;
+    function WithSniCredential(const AHost: string; const ACertificateChainData,
+      APrivateKeyData: TBytes; const APassword: string): ITlsServerConfigBuilder; overload;
+    function WithCredentialResolver(
+      const AResolver: ITlsServerCredentialResolver): ITlsServerConfigBuilder;
     function WithPeerAuth(AMode: TClientAuthMode): ITlsServerConfigBuilder;
     /// <summary>The revocation posture for the CLIENT certificate under mutual TLS (RFC 8446
     /// 4.4.2). Soft (default) accepts an indeterminate status; Off skips revocation. Hard REQUIRES
@@ -654,6 +698,11 @@ end;
 function TFrozenServerConfig.SessionTicketKeys: ISessionTicketKeyManager;
 begin
   Result := FSessionTicketKeys;
+end;
+
+function TFrozenServerConfig.CredentialResolver: ITlsServerCredentialResolver;
+begin
+  Result := FCredentialResolver;
 end;
 
 function TFrozenServerConfig.AntiReplay: IAntiReplayStrategy;
@@ -1015,6 +1064,35 @@ function TTlsServerConfigBuilder.WithCredentialPkcs12(const AData: TBytes;
   const APassword: string): ITlsServerConfigBuilder;
 begin
   FOwner.WithCredentialPkcs12(AData, APassword);
+  Result := Self;
+end;
+
+function TTlsServerConfigBuilder.WithSniCredential(const AHost: string;
+  const ACredential: TTlsCredential): ITlsServerConfigBuilder;
+begin
+  FOwner.WithSniCredential(AHost, ACredential);
+  Result := Self;
+end;
+
+function TTlsServerConfigBuilder.WithSniCredential(const AHost: string;
+  const ACertificateChainData, APrivateKeyData: TBytes): ITlsServerConfigBuilder;
+begin
+  FOwner.WithSniCredential(AHost, ACertificateChainData, APrivateKeyData);
+  Result := Self;
+end;
+
+function TTlsServerConfigBuilder.WithSniCredential(const AHost: string;
+  const ACertificateChainData, APrivateKeyData: TBytes;
+  const APassword: string): ITlsServerConfigBuilder;
+begin
+  FOwner.WithSniCredential(AHost, ACertificateChainData, APrivateKeyData, APassword);
+  Result := Self;
+end;
+
+function TTlsServerConfigBuilder.WithCredentialResolver(
+  const AResolver: ITlsServerCredentialResolver): ITlsServerConfigBuilder;
+begin
+  FOwner.WithCredentialResolver(AResolver);
   Result := Self;
 end;
 
@@ -1462,6 +1540,111 @@ begin
   Result := Self;
 end;
 
+function TTlsConfigBuilder.WithSniCredential(const AHost: string;
+  const ACredential: TTlsCredential): TTlsConfigBuilder;
+var
+  LN: Integer;
+begin
+  GuardMutable;
+  LN := System.Length(FSniCredentialEntries);
+  System.SetLength(FSniCredentialEntries, LN + 1);
+  FSniCredentialEntries[LN].Host := AHost;
+  FSniCredentialEntries[LN].Credential := ACredential;
+  Result := Self;
+end;
+
+function TTlsConfigBuilder.WithSniCredential(const AHost: string;
+  const ACertificateChainData, APrivateKeyData: TBytes): TTlsConfigBuilder;
+var
+  LCredential: TTlsCredential;
+begin
+  GuardMutable;
+  LCredential.CertificateChain := FProvider.LoadCertificateChain(ACertificateChainData);
+  LCredential.PrivateKey := FProvider.ImportSigningKey(APrivateKeyData);
+  Result := WithSniCredential(AHost, LCredential);
+end;
+
+function TTlsConfigBuilder.WithSniCredential(const AHost: string;
+  const ACertificateChainData, APrivateKeyData: TBytes;
+  const APassword: string): TTlsConfigBuilder;
+var
+  LCredential: TTlsCredential;
+begin
+  GuardMutable;
+  LCredential.CertificateChain := FProvider.LoadCertificateChain(ACertificateChainData);
+  LCredential.PrivateKey := FProvider.ImportSigningKey(APrivateKeyData, APassword);
+  Result := WithSniCredential(AHost, LCredential);
+end;
+
+function TTlsConfigBuilder.WithCredentialResolver(
+  const AResolver: ITlsServerCredentialResolver): TTlsConfigBuilder;
+begin
+  GuardMutable;
+  FCredentialResolver := AResolver;
+  Result := Self;
+end;
+
+procedure TTlsConfigBuilder.ValidateSniEntryCoversHost(const AHost: string;
+  const ACredential: TTlsCredential);
+var
+  LSans: TArray<string>;
+  LOk: Boolean;
+  LI: Integer;
+begin
+  if System.Length(ACredential.CertificateChain) = 0 then
+    raise EInvalidOperationTlsLibException.CreateResFmt(@SSniCertMissing, [AHost]);
+  LSans := FProvider.CertificateDnsNames(ACredential.CertificateChain[0]);
+  if Pos('*', AHost) = 0 then
+    // an exact host must be covered by the leaf's dNSName SANs (RFC 6125/9525)
+    LOk := TEndpointIdentity.Matches(AHost, LSans, nil)
+  else
+  begin
+    // only a single left-most-label wildcard over a non-empty suffix is matchable at runtime
+    // (RFC 6125); a wildcard anywhere else validates against a literal SAN yet never selects a host
+    if (System.Length(AHost) < 3) or (System.Copy(AHost, 1, 2) <> '*.') or
+      (Pos('*', System.Copy(AHost, 3, System.Length(AHost) - 2)) <> 0) then
+      raise EInvalidOperationTlsLibException.CreateResFmt(@SSniWildcardMalformed, [AHost]);
+    // a wildcard entry needs the leaf to carry that same wildcard SAN
+    LOk := False;
+    for LI := 0 to System.High(LSans) do
+      if LowerCase(LSans[LI]) = LowerCase(AHost) then
+      begin
+        LOk := True;
+        Break;
+      end;
+  end;
+  if not LOk then
+    raise EInvalidOperationTlsLibException.CreateResFmt(@SSniCertMismatch, [AHost]);
+end;
+
+function TTlsConfigBuilder.ComposeCredentialResolver: ITlsServerCredentialResolver;
+var
+  LI, LJ: Integer;
+begin
+  if FCredentialResolver <> nil then
+  begin
+    // a custom resolver takes full control; mixing it with the built-in map is a config error
+    if FHasCredential or (System.Length(FSniCredentialEntries) > 0) then
+      raise EInvalidOperationTlsLibException.CreateRes(@SSniResolverConflict);
+    Exit(FCredentialResolver);
+  end;
+  // a PSK-only server presents no certificate, so it needs no resolver
+  if (System.Length(FSniCredentialEntries) = 0) and (not FHasCredential) then
+    Exit(nil);
+  for LI := 0 to System.High(FSniCredentialEntries) do
+  begin
+    for LJ := 0 to LI - 1 do
+      if SameText(FSniCredentialEntries[LJ].Host, FSniCredentialEntries[LI].Host) then
+        raise EInvalidOperationTlsLibException.CreateResFmt(@SSniDuplicateHost,
+          [FSniCredentialEntries[LI].Host]);
+    ValidateSniEntryCoversHost(FSniCredentialEntries[LI].Host,
+      FSniCredentialEntries[LI].Credential);
+  end;
+  // the single credential (WithCredential), if any, is the no-SNI / no-match default
+  Result := TSniCredentialResolver.Create(FSniCredentialEntries, FHasCredential, FCredential)
+    as ITlsServerCredentialResolver;
+end;
+
 function TTlsConfigBuilder.WithCertificateCompressors(
   const ACompressors: TArray<ICertificateCompressor>): TTlsConfigBuilder;
 begin
@@ -1666,6 +1849,8 @@ end;
 function TTlsConfigBuilder.WithTicketLifetime(ASeconds: UInt32): TTlsConfigBuilder;
 begin
   GuardMutable;
+  if ASeconds > MaxTicketLifetimeSeconds then
+    raise EInvalidOperationTlsLibException.CreateRes(@STicketLifetimeTooLong);
   FTicketLifetimeSeconds := ASeconds;
   Result := Self;
 end;
@@ -1738,6 +1923,10 @@ var
 begin
   // a builder is single-use
   GuardMutable;
+  // SNI-keyed server credential selection has no meaning on a client; reject it rather than
+  // silently dropping it (the raw builder exposes both facets)
+  if (System.Length(FSniCredentialEntries) > 0) or (FCredentialResolver <> nil) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SClientSideServerCredential);
   ValidateTrustComposition;
   // a client authenticates the server by its certificate or by an out-of-band external PSK
   // (RFC 9258); at least one trust source or a configured external PSK is required (no
@@ -1799,7 +1988,8 @@ begin
   GuardMutable;
   // a server authenticates with a certificate or an out-of-band external PSK (RFC 9258);
   // at least one must be configured (a PSK-only server presents no certificate)
-  if (not FHasCredential) and (System.Length(FExternalPsks) = 0) then
+  if (not FHasCredential) and (System.Length(FSniCredentialEntries) = 0) and
+    (FCredentialResolver = nil) and (System.Length(FExternalPsks) = 0) then
     raise EInvalidOperationTlsLibException.CreateRes(@SNoCredential);
   ValidateTrustComposition;
   // client authentication verifies the peer chain against a trust source; without one the
@@ -1846,6 +2036,7 @@ begin
   LConfig.FClock := FClock;
   LConfig.FClientAuth := FClientAuth;
   LConfig.FSessionStore := FSessionStore;
+  LConfig.FCredentialResolver := ComposeCredentialResolver;
   // explicit keys always win; otherwise mint the requested default STEK from THIS builder's
   // injected provider + clock (never a concrete default provider), scoped to the config's life
   if FSessionTicketKeys <> nil then

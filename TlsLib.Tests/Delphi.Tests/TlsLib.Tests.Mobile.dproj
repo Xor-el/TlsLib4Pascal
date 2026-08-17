@@ -432,6 +432,8 @@
         <DCCReference Include="..\..\TlsLib\src\Trust\TlpEndpointIdentity.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Trust\TlpCertificateVerifier.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Handshake\TlpTlsCredential.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Handshake\TlpITlsCredentialResolver.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Handshake\TlpCredentialResolvers.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Engine\TlpITlsConfig.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Engine\TlpITlsConfigBuilder.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsConfigBuilder.pas"/>

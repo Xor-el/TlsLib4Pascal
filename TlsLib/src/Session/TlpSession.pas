@@ -90,6 +90,7 @@ type
     FResumptionSecret: ISecretBuffer;
     FNamedGroup: UInt16;
     FAlpn: string;
+    FServerName: string;
     FTicketIdentity: TBytes;
     FTicketLifetime: UInt32;
     FTicketAgeAdd: UInt32;
@@ -106,6 +107,7 @@ type
     function ResumptionSecret: ISecretBuffer;
     function NamedGroup: UInt16;
     function Alpn: string;
+    function ServerName: string;
     function TicketIdentity: TBytes;
     function TicketLifetime: UInt32;
     function TicketAgeAdd: UInt32;
@@ -120,13 +122,13 @@ type
     /// <summary>A TLS 1.3 resumable session (a resumption PSK + its selected parameters).</summary>
     class function CreateTls13(ACipherSuite: UInt16; AHash: THashAlgorithm;
       const AResumptionSecret: ISecretBuffer; ANamedGroup: UInt16;
-      const AAlpn: string; const ATicketIdentity: TBytes;
+      const AAlpn, AServerName: string; const ATicketIdentity: TBytes;
       ATicketLifetime, ATicketAgeAdd: UInt32; AIssuedAtMillis: UInt64;
       AMaxEarlyData: UInt32): IResumableSession; static;
     /// <summary>A TLS 1.2 resumable session (a master secret keyed by session id and/or ticket).</summary>
     class function CreateTls12(ACipherSuite: UInt16; AHash: THashAlgorithm;
       const AMasterSecret: ISecretBuffer; const ASessionId, ASessionTicket: TBytes;
-      AExtendedMasterSecret: Boolean; const AAlpn: string;
+      AExtendedMasterSecret: Boolean; const AAlpn, AServerName: string;
       ATicketLifetime, ATicketAgeAdd: UInt32;
       AIssuedAtMillis: UInt64): IResumableSession; static;
   end;
@@ -217,7 +219,7 @@ end;
 
 class function TResumableSession.CreateTls13(ACipherSuite: UInt16;
   AHash: THashAlgorithm; const AResumptionSecret: ISecretBuffer;
-  ANamedGroup: UInt16; const AAlpn: string; const ATicketIdentity: TBytes;
+  ANamedGroup: UInt16; const AAlpn, AServerName: string; const ATicketIdentity: TBytes;
   ATicketLifetime, ATicketAgeAdd: UInt32; AIssuedAtMillis: UInt64;
   AMaxEarlyData: UInt32): IResumableSession;
 var
@@ -230,6 +232,7 @@ begin
   LSession.FResumptionSecret := AResumptionSecret;
   LSession.FNamedGroup := ANamedGroup;
   LSession.FAlpn := AAlpn;
+  LSession.FServerName := AServerName;
   LSession.FTicketIdentity := System.Copy(ATicketIdentity, 0,
     System.Length(ATicketIdentity));
   LSession.FTicketLifetime := ATicketLifetime;
@@ -242,7 +245,7 @@ end;
 class function TResumableSession.CreateTls12(ACipherSuite: UInt16;
   AHash: THashAlgorithm; const AMasterSecret: ISecretBuffer;
   const ASessionId, ASessionTicket: TBytes; AExtendedMasterSecret: Boolean;
-  const AAlpn: string; ATicketLifetime, ATicketAgeAdd: UInt32;
+  const AAlpn, AServerName: string; ATicketLifetime, ATicketAgeAdd: UInt32;
   AIssuedAtMillis: UInt64): IResumableSession;
 var
   LSession: TResumableSession;
@@ -257,6 +260,7 @@ begin
     System.Length(ASessionTicket));
   LSession.FExtendedMasterSecret := AExtendedMasterSecret;
   LSession.FAlpn := AAlpn;
+  LSession.FServerName := AServerName;
   LSession.FTicketLifetime := ATicketLifetime;
   LSession.FTicketAgeAdd := ATicketAgeAdd;
   LSession.FIssuedAtMillis := AIssuedAtMillis;
@@ -291,6 +295,11 @@ end;
 function TResumableSession.Alpn: string;
 begin
   Result := FAlpn;
+end;
+
+function TResumableSession.ServerName: string;
+begin
+  Result := FServerName;
 end;
 
 function TResumableSession.TicketIdentity: TBytes;

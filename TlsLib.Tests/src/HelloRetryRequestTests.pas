@@ -48,6 +48,7 @@ uses
   TlpHandshakeMessages,
   TlpHelloRetryCookie,
   TlpTlsCredential,
+  TlpCredentialResolvers,
   TlpHandshakeEffect,
   TlpIHandshakeMachine,
   TlpTls13ClientStateMachine,
@@ -251,6 +252,7 @@ function TTestHelloRetryRequest.NewSecp256r1Server(
 var
   LParams: TServerHandshakeParams;
   LCerts: TStringList;
+  LCred: TTlsCredential;
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
@@ -269,8 +271,9 @@ begin
   // negotiation needs when it processes the first ClientHello (before the retry)
   LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
   try
-    LParams.Credential.PrivateKey := Provider.ImportSigningKey(
-      DecodeHex(LCerts.Values['leaf_key']));
+    LCred := Default(TTlsCredential);
+    LCred.PrivateKey := Provider.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
+    LParams.CredentialResolver := TSniCredentialResolver.ForCredential(LCred);
   finally
     LCerts.Free;
   end;

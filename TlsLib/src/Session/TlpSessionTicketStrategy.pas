@@ -81,7 +81,9 @@ type
 implementation
 
 const
-  TicketFormatVersion = Byte(1);
+  // bumped to 2 when the SNI host_name was added to the ticket (virtual-hosting resumption
+  // guard); a v1 ticket fails the version check on Open and simply draws a full handshake
+  TicketFormatVersion = Byte(2);
   TicketNonceLength = Int32(12); // AES-256-GCM nonce
 
 { TStoreTicketStrategy }
@@ -141,6 +143,11 @@ begin
   LMarker := LWriter.OpenVector(2);
   LWriter.WriteBytes(TEncoding.ASCII.GetBytes(ASession.Alpn));
   LWriter.CloseVector(LMarker);
+  // the SNI host_name the session was issued under, bound so a ticket cannot resume as a
+  // different virtual host
+  LMarker := LWriter.OpenVector(2);
+  LWriter.WriteBytes(TEncoding.UTF8.GetBytes(ASession.ServerName));
+  LWriter.CloseVector(LMarker);
   LResumption := nil;
   if ASession.ResumptionSecret <> nil then
     LResumption := ASession.ResumptionSecret.ToBytes;
@@ -173,7 +180,7 @@ var
   LHash: THashAlgorithm;
   LLifetime, LAgeAdd, LMaxEarly, LHi, LLo: UInt32;
   LIssued: UInt64;
-  LAlpn: string;
+  LAlpn, LServerName: string;
   LResumption, LMaster, LSessionId, LSessionTicket: TBytes;
 begin
   ASession := nil;
@@ -198,6 +205,8 @@ begin
   LVec := LReader.OpenVector(2);
   LAlpn := TEncoding.ASCII.GetString(LVec.ReadBytes(LVec.Remaining));
   LVec := LReader.OpenVector(2);
+  LServerName := TEncoding.UTF8.GetString(LVec.ReadBytes(LVec.Remaining));
+  LVec := LReader.OpenVector(2);
   LResumption := LVec.ReadBytes(LVec.Remaining);
   LVec := LReader.OpenVector(2);
   LMaster := LVec.ReadBytes(LVec.Remaining);
@@ -207,13 +216,17 @@ begin
   LSessionTicket := LVec.ReadBytes(LVec.Remaining);
 
   try
+    // an authenticated body with trailing bytes is a format mismatch, not a valid ticket -> full
+    // handshake
+    if LReader.Remaining <> 0 then
+      Exit;
     if LVersion = TlsWireVersionTls13 then
       ASession := TResumableSession.CreateTls13(LSuite, LHash,
-        TSecretBuffer.From(LResumption), LGroup, LAlpn, nil, LLifetime, LAgeAdd,
+        TSecretBuffer.From(LResumption), LGroup, LAlpn, LServerName, nil, LLifetime, LAgeAdd,
         LIssued, LMaxEarly)
     else if LVersion = TlsWireVersionTls12 then
       ASession := TResumableSession.CreateTls12(LSuite, LHash,
-        TSecretBuffer.From(LMaster), LSessionId, LSessionTicket, LEms <> 0, LAlpn,
+        TSecretBuffer.From(LMaster), LSessionId, LSessionTicket, LEms <> 0, LAlpn, LServerName,
         LLifetime, LAgeAdd, LIssued)
     else
       Exit;
@@ -280,7 +293,14 @@ begin
     Exit;
   end;
   try
-    Result := DeserializeSession(LPlain, ASession);
+    try
+      Result := DeserializeSession(LPlain, ASession);
+    except
+      // belt to the version check's braces: an authenticated body that still fails to parse
+      // (a future layout change, a truncated ticket) is unusable, never fatal -> full handshake
+      ASession := nil;
+      Result := False;
+    end;
   finally
     TSecureMemory.WipeBytes(LPlain);
   end;

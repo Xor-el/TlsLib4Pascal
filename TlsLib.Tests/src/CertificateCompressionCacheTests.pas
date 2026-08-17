@@ -44,6 +44,7 @@ uses
   TlpICertificateTrust,
   TlpCertificateVerifier,
   TlpTlsCredential,
+  TlpCredentialResolvers,
   TlpCertificateCompression,
   TlpICertificateCompression,
   TlpICertificateCompressionCache,
@@ -430,7 +431,7 @@ begin
   LParams.ServerRandom := DecodeHex(StringOfChar('2', 64));
   LParams.CertificateCompressors := ACompressors;
   LParams.CertificateCompressionCache := ACache;
-  LParams.Credential := CredentialWithChain(AChain);
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(CredentialWithChain(AChain));
   Result := TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine;
 end;
 

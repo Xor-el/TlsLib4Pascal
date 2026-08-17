@@ -41,6 +41,7 @@ uses
   TlpCertificateVerify,
   TlpICertificateTrust,
   TlpTlsCredential,
+  TlpITlsCredentialResolver,
   TlpISession,
   TlpIClock,
   TlpSession,
@@ -66,11 +67,12 @@ type
     /// low-level sans-IO entry point); the engine factory always sets OfferedGroups.</summary>
     Group: INamedGroup;
     ServerRandom: TBytes;
-    /// <summary>The credential the Certificate chain is sent from and whose private key
-    /// signs the ServerKeyExchange under the negotiated scheme. When the client offered
-    /// status_request, the server echoes an empty status_request in the ServerHello and
-    /// sends a CertificateStatus message (RFC 6066 8) carrying the credential's OCSP staple.</summary>
-    Credential: TTlsCredential;
+    /// <summary>Selects the credential (per handshake, from the client's SNI - virtual hosting)
+    /// the Certificate chain is sent from and whose private key signs the ServerKeyExchange under
+    /// the negotiated scheme. When the client offered status_request, the server echoes an empty
+    /// status_request in the ServerHello and sends a CertificateStatus message (RFC 6066 8)
+    /// carrying the selected credential's OCSP staple. nil for a PSK-only server.</summary>
+    CredentialResolver: ITlsServerCredentialResolver;
     /// <summary>When a 1.3-capable server negotiates 1.2 it stamps the RFC 8446 4.1.3
     /// downgrade sentinel into the last 8 bytes of the server random.</summary>
     EmitDowngradeSentinel: Boolean;
@@ -146,6 +148,8 @@ type
     FUseExtendedMasterSecret: Boolean;
     FEchoRenegotiationInfo: Boolean;
     FClientSentServerName: Boolean;
+    // the credential the resolver selected for this handshake, from the client's SNI
+    FResolvedCredential: TTlsCredential;
     FRequestedServerName: string;
     FSelectedScheme: TSignatureScheme;
     FSchedule: ITls12KeySchedule;
@@ -228,6 +232,8 @@ type
     /// <summary>Seals the current session under the STEK and frames a NewSessionTicket
     /// (RFC 5077 3.3), with a freshly stamped issue time.</summary>
     function BuildNewSessionTicketMessage: TBytes;
+    /// <summary>The configured ticket lifetime, capped at the RFC 8446 4.6.1 ceiling.</summary>
+    function EmittedTicketLifetime: UInt32;
     /// <summary>The resumable session for the current connection, under ASessionId.</summary>
     function BuildStoredSession(const ASessionId: TBytes): IResumableSession;
     function BuildServerHello: TBytes;
@@ -259,6 +265,9 @@ implementation
 resourcestring
   SNoCompatibleSuite =
     'no mutually supported TLS 1.2 ECDHE suite the credential can authenticate';
+  SNoServerCertificate = 'the server has no certificate for a full TLS 1.2 handshake';
+  SCredentialNoSigningKey = 'the selected server credential has no signing key';
+  SNoCredentialForServerName = 'no server certificate is configured for the requested SNI host';
   SNoSignatureAlgorithms = 'the client offered no signature_algorithms';
   SGroupNotOffered = 'the client did not offer the server''s ECDHE group';
   SGroupNotEcdhe = 'the configured 1.2 group is not an ECDHE group';
@@ -341,7 +350,7 @@ begin
     // an ECDSA suite is ineligible when the leaf's curve is not in supported_groups
     if (LSuite.Auth = TAuthMethod.Ecdsa) and not AEcdsaAuthEligible then
       Continue;
-    for LScheme in FParams.Credential.PrivateKey.CapableSchemes do
+    for LScheme in FResolvedCredential.PrivateKey.CapableSchemes do
       if SchemeMatchesAuth(LScheme, LSuite.Auth) and
         (TArrayUtilities.Contains<UInt16>(AClientSchemes, LScheme.ToCode)) then
       begin
@@ -395,10 +404,10 @@ begin
   // curve appears in the client's supported_groups. A non-ECDSA leaf (or a leaf whose
   // key we cannot classify) is not constrained here.
   Result := True;
-  if System.Length(FParams.Credential.CertificateChain) = 0 then
+  if System.Length(FResolvedCredential.CertificateChain) = 0 then
     Exit;
   if not FParams.Provider.CertificateKeyKind(
-    FParams.Credential.CertificateChain[0], LKind, LCurve) then
+    FResolvedCredential.CertificateChain[0], LKind, LCurve) then
     Exit;
   if LKind <> TCertKeyKind.Ecdsa then
     Exit;
@@ -410,6 +419,7 @@ function TTls12ServerStateMachine.ProcessClientHello(
 var
   LHello: TTlsClientHello;
   LContext: TExtensionContext;
+  LClientHelloInfo: TTlsClientHelloInfo;
   LServerHello, LCertificate, LCertificateStatus, LServerKeyExchange, LCertRequest,
     LServerHelloDone, LStaple: TBytes;
 begin
@@ -440,6 +450,30 @@ begin
     FResuming := TryAcceptResumption(LHello, LContext);
     if not FResuming then
     begin
+      // select the server certificate for this handshake from the client's SNI (virtual hosting),
+      // before suite/scheme negotiation which depends on the selected leaf's key
+      if FParams.CredentialResolver = nil then
+        raise EFatalAlertTlsLibException.CreateRes(
+          TTlsAlertDescription.HandshakeFailure, @SNoServerCertificate);
+      LClientHelloInfo.ServerName := FRequestedServerName;
+      LClientHelloInfo.SignatureSchemes := LContext.SignatureSchemes;
+      LClientHelloInfo.AlpnProtocols := LContext.AlpnProtocols;
+      LClientHelloInfo.CipherSuites := LHello.CipherSuites;
+      LClientHelloInfo.SupportedGroups := LContext.SupportedGroups;
+      LClientHelloInfo.ProtocolVersion := TTlsVersion.Tls12;
+      if not FParams.CredentialResolver.TryResolve(LClientHelloInfo, FResolvedCredential) then
+      begin
+        if FRequestedServerName <> '' then
+          raise EFatalAlertTlsLibException.CreateRes(
+            TTlsAlertDescription.UnrecognizedName, @SNoCredentialForServerName);
+        raise EFatalAlertTlsLibException.CreateRes(
+          TTlsAlertDescription.HandshakeFailure, @SNoServerCertificate);
+      end;
+      // a resolved credential with no signing key cannot complete certificate auth; reject it
+      // as a handshake_failure rather than dereferencing a nil key during scheme selection
+      if not Assigned(FResolvedCredential.PrivateKey) then
+        raise EFatalAlertTlsLibException.CreateRes(
+          TTlsAlertDescription.HandshakeFailure, @SCredentialNoSigningKey);
       // select the ECDHE group: the first server-preferred group the client also
       // advertised in supported_groups (RFC 8422 5.1). Unknown/non-ECDHE offered
       // codes are simply not chosen, so a client mixing bogus curves still succeeds.
@@ -594,15 +628,15 @@ end;
 function TTls12ServerStateMachine.BuildCertificate: TBytes;
 begin
   Result := THandshakeFraming.Frame(TTlsHandshakeType.Certificate,
-    THandshakeMessages.EncodeCertificate12(FParams.Credential.CertificateChain));
+    THandshakeMessages.EncodeCertificate12(FResolvedCredential.CertificateChain));
 end;
 
 function TTls12ServerStateMachine.ResolveOcspStaple: TBytes;
 begin
-  if Assigned(FParams.Credential.OcspStapleCallback) then
-    Result := FParams.Credential.OcspStapleCallback
+  if Assigned(FResolvedCredential.OcspStapleCallback) then
+    Result := FResolvedCredential.OcspStapleCallback
   else
-    Result := FParams.Credential.OcspStaple;
+    Result := FResolvedCredential.OcspStaple;
 end;
 
 function TTls12ServerStateMachine.BuildCertificateRequest: TBytes;
@@ -626,7 +660,7 @@ begin
   LContent := TArrayUtilities.Concat(
     TArrayUtilities.Concat(FClientRandom, FServerRandom), AParams);
   LSigner := FParams.Provider.CreateSignatureSigner(FSelectedScheme,
-    FParams.Credential.PrivateKey);
+    FResolvedCredential.PrivateKey);
   LSigner.Update(LContent, 0, System.Length(LContent));
   Result := LSigner.Sign;
 end;
@@ -789,6 +823,10 @@ begin
   if LSession = nil then
     Exit;
 
+  // a ticket/session issued under one SNI host must not resume as another (virtual-hosting
+  // guard): a host mismatch falls through to a full handshake under the requested name
+  if not SameText(LSession.ServerName, FRequestedServerName) then
+    Exit;
   // the recovered session must be a live 1.2 session whose suite the client still offers
   if LSession.Version.WireValue <> TlsWireVersionTls12 then
     Exit;
@@ -817,12 +855,20 @@ begin
   Result := True;
 end;
 
+function TTls12ServerStateMachine.EmittedTicketLifetime: UInt32;
+begin
+  // a server MUST NOT advertise or honour a lifetime above the RFC 8446 4.6.1 ceiling
+  Result := FParams.TicketLifetimeSeconds;
+  if Result > MaxTicketLifetimeSeconds then
+    Result := MaxTicketLifetimeSeconds;
+end;
+
 function TTls12ServerStateMachine.BuildStoredSession(
   const ASessionId: TBytes): IResumableSession;
 begin
   Result := TResumableSession.CreateTls12(FSelectedSuite.Common.Code,
     FSelectedSuite.Common.Hash, FSchedule.MasterSecret, ASessionId, nil,
-    FUseExtendedMasterSecret, '', FParams.TicketLifetimeSeconds, 0,
+    FUseExtendedMasterSecret, '', FRequestedServerName, EmittedTicketLifetime, 0,
     FParams.Clock.NowUnixMillis);
 end;
 
@@ -830,7 +876,7 @@ function TTls12ServerStateMachine.BuildNewSessionTicketMessage: TBytes;
 var
   LMsg: TTls12NewSessionTicket;
 begin
-  LMsg.TicketLifetimeHint := FParams.TicketLifetimeSeconds;
+  LMsg.TicketLifetimeHint := EmittedTicketLifetime;
   // the ticket seals the session (no session id) under the current STEK
   LMsg.Ticket := FTicketStrategy.Seal(BuildStoredSession(nil));
   Result := THandshakeFraming.Frame(TTlsHandshakeType.NewSessionTicket,
