@@ -5,11 +5,11 @@ mORMot's own `INetTls` "swap-your-SSL" seam — no fork, no recompile of mORMot.
 
 ## How to swap it in
 
-Add `TlsLibMormotTls` to your uses clause and point mORMot's global factory at ours **once**,
+Add `TlpMormotTls` to your uses clause and point mORMot's global factory at ours **once**,
 at startup (before any `TCrtSocket` is created):
 
 ```pascal
-uses mormot.net.sock, TlsLibMormotTls;
+uses mormot.net.sock, TlpMormotTls;
 begin
   RegisterTlsLib4PascalTls;          // NewNetTls := NewTlsLib4PascalTls
   // ... every TCrtSocket opened with TLS now uses TlsLib4Pascal

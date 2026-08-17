@@ -8,7 +8,7 @@ unit TlsLib.Adapter.Synapse;
 interface
 
 uses
-  TlsLibSynapseTls;
+  TlpSynapseTls;
 
 implementation
 

@@ -8,7 +8,7 @@ unit TlsLib.Adapter.FclNet;
 interface
 
 uses
-  TlsLibFclNetTls;
+  TlpFclNetTls;
 
 implementation
 

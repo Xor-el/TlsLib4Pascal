@@ -182,7 +182,7 @@ its own plugin — the same way Synapse's own plugins expose extras (`TSSLSChann
 `TSSLCryptLib.PrivateKeyLabel`): cast `Sock.SSL` to the plugin type.
 
 ```pascal
-uses TlsLibSynapseTls;    // registers the plugin
+uses TlpSynapseTls;    // registers the plugin
 
 (LHttp.Sock.SSL as TSSLTlsLib).UseSystemTrust := True;   // OS roots
 LHttp.Sock.SSL.VerifyCert := True;                        // real verification

@@ -23,8 +23,8 @@
     <Version Major="1"/>
     <Files Count="1">
       <Item1>
-        <Filename Value="..\..\Adapter\TlsLibSynapseTls.pas"/>
-        <UnitName Value="TlsLibSynapseTls"/>
+        <Filename Value="..\..\Adapter\TlpSynapseTls.pas"/>
+        <UnitName Value="TlpSynapseTls"/>
       </Item1>
     </Files>
     <RequiredPkgs Count="4">

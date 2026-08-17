@@ -225,7 +225,7 @@ end;
 Swap in TlsLib4Pascal through that stack's own SSL seam -- often one line. For example, mORMot:
 
 ```pascal
-uses TlsLibMormotTls;
+uses TlpMormotTls;
 RegisterTlsLib4PascalTls;   // every mORMot connection now uses TlsLib4Pascal
 ```
 

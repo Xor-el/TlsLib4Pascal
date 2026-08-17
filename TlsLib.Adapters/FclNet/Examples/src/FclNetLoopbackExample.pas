@@ -44,7 +44,7 @@ uses
   SyncObjs,
   ssockets,
   TlpDataEncoding,
-  TlsLibFclNetTls;
+  TlpFclNetTls;
 
 const
   PORT = 28446;

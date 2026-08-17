@@ -72,7 +72,7 @@ uses
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpTlsPresets,
-  TlsLibIndyTls;
+  TlpIndyTls;
 
 const
   PORT_A = 28470;

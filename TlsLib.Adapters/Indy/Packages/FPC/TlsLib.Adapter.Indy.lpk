@@ -23,8 +23,8 @@
     <Version Major="1"/>
     <Files Count="1">
       <Item1>
-        <Filename Value="..\..\Adapter\TlsLibIndyTls.pas"/>
-        <UnitName Value="TlsLibIndyTls"/>
+        <Filename Value="..\..\Adapter\TlpIndyTls.pas"/>
+        <UnitName Value="TlpIndyTls"/>
       </Item1>
     </Files>
     <RequiredPkgs Count="4">

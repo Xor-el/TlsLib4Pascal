@@ -40,7 +40,7 @@ uses
   IdTCPClient,
   TlpTlsVersion,
   TlpDataEncoding,
-  TlsLibIndyTls;
+  TlpIndyTls;
 
 const
   PORT = 28444;

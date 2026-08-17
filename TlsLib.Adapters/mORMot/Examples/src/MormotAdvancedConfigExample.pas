@@ -53,7 +53,7 @@ uses
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpTlsPresets,
-  TlsLibMormotTls;
+  TlpMormotTls;
 
 const
   PORT = '28449';

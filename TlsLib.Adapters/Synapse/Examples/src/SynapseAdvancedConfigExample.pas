@@ -50,7 +50,7 @@ uses
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpTlsPresets,
-  TlsLibSynapseTls;
+  TlpSynapseTls;
 
 const
   PORT = '28450';

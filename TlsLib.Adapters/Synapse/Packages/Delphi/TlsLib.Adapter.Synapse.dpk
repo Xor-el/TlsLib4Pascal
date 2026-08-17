@@ -35,6 +35,6 @@ requires
   TlsLib.Trust.System;
 
 contains
-  TlsLibSynapseTls in '..\..\Adapter\TlsLibSynapseTls.pas';
+  TlpSynapseTls in '..\..\Adapter\TlpSynapseTls.pas';
 
 end.

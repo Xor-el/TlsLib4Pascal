@@ -39,7 +39,7 @@ uses
   SyncObjs,
   blcksock,
   TlpDataEncoding,
-  TlsLibSynapseTls;
+  TlpSynapseTls;
 
 const
   PORT = '28445';

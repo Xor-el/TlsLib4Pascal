@@ -41,7 +41,7 @@ uses
   mormot.core.unicode,
   mormot.net.sock,
   TlpDataEncoding,
-  TlsLibMormotTls;
+  TlpMormotTls;
 
 const
   PORT = '28443';

@@ -35,6 +35,6 @@ requires
   TlsLib.Trust.System;
 
 contains
-  TlsLibMormotTls in '..\..\Adapter\TlsLibMormotTls.pas';
+  TlpMormotTls in '..\..\Adapter\TlpMormotTls.pas';
 
 end.

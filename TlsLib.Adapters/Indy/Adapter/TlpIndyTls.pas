@@ -16,7 +16,7 @@
 /// TIdTCPServer.IOHandler) and existing code gets our managed TLS - no OpenSSL. This unit
 /// is the only place our types and Indy's types meet.
 /// </summary>
-unit TlsLibIndyTls;
+unit TlpIndyTls;
 
 {$IFDEF FPC}
 {$MODE DELPHI}

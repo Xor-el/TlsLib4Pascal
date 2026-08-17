@@ -55,7 +55,7 @@ uses
   SysUtils,
   ssockets,
   fphttpclient,
-  TlsLibFclNetTls;
+  TlpFclNetTls;
 
 type
   /// <summary>Supplies a per-connection FclNet handler configured for OS system trust. This is the

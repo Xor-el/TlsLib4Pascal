@@ -65,7 +65,7 @@ uses
   SysUtils,
   blcksock,
   httpsend,
-  TlsLibSynapseTls;
+  TlpSynapseTls;
 
 { TSynapseRealWorldExample }
 
@@ -121,7 +121,7 @@ begin
   Result := 1;
   LGetBody := '';
   LPostBody := '';
-  // uses TlsLibSynapseTls has already registered our TCustomSSL plugin process-wide, so the
+  // uses TlpSynapseTls has already registered our TCustomSSL plugin process-wide, so the
   // socket THTTPSend creates carries TlsLib4Pascal TLS. A pinned bundle uses Synapse's own
   // CertCAFile; the OS system store is an explicit opt-in via our per-connection UseSystemTrust
   // (system trust is never implicit) - reached by casting Sock.SSL to the plugin type.

@@ -23,8 +23,8 @@
     <Version Major="1"/>
     <Files Count="1">
       <Item1>
-        <Filename Value="..\..\Adapter\TlsLibFclNetTls.pas"/>
-        <UnitName Value="TlsLibFclNetTls"/>
+        <Filename Value="..\..\Adapter\TlpFclNetTls.pas"/>
+        <UnitName Value="TlpFclNetTls"/>
       </Item1>
     </Files>
     <RequiredPkgs Count="3">

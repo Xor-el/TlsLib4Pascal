@@ -66,7 +66,7 @@ uses
   mormot.core.os.security,
   mormot.net.sock,
   mormot.net.client,
-  TlsLibMormotTls;
+  TlpMormotTls;
 
 { TMormotRealWorldExample }
 

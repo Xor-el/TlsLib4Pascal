@@ -36,7 +36,7 @@ headless build scripts.
 2. Target platform **Android64** (or **Android**).
 3. Add the Indy runtime dependency the same way the adapter examples under
    `TlsLib.Adapters/Indy/Examples/Delphi` do (Indy ships with Delphi; the IOHandler unit
-   `TlsLibIndyTls` should be in the search path).
+   `TlpIndyTls` should be in the search path).
 4. In the Android manifest, grant the `INTERNET` permission (Project -> Options -> Uses
    Permissions -> **Internet**). No other permission is required - trust roots are read
    through the framework, never from the filesystem.

@@ -157,14 +157,14 @@ package (singular `Adapter`), then:
 **mORMot** — swap the global TLS factory (process-wide), then use mORMot exactly as before:
 
 ```pascal
-uses TlsLibMormotTls;
+uses TlpMormotTls;
 RegisterTlsLib4PascalTls;        // every mORMot TCrtSocket now uses TlsLib4Pascal
 ```
 
 **Indy** — drop in the IO handler:
 
 ```pascal
-uses TlsLibIndyTls;
+uses TlpIndyTls;
 LClient.IOHandler := TTlsLibIOHandlerSocket.Create(LClient);   // client
 LServer.IOHandler := TTlsLibServerIOHandler.Create(LServer);   // server
 ```
@@ -172,19 +172,19 @@ LServer.IOHandler := TTlsLibServerIOHandler.Create(LServer);   // server
 **Synapse** — the plugin registers itself on `uses`; create sockets normally:
 
 ```pascal
-uses TlsLibSynapseTls;           // registers SSLImplementation := TSSLTlsLib
+uses TlpSynapseTls;           // registers SSLImplementation := TSSLTlsLib
 LSock := TTCPBlockSocket.CreateWithSSL(SSLImplementation);
 ```
 
 (Link exactly one SSL plugin — don't also link `ssl_openssl`.)
 
 **fcl-net** — a little different from the others: you configure through fcl-net's own
-`CertificateData` (file names), and `uses TlsLibFclNetTls` registers `TTlsLibSocketHandler` as
+`CertificateData` (file names), and `uses TlpFclNetTls` registers `TTlsLibSocketHandler` as
 fcl-net's default SSL handler class. Client side, construct a handler, point it at your trust root,
 and hand it to the socket:
 
 ```pascal
-uses ssockets, TlsLibFclNetTls;
+uses ssockets, TlpFclNetTls;
 
 LHandler := TTlsLibSocketHandler.Create;
 LHandler.CertificateData.CertCA.FileName := 'root.pem';         // trust anchor (VerifyPeerCert defaults True)

@@ -10,7 +10,7 @@ block registers it as the process-wide `SSLImplementation`. **Exactly one SSL pl
 linked per project** — do *not* also link `ssl_openssl`.
 
 ```pascal
-uses blcksock, TlsLibSynapseTls;   // registers SSLImplementation := TSSLTlsLib
+uses blcksock, TlpSynapseTls;   // registers SSLImplementation := TSSLTlsLib
 
 // client
 sock := TTCPBlockSocket.CreateWithSSL(SSLImplementation);

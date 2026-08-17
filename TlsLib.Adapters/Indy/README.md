@@ -10,7 +10,7 @@ Replace your OpenSSL IOHandler with ours — it is a drop-in `TIdIOHandler`.
 **Client** (`TIdTCPClient`, or any Indy client component):
 
 ```pascal
-uses TlsLibIndyTls;
+uses TlpIndyTls;
 ...
 IO := TTlsLibIOHandlerSocket.Create(Client);
 IO.SSLOptions.RootCertFile := 'ca-bundle.pem';   // trust

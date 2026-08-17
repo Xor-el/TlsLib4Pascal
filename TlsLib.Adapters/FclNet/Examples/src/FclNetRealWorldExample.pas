@@ -58,7 +58,7 @@ uses
   SysUtils,
   ssockets,
   fphttpclient,
-  TlsLibFclNetTls;
+  TlpFclNetTls;
 
 type
   /// <summary>TFPHTTPClient re-publishes OnGetSocketHandler but leaves AfterSocketHandlerCreate
@@ -174,7 +174,7 @@ begin
   Result := 1;
   LGetBody := '';
   LPostBody := '';
-  // uses TlsLibFclNetTls has registered our TSSLSocketHandler class, so the socket TFPHTTPClient
+  // uses TlpFclNetTls has registered our TSSLSocketHandler class, so the socket TFPHTTPClient
   // creates for an https:// URL carries TlsLib4Pascal TLS. We feed trust through the two fcl-net
   // hooks: OnGetSocketHandler (supply a ready handler) for system trust, AfterSocketHandlerCreate
   // (tweak the created one) for the pinned root.

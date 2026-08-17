@@ -15,7 +15,7 @@ also link `opensslsockets` (its `initialization` would register the OpenSSL hand
 whichever unit initialises last wins).
 
 ```pascal
-uses fphttpclient, TlsLibFclNetTls;   // registers TTlsLibSocketHandler as fcl-net's default
+uses fphttpclient, TlpFclNetTls;   // registers TTlsLibSocketHandler as fcl-net's default
 ```
 
 Because fcl-net **auto-creates** the handler and `TFPHTTPClient` gives you no handler to pass or
@@ -25,7 +25,7 @@ set (the socket owns and frees it per connection), you have two ways in.
 `TFPHTTPClient` verifies against the system-trust store with nothing else:
 
 ```pascal
-uses fphttpclient, TlsLibFclNetTls;
+uses fphttpclient, TlpFclNetTls;
 
 TlsLibFclNetTrustDefaults.UseSystemTrust := True;      // once, at startup (off by default)
 body := TFPHTTPClient.SimpleGet('https://example.com'); // just works, verified against OS trust

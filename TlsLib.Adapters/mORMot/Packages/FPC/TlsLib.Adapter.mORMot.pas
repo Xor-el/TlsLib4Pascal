@@ -8,7 +8,7 @@ unit TlsLib.Adapter.mORMot;
 interface
 
 uses
-  TlsLibMormotTls;
+  TlpMormotTls;
 
 implementation
 

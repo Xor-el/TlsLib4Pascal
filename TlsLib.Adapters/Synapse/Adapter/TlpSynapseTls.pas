@@ -17,7 +17,7 @@
 /// may be linked per project (do not also link ssl_openssl). This unit is the only place our
 /// types and Synapse's types meet.
 /// </summary>
-unit TlsLibSynapseTls;
+unit TlpSynapseTls;
 
 {$IFDEF FPC}
 {$MODE DELPHI}
@@ -284,7 +284,7 @@ end;
 
 function TSSLTlsLib.LibName: string;
 begin
-  Result := 'TlsLibSynapseTls';
+  Result := 'TlpSynapseTls';
 end;
 
 function TSSLTlsLib.LoadFileBytes(const APath: string): TBytes;
