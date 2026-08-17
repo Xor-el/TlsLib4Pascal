@@ -130,13 +130,16 @@ end;
 
 function TTestOcspStapling.VerifierFor(APosture: TRevocationPosture;
   AAsyncResolver: Boolean): ICertificateVerifier;
+var
+  LNoDangerous: TDangerousTrust;
 begin
   // AAsyncResolver models an out-of-band verdict resolver (live OCSP/CRL) running at the park;
   // when set, an indeterminate stapled outcome is deferred to it instead of decided inline
+  LNoDangerous := Default(TDangerousTrust);
   Result := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(V('root_cert')))
     as ITrustAnchorStore, False, TCertificateChainLimits.Defaults, APosture, nil,
-    Default(TDangerousTrust), AAsyncResolver) as ICertificateVerifier;
+    LNoDangerous, AAsyncResolver) as ICertificateVerifier;
 end;
 
 function TTestOcspStapling.ChainFor(const ALeafName: string): TArray<TBytes>;

@@ -189,9 +189,12 @@ constructor TCertificateVerifier.Create(const AProvider: ICryptoProvider;
   const AClock: ITlsClock; const ATrustStore: ITrustAnchorStore;
   ACheckHostName: Boolean; const AChainLimits: TCertificateChainLimits;
   ARevocationPosture: TRevocationPosture; const APins: TArray<TBytes>);
+var
+  LNoDangerous: TDangerousTrust;
 begin
+  LNoDangerous := Default(TDangerousTrust);
   Create(AProvider, AClock, ATrustStore, ACheckHostName, AChainLimits,
-    ARevocationPosture, APins, Default(TDangerousTrust));
+    ARevocationPosture, APins, LNoDangerous);
 end;
 
 constructor TCertificateVerifier.Create(const AProvider: ICryptoProvider;

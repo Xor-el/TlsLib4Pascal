@@ -961,9 +961,7 @@ begin
   LEntries[1].Credential := ServerCredential;
 
   LClient := NewClientForSni('localhost', 'localhost');
-  LServer := NewServerWithResolver(
-    TSniCredentialResolver.Create(LEntries, False, Default(TTlsCredential))
-      as ITlsServerCredentialResolver);
+  LServer := NewServerWithResolver(TSniCredentialResolver.ForEntries(LEntries));
 
   LClient.StartHandshake;
   LIterations := 0;
@@ -999,9 +997,7 @@ begin
   LEntries[0].Credential := ServerCredential;
 
   LClient := NewClientForSni('unknown.example', 'unknown.example');
-  LServer := NewServerWithResolver(
-    TSniCredentialResolver.Create(LEntries, False, Default(TTlsCredential))
-      as ITlsServerCredentialResolver);
+  LServer := NewServerWithResolver(TSniCredentialResolver.ForEntries(LEntries));
 
   LClient.StartHandshake;
   LIterations := 0;

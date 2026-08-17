@@ -52,6 +52,10 @@ type
     /// a credential rather than a resolver.</summary>
     class function ForCredential(
       const ACredential: TTlsCredential): ITlsServerCredentialResolver; static;
+    /// <summary>A resolver over host-keyed entries with no default: a client whose SNI matches no
+    /// entry is refused.</summary>
+    class function ForEntries(
+      const AEntries: TArray<TSniCredentialEntry>): ITlsServerCredentialResolver; static;
     function TryResolve(const AClientHello: TTlsClientHelloInfo;
       out ACredential: TTlsCredential): Boolean;
   end;
@@ -64,6 +68,16 @@ class function TSniCredentialResolver.ForCredential(
   const ACredential: TTlsCredential): ITlsServerCredentialResolver;
 begin
   Result := TSniCredentialResolver.Create(nil, True, ACredential)
+    as ITlsServerCredentialResolver;
+end;
+
+class function TSniCredentialResolver.ForEntries(
+  const AEntries: TArray<TSniCredentialEntry>): ITlsServerCredentialResolver;
+var
+  LNoDefault: TTlsCredential;
+begin
+  LNoDefault := Default(TTlsCredential);
+  Result := TSniCredentialResolver.Create(AEntries, False, LNoDefault)
     as ITlsServerCredentialResolver;
 end;
 
