@@ -67,6 +67,13 @@ type
     /// KEM/hybrid (post-quantum) groups in supported_groups.</summary>
     class function EcdheGroupCodes(const AConfig: ITlsCommonConfig;
       const ACodes: TArray<UInt16>): TArray<UInt16>; static;
+    /// <summary>The subset of ACodes that name a group present in the config's registry, in
+    /// order - the registry is the source of capability truth, so a preferred codepoint that
+    /// was pruned (or never registered) is silently dropped rather than advertised and then
+    /// failing to resolve when selected. This is what a restricted registry (e.g. classical-only)
+    /// composes through, whatever a preset's preferred order still names.</summary>
+    class function RegisteredGroupCodes(const AConfig: ITlsCommonConfig;
+      const ACodes: TArray<UInt16>): TArray<UInt16>; static;
     class function Offers(const AConfig: ITlsCommonConfig;
       AVersion: UInt16): Boolean; static;
   public
@@ -117,14 +124,21 @@ end;
 class function TTlsEngineFactory.PreferredGroup(const AConfig: ITlsCommonConfig;
   out ACode: UInt16): INamedGroup;
 var
-  LGroups: TArray<UInt16>;
+  LCode: UInt16;
 begin
-  LGroups := AConfig.PreferredGroups;
-  if System.Length(LGroups) = 0 then
+  if System.Length(AConfig.PreferredGroups) = 0 then
     raise EArgumentTlsLibException.CreateRes(@SNoPreferredGroup);
-  ACode := LGroups[0];
-  if not AConfig.NamedGroups.TryGet(ACode, Result) then
-    raise EArgumentTlsLibException.CreateResFmt(@SUnconfiguredGroup, [ACode]);
+  // the registry is authoritative: pick the first preferred group it actually holds, so a
+  // preferred order that still names a pruned group (a preset lists the hybrid first) resolves
+  // to the top registered group instead of failing
+  for LCode in AConfig.PreferredGroups do
+    if AConfig.NamedGroups.TryGet(LCode, Result) then
+    begin
+      ACode := LCode;
+      Exit;
+    end;
+  raise EArgumentTlsLibException.CreateResFmt(@SUnconfiguredGroup,
+    [AConfig.PreferredGroups[0]]);
 end;
 
 class function TTlsEngineFactory.PreferredEcdheGroup(
@@ -151,6 +165,23 @@ begin
   for LCode in ACodes do
     if AConfig.NamedGroups.TryGet(LCode, LGroup) and
       (LGroup.Kind = TNamedGroupKind.Ecdhe) then
+    begin
+      LN := System.Length(Result);
+      SetLength(Result, LN + 1);
+      Result[LN] := LCode;
+    end;
+end;
+
+class function TTlsEngineFactory.RegisteredGroupCodes(const AConfig: ITlsCommonConfig;
+  const ACodes: TArray<UInt16>): TArray<UInt16>;
+var
+  LCode: UInt16;
+  LGroup: INamedGroup;
+  LN: Int32;
+begin
+  Result := nil;
+  for LCode in ACodes do
+    if AConfig.NamedGroups.TryGet(LCode, LGroup) then
     begin
       LN := System.Length(Result);
       SetLength(Result, LN + 1);
@@ -200,9 +231,10 @@ begin
   L13 := Default(TClientHandshakeParams);
   L13.Provider := AConfig.Provider;
   L13.Group := PreferredGroup(AConfig, L13.GroupCode);
-  // advertise every preferred group and carry the registry, so the server may retry
-  // the client onto any offered group it prefers (HelloRetryRequest)
-  L13.OfferedGroups := AConfig.PreferredGroups;
+  // advertise every preferred group the registry holds (a pruned/absent group is dropped, not
+  // advertised-then-unresolvable) and carry the registry, so the server may retry the client
+  // onto any offered group it prefers (HelloRetryRequest)
+  L13.OfferedGroups := RegisteredGroupCodes(AConfig, AConfig.PreferredGroups);
   L13.GroupRegistry := AConfig.NamedGroups;
   L13.CipherSuites := AConfig.CipherSuites;
   L13.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
@@ -301,6 +333,7 @@ var
   LOffers13, LOffers12, LAsyncVerdict: Boolean;
   LVerdictDeadlineMs: Cardinal;
   LMachine: IHandshakeMachine;
+  LGroupCode: UInt16;
 begin
   LOffers13 := Offers(AConfig, TlsWireVersionTls13);
   LOffers12 := Offers(AConfig, TlsWireVersionTls12);
@@ -322,10 +355,17 @@ begin
     AConfig.SupportedVersions, AConfig.CipherSuitePreference);
   L13.CipherSuites := AConfig.CipherSuites;
   L13.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  // the server offers all its preferred groups and selects one the client offered (RFC 8446
-  // 4.2.8); secp256r1 is mandatory to implement (9.1), so it is never a single group
-  L13.OfferedGroups := AConfig.PreferredGroups;
+  // the server offers all its preferred groups the registry holds and selects one the client
+  // offered (RFC 8446 4.2.8); a group pruned from the registry is never selected, so it cannot fail
+  // to resolve mid-handshake. secp256r1 is mandatory to implement (RFC 8446 9.1), never a single group
+  L13.OfferedGroups := RegisteredGroupCodes(AConfig, AConfig.PreferredGroups);
   L13.GroupRegistry := AConfig.NamedGroups;
+  // require at least one preferred group to be registered when 1.3 is offered: this validates the
+  // registry-vs-preference intersection at creation (an empty offer would leave the 1.3 server
+  // unable to select any group) and seeds Group, the single-group fallback the state machine reads
+  // when OfferedGroups is empty, so neither path can fault on the first ClientHello
+  if LOffers13 then
+    L13.Group := PreferredGroup(AConfig, LGroupCode);
   L13.ServerRandom := LServerRandom;
   L13.AlpnProtocols := AConfig.AlpnProtocols;
   // the server compresses its Certificate with what it holds and the client advertised

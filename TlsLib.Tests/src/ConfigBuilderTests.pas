@@ -35,6 +35,7 @@ uses
   TlpNegotiationTypes,
   TlpCipherSuiteRegistry,
   TlpSignatureSchemeRegistry,
+  TlpINamedGroup,
   TlpNamedGroups,
   TlpISecretBuffer,
   TlpSecretBuffer,
@@ -100,6 +101,16 @@ type
     procedure TestTicketLifetimeAboveCapIsRejected;
     procedure TestTicketLifetimeAtCapIsAccepted;
     procedure TestClientRejectsServerSniCredential;
+    // a restricted (classical-only) registry composes with a preset whose preferred order still
+    // names the pruned hybrid: the engine drops it from the offer instead of failing to build,
+    // and the handshake negotiates a classical group
+    procedure TestClassicalRegistryOverPresetNegotiatesClassical;
+    // the asymmetric case: a classical-registry client against a default, post-quantum-preferring
+    // server - the client advertises no hybrid, so the server cannot retry it onto a pruned group
+    procedure TestClassicalRegistryClientAgainstDefaultServer;
+    // a 1.3 server whose registry holds none of its preferred groups is refused at creation, not
+    // left to fault on the first ClientHello
+    procedure TestServerWithEmptyGroupIntersectionFailsFast;
   end;
 
 implementation
@@ -750,6 +761,76 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a client configuration rejects server-only SNI credential settings');
+end;
+
+procedure TTestConfigBuilder.TestClassicalRegistryOverPresetNegotiatesClassical;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // Hardened prefers X25519MLKEM768 first; installing the classical-only registry prunes it.
+  // Before the registry became authoritative this raised at engine creation (preferred group not
+  // in the registry); now the hybrid is dropped from the offer and X25519 is negotiated instead.
+  LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Hardened(Provider).Client
+    .WithNamedGroups(TNamedGroups.CreateClassicalRegistry(Provider))
+    .WithTrustStore(ClientTrust).Build, 'localhost');
+  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Hardened(Provider).Server
+    .WithNamedGroups(TNamedGroups.CreateClassicalRegistry(Provider))
+    .WithCredential(ServerCredential).Build);
+  RunHandshake(LClient, LServer);
+
+  CheckFalse(LClient.IsHandshaking, 'the handshake completed');
+  CheckFalse(LClient.IsTerminal, 'the client did not fail');
+  CheckFalse(LServer.IsTerminal, 'the server did not fail');
+  CheckEquals(Integer(TNamedGroupCatalog.X25519), Integer(LClient.NegotiatedGroup),
+    'negotiated classical X25519, not the pruned post-quantum hybrid');
+  CheckEquals(Integer(LClient.NegotiatedGroup), Integer(LServer.NegotiatedGroup),
+    'client and server agree on the negotiated group');
+end;
+
+procedure TTestConfigBuilder.TestClassicalRegistryClientAgainstDefaultServer;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // the client's registry is classical-only, so its supported_groups carries no hybrid; the server
+  // keeps the default registry and prefers the hybrid, but cannot select or retry onto a group the
+  // client never offered. Both settle on X25519 with no fatal - the case the OfferedGroups filter,
+  // not the PreferredGroup fix, protects.
+  LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Hardened(Provider).Client
+    .WithNamedGroups(TNamedGroups.CreateClassicalRegistry(Provider))
+    .WithTrustStore(ClientTrust).Build, 'localhost');
+  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Hardened(Provider).Server
+    .WithCredential(ServerCredential).Build);
+  RunHandshake(LClient, LServer);
+
+  CheckFalse(LClient.IsHandshaking, 'the handshake completed');
+  CheckFalse(LClient.IsTerminal, 'the client did not fail (no retry into a pruned group)');
+  CheckFalse(LServer.IsTerminal, 'the server did not fail');
+  CheckEquals(Integer(TNamedGroupCatalog.X25519), Integer(LClient.NegotiatedGroup),
+    'negotiated classical X25519 though the server prefers the hybrid');
+end;
+
+procedure TTestConfigBuilder.TestServerWithEmptyGroupIntersectionFailsFast;
+var
+  LReg: INamedGroupRegistry;
+  LRaised: Boolean;
+begin
+  // Hardened prefers the hybrid, X25519 and secp256r1; prune the classical registry down to
+  // secp384r1 (which Hardened does not prefer), leaving the registry-vs-preference intersection
+  // empty. The server must refuse at creation rather than build with an empty offer and fault on
+  // the first ClientHello.
+  LReg := TNamedGroups.CreateClassicalRegistry(Provider);
+  LReg.Prune(TNamedGroupCatalog.X25519);
+  LReg.Prune(TNamedGroupCatalog.Secp256r1);
+  LReg.Prune(TNamedGroupCatalog.Secp521r1);
+  LRaised := False;
+  try
+    TTlsEngineFactory.CreateServerEngine(TTlsPresets.Hardened(Provider).Server
+      .WithNamedGroups(LReg).WithCredential(ServerCredential).Build);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a server with an empty registry-vs-preference intersection is refused');
 end;
 
 initialization

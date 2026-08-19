@@ -63,6 +63,7 @@ type
     procedure TestNistDecapsulateRejectsOffCurvePoint;
     procedure TestHybridDecapsulateRejectsShortCiphertext;
     procedure TestRegistry;
+    procedure TestClassicalRegistryOmitsPostQuantum;
     procedure TestGroupKindClassifiesEcdheKemHybrid;
     procedure TestOnlyEcdheGroupsAreTls12Eligible;
   end;
@@ -286,6 +287,21 @@ begin
   LReg.Add(TNamedGroups.CreateNistEcdh(Provider, 'secp521r1'));
   CheckTrue(LReg.Contains(TNamedGroupCatalog.Secp521r1), 're-added');
   CheckFalse(LReg.TryGet($FFFF, LGroup), 'unknown code is not found');
+end;
+
+procedure TTestNamedGroups.TestClassicalRegistryOmitsPostQuantum;
+var
+  LReg: INamedGroupRegistry;
+begin
+  // the classical registry is the default minus the post-quantum hybrids, so a ClientHello
+  // driven off it carries no ~1KB ML-KEM key share (the constrained-path escape hatch)
+  LReg := TNamedGroups.CreateClassicalRegistry(Provider);
+  CheckTrue(LReg.Contains(TNamedGroupCatalog.X25519), 'has X25519');
+  CheckTrue(LReg.Contains(TNamedGroupCatalog.Secp256r1), 'has secp256r1');
+  CheckTrue(LReg.Contains(TNamedGroupCatalog.Secp384r1), 'has secp384r1');
+  CheckTrue(LReg.Contains(TNamedGroupCatalog.Secp521r1), 'has secp521r1');
+  CheckFalse(LReg.Contains(TNamedGroupCatalog.X25519MlKem768), 'no hybrid');
+  CheckFalse(LReg.Contains(TNamedGroupCatalog.MlKem768), 'no ML-KEM');
 end;
 
 procedure TTestNamedGroups.TestGroupKindClassifiesEcdheKemHybrid;

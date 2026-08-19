@@ -49,6 +49,12 @@ type
     class function CreateX25519MlKem768(const AProvider: ICryptoProvider): INamedGroup; static;
     /// <summary>A registry pre-loaded with the default groups.</summary>
     class function CreateDefaultRegistry(const AProvider: ICryptoProvider): INamedGroupRegistry; static;
+    /// <summary>The default registry with the post-quantum groups removed - classical ECDHE only.
+    /// A post-quantum key share enlarges the ClientHello enough to fail on some constrained paths
+    /// (reduced-MTU tunnels/VPNs, or middleboxes intolerant of a fragmented ClientHello); this
+    /// trades post-quantum protection for a smaller ClientHello there. Install it with
+    /// WithNamedGroups.</summary>
+    class function CreateClassicalRegistry(const AProvider: ICryptoProvider): INamedGroupRegistry; static;
   end;
 
 implementation
@@ -405,6 +411,20 @@ begin
   Result.Add(CreateNistEcdh(AProvider, 'secp256r1'));
   Result.Add(CreateNistEcdh(AProvider, 'secp384r1'));
   Result.Add(CreateNistEcdh(AProvider, 'secp521r1'));
+end;
+
+class function TNamedGroups.CreateClassicalRegistry(const AProvider: ICryptoProvider): INamedGroupRegistry;
+var
+  LDefault: INamedGroupRegistry;
+  LGroup: INamedGroup;
+begin
+  // derived from the default registry with the post-quantum (KEM/hybrid) groups filtered out, so
+  // a classical group added to CreateDefaultRegistry is carried here without a second hand-kept list
+  Result := TNamedGroupRegistry.Create;
+  LDefault := CreateDefaultRegistry(AProvider);
+  for LGroup in LDefault.Items do
+    if LGroup.Kind = TNamedGroupKind.Ecdhe then
+      Result.Add(LGroup);
 end;
 
 end.
