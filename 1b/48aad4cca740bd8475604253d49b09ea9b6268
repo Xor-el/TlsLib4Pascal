@@ -1,0 +1,30 @@
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_3957973a090260::t_4d01fb11e1d3f3 1539-1543
+  s_3957973a090260::t_9f099d13a6ab0d 241-245
+  s_3957973a090260::t_f964b47dcac9c7 528-529
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_3957973a090260::t_56c062ae2befc4 1350-1352
+  s_3957973a090260::t_bfb780c497d230 2041-2045,2048
+TlsLib.Tests/src/ConfigResumptionTests.pas
+  s_3957973a090260::t_193c3529adc981 78-79
+  s_3957973a090260::t_90894e7add4dac 339-363,366-384
+  s_3957973a090260::t_0b013111f90810 364-365
+TlsLib.Interop/src/InteropEngine.pas
+  s_3957973a090260::t_44f50465e93068 354-359
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "1b48aad4cca740bd8475604253d49b09ea9b6268",
+  "prompts": {},
+  "sessions": {
+    "s_3957973a090260": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6deaf670-7f07-4977-8d0c-c1e8159f395d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
