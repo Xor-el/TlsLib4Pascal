@@ -1347,8 +1347,9 @@ begin
   FCertificateDecompressors := TZlibCertificateCompression.DefaultDecompressors;
   // the cross-connection compression cache is opt-in (like the session store): nil until a
   // caller supplies one via WithCertificateCompressionCache, so a stable body re-deflates
-  // resumption is engaged by default (a preset may turn it off); a client still needs a
-  // cache and a server a store/STEK for anything to actually resume
+  // resumption is engaged by default (a preset may turn it off): a server then resumes out of the
+  // box, minting a default STEK at build time unless explicit ticket keys or a session store were
+  // supplied; a client still needs a session cache to retain the tickets it is offered
   FResumption := True;
   // a client sends GREASE (RFC 8701) and a server acknowledges a received server_name
   // (RFC 6066) by default; both are optional and a caller may turn them off
@@ -2037,11 +2038,14 @@ begin
   LConfig.FClientAuth := FClientAuth;
   LConfig.FSessionStore := FSessionStore;
   LConfig.FCredentialResolver := ComposeCredentialResolver;
-  // explicit keys always win; otherwise mint the requested default STEK from THIS builder's
-  // injected provider + clock (never a concrete default provider), scoped to the config's life
+  // explicit keys always win; otherwise mint the default STEK from THIS builder's injected
+  // provider + clock (never a concrete default provider), scoped to the config's life. With
+  // resumption on and neither ticket keys nor a session store configured, the STEK is minted so
+  // a server resumes out of the box rather than silently issuing nothing; a store-only (stateful)
+  // server and WithResumption(False) both opt out.
   if FSessionTicketKeys <> nil then
     LConfig.FSessionTicketKeys := FSessionTicketKeys
-  else if FWantDefaultSessionTicketKeys then
+  else if FWantDefaultSessionTicketKeys or (FResumption and (FSessionStore = nil)) then
     LConfig.FSessionTicketKeys := TStekTicketKeyManager.CreateDefault(FProvider, FClock);
   LConfig.FAntiReplay := FAntiReplay;
   LConfig.FTicketLifetimeSeconds := FTicketLifetimeSeconds;

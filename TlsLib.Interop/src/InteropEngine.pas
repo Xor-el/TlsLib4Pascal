@@ -351,7 +351,12 @@ begin
         LServer.WithCertificateVerifyCallback(GRejecter.Reject);
     end;
     // resumption: the shared STEK issues and re-opens tickets across the resume-count loop;
-    // 0-RTT authorizes early data on the 1.3 facet
+    // 0-RTT authorizes early data on the 1.3 facet. With neither ticket keys nor a session store
+    // the harness is driving a non-resumption scenario: opt out of resumption explicitly so the
+    // engine issues no NewSessionTicket. The harness is exact about ticket presence and does not
+    // lean on the engine's resume-by-default (which mints a STEK when resumption is left on).
+    if (AOptions.SessionTicketKeys = nil) and (AOptions.SessionStore = nil) then
+      LServer.WithResumption(False);
     if AOptions.SessionTicketKeys <> nil then
       LServer.WithSessionTicketKeys(AOptions.SessionTicketKeys);
     if AOptions.SessionStore <> nil then

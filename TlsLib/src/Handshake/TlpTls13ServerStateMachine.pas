@@ -238,6 +238,11 @@ type
     /// <summary>Whether the ClientHello offered status_request, so the server staples its
     /// configured OCSP response in the leaf CertificateEntry (RFC 8446 4.4.2.1).</summary>
     FStatusRequestOffered: Boolean;
+    /// <summary>Whether the ClientHello advertised psk_dhe_ke in psk_key_exchange_modes. A ticket
+    /// this server issues is only resumable via psk_dhe_ke, so a client that offered neither that
+    /// mode nor the extension cannot use one: the server sends no NewSessionTicket (RFC 8446
+    /// 4.2.9).</summary>
+    FClientOfferedPskDheKe: Boolean;
     /// <summary>Whether a HelloRetryRequest has been sent. After an HRR a conformant client
     /// never sends 0-RTT, so the server neither accepts nor skips early data on the second
     /// flight: any early-data records there fail to deprotect (RFC 8446 4.2.10).</summary>
@@ -520,6 +525,8 @@ begin
       TTlsAlertDescription.IllegalParameter, @SPreSharedKeyNotLast);
   FEarlyDataOfferedByClient := AContext.EarlyDataOffered;
   FStatusRequestOffered := AContext.StatusRequestOffered;
+  FClientOfferedPskDheKe := TArrayUtilities.Contains<Byte>(AContext.PskModes,
+    PskDheKeMode);
 
   // version is confirmed via supported_versions
   FParams.Policy.SelectVersion(AContext.SupportedVersions);
@@ -1528,6 +1535,11 @@ var
   LLifetime: UInt32;
 begin
   if (FTicketStrategy = nil) or (FParams.IssueTicketCount <= 0) then
+    Exit;
+  // a ticket is resumable only via psk_dhe_ke; a client that advertised neither that mode nor a
+  // psk_key_exchange_modes extension at all cannot use one, so issuing it would just be wasted
+  // bytes the client discards (RFC 8446 4.2.9)
+  if not FClientOfferedPskDheKe then
     Exit;
   // a server MUST NOT advertise a lifetime above the RFC 8446 4.6.1 ceiling, and MUST NOT honour
   // a resumption beyond it either, so clamp the value the session stores and the ticket carries

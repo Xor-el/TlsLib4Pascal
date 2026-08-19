@@ -75,6 +75,8 @@ type
   published
     procedure TestTls13StoreResumptionViaConfig;
     procedure TestTls12ResumptionViaConfig;
+    procedure TestDefaultServerIssuesTicketsOutOfBox;
+    procedure TestResumptionOffServerIssuesNoTicket;
     procedure TestStrictPresetLeavesResumptionOff;
     procedure TestStrictResumptionReEnabledWithNoGuard;
   end;
@@ -332,6 +334,52 @@ begin
     '1.2 resumption via the config is abbreviated (no Certificate)');
   CheckFalse(LServer.IsTerminal, 'the 1.2 resume did not fail');
   CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestConfigResumption.TestDefaultServerIssuesTicketsOutOfBox;
+var
+  LCache: ISessionCache;
+  LServerConfig: ITlsServerConfig;
+  LClient, LServer: ITlsEngine;
+begin
+  // a server built through the public surface with only a credential - no WithSessionStore and
+  // no WithDefaultSessionTicketKeys - resumes out of the box: the resume-by-default posture mints
+  // a STEK, so the server issues a ticket the client caches and can later present. One frozen
+  // config is reused across both handshakes so the same STEK opens the ticket
+  LCache := TInMemorySessionCache.Create;
+  LServerConfig := TTlsPresets.Hardened(Provider).Server
+    .WithCredential(ServerCredential).Build;
+
+  LClient := NewClient13(LCache, True);
+  LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
+  PumpToCompletion(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking, 'the initial handshake completed');
+  CheckTrue(LCache.Count >= 1, 'the default server issued a ticket the client cached');
+
+  LClient := NewClient13(LCache, True);
+  LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
+  PumpToCompletion(LClient, LServer);
+  CheckFalse(LServer.IsHandshaking, 'the resuming server completed');
+  CheckFalse(LServer.IsTerminal, 'the resuming server did not fail');
+  // prove it actually resumed via the out-of-box ticket, not a silent full-handshake fallback
+  CheckTrue(LClient.IsResumed, 'the second handshake resumed off the auto-issued ticket');
+  CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestConfigResumption.TestResumptionOffServerIssuesNoTicket;
+var
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  // WithResumption(False) opts a server out even under the resume-by-default posture: no STEK is
+  // engaged, so no ticket is issued and the client caches nothing
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient13(LCache, True);
+  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Hardened(Provider).Server
+    .WithCredential(ServerCredential).WithResumption(False).Build);
+  PumpToCompletion(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking, 'the handshake completed');
+  CheckEquals(0, LCache.Count, 'a resumption-off server issued no ticket');
 end;
 
 procedure TTestConfigResumption.TestStrictPresetLeavesResumptionOff;
