@@ -1,0 +1,35 @@
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_3957973a090260::t_fb75178413dd42 53
+TlsLib.Adapters/mORMot/Adapter/TlsLibMormotTls.pas
+  s_3957973a090260::t_bad0da6f54067f 53
+TlsLib.Tests/src/TlsStreamLoopbackTests.pas
+  s_3957973a090260::t_e2b76184af083a 42
+TlsLib.Trust.System/Examples/Delphi/SystemTrustDemoFormUnit.pas
+  s_3957973a090260::t_22f4900fd9b453 66
+TlsLib.Adapters/Indy/Adapter/TlsLibIndyTls.pas
+  s_3957973a090260::t_32749f35fb0170 56
+TlsLib/src/Common/TlpTlsLibExceptions.pas
+  s_3957973a090260::t_437a8faab36505 68-100
+  s_3957973a090260::t_d7982fdb702588 20-21
+  s_3957973a090260::t_a4db90d331bf2f 132-148
+TlsLib.Adapters/Synapse/Adapter/TlsLibSynapseTls.pas
+  s_3957973a090260::t_523b4381f06648 54
+TlsLib.Adapters/Indy/Examples/src/IndyRealWorldExample.pas
+  s_3957973a090260::t_3e5ed07cb5697c 64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "78f117c39b599418b6fdd9eea2749ab32f6fddf7",
+  "prompts": {},
+  "sessions": {
+    "s_3957973a090260": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6deaf670-7f07-4977-8d0c-c1e8159f395d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
