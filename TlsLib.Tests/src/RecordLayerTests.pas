@@ -28,7 +28,6 @@ uses
   TlpTlsAlert,
   TlpTlsLibExceptions,
   TlpTlsContentType,
-  TlpISecretBuffer,
   TlpSecretBuffer,
   TlpICryptoProvider,
   TlpCryptoAlgorithms,

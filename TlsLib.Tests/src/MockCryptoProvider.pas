@@ -22,7 +22,6 @@ uses
   TlpCryptoAlgorithms,
   TlpISigningKey,
   TlpTlsCredential,
-  TlpISecretBuffer,
   TlpICryptoProvider;
 
 type

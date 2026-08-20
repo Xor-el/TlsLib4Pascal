@@ -50,6 +50,7 @@ uses
   TlpInMemorySessionCache,
   TlpITlsTransport,
   TlpTlsStreamPump,
+  TlpTlsLibExceptions,
   TlpTlsStream,
   TlpSystemTrustFacade;
 

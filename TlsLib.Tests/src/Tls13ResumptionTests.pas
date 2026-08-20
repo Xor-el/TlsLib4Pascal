@@ -28,7 +28,6 @@ uses
 {$ELSE}
   TestFramework,
 {$ENDIF FPC}
-  TlpArrayUtilities,
   TlpCryptoAlgorithms,
   TlpTlsAlert,
   TlpNamedGroups,

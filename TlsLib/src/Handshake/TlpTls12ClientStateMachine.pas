@@ -34,8 +34,6 @@ uses
   TlpWireReader,
   TlpExtensionContext,
   TlpITlsExtension,
-  TlpExtensionBlockCodec,
-  TlpCoreExtensions,
   TlpHandshakeMessage,
   TlpHandshakeMessages,
   TlpCertificateVerify,
@@ -47,7 +45,6 @@ uses
   TlpSession,
   TlpITlsEngine,
   TlpHandshakeEffect,
-  TlpIHandshakeMachine,
   TlpHandshakeMachineBase;
 
 type
@@ -250,8 +247,6 @@ resourcestring
   SNoCertificateVerifier = 'no certificate verifier configured (fail-closed)';
   SUntrustedCertificate = 'the server certificate chain was not trusted';
   SUnofferedScheme = 'the ServerKeyExchange uses a signature scheme that was not offered';
-  SLeafKeyUsageForbidsSigning = 'the server certificate keyUsage does not permit digitalSignature';
-  SPssLeafKeyUnsupported = 'an rsa_pss_rsae scheme was used with an id-RSASSA-PSS certificate key';
   SUnofferedAlpn = 'the server selected an ALPN protocol that was not offered';
   SBadServerKeyExchangeCurve = 'the ServerKeyExchange named a group that was not offered';
   SBadServerKeyExchangeSig = 'the ServerKeyExchange signature did not verify';

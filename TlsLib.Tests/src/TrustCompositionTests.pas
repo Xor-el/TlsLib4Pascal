@@ -32,13 +32,11 @@ uses
 {$ENDIF FPC}
   TlpTlsLibExceptions,
   TlpTlsAlert,
-  TlpICryptoProvider,
   TlpICertificateTrust,
   TlpCertificateVerifier,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpTlsPresets,
-  MockCryptoProvider,
   TlsLibTestBase;
 
 type

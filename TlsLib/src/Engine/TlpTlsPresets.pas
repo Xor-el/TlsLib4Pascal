@@ -16,7 +16,6 @@ unit TlpTlsPresets;
 interface
 
 uses
-  SysUtils,
   TlpTlsVersion,
   TlpICryptoProvider,
   TlpNegotiationTypes,

@@ -26,39 +26,6 @@ uses
 
 type
   /// <summary>
-  /// A fatal TLS error raised out of the blocking stream pump: it carries the
-  /// structured alert and message the engine (or the peer) produced, so a host
-  /// adapter can map it onto its own error convention.
-  /// </summary>
-  ETlsStreamError = class(Exception)
-  strict private
-    FAlert: TTlsAlertDescription;
-    FHasAlert: Boolean;
-  public
-    constructor Create(const AError: TTlsError); overload;
-    constructor Create(ADescription: TTlsAlertDescription;
-      const AMessage: string); overload;
-    /// <summary>The alert that was (or would be) sent; valid only when HasAlert.</summary>
-    property Alert: TTlsAlertDescription read FAlert;
-    property HasAlert: Boolean read FHasAlert;
-  end;
-
-  /// <summary>
-  /// The peer closed the transport (EOF) with the exchange unfinished and without a
-  /// close_notify - a possible truncation attack (RFC 8446 6.1). Distinct from a clean
-  /// close_notify shutdown, which the stream surfaces as an ordinary EOF. On a server this
-  /// is usually benign - a client that walked away mid-handshake - and belongs at info level.
-  /// </summary>
-  ETlsTransportTruncated = class(ETlsStreamError);
-
-  /// <summary>
-  /// The adapter's handshake read timeout elapsed with the peer sending nothing - a silent
-  /// or dead connection reaped. Distinct from ETlsTransportTruncated (a peer close): this is
-  /// "we timed out", that is "the client closed". Also benign on a server.
-  /// </summary>
-  ETlsHandshakeTimeout = class(ETlsStreamError);
-
-  /// <summary>
   /// Decides a parked peer-certificate verdict out-of-band (RFC 8446 deferred-verdict seam):
   /// AChain is the peer chain (leaf first, DER) the built-in pipeline already accepted, and
   /// AHostName the expected host (empty on the server side). Return True to continue the
@@ -145,23 +112,6 @@ resourcestring
   SPeerFatalAlert = 'the peer sent a fatal alert';
   STruncatedHandshake = 'the transport closed during the handshake without close_notify';
   SWriteAfterClose = 'a write was attempted after the connection was closed';
-
-{ ETlsStreamError }
-
-constructor ETlsStreamError.Create(const AError: TTlsError);
-begin
-  inherited Create(AError.Message);
-  FAlert := AError.Alert.Description;
-  FHasAlert := True;
-end;
-
-constructor ETlsStreamError.Create(ADescription: TTlsAlertDescription;
-  const AMessage: string);
-begin
-  inherited Create(AMessage);
-  FAlert := ADescription;
-  FHasAlert := True;
-end;
 
 { TTlsStreamPump }
 

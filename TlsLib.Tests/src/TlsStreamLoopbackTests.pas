@@ -31,18 +31,15 @@ uses
   TlpTlsAlert,
   TlpCryptoAlgorithms,
   TlpICryptoProvider,
-  TlpICertificateTrust,
-  TlpCertificateVerifier,
   TlpTrustPolicy,
-  TlpTlsCredential,
   TlpTlsConnectionInfo,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpTlsPresets,
-  TlpITlsEngine,
   TlpTlsEngineFactory,
   TlpITlsTransport,
   TlpTlsStreamPump,
+  TlpTlsLibExceptions,
   TlpTlsStream,
   TlsLibTestBase;
 
@@ -148,9 +145,6 @@ type
   end;
 
 implementation
-
-uses
-  TlpTlsLibExceptions;
 
 const
   // "ping from the client" / "pong from the server"

@@ -30,7 +30,6 @@ uses
   TlpTlsLibExceptions,
   TlpTlsContentType,
   TlpTlsVersion,
-  TlpISecretBuffer,
   TlpSecretBuffer,
   TlpICryptoProvider,
   TlpCryptoAlgorithms,

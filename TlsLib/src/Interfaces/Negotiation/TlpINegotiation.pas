@@ -16,7 +16,6 @@ unit TlpINegotiation;
 interface
 
 uses
-  SysUtils,
   TlpCryptoAlgorithms,
   TlpNegotiationTypes;
 

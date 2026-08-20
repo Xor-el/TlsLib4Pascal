@@ -63,6 +63,7 @@ uses
   IdHTTP,
   IdStack,
   TlpTlsStreamPump,
+  TlpTlsLibExceptions,
   TlsLibIndyTls;
 
 const

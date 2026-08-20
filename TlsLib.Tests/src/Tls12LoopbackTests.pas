@@ -30,9 +30,6 @@ uses
 {$ENDIF FPC}
   TlpTlsVersion,
   TlpTlsAlert,
-  TlpICryptoProvider,
-  TlpCryptoAlgorithms,
-  TlpINamedGroup,
   TlpNamedGroups,
   TlpNegotiationTypes,
   TlpCipherSuiteRegistry,

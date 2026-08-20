@@ -22,7 +22,6 @@ uses
   TlpTlsVersion,
   TlpTlsLibExceptions,
   TlpISecretBuffer,
-  TlpSecretBuffer,
   TlpICryptoProvider,
   TlpINamedGroup,
   TlpIKeySchedule,
@@ -36,7 +35,6 @@ uses
   TlpWireReader,
   TlpExtensionContext,
   TlpITlsExtension,
-  TlpExtensionBlockCodec,
   TlpCoreExtensions,
   TlpGrease,
   TlpHandshakeMessage,
@@ -53,7 +51,6 @@ uses
   TlpExternalPskImporter,
   TlpITlsEngine,
   TlpHandshakeEffect,
-  TlpIHandshakeMachine,
   TlpTls13HandshakeBase;
 
 type
@@ -338,8 +335,6 @@ resourcestring
   SUnofferedScheme = 'the CertificateVerify uses a signature scheme that was not offered';
   SLegacyPkcs1InTls13 = 'the CertificateVerify uses a legacy rsa_pkcs1 scheme, which is ' +
     'certificate-only in TLS 1.3';
-  SLeafKeyUsageForbidsSigning = 'the server certificate keyUsage does not permit digitalSignature';
-  SPssLeafKeyUnsupported = 'an rsa_pss_rsae scheme was used with an id-RSASSA-PSS certificate key';
   SBadCertificateVerify = 'the CertificateVerify signature did not verify';
   SNoCertificateVerifier = 'no certificate verifier configured (fail-closed)';
   SUntrustedCertificate = 'the server certificate chain was not trusted';

@@ -27,12 +27,10 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpTlsAlert,
-  TlpTlsAlertProtocol,
   TlpAlertMapping,
   TlpTlsLibExceptions,
   TlpISecretBuffer,
   TlpSecretBuffer,
-  TlpICryptoProvider,
   TlpCryptoAlgorithms,
   TlpINamedGroup,
   TlpNamedGroups,

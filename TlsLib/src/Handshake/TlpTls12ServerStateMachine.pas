@@ -34,8 +34,6 @@ uses
   TlpNegotiationPolicy,
   TlpExtensionContext,
   TlpITlsExtension,
-  TlpExtensionBlockCodec,
-  TlpCoreExtensions,
   TlpHandshakeMessage,
   TlpHandshakeMessages,
   TlpCertificateVerify,
@@ -47,7 +45,6 @@ uses
   TlpSession,
   TlpSessionTicketStrategy,
   TlpHandshakeEffect,
-  TlpIHandshakeMachine,
   TlpHandshakeMachineBase;
 
 type

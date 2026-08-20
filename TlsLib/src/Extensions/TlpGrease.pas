@@ -17,7 +17,6 @@ interface
 
 uses
   SysUtils,
-  TlpArrayUtilities,
   TlpWireReader,
   TlpWireVectorMarker,
   TlpIWireWriter,

@@ -29,9 +29,6 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpTlsAlert,
-  TlpICryptoProvider,
-  TlpCryptoAlgorithms,
-  TlpINamedGroup,
   TlpNamedGroups,
   TlpNegotiationTypes,
   TlpNegotiationPolicy,
@@ -53,7 +50,6 @@ uses
   TlpZlibCertificateCompression,
   TlpICertificateTrust,
   TlpCertificateVerifier,
-  TlpSecretBuffer,
   TlpTlsCredential,
   TlpCredentialResolvers,
   TlpTls13ClientStateMachine,

@@ -26,7 +26,6 @@ uses
 {$ELSE}
   TestFramework,
 {$ENDIF FPC}
-  TlpICryptoProvider,
   TlpICertificateTrust,
   TlpCertificateVerifier,
   TlpTlsCredential,

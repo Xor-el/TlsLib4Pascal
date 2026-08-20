@@ -16,7 +16,6 @@ unit TlpISigningKey;
 interface
 
 uses
-  SysUtils,
   TlpCryptoAlgorithms;
 
 type

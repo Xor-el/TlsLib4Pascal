@@ -29,7 +29,6 @@ uses
 {$ENDIF FPC}
   TlpTlsAlert,
   TlpTlsLibExceptions,
-  TlpICryptoProvider,
   TlpWireVectorMarker,
   TlpIWireWriter,
   TlpWireWriter,

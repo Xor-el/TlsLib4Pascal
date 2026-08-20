@@ -28,10 +28,7 @@ uses
 {$ENDIF FPC}
   TlpIClock,
   TlpClock,
-  TlpTlsAlert,
   TlpICryptoProvider,
-  TlpCryptoAlgorithms,
-  TlpINamedGroup,
   TlpNamedGroups,
   TlpNegotiationTypes,
   TlpNegotiationPolicy,

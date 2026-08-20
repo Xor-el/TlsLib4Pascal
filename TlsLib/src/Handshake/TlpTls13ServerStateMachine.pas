@@ -41,7 +41,6 @@ uses
   TlpSessionTicketStrategy,
   TlpExtensionContext,
   TlpITlsExtension,
-  TlpExtensionBlockCodec,
   TlpCoreExtensions,
   TlpWireReader,
   TlpHandshakeMessage,
@@ -55,7 +54,6 @@ uses
   TlpTlsCredential,
   TlpITlsCredentialResolver,
   TlpHandshakeEffect,
-  TlpIHandshakeMachine,
   TlpTls13HandshakeBase;
 
 type

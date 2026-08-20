@@ -28,9 +28,6 @@ uses
 {$ENDIF FPC}
   TlpICryptoProvider,
   TlpCryptoAlgorithms,
-  TlpISecretBuffer,
-  TlpSecretBuffer,
-  TlpTlsLibExceptions,
   TlpHandshakeMessages,
   TlsLibTestBase;
 

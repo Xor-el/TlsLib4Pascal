@@ -28,8 +28,6 @@ uses
 {$ENDIF FPC}
   TlpTlsAlert,
   TlpTlsVersion,
-  TlpCryptoAlgorithms,
-  TlpICryptoProvider,
   TlpTlsCredential,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
