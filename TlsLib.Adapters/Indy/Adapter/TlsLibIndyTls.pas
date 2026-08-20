@@ -337,7 +337,7 @@ var
 begin
   // bounded during the handshake; distinct from a peer close (which returns 0 below)
   if (FReadTimeoutMs > 0) and (not FBinding.Readable(FReadTimeoutMs)) then
-    raise ETlsHandshakeTimeout.Create(TTlsAlertDescription.InternalError,
+    raise ETlsHandshakeTimeout.Create(
       Format('the peer sent no handshake data within %d ms', [FReadTimeoutMs]));
   LTmp := nil;
   SetLength(LTmp, AMaxLength);
@@ -363,8 +363,7 @@ begin
   begin
     LN := FBinding.Send(LTmp, LOff, LRemain);
     if LN <= 0 then
-      raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
-        'Indy socket send returned no progress');
+      raise ETlsStreamError.Create('Indy socket send returned no progress');
     Inc(LOff, LN);
     Dec(LRemain, LN);
   end;

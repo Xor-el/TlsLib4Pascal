@@ -239,10 +239,19 @@ type
     /// reason (certificate_expired / unknown_ca / bad_certificate). Every validity
     /// check (chain notBefore/notAfter and the PKIX path date) is evaluated at
     /// AValidationTimeUtc, so the caller's injected clock drives the whole time-based
-    /// trust decision from one source.
+    /// trust decision from one source. AIntermediates are extra untrusted DER
+    /// certificates seeded into path building for a peer that sends an incomplete
+    /// chain (e.g. a leaf-only server); empty validates the chain exactly as received.
+    /// They never anchor a path and never bypass validation. The chain is first validated
+    /// exactly as presented; the intermediates are consulted only if that strict pass fails.
+    /// AEffectiveChain returns the validated leaf-first chain - the assembled path when one was
+    /// built, otherwise AChain - so the caller's staple and pin checks see the real issuer. It is
+    /// a var parameter so a caller may pre-seed it with AChain as a fallback; an implementation
+    /// that returns normally must set it.
     /// </summary>
-    procedure ValidateCertificatePath(const AChain, ATrustAnchors: TArray<TBytes>;
-      const AValidationTimeUtc: TDateTime);
+    procedure ValidateCertificatePath(const AChain, ATrustAnchors,
+      AIntermediates: TArray<TBytes>; const AValidationTimeUtc: TDateTime;
+      var AEffectiveChain: TArray<TBytes>);
     /// <summary>
     /// Verifies a stapled OCSP response (RFC 6960) about the leaf certificate,
     /// in-band only - no network. Confirms the response is signed by the leaf's

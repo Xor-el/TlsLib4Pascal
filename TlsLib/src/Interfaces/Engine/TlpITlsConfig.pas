@@ -81,6 +81,12 @@ type
     /// chain must have a SubjectPublicKeyInfo whose SHA-256 matches one pin (public-key
     /// pinning). Augments PKIX validation; it never replaces it. Empty disables pinning.</summary>
     function CertificatePins: TArray<TBytes>;
+    /// <summary>Optional untrusted intermediate certificates that seed PKIX path building:
+    /// when the peer sends an incomplete chain (e.g. a leaf-only server), these fill the gap
+    /// so a path to a trust anchor can still be built. They are never trusted on their own -
+    /// only trust anchors anchor a path - and they never bypass validation. Empty (the
+    /// default) validates the peer chain exactly as received.</summary>
+    function IntermediateCertificates: TArray<TBytes>;
     /// <summary>Whether TLS 1.2 requires extended_master_secret (RFC 7627); when False,
     /// a peer that does not offer it falls back to the plain master secret.</summary>
     function RequireExtendedMasterSecret: Boolean;

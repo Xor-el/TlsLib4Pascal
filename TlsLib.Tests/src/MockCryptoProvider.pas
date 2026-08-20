@@ -57,8 +57,9 @@ type
     function CertificatePublicKeyInfo(const ACertificateDer: TBytes): TBytes;
     function CertificateDnsNames(const ACertificateDer: TBytes): TArray<string>;
     function CertificateIpAddresses(const ACertificateDer: TBytes): TArray<TBytes>;
-    procedure ValidateCertificatePath(const AChain, ATrustAnchors: TArray<TBytes>;
-      const AValidationTimeUtc: TDateTime);
+    procedure ValidateCertificatePath(const AChain, ATrustAnchors,
+      AIntermediates: TArray<TBytes>; const AValidationTimeUtc: TDateTime;
+      var AEffectiveChain: TArray<TBytes>);
     function ValidateOcspStaple(const ALeafCert, AIssuerCert,
       AOcspResponseDer: TBytes; const AValidationTimeUtc: TDateTime;
       out AStatus: TOcspStatus;
@@ -117,8 +118,9 @@ type
     function CertificatePublicKeyInfo(const ACertificateDer: TBytes): TBytes;
     function CertificateDnsNames(const ACertificateDer: TBytes): TArray<string>;
     function CertificateIpAddresses(const ACertificateDer: TBytes): TArray<TBytes>;
-    procedure ValidateCertificatePath(const AChain, ATrustAnchors: TArray<TBytes>;
-      const AValidationTimeUtc: TDateTime);
+    procedure ValidateCertificatePath(const AChain, ATrustAnchors,
+      AIntermediates: TArray<TBytes>; const AValidationTimeUtc: TDateTime;
+      var AEffectiveChain: TArray<TBytes>);
     function ValidateOcspStaple(const ALeafCert, AIssuerCert,
       AOcspResponseDer: TBytes; const AValidationTimeUtc: TDateTime;
       out AStatus: TOcspStatus;
@@ -243,9 +245,11 @@ begin
 end;
 
 procedure TMockCryptoProvider.ValidateCertificatePath(const AChain,
-  ATrustAnchors: TArray<TBytes>; const AValidationTimeUtc: TDateTime);
+  ATrustAnchors, AIntermediates: TArray<TBytes>; const AValidationTimeUtc: TDateTime;
+  var AEffectiveChain: TArray<TBytes>);
 begin
-  FInner.ValidateCertificatePath(AChain, ATrustAnchors, AValidationTimeUtc);
+  FInner.ValidateCertificatePath(AChain, ATrustAnchors, AIntermediates,
+    AValidationTimeUtc, AEffectiveChain);
 end;
 
 function TMockCryptoProvider.ValidateOcspStaple(const ALeafCert, AIssuerCert,
@@ -422,9 +426,11 @@ begin
 end;
 
 procedure TFixedAesProvider.ValidateCertificatePath(const AChain,
-  ATrustAnchors: TArray<TBytes>; const AValidationTimeUtc: TDateTime);
+  ATrustAnchors, AIntermediates: TArray<TBytes>; const AValidationTimeUtc: TDateTime;
+  var AEffectiveChain: TArray<TBytes>);
 begin
-  FInner.ValidateCertificatePath(AChain, ATrustAnchors, AValidationTimeUtc);
+  FInner.ValidateCertificatePath(AChain, ATrustAnchors, AIntermediates,
+    AValidationTimeUtc, AEffectiveChain);
 end;
 
 function TFixedAesProvider.ValidateOcspStaple(const ALeafCert, AIssuerCert,

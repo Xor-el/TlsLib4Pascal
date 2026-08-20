@@ -101,6 +101,12 @@ uses
   ClpPkixCertPath,
   ClpPkixParameters,
   ClpPkixCertPathValidator,
+  ClpPkixCertPathBuilder,
+  ClpPkixBuilderParameters,
+  ClpX509StoreSelectors,
+  ClpIX509StoreSelectors,
+  ClpCollectionStore,
+  ClpIStore,
   ClpTrustAnchor,
   ClpIPkixTypes,
   ClpOcspProtocolObjects,
@@ -210,8 +216,9 @@ type
     function CertificatePublicKeyInfo(const ACertificateDer: TBytes): TBytes;
     function CertificateDnsNames(const ACertificateDer: TBytes): TArray<string>;
     function CertificateIpAddresses(const ACertificateDer: TBytes): TArray<TBytes>;
-    procedure ValidateCertificatePath(const AChain, ATrustAnchors: TArray<TBytes>;
-      const AValidationTimeUtc: TDateTime);
+    procedure ValidateCertificatePath(const AChain, ATrustAnchors,
+      AIntermediates: TArray<TBytes>; const AValidationTimeUtc: TDateTime;
+      var AEffectiveChain: TArray<TBytes>);
     function ValidateOcspStaple(const ALeafCert, AIssuerCert,
       AOcspResponseDer: TBytes; const AValidationTimeUtc: TDateTime;
       out AStatus: TOcspStatus;
@@ -1864,18 +1871,36 @@ begin
 end;
 
 procedure TDefaultCryptoProvider.ValidateCertificatePath(const AChain,
-  ATrustAnchors: TArray<TBytes>; const AValidationTimeUtc: TDateTime);
+  ATrustAnchors, AIntermediates: TArray<TBytes>; const AValidationTimeUtc: TDateTime;
+  var AEffectiveChain: TArray<TBytes>);
+const
+  // the builder only reconstructs an INCOMPLETE chain, which is inherently shallow (a real
+  // hierarchy is a leaf plus at most a few intermediates). Capping the built path's length
+  // keeps a hostile peer that pads its chain with many like-named certificates from driving
+  // the depth-first search into an expensive fan-out. A legitimately deeper chain sent in
+  // full is unaffected: the strict literal pass below has no such cap and accepts it there.
+  MaxBuiltPathLength = 4;
 var
   LParser: IX509CertificateParser;
-  LCerts: TArray<IX509Certificate>;
+  LCerts, LPool, LInter: TArray<IX509Certificate>;
   LAnchors: TArray<ITrustAnchor>;
+  LBuilt: TArray<IX509Certificate>;
   LAnchorKey: TBytes;
-  LHit: Boolean;
+  LHit, LLiteralValidated: Boolean;
   LParams: IPkixParameters;
   LPath: IPkixCertPath;
   LValidator: IPkixCertPathValidator;
+  LTarget: IX509CertStoreSelector;
+  LBuilderParams: IPkixBuilderParameters;
+  LPoolStore: IStore<IX509Certificate>;
+  LBuilder: IPkixCertPathBuilder;
+  LBuildResult: IPkixCertPathBuilderResult;
   LI: Int32;
 begin
+  // by default the effective chain is the one the peer presented; a successful path build
+  // (below) replaces it with the assembled leaf-to-anchor path
+  AEffectiveChain := AChain;
+
   LParser := TX509CertificateParser.Create;
   try
     SetLength(LCerts, System.Length(AChain));
@@ -1929,7 +1954,11 @@ begin
     end;
   end;
 
-  // build the PKIX path to a trusted anchor; anything else is unknown_ca
+  // strict pass first: validate the chain the peer presented (a leaf-first path; the validator
+  // normalises ordering). A well-formed chain of any depth is accepted here, unchanged, and
+  // never reaches the path builder below - so configuring intermediates never relaxes validation
+  // for a peer that already sends a complete chain.
+  LLiteralValidated := False;
   try
     LParams := TPkixParameters.Create(LAnchors);
     LParams.SetIsRevocationEnabled(False);
@@ -1938,11 +1967,68 @@ begin
     LPath := TPkixCertPath.Create(LCerts);
     LValidator := TPkixCertPathValidator.Create;
     LValidator.Validate(LPath, LParams);
+    LLiteralValidated := True;
+  except
+    on E: ECryptoLibException do
+      LLiteralValidated := False; // fall through to path building if intermediates are configured
+  end;
+  if LLiteralValidated then
+    Exit;
+
+  // the chain did not validate as received. With no configured intermediates that is the
+  // final verdict: the peer did not chain to a trusted anchor.
+  if System.Length(AIntermediates) = 0 then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.UnknownCa, @SUntrustedChain);
+
+  // fall back to path building: the peer may have sent an incomplete chain, so pool its
+  // certificates with the configured intermediates and let the builder assemble an ordered
+  // path from the leaf up to a trusted anchor - the sans-IO stand-in for AIA fetching.
+  try
+    SetLength(LInter, System.Length(AIntermediates));
+    for LI := 0 to High(AIntermediates) do
+      LInter[LI] := LParser.ReadCertificate(AIntermediates[LI]);
   except
     on E: ECryptoLibException do
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.UnknownCa, @SUntrustedChain);
   end;
+
+  // note: an out-of-window configured intermediate is left for the builder's own path-time
+  // validity check (SetDate) to reject as part of a path that will not build (unknown_ca). We
+  // do NOT pre-reject every configured intermediate on expiry: a bundle may carry an unused
+  // stale entry, and failing an otherwise-buildable connection on it would be worse than the
+  // slightly less precise alert.
+  SetLength(LPool, System.Length(LCerts) + System.Length(LInter));
+  for LI := 0 to High(LCerts) do
+    LPool[LI] := LCerts[LI];
+  for LI := 0 to High(LInter) do
+    LPool[System.Length(LCerts) + LI] := LInter[LI];
+
+  try
+    // the target of the build is the leaf as the peer presented it
+    LTarget := TX509CertStoreSelector.Create;
+    LTarget.SetCertificate(LCerts[0]);
+    LBuilderParams := TPkixBuilderParameters.Create(LAnchors, LTarget);
+    LBuilderParams.SetIsRevocationEnabled(False);
+    LBuilderParams.SetDate(AValidationTimeUtc);
+    LBuilderParams.SetMaxPathLength(MaxBuiltPathLength);
+    LPoolStore := TCollectionStore<IX509Certificate>.Create(LPool);
+    LBuilderParams.AddStoreCert(LPoolStore);
+    LBuilder := TPkixCertPathBuilder.Create as IPkixCertPathBuilder;
+    LBuildResult := LBuilder.Build(LBuilderParams);
+  except
+    on E: ECryptoLibException do
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.UnknownCa, @SUntrustedChain);
+  end;
+
+  // hand back the assembled path (leaf-first) so the downstream staple and pin checks see the
+  // real issuer the peer omitted, not just the bare leaf
+  LBuilt := LBuildResult.CertPath.Certificates;
+  SetLength(AEffectiveChain, System.Length(LBuilt));
+  for LI := 0 to High(LBuilt) do
+    AEffectiveChain[LI] := LBuilt[LI].GetEncoded;
 end;
 
 class function TDefaultCryptoProvider.OcspDelegatedResponder(const AResponderCert,

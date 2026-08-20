@@ -78,6 +78,11 @@ type
     constructor Create(const AError: TTlsError); overload;
     constructor Create(ADescription: TTlsAlertDescription;
       const AMessage: string); overload;
+    /// <summary>Constructs a stream error that carries no TLS alert: the transport died
+    /// (EOF or a read timeout) with no alert exchanged, so HasAlert is False and Alert is
+    /// meaningless. Used for truncation and timeout, which are transport events, not TLS
+    /// alerts - stamping a placeholder alert here misreports them as an on-the-wire alert.</summary>
+    constructor Create(const AMessage: string); overload;
     /// <summary>The alert that was (or would be) sent; valid only when HasAlert.</summary>
     property Alert: TTlsAlertDescription read FAlert;
     property HasAlert: Boolean read FHasAlert;
@@ -144,6 +149,12 @@ begin
   inherited Create(AMessage);
   FAlert := ADescription;
   FHasAlert := True;
+end;
+
+constructor ETlsStreamError.Create(const AMessage: string);
+begin
+  inherited Create(AMessage);
+  FHasAlert := False;
 end;
 
 end.

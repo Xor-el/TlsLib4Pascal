@@ -236,7 +236,7 @@ function TSynapseSocketTransport.Read(var ABuffer: TBytes; AOffset,
 begin
   // bounded during the handshake; distinct from a peer close (which returns 0 below)
   if (FReadTimeoutMs > 0) and (not FSocket.CanRead(FReadTimeoutMs)) then
-    raise ETlsHandshakeTimeout.Create(TTlsAlertDescription.InternalError,
+    raise ETlsHandshakeTimeout.Create(
       Format('the peer sent no handshake data within %d ms', [FReadTimeoutMs]));
   Result := synsock.Recv(FSocket.Socket, @ABuffer[AOffset], AMaxLength, MSG_NOSIGNAL);
   if Result <= 0 then
@@ -254,8 +254,7 @@ begin
   begin
     LN := synsock.Send(FSocket.Socket, @ABuffer[LOff], LRemain, MSG_NOSIGNAL);
     if LN <= 0 then
-      raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
-        'Synapse socket send returned no progress');
+      raise ETlsStreamError.Create('Synapse socket send returned no progress');
     Inc(LOff, LN);
     Dec(LRemain, LN);
   end;

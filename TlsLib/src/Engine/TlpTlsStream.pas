@@ -18,7 +18,6 @@ interface
 uses
   SysUtils,
   Classes,
-  TlpTlsAlert,
   TlpTlsLibExceptions,
   TlpTlsConnectionInfo,
   TlpITlsEngine,
@@ -192,8 +191,7 @@ begin
         // a stripped close_notify is a truncation, not a graceful EOF
         FReadClosed := True;
         FTruncated := True;
-        raise ETlsTransportTruncated.Create(
-          TTlsAlertDescription.InternalError, SReadTruncated);
+        raise ETlsTransportTruncated.Create(SReadTruncated);
       end;
   end;
   Result := LGot;

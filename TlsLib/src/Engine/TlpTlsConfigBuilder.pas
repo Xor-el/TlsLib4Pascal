@@ -79,6 +79,7 @@ type
     FClientAuth: TClientAuthMode;
     FRevocationPosture: TRevocationPosture;
     FCertificatePins: TArray<TBytes>;
+    FIntermediateCertificates: TArray<TBytes>;
     FDangerousTrust: TDangerousTrust;
     FAsyncVerdict: TAsyncCertificateVerdict;
     FCertificateCompressors: TArray<ICertificateCompressor>;
@@ -178,6 +179,7 @@ type
     function WithPeerAuth(AMode: TClientAuthMode): TTlsConfigBuilder;
     function WithRevocation(APosture: TRevocationPosture): TTlsConfigBuilder;
     function WithCertificatePinning(const APins: TArray<TBytes>): TTlsConfigBuilder;
+    function WithIntermediateCertificates(const AData: TBytes): TTlsConfigBuilder;
     function WithDangerousInsecureSkipVerify(AEnabled: Boolean): TTlsConfigBuilder;
     function WithCertificateVerifyCallback(
       const ACallback: TTlsCertificateVerifyCallback): TTlsConfigBuilder;
@@ -271,6 +273,7 @@ type
     FChainLimits: TCertificateChainLimits;
     FRevocationPosture: TRevocationPosture;
     FCertificatePins: TArray<TBytes>;
+    FIntermediateCertificates: TArray<TBytes>;
     FDangerousTrust: TDangerousTrust;
     FAsyncVerdict: TAsyncCertificateVerdict;
     FRequireExtendedMasterSecret: Boolean;
@@ -299,6 +302,7 @@ type
     function CertificateChainLimits: TCertificateChainLimits;
     function RevocationPosture: TRevocationPosture;
     function CertificatePins: TArray<TBytes>;
+    function IntermediateCertificates: TArray<TBytes>;
     function DangerousTrust: TDangerousTrust;
     function AsyncCertificateVerdict: TAsyncCertificateVerdict;
     function RequireExtendedMasterSecret: Boolean;
@@ -391,6 +395,8 @@ type
     function WithRevocation(APosture: TRevocationPosture): ITlsClientConfigBuilder;
     function WithCertificatePinning(
       const APins: TArray<TBytes>): ITlsClientConfigBuilder;
+    function WithIntermediateCertificates(
+      const AData: TBytes): ITlsClientConfigBuilder;
     function WithNameCheck(AEnabled: Boolean): ITlsClientConfigBuilder;
     function WithOcspStaplingRequest(AEnabled: Boolean): ITlsClientConfigBuilder;
     function WithDangerousInsecureSkipVerify(
@@ -454,6 +460,8 @@ type
     function WithRevocation(APosture: TRevocationPosture): ITlsServerConfigBuilder;
     function WithCertificatePinning(
       const APins: TArray<TBytes>): ITlsServerConfigBuilder;
+    function WithIntermediateCertificates(
+      const AData: TBytes): ITlsServerConfigBuilder;
     function WithDangerousInsecureSkipVerify(
       AEnabled: Boolean): ITlsServerConfigBuilder;
     function WithCertificateVerifyCallback(
@@ -599,6 +607,15 @@ begin
   SetLength(Result, System.Length(FCertificatePins));
   for LI := 0 to System.High(FCertificatePins) do
     Result[LI] := System.Copy(FCertificatePins[LI]);
+end;
+
+function TFrozenCommonConfig.IntermediateCertificates: TArray<TBytes>;
+var
+  LI: Int32;
+begin
+  SetLength(Result, System.Length(FIntermediateCertificates));
+  for LI := 0 to System.High(FIntermediateCertificates) do
+    Result[LI] := System.Copy(FIntermediateCertificates[LI]);
 end;
 
 function TFrozenCommonConfig.DangerousTrust: TDangerousTrust;
@@ -851,6 +868,13 @@ function TTlsClientConfigBuilder.WithCertificatePinning(
   const APins: TArray<TBytes>): ITlsClientConfigBuilder;
 begin
   FOwner.WithCertificatePinning(APins);
+  Result := Self;
+end;
+
+function TTlsClientConfigBuilder.WithIntermediateCertificates(
+  const AData: TBytes): ITlsClientConfigBuilder;
+begin
+  FOwner.WithIntermediateCertificates(AData);
   Result := Self;
 end;
 
@@ -1114,6 +1138,13 @@ function TTlsServerConfigBuilder.WithCertificatePinning(
   const APins: TArray<TBytes>): ITlsServerConfigBuilder;
 begin
   FOwner.WithCertificatePinning(APins);
+  Result := Self;
+end;
+
+function TTlsServerConfigBuilder.WithIntermediateCertificates(
+  const AData: TBytes): ITlsServerConfigBuilder;
+begin
+  FOwner.WithIntermediateCertificates(AData);
   Result := Self;
 end;
 
@@ -1758,6 +1789,20 @@ begin
   Result := Self;
 end;
 
+function TTlsConfigBuilder.WithIntermediateCertificates(
+  const AData: TBytes): TTlsConfigBuilder;
+var
+  LCerts: TArray<TBytes>;
+  LI: Int32;
+begin
+  GuardMutable;
+  // parse the bundle and accumulate, so successive calls add more intermediates
+  LCerts := FProvider.LoadCertificateChain(AData);
+  for LI := 0 to System.High(LCerts) do
+    TArrayUtilities.Append<TBytes>(FIntermediateCertificates, LCerts[LI]);
+  Result := Self;
+end;
+
 function TTlsConfigBuilder.WithDangerousInsecureSkipVerify(
   AEnabled: Boolean): TTlsConfigBuilder;
 begin
@@ -1961,6 +2006,7 @@ begin
   LConfig.FChainLimits := FChainLimits;
   LConfig.FRevocationPosture := FRevocationPosture;
   LConfig.FCertificatePins := FCertificatePins;
+  LConfig.FIntermediateCertificates := FIntermediateCertificates;
   LConfig.FDangerousTrust := FDangerousTrust;
   LConfig.FAsyncVerdict := FAsyncVerdict;
   LConfig.FRequireExtendedMasterSecret := FRequireExtendedMasterSecret;
@@ -2024,6 +2070,7 @@ begin
   LConfig.FChainLimits := FChainLimits;
   LConfig.FRevocationPosture := FRevocationPosture;
   LConfig.FCertificatePins := FCertificatePins;
+  LConfig.FIntermediateCertificates := FIntermediateCertificates;
   LConfig.FDangerousTrust := FDangerousTrust;
   LConfig.FAsyncVerdict := FAsyncVerdict;
   LConfig.FRequireExtendedMasterSecret := FRequireExtendedMasterSecret;

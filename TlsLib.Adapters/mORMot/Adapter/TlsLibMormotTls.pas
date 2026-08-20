@@ -251,7 +251,7 @@ begin
     // bounded during the handshake; distinct from a peer close (nrClosed / 0 below)
     if (FReadTimeoutMs > 0) and
       (not (neRead in FSocket.WaitFor(FReadTimeoutMs, [neRead]))) then
-      raise ETlsHandshakeTimeout.Create(TTlsAlertDescription.InternalError,
+      raise ETlsHandshakeTimeout.Create(
         Format('the peer sent no handshake data within %d ms', [FReadTimeoutMs]));
     LLen := AMaxLength;
     LRes := FSocket.Recv(@ABuffer[AOffset], LLen);
@@ -266,7 +266,7 @@ begin
       nrRetry:
         ; // a blocking socket rarely reports this; loop and read again
     else
-      raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
+      raise ETlsStreamError.Create(
         Format('mORMot socket receive failed (nr=%d)', [Ord(LRes)]));
     end;
   until False;
@@ -293,7 +293,7 @@ begin
       nrRetry:
         ; // loop and send the remainder
     else
-      raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
+      raise ETlsStreamError.Create(
         Format('mORMot socket send failed (nr=%d)', [Ord(LRes)]));
     end;
   end;

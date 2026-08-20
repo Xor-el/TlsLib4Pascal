@@ -229,7 +229,7 @@ begin
     end;
     LGot := ATransport.Read(LBuf, 0, TransportChunk);
     if LGot = 0 then
-      raise ETlsTransportTruncated.Create(TTlsAlertDescription.InternalError,
+      raise ETlsTransportTruncated.Create(
         Format('%s (after %d handshake bytes from the peer)', [STruncatedHandshake, LTotal]));
     Inc(LTotal, LGot);
     AEngine.ProcessInput(LBuf, 0, LGot);

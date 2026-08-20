@@ -299,7 +299,7 @@ begin
     Exit(0); // orderly close (peer FIN): the pump reports it as a truncated handshake
   // Result < 0: while the handshake timeout is armed this is our SO_RCVTIMEO firing
   if FReadTimeoutMs > 0 then
-    raise ETlsHandshakeTimeout.Create(TTlsAlertDescription.InternalError,
+    raise ETlsHandshakeTimeout.Create(
       Format('the peer sent no handshake data within %d ms', [FReadTimeoutMs]));
   Result := 0; // app phase: surface any error as EOF, as before
 end;
@@ -315,8 +315,7 @@ begin
   begin
     LN := fpSend(FHandle, @ABuffer[LOff], LRemain, TRANSPORT_FLAGS);
     if LN <= 0 then
-      raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
-        'fcl-net socket send returned no progress');
+      raise ETlsStreamError.Create('fcl-net socket send returned no progress');
     Inc(LOff, LN);
     Dec(LRemain, LN);
   end;

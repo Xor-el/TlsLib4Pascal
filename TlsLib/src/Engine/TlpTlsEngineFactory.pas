@@ -224,7 +224,7 @@ begin
     LVerifier := TCertificateVerifier.Create(AConfig.Provider, AConfig.Clock,
       AConfig.TrustStore, AConfig.CheckServerName, AConfig.CertificateChainLimits,
       AConfig.RevocationPosture, AConfig.CertificatePins, AConfig.DangerousTrust,
-      LAsyncVerdict);
+      LAsyncVerdict, AConfig.IntermediateCertificates);
 
   L13 := Default(TClientHandshakeParams);
   L13.Provider := AConfig.Provider;
@@ -390,7 +390,7 @@ begin
       L13.ClientCertificateVerifier := TCertificateVerifier.Create(AConfig.Provider,
         AConfig.Clock, AConfig.TrustStore, False, AConfig.CertificateChainLimits,
         AConfig.RevocationPosture, AConfig.CertificatePins, AConfig.DangerousTrust,
-        LAsyncVerdict);
+        LAsyncVerdict, AConfig.IntermediateCertificates);
   end;
   L13.AsyncVerdict := LAsyncVerdict;
 
@@ -423,7 +423,7 @@ begin
       L12.ClientCertificateVerifier := TCertificateVerifier.Create(AConfig.Provider,
         AConfig.Clock, AConfig.TrustStore, False, AConfig.CertificateChainLimits,
         AConfig.RevocationPosture, AConfig.CertificatePins, AConfig.DangerousTrust,
-        LAsyncVerdict);
+        LAsyncVerdict, AConfig.IntermediateCertificates);
   end;
   L12.AsyncVerdict := LAsyncVerdict;
 

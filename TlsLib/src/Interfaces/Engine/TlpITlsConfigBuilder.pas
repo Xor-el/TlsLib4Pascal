@@ -107,6 +107,15 @@ type
     /// <summary>SPKI-SHA256 public-key pins: when set, some certificate in the server chain
     /// must match one pin. Augments PKIX validation; never a bypass. Empty disables it.</summary>
     function WithCertificatePinning(const APins: TArray<TBytes>): ITlsClientConfigBuilder;
+    /// <summary>Untrusted intermediate certificates that seed PKIX path building when the server
+    /// sends an incomplete chain (e.g. a leaf-only server that omits its issuing CA). AData is a
+    /// PEM bundle (one or more certificates) or a single DER certificate; call more than once to
+    /// add several DER certificates. They are never trusted on their own and never bypass
+    /// validation - a path must still reach a configured trust anchor, and a complete chain the
+    /// server sends is still validated exactly as presented. Calls accumulate. Use this when a
+    /// server you must reach ships a partial chain; the well-behaved fix is to have the server
+    /// send its full chain.</summary>
+    function WithIntermediateCertificates(const AData: TBytes): ITlsClientConfigBuilder;
     /// <summary>Whether the server certificate must match the connected host (RFC 6125).
     /// Default True.</summary>
     function WithNameCheck(AEnabled: Boolean): ITlsClientConfigBuilder;
@@ -269,6 +278,12 @@ type
     /// <summary>SPKI-SHA256 pins the requested client chain must match one of; augments
     /// PKIX, never a bypass. Empty disables it.</summary>
     function WithCertificatePinning(const APins: TArray<TBytes>): ITlsServerConfigBuilder;
+    /// <summary>Untrusted intermediate certificates that seed PKIX path building for a requested
+    /// client certificate whose chain arrives incomplete. AData is a PEM bundle (one or more
+    /// certificates) or a single DER certificate; call more than once to add several DER
+    /// certificates. Never trusted on their own and never a bypass - a path must still reach a
+    /// configured trust anchor. Calls accumulate.</summary>
+    function WithIntermediateCertificates(const AData: TBytes): ITlsServerConfigBuilder;
     /// <summary>DANGEROUS: when enabled, a requested client certificate chain is accepted
     /// without PKIX, revocation, or pinning checks. For tests only - never production.</summary>
     function WithDangerousInsecureSkipVerify(AEnabled: Boolean): ITlsServerConfigBuilder;

@@ -57,8 +57,13 @@ type
     function VerifyChain(APosture: TRevocationPosture; const AChain: TArray<TBytes>;
       const AStaple: TBytes; out AAlert: TTlsAlertDescription): Boolean;
     function LeafSpkiPin: TBytes;
+    function IssuerSpkiPin: TBytes;
     function VerifyWithPins(const APins: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean;
+    // a verifier trusting the root and seeded with AIntermediates for path building
+    function IntermediateVerifierFor(APosture: TRevocationPosture;
+      const AIntermediates: TArray<TBytes>; const APins: TArray<TBytes> = nil)
+      : ICertificateVerifier;
   protected
     procedure SetUp; override;
     procedure TearDown; override;
@@ -99,6 +104,10 @@ type
     // SPKI public-key pinning
     procedure TestPinningMatchCompletes;
     procedure TestPinningNoMatchAbortsBadCertificate;
+    // a leaf-only peer whose chain is completed from a configured intermediate: the recovered
+    // issuer must be available to the staple and pinning steps (not just the bare leaf)
+    procedure TestLeafOnlyGoodStapleHardCompletesViaConfiguredIssuer;
+    procedure TestLeafOnlyPinOnConfiguredIssuerMatches;
   end;
 
 implementation
@@ -169,6 +178,29 @@ begin
   LHash := Provider.CreateHash(THashAlgorithm.SHA_256);
   LHash.Update(LSpki, 0, System.Length(LSpki));
   Result := LHash.DoFinal;
+end;
+
+function TTestOcspStapling.IssuerSpkiPin: TBytes;
+var
+  LSpki: TBytes;
+  LHash: IHash;
+begin
+  LSpki := Provider.CertificatePublicKeyInfo(V('issuer_cert'));
+  LHash := Provider.CreateHash(THashAlgorithm.SHA_256);
+  LHash.Update(LSpki, 0, System.Length(LSpki));
+  Result := LHash.DoFinal;
+end;
+
+function TTestOcspStapling.IntermediateVerifierFor(APosture: TRevocationPosture;
+  const AIntermediates: TArray<TBytes>; const APins: TArray<TBytes>): ICertificateVerifier;
+var
+  LNoDangerous: TDangerousTrust;
+begin
+  LNoDangerous := Default(TDangerousTrust);
+  Result := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(V('root_cert')))
+    as ITrustAnchorStore, False, TCertificateChainLimits.Defaults, APosture, APins,
+    LNoDangerous, False, AIntermediates) as ICertificateVerifier;
 end;
 
 function TTestOcspStapling.VerifyWithPins(const APins: TArray<TBytes>;
@@ -484,6 +516,33 @@ begin
     'a chain that matches no pin is rejected');
   CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
     'the alert is bad_certificate');
+end;
+
+procedure TTestOcspStapling.TestLeafOnlyGoodStapleHardCompletesViaConfiguredIssuer;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // the peer sends only its leaf; the issuer that signs the staple is supplied as a configured
+  // intermediate. Under Hard posture a good staple must still be authenticated - which is only
+  // possible because path building hands the recovered issuer to the revocation step.
+  CheckTrue(IntermediateVerifierFor(TRevocationPosture.Hard,
+    TArray<TBytes>.Create(V('issuer_cert'))).Verify(
+    TArray<TBytes>.Create(V('leaf_cert')), '', V('ocsp_good'), LAlert),
+    'a good staple authenticates against the configured issuer for a leaf-only peer');
+end;
+
+procedure TTestOcspStapling.TestLeafOnlyPinOnConfiguredIssuerMatches;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // pin the issuer's public key while the peer sends only its leaf: the pin must match the
+  // intermediate recovered by path building, not just the presented leaf. Revocation Off
+  // isolates the pinning step.
+  CheckTrue(IntermediateVerifierFor(TRevocationPosture.Off,
+    TArray<TBytes>.Create(V('issuer_cert')),
+    TArray<TBytes>.Create(IssuerSpkiPin)).Verify(
+    TArray<TBytes>.Create(V('leaf_cert')), '', nil, LAlert),
+    'a pin on the configured issuer matches the recovered path for a leaf-only peer');
 end;
 
 initialization

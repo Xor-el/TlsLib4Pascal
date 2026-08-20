@@ -73,6 +73,9 @@ type
     FChainLimits: TCertificateChainLimits;
     FRevocationPosture: TRevocationPosture;
     FCertificatePins: TArray<TBytes>;
+    /// <summary>Untrusted intermediates that seed PKIX path building when the peer sends an
+    /// incomplete chain; empty validates the chain exactly as received.</summary>
+    FIntermediates: TArray<TBytes>;
     FDangerous: TDangerousTrust;
     /// <summary>Whether an out-of-band async certificate-verdict resolver runs after the pipeline
     /// (the live OCSP/CRL fetch at the park). When set, an indeterminate stapled outcome is
@@ -124,7 +127,17 @@ type
       const AChainLimits: TCertificateChainLimits;
       ARevocationPosture: TRevocationPosture; const APins: TArray<TBytes>;
       const ADangerous: TDangerousTrust;
-      AAsyncVerdictEnabled: Boolean = False); overload;
+      AAsyncVerdictEnabled: Boolean); overload;
+    /// <summary>As above, plus AIntermediates: untrusted intermediate certificates seeded into
+    /// PKIX path building for a peer that sends an incomplete chain (e.g. a leaf-only server).
+    /// They never anchor a path and never bypass validation; empty behaves exactly as the
+    /// overload without it.</summary>
+    constructor Create(const AProvider: ICryptoProvider; const AClock: ITlsClock;
+      const ATrustStore: ITrustAnchorStore; ACheckHostName: Boolean;
+      const AChainLimits: TCertificateChainLimits;
+      ARevocationPosture: TRevocationPosture; const APins: TArray<TBytes>;
+      const ADangerous: TDangerousTrust; AAsyncVerdictEnabled: Boolean;
+      const AIntermediates: TArray<TBytes>); overload;
     function Verify(const AChain: TArray<TBytes>; const AHostName: string;
       const AOcspStaple: TBytes; out AAlert: TTlsAlertDescription): Boolean;
   end;
@@ -194,7 +207,7 @@ var
 begin
   LNoDangerous := Default(TDangerousTrust);
   Create(AProvider, AClock, ATrustStore, ACheckHostName, AChainLimits,
-    ARevocationPosture, APins, LNoDangerous);
+    ARevocationPosture, APins, LNoDangerous, False);
 end;
 
 constructor TCertificateVerifier.Create(const AProvider: ICryptoProvider;
@@ -202,6 +215,17 @@ constructor TCertificateVerifier.Create(const AProvider: ICryptoProvider;
   ACheckHostName: Boolean; const AChainLimits: TCertificateChainLimits;
   ARevocationPosture: TRevocationPosture; const APins: TArray<TBytes>;
   const ADangerous: TDangerousTrust; AAsyncVerdictEnabled: Boolean);
+begin
+  Create(AProvider, AClock, ATrustStore, ACheckHostName, AChainLimits,
+    ARevocationPosture, APins, ADangerous, AAsyncVerdictEnabled, nil);
+end;
+
+constructor TCertificateVerifier.Create(const AProvider: ICryptoProvider;
+  const AClock: ITlsClock; const ATrustStore: ITrustAnchorStore;
+  ACheckHostName: Boolean; const AChainLimits: TCertificateChainLimits;
+  ARevocationPosture: TRevocationPosture; const APins: TArray<TBytes>;
+  const ADangerous: TDangerousTrust; AAsyncVerdictEnabled: Boolean;
+  const AIntermediates: TArray<TBytes>);
 begin
   inherited Create;
   FProvider := AProvider;
@@ -211,6 +235,7 @@ begin
   FChainLimits := AChainLimits;
   FRevocationPosture := ARevocationPosture;
   FCertificatePins := APins;
+  FIntermediates := AIntermediates;
   FDangerous := ADangerous;
   FAsyncVerdictEnabled := AAsyncVerdictEnabled;
 end;
@@ -345,6 +370,10 @@ function TCertificateVerifier.VerifyPipeline(const AChain: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
 var
   LI, LTotal: Int32;
+  // the chain PKIX actually validated: when the peer sent an incomplete chain that path
+  // building completed from the configured intermediates, this carries the assembled path
+  // (with the recovered issuer), so revocation and pinning see it rather than the bare leaf
+  LEffectiveChain: TArray<TBytes>;
 begin
   Result := False;
   AAlert := TTlsAlertDescription.BadCertificate;
@@ -365,10 +394,12 @@ begin
       Exit;
   end;
 
-  // path validation (validity + PKIX) is the provider's job; it raises the reason
+  // path validation (validity + PKIX) is the provider's job; it raises the reason, and hands
+  // back the chain it actually validated (the assembled path when it completed an incomplete one)
+  LEffectiveChain := AChain;
   try
     FProvider.ValidateCertificatePath(AChain, FTrustStore.RootCertificates,
-      ValidationTimeUtc);
+      FIntermediates, ValidationTimeUtc, LEffectiveChain);
   except
     on E: EFatalAlertTlsLibException do
     begin
@@ -377,8 +408,9 @@ begin
     end;
   end;
 
-  // revocation via the stapled OCSP response (RFC 6960), in-band only
-  if not CheckRevocation(AChain, AOcspStaple, AAlert) then
+  // revocation via the stapled OCSP response (RFC 6960), in-band only; run over the validated
+  // chain so a staple can be authenticated against a recovered issuer the peer did not send
+  if not CheckRevocation(LEffectiveChain, AOcspStaple, AAlert) then
     Exit;
 
   // endpoint identity (RFC 6125) over the leaf's dNSName / iPAddress SAN entries
@@ -391,8 +423,9 @@ begin
       Exit;
     end;
 
-  // optional SPKI pinning augments the validated chain; it never bypasses it
-  if not CheckPinning(AChain, AAlert) then
+  // optional SPKI pinning augments the validated chain; it never bypasses it. Pin against the
+  // validated chain so a pin on a recovered intermediate matches even for a leaf-only peer
+  if not CheckPinning(LEffectiveChain, AAlert) then
     Exit;
 
   Result := True;
