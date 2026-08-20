@@ -170,13 +170,15 @@ begin
   FHs := LoadVectorFields('Rfc8448/HandshakeMessages.txt');
   FSched := LoadVectorFields('Rfc8448/Tls13KeySchedule.txt');
   FKeys := LoadVectorFields('Certs/SignatureKeys.txt');
-  FLayer := TRecordLayer.Create;
+  // FDriver wraps FLayer, so Own both: the base disposes newest-first, freeing the driver
+  // before the layer it references (a re-arrange never leaves a dangling driver either)
+  FLayer := Own<TRecordLayer>(TRecordLayer.Create);
 end;
 
 procedure TTestTls13ServerReplay.TearDown;
 begin
-  FDriver.Free;
-  FLayer.Free;
+  // FHs/FSched/FKeys are reassigned in SetUp before use, so a plain free is safe here; FLayer and
+  // FDriver are Own'd (freed by the base) - a fixture must never free an Own'd field
   FHs.Free;
   FSched.Free;
   FKeys.Free;
@@ -233,13 +235,12 @@ end;
 
 procedure TTestTls13ServerReplay.BuildDriver(const AProvider: ICryptoProvider);
 begin
-  // a test may arrange more than once; release the prior driver (and the graph it
-  // owns) before building a fresh one, and nil first so a raising ctor can't dangle
-  FreeAndNil(FDriver);
-  FDriver := THandshakeDriver.Create(
+  // a test may arrange more than once; Own accumulates, and the base disposes every driver at
+  // TearDown. A superseded driver holds only non-owning refs to FLayer, so it is inert until then
+  FDriver := Own<THandshakeDriver>(THandshakeDriver.Create(
     THandshakeChannel.Create(FLayer) as IHandshakeChannel,
     TRecordLayerInstaller.Create(FLayer) as IRecordEpochInstaller, AProvider,
-    TSilentSink.Create as IHandshakeSink);
+    TSilentSink.Create as IHandshakeSink));
 end;
 
 procedure TTestTls13ServerReplay.Arrange;

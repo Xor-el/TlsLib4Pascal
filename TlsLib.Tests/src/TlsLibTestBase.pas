@@ -20,6 +20,7 @@ interface
 uses
   SysUtils,
   Classes,
+  Generics.Collections,
 {$IFDEF FPC}
   fpcunit,
   testregistry,
@@ -33,8 +34,22 @@ uses
   TlsLibTestResourceLoader;
 
 type
-  /// <summary>Shared base fixture</summary>
+  /// <summary>Shared base fixture. The runner reuses one fixture instance across suite runs, so a
+  /// fixture must not free its own object fields (a bare free leaves a dangling field the next run
+  /// can double-free). Register each with Own and the base disposes it once per run.</summary>
   TTlsLibTestCase = class abstract(TTestCase)
+  strict private
+    FOwned: TList<TObject>;
+    procedure FreeOwnedObjects;
+  strict protected
+    /// <summary>Registers AInstance for disposal at TearDown and returns it, so a field reads
+    /// FThing := Own&lt;TThing&gt;(TThing.Create(...)).</summary>
+    function Own<T: class>(const AInstance: T): T;
+  public
+    destructor Destroy; override;
+  protected
+    procedure SetUp; override;
+    procedure TearDown; override;
   end;
 
   /// <summary>Adds hex / comparison / resource helpers used across the suites.</summary>
@@ -46,6 +61,7 @@ type
     // Overridable so a fixture can supply a different provider (e.g. a mock).
     function CreateProvider: ICryptoProvider; virtual;
   protected
+    procedure TearDown; override;
     // The crypto provider, created once per test on first use.
     property Provider: ICryptoProvider read GetProvider;
     function DecodeHex(const AData: String): TBytes;
@@ -63,7 +79,57 @@ type
 
 implementation
 
+{ TTlsLibTestCase }
+
+destructor TTlsLibTestCase.Destroy;
+begin
+  FreeOwnedObjects;
+  FOwned.Free;
+  inherited Destroy;
+end;
+
+procedure TTlsLibTestCase.SetUp;
+begin
+  inherited SetUp;
+  // a SetUp that raised on a prior run skips its TearDown; sweep any survivors before arranging
+  FreeOwnedObjects;
+end;
+
+procedure TTlsLibTestCase.TearDown;
+begin
+  FreeOwnedObjects;
+  inherited TearDown;
+end;
+
+function TTlsLibTestCase.Own<T>(const AInstance: T): T;
+begin
+  if FOwned = nil then
+    FOwned := TList<TObject>.Create;
+  FOwned.Add(AInstance);
+  Result := AInstance;
+end;
+
+procedure TTlsLibTestCase.FreeOwnedObjects;
+var
+  LI: Integer;
+begin
+  if FOwned = nil then
+    Exit;
+  // newest first, so a graph is disposed before the objects it references
+  for LI := FOwned.Count - 1 downto 0 do
+    FOwned[LI].Free;
+  FOwned.Clear;
+end;
+
 { TTlsLibAlgorithmTestCase }
+
+procedure TTlsLibAlgorithmTestCase.TearDown;
+begin
+  // the fixture instance is reused across suite runs; drop the cached provider so a stateful mock
+  // cannot bleed into the next run (GetProvider lazily rebuilds it)
+  FProvider := nil;
+  inherited TearDown;
+end;
 
 function TTlsLibAlgorithmTestCase.CreateProvider: ICryptoProvider;
 begin

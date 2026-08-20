@@ -278,13 +278,14 @@ begin
   FHs := LoadVectorFields('Rfc8448/HandshakeMessages.txt');
   FSched := LoadVectorFields('Rfc8448/Tls13KeySchedule.txt');
   FRec := LoadVectorFields('Rfc8448/Tls13RecordFinished.txt');
-  FLayer := TRecordLayer.Create;
+  // FDriver wraps FLayer, so Own both: the base disposes newest-first, freeing the driver
+  // before the layer it references
+  FLayer := Own<TRecordLayer>(TRecordLayer.Create);
 end;
 
 procedure TTestTls13ClientReplay.TearDown;
 begin
-  FDriver.Free;
-  FLayer.Free;
+  // reassigned in SetUp before use, so a plain free is safe; FLayer/FDriver are Own'd (base frees)
   FHs.Free;
   FSched.Free;
   FRec.Free;
@@ -356,10 +357,10 @@ begin
   LParams.ClientHelloOverride := DecodeHex(FHs.Values['client_hello']);
   FSm := TTls13ClientStateMachine.Create(LParams);
 
-  FDriver := THandshakeDriver.Create(
+  FDriver := Own<THandshakeDriver>(THandshakeDriver.Create(
     THandshakeChannel.Create(FLayer) as IHandshakeChannel,
     TRecordLayerInstaller.Create(FLayer) as IRecordEpochInstaller, Provider,
-    TSilentSink.Create as IHandshakeSink);
+    TSilentSink.Create as IHandshakeSink));
 
   FDriver.ApplyAll(FSm.Start);
   FLayer.TakeOutgoing; // discard the plaintext ClientHello
