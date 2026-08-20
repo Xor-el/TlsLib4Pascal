@@ -1,0 +1,39 @@
+TlsLib.Tests/src/Tls13ClientReplayTests.pas
+  s_3957973a090260::t_79b05f65dc4430 360
+  s_3957973a090260::t_693b62b1b26ef9 281-282,288
+  s_3957973a090260::t_ef3f85e413835f 283
+  s_3957973a090260::t_8ff8492f0a00f7 363
+TlsLib.Tests/src/TlsLibTestBase.pas
+  s_3957973a090260::t_15306d37f72e27 47
+  s_3957973a090260::t_31132429185189 82-85,87-93,95-103,105-106,110-112,115,122-123,126-132
+  s_3957973a090260::t_78768cd21a8316 86
+  s_3957973a090260::t_547f62d80a09ad 23
+  s_3957973a090260::t_fecd3ed6de228f 41,43-44,48-52,64,133
+  s_3957973a090260::t_daece7eb09b602 37-39,45-46
+  s_3957973a090260::t_61be7e42294c7e 107,113-114,116-121
+  s_3957973a090260::t_af422f2ec1eecc 42
+  s_3957973a090260::t_e03cfb51e9c82b 94,104,108-109
+TlsLib.Tests/src/Tls13ServerReplayTests.pas
+  s_3957973a090260::t_4b6cb700eedea2 240
+  s_3957973a090260::t_5c177d1cd28f0f 173-174,180-181
+  s_3957973a090260::t_bed2aab6b6e002 175
+  s_3957973a090260::t_88ed19ceb13e6c 238-239,243
+TlsLib/src/Crypto/TlpDefaultCryptoProvider.pas
+  s_3957973a090260::t_e9707f5fd6857f 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "e157e4113bd49199ad1b3931e8a162c8e821c245",
+  "prompts": {},
+  "sessions": {
+    "s_3957973a090260": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6deaf670-7f07-4977-8d0c-c1e8159f395d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
