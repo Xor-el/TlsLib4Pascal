@@ -1958,7 +1958,6 @@ begin
   // normalises ordering). A well-formed chain of any depth is accepted here, unchanged, and
   // never reaches the path builder below - so configuring intermediates never relaxes validation
   // for a peer that already sends a complete chain.
-  LLiteralValidated := False;
   try
     LParams := TPkixParameters.Create(LAnchors);
     LParams.SetIsRevocationEnabled(False);
