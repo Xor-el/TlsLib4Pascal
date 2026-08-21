@@ -114,7 +114,14 @@ type
     /// validation - a path must still reach a configured trust anchor, and a complete chain the
     /// server sends is still validated exactly as presented. Calls accumulate. Use this when a
     /// server you must reach ships a partial chain; the well-behaved fix is to have the server
-    /// send its full chain.</summary>
+    /// send its full chain. This is NOT a substitute for a trust anchor: if validation fails with
+    /// unknown_ca even when the server sends a complete chain, the client is missing the ROOT, not
+    /// an intermediate - configure the root with WithTrustAnchors (or opt into OS system trust)
+    /// instead, since an intermediate can never terminate a path. Public-CA intermediates rotate,
+    /// so a pinned intermediate can go stale - bundle the currently valid set (e.g. a CA's current
+    /// and next issuing certificates) and refresh it with your trust configuration. The library
+    /// never fetches (sans-IO); an application that wants AIA behaviour can resolve the issuer URL
+    /// out of band and feed the result here.</summary>
     function WithIntermediateCertificates(const AData: TBytes): ITlsClientConfigBuilder;
     /// <summary>Whether the server certificate must match the connected host (RFC 6125).
     /// Default True.</summary>
@@ -279,10 +286,15 @@ type
     /// PKIX, never a bypass. Empty disables it.</summary>
     function WithCertificatePinning(const APins: TArray<TBytes>): ITlsServerConfigBuilder;
     /// <summary>Untrusted intermediate certificates that seed PKIX path building for a requested
-    /// client certificate whose chain arrives incomplete. AData is a PEM bundle (one or more
-    /// certificates) or a single DER certificate; call more than once to add several DER
-    /// certificates. Never trusted on their own and never a bypass - a path must still reach a
-    /// configured trust anchor. Calls accumulate.</summary>
+    /// client certificate whose chain arrives incomplete (leaf-only client certificates are common
+    /// in enterprise mutual-TLS). AData is a PEM bundle (one or more certificates) or a single DER
+    /// certificate; call more than once to add several DER certificates. Never trusted on their own
+    /// and never a bypass - a path must still reach a configured trust anchor. Calls accumulate.
+    /// This is NOT a substitute for a trust anchor: if validation fails with unknown_ca even when
+    /// the client sends a complete chain, the missing piece is the ROOT, not an intermediate -
+    /// configure it with WithTrustAnchors, since an intermediate can never terminate a path.
+    /// Public-CA intermediates rotate, so a pinned intermediate can go stale - bundle the currently
+    /// valid set and refresh it with your trust configuration.</summary>
     function WithIntermediateCertificates(const AData: TBytes): ITlsServerConfigBuilder;
     /// <summary>DANGEROUS: when enabled, a requested client certificate chain is accepted
     /// without PKIX, revocation, or pinning checks. For tests only - never production.</summary>
