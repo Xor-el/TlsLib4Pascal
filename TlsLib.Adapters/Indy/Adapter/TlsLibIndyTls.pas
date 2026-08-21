@@ -210,6 +210,9 @@ type
     function Readable(AMSec: Integer): Boolean; override;
   public
     destructor Destroy; override;
+    /// <summary>Sends a TLS close_notify (best-effort, half-close) before the socket is torn down,
+    /// so a strict peer sees a clean shutdown instead of a truncation (RFC 8446 6.1).</summary>
+    procedure Close; override;
     function Clone: TIdSSLIOHandlerSocketBase; override;
     procedure StartSSL; override;
     procedure ConnectClient; override;
@@ -386,10 +389,33 @@ end;
 
 destructor TTlsLibIOHandlerSocket.Destroy;
 begin
+  // belt-and-braces for a handler freed directly without a prior Close: emit close_notify while
+  // the socket may still be open. Idempotent - a no-op when Close already sent it.
+  if FStream <> nil then
+    try
+      FStream.CloseNotify;
+    except
+    end;
   FStream.Free;
+  FStream := nil; // inherited Destroy calls Close; keep it from touching a freed stream
   FOptions.Free;
   FHandshakeLock.Free;
   inherited Destroy;
+end;
+
+procedure TTlsLibIOHandlerSocket.Close;
+begin
+  // send a TLS close_notify before the transport goes away, so a strict peer reads a clean
+  // shutdown rather than a truncation (RFC 8446 6.1). Best-effort and half-close: CloseNotify
+  // only writes and flushes (it never waits for the peer's answering close_notify, so there is
+  // no wedge), is idempotent, and no-ops on a stream that never finished the handshake. A write
+  // to an already-dead peer is expected and ignored.
+  if FStream <> nil then
+    try
+      FStream.CloseNotify;
+    except
+    end;
+  inherited Close;
 end;
 
 function TTlsLibIOHandlerSocket.LoadFileBytes(const APath: string): TBytes;

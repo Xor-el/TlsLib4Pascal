@@ -303,6 +303,17 @@ end;
 
 destructor TTlsLibNetTls.Destroy;
 begin
+  // close_notify before the stream goes away, so a strict peer reads a clean shutdown rather
+  // than a truncation (RFC 8446 6.1). Half-close, idempotent, and a no-op when the handshake
+  // never finished. The INetTls seam has no explicit close hook, but mORMot's TCrtSocket.Close
+  // releases this interface (running us here) BEFORE it closes the socket, so FSocket is still
+  // open and the alert goes out. Best-effort: a write to a peer that already RST the connection
+  // is expected and ignored.
+  if FStream <> nil then
+    try
+      FStream.CloseNotify;
+    except
+    end;
   FStream.Free;
   inherited Destroy;
 end;

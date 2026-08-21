@@ -554,8 +554,12 @@ end;
 
 function TSSLTlsLib.Shutdown: boolean;
 begin
+  // best-effort: a close_notify write to a peer that already closed must not raise here
   if FStream <> nil then
-    FStream.CloseNotify;
+    try
+      FStream.CloseNotify;
+    except
+    end;
   FSSLEnabled := False;
   Result := True;
 end;
