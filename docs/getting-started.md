@@ -153,7 +153,7 @@ If your identity is a **PKCS#12 / `.pfx`** blob instead of separate files, see t
 ## 6. Verify it actually worked
 
 After the handshake, `ConnectionInfo` tells you what was negotiated — a good smoke test that TLS 1.3
-(and, by default, the PQ hybrid group) really engaged:
+and a modern key-exchange group really engaged:
 
 ```pascal
 uses SysUtils, TlpTlsStream, TlpTlsConnectionInfo;
@@ -164,7 +164,7 @@ var
 begin
   LInfo := LStream.ConnectionInfo;
   WriteLn('version : ', IntToHex(LInfo.NegotiatedVersion.WireValue, 4));  // $0304 = TLS 1.3
-  WriteLn('group   : ', IntToHex(LInfo.NamedGroup, 4));                   // $11EC = X25519MLKEM768
+  WriteLn('group   : ', IntToHex(LInfo.NamedGroup, 4));                   // $001D X25519 (default); $11EC is the X25519MLKEM768 PQ hybrid
   WriteLn('alpn    : ', LInfo.AlpnProtocol);
   WriteLn('resumed : ', BoolToStr(LInfo.Resumed, True));
 end;

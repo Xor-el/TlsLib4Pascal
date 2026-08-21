@@ -340,7 +340,7 @@ begin
   LInfo := LStream.ConnectionInfo;
   // LInfo.NegotiatedVersion.WireValue   $0304 = TLS 1.3, $0303 = TLS 1.2
   // LInfo.CipherSuite                    e.g. $1301 = TLS_AES_128_GCM_SHA256
-  // LInfo.NamedGroup                     $11EC = X25519MLKEM768
+  // LInfo.NamedGroup                     e.g. $001D = X25519 (default); $11EC = X25519MLKEM768 hybrid
   // LInfo.AlpnProtocol                   negotiated ALPN, or ''
   // LInfo.ServerName                     SNI the peer sent (server side)
   // LInfo.Resumed                        True if this was a resumption
