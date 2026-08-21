@@ -1,0 +1,21 @@
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_3957973a090260::t_6a24964a218f98 293-297
+  s_3957973a090260::t_40b0ef2350175d 117-124
+  s_3957973a090260::t_02690b1e816477 289-292
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "5f54e9f1c71a25be3f47e7f93e71dd41c06f6891",
+  "prompts": {},
+  "sessions": {
+    "s_3957973a090260": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6deaf670-7f07-4977-8d0c-c1e8159f395d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
