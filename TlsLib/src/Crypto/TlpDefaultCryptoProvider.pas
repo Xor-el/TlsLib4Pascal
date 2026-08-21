@@ -33,15 +33,13 @@ uses
   ClpIKeyParameter,
   ClpKeyParameter,
   ClpIBlockCipher,
-  ClpIAeadCipher,
   ClpIGcmMultiplier,
   ClpBasicGcmMultiplier,
-  ClpGcmBlockCipher,
   ClpAesBitSlicedEngine,
   ClpAesUtilities,
-  ClpChaCha20Poly1305,
-  ClpIAeadParameters,
-  ClpAeadParameters,
+  ClpIAeadPacketCipher,
+  ClpAesGcmPacketCipher,
+  ClpChaCha20Poly1305PacketCipher,
   ClpBigInteger,
   ClpBigIntegerUtilities,
   ClpIAsymmetricCipherKeyPair,
@@ -334,8 +332,9 @@ type
     FKeySize, FNonceSize, FTagSize: Int32;
     FHasHardwareAes: Boolean;
     FKey: ISecretBuffer;
-    FCipher: IAeadCipher;
-    function NewCipher: IAeadCipher;
+    FPacket: IAeadPacketCipher;
+    FKeyPending: Boolean;
+    function NewPacketCipher: IAeadPacketCipher;
     function Process(AForEncryption: Boolean; const ANonce, AAad, AInput: TBytes): TBytes;
   public
     constructor Create(AKind: TAeadKind; const AAlgorithmName: string;
@@ -688,8 +687,8 @@ end;
 
 destructor TAeadAdapter.Destroy;
 begin
-  // releasing the retained cipher lets its engine wipe round-key/subkey state
-  FCipher := nil;
+  // releasing the retained packet cipher lets its mode wipe round-key/subkey/GHASH state
+  FPacket := nil;
   inherited Destroy;
 end;
 
@@ -726,19 +725,21 @@ begin
   Result := FTagSize;
 end;
 
-function TAeadAdapter.NewCipher: IAeadCipher;
+function TAeadAdapter.NewPacketCipher: IAeadPacketCipher;
 begin
   case FKind of
     TAeadKind.AesGcm:
+      // keep the same engine/multiplier selection the per-record path used: hardware AES + a
+      // basic multiplier when available, else a constant-time bitsliced AES + constant-time
+      // software GHASH (the parameterless packet ctor would silently pick T-table AES here)
       if FHasHardwareAes then
-        Result := TGcmBlockCipher.Create(TAesUtilities.CreateEngine(),
+        Result := TAesGcmPacketCipher.Create(TAesUtilities.CreateEngine(),
           TBasicGcmMultiplier.Create as IGcmMultiplier)
       else
-        // no-hardware path: constant-time bitsliced AES + constant-time software GHASH
-        Result := TGcmBlockCipher.Create(TAesBitSlicedEngine.Create as IBlockCipher,
+        Result := TAesGcmPacketCipher.Create(TAesBitSlicedEngine.Create as IBlockCipher,
           TBasicGcmMultiplier.Create as IGcmMultiplier);
     TAeadKind.ChaChaPoly:
-      Result := TChaCha20Poly1305.Create;
+      Result := TChaCha20Poly1305PacketCipher.Create;
   else
     Result := nil;
   end;
@@ -750,38 +751,43 @@ begin
     raise EArgumentTlsLibException.CreateResFmt(@SInvalidKeySize,
       [AKey.Len, FKeySize]);
   FKey := AKey;
+  FKeyPending := True;
 end;
 
 function TAeadAdapter.Process(AForEncryption: Boolean;
   const ANonce, AAad, AInput: TBytes): TBytes;
 var
-  LCipher: IAeadCipher;
-  LParams: IAeadParameters;
-  LKeyBytes, LOut: TBytes;
+  LKey, LOut: TBytes;
+  LUsedKey: Boolean;
   LLen: Int32;
 begin
-  Result := nil;
   if System.Length(ANonce) <> FNonceSize then
     raise EArgumentTlsLibException.CreateResFmt(@SInvalidNonceSize,
       [System.Length(ANonce), FNonceSize]);
-  // the driver installs this adapter for one direction only (read or write); the
-  // connection is already single-threaded (unsynchronized FSeq), so reuse is safe
-  if FCipher = nil then
-    FCipher := NewCipher;
-  LCipher := FCipher;
-  LKeyBytes := FKey.ToBytes;
+  // one packet-cipher instance per adapter, and the driver installs an adapter for one
+  // direction only (read or write); the connection is already single-threaded (unsynchronized
+  // FSeq), so reusing the mode across records is safe (the mode is not thread-safe)
+  if FPacket = nil then
+    FPacket := NewPacketCipher;
+  // key the mode on the first record after Init; later records pass nil to reuse the schedule
+  LUsedKey := FKeyPending;
+  if LUsedKey then
+    LKey := FKey.ToBytes
+  else
+    LKey := nil;
   try
-    LParams := TAeadParameters.Create(TKeyParameter.Create(LKeyBytes) as IKeyParameter,
-      FTagSize * 8, ANonce, AAad) as IAeadParameters;
-    LCipher.Init(AForEncryption, LParams);
     LOut := nil;
-    SetLength(LOut, LCipher.GetOutputSize(System.Length(AInput)));
-    LLen := LCipher.ProcessBytes(AInput, 0, System.Length(AInput), LOut, 0);
-    LLen := LLen + LCipher.DoFinal(LOut, LLen);
+    SetLength(LOut, FPacket.GetOutputSize(AForEncryption, System.Length(AInput), FTagSize * 8));
+    LLen := FPacket.ProcessPacket(AForEncryption, LKey, ANonce, AAad, AInput, 0,
+      System.Length(AInput), LOut, 0, FTagSize * 8);
     SetLength(LOut, LLen);
+    // clear the pending flag only after the mode accepted and retained the key, so a throw
+    // mid-init leaves the next record to re-supply it rather than pass nil to an unkeyed mode
+    if LUsedKey then
+      FKeyPending := False;
     Result := LOut;
   finally
-    TSecureMemory.WipeBytes(LKeyBytes);
+    TSecureMemory.WipeBytes(LKey);
   end;
 end;
 
