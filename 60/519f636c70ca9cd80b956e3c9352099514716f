@@ -1,0 +1,22 @@
+docs/cookbook.md
+  s_3957973a090260::t_0555a060c51923 343
+docs/getting-started.md
+  s_3957973a090260::t_9e7f5612aa733e 156
+  s_3957973a090260::t_d9571f2eeebc37 167
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "60519f636c70ca9cd80b956e3c9352099514716f",
+  "prompts": {},
+  "sessions": {
+    "s_3957973a090260": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6deaf670-7f07-4977-8d0c-c1e8159f395d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
