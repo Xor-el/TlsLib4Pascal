@@ -1625,7 +1625,6 @@ constructor TDefaultCryptoProvider.Create;
 var
   LOverrides: TCryptoProviderOverrides;
 begin
-  // hoist Default() to a local (Delphi Default-in-argument-position insurance)
   LOverrides := Default(TCryptoProviderOverrides);
   Create(LOverrides);
 end;
@@ -1657,13 +1656,8 @@ begin
 end;
 
 procedure TRandomGeneratorBridge.NextBytes(const ABytes: TCryptoLibByteArray);
-var
-  LGen: TBytes;
 begin
-  if System.Length(ABytes) = 0 then
-    Exit;
-  LGen := FRandom.GenerateBytes(System.Length(ABytes));
-  System.Move(LGen[0], ABytes[0], System.Length(ABytes));
+  NextBytes(ABytes, 0, System.Length(ABytes));
 end;
 
 procedure TRandomGeneratorBridge.NextBytes(const ABytes: TCryptoLibByteArray;
