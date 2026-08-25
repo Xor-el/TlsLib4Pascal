@@ -1,0 +1,19 @@
+TlsLib/src/Crypto/TlpDefaultCryptoProvider.pas
+  s_5e9312dc1422f7::t_e69812319231a9 1660
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "1d7b91d2eb918a503d622113ce286e4c3980ca10",
+  "prompts": {},
+  "sessions": {
+    "s_5e9312dc1422f7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b29c589c-ed14-449b-8005-c9f68f77c10c",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
