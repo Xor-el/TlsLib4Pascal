@@ -1,0 +1,176 @@
+TlsLib/src/Negotiation/TlpNegotiationPolicy.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 175
+TlsLib.Tests/src/RecordLayerTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 75
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 132
+TlsLib/src/CertCompression/TlpCertificateCompression.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 132
+TlsLib.Tests/src/CertificateCheckTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 88,127,137,146,155,164
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 461,520,564,578,589,732,806,875,1100,1103,1311-1312,1398
+TlsLib.Tests/src/HkdfLabelTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 54
+TlsLib/src/Engine/TlpTlsSignatureBuilder.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 143
+TlsLib.Tests/src/SignatureTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 84,88,101,108,119,138,200,215
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 406,504,520,659,787-788,894
+TlsLib.Tests/src/HelloRetryRequestTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 270
+TlsLib.Trust.System/src/TlpAndroidSystemTrust.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 623-624
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 348
+TlsLib.Tests/src/Tls13ServerReplayTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 278,434
+TlsLib.Interop/src/InteropCredentials.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 77-78,108,120,122,129
+TlsLib.Interop/src/BoGoShimRunner.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 1126,1128
+TlsLib.Tests/src/TlsStreamLoopbackTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 443-444
+TlsLib.Interop/src/OpenSslInteropRunner.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 310
+TlsLib/src/Handshake/TlpHelloRetryCookie.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 74
+TlsLib.Tests/src/MockCryptoProvider.pas
+  s_5e9312dc1422f7::t_92d2e5bb178276 94-95,98-99
+  s_5e9312dc1422f7::t_5a68e7098da3e4 41-45,82-86,102,107,112,117,122,178,180-181,185,193,198,203,208,213
+  s_5e9312dc1422f7::t_46f58c4ead1208 182-183,186-187
+  s_5e9312dc1422f7::t_26a3455c74a25f 23-24,28-33,38,40,46-59,65-66,71-74,79,93,104,109,114,119,124,127,129,137,142,147,152,157,162-163,165,168,170,173,175,188-190,195,200,205,210,215
+TlsLib/src/Session/TlpSessionTicketStrategy.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 249-250,278
+TlsLib/src/Crypto/TlpNamedGroups.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 248,250,377,391,396
+TlsLib.Tests/src/Pkcs12ImportTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 103,107-108,117,130,146,168,184,202,220
+TlsLib.Tests/src/OcspStaplingTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 177-178,188-189,224,236,248,260,271,281,290,299,310
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 1484,1545-1546,1559-1560,1570,1594-1595,1606-1607,1628,1800
+TlsLib.Tests/src/BundleTrustTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 79
+TlsLib.Tests/src/Tls12DualVersionTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 137,219
+TlsLib.Benchmark/src/Core/TlsLibThroughputPeer.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 88
+TlsLib.Tests/src/ExtensionNegotiationTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 200
+TlsLib.Trust.System/src/TlpFileSystemTrust.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 107
+TlsLib.Trust.System/src/TlpSystemTrustBase.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 92
+TlsLib.Tests/src/LiveRevocationTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 220,229,239,250,262,271,407
+TlsLib/src/Engine/TlpTlsEngineFactory.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 218-219,338,374
+TlsLib/src/Handshake/TlpHandshakeDriver.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 90
+TlsLib.Tests/src/Tls13ResumptionTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 141,161,189,321,358-359,361,393,395,423-424,426,479,503,532,535-536,556-557,580,613,646,683,723,747,765,798-799,803,814
+TlsLib.Adapters/Synapse/Adapter/TlsLibSynapseTls.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 667,679,691,706,720
+TlsLib.Tests/src/SessionStoreTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 194,208,220,239,263,277,293,309,330
+TlsLib.Tests/src/Tls12ResumptionTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 130,155,181-182,244,386,407,437,465,491,516,542,545,563,580,614-615,619,631
+TlsLib.Tools/RootGen/src/TlpRootGen.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 404
+TlsLib/src/Handshake/TlpCertificateVerify.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 82,132,137,146
+TlsLib.Trust.Bundle/src/TlpBundleTrust.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 70
+TlsLib.Benchmark/src/Core/TlsLibHandshakePeer.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 96
+TlsLib.Tests/src/CertificateCompressionCacheTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 361
+TlsLib.Tests/src/RecordProtectionTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 72,79,345,407
+TlsLib/src/Trust/TlpLiveRevocation.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 119,128,159,188,196
+TlsLib.Tests/src/ProviderTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 99,118,134,150,168,190,213,234,253,274,324,345,351,385,387,409,429,442
+TlsLib.Tests/src/Tls13KeyScheduleTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 126,128,230,296,317,366,371,411
+TlsLib.Tests/src/Tls13KeyUpdateTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 76
+TlsLib/src/KeySchedule/TlpTls12KeySchedule.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 123
+TlsLib.Benchmark/src/Core/TlsHandshakeBenchmark.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 130
+TlsLib/src/KeySchedule/TlpTls13KeySchedule.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 118-119,134,293,390
+TlsLib.Tests/src/CredentialImportTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 94,105,109,187,190,193,196,206,217,228,244,258
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 455,987,1095,1454-1455,1472,1549,1553
+TlsLib/src/Interfaces/Crypto/TlpICryptoProvider.pas
+  s_5e9312dc1422f7::t_3d1d6f41cf344e 399-400,409-428
+  s_5e9312dc1422f7::t_4e3c3c8f56567d 29-31,152-155,157-158,164-203,218-228,235-245,252,258,260,262,264-313,334-342,391,393-398,401-408
+  s_5e9312dc1422f7::t_b0a81fb9af80ca 26-28
+TlsLib.Tests/src/ClientAuthTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 111
+TlsLib/src/Session/TlpSessionTicketKeys.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 102
+TlsLib.Tests/src/ScheduleInstallTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 108,156,158,188
+TlsLib.Tests/src/Tls13LoopbackTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 169,186,247,325,377,470
+TlsLib.Tests/src/ConfigResumptionTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 103,295,323,394,415
+TlsLib.Tests/src/MockTests.pas
+  s_5e9312dc1422f7::t_baac9f15a02906 71
+  s_5e9312dc1422f7::t_0a592dce4652d4 75,86
+  s_5e9312dc1422f7::t_6ec172a84103cb 85
+TlsLib.Tests/src/Tls12LoopbackTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 130,215
+TlsLib/src/Crypto/TlpDefaultCryptoProvider.pas
+  s_5e9312dc1422f7::t_2ec2f76c2775fa 2092-2101
+  s_5e9312dc1422f7::t_3cbcb62bf7afa4 1739-1740,1742-1745,1747-1750,1752-1754,1759
+  s_5e9312dc1422f7::t_07787e4039052d 2833-2881
+  s_5e9312dc1422f7::t_3d6edce7d04a9b 623,626
+  s_5e9312dc1422f7::t_bf5fa987214975 25
+  s_5e9312dc1422f7::t_fd61c90c281a1d 249
+  s_5e9312dc1422f7::t_0a3d953a39c121 139-145,147-160,168-172,174-181,184-187,197-213
+  s_5e9312dc1422f7::t_91fcb5876449ee 146,195,1631,1634,1699-1700,1770,1772-1773,1775,1777-1778
+  s_5e9312dc1422f7::t_98097fdb0faa7b 1583-1585,1588-1621,1624-1630,1632-1633,1635,1641-1698
+  s_5e9312dc1422f7::t_0f86ef2083c5a0 190-194
+  s_5e9312dc1422f7::t_ec4b155baaaf45 468-620
+  s_5e9312dc1422f7::t_9f2ffa32886fab 1701,1764,1769,1771,1774,1776,1779,1784,1802,1807,1813,1830,1843,1896,1912,1983,1994,2022,2050,2058,2073,2117,2124,2138,2298,2326,2362,2439,2469,2513,2565,2609,2642,2696,2734,2753,2797,2816,2828
+  s_5e9312dc1422f7::t_0290b4bdbef857 1741,1746,1751,1756,1761,1766
+TlsLib.Tests/src/TranscriptHashTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 81
+TlsLib/src/Trust/TlpCertificateVerifier.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 262-263,285,318,401,419-420
+TlsLib/src/Negotiation/TlpCipherSuiteRegistry.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 72-73
+TlsLib/src/Session/TlpExternalPskImporter.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 113,117,120
+TlsLib.Tests/src/Tls12KeyScheduleTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 104,106
+TlsLib.Tests/src/NegotiationTests.pas
+  s_5e9312dc1422f7::t_d45c3cb7dfb538 76
+TlsLib.Tests/src/EngineSkeletonTests.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 110
+TlsLib/src/Handshake/TlpTls12ClientStateMachine.pas
+  s_5e9312dc1422f7::t_0a592dce4652d4 344,425,523,600-601,659,725
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "2aaf2c574ede414a7fd837d1c55becb52f80130a",
+  "prompts": {},
+  "sessions": {
+    "s_5e9312dc1422f7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b29c589c-ed14-449b-8005-c9f68f77c10c",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
