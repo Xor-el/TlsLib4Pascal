@@ -452,7 +452,7 @@ function TTls13ServerStateMachine.HashOf(const AData: TBytes): TBytes;
 var
   LHash: IHash;
 begin
-  LHash := FParams.Provider.CreateHash(FSelectedSuite.Common.Hash);
+  LHash := FParams.Provider.Primitives.CreateHash(FSelectedSuite.Common.Hash);
   LHash.Update(AData, 0, System.Length(AData));
   Result := LHash.DoFinal;
 end;
@@ -984,7 +984,7 @@ begin
     begin
       // transcript: ClientHello, then (activated) ServerHello inside EmitServerFlight
       FTranscript.Update(AMessage.Raw);
-      FTranscript.Activate(FParams.Provider.CreateHash(FSelectedSuite.Common.Hash));
+      FTranscript.Activate(FParams.Provider.Primitives.CreateHash(FSelectedSuite.Common.Hash));
       // the client_early_traffic secret is over the ClientHello-only transcript
       if FEarlyDataAccepted then
         FEarlyTranscriptHash := FTranscript.CurrentHash;
@@ -1092,7 +1092,7 @@ begin
     // reconstructed HelloRetryRequest (byte-identical to the one sent, from the
     // echoed cookie), then this ClientHello
     FTranscript := TTranscriptHash.Create;
-    FTranscript.SeedWithMessageHash(FParams.Provider.CreateHash(FSelectedSuite.Common.Hash),
+    FTranscript.SeedWithMessageHash(FParams.Provider.Primitives.CreateHash(FSelectedSuite.Common.Hash),
       LCh1Hash);
     LHrr := BuildHelloRetryRequest(LClientHello.LegacySessionId, LSelectedGroup,
       LContext.Cookie);
@@ -1451,8 +1451,8 @@ begin
     FClientCertChain[0], LScheme, True);
   // the client signs the transcript through its Certificate, client-side context string
   LContent := TCertificateVerify.SignatureContent(False, FTranscript.CurrentHash);
-  LPublicKeyInfo := FParams.Provider.CertificatePublicKeyInfo(FClientCertChain[0]);
-  LVerifier := FParams.Provider.CreateSignatureVerifier(LScheme, LPublicKeyInfo);
+  LPublicKeyInfo := FParams.Provider.Certificates.PublicKeyInfo(FClientCertChain[0]);
+  LVerifier := FParams.Provider.Signing.CreateSignatureVerifier(LScheme, LPublicKeyInfo);
   LVerifier.Update(LContent, 0, System.Length(LContent));
   if not LVerifier.Verify(LCertVerify.Signature) then
     raise EFatalAlertTlsLibException.CreateRes(
@@ -1469,7 +1469,7 @@ var
   LVerify: TTlsCertificateVerify;
 begin
   LContent := TCertificateVerify.SignatureContent(True, ATranscriptHash);
-  LSigner := FParams.Provider.CreateSignatureSigner(
+  LSigner := FParams.Provider.Signing.CreateSignatureSigner(
     FSelectedSignatureScheme, FResolvedCredential.PrivateKey);
   LSigner.Update(LContent, 0, System.Length(LContent));
   LVerify.Algorithm := FSelectedSignatureScheme.ToCode;
@@ -1546,11 +1546,11 @@ begin
     LLifetime := MaxTicketLifetimeSeconds;
   for LI := 0 to FParams.IssueTicketCount - 1 do
   begin
-    LNonce := FParams.Provider.GetRandom.GenerateBytes(TicketNonceLength);
+    LNonce := FParams.Provider.Primitives.GetRandom.GenerateBytes(TicketNonceLength);
     // a fresh random ticket_age_add per ticket obfuscates the wire age (RFC 8446 4.6.1);
     // the same value is sealed into the session so the offered age reconciles on resumption
     LAgeAdd := TBinaryPrimitives.ReadUInt32BigEndian(
-      FParams.Provider.GetRandom.GenerateBytes(4), 0);
+      FParams.Provider.Primitives.GetRandom.GenerateBytes(4), 0);
     LPsk := FSchedule.ResumptionPsk(FResumptionTranscriptHash, LNonce);
     // the ticket identity is the sealed/handle output, so the session's own id is unused;
     // MaxEarlyData authorizes 0-RTT on the resumed connection

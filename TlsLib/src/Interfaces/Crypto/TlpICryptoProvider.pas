@@ -23,6 +23,12 @@ uses
   TlpISecretBuffer;
 
 type
+  /// <summary>An AEAD's usage-limit family: AES-GCM must proactively rekey by a
+  /// record-count bound, ChaCha20-Poly1305 is bounded only by the record sequence.</summary>
+  TAeadUsageCategory = (AesGcm, ChaCha20);
+
+{ ===== Primitive interfaces ===== }
+
   /// <summary>
   /// The CSPRNG. Failure is a hard fail - a randomness failure raises, never a
   /// weak or zero fallback.
@@ -80,10 +86,6 @@ type
       ALength: Int32): ISecretBuffer;
   end;
 
-  /// <summary>An AEAD's usage-limit family: AES-GCM must proactively rekey by a
-  /// record-count bound, ChaCha20-Poly1305 is bounded only by the record sequence.</summary>
-  TAeadUsageCategory = (AesGcm, ChaCha20);
-
   /// <summary>
   /// An AEAD cipher. The key is set once via <see cref="Init" />; the nonce and
   /// associated data are per message. <see cref="Open" /> raises on an
@@ -107,29 +109,6 @@ type
     function Seal(const ANonce, AAad, APlaintext: TBytes): TBytes;
     /// <summary>Authenticates and decrypts ciphertext||tag; raises on auth failure.</summary>
     function Open(const ANonce, AAad, ACiphertext: TBytes): TBytes;
-  end;
-
-  /// <summary>
-  /// Produces a signature over fed data with a loaded private key, for a TLS 1.3
-  /// signature scheme (RSA-PSS / ECDSA / EdDSA). Feed the to-be-signed bytes via
-  /// <see cref="Update" />, then <see cref="Sign" />.
-  /// </summary>
-  ISignatureSigner = interface(IInterface)
-    ['{9B1CAFD9-7162-4B3A-8615-6DD9AC6C0A7E}']
-    function AlgorithmName: string;
-    procedure Update(const AData: TBytes; AOffset, ALength: Int32);
-    function Sign: TBytes;
-  end;
-
-  /// <summary>
-  /// Verifies a signature over fed data against a loaded public key. Verification
-  /// is fail-closed: any malformed input returns False, never raises.
-  /// </summary>
-  ISignatureVerifier = interface(IInterface)
-    ['{AE23AEDF-7BCD-42A3-A5A9-2D49868D4FDC}']
-    function AlgorithmName: string;
-    procedure Update(const AData: TBytes; AOffset, ALength: Int32);
-    function Verify(const ASignature: TBytes): Boolean;
   end;
 
   /// <summary>
@@ -170,18 +149,58 @@ type
   end;
 
   /// <summary>
-  /// The single, total crypto seam. Vends the provider primitives by descriptor
-  /// and reports machine-checkable capabilities. It does not select or fall back
-  /// between algorithms - that is the negotiation policy's job; the provider only
-  /// reports capability and returns correct results.
+  /// Vends the raw crypto primitives by descriptor and reports machine-checkable
+  /// capabilities. It does not select or fall back between algorithms - that is
+  /// the negotiation policy's job; it only reports capability and returns correct
+  /// results.
   /// </summary>
-  ICryptoProvider = interface(IInterface)
-    ['{4FE6E7A9-2E66-4D31-8CF3-AE6BE6632664}']
+  ICryptoPrimitives = interface(IInterface)
+    ['{55A260D5-E22D-4876-894B-5FB957433E38}']
     function GetRandom: IRandom;
     function CreateHash(AAlgorithm: THashAlgorithm): IHash;
     function CreateHmac(AAlgorithm: THashAlgorithm): IHmac;
     function CreateHkdf(AAlgorithm: THashAlgorithm): IHkdf;
     function CreateAead(AAlgorithm: TAeadAlgorithm): IAead;
+    function CreateKeyAgreement(AAlgorithm: TKeyAgreementAlgorithm): IKeyAgreement;
+    function CreateKem(AAlgorithm: TKemAlgorithm): IKem;
+    /// <summary>Whether hardware accelerated AES is present on this host.</summary>
+    function HasHardwareAes: Boolean;
+  end;
+
+{ ===== Signing interfaces ===== }
+
+  /// <summary>
+  /// Produces a signature over fed data with a loaded private key, for a TLS 1.3
+  /// signature scheme (RSA-PSS / ECDSA / EdDSA). Feed the to-be-signed bytes via
+  /// <see cref="Update" />, then <see cref="Sign" />.
+  /// </summary>
+  ISignatureSigner = interface(IInterface)
+    ['{9B1CAFD9-7162-4B3A-8615-6DD9AC6C0A7E}']
+    function AlgorithmName: string;
+    procedure Update(const AData: TBytes; AOffset, ALength: Int32);
+    function Sign: TBytes;
+  end;
+
+  /// <summary>
+  /// Verifies a signature over fed data against a loaded public key. Verification
+  /// is fail-closed: any malformed input returns False, never raises.
+  /// </summary>
+  ISignatureVerifier = interface(IInterface)
+    ['{AE23AEDF-7BCD-42A3-A5A9-2D49868D4FDC}']
+    function AlgorithmName: string;
+    procedure Update(const AData: TBytes; AOffset, ALength: Int32);
+    function Verify(const ASignature: TBytes): Boolean;
+  end;
+
+  /// <summary>
+  /// The signing-credential seam: imports private keys and PKCS#12 identities
+  /// into opaque backend handles and mints signers/verifiers over them. An
+  /// <see cref="ISigningKey" /> handle is meaningful only to the same backend's
+  /// <see cref="CreateSignatureSigner" />, so import and signer-minting are one
+  /// coherence domain.
+  /// </summary>
+  ISigningCrypto = interface(IInterface)
+    ['{367BAFEA-1828-4B5A-BA87-82CEDB994DD0}']
     /// <summary>
     /// Imports a signing private key in any supported encoding - PKCS#8, PKCS#1
     /// (RSAPrivateKey) or SEC1 (ECPrivateKey), in DER or PEM - into an opaque handle
@@ -196,25 +215,6 @@ type
     /// </summary>
     function ImportSigningKey(const AData: TBytes;
       const APassword: string): ISigningKey; overload;
-    /// <summary>A signer for AScheme over the imported signing key AKey.</summary>
-    function CreateSignatureSigner(AScheme: TSignatureScheme;
-      const AKey: ISigningKey): ISignatureSigner;
-    /// <summary>A verifier for AScheme over the SubjectPublicKeyInfo in APublicKeyDer.</summary>
-    function CreateSignatureVerifier(AScheme: TSignatureScheme;
-      const APublicKeyDer: TBytes): ISignatureVerifier;
-    /// <summary>
-    /// Decodes certificates from AData - a PEM block (a single certificate or a whole
-    /// leaf-first chain/bundle) or a single DER certificate - into their ordered raw
-    /// DER encodings. Serves both credential chains and trust anchors. Raises
-    /// EArgumentTlsLibException if nothing parses.
-    /// </summary>
-    function LoadCertificateChain(const AData: TBytes): TArray<TBytes>;
-    /// <summary>
-    /// True if ADer decodes as a structurally well-formed X.509 certificate. A
-    /// parse-only gate (no trust, expiry or signature check) used to screen raw
-    /// OS-harvested trust anchors before they reach path validation.
-    /// </summary>
-    function IsWellFormedCertificate(const ADer: TBytes): Boolean;
     /// <summary>
     /// Imports a PKCS#12 (.pfx/.p12) blob decrypted with APassword into a complete
     /// credential: the leaf and any intermediates as the chain (leaf first, DER) and an
@@ -226,12 +226,91 @@ type
     /// </summary>
     function ImportPkcs12(const AData: TBytes;
       const APassword: string): TTlsCredential;
+    /// <summary>A signer for AScheme over the imported signing key AKey.</summary>
+    function CreateSignatureSigner(AScheme: TSignatureScheme;
+      const AKey: ISigningKey): ISignatureSigner;
+    /// <summary>A verifier for AScheme over the SubjectPublicKeyInfo in APublicKeyDer.</summary>
+    function CreateSignatureVerifier(AScheme: TSignatureScheme;
+      const APublicKeyDer: TBytes): ISignatureVerifier;
+  end;
+
+{ ===== Certificate operations ===== }
+
+  /// <summary>
+  /// Pure, per-certificate, side-effect-free X.509 inspection. Every method is
+  /// fail-closed: it never raises on malformed input, returning False (or an empty
+  /// result) so the caller decides the alert.
+  /// </summary>
+  ICertificateInspector = interface(IInterface)
+    ['{243AB9CD-2900-4A04-B952-FEC3CD105B05}']
+    /// <summary>
+    /// Decodes certificates from AData - a PEM block (a single certificate or a whole
+    /// leaf-first chain/bundle) or a single DER certificate - into their ordered raw
+    /// DER encodings. Serves both credential chains and trust anchors. Raises
+    /// EArgumentTlsLibException if nothing parses.
+    /// </summary>
+    function LoadChain(const AData: TBytes): TArray<TBytes>;
+    /// <summary>
+    /// True if ADer decodes as a structurally well-formed X.509 certificate. A
+    /// parse-only gate (no trust, expiry or signature check) used to screen raw
+    /// OS-harvested trust anchors before they reach path validation.
+    /// </summary>
+    function IsWellFormed(const ADer: TBytes): Boolean;
     /// <summary>The DER SubjectPublicKeyInfo of the X.509 certificate in ACertificateDer.</summary>
-    function CertificatePublicKeyInfo(const ACertificateDer: TBytes): TBytes;
+    function PublicKeyInfo(const ACertificateDer: TBytes): TBytes;
     /// <summary>The dNSName SubjectAltName entries of the X.509 certificate in ACertificateDer.</summary>
-    function CertificateDnsNames(const ACertificateDer: TBytes): TArray<string>;
+    function DnsNames(const ACertificateDer: TBytes): TArray<string>;
     /// <summary>The iPAddress SAN entries (raw 4- or 16-byte octets) in ACertificateDer.</summary>
-    function CertificateIpAddresses(const ACertificateDer: TBytes): TArray<TBytes>;
+    function IpAddresses(const ACertificateDer: TBytes): TArray<TBytes>;
+    /// <summary>
+    /// Extracts a certificate's human-readable identity: the subject and issuer
+    /// distinguished names, the subject common name, and the serial number in hex. Returns
+    /// False (all empty) on a malformed certificate; never raises.
+    /// </summary>
+    function PeerInfo(const ACertificateDer: TBytes;
+      out ASubject, AIssuer, ACommonName, ASerialHex: string): Boolean;
+    /// <summary>
+    /// Reads the RFC 7633 TLS Feature extension (id-pe-tlsfeature, OID
+    /// 1.3.6.1.5.5.7.1.24) of the certificate and returns its feature codepoints.
+    /// An absent extension yields True with an empty list. A present value that is
+    /// not a well-formed ASN.1 SEQUENCE OF INTEGER yields False, so the caller can
+    /// abort with bad_certificate.
+    /// </summary>
+    function TlsFeatures(const ACert: TBytes;
+      out AFeatures: TArray<UInt16>): Boolean;
+    /// <summary>
+    /// Whether the certificate's keyUsage extension (RFC 5280 4.2.1.3) permits AUsage.
+    /// APermitted is True when the extension is absent (no restriction) or asserts the
+    /// bit; False only when the extension is present and the bit is clear. Returns
+    /// False (could not determine) on a malformed certificate, leaving APermitted True.
+    /// </summary>
+    function KeyUsagePermits(const ACertificateDer: TBytes;
+      AUsage: TCertKeyUsage; out APermitted: Boolean): Boolean;
+    /// <summary>
+    /// Whether the certificate's SubjectPublicKeyInfo algorithm is id-RSASSA-PSS
+    /// (OID 1.2.840.113549.1.1.10), the restricted RSA-PSS key type that the
+    /// rsa_pss_rsae_* schemes must not be used with (RFC 8446 4.2.3). Returns False
+    /// (could not determine) on a malformed certificate, leaving AIsRsaPss False.
+    /// </summary>
+    function HasRsaPssKey(const ACertificateDer: TBytes;
+      out AIsRsaPss: Boolean): Boolean;
+    /// <summary>
+    /// Classifies the certificate leaf key: AKind is the public-key algorithm, and for an
+    /// ECDSA key AEcNamedGroup is the named-group code of its curve (secp256r1 = 0x0017,
+    /// secp384r1 = 0x0018, secp521r1 = 0x0019), 0 otherwise. Returns False (could not
+    /// determine) on a malformed or unrecognized certificate, leaving AKind = Other.
+    /// </summary>
+    function KeyKind(const ACertificateDer: TBytes;
+      out AKind: TCertKeyKind; out AEcNamedGroup: UInt16): Boolean;
+  end;
+
+  /// <summary>
+  /// The trust decision: RFC 5280 path validation. The highest-stakes call in the
+  /// library - it raises a fatal-alert exception on failure rather than returning a
+  /// boolean.
+  /// </summary>
+  ICertificatePathValidator = interface(IInterface)
+    ['{2457CB06-FD52-43D1-BAF4-ADF7D932FCD5}']
     /// <summary>
     /// Validates the DER chain (leaf first) to one of the DER trust anchors (RFC
     /// 5280 path validation; revocation is out of band). Returns normally when the
@@ -252,6 +331,15 @@ type
     procedure ValidateCertificatePath(const AChain, ATrustAnchors,
       AIntermediates: TArray<TBytes>; const AValidationTimeUtc: TDateTime;
       var AEffectiveChain: TArray<TBytes>);
+  end;
+
+  /// <summary>
+  /// Revocation checks (OCSP / CRL). Indeterminate-tolerant: a Boolean result means
+  /// "could I determine", never raises a backend exception, so an unreachable or
+  /// malformed responder degrades to indeterminate rather than a hard failure.
+  /// </summary>
+  IRevocationChecker = interface(IInterface)
+    ['{B8D6113D-83F1-413C-921C-5D4CE9DCCEEF}']
     /// <summary>
     /// Verifies a stapled OCSP response (RFC 6960) about the leaf certificate,
     /// in-band only - no network. Confirms the response is signed by the leaf's
@@ -300,51 +388,44 @@ type
     /// </summary>
     function CheckCrlRevocation(const ALeafCert, AIssuerCert, ACrlDer: TBytes;
       out ARevoked: Boolean): Boolean;
-    /// <summary>
-    /// Extracts a certificate's human-readable identity: the subject and issuer
-    /// distinguished names, the subject common name, and the serial number in hex. Returns
-    /// False (all empty) on a malformed certificate; never raises.
-    /// </summary>
-    function CertificatePeerInfo(const ACertificateDer: TBytes;
-      out ASubject, AIssuer, ACommonName, ASerialHex: string): Boolean;
-    /// <summary>
-    /// Reads the RFC 7633 TLS Feature extension (id-pe-tlsfeature, OID
-    /// 1.3.6.1.5.5.7.1.24) of the certificate and returns its feature codepoints.
-    /// An absent extension yields True with an empty list. A present value that is
-    /// not a well-formed ASN.1 SEQUENCE OF INTEGER yields False, so the caller can
-    /// abort with bad_certificate.
-    /// </summary>
-    function CertificateTlsFeatures(const ACert: TBytes;
-      out AFeatures: TArray<UInt16>): Boolean;
-    /// <summary>
-    /// Whether the certificate's keyUsage extension (RFC 5280 4.2.1.3) permits AUsage.
-    /// APermitted is True when the extension is absent (no restriction) or asserts the
-    /// bit; False only when the extension is present and the bit is clear. Returns
-    /// False (could not determine) on a malformed certificate, leaving APermitted True.
-    /// </summary>
-    function CertificateKeyUsagePermits(const ACertificateDer: TBytes;
-      AUsage: TCertKeyUsage; out APermitted: Boolean): Boolean;
-    /// <summary>
-    /// Whether the certificate's SubjectPublicKeyInfo algorithm is id-RSASSA-PSS
-    /// (OID 1.2.840.113549.1.1.10), the restricted RSA-PSS key type that the
-    /// rsa_pss_rsae_* schemes must not be used with (RFC 8446 4.2.3). Returns False
-    /// (could not determine) on a malformed certificate, leaving AIsRsaPss False.
-    /// </summary>
-    function CertificateHasRsaPssKey(const ACertificateDer: TBytes;
-      out AIsRsaPss: Boolean): Boolean;
-    /// <summary>
-    /// Classifies the certificate leaf key: AKind is the public-key algorithm, and for an
-    /// ECDSA key AEcNamedGroup is the named-group code of its curve (secp256r1 = 0x0017,
-    /// secp384r1 = 0x0018, secp521r1 = 0x0019), 0 otherwise. Returns False (could not
-    /// determine) on a malformed or unrecognized certificate, leaving AKind = Other.
-    /// </summary>
-    function CertificateKeyKind(const ACertificateDer: TBytes;
-      out AKind: TCertKeyKind; out AEcNamedGroup: UInt16): Boolean;
-    function CreateKeyAgreement(AAlgorithm: TKeyAgreementAlgorithm): IKeyAgreement;
-    function CreateKem(AAlgorithm: TKemAlgorithm): IKem;
+  end;
 
-    /// <summary>Whether hardware accelerated AES is present on this host.</summary>
-    function HasHardwareAes: Boolean;
+{ ===== Composition root ===== }
+
+  /// <summary>
+  /// The coherent composition root - one backend family, so its
+  /// <see cref="ISigningKey" /> handles, SPKI encodings, and path-validation
+  /// semantics all agree. Each accessor returns a stable, thread-safe, never-nil
+  /// facet reference (the same reference every call); consumers hold this
+  /// aggregator and reach a facet through its accessor.
+  /// </summary>
+  ICryptoProvider = interface(IInterface)
+    ['{8945BF7C-FB99-42DC-B3BD-69C6E3FFB3C0}']
+    function Primitives: ICryptoPrimitives;
+    function Signing: ISigningCrypto;
+    function Certificates: ICertificateInspector;
+    function PathValidation: ICertificatePathValidator;
+    function Revocation: IRevocationChecker;
+  end;
+
+  /// <summary>
+  /// Fluent builder for a composed <see cref="ICryptoProvider" />: each With*
+  /// overrides one facet (or the entropy source), and <see cref="Build" />
+  /// composes the provider. An unset facet defaults; composing coherent facets
+  /// (and supplying only thread-safe overrides) is the caller's responsibility.
+  /// </summary>
+  ICryptoProviderBuilder = interface(IInterface)
+    ['{443FE34F-D1CA-4247-ADA3-D2F9D1274193}']
+    /// <summary>Entropy source threaded into the default Primitives and Signing (not a
+    /// supplied Primitives override).</summary>
+    function WithRandom(const ARandom: IRandom): ICryptoProviderBuilder;
+    function WithPrimitives(const APrimitives: ICryptoPrimitives): ICryptoProviderBuilder;
+    function WithSigning(const ASigning: ISigningCrypto): ICryptoProviderBuilder;
+    function WithInspector(const AInspector: ICertificateInspector): ICryptoProviderBuilder;
+    function WithPathValidation(const APathValidation: ICertificatePathValidator): ICryptoProviderBuilder;
+    function WithRevocation(const ARevocation: IRevocationChecker): ICryptoProviderBuilder;
+    /// <summary>Composes the provider from the accumulated overrides.</summary>
+    function Build: ICryptoProvider;
   end;
 
 implementation

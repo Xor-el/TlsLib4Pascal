@@ -99,7 +99,7 @@ const
 class function TStekTicketKeyManager.CreateDefault(const AProvider: ICryptoProvider;
   const AClock: ITlsClock): ISessionTicketKeyManager;
 begin
-  Result := TStekTicketKeyManager.Create(AProvider.GetRandom, 0, AClock,
+  Result := TStekTicketKeyManager.Create(AProvider.Primitives.GetRandom, 0, AClock,
     DefaultStekRotateSeconds) as ISessionTicketKeyManager;
 end;
 

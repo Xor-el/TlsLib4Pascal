@@ -89,7 +89,7 @@ procedure TSystemTrustBase.AddUnique(var ARoots: TArray<TBytes>;
 var
   LI, LN: Integer;
 begin
-  if not FProvider.IsWellFormedCertificate(ADer) then
+  if not FProvider.Certificates.IsWellFormed(ADer) then
     Exit;
 
   for LI := 0 to Length(ARoots) - 1 do

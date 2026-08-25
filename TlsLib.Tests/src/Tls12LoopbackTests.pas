@@ -127,7 +127,7 @@ begin
   try
     Result.CertificateChain := TArray<TBytes>.Create(
       DecodeHex(LCerts.Values['leaf_cert']));
-    Result.PrivateKey := Provider.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
+    Result.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
   finally
     LCerts.Free;
   end;
@@ -212,7 +212,7 @@ begin
   LCred := Default(TTlsCredential);
   LCred.CertificateChain := TArray<TBytes>.Create(
     OcspField('leaf_cert'), OcspField('issuer_cert'));
-  LCred.PrivateKey := Provider.ImportSigningKey(OcspField('leaf_key'));
+  LCred.PrivateKey := Provider.Signing.ImportSigningKey(OcspField('leaf_key'));
   LCred.OcspStaple := AStaple;
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(LCred);
   Result := TTlsEngine.CreateConfigured(

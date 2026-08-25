@@ -401,7 +401,7 @@ begin
     AppendLine('    for LI := 0 to System.High(CPemLines) do');
     AppendLine('      LBuilder.Append(CPemLines[LI]).Append(#10);');
     AppendLine('    Result := TTrustAnchorStore.Create(');
-    AppendLine('      AProvider.LoadCertificateChain(');
+    AppendLine('      AProvider.Certificates.LoadChain(');
     AppendLine('        TEncoding.ASCII.GetBytes(LBuilder.ToString)))');
     AppendLine('      as ITrustAnchorStore;');
     AppendLine('  finally');

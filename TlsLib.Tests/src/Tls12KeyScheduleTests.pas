@@ -101,9 +101,9 @@ begin
   // the client write (key, salt) must drive TLS 1.2 AEAD record protection
   LKeys := LSched.TrafficKeys(TTlsEpoch.Application, TTlsDirection.ClientWrite);
   LSender := TTls12RecordProtection.Create(LKeys.Key, LKeys.Iv,
-    Provider.CreateAead(TAeadAlgorithm.AES_128_GCM));
+    Provider.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
   LReceiver := TTls12RecordProtection.Create(LKeys.Key, LKeys.Iv,
-    Provider.CreateAead(TAeadAlgorithm.AES_128_GCM));
+    Provider.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
   LPlain := DecodeHex('141516171819');
   LRecord := LSender.Protect(TTlsContentType.ApplicationData, LPlain, 0,
     System.Length(LPlain));

@@ -27,7 +27,6 @@ uses
 {$ENDIF FPC}
   TlpICryptoProvider,
   TlpCryptoAlgorithms,
-  TlpDefaultCryptoProvider,
   MockRandom,
   MockCryptoProvider,
   TlsLibTestBase;
@@ -69,12 +68,11 @@ var
   LProvider: ICryptoProvider;
   LReference: IRandom;
 begin
-  LProvider := TMockCryptoProvider.Create(TDefaultCryptoProvider.Create as ICryptoProvider,
-    TMockRandom.Create(7) as IRandom);
+  LProvider := TMockCryptoProvider.Create(TMockRandom.Create(7) as IRandom);
   LReference := TMockRandom.Create(7);
   // the provider hands back the injected deterministic stream
   CheckEqualBytes('injected random', LReference.GenerateBytes(16),
-    LProvider.GetRandom.GenerateBytes(16));
+    LProvider.Primitives.GetRandom.GenerateBytes(16));
 end;
 
 procedure TTestMocks.TestMockProviderDelegatesCrypto;
@@ -84,9 +82,8 @@ var
   LMsg: TBytes;
 begin
   // crypto is delegated to the inner real provider
-  LProvider := TMockCryptoProvider.Create(TDefaultCryptoProvider.Create as ICryptoProvider,
-    TMockRandom.Create(0) as IRandom);
-  LHash := LProvider.CreateHash(THashAlgorithm.SHA_256);
+  LProvider := TMockCryptoProvider.Create(TMockRandom.Create(0) as IRandom);
+  LHash := LProvider.Primitives.CreateHash(THashAlgorithm.SHA_256);
   LMsg := DecodeHex('616263'); // "abc"
   LHash.Update(LMsg, 0, System.Length(LMsg));
   CheckEqualBytes('delegated SHA-256(abc)',

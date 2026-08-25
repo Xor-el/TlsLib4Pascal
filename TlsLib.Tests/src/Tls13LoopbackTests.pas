@@ -166,7 +166,7 @@ begin
   try
     Result.CertificateChain := TArray<TBytes>.Create(
       DecodeHex(LCerts.Values['leaf_cert']));
-    Result.PrivateKey := Provider.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
+    Result.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
   finally
     LCerts.Free;
   end;
@@ -183,7 +183,7 @@ begin
   try
     Result.CertificateChain := TArray<TBytes>.Create(
       DecodeHex(LCerts.Values['wrongname_cert']));
-    Result.PrivateKey := Provider.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
+    Result.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
   finally
     LCerts.Free;
   end;
@@ -244,7 +244,7 @@ begin
   LCred := Default(TTlsCredential);
   LCred.CertificateChain := TArray<TBytes>.Create(
     OcspField('leaf_cert'), OcspField('issuer_cert'));
-  LCred.PrivateKey := Provider.ImportSigningKey(OcspField('leaf_key'));
+  LCred.PrivateKey := Provider.Signing.ImportSigningKey(OcspField('leaf_key'));
   LCred.OcspStaple := AStaple;
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(LCred);
 
@@ -322,7 +322,7 @@ begin
   // the server offers only secp256r1; a client that key-shared another group is retried
   LParams.Group := TNamedGroups.CreateNistEcdh(Provider, 'secp256r1');
   LParams.ServerRandom := Filled($22, 32);
-  LParams.CookieSecret := TSecretBuffer.From(Provider.GetRandom.GenerateBytes(32));
+  LParams.CookieSecret := TSecretBuffer.From(Provider.Primitives.GetRandom.GenerateBytes(32));
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
 
   Result := TTlsEngine.CreateConfigured(
@@ -374,7 +374,7 @@ begin
   LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Provider);
   LParams.ServerRandom := Filled($22, 32);
   // a cookie secret lets it answer with a HelloRetryRequest if it ever needed to (it must not)
-  LParams.CookieSecret := TSecretBuffer.From(Provider.GetRandom.GenerateBytes(32));
+  LParams.CookieSecret := TSecretBuffer.From(Provider.Primitives.GetRandom.GenerateBytes(32));
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
 
   Result := TTlsEngine.CreateConfigured(
@@ -467,7 +467,7 @@ begin
   // the server offers only the hybrid; a client that key-shared a classical group is retried
   LParams.Group := TNamedGroups.CreateX25519MlKem768(Provider);
   LParams.ServerRandom := Filled($22, 32);
-  LParams.CookieSecret := TSecretBuffer.From(Provider.GetRandom.GenerateBytes(32));
+  LParams.CookieSecret := TSecretBuffer.From(Provider.Primitives.GetRandom.GenerateBytes(32));
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
 
   Result := TTlsEngine.CreateConfigured(

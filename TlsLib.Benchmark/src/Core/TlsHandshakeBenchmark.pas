@@ -127,7 +127,7 @@ var
     LCurve: UInt16;
   begin
     Result := 0;
-    if LProvider.CertificateKeyKind(LCredential.LeafCertDer, LKind, LCurve)
+    if LProvider.Certificates.KeyKind(LCredential.LeafCertDer, LKind, LCurve)
       and (LKind = TCertKeyKind.Ecdsa) then
       Result := LCurve;
   end;

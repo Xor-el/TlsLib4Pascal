@@ -191,7 +191,7 @@ var
   LHandle: TBytes;
   LTaken: IResumableSession;
 begin
-  LStore := TInMemorySessionStore.Create(Provider.GetRandom);
+  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
   LHandle := LStore.Put(MakeSession(Tag($22, 8)));
   CheckTrue(System.Length(LHandle) > 0, 'Put returns an opaque handle');
   CheckTrue(LStore.Take(LHandle, LTaken), 'the handle resolves');
@@ -205,7 +205,7 @@ var
   LId: TBytes;
   LTaken: IResumableSession;
 begin
-  LStore := TInMemorySessionStore.Create(Provider.GetRandom);
+  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
   LId := Tag($33, 32);
   LStore.PutWithId(LId, MakeSession(Tag($44, 4)));
   CheckTrue(LStore.Take(LId, LTaken), 'a caller-chosen id resolves');
@@ -217,7 +217,7 @@ var
   LStore: ISessionStore;
   LI: Int32;
 begin
-  LStore := TInMemorySessionStore.Create(Provider.GetRandom, 3);
+  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom, 3);
   for LI := 0 to 9 do
     LStore.Put(MakeSession(Tag(Byte(LI), 4)));
   CheckEquals(3, LStore.Count, 'the store never grows past its cap');
@@ -236,7 +236,7 @@ begin
   // the live count tiny, so ordinary eviction rarely fires and the order structure must be
   // compacted instead of accumulating one dead entry per ticket, RFC 8446 18.6).
   // Compaction must preserve still-live entries and single-use semantics.
-  LStore := TInMemorySessionStore.Create(Provider.GetRandom, 8);
+  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom, 8);
   for LI := 0 to 4 do
     LLive[LI] := LStore.Put(MakeSession(Tag(Byte($A0 + LI), 8)));
   for LI := 0 to 999 do
@@ -260,7 +260,7 @@ var
   LName: TBytes;
   LKey, LFound: ISecretBuffer;
 begin
-  LStek := TStekTicketKeyManager.Create(Provider.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
   CheckTrue(LStek.CurrentKey(LName, LKey), 'a fresh manager has a current key');
   CheckEquals(LStek.KeyNameLength, System.Length(LName), 'the key name is fixed length');
   CheckTrue(LStek.KeyByName(LName, LFound), 'the current key is found by name');
@@ -274,7 +274,7 @@ var
   LKey: ISecretBuffer;
   LOld: ISecretBuffer;
 begin
-  LStek := TStekTicketKeyManager.Create(Provider.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
   LStek.CurrentKey(LName1, LKey);
   LStek.Rotate;
   LStek.CurrentKey(LName2, LKey);
@@ -290,7 +290,7 @@ var
   LKey, LFound: ISecretBuffer;
   LI: Int32;
 begin
-  LStek := TStekTicketKeyManager.Create(Provider.GetRandom, 2);
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom, 2);
   LStek.CurrentKey(LFirst, LKey);
   for LI := 0 to 2 do
     LStek.Rotate; // push the first key out of a 2-wide window
@@ -306,7 +306,7 @@ var
   LName: TBytes;
   LKey, LCurrent: ISecretBuffer;
 begin
-  LConcrete := TStekTicketKeyManager.Create(Provider.GetRandom);
+  LConcrete := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
   LStek := LConcrete; // the interface reference governs lifetime
   LName := Tag($55, 16);
   LKey := TSecretBuffer.From(Tag($66, 32));
@@ -327,7 +327,7 @@ begin
   LClockObj := TAdjustableClock.Create(1000000);
   LClock := LClockObj; // the interface reference governs lifetime
   // a 10-second auto-rotation interval driven by the injected clock
-  LStek := TStekTicketKeyManager.Create(Provider.GetRandom, 0, LClock, 10);
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom, 0, LClock, 10);
   LStek.CurrentKey(LName1, LKey);
   LClockObj.Advance(5000); // within the interval: the current key is unchanged
   LStek.CurrentKey(LName2, LKey);

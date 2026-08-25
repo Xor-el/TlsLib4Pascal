@@ -67,7 +67,7 @@ end;
 class function TBundleTrust.FromPem(const AProvider: ICryptoProvider;
   const AData: TBytes): ITrustAnchorStore;
 begin
-  Result := TTrustAnchorStore.Create(AProvider.LoadCertificateChain(AData))
+  Result := TTrustAnchorStore.Create(AProvider.Certificates.LoadChain(AData))
     as ITrustAnchorStore;
 end;
 

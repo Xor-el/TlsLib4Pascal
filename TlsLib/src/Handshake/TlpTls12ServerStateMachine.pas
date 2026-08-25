@@ -403,7 +403,7 @@ begin
   Result := True;
   if System.Length(FResolvedCredential.CertificateChain) = 0 then
     Exit;
-  if not FParams.Provider.CertificateKeyKind(
+  if not FParams.Provider.Certificates.KeyKind(
     FResolvedCredential.CertificateChain[0], LKind, LCurve) then
     Exit;
   if LKind <> TCertKeyKind.Ecdsa then
@@ -501,7 +501,7 @@ begin
   // a full handshake issues a fresh session id (when a store is configured) and, when
   // the client supports tickets, a NewSessionTicket sealed under the STEK
   if FParams.SessionStore <> nil then
-    FSessionId := FParams.Provider.GetRandom.GenerateBytes(SessionIdLength)
+    FSessionId := FParams.Provider.Primitives.GetRandom.GenerateBytes(SessionIdLength)
   else
     FSessionId := nil;
   FIssueNewTicket := (FTicketStrategy <> nil) and FClientOfferedSessionTicket;
@@ -517,7 +517,7 @@ begin
   // transcript and the raw handshake log (the client CertificateVerify signs the log)
   FHandshakeLog := System.Copy(AMessage.Raw);
   FTranscript.Update(AMessage.Raw);
-  FTranscript.Activate(FParams.Provider.CreateHash(FSelectedSuite.Common.Hash));
+  FTranscript.Activate(FParams.Provider.Primitives.CreateHash(FSelectedSuite.Common.Hash));
   // staple when the client offered status_request and a staple is configured; the
   // ServerHello echoes an empty status_request and a CertificateStatus follows the
   // Certificate (RFC 6066 8)
@@ -656,7 +656,7 @@ begin
   // the SKE signature covers client_random + server_random + the ECDHE params (RFC 8422 5.4)
   LContent := TArrayUtilities.Concat(
     TArrayUtilities.Concat(FClientRandom, FServerRandom), AParams);
-  LSigner := FParams.Provider.CreateSignatureSigner(FSelectedScheme,
+  LSigner := FParams.Provider.Signing.CreateSignatureSigner(FSelectedScheme,
     FResolvedCredential.PrivateKey);
   LSigner.Update(LContent, 0, System.Length(LContent));
   Result := LSigner.Sign;
@@ -784,8 +784,8 @@ begin
     FClientCertChain[0], LScheme, False);
   // the 1.2 CertificateVerify signs the raw handshake log through ClientKeyExchange;
   // the scheme applies its own hash, so the suite PRF hash does not matter here
-  LPublicKeyInfo := FParams.Provider.CertificatePublicKeyInfo(FClientCertChain[0]);
-  LVerifier := FParams.Provider.CreateSignatureVerifier(LScheme, LPublicKeyInfo);
+  LPublicKeyInfo := FParams.Provider.Certificates.PublicKeyInfo(FClientCertChain[0]);
+  LVerifier := FParams.Provider.Signing.CreateSignatureVerifier(LScheme, LPublicKeyInfo);
   LVerifier.Update(FHandshakeLog, 0, System.Length(FHandshakeLog));
   if not LVerifier.Verify(LCertVerify.Signature) then
     raise EFatalAlertTlsLibException.CreateRes(
@@ -891,7 +891,7 @@ begin
   // the abbreviated transcript is ClientHello, ServerHello, [NewSessionTicket]; the raw
   // handshake log is unused (no CertificateVerify on an abbreviated handshake)
   FTranscript.Update(AClientHelloRaw);
-  FTranscript.Activate(FParams.Provider.CreateHash(FSelectedSuite.Common.Hash));
+  FTranscript.Activate(FParams.Provider.Primitives.CreateHash(FSelectedSuite.Common.Hash));
   LServerHello := BuildServerHello;
   FTranscript.Update(LServerHello);
 

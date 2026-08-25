@@ -620,8 +620,8 @@ begin
   if AHostName <> '' then
     if (FProvider = nil) or
       (not TEndpointIdentity.Matches(AHostName,
-      FProvider.CertificateDnsNames(AChain[0]),
-      FProvider.CertificateIpAddresses(AChain[0]))) then
+      FProvider.Certificates.DnsNames(AChain[0]),
+      FProvider.Certificates.IpAddresses(AChain[0]))) then
     begin
       Result := False;
       AAlert := TTlsAlertDescription.BadCertificate;

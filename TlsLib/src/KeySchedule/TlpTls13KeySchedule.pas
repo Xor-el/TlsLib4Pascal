@@ -115,8 +115,8 @@ begin
   FHash := AHash;
   FKeyLength := AKeyLength;
   FIvLength := Tls13IvLength;
-  FHkdf := AProvider.CreateHkdf(AHash);
-  LHash := AProvider.CreateHash(AHash);
+  FHkdf := AProvider.Primitives.CreateHkdf(AHash);
+  LHash := AProvider.Primitives.CreateHash(AHash);
   FHashLength := LHash.HashSize;
   FHashEmpty := LHash.DoFinal; // hash of the empty input
 end;
@@ -131,7 +131,7 @@ var
   LHash: IHash;
 begin
   Result := nil;
-  LHash := FProvider.CreateHash(FHash);
+  LHash := FProvider.Primitives.CreateHash(FHash);
   if System.Length(AData) > 0 then
     LHash.Update(AData, 0, System.Length(AData));
   Result := LHash.DoFinal;
@@ -290,7 +290,7 @@ var
   LHmac: IHmac;
 begin
   Result := nil;
-  LHmac := FProvider.CreateHmac(FHash);
+  LHmac := FProvider.Primitives.CreateHmac(FHash);
   LHmac.Init(FinishedKey(ADirection));
   LHmac.Update(ATranscriptHash, 0, System.Length(ATranscriptHash));
   Result := LHmac.DoFinal;
@@ -387,7 +387,7 @@ begin
   LBinderKey := BinderKey(AKind);
   LFinishedKey := THkdfLabel.HkdfExpandLabel(FHkdf, LBinderKey, 'finished', nil,
     FHashLength);
-  LHmac := FProvider.CreateHmac(FHash);
+  LHmac := FProvider.Primitives.CreateHmac(FHash);
   LHmac.Init(LFinishedKey);
   LHmac.Update(ATruncatedTranscriptHash, 0,
     System.Length(ATruncatedTranscriptHash));

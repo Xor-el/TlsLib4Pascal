@@ -345,7 +345,7 @@ begin
   if not HarvestOrSkip(LRoots) then
     Exit;
   for LI := 0 to System.Length(LRoots) - 1 do
-    CheckTrue(FProvider.IsWellFormedCertificate(LRoots[LI]),
+    CheckTrue(FProvider.Certificates.IsWellFormed(LRoots[LI]),
       Format('%s harvested root #%d is a well-formed certificate', [PlatformName, LI]));
 end;
 

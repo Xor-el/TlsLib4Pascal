@@ -100,7 +100,7 @@ end;
 function TTestConfigResumption.ServerCredential: TTlsCredential;
 begin
   Result.CertificateChain := TArray<TBytes>.Create(DecodeHex(FCerts.Values['leaf_cert']));
-  Result.PrivateKey := Provider.ImportSigningKey(DecodeHex(FCerts.Values['leaf_key']));
+  Result.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(FCerts.Values['leaf_key']));
 end;
 
 function TTestConfigResumption.ClientTrust: ITrustAnchorStore;
@@ -292,7 +292,7 @@ begin
   // the public surface: a store-backed 1.3 server issues one stateful ticket; a later
   // handshake resumes it. The store single-use consumption proves the config wired through
   LCache := TInMemorySessionCache.Create;
-  LStore := TInMemorySessionStore.Create(Provider.GetRandom);
+  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
 
   LClient := NewClient13(LCache, True);
   LServer := NewServer13(LStore, 1, True);
@@ -320,7 +320,7 @@ begin
   // a TLS 1.2 client and server through the public surface: the second handshake resumes,
   // proven by the abbreviated server flight (no plaintext Certificate)
   LCache := TInMemorySessionCache.Create;
-  LStore := TInMemorySessionStore.Create(Provider.GetRandom);
+  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
 
   LClient := NewClient12(LCache);
   LServer := NewServer12(LStore);
@@ -391,7 +391,7 @@ begin
   // the Strict preset defaults resumption OFF: even with a cache and store supplied, the
   // factory does not engage them, so nothing is cached or stored
   LCache := TInMemorySessionCache.Create;
-  LStore := TInMemorySessionStore.Create(Provider.GetRandom);
+  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
 
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Strict(Provider).Client
     .WithTrustStore(ClientTrust).WithSessionCache(LCache).Build, ServerHost);
@@ -412,7 +412,7 @@ var
 begin
   // Strict is a mutable starting point: re-enabling resumption on it needs no ceremony
   LCache := TInMemorySessionCache.Create;
-  LStore := TInMemorySessionStore.Create(Provider.GetRandom);
+  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
 
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Strict(Provider).Client
     .WithResumption(True).WithTrustStore(ClientTrust).WithSessionCache(LCache).Build,

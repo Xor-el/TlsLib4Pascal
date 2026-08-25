@@ -74,8 +74,8 @@ implementation
 class function TInteropCredentials.ServerCredential(const AProvider: ICryptoProvider;
   const ALeafCertDer, AKeyDer: TBytes): TTlsCredential;
 begin
-  Result.CertificateChain := AProvider.LoadCertificateChain(ALeafCertDer);
-  Result.PrivateKey := AProvider.ImportSigningKey(AKeyDer);
+  Result.CertificateChain := AProvider.Certificates.LoadChain(ALeafCertDer);
+  Result.PrivateKey := AProvider.Signing.ImportSigningKey(AKeyDer);
 end;
 
 class function TInteropCredentials.ServerCredentialFromFieldFile(
@@ -105,7 +105,7 @@ begin
     Result.CertificateChain := TArray<TBytes>.Create(
       TInteropUtils.DecodeHex(LFields.Values['leaf_cert']),
       TInteropUtils.DecodeHex(LFields.Values['issuer_cert']));
-    Result.PrivateKey := AProvider.ImportSigningKey(
+    Result.PrivateKey := AProvider.Signing.ImportSigningKey(
       TInteropUtils.DecodeHex(LFields.Values['leaf_key']));
   finally
     LFields.Free;
@@ -117,16 +117,16 @@ class function TInteropCredentials.ServerCredentialFromPem(
   const ACertFile, AKeyFile: string): TTlsCredential;
 begin
   // the loaders accept PEM directly; a PEM cert file may carry the whole chain
-  Result.CertificateChain := AProvider.LoadCertificateChain(
+  Result.CertificateChain := AProvider.Certificates.LoadChain(
     TEncoding.ASCII.GetBytes(TInteropUtils.ReadAllText(ACertFile)));
-  Result.PrivateKey := AProvider.ImportSigningKey(
+  Result.PrivateKey := AProvider.Signing.ImportSigningKey(
     TEncoding.ASCII.GetBytes(TInteropUtils.ReadAllText(AKeyFile)));
 end;
 
 class function TInteropCredentials.Trust(const AProvider: ICryptoProvider;
   const ARootDer: TBytes): ITrustAnchorStore;
 begin
-  Result := TTrustAnchorStore.Create(AProvider.LoadCertificateChain(ARootDer))
+  Result := TTrustAnchorStore.Create(AProvider.Certificates.LoadChain(ARootDer))
     as ITrustAnchorStore;
 end;
 

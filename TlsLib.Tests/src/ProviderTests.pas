@@ -96,7 +96,7 @@ var
 begin
   LVec := LoadVectorFields('Crypto/Digest/Sha2.txt');
   try
-    LHash := Provider.CreateHash(THashAlgorithm.SHA_256);
+    LHash := Provider.Primitives.CreateHash(THashAlgorithm.SHA_256);
     CheckEquals(32, LHash.HashSize, 'SHA-256 size');
     LMsg := DecodeHex(LVec.Values['sha256_msg']);
     LHash.Update(LMsg, 0, System.Length(LMsg));
@@ -115,7 +115,7 @@ var
 begin
   LVec := LoadVectorFields('Crypto/Digest/Sha2.txt');
   try
-    LHash := Provider.CreateHash(THashAlgorithm.SHA_384);
+    LHash := Provider.Primitives.CreateHash(THashAlgorithm.SHA_384);
     CheckEquals(48, LHash.HashSize, 'SHA-384 size');
     LMsg := DecodeHex(LVec.Values['sha384_msg']);
     LHash.Update(LMsg, 0, System.Length(LMsg));
@@ -131,7 +131,7 @@ var
   LHash, LClone: IHash;
 begin
   // both should finish as SHA-256("abc")
-  LHash := Provider.CreateHash(THashAlgorithm.SHA_256);
+  LHash := Provider.Primitives.CreateHash(THashAlgorithm.SHA_256);
   LHash.Update(DecodeHex('61'), 0, 1); // 'a'
   LClone := LHash.Clone;
   LHash.Update(DecodeHex('6263'), 0, 2); // 'bc'
@@ -147,7 +147,7 @@ var
 begin
   LVec := LoadVectorFields('Crypto/Hmac/HmacSha256.txt');
   try
-    LHmac := Provider.CreateHmac(THashAlgorithm.SHA_256);
+    LHmac := Provider.Primitives.CreateHmac(THashAlgorithm.SHA_256);
     LHmac.Init(TSecretBuffer.From(DecodeHex(LVec.Values['key'])));
     LData := DecodeHex(LVec.Values['data']);
     LHmac.Update(LData, 0, System.Length(LData));
@@ -165,7 +165,7 @@ var
 begin
   LVec := LoadVectorFields('Crypto/Hkdf/HkdfSha256.txt');
   try
-    LHkdf := Provider.CreateHkdf(THashAlgorithm.SHA_256);
+    LHkdf := Provider.Primitives.CreateHkdf(THashAlgorithm.SHA_256);
     LPrk := LHkdf.Extract(DecodeHex(LVec.Values['salt']),
       TSecretBuffer.From(DecodeHex(LVec.Values['ikm'])));
     CheckEqualBytes('HKDF-Extract PRK', DecodeHex(LVec.Values['prk']),
@@ -187,7 +187,7 @@ var
 begin
   LVec := LoadVectorFields('Crypto/Gcm/Aes128Gcm.txt');
   try
-    LAead := Provider.CreateAead(TAeadAlgorithm.AES_128_GCM);
+    LAead := Provider.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM);
     LAead.Init(TSecretBuffer.From(DecodeHex(LVec.Values['key'])));
     LNonce := DecodeHex(LVec.Values['nonce']);
     LAad := DecodeHex(LVec.Values['aad']);
@@ -210,7 +210,7 @@ var
 begin
   LVec := LoadVectorFields('Crypto/Gcm/Aes256Gcm.txt');
   try
-    LAead := Provider.CreateAead(TAeadAlgorithm.AES_256_GCM);
+    LAead := Provider.Primitives.CreateAead(TAeadAlgorithm.AES_256_GCM);
     CheckEquals(32, LAead.KeySize, 'AES-256-GCM key size');
     LAead.Init(TSecretBuffer.From(DecodeHex(LVec.Values['key'])));
     LNonce := DecodeHex(LVec.Values['nonce']);
@@ -231,7 +231,7 @@ var
   LAead: IAead;
   LNonce, LAad, LPlain, LSealed: TBytes;
 begin
-  LAead := Provider.CreateAead(TAeadAlgorithm.AES_128_GCM);
+  LAead := Provider.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM);
   LAead.Init(TSecretBuffer.From(DecodeHex('000102030405060708090a0b0c0d0e0f')));
   LNonce := DecodeHex('101112131415161718191a1b');
   LAad := DecodeHex('cafe');
@@ -250,7 +250,7 @@ var
 begin
   LVec := LoadVectorFields('Crypto/ChaCha/ChaCha20Poly1305.txt');
   try
-    LAead := Provider.CreateAead(TAeadAlgorithm.CHACHA20_POLY1305);
+    LAead := Provider.Primitives.CreateAead(TAeadAlgorithm.CHACHA20_POLY1305);
     LAead.Init(TSecretBuffer.From(DecodeHex(LVec.Values['key'])));
     LNonce := DecodeHex(LVec.Values['nonce']);
     LAad := DecodeHex(LVec.Values['aad']);
@@ -271,7 +271,7 @@ var
   LNonce, LAad, LSealed: TBytes;
   LRaised: Boolean;
 begin
-  LAead := Provider.CreateAead(TAeadAlgorithm.AES_128_GCM);
+  LAead := Provider.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM);
   LAead.Init(TSecretBuffer.From(DecodeHex('000102030405060708090a0b0c0d0e0f')));
   LNonce := DecodeHex('101112131415161718191a1b');
   LAad := DecodeHex('');
@@ -321,7 +321,7 @@ var
 begin
   LKeyBytes := PatternBytes(AKeySize, 99);
   LKey := TSecretBuffer.From(LKeyBytes);
-  LReused := Provider.CreateAead(AAlgorithm);
+  LReused := Provider.Primitives.CreateAead(AAlgorithm);
   LReused.Init(LKey);
   LNonceSize := LReused.NonceSize;
   // a long stream: cycle the length matrix many times so the reused cipher is
@@ -342,13 +342,13 @@ begin
       LAad := PatternBytes(5 + (LRecord mod 11), LRecord + 3);
     LNonce := CounterNonce(LNonceSize, LRecord);
     // reference: a fresh adapter per record reproduces the old create-per-record path
-    LFresh := Provider.CreateAead(AAlgorithm);
+    LFresh := Provider.Primitives.CreateAead(AAlgorithm);
     LFresh.Init(LKey);
     LViaFresh := LFresh.Seal(LNonce, LAad, LPlain);
     LViaReused := LReused.Seal(LNonce, LAad, LPlain);
     CheckEqualBytes('reused seal == fresh seal', LViaFresh, LViaReused);
     // a fresh opener must round-trip the reused adapter's output
-    LOpener := Provider.CreateAead(AAlgorithm);
+    LOpener := Provider.Primitives.CreateAead(AAlgorithm);
     LOpener.Init(LKey);
     CheckEqualBytes('open round-trips reused seal', LPlain,
       LOpener.Open(LNonce, LAad, LViaReused));
@@ -382,9 +382,9 @@ begin
   for LEpoch := 0 to 1 do
   begin
     LKey := TSecretBuffer.From(PatternBytes(16, 40 + LEpoch));
-    LSender := Provider.CreateAead(TAeadAlgorithm.AES_128_GCM);
+    LSender := Provider.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM);
     LSender.Init(LKey);
-    LReceiver := Provider.CreateAead(TAeadAlgorithm.AES_128_GCM);
+    LReceiver := Provider.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM);
     LReceiver.Init(LKey);
     for LRecord := 0 to 255 do
     begin
@@ -406,7 +406,7 @@ var
 begin
   // the reused live cipher lets CL4P's encrypt-side guard catch a forced
   // (key, nonce) repeat - a net the old create-per-record adapter never had
-  LAead := Provider.CreateAead(TAeadAlgorithm.AES_128_GCM);
+  LAead := Provider.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM);
   LAead.Init(TSecretBuffer.From(DecodeHex('000102030405060708090a0b0c0d0e0f')));
   LNonce := DecodeHex('101112131415161718191a1b');
   LAad := nil;
@@ -426,7 +426,7 @@ var
   LRandom: IRandom;
   LA, LB: TBytes;
 begin
-  LRandom := Provider.GetRandom;
+  LRandom := Provider.Primitives.GetRandom;
   LA := LRandom.GenerateBytes(32);
   LB := LRandom.GenerateBytes(32);
   CheckEquals(32, System.Length(LA), 'length');
@@ -439,7 +439,7 @@ var
   LValue: Boolean;
 begin
   // the contract is only that it returns a Boolean without throwing
-  LValue := Provider.HasHardwareAes;
+  LValue := Provider.Primitives.HasHardwareAes;
   CheckTrue((LValue = True) or (LValue = False), 'HasHardwareAes is a Boolean');
 end;
 

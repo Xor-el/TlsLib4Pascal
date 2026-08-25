@@ -246,8 +246,8 @@ begin
   Result := nil;
   if not FKeys.CurrentKey(LKeyName, LKey) then
     Exit;
-  LNonce := FProvider.GetRandom.GenerateBytes(TicketNonceLength);
-  LAead := FProvider.CreateAead(TAeadAlgorithm.AES_256_GCM);
+  LNonce := FProvider.Primitives.GetRandom.GenerateBytes(TicketNonceLength);
+  LAead := FProvider.Primitives.CreateAead(TAeadAlgorithm.AES_256_GCM);
   LAead.Init(LKey);
   LPlain := SerializeSession(ASession);
   try
@@ -275,7 +275,7 @@ begin
   ASession := nil;
   Result := False;
   LNameLen := FKeys.KeyNameLength;
-  LAead := FProvider.CreateAead(TAeadAlgorithm.AES_256_GCM);
+  LAead := FProvider.Primitives.CreateAead(TAeadAlgorithm.AES_256_GCM);
   // key_name || nonce || ciphertext+tag; reject anything shorter than the framing
   if System.Length(ATicket) < LNameLen + TicketNonceLength + LAead.TagSize then
     Exit;

@@ -123,9 +123,9 @@ var
 begin
   // recompute the RFC 8448 secret tree through the public HKDF seam and pin every
   // node against the published bytes - no reaching into the schedule's internals
-  LHkdf := Provider.CreateHkdf(THashAlgorithm.SHA_256);
+  LHkdf := Provider.Primitives.CreateHkdf(THashAlgorithm.SHA_256);
   LZeros := TSecretBuffer.Allocate(32);
-  LEmptyHash := Provider.CreateHash(THashAlgorithm.SHA_256).DoFinal;
+  LEmptyHash := Provider.Primitives.CreateHash(THashAlgorithm.SHA_256).DoFinal;
 
   LEarly := LHkdf.Extract(nil, LZeros); // 0-PSK: salt and IKM are HashLen zeros
   CheckEqualBytes('early secret', Bytes('early_secret'), ToBytes(LEarly));
@@ -227,7 +227,7 @@ begin
   // the schedule-derived client handshake keys must decrypt the RFC 8448 record
   LKeys := LSched.TrafficKeys(TTlsEpoch.Handshake, TTlsDirection.ClientWrite);
   LProt := TTls13RecordProtection.Create(LKeys.Key, LKeys.Iv,
-    Provider.CreateAead(TAeadAlgorithm.AES_128_GCM));
+    Provider.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
   LRec := LoadVectorFields('Rfc8448/Tls13RecordFinished.txt');
   try
     LRecord := DecodeHex(LRec.Values['record']);
@@ -293,7 +293,7 @@ var
 begin
   LPsk := TSecretBuffer.From(DecodeHex('AABBCCDDEEFF00112233445566778899'));
   LSched := NewResumptionSchedule(LPsk, nil);
-  LTruncatedHash := Provider.CreateHash(THashAlgorithm.SHA_256).DoFinal;
+  LTruncatedHash := Provider.Primitives.CreateHash(THashAlgorithm.SHA_256).DoFinal;
   LBinder := LSched.ComputeBinder(TPskBinderKind.Resumption, LTruncatedHash);
   CheckTrue(LSched.VerifyBinder(TPskBinderKind.Resumption, LTruncatedHash, LBinder),
     'a genuine binder verifies');
@@ -314,7 +314,7 @@ begin
   LPsk := TSecretBuffer.From(DecodeHex('1122334455667788990011223344556677889900AABBCCDD'));
   LShared := DecodeHex('9FA1E9C3B6D2074F5E8A0C1D2B3A4958677685948382718065544332211009FF');
   LHash := Bytes('hash_ch_sh');
-  LTrunc := Provider.CreateHash(THashAlgorithm.SHA_256).DoFinal;
+  LTrunc := Provider.Primitives.CreateHash(THashAlgorithm.SHA_256).DoFinal;
 
   LClient := NewResumptionSchedule(LPsk, LShared);
   LServer := NewResumptionSchedule(LPsk, LShared);
@@ -363,12 +363,12 @@ var
   LPrefix, LViaTranscript, LManual: TBytes;
 begin
   // HashPrefixExcludingBinders(prefix) == Hash(running transcript || prefix)
-  LTranscript := TTranscriptHash.Create(Provider.CreateHash(THashAlgorithm.SHA_256));
+  LTranscript := TTranscriptHash.Create(Provider.Primitives.CreateHash(THashAlgorithm.SHA_256));
   LTranscript.Update(DecodeHex('AABBCCDD')); // some prior transcript bytes
   LPrefix := DecodeHex('0100000504030201'); // a partial ClientHello prefix
   LViaTranscript := LTranscript.HashPrefixExcludingBinders(LPrefix);
   // recompute manually: the same prior bytes then the prefix
-  LManual := Provider.CreateHash(THashAlgorithm.SHA_256).DoFinal; // placeholder
+  LManual := Provider.Primitives.CreateHash(THashAlgorithm.SHA_256).DoFinal; // placeholder
   LTranscript.Update(LPrefix);
   LManual := LTranscript.CurrentHash;
   CheckEqualBytes('the partial-transcript hash matches feeding the prefix',
@@ -408,7 +408,7 @@ begin
   LClient.SetPsk(LImp256.Key);
   LServer := TTls13KeySchedule.Create(Provider, LImp256.Hash, 16);
   LServer.SetPsk(LImp256.Key);
-  LTrunc := Provider.CreateHash(THashAlgorithm.SHA_256).DoFinal;
+  LTrunc := Provider.Primitives.CreateHash(THashAlgorithm.SHA_256).DoFinal;
   LImpBinder := LClient.ComputeBinder(TPskBinderKind.Imported, LTrunc);
   CheckTrue(LServer.VerifyBinder(TPskBinderKind.Imported, LTrunc, LImpBinder),
     'the imported-PSK binder round-trips between client and server');

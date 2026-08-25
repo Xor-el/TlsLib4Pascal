@@ -1123,9 +1123,9 @@ begin
       // resumes via the session id, which the server can only honor from a persistent store.
       // -no-ticket suppresses the STEK so no ticket is minted, leaving only the session-id path
       if not LConfig.NoTicket then
-        LConfig.SessionTicketKeys := TStekTicketKeyManager.Create(LProvider.GetRandom)
+        LConfig.SessionTicketKeys := TStekTicketKeyManager.Create(LProvider.Primitives.GetRandom)
           as ISessionTicketKeyManager;
-      LConfig.SessionStore := TInMemorySessionStore.Create(LProvider.GetRandom)
+      LConfig.SessionStore := TInMemorySessionStore.Create(LProvider.Primitives.GetRandom)
         as ISessionStore;
     end;
   end

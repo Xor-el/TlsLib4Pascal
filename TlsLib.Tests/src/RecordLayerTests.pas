@@ -72,7 +72,7 @@ implementation
 function TTestRecordLayer.MakeTls13(const AKey, AIv: TBytes): IRecordProtection;
 begin
   Result := TTls13RecordProtection.Create(TSecretBuffer.From(AKey),
-    TSecretBuffer.From(AIv), Provider.CreateAead(TAeadAlgorithm.AES_128_GCM));
+    TSecretBuffer.From(AIv), Provider.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
 end;
 
 function TTestRecordLayer.DrainOne(const ALayer: TRecordLayer;

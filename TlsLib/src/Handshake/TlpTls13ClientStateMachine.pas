@@ -458,7 +458,7 @@ begin
       // choose the seed once; a HelloRetryRequest retry reuses it so its GREASE codepoints
       // match the first ClientHello exactly (RFC 8446 4.1.4)
       if FGreaseSeed < 0 then
-        FGreaseSeed := FParams.Provider.GetRandom.GenerateBytes(1)[0];
+        FGreaseSeed := FParams.Provider.Primitives.GetRandom.GenerateBytes(1)[0];
       LSeed := FGreaseSeed;
       LContext.SupportedVersions := TGrease.Prepend(LContext.SupportedVersions,
         TGrease.ValueAt(LSeed));
@@ -517,7 +517,7 @@ begin
         else
           LContext.OfferedPskAges[LI] := 0;
         SetLength(LContext.OfferedPskBinders[LI],
-          FParams.Provider.CreateHash(FPskOffers[LI].Hash).HashSize);
+          FParams.Provider.Primitives.CreateHash(FPskOffers[LI].Hash).HashSize);
       end;
     end;
 
@@ -561,7 +561,7 @@ function TTls13ClientStateMachine.HashUnder(AHash: THashAlgorithm;
 var
   LHash: IHash;
 begin
-  LHash := FParams.Provider.CreateHash(AHash);
+  LHash := FParams.Provider.Primitives.CreateHash(AHash);
   LHash.Update(AData, 0, System.Length(AData));
   Result := LHash.DoFinal;
 end;
@@ -575,7 +575,7 @@ begin
   // the binders vector: a 2-byte list length, then per PSK a 1-byte entry length + binder
   LBindersLen := 2;
   for LI := 0 to High(FPskOffers) do
-    Inc(LBindersLen, 1 + FParams.Provider.CreateHash(FPskOffers[LI].Hash).HashSize);
+    Inc(LBindersLen, 1 + FParams.Provider.Primitives.CreateHash(FPskOffers[LI].Hash).HashSize);
   LTotal := System.Length(AClientHello);
   LPartial := System.Copy(AClientHello, 0, LTotal - LBindersLen);
 
@@ -586,7 +586,7 @@ begin
   LOffset := (LTotal - LBindersLen) + 2; // past the 2-byte binders list length
   for LI := 0 to High(FPskOffers) do
   begin
-    LHashLen := FParams.Provider.CreateHash(FPskOffers[LI].Hash).HashSize;
+    LHashLen := FParams.Provider.Primitives.CreateHash(FPskOffers[LI].Hash).HashSize;
     if FTranscript.IsActive then
       LPrefixHash := FTranscript.HashPrefixExcludingBinders(LPartial)
     else
@@ -729,7 +729,7 @@ begin
   // resumption / 0-RTT path relies on it); several offers defer activation to ServerHello
   if System.Length(FPskOffers) = 1 then
   begin
-    FTranscript.Activate(FParams.Provider.CreateHash(FPskOffers[0].Hash));
+    FTranscript.Activate(FParams.Provider.Primitives.CreateHash(FPskOffers[0].Hash));
     FTranscriptPreActivated := True;
     FPreActivatedHash := FPskOffers[0].Hash;
   end;
@@ -803,7 +803,7 @@ var
   LFresh: ITranscriptHash;
 begin
   LFresh := TTranscriptHash.Create(
-    FParams.Provider.CreateHash(FSelectedSuite.Common.Hash));
+    FParams.Provider.Primitives.CreateHash(FSelectedSuite.Common.Hash));
   LFresh.Update(FSentClientHelloRaw);
   FTranscript := LFresh;
 end;
@@ -872,7 +872,7 @@ begin
   // a different hash (a 0-RTT reject that changes the PRF), rebuild the transcript from the
   // raw first ClientHello under the newly selected hash so the derivations match the peer.
   if not FTranscript.IsActive then
-    FTranscript.Activate(FParams.Provider.CreateHash(FSelectedSuite.Common.Hash))
+    FTranscript.Activate(FParams.Provider.Primitives.CreateHash(FSelectedSuite.Common.Hash))
   else if FTranscriptPreActivated and
     (FPreActivatedHash <> FSelectedSuite.Common.Hash) then
     RebuildTranscriptUnderSelectedHash;
@@ -1097,10 +1097,10 @@ begin
   // retry-selected hash (RFC 8446 4.4.1), computed from the RAW first ClientHello. Using the
   // raw bytes keeps this correct even when a single-PSK resumption pre-activated the transcript
   // under a different hash the retry then rejects (a non-resumable-cipher HRR). Then add the HRR.
-  LCh1Hash := FParams.Provider.CreateHash(FSelectedSuite.Common.Hash);
+  LCh1Hash := FParams.Provider.Primitives.CreateHash(FSelectedSuite.Common.Hash);
   LCh1Hash.Update(FSentClientHelloRaw, 0, System.Length(FSentClientHelloRaw));
   FTranscript.SeedWithMessageHash(
-    FParams.Provider.CreateHash(FSelectedSuite.Common.Hash), LCh1Hash.DoFinal);
+    FParams.Provider.Primitives.CreateHash(FSelectedSuite.Common.Hash), LCh1Hash.DoFinal);
   FTranscript.Update(AMessage.Raw);
   // the retry-selected hash is now the transcript's hash, so the pre-activation reconciliation
   // (the different-PRF rebuild in ProcessServerHello) no longer applies to the next ServerHello
@@ -1308,8 +1308,8 @@ begin
 
   // the signature is over the transcript through the Certificate (this message not yet folded in)
   LContent := TCertificateVerify.SignatureContent(True, FTranscript.CurrentHash);
-  LPublicKeyInfo := FParams.Provider.CertificatePublicKeyInfo(FCertificateChain[0]);
-  LVerifier := FParams.Provider.CreateSignatureVerifier(LScheme, LPublicKeyInfo);
+  LPublicKeyInfo := FParams.Provider.Certificates.PublicKeyInfo(FCertificateChain[0]);
+  LVerifier := FParams.Provider.Signing.CreateSignatureVerifier(LScheme, LPublicKeyInfo);
   LVerifier.Update(LContent, 0, System.Length(LContent));
   if not LVerifier.Verify(LCertVerify.Signature) then
     raise EFatalAlertTlsLibException.CreateRes(
@@ -1395,7 +1395,7 @@ begin
     Exit;
   // the CertificateVerify signs the transcript through the client Certificate
   LContent := TCertificateVerify.SignatureContent(False, FTranscript.CurrentHash);
-  LSigner := FParams.Provider.CreateSignatureSigner(LScheme,
+  LSigner := FParams.Provider.Signing.CreateSignatureSigner(LScheme,
     FParams.ClientCredential.PrivateKey);
   LSigner.Update(LContent, 0, System.Length(LContent));
   LVerify.Algorithm := LScheme.ToCode;

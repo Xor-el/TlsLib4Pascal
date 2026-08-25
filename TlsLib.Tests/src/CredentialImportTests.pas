@@ -91,7 +91,7 @@ end;
 
 function TTestCredentialImport.Import(const AField: string): ISigningKey;
 begin
-  Result := Provider.ImportSigningKey(DecodeHex(FV.Values[AField]));
+  Result := Provider.Signing.ImportSigningKey(DecodeHex(FV.Values[AField]));
 end;
 
 function TTestCredentialImport.RoundTrips(AScheme: TSignatureScheme;
@@ -102,11 +102,11 @@ var
   LMessage, LSignature: TBytes;
 begin
   LMessage := DecodeHex(SMessageHex);
-  LSigner := Provider.CreateSignatureSigner(AScheme, AKey);
+  LSigner := Provider.Signing.CreateSignatureSigner(AScheme, AKey);
   LSigner.Update(LMessage, 0, System.Length(LMessage));
   LSignature := LSigner.Sign;
 
-  LVerifier := Provider.CreateSignatureVerifier(AScheme,
+  LVerifier := Provider.Signing.CreateSignatureVerifier(AScheme,
     DecodeHex(FV.Values[APubField]));
   LVerifier.Update(LMessage, 0, System.Length(LMessage));
   Result := LVerifier.Verify(LSignature);
@@ -184,16 +184,16 @@ var
   LKey: ISigningKey;
 begin
   // encrypted PKCS#8 in DER and PEM, decrypted with the password
-  LKey := Provider.ImportSigningKey(DecodeHex(FV.Values['rsa_enc_der']), SPassword);
+  LKey := Provider.Signing.ImportSigningKey(DecodeHex(FV.Values['rsa_enc_der']), SPassword);
   CheckTrue(RoundTrips(TSignatureScheme.RSA_PSS_RSAE_SHA256, LKey, 'rsa_pub'),
     'encrypted RSA PKCS#8 (DER) imports and signs');
-  LKey := Provider.ImportSigningKey(DecodeHex(FV.Values['rsa_enc_pem']), SPassword);
+  LKey := Provider.Signing.ImportSigningKey(DecodeHex(FV.Values['rsa_enc_pem']), SPassword);
   CheckTrue(RoundTrips(TSignatureScheme.RSA_PSS_RSAE_SHA256, LKey, 'rsa_pub'),
     'encrypted RSA PKCS#8 (PEM) imports and signs');
-  LKey := Provider.ImportSigningKey(DecodeHex(FV.Values['ec256_enc_der']), SPassword);
+  LKey := Provider.Signing.ImportSigningKey(DecodeHex(FV.Values['ec256_enc_der']), SPassword);
   CheckTrue(RoundTrips(TSignatureScheme.ECDSA_SECP256R1_SHA256, LKey, 'ec256_pub'),
     'encrypted EC P-256 PKCS#8 (DER) imports and signs');
-  LKey := Provider.ImportSigningKey(DecodeHex(FV.Values['ed25519_enc_der']), SPassword);
+  LKey := Provider.Signing.ImportSigningKey(DecodeHex(FV.Values['ed25519_enc_der']), SPassword);
   CheckTrue(RoundTrips(TSignatureScheme.ED25519, LKey, 'ed25519_pub'),
     'encrypted Ed25519 PKCS#8 (DER) imports and signs');
 end;
@@ -203,7 +203,7 @@ var
   LChain: TArray<TBytes>;
 begin
   // a fullchain PEM (leaf then root) splits into the two ordered DER certificates
-  LChain := Provider.LoadCertificateChain(DecodeHex(FV.Values['chain_pem']));
+  LChain := Provider.Certificates.LoadChain(DecodeHex(FV.Values['chain_pem']));
   CheckEquals(2, System.Length(LChain), 'the PEM bundle yields two certificates');
   CheckEqualBytes('leaf DER', DecodeHex(FV.Values['chain_leaf_der']), LChain[0]);
   CheckEqualBytes('root DER', DecodeHex(FV.Values['chain_root_der']), LChain[1]);
@@ -214,7 +214,7 @@ var
   LChain: TArray<TBytes>;
 begin
   // a lone DER certificate still loads (as a single-element chain)
-  LChain := Provider.LoadCertificateChain(DecodeHex(FV.Values['single_leaf_der']));
+  LChain := Provider.Certificates.LoadChain(DecodeHex(FV.Values['single_leaf_der']));
   CheckEquals(1, System.Length(LChain), 'a lone DER certificate is a one-element chain');
   CheckEqualBytes('single DER', DecodeHex(FV.Values['single_leaf_der']), LChain[0]);
 end;
@@ -225,7 +225,7 @@ var
 begin
   LRaised := False;
   try
-    Provider.ImportSigningKey(DecodeHex('deadbeefdeadbeef'));
+    Provider.Signing.ImportSigningKey(DecodeHex('deadbeefdeadbeef'));
   except
     // a typed library exception, never a raw backend/ASN.1 exception
     on E: EArgumentTlsLibException do
@@ -241,7 +241,7 @@ begin
   LRaised := False;
   try
     // a valid PKCS#8 X25519 key: parseable, but not a signing algorithm
-    Provider.ImportSigningKey(DecodeHex(FV.Values['x25519_pkcs8_der']));
+    Provider.Signing.ImportSigningKey(DecodeHex(FV.Values['x25519_pkcs8_der']));
   except
     on E: ENotSupportedTlsLibException do
       LRaised := True;
@@ -255,7 +255,7 @@ var
 begin
   LRaised := False;
   try
-    Provider.ImportSigningKey(DecodeHex(FV.Values['rsa_enc_der']), 'not-the-password');
+    Provider.Signing.ImportSigningKey(DecodeHex(FV.Values['rsa_enc_der']), 'not-the-password');
   except
     on E: EArgumentTlsLibException do
       LRaised := True;

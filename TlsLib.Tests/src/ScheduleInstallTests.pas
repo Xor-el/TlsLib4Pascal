@@ -105,7 +105,7 @@ begin
     LSched.DeriveEpochSecrets(TTlsEpoch.Handshake, DecodeHex(LVec.Values['hash_ch_sh']));
     LKeys := LSched.TrafficKeys(TTlsEpoch.Handshake, TTlsDirection.ClientWrite);
     LProt := TRecordProtectionFactory.Build(TTlsVersion.Tls13, LKeys,
-      Provider.CreateAead(TAeadAlgorithm.AES_128_GCM));
+      Provider.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
 
     LEngineObj := TTlsEngine.Create;
     LEngine := LEngineObj;
@@ -153,9 +153,9 @@ begin
   LKeys := LSched.TrafficKeys(TTlsEpoch.Application, TTlsDirection.ClientWrite);
 
   LSender := TRecordProtectionFactory.Build(TTlsVersion.Tls12, LKeys,
-    Provider.CreateAead(TAeadAlgorithm.AES_128_GCM));
+    Provider.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
   LReceiver := TRecordProtectionFactory.Build(TTlsVersion.Tls12, LKeys,
-    Provider.CreateAead(TAeadAlgorithm.AES_128_GCM));
+    Provider.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
 
   LEngineObj := TTlsEngine.Create;
   LEngine := LEngineObj;
@@ -185,7 +185,7 @@ begin
   try
     // 0x0301 is a legacy record version, never a negotiable protocol
     TRecordProtectionFactory.Build(TTlsVersion.LegacyRecordInitial, LKeys,
-      Provider.CreateAead(TAeadAlgorithm.AES_128_GCM));
+      Provider.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
   except
     on E: EArgumentTlsLibException do
       LRaised := True;

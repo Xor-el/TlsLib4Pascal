@@ -440,8 +440,8 @@ var
   LHash: IHash;
   LSpki: TBytes;
 begin
-  LSpki := Provider.CertificatePublicKeyInfo(ACertDer);
-  LHash := Provider.CreateHash(THashAlgorithm.SHA_256);
+  LSpki := Provider.Certificates.PublicKeyInfo(ACertDer);
+  LHash := Provider.Primitives.CreateHash(THashAlgorithm.SHA_256);
   LHash.Update(LSpki, 0, System.Length(LSpki));
   Result := LHash.DoFinal;
 end;

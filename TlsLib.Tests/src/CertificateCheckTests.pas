@@ -85,7 +85,7 @@ function TTestCertificateChecks.Permits(const ACertName: string;
   AUsage: TCertKeyUsage): Boolean;
 begin
   // asserts the certificate parsed (method result True) and reports the permission
-  CheckTrue(Provider.CertificateKeyUsagePermits(V(ACertName), AUsage, Result),
+  CheckTrue(Provider.Certificates.KeyUsagePermits(V(ACertName), AUsage, Result),
     'the certificate should parse');
 end;
 
@@ -124,7 +124,7 @@ var
   LPermitted: Boolean;
 begin
   // a certificate that does not parse cannot restrict usage: result False, permitted True
-  CheckFalse(Provider.CertificateKeyUsagePermits(
+  CheckFalse(Provider.Certificates.KeyUsagePermits(
     TBytes.Create(1, 2, 3, 4), TCertKeyUsage.DigitalSignature, LPermitted),
     'a malformed certificate cannot be determined');
   CheckTrue(LPermitted, 'an undeterminable certificate imposes no restriction');
@@ -134,7 +134,7 @@ procedure TTestCertificateChecks.TestRsaPssKeyIsDetected;
 var
   LIsRsaPss: Boolean;
 begin
-  CheckTrue(Provider.CertificateHasRsaPssKey(V('rsapss_cert'), LIsRsaPss),
+  CheckTrue(Provider.Certificates.HasRsaPssKey(V('rsapss_cert'), LIsRsaPss),
     'the certificate should parse');
   CheckTrue(LIsRsaPss, 'an id-RSASSA-PSS SubjectPublicKeyInfo is detected');
 end;
@@ -143,7 +143,7 @@ procedure TTestCertificateChecks.TestNormalRsaKeyIsNotPss;
 var
   LIsRsaPss: Boolean;
 begin
-  CheckTrue(Provider.CertificateHasRsaPssKey(V('rsa_normal_cert'), LIsRsaPss),
+  CheckTrue(Provider.Certificates.HasRsaPssKey(V('rsa_normal_cert'), LIsRsaPss),
     'the certificate should parse');
   CheckFalse(LIsRsaPss, 'an rsaEncryption key is not id-RSASSA-PSS');
 end;
@@ -152,7 +152,7 @@ procedure TTestCertificateChecks.TestEcKeyIsNotPss;
 var
   LIsRsaPss: Boolean;
 begin
-  CheckTrue(Provider.CertificateHasRsaPssKey(V('ku_digsig_cert'), LIsRsaPss),
+  CheckTrue(Provider.Certificates.HasRsaPssKey(V('ku_digsig_cert'), LIsRsaPss),
     'the certificate should parse');
   CheckFalse(LIsRsaPss, 'an ecPublicKey key is not id-RSASSA-PSS');
 end;
@@ -161,7 +161,7 @@ procedure TTestCertificateChecks.TestMalformedCertIsNotPss;
 var
   LIsRsaPss: Boolean;
 begin
-  CheckFalse(Provider.CertificateHasRsaPssKey(TBytes.Create(9, 9, 9), LIsRsaPss),
+  CheckFalse(Provider.Certificates.HasRsaPssKey(TBytes.Create(9, 9, 9), LIsRsaPss),
     'a malformed certificate cannot be determined');
   CheckFalse(LIsRsaPss, 'an undeterminable certificate is not reported as PSS');
 end;

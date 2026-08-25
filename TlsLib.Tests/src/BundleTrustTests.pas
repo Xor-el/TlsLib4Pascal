@@ -76,7 +76,7 @@ begin
   CheckTrue(LStore <> nil, 'FromPem returns an anchor store');
   CheckEquals(1, Length(LStore.RootCertificates),
     'the one-cert bundle yields exactly one anchor');
-  CheckTrue(FProvider.IsWellFormedCertificate(LStore.RootCertificates[0]),
+  CheckTrue(FProvider.Certificates.IsWellFormed(LStore.RootCertificates[0]),
     'the harvested anchor is a well-formed certificate');
 end;
 

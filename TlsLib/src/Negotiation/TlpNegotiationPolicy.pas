@@ -172,7 +172,7 @@ begin
       else
         Append(LAes, LSuite.Common.Code);
   // AES-GCM first when hardware AES is present; otherwise ChaCha20-Poly1305 first
-  if AProvider.HasHardwareAes then
+  if AProvider.Primitives.HasHardwareAes then
     Result := System.Concat(LAes, LChaCha)
   else
     Result := System.Concat(LChaCha, LAes);

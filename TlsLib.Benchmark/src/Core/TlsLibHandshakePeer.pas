@@ -93,7 +93,7 @@ begin
   // the leaf's own curve (RFC 8422 5.4 fallback), read from the certificate so the peer is
   // not tied to one curve; 0 (offer nothing extra) for a non-ECDSA leaf
   LCertGroup := 0;
-  if AProvider.CertificateKeyKind(ACredential.LeafCertDer, LKind, LCertCurve)
+  if AProvider.Certificates.KeyKind(ACredential.LeafCertDer, LKind, LCertCurve)
     and (LKind = TCertKeyKind.Ecdsa) then
     LCertGroup := LCertCurve;
 
