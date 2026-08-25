@@ -69,6 +69,8 @@ type
     FFile: string;      // a fixture bundle file holding the test root
     FMissing: string;   // a path that does not exist
     FCertDir: string;   // a fixture directory holding one root file
+    FRootDer: TBytes;   // the test root DER
+    FRoot2Der: TBytes;  // a second, distinct root DER
     procedure WriteBytes(const APath: string; const AData: TBytes);
   protected
     procedure SetUp; override;
@@ -78,6 +80,8 @@ type
     procedure TestFirstExistingFileCandidateWins;
     procedure TestNoReadableStoreFailsClosed;
     procedure TestDirectoryHarvestReadsCerts;
+    procedure TestDuplicateCertsAreDeduplicated;
+    procedure TestDistinctCertsAreNotMerged;
     procedure TestFactoryAnchorStoreMatchesSupports;
     procedure TestFactoryDelegateVerifierMatchesSupports;
   end;
@@ -178,6 +182,8 @@ begin
   LVectors := LoadVectorFields('Certs/EcP256Chain.txt');
   try
     LDer := DecodeHex(LVectors.Values['root_cert']);
+    FRootDer := LDer;
+    FRoot2Der := DecodeHex(LVectors.Values['root2_cert']);
   finally
     LVectors.Free;
   end;
@@ -245,6 +251,50 @@ begin
     TArray<string>.Create(FCertDir)) as ITrustAnchorStore;
   CheckTrue(System.Length(LStore.RootCertificates) >= 1,
     'the certificate directory is enumerated into anchors');
+end;
+
+procedure TTestSystemTrustFixtures.TestDuplicateCertsAreDeduplicated;
+var
+  LDir: string;
+  LStore: ITrustAnchorStore;
+begin
+  LDir := IncludeTrailingPathDelimiter(FDir) + 'dupdir';
+  ForceDirectories(LDir);
+  try
+    WriteBytes(IncludeTrailingPathDelimiter(LDir) + 'a.der', FRootDer);
+    WriteBytes(IncludeTrailingPathDelimiter(LDir) + 'b.der', FRootDer);
+    LStore := TFileSystemAnchorStore.Create(FProvider, '', '', nil,
+      TArray<string>.Create(LDir)) as ITrustAnchorStore;
+    CheckEquals(1, System.Length(LStore.RootCertificates),
+      'the same certificate under two names is de-duplicated to one anchor');
+  finally
+    LStore := nil;
+    SysUtils.DeleteFile(IncludeTrailingPathDelimiter(LDir) + 'a.der');
+    SysUtils.DeleteFile(IncludeTrailingPathDelimiter(LDir) + 'b.der');
+    SysUtils.RemoveDir(LDir);
+  end;
+end;
+
+procedure TTestSystemTrustFixtures.TestDistinctCertsAreNotMerged;
+var
+  LDir: string;
+  LStore: ITrustAnchorStore;
+begin
+  LDir := IncludeTrailingPathDelimiter(FDir) + 'distinctdir';
+  ForceDirectories(LDir);
+  try
+    WriteBytes(IncludeTrailingPathDelimiter(LDir) + 'r1.der', FRootDer);
+    WriteBytes(IncludeTrailingPathDelimiter(LDir) + 'r2.der', FRoot2Der);
+    LStore := TFileSystemAnchorStore.Create(FProvider, '', '', nil,
+      TArray<string>.Create(LDir)) as ITrustAnchorStore;
+    CheckEquals(2, System.Length(LStore.RootCertificates),
+      'two distinct certificates are harvested as two anchors');
+  finally
+    LStore := nil;
+    SysUtils.DeleteFile(IncludeTrailingPathDelimiter(LDir) + 'r1.der');
+    SysUtils.DeleteFile(IncludeTrailingPathDelimiter(LDir) + 'r2.der');
+    SysUtils.RemoveDir(LDir);
+  end;
 end;
 
 procedure TTestSystemTrustFixtures.TestFactoryAnchorStoreMatchesSupports;
