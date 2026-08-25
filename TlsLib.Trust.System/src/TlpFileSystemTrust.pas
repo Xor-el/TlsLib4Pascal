@@ -45,8 +45,10 @@ type
 
     class function ReadAllBytes(const APath: string): TBytes; static;
     function ParseBundle(const AData: TBytes): TArray<TBytes>;
-    procedure HarvestFile(const APath: string; var ARoots: TArray<TBytes>);
-    procedure HarvestDir(const APath: string; var ARoots: TArray<TBytes>);
+    procedure HarvestFile(const APath: string;
+      const AAccumulator: TSystemRootAccumulator);
+    procedure HarvestDir(const APath: string;
+      const AAccumulator: TSystemRootAccumulator);
     function FirstExistingFile: string;
     function FirstExistingDir: string;
   strict protected
@@ -108,7 +110,7 @@ begin
 end;
 
 procedure TFileSystemAnchorStore.HarvestFile(const APath: string;
-  var ARoots: TArray<TBytes>);
+  const AAccumulator: TSystemRootAccumulator);
 var
   LCerts: TArray<TBytes>;
   LI: Integer;
@@ -122,11 +124,11 @@ begin
   end;
 
   for LI := 0 to Length(LCerts) - 1 do
-    AddUnique(ARoots, LCerts[LI]);
+    AddUnique(AAccumulator, LCerts[LI]);
 end;
 
 procedure TFileSystemAnchorStore.HarvestDir(const APath: string;
-  var ARoots: TArray<TBytes>);
+  const AAccumulator: TSystemRootAccumulator);
 var
   LSearch: TSearchRec;
   LBase, LFull: string;
@@ -149,7 +151,7 @@ begin
         LCerts := nil;
       end;
       for LI := 0 to Length(LCerts) - 1 do
-        AddUnique(ARoots, LCerts[LI]);
+        AddUnique(AAccumulator, LCerts[LI]);
     until FindNext(LSearch) <> 0;
   finally
     FindClose(LSearch);
@@ -189,42 +191,45 @@ end;
 function TFileSystemAnchorStore.HarvestRoots: TArray<TBytes>;
 var
   LFile, LDir: string;
+  LAcc: TSystemRootAccumulator;
 begin
   Result := nil;
-
-  // Explicit environment overrides take precedence and are strict: if named, the
-  // source must be usable, otherwise fail closed (no fallback to the table).
-  if FEnvFile <> '' then
-  begin
-    if not FileExists(FEnvFile) then
-      raise ESystemTrustUnavailableTlsLibException.CreateResFmt(
-        @SEnvFileMissing, [FEnvFile]);
-    HarvestFile(FEnvFile, Result);
-    Exit;
+  LAcc := TSystemRootAccumulator.Create;
+  try
+    // Explicit environment overrides take precedence and are strict: if named, the
+    // source must be usable, otherwise fail closed (no fallback to the table).
+    if FEnvFile <> '' then
+    begin
+      if not FileExists(FEnvFile) then
+        raise ESystemTrustUnavailableTlsLibException.CreateResFmt(
+          @SEnvFileMissing, [FEnvFile]);
+      HarvestFile(FEnvFile, LAcc);
+    end
+    else if FEnvDir <> '' then
+    begin
+      if not DirectoryExists(FEnvDir) then
+        raise ESystemTrustUnavailableTlsLibException.CreateResFmt(
+          @SEnvDirMissing, [FEnvDir]);
+      HarvestDir(FEnvDir, LAcc);
+    end
+    // Otherwise the first candidate that exists is authoritative.
+    else
+    begin
+      LFile := FirstExistingFile;
+      if LFile <> '' then
+        HarvestFile(LFile, LAcc)
+      else
+      begin
+        LDir := FirstExistingDir;
+        if LDir <> '' then
+          HarvestDir(LDir, LAcc);
+        // If nothing existed, the accumulator stays empty and the base fails closed.
+      end;
+    end;
+    Result := LAcc.ToArray;
+  finally
+    LAcc.Free;
   end;
-
-  if FEnvDir <> '' then
-  begin
-    if not DirectoryExists(FEnvDir) then
-      raise ESystemTrustUnavailableTlsLibException.CreateResFmt(
-        @SEnvDirMissing, [FEnvDir]);
-    HarvestDir(FEnvDir, Result);
-    Exit;
-  end;
-
-  // Otherwise the first candidate that exists is authoritative.
-  LFile := FirstExistingFile;
-  if LFile <> '' then
-  begin
-    HarvestFile(LFile, Result);
-    Exit;
-  end;
-
-  LDir := FirstExistingDir;
-  if LDir <> '' then
-    HarvestDir(LDir, Result);
-
-  // If nothing existed, Result stays empty and the base fails closed.
 end;
 
 function TFileSystemAnchorStore.SourceName: string;

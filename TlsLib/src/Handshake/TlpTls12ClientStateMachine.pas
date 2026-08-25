@@ -17,6 +17,7 @@ interface
 
 uses
   SysUtils,
+  Classes,
   TlpArrayUtilities,
   TlpTlsAlert,
   TlpTlsVersion,
@@ -164,7 +165,7 @@ type
     FClientAuthCertTypes: TBytes;
     /// <summary>The raw concatenation of every handshake message, signed over by the
     /// client CertificateVerify (RFC 5246 7.4.8).</summary>
-    FHandshakeLog: TBytes;
+    FHandshakeLog: TBytesStream;
     /// <summary>Folds a message into both the transcript hash and the raw handshake log.</summary>
     procedure Absorb(const ARaw: TBytes);
     procedure RememberOffered(const AFramedClientHello: TBytes);
@@ -224,6 +225,7 @@ type
       : TArray<THandshakeEffect>; override;
   public
     constructor Create(const AParams: TClient12HandshakeParams);
+    destructor Destroy; override;
     function Initiates: Boolean; override;
     function Start: TArray<THandshakeEffect>; override;
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
@@ -268,12 +270,20 @@ begin
   FPhase := TPhase.Initial;
   FClientSupportsTls13 := TArrayUtilities.Contains<UInt16>(AParams.OfferedVersions,
     TlsWireVersionTls13);
+  FHandshakeLog := TBytesStream.Create;
+end;
+
+destructor TTls12ClientStateMachine.Destroy;
+begin
+  FHandshakeLog.Free;
+  inherited Destroy;
 end;
 
 procedure TTls12ClientStateMachine.Absorb(const ARaw: TBytes);
 begin
   FTranscript.Update(ARaw);
-  FHandshakeLog := TArrayUtilities.Concat(FHandshakeLog, ARaw);
+  if System.Length(ARaw) > 0 then
+    FHandshakeLog.Write(ARaw[0], System.Length(ARaw));
 end;
 
 procedure TTls12ClientStateMachine.RememberOffered(
@@ -724,7 +734,7 @@ begin
   begin
     LSigner := FParams.Provider.Signing.CreateSignatureSigner(LScheme,
       FParams.ClientCredential.PrivateKey);
-    LSigner.Update(FHandshakeLog, 0, System.Length(FHandshakeLog));
+    LSigner.Update(FHandshakeLog.Bytes, 0, FHandshakeLog.Size);
     LVerify.Algorithm := LScheme.ToCode;
     LVerify.Signature := LSigner.Sign;
     LCertVerifyBytes := THandshakeFraming.Frame(TTlsHandshakeType.CertificateVerify,

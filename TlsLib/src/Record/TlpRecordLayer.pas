@@ -486,7 +486,8 @@ end;
 procedure TRecordLayer.Write(AContentType: TTlsContentType; const AData: TBytes;
   AOffset, ALength: Int32);
 var
-  LOffset, LRemaining, LChunk: Int32;
+  LOffset, LRemaining, LChunk, LCount, LI, LBase, LAddLen, LPos, LLen: Int32;
+  LRecords: TArray<TBytes>;
 begin
   // reject an out-of-range slice at the single chokepoint before Protect
   if (AOffset < 0) or (ALength < 0) or
@@ -498,16 +499,35 @@ begin
   LRemaining := ALength;
   // fragment to at most the negotiated outbound plaintext cap (<= 2^14) per record;
   // an empty write emits one empty record
-  repeat
+  if ALength <= 0 then
+    LCount := 1
+  else
+    LCount := (ALength + FMaxOutboundPlaintext - 1) div FMaxOutboundPlaintext;
+  // Protect advances the write epoch's record sequence number, so it must run
+  // exactly once per record
+  SetLength(LRecords, LCount);
+  LAddLen := 0;
+  for LI := 0 to LCount - 1 do
+  begin
     if LRemaining < FMaxOutboundPlaintext then
       LChunk := LRemaining
     else
       LChunk := FMaxOutboundPlaintext;
-    FOutbound := TArrayUtilities.Concat(FOutbound,
-      FWriteProtection.Protect(AContentType, AData, LOffset, LChunk));
+    LRecords[LI] := FWriteProtection.Protect(AContentType, AData, LOffset, LChunk);
+    Inc(LAddLen, System.Length(LRecords[LI]));
     Inc(LOffset, LChunk);
     Dec(LRemaining, LChunk);
-  until LRemaining <= 0;
+  end;
+  LBase := System.Length(FOutbound);
+  SetLength(FOutbound, LBase + LAddLen);
+  LPos := LBase;
+  for LI := 0 to LCount - 1 do
+  begin
+    LLen := System.Length(LRecords[LI]);
+    if LLen > 0 then
+      System.Move(LRecords[LI][0], FOutbound[LPos], LLen);
+    Inc(LPos, LLen);
+  end;
 end;
 
 function TRecordLayer.TakeOutgoing: TBytes;

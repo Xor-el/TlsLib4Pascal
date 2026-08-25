@@ -20,6 +20,7 @@ uses
   Classes,
   Rtti,
   SyncObjs,
+  Generics.Collections,
   ClpISecureRandom,
   ClpSecureRandom,
   ClpIRandomGenerator,
@@ -1842,7 +1843,7 @@ var
   LValue: TValue;
   LCert: IX509Certificate;
   LParser: IX509CertificateParser;
-  LN: Int32;
+  LChain: TList<TBytes>;
 begin
   // PEM may carry a whole chain/bundle (leaf first); DER is a single certificate.
   // Either way the result is the ordered list of raw DER certificates.
@@ -1850,27 +1851,29 @@ begin
   try
     if TCredentialImport.IsPemArmored(AData) then
     begin
-      LStream := TBytesStream.Create(AData);
+      LChain := TList<TBytes>.Create;
       try
-        LReader := TOpenSslPemReader.Create(LStream);
+        LStream := TBytesStream.Create(AData);
         try
-          while True do
-          begin
-            LValue := LReader.ReadObject;
-            if LValue.IsEmpty then
-              Break;
-            if LValue.TryGetAsType<IX509Certificate>(LCert) then
+          LReader := TOpenSslPemReader.Create(LStream);
+          try
+            while True do
             begin
-              LN := System.Length(Result);
-              SetLength(Result, LN + 1);
-              Result[LN] := LCert.GetEncoded;
+              LValue := LReader.ReadObject;
+              if LValue.IsEmpty then
+                Break;
+              if LValue.TryGetAsType<IX509Certificate>(LCert) then
+                LChain.Add(LCert.GetEncoded);
             end;
+          finally
+            LReader := nil;
           end;
         finally
-          LReader := nil;
+          LStream.Free;
         end;
+        Result := LChain.ToArray;
       finally
-        LStream.Free;
+        LChain.Free;
       end;
     end
     else
@@ -2002,15 +2005,16 @@ begin
   if LGeneralNames = nil then
     Exit;
   LNames := LGeneralNames.GetNames;
+  SetLength(Result, System.Length(LNames));
   LCount := 0;
   for LI := 0 to System.Length(LNames) - 1 do
     if (LNames[LI].TagNo = TGeneralName.DnsName) and
       Supports(LNames[LI].GetName, IAsn1String, LString) then
     begin
-      SetLength(Result, LCount + 1);
       Result[LCount] := LString.GetString;
       Inc(LCount);
     end;
+  SetLength(Result, LCount);
 end;
 
 function TCertificateInspector.IpAddresses(
@@ -2030,15 +2034,16 @@ begin
   if LGeneralNames = nil then
     Exit;
   LNames := LGeneralNames.GetNames;
+  SetLength(Result, System.Length(LNames));
   LCount := 0;
   for LI := 0 to System.Length(LNames) - 1 do
     if (LNames[LI].TagNo = TGeneralName.IPAddress) and
       Supports(LNames[LI].GetName, IAsn1OctetString, LOctets) then
     begin
-      SetLength(Result, LCount + 1);
       Result[LCount] := LOctets.GetOctets;
       Inc(LCount);
     end;
+  SetLength(Result, LCount);
 end;
 
 class function TCertificatePathValidator.TTrustAnchorRing.Init: TTrustAnchorRing;

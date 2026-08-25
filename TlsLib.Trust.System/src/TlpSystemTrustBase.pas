@@ -18,12 +18,27 @@ interface
 uses
   SysUtils,
   SyncObjs,
-  TlpArrayUtilities,
+  Generics.Collections,
   TlpICryptoProvider,
   TlpICertificateTrust,
   TlpSystemTrustExceptions;
 
 type
+  /// <summary>
+  /// Deduplicates harvested roots by exact bytes: a filesystem store walking
+  /// hashed-symlink directories sees the same certificate under several names.
+  /// </summary>
+  TSystemRootAccumulator = class sealed(TObject)
+  strict private
+    FRoots: TList<TBytes>;
+    FSeen: TDictionary<TBytes, Boolean>;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    procedure Add(const ADer: TBytes);
+    function ToArray: TArray<TBytes>;
+  end;
+
   /// <summary>
   /// Abstract base for the platform trust-anchor harvesters. Caches the harvested
   /// roots behind a lock (refreshable), validates each blob is a well-formed DER
@@ -46,10 +61,11 @@ type
     /// <summary>The crypto provider, for subclasses that must parse (e.g. PEM).</summary>
     property Provider: ICryptoProvider read FProvider;
   protected
-    /// <summary>Appends ADer to ARoots only if the provider confirms it a
-    /// well-formed X.509 certificate not already present (exact-byte de-dup for
-    /// hashed-symlink directories).</summary>
-    procedure AddUnique(var ARoots: TArray<TBytes>; const ADer: TBytes);
+    /// <summary>Adds ADer to AAccumulator only if the provider confirms it a
+    /// well-formed X.509 certificate; the accumulator handles the exact-byte
+    /// de-dup for hashed-symlink directories.</summary>
+    procedure AddUnique(const AAccumulator: TSystemRootAccumulator;
+      const ADer: TBytes);
   public
     constructor Create(const AProvider: ICryptoProvider);
     destructor Destroy; override;
@@ -65,6 +81,38 @@ resourcestring
   SSystemTrustEmpty =
     'the %s trust store could not be read or contained no usable root certificates';
   SNoProvider = 'a crypto provider is required to read the system trust store';
+
+{ TSystemRootAccumulator }
+
+constructor TSystemRootAccumulator.Create;
+begin
+  inherited Create;
+  FRoots := TList<TBytes>.Create;
+  FSeen := TDictionary<TBytes, Boolean>.Create;
+end;
+
+destructor TSystemRootAccumulator.Destroy;
+begin
+  FSeen.Free;
+  FRoots.Free;
+  inherited Destroy;
+end;
+
+procedure TSystemRootAccumulator.Add(const ADer: TBytes);
+var
+  LCopy: TBytes;
+begin
+  if FSeen.ContainsKey(ADer) then
+    Exit;
+  LCopy := Copy(ADer, 0, Length(ADer));
+  FSeen.Add(LCopy, True);
+  FRoots.Add(LCopy);
+end;
+
+function TSystemRootAccumulator.ToArray: TArray<TBytes>;
+begin
+  Result := FRoots.ToArray;
+end;
 
 { TSystemTrustBase }
 
@@ -84,23 +132,12 @@ begin
   inherited Destroy;
 end;
 
-procedure TSystemTrustBase.AddUnique(var ARoots: TArray<TBytes>;
+procedure TSystemTrustBase.AddUnique(const AAccumulator: TSystemRootAccumulator;
   const ADer: TBytes);
-var
-  LI, LN: Integer;
 begin
   if not FProvider.Certificates.IsWellFormed(ADer) then
     Exit;
-
-  for LI := 0 to Length(ARoots) - 1 do
-  begin
-    if TArrayUtilities.AreEqual(ARoots[LI], ADer) then
-      Exit;
-  end;
-
-  LN := Length(ARoots);
-  SetLength(ARoots, LN + 1);
-  ARoots[LN] := Copy(ADer, 0, Length(ADer));
+  AAccumulator.Add(ADer);
 end;
 
 class function TSystemTrustBase.CloneRoots(
