@@ -23,6 +23,7 @@ uses
 {$ELSE}
   Winapi.Windows,
 {$ENDIF}
+  Generics.Collections,
   SysUtils,
   TlpTlsAlert,
   TlpICertificateTrust,
@@ -57,9 +58,6 @@ type
 implementation
 
 {$IFDEF TLSLIB_MSWINDOWS}
-
-uses
-  TlpArrayUtilities;
 
 const
   CRYPT32_DLL = 'crypt32.dll';
@@ -183,10 +181,9 @@ type
     FCertFreeCertificateChain: TCertFreeCertificateChainProc;
     FCertVerifyCertificateChainPolicy: TCertVerifyCertificateChainPolicyFunc;
     class function GetProc(const AName: AnsiString): Pointer; static;
-    class function InSet(const ASet: TArray<TBytes>;
-      const ADer: TBytes): Boolean; static;
     class procedure CollectStore(AStoreName: PWideChar;
-      const AExclude: TArray<TBytes>; var ACerts: TArray<TBytes>); static;
+      const AExclude: TDictionary<TBytes, Boolean>;
+      const ADest: TList<TBytes>); static;
   private
     class procedure ResolveDynamicImports; static;
     /// <summary>Frees the loaded crypt32 module (unit teardown).</summary>
@@ -255,26 +252,12 @@ begin
   end;
 end;
 
-class function TWindowsTrustApi.InSet(const ASet: TArray<TBytes>;
-  const ADer: TBytes): Boolean;
-var
-  LI: Integer;
-begin
-  for LI := 0 to Length(ASet) - 1 do
-  begin
-    if TArrayUtilities.AreEqual(ASet[LI], ADer) then
-      Exit(True);
-  end;
-  Result := False;
-end;
-
 class procedure TWindowsTrustApi.CollectStore(AStoreName: PWideChar;
-  const AExclude: TArray<TBytes>; var ACerts: TArray<TBytes>);
+  const AExclude: TDictionary<TBytes, Boolean>; const ADest: TList<TBytes>);
 var
   LStore: HCERTSTORE;
   LContext: PCERT_CONTEXT;
   LDer: TBytes;
-  LN: Integer;
 begin
   LDer := nil;
   LStore := FCertOpenSystemStoreW(nil, AStoreName);
@@ -288,12 +271,8 @@ begin
       begin
         SetLength(LDer, LContext^.cbCertEncoded);
         Move(LContext^.pbCertEncoded^, LDer[0], LContext^.cbCertEncoded);
-        if (Length(AExclude) = 0) or (not InSet(AExclude, LDer)) then
-        begin
-          LN := Length(ACerts);
-          SetLength(ACerts, LN + 1);
-          ACerts[LN] := Copy(LDer, 0, Length(LDer));
-        end;
+        if (AExclude = nil) or (not AExclude.ContainsKey(LDer)) then
+          ADest.Add(Copy(LDer, 0, Length(LDer)));
       end;
       LContext := FCertEnumCertificatesInStore(LStore, LContext);
     end;
@@ -304,16 +283,35 @@ end;
 
 class function TWindowsTrustApi.HarvestAnchors: TArray<TBytes>;
 var
-  LDisallowed: TArray<TBytes>;
+  LDisallowed, LTrusted: TList<TBytes>;
+  LExclude: TDictionary<TBytes, Boolean>;
+  LI: Integer;
 begin
   Result := nil;
   if not FReady then
     Exit;
-  LDisallowed := nil;
-  // Distrust first, so it can be subtracted from the trusted stores.
-  CollectStore('Disallowed', nil, LDisallowed);
-  CollectStore('ROOT', LDisallowed, Result);
-  CollectStore('CA', LDisallowed, Result);
+  LDisallowed := TList<TBytes>.Create;
+  try
+    // Distrust first, so it can be subtracted from the trusted stores.
+    CollectStore('Disallowed', nil, LDisallowed);
+    LExclude := TDictionary<TBytes, Boolean>.Create;
+    try
+      for LI := 0 to LDisallowed.Count - 1 do
+        LExclude.AddOrSetValue(LDisallowed[LI], True);
+      LTrusted := TList<TBytes>.Create;
+      try
+        CollectStore('ROOT', LExclude, LTrusted);
+        CollectStore('CA', LExclude, LTrusted);
+        Result := LTrusted.ToArray;
+      finally
+        LTrusted.Free;
+      end;
+    finally
+      LExclude.Free;
+    end;
+  finally
+    LDisallowed.Free;
+  end;
 end;
 
 class function TWindowsTrustApi.EvaluateChain(const AChain: TArray<TBytes>;
@@ -438,11 +436,18 @@ function TWindowsAnchorStore.HarvestRoots: TArray<TBytes>;
 var
   LRaw: TArray<TBytes>;
   LI: Integer;
+  LAcc: TSystemRootAccumulator;
 begin
   Result := nil;
   LRaw := TWindowsTrustApi.HarvestAnchors;
-  for LI := 0 to Length(LRaw) - 1 do
-    AddUnique(Result, LRaw[LI]);
+  LAcc := TSystemRootAccumulator.Create;
+  try
+    for LI := 0 to Length(LRaw) - 1 do
+      AddUnique(LAcc, LRaw[LI]);
+    Result := LAcc.ToArray;
+  finally
+    LAcc.Free;
+  end;
 end;
 
 function TWindowsAnchorStore.SourceName: string;

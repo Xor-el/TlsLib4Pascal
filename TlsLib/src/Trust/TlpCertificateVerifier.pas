@@ -174,18 +174,27 @@ end;
 
 function TUnionTrustAnchorStore.RootCertificates: TArray<TBytes>;
 var
-  LI, LJ: Int32;
-  LChild: TArray<TBytes>;
+  LI, LJ, LPos, LTotal: Int32;
+  LChildResults: TArray<TArray<TBytes>>;
 begin
-  Result := nil;
+  SetLength(LChildResults, System.Length(FStores));
+  LTotal := 0;
   for LI := 0 to System.High(FStores) do
   begin
     if FStores[LI] = nil then
       Continue;
-    LChild := FStores[LI].RootCertificates;
-    for LJ := 0 to System.High(LChild) do
-      TArrayUtilities.Append<TBytes>(Result, System.Copy(LChild[LJ]));
+    LChildResults[LI] := FStores[LI].RootCertificates;
+    Inc(LTotal, System.Length(LChildResults[LI]));
   end;
+  Result := nil;
+  SetLength(Result, LTotal);
+  LPos := 0;
+  for LI := 0 to System.High(LChildResults) do
+    for LJ := 0 to System.High(LChildResults[LI]) do
+    begin
+      Result[LPos] := LChildResults[LI][LJ];
+      Inc(LPos);
+    end;
 end;
 
 { TCertificateVerifier }

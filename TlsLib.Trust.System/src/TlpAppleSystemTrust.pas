@@ -27,6 +27,7 @@ uses
   TlpSystemTrustBase,
 {$ENDIF}
 {$IFEND}
+  Generics.Collections,
   SysUtils,
   TlpTlsAlert;
 
@@ -214,7 +215,7 @@ type
     class function DomainDeniesCertificate(ACertificate: SecCertificateRef;
       ADomain: SecTrustSettingsDomain): Boolean; static;
     class procedure HarvestDomain(ADomain: SecTrustSettingsDomain;
-      var ACerts: TArray<TBytes>); static;
+      const ADest: TList<TBytes>); static;
 {$ENDIF}
   private
     class procedure ResolveDynamicImports; static;
@@ -495,11 +496,11 @@ begin
 end;
 
 class procedure TAppleTrustApi.HarvestDomain(ADomain: SecTrustSettingsDomain;
-  var ACerts: TArray<TBytes>);
+  const ADest: TList<TBytes>);
 var
   LCerts: CFArrayRef;
   LStatus: OSStatus;
-  LI, LCount, LN: CFIndex;
+  LI, LCount: CFIndex;
   LCert: SecCertificateRef;
   LDer: TBytes;
 begin
@@ -509,6 +510,7 @@ begin
     Exit;
   try
     LCount := FCFArrayGetCount(LCerts);
+    ADest.Capacity := ADest.Count + LCount;
     for LI := 0 to LCount - 1 do
     begin
       LCert := FCFArrayGetValueAtIndex(LCerts, LI);
@@ -518,11 +520,7 @@ begin
         Continue;
       LDer := CopyCertificateDer(LCert);
       if Length(LDer) > 0 then
-      begin
-        LN := Length(ACerts);
-        SetLength(ACerts, LN + 1);
-        ACerts[LN] := LDer;
-      end;
+        ADest.Add(LDer);
     end;
   finally
     FCFRelease(LCerts);
@@ -530,13 +528,21 @@ begin
 end;
 
 class function TAppleTrustApi.CopyTrustSettingsCertificates: TArray<TBytes>;
+var
+  LList: TList<TBytes>;
 begin
   Result := nil;
   if not FReady then
     Exit;
-  HarvestDomain(KSecTrustSettingsDomainSystem, Result);
-  HarvestDomain(KSecTrustSettingsDomainAdmin, Result);
-  HarvestDomain(KSecTrustSettingsDomainUser, Result);
+  LList := TList<TBytes>.Create;
+  try
+    HarvestDomain(KSecTrustSettingsDomainSystem, LList);
+    HarvestDomain(KSecTrustSettingsDomainAdmin, LList);
+    HarvestDomain(KSecTrustSettingsDomainUser, LList);
+    Result := LList.ToArray;
+  finally
+    LList.Free;
+  end;
 end;
 
 { TAppleAnchorStore }
@@ -545,11 +551,18 @@ function TAppleAnchorStore.HarvestRoots: TArray<TBytes>;
 var
   LRaw: TArray<TBytes>;
   LI: Integer;
+  LAcc: TSystemRootAccumulator;
 begin
   Result := nil;
   LRaw := TAppleTrustApi.CopyTrustSettingsCertificates;
-  for LI := 0 to Length(LRaw) - 1 do
-    AddUnique(Result, LRaw[LI]);
+  LAcc := TSystemRootAccumulator.Create;
+  try
+    for LI := 0 to Length(LRaw) - 1 do
+      AddUnique(LAcc, LRaw[LI]);
+    Result := LAcc.ToArray;
+  finally
+    LAcc.Free;
+  end;
 end;
 
 function TAppleAnchorStore.SourceName: string;
