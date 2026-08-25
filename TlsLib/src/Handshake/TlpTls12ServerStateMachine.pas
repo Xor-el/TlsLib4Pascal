@@ -17,6 +17,7 @@ interface
 
 uses
   SysUtils,
+  Classes,
   TlpArrayUtilities,
   TlpTlsAlert,
   TlpTlsVersion,
@@ -180,7 +181,7 @@ type
     /// <summary>The raw concatenation of every handshake message, which the TLS 1.2
     /// client CertificateVerify is signed over (RFC 5246 7.4.8) - its scheme hashes this,
     /// independent of the suite PRF hash the transcript uses.</summary>
-    FHandshakeLog: TBytes;
+    FHandshakeLog: TBytesStream;
     /// <summary>Selects the first registry 1.2 suite the client offered whose auth the
     /// credential can satisfy against the client's signature_algorithms; sets
     /// FSelectedSuite and FSelectedScheme. False when nothing is compatible.</summary>
@@ -252,6 +253,7 @@ type
       : TArray<THandshakeEffect>; override;
   public
     constructor Create(const AParams: TServer12HandshakeParams);
+    destructor Destroy; override;
     function Start: TArray<THandshakeEffect>; override;
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       AUseContext: Boolean; ALength: Int32): TBytes; override;
@@ -293,6 +295,13 @@ begin
   // TLS 1.2 tickets are stateless STEK only; the session-id path uses SessionStore
   FTicketStrategy := TSessionTicketStrategies.ForServer(AParams.Provider,
     AParams.SessionTicketKeys, nil);
+  FHandshakeLog := TBytesStream.Create;
+end;
+
+destructor TTls12ServerStateMachine.Destroy;
+begin
+  FHandshakeLog.Free;
+  inherited Destroy;
 end;
 
 function TTls12ServerStateMachine.Start: TArray<THandshakeEffect>;
@@ -515,7 +524,9 @@ begin
 
   // the transcript hash is now known; the plaintext flight is folded into both the
   // transcript and the raw handshake log (the client CertificateVerify signs the log)
-  FHandshakeLog := System.Copy(AMessage.Raw);
+  FHandshakeLog.Clear;
+  if System.Length(AMessage.Raw) > 0 then
+    FHandshakeLog.Write(AMessage.Raw[0], System.Length(AMessage.Raw));
   FTranscript.Update(AMessage.Raw);
   FTranscript.Activate(FParams.Provider.Primitives.CreateHash(FSelectedSuite.Common.Hash));
   // staple when the client offered status_request and a staple is configured; the
@@ -619,7 +630,8 @@ end;
 procedure TTls12ServerStateMachine.Absorb(const ARaw: TBytes);
 begin
   FTranscript.Update(ARaw);
-  FHandshakeLog := TArrayUtilities.Concat(FHandshakeLog, ARaw);
+  if System.Length(ARaw) > 0 then
+    FHandshakeLog.Write(ARaw[0], System.Length(ARaw));
 end;
 
 function TTls12ServerStateMachine.BuildCertificate: TBytes;
@@ -786,7 +798,7 @@ begin
   // the scheme applies its own hash, so the suite PRF hash does not matter here
   LPublicKeyInfo := FParams.Provider.Certificates.PublicKeyInfo(FClientCertChain[0]);
   LVerifier := FParams.Provider.Signing.CreateSignatureVerifier(LScheme, LPublicKeyInfo);
-  LVerifier.Update(FHandshakeLog, 0, System.Length(FHandshakeLog));
+  LVerifier.Update(FHandshakeLog.Bytes, 0, FHandshakeLog.Size);
   if not LVerifier.Verify(LCertVerify.Signature) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.DecryptError, @SBadClientCertVerify);
