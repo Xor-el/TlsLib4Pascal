@@ -1,0 +1,22 @@
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_5e9312dc1422f7::t_cc9ac85086a4f1 83-84
+  s_5e9312dc1422f7::t_20cbb2c7397246 256-299
+  s_5e9312dc1422f7::t_3806cc566e4464 72-73
+  s_5e9312dc1422f7::t_f55096db224c78 185-186
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "5e6781483e5c60e3d7a30c3e48a7194b37201144",
+  "prompts": {},
+  "sessions": {
+    "s_5e9312dc1422f7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b29c589c-ed14-449b-8005-c9f68f77c10c",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
