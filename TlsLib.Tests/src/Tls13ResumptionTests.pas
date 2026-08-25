@@ -138,7 +138,7 @@ begin
   try
     Result.CertificateChain := TArray<TBytes>.Create(
       DecodeHex(LCerts.Values['leaf_cert']));
-    Result.PrivateKey := Provider.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
+    Result.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
   finally
     LCerts.Free;
   end;
@@ -158,7 +158,7 @@ begin
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
   LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
-  LParams.ClientRandom := Provider.GetRandom.GenerateBytes(32);
+  LParams.ClientRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
   LParams.LegacySessionId := Filled($33, 32);
   LParams.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
@@ -186,7 +186,7 @@ begin
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.Group := TNamedGroups.CreateX25519(Provider);
-  LParams.ServerRandom := Provider.GetRandom.GenerateBytes(32);
+  LParams.ServerRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
   if AWithCredential then
     LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
   LParams.SessionTicketKeys := AStek;
@@ -318,7 +318,7 @@ var
   LClient, LServer: ITlsEngine;
 begin
   LCache := TInMemorySessionCache.Create;
-  LStore := TInMemorySessionStore.Create(Provider.GetRandom);
+  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
 
   // first connection: a full handshake that issues one ticket
   LClient := NewClient(LCache);
@@ -355,10 +355,10 @@ var
   LSecret: ISecretBuffer;
 begin
   // seed a matching client cache entry and server store entry (same identity+secret)
-  LIdentity := Provider.GetRandom.GenerateBytes(32);
-  LSecret := TSecretBuffer.From(Provider.GetRandom.GenerateBytes(32));
+  LIdentity := Provider.Primitives.GetRandom.GenerateBytes(32);
+  LSecret := TSecretBuffer.From(Provider.Primitives.GetRandom.GenerateBytes(32));
   LCache := TInMemorySessionCache.Create;
-  LStore := TInMemorySessionStore.Create(Provider.GetRandom);
+  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
   LCache.Store(ServerHost, ServerHost, MakeSession(LIdentity, LSecret, 7200));
   LStore.PutWithId(LIdentity, MakeSession(LIdentity, LSecret, 7200));
 
@@ -390,9 +390,9 @@ var
 begin
   // the client's cached secret differs from the server's stored secret for the same
   // identity, so the server opens the ticket but its binder does not validate
-  LIdentity := Provider.GetRandom.GenerateBytes(32);
+  LIdentity := Provider.Primitives.GetRandom.GenerateBytes(32);
   LCache := TInMemorySessionCache.Create;
-  LStore := TInMemorySessionStore.Create(Provider.GetRandom);
+  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
   LCache.Store(ServerHost, ServerHost, MakeSession(LIdentity,
     TSecretBuffer.From(Filled($AA, 32)), 7200));
   LStore.PutWithId(LIdentity, MakeSession(LIdentity,
@@ -420,10 +420,10 @@ begin
   // an expired ticket (lifetime 0) against a credential-less server: the server must
   // reject the PSK on freshness and then cannot run a full handshake, so it does not
   // complete - proving the expired ticket was not accepted
-  LIdentity := Provider.GetRandom.GenerateBytes(32);
-  LSecret := TSecretBuffer.From(Provider.GetRandom.GenerateBytes(32));
+  LIdentity := Provider.Primitives.GetRandom.GenerateBytes(32);
+  LSecret := TSecretBuffer.From(Provider.Primitives.GetRandom.GenerateBytes(32));
   LCache := TInMemorySessionCache.Create;
-  LStore := TInMemorySessionStore.Create(Provider.GetRandom);
+  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
   LCache.Store(ServerHost, ServerHost, MakeSession(LIdentity, LSecret, 0));
   LStore.PutWithId(LIdentity, MakeSession(LIdentity, LSecret, 0));
 
@@ -476,7 +476,7 @@ var
 begin
   // the default (no store) strategy: AEAD-sealed tickets under a shared STEK, no
   // server-side storage
-  LStek := TStekTicketKeyManager.Create(Provider.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
 
   LClient := NewClient(LCache);
@@ -500,7 +500,7 @@ var
   LClient, LServer: ITlsEngine;
   LI: Int32;
 begin
-  LStek := TStekTicketKeyManager.Create(Provider.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
 
   // issue a real STEK ticket
@@ -529,11 +529,11 @@ var
   LClient, LServer: ITlsEngine;
 begin
   // a client offering a garbage "ticket" that is not a valid STEK seal
-  LStek := TStekTicketKeyManager.Create(Provider.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
   LCache.Store(ServerHost, ServerHost, MakeSession(
-    Provider.GetRandom.GenerateBytes(48),
-    TSecretBuffer.From(Provider.GetRandom.GenerateBytes(32)), 7200));
+    Provider.Primitives.GetRandom.GenerateBytes(48),
+    TSecretBuffer.From(Provider.Primitives.GetRandom.GenerateBytes(32)), 7200));
 
   // the server cannot open the bogus ticket and completes a full handshake instead
   LClient := NewClient(LCache);
@@ -553,8 +553,8 @@ var
   LClient, LServer: ITlsEngine;
 begin
   // configuring both a STEK and a store upgrades to the stateful single-use store
-  LStek := TStekTicketKeyManager.Create(Provider.GetRandom);
-  LStore := TInMemorySessionStore.Create(Provider.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
 
   LClient := NewClient(LCache);
@@ -577,7 +577,7 @@ var
   LClient, LServer: ITlsEngine;
   LEarly: TBytes;
 begin
-  LStek := TStekTicketKeyManager.Create(Provider.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
   LAnti := TStrikeRegisterAntiReplay.Create;
   LCache := TInMemorySessionCache.Create;
 
@@ -610,7 +610,7 @@ var
   LClient, LServer: ITlsEngine;
   LEarly: TBytes;
 begin
-  LStek := TStekTicketKeyManager.Create(Provider.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
   LAnti := TStrikeRegisterAntiReplay.Create;
   LCache := TInMemorySessionCache.Create;
 
@@ -643,7 +643,7 @@ var
   LClient, LServerA, LServerB: ITlsEngine;
   LEarly, LFlight: TBytes;
 begin
-  LStek := TStekTicketKeyManager.Create(Provider.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
   LAnti := TStrikeRegisterAntiReplay.Create;
   LCache := TInMemorySessionCache.Create;
 
@@ -680,7 +680,7 @@ var
   LClient, LServer: ITlsEngine;
   LEarly: TBytes;
 begin
-  LStek := TStekTicketKeyManager.Create(Provider.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
   LAnti := TStrikeRegisterAntiReplay.Create;
   LCache := TInMemorySessionCache.Create;
 
@@ -720,7 +720,7 @@ var
     LP.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
     LP.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
     LP.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
-    LP.ClientRandom := Provider.GetRandom.GenerateBytes(32);
+    LP.ClientRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
     LP.LegacySessionId := Filled($33, 32);
     LP.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
       TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
@@ -744,7 +744,7 @@ var
     LP.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
     LP.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
     LP.Group := TNamedGroups.CreateX25519(Provider);
-    LP.ServerRandom := Provider.GetRandom.GenerateBytes(32);
+    LP.ServerRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
     if AWithCredential then
       LP.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
     LP.SessionTicketKeys := LStek;
@@ -762,7 +762,7 @@ var
   end;
 
 begin
-  LStek := TStekTicketKeyManager.Create(Provider.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
 
   // a full mutual-TLS handshake: the server verifies the client certificate and issues a ticket
@@ -795,12 +795,12 @@ begin
   // the cross-host resumption guard: a ticket the server issued while serving one host must not
   // resume a connection that requests a different host (RFC 6066 3), even with a matching binder.
   // The client always requests ServerHost, so the server-stored session carries the issuing host
-  LIdentity := Provider.GetRandom.GenerateBytes(32);
-  LSecret := TSecretBuffer.From(Provider.GetRandom.GenerateBytes(32));
+  LIdentity := Provider.Primitives.GetRandom.GenerateBytes(32);
+  LSecret := TSecretBuffer.From(Provider.Primitives.GetRandom.GenerateBytes(32));
 
   // control: issued under the requested host -> resumes
   LCache := TInMemorySessionCache.Create;
-  LStore := TInMemorySessionStore.Create(Provider.GetRandom);
+  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
   LCache.Store(ServerHost, ServerHost, MakeSession(LIdentity, LSecret, 7200));
   LStore.PutWithId(LIdentity, MakeSessionForHost(LIdentity, LSecret, 7200, ServerHost));
   LClient := NewClient(LCache);
@@ -811,7 +811,7 @@ begin
   // guarded: issued under a different host -> the credentialed server ignores the PSK and runs a
   // full handshake instead of resuming under the wrong identity
   LCache := TInMemorySessionCache.Create;
-  LStore := TInMemorySessionStore.Create(Provider.GetRandom);
+  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
   LCache.Store(ServerHost, ServerHost, MakeSession(LIdentity, LSecret, 7200));
   LStore.PutWithId(LIdentity, MakeSessionForHost(LIdentity, LSecret, 7200, 'other.example'));
   LClient := NewClient(LCache);

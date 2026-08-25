@@ -69,14 +69,14 @@ function TTestRecordProtection.MakeTls13(const AKey, AIv: TBytes;
   AAlgorithm: TAeadAlgorithm): IRecordProtection;
 begin
   Result := TTls13RecordProtection.Create(TSecretBuffer.From(AKey),
-    TSecretBuffer.From(AIv), Provider.CreateAead(AAlgorithm));
+    TSecretBuffer.From(AIv), Provider.Primitives.CreateAead(AAlgorithm));
 end;
 
 function TTestRecordProtection.MakeTls12(const AKey, ASalt: TBytes;
   AAlgorithm: TAeadAlgorithm): IRecordProtection;
 begin
   Result := TTls12RecordProtection.Create(TSecretBuffer.From(AKey),
-    TSecretBuffer.From(ASalt), Provider.CreateAead(AAlgorithm));
+    TSecretBuffer.From(ASalt), Provider.Primitives.CreateAead(AAlgorithm));
 end;
 
 function TTestRecordProtection.BigEndian8(AValue: UInt64): TBytes;
@@ -342,7 +342,7 @@ begin
     finally
       LAadWriter.Free;
     end;
-    LAeadRef := Provider.CreateAead(TAeadAlgorithm.AES_128_GCM);
+    LAeadRef := Provider.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM);
     LAeadRef.Init(TSecretBuffer.From(LKey));
     LCipher := LAeadRef.Seal(LGcmNonce, LAad, LPlain);
     LBody := ConcatBytes(LExplicitNonce, LCipher);
@@ -404,7 +404,7 @@ begin
   finally
     LAadWriter.Free;
   end;
-  LAeadRef := Provider.CreateAead(TAeadAlgorithm.CHACHA20_POLY1305);
+  LAeadRef := Provider.Primitives.CreateAead(TAeadAlgorithm.CHACHA20_POLY1305);
   LAeadRef.Init(TSecretBuffer.From(LKey));
   LCipher := LAeadRef.Seal(LNonce, LAad, LPlain);
   // no explicit nonce: the record body is exactly the ciphertext

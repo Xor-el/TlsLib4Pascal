@@ -174,8 +174,8 @@ var
   LSpki: TBytes;
   LHash: IHash;
 begin
-  LSpki := Provider.CertificatePublicKeyInfo(V('leaf_cert'));
-  LHash := Provider.CreateHash(THashAlgorithm.SHA_256);
+  LSpki := Provider.Certificates.PublicKeyInfo(V('leaf_cert'));
+  LHash := Provider.Primitives.CreateHash(THashAlgorithm.SHA_256);
   LHash.Update(LSpki, 0, System.Length(LSpki));
   Result := LHash.DoFinal;
 end;
@@ -185,8 +185,8 @@ var
   LSpki: TBytes;
   LHash: IHash;
 begin
-  LSpki := Provider.CertificatePublicKeyInfo(V('issuer_cert'));
-  LHash := Provider.CreateHash(THashAlgorithm.SHA_256);
+  LSpki := Provider.Certificates.PublicKeyInfo(V('issuer_cert'));
+  LHash := Provider.Primitives.CreateHash(THashAlgorithm.SHA_256);
   LHash.Update(LSpki, 0, System.Length(LSpki));
   Result := LHash.DoFinal;
 end;
@@ -221,7 +221,7 @@ var
   LStatus: TOcspStatus;
   LThis, LNext: TDateTime;
 begin
-  CheckTrue(Provider.ValidateOcspStaple(V('leaf_cert'), V('issuer_cert'),
+  CheckTrue(Provider.Revocation.ValidateOcspStaple(V('leaf_cert'), V('issuer_cert'),
     V('ocsp_good'), TDateTimeUtilities.ToUniversalTime(Now), LStatus, LThis, LNext),
     'an issuer-signed response about the leaf is authoritative');
   CheckEquals(Ord(TOcspStatus.Good), Ord(LStatus), 'the status is Good');
@@ -233,7 +233,7 @@ var
   LStatus: TOcspStatus;
   LThis, LNext: TDateTime;
 begin
-  CheckTrue(Provider.ValidateOcspStaple(V('leaf_cert'), V('issuer_cert'),
+  CheckTrue(Provider.Revocation.ValidateOcspStaple(V('leaf_cert'), V('issuer_cert'),
     V('ocsp_revoked'), TDateTimeUtilities.ToUniversalTime(Now), LStatus, LThis,
     LNext), 'a revoked response is authoritative');
   CheckEquals(Ord(TOcspStatus.Revoked), Ord(LStatus), 'the status is Revoked');
@@ -245,7 +245,7 @@ var
   LThis, LNext: TDateTime;
 begin
   // signed by an id-kp-OCSPSigning responder the issuer delegated to (RFC 6960 4.2.2.2)
-  CheckTrue(Provider.ValidateOcspStaple(V('leaf_cert'), V('issuer_cert'),
+  CheckTrue(Provider.Revocation.ValidateOcspStaple(V('leaf_cert'), V('issuer_cert'),
     V('ocsp_good_delegated'), TDateTimeUtilities.ToUniversalTime(Now), LStatus,
     LThis, LNext), 'a delegated responder is authoritative');
   CheckEquals(Ord(TOcspStatus.Good), Ord(LStatus), 'the status is Good');
@@ -257,7 +257,7 @@ var
   LThis, LNext: TDateTime;
 begin
   // signed by an unrelated CA the issuer never delegated to
-  CheckFalse(Provider.ValidateOcspStaple(V('leaf_cert'), V('issuer_cert'),
+  CheckFalse(Provider.Revocation.ValidateOcspStaple(V('leaf_cert'), V('issuer_cert'),
     V('ocsp_unauthorized'), TDateTimeUtilities.ToUniversalTime(Now), LStatus,
     LThis, LNext), 'an unauthorized signer leaves the status indeterminate');
 end;
@@ -268,7 +268,7 @@ var
   LThis, LNext: TDateTime;
 begin
   // the CertID names the real issuer, so it does not match an unrelated one
-  CheckFalse(Provider.ValidateOcspStaple(V('leaf_cert'), V('other_ca_cert'),
+  CheckFalse(Provider.Revocation.ValidateOcspStaple(V('leaf_cert'), V('other_ca_cert'),
     V('ocsp_good'), TDateTimeUtilities.ToUniversalTime(Now), LStatus, LThis, LNext),
     'a response whose CertID does not match the issuer is indeterminate');
 end;
@@ -278,7 +278,7 @@ var
   LStatus: TOcspStatus;
   LThis, LNext: TDateTime;
 begin
-  CheckFalse(Provider.ValidateOcspStaple(V('leaf_cert'), V('issuer_cert'),
+  CheckFalse(Provider.Revocation.ValidateOcspStaple(V('leaf_cert'), V('issuer_cert'),
     TBytes.Create(1, 2, 3, 4), TDateTimeUtilities.ToUniversalTime(Now), LStatus,
     LThis, LNext), 'an unparseable response returns False, never raises');
 end;
@@ -287,7 +287,7 @@ procedure TTestOcspStapling.TestTlsFeaturesAbsentIsEmpty;
 var
   LFeatures: TArray<UInt16>;
 begin
-  CheckTrue(Provider.CertificateTlsFeatures(V('leaf_cert'), LFeatures),
+  CheckTrue(Provider.Certificates.TlsFeatures(V('leaf_cert'), LFeatures),
     'a certificate without the TLS Feature extension is well formed');
   CheckEquals(0, System.Length(LFeatures), 'it carries no features');
 end;
@@ -296,7 +296,7 @@ procedure TTestOcspStapling.TestTlsFeaturesMustStaple;
 var
   LFeatures: TArray<UInt16>;
 begin
-  CheckTrue(Provider.CertificateTlsFeatures(V('muststaple_leaf_cert'), LFeatures),
+  CheckTrue(Provider.Certificates.TlsFeatures(V('muststaple_leaf_cert'), LFeatures),
     'a well-formed TLS Feature extension parses');
   CheckEquals(1, System.Length(LFeatures), 'it lists one feature');
   CheckEquals(5, LFeatures[0], 'the feature is status_request (5)');
@@ -307,7 +307,7 @@ var
   LFeatures: TArray<UInt16>;
 begin
   // the extension value is a bare INTEGER, not a SEQUENCE OF INTEGER
-  CheckFalse(Provider.CertificateTlsFeatures(V('badfeature_leaf_cert'), LFeatures),
+  CheckFalse(Provider.Certificates.TlsFeatures(V('badfeature_leaf_cert'), LFeatures),
     'a non-SEQUENCE TLS Feature value is rejected as malformed');
 end;
 

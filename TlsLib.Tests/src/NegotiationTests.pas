@@ -73,7 +73,7 @@ implementation
 function TTestNegotiation.PolicyWithAes(AHasHardwareAes: Boolean): INegotiationPolicy;
 begin
   Result := TNegotiationPolicy.CreateDefault(
-    TFixedAesProvider.Create(Provider, AHasHardwareAes));
+    TFixedAesProvider.Create(Provider, AHasHardwareAes) as ICryptoProvider);
 end;
 
 function TTestNegotiation.SelectSuiteRaises(const APolicy: INegotiationPolicy;

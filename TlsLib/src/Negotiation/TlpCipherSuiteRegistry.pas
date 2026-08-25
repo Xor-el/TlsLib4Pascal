@@ -69,8 +69,8 @@ class function TCipherSuiteRegistry.SuiteRunnable(const AProvider: ICryptoProvid
 begin
   Result := True;
   try
-    AProvider.CreateAead(AAead);
-    AProvider.CreateHash(AHash);
+    AProvider.Primitives.CreateAead(AAead);
+    AProvider.Primitives.CreateHash(AHash);
   except
     on E: Exception do
       Result := False;

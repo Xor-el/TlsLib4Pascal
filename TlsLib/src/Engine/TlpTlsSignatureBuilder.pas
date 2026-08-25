@@ -140,7 +140,7 @@ begin
     Append(AName + PairSep + '<empty>');
     Exit;
   end;
-  LHash := FProvider.CreateHash(THashAlgorithm.SHA_256);
+  LHash := FProvider.Primitives.CreateHash(THashAlgorithm.SHA_256);
   LHash.Update(AData, 0, System.Length(AData));
   LDigest := LHash.DoFinal;
   Append(AName + PairSep + TDataEncoding.HexEncode(LDigest));

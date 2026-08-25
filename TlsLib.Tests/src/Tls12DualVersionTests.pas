@@ -134,7 +134,7 @@ begin
   try
     Result.CertificateChain := TArray<TBytes>.Create(
       DecodeHex(LCerts.Values['leaf_cert']));
-    Result.PrivateKey := Provider.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
+    Result.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
   finally
     LCerts.Free;
   end;
@@ -216,7 +216,7 @@ begin
   Result.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   Result.Group := TNamedGroups.CreateX25519(Provider);
   Result.ServerRandom := Filled($22, 32);
-  Result.CookieSecret := TSecretBuffer.From(Provider.GetRandom.GenerateBytes(32));
+  Result.CookieSecret := TSecretBuffer.From(Provider.Primitives.GetRandom.GenerateBytes(32));
   Result.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
 end;
 

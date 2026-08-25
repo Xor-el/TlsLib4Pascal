@@ -341,7 +341,7 @@ begin
           FOfferedSessionId := FResumptionOffer.SessionId
         else if System.Length(FResumptionOffer.SessionTicket) > 0 then
           // a ticket-only session still carries an id so the server's echo signals resumption
-          FOfferedSessionId := FParams.Provider.GetRandom.GenerateBytes(32);
+          FOfferedSessionId := FParams.Provider.Primitives.GetRandom.GenerateBytes(32);
         LHello.LegacySessionId := FOfferedSessionId;
       end;
     end;
@@ -422,7 +422,7 @@ begin
 
   FServerRandom := LHello.Random;
   FServerSessionId := LHello.LegacySessionIdEcho;
-  FTranscript.Activate(FParams.Provider.CreateHash(FSelectedSuite.Common.Hash));
+  FTranscript.Activate(FParams.Provider.Primitives.CreateHash(FSelectedSuite.Common.Hash));
   Absorb(AMessage.Raw);
 
   LContext := TExtensionContext.Create;
@@ -520,7 +520,7 @@ begin
   // a server leaf that is not a well-formed certificate is a decode error
   TCertificateVerify.EnsureWellFormedLeaf(FParams.Provider, FCertChain[0]);
 
-  if FParams.Provider.CertificateKeyKind(FCertChain[0], LKind, LEcGroup) then
+  if FParams.Provider.Certificates.KeyKind(FCertChain[0], LKind, LEcGroup) then
   begin
     // the leaf key algorithm must match the negotiated suite's authentication method (a
     // CertificateCipherMismatch, RFC 5246 7.4.2): an *_RSA suite needs an RSA leaf; an
@@ -597,8 +597,8 @@ begin
   LContent := TArrayUtilities.Concat(
     TArrayUtilities.Concat(FParams.ClientRandom, FServerRandom),
     THandshakeMessages.EcdheServerParams(LSke.NamedCurve, LSke.PublicKey));
-  LPublicKeyInfo := FParams.Provider.CertificatePublicKeyInfo(FCertChain[0]);
-  LVerifier := FParams.Provider.CreateSignatureVerifier(LScheme, LPublicKeyInfo);
+  LPublicKeyInfo := FParams.Provider.Certificates.PublicKeyInfo(FCertChain[0]);
+  LVerifier := FParams.Provider.Signing.CreateSignatureVerifier(LScheme, LPublicKeyInfo);
   LVerifier.Update(LContent, 0, System.Length(LContent));
   if not LVerifier.Verify(LSke.Signature) then
     raise EFatalAlertTlsLibException.CreateRes(
@@ -656,7 +656,7 @@ begin
   // usable signature scheme must exist; otherwise present an empty Certificate (RFC 5246 7.4.4)
   LCertType := 0;
   if (System.Length(LChain) > 0) and
-    FParams.Provider.CertificateKeyKind(LChain[0], LKind, LEcGroup) then
+    FParams.Provider.Certificates.KeyKind(LChain[0], LKind, LEcGroup) then
   begin
     if LKind = TCertKeyKind.Rsa then
       LCertType := RsaSignCertType
@@ -722,7 +722,7 @@ begin
   // a CertificateVerify proves possession over the raw handshake log through the CKE
   if LSentCertificate then
   begin
-    LSigner := FParams.Provider.CreateSignatureSigner(LScheme,
+    LSigner := FParams.Provider.Signing.CreateSignatureSigner(LScheme,
       FParams.ClientCredential.PrivateKey);
     LSigner.Update(FHandshakeLog, 0, System.Length(FHandshakeLog));
     LVerify.Algorithm := LScheme.ToCode;

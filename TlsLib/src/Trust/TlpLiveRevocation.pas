@@ -116,7 +116,7 @@ begin
   Result := TLiveRevocationOutcome.Indeterminate;
   if (AResponderUrl = '') or (FFetcher = nil) then
     Exit;
-  if not FProvider.BuildOcspRequest(ALeaf, AIssuer, LRequest) then
+  if not FProvider.Revocation.BuildOcspRequest(ALeaf, AIssuer, LRequest) then
     Exit;
   // unreachable / non-2xx / empty body -> indeterminate (never a silent pass)
   if not FFetcher.Post(AResponderUrl, OcspRequestContentType, LRequest, FTimeoutMs,
@@ -125,7 +125,7 @@ begin
   // reuse the in-band parser: it authenticates the response (issuer- or delegated-signed)
   // and binds the CertID to this leaf; a malformed/unauthorized response is indeterminate.
   // the responder-validity date comes from the injected clock, like the window below
-  if not FProvider.ValidateOcspStaple(ALeaf, AIssuer, LResponse,
+  if not FProvider.Revocation.ValidateOcspStaple(ALeaf, AIssuer, LResponse,
     TDateTimeUtilities.UnixMsToDateTime(Int64(FClock.NowUnixMillis)), LStatus,
     LThisUpdate, LNextUpdate) then
     Exit;
@@ -156,7 +156,7 @@ begin
   if not FFetcher.Get(ACrlUrl, FTimeoutMs, LCrl) then
     Exit;
   // an unparseable or issuer-unverifiable CRL is indeterminate, never trusted
-  if not FProvider.CheckCrlRevocation(ALeaf, AIssuer, LCrl, LRevoked) then
+  if not FProvider.Revocation.CheckCrlRevocation(ALeaf, AIssuer, LCrl, LRevoked) then
     Exit;
   if LRevoked then
     Result := TLiveRevocationOutcome.Revoked
@@ -185,7 +185,7 @@ begin
   LIssuer := AChain[1];
 
   if FMethod in [TLiveRevocationMethod.Ocsp, TLiveRevocationMethod.OcspThenCrl] then
-    if FProvider.TryGetOcspResponderUrl(LLeaf, LUrl) then
+    if FProvider.Revocation.TryGetOcspResponderUrl(LLeaf, LUrl) then
     begin
       Result := EvaluateOcsp(LLeaf, LIssuer, LUrl);
       if Result <> TLiveRevocationOutcome.Indeterminate then
@@ -193,7 +193,7 @@ begin
     end;
 
   if FMethod in [TLiveRevocationMethod.Crl, TLiveRevocationMethod.OcspThenCrl] then
-    if FProvider.TryGetCrlDistributionPoints(LLeaf, LUrls) then
+    if FProvider.Revocation.TryGetCrlDistributionPoints(LLeaf, LUrls) then
       for LI := 0 to System.High(LUrls) do
       begin
         Result := EvaluateCrl(LLeaf, LIssuer, LUrls[LI]);

@@ -110,14 +110,14 @@ begin
 
   // the derivation is keyed on the provisioned hash (ASpec.Hash); only the output length
   // follows the target hash (RFC 9258 4.1)
-  LHash := AProvider.CreateHash(ASpec.Hash);
+  LHash := AProvider.Primitives.CreateHash(ASpec.Hash);
   LHash.Update(LIdentity, 0, System.Length(LIdentity));
   LIdentityHash := LHash.DoFinal;
 
-  LHkdf := AProvider.CreateHkdf(ASpec.Hash);
+  LHkdf := AProvider.Primitives.CreateHkdf(ASpec.Hash);
   // epskx = HKDF-Extract(0, epsk): an empty salt is HashLen zeros
   LEpsk := LHkdf.Extract(nil, ASpec.Secret);
-  LOutLen := AProvider.CreateHash(ATargetHash).HashSize;
+  LOutLen := AProvider.Primitives.CreateHash(ATargetHash).HashSize;
   // ipskx = HKDF-Expand-Label(epskx, "derived psk", Hash(ImportedIdentity), L)
   LIpsk := THkdfLabel.HkdfExpandLabel(LHkdf, LEpsk, DerivedPskLabel, LIdentityHash,
     LOutLen);

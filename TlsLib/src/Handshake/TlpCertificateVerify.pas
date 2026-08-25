@@ -79,7 +79,7 @@ var
 begin
   // CertificatePeerInfo parses the whole certificate and never raises: False means the DER
   // is not a well-formed X.509 certificate, so reject it before any downstream cert use.
-  if not AProvider.CertificatePeerInfo(ALeafCertificate, LSubject, LIssuer,
+  if not AProvider.Certificates.PeerInfo(ALeafCertificate, LSubject, LIssuer,
     LCommonName, LSerialHex) then
     raise EDecodeErrorTlsLibException.CreateRes(@SUnparseableLeafCertificate);
 end;
@@ -129,12 +129,12 @@ var
   LKind: TCertKeyKind;
   LCertGroup, LSchemeGroup: UInt16;
 begin
-  if AProvider.CertificateKeyUsagePermits(ALeafCertificate,
+  if AProvider.Certificates.KeyUsagePermits(ALeafCertificate,
     TCertKeyUsage.DigitalSignature, LPermitted) and not LPermitted then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.BadCertificate, @SLeafKeyUsageForbidsSigning);
   if AScheme.IsRsaPssRsae and
-    AProvider.CertificateHasRsaPssKey(ALeafCertificate, LIsRsaPss) and LIsRsaPss then
+    AProvider.Certificates.HasRsaPssKey(ALeafCertificate, LIsRsaPss) and LIsRsaPss then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SPssLeafKeyUnsupported);
   // TLS 1.3 binds the ECDSA curve to the signature scheme: an ecdsa_secp384r1_sha384
@@ -143,7 +143,7 @@ begin
   begin
     LSchemeGroup := EcdsaSchemeNamedGroup(AScheme);
     if (LSchemeGroup <> 0) and
-      AProvider.CertificateKeyKind(ALeafCertificate, LKind, LCertGroup) and
+      AProvider.Certificates.KeyKind(ALeafCertificate, LKind, LCertGroup) and
       (LKind = TCertKeyKind.Ecdsa) and (LCertGroup <> LSchemeGroup) then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SEcdsaSchemeCurveMismatch);

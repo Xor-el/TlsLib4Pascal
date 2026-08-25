@@ -217,7 +217,7 @@ procedure TTestLiveRevocation.TestOcspResponderUrlExtracted;
 var
   LUrl: string;
 begin
-  CheckTrue(Provider.TryGetOcspResponderUrl(LeafCert, LUrl),
+  CheckTrue(Provider.Revocation.TryGetOcspResponderUrl(LeafCert, LUrl),
     'the leaf AIA carries an OCSP responder URL');
   CheckEquals('http://ocsp.tlslib.test/', LUrl, 'the OCSP URL is extracted verbatim');
 end;
@@ -226,7 +226,7 @@ procedure TTestLiveRevocation.TestCrlDistributionPointsExtracted;
 var
   LUrls: TArray<string>;
 begin
-  CheckTrue(Provider.TryGetCrlDistributionPoints(LeafCert, LUrls),
+  CheckTrue(Provider.Revocation.TryGetCrlDistributionPoints(LeafCert, LUrls),
     'the leaf carries a CRL distribution point');
   CheckTrue(System.Length(LUrls) >= 1, 'at least one CRL URL is returned');
   CheckEquals('http://crl.tlslib.test/ca.crl', LUrls[0], 'the CRL URL is extracted');
@@ -236,7 +236,7 @@ procedure TTestLiveRevocation.TestBuildOcspRequestNonEmpty;
 var
   LReq: TBytes;
 begin
-  CheckTrue(Provider.BuildOcspRequest(LeafCert, CaCert, LReq),
+  CheckTrue(Provider.Revocation.BuildOcspRequest(LeafCert, CaCert, LReq),
     'an OCSP request is built for the leaf/issuer');
   CheckTrue(System.Length(LReq) > 0, 'the OCSP request is non-empty DER');
 end;
@@ -247,7 +247,7 @@ var
 begin
   // the neutral peer-identity accessor an adapter's native verify hook (Synapse GetPeer*)
   // reads, so no adapter touches a CryptoLib type
-  CheckTrue(Provider.CertificatePeerInfo(LeafCert, LSubject, LIssuer, LCommonName,
+  CheckTrue(Provider.Certificates.PeerInfo(LeafCert, LSubject, LIssuer, LCommonName,
     LSerialHex), 'peer info is extracted from the leaf');
   CheckEquals('localhost', LCommonName, 'the leaf common name is localhost');
   CheckTrue(Pos('localhost', LSubject) > 0, 'the subject DN carries the common name');
@@ -259,7 +259,7 @@ procedure TTestLiveRevocation.TestCrlRevocationDetectsRevoked;
 var
   LRevoked: Boolean;
 begin
-  CheckTrue(Provider.CheckCrlRevocation(LeafCert, CaCert, CrlRevoked, LRevoked),
+  CheckTrue(Provider.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlRevoked, LRevoked),
     'the issuer-signed CRL parses and verifies');
   CheckTrue(LRevoked, 'the leaf serial is listed as revoked in the CRL');
 end;
@@ -268,7 +268,7 @@ procedure TTestLiveRevocation.TestCrlRevocationDetectsNotRevoked;
 var
   LRevoked: Boolean;
 begin
-  CheckTrue(Provider.CheckCrlRevocation(LeafCert, CaCert, CrlGood, LRevoked),
+  CheckTrue(Provider.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlGood, LRevoked),
     'the issuer-signed CRL parses and verifies');
   CheckFalse(LRevoked, 'the leaf is not listed in the good CRL');
 end;
@@ -404,7 +404,7 @@ begin
   // check it reads as a definitive Good; the window check makes it indeterminate, defeating a
   // stale-CRL replay. The provider primitive reports it directly, and the checker follows the
   // posture (Hard rejects).
-  CheckFalse(Provider.CheckCrlRevocation(LeafCert, CaCert, CrlStale, LRevoked),
+  CheckFalse(Provider.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlStale, LRevoked),
     'a stale CRL (out of its validity window) is not authoritative');
   CheckFalse(LRevoked, 'a stale CRL yields no definitive revocation');
 

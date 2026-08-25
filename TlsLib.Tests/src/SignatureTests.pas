@@ -81,11 +81,11 @@ var
   LMessage, LSignature: TBytes;
 begin
   LMessage := DecodeHex('54686520717569636b2062726f776e20666f78'); // "The quick brown fox"
-  LSigner := Provider.CreateSignatureSigner(AScheme, Provider.ImportSigningKey(APrivDer));
+  LSigner := Provider.Signing.CreateSignatureSigner(AScheme, Provider.Signing.ImportSigningKey(APrivDer));
   LSigner.Update(LMessage, 0, System.Length(LMessage));
   LSignature := LSigner.Sign;
 
-  LVerifier := Provider.CreateSignatureVerifier(AScheme, APubDer);
+  LVerifier := Provider.Signing.CreateSignatureVerifier(AScheme, APubDer);
   LVerifier.Update(LMessage, 0, System.Length(LMessage));
   Result := LVerifier.Verify(LSignature);
 end;
@@ -98,14 +98,14 @@ var
   LMessage, LSignature: TBytes;
 begin
   LMessage := DecodeHex('54686520717569636b2062726f776e20666f78');
-  LSigner := Provider.CreateSignatureSigner(AScheme, Provider.ImportSigningKey(APrivDer));
+  LSigner := Provider.Signing.CreateSignatureSigner(AScheme, Provider.Signing.ImportSigningKey(APrivDer));
   LSigner.Update(LMessage, 0, System.Length(LMessage));
   LSignature := LSigner.Sign;
   // flip a signature byte
   LSignature[System.Length(LSignature) - 1] :=
     Byte(LSignature[System.Length(LSignature) - 1] xor $01);
 
-  LVerifier := Provider.CreateSignatureVerifier(AScheme, APubDer);
+  LVerifier := Provider.Signing.CreateSignatureVerifier(AScheme, APubDer);
   LVerifier.Update(LMessage, 0, System.Length(LMessage));
   Result := not LVerifier.Verify(LSignature);
 end;
@@ -116,7 +116,7 @@ var
   LMsg: TBytes;
   LI: Int32;
 begin
-  LHash := Provider.CreateHash(THashAlgorithm.SHA_256);
+  LHash := Provider.Primitives.CreateHash(THashAlgorithm.SHA_256);
   for LI := 0 to High(ANames) do
   begin
     LMsg := DecodeHex(FHs.Values[ANames[LI]]);
@@ -135,7 +135,7 @@ begin
   LFramed := DecodeHex(FHs.Values['certificate']);
   LBody := System.Copy(LFramed, 4, System.Length(LFramed) - 4);
   LCert := THandshakeMessages.DecodeCertificate(LBody);
-  Result := Provider.CertificatePublicKeyInfo(LCert.Entries[0].CertData);
+  Result := Provider.Certificates.PublicKeyInfo(LCert.Entries[0].CertData);
 end;
 
 function TTestSignature.CertVerifySignature: TBytes;
@@ -197,7 +197,7 @@ begin
   // the genuine RFC 8448 server CertificateVerify over the real transcript
   LContent := ServerCertVerifyContent(HashOf(['client_hello', 'server_hello',
     'encrypted_ext', 'certificate']));
-  LVerifier := Provider.CreateSignatureVerifier(TSignatureScheme.RSA_PSS_RSAE_SHA256, Rfc8448LeafSpki);
+  LVerifier := Provider.Signing.CreateSignatureVerifier(TSignatureScheme.RSA_PSS_RSAE_SHA256, Rfc8448LeafSpki);
   LVerifier.Update(LContent, 0, System.Length(LContent));
   CheckTrue(LVerifier.Verify(CertVerifySignature),
     'the genuine RFC 8448 server CertificateVerify verifies against the leaf key');
@@ -212,7 +212,7 @@ begin
   LHash := HashOf(['client_hello', 'server_hello', 'encrypted_ext', 'certificate']);
   LHash[0] := Byte(LHash[0] xor $01);
   LContent := ServerCertVerifyContent(LHash);
-  LVerifier := Provider.CreateSignatureVerifier(TSignatureScheme.RSA_PSS_RSAE_SHA256, Rfc8448LeafSpki);
+  LVerifier := Provider.Signing.CreateSignatureVerifier(TSignatureScheme.RSA_PSS_RSAE_SHA256, Rfc8448LeafSpki);
   LVerifier.Update(LContent, 0, System.Length(LContent));
   CheckFalse(LVerifier.Verify(CertVerifySignature),
     'the signature does not verify over a different transcript');

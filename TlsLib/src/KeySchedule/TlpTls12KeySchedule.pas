@@ -120,7 +120,7 @@ var
   var
     LHmac: IHmac;
   begin
-    LHmac := AProvider.CreateHmac(AHash);
+    LHmac := AProvider.Primitives.CreateHmac(AHash);
     LHmac.Init(ASecret);
     LHmac.Update(AData, 0, System.Length(AData));
     Result := LHmac.DoFinal;

@@ -71,7 +71,7 @@ function THelloRetryCookie.Mac(const AContent: TBytes): TBytes;
 var
   LHmac: IHmac;
 begin
-  LHmac := FProvider.CreateHmac(THashAlgorithm.SHA_256);
+  LHmac := FProvider.Primitives.CreateHmac(THashAlgorithm.SHA_256);
   LHmac.Init(FSecret);
   LHmac.Update(AContent, 0, System.Length(AContent));
   Result := LHmac.DoFinal;

@@ -307,7 +307,7 @@ begin
     begin
       LStek := nil;
       if LResumeCount > 0 then
-        LStek := TStekTicketKeyManager.Create(TInteropEngine.DefaultProvider.GetRandom)
+        LStek := TStekTicketKeyManager.Create(TInteropEngine.DefaultProvider.Primitives.GetRandom)
           as ISessionTicketKeyManager;
       LProvider := TInteropEngine.DefaultProvider;
       LStaple := nil;

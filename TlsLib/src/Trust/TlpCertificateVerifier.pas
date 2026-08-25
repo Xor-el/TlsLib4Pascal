@@ -259,8 +259,8 @@ begin
   // some certificate in the chain must present a pinned public key (SPKI-SHA256)
   for LI := 0 to System.High(AChain) do
   begin
-    LSpki := FProvider.CertificatePublicKeyInfo(AChain[LI]);
-    LHash := FProvider.CreateHash(THashAlgorithm.SHA_256);
+    LSpki := FProvider.Certificates.PublicKeyInfo(AChain[LI]);
+    LHash := FProvider.Primitives.CreateHash(THashAlgorithm.SHA_256);
     LHash.Update(LSpki, 0, System.Length(LSpki));
     LDigest := LHash.DoFinal;
     for LJ := 0 to System.High(FCertificatePins) do
@@ -282,7 +282,7 @@ begin
   // a staple needs the issuer (the next chain entry) to authenticate it
   if (System.Length(AOcspStaple) = 0) or (System.Length(AChain) < 2) then
     Exit;
-  if not FProvider.ValidateOcspStaple(AChain[0], AChain[1], AOcspStaple,
+  if not FProvider.Revocation.ValidateOcspStaple(AChain[0], AChain[1], AOcspStaple,
     ValidationTimeUtc, LStatus, LThisUpdate, LNextUpdate) then
     Exit;
   if LStatus = TOcspStatus.Revoked then
@@ -315,7 +315,7 @@ var
 begin
   // the RFC 7633 TLS Feature extension well-formedness is a hard invariant, enforced
   // regardless of posture: a value that is not a SEQUENCE OF INTEGER is fatal
-  if not FProvider.CertificateTlsFeatures(AChain[0], LFeatures) then
+  if not FProvider.Certificates.TlsFeatures(AChain[0], LFeatures) then
   begin
     AAlert := TTlsAlertDescription.BadCertificate;
     Result := False;
@@ -398,7 +398,7 @@ begin
   // back the chain it actually validated (the assembled path when it completed an incomplete one)
   LEffectiveChain := AChain;
   try
-    FProvider.ValidateCertificatePath(AChain, FTrustStore.RootCertificates,
+    FProvider.PathValidation.ValidateCertificatePath(AChain, FTrustStore.RootCertificates,
       FIntermediates, ValidationTimeUtc, LEffectiveChain);
   except
     on E: EFatalAlertTlsLibException do
@@ -416,8 +416,8 @@ begin
   // endpoint identity (RFC 6125) over the leaf's dNSName / iPAddress SAN entries
   if FCheckHostName and (AHostName <> '') then
     if not TEndpointIdentity.Matches(AHostName,
-      FProvider.CertificateDnsNames(AChain[0]),
-      FProvider.CertificateIpAddresses(AChain[0])) then
+      FProvider.Certificates.DnsNames(AChain[0]),
+      FProvider.Certificates.IpAddresses(AChain[0])) then
     begin
       AAlert := TTlsAlertDescription.BadCertificate;
       Exit;

@@ -664,7 +664,7 @@ begin
   Result := '';
   LLeaf := PeerLeaf;
   if (FProvider <> nil) and (System.Length(LLeaf) > 0) and
-    FProvider.CertificatePeerInfo(LLeaf, LSubject, LIssuer, LCommonName, LSerialHex) then
+    FProvider.Certificates.PeerInfo(LLeaf, LSubject, LIssuer, LCommonName, LSerialHex) then
     Result := LSubject;
 end;
 
@@ -676,7 +676,7 @@ begin
   Result := '';
   LLeaf := PeerLeaf;
   if (FProvider <> nil) and (System.Length(LLeaf) > 0) and
-    FProvider.CertificatePeerInfo(LLeaf, LSubject, LIssuer, LCommonName, LSerialHex) then
+    FProvider.Certificates.PeerInfo(LLeaf, LSubject, LIssuer, LCommonName, LSerialHex) then
     Result := LIssuer;
 end;
 
@@ -688,7 +688,7 @@ begin
   Result := '';
   LLeaf := PeerLeaf;
   if (FProvider <> nil) and (System.Length(LLeaf) > 0) and
-    FProvider.CertificatePeerInfo(LLeaf, LSubject, LIssuer, LCommonName, LSerialHex) then
+    FProvider.Certificates.PeerInfo(LLeaf, LSubject, LIssuer, LCommonName, LSerialHex) then
     Result := LCommonName;
 end;
 
@@ -703,7 +703,7 @@ begin
   LLeaf := PeerLeaf;
   if (FProvider = nil) or (System.Length(LLeaf) = 0) then
     Exit;
-  LHash := FProvider.CreateHash(THashAlgorithm.SHA_256);
+  LHash := FProvider.Primitives.CreateHash(THashAlgorithm.SHA_256);
   LHash.Update(LLeaf, 0, System.Length(LLeaf));
   LDigest := LHash.DoFinal;
   Result := AnsiString(TDataEncoding.HexEncode(LDigest));
@@ -717,7 +717,7 @@ begin
   Result := 0;
   LLeaf := PeerLeaf;
   if (FProvider <> nil) and (System.Length(LLeaf) > 0) and
-    FProvider.CertificatePeerInfo(LLeaf, LSubject, LIssuer, LCommonName, LSerialHex) and
+    FProvider.Certificates.PeerInfo(LLeaf, LSubject, LIssuer, LCommonName, LSerialHex) and
     (LSerialHex <> '') then
     // a serial can exceed 32 bits; take the low 8 hex digits Synapse's integer can hold
     Result := Integer(StrToInt64Def('$' +

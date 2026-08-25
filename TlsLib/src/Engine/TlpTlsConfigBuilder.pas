@@ -1481,7 +1481,7 @@ function TTlsConfigBuilder.WithTrustAnchors(const AData: TBytes): TTlsConfigBuil
 begin
   GuardMutable;
   TArrayUtilities.Append<ITrustAnchorStore>(FAnchorStores,
-    TTrustAnchorStore.Create(FProvider.LoadCertificateChain(AData))
+    TTrustAnchorStore.Create(FProvider.Certificates.LoadChain(AData))
     as ITrustAnchorStore);
   Result := Self;
 end;
@@ -1542,8 +1542,8 @@ var
 begin
   GuardMutable;
   // a whole fresh record, so nothing (e.g. a staple) bleeds in from a prior credential
-  LCredential.CertificateChain := FProvider.LoadCertificateChain(ACertificateChainData);
-  LCredential.PrivateKey := FProvider.ImportSigningKey(APrivateKeyData);
+  LCredential.CertificateChain := FProvider.Certificates.LoadChain(ACertificateChainData);
+  LCredential.PrivateKey := FProvider.Signing.ImportSigningKey(APrivateKeyData);
   FCredential := LCredential;
   FHasCredential := True;
   Result := Self;
@@ -1556,8 +1556,8 @@ var
 begin
   GuardMutable;
   // a whole fresh record, so nothing (e.g. a staple) bleeds in from a prior credential
-  LCredential.CertificateChain := FProvider.LoadCertificateChain(ACertificateChainData);
-  LCredential.PrivateKey := FProvider.ImportSigningKey(APrivateKeyData, APassword);
+  LCredential.CertificateChain := FProvider.Certificates.LoadChain(ACertificateChainData);
+  LCredential.PrivateKey := FProvider.Signing.ImportSigningKey(APrivateKeyData, APassword);
   FCredential := LCredential;
   FHasCredential := True;
   Result := Self;
@@ -1567,7 +1567,7 @@ function TTlsConfigBuilder.WithCredentialPkcs12(const AData: TBytes;
   const APassword: string): TTlsConfigBuilder;
 begin
   GuardMutable;
-  FCredential := FProvider.ImportPkcs12(AData, APassword);
+  FCredential := FProvider.Signing.ImportPkcs12(AData, APassword);
   FHasCredential := True;
   Result := Self;
 end;
@@ -1591,8 +1591,8 @@ var
   LCredential: TTlsCredential;
 begin
   GuardMutable;
-  LCredential.CertificateChain := FProvider.LoadCertificateChain(ACertificateChainData);
-  LCredential.PrivateKey := FProvider.ImportSigningKey(APrivateKeyData);
+  LCredential.CertificateChain := FProvider.Certificates.LoadChain(ACertificateChainData);
+  LCredential.PrivateKey := FProvider.Signing.ImportSigningKey(APrivateKeyData);
   Result := WithSniCredential(AHost, LCredential);
 end;
 
@@ -1603,8 +1603,8 @@ var
   LCredential: TTlsCredential;
 begin
   GuardMutable;
-  LCredential.CertificateChain := FProvider.LoadCertificateChain(ACertificateChainData);
-  LCredential.PrivateKey := FProvider.ImportSigningKey(APrivateKeyData, APassword);
+  LCredential.CertificateChain := FProvider.Certificates.LoadChain(ACertificateChainData);
+  LCredential.PrivateKey := FProvider.Signing.ImportSigningKey(APrivateKeyData, APassword);
   Result := WithSniCredential(AHost, LCredential);
 end;
 
@@ -1625,7 +1625,7 @@ var
 begin
   if System.Length(ACredential.CertificateChain) = 0 then
     raise EInvalidOperationTlsLibException.CreateResFmt(@SSniCertMissing, [AHost]);
-  LSans := FProvider.CertificateDnsNames(ACredential.CertificateChain[0]);
+  LSans := FProvider.Certificates.DnsNames(ACredential.CertificateChain[0]);
   if Pos('*', AHost) = 0 then
     // an exact host must be covered by the leaf's dNSName SANs (RFC 6125/9525)
     LOk := TEndpointIdentity.Matches(AHost, LSans, nil)
@@ -1797,7 +1797,7 @@ var
 begin
   GuardMutable;
   // parse the bundle and accumulate, so successive calls add more intermediates
-  LCerts := FProvider.LoadCertificateChain(AData);
+  LCerts := FProvider.Certificates.LoadChain(AData);
   for LI := 0 to System.High(LCerts) do
     TArrayUtilities.Append<TBytes>(FIntermediateCertificates, LCerts[LI]);
   Result := Self;

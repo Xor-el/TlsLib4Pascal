@@ -104,7 +104,7 @@ begin
   if Length(AData) = 0 then
     Result := nil
   else
-    Result := Provider.LoadCertificateChain(AData);
+    Result := Provider.Certificates.LoadChain(AData);
 end;
 
 procedure TFileSystemAnchorStore.HarvestFile(const APath: string;

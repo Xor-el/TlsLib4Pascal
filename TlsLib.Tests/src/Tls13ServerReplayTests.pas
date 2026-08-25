@@ -275,7 +275,7 @@ begin
   // the RFC 8448 server signs with rsa_pss_rsae_sha256, which the RFC client offers;
   // the CertificateVerify is replayed verbatim, so the key only drives scheme selection
   LCred := Default(TTlsCredential);
-  LCred.PrivateKey := Provider.ImportSigningKey(DecodeHex(FKeys.Values['rsa_key']));
+  LCred.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_key']));
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(LCred);
   FSm := TTls13ServerStateMachine.Create(LParams);
   BuildDriver(LParams.Provider);
@@ -431,7 +431,7 @@ begin
   // machine signs for real (no CertificateVerifyOverride)
   LCred := Default(TTlsCredential);
   LCred.CertificateChain := TArray<TBytes>.Create(DecodeHex(FKeys.Values['rsa_cert']));
-  LCred.PrivateKey := Provider.ImportSigningKey(DecodeHex(FKeys.Values['rsa_key']));
+  LCred.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_key']));
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(LCred);
   FSm := TTls13ServerStateMachine.Create(LParams);
   BuildDriver(Provider);

@@ -87,7 +87,7 @@ begin
   // driver needs no up-front suite (a live client does not know the version or suite
   // until the ServerHello)
   LProtection := TRecordProtectionFactory.Build(AEffect.Version, AEffect.Keys,
-    FProvider.CreateAead(AEffect.Aead));
+    FProvider.Primitives.CreateAead(AEffect.Aead));
   // the negotiated version rides every key install; surface it for connection info
   if FVersionSink <> nil then
     FVersionSink.OnVersionNegotiated(AEffect.Version);

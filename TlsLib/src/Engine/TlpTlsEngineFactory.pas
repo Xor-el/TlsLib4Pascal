@@ -215,8 +215,8 @@ begin
     LVerdictDeadlineMs := 0;
   // the two client machines must share one client random and session id so a 1.2
   // hand-off keeps the ServerKeyExchange/master-secret binding of the sent ClientHello
-  LClientRandom := AConfig.Provider.GetRandom.GenerateBytes(32);
-  LSessionId := AConfig.Provider.GetRandom.GenerateBytes(32);
+  LClientRandom := AConfig.Provider.Primitives.GetRandom.GenerateBytes(32);
+  LSessionId := AConfig.Provider.Primitives.GetRandom.GenerateBytes(32);
   // an injected whole-verifier replaces the built-in pipeline (it consults no anchors)
   if AConfig.CertificateVerifier <> nil then
     LVerifier := AConfig.CertificateVerifier
@@ -335,7 +335,7 @@ var
 begin
   LOffers13 := Offers(AConfig, TlsWireVersionTls13);
   LOffers12 := Offers(AConfig, TlsWireVersionTls12);
-  LServerRandom := AConfig.Provider.GetRandom.GenerateBytes(32);
+  LServerRandom := AConfig.Provider.Primitives.GetRandom.GenerateBytes(32);
   // the async client-certificate verdict parks the handshake after the pipeline accepts the
   // client chain (only meaningful when the server requests client authentication)
   LAsyncVerdict := AConfig.AsyncCertificateVerdict.Enabled and
@@ -371,7 +371,7 @@ begin
   // memoize that compression across connections (a stable certificate deflates once)
   L13.CertificateCompressionCache := AConfig.CertificateCompressionCache;
   // a per-server-instance secret so the server can answer with a stateless HelloRetryRequest
-  L13.CookieSecret := TSecretBuffer.From(AConfig.Provider.GetRandom.GenerateBytes(32));
+  L13.CookieSecret := TSecretBuffer.From(AConfig.Provider.Primitives.GetRandom.GenerateBytes(32));
   // the resolver selects the credential per handshake from the client's SNI (virtual hosting);
   // each credential carries the chain, key, and (when set) the OCSP staple the server sends for
   // its leaf once the client offers status_request

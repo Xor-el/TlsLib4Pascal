@@ -22,6 +22,7 @@ uses
   SyncObjs,
   ClpISecureRandom,
   ClpSecureRandom,
+  ClpIRandomGenerator,
   ClpIDigest,
   ClpDigestUtilities,
   ClpIMac,
@@ -135,114 +136,81 @@ uses
 
 type
   /// <summary>
-  /// The default <see cref="ICryptoProvider" />, backed by CryptoLib4Pascal.
+  /// A recipe for composing a provider: each nil field takes the default, each
+  /// non-nil field replaces that one facet (and <c>Random</c> replaces the entropy
+  /// source threaded into the default Primitives and Signing). Composing coherent
+  /// facets is the composer's responsibility: any supplied facet or <c>IRandom</c>
+  /// must be thread-safe (stateless or internally synchronized), since it slots into
+  /// a provider whose accessors promise thread-safety and whose RNG is reached
+  /// concurrently from Primitives and Signing.
+  /// </summary>
+  TCryptoProviderOverrides = record
+    Random: IRandom;
+    Primitives: ICryptoPrimitives;
+    Signing: ISigningCrypto;
+    Inspector: ICertificateInspector;
+    PathValidation: ICertificatePathValidator;
+    Revocation: IRevocationChecker;
+  end;
+
+  /// <summary>
+  /// The default <see cref="ICryptoProvider" />, backed by CryptoLib4Pascal. A thin
+  /// composition root: it holds one instance of each facet and its accessors return
+  /// them. <see cref="Create" /> is the single composition point; the five facet
+  /// implementations are private to this unit.
   /// </summary>
   TDefaultCryptoProvider = class(TInterfacedObject, ICryptoProvider)
   strict private
-  const
-    // RFC 7633 id-pe-tlsfeature
-    TlsFeatureExtensionOid = '1.3.6.1.5.5.7.1.24';
-    // PKCS#1 id-RSASSA-PSS: the restricted RSA-PSS key type (RFC 4055)
-    RsaSsaPssKeyOid = '1.2.840.113549.1.1.10';
-  type
-    // parsed trust anchors keyed by a digest of the anchor set, so a reused
-    // config does not re-parse its (possibly large) anchor store on every verify
-    TTrustAnchorRing = record
-    strict private
-    const
-      TrustAnchorCacheSize = Int32(8);
-    strict private
-      FKeys: TArray<TBytes>;
-      FSets: TArray<TArray<ITrustAnchor>>;
-      FCount: Int32;
-      FNext: Int32;
-    public
-      class function Init: TTrustAnchorRing; static;
-      function TryGet(const AKey: TBytes;
-        out AAnchors: TArray<ITrustAnchor>): Boolean;
-      procedure Remember(const AKey: TBytes;
-        const AAnchors: TArray<ITrustAnchor>);
-    end;
   class var
-    FTrustAnchors: TTrustAnchorRing;
-    FTrustAnchorLock: TCriticalSection;
     FShared: ICryptoProvider;
     FSharedLock: TCriticalSection;
   var
-    FHasHardwareAes: Boolean;
-    FRandom: ISecureRandom;
-    function ResolveDigest(AAlgorithm: THashAlgorithm): IDigest;
-    function TrustAnchorKey(const ATrustAnchors: TArray<TBytes>): TBytes;
-    class function SignerMechanismForScheme(AScheme: TSignatureScheme): string; static;
-    /// <summary>
-    /// Whether AResponse is signed by the certificate issuer itself or by a
-    /// responder the issuer delegated to (RFC 6960 sec. 4.2.2.2).
-    /// </summary>
-    class function OcspResponseAuthorised(const AResponse: IBasicOcspResp;
-      const AIssuerCert: IX509Certificate;
-      const AIssuerPublicKey: IAsymmetricKeyParameter;
-      AValidityDate: TDateTime): Boolean; static;
-    class function OcspDelegatedResponder(const AResponderCert,
-      AIssuerCert: IX509Certificate;
-      const AIssuerPublicKey: IAsymmetricKeyParameter;
-      AValidityDate: TDateTime): Boolean; static;
+    FPrimitives: ICryptoPrimitives;
+    FSigning: ISigningCrypto;
+    FInspector: ICertificateInspector;
+    FPathValidation: ICertificatePathValidator;
+    FRevocation: IRevocationChecker;
   public
-    constructor Create;
+    /// <summary>The single composition point. Resolves the effective RNG first (a supplied
+    /// AOverrides.Random bridged to the CryptoLib CSPRNG, else a fresh one) and threads that
+    /// one instance into the default Primitives and Signing it builds; each nil facet override
+    /// is defaulted, each supplied facet is held as-is. A Random override governs only the
+    /// default facets, not a supplied Primitives.</summary>
+    constructor Create(const AOverrides: TCryptoProviderOverrides); overload;
+    /// <summary>An all-defaults provider (no overrides).</summary>
+    constructor Create; overload;
     class constructor Create;
     class destructor Destroy;
-    /// <summary>A process-wide, lazily-created default provider: the fallback when no provider
-    /// is injected, and the hasher for memo signatures. One CSPRNG seed for the process, shared
-    /// (the provider is a stateless service factory), so no per-connection provider is stood up.</summary>
+    /// <summary>A process-wide, lazily-created all-defaults provider: the fallback when no
+    /// provider is injected, and the hasher for memo signatures. One CSPRNG seed for the
+    /// process, shared (the provider is a stateless service factory). It reflects no overrides -
+    /// it is the all-defaults singleton.</summary>
     class function Shared: ICryptoProvider; static;
 
-    function GetRandom: IRandom;
-    function CreateHash(AAlgorithm: THashAlgorithm): IHash;
-    function CreateHmac(AAlgorithm: THashAlgorithm): IHmac;
-    function CreateHkdf(AAlgorithm: THashAlgorithm): IHkdf;
-    function CreateAead(AAlgorithm: TAeadAlgorithm): IAead;
-    function ImportSigningKey(const AData: TBytes): ISigningKey; overload;
-    function ImportSigningKey(const AData: TBytes;
-      const APassword: string): ISigningKey; overload;
-    function CreateSignatureSigner(AScheme: TSignatureScheme;
-      const AKey: ISigningKey): ISignatureSigner;
-    function CreateSignatureVerifier(AScheme: TSignatureScheme;
-      const APublicKeyDer: TBytes): ISignatureVerifier;
-    function LoadCertificateChain(const AData: TBytes): TArray<TBytes>;
-    function IsWellFormedCertificate(const ADer: TBytes): Boolean;
-    function ImportPkcs12(const AData: TBytes;
-      const APassword: string): TTlsCredential;
-    function CertificatePublicKeyInfo(const ACertificateDer: TBytes): TBytes;
-    function CertificateDnsNames(const ACertificateDer: TBytes): TArray<string>;
-    function CertificateIpAddresses(const ACertificateDer: TBytes): TArray<TBytes>;
-    procedure ValidateCertificatePath(const AChain, ATrustAnchors,
-      AIntermediates: TArray<TBytes>; const AValidationTimeUtc: TDateTime;
-      var AEffectiveChain: TArray<TBytes>);
-    function ValidateOcspStaple(const ALeafCert, AIssuerCert,
-      AOcspResponseDer: TBytes; const AValidationTimeUtc: TDateTime;
-      out AStatus: TOcspStatus;
-      out AThisUpdate, ANextUpdate: TDateTime): Boolean;
-    function BuildOcspRequest(const ALeafCert, AIssuerCert: TBytes;
-      out ARequestDer: TBytes): Boolean;
-    function TryGetOcspResponderUrl(const ACert: TBytes;
-      out AUrl: string): Boolean;
-    function TryGetCrlDistributionPoints(const ACert: TBytes;
-      out AUrls: TArray<string>): Boolean;
-    function CheckCrlRevocation(const ALeafCert, AIssuerCert, ACrlDer: TBytes;
-      out ARevoked: Boolean): Boolean;
-    function CertificatePeerInfo(const ACertificateDer: TBytes;
-      out ASubject, AIssuer, ACommonName, ASerialHex: string): Boolean;
-    function CertificateTlsFeatures(const ACert: TBytes;
-      out AFeatures: TArray<UInt16>): Boolean;
-    function CertificateKeyUsagePermits(const ACertificateDer: TBytes;
-      AUsage: TCertKeyUsage; out APermitted: Boolean): Boolean;
-    function CertificateHasRsaPssKey(const ACertificateDer: TBytes;
-      out AIsRsaPss: Boolean): Boolean;
-    function CertificateKeyKind(const ACertificateDer: TBytes;
-      out AKind: TCertKeyKind; out AEcNamedGroup: UInt16): Boolean;
-    function CreateKeyAgreement(AAlgorithm: TKeyAgreementAlgorithm): IKeyAgreement;
-    function CreateKem(AAlgorithm: TKemAlgorithm): IKem;
+    function Primitives: ICryptoPrimitives;
+    function Signing: ISigningCrypto;
+    function Certificates: ICertificateInspector;
+    function PathValidation: ICertificatePathValidator;
+    function Revocation: IRevocationChecker;
+  end;
 
-    function HasHardwareAes: Boolean;
+  /// <summary>
+  /// The fluent <see cref="ICryptoProviderBuilder" />: accumulates facet overrides
+  /// and composes through <see cref="TDefaultCryptoProvider.Create" /> (zero
+  /// duplication - all composition logic stays in that one constructor).
+  /// </summary>
+  TCryptoProviderBuilder = class(TInterfacedObject, ICryptoProviderBuilder)
+  strict private
+  var
+    FOverrides: TCryptoProviderOverrides;
+  public
+    function WithRandom(const ARandom: IRandom): ICryptoProviderBuilder;
+    function WithPrimitives(const APrimitives: ICryptoPrimitives): ICryptoProviderBuilder;
+    function WithSigning(const ASigning: ISigningCrypto): ICryptoProviderBuilder;
+    function WithInspector(const AInspector: ICertificateInspector): ICryptoProviderBuilder;
+    function WithPathValidation(const APathValidation: ICertificatePathValidator): ICryptoProviderBuilder;
+    function WithRevocation(const ARevocation: IRevocationChecker): ICryptoProviderBuilder;
+    function Build: ICryptoProvider;
   end;
 
 implementation
@@ -278,7 +246,7 @@ type
   var
     FRandom: ISecureRandom;
   public
-    constructor Create;
+    constructor Create(const ARandom: ISecureRandom);
     procedure NextBytes(var ABuffer: TBytes);
     function GenerateBytes(ALength: Int32): TBytes;
   end;
@@ -497,12 +465,165 @@ type
       const AKeyParam: IAsymmetricKeyParameter): ISigningKey; static;
   end;
 
+  // Resolves a hash algorithm to its CryptoLib digest. A stateless leaf shared by
+  // the primitives and the path validator's anchor-key hash.
+  TDigestResolver = class sealed(TObject)
+  public
+    class function Resolve(AAlgorithm: THashAlgorithm): IDigest; static;
+  end;
+
+  // Bridges a facet IRandom into the CryptoLib IRandomGenerator a TSecureRandom
+  // draws from, so a supplied entropy source governs the default facets' key
+  // generation. Seed material is ignored - the source is already a CSPRNG.
+  TRandomGeneratorBridge = class(TInterfacedObject, IRandomGenerator)
+  strict private
+  var
+    FRandom: IRandom;
+  public
+    constructor Create(const ARandom: IRandom);
+    procedure AddSeedMaterial(const ASeed: TCryptoLibByteArray); overload;
+    procedure AddSeedMaterial(ASeed: Int64); overload;
+    procedure NextBytes(const ABytes: TCryptoLibByteArray); overload;
+    procedure NextBytes(const ABytes: TCryptoLibByteArray;
+      AStart, ALen: Int32); overload;
+  end;
+
+  // ICryptoPrimitives - CSPRNG, hashes / HMAC / HKDF, AEAD, key agreement and KEM.
+  TCryptoPrimitives = class(TInterfacedObject, ICryptoPrimitives)
+  strict private
+  var
+    FRandom: ISecureRandom;
+    FRandomFacet: IRandom;
+    FHasHardwareAes: Boolean;
+  public
+    constructor Create(const ARandom: ISecureRandom; AHasHardwareAes: Boolean);
+    function GetRandom: IRandom;
+    function CreateHash(AAlgorithm: THashAlgorithm): IHash;
+    function CreateHmac(AAlgorithm: THashAlgorithm): IHmac;
+    function CreateHkdf(AAlgorithm: THashAlgorithm): IHkdf;
+    function CreateAead(AAlgorithm: TAeadAlgorithm): IAead;
+    function CreateKeyAgreement(AAlgorithm: TKeyAgreementAlgorithm): IKeyAgreement;
+    function CreateKem(AAlgorithm: TKemAlgorithm): IKem;
+    function HasHardwareAes: Boolean;
+  end;
+
+  // ISigningCrypto - imports signing keys / PKCS#12 identities and mints signers / verifiers.
+  TSigningCrypto = class(TInterfacedObject, ISigningCrypto)
+  strict private
+  var
+    FRandom: ISecureRandom;
+    class function SignerMechanismForScheme(AScheme: TSignatureScheme): string; static;
+  public
+    constructor Create(const ARandom: ISecureRandom);
+    function ImportSigningKey(const AData: TBytes): ISigningKey; overload;
+    function ImportSigningKey(const AData: TBytes;
+      const APassword: string): ISigningKey; overload;
+    function ImportPkcs12(const AData: TBytes;
+      const APassword: string): TTlsCredential;
+    function CreateSignatureSigner(AScheme: TSignatureScheme;
+      const AKey: ISigningKey): ISignatureSigner;
+    function CreateSignatureVerifier(AScheme: TSignatureScheme;
+      const APublicKeyDer: TBytes): ISignatureVerifier;
+  end;
+
+  // ICertificateInspector - pure, per-certificate, side-effect-free X.509 inspection.
+  TCertificateInspector = class(TInterfacedObject, ICertificateInspector)
+  strict private
+  const
+    // RFC 7633 id-pe-tlsfeature
+    TlsFeatureExtensionOid = '1.3.6.1.5.5.7.1.24';
+    // PKCS#1 id-RSASSA-PSS: the restricted RSA-PSS key type (RFC 4055)
+    RsaSsaPssKeyOid = '1.2.840.113549.1.1.10';
+  public
+    function LoadChain(const AData: TBytes): TArray<TBytes>;
+    function IsWellFormed(const ADer: TBytes): Boolean;
+    function PublicKeyInfo(const ACertificateDer: TBytes): TBytes;
+    function DnsNames(const ACertificateDer: TBytes): TArray<string>;
+    function IpAddresses(const ACertificateDer: TBytes): TArray<TBytes>;
+    function PeerInfo(const ACertificateDer: TBytes;
+      out ASubject, AIssuer, ACommonName, ASerialHex: string): Boolean;
+    function TlsFeatures(const ACert: TBytes;
+      out AFeatures: TArray<UInt16>): Boolean;
+    function KeyUsagePermits(const ACertificateDer: TBytes;
+      AUsage: TCertKeyUsage; out APermitted: Boolean): Boolean;
+    function HasRsaPssKey(const ACertificateDer: TBytes;
+      out AIsRsaPss: Boolean): Boolean;
+    function KeyKind(const ACertificateDer: TBytes;
+      out AKind: TCertKeyKind; out AEcNamedGroup: UInt16): Boolean;
+  end;
+
+  // ICertificatePathValidator - RFC 5280 path validation. The trust-anchor ring is a
+  // class-level cache shared across the many short-lived providers.
+  TCertificatePathValidator = class(TInterfacedObject, ICertificatePathValidator)
+  strict private
+  type
+    // parsed trust anchors keyed by a digest of the anchor set, so a reused
+    // config does not re-parse its (possibly large) anchor store on every verify
+    TTrustAnchorRing = record
+    strict private
+    const
+      TrustAnchorCacheSize = Int32(8);
+    strict private
+      FKeys: TArray<TBytes>;
+      FSets: TArray<TArray<ITrustAnchor>>;
+      FCount: Int32;
+      FNext: Int32;
+    public
+      class function Init: TTrustAnchorRing; static;
+      function TryGet(const AKey: TBytes;
+        out AAnchors: TArray<ITrustAnchor>): Boolean;
+      procedure Remember(const AKey: TBytes;
+        const AAnchors: TArray<ITrustAnchor>);
+    end;
+  class var
+    FTrustAnchors: TTrustAnchorRing;
+    FTrustAnchorLock: TCriticalSection;
+  strict private
+    function TrustAnchorKey(const ATrustAnchors: TArray<TBytes>): TBytes;
+  public
+    class constructor Create;
+    class destructor Destroy;
+    procedure ValidateCertificatePath(const AChain, ATrustAnchors,
+      AIntermediates: TArray<TBytes>; const AValidationTimeUtc: TDateTime;
+      var AEffectiveChain: TArray<TBytes>);
+  end;
+
+  // IRevocationChecker - stapled-OCSP verification and the live OCSP/CRL primitives.
+  TRevocationChecker = class(TInterfacedObject, IRevocationChecker)
+  strict private
+    /// <summary>
+    /// Whether AResponse is signed by the certificate issuer itself or by a
+    /// responder the issuer delegated to (RFC 6960 sec. 4.2.2.2).
+    /// </summary>
+    class function OcspResponseAuthorised(const AResponse: IBasicOcspResp;
+      const AIssuerCert: IX509Certificate;
+      const AIssuerPublicKey: IAsymmetricKeyParameter;
+      AValidityDate: TDateTime): Boolean; static;
+    class function OcspDelegatedResponder(const AResponderCert,
+      AIssuerCert: IX509Certificate;
+      const AIssuerPublicKey: IAsymmetricKeyParameter;
+      AValidityDate: TDateTime): Boolean; static;
+  public
+    function ValidateOcspStaple(const ALeafCert, AIssuerCert,
+      AOcspResponseDer: TBytes; const AValidationTimeUtc: TDateTime;
+      out AStatus: TOcspStatus;
+      out AThisUpdate, ANextUpdate: TDateTime): Boolean;
+    function BuildOcspRequest(const ALeafCert, AIssuerCert: TBytes;
+      out ARequestDer: TBytes): Boolean;
+    function TryGetOcspResponderUrl(const ACert: TBytes;
+      out AUrl: string): Boolean;
+    function TryGetCrlDistributionPoints(const ACert: TBytes;
+      out AUrls: TArray<string>): Boolean;
+    function CheckCrlRevocation(const ALeafCert, AIssuerCert, ACrlDer: TBytes;
+      out ARevoked: Boolean): Boolean;
+  end;
+
 { TRandomAdapter }
 
-constructor TRandomAdapter.Create;
+constructor TRandomAdapter.Create(const ARandom: ISecureRandom);
 begin
   inherited Create;
-  FRandom := TSecureRandom.Create;
+  FRandom := ARandom;
 end;
 
 procedure TRandomAdapter.NextBytes(var ABuffer: TBytes);
@@ -1459,20 +1580,125 @@ end;
 
 { TDefaultCryptoProvider }
 
-constructor TDefaultCryptoProvider.Create;
+constructor TDefaultCryptoProvider.Create(const AOverrides: TCryptoProviderOverrides);
+var
+  LRandom: ISecureRandom;
 begin
   inherited Create;
-  FHasHardwareAes := TAesUtilities.IsHardwareAccelerated();
-  FRandom := TSecureRandom.Create;
+  // resolve the effective entropy source first, then thread that ONE instance into the
+  // default Primitives and Signing this ctor builds; a supplied Random governs only the
+  // facets built here, never a supplied Primitives override
+  if AOverrides.Random <> nil then
+    LRandom := TSecureRandom.Create(TRandomGeneratorBridge.Create(AOverrides.Random)
+      as IRandomGenerator)
+  else
+    LRandom := TSecureRandom.Create;
+
+  if AOverrides.Primitives <> nil then
+    FPrimitives := AOverrides.Primitives
+  else
+    FPrimitives := TCryptoPrimitives.Create(LRandom,
+      TAesUtilities.IsHardwareAccelerated()) as ICryptoPrimitives;
+
+  if AOverrides.Signing <> nil then
+    FSigning := AOverrides.Signing
+  else
+    FSigning := TSigningCrypto.Create(LRandom) as ISigningCrypto;
+
+  if AOverrides.Inspector <> nil then
+    FInspector := AOverrides.Inspector
+  else
+    FInspector := TCertificateInspector.Create as ICertificateInspector;
+
+  if AOverrides.PathValidation <> nil then
+    FPathValidation := AOverrides.PathValidation
+  else
+    FPathValidation := TCertificatePathValidator.Create as ICertificatePathValidator;
+
+  if AOverrides.Revocation <> nil then
+    FRevocation := AOverrides.Revocation
+  else
+    FRevocation := TRevocationChecker.Create as IRevocationChecker;
 end;
 
-function TDefaultCryptoProvider.ResolveDigest(AAlgorithm: THashAlgorithm): IDigest;
+constructor TDefaultCryptoProvider.Create;
+var
+  LOverrides: TCryptoProviderOverrides;
+begin
+  // hoist Default() to a local (Delphi Default-in-argument-position insurance)
+  LOverrides := Default(TCryptoProviderOverrides);
+  Create(LOverrides);
+end;
+
+{ TDigestResolver }
+
+class function TDigestResolver.Resolve(AAlgorithm: THashAlgorithm): IDigest;
 begin
   Result := TDigestUtilities.GetDigest(
     TEnumUtilities.GetName<THashAlgorithm>(AAlgorithm));
 end;
 
-class function TDefaultCryptoProvider.SignerMechanismForScheme(
+{ TRandomGeneratorBridge }
+
+constructor TRandomGeneratorBridge.Create(const ARandom: IRandom);
+begin
+  inherited Create;
+  FRandom := ARandom;
+end;
+
+procedure TRandomGeneratorBridge.AddSeedMaterial(const ASeed: TCryptoLibByteArray);
+begin
+  // the wrapped source is already a CSPRNG; reseeding is a no-op
+end;
+
+procedure TRandomGeneratorBridge.AddSeedMaterial(ASeed: Int64);
+begin
+  // the wrapped source is already a CSPRNG; reseeding is a no-op
+end;
+
+procedure TRandomGeneratorBridge.NextBytes(const ABytes: TCryptoLibByteArray);
+var
+  LGen: TBytes;
+begin
+  if System.Length(ABytes) = 0 then
+    Exit;
+  LGen := FRandom.GenerateBytes(System.Length(ABytes));
+  System.Move(LGen[0], ABytes[0], System.Length(ABytes));
+end;
+
+procedure TRandomGeneratorBridge.NextBytes(const ABytes: TCryptoLibByteArray;
+  AStart, ALen: Int32);
+var
+  LGen: TBytes;
+begin
+  if ALen <= 0 then
+    Exit;
+  LGen := FRandom.GenerateBytes(ALen);
+  System.Move(LGen[0], ABytes[AStart], ALen);
+end;
+
+{ TCryptoPrimitives }
+
+constructor TCryptoPrimitives.Create(const ARandom: ISecureRandom;
+  AHasHardwareAes: Boolean);
+begin
+  inherited Create;
+  FRandom := ARandom;
+  FHasHardwareAes := AHasHardwareAes;
+  // one stable IRandom bound to the provider's effective RNG, so GetRandom is a
+  // connected view (not a fresh, disconnected stream on every call)
+  FRandomFacet := TRandomAdapter.Create(ARandom);
+end;
+
+{ TSigningCrypto }
+
+constructor TSigningCrypto.Create(const ARandom: ISecureRandom);
+begin
+  inherited Create;
+  FRandom := ARandom;
+end;
+
+class function TSigningCrypto.SignerMechanismForScheme(
   AScheme: TSignatureScheme): string;
 begin
   // map a TLS 1.3 signature scheme to a CryptoLib signer mechanism. The named
@@ -1510,27 +1736,52 @@ begin
   end;
 end;
 
-function TDefaultCryptoProvider.GetRandom: IRandom;
+function TDefaultCryptoProvider.Primitives: ICryptoPrimitives;
 begin
-  Result := TRandomAdapter.Create;
+  Result := FPrimitives;
 end;
 
-function TDefaultCryptoProvider.CreateHash(AAlgorithm: THashAlgorithm): IHash;
+function TDefaultCryptoProvider.Signing: ISigningCrypto;
 begin
-  Result := THashAdapter.Create(ResolveDigest(AAlgorithm));
+  Result := FSigning;
 end;
 
-function TDefaultCryptoProvider.CreateHmac(AAlgorithm: THashAlgorithm): IHmac;
+function TDefaultCryptoProvider.Certificates: ICertificateInspector;
 begin
-  Result := THmacAdapter.Create(ResolveDigest(AAlgorithm));
+  Result := FInspector;
 end;
 
-function TDefaultCryptoProvider.CreateHkdf(AAlgorithm: THashAlgorithm): IHkdf;
+function TDefaultCryptoProvider.PathValidation: ICertificatePathValidator;
+begin
+  Result := FPathValidation;
+end;
+
+function TDefaultCryptoProvider.Revocation: IRevocationChecker;
+begin
+  Result := FRevocation;
+end;
+
+function TCryptoPrimitives.GetRandom: IRandom;
+begin
+  Result := FRandomFacet;
+end;
+
+function TCryptoPrimitives.CreateHash(AAlgorithm: THashAlgorithm): IHash;
+begin
+  Result := THashAdapter.Create(TDigestResolver.Resolve(AAlgorithm));
+end;
+
+function TCryptoPrimitives.CreateHmac(AAlgorithm: THashAlgorithm): IHmac;
+begin
+  Result := THmacAdapter.Create(TDigestResolver.Resolve(AAlgorithm));
+end;
+
+function TCryptoPrimitives.CreateHkdf(AAlgorithm: THashAlgorithm): IHkdf;
 begin
   Result := THkdfAdapter.Create(AAlgorithm);
 end;
 
-function TDefaultCryptoProvider.CreateAead(AAlgorithm: TAeadAlgorithm): IAead;
+function TCryptoPrimitives.CreateAead(AAlgorithm: TAeadAlgorithm): IAead;
 begin
   case AAlgorithm of
     TAeadAlgorithm.AES_128_GCM:
@@ -1548,18 +1799,18 @@ begin
   end;
 end;
 
-function TDefaultCryptoProvider.ImportSigningKey(const AData: TBytes): ISigningKey;
+function TSigningCrypto.ImportSigningKey(const AData: TBytes): ISigningKey;
 begin
   Result := TCredentialImport.ImportKey(AData, '', False);
 end;
 
-function TDefaultCryptoProvider.ImportSigningKey(const AData: TBytes;
+function TSigningCrypto.ImportSigningKey(const AData: TBytes;
   const APassword: string): ISigningKey;
 begin
   Result := TCredentialImport.ImportKey(AData, APassword, True);
 end;
 
-function TDefaultCryptoProvider.CreateSignatureSigner(AScheme: TSignatureScheme;
+function TSigningCrypto.CreateSignatureSigner(AScheme: TSignatureScheme;
   const AKey: ISigningKey): ISignatureSigner;
 var
   LProviderKey: IProviderSigningKey;
@@ -1576,7 +1827,7 @@ begin
     TEnumUtilities.GetName<TSignatureScheme>(AScheme));
 end;
 
-function TDefaultCryptoProvider.CreateSignatureVerifier(AScheme: TSignatureScheme;
+function TSigningCrypto.CreateSignatureVerifier(AScheme: TSignatureScheme;
   const APublicKeyDer: TBytes): ISignatureVerifier;
 var
   LKey: IAsymmetricKeyParameter;
@@ -1589,7 +1840,7 @@ begin
     TEnumUtilities.GetName<TSignatureScheme>(AScheme));
 end;
 
-function TDefaultCryptoProvider.LoadCertificateChain(
+function TCertificateInspector.LoadChain(
   const AData: TBytes): TArray<TBytes>;
 var
   LStream: TBytesStream;
@@ -1642,7 +1893,7 @@ begin
     raise EArgumentTlsLibException.CreateRes(@SNoCertificatesFound);
 end;
 
-function TDefaultCryptoProvider.IsWellFormedCertificate(
+function TCertificateInspector.IsWellFormed(
   const ADer: TBytes): Boolean;
 var
   LParser: IX509CertificateParser;
@@ -1658,7 +1909,7 @@ begin
   end;
 end;
 
-function TDefaultCryptoProvider.ImportPkcs12(const AData: TBytes;
+function TSigningCrypto.ImportPkcs12(const AData: TBytes;
   const APassword: string): TTlsCredential;
 var
   LStore: IPkcs12Store;
@@ -1729,7 +1980,7 @@ begin
   end;
 end;
 
-function TDefaultCryptoProvider.CertificatePublicKeyInfo(
+function TCertificateInspector.PublicKeyInfo(
   const ACertificateDer: TBytes): TBytes;
 var
   LParser: IX509CertificateParser;
@@ -1740,7 +1991,7 @@ begin
   Result := LCert.GetSubjectPublicKeyInfo.GetDerEncoded;
 end;
 
-function TDefaultCryptoProvider.CertificateDnsNames(
+function TCertificateInspector.DnsNames(
   const ACertificateDer: TBytes): TArray<string>;
 var
   LParser: IX509CertificateParser;
@@ -1768,7 +2019,7 @@ begin
     end;
 end;
 
-function TDefaultCryptoProvider.CertificateIpAddresses(
+function TCertificateInspector.IpAddresses(
   const ACertificateDer: TBytes): TArray<TBytes>;
 var
   LParser: IX509CertificateParser;
@@ -1796,7 +2047,7 @@ begin
     end;
 end;
 
-class function TDefaultCryptoProvider.TTrustAnchorRing.Init: TTrustAnchorRing;
+class function TCertificatePathValidator.TTrustAnchorRing.Init: TTrustAnchorRing;
 begin
   SetLength(Result.FKeys, TrustAnchorCacheSize);
   SetLength(Result.FSets, TrustAnchorCacheSize);
@@ -1804,7 +2055,7 @@ begin
   Result.FNext := 0;
 end;
 
-function TDefaultCryptoProvider.TTrustAnchorRing.TryGet(const AKey: TBytes;
+function TCertificatePathValidator.TTrustAnchorRing.TryGet(const AKey: TBytes;
   out AAnchors: TArray<ITrustAnchor>): Boolean;
 var
   LI: Int32;
@@ -1819,7 +2070,7 @@ begin
   Result := False;
 end;
 
-procedure TDefaultCryptoProvider.TTrustAnchorRing.Remember(const AKey: TBytes;
+procedure TCertificatePathValidator.TTrustAnchorRing.Remember(const AKey: TBytes;
   const AAnchors: TArray<ITrustAnchor>);
 begin
   FKeys[FNext] := AKey;
@@ -1831,8 +2082,6 @@ end;
 
 class constructor TDefaultCryptoProvider.Create;
 begin
-  FTrustAnchors := TTrustAnchorRing.Init;
-  FTrustAnchorLock := TCriticalSection.Create;
   FSharedLock := TCriticalSection.Create;
 end;
 
@@ -1840,6 +2089,16 @@ class destructor TDefaultCryptoProvider.Destroy;
 begin
   FShared := nil;
   FSharedLock.Free;
+end;
+
+class constructor TCertificatePathValidator.Create;
+begin
+  FTrustAnchors := TTrustAnchorRing.Init;
+  FTrustAnchorLock := TCriticalSection.Create;
+end;
+
+class destructor TCertificatePathValidator.Destroy;
+begin
   FTrustAnchorLock.Free;
 end;
 
@@ -1855,14 +2114,14 @@ begin
   end;
 end;
 
-function TDefaultCryptoProvider.TrustAnchorKey(
+function TCertificatePathValidator.TrustAnchorKey(
   const ATrustAnchors: TArray<TBytes>): TBytes;
 var
   LDigest: IDigest;
   LI, LN: Int32;
   LLen: TBytes;
 begin
-  LDigest := ResolveDigest(THashAlgorithm.SHA_256);
+  LDigest := TDigestResolver.Resolve(THashAlgorithm.SHA_256);
   System.SetLength(LLen, 4);
   for LI := 0 to System.High(ATrustAnchors) do
   begin
@@ -1876,7 +2135,7 @@ begin
   Result := LDigest.DoFinal;
 end;
 
-procedure TDefaultCryptoProvider.ValidateCertificatePath(const AChain,
+procedure TCertificatePathValidator.ValidateCertificatePath(const AChain,
   ATrustAnchors, AIntermediates: TArray<TBytes>; const AValidationTimeUtc: TDateTime;
   var AEffectiveChain: TArray<TBytes>);
 const
@@ -2036,7 +2295,7 @@ begin
     AEffectiveChain[LI] := LBuilt[LI].GetEncoded;
 end;
 
-class function TDefaultCryptoProvider.OcspDelegatedResponder(const AResponderCert,
+class function TRevocationChecker.OcspDelegatedResponder(const AResponderCert,
   AIssuerCert: IX509Certificate; const AIssuerPublicKey: IAsymmetricKeyParameter;
   AValidityDate: TDateTime): Boolean;
 var
@@ -2064,7 +2323,7 @@ begin
     end;
 end;
 
-class function TDefaultCryptoProvider.OcspResponseAuthorised(
+class function TRevocationChecker.OcspResponseAuthorised(
   const AResponse: IBasicOcspResp; const AIssuerCert: IX509Certificate;
   const AIssuerPublicKey: IAsymmetricKeyParameter; AValidityDate: TDateTime): Boolean;
 var
@@ -2100,7 +2359,7 @@ begin
   end;
 end;
 
-function TDefaultCryptoProvider.ValidateOcspStaple(const ALeafCert, AIssuerCert,
+function TRevocationChecker.ValidateOcspStaple(const ALeafCert, AIssuerCert,
   AOcspResponseDer: TBytes; const AValidationTimeUtc: TDateTime;
   out AStatus: TOcspStatus; out AThisUpdate, ANextUpdate: TDateTime): Boolean;
 var
@@ -2177,7 +2436,7 @@ begin
   end;
 end;
 
-function TDefaultCryptoProvider.BuildOcspRequest(const ALeafCert,
+function TRevocationChecker.BuildOcspRequest(const ALeafCert,
   AIssuerCert: TBytes; out ARequestDer: TBytes): Boolean;
 var
   LParser: IX509CertificateParser;
@@ -2207,7 +2466,7 @@ begin
   end;
 end;
 
-function TDefaultCryptoProvider.TryGetOcspResponderUrl(const ACert: TBytes;
+function TRevocationChecker.TryGetOcspResponderUrl(const ACert: TBytes;
   out AUrl: string): Boolean;
 var
   LParser: IX509CertificateParser;
@@ -2251,7 +2510,7 @@ begin
   end;
 end;
 
-function TDefaultCryptoProvider.TryGetCrlDistributionPoints(const ACert: TBytes;
+function TRevocationChecker.TryGetCrlDistributionPoints(const ACert: TBytes;
   out AUrls: TArray<string>): Boolean;
 var
   LParser: IX509CertificateParser;
@@ -2303,7 +2562,7 @@ begin
   end;
 end;
 
-function TDefaultCryptoProvider.CheckCrlRevocation(const ALeafCert, AIssuerCert,
+function TRevocationChecker.CheckCrlRevocation(const ALeafCert, AIssuerCert,
   ACrlDer: TBytes; out ARevoked: Boolean): Boolean;
 var
   LParser: IX509CertificateParser;
@@ -2347,7 +2606,7 @@ begin
   end;
 end;
 
-function TDefaultCryptoProvider.CertificatePeerInfo(const ACertificateDer: TBytes;
+function TCertificateInspector.PeerInfo(const ACertificateDer: TBytes;
   out ASubject, AIssuer, ACommonName, ASerialHex: string): Boolean;
 var
   LParser: IX509CertificateParser;
@@ -2380,7 +2639,7 @@ begin
   end;
 end;
 
-function TDefaultCryptoProvider.CertificateTlsFeatures(const ACert: TBytes;
+function TCertificateInspector.TlsFeatures(const ACert: TBytes;
   out AFeatures: TArray<UInt16>): Boolean;
 var
   LParser: IX509CertificateParser;
@@ -2434,7 +2693,7 @@ begin
   end;
 end;
 
-function TDefaultCryptoProvider.CertificateKeyUsagePermits(
+function TCertificateInspector.KeyUsagePermits(
   const ACertificateDer: TBytes; AUsage: TCertKeyUsage;
   out APermitted: Boolean): Boolean;
 var
@@ -2472,7 +2731,7 @@ begin
   APermitted := (LIndex >= 0) and (LIndex <= High(LBits)) and LBits[LIndex];
 end;
 
-function TDefaultCryptoProvider.CertificateHasRsaPssKey(
+function TCertificateInspector.HasRsaPssKey(
   const ACertificateDer: TBytes; out AIsRsaPss: Boolean): Boolean;
 var
   LParser: IX509CertificateParser;
@@ -2491,7 +2750,7 @@ begin
   end;
 end;
 
-function TDefaultCryptoProvider.CertificateKeyKind(const ACertificateDer: TBytes;
+function TCertificateInspector.KeyKind(const ACertificateDer: TBytes;
   out AKind: TCertKeyKind; out AEcNamedGroup: UInt16): Boolean;
 var
   LParser: IX509CertificateParser;
@@ -2535,7 +2794,7 @@ begin
     Result := False;
 end;
 
-function TDefaultCryptoProvider.CreateKeyAgreement(
+function TCryptoPrimitives.CreateKeyAgreement(
   AAlgorithm: TKeyAgreementAlgorithm): IKeyAgreement;
 begin
   case AAlgorithm of
@@ -2554,7 +2813,7 @@ begin
   end;
 end;
 
-function TDefaultCryptoProvider.CreateKem(AAlgorithm: TKemAlgorithm): IKem;
+function TCryptoPrimitives.CreateKem(AAlgorithm: TKemAlgorithm): IKem;
 begin
   case AAlgorithm of
     TKemAlgorithm.ML_KEM_768:
@@ -2566,9 +2825,58 @@ begin
   end;
 end;
 
-function TDefaultCryptoProvider.HasHardwareAes: Boolean;
+function TCryptoPrimitives.HasHardwareAes: Boolean;
 begin
   Result := FHasHardwareAes;
+end;
+
+{ TCryptoProviderBuilder }
+
+function TCryptoProviderBuilder.WithRandom(
+  const ARandom: IRandom): ICryptoProviderBuilder;
+begin
+  FOverrides.Random := ARandom;
+  Result := Self;
+end;
+
+function TCryptoProviderBuilder.WithPrimitives(
+  const APrimitives: ICryptoPrimitives): ICryptoProviderBuilder;
+begin
+  FOverrides.Primitives := APrimitives;
+  Result := Self;
+end;
+
+function TCryptoProviderBuilder.WithSigning(
+  const ASigning: ISigningCrypto): ICryptoProviderBuilder;
+begin
+  FOverrides.Signing := ASigning;
+  Result := Self;
+end;
+
+function TCryptoProviderBuilder.WithInspector(
+  const AInspector: ICertificateInspector): ICryptoProviderBuilder;
+begin
+  FOverrides.Inspector := AInspector;
+  Result := Self;
+end;
+
+function TCryptoProviderBuilder.WithPathValidation(
+  const APathValidation: ICertificatePathValidator): ICryptoProviderBuilder;
+begin
+  FOverrides.PathValidation := APathValidation;
+  Result := Self;
+end;
+
+function TCryptoProviderBuilder.WithRevocation(
+  const ARevocation: IRevocationChecker): ICryptoProviderBuilder;
+begin
+  FOverrides.Revocation := ARevocation;
+  Result := Self;
+end;
+
+function TCryptoProviderBuilder.Build: ICryptoProvider;
+begin
+  Result := TDefaultCryptoProvider.Create(FOverrides) as ICryptoProvider;
 end;
 
 end.

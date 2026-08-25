@@ -129,7 +129,7 @@ var
 begin
   SetLength(LPrefix, SizeOf(UInt16));
   TBinaryPrimitives.WriteUInt16BigEndian(LPrefix, 0, AAlgorithm);
-  LHash := AProvider.CreateHash(THashAlgorithm.SHA_256);
+  LHash := AProvider.Primitives.CreateHash(THashAlgorithm.SHA_256);
   LHash.Update(LPrefix, 0, System.Length(LPrefix));
   LHash.Update(ABody, 0, System.Length(ABody));
   Result := LHash.DoFinal;

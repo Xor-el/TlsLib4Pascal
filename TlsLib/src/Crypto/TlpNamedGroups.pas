@@ -245,9 +245,9 @@ end;
 constructor TX25519MlKem768Group.Create(const AProvider: ICryptoProvider);
 begin
   inherited Create;
-  FX25519 := TKeyAgreementGroup.Create(AProvider.CreateKeyAgreement(TKeyAgreementAlgorithm.X25519),
+  FX25519 := TKeyAgreementGroup.Create(AProvider.Primitives.CreateKeyAgreement(TKeyAgreementAlgorithm.X25519),
     TNamedGroupCatalog.X25519);
-  FMlKem := TKemGroup.Create(AProvider.CreateKem(TKemAlgorithm.ML_KEM_768),
+  FMlKem := TKemGroup.Create(AProvider.Primitives.CreateKem(TKemAlgorithm.ML_KEM_768),
     TNamedGroupCatalog.MlKem768);
 end;
 
@@ -374,7 +374,7 @@ end;
 
 class function TNamedGroups.CreateX25519(const AProvider: ICryptoProvider): INamedGroup;
 begin
-  Result := TKeyAgreementGroup.Create(AProvider.CreateKeyAgreement(TKeyAgreementAlgorithm.X25519),
+  Result := TKeyAgreementGroup.Create(AProvider.Primitives.CreateKeyAgreement(TKeyAgreementAlgorithm.X25519),
     TNamedGroupCatalog.X25519);
 end;
 
@@ -388,12 +388,12 @@ begin
   TNamedGroupCatalog.TryCode(ACurveName, LCode);
   // the curve name resolves to the key-agreement enum (secp256r1 -> SECP256R1)
   TEnumUtilities.TryGetEnumValue<TKeyAgreementAlgorithm>(ACurveName, LAlg);
-  Result := TKeyAgreementGroup.Create(AProvider.CreateKeyAgreement(LAlg), LCode);
+  Result := TKeyAgreementGroup.Create(AProvider.Primitives.CreateKeyAgreement(LAlg), LCode);
 end;
 
 class function TNamedGroups.CreateMlKem768(const AProvider: ICryptoProvider): INamedGroup;
 begin
-  Result := TKemGroup.Create(AProvider.CreateKem(TKemAlgorithm.ML_KEM_768),
+  Result := TKemGroup.Create(AProvider.Primitives.CreateKem(TKemAlgorithm.ML_KEM_768),
     TNamedGroupCatalog.MlKem768);
 end;
 

@@ -85,7 +85,7 @@ var
   LCurve: UInt16;
 begin
   // X25519 for the ECDHE key exchange, plus the ECDSA leaf's curve (RFC 8422 5.4)
-  if AProvider.CertificateKeyKind(ACredential.LeafCertDer, LKind, LCurve)
+  if AProvider.Certificates.KeyKind(ACredential.LeafCertDer, LKind, LCurve)
     and (LKind = TCertKeyKind.Ecdsa) and (LCurve <> TNamedGroupCatalog.X25519) then
     Result := TArray<UInt16>.Create(TNamedGroupCatalog.X25519, LCurve)
   else
