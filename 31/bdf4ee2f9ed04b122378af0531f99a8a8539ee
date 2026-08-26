@@ -1,0 +1,26 @@
+TlsLib/src/Trust/TlpCertificateVerifier.pas
+  s_5e9312dc1422f7::t_e3a33e57d54b94 386
+  s_5e9312dc1422f7::t_0c3c1b5fa27a20 428-430,435
+TlsLib/src/Interfaces/Crypto/TlpICryptoProvider.pas
+  s_5e9312dc1422f7::t_806426dabb3b63 78,240-260,265-272
+TlsLib/src/Handshake/TlpCertificateVerify.pas
+  s_5e9312dc1422f7::t_806426dabb3b63 128,133-137,140,148
+TlsLib/src/Crypto/TlpDefaultCryptoProvider.pas
+  s_5e9312dc1422f7::t_806426dabb3b63 35,289-290,533-551,559,758-759,773,795,799,1915-1919,1927-1928,2008,2013-2023,2026-2040,2047,2063,2071,2736-2772,2780,2803,2807,2815-2816,2824
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "31bdf4ee2f9ed04b122378af0531f99a8a8539ee",
+  "prompts": {},
+  "sessions": {
+    "s_5e9312dc1422f7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b29c589c-ed14-449b-8005-c9f68f77c10c",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
