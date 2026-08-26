@@ -383,6 +383,7 @@ var
   // building completed from the configured intermediates, this carries the assembled path
   // (with the recovered issuer), so revocation and pinning see it rather than the bare leaf
   LEffectiveChain: TArray<TBytes>;
+  LLeaf: IInspectedCertificate;
 begin
   Result := False;
   AAlert := TTlsAlertDescription.BadCertificate;
@@ -424,13 +425,14 @@ begin
 
   // endpoint identity (RFC 6125) over the leaf's dNSName / iPAddress SAN entries
   if FCheckHostName and (AHostName <> '') then
-    if not TEndpointIdentity.Matches(AHostName,
-      FProvider.Certificates.DnsNames(AChain[0]),
-      FProvider.Certificates.IpAddresses(AChain[0])) then
+  begin
+    LLeaf := FProvider.Certificates.Parse(AChain[0]);
+    if not TEndpointIdentity.Matches(AHostName, LLeaf.DnsNames, LLeaf.IpAddresses) then
     begin
       AAlert := TTlsAlertDescription.BadCertificate;
       Exit;
     end;
+  end;
 
   // optional SPKI pinning augments the validated chain; it never bypasses it. Pin against the
   // validated chain so a pin on a recovered intermediate matches even for a leaf-only peer
