@@ -75,7 +75,7 @@ type
   /// <summary>
   /// Raw HKDF (RFC 5869): <see cref="Extract" /> derives a pseudo-random key,
   /// <see cref="Expand" /> stretches it. The TLS HKDF-Expand-Label wrapper is a
-  /// higher layer.
+  /// higher layer. An instance is stateful and is not shared across threads.
   /// </summary>
   IHkdf = interface(IInterface)
     ['{CE8C6F1F-9C1E-46F2-95EC-8F8FA500A5DD}']
@@ -237,12 +237,38 @@ type
 { ===== Certificate operations ===== }
 
   /// <summary>
-  /// Pure, per-certificate, side-effect-free X.509 inspection. Every method is
-  /// fail-closed: it never raises on malformed input, returning False (or an empty
-  /// result) so the caller decides the alert.
+  /// A single certificate parsed once into an opaque handle, answering the
+  /// per-certificate queries from that one decode. It lets a caller that inspects the
+  /// same leaf several times in a handshake pay the ASN.1 decode a single time. The
+  /// handle is obtained from <see cref="ICertificateInspector.Parse" /> and is not
+  /// shared across threads.
+  /// </summary>
+  IInspectedCertificate = interface(IInterface)
+    ['{5A0E2B77-3C41-4E28-9B6E-7E9F0C6D1A44}']
+    function PublicKeyInfo: TBytes;
+    function DnsNames: TArray<string>;
+    function IpAddresses: TArray<TBytes>;
+    function KeyUsagePermits(AUsage: TCertKeyUsage; out APermitted: Boolean): Boolean;
+    function HasRsaPssKey(out AIsRsaPss: Boolean): Boolean;
+    function KeyKind(out AKind: TCertKeyKind; out AEcNamedGroup: UInt16): Boolean;
+  end;
+
+  /// <summary>
+  /// Pure, per-certificate, side-effect-free X.509 inspection. The Boolean-returning
+  /// queries are fail-closed: they never raise on malformed input, returning False (or
+  /// an empty result) so the caller decides the alert. Parse, LoadChain, and the
+  /// extractor methods (PublicKeyInfo, DnsNames, IpAddresses) raise on malformed input.
   /// </summary>
   ICertificateInspector = interface(IInterface)
     ['{243AB9CD-2900-4A04-B952-FEC3CD105B05}']
+    /// <summary>
+    /// Decodes ADer once into a handle that answers the per-certificate queries from
+    /// that single decode. Raises when ADer does not decode to a certificate (empty or
+    /// malformed); otherwise returns a handle over a well-formed certificate. Unlike the
+    /// fail-closed DER-taking queries it raises rather than returning False, so use it
+    /// where the certificate is already known well-formed.
+    /// </summary>
+    function Parse(const ADer: TBytes): IInspectedCertificate;
     /// <summary>
     /// Decodes certificates from AData - a PEM block (a single certificate or a whole
     /// leaf-first chain/bundle) or a single DER certificate - into their ordered raw

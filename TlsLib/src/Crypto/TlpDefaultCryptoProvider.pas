@@ -32,6 +32,7 @@ uses
   ClpIHkdfParameters,
   ClpHkdfParameters,
   ClpHkdfBytesGenerator,
+  ClpIHkdfBytesGenerator,
   ClpIKeyParameter,
   ClpKeyParameter,
   ClpIBlockCipher,
@@ -285,6 +286,8 @@ type
   strict private
   var
     FAlgorithm: THashAlgorithm;
+    FExtractMac: IMac;
+    FExpandGen: IHkdfBytesGenerator;
     function NewDigest: IDigest;
   public
     constructor Create(AAlgorithm: THashAlgorithm);
@@ -527,15 +530,33 @@ type
       const APublicKeyDer: TBytes): ISignatureVerifier;
   end;
 
+  // IInspectedCertificate - one X.509 certificate decoded once, answering the
+  // per-certificate queries from that single parse.
+  TInspectedCertificate = class(TInterfacedObject, IInspectedCertificate)
+  strict private
+  const
+    // PKCS#1 id-RSASSA-PSS: the restricted RSA-PSS key type (RFC 4055)
+    RsaSsaPssKeyOid = '1.2.840.113549.1.1.10';
+  var
+    FCert: IX509Certificate;
+  public
+    constructor Create(const ADer: TBytes);
+    function PublicKeyInfo: TBytes;
+    function DnsNames: TArray<string>;
+    function IpAddresses: TArray<TBytes>;
+    function KeyUsagePermits(AUsage: TCertKeyUsage; out APermitted: Boolean): Boolean;
+    function HasRsaPssKey(out AIsRsaPss: Boolean): Boolean;
+    function KeyKind(out AKind: TCertKeyKind; out AEcNamedGroup: UInt16): Boolean;
+  end;
+
   // ICertificateInspector - pure, per-certificate, side-effect-free X.509 inspection.
   TCertificateInspector = class(TInterfacedObject, ICertificateInspector)
   strict private
   const
     // RFC 7633 id-pe-tlsfeature
     TlsFeatureExtensionOid = '1.3.6.1.5.5.7.1.24';
-    // PKCS#1 id-RSASSA-PSS: the restricted RSA-PSS key type (RFC 4055)
-    RsaSsaPssKeyOid = '1.2.840.113549.1.1.10';
   public
+    function Parse(const ADer: TBytes): IInspectedCertificate;
     function LoadChain(const AData: TBytes): TArray<TBytes>;
     function IsWellFormed(const ADer: TBytes): Boolean;
     function PublicKeyInfo(const ACertificateDer: TBytes): TBytes;
@@ -734,6 +755,8 @@ constructor THkdfAdapter.Create(AAlgorithm: THashAlgorithm);
 begin
   inherited Create;
   FAlgorithm := AAlgorithm;
+  FExtractMac := THMac.Create(NewDigest) as IMac;
+  FExpandGen := THkdfBytesGenerator.Create(NewDigest) as IHkdfBytesGenerator;
 end;
 
 function THkdfAdapter.NewDigest: IDigest;
@@ -747,7 +770,7 @@ var
   LMac: IMac;
   LSalt, LIkmBytes, LPrk: TBytes;
 begin
-  LMac := THMac.Create(NewDigest) as IMac;
+  LMac := FExtractMac;
   LSalt := ASalt;
   if System.Length(LSalt) = 0 then
     SetLength(LSalt, LMac.GetMacSize); // HashLen zero bytes
@@ -769,11 +792,11 @@ end;
 function THkdfAdapter.Expand(const APrk: ISecretBuffer; const AInfo: TBytes;
   ALength: Int32): ISecretBuffer;
 var
-  LGen: THkdfBytesGenerator;
+  LGen: IHkdfBytesGenerator;
   LParams: IHkdfParameters;
   LPrkBytes, LOkm: TBytes;
 begin
-  LGen := THkdfBytesGenerator.Create(NewDigest);
+  LGen := FExpandGen;
   LPrkBytes := APrk.ToBytes;
   try
     LParams := THkdfParameters.SkipExtractParameters(LPrkBytes, AInfo);
@@ -789,7 +812,6 @@ begin
     end;
   finally
     TSecureMemory.WipeBytes(LPrkBytes);
-    LGen.Free;
   end;
 end;
 
@@ -1890,17 +1912,20 @@ begin
     raise EArgumentTlsLibException.CreateRes(@SNoCertificatesFound);
 end;
 
+function TCertificateInspector.Parse(const ADer: TBytes): IInspectedCertificate;
+begin
+  Result := TInspectedCertificate.Create(ADer) as IInspectedCertificate;
+end;
+
 function TCertificateInspector.IsWellFormed(
   const ADer: TBytes): Boolean;
-var
-  LParser: IX509CertificateParser;
 begin
   Result := False;
   if System.Length(ADer) = 0 then
     Exit;
   try
-    LParser := TX509CertificateParser.Create;
-    Result := LParser.ReadCertificate(ADer) <> nil;
+    Parse(ADer);
+    Result := True;
   except
     Result := False;
   end;
@@ -1979,29 +2004,47 @@ end;
 
 function TCertificateInspector.PublicKeyInfo(
   const ACertificateDer: TBytes): TBytes;
-var
-  LParser: IX509CertificateParser;
-  LCert: IX509Certificate;
 begin
-  LParser := TX509CertificateParser.Create;
-  LCert := LParser.ReadCertificate(ACertificateDer);
-  Result := LCert.GetSubjectPublicKeyInfo.GetDerEncoded;
+  Result := Parse(ACertificateDer).PublicKeyInfo;
 end;
 
 function TCertificateInspector.DnsNames(
   const ACertificateDer: TBytes): TArray<string>;
+begin
+  Result := Parse(ACertificateDer).DnsNames;
+end;
+
+function TCertificateInspector.IpAddresses(
+  const ACertificateDer: TBytes): TArray<TBytes>;
+begin
+  Result := Parse(ACertificateDer).IpAddresses;
+end;
+
+constructor TInspectedCertificate.Create(const ADer: TBytes);
 var
   LParser: IX509CertificateParser;
-  LCert: IX509Certificate;
+begin
+  inherited Create;
+  LParser := TX509CertificateParser.Create;
+  FCert := LParser.ReadCertificate(ADer);
+  if FCert = nil then
+    raise EArgumentTlsLibException.CreateRes(@SMalformedCertificate);
+end;
+
+function TInspectedCertificate.PublicKeyInfo: TBytes;
+begin
+  Result := FCert.GetSubjectPublicKeyInfo.GetDerEncoded;
+end;
+
+function TInspectedCertificate.DnsNames: TArray<string>;
+var
   LGeneralNames: IGeneralNames;
   LNames: TArray<IGeneralName>;
   LString: IAsn1String;
   LI, LCount: Int32;
 begin
   Result := nil;
-  LParser := TX509CertificateParser.Create;
-  LCert := LParser.ReadCertificate(ACertificateDer);
-  LGeneralNames := LCert.GetSubjectAlternativeNameExtension;
+  LGeneralNames := FCert.GetSubjectAlternativeNameExtension;
   if LGeneralNames = nil then
     Exit;
   LNames := LGeneralNames.GetNames;
@@ -2017,20 +2060,15 @@ begin
   SetLength(Result, LCount);
 end;
 
-function TCertificateInspector.IpAddresses(
-  const ACertificateDer: TBytes): TArray<TBytes>;
+function TInspectedCertificate.IpAddresses: TArray<TBytes>;
 var
-  LParser: IX509CertificateParser;
-  LCert: IX509Certificate;
   LGeneralNames: IGeneralNames;
   LNames: TArray<IGeneralName>;
   LOctets: IAsn1OctetString;
   LI, LCount: Int32;
 begin
   Result := nil;
-  LParser := TX509CertificateParser.Create;
-  LCert := LParser.ReadCertificate(ACertificateDer);
-  LGeneralNames := LCert.GetSubjectAlternativeNameExtension;
+  LGeneralNames := FCert.GetSubjectAlternativeNameExtension;
   if LGeneralNames = nil then
     Exit;
   LNames := LGeneralNames.GetNames;
@@ -2695,21 +2733,53 @@ end;
 function TCertificateInspector.KeyUsagePermits(
   const ACertificateDer: TBytes; AUsage: TCertKeyUsage;
   out APermitted: Boolean): Boolean;
+begin
+  try
+    Result := Parse(ACertificateDer).KeyUsagePermits(AUsage, APermitted);
+  except
+    // an unparseable certificate cannot be determined; imposes no restriction
+    APermitted := True;
+    Result := False;
+  end;
+end;
+
+function TCertificateInspector.HasRsaPssKey(
+  const ACertificateDer: TBytes; out AIsRsaPss: Boolean): Boolean;
+begin
+  try
+    Result := Parse(ACertificateDer).HasRsaPssKey(AIsRsaPss);
+  except
+    // an unparseable certificate cannot be determined; AIsRsaPss stays False
+    AIsRsaPss := False;
+    Result := False;
+  end;
+end;
+
+function TCertificateInspector.KeyKind(const ACertificateDer: TBytes;
+  out AKind: TCertKeyKind; out AEcNamedGroup: UInt16): Boolean;
+begin
+  try
+    Result := Parse(ACertificateDer).KeyKind(AKind, AEcNamedGroup);
+  except
+    // an unparseable certificate cannot be classified
+    AKind := TCertKeyKind.Rsa;
+    AEcNamedGroup := 0;
+    Result := False;
+  end;
+end;
+
+function TInspectedCertificate.KeyUsagePermits(AUsage: TCertKeyUsage;
+  out APermitted: Boolean): Boolean;
 var
-  LParser: IX509CertificateParser;
-  LCert: IX509Certificate;
   LBits: TArray<Boolean>;
   LIndex: Int32;
 begin
   // absent extension or an undeterminable certificate imposes no restriction
   APermitted := True;
   try
-    LParser := TX509CertificateParser.Create;
-    LCert := LParser.ReadCertificate(ACertificateDer);
-    LBits := LCert.GetKeyUsage; // nil when the keyUsage extension is absent
+    LBits := FCert.GetKeyUsage; // nil when the keyUsage extension is absent
     Result := True;
   except
-    // an unparseable certificate cannot be determined; APermitted stays True
     Exit(False);
   end;
   if LBits = nil then
@@ -2730,42 +2800,30 @@ begin
   APermitted := (LIndex >= 0) and (LIndex <= High(LBits)) and LBits[LIndex];
 end;
 
-function TCertificateInspector.HasRsaPssKey(
-  const ACertificateDer: TBytes; out AIsRsaPss: Boolean): Boolean;
-var
-  LParser: IX509CertificateParser;
-  LCert: IX509Certificate;
+function TInspectedCertificate.HasRsaPssKey(out AIsRsaPss: Boolean): Boolean;
 begin
   AIsRsaPss := False;
   try
-    LParser := TX509CertificateParser.Create;
-    LCert := LParser.ReadCertificate(ACertificateDer);
-    AIsRsaPss := LCert.GetSubjectPublicKeyInfo.GetAlgorithm.GetAlgorithm.GetID
+    AIsRsaPss := FCert.GetSubjectPublicKeyInfo.GetAlgorithm.GetAlgorithm.GetID
       = RsaSsaPssKeyOid;
     Result := True;
   except
-    // an unparseable certificate cannot be determined; AIsRsaPss stays False
     Result := False;
   end;
 end;
 
-function TCertificateInspector.KeyKind(const ACertificateDer: TBytes;
-  out AKind: TCertKeyKind; out AEcNamedGroup: UInt16): Boolean;
+function TInspectedCertificate.KeyKind(out AKind: TCertKeyKind;
+  out AEcNamedGroup: UInt16): Boolean;
 var
-  LParser: IX509CertificateParser;
-  LCert: IX509Certificate;
   LAlg: IAlgorithmIdentifier;
   LOid, LCurve: IDerObjectIdentifier;
 begin
   AKind := TCertKeyKind.Rsa; // ignored unless Result is True
   AEcNamedGroup := 0;
   try
-    LParser := TX509CertificateParser.Create;
-    LCert := LParser.ReadCertificate(ACertificateDer);
-    LAlg := LCert.GetSubjectPublicKeyInfo.GetAlgorithm;
+    LAlg := FCert.GetSubjectPublicKeyInfo.GetAlgorithm;
     LOid := LAlg.Algorithm;
   except
-    // an unparseable certificate cannot be classified
     Exit(False);
   end;
   Result := True;

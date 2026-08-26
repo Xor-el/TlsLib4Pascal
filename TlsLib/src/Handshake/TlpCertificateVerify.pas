@@ -125,16 +125,19 @@ class procedure TCertificateVerify.EnforceSigningLeafPolicy(
   const AProvider: ICryptoProvider; const ALeafCertificate: TBytes;
   const AScheme: TSignatureScheme; ABindEcdsaCurve: Boolean);
 var
+  LLeaf: IInspectedCertificate;
   LPermitted, LIsRsaPss: Boolean;
   LKind: TCertKeyKind;
   LCertGroup, LSchemeGroup: UInt16;
 begin
-  if AProvider.Certificates.KeyUsagePermits(ALeafCertificate,
-    TCertKeyUsage.DigitalSignature, LPermitted) and not LPermitted then
+  // the caller has already screened the leaf with EnsureWellFormedLeaf, so this decode
+  // succeeds and answers all three signing-policy queries from one parse
+  LLeaf := AProvider.Certificates.Parse(ALeafCertificate);
+  if LLeaf.KeyUsagePermits(TCertKeyUsage.DigitalSignature, LPermitted) and
+    not LPermitted then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.BadCertificate, @SLeafKeyUsageForbidsSigning);
-  if AScheme.IsRsaPssRsae and
-    AProvider.Certificates.HasRsaPssKey(ALeafCertificate, LIsRsaPss) and LIsRsaPss then
+  if AScheme.IsRsaPssRsae and LLeaf.HasRsaPssKey(LIsRsaPss) and LIsRsaPss then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SPssLeafKeyUnsupported);
   // TLS 1.3 binds the ECDSA curve to the signature scheme: an ecdsa_secp384r1_sha384
@@ -142,8 +145,7 @@ begin
   if ABindEcdsaCurve then
   begin
     LSchemeGroup := EcdsaSchemeNamedGroup(AScheme);
-    if (LSchemeGroup <> 0) and
-      AProvider.Certificates.KeyKind(ALeafCertificate, LKind, LCertGroup) and
+    if (LSchemeGroup <> 0) and LLeaf.KeyKind(LKind, LCertGroup) and
       (LKind = TCertKeyKind.Ecdsa) and (LCertGroup <> LSchemeGroup) then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SEcdsaSchemeCurveMismatch);
