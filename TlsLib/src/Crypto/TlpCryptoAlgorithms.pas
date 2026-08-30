@@ -31,6 +31,10 @@ type
   /// <summary>The AEAD ciphers the library selects between (internal identifiers).</summary>
   TAeadAlgorithm = (AES_128_GCM, AES_256_GCM, CHACHA20_POLY1305);
 
+  /// <summary>An AEAD's usage-limit family: AES-GCM must proactively rekey by a
+  /// record-count bound, ChaCha20-Poly1305 is bounded only by the record sequence.</summary>
+  TAeadUsageCategory = (AesGcm, ChaCha20);
+
   /// <summary>The Diffie-Hellman key-agreement primitives (X25519 and NIST prime curves).</summary>
   TKeyAgreementAlgorithm = (X25519, SECP256R1, SECP384R1, SECP521R1);
 
@@ -62,6 +66,10 @@ type
   /// signature scheme's curve to the leaf key's curve (RFC 8446 4.2.3).
   /// </summary>
   TCertKeyKind = (Rsa, Ecdsa, Ed25519, Ed448);
+
+  /// <summary>Fail-closed answer to a Boolean certificate query: Undetermined when the
+  /// certificate or the queried field is malformed, otherwise No / Yes.</summary>
+  TCertAnswer = (Undetermined, No, Yes);
 
   /// <summary>
   /// How a named group performs its key exchange: Ecdhe is a classical ephemeral

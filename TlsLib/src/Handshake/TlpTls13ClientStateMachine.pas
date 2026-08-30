@@ -165,6 +165,9 @@ type
     FMiddleboxCcsSent: Boolean;
     FOfferedExtensions: TArray<UInt16>;
     FCertificateChain: TArray<TBytes>;
+    // the server leaf parsed once for the well-formed gate, reused for the signing-policy
+    // check and its SubjectPublicKeyInfo; released once the signature is verified
+    FParsedServerLeaf: IInspectedCertificate;
     /// <summary>The stapled OCSP response the server delivered in the leaf CertificateEntry
     /// (RFC 8446 4.4.2.1); empty when none was stapled. Fed to the trust verdict.</summary>
     FReceivedOcspStaple: TBytes;
@@ -898,6 +901,8 @@ begin
 
     FCurrentGroup.Decapsulate(FEphemeralPrivate,
       LContext.SelectedKeyShare.KeyExchange, LShared);
+    // the ephemeral private is spent; release it now so its buffer is wiped
+    FEphemeralPrivate := nil;
 
     // the server accepted a PSK iff it echoed pre_shared_key with our identity index; that
     // index must be within the list we offered (RFC 8446 4.2.11), and the selected suite's
@@ -1213,13 +1218,15 @@ begin
   end;
   // keep the chain (leaf first) for the CertificateVerify and the trust verdict
   FCertificateChain := nil;
+  FParsedServerLeaf := nil;
   SetLength(FCertificateChain, System.Length(LCert.Entries));
   for LI := 0 to High(LCert.Entries) do
     FCertificateChain[LI] := LCert.Entries[LI].CertData;
 
   // a server leaf that is not a well-formed certificate is a decode error, caught before
   // the CertificateVerify signature check and the trust verdict
-  TCertificateVerify.EnsureWellFormedLeaf(FParams.Provider, FCertificateChain[0]);
+  FParsedServerLeaf := TCertificateVerify.ParseWellFormedLeaf(FParams.Provider,
+    FCertificateChain[0]);
 
   // capture any stapled OCSP response carried in the leaf entry (RFC 8446 4.4.2.1)
   FReceivedOcspStaple := nil;
@@ -1303,14 +1310,15 @@ begin
 
   // the server leaf must permit digitalSignature and, for an rsa_pss_rsae_* scheme, not
   // be an id-RSASSA-PSS key (shared with the server verifying the client leaf)
-  TCertificateVerify.EnforceSigningLeafPolicy(FParams.Provider,
-    FCertificateChain[0], LScheme, True);
+  TCertificateVerify.EnforceSigningLeafPolicy(FParsedServerLeaf, LScheme, True);
 
   // the signature is over the transcript through the Certificate (this message not yet folded in)
   LContent := TCertificateVerify.SignatureContent(True, FTranscript.CurrentHash);
-  LPublicKeyInfo := FParams.Provider.Certificates.PublicKeyInfo(FCertificateChain[0]);
+  LPublicKeyInfo := FParsedServerLeaf.PublicKeyInfo;
   LVerifier := FParams.Provider.Signing.CreateSignatureVerifier(LScheme, LPublicKeyInfo);
   LVerifier.Update(LContent, 0, System.Length(LContent));
+  // the parsed leaf is no longer needed; release it rather than pin the ASN.1 graph
+  FParsedServerLeaf := nil;
   if not LVerifier.Verify(LCertVerify.Signature) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.DecryptError, @SBadCertificateVerify);

@@ -208,6 +208,9 @@ type
     /// <summary>The client's certificate chain (leaf first), captured for the client
     /// CertificateVerify once the client Certificate is processed.</summary>
     FClientCertChain: TArray<TBytes>;
+    // the client leaf parsed once for the well-formed gate, reused for the signing-policy
+    // check and its SubjectPublicKeyInfo; released once the signature is verified
+    FParsedClientLeaf: IInspectedCertificate;
     /// <summary>Whether this handshake authenticated via a pre_shared_key (a resumption
     /// ticket or an out-of-band external PSK): the server skips its Certificate/
     /// CertificateVerify and seeds the schedule with the PSK.</summary>
@@ -1385,6 +1388,7 @@ begin
   FTranscript.Update(AMessage.Raw);
 
   FClientCertChain := nil;
+  FParsedClientLeaf := nil;
   SetLength(FClientCertChain, System.Length(LCert.Entries));
   for LI := 0 to High(LCert.Entries) do
     FClientCertChain[LI] := LCert.Entries[LI].CertData;
@@ -1402,7 +1406,8 @@ begin
 
   // a client leaf that is not a well-formed certificate is a decode error, caught before
   // the verifier (which, for -require-any-client-certificate, does not parse the chain)
-  TCertificateVerify.EnsureWellFormedLeaf(FParams.Provider, FClientCertChain[0]);
+  FParsedClientLeaf := TCertificateVerify.ParseWellFormedLeaf(FParams.Provider,
+    FClientCertChain[0]);
 
   // RFC 8446 4.4.2: extensions on a client CertificateEntry must correspond to ones in the
   // CertificateRequest; we request none, so any leaf extension is unsupported_extension.
@@ -1447,13 +1452,14 @@ begin
       TTlsAlertDescription.IllegalParameter, @SLegacyPkcs1InClientCertVerify);
   // the client leaf must permit digitalSignature and, for an rsa_pss_rsae_* scheme, not
   // be an id-RSASSA-PSS key (symmetric with the client verifying the server leaf)
-  TCertificateVerify.EnforceSigningLeafPolicy(FParams.Provider,
-    FClientCertChain[0], LScheme, True);
+  TCertificateVerify.EnforceSigningLeafPolicy(FParsedClientLeaf, LScheme, True);
   // the client signs the transcript through its Certificate, client-side context string
   LContent := TCertificateVerify.SignatureContent(False, FTranscript.CurrentHash);
-  LPublicKeyInfo := FParams.Provider.Certificates.PublicKeyInfo(FClientCertChain[0]);
+  LPublicKeyInfo := FParsedClientLeaf.PublicKeyInfo;
   LVerifier := FParams.Provider.Signing.CreateSignatureVerifier(LScheme, LPublicKeyInfo);
   LVerifier.Update(LContent, 0, System.Length(LContent));
+  // the parsed leaf is no longer needed; release it rather than pin the ASN.1 graph
+  FParsedClientLeaf := nil;
   if not LVerifier.Verify(LCertVerify.Signature) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.DecryptError, @SBadClientCertVerify);

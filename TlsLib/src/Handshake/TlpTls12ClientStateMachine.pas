@@ -133,6 +133,10 @@ type
     FCurrentGroup: INamedGroup;
     FServerEcdhePublic: TBytes;
     FCertChain: TArray<TBytes>;
+    // the server leaf parsed once for the well-formed gate, reused for the key-kind check,
+    // the signing-policy check and its SubjectPublicKeyInfo; released once the SKE signature
+    // is verified
+    FParsedServerLeaf: IInspectedCertificate;
     FUseExtendedMasterSecret: Boolean;
     FClientSupportsTls13: Boolean;
     /// <summary>Whether the ServerHello echoed status_request, so a CertificateStatus
@@ -523,14 +527,16 @@ var
   LEcGroup: UInt16;
 begin
   Result := nil;
+  FParsedServerLeaf := nil;
   FCertChain := THandshakeMessages.DecodeCertificate12(AMessage.Body);
   if System.Length(FCertChain) = 0 then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.DecodeError, @SEmptyCertificate);
   // a server leaf that is not a well-formed certificate is a decode error
-  TCertificateVerify.EnsureWellFormedLeaf(FParams.Provider, FCertChain[0]);
+  FParsedServerLeaf := TCertificateVerify.ParseWellFormedLeaf(FParams.Provider,
+    FCertChain[0]);
 
-  if FParams.Provider.Certificates.KeyKind(FCertChain[0], LKind, LEcGroup) then
+  if FParsedServerLeaf.KeyKind(LKind, LEcGroup) then
   begin
     // the leaf key algorithm must match the negotiated suite's authentication method (a
     // CertificateCipherMismatch, RFC 5246 7.4.2): an *_RSA suite needs an RSA leaf; an
@@ -592,8 +598,7 @@ begin
 
   // the leaf that signs the ServerKeyExchange must permit digitalSignature and, for an
   // rsa_pss_rsae_* scheme, not be an id-RSASSA-PSS key
-  TCertificateVerify.EnforceSigningLeafPolicy(FParams.Provider,
-    FCertChain[0], LScheme, False);
+  TCertificateVerify.EnforceSigningLeafPolicy(FParsedServerLeaf, LScheme, False);
 
   // the server's curve must be one we offered and a classical ECDHE group we hold;
   // the client key-exchanges on exactly this curve
@@ -607,9 +612,11 @@ begin
   LContent := TArrayUtilities.Concat(
     TArrayUtilities.Concat(FParams.ClientRandom, FServerRandom),
     THandshakeMessages.EcdheServerParams(LSke.NamedCurve, LSke.PublicKey));
-  LPublicKeyInfo := FParams.Provider.Certificates.PublicKeyInfo(FCertChain[0]);
+  LPublicKeyInfo := FParsedServerLeaf.PublicKeyInfo;
   LVerifier := FParams.Provider.Signing.CreateSignatureVerifier(LScheme, LPublicKeyInfo);
   LVerifier.Update(LContent, 0, System.Length(LContent));
+  // the parsed leaf is no longer needed; release it rather than pin the ASN.1 graph
+  FParsedServerLeaf := nil;
   if not LVerifier.Verify(LSke.Signature) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.DecryptError, @SBadServerKeyExchangeSig);
