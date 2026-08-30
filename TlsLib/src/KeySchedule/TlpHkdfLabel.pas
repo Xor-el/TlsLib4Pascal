@@ -19,10 +19,8 @@ uses
   SysUtils,
   TlpISecretBuffer,
   TlpICryptoProvider,
-  TlpTlsLibExceptions,
-  TlpWireVectorMarker,
-  TlpIWireWriter,
-  TlpWireWriter;
+  TlpBinaryPrimitives,
+  TlpTlsLibExceptions;
 
 type
   /// <summary>
@@ -67,28 +65,38 @@ resourcestring
 class function THkdfLabel.BuildHkdfLabel(const ALabel: string;
   const AContext: TBytes; ALength: Int32): TBytes;
 var
-  LWriter: IWireWriter;
-  LFullLabel: TBytes;
-  LMarker: TWireVectorMarker;
+  LPrefixLen, LLabelLen, LFullLabelLen, LContextLen, LPos, LI: Int32;
 begin
+  // HkdfLabel (RFC 8446 7.1): uint16 length || opaque label<7..255> = "tls13 " + ALabel
+  // || opaque context<0..255>.
   Result := nil;
-  LFullLabel := TEncoding.ASCII.GetBytes(Tls13LabelPrefix + ALabel);
-  if (System.Length(LFullLabel) < MinFullLabelLength) or
-    (System.Length(LFullLabel) > MaxFullLabelLength) then
-    raise EArgumentTlsLibException.CreateResFmt(@SLabelLength,
-      [System.Length(LFullLabel)]);
-  if System.Length(AContext) > MaxContextLength then
-    raise EArgumentTlsLibException.CreateResFmt(@SContextLength,
-      [System.Length(AContext)]);
-  LWriter := TWireWriter.Create;
-  LWriter.WriteUInt16(UInt16(ALength));
-  LMarker := LWriter.OpenVector(1);
-  LWriter.WriteBytes(LFullLabel);
-  LWriter.CloseVector(LMarker);
-  LMarker := LWriter.OpenVector(1);
-  LWriter.WriteBytes(AContext);
-  LWriter.CloseVector(LMarker);
-  Result := LWriter.ToBytes;
+  LPrefixLen := System.Length(Tls13LabelPrefix);
+  LLabelLen := System.Length(ALabel);
+  LFullLabelLen := LPrefixLen + LLabelLen;
+  if (LFullLabelLen < MinFullLabelLength) or (LFullLabelLen > MaxFullLabelLength) then
+    raise EArgumentTlsLibException.CreateResFmt(@SLabelLength, [LFullLabelLen]);
+  LContextLen := System.Length(AContext);
+  if LContextLen > MaxContextLength then
+    raise EArgumentTlsLibException.CreateResFmt(@SContextLength, [LContextLen]);
+
+  SetLength(Result, 2 + 1 + LFullLabelLen + 1 + LContextLen);
+  TBinaryPrimitives.WriteUInt16BigEndian(Result, 0, UInt16(ALength));
+  Result[2] := Byte(LFullLabelLen);
+  LPos := 3;
+  for LI := 1 to LPrefixLen do
+  begin
+    Result[LPos] := Byte(Ord(Tls13LabelPrefix[LI]));
+    Inc(LPos);
+  end;
+  for LI := 1 to LLabelLen do
+  begin
+    Result[LPos] := Byte(Ord(ALabel[LI]));
+    Inc(LPos);
+  end;
+  Result[LPos] := Byte(LContextLen);
+  Inc(LPos);
+  if LContextLen > 0 then
+    Move(AContext[0], Result[LPos], LContextLen);
 end;
 
 class function THkdfLabel.HkdfExpandLabel(const AHkdf: IHkdf;

@@ -23,9 +23,6 @@ uses
   TlpISecretBuffer;
 
 type
-  /// <summary>An AEAD's usage-limit family: AES-GCM must proactively rekey by a
-  /// record-count bound, ChaCha20-Poly1305 is bounded only by the record sequence.</summary>
-  TAeadUsageCategory = (AesGcm, ChaCha20);
 
 { ===== Primitive interfaces ===== }
 
@@ -248,9 +245,26 @@ type
     function PublicKeyInfo: TBytes;
     function DnsNames: TArray<string>;
     function IpAddresses: TArray<TBytes>;
-    function KeyUsagePermits(AUsage: TCertKeyUsage; out APermitted: Boolean): Boolean;
-    function HasRsaPssKey(out AIsRsaPss: Boolean): Boolean;
+    /// <summary>
+    /// Whether the certificate's keyUsage extension (RFC 5280 4.2.1.3) permits AUsage.
+    /// Yes when the extension is absent (no restriction) or asserts the bit; No only when
+    /// the extension is present and the bit is clear; Undetermined on a malformed certificate.
+    /// </summary>
+    function KeyUsagePermits(AUsage: TCertKeyUsage): TCertAnswer;
+    /// <summary>
+    /// Whether the certificate's SubjectPublicKeyInfo algorithm is id-RSASSA-PSS
+    /// (OID 1.2.840.113549.1.1.10), the restricted RSA-PSS key type that the
+    /// rsa_pss_rsae_* schemes must not be used with (RFC 8446 4.2.3). Yes when it is,
+    /// No when it is not, Undetermined on a malformed certificate.
+    /// </summary>
+    function KeyIsRsaPss: TCertAnswer;
     function KeyKind(out AKind: TCertKeyKind; out AEcNamedGroup: UInt16): Boolean;
+    /// <summary>
+    /// Extracts the certificate's human-readable identity from the already-decoded handle:
+    /// the subject and issuer distinguished names, the subject common name, and the serial
+    /// number in hex. Returns False (all empty) on a malformed field; never raises.
+    /// </summary>
+    function PeerInfo(out ASubject, AIssuer, ACommonName, ASerialHex: string): Boolean;
   end;
 
   /// <summary>
@@ -306,20 +320,18 @@ type
       out AFeatures: TArray<UInt16>): Boolean;
     /// <summary>
     /// Whether the certificate's keyUsage extension (RFC 5280 4.2.1.3) permits AUsage.
-    /// APermitted is True when the extension is absent (no restriction) or asserts the
-    /// bit; False only when the extension is present and the bit is clear. Returns
-    /// False (could not determine) on a malformed certificate, leaving APermitted True.
+    /// Yes when the extension is absent (no restriction) or asserts the bit; No only when
+    /// the extension is present and the bit is clear; Undetermined on a malformed certificate.
     /// </summary>
     function KeyUsagePermits(const ACertificateDer: TBytes;
-      AUsage: TCertKeyUsage; out APermitted: Boolean): Boolean;
+      AUsage: TCertKeyUsage): TCertAnswer;
     /// <summary>
     /// Whether the certificate's SubjectPublicKeyInfo algorithm is id-RSASSA-PSS
     /// (OID 1.2.840.113549.1.1.10), the restricted RSA-PSS key type that the
-    /// rsa_pss_rsae_* schemes must not be used with (RFC 8446 4.2.3). Returns False
-    /// (could not determine) on a malformed certificate, leaving AIsRsaPss False.
+    /// rsa_pss_rsae_* schemes must not be used with (RFC 8446 4.2.3). Yes when it is,
+    /// No when it is not, Undetermined on a malformed certificate.
     /// </summary>
-    function HasRsaPssKey(const ACertificateDer: TBytes;
-      out AIsRsaPss: Boolean): Boolean;
+    function KeyIsRsaPss(const ACertificateDer: TBytes): TCertAnswer;
     /// <summary>
     /// Classifies the certificate leaf key: AKind is the public-key algorithm, and for an
     /// ECDSA key AEcNamedGroup is the named-group code of its curve (secp256r1 = 0x0017,

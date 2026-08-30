@@ -235,7 +235,10 @@ begin
   L13.OfferedGroups := RegisteredGroupCodes(AConfig, AConfig.PreferredGroups);
   L13.GroupRegistry := AConfig.NamedGroups;
   L13.CipherSuites := AConfig.CipherSuites;
-  L13.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  // the extension registry (its ~20 handlers) is built only for a version whose machine is
+  // actually created below; a single-version client would otherwise build and discard one
+  if LOffers13 then
+    L13.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   L13.OfferedSuites := SuiteCodes(AConfig.CipherSuites);
   L13.OfferedSchemes := SchemeCodes(AConfig.SignatureSchemes);
   L13.AlpnProtocols := AConfig.AlpnProtocols;
@@ -261,7 +264,8 @@ begin
   L12.Provider := AConfig.Provider;
   L12.GroupRegistry := AConfig.NamedGroups;
   L12.CipherSuites := AConfig.CipherSuites;
-  L12.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  if LOffers12 then
+    L12.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   L12.Clock := AConfig.Clock;
   L12.OfferedSuites := SuiteCodes(AConfig.CipherSuites);
   // TLS 1.2 key exchange is ECDHE-only: a 1.2 supported_groups carries no KEM/hybrid group,
@@ -352,7 +356,9 @@ begin
     AConfig.NamedGroups, AConfig.SignatureSchemes, AConfig.PreferredGroups,
     AConfig.SupportedVersions, AConfig.CipherSuitePreference);
   L13.CipherSuites := AConfig.CipherSuites;
-  L13.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  // build the extension registry only for a version whose machine is created below
+  if LOffers13 then
+    L13.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   // the server offers all its preferred groups the registry holds and selects one the client
   // offered (RFC 8446 4.2.8); a group pruned from the registry is never selected, so it cannot fail
   // to resolve mid-handshake. secp256r1 is mandatory to implement (RFC 8446 9.1), never a single group
@@ -398,7 +404,8 @@ begin
   L12.Provider := AConfig.Provider;
   L12.Clock := AConfig.Clock;
   L12.CipherSuites := AConfig.CipherSuites;
-  L12.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  if LOffers12 then
+    L12.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   // TLS 1.2 needs a classical ECDHE group (KEM/hybrid are 1.3-only); the server picks
   // the first of these the client also advertised, so OfferedGroups drives selection
   // and Group is only the low-level single-group fallback

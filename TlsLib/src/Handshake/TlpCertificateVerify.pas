@@ -48,14 +48,14 @@ type
     /// EC key to be on the scheme's named curve (RFC 8446 4.2.3) - TLS 1.2 leaves the curve
     /// to the supported_groups list, so it passes False. Applies symmetrically to a client
     /// verifying the server leaf and a server verifying the client leaf.</summary>
-    class procedure EnforceSigningLeafPolicy(const AProvider: ICryptoProvider;
-      const ALeafCertificate: TBytes; const AScheme: TSignatureScheme;
-      ABindEcdsaCurve: Boolean); static;
-    /// <summary>Rejects a peer leaf that is not a well-formed X.509 certificate with a
-    /// decode_error alert, before it reaches signature verification or the trust pipeline.
-    /// Applies to a received server or client leaf.</summary>
-    class procedure EnsureWellFormedLeaf(const AProvider: ICryptoProvider;
-      const ALeafCertificate: TBytes); static;
+    class procedure EnforceSigningLeafPolicy(const ALeaf: IInspectedCertificate;
+      const AScheme: TSignatureScheme; ABindEcdsaCurve: Boolean); static;
+    /// <summary>Parses a peer leaf, rejecting one that is not a well-formed X.509
+    /// certificate with a decode_error alert before it reaches signature verification or
+    /// the trust pipeline, and returns the parsed handle so the caller reuses the single
+    /// decode. Applies to a received server or client leaf.</summary>
+    class function ParseWellFormedLeaf(const AProvider: ICryptoProvider;
+      const ALeafCertificate: TBytes): IInspectedCertificate; static;
   end;
 
 implementation
@@ -72,15 +72,21 @@ resourcestring
 
 { TCertificateVerify }
 
-class procedure TCertificateVerify.EnsureWellFormedLeaf(
-  const AProvider: ICryptoProvider; const ALeafCertificate: TBytes);
+class function TCertificateVerify.ParseWellFormedLeaf(
+  const AProvider: ICryptoProvider;
+  const ALeafCertificate: TBytes): IInspectedCertificate;
 var
   LSubject, LIssuer, LCommonName, LSerialHex: string;
 begin
-  // CertificatePeerInfo parses the whole certificate and never raises: False means the DER
-  // is not a well-formed X.509 certificate, so reject it before any downstream cert use.
-  if not AProvider.Certificates.PeerInfo(ALeafCertificate, LSubject, LIssuer,
-    LCommonName, LSerialHex) then
+  // the catch-all except covers uncaught backend exception types from the ASN.1 decode
+  try
+    Result := AProvider.Certificates.Parse(ALeafCertificate);
+  except
+    raise EDecodeErrorTlsLibException.CreateRes(@SUnparseableLeafCertificate);
+  end;
+  // PeerInfo probes the whole certificate and never raises: False means a field is not a
+  // well-formed X.509 structure, so reject it before any downstream cert use.
+  if not Result.PeerInfo(LSubject, LIssuer, LCommonName, LSerialHex) then
     raise EDecodeErrorTlsLibException.CreateRes(@SUnparseableLeafCertificate);
 end;
 
@@ -122,22 +128,19 @@ begin
 end;
 
 class procedure TCertificateVerify.EnforceSigningLeafPolicy(
-  const AProvider: ICryptoProvider; const ALeafCertificate: TBytes;
-  const AScheme: TSignatureScheme; ABindEcdsaCurve: Boolean);
+  const ALeaf: IInspectedCertificate; const AScheme: TSignatureScheme;
+  ABindEcdsaCurve: Boolean);
 var
-  LLeaf: IInspectedCertificate;
-  LPermitted, LIsRsaPss: Boolean;
   LKind: TCertKeyKind;
   LCertGroup, LSchemeGroup: UInt16;
 begin
-  // the caller has already screened the leaf with EnsureWellFormedLeaf, so this decode
-  // succeeds and answers all three signing-policy queries from one parse
-  LLeaf := AProvider.Certificates.Parse(ALeafCertificate);
-  if LLeaf.KeyUsagePermits(TCertKeyUsage.DigitalSignature, LPermitted) and
-    not LPermitted then
+  // the caller passes the leaf already parsed by ParseWellFormedLeaf, answering all three
+  // signing-policy queries from that one decode; only a definite No/Yes trips the raise,
+  // an Undetermined field passes (fail-open per check)
+  if ALeaf.KeyUsagePermits(TCertKeyUsage.DigitalSignature) = TCertAnswer.No then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.BadCertificate, @SLeafKeyUsageForbidsSigning);
-  if AScheme.IsRsaPssRsae and LLeaf.HasRsaPssKey(LIsRsaPss) and LIsRsaPss then
+  if AScheme.IsRsaPssRsae and (ALeaf.KeyIsRsaPss = TCertAnswer.Yes) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SPssLeafKeyUnsupported);
   // TLS 1.3 binds the ECDSA curve to the signature scheme: an ecdsa_secp384r1_sha384
@@ -145,7 +148,7 @@ begin
   if ABindEcdsaCurve then
   begin
     LSchemeGroup := EcdsaSchemeNamedGroup(AScheme);
-    if (LSchemeGroup <> 0) and LLeaf.KeyKind(LKind, LCertGroup) and
+    if (LSchemeGroup <> 0) and ALeaf.KeyKind(LKind, LCertGroup) and
       (LKind = TCertKeyKind.Ecdsa) and (LCertGroup <> LSchemeGroup) then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SEcdsaSchemeCurveMismatch);

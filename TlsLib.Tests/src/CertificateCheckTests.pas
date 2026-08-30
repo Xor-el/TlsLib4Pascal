@@ -53,7 +53,7 @@ type
     procedure TestAbsentKeyUsagePermitsSigning;
     procedure TestKeyEnciphermentCertPermitsEncipherment;
     procedure TestMalformedCertLeavesUsagePermitted;
-    // id-RSASSA-PSS key type (CertificateHasRsaPssKey)
+    // id-RSASSA-PSS key type (CertificateKeyIsRsaPss)
     procedure TestRsaPssKeyIsDetected;
     procedure TestNormalRsaKeyIsNotPss;
     procedure TestEcKeyIsNotPss;
@@ -83,10 +83,14 @@ end;
 
 function TTestCertificateChecks.Permits(const ACertName: string;
   AUsage: TCertKeyUsage): Boolean;
+var
+  LAnswer: TCertAnswer;
 begin
-  // asserts the certificate parsed (method result True) and reports the permission
-  CheckTrue(Provider.Certificates.KeyUsagePermits(V(ACertName), AUsage, Result),
-    'the certificate should parse');
+  // asserts the certificate yields a determined answer (never Undetermined) and reports
+  // whether it permits the usage
+  LAnswer := Provider.Certificates.KeyUsagePermits(V(ACertName), AUsage);
+  CheckTrue(LAnswer <> TCertAnswer.Undetermined, 'the certificate should parse');
+  Result := LAnswer = TCertAnswer.Yes;
 end;
 
 procedure TTestCertificateChecks.TestDigitalSignatureCertPermitsSigning;
@@ -120,50 +124,40 @@ begin
 end;
 
 procedure TTestCertificateChecks.TestMalformedCertLeavesUsagePermitted;
-var
-  LPermitted: Boolean;
 begin
-  // a certificate that does not parse cannot restrict usage: result False, permitted True
-  CheckFalse(Provider.Certificates.KeyUsagePermits(
-    TBytes.Create(1, 2, 3, 4), TCertKeyUsage.DigitalSignature, LPermitted),
+  // a certificate that does not parse cannot restrict usage: the answer is Undetermined
+  CheckEquals(Ord(TCertAnswer.Undetermined),
+    Ord(Provider.Certificates.KeyUsagePermits(
+    TBytes.Create(1, 2, 3, 4), TCertKeyUsage.DigitalSignature)),
     'a malformed certificate cannot be determined');
-  CheckTrue(LPermitted, 'an undeterminable certificate imposes no restriction');
 end;
 
 procedure TTestCertificateChecks.TestRsaPssKeyIsDetected;
-var
-  LIsRsaPss: Boolean;
 begin
-  CheckTrue(Provider.Certificates.HasRsaPssKey(V('rsapss_cert'), LIsRsaPss),
-    'the certificate should parse');
-  CheckTrue(LIsRsaPss, 'an id-RSASSA-PSS SubjectPublicKeyInfo is detected');
+  CheckEquals(Ord(TCertAnswer.Yes),
+    Ord(Provider.Certificates.KeyIsRsaPss(V('rsapss_cert'))),
+    'an id-RSASSA-PSS SubjectPublicKeyInfo is detected');
 end;
 
 procedure TTestCertificateChecks.TestNormalRsaKeyIsNotPss;
-var
-  LIsRsaPss: Boolean;
 begin
-  CheckTrue(Provider.Certificates.HasRsaPssKey(V('rsa_normal_cert'), LIsRsaPss),
-    'the certificate should parse');
-  CheckFalse(LIsRsaPss, 'an rsaEncryption key is not id-RSASSA-PSS');
+  CheckEquals(Ord(TCertAnswer.No),
+    Ord(Provider.Certificates.KeyIsRsaPss(V('rsa_normal_cert'))),
+    'an rsaEncryption key is not id-RSASSA-PSS');
 end;
 
 procedure TTestCertificateChecks.TestEcKeyIsNotPss;
-var
-  LIsRsaPss: Boolean;
 begin
-  CheckTrue(Provider.Certificates.HasRsaPssKey(V('ku_digsig_cert'), LIsRsaPss),
-    'the certificate should parse');
-  CheckFalse(LIsRsaPss, 'an ecPublicKey key is not id-RSASSA-PSS');
+  CheckEquals(Ord(TCertAnswer.No),
+    Ord(Provider.Certificates.KeyIsRsaPss(V('ku_digsig_cert'))),
+    'an ecPublicKey key is not id-RSASSA-PSS');
 end;
 
 procedure TTestCertificateChecks.TestMalformedCertIsNotPss;
-var
-  LIsRsaPss: Boolean;
 begin
-  CheckFalse(Provider.Certificates.HasRsaPssKey(TBytes.Create(9, 9, 9), LIsRsaPss),
+  CheckEquals(Ord(TCertAnswer.Undetermined),
+    Ord(Provider.Certificates.KeyIsRsaPss(TBytes.Create(9, 9, 9))),
     'a malformed certificate cannot be determined');
-  CheckFalse(LIsRsaPss, 'an undeterminable certificate is not reported as PSS');
 end;
 
 initialization

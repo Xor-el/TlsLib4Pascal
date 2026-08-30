@@ -57,6 +57,9 @@ uses
   ClpIECGenerators,
   ClpECDHBasicAgreement,
   ClpIECDHBasicAgreement,
+  ClpEphemeralECDHAgreement,
+  ClpIEphemeralECDHAgreement,
+  ClpECCurveConstants,
   ClpMlKemParameters,
   ClpIMlKemParameters,
   ClpMlKemGenerators,
@@ -544,9 +547,10 @@ type
     function PublicKeyInfo: TBytes;
     function DnsNames: TArray<string>;
     function IpAddresses: TArray<TBytes>;
-    function KeyUsagePermits(AUsage: TCertKeyUsage; out APermitted: Boolean): Boolean;
-    function HasRsaPssKey(out AIsRsaPss: Boolean): Boolean;
+    function KeyUsagePermits(AUsage: TCertKeyUsage): TCertAnswer;
+    function KeyIsRsaPss: TCertAnswer;
     function KeyKind(out AKind: TCertKeyKind; out AEcNamedGroup: UInt16): Boolean;
+    function PeerInfo(out ASubject, AIssuer, ACommonName, ASerialHex: string): Boolean;
   end;
 
   // ICertificateInspector - pure, per-certificate, side-effect-free X.509 inspection.
@@ -567,9 +571,8 @@ type
     function TlsFeatures(const ACert: TBytes;
       out AFeatures: TArray<UInt16>): Boolean;
     function KeyUsagePermits(const ACertificateDer: TBytes;
-      AUsage: TCertKeyUsage; out APermitted: Boolean): Boolean;
-    function HasRsaPssKey(const ACertificateDer: TBytes;
-      out AIsRsaPss: Boolean): Boolean;
+      AUsage: TCertKeyUsage): TCertAnswer;
+    function KeyIsRsaPss(const ACertificateDer: TBytes): TCertAnswer;
     function KeyKind(const ACertificateDer: TBytes;
       out AKind: TCertKeyKind; out AEcNamedGroup: UInt16): Boolean;
   end;
@@ -1068,11 +1071,13 @@ end;
 function TNistEcAgreement.AgreeParams(const APriv: IECPrivateKeyParameters;
   const APeer: IECPublicKeyParameters): ISecretBuffer;
 var
-  LAgreement: IECDHBasicAgreement;
+  LAgreement: IEphemeralECDHAgreement;
   LZ: TBytes;
 begin
-  LAgreement := TECDHBasicAgreement.Create;
-  LAgreement.Init(APriv);
+  // The handshake scalar is generated fresh and used once, so a single-use
+  // agreement with the deterministic fixed-length posture is safe here.
+  LAgreement := TEphemeralECDHAgreement.Create(APriv,
+    TECCurveConstants.SCALAR_BLIND_DETERMINISTIC);
   LZ := TBigIntegerUtilities.AsUnsignedByteArray(FFieldSize, LAgreement.CalculateAgreement(APeer));
   try
     Result := TSecretBuffer.From(LZ);
@@ -2645,28 +2650,10 @@ end;
 
 function TCertificateInspector.PeerInfo(const ACertificateDer: TBytes;
   out ASubject, AIssuer, ACommonName, ASerialHex: string): Boolean;
-var
-  LParser: IX509CertificateParser;
-  LCert: IX509Certificate;
-  LCns: TCryptoLibStringArray;
 begin
-  Result := False;
-  ASubject := '';
-  AIssuer := '';
-  ACommonName := '';
-  ASerialHex := '';
-  if System.Length(ACertificateDer) = 0 then
-    Exit;
   try
-    LParser := TX509CertificateParser.Create;
-    LCert := LParser.ReadCertificate(ACertificateDer);
-    ASubject := LCert.SubjectDN.ToString;
-    AIssuer := LCert.IssuerDN.ToString;
-    LCns := LCert.SubjectDN.GetValueList(TX509Name.CN);
-    if System.Length(LCns) > 0 then
-      ACommonName := LCns[0];
-    ASerialHex := LCert.SerialNumber.ToString(16);
-    Result := True;
+    Result := Parse(ACertificateDer).PeerInfo(ASubject, AIssuer, ACommonName,
+      ASerialHex);
   except
     Result := False;
     ASubject := '';
@@ -2731,27 +2718,24 @@ begin
 end;
 
 function TCertificateInspector.KeyUsagePermits(
-  const ACertificateDer: TBytes; AUsage: TCertKeyUsage;
-  out APermitted: Boolean): Boolean;
+  const ACertificateDer: TBytes; AUsage: TCertKeyUsage): TCertAnswer;
 begin
   try
-    Result := Parse(ACertificateDer).KeyUsagePermits(AUsage, APermitted);
+    Result := Parse(ACertificateDer).KeyUsagePermits(AUsage);
   except
     // an unparseable certificate cannot be determined; imposes no restriction
-    APermitted := True;
-    Result := False;
+    Result := TCertAnswer.Undetermined;
   end;
 end;
 
-function TCertificateInspector.HasRsaPssKey(
-  const ACertificateDer: TBytes; out AIsRsaPss: Boolean): Boolean;
+function TCertificateInspector.KeyIsRsaPss(
+  const ACertificateDer: TBytes): TCertAnswer;
 begin
   try
-    Result := Parse(ACertificateDer).HasRsaPssKey(AIsRsaPss);
+    Result := Parse(ACertificateDer).KeyIsRsaPss;
   except
-    // an unparseable certificate cannot be determined; AIsRsaPss stays False
-    AIsRsaPss := False;
-    Result := False;
+    // an unparseable certificate cannot be determined
+    Result := TCertAnswer.Undetermined;
   end;
 end;
 
@@ -2768,22 +2752,19 @@ begin
   end;
 end;
 
-function TInspectedCertificate.KeyUsagePermits(AUsage: TCertKeyUsage;
-  out APermitted: Boolean): Boolean;
+function TInspectedCertificate.KeyUsagePermits(AUsage: TCertKeyUsage): TCertAnswer;
 var
   LBits: TArray<Boolean>;
   LIndex: Int32;
 begin
-  // absent extension or an undeterminable certificate imposes no restriction
-  APermitted := True;
   try
     LBits := FCert.GetKeyUsage; // nil when the keyUsage extension is absent
-    Result := True;
   except
-    Exit(False);
+    Exit(TCertAnswer.Undetermined);
   end;
+  // an absent extension imposes no restriction
   if LBits = nil then
-    Exit;
+    Exit(TCertAnswer.Yes);
   // RFC 5280 4.2.1.3 bit order: digitalSignature(0), keyEncipherment(2), keyAgreement(4)
   case AUsage of
     TCertKeyUsage.DigitalSignature:
@@ -2797,18 +2778,48 @@ begin
   end;
   // the extension is present, so the bit must be asserted; a bit past the encoded
   // length is an omitted trailing zero, i.e. not asserted
-  APermitted := (LIndex >= 0) and (LIndex <= High(LBits)) and LBits[LIndex];
+  if (LIndex >= 0) and (LIndex <= High(LBits)) and LBits[LIndex] then
+    Result := TCertAnswer.Yes
+  else
+    Result := TCertAnswer.No;
 end;
 
-function TInspectedCertificate.HasRsaPssKey(out AIsRsaPss: Boolean): Boolean;
+function TInspectedCertificate.KeyIsRsaPss: TCertAnswer;
 begin
-  AIsRsaPss := False;
   try
-    AIsRsaPss := FCert.GetSubjectPublicKeyInfo.GetAlgorithm.GetAlgorithm.GetID
-      = RsaSsaPssKeyOid;
+    if FCert.GetSubjectPublicKeyInfo.GetAlgorithm.GetAlgorithm.GetID
+      = RsaSsaPssKeyOid then
+      Result := TCertAnswer.Yes
+    else
+      Result := TCertAnswer.No;
+  except
+    Result := TCertAnswer.Undetermined;
+  end;
+end;
+
+function TInspectedCertificate.PeerInfo(out ASubject, AIssuer, ACommonName,
+  ASerialHex: string): Boolean;
+var
+  LCns: TCryptoLibStringArray;
+begin
+  ASubject := '';
+  AIssuer := '';
+  ACommonName := '';
+  ASerialHex := '';
+  try
+    ASubject := FCert.SubjectDN.ToString;
+    AIssuer := FCert.IssuerDN.ToString;
+    LCns := FCert.SubjectDN.GetValueList(TX509Name.CN);
+    if System.Length(LCns) > 0 then
+      ACommonName := LCns[0];
+    ASerialHex := FCert.SerialNumber.ToString(16);
     Result := True;
   except
     Result := False;
+    ASubject := '';
+    AIssuer := '';
+    ACommonName := '';
+    ASerialHex := '';
   end;
 end;
 

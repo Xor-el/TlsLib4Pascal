@@ -177,6 +177,9 @@ type
     /// <summary>The client's certificate chain (leaf first) and whether it sent one, for
     /// the client CertificateVerify and the required-auth policy.</summary>
     FClientCertChain: TArray<TBytes>;
+    // the client leaf parsed once for the well-formed gate, reused for the signing-policy
+    // check and its SubjectPublicKeyInfo; released once the signature is verified
+    FParsedClientLeaf: IInspectedCertificate;
     FClientSentCertificate: Boolean;
     /// <summary>The raw concatenation of every handshake message, which the TLS 1.2
     /// client CertificateVerify is signed over (RFC 5246 7.4.8) - its scheme hashes this,
@@ -717,6 +720,7 @@ var
 begin
   Result := nil;
   FClientCertChain := THandshakeMessages.DecodeCertificate12(AMessage.Body);
+  FParsedClientLeaf := nil;
   Absorb(AMessage.Raw);
   FClientSentCertificate := System.Length(FClientCertChain) > 0;
 
@@ -730,7 +734,8 @@ begin
   begin
     // a client leaf that is not a well-formed certificate is a decode error, caught before
     // the verifier (which, for -require-any-client-certificate, does not parse the chain)
-    TCertificateVerify.EnsureWellFormedLeaf(FParams.Provider, FClientCertChain[0]);
+    FParsedClientLeaf := TCertificateVerify.ParseWellFormedLeaf(FParams.Provider,
+      FClientCertChain[0]);
     // fail-closed: without a verifier there is no basis to trust the chain (LAlert would
     // otherwise be read unassigned when the nil check short-circuits the Verify call)
     if FParams.ClientCertificateVerifier = nil then
@@ -792,13 +797,14 @@ begin
       TTlsAlertDescription.IllegalParameter, @SBadClientCertVerify);
   // the client leaf must permit digitalSignature and, for an rsa_pss_rsae_* scheme, not
   // be an id-RSASSA-PSS key (symmetric with the client verifying the server leaf)
-  TCertificateVerify.EnforceSigningLeafPolicy(FParams.Provider,
-    FClientCertChain[0], LScheme, False);
+  TCertificateVerify.EnforceSigningLeafPolicy(FParsedClientLeaf, LScheme, False);
   // the 1.2 CertificateVerify signs the raw handshake log through ClientKeyExchange;
   // the scheme applies its own hash, so the suite PRF hash does not matter here
-  LPublicKeyInfo := FParams.Provider.Certificates.PublicKeyInfo(FClientCertChain[0]);
+  LPublicKeyInfo := FParsedClientLeaf.PublicKeyInfo;
   LVerifier := FParams.Provider.Signing.CreateSignatureVerifier(LScheme, LPublicKeyInfo);
   LVerifier.Update(FHandshakeLog.Bytes, 0, FHandshakeLog.Size);
+  // the parsed leaf is no longer needed; release it rather than pin the ASN.1 graph
+  FParsedClientLeaf := nil;
   if not LVerifier.Verify(LCertVerify.Signature) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.DecryptError, @SBadClientCertVerify);
