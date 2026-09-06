@@ -717,8 +717,10 @@ type
 
   // IHpke - RFC 9180 base-mode HPKE over CryptoLib's ClpHpke (TDhKem for KEM key ops).
   THpkeFacet = class(TInterfacedObject, IHpke)
-  strict private
-    class function InSet(const AValues: array of UInt16; AValue: UInt16): Boolean; static;
+  private
+    class function TryKemIdOf(AKem: UInt16; out AId: THpkeKemId): Boolean; static;
+    class function TryKdfIdOf(AKdf: UInt16; out AId: THpkeKdfId): Boolean; static;
+    class function TryAeadIdOf(AAead: UInt16; out AId: THpkeAeadId): Boolean; static;
     class function IsKnownKem(AKem: UInt16): Boolean; static;
     class function IsKnownKdf(AKdf: UInt16): Boolean; static;
     class function IsRealAead(AAead: UInt16): Boolean; static;
@@ -1776,8 +1778,7 @@ begin
   // the prepared key pair carries the recipient private key, so opening does no key derivation;
   // a malformed peer encapsulation surfaces as a typed open failure, never an unwrapped backend one
   try
-    LHpke := THpke.Create(THpkeMode.Base, THpkeKemId(ASuite.Kem),
-      THpkeKdfId(ASuite.Kdf), THpkeAeadId(ASuite.Aead)) as ClpIHpke.IHpke;
+    LHpke := THpkeFacet.HpkeFacade(ASuite);
     LCtx := LHpke.SetupBaseR(AEnc, FKeyPair, AInfo);
   except
     on E: EBaseTlsLibException do
@@ -1788,45 +1789,80 @@ begin
   Result := THpkeOpenerAdapter.Create(LCtx) as IHpkeOpener;
 end;
 
-const
-  // the single source for the HPKE vocabulary this provider can instantiate: the support
-  // predicates below and SupportedSuites both derive from these, so a new algorithm added
-  // here reaches every consumer (the ECH config filter, GREASE) with no second list to sync
-  HpkeKnownKems: array [0 .. 4] of UInt16 = (THpkeKem.DHKEM_P256_HKDF_SHA256,
-    THpkeKem.DHKEM_P384_HKDF_SHA384, THpkeKem.DHKEM_P521_HKDF_SHA512,
-    THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKem.DHKEM_X448_HKDF_SHA512);
-  HpkeKnownKdfs: array [0 .. 2] of UInt16 = (THpkeKdf.HKDF_SHA256,
-    THpkeKdf.HKDF_SHA384, THpkeKdf.HKDF_SHA512);
-  // real (never export-only) AEADs: export-only 0xFFFF cannot seal/open
-  HpkeRealAeads: array [0 .. 2] of UInt16 = (THpkeAead.AES_128_GCM,
-    THpkeAead.AES_256_GCM, THpkeAead.CHACHA20_POLY1305);
-
 { THpkeFacet }
 
-class function THpkeFacet.InSet(const AValues: array of UInt16;
-  AValue: UInt16): Boolean;
-var
-  LI: Int32;
+// The one place a wire codepoint is paired with its CryptoLib backend enum; the predicates and
+// SupportedSuites derive from these maps.
+
+class function THpkeFacet.TryKemIdOf(AKem: UInt16; out AId: THpkeKemId): Boolean;
 begin
-  for LI := 0 to System.High(AValues) do
-    if AValues[LI] = AValue then
-      Exit(True);
-  Result := False;
+  Result := True;
+  case AKem of
+    THpkeKem.DHKEM_P256_HKDF_SHA256:
+      AId := THpkeKemId.P256_SHA256;
+    THpkeKem.DHKEM_P384_HKDF_SHA384:
+      AId := THpkeKemId.P384_SHA384;
+    THpkeKem.DHKEM_P521_HKDF_SHA512:
+      AId := THpkeKemId.P521_SHA512;
+    THpkeKem.DHKEM_X25519_HKDF_SHA256:
+      AId := THpkeKemId.X25519_SHA256;
+    THpkeKem.DHKEM_X448_HKDF_SHA512:
+      AId := THpkeKemId.X448_SHA512;
+  else
+    Result := False;
+  end;
+end;
+
+class function THpkeFacet.TryKdfIdOf(AKdf: UInt16; out AId: THpkeKdfId): Boolean;
+begin
+  Result := True;
+  case AKdf of
+    THpkeKdf.HKDF_SHA256:
+      AId := THpkeKdfId.HkdfSha256;
+    THpkeKdf.HKDF_SHA384:
+      AId := THpkeKdfId.HkdfSha384;
+    THpkeKdf.HKDF_SHA512:
+      AId := THpkeKdfId.HkdfSha512;
+  else
+    Result := False;
+  end;
+end;
+
+class function THpkeFacet.TryAeadIdOf(AAead: UInt16; out AId: THpkeAeadId): Boolean;
+begin
+  // export-only (0xFFFF) is intentionally absent: it supports only secret export, never seal/open
+  Result := True;
+  case AAead of
+    THpkeAead.AES_128_GCM:
+      AId := THpkeAeadId.AesGcm128;
+    THpkeAead.AES_256_GCM:
+      AId := THpkeAeadId.AesGcm256;
+    THpkeAead.CHACHA20_POLY1305:
+      AId := THpkeAeadId.ChaCha20Poly1305;
+  else
+    Result := False;
+  end;
 end;
 
 class function THpkeFacet.IsKnownKem(AKem: UInt16): Boolean;
+var
+  LId: THpkeKemId;
 begin
-  Result := InSet(HpkeKnownKems, AKem);
+  Result := TryKemIdOf(AKem, LId);
 end;
 
 class function THpkeFacet.IsKnownKdf(AKdf: UInt16): Boolean;
+var
+  LId: THpkeKdfId;
 begin
-  Result := InSet(HpkeKnownKdfs, AKdf);
+  Result := TryKdfIdOf(AKdf, LId);
 end;
 
 class function THpkeFacet.IsRealAead(AAead: UInt16): Boolean;
+var
+  LId: THpkeAeadId;
 begin
-  Result := InSet(HpkeRealAeads, AAead);
+  Result := TryAeadIdOf(AAead, LId);
 end;
 
 function THpkeFacet.SuiteSupported(const ASuite: THpkeSuite): Boolean;
@@ -1837,17 +1873,27 @@ end;
 
 function THpkeFacet.SupportedSuites(AKem: UInt16): TArray<THpkeSuite>;
 var
-  LKdf, LAead, LN: Int32;
+  LKdfs: array [0 .. 2] of THpkeKdfId;
+  LAeads: array [0 .. 2] of THpkeAeadId;
+  LI, LJ, LN: Int32;
 begin
   Result := nil;
   if not IsKnownKem(AKem) then
     Exit;
-  SetLength(Result, System.Length(HpkeKnownKdfs) * System.Length(HpkeRealAeads));
+  // every (KDF, seal/open AEAD) pair the backend can instantiate
+  LKdfs[0] := THpkeKdfId.HkdfSha256;
+  LKdfs[1] := THpkeKdfId.HkdfSha384;
+  LKdfs[2] := THpkeKdfId.HkdfSha512;
+  LAeads[0] := THpkeAeadId.AesGcm128;
+  LAeads[1] := THpkeAeadId.AesGcm256;
+  LAeads[2] := THpkeAeadId.ChaCha20Poly1305;
+  SetLength(Result, System.Length(LKdfs) * System.Length(LAeads));
   LN := 0;
-  for LKdf := 0 to System.High(HpkeKnownKdfs) do
-    for LAead := 0 to System.High(HpkeRealAeads) do
+  for LI := 0 to System.High(LKdfs) do
+    for LJ := 0 to System.High(LAeads) do
     begin
-      Result[LN] := THpkeSuite.Create(AKem, HpkeKnownKdfs[LKdf], HpkeRealAeads[LAead]);
+      Result[LN] := THpkeSuite.Create(AKem, UInt16(Ord(LKdfs[LI])),
+        UInt16(Ord(LAeads[LJ])));
       Inc(LN);
     end;
 end;
@@ -1861,15 +1907,26 @@ begin
 end;
 
 class function THpkeFacet.KemFacade(AKem: UInt16): IHpkeKem;
+var
+  LKem: THpkeKemId;
 begin
-  Result := TDhKem.Create(THpkeKemId(AKem)) as IHpkeKem;
+  if not TryKemIdOf(AKem, LKem) then
+    raise ENotSupportedTlsLibException.CreateRes(@SHpkeUnsupportedSuite);
+  Result := TDhKem.Create(LKem) as IHpkeKem;
 end;
 
 class function THpkeFacet.HpkeFacade(const ASuite: THpkeSuite): ClpIHpke.IHpke;
+var
+  LKem: THpkeKemId;
+  LKdf: THpkeKdfId;
+  LAead: THpkeAeadId;
 begin
-  Result := THpke.Create(THpkeMode.Base, THpkeKemId(ASuite.Kem),
-    THpkeKdfId(ASuite.Kdf), THpkeAeadId(ASuite.Aead)) as ClpIHpke.IHpke;
+  if not (TryKemIdOf(ASuite.Kem, LKem) and TryKdfIdOf(ASuite.Kdf, LKdf) and
+    TryAeadIdOf(ASuite.Aead, LAead)) then
+    raise ENotSupportedTlsLibException.CreateRes(@SHpkeUnsupportedSuite);
+  Result := THpke.Create(THpkeMode.Base, LKem, LKdf, LAead) as ClpIHpke.IHpke;
 end;
+
 
 procedure THpkeFacet.SetupSealer(const ASuite: THpkeSuite;
   const ARecipientPublicKey, AInfo: TBytes; out AEnc: TBytes;
