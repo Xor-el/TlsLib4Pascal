@@ -75,6 +75,11 @@ type
     procedure TestDiagOrdConst;
     procedure TestDiagInt32FromRecordKem;
     procedure TestDiagCompareInt32Ord;
+    class function DiagKnownKem(AKem: UInt16): Boolean; static;
+    class function DiagSuiteKemKnown(const ASuite: THpkeSuite): Boolean; static;
+    procedure TestDiagOrChainInline;
+    procedure TestDiagViaHelperParam;
+    procedure TestDiagViaConstSuiteParam;
   end;
 
 implementation
@@ -424,6 +429,49 @@ var
 begin
   LK := 32;
   CheckTrue(LK = Ord(THpkeKem.DHKEM_X25519_HKDF_SHA256), 'Int32 = Ord(const)');
+end;
+
+procedure TTestHpkeProvider.TestDiagOrChainInline;
+var
+  LK: Int32;
+begin
+  LK := 32;
+  CheckTrue((LK = Ord(THpkeKem.DHKEM_P256_HKDF_SHA256)) or
+    (LK = Ord(THpkeKem.DHKEM_P384_HKDF_SHA384)) or
+    (LK = Ord(THpkeKem.DHKEM_P521_HKDF_SHA512)) or
+    (LK = Ord(THpkeKem.DHKEM_X25519_HKDF_SHA256)) or
+    (LK = Ord(THpkeKem.DHKEM_X448_HKDF_SHA512)), 'inline 5-way or-chain');
+end;
+
+class function TTestHpkeProvider.DiagKnownKem(AKem: UInt16): Boolean;
+var
+  LK: Int32;
+begin
+  LK := AKem;
+  Result := (LK = Ord(THpkeKem.DHKEM_P256_HKDF_SHA256)) or
+    (LK = Ord(THpkeKem.DHKEM_P384_HKDF_SHA384)) or
+    (LK = Ord(THpkeKem.DHKEM_P521_HKDF_SHA512)) or
+    (LK = Ord(THpkeKem.DHKEM_X25519_HKDF_SHA256)) or
+    (LK = Ord(THpkeKem.DHKEM_X448_HKDF_SHA512));
+end;
+
+procedure TTestHpkeProvider.TestDiagViaHelperParam;
+begin
+  CheckTrue(DiagKnownKem(32), 'helper with UInt16 param');
+end;
+
+class function TTestHpkeProvider.DiagSuiteKemKnown(
+  const ASuite: THpkeSuite): Boolean;
+begin
+  Result := DiagKnownKem(ASuite.Kem);
+end;
+
+procedure TTestHpkeProvider.TestDiagViaConstSuiteParam;
+var
+  LSuite: THpkeSuite;
+begin
+  LSuite := THpkeSuite.Create(32, 1, 1);
+  CheckTrue(DiagSuiteKemKnown(LSuite), 'const-suite-param -> Kem -> predicate');
 end;
 
 initialization
