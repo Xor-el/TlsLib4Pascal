@@ -1,0 +1,27 @@
+TlsLib/src/Crypto/TlpDefaultCryptoProvider.pas
+  s_16bbbcaf8bdfa4::t_e6daa6344bed29 1902,1907-1908
+  s_16bbbcaf8bdfa4::t_37cd5a3e273f62 1801,1803
+  s_16bbbcaf8bdfa4::t_b74d744ec9135c 1856
+  s_16bbbcaf8bdfa4::t_a4d10b29c54e89 1798,1800,1807,1809-1810,1814,1816-1817,1819-1824
+  s_16bbbcaf8bdfa4::t_622942e24e6aea 1830,1832,1842,1844,1851,1854
+  s_16bbbcaf8bdfa4::t_0e13023bf7a150 721
+  s_16bbbcaf8bdfa4::t_42408c1ebe47ee 1795-1797,1799,1811,1818,1825
+  s_16bbbcaf8bdfa4::t_2e2a041cd1c700 1833-1837,1845-1846,1853,1855
+  s_16bbbcaf8bdfa4::t_e67e40d10a0cb6 722-724
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "dc5a4110d8c97772ab5e3002de8ebe2107fb70f6",
+  "prompts": {},
+  "sessions": {
+    "s_16bbbcaf8bdfa4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "42209e6c-e709-4190-9407-f1ee321cee10",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
