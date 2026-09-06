@@ -1,0 +1,31 @@
+TlsLib/src/Crypto/TlpDefaultCryptoProvider.pas
+  s_16bbbcaf8bdfa4::t_cc6b47c5a63db5 1876-1877,1884-1890,1892-1893,1895-1896
+  s_16bbbcaf8bdfa4::t_b4b27cf7c5d225 1781
+  s_16bbbcaf8bdfa4::t_512e399b4f9087 720
+  s_16bbbcaf8bdfa4::t_97a025dfc18e6a 721-723
+  s_16bbbcaf8bdfa4::t_35cee9ae7f3f93 1794,1797,1799,1802,1804,1806,1808,1810,1812,1816,1818,1821,1823,1825,1827,1831-1834,1837,1839,1841,1843,1848-1849,1851,1855-1856,1858,1862-1863,1865
+  s_16bbbcaf8bdfa4::t_9dea812acde866 1795
+  s_16bbbcaf8bdfa4::t_b7529c92503829 1883
+  s_16bbbcaf8bdfa4::t_5616c6589016df 1796,1798,1814-1815,1829
+  s_16bbbcaf8bdfa4::t_7f64cb1b29bb7c 1878
+  s_16bbbcaf8bdfa4::t_cabf0a698e0397 1910-1911,1913-1915,1919-1922,1924-1927
+  s_16bbbcaf8bdfa4::t_741b47dff3ec67 1800-1801,1803,1805,1807,1809,1811,1813,1819-1820,1822,1824,1826,1828,1835-1836,1838,1840,1842,1844
+  s_16bbbcaf8bdfa4::t_42752d934ab1a1 1830
+  s_16bbbcaf8bdfa4::t_377899a41bfc8a 1930
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "9f9a1f9e45bb69e272377bd20e68e8df9164efff",
+  "prompts": {},
+  "sessions": {
+    "s_16bbbcaf8bdfa4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "42209e6c-e709-4190-9407-f1ee321cee10",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
