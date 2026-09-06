@@ -112,6 +112,23 @@ type
       const AServerName: string);
   end;
 
+  /// <summary>
+  /// An optional companion the driver reaches with Supports on the sink to report the
+  /// Encrypted Client Hello outcome (RFC 9849). OnEchAccepted, OnEchGreased, OnEchBackend and
+  /// OnEchServerRejected each record their status for connection info. OnEchRejected reports a
+  /// client-side rejected handshake (sec. 6.1.6): it completed to the public_name and is now
+  /// aborted with an ech_required alert, surfacing the retry_configs (empty if none) and whether
+  /// this handshake was itself a retry.
+  /// </summary>
+  IEchStatusSink = interface(IInterface)
+    ['{7C2E9A46-3B18-4D75-9E0C-5A1F6B84D2E3}']
+    procedure OnEchAccepted;
+    procedure OnEchGreased;
+    procedure OnEchBackend;
+    procedure OnEchServerRejected;
+    procedure OnEchRejected(const ARetryConfigs: TBytes; AIsRetryAttempt: Boolean);
+  end;
+
 implementation
 
 end.

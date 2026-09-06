@@ -68,6 +68,19 @@ uses
   ClpIKemEncapsulator,
   ClpMlKemDecapsulator,
   ClpIKemDecapsulator,
+  ClpHpke,
+  ClpIHpke,
+  ClpHpkeContext,
+  ClpIHpkeContext,
+  ClpDhKem,
+  ClpIHpkeKem,
+  ClpHpkeTypes,
+  ClpPemReader,
+  ClpIPemReader,
+  ClpPemWriter,
+  ClpIPemWriter,
+  ClpPemObject,
+  ClpIPemObject,
   ClpISigner,
   ClpSignerUtilities,
   ClpIAsymmetricKeyParameter,
@@ -125,7 +138,7 @@ uses
   ClpNullable,
   ClpValueHelper,
   ClpCryptoLibExceptions,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpBinaryPrimitives,
   TlpArrayUtilities,
   TlpEnumUtilities,
@@ -156,6 +169,8 @@ type
     Inspector: ICertificateInspector;
     PathValidation: ICertificatePathValidator;
     Revocation: IRevocationChecker;
+    Hpke: IHpke;
+    Pem: IPemCodec;
   end;
 
   /// <summary>
@@ -175,6 +190,8 @@ type
     FInspector: ICertificateInspector;
     FPathValidation: ICertificatePathValidator;
     FRevocation: IRevocationChecker;
+    FHpke: IHpke;
+    FPem: IPemCodec;
   public
     /// <summary>The single composition point. Resolves the effective RNG first (a supplied
     /// AOverrides.Random bridged to the CryptoLib CSPRNG, else a fresh one) and threads that
@@ -197,6 +214,8 @@ type
     function Certificates: ICertificateInspector;
     function PathValidation: ICertificatePathValidator;
     function Revocation: IRevocationChecker;
+    function Hpke: IHpke;
+    function Pem: IPemCodec;
   end;
 
   /// <summary>
@@ -215,6 +234,8 @@ type
     function WithInspector(const AInspector: ICertificateInspector): ICryptoProviderBuilder;
     function WithPathValidation(const APathValidation: ICertificatePathValidator): ICryptoProviderBuilder;
     function WithRevocation(const ARevocation: IRevocationChecker): ICryptoProviderBuilder;
+    function WithHpke(const AHpke: IHpke): ICryptoProviderBuilder;
+    function WithPem(const APem: IPemCodec): ICryptoProviderBuilder;
     function Build: ICryptoProvider;
   end;
 
@@ -242,6 +263,15 @@ resourcestring
     'the PKCS#12 blob holds more than one private-key entry; it is ambiguous for a ' +
     'single credential — split it or import the intended identity explicitly';
   SPkcs12NoChain = 'the PKCS#12 private-key entry has no certificate chain';
+  SHpkeUnsupportedSuite = 'the HPKE cipher suite is not supported';
+  SHpkeUnsupportedKem = 'the HPKE KEM is not supported';
+  SHpkeRecipientKemMismatch = 'the HPKE suite KEM does not match the recipient key';
+  SHpkeMalformedPrivateKey =
+    'the HPKE private key could not be parsed or does not match the KEM';
+  SHpkeMalformedEnc = 'the HPKE encapsulated key could not be processed';
+  SHpkeMalformedPublicKey = 'the HPKE recipient public key is malformed';
+  SHpkeOpenFailed = 'HPKE authenticated decryption failed';
+  SMalformedPem = 'the PEM data is malformed';
 
 type
   TAeadKind = (AesGcm, ChaChaPoly);
@@ -641,6 +671,79 @@ type
       out AUrls: TArray<string>): Boolean;
     function CheckCrlRevocation(const ALeafCert, AIssuerCert, ACrlDer: TBytes;
       out ARevoked: Boolean): Boolean;
+  end;
+
+  // IHpkeSealer - a live sender context. Held across a HelloRetryRequest so the
+  // second ClientHello seals at seq=1 (the backend has no way to resume a context
+  // at a chosen sequence number).
+  THpkeSealerAdapter = class(TInterfacedObject, IHpkeSealer)
+  strict private
+  var
+    FContext: IHpkeContext;
+  public
+    constructor Create(const AContext: IHpkeContext);
+    function Seal(const AAad, APlaintext: TBytes): TBytes;
+  end;
+
+  // IHpkeOpener - a live recipient context, held across a HelloRetryRequest for the
+  // same reason. A failed Open raises EHpkeOpenTlsLibException (not a fatal alert):
+  // trial decryption treats it as an expected wrong-key outcome.
+  THpkeOpenerAdapter = class(TInterfacedObject, IHpkeOpener)
+  strict private
+  var
+    FContext: IHpkeContext;
+  public
+    constructor Create(const AContext: IHpkeContext);
+    function Open(const AAad, ACiphertext: TBytes): TBytes;
+  end;
+
+  // IHpkeRecipientKey - a decoded recipient key pair (private + derived public), prepared once so
+  // per-decapsulation trial decryption need not re-decode the scalar or re-derive the public key.
+  // It holds its own backend key pair and sets up openers directly, so that pair never leaves.
+  THpkeRecipientKey = class(TInterfacedObject, IHpkeRecipientKey)
+  strict private
+  var
+    FKem: UInt16;
+    FKeyPair: IAsymmetricCipherKeyPair;
+    FPublicKey: TBytes;
+  public
+    constructor Create(AKem: UInt16; const AKeyPair: IAsymmetricCipherKeyPair;
+      const APublicKey: TBytes);
+    function Kem: UInt16;
+    function PublicKey: TBytes;
+    function SetupOpener(const ASuite: THpkeSuite;
+      const AEnc, AInfo: TBytes): IHpkeOpener;
+  end;
+
+  // IHpke - RFC 9180 base-mode HPKE over CryptoLib's ClpHpke (TDhKem for KEM key ops).
+  THpkeFacet = class(TInterfacedObject, IHpke)
+  strict private
+    class function InSet(const AValues: array of UInt16; AValue: UInt16): Boolean; static;
+    class function IsKnownKem(AKem: UInt16): Boolean; static;
+    class function IsKnownKdf(AKdf: UInt16): Boolean; static;
+    class function IsRealAead(AAead: UInt16): Boolean; static;
+    class function KemFacade(AKem: UInt16): IHpkeKem; static;
+    class function HpkeFacade(const ASuite: THpkeSuite): ClpIHpke.IHpke; static;
+  public
+    procedure SetupSealer(const ASuite: THpkeSuite;
+      const ARecipientPublicKey, AInfo: TBytes; out AEnc: TBytes;
+      out ASealer: IHpkeSealer);
+    function ImportRecipientKey(AKem: UInt16;
+      const APrivateKey: ISecretBuffer): IHpkeRecipientKey;
+    procedure GenerateKeyPair(AKem: UInt16; out APublicKey: TBytes;
+      out APrivateKey: ISecretBuffer);
+    function ImportPrivateKey(AKem: UInt16; const APkcs8Der: TBytes): ISecretBuffer;
+    function SuiteSupported(const ASuite: THpkeSuite): Boolean;
+    function SupportedSuites(AKem: UInt16): TArray<THpkeSuite>;
+    function ValidatePublicKey(AKem: UInt16; const APublicKey: TBytes): Boolean;
+    function AeadTagLength(AAead: UInt16): Int32;
+  end;
+
+  // IPemCodec - RFC 7468 PEM framing over CryptoLib's TPemReader/TPemWriter.
+  TPemCodec = class(TInterfacedObject, IPemCodec)
+  public
+    function ReadBlocks(const AData: TBytes): TArray<TPemBlock>;
+    function WriteBlocks(const ABlocks: TArray<TPemBlock>): TBytes;
   end;
 
 { TRandomAdapter }
@@ -1606,6 +1709,350 @@ begin
   end;
 end;
 
+{ THpkeSealerAdapter }
+
+constructor THpkeSealerAdapter.Create(const AContext: IHpkeContext);
+begin
+  inherited Create;
+  FContext := AContext;
+end;
+
+function THpkeSealerAdapter.Seal(const AAad, APlaintext: TBytes): TBytes;
+begin
+  Result := FContext.Seal(AAad, APlaintext);
+end;
+
+{ THpkeOpenerAdapter }
+
+constructor THpkeOpenerAdapter.Create(const AContext: IHpkeContext);
+begin
+  inherited Create;
+  FContext := AContext;
+end;
+
+function THpkeOpenerAdapter.Open(const AAad, ACiphertext: TBytes): TBytes;
+begin
+  try
+    Result := FContext.Open(AAad, ACiphertext);
+  except
+    // a trial-decryption failure is expected; wrap it (and any backend failure) as our own
+    // error so none escapes and the ECH layer picks the response (reject, or decrypt_error on CH2)
+    on E: EBaseTlsLibException do
+      raise;
+    on E: Exception do
+      raise EHpkeOpenTlsLibException.CreateRes(@SHpkeOpenFailed);
+  end;
+end;
+
+{ THpkeRecipientKey }
+
+constructor THpkeRecipientKey.Create(AKem: UInt16;
+  const AKeyPair: IAsymmetricCipherKeyPair; const APublicKey: TBytes);
+begin
+  inherited Create;
+  FKem := AKem;
+  FKeyPair := AKeyPair;
+  FPublicKey := APublicKey;
+end;
+
+function THpkeRecipientKey.Kem: UInt16;
+begin
+  Result := FKem;
+end;
+
+function THpkeRecipientKey.PublicKey: TBytes;
+begin
+  Result := System.Copy(FPublicKey);
+end;
+
+function THpkeRecipientKey.SetupOpener(const ASuite: THpkeSuite;
+  const AEnc, AInfo: TBytes): IHpkeOpener;
+var
+  LHpke: ClpIHpke.IHpke;
+  LCtx: IHpkeContext;
+begin
+  if ASuite.Kem <> FKem then
+    raise EArgumentTlsLibException.CreateRes(@SHpkeRecipientKemMismatch);
+  // the prepared key pair carries the recipient private key, so opening does no key derivation;
+  // a malformed peer encapsulation surfaces as a typed open failure, never an unwrapped backend one
+  try
+    LHpke := THpke.Create(THpkeMode.Base, THpkeKemId(ASuite.Kem),
+      THpkeKdfId(ASuite.Kdf), THpkeAeadId(ASuite.Aead)) as ClpIHpke.IHpke;
+    LCtx := LHpke.SetupBaseR(AEnc, FKeyPair, AInfo);
+  except
+    on E: EBaseTlsLibException do
+      raise;
+    on E: Exception do
+      raise EHpkeOpenTlsLibException.CreateRes(@SHpkeMalformedEnc);
+  end;
+  Result := THpkeOpenerAdapter.Create(LCtx) as IHpkeOpener;
+end;
+
+const
+  // the single source for the HPKE vocabulary this provider can instantiate: the support
+  // predicates below and SupportedSuites both derive from these, so a new algorithm added
+  // here reaches every consumer (the ECH config filter, GREASE) with no second list to sync
+  HpkeKnownKems: array [0 .. 4] of UInt16 = (THpkeKem.DHKEM_P256_HKDF_SHA256,
+    THpkeKem.DHKEM_P384_HKDF_SHA384, THpkeKem.DHKEM_P521_HKDF_SHA512,
+    THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKem.DHKEM_X448_HKDF_SHA512);
+  HpkeKnownKdfs: array [0 .. 2] of UInt16 = (THpkeKdf.HKDF_SHA256,
+    THpkeKdf.HKDF_SHA384, THpkeKdf.HKDF_SHA512);
+  // real (never export-only) AEADs: export-only 0xFFFF cannot seal/open
+  HpkeRealAeads: array [0 .. 2] of UInt16 = (THpkeAead.AES_128_GCM,
+    THpkeAead.AES_256_GCM, THpkeAead.CHACHA20_POLY1305);
+
+{ THpkeFacet }
+
+class function THpkeFacet.InSet(const AValues: array of UInt16;
+  AValue: UInt16): Boolean;
+var
+  LI: Int32;
+begin
+  for LI := 0 to System.High(AValues) do
+    if AValues[LI] = AValue then
+      Exit(True);
+  Result := False;
+end;
+
+class function THpkeFacet.IsKnownKem(AKem: UInt16): Boolean;
+begin
+  Result := InSet(HpkeKnownKems, AKem);
+end;
+
+class function THpkeFacet.IsKnownKdf(AKdf: UInt16): Boolean;
+begin
+  Result := InSet(HpkeKnownKdfs, AKdf);
+end;
+
+class function THpkeFacet.IsRealAead(AAead: UInt16): Boolean;
+begin
+  Result := InSet(HpkeRealAeads, AAead);
+end;
+
+function THpkeFacet.SuiteSupported(const ASuite: THpkeSuite): Boolean;
+begin
+  Result := IsKnownKem(ASuite.Kem) and IsKnownKdf(ASuite.Kdf) and
+    IsRealAead(ASuite.Aead);
+end;
+
+function THpkeFacet.SupportedSuites(AKem: UInt16): TArray<THpkeSuite>;
+var
+  LKdf, LAead, LN: Int32;
+begin
+  Result := nil;
+  if not IsKnownKem(AKem) then
+    Exit;
+  SetLength(Result, System.Length(HpkeKnownKdfs) * System.Length(HpkeRealAeads));
+  LN := 0;
+  for LKdf := 0 to System.High(HpkeKnownKdfs) do
+    for LAead := 0 to System.High(HpkeRealAeads) do
+    begin
+      Result[LN] := THpkeSuite.Create(AKem, HpkeKnownKdfs[LKdf], HpkeRealAeads[LAead]);
+      Inc(LN);
+    end;
+end;
+
+function THpkeFacet.AeadTagLength(AAead: UInt16): Int32;
+begin
+  // every AEAD in the HPKE registry uses a 128-bit tag (RFC 9180 sec. 7.3)
+  if not IsRealAead(AAead) then
+    raise ENotSupportedTlsLibException.CreateRes(@SHpkeUnsupportedSuite);
+  Result := 16;
+end;
+
+class function THpkeFacet.KemFacade(AKem: UInt16): IHpkeKem;
+begin
+  Result := TDhKem.Create(THpkeKemId(AKem)) as IHpkeKem;
+end;
+
+class function THpkeFacet.HpkeFacade(const ASuite: THpkeSuite): ClpIHpke.IHpke;
+begin
+  Result := THpke.Create(THpkeMode.Base, THpkeKemId(ASuite.Kem),
+    THpkeKdfId(ASuite.Kdf), THpkeAeadId(ASuite.Aead)) as ClpIHpke.IHpke;
+end;
+
+procedure THpkeFacet.SetupSealer(const ASuite: THpkeSuite;
+  const ARecipientPublicKey, AInfo: TBytes; out AEnc: TBytes;
+  out ASealer: IHpkeSealer);
+var
+  LHpke: ClpIHpke.IHpke;
+  LpkR: IAsymmetricKeyParameter;
+  LCtx: IHpkeContextWithEncapsulation;
+begin
+  if not SuiteSupported(ASuite) then
+    raise ENotSupportedTlsLibException.CreateRes(@SHpkeUnsupportedSuite);
+  LHpke := HpkeFacade(ASuite);
+  // a malformed peer-supplied public key surfaces as a typed argument error, never a backend one
+  try
+    LpkR := LHpke.DeserializePublicKey(ARecipientPublicKey);
+    LCtx := LHpke.SetupBaseS(LpkR, AInfo);
+  except
+    on E: EBaseTlsLibException do
+      raise;
+    on E: Exception do
+      raise EArgumentTlsLibException.CreateRes(@SHpkeMalformedPublicKey);
+  end;
+  AEnc := LCtx.GetEncapsulation();
+  ASealer := THpkeSealerAdapter.Create(LCtx) as IHpkeSealer;
+end;
+
+function THpkeFacet.ValidatePublicKey(AKem: UInt16;
+  const APublicKey: TBytes): Boolean;
+var
+  LSuite: THpkeSuite;
+  LHpke: ClpIHpke.IHpke;
+  LpkR: IAsymmetricKeyParameter;
+  LCtx: IHpkeContextWithEncapsulation;
+begin
+  if not IsKnownKem(AKem) then
+    Exit(False);
+  // a trial encapsulation is the KEM's full usability check: deserialization catches a wrong
+  // length or an off-curve point, and SetupBaseS additionally rejects a key that deserializes
+  // but yields no usable shared secret (a small-order X25519 point), so a config that passes
+  // here is one the client can actually seal against. The KDF/AEAD take no part in
+  // encapsulation, so any supported pair completes the suite
+  LSuite := THpkeSuite.Create(AKem, THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM);
+  LHpke := HpkeFacade(LSuite);
+  try
+    LpkR := LHpke.DeserializePublicKey(APublicKey);
+    LCtx := LHpke.SetupBaseS(LpkR, nil);
+    Result := LCtx <> nil;
+  except
+    on E: Exception do
+      Result := False;
+  end;
+end;
+
+function THpkeFacet.ImportRecipientKey(AKem: UInt16;
+  const APrivateKey: ISecretBuffer): IHpkeRecipientKey;
+var
+  LHpke: ClpIHpke.IHpke;
+  LKp: IAsymmetricCipherKeyPair;
+  LSk, LPub: TBytes;
+begin
+  if not IsKnownKem(AKem) then
+    raise ENotSupportedTlsLibException.CreateRes(@SHpkeUnsupportedKem);
+  // the KDF/AEAD are irrelevant to decoding the KEM key, so any supported pair completes the suite
+  LHpke := HpkeFacade(THpkeSuite.Create(AKem, THpkeKdf.HKDF_SHA256,
+    THpkeAead.AES_128_GCM));
+  LSk := APrivateKey.ToBytes;
+  try
+    // pk = nil: the KEM derives the public key from the private scalar, done once here
+    try
+      LKp := LHpke.DeserializePrivateKey(LSk, nil);
+    except
+      on E: EBaseTlsLibException do
+        raise;
+      on E: Exception do
+        raise EArgumentTlsLibException.CreateRes(@SHpkeMalformedPrivateKey);
+    end;
+  finally
+    TSecureMemory.WipeBytes(LSk);
+  end;
+  LPub := KemFacade(AKem).SerializePublicKey(LKp.&Public);
+  Result := THpkeRecipientKey.Create(AKem, LKp, LPub) as IHpkeRecipientKey;
+end;
+
+procedure THpkeFacet.GenerateKeyPair(AKem: UInt16; out APublicKey: TBytes;
+  out APrivateKey: ISecretBuffer);
+var
+  LKem: IHpkeKem;
+  LPair: IAsymmetricCipherKeyPair;
+  LScalar: TBytes;
+begin
+  if not IsKnownKem(AKem) then
+    raise ENotSupportedTlsLibException.CreateRes(@SHpkeUnsupportedKem);
+  LKem := KemFacade(AKem);
+  LPair := LKem.GeneratePrivateKey();
+  APublicKey := LKem.SerializePublicKey(LPair.&Public);
+  LScalar := LKem.SerializePrivateKey(LPair.&Private);
+  try
+    APrivateKey := TSecretBuffer.From(LScalar) as ISecretBuffer;
+  finally
+    TSecureMemory.WipeBytes(LScalar);
+  end;
+end;
+
+function THpkeFacet.ImportPrivateKey(AKem: UInt16;
+  const APkcs8Der: TBytes): ISecretBuffer;
+var
+  LKey: IAsymmetricKeyParameter;
+  LScalar: TBytes;
+begin
+  if not IsKnownKem(AKem) then
+    raise ENotSupportedTlsLibException.CreateRes(@SHpkeUnsupportedKem);
+  try
+    // PKCS#8 decode stays here (the KEM wants the raw scalar); a key whose algorithm
+    // does not match the KEM fails the typed cast inside SerializePrivateKey
+    LKey := TPrivateKeyFactory.CreateKey(APkcs8Der);
+    LScalar := KemFacade(AKem).SerializePrivateKey(LKey);
+  except
+    on E: EBaseTlsLibException do
+      raise;
+    on E: Exception do
+      raise EArgumentTlsLibException.CreateRes(@SHpkeMalformedPrivateKey);
+  end;
+  try
+    Result := TSecretBuffer.From(LScalar) as ISecretBuffer;
+  finally
+    TSecureMemory.WipeBytes(LScalar);
+  end;
+end;
+
+{ TPemCodec }
+
+function TPemCodec.ReadBlocks(const AData: TBytes): TArray<TPemBlock>;
+var
+  LStream: TBytesStream;
+  LReader: IPemReader;
+  LObj: IPemObject;
+  LCount: Int32;
+begin
+  Result := nil;
+  LCount := 0;
+  LStream := TBytesStream.Create(AData);
+  try
+    try
+      LReader := TPemReader.Create(LStream) as IPemReader;
+      LObj := LReader.ReadPemObject;
+      while LObj <> nil do
+      begin
+        SetLength(Result, LCount + 1);
+        Result[LCount].PemType := LObj.&Type;
+        Result[LCount].Content := LObj.Content;
+        Inc(LCount);
+        LObj := LReader.ReadPemObject;
+      end;
+    except
+      // a CryptoLib parse failure must not leak; reclassify as a typed argument error
+      on E: EBaseTlsLibException do
+        raise;
+      on E: Exception do
+        raise EArgumentTlsLibException.CreateRes(@SMalformedPem);
+    end;
+  finally
+    LStream.Free;
+  end;
+end;
+
+function TPemCodec.WriteBlocks(const ABlocks: TArray<TPemBlock>): TBytes;
+var
+  LStream: TBytesStream;
+  LWriter: IPemWriter;
+  LI: Int32;
+begin
+  LStream := TBytesStream.Create(nil);
+  try
+    LWriter := TPemWriter.Create(LStream) as IPemWriter;
+    for LI := 0 to System.High(ABlocks) do
+      LWriter.WriteObject(TPemObject.Create(ABlocks[LI].PemType,
+        ABlocks[LI].Content) as IPemObjectGenerator);
+    Result := System.Copy(LStream.Bytes, 0, LStream.Size);
+  finally
+    LStream.Free;
+  end;
+end;
+
 { TDefaultCryptoProvider }
 
 constructor TDefaultCryptoProvider.Create(const AOverrides: TCryptoProviderOverrides);
@@ -1647,6 +2094,16 @@ begin
     FRevocation := AOverrides.Revocation
   else
     FRevocation := TRevocationChecker.Create as IRevocationChecker;
+
+  if AOverrides.Hpke <> nil then
+    FHpke := AOverrides.Hpke
+  else
+    FHpke := THpkeFacet.Create as IHpke;
+
+  if AOverrides.Pem <> nil then
+    FPem := AOverrides.Pem
+  else
+    FPem := TPemCodec.Create as IPemCodec;
 end;
 
 constructor TDefaultCryptoProvider.Create;
@@ -1781,6 +2238,16 @@ end;
 function TDefaultCryptoProvider.Revocation: IRevocationChecker;
 begin
   Result := FRevocation;
+end;
+
+function TDefaultCryptoProvider.Hpke: IHpke;
+begin
+  Result := FHpke;
+end;
+
+function TDefaultCryptoProvider.Pem: IPemCodec;
+begin
+  Result := FPem;
 end;
 
 function TCryptoPrimitives.GetRandom: IRandom;
@@ -2939,6 +3406,20 @@ function TCryptoProviderBuilder.WithRevocation(
   const ARevocation: IRevocationChecker): ICryptoProviderBuilder;
 begin
   FOverrides.Revocation := ARevocation;
+  Result := Self;
+end;
+
+function TCryptoProviderBuilder.WithHpke(
+  const AHpke: IHpke): ICryptoProviderBuilder;
+begin
+  FOverrides.Hpke := AHpke;
+  Result := Self;
+end;
+
+function TCryptoProviderBuilder.WithPem(
+  const APem: IPemCodec): ICryptoProviderBuilder;
+begin
+  FOverrides.Pem := APem;
   Result := Self;
 end;
 

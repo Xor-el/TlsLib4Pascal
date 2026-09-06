@@ -21,7 +21,7 @@ uses
   TlpTlsAlert,
   TlpTlsLibExceptions,
   TlpBinaryPrimitives,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpICertificateCompression,
   TlpICertificateCompressionCache;

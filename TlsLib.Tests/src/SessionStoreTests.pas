@@ -25,7 +25,7 @@ uses
 {$ELSE}
   TestFramework,
 {$ENDIF FPC}
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpTlsVersion,
   TlpIClock,
   TlpISecretBuffer,

@@ -1,6 +1,6 @@
 # Certificate verification & trust
 
-**TlsLib4Pascal docs** · [Home](README.md) · [Getting started](getting-started.md) · [Cookbook](cookbook.md) · Verification · [System trust](system-trust.md) · [Compression](certificate-compression.md) · [Security model](security-model.md)
+**TlsLib4Pascal docs** · [Home](README.md) · [Getting started](getting-started.md) · [Cookbook](cookbook.md) · Verification · [System trust](system-trust.md) · [Compression](certificate-compression.md) · [ECH](ech.md) · [Security model](security-model.md)
 
 TlsLib4Pascal is **fail-closed** by default: a client will not complete a handshake unless it
 can verify the server's certificate chain, and the config builder refuses to build a client

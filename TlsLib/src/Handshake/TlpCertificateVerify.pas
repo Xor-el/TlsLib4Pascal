@@ -19,7 +19,7 @@ uses
   SysUtils,
   TlpTlsAlert,
   TlpTlsLibExceptions,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpICryptoProvider;
 
 type

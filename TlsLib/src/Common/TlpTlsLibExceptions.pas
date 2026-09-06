@@ -38,6 +38,33 @@ type
   ENotSupportedTlsLibException = class(EBaseTlsLibException);
 
   /// <summary>
+  /// An HPKE Open failed to authenticate/decrypt (RFC 9180). Deliberately not a
+  /// fatal alert: during ECH trial decryption a failure is an expected outcome
+  /// (wrong key), so the Encrypted Client Hello layer catches this and decides the
+  /// response - a shared-mode reject, or a decrypt_error on the second ClientHello.
+  /// </summary>
+  EHpkeOpenTlsLibException = class(EBaseTlsLibException);
+
+  /// <summary>
+  /// The server rejected Encrypted Client Hello (RFC 9849 sec. 6.1.6): the handshake
+  /// completed to the public_name and was then aborted with an ech_required alert. It
+  /// carries the retry_configs the server offered (empty if none) and whether this was
+  /// already a retry attempt, so the application - never the library - decides whether
+  /// to reconnect with the new configuration. The true SNI was not sent in the clear.
+  /// </summary>
+  EEchRejectedTlsLibException = class(EBaseTlsLibException)
+  strict private
+    FRetryConfigs: TBytes;
+    FIsRetryAttempt: Boolean;
+  public
+    constructor Create(const ARetryConfigs: TBytes; AIsRetryAttempt: Boolean);
+    /// <summary>The server's retry_configs (an ECHConfigList), or empty.</summary>
+    property RetryConfigs: TBytes read FRetryConfigs;
+    /// <summary>Whether the rejected handshake was itself a retry (the one-retry cap).</summary>
+    property IsRetryAttempt: Boolean read FIsRetryAttempt;
+  end;
+
+  /// <summary>
   /// Carries a <see cref="TTlsAlertDescription" /> so the engine boundary can
   /// turn a raised alert into a fatal outcome with a queued alert. The field is
   /// protected so specialized descendants can pin a fixed description.
@@ -105,6 +132,9 @@ type
 
 implementation
 
+resourcestring
+  SEchRejected = 'the server rejected Encrypted Client Hello';
+
 { EFatalAlertTlsLibException }
 
 constructor EFatalAlertTlsLibException.CreateRes(ADescription: TTlsAlertDescription;
@@ -119,6 +149,16 @@ constructor EFatalAlertTlsLibException.CreateResFmt(ADescription: TTlsAlertDescr
 begin
   inherited CreateResFmt(AResStringRec, AArgs);
   FAlertDescription := ADescription;
+end;
+
+{ EEchRejectedTlsLibException }
+
+constructor EEchRejectedTlsLibException.Create(const ARetryConfigs: TBytes;
+  AIsRetryAttempt: Boolean);
+begin
+  inherited CreateRes(@SEchRejected);
+  FRetryConfigs := ARetryConfigs;
+  FIsRetryAttempt := AIsRetryAttempt;
 end;
 
 { EDecodeErrorTlsLibException }

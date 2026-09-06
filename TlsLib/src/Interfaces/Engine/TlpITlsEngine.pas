@@ -21,6 +21,7 @@ uses
   TlpTlsAlertProtocol,
   TlpTlsError,
   TlpTlsVersion,
+  TlpEchConfig,
   TlpIRecordProtection;
 
 type
@@ -212,6 +213,23 @@ type
     /// <summary>Whether the handshake was resumed/abbreviated (a TLS 1.3 PSK resumption or a
     /// TLS 1.2 abbreviated handshake), so the peer presented no certificate.</summary>
     function IsResumed: Boolean;
+    /// <summary>The Encrypted Client Hello outcome for this connection (RFC 9849): NotOffered,
+    /// Greased, Accepted, Rejected, or (a split-mode backend) Backend. Read after the
+    /// handshake.</summary>
+    function EchStatus: TEchStatus;
+    /// <summary>On an ECH reject (LastError is ech_required), the retry_configs the server
+    /// advertised - an ECHConfigList the application may re-offer on a fresh connection, or
+    /// empty if the server sent none. Empty otherwise.</summary>
+    function EchRetryConfigs: TBytes;
+    /// <summary>On an ECH reject, whether this handshake was itself a retry (the one-retry cap
+    /// of RFC 9849 sec. 6.1.6): the application must not loop on retry_configs indefinitely.</summary>
+    function EchIsRetryAttempt: Boolean;
+    /// <summary>Whether this endpoint aborted the handshake with ech_required because its own ECH
+    /// offer was rejected (RFC 9849 sec. 6.1.6). True only for a client that offered ECH and was
+    /// refused - never for a server, whose EchStatus can read Rejected after a benign GREASE
+    /// handshake that completed normally. Distinguishes the ECH abort from any other terminal
+    /// state so callers do not mistake a later fatal for an ECH rejection.</summary>
+    function EchRejectAborted: Boolean;
   end;
 
   /// <summary>

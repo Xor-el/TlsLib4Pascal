@@ -20,7 +20,7 @@ interface
 uses
   SysUtils,
   TlpICryptoProvider,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpISecretBuffer,
   TlpSecretBuffer,
   TlpTlsCredential,
@@ -30,6 +30,10 @@ uses
   TlpInMemorySessionStore,
   TlpSessionTicketKeys,
   TlpIClock,
+  TlpWireReader,
+  TlpEchConfig,
+  TlpEchKeyStore,
+  TlpIEch,
   TlpITlsEngine,
   InteropSocket,
   InteropEngine,
@@ -56,6 +60,14 @@ type
     constructor Create;
     function NowUnixMillis: UInt64;
     procedure Advance(AMillis: UInt64);
+  end;
+
+  /// <summary>One server Encrypted Client Hello config the shim serves: a single ECHConfig
+  /// (its raw bytes), its raw HPKE private scalar, and whether it appears in retry_configs.</summary>
+  TBoGoEchServerConfig = record
+    Config: TBytes;
+    Key: TBytes;
+    IsRetry: Boolean;
   end;
 
   /// <summary>The parsed per-test shim configuration BoGo hands over on argv.</summary>
@@ -191,6 +203,21 @@ type
     /// exactly ExpectOcspResponse from the peer.</summary>
     HasExpectOcsp: Boolean;
     ExpectOcspResponse: TBytes;
+    // Encrypted Client Hello (RFC 9849). Client: the offered ECHConfigList (and its resumption
+    // override), GREASE, and the accept/retry_configs expectations. Server: the served configs.
+    EchConfigList: TBytes;
+    OnResumeEchConfigList: TBytes;
+    OnResumeEchConfigListSet: Boolean;
+    EnableEchGrease: Boolean;
+    ExpectEchAccept: Boolean;
+    OnInitialExpectEchAccept: Boolean;
+    OnInitialExpectEchAcceptSet: Boolean;
+    OnResumeExpectEchAccept: Boolean;
+    OnResumeExpectEchAcceptSet: Boolean;
+    ExpectEchRetryConfigs: TBytes;
+    HasExpectEchRetryConfigs: Boolean;
+    ExpectNoEchRetryConfigs: Boolean;
+    EchServerConfigs: TArray<TBoGoEchServerConfig>;
   end;
 
   /// <summary>
@@ -212,6 +239,14 @@ type
     class procedure AnnounceShimId(const ASocket: TInteropSocket;
       AShimId: Int64); static;
     class function VersionRange(const AConfig: TBoGoConfig): TArray<UInt16>; static;
+    /// <summary>Builds an ECH server key store from the parsed -ech-server-config triples,
+    /// or nil when the test served no config.</summary>
+    class function BuildEchKeyStore(const AProvider: ICryptoProvider;
+      const AConfigs: TArray<TBoGoEchServerConfig>): IEchServerKeyStore; static;
+    /// <summary>Whether the runner expects ECH accepted on this connection: the base
+    /// -expect-ech-accept unless a per-connection -on-initial / -on-resume override applies.</summary>
+    class function EchAcceptExpected(const AConfig: TBoGoConfig;
+      AIsResume: Boolean): Boolean; static;
     class function BuildOptions(const AProvider: ICryptoProvider;
       const AConfig: TBoGoConfig; AIsResume: Boolean): TInteropEngineOptions; static;
     class function RunExchange(const AProvider: ICryptoProvider;
@@ -357,6 +392,29 @@ var
     LN := System.Length(AConfig.SigningPrefs);
     SetLength(AConfig.SigningPrefs, LN + 1);
     AConfig.SigningPrefs[LN] := ACode;
+  end;
+
+  // BoGo emits each server ECH config as a contiguous triple: -ech-server-config (the raw
+  // ECHConfig), then -ech-server-key (its raw HPKE scalar), then -ech-is-retry-config
+  procedure AddEchServerConfig(const AConfig2: TBytes);
+  var
+    LN: Int32;
+  begin
+    LN := System.Length(AConfig.EchServerConfigs);
+    SetLength(AConfig.EchServerConfigs, LN + 1);
+    AConfig.EchServerConfigs[LN].Config := AConfig2;
+  end;
+
+  procedure SetLastEchServerKey(const AKey: TBytes);
+  begin
+    if System.Length(AConfig.EchServerConfigs) > 0 then
+      AConfig.EchServerConfigs[System.High(AConfig.EchServerConfigs)].Key := AKey;
+  end;
+
+  procedure SetLastEchServerRetry(AIsRetry: Boolean);
+  begin
+    if System.Length(AConfig.EchServerConfigs) > 0 then
+      AConfig.EchServerConfigs[System.High(AConfig.EchServerConfigs)].IsRetry := AIsRetry;
   end;
 
   procedure AddVerifyPref(ACode: UInt16);
@@ -655,6 +713,52 @@ begin
       // seconds the runner advances its clock between connections; the shim advances its own
       // injected clock by the same amount so obfuscated_ticket_age and expiry line up
       AConfig.ResumptionDelaySeconds := StrToInt(NextValue(LArg))
+    // Encrypted Client Hello (RFC 9849) - client offer + expectations, server configs
+    else if LArg = '-ech-config-list' then
+      AConfig.EchConfigList := TInteropUtils.DecodeBase64(NextValue(LArg))
+    else if LArg = '-on-resume-ech-config-list' then
+    begin
+      AConfig.OnResumeEchConfigList := TInteropUtils.DecodeBase64(NextValue(LArg));
+      AConfig.OnResumeEchConfigListSet := True;
+    end
+    else if LArg = '-enable-ech-grease' then
+      AConfig.EnableEchGrease := True
+    else if LArg = '-expect-ech-accept' then
+      AConfig.ExpectEchAccept := True
+    else if LArg = '-on-initial-expect-ech-accept' then
+    begin
+      AConfig.OnInitialExpectEchAccept := True;
+      AConfig.OnInitialExpectEchAcceptSet := True;
+    end
+    else if LArg = '-on-resume-expect-ech-accept' then
+    begin
+      AConfig.OnResumeExpectEchAccept := True;
+      AConfig.OnResumeExpectEchAcceptSet := True;
+    end
+    else if IsInList(LArg, ['-expect-ech-retry-configs',
+      '-on-retry-expect-ech-retry-configs']) then
+    begin
+      AConfig.ExpectEchRetryConfigs := TInteropUtils.DecodeBase64(NextValue(LArg));
+      AConfig.HasExpectEchRetryConfigs := True;
+    end
+    else if LArg = '-expect-no-ech-retry-configs' then
+      AConfig.ExpectNoEchRetryConfigs := True
+    else if LArg = '-ech-server-config' then
+      AddEchServerConfig(TInteropUtils.DecodeBase64(NextValue(LArg)))
+    else if LArg = '-ech-server-key' then
+      SetLastEchServerKey(TInteropUtils.DecodeBase64(NextValue(LArg)))
+    else if LArg = '-ech-is-retry-config' then
+      SetLastEchServerRetry(NextValue(LArg) = '1')
+    // name-override assertions describe the client's public_name handling on a reject; our
+    // reject aborts with ech_required (never a plaintext fallback), so consume and ignore them
+    else if IsInList(LArg, ['-expect-ech-name-override',
+      '-on-retry-expect-ech-name-override']) then
+      NextValue(LArg)
+    else if IsInList(LArg, ['-expect-no-ech-name-override',
+      '-on-resume-expect-no-ech-name-override']) then
+    begin
+      // no value; the public_name override is not separately asserted
+    end
     else
     begin
       // an unrecognized request: signal BoGo we cannot fulfill it (exit 89). Set
@@ -705,6 +809,40 @@ begin
   Result := nil;
   Consider(WireVersionTls13);
   Consider(WireVersionTls12);
+end;
+
+class function TBoGoShimRunner.BuildEchKeyStore(const AProvider: ICryptoProvider;
+  const AConfigs: TArray<TBoGoEchServerConfig>): IEchServerKeyStore;
+var
+  LEntries: TArray<TEchKeyEntry>;
+  LReader: TWireReader;
+  LI: Int32;
+begin
+  if System.Length(AConfigs) = 0 then
+    Exit(nil);
+  SetLength(LEntries, System.Length(AConfigs));
+  for LI := 0 to System.High(AConfigs) do
+  begin
+    // each -ech-server-config is one raw ECHConfig; -ech-server-key is its raw HPKE scalar
+    // (not PKCS#8), imported into a prepared recipient key
+    LReader := TWireReader.Create(AConfigs[LI].Config);
+    LEntries[LI].Config := TEchConfig.Parse(LReader);
+    LEntries[LI].RecipientKey := AProvider.Hpke.ImportRecipientKey(
+      LEntries[LI].Config.KemId, TSecretBuffer.From(AConfigs[LI].Key) as ISecretBuffer);
+    LEntries[LI].IsRetry := AConfigs[LI].IsRetry;
+  end;
+  Result := TInMemoryEchKeyStore.Create(LEntries) as IEchServerKeyStore;
+end;
+
+class function TBoGoShimRunner.EchAcceptExpected(const AConfig: TBoGoConfig;
+  AIsResume: Boolean): Boolean;
+begin
+  if AIsResume and AConfig.OnResumeExpectEchAcceptSet then
+    Result := AConfig.OnResumeExpectEchAccept
+  else if (not AIsResume) and AConfig.OnInitialExpectEchAcceptSet then
+    Result := AConfig.OnInitialExpectEchAccept
+  else
+    Result := AConfig.ExpectEchAccept;
 end;
 
 class function TBoGoShimRunner.BuildOptions(const AProvider: ICryptoProvider;
@@ -788,6 +926,9 @@ begin
     if (AConfig.EnableEarlyData or (AConfig.OnResumeEnableEarlyData and AIsResume)) and
       ((AConfig.MaxVersion < 0) or (AConfig.MaxVersion >= WireVersionTls13)) then
       Result.MaxEarlyData := EarlyDataBudget;
+    // the ECH key store is the same across the resume loop; a client whose config id we do
+    // not hold is shared-mode rejected (retry_configs from the is_retry entries)
+    Result.EchKeyStore := BuildEchKeyStore(AProvider, AConfig.EchServerConfigs);
   end
   else
   begin
@@ -846,6 +987,13 @@ begin
     Result.ExternalPskRequired := not AConfig.VerifyPeer;
     // the client requests a staple when the test enables stapling or asserts a staple
     Result.RequestOcsp := AConfig.EnableOcspStapling or AConfig.HasExpectOcsp;
+    // Encrypted Client Hello: offer the config list (a resumption may override it), and GREASE
+    // when asked. A reject surfaces as an ech_required abort the runner expects.
+    if AIsResume and AConfig.OnResumeEchConfigListSet then
+      Result.EchConfigList := AConfig.OnResumeEchConfigList
+    else
+      Result.EchConfigList := AConfig.EchConfigList;
+    Result.EchGrease := AConfig.EnableEchGrease;
   end;
 end;
 
@@ -967,6 +1115,16 @@ begin
   if LResult.Status <> TInteropStatus.Ok then
   begin
     Writeln(ErrOutput, 'handshake failed: ', LResult.Detail);
+    Exit(ShimExitFail);
+  end;
+
+  // Encrypted Client Hello acceptance (RFC 9849): when the runner expects ECH to be accepted
+  // on this connection, the negotiation must have run on the inner ClientHello. A per-connection
+  // -on-initial / -on-resume override wins over the base -expect-ech-accept.
+  if EchAcceptExpected(AConfig, AIsResume) and
+    (LEngine.EchStatus <> TEchStatus.Accepted) then
+  begin
+    Writeln(ErrOutput, 'ECH was expected to be accepted but was not');
     Exit(ShimExitFail);
   end;
 

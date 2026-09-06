@@ -18,7 +18,7 @@ interface
 uses
   SysUtils,
   TlpTlsVersion,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpIKeySchedule,
   TlpISecretBuffer,
   TlpISession;

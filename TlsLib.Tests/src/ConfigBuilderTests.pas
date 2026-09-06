@@ -42,6 +42,10 @@ uses
   TlpICertificateCompression,
   TlpZlibCertificateCompression,
   TlpCertificateLimits,
+  TlpISecretBuffer,
+  TlpCryptoDomainTypes,
+  TlpEchConfig,
+  TlpEchKeyStore,
   TlpITlsEngine,
   TlpITlsConfigBuilder,
   TlpTlsPresets,
@@ -57,6 +61,8 @@ type
     FCerts: TStringList;
     function ServerCredential: TTlsCredential;
     function ClientTrust: ITrustAnchorStore;
+    function BuildEchConfigList(AConfigId: Byte; const APublicName: string;
+      out APrivateKey: ISecretBuffer): TBytes;
     function BuildClientConfig(const AProvider: ICryptoProvider): ITlsClientConfig;
     function BuildServerConfig(const AProvider: ICryptoProvider): ITlsServerConfig;
     function NewClientBuilder: ITlsConfigBuilder;
@@ -69,6 +75,7 @@ type
     procedure SetUp; override;
     procedure TearDown; override;
   published
+    procedure TestEchThroughServerBuilder;
     procedure TestBuilderRejectsMutationAfterBuild;
     procedure TestSecondBuildIsRejected;
     procedure TestReturnedPinsArrayCannotMutateConfig;
@@ -169,6 +176,83 @@ begin
     .WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519))
     .WithCredential(ServerCredential)
     .Build;
+end;
+
+function TTestConfigBuilder.BuildEchConfigList(AConfigId: Byte;
+  const APublicName: string; out APrivateKey: ISecretBuffer): TBytes;
+var
+  LPublicKey: TBytes;
+  LConfig: TEchConfig;
+  LSuite: TEchCipherSuite;
+begin
+  Provider.Hpke.GenerateKeyPair(THpkeKem.DHKEM_X25519_HKDF_SHA256, LPublicKey,
+    APrivateKey);
+  LSuite.KdfId := THpkeKdf.HKDF_SHA256;
+  LSuite.AeadId := THpkeAead.AES_128_GCM;
+  LConfig := TEchConfig.Build(TEchConfig.SupportedVersion, AConfigId,
+    THpkeKem.DHKEM_X25519_HKDF_SHA256, LPublicKey,
+    TArray<TEchCipherSuite>.Create(LSuite), 0,
+    TEncoding.ASCII.GetBytes(APublicName), nil);
+  Result := TEchConfigList.Encode(TArray<TEchConfig>.Create(LConfig));
+end;
+
+procedure TTestConfigBuilder.TestEchThroughServerBuilder;
+var
+  LClientConfig: ITlsClientConfig;
+  LServerConfig: ITlsServerConfig;
+  LClient, LServer: ITlsEngine;
+  LClientBuilder, LServerBuilder: ITlsConfigBuilder;
+  LConfigList: TBytes;
+  LSk: ISecretBuffer;
+  LMsg: TBytes;
+begin
+  // ECH configured end to end through the public builder: the client offers the config list
+  // (Tls13.WithEncryptedClientHello) and the server is keyed with the matching config store
+  // (Tls13.WithEchKeyStore + TInMemoryEchKeyStore.FromConfig). The store lands on the frozen
+  // config, the factory wires it into the server params, and the handshake accepts. The client
+  // offers a full (GREASE-bearing) extension set, so this also covers ECH acceptance with
+  // GREASE in the inner ClientHello.
+  LConfigList := BuildEchConfigList($D4, 'cover.example', LSk);
+  LClientBuilder := TTlsConfigBuilder.Create(Provider);
+  LClientConfig := LClientBuilder.Client
+    .WithCipherSuites(TCipherSuiteRegistry.CreateDefault(Provider))
+    .WithSignatureSchemes(TSignatureSchemeRegistry.CreateDefault)
+    .WithNamedGroups(TNamedGroups.CreateDefaultRegistry(Provider))
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13))
+    .WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519))
+    .WithTrustStore(ClientTrust)
+    .Tls13.WithEncryptedClientHello(LConfigList).Build;
+  LServerBuilder := TTlsConfigBuilder.Create(Provider);
+  LServerConfig := LServerBuilder.Server
+    .WithCipherSuites(TCipherSuiteRegistry.CreateDefault(Provider))
+    .WithSignatureSchemes(TSignatureSchemeRegistry.CreateDefault)
+    .WithNamedGroups(TNamedGroups.CreateDefaultRegistry(Provider))
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13))
+    .WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519))
+    .WithCredential(ServerCredential)
+    .Tls13.WithEchKeyStore(TInMemoryEchKeyStore.FromConfig(LConfigList, LSk,
+    Provider)).Build;
+
+  CheckTrue(LServerConfig.EchKeyStore <> nil,
+    'the builder froze an ECH key store onto the server config');
+
+  LClient := TTlsEngineFactory.CreateClientEngine(LClientConfig, 'localhost');
+  LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
+  RunHandshake(LClient, LServer);
+
+  // completion proves ECH was accepted: the leaf matches only the inner SNI (localhost), never
+  // the public_name, so a reject would abort the client on the certificate check
+  CheckFalse(LClient.IsHandshaking, 'the ECH client completed the handshake');
+  CheckFalse(LServer.IsHandshaking, 'the ECH server completed the handshake');
+  CheckFalse(LClient.IsTerminal, 'the ECH client did not abort');
+  CheckFalse(LServer.IsTerminal, 'the ECH server did not abort');
+  CheckTrue(LClient.EchStatus = TEchStatus.Accepted,
+    'the builder-configured connection surfaced ECH Accepted');
+  LMsg := DecodeHex('6563682d6f6b'); // "ech-ok"
+  LClient.Write(LMsg, 0, System.Length(LMsg));
+  Feed(LServer, Drain(LClient));
+  CheckEqualBytes('app data flows over the builder-configured ECH connection', LMsg,
+    ReadAllApp(LServer));
 end;
 
 function TTestConfigBuilder.Drain(const AEngine: ITlsEngine): TBytes;

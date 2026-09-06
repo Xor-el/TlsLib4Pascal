@@ -50,6 +50,10 @@ type
     /// <summary>Reads the versions listed in a ClientHello's supported_versions
     /// extension (empty when the extension is absent - a legacy 1.2-only client).</summary>
     class function ClientHelloVersions(const AExtensions: TBytes): TArray<UInt16>; static;
+    /// <summary>Whether the ClientHello carries an encrypted_client_hello extension (RFC
+    /// 9849): such a client is doing ECH and is TLS 1.3, even when a minimal ClientHelloOuter
+    /// omits supported_versions.</summary>
+    class function HasEncryptedClientHello(const AExtensions: TBytes): Boolean; static;
   public
     /// <summary>A responder (server dispatcher) by default; the client dispatcher overrides.</summary>
     function Initiates: Boolean; virtual;
@@ -180,6 +184,9 @@ var
   LType: UInt16;
 begin
   Result := nil;
+  // an absent extensions field is a legacy ClientHello shape: no supported_versions to read
+  if System.Length(AExtensions) = 0 then
+    Exit;
   LReader := TWireReader.Create(AExtensions);
   LOuter := LReader.OpenVector(2);
   while not LOuter.EndReached do
@@ -194,6 +201,28 @@ begin
         TArrayUtilities.Append<UInt16>(Result, LVers.ReadUInt16);
       Exit;
     end;
+    LData.ReadBytes(LData.Remaining);
+  end;
+end;
+
+class function TVersionDispatchMachineBase.HasEncryptedClientHello(
+  const AExtensions: TBytes): Boolean;
+var
+  LReader, LOuter, LData: TWireReader;
+  LType: UInt16;
+begin
+  Result := False;
+  // an absent extensions field is a legacy ClientHello shape: no extensions to find
+  if System.Length(AExtensions) = 0 then
+    Exit;
+  LReader := TWireReader.Create(AExtensions);
+  LOuter := LReader.OpenVector(2);
+  while not LOuter.EndReached do
+  begin
+    LType := LOuter.ReadUInt16;
+    LData := LOuter.OpenVector(2);
+    if LType = TExtensionTypes.EncryptedClientHello then
+      Exit(True);
     LData.ReadBytes(LData.Remaining);
   end;
 end;
@@ -240,8 +269,13 @@ var
 begin
   LHello := THandshakeMessages.DecodeClientHello(AMessage.Body);
   LClientVersions := ClientHelloVersions(LHello.Extensions);
-  LClientSupportsTls13 := TArrayUtilities.Contains<UInt16>(LClientVersions,
-    TlsWireVersionTls13);
+  // an Encrypted Client Hello whose minimal ClientHelloOuter omits supported_versions is still
+  // a TLS 1.3 client (RFC 9849 sec. 7: the version comes from the decrypted inner) - route it
+  // to the 1.3 machine. An ech alongside an explicit version list does NOT override that list,
+  // so a legacy client GREASE-ing ech while offering only 1.2 still negotiates 1.2.
+  LClientSupportsTls13 := (TArrayUtilities.Contains<UInt16>(LClientVersions,
+    TlsWireVersionTls13)) or ((System.Length(LClientVersions) = 0) and
+    HasEncryptedClientHello(LHello.Extensions));
 
   // RFC 7507 TLS_FALLBACK_SCSV: a client that retried at a lower version signals it in
   // cipher_suites. The client's highest version is its supported_versions (a 1.3 client

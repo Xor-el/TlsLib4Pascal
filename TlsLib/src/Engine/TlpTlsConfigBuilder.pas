@@ -41,6 +41,8 @@ uses
   TlpClock,
   TlpSession,
   TlpSessionTicketKeys,
+  TlpIEch,
+  TlpEchClient,
   TlpITlsConfig,
   TlpITlsConfigBuilder;
 
@@ -104,6 +106,12 @@ type
     FTicketLifetimeSeconds: UInt32;
     FTicketCount: Int32;
     FMaxEarlyData: UInt32;
+    FEchConfigList: TBytes;
+    FEchGrease: Boolean;
+    FEchIsRetry: Boolean;
+    FEchConfigured: Boolean;
+    FEchKeyStore: IEchServerKeyStore;
+    FEchTrialDecrypt: Boolean;
     // whether a version's facet was explicitly configured, so a build can refuse a
     // version that is not offered (defaults are seeded directly, not through a facet)
     FTls13Configured: Boolean;
@@ -166,6 +174,10 @@ type
       const ACompressors: TArray<ICertificateCompressor>): TTlsConfigBuilder;
     function WithCertificateDecompressors(
       const ADecompressors: TArray<ICertificateDecompressor>): TTlsConfigBuilder;
+    function WithEncryptedClientHello(const AEchConfigList: TBytes): TTlsConfigBuilder;
+    function WithEncryptedClientHelloRetry(
+      const AEchConfigList: TBytes): TTlsConfigBuilder;
+    function WithEchGrease(AEnabled: Boolean): TTlsConfigBuilder;
     function WithCertificateCompressionCache(
       const ACache: ICertificateCompressionCache): TTlsConfigBuilder;
     function WithExtendedMasterSecret(ARequire: Boolean): TTlsConfigBuilder;
@@ -199,6 +211,8 @@ type
     function WithClientEarlyData(AEnabled: Boolean): TTlsConfigBuilder;
     function WithServerEarlyData(AMaxBytes: UInt32): TTlsConfigBuilder;
     function WithAntiReplay(const AStrategy: IAntiReplayStrategy): TTlsConfigBuilder;
+    function WithEchKeyStore(const AKeyStore: IEchServerKeyStore): TTlsConfigBuilder;
+    function WithEchTrialDecrypt(AEnabled: Boolean): TTlsConfigBuilder;
 
     // the version facet instances (returned by the endpoint views and cross-accessors)
     function Client13: ITls13ClientConfigFacet;
@@ -324,12 +338,14 @@ type
     FSessionCache: ISessionCache;
     FEarlyData: Boolean;
     FExternalPskRequired: Boolean;
+    FEchPolicy: IEchClientPolicy;
   public
     function CheckServerName: Boolean;
     function RequestOcspStapling: Boolean;
     function SessionCache: ISessionCache;
     function EarlyData: Boolean;
     function ExternalPskRequired: Boolean;
+    function EncryptedClientHello: IEchClientPolicy;
   end;
 
   TFrozenServerConfig = class sealed(TFrozenCommonConfig, ITlsServerConfig)
@@ -343,6 +359,8 @@ type
     FTicketLifetimeSeconds: UInt32;
     FTicketCount: Int32;
     FMaxEarlyData: UInt32;
+    FEchKeyStore: IEchServerKeyStore;
+    FEchTrialDecrypt: Boolean;
   public
     function ClientAuth: TClientAuthMode;
     function SessionStore: ISessionStore;
@@ -352,6 +370,8 @@ type
     function TicketLifetimeSeconds: UInt32;
     function TicketCount: Int32;
     function MaxEarlyData: UInt32;
+    function EchKeyStore: IEchServerKeyStore;
+    function EchTrialDecrypt: Boolean;
   end;
 
   /// <summary>Shared view plumbing: a raw back-reference to the owning builder whose
@@ -489,6 +509,11 @@ type
     function WithCertificateCompressors(
       const ACompressors: TArray<ICertificateCompressor>): ITls13ClientConfigFacet;
     function WithEarlyData(AEnabled: Boolean): ITls13ClientConfigFacet;
+    function WithEncryptedClientHello(
+      const AEchConfigList: TBytes): ITls13ClientConfigFacet;
+    function WithEncryptedClientHelloRetry(
+      const AEchConfigList: TBytes): ITls13ClientConfigFacet;
+    function WithEchGrease(AEnabled: Boolean): ITls13ClientConfigFacet;
     function Tls12: ITls12ClientConfigFacet;
     function Build: ITlsClientConfig;
   end;
@@ -510,6 +535,8 @@ type
       const ACache: ICertificateCompressionCache): ITls13ServerConfigFacet;
     function WithEarlyData(AMaxBytes: UInt32): ITls13ServerConfigFacet;
     function WithAntiReplay(const AStrategy: IAntiReplayStrategy): ITls13ServerConfigFacet;
+    function WithEchKeyStore(const AKeyStore: IEchServerKeyStore): ITls13ServerConfigFacet;
+    function WithEchTrialDecrypt(AEnabled: Boolean): ITls13ServerConfigFacet;
     function Tls12: ITls12ServerConfigFacet;
     function Build: ITlsServerConfig;
   end;
@@ -700,6 +727,11 @@ begin
   Result := FExternalPskRequired;
 end;
 
+function TFrozenClientConfig.EncryptedClientHello: IEchClientPolicy;
+begin
+  Result := FEchPolicy;
+end;
+
 { TFrozenServerConfig }
 
 function TFrozenServerConfig.ClientAuth: TClientAuthMode;
@@ -740,6 +772,16 @@ end;
 function TFrozenServerConfig.MaxEarlyData: UInt32;
 begin
   Result := FMaxEarlyData;
+end;
+
+function TFrozenServerConfig.EchKeyStore: IEchServerKeyStore;
+begin
+  Result := FEchKeyStore;
+end;
+
+function TFrozenServerConfig.EchTrialDecrypt: Boolean;
+begin
+  Result := FEchTrialDecrypt;
 end;
 
 { TTlsConfigViewBase }
@@ -1262,6 +1304,27 @@ begin
   Result := Self;
 end;
 
+function TTls13ClientConfigFacet.WithEncryptedClientHello(
+  const AEchConfigList: TBytes): ITls13ClientConfigFacet;
+begin
+  FOwner.WithEncryptedClientHello(AEchConfigList);
+  Result := Self;
+end;
+
+function TTls13ClientConfigFacet.WithEncryptedClientHelloRetry(
+  const AEchConfigList: TBytes): ITls13ClientConfigFacet;
+begin
+  FOwner.WithEncryptedClientHelloRetry(AEchConfigList);
+  Result := Self;
+end;
+
+function TTls13ClientConfigFacet.WithEchGrease(
+  AEnabled: Boolean): ITls13ClientConfigFacet;
+begin
+  FOwner.WithEchGrease(AEnabled);
+  Result := Self;
+end;
+
 function TTls13ClientConfigFacet.Tls12: ITls12ClientConfigFacet;
 begin
   Result := FOwner.Client12;
@@ -1325,6 +1388,20 @@ function TTls13ServerConfigFacet.WithAntiReplay(
   const AStrategy: IAntiReplayStrategy): ITls13ServerConfigFacet;
 begin
   FOwner.WithAntiReplay(AStrategy);
+  Result := Self;
+end;
+
+function TTls13ServerConfigFacet.WithEchKeyStore(
+  const AKeyStore: IEchServerKeyStore): ITls13ServerConfigFacet;
+begin
+  FOwner.WithEchKeyStore(AKeyStore);
+  Result := Self;
+end;
+
+function TTls13ServerConfigFacet.WithEchTrialDecrypt(
+  AEnabled: Boolean): ITls13ServerConfigFacet;
+begin
+  FOwner.WithEchTrialDecrypt(AEnabled);
   Result := Self;
 end;
 
@@ -1695,6 +1772,37 @@ begin
   Result := Self;
 end;
 
+function TTlsConfigBuilder.WithEncryptedClientHello(
+  const AEchConfigList: TBytes): TTlsConfigBuilder;
+begin
+  GuardMutable;
+  FEchConfigList := AEchConfigList;
+  FEchIsRetry := False;
+  FEchConfigured := True;
+  FTls13Configured := True;
+  Result := Self;
+end;
+
+function TTlsConfigBuilder.WithEncryptedClientHelloRetry(
+  const AEchConfigList: TBytes): TTlsConfigBuilder;
+begin
+  GuardMutable;
+  FEchConfigList := AEchConfigList;
+  FEchIsRetry := True;
+  FEchConfigured := True;
+  FTls13Configured := True;
+  Result := Self;
+end;
+
+function TTlsConfigBuilder.WithEchGrease(AEnabled: Boolean): TTlsConfigBuilder;
+begin
+  GuardMutable;
+  FEchGrease := AEnabled;
+  FEchConfigured := True;
+  FTls13Configured := True;
+  Result := Self;
+end;
+
 function TTlsConfigBuilder.WithCertificateCompressionCache(
   const ACache: ICertificateCompressionCache): TTlsConfigBuilder;
 begin
@@ -1933,6 +2041,23 @@ begin
   Result := Self;
 end;
 
+function TTlsConfigBuilder.WithEchKeyStore(
+  const AKeyStore: IEchServerKeyStore): TTlsConfigBuilder;
+begin
+  GuardMutable;
+  FEchKeyStore := AKeyStore;
+  FTls13Configured := True;
+  Result := Self;
+end;
+
+function TTlsConfigBuilder.WithEchTrialDecrypt(AEnabled: Boolean): TTlsConfigBuilder;
+begin
+  GuardMutable;
+  FEchTrialDecrypt := AEnabled;
+  FTls13Configured := True;
+  Result := Self;
+end;
+
 function TTlsConfigBuilder.Client13: ITls13ClientConfigFacet;
 begin
   Result := FClient13;
@@ -2023,6 +2148,10 @@ begin
   LConfig.FClock := FClock;
   LConfig.FEarlyData := FClientEarlyData;
   LConfig.FExternalPskRequired := FExternalPskRequired;
+  // a malformed ECHConfigList is rejected here, at build time
+  if FEchConfigured then
+    LConfig.FEchPolicy := TEchClientPolicy.Create(FEchConfigList, FEchGrease,
+      FEchIsRetry) as IEchClientPolicy;
   FFrozen := True;
   Result := LConfig;
 end;
@@ -2098,6 +2227,8 @@ begin
   LConfig.FTicketLifetimeSeconds := FTicketLifetimeSeconds;
   LConfig.FTicketCount := FTicketCount;
   LConfig.FMaxEarlyData := FMaxEarlyData;
+  LConfig.FEchKeyStore := FEchKeyStore;
+  LConfig.FEchTrialDecrypt := FEchTrialDecrypt;
   FFrozen := True;
   Result := LConfig;
 end;

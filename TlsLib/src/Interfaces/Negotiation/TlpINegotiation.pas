@@ -16,7 +16,7 @@ unit TlpINegotiation;
 interface
 
 uses
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpNegotiationTypes;
 
 type

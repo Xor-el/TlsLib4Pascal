@@ -19,7 +19,7 @@ uses
   SysUtils,
   TlpArrayUtilities,
   TlpCodeKeyedRegistry,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpEnumUtilities,
   TlpNegotiationTypes,
   TlpICryptoProvider,

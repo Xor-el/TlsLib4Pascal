@@ -17,7 +17,8 @@ interface
 
 uses
   SysUtils,
-  TlpTlsVersion;
+  TlpTlsVersion,
+  TlpEchConfig;
 
 type
   /// <summary>
@@ -27,7 +28,8 @@ type
   /// response (DER, empty when none), the validated peer certificate chain (leaf first,
   /// DER; empty when the peer presented none, e.g. a resumed handshake), the negotiated
   /// cipher suite and named group (IANA codes; the group is 0 for a non-(EC)DHE key
-  /// exchange), and whether the handshake was resumed. It is a snapshot taken after the
+  /// exchange), whether the handshake was resumed, and the Encrypted Client Hello outcome
+  /// (RFC 9849: NotOffered, Greased, Accepted, Rejected, or Backend). It is a snapshot after the
   /// handshake; reading it before the handshake completes yields the zero values.
   /// </summary>
   TTlsConnectionInfo = record
@@ -39,6 +41,7 @@ type
     CipherSuite: UInt16;
     NamedGroup: UInt16;
     Resumed: Boolean;
+    EchStatus: TEchStatus;
   end;
 
 implementation

@@ -30,7 +30,7 @@ uses
   TlpISecretBuffer,
   TlpSecretBuffer,
   TlpICryptoProvider,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpIRecordProtection,
   TlpRecordProtection,
   TlpHkdfLabel,

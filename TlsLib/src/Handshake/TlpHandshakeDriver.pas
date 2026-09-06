@@ -21,6 +21,7 @@ uses
   TlpIRecordProtection,
   TlpRecordProtectionFactory,
   TlpITlsEngine,
+  TlpTlsAlert,
   TlpIHandshakeChannel,
   TlpIHandshakeMachine,
   TlpHandshakeEffect;
@@ -48,6 +49,7 @@ type
     FVerdictSink: IHandshakeVerdictSink;
     // resolved once from the sink; nil when the sink does not track connection info
     FConnectionInfoSink: IHandshakeConnectionInfoSink;
+    FEchStatusSink: IEchStatusSink;
     procedure ApplyInstallKeys(const AEffect: THandshakeEffect);
   public
     constructor Create(const AChannel: IHandshakeChannel;
@@ -77,6 +79,8 @@ begin
     FVerdictSink := nil;
   if not Supports(ASink, IHandshakeConnectionInfoSink, FConnectionInfoSink) then
     FConnectionInfoSink := nil;
+  if not Supports(ASink, IEchStatusSink, FEchStatusSink) then
+    FEchStatusSink := nil;
 end;
 
 procedure THandshakeDriver.ApplyInstallKeys(const AEffect: THandshakeEffect);
@@ -139,6 +143,23 @@ begin
           AEffect.NamedGroup, AEffect.Resumed, AEffect.ServerName);
     THandshakeEffectKind.HandshakeEstablished:
       FSink.OnHandshakeEstablished;
+    THandshakeEffectKind.EchAccepted:
+      if FEchStatusSink <> nil then
+        FEchStatusSink.OnEchAccepted;
+    THandshakeEffectKind.EchGreased:
+      if FEchStatusSink <> nil then
+        FEchStatusSink.OnEchGreased;
+    THandshakeEffectKind.EchBackend:
+      if FEchStatusSink <> nil then
+        FEchStatusSink.OnEchBackend;
+    THandshakeEffectKind.EchServerRejected:
+      if FEchStatusSink <> nil then
+        FEchStatusSink.OnEchServerRejected;
+    THandshakeEffectKind.EchRejected:
+      if FEchStatusSink <> nil then
+        FEchStatusSink.OnEchRejected(AEffect.Bytes, AEffect.Resumed)
+      else
+        FSink.OnHandshakeFailed(TTlsAlertDescription.EchRequired);
     THandshakeEffectKind.Fail:
       FSink.OnHandshakeFailed(AEffect.Alert);
   end;

@@ -20,7 +20,7 @@ uses
   TlpArrayUtilities,
   TlpTlsLibExceptions,
   TlpTlsVersion,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpSecretBuffer,
   TlpINamedGroup,
   TlpINegotiation,
@@ -255,6 +255,8 @@ begin
   L13.ServerName := AHost;
   L13.CertificateVerifier := LVerifier;
   L13.AsyncVerdict := LAsyncVerdict;
+  // Encrypted Client Hello policy (RFC 9849), nil when not offered
+  L13.EchPolicy := AConfig.EncryptedClientHello;
   L13.ExpectedHostName := AHost;
   // a mutual-TLS client presents this credential when the server requests one; empty
   // sends an empty client Certificate
@@ -315,7 +317,14 @@ begin
       AConfig.ExternalPskRequired;
   end;
 
-  if LOffers13 and LOffers12 then
+  // a client offering Encrypted Client Hello is TLS 1.3 only (RFC 9849 sec. 6.1): the outer
+  // is 1.3-only on the wire, so it must never accept a server that selects 1.2 - a legacy or
+  // downgrading peer is refused, not silently completed to the public_name. GREASE alone (no
+  // real config) is decorative and does not constrain the version.
+  if (AConfig.EncryptedClientHello <> nil) and
+    (System.Length(AConfig.EncryptedClientHello.Configs) > 0) then
+    LMachine := TTls13ClientStateMachine.Create(L13)
+  else if LOffers13 and LOffers12 then
     LMachine := TClientVersionDispatchMachine.Create(L13, L12)
   else if LOffers13 then
     LMachine := TTls13ClientStateMachine.Create(L13)
@@ -457,6 +466,14 @@ begin
   // out-of-band external PSKs (RFC 9258) are matched only on the TLS 1.3 path
   if LOffers13 then
     L13.ExternalPsks := AConfig.ExternalPsks;
+
+  // Encrypted Client Hello is TLS 1.3-only: the server decrypts offers with this store and
+  // advertises its is_retry configs as retry_configs on reject (RFC 9849)
+  if LOffers13 then
+  begin
+    L13.EchKeyStore := AConfig.EchKeyStore;
+    L13.EchTrialDecrypt := AConfig.EchTrialDecrypt;
+  end;
 
   if LOffers13 and LOffers12 then
     LMachine := TServerVersionDispatchMachine.Create(L13, L12,

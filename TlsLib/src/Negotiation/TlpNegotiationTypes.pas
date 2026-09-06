@@ -17,7 +17,7 @@ interface
 
 uses
   SysUtils,
-  TlpCryptoAlgorithms;
+  TlpCryptoDomainTypes;
 
 type
   /// <summary>How a server resolves the cipher suite when more than one is mutually supported:

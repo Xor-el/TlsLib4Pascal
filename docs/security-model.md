@@ -1,6 +1,6 @@
 # Security model
 
-**TlsLib4Pascal docs** · [Home](README.md) · [Getting started](getting-started.md) · [Cookbook](cookbook.md) · [Verification](certificate-verification.md) · [System trust](system-trust.md) · [Compression](certificate-compression.md) · Security model
+**TlsLib4Pascal docs** · [Home](README.md) · [Getting started](getting-started.md) · [Cookbook](cookbook.md) · [Verification](certificate-verification.md) · [System trust](system-trust.md) · [Compression](certificate-compression.md) · [ECH](ech.md) · Security model
 
 This document is the map of what TlsLib4Pascal defends against, **where each defense is enforced, and
 how it is tested.** It serves two audiences: users deciding how much to trust the library, and

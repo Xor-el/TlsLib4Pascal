@@ -29,6 +29,7 @@ uses
   TlpITlsCredentialResolver,
   TlpISession,
   TlpIClock,
+  TlpIEch,
   TlpSession,
   TlpITlsConfig;
 
@@ -189,6 +190,25 @@ type
     /// <summary>Whether the client offers 0-RTT early data when a cached ticket authorizes
     /// it (TLS 1.3, RFC 8446 4.2.10). Off by default; an explicit opt-in.</summary>
     function WithEarlyData(AEnabled: Boolean): ITls13ClientConfigFacet;
+    /// <summary>
+    /// Offers Encrypted Client Hello (RFC 9849) with the application-supplied
+    /// ECHConfigList (typically fetched from the DNS HTTPS/SVCB ech parameter). A
+    /// malformed list is rejected when the config is built. On an ECH reject the
+    /// handshake raises EEchRejectedTlsLibException carrying the server's retry_configs;
+    /// the library never falls back to plaintext.
+    /// </summary>
+    function WithEncryptedClientHello(
+      const AEchConfigList: TBytes): ITls13ClientConfigFacet;
+    /// <summary>
+    /// Offers Encrypted Client Hello for a reconnection driven by a prior reject's
+    /// retry_configs (RFC 9849 sec. 6.1.6). Identical to WithEncryptedClientHello but marks
+    /// the attempt as a retry, so a second reject is not itself retried - the one-retry cap.
+    /// </summary>
+    function WithEncryptedClientHelloRetry(
+      const AEchConfigList: TBytes): ITls13ClientConfigFacet;
+    /// <summary>Whether to send a GREASE ECH (RFC 9849 sec. 6.2) when no usable config is
+    /// available. Off by default, matching the ecosystem; an explicit opt-in.</summary>
+    function WithEchGrease(AEnabled: Boolean): ITls13ClientConfigFacet;
     function Tls12: ITls12ClientConfigFacet;
     function Build: ITlsClientConfig;
   end;
@@ -363,6 +383,13 @@ type
     /// <summary>The anti-replay register guarding accepted early data; when a positive
     /// early-data budget is set without one, a default in-memory register is used.</summary>
     function WithAntiReplay(const AStrategy: IAntiReplayStrategy): ITls13ServerConfigFacet;
+    /// <summary>Enables Encrypted Client Hello: the key store the server decrypts offers with
+    /// and advertises as retry_configs (RFC 9849), swapped to rotate keys. Build one from a
+    /// store class - e.g. TInMemoryEchKeyStore.FromPem / .FromConfig - or supply your own.</summary>
+    function WithEchKeyStore(const AKeyStore: IEchServerKeyStore): ITls13ServerConfigFacet;
+    /// <summary>Whether the server trial-decrypts an ECH offer against every key when the
+    /// config_id does not match (RFC 9849 sec. 7.1); off by default (match by config_id).</summary>
+    function WithEchTrialDecrypt(AEnabled: Boolean): ITls13ServerConfigFacet;
     function Tls12: ITls12ServerConfigFacet;
     function Build: ITlsServerConfig;
   end;

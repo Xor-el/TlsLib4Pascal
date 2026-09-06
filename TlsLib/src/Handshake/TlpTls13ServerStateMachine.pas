@@ -30,7 +30,7 @@ uses
   TlpTls13KeySchedule,
   TlpITranscriptHash,
   TlpTranscriptHash,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpNegotiationTypes,
   TlpINegotiation,
   TlpNegotiationPolicy,
@@ -53,6 +53,14 @@ uses
   TlpICertificateTrust,
   TlpTlsCredential,
   TlpITlsCredentialResolver,
+  TlpIEch,
+  TlpEchConfig,
+  TlpEchExtension,
+  TlpEchOuterExtensions,
+  TlpEchServer,
+  TlpIWireWriter,
+  TlpWireWriter,
+  TlpWireVectorMarker,
   TlpHandshakeEffect,
   TlpTls13HandshakeBase;
 
@@ -112,6 +120,13 @@ type
     /// leaf CertificateEntry when the client offered status_request (RFC 8446 4.4.2.1). nil for
     /// a PSK-only server.</summary>
     CredentialResolver: ITlsServerCredentialResolver;
+    /// <summary>The Encrypted Client Hello key store (RFC 9849), or nil when ECH is not
+    /// served. When set, the server trial-decrypts an offered ech, and on success
+    /// continues with the reconstructed inner ClientHello.</summary>
+    EchKeyStore: IEchServerKeyStore;
+    /// <summary>Whether to trial-decrypt against every key regardless of config_id (the
+    /// guarded ignore-config_id mode). Off by default.</summary>
+    EchTrialDecrypt: Boolean;
     /// <summary>Whether the server requests a client certificate (mutual TLS) and how
     /// strictly it is enforced.</summary>
     ClientAuth: TClientAuthMode;
@@ -250,6 +265,26 @@ type
     FHelloRetrySent: Boolean;
     /// <summary>The ClientHello-only transcript hash, for the early traffic secret.</summary>
     FEarlyTranscriptHash: TBytes;
+    /// <summary>Encrypted Client Hello per-connection state (RFC 9849): the trial-decrypt
+    /// handshake, the outcome, the inner random (for the accept confirmation stamped into
+    /// ServerHello.random), and the retry_configs to advertise on reject.</summary>
+    FEch: TEchServerHandshake;
+    FEchStatus: TEchStatus;
+    FEchInnerRandom: TBytes;
+    FEchRetryConfigs: TBytes;
+    /// <summary>Stamps the ECH accept confirmation into the last 8 bytes of the framed
+    /// ServerHello (RFC 9849 sec. 7.2), computed over the inner transcript through this
+    /// ServerHello with those 8 bytes zeroed.</summary>
+    procedure StampEchAcceptConfirmation(var AServerHelloBytes: TBytes);
+    /// <summary>Whether the ClientHello carries an inner-type encrypted_client_hello (the
+    /// backend role, RFC 9849 sec. 7.1). Raises decode_error on a malformed ech extension
+    /// (a non-empty inner body or an unknown type).</summary>
+    class function DetectBackendEch(const AClientHello: TTlsClientHello): Boolean; static;
+    /// <summary>Stamps the HelloRetryRequest ech accept confirmation (RFC 9849 sec. 7.2.1):
+    /// its 8-byte value is the LAST 8 bytes of AHrrBytes (the ech extension is spliced last),
+    /// computed over message_hash(AInnerCh1Hash) then the HRR with that payload zeroed.</summary>
+    procedure StampHrrEchConfirmation(var AHrrBytes: TBytes;
+      const AInnerCh1Hash: TBytes);
     /// <summary>Selects the ALPN protocol from the client's offer, or aborts with
     /// no_application_protocol when the server is configured but nothing overlaps.</summary>
     function SelectAlpn(const AClientOffered: TArray<string>): string;
@@ -326,7 +361,8 @@ type
       const ARaw: TBytes; ASelectedGroup: UInt16): TArray<THandshakeEffect>;
     /// <summary>Frames a HelloRetryRequest (a ServerHello with the sentinel random).</summary>
     function BuildHelloRetryRequest(const ALegacySessionId: TBytes;
-      ASelectedGroup: UInt16; const ACookie: TBytes): TBytes;
+      ASelectedGroup: UInt16; const ACookie: TBytes;
+      const AEchInnerCh1Hash: TBytes): TBytes;
     /// <summary>Emits the ServerHello and encrypted flight over a transcript already
     /// seeded through the client hello; encapsulates against AClientShare.</summary>
     function EmitServerFlight(const AClientHello: TTlsClientHello;
@@ -415,6 +451,9 @@ resourcestring
   SNoAlpnOverlap = 'no overlap between the client and server ALPN protocols';
   SBadRecordSizeLimit = 'the peer record_size_limit is below the 64-byte minimum';
   SNonEmptyEndOfEarlyData = 'the EndOfEarlyData message must be empty';
+  SEchInnerRandomChanged = 'the ClientHelloInner random changed across the HelloRetryRequest';
+  SEchInnerAtClientFacing = 'an inner-type Encrypted Client Hello reached a server that ' +
+    'holds ECH keys; it must arrive only at a split-mode backend';
 
 const
   PskDheKeMode = Byte(1);       // psk_key_exchange_modes: psk_dhe_ke
@@ -431,6 +470,7 @@ begin
   inherited Create(AParams.ExtensionRegistry);
   FParams := AParams;
   FPhase := TPhase.Initial;
+  FEchStatus := TEchStatus.NotOffered;
   if FParams.CookieSecret <> nil then
     FCookie := THelloRetryCookie.Create(FParams.Provider, FParams.CookieSecret);
   // a configured store upgrades the stateless STEK default to single-use handles
@@ -441,6 +481,7 @@ end;
 
 destructor TTls13ServerStateMachine.Destroy;
 begin
+  FEch.Free;
   FCookie.Free;
   inherited Destroy;
 end;
@@ -973,20 +1014,51 @@ var
   LClientHello: TTlsClientHello;
   LContext: TExtensionContext;
   LSelectedGroup: UInt16;
-  LClientShare: TBytes;
+  LClientShare, LEchRaw: TBytes;
 begin
-  LClientHello := THandshakeMessages.DecodeClientHello(AMessage.Body);
+  LEchRaw := AMessage.Raw;
+  LClientHello := THandshakeMessages.DecodeClientHello(
+    System.Copy(AMessage.Raw, 4, System.Length(AMessage.Raw) - 4));
+  // Encrypted Client Hello (RFC 9849 sec. 7.1). An inner-type ech is a decrypted
+  // ClientHelloInner: it is legitimate only at a split-mode backend (no ECH keys), which
+  // confirms it in the ServerHello. A client-facing or shared-mode server (it holds ECH keys)
+  // must never receive it directly and aborts illegal_parameter. With ECH keys and an outer,
+  // trial-decrypt - accept drives negotiation off the reconstructed inner, reject continues to
+  // the public_name and advertises retry_configs in EncryptedExtensions.
+  if DetectBackendEch(LClientHello) then
+  begin
+    if FParams.EchKeyStore <> nil then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.IllegalParameter, @SEchInnerAtClientFacing);
+    FEchStatus := TEchStatus.Backend;
+    FEchInnerRandom := LClientHello.Random;
+  end
+  else if FParams.EchKeyStore <> nil then
+  begin
+    FEch := TEchServerHandshake.Create(FParams.Provider, FParams.EchKeyStore,
+      FParams.EchTrialDecrypt);
+    FEchStatus := FEch.ProcessOuter(AMessage.Raw);
+    if FEchStatus = TEchStatus.Accepted then
+    begin
+      LEchRaw := FEch.InnerFramed;
+      FEchInnerRandom := FEch.InnerRandom;
+      LClientHello := THandshakeMessages.DecodeClientHello(
+        System.Copy(LEchRaw, 4, System.Length(LEchRaw) - 4));
+    end
+    else if FEchStatus = TEchStatus.Rejected then
+      FEchRetryConfigs := FParams.EchKeyStore.RetryConfigs;
+  end;
   LContext := TExtensionContext.Create;
   try
-    NegotiateFrom(LClientHello, LContext, AMessage.Raw, True, LSelectedGroup);
+    NegotiateFrom(LClientHello, LContext, LEchRaw, True, LSelectedGroup);
     LClientShare := KeyShareFor(LContext, LSelectedGroup);
     if System.Length(LClientShare) = 0 then
       // the client listed our group but sent no share for it: ask for one
-      Result := EmitHelloRetryRequest(LClientHello, AMessage.Raw, LSelectedGroup)
+      Result := EmitHelloRetryRequest(LClientHello, LEchRaw, LSelectedGroup)
     else
     begin
       // transcript: ClientHello, then (activated) ServerHello inside EmitServerFlight
-      FTranscript.Update(AMessage.Raw);
+      FTranscript.Update(LEchRaw);
       FTranscript.Activate(FParams.Provider.Primitives.CreateHash(FSelectedSuite.Common.Hash));
       // the client_early_traffic secret is over the ClientHello-only transcript
       if FEarlyDataAccepted then
@@ -1002,8 +1074,11 @@ function TTls13ServerStateMachine.EmitHelloRetryRequest(
   const AClientHello: TTlsClientHello; const ARaw: TBytes;
   ASelectedGroup: UInt16): TArray<THandshakeEffect>;
 var
-  LCookie, LHrr: TBytes;
+  LCookie, LHrr, LCh1Hash: TBytes;
 begin
+  // ARaw is the inner ClientHello on ECH accept, the outer otherwise, so its hash is the one
+  // the cookie binds and the one the HRR ech confirmation is computed over
+  LCh1Hash := HashOf(ARaw);
   if System.Length(FParams.CookieOverride) > 0 then
     LCookie := FParams.CookieOverride
   else
@@ -1013,9 +1088,14 @@ begin
         TTlsAlertDescription.InternalError, @SNoCookieAuthority);
     // the cookie binds Hash(ClientHello1) and the requested group under the server
     // secret, so the second ClientHello can be validated without retained state
-    LCookie := FCookie.Mint(HashOf(ARaw), ASelectedGroup);
+    LCookie := FCookie.Mint(LCh1Hash, ASelectedGroup);
   end;
-  LHrr := BuildHelloRetryRequest(AClientHello.LegacySessionId, ASelectedGroup, LCookie);
+  if FEchStatus in [TEchStatus.Accepted, TEchStatus.Backend] then
+    LHrr := BuildHelloRetryRequest(AClientHello.LegacySessionId, ASelectedGroup,
+      LCookie, LCh1Hash)
+  else
+    LHrr := BuildHelloRetryRequest(AClientHello.LegacySessionId, ASelectedGroup,
+      LCookie, nil);
 
   // 0-RTT does not survive a retry: the client must not resend early_data, and the server
   // must not accept or skip it on the second flight (RFC 8446 4.2.10)
@@ -1036,10 +1116,15 @@ end;
 
 function TTls13ServerStateMachine.BuildHelloRetryRequest(
   const ALegacySessionId: TBytes; ASelectedGroup: UInt16;
-  const ACookie: TBytes): TBytes;
+  const ACookie: TBytes; const AEchInnerCh1Hash: TBytes): TBytes;
 var
   LContext: TExtensionContext;
   LHello: TTlsServerHello;
+  LBlock, LBody: TBytes;
+  LEchEntry: TArray<TEchExtEntry>;
+  LWriter: IWireWriter;
+  LMarker: TWireVectorMarker;
+  LZeroConf: TBytes;
 begin
   LContext := TExtensionContext.Create;
   try
@@ -1049,13 +1134,50 @@ begin
     LHello.Random := THelloRetryRequest.SentinelRandom;
     LHello.LegacySessionIdEcho := ALegacySessionId;
     LHello.CipherSuite := FSelectedSuite.Common.Code;
-    LHello.Extensions := FCodec.ProduceBlock(LContext,
+    LBlock := FCodec.ProduceBlock(LContext,
       TTlsExtensionContextKind.HelloRetryRequest);
-    Result := THandshakeFraming.Frame(TTlsHandshakeType.ServerHello,
-      THandshakeMessages.EncodeServerHello(LHello));
   finally
     LContext.Free;
   end;
+  // under ECH accept the HRR carries an encrypted_client_hello with an 8-byte accept
+  // confirmation, spliced LAST so its payload is the final 8 bytes (RFC 9849 sec. 7.2.1)
+  if System.Length(AEchInnerCh1Hash) > 0 then
+  begin
+    SetLength(LZeroConf, 8);
+    SetLength(LEchEntry, 1);
+    LEchEntry[0].ExtType := TExtensionTypes.EncryptedClientHello;
+    LEchEntry[0].Data := TEchExtension.EncodeHrrConfirmation(LZeroConf);
+    LBody := System.Copy(LBlock, 2, System.Length(LBlock) - 2) +
+      TEchOuterExtensions.EncodeExtensions(LEchEntry);
+    LWriter := TWireWriter.Create;
+    LMarker := LWriter.OpenVector(2);
+    LWriter.WriteBytes(LBody);
+    LWriter.CloseVector(LMarker);
+    LBlock := LWriter.ToBytes;
+  end;
+  LHello.Extensions := LBlock;
+  Result := THandshakeFraming.Frame(TTlsHandshakeType.ServerHello,
+    THandshakeMessages.EncodeServerHello(LHello));
+  if System.Length(AEchInnerCh1Hash) > 0 then
+    StampHrrEchConfirmation(Result, AEchInnerCh1Hash);
+end;
+
+procedure TTls13ServerStateMachine.StampHrrEchConfirmation(
+  var AHrrBytes: TBytes; const AInnerCh1Hash: TBytes);
+var
+  LClone: ITranscriptHash;
+  LConf: TBytes;
+begin
+  // the ech extension was spliced last, so its 8-byte payload is the tail of AHrrBytes; it is
+  // still zero here, so hashing AHrrBytes hashes the HRR with the payload zeroed
+  LClone := TTranscriptHash.Create;
+  LClone.SeedWithMessageHash(
+    FParams.Provider.Primitives.CreateHash(FSelectedSuite.Common.Hash), AInnerCh1Hash);
+  LClone.Update(AHrrBytes);
+  LConf := TTls13KeySchedule.EchHrrAcceptConfirmation(
+    FParams.Provider.Primitives.CreateHkdf(FSelectedSuite.Common.Hash),
+    FEchInnerRandom, LClone.CurrentHash);
+  Move(LConf[0], AHrrBytes[System.Length(AHrrBytes) - 8], 8);
 end;
 
 function TTls13ServerStateMachine.ProcessSecondClientHello(
@@ -1064,13 +1186,29 @@ var
   LClientHello: TTlsClientHello;
   LContext: TExtensionContext;
   LSelectedGroup, LCookieGroup: UInt16;
-  LCh1Hash, LClientShare, LHrr: TBytes;
+  LCh1Hash, LClientShare, LHrr, LCh2Raw, LEchHrrHash: TBytes;
+  LEchAccepted: Boolean;
 begin
-  LClientHello := THandshakeMessages.DecodeClientHello(AMessage.Body);
+  // when ECH was accepted on CH1, the retry outer reuses the CH1 HPKE context at seq=1
+  // (RFC 9849 sec. 6.1.5); the reconstructed inner CH2 is the logical ClientHello2
+  LEchAccepted := (FEchStatus = TEchStatus.Accepted) and (FEch <> nil);
+  if LEchAccepted then
+  begin
+    FEch.ProcessRetryOuter(AMessage.Raw);
+    LCh2Raw := FEch.InnerFramed;
+    // ClientHelloInner.random MUST NOT change across the retry (RFC 8446 4.1.2)
+    if not TArrayUtilities.AreEqual(FEch.InnerRandom, FEchInnerRandom) then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.IllegalParameter, @SEchInnerRandomChanged);
+  end
+  else
+    LCh2Raw := AMessage.Raw;
+  LClientHello := THandshakeMessages.DecodeClientHello(
+    System.Copy(LCh2Raw, 4, System.Length(LCh2Raw) - 4));
   LContext := TExtensionContext.Create;
   try
     // resumption is not attempted on the retry ClientHello (kept to the first flight)
-    NegotiateFrom(LClientHello, LContext, AMessage.Raw, False, LSelectedGroup);
+    NegotiateFrom(LClientHello, LContext, LCh2Raw, False, LSelectedGroup);
 
     // the retry must echo a cookie that verifies under the server secret (RFC 8446
     // 4.1.4); the cookie carries Hash(ClientHello1) and the requested group
@@ -1091,25 +1229,79 @@ begin
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SNoRetryKeyShare);
 
-    // rebuild the transcript statelessly: message_hash(Hash(CH1)), then the
-    // reconstructed HelloRetryRequest (byte-identical to the one sent, from the
-    // echoed cookie), then this ClientHello
+    // rebuild the transcript statelessly: message_hash(Hash(CH1)), then the reconstructed
+    // HelloRetryRequest (byte-identical to the one sent, including its ech confirmation on
+    // accept, from the echoed cookie's Hash(CH1)), then this ClientHello (the inner on accept)
     FTranscript := TTranscriptHash.Create;
     FTranscript.SeedWithMessageHash(FParams.Provider.Primitives.CreateHash(FSelectedSuite.Common.Hash),
       LCh1Hash);
+    // the sent HelloRetryRequest carried the ech confirmation on ECH accept and in the backend
+    // role, so its transcript reconstruction must too (else the ServerHello confirmation diverges)
+    if FEchStatus in [TEchStatus.Accepted, TEchStatus.Backend] then
+      LEchHrrHash := LCh1Hash
+    else
+      LEchHrrHash := nil;
     LHrr := BuildHelloRetryRequest(LClientHello.LegacySessionId, LSelectedGroup,
-      LContext.Cookie);
+      LContext.Cookie, LEchHrrHash);
     FTranscript.Update(LHrr);
     // a resuming client recomputes its PSK binder over the retry transcript, so re-validate
     // it here (over message_hash(CH1), HRR, this ClientHello up to the binders) before
     // folding the full retry hello in - the first flight's binder does not vouch for it
     if FPskAccepted then
-      RevalidateRetryBinder(AMessage.Raw, LContext);
-    FTranscript.Update(AMessage.Raw); // the second ClientHello
+      RevalidateRetryBinder(LCh2Raw, LContext);
+    FTranscript.Update(LCh2Raw); // the second ClientHello (inner on ECH accept)
     Result := EmitServerFlight(LClientHello, LSelectedGroup, LClientShare, False);
   finally
     LContext.Free;
   end;
+end;
+
+class function TTls13ServerStateMachine.DetectBackendEch(
+  const AClientHello: TTlsClientHello): Boolean;
+var
+  LReader, LBody: TWireReader;
+  LEntries: TArray<TEchExtEntry>;
+  LI: Int32;
+  LType: TEchClientHelloType;
+  LOuter: TEchOuterClientHello;
+begin
+  Result := False;
+  // an absent extensions field is a legacy (<=TLS 1.2) ClientHello shape; leave it to version
+  // negotiation to reject with protocol_version rather than fail here as a decode_error
+  if System.Length(AClientHello.Extensions) = 0 then
+    Exit;
+  LReader := TWireReader.Create(AClientHello.Extensions);
+  LBody := LReader.OpenVector(2);
+  LEntries := TEchOuterExtensions.ParseExtensions(LBody.ReadBytes(LBody.Remaining));
+  for LI := 0 to System.High(LEntries) do
+    if LEntries[LI].ExtType = TExtensionTypes.EncryptedClientHello then
+    begin
+      // Decode validates the wire shape: an out-of-range type is illegal_parameter, a malformed
+      // body a decode_error - the boundary maps either to the alert
+      TEchExtension.Decode(LEntries[LI].Data, LType, LOuter);
+      Exit(LType = TEchClientHelloType.Inner);
+    end;
+end;
+
+procedure TTls13ServerStateMachine.StampEchAcceptConfirmation(
+  var AServerHelloBytes: TBytes);
+var
+  LZeroed, LConf: TBytes;
+  LClone: ITranscriptHash;
+  LI: Int32;
+begin
+  // transcript_ech_conf is over (inner ClientHello .. this ServerHello) with the last 8
+  // ServerHello.random bytes zeroed; the confirmation then overwrites those same bytes.
+  // The random is at offset 6 of the framed message, so bytes 24..32 are 30..38.
+  LZeroed := System.Copy(AServerHelloBytes);
+  for LI := 0 to 7 do
+    LZeroed[30 + LI] := 0;
+  LClone := FTranscript.Clone;
+  LClone.Update(LZeroed);
+  LConf := TTls13KeySchedule.EchAcceptConfirmation(
+    FParams.Provider.Primitives.CreateHkdf(FSelectedSuite.Common.Hash),
+    FEchInnerRandom, LClone.CurrentHash);
+  Move(LConf[0], AServerHelloBytes[30], 8);
 end;
 
 function TTls13ServerStateMachine.EmitServerFlight(
@@ -1125,6 +1317,10 @@ begin
   // precondition: the transcript is already seeded through this ClientHello and active
   FSelectedGroup.Encapsulate(AClientShare, LServerShare, LShared);
   LServerHelloBytes := BuildServerHello(AClientHello, ASelectedGroup, LServerShare);
+  // on ECH accept (or the backend role), overwrite ServerHello.random[24..32] with the accept
+  // confirmation before folding it into the transcript (RFC 9849 sec. 7.2)
+  if FEchStatus in [TEchStatus.Accepted, TEchStatus.Backend] then
+    StampEchAcceptConfirmation(LServerHelloBytes);
   FTranscript.Update(LServerHelloBytes);
 
   FSchedule := TTls13KeySchedule.Create(FParams.Provider, FSelectedSuite.Common.Hash,
@@ -1278,6 +1474,10 @@ end;
 function TTls13ServerStateMachine.BuildEncryptedExtensions: TBytes;
 var
   LContext: TExtensionContext;
+  LBlock, LBody: TBytes;
+  LEchEntry: TArray<TEchExtEntry>;
+  LWriter: IWireWriter;
+  LMarker: TWireVectorMarker;
 begin
   if System.Length(FParams.EncryptedExtensionsOverride) > 0 then
     Exit(System.Copy(FParams.EncryptedExtensionsOverride));
@@ -1292,12 +1492,29 @@ begin
       FParams.ServerNameAck and not FPskAccepted;
     // signal 0-RTT acceptance to the client (an empty early_data in EncryptedExtensions)
     LContext.EarlyDataAccepted := FEarlyDataAccepted;
-    Result := THandshakeFraming.Frame(TTlsHandshakeType.EncryptedExtensions,
-      THandshakeMessages.EncodeEncryptedExtensions(FCodec.ProduceBlock(LContext,
-      TTlsExtensionContextKind.EncryptedExtensions)));
+    LBlock := FCodec.ProduceBlock(LContext,
+      TTlsExtensionContextKind.EncryptedExtensions);
   finally
     LContext.Free;
   end;
+  // on ECH reject the client-facing server advertises retry_configs so the client can refresh
+  // its keys (RFC 9849 sec. 7.1); splice the ech extension (payload is an ECHConfigList) into
+  // the produced extensions vector - it wraps the entries, so unwrap, append, and re-wrap
+  if (FEchStatus = TEchStatus.Rejected) and (System.Length(FEchRetryConfigs) > 0) then
+  begin
+    SetLength(LEchEntry, 1);
+    LEchEntry[0].ExtType := TExtensionTypes.EncryptedClientHello;
+    LEchEntry[0].Data := TEchExtension.EncodeRetryConfigs(FEchRetryConfigs);
+    LBody := System.Copy(LBlock, 2, System.Length(LBlock) - 2) +
+      TEchOuterExtensions.EncodeExtensions(LEchEntry);
+    LWriter := TWireWriter.Create;
+    LMarker := LWriter.OpenVector(2);
+    LWriter.WriteBytes(LBody);
+    LWriter.CloseVector(LMarker);
+    LBlock := LWriter.ToBytes;
+  end;
+  Result := THandshakeFraming.Frame(TTlsHandshakeType.EncryptedExtensions,
+    THandshakeMessages.EncodeEncryptedExtensions(LBlock));
 end;
 
 function TTls13ServerStateMachine.ResolveOcspStaple: TBytes;
@@ -1519,7 +1736,16 @@ begin
     THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
     TTlsDirection.ClientWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13),
     THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code,
-    FSelectedGroup.Code, FPskAccepted, FRequestedServerName),
+    FSelectedGroup.Code, FPskAccepted, FRequestedServerName));
+  // record the ECH status before signalling completion, so a sink reading it in the established
+  // callback sees the final value (the client machine emits the status before completion too)
+  if FEchStatus = TEchStatus.Accepted then
+    TArrayUtilities.Append<THandshakeEffect>(Result, THandshakeEffects.EchAccepted)
+  else if FEchStatus = TEchStatus.Backend then
+    TArrayUtilities.Append<THandshakeEffect>(Result, THandshakeEffects.EchBackend)
+  else if FEchStatus = TEchStatus.Rejected then
+    TArrayUtilities.Append<THandshakeEffect>(Result, THandshakeEffects.EchServerRejected);
+  TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.HandshakeEstablished);
   // issue resumption tickets under the freshly-installed application write keys
   EmitNewSessionTickets(Result);

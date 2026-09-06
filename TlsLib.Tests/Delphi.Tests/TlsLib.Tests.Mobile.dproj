@@ -364,7 +364,7 @@
         <DCCReference Include="..\..\TlsLib\src\Codec\TlpWireVectorMarker.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Codec\TlpIWireWriter.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Codec\TlpWireWriter.pas"/>
-        <DCCReference Include="..\..\TlsLib\src\Crypto\TlpCryptoAlgorithms.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Crypto\TlpCryptoDomainTypes.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Crypto\TlpICryptoProvider.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Crypto\TlpISigningKey.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Crypto\TlpDefaultCryptoProvider.pas"/>
@@ -434,6 +434,13 @@
         <DCCReference Include="..\..\TlsLib\src\Handshake\TlpTlsCredential.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Handshake\TlpITlsCredentialResolver.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Handshake\TlpCredentialResolvers.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Ech\TlpEchConfig.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Ech\TlpEchExtension.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Ech\TlpEchOuterExtensions.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Ech\TlpIEch.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Ech\TlpEchClient.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Ech\TlpEchKeyStore.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Ech\TlpEchServer.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Engine\TlpITlsConfig.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Engine\TlpITlsConfigBuilder.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsConfigBuilder.pas"/>
@@ -510,6 +517,13 @@
         <DCCReference Include="..\src\CertificateVerifierTests.pas"/>
         <DCCReference Include="..\src\OcspStaplingTests.pas"/>
         <DCCReference Include="..\src\CertificateCheckTests.pas"/>
+        <DCCReference Include="..\src\HpkeProviderTests.pas"/>
+        <DCCReference Include="..\src\EchConfigTests.pas"/>
+        <DCCReference Include="..\src\EchExtensionTests.pas"/>
+        <DCCReference Include="..\src\EchOuterExtensionsTests.pas"/>
+        <DCCReference Include="..\src\EchConfirmationTests.pas"/>
+        <DCCReference Include="..\src\EchClientTests.pas"/>
+        <DCCReference Include="..\src\EchClientEngineTests.pas"/>
         <DCCReference Include="..\src\AsyncVerdictTests.pas"/>
         <DCCReference Include="..\src\LiveRevocationTests.pas"/>
         <DCCReference Include="..\src\ConfigBuilderTests.pas"/>
@@ -517,6 +531,7 @@
         <DCCReference Include="..\src\SystemTrustTests.pas"/>
         <DCCReference Include="..\src\AppleAlertMapTests.pas"/>
         <DCCReference Include="..\src\RootGenKeyingTests.pas"/>
+        <DCCReference Include="..\src\EchToolingTests.pas"/>
         <DCCReference Include="..\src\BundleTrustTests.pas"/>
         <DCCReference Include="..\src\PresetTests.pas"/>
         <DCCReference Include="..\src\ExtensionCodecTests.pas"/>

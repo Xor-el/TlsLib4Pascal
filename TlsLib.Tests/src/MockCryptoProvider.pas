@@ -19,7 +19,7 @@ interface
 
 uses
   SysUtils,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpDefaultCryptoProvider;
 
@@ -43,6 +43,8 @@ type
     function Certificates: ICertificateInspector;
     function PathValidation: ICertificatePathValidator;
     function Revocation: IRevocationChecker;
+    function Hpke: IHpke;
+    function Pem: IPemCodec;
   end;
 
   /// <summary>
@@ -84,6 +86,8 @@ type
     function Certificates: ICertificateInspector;
     function PathValidation: ICertificatePathValidator;
     function Revocation: IRevocationChecker;
+    function Hpke: IHpke;
+    function Pem: IPemCodec;
   end;
 
 implementation
@@ -122,6 +126,16 @@ end;
 function TMockCryptoProvider.Revocation: IRevocationChecker;
 begin
   Result := FComposed.Revocation;
+end;
+
+function TMockCryptoProvider.Hpke: IHpke;
+begin
+  Result := FComposed.Hpke;
+end;
+
+function TMockCryptoProvider.Pem: IPemCodec;
+begin
+  Result := FComposed.Pem;
 end;
 
 { TFixedAesPrimitives }
@@ -213,6 +227,16 @@ end;
 function TFixedAesProvider.Revocation: IRevocationChecker;
 begin
   Result := FComposed.Revocation;
+end;
+
+function TFixedAesProvider.Hpke: IHpke;
+begin
+  Result := FComposed.Hpke;
+end;
+
+function TFixedAesProvider.Pem: IPemCodec;
+begin
+  Result := FComposed.Pem;
 end;
 
 end.

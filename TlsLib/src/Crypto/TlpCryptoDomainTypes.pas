@@ -9,7 +9,7 @@
 
 (* &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&& *)
 
-unit TlpCryptoAlgorithms;
+unit TlpCryptoDomainTypes;
 
 {$I ..\Include\TlsLib.inc}
 
@@ -40,6 +40,69 @@ type
 
   /// <summary>The key-encapsulation primitives.</summary>
   TKemAlgorithm = (ML_KEM_768);
+
+  /// <summary>
+  /// HPKE KEM identifiers (RFC 9180 sec. 7.1). Open IANA registry, opaque to this
+  /// layer: which suites can be instantiated is the provider's to decide
+  /// (IHpke.SuiteSupported), and a peer's ECHConfig or an injected provider may carry a
+  /// codepoint this library never enumerated - so raw UInt16 constants, not an enum.
+  /// Used by Encrypted Client Hello.
+  /// </summary>
+  THpkeKem = class sealed(TObject)
+  public const
+    DHKEM_P256_HKDF_SHA256 = UInt16(16);
+    DHKEM_P384_HKDF_SHA384 = UInt16(17);
+    DHKEM_P521_HKDF_SHA512 = UInt16(18);
+    DHKEM_X25519_HKDF_SHA256 = UInt16(32);
+    DHKEM_X448_HKDF_SHA512 = UInt16(33);
+  end;
+
+  /// <summary>HPKE KDF identifiers (RFC 9180 sec. 7.2); an open UInt16 registry.</summary>
+  THpkeKdf = class sealed(TObject)
+  public const
+    HKDF_SHA256 = UInt16(1);
+    HKDF_SHA384 = UInt16(2);
+    HKDF_SHA512 = UInt16(3);
+  end;
+
+  /// <summary>
+  /// HPKE AEAD identifiers (RFC 9180 sec. 7.3); an open UInt16 registry. ExportOnly
+  /// (0xFFFF) names a suite that supports only secret export, never seal/open - the
+  /// ECH config filter rejects it.
+  /// </summary>
+  THpkeAead = class sealed(TObject)
+  public const
+    AES_128_GCM = UInt16(1);
+    AES_256_GCM = UInt16(2);
+    CHACHA20_POLY1305 = UInt16(3);
+    EXPORT_ONLY = UInt16($FFFF);
+  end;
+
+  /// <summary>
+  /// An HPKE cipher suite: the (KEM, KDF, AEAD) triple identifying a concrete HPKE
+  /// instance (RFC 9180). Held as raw UInt16 codepoints so an unknown suite received
+  /// off the wire round-trips; the provider reports whether it can be instantiated
+  /// through <see cref="IHpke.SuiteSupported" />.
+  /// </summary>
+  THpkeSuite = record
+  strict private
+  var
+    FKem, FKdf, FAead: UInt16;
+  public
+    class function Create(AKem, AKdf, AAead: UInt16): THpkeSuite; static;
+    /// <summary>Structural equality across all three codepoints.</summary>
+    function Equals(const AOther: THpkeSuite): Boolean;
+    property Kem: UInt16 read FKem;
+    property Kdf: UInt16 read FKdf;
+    property Aead: UInt16 read FAead;
+  end;
+
+  /// <summary>One PEM block (RFC 7468): its label (e.g. "PRIVATE KEY", "ECHCONFIG") and
+  /// the base64-decoded content (opaque bytes - DER for keys and certificates).</summary>
+  TPemBlock = record
+    PemType: string;
+    Content: TBytes;
+  end;
 
   /// <summary>
   /// The revocation verdict an OCSP response reports for a certificate (RFC 6960
@@ -122,6 +185,21 @@ implementation
 
 resourcestring
   SNoSchemeCode = 'signature scheme enum value %d has no wire codepoint';
+
+{ THpkeSuite }
+
+class function THpkeSuite.Create(AKem, AKdf, AAead: UInt16): THpkeSuite;
+begin
+  Result.FKem := AKem;
+  Result.FKdf := AKdf;
+  Result.FAead := AAead;
+end;
+
+function THpkeSuite.Equals(const AOther: THpkeSuite): Boolean;
+begin
+  Result := (FKem = AOther.FKem) and (FKdf = AOther.FKdf) and
+    (FAead = AOther.FAead);
+end;
 
 { TSignatureSchemeHelper }
 

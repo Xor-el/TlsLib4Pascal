@@ -18,7 +18,7 @@ interface
 uses
   SysUtils,
   TlpCodeKeyedRegistry,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpINegotiation;
 
 type

@@ -1,6 +1,6 @@
 # Getting started
 
-**TlsLib4Pascal docs** · [Home](README.md) · Getting started · [Cookbook](cookbook.md) · [Verification](certificate-verification.md) · [System trust](system-trust.md) · [Compression](certificate-compression.md) · [Security model](security-model.md)
+**TlsLib4Pascal docs** · [Home](README.md) · Getting started · [Cookbook](cookbook.md) · [Verification](certificate-verification.md) · [System trust](system-trust.md) · [Compression](certificate-compression.md) · [ECH](ech.md) · [Security model](security-model.md)
 
 This gets you from an empty project to a working, fully-verified TLS connection — a client and a
 server — in a few minutes, on either Delphi or FPC/Lazarus. Every snippet here compiles on **both**

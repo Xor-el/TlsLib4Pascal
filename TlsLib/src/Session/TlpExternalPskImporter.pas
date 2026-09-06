@@ -17,7 +17,7 @@ interface
 
 uses
   SysUtils,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpISecretBuffer,
   TlpICryptoProvider,
   TlpHkdfLabel,

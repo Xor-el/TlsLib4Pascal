@@ -32,7 +32,7 @@ uses
   synsock,
   TlpTlsVersion,
   TlpTlsAlert,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpDataEncoding,
   TlpICryptoProvider,
   TlpDefaultCryptoProvider,

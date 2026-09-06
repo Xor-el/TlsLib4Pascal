@@ -31,7 +31,7 @@ uses
   TlpTlsVersion,
   TlpSecretBuffer,
   TlpICryptoProvider,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpIRecordProtection,
   TlpRecordProtectionFactory,
   TlpIKeySchedule,

@@ -30,7 +30,7 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpTlsAlert,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpICertificateTrust,
   TlpCertificateVerifier,

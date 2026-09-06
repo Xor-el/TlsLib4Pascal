@@ -20,7 +20,7 @@ uses
   TlpTlsAlert,
   TlpTlsLibExceptions,
   TlpArrayUtilities,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpEndpointIdentity,
   TlpCertificateLimits,

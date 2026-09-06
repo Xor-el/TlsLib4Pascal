@@ -30,6 +30,7 @@ uses
   TlpITlsCredentialResolver,
   TlpISession,
   TlpIClock,
+  TlpIEch,
   TlpSession;
 
 type
@@ -152,6 +153,9 @@ type
     /// than a fall-through to certificate authentication. Set False to also accept a
     /// certificate handshake. No effect without configured external PSKs.</summary>
     function ExternalPskRequired: Boolean;
+    /// <summary>The frozen Encrypted Client Hello policy (RFC 9849), or nil when ECH is
+    /// not offered.</summary>
+    function EncryptedClientHello: IEchClientPolicy;
   end;
 
   /// <summary>A frozen server endpoint config: a certificate credential is mandatory.</summary>
@@ -180,6 +184,12 @@ type
     function TicketCount: Int32;
     /// <summary>The 0-RTT early-data byte budget the server authorizes (0 = no early data).</summary>
     function MaxEarlyData: UInt32;
+    /// <summary>The Encrypted Client Hello key store the server decrypts with and advertises as
+    /// retry_configs (RFC 9849), or nil when ECH is not configured.</summary>
+    function EchKeyStore: IEchServerKeyStore;
+    /// <summary>Whether the server trial-decrypts an ECH offer against every key on a config_id
+    /// miss (RFC 9849 sec. 7.1).</summary>
+    function EchTrialDecrypt: Boolean;
   end;
 
 implementation

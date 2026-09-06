@@ -36,7 +36,8 @@ uses
   TlpHandshakeChannel,
   TlpIHandshakeMachine,
   TlpHandshakeDriver,
-  TlpHandshakeConductor;
+  TlpHandshakeConductor,
+  TlpEchConfig;
 
 type
   /// <summary>
@@ -85,6 +86,14 @@ type
     FNegotiatedGroup: UInt16;
     FPeerServerName: string;
     FIsResumed: Boolean;
+    // ECH outcome surfaced to callers: the status, and on a reject the retry_configs the
+    // server advertised plus whether this handshake was itself a retry (RFC 9849 sec. 6.1.6)
+    FEchStatus: TEchStatus;
+    FEchRetryConfigs: TBytes;
+    FEchIsRetryAttempt: Boolean;
+    // set only when a client aborts with ech_required over a rejected ECH offer, so a server's
+    // benign Rejected status (a completed GREASE handshake) is never read as an ECH abort
+    FEchRejectAborted: Boolean;
     // async peer-certificate verdict: whether the handshake is parked awaiting a verdict,
     // and the advisory deadline the driver enforces (the engine owns no timer)
     FAwaitingVerdict: Boolean;
@@ -154,6 +163,10 @@ type
     function NegotiatedGroup: UInt16;
     function PeerServerName: string;
     function IsResumed: Boolean;
+    function EchStatus: TEchStatus;
+    function EchRetryConfigs: TBytes;
+    function EchIsRetryAttempt: Boolean;
+    function EchRejectAborted: Boolean;
 
     // installer + sink operations the handshake bridge forwards to (the engine no
     // longer implements those interfaces directly - see the bridge below)
@@ -176,6 +189,11 @@ type
       const AServerName: string);
     procedure OnHandshakeEstablished;
     procedure OnHandshakeFailed(AAlert: TTlsAlertDescription);
+    procedure OnEchAccepted;
+    procedure OnEchGreased;
+    procedure OnEchBackend;
+    procedure OnEchServerRejected;
+    procedure OnEchRejected(const ARetryConfigs: TBytes; AIsRetryAttempt: Boolean);
     // ITlsEventSource
     procedure SetEventSink(const ASink: ITlsEventSink);
   end;
@@ -208,7 +226,7 @@ type
   /// </summary>
   TEngineHandshakeBridge = class sealed(TInterfacedObject, IRecordEpochInstaller,
     IHandshakeSink, IHandshakeVersionSink, IHandshakeVerdictSink,
-    IHandshakeConnectionInfoSink)
+    IHandshakeConnectionInfoSink, IEchStatusSink)
   strict private
   var
     FEngine: TTlsEngine;
@@ -233,6 +251,11 @@ type
       const AServerName: string);
     procedure OnHandshakeEstablished;
     procedure OnHandshakeFailed(AAlert: TTlsAlertDescription);
+    procedure OnEchAccepted;
+    procedure OnEchGreased;
+    procedure OnEchBackend;
+    procedure OnEchServerRejected;
+    procedure OnEchRejected(const ARetryConfigs: TBytes; AIsRetryAttempt: Boolean);
   end;
 
 { TEngineHandshakeBridge }
@@ -335,6 +358,32 @@ begin
   FEngine.OnHandshakeFailed(AAlert);
 end;
 
+procedure TEngineHandshakeBridge.OnEchAccepted;
+begin
+  FEngine.OnEchAccepted;
+end;
+
+procedure TEngineHandshakeBridge.OnEchGreased;
+begin
+  FEngine.OnEchGreased;
+end;
+
+procedure TEngineHandshakeBridge.OnEchBackend;
+begin
+  FEngine.OnEchBackend;
+end;
+
+procedure TEngineHandshakeBridge.OnEchServerRejected;
+begin
+  FEngine.OnEchServerRejected;
+end;
+
+procedure TEngineHandshakeBridge.OnEchRejected(const ARetryConfigs: TBytes;
+  AIsRetryAttempt: Boolean);
+begin
+  FEngine.OnEchRejected(ARetryConfigs, AIsRetryAttempt);
+end;
+
 { TTlsEngine }
 
 constructor TTlsEngine.Create;
@@ -358,6 +407,9 @@ begin
   FNegotiatedGroup := 0;
   FPeerServerName := '';
   FIsResumed := False;
+  FEchStatus := TEchStatus.NotOffered;
+  FEchIsRetryAttempt := False;
+  FEchRejectAborted := False;
   FNegotiatedAlpn := '';
   // a zero wire code until an epoch's keys name the negotiated version
   FNegotiatedVersion := TTlsVersion.Create(0);
@@ -855,6 +907,26 @@ begin
   Result := FIsResumed;
 end;
 
+function TTlsEngine.EchStatus: TEchStatus;
+begin
+  Result := FEchStatus;
+end;
+
+function TTlsEngine.EchRetryConfigs: TBytes;
+begin
+  Result := System.Copy(FEchRetryConfigs);
+end;
+
+function TTlsEngine.EchIsRetryAttempt: Boolean;
+begin
+  Result := FEchIsRetryAttempt;
+end;
+
+function TTlsEngine.EchRejectAborted: Boolean;
+begin
+  Result := FEchRejectAborted;
+end;
+
 procedure TTlsEngine.InstallReadProtection(const AProtection: IRecordProtection);
 begin
   FRecordLayer.SetReadProtection(AProtection);
@@ -989,6 +1061,39 @@ begin
   FLastError := TTlsError.CreateFatal(AAlert, SLocalFatalAlert);
   QueueAlertRecord(TTlsAlert.CreateFatal(AAlert));
   FTerminal := True;
+end;
+
+procedure TTlsEngine.OnEchAccepted;
+begin
+  FEchStatus := TEchStatus.Accepted;
+end;
+
+procedure TTlsEngine.OnEchGreased;
+begin
+  FEchStatus := TEchStatus.Greased;
+end;
+
+procedure TTlsEngine.OnEchBackend;
+begin
+  FEchStatus := TEchStatus.Backend;
+end;
+
+procedure TTlsEngine.OnEchServerRejected;
+begin
+  // the server rejected ECH and completed to the public_name; record it, do not abort
+  FEchStatus := TEchStatus.Rejected;
+end;
+
+procedure TTlsEngine.OnEchRejected(const ARetryConfigs: TBytes;
+  AIsRetryAttempt: Boolean);
+begin
+  // the client completed its flight to the public_name; surface the reject (retry_configs
+  // and the retry flag) then abort with ech_required - never a plaintext fall-back
+  FEchStatus := TEchStatus.Rejected;
+  FEchRetryConfigs := ARetryConfigs;
+  FEchIsRetryAttempt := AIsRetryAttempt;
+  FEchRejectAborted := True;
+  OnHandshakeFailed(TTlsAlertDescription.EchRequired);
 end;
 
 procedure TTlsEngine.SetEventSink(const ASink: ITlsEventSink);

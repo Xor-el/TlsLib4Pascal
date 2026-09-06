@@ -19,7 +19,7 @@ uses
   SysUtils,
   TlpTlsAlert,
   TlpTlsVersion,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpIKeySchedule,
   TlpITlsEngine;
 
@@ -45,6 +45,11 @@ type
     RequestedCertificateAuthorities, // surface a CertificateRequest's certificate_authorities
     ConnectionParams,     // surface the negotiated suite/group/resumed for connection info
     HandshakeEstablished, // the handshake completed
+    EchAccepted,          // ECH was accepted: record the status for connection info
+    EchGreased,           // ECH was greased (client): record the status for connection info
+    EchBackend,           // ECH split-mode backend (server): record the status for connection info
+    EchServerRejected,    // ECH rejected at the server: record the status (the handshake continues)
+    EchRejected,          // ECH was rejected (client): abort with ech_required, surface retry_configs
     Fail);                // abort with a fatal alert
 
   /// <summary>
@@ -66,7 +71,7 @@ type
     Chain: TArray<TBytes>;       // AwaitCertificateVerdict (the peer chain, leaf first)
     CipherSuite: UInt16;         // ConnectionParams (the negotiated cipher suite code)
     NamedGroup: UInt16;          // ConnectionParams (0 when none / non-(EC)DHE)
-    Resumed: Boolean;            // ConnectionParams (a resumed/abbreviated handshake)
+    Resumed: Boolean;            // ConnectionParams (resumed); EchRejected (was a retry)
     ServerName: string;          // ConnectionParams (the SNI in play; empty when none)
     Alert: TTlsAlertDescription; // Fail
   end;
@@ -113,6 +118,24 @@ type
       AResumed: Boolean; const AServerName: string): THandshakeEffect; static;
     class function HandshakeEstablished: THandshakeEffect; static;
     class function Fail(AAlert: TTlsAlertDescription): THandshakeEffect; static;
+    /// <summary>ECH was accepted (RFC 9849): record the accepted status so connection info
+    /// reports it. Emitted by the 1.3 machines at completion when ECH was in play.</summary>
+    class function EchAccepted: THandshakeEffect; static;
+    /// <summary>ECH was greased (RFC 9849 sec. 6.2): the client offered a GREASE ech extension
+    /// the server ignored; record the greased status for connection info.</summary>
+    class function EchGreased: THandshakeEffect; static;
+    /// <summary>ECH split-mode backend (RFC 9849 sec. 7): the server accepted an inner-form ech
+    /// as the backend behind a client-facing relay; record the backend status for connection info.</summary>
+    class function EchBackend: THandshakeEffect; static;
+    /// <summary>ECH was rejected at the server (RFC 9849 sec. 7.1): no key opened the ech, so the
+    /// handshake continued to the public_name; record the rejected status for connection info. The
+    /// server does not abort - unlike the client's EchRejected.</summary>
+    class function EchServerRejected: THandshakeEffect; static;
+    /// <summary>ECH was rejected (RFC 9849 sec. 6.1.6): the client has completed its flight
+    /// to the public_name; the driver now aborts with an ech_required alert and surfaces the
+    /// server's retry_configs (empty if none) and whether this handshake was itself a retry.</summary>
+    class function EchRejected(const ARetryConfigs: TBytes;
+      AIsRetryAttempt: Boolean): THandshakeEffect; static;
   end;
 
 implementation
@@ -252,6 +275,39 @@ begin
   Result := Default(THandshakeEffect);
   Result.Kind := THandshakeEffectKind.Fail;
   Result.Alert := AAlert;
+end;
+
+class function THandshakeEffects.EchAccepted: THandshakeEffect;
+begin
+  Result := Default(THandshakeEffect);
+  Result.Kind := THandshakeEffectKind.EchAccepted;
+end;
+
+class function THandshakeEffects.EchGreased: THandshakeEffect;
+begin
+  Result := Default(THandshakeEffect);
+  Result.Kind := THandshakeEffectKind.EchGreased;
+end;
+
+class function THandshakeEffects.EchBackend: THandshakeEffect;
+begin
+  Result := Default(THandshakeEffect);
+  Result.Kind := THandshakeEffectKind.EchBackend;
+end;
+
+class function THandshakeEffects.EchServerRejected: THandshakeEffect;
+begin
+  Result := Default(THandshakeEffect);
+  Result.Kind := THandshakeEffectKind.EchServerRejected;
+end;
+
+class function THandshakeEffects.EchRejected(const ARetryConfigs: TBytes;
+  AIsRetryAttempt: Boolean): THandshakeEffect;
+begin
+  Result := Default(THandshakeEffect);
+  Result.Kind := THandshakeEffectKind.EchRejected;
+  Result.Bytes := ARetryConfigs;
+  Result.Resumed := AIsRetryAttempt;
 end;
 
 end.

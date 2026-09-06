@@ -26,7 +26,7 @@ interface
 
 uses
   SysUtils,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpDataEncoding;
 

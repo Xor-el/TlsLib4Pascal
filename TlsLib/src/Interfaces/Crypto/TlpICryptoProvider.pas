@@ -17,7 +17,7 @@ interface
 
 uses
   SysUtils,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpISigningKey,
   TlpTlsCredential,
   TlpISecretBuffer;
@@ -428,6 +428,142 @@ type
       out ARevoked: Boolean): Boolean;
   end;
 
+{ ===== HPKE (RFC 9180) ===== }
+
+  /// <summary>
+  /// A sender-side HPKE encryption context (RFC 9180 sec. 5.2). It is
+  /// sequence-aware: each <see cref="Seal" /> advances the internal AEAD sequence
+  /// number, so the same instance produces the seq=0 message and then the seq=1
+  /// message. Encrypted Client Hello reuses one sealer across a HelloRetryRequest for
+  /// exactly this, so callers hold the live instance rather than re-creating it.
+  /// </summary>
+  IHpkeSealer = interface(IInterface)
+    ['{2B4E6A18-9D07-4C31-A5F2-7E1C3B8D6042}']
+    /// <summary>Encrypts APlaintext under AAad at the current sequence number and
+    /// advances it.</summary>
+    function Seal(const AAad, APlaintext: TBytes): TBytes;
+  end;
+
+  /// <summary>
+  /// A recipient-side HPKE decryption context (RFC 9180 sec. 5.2). Sequence-aware:
+  /// a successful <see cref="Open" /> advances the sequence number, a failed one
+  /// (authentication failure) does not, so a rejected ciphertext never
+  /// desynchronises the receiver. Encrypted Client Hello holds the live instance
+  /// across a HelloRetryRequest to open the second ClientHello at seq=1.
+  /// </summary>
+  IHpkeOpener = interface(IInterface)
+    ['{7C0A9F53-1E62-4B48-8D3A-5F2B7C9E1A46}']
+    /// <summary>Authenticates and decrypts ACiphertext under AAad at the current
+    /// sequence number; raises EHpkeOpenTlsLibException on authentication failure
+    /// without advancing, and advances only on success.</summary>
+    function Open(const AAad, ACiphertext: TBytes): TBytes;
+  end;
+
+  /// <summary>
+  /// A recipient HPKE key prepared once for reuse across many decapsulations (RFC 9180): the
+  /// private key is decoded and its public key derived at import, so a server that trial-decrypts
+  /// every ClientHello does not repeat that work per attempt. The key material stays inside the
+  /// provider - only the KEM, the derived public key, and the open operation are exposed.
+  /// </summary>
+  IHpkeRecipientKey = interface(IInterface)
+    ['{1F3B7D24-6E90-4A58-8C05-9B2E4D6A1C73}']
+    /// <summary>The KEM this key belongs to.</summary>
+    function Kem: UInt16;
+    /// <summary>The serialized KEM public key derived from the private key at import.</summary>
+    function PublicKey: TBytes;
+    /// <summary>
+    /// Sets up a base-mode recipient for the encapsulation AEnc under context AInfo, returning a
+    /// sequence-aware opener. ASuite's KEM must be this key's KEM. Raises on a suite/KEM mismatch;
+    /// a wrong key surfaces later as an authentication failure from <see cref="IHpkeOpener.Open" />.
+    /// </summary>
+    function SetupOpener(const ASuite: THpkeSuite;
+      const AEnc, AInfo: TBytes): IHpkeOpener;
+  end;
+
+  /// <summary>
+  /// The HPKE facet (RFC 9180 base mode). It vends the setup, key-generation and
+  /// key-import operations Encrypted Client Hello needs, in neutral currency only:
+  /// TBytes, ISecretBuffer, and the UInt16 HPKE codepoints (<see cref="THpkeSuite" />).
+  /// No backend type crosses this seam.
+  /// </summary>
+  IHpke = interface(IInterface)
+    ['{4D8F1C60-3A72-4E59-9B14-6C0D2E7A3B58}']
+    /// <summary>
+    /// Sets up a base-mode sender against the recipient public key ARecipientPublicKey
+    /// (the KEM's serialized public key). Returns the KEM encapsulation to transmit in
+    /// AEnc and a sequence-aware sealer in ASealer. AInfo binds the application context
+    /// (RFC 9180 sec. 5.1). Raises if the suite is unsupported or the public key is
+    /// malformed.
+    /// </summary>
+    procedure SetupSealer(const ASuite: THpkeSuite;
+      const ARecipientPublicKey, AInfo: TBytes; out AEnc: TBytes;
+      out ASealer: IHpkeSealer);
+    /// <summary>
+    /// Imports a recipient private key (the raw KEM scalar for AKem) into a reusable handle,
+    /// deriving its public key once. Raises ENotSupportedTlsLibException for an unknown KEM or
+    /// EArgumentTlsLibException for a malformed scalar.
+    /// </summary>
+    function ImportRecipientKey(AKem: UInt16;
+      const APrivateKey: ISecretBuffer): IHpkeRecipientKey;
+    /// <summary>
+    /// Generates a fresh HPKE key pair for the KEM AKem: the serialized public key in
+    /// APublicKey and the raw private scalar in APrivateKey (wiped on release). Raises
+    /// ENotSupportedTlsLibException for an unsupported KEM.
+    /// </summary>
+    procedure GenerateKeyPair(AKem: UInt16; out APublicKey: TBytes;
+      out APrivateKey: ISecretBuffer);
+    /// <summary>
+    /// Decodes a PKCS#8 private key (RFC 8410 X25519/X448 or RFC 5915 EC) for the KEM
+    /// AKem into the raw HPKE scalar, wiped on release. Raises EArgumentTlsLibException
+    /// on a malformed key or one whose algorithm does not match AKem.
+    /// </summary>
+    function ImportPrivateKey(AKem: UInt16; const APkcs8Der: TBytes): ISecretBuffer;
+    /// <summary>
+    /// Whether this provider can instantiate ASuite for seal/open - a known KEM, a
+    /// known KDF, and a real (not export-only) AEAD. An unsupported suite is skipped by
+    /// the ECH config filter rather than raising.
+    /// </summary>
+    function SuiteSupported(const ASuite: THpkeSuite): Boolean;
+    /// <summary>
+    /// Every HPKE suite this provider can instantiate for the KEM AKem: one entry per
+    /// supported (KDF, real AEAD) pair, empty for an unknown KEM. The provider is the single
+    /// authority on the HPKE vocabulary, so a caller that needs a plausible suite (a GREASE
+    /// ech, RFC 9849 sec. 6.2) draws from this rather than hard-coding its own list.
+    /// </summary>
+    function SupportedSuites(AKem: UInt16): TArray<THpkeSuite>;
+    /// <summary>
+    /// Whether APublicKey is a well-formed serialized KEM public key for AKem (correct length
+    /// and, for an EC KEM, a valid curve point). Used by the ECH config filter to skip a config
+    /// whose public_key could not be used, rather than let a malformed key fail later inside a
+    /// seal. False for an unknown KEM.
+    /// </summary>
+    function ValidatePublicKey(AKem: UInt16; const APublicKey: TBytes): Boolean;
+    /// <summary>
+    /// The authentication tag length of the AEAD AAead, in bytes - the overhead a Seal
+    /// adds over its plaintext. ECH needs it to size the sealed payload (and its
+    /// zero-filled placeholder in the AAD) before sealing. Raises for an unknown AEAD.
+    /// </summary>
+    function AeadTagLength(AAead: UInt16): Int32;
+  end;
+
+{ ===== PEM (RFC 7468) ===== }
+
+  /// <summary>
+  /// The generic PEM codec (RFC 7468): reads and writes labeled blocks whose content is
+  /// opaque bytes. Reading ignores explanatory text and RFC 1421 headers.
+  /// </summary>
+  IPemCodec = interface(IInterface)
+    ['{6A1F3C08-4E52-4B7D-9A03-1C8E6D2B5F49}']
+    /// <summary>
+    /// Every PEM block in AData, in order (empty when none). Explanatory text before a
+    /// block and RFC 1421 headers are ignored. Raises EArgumentTlsLibException on a
+    /// malformed block (unterminated, or a mismatched end label).
+    /// </summary>
+    function ReadBlocks(const AData: TBytes): TArray<TPemBlock>;
+    /// <summary>Serializes ABlocks as PEM (RFC 7468), LF line endings, 64-column body.</summary>
+    function WriteBlocks(const ABlocks: TArray<TPemBlock>): TBytes;
+  end;
+
 { ===== Composition root ===== }
 
   /// <summary>
@@ -444,6 +580,10 @@ type
     function Certificates: ICertificateInspector;
     function PathValidation: ICertificatePathValidator;
     function Revocation: IRevocationChecker;
+    /// <summary>The HPKE facet (RFC 9180), used by Encrypted Client Hello.</summary>
+    function Hpke: IHpke;
+    /// <summary>The PEM codec (RFC 7468).</summary>
+    function Pem: IPemCodec;
   end;
 
   /// <summary>
@@ -462,6 +602,8 @@ type
     function WithInspector(const AInspector: ICertificateInspector): ICryptoProviderBuilder;
     function WithPathValidation(const APathValidation: ICertificatePathValidator): ICryptoProviderBuilder;
     function WithRevocation(const ARevocation: IRevocationChecker): ICryptoProviderBuilder;
+    function WithHpke(const AHpke: IHpke): ICryptoProviderBuilder;
+    function WithPem(const APem: IPemCodec): ICryptoProviderBuilder;
     /// <summary>Composes the provider from the accumulated overrides.</summary>
     function Build: ICryptoProvider;
   end;

@@ -44,6 +44,10 @@ type
 
     /// <summary>Bytes left before the limit.</summary>
     function Remaining: Int32;
+    /// <summary>The cursor's absolute offset in the underlying buffer. A sub-reader from
+    /// OpenVector shares the buffer, so this stays absolute across nesting - useful to map a
+    /// parsed field back to its byte offset in the original message.</summary>
+    function Position: Int32;
     /// <summary>True once the cursor has reached the limit.</summary>
     function EndReached: Boolean;
 
@@ -99,6 +103,11 @@ begin
   if (ACount < 0) or (Int64(FPos) + ACount > FLimit) then
     raise EDecodeErrorTlsLibException.CreateResFmt(@SUnexpectedEndOfData,
       [ACount, FLimit - FPos]);
+end;
+
+function TWireReader.Position: Int32;
+begin
+  Result := FPos;
 end;
 
 function TWireReader.Remaining: Int32;

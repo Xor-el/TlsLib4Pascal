@@ -20,7 +20,7 @@ interface
 uses
   SysUtils,
   TlpTlsVersion,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpDefaultCryptoProvider,
   TlpINamedGroup,
@@ -33,6 +33,7 @@ uses
   TlpISession,
   TlpSession,
   TlpIClock,
+  TlpIEch,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpTlsPresets,
@@ -119,6 +120,14 @@ type
     /// resolves it out-of-band with SetCertificateVerdict. Inert where no peer certificate is
     /// verified (a server without client-auth). Exercises the deferred-verdict seam end to end.</summary>
     AsyncVerify: Boolean;
+    /// <summary>A client's Encrypted Client Hello configuration (RFC 9849): the ECHConfigList
+    /// it offers. Empty leaves ECH off.</summary>
+    EchConfigList: TBytes;
+    /// <summary>Whether a client sends a GREASE ECH when it has no usable config.</summary>
+    EchGrease: Boolean;
+    /// <summary>A server's Encrypted Client Hello key store (config + private key per config
+    /// id); nil leaves ECH off, so an ECH-offering client is shared-mode rejected.</summary>
+    EchKeyStore: IEchServerKeyStore;
   end;
 
   /// <summary>
@@ -302,6 +311,12 @@ begin
       LClient.WithClock(AOptions.Clock);
     if AOptions.OfferEarlyData then
       LClient.Tls13.WithEarlyData(True);
+    // Encrypted Client Hello (RFC 9849): offer the supplied ECHConfigList, or GREASE when
+    // asked and none is usable; a reject surfaces as an ech_required abort, never a fallback
+    if System.Length(AOptions.EchConfigList) > 0 then
+      LClient.Tls13.WithEncryptedClientHello(AOptions.EchConfigList);
+    if AOptions.EchGrease then
+      LClient.Tls13.WithEchGrease(True);
     Result := TTlsEngineFactory.CreateClientEngine(
       LClient.Build, AOptions.ServerName);
   end
@@ -367,6 +382,13 @@ begin
       LServer.WithClock(AOptions.Clock);
     if AOptions.MaxEarlyData > 0 then
       LServer.Tls13.WithEarlyData(AOptions.MaxEarlyData);
+    // Encrypted Client Hello (RFC 9849): the key store holds a config + private key per
+    // config id; trial decryption lets the server match a client that hid the config id
+    if AOptions.EchKeyStore <> nil then
+    begin
+      LServer.Tls13.WithEchKeyStore(AOptions.EchKeyStore);
+      LServer.Tls13.WithEchTrialDecrypt(True);
+    end;
     Result := TTlsEngineFactory.CreateServerEngine(LServer.Build);
   end;
 end;

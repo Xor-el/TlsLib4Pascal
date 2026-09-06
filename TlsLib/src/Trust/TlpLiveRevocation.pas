@@ -18,7 +18,7 @@ interface
 uses
   SysUtils,
   TlpTlsAlert,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpIClock,
   TlpIHttpFetcher,

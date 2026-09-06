@@ -1,6 +1,6 @@
 # Cookbook
 
-**TlsLib4Pascal docs** · [Home](README.md) · [Getting started](getting-started.md) · Cookbook · [Verification](certificate-verification.md) · [System trust](system-trust.md) · [Compression](certificate-compression.md) · [Security model](security-model.md)
+**TlsLib4Pascal docs** · [Home](README.md) · [Getting started](getting-started.md) · Cookbook · [Verification](certificate-verification.md) · [System trust](system-trust.md) · [Compression](certificate-compression.md) · [ECH](ech.md) · [Security model](security-model.md)
 
 Task-oriented recipes. Each is self-contained — copy one without reading the rest. Throughout, `P`
 is an `ICryptoProvider` (`TDefaultCryptoProvider.Create as ICryptoProvider`, unit
@@ -452,6 +452,32 @@ LServerConfig := TTlsPresets.Compatible(P).Server
 
 Full detail — algorithms, the bomb-defense on decompression, why the cache can never change the wire
 output — in [certificate-compression.md](certificate-compression.md).
+
+## Hide the SNI with Encrypted Client Hello
+
+ECH (RFC 9849) encrypts the true SNI. As a **client**, fetch the operator's `ECHConfigList` (the `ech`
+SvcParam of its DNS HTTPS record) and offer it — the leaf is verified against the true name, and a
+reject never falls back to plaintext:
+
+```pascal
+LClient := TTlsPresets.Compatible(P).Client;
+LClient.Tls13.WithEncryptedClientHello(EchConfigList); // bytes from DNS
+LEngine := TTlsEngineFactory.CreateClientEngine(LClient.Build, 'secret.example');
+// after the handshake: LStream.ConnectionInfo.EchStatus is Accepted / Rejected / ...
+```
+
+As a **server**, hold the config + private key (an RFC 9934 PEM from `EchKeyGen` or `openssl ech`) and
+trial-decrypt:
+
+```pascal
+LStore := TInMemoryEchKeyStore.FromPem(EchPem, P);
+LServer := TTlsPresets.Compatible(P).Server
+  .WithCredential(chainPem, keyPem);
+LServer.Tls13.WithEchKeyStore(LStore).WithEchTrialDecrypt(True);
+```
+
+ECH is TLS 1.3 only. Full detail — GREASE, rejection/`retry_configs`, key generation, and DNS — in
+[ech.md](ech.md).
 
 ## External (out-of-band) PSKs
 
