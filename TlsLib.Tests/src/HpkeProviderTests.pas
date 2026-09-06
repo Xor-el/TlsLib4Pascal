@@ -66,6 +66,11 @@ type
     procedure TestUnsupportedSuiteSetupRaises;
     procedure TestGenerateKeyPairUnsupportedKemRaises;
     procedure TestImportMismatchedAlgorithmRaises;
+    // TEMP big-endian (ppc64) diagnostics - independent so one run shows every layer
+    procedure TestDiagKemConstValue;
+    procedure TestDiagKemThroughRecord;
+    procedure TestDiagLiteralSuiteSupported;
+    procedure TestDiagConstSuiteSupported;
   end;
 
 implementation
@@ -349,6 +354,41 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a key whose algorithm does not match the KEM must be rejected');
+end;
+
+procedure TTestHpkeProvider.TestDiagKemConstValue;
+begin
+  // is the codepoint class constant itself the value we expect?
+  CheckEquals(32, Integer(THpkeKem.DHKEM_X25519_HKDF_SHA256), 'const value');
+end;
+
+procedure TTestHpkeProvider.TestDiagKemThroughRecord;
+var
+  LSuite: THpkeSuite;
+begin
+  // does the codepoint survive being stored in and read back from THpkeSuite?
+  LSuite := THpkeSuite.Create(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+    THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM);
+  CheckEquals(32, Integer(LSuite.Kem), 'Kem after record round-trip');
+end;
+
+procedure TTestHpkeProvider.TestDiagLiteralSuiteSupported;
+var
+  LSuite: THpkeSuite;
+begin
+  // the predicate over a suite built from plain integer literals (no class constants)
+  LSuite := THpkeSuite.Create(32, 1, 1);
+  CheckTrue(Provider.Hpke.SuiteSupported(LSuite), 'literal-built suite is supported');
+end;
+
+procedure TTestHpkeProvider.TestDiagConstSuiteSupported;
+var
+  LSuite: THpkeSuite;
+begin
+  // the same predicate over a suite built from the codepoint class constants
+  LSuite := THpkeSuite.Create(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+    THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM);
+  CheckTrue(Provider.Hpke.SuiteSupported(LSuite), 'const-built suite is supported');
 end;
 
 initialization
