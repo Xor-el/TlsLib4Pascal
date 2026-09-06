@@ -718,9 +718,10 @@ type
   // IHpke - RFC 9180 base-mode HPKE over CryptoLib's ClpHpke (TDhKem for KEM key ops).
   THpkeFacet = class(TInterfacedObject, IHpke)
   private
-    class function TryKemIdOf(AKem: UInt16; out AId: THpkeKemId): Boolean; static;
-    class function TryKdfIdOf(AKdf: UInt16; out AId: THpkeKdfId): Boolean; static;
-    class function TryAeadIdOf(AAead: UInt16; out AId: THpkeAeadId): Boolean; static;
+    class procedure WriteOrdinal<T>(out AResult: T; AOrdinal: UInt16); static;
+    class function KemIdOf(AKem: UInt16): THpkeKemId; static;
+    class function KdfIdOf(AKdf: UInt16): THpkeKdfId; static;
+    class function AeadIdOf(AAead: UInt16): THpkeAeadId; static;
     class function IsKnownKem(AKem: UInt16): Boolean; static;
     class function IsKnownKdf(AKdf: UInt16): Boolean; static;
     class function IsRealAead(AAead: UInt16): Boolean; static;
@@ -1791,78 +1792,68 @@ end;
 
 { THpkeFacet }
 
-// The one place a wire codepoint is paired with its CryptoLib backend enum; the predicates and
-// SupportedSuites derive from these maps.
-
-class function THpkeFacet.TryKemIdOf(AKem: UInt16; out AId: THpkeKemId): Boolean;
+class procedure THpkeFacet.WriteOrdinal<T>(out AResult: T; AOrdinal: UInt16);
 begin
-  Result := True;
-  case AKem of
-    THpkeKem.DHKEM_P256_HKDF_SHA256:
-      AId := THpkeKemId.P256_SHA256;
-    THpkeKem.DHKEM_P384_HKDF_SHA384:
-      AId := THpkeKemId.P384_SHA384;
-    THpkeKem.DHKEM_P521_HKDF_SHA512:
-      AId := THpkeKemId.P521_SHA512;
-    THpkeKem.DHKEM_X25519_HKDF_SHA256:
-      AId := THpkeKemId.X25519_SHA256;
-    THpkeKem.DHKEM_X448_HKDF_SHA512:
-      AId := THpkeKemId.X448_SHA512;
+  case SizeOf(T) of
+    1:
+      PByte(@AResult)^ := Byte(AOrdinal);
+    2:
+      TBinaryPrimitives.StoreUInt16(PWord(@AResult), AOrdinal);
   else
-    Result := False;
+    TBinaryPrimitives.StoreUInt32(PCardinal(@AResult), AOrdinal);
   end;
 end;
 
-class function THpkeFacet.TryKdfIdOf(AKdf: UInt16; out AId: THpkeKdfId): Boolean;
+class function THpkeFacet.KemIdOf(AKem: UInt16): THpkeKemId;
 begin
-  Result := True;
-  case AKdf of
-    THpkeKdf.HKDF_SHA256:
-      AId := THpkeKdfId.HkdfSha256;
-    THpkeKdf.HKDF_SHA384:
-      AId := THpkeKdfId.HkdfSha384;
-    THpkeKdf.HKDF_SHA512:
-      AId := THpkeKdfId.HkdfSha512;
-  else
-    Result := False;
-  end;
+  if not IsKnownKem(AKem) then
+    raise ENotSupportedTlsLibException.CreateRes(@SHpkeUnsupportedSuite);
+  WriteOrdinal<THpkeKemId>(Result, AKem);
 end;
 
-class function THpkeFacet.TryAeadIdOf(AAead: UInt16; out AId: THpkeAeadId): Boolean;
+class function THpkeFacet.KdfIdOf(AKdf: UInt16): THpkeKdfId;
 begin
-  // export-only (0xFFFF) is intentionally absent: it supports only secret export, never seal/open
-  Result := True;
-  case AAead of
-    THpkeAead.AES_128_GCM:
-      AId := THpkeAeadId.AesGcm128;
-    THpkeAead.AES_256_GCM:
-      AId := THpkeAeadId.AesGcm256;
-    THpkeAead.CHACHA20_POLY1305:
-      AId := THpkeAeadId.ChaCha20Poly1305;
-  else
-    Result := False;
-  end;
+  if not IsKnownKdf(AKdf) then
+    raise ENotSupportedTlsLibException.CreateRes(@SHpkeUnsupportedSuite);
+  WriteOrdinal<THpkeKdfId>(Result, AKdf);
+end;
+
+class function THpkeFacet.AeadIdOf(AAead: UInt16): THpkeAeadId;
+begin
+  if not IsRealAead(AAead) then
+    raise ENotSupportedTlsLibException.CreateRes(@SHpkeUnsupportedSuite);
+  WriteOrdinal<THpkeAeadId>(Result, AAead);
 end;
 
 class function THpkeFacet.IsKnownKem(AKem: UInt16): Boolean;
 var
-  LId: THpkeKemId;
+  LK: Int32;
 begin
-  Result := TryKemIdOf(AKem, LId);
+  LK := AKem;
+  Result := (LK = Ord(THpkeKem.DHKEM_P256_HKDF_SHA256)) or
+    (LK = Ord(THpkeKem.DHKEM_P384_HKDF_SHA384)) or
+    (LK = Ord(THpkeKem.DHKEM_P521_HKDF_SHA512)) or
+    (LK = Ord(THpkeKem.DHKEM_X25519_HKDF_SHA256)) or
+    (LK = Ord(THpkeKem.DHKEM_X448_HKDF_SHA512));
 end;
 
 class function THpkeFacet.IsKnownKdf(AKdf: UInt16): Boolean;
 var
-  LId: THpkeKdfId;
+  LK: Int32;
 begin
-  Result := TryKdfIdOf(AKdf, LId);
+  LK := AKdf;
+  Result := (LK = Ord(THpkeKdf.HKDF_SHA256)) or (LK = Ord(THpkeKdf.HKDF_SHA384)) or
+    (LK = Ord(THpkeKdf.HKDF_SHA512));
 end;
 
 class function THpkeFacet.IsRealAead(AAead: UInt16): Boolean;
 var
-  LId: THpkeAeadId;
+  LK: Int32;
 begin
-  Result := TryAeadIdOf(AAead, LId);
+  // every AEAD except export-only (0xFFFF), which cannot seal/open
+  LK := AAead;
+  Result := (LK = Ord(THpkeAead.AES_128_GCM)) or
+    (LK = Ord(THpkeAead.AES_256_GCM)) or (LK = Ord(THpkeAead.CHACHA20_POLY1305));
 end;
 
 function THpkeFacet.SuiteSupported(const ASuite: THpkeSuite): Boolean;
@@ -1907,24 +1898,14 @@ begin
 end;
 
 class function THpkeFacet.KemFacade(AKem: UInt16): IHpkeKem;
-var
-  LKem: THpkeKemId;
 begin
-  if not TryKemIdOf(AKem, LKem) then
-    raise ENotSupportedTlsLibException.CreateRes(@SHpkeUnsupportedSuite);
-  Result := TDhKem.Create(LKem) as IHpkeKem;
+  Result := TDhKem.Create(KemIdOf(AKem)) as IHpkeKem;
 end;
 
 class function THpkeFacet.HpkeFacade(const ASuite: THpkeSuite): ClpIHpke.IHpke;
-var
-  LKem: THpkeKemId;
-  LKdf: THpkeKdfId;
-  LAead: THpkeAeadId;
 begin
-  if not (TryKemIdOf(ASuite.Kem, LKem) and TryKdfIdOf(ASuite.Kdf, LKdf) and
-    TryAeadIdOf(ASuite.Aead, LAead)) then
-    raise ENotSupportedTlsLibException.CreateRes(@SHpkeUnsupportedSuite);
-  Result := THpke.Create(THpkeMode.Base, LKem, LKdf, LAead) as ClpIHpke.IHpke;
+  Result := THpke.Create(THpkeMode.Base, KemIdOf(ASuite.Kem),
+    KdfIdOf(ASuite.Kdf), AeadIdOf(ASuite.Aead)) as ClpIHpke.IHpke;
 end;
 
 
