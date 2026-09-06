@@ -32,7 +32,7 @@ uses
   TlpIClock,
   TlpWireReader,
   TlpEchConfig,
-  TlpEchKeyStore,
+  TlpInMemoryEchKeyStore,
   TlpIEch,
   TlpITlsEngine,
   InteropSocket,

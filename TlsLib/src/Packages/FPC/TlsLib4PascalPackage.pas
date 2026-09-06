@@ -42,7 +42,7 @@ uses
   TlpInMemoryCertificateCompressionCache, TlpTlsConfigMemo, 
   TlpTlsSignatureBuilder, TlpITlsConfigMemo, TlpITlsCredentialResolver, 
   TlpCredentialResolvers, TlpEchConfig, TlpEchExtension, 
-  TlpEchOuterExtensions, TlpEchClient, TlpIEch, TlpEchKeyStore, TlpEchServer;
+  TlpEchOuterExtensions, TlpEchClient, TlpIEch, TlpInMemoryEchKeyStore, TlpEchServer;
 
 implementation
 

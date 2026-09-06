@@ -32,7 +32,7 @@ uses
   TlpWireWriter,
   TlpWireVectorMarker,
   TlpEchConfig,
-  TlpEchKeyStore,
+  TlpInMemoryEchKeyStore,
   TlpIEch,
   TlpEchConfigFromSvcb,
   TlpEchKeyGen,

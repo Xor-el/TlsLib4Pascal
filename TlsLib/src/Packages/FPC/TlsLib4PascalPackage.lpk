@@ -494,8 +494,8 @@
         <UnitName Value="TlpIEch"/>
       </Item116>
       <Item117>
-        <Filename Value="..\..\Ech\TlpEchKeyStore.pas"/>
-        <UnitName Value="TlpEchKeyStore"/>
+        <Filename Value="..\..\Ech\TlpInMemoryEchKeyStore.pas"/>
+        <UnitName Value="TlpInMemoryEchKeyStore"/>
       </Item117>
       <Item118>
         <Filename Value="..\..\Ech\TlpEchServer.pas"/>

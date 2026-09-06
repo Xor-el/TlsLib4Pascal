@@ -9,7 +9,7 @@
 
 (* &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&& *)
 
-unit TlpEchKeyStore;
+unit TlpInMemoryEchKeyStore;
 
 {$I ..\Include\TlsLib.inc}
 

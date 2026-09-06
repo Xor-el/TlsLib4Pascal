@@ -80,6 +80,17 @@ type
     procedure TestDiagOrChainInline;
     procedure TestDiagViaHelperParam;
     procedure TestDiagViaConstSuiteParam;
+    // TEMP: capture the exact value and passing mode of the ppc64 record-passing corruption
+    class function DiagKemConst(const ASuite: THpkeSuite): Int32; static;
+    class function DiagKdfConst(const ASuite: THpkeSuite): Int32; static;
+    class function DiagAeadConst(const ASuite: THpkeSuite): Int32; static;
+    class function DiagKemVar(var ASuite: THpkeSuite): Int32; static;
+    class function DiagKemValue(ASuite: THpkeSuite): Int32; static;
+    procedure TestDiagRawKemConst;
+    procedure TestDiagRawKdfConst;
+    procedure TestDiagRawAeadConst;
+    procedure TestDiagRawKemVar;
+    procedure TestDiagRawKemValue;
   end;
 
 implementation
@@ -472,6 +483,73 @@ var
 begin
   LSuite := THpkeSuite.Create(32, 1, 1);
   CheckTrue(DiagSuiteKemKnown(LSuite), 'const-suite-param -> Kem -> predicate');
+end;
+
+class function TTestHpkeProvider.DiagKemConst(const ASuite: THpkeSuite): Int32;
+begin
+  Result := ASuite.Kem;
+end;
+
+class function TTestHpkeProvider.DiagKdfConst(const ASuite: THpkeSuite): Int32;
+begin
+  Result := ASuite.Kdf;
+end;
+
+class function TTestHpkeProvider.DiagAeadConst(const ASuite: THpkeSuite): Int32;
+begin
+  Result := ASuite.Aead;
+end;
+
+class function TTestHpkeProvider.DiagKemVar(var ASuite: THpkeSuite): Int32;
+begin
+  Result := ASuite.Kem;
+end;
+
+class function TTestHpkeProvider.DiagKemValue(ASuite: THpkeSuite): Int32;
+begin
+  Result := ASuite.Kem;
+end;
+
+// distinct field values (10/20/30) so a wrong result reveals the mechanism:
+// byte-swap (10 -> 2560), field-offset shuffle (returns 20 or 30), or zeroing (0)
+procedure TTestHpkeProvider.TestDiagRawKemConst;
+var
+  LSuite: THpkeSuite;
+begin
+  LSuite := THpkeSuite.Create(10, 20, 30);
+  CheckEquals(10, DiagKemConst(LSuite), 'raw Kem via const param');
+end;
+
+procedure TTestHpkeProvider.TestDiagRawKdfConst;
+var
+  LSuite: THpkeSuite;
+begin
+  LSuite := THpkeSuite.Create(10, 20, 30);
+  CheckEquals(20, DiagKdfConst(LSuite), 'raw Kdf via const param');
+end;
+
+procedure TTestHpkeProvider.TestDiagRawAeadConst;
+var
+  LSuite: THpkeSuite;
+begin
+  LSuite := THpkeSuite.Create(10, 20, 30);
+  CheckEquals(30, DiagAeadConst(LSuite), 'raw Aead via const param');
+end;
+
+procedure TTestHpkeProvider.TestDiagRawKemVar;
+var
+  LSuite: THpkeSuite;
+begin
+  LSuite := THpkeSuite.Create(10, 20, 30);
+  CheckEquals(10, DiagKemVar(LSuite), 'raw Kem via var param');
+end;
+
+procedure TTestHpkeProvider.TestDiagRawKemValue;
+var
+  LSuite: THpkeSuite;
+begin
+  LSuite := THpkeSuite.Create(10, 20, 30);
+  CheckEquals(10, DiagKemValue(LSuite), 'raw Kem via value param');
 end;
 
 initialization

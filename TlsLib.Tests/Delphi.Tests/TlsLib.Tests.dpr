@@ -114,7 +114,7 @@ uses
   TlpEchOuterExtensions in '..\..\TlsLib\src\Ech\TlpEchOuterExtensions.pas',
   TlpIEch in '..\..\TlsLib\src\Interfaces\Ech\TlpIEch.pas',
   TlpEchClient in '..\..\TlsLib\src\Ech\TlpEchClient.pas',
-  TlpEchKeyStore in '..\..\TlsLib\src\Ech\TlpEchKeyStore.pas',
+  TlpInMemoryEchKeyStore in '..\..\TlsLib\src\Ech\TlpInMemoryEchKeyStore.pas',
   TlpEchServer in '..\..\TlsLib\src\Ech\TlpEchServer.pas',
   TlpITlsConfig in '..\..\TlsLib\src\Interfaces\Engine\TlpITlsConfig.pas',
   TlpITlsConfigBuilder in '..\..\TlsLib\src\Interfaces\Engine\TlpITlsConfigBuilder.pas',

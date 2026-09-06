@@ -45,7 +45,7 @@ uses
   TlpISecretBuffer,
   TlpCryptoDomainTypes,
   TlpEchConfig,
-  TlpEchKeyStore,
+  TlpInMemoryEchKeyStore,
   TlpITlsEngine,
   TlpITlsConfigBuilder,
   TlpTlsPresets,

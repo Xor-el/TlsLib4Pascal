@@ -718,14 +718,14 @@ type
   // IHpke - RFC 9180 base-mode HPKE over CryptoLib's ClpHpke (TDhKem for KEM key ops).
   THpkeFacet = class(TInterfacedObject, IHpke)
   private
-    class procedure WriteOrdinal<T>(out AResult: T; AOrdinal: Int32); static;
-    class function KemIdOf(AKem: Int32): THpkeKemId; static;
-    class function KdfIdOf(AKdf: Int32): THpkeKdfId; static;
-    class function AeadIdOf(AAead: Int32): THpkeAeadId; static;
-    class function IsKnownKem(AKem: Int32): Boolean; static;
-    class function IsKnownKdf(AKdf: Int32): Boolean; static;
-    class function IsRealAead(AAead: Int32): Boolean; static;
-    class function KemFacade(AKem: Int32): IHpkeKem; static;
+    class procedure WriteOrdinal<T>(out AResult: T; AOrdinal: UInt16); static;
+    class function KemIdOf(AKem: UInt16): THpkeKemId; static;
+    class function KdfIdOf(AKdf: UInt16): THpkeKdfId; static;
+    class function AeadIdOf(AAead: UInt16): THpkeAeadId; static;
+    class function IsKnownKem(AKem: UInt16): Boolean; static;
+    class function IsKnownKdf(AKdf: UInt16): Boolean; static;
+    class function IsRealAead(AAead: UInt16): Boolean; static;
+    class function KemFacade(AKem: UInt16): IHpkeKem; static;
     class function HpkeFacade(const ASuite: THpkeSuite): ClpIHpke.IHpke; static;
   public
     procedure SetupSealer(const ASuite: THpkeSuite;
@@ -1773,11 +1773,8 @@ function THpkeRecipientKey.SetupOpener(const ASuite: THpkeSuite;
 var
   LHpke: ClpIHpke.IHpke;
   LCtx: IHpkeContext;
-  LSuiteKem, LOwnKem: Int32;
 begin
-  LSuiteKem := ASuite.Kem;
-  LOwnKem := FKem;
-  if LSuiteKem <> LOwnKem then
+  if ASuite.Kem <> FKem then
     raise EArgumentTlsLibException.CreateRes(@SHpkeRecipientKemMismatch);
   // the prepared key pair carries the recipient private key, so opening does no key derivation;
   // a malformed peer encapsulation surfaces as a typed open failure, never an unwrapped backend one
@@ -1795,70 +1792,74 @@ end;
 
 { THpkeFacet }
 
-class procedure THpkeFacet.WriteOrdinal<T>(out AResult: T; AOrdinal: Int32);
+class procedure THpkeFacet.WriteOrdinal<T>(out AResult: T; AOrdinal: UInt16);
 begin
   case SizeOf(T) of
     1:
       PByte(@AResult)^ := Byte(AOrdinal);
     2:
-      TBinaryPrimitives.StoreUInt16(PWord(@AResult), Word(AOrdinal));
+      TBinaryPrimitives.StoreUInt16(PWord(@AResult), AOrdinal);
   else
-    TBinaryPrimitives.StoreUInt32(PCardinal(@AResult), Cardinal(AOrdinal));
+    TBinaryPrimitives.StoreUInt32(PCardinal(@AResult), AOrdinal);
   end;
 end;
 
-class function THpkeFacet.KemIdOf(AKem: Int32): THpkeKemId;
+class function THpkeFacet.KemIdOf(AKem: UInt16): THpkeKemId;
 begin
   if not IsKnownKem(AKem) then
     raise ENotSupportedTlsLibException.CreateRes(@SHpkeUnsupportedSuite);
   WriteOrdinal<THpkeKemId>(Result, AKem);
 end;
 
-class function THpkeFacet.KdfIdOf(AKdf: Int32): THpkeKdfId;
+class function THpkeFacet.KdfIdOf(AKdf: UInt16): THpkeKdfId;
 begin
   if not IsKnownKdf(AKdf) then
     raise ENotSupportedTlsLibException.CreateRes(@SHpkeUnsupportedSuite);
   WriteOrdinal<THpkeKdfId>(Result, AKdf);
 end;
 
-class function THpkeFacet.AeadIdOf(AAead: Int32): THpkeAeadId;
+class function THpkeFacet.AeadIdOf(AAead: UInt16): THpkeAeadId;
 begin
   if not IsRealAead(AAead) then
     raise ENotSupportedTlsLibException.CreateRes(@SHpkeUnsupportedSuite);
   WriteOrdinal<THpkeAeadId>(Result, AAead);
 end;
 
-class function THpkeFacet.IsKnownKem(AKem: Int32): Boolean;
+class function THpkeFacet.IsKnownKem(AKem: UInt16): Boolean;
+var
+  LK: Int32;
 begin
-  Result := (AKem = Ord(THpkeKem.DHKEM_P256_HKDF_SHA256)) or
-    (AKem = Ord(THpkeKem.DHKEM_P384_HKDF_SHA384)) or
-    (AKem = Ord(THpkeKem.DHKEM_P521_HKDF_SHA512)) or
-    (AKem = Ord(THpkeKem.DHKEM_X25519_HKDF_SHA256)) or
-    (AKem = Ord(THpkeKem.DHKEM_X448_HKDF_SHA512));
+  LK := AKem;
+  Result := (LK = Ord(THpkeKem.DHKEM_P256_HKDF_SHA256)) or
+    (LK = Ord(THpkeKem.DHKEM_P384_HKDF_SHA384)) or
+    (LK = Ord(THpkeKem.DHKEM_P521_HKDF_SHA512)) or
+    (LK = Ord(THpkeKem.DHKEM_X25519_HKDF_SHA256)) or
+    (LK = Ord(THpkeKem.DHKEM_X448_HKDF_SHA512));
 end;
 
-class function THpkeFacet.IsKnownKdf(AKdf: Int32): Boolean;
+class function THpkeFacet.IsKnownKdf(AKdf: UInt16): Boolean;
+var
+  LK: Int32;
 begin
-  Result := (AKdf = Ord(THpkeKdf.HKDF_SHA256)) or
-    (AKdf = Ord(THpkeKdf.HKDF_SHA384)) or (AKdf = Ord(THpkeKdf.HKDF_SHA512));
+  LK := AKdf;
+  Result := (LK = Ord(THpkeKdf.HKDF_SHA256)) or (LK = Ord(THpkeKdf.HKDF_SHA384)) or
+    (LK = Ord(THpkeKdf.HKDF_SHA512));
 end;
 
-class function THpkeFacet.IsRealAead(AAead: Int32): Boolean;
+class function THpkeFacet.IsRealAead(AAead: UInt16): Boolean;
+var
+  LK: Int32;
 begin
   // every AEAD except export-only (0xFFFF), which cannot seal/open
-  Result := (AAead = Ord(THpkeAead.AES_128_GCM)) or
-    (AAead = Ord(THpkeAead.AES_256_GCM)) or
-    (AAead = Ord(THpkeAead.CHACHA20_POLY1305));
+  LK := AAead;
+  Result := (LK = Ord(THpkeAead.AES_128_GCM)) or
+    (LK = Ord(THpkeAead.AES_256_GCM)) or (LK = Ord(THpkeAead.CHACHA20_POLY1305));
 end;
 
 function THpkeFacet.SuiteSupported(const ASuite: THpkeSuite): Boolean;
-var
-  LKem, LKdf, LAead: Int32;
 begin
-  LKem := ASuite.Kem;
-  LKdf := ASuite.Kdf;
-  LAead := ASuite.Aead;
-  Result := IsKnownKem(LKem) and IsKnownKdf(LKdf) and IsRealAead(LAead);
+  Result := IsKnownKem(ASuite.Kem) and IsKnownKdf(ASuite.Kdf) and
+    IsRealAead(ASuite.Aead);
 end;
 
 function THpkeFacet.SupportedSuites(AKem: UInt16): TArray<THpkeSuite>;
@@ -1896,20 +1897,15 @@ begin
   Result := 16;
 end;
 
-class function THpkeFacet.KemFacade(AKem: Int32): IHpkeKem;
+class function THpkeFacet.KemFacade(AKem: UInt16): IHpkeKem;
 begin
   Result := TDhKem.Create(KemIdOf(AKem)) as IHpkeKem;
 end;
 
 class function THpkeFacet.HpkeFacade(const ASuite: THpkeSuite): ClpIHpke.IHpke;
-var
-  LKem, LKdf, LAead: Int32;
 begin
-  LKem := ASuite.Kem;
-  LKdf := ASuite.Kdf;
-  LAead := ASuite.Aead;
-  Result := THpke.Create(THpkeMode.Base, KemIdOf(LKem), KdfIdOf(LKdf),
-    AeadIdOf(LAead)) as ClpIHpke.IHpke;
+  Result := THpke.Create(THpkeMode.Base, KemIdOf(ASuite.Kem),
+    KdfIdOf(ASuite.Kdf), AeadIdOf(ASuite.Aead)) as ClpIHpke.IHpke;
 end;
 
 

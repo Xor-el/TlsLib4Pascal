@@ -52,7 +52,7 @@ uses
   TlpISecretBuffer,
   TlpEchConfig,
   TlpEchClient,
-  TlpEchKeyStore,
+  TlpInMemoryEchKeyStore,
   TlpIEch,
   TlpISession,
   TlpInMemorySessionCache,
