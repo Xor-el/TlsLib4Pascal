@@ -1,0 +1,20 @@
+TlsLib.Tests/src/HpkeProviderTests.pas
+  s_16bbbcaf8bdfa4::t_9158c9dcb2060c 69-73
+  s_16bbbcaf8bdfa4::t_203145e320aced 359-393
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "2d74a31ce7ffd7555701b043bf78ef442e7d644d",
+  "prompts": {},
+  "sessions": {
+    "s_16bbbcaf8bdfa4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "42209e6c-e709-4190-9407-f1ee321cee10",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
