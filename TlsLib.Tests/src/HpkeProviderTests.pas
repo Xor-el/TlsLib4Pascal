@@ -71,6 +71,10 @@ type
     procedure TestDiagKemThroughRecord;
     procedure TestDiagLiteralSuiteSupported;
     procedure TestDiagConstSuiteSupported;
+    procedure TestDiagLiteralRecordKem;
+    procedure TestDiagOrdConst;
+    procedure TestDiagInt32FromRecordKem;
+    procedure TestDiagCompareInt32Ord;
   end;
 
 implementation
@@ -389,6 +393,37 @@ begin
   LSuite := THpkeSuite.Create(THpkeKem.DHKEM_X25519_HKDF_SHA256,
     THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM);
   CheckTrue(Provider.Hpke.SuiteSupported(LSuite), 'const-built suite is supported');
+end;
+
+procedure TTestHpkeProvider.TestDiagLiteralRecordKem;
+var
+  LSuite: THpkeSuite;
+begin
+  LSuite := THpkeSuite.Create(32, 1, 1);
+  CheckEquals(32, Integer(LSuite.Kem), 'literal-built record Kem');
+end;
+
+procedure TTestHpkeProvider.TestDiagOrdConst;
+begin
+  CheckEquals(32, Ord(THpkeKem.DHKEM_X25519_HKDF_SHA256), 'Ord of const');
+end;
+
+procedure TTestHpkeProvider.TestDiagInt32FromRecordKem;
+var
+  LSuite: THpkeSuite;
+  LK: Int32;
+begin
+  LSuite := THpkeSuite.Create(32, 1, 1);
+  LK := LSuite.Kem;
+  CheckEquals(32, LK, 'Int32 := record Kem');
+end;
+
+procedure TTestHpkeProvider.TestDiagCompareInt32Ord;
+var
+  LK: Int32;
+begin
+  LK := 32;
+  CheckTrue(LK = Ord(THpkeKem.DHKEM_X25519_HKDF_SHA256), 'Int32 = Ord(const)');
 end;
 
 initialization
