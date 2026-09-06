@@ -1,0 +1,42 @@
+TlsLib/src/Crypto/TlpDefaultCryptoProvider.pas
+  s_16bbbcaf8bdfa4::t_82109f2cacebc6 721-728,1777,1795,1801,1803,1807,1814,1821,1828-1830,1832-1837,1840-1842,1844-1846,1849-1851,1854-1856,1861-1862,1900,1907-1908
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
+  s_16bbbcaf8bdfa4::t_f5554b9ad698d4 497-498
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_16bbbcaf8bdfa4::t_f5554b9ad698d4 48
+TlsLib.Tests/src/Tls13LoopbackTests.pas
+  s_16bbbcaf8bdfa4::t_f5554b9ad698d4 55
+TlsLib.Tests/src/EchToolingTests.pas
+  s_16bbbcaf8bdfa4::t_f5554b9ad698d4 35
+TlsLib/src/Ech/TlpInMemoryEchKeyStore.pas
+  s_16bbbcaf8bdfa4::t_f5554b9ad698d4 1-271
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_16bbbcaf8bdfa4::t_f5554b9ad698d4 98
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_16bbbcaf8bdfa4::t_f5554b9ad698d4 117
+TlsLib.Tests/src/HpkeProviderTests.pas
+  s_16bbbcaf8bdfa4::t_d8dead127f98a1 488-554
+  s_16bbbcaf8bdfa4::t_fd9378f7beb433 83-93
+TlsLib.Interop/src/BoGoShimRunner.pas
+  s_16bbbcaf8bdfa4::t_f5554b9ad698d4 35
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.pas
+  s_16bbbcaf8bdfa4::t_f5554b9ad698d4 45
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_16bbbcaf8bdfa4::t_ce675aeac96fcf 442
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8fc7be6702ef49cdc62bbfbf10b19bcde7bf7db6",
+  "prompts": {},
+  "sessions": {
+    "s_16bbbcaf8bdfa4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "42209e6c-e709-4190-9407-f1ee321cee10",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
