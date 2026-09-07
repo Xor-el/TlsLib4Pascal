@@ -27,6 +27,7 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpCryptoDomainTypes,
+  TlpICryptoProvider,
   TlpTlsLibExceptions,
   TlpEchConfig,
   TlsLibTestBase;
@@ -185,7 +186,7 @@ var
   LStale, LGood: TEchConfig;
   LList: TArray<TEchConfig>;
   LChosen: TEchConfig;
-  LSuite: THpkeSuite;
+  LSuite: IHpkeSuite;
 begin
   // a config with a version we do not implement is skipped in favour of a later usable one
   LStale := TEchConfig.Build(UInt16($FE0C), $01,
@@ -199,8 +200,9 @@ begin
     'a usable config is selected');
   CheckEquals(Integer(TEchConfig.SupportedVersion), Integer(LChosen.Version),
     'the supported-version config was chosen');
-  CheckTrue(LSuite.Equals(THpkeSuite.Create(THpkeKem.DHKEM_X25519_HKDF_SHA256,
-    THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM)), 'the joined suite');
+  CheckTrue((LSuite.Kem = THpkeKem.DHKEM_X25519_HKDF_SHA256) and
+    (LSuite.Kdf = THpkeKdf.HKDF_SHA256) and (LSuite.Aead = THpkeAead.AES_128_GCM),
+    'the joined suite');
 end;
 
 procedure TTestEchConfig.TestSkipUnsupportedKem;
@@ -221,7 +223,7 @@ procedure TTestEchConfig.TestSelectSkipsExportOnlyButTakesSecondSuite;
 var
   LSuites: TArray<TEchCipherSuite>;
   LConfig: TEchConfig;
-  LSuite: THpkeSuite;
+  LSuite: IHpkeSuite;
 begin
   // first advertised suite is export-only (unusable), the second is real
   SetLength(LSuites, 2);

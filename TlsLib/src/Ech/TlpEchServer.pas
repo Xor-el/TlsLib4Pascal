@@ -55,10 +55,10 @@ type
     FInnerFramed: TBytes;
     FInnerRandom: TBytes;
     FOpener: IHpkeOpener;
-    FSuite: THpkeSuite;
+    FSuite: IHpkeSuite;
     FConfig: TEchConfig;
     class function ConfigSupports(const AConfig: TEchConfig;
-      const ASuite: TEchCipherSuite): Boolean; static;
+      AKdf, AAead: UInt16): Boolean; static;
     class function LocateOuterEchPayload(const ABody: TBytes;
       out AStart, ALen: Int32): Boolean; static;
     class function SingleEchIndex(const AEntries: TArray<TEchExtEntry>): Int32; static;
@@ -116,13 +116,13 @@ begin
 end;
 
 class function TEchServerHandshake.ConfigSupports(const AConfig: TEchConfig;
-  const ASuite: TEchCipherSuite): Boolean;
+  AKdf, AAead: UInt16): Boolean;
 var
   LI: Int32;
 begin
   for LI := 0 to System.High(AConfig.CipherSuites) do
-    if (AConfig.CipherSuites[LI].KdfId = ASuite.KdfId) and
-      (AConfig.CipherSuites[LI].AeadId = ASuite.AeadId) then
+    if (AConfig.CipherSuites[LI].KdfId = AKdf) and
+      (AConfig.CipherSuites[LI].AeadId = AAead) then
       Exit(True);
   Result := False;
 end;
@@ -358,11 +358,12 @@ begin
     LEntry := LKeys[LI];
     if (not FTrialDecryptAll) and (LEntry.Config.ConfigId <> LOuterEch.ConfigId) then
       Continue;
-    if not ConfigSupports(LEntry.Config, LOuterEch.CipherSuite) then
+    if not ConfigSupports(LEntry.Config, LOuterEch.CipherSuite.KdfId,
+      LOuterEch.CipherSuite.AeadId) then
       Continue;
-    FSuite := THpkeSuite.Create(LEntry.Config.KemId, LOuterEch.CipherSuite.KdfId,
-      LOuterEch.CipherSuite.AeadId);
-    if not FProvider.Hpke.SuiteSupported(FSuite) then
+    FSuite := FProvider.Hpke.Suite(LEntry.Config.KemId,
+      LOuterEch.CipherSuite.KdfId, LOuterEch.CipherSuite.AeadId);
+    if FSuite = nil then
       Continue;
     LOpened := False;
     try

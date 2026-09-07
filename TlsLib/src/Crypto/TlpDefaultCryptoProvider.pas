@@ -711,7 +711,7 @@ type
       const APublicKey: TBytes);
     function Kem: UInt16;
     function PublicKey: TBytes;
-    function SetupOpener(const ASuite: THpkeSuite;
+    function SetupOpener(const ASuite: IHpkeSuite;
       const AEnc, AInfo: TBytes): IHpkeOpener;
   end;
 
@@ -726,20 +726,32 @@ type
     class function IsKnownKdf(AKdf: UInt16): Boolean; static;
     class function IsRealAead(AAead: UInt16): Boolean; static;
     class function KemFacade(AKem: UInt16): IHpkeKem; static;
-    class function HpkeFacade(const ASuite: THpkeSuite): ClpIHpke.IHpke; static;
+    class function HpkeFacade(AKem, AKdf, AAead: UInt16): ClpIHpke.IHpke; static;
   public
-    procedure SetupSealer(const ASuite: THpkeSuite;
-      const ARecipientPublicKey, AInfo: TBytes; out AEnc: TBytes;
-      out ASealer: IHpkeSealer);
+    function Suite(AKem, AKdf, AAead: UInt16): IHpkeSuite;
     function ImportRecipientKey(AKem: UInt16;
       const APrivateKey: ISecretBuffer): IHpkeRecipientKey;
     procedure GenerateKeyPair(AKem: UInt16; out APublicKey: TBytes;
       out APrivateKey: ISecretBuffer);
     function ImportPrivateKey(AKem: UInt16; const APkcs8Der: TBytes): ISecretBuffer;
-    function SuiteSupported(const ASuite: THpkeSuite): Boolean;
-    function SupportedSuites(AKem: UInt16): TArray<THpkeSuite>;
+    function SupportedSuites(AKem: UInt16): TArray<THpkeSuiteId>;
     function ValidatePublicKey(AKem: UInt16; const APublicKey: TBytes): Boolean;
-    function AeadTagLength(AAead: UInt16): Int32;
+  end;
+
+  // IHpkeSuite - a (KEM, KDF, AEAD) triple the provider can instantiate. Vended by
+  // THpkeFacet.Suite, so it needs no support check of its own; sets up senders.
+  THpkeSuite = class(TInterfacedObject, IHpkeSuite)
+  strict private
+  var
+    FKem, FKdf, FAead: UInt16;
+  public
+    constructor Create(AKem, AKdf, AAead: UInt16);
+    function Kem: UInt16;
+    function Kdf: UInt16;
+    function Aead: UInt16;
+    function AeadTagLength: Int32;
+    procedure SetupSealer(const ARecipientPublicKey, AInfo: TBytes;
+      out AEnc: TBytes; out ASealer: IHpkeSealer);
   end;
 
   // IPemCodec - RFC 7468 PEM framing over CryptoLib's TPemReader/TPemWriter.
@@ -1768,7 +1780,7 @@ begin
   Result := System.Copy(FPublicKey);
 end;
 
-function THpkeRecipientKey.SetupOpener(const ASuite: THpkeSuite;
+function THpkeRecipientKey.SetupOpener(const ASuite: IHpkeSuite;
   const AEnc, AInfo: TBytes): IHpkeOpener;
 var
   LHpke: ClpIHpke.IHpke;
@@ -1779,7 +1791,7 @@ begin
   // the prepared key pair carries the recipient private key, so opening does no key derivation;
   // a malformed peer encapsulation surfaces as a typed open failure, never an unwrapped backend one
   try
-    LHpke := THpkeFacet.HpkeFacade(ASuite);
+    LHpke := THpkeFacet.HpkeFacade(ASuite.Kem, ASuite.Kdf, ASuite.Aead);
     LCtx := LHpke.SetupBaseR(AEnc, FKeyPair, AInfo);
   except
     on E: EBaseTlsLibException do
@@ -1856,13 +1868,17 @@ begin
     (LK = Ord(THpkeAead.AES_256_GCM)) or (LK = Ord(THpkeAead.CHACHA20_POLY1305));
 end;
 
-function THpkeFacet.SuiteSupported(const ASuite: THpkeSuite): Boolean;
+function THpkeFacet.Suite(AKem, AKdf, AAead: UInt16): IHpkeSuite;
 begin
-  Result := IsKnownKem(ASuite.Kem) and IsKnownKdf(ASuite.Kdf) and
-    IsRealAead(ASuite.Aead);
+  // a suite the provider can instantiate - a known KEM, a known KDF, and a real
+  // (not export-only) AEAD - becomes a handle; anything else is nil (skipped, not fatal)
+  if IsKnownKem(AKem) and IsKnownKdf(AKdf) and IsRealAead(AAead) then
+    Result := THpkeSuite.Create(AKem, AKdf, AAead) as IHpkeSuite
+  else
+    Result := nil;
 end;
 
-function THpkeFacet.SupportedSuites(AKem: UInt16): TArray<THpkeSuite>;
+function THpkeFacet.SupportedSuites(AKem: UInt16): TArray<THpkeSuiteId>;
 var
   LKdfs: array [0 .. 2] of THpkeKdfId;
   LAeads: array [0 .. 2] of THpkeAeadId;
@@ -1883,18 +1899,10 @@ begin
   for LI := 0 to System.High(LKdfs) do
     for LJ := 0 to System.High(LAeads) do
     begin
-      Result[LN] := THpkeSuite.Create(AKem, UInt16(Ord(LKdfs[LI])),
+      Result[LN] := THpkeSuiteId.Create(AKem, UInt16(Ord(LKdfs[LI])),
         UInt16(Ord(LAeads[LJ])));
       Inc(LN);
     end;
-end;
-
-function THpkeFacet.AeadTagLength(AAead: UInt16): Int32;
-begin
-  // every AEAD in the HPKE registry uses a 128-bit tag (RFC 9180 sec. 7.3)
-  if not IsRealAead(AAead) then
-    raise ENotSupportedTlsLibException.CreateRes(@SHpkeUnsupportedSuite);
-  Result := 16;
 end;
 
 class function THpkeFacet.KemFacade(AKem: UInt16): IHpkeKem;
@@ -1902,24 +1910,52 @@ begin
   Result := TDhKem.Create(KemIdOf(AKem)) as IHpkeKem;
 end;
 
-class function THpkeFacet.HpkeFacade(const ASuite: THpkeSuite): ClpIHpke.IHpke;
+class function THpkeFacet.HpkeFacade(AKem, AKdf, AAead: UInt16): ClpIHpke.IHpke;
 begin
-  Result := THpke.Create(THpkeMode.Base, KemIdOf(ASuite.Kem),
-    KdfIdOf(ASuite.Kdf), AeadIdOf(ASuite.Aead)) as ClpIHpke.IHpke;
+  Result := THpke.Create(THpkeMode.Base, KemIdOf(AKem), KdfIdOf(AKdf),
+    AeadIdOf(AAead)) as ClpIHpke.IHpke;
 end;
 
+{ THpkeSuite }
 
-procedure THpkeFacet.SetupSealer(const ASuite: THpkeSuite;
-  const ARecipientPublicKey, AInfo: TBytes; out AEnc: TBytes;
-  out ASealer: IHpkeSealer);
+constructor THpkeSuite.Create(AKem, AKdf, AAead: UInt16);
+begin
+  inherited Create;
+  FKem := AKem;
+  FKdf := AKdf;
+  FAead := AAead;
+end;
+
+function THpkeSuite.Kem: UInt16;
+begin
+  Result := FKem;
+end;
+
+function THpkeSuite.Kdf: UInt16;
+begin
+  Result := FKdf;
+end;
+
+function THpkeSuite.Aead: UInt16;
+begin
+  Result := FAead;
+end;
+
+function THpkeSuite.AeadTagLength: Int32;
+begin
+  // the handle only exists for a real AEAD, and every HPKE AEAD uses a 128-bit tag
+  // (RFC 9180 sec. 7.3)
+  Result := 16;
+end;
+
+procedure THpkeSuite.SetupSealer(const ARecipientPublicKey, AInfo: TBytes;
+  out AEnc: TBytes; out ASealer: IHpkeSealer);
 var
   LHpke: ClpIHpke.IHpke;
   LpkR: IAsymmetricKeyParameter;
   LCtx: IHpkeContextWithEncapsulation;
 begin
-  if not SuiteSupported(ASuite) then
-    raise ENotSupportedTlsLibException.CreateRes(@SHpkeUnsupportedSuite);
-  LHpke := HpkeFacade(ASuite);
+  LHpke := THpkeFacet.HpkeFacade(FKem, FKdf, FAead);
   // a malformed peer-supplied public key surfaces as a typed argument error, never a backend one
   try
     LpkR := LHpke.DeserializePublicKey(ARecipientPublicKey);
@@ -1937,7 +1973,6 @@ end;
 function THpkeFacet.ValidatePublicKey(AKem: UInt16;
   const APublicKey: TBytes): Boolean;
 var
-  LSuite: THpkeSuite;
   LHpke: ClpIHpke.IHpke;
   LpkR: IAsymmetricKeyParameter;
   LCtx: IHpkeContextWithEncapsulation;
@@ -1949,8 +1984,7 @@ begin
   // but yields no usable shared secret (a small-order X25519 point), so a config that passes
   // here is one the client can actually seal against. The KDF/AEAD take no part in
   // encapsulation, so any supported pair completes the suite
-  LSuite := THpkeSuite.Create(AKem, THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM);
-  LHpke := HpkeFacade(LSuite);
+  LHpke := HpkeFacade(AKem, THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM);
   try
     LpkR := LHpke.DeserializePublicKey(APublicKey);
     LCtx := LHpke.SetupBaseS(LpkR, nil);
@@ -1971,8 +2005,7 @@ begin
   if not IsKnownKem(AKem) then
     raise ENotSupportedTlsLibException.CreateRes(@SHpkeUnsupportedKem);
   // the KDF/AEAD are irrelevant to decoding the KEM key, so any supported pair completes the suite
-  LHpke := HpkeFacade(THpkeSuite.Create(AKem, THpkeKdf.HKDF_SHA256,
-    THpkeAead.AES_128_GCM));
+  LHpke := HpkeFacade(AKem, THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM);
   LSk := APrivateKey.ToBytes;
   try
     // pk = nil: the KEM derives the public key from the private scalar, done once here

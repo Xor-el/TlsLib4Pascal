@@ -178,7 +178,7 @@ var
   LPkcs8, LConfigListBytes: TBytes;
   LConfigs: TArray<TEchConfig>;
   LRecipient: IHpkeRecipientKey;
-  LSuite: THpkeSuite;
+  LSuite: IHpkeSuite;
   LI, LCount: Int32;
 begin
   Result := nil;
@@ -231,7 +231,7 @@ var
   LConfigs: TArray<TEchConfig>;
   LEntries: TArray<TEchKeyEntry>;
   LRecipient: IHpkeRecipientKey;
-  LSuite: THpkeSuite;
+  LSuite: IHpkeSuite;
   LI, LCount: Int32;
 begin
   LConfigs := TEchConfigList.Parse(AEchConfigList);

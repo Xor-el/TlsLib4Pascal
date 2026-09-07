@@ -63,7 +63,7 @@ type
   var
     FProvider: ICryptoProvider;
     FConfig: TEchConfig;
-    FSuite: THpkeSuite;
+    FSuite: IHpkeSuite;
     FSealer: IHpkeSealer;
     FEnc: TBytes;
     class function ExtensionsBody(const AExtensionsField: TBytes): TBytes; static;
@@ -77,7 +77,7 @@ type
       out AStart, ALength: Int32): Boolean; static;
   public
     constructor Create(const AProvider: ICryptoProvider; const AConfig: TEchConfig;
-      const ASuite: THpkeSuite);
+      const ASuite: IHpkeSuite);
 
     /// <summary>
     /// The number of zero padding bytes appended to the client_hello of length
@@ -158,7 +158,7 @@ end;
 { TEchClientHandshake }
 
 constructor TEchClientHandshake.Create(const AProvider: ICryptoProvider;
-  const AConfig: TEchConfig; const ASuite: THpkeSuite);
+  const AConfig: TEchConfig; const ASuite: IHpkeSuite);
 begin
   inherited Create;
   FProvider := AProvider;
@@ -346,8 +346,7 @@ end;
 
 function TEchClientHandshake.SetupSeal: TBytes;
 begin
-  FProvider.Hpke.SetupSealer(FSuite, FConfig.PublicKey, FConfig.HpkeInfo, FEnc,
-    FSealer);
+  FSuite.SetupSealer(FConfig.PublicKey, FConfig.HpkeInfo, FEnc, FSealer);
   Result := FEnc;
 end;
 

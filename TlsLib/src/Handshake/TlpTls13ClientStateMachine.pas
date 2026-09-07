@@ -262,7 +262,7 @@ type
     // keeps the same PSK identities as CH1 (RFC 8446 4.1.2)
     FSentGreasePskData: TBytes;
     FSelectedEchConfig: TEchConfig;
-    FSelectedEchSuite: THpkeSuite;
+    FSelectedEchSuite: IHpkeSuite;
     FEchRetryConfigs: TBytes;
     FPhase: TPhase;
     /// <summary>Records the extension types the sent ClientHello carried, so a server
@@ -755,8 +755,8 @@ var
   LRandom: IRandom;
   LEnc, LSel: TBytes;
   LPrivate: ISecretBuffer;
-  LSuites: TArray<THpkeSuite>;
-  LSuite: THpkeSuite;
+  LSuites: TArray<THpkeSuiteId>;
+  LSuite: THpkeSuiteId;
   LPayloadLength: Int32;
 begin
   LRandom := FParams.Provider.Primitives.GetRandom;
@@ -893,8 +893,7 @@ begin
 
   // 4. size the payload (plaintext + AEAD tag), place a zero placeholder, and serialize the
   // ClientHelloOuterAAD (RFC 9849 sec. 5.2): the outer body with the ech payload zeroed
-  LPayloadLen := System.Length(LEncodedInner) +
-    FParams.Provider.Hpke.AeadTagLength(FSelectedEchSuite.Aead);
+  LPayloadLen := System.Length(LEncodedInner) + FSelectedEchSuite.AeadTagLength;
   System.SetLength(LOuterEch.Payload, LPayloadLen);
   LOuterEntries[LEchIdx].Data := TEchExtension.EncodeOuter(LOuterEch);
   LMsg.Random := FParams.ClientRandom;

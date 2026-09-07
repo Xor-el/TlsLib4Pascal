@@ -44,7 +44,7 @@ type
   /// <summary>
   /// HPKE KEM identifiers (RFC 9180 sec. 7.1). Open IANA registry, opaque to this
   /// layer: which suites can be instantiated is the provider's to decide
-  /// (IHpke.SuiteSupported), and a peer's ECHConfig or an injected provider may carry a
+  /// (IHpke.Suite), and a peer's ECHConfig or an injected provider may carry a
   /// codepoint this library never enumerated - so raw UInt16 constants, not an enum.
   /// Used by Encrypted Client Hello.
   /// </summary>
@@ -79,19 +79,17 @@ type
   end;
 
   /// <summary>
-  /// An HPKE cipher suite: the (KEM, KDF, AEAD) triple identifying a concrete HPKE
-  /// instance (RFC 9180). Held as raw UInt16 codepoints so an unknown suite received
-  /// off the wire round-trips; the provider reports whether it can be instantiated
-  /// through <see cref="IHpke.SuiteSupported" />.
+  /// The identity of an HPKE cipher suite: the (KEM, KDF, AEAD) codepoint triple
+  /// (RFC 9180). Held as raw UInt16 codepoints so an unknown suite received off the
+  /// wire round-trips; <see cref="IHpke.Suite" /> turns it into a usable
+  /// <see cref="IHpkeSuite" />, or nil when the provider cannot instantiate it.
   /// </summary>
-  THpkeSuite = record
+  THpkeSuiteId = record
   strict private
   var
     FKem, FKdf, FAead: UInt16;
   public
-    class function Create(AKem, AKdf, AAead: UInt16): THpkeSuite; static;
-    /// <summary>Structural equality across all three codepoints.</summary>
-    function Equals(const AOther: THpkeSuite): Boolean;
+    class function Create(AKem, AKdf, AAead: UInt16): THpkeSuiteId; static;
     property Kem: UInt16 read FKem;
     property Kdf: UInt16 read FKdf;
     property Aead: UInt16 read FAead;
@@ -186,19 +184,13 @@ implementation
 resourcestring
   SNoSchemeCode = 'signature scheme enum value %d has no wire codepoint';
 
-{ THpkeSuite }
+{ THpkeSuiteId }
 
-class function THpkeSuite.Create(AKem, AKdf, AAead: UInt16): THpkeSuite;
+class function THpkeSuiteId.Create(AKem, AKdf, AAead: UInt16): THpkeSuiteId;
 begin
   Result.FKem := AKem;
   Result.FKdf := AKdf;
   Result.FAead := AAead;
-end;
-
-function THpkeSuite.Equals(const AOther: THpkeSuite): Boolean;
-begin
-  Result := (FKem = AOther.FKem) and (FKdf = AOther.FKdf) and
-    (FAead = AOther.FAead);
 end;
 
 { TSignatureSchemeHelper }

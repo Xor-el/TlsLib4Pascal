@@ -203,7 +203,7 @@ var
   LMarker: TWireVectorMarker;
   LConfigs: TArray<TEchConfig>;
   LConfig: TEchConfig;
-  LSuite: THpkeSuite;
+  LSuite: IHpkeSuite;
   LSk: ISecretBuffer;
   LOpener: IHpkeOpener;
   LI: Int32;
@@ -253,7 +253,7 @@ begin
   LConfigs := TEchConfigList.Parse(DecodeHex(FVec.Values['config_list']));
   LConfig := LConfigs[0];
   TEchExtension.Decode(LEch.Data, LType, LOuterEch); // re-decode for the real payload
-  LSuite := THpkeSuite.Create(LConfig.KemId, LOuterEch.CipherSuite.KdfId,
+  LSuite := Provider.Hpke.Suite(LConfig.KemId, LOuterEch.CipherSuite.KdfId,
     LOuterEch.CipherSuite.AeadId);
   LSk := Provider.Hpke.ImportPrivateKey(THpkeKem.DHKEM_X25519_HKDF_SHA256,
     DecodeHex(FVec.Values['config_private_key']));

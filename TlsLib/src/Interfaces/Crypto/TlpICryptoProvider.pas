@@ -460,6 +460,37 @@ type
   end;
 
   /// <summary>
+  /// A provider-instantiated HPKE suite (RFC 9180 base mode): the (KEM, KDF, AEAD) codepoint
+  /// triple bound to the provider's implementation of it. Obtained from
+  /// <see cref="IHpke.Suite" />, which returns nil for a suite the provider cannot instantiate,
+  /// so an IHpkeSuite always denotes a usable suite - one you can seal or open with, needing no
+  /// separate support check.
+  /// </summary>
+  IHpkeSuite = interface(IInterface)
+    ['{9E2A5C71-4B08-4D63-8F1A-2C6E9B0D7A34}']
+    /// <summary>The KEM codepoint of this suite.</summary>
+    function Kem: UInt16;
+    /// <summary>The KDF codepoint of this suite.</summary>
+    function Kdf: UInt16;
+    /// <summary>The AEAD codepoint of this suite.</summary>
+    function Aead: UInt16;
+    /// <summary>
+    /// The AEAD authentication tag length, in bytes - the overhead a Seal adds over its
+    /// plaintext. ECH needs it to size the sealed payload (and its zero-filled placeholder in
+    /// the AAD) before sealing.
+    /// </summary>
+    function AeadTagLength: Int32;
+    /// <summary>
+    /// Sets up a base-mode sender against the recipient public key ARecipientPublicKey (the
+    /// KEM's serialized public key). Returns the KEM encapsulation to transmit in AEnc and a
+    /// sequence-aware sealer in ASealer. AInfo binds the application context (RFC 9180 sec. 5.1).
+    /// Raises if the public key is malformed.
+    /// </summary>
+    procedure SetupSealer(const ARecipientPublicKey, AInfo: TBytes;
+      out AEnc: TBytes; out ASealer: IHpkeSealer);
+  end;
+
+  /// <summary>
   /// A recipient HPKE key prepared once for reuse across many decapsulations (RFC 9180): the
   /// private key is decoded and its public key derived at import, so a server that trial-decrypts
   /// every ClientHello does not repeat that work per attempt. The key material stays inside the
@@ -476,28 +507,25 @@ type
     /// sequence-aware opener. ASuite's KEM must be this key's KEM. Raises on a suite/KEM mismatch;
     /// a wrong key surfaces later as an authentication failure from <see cref="IHpkeOpener.Open" />.
     /// </summary>
-    function SetupOpener(const ASuite: THpkeSuite;
+    function SetupOpener(const ASuite: IHpkeSuite;
       const AEnc, AInfo: TBytes): IHpkeOpener;
   end;
 
   /// <summary>
-  /// The HPKE facet (RFC 9180 base mode). It vends the setup, key-generation and
-  /// key-import operations Encrypted Client Hello needs, in neutral currency only:
-  /// TBytes, ISecretBuffer, and the UInt16 HPKE codepoints (<see cref="THpkeSuite" />).
-  /// No backend type crosses this seam.
+  /// The HPKE facet (RFC 9180 base mode). It vends suite instantiation, key generation and
+  /// key import for Encrypted Client Hello, in neutral currency only: TBytes, ISecretBuffer,
+  /// the UInt16 HPKE codepoints, and the <see cref="IHpkeSuite" /> / <see cref="IHpkeRecipientKey" />
+  /// handles. No backend type crosses this seam.
   /// </summary>
   IHpke = interface(IInterface)
     ['{4D8F1C60-3A72-4E59-9B14-6C0D2E7A3B58}']
     /// <summary>
-    /// Sets up a base-mode sender against the recipient public key ARecipientPublicKey
-    /// (the KEM's serialized public key). Returns the KEM encapsulation to transmit in
-    /// AEnc and a sequence-aware sealer in ASealer. AInfo binds the application context
-    /// (RFC 9180 sec. 5.1). Raises if the suite is unsupported or the public key is
-    /// malformed.
+    /// The provider's instance of the suite (AKem, AKdf, AAead), or nil when it cannot
+    /// instantiate it - a known KEM, a known KDF, and a real (not export-only) AEAD. The ECH
+    /// config filter skips a nil suite rather than raising; a non-nil suite is ready to seal
+    /// or open with.
     /// </summary>
-    procedure SetupSealer(const ASuite: THpkeSuite;
-      const ARecipientPublicKey, AInfo: TBytes; out AEnc: TBytes;
-      out ASealer: IHpkeSealer);
+    function Suite(AKem, AKdf, AAead: UInt16): IHpkeSuite;
     /// <summary>
     /// Imports a recipient private key (the raw KEM scalar for AKem) into a reusable handle,
     /// deriving its public key once. Raises ENotSupportedTlsLibException for an unknown KEM or
@@ -519,18 +547,12 @@ type
     /// </summary>
     function ImportPrivateKey(AKem: UInt16; const APkcs8Der: TBytes): ISecretBuffer;
     /// <summary>
-    /// Whether this provider can instantiate ASuite for seal/open - a known KEM, a
-    /// known KDF, and a real (not export-only) AEAD. An unsupported suite is skipped by
-    /// the ECH config filter rather than raising.
-    /// </summary>
-    function SuiteSupported(const ASuite: THpkeSuite): Boolean;
-    /// <summary>
     /// Every HPKE suite this provider can instantiate for the KEM AKem: one entry per
     /// supported (KDF, real AEAD) pair, empty for an unknown KEM. The provider is the single
     /// authority on the HPKE vocabulary, so a caller that needs a plausible suite (a GREASE
     /// ech, RFC 9849 sec. 6.2) draws from this rather than hard-coding its own list.
     /// </summary>
-    function SupportedSuites(AKem: UInt16): TArray<THpkeSuite>;
+    function SupportedSuites(AKem: UInt16): TArray<THpkeSuiteId>;
     /// <summary>
     /// Whether APublicKey is a well-formed serialized KEM public key for AKem (correct length
     /// and, for an EC KEM, a valid curve point). Used by the ECH config filter to skip a config
@@ -538,12 +560,6 @@ type
     /// seal. False for an unknown KEM.
     /// </summary>
     function ValidatePublicKey(AKem: UInt16; const APublicKey: TBytes): Boolean;
-    /// <summary>
-    /// The authentication tag length of the AEAD AAead, in bytes - the overhead a Seal
-    /// adds over its plaintext. ECH needs it to size the sealed payload (and its
-    /// zero-filled placeholder in the AAD) before sealing. Raises for an unknown AEAD.
-    /// </summary>
-    function AeadTagLength(AAead: UInt16): Int32;
   end;
 
 { ===== PEM (RFC 7468) ===== }

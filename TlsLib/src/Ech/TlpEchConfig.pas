@@ -105,7 +105,7 @@ type
     /// supported - which also means the KEM is unsupported.
     /// </summary>
     function TrySelectSuite(const AProvider: ICryptoProvider;
-      out ASuite: THpkeSuite): Boolean;
+      out ASuite: IHpkeSuite): Boolean;
     /// <summary>
     /// Whether a client may offer ECH with this config (RFC 9849 sec. 4.1, 6.1): a
     /// supported version, a valid public_name, no duplicate or unsupported-mandatory
@@ -153,7 +153,7 @@ type
     /// </summary>
     class function TrySelect(const AConfigs: TArray<TEchConfig>;
       const AProvider: ICryptoProvider; out AConfig: TEchConfig;
-      out ASuite: THpkeSuite): Boolean; static;
+      out ASuite: IHpkeSuite): Boolean; static;
   end;
 
 implementation
@@ -312,20 +312,16 @@ begin
 end;
 
 function TEchConfig.TrySelectSuite(const AProvider: ICryptoProvider;
-  out ASuite: THpkeSuite): Boolean;
+  out ASuite: IHpkeSuite): Boolean;
 var
   LSuite: TEchCipherSuite;
-  LCandidate: THpkeSuite;
 begin
   Result := False;
   for LSuite in FCipherSuites do
   begin
-    LCandidate := THpkeSuite.Create(FKemId, LSuite.KdfId, LSuite.AeadId);
-    if AProvider.Hpke.SuiteSupported(LCandidate) then
-    begin
-      ASuite := LCandidate;
+    ASuite := AProvider.Hpke.Suite(FKemId, LSuite.KdfId, LSuite.AeadId);
+    if ASuite <> nil then
       Exit(True);
-    end;
   end;
 end;
 
@@ -361,7 +357,7 @@ end;
 
 function TEchConfig.IsUsable(const AProvider: ICryptoProvider): Boolean;
 var
-  LSuite: THpkeSuite;
+  LSuite: IHpkeSuite;
 begin
   Result := IsStructurallyUsable(AProvider) and TrySelectSuite(AProvider, LSuite);
 end;
@@ -484,7 +480,7 @@ end;
 
 class function TEchConfigList.TrySelect(const AConfigs: TArray<TEchConfig>;
   const AProvider: ICryptoProvider; out AConfig: TEchConfig;
-  out ASuite: THpkeSuite): Boolean;
+  out ASuite: IHpkeSuite): Boolean;
 var
   LI: Int32;
 begin

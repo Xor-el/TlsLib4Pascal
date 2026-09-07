@@ -53,7 +53,7 @@ type
   TTestEchClient = class(TTlsLibAlgorithmTestCase)
   private
     FVec: TStringList;
-    function SelectConfig(out ASuite: THpkeSuite): TEchConfig;
+    function SelectConfig(out ASuite: IHpkeSuite): TEchConfig;
     function Entry(AType: UInt16; const AData: TBytes): TEchExtEntry;
     function ServerNameEntry(const AHost: string): TEchExtEntry;
     function ExtField(const AEntries: TArray<TEchExtEntry>): TBytes;
@@ -90,7 +90,7 @@ begin
   inherited TearDown;
 end;
 
-function TTestEchClient.SelectConfig(out ASuite: THpkeSuite): TEchConfig;
+function TTestEchClient.SelectConfig(out ASuite: IHpkeSuite): TEchConfig;
 var
   LConfigs: TArray<TEchConfig>;
   LChosen: TEchConfig;
@@ -209,7 +209,7 @@ end;
 procedure TTestEchClient.TestSealOpenReconstructRoundTrip;
 var
   LConfig: TEchConfig;
-  LSuite: THpkeSuite;
+  LSuite: IHpkeSuite;
   LEch: TEchClientHandshake;
   LInnerEntries, LOuterEntries, LEncEntries, LReconstructed: TArray<TEchExtEntry>;
   LInner, LEncoded, LEnc, LAad, LPayload, LDecrypted, LPadding: TBytes;
@@ -268,7 +268,7 @@ end;
 procedure TTestEchClient.TestEncodedInnerHasEmptySessionIdAndZeroPadding;
 var
   LConfig: TEchConfig;
-  LSuite: THpkeSuite;
+  LSuite: IHpkeSuite;
   LEch: TEchClientHandshake;
   LEntries, LOuter, LEncEntries: TArray<TEchExtEntry>;
   LEncoded, LPadding: TBytes;
@@ -294,7 +294,7 @@ end;
 procedure TTestEchClient.TestCompressionReferencesSharedExtensions;
 var
   LConfig: TEchConfig;
-  LSuite: THpkeSuite;
+  LSuite: IHpkeSuite;
   LEch: TEchClientHandshake;
   LInnerEntries, LOuter, LEncEntries: TArray<TEchExtEntry>;
   LEncoded, LPadding: TBytes;

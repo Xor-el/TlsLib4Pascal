@@ -127,7 +127,7 @@ var
   LGen: TEchKeyGenResult;
   LStore: IEchServerKeyStore;
   LEntry: TEchKeyEntry;
-  LSuite: THpkeSuite;
+  LSuite: IHpkeSuite;
   LSealer: IHpkeSealer;
   LOpener: IHpkeOpener;
   LEnc, LPlain, LCipher, LOut: TBytes;
@@ -141,8 +141,7 @@ begin
     'the config advertises a supported suite');
   // seal to the generated public key, open with the imported private key: a mismatch
   // (a wrong PKCS#8 encode/decode) would fail the AEAD authentication
-  Provider.Hpke.SetupSealer(LSuite, LEntry.Config.PublicKey,
-    LEntry.Config.HpkeInfo, LEnc, LSealer);
+  LSuite.SetupSealer(LEntry.Config.PublicKey, LEntry.Config.HpkeInfo, LEnc, LSealer);
   LPlain := TBytes.Create(1, 2, 3, 4, 5, 6, 7, 8);
   LCipher := LSealer.Seal(nil, LPlain);
   LOpener := LEntry.RecipientKey.SetupOpener(LSuite, LEnc, LEntry.Config.HpkeInfo);
