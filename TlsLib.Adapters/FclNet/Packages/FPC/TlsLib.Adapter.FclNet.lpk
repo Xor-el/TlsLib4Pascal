@@ -20,7 +20,7 @@
     </CompilerOptions>
     <Description Value="fcl-net TSSLSocketHandler adapter for TlsLib4Pascal (managed TLS for TFPHTTPClient / TInetSocket)"/>
     <License Value="MIT License"/>
-    <Version Major="1"/>
+    <Version Major="1" Minor="1"/>
     <Files Count="1">
       <Item1>
         <Filename Value="..\..\Adapter\TlsLibFclNetTls.pas"/>

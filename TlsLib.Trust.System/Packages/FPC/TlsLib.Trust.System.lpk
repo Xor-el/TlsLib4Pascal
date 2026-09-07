@@ -20,7 +20,7 @@
     </CompilerOptions>
     <Description Value="Optional OS system-trust sources (anchors + delegate) for TlsLib4Pascal"/>
     <License Value="MIT License"/>
-    <Version Major="1"/>
+    <Version Major="1" Minor="1"/>
     <Files Count="10">
       <Item1>
         <Filename Value="..\..\src\TlpSystemTrustExceptions.pas"/>

@@ -26,7 +26,7 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpICryptoProvider,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   MockRandom,
   MockCryptoProvider,
   TlsLibTestBase;

@@ -58,7 +58,8 @@ type
     BadCertificateStatusResponse = 113,
     UnknownPskIdentity = 115,
     CertificateRequired = 116,
-    NoApplicationProtocol = 120);
+    NoApplicationProtocol = 120,
+    EchRequired = 121);
 
   /// <summary>Round-trip helpers between an alert description and its wire byte.</summary>
   TTlsAlertDescriptionHelper = record helper for TTlsAlertDescription
@@ -137,6 +138,7 @@ begin
     115: ADescription := TTlsAlertDescription.UnknownPskIdentity;
     116: ADescription := TTlsAlertDescription.CertificateRequired;
     120: ADescription := TTlsAlertDescription.NoApplicationProtocol;
+    121: ADescription := TTlsAlertDescription.EchRequired;
   else
     Result := False;
   end;

@@ -1,0 +1,24 @@
+# HPKE (RFC 9180) test vectors for the ICryptoProvider.Hpke seam. Tests reach crypto
+# only through the provider, so no CryptoLib type appears here.
+#
+# base_* : RFC 9180 Appendix A.1 - mode base, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256,
+# AES-128-GCM. Two encryptions (seq 0 and seq 1) drive the opener KAT and prove the
+# sequence number advances. skRm is the raw 32-byte X25519 scalar (fed as an
+# ISecretBuffer); enc/aad/ct/pt are verbatim from the RFC.
+base_info=4f6465206f6e2061204772656369616e2055726e
+base_skRm=4612c550263fc8ad58375df3f557aac531d26850903e55a9f23f21d8534e8ac8
+base_pkRm=3948cfe0ad1ddb695d780e59077195da6c56506b027329794ab02bca80815c4d
+base_enc=37fda3567bdbd628e88668c3c8d7e97d1d1253b6d4ea6d44c150f741f1bf4431
+base_aad0=436f756e742d30
+base_ct0=f938558b5d72f1a23810b4be2ab4f84331acc02fc97babc53a52ae8218a355a96d8770ac83d07bea87e13c512a
+base_aad1=436f756e742d31
+base_ct1=af2d7e9ac9ae7e270f46ba1f975be53c09f8d875bdc8535458c2494e8a6eab251c03d0c22a56b8ca42c2063b84
+base_pt=4265617574792069732074727574682c20747275746820626561757479
+#
+# import_* : PKCS#8 private keys and their raw HPKE public keys (openssl-generated),
+# to exercise ImportPrivateKey (RFC 8410 X25519 and RFC 5915 EC) followed by a full
+# seal/open round-trip that only closes if the imported scalar matches the public key.
+import_x25519_pkcs8=302e020100300506032b656e0422042038f0f399d073d12a689d56f8b97f552268b222a63ff799dbf8d6ad8325af1a7b
+import_x25519_pub=c5b10c62c1b42fcadb14c848b97336e8810611800ab0d44e59f2e48e9460bc63
+import_p256_pkcs8=308187020100301306072a8648ce3d020106082a8648ce3d030107046d306b0201010420fa2b2cc1d4eef63e9cceb4c3b53a45af9d34e84119e166c7d87a0064bcf7fae4a1440342000476bf5fb438cb7754a763e6b29c052b793faaaa8327265711a29ddbc39854722560b02c01adfdfea02ce428a26965e4968af7db46ee11fc47b0c108b7b2e656b2
+import_p256_pub=0476bf5fb438cb7754a763e6b29c052b793faaaa8327265711a29ddbc39854722560b02c01adfdfea02ce428a26965e4968af7db46ee11fc47b0c108b7b2e656b2

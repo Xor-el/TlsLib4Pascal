@@ -49,6 +49,8 @@ type
     PreSharedKey = UInt16(41);
     EarlyData = UInt16(42);
     PskKeyExchangeModes = UInt16(45);
+    EncryptedClientHello = UInt16($FE0D);
+    EchOuterExtensions = UInt16($FD00);
   end;
 
   /// <summary>supported_versions (RFC 8446 4.2.1): a version list in the ClientHello, one selection in the ServerHello/HRR.</summary>

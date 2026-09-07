@@ -48,6 +48,16 @@ uses
   TlpITlsCredentialResolver,
   TlpTls13ClientStateMachine,
   TlpTls13ServerStateMachine,
+  TlpCryptoDomainTypes,
+  TlpISecretBuffer,
+  TlpEchConfig,
+  TlpEchClient,
+  TlpInMemoryEchKeyStore,
+  TlpIEch,
+  TlpISession,
+  TlpInMemorySessionCache,
+  TlpInMemorySessionStore,
+  TlpAntiReplay,
   TlsLibTestBase;
 
 type
@@ -62,6 +72,29 @@ type
     function NewServer: ITlsEngine;
     function NewServerWithResolver(
       const AResolver: ITlsServerCredentialResolver): ITlsEngine;
+    function EchConfigListBytes: TBytes;
+    function BuildEchConfigList(AConfigId: Byte; const APublicName: string;
+      out APrivateKey: ISecretBuffer): TBytes;
+    function NewEchClient: ITlsEngine;
+    function NewEchClientWith(const AConfigList: TBytes;
+      const ACache: ISessionCache = nil): ITlsEngine;
+    function NewEchAcceptServer(const AConfigList: TBytes;
+      const APrivateKey: ISecretBuffer; const AStore: ISessionStore;
+      AIssueTickets: Int32): ITlsEngine;
+    function NewEchServer: ITlsEngine;
+    function NewEchHrrClient(const ACache: ISessionCache = nil): ITlsEngine;
+    function NewEchHrrServer(const AStore: ISessionStore = nil;
+      AIssueTickets: Int32 = 0): ITlsEngine;
+    function NewEchHrrRejectClient(const AConfigList: TBytes): ITlsEngine;
+    function NewEchHrrRejectServer(const AConfigList: TBytes;
+      const APrivateKey: ISecretBuffer): ITlsEngine;
+    function NewEchResumeClient(const ACache: ISessionCache;
+      AEarlyData: Boolean = False): ITlsEngine;
+    function NewEchResumeServer(const AStore: ISessionStore; AIssueTickets: Int32;
+      AMaxEarlyData: UInt32 = 0;
+      const AAntiReplay: IAntiReplayStrategy = nil): ITlsEngine;
+    function NewEchRejectServer(const AConfigList: TBytes;
+      const APrivateKey: ISecretBuffer): ITlsEngine;
     function NewHrrClient: ITlsEngine;
     function NewHrrServer: ITlsEngine;
     function NewP256OnlyClient: ITlsEngine;
@@ -82,6 +115,14 @@ type
     procedure PumpCoalesced(const ASrc, ADst: ITlsEngine);
     function ReadAllApp(const AEngine: ITlsEngine): TBytes;
   published
+    procedure TestEchAcceptLoopback;
+    procedure TestEchHrrAcceptLoopback;
+    procedure TestEchRejectHrrLoopback;
+    procedure TestEchResumeHrrLoopback;
+    procedure TestEchResumptionLoopback;
+    procedure TestEchZeroRttLoopback;
+    procedure TestEchResumeThenRejectLoopback;
+    procedure TestEchRejectLoopback;
     procedure TestClientServerLoopbackReachesApplicationData;
     procedure TestHelloRetryRequestRoundTrip;
     procedure TestHybridDirectHandshakeNegotiates4588;
@@ -213,6 +254,647 @@ begin
 
   Result := TTlsEngine.CreateConfigured(
     TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+end;
+
+function TTestTls13Loopback.EchConfigListBytes: TBytes;
+var
+  LVec: TStringList;
+begin
+  LVec := LoadVectorFields('Certs/Ech.txt');
+  try
+    Result := DecodeHex(LVec.Values['config_list']);
+  finally
+    LVec.Free;
+  end;
+end;
+
+function TTestTls13Loopback.BuildEchConfigList(AConfigId: Byte;
+  const APublicName: string; out APrivateKey: ISecretBuffer): TBytes;
+var
+  LPublicKey: TBytes;
+  LConfig: TEchConfig;
+  LSuite: TEchCipherSuite;
+begin
+  Provider.Hpke.GenerateKeyPair(THpkeKem.DHKEM_X25519_HKDF_SHA256, LPublicKey,
+    APrivateKey);
+  LSuite.KdfId := THpkeKdf.HKDF_SHA256;
+  LSuite.AeadId := THpkeAead.AES_128_GCM;
+  LConfig := TEchConfig.Build(TEchConfig.SupportedVersion, AConfigId,
+    THpkeKem.DHKEM_X25519_HKDF_SHA256, LPublicKey,
+    TArray<TEchCipherSuite>.Create(LSuite), 0,
+    TEncoding.ASCII.GetBytes(APublicName), nil);
+  Result := TEchConfigList.Encode(TArray<TEchConfig>.Create(LConfig));
+end;
+
+function TTestTls13Loopback.NewEchClient: ITlsEngine;
+begin
+  Result := NewEchClientWith(EchConfigListBytes);
+end;
+
+function TTestTls13Loopback.NewEchClientWith(const AConfigList: TBytes;
+  const ACache: ISessionCache): ITlsEngine;
+var
+  LParams: TClientHandshakeParams;
+begin
+  LParams := Default(TClientHandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Provider := Provider;
+  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.GroupCode := TNamedGroupCatalog.X25519;
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
+  LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+  LParams.ClientRandom := Filled($11, 32);
+  LParams.LegacySessionId := Filled($33, 32);
+  // the true (inner) SNI; the leaf is checked against it once ECH is accepted
+  LParams.ServerName := 'localhost';
+  LParams.ExpectedHostName := 'localhost';
+  LParams.CertificateVerifier := TCertificateVerifier.Create(Provider,
+    TSystemClock.Create as ITlsClock,
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
+    as ITrustAnchorStore, True) as ICertificateVerifier;
+  LParams.EchPolicy := TEchClientPolicy.Create(AConfigList, False, False)
+    as IEchClientPolicy;
+  LParams.SessionCache := ACache;
+  Result := TTlsEngine.CreateConfigured(
+    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+end;
+
+function TTestTls13Loopback.NewEchAcceptServer(const AConfigList: TBytes;
+  const APrivateKey: ISecretBuffer; const AStore: ISessionStore;
+  AIssueTickets: Int32): ITlsEngine;
+var
+  LParams: TServerHandshakeParams;
+begin
+  LParams := Default(TServerHandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Provider := Provider;
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.ServerRandom := Filled($22, 32);
+  LParams.CredentialResolver :=
+    TSniCredentialResolver.ForCredential(ServerCredential);
+  LParams.EchKeyStore := TInMemoryEchKeyStore.FromConfig(AConfigList, APrivateKey, Provider);
+  LParams.SessionStore := AStore;
+  LParams.IssueTicketCount := AIssueTickets;
+  LParams.TicketLifetimeSeconds := 7200;
+  Result := TTlsEngine.CreateConfigured(
+    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+end;
+
+function TTestTls13Loopback.NewEchServer: ITlsEngine;
+var
+  LParams: TServerHandshakeParams;
+  LVec: TStringList;
+  LSk: ISecretBuffer;
+begin
+  LParams := Default(TServerHandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Provider := Provider;
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.ServerRandom := Filled($22, 32);
+  LParams.CredentialResolver :=
+    TSniCredentialResolver.ForCredential(ServerCredential);
+  LVec := LoadVectorFields('Certs/Ech.txt');
+  try
+    LSk := Provider.Hpke.ImportPrivateKey(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+      DecodeHex(LVec.Values['config_private_key']));
+  finally
+    LVec.Free;
+  end;
+  LParams.EchKeyStore := TInMemoryEchKeyStore.FromConfig(EchConfigListBytes, LSk, Provider);
+  Result := TTlsEngine.CreateConfigured(
+    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+end;
+
+function TTestTls13Loopback.NewEchRejectServer(const AConfigList: TBytes;
+  const APrivateKey: ISecretBuffer): ITlsEngine;
+var
+  LParams: TServerHandshakeParams;
+begin
+  LParams := Default(TServerHandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Provider := Provider;
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.ServerRandom := Filled($22, 32);
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
+  // an is_retry config the store advertises as retry_configs; its config_id differs from the
+  // client's offer, so trial-decrypt finds no match and the server rejects ECH
+  LParams.EchKeyStore := TInMemoryEchKeyStore.FromConfig(AConfigList, APrivateKey, Provider);
+  Result := TTlsEngine.CreateConfigured(
+    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+end;
+
+function TTestTls13Loopback.NewEchHrrClient(
+  const ACache: ISessionCache): ITlsEngine;
+var
+  LParams: TClientHandshakeParams;
+begin
+  LParams := Default(TClientHandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Provider := Provider;
+  LParams.SessionCache := ACache;
+  // key-shares X25519 but advertises secp256r1 too, so the ECH-capable secp256r1-only
+  // server retries the client onto secp256r1 (a HelloRetryRequest under ECH)
+  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.GroupCode := TNamedGroupCatalog.X25519;
+  LParams.OfferedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1,
+    TNamedGroupCatalog.X25519);
+  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Provider);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
+  LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+  LParams.ClientRandom := Filled($11, 32);
+  LParams.LegacySessionId := Filled($33, 32);
+  LParams.ServerName := 'localhost';
+  LParams.ExpectedHostName := 'localhost';
+  LParams.CertificateVerifier := TCertificateVerifier.Create(Provider,
+    TSystemClock.Create as ITlsClock,
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
+    as ITrustAnchorStore, True) as ICertificateVerifier;
+  LParams.EchPolicy := TEchClientPolicy.Create(EchConfigListBytes, False, False)
+    as IEchClientPolicy;
+  Result := TTlsEngine.CreateConfigured(
+    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+end;
+
+function TTestTls13Loopback.NewEchHrrServer(const AStore: ISessionStore;
+  AIssueTickets: Int32): ITlsEngine;
+var
+  LParams: TServerHandshakeParams;
+  LVec: TStringList;
+  LSk: ISecretBuffer;
+begin
+  LParams := Default(TServerHandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Provider := Provider;
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  // offers only secp256r1; a client that key-shared another group is retried
+  LParams.Group := TNamedGroups.CreateNistEcdh(Provider, 'secp256r1');
+  LParams.ServerRandom := Filled($22, 32);
+  LParams.CookieSecret := TSecretBuffer.From(
+    Provider.Primitives.GetRandom.GenerateBytes(32));
+  LParams.CredentialResolver :=
+    TSniCredentialResolver.ForCredential(ServerCredential);
+  LVec := LoadVectorFields('Certs/Ech.txt');
+  try
+    LSk := Provider.Hpke.ImportPrivateKey(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+      DecodeHex(LVec.Values['config_private_key']));
+  finally
+    LVec.Free;
+  end;
+  LParams.EchKeyStore := TInMemoryEchKeyStore.FromConfig(EchConfigListBytes, LSk, Provider);
+  LParams.SessionStore := AStore;
+  LParams.IssueTicketCount := AIssueTickets;
+  LParams.TicketLifetimeSeconds := 7200;
+  Result := TTlsEngine.CreateConfigured(
+    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+end;
+
+function TTestTls13Loopback.NewEchHrrRejectClient(
+  const AConfigList: TBytes): ITlsEngine;
+var
+  LParams: TClientHandshakeParams;
+begin
+  LParams := Default(TClientHandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Provider := Provider;
+  // key-shares X25519 but advertises secp256r1 too, so a secp256r1-only server retries it
+  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.GroupCode := TNamedGroupCatalog.X25519;
+  LParams.OfferedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1,
+    TNamedGroupCatalog.X25519);
+  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Provider);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
+  LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+  LParams.ClientRandom := Filled($11, 32);
+  LParams.LegacySessionId := Filled($33, 32);
+  LParams.ServerName := 'localhost';
+  LParams.ExpectedHostName := 'localhost';
+  LParams.CertificateVerifier := TCertificateVerifier.Create(Provider,
+    TSystemClock.Create as ITlsClock,
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
+    as ITrustAnchorStore, True) as ICertificateVerifier;
+  LParams.EchPolicy := TEchClientPolicy.Create(AConfigList, False, False)
+    as IEchClientPolicy;
+  Result := TTlsEngine.CreateConfigured(
+    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+end;
+
+function TTestTls13Loopback.NewEchHrrRejectServer(const AConfigList: TBytes;
+  const APrivateKey: ISecretBuffer): ITlsEngine;
+var
+  LParams: TServerHandshakeParams;
+begin
+  LParams := Default(TServerHandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Provider := Provider;
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  // offers only secp256r1, so an X25519 key_share is retried; holds a mismatched ECH config, so
+  // trial-decrypt fails and ECH is rejected - the reject and the HelloRetryRequest coincide
+  LParams.Group := TNamedGroups.CreateNistEcdh(Provider, 'secp256r1');
+  LParams.ServerRandom := Filled($22, 32);
+  LParams.CookieSecret := TSecretBuffer.From(
+    Provider.Primitives.GetRandom.GenerateBytes(32));
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
+  LParams.EchKeyStore := TInMemoryEchKeyStore.FromConfig(AConfigList, APrivateKey, Provider);
+  Result := TTlsEngine.CreateConfigured(
+    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+end;
+
+function TTestTls13Loopback.NewEchResumeClient(
+  const ACache: ISessionCache; AEarlyData: Boolean): ITlsEngine;
+var
+  LParams: TClientHandshakeParams;
+begin
+  LParams := Default(TClientHandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Provider := Provider;
+  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.GroupCode := TNamedGroupCatalog.X25519;
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
+  LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+  LParams.ClientRandom := Filled($11, 32);
+  LParams.LegacySessionId := Filled($33, 32);
+  LParams.ServerName := 'localhost';
+  LParams.ExpectedHostName := 'localhost';
+  LParams.CertificateVerifier := TCertificateVerifier.Create(Provider,
+    TSystemClock.Create as ITlsClock,
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
+    as ITrustAnchorStore, True) as ICertificateVerifier;
+  LParams.EchPolicy := TEchClientPolicy.Create(EchConfigListBytes, False, False)
+    as IEchClientPolicy;
+  LParams.SessionCache := ACache;
+  LParams.EarlyDataEnabled := AEarlyData;
+  Result := TTlsEngine.CreateConfigured(
+    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+end;
+
+function TTestTls13Loopback.NewEchResumeServer(const AStore: ISessionStore;
+  AIssueTickets: Int32; AMaxEarlyData: UInt32;
+  const AAntiReplay: IAntiReplayStrategy): ITlsEngine;
+var
+  LParams: TServerHandshakeParams;
+  LVec: TStringList;
+  LSk: ISecretBuffer;
+begin
+  LParams := Default(TServerHandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Provider := Provider;
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.ServerRandom := Filled($22, 32);
+  LParams.CredentialResolver :=
+    TSniCredentialResolver.ForCredential(ServerCredential);
+  LVec := LoadVectorFields('Certs/Ech.txt');
+  try
+    LSk := Provider.Hpke.ImportPrivateKey(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+      DecodeHex(LVec.Values['config_private_key']));
+  finally
+    LVec.Free;
+  end;
+  LParams.EchKeyStore := TInMemoryEchKeyStore.FromConfig(EchConfigListBytes, LSk, Provider);
+  LParams.SessionStore := AStore;
+  LParams.IssueTicketCount := AIssueTickets;
+  LParams.TicketLifetimeSeconds := 7200;
+  LParams.MaxEarlyData := AMaxEarlyData;
+  LParams.AntiReplay := AAntiReplay;
+  Result := TTlsEngine.CreateConfigured(
+    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+end;
+
+procedure TTestTls13Loopback.TestEchHrrAcceptLoopback;
+var
+  LClient, LServer: ITlsEngine;
+  LIterations: Int32;
+  LMsg: TBytes;
+begin
+  // ECH + HelloRetryRequest: the server accepts ECH on CH1, retries the client onto secp256r1,
+  // re-opens the inner CH2 at HPKE seq=1, and completes. Completion proves the ECH-HRR accept
+  // path end to end (a broken HRR confirmation or seq handling would diverge/abort).
+  LClient := NewEchHrrClient;
+  LServer := NewEchHrrServer;
+  LClient.StartHandshake;
+  LIterations := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LIterations);
+  end;
+  CheckFalse(LClient.IsTerminal, 'the ECH-HRR client did not fail');
+  CheckFalse(LServer.IsTerminal, 'the ECH-HRR server did not fail');
+  CheckFalse(LClient.IsHandshaking, 'the ECH-HRR client completed');
+  CheckTrue(LClient.EchStatus = TEchStatus.Accepted, 'ECH accepted across the HRR');
+  LMsg := DecodeHex('6563682d687272'); // "ech-hrr"
+  LClient.Write(LMsg, 0, System.Length(LMsg));
+  Pump(LClient, LServer);
+  CheckEqualBytes('app data flows over the ECH-HRR connection', LMsg,
+    ReadAllApp(LServer));
+end;
+
+procedure TTestTls13Loopback.TestEchRejectHrrLoopback;
+var
+  LClient, LServer: ITlsEngine;
+  LConfigClient, LConfigServer: TBytes;
+  LSkClient, LSkServer: ISecretBuffer;
+  LIterations: Int32;
+begin
+  // ECH reject coincident with a HelloRetryRequest: the server holds a mismatched config (so it
+  // rejects ECH) and offers only secp256r1 (so it retries the X25519 key_share). The client must
+  // send a second ClientHelloOuter whose ech extension is a verbatim copy of the first's (RFC
+  // 9849 sec. 6.1.5) rather than a plaintext ClientHello - then complete to public_name and abort
+  // with ech_required. A malformed or SNI-leaking CH2 would break the outer handshake here.
+  LConfigClient := BuildEchConfigList($AA, 'localhost', LSkClient);
+  LConfigServer := BuildEchConfigList($BB, 'localhost', LSkServer);
+  LClient := NewEchHrrRejectClient(LConfigClient);
+  LServer := NewEchHrrRejectServer(LConfigServer, LSkServer);
+  LClient.StartHandshake;
+  LIterations := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LIterations);
+  end;
+  CheckTrue(LClient.EchStatus = TEchStatus.Rejected,
+    'the client saw an ECH reject across the HRR');
+  CheckTrue(LClient.LastError.Alert.Description = TTlsAlertDescription.EchRequired,
+    'the client aborted with ech_required after completing to public_name');
+end;
+
+procedure TTestTls13Loopback.TestEchResumeHrrLoopback;
+var
+  LCache: ISessionCache;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+  LIterations: Int32;
+begin
+  // PSK resumption + ECH + HelloRetryRequest together: the resuming client carries the real
+  // pre_shared_key on the inner ClientHello, the server retries it onto secp256r1, and the inner
+  // CH2's binder must MAC the inner transcript (message_hash(innerCH1), inner HRR, inner CH2).
+  // A binder computed over the outer transcript would fail the server's inner binder check.
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+
+  // first ECH connection (itself retried onto secp256r1) issues one resumption ticket
+  LClient := NewEchHrrClient(LCache);
+  LServer := NewEchHrrServer(LStore, 1);
+  LClient.StartHandshake;
+  LIterations := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LIterations);
+  end;
+  CheckTrue(LClient.EchStatus = TEchStatus.Accepted, 'ECH accepted on the first HRR handshake');
+  CheckFalse(LClient.IsResumed, 'the first handshake is not resumed');
+  CheckEquals(1, LCache.Count, 'the client cached the issued ticket');
+
+  // second ECH connection: resumes (real inner PSK, GREASE outer PSK) and is retried again, so
+  // the inner CH2 binder is recomputed over the rebased inner transcript
+  LClient := NewEchHrrClient(LCache);
+  LServer := NewEchHrrServer(LStore, 0);
+  LClient.StartHandshake;
+  LIterations := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LIterations);
+  end;
+  CheckFalse(LClient.IsTerminal, 'the resuming ECH-HRR client did not fail');
+  CheckFalse(LServer.IsTerminal, 'the resuming ECH-HRR server did not fail');
+  CheckTrue(LClient.EchStatus = TEchStatus.Accepted,
+    'ECH accepted on the resumed HRR handshake');
+  CheckTrue(LClient.IsResumed, 'the ECH client resumed across the HRR via the inner PSK');
+  CheckTrue(LServer.IsResumed, 'the ECH server resumed across the HRR');
+end;
+
+procedure TTestTls13Loopback.TestEchResumptionLoopback;
+var
+  LCache: ISessionCache;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+  LIterations: Int32;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+
+  // first ECH connection: a full accept that issues one resumption ticket
+  LClient := NewEchResumeClient(LCache);
+  LServer := NewEchResumeServer(LStore, 1);
+  LClient.StartHandshake;
+  LIterations := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LIterations);
+  end;
+  CheckTrue(LClient.EchStatus = TEchStatus.Accepted, 'ECH accepted on the first handshake');
+  CheckFalse(LClient.IsResumed, 'the first handshake is not resumed');
+  CheckEquals(1, LCache.Count, 'the client cached the issued ticket');
+
+  // second ECH connection: the real PSK rides the inner ClientHello (a GREASE PSK the
+  // outer), the server accepts ECH and resumes over the reconstructed inner
+  LClient := NewEchResumeClient(LCache);
+  LServer := NewEchResumeServer(LStore, 0);
+  LClient.StartHandshake;
+  LIterations := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LIterations);
+  end;
+  CheckFalse(LClient.IsTerminal, 'the resuming ECH client did not fail');
+  CheckFalse(LServer.IsTerminal, 'the resuming ECH server did not fail');
+  CheckTrue(LClient.EchStatus = TEchStatus.Accepted, 'ECH accepted on the resumed handshake');
+  CheckTrue(LClient.IsResumed, 'the ECH client resumed via the inner pre_shared_key');
+  CheckTrue(LServer.IsResumed, 'the ECH server resumed');
+end;
+
+procedure TTestTls13Loopback.TestEchResumeThenRejectLoopback;
+var
+  LCache: ISessionCache;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+  LConfigA, LConfigB: TBytes;
+  LSkA, LSkB: ISecretBuffer;
+  LIterations: Int32;
+begin
+  // a resuming client offers a GREASE pre_shared_key on the ClientHelloOuter; when the server
+  // rejects ECH it must ignore that decoy (it cannot validate the random identity) and complete
+  // to the public_name, then the client aborts with ech_required (RFC 9849 sec. 6.1.2 / 6.1.6).
+  LConfigA := BuildEchConfigList($AA, 'localhost', LSkA);
+  LConfigB := BuildEchConfigList($BB, 'localhost', LSkB);
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+
+  // first: accept config_A and issue a ticket the client caches
+  LClient := NewEchClientWith(LConfigA, LCache);
+  LServer := NewEchAcceptServer(LConfigA, LSkA, LStore, 1);
+  LClient.StartHandshake;
+  LIterations := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LIterations);
+  end;
+  CheckEquals(1, LCache.Count, 'the ticket was cached for the resume');
+
+  // second: the resuming client's outer carries a GREASE PSK, but the server holds config_B
+  // and rejects; the GREASE PSK must not derail the reject
+  LClient := NewEchClientWith(LConfigA, LCache);
+  LServer := NewEchRejectServer(LConfigB, LSkB);
+  LClient.StartHandshake;
+  LIterations := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LIterations);
+  end;
+  CheckTrue(LClient.EchStatus = TEchStatus.Rejected,
+    'the resuming client saw an ECH reject (the outer GREASE PSK was ignored)');
+  CheckTrue(LClient.LastError.Alert.Description = TTlsAlertDescription.EchRequired,
+    'the resuming client aborted with ech_required');
+end;
+
+procedure TTestTls13Loopback.TestEchZeroRttLoopback;
+var
+  LCache: ISessionCache;
+  LStore: ISessionStore;
+  LAnti: IAntiReplayStrategy;
+  LClient, LServer: ITlsEngine;
+  LIterations: Int32;
+  LEarly: TBytes;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LAnti := TStrikeRegisterAntiReplay.Create;
+
+  // first ECH connection: a full accept issuing a 0-RTT-capable ticket
+  LClient := NewEchResumeClient(LCache, False);
+  LServer := NewEchResumeServer(LStore, 1, 16384, LAnti);
+  LClient.StartHandshake;
+  LIterations := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LIterations);
+  end;
+  CheckEquals(1, LCache.Count, 'a 0-RTT-capable ticket was cached over ECH');
+
+  // second ECH connection: send 0-RTT early data. The early keys derive from the inner
+  // transcript (RFC 9849 sec. 6.1.4); the server accepts ECH and decrypts the early data.
+  LClient := NewEchResumeClient(LCache, True);
+  LServer := NewEchResumeServer(LStore, 0, 16384, LAnti);
+  LEarly := DecodeHex('6563682d30727474'); // "ech-0rtt"
+  LClient.StartHandshake;
+  LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly));
+  LIterations := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LIterations);
+  end;
+  CheckFalse(LClient.IsTerminal, 'the 0-RTT ECH client did not fail');
+  CheckFalse(LServer.IsTerminal, 'the 0-RTT ECH server did not fail');
+  CheckTrue(LClient.EchStatus = TEchStatus.Accepted, 'ECH accepted on the 0-RTT handshake');
+  CheckTrue(LClient.IsResumed, 'the 0-RTT ECH client resumed');
+  CheckEqualBytes('the server received the early data as 0-RTT over ECH', LEarly,
+    ReadAllApp(LServer));
+end;
+
+procedure TTestTls13Loopback.TestEchAcceptLoopback;
+var
+  LClient, LServer: ITlsEngine;
+  LIterations: Int32;
+  LMsg: TBytes;
+begin
+  LClient := NewEchClient;
+  LServer := NewEchServer;
+  LClient.StartHandshake;
+  LIterations := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LIterations);
+  end;
+  // completion proves ECH was accepted end to end: the server certificate matches only
+  // the inner SNI (localhost), never the public_name, so a reject would abort on the
+  // certificate check, and a broken accept confirmation would diverge the transcripts
+  CheckFalse(LClient.IsHandshaking, 'the client completed the ECH handshake');
+  CheckFalse(LServer.IsHandshaking, 'the server completed the ECH handshake');
+  CheckFalse(LClient.IsTerminal, 'the client did not fail');
+  CheckFalse(LServer.IsTerminal, 'the server did not fail');
+  CheckTrue(LClient.EchStatus = TEchStatus.Accepted, 'the client surfaced ECH Accepted');
+  CheckTrue(LServer.EchStatus = TEchStatus.Accepted, 'the server surfaced ECH Accepted');
+  LMsg := DecodeHex('6563682d6f6b'); // "ech-ok"
+  LClient.Write(LMsg, 0, System.Length(LMsg));
+  Pump(LClient, LServer);
+  CheckEqualBytes('the server decrypts app data over the ECH connection', LMsg,
+    ReadAllApp(LServer));
+end;
+
+procedure TTestTls13Loopback.TestEchRejectLoopback;
+var
+  LClient, LServer: ITlsEngine;
+  LClientList, LServerList: TBytes;
+  LClientSk, LServerSk: ISecretBuffer;
+  LIterations: Int32;
+begin
+  // the client offers config_id $AA (public_name localhost); the server's store holds a
+  // different config ($BB, is_retry), so no config_id matches and it rejects ECH, advertising
+  // its retry_configs. The client authenticates the localhost leaf against the public_name,
+  // completes its flight, then aborts with ech_required and surfaces the retry_configs
+  // (RFC 9849 sec. 6.1.6) - never a plaintext fall-back.
+  LClientList := BuildEchConfigList($AA, 'localhost', LClientSk);
+  LServerList := BuildEchConfigList($BB, 'localhost', LServerSk);
+  LClient := NewEchClientWith(LClientList);
+  LServer := NewEchRejectServer(LServerList, LServerSk);
+  LClient.StartHandshake;
+  LIterations := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LIterations);
+  end;
+  CheckTrue(LClient.IsTerminal, 'the client aborted the rejected ECH handshake');
+  CheckTrue(LClient.EchStatus = TEchStatus.Rejected, 'the client recorded an ECH reject');
+  CheckTrue(LClient.LastError.Alert.Description = TTlsAlertDescription.EchRequired,
+    'the client aborted with ech_required');
+  CheckEqualBytes('the client surfaced the server retry_configs', LServerList,
+    LClient.EchRetryConfigs);
+  CheckFalse(LClient.EchIsRetryAttempt, 'this handshake was not itself a retry');
 end;
 
 function TTestTls13Loopback.OcspField(const AName: string): TBytes;

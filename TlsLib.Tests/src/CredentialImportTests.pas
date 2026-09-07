@@ -27,7 +27,7 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpICryptoProvider,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpISigningKey,
   TlpTlsLibExceptions,
   TlsLibTestBase;

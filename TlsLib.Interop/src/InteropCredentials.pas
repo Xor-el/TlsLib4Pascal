@@ -20,7 +20,7 @@ interface
 uses
   SysUtils,
   Classes,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpICertificateTrust,
   TlpCertificateVerifier,

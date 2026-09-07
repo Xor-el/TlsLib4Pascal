@@ -28,7 +28,7 @@ uses
 {$ELSE}
   TestFramework,
 {$ENDIF FPC}
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpTlsAlert,
   TlpNamedGroups,
   TlpNegotiationTypes,

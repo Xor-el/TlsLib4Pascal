@@ -18,7 +18,7 @@ interface
 uses
   SysUtils,
   TlpArrayUtilities,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpISecretBuffer,
   TlpSecureMemory;

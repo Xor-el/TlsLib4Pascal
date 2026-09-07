@@ -32,6 +32,9 @@ uses
   TlpCertificateCompression,
   TlpZlibCertificateCompression,
   TlpICertificateCompression,
+  TlpEchConfig,
+  TlpEchExtension,
+  TlpEchOuterExtensions,
   InteropEngine,
   InteropCredentials,
   InteropUtils;
@@ -92,6 +95,9 @@ type
     ClientKeyExchange,
     CertificateStatus,
     LeafStaple,
+    EchConfigListParse,
+    EchExtensionDecode,
+    EchOuterExtensionsParse,
     EngineServer,
     EngineClient);
 
@@ -353,6 +359,8 @@ var
   LCke: TTlsClientKeyExchangeEcdhe;
   LEmptyExt, LBody, LPlain, LDeflated: TBytes;
   LCompressors: TArray<ICertificateCompressor>;
+  LEchConfig: TEchConfig;
+  LEchSuite: TEchCipherSuite;
 begin
   // the empty extensions vector (0x0000) is a valid extension block for the messages
   // that carry one raw
@@ -471,6 +479,20 @@ begin
         Result := THandshakeFraming.Frame(TTlsHandshakeType.ClientHello,
           THandshakeMessages.EncodeClientHello(LClientHello));
       end;
+    TFuzzTarget.EchConfigListParse:
+      begin
+        LEchSuite.KdfId := 1; // HKDF-SHA256
+        LEchSuite.AeadId := 1; // AES-128-GCM
+        LEchConfig := TEchConfig.Build($FE0D, 7, 32 { X25519 }, Filler(32, $11),
+          TArray<TEchCipherSuite>.Create(LEchSuite), 64,
+          TBytes.Create($65, $78, $61, $6D, $70, $6C, $65) { "example" }, nil);
+        Result := TEchConfigList.Encode(TArray<TEchConfig>.Create(LEchConfig));
+      end;
+    TFuzzTarget.EchExtensionDecode:
+      Result := TEchExtension.EncodeInner; // the inner marker; mutation explores the outer form
+    TFuzzTarget.EchOuterExtensionsParse:
+      Result := TEchExtension.EncodeOuterExtensions(
+        TArray<UInt16>.Create($000D, $0033, $002B));
   else
     Result := nil;
   end;
@@ -645,6 +667,8 @@ var
   LMessage: TTlsHandshakeMessage;
   LCompressed: TTlsCompressedCertificate;
   LStaple: TBytes;
+  LEchType: TEchClientHelloType;
+  LEchOuter: TEchOuterClientHello;
 begin
   ADetail := '';
   try
@@ -691,6 +715,15 @@ begin
         THandshakeMessages.DecodeCertificateStatus(AInput);
       TFuzzTarget.LeafStaple:
         THandshakeMessages.TryExtractLeafStaple(AInput, LStaple);
+      TFuzzTarget.EchConfigListParse:
+        // the ECHConfigList a peer publishes / a reject's retry_configs (RFC 9849 sec. 4)
+        TEchConfigList.Parse(AInput);
+      TFuzzTarget.EchExtensionDecode:
+        // the encrypted_client_hello extension body (outer or inner, RFC 9849 sec. 5)
+        TEchExtension.Decode(AInput, LEchType, LEchOuter);
+      TFuzzTarget.EchOuterExtensionsParse:
+        // the ech_outer_extensions list a server walks to reconstruct the inner (sec. 5.1)
+        TEchExtension.DecodeOuterExtensions(AInput);
       TFuzzTarget.HandshakeReader:
         begin
           LReader := THandshakeMessageReader.Create;
@@ -761,6 +794,9 @@ begin
     TFuzzTarget.ClientKeyExchange: Result := 'ClientKeyExchange(ECDHE)';
     TFuzzTarget.CertificateStatus: Result := 'CertificateStatus(OCSP)';
     TFuzzTarget.LeafStaple: Result := 'leaf status_request staple';
+    TFuzzTarget.EchConfigListParse: Result := 'ECHConfigList (retry_configs/policy)';
+    TFuzzTarget.EchExtensionDecode: Result := 'encrypted_client_hello extension';
+    TFuzzTarget.EchOuterExtensionsParse: Result := 'ech_outer_extensions list';
     TFuzzTarget.EngineServer: Result := 'engine: ClientHello->server (ext/key_share/PSK-binder)';
     TFuzzTarget.EngineClient: Result := 'engine: ServerHello->client (ext/key_share)';
   else

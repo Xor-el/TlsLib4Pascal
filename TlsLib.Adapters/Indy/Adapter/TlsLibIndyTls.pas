@@ -36,6 +36,7 @@ uses
   IdYarn,
   TlpTlsAlert,
   TlpTlsVersion,
+  TlpEchConfig,
   TlpICryptoProvider,
   TlpDefaultCryptoProvider,
   TlpICertificateTrust,
@@ -227,6 +228,9 @@ type
     /// <summary>The SNI server_name for this connection once the handshake completes: the host a
     /// client requested (server side) or the host we sent (client side); empty when none.</summary>
     function PeerServerName: string;
+    /// <summary>The Encrypted Client Hello outcome for this connection (RFC 9849): Accepted when
+    /// ECH was offered and the inner ClientHello was used, Rejected/Greased/NotOffered otherwise.</summary>
+    function EchStatus: TEchStatus;
     /// <summary>Clears this handler's build-once client config cache, so the next connect rebuilds
     /// from current SSLOptions. Call after rotating the client credential to purge the retired key.</summary>
     procedure FlushConfigCache;
@@ -796,6 +800,14 @@ begin
     Result := FStream.ConnectionInfo.ServerName
   else
     Result := '';
+end;
+
+function TTlsLibIOHandlerSocket.EchStatus: TEchStatus;
+begin
+  if FStream <> nil then
+    Result := FStream.ConnectionInfo.EchStatus
+  else
+    Result := TEchStatus.NotOffered;
 end;
 
 procedure TTlsLibIOHandlerSocket.FlushConfigCache;

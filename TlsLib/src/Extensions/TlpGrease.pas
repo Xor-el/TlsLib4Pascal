@@ -40,6 +40,10 @@ type
     /// <summary>Splices an empty-bodied GREASE extension (type AType) at the front of
     /// an already-serialized extensions block (2-byte length prefix + entries).</summary>
     class function InjectExtension(const ABlock: TBytes; AType: UInt16): TBytes; static;
+    /// <summary>Splices an extension (type AType, body AData) at the front of an
+    /// already-serialized extensions block (2-byte length prefix + entries).</summary>
+    class function InjectExtensionData(const ABlock: TBytes; AType: UInt16;
+      const AData: TBytes): TBytes; static;
   end;
 
 implementation
@@ -87,6 +91,29 @@ begin
   LMarker := LWriter.OpenVector(2);
   LWriter.WriteUInt16(AType);
   LWriter.WriteUInt16(0); // empty extension_data
+  LWriter.WriteBytes(LEntries);
+  LWriter.CloseVector(LMarker);
+  Result := LWriter.ToBytes;
+end;
+
+class function TGrease.InjectExtensionData(const ABlock: TBytes; AType: UInt16;
+  const AData: TBytes): TBytes;
+var
+  LReader, LInner: TWireReader;
+  LEntries: TBytes;
+  LWriter: IWireWriter;
+  LMarker, LBody: TWireVectorMarker;
+begin
+  Result := nil;
+  LReader := TWireReader.Create(ABlock);
+  LInner := LReader.OpenVector(2);
+  LEntries := LInner.ReadBytes(LInner.Remaining);
+  LWriter := TWireWriter.Create;
+  LMarker := LWriter.OpenVector(2);
+  LWriter.WriteUInt16(AType);
+  LBody := LWriter.OpenVector(2);
+  LWriter.WriteBytes(AData);
+  LWriter.CloseVector(LBody);
   LWriter.WriteBytes(LEntries);
   LWriter.CloseVector(LMarker);
   Result := LWriter.ToBytes;

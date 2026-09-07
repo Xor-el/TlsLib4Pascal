@@ -25,7 +25,7 @@ uses
   TlpITlsConfig,
   TlpTlsEngineFactory,
   TlpITlsEngine,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlsBenchmarkData;
 
 type

@@ -50,7 +50,7 @@ uses
   StrUtils,
   TlpTlsVersion,
   TlpNegotiationTypes,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpDefaultCryptoProvider,
   TlsBenchmarkData,

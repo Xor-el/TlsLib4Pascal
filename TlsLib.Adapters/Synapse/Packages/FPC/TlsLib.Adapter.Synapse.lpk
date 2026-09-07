@@ -20,7 +20,7 @@
     </CompilerOptions>
     <Description Value="Synapse TCustomSSL plugin adapter for TlsLib4Pascal (one SSL plugin per project)"/>
     <License Value="MIT License"/>
-    <Version Major="1"/>
+    <Version Major="1" Minor="1"/>
     <Files Count="1">
       <Item1>
         <Filename Value="..\..\Adapter\TlsLibSynapseTls.pas"/>

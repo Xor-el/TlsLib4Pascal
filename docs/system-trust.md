@@ -1,6 +1,6 @@
 # OS system trust
 
-**TlsLib4Pascal docs** · [Home](README.md) · [Getting started](getting-started.md) · [Cookbook](cookbook.md) · [Verification](certificate-verification.md) · System trust · [Compression](certificate-compression.md) · [Security model](security-model.md)
+**TlsLib4Pascal docs** · [Home](README.md) · [Getting started](getting-started.md) · [Cookbook](cookbook.md) · [Verification](certificate-verification.md) · System trust · [Compression](certificate-compression.md) · [ECH](ech.md) · [Security model](security-model.md)
 
 By default TlsLib4Pascal verifies against **the trust anchors you give it** — a private CA, a
 pinned root bundle, whatever you pass to `WithTrustAnchors` (see

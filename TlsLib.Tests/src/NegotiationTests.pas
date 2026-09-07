@@ -31,7 +31,7 @@ uses
   TlpICryptoProvider,
   TlpINamedGroup,
   TlpNamedGroups,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpNegotiationTypes,
   TlpINegotiation,
   TlpCipherSuiteRegistry,

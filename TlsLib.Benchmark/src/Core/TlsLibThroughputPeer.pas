@@ -29,7 +29,7 @@ uses
   TlpINegotiation,
   TlpCipherSuiteRegistry,
   TlpNegotiationTypes,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlsBenchmarkData;
 
 type

@@ -32,7 +32,7 @@ uses
   TlpISecretBuffer,
   TlpSecretBuffer,
   TlpICryptoProvider,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpINamedGroup,
   TlpNegotiationTypes,
   TlpNegotiationPolicy,

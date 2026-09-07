@@ -33,6 +33,7 @@ uses
   sslbase,
   TlpTlsAlert,
   TlpTlsVersion,
+  TlpEchConfig,
   TlpICryptoProvider,
   TlpDefaultCryptoProvider,
   TlpICertificateTrust,
@@ -171,6 +172,8 @@ type
     /// <summary>The SNI server_name for this connection: the host a client requested (server side)
     /// or the host we sent (client side); empty when none.</summary>
     function PeerServerName: string;
+    /// <summary>The Encrypted Client Hello outcome for this connection (RFC 9849).</summary>
+    function EchStatus: TEchStatus;
     /// <summary>A human-readable description of the last Connect/Accept/Send/Recv failure.</summary>
     property LastErrorDesc: string read FLastErrorDesc;
     /// <summary>Opt into the OS system-trust anchors (Windows crypt32 / macOS SecTrust / Unix
@@ -780,6 +783,14 @@ begin
     Result := FStream.ConnectionInfo.ServerName
   else
     Result := '';
+end;
+
+function TTlsLibSocketHandler.EchStatus: TEchStatus;
+begin
+  if FStream <> nil then
+    Result := FStream.ConnectionInfo.EchStatus
+  else
+    Result := TEchStatus.NotOffered;
 end;
 
 procedure FlushTlsLibFclNetConfigCache;

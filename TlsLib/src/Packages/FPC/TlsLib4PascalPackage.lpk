@@ -10,7 +10,7 @@
       <PathDelim Value="\"/>
       <SearchPaths>
         <IncludeFiles Value="..\..\Include"/>
-        <OtherUnitFiles Value="..\..\Common;..\..\Interfaces\Common;..\..\Interfaces\Security;..\..\Interfaces\Crypto;..\..\Interfaces\Codec;..\..\Interfaces\Engine;..\..\Interfaces\Record;..\..\Interfaces\KeySchedule;..\..\Interfaces\Handshake;..\..\Interfaces\Extensions;..\..\Interfaces\Negotiation;..\..\Interfaces\Session;..\..\Security;..\..\Codec;..\..\Crypto;..\..\Record;..\..\Engine;..\..\KeySchedule;..\..\Handshake;..\..\Extensions;..\..\Negotiation;..\..\Session;..\..\Trust;..\..\Interfaces\Trust;..\..\CertCompression;..\..\Interfaces\CertCompression"/>
+        <OtherUnitFiles Value="..\..\Common;..\..\Interfaces\Common;..\..\Interfaces\Security;..\..\Interfaces\Crypto;..\..\Interfaces\Codec;..\..\Interfaces\Engine;..\..\Interfaces\Record;..\..\Interfaces\KeySchedule;..\..\Interfaces\Handshake;..\..\Interfaces\Extensions;..\..\Interfaces\Negotiation;..\..\Interfaces\Session;..\..\Security;..\..\Codec;..\..\Crypto;..\..\Record;..\..\Engine;..\..\KeySchedule;..\..\Handshake;..\..\Extensions;..\..\Negotiation;..\..\Session;..\..\Trust;..\..\Interfaces\Trust;..\..\CertCompression;..\..\Interfaces\CertCompression;..\..\Ech;..\..\Interfaces\Ech"/>
         <UnitOutputDirectory Value="lib\$(TargetCPU)-$(TargetOS)"/>
       </SearchPaths>
       <CodeGeneration>
@@ -27,11 +27,11 @@
     </CompilerOptions>
     <Description Value="Opinionated yet Modular TLS for Modern Object Pascal"/>
     <License Value="MIT License"/>
-    <Version Major="1"/>
-    <Files Count="111">
+    <Version Major="1" Minor="1"/>
+    <Files Count="118">
       <Item1>
-        <Filename Value="..\..\Crypto\TlpCryptoAlgorithms.pas"/>
-        <UnitName Value="TlpCryptoAlgorithms"/>
+        <Filename Value="..\..\Crypto\TlpCryptoDomainTypes.pas"/>
+        <UnitName Value="TlpCryptoDomainTypes"/>
       </Item1>
       <Item2>
         <Filename Value="..\..\Common\TlpTlsAlert.pas"/>
@@ -473,6 +473,34 @@
         <Filename Value="..\..\Handshake\TlpCredentialResolvers.pas"/>
         <UnitName Value="TlpCredentialResolvers"/>
       </Item111>
+      <Item112>
+        <Filename Value="..\..\Ech\TlpEchConfig.pas"/>
+        <UnitName Value="TlpEchConfig"/>
+      </Item112>
+      <Item113>
+        <Filename Value="..\..\Ech\TlpEchExtension.pas"/>
+        <UnitName Value="TlpEchExtension"/>
+      </Item113>
+      <Item114>
+        <Filename Value="..\..\Ech\TlpEchOuterExtensions.pas"/>
+        <UnitName Value="TlpEchOuterExtensions"/>
+      </Item114>
+      <Item115>
+        <Filename Value="..\..\Ech\TlpEchClient.pas"/>
+        <UnitName Value="TlpEchClient"/>
+      </Item115>
+      <Item116>
+        <Filename Value="..\..\Interfaces\Ech\TlpIEch.pas"/>
+        <UnitName Value="TlpIEch"/>
+      </Item116>
+      <Item117>
+        <Filename Value="..\..\Ech\TlpInMemoryEchKeyStore.pas"/>
+        <UnitName Value="TlpInMemoryEchKeyStore"/>
+      </Item117>
+      <Item118>
+        <Filename Value="..\..\Ech\TlpEchServer.pas"/>
+        <UnitName Value="TlpEchServer"/>
+      </Item118>
     </Files>
     <CompatibilityMode Value="True"/>
     <RequiredPkgs Count="2">

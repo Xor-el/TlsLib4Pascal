@@ -33,6 +33,7 @@ uses
   mormot.core.unicode,
   TlpTlsAlert,
   TlpTlsVersion,
+  TlpEchConfig,
   TlpICryptoProvider,
   TlpDefaultCryptoProvider,
   TlpICertificateTrust,
@@ -152,6 +153,8 @@ type
     /// <summary>The SNI server_name for this connection: the host a client requested (server side)
     /// or the host we sent (client side); empty when none.</summary>
     function PeerServerName: string;
+    /// <summary>The Encrypted Client Hello outcome for this connection (RFC 9849).</summary>
+    function EchStatus: TEchStatus;
   end;
 
 /// <summary>The factory to point mORMot's global at: `NewNetTls := @NewTlsLib4PascalTls;`.</summary>
@@ -620,6 +623,14 @@ begin
     Result := FEngine.PeerServerName
   else
     Result := '';
+end;
+
+function TTlsLibNetTls.EchStatus: TEchStatus;
+begin
+  if FEngine <> nil then
+    Result := FEngine.EchStatus
+  else
+    Result := TEchStatus.NotOffered;
 end;
 
 function TTlsLibNetTls.GetRawTls: pointer;

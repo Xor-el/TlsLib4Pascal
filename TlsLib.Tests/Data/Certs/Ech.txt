@@ -1,0 +1,10 @@
+# ECH (RFC 9849) test vectors. Generated with OpenSSL 4.0.1:
+#   openssl ech -public_name cover.example -ech_version 65037 -suite 0x20,1,1
+# Tests reach crypto only through ICryptoProvider; these are wire bytes only.
+#
+# config_list: a single ECHConfig (version 0xfe0d, config_id 0xd4, KEM X25519(0x20),
+# one suite HKDF-SHA256(1)/AES-128-GCM(1), public_name "cover.example",
+# maximum_name_length 0, no extensions) wrapped in an ECHConfigList.
+config_list=0040fe0d003cd40020002086efc5d2212150dce57494c184abc863445e0fb97a4d75fac278b09766c86816000400010001000d636f7665722e6578616d706c650000
+# the matching HPKE recipient private key (PKCS#8, X25519) - for the server tasks.
+config_private_key=302e020100300506032b656e04220420e0db0267f9fb65258e36e7cded568a89c5c34cd183e9586b36fc2746b9604f45

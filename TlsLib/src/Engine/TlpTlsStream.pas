@@ -146,6 +146,7 @@ begin
   Result.CipherSuite := FEngine.NegotiatedCipherSuite;
   Result.NamedGroup := FEngine.NegotiatedGroup;
   Result.Resumed := FEngine.IsResumed;
+  Result.EchStatus := FEngine.EchStatus;
 end;
 
 procedure TTlsStream.CloseNotify;

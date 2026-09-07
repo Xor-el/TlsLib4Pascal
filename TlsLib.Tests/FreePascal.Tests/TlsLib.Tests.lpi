@@ -37,7 +37,7 @@
         <PackageName Value="FCL"/>
       </Item6>
     </RequiredPackages>
-    <Units Count="58">
+    <Units Count="66">
       <Unit0>
         <Filename Value="TlsLib.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -270,6 +270,38 @@
         <Filename Value="..\src\CertificateCompressionCacheTests.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit57>
+      <Unit58>
+        <Filename Value="..\src\HpkeProviderTests.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit58>
+      <Unit59>
+        <Filename Value="..\src\EchConfigTests.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit59>
+      <Unit60>
+        <Filename Value="..\src\EchExtensionTests.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit60>
+      <Unit61>
+        <Filename Value="..\src\EchOuterExtensionsTests.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit61>
+      <Unit62>
+        <Filename Value="..\src\EchConfirmationTests.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit62>
+      <Unit63>
+        <Filename Value="..\src\EchClientTests.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit63>
+      <Unit64>
+        <Filename Value="..\src\EchClientEngineTests.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit64>
+      <Unit65>
+        <Filename Value="..\src\EchToolingTests.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit65>
     </Units>
   </ProjectOptions>
   <CompilerOptions>
@@ -280,7 +312,7 @@
     </Target>
     <SearchPaths>
       <IncludeFiles Value="$(ProjOutDir)"/>
-      <OtherUnitFiles Value="..\src;..\..\TlsLib.Tools\RootGen\src"/>
+      <OtherUnitFiles Value="..\src;..\..\TlsLib.Tools\RootGen\src;..\..\TlsLib.Tools\EchKeyGen\src;..\..\TlsLib.Net"/>
       <UnitOutputDirectory Value="lib\$(TargetCPU)-$(TargetOS)"/>
     </SearchPaths>
     <Other>

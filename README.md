@@ -41,6 +41,7 @@
 - **Complete trust pipeline** -- PKIX path validation, RFC 6125 endpoint identity, public-key pinning, stapled + live OCSP/CRL revocation, and opt-in OS system trust
 - **Resumption, PSK & 0-RTT** -- 1.3 tickets with STEK rotation or a stateful store, 1.2 session IDs + RFC 5077, RFC 9258 external PSKs, anti-replay early data
 - **Certificate compression** -- RFC 8879 with a centralized decompression-bomb defense and an optional cross-connection cache
+- **Encrypted Client Hello** -- RFC 9849 ECH hides the SNI: client and server, GREASE, split-mode backend, `EchKeyGen` tool, and a DNS/SVCB config helper
 - **Three ways to integrate** -- a batteries-included `TTlsLib` facade, a `TTlsStream` over a tiny transport interface, and drop-in adapters for mORMot, Indy, Synapse, and fcl-net (all over one sans-IO engine)
 - **Conformance-tested** -- RFC 8448 byte-exact vectors, structure-aware fuzzing, and BoringSSL's BoGo suite as a required CI gate, alongside an OpenSSL interop matrix
 - **Cross-platform, cross-compiler** -- Delphi and FreePascal / Lazarus

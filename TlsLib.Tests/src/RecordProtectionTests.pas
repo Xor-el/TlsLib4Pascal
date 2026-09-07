@@ -32,7 +32,7 @@ uses
   TlpTlsVersion,
   TlpSecretBuffer,
   TlpICryptoProvider,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpIRecordProtection,
   TlpRecordProtection,
   TlpWireWriter,

@@ -29,7 +29,7 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpICryptoProvider,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpISigningKey,
   TlpTlsCredential,
   TlpICertificateTrust,

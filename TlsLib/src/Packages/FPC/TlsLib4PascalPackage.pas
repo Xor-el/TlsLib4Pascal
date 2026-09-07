@@ -8,7 +8,7 @@ unit TlsLib4PascalPackage;
 interface
 
 uses
-  TlpCryptoAlgorithms, TlpTlsAlert, TlpTlsLibExceptions, TlpTlsError, 
+  TlpCryptoDomainTypes, TlpTlsAlert, TlpTlsLibExceptions, TlpTlsError, 
   TlpISecretBuffer, TlpSecureMemory, TlpSecretBuffer, TlpWireReader, 
   TlpWireWriter, TlpICryptoProvider, TlpDefaultCryptoProvider, TlpINamedGroup, 
   TlpNamedGroups, TlpTlsContentType, TlpTlsVersion, TlpRecordHeader, 
@@ -41,7 +41,8 @@ uses
   TlpClock, TlpICertificateCompressionCache, 
   TlpInMemoryCertificateCompressionCache, TlpTlsConfigMemo, 
   TlpTlsSignatureBuilder, TlpITlsConfigMemo, TlpITlsCredentialResolver, 
-  TlpCredentialResolvers;
+  TlpCredentialResolvers, TlpEchConfig, TlpEchExtension, 
+  TlpEchOuterExtensions, TlpEchClient, TlpIEch, TlpInMemoryEchKeyStore, TlpEchServer;
 
 implementation
 

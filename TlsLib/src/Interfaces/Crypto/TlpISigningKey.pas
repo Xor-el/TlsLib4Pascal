@@ -16,7 +16,7 @@ unit TlpISigningKey;
 interface
 
 uses
-  TlpCryptoAlgorithms;
+  TlpCryptoDomainTypes;
 
 type
   /// <summary>

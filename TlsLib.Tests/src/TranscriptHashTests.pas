@@ -28,7 +28,7 @@ uses
 {$ENDIF FPC}
   TlpTlsLibExceptions,
   TlpICryptoProvider,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpITranscriptHash,
   TlpTranscriptHash,
   TlsLibTestBase;

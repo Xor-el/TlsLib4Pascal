@@ -17,7 +17,7 @@ interface
 
 uses
   SysUtils,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpISecretBuffer,
   TlpSecretBuffer,
   TlpICryptoProvider,
@@ -66,10 +66,32 @@ type
     function EpochSecret(AEpoch: TTlsEpoch; ADirection: TTlsDirection): ISecretBuffer;
     function ExpandKey(const ASecret: ISecretBuffer; const ALabel: string;
       ALength: Int32): ISecretBuffer;
+    class function EchConfirmation(const AHkdf: IHkdf; const ALabel: string;
+      const AInnerRandom, ATranscriptHash: TBytes): TBytes; static;
   public
     /// <summary>AHash is the suite hash; AKeyLength the AEAD key size.</summary>
     constructor Create(const AProvider: ICryptoProvider; AHash: THashAlgorithm;
       AKeyLength: Int32);
+
+    /// <summary>
+    /// The ECH ServerHello accept confirmation (RFC 9849 sec. 7.2): the 8 bytes the
+    /// backend writes over ServerHello.random[24..32] and the client recomputes.
+    /// AInnerRandom is ClientHelloInner.random; ATranscriptEchConf is
+    /// Transcript-Hash(ClientHelloInner...ServerHello) with those 8 random bytes zeroed.
+    /// A class function because on the server the key schedule does not yet exist when
+    /// the ServerHello is built; AHkdf carries the negotiated suite's hash.
+    /// </summary>
+    class function EchAcceptConfirmation(const AHkdf: IHkdf;
+      const AInnerRandom, ATranscriptEchConf: TBytes): TBytes; static;
+    /// <summary>
+    /// The ECH HelloRetryRequest accept confirmation (RFC 9849 sec. 7.2.1): the 8 bytes
+    /// written over the HRR encrypted_client_hello payload. AInnerRandom is
+    /// ClientHelloInner1.random; ATranscriptHrrEchConf is
+    /// Transcript-Hash(message_hash(ClientHelloInner1)...HelloRetryRequest) with the
+    /// HRR ech payload zeroed.
+    /// </summary>
+    class function EchHrrAcceptConfirmation(const AHkdf: IHkdf;
+      const AInnerRandom, ATranscriptHrrEchConf: TBytes): TBytes; static;
 
     // IKeySchedule
     function TrafficKeys(AEpoch: TTlsEpoch; ADirection: TTlsDirection): ITrafficKeys;
@@ -219,6 +241,34 @@ function TTls13KeySchedule.ExpandKey(const ASecret: ISecretBuffer;
   const ALabel: string; ALength: Int32): ISecretBuffer;
 begin
   Result := THkdfLabel.HkdfExpandLabel(FHkdf, ASecret, ALabel, nil, ALength);
+end;
+
+class function TTls13KeySchedule.EchConfirmation(const AHkdf: IHkdf;
+  const ALabel: string; const AInnerRandom, ATranscriptHash: TBytes): TBytes;
+const
+  ConfirmationLength = Int32(8);
+var
+  LPrk: ISecretBuffer;
+begin
+  // HKDF-Extract(0, ClientHelloInner.random): a HashLen-zero salt over the inner
+  // random as IKM (the random is public; the seam types IKM as a secret)
+  LPrk := AHkdf.Extract(nil, TSecretBuffer.From(AInnerRandom));
+  Result := THkdfLabel.HkdfExpandLabel(AHkdf, LPrk, ALabel, ATranscriptHash,
+    ConfirmationLength).ToBytes;
+end;
+
+class function TTls13KeySchedule.EchAcceptConfirmation(const AHkdf: IHkdf;
+  const AInnerRandom, ATranscriptEchConf: TBytes): TBytes;
+begin
+  Result := EchConfirmation(AHkdf, 'ech accept confirmation', AInnerRandom,
+    ATranscriptEchConf);
+end;
+
+class function TTls13KeySchedule.EchHrrAcceptConfirmation(const AHkdf: IHkdf;
+  const AInnerRandom, ATranscriptHrrEchConf: TBytes): TBytes;
+begin
+  Result := EchConfirmation(AHkdf, 'hrr ech accept confirmation', AInnerRandom,
+    ATranscriptHrrEchConf);
 end;
 
 procedure TTls13KeySchedule.SetPsk(const APsk: ISecretBuffer);

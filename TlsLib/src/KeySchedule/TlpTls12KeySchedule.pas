@@ -19,7 +19,7 @@ uses
   SysUtils,
   TlpArrayUtilities,
   TlpBinaryPrimitives,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpISecretBuffer,
   TlpSecretBuffer,
   TlpICryptoProvider,

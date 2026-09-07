@@ -21,7 +21,7 @@ uses
   TlpBinaryPrimitives,
   TlpISecretBuffer,
   TlpICryptoProvider,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpIRecordProtection,
   TlpTlsAlert,
   TlpTlsContentType,

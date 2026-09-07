@@ -21,6 +21,7 @@ uses
   TlpTlsAlertProtocol,
   TlpTlsError,
   TlpTlsLibExceptions,
+  TlpEchConfig,
   TlpITlsEngine,
   TlpITlsTransport;
 
@@ -117,8 +118,16 @@ resourcestring
 
 class procedure TTlsStreamPump.RaiseIfFatal(const AEngine: ITlsEngine);
 begin
-  if AEngine.IsTerminal then
-    raise ETlsStreamError.Create(AEngine.LastError);
+  if not AEngine.IsTerminal then
+    Exit;
+  // a client's ECH reject aborts with ech_required (RFC 9849 sec. 6.1.6); surface the
+  // retry_configs and the retry flag through a typed exception so the application can decide to
+  // reconnect. keyed on the abort itself, not EchStatus - a server reads Rejected after a benign
+  // GREASE handshake that completed, so a later fatal there must surface as its true error
+  if AEngine.EchRejectAborted then
+    raise EEchRejectedTlsLibException.Create(AEngine.EchRetryConfigs,
+      AEngine.EchIsRetryAttempt);
+  raise ETlsStreamError.Create(AEngine.LastError);
 end;
 
 class procedure TTlsStreamPump.Flush(const AEngine: ITlsEngine;

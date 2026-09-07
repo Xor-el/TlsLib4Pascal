@@ -29,7 +29,7 @@ uses
   TlpIKeySchedule,
   TlpTls12KeySchedule,
   TlpITranscriptHash,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpNegotiationTypes,
   TlpINegotiation,
   TlpNegotiationPolicy,

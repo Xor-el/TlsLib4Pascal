@@ -31,7 +31,7 @@ uses
   TlpTlsLibExceptions,
   TlpISecretBuffer,
   TlpSecretBuffer,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpINamedGroup,
   TlpNamedGroups,
   TlpNegotiationTypes,
