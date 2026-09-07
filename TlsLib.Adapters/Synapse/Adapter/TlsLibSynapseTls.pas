@@ -32,6 +32,7 @@ uses
   synsock,
   TlpTlsVersion,
   TlpTlsAlert,
+  TlpEchConfig,
   TlpCryptoDomainTypes,
   TlpDataEncoding,
   TlpICryptoProvider,
@@ -147,6 +148,8 @@ type
     /// <summary>The SNI server_name for this connection: the host a client requested (server side)
     /// or the host we sent (client side); empty when none. Cast Sock.SSL to TSSLTlsLib to read it.</summary>
     function PeerServerName: string;
+    /// <summary>The Encrypted Client Hello outcome for this connection (RFC 9849).</summary>
+    function EchStatus: TEchStatus;
     // native peer-certificate accessors an OnVerifyCert handler reads (no OpenSSL type)
     function GetPeerSubject: string; override;
     function GetPeerIssuer: string; override;
@@ -654,6 +657,14 @@ begin
     Result := FEngine.PeerServerName
   else
     Result := '';
+end;
+
+function TSSLTlsLib.EchStatus: TEchStatus;
+begin
+  if FStream <> nil then
+    Result := FEngine.EchStatus
+  else
+    Result := TEchStatus.NotOffered;
 end;
 
 function TSSLTlsLib.GetPeerSubject: string;

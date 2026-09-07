@@ -249,5 +249,69 @@ else
   echo "=== cells H1-H3 (X25519MLKEM768): SKIPPED (openssl < 3.5, 3 cells) ==="
 fi
 
+# --- ECH cells (RFC 9849): gated on an openssl that supports Encrypted Client Hello -----
+# Prove ECH interop in BOTH directions against a real peer. One key pair openssl generates
+# serves both sides: its PEM carries the HPKE private key (our server / openssl -ech_key) and
+# the ECHConfigList (our client / openssl -ech_config_list). Each side asserts it saw ECH
+# accepted - not a silent GREASE or shared-mode reject.
+ECH_OK=0
+if "$OPENSSL" s_client -help 2>&1 | grep -q 'ech_config_list' && \
+   "$OPENSSL" s_server -help 2>&1 | grep -q 'ech_key'; then
+  ECH_OK=1
+fi
+if [ "$ECH_OK" -eq 1 ]; then
+  TOTAL=$((TOTAL+2))
+  echo "ech:     supported (E-cells enabled)"
+  "$OPENSSL" ech -public_name cover.example -out "$TMP/ech.pem" >/dev/null 2>&1
+  # the base64 ECHConfigList is the ECHCONFIG PEM block body, flattened to one line
+  awk '/-BEGIN ECHCONFIG-/{f=1;next} /-END ECHCONFIG-/{f=0} f' "$TMP/ech.pem" \
+    | tr -d '\r\n' > "$TMP/echconfig.b64"
+
+  # --- Cell E1: our server (ECH key store)  <-  openssl s_client (ECH) ---
+  echo "=== cell E1: our server  <-  openssl s_client (ECH) ==="
+  PE1=14571
+  "$DRIVER" --role server --port $PE1 --ech-key "$TMP/ech.pem" --data-dir "$DATA_DIR" \
+    > "$TMP/se1.log" 2>&1 &
+  for _ in $(seq 1 100); do grep -q 'listening on' "$TMP/se1.log" && break; sleep 0.1; done
+  # s_client sends ECH: the outer SNI is the public_name, the real (inner) SNI is localhost,
+  # which our server recovers on a successful decrypt and serves the localhost cert for
+  { printf 'PING-ECH-1\n'; sleep 2; } | "$OPENSSL" s_client -connect 127.0.0.1:$PE1 -tls1_3 \
+       -ech_config_list "$(cat "$TMP/echconfig.b64")" -CAfile "$TMP/root.pem" \
+       -servername localhost -verify_hostname localhost -verify_return_error \
+       > "$TMP/ce1.out" 2>"$TMP/ce1.err" || true
+  # require the app-data echo (strict verify against the inner name held) AND our server
+  # reporting it accepted ECH (a shared-mode reject would have served no localhost cert)
+  if grep -q 'PING-ECH-1' "$TMP/ce1.out" && grep -q 'ech-status: accepted' "$TMP/se1.log"; then
+    echo "  PASS: our server accepted ECH + app-data echo (inner SNI recovered)"
+  else
+    echo "  FAIL: cell E1"; cat "$TMP/se1.log" "$TMP/ce1.err" "$TMP/ce1.out"; FAILURES=$((FAILURES+1))
+  fi
+  wait || true
+
+  # --- Cell E2: our client (ECH)  ->  openssl s_server (ECH key) ---
+  echo "=== cell E2: our client (ECH)  ->  openssl s_server ==="
+  PE2=14572
+  "$OPENSSL" s_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_3 \
+    -ech_key "$TMP/ech.pem" -accept $PE2 -rev -naccept 1 > "$TMP/se2.log" 2>&1 &
+  for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/se2.log" && break; sleep 0.1; done
+  # our client seals the inner ClientHello (real SNI localhost) under the ECHConfigList; openssl
+  # decrypts with the matching key and serves its localhost cert, which our client verifies
+  if "$DRIVER" --role client --port $PE2 --host localhost --ca "$TMP/srv_cert.pem" \
+       --ech-config "$TMP/echconfig.b64" --message "hello-ech-2" --data-dir "$DATA_DIR" \
+       > "$TMP/ce2.out" 2>&1; then
+    ECH2_OK=1
+  else
+    ECH2_OK=0
+  fi
+  if [ "$ECH2_OK" -eq 1 ] && grep -q 'ech-status: accepted' "$TMP/ce2.out"; then
+    echo "  PASS: our client's ECH was accepted by openssl + app-data"
+  else
+    echo "  FAIL: cell E2"; cat "$TMP/se2.log" "$TMP/ce2.out"; FAILURES=$((FAILURES+1))
+  fi
+  wait || true
+else
+  echo "=== cells E1-E2 (ECH): SKIPPED (openssl without ECH support, 2 cells) ==="
+fi
+
 echo "=== openssl matrix: $((TOTAL-FAILURES))/$TOTAL cells passed ==="
 [ "$FAILURES" -eq 0 ]

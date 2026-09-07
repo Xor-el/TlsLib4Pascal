@@ -27,6 +27,9 @@ uses
   TlpSessionTicketKeys,
   TlpInMemorySessionCache,
   TlpITlsEngine,
+  TlpIEch,
+  TlpEchConfig,
+  TlpInMemoryEchKeyStore,
   InteropSocket,
   InteropEngine,
   InteropCredentials,
@@ -47,13 +50,18 @@ type
     /// <summary>Maps a comma-separated list of group names (e.g. "X25519,X25519MLKEM768")
     /// to their IANA codepoints; the first is the most-preferred / key_share group.</summary>
     class function ParseGroups(const ASpec: string): TArray<UInt16>; static;
+    /// <summary>The connection's Encrypted Client Hello outcome as a stable lowercase token
+    /// ("accepted", "rejected", ...) the matrix asserts on.</summary>
+    class function EchStatusName(AStatus: TEchStatus): string; static;
     class function RunServer(APort: Word; const ACredential: TTlsCredential;
       const AOcspStaple: TBytes; AAcceptCount: Int32;
       const AStek: ISessionTicketKeyManager;
-      const AOfferedGroups: TArray<UInt16>): Int32; static;
+      const AOfferedGroups: TArray<UInt16>;
+      const AEchKeyStore: IEchServerKeyStore): Int32; static;
     class function RunClient(APort: Word; const AHost, ACaPemFile, AMessage,
       AClientCredFile: string; AConnectionCount: Int32;
-      const AOfferedGroups: TArray<UInt16>): Int32; static;
+      const AOfferedGroups: TArray<UInt16>;
+      const AEchConfigList: TBytes): Int32; static;
     /// <summary>One client connection over ASocket, using AOptions; returns 0 on a
     /// completed handshake + echoed application data.</summary>
     class function RunOneClient(const ASocket: TInteropSocket;
@@ -105,10 +113,24 @@ begin
   end;
 end;
 
+class function TOpenSslInteropRunner.EchStatusName(AStatus: TEchStatus): string;
+begin
+  case AStatus of
+    TEchStatus.NotOffered: Result := 'not-offered';
+    TEchStatus.Greased: Result := 'greased';
+    TEchStatus.Accepted: Result := 'accepted';
+    TEchStatus.Rejected: Result := 'rejected';
+    TEchStatus.Backend: Result := 'backend';
+  else
+    Result := 'unknown';
+  end;
+end;
+
 class function TOpenSslInteropRunner.RunServer(APort: Word;
   const ACredential: TTlsCredential; const AOcspStaple: TBytes;
   AAcceptCount: Int32; const AStek: ISessionTicketKeyManager;
-  const AOfferedGroups: TArray<UInt16>): Int32;
+  const AOfferedGroups: TArray<UInt16>;
+  const AEchKeyStore: IEchServerKeyStore): Int32;
 var
   LListener: TInteropListener;
   LSocket: TInteropSocket;
@@ -137,6 +159,7 @@ begin
         LOptions.OcspStaple := AOcspStaple;
         LOptions.SessionTicketKeys := AStek;
         LOptions.OfferedGroups := AOfferedGroups;
+        LOptions.EchKeyStore := AEchKeyStore;
         LEngine := TInteropEngine.Build(LProvider, LOptions);
 
         LResult := TInteropPump.DriveHandshake(LEngine, LSocket);
@@ -145,6 +168,7 @@ begin
           Writeln(ErrOutput, 'server handshake failed: ', LResult.Detail);
           Exit(1);
         end;
+        Writeln('ech-status: ', EchStatusName(LEngine.EchStatus));
         Writeln('handshake complete; echoing');
         repeat
           LResult := TInteropPump.PumpAppData(LEngine, LSocket);
@@ -169,7 +193,7 @@ end;
 
 class function TOpenSslInteropRunner.RunClient(APort: Word; const AHost,
   ACaPemFile, AMessage, AClientCredFile: string; AConnectionCount: Int32;
-  const AOfferedGroups: TArray<UInt16>): Int32;
+  const AOfferedGroups: TArray<UInt16>; const AEchConfigList: TBytes): Int32;
 var
   LSocket: TInteropSocket;
   LProvider: ICryptoProvider;
@@ -191,6 +215,7 @@ begin
   LOptions.Trust := TInteropCredentials.TrustFromPem(LProvider, ACaPemFile);
   LOptions.SessionCache := LCache;
   LOptions.OfferedGroups := AOfferedGroups;
+  LOptions.EchConfigList := AEchConfigList;
   // mutual TLS: present a client credential when the server requests one
   if AClientCredFile <> '' then
   begin
@@ -231,6 +256,7 @@ begin
     Writeln(ErrOutput, 'client handshake failed: ', LResult.Detail);
     Exit(1);
   end;
+  Writeln('ech-status: ', EchStatusName(LEngine.EchStatus));
   Writeln('handshake complete; sending');
 
   // a trailing newline lets a line-oriented openssl peer (s_server -rev) flush
@@ -279,6 +305,9 @@ var
   LStaple: TBytes;
   LFields: TStringList;
   LOfferedGroups: TArray<UInt16>;
+  LEchConfigFile, LEchKeyFile, LEchB64: string;
+  LEchConfigList: TBytes;
+  LEchKeyStore: IEchServerKeyStore;
 begin
   LRole := ArgValue('--role', 'server');
   LPort := Word(StrToIntDef(ArgValue('--port', '0'), 0));
@@ -292,8 +321,20 @@ begin
   // --ocsp-staple names a field in Certs/OcspStapling.txt; when set the server serves the
   // leaf+issuer chain and staples that OCSP response
   LStapleField := ArgValue('--ocsp-staple', '');
+  // Encrypted Client Hello (RFC 9849): --ech-config gives a client the base64 ECHConfigList
+  // to offer; --ech-key gives a server the ECH PEM (private key + config) to accept with
+  LEchConfigFile := ArgValue('--ech-config', '');
+  LEchKeyFile := ArgValue('--ech-key', '');
 
   try
+    LEchConfigList := nil;
+    if LEchConfigFile <> '' then
+    begin
+      LEchB64 := TInteropUtils.ReadAllText(LEchConfigFile);
+      LEchB64 := StringReplace(LEchB64, #13, '', [rfReplaceAll]);
+      LEchB64 := Trim(StringReplace(LEchB64, #10, '', [rfReplaceAll]));
+      LEchConfigList := TInteropUtils.DecodeBase64(LEchB64);
+    end;
     // --groups names the offered named groups (comma-separated, most-preferred first); the
     // first is the key_share group, so "X25519,X25519MLKEM768" forces an HRR onto the hybrid
     LOfferedGroups := ParseGroups(ArgValue('--groups', ''));
@@ -302,7 +343,8 @@ begin
       // shared cache, resuming a prior session on the later ones
       Result := RunClient(LPort, ArgValue('--host', 'localhost'),
         ArgValue('--ca', ''), ArgValue('--message', 'openssl interop hello'),
-        ArgValue('--client-cred', ''), LResumeCount + 1, LOfferedGroups)
+        ArgValue('--client-cred', ''), LResumeCount + 1, LOfferedGroups,
+        LEchConfigList)
     else
     begin
       LStek := nil;
@@ -328,8 +370,12 @@ begin
       else
         LCredential := TInteropCredentials.ServerCredentialFromFieldFile(
           LProvider, LCredentialFile);
+      LEchKeyStore := nil;
+      if LEchKeyFile <> '' then
+        LEchKeyStore := TInMemoryEchKeyStore.FromPem(
+          BytesOf(TInteropUtils.ReadAllText(LEchKeyFile)), LProvider);
       Result := RunServer(LPort, LCredential, LStaple, LResumeCount + 1, LStek,
-        LOfferedGroups);
+        LOfferedGroups, LEchKeyStore);
     end;
   except
     on E: Exception do
