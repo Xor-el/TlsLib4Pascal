@@ -1,0 +1,77 @@
+TlsLib.Adapters/mORMot/Examples/src/MormotEchLoopbackExample.pas
+  s_16bbbcaf8bdfa4::t_1392046cfe6ee5 1-201,204-208,210-270
+  s_16bbbcaf8bdfa4::t_1c55ae6cf7f9a0 202-203,209
+TlsLib.Adapters/FclNet/Examples/Lazarus/FclNetEchLoopback.lpr
+  s_16bbbcaf8bdfa4::t_492a5315d608f6 1-16
+TlsLib.Adapters/mORMot/Examples/Lazarus/MormotEchLoopback.lpr
+  s_16bbbcaf8bdfa4::t_7c1de47afa95cb 1-16
+TlsLib.Adapters/mORMot/Examples/Delphi/MormotEchLoopback.dpr
+  s_16bbbcaf8bdfa4::t_678c716d48447f 1-12
+TlsLib.Interop/src/OpenSslInteropRunner.pas
+  s_16bbbcaf8bdfa4::t_a94b896316cb95 53-55,59-60,63-64
+  s_16bbbcaf8bdfa4::t_5d7a72125c4fb6 259
+  s_16bbbcaf8bdfa4::t_0de322a1f58254 30-32
+  s_16bbbcaf8bdfa4::t_c41ecfaf6ace22 308-310
+  s_16bbbcaf8bdfa4::t_399d1f9e3b682f 218
+  s_16bbbcaf8bdfa4::t_d40ddc22d74553 324-327,330-337,346-347
+  s_16bbbcaf8bdfa4::t_2e6717fdcb11cc 162,171
+  s_16bbbcaf8bdfa4::t_3acbb1b7abf909 196
+  s_16bbbcaf8bdfa4::t_4c61538cb0bdcf 373-376,378
+  s_16bbbcaf8bdfa4::t_10cb5ad286f700 116-128,132-133
+TlsLib.Adapters/Indy/Examples/Lazarus/IndyEchLoopback.lpi
+  s_16bbbcaf8bdfa4::t_556c54f8176b51 1-51
+TlsLib.Adapters/mORMot/Examples/Lazarus/MormotEchLoopback.lpi
+  s_16bbbcaf8bdfa4::t_5eb345fe00625f 1-51
+TlsLib.Adapters/Synapse/Examples/Delphi/SynapseEchLoopback.dpr
+  s_16bbbcaf8bdfa4::t_04b95cd9344538 1-12
+TlsLib.Adapters/Synapse/Adapter/TlsLibSynapseTls.pas
+  s_16bbbcaf8bdfa4::t_7a4433c5808cd0 151-152
+  s_16bbbcaf8bdfa4::t_368b79145764c5 35
+  s_16bbbcaf8bdfa4::t_3bb7ec728104f3 662-669
+TlsLib.Adapters/FclNet/Examples/src/FclNetEchLoopbackExample.pas
+  s_16bbbcaf8bdfa4::t_8659d7e8c828cf 1-302
+TlsLib.Adapters/Indy/Examples/src/IndyEchLoopbackExample.pas
+  s_16bbbcaf8bdfa4::t_a304a838ca982d 1-242
+TlsLib.Adapters/mORMot/Adapter/TlsLibMormotTls.pas
+  s_16bbbcaf8bdfa4::t_63fa349f3d8e8b 36
+  s_16bbbcaf8bdfa4::t_f42d1ce25e93f9 628-635
+  s_16bbbcaf8bdfa4::t_8aab0f168ecf74 156-157
+TlsLib.Adapters/Synapse/Examples/Lazarus/SynapseEchLoopback.lpi
+  s_16bbbcaf8bdfa4::t_5e55518841db32 1-51
+TlsLib.Adapters/FclNet/Examples/Lazarus/FclNetEchLoopback.lpi
+  s_16bbbcaf8bdfa4::t_cb3462e797c1ea 1-51
+TlsLib.Adapters/Synapse/Examples/Lazarus/SynapseEchLoopback.lpr
+  s_16bbbcaf8bdfa4::t_5175324d8749dd 1-16
+TlsLib.Adapters/Indy/Adapter/TlsLibIndyTls.pas
+  s_16bbbcaf8bdfa4::t_2ef1a2248bda10 39
+  s_16bbbcaf8bdfa4::t_5403597f212488 231-233
+  s_16bbbcaf8bdfa4::t_cb670dc158d6ac 805-812
+TlsLib.Adapters/Indy/Examples/Lazarus/IndyEchLoopback.lpr
+  s_16bbbcaf8bdfa4::t_f711f62ef036ac 1-16
+TlsLib.Adapters/Indy/Examples/Delphi/IndyEchLoopback.dpr
+  s_16bbbcaf8bdfa4::t_26655466bad267 1-12
+TlsLib.Adapters/Synapse/Examples/src/SynapseEchLoopbackExample.pas
+  s_16bbbcaf8bdfa4::t_4ae89aad14d8af 1-261
+.github/workflows/ci/interop/run-openssl-matrix.sh
+  s_16bbbcaf8bdfa4::t_bd93dbab7c6c99 252-315
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_16bbbcaf8bdfa4::t_bf0c50ff7f97a7 175-176
+  s_16bbbcaf8bdfa4::t_83d0153d27854a 788-795
+  s_16bbbcaf8bdfa4::t_b2ec8edcaac91f 36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "febd2376582e05b5d99df1382a9d60c9546cdfd1",
+  "prompts": {},
+  "sessions": {
+    "s_16bbbcaf8bdfa4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "42209e6c-e709-4190-9407-f1ee321cee10",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
