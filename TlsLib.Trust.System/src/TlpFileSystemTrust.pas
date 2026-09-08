@@ -34,9 +34,9 @@ type
   /// The path resolution is platform-neutral - it only manipulates strings and
   /// files - so this store is driven with injected path lists on any host, and
   /// is the reusable engine every filesystem-based platform builds on (see
-  /// TUnixAnchorStore for the Unix env + path defaults).
+  /// TUnixRootSource for the Unix env + path defaults).
   /// </summary>
-  TFileSystemAnchorStore = class(TSystemTrustBase)
+  TFileSystemRootSource = class(TSystemRootSource)
   strict private
     FEnvFile: string;
     FEnvDir: string;
@@ -73,9 +73,9 @@ resourcestring
   SBundleUnreadable =
     'the system CA bundle could not be parsed: %s';
 
-{ TFileSystemAnchorStore }
+{ TFileSystemRootSource }
 
-constructor TFileSystemAnchorStore.Create(const AProvider: ICryptoProvider;
+constructor TFileSystemRootSource.Create(const AProvider: ICryptoProvider;
   const AEnvFile, AEnvDir: string; const AFiles, ADirs: TArray<string>);
 begin
   inherited Create(AProvider);
@@ -85,7 +85,7 @@ begin
   FDirs := ADirs;
 end;
 
-class function TFileSystemAnchorStore.ReadAllBytes(const APath: string): TBytes;
+class function TFileSystemRootSource.ReadAllBytes(const APath: string): TBytes;
 var
   LStream: TMemoryStream;
 begin
@@ -101,7 +101,7 @@ begin
   end;
 end;
 
-function TFileSystemAnchorStore.ParseBundle(const AData: TBytes): TArray<TBytes>;
+function TFileSystemRootSource.ParseBundle(const AData: TBytes): TArray<TBytes>;
 begin
   if Length(AData) = 0 then
     Result := nil
@@ -109,7 +109,7 @@ begin
     Result := Provider.Certificates.LoadChain(AData);
 end;
 
-procedure TFileSystemAnchorStore.HarvestFile(const APath: string;
+procedure TFileSystemRootSource.HarvestFile(const APath: string;
   const AAccumulator: TSystemRootAccumulator);
 var
   LCerts: TArray<TBytes>;
@@ -127,7 +127,7 @@ begin
     AddUnique(AAccumulator, LCerts[LI]);
 end;
 
-procedure TFileSystemAnchorStore.HarvestDir(const APath: string;
+procedure TFileSystemRootSource.HarvestDir(const APath: string;
   const AAccumulator: TSystemRootAccumulator);
 var
   LSearch: TSearchRec;
@@ -158,7 +158,7 @@ begin
   end;
 end;
 
-function TFileSystemAnchorStore.FirstExistingFile: string;
+function TFileSystemRootSource.FirstExistingFile: string;
 var
   LI: Integer;
 begin
@@ -173,7 +173,7 @@ begin
   end;
 end;
 
-function TFileSystemAnchorStore.FirstExistingDir: string;
+function TFileSystemRootSource.FirstExistingDir: string;
 var
   LI: Integer;
 begin
@@ -188,7 +188,7 @@ begin
   end;
 end;
 
-function TFileSystemAnchorStore.HarvestRoots: TArray<TBytes>;
+function TFileSystemRootSource.HarvestRoots: TArray<TBytes>;
 var
   LFile, LDir: string;
   LAcc: TSystemRootAccumulator;
@@ -232,7 +232,7 @@ begin
   end;
 end;
 
-function TFileSystemAnchorStore.SourceName: string;
+function TFileSystemRootSource.SourceName: string;
 begin
   Result := 'FileSystem';
 end;

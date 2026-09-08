@@ -26,9 +26,9 @@ type
   /// concrete SSL_CERT_FILE / SSL_CERT_DIR environment variables and the
   /// well-known CA bundle/directory table shared by Linux, the BSDs and
   /// Solaris/illumos, then defers all resolution and harvesting to
-  /// TFileSystemAnchorStore. Adding a Unix flavour is a new row in the table.
+  /// TFileSystemRootSource. Adding a Unix flavour is a new row in the table.
   /// </summary>
-  TUnixAnchorStore = class sealed(TFileSystemAnchorStore)
+  TUnixRootSource = class sealed(TFileSystemRootSource)
   strict protected
     function SourceName: string; override;
   public
@@ -86,9 +86,9 @@ begin
   );
 end;
 
-{ TUnixAnchorStore }
+{ TUnixRootSource }
 
-constructor TUnixAnchorStore.Create(const AProvider: ICryptoProvider);
+constructor TUnixRootSource.Create(const AProvider: ICryptoProvider);
 begin
   inherited Create(AProvider,
     GetEnvironmentVariable(TUnixTrustPaths.EnvFileVar),
@@ -97,7 +97,7 @@ begin
     TUnixTrustPaths.CandidateDirs);
 end;
 
-function TUnixAnchorStore.SourceName: string;
+function TUnixRootSource.SourceName: string;
 begin
   Result := 'Unix';
 end;

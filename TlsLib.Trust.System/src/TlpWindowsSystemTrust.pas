@@ -32,7 +32,7 @@ type
   /// system stores, subtracting any certificate present in the "Disallowed" store
   /// so OS distrust is honored. Emits neutral DER.
   /// </summary>
-  TWindowsAnchorStore = class sealed(TSystemTrustBase)
+  TWindowsRootSource = class sealed(TSystemRootSource)
   strict protected
     function HarvestRoots: TArray<TBytes>; override;
     function SourceName: string; override;
@@ -428,9 +428,9 @@ begin
   end;
 end;
 
-{ TWindowsAnchorStore }
+{ TWindowsRootSource }
 
-function TWindowsAnchorStore.HarvestRoots: TArray<TBytes>;
+function TWindowsRootSource.HarvestRoots: TArray<TBytes>;
 var
   LRaw: TArray<TBytes>;
   LI: Integer;
@@ -448,7 +448,7 @@ begin
   end;
 end;
 
-function TWindowsAnchorStore.SourceName: string;
+function TWindowsRootSource.SourceName: string;
 begin
   Result := 'Windows';
 end;

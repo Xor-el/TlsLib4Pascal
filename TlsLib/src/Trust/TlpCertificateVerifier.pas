@@ -47,8 +47,9 @@ type
   end;
 
   /// <summary>Unions several anchor sources: RootCertificates is the concatenation of
-  /// every child store's roots, resolved on each call so a live source (e.g. an OS store)
-  /// stays current. Used when more than one anchor contribution is configured.</summary>
+  /// every child store's roots, resolved on each call. Used when more than one anchor
+  /// contribution is configured. (A harvested OS store is an immutable snapshot; per-call
+  /// resolution matters only for a caller-supplied store whose own roots vary.)</summary>
   TUnionTrustAnchorStore = class sealed(TInterfacedObject, ITrustAnchorStore)
   strict private
   var
