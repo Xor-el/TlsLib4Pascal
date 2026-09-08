@@ -35,7 +35,7 @@ extendedKeyUsage, host-name, revocation — just against your anchor instead of 
 > client certificate `clientAuth`, enforced over the leaf and every intermediate (never the trust
 > anchor). It is *required-if-present*: a certificate with no EKU extension is unrestricted, but one
 > that has an EKU lacking the role's purpose is rejected with `unsupported_certificate`. `anyExtendedKeyUsage`
-> is not accepted as a substitute. This matches rustls/webpki.
+> is not accepted as a substitute.
 
 ```pascal
 uses SysUtils, Classes, TlpITlsConfig, TlpITlsConfigBuilder, TlpTlsPresets;

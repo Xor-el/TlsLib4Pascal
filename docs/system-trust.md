@@ -97,8 +97,7 @@ picks the best available for the platform and is what you want.
 > **OS delegation verifies *server* certificates only.** The Windows/Apple/Android delegates use the
 > platform's SSL *server* policy (`serverAuth`), so a server cannot delegate *client*-certificate
 > (mTLS) verification to the OS — the server overload therefore supports **Anchors** mode only and
-> raises on `Delegate`. (rustls is the same: `rustls-platform-verifier` implements a server verifier
-> only.) Use Anchors mode, or a custom `IClientCertificateVerifier`.
+> raises on `Delegate`. Use Anchors mode, or a custom `IClientCertificateVerifier`.
 
 Because system anchors are just another anchor source, they **union** with anything else you add —
 so "trust the public web PKI **and** my private CA" is simply:
