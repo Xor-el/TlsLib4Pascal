@@ -25,7 +25,8 @@ uses
 {$ELSE}
   TestFramework,
 {$ENDIF FPC}
-  TlpEndpointIdentity;
+  TlpEndpointIdentity,
+  TlpServerName;
 
 type
   TTestEndpointIdentity = class(TTestCase)
@@ -45,6 +46,12 @@ type
     procedure TestIpLiteralRejectsDifferentIpSan;
     procedure TestIpv6LiteralMatchesIpSan;
     procedure TestIpv6LiteralDoesNotMatchDns;
+    procedure TestTrailingDotIpv4ClassifiedAsIp;
+    procedure TestTrailingDotFqdnTrimmedToDns;
+    procedure TestDefaultNameIsEmpty;
+    procedure TestDnsNameWithEmptyHostIsEmpty;
+    procedure TestParsedDnsNameIsNotEmpty;
+    procedure TestParsedIpNameIsNotEmpty;
   end;
 
 implementation
@@ -55,24 +62,30 @@ function TTestEndpointIdentity.Matches(const AHost: string;
   const ANames: array of string): Boolean;
 var
   LNames: TArray<string>;
+  LName: TServerName;
   LI: Int32;
 begin
   SetLength(LNames, System.Length(ANames));
   for LI := 0 to High(ANames) do
     LNames[LI] := ANames[LI];
-  Result := TEndpointIdentity.Matches(AHost, LNames, nil);
+  if not TServerName.TryParse(AHost, LName) then
+    Exit(False);
+  Result := TEndpointIdentity.Matches(LName, LNames, nil);
 end;
 
 function TTestEndpointIdentity.MatchesIp(const AHost: string;
   const AIps: array of TBytes): Boolean;
 var
   LIps: TArray<TBytes>;
+  LName: TServerName;
   LI: Int32;
 begin
   SetLength(LIps, System.Length(AIps));
   for LI := 0 to High(AIps) do
     LIps[LI] := AIps[LI];
-  Result := TEndpointIdentity.Matches(AHost, nil, LIps);
+  if not TServerName.TryParse(AHost, LName) then
+    Exit(False);
+  Result := TEndpointIdentity.Matches(LName, nil, LIps);
 end;
 
 procedure TTestEndpointIdentity.TestExactMatch;
@@ -141,6 +154,57 @@ procedure TTestEndpointIdentity.TestIpv6LiteralDoesNotMatchDns;
 begin
   // an IPv6-literal host is never matched against dNSName entries
   CheckFalse(Matches('::1', ['*.1', '1']));
+end;
+
+procedure TTestEndpointIdentity.TestTrailingDotIpv4ClassifiedAsIp;
+var
+  LName: TServerName;
+begin
+  // a trailing root dot on an IPv4 literal must still classify as an IP (never a DNS name
+  // that would then be sent as SNI or matched against dNSName SANs)
+  CheckTrue(TServerName.TryParse('127.0.0.1.', LName));
+  CheckTrue(LName.IsIp);
+  CheckEquals('', LName.AsDns);
+  CheckTrue(MatchesIp('127.0.0.1.', [TBytes.Create(127, 0, 0, 1)]));
+end;
+
+procedure TTestEndpointIdentity.TestTrailingDotFqdnTrimmedToDns;
+var
+  LName: TServerName;
+begin
+  // a trailing root dot on a genuine FQDN is trimmed and the host stays a DNS name
+  CheckTrue(TServerName.TryParse('example.com.', LName));
+  CheckFalse(LName.IsIp);
+  CheckEquals('example.com', LName.AsDns);
+end;
+
+procedure TTestEndpointIdentity.TestDefaultNameIsEmpty;
+var
+  LName: TServerName;
+begin
+  LName := Default(TServerName);
+  CheckTrue(LName.IsEmpty);
+end;
+
+procedure TTestEndpointIdentity.TestDnsNameWithEmptyHostIsEmpty;
+begin
+  CheckTrue(TServerName.DnsName('').IsEmpty);
+end;
+
+procedure TTestEndpointIdentity.TestParsedDnsNameIsNotEmpty;
+var
+  LName: TServerName;
+begin
+  CheckTrue(TServerName.TryParse('example.com', LName));
+  CheckFalse(LName.IsEmpty);
+end;
+
+procedure TTestEndpointIdentity.TestParsedIpNameIsNotEmpty;
+var
+  LName: TServerName;
+begin
+  CheckTrue(TServerName.TryParse('127.0.0.1', LName));
+  CheckFalse(LName.IsEmpty);
 end;
 
 initialization

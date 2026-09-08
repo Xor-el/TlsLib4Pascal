@@ -47,6 +47,7 @@ uses
   TlpICertificateCompression,
   TlpCertificateVerify,
   TlpICertificateTrust,
+  TlpServerName,
   TlpISigningKey,
   TlpTlsCredential,
   TlpISession,
@@ -103,9 +104,9 @@ type
     ServerName: string;
     /// <summary>Decides whether the server's certificate chain is trusted. Required:
     /// with none configured the handshake fails closed.</summary>
-    CertificateVerifier: ICertificateVerifier;
-    /// <summary>The host the server certificate must be valid for (RFC 6125).</summary>
-    ExpectedHostName: string;
+    CertificateVerifier: IServerCertificateVerifier;
+    /// <summary>The name the server certificate must be valid for (RFC 6125).</summary>
+    ExpectedServerName: TServerName;
     /// <summary>When set, Start sends these framed ClientHello bytes verbatim (replay/testing).</summary>
     ClientHelloOverride: TBytes;
     /// <summary>The client's credential for mutual TLS: presented when the server sends
@@ -1002,7 +1003,7 @@ begin
     // against it; the outer transcript continues, and the connection is later aborted with
     // ech_required (never a plaintext fall-back)
     FEchStatus := TEchStatus.Rejected;
-    FParams.ExpectedHostName := FSelectedEchConfig.PublicName;
+    FParams.ExpectedServerName := TServerName.DnsName(FSelectedEchConfig.PublicName);
     FTranscript.Update(AMessage.Raw);
     // the server answered the ClientHelloOuter, so subsequent response extensions are
     // checked against what the outer offered (not the inner) - e.g. a public_name server
@@ -1906,8 +1907,8 @@ begin
   if FParams.CertificateVerifier = nil then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.InternalError, @SNoCertificateVerifier);
-  if not FParams.CertificateVerifier.Verify(FCertificateChain,
-    FParams.ExpectedHostName, FReceivedOcspStaple, LAlert) then
+  if not FParams.CertificateVerifier.VerifyServerCertificate(FCertificateChain,
+    FParams.ExpectedServerName, FReceivedOcspStaple, LAlert) then
     raise EFatalAlertTlsLibException.CreateRes(LAlert, @SUntrustedCertificate);
 
   // the on-the-wire message (compressed, when compressed) is what feeds the transcript
@@ -1925,7 +1926,7 @@ begin
   if FParams.AsyncVerdict then
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.AwaitCertificateVerdict(FCertificateChain,
-      FParams.ExpectedHostName));
+      FParams.ExpectedServerName.ToString));
 end;
 
 function TTls13ClientStateMachine.ProcessCertificate(

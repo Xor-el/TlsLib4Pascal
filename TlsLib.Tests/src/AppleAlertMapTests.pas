@@ -32,6 +32,7 @@ uses
 {$ENDIF FPC}
 {$IFDEF TLSLIB_MACOS}
   TlpICertificateTrust,
+  TlpServerName,
 {$ENDIF TLSLIB_MACOS}
   TlpTlsAlert,
   TlpAppleSystemTrust,
@@ -82,7 +83,7 @@ procedure TTestAppleAlertMap.TestDelegateRejectsUntrustedExpiredChain;
 var
   LVectors: TStringList;
   LChain: TArray<TBytes>;
-  LVerifier: ICertificateVerifier;
+  LVerifier: IServerCertificateVerifier;
   LAlert: TTlsAlertDescription;
 begin
   // Best-effort: our test root is not in the macOS system store, so SecTrust rejects
@@ -97,9 +98,9 @@ begin
   finally
     LVectors.Free;
   end;
-  LVerifier := TAppleDelegateVerifier.Create as ICertificateVerifier;
+  LVerifier := TAppleDelegateVerifier.Create as IServerCertificateVerifier;
   LAlert := TTlsAlertDescription.InternalError;
-  CheckFalse(LVerifier.Verify(LChain, 'localhost', nil, LAlert),
+  CheckFalse(LVerifier.VerifyServerCertificate(LChain, TServerName.DnsName('localhost'), nil, LAlert),
     'an untrusted/expired chain must be rejected by the OS delegate');
 end;
 {$ENDIF TLSLIB_MACOS}

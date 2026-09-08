@@ -46,8 +46,10 @@ uses
   TlpTlsEngineFactory,
   TlpITlsConfigBuilder,
   TlpTlsPresets,
+  TlpTlsLibExceptions,
   TlpIHandshakeMachine,
   TlpICertificateTrust,
+  TlpServerName,
   TlpCertificateVerifier,
   TlpTlsCredential,
   TlpCredentialResolvers,
@@ -98,6 +100,7 @@ type
     procedure TestScsvToLegacyOnlyServerDoesNotAbort;
     procedure TestCompatiblePresetEngineLoopback;
     procedure TestCompatiblePresetMutualTlsCompletes;
+    procedure TestClientEngineWithoutHostFailsClosed;
   end;
 
 implementation
@@ -170,8 +173,8 @@ begin
   Result.LegacySessionId := Filled($33, 32);
   Result.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-    as ITrustAnchorStore, True) as ICertificateVerifier;
-  Result.ExpectedHostName := 'localhost';
+    as ITrustAnchorStore, True) as IServerCertificateVerifier;
+  Result.ExpectedServerName := TServerName.DnsName('localhost');
 end;
 
 function TTestTls12DualVersion.Client12Params: TClient12HandshakeParams;
@@ -197,8 +200,8 @@ begin
   Result.OfferExtendedMasterSecret := True;
   Result.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-    as ITrustAnchorStore, True) as ICertificateVerifier;
-  Result.ExpectedHostName := 'localhost';
+    as ITrustAnchorStore, True) as IServerCertificateVerifier;
+  Result.ExpectedServerName := TServerName.DnsName('localhost');
 end;
 
 function TTestTls12DualVersion.Server13Params: TServerHandshakeParams;
@@ -434,16 +437,28 @@ end;
 procedure TTestTls12DualVersion.TestCompatiblePresetMutualTlsCompletes;
 var
   LClient, LServer: ITlsEngine;
+  LV: TStringList;
+  LClientCred: TTlsCredential;
+  LClientRoot: TBytes;
 begin
   // mutual TLS through the preset/config surface: the server requires and trusts the
-  // client certificate, the client presents its credential
+  // client certificate, the client presents its credential. The client presents a
+  // dual-EKU (clientAuth) leaf so it satisfies the server's extendedKeyUsage check.
+  LV := LoadVectorFields('Certs/ClientAuthChain.txt');
+  try
+    LClientRoot := DecodeHex(LV.Values['root_cert']);
+    LClientCred.CertificateChain := TArray<TBytes>.Create(DecodeHex(LV.Values['leaf_cert']));
+    LClientCred.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(LV.Values['leaf_key']));
+  finally
+    LV.Free;
+  end;
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Compatible(Provider)
     .Server.WithCredential(ServerCredential)
     .WithPeerAuth(TClientAuthMode.Required)
-    .WithTrustStore(TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
+    .WithTrustStore(TTrustAnchorStore.Create(TArray<TBytes>.Create(LClientRoot))
     as ITrustAnchorStore).Build);
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Provider)
-    .Client.WithCredential(ServerCredential)
+    .Client.WithCredential(LClientCred)
     .WithTrustStore(TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
     as ITrustAnchorStore).Build, 'localhost');
   DriveToCompletion(LClient, LServer);
@@ -540,6 +555,31 @@ begin
     TArray<UInt16>.Create(TlsFallbackScsv, TCipherSuites12.EcdheEcdsaAes128GcmSha256),
     DecodeHex('0000')))),
     'SCSV to a 1.2-only server is not a fallback');
+end;
+
+procedure TTestTls12DualVersion.TestClientEngineWithoutHostFailsClosed;
+var
+  LRaised: Boolean;
+begin
+  // fail-closed: name checking is on by default, so creating a client engine with no host
+  // to verify the certificate against must raise rather than silently skip RFC 6125.
+  LRaised := False;
+  try
+    TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Provider)
+      .Client.WithTrustStore(TTrustAnchorStore.Create(
+      TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore).Build, '');
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a client engine with name-check on and no host fails closed');
+
+  // opting out with WithDangerousDisableServerNameCheck allows an empty host (chain-only trust, no SNI)
+  TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Provider)
+    .Client.WithTrustStore(TTrustAnchorStore.Create(
+    TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore)
+    .WithDangerousDisableServerNameCheck.Build, '');
+  CheckTrue(True, 'with name-check off, an empty host is allowed');
 end;
 
 initialization

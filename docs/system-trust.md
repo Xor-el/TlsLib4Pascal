@@ -90,9 +90,14 @@ end;
 ```
 
 There are `ITlsClientConfigBuilder` and `ITlsServerConfigBuilder` overloads (the server one supplies
-the anchors used to verify **client** certificates in mutual TLS). An optional third argument,
+the OS anchors used to verify **client** certificates in mutual TLS). An optional third argument,
 `TSystemTrustMode` (`Default` / `Anchors` / `Delegate`), forces harvest-vs-delegate; `Default`
 picks the best available for the platform and is what you want.
+
+> **OS delegation verifies *server* certificates only.** The Windows/Apple/Android delegates use the
+> platform's SSL *server* policy (`serverAuth`), so a server cannot delegate *client*-certificate
+> (mTLS) verification to the OS — the server overload therefore supports **Anchors** mode only and
+> raises on `Delegate`. Use Anchors mode, or a custom `IClientCertificateVerifier`.
 
 Because system anchors are just another anchor source, they **union** with anything else you add —
 so "trust the public web PKI **and** my private CA" is simply:
@@ -127,8 +132,9 @@ deliberate: an implicit trust source is exactly the kind of thing that weakens s
 ## Replacing verification wholesale: `WithCertificateVerifier`
 
 Sometimes you want to substitute the entire verification decision — e.g. hand it to an OS verifier
-(the iOS/Android delegate), or plug in bespoke logic. That is what `WithCertificateVerifier(ICertificateVerifier)`
-is for. It **replaces** the built-in PKIX pipeline for that config:
+(the iOS/Android delegate), or plug in bespoke logic. That is what `WithCertificateVerifier` is for:
+the client builder takes an `IServerCertificateVerifier`, the server builder an
+`IClientCertificateVerifier`. It **replaces** the built-in PKIX pipeline for that config:
 
 ```pascal
 LConfig := TTlsPresets.Compatible(P).Client
@@ -146,7 +152,7 @@ never-implicit / fail-closed rule.
 ### Indy
 
 The IO-handler's `SSLOptions` carry a `UseSystemTrust` flag. It unions with a `RootCertFile` bundle
-and any `CustomTrustStore`; a `CustomVerifier` replaces the pipeline. Verifying with no source named
+and any `CustomTrustStore`; a custom verifier replaces the pipeline. Verifying with no source named
 fails closed.
 
 ```pascal

@@ -83,7 +83,7 @@ type
     /// source (WithTrustStore/WithTrustAnchors), or setting two verifiers, is a typed error
     /// at Build.</summary>
     function WithCertificateVerifier(
-      const AVerifier: ICertificateVerifier): ITlsClientConfigBuilder;
+      const AVerifier: IServerCertificateVerifier): ITlsClientConfigBuilder;
     /// <summary>The certificate-chain resource caps applied before PKIX validation.</summary>
     function WithCertificateChainLimits(
       const ALimits: TCertificateChainLimits): ITlsClientConfigBuilder;
@@ -124,9 +124,12 @@ type
     /// never fetches (sans-IO); an application that wants AIA behaviour can resolve the issuer URL
     /// out of band and feed the result here.</summary>
     function WithIntermediateCertificates(const AData: TBytes): ITlsClientConfigBuilder;
-    /// <summary>Whether the server certificate must match the connected host (RFC 6125).
-    /// Default True.</summary>
-    function WithNameCheck(AEnabled: Boolean): ITlsClientConfigBuilder;
+    /// <summary>DANGEROUS: stop checking that the server certificate matches the connected
+    /// host (RFC 6125). The chain is still validated to a trust anchor, but ANY trusted
+    /// certificate is then accepted regardless of the host it was issued for - a
+    /// man-in-the-middle risk. Name checking is on by default; only a deliberate pin-only
+    /// trust model should disable it.</summary>
+    function WithDangerousDisableServerNameCheck: ITlsClientConfigBuilder;
     /// <summary>Whether the client offers status_request (OCSP stapling, RFC 6066). Off by
     /// default: without it the client requests no staple and rejects an unsolicited one.</summary>
     function WithOcspStaplingRequest(AEnabled: Boolean): ITlsClientConfigBuilder;
@@ -259,7 +262,7 @@ type
     /// requested client certificate. Exclusive: combining it with any anchor source, or
     /// setting two verifiers, is a typed error at Build.</summary>
     function WithCertificateVerifier(
-      const AVerifier: ICertificateVerifier): ITlsServerConfigBuilder;
+      const AVerifier: IClientCertificateVerifier): ITlsServerConfigBuilder;
     function WithCertificateChainLimits(
       const ALimits: TCertificateChainLimits): ITlsServerConfigBuilder;
     /// <summary>The server credential the Certificate chain is sent from and whose key

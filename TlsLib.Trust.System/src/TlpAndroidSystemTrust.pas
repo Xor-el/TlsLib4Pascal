@@ -27,6 +27,7 @@ uses
   TlpICryptoProvider,
   TlpICertificateTrust,
   TlpEndpointIdentity,
+  TlpServerName,
   TlpPosixDynLib,
   TlpTlsAlert;
 
@@ -40,13 +41,14 @@ type
   /// is init-independent; the JVM is acquired lazily inside Verify (Delphi resolves it
   /// automatically, FPC needs TlsLibAndroidInitTrust). Fail-closed.
   /// </summary>
-  TAndroidDelegateVerifier = class sealed(TInterfacedObject, ICertificateVerifier)
+  TAndroidDelegateVerifier = class sealed(TInterfacedObject, IServerCertificateVerifier)
   strict private
     FProvider: ICryptoProvider;
   public
     constructor Create(const AProvider: ICryptoProvider);
-    function Verify(const AChain: TArray<TBytes>; const AHostName: string;
-      const AOcspStaple: TBytes; out AAlert: TTlsAlertDescription): Boolean;
+    function VerifyServerCertificate(const AChain: TArray<TBytes>;
+      const AServerName: TServerName; const AOcspStaple: TBytes;
+      out AAlert: TTlsAlertDescription): Boolean;
   end;
 
 /// <summary>
@@ -605,21 +607,21 @@ begin
   FProvider := AProvider;
 end;
 
-function TAndroidDelegateVerifier.Verify(const AChain: TArray<TBytes>;
-  const AHostName: string; const AOcspStaple: TBytes;
+function TAndroidDelegateVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
+  const AServerName: TServerName; const AOcspStaple: TBytes;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
   // AOcspStaple is ignored: Android runs its own revocation inside the trust engine.
-  Result := TAndroidTrustApi.Evaluate(AChain, AHostName, AAlert);
+  Result := TAndroidTrustApi.Evaluate(AChain, AServerName.ToString, AAlert);
   if not Result then
     Exit;
   // The OS engine validates the chain but NOT the hostname (Android separates
   // X509TrustManager from HostnameVerifier), so enforce RFC 6125 endpoint identity with
-  // the library's own matcher. An empty host skips it, mirroring the iOS delegate. A nil
+  // the library's own matcher. An empty name skips it, mirroring the iOS delegate. A nil
   // provider cannot match, so it fails closed rather than trusting blindly.
-  if AHostName <> '' then
+  if AServerName.ToString <> '' then
     if (FProvider = nil) or
-      (not TEndpointIdentity.Matches(AHostName,
+      (not TEndpointIdentity.Matches(AServerName,
       FProvider.Certificates.DnsNames(AChain[0]),
       FProvider.Certificates.IpAddresses(AChain[0]))) then
     begin

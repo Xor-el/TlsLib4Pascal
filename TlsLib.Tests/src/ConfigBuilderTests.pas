@@ -321,7 +321,7 @@ begin
   LClient.Build;
   LRaised := False;
   try
-    LClient.WithNameCheck(False);
+    LClient.WithDangerousDisableServerNameCheck;
   except
     on E: EInvalidOperationTlsLibException do
       LRaised := True;
@@ -687,7 +687,6 @@ begin
   LRaw := TTlsConfigBuilder.Create(Provider);
   LBuilder := LRaw;
   CheckEquals(1, LRaw.RefCount, 'one reference holds the builder');
-  LRaw.Client.WithNameCheck(True);
   CheckEquals(1, LRaw.RefCount,
     'the endpoint-view back-reference does not count the builder');
   LBuilder := nil;

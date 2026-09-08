@@ -68,10 +68,6 @@ type
     /// client chain when a server requests one). Required for a client; required for a
     /// server only when it requests client authentication.</summary>
     function TrustStore: ITrustAnchorStore;
-    /// <summary>An injected whole-verifier that replaces the built-in trust pipeline (e.g.
-    /// an OS delegate). Mutually exclusive with any anchor source. nil uses the built-in
-    /// pipeline over TrustStore.</summary>
-    function CertificateVerifier: ICertificateVerifier;
     /// <summary>The certificate-chain resource caps applied before PKIX validation.</summary>
     function CertificateChainLimits: TCertificateChainLimits;
     /// <summary>The stapled-OCSP revocation posture (RFC 6960): Soft (default), Hard, or
@@ -139,6 +135,10 @@ type
     ['{2E9C6A14-5D73-4F80-B1A8-6C3E0D5B94F7}']
     /// <summary>Whether the server certificate must match the connected host (RFC 6125).</summary>
     function CheckServerName: Boolean;
+    /// <summary>An injected verifier for the peer server certificate that replaces the
+    /// built-in trust pipeline (e.g. an OS trust delegate). Mutually exclusive with any
+    /// anchor source. nil uses the built-in pipeline over TrustStore.</summary>
+    function ServerCertificateVerifier: IServerCertificateVerifier;
     /// <summary>Whether the client offers status_request (OCSP stapling, RFC 6066). Off by
     /// default; a stapled response is only accepted when explicitly requested.</summary>
     function RequestOcspStapling: Boolean;
@@ -164,6 +164,10 @@ type
     /// <summary>Whether the server requests a client certificate and how strictly
     /// (RFC 8446 4.3.2 / RFC 5246 7.4.4).</summary>
     function ClientAuth: TClientAuthMode;
+    /// <summary>An injected verifier for the peer client certificate (mTLS) that replaces
+    /// the built-in trust pipeline. Mutually exclusive with any anchor source. nil uses the
+    /// built-in pipeline over TrustStore.</summary>
+    function ClientCertificateVerifier: IClientCertificateVerifier;
     /// <summary>The stateful session store (session-id and stateful tickets); nil uses the
     /// stateless STEK path (or disables stateful storage).</summary>
     function SessionStore: ISessionStore;

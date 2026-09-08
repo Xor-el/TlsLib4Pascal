@@ -29,7 +29,13 @@ endpoint. A built `ITlsClientConfig` becomes an engine via
 
 The **right** way to talk to a server whose certificate a public CA didn't issue: trust *its*
 CA (or the self-signed cert itself). The chain is still fully validated — PKIX, expiry,
-host-name, revocation — just against your anchor instead of the public roots.
+extendedKeyUsage, host-name, revocation — just against your anchor instead of the public roots.
+
+> **extendedKeyUsage (RFC 5280 4.2.1.12).** A server certificate must carry `serverAuth`, a
+> client certificate `clientAuth`, enforced over the leaf and every intermediate (never the trust
+> anchor). It is *required-if-present*: a certificate with no EKU extension is unrestricted, but one
+> that has an EKU lacking the role's purpose is rejected with `unsupported_certificate`. `anyExtendedKeyUsage`
+> is not accepted as a substitute.
 
 ```pascal
 uses SysUtils, Classes, TlpITlsConfig, TlpITlsConfigBuilder, TlpTlsPresets;
@@ -82,18 +88,24 @@ LConfig := TTlsPresets.Compatible(P).Client
 
 ---
 
-## 3. Relax only the host-name check
+## 3. Relax only the host-name check (dangerous)
 
 If the *only* thing you want to ignore is a host-name mismatch (the certificate is trusted, but
-its SAN doesn't match the address you connected to), turn off just that check — PKIX, expiry and
-revocation all still apply.
+its SAN doesn't match the address you connected to), turn off just that check — PKIX, expiry,
+revocation and extendedKeyUsage all still apply. This is **dangerous**: with the match off, *any*
+trusted certificate is accepted regardless of the host it was issued for (a man-in-the-middle
+risk), so it lives under the `dangerous` name and is a pin-only trust posture.
 
 ```pascal
 LConfig := TTlsPresets.Compatible(P).Client
   .WithTrustAnchors(LoadFile('my-ca.pem'))
-  .WithNameCheck(False)          // RFC 6125 identity check off; chain still validated
+  .WithDangerousDisableServerNameCheck   // RFC 6125 identity check off; chain still validated
   .Build;
 ```
+
+Name checking is **on by default**. A client with name checking on but no host to verify against
+is refused when the engine is created (fail-closed) rather than silently skipping RFC 6125 — pass
+the connection host, or opt out with `WithDangerousDisableServerNameCheck`.
 
 ---
 
@@ -144,19 +156,22 @@ LConfig := TTlsPresets.Compatible(P).Client
 ```
 
 To **replace** validation wholesale (your logic is the sole gate — the rustls/.NET model), implement
-`ICertificateVerifier` and install it with `WithCertificateVerifier`. It is a first-class,
+the role interface for the peer you verify and install it with `WithCertificateVerifier`. A client
+verifies the *server* certificate, so it implements `IServerCertificateVerifier`; a server verifying
+a *client* certificate (mTLS) implements `IClientCertificateVerifier`. It is a first-class,
 fail-closed seam: it replaces the built-in pipeline and is **exclusive** — it cannot be combined with
-any anchor source.
+any anchor source. (The server name arrives typed as `TServerName`, a DNS name or IP literal.)
 
 ```pascal
 type
-  TMyVerifier = class(TInterfacedObject, ICertificateVerifier)
-    function Verify(const AChain: TArray<TBytes>; const AHostName: string;
-      const AOcspStaple: TBytes; out AAlert: TTlsAlertDescription): Boolean;
+  TMyServerVerifier = class(TInterfacedObject, IServerCertificateVerifier)
+    function VerifyServerCertificate(const AChain: TArray<TBytes>;
+      const AServerName: TServerName; const AOcspStaple: TBytes;
+      out AAlert: TTlsAlertDescription): Boolean;
   end;
 
 LConfig := TTlsPresets.Compatible(P).Client
-  .WithCertificateVerifier(TMyVerifier.Create as ICertificateVerifier)  // your rule is the only gate
+  .WithCertificateVerifier(TMyServerVerifier.Create as IServerCertificateVerifier)  // sole gate
   .Build;
 ```
 
@@ -171,7 +186,7 @@ LConfig := TTlsPresets.Compatible(P).Client
 | `ServerCertificateCustomValidationCallback` with real logic (replace validation) | `WithCertificateVerifier(myVerifier)` |
 | A callback that only *tightens* (extra rejections on top of normal validation) | `WithCertificateVerifyCallback(rule)` alone |
 | Trusting a specific CA instead of the system store | `WithTrustAnchors(caPemOrDer)` |
-| Ignoring only `SslPolicyErrors.RemoteCertificateNameMismatch` | `WithNameCheck(False)` |
+| Ignoring only `SslPolicyErrors.RemoteCertificateNameMismatch` | `WithDangerousDisableServerNameCheck` |
 
 The one semantic to internalise: **`ServerCertificateCustomValidationCallback = (...) => true`
 maps to `InsecureSkipVerify`, not to our verify callback** — because ours can only reject

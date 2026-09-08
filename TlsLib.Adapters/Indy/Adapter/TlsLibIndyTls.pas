@@ -64,7 +64,7 @@ type
   /// base carries no trust surface (RootCertFile/VerifyMode live only on its OpenSSL handler),
   /// so this class is ours. Peer trust composes from orthogonal sources - a RootCertFile bundle,
   /// UseSystemTrust for the OS anchors, and/or an injected CustomTrustStore all UNION; a
-  /// CustomVerifier replaces the pipeline outright. System trust is never implicit.</summary>
+  /// custom verifier replaces the pipeline outright. System trust is never implicit.</summary>
   TTlsLibSSLOptions = class(TPersistent)
   strict private
   var
@@ -76,7 +76,8 @@ type
     FInsecureSkipVerify: Boolean;
     FUseSystemTrust: Boolean;
     FCustomTrustStore: ITrustAnchorStore;
-    FCustomVerifier: ICertificateVerifier;
+    FCustomServerCertVerifier: IServerCertificateVerifier;
+    FCustomClientCertVerifier: IClientCertificateVerifier;
     FVerifyCallback: TTlsCertificateVerifyCallback;
     FVerdictResolver: TTlsVerdictResolver;
     FVerdictDeadlineMs: Cardinal;
@@ -124,10 +125,15 @@ type
     /// (e.g. a fully custom root set alongside the OS anchors).</summary>
     property CustomTrustStore: ITrustAnchorStore read FCustomTrustStore
       write FCustomTrustStore;
-    /// <summary>A whole-verifier that REPLACES the built-in pipeline outright (exclusive of every
-    /// anchor source - RootCertFile, UseSystemTrust, CustomTrustStore).</summary>
-    property CustomVerifier: ICertificateVerifier read FCustomVerifier
-      write FCustomVerifier;
+    /// <summary>A whole-verifier for the peer SERVER certificate (client connections) that
+    /// REPLACES the built-in pipeline outright (exclusive of every anchor source - RootCertFile,
+    /// UseSystemTrust, CustomTrustStore).</summary>
+    property CustomServerCertificateVerifier: IServerCertificateVerifier
+      read FCustomServerCertVerifier write FCustomServerCertVerifier;
+    /// <summary>A whole-verifier for the peer CLIENT certificate (mTLS server connections) that
+    /// REPLACES the built-in pipeline outright.</summary>
+    property CustomClientCertificateVerifier: IClientCertificateVerifier
+      read FCustomClientCertVerifier write FCustomClientCertVerifier;
   published
     property CertFile: string read FCertFile write FCertFile;
     property KeyFile: string read FKeyFile write FKeyFile;
@@ -267,7 +273,7 @@ implementation
 resourcestring
   SNoServerCredential = 'the Indy SSLOptions supply no server CertFile/KeyFile';
   SNoClientTrust = 'VerifyPeer is on but no trust source was named; set a RootCertFile bundle, ' +
-    'UseSystemTrust, or a CustomTrustStore/CustomVerifier (system trust is never implicit), or ' +
+    'UseSystemTrust, or a CustomTrustStore/custom verifier (system trust is never implicit), or ' +
     'set VerifyPeer := False to skip verification';
   SConfigAndOptionsConflict = 'SSLOptions.%s is set together with cert/trust options that a ' +
     'fully-built config replaces; supply either the config or the cert/trust options, not both';
@@ -298,7 +304,8 @@ begin
     FInsecureSkipVerify := LSrc.FInsecureSkipVerify;
     FUseSystemTrust := LSrc.FUseSystemTrust;
     FCustomTrustStore := LSrc.FCustomTrustStore;
-    FCustomVerifier := LSrc.FCustomVerifier;
+    FCustomServerCertVerifier := LSrc.FCustomServerCertVerifier;
+    FCustomClientCertVerifier := LSrc.FCustomClientCertVerifier;
     FVerifyCallback := LSrc.FVerifyCallback;
     FVerdictResolver := LSrc.FVerdictResolver;
     FVerdictDeadlineMs := LSrc.FVerdictDeadlineMs;
@@ -318,7 +325,8 @@ begin
   // dropped, so fail loud. VerdictResolver is deliberately excluded: it is a runtime stream hook
   // (not part of the frozen config) and still applies with a supplied config.
   if (FCertFile <> '') or (FKeyFile <> '') or (FRootCertFile <> '') or FUseSystemTrust or
-    (FCustomVerifier <> nil) or (FCustomTrustStore <> nil) or Assigned(FVerifyCallback) or
+    (FCustomServerCertVerifier <> nil) or (FCustomClientCertVerifier <> nil) or
+    (FCustomTrustStore <> nil) or Assigned(FVerifyCallback) or
     (FProvider <> nil) then
     raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
       Format(SConfigAndOptionsConflict, [APropertyName]));
@@ -489,10 +497,11 @@ begin
   // RootCertFile bundle + the OS anchors + a custom store all UNION. Adding both a verifier and
   // an anchor source is left to fail as the builder's typed conflict. System trust is never
   // implicit; verifying with no source named fails closed.
-  LHasSource := (FOptions.CustomVerifier <> nil) or (FOptions.RootCertFile <> '') or
-    FOptions.UseSystemTrust or (FOptions.CustomTrustStore <> nil);
-  if FOptions.CustomVerifier <> nil then
-    LClient.WithCertificateVerifier(FOptions.CustomVerifier);
+  LHasSource := (FOptions.CustomServerCertificateVerifier <> nil) or
+    (FOptions.RootCertFile <> '') or FOptions.UseSystemTrust or
+    (FOptions.CustomTrustStore <> nil);
+  if FOptions.CustomServerCertificateVerifier <> nil then
+    LClient.WithCertificateVerifier(FOptions.CustomServerCertificateVerifier);
   if FOptions.RootCertFile <> '' then
     LClient.WithTrustAnchors(LoadFileBytes(FOptions.RootCertFile));
   if FOptions.UseSystemTrust then
@@ -544,13 +553,14 @@ begin
     // client-cert auth is optional: request+verify only when a client-trust source is named
     // (same composable model as the client). Note UseSystemTrust here validates CLIENT certs
     // against the OS public web-PKI roots - a broad surface most mTLS servers do not want.
-    LHasSource := (FOptions.CustomVerifier <> nil) or (FOptions.RootCertFile <> '') or
-      FOptions.UseSystemTrust or (FOptions.CustomTrustStore <> nil);
+    LHasSource := (FOptions.CustomClientCertificateVerifier <> nil) or
+      (FOptions.RootCertFile <> '') or FOptions.UseSystemTrust or
+      (FOptions.CustomTrustStore <> nil);
     if LHasSource then
     begin
       LServer.WithPeerAuth(TClientAuthMode.Required);
-      if FOptions.CustomVerifier <> nil then
-        LServer.WithCertificateVerifier(FOptions.CustomVerifier);
+      if FOptions.CustomClientCertificateVerifier <> nil then
+        LServer.WithCertificateVerifier(FOptions.CustomClientCertificateVerifier);
       if FOptions.RootCertFile <> '' then
         LServer.WithTrustAnchors(LoadFileBytes(FOptions.RootCertFile));
       if FOptions.UseSystemTrust then
@@ -585,7 +595,7 @@ begin
   LSig.AddFlag('verifyPeer', FOptions.VerifyPeer);
   LSig.AddFlag('skipVerify', FOptions.InsecureSkipVerify);
   LSig.AddFlag('systemTrust', FOptions.UseSystemTrust);
-  LSig.AddPointer('customVerifier', FOptions.CustomVerifier);
+  LSig.AddPointer('customVerifier', FOptions.CustomServerCertificateVerifier);
   LSig.AddPointer('customStore', FOptions.CustomTrustStore);
   LSig.AddMethod('verifyCb', TMethod(FOptions.VerifyCallback));
   LSig.AddFlag('asyncVerdict', Assigned(FOptions.VerdictResolver));
@@ -608,7 +618,7 @@ begin
   LSig.AddFlag('verifyPeer', FOptions.VerifyPeer);
   LSig.AddFile('root', FOptions.RootCertFile);
   LSig.AddFlag('systemTrust', FOptions.UseSystemTrust);
-  LSig.AddPointer('customVerifier', FOptions.CustomVerifier);
+  LSig.AddPointer('customVerifier', FOptions.CustomClientCertificateVerifier);
   LSig.AddPointer('customStore', FOptions.CustomTrustStore);
   Result := LSig.Value;
 end;

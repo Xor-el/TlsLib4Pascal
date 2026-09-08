@@ -41,6 +41,7 @@ uses
   TlpTlsEngine,
   TlpIHandshakeMachine,
   TlpICertificateTrust,
+  TlpServerName,
   TlpCertificateVerifier,
   TlpTlsCredential,
   TlpCredentialResolvers,
@@ -162,8 +163,8 @@ begin
   LParams.LegacySessionId := Filled($33, 32);
   LParams.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-    as ITrustAnchorStore, True) as ICertificateVerifier;
-  LParams.ExpectedHostName := ServerHost;
+    as ITrustAnchorStore, True) as IServerCertificateVerifier;
+  LParams.ExpectedServerName := TServerName.DnsName(ServerHost);
   LParams.ServerName := ServerHost;
   LParams.SessionCache := ACache;
   LParams.EarlyDataEnabled := AEarlyData;
@@ -706,6 +707,9 @@ var
   LStek: ISessionTicketKeyManager;
   LCache: ISessionCache;
   LClient, LServer: ITlsEngine;
+  LClientCred: TTlsCredential;
+  LClientRoot: TBytes;
+  LV: TStringList;
 
   function BuildMtlsClient: ITlsEngine;
   var
@@ -724,11 +728,11 @@ var
     LP.LegacySessionId := Filled($33, 32);
     LP.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
       TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-      as ITrustAnchorStore, True) as ICertificateVerifier;
-    LP.ExpectedHostName := ServerHost;
+      as ITrustAnchorStore, True) as IServerCertificateVerifier;
+    LP.ExpectedServerName := TServerName.DnsName(ServerHost);
     LP.ServerName := ServerHost;
     LP.SessionCache := LCache;
-    LP.ClientCredential := ServerCredential; // present the leaf as the client certificate
+    LP.ClientCredential := LClientCred; // present a dual-EKU (clientAuth) leaf as the client certificate
     Result := TTlsEngine.CreateConfigured(
       TTls13ClientStateMachine.Create(LP) as IHandshakeMachine, Provider);
   end;
@@ -755,8 +759,8 @@ var
     LP.ClientAuthSignatureSchemes := TArray<UInt16>.Create(
       TSignatureSchemes.EcdsaSecp256r1Sha256);
     LP.ClientCertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
-      TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-      as ITrustAnchorStore, False) as ICertificateVerifier;
+      TTrustAnchorStore.Create(TArray<TBytes>.Create(LClientRoot))
+      as ITrustAnchorStore, False) as IClientCertificateVerifier;
     Result := TTlsEngine.CreateConfigured(
       TTls13ServerStateMachine.Create(LP) as IHandshakeMachine, Provider);
   end;
@@ -764,6 +768,15 @@ var
 begin
   LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
+  // the client presents a dual-EKU (clientAuth) leaf; the server trusts its dedicated root
+  LV := LoadVectorFields('Certs/ClientAuthChain.txt');
+  try
+    LClientRoot := DecodeHex(LV.Values['root_cert']);
+    LClientCred.CertificateChain := TArray<TBytes>.Create(DecodeHex(LV.Values['leaf_cert']));
+    LClientCred.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(LV.Values['leaf_key']));
+  finally
+    LV.Free;
+  end;
 
   // a full mutual-TLS handshake: the server verifies the client certificate and issues a ticket
   LClient := BuildMtlsClient;

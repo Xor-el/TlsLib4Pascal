@@ -50,15 +50,17 @@ uses
   TlpHandshakeEffect,
   TlpHandshakeDriver,
   TlpICertificateTrust,
+  TlpServerName,
   TlpTls13ClientStateMachine,
   TlsLibTestBase;
 
 type
   /// <summary>A verifier that trusts any chain (for tests not exercising trust).</summary>
-  TAcceptAllVerifier = class(TInterfacedObject, ICertificateVerifier)
+  TAcceptAllVerifier = class(TInterfacedObject, IServerCertificateVerifier)
   public
-    function Verify(const AChain: TArray<TBytes>; const AHostName: string;
-      const AOcspStaple: TBytes; out AAlert: TTlsAlertDescription): Boolean;
+    function VerifyServerCertificate(const AChain: TArray<TBytes>;
+      const AServerName: TServerName; const AOcspStaple: TBytes;
+      out AAlert: TTlsAlertDescription): Boolean;
   end;
 
   /// <summary>A named group that yields a fixed shared secret (for RFC replay).</summary>
@@ -145,8 +147,8 @@ implementation
 
 { TAcceptAllVerifier }
 
-function TAcceptAllVerifier.Verify(const AChain: TArray<TBytes>;
-  const AHostName: string; const AOcspStaple: TBytes;
+function TAcceptAllVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
+  const AServerName: TServerName; const AOcspStaple: TBytes;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
   AAlert := TTlsAlertDescription.BadCertificate;

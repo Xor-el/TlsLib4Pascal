@@ -138,7 +138,7 @@ type
     ClientCertificateAuthorities: TArray<TBytes>;
     /// <summary>Trusts (or rejects) the client certificate chain; required whenever
     /// ClientAuth is not None. Hostname identity does not apply to a client cert.</summary>
-    ClientCertificateVerifier: ICertificateVerifier;
+    ClientCertificateVerifier: IClientCertificateVerifier;
     /// <summary>When set, after the built-in pipeline accepts the client chain the machine
     /// parks the handshake for an out-of-band verdict (the deferred-verdict seam) rather than
     /// continuing inline. Augment-only and fail-closed. OFF by default.</summary>
@@ -1636,7 +1636,7 @@ begin
   // trust the client chain (no hostname identity or OCSP staple applies to a client
   // certificate)
   if (FParams.ClientCertificateVerifier = nil) or
-    not FParams.ClientCertificateVerifier.Verify(FClientCertChain, '', nil, LAlert) then
+    not FParams.ClientCertificateVerifier.VerifyClientCertificate(FClientCertChain, LAlert) then
     raise EFatalAlertTlsLibException.CreateRes(LAlert, @SUntrustedClientCertificate);
   FPhase := TPhase.WaitClientCertVerify;
   // surface the validated client chain for connection info (read-only)

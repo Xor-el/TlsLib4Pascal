@@ -210,7 +210,6 @@ begin
 
   LClientBuilder := TTlsPresets.Compatible(LProvider).Client
     .WithTrustAnchors(TVec.Bytes('root_cert'));
-  LClientBuilder.WithNameCheck(True);
   LClientBuilder.Tls13.WithEncryptedClientHello(LEch.EchConfigList);
   SetTlsLibMormotClientConfig(LClientBuilder.Build);
 

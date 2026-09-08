@@ -519,7 +519,7 @@ LConfig := TTlsPresets.Compatible(P).Client
   .Build;
 
 // relax ONLY the host-name check (chain still fully validated)
-.WithNameCheck(False)
+.WithDangerousDisableServerNameCheck
 ```
 
 An *augment-only* verify callback (`WithCertificateVerifyCallback`) can add extra rejections on top

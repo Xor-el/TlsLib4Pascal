@@ -39,6 +39,7 @@ uses
   TlpHandshakeMessages,
   TlpCertificateVerify,
   TlpICertificateTrust,
+  TlpServerName,
   TlpISigningKey,
   TlpTlsCredential,
   TlpISession,
@@ -93,8 +94,8 @@ type
     /// empty client Certificate (declining to authenticate).</summary>
     ClientCredential: TTlsCredential;
     /// <summary>Decides whether the server chain is trusted; none configured fails closed.</summary>
-    CertificateVerifier: ICertificateVerifier;
-    ExpectedHostName: string;
+    CertificateVerifier: IServerCertificateVerifier;
+    ExpectedServerName: TServerName;
     /// <summary>The client-side cache resumption draws from and stores into. When set, the
     /// client offers session_ticket support and, if a session is cached for this server,
     /// resumes it (RFC 5077 / RFC 5246 7.3). nil disables 1.2 resumption.</summary>
@@ -506,8 +507,8 @@ begin
   if FParams.CertificateVerifier = nil then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.InternalError, @SNoCertificateVerifier);
-  if not FParams.CertificateVerifier.Verify(FCertChain, FParams.ExpectedHostName,
-    FReceivedOcspStaple, LAlert) then
+  if not FParams.CertificateVerifier.VerifyServerCertificate(FCertChain,
+    FParams.ExpectedServerName, FReceivedOcspStaple, LAlert) then
     raise EFatalAlertTlsLibException.CreateRes(LAlert, @SUntrustedCertificate);
   // surface the validated chain for connection info (read-only)
   Result := TArray<THandshakeEffect>.Create(
@@ -517,7 +518,7 @@ begin
   if FParams.AsyncVerdict then
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.AwaitCertificateVerdict(FCertChain,
-      FParams.ExpectedHostName));
+      FParams.ExpectedServerName.ToString));
 end;
 
 function TTls12ClientStateMachine.ProcessCertificate(

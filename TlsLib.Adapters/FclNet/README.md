@@ -87,8 +87,8 @@ trust the familiar way. Only what fcl-net lacks is added as extension properties
 | `CertificateData.Certificate` + `.PrivateKey` + `KeyPassword` | `WithCredential` — own cert (server, or mTLS client) |
 | `UseSystemTrust: Boolean`                             | OS system-trust store (crypt32 / SecTrust / Unix)  |
 | `CustomTrustStore: ITrustAnchorStore`                 | `WithTrustStore` (unions with the above)           |
-| `CustomVerifier: ICertificateVerifier`                | `WithCertificateVerifier` — **replaces** the pipeline |
-| `CheckHostName: Boolean` (default True)               | `WithNameCheck`                                     |
+| `CustomServerCertificateVerifier` / `CustomClientCertificateVerifier` | `WithCertificateVerifier` — **replaces** the pipeline (role-typed) |
+| `CheckHostName: Boolean` (default True)               | on by default; off via `WithDangerousDisableServerNameCheck` |
 | `AlpnProtocols: TArray<string>`                       | `WithAlpnProtocols`                                |
 | `VerifyPeerCert` (fcl-net native, default **True** here) | verify on/off; **False** → `dangerous` `WithDangerousInsecureSkipVerify` |
 | `VerifyCallback` / `VerdictResolver` + `VerdictDeadlineMs` | augment-only hook / out-of-band verdict (live OCSP/CRL) |
@@ -104,8 +104,8 @@ clients to fetch the missing CA.
 `VerifyPeerCert` at `False` (so stock `TFPHTTPClient` does **not** verify — a well-known footgun);
 this adapter's constructor defaults it to **`True`**. Trust is therefore **fail-closed**: a client
 that names **no** trust source (`CertCA`/`TrustedCertificate`, `UseSystemTrust`, `CustomTrustStore`,
-`CustomVerifier`) **refuses to connect** — system trust is never implicit. Anchor sources UNION; a
-`CustomVerifier` is exclusive. A server requires `CertificateData.Certificate`/`.PrivateKey`; it
+a custom verifier) **refuses to connect** — system trust is never implicit. Anchor sources UNION; a
+a custom verifier is exclusive. A server requires `CertificateData.Certificate`/`.PrivateKey`; it
 requests + verifies client certificates only when a client-trust source is named (mTLS is opt-in).
 
 Setting `VerifyPeerCert := False` is the loud, deliberate bypass (no PKIX/host/pinning checks) —

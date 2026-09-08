@@ -42,7 +42,8 @@ uses
   TlpInMemoryCertificateCompressionCache, TlpTlsConfigMemo, 
   TlpTlsSignatureBuilder, TlpITlsConfigMemo, TlpITlsCredentialResolver, 
   TlpCredentialResolvers, TlpEchConfig, TlpEchExtension, 
-  TlpEchOuterExtensions, TlpEchClient, TlpIEch, TlpInMemoryEchKeyStore, TlpEchServer;
+  TlpEchOuterExtensions, TlpEchClient, TlpIEch, TlpInMemoryEchKeyStore, 
+  TlpEchServer, TlpServerName;
 
 implementation
 

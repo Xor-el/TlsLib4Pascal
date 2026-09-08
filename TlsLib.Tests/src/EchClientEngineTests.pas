@@ -42,6 +42,7 @@ uses
   TlpHandshakeMessages,
   TlpHandshakeEffect,
   TlpTls13ClientStateMachine,
+  TlpServerName,
   TlpEchConfig,
   TlpEchExtension,
   TlpEchOuterExtensions,
@@ -112,7 +113,7 @@ begin
   Result.LegacySessionId := DecodeHex(
     '3333333333333333333333333333333333333333333333333333333333333333');
   Result.ServerName := RealSni;
-  Result.ExpectedHostName := RealSni;
+  Result.ExpectedServerName := TServerName.DnsName(RealSni);
   Result.EchPolicy := TEchClientPolicy.Create(AEchConfigList, False, False)
     as IEchClientPolicy;
 end;

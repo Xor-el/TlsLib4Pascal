@@ -39,6 +39,7 @@ uses
   TlpHandshakeMessage,
   TlpHandshakeMessages,
   TlpICertificateTrust,
+  TlpServerName,
   TlpCertificateVerifier,
   TlpTlsCredential,
   TlpCredentialResolvers,
@@ -404,10 +405,10 @@ begin
   LParams.CertificateVerifier := TCertificateVerifier.Create(Provider,
     TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
-    True) as ICertificateVerifier;
+    True) as IServerCertificateVerifier;
   // the client advertises the built-in zlib decompressor, so the server may compress
   LParams.CertificateDecompressors := TZlibCertificateCompression.DefaultDecompressors;
-  LParams.ExpectedHostName := 'localhost';
+  LParams.ExpectedServerName := TServerName.DnsName('localhost');
   Result := TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine;
 end;
 

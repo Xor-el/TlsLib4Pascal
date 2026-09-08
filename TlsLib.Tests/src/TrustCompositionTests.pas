@@ -33,6 +33,7 @@ uses
   TlpTlsLibExceptions,
   TlpTlsAlert,
   TlpICertificateTrust,
+  TlpServerName,
   TlpCertificateVerifier,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
@@ -59,14 +60,15 @@ implementation
 type
   /// <summary>A whole-verifier stub: it accepts everything and carries no anchors, standing in
   /// for an OS delegate so the composition rules can be exercised without real PKIX.</summary>
-  TStubCertificateVerifier = class(TInterfacedObject, ICertificateVerifier)
+  TStubCertificateVerifier = class(TInterfacedObject, IServerCertificateVerifier)
   public
-    function Verify(const AChain: TArray<TBytes>; const AHostName: string;
-      const AOcspStaple: TBytes; out AAlert: TTlsAlertDescription): Boolean;
+    function VerifyServerCertificate(const AChain: TArray<TBytes>;
+      const AServerName: TServerName; const AOcspStaple: TBytes;
+      out AAlert: TTlsAlertDescription): Boolean;
   end;
 
-function TStubCertificateVerifier.Verify(const AChain: TArray<TBytes>;
-  const AHostName: string; const AOcspStaple: TBytes;
+function TStubCertificateVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
+  const AServerName: TServerName; const AOcspStaple: TBytes;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
   AAlert := TTlsAlertDescription.CertificateUnknown;
@@ -104,7 +106,7 @@ begin
     .Build;
   CheckEquals(2, System.Length(LConfig.TrustStore.RootCertificates),
     'both anchor sources union into the composed trust store');
-  CheckTrue(LConfig.CertificateVerifier = nil,
+  CheckTrue(LConfig.ServerCertificateVerifier = nil,
     'no whole-verifier was set, so the built-in pipeline is used');
 end;
 
@@ -114,9 +116,9 @@ var
 begin
   // a whole-verifier is a valid, self-sufficient trust source (no anchors needed)
   LConfig := TTlsPresets.Compatible(Provider).Client
-    .WithCertificateVerifier(TStubCertificateVerifier.Create as ICertificateVerifier)
+    .WithCertificateVerifier(TStubCertificateVerifier.Create as IServerCertificateVerifier)
     .Build;
-  CheckTrue(LConfig.CertificateVerifier <> nil,
+  CheckTrue(LConfig.ServerCertificateVerifier <> nil,
     'the injected whole-verifier lands in the frozen config');
 end;
 
@@ -128,7 +130,7 @@ begin
   LRaised := False;
   try
     TTlsPresets.Compatible(Provider).Client
-      .WithCertificateVerifier(TStubCertificateVerifier.Create as ICertificateVerifier)
+      .WithCertificateVerifier(TStubCertificateVerifier.Create as IServerCertificateVerifier)
       .WithTrustStore(StoreOf('root_cert'))
       .Build;
   except
@@ -147,8 +149,8 @@ begin
   LRaised := False;
   try
     TTlsPresets.Compatible(Provider).Client
-      .WithCertificateVerifier(TStubCertificateVerifier.Create as ICertificateVerifier)
-      .WithCertificateVerifier(TStubCertificateVerifier.Create as ICertificateVerifier)
+      .WithCertificateVerifier(TStubCertificateVerifier.Create as IServerCertificateVerifier)
+      .WithCertificateVerifier(TStubCertificateVerifier.Create as IServerCertificateVerifier)
       .Build;
   except
     on E: EInvalidOperationTlsLibException do

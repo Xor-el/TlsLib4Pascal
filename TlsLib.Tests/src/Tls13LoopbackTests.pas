@@ -39,6 +39,7 @@ uses
   TlpTlsEngine,
   TlpIHandshakeMachine,
   TlpICertificateTrust,
+  TlpServerName,
   TlpCertificateVerifier,
   TlpCertificateLimits,
   TlpTrustPolicy,
@@ -180,8 +181,8 @@ begin
   LParams.ServerName := ASni;
   LParams.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
-    True) as ICertificateVerifier;
-  LParams.ExpectedHostName := AExpectedHost;
+    True) as IServerCertificateVerifier;
+  LParams.ExpectedServerName := TServerName.DnsName(AExpectedHost);
 
   Result := TTlsEngine.CreateConfigured(
     TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
@@ -309,11 +310,11 @@ begin
   LParams.LegacySessionId := Filled($33, 32);
   // the true (inner) SNI; the leaf is checked against it once ECH is accepted
   LParams.ServerName := 'localhost';
-  LParams.ExpectedHostName := 'localhost';
+  LParams.ExpectedServerName := TServerName.DnsName('localhost');
   LParams.CertificateVerifier := TCertificateVerifier.Create(Provider,
     TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-    as ITrustAnchorStore, True) as ICertificateVerifier;
+    as ITrustAnchorStore, True) as IServerCertificateVerifier;
   LParams.EchPolicy := TEchClientPolicy.Create(AConfigList, False, False)
     as IEchClientPolicy;
   LParams.SessionCache := ACache;
@@ -417,11 +418,11 @@ begin
   LParams.ClientRandom := Filled($11, 32);
   LParams.LegacySessionId := Filled($33, 32);
   LParams.ServerName := 'localhost';
-  LParams.ExpectedHostName := 'localhost';
+  LParams.ExpectedServerName := TServerName.DnsName('localhost');
   LParams.CertificateVerifier := TCertificateVerifier.Create(Provider,
     TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-    as ITrustAnchorStore, True) as ICertificateVerifier;
+    as ITrustAnchorStore, True) as IServerCertificateVerifier;
   LParams.EchPolicy := TEchClientPolicy.Create(EchConfigListBytes, False, False)
     as IEchClientPolicy;
   Result := TTlsEngine.CreateConfigured(
@@ -484,11 +485,11 @@ begin
   LParams.ClientRandom := Filled($11, 32);
   LParams.LegacySessionId := Filled($33, 32);
   LParams.ServerName := 'localhost';
-  LParams.ExpectedHostName := 'localhost';
+  LParams.ExpectedServerName := TServerName.DnsName('localhost');
   LParams.CertificateVerifier := TCertificateVerifier.Create(Provider,
     TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-    as ITrustAnchorStore, True) as ICertificateVerifier;
+    as ITrustAnchorStore, True) as IServerCertificateVerifier;
   LParams.EchPolicy := TEchClientPolicy.Create(AConfigList, False, False)
     as IEchClientPolicy;
   Result := TTlsEngine.CreateConfigured(
@@ -535,11 +536,11 @@ begin
   LParams.ClientRandom := Filled($11, 32);
   LParams.LegacySessionId := Filled($33, 32);
   LParams.ServerName := 'localhost';
-  LParams.ExpectedHostName := 'localhost';
+  LParams.ExpectedServerName := TServerName.DnsName('localhost');
   LParams.CertificateVerifier := TCertificateVerifier.Create(Provider,
     TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-    as ITrustAnchorStore, True) as ICertificateVerifier;
+    as ITrustAnchorStore, True) as IServerCertificateVerifier;
   LParams.EchPolicy := TEchClientPolicy.Create(EchConfigListBytes, False, False)
     as IEchClientPolicy;
   LParams.SessionCache := ACache;
@@ -955,8 +956,8 @@ begin
   LParams.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(OcspField('root_cert')))
     as ITrustAnchorStore, True, TCertificateChainLimits.Defaults,
-    TRevocationPosture.Hard) as ICertificateVerifier;
-  LParams.ExpectedHostName := 'localhost';
+    TRevocationPosture.Hard) as IServerCertificateVerifier;
+  LParams.ExpectedServerName := TServerName.DnsName('localhost');
 
   Result := TTlsEngine.CreateConfigured(
     TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
@@ -984,8 +985,8 @@ begin
   LParams.LegacySessionId := Filled($33, 32);
   LParams.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
-    True) as ICertificateVerifier;
-  LParams.ExpectedHostName := 'localhost';
+    True) as IServerCertificateVerifier;
+  LParams.ExpectedServerName := TServerName.DnsName('localhost');
 
   Result := TTlsEngine.CreateConfigured(
     TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
@@ -1032,8 +1033,8 @@ begin
   LParams.LegacySessionId := Filled($33, 32);
   LParams.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
-    True) as ICertificateVerifier;
-  LParams.ExpectedHostName := 'localhost';
+    True) as IServerCertificateVerifier;
+  LParams.ExpectedServerName := TServerName.DnsName('localhost');
 
   Result := TTlsEngine.CreateConfigured(
     TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
@@ -1082,8 +1083,8 @@ begin
   LParams.LegacySessionId := Filled($33, 32);
   LParams.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
-    True) as ICertificateVerifier;
-  LParams.ExpectedHostName := 'localhost';
+    True) as IServerCertificateVerifier;
+  LParams.ExpectedServerName := TServerName.DnsName('localhost');
 
   Result := TTlsEngine.CreateConfigured(
     TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
@@ -1129,8 +1130,8 @@ begin
   LParams.LegacySessionId := Filled($33, 32);
   LParams.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
-    True) as ICertificateVerifier;
-  LParams.ExpectedHostName := 'localhost';
+    True) as IServerCertificateVerifier;
+  LParams.ExpectedServerName := TServerName.DnsName('localhost');
 
   Result := TTlsEngine.CreateConfigured(
     TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);

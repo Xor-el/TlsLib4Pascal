@@ -76,9 +76,11 @@ begin
       TInteropCredentials.ServerCredentialFromFieldFile(LProvider, FCredentialFile);
     if FScenario.MutualTls then
     begin
-      // request and verify the client certificate against the same test root
+      // request and verify the client certificate against the client-auth (dual-EKU) root:
+      // a TLS client certificate must carry the clientAuth extendedKeyUsage
       LOptions.ClientAuth := TClientAuthMode.Required;
-      LOptions.Trust := TInteropCredentials.TrustFromFieldFile(LProvider, FCredentialFile);
+      LOptions.Trust := TInteropCredentials.TrustFromFieldFile(LProvider,
+        ExtractFilePath(FCredentialFile) + 'ClientAuthChain.txt');
     end;
     LEngine := TInteropEngine.Build(LProvider, LOptions);
 
@@ -138,10 +140,10 @@ begin
     LOptions.Trust := TInteropCredentials.TrustFromFieldFile(LProvider, ACredentialFile);
     if AScenario.MutualTls then
     begin
-      // present the client certificate the server requests
+      // present a dual-EKU (clientAuth) client certificate the server requests
       LOptions.HasCredential := True;
-      LOptions.Credential :=
-        TInteropCredentials.ServerCredentialFromFieldFile(LProvider, ACredentialFile);
+      LOptions.Credential := TInteropCredentials.ServerCredentialFromFieldFile(LProvider,
+        ExtractFilePath(ACredentialFile) + 'ClientAuthChain.txt');
     end;
     LEngine := TInteropEngine.Build(LProvider, LOptions);
 

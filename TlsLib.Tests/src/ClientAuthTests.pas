@@ -38,6 +38,7 @@ uses
   TlpTlsEngine,
   TlpIHandshakeMachine,
   TlpICertificateTrust,
+  TlpServerName,
   TlpCertificateVerifier,
   TlpTlsCredential,
   TlpCredentialResolvers,
@@ -53,7 +54,7 @@ type
     function Filled(AByte: Byte; ACount: Int32): TBytes;
     function RootCert: TBytes;
     function Credential: TTlsCredential;
-    function PeerVerifier: ICertificateVerifier;
+    function PeerVerifier: TCertificateVerifier;
     function New13Client(AWithCredential: Boolean): ITlsEngine;
     function New13Server(AMode: TClientAuthMode): ITlsEngine;
     function New12Client(AWithCredential: Boolean): ITlsEngine;
@@ -92,7 +93,7 @@ function TTestClientAuth.RootCert: TBytes;
 var
   LCerts: TStringList;
 begin
-  LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
+  LCerts := LoadVectorFields('Certs/ClientAuthChain.txt');
   try
     Result := DecodeHex(LCerts.Values['root_cert']);
   finally
@@ -104,7 +105,7 @@ function TTestClientAuth.Credential: TTlsCredential;
 var
   LCerts: TStringList;
 begin
-  LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
+  LCerts := LoadVectorFields('Certs/ClientAuthChain.txt');
   try
     Result.CertificateChain := TArray<TBytes>.Create(
       DecodeHex(LCerts.Values['leaf_cert']));
@@ -114,12 +115,12 @@ begin
   end;
 end;
 
-function TTestClientAuth.PeerVerifier: ICertificateVerifier;
+function TTestClientAuth.PeerVerifier: TCertificateVerifier;
 begin
   // trusts the test root; hostname identity is not applied to a peer certificate
   Result := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(RootCert)) as ITrustAnchorStore,
-    False) as ICertificateVerifier;
+    False);
 end;
 
 function TTestClientAuth.New13Client(AWithCredential: Boolean): ITlsEngine;
@@ -138,7 +139,7 @@ begin
   LParams.ClientRandom := Filled($11, 32);
   LParams.LegacySessionId := Filled($33, 32);
   LParams.CertificateVerifier := PeerVerifier;
-  LParams.ExpectedHostName := 'localhost';
+  LParams.ExpectedServerName := TServerName.DnsName('localhost');
   if AWithCredential then
     LParams.ClientCredential := Credential;
   Result := TTlsEngine.CreateConfigured(
@@ -186,7 +187,7 @@ begin
   LParams.ClientRandom := Filled($11, 32);
   LParams.OfferExtendedMasterSecret := True;
   LParams.CertificateVerifier := PeerVerifier;
-  LParams.ExpectedHostName := 'localhost';
+  LParams.ExpectedServerName := TServerName.DnsName('localhost');
   if AWithCredential then
     LParams.ClientCredential := Credential;
   Result := TTlsEngine.CreateConfigured(

@@ -85,6 +85,7 @@ uses
   TlpHandshakeConductor in '..\..\TlsLib\src\Handshake\TlpHandshakeConductor.pas',
   TlpCertificateVerify in '..\..\TlsLib\src\Handshake\TlpCertificateVerify.pas',
   TlpICertificateTrust in '..\..\TlsLib\src\Interfaces\Trust\TlpICertificateTrust.pas',
+  TlpServerName in '..\..\TlsLib\src\Trust\TlpServerName.pas',
   TlpEndpointIdentity in '..\..\TlsLib\src\Trust\TlpEndpointIdentity.pas',
   TlpCertificateVerifier in '..\..\TlsLib\src\Trust\TlpCertificateVerifier.pas',
   TlpTlsCredential in '..\..\TlsLib\src\Handshake\TlpTlsCredential.pas',
