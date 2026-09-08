@@ -1,0 +1,54 @@
+TlsLib/src/Trust/TlpCertificateVerifier.pas
+  s_16bbbcaf8bdfa4::t_3b44c5bbadc9f7 50-52
+TlsLib.Trust.System/src/TlpUnixSystemTrust.pas
+  s_16bbbcaf8bdfa4::t_57ef68f3476dfb 31
+  s_16bbbcaf8bdfa4::t_6321159d48c46f 29
+  s_16bbbcaf8bdfa4::t_e021b832061e65 89
+  s_16bbbcaf8bdfa4::t_e6df6cd927320b 91,100
+TlsLib.Trust.System/src/TlpOSSystemTrust.pas
+  s_16bbbcaf8bdfa4::t_72e8f072a9afdd 22
+  s_16bbbcaf8bdfa4::t_0e1db977754924 99-100,102,104,108,114,118-122
+TlsLib.Trust.System/src/TlpFileSystemTrust.pas
+  s_16bbbcaf8bdfa4::t_758f4ce46de5ec 76,78
+  s_16bbbcaf8bdfa4::t_2b70f718fd8912 37
+  s_16bbbcaf8bdfa4::t_84e2fc9a17570c 39
+  s_16bbbcaf8bdfa4::t_925a452c1e64d6 88,104,112,130,161,176,191,235
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_16bbbcaf8bdfa4::t_f4c86feec63040 14,62
+  s_16bbbcaf8bdfa4::t_f7fef3c08ca5b2 75-78,89
+  s_16bbbcaf8bdfa4::t_b64a2ae58ff8d0 226-227,234-235,243,246,257-258
+  s_16bbbcaf8bdfa4::t_92665e9647c716 162-174
+  s_16bbbcaf8bdfa4::t_245ea75d793aff 271-272,290-291,300-318
+  s_16bbbcaf8bdfa4::t_d8b57325bfc744 319-322,450-451,453-458
+  s_16bbbcaf8bdfa4::t_71f33086cd5df5 327-330,332-340
+  s_16bbbcaf8bdfa4::t_81f62daa87e957 473-474,476-481
+  s_16bbbcaf8bdfa4::t_b6b4526045b0e8 496-497,499-504
+TlsLib.Trust.System/src/TlpWindowsSystemTrust.pas
+  s_16bbbcaf8bdfa4::t_5ea71f72effb5b 35
+  s_16bbbcaf8bdfa4::t_c7d4d1f5e480e2 431
+  s_16bbbcaf8bdfa4::t_ae3df8af659e19 433,451
+TlsLib.Trust.System/src/TlpSystemTrustBase.pas
+  s_16bbbcaf8bdfa4::t_bed0f83d9c5c4d 47-50
+  s_16bbbcaf8bdfa4::t_6f6b5381934e11 146
+  s_16bbbcaf8bdfa4::t_57e10a40ff54ef 23,43-46,52,56-57,71-76,118,120,128,136,138-141,144,147
+TlsLib.Trust.System/src/TlpAppleSystemTrust.pas
+  s_16bbbcaf8bdfa4::t_2c147076e5eb70 55
+  s_16bbbcaf8bdfa4::t_e497b8eb6512bf 552,570
+  s_16bbbcaf8bdfa4::t_724bbb10806c37 550
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8a7bfa9d5c7e43c69c2590af793c876452c0a3af",
+  "prompts": {},
+  "sessions": {
+    "s_16bbbcaf8bdfa4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "42209e6c-e709-4190-9407-f1ee321cee10",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
