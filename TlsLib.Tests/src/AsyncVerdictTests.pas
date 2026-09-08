@@ -106,7 +106,7 @@ function TTestAsyncVerdict.TrustRoot: TBytes;
 var
   LV: TStringList;
 begin
-  LV := LoadVectorFields('Certs/EcP256Chain.txt');
+  LV := LoadVectorFields('Certs/ClientAuthChain.txt');
   try
     Result := DecodeHex(LV.Values['root_cert']);
   finally
@@ -118,7 +118,7 @@ function TTestAsyncVerdict.LeafCert: TBytes;
 var
   LV: TStringList;
 begin
-  LV := LoadVectorFields('Certs/EcP256Chain.txt');
+  LV := LoadVectorFields('Certs/ClientAuthChain.txt');
   try
     Result := DecodeHex(LV.Values['leaf_cert']);
   finally
@@ -130,7 +130,7 @@ function TTestAsyncVerdict.LeafKey: TBytes;
 var
   LV: TStringList;
 begin
-  LV := LoadVectorFields('Certs/EcP256Chain.txt');
+  LV := LoadVectorFields('Certs/ClientAuthChain.txt');
   try
     Result := DecodeHex(LV.Values['leaf_key']);
   finally

@@ -33,6 +33,7 @@ uses
   TlpISigningKey,
   TlpTlsCredential,
   TlpICertificateTrust,
+  TlpServerName,
   TlpCertificateVerifier,
   TlpTlsAlert,
   TlpTlsLibExceptions,
@@ -139,7 +140,7 @@ end;
 procedure TTestPkcs12Import.TestChainPfxIsLeafFirstAndVerifies;
 var
   LCredential: TTlsCredential;
-  LVerifier: ICertificateVerifier;
+  LVerifier: IServerCertificateVerifier;
   LAlert: TTlsAlertDescription;
 begin
   // the store holds a leaf signed by a test CA plus that CA certificate
@@ -154,7 +155,7 @@ begin
   LVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(Blob('ca_cert_der'))), False);
   LAlert := TTlsAlertDescription.InternalError;
-  CheckTrue(LVerifier.Verify(LCredential.CertificateChain, '', nil, LAlert),
+  CheckTrue(LVerifier.VerifyServerCertificate(LCredential.CertificateChain, TServerName.DnsName(''), nil, LAlert),
     'the imported chain validates against the test CA anchor');
 end;
 

@@ -28,6 +28,7 @@ uses
   TlpINegotiation,
   TlpSignatureSchemeRegistry,
   TlpICertificateTrust,
+  TlpServerName,
   TlpTlsAlert,
   TlpTlsCredential,
   TlpISession,
@@ -170,10 +171,14 @@ type
   /// <summary>A whole-verifier that accepts any presented client-certificate chain without
   /// CA validation (the harness's -require-any-client-certificate). An empty chain never
   /// reaches here - the Required client-auth mode rejects that first.</summary>
-  TInteropAcceptAnyVerifier = class sealed(TInterfacedObject, ICertificateVerifier)
+  TInteropAcceptAnyVerifier = class sealed(TInterfacedObject,
+    IServerCertificateVerifier, IClientCertificateVerifier)
   public
-    function Verify(const AChain: TArray<TBytes>; const AHostName: string;
-      const AOcspStaple: TBytes; out AAlert: TTlsAlertDescription): Boolean;
+    function VerifyServerCertificate(const AChain: TArray<TBytes>;
+      const AServerName: TServerName; const AOcspStaple: TBytes;
+      out AAlert: TTlsAlertDescription): Boolean;
+    function VerifyClientCertificate(const AChain: TArray<TBytes>;
+      out AAlert: TTlsAlertDescription): Boolean;
   end;
 
 var
@@ -185,8 +190,15 @@ begin
   Result := False;
 end;
 
-function TInteropAcceptAnyVerifier.Verify(const AChain: TArray<TBytes>;
-  const AHostName: string; const AOcspStaple: TBytes;
+function TInteropAcceptAnyVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
+  const AServerName: TServerName; const AOcspStaple: TBytes;
+  out AAlert: TTlsAlertDescription): Boolean;
+begin
+  AAlert := TTlsAlertDescription.CertificateRequired;
+  Result := System.Length(AChain) > 0;
+end;
+
+function TInteropAcceptAnyVerifier.VerifyClientCertificate(const AChain: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
   AAlert := TTlsAlertDescription.CertificateRequired;
@@ -280,10 +292,13 @@ begin
     // the test supplies none (the leaf-parse and signature checks still run first)
     if AOptions.AcceptAnyPeerCert and (AOptions.Trust = nil) then
       LClient.WithCertificateVerifier(
-        TInteropAcceptAnyVerifier.Create as ICertificateVerifier)
+        TInteropAcceptAnyVerifier.Create as IServerCertificateVerifier)
     else
       LClient.WithTrustStore(AOptions.Trust);
-    LClient.WithNameCheck(AOptions.CheckServerName);
+    // name checking is on by default; the shim disables the RFC 6125 match when the runner
+    // did not ask for it (BoGo drives host identity via -expect-* assertions, not the match)
+    if not AOptions.CheckServerName then
+      LClient.WithDangerousDisableServerNameCheck;
     // GREASE (RFC 8701) is optional; the shim keeps it off unless the runner enables it, so
     // deterministic assertions (e.g. exact key_share counts) are not perturbed
     LClient.WithGrease(AOptions.Grease);
@@ -355,7 +370,7 @@ begin
       LServer.WithPeerAuth(AOptions.ClientAuth);
       if AOptions.AcceptAnyPeerCert and (AOptions.Trust = nil) then
         LServer.WithCertificateVerifier(
-          TInteropAcceptAnyVerifier.Create as ICertificateVerifier)
+          TInteropAcceptAnyVerifier.Create as IClientCertificateVerifier)
       else
         LServer.WithTrustStore(AOptions.Trust);
       // async verdict (-async) parks after the pipeline accepts the client chain; otherwise

@@ -58,7 +58,7 @@ type
     /// <summary>The OS delegate verifier (cache-only). Raises where the platform
     /// exposes no system verifier (Linux/BSD/Solaris).</summary>
     class function DelegateVerifier(const AProvider: ICryptoProvider)
-      : ICertificateVerifier; static;
+      : IServerCertificateVerifier; static;
   end;
 
 implementation
@@ -116,7 +116,7 @@ begin
 end;
 
 class function TOSSystemTrust.DelegateVerifier(const AProvider: ICryptoProvider)
-  : ICertificateVerifier;
+  : IServerCertificateVerifier;
 begin
   Result := nil;
 {$IF DEFINED(TLSLIB_MSWINDOWS)}

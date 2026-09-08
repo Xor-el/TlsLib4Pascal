@@ -40,6 +40,7 @@ uses
   TlpHandshakeEffect,
   TlpHandshakeMessage,
   TlpICertificateTrust,
+  TlpServerName,
   TlpCertificateVerifier,
   TlpCertificateLimits,
   TlpTrustPolicy,
@@ -157,8 +158,8 @@ begin
   LParams.OfferExtendedMasterSecret := AOfferEms;
   LParams.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-    as ITrustAnchorStore, True) as ICertificateVerifier;
-  LParams.ExpectedHostName := 'localhost';
+    as ITrustAnchorStore, True) as IServerCertificateVerifier;
+  LParams.ExpectedServerName := TServerName.DnsName('localhost');
   Result := TTls12ClientStateMachine.Create(LParams) as IHandshakeMachine;
 end;
 
@@ -248,8 +249,8 @@ begin
   LParams.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(OcspField('root_cert')))
     as ITrustAnchorStore, True, TCertificateChainLimits.Defaults,
-    TRevocationPosture.Hard) as ICertificateVerifier;
-  LParams.ExpectedHostName := 'localhost';
+    TRevocationPosture.Hard) as IServerCertificateVerifier;
+  LParams.ExpectedServerName := TServerName.DnsName('localhost');
   Result := TTlsEngine.CreateConfigured(
     TTls12ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
 end;

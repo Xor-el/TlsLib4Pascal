@@ -186,7 +186,6 @@ begin
   // client config: trust the test root, verify the inner name, and offer ECH with the config list
   LClientBuilder := TTlsPresets.Compatible(LProvider).Client
     .WithTrustAnchors(TVec.Bytes('root_cert'));
-  LClientBuilder.WithNameCheck(True);
   LClientBuilder.Tls13.WithEncryptedClientHello(LEch.EchConfigList);
   LClientConfig := LClientBuilder.Build;
 

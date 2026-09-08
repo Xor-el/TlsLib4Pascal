@@ -33,6 +33,7 @@ uses
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpICertificateTrust,
+  TlpServerName,
   TlpCertificateVerifier,
   TlpCertificateLimits,
   TlpTrustPolicy,
@@ -51,7 +52,7 @@ type
     function Chain: TArray<TBytes>;
     function ChainFor(const ALeafName: string): TArray<TBytes>;
     function VerifierFor(APosture: TRevocationPosture;
-      AAsyncResolver: Boolean = False): ICertificateVerifier;
+      AAsyncResolver: Boolean = False): IServerCertificateVerifier;
     function VerifyStaple(APosture: TRevocationPosture; const AStaple: TBytes;
       out AAlert: TTlsAlertDescription): Boolean;
     function VerifyChain(APosture: TRevocationPosture; const AChain: TArray<TBytes>;
@@ -63,7 +64,7 @@ type
     // a verifier trusting the root and seeded with AIntermediates for path building
     function IntermediateVerifierFor(APosture: TRevocationPosture;
       const AIntermediates: TArray<TBytes>; const APins: TArray<TBytes> = nil)
-      : ICertificateVerifier;
+      : IServerCertificateVerifier;
   protected
     procedure SetUp; override;
     procedure TearDown; override;
@@ -138,7 +139,7 @@ begin
 end;
 
 function TTestOcspStapling.VerifierFor(APosture: TRevocationPosture;
-  AAsyncResolver: Boolean): ICertificateVerifier;
+  AAsyncResolver: Boolean): IServerCertificateVerifier;
 var
   LNoDangerous: TDangerousTrust;
 begin
@@ -148,7 +149,7 @@ begin
   Result := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(V('root_cert')))
     as ITrustAnchorStore, False, TCertificateChainLimits.Defaults, APosture, nil,
-    LNoDangerous, AAsyncResolver) as ICertificateVerifier;
+    LNoDangerous, AAsyncResolver) as IServerCertificateVerifier;
 end;
 
 function TTestOcspStapling.ChainFor(const ALeafName: string): TArray<TBytes>;
@@ -159,14 +160,14 @@ end;
 function TTestOcspStapling.VerifyStaple(APosture: TRevocationPosture;
   const AStaple: TBytes; out AAlert: TTlsAlertDescription): Boolean;
 begin
-  Result := VerifierFor(APosture).Verify(Chain, '', AStaple, AAlert);
+  Result := VerifierFor(APosture).VerifyServerCertificate(Chain, TServerName.DnsName(''), AStaple, AAlert);
 end;
 
 function TTestOcspStapling.VerifyChain(APosture: TRevocationPosture;
   const AChain: TArray<TBytes>; const AStaple: TBytes;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
-  Result := VerifierFor(APosture).Verify(AChain, '', AStaple, AAlert);
+  Result := VerifierFor(APosture).VerifyServerCertificate(AChain, TServerName.DnsName(''), AStaple, AAlert);
 end;
 
 function TTestOcspStapling.LeafSpkiPin: TBytes;
@@ -192,7 +193,7 @@ begin
 end;
 
 function TTestOcspStapling.IntermediateVerifierFor(APosture: TRevocationPosture;
-  const AIntermediates: TArray<TBytes>; const APins: TArray<TBytes>): ICertificateVerifier;
+  const AIntermediates: TArray<TBytes>; const APins: TArray<TBytes>): IServerCertificateVerifier;
 var
   LNoDangerous: TDangerousTrust;
 begin
@@ -200,20 +201,20 @@ begin
   Result := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(V('root_cert')))
     as ITrustAnchorStore, False, TCertificateChainLimits.Defaults, APosture, APins,
-    LNoDangerous, False, AIntermediates) as ICertificateVerifier;
+    LNoDangerous, False, AIntermediates) as IServerCertificateVerifier;
 end;
 
 function TTestOcspStapling.VerifyWithPins(const APins: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
 var
-  LVerifier: ICertificateVerifier;
+  LVerifier: IServerCertificateVerifier;
 begin
   // revocation Off isolates the pinning step from the stapled-OCSP step
   LVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(V('root_cert')))
     as ITrustAnchorStore, False, TCertificateChainLimits.Defaults,
-    TRevocationPosture.Off, APins) as ICertificateVerifier;
-  Result := LVerifier.Verify(Chain, '', nil, AAlert);
+    TRevocationPosture.Off, APins) as IServerCertificateVerifier;
+  Result := LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName(''), nil, AAlert);
 end;
 
 procedure TTestOcspStapling.TestValidateStapleGood;
@@ -390,7 +391,7 @@ begin
   // with a live verdict resolver, a no-staple leaf under Hard is accepted here (deferred) so the
   // handshake reaches the park where the resolver decides - not rejected inline
   CheckTrue(VerifierFor(TRevocationPosture.Hard, {AAsyncResolver=} True)
-    .Verify(Chain, '', nil, LAlert),
+    .VerifyServerCertificate(Chain, TServerName.DnsName(''), nil, LAlert),
     'a missing staple under Hard is deferred to the resolver, not rejected inline');
 end;
 
@@ -400,7 +401,7 @@ var
 begin
   // a definitive stapled Revoked is authoritative and short-circuits before any deferral
   CheckFalse(VerifierFor(TRevocationPosture.Hard, {AAsyncResolver=} True)
-    .Verify(Chain, '', V('ocsp_revoked'), LAlert),
+    .VerifyServerCertificate(Chain, TServerName.DnsName(''), V('ocsp_revoked'), LAlert),
     'a revoked staple aborts even when a resolver is present');
   CheckEquals(Ord(TTlsAlertDescription.CertificateRevoked), Ord(LAlert),
     'the alert is certificate_revoked');
@@ -413,7 +414,7 @@ begin
   // RFC 7633: a must-staple leaf demands a current Good staple; a live fetch does not satisfy it,
   // so it is rejected inline even with a resolver present (the deferral never applies)
   CheckFalse(VerifierFor(TRevocationPosture.Hard, {AAsyncResolver=} True)
-    .Verify(ChainFor('muststaple_leaf_cert'), '', nil, LAlert),
+    .VerifyServerCertificate(ChainFor('muststaple_leaf_cert'), TServerName.DnsName(''), nil, LAlert),
     'a must-staple leaf with no staple aborts even with a resolver present');
   CheckEquals(Ord(TTlsAlertDescription.BadCertificateStatusResponse), Ord(LAlert),
     'the alert is bad_certificate_status_response');
@@ -526,8 +527,8 @@ begin
   // intermediate. Under Hard posture a good staple must still be authenticated - which is only
   // possible because path building hands the recovered issuer to the revocation step.
   CheckTrue(IntermediateVerifierFor(TRevocationPosture.Hard,
-    TArray<TBytes>.Create(V('issuer_cert'))).Verify(
-    TArray<TBytes>.Create(V('leaf_cert')), '', V('ocsp_good'), LAlert),
+    TArray<TBytes>.Create(V('issuer_cert'))).VerifyServerCertificate(
+    TArray<TBytes>.Create(V('leaf_cert')), TServerName.DnsName(''), V('ocsp_good'), LAlert),
     'a good staple authenticates against the configured issuer for a leaf-only peer');
 end;
 
@@ -540,8 +541,8 @@ begin
   // isolates the pinning step.
   CheckTrue(IntermediateVerifierFor(TRevocationPosture.Off,
     TArray<TBytes>.Create(V('issuer_cert')),
-    TArray<TBytes>.Create(IssuerSpkiPin)).Verify(
-    TArray<TBytes>.Create(V('leaf_cert')), '', nil, LAlert),
+    TArray<TBytes>.Create(IssuerSpkiPin)).VerifyServerCertificate(
+    TArray<TBytes>.Create(V('leaf_cert')), TServerName.DnsName(''), nil, LAlert),
     'a pin on the configured issuer matches the recovered path for a leaf-only peer');
 end;
 

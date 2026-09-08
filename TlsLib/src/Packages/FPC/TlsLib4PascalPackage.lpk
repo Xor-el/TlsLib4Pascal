@@ -28,7 +28,7 @@
     <Description Value="Opinionated yet Modular TLS for Modern Object Pascal"/>
     <License Value="MIT License"/>
     <Version Major="1" Minor="1"/>
-    <Files Count="118">
+    <Files Count="119">
       <Item1>
         <Filename Value="..\..\Crypto\TlpCryptoDomainTypes.pas"/>
         <UnitName Value="TlpCryptoDomainTypes"/>
@@ -501,6 +501,10 @@
         <Filename Value="..\..\Ech\TlpEchServer.pas"/>
         <UnitName Value="TlpEchServer"/>
       </Item118>
+      <Item119>
+        <Filename Value="..\..\Trust\TlpServerName.pas"/>
+        <UnitName Value="TlpServerName"/>
+      </Item119>
     </Files>
     <CompatibilityMode Value="True"/>
     <RequiredPkgs Count="2">

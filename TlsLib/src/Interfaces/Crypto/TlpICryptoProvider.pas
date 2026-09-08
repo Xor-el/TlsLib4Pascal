@@ -364,11 +364,14 @@ type
     /// AEffectiveChain returns the validated leaf-first chain - the assembled path when one was
     /// built, otherwise AChain - so the caller's staple and pin checks see the real issuer. It is
     /// a var parameter so a caller may pre-seed it with AChain as a fallback; an implementation
-    /// that returns normally must set it.
+    /// that returns normally must set it. AKeyPurpose selects the extendedKeyUsage the
+    /// path must carry (server vs client role); a certificate on the path (leaf or
+    /// intermediate, never the anchor) that carries an EKU extension lacking the purpose
+    /// is rejected with unsupported_certificate, while one with no EKU is unrestricted.
     /// </summary>
     procedure ValidateCertificatePath(const AChain, ATrustAnchors,
       AIntermediates: TArray<TBytes>; const AValidationTimeUtc: TDateTime;
-      var AEffectiveChain: TArray<TBytes>);
+      AKeyPurpose: TCertKeyPurpose; var AEffectiveChain: TArray<TBytes>);
   end;
 
   /// <summary>

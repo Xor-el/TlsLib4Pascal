@@ -22,6 +22,7 @@ uses
   TlpArrayUtilities,
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
+  TlpServerName,
   TlpEndpointIdentity,
   TlpCertificateLimits,
   TlpTrustPolicy,
@@ -59,11 +60,14 @@ type
 
   /// <summary>
   /// The ordered certificate-trust pipeline (RFC 8446 4.4.2 / RFC 5280 / RFC 6125),
-  /// fail-closed: the provider validates the chain to a trusted root (certificate_expired
-  /// / unknown_ca / bad_certificate), then the leaf's dNSName SAN is matched against the
-  /// expected host (bad_certificate). All X.509 / PKIX work stays inside the provider.
+  /// fail-closed: the provider validates the chain to a trusted root for the role's
+  /// extendedKeyUsage (certificate_expired / unknown_ca / bad_certificate /
+  /// unsupported_certificate), then - for a server certificate - matches the leaf's SANs
+  /// against the connected name (bad_certificate). One instance serves both roles: it
+  /// verifies a server certificate for a client and a client certificate for a server.
   /// </summary>
-  TCertificateVerifier = class sealed(TInterfacedObject, ICertificateVerifier)
+  TCertificateVerifier = class sealed(TInterfacedObject, IServerCertificateVerifier,
+    IClientCertificateVerifier)
   strict private
   var
     FProvider: ICryptoProvider;
@@ -84,10 +88,13 @@ type
     /// <summary>The injected clock as a UTC wall-clock instant, so every time-based cert
     /// check (chain validity, PKIX path date, OCSP responder validity) shares one source.</summary>
     function ValidationTimeUtc: TDateTime;
-    /// <summary>The built-in trust pipeline (chain caps, PKIX, revocation, endpoint
-    /// identity, pinning), run unless InsecureSkipVerify bypasses it.</summary>
-    function VerifyPipeline(const AChain: TArray<TBytes>; const AHostName: string;
-      const AOcspStaple: TBytes; out AAlert: TTlsAlertDescription): Boolean;
+    /// <summary>The built-in trust pipeline (chain caps, PKIX with the role's EKU, revocation,
+    /// endpoint identity, pinning), run unless InsecureSkipVerify bypasses it. ACheckName
+    /// enables the RFC 6125 match against AServerName (a server certificate only); AKeyPurpose
+    /// is the extendedKeyUsage the path must carry.</summary>
+    function VerifyPipeline(const AChain: TArray<TBytes>;
+      const AServerName: TServerName; ACheckName: Boolean; const AOcspStaple: TBytes;
+      AKeyPurpose: TCertKeyPurpose; out AAlert: TTlsAlertDescription): Boolean;
     /// <summary>Optional SPKI public-key pinning (augments PKIX, never a bypass): when pins
     /// are configured, some certificate in the chain must have a SubjectPublicKeyInfo whose
     /// SHA-256 matches one pin, else bad_certificate.</summary>
@@ -138,8 +145,11 @@ type
       ARevocationPosture: TRevocationPosture; const APins: TArray<TBytes>;
       const ADangerous: TDangerousTrust; AAsyncVerdictEnabled: Boolean;
       const AIntermediates: TArray<TBytes>); overload;
-    function Verify(const AChain: TArray<TBytes>; const AHostName: string;
-      const AOcspStaple: TBytes; out AAlert: TTlsAlertDescription): Boolean;
+    function VerifyServerCertificate(const AChain: TArray<TBytes>;
+      const AServerName: TServerName; const AOcspStaple: TBytes;
+      out AAlert: TTlsAlertDescription): Boolean;
+    function VerifyClientCertificate(const AChain: TArray<TBytes>;
+      out AAlert: TTlsAlertDescription): Boolean;
   end;
 
 implementation
@@ -375,8 +385,8 @@ begin
 end;
 
 function TCertificateVerifier.VerifyPipeline(const AChain: TArray<TBytes>;
-  const AHostName: string; const AOcspStaple: TBytes;
-  out AAlert: TTlsAlertDescription): Boolean;
+  const AServerName: TServerName; ACheckName: Boolean; const AOcspStaple: TBytes;
+  AKeyPurpose: TCertKeyPurpose; out AAlert: TTlsAlertDescription): Boolean;
 var
   LI, LTotal: Int32;
   // the chain PKIX actually validated: when the peer sent an incomplete chain that path
@@ -409,7 +419,7 @@ begin
   LEffectiveChain := AChain;
   try
     FProvider.PathValidation.ValidateCertificatePath(AChain, FTrustStore.RootCertificates,
-      FIntermediates, ValidationTimeUtc, LEffectiveChain);
+      FIntermediates, ValidationTimeUtc, AKeyPurpose, LEffectiveChain);
   except
     on E: EFatalAlertTlsLibException do
     begin
@@ -423,11 +433,18 @@ begin
   if not CheckRevocation(LEffectiveChain, AOcspStaple, AAlert) then
     Exit;
 
-  // endpoint identity (RFC 6125) over the leaf's dNSName / iPAddress SAN entries
-  if FCheckHostName and (AHostName <> '') then
+  // endpoint identity (RFC 6125) over the leaf's dNSName / iPAddress SANs (server cert only)
+  if ACheckName then
   begin
+    // an empty name cannot verify against anything; the factory fails closed before a
+    // checking verifier is reached, so reject explicitly rather than rely on Matches
+    if AServerName.IsEmpty then
+    begin
+      AAlert := TTlsAlertDescription.BadCertificate;
+      Exit;
+    end;
     LLeaf := FProvider.Certificates.Parse(AChain[0]);
-    if not TEndpointIdentity.Matches(AHostName, LLeaf.DnsNames, LLeaf.IpAddresses) then
+    if not TEndpointIdentity.Matches(AServerName, LLeaf.DnsNames, LLeaf.IpAddresses) then
     begin
       AAlert := TTlsAlertDescription.BadCertificate;
       Exit;
@@ -442,8 +459,8 @@ begin
   Result := True;
 end;
 
-function TCertificateVerifier.Verify(const AChain: TArray<TBytes>;
-  const AHostName: string; const AOcspStaple: TBytes;
+function TCertificateVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
+  const AServerName: TServerName; const AOcspStaple: TBytes;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
   Result := False;
@@ -452,15 +469,38 @@ begin
     Exit;
   // the loud escape hatch: skip the built-in pipeline entirely (tests / pinned dev peers)
   if not FDangerous.InsecureSkipVerify then
-    if not VerifyPipeline(AChain, AHostName, AOcspStaple, AAlert) then
+    if not VerifyPipeline(AChain, AServerName, FCheckHostName, AOcspStaple,
+      TCertKeyPurpose.ServerAuth, AAlert) then
       Exit;
   // the augment-only hook runs last and can only additionally reject; it can never rescue a
   // chain the pipeline (when run) already rejected, since a rejection has returned above
   if Assigned(FDangerous.VerifyCallback) then
-    if not FDangerous.VerifyCallback(AChain, AHostName) then
+    if not FDangerous.VerifyCallback(AChain, AServerName.ToString) then
     begin
       // a custom augment verifier's rejection is an unspecified acceptability problem, not a
       // corrupt/bad-signature certificate: certificate_unknown, not bad_certificate (RFC 8446 6.2)
+      AAlert := TTlsAlertDescription.CertificateUnknown;
+      Exit;
+    end;
+  Result := True;
+end;
+
+function TCertificateVerifier.VerifyClientCertificate(const AChain: TArray<TBytes>;
+  out AAlert: TTlsAlertDescription): Boolean;
+begin
+  Result := False;
+  AAlert := TTlsAlertDescription.BadCertificate;
+  if System.Length(AChain) = 0 then
+    Exit;
+  // a client certificate carries no host identity and is never stapled: verify the chain
+  // for the clientAuth role, with no endpoint-identity match and no OCSP staple
+  if not FDangerous.InsecureSkipVerify then
+    if not VerifyPipeline(AChain, Default(TServerName), False, nil,
+      TCertKeyPurpose.ClientAuth, AAlert) then
+      Exit;
+  if Assigned(FDangerous.VerifyCallback) then
+    if not FDangerous.VerifyCallback(AChain, '') then
+    begin
       AAlert := TTlsAlertDescription.CertificateUnknown;
       Exit;
     end;

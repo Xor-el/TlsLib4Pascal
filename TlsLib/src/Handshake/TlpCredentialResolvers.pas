@@ -19,7 +19,8 @@ uses
   SysUtils,
   TlpTlsCredential,
   TlpITlsCredentialResolver,
-  TlpEndpointIdentity;
+  TlpEndpointIdentity,
+  TlpServerName;
 
 type
   /// <summary>One host-pattern to credential mapping for the built-in SNI resolver. AHost is a
@@ -114,7 +115,8 @@ begin
       end;
     for LI := 0 to System.High(FEntries) do
       if (Pos('*', FEntries[LI].Host) > 0) and
-        TEndpointIdentity.Matches(LSni, TArray<string>.Create(FEntries[LI].Host), nil) then
+        TEndpointIdentity.Matches(TServerName.DnsName(LSni),
+        TArray<string>.Create(FEntries[LI].Host), nil) then
       begin
         ACredential := FEntries[LI].Credential;
         Exit(True);

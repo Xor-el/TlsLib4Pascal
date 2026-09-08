@@ -36,6 +36,7 @@ uses
   TlpITlsCredentialResolver,
   TlpCredentialResolvers,
   TlpEndpointIdentity,
+  TlpServerName,
   TlpISession,
   TlpIClock,
   TlpClock,
@@ -67,9 +68,11 @@ type
     FSupportedVersions: TArray<UInt16>;
     FPreferredGroups: TArray<UInt16>;
     FAlpnProtocols: TArray<string>;
-    // anchor contributions accumulate (union); a whole-verifier is exclusive of them
+    // anchor contributions accumulate (union); a whole-verifier is exclusive of them.
+    // Only the endpoint-appropriate slot is ever set (the facet is chosen up front).
     FAnchorStores: TArray<ITrustAnchorStore>;
-    FCertificateVerifier: ICertificateVerifier;
+    FServerCertVerifier: IServerCertificateVerifier;
+    FClientCertVerifier: IClientCertificateVerifier;
     FVerifierCount: Int32;
     FCheckServerName: Boolean;
     FRequestOcspStapling: Boolean;
@@ -151,8 +154,10 @@ type
     function WithAlpnProtocols(const AProtocols: TArray<string>): TTlsConfigBuilder;
     function WithTrustStore(const AStore: ITrustAnchorStore): TTlsConfigBuilder;
     function WithTrustAnchors(const AData: TBytes): TTlsConfigBuilder;
-    function WithCertificateVerifier(
-      const AVerifier: ICertificateVerifier): TTlsConfigBuilder;
+    function WithServerCertificateVerifier(
+      const AVerifier: IServerCertificateVerifier): TTlsConfigBuilder;
+    function WithClientCertificateVerifier(
+      const AVerifier: IClientCertificateVerifier): TTlsConfigBuilder;
     function WithCertificateChainLimits(
       const ALimits: TCertificateChainLimits): TTlsConfigBuilder;
     function WithCredential(const ACredential: TTlsCredential): TTlsConfigBuilder; overload;
@@ -186,7 +191,7 @@ type
     function WithAlpnRejection(AReject: Boolean): TTlsConfigBuilder;
     function WithClientCertificateAuthorities(const AAuthorities: TArray<TBytes>): TTlsConfigBuilder;
     function WithGrease(AEnable: Boolean): TTlsConfigBuilder;
-    function WithNameCheck(AEnabled: Boolean): TTlsConfigBuilder;
+    function WithDangerousDisableServerNameCheck: TTlsConfigBuilder;
     function WithOcspStaplingRequest(AEnabled: Boolean): TTlsConfigBuilder;
     function WithPeerAuth(AMode: TClientAuthMode): TTlsConfigBuilder;
     function WithRevocation(APosture: TRevocationPosture): TTlsConfigBuilder;
@@ -283,7 +288,6 @@ type
     FCertificateCompressionCache: ICertificateCompressionCache;
     FCredential: TTlsCredential;
     FTrustStore: ITrustAnchorStore;
-    FCertificateVerifier: ICertificateVerifier;
     FChainLimits: TCertificateChainLimits;
     FRevocationPosture: TRevocationPosture;
     FCertificatePins: TArray<TBytes>;
@@ -312,7 +316,6 @@ type
     function CertificateCompressionCache: ICertificateCompressionCache;
     function Credential: TTlsCredential;
     function TrustStore: ITrustAnchorStore;
-    function CertificateVerifier: ICertificateVerifier;
     function CertificateChainLimits: TCertificateChainLimits;
     function RevocationPosture: TRevocationPosture;
     function CertificatePins: TArray<TBytes>;
@@ -334,6 +337,7 @@ type
   private
   var
     FCheckServerName: Boolean;
+    FServerCertVerifier: IServerCertificateVerifier;
     FRequestOcspStapling: Boolean;
     FSessionCache: ISessionCache;
     FEarlyData: Boolean;
@@ -341,6 +345,7 @@ type
     FEchPolicy: IEchClientPolicy;
   public
     function CheckServerName: Boolean;
+    function ServerCertificateVerifier: IServerCertificateVerifier;
     function RequestOcspStapling: Boolean;
     function SessionCache: ISessionCache;
     function EarlyData: Boolean;
@@ -352,6 +357,7 @@ type
   private
   var
     FClientAuth: TClientAuthMode;
+    FClientCertVerifier: IClientCertificateVerifier;
     FSessionStore: ISessionStore;
     FSessionTicketKeys: ISessionTicketKeyManager;
     FCredentialResolver: ITlsServerCredentialResolver;
@@ -363,6 +369,7 @@ type
     FEchTrialDecrypt: Boolean;
   public
     function ClientAuth: TClientAuthMode;
+    function ClientCertificateVerifier: IClientCertificateVerifier;
     function SessionStore: ISessionStore;
     function SessionTicketKeys: ISessionTicketKeyManager;
     function CredentialResolver: ITlsServerCredentialResolver;
@@ -397,7 +404,7 @@ type
     function WithTrustStore(const AStore: ITrustAnchorStore): ITlsClientConfigBuilder;
     function WithTrustAnchors(const AData: TBytes): ITlsClientConfigBuilder;
     function WithCertificateVerifier(
-      const AVerifier: ICertificateVerifier): ITlsClientConfigBuilder;
+      const AVerifier: IServerCertificateVerifier): ITlsClientConfigBuilder;
     function WithCertificateChainLimits(
       const ALimits: TCertificateChainLimits): ITlsClientConfigBuilder;
     function WithCredential(const ACredential: TTlsCredential): ITlsClientConfigBuilder; overload;
@@ -417,7 +424,7 @@ type
       const APins: TArray<TBytes>): ITlsClientConfigBuilder;
     function WithIntermediateCertificates(
       const AData: TBytes): ITlsClientConfigBuilder;
-    function WithNameCheck(AEnabled: Boolean): ITlsClientConfigBuilder;
+    function WithDangerousDisableServerNameCheck: ITlsClientConfigBuilder;
     function WithOcspStaplingRequest(AEnabled: Boolean): ITlsClientConfigBuilder;
     function WithDangerousInsecureSkipVerify(
       AEnabled: Boolean): ITlsClientConfigBuilder;
@@ -451,7 +458,7 @@ type
     function WithTrustStore(const AStore: ITrustAnchorStore): ITlsServerConfigBuilder;
     function WithTrustAnchors(const AData: TBytes): ITlsServerConfigBuilder;
     function WithCertificateVerifier(
-      const AVerifier: ICertificateVerifier): ITlsServerConfigBuilder;
+      const AVerifier: IClientCertificateVerifier): ITlsServerConfigBuilder;
     function WithCertificateChainLimits(
       const ALimits: TCertificateChainLimits): ITlsServerConfigBuilder;
     function WithCredential(const ACredential: TTlsCredential): ITlsServerConfigBuilder; overload;
@@ -612,11 +619,6 @@ begin
   Result := FTrustStore;
 end;
 
-function TFrozenCommonConfig.CertificateVerifier: ICertificateVerifier;
-begin
-  Result := FCertificateVerifier;
-end;
-
 function TFrozenCommonConfig.CertificateChainLimits: TCertificateChainLimits;
 begin
   Result := FChainLimits;
@@ -707,6 +709,11 @@ begin
   Result := FCheckServerName;
 end;
 
+function TFrozenClientConfig.ServerCertificateVerifier: IServerCertificateVerifier;
+begin
+  Result := FServerCertVerifier;
+end;
+
 function TFrozenClientConfig.RequestOcspStapling: Boolean;
 begin
   Result := FRequestOcspStapling;
@@ -737,6 +744,11 @@ end;
 function TFrozenServerConfig.ClientAuth: TClientAuthMode;
 begin
   Result := FClientAuth;
+end;
+
+function TFrozenServerConfig.ClientCertificateVerifier: IClientCertificateVerifier;
+begin
+  Result := FClientCertVerifier;
 end;
 
 function TFrozenServerConfig.SessionStore: ISessionStore;
@@ -858,9 +870,9 @@ begin
 end;
 
 function TTlsClientConfigBuilder.WithCertificateVerifier(
-  const AVerifier: ICertificateVerifier): ITlsClientConfigBuilder;
+  const AVerifier: IServerCertificateVerifier): ITlsClientConfigBuilder;
 begin
-  FOwner.WithCertificateVerifier(AVerifier);
+  FOwner.WithServerCertificateVerifier(AVerifier);
   Result := Self;
 end;
 
@@ -920,10 +932,9 @@ begin
   Result := Self;
 end;
 
-function TTlsClientConfigBuilder.WithNameCheck(
-  AEnabled: Boolean): ITlsClientConfigBuilder;
+function TTlsClientConfigBuilder.WithDangerousDisableServerNameCheck: ITlsClientConfigBuilder;
 begin
-  FOwner.WithNameCheck(AEnabled);
+  FOwner.WithDangerousDisableServerNameCheck;
   Result := Self;
 end;
 
@@ -1092,9 +1103,9 @@ begin
 end;
 
 function TTlsServerConfigBuilder.WithCertificateVerifier(
-  const AVerifier: ICertificateVerifier): ITlsServerConfigBuilder;
+  const AVerifier: IClientCertificateVerifier): ITlsServerConfigBuilder;
 begin
-  FOwner.WithCertificateVerifier(AVerifier);
+  FOwner.WithClientCertificateVerifier(AVerifier);
   Result := Self;
 end;
 
@@ -1563,13 +1574,25 @@ begin
   Result := Self;
 end;
 
-function TTlsConfigBuilder.WithCertificateVerifier(
-  const AVerifier: ICertificateVerifier): TTlsConfigBuilder;
+function TTlsConfigBuilder.WithServerCertificateVerifier(
+  const AVerifier: IServerCertificateVerifier): TTlsConfigBuilder;
 begin
   GuardMutable;
   if AVerifier <> nil then
   begin
-    FCertificateVerifier := AVerifier;
+    FServerCertVerifier := AVerifier;
+    Inc(FVerifierCount);
+  end;
+  Result := Self;
+end;
+
+function TTlsConfigBuilder.WithClientCertificateVerifier(
+  const AVerifier: IClientCertificateVerifier): TTlsConfigBuilder;
+begin
+  GuardMutable;
+  if AVerifier <> nil then
+  begin
+    FClientCertVerifier := AVerifier;
     Inc(FVerifierCount);
   end;
   Result := Self;
@@ -1705,7 +1728,7 @@ begin
   LSans := FProvider.Certificates.DnsNames(ACredential.CertificateChain[0]);
   if Pos('*', AHost) = 0 then
     // an exact host must be covered by the leaf's dNSName SANs (RFC 6125/9525)
-    LOk := TEndpointIdentity.Matches(AHost, LSans, nil)
+    LOk := TEndpointIdentity.Matches(TServerName.DnsName(AHost), LSans, nil)
   else
   begin
     // only a single left-most-label wildcard over a non-empty suffix is matchable at runtime
@@ -1859,10 +1882,10 @@ begin
   Result := Self;
 end;
 
-function TTlsConfigBuilder.WithNameCheck(AEnabled: Boolean): TTlsConfigBuilder;
+function TTlsConfigBuilder.WithDangerousDisableServerNameCheck: TTlsConfigBuilder;
 begin
   GuardMutable;
-  FCheckServerName := AEnabled;
+  FCheckServerName := False;
   Result := Self;
 end;
 
@@ -2102,7 +2125,7 @@ begin
   // a client authenticates the server by its certificate or by an out-of-band external PSK
   // (RFC 9258); at least one trust source or a configured external PSK is required (no
   // silent-insecure). A PSK-only client verifies no certificate.
-  if (System.Length(FAnchorStores) = 0) and (FVerifierCount = 0) and
+  if (System.Length(FAnchorStores) = 0) and (FServerCertVerifier = nil) and
     (System.Length(FExternalPsks) = 0) then
     raise EInvalidOperationTlsLibException.CreateRes(@SNoTrustStore);
   // a Hard revocation posture rejects a peer whose certificate carries no stapled OCSP response
@@ -2127,7 +2150,6 @@ begin
   LConfig.FCertificateCompressionCache := FCertificateCompressionCache;
   LConfig.FCredential := FCredential;
   LConfig.FTrustStore := ComposeTrustStore;
-  LConfig.FCertificateVerifier := FCertificateVerifier;
   LConfig.FChainLimits := FChainLimits;
   LConfig.FRevocationPosture := FRevocationPosture;
   LConfig.FCertificatePins := FCertificatePins;
@@ -2143,6 +2165,7 @@ begin
   LConfig.FResumption := FResumption;
   LConfig.FExternalPsks := FExternalPsks;
   LConfig.FCheckServerName := FCheckServerName;
+  LConfig.FServerCertVerifier := FServerCertVerifier;
   LConfig.FRequestOcspStapling := FRequestOcspStapling;
   LConfig.FSessionCache := FSessionCache;
   LConfig.FClock := FClock;
@@ -2171,7 +2194,7 @@ begin
   // client authentication verifies the peer chain against a trust source; without one the
   // server would only fail closed at handshake time, so reject it at build (fail fast)
   if (FClientAuth <> TClientAuthMode.None) and
-    (System.Length(FAnchorStores) = 0) and (FVerifierCount = 0) then
+    (System.Length(FAnchorStores) = 0) and (FClientCertVerifier = nil) then
     raise EInvalidOperationTlsLibException.CreateRes(@SNoClientAuthTrustStore);
   // a Hard revocation posture on the client certificate rejects a client whose cert carries no
   // definite non-revoked status. A client cannot staple, so the only status source is a live
@@ -2195,7 +2218,6 @@ begin
   LConfig.FCertificateCompressionCache := FCertificateCompressionCache;
   LConfig.FCredential := FCredential;
   LConfig.FTrustStore := ComposeTrustStore;
-  LConfig.FCertificateVerifier := FCertificateVerifier;
   LConfig.FChainLimits := FChainLimits;
   LConfig.FRevocationPosture := FRevocationPosture;
   LConfig.FCertificatePins := FCertificatePins;
@@ -2212,6 +2234,7 @@ begin
   LConfig.FExternalPsks := FExternalPsks;
   LConfig.FClock := FClock;
   LConfig.FClientAuth := FClientAuth;
+  LConfig.FClientCertVerifier := FClientCertVerifier;
   LConfig.FSessionStore := FSessionStore;
   LConfig.FCredentialResolver := ComposeCredentialResolver;
   // explicit keys always win; otherwise mint the default STEK from THIS builder's injected

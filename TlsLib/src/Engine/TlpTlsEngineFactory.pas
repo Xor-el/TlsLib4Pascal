@@ -29,6 +29,7 @@ uses
   TlpNegotiationTypes,
   TlpNegotiationPolicy,
   TlpCertificateVerifier,
+  TlpServerName,
   TlpTrustPolicy,
   TlpTlsCredential,
   TlpISession,
@@ -90,6 +91,9 @@ resourcestring
     'preferred group 0x%.4x is not present in the named-group registry';
   SNoEcdheGroup =
     'TLS 1.2 is offered but no preferred group is a classical ECDHE group';
+  SNoServerNameForCheck =
+    'server-name checking is on but no usable host was given to verify the certificate ' +
+    'against; pass the connection host, or disable it with WithDangerousDisableServerNameCheck';
 
 { TTlsEngineFactory }
 
@@ -199,7 +203,8 @@ var
   L13: TClientHandshakeParams;
   L12: TClient12HandshakeParams;
   LClientRandom, LSessionId: TBytes;
-  LVerifier: ICertificateVerifier;
+  LVerifier: IServerCertificateVerifier;
+  LServerName: TServerName;
   LOffers13, LOffers12, LAsyncVerdict: Boolean;
   LVerdictDeadlineMs: Cardinal;
   LMachine: IHandshakeMachine;
@@ -217,9 +222,14 @@ begin
   // hand-off keeps the ServerKeyExchange/master-secret binding of the sent ClientHello
   LClientRandom := AConfig.Provider.Primitives.GetRandom.GenerateBytes(32);
   LSessionId := AConfig.Provider.Primitives.GetRandom.GenerateBytes(32);
+  // fail closed: when name checking is on, a client must have a usable server name to verify
+  // the leaf against. A missing/unparsable host here would otherwise silently skip RFC 6125.
+  if not TServerName.TryParse(AHost, LServerName) then
+    if AConfig.CheckServerName then
+      raise EArgumentTlsLibException.CreateRes(@SNoServerNameForCheck);
   // an injected whole-verifier replaces the built-in pipeline (it consults no anchors)
-  if AConfig.CertificateVerifier <> nil then
-    LVerifier := AConfig.CertificateVerifier
+  if AConfig.ServerCertificateVerifier <> nil then
+    LVerifier := AConfig.ServerCertificateVerifier
   else
     LVerifier := TCertificateVerifier.Create(AConfig.Provider, AConfig.Clock,
       AConfig.TrustStore, AConfig.CheckServerName, AConfig.CertificateChainLimits,
@@ -252,12 +262,16 @@ begin
   L13.Clock := AConfig.Clock;
   L13.ClientRandom := LClientRandom;
   L13.LegacySessionId := LSessionId;
-  L13.ServerName := AHost;
+  // SNI carries the DNS name only (empty for an IP literal, RFC 6066 3, or no host)
+  L13.ServerName := LServerName.AsDns;
+  // the session-cache identity is the full host (IP literals included), keeping each
+  // destination on its own cache key even though an IP is never sent as SNI
+  L13.ServerIdentity := LServerName.ToString;
   L13.CertificateVerifier := LVerifier;
   L13.AsyncVerdict := LAsyncVerdict;
   // Encrypted Client Hello policy (RFC 9849), nil when not offered
   L13.EchPolicy := AConfig.EncryptedClientHello;
-  L13.ExpectedHostName := AHost;
+  L13.ExpectedServerName := LServerName;
   // a mutual-TLS client presents this credential when the server requests one; empty
   // sends an empty client Certificate
   L13.ClientCredential := AConfig.Credential;
@@ -283,13 +297,14 @@ begin
     L12.LegacySessionId := LSessionId
   else
     L12.LegacySessionId := nil;
-  L12.ServerName := AHost;
+  L12.ServerName := LServerName.AsDns;
+  L12.ServerIdentity := LServerName.ToString;
   L12.OfferExtendedMasterSecret := True;
   L12.RequireExtendedMasterSecret := AConfig.RequireExtendedMasterSecret;
   L12.RequestOcspStapling := AConfig.RequestOcspStapling;
   L12.CertificateVerifier := LVerifier;
   L12.AsyncVerdict := LAsyncVerdict;
-  L12.ExpectedHostName := AHost;
+  L12.ExpectedServerName := LServerName;
   L12.ClientCredential := AConfig.Credential;
 
   // resumption (RFC 8446 4.6.1 / RFC 5077): the version-appropriate client machine draws a
@@ -399,8 +414,8 @@ begin
   L13.ClientCertificateAuthorities := AConfig.ClientCertificateAuthorities;
   if AConfig.ClientAuth <> TClientAuthMode.None then
   begin
-    if AConfig.CertificateVerifier <> nil then
-      L13.ClientCertificateVerifier := AConfig.CertificateVerifier
+    if AConfig.ClientCertificateVerifier <> nil then
+      L13.ClientCertificateVerifier := AConfig.ClientCertificateVerifier
     else
       L13.ClientCertificateVerifier := TCertificateVerifier.Create(AConfig.Provider,
         AConfig.Clock, AConfig.TrustStore, False, AConfig.CertificateChainLimits,
@@ -433,8 +448,8 @@ begin
   L12.ClientAuthSignatureSchemes := SchemeCodes(AConfig.SignatureSchemes);
   if AConfig.ClientAuth <> TClientAuthMode.None then
   begin
-    if AConfig.CertificateVerifier <> nil then
-      L12.ClientCertificateVerifier := AConfig.CertificateVerifier
+    if AConfig.ClientCertificateVerifier <> nil then
+      L12.ClientCertificateVerifier := AConfig.ClientCertificateVerifier
     else
       L12.ClientCertificateVerifier := TCertificateVerifier.Create(AConfig.Provider,
         AConfig.Clock, AConfig.TrustStore, False, AConfig.CertificateChainLimits,

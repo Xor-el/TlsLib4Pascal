@@ -49,6 +49,7 @@ uses
   TlpICertificateCompression,
   TlpZlibCertificateCompression,
   TlpICertificateTrust,
+  TlpServerName,
   TlpCertificateVerifier,
   TlpTlsCredential,
   TlpCredentialResolvers,
@@ -223,8 +224,8 @@ begin
   LParams.LegacySessionId := DecodeHex(StringOfChar('3', 64));
   LParams.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
-    True) as ICertificateVerifier;
-  LParams.ExpectedHostName := 'localhost';
+    True) as IServerCertificateVerifier;
+  LParams.ExpectedServerName := TServerName.DnsName('localhost');
   Result := TTlsEngine.CreateConfigured(
     TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
 end;
@@ -359,9 +360,9 @@ begin
   LParams.LegacySessionId := DecodeHex(StringOfChar('3', 64));
   LParams.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
-    True) as ICertificateVerifier;
+    True) as IServerCertificateVerifier;
   LParams.CertificateDecompressors := ADecompressors;
-  LParams.ExpectedHostName := 'localhost';
+  LParams.ExpectedServerName := TServerName.DnsName('localhost');
   Result := TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine;
 end;
 
@@ -823,8 +824,8 @@ begin
   LParams.LegacySessionId := DecodeHex(StringOfChar('3', 64));
   LParams.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
-    True) as ICertificateVerifier;
-  LParams.ExpectedHostName := 'localhost';
+    True) as IServerCertificateVerifier;
+  LParams.ExpectedServerName := TServerName.DnsName('localhost');
   Result := TTlsEngine.CreateConfigured(
     TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
 end;

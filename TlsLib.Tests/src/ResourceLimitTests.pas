@@ -41,6 +41,7 @@ uses
   TlpICertificateCompression,
   TlpZlibCertificateCompression,
   TlpICertificateTrust,
+  TlpServerName,
   TlpCertificateVerifier,
   TlsLibTestBase;
 
@@ -152,11 +153,11 @@ end;
 function TTestResourceLimit.VerifyAlert(const AChain: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
 var
-  LVerifier: ICertificateVerifier;
+  LVerifier: IServerCertificateVerifier;
 begin
   LVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(nil) as ITrustAnchorStore, False) as ICertificateVerifier;
-  Result := not LVerifier.Verify(AChain, '', nil, AAlert);
+    TTrustAnchorStore.Create(nil) as ITrustAnchorStore, False) as IServerCertificateVerifier;
+  Result := not LVerifier.VerifyServerCertificate(AChain, TServerName.DnsName(''), nil, AAlert);
 end;
 
 procedure TTestResourceLimit.TestOverLengthHandshakeMessageRejected;

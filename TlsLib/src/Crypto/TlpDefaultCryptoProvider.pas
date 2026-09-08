@@ -252,6 +252,7 @@ resourcestring
   SBadCertificate = 'a certificate in the chain could not be parsed';
   SCertificateExpired = 'a certificate in the chain is outside its validity window';
   SUntrustedChain = 'the certificate chain does not reach a trusted anchor';
+  SWrongCertificatePurpose = 'a certificate in the chain has an extended key usage that excludes the required TLS role';
   SMalformedPrivateKey = 'the private key could not be parsed in any supported encoding';
   SUnsupportedKeyAlgorithm = 'the private key uses an algorithm this library cannot sign with';
   SForeignSigningKey = 'the signing key was not produced by this provider';
@@ -640,7 +641,7 @@ type
     class destructor Destroy;
     procedure ValidateCertificatePath(const AChain, ATrustAnchors,
       AIntermediates: TArray<TBytes>; const AValidationTimeUtc: TDateTime;
-      var AEffectiveChain: TArray<TBytes>);
+      AKeyPurpose: TCertKeyPurpose; var AEffectiveChain: TArray<TBytes>);
   end;
 
   // IRevocationChecker - stapled-OCSP verification and the live OCSP/CRL primitives.
@@ -2717,7 +2718,68 @@ end;
 
 procedure TCertificatePathValidator.ValidateCertificatePath(const AChain,
   ATrustAnchors, AIntermediates: TArray<TBytes>; const AValidationTimeUtc: TDateTime;
-  var AEffectiveChain: TArray<TBytes>);
+  AKeyPurpose: TCertKeyPurpose; var AEffectiveChain: TArray<TBytes>);
+
+  function IsAnchor(const ACert: IX509Certificate): Boolean;
+  var
+    LDer: TBytes;
+    LJ: Int32;
+  begin
+    Result := False;
+    LDer := ACert.GetEncoded;
+    for LJ := 0 to High(ATrustAnchors) do
+      if TArrayUtilities.AreEqual(LDer, ATrustAnchors[LJ]) then
+        Exit(True);
+  end;
+
+  // RFC 5280 4.2.1.12 extendedKeyUsage, enforced over the validated path (leaf + every
+  // intermediate, never the trust anchor): a certificate carrying an EKU extension must
+  // include the role's purpose; one with no EKU extension is unrestricted. anyExtendedKeyUsage
+  // is not accepted as a substitute, and a present-but-empty EKU is rejected.
+  procedure EnforcePurpose(const APath: TArray<IX509Certificate>);
+  var
+    LRequired: IDerObjectIdentifier;
+    LI, LJ: Int32;
+    LEkus: TArray<IDerObjectIdentifier>;
+    LFound: Boolean;
+    LCert: IX509Certificate;
+  begin
+    if AKeyPurpose = TCertKeyPurpose.ServerAuth then
+      LRequired := TKeyPurposeId.IdKpServerAuth
+    else
+      LRequired := TKeyPurposeId.IdKpClientAuth;
+    for LI := 0 to High(APath) do
+    begin
+      LCert := APath[LI];
+      // a trust anchor is trusted by configuration, not by its own extensions, so its EKU is
+      // not processed - but the end-entity at index 0 always is, even when it is itself the
+      // pinned anchor (a directly-trusted leaf must still carry the required TLS role)
+      if (LI > 0) and IsAnchor(LCert) then
+        Continue;
+      if LCert.GetExtensionValue(TX509Extensions.ExtendedKeyUsage) = nil then
+        Continue; // no EKU extension -> unrestricted
+      try
+        LEkus := LCert.GetExtendedKeyUsage;
+      except
+        // a present-but-unparsable EKU (not a SEQUENCE OF OID) is a malformed certificate,
+        // not an internal fault
+        on E: ECryptoLibException do
+          raise EFatalAlertTlsLibException.CreateRes(
+            TTlsAlertDescription.BadCertificate, @SBadCertificate);
+      end;
+      LFound := False;
+      for LJ := 0 to System.High(LEkus) do
+        if LRequired.Equals(LEkus[LJ]) then
+        begin
+          LFound := True;
+          Break;
+        end;
+      if not LFound then
+        raise EFatalAlertTlsLibException.CreateRes(
+          TTlsAlertDescription.UnsupportedCertificate, @SWrongCertificatePurpose);
+    end;
+  end;
+
 const
   // the builder only reconstructs an INCOMPLETE chain, which is inherently shallow (a real
   // hierarchy is a leaf plus at most a few intermediates). Capping the built path's length
@@ -2817,7 +2879,10 @@ begin
       LLiteralValidated := False; // fall through to path building if intermediates are configured
   end;
   if LLiteralValidated then
+  begin
+    EnforcePurpose(LCerts);
     Exit;
+  end;
 
   // the chain did not validate as received. With no configured intermediates that is the
   // final verdict: the peer did not chain to a trusted anchor.
@@ -2870,6 +2935,7 @@ begin
   // hand back the assembled path (leaf-first) so the downstream staple and pin checks see the
   // real issuer the peer omitted, not just the bare leaf
   LBuilt := LBuildResult.CertPath.Certificates;
+  EnforcePurpose(LBuilt);
   SetLength(AEffectiveChain, System.Length(LBuilt));
   for LI := 0 to High(LBuilt) do
     AEffectiveChain[LI] := LBuilt[LI].GetEncoded;

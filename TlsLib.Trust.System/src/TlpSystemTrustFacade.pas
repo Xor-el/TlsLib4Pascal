@@ -19,7 +19,13 @@ uses
   TlpICryptoProvider,
   TlpICertificateTrust,
   TlpITlsConfigBuilder,
+  TlpSystemTrustExceptions,
   TlpOSSystemTrust;
+
+resourcestring
+  SNoServerDelegate =
+    'OS trust delegation verifies server certificates only; a server cannot delegate ' +
+    'client-certificate (mTLS) verification to the OS. Use Anchors mode or a custom verifier';
 
 type
   /// <summary>
@@ -33,7 +39,7 @@ type
   strict private
     class procedure ResolveSource(const AProvider: ICryptoProvider;
       AMode: TSystemTrustMode; out AStore: ITrustAnchorStore;
-      out AVerifier: ICertificateVerifier); static;
+      out AVerifier: IServerCertificateVerifier); static;
   public
     class function WithSystemTrust(const ABuilder: ITlsClientConfigBuilder;
       const AProvider: ICryptoProvider;
@@ -51,7 +57,7 @@ implementation
 
 class procedure TSystemTrust.ResolveSource(const AProvider: ICryptoProvider;
   AMode: TSystemTrustMode; out AStore: ITrustAnchorStore;
-  out AVerifier: ICertificateVerifier);
+  out AVerifier: IServerCertificateVerifier);
 var
   LMode: TSystemTrustMode;
 begin
@@ -78,7 +84,7 @@ class function TSystemTrust.WithSystemTrust(
   AMode: TSystemTrustMode): ITlsClientConfigBuilder;
 var
   LStore: ITrustAnchorStore;
-  LVerifier: ICertificateVerifier;
+  LVerifier: IServerCertificateVerifier;
 begin
   ResolveSource(AProvider, AMode, LStore, LVerifier);
   if LVerifier <> nil then
@@ -93,13 +99,14 @@ class function TSystemTrust.WithSystemTrust(
   AMode: TSystemTrustMode): ITlsServerConfigBuilder;
 var
   LStore: ITrustAnchorStore;
-  LVerifier: ICertificateVerifier;
+  LVerifier: IServerCertificateVerifier;
 begin
   ResolveSource(AProvider, AMode, LStore, LVerifier);
+  // the OS delegate verifies SERVER certificates (serverAuth); it cannot verify a peer
+  // CLIENT certificate for an mTLS server. Anchors mode (harvest OS roots) still applies.
   if LVerifier <> nil then
-    ABuilder.WithCertificateVerifier(LVerifier)
-  else
-    ABuilder.WithTrustStore(LStore);
+    raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoServerDelegate);
+  ABuilder.WithTrustStore(LStore);
   Result := ABuilder;
 end;
 

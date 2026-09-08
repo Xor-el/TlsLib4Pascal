@@ -27,6 +27,7 @@ uses
   SysUtils,
   TlpTlsAlert,
   TlpICertificateTrust,
+  TlpServerName,
   TlpSystemTrustBase;
 
 type
@@ -47,10 +48,11 @@ type
   /// (server-auth EKU + host name). Fail-closed; maps the policy error to the
   /// matching fatal alert.
   /// </summary>
-  TWindowsDelegateVerifier = class sealed(TInterfacedObject, ICertificateVerifier)
+  TWindowsDelegateVerifier = class sealed(TInterfacedObject, IServerCertificateVerifier)
   public
-    function Verify(const AChain: TArray<TBytes>; const AHostName: string;
-      const AOcspStaple: TBytes; out AAlert: TTlsAlertDescription): Boolean;
+    function VerifyServerCertificate(const AChain: TArray<TBytes>;
+      const AServerName: TServerName; const AOcspStaple: TBytes;
+      out AAlert: TTlsAlertDescription): Boolean;
   end;
 
 {$ENDIF}
@@ -457,11 +459,11 @@ end;
 
 { TWindowsDelegateVerifier }
 
-function TWindowsDelegateVerifier.Verify(const AChain: TArray<TBytes>;
-  const AHostName: string; const AOcspStaple: TBytes;
+function TWindowsDelegateVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
+  const AServerName: TServerName; const AOcspStaple: TBytes;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
-  Result := TWindowsTrustApi.EvaluateChain(AChain, AHostName, AAlert);
+  Result := TWindowsTrustApi.EvaluateChain(AChain, AServerName.ToString, AAlert);
 end;
 
 initialization

@@ -41,7 +41,7 @@
 ///   AHttpServer.IOHandler := LServerIO;
 ///
 /// SNI for a client is just the connection Host (for TIdHTTP, the request URL's host); the
-/// default WithNameCheck(True) verifies the leaf against it. The FIRST WithPreferredGroups
+/// name checking (on by default) verifies the leaf against it. The FIRST WithPreferredGroups
 /// entry is the curve the client generates its key_share for.
 /// </summary>
 unit IndyCustomizationExample;
@@ -234,7 +234,7 @@ begin
   LClient.WithCipherSuites(OrderedRegistry([TCipherSuites13.Aes256GcmSha384,
     TCipherSuites13.Aes128GcmSha256, TCipherSuites13.ChaCha20Poly1305Sha256]));
   LClient.WithTrustAnchors(ARootPem); // PEM root (DER works too)
-  // WithNameCheck(True) is the default: the leaf is verified against the connection Host
+  // name checking is on by default: the leaf is verified against the connection Host
   Result := LClient.Build;
 end;
 

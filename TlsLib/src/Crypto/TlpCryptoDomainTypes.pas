@@ -118,6 +118,16 @@ type
   TCertKeyUsage = (DigitalSignature, KeyEncipherment, KeyAgreement);
 
   /// <summary>
+  /// The TLS role a certificate is being validated for, selecting the extendedKeyUsage
+  /// (RFC 5280 4.2.1.12) the path must carry: id-kp-serverAuth for a server certificate,
+  /// id-kp-clientAuth for a client certificate. Enforced "if present" over the leaf and
+  /// every intermediate (never the trust anchor): a certificate that carries an EKU
+  /// extension must include the required purpose, while a certificate with no EKU is
+  /// unrestricted.
+  /// </summary>
+  TCertKeyPurpose = (ServerAuth, ClientAuth);
+
+  /// <summary>
   /// The public-key algorithm of a certificate's leaf key, classified across the provider
   /// seam so the certificate ASN.1 handling stays inside the provider: an RSA key
   /// (rsaEncryption or id-RSASSA-PSS), an ECDSA key on a named curve, or an EdDSA key.

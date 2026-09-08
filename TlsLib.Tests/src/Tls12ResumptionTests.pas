@@ -41,6 +41,7 @@ uses
   TlpTlsEngine,
   TlpIHandshakeMachine,
   TlpICertificateTrust,
+  TlpServerName,
   TlpCertificateVerifier,
   TlpTlsCredential,
   TlpCredentialResolvers,
@@ -156,8 +157,8 @@ begin
   LParams.OfferExtendedMasterSecret := AOfferEms;
   LParams.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-    as ITrustAnchorStore, True) as ICertificateVerifier;
-  LParams.ExpectedHostName := ServerHost;
+    as ITrustAnchorStore, True) as IServerCertificateVerifier;
+  LParams.ExpectedServerName := TServerName.DnsName(ServerHost);
   LParams.ServerName := ServerHost;
   LParams.ServerIdentity := ServerHost + ':443';
   LParams.SessionCache := ACache;
@@ -170,12 +171,12 @@ function TTestTls12Resumption.NewDualVersionClient(
 var
   L13: TClientHandshakeParams;
   L12: TClient12HandshakeParams;
-  LVerifier: ICertificateVerifier;
+  LVerifier: IServerCertificateVerifier;
   LRandom, LSessionId: TBytes;
 begin
   LVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-    as ITrustAnchorStore, True) as ICertificateVerifier;
+    as ITrustAnchorStore, True) as IServerCertificateVerifier;
   // the dispatcher sends one unified ClientHello, so both sub-machines must share the same
   // client_random and legacy_session_id (the abbreviated Finished MAC binds them)
   LRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
@@ -201,7 +202,7 @@ begin
   L13.LegacySessionId := LSessionId;
   L13.ServerName := ServerHost;
   L13.CertificateVerifier := LVerifier;
-  L13.ExpectedHostName := ServerHost;
+  L13.ExpectedServerName := TServerName.DnsName(ServerHost);
   L13.ServerIdentity := ServerHost + ':443';
   L13.SessionCache := ACache;
 
@@ -221,7 +222,7 @@ begin
   L12.ServerName := ServerHost;
   L12.OfferExtendedMasterSecret := True;
   L12.CertificateVerifier := LVerifier;
-  L12.ExpectedHostName := ServerHost;
+  L12.ExpectedServerName := TServerName.DnsName(ServerHost);
   L12.ServerIdentity := ServerHost + ':443';
   L12.SessionCache := ACache;
 

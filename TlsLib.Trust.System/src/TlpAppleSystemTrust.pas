@@ -23,6 +23,7 @@ uses
 {$ENDIF}
   TlpPosixDynLib,
   TlpICertificateTrust,
+  TlpServerName,
 {$IFDEF TLSLIB_MACOS}
   TlpSystemTrustBase,
 {$ENDIF}
@@ -64,10 +65,11 @@ type
   /// policy, network fetch disabled (cache-only), evaluated via
   /// SecTrustEvaluateWithError. Shared by macOS and iOS. Fail-closed.
   /// </summary>
-  TAppleDelegateVerifier = class sealed(TInterfacedObject, ICertificateVerifier)
+  TAppleDelegateVerifier = class sealed(TInterfacedObject, IServerCertificateVerifier)
   public
-    function Verify(const AChain: TArray<TBytes>; const AHostName: string;
-      const AOcspStaple: TBytes; out AAlert: TTlsAlertDescription): Boolean;
+    function VerifyServerCertificate(const AChain: TArray<TBytes>;
+      const AServerName: TServerName; const AOcspStaple: TBytes;
+      out AAlert: TTlsAlertDescription): Boolean;
   end;
 
 {$IFEND}
@@ -573,11 +575,11 @@ end;
 
 { TAppleDelegateVerifier }
 
-function TAppleDelegateVerifier.Verify(const AChain: TArray<TBytes>;
-  const AHostName: string; const AOcspStaple: TBytes;
+function TAppleDelegateVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
+  const AServerName: TServerName; const AOcspStaple: TBytes;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
-  Result := TAppleTrustApi.EvaluateSslChain(AChain, AHostName, AAlert);
+  Result := TAppleTrustApi.EvaluateSslChain(AChain, AServerName.ToString, AAlert);
 end;
 
 initialization

@@ -126,7 +126,8 @@ type
     FUseSystemTrust: Boolean;
     FCheckHostName: Boolean;
     FCustomTrustStore: ITrustAnchorStore;
-    FCustomVerifier: ICertificateVerifier;
+    FCustomServerCertVerifier: IServerCertificateVerifier;
+    FCustomClientCertVerifier: IClientCertificateVerifier;
     FAlpnProtocols: TArray<string>;
     FKeyPassword: string;
     FVerifyCallback: TTlsCertificateVerifyCallback;
@@ -139,6 +140,7 @@ type
     /// <summary>The injected provider, or the process-wide shared default when none is set.</summary>
     function EffectiveProvider: ICryptoProvider;
     function HasTrustSource: Boolean;
+    function HasSharedTrust: Boolean;
     /// <summary>Raises when a supplied config is set together with cert/trust properties a
     /// fully-built config replaces (APropertyName names the config property in the message).</summary>
     procedure GuardNoConflict(const APropertyName: string);
@@ -190,10 +192,14 @@ type
     /// bundle and UseSystemTrust.</summary>
     property CustomTrustStore: ITrustAnchorStore read FCustomTrustStore
       write FCustomTrustStore;
-    /// <summary>A whole-verifier that REPLACES the built-in pipeline outright (exclusive of every
-    /// anchor source).</summary>
-    property CustomVerifier: ICertificateVerifier read FCustomVerifier
-      write FCustomVerifier;
+    /// <summary>A whole-verifier for the peer SERVER certificate (client connections) that
+    /// REPLACES the built-in pipeline outright (exclusive of every anchor source).</summary>
+    property CustomServerCertificateVerifier: IServerCertificateVerifier
+      read FCustomServerCertVerifier write FCustomServerCertVerifier;
+    /// <summary>A whole-verifier for the peer CLIENT certificate (mTLS server connections) that
+    /// REPLACES the built-in pipeline outright.</summary>
+    property CustomClientCertificateVerifier: IClientCertificateVerifier
+      read FCustomClientCertVerifier write FCustomClientCertVerifier;
     /// <summary>The ALPN protocols to offer (client) or select from (server), most-preferred
     /// first (e.g. ['h2', 'http/1.1']). Empty offers none.</summary>
     property AlpnProtocols: TArray<string> read FAlpnProtocols write FAlpnProtocols;
@@ -391,9 +397,9 @@ end;
 
 function TTlsLibSocketHandler.HasTrustSource: Boolean;
 begin
-  Result := (FCustomVerifier <> nil) or (not CertificateData.CertCA.Empty) or
-    (not CertificateData.TrustedCertificate.Empty) or FUseSystemTrust or
-    (FCustomTrustStore <> nil);
+  // any trust source at all, in either role - used to detect a supplied-config conflict
+  Result := (FCustomServerCertVerifier <> nil) or (FCustomClientCertVerifier <> nil) or
+    HasSharedTrust;
 end;
 
 procedure TTlsLibSocketHandler.GuardNoConflict(const APropertyName: string);
@@ -416,14 +422,24 @@ begin
     Result := TDefaultCryptoProvider.Shared;
 end;
 
+function TTlsLibSocketHandler.HasSharedTrust: Boolean;
+begin
+  // peer-trust sources that apply to whichever side is built: server-cert trust on a client,
+  // client-cert (client-auth) trust on a server. The two custom verifiers are role-specific
+  // and are tested per role at the build sites, not here.
+  Result := (not CertificateData.CertCA.Empty) or
+    (not CertificateData.TrustedCertificate.Empty) or FUseSystemTrust or
+    (FCustomTrustStore <> nil);
+end;
+
 procedure TTlsLibSocketHandler.ApplyClientTrust(
   const ABuilder: ITlsClientConfigBuilder);
 begin
   // compose peer trust from orthogonal sources: a whole-verifier REPLACES the pipeline, else the
   // CertCA / TrustedCertificate bundles + the OS anchors + a custom store all UNION. Adding both a
   // verifier and an anchor source is left to fail as the builder's typed conflict.
-  if FCustomVerifier <> nil then
-    ABuilder.WithCertificateVerifier(FCustomVerifier);
+  if FCustomServerCertVerifier <> nil then
+    ABuilder.WithCertificateVerifier(FCustomServerCertVerifier);
   if not CertificateData.CertCA.Empty then
     ABuilder.WithTrustAnchors(SSLDataBytes(CertificateData.CertCA));
   if not CertificateData.TrustedCertificate.Empty then
@@ -437,8 +453,8 @@ end;
 procedure TTlsLibSocketHandler.ApplyServerClientAuth(
   const ABuilder: ITlsServerConfigBuilder);
 begin
-  if FCustomVerifier <> nil then
-    ABuilder.WithCertificateVerifier(FCustomVerifier);
+  if FCustomClientCertVerifier <> nil then
+    ABuilder.WithCertificateVerifier(FCustomClientCertVerifier);
   if not CertificateData.CertCA.Empty then
     ABuilder.WithTrustAnchors(SSLDataBytes(CertificateData.CertCA));
   if not CertificateData.TrustedCertificate.Empty then
@@ -458,7 +474,7 @@ begin
   // VerifyPeerCert is fcl-net's native verify switch: True runs real verification (and fails closed
   // below when no source is named), False accepts the chain unverified (our loud dangerous bypass).
   // This adapter defaults it True in the constructor, so an unconfigured handler is secure.
-  if HasTrustSource then
+  if (FCustomServerCertVerifier <> nil) or HasSharedTrust then
     ApplyClientTrust(LClient)
   else
   begin
@@ -471,7 +487,7 @@ begin
   if not VerifyPeerCert then
     LClient.WithDangerousInsecureSkipVerify(True);
   if not FCheckHostName then
-    LClient.WithNameCheck(False);
+    LClient.WithDangerousDisableServerNameCheck;
   if System.Length(FAlpnProtocols) > 0 then
     LClient.WithAlpnProtocols(FAlpnProtocols);
   // an optional client credential for mutual TLS
@@ -511,7 +527,7 @@ begin
   // client-cert auth is optional: request + verify only when a client-trust source is named (same
   // composable model as the client). UseSystemTrust here validates CLIENT certs against the OS
   // public web-PKI roots - a broad surface most mTLS servers do not want.
-  if HasTrustSource then
+  if (FCustomClientCertVerifier <> nil) or HasSharedTrust then
   begin
     LServer.WithPeerAuth(TClientAuthMode.Required);
     ApplyServerClientAuth(LServer);
@@ -544,7 +560,7 @@ begin
   LSig.AddFlag('verifyPeer', VerifyPeerCert);
   LSig.AddFlag('checkHost', FCheckHostName);
   LSig.AddFlag('systemTrust', FUseSystemTrust);
-  LSig.AddPointer('customVerifier', FCustomVerifier);
+  LSig.AddPointer('customVerifier', FCustomServerCertVerifier);
   LSig.AddPointer('customStore', FCustomTrustStore);
   for LProto in FAlpnProtocols do
     LSig.AddText('alpn', LProto);
@@ -570,7 +586,7 @@ begin
   SignSslData(LSig, 'trusted', CertificateData.TrustedCertificate);
   LSig.AddSecret('keypw', FKeyPassword);
   LSig.AddFlag('systemTrust', FUseSystemTrust);
-  LSig.AddPointer('customVerifier', FCustomVerifier);
+  LSig.AddPointer('customVerifier', FCustomClientCertVerifier);
   LSig.AddPointer('customStore', FCustomTrustStore);
   for LProto in FAlpnProtocols do
     LSig.AddText('alpn', LProto);
