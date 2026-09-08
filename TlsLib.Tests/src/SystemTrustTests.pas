@@ -11,7 +11,7 @@
 
 /// <summary>Tests for the optional TlsLib.Trust.System package, in two layers:
 ///
-/// 1. A portable fixture suite (always runs on every target). TFileSystemAnchorStore is portable
+/// 1. A portable fixture suite (always runs on every target). TFileSystemRootSource is portable
 ///    and takes an explicit (env, files, dirs) form, so its harvest/resolution logic is exercised
 ///    on any host by injecting throwaway fixture paths - no real /etc/ssl/certs needed - plus a
 ///    check that the TOSSystemTrust factory reports a sane capability for the build's platform.
@@ -59,7 +59,7 @@ uses
   TlsLibTestBase;
 
 type
-  /// <summary>Portable suite (always runs): drives TFileSystemAnchorStore's file/dir resolution
+  /// <summary>Portable suite (always runs): drives TFileSystemRootSource's file/dir resolution
   /// via injected fixtures, and checks the factory reports anchors for this build's platform.</summary>
   TTestSystemTrustFixtures = class(TTlsLibAlgorithmTestCase)
   private
@@ -72,6 +72,10 @@ type
     FRootDer: TBytes;   // the test root DER
     FRoot2Der: TBytes;  // a second, distinct root DER
     procedure WriteBytes(const APath: string; const AData: TBytes);
+    /// <summary>Builds a filesystem source, freezes it into an immutable snapshot, and
+    /// frees the source - the shape every caller uses. Fail-closed harvests raise here.</summary>
+    function FileSnapshot(const AEnvFile, AEnvDir: string;
+      const AFiles, ADirs: TArray<string>): ITrustAnchorStore;
   protected
     procedure SetUp; override;
     procedure TearDown; override;
@@ -82,6 +86,7 @@ type
     procedure TestDirectoryHarvestReadsCerts;
     procedure TestDuplicateCertsAreDeduplicated;
     procedure TestDistinctCertsAreNotMerged;
+    procedure TestSnapshotSurvivesSourceFileDeletion;
     procedure TestFactoryAnchorStoreMatchesSupports;
     procedure TestFactoryDelegateVerifierMatchesSupports;
   end;
@@ -154,6 +159,19 @@ implementation
 
 { TTestSystemTrustFixtures }
 
+function TTestSystemTrustFixtures.FileSnapshot(const AEnvFile, AEnvDir: string;
+  const AFiles, ADirs: TArray<string>): ITrustAnchorStore;
+var
+  LSource: TFileSystemRootSource;
+begin
+  LSource := TFileSystemRootSource.Create(FProvider, AEnvFile, AEnvDir, AFiles, ADirs);
+  try
+    Result := LSource.Snapshot;
+  finally
+    LSource.Free;
+  end;
+end;
+
 procedure TTestSystemTrustFixtures.WriteBytes(const APath: string; const AData: TBytes);
 var
   LStream: TFileStream;
@@ -203,38 +221,29 @@ begin
 end;
 
 procedure TTestSystemTrustFixtures.TestInjectedFileHarvestsRoot;
-var
-  LStore: ITrustAnchorStore;
 begin
   // a single injected bundle file yields exactly its one root
-  LStore := TFileSystemAnchorStore.Create(FProvider, '', '',
-    TArray<string>.Create(FFile), nil) as ITrustAnchorStore;
-  CheckEquals(1, System.Length(LStore.RootCertificates),
+  CheckEquals(1, System.Length(FileSnapshot('', '',
+    TArray<string>.Create(FFile), nil).RootCertificates),
     'the injected bundle file is harvested into one anchor');
 end;
 
 procedure TTestSystemTrustFixtures.TestFirstExistingFileCandidateWins;
-var
-  LStore: ITrustAnchorStore;
 begin
   // a missing candidate is skipped; the first EXISTING file becomes the authoritative store
-  LStore := TFileSystemAnchorStore.Create(FProvider, '', '',
-    TArray<string>.Create(FMissing, FFile), nil) as ITrustAnchorStore;
-  CheckEquals(1, System.Length(LStore.RootCertificates),
+  CheckEquals(1, System.Length(FileSnapshot('', '',
+    TArray<string>.Create(FMissing, FFile), nil).RootCertificates),
     'the first existing candidate file is used, missing ones skipped');
 end;
 
 procedure TTestSystemTrustFixtures.TestNoReadableStoreFailsClosed;
 var
-  LStore: ITrustAnchorStore;
   LRaised: Boolean;
 begin
-  // nothing readable anywhere -> fail closed, never a silent empty trust store
-  LStore := TFileSystemAnchorStore.Create(FProvider, '', '',
-    TArray<string>.Create(FMissing), TArray<string>.Create(FMissing)) as ITrustAnchorStore;
+  // nothing readable anywhere -> fail closed at build, never a silent empty trust store
   LRaised := False;
   try
-    LStore.RootCertificates;
+    FileSnapshot('', '', TArray<string>.Create(FMissing), TArray<string>.Create(FMissing));
   except
     on E: ESystemTrustUnavailableTlsLibException do
       LRaised := True;
@@ -243,32 +252,26 @@ begin
 end;
 
 procedure TTestSystemTrustFixtures.TestDirectoryHarvestReadsCerts;
-var
-  LStore: ITrustAnchorStore;
 begin
   // a directory of certificate files is enumerated and harvested
-  LStore := TFileSystemAnchorStore.Create(FProvider, '', '', nil,
-    TArray<string>.Create(FCertDir)) as ITrustAnchorStore;
-  CheckTrue(System.Length(LStore.RootCertificates) >= 1,
+  CheckTrue(System.Length(FileSnapshot('', '', nil,
+    TArray<string>.Create(FCertDir)).RootCertificates) >= 1,
     'the certificate directory is enumerated into anchors');
 end;
 
 procedure TTestSystemTrustFixtures.TestDuplicateCertsAreDeduplicated;
 var
   LDir: string;
-  LStore: ITrustAnchorStore;
 begin
   LDir := IncludeTrailingPathDelimiter(FDir) + 'dupdir';
   ForceDirectories(LDir);
   try
     WriteBytes(IncludeTrailingPathDelimiter(LDir) + 'a.der', FRootDer);
     WriteBytes(IncludeTrailingPathDelimiter(LDir) + 'b.der', FRootDer);
-    LStore := TFileSystemAnchorStore.Create(FProvider, '', '', nil,
-      TArray<string>.Create(LDir)) as ITrustAnchorStore;
-    CheckEquals(1, System.Length(LStore.RootCertificates),
+    CheckEquals(1, System.Length(FileSnapshot('', '', nil,
+      TArray<string>.Create(LDir)).RootCertificates),
       'the same certificate under two names is de-duplicated to one anchor');
   finally
-    LStore := nil;
     SysUtils.DeleteFile(IncludeTrailingPathDelimiter(LDir) + 'a.der');
     SysUtils.DeleteFile(IncludeTrailingPathDelimiter(LDir) + 'b.der');
     SysUtils.RemoveDir(LDir);
@@ -278,21 +281,41 @@ end;
 procedure TTestSystemTrustFixtures.TestDistinctCertsAreNotMerged;
 var
   LDir: string;
-  LStore: ITrustAnchorStore;
 begin
   LDir := IncludeTrailingPathDelimiter(FDir) + 'distinctdir';
   ForceDirectories(LDir);
   try
     WriteBytes(IncludeTrailingPathDelimiter(LDir) + 'r1.der', FRootDer);
     WriteBytes(IncludeTrailingPathDelimiter(LDir) + 'r2.der', FRoot2Der);
-    LStore := TFileSystemAnchorStore.Create(FProvider, '', '', nil,
-      TArray<string>.Create(LDir)) as ITrustAnchorStore;
-    CheckEquals(2, System.Length(LStore.RootCertificates),
+    CheckEquals(2, System.Length(FileSnapshot('', '', nil,
+      TArray<string>.Create(LDir)).RootCertificates),
       'two distinct certificates are harvested as two anchors');
   finally
-    LStore := nil;
     SysUtils.DeleteFile(IncludeTrailingPathDelimiter(LDir) + 'r1.der');
     SysUtils.DeleteFile(IncludeTrailingPathDelimiter(LDir) + 'r2.der');
+    SysUtils.RemoveDir(LDir);
+  end;
+end;
+
+procedure TTestSystemTrustFixtures.TestSnapshotSurvivesSourceFileDeletion;
+var
+  LDir, LFile: string;
+  LStore: ITrustAnchorStore;
+begin
+  // the snapshot owns its DER: once built, deleting the underlying bundle does not change it
+  LDir := IncludeTrailingPathDelimiter(FDir) + 'snapdir';
+  ForceDirectories(LDir);
+  LFile := IncludeTrailingPathDelimiter(LDir) + 'snap.der';
+  try
+    WriteBytes(LFile, FRootDer);
+    LStore := FileSnapshot('', '', TArray<string>.Create(LFile), nil);
+    CheckEquals(1, System.Length(LStore.RootCertificates),
+      'the snapshot harvested the bundle');
+    SysUtils.DeleteFile(LFile);
+    CheckEquals(1, System.Length(LStore.RootCertificates),
+      'the snapshot still returns its roots after the source file is deleted');
+  finally
+    SysUtils.DeleteFile(LFile);
     SysUtils.RemoveDir(LDir);
   end;
 end;
@@ -301,13 +324,20 @@ procedure TTestSystemTrustFixtures.TestFactoryAnchorStoreMatchesSupports;
 var
   LRaised: Boolean;
 begin
-  // the factory's AnchorStore must AGREE with Supports(Anchors) on every platform: a store where
-  // supported (Windows/macOS/Unix), a typed unsupported error where not (iOS/Android). This is
-  // platform-agnostic - the contract itself is the invariant, no per-OS expected value hardcoded.
-  // Construction is lazy (no harvest here), so this is safe on an empty box.
+  // the factory's AnchorStore must AGREE with Supports(Anchors) on every platform: a snapshot
+  // where supported (Windows/macOS/Unix), a typed UNSUPPORTED error where not (iOS/Android). On a
+  // supported platform AnchorStore harvests eagerly, so a bare box with no readable roots may
+  // instead fail closed with UNAVAILABLE - both honor the contract; only UNSUPPORTED would not.
   if TOSSystemTrust.Supports(TSystemTrustMode.Anchors) then
-    CheckTrue(TOSSystemTrust.AnchorStore(FProvider) <> nil,
-      'a platform that supports Anchors must hand back an anchor store')
+  begin
+    try
+      CheckTrue(TOSSystemTrust.AnchorStore(FProvider) <> nil,
+        'a platform that supports Anchors hands back an anchor snapshot');
+    except
+      on E: ESystemTrustUnavailableTlsLibException do
+        ; // acceptable: the platform supports Anchors but this box has no readable roots
+    end;
+  end
   else
   begin
     LRaised := False;
@@ -417,8 +447,15 @@ end;
 { TTestWindowsSystemTrust }
 
 function TTestWindowsSystemTrust.CreateAnchorStore: ITrustAnchorStore;
+var
+  LSource: TWindowsRootSource;
 begin
-  Result := TWindowsAnchorStore.Create(FProvider) as ITrustAnchorStore;
+  LSource := TWindowsRootSource.Create(FProvider);
+  try
+    Result := LSource.Snapshot;
+  finally
+    LSource.Free;
+  end;
 end;
 
 function TTestWindowsSystemTrust.PlatformName: string;
@@ -433,8 +470,15 @@ end;
 { TTestMacOSSystemTrust }
 
 function TTestMacOSSystemTrust.CreateAnchorStore: ITrustAnchorStore;
+var
+  LSource: TAppleRootSource;
 begin
-  Result := TAppleAnchorStore.Create(FProvider) as ITrustAnchorStore;
+  LSource := TAppleRootSource.Create(FProvider);
+  try
+    Result := LSource.Snapshot;
+  finally
+    LSource.Free;
+  end;
 end;
 
 function TTestMacOSSystemTrust.PlatformName: string;
@@ -449,8 +493,15 @@ end;
 { TTestUnixSystemTrust }
 
 function TTestUnixSystemTrust.CreateAnchorStore: ITrustAnchorStore;
+var
+  LSource: TUnixRootSource;
 begin
-  Result := TUnixAnchorStore.Create(FProvider) as ITrustAnchorStore;
+  LSource := TUnixRootSource.Create(FProvider);
+  try
+    Result := LSource.Snapshot;
+  finally
+    LSource.Free;
+  end;
 end;
 
 function TTestUnixSystemTrust.PlatformName: string;

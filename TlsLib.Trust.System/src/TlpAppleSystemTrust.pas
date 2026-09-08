@@ -52,7 +52,7 @@ type
   /// setting result is Deny so OS distrust is honored. iOS has no equivalent
   /// enumeration API, so this store is macOS-only. Emits neutral DER.
   /// </summary>
-  TAppleAnchorStore = class sealed(TSystemTrustBase)
+  TAppleRootSource = class sealed(TSystemRootSource)
   strict protected
     function HarvestRoots: TArray<TBytes>; override;
     function SourceName: string; override;
@@ -547,9 +547,9 @@ begin
   end;
 end;
 
-{ TAppleAnchorStore }
+{ TAppleRootSource }
 
-function TAppleAnchorStore.HarvestRoots: TArray<TBytes>;
+function TAppleRootSource.HarvestRoots: TArray<TBytes>;
 var
   LRaw: TArray<TBytes>;
   LI: Integer;
@@ -567,7 +567,7 @@ begin
   end;
 end;
 
-function TAppleAnchorStore.SourceName: string;
+function TAppleRootSource.SourceName: string;
 begin
   Result := 'macOS';
 end;

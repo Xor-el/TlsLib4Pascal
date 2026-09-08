@@ -17,10 +17,10 @@ interface
 
 uses
   SysUtils,
-  SyncObjs,
   Generics.Collections,
   TlpICryptoProvider,
   TlpICertificateTrust,
+  TlpCertificateVerifier,
   TlpSystemTrustExceptions;
 
 type
@@ -40,21 +40,21 @@ type
   end;
 
   /// <summary>
-  /// Abstract base for the platform trust-anchor harvesters. Caches the harvested
-  /// roots behind a lock (refreshable), validates each blob is a well-formed DER
-  /// certificate, and de-duplicates. Fail-closed: an empty harvest raises rather
-  /// than presenting an empty anchor set. Subclasses override HarvestRoots.
+  /// Abstract platform trust-root SOURCE - it reads the OS trust store, it is not
+  /// itself a trust store. Snapshot freezes the harvested roots into an immutable
+  /// TTrustAnchorStore that the verifier consumes, so the anchors a config validates
+  /// against are fixed at build time and never change under it; picking up OS changes
+  /// means building a new snapshot. A source is a short-lived helper the caller owns
+  /// and frees, and nothing is read until Harvest. Fail-closed: an empty or unreadable
+  /// harvest raises rather than yielding an empty anchor set. Subclasses override
+  /// HarvestRoots.
   /// </summary>
-  TSystemTrustBase = class abstract(TInterfacedObject, ITrustAnchorStore)
+  TSystemRootSource = class abstract(TObject)
   strict private
-    FLock: TCriticalSection;
     FProvider: ICryptoProvider;
-    FRoots: TArray<TBytes>;
-    FLoaded: Boolean;
-    class function CloneRoots(const ARoots: TArray<TBytes>): TArray<TBytes>; static;
   strict protected
-    /// <summary>Gather the platform's trusted roots as DER. May return empty; the
-    /// base turns an empty result into a fail-closed error.</summary>
+    /// <summary>Gather the platform's trusted roots as DER. May return empty; Harvest
+    /// turns an empty result into a fail-closed error.</summary>
     function HarvestRoots: TArray<TBytes>; virtual; abstract;
     /// <summary>Human-readable source label, used in the fail-closed message.</summary>
     function SourceName: string; virtual; abstract;
@@ -68,11 +68,12 @@ type
       const ADer: TBytes);
   public
     constructor Create(const AProvider: ICryptoProvider);
-    destructor Destroy; override;
-
-    function RootCertificates: TArray<TBytes>;
-    /// <summary>Discards the cache so the next access re-harvests the OS store.</summary>
-    procedure Refresh;
+    /// <summary>Reads the source now. Fail-closed: an empty or unreadable source
+    /// raises ESystemTrustUnavailableTlsLibException; a non-empty result is returned
+    /// as harvested.</summary>
+    function Harvest: TArray<TBytes>;
+    /// <summary>Harvests now and freezes the result into an immutable anchor store.</summary>
+    function Snapshot: ITrustAnchorStore;
   end;
 
 implementation
@@ -114,25 +115,17 @@ begin
   Result := FRoots.ToArray;
 end;
 
-{ TSystemTrustBase }
+{ TSystemRootSource }
 
-constructor TSystemTrustBase.Create(const AProvider: ICryptoProvider);
+constructor TSystemRootSource.Create(const AProvider: ICryptoProvider);
 begin
   inherited Create;
   if AProvider = nil then
     raise ESystemTrustUnavailableTlsLibException.CreateRes(@SNoProvider);
   FProvider := AProvider;
-  FLock := TCriticalSection.Create;
-  FLoaded := False;
 end;
 
-destructor TSystemTrustBase.Destroy;
-begin
-  FLock.Free;
-  inherited Destroy;
-end;
-
-procedure TSystemTrustBase.AddUnique(const AAccumulator: TSystemRootAccumulator;
+procedure TSystemRootSource.AddUnique(const AAccumulator: TSystemRootAccumulator;
   const ADer: TBytes);
 begin
   if not FProvider.Certificates.IsWellFormed(ADer) then
@@ -140,46 +133,18 @@ begin
   AAccumulator.Add(ADer);
 end;
 
-class function TSystemTrustBase.CloneRoots(
-  const ARoots: TArray<TBytes>): TArray<TBytes>;
-var
-  LI: Integer;
+function TSystemRootSource.Harvest: TArray<TBytes>;
 begin
-  Result := nil;
-  SetLength(Result, Length(ARoots));
-  for LI := 0 to Length(ARoots) - 1 do
-    Result[LI] := Copy(ARoots[LI], 0, Length(ARoots[LI]));
+  Result := HarvestRoots;
+  if Length(Result) = 0 then
+    raise ESystemTrustUnavailableTlsLibException.CreateResFmt(
+      @SSystemTrustEmpty, [SourceName]);
 end;
 
-function TSystemTrustBase.RootCertificates: TArray<TBytes>;
+function TSystemRootSource.Snapshot: ITrustAnchorStore;
 begin
-  FLock.Enter;
-  try
-    if not FLoaded then
-    begin
-      FRoots := HarvestRoots;
-      FLoaded := True;
-    end;
-
-    if Length(FRoots) = 0 then
-      raise ESystemTrustUnavailableTlsLibException.CreateResFmt(
-        @SSystemTrustEmpty, [SourceName]);
-
-    Result := CloneRoots(FRoots);
-  finally
-    FLock.Leave;
-  end;
-end;
-
-procedure TSystemTrustBase.Refresh;
-begin
-  FLock.Enter;
-  try
-    FRoots := nil;
-    FLoaded := False;
-  finally
-    FLock.Leave;
-  end;
+  // a failed harvest raises here, before any store is built
+  Result := TTrustAnchorStore.Create(Harvest) as ITrustAnchorStore;
 end;
 
 end.

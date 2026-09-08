@@ -19,6 +19,7 @@ uses
   SysUtils,
   TlpICryptoProvider,
   TlpICertificateTrust,
+  TlpSystemTrustBase,
   TlpSystemTrustExceptions
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
   , TlpWindowsSystemTrust
@@ -95,24 +96,30 @@ end;
 
 class function TOSSystemTrust.AnchorStore(const AProvider: ICryptoProvider)
   : ITrustAnchorStore;
+var
+  LSource: TSystemRootSource;
 begin
-  Result := nil;
+  LSource := nil;
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
-  Result := TWindowsAnchorStore.Create(AProvider);
+  LSource := TWindowsRootSource.Create(AProvider);
 {$ELSEIF DEFINED(TLSLIB_IOS)}
   raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoHarvest);
 {$ELSEIF DEFINED(TLSLIB_MACOS)}
-  Result := TAppleAnchorStore.Create(AProvider);
+  LSource := TAppleRootSource.Create(AProvider);
 {$ELSEIF DEFINED(TLSLIB_ANDROID)}
   // Android is delegate-only: the filesystem store is stale/partial (APEX-updated roots,
   // user-installed CAs, network-security-config), so harvesting is banned - use the OS delegate.
   raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoHarvest);
 {$ELSEIF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_BSD) OR DEFINED(TLSLIB_SOLARIS)}
-  Result := TUnixAnchorStore.Create(AProvider);
+  LSource := TUnixRootSource.Create(AProvider);
 {$ELSE}
   {$MESSAGE ERROR 'UNSUPPORTED TARGET.'}
-  Result := nil;
 {$IFEND}
+  try
+    Result := LSource.Snapshot;
+  finally
+    LSource.Free;
+  end;
 end;
 
 class function TOSSystemTrust.DelegateVerifier(const AProvider: ICryptoProvider)
