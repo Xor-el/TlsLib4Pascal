@@ -234,7 +234,7 @@ end;
 
 function TFileSystemAnchorStore.SourceName: string;
 begin
-  Result := 'filesystem';
+  Result := 'FileSystem';
 end;
 
 end.

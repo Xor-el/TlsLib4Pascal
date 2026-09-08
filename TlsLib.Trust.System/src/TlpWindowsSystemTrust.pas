@@ -18,11 +18,7 @@ interface
 {$IFDEF TLSLIB_MSWINDOWS}
 
 uses
-{$IFDEF FPC}
   Windows,
-{$ELSE}
-  Winapi.Windows,
-{$ENDIF}
   Generics.Collections,
   SysUtils,
   TlpTlsAlert,
