@@ -1,0 +1,20 @@
+TlsLib.Trust.System/src/TlpSystemTrustFacade.pas
+  s_16bbbcaf8bdfa4::t_3eeb398aa50fcc 26-28,30-36
+  s_16bbbcaf8bdfa4::t_a823be53d58890 114-116,118-121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "e2ae0f65ae5a32292781cd22e6e0f3a9a3ad41e7",
+  "prompts": {},
+  "sessions": {
+    "s_16bbbcaf8bdfa4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "42209e6c-e709-4190-9407-f1ee321cee10",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
