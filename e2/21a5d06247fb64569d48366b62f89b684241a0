@@ -1,0 +1,19 @@
+TlsLib.Trust.System/src/TlpFileSystemTrust.pas
+  s_5a67515d751fb4::t_e61898661063aa 237
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "e221a5d06247fb64569d48366b62f89b684241a0",
+  "prompts": {},
+  "sessions": {
+    "s_5a67515d751fb4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a8510d7587b665e91",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
