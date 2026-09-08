@@ -23,9 +23,17 @@ uses
   TlpOSSystemTrust;
 
 resourcestring
-  SNoServerDelegate =
+  // a server cannot delegate client-certificate (mTLS) verification to the OS; the guidance
+  // differs by platform, since Anchors mode is only available where the OS roots can be enumerated
+  SNoServerDelegateUseAnchors =
     'OS trust delegation verifies server certificates only; a server cannot delegate ' +
-    'client-certificate (mTLS) verification to the OS. Use Anchors mode or a custom verifier';
+    'client-certificate (mTLS) verification to the OS. Use Anchors mode (harvest the OS ' +
+    'roots into the validator) or a custom verifier';
+  SNoServerDelegateNoAnchors =
+    'OS trust delegation verifies server certificates only; a server cannot delegate ' +
+    'client-certificate (mTLS) verification to the OS. This platform cannot enumerate the ' +
+    'OS roots, so supply an explicit trust anchor (WithTrustAnchors/WithTrustStore) or a ' +
+    'custom verifier';
 
 type
   /// <summary>
@@ -103,9 +111,14 @@ var
 begin
   ResolveSource(AProvider, AMode, LStore, LVerifier);
   // the OS delegate verifies SERVER certificates (serverAuth); it cannot verify a peer
-  // CLIENT certificate for an mTLS server. Anchors mode (harvest OS roots) still applies.
+  // CLIENT certificate for an mTLS server. Point at Anchors mode where the platform can
+  // enumerate OS roots, else at an explicit anchor - so a server never authenticates
+  // clients against the OS (public web-PKI) roots by accident.
   if LVerifier <> nil then
-    raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoServerDelegate);
+    if TOSSystemTrust.Supports(TSystemTrustMode.Anchors) then
+      raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoServerDelegateUseAnchors)
+    else
+      raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoServerDelegateNoAnchors);
   ABuilder.WithTrustStore(LStore);
   Result := ABuilder;
 end;
