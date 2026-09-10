@@ -48,6 +48,7 @@ type
     procedure TestOuterRoundTrip;
     procedure TestInnerRoundTrip;
     procedure TestUnknownTypeRejected;
+    procedure TestEmptyPayloadRejected;
     procedure TestOuterTrailingBytesRejected;
     procedure TestOuterExtensionsRoundTrip;
     procedure TestEmptyOuterExtensionsRejected;
@@ -132,6 +133,18 @@ begin
   CheckTrue(LRaised, 'an unknown ECH type is rejected');
   CheckEquals(Ord(TTlsAlertDescription.IllegalParameter), Ord(LAlert),
     'an unknown ECH type is illegal_parameter');
+end;
+
+procedure TTestEchExtension.TestEmptyPayloadRejected;
+var
+  LOuter: TEchOuterClientHello;
+begin
+  // payload<1..2^16-1> (RFC 9849 sec. 5): a zero-length outer payload is a wire-syntax
+  // violation rejected at parse, not a decryption failure
+  LOuter := SampleOuter;
+  LOuter.Payload := nil;
+  CheckTrue(DecodeRaises(TEchExtension.EncodeOuter(LOuter)),
+    'a zero-length outer payload is rejected as decode_error');
 end;
 
 procedure TTestEchExtension.TestOuterTrailingBytesRejected;

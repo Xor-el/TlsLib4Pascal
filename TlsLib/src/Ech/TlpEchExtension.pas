@@ -100,6 +100,7 @@ resourcestring
   SUnknownEchType = 'unknown encrypted_client_hello type';
   SEmptyOuterExtensions = 'ech_outer_extensions must reference at least one extension';
   SBadConfirmationLength = 'encrypted_client_hello confirmation must be 8 bytes';
+  SEmptyEchPayload = 'encrypted_client_hello payload must be at least one byte';
 
 { TEchClientHelloTypeHelper }
 
@@ -168,6 +169,11 @@ begin
         LEnc := LReader.OpenVector(2);
         AOuter.Enc := LEnc.ReadBytes(LEnc.Remaining);
         LPayload := LReader.OpenVector(2);
+        // payload<1..2^16-1> (RFC 9849 sec. 5): an empty payload is a wire-syntax
+        // violation, not a decryption failure - reject at parse rather than let a
+        // never-openable ciphertext reach the AEAD
+        if LPayload.Remaining = 0 then
+          raise EDecodeErrorTlsLibException.CreateRes(@SEmptyEchPayload);
         AOuter.Payload := LPayload.ReadBytes(LPayload.Remaining);
       end;
     TEchClientHelloType.Inner:

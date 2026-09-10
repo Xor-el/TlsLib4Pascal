@@ -563,6 +563,13 @@ type
     /// seal. False for an unknown KEM.
     /// </summary>
     function ValidatePublicKey(AKem: UInt16; const APublicKey: TBytes): Boolean;
+    /// <summary>
+    /// A KEM encapsulation for AKem against a throwaway placeholder recipient - the real output of
+    /// a base-mode setup, not a bare public key, so it is a valid encapsulation for any KEM (the
+    /// two coincide only for a DH KEM). A GREASE ech (RFC 9849 sec. 6.2) uses it as its enc so the
+    /// decoy carries a genuine encapsulation shape. nil for an unknown KEM.
+    /// </summary>
+    function RandomEncapsulation(AKem: UInt16): TBytes;
   end;
 
 { ===== PEM (RFC 7468) ===== }

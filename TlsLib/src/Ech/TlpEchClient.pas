@@ -58,7 +58,7 @@ type
   /// padding) and drives the HPKE seal against a selected ECHConfig. A per-connection
   /// instance holds the live sealer so a HelloRetryRequest can re-seal at seq=1.
   /// </summary>
-  TEchClientHandshake = class sealed(TObject)
+  TEchClientHandshake = class sealed(TInterfacedObject, IEchClientHandshake)
   strict private
   var
     FProvider: ICryptoProvider;

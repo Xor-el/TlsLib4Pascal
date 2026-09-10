@@ -51,6 +51,9 @@ uses
   TlpTls13ServerStateMachine,
   TlpCryptoDomainTypes,
   TlpISecretBuffer,
+  TlpWireReader,
+  TlpHandshakeMessages,
+  TlpEchOuterExtensions,
   TlpEchConfig,
   TlpEchClient,
   TlpInMemoryEchKeyStore,
@@ -115,11 +118,15 @@ type
     procedure Pump(const ASrc, ADst: ITlsEngine);
     procedure PumpCoalesced(const ASrc, ADst: ITlsEngine);
     function ReadAllApp(const AEngine: ITlsEngine): TBytes;
+    // the pre_shared_key extension data (identities + binders) from the outer ClientHello in a
+    // record-framed client flight, skipping any leading ChangeCipherSpec; nil when there is none
+    function OuterPskExtData(const AFlight: TBytes): TBytes;
   published
     procedure TestEchAcceptLoopback;
     procedure TestEchHrrAcceptLoopback;
     procedure TestEchRejectHrrLoopback;
     procedure TestEchResumeHrrLoopback;
+    procedure TestEchGreasePskBindersDifferAcrossHrr;
     procedure TestEchResumptionLoopback;
     procedure TestEchZeroRttLoopback;
     procedure TestEchResumeThenRejectLoopback;
@@ -691,6 +698,105 @@ begin
     'ECH accepted on the resumed HRR handshake');
   CheckTrue(LClient.IsResumed, 'the ECH client resumed across the HRR via the inner PSK');
   CheckTrue(LServer.IsResumed, 'the ECH server resumed across the HRR');
+end;
+
+function TTestTls13Loopback.OuterPskExtData(const AFlight: TBytes): TBytes;
+var
+  LPos, LRecLen, LHsLen, LI: Int32;
+  LBody: TBytes;
+  LHello: TTlsClientHello;
+  LReader, LExtsVec: TWireReader;
+  LEntries: TArray<TEchExtEntry>;
+begin
+  Result := nil;
+  LPos := 0;
+  // walk records: a flight can lead with a middlebox-compat ChangeCipherSpec (type 20); the
+  // ClientHello is the handshake record (type 22) whose first message is a ClientHello (type 1)
+  while LPos + 9 <= System.Length(AFlight) do
+  begin
+    LRecLen := (AFlight[LPos + 3] shl 8) or AFlight[LPos + 4];
+    if (AFlight[LPos] = 22) and (AFlight[LPos + 5] = 1) then
+    begin
+      LHsLen := (AFlight[LPos + 6] shl 16) or (AFlight[LPos + 7] shl 8) or AFlight[LPos + 8];
+      LBody := System.Copy(AFlight, LPos + 9, LHsLen);
+      LHello := THandshakeMessages.DecodeClientHello(LBody);
+      LReader := TWireReader.Create(LHello.Extensions);
+      LExtsVec := LReader.OpenVector(2);
+      LEntries := TEchOuterExtensions.ParseExtensions(
+        LExtsVec.ReadBytes(LExtsVec.Remaining));
+      for LI := 0 to System.High(LEntries) do
+        if LEntries[LI].ExtType = TExtensionTypes.PreSharedKey then
+          Exit(LEntries[LI].Data);
+      Exit;
+    end;
+    Inc(LPos, 5 + LRecLen);
+  end;
+end;
+
+procedure TTestTls13Loopback.TestEchGreasePskBindersDifferAcrossHrr;
+var
+  LCache: ISessionCache;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+  LIterations, LIdLen1, LIdLen2, LI: Int32;
+  LCh1, LCh2, LPsk1, LPsk2, LIds1, LIds2, LBind1, LBind2: TBytes;
+  LSameBinders: Boolean;
+begin
+  // resume + ECH + HRR: the resuming client carries a GREASE pre_shared_key on the outer, retried
+  // across an HRR. CH2 must keep CH1's PSK identities AND obfuscated ticket ages verbatim (a real
+  // offer's age moves only by the retry round-trip) while regenerating the binders, as a real
+  // resumption CH2 does - a fresh age or a verbatim binder would fingerprint the decoy (RFC 9849
+  // sec. 10.10.4, RFC 8446 4.1.2/4.2.11.1)
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+
+  // first ECH+HRR handshake issues a resumption ticket
+  LClient := NewEchHrrClient(LCache);
+  LServer := NewEchHrrServer(LStore, 1);
+  LClient.StartHandshake;
+  LIterations := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LIterations);
+  end;
+  CheckEquals(1, LCache.Count, 'the first handshake cached a ticket');
+
+  // second handshake: capture CH1 outer, deliver the HRR, capture CH2 outer
+  LClient := NewEchHrrClient(LCache);
+  LServer := NewEchHrrServer(LStore, 0);
+  LClient.StartHandshake;
+  LCh1 := Drain(LClient);        // ClientHelloOuter #1 (GREASE outer pre_shared_key)
+  Feed(LServer, LCh1);
+  Feed(LClient, Drain(LServer)); // deliver the HelloRetryRequest
+  LCh2 := Drain(LClient);        // ClientHelloOuter #2 (retry, possibly led by a CCS record)
+
+  LPsk1 := OuterPskExtData(LCh1);
+  LPsk2 := OuterPskExtData(LCh2);
+  CheckTrue(System.Length(LPsk1) > 2, 'CH1 carries a GREASE pre_shared_key');
+  CheckTrue(System.Length(LPsk2) > 2, 'CH2 carries a GREASE pre_shared_key');
+
+  // OfferedPsks = PskIdentity list<2> then binders<2>; the identities section (identity + age per
+  // offer) is byte-identical across the HRR, and the binders (at the same offset) must differ
+  LIdLen1 := (LPsk1[0] shl 8) or LPsk1[1];
+  LIdLen2 := (LPsk2[0] shl 8) or LPsk2[1];
+  LIds1 := System.Copy(LPsk1, 0, 2 + LIdLen1);
+  LIds2 := System.Copy(LPsk2, 0, 2 + LIdLen2);
+  CheckEqualBytes('GREASE PSK identities and ages are stable across the HRR', LIds1, LIds2);
+  LBind1 := System.Copy(LPsk1, 2 + LIdLen1, System.Length(LPsk1));
+  LBind2 := System.Copy(LPsk2, 2 + LIdLen1, System.Length(LPsk2));
+  CheckTrue(System.Length(LBind1) > 0, 'there is a binder section');
+  LSameBinders := System.Length(LBind1) = System.Length(LBind2);
+  if LSameBinders then
+    for LI := 0 to System.High(LBind1) do
+      if LBind1[LI] <> LBind2[LI] then
+      begin
+        LSameBinders := False;
+        Break;
+      end;
+  CheckFalse(LSameBinders,
+    'GREASE PSK binders are regenerated on the retry ClientHello');
 end;
 
 procedure TTestTls13Loopback.TestEchResumptionLoopback;
