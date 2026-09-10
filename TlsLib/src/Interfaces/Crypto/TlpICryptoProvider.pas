@@ -465,7 +465,7 @@ type
   /// <summary>
   /// A provider-instantiated HPKE suite (RFC 9180 base mode): the (KEM, KDF, AEAD) codepoint
   /// triple bound to the provider's implementation of it. Obtained from
-  /// <see cref="IHpke.Suite" />, which returns nil for a suite the provider cannot instantiate,
+  /// <see cref="IHpkeFacet.Suite" />, which returns nil for a suite the provider cannot instantiate,
   /// so an IHpkeSuite always denotes a usable suite - one you can seal or open with, needing no
   /// separate support check.
   /// </summary>
@@ -520,7 +520,7 @@ type
   /// the UInt16 HPKE codepoints, and the <see cref="IHpkeSuite" /> / <see cref="IHpkeRecipientKey" />
   /// handles. No backend type crosses this seam.
   /// </summary>
-  IHpke = interface(IInterface)
+  IHpkeFacet = interface(IInterface)
     ['{4D8F1C60-3A72-4E59-9B14-6C0D2E7A3B58}']
     /// <summary>
     /// The provider's instance of the suite (AKem, AKdf, AAead), or nil when it cannot
@@ -607,7 +607,7 @@ type
     function PathValidation: ICertificatePathValidator;
     function Revocation: IRevocationChecker;
     /// <summary>The HPKE facet (RFC 9180), used by Encrypted Client Hello.</summary>
-    function Hpke: IHpke;
+    function Hpke: IHpkeFacet;
     /// <summary>The PEM codec (RFC 7468).</summary>
     function Pem: IPemCodec;
   end;
@@ -628,7 +628,7 @@ type
     function WithInspector(const AInspector: ICertificateInspector): ICryptoProviderBuilder;
     function WithPathValidation(const APathValidation: ICertificatePathValidator): ICryptoProviderBuilder;
     function WithRevocation(const ARevocation: IRevocationChecker): ICryptoProviderBuilder;
-    function WithHpke(const AHpke: IHpke): ICryptoProviderBuilder;
+    function WithHpke(const AHpke: IHpkeFacet): ICryptoProviderBuilder;
     function WithPem(const APem: IPemCodec): ICryptoProviderBuilder;
     /// <summary>Composes the provider from the accumulated overrides.</summary>
     function Build: ICryptoProvider;

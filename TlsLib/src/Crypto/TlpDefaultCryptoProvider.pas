@@ -169,7 +169,7 @@ type
     Inspector: ICertificateInspector;
     PathValidation: ICertificatePathValidator;
     Revocation: IRevocationChecker;
-    Hpke: IHpke;
+    Hpke: IHpkeFacet;
     Pem: IPemCodec;
   end;
 
@@ -190,7 +190,7 @@ type
     FInspector: ICertificateInspector;
     FPathValidation: ICertificatePathValidator;
     FRevocation: IRevocationChecker;
-    FHpke: IHpke;
+    FHpke: IHpkeFacet;
     FPem: IPemCodec;
   public
     /// <summary>The single composition point. Resolves the effective RNG first (a supplied
@@ -214,7 +214,7 @@ type
     function Certificates: ICertificateInspector;
     function PathValidation: ICertificatePathValidator;
     function Revocation: IRevocationChecker;
-    function Hpke: IHpke;
+    function Hpke: IHpkeFacet;
     function Pem: IPemCodec;
   end;
 
@@ -234,7 +234,7 @@ type
     function WithInspector(const AInspector: ICertificateInspector): ICryptoProviderBuilder;
     function WithPathValidation(const APathValidation: ICertificatePathValidator): ICryptoProviderBuilder;
     function WithRevocation(const ARevocation: IRevocationChecker): ICryptoProviderBuilder;
-    function WithHpke(const AHpke: IHpke): ICryptoProviderBuilder;
+    function WithHpke(const AHpke: IHpkeFacet): ICryptoProviderBuilder;
     function WithPem(const APem: IPemCodec): ICryptoProviderBuilder;
     function Build: ICryptoProvider;
   end;
@@ -716,8 +716,8 @@ type
       const AEnc, AInfo: TBytes): IHpkeOpener;
   end;
 
-  // IHpke - RFC 9180 base-mode HPKE over CryptoLib's ClpHpke (TDhKem for KEM key ops).
-  THpkeFacet = class(TInterfacedObject, IHpke)
+  // the RFC 9180 base-mode HPKE facet.
+  THpkeFacet = class(TInterfacedObject, IHpkeFacet)
   private
     class procedure WriteOrdinal<T>(out AResult: T; AOrdinal: UInt16); static;
     class function KemIdOf(AKem: UInt16): THpkeKemId; static;
@@ -727,7 +727,7 @@ type
     class function IsKnownKdf(AKdf: UInt16): Boolean; static;
     class function IsRealAead(AAead: UInt16): Boolean; static;
     class function KemFacade(AKem: UInt16): IHpkeKem; static;
-    class function HpkeFacade(AKem, AKdf, AAead: UInt16): ClpIHpke.IHpke; static;
+    class function HpkeFacade(AKem, AKdf, AAead: UInt16): IHpke; static;
   public
     function Suite(AKem, AKdf, AAead: UInt16): IHpkeSuite;
     function ImportRecipientKey(AKem: UInt16;
@@ -1785,7 +1785,7 @@ end;
 function THpkeRecipientKey.SetupOpener(const ASuite: IHpkeSuite;
   const AEnc, AInfo: TBytes): IHpkeOpener;
 var
-  LHpke: ClpIHpke.IHpke;
+  LHpke: IHpke;
   LCtx: IHpkeContext;
 begin
   if ASuite.Kem <> FKem then
@@ -1912,10 +1912,10 @@ begin
   Result := TDhKem.Create(KemIdOf(AKem)) as IHpkeKem;
 end;
 
-class function THpkeFacet.HpkeFacade(AKem, AKdf, AAead: UInt16): ClpIHpke.IHpke;
+class function THpkeFacet.HpkeFacade(AKem, AKdf, AAead: UInt16): IHpke;
 begin
   Result := THpke.Create(THpkeMode.Base, KemIdOf(AKem), KdfIdOf(AKdf),
-    AeadIdOf(AAead)) as ClpIHpke.IHpke;
+    AeadIdOf(AAead)) as IHpke;
 end;
 
 { THpkeSuite }
@@ -1953,7 +1953,7 @@ end;
 procedure THpkeSuite.SetupSealer(const ARecipientPublicKey, AInfo: TBytes;
   out AEnc: TBytes; out ASealer: IHpkeSealer);
 var
-  LHpke: ClpIHpke.IHpke;
+  LHpke: IHpke;
   LpkR: IAsymmetricKeyParameter;
   LCtx: IHpkeContextWithEncapsulation;
 begin
@@ -1975,7 +1975,7 @@ end;
 function THpkeFacet.ValidatePublicKey(AKem: UInt16;
   const APublicKey: TBytes): Boolean;
 var
-  LHpke: ClpIHpke.IHpke;
+  LHpke: IHpke;
   LpkR: IAsymmetricKeyParameter;
   LCtx: IHpkeContextWithEncapsulation;
 begin
@@ -1999,7 +1999,7 @@ end;
 
 function THpkeFacet.RandomEncapsulation(AKem: UInt16): TBytes;
 var
-  LHpke: ClpIHpke.IHpke;
+  LHpke: IHpke;
   LPub: TBytes;
   LPriv: ISecretBuffer;
   LpkR: IAsymmetricKeyParameter;
@@ -2020,7 +2020,7 @@ end;
 function THpkeFacet.ImportRecipientKey(AKem: UInt16;
   const APrivateKey: ISecretBuffer): IHpkeRecipientKey;
 var
-  LHpke: ClpIHpke.IHpke;
+  LHpke: IHpke;
   LKp: IAsymmetricCipherKeyPair;
   LSk, LPub: TBytes;
 begin
@@ -2191,7 +2191,7 @@ begin
   if AOverrides.Hpke <> nil then
     FHpke := AOverrides.Hpke
   else
-    FHpke := THpkeFacet.Create as IHpke;
+    FHpke := THpkeFacet.Create as IHpkeFacet;
 
   if AOverrides.Pem <> nil then
     FPem := AOverrides.Pem
@@ -2333,7 +2333,7 @@ begin
   Result := FRevocation;
 end;
 
-function TDefaultCryptoProvider.Hpke: IHpke;
+function TDefaultCryptoProvider.Hpke: IHpkeFacet;
 begin
   Result := FHpke;
 end;
@@ -3568,7 +3568,7 @@ begin
 end;
 
 function TCryptoProviderBuilder.WithHpke(
-  const AHpke: IHpke): ICryptoProviderBuilder;
+  const AHpke: IHpkeFacet): ICryptoProviderBuilder;
 begin
   FOverrides.Hpke := AHpke;
   Result := Self;
