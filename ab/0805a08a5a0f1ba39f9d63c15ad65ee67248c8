@@ -1,0 +1,74 @@
+TlsLib/src/Ech/TlpEchClient.pas
+  s_16bbbcaf8bdfa4::t_7e3243bc7847ce 61
+TlsLib/src/Ech/TlpEchConfig.pas
+  s_16bbbcaf8bdfa4::t_5e9097adc75e20 455-458,465
+TlsLib/src/Crypto/TlpDefaultCryptoProvider.pas
+  s_16bbbcaf8bdfa4::t_1f33b7354afdb9 740
+  s_16bbbcaf8bdfa4::t_e60a227877d6ad 2000-2019
+TlsLib/src/Interfaces/Ech/TlpIEch.pas
+  s_16bbbcaf8bdfa4::t_e9d5b301acdc89 21
+  s_16bbbcaf8bdfa4::t_90708c5c49e694 63-98
+TlsLib.Tests/src/EchConfigTests.pas
+  s_16bbbcaf8bdfa4::t_8e58277a115f8f 335-351
+  s_16bbbcaf8bdfa4::t_295e1b08d7a2d2 71
+TlsLib/src/Ech/TlpEchServer.pas
+  s_16bbbcaf8bdfa4::t_ae2ab4980e8f72 445-450
+  s_16bbbcaf8bdfa4::t_e9addb69918f99 455-464
+  s_16bbbcaf8bdfa4::t_546f1d6d1b5662 382-390
+  s_16bbbcaf8bdfa4::t_0437ae5fdd8521 257-259,266
+  s_16bbbcaf8bdfa4::t_1909fdf8420431 48
+  s_16bbbcaf8bdfa4::t_a64de0f520979a 88-89
+TlsLib.Tests/src/EchClientTests.pas
+  s_16bbbcaf8bdfa4::t_6ec3bc7ddb5680 75
+  s_16bbbcaf8bdfa4::t_fa5af0309c9e61 354-365
+TlsLib/src/Interfaces/Crypto/TlpICryptoProvider.pas
+  s_16bbbcaf8bdfa4::t_2e9b0adc8499d2 566-572
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_16bbbcaf8bdfa4::t_2d1ff6c9dc5b6b 271
+TlsLib.Tests/src/Tls13LoopbackTests.pas
+  s_16bbbcaf8bdfa4::t_46f04f3bce92f1 54-56
+  s_16bbbcaf8bdfa4::t_bcd2ae65a5dfb6 780-781,783-786
+  s_16bbbcaf8bdfa4::t_b4ec4ec216d3f9 788
+  s_16bbbcaf8bdfa4::t_2f0c9f8db5d346 703,705-737,743,745,752-753,764-766,770-773,775-779,782,787,789-799
+  s_16bbbcaf8bdfa4::t_67861c041120e6 774
+  s_16bbbcaf8bdfa4::t_533564f359efc6 121-123,129
+  s_16bbbcaf8bdfa4::t_4d2137782dc49c 704,738-740,744,750-751,754-763,767-769,800-801
+  s_16bbbcaf8bdfa4::t_2feee1e3027ffa 741-742,746-749
+TlsLib/src/Ech/TlpEchExtension.pas
+  s_16bbbcaf8bdfa4::t_55938c0fe02e7c 172-176
+  s_16bbbcaf8bdfa4::t_ccbaa1bb5b8e75 103
+TlsLib.Tests/src/EchExtensionTests.pas
+  s_16bbbcaf8bdfa4::t_8d3d870ea086db 138-149
+  s_16bbbcaf8bdfa4::t_fd2be1e4711274 51
+TlsLib/src/Packages/Delphi/TlsLib4PascalPackage.dpk
+  s_16bbbcaf8bdfa4::t_c8c3df596e9968 116
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_16bbbcaf8bdfa4::t_5b1084b087137a 766-770
+  s_16bbbcaf8bdfa4::t_713c44cc45c242 923-929,931,933-934,937-938,955
+  s_16bbbcaf8bdfa4::t_660274cd0ca127 1222-1223,1226,1230-1235,1237,1240,1242,1244
+  s_16bbbcaf8bdfa4::t_de2e36267517d9 266
+  s_16bbbcaf8bdfa4::t_e5ab3272db3158 946-948,957
+  s_16bbbcaf8bdfa4::t_25dff733838a80 244
+  s_16bbbcaf8bdfa4::t_3723500934253e 262-265,267
+  s_16bbbcaf8bdfa4::t_8ce5147261a269 291
+  s_16bbbcaf8bdfa4::t_befbfc5ffa91ea 1221,1227-1229,1236,1238-1239,1243,1245-1246
+  s_16bbbcaf8bdfa4::t_8984ff343d6fd3 1270-1273
+  s_16bbbcaf8bdfa4::t_d368f62f0fd082 853-855,857-858
+  s_16bbbcaf8bdfa4::t_43beec6be3413c 930,932,935-936
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "ab0805a08a5a0f1ba39f9d63c15ad65ee67248c8",
+  "prompts": {},
+  "sessions": {
+    "s_16bbbcaf8bdfa4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "42209e6c-e709-4190-9407-f1ee321cee10",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
