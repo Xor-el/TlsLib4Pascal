@@ -44,7 +44,7 @@ type
   /// <summary>
   /// HPKE KEM identifiers (RFC 9180 sec. 7.1). Open IANA registry, opaque to this
   /// layer: which suites can be instantiated is the provider's to decide
-  /// (IHpke.Suite), and a peer's ECHConfig or an injected provider may carry a
+  /// (IHpkeFacet.Suite), and a peer's ECHConfig or an injected provider may carry a
   /// codepoint this library never enumerated - so raw UInt16 constants, not an enum.
   /// Used by Encrypted Client Hello.
   /// </summary>
@@ -81,7 +81,7 @@ type
   /// <summary>
   /// The identity of an HPKE cipher suite: the (KEM, KDF, AEAD) codepoint triple
   /// (RFC 9180). Held as raw UInt16 codepoints so an unknown suite received off the
-  /// wire round-trips; <see cref="IHpke.Suite" /> turns it into a usable
+  /// wire round-trips; <see cref="IHpkeFacet.Suite" /> turns it into a usable
   /// <see cref="IHpkeSuite" />, or nil when the provider cannot instantiate it.
   /// </summary>
   THpkeSuiteId = record
