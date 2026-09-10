@@ -737,6 +737,7 @@ type
     function ImportPrivateKey(AKem: UInt16; const APkcs8Der: TBytes): ISecretBuffer;
     function SupportedSuites(AKem: UInt16): TArray<THpkeSuiteId>;
     function ValidatePublicKey(AKem: UInt16; const APublicKey: TBytes): Boolean;
+    function RandomEncapsulation(AKem: UInt16): TBytes;
   end;
 
   // IHpkeSuite - a (KEM, KDF, AEAD) triple the provider can instantiate. Vended by
@@ -1994,6 +1995,26 @@ begin
     on E: Exception do
       Result := False;
   end;
+end;
+
+function THpkeFacet.RandomEncapsulation(AKem: UInt16): TBytes;
+var
+  LHpke: ClpIHpke.IHpke;
+  LPub: TBytes;
+  LPriv: ISecretBuffer;
+  LpkR: IAsymmetricKeyParameter;
+  LCtx: IHpkeContextWithEncapsulation;
+begin
+  Result := nil;
+  if not IsKnownKem(AKem) then
+    Exit;
+  // encapsulate against a throwaway recipient and take the KEM encapsulation from a real base-mode
+  // setup; the KDF/AEAD take no part in encapsulation, so any supported pair completes the suite
+  GenerateKeyPair(AKem, LPub, LPriv);
+  LHpke := HpkeFacade(AKem, THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM);
+  LpkR := LHpke.DeserializePublicKey(LPub);
+  LCtx := LHpke.SetupBaseS(LpkR, nil);
+  Result := LCtx.GetEncapsulation();
 end;
 
 function THpkeFacet.ImportRecipientKey(AKem: UInt16;

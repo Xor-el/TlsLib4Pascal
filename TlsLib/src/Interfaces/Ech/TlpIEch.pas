@@ -18,6 +18,7 @@ interface
 uses
   SysUtils,
   TlpISecretBuffer,
+  TlpEchOuterExtensions,
   TlpEchConfig;
 
 type
@@ -57,6 +58,42 @@ type
     /// Entries is non-empty must return a non-empty list here; TInMemoryEchKeyStore enforces
     /// this at construction.</summary>
     function RetryConfigs: TBytes;
+  end;
+
+  /// <summary>
+  /// The client side of one connection's Encrypted Client Hello (RFC 9849): seals the
+  /// ClientHelloInner under the selected config and assembles the EncodedClientHelloInner
+  /// with its compressed outer_extensions. One instance per connection; carries the HPKE
+  /// sender context (reused with an empty enc across a HelloRetryRequest).
+  /// </summary>
+  IEchClientHandshake = interface(IInterface)
+    ['{7C3E9A15-4D82-4F60-9B18-2E6C0D5A3F84}']
+    /// <summary>The EncodedClientHelloInner for AInnerBody: the inner extensions replaced by an
+    /// ech_outer_extensions block referencing the outer, padded per RFC 9849 sec. 6.1.3.</summary>
+    function BuildEncodedInner(const AInnerBody: TBytes;
+      const AOuterEntries: TArray<TEchExtEntry>): TBytes;
+    /// <summary>Sets up the HPKE sender against the selected config and returns the enc.</summary>
+    function SetupSeal: TBytes;
+    /// <summary>Seals APlaintext under the ClientHelloOuterAAD AAad at the current sequence.</summary>
+    function Seal(const AAad, APlaintext: TBytes): TBytes;
+  end;
+
+  /// <summary>
+  /// The server side of one connection's Encrypted Client Hello (RFC 9849): trial-decrypts the
+  /// ClientHelloOuter, reconstructs the ClientHelloInner, and carries the HPKE recipient context
+  /// (reused across a HelloRetryRequest). One instance per connection.
+  /// </summary>
+  IEchServerHandshake = interface(IInterface)
+    ['{2B8D4F60-6A13-4E59-9C82-5D6E0B3A1F47}']
+    /// <summary>Trial-decrypts the ClientHelloOuter AOuterFramed: Accepted (inner reconstructed),
+    /// Rejected (serve the public_name), or NotOffered / Backend.</summary>
+    function ProcessOuter(const AOuterFramed: TBytes): TEchStatus;
+    /// <summary>Decrypts the retry ClientHelloOuter (seq 1, empty enc) after an accepted CH1.</summary>
+    function ProcessRetryOuter(const AOuterFramed: TBytes): TEchStatus;
+    /// <summary>The reconstructed inner ClientHello, framed as a handshake message.</summary>
+    function InnerFramed: TBytes;
+    /// <summary>The inner ClientHello's random, cross-checked against CH2 under HRR.</summary>
+    function InnerRandom: TBytes;
   end;
 
 implementation

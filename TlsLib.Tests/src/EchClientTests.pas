@@ -72,6 +72,7 @@ type
     procedure TestEncodedInnerHasEmptySessionIdAndZeroPadding;
     procedure TestCompressionReferencesSharedExtensions;
     procedure TestAcceptConfirmationMatch;
+    procedure TestGreaseEncapsulationIsValid;
   end;
 
 implementation
@@ -348,6 +349,18 @@ begin
   CheckFalse(TEchClientHandshake.AcceptConfirmationMatches(
     Provider.Primitives.CreateHkdf(THashAlgorithm.SHA_256), LInnerRandom,
     LTranscript, LBad), 'a non-matching confirmation is rejected');
+end;
+
+procedure TTestEchClient.TestGreaseEncapsulationIsValid;
+var
+  LEnc: TBytes;
+begin
+  // a GREASE ech carries a real KEM encapsulation as its enc (RFC 9849 sec. 6.2): for X25519 that
+  // is a 32-byte value the KEM accepts, not merely a bare generated public key
+  LEnc := Provider.Hpke.RandomEncapsulation(THpkeKem.DHKEM_X25519_HKDF_SHA256);
+  CheckEquals(32, System.Length(LEnc), 'an X25519 encapsulation is 32 bytes');
+  CheckTrue(Provider.Hpke.ValidatePublicKey(THpkeKem.DHKEM_X25519_HKDF_SHA256, LEnc),
+    'the GREASE encapsulation is a well-formed KEM value');
 end;
 
 initialization

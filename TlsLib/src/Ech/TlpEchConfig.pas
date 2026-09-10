@@ -452,13 +452,17 @@ begin
   LReader := TWireReader.Create(AData);
   LList := LReader.OpenVector(2);
   LReader.ExpectEnd;
+  // the list arrives from an unauthenticated server (EE retry_configs); each config carries a
+  // 4-byte header (version + length) at minimum, so Remaining div 4 bounds the count - preallocate
+  // once and trim rather than growing one entry at a time (linear-time parsing, RFC 9849 sec. 10.12.4)
+  SetLength(Result, LList.Remaining div 4);
   LCount := 0;
   while not LList.EndReached do
   begin
-    SetLength(Result, LCount + 1);
     Result[LCount] := TEchConfig.Parse(LList);
     Inc(LCount);
   end;
+  SetLength(Result, LCount);
   if LCount = 0 then
     raise EDecodeErrorTlsLibException.CreateRes(@SMalformedConfig);
 end;

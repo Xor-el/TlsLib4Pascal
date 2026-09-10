@@ -68,6 +68,7 @@ type
     procedure TestGoodPublicNames;
     procedure TestMalformedListRaises;
     procedure TestEmptyListRaises;
+    procedure TestLargeConfigListParses;
   end;
 
 implementation
@@ -329,6 +330,23 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'an empty ECHConfigList raises a decode error');
+end;
+
+procedure TTestEchConfig.TestLargeConfigListParses;
+const
+  Count = 500;
+var
+  LConfigs, LParsed: TArray<TEchConfig>;
+  LI: Int32;
+begin
+  // a large ECHConfigList arrives unauthenticated (server retry_configs); it must parse in linear
+  // time and yield exactly its entries - the parser pre-sizes from the remaining length
+  SetLength(LConfigs, Count);
+  for LI := 0 to Count - 1 do
+    LConfigs[LI] := ConfigWith(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+      OneSuite(THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM), 'example.com', nil);
+  LParsed := TEchConfigList.Parse(TEchConfigList.Encode(LConfigs));
+  CheckEquals(Count, System.Length(LParsed), 'every config in a large list is parsed');
 end;
 
 initialization

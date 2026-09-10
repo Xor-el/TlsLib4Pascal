@@ -113,7 +113,7 @@ contains
   TlpEchOuterExtensions in '..\..\Ech\TlpEchOuterExtensions.pas',
   TlpIEch in '..\..\Interfaces\Ech\TlpIEch.pas',
   TlpEchClient in '..\..\Ech\TlpEchClient.pas',
-  TlpEchKeyStore in '..\..\Ech\TlpEchKeyStore.pas',
+  TlpInMemoryEchKeyStore in '..\..\Ech\TlpInMemoryEchKeyStore.pas',
   TlpEchServer in '..\..\Ech\TlpEchServer.pas',
   TlpITlsConfig in '..\..\Interfaces\Engine\TlpITlsConfig.pas',
   TlpITlsConfigBuilder in '..\..\Interfaces\Engine\TlpITlsConfigBuilder.pas',

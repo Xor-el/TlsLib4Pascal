@@ -45,7 +45,7 @@ type
   /// confirmation). A missing ech is "not offered"; a present ech that no key opens is a
   /// shared-mode reject.
   /// </summary>
-  TEchServerHandshake = class sealed(TObject)
+  TEchServerHandshake = class sealed(TInterfacedObject, IEchServerHandshake)
   strict private
   var
     FProvider: ICryptoProvider;
@@ -85,8 +85,8 @@ type
     /// </summary>
     function ProcessRetryOuter(const AOuterFramed: TBytes): TEchStatus;
     property Status: TEchStatus read FStatus;
-    property InnerFramed: TBytes read FInnerFramed;
-    property InnerRandom: TBytes read FInnerRandom;
+    function InnerFramed: TBytes;
+    function InnerRandom: TBytes;
   end;
 
 implementation
@@ -254,14 +254,16 @@ begin
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SInnerSessionIdNotEmpty);
   LSuites := LReader.OpenVector(2);
-  LInner.CipherSuites := nil;
+  // each cipher suite is a 2-byte value, so Remaining div 2 is the exact count: preallocate
+  // once and trim rather than growing per entry (linear-time parsing, RFC 9849 sec. 10.12.4)
+  SetLength(LInner.CipherSuites, LSuites.Remaining div 2);
   LI := 0;
   while not LSuites.EndReached do
   begin
-    SetLength(LInner.CipherSuites, LI + 1);
     LInner.CipherSuites[LI] := LSuites.ReadUInt16;
     Inc(LI);
   end;
+  SetLength(LInner.CipherSuites, LI);
   LComp := LReader.OpenVector(1);
   LCompMethods := LComp.ReadBytes(LComp.Remaining);
   if (System.Length(LCompMethods) <> 1) or (LCompMethods[0] <> 0) then
@@ -377,10 +379,15 @@ begin
     end;
     if LOpened then
     begin
-      ReconstructInner(LEncoded, LOuter, LEntries);
-      FOpener := LOpener;
-      FConfig := LEntry.Config;
-      FStatus := TEchStatus.Accepted;
+      try
+        ReconstructInner(LEncoded, LOuter, LEntries);
+        FOpener := LOpener;
+        FConfig := LEntry.Config;
+        FStatus := TEchStatus.Accepted;
+      finally
+        // the decrypted inner carries the real SNI and PSK binder - wipe once reframed
+        TSecureMemory.WipeBytes(LEncoded);
+      end;
       Exit(FStatus);
     end;
   end;
@@ -435,9 +442,24 @@ begin
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.DecryptError, @SEchRetryDecrypt);
   end;
-  ReconstructInner(LEncoded, LOuter, LEntries);
+  try
+    ReconstructInner(LEncoded, LOuter, LEntries);
+  finally
+    // the decrypted inner carries the real SNI and PSK binder - wipe once reframed
+    TSecureMemory.WipeBytes(LEncoded);
+  end;
   FStatus := TEchStatus.Accepted;
   Result := FStatus;
+end;
+
+function TEchServerHandshake.InnerFramed: TBytes;
+begin
+  Result := FInnerFramed;
+end;
+
+function TEchServerHandshake.InnerRandom: TBytes;
+begin
+  Result := FInnerRandom;
 end;
 
 end.

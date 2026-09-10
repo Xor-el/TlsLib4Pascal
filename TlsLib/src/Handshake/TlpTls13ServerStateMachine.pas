@@ -268,7 +268,7 @@ type
     /// <summary>Encrypted Client Hello per-connection state (RFC 9849): the trial-decrypt
     /// handshake, the outcome, the inner random (for the accept confirmation stamped into
     /// ServerHello.random), and the retry_configs to advertise on reject.</summary>
-    FEch: TEchServerHandshake;
+    FEch: IEchServerHandshake;
     FEchStatus: TEchStatus;
     FEchInnerRandom: TBytes;
     FEchRetryConfigs: TBytes;
@@ -481,7 +481,6 @@ end;
 
 destructor TTls13ServerStateMachine.Destroy;
 begin
-  FEch.Free;
   FCookie.Free;
   inherited Destroy;
 end;

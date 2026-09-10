@@ -241,7 +241,7 @@ type
     /// FParams.EchPolicy selected a usable config. FEch holds the sealer/enc; the inner
     /// transcript is kept in parallel with the outer FTranscript until the ServerHello
     /// accept confirmation decides which one the handshake continues on.</summary>
-    FEch: TEchClientHandshake;
+    FEch: IEchClientHandshake;
     FEchStatus: TEchStatus;
     FEchActive: Boolean;
     // ECH GREASE (RFC 9849 sec. 6.2): when no config is usable but GREASE is enabled, a
@@ -259,9 +259,12 @@ type
     // the first ClientHelloOuter's encrypted_client_hello extension body, re-sent verbatim on
     // a rejecting HelloRetryRequest (RFC 9849 sec. 6.1.5): the server ignored it, so CH2 echoes it
     FSentOuterEchExt: TBytes;
-    // the first ClientHelloOuter's GREASE pre_shared_key data, reused on a retry so CH2's outer
-    // keeps the same PSK identities as CH1 (RFC 8446 4.1.2)
-    FSentGreasePskData: TBytes;
+    // the first ClientHelloOuter's GREASE pre_shared_key identities and obfuscated ticket ages,
+    // reused verbatim on a retry so CH2's outer matches CH1's (RFC 8446 4.1.2) - a real offer's age
+    // moves only by the retry round-trip (4.2.11.1), so a fresh age would stand out. Only the
+    // binders are regenerated per hello, as a real client recomputes those over the new transcript
+    FGreasePskIdentities: TArray<TBytes>;
+    FGreasePskAges: TArray<TBytes>;
     FSelectedEchConfig: TEchConfig;
     FSelectedEchSuite: IHpkeSuite;
     FEchRetryConfigs: TBytes;
@@ -285,6 +288,7 @@ type
     /// <summary>The GREASE pre_shared_key extension_data for the ClientHelloOuter: one identity
     /// and binder per real offer, matching their lengths but filled with random content, so the
     /// outer resembles an ordinary resumption ClientHello (RFC 9849 sec. 6.1.2).</summary>
+    procedure MintGreasePskIdentities;
     function BuildGreasePskData: TBytes;
     /// <summary>On the ServerHello, activates both transcripts on the negotiated hash and
     /// decides ECH accept vs reject from the accept confirmation (RFC 9849 sec. 7.2),
@@ -510,7 +514,6 @@ end;
 
 destructor TTls13ClientStateMachine.Destroy;
 begin
-  FEch.Free;
   inherited Destroy;
 end;
 
@@ -755,13 +758,16 @@ var
   LOuter: TEchOuterClientHello;
   LRandom: IRandom;
   LEnc, LSel: TBytes;
-  LPrivate: ISecretBuffer;
   LSuites: TArray<THpkeSuiteId>;
   LSuite: THpkeSuiteId;
   LPayloadLength: Int32;
 begin
   LRandom := FParams.Provider.Primitives.GetRandom;
-  FParams.Provider.Hpke.GenerateKeyPair(GreaseKem, LEnc, LPrivate);
+  // enc is a real KEM encapsulation against a throwaway recipient (not a bare public key), so the
+  // decoy is a valid encapsulation for any KEM, not only a DH one where the two happen to coincide
+  LEnc := FParams.Provider.Hpke.RandomEncapsulation(GreaseKem);
+  if System.Length(LEnc) = 0 then
+    Exit(nil);
   // draw the suite from the ones the provider actually supports (RFC 9849 sec. 6.2), so a fixed
   // value cannot fingerprint the decoy as GREASE and a newly-supported algorithm is picked up
   // automatically - the provider is the single source of the HPKE vocabulary
@@ -844,11 +850,12 @@ begin
       LEchIdx := LI
     else if LEntries[LI].ExtType = TExtensionTypes.PreSharedKey then
     begin
-      // a retry keeps CH1's GREASE PSK identities (RFC 8446 4.1.2); the first flight mints and
-      // caches them
+      // a retry keeps CH1's GREASE PSK identities and ages (RFC 8446 4.1.2), minted on the first
+      // flight; the binders are regenerated each hello so a decoy's CH2 does not carry CH1's binders
+      // verbatim the way a real one never would
       if AMode = TEchChMode.Initial then
-        FSentGreasePskData := BuildGreasePskData;
-      LOuterEntries[LI].Data := FSentGreasePskData;
+        MintGreasePskIdentities;
+      LOuterEntries[LI].Data := BuildGreasePskData;
     end;
   end;
   // the ClientHelloOuter always presents the public_name (RFC 9849 sec. 6.1), even when the
@@ -913,6 +920,22 @@ begin
     THandshakeMessages.EncodeClientHello(LMsg));
 end;
 
+procedure TTls13ClientStateMachine.MintGreasePskIdentities;
+var
+  LRandom: IRandom;
+  LI: Int32;
+begin
+  LRandom := FParams.Provider.Primitives.GetRandom;
+  SetLength(FGreasePskIdentities, System.Length(FPskOffers));
+  SetLength(FGreasePskAges, System.Length(FPskOffers));
+  for LI := 0 to System.High(FPskOffers) do
+  begin
+    FGreasePskIdentities[LI] :=
+      LRandom.GenerateBytes(System.Length(FPskOffers[LI].Identity));
+    FGreasePskAges[LI] := LRandom.GenerateBytes(4); // retry-stable obfuscated_ticket_age
+  end;
+end;
+
 function TTls13ClientStateMachine.BuildGreasePskData: TBytes;
 var
   LWriter: IWireWriter;
@@ -920,15 +943,18 @@ var
   LI: Int32;
   LRandom: IRandom;
 begin
+  // the identities and obfuscated ticket ages are the minted, retry-stable values (a real offer
+  // re-sends both across a retry); only the binders are drawn fresh here, as a real client
+  // recomputes them over the new transcript
   LRandom := FParams.Provider.Primitives.GetRandom;
   LWriter := TWireWriter.Create;
   LIds := LWriter.OpenVector(2);
   for LI := 0 to System.High(FPskOffers) do
   begin
     LId := LWriter.OpenVector(2);
-    LWriter.WriteBytes(LRandom.GenerateBytes(System.Length(FPskOffers[LI].Identity)));
+    LWriter.WriteBytes(FGreasePskIdentities[LI]);
     LWriter.CloseVector(LId);
-    LWriter.WriteBytes(LRandom.GenerateBytes(4)); // random obfuscated_ticket_age
+    LWriter.WriteBytes(FGreasePskAges[LI]);
   end;
   LWriter.CloseVector(LIds);
   LBinders := LWriter.OpenVector(2);
@@ -1192,13 +1218,32 @@ end;
 procedure TTls13ClientStateMachine.PruneOffersToHash(AHash: THashAlgorithm);
 var
   LKept: TArray<IPreSharedKey>;
-  LOffer: IPreSharedKey;
+  LKeptGreaseIds, LKeptGreaseAges: TArray<TBytes>;
+  LI: Int32;
+  LHasGreaseIds: Boolean;
 begin
   LKept := nil;
-  for LOffer in FPskOffers do
-    if LOffer.Hash = AHash then
-      TArrayUtilities.Append<IPreSharedKey>(LKept, LOffer);
+  LKeptGreaseIds := nil;
+  LKeptGreaseAges := nil;
+  // the minted GREASE PSK identities and ages (outer decoy) are index-aligned with FPskOffers; prune
+  // them together so a surviving offer keeps across the HRR the outer identity and age it carried on CH1
+  LHasGreaseIds := System.Length(FGreasePskIdentities) = System.Length(FPskOffers);
+  for LI := 0 to System.High(FPskOffers) do
+    if FPskOffers[LI].Hash = AHash then
+    begin
+      TArrayUtilities.Append<IPreSharedKey>(LKept, FPskOffers[LI]);
+      if LHasGreaseIds then
+      begin
+        TArrayUtilities.Append<TBytes>(LKeptGreaseIds, FGreasePskIdentities[LI]);
+        TArrayUtilities.Append<TBytes>(LKeptGreaseAges, FGreasePskAges[LI]);
+      end;
+    end;
   FPskOffers := LKept;
+  if LHasGreaseIds then
+  begin
+    FGreasePskIdentities := LKeptGreaseIds;
+    FGreasePskAges := LKeptGreaseAges;
+  end;
 end;
 
 function TTls13ClientStateMachine.CacheNewSessionTicket(
@@ -1222,6 +1267,10 @@ begin
   finally
     LContext.Free;
   end;
+  // a rejected ECH handshake authenticated only the public_name, so its tickets MUST be ignored
+  // (RFC 9849 sec. 6.1.7); a reject is already terminal, so this guards against a future refactor
+  if FEchStatus = TEchStatus.Rejected then
+    Exit;
   if FParams.SessionCache = nil then
     Exit;
   LPsk := FSchedule.ResumptionPsk(FResumptionTranscriptHash, LNst.TicketNonce);
