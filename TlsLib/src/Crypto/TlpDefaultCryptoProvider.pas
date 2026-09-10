@@ -1240,6 +1240,8 @@ begin
 end;
 
 function TNistEcAgreement.ValidatePublicKey(const APublicKey: TBytes): Boolean;
+const
+  UncompressedPointPrefix = $04; // SEC1 uncompressed EC point form
 var
   LPoint: IECPoint;
 begin
@@ -1247,7 +1249,7 @@ begin
   // an EC key share must use the uncompressed point form: RFC 8446 4.2.8.2 (TLS 1.3)
   // and RFC 8422 5.1.2 (TLS 1.2 and earlier) both mandate it and forbid compressed/
   // hybrid, so reject those up front - the caller then yields illegal_parameter
-  if (System.Length(APublicKey) = 0) or (APublicKey[0] <> $04) then
+  if (System.Length(APublicKey) = 0) or (APublicKey[0] <> UncompressedPointPrefix) then
     Exit;
   try
     LPoint := FDomain.Curve.DecodePoint(APublicKey);
