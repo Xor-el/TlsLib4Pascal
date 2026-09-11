@@ -1738,7 +1738,7 @@ begin
     // a wildcard entry needs the leaf to carry that same wildcard SAN
     LOk := False;
     for LI := 0 to System.High(LSans) do
-      if LowerCase(LSans[LI]) = LowerCase(AHost) then
+      if SameText(LSans[LI], AHost) then
       begin
         LOk := True;
         Break;

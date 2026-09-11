@@ -51,26 +51,25 @@ implementation
 class function TEndpointIdentity.MatchesOneDns(const AHostName,
   ADnsName: string): Boolean;
 var
-  LHost, LName, LSuffix: string;
+  LSuffix: string;
   LDot: Int32;
 begin
-  LHost := LowerCase(AHostName);
-  LName := LowerCase(ADnsName);
-  if (LHost = '') or (LName = '') then
+  if (AHostName = '') or (ADnsName = '') then
     Exit(False);
 
-  if LName = LHost then
+  // DNS name comparison is case-insensitive (RFC 6125 / RFC 9525)
+  if SameText(ADnsName, AHostName) then
     Exit(True);
 
   // a single leftmost "*." wildcard matches exactly one non-empty label
-  if (System.Length(LName) > 2) and (LName[1] = '*') and (LName[2] = '.') then
+  if (System.Length(ADnsName) > 2) and (ADnsName[1] = '*') and (ADnsName[2] = '.') then
   begin
-    LSuffix := System.Copy(LName, 2, System.Length(LName) - 1); // ".example.com"
-    LDot := Pos('.', LHost);
+    LSuffix := System.Copy(ADnsName, 2, System.Length(ADnsName) - 1); // ".example.com"
+    LDot := Pos('.', AHostName);
     // the host must have a non-empty first label, and the remainder must equal the
     // wildcard suffix exactly (so the wildcard spans a single label only)
     Result := (LDot > 1) and
-      (System.Copy(LHost, LDot, System.Length(LHost) - LDot + 1) = LSuffix);
+      SameText(System.Copy(AHostName, LDot, System.Length(AHostName) - LDot + 1), LSuffix);
     Exit;
   end;
 
