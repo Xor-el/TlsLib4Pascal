@@ -1675,13 +1675,12 @@ end;
 function TTlsConfigBuilder.WithSniCredential(const AHost: string;
   const ACredential: TTlsCredential): TTlsConfigBuilder;
 var
-  LN: Integer;
+  LEntry: TSniCredentialEntry;
 begin
   GuardMutable;
-  LN := System.Length(FSniCredentialEntries);
-  System.SetLength(FSniCredentialEntries, LN + 1);
-  FSniCredentialEntries[LN].Host := AHost;
-  FSniCredentialEntries[LN].Credential := ACredential;
+  LEntry.Host := AHost;
+  LEntry.Credential := ACredential;
+  TArrayUtilities.Append<TSniCredentialEntry>(FSniCredentialEntries, LEntry);
   Result := Self;
 end;
 

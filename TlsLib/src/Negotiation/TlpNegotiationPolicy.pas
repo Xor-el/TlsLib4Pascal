@@ -150,16 +150,6 @@ class function TNegotiationPolicy.SuitePreferenceOrder(
 var
   LAes, LChaCha: TArray<UInt16>;
   LSuite: TTlsCipherSuite;
-
-  procedure Append(var ATarget: TArray<UInt16>; ACode: UInt16);
-  var
-    LLen: Int32;
-  begin
-    LLen := System.Length(ATarget);
-    SetLength(ATarget, LLen + 1);
-    ATarget[LLen] := ACode;
-  end;
-
 begin
   LAes := nil;
   LChaCha := nil;
@@ -168,14 +158,14 @@ begin
   for LSuite in ASuites.Items do
     if LSuite.Protocol = AProtocol then
       if LSuite.Common.Aead = TAeadAlgorithm.CHACHA20_POLY1305 then
-        Append(LChaCha, LSuite.Common.Code)
+        TArrayUtilities.Append<UInt16>(LChaCha, LSuite.Common.Code)
       else
-        Append(LAes, LSuite.Common.Code);
+        TArrayUtilities.Append<UInt16>(LAes, LSuite.Common.Code);
   // AES-GCM first when hardware AES is present; otherwise ChaCha20-Poly1305 first
   if AProvider.Primitives.HasHardwareAes then
-    Result := System.Concat(LAes, LChaCha)
+    Result := TArrayUtilities.Concat<UInt16>(LAes, LChaCha)
   else
-    Result := System.Concat(LChaCha, LAes);
+    Result := TArrayUtilities.Concat<UInt16>(LChaCha, LAes);
 end;
 
 function TNegotiationPolicy.EffectiveSuiteOrder(

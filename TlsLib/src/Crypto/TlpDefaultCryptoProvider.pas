@@ -3219,10 +3219,7 @@ begin
         if (LNames[LJ].GetTagNo = TGeneralName.UniformResourceIdentifier) and
           Supports(LNames[LJ].GetName, IDerIA5String, LIa5) and
           (LIa5.GetString <> '') then
-        begin
-          SetLength(AUrls, System.Length(AUrls) + 1);
-          AUrls[System.High(AUrls)] := LIa5.GetString;
-        end;
+          TArrayUtilities.Append<string>(AUrls, LIa5.GetString);
     end;
     Result := System.Length(AUrls) > 0;
   except
