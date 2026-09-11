@@ -1,0 +1,24 @@
+TlsLib/src/Negotiation/TlpNegotiationPolicy.pas
+  s_16bbbcaf8bdfa4::t_2602eb0ff08e63 161,163
+  s_16bbbcaf8bdfa4::t_46b6c7638eabb7 166,168
+TlsLib/src/Crypto/TlpDefaultCryptoProvider.pas
+  s_16bbbcaf8bdfa4::t_0b48058483d5d6 3222
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_16bbbcaf8bdfa4::t_a5f1208e9dcc37 1678,1681-1683
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "305eab64a69db988f19d3bb2ffc5a913353e16c6",
+  "prompts": {},
+  "sessions": {
+    "s_16bbbcaf8bdfa4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "42209e6c-e709-4190-9407-f1ee321cee10",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
