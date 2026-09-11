@@ -250,7 +250,8 @@ implementation
 
 const
 {$IFDEF UNIX}
-  // suppress SIGPIPE on a write to a peer that has gone away (Unix has no MSG_NOSIGNAL on Windows)
+  // MSG_NOSIGNAL suppresses SIGPIPE when writing to a peer whose read end has
+  // closed; Windows has neither SIGPIPE nor MSG_NOSIGNAL, so the flag is 0 there
   TRANSPORT_FLAGS = MSG_NOSIGNAL;
 {$ELSE}
   TRANSPORT_FLAGS = 0;
