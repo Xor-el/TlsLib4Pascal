@@ -169,7 +169,7 @@ type
     Inspector: ICertificateInspector;
     PathValidation: ICertificatePathValidator;
     Revocation: IRevocationChecker;
-    Hpke: IHpkeFacet;
+    Hpke: IHpkeCrypto;
     Pem: IPemCodec;
   end;
 
@@ -190,7 +190,7 @@ type
     FInspector: ICertificateInspector;
     FPathValidation: ICertificatePathValidator;
     FRevocation: IRevocationChecker;
-    FHpke: IHpkeFacet;
+    FHpke: IHpkeCrypto;
     FPem: IPemCodec;
   public
     /// <summary>The single composition point. Resolves the effective RNG first (a supplied
@@ -214,7 +214,7 @@ type
     function Certificates: ICertificateInspector;
     function PathValidation: ICertificatePathValidator;
     function Revocation: IRevocationChecker;
-    function Hpke: IHpkeFacet;
+    function Hpke: IHpkeCrypto;
     function Pem: IPemCodec;
   end;
 
@@ -234,7 +234,7 @@ type
     function WithInspector(const AInspector: ICertificateInspector): ICryptoProviderBuilder;
     function WithPathValidation(const APathValidation: ICertificatePathValidator): ICryptoProviderBuilder;
     function WithRevocation(const ARevocation: IRevocationChecker): ICryptoProviderBuilder;
-    function WithHpke(const AHpke: IHpkeFacet): ICryptoProviderBuilder;
+    function WithHpke(const AHpke: IHpkeCrypto): ICryptoProviderBuilder;
     function WithPem(const APem: IPemCodec): ICryptoProviderBuilder;
     function Build: ICryptoProvider;
   end;
@@ -717,7 +717,7 @@ type
   end;
 
   // the RFC 9180 base-mode HPKE facet.
-  THpkeFacet = class(TInterfacedObject, IHpkeFacet)
+  THpkeCrypto = class(TInterfacedObject, IHpkeCrypto)
   private
     class procedure WriteOrdinal<T>(out AResult: T; AOrdinal: UInt16); static;
     class function KemIdOf(AKem: UInt16): THpkeKemId; static;
@@ -741,7 +741,7 @@ type
   end;
 
   // IHpkeSuite - a (KEM, KDF, AEAD) triple the provider can instantiate. Vended by
-  // THpkeFacet.Suite, so it needs no support check of its own; sets up senders.
+  // THpkeCrypto.Suite, so it needs no support check of its own; sets up senders.
   THpkeSuite = class(TInterfacedObject, IHpkeSuite)
   strict private
   var
@@ -1795,7 +1795,7 @@ begin
   // the prepared key pair carries the recipient private key, so opening does no key derivation;
   // a malformed peer encapsulation surfaces as a typed open failure, never an unwrapped backend one
   try
-    LHpke := THpkeFacet.HpkeFacade(ASuite.Kem, ASuite.Kdf, ASuite.Aead);
+    LHpke := THpkeCrypto.HpkeFacade(ASuite.Kem, ASuite.Kdf, ASuite.Aead);
     LCtx := LHpke.SetupBaseR(AEnc, FKeyPair, AInfo);
   except
     on E: EBaseTlsLibException do
@@ -1806,9 +1806,9 @@ begin
   Result := THpkeOpenerAdapter.Create(LCtx) as IHpkeOpener;
 end;
 
-{ THpkeFacet }
+{ THpkeCrypto }
 
-class procedure THpkeFacet.WriteOrdinal<T>(out AResult: T; AOrdinal: UInt16);
+class procedure THpkeCrypto.WriteOrdinal<T>(out AResult: T; AOrdinal: UInt16);
 begin
   case SizeOf(T) of
     1:
@@ -1820,28 +1820,28 @@ begin
   end;
 end;
 
-class function THpkeFacet.KemIdOf(AKem: UInt16): THpkeKemId;
+class function THpkeCrypto.KemIdOf(AKem: UInt16): THpkeKemId;
 begin
   if not IsKnownKem(AKem) then
     raise ENotSupportedTlsLibException.CreateRes(@SHpkeUnsupportedSuite);
   WriteOrdinal<THpkeKemId>(Result, AKem);
 end;
 
-class function THpkeFacet.KdfIdOf(AKdf: UInt16): THpkeKdfId;
+class function THpkeCrypto.KdfIdOf(AKdf: UInt16): THpkeKdfId;
 begin
   if not IsKnownKdf(AKdf) then
     raise ENotSupportedTlsLibException.CreateRes(@SHpkeUnsupportedSuite);
   WriteOrdinal<THpkeKdfId>(Result, AKdf);
 end;
 
-class function THpkeFacet.AeadIdOf(AAead: UInt16): THpkeAeadId;
+class function THpkeCrypto.AeadIdOf(AAead: UInt16): THpkeAeadId;
 begin
   if not IsRealAead(AAead) then
     raise ENotSupportedTlsLibException.CreateRes(@SHpkeUnsupportedSuite);
   WriteOrdinal<THpkeAeadId>(Result, AAead);
 end;
 
-class function THpkeFacet.IsKnownKem(AKem: UInt16): Boolean;
+class function THpkeCrypto.IsKnownKem(AKem: UInt16): Boolean;
 var
   LK: Int32;
 begin
@@ -1853,7 +1853,7 @@ begin
     (LK = Ord(THpkeKem.DHKEM_X448_HKDF_SHA512));
 end;
 
-class function THpkeFacet.IsKnownKdf(AKdf: UInt16): Boolean;
+class function THpkeCrypto.IsKnownKdf(AKdf: UInt16): Boolean;
 var
   LK: Int32;
 begin
@@ -1862,7 +1862,7 @@ begin
     (LK = Ord(THpkeKdf.HKDF_SHA512));
 end;
 
-class function THpkeFacet.IsRealAead(AAead: UInt16): Boolean;
+class function THpkeCrypto.IsRealAead(AAead: UInt16): Boolean;
 var
   LK: Int32;
 begin
@@ -1872,7 +1872,7 @@ begin
     (LK = Ord(THpkeAead.AES_256_GCM)) or (LK = Ord(THpkeAead.CHACHA20_POLY1305));
 end;
 
-function THpkeFacet.Suite(AKem, AKdf, AAead: UInt16): IHpkeSuite;
+function THpkeCrypto.Suite(AKem, AKdf, AAead: UInt16): IHpkeSuite;
 begin
   // a suite the provider can instantiate - a known KEM, a known KDF, and a real
   // (not export-only) AEAD - becomes a handle; anything else is nil (skipped, not fatal)
@@ -1882,7 +1882,7 @@ begin
     Result := nil;
 end;
 
-function THpkeFacet.SupportedSuites(AKem: UInt16): TArray<THpkeSuiteId>;
+function THpkeCrypto.SupportedSuites(AKem: UInt16): TArray<THpkeSuiteId>;
 var
   LKdfs: array [0 .. 2] of THpkeKdfId;
   LAeads: array [0 .. 2] of THpkeAeadId;
@@ -1909,12 +1909,12 @@ begin
     end;
 end;
 
-class function THpkeFacet.KemFacade(AKem: UInt16): IHpkeKem;
+class function THpkeCrypto.KemFacade(AKem: UInt16): IHpkeKem;
 begin
   Result := TDhKem.Create(KemIdOf(AKem)) as IHpkeKem;
 end;
 
-class function THpkeFacet.HpkeFacade(AKem, AKdf, AAead: UInt16): IHpke;
+class function THpkeCrypto.HpkeFacade(AKem, AKdf, AAead: UInt16): IHpke;
 begin
   Result := THpke.Create(THpkeMode.Base, KemIdOf(AKem), KdfIdOf(AKdf),
     AeadIdOf(AAead)) as IHpke;
@@ -1959,7 +1959,7 @@ var
   LpkR: IAsymmetricKeyParameter;
   LCtx: IHpkeContextWithEncapsulation;
 begin
-  LHpke := THpkeFacet.HpkeFacade(FKem, FKdf, FAead);
+  LHpke := THpkeCrypto.HpkeFacade(FKem, FKdf, FAead);
   // a malformed peer-supplied public key surfaces as a typed argument error, never a backend one
   try
     LpkR := LHpke.DeserializePublicKey(ARecipientPublicKey);
@@ -1974,7 +1974,7 @@ begin
   ASealer := THpkeSealerAdapter.Create(LCtx) as IHpkeSealer;
 end;
 
-function THpkeFacet.ValidatePublicKey(AKem: UInt16;
+function THpkeCrypto.ValidatePublicKey(AKem: UInt16;
   const APublicKey: TBytes): Boolean;
 var
   LHpke: IHpke;
@@ -1999,7 +1999,7 @@ begin
   end;
 end;
 
-function THpkeFacet.RandomEncapsulation(AKem: UInt16): TBytes;
+function THpkeCrypto.RandomEncapsulation(AKem: UInt16): TBytes;
 var
   LHpke: IHpke;
   LPub: TBytes;
@@ -2019,7 +2019,7 @@ begin
   Result := LCtx.GetEncapsulation();
 end;
 
-function THpkeFacet.ImportRecipientKey(AKem: UInt16;
+function THpkeCrypto.ImportRecipientKey(AKem: UInt16;
   const APrivateKey: ISecretBuffer): IHpkeRecipientKey;
 var
   LHpke: IHpke;
@@ -2048,7 +2048,7 @@ begin
   Result := THpkeRecipientKey.Create(AKem, LKp, LPub) as IHpkeRecipientKey;
 end;
 
-procedure THpkeFacet.GenerateKeyPair(AKem: UInt16; out APublicKey: TBytes;
+procedure THpkeCrypto.GenerateKeyPair(AKem: UInt16; out APublicKey: TBytes;
   out APrivateKey: ISecretBuffer);
 var
   LKem: IHpkeKem;
@@ -2068,7 +2068,7 @@ begin
   end;
 end;
 
-function THpkeFacet.ImportPrivateKey(AKem: UInt16;
+function THpkeCrypto.ImportPrivateKey(AKem: UInt16;
   const APkcs8Der: TBytes): ISecretBuffer;
 var
   LKey: IAsymmetricKeyParameter;
@@ -2193,7 +2193,7 @@ begin
   if AOverrides.Hpke <> nil then
     FHpke := AOverrides.Hpke
   else
-    FHpke := THpkeFacet.Create as IHpkeFacet;
+    FHpke := THpkeCrypto.Create as IHpkeCrypto;
 
   if AOverrides.Pem <> nil then
     FPem := AOverrides.Pem
@@ -2335,7 +2335,7 @@ begin
   Result := FRevocation;
 end;
 
-function TDefaultCryptoProvider.Hpke: IHpkeFacet;
+function TDefaultCryptoProvider.Hpke: IHpkeCrypto;
 begin
   Result := FHpke;
 end;
@@ -3567,7 +3567,7 @@ begin
 end;
 
 function TCryptoProviderBuilder.WithHpke(
-  const AHpke: IHpkeFacet): ICryptoProviderBuilder;
+  const AHpke: IHpkeCrypto): ICryptoProviderBuilder;
 begin
   FOverrides.Hpke := AHpke;
   Result := Self;

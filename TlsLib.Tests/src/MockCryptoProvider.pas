@@ -43,7 +43,7 @@ type
     function Certificates: ICertificateInspector;
     function PathValidation: ICertificatePathValidator;
     function Revocation: IRevocationChecker;
-    function Hpke: IHpkeFacet;
+    function Hpke: IHpkeCrypto;
     function Pem: IPemCodec;
   end;
 
@@ -86,7 +86,7 @@ type
     function Certificates: ICertificateInspector;
     function PathValidation: ICertificatePathValidator;
     function Revocation: IRevocationChecker;
-    function Hpke: IHpkeFacet;
+    function Hpke: IHpkeCrypto;
     function Pem: IPemCodec;
   end;
 
@@ -128,7 +128,7 @@ begin
   Result := FComposed.Revocation;
 end;
 
-function TMockCryptoProvider.Hpke: IHpkeFacet;
+function TMockCryptoProvider.Hpke: IHpkeCrypto;
 begin
   Result := FComposed.Hpke;
 end;
@@ -229,7 +229,7 @@ begin
   Result := FComposed.Revocation;
 end;
 
-function TFixedAesProvider.Hpke: IHpkeFacet;
+function TFixedAesProvider.Hpke: IHpkeCrypto;
 begin
   Result := FComposed.Hpke;
 end;
