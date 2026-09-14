@@ -1,0 +1,21 @@
+TlsLib/src/Negotiation/TlpNegotiationPolicy.pas
+  s_16bbbcaf8bdfa4::t_65fd6e9829f01e 269
+  s_16bbbcaf8bdfa4::t_da12e1ef5a4796 296-297
+  s_16bbbcaf8bdfa4::t_e4982bd8b7aba4 270-272
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5c860b9d57d70d3046181b0b87004376007666ec",
+  "prompts": {},
+  "sessions": {
+    "s_16bbbcaf8bdfa4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "42209e6c-e709-4190-9407-f1ee321cee10",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
