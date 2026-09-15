@@ -61,6 +61,17 @@ env:
   # regressions on push / PR / schedule. The toggle is retained (set false to turn the heavy
   # leg off without editing workflow structure), it just defaults on.
   MAKE_RUN_BOGO: true
+  # When true (default), the interop step runs the openssl s_client/s_server matrix. It is
+  # capability-guarded: run-openssl-matrix.sh self-skips (never fails the leg) unless a real
+  # OpenSSL >= 3.x is available. So every platform can share this one toggle instead of a
+  # per-job override.
+  MAKE_RUN_OPENSSL: true
+  # When true, the interop harness (self-test, fuzzer, openssl matrix and BoGo) runs against
+  # this platform's OS-native crypto facets overlaid on the portable base (TLSLIB_NATIVE_CRYPTO),
+  # instead of the pure-Pascal provider. Only Windows has native facets today, so it is a no-op
+  # elsewhere. Defaults off, so the conformance gate stays on the portable provider unless a run
+  # opts in to validate the native provider end to end.
+  MAKE_INTEROP_NATIVE_CRYPTO: true
   # The BoringSSL/BoGo peer commit the disable ledger is reconciled against (pins the
   # peer). Bumping it is a deliberate, reviewed change: any new test it introduces
   # surfaces as UNEXPECTED and must be triaged into pass/disable - the gate working.
@@ -128,6 +139,8 @@ jobs:
           artifact-suffix: linux-x64
           run-interop: ${{ env.MAKE_RUN_INTEROP }}
           run-bogo: ${{ env.MAKE_RUN_BOGO }}
+          run-openssl: ${{ env.MAKE_RUN_OPENSSL }}
+          native-crypto: ${{ env.MAKE_INTEROP_NATIVE_CRYPTO }}
           bogo-ref: ${{ env.BOGO_REF }}
 
   linux-arm64:
@@ -158,6 +171,8 @@ jobs:
           artifact-suffix: linux-arm64
           run-interop: ${{ env.MAKE_RUN_INTEROP }}
           run-bogo: ${{ env.MAKE_RUN_BOGO }}
+          run-openssl: ${{ env.MAKE_RUN_OPENSSL }}
+          native-crypto: ${{ env.MAKE_INTEROP_NATIVE_CRYPTO }}
           bogo-ref: ${{ env.BOGO_REF }}
 
   # Scalar-dispatch legs: same native targets, but MAKE_DEFINES
@@ -234,7 +249,8 @@ jobs:
           artifact-suffix: windows-x64
           run-interop: ${{ env.MAKE_RUN_BOGO }}
           run-bogo: ${{ env.MAKE_RUN_BOGO }}
-          run-openssl: 'false'
+          run-openssl: ${{ env.MAKE_RUN_OPENSSL }}
+          native-crypto: ${{ env.MAKE_INTEROP_NATIVE_CRYPTO }}
           bogo-ref: ${{ env.BOGO_REF }}
 
   macos-arm64:
@@ -256,6 +272,19 @@ jobs:
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['macos-arm64'].fpc_tarball_target }}
         run: bash .github/workflows/ci/native-build.sh
 
+      # Interop harness (self-test + fuzzer + openssl matrix + BoGo hard gate) as on Linux.
+      # The openssl matrix runs against Homebrew's openssl@3 (the runner's system openssl is
+      # LibreSSL): run-openssl-matrix.sh prefers it and self-skips if it is somehow absent.
+      - name: Interop harness
+        uses: ./.github/workflows/ci/interop/interop-harness
+        with:
+          fpc-target: ${{ fromJSON(needs.setup.outputs.target_map)['macos-arm64'].fpc_target }}
+          artifact-suffix: macos-arm64
+          run-interop: ${{ env.MAKE_RUN_INTEROP }}
+          run-bogo: ${{ env.MAKE_RUN_BOGO }}
+          run-openssl: ${{ env.MAKE_RUN_OPENSSL }}
+          native-crypto: ${{ env.MAKE_INTEROP_NATIVE_CRYPTO }}
+
   macos-x64:
     name: "Native: macOS x86_64 (Intel)"
     runs-on: ${{ fromJSON(needs.setup.outputs.target_map)['macos-x64'].runner }}
@@ -274,6 +303,16 @@ jobs:
           FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['macos-x64'].fpc_target }}
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['macos-x64'].fpc_tarball_target }}
         run: bash .github/workflows/ci/native-build.sh
+
+      - name: Interop harness
+        uses: ./.github/workflows/ci/interop/interop-harness
+        with:
+          fpc-target: ${{ fromJSON(needs.setup.outputs.target_map)['macos-x64'].fpc_target }}
+          artifact-suffix: macos-x64
+          run-interop: ${{ env.MAKE_RUN_INTEROP }}
+          run-bogo: ${{ env.MAKE_RUN_BOGO }}
+          run-openssl: ${{ env.MAKE_RUN_OPENSSL }}
+          native-crypto: ${{ env.MAKE_INTEROP_NATIVE_CRYPTO }}
 
   linux-arm32:
     name: "QEMU: Linux ARMv7"

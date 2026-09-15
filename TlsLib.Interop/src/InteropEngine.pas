@@ -23,6 +23,7 @@ uses
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpDefaultCryptoProvider,
+  TlpOSCryptoProvider,
   TlpINamedGroup,
   TlpNamedGroups,
   TlpINegotiation,
@@ -210,6 +211,10 @@ end;
 class function TInteropEngine.DefaultProvider: ICryptoProvider;
 begin
   Result := TDefaultCryptoProvider.Create as ICryptoProvider;
+  // opt-in: run the conformance matrix against this platform's OS-native facets. 'true'
+  // matches the MAKE_RUN_* toggle convention the CI uses for every other flag.
+  if SysUtils.SameText(SysUtils.GetEnvironmentVariable('TLSLIB_NATIVE_CRYPTO'), 'true') then
+    Result := TOSCryptoProvider.Compose(Result);
 end;
 
 class function TInteropEngine.OnlyPostQuantumGroups(const AProvider: ICryptoProvider;

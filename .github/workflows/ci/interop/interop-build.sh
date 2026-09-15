@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Interop harness, Linux native legs. Architecture-generic: keys off FPC_TARGET, so
-# the same script serves linux-x64 (x86_64-linux) and linux-arm64 (aarch64-linux).
+# Interop harness for the native legs. Platform- and architecture-generic: keys off
+# FPC_TARGET, so the same script serves every native job (Linux, Windows, macOS).
 #
 # Runs AFTER that job's standard build step, so the CryptoLib / HashLib / SimpleBase /
 # TlsLib packages are already compiled into their lib/<target> unit dirs. We compile
@@ -14,9 +14,10 @@
 #   * run-bogo.sh      - the full-suite hard-gate BoGo run, when MAKE_RUN_BOGO=true.
 #
 # Opt out of the whole step with MAKE_RUN_INTEROP=false, of BoGo alone with
-# MAKE_RUN_BOGO=false, or of the openssl matrix alone with MAKE_RUN_OPENSSL=false (the
-# Windows leg skips it, as its openssl availability differs). BoGo needs Go and a
-# BoringSSL checkout in BOGO_SRC (the job provisions both when MAKE_RUN_BOGO=true).
+# MAKE_RUN_BOGO=false, or of the openssl matrix alone with MAKE_RUN_OPENSSL=false. The
+# matrix additionally self-skips where no suitable OpenSSL is found (see run-openssl-matrix.sh),
+# so it is safe to leave on everywhere. BoGo needs Go and a BoringSSL checkout in BOGO_SRC
+# (the job provisions both when MAKE_RUN_BOGO=true).
 
 set -euo pipefail
 
@@ -39,6 +40,9 @@ case "$OS" in win*|*windows*) EXE=".exe" ;; esac
 
 INTEROP="$REPO_ROOT/TlsLib.Interop"
 SRC="$INTEROP/src"
+# the opt-in OS-native crypto overlay is a small pure-source package layered on the already
+# prebuilt core, so we compile its units on demand from src rather than prebuilding them
+CRYPTO_SYSTEM_SRC="$REPO_ROOT/TlsLib.Crypto.System/src"
 LPR_DIR="$INTEROP/FreePascal.Interop"
 BIN_DIR="$LPR_DIR/bin"
 mkdir -p "$BIN_DIR"
@@ -75,7 +79,8 @@ to_native() {
 compile() {  # <program-name>
   fpc "-T$OS" "-P$CPU" -MDelphi -O2 -B \
     -Fu"$(to_native "$CRYPTO_UNITS")" -Fu"$(to_native "$HASH_UNITS")" \
-    -Fu"$(to_native "$SB_UNITS")" -Fu"$(to_native "$TLS_UNITS")" -Fu"$(to_native "$SRC")" \
+    -Fu"$(to_native "$SB_UNITS")" -Fu"$(to_native "$TLS_UNITS")" \
+    -Fu"$(to_native "$CRYPTO_SYSTEM_SRC")" -Fu"$(to_native "$SRC")" \
     -FU"$(to_native "$BUILD_DIR")" -o"$(to_native "$BIN_DIR/$1$EXE")" "$(to_native "$LPR_DIR/$1.lpr")"
 }
 for p in InteropSelfTest OpenSslInterop TlsFuzzer BoGoShim; do

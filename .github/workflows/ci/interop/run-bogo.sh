@@ -119,11 +119,10 @@ set +e
 VERDICT=${PIPESTATUS[0]}
 set -e
 
-# archive the boundary + raw JSON for auditability over time
-if [ -n "${BOGO_LOG_DIR:-}" ]; then
-  mkdir -p "$BOGO_LOG_DIR"
-  cp -f "$GATE_JSON" "$AUDIT_JSON" "$BOUNDARY_LOG" "$BOGO_LOG_DIR/" 2>/dev/null || true
-  echo "archived gate.json / audit.json / coverage-boundary.txt to $BOGO_LOG_DIR"
-fi
+# archive the boundary + raw JSON for auditability; the CI upload reads this same path
+LOG_DIR="${BOGO_LOG_DIR:-$BIN_DIR/bogo-boundary}"
+mkdir -p "$LOG_DIR"
+cp -f "$GATE_JSON" "$AUDIT_JSON" "$BOUNDARY_LOG" "$LOG_DIR/" || true
+echo "archived gate.json / audit.json / coverage-boundary.txt to $LOG_DIR"
 
 exit "$VERDICT"

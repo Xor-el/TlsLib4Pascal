@@ -10,7 +10,7 @@
       <PathDelim Value="\"/>
       <SearchPaths>
         <IncludeFiles Value="..\..\Include"/>
-        <OtherUnitFiles Value="..\..\Common;..\..\Interfaces\Common;..\..\Interfaces\Security;..\..\Interfaces\Crypto;..\..\Interfaces\Codec;..\..\Interfaces\Engine;..\..\Interfaces\Record;..\..\Interfaces\KeySchedule;..\..\Interfaces\Handshake;..\..\Interfaces\Extensions;..\..\Interfaces\Negotiation;..\..\Interfaces\Session;..\..\Security;..\..\Codec;..\..\Crypto;..\..\Record;..\..\Engine;..\..\KeySchedule;..\..\Handshake;..\..\Extensions;..\..\Negotiation;..\..\Session;..\..\Trust;..\..\Interfaces\Trust;..\..\CertCompression;..\..\Interfaces\CertCompression;..\..\Ech;..\..\Interfaces\Ech"/>
+        <OtherUnitFiles Value="..\..\Common;..\..\Interfaces\Common;..\..\Interfaces\Security;..\..\Interfaces\Crypto;..\..\Interfaces\Crypto\Providers;..\..\Interfaces\Codec;..\..\Interfaces\Engine;..\..\Interfaces\Record;..\..\Interfaces\KeySchedule;..\..\Interfaces\Handshake;..\..\Interfaces\Extensions;..\..\Interfaces\Negotiation;..\..\Interfaces\Session;..\..\Security;..\..\Codec;..\..\Crypto;..\..\Crypto\Providers;..\..\Record;..\..\Engine;..\..\KeySchedule;..\..\Handshake;..\..\Extensions;..\..\Negotiation;..\..\Session;..\..\Trust;..\..\Interfaces\Trust;..\..\CertCompression;..\..\Interfaces\CertCompression;..\..\Ech;..\..\Interfaces\Ech"/>
         <UnitOutputDirectory Value="lib\$(TargetCPU)-$(TargetOS)"/>
       </SearchPaths>
       <CodeGeneration>
@@ -28,7 +28,7 @@
     <Description Value="Opinionated yet Modular TLS for Modern Object Pascal"/>
     <License Value="MIT License"/>
     <Version Major="1" Minor="1"/>
-    <Files Count="119">
+    <Files Count="120">
       <Item1>
         <Filename Value="..\..\Crypto\TlpCryptoDomainTypes.pas"/>
         <UnitName Value="TlpCryptoDomainTypes"/>
@@ -66,11 +66,11 @@
         <UnitName Value="TlpWireWriter"/>
       </Item9>
       <Item10>
-        <Filename Value="..\..\Interfaces\Crypto\TlpICryptoProvider.pas"/>
+        <Filename Value="..\..\Interfaces\Crypto\Providers\TlpICryptoProvider.pas"/>
         <UnitName Value="TlpICryptoProvider"/>
       </Item10>
       <Item11>
-        <Filename Value="..\..\Crypto\TlpDefaultCryptoProvider.pas"/>
+        <Filename Value="..\..\Crypto\Providers\TlpDefaultCryptoProvider.pas"/>
         <UnitName Value="TlpDefaultCryptoProvider"/>
       </Item11>
       <Item12>
@@ -505,6 +505,10 @@
         <Filename Value="..\..\Trust\TlpServerName.pas"/>
         <UnitName Value="TlpServerName"/>
       </Item119>
+      <Item120>
+        <Filename Value="..\..\Interfaces\Crypto\Providers\TlpICryptoBackendReport.pas"/>
+        <UnitName Value="TlpICryptoBackendReport"/>
+      </Item120>
     </Files>
     <CompatibilityMode Value="True"/>
     <RequiredPkgs Count="2">

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# The always-on lighter interop matrix: our engine against an openssl s_client /
-# s_server peer, both directions, for the core TLS 1.3 cases. No Go needed. Runs
-# locally (Git Bash) and on the Linux CI legs. Requires openssl (3.x, for 1.3) and
-# a built OpenSslInterop binary (interop-build.sh compiles it first).
+# The lighter interop matrix: our engine against an openssl s_client / s_server peer, both
+# directions, for the core TLS 1.3 (and hardened 1.2) cases. No Go needed. Runs locally (Git
+# Bash) and on every native CI leg (Linux, Windows, macOS). It needs a real OpenSSL >= 3.x
+# (the cells use OpenSSL-specific s_client/s_server flags); anything else is skipped cleanly,
+# never failing the leg. Also needs a built OpenSslInterop binary (interop-build.sh compiles it).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -10,7 +11,25 @@ REPO_ROOT="$(cd "$HERE/../../../.." && pwd)"
 INTEROP_ROOT="$REPO_ROOT/TlsLib.Interop"
 DATA_DIR="$INTEROP_ROOT/Data"
 BIN_DIR="$INTEROP_ROOT/FreePascal.Interop/bin"
+
+# Prefer an explicitly pinned OPENSSL; otherwise on macOS reach for Homebrew's openssl@3 - the
+# system openssl there is LibreSSL, whose s_client/s_server surface this matrix does not target.
+# Same brew formula the FPC libssl shim already relies on, so it is present on the CI runners.
+if [ -z "${OPENSSL:-}" ] && [ "$(uname -s)" = "Darwin" ] && command -v brew >/dev/null 2>&1; then
+  BREW_SSL="$(brew --prefix openssl@3 2>/dev/null || true)"
+  [ -n "$BREW_SSL" ] && [ -x "$BREW_SSL/bin/openssl" ] && OPENSSL="$BREW_SSL/bin/openssl"
+fi
 OPENSSL="${OPENSSL:-openssl}"
+
+# Suitability guard: require a real OpenSSL >= 3.x. Missing, LibreSSL, or an older build is
+# skipped cleanly (clear log, exit 0) - the same graceful stance the hybrid/ECH cells take.
+OSSL_VER="$(command -v "$OPENSSL" >/dev/null 2>&1 && "$OPENSSL" version 2>/dev/null || true)"
+case "$OSSL_VER" in
+  OpenSSL\ [3-9].* | OpenSSL\ [1-9][0-9].*) : ;;
+  *)
+    echo "SKIPPED: no suitable OpenSSL (need real OpenSSL >= 3.x; found: ${OSSL_VER:-none})"
+    exit 0 ;;
+esac
 
 # resolve the driver binary (.exe on Windows)
 DRIVER=""

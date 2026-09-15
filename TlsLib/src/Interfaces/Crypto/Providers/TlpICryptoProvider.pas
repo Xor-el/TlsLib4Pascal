@@ -11,7 +11,7 @@
 
 unit TlpICryptoProvider;
 
-{$I ..\..\Include\TlsLib.inc}
+{$I ..\..\..\Include\TlsLib.inc}
 
 interface
 

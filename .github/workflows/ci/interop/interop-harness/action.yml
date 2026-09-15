@@ -25,6 +25,13 @@ inputs:
     description: Whether to run the openssl s_client/s_server matrix (skipped where openssl is unavailable).
     required: false
     default: 'true'
+  native-crypto:
+    description: >-
+      Run the harness against this platform's OS-native crypto facets (TLSLIB_NATIVE_CRYPTO)
+      overlaid on the portable base, instead of the pure-Pascal provider. No-op where the
+      platform has no native facets (only Windows today).
+    required: false
+    default: 'false'
   bogo-ref:
     description: The BoringSSL peer commit to pin the BoGo run against.
     required: false
@@ -72,11 +79,11 @@ runs:
         MAKE_RUN_INTEROP: 'true'
         MAKE_RUN_BOGO: ${{ inputs.run-bogo }}
         MAKE_RUN_OPENSSL: ${{ inputs.run-openssl }}
+        TLSLIB_NATIVE_CRYPTO: ${{ inputs.native-crypto }}
         BOGO_REF: ${{ inputs.bogo-ref }}
         BOGO_WORKERS: ${{ inputs.bogo-workers }}
         FPC_TARGET: ${{ inputs.fpc-target }}
         BOGO_SRC: ${{ runner.temp }}/boringssl
-        BOGO_LOG_DIR: ${{ runner.temp }}/bogo-boundary
       run: bash .github/workflows/ci/interop/interop-build.sh
 
     # Archive the BoGo coverage boundary + raw JSON even on failure (that is when triage
@@ -86,5 +93,5 @@ runs:
       uses: actions/upload-artifact@v7
       with:
         name: bogo-coverage-boundary-${{ inputs.artifact-suffix }}
-        path: ${{ runner.temp }}/bogo-boundary
+        path: TlsLib.Interop/FreePascal.Interop/bin/bogo-boundary
         if-no-files-found: ignore

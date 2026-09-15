@@ -17,13 +17,16 @@
     <PublishOptions>
       <Version Value="2"/>
     </PublishOptions>
-    <RequiredPackages Count="2">
+    <RequiredPackages Count="3">
       <Item1>
         <PackageName Value="TlsLib4PascalPackage"/>
       </Item1>
       <Item2>
-        <PackageName Value="FCL"/>
+        <PackageName Value="TlsLib.Crypto.System"/>
       </Item2>
+      <Item3>
+        <PackageName Value="FCL"/>
+      </Item3>
     </RequiredPackages>
     <Units Count="7">
       <Unit0>

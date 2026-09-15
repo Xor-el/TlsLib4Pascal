@@ -1,0 +1,42 @@
+package TlsLib.Crypto.System;
+
+{$R *.res}
+{$IFDEF IMPLICITBUILDING This IFDEF should not be used by users}
+{$ALIGN 8}
+{$ASSERTIONS ON}
+{$BOOLEVAL OFF}
+{$DEBUGINFO OFF}
+{$EXTENDEDSYNTAX ON}
+{$IMPORTEDDATA ON}
+{$IOCHECKS ON}
+{$LOCALSYMBOLS ON}
+{$LONGSTRINGS ON}
+{$OPENSTRINGS ON}
+{$OPTIMIZATION OFF}
+{$OVERFLOWCHECKS OFF}
+{$RANGECHECKS OFF}
+{$REFERENCEINFO ON}
+{$SAFEDIVIDE OFF}
+{$STACKFRAMES ON}
+{$TYPEDADDRESS OFF}
+{$VARSTRINGCHECKS ON}
+{$WRITEABLECONST OFF}
+{$MINENUMSIZE 1}
+{$IMAGEBASE $400000}
+{$DEFINE RELEASE}
+{$ENDIF IMPLICITBUILDING}
+{$DESCRIPTION 'Optional OS-native crypto acceleration facets for TlsLib4Pascal'}
+{$RUNONLY}
+{$IMPLICITBUILD ON}
+
+requires
+  rtl,
+  TlsLib4PascalPackage;
+
+contains
+  TlpSystemCryptoExceptions in '..\..\src\TlpSystemCryptoExceptions.pas',
+  TlpSystemCryptoBase in '..\..\src\TlpSystemCryptoBase.pas',
+  TlpWindowsSystemCrypto in '..\..\src\TlpWindowsSystemCrypto.pas',
+  TlpOSCryptoProvider in '..\..\src\TlpOSCryptoProvider.pas';
+
+end.

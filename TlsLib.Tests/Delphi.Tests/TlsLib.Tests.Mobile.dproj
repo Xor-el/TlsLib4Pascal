@@ -365,9 +365,9 @@
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Codec\TlpIWireWriter.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Codec\TlpWireWriter.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Crypto\TlpCryptoDomainTypes.pas"/>
-        <DCCReference Include="..\..\TlsLib\src\Interfaces\Crypto\TlpICryptoProvider.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Crypto\Providers\TlpICryptoProvider.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Crypto\TlpISigningKey.pas"/>
-        <DCCReference Include="..\..\TlsLib\src\Crypto\TlpDefaultCryptoProvider.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Crypto\Providers\TlpDefaultCryptoProvider.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Crypto\TlpINamedGroup.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Crypto\TlpNamedGroups.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Common\TlpArrayUtilities.pas"/>
