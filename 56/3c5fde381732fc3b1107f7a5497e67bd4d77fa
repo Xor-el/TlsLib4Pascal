@@ -1,0 +1,37 @@
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_09d3c46d1a9b1f::t_544bad47ffa4b1 3504
+  s_09d3c46d1a9b1f::t_a11a4eb3efa8ae 3553,3578
+  s_09d3c46d1a9b1f::t_d6a27d0e5ce65d 23
+  s_09d3c46d1a9b1f::t_ce212ae62472c4 3537-3538
+  s_09d3c46d1a9b1f::t_b1e9e727b88cb8 3477
+TlsLib/src/Common/TlpPem.pas
+  s_09d3c46d1a9b1f::t_c89c44e3e9b19f 54-56
+  s_09d3c46d1a9b1f::t_da300e3ec419f3 185-209
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_09d3c46d1a9b1f::t_934bf19c34dc9a 129
+  s_09d3c46d1a9b1f::t_547565753d9656 1626,1919
+.github/workflows/ci/interop/interop-harness/action.yml
+  s_09d3c46d1a9b1f::t_951abe6fdf4136 41
+  s_09d3c46d1a9b1f::t_560556c6c5dcc2 32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "563c5fde381732fc3b1107f7a5497e67bd4d77fa",
+  "prompts": {},
+  "humans": {
+    "h_878efc035442cc": {
+      "author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  },
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
