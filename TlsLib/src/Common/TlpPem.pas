@@ -51,6 +51,9 @@ type
     class function ReadBlocks(const AData: TBytes): TArray<TPemBlock>; static;
     /// <summary>Serializes ABlocks as PEM (RFC 7468), LF line endings, 64-column body.</summary>
     class function WriteBlocks(const ABlocks: TArray<TPemBlock>): TBytes; static;
+    /// <summary>Whether AData is PEM-armored: a "-----BEGIN " boundary at the start of a
+    /// line (so binary DER carrying those bytes mid-content does not false-positive).</summary>
+    class function IsArmored(const AData: TBytes): Boolean; static;
   end;
 
 implementation
@@ -177,6 +180,31 @@ begin
     LOut := LOut + '-----END ' + ABlocks[LI].PemType + '-----'#10;
   end;
   Result := TEncoding.ASCII.GetBytes(LOut);
+end;
+
+class function TPem.IsArmored(const AData: TBytes): Boolean;
+const
+  BeginTag: array [0 .. 10] of Byte = (Ord('-'), Ord('-'), Ord('-'), Ord('-'),
+    Ord('-'), Ord('B'), Ord('E'), Ord('G'), Ord('I'), Ord('N'), Ord(' '));
+var
+  LI, LN, LLen: Int32;
+  LAtLineStart: Boolean;
+begin
+  Result := False;
+  LN := System.Length(AData);
+  LLen := System.Length(BeginTag);
+  LI := 0;
+  while (LI < LN) and (AData[LI] <= Ord(' ')) do
+    Inc(LI);
+  // the first non-blank byte begins a line; thereafter a line starts right after each newline
+  LAtLineStart := True;
+  while LI <= (LN - LLen) do
+  begin
+    if LAtLineStart and CompareMem(@AData[LI], @BeginTag[0], LLen) then
+      Exit(True);
+    LAtLineStart := AData[LI] = Ord(#10);
+    Inc(LI);
+  end;
 end;
 
 end.

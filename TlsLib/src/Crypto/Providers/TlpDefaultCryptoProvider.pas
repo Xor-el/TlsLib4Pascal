@@ -126,6 +126,7 @@ uses
   ClpValueHelper,
   ClpCryptoLibExceptions,
   TlpCryptoDomainTypes,
+  TlpPem,
   TlpBinaryPrimitives,
   TlpArrayUtilities,
   TlpEnumUtilities,
@@ -473,7 +474,6 @@ type
     class function PasswordChars(const APassword: string): TArray<Char>; static;
     /// <summary>Zeroes a password character array in place.</summary>
     class procedure WipePasswordChars(var APassword: TArray<Char>); static;
-    class function IsPemArmored(const AData: TBytes): Boolean; static;
     class function ImportKey(const AData: TBytes; const APassword: string;
       AHasPassword: Boolean): ISigningKey; static;
     /// <summary>The one signing-key construction path: normalizes a parsed private-key
@@ -1509,36 +1509,6 @@ begin
   raise ENotSupportedTlsLibException.CreateRes(@SUnsupportedKeyAlgorithm);
 end;
 
-// True when the bytes carry a PEM encapsulation header. RFC 7468 6.2 permits explanatory text
-// before the first "-----BEGIN " boundary, so the header is accepted wherever it begins a line
-// (a leading comment or annotation no longer makes a PEM bundle look like DER). DER stays
-// unmatched: its binary content does not carry that ASCII run at a line start.
-class function TCredentialImport.IsPemArmored(const AData: TBytes): Boolean;
-const
-  CBegin: array [0 .. 10] of Byte =
-    (Ord('-'), Ord('-'), Ord('-'), Ord('-'), Ord('-'), Ord('B'), Ord('E'),
-    Ord('G'), Ord('I'), Ord('N'), Ord(' '));
-var
-  LI, LN, LLen: Int32;
-  LAtLineStart: Boolean;
-begin
-  Result := False;
-  LN := System.Length(AData);
-  LLen := System.Length(CBegin);
-  LI := 0;
-  while (LI < LN) and (AData[LI] <= Ord(' ')) do
-    Inc(LI);
-  // the first non-blank byte begins a line; thereafter a line starts right after each newline
-  LAtLineStart := True;
-  while LI <= (LN - LLen) do
-  begin
-    if LAtLineStart and CompareMem(@AData[LI], @CBegin[0], LLen) then
-      Exit(True);
-    LAtLineStart := AData[LI] = Ord(#10);
-    Inc(LI);
-  end;
-end;
-
 // The private half of the key object the PEM reader returned (a bare key parameter,
 // or the private key of a returned key pair).
 class function TCredentialImport.KeyParamFromPem(const AData: TBytes;
@@ -1653,7 +1623,7 @@ var
   LKeyParam: IAsymmetricKeyParameter;
 begin
   try
-    if IsPemArmored(AData) then
+    if TPem.IsArmored(AData) then
       LKeyParam := KeyParamFromPem(AData, APassword, AHasPassword)
     else
       LKeyParam := KeyParamFromDer(AData, APassword, AHasPassword);
@@ -1946,7 +1916,7 @@ begin
   // Either way the result is the ordered list of raw DER certificates.
   Result := nil;
   try
-    if TCredentialImport.IsPemArmored(AData) then
+    if TPem.IsArmored(AData) then
     begin
       LChain := TList<TBytes>.Create;
       try

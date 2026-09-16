@@ -29,7 +29,7 @@ inputs:
     description: >-
       Run the harness against this platform's OS-native crypto facets (TLSLIB_NATIVE_CRYPTO)
       overlaid on the portable base, instead of the pure-Pascal provider. No-op where the
-      platform has no native facets (only Windows today).
+      platform has no native facets.
     required: false
     default: 'false'
   bogo-ref:
@@ -38,8 +38,7 @@ inputs:
     default: ae49d2681a56ca7b8609f6039a770fda2a8eb550
   bogo-workers:
     description: >-
-      BoGo runner parallelism (-num-workers). CI runs at 4 for speed; a local run of
-      run-bogo.sh still defaults to 1 for deterministic triage. Dial back if a
+      BoGo runner parallelism (-num-workers); 4 for speed. Dial back if a
       timing-sensitive test flakes under load on a slower runner.
     required: false
     default: '4'

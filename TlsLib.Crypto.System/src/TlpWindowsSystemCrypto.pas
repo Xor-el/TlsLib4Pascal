@@ -20,7 +20,7 @@ interface
 uses
   Windows,
   SysUtils,
-  TypInfo,
+  TlpEnumUtilities,
   TlpArrayUtilities,
   TlpCryptoDomainTypes,
   TlpPem,
@@ -872,7 +872,6 @@ type
   var
     FInner: ISigningCrypto;
     FNCrypt: IWindowsNCrypt;
-    class function IsPemArmored(const AData: TBytes): Boolean; static;
     class function SchemeName(AScheme: TSignatureScheme): string; static;
     // decodes a PEM PKCS#8 block to DER and imports it natively; the decoded bytes are the
     // plain or still-encrypted PKCS#8 the KSP accepts
@@ -3475,7 +3474,7 @@ begin
   end;
   // the handle is owned by the cert context / store, freed when the owner closes them
   AKey := TWindowsSigningKey.Create(TPfxKeyOwner.Create(Self as IWindowsNCrypt,
-    LStore, LCert, LKey, False), LSchemes);
+    LStore, LCert, LKey, False) as INCryptKeyOwner, LSchemes);
   Result := True;
 end;
 
@@ -3500,28 +3499,9 @@ begin
   FNCrypt := ANCrypt;
 end;
 
-class function TWindowsSigningCrypto.IsPemArmored(const AData: TBytes): Boolean;
-const
-  CBegin: array [0 .. 10] of Byte = (Ord('-'), Ord('-'), Ord('-'), Ord('-'),
-    Ord('-'), Ord('B'), Ord('E'), Ord('G'), Ord('I'), Ord('N'), Ord(' '));
-var
-  LI, LN, LLen: Int32;
-begin
-  Result := False;
-  LN := System.Length(AData);
-  LLen := System.Length(CBegin);
-  LI := 0;
-  while LI <= (LN - LLen) do
-  begin
-    if CompareMem(@AData[LI], @CBegin[0], LLen) then
-      Exit(True);
-    Inc(LI);
-  end;
-end;
-
 class function TWindowsSigningCrypto.SchemeName(AScheme: TSignatureScheme): string;
 begin
-  Result := GetEnumName(TypeInfo(TSignatureScheme), Ord(AScheme));
+  Result := TEnumUtilities.GetName<TSignatureScheme>(AScheme);
 end;
 
 function TWindowsSigningCrypto.TryImportPemNative(const AData: TBytes;
@@ -3554,7 +3534,8 @@ begin
       LImported := False;
     if LImported then
     begin
-      AKey := TWindowsSigningKey.Create(TNCryptKeyOwner.Create(FNCrypt, LKey), LSchemes);
+      AKey := TWindowsSigningKey.Create(TNCryptKeyOwner.Create(FNCrypt, LKey)
+        as INCryptKeyOwner, LSchemes);
       Exit(True);
     end;
   end;
@@ -3569,7 +3550,7 @@ var
 begin
   // native path is a PKCS#8 key (RSA or NIST-curve ECDSA) - DER imported directly, PEM
   // decoded first; a PKCS#1/SEC1 or Ed25519 key delegates to the portable facet
-  if IsPemArmored(AData) then
+  if TPem.IsArmored(AData) then
   begin
     if not TryImportPemNative(AData, '', Result) then
       Result := FInner.ImportSigningKey(AData);
@@ -3594,7 +3575,7 @@ begin
   // - DER imported directly, PEM decoded first; an unsupported-PBE or otherwise unsupported
   // key (or a wrong password) delegates to the portable facet, which owns the full
   // decrypt/parse range and all error handling
-  if IsPemArmored(AData) then
+  if TPem.IsArmored(AData) then
   begin
     if not TryImportPemNative(AData, APassword, Result) then
       Result := FInner.ImportSigningKey(AData, APassword);
