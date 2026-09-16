@@ -1,0 +1,36 @@
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_09d3c46d1a9b1f::t_c6b309d0fa0969 25
+TlsLib.Crypto.System/Packages/Delphi/TlsLib.Crypto.System.dpk
+  s_09d3c46d1a9b1f::t_89a9031586a6e4 37-38
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.pas
+  s_09d3c46d1a9b1f::t_73e2b8c5984052 46
+TlsLib.Crypto.System/src/TlpICryptoBackendReport.pas
+  s_09d3c46d1a9b1f::t_d81a06a5cfe56f 1-51
+TlsLib.Crypto.System/Packages/FPC/TlsLib.Crypto.System.lpk
+  s_09d3c46d1a9b1f::t_48fd504ecff3d3 24,26-27,30-31
+  s_09d3c46d1a9b1f::t_5552fe89183852 40-45,48
+  s_09d3c46d1a9b1f::t_6d4065b44bbb7a 38-39
+  s_09d3c46d1a9b1f::t_5b14b3079c1861 34-35
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
+  s_09d3c46d1a9b1f::t_0bd555fc322923 31
+TlsLib.Crypto.System/Packages/FPC/TlsLib.Crypto.System.pas
+  s_09d3c46d1a9b1f::t_4b97812fa9030b 11-12
+TlsLib.Crypto.System/src/TlpSystemCryptoTypes.pas
+  s_09d3c46d1a9b1f::t_bf9a18f91902a4 1-59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b1e38ffbe82b3a45c5f418cc67efd8efbd7298c3",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
