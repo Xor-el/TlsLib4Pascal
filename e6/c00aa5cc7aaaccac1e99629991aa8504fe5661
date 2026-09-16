@@ -1,0 +1,32 @@
+TlsLib.Tests/src/NamedGroupTests.pas
+  s_09d3c46d1a9b1f::t_520739a6d8dcb1 36-37
+  s_09d3c46d1a9b1f::t_240ee279aca374 77
+  s_09d3c46d1a9b1f::t_9ef870cdfd6810 187
+  s_09d3c46d1a9b1f::t_49ff991bfe918b 78
+  s_09d3c46d1a9b1f::t_279ab01c635a0c 167-175,177-179,193-194
+  s_09d3c46d1a9b1f::t_c7f82fac46ec90 165-166,176,180-186,188,190-192
+  s_09d3c46d1a9b1f::t_f5fc695495cdb5 189
+  s_09d3c46d1a9b1f::t_0421fdb5ee7016 57-59
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_09d3c46d1a9b1f::t_7e83cf0f66ea4c 1659-1660,1670-1675
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpi
+  s_09d3c46d1a9b1f::t_2cfdbb6287f0b3 20,31,33-35
+TlsLib.Tests/FreePascal.Tests/TlsLib.Tests.lpi
+  s_09d3c46d1a9b1f::t_ef13bda8fdca70 20,31,34,37,39-41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e6c00aa5cc7aaaccac1e99629991aa8504fe5661",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
