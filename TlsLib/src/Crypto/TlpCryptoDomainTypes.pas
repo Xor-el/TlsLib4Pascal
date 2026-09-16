@@ -95,13 +95,6 @@ type
     property Aead: UInt16 read FAead;
   end;
 
-  /// <summary>One PEM block (RFC 7468): its label (e.g. "PRIVATE KEY", "ECHCONFIG") and
-  /// the base64-decoded content (opaque bytes - DER for keys and certificates).</summary>
-  TPemBlock = record
-    PemType: string;
-    Content: TBytes;
-  end;
-
   /// <summary>
   /// The revocation verdict an OCSP response reports for a certificate (RFC 6960
   /// sec. 2.2): Good, Revoked, or Unknown. Crosses the provider seam so the OCSP

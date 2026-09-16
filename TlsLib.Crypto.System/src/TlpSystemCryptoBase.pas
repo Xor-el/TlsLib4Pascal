@@ -86,7 +86,6 @@ type
     function PathValidation: ICertificatePathValidator;
     function Revocation: IRevocationChecker;
     function Hpke: IHpkeCrypto;
-    function Pem: IPemCodec;
   end;
 
 implementation
@@ -195,11 +194,6 @@ end;
 function TOverlayCryptoProvider.Hpke: IHpkeCrypto;
 begin
   Result := FHpke;
-end;
-
-function TOverlayCryptoProvider.Pem: IPemCodec;
-begin
-  Result := FInner.Pem;
 end;
 
 end.

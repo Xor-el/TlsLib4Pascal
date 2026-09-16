@@ -23,6 +23,7 @@ uses
   Classes,
   TlpEchConfig,
   TlpCryptoDomainTypes,
+  TlpPem,
   TlpICryptoProvider,
   TlpDefaultCryptoProvider,
   TlpDataEncoding,
@@ -121,7 +122,7 @@ begin
   LBlocks[0].Content := LPkcs8;
   LBlocks[1].PemType := 'ECHCONFIG';
   LBlocks[1].Content := Result.EchConfigList;
-  Result.Pem := AProvider.Pem.WriteBlocks(LBlocks);
+  Result.Pem := TPem.WriteBlocks(LBlocks);
 
   // an HTTPS record in ServiceMode (priority 1) with the ECHConfigList in the "ech"
   // SvcParam, base64 as the presentation format expects

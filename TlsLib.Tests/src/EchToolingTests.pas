@@ -26,6 +26,7 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpCryptoDomainTypes,
+  TlpPem,
   TlpICryptoProvider,
   TlpISecretBuffer,
   TlpIWireWriter,
@@ -279,12 +280,12 @@ begin
   LGen2 := TEchKeyGenerator.Generate(Provider, 'b.example', 2,
     THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256,
     THpkeAead.AES_128_GCM, 0);
-  LBlocks1 := Provider.Pem.ReadBlocks(LGen1.Pem);
-  LBlocks2 := Provider.Pem.ReadBlocks(LGen2.Pem);
+  LBlocks1 := TPem.ReadBlocks(LGen1.Pem);
+  LBlocks2 := TPem.ReadBlocks(LGen2.Pem);
   SetLength(LMixed, 2);
   LMixed[0] := FindBlock(LBlocks1, 'PRIVATE KEY');
   LMixed[1] := FindBlock(LBlocks2, 'ECHCONFIG');
-  LMixedPem := Provider.Pem.WriteBlocks(LMixed);
+  LMixedPem := TPem.WriteBlocks(LMixed);
   LRaised := False;
   try
     TInMemoryEchKeyStore.FromPem(LMixedPem, Provider);

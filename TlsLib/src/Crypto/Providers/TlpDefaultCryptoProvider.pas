@@ -68,12 +68,6 @@ uses
   ClpIKemEncapsulator,
   ClpMlKemDecapsulator,
   ClpIKemDecapsulator,
-  ClpPemReader,
-  ClpIPemReader,
-  ClpPemWriter,
-  ClpIPemWriter,
-  ClpPemObject,
-  ClpIPemObject,
   ClpISigner,
   ClpSignerUtilities,
   ClpIAsymmetricKeyParameter,
@@ -164,7 +158,6 @@ type
     PathValidation: ICertificatePathValidator;
     Revocation: IRevocationChecker;
     Hpke: IHpkeCrypto;
-    Pem: IPemCodec;
   end;
 
   /// <summary>
@@ -185,7 +178,6 @@ type
     FPathValidation: ICertificatePathValidator;
     FRevocation: IRevocationChecker;
     FHpke: IHpkeCrypto;
-    FPem: IPemCodec;
   public
     /// <summary>The single composition point. Resolves the effective RNG first (a supplied
     /// AOverrides.Random bridged to the CryptoLib CSPRNG, else a fresh one) and threads that
@@ -209,7 +201,6 @@ type
     function PathValidation: ICertificatePathValidator;
     function Revocation: IRevocationChecker;
     function Hpke: IHpkeCrypto;
-    function Pem: IPemCodec;
   end;
 
   /// <summary>
@@ -229,7 +220,6 @@ type
     function WithPathValidation(const APathValidation: ICertificatePathValidator): ICryptoProviderBuilder;
     function WithRevocation(const ARevocation: IRevocationChecker): ICryptoProviderBuilder;
     function WithHpke(const AHpke: IHpkeCrypto): ICryptoProviderBuilder;
-    function WithPem(const APem: IPemCodec): ICryptoProviderBuilder;
     function Build: ICryptoProvider;
   end;
 
@@ -258,7 +248,6 @@ resourcestring
     'the PKCS#12 blob holds more than one private-key entry; it is ambiguous for a ' +
     'single credential — split it or import the intended identity explicitly';
   SPkcs12NoChain = 'the PKCS#12 private-key entry has no certificate chain';
-  SMalformedPem = 'the PEM data is malformed';
 
 type
   TAeadKind = (AesGcm, ChaChaPoly);
@@ -665,14 +654,6 @@ type
     function CheckCrlRevocation(const ALeafCert, AIssuerCert, ACrlDer: TBytes;
       out ARevoked: Boolean): Boolean;
   end;
-
-  // IPemCodec - RFC 7468 PEM framing over CryptoLib's TPemReader/TPemWriter.
-  TPemCodec = class(TInterfacedObject, IPemCodec)
-  public
-    function ReadBlocks(const AData: TBytes): TArray<TPemBlock>;
-    function WriteBlocks(const ABlocks: TArray<TPemBlock>): TBytes;
-  end;
-
 
 { TRandomAdapter }
 
@@ -1685,60 +1666,6 @@ begin
   end;
 end;
 
-{ TPemCodec }
-
-function TPemCodec.ReadBlocks(const AData: TBytes): TArray<TPemBlock>;
-var
-  LStream: TBytesStream;
-  LReader: IPemReader;
-  LObj: IPemObject;
-  LCount: Int32;
-begin
-  Result := nil;
-  LCount := 0;
-  LStream := TBytesStream.Create(AData);
-  try
-    try
-      LReader := TPemReader.Create(LStream) as IPemReader;
-      LObj := LReader.ReadPemObject;
-      while LObj <> nil do
-      begin
-        SetLength(Result, LCount + 1);
-        Result[LCount].PemType := LObj.&Type;
-        Result[LCount].Content := LObj.Content;
-        Inc(LCount);
-        LObj := LReader.ReadPemObject;
-      end;
-    except
-      // a CryptoLib parse failure must not leak; reclassify as a typed argument error
-      on E: EBaseTlsLibException do
-        raise;
-      on E: Exception do
-        raise EArgumentTlsLibException.CreateRes(@SMalformedPem);
-    end;
-  finally
-    LStream.Free;
-  end;
-end;
-
-function TPemCodec.WriteBlocks(const ABlocks: TArray<TPemBlock>): TBytes;
-var
-  LStream: TBytesStream;
-  LWriter: IPemWriter;
-  LI: Int32;
-begin
-  LStream := TBytesStream.Create(nil);
-  try
-    LWriter := TPemWriter.Create(LStream) as IPemWriter;
-    for LI := 0 to System.High(ABlocks) do
-      LWriter.WriteObject(TPemObject.Create(ABlocks[LI].PemType,
-        ABlocks[LI].Content) as IPemObjectGenerator);
-    Result := System.Copy(LStream.Bytes, 0, LStream.Size);
-  finally
-    LStream.Free;
-  end;
-end;
-
 { TDefaultCryptoProvider }
 
 constructor TDefaultCryptoProvider.Create(const AOverrides: TCryptoProviderOverrides);
@@ -1785,11 +1712,6 @@ begin
     FHpke := AOverrides.Hpke
   else
     FHpke := THpkeComposition.Create(FPrimitives) as IHpkeCrypto;
-
-  if AOverrides.Pem <> nil then
-    FPem := AOverrides.Pem
-  else
-    FPem := TPemCodec.Create as IPemCodec;
 end;
 
 constructor TDefaultCryptoProvider.Create;
@@ -1929,11 +1851,6 @@ end;
 function TDefaultCryptoProvider.Hpke: IHpkeCrypto;
 begin
   Result := FHpke;
-end;
-
-function TDefaultCryptoProvider.Pem: IPemCodec;
-begin
-  Result := FPem;
 end;
 
 function TCryptoPrimitives.GetRandom: IRandom;
@@ -3161,13 +3078,6 @@ function TCryptoProviderBuilder.WithHpke(
   const AHpke: IHpkeCrypto): ICryptoProviderBuilder;
 begin
   FOverrides.Hpke := AHpke;
-  Result := Self;
-end;
-
-function TCryptoProviderBuilder.WithPem(
-  const APem: IPemCodec): ICryptoProviderBuilder;
-begin
-  FOverrides.Pem := APem;
   Result := Self;
 end;
 

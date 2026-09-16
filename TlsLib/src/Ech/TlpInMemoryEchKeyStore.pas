@@ -20,6 +20,7 @@ uses
   TlpISecretBuffer,
   TlpArrayUtilities,
   TlpCryptoDomainTypes,
+  TlpPem,
   TlpICryptoProvider,
   TlpEchConfig,
   TlpIEch,
@@ -182,7 +183,7 @@ var
   LI, LCount: Int32;
 begin
   Result := nil;
-  LBlocks := AProvider.Pem.ReadBlocks(APem);
+  LBlocks := TPem.ReadBlocks(APem);
   LPkcs8 := SelectBlock(LBlocks, 'PRIVATE KEY');
   LConfigListBytes := SelectBlock(LBlocks, 'ECHCONFIG');
   try

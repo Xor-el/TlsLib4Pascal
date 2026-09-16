@@ -145,6 +145,7 @@ contains
   TlpAntiReplay in '..\..\Session\TlpAntiReplay.pas',
   TlpSessionExtensions in '..\..\Extensions\TlpSessionExtensions.pas',
   TlpDataEncoding in '..\..\Common\TlpDataEncoding.pas',
+  TlpPem in '..\..\Common\TlpPem.pas',
   TlpDateTimeUtilities in '..\..\Common\TlpDateTimeUtilities.pas',
   TlpIClock in '..\..\Interfaces\Common\TlpIClock.pas',
   TlpClock in '..\..\Common\TlpClock.pas',

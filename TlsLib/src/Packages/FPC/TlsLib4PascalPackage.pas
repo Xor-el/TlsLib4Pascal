@@ -43,7 +43,7 @@ uses
   TlpTlsSignatureBuilder, TlpITlsConfigMemo, TlpITlsCredentialResolver, 
   TlpCredentialResolvers, TlpEchConfig, TlpEchExtension, 
   TlpEchOuterExtensions, TlpEchClient, TlpIEch, TlpInMemoryEchKeyStore, 
-  TlpEchServer, TlpServerName, TlpHpkeComposition, TlpDer;
+  TlpEchServer, TlpServerName, TlpHpkeComposition, TlpDer, TlpPem;
 
 implementation
 

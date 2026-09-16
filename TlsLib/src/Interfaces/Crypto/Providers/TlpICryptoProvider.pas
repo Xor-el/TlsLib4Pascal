@@ -581,24 +581,6 @@ type
     function RandomEncapsulation(AKem: UInt16): TBytes;
   end;
 
-{ ===== PEM (RFC 7468) ===== }
-
-  /// <summary>
-  /// The generic PEM codec (RFC 7468): reads and writes labeled blocks whose content is
-  /// opaque bytes. Reading ignores explanatory text and RFC 1421 headers.
-  /// </summary>
-  IPemCodec = interface(IInterface)
-    ['{6A1F3C08-4E52-4B7D-9A03-1C8E6D2B5F49}']
-    /// <summary>
-    /// Every PEM block in AData, in order (empty when none). Explanatory text before a
-    /// block and RFC 1421 headers are ignored. Raises EArgumentTlsLibException on a
-    /// malformed block (unterminated, or a mismatched end label).
-    /// </summary>
-    function ReadBlocks(const AData: TBytes): TArray<TPemBlock>;
-    /// <summary>Serializes ABlocks as PEM (RFC 7468), LF line endings, 64-column body.</summary>
-    function WriteBlocks(const ABlocks: TArray<TPemBlock>): TBytes;
-  end;
-
 { ===== Composition root ===== }
 
   /// <summary>
@@ -617,8 +599,6 @@ type
     function Revocation: IRevocationChecker;
     /// <summary>The HPKE facet (RFC 9180), used by Encrypted Client Hello.</summary>
     function Hpke: IHpkeCrypto;
-    /// <summary>The PEM codec (RFC 7468).</summary>
-    function Pem: IPemCodec;
   end;
 
   /// <summary>
@@ -638,7 +618,6 @@ type
     function WithPathValidation(const APathValidation: ICertificatePathValidator): ICryptoProviderBuilder;
     function WithRevocation(const ARevocation: IRevocationChecker): ICryptoProviderBuilder;
     function WithHpke(const AHpke: IHpkeCrypto): ICryptoProviderBuilder;
-    function WithPem(const APem: IPemCodec): ICryptoProviderBuilder;
     /// <summary>Composes the provider from the accumulated overrides.</summary>
     function Build: ICryptoProvider;
   end;

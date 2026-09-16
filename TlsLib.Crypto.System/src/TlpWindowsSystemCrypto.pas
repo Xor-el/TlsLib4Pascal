@@ -23,6 +23,7 @@ uses
   TypInfo,
   TlpArrayUtilities,
   TlpCryptoDomainTypes,
+  TlpPem,
   TlpDer,
   TlpSystemCryptoTypes,
   TlpICryptoProvider,
@@ -870,16 +871,15 @@ type
   strict private
   var
     FInner: ISigningCrypto;
-    FPem: IPemCodec;
     FNCrypt: IWindowsNCrypt;
     class function IsPemArmored(const AData: TBytes): Boolean; static;
     class function SchemeName(AScheme: TSignatureScheme): string; static;
-    // decodes a PEM PKCS#8 block (via the portable PEM codec) to DER and imports it
-    // natively; the decoded bytes are the plain or still-encrypted PKCS#8 the KSP accepts
+    // decodes a PEM PKCS#8 block to DER and imports it natively; the decoded bytes are the
+    // plain or still-encrypted PKCS#8 the KSP accepts
     function TryImportPemNative(const AData: TBytes; const APassword: string;
       out AKey: ISigningKey): Boolean;
   public
-    constructor Create(const AInner: ISigningCrypto; const APem: IPemCodec;
+    constructor Create(const AInner: ISigningCrypto;
       const ANCrypt: IWindowsNCrypt);
     function ImportSigningKey(const AData: TBytes): ISigningKey; overload;
     function ImportSigningKey(const AData: TBytes;
@@ -3493,11 +3493,10 @@ end;
 { TWindowsSigningCrypto }
 
 constructor TWindowsSigningCrypto.Create(const AInner: ISigningCrypto;
-  const APem: IPemCodec; const ANCrypt: IWindowsNCrypt);
+  const ANCrypt: IWindowsNCrypt);
 begin
   inherited Create;
   FInner := AInner;
-  FPem := APem;
   FNCrypt := ANCrypt;
 end;
 
@@ -3536,7 +3535,7 @@ var
 begin
   AKey := nil;
   try
-    LBlocks := FPem.ReadBlocks(AData);
+    LBlocks := TPem.ReadBlocks(AData);
   except
     // malformed PEM: let the portable facet re-parse and own the canonical error
     Exit(False);
@@ -3675,7 +3674,7 @@ begin
   LSigning := nil;
   try
     LNCrypt := TWindowsNCrypt.Create(LCng);
-    LSigning := TWindowsSigningCrypto.Create(ABase.Signing, ABase.Pem, LNCrypt);
+    LSigning := TWindowsSigningCrypto.Create(ABase.Signing, LNCrypt);
   except
     on ESystemCryptoUnsupportedTlsLibException do
       LSigning := nil;

@@ -44,7 +44,6 @@ type
     function PathValidation: ICertificatePathValidator;
     function Revocation: IRevocationChecker;
     function Hpke: IHpkeCrypto;
-    function Pem: IPemCodec;
   end;
 
   /// <summary>
@@ -87,7 +86,6 @@ type
     function PathValidation: ICertificatePathValidator;
     function Revocation: IRevocationChecker;
     function Hpke: IHpkeCrypto;
-    function Pem: IPemCodec;
   end;
 
 implementation
@@ -131,11 +129,6 @@ end;
 function TMockCryptoProvider.Hpke: IHpkeCrypto;
 begin
   Result := FComposed.Hpke;
-end;
-
-function TMockCryptoProvider.Pem: IPemCodec;
-begin
-  Result := FComposed.Pem;
 end;
 
 { TFixedAesPrimitives }
@@ -232,11 +225,6 @@ end;
 function TFixedAesProvider.Hpke: IHpkeCrypto;
 begin
   Result := FComposed.Hpke;
-end;
-
-function TFixedAesProvider.Pem: IPemCodec;
-begin
-  Result := FComposed.Pem;
 end;
 
 end.
