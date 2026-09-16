@@ -17,7 +17,7 @@
     <PublishOptions>
       <Version Value="2"/>
     </PublishOptions>
-    <RequiredPackages Count="6">
+    <RequiredPackages Count="7">
       <Item1>
         <PackageName Value="TlsLib4PascalPackage"/>
       </Item1>
@@ -28,14 +28,17 @@
         <PackageName Value="TlsLib.Trust.Bundle"/>
       </Item3>
       <Item4>
-        <PackageName Value="fpcunittestrunner"/>
+        <PackageName Value="TlsLib.Crypto.System"/>
       </Item4>
       <Item5>
-        <PackageName Value="LCL"/>
+        <PackageName Value="fpcunittestrunner"/>
       </Item5>
       <Item6>
-        <PackageName Value="FCL"/>
+        <PackageName Value="LCL"/>
       </Item6>
+      <Item7>
+        <PackageName Value="FCL"/>
+      </Item7>
     </RequiredPackages>
     <Units Count="66">
       <Unit0>

@@ -1656,6 +1656,8 @@ begin
 end;
 
 function TWindowsCngX25519.PrivateBlob(const AScalar: TBytes): TBytes;
+var
+  LOffset: Integer;
 begin
   // generic ECDH private blob from the raw 32-byte scalar alone: { magic; cbKey=32 } then a
   // zero X and Y then d. CNG derives the public point from d on import (curve25519), so the
@@ -1665,7 +1667,12 @@ begin
   System.FillChar(Result[0], System.Length(Result), 0);
   PULONG(@Result[0])^ := BCRYPT_ECDH_PRIVATE_GENERIC_MAGIC;
   PULONG(@Result[4])^ := ULONG(X25519_KEY_SIZE);
-  Move(AScalar[0], Result[ECC_BLOB_HEADER_SIZE + 2 * X25519_KEY_SIZE], X25519_KEY_SIZE);
+  LOffset := ECC_BLOB_HEADER_SIZE + 2 * X25519_KEY_SIZE;
+  Move(AScalar[0], Result[LOffset], X25519_KEY_SIZE);
+  // RFC 7748 clamp: X25519 applies it during scalar-mult, but CNG rejects a scalar that is
+  // not already in canonical clamped form, so an external key must be clamped before import
+  Result[LOffset] := Result[LOffset] and 248;
+  Result[LOffset + X25519_KEY_SIZE - 1] := (Result[LOffset + X25519_KEY_SIZE - 1] and 127) or 64;
 end;
 
 function TWindowsCngX25519.DeriveSecret(ASecret: Pointer): TBytes;
