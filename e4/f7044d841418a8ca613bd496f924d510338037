@@ -1,0 +1,112 @@
+TlsLib.Tests/src/SessionStoreTests.pas
+  s_09d3c46d1a9b1f::t_8081bdb5c15c8a 185-187
+  s_09d3c46d1a9b1f::t_f137bdf9f2ef9a 29
+  s_09d3c46d1a9b1f::t_f23bfce047e146 110-112
+  s_09d3c46d1a9b1f::t_537deb9ae9fc15 117-118
+.github/workflows/make.yml
+  h_878efc035442cc 74
+TlsLib.Interop/src/TlsFuzzerRunner.pas
+  s_09d3c46d1a9b1f::t_f8ebb848840e00 409
+  s_09d3c46d1a9b1f::t_2d573bb1f5b015 459,461
+  s_09d3c46d1a9b1f::t_93ad987f58aef5 449-451
+  s_09d3c46d1a9b1f::t_e4e86e554980d0 480
+  s_09d3c46d1a9b1f::t_b6eb72ac5a05c3 388
+  s_09d3c46d1a9b1f::t_7c0b13b3cd6b7b 374-375
+  s_09d3c46d1a9b1f::t_2179533e5341b3 29
+TlsLib.Crypto.System/Packages/Delphi/TlsLib.Crypto.System.dpk
+  s_09d3c46d1a9b1f::t_e251350f0a8d06 42
+TlsLib/src/Negotiation/TlpNegotiationTypes.pas
+  s_09d3c46d1a9b1f::t_7b39c7b3cb67b6 50-52,63-67
+TlsLib.Tests/src/Tls13ClientReplayTests.pas
+  s_09d3c46d1a9b1f::t_114cdcd811142f 75
+  s_09d3c46d1a9b1f::t_599a631af7eb56 182-186
+TlsLib.Tests/src/ClientAuthTests.pas
+  s_09d3c46d1a9b1f::t_1a3c43c9cfbb53 135,160,182,207
+TlsLib.Tests/src/Tls13ServerReplayTests.pas
+  s_09d3c46d1a9b1f::t_e2fd5067099e50 141-145
+  s_09d3c46d1a9b1f::t_6f015f7ecbb408 70
+TlsLib.Tests/src/HandshakeMessagesTests.pas
+  s_09d3c46d1a9b1f::t_0733c75e84226e 30,100-102,115,151,164-165,181-182
+TlsLib/src/Crypto/TlpNamedGroups.pas
+  s_09d3c46d1a9b1f::t_473a90bd02cb00 122,130
+  s_09d3c46d1a9b1f::t_034c9693a4b800 170-175
+  s_09d3c46d1a9b1f::t_9fc2d0ac00ea31 271-273,275
+  s_09d3c46d1a9b1f::t_581c51941bc6e2 417-418,422-423
+  s_09d3c46d1a9b1f::t_a19dd6c9cb38e0 100,104-105,109
+  s_09d3c46d1a9b1f::t_cfde7c815a0b3c 428
+  s_09d3c46d1a9b1f::t_3d41798ee9326c 213-214,217-218
+  s_09d3c46d1a9b1f::t_33166b6a6cbf19 78,82-83,87
+  s_09d3c46d1a9b1f::t_68cc7e64c4c541 149-150,153-154
+  s_09d3c46d1a9b1f::t_d1fd5b1bd740ac 415,419-421
+  s_09d3c46d1a9b1f::t_7d64c8449da817 70
+  s_09d3c46d1a9b1f::t_36cc1c100404d8 406
+  s_09d3c46d1a9b1f::t_4ff3a2f277f287 234-239
+  s_09d3c46d1a9b1f::t_9a14a966163094 290-295
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_09d3c46d1a9b1f::t_ace23265f91df4 821-828
+  s_09d3c46d1a9b1f::t_48071c87f7051a 1201-1204,1224
+  s_09d3c46d1a9b1f::t_8b99eb474ced99 2990-3084
+  s_09d3c46d1a9b1f::t_843ae6263200b5 3497-3514,3518,3523-3533,3540-3547
+  s_09d3c46d1a9b1f::t_ca0904ea5442c1 3647
+  s_09d3c46d1a9b1f::t_64298c1141b62d 3563-3572
+  s_09d3c46d1a9b1f::t_93489f1bd39837 3515-3517,3519-3522
+  s_09d3c46d1a9b1f::t_a7b1e4dbab1812 3465,3469
+  s_09d3c46d1a9b1f::t_1a745223376201 862-866,871,875-878,880-881
+  s_09d3c46d1a9b1f::t_480a4768cb2b5a 3188,3193-3195,3214
+  s_09d3c46d1a9b1f::t_eae2ca30c2d2b2 24
+  s_09d3c46d1a9b1f::t_92f4661d5927b8 151
+TlsLib/src/Interfaces/Crypto/TlpINamedGroup.pas
+  s_09d3c46d1a9b1f::t_a15b8e5796d900 42-47
+TlsLib/src/Crypto/TlpCryptoDomainTypes.pas
+  s_09d3c46d1a9b1f::t_2cccafad860e4c 154-175
+  s_09d3c46d1a9b1f::t_c748040cb243e0 220-245
+  s_09d3c46d1a9b1f::t_a936c03e8d01e9 153
+TlsLib.Crypto.System/src/TlpSystemCryptoStrictness.pas
+  s_09d3c46d1a9b1f::t_ebf159d4b3003d 173,185
+  s_09d3c46d1a9b1f::t_6217672969ee92 21
+  s_09d3c46d1a9b1f::t_ab591deeb3c49f 60-68
+  s_09d3c46d1a9b1f::t_5d9ce409ea9127 73-80
+  s_09d3c46d1a9b1f::t_b9bfbdcf9d377a 120-121,124,129,135-136
+  s_09d3c46d1a9b1f::t_8014d30b73e42c 52,193,219,236,257
+  s_09d3c46d1a9b1f::t_a761043d9d6154 127
+  s_09d3c46d1a9b1f::t_6ad476d503d58c 24
+  s_09d3c46d1a9b1f::t_6b841ecb142d14 144-145,149,152-153,164-165
+  s_09d3c46d1a9b1f::t_57485d86f37ea1 132-133,160-161,186-187
+  s_09d3c46d1a9b1f::t_91c52071362a19 174-175,178,181,189-190
+  s_09d3c46d1a9b1f::t_d36c2a47a4a5a9 194-218,220-235,237-256,258-259
+  s_09d3c46d1a9b1f::t_f109cecd5209d4 1-19,22-23,25-51,53-59,69-72,81-119,122-123,125-126,128,130-131,134,137-143,146-148,150-151,154-159,162-163,166-172,176-177,179-180,182-184,188,191-192,260
+  s_09d3c46d1a9b1f::t_ccb66e91987894 20
+TlsLib.Crypto.System/Packages/FPC/TlsLib.Crypto.System.pas
+  s_09d3c46d1a9b1f::t_1a40137bfd17dd 11-13
+TlsLib.Crypto.System/Packages/FPC/TlsLib.Crypto.System.lpk
+  s_09d3c46d1a9b1f::t_e581b51769296a 49-52
+  s_09d3c46d1a9b1f::t_5b23c3670adae3 24
+TlsLib.Crypto.System/src/TlpSystemCryptoExceptions.pas
+  s_09d3c46d1a9b1f::t_57efd5a6213df3 37-44
+TlsLib.Tests/src/ExtensionCodecTests.pas
+  s_09d3c46d1a9b1f::t_c6c484a0d2bb36 30-31,139-144,148,165,182-183,193-194,383-384,434,437,463,560-561
+TlsLib.Tests/src/EchClientTests.pas
+  s_09d3c46d1a9b1f::t_3f22d0a90b90f5 30
+  s_09d3c46d1a9b1f::t_d7ce178997835b 151-152
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e4f7044d841418a8ca613bd496f924d510338037",
+  "prompts": {},
+  "humans": {
+    "h_878efc035442cc": {
+      "author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  },
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
