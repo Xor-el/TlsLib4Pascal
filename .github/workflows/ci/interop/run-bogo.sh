@@ -119,10 +119,15 @@ set +e
 VERDICT=${PIPESTATUS[0]}
 set -e
 
-# archive the boundary + raw JSON for auditability; the CI upload reads this same path
+# archive the boundary + raw JSON for auditability; the CI upload reads this same path.
+# Copy each file to an explicit destination (not `cp a b c DIR/`): on Windows Git-Bash the
+# multi-file-to-directory form fails ("last argument is not a directory") because MSYS rewrites
+# the trailing-slash target to a native path the copy no longer stats as a directory.
 LOG_DIR="${BOGO_LOG_DIR:-$BIN_DIR/bogo-boundary}"
 mkdir -p "$LOG_DIR"
-cp -f "$GATE_JSON" "$AUDIT_JSON" "$BOUNDARY_LOG" "$LOG_DIR/" || true
+for f in "$GATE_JSON" "$AUDIT_JSON" "$BOUNDARY_LOG"; do
+  cp -f "$f" "$LOG_DIR/$(basename "$f")" || true
+done
 echo "archived gate.json / audit.json / coverage-boundary.txt to $LOG_DIR"
 
 exit "$VERDICT"
