@@ -1,0 +1,51 @@
+TlsLib.Tests/src/EchToolingTests.pas
+  s_09d3c46d1a9b1f::t_e4efbc54120b6d 283-284,288
+  s_09d3c46d1a9b1f::t_279d3d5a20f4fe 29
+TlsLib/src/Common/TlpPem.pas
+  s_09d3c46d1a9b1f::t_5cdaf5413d3d97 117,124-128,130-138,140-142,144,146-147
+  s_09d3c46d1a9b1f::t_098b90000d48cd 148-150,152-157
+  s_09d3c46d1a9b1f::t_859c140b918490 61-84
+  s_09d3c46d1a9b1f::t_355cd5a3b8138e 179
+  s_09d3c46d1a9b1f::t_e530b42804c3c1 40-41
+  s_09d3c46d1a9b1f::t_cb8256c54e8898 1-39,42-60,85-116,118-123,129,139,143,145,151,158-178,180-182
+TlsLib/src/Ech/TlpInMemoryEchKeyStore.pas
+  s_09d3c46d1a9b1f::t_74ee764e97bb23 186
+  s_09d3c46d1a9b1f::t_f81885ddd891cd 23
+TlsLib.Tools/EchKeyGen/src/TlpEchKeyGen.pas
+  s_09d3c46d1a9b1f::t_ff5213a0d7f707 26
+  s_09d3c46d1a9b1f::t_50093dd55da379 125
+TlsLib.Crypto.System/src/TlpICryptoBackendReport.pas
+  s_09d3c46d1a9b1f::t_eb6bca25f16dcd 41
+TlsLib/src/Packages/Delphi/TlsLib4PascalPackage.dpk
+  s_09d3c46d1a9b1f::t_56bf5ce353e25b 148
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.pas
+  s_09d3c46d1a9b1f::t_f7899fcb8d366f 46
+TlsLib.Crypto.System/src/TlpSystemCryptoTypes.pas
+  s_09d3c46d1a9b1f::t_1a15b89b5d96b0 47
+  s_09d3c46d1a9b1f::t_60ec42a7671065 48
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
+  s_09d3c46d1a9b1f::t_92f3958eec1165 516-519
+  s_09d3c46d1a9b1f::t_9da7919de1daf3 31
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_09d3c46d1a9b1f::t_2ee8aadde86734 3496
+  s_09d3c46d1a9b1f::t_95d97de9c17f13 26
+  s_09d3c46d1a9b1f::t_3ddce08be0ee93 877-878,882
+  s_09d3c46d1a9b1f::t_ab95554d417326 3677
+  s_09d3c46d1a9b1f::t_5e74d632f42699 3538
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "53804ee60299e814987bf3d28c19aaa796a6dec9",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
