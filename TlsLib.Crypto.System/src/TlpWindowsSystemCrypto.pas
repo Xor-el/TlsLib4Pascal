@@ -1780,32 +1780,22 @@ end;
 function TWindowsCngX25519.ImportPrivateKey(const ARawPrivateKey: ISecretBuffer;
   out APublicKey: TBytes): ISecretBuffer;
 var
-  LScalar, LPrivateBlob, LPublicBlob: TBytes;
-  LKey: Pointer;
+  LScalar, LBasepoint: TBytes;
 begin
   LScalar := ARawPrivateKey.ToBytes;
-  LPrivateBlob := nil;
-  LKey := nil;
   try
     if System.Length(LScalar) <> X25519_KEY_SIZE then
       raise EArgumentTlsLibException.CreateResFmt(@SInvalidScalarSize,
         [System.Length(LScalar), X25519_KEY_SIZE]);
-    LPrivateBlob := PrivateBlob(LScalar); // X=Y=0, d=scalar; CNG derives the public point
-    TCngError.Check(FApi.ImportKeyPair(FAlg, nil, PWideChar(BLOB_ECCPRIVATE), LKey,
-      PByte(LPrivateBlob), System.Length(LPrivateBlob), 0));
-    try
-      LPublicBlob := ExportBlob(LKey, BLOB_ECCPUBLIC);
-      APublicKey := nil;
-      SetLength(APublicKey, X25519_KEY_SIZE);
-      Move(LPublicBlob[ECC_BLOB_HEADER_SIZE], APublicKey[0], X25519_KEY_SIZE);
-    finally
-      FApi.DestroyKey(LKey);
-    end;
+    // the public key is X25519(scalar, base point)
+    LBasepoint := nil;
+    SetLength(LBasepoint, X25519_KEY_SIZE);
+    LBasepoint[0] := 9; // RFC 7748 base point u = 9
+    APublicKey := Agree(ARawPrivateKey, LBasepoint).ToBytes;
     // the neutral currency is the raw scalar itself (matches GenerateKeyPair / Agree)
     Result := TSecretBuffer.From(LScalar);
   finally
     TSecureMemory.WipeBytes(LScalar);
-    TSecureMemory.WipeBytes(LPrivateBlob);
   end;
 end;
 
