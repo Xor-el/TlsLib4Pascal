@@ -28,6 +28,7 @@ uses
 {$ENDIF FPC}
   TlpICryptoProvider,
   TlpCryptoDomainTypes,
+  TlpNegotiationTypes,
   TlpHandshakeMessages,
   TlsLibTestBase;
 
@@ -53,6 +54,7 @@ type
     procedure TestEcdsaP256TamperedSignatureFails;
     procedure TestRsaPssVerifiesRfc8448CertificateVerify;
     procedure TestRsaPssRejectsWrongTranscript;
+    procedure TestSignatureSchemeCodesMatchCatalog;
   end;
 
 implementation
@@ -216,6 +218,33 @@ begin
   LVerifier.Update(LContent, 0, System.Length(LContent));
   CheckFalse(LVerifier.Verify(CertVerifySignature),
     'the signature does not verify over a different transcript');
+end;
+
+procedure TTestSignature.TestSignatureSchemeCodesMatchCatalog;
+begin
+  // the enum's ToCode and the wire-code catalog are two hand-kept mappings of the same
+  // RFC 8446 4.2.3 codepoints; assert every scheme agrees so an edit to one that misses the
+  // other cannot drift silently
+  CheckEquals(TSignatureSchemes.EcdsaSecp256r1Sha256,
+    TSignatureScheme.ECDSA_SECP256R1_SHA256.ToCode, 'ecdsa_secp256r1_sha256');
+  CheckEquals(TSignatureSchemes.EcdsaSecp384r1Sha384,
+    TSignatureScheme.ECDSA_SECP384R1_SHA384.ToCode, 'ecdsa_secp384r1_sha384');
+  CheckEquals(TSignatureSchemes.EcdsaSecp521r1Sha512,
+    TSignatureScheme.ECDSA_SECP521R1_SHA512.ToCode, 'ecdsa_secp521r1_sha512');
+  CheckEquals(TSignatureSchemes.Ed25519, TSignatureScheme.ED25519.ToCode, 'ed25519');
+  CheckEquals(TSignatureSchemes.Ed448, TSignatureScheme.ED448.ToCode, 'ed448');
+  CheckEquals(TSignatureSchemes.RsaPssRsaeSha256,
+    TSignatureScheme.RSA_PSS_RSAE_SHA256.ToCode, 'rsa_pss_rsae_sha256');
+  CheckEquals(TSignatureSchemes.RsaPssRsaeSha384,
+    TSignatureScheme.RSA_PSS_RSAE_SHA384.ToCode, 'rsa_pss_rsae_sha384');
+  CheckEquals(TSignatureSchemes.RsaPssRsaeSha512,
+    TSignatureScheme.RSA_PSS_RSAE_SHA512.ToCode, 'rsa_pss_rsae_sha512');
+  CheckEquals(TSignatureSchemes.RsaPkcs1Sha256,
+    TSignatureScheme.RSA_PKCS1_SHA256.ToCode, 'rsa_pkcs1_sha256');
+  CheckEquals(TSignatureSchemes.RsaPkcs1Sha384,
+    TSignatureScheme.RSA_PKCS1_SHA384.ToCode, 'rsa_pkcs1_sha384');
+  CheckEquals(TSignatureSchemes.RsaPkcs1Sha512,
+    TSignatureScheme.RSA_PKCS1_SHA512.ToCode, 'rsa_pkcs1_sha512');
 end;
 
 initialization

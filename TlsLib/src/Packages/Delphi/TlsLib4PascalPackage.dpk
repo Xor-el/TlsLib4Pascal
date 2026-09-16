@@ -103,6 +103,8 @@ contains
   TlpCertificateVerify in '..\..\Handshake\TlpCertificateVerify.pas',
   TlpICertificateTrust in '..\..\Interfaces\Trust\TlpICertificateTrust.pas',
   TlpServerName in '..\..\Trust\TlpServerName.pas',
+  TlpHpkeComposition in '..\..\Crypto\TlpHpkeComposition.pas',
+  TlpDer in '..\..\Crypto\TlpDer.pas',
   TlpEndpointIdentity in '..\..\Trust\TlpEndpointIdentity.pas',
   TlpCertificateVerifier in '..\..\Trust\TlpCertificateVerifier.pas',
   TlpTlsCredential in '..\..\Handshake\TlpTlsCredential.pas',

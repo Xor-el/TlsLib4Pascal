@@ -32,6 +32,7 @@ uses
   TlpISecretBuffer,
   TlpSecretBuffer,
   TlpCryptoDomainTypes,
+  TlpICryptoProvider,
   TlpINamedGroup,
   TlpNamedGroups,
   TlpNegotiationTypes,
@@ -48,6 +49,9 @@ type
     /// maps to illegal_parameter (no backend exception may escape the group).</summary>
     procedure CheckDecapIllegalParameter(const AGroup: INamedGroup;
       const APriv: ISecretBuffer; const ABadShare: TBytes; const AMsg: string);
+    // export a fresh key's raw scalar, re-import it, and prove the derived public and
+    // the resulting agreement are identical - the neutral-currency seam HPKE relies on
+    procedure CheckKeyImportRoundTrip(AAlgorithm: TKeyAgreementAlgorithm);
   published
     procedure TestX25519Rfc7748Kat;
     procedure TestX25519Agreement;
@@ -64,6 +68,7 @@ type
     procedure TestClassicalRegistryOmitsPostQuantum;
     procedure TestGroupKindClassifiesEcdheKemHybrid;
     procedure TestOnlyEcdheGroupsAreTls12Eligible;
+    procedure TestKeyImportExportRoundTrip;
   end;
 
 implementation
@@ -121,6 +126,33 @@ end;
 procedure TTestNamedGroups.TestX25519Agreement;
 begin
   CheckAgreement(TNamedGroups.CreateX25519(Provider), 32);
+end;
+
+procedure TTestNamedGroups.CheckKeyImportRoundTrip(
+  AAlgorithm: TKeyAgreementAlgorithm);
+var
+  LKa: IKeyAgreement;
+  LPriv, LScalar, LPriv2, LPeerPriv: ISecretBuffer;
+  LPub, LPub2, LPeerPub: TBytes;
+begin
+  LKa := Provider.Primitives.CreateKeyAgreement(AAlgorithm);
+  LKa.GenerateKeyPair(LPriv, LPub);
+  // export the raw scalar and re-import it; the derived public must match the original
+  LScalar := LKa.ExportPrivateKey(LPriv);
+  LPriv2 := LKa.ImportPrivateKey(LScalar, LPub2);
+  CheckEqualBytes(LKa.Name + ' import derives the same public', LPub, LPub2);
+  // the re-imported key agrees identically with a peer (functionally the same key)
+  LKa.GenerateKeyPair(LPeerPriv, LPeerPub);
+  CheckEqualBytes(LKa.Name + ' re-imported key agrees identically',
+    SecretBytes(LKa.Agree(LPriv, LPeerPub)), SecretBytes(LKa.Agree(LPriv2, LPeerPub)));
+end;
+
+procedure TTestNamedGroups.TestKeyImportExportRoundTrip;
+begin
+  CheckKeyImportRoundTrip(TKeyAgreementAlgorithm.X25519);
+  CheckKeyImportRoundTrip(TKeyAgreementAlgorithm.SECP256R1);
+  CheckKeyImportRoundTrip(TKeyAgreementAlgorithm.SECP384R1);
+  CheckKeyImportRoundTrip(TKeyAgreementAlgorithm.SECP521R1);
 end;
 
 procedure TTestNamedGroups.TestMlKem768Agreement;

@@ -48,6 +48,10 @@ type
     class function From(const ABytes: TBytes): ISecretBuffer; static;
     /// <summary>A zero-filled secret buffer of ALen bytes.</summary>
     class function Allocate(ALen: Int32): ISecretBuffer; static;
+    /// <summary>A secret buffer holding APrefix (public) followed by ASecret's bytes,
+    /// without materializing the secret in a non-wiped intermediate.</summary>
+    class function Concat(const APrefix: TBytes;
+      const ASecret: ISecretBuffer): ISecretBuffer; static;
   end;
 
 implementation
@@ -135,6 +139,25 @@ end;
 class function TSecretBuffer.Allocate(ALen: Int32): ISecretBuffer;
 begin
   Result := TSecretBuffer.Create(ALen);
+end;
+
+class function TSecretBuffer.Concat(const APrefix: TBytes;
+  const ASecret: ISecretBuffer): ISecretBuffer;
+var
+  LPrefixLen, LSecretLen: Int32;
+  LDst: PByte;
+begin
+  LPrefixLen := System.Length(APrefix);
+  if ASecret <> nil then
+    LSecretLen := ASecret.Len
+  else
+    LSecretLen := 0;
+  Result := TSecretBuffer.Create(LPrefixLen + LSecretLen);
+  LDst := Result.DataPtr;
+  if LPrefixLen > 0 then
+    Move(APrefix[0], LDst^, LPrefixLen);
+  if LSecretLen > 0 then
+    Move(ASecret.DataPtr^, (LDst + LPrefixLen)^, LSecretLen);
 end;
 
 end.

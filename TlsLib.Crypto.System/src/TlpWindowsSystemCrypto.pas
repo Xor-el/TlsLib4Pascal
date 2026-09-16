@@ -23,6 +23,7 @@ uses
   TypInfo,
   TlpArrayUtilities,
   TlpCryptoDomainTypes,
+  TlpDer,
   TlpSystemCryptoTypes,
   TlpICryptoProvider,
   TlpICryptoBackendReport,
@@ -149,6 +150,7 @@ resourcestring
   SInvalidKeySize = 'AEAD key size %d does not match the required %d bytes';
   SInvalidNonceSize = 'AEAD nonce size %d does not match the required %d bytes';
   SHkdfExpandTooLong = 'HKDF-Expand output length %d exceeds 255 * HashLen (%d)';
+  SInvalidScalarSize = 'private scalar size %d does not match the curve field size %d';
 
 type
   // bcrypt.dll entry points, resolved at runtime (no static import, so an absent DLL or
@@ -427,6 +429,7 @@ type
     FCurve: TCngCurve;
     function IsUncompressed(const APoint: TBytes): Boolean;
     function PeerPublicBlob(const APoint: TBytes): TBytes;
+    function ScalarPrivateBlob(const AScalar: TBytes): TBytes;
     function ImportPeer(const APeerPublicKey: TBytes): Pointer;
     function DeriveBigEndianSecret(ASecret: Pointer): TBytes;
   public
@@ -437,6 +440,9 @@ type
     function Agree(const APrivateKey: ISecretBuffer;
       const APeerPublicKey: TBytes): ISecretBuffer;
     function ValidatePublicKey(const APublicKey: TBytes): Boolean;
+    function ImportPrivateKey(const ARawPrivateKey: ISecretBuffer;
+      out APublicKey: TBytes): ISecretBuffer;
+    function ExportPrivateKey(const APrivateKey: ISecretBuffer): ISecretBuffer;
   end;
 
   // X25519 (RFC 7748) key agreement via CNG's generic curve25519 ECDH. Keys are the raw
@@ -455,6 +461,9 @@ type
     function Agree(const APrivateKey: ISecretBuffer;
       const APeerPublicKey: TBytes): ISecretBuffer;
     function ValidatePublicKey(const APublicKey: TBytes): Boolean;
+    function ImportPrivateKey(const ARawPrivateKey: ISecretBuffer;
+      out APublicKey: TBytes): ISecretBuffer;
+    function ExportPrivateKey(const APrivateKey: ISecretBuffer): ISecretBuffer;
   end;
 
   // ML-KEM-768 (FIPS 203) key encapsulation via CNG (Win11 24H2+). Keys and ciphertext
@@ -812,16 +821,9 @@ type
     class function IsPssScheme(AScheme: TSignatureScheme): Boolean; static;
     class function IsEcdsaScheme(AScheme: TSignatureScheme): Boolean; static;
     // raw r||s (from CNG) to a DER SEQUENCE{ INTEGER r, INTEGER s } as TLS carries it
-    class function DerLen(ALen: Int32): TBytes; static;
-    class function DerTlv(ATag: Byte; const AContent: TBytes): TBytes; static;
-    class function DerInteger(const AValue: TBytes): TBytes; static;
     class function DerEncodeEcdsa(const ARaw: TBytes): TBytes; static;
     class function TryDerDecodeEcdsa(const ADer: TBytes; AFieldSize: Int32;
       out ARaw: TBytes): Boolean; static;
-    // reads the TLV at AOffset; returns the tag and the content/next offsets, False if the
-    // length runs past the buffer (fail-closed for a malformed key)
-    class function ReadTlv(const ADer: TBytes; AOffset: Int32; out ATag: Byte;
-      out AContentOffset, AContentLen, ANext: Int32): Boolean; static;
     class function Sec1CurveOid(const ASec1: TBytes; out ACurveOid: TBytes): Boolean; static;
     // wraps a PKCS#1 (RSAPrivateKey) or SEC1 (ECPrivateKey) DER into a PKCS#8 the KSP
     // imports; a PKCS#8 (plain or encrypted) or unrecognized blob passes through unchanged
@@ -1557,6 +1559,79 @@ begin
   end;
 end;
 
+function TWindowsCngKeyAgreement.ScalarPrivateBlob(const AScalar: TBytes): TBytes;
+begin
+  // BCRYPT_ECCKEY_BLOB: { magic; cbKey } then zero X, zero Y, then d (big-endian, field
+  // width). CNG derives the public point from d on import.
+  Result := nil;
+  SetLength(Result, ECC_BLOB_HEADER_SIZE + 3 * FCurve.FieldSize);
+  System.FillChar(Result[0], System.Length(Result), 0);
+  PULONG(@Result[0])^ := FCurve.PrivMagic;
+  PULONG(@Result[4])^ := ULONG(FCurve.FieldSize);
+  Move(AScalar[0], Result[ECC_BLOB_HEADER_SIZE + 2 * FCurve.FieldSize], FCurve.FieldSize);
+end;
+
+function TWindowsCngKeyAgreement.ImportPrivateKey(const ARawPrivateKey: ISecretBuffer;
+  out APublicKey: TBytes): ISecretBuffer;
+var
+  LScalar, LScalarBlob, LFullPrivate, LPublicBlob: TBytes;
+  LKey: Pointer;
+begin
+  LScalar := ARawPrivateKey.ToBytes;
+  LScalarBlob := nil;
+  LKey := nil;
+  try
+    if System.Length(LScalar) <> FCurve.FieldSize then
+      raise EArgumentTlsLibException.CreateResFmt(@SInvalidScalarSize,
+        [System.Length(LScalar), FCurve.FieldSize]);
+    LScalarBlob := ScalarPrivateBlob(LScalar);
+    TCngError.Check(FApi.ImportKeyPair(FAlg, nil, PWideChar(BLOB_ECCPRIVATE), LKey,
+      PByte(LScalarBlob), System.Length(LScalarBlob), 0));
+    try
+      // public value: SEC1 uncompressed 0x04 || X || Y (CNG derived X,Y from d)
+      LPublicBlob := ExportBlob(LKey, BLOB_ECCPUBLIC);
+      APublicKey := nil;
+      SetLength(APublicKey, 1 + 2 * FCurve.FieldSize);
+      APublicKey[0] := UncompressedPointPrefix;
+      Move(LPublicBlob[ECC_BLOB_HEADER_SIZE], APublicKey[1], 2 * FCurve.FieldSize);
+      // private key handed back = the full ECCPRIVATE blob (X,Y now populated), the
+      // representation Agree re-imports; held wipeably as it carries the scalar
+      LFullPrivate := ExportBlob(LKey, BLOB_ECCPRIVATE);
+      try
+        Result := TSecretBuffer.From(LFullPrivate);
+      finally
+        TSecureMemory.WipeBytes(LFullPrivate);
+      end;
+    finally
+      FApi.DestroyKey(LKey);
+    end;
+  finally
+    TSecureMemory.WipeBytes(LScalar);
+    TSecureMemory.WipeBytes(LScalarBlob);
+  end;
+end;
+
+function TWindowsCngKeyAgreement.ExportPrivateKey(
+  const APrivateKey: ISecretBuffer): ISecretBuffer;
+var
+  LBlob, LScalar: TBytes;
+begin
+  // extract d (the trailing field-width big-endian bytes) from the ECCPRIVATE blob
+  LBlob := APrivateKey.ToBytes;
+  LScalar := nil;
+  try
+    if System.Length(LBlob) <> ECC_BLOB_HEADER_SIZE + 3 * FCurve.FieldSize then
+      raise EArgumentTlsLibException.CreateResFmt(@SInvalidScalarSize,
+        [System.Length(LBlob), ECC_BLOB_HEADER_SIZE + 3 * FCurve.FieldSize]);
+    SetLength(LScalar, FCurve.FieldSize);
+    Move(LBlob[ECC_BLOB_HEADER_SIZE + 2 * FCurve.FieldSize], LScalar[0], FCurve.FieldSize);
+    Result := TSecretBuffer.From(LScalar);
+  finally
+    TSecureMemory.WipeBytes(LScalar);
+    TSecureMemory.WipeBytes(LBlob);
+  end;
+end;
+
 { TWindowsCngX25519 }
 
 function TWindowsCngX25519.Name: string;
@@ -1700,6 +1775,45 @@ begin
   // RFC 7748: every 32-byte string is a valid u-coordinate; the low-order-point
   // rejection is deferred to Agree's all-zero shared-secret check
   Result := System.Length(APublicKey) = X25519_KEY_SIZE;
+end;
+
+function TWindowsCngX25519.ImportPrivateKey(const ARawPrivateKey: ISecretBuffer;
+  out APublicKey: TBytes): ISecretBuffer;
+var
+  LScalar, LPrivateBlob, LPublicBlob: TBytes;
+  LKey: Pointer;
+begin
+  LScalar := ARawPrivateKey.ToBytes;
+  LPrivateBlob := nil;
+  LKey := nil;
+  try
+    if System.Length(LScalar) <> X25519_KEY_SIZE then
+      raise EArgumentTlsLibException.CreateResFmt(@SInvalidScalarSize,
+        [System.Length(LScalar), X25519_KEY_SIZE]);
+    LPrivateBlob := PrivateBlob(LScalar); // X=Y=0, d=scalar; CNG derives the public point
+    TCngError.Check(FApi.ImportKeyPair(FAlg, nil, PWideChar(BLOB_ECCPRIVATE), LKey,
+      PByte(LPrivateBlob), System.Length(LPrivateBlob), 0));
+    try
+      LPublicBlob := ExportBlob(LKey, BLOB_ECCPUBLIC);
+      APublicKey := nil;
+      SetLength(APublicKey, X25519_KEY_SIZE);
+      Move(LPublicBlob[ECC_BLOB_HEADER_SIZE], APublicKey[0], X25519_KEY_SIZE);
+    finally
+      FApi.DestroyKey(LKey);
+    end;
+    // the neutral currency is the raw scalar itself (matches GenerateKeyPair / Agree)
+    Result := TSecretBuffer.From(LScalar);
+  finally
+    TSecureMemory.WipeBytes(LScalar);
+    TSecureMemory.WipeBytes(LPrivateBlob);
+  end;
+end;
+
+function TWindowsCngX25519.ExportPrivateKey(
+  const APrivateKey: ISecretBuffer): ISecretBuffer;
+begin
+  // native X25519's private key is already the raw scalar
+  Result := APrivateKey;
 end;
 
 { TWindowsCngKem }
@@ -2500,9 +2614,12 @@ end;
 function TWindowsBackendReport.FacetBackend(
   AFacet: TCryptoFacet): TCryptoBackendEntry;
 begin
-  // Certificates/PathValidation/Revocation/Hpke/Pem are forwarded to the portable base;
-  // Primitives and Signing are mixed - use the per-algorithm queries for their detail.
-  Result := NotNative;
+  // Hpke composes over this overlay's native primitives, so it is Composed; the other higher
+  // facets forward to the portable base.
+  if AFacet = TCryptoFacet.Hpke then
+    Result := Ent(TCryptoBackend.Composed, TCryptoBackendReason.NotFallback)
+  else
+    Result := NotNative;
 end;
 
 function TWindowsBackendReport.Describe: string;
@@ -2831,58 +2948,6 @@ begin
     TSignatureScheme.RSA_PKCS1_SHA512]);
 end;
 
-class function TWindowsNCrypt.DerLen(ALen: Int32): TBytes;
-begin
-  if ALen < $80 then
-    Result := TBytes.Create(Byte(ALen))
-  else if ALen < $100 then
-    Result := TBytes.Create($81, Byte(ALen))
-  else
-    Result := TBytes.Create($82, Byte(ALen shr 8), Byte(ALen and $FF));
-end;
-
-class function TWindowsNCrypt.DerTlv(ATag: Byte; const AContent: TBytes): TBytes;
-var
-  LLen: TBytes;
-  LN, LM: Int32;
-begin
-  LLen := DerLen(System.Length(AContent));
-  LN := System.Length(LLen);
-  LM := System.Length(AContent);
-  SetLength(Result, 1 + LN + LM);
-  Result[0] := ATag;
-  Move(LLen[0], Result[1], LN);
-  if LM > 0 then
-    Move(AContent[0], Result[1 + LN], LM);
-end;
-
-class function TWindowsNCrypt.DerInteger(const AValue: TBytes): TBytes;
-var
-  LI, LN, LM: Int32;
-  LContent: TBytes;
-begin
-  LN := System.Length(AValue);
-  LI := 0;
-  // a DER INTEGER is minimally encoded: drop leading zero bytes, but keep at least one
-  while (LI < LN - 1) and (AValue[LI] = 0) do
-    Inc(LI);
-  LM := LN - LI;
-  if (LM > 0) and ((AValue[LI] and $80) <> 0) then
-  begin
-    // top bit set would read as negative: prepend a zero byte
-    SetLength(LContent, LM + 1);
-    LContent[0] := 0;
-    Move(AValue[LI], LContent[1], LM);
-  end
-  else
-  begin
-    SetLength(LContent, LM);
-    if LM > 0 then
-      Move(AValue[LI], LContent[0], LM);
-  end;
-  Result := DerTlv($02, LContent);
-end;
-
 class function TWindowsNCrypt.DerEncodeEcdsa(const ARaw: TBytes): TBytes;
 var
   LHalf: Int32;
@@ -2890,12 +2955,12 @@ var
 begin
   // CNG emits the fixed-width r||s; TLS carries SEQUENCE{ INTEGER r, INTEGER s }
   LHalf := System.Length(ARaw) div 2;
-  LR := DerInteger(Copy(ARaw, 0, LHalf));
-  LS := DerInteger(Copy(ARaw, LHalf, LHalf));
+  LR := TDer.IntegerTlv(Copy(ARaw, 0, LHalf));
+  LS := TDer.IntegerTlv(Copy(ARaw, LHalf, LHalf));
   SetLength(LBody, System.Length(LR) + System.Length(LS));
   Move(LR[0], LBody[0], System.Length(LR));
   Move(LS[0], LBody[System.Length(LR)], System.Length(LS));
-  Result := DerTlv($30, LBody);
+  Result := TDer.Tlv($30, LBody);
 end;
 
 function TWindowsNCrypt.KeyFieldSize(AKeyHandle: Pointer): Int32;
@@ -2987,37 +3052,6 @@ begin
   Result := True;
 end;
 
-class function TWindowsNCrypt.ReadTlv(const ADer: TBytes; AOffset: Int32;
-  out ATag: Byte; out AContentOffset, AContentLen, ANext: Int32): Boolean;
-var
-  LLen, LN, LI: Int32;
-begin
-  Result := False;
-  ATag := 0;
-  AContentOffset := 0;
-  AContentLen := 0;
-  ANext := 0;
-  if (AOffset < 0) or (AOffset + 2 > System.Length(ADer)) then
-    Exit;
-  ATag := ADer[AOffset];
-  LLen := ADer[AOffset + 1];
-  if (LLen and $80) = 0 then
-    AContentOffset := AOffset + 2
-  else
-  begin
-    LN := LLen and $7F;
-    if (LN = 0) or (LN > 4) or (AOffset + 2 + LN > System.Length(ADer)) then
-      Exit;
-    LLen := 0;
-    for LI := 0 to LN - 1 do
-      LLen := (LLen shl 8) or ADer[AOffset + 2 + LI];
-    AContentOffset := AOffset + 2 + LN;
-  end;
-  AContentLen := LLen;
-  ANext := AContentOffset + AContentLen;
-  Result := (AContentLen >= 0) and (ANext <= System.Length(ADer));
-end;
-
 class function TWindowsNCrypt.Sec1CurveOid(const ASec1: TBytes;
   out ACurveOid: TBytes): Boolean;
 var
@@ -3026,13 +3060,13 @@ var
 begin
   ACurveOid := nil;
   Result := False;
-  if (not ReadTlv(ASec1, 0, LTag, LSeqOfs, LSeqLen, LNext)) or (LTag <> $30) then
+  if (not TDer.ReadTlv(ASec1, 0, LTag, LSeqOfs, LSeqLen, LNext)) or (LTag <> $30) then
     Exit;
   LEnd := LSeqOfs + LSeqLen;
   LOfs := LSeqOfs;
   while LOfs < LEnd do
   begin
-    if not ReadTlv(ASec1, LOfs, LTag, LCofs, LClen, LNext) then
+    if not TDer.ReadTlv(ASec1, LOfs, LTag, LCofs, LClen, LNext) then
       Exit;
     // [0] parameters: its content is the named-curve OID TLV, copied verbatim
     if LTag = $A0 then
@@ -3052,31 +3086,31 @@ var
 begin
   // best-effort: any parse mismatch leaves the blob unchanged for the KSP / portable facet
   Result := ADer;
-  if (not ReadTlv(ADer, 0, LTag, LSeqOfs, LSeqLen, LNext)) or (LTag <> $30) then
+  if (not TDer.ReadTlv(ADer, 0, LTag, LSeqOfs, LSeqLen, LNext)) or (LTag <> $30) then
     Exit;
   // 1st element INTEGER = a version-prefixed body (PKCS#1 / SEC1 / plain PKCS#8); an
   // EncryptedPrivateKeyInfo starts with a SEQUENCE (AlgId) and is left alone
-  if (not ReadTlv(ADer, LSeqOfs, LTag1, LC1ofs, LC1len, LN1)) or (LTag1 <> $02) then
+  if (not TDer.ReadTlv(ADer, LSeqOfs, LTag1, LC1ofs, LC1len, LN1)) or (LTag1 <> $02) then
     Exit;
-  if not ReadTlv(ADer, LN1, LTag2, LC2ofs, LC2len, LN2) then
+  if not TDer.ReadTlv(ADer, LN1, LTag2, LC2ofs, LC2len, LN2) then
     Exit;
   case LTag2 of
     $02: // 2nd element INTEGER -> PKCS#1 RSAPrivateKey (modulus): wrap with rsaEncryption
       begin
         LContent := TArrayUtilities.Concat([TBytes.Create($02, $01, $00),
           TBytes.Create($30, $0D, $06, $09, $2A, $86, $48, $86, $F7, $0D, $01, $01, $01,
-          $05, $00), DerTlv($04, ADer)]);
-        Result := DerTlv($30, LContent);
+          $05, $00), TDer.Tlv($04, ADer)]);
+        Result := TDer.Tlv($30, LContent);
       end;
     $04: // 2nd element OCTET STRING -> SEC1 ECPrivateKey: wrap with ecPublicKey + curve OID
       begin
         if not Sec1CurveOid(ADer, LCurveOid) then
           Exit;
-        LAlgId := DerTlv($30, TArrayUtilities.Concat(
+        LAlgId := TDer.Tlv($30, TArrayUtilities.Concat(
           [TBytes.Create($06, $07, $2A, $86, $48, $CE, $3D, $02, $01), LCurveOid]));
         LContent := TArrayUtilities.Concat([TBytes.Create($02, $01, $00), LAlgId,
-          DerTlv($04, ADer)]);
-        Result := DerTlv($30, LContent);
+          TDer.Tlv($04, ADer)]);
+        Result := TDer.Tlv($30, LContent);
       end;
     // 2nd element SEQUENCE ($30) = plain PKCS#8, or anything else: unchanged
   end;

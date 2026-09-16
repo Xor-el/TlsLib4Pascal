@@ -19,6 +19,7 @@ uses
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpICryptoBackendReport,
+  TlpHpkeComposition,
   TlpTlsLibExceptions;
 
 type
@@ -54,12 +55,12 @@ type
 
   /// <summary>
   /// An <see cref="ICryptoProvider" /> that overlays a substituted Primitives and/or
-  /// Signing facet on a base provider and forwards every other facet (certificates,
-  /// path validation, revocation, HPKE, PEM) to the base unchanged - so a native
-  /// overlay preserves the base's identity and its same-reference-every-call contract.
-  /// A nil override takes that facet from the base. Only Primitives and Signing are
-  /// ever native-backed; the rest stay portable for conformance, so they are not
-  /// overridable. A platform composer builds this; the OS factory only dispatches.
+  /// Signing facet on a base provider and forwards the certificate, path-validation,
+  /// revocation and PEM facets to the base unchanged - so a native overlay preserves the
+  /// base's identity and its same-reference-every-call contract. HPKE is the exception:
+  /// being a pure composition of primitives, it is rebuilt here over the overlay's own
+  /// primitives so its KEM/KDF/AEAD ride the native seam. A nil override takes that facet
+  /// from the base. A platform composer builds this; the OS factory only dispatches.
   /// </summary>
   TOverlayCryptoProvider = class(TInterfacedObject, ICryptoProvider, ICryptoBackendReport)
   strict private
@@ -68,6 +69,9 @@ type
     FPrimitives: ICryptoPrimitives;
     FSigning: ISigningCrypto;
     FReport: ICryptoBackendReport;
+    // HPKE composed over this overlay's own primitives, so its KEM/KDF/AEAD run native where
+    // the primitive seam serves them (built once at construction, like the other facets)
+    FHpke: IHpkeCrypto;
     // delegates ICryptoBackendReport to the held report; a nil report is not claimed
     // (Supports returns False), so a provider with no backend map reads as wholly portable
     property BackendReport: ICryptoBackendReport read FReport
@@ -152,6 +156,9 @@ begin
   FPrimitives := APrimitives;
   FSigning := ASigning;
   FReport := AReport;
+  // compose HPKE over this overlay's effective primitives so the KEM/KDF/AEAD ride the
+  // native seam (each with its own per-algorithm fallback), not the base's portable HPKE
+  FHpke := THpkeComposition.Create(Primitives) as IHpkeCrypto;
 end;
 
 function TOverlayCryptoProvider.Primitives: ICryptoPrimitives;
@@ -187,7 +194,7 @@ end;
 
 function TOverlayCryptoProvider.Hpke: IHpkeCrypto;
 begin
-  Result := FInner.Hpke;
+  Result := FHpke;
 end;
 
 function TOverlayCryptoProvider.Pem: IPemCodec;

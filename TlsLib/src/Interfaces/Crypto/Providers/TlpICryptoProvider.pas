@@ -122,6 +122,15 @@ type
     function Agree(const APrivateKey: ISecretBuffer; const APeerPublicKey: TBytes): ISecretBuffer;
     /// <summary>Whether a peer's public value is well-formed and safe to use.</summary>
     function ValidatePublicKey(const APublicKey: TBytes): Boolean;
+    /// <summary>A private key adopted from a raw scalar (the curve's fixed-width
+    /// serialization), plus its derived public value. The returned key is in this
+    /// backend's own representation, ready for <see cref="Agree" />.</summary>
+    function ImportPrivateKey(const ARawPrivateKey: ISecretBuffer;
+      out APublicKey: TBytes): ISecretBuffer;
+    /// <summary>The raw scalar behind a private key from GenerateKeyPair /
+    /// ImportPrivateKey - the neutral currency a caller can persist and re-import,
+    /// on either backend.</summary>
+    function ExportPrivateKey(const APrivateKey: ISecretBuffer): ISecretBuffer;
   end;
 
   /// <summary>
