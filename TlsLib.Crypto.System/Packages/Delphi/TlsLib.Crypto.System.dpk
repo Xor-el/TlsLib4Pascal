@@ -34,6 +34,8 @@ requires
   TlsLib4PascalPackage;
 
 contains
+  TlpSystemCryptoTypes in '..\..\src\TlpSystemCryptoTypes.pas',
+  TlpICryptoBackendReport in '..\..\src\TlpICryptoBackendReport.pas',
   TlpSystemCryptoExceptions in '..\..\src\TlpSystemCryptoExceptions.pas',
   TlpSystemCryptoBase in '..\..\src\TlpSystemCryptoBase.pas',
   TlpWindowsSystemCrypto in '..\..\src\TlpWindowsSystemCrypto.pas',

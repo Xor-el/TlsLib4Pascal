@@ -11,12 +11,13 @@
 
 unit TlpICryptoBackendReport;
 
-{$I ..\..\..\Include\TlsLib.inc}
+{$I ..\..\TlsLib\src\Include\TlsLib.inc}
 
 interface
 
 uses
-  TlpCryptoDomainTypes;
+  TlpCryptoDomainTypes,
+  TlpSystemCryptoTypes;
 
 type
   /// <summary>

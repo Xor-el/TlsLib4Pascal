@@ -22,6 +22,7 @@ uses
   SysUtils,
   TypInfo,
   TlpCryptoDomainTypes,
+  TlpSystemCryptoTypes,
   TlpICryptoProvider,
   TlpICryptoBackendReport,
   TlpISigningKey,

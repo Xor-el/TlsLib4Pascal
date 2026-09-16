@@ -8,8 +8,8 @@ unit TlsLib.Crypto.System;
 interface
 
 uses
-  TlpSystemCryptoExceptions, TlpSystemCryptoBase, TlpWindowsSystemCrypto,
-  TlpOSCryptoProvider;
+  TlpSystemCryptoTypes, TlpICryptoBackendReport, TlpSystemCryptoExceptions,
+  TlpSystemCryptoBase, TlpWindowsSystemCrypto, TlpOSCryptoProvider;
 
 implementation
 

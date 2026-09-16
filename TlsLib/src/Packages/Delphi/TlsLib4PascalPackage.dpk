@@ -50,7 +50,6 @@ contains
   TlpWireWriter in '..\..\Codec\TlpWireWriter.pas',
   TlpCryptoDomainTypes in '..\..\Crypto\TlpCryptoDomainTypes.pas',
   TlpICryptoProvider in '..\..\Interfaces\Crypto\Providers\TlpICryptoProvider.pas',
-  TlpICryptoBackendReport in '..\..\Interfaces\Crypto\Providers\TlpICryptoBackendReport.pas',
   TlpISigningKey in '..\..\Interfaces\Crypto\TlpISigningKey.pas',
   TlpDefaultCryptoProvider in '..\..\Crypto\Providers\TlpDefaultCryptoProvider.pas',
   TlpINamedGroup in '..\..\Interfaces\Crypto\TlpINamedGroup.pas',
