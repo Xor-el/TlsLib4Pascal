@@ -27,6 +27,8 @@ uses
 {$ENDIF FPC}
   TlpTlsLibExceptions,
   TlpTlsAlert,
+  TlpTlsVersion,
+  TlpNegotiationTypes,
   TlpWireReader,
   TlpExtensionContext,
   TlpITlsExtension,
@@ -134,14 +136,16 @@ begin
   LSrc := NewContext;
   LDst := NewContext;
   try
-    LSrc.SupportedVersions := TArray<UInt16>.Create($0304);
-    LSrc.SupportedGroups := TArray<UInt16>.Create($001D, $0017);
-    LSrc.SignatureSchemes := TArray<UInt16>.Create($0403, $0804);
-    LSrc.SignatureSchemesCert := TArray<UInt16>.Create($0401);
+    LSrc.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls13);
+    LSrc.SupportedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
+      TNamedGroupCatalog.Secp256r1);
+    LSrc.SignatureSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256,
+      TSignatureSchemes.RsaPssRsaeSha256);
+    LSrc.SignatureSchemesCert := TArray<UInt16>.Create(TSignatureSchemes.RsaPkcs1Sha256);
     LSrc.ServerName := 'example.com';
     LSrc.AlpnProtocols := TArray<string>.Create('h2', 'http/1.1');
     SetLength(LSrc.ClientKeyShares, 1);
-    LSrc.ClientKeyShares[0].Group := $001D;
+    LSrc.ClientKeyShares[0].Group := TNamedGroupCatalog.X25519;
     LSrc.ClientKeyShares[0].KeyExchange :=
       DecodeHex('99381de560e4bd43d23d8e435a7dbafeb3c06e51c13cae4d5413691e529aaf2c');
 
@@ -158,7 +162,7 @@ begin
     CheckEquals('h2', LDst.AlpnProtocols[0], 'alpn[0]');
     CheckEquals('http/1.1', LDst.AlpnProtocols[1], 'alpn[1]');
     CheckEquals(1, System.Length(LDst.ClientKeyShares), 'key_share count');
-    CheckEquals($001D, LDst.ClientKeyShares[0].Group, 'key_share group');
+    CheckEquals(TNamedGroupCatalog.X25519, LDst.ClientKeyShares[0].Group, 'key_share group');
     CheckEqualBytes('key_share bytes', LSrc.ClientKeyShares[0].KeyExchange,
       LDst.ClientKeyShares[0].KeyExchange);
   finally
@@ -175,8 +179,8 @@ begin
   LSrc := NewContext;
   LDst := NewContext;
   try
-    LSrc.SelectedVersion := $0304;
-    LSrc.SelectedKeyShare.Group := $001D;
+    LSrc.SelectedVersion := TlsWireVersionTls13;
+    LSrc.SelectedKeyShare.Group := TNamedGroupCatalog.X25519;
     LSrc.SelectedKeyShare.KeyExchange :=
       DecodeHex('c9828876112095fe66762bdbf7c672e156d6cc253b833df1dd69b1b04e751f0f');
     LBlock := FCodec.ProduceBlock(LSrc, TTlsExtensionContextKind.ServerHello);
@@ -186,8 +190,8 @@ begin
     LDst.MarkOffered($0033);
     FCodec.ConsumeBlock(LDst, TTlsExtensionContextKind.ServerHello, LBlock);
 
-    CheckEquals($0304, LDst.SelectedVersion, 'selected_version');
-    CheckEquals($001D, LDst.SelectedKeyShare.Group, 'selected group');
+    CheckEquals(TlsWireVersionTls13, LDst.SelectedVersion, 'selected_version');
+    CheckEquals(TNamedGroupCatalog.X25519, LDst.SelectedKeyShare.Group, 'selected group');
     CheckEqualBytes('selected key_share bytes', LSrc.SelectedKeyShare.KeyExchange,
       LDst.SelectedKeyShare.KeyExchange);
   finally
@@ -376,8 +380,8 @@ begin
   try
     FCodec.ConsumeBlock(LCtx, TTlsExtensionContextKind.ClientHello,
       DecodeHex('000c0a0a0000000a00040002001d'));
-    CheckU16('groups parsed past the skipped GREASE', TArray<UInt16>.Create($001D),
-      LCtx.SupportedGroups);
+    CheckU16('groups parsed past the skipped GREASE',
+      TArray<UInt16>.Create(TNamedGroupCatalog.X25519), LCtx.SupportedGroups);
   finally
     LCtx.Free;
   end;
@@ -427,10 +431,10 @@ begin
   try
     // two key_share entries for the same group (RFC 8446 4.2.8 forbids this)
     SetLength(LSrc.ClientKeyShares, 2);
-    LSrc.ClientKeyShares[0].Group := $001D;
+    LSrc.ClientKeyShares[0].Group := TNamedGroupCatalog.X25519;
     LSrc.ClientKeyShares[0].KeyExchange :=
       DecodeHex('99381de560e4bd43d23d8e435a7dbafeb3c06e51c13cae4d5413691e529aaf2c');
-    LSrc.ClientKeyShares[1].Group := $001D;
+    LSrc.ClientKeyShares[1].Group := TNamedGroupCatalog.X25519;
     LSrc.ClientKeyShares[1].KeyExchange :=
       DecodeHex('0000000000000000000000000000000000000000000000000000000000000000');
     LBlock := FCodec.ProduceBlock(LSrc, TTlsExtensionContextKind.ClientHello);
@@ -456,7 +460,7 @@ begin
   LSrc := NewContext;
   LDst := NewContext;
   try
-    LSrc.SupportedVersions := TArray<UInt16>.Create($0304);
+    LSrc.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls13);
     LSrc.PskModes := TBytes.Create(Byte(1)); // psk_dhe_ke
     LSrc.EarlyDataOffered := True;
     SetLength(LSrc.OfferedPskIdentities, 1);
@@ -553,8 +557,8 @@ var
 begin
   LSrc := NewContext;
   try
-    LSrc.SupportedVersions := TArray<UInt16>.Create($0304);
-    LSrc.SupportedGroups := TArray<UInt16>.Create($001D);
+    LSrc.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls13);
+    LSrc.SupportedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.X25519);
     LSrc.PskModes := TBytes.Create(Byte(1));
     SetLength(LSrc.OfferedPskIdentities, 1);
     LSrc.OfferedPskIdentities[0] := DecodeHex('AABBCC');

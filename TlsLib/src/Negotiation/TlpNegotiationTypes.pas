@@ -47,7 +47,9 @@ type
     EcdheRsaChaCha20Poly1305Sha256 = UInt16($CCA8);
   end;
 
-  /// <summary>Signature-scheme wire codepoints (RFC 8446 4.2.3) and their names.</summary>
+  /// <summary>Signature-scheme wire codepoints (RFC 8446 4.2.3). Wire vocabulary only;
+  /// whether a scheme may sign a given version's handshake is decided by
+  /// <see cref="TSignatureScheme.IsValidForHandshake" />.</summary>
   TSignatureSchemes = class sealed(TObject)
   public const
     EcdsaSecp256r1Sha256 = UInt16($0403);
@@ -58,6 +60,11 @@ type
     RsaPssRsaeSha512 = UInt16($0806);
     Ed25519 = UInt16($0807);
     Ed448 = UInt16($0808);
+    // legacy (RFC 8446 4.2.3): in TLS 1.3 valid only in signature_algorithms_cert,
+    // never a CertificateVerify; still a TLS 1.2 handshake signature (RFC 5246 7.4.1.4.1)
+    RsaPkcs1Sha256 = UInt16($0401);
+    RsaPkcs1Sha384 = UInt16($0501);
+    RsaPkcs1Sha512 = UInt16($0601);
   end;
 
   /// <summary>Which protocol version a cipher suite belongs to.</summary>

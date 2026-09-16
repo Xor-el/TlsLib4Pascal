@@ -26,6 +26,7 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpCryptoDomainTypes,
+  TlpNegotiationTypes,
   TlpTlsVersion,
   TlpIClock,
   TlpISecretBuffer,
@@ -106,13 +107,15 @@ end;
 
 function TTestSessionStore.MakeSession(const ATag: TBytes): IResumableSession;
 begin
-  Result := TResumableSession.CreateTls13($1301, THashAlgorithm.SHA_256,
-    TSecretBuffer.From(ATag), $001D, '', '', ATag, 7200, 0, 0, 0);
+  Result := TResumableSession.CreateTls13(TCipherSuites13.Aes128GcmSha256,
+    THashAlgorithm.SHA_256, TSecretBuffer.From(ATag), TNamedGroupCatalog.X25519,
+    '', '', ATag, 7200, 0, 0, 0);
 end;
 
 function TTestSessionStore.MakeTls12Session(const ATag: TBytes): IResumableSession;
 begin
-  Result := TResumableSession.CreateTls12($C02B, THashAlgorithm.SHA_256,
+  Result := TResumableSession.CreateTls12(TCipherSuites12.EcdheEcdsaAes128GcmSha256,
+    THashAlgorithm.SHA_256,
     TSecretBuffer.From(ATag), ATag, ATag, True, '', '', 7200, 0, 0);
 end;
 
@@ -179,8 +182,9 @@ var
 begin
   LCache := TInMemorySessionCache.Create;
   CheckEquals(0, LCache.KxHint('host:443', 'x.example'), 'no hint is known initially');
-  LCache.SetKxHint('host:443', 'x.example', $001D);
-  CheckEquals($001D, LCache.KxHint('host:443', 'x.example'), 'the hint round-trips');
+  LCache.SetKxHint('host:443', 'x.example', TNamedGroupCatalog.X25519);
+  CheckEquals(TNamedGroupCatalog.X25519, LCache.KxHint('host:443', 'x.example'),
+    'the hint round-trips');
   CheckEquals(0, LCache.KxHint('host:443', 'other.example'),
     'the hint is keyed by server and SNI');
 end;

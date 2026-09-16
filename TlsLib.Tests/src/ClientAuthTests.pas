@@ -74,9 +74,6 @@ type
 
 implementation
 
-const
-  EcdsaSecp256r1Sha256 = UInt16($0403);
-
 { TTestClientAuth }
 
 function TTestClientAuth.Filled(AByte: Byte; ACount: Int32): TBytes;
@@ -135,7 +132,7 @@ begin
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
-  LParams.OfferedSchemes := TArray<UInt16>.Create(EcdsaSecp256r1Sha256);
+  LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
   LParams.ClientRandom := Filled($11, 32);
   LParams.LegacySessionId := Filled($33, 32);
   LParams.CertificateVerifier := PeerVerifier;
@@ -160,7 +157,7 @@ begin
   LParams.ServerRandom := Filled($22, 32);
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(Credential);
   LParams.ClientAuth := AMode;
-  LParams.ClientAuthSignatureSchemes := TArray<UInt16>.Create(EcdsaSecp256r1Sha256);
+  LParams.ClientAuthSignatureSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
   LParams.ClientCertificateVerifier := PeerVerifier;
   Result := TTlsEngine.CreateConfigured(
     TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
@@ -182,7 +179,7 @@ begin
   // curve (RFC 8422 5.1), so it lists X25519 and Secp256r1 (the P-256 certificate curve)
   LParams.OfferedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
     TNamedGroupCatalog.Secp256r1);
-  LParams.OfferedSchemes := TArray<UInt16>.Create(EcdsaSecp256r1Sha256);
+  LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
   LParams.OfferedVersions := TArray<UInt16>.Create(TlsWireVersionTls12);
   LParams.ClientRandom := Filled($11, 32);
   LParams.OfferExtendedMasterSecret := True;
@@ -207,7 +204,7 @@ begin
   LParams.ServerRandom := Filled($22, 32);
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(Credential);
   LParams.ClientAuth := AMode;
-  LParams.ClientAuthSignatureSchemes := TArray<UInt16>.Create(EcdsaSecp256r1Sha256);
+  LParams.ClientAuthSignatureSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
   LParams.ClientCertificateVerifier := PeerVerifier;
   Result := TTlsEngine.CreateConfigured(
     TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);

@@ -67,6 +67,7 @@ type
     function Code: UInt16;
     function Name: string;
     function Kind: TNamedGroupKind;
+    function Composition: TNamedGroupComposition;
     procedure GenerateKeyPair(out APriv: ISecretBuffer; out APubShare: TBytes);
     procedure Encapsulate(const APeerPub: TBytes; out ACiphertext: TBytes;
       out ASharedSecret: ISecretBuffer);
@@ -135,6 +136,11 @@ end;
 function TReplayServerGroup.Kind: TNamedGroupKind;
 begin
   Result := TNamedGroupKind.Ecdhe;
+end;
+
+function TReplayServerGroup.Composition: TNamedGroupComposition;
+begin
+  Result := TNamedGroupComposition.From(TKeyAgreementAlgorithm.X25519);
 end;
 
 procedure TReplayServerGroup.GenerateKeyPair(out APriv: ISecretBuffer;

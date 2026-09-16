@@ -26,6 +26,7 @@ uses
   TlpTlsLibExceptions,
   TlpICryptoProvider,
   TlpITlsEngine,
+  TlpNegotiationTypes,
   TlpHandshakeMessage,
   TlpHandshakeMessages,
   TlpRecordLayer,
@@ -370,7 +371,8 @@ begin
       begin
         LClientHello.Random := Filler(32, $2A);
         LClientHello.LegacySessionId := nil;
-        LClientHello.CipherSuites := TArray<UInt16>.Create($1301, $1302, $1303);
+        LClientHello.CipherSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256,
+          TCipherSuites13.Aes256GcmSha384, TCipherSuites13.ChaCha20Poly1305Sha256);
         LClientHello.Extensions := LEmptyExt;
         LBody := THandshakeMessages.EncodeClientHello(LClientHello);
         if ATarget = TFuzzTarget.ClientHello then
@@ -383,7 +385,7 @@ begin
       begin
         LServerHello.Random := Filler(32, $53);
         LServerHello.LegacySessionIdEcho := nil;
-        LServerHello.CipherSuite := $1301;
+        LServerHello.CipherSuite := TCipherSuites13.Aes128GcmSha256;
         LServerHello.Extensions := LEmptyExt;
         LBody := THandshakeMessages.EncodeServerHello(LServerHello);
         if ATarget = TFuzzTarget.ServerHello then
@@ -404,7 +406,7 @@ begin
       end;
     TFuzzTarget.CertificateVerify:
       begin
-        LCertVerify.Algorithm := $0804;
+        LCertVerify.Algorithm := TSignatureSchemes.RsaPssRsaeSha256;
         LCertVerify.Signature := Filler(64, $5B);
         Result := THandshakeMessages.EncodeCertificateVerify(LCertVerify);
       end;
@@ -444,8 +446,9 @@ begin
     TFuzzTarget.CertRequest12:
       begin
         LReq12.CertificateTypes := TBytes.Create($40, $01, $02);
-        LReq12.SupportedSignatureAlgorithms :=
-          TArray<UInt16>.Create($0403, $0804, $0401);
+        LReq12.SupportedSignatureAlgorithms := TArray<UInt16>.Create(
+          TSignatureSchemes.EcdsaSecp256r1Sha256, TSignatureSchemes.RsaPssRsaeSha256,
+          TSignatureSchemes.RsaPkcs1Sha256);
         Result := THandshakeMessages.EncodeCertificateRequest12(LReq12);
       end;
     TFuzzTarget.Certificate12:
@@ -453,9 +456,9 @@ begin
         TArray<TBytes>.Create(Filler(48, $C1), Filler(40, $C2)));
     TFuzzTarget.ServerKeyExchange:
       begin
-        LSke.NamedCurve := $0017;
+        LSke.NamedCurve := TNamedGroupCatalog.Secp256r1;
         LSke.PublicKey := Filler(65, $04);
-        LSke.SignatureScheme := $0403;
+        LSke.SignatureScheme := TSignatureSchemes.EcdsaSecp256r1Sha256;
         LSke.Signature := Filler(72, $53);
         Result := THandshakeMessages.EncodeServerKeyExchangeEcdhe(LSke);
       end;
@@ -474,7 +477,7 @@ begin
       begin
         LClientHello.Random := Filler(32, $2A);
         LClientHello.LegacySessionId := nil;
-        LClientHello.CipherSuites := TArray<UInt16>.Create($1301);
+        LClientHello.CipherSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
         LClientHello.Extensions := LEmptyExt;
         Result := THandshakeFraming.Frame(TTlsHandshakeType.ClientHello,
           THandshakeMessages.EncodeClientHello(LClientHello));

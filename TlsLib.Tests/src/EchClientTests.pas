@@ -27,6 +27,7 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpCryptoDomainTypes,
+  TlpNegotiationTypes,
   TlpICryptoProvider,
   TlpISecretBuffer,
   TlpWireReader,
@@ -147,7 +148,8 @@ begin
     '0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20');
   LHello.LegacySessionId := DecodeHex(
     'a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf');
-  LHello.CipherSuites := TArray<UInt16>.Create(UInt16($1301), UInt16($1303));
+  LHello.CipherSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256,
+    TCipherSuites13.ChaCha20Poly1305Sha256);
   LHello.Extensions := ExtField(AEntries);
   Result := THandshakeMessages.EncodeClientHello(LHello);
 end;

@@ -21,6 +21,7 @@ uses
   Windows,
   SysUtils,
   TypInfo,
+  TlpArrayUtilities,
   TlpCryptoDomainTypes,
   TlpSystemCryptoTypes,
   TlpICryptoProvider,
@@ -147,6 +148,7 @@ resourcestring
   SAeadAuthFailed = 'AEAD authentication failed';
   SInvalidKeySize = 'AEAD key size %d does not match the required %d bytes';
   SInvalidNonceSize = 'AEAD nonce size %d does not match the required %d bytes';
+  SHkdfExpandTooLong = 'HKDF-Expand output length %d exceeds 255 * HashLen (%d)';
 
 type
   // bcrypt.dll entry points, resolved at runtime (no static import, so an absent DLL or
@@ -816,6 +818,14 @@ type
     class function DerEncodeEcdsa(const ARaw: TBytes): TBytes; static;
     class function TryDerDecodeEcdsa(const ADer: TBytes; AFieldSize: Int32;
       out ARaw: TBytes): Boolean; static;
+    // reads the TLV at AOffset; returns the tag and the content/next offsets, False if the
+    // length runs past the buffer (fail-closed for a malformed key)
+    class function ReadTlv(const ADer: TBytes; AOffset: Int32; out ATag: Byte;
+      out AContentOffset, AContentLen, ANext: Int32): Boolean; static;
+    class function Sec1CurveOid(const ASec1: TBytes; out ACurveOid: TBytes): Boolean; static;
+    // wraps a PKCS#1 (RSAPrivateKey) or SEC1 (ECPrivateKey) DER into a PKCS#8 the KSP
+    // imports; a PKCS#8 (plain or encrypted) or unrecognized blob passes through unchanged
+    class function WrapPkcs8IfNeeded(const ADer: TBytes): TBytes; static;
     function AlgName(AKey: NativeUInt): string;
     function KeySchemes(AKey: NativeUInt;
       out ASchemes: TArray<TSignatureScheme>): Boolean;
@@ -849,20 +859,26 @@ type
   end;
 
   // The Windows-native signing facet: a decorator over the portable signing facet. It
-  // imports RSA keys into CNG and mints native signers for them; every other key (EC,
-  // Ed25519/Ed448, encrypted, PEM, PKCS#12) and all verification delegate to the inner
-  // portable facet. The per-key backend is coherent: a key this facet imported carries
-  // the IWindowsSigningKey marker, so its signer is native; a foreign handle routes back
-  // to the inner facet that made it.
+  // imports RSA/ECDSA PKCS#8 keys (DER or PEM, encrypted or not) into CNG and mints native
+  // signers for them; every other key (Ed25519/Ed448, PKCS#1/SEC1) and all verification
+  // delegate to the inner portable facet. The per-key backend is coherent: a key this facet
+  // imported carries the IWindowsSigningKey marker, so its signer is native; a foreign handle
+  // routes back to the inner facet that made it.
   TWindowsSigningCrypto = class(TInterfacedObject, ISigningCrypto)
   strict private
   var
     FInner: ISigningCrypto;
+    FPem: IPemCodec;
     FNCrypt: IWindowsNCrypt;
     class function IsPemArmored(const AData: TBytes): Boolean; static;
     class function SchemeName(AScheme: TSignatureScheme): string; static;
+    // decodes a PEM PKCS#8 block (via the portable PEM codec) to DER and imports it
+    // natively; the decoded bytes are the plain or still-encrypted PKCS#8 the KSP accepts
+    function TryImportPemNative(const AData: TBytes; const APassword: string;
+      out AKey: ISigningKey): Boolean;
   public
-    constructor Create(const AInner: ISigningCrypto; const ANCrypt: IWindowsNCrypt);
+    constructor Create(const AInner: ISigningCrypto; const APem: IPemCodec;
+      const ANCrypt: IWindowsNCrypt);
     function ImportSigningKey(const AData: TBytes): ISigningKey; overload;
     function ImportSigningKey(const AData: TBytes;
       const APassword: string): ISigningKey; overload;
@@ -1182,6 +1198,10 @@ var
   LPos, LTake: Int32;
   LCounter: Byte;
 begin
+  // RFC 5869: L must not exceed 255 * HashLen, else the block counter would wrap
+  if ALength > 255 * FMacSize then
+    raise EArgumentTlsLibException.CreateResFmt(@SHkdfExpandTooLong,
+      [ALength, 255 * FMacSize]);
   LOkm := nil;
   SetLength(LOkm, ALength);
   LMac := NewMac;
@@ -1201,6 +1221,7 @@ begin
         LMac.Update(AInfo, 0, System.Length(AInfo));
       LCtr[0] := LCounter;
       LMac.Update(LCtr, 0, 1);
+      TSecureMemory.WipeBytes(LT); // each T(i) is an OKM prefix; wipe before reassigning
       LT := LMac.DoFinal; // DoFinal re-keys a fresh HMAC for the next block
       LTake := System.Length(LT);
       if LPos + LTake > ALength then
@@ -2966,6 +2987,101 @@ begin
   Result := True;
 end;
 
+class function TWindowsNCrypt.ReadTlv(const ADer: TBytes; AOffset: Int32;
+  out ATag: Byte; out AContentOffset, AContentLen, ANext: Int32): Boolean;
+var
+  LLen, LN, LI: Int32;
+begin
+  Result := False;
+  ATag := 0;
+  AContentOffset := 0;
+  AContentLen := 0;
+  ANext := 0;
+  if (AOffset < 0) or (AOffset + 2 > System.Length(ADer)) then
+    Exit;
+  ATag := ADer[AOffset];
+  LLen := ADer[AOffset + 1];
+  if (LLen and $80) = 0 then
+    AContentOffset := AOffset + 2
+  else
+  begin
+    LN := LLen and $7F;
+    if (LN = 0) or (LN > 4) or (AOffset + 2 + LN > System.Length(ADer)) then
+      Exit;
+    LLen := 0;
+    for LI := 0 to LN - 1 do
+      LLen := (LLen shl 8) or ADer[AOffset + 2 + LI];
+    AContentOffset := AOffset + 2 + LN;
+  end;
+  AContentLen := LLen;
+  ANext := AContentOffset + AContentLen;
+  Result := (AContentLen >= 0) and (ANext <= System.Length(ADer));
+end;
+
+class function TWindowsNCrypt.Sec1CurveOid(const ASec1: TBytes;
+  out ACurveOid: TBytes): Boolean;
+var
+  LTag: Byte;
+  LSeqOfs, LSeqLen, LNext, LOfs, LCofs, LClen, LEnd: Int32;
+begin
+  ACurveOid := nil;
+  Result := False;
+  if (not ReadTlv(ASec1, 0, LTag, LSeqOfs, LSeqLen, LNext)) or (LTag <> $30) then
+    Exit;
+  LEnd := LSeqOfs + LSeqLen;
+  LOfs := LSeqOfs;
+  while LOfs < LEnd do
+  begin
+    if not ReadTlv(ASec1, LOfs, LTag, LCofs, LClen, LNext) then
+      Exit;
+    // [0] parameters: its content is the named-curve OID TLV, copied verbatim
+    if LTag = $A0 then
+    begin
+      ACurveOid := System.Copy(ASec1, LCofs, LClen);
+      Exit(True);
+    end;
+    LOfs := LNext;
+  end;
+end;
+
+class function TWindowsNCrypt.WrapPkcs8IfNeeded(const ADer: TBytes): TBytes;
+var
+  LTag, LTag1, LTag2: Byte;
+  LSeqOfs, LSeqLen, LNext, LC1ofs, LC1len, LN1, LC2ofs, LC2len, LN2: Int32;
+  LCurveOid, LAlgId, LContent: TBytes;
+begin
+  // best-effort: any parse mismatch leaves the blob unchanged for the KSP / portable facet
+  Result := ADer;
+  if (not ReadTlv(ADer, 0, LTag, LSeqOfs, LSeqLen, LNext)) or (LTag <> $30) then
+    Exit;
+  // 1st element INTEGER = a version-prefixed body (PKCS#1 / SEC1 / plain PKCS#8); an
+  // EncryptedPrivateKeyInfo starts with a SEQUENCE (AlgId) and is left alone
+  if (not ReadTlv(ADer, LSeqOfs, LTag1, LC1ofs, LC1len, LN1)) or (LTag1 <> $02) then
+    Exit;
+  if not ReadTlv(ADer, LN1, LTag2, LC2ofs, LC2len, LN2) then
+    Exit;
+  case LTag2 of
+    $02: // 2nd element INTEGER -> PKCS#1 RSAPrivateKey (modulus): wrap with rsaEncryption
+      begin
+        LContent := TArrayUtilities.Concat([TBytes.Create($02, $01, $00),
+          TBytes.Create($30, $0D, $06, $09, $2A, $86, $48, $86, $F7, $0D, $01, $01, $01,
+          $05, $00), DerTlv($04, ADer)]);
+        Result := DerTlv($30, LContent);
+      end;
+    $04: // 2nd element OCTET STRING -> SEC1 ECPrivateKey: wrap with ecPublicKey + curve OID
+      begin
+        if not Sec1CurveOid(ADer, LCurveOid) then
+          Exit;
+        LAlgId := DerTlv($30, TArrayUtilities.Concat(
+          [TBytes.Create($06, $07, $2A, $86, $48, $CE, $3D, $02, $01), LCurveOid]));
+        LContent := TArrayUtilities.Concat([TBytes.Create($02, $01, $00), LAlgId,
+          DerTlv($04, ADer)]);
+        Result := DerTlv($30, LContent);
+      end;
+    // 2nd element SEQUENCE ($30) = plain PKCS#8, or anything else: unchanged
+  end;
+end;
+
 constructor TWindowsNCrypt.Create(const ACng: IWindowsCng);
 begin
   inherited Create;
@@ -3069,10 +3185,14 @@ var
   LBuf: TNCryptBuffer;
   LDesc: TNCryptBufferDesc;
   LParam: Pointer;
+  LDer: TBytes;
 begin
   AKey := 0;
   ASchemes := nil;
   LKey := 0;
+  // a raw PKCS#1 / SEC1 key is wrapped into the PKCS#8 the KSP imports; a PKCS#8 (plain or
+  // encrypted, as for a non-empty password) passes through unchanged
+  LDer := WrapPkcs8IfNeeded(APkcs8);
   // a non-empty password imports an encrypted PKCS#8: the KSP decrypts it from the
   // NCRYPTBUFFER_PKCS_SECRET buffer. LPwd must outlive the ImportKey call (it does - it is
   // this frame's local, pointed at by the buffer)
@@ -3091,7 +3211,7 @@ begin
   // the KSP parses the PKCS#8 PrivateKeyInfo; a non-PKCS#8 / unsupported-PBE / unsupported key
   // (or a wrong password) simply fails to import and the caller delegates to the portable facet
   if FApi.ImportKey(FProvider, 0, PWideChar(BLOB_PKCS8_PRIVATE), LParam, LKey,
-    PByte(APkcs8), System.Length(APkcs8), NCRYPT_SILENT_FLAG) <> STATUS_SUCCESS then
+    PByte(LDer), System.Length(LDer), NCRYPT_SILENT_FLAG) <> STATUS_SUCCESS then
     Exit(False);
   if KeySchemes(LKey, ASchemes) then
   begin
@@ -3342,10 +3462,11 @@ end;
 { TWindowsSigningCrypto }
 
 constructor TWindowsSigningCrypto.Create(const AInner: ISigningCrypto;
-  const ANCrypt: IWindowsNCrypt);
+  const APem: IPemCodec; const ANCrypt: IWindowsNCrypt);
 begin
   inherited Create;
   FInner := AInner;
+  FPem := APem;
   FNCrypt := ANCrypt;
 end;
 
@@ -3373,15 +3494,57 @@ begin
   Result := GetEnumName(TypeInfo(TSignatureScheme), Ord(AScheme));
 end;
 
+function TWindowsSigningCrypto.TryImportPemNative(const AData: TBytes;
+  const APassword: string; out AKey: ISigningKey): Boolean;
+var
+  LBlocks: TArray<TPemBlock>;
+  LI: Int32;
+  LKey: NativeUInt;
+  LSchemes: TArray<TSignatureScheme>;
+  LImported: Boolean;
+begin
+  AKey := nil;
+  try
+    LBlocks := FPem.ReadBlocks(AData);
+  except
+    // malformed PEM: let the portable facet re-parse and own the canonical error
+    Exit(False);
+  end;
+  for LI := 0 to System.Length(LBlocks) - 1 do
+  begin
+    // encrypted PKCS#8 needs the password; plain PKCS#8 and the raw PKCS#1/SEC1 forms
+    // ("RSA/EC PRIVATE KEY", wrapped to PKCS#8 inside TryImportKey) import unkeyed
+    if LBlocks[LI].PemType = 'ENCRYPTED PRIVATE KEY' then
+      LImported := FNCrypt.TryImportKey(LBlocks[LI].Content, APassword, LKey, LSchemes)
+    else if (LBlocks[LI].PemType = 'PRIVATE KEY') or
+      (LBlocks[LI].PemType = 'RSA PRIVATE KEY') or
+      (LBlocks[LI].PemType = 'EC PRIVATE KEY') then
+      LImported := FNCrypt.TryImportKey(LBlocks[LI].Content, '', LKey, LSchemes)
+    else
+      LImported := False;
+    if LImported then
+    begin
+      AKey := TWindowsSigningKey.Create(TNCryptKeyOwner.Create(FNCrypt, LKey), LSchemes);
+      Exit(True);
+    end;
+  end;
+  Result := False;
+end;
+
 function TWindowsSigningCrypto.ImportSigningKey(const AData: TBytes): ISigningKey;
 var
   LKey: NativeUInt;
   LSchemes: TArray<TSignatureScheme>;
   LOwner: INCryptKeyOwner;
 begin
-  // native path is unencrypted DER PKCS#8 the KSP imports as RSA or NIST-curve ECDSA;
-  // anything else (PEM, encrypted, PKCS#1/SEC1, Ed25519) delegates to the portable facet
-  if (not IsPemArmored(AData)) and FNCrypt.TryImportKey(AData, '', LKey, LSchemes) then
+  // native path is a PKCS#8 key (RSA or NIST-curve ECDSA) - DER imported directly, PEM
+  // decoded first; a PKCS#1/SEC1 or Ed25519 key delegates to the portable facet
+  if IsPemArmored(AData) then
+  begin
+    if not TryImportPemNative(AData, '', Result) then
+      Result := FInner.ImportSigningKey(AData);
+  end
+  else if FNCrypt.TryImportKey(AData, '', LKey, LSchemes) then
   begin
     LOwner := TNCryptKeyOwner.Create(FNCrypt, LKey);
     Result := TWindowsSigningKey.Create(LOwner, LSchemes);
@@ -3397,11 +3560,16 @@ var
   LSchemes: TArray<TSignatureScheme>;
   LOwner: INCryptKeyOwner;
 begin
-  // native path is an encrypted DER PKCS#8 (EncryptedPrivateKeyInfo) the KSP decrypts and
-  // imports as RSA or NIST-curve ECDSA; a PEM-armored, unsupported-PBE, or otherwise
-  // unsupported key (or a wrong password) delegates to the portable facet, which owns the
-  // full decrypt/parse range and all error handling
-  if (not IsPemArmored(AData)) and FNCrypt.TryImportKey(AData, APassword, LKey, LSchemes) then
+  // native path is an encrypted PKCS#8 (EncryptedPrivateKeyInfo) the KSP decrypts and imports
+  // - DER imported directly, PEM decoded first; an unsupported-PBE or otherwise unsupported
+  // key (or a wrong password) delegates to the portable facet, which owns the full
+  // decrypt/parse range and all error handling
+  if IsPemArmored(AData) then
+  begin
+    if not TryImportPemNative(AData, APassword, Result) then
+      Result := FInner.ImportSigningKey(AData, APassword);
+  end
+  else if FNCrypt.TryImportKey(AData, APassword, LKey, LSchemes) then
   begin
     LOwner := TNCryptKeyOwner.Create(FNCrypt, LKey);
     Result := TWindowsSigningKey.Create(LOwner, LSchemes);
@@ -3476,7 +3644,7 @@ begin
   LSigning := nil;
   try
     LNCrypt := TWindowsNCrypt.Create(LCng);
-    LSigning := TWindowsSigningCrypto.Create(ABase.Signing, LNCrypt);
+    LSigning := TWindowsSigningCrypto.Create(ABase.Signing, ABase.Pem, LNCrypt);
   except
     on ESystemCryptoUnsupportedTlsLibException do
       LSigning := nil;

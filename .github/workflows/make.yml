@@ -71,7 +71,7 @@ env:
   # instead of the pure-Pascal provider. Only Windows has native facets today, so it is a no-op
   # elsewhere. Defaults off, so the conformance gate stays on the portable provider unless a run
   # opts in to validate the native provider end to end.
-  MAKE_INTEROP_NATIVE_CRYPTO: false
+  MAKE_INTEROP_NATIVE_CRYPTO: true
   # The BoringSSL/BoGo peer commit the disable ledger is reconciled against (pins the
   # peer). Bumping it is a deliberate, reviewed change: any new test it introduces
   # surfaces as UNEXPECTED and must be triaged into pass/disable - the gate working.

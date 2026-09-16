@@ -67,6 +67,7 @@ const
 
 resourcestring
   SInvalidPeerShare = 'invalid peer key share for group %s';
+  SUnknownCurve = 'unknown named-group curve "%s"';
 
 type
   // wraps a key agreement (Diffie-Hellman) as a KEM-shaped group: the ciphertext
@@ -74,13 +75,16 @@ type
   TKeyAgreementGroup = class(TInterfacedObject, INamedGroup)
   strict private
   var
+    FComposition: TNamedGroupComposition;
     FAgreement: IKeyAgreement;
     FCode: UInt16;
   public
-    constructor Create(const AAgreement: IKeyAgreement; ACode: UInt16);
+    constructor Create(const AProvider: ICryptoProvider;
+      AAlgorithm: TKeyAgreementAlgorithm; ACode: UInt16);
     function Code: UInt16;
     function Name: string;
     function Kind: TNamedGroupKind;
+    function Composition: TNamedGroupComposition;
     procedure GenerateKeyPair(out APriv: ISecretBuffer; out APubShare: TBytes);
     procedure Encapsulate(const APeerPub: TBytes; out ACiphertext: TBytes;
       out ASharedSecret: ISecretBuffer);
@@ -93,13 +97,16 @@ type
   TKemGroup = class(TInterfacedObject, INamedGroup)
   strict private
   var
+    FComposition: TNamedGroupComposition;
     FKem: IKem;
     FCode: UInt16;
   public
-    constructor Create(const AKem: IKem; ACode: UInt16);
+    constructor Create(const AProvider: ICryptoProvider;
+      AAlgorithm: TKemAlgorithm; ACode: UInt16);
     function Code: UInt16;
     function Name: string;
     function Kind: TNamedGroupKind;
+    function Composition: TNamedGroupComposition;
     procedure GenerateKeyPair(out APriv: ISecretBuffer; out APubShare: TBytes);
     procedure Encapsulate(const APeerPub: TBytes; out ACiphertext: TBytes;
       out ASharedSecret: ISecretBuffer);
@@ -112,6 +119,7 @@ type
   TX25519MlKem768Group = class(TInterfacedObject, INamedGroup)
   strict private
   var
+    FComposition: TNamedGroupComposition;
     FX25519: INamedGroup;
     FMlKem: INamedGroup;
   public
@@ -119,6 +127,7 @@ type
     function Code: UInt16;
     function Name: string;
     function Kind: TNamedGroupKind;
+    function Composition: TNamedGroupComposition;
     procedure GenerateKeyPair(out APriv: ISecretBuffer; out APubShare: TBytes);
     procedure Encapsulate(const APeerPub: TBytes; out ACiphertext: TBytes;
       out ASharedSecret: ISecretBuffer);
@@ -137,10 +146,12 @@ type
 
 { TKeyAgreementGroup }
 
-constructor TKeyAgreementGroup.Create(const AAgreement: IKeyAgreement; ACode: UInt16);
+constructor TKeyAgreementGroup.Create(const AProvider: ICryptoProvider;
+  AAlgorithm: TKeyAgreementAlgorithm; ACode: UInt16);
 begin
   inherited Create;
-  FAgreement := AAgreement;
+  FComposition := TNamedGroupComposition.From(AAlgorithm);
+  FAgreement := AProvider.Primitives.CreateKeyAgreement(FComposition.KeyAgreement);
   FCode := ACode;
 end;
 
@@ -156,7 +167,12 @@ end;
 
 function TKeyAgreementGroup.Kind: TNamedGroupKind;
 begin
-  Result := TNamedGroupKind.Ecdhe;
+  Result := FComposition.Kind;
+end;
+
+function TKeyAgreementGroup.Composition: TNamedGroupComposition;
+begin
+  Result := FComposition;
 end;
 
 procedure TKeyAgreementGroup.GenerateKeyPair(out APriv: ISecretBuffer;
@@ -194,10 +210,12 @@ end;
 
 { TKemGroup }
 
-constructor TKemGroup.Create(const AKem: IKem; ACode: UInt16);
+constructor TKemGroup.Create(const AProvider: ICryptoProvider;
+  AAlgorithm: TKemAlgorithm; ACode: UInt16);
 begin
   inherited Create;
-  FKem := AKem;
+  FComposition := TNamedGroupComposition.From(AAlgorithm);
+  FKem := AProvider.Primitives.CreateKem(FComposition.Kem);
   FCode := ACode;
 end;
 
@@ -213,7 +231,12 @@ end;
 
 function TKemGroup.Kind: TNamedGroupKind;
 begin
-  Result := TNamedGroupKind.Kem;
+  Result := FComposition.Kind;
+end;
+
+function TKemGroup.Composition: TNamedGroupComposition;
+begin
+  Result := FComposition;
 end;
 
 procedure TKemGroup.GenerateKeyPair(out APriv: ISecretBuffer; out APubShare: TBytes);
@@ -245,10 +268,11 @@ end;
 constructor TX25519MlKem768Group.Create(const AProvider: ICryptoProvider);
 begin
   inherited Create;
-  FX25519 := TKeyAgreementGroup.Create(AProvider.Primitives.CreateKeyAgreement(TKeyAgreementAlgorithm.X25519),
+  FComposition := TNamedGroupComposition.From(TKeyAgreementAlgorithm.X25519,
+    TKemAlgorithm.ML_KEM_768);
+  FX25519 := TKeyAgreementGroup.Create(AProvider, FComposition.KeyAgreement,
     TNamedGroupCatalog.X25519);
-  FMlKem := TKemGroup.Create(AProvider.Primitives.CreateKem(TKemAlgorithm.ML_KEM_768),
-    TNamedGroupCatalog.MlKem768);
+  FMlKem := TKemGroup.Create(AProvider, FComposition.Kem, TNamedGroupCatalog.MlKem768);
 end;
 
 function TX25519MlKem768Group.Code: UInt16;
@@ -263,7 +287,12 @@ end;
 
 function TX25519MlKem768Group.Kind: TNamedGroupKind;
 begin
-  Result := TNamedGroupKind.Hybrid;
+  Result := FComposition.Kind;
+end;
+
+function TX25519MlKem768Group.Composition: TNamedGroupComposition;
+begin
+  Result := FComposition;
 end;
 
 procedure TX25519MlKem768Group.GenerateKeyPair(out APriv: ISecretBuffer;
@@ -374,7 +403,7 @@ end;
 
 class function TNamedGroups.CreateX25519(const AProvider: ICryptoProvider): INamedGroup;
 begin
-  Result := TKeyAgreementGroup.Create(AProvider.Primitives.CreateKeyAgreement(TKeyAgreementAlgorithm.X25519),
+  Result := TKeyAgreementGroup.Create(AProvider, TKeyAgreementAlgorithm.X25519,
     TNamedGroupCatalog.X25519);
 end;
 
@@ -383,18 +412,20 @@ class function TNamedGroups.CreateNistEcdh(const AProvider: ICryptoProvider;
 var
   LCode: UInt16;
   LAlg: TKeyAgreementAlgorithm;
+  LHasCode, LHasAlg: Boolean;
 begin
-  // the group name is the curve name; an unknown curve maps to code 0 (non-negotiable)
-  TNamedGroupCatalog.TryCode(ACurveName, LCode);
-  // the curve name resolves to the key-agreement enum (secp256r1 -> SECP256R1)
-  TEnumUtilities.TryGetEnumValue<TKeyAgreementAlgorithm>(ACurveName, LAlg);
-  Result := TKeyAgreementGroup.Create(AProvider.Primitives.CreateKeyAgreement(LAlg), LCode);
+  // the group name is the curve name; it must resolve to both a wire codepoint and the
+  // key-agreement enum (secp256r1 -> SECP256R1), else it is not a group we can build
+  LHasCode := TNamedGroupCatalog.TryCode(ACurveName, LCode);
+  LHasAlg := TEnumUtilities.TryGetEnumValue<TKeyAgreementAlgorithm>(ACurveName, LAlg);
+  if (not LHasCode) or (not LHasAlg) then
+    raise EArgumentTlsLibException.CreateResFmt(@SUnknownCurve, [ACurveName]);
+  Result := TKeyAgreementGroup.Create(AProvider, LAlg, LCode);
 end;
 
 class function TNamedGroups.CreateMlKem768(const AProvider: ICryptoProvider): INamedGroup;
 begin
-  Result := TKemGroup.Create(AProvider.Primitives.CreateKem(TKemAlgorithm.ML_KEM_768),
-    TNamedGroupCatalog.MlKem768);
+  Result := TKemGroup.Create(AProvider, TKemAlgorithm.ML_KEM_768, TNamedGroupCatalog.MlKem768);
 end;
 
 class function TNamedGroups.CreateX25519MlKem768(const AProvider: ICryptoProvider): INamedGroup;

@@ -151,6 +151,29 @@ type
   TNamedGroupKind = (Ecdhe, Kem, Hybrid);
 
   /// <summary>
+  /// What a named group is built from: one key agreement (Ecdhe), one KEM (Kem), or one of
+  /// each (Hybrid). Kind selects which of KeyAgreement/Kem are meaningful; the three From
+  /// factories are the only way to build a value, so no invalid combination is representable.
+  /// </summary>
+  TNamedGroupComposition = record
+  strict private
+  var
+    FKind: TNamedGroupKind;
+    FKeyAgreement: TKeyAgreementAlgorithm;
+    FKem: TKemAlgorithm;
+  public
+    class function From(AKeyAgreement: TKeyAgreementAlgorithm): TNamedGroupComposition; overload; static;
+    class function From(AKem: TKemAlgorithm): TNamedGroupComposition; overload; static;
+    class function From(AKeyAgreement: TKeyAgreementAlgorithm;
+      AKem: TKemAlgorithm): TNamedGroupComposition; overload; static;
+    property Kind: TNamedGroupKind read FKind;
+    /// <summary>Meaningful when Kind is Ecdhe or Hybrid.</summary>
+    property KeyAgreement: TKeyAgreementAlgorithm read FKeyAgreement;
+    /// <summary>Meaningful when Kind is Kem or Hybrid.</summary>
+    property Kem: TKemAlgorithm read FKem;
+  end;
+
+  /// <summary>
   /// The TLS 1.3 signature schemes (RFC 8446 4.2.3). Unlike the primitives above,
   /// a scheme is a wire value carried in the signature_algorithms extension, so it
   /// has a 2-byte codepoint (see the record helper).
@@ -193,6 +216,32 @@ implementation
 
 resourcestring
   SNoSchemeCode = 'signature scheme enum value %d has no wire codepoint';
+
+{ TNamedGroupComposition }
+
+class function TNamedGroupComposition.From(
+  AKeyAgreement: TKeyAgreementAlgorithm): TNamedGroupComposition;
+begin
+  Result := Default(TNamedGroupComposition);
+  Result.FKind := TNamedGroupKind.Ecdhe;
+  Result.FKeyAgreement := AKeyAgreement;
+end;
+
+class function TNamedGroupComposition.From(
+  AKem: TKemAlgorithm): TNamedGroupComposition;
+begin
+  Result := Default(TNamedGroupComposition);
+  Result.FKind := TNamedGroupKind.Kem;
+  Result.FKem := AKem;
+end;
+
+class function TNamedGroupComposition.From(AKeyAgreement: TKeyAgreementAlgorithm;
+  AKem: TKemAlgorithm): TNamedGroupComposition;
+begin
+  Result.FKind := TNamedGroupKind.Hybrid;
+  Result.FKeyAgreement := AKeyAgreement;
+  Result.FKem := AKem;
+end;
 
 { THpkeSuiteId }
 

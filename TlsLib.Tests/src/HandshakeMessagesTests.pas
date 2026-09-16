@@ -27,6 +27,7 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpTlsLibExceptions,
+  TlpNegotiationTypes,
   TlpHandshakeMessage,
   TlpHandshakeMessages,
   TlsLibTestBase;
@@ -96,9 +97,9 @@ begin
   CheckEquals(32, System.Length(LMsg.Random), 'random is 32 bytes');
   CheckEquals(0, System.Length(LMsg.LegacySessionId), 'RFC 8448 CH session_id is empty');
   CheckEquals(3, System.Length(LMsg.CipherSuites), 'three offered suites');
-  CheckEquals($1301, LMsg.CipherSuites[0], 'AES-128-GCM first');
-  CheckEquals($1303, LMsg.CipherSuites[1], 'ChaCha second');
-  CheckEquals($1302, LMsg.CipherSuites[2], 'AES-256-GCM third');
+  CheckEquals(TCipherSuites13.Aes128GcmSha256, LMsg.CipherSuites[0], 'AES-128-GCM first');
+  CheckEquals(TCipherSuites13.ChaCha20Poly1305Sha256, LMsg.CipherSuites[1], 'ChaCha second');
+  CheckEquals(TCipherSuites13.Aes256GcmSha384, LMsg.CipherSuites[2], 'AES-256-GCM third');
   CheckEqualBytes('ClientHello round-trips byte-exact', LBody,
     THandshakeMessages.EncodeClientHello(LMsg));
 end;
@@ -111,7 +112,7 @@ begin
   LBody := Body('server_hello');
   LMsg := THandshakeMessages.DecodeServerHello(LBody);
   CheckEquals(32, System.Length(LMsg.Random), 'random is 32 bytes');
-  CheckEquals($1301, LMsg.CipherSuite, 'selected AES-128-GCM');
+  CheckEquals(TCipherSuites13.Aes128GcmSha256, LMsg.CipherSuite, 'selected AES-128-GCM');
   CheckEqualBytes('ServerHello round-trips byte-exact', LBody,
     THandshakeMessages.EncodeServerHello(LMsg));
 end;
@@ -147,7 +148,7 @@ var
 begin
   LBody := Body('cert_verify');
   LMsg := THandshakeMessages.DecodeCertificateVerify(LBody);
-  CheckEquals($0804, LMsg.Algorithm, 'rsa_pss_rsae_sha256');
+  CheckEquals(TSignatureSchemes.RsaPssRsaeSha256, LMsg.Algorithm, 'rsa_pss_rsae_sha256');
   CheckEquals(128, System.Length(LMsg.Signature), '1024-bit signature');
   CheckEqualBytes('CertificateVerify round-trips byte-exact', LBody,
     THandshakeMessages.EncodeCertificateVerify(LMsg));
@@ -160,7 +161,8 @@ begin
   // certificate_authorities is a vector of DER DistinguishedName opaque<1..2^16-1>
   // (RFC 5246 7.4.4); the named issuers must round-trip in order
   LReq.CertificateTypes := TBytes.Create(64, 1);
-  LReq.SupportedSignatureAlgorithms := TArray<UInt16>.Create($0403, $0804);
+  LReq.SupportedSignatureAlgorithms := TArray<UInt16>.Create(
+    TSignatureSchemes.EcdsaSecp256r1Sha256, TSignatureSchemes.RsaPssRsaeSha256);
   LReq.CertificateAuthorities := TArray<TBytes>.Create(
     TBytes.Create($30, $0A, $31, $08), TBytes.Create($30, $05, $31, $03, $02, $01, $07));
   LDecoded := THandshakeMessages.DecodeCertificateRequest12(
@@ -176,7 +178,8 @@ begin
   // acceptable issuer) round-trips as empty
   LReq := Default(TTlsCertificateRequest12);
   LReq.CertificateTypes := TBytes.Create(64, 1);
-  LReq.SupportedSignatureAlgorithms := TArray<UInt16>.Create($0403, $0804);
+  LReq.SupportedSignatureAlgorithms := TArray<UInt16>.Create(
+    TSignatureSchemes.EcdsaSecp256r1Sha256, TSignatureSchemes.RsaPssRsaeSha256);
   LDecoded := THandshakeMessages.DecodeCertificateRequest12(
     THandshakeMessages.EncodeCertificateRequest12(LReq));
   CheckEquals(0, System.Length(LDecoded.CertificateAuthorities),

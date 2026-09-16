@@ -34,6 +34,14 @@ type
   /// </summary>
   ESystemCryptoBackendTlsLibException = class(EBaseTlsLibException);
 
+  /// <summary>
+  /// A strict-native requirement failed: one or more algorithms a caller demanded via a
+  /// Require assertion are not served by the OS-native backend on this host. Unlike
+  /// <see cref="ESystemCryptoUnsupportedTlsLibException" /> (caught by the composer), this
+  /// surfaces to the caller as an explicit startup gate.
+  /// </summary>
+  ESystemCryptoRequirementTlsLibException = class(EBaseTlsLibException);
+
 implementation
 
 end.

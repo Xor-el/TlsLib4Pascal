@@ -39,6 +39,12 @@ type
     /// Hybrid groups from a TLS 1.2 handshake (1.2 allows only classical ECDHE).
     /// </summary>
     function Kind: TNamedGroupKind;
+    /// <summary>
+    /// The primitive(s) the group is built from, so a capability check can decide whether
+    /// the group is served natively (each component queried against a backend report). The
+    /// single source of truth: the group is constructed from this same value.
+    /// </summary>
+    function Composition: TNamedGroupComposition;
 
     /// <summary>
     /// Produces a fresh key pair: the private key and the public share to send.
