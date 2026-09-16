@@ -374,6 +374,7 @@
         <DCCReference Include="..\..\TlsLib\src\Crypto\TlpNamedGroups.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Common\TlpArrayUtilities.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Common\TlpDataEncoding.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Common\TlpPem.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Common\TlpDateTimeUtilities.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Common\TlpIClock.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Common\TlpClock.pas"/>

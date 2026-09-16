@@ -30,6 +30,7 @@ uses
   TlpNamedGroups in '..\..\TlsLib\src\Crypto\TlpNamedGroups.pas',
   TlpArrayUtilities in '..\..\TlsLib\src\Common\TlpArrayUtilities.pas',
   TlpDataEncoding in '..\..\TlsLib\src\Common\TlpDataEncoding.pas',
+  TlpPem in '..\..\TlsLib\src\Common\TlpPem.pas',
   TlpDateTimeUtilities in '..\..\TlsLib\src\Common\TlpDateTimeUtilities.pas',
   TlpIClock in '..\..\TlsLib\src\Interfaces\Common\TlpIClock.pas',
   TlpClock in '..\..\TlsLib\src\Common\TlpClock.pas',
