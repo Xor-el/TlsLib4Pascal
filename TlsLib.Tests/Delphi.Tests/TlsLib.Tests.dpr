@@ -93,6 +93,7 @@ uses
   TlpHelloRetryCookie in '..\..\TlsLib\src\Handshake\TlpHelloRetryCookie.pas',
   TlpCertificateCompression in '..\..\TlsLib\src\CertCompression\TlpCertificateCompression.pas',
   TlpCertificateLimits in '..\..\TlsLib\src\Trust\TlpCertificateLimits.pas',
+  TlpCertificateStrengthPolicy in '..\..\TlsLib\src\Trust\TlpCertificateStrengthPolicy.pas',
   TlpTrustPolicy in '..\..\TlsLib\src\Trust\TlpTrustPolicy.pas',
   TlpITlsTransport in '..\..\TlsLib\src\Interfaces\Engine\TlpITlsTransport.pas',
   TlpTlsConnectionInfo in '..\..\TlsLib\src\Engine\TlpTlsConnectionInfo.pas',

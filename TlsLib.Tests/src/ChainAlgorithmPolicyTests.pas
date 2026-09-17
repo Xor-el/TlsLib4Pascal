@@ -30,6 +30,7 @@ uses
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpTrustPolicy,
+  TlpCertificateStrengthPolicy,
   TlpNegotiationTypes,
   TlpChainAlgorithmPolicy,
   TlsLibTestBase;

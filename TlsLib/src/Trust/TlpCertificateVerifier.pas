@@ -27,6 +27,7 @@ uses
   TlpCertificateLimits,
   TlpChainAlgorithmPolicy,
   TlpTrustPolicy,
+  TlpCertificateStrengthPolicy,
   TlpDateTimeUtilities,
   TlpIClock,
   TlpICertificateTrust;

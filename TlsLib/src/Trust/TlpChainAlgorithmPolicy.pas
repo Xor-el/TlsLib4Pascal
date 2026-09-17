@@ -21,7 +21,7 @@ uses
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpNegotiationTypes,
-  TlpTrustPolicy,
+  TlpCertificateStrengthPolicy,
   TlpTlsAlert;
 
 type

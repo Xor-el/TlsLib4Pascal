@@ -27,6 +27,7 @@ uses
   TlpICertificateCompressionCache,
   TlpCertificateLimits,
   TlpTrustPolicy,
+  TlpCertificateStrengthPolicy,
   TlpTlsCredential,
   TlpITlsCredentialResolver,
   TlpISession,

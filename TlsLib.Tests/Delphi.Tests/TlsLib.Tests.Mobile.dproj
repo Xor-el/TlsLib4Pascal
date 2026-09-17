@@ -416,6 +416,7 @@
         <DCCReference Include="..\..\TlsLib\src\Handshake\TlpHelloRetryCookie.pas"/>
         <DCCReference Include="..\..\TlsLib\src\CertCompression\TlpCertificateCompression.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Trust\TlpCertificateLimits.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Trust\TlpCertificateStrengthPolicy.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Trust\TlpTrustPolicy.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Engine\TlpITlsTransport.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsConnectionInfo.pas"/>

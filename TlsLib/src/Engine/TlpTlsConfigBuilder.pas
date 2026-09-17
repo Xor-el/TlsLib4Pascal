@@ -34,6 +34,7 @@ uses
   TlpZlibCertificateCompression,
   TlpCertificateLimits,
   TlpTrustPolicy,
+  TlpCertificateStrengthPolicy,
   TlpTlsCredential,
   TlpITlsCredentialResolver,
   TlpCredentialResolvers,

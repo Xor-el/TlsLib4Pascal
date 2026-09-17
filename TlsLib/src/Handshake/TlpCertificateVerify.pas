@@ -20,6 +20,7 @@ uses
   TlpTlsAlert,
   TlpTlsLibExceptions,
   TlpCryptoDomainTypes,
+  TlpNegotiationTypes,
   TlpICryptoProvider;
 
 type
@@ -119,9 +120,9 @@ class function TCertificateVerify.EcdsaSchemeNamedGroup(
 begin
   // the IANA supported_groups code the ecdsa_* scheme's curve maps to; 0 when not ecdsa
   case AScheme of
-    TSignatureScheme.ECDSA_SECP256R1_SHA256: Result := $0017;
-    TSignatureScheme.ECDSA_SECP384R1_SHA384: Result := $0018;
-    TSignatureScheme.ECDSA_SECP521R1_SHA512: Result := $0019;
+    TSignatureScheme.ECDSA_SECP256R1_SHA256: Result := TNamedGroupCatalog.Secp256r1;
+    TSignatureScheme.ECDSA_SECP384R1_SHA384: Result := TNamedGroupCatalog.Secp384r1;
+    TSignatureScheme.ECDSA_SECP521R1_SHA512: Result := TNamedGroupCatalog.Secp521r1;
   else
     Result := 0;
   end;

@@ -129,6 +129,7 @@ uses
   ClpValueHelper,
   ClpCryptoLibExceptions,
   TlpCryptoDomainTypes,
+  TlpNegotiationTypes,
   TlpPem,
   TlpBinaryPrimitives,
   TlpArrayUtilities,
@@ -2965,11 +2966,11 @@ begin
     AKind := TCertKeyKind.Ecdsa;
     // the leaf's named curve as an IANA supported_groups code; 0 when unrecognized
     if LCurve.Equals(TX9ObjectIdentifiers.Prime256v1) then
-      AEcNamedGroup := $0017
+      AEcNamedGroup := TNamedGroupCatalog.Secp256r1
     else if LCurve.Equals(TSecObjectIdentifiers.SecP384r1) then
-      AEcNamedGroup := $0018
+      AEcNamedGroup := TNamedGroupCatalog.Secp384r1
     else if LCurve.Equals(TSecObjectIdentifiers.SecP521r1) then
-      AEcNamedGroup := $0019;
+      AEcNamedGroup := TNamedGroupCatalog.Secp521r1;
   end
   else
     // a parseable certificate whose key algorithm we do not model is not classified
@@ -2993,11 +2994,11 @@ begin
       TCertKeyKind.Ecdsa:
         // field size follows the recognised named curve; an unrecognised curve stays 0
         case AFacts.EcNamedGroup of
-          $0017:
+          TNamedGroupCatalog.Secp256r1:
             AFacts.Bits := 256;
-          $0018:
+          TNamedGroupCatalog.Secp384r1:
             AFacts.Bits := 384;
-          $0019:
+          TNamedGroupCatalog.Secp521r1:
             AFacts.Bits := 521;
         end;
     end;
