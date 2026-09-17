@@ -1,0 +1,88 @@
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
+  s_09d3c46d1a9b1f::t_bbbf67377eeab4 31
+  s_09d3c46d1a9b1f::t_01d0d25170d47b 528-531
+TlsLib/src/Crypto/TlpHpkeComposition.pas
+  s_09d3c46d1a9b1f::t_c7db1f142b28ae 34
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_09d3c46d1a9b1f::t_08f53ef04f9398 27
+TlsLib/src/Crypto/TlpTls12PrfComposition.pas
+  s_09d3c46d1a9b1f::t_a398546f3d179d 29-30
+  s_09d3c46d1a9b1f::t_6dde6da9e98b1c 31-32
+  s_09d3c46d1a9b1f::t_cc37d490f38dc0 1-28,33-100
+TlsLib.Tests/src/Tls12KeyScheduleTests.pas
+  s_09d3c46d1a9b1f::t_355327afe59609 80
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_09d3c46d1a9b1f::t_73f3b1833ea24f 524
+  s_09d3c46d1a9b1f::t_e629ca8b6718e5 1850
+  s_09d3c46d1a9b1f::t_bb8834ab1a504b 138
+  s_09d3c46d1a9b1f::t_a45a7b4e1c7468 1848-1849,1851-1852
+TlsLib.Crypto.System/src/TlpICryptoBackendReport.pas
+  s_09d3c46d1a9b1f::t_d26cde194404ec 43-46
+  s_09d3c46d1a9b1f::t_534ea3cc05ba4c 20
+  s_09d3c46d1a9b1f::t_8723bd9c70ec4c 38
+TlsLib.Crypto.System/src/TlpSystemCryptoBase.pas
+  s_09d3c46d1a9b1f::t_dd476330649ca2 50
+  s_09d3c46d1a9b1f::t_3ba55255e28bb1 127-129,131-132
+  s_09d3c46d1a9b1f::t_4a87e3e2b8b904 130
+TlsLib.Tests/src/MockCryptoProvider.pas
+  s_09d3c46d1a9b1f::t_9aa29bd0391314 65
+  s_09d3c46d1a9b1f::t_42d9917a6783c0 165-169
+TlsLib/src/Packages/Delphi/TlsLib4PascalPackage.dpk
+  s_09d3c46d1a9b1f::t_3ad26acc861894 109
+TlsLib/src/KeySchedule/TlpTls12KeySchedule.pas
+  s_09d3c46d1a9b1f::t_9906ab0a1013e5 43
+  s_09d3c46d1a9b1f::t_82fa421fba74ab 121
+  s_09d3c46d1a9b1f::t_4f246406e23cf1 107
+TlsLib/src/Interfaces/Crypto/Providers/TlpICryptoProvider.pas
+  s_09d3c46d1a9b1f::t_186d770b04669e 181
+  s_09d3c46d1a9b1f::t_57167c747cd913 86-97
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_09d3c46d1a9b1f::t_52531a0c7ae1ce 47
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_09d3c46d1a9b1f::t_3a31dfbe823cf1 1224,1232-1249
+  s_09d3c46d1a9b1f::t_a882c210fc5512 2197
+  s_09d3c46d1a9b1f::t_8d3e974f725023 2411-2413,2417-2419,2423-2426,2428-2431,2434-2440,2443-2444
+  s_09d3c46d1a9b1f::t_de518453331b34 146-148
+  s_09d3c46d1a9b1f::t_49f9674998e4d5 93,95
+  s_09d3c46d1a9b1f::t_cb31c5520b4be5 936
+  s_09d3c46d1a9b1f::t_3952c6520a05e8 2213
+  s_09d3c46d1a9b1f::t_811ac838240ec2 36
+  s_09d3c46d1a9b1f::t_804299b2c1f5ea 401-405
+  s_09d3c46d1a9b1f::t_179a8b7a0ec962 686
+  s_09d3c46d1a9b1f::t_2776616b857208 2432-2433,2441
+  s_09d3c46d1a9b1f::t_eb1f8c812e1ff9 2464
+  s_09d3c46d1a9b1f::t_41c3c037e6214e 2404-2410,2414-2416,2420-2422,2427,2442,2445-2463,2465-2478
+  s_09d3c46d1a9b1f::t_5d3b88eaca1bb7 2613,2615-2616
+  s_09d3c46d1a9b1f::t_d0bcdb9331a34c 941
+  s_09d3c46d1a9b1f::t_9dd7abac0fb0c2 220-222
+  s_09d3c46d1a9b1f::t_3fa1e3ffe2addf 2614
+  s_09d3c46d1a9b1f::t_82571d368fbd53 638,646-649
+  s_09d3c46d1a9b1f::t_149390affab7da 2049
+  s_09d3c46d1a9b1f::t_f32f04f3bec99d 2198-2200
+  s_09d3c46d1a9b1f::t_fcadfa76036cee 2610-2612,2617-2618
+  s_09d3c46d1a9b1f::t_2b9ddc7b0332f9 2696-2705
+  s_09d3c46d1a9b1f::t_d3e38d341df0eb 322
+  s_09d3c46d1a9b1f::t_d9ad645b9f3d77 94
+  s_09d3c46d1a9b1f::t_5b7d19a213164c 2754-2764
+  s_09d3c46d1a9b1f::t_0d73fef257f369 662-663
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_09d3c46d1a9b1f::t_5b41066b6d44d8 371
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.pas
+  s_09d3c46d1a9b1f::t_8d031045667a6a 47-48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "48631a61c64d04a86fcaa29a9b2480a94f859799",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
