@@ -1,0 +1,22 @@
+TlsLib.Trust.System/src/TlpWindowsSystemTrust.pas
+  s_09d3c46d1a9b1f::t_99ebdfe2adcac9 532
+  s_09d3c46d1a9b1f::t_c4e58c3bcd2034 282
+  s_09d3c46d1a9b1f::t_137a07d8683997 439-452
+  s_09d3c46d1a9b1f::t_9dfe3e4dbe7fee 695
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "64307504140339c15ff45b1cb4a80a688579e02a",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
