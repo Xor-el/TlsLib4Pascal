@@ -37,9 +37,8 @@ type
   TChainAlgorithmPolicy = class sealed(TObject)
   strict private
     class function IsAnchor(const ADer: TBytes; const ARoots: TArray<TBytes>): Boolean; static;
-    class function RequiredScheme(const AFacts: TCertSignatureFacts): UInt16; static;
-    class function SignatureAdvertised(const AFacts: TCertSignatureFacts;
-      const AAdvertised: TArray<UInt16>): Boolean; static;
+    class function RequiredScheme(AFamily: TCertSignatureFamily;
+      AHash: TCertSignatureHash; APssCanonical: Boolean): UInt16; static;
     class function KeyMeetsPolicy(const AFacts: TCertKeyFacts;
       const APolicy: TCertificateStrengthPolicy): Boolean; static;
     class function CheckCertificate(const AInspector: ICertificateInspector;
@@ -67,13 +66,13 @@ begin
       Exit(True);
 end;
 
-class function TChainAlgorithmPolicy.RequiredScheme(
-  const AFacts: TCertSignatureFacts): UInt16;
+class function TChainAlgorithmPolicy.RequiredScheme(AFamily: TCertSignatureFamily;
+  AHash: TCertSignatureHash; APssCanonical: Boolean): UInt16;
 begin
   Result := 0; // 0 = no advertised scheme can satisfy this signature
-  case AFacts.Family of
+  case AFamily of
     TCertSignatureFamily.RsaPkcs1:
-      case AFacts.Hash of
+      case AHash of
         TCertSignatureHash.Sha256:
           Result := TSignatureSchemes.RsaPkcs1Sha256;
         TCertSignatureHash.Sha384:
@@ -83,8 +82,8 @@ begin
       end;
     TCertSignatureFamily.RsaPss:
       // a non-canonical PSS (wrong MGF/salt, or absent params defaulting to SHA-1) has no match
-      if AFacts.PssCanonical then
-        case AFacts.Hash of
+      if APssCanonical then
+        case AHash of
           TCertSignatureHash.Sha256:
             Result := TSignatureSchemes.RsaPssRsaeSha256;
           TCertSignatureHash.Sha384:
@@ -94,7 +93,7 @@ begin
         end;
     TCertSignatureFamily.Ecdsa:
       // curve-agnostic: an ECDSA chain signature is keyed on its hash, not the issuer curve
-      case AFacts.Hash of
+      case AHash of
         TCertSignatureHash.Sha256:
           Result := TSignatureSchemes.EcdsaSecp256r1Sha256;
         TCertSignatureHash.Sha384:
@@ -107,16 +106,6 @@ begin
     TCertSignatureFamily.Ed448:
       Result := TSignatureSchemes.Ed448;
   end;
-end;
-
-class function TChainAlgorithmPolicy.SignatureAdvertised(
-  const AFacts: TCertSignatureFacts; const AAdvertised: TArray<UInt16>): Boolean;
-var
-  LRequired: UInt16;
-begin
-  LRequired := RequiredScheme(AFacts);
-  Result := (LRequired <> 0) and
-    (TArrayUtilities.Contains<UInt16>(AAdvertised, LRequired));
 end;
 
 class function TChainAlgorithmPolicy.KeyMeetsPolicy(const AFacts: TCertKeyFacts;
@@ -148,6 +137,7 @@ var
   LCert: IInspectedCertificate;
   LSig: TCertSignatureFacts;
   LKey: TCertKeyFacts;
+  LRequired: UInt16;
 begin
   try
     LCert := AInspector.Parse(ADer);
@@ -166,7 +156,8 @@ begin
     AAlert := TTlsAlertDescription.BadCertificate;
     Exit(False);
   end;
-  if not SignatureAdvertised(LSig, AAdvertised) then
+  LRequired := RequiredScheme(LSig.Family, LSig.Hash, LSig.PssCanonical);
+  if (LRequired = 0) or not (TArrayUtilities.Contains<UInt16>(AAdvertised, LRequired)) then
   begin
     AAlert := TTlsAlertDescription.UnsupportedCertificate;
     Exit(False);

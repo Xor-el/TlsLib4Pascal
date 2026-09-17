@@ -18,6 +18,7 @@ interface
 uses
   SysUtils,
   TlpArrayUtilities,
+  TlpBinaryPrimitives,
   TlpCodeKeyedRegistry,
   TlpCryptoDomainTypes,
   TlpEnumUtilities,
@@ -67,11 +68,14 @@ const
   // FIPS 203 ML-KEM-768 fixed sizes, shared by both hybrids
   MlKem768EncapsulationKeyBytes = 1184;
   MlKem768CiphertextBytes = 1088;
-  MlKem768PrivateKeyBytes = 2400; // decapsulation key; fixed, so it splits the stored private
+  // 2-byte length prefix framing the classical private in the stored (off-wire) private key
+  HybridPrivPrefixBytes = 2;
 
 resourcestring
   SInvalidPeerShare = 'invalid peer key share for group %s';
   SUnknownCurve = 'unknown named-group curve "%s"';
+  SHybridPrivateTooLong = 'the classical private key is too long to frame (%d bytes)';
+  SMalformedHybridPrivate = 'the stored hybrid private key is malformed';
 
 type
   // wraps a key agreement (Diffie-Hellman) as a KEM-shaped group: the ciphertext
@@ -136,16 +140,20 @@ type
     FClassicalShareBytes: Int32;
     FKemEncapsKeyBytes: Int32;
     FKemCiphertextBytes: Int32;
-    FKemPrivBytes: Int32;
     FOrder: THybridLegOrder;
     // the only two places FOrder is consulted
     function Join(const AClassical, AKem: TBytes): TBytes;
     procedure Split(const ABytes: TBytes; AClassicalLen, AKemLen: Int32;
       out AClassical, AKem: TBytes);
+    // frame the two provider-opaque leg privates into one buffer and split them back; the one
+    // place the stored-private layout lives, kept off TBytes so no secret temporary is left unwiped
+    class function PackPrivate(const AClassical, AKem: ISecretBuffer): ISecretBuffer; static;
+    class procedure UnpackPrivate(const APriv: ISecretBuffer;
+      out AClassical, AKem: ISecretBuffer); static;
   public
     constructor Create(const AClassical, AKem: INamedGroup; ACode: UInt16;
       const AName: string; AClassicalShareBytes, AKemEncapsKeyBytes,
-      AKemCiphertextBytes, AKemPrivBytes: Int32; AOrder: THybridLegOrder);
+      AKemCiphertextBytes: Int32; AOrder: THybridLegOrder);
     function Code: UInt16;
     function Name: string;
     function Kind: TNamedGroupKind;
@@ -289,7 +297,7 @@ end;
 
 constructor THybridGroup.Create(const AClassical, AKem: INamedGroup; ACode: UInt16;
   const AName: string; AClassicalShareBytes, AKemEncapsKeyBytes,
-  AKemCiphertextBytes, AKemPrivBytes: Int32; AOrder: THybridLegOrder);
+  AKemCiphertextBytes: Int32; AOrder: THybridLegOrder);
 begin
   inherited Create;
   FClassical := AClassical;
@@ -301,7 +309,6 @@ begin
   FClassicalShareBytes := AClassicalShareBytes;
   FKemEncapsKeyBytes := AKemEncapsKeyBytes;
   FKemCiphertextBytes := AKemCiphertextBytes;
-  FKemPrivBytes := AKemPrivBytes;
   FOrder := AOrder;
 end;
 
@@ -348,26 +355,55 @@ begin
   Result := FComposition;
 end;
 
+class function THybridGroup.PackPrivate(const AClassical,
+  AKem: ISecretBuffer): ISecretBuffer;
+var
+  LDst: PByte;
+begin
+  // off-wire: [uint16 classical private length][classical private][KEM private]. The prefix lets
+  // UnpackPrivate split exactly whatever each provider stores - a raw scalar or a backend key blob
+  if AClassical.Len > High(UInt16) then
+    raise EArgumentTlsLibException.CreateResFmt(@SHybridPrivateTooLong, [AClassical.Len]);
+  Result := TSecretBuffer.Allocate(HybridPrivPrefixBytes + AClassical.Len + AKem.Len);
+  LDst := Result.DataPtr;
+  TBinaryPrimitives.WriteUInt16BigEndian(LDst, 0, UInt16(AClassical.Len));
+  if AClassical.Len > 0 then
+    Move(AClassical.DataPtr^, LDst[HybridPrivPrefixBytes], AClassical.Len);
+  if AKem.Len > 0 then
+    Move(AKem.DataPtr^, LDst[HybridPrivPrefixBytes + AClassical.Len], AKem.Len);
+end;
+
+class procedure THybridGroup.UnpackPrivate(const APriv: ISecretBuffer;
+  out AClassical, AKem: ISecretBuffer);
+var
+  LSrc: PByte;
+  LClassicalLen, LKemLen: Int32;
+begin
+  if APriv.Len < HybridPrivPrefixBytes then
+    raise EArgumentTlsLibException.CreateRes(@SMalformedHybridPrivate);
+  LSrc := APriv.DataPtr;
+  LClassicalLen := TBinaryPrimitives.ReadUInt16BigEndian(LSrc, 0);
+  if HybridPrivPrefixBytes + LClassicalLen > APriv.Len then
+    raise EArgumentTlsLibException.CreateRes(@SMalformedHybridPrivate);
+  LKemLen := APriv.Len - HybridPrivPrefixBytes - LClassicalLen;
+  AClassical := TSecretBuffer.Allocate(LClassicalLen);
+  if LClassicalLen > 0 then
+    AClassical.CopyFrom(@LSrc[HybridPrivPrefixBytes], LClassicalLen);
+  AKem := TSecretBuffer.Allocate(LKemLen);
+  if LKemLen > 0 then
+    AKem.CopyFrom(@LSrc[HybridPrivPrefixBytes + LClassicalLen], LKemLen);
+end;
+
 procedure THybridGroup.GenerateKeyPair(out APriv: ISecretBuffer;
   out APubShare: TBytes);
 var
   LCPriv, LKPriv: ISecretBuffer;
-  LCPub, LKPub, LCPrivBytes, LKPrivBytes, LPrivBytes: TBytes;
+  LCPub, LKPub: TBytes;
 begin
   FClassical.GenerateKeyPair(LCPriv, LCPub);
   FKem.GenerateKeyPair(LKPriv, LKPub);
   APubShare := Join(LCPub, LKPub);
-  // the private key stays classical || KEM off the wire, independent of the wire order
-  LCPrivBytes := LCPriv.ToBytes;
-  LKPrivBytes := LKPriv.ToBytes;
-  LPrivBytes := TArrayUtilities.Concat(LCPrivBytes, LKPrivBytes);
-  try
-    APriv := TSecretBuffer.From(LPrivBytes);
-  finally
-    TSecureMemory.WipeBytes(LPrivBytes);
-    TSecureMemory.WipeBytes(LCPrivBytes);
-    TSecureMemory.WipeBytes(LKPrivBytes);
-  end;
+  APriv := PackPrivate(LCPriv, LKPriv);
 end;
 
 procedure THybridGroup.Encapsulate(const APeerPub: TBytes;
@@ -397,28 +433,13 @@ end;
 procedure THybridGroup.Decapsulate(const APriv: ISecretBuffer;
   const ACiphertext: TBytes; out ASharedSecret: ISecretBuffer);
 var
-  LPrivBytes, LCPrivBytes, LKPrivBytes, LCCt, LKCt, LCSsBytes, LKSsBytes,
-    LSsBytes: TBytes;
-  LClassicalLen: Int32;
+  LCCt, LKCt, LCSsBytes, LKSsBytes, LSsBytes: TBytes;
   LCPriv, LKPriv, LCSs, LKSs: ISecretBuffer;
 begin
   // reject a short/long ciphertext before the fixed-offset slices reach the backend
   if System.Length(ACiphertext) <> FClassicalShareBytes + FKemCiphertextBytes then
     raise EPeerInputTlsLibException.CreateResFmt(@SInvalidPeerShare, [Name]);
-  LPrivBytes := APriv.ToBytes;
-  // the stored key is classical || KEM; the classical half is whatever the provider produced (a
-  // raw scalar or a backend key blob), so split off the fixed-length KEM tail, not a fixed head
-  LClassicalLen := System.Length(LPrivBytes) - FKemPrivBytes;
-  LCPrivBytes := System.Copy(LPrivBytes, 0, LClassicalLen);
-  LKPrivBytes := System.Copy(LPrivBytes, LClassicalLen, FKemPrivBytes);
-  try
-    LCPriv := TSecretBuffer.From(LCPrivBytes);
-    LKPriv := TSecretBuffer.From(LKPrivBytes);
-  finally
-    TSecureMemory.WipeBytes(LPrivBytes);
-    TSecureMemory.WipeBytes(LCPrivBytes);
-    TSecureMemory.WipeBytes(LKPrivBytes);
-  end;
+  UnpackPrivate(APriv, LCPriv, LKPriv);
   Split(ACiphertext, FClassicalShareBytes, FKemCiphertextBytes, LCCt, LKCt);
   FClassical.Decapsulate(LCPriv, LCCt, LCSs);
   FKem.Decapsulate(LKPriv, LKCt, LKSs);
@@ -489,8 +510,7 @@ class function TNamedGroups.CreateX25519MlKem768(const AProvider: ICryptoProvide
 begin
   Result := THybridGroup.Create(CreateX25519(AProvider), CreateMlKem768(AProvider),
     TNamedGroupCatalog.X25519MlKem768, 'X25519MLKEM768', X25519KeyBytes,
-    MlKem768EncapsulationKeyBytes, MlKem768CiphertextBytes, MlKem768PrivateKeyBytes,
-    THybridLegOrder.KemFirst);
+    MlKem768EncapsulationKeyBytes, MlKem768CiphertextBytes, THybridLegOrder.KemFirst);
 end;
 
 class function TNamedGroups.CreateSecP256r1MlKem768(const AProvider: ICryptoProvider): INamedGroup;
@@ -498,7 +518,7 @@ begin
   Result := THybridGroup.Create(CreateNistEcdh(AProvider, 'secp256r1'),
     CreateMlKem768(AProvider), TNamedGroupCatalog.SecP256r1MlKem768, 'SecP256r1MLKEM768',
     SecP256r1ShareBytes, MlKem768EncapsulationKeyBytes, MlKem768CiphertextBytes,
-    MlKem768PrivateKeyBytes, THybridLegOrder.ClassicalFirst);
+    THybridLegOrder.ClassicalFirst);
 end;
 
 class function TNamedGroups.CreateDefaultRegistry(const AProvider: ICryptoProvider): INamedGroupRegistry;
