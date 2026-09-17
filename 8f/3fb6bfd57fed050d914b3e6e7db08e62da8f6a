@@ -1,0 +1,35 @@
+TlsLib/src/Trust/TlpChainAlgorithmPolicy.pas
+  s_09d3c46d1a9b1f::t_ecf29c57413d05 159
+  s_09d3c46d1a9b1f::t_313e9199cb52c3 160
+  s_09d3c46d1a9b1f::t_da3f49be9cd655 140
+  s_09d3c46d1a9b1f::t_d0ce7ed0b46cf8 40-41
+  s_09d3c46d1a9b1f::t_abcf609d11d138 69-70,73,75
+  s_09d3c46d1a9b1f::t_fe189feca3fb89 85-86,96
+TlsLib/src/Crypto/TlpNamedGroups.pas
+  s_09d3c46d1a9b1f::t_915b6589c88adb 21
+  s_09d3c46d1a9b1f::t_9cc875318869b7 436,442
+  s_09d3c46d1a9b1f::t_b023a71558390b 358-396,401,406
+  s_09d3c46d1a9b1f::t_e7211b26c00ee5 148-152
+  s_09d3c46d1a9b1f::t_8c4ca9a2de64b0 521
+  s_09d3c46d1a9b1f::t_ae07a542d1978e 71-72
+  s_09d3c46d1a9b1f::t_3e2a4539246170 300
+  s_09d3c46d1a9b1f::t_5e965a261afd32 513
+  s_09d3c46d1a9b1f::t_d8f54cb38b4d74 77-78
+  s_09d3c46d1a9b1f::t_668a8510d1d690 156
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8f3fb6bfd57fed050d914b3e6e7db08e62da8f6a",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
