@@ -1,0 +1,53 @@
+TlsLib/src/Trust/TlpChainAlgorithmPolicy.pas
+  s_09d3c46d1a9b1f::t_1243bb64893e50 24
+TlsLib/src/Trust/TlpTrustPolicy.pas
+  s_09d3c46d1a9b1f::t_849212715dd579 23-24
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_09d3c46d1a9b1f::t_819d28ac098d56 132
+  s_09d3c46d1a9b1f::t_617e4f9a18f5f4 2969,2971,2973
+  s_09d3c46d1a9b1f::t_e5ac68cb3b4579 2997,2999,3001
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.pas
+  s_09d3c46d1a9b1f::t_1d1e03461340ad 48
+TlsLib.Tests/src/ChainAlgorithmPolicyTests.pas
+  s_09d3c46d1a9b1f::t_d4900f5504ad38 33
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_09d3c46d1a9b1f::t_7ec7b904c1cc55 96
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_09d3c46d1a9b1f::t_76a55bf0a25984 76
+TlsLib/src/Packages/Delphi/TlsLib4PascalPackage.dpk
+  s_09d3c46d1a9b1f::t_b94178a28f5843 95
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_12efd2ab8343df 37
+TlsLib/src/Handshake/TlpCertificateVerify.pas
+  s_09d3c46d1a9b1f::t_8080dd992920ed 123-125
+  s_09d3c46d1a9b1f::t_f0e450030206c3 23
+TlsLib/src/Interfaces/Engine/TlpITlsConfig.pas
+  s_09d3c46d1a9b1f::t_9593cc4541cadd 30
+TlsLib/src/Trust/TlpCertificateStrengthPolicy.pas
+  s_09d3c46d1a9b1f::t_4feba8c82c48d7 1-55
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
+  s_09d3c46d1a9b1f::t_bc1187446db7a1 536-539
+  s_09d3c46d1a9b1f::t_994e4fdb654e89 31
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_5c31d0c6108c0c 29
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_09d3c46d1a9b1f::t_747f7c3d34c899 419
+TlsLib/src/Trust/TlpCertificateVerifier.pas
+  s_09d3c46d1a9b1f::t_07baa6b069da17 30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a5a091c991ddc9cbdd1cb46b69acdcfa196c48a9",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
