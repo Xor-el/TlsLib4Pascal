@@ -33,6 +33,7 @@ uses
 {$IFDEF TLSLIB_MACOS}
   TlpICertificateTrust,
   TlpServerName,
+  TlpTrustPolicy,
 {$ENDIF TLSLIB_MACOS}
   TlpTlsAlert,
   TlpAppleSystemTrust,
@@ -98,7 +99,8 @@ begin
   finally
     LVectors.Free;
   end;
-  LVerifier := TAppleDelegateVerifier.Create as IServerCertificateVerifier;
+  LVerifier := TAppleDelegateVerifier.Create(TRevocationPosture.Soft, nil)
+    as IServerCertificateVerifier;
   LAlert := TTlsAlertDescription.InternalError;
   CheckFalse(LVerifier.VerifyServerCertificate(LChain, TServerName.DnsName('localhost'), nil, LAlert),
     'an untrusted/expired chain must be rejected by the OS delegate');

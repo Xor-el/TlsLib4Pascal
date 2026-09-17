@@ -169,6 +169,32 @@ type
     function PlatformName: string; override;
   end;
 
+  /// <summary>Behavioural tests for the macOS/iOS OS client-certificate delegate against a
+  /// self-contained private CA. The exclusive trust root (anchors-only) is fully controllable, so
+  /// unlike the server delegate these are hermetic: they prove the exclusive-root restriction, the
+  /// injected clock and the revocation posture over Security.framework's real SecTrust engine.
+  /// Registered on macOS (the shared macOS/iOS code path; iOS has no CI runner).</summary>
+  TTestAppleClientDelegate = class(TTlsLibAlgorithmTestCase)
+  strict private
+    FProvider: ICryptoProvider;
+    FChain: TStringList;    // ClientAuthChain fields (private CA + dual-EKU leaf)
+    FForeign: TStringList;  // an unrelated private root
+    function Leaf: TArray<TBytes>;
+    function OwnAnchor: TArray<TBytes>;
+    function ForeignAnchor: TArray<TBytes>;
+    function Verify(const AAnchors: TArray<TBytes>; APosture: TRevocationPosture;
+      const AClock: ITlsClock; out AAlert: TTlsAlertDescription): Boolean;
+  protected
+    procedure SetUp; override;
+    procedure TearDown; override;
+  published
+    procedure TestAcceptsClientChainToConfiguredAnchor;
+    procedure TestRejectsClientChainToForeignAnchor;
+    procedure TestInjectedClockRejectsChainOutsideValidity;
+    procedure TestHardPostureRejectsUnrevocableChain;
+    procedure TestSoftPostureAcceptsUnrevocableChain;
+  end;
+
 {$ENDIF TLSLIB_MACOS}
 
 {$IF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_BSD) OR DEFINED(TLSLIB_SOLARIS)}
@@ -616,6 +642,105 @@ begin
   Result := 'macOS';
 end;
 
+{ TTestAppleClientDelegate }
+
+procedure TTestAppleClientDelegate.SetUp;
+begin
+  inherited SetUp;
+  FProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  FChain := LoadVectorFields('Certs/ClientAuthChain.txt');
+  FForeign := LoadVectorFields('Certs/OcspStapling.txt');
+end;
+
+procedure TTestAppleClientDelegate.TearDown;
+begin
+  FChain.Free;
+  FForeign.Free;
+  inherited TearDown;
+end;
+
+function TTestAppleClientDelegate.Leaf: TArray<TBytes>;
+begin
+  // the dual-EKU (serverAuth+clientAuth) leaf, presented alone (its issuer is the exclusive root)
+  Result := TArray<TBytes>.Create(DecodeHex(FChain.Values['leaf_cert']));
+end;
+
+function TTestAppleClientDelegate.OwnAnchor: TArray<TBytes>;
+begin
+  Result := TArray<TBytes>.Create(DecodeHex(FChain.Values['root_cert']));
+end;
+
+function TTestAppleClientDelegate.ForeignAnchor: TArray<TBytes>;
+begin
+  // an unrelated private root: the leaf does not chain to it
+  Result := TArray<TBytes>.Create(DecodeHex(FForeign.Values['root_cert']));
+end;
+
+function TTestAppleClientDelegate.Verify(const AAnchors: TArray<TBytes>;
+  APosture: TRevocationPosture; const AClock: ITlsClock;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LVerifier: IClientCertificateVerifier;
+begin
+  LVerifier := TAppleClientDelegateVerifier.Create(AAnchors, APosture, AClock)
+    as IClientCertificateVerifier;
+  Result := LVerifier.VerifyClientCertificate(Leaf, AAlert);
+end;
+
+procedure TTestAppleClientDelegate.TestAcceptsClientChainToConfiguredAnchor;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // the leaf chains to the configured exclusive root and carries clientAuth: accepted
+  CheckTrue(Verify(OwnAnchor, TRevocationPosture.Off, TSystemClock.Create as ITlsClock,
+    LAlert), 'a client cert chaining to the configured anchor is accepted');
+end;
+
+procedure TTestAppleClientDelegate.TestRejectsClientChainToForeignAnchor;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // the anchors are the ONLY trust root (anchors-only), so a client cert that does not chain to
+  // them is rejected - never validated against the OS/public roots
+  CheckFalse(Verify(ForeignAnchor, TRevocationPosture.Off,
+    TSystemClock.Create as ITlsClock, LAlert),
+    'a client cert not chaining to the configured anchor is rejected');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert),
+    'the alert is unknown_ca');
+end;
+
+procedure TTestAppleClientDelegate.TestInjectedClockRejectsChainOutsideValidity;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // the injected clock supplies the validation time (SecTrustSetVerifyDate): a far-future instant
+  // puts the chain past its validity, so the chain accepted at 'now' is rejected here
+  CheckFalse(Verify(OwnAnchor, TRevocationPosture.Off,
+    TMockClock.Create(UInt64(10000000000000)) as ITlsClock, LAlert),
+    'the delegate honors the injected clock (chain outside validity is rejected)');
+end;
+
+procedure TTestAppleClientDelegate.TestHardPostureRejectsUnrevocableChain;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // the private CA publishes no reachable revocation data and network fetch is disabled, so the
+  // status is indeterminate; a Hard posture (require-positive) rejects an indeterminate outcome
+  CheckFalse(Verify(OwnAnchor, TRevocationPosture.Hard,
+    TSystemClock.Create as ITlsClock, LAlert),
+    'Hard posture rejects a chain whose revocation status is indeterminate');
+end;
+
+procedure TTestAppleClientDelegate.TestSoftPostureAcceptsUnrevocableChain;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // the same indeterminate outcome is accepted under Soft posture
+  CheckTrue(Verify(OwnAnchor, TRevocationPosture.Soft,
+    TSystemClock.Create as ITlsClock, LAlert),
+    'Soft posture accepts a chain whose revocation status is indeterminate');
+end;
+
 {$ENDIF TLSLIB_MACOS}
 
 {$IF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_BSD) OR DEFINED(TLSLIB_SOLARIS)}
@@ -667,8 +792,10 @@ initialization
 {$IFDEF TLSLIB_MACOS}
 {$IFDEF FPC}
   RegisterTest(TTestMacOSSystemTrust);
+  RegisterTest(TTestAppleClientDelegate);
 {$ELSE}
   RegisterTest(TTestMacOSSystemTrust.Suite);
+  RegisterTest(TTestAppleClientDelegate.Suite);
 {$ENDIF FPC}
 {$ENDIF TLSLIB_MACOS}
 

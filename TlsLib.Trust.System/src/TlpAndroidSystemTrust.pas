@@ -26,6 +26,10 @@ uses
 {$ENDIF}
   TlpICryptoProvider,
   TlpICertificateTrust,
+  TlpICertificateVerifierSource,
+  TlpCertificateVerifier,
+  TlpTrustPolicy,
+  TlpIClock,
   TlpEndpointIdentity,
   TlpServerName,
   TlpPosixDynLib,
@@ -35,20 +39,66 @@ type
   /// <summary>
   /// Delegates chain trust to the platform's Java engine over JNI - roots, revocation,
   /// network-security-config (per-domain trust, user-CA opt-in, pinning) - via
-  /// android.net.http.X509TrustManagerExtensions.checkServerTrusted, then enforces RFC
-  /// 6125 hostname identity in-library, because checkServerTrusted validates the chain
-  /// but NOT the host (Android splits TrustManager from HostnameVerifier). Construction
-  /// is init-independent; the JVM is acquired lazily inside Verify (Delphi resolves it
-  /// automatically, FPC needs TlsLibAndroidInitTrust). Fail-closed.
+  /// android.net.http.X509TrustManagerExtensions.checkServerTrusted. The platform TrustManager
+  /// does not consult a stapled OCSP response, so a revocation post-check over the injected
+  /// provider and clock decides the staple (a definitive Revoked always rejects; an indeterminate
+  /// outcome rejects only under a Hard posture) - run before the RFC 6125 hostname identity so a
+  /// revoked certificate is not masked by a name mismatch. Hostname identity is enforced
+  /// in-library because checkServerTrusted validates the chain but NOT the host (Android splits
+  /// TrustManager from HostnameVerifier). Construction is init-independent; the JVM is acquired
+  /// lazily inside Verify (Delphi resolves it automatically, FPC needs TlsLibAndroidInitTrust).
+  /// Fail-closed.
   /// </summary>
   TAndroidDelegateVerifier = class sealed(TInterfacedObject, IServerCertificateVerifier)
   strict private
     FProvider: ICryptoProvider;
+    FPosture: TRevocationPosture;
+    FClock: ITlsClock;
   public
-    constructor Create(const AProvider: ICryptoProvider);
+    constructor Create(const AProvider: ICryptoProvider;
+      APosture: TRevocationPosture; const AClock: ITlsClock);
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
       out AAlert: TTlsAlertDescription): Boolean;
+  end;
+
+  /// <summary>
+  /// The Android server-certificate verifier source: builds a delegate from the connection's
+  /// trust context, so the provider, revocation posture and clock (the staple post-check) are
+  /// injected the same way the built-in verifier receives them.
+  /// </summary>
+  TAndroidServerVerifierSource = class sealed(TInterfacedObject,
+    IServerCertificateVerifierSource)
+  public
+    function CreateServerVerifier(const AContext: TServerTrustContext)
+      : IServerCertificateVerifier;
+  end;
+
+  /// <summary>
+  /// Verifies a peer CLIENT certificate (mTLS) via the platform's Java engine, restricted to an
+  /// exclusive trust root built from the configured client-CA anchors alone - a KeyStore holding
+  /// only those anchors, never the OS or public-web-PKI roots. Applies the platform's client-auth
+  /// chain check (checkClientTrusted); a client certificate is not stapled. Fail-closed.
+  /// </summary>
+  TAndroidClientDelegateVerifier = class sealed(TInterfacedObject,
+    IClientCertificateVerifier)
+  strict private
+    FAnchors: TArray<TBytes>;
+  public
+    constructor Create(const AAnchors: TArray<TBytes>);
+    function VerifyClientCertificate(const AChain: TArray<TBytes>;
+      out AAlert: TTlsAlertDescription): Boolean;
+  end;
+
+  /// <summary>
+  /// The Android client-certificate verifier source: builds a client delegate over the client-CA
+  /// anchors in the context (the exclusive trust root).
+  /// </summary>
+  TAndroidClientVerifierSource = class sealed(TInterfacedObject,
+    IClientCertificateVerifierSource)
+  public
+    function CreateClientVerifier(const AContext: TClientTrustContext)
+      : IClientCertificateVerifier;
   end;
 
 /// <summary>
@@ -125,7 +175,15 @@ type
     class function BuildChainArray(AEnv: PJNIEnv; const AChain: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): TJObjectArray; static;
     class function DeriveAuthType(AEnv: PJNIEnv; ALeaf: TJObject): string; static;
-    class function DefaultX509TrustManager(AEnv: PJNIEnv): TJObject; static;
+    /// <summary>The platform X509TrustManager over AKeyStore: nil selects the system trust store
+    /// (the server path), a KeyStore of client-CA anchors selects an exclusive private root (the
+    /// client-auth path) - so the client path never falls back to the system roots.</summary>
+    class function DefaultX509TrustManager(AEnv: PJNIEnv;
+      AKeyStore: TJObject): TJObject; static;
+    /// <summary>An empty KeyStore holding only the anchor certificates (each under a unique
+    /// alias), the exclusive private trust root for client-auth. Nil on any failure.</summary>
+    class function BuildAnchorKeyStore(AEnv: PJNIEnv;
+      AAnchorArr: TJObjectArray): TJObject; static;
     class function MapPendingException(AEnv: PJNIEnv): TTlsAlertDescription; static;
   public
     class procedure ResolveDynamicImports; static;
@@ -136,6 +194,12 @@ type
     /// the OS trusts the chain; on rejection or any failure returns False with AAlert set
     /// to the matching fatal alert.</summary>
     class function Evaluate(const AChain: TArray<TBytes>; const AHostName: string;
+      out AAlert: TTlsAlertDescription): Boolean; static;
+    /// <summary>Runs the platform client-auth trust decision for the peer CLIENT chain against a
+    /// KeyStore of the configured client-CA anchors alone (checkClientTrusted) - never the system
+    /// roots. Zero anchors reject before the engine. Returns True when trusted; on rejection or
+    /// any failure returns False with AAlert set.</summary>
+    class function EvaluateClient(const AChain, AAnchors: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean; static;
   end;
 
@@ -367,7 +431,8 @@ begin
     Result := LAlg;
 end;
 
-class function TAndroidTrustApi.DefaultX509TrustManager(AEnv: PJNIEnv): TJObject;
+class function TAndroidTrustApi.DefaultX509TrustManager(AEnv: PJNIEnv;
+  AKeyStore: TJObject): TJObject;
 var
   LTmfClass, LX509TmClass: TJClass;
   LGetDefAlg, LGetInstance, LInit, LGetTms: TJMethodID;
@@ -413,8 +478,9 @@ begin
     Exit;
   end;
 
-  // init(null) selects the platform's system trust store.
-  LArgs[0].l := nil;
+  // init(keystore): a nil KeyStore selects the platform's system trust store; a KeyStore of
+  // client-CA anchors selects that exclusive private root
+  LArgs[0].l := AKeyStore;
   AEnv^^.CallVoidMethodA(AEnv, LFactory, LInit, @LArgs[0]);
   if AEnv^^.ExceptionCheck(AEnv) <> 0 then
   begin
@@ -526,7 +592,7 @@ begin
       LAuthUtf8 := UTF8String(DeriveAuthType(LEnv, LLeaf));
       LAuthStr := LEnv^^.NewStringUTF(LEnv, PAnsiChar(LAuthUtf8));
 
-      LX509Tm := DefaultX509TrustManager(LEnv);
+      LX509Tm := DefaultX509TrustManager(LEnv, nil);
       if LX509Tm = nil then
         Exit;
 
@@ -599,26 +665,231 @@ begin
   end;
 end;
 
+class function TAndroidTrustApi.BuildAnchorKeyStore(AEnv: PJNIEnv;
+  AAnchorArr: TJObjectArray): TJObject;
+var
+  LKsClass: TJClass;
+  LGetDefType, LGetInstance, LLoad, LSetEntry: TJMethodID;
+  LTypeStr, LKeyStore, LCert, LAlias: TJObject;
+  LArgs: array [0 .. 1] of TJValue;
+  LCount, LI: TJSize;
+  LAliasUtf8: UTF8String;
+begin
+  Result := nil;
+
+  LKsClass := AEnv^^.FindClass(AEnv, 'java/security/KeyStore');
+  if LKsClass = nil then
+  begin
+    ClearPending(AEnv);
+    Exit;
+  end;
+  LGetDefType := AEnv^^.GetStaticMethodID(AEnv, LKsClass, 'getDefaultType',
+    '()Ljava/lang/String;');
+  LGetInstance := AEnv^^.GetStaticMethodID(AEnv, LKsClass, 'getInstance',
+    '(Ljava/lang/String;)Ljava/security/KeyStore;');
+  LLoad := AEnv^^.GetMethodID(AEnv, LKsClass, 'load',
+    '(Ljava/io/InputStream;[C)V');
+  LSetEntry := AEnv^^.GetMethodID(AEnv, LKsClass, 'setCertificateEntry',
+    '(Ljava/lang/String;Ljava/security/cert/Certificate;)V');
+  if (LGetDefType = nil) or (LGetInstance = nil) or (LLoad = nil) or
+    (LSetEntry = nil) then
+    Exit;
+
+  LTypeStr := AEnv^^.CallStaticObjectMethodA(AEnv, LKsClass, LGetDefType, nil);
+  if (LTypeStr = nil) or (AEnv^^.ExceptionCheck(AEnv) <> 0) then
+  begin
+    ClearPending(AEnv);
+    Exit;
+  end;
+  LArgs[0].l := LTypeStr;
+  LKeyStore := AEnv^^.CallStaticObjectMethodA(AEnv, LKsClass, LGetInstance,
+    @LArgs[0]);
+  if (LKeyStore = nil) or (AEnv^^.ExceptionCheck(AEnv) <> 0) then
+  begin
+    ClearPending(AEnv);
+    Exit;
+  end;
+
+  // load(null, null) initializes an empty, in-memory keystore
+  LArgs[0].l := nil;
+  LArgs[1].l := nil;
+  AEnv^^.CallVoidMethodA(AEnv, LKeyStore, LLoad, @LArgs[0]);
+  if AEnv^^.ExceptionCheck(AEnv) <> 0 then
+  begin
+    ClearPending(AEnv);
+    Exit;
+  end;
+
+  LCount := AEnv^^.GetArrayLength(AEnv, AAnchorArr);
+  for LI := 0 to LCount - 1 do
+  begin
+    LCert := AEnv^^.GetObjectArrayElement(AEnv, AAnchorArr, LI);
+    if LCert = nil then
+      Continue;
+    LAliasUtf8 := UTF8String('a' + IntToStr(LI));
+    LAlias := AEnv^^.NewStringUTF(AEnv, PAnsiChar(LAliasUtf8));
+    LArgs[0].l := LAlias;
+    LArgs[1].l := LCert;
+    AEnv^^.CallVoidMethodA(AEnv, LKeyStore, LSetEntry, @LArgs[0]);
+    if AEnv^^.ExceptionCheck(AEnv) <> 0 then
+    begin
+      // a bad anchor entry is a broken trust configuration; fail closed
+      ClearPending(AEnv);
+      AEnv^^.DeleteLocalRef(AEnv, LAlias);
+      AEnv^^.DeleteLocalRef(AEnv, LCert);
+      Exit;
+    end;
+    AEnv^^.DeleteLocalRef(AEnv, LAlias);
+    AEnv^^.DeleteLocalRef(AEnv, LCert);
+  end;
+  Result := LKeyStore;
+end;
+
+class function TAndroidTrustApi.EvaluateClient(const AChain, AAnchors: TArray<TBytes>;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LVm: PJavaVM;
+  LEnv: PJNIEnv;
+  LAttached: Boolean;
+  LTmClass: TJClass;
+  LCheck: TJMethodID;
+  LChainArr, LAnchorArr: TJObjectArray;
+  LKeyStore, LX509Tm, LLeaf, LAuthStr: TJObject;
+  LAuthUtf8: UTF8String;
+  LBuildAlert: TTlsAlertDescription;
+  LCheckArgs: array [0 .. 1] of TJValue;
+begin
+  Result := False;
+  AAlert := TTlsAlertDescription.InternalError;
+
+  if Length(AChain) = 0 then
+  begin
+    AAlert := TTlsAlertDescription.BadCertificate;
+    Exit;
+  end;
+
+  // zero configured client-CA anchors can trust nothing: reject before the engine so an empty
+  // anchor set can never fall through to the system roots
+  if Length(AAnchors) = 0 then
+  begin
+    AAlert := TTlsAlertDescription.UnknownCa;
+    Exit;
+  end;
+
+  if not TryGetVm(LVm) then
+  begin
+    LogError('could not acquire a JavaVM; call TlsLibAndroidInitTrust(javaVM) at ' +
+      'startup (FPC: from your JNI_OnLoad)');
+    Exit;
+  end;
+
+  if not AttachEnv(LVm, LEnv, LAttached) then
+  begin
+    LogError('could not obtain a JNIEnv for the current thread');
+    Exit;
+  end;
+  try
+    // one frame reclaims the peer chain, the anchor certs and the keystore/trust-manager refs
+    if LEnv^^.PushLocalFrame(LEnv,
+      16 + (Length(AChain) + Length(AAnchors)) * 4) <> 0 then
+    begin
+      ClearPending(LEnv);
+      Exit;
+    end;
+    try
+      LChainArr := BuildChainArray(LEnv, AChain, LBuildAlert);
+      if LChainArr = nil then
+      begin
+        AAlert := LBuildAlert;
+        Exit;
+      end;
+      // a configured anchor that will not parse is a broken trust configuration
+      LAnchorArr := BuildChainArray(LEnv, AAnchors, LBuildAlert);
+      if LAnchorArr = nil then
+        Exit;
+
+      LKeyStore := BuildAnchorKeyStore(LEnv, LAnchorArr);
+      if LKeyStore = nil then
+        Exit;
+      LX509Tm := DefaultX509TrustManager(LEnv, LKeyStore);
+      if LX509Tm = nil then
+        Exit;
+
+      LLeaf := LEnv^^.GetObjectArrayElement(LEnv, LChainArr, 0);
+      LAuthUtf8 := UTF8String(DeriveAuthType(LEnv, LLeaf));
+      LAuthStr := LEnv^^.NewStringUTF(LEnv, PAnsiChar(LAuthUtf8));
+
+      LTmClass := LEnv^^.FindClass(LEnv, 'javax/net/ssl/X509TrustManager');
+      if LTmClass = nil then
+      begin
+        ClearPending(LEnv);
+        Exit;
+      end;
+      LCheck := LEnv^^.GetMethodID(LEnv, LTmClass, 'checkClientTrusted',
+        '([Ljava/security/cert/X509Certificate;Ljava/lang/String;)V');
+      if LCheck = nil then
+        Exit;
+      LCheckArgs[0].l := LChainArr;
+      LCheckArgs[1].l := LAuthStr;
+      LEnv^^.CallVoidMethodA(LEnv, LX509Tm, LCheck, @LCheckArgs[0]);
+
+      if LEnv^^.ExceptionCheck(LEnv) <> 0 then
+        AAlert := MapPendingException(LEnv)
+      else
+        Result := True;
+    finally
+      ClearPending(LEnv);
+      LEnv^^.PopLocalFrame(LEnv, nil);
+    end;
+  finally
+    if LAttached then
+      LVm^^.DetachCurrentThread(LVm);
+  end;
+end;
+
 { TAndroidDelegateVerifier }
 
-constructor TAndroidDelegateVerifier.Create(const AProvider: ICryptoProvider);
+constructor TAndroidDelegateVerifier.Create(const AProvider: ICryptoProvider;
+  APosture: TRevocationPosture; const AClock: ITlsClock);
 begin
   inherited Create;
   FProvider := AProvider;
+  FPosture := APosture;
+  FClock := AClock;
 end;
 
 function TAndroidDelegateVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
   const AServerName: TServerName; const AOcspStaple: TBytes;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
-  // AOcspStaple is ignored: Android runs its own revocation inside the trust engine.
+  // the platform chain verdict first (roots, blocklist, network-security-config, pinning)
   Result := TAndroidTrustApi.Evaluate(AChain, AServerName.ToString, AAlert);
   if not Result then
     Exit;
-  // The OS engine validates the chain but NOT the hostname (Android separates
-  // X509TrustManager from HostnameVerifier), so enforce RFC 6125 endpoint identity with
-  // the library's own matcher. An empty name skips it, mirroring the iOS delegate. A nil
-  // provider cannot match, so it fails closed rather than trusting blindly.
+
+  // revocation before identity, as the built-in pipeline orders it: the platform TrustManager
+  // does not consult a stapled OCSP response, so decide the staple here with the library's own
+  // verdict. A definitive Revoked rejects under every posture; an indeterminate outcome rejects
+  // only under a Hard posture.
+  case TCertificateVerifier.StapleVerdict(FProvider, FClock, AChain, AOcspStaple) of
+    TStapleVerdict.Revoked:
+      begin
+        Result := False;
+        AAlert := TTlsAlertDescription.CertificateRevoked;
+        Exit;
+      end;
+    TStapleVerdict.Indeterminate:
+      if FPosture = TRevocationPosture.Hard then
+      begin
+        Result := False;
+        AAlert := TTlsAlertDescription.BadCertificateStatusResponse;
+        Exit;
+      end;
+  end;
+
+  // endpoint identity (RFC 6125): the platform validates the chain but NOT the host (Android
+  // separates X509TrustManager from HostnameVerifier). An empty name skips it; a nil provider
+  // cannot match, so it fails closed rather than trusting blindly.
   if AServerName.ToString <> '' then
     if (FProvider = nil) or
       (not TEndpointIdentity.Matches(AServerName,
@@ -628,6 +899,43 @@ begin
       Result := False;
       AAlert := TTlsAlertDescription.BadCertificate;
     end;
+end;
+
+{ TAndroidServerVerifierSource }
+
+function TAndroidServerVerifierSource.CreateServerVerifier(
+  const AContext: TServerTrustContext): IServerCertificateVerifier;
+begin
+  Result := TAndroidDelegateVerifier.Create(AContext.Provider,
+    AContext.RevocationPosture, AContext.Clock) as IServerCertificateVerifier;
+end;
+
+{ TAndroidClientDelegateVerifier }
+
+constructor TAndroidClientDelegateVerifier.Create(const AAnchors: TArray<TBytes>);
+begin
+  inherited Create;
+  FAnchors := AAnchors;
+end;
+
+function TAndroidClientDelegateVerifier.VerifyClientCertificate(
+  const AChain: TArray<TBytes>; out AAlert: TTlsAlertDescription): Boolean;
+begin
+  Result := TAndroidTrustApi.EvaluateClient(AChain, FAnchors, AAlert);
+end;
+
+{ TAndroidClientVerifierSource }
+
+function TAndroidClientVerifierSource.CreateClientVerifier(
+  const AContext: TClientTrustContext): IClientCertificateVerifier;
+var
+  LAnchors: TArray<TBytes>;
+begin
+  LAnchors := nil;
+  if AContext.TrustStore <> nil then
+    LAnchors := AContext.TrustStore.RootCertificates;
+  Result := TAndroidClientDelegateVerifier.Create(LAnchors)
+    as IClientCertificateVerifier;
 end;
 
 procedure TlsLibAndroidInitTrust(AJavaVM: Pointer);

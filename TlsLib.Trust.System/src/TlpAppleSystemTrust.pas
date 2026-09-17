@@ -23,6 +23,9 @@ uses
 {$ENDIF}
   TlpPosixDynLib,
   TlpICertificateTrust,
+  TlpICertificateVerifierSource,
+  TlpTrustPolicy,
+  TlpIClock,
   TlpServerName,
 {$IFDEF TLSLIB_MACOS}
   TlpSystemTrustBase,
@@ -61,15 +64,63 @@ type
 
 type
   /// <summary>
-  /// Delegates verification to Security.framework: SecTrust with an SSL server
-  /// policy, network fetch disabled (cache-only), evaluated via
-  /// SecTrustEvaluateWithError. Shared by macOS and iOS. Fail-closed.
+  /// Delegates server verification to Security.framework: SecTrust with an SSL server policy,
+  /// network fetch disabled (cache-only). The revocation posture adds a revocation policy
+  /// (Soft best-effort, Hard requires a positive response, Off none) and the injected clock
+  /// pins the validation date; a stapled OCSP response is consumed as the cached response.
+  /// Shared by macOS and iOS. Fail-closed.
   /// </summary>
   TAppleDelegateVerifier = class sealed(TInterfacedObject, IServerCertificateVerifier)
+  strict private
+    FPosture: TRevocationPosture;
+    FClock: ITlsClock;
   public
+    constructor Create(APosture: TRevocationPosture; const AClock: ITlsClock);
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
       out AAlert: TTlsAlertDescription): Boolean;
+  end;
+
+  /// <summary>
+  /// The Apple server-certificate verifier source: builds a delegate from the connection's
+  /// trust context, so its revocation posture and clock are injected the same way the built-in
+  /// verifier receives them.
+  /// </summary>
+  TAppleServerVerifierSource = class sealed(TInterfacedObject,
+    IServerCertificateVerifierSource)
+  public
+    function CreateServerVerifier(const AContext: TServerTrustContext)
+      : IServerCertificateVerifier;
+  end;
+
+  /// <summary>
+  /// Verifies a peer CLIENT certificate (mTLS) via Security.framework, restricted to an
+  /// exclusive trust root built from the configured client-CA anchors alone (anchors-only) -
+  /// never the OS or public-web-PKI roots. Applies the client SSL policy; posture and clock are
+  /// handled as the server delegate (a client certificate is not stapled). Fail-closed.
+  /// </summary>
+  TAppleClientDelegateVerifier = class sealed(TInterfacedObject,
+    IClientCertificateVerifier)
+  strict private
+    FAnchors: TArray<TBytes>;
+    FPosture: TRevocationPosture;
+    FClock: ITlsClock;
+  public
+    constructor Create(const AAnchors: TArray<TBytes>;
+      APosture: TRevocationPosture; const AClock: ITlsClock);
+    function VerifyClientCertificate(const AChain: TArray<TBytes>;
+      out AAlert: TTlsAlertDescription): Boolean;
+  end;
+
+  /// <summary>
+  /// The Apple client-certificate verifier source: builds a client delegate over the client-CA
+  /// anchors in the context (the exclusive trust root), with the connection's posture and clock.
+  /// </summary>
+  TAppleClientVerifierSource = class sealed(TInterfacedObject,
+    IClientCertificateVerifierSource)
+  public
+    function CreateClientVerifier(const AContext: TClientTrustContext)
+      : IClientCertificateVerifier;
   end;
 
 {$IFEND}
@@ -81,6 +132,8 @@ const
   ErrSecCertificateExpired = -67818;
   ErrSecCertificateNotValidYet = -67819;
   ErrSecCertificateRevoked = -67820;
+  // revocation could not be completed to a positive answer (Hard require-positive): indeterminate
+  ErrSecIncompleteCertRevocationCheck = -67635;
   ErrSecInvalidExtendedKeyUsage = -67609;
   ErrSecHostNameMismatch = -67602;
 
@@ -94,6 +147,9 @@ begin
       Result := TTlsAlertDescription.CertificateExpired;
     ErrSecCertificateRevoked:
       Result := TTlsAlertDescription.CertificateRevoked;
+    ErrSecIncompleteCertRevocationCheck:
+      // an indeterminate revocation under a Hard posture: report it as such
+      Result := TTlsAlertDescription.BadCertificateStatusResponse;
     ErrSecInvalidExtendedKeyUsage:
       Result := TTlsAlertDescription.UnsupportedCertificate;
     ErrSecHostNameMismatch:
@@ -120,10 +176,23 @@ const
   KSecTrustSettingsResultDeny = 3;
   KCFNumberSInt32Type = 3;
 
+  // SecPolicyCreateRevocation flags (SecPolicy.h): keep the check off the network, and under a
+  // Hard posture demand a positive response rather than soft-failing on a missing one
+  KSecRevocationOCSPMethod = 1;
+  KSecRevocationCRLMethod = 2;
+  KSecRevocationUseAnyAvailableMethod =
+    KSecRevocationOCSPMethod or KSecRevocationCRLMethod;
+  KSecRevocationRequirePositiveResponse = 8;
+  KSecRevocationNetworkAccessDisabled = 16;
+
+  // seconds between the Unix (1970) and CoreFoundation (2001) epochs: CFAbsoluteTime = unixSeconds - this
+  CFAbsoluteTimeUnixEpochDelta = Double(978307200.0);
+
 type
   CFIndex = NativeInt;
   CFArrayRef = Pointer;
   CFDataRef = Pointer;
+  CFDateRef = Pointer;
   CFStringRef = Pointer;
   CFErrorRef = Pointer;
   SecCertificateRef = Pointer;
@@ -166,6 +235,19 @@ type
     AAllowFetch: Boolean): OSStatus; cdecl;
   TSecTrustEvaluateWithErrorFunc = function(ATrust: SecTrustRef; AError: Pointer)
     : Boolean; cdecl;
+  // CFOptionFlags is a 64-bit unsigned long here, so NativeUInt keeps the flags from truncating
+  TSecPolicyCreateRevocationFunc = function(ARevocationFlags: NativeUInt)
+    : SecPolicyRef; cdecl;
+  TSecTrustSetVerifyDateFunc = function(ATrust: SecTrustRef;
+    AVerifyDate: CFDateRef): OSStatus; cdecl;
+  TSecTrustSetOCSPResponseFunc = function(ATrust: SecTrustRef;
+    AResponseData: Pointer): OSStatus; cdecl;
+  TSecTrustSetAnchorCertificatesFunc = function(ATrust: SecTrustRef;
+    AAnchorCertificates: CFArrayRef): OSStatus; cdecl;
+  TSecTrustSetAnchorCertificatesOnlyFunc = function(ATrust: SecTrustRef;
+    AAnchorCertificatesOnly: Boolean): OSStatus; cdecl;
+  // CFDateCreate takes a CFAbsoluteTime, which is a double
+  TCFDateCreateFunc = function(AAllocator: Pointer; AAt: Double): CFDateRef; cdecl;
 {$IFDEF TLSLIB_MACOS}
   TSecTrustSettingsCopyCertificatesFunc = function(ADomain: SecTrustSettingsDomain;
     var ACertArray: CFArrayRef): OSStatus; cdecl;
@@ -199,6 +281,17 @@ type
     FSecTrustCreateWithCertificates: TSecTrustCreateWithCertificatesFunc;
     FSecTrustSetNetworkFetchAllowed: TSecTrustSetNetworkFetchAllowedFunc;
     FSecTrustEvaluateWithError: TSecTrustEvaluateWithErrorFunc;
+    // hardening entry points: a missing one is handled per posture/path at the call site
+    // (fail-closed where it would otherwise change the verdict), NOT by regressing FReady.
+    FSecPolicyCreateRevocation: TSecPolicyCreateRevocationFunc;
+    FSecTrustSetVerifyDate: TSecTrustSetVerifyDateFunc;
+    FSecTrustSetOCSPResponse: TSecTrustSetOCSPResponseFunc;
+    FSecTrustSetAnchorCertificates: TSecTrustSetAnchorCertificatesFunc;
+    FSecTrustSetAnchorCertificatesOnly: TSecTrustSetAnchorCertificatesOnlyFunc;
+    FCFDateCreate: TCFDateCreateFunc;
+    // the retaining-array callbacks: an array built with these owns its elements. Always
+    // present, so unlike the hardening entry points above it gates FReady.
+    FkCFTypeArrayCallBacks: Pointer;
     // best-effort CFError decode (shared macOS/iOS); their absence must NOT regress
     // FReady - the verifier still works, it just falls back to unknown_ca.
     FCFErrorGetCode: TCFErrorGetCodeFunc;
@@ -219,13 +312,28 @@ type
     class procedure HarvestDomain(ADomain: SecTrustSettingsDomain;
       const ADest: TList<TBytes>); static;
 {$ENDIF}
+    /// <summary>Builds a retaining CFArray of SecCertificateRef from the DERs (element refs
+    /// released once the array owns them). False when a DER is unparseable or none are usable;
+    /// the caller decides the alert. Never inserts a nil into the array.</summary>
+    class function MakeCertArray(const ADers: TArray<TBytes>;
+      out AArray: CFArrayRef): Boolean; static;
   private
     class procedure ResolveDynamicImports; static;
-    /// <summary>Runs the OS SSL-server trust evaluation with network fetch off.
-    /// Returns True when the chain is trusted; on rejection returns False with
-    /// AAlert set to the matching fatal alert.</summary>
+    /// <summary>Runs the OS SSL-server trust evaluation with network fetch off, at the validation
+    /// time AClock supplies, consuming the stapled OCSP response as the cached response. APosture
+    /// adds the revocation policy (Soft best-effort, Hard require-positive, Off none). Returns True
+    /// when trusted; on rejection returns False with AAlert set to the matching fatal alert.</summary>
     class function EvaluateSslChain(const AChain: TArray<TBytes>;
-      const AHostName: string; out AAlert: TTlsAlertDescription): Boolean; static;
+      const AHostName: string; APosture: TRevocationPosture; const AClock: ITlsClock;
+      const AOcspStaple: TBytes; out AAlert: TTlsAlertDescription): Boolean; static;
+    /// <summary>Runs the OS trust evaluation for a peer CLIENT certificate against an
+    /// anchors-only trust built over AAnchors alone (never the OS/public roots), with the client
+    /// SSL policy, the posture revocation policy and the injected clock (a client certificate is
+    /// never stapled). Zero usable anchors reject before the engine. Returns False with
+    /// internal_error when an anchors-only entry point is unavailable.</summary>
+    class function EvaluateClientChain(const AChain, AAnchors: TArray<TBytes>;
+      APosture: TRevocationPosture; const AClock: ITlsClock;
+      out AAlert: TTlsAlertDescription): Boolean; static;
 {$IFDEF TLSLIB_MACOS}
     /// <summary>The raw DER of every keychain-trusted certificate across the
     /// System, Admin and User domains, minus any marked Deny. Validation and
@@ -278,6 +386,21 @@ begin
     FSecTrustEvaluateWithError := TSecTrustEvaluateWithErrorFunc(TPosixDynLib.Resolve(LHandle,
       'SecTrustEvaluateWithError'));
 
+    FSecPolicyCreateRevocation := TSecPolicyCreateRevocationFunc(TPosixDynLib.Resolve(LHandle,
+      'SecPolicyCreateRevocation'));
+    FSecTrustSetVerifyDate := TSecTrustSetVerifyDateFunc(TPosixDynLib.Resolve(LHandle,
+      'SecTrustSetVerifyDate'));
+    FSecTrustSetOCSPResponse := TSecTrustSetOCSPResponseFunc(TPosixDynLib.Resolve(LHandle,
+      'SecTrustSetOCSPResponse'));
+    FSecTrustSetAnchorCertificates := TSecTrustSetAnchorCertificatesFunc(TPosixDynLib.Resolve(
+      LHandle, 'SecTrustSetAnchorCertificates'));
+    FSecTrustSetAnchorCertificatesOnly := TSecTrustSetAnchorCertificatesOnlyFunc(
+      TPosixDynLib.Resolve(LHandle, 'SecTrustSetAnchorCertificatesOnly'));
+    FCFDateCreate := TCFDateCreateFunc(TPosixDynLib.Resolve(LHandle, 'CFDateCreate'));
+    // a data export whose address IS the callbacks struct CFArrayCreate wants: pass it as
+    // resolved, do not dereference
+    FkCFTypeArrayCallBacks := TPosixDynLib.Resolve(LHandle, 'kCFTypeArrayCallBacks');
+
     // best-effort CFError decode symbols (may be absent); resolving them never
     // gates FReady - if any is missing the rejected-chain path just reports unknown_ca.
     FCFErrorGetCode := TCFErrorGetCodeFunc(TPosixDynLib.Resolve(LHandle, 'CFErrorGetCode'));
@@ -301,7 +424,7 @@ begin
   end;
 
   FReady := System.Assigned(FCFRelease) and System.Assigned(FCFDataCreate) and
-    System.Assigned(FCFArrayCreate) and
+    System.Assigned(FCFArrayCreate) and (FkCFTypeArrayCallBacks <> nil) and
     System.Assigned(FSecCertificateCreateWithData) and
     System.Assigned(FSecPolicyCreateSSL) and
     System.Assigned(FSecTrustCreateWithCertificates) and
@@ -315,17 +438,64 @@ begin
     (FkCFErrorDomainOSStatus <> nil);
 end;
 
-class function TAppleTrustApi.EvaluateSslChain(const AChain: TArray<TBytes>;
-  const AHostName: string; out AAlert: TTlsAlertDescription): Boolean;
+class function TAppleTrustApi.MakeCertArray(const ADers: TArray<TBytes>;
+  out AArray: CFArrayRef): Boolean;
 var
-  LCertRefs: array of Pointer;
-  LCertArray: CFArrayRef;
-  LPolicy: SecPolicyRef;
+  LRefs: array of Pointer;
+  LData: CFDataRef;
+  LI, LMade: Integer;
+begin
+  Result := False;
+  AArray := nil;
+  if Length(ADers) = 0 then
+    Exit;
+  SetLength(LRefs, Length(ADers));
+  LMade := 0;
+  try
+    for LI := 0 to Length(ADers) - 1 do
+    begin
+      if Length(ADers[LI]) = 0 then
+        Continue;
+      LData := FCFDataCreate(nil, PByte(ADers[LI]), Length(ADers[LI]));
+      if LData = nil then
+        Exit;
+      try
+        LRefs[LMade] := FSecCertificateCreateWithData(nil, LData);
+      finally
+        FCFRelease(LData);
+      end;
+      // never insert a nil into the array
+      if LRefs[LMade] = nil then
+        Exit;
+      Inc(LMade);
+    end;
+    if LMade = 0 then
+      Exit;
+    AArray := FCFArrayCreate(nil, @LRefs[0], LMade, FkCFTypeArrayCallBacks);
+    Result := AArray <> nil;
+  finally
+    // the array retains its elements, so drop our creation refs now; this also runs on a
+    // failed build so the created certificates are never leaked
+    for LI := 0 to LMade - 1 do
+      if LRefs[LI] <> nil then
+        FCFRelease(LRefs[LI]);
+  end;
+end;
+
+class function TAppleTrustApi.EvaluateSslChain(const AChain: TArray<TBytes>;
+  const AHostName: string; APosture: TRevocationPosture; const AClock: ITlsClock;
+  const AOcspStaple: TBytes; out AAlert: TTlsAlertDescription): Boolean;
+var
+  LCertArray, LPolicyArray: CFArrayRef;
+  LSslPolicy, LRevPolicy: SecPolicyRef;
   LTrust: SecTrustRef;
   LHostRef: CFStringRef;
-  LData: CFDataRef;
+  LDate: CFDateRef;
+  LStaple: CFDataRef;
   LHostUtf8: UTF8String;
-  LI, LMade: Integer;
+  LPolicyRefs: array [0 .. 1] of Pointer;
+  LPolicyCount: Integer;
+  LFlags: NativeUInt;
   LStatus: OSStatus;
   LError: CFErrorRef;
 begin
@@ -341,36 +511,18 @@ begin
     Exit;
   end;
 
-  SetLength(LCertRefs, Length(AChain));
-  LMade := 0;
   LCertArray := nil;
-  LPolicy := nil;
+  LPolicyArray := nil;
+  LSslPolicy := nil;
+  LRevPolicy := nil;
   LTrust := nil;
   LHostRef := nil;
+  LDate := nil;
+  LStaple := nil;
   LError := nil;
   try
-    for LI := 0 to Length(AChain) - 1 do
-    begin
-      if Length(AChain[LI]) = 0 then
-        Continue;
-      LData := FCFDataCreate(nil, PByte(AChain[LI]), Length(AChain[LI]));
-      if LData = nil then
-        Exit;
-      try
-        LCertRefs[LMade] := FSecCertificateCreateWithData(nil, LData);
-      finally
-        FCFRelease(LData);
-      end;
-      if LCertRefs[LMade] = nil then
-        Exit;
-      Inc(LMade);
-    end;
-
-    if LMade = 0 then
-      Exit;
-
-    LCertArray := FCFArrayCreate(nil, @LCertRefs[0], LMade, nil);
-    if LCertArray = nil then
+    // an unparseable leaf or chain certificate is a bad certificate, not a broken runtime
+    if not MakeCertArray(AChain, LCertArray) then
       Exit;
 
     if AHostName <> '' then
@@ -379,23 +531,109 @@ begin
       LHostRef := FCFStringCreateWithCString(nil, PAnsiChar(LHostUtf8),
         KCFStringEncodingUTF8);
     end;
-
-    LPolicy := FSecPolicyCreateSSL(True, LHostRef);
-    if LPolicy = nil then
+    LSslPolicy := FSecPolicyCreateSSL(True, LHostRef);
+    if LSslPolicy = nil then
     begin
       AAlert := TTlsAlertDescription.InternalError;
       Exit;
     end;
 
-    LStatus := FSecTrustCreateWithCertificates(LCertArray, LPolicy, LTrust);
+    // the SSL policy, plus a revocation policy under a non-Off posture
+    LPolicyRefs[0] := LSslPolicy;
+    LPolicyCount := 1;
+    if APosture <> TRevocationPosture.Off then
+    begin
+      if not System.Assigned(FSecPolicyCreateRevocation) then
+      begin
+        // Hard cannot be honored without the revocation policy - fail closed; Soft proceeds
+        // best-effort under the default cache-only behavior
+        if APosture = TRevocationPosture.Hard then
+        begin
+          AAlert := TTlsAlertDescription.InternalError;
+          Exit;
+        end;
+      end
+      else
+      begin
+        LFlags := KSecRevocationUseAnyAvailableMethod or
+          KSecRevocationNetworkAccessDisabled;
+        if APosture = TRevocationPosture.Hard then
+          LFlags := LFlags or KSecRevocationRequirePositiveResponse;
+        LRevPolicy := FSecPolicyCreateRevocation(LFlags);
+        if LRevPolicy = nil then
+        begin
+          AAlert := TTlsAlertDescription.InternalError;
+          Exit;
+        end;
+        LPolicyRefs[1] := LRevPolicy;
+        LPolicyCount := 2;
+      end;
+    end;
+    LPolicyArray := FCFArrayCreate(nil, @LPolicyRefs[0], LPolicyCount,
+      FkCFTypeArrayCallBacks);
+    if LPolicyArray = nil then
+    begin
+      AAlert := TTlsAlertDescription.InternalError;
+      Exit;
+    end;
+
+    LStatus := FSecTrustCreateWithCertificates(LCertArray, LPolicyArray, LTrust);
     if (LStatus <> ErrSecSuccess) or (LTrust = nil) then
     begin
       AAlert := TTlsAlertDescription.BadCertificate;
       Exit;
     end;
 
-    // Cache-only: never open a socket for AIA / revocation during evaluation.
-    FSecTrustSetNetworkFetchAllowed(LTrust, False);
+    // cache-only: never open a socket for AIA / revocation during evaluation
+    if FSecTrustSetNetworkFetchAllowed(LTrust, False) <> ErrSecSuccess then
+    begin
+      AAlert := TTlsAlertDescription.InternalError;
+      Exit;
+    end;
+
+    // the injected clock pins the validation time (chain validity and OCSP freshness)
+    if AClock <> nil then
+    begin
+      if (not System.Assigned(FSecTrustSetVerifyDate)) or
+        (not System.Assigned(FCFDateCreate)) then
+      begin
+        AAlert := TTlsAlertDescription.InternalError;
+        Exit;
+      end;
+      LDate := FCFDateCreate(nil,
+        (Int64(AClock.NowUnixMillis) / 1000.0) - CFAbsoluteTimeUnixEpochDelta);
+      if LDate = nil then
+      begin
+        AAlert := TTlsAlertDescription.InternalError;
+        Exit;
+      end;
+      if FSecTrustSetVerifyDate(LTrust, LDate) <> ErrSecSuccess then
+      begin
+        AAlert := TTlsAlertDescription.InternalError;
+        Exit;
+      end;
+    end;
+
+    // the handshake staple is consumed as the cached OCSP response (no responder fetch)
+    if Length(AOcspStaple) > 0 then
+    begin
+      if not System.Assigned(FSecTrustSetOCSPResponse) then
+      begin
+        AAlert := TTlsAlertDescription.InternalError;
+        Exit;
+      end;
+      LStaple := FCFDataCreate(nil, PByte(AOcspStaple), Length(AOcspStaple));
+      if LStaple = nil then
+      begin
+        AAlert := TTlsAlertDescription.InternalError;
+        Exit;
+      end;
+      if FSecTrustSetOCSPResponse(LTrust, LStaple) <> ErrSecSuccess then
+      begin
+        AAlert := TTlsAlertDescription.InternalError;
+        Exit;
+      end;
+    end;
 
     if FSecTrustEvaluateWithError(LTrust, @LError) then
     begin
@@ -403,10 +641,9 @@ begin
       Exit;
     end;
 
-    // Rejected: default to unknown_ca, then refine ONLY from an OSStatus-domain
-    // CFError (best-effort) so the real reason (expired/revoked/host/EKU) reaches
-    // the peer. Any other domain or a missing accessor stays unknown_ca - a
-    // rejection is never softened into success.
+    // Rejected: default to unknown_ca, then refine ONLY from an OSStatus-domain CFError
+    // (best-effort) so the real reason reaches the peer. Any other domain or a missing
+    // accessor stays unknown_ca - a rejection is never softened into success.
     AAlert := TTlsAlertDescription.UnknownCa;
     if (LError <> nil) and FCanDecodeError and
       FCFEqual(FCFErrorGetDomain(LError), FkCFErrorDomainOSStatus) then
@@ -414,19 +651,204 @@ begin
   finally
     if LError <> nil then
       FCFRelease(LError);
-    if LHostRef <> nil then
-      FCFRelease(LHostRef);
+    if LStaple <> nil then
+      FCFRelease(LStaple);
+    if LDate <> nil then
+      FCFRelease(LDate);
     if LTrust <> nil then
       FCFRelease(LTrust);
-    if LPolicy <> nil then
-      FCFRelease(LPolicy);
+    if LRevPolicy <> nil then
+      FCFRelease(LRevPolicy);
+    if LSslPolicy <> nil then
+      FCFRelease(LSslPolicy);
+    if LPolicyArray <> nil then
+      FCFRelease(LPolicyArray);
+    if LHostRef <> nil then
+      FCFRelease(LHostRef);
     if LCertArray <> nil then
       FCFRelease(LCertArray);
-    for LI := 0 to LMade - 1 do
+  end;
+end;
+
+class function TAppleTrustApi.EvaluateClientChain(const AChain, AAnchors: TArray<TBytes>;
+  APosture: TRevocationPosture; const AClock: ITlsClock;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LCertArray, LAnchorArray, LPolicyArray: CFArrayRef;
+  LSslPolicy, LRevPolicy: SecPolicyRef;
+  LTrust: SecTrustRef;
+  LDate: CFDateRef;
+  LPolicyRefs: array [0 .. 1] of Pointer;
+  LPolicyCount: Integer;
+  LFlags: NativeUInt;
+  LStatus: OSStatus;
+  LError: CFErrorRef;
+begin
+  Result := False;
+  AAlert := TTlsAlertDescription.BadCertificate;
+
+  if Length(AChain) = 0 then
+    Exit;
+
+  if not FReady then
+  begin
+    AAlert := TTlsAlertDescription.InternalError;
+    Exit;
+  end;
+
+  // the anchors-only entry points are required for client-auth: without them a client could
+  // validate against the OS/public roots, so fail closed rather than fall back to a weaker check
+  if (not System.Assigned(FSecTrustSetAnchorCertificates)) or
+    (not System.Assigned(FSecTrustSetAnchorCertificatesOnly)) then
+  begin
+    AAlert := TTlsAlertDescription.InternalError;
+    Exit;
+  end;
+
+  // zero configured client-CA anchors can trust nothing: reject before building any trust so an
+  // empty anchor set can never fall through to the system roots
+  if Length(AAnchors) = 0 then
+  begin
+    AAlert := TTlsAlertDescription.UnknownCa;
+    Exit;
+  end;
+
+  LCertArray := nil;
+  LAnchorArray := nil;
+  LPolicyArray := nil;
+  LSslPolicy := nil;
+  LRevPolicy := nil;
+  LTrust := nil;
+  LDate := nil;
+  LError := nil;
+  try
+    if not MakeCertArray(AChain, LCertArray) then
+      Exit;
+    // a configured anchor that will not parse is a broken trust configuration, not a bad peer
+    if not MakeCertArray(AAnchors, LAnchorArray) then
     begin
-      if LCertRefs[LI] <> nil then
-        FCFRelease(LCertRefs[LI]);
+      AAlert := TTlsAlertDescription.InternalError;
+      Exit;
     end;
+
+    // a client-authentication SSL policy (no host binding)
+    LSslPolicy := FSecPolicyCreateSSL(False, nil);
+    if LSslPolicy = nil then
+    begin
+      AAlert := TTlsAlertDescription.InternalError;
+      Exit;
+    end;
+
+    LPolicyRefs[0] := LSslPolicy;
+    LPolicyCount := 1;
+    if APosture <> TRevocationPosture.Off then
+    begin
+      if not System.Assigned(FSecPolicyCreateRevocation) then
+      begin
+        if APosture = TRevocationPosture.Hard then
+        begin
+          AAlert := TTlsAlertDescription.InternalError;
+          Exit;
+        end;
+      end
+      else
+      begin
+        LFlags := KSecRevocationUseAnyAvailableMethod or
+          KSecRevocationNetworkAccessDisabled;
+        if APosture = TRevocationPosture.Hard then
+          LFlags := LFlags or KSecRevocationRequirePositiveResponse;
+        LRevPolicy := FSecPolicyCreateRevocation(LFlags);
+        if LRevPolicy = nil then
+        begin
+          AAlert := TTlsAlertDescription.InternalError;
+          Exit;
+        end;
+        LPolicyRefs[1] := LRevPolicy;
+        LPolicyCount := 2;
+      end;
+    end;
+    LPolicyArray := FCFArrayCreate(nil, @LPolicyRefs[0], LPolicyCount,
+      FkCFTypeArrayCallBacks);
+    if LPolicyArray = nil then
+    begin
+      AAlert := TTlsAlertDescription.InternalError;
+      Exit;
+    end;
+
+    LStatus := FSecTrustCreateWithCertificates(LCertArray, LPolicyArray, LTrust);
+    if (LStatus <> ErrSecSuccess) or (LTrust = nil) then
+    begin
+      AAlert := TTlsAlertDescription.BadCertificate;
+      Exit;
+    end;
+
+    // the configured client-CA anchors are the ONLY trusted roots
+    if FSecTrustSetAnchorCertificates(LTrust, LAnchorArray) <> ErrSecSuccess then
+    begin
+      AAlert := TTlsAlertDescription.InternalError;
+      Exit;
+    end;
+    if FSecTrustSetAnchorCertificatesOnly(LTrust, True) <> ErrSecSuccess then
+    begin
+      AAlert := TTlsAlertDescription.InternalError;
+      Exit;
+    end;
+
+    if FSecTrustSetNetworkFetchAllowed(LTrust, False) <> ErrSecSuccess then
+    begin
+      AAlert := TTlsAlertDescription.InternalError;
+      Exit;
+    end;
+
+    if AClock <> nil then
+    begin
+      if (not System.Assigned(FSecTrustSetVerifyDate)) or
+        (not System.Assigned(FCFDateCreate)) then
+      begin
+        AAlert := TTlsAlertDescription.InternalError;
+        Exit;
+      end;
+      LDate := FCFDateCreate(nil,
+        (Int64(AClock.NowUnixMillis) / 1000.0) - CFAbsoluteTimeUnixEpochDelta);
+      if LDate = nil then
+      begin
+        AAlert := TTlsAlertDescription.InternalError;
+        Exit;
+      end;
+      if FSecTrustSetVerifyDate(LTrust, LDate) <> ErrSecSuccess then
+      begin
+        AAlert := TTlsAlertDescription.InternalError;
+        Exit;
+      end;
+    end;
+
+    if FSecTrustEvaluateWithError(LTrust, @LError) then
+    begin
+      Result := True;
+      Exit;
+    end;
+
+    AAlert := TTlsAlertDescription.UnknownCa;
+    if (LError <> nil) and FCanDecodeError and
+      FCFEqual(FCFErrorGetDomain(LError), FkCFErrorDomainOSStatus) then
+      AAlert := TAppleAlertMap.OsStatusToAlert(Int32(FCFErrorGetCode(LError)));
+  finally
+    if LError <> nil then
+      FCFRelease(LError);
+    if LDate <> nil then
+      FCFRelease(LDate);
+    if LTrust <> nil then
+      FCFRelease(LTrust);
+    if LRevPolicy <> nil then
+      FCFRelease(LRevPolicy);
+    if LSslPolicy <> nil then
+      FCFRelease(LSslPolicy);
+    if LPolicyArray <> nil then
+      FCFRelease(LPolicyArray);
+    if LAnchorArray <> nil then
+      FCFRelease(LAnchorArray);
+    if LCertArray <> nil then
+      FCFRelease(LCertArray);
   end;
 end;
 
@@ -575,11 +997,61 @@ end;
 
 { TAppleDelegateVerifier }
 
+constructor TAppleDelegateVerifier.Create(APosture: TRevocationPosture;
+  const AClock: ITlsClock);
+begin
+  inherited Create;
+  FPosture := APosture;
+  FClock := AClock;
+end;
+
 function TAppleDelegateVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
   const AServerName: TServerName; const AOcspStaple: TBytes;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
-  Result := TAppleTrustApi.EvaluateSslChain(AChain, AServerName.ToString, AAlert);
+  Result := TAppleTrustApi.EvaluateSslChain(AChain, AServerName.ToString, FPosture,
+    FClock, AOcspStaple, AAlert);
+end;
+
+{ TAppleServerVerifierSource }
+
+function TAppleServerVerifierSource.CreateServerVerifier(
+  const AContext: TServerTrustContext): IServerCertificateVerifier;
+begin
+  Result := TAppleDelegateVerifier.Create(AContext.RevocationPosture,
+    AContext.Clock) as IServerCertificateVerifier;
+end;
+
+{ TAppleClientDelegateVerifier }
+
+constructor TAppleClientDelegateVerifier.Create(const AAnchors: TArray<TBytes>;
+  APosture: TRevocationPosture; const AClock: ITlsClock);
+begin
+  inherited Create;
+  FAnchors := AAnchors;
+  FPosture := APosture;
+  FClock := AClock;
+end;
+
+function TAppleClientDelegateVerifier.VerifyClientCertificate(
+  const AChain: TArray<TBytes>; out AAlert: TTlsAlertDescription): Boolean;
+begin
+  Result := TAppleTrustApi.EvaluateClientChain(AChain, FAnchors, FPosture,
+    FClock, AAlert);
+end;
+
+{ TAppleClientVerifierSource }
+
+function TAppleClientVerifierSource.CreateClientVerifier(
+  const AContext: TClientTrustContext): IClientCertificateVerifier;
+var
+  LAnchors: TArray<TBytes>;
+begin
+  LAnchors := nil;
+  if AContext.TrustStore <> nil then
+    LAnchors := AContext.TrustStore.RootCertificates;
+  Result := TAppleClientDelegateVerifier.Create(LAnchors,
+    AContext.RevocationPosture, AContext.Clock) as IClientCertificateVerifier;
 end;
 
 initialization

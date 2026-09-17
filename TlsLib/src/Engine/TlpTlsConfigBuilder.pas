@@ -2243,7 +2243,7 @@ begin
   // (RFC 9258); at least one trust source or a configured external PSK is required (no
   // silent-insecure). A PSK-only client verifies no certificate.
   if (System.Length(FAnchorStores) = 0) and (FServerCertVerifier = nil) and
-    (System.Length(FExternalPsks) = 0) then
+    (FServerVerifierSource = nil) and (System.Length(FExternalPsks) = 0) then
     raise EInvalidOperationTlsLibException.CreateRes(@SNoTrustStore);
   // a Hard revocation posture rejects a peer whose certificate carries no stapled OCSP response
   // (missing staple -> Indeterminate -> reject), so it silently always-rejects unless the client

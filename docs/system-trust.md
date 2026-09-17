@@ -35,8 +35,10 @@ iOS and Android are the two exceptions — both **delegate-only**. Apple exposes
 trusted roots, so there we delegate the whole verdict to `SecTrust`. On Android the on-disk root set is
 stale/partial (Android 7+ splits system vs user CAs; Android 14+ moves system roots to the immutable
 `com.android.conscrypt` APEX) and only the Java `X509TrustManager` applies the full policy —
-network-security-config (per-domain trust, user-CA opt-in, pinning) and platform revocation — so
-harvesting is banned and we hand the peer chain to the platform verifier via JNI.
+network-security-config (per-domain trust, user-CA opt-in, pinning) — so harvesting is banned and we
+hand the peer chain to the platform verifier via JNI. The platform manager does not itself consult a
+stapled OCSP response, so the delegate decides the staple with the library's own revocation verdict
+(cache-only, no network) after the platform chain check — see the posture note below.
 
 The delegate needs the running JavaVM to attach handshake threads. **On Delphi this is automatic** — the
 unit captures `System.JavaMachine` in its `initialization` (the RTL has set it by then, in
@@ -135,6 +137,13 @@ Because it is cache-only, the delegate is synchronous — the asynchronous live-
 (`WithAsyncCertificateVerdict`) is **not** engaged in Delegate mode. That is by design, not a
 regression.
 
+The **macOS, iOS and Android** delegates honour the same three settings — Apple through a
+`SecPolicyCreateRevocation` policy plus `SecTrustSetVerifyDate` and the stapled response, Android
+through a library-side staple check after the platform chain verdict. The one difference is that
+Android has no verify-date seam, so its *chain* validity is judged at the platform's own time (the
+clock still drives the staple-freshness window). The platform specifics are in the policy-difference
+notes below.
+
 ### OS-engine client-certificate validation (mTLS)
 
 An mTLS **server** authenticates the *client's* certificate, and it must do so against **your**
@@ -154,10 +163,12 @@ LConfig := TTlsPresets.Compatible(P).Server
   .Build;
 ```
 
-The delegate uses the `clientAuth` EKU + the OS client-auth policy, with the same posture/clock/
-cache-only revocation as the server delegate (a client certificate is never stapled). Windows only for
-now. Note it **consumes** the configured anchors (they are its exclusive root), so — unlike a whole
-verifier — it *composes* with `WithTrustAnchors` rather than being exclusive of it.
+The delegate uses the `clientAuth` EKU + the OS client-auth policy (a client certificate is never
+stapled). It is available on **Windows, macOS, iOS and Android**: Windows and Apple apply the same
+posture/clock/cache-only revocation as the server delegate; the Android client delegate is an
+anchors-only KeyStore chain check (no posture/clock — see the Android note below). Note it **consumes**
+the configured anchors (they are its exclusive root), so — unlike a whole verifier — it *composes* with
+`WithTrustAnchors` rather than being exclusive of it.
 
 ### Policy differences vs. the built-in verifier
 
@@ -177,11 +188,32 @@ two apply to any OS delegate; the rest are crypt32 specifics.
 | **Path building & name constraints** *(any delegate)* | CryptoLib `PkixCertPathBuilder` | the OS engine's own path building |
 
 The macOS, iOS and Android delegates diverge from the built-in pipeline in *analogous* ways, but along
-their own platform's lines — their own distrust inputs (SecTrust settings, the Android store), their
-own revocation policy (which, unlike the Windows delegate, may reach the network), and their own alert
-mapping. Those specifics are not enumerated here. None of these differences weaken the trust decision
-relative to a correctly-configured OS; they are behavioural *differences* to be aware of when you pick
-Delegate over the portable pipeline.
+their own platform's lines — their own distrust inputs (SecTrust settings, the Android store) and their
+own alert mapping. Like the Windows delegate they are **cache-only** (no network revocation during the
+handshake): the Apple delegate disables SecTrust network fetch and applies the posture as a
+`SecPolicyCreateRevocation` policy; the Android delegate applies the posture through the library's own
+staple verdict. A few specifics worth stating:
+
+- **Revocation posture is honoured on every delegate**, cache-only. **Hard** therefore needs a fresh
+  stapled (or, on Windows/Apple, cached) *Good* response: because the staple covers only the leaf and
+  the intermediate has no cached response over a cold cache, Hard can reject a first, cold-cache
+  handshake — the same on Windows and Apple. On the client (mTLS) path a certificate is never stapled,
+  so Hard mTLS through any OS delegate likewise needs a warm cache.
+- **Off is slightly stricter than the built-in / Windows Off on Apple and Android**: a definitive
+  *Revoked* in a stapled/cached response still rejects (it is never softened), whereas Windows Off
+  skips revocation entirely.
+- **Injected clock:** honoured for chain validity on Windows and Apple. On **Android** the platform
+  `X509TrustManager` exposes no verify-date seam, so the chain is validated at the platform's own time;
+  the clock *is* honoured for the staple-freshness window (the library decides that). This is the one
+  documented Android limitation.
+- **Android needs the peer to send its issuer for Hard**: the staple post-check authenticates the
+  staple against `chain[1]`, so a leaf-only chain is indeterminate and Hard rejects it (Windows
+  discovers the issuer itself).
+- **must-staple (RFC 7633) is enforced by the built-in verifier only** — no OS delegate, Windows
+  included, honours it.
+
+None of these differences weaken the trust decision relative to a correctly-configured OS; they are
+behavioural *differences* to be aware of when you pick Delegate over the portable pipeline.
 
 ---
 

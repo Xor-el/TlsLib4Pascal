@@ -102,11 +102,6 @@ type
     function VerifyPipeline(const AChain: TArray<TBytes>;
       const AServerName: TServerName; ACheckName: Boolean; const AOcspStaple: TBytes;
       AKeyPurpose: TCertKeyPurpose; out AAlert: TTlsAlertDescription): Boolean;
-    /// <summary>The stapled OCSP verdict for the leaf, collapsed to what the trust
-    /// decision needs: a current Good response, a definitive Revoked, or an
-    /// indeterminate outcome (no staple, unauthorized, unknown, or stale).</summary>
-    function EvaluateStaple(const AChain: TArray<TBytes>;
-      const AOcspStaple: TBytes): TStapleVerdict;
     /// <summary>The stapled-OCSP revocation + must-staple step (RFC 6960 / RFC 7633),
     /// in-band only. A malformed TLS Feature extension is a hard bad_certificate. A
     /// definitive Revoked fails (certificate_revoked); a current Good passes. A must-staple
@@ -116,6 +111,15 @@ type
     function CheckRevocation(const AChain: TArray<TBytes>; const AOcspStaple: TBytes;
       out AAlert: TTlsAlertDescription): Boolean;
   public
+    /// <summary>The stapled OCSP verdict for a leaf (RFC 6960), shared by the built-in
+    /// pipeline and an OS delegate that runs its own post-check: a current Good response, a
+    /// definitive Revoked, or an indeterminate outcome (absent, unauthorized, unknown, or
+    /// outside its validity window). A nil provider or clock cannot render a verdict, so it
+    /// returns Indeterminate. AClock supplies both the responder-validity time and the
+    /// freshness window.</summary>
+    class function StapleVerdict(const AProvider: ICryptoProvider;
+      const AClock: ITlsClock; const AChain: TArray<TBytes>;
+      const AStaple: TBytes): TStapleVerdict; static;
     /// <summary>A verifier with the conservative default chain limits and soft-fail
     /// revocation. AClock backs the stapled-OCSP freshness window (RFC 6960).</summary>
     constructor Create(const AProvider: ICryptoProvider; const AClock: ITlsClock;
@@ -299,19 +303,24 @@ begin
   FChainPolicyEnabled := True;
 end;
 
-function TCertificateVerifier.EvaluateStaple(const AChain: TArray<TBytes>;
-  const AOcspStaple: TBytes): TStapleVerdict;
+class function TCertificateVerifier.StapleVerdict(const AProvider: ICryptoProvider;
+  const AClock: ITlsClock; const AChain: TArray<TBytes>;
+  const AStaple: TBytes): TStapleVerdict;
 var
   LStatus: TOcspStatus;
   LThisUpdate, LNextUpdate: TDateTime;
   LNowMs: Int64;
 begin
   Result := TStapleVerdict.Indeterminate;
-  // a staple needs the issuer (the next chain entry) to authenticate it
-  if (System.Length(AOcspStaple) = 0) or (System.Length(AChain) < 2) then
+  // a public entry point: without a provider or a clock no verdict can be rendered
+  if (AProvider = nil) or (AClock = nil) then
     Exit;
-  if not FProvider.Revocation.ValidateOcspStaple(AChain[0], AChain[1], AOcspStaple,
-    ValidationTimeUtc, LStatus, LThisUpdate, LNextUpdate) then
+  // a staple needs the issuer (the next chain entry) to authenticate it
+  if (System.Length(AStaple) = 0) or (System.Length(AChain) < 2) then
+    Exit;
+  if not AProvider.Revocation.ValidateOcspStaple(AChain[0], AChain[1], AStaple,
+    TDateTimeUtilities.UnixMsToDateTime(Int64(AClock.NowUnixMillis)), LStatus,
+    LThisUpdate, LNextUpdate) then
     Exit;
   if LStatus = TOcspStatus.Revoked then
   begin
@@ -321,7 +330,7 @@ begin
   if LStatus = TOcspStatus.Good then
   begin
     // accept a Good response only inside its own validity window
-    LNowMs := Int64(FClock.NowUnixMillis);
+    LNowMs := Int64(AClock.NowUnixMillis);
     if (LNowMs >= TDateTimeUtilities.DateTimeToUnixMs(LThisUpdate)) and
       ((LNextUpdate = 0) or
       (LNowMs < TDateTimeUtilities.DateTimeToUnixMs(LNextUpdate))) then
@@ -357,7 +366,7 @@ begin
       Break;
     end;
 
-  LVerdict := EvaluateStaple(AChain, AOcspStaple);
+  LVerdict := StapleVerdict(FProvider, FClock, AChain, AOcspStaple);
 
   if LVerdict = TStapleVerdict.Revoked then
   begin

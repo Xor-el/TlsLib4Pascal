@@ -214,9 +214,9 @@ type
     procedure SetPassThrough(const AValue: Boolean); override;
     function RecvEnc(var ABuffer: TIdBytes): Integer; override;
     function SendEnc(const ABuffer: TIdBytes; const AOffset, ALength: Integer): Integer; override;
-    function Readable(AMSec: Integer): Boolean; override;
   public
     destructor Destroy; override;
+    function Readable(AMSec: Integer): Boolean; override;
     /// <summary>Sends a TLS close_notify (best-effort, half-close) before the socket is torn down,
     /// so a strict peer sees a clean shutdown instead of a truncation (RFC 8446 6.1).</summary>
     procedure Close; override;

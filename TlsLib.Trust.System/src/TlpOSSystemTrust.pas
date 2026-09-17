@@ -20,7 +20,6 @@ uses
   TlpICryptoProvider,
   TlpICertificateTrust,
   TlpICertificateVerifierSource,
-  TlpCertificateVerifierSource,
   TlpSystemTrustBase,
   TlpSystemTrustExceptions
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
@@ -139,13 +138,9 @@ begin
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
   Result := TWindowsServerVerifierSource.Create as IServerCertificateVerifierSource;
 {$ELSEIF DEFINED(TLSLIB_IOS) OR DEFINED(TLSLIB_MACOS)}
-  Result := TInstanceServerVerifierSource.Create(
-    TAppleDelegateVerifier.Create as IServerCertificateVerifier)
-    as IServerCertificateVerifierSource;
+  Result := TAppleServerVerifierSource.Create as IServerCertificateVerifierSource;
 {$ELSEIF DEFINED(TLSLIB_ANDROID)}
-  Result := TInstanceServerVerifierSource.Create(
-    TAndroidDelegateVerifier.Create(AProvider) as IServerCertificateVerifier)
-    as IServerCertificateVerifierSource;
+  Result := TAndroidServerVerifierSource.Create as IServerCertificateVerifierSource;
 {$ELSE}
   raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoDelegate);
 {$IFEND}
@@ -157,6 +152,10 @@ begin
   Result := nil;
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
   Result := TWindowsClientVerifierSource.Create as IClientCertificateVerifierSource;
+{$ELSEIF DEFINED(TLSLIB_IOS) OR DEFINED(TLSLIB_MACOS)}
+  Result := TAppleClientVerifierSource.Create as IClientCertificateVerifierSource;
+{$ELSEIF DEFINED(TLSLIB_ANDROID)}
+  Result := TAndroidClientVerifierSource.Create as IClientCertificateVerifierSource;
 {$ELSE}
   raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoClientDelegate);
 {$IFEND}
