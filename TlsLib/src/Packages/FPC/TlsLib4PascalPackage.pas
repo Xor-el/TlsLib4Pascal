@@ -44,7 +44,8 @@ uses
   TlpCredentialResolvers, TlpEchConfig, TlpEchExtension, 
   TlpEchOuterExtensions, TlpEchClient, TlpIEch, TlpInMemoryEchKeyStore, 
   TlpEchServer, TlpServerName, TlpHpkeComposition, TlpDer, TlpPem, 
-  TlpICertificateVerifierSource, TlpCertificateVerifierSource;
+  TlpICertificateVerifierSource, TlpCertificateVerifierSource, 
+  TlpTls12PrfComposition;
 
 implementation
 

@@ -47,6 +47,7 @@ type
     function CreateHash(AAlgorithm: THashAlgorithm): IHash; virtual;
     function CreateHmac(AAlgorithm: THashAlgorithm): IHmac; virtual;
     function CreateHkdf(AAlgorithm: THashAlgorithm): IHkdf; virtual;
+    function CreateTls12Prf(AAlgorithm: THashAlgorithm): ITls12Prf; virtual;
     function CreateAead(AAlgorithm: TAeadAlgorithm): IAead; virtual;
     function CreateKeyAgreement(AAlgorithm: TKeyAgreementAlgorithm): IKeyAgreement; virtual;
     function CreateKem(AAlgorithm: TKemAlgorithm): IKem; virtual;
@@ -121,6 +122,12 @@ end;
 function TForwardingCryptoPrimitives.CreateHkdf(AAlgorithm: THashAlgorithm): IHkdf;
 begin
   Result := FInner.CreateHkdf(AAlgorithm);
+end;
+
+function TForwardingCryptoPrimitives.CreateTls12Prf(
+  AAlgorithm: THashAlgorithm): ITls12Prf;
+begin
+  Result := FInner.CreateTls12Prf(AAlgorithm);
 end;
 
 function TForwardingCryptoPrimitives.CreateAead(AAlgorithm: TAeadAlgorithm): IAead;

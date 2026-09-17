@@ -135,6 +135,7 @@ uses
   TlpTlsCredential,
   TlpISecretBuffer,
   TlpSecretBuffer,
+  TlpTls12PrfComposition,
   TlpHpkeComposition,
   TlpSecureMemory,
   TlpTlsAlert,
@@ -520,6 +521,7 @@ type
     function CreateHash(AAlgorithm: THashAlgorithm): IHash;
     function CreateHmac(AAlgorithm: THashAlgorithm): IHmac;
     function CreateHkdf(AAlgorithm: THashAlgorithm): IHkdf;
+    function CreateTls12Prf(AAlgorithm: THashAlgorithm): ITls12Prf;
     function CreateAead(AAlgorithm: TAeadAlgorithm): IAead;
     function CreateKeyAgreement(AAlgorithm: TKeyAgreementAlgorithm): IKeyAgreement;
     function CreateKem(AAlgorithm: TKemAlgorithm): IKem;
@@ -1841,6 +1843,11 @@ end;
 function TCryptoPrimitives.CreateHkdf(AAlgorithm: THashAlgorithm): IHkdf;
 begin
   Result := THkdfAdapter.Create(AAlgorithm);
+end;
+
+function TCryptoPrimitives.CreateTls12Prf(AAlgorithm: THashAlgorithm): ITls12Prf;
+begin
+  Result := TTls12PrfComposition.Create(Self, AAlgorithm) as ITls12Prf;
 end;
 
 function TCryptoPrimitives.CreateAead(AAlgorithm: TAeadAlgorithm): IAead;

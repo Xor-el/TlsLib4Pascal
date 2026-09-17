@@ -33,6 +33,7 @@ uses
   TlpISecretBuffer,
   TlpSecretBuffer,
   TlpSecureMemory,
+  TlpTls12PrfComposition,
   TlpSystemCryptoBase,
   TlpSystemCryptoExceptions,
   TlpTlsAlert,
@@ -89,6 +90,9 @@ const
 
   BCRYPT_USE_SYSTEM_PREFERRED_RNG = ULONG($00000002);
   BCRYPT_ALG_HANDLE_HMAC_FLAG = ULONG($00000008);
+  // the HKDF info travels in the BCryptKeyDerivation parameter list, not as a key property
+  KDF_HKDF_INFO = ULONG($14);
+  BCRYPTBUFFER_VERSION = ULONG(0);
   BCRYPT_AUTH_MODE_INFO_VERSION = ULONG(1);
   STATUS_AUTH_TAG_MISMATCH = Integer($C000A002);
 
@@ -139,6 +143,9 @@ var
   HASH_ALG_SHA256: WideString = 'SHA256';
   HASH_ALG_SHA384: WideString = 'SHA384';
   HASH_ALG_SHA512: WideString = 'SHA512';
+  BCRYPT_HKDF_ALG: WideString = 'HKDF';
+  BCRYPT_HKDF_HASH_NAME: WideString = 'HkdfHashAlgorithm';
+  BCRYPT_HKDF_PRK_AND_FINALIZE: WideString = 'HkdfPrkAndFinalize';
   BCRYPT_PUBLIC_KEY_LENGTH_PROP: WideString = 'PublicKeyLength';
 
 resourcestring
@@ -209,6 +216,9 @@ type
     dwFlags: ULONG): Integer; stdcall;
   TBCryptVerifySignature = function(hKey: Pointer; pPaddingInfo: Pointer;
     pbHash: PByte; cbHash: ULONG; pbSignature: PByte; cbSignature: ULONG;
+    dwFlags: ULONG): Integer; stdcall;
+  TBCryptKeyDerivation = function(hKey: Pointer; pParameterList: Pointer;
+    pbDerivedKey: PByte; cbDerivedKey: ULONG; out pcbResult: ULONG;
     dwFlags: ULONG): Integer; stdcall;
   TBCryptGetProperty = function(hObject: Pointer; pszProperty: PWideChar;
     pbOutput: PByte; cbOutput: ULONG; out pcbResult: ULONG;
@@ -309,6 +319,7 @@ type
     Decapsulate: TBCryptDecapsulate;
     VerifySignature: TBCryptVerifySignature;
     GetProperty: TBCryptGetProperty;
+    KeyDerivation: TBCryptKeyDerivation;
   end;
 
   // crypt32.dll: decodes an X.509 SubjectPublicKeyInfo and imports it as a BCrypt public
@@ -387,6 +398,11 @@ type
     function TryCreateHmac(AAlgorithm: THashAlgorithm; out AHmac: IHmac): Boolean;
     /// <summary>Whether HMAC over the given hash is served from CNG on this host.</summary>
     function HmacAvailable(AAlgorithm: THashAlgorithm): Boolean;
+    /// <summary>HKDF-Expand served in-module by the CNG HKDF provider (RFC 5869), gated on a
+    /// startup self-test against a known vector. False when unavailable or a call is rejected,
+    /// so the caller composes Expand over the CNG HMAC instead.</summary>
+    function TryHkdfExpandNative(AAlgorithm: THashAlgorithm; const APrk, AInfo: TBytes;
+      ALength: Int32; out AOkm: TBytes): Boolean;
     /// <summary>A CNG AEAD for AAlgorithm, or False when CNG cannot serve it here (e.g.
     /// ChaCha20-Poly1305 before Windows 11).</summary>
     function TryCreateAead(AAlgorithm: TAeadAlgorithm; out AAead: IAead): Boolean;
@@ -619,6 +635,7 @@ type
     FHmacSha256, FHmacSha384, FHmacSha512: Pointer;
     FAesGcm, FChaCha: Pointer;
     FMlKem: Pointer;
+    FHkdfAlg: Pointer;
     FRandomOk: Boolean;
     class function LoadApi(out AModule: THandle; out AApi: TCngApi): Boolean; static;
     class function Curve(AAlgorithm: TKeyAgreementAlgorithm): TCngCurve; static;
@@ -626,6 +643,10 @@ type
     function OpenAesGcm: Pointer;
     function OpenX25519: Pointer;
     function ProbeRandom: Boolean;
+    /// <summary>Derives OKM from an already-computed PRK via the CNG HKDF provider's
+    /// PRK-and-finalize path (Expand only). False on any CNG failure, so the caller falls back.</summary>
+    function DoNativeHkdfExpand(const AHashName: WideString; const APrk, AInfo: TBytes;
+      ALength: Int32; out AOkm: TBytes): Boolean;
   public
     constructor Create;
     destructor Destroy; override;
@@ -638,6 +659,8 @@ type
     function HashAvailable(AAlgorithm: THashAlgorithm): Boolean;
     function TryCreateHmac(AAlgorithm: THashAlgorithm; out AHmac: IHmac): Boolean;
     function HmacAvailable(AAlgorithm: THashAlgorithm): Boolean;
+    function TryHkdfExpandNative(AAlgorithm: THashAlgorithm; const APrk, AInfo: TBytes;
+      ALength: Int32; out AOkm: TBytes): Boolean;
     function TryCreateAead(AAlgorithm: TAeadAlgorithm; out AAead: IAead): Boolean;
     function AeadAvailable(AAlgorithm: TAeadAlgorithm): Boolean;
     function TryCreateKem(AAlgorithm: TKemAlgorithm; out AKem: IKem): Boolean;
@@ -660,6 +683,7 @@ type
     function CreateHash(AAlgorithm: THashAlgorithm): IHash; override;
     function CreateHmac(AAlgorithm: THashAlgorithm): IHmac; override;
     function CreateHkdf(AAlgorithm: THashAlgorithm): IHkdf; override;
+    function CreateTls12Prf(AAlgorithm: THashAlgorithm): ITls12Prf; override;
     function CreateAead(AAlgorithm: TAeadAlgorithm): IAead; override;
     function CreateKeyAgreement(AAlgorithm: TKeyAgreementAlgorithm): IKeyAgreement; override;
     function CreateKem(AAlgorithm: TKemAlgorithm): IKem; override;
@@ -909,10 +933,12 @@ type
     function HashBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
     function HmacBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
     function HkdfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
+    function Tls12PrfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
     function AeadBackend(AAlgorithm: TAeadAlgorithm): TCryptoBackendEntry;
     function KeyAgreementBackend(AAlgorithm: TKeyAgreementAlgorithm): TCryptoBackendEntry;
     function KemBackend(AAlgorithm: TKemAlgorithm): TCryptoBackendEntry;
     function SigningBackend(AScheme: TSignatureScheme): TCryptoBackendEntry;
+    function SigningKeyBackend(const AKey: ISigningKey): TCryptoBackendEntry;
     function FacetBackend(AFacet: TCryptoFacet): TCryptoBackendEntry;
     function Describe: string;
   end;
@@ -1195,7 +1221,7 @@ function TWindowsCngHkdf.Expand(const APrk: ISecretBuffer; const AInfo: TBytes;
   ALength: Int32): ISecretBuffer;
 var
   LMac: IHmac;
-  LOkm, LT, LCtr: TBytes;
+  LOkm, LT, LCtr, LPrkBytes, LNative: TBytes;
   LPos, LTake: Int32;
   LCounter: Byte;
 begin
@@ -1203,6 +1229,24 @@ begin
   if ALength > 255 * FMacSize then
     raise EArgumentTlsLibException.CreateResFmt(@SHkdfExpandTooLong,
       [ALength, 255 * FMacSize]);
+  if ALength = 0 then
+    Exit(TSecretBuffer.From(nil));
+  // in-module Expand when the CNG HKDF provider is available (self-tested); else the portable
+  // T-loop over the CNG HMAC below
+  LPrkBytes := APrk.ToBytes;
+  try
+    if FCng.TryHkdfExpandNative(FAlgorithm, LPrkBytes, AInfo, ALength, LNative) then
+    begin
+      try
+        Result := TSecretBuffer.From(LNative);
+      finally
+        TSecureMemory.WipeBytes(LNative);
+      end;
+      Exit;
+    end;
+  finally
+    TSecureMemory.WipeBytes(LPrkBytes);
+  end;
   LOkm := nil;
   SetLength(LOkm, ALength);
   LMac := NewMac;
@@ -2002,6 +2046,7 @@ begin
   AApi.VerifySignature := TBCryptVerifySignature(
     TModuleApi.Proc(AModule, 'BCryptVerifySignature'));
   AApi.GetProperty := TBCryptGetProperty(TModuleApi.Proc(AModule, 'BCryptGetProperty'));
+  AApi.KeyDerivation := TBCryptKeyDerivation(TModuleApi.Proc(AModule, 'BCryptKeyDerivation'));
 
   // the only universal requirement: opening and closing algorithm handles. Every feature
   // entry point is optional and gated per-facet at construction, so a stripped or older
@@ -2149,6 +2194,10 @@ begin
   if LKem then
     FMlKem := TryOpenAlg(MLKEM_ALG_NAME);
   FRandomOk := ProbeRandom;
+  // in-module HKDF-Expand needs the derive entry point + a symmetric key + property support
+  if System.Assigned(FApi.KeyDerivation) and System.Assigned(FApi.GenerateSymmetricKey) and
+    System.Assigned(FApi.SetProperty) and System.Assigned(FApi.DestroyKey) then
+    FHkdfAlg := TryOpenAlg(BCRYPT_HKDF_ALG);
 end;
 
 destructor TWindowsCng.Destroy;
@@ -2161,6 +2210,7 @@ destructor TWindowsCng.Destroy;
 begin
   if System.Assigned(FApi.CloseAlgorithmProvider) then
   begin
+    CloseAlg(FHkdfAlg);
     CloseAlg(FMlKem);
     CloseAlg(FX25519);
     CloseAlg(FChaCha);
@@ -2351,6 +2401,81 @@ begin
   end;
 end;
 
+function TWindowsCng.DoNativeHkdfExpand(const AHashName: WideString;
+  const APrk, AInfo: TBytes; ALength: Int32; out AOkm: TBytes): Boolean;
+var
+  LKey: Pointer;
+  LResult: ULONG;
+  LHash: WideString;
+  LOkm: TBytes;
+  LBuf: TNCryptBuffer;
+  LDesc: TNCryptBufferDesc;
+  LParams: Pointer;
+begin
+  Result := False;
+  AOkm := nil;
+  if FApi.GenerateSymmetricKey(FHkdfAlg, LKey, nil, 0, PByte(APrk),
+    ULONG(System.Length(APrk)), 0) <> 0 then
+    Exit;
+  LOkm := nil;
+  LHash := AHashName; // keep the wide string alive for the property call
+  try
+    if FApi.SetProperty(LKey, PWideChar(BCRYPT_HKDF_HASH_NAME),
+      PByte(PWideChar(LHash)), ULONG((System.Length(LHash) + 1) * SizeOf(WideChar)),
+      0) <> 0 then
+      Exit;
+    // the key material is the PRK, so finalize (Expand) without the extract step
+    if FApi.SetProperty(LKey, PWideChar(BCRYPT_HKDF_PRK_AND_FINALIZE), nil, 0, 0) <> 0 then
+      Exit;
+    // the info travels in the derive parameter list as one KDF_HKDF_INFO buffer
+    LParams := nil;
+    if System.Length(AInfo) > 0 then
+    begin
+      LBuf.cbBuffer := ULONG(System.Length(AInfo));
+      LBuf.BufferType := KDF_HKDF_INFO;
+      LBuf.pvBuffer := @AInfo[0];
+      LDesc.ulVersion := BCRYPTBUFFER_VERSION;
+      LDesc.cBuffers := 1;
+      LDesc.pBuffers := @LBuf;
+      LParams := @LDesc;
+    end;
+    SetLength(LOkm, ALength);
+    if FApi.KeyDerivation(LKey, LParams, PByte(LOkm), ULONG(ALength), LResult, 0) <> 0 then
+      Exit;
+    if LResult <> ULONG(ALength) then
+      Exit;
+    AOkm := LOkm;
+    LOkm := nil;
+    Result := True;
+  finally
+    if LOkm <> nil then
+      TSecureMemory.WipeBytes(LOkm);
+    FApi.DestroyKey(LKey);
+  end;
+end;
+
+function TWindowsCng.TryHkdfExpandNative(AAlgorithm: THashAlgorithm;
+  const APrk, AInfo: TBytes; ALength: Int32; out AOkm: TBytes): Boolean;
+var
+  LName: WideString;
+begin
+  Result := False;
+  AOkm := nil;
+  if (FHkdfAlg = nil) or (ALength <= 0) then
+    Exit;
+  case AAlgorithm of
+    THashAlgorithm.SHA_256:
+      LName := HASH_ALG_SHA256;
+    THashAlgorithm.SHA_384:
+      LName := HASH_ALG_SHA384;
+    THashAlgorithm.SHA_512:
+      LName := HASH_ALG_SHA512;
+  else
+    Exit;
+  end;
+  Result := DoNativeHkdfExpand(LName, APrk, AInfo, ALength, AOkm);
+end;
+
 function TWindowsCng.TryCreateAead(AAlgorithm: TAeadAlgorithm;
   out AAead: IAead): Boolean;
 var
@@ -2482,6 +2607,15 @@ begin
     Result := inherited CreateHkdf(AAlgorithm);
 end;
 
+function TWindowsCryptoPrimitives.CreateTls12Prf(
+  AAlgorithm: THashAlgorithm): ITls12Prf;
+begin
+  if FCng.HmacAvailable(AAlgorithm) then
+    Result := TTls12PrfComposition.Create(Self, AAlgorithm) as ITls12Prf
+  else
+    Result := inherited CreateTls12Prf(AAlgorithm);
+end;
+
 function TWindowsCryptoPrimitives.CreateAead(AAlgorithm: TAeadAlgorithm): IAead;
 begin
   if not FCng.TryCreateAead(AAlgorithm, Result) then
@@ -2559,6 +2693,16 @@ begin
     Result := NotNative;
 end;
 
+function TWindowsBackendReport.Tls12PrfBackend(
+  AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
+begin
+  // the 1.2 PRF is P_hash assembled over the CNG HMAC: the secret passes through CNG
+  if FCng.HmacAvailable(AAlgorithm) then
+    Result := Ent(TCryptoBackend.Composed, TCryptoBackendReason.NotFallback)
+  else
+    Result := NotNative;
+end;
+
 function TWindowsBackendReport.AeadBackend(
   AAlgorithm: TAeadAlgorithm): TCryptoBackendEntry;
 begin
@@ -2602,6 +2746,17 @@ function TWindowsBackendReport.SigningBackend(
 begin
   // native signing covers RSA-PSS/PKCS1 and NIST-curve ECDSA (via NCrypt); EdDSA is portable
   if FSigningNative and TWindowsNCrypt.IsNativeScheme(AScheme) then
+    Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback)
+  else
+    Result := NotNative;
+end;
+
+function TWindowsBackendReport.SigningKeyBackend(
+  const AKey: ISigningKey): TCryptoBackendEntry;
+begin
+  // per key, not per scheme: only a key this backend natively imported carries the marker;
+  // one that fell back to the portable facet signs portable regardless of its scheme
+  if Supports(AKey, IWindowsSigningKey) then
     Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback)
   else
     Result := NotNative;

@@ -84,6 +84,18 @@ type
   end;
 
   /// <summary>
+  /// The TLS 1.2 PRF (RFC 5246 5): P_hash over the provider's HMAC, the hash bound at
+  /// creation. PRF(secret, label, seed) = P_hash(secret, label + seed). A first-class
+  /// primitive so a provider serves it over its own HMAC rather than the key schedule
+  /// hand-rolling the construction.
+  /// </summary>
+  ITls12Prf = interface(IInterface)
+    ['{3F9A2C71-5E84-4B60-9D17-8A2C4E7B10F5}']
+    function Compute(const ASecret: ISecretBuffer; const ALabel: string;
+      const ASeed: TBytes; ALength: Int32): TBytes;
+  end;
+
+  /// <summary>
   /// An AEAD cipher. The key is set once via <see cref="Init" />; the nonce and
   /// associated data are per message. <see cref="Open" /> raises on an
   /// authentication failure.
@@ -166,6 +178,7 @@ type
     function CreateHash(AAlgorithm: THashAlgorithm): IHash;
     function CreateHmac(AAlgorithm: THashAlgorithm): IHmac;
     function CreateHkdf(AAlgorithm: THashAlgorithm): IHkdf;
+    function CreateTls12Prf(AAlgorithm: THashAlgorithm): ITls12Prf;
     function CreateAead(AAlgorithm: TAeadAlgorithm): IAead;
     function CreateKeyAgreement(AAlgorithm: TKeyAgreementAlgorithm): IKeyAgreement;
     function CreateKem(AAlgorithm: TKemAlgorithm): IKem;

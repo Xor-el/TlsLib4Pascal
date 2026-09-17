@@ -17,6 +17,7 @@ interface
 
 uses
   TlpCryptoDomainTypes,
+  TlpISigningKey,
   TlpSystemCryptoTypes;
 
 type
@@ -34,10 +35,15 @@ type
     function HashBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
     function HmacBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
     function HkdfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
+    function Tls12PrfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
     function AeadBackend(AAlgorithm: TAeadAlgorithm): TCryptoBackendEntry;
     function KeyAgreementBackend(AAlgorithm: TKeyAgreementAlgorithm): TCryptoBackendEntry;
     function KemBackend(AAlgorithm: TKemAlgorithm): TCryptoBackendEntry;
     function SigningBackend(AScheme: TSignatureScheme): TCryptoBackendEntry;
+    /// <summary>The backend of a specific signing key. SigningBackend answers per scheme, but a
+    /// key of a native scheme can still sign portable when its import fell back (unusual key
+    /// parameters, PKCS#12); this is the honest per-key answer.</summary>
+    function SigningKeyBackend(const AKey: ISigningKey): TCryptoBackendEntry;
     /// <summary>The backend of a whole facet. Certificates/PathValidation/Revocation/Hpke
     /// are whole (Portable when the provider forwards them); Primitives and Signing are mixed,
     /// so use the per-algorithm queries for their detail.</summary>

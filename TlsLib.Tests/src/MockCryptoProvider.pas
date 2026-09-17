@@ -62,6 +62,7 @@ type
     function CreateHash(AAlgorithm: THashAlgorithm): IHash;
     function CreateHmac(AAlgorithm: THashAlgorithm): IHmac;
     function CreateHkdf(AAlgorithm: THashAlgorithm): IHkdf;
+    function CreateTls12Prf(AAlgorithm: THashAlgorithm): ITls12Prf;
     function CreateAead(AAlgorithm: TAeadAlgorithm): IAead;
     function CreateKeyAgreement(AAlgorithm: TKeyAgreementAlgorithm): IKeyAgreement;
     function CreateKem(AAlgorithm: TKemAlgorithm): IKem;
@@ -159,6 +160,11 @@ end;
 function TFixedAesPrimitives.CreateHkdf(AAlgorithm: THashAlgorithm): IHkdf;
 begin
   Result := FInner.CreateHkdf(AAlgorithm);
+end;
+
+function TFixedAesPrimitives.CreateTls12Prf(AAlgorithm: THashAlgorithm): ITls12Prf;
+begin
+  Result := FInner.CreateTls12Prf(AAlgorithm);
 end;
 
 function TFixedAesPrimitives.CreateAead(AAlgorithm: TAeadAlgorithm): IAead;

@@ -30,17 +30,6 @@ uses
 
 type
   /// <summary>
-  /// The TLS 1.2 PRF (RFC 5246 5): P_hash with the suite hash over the provider's
-  /// HMAC. PRF(secret, label, seed) = P_hash(secret, label + seed).
-  /// </summary>
-  TTls12Prf = class sealed(TObject)
-  public
-    class function Compute(const AProvider: ICryptoProvider; AHash: THashAlgorithm;
-      const ASecret: ISecretBuffer; const ALabel: string; const ASeed: TBytes;
-      ALength: Int32): TBytes; static;
-  end;
-
-  /// <summary>
   /// The TLS 1.2 key schedule (RFC 5246 6.3 / RFC 7627): PRF-derived master secret
   /// (plain or Extended Master Secret), the key_block split into the AEAD write
   /// keys and implicit-nonce salts that feed the record layer, and the Finished
@@ -51,6 +40,7 @@ type
   strict private
   var
     FProvider: ICryptoProvider;
+    FPrf: ITls12Prf;
     FHash: THashAlgorithm;
     FKeyLength: Int32;
     FSaltLength: Int32;
@@ -107,52 +97,6 @@ resourcestring
   SNoSuchEpoch = 'the TLS 1.2 schedule has only an application-data epoch';
   SMasterNotDerived = 'the master secret has not been derived';
 
-{ TTls12Prf }
-
-class function TTls12Prf.Compute(const AProvider: ICryptoProvider;
-  AHash: THashAlgorithm; const ASecret: ISecretBuffer; const ALabel: string;
-  const ASeed: TBytes; ALength: Int32): TBytes;
-var
-  LSeed, LA, LBlock: TBytes;
-  LPos, LCopy: Int32;
-
-  function HmacOf(const AData: TBytes): TBytes;
-  var
-    LHmac: IHmac;
-  begin
-    LHmac := AProvider.Primitives.CreateHmac(AHash);
-    LHmac.Init(ASecret);
-    LHmac.Update(AData, 0, System.Length(AData));
-    Result := LHmac.DoFinal;
-  end;
-
-begin
-  Result := nil;
-  SetLength(Result, ALength);
-  LSeed := TArrayUtilities.Concat(TEncoding.ASCII.GetBytes(ALabel), ASeed);
-  LA := LSeed; // A(0) = seed
-  try
-    LPos := 0;
-    while LPos < ALength do
-    begin
-      LA := HmacOf(LA); // A(i) = HMAC(secret, A(i-1))
-      LBlock := HmacOf(TArrayUtilities.Concat(LA, LSeed));
-      try
-        LCopy := System.Length(LBlock);
-        if LCopy > ALength - LPos then
-          LCopy := ALength - LPos;
-        Move(LBlock[0], Result[LPos], LCopy);
-        Inc(LPos, LCopy);
-      finally
-        TSecureMemory.WipeBytes(LBlock);
-      end;
-    end;
-  finally
-    TSecureMemory.WipeBytes(LA);
-    TSecureMemory.WipeBytes(LSeed);
-  end;
-end;
-
 { TTls12KeySchedule }
 
 constructor TTls12KeySchedule.Create(const AProvider: ICryptoProvider;
@@ -160,6 +104,7 @@ constructor TTls12KeySchedule.Create(const AProvider: ICryptoProvider;
 begin
   inherited Create;
   FProvider := AProvider;
+  FPrf := AProvider.Primitives.CreateTls12Prf(AHash);
   FHash := AHash;
   FKeyLength := AKeyLength;
   // ChaCha20-Poly1305 draws a full 12-byte write IV from the key_block (RFC 7905); AES-GCM
@@ -173,7 +118,7 @@ end;
 function TTls12KeySchedule.Prf(const ASecret: ISecretBuffer; const ALabel: string;
   const ASeed: TBytes; ALength: Int32): TBytes;
 begin
-  Result := TTls12Prf.Compute(FProvider, FHash, ASecret, ALabel, ASeed, ALength);
+  Result := FPrf.Compute(ASecret, ALabel, ASeed, ALength);
 end;
 
 function TTls12KeySchedule.SecretSlice(const ABlock: TBytes;

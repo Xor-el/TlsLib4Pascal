@@ -106,6 +106,7 @@ contains
   TlpCertificateVerifierSource in '..\..\Trust\TlpCertificateVerifierSource.pas',
   TlpServerName in '..\..\Trust\TlpServerName.pas',
   TlpHpkeComposition in '..\..\Crypto\TlpHpkeComposition.pas',
+  TlpTls12PrfComposition in '..\..\Crypto\TlpTls12PrfComposition.pas',
   TlpDer in '..\..\Crypto\TlpDer.pas',
   TlpEndpointIdentity in '..\..\Trust\TlpEndpointIdentity.pas',
   TlpCertificateVerifier in '..\..\Trust\TlpCertificateVerifier.pas',

@@ -31,7 +31,7 @@ type
   /// The RFC 9180 base-mode HPKE facet, composed entirely over the provider's own
   /// <see cref="ICryptoPrimitives" /> (key agreement + HKDF + AEAD). The single implementation
   /// serves both the portable and the OS-native provider: it uses whatever primitives the seam
-  /// hands back, so on the native overlay the KEM/KDF/AEAD run on CNG where available.
+  /// hands back, so on the native overlay the KEM/KDF/AEAD run on the OS backend where available.
   /// </summary>
   THpkeComposition = class(TInterfacedObject, IHpkeCrypto)
   strict private

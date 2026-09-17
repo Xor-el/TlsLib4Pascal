@@ -77,7 +77,7 @@ var
 begin
   LVec := LoadVectorFields('Tls12/PrfSha256.txt');
   try
-    LOutput := TTls12Prf.Compute(Provider, THashAlgorithm.SHA_256,
+    LOutput := Provider.Primitives.CreateTls12Prf(THashAlgorithm.SHA_256).Compute(
       TSecretBuffer.From(DecodeHex(LVec.Values['secret'])),
       LVec.Values['label'], DecodeHex(LVec.Values['seed']),
       StrToInt(LVec.Values['length']));
