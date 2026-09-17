@@ -33,6 +33,8 @@ uses
   TlpTlsLibExceptions,
   TlpTlsAlert,
   TlpICertificateTrust,
+  TlpICertificateVerifierSource,
+  TlpTrustPolicy,
   TlpServerName,
   TlpCertificateVerifier,
   TlpITlsConfig,
@@ -106,20 +108,25 @@ begin
     .Build;
   CheckEquals(2, System.Length(LConfig.TrustStore.RootCertificates),
     'both anchor sources union into the composed trust store');
-  CheckTrue(LConfig.ServerCertificateVerifier = nil,
-    'no whole-verifier was set, so the built-in pipeline is used');
+  CheckTrue(LConfig.ServerVerifierSource <> nil,
+    'no whole-verifier was set, so the built-in verifier source is installed by default');
 end;
 
 procedure TTestTrustComposition.TestCertificateVerifierLandsInFrozenConfig;
 var
   LConfig: ITlsClientConfig;
+  LStub: IServerCertificateVerifier;
+  LContext: TServerTrustContext;
 begin
-  // a whole-verifier is a valid, self-sufficient trust source (no anchors needed)
+  // a whole-verifier is a valid, self-sufficient trust source (no anchors needed); it is wrapped
+  // as an instance source that returns it unchanged for every connection
+  LStub := TStubCertificateVerifier.Create as IServerCertificateVerifier;
   LConfig := TTlsPresets.Compatible(Provider).Client
-    .WithCertificateVerifier(TStubCertificateVerifier.Create as IServerCertificateVerifier)
+    .WithCertificateVerifier(LStub)
     .Build;
-  CheckTrue(LConfig.ServerCertificateVerifier <> nil,
-    'the injected whole-verifier lands in the frozen config');
+  LContext := Default(TServerTrustContext);
+  CheckTrue(LConfig.ServerVerifierSource.CreateServerVerifier(LContext) = LStub,
+    'the injected whole-verifier is returned unchanged by the instance source');
 end;
 
 procedure TTestTrustComposition.TestVerifierCombinedWithAnchorSourceIsRejected;

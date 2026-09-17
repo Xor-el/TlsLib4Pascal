@@ -432,9 +432,11 @@
         <DCCReference Include="..\..\TlsLib\src\Handshake\TlpHandshakeConductor.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Handshake\TlpCertificateVerify.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Trust\TlpICertificateTrust.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Trust\TlpICertificateVerifierSource.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Trust\TlpServerName.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Trust\TlpEndpointIdentity.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Trust\TlpCertificateVerifier.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Trust\TlpCertificateVerifierSource.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Handshake\TlpTlsCredential.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Handshake\TlpITlsCredentialResolver.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Handshake\TlpCredentialResolvers.pas"/>
@@ -481,6 +483,7 @@
         <DCCReference Include="..\src\ProviderTests.pas"/>
         <DCCReference Include="..\src\NamedGroupTests.pas"/>
         <DCCReference Include="..\src\MockRandom.pas"/>
+        <DCCReference Include="..\src\MockClock.pas"/>
         <DCCReference Include="..\src\MockCryptoProvider.pas"/>
         <DCCReference Include="..\src\MockTests.pas"/>
         <DCCReference Include="..\src\RecordHeaderTests.pas"/>

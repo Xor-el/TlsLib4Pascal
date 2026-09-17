@@ -21,6 +21,7 @@ uses
   TlpINegotiation,
   TlpNegotiationTypes,
   TlpICertificateTrust,
+  TlpICertificateVerifierSource,
   TlpICertificateCompression,
   TlpICertificateCompressionCache,
   TlpCertificateLimits,
@@ -84,6 +85,13 @@ type
     /// at Build.</summary>
     function WithCertificateVerifier(
       const AVerifier: IServerCertificateVerifier): ITlsClientConfigBuilder;
+    /// <summary>Installs a per-connection source that builds the server-certificate verifier
+    /// from the connection's trust context (its clock and revocation posture), rather than a
+    /// pre-built instance - so an OS trust delegate (TlsLib.Trust.System) can honor them.
+    /// Same exclusivity as WithCertificateVerifier: not combinable with an anchor source or a
+    /// second verifier.</summary>
+    function WithCertificateVerifierSource(
+      const ASource: IServerCertificateVerifierSource): ITlsClientConfigBuilder;
     /// <summary>The certificate-chain resource caps applied before PKIX validation.</summary>
     function WithCertificateChainLimits(
       const ALimits: TCertificateChainLimits): ITlsClientConfigBuilder;
@@ -263,6 +271,13 @@ type
     /// setting two verifiers, is a typed error at Build.</summary>
     function WithCertificateVerifier(
       const AVerifier: IClientCertificateVerifier): ITlsServerConfigBuilder;
+    /// <summary>Installs a per-connection source that builds the client-certificate verifier
+    /// from the connection's client-trust context (its clock and revocation posture) - so an OS
+    /// client delegate (TlsLib.Trust.System) can validate the peer against the configured
+    /// client-CA anchors as an exclusive trust root. The source consumes those anchors, so
+    /// (unlike an injected whole-verifier) it composes with WithTrustAnchors/WithTrustStore.</summary>
+    function WithCertificateVerifierSource(
+      const ASource: IClientCertificateVerifierSource): ITlsServerConfigBuilder;
     function WithCertificateChainLimits(
       const ALimits: TCertificateChainLimits): ITlsServerConfigBuilder;
     /// <summary>The server credential the Certificate chain is sent from and whose key

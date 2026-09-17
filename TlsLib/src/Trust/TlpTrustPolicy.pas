@@ -16,7 +16,11 @@ unit TlpTrustPolicy;
 interface
 
 uses
-  SysUtils;
+  SysUtils,
+  TlpICryptoProvider,
+  TlpIClock,
+  TlpICertificateTrust,
+  TlpCertificateLimits;
 
 type
   /// <summary>
@@ -75,6 +79,45 @@ type
   TAsyncCertificateVerdict = record
     Enabled: Boolean;
     DeadlineMs: Cardinal;
+  end;
+
+  /// <summary>
+  /// The trust parameters the engine gathers once from the frozen config and hands a
+  /// verifier source to build the server-certificate verifier for a connection. The clock
+  /// and posture are carried here so a source constructs its verifier with them injected
+  /// (the built-in and the OS-native delegate alike), rather than receiving a pre-built
+  /// verifier that could not see the connection's clock or revocation posture. SPKI pinning
+  /// is applied by a decorator over the source output, so no pins appear here.
+  /// </summary>
+  TServerTrustContext = record
+    Provider: ICryptoProvider;
+    Clock: ITlsClock;
+    TrustStore: ITrustAnchorStore;
+    CheckHostName: Boolean;
+    ChainLimits: TCertificateChainLimits;
+    RevocationPosture: TRevocationPosture;
+    Dangerous: TDangerousTrust;
+    AsyncVerdictEnabled: Boolean;
+    Intermediates: TArray<TBytes>;
+  end;
+
+  /// <summary>
+  /// The trust parameters the engine hands a source to build the client-certificate verifier
+  /// for an mTLS connection. TrustStore is the configured client-CA anchor set; there is no
+  /// host identity to match (a client certificate is never checked against a name) and no
+  /// stapled OCSP (a client certificate is not stapled). An OS-native delegate treats TrustStore
+  /// as an exclusive trust root, so a client is authenticated only against these anchors, never
+  /// the OS/public-web-PKI roots.
+  /// </summary>
+  TClientTrustContext = record
+    Provider: ICryptoProvider;
+    Clock: ITlsClock;
+    TrustStore: ITrustAnchorStore;
+    ChainLimits: TCertificateChainLimits;
+    RevocationPosture: TRevocationPosture;
+    Dangerous: TDangerousTrust;
+    AsyncVerdictEnabled: Boolean;
+    Intermediates: TArray<TBytes>;
   end;
 
 implementation

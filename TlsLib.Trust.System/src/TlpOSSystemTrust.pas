@@ -19,6 +19,8 @@ uses
   SysUtils,
   TlpICryptoProvider,
   TlpICertificateTrust,
+  TlpICertificateVerifierSource,
+  TlpCertificateVerifierSource,
   TlpSystemTrustBase,
   TlpSystemTrustExceptions
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
@@ -34,16 +36,16 @@ uses
 
 type
   /// <summary>
-  /// How the platform trust is consumed. Default selects the best source this OS
-  /// offers (harvest everywhere except iOS and Android, which are delegate-only).
-  /// Anchors forces harvesting OS roots into our own validator; Delegate forces the
-  /// OS verifier. Forcing a mode the platform cannot honor is a typed exception.
+  /// How the platform trust is consumed. Default selects the best source this OS offers
+  /// (harvest OS roots where they can be enumerated, else the OS delegate). Anchors forces
+  /// harvesting OS roots into our own validator; Delegate forces the OS verifier. Forcing a
+  /// mode the platform cannot honor is a typed exception.
   /// </summary>
   TSystemTrustMode = (Default, Anchors, Delegate);
 
   /// <summary>
   /// Factory for the platform trust sources: an anchor store (OS roots fed to our
-  /// validator) and a delegate verifier (the OS chain engine, network disabled).
+  /// validator) and a verifier source (the OS chain engine, network disabled).
   /// Dispatch is compile-time, most-specific OS first; every produced object hides
   /// its OS handles behind the neutral trust interfaces.
   /// </summary>
@@ -51,15 +53,20 @@ type
   public
     /// <summary>True if this platform can honor AMode.</summary>
     class function Supports(AMode: TSystemTrustMode): Boolean; static;
-    /// <summary>The OS-anchor store for our validator. Raises on iOS and Android
-    /// (both delegate-only, no enumeration API / harvest banned). AProvider parses
-    /// PEM on the filesystem platforms.</summary>
+    /// <summary>The OS-anchor store for our validator. Raises where the platform cannot
+    /// enumerate OS roots (a delegate-only platform). AProvider parses a PEM store.</summary>
     class function AnchorStore(const AProvider: ICryptoProvider)
       : ITrustAnchorStore; static;
-    /// <summary>The OS delegate verifier (cache-only). Raises where the platform
-    /// exposes no system verifier (Linux/BSD/Solaris).</summary>
-    class function DelegateVerifier(const AProvider: ICryptoProvider)
-      : IServerCertificateVerifier; static;
+    /// <summary>The OS server-certificate verifier source (cache-only delegate), built per
+    /// connection from the trust context. Raises where the platform exposes no system
+    /// verifier.</summary>
+    class function ServerVerifierSource(const AProvider: ICryptoProvider)
+      : IServerCertificateVerifierSource; static;
+    /// <summary>The OS client-certificate verifier source for an mTLS server: an exclusive-root
+    /// chain engine over the configured client-CA anchors (never the OS/public roots). Raises
+    /// where the platform exposes no OS client-certificate verifier.</summary>
+    class function ClientVerifierSource(const AProvider: ICryptoProvider)
+      : IClientCertificateVerifierSource; static;
   end;
 
 implementation
@@ -69,6 +76,9 @@ resourcestring
     'this platform exposes no root-enumeration API; use the OS delegate verifier';
   SNoDelegate =
     'this platform exposes no system certificate verifier; harvest OS anchors instead';
+  SNoClientDelegate =
+    'this platform exposes no OS client-certificate verifier; use the built-in verifier over ' +
+    'the configured client-CA anchors';
 
 { TOSSystemTrust }
 
@@ -122,18 +132,33 @@ begin
   end;
 end;
 
-class function TOSSystemTrust.DelegateVerifier(const AProvider: ICryptoProvider)
-  : IServerCertificateVerifier;
+class function TOSSystemTrust.ServerVerifierSource(const AProvider: ICryptoProvider)
+  : IServerCertificateVerifierSource;
 begin
   Result := nil;
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
-  Result := TWindowsDelegateVerifier.Create;
+  Result := TWindowsServerVerifierSource.Create as IServerCertificateVerifierSource;
 {$ELSEIF DEFINED(TLSLIB_IOS) OR DEFINED(TLSLIB_MACOS)}
-  Result := TAppleDelegateVerifier.Create;
+  Result := TInstanceServerVerifierSource.Create(
+    TAppleDelegateVerifier.Create as IServerCertificateVerifier)
+    as IServerCertificateVerifierSource;
 {$ELSEIF DEFINED(TLSLIB_ANDROID)}
-  Result := TAndroidDelegateVerifier.Create(AProvider);
+  Result := TInstanceServerVerifierSource.Create(
+    TAndroidDelegateVerifier.Create(AProvider) as IServerCertificateVerifier)
+    as IServerCertificateVerifierSource;
 {$ELSE}
   raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoDelegate);
+{$IFEND}
+end;
+
+class function TOSSystemTrust.ClientVerifierSource(const AProvider: ICryptoProvider)
+  : IClientCertificateVerifierSource;
+begin
+  Result := nil;
+{$IF DEFINED(TLSLIB_MSWINDOWS)}
+  Result := TWindowsClientVerifierSource.Create as IClientCertificateVerifierSource;
+{$ELSE}
+  raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoClientDelegate);
 {$IFEND}
 end;
 

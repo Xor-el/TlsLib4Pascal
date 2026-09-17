@@ -29,6 +29,7 @@ uses
   TlpNegotiationTypes,
   TlpNegotiationPolicy,
   TlpCertificateVerifier,
+  TlpICertificateVerifierSource,
   TlpServerName,
   TlpTrustPolicy,
   TlpTlsCredential,
@@ -204,6 +205,7 @@ var
   L12: TClient12HandshakeParams;
   LClientRandom, LSessionId: TBytes;
   LVerifier: IServerCertificateVerifier;
+  LTrustContext: TServerTrustContext;
   LServerName: TServerName;
   LOffers13, LOffers12, LAsyncVerdict: Boolean;
   LVerdictDeadlineMs: Cardinal;
@@ -227,14 +229,23 @@ begin
   if not TServerName.TryParse(AHost, LServerName) then
     if AConfig.CheckServerName then
       raise EArgumentTlsLibException.CreateRes(@SNoServerNameForCheck);
-  // an injected whole-verifier replaces the built-in pipeline (it consults no anchors)
-  if AConfig.ServerCertificateVerifier <> nil then
-    LVerifier := AConfig.ServerCertificateVerifier
-  else
-    LVerifier := TCertificateVerifier.Create(AConfig.Provider, AConfig.Clock,
-      AConfig.TrustStore, AConfig.CheckServerName, AConfig.CertificateChainLimits,
-      AConfig.RevocationPosture, AConfig.CertificatePins, AConfig.DangerousTrust,
-      LAsyncVerdict, AConfig.IntermediateCertificates);
+  // the source builds the verifier from this context, so the clock and posture reach the
+  // built-in and an OS delegate the same way
+  LTrustContext := Default(TServerTrustContext);
+  LTrustContext.Provider := AConfig.Provider;
+  LTrustContext.Clock := AConfig.Clock;
+  LTrustContext.TrustStore := AConfig.TrustStore;
+  LTrustContext.CheckHostName := AConfig.CheckServerName;
+  LTrustContext.ChainLimits := AConfig.CertificateChainLimits;
+  LTrustContext.RevocationPosture := AConfig.RevocationPosture;
+  LTrustContext.Dangerous := AConfig.DangerousTrust;
+  LTrustContext.AsyncVerdictEnabled := LAsyncVerdict;
+  LTrustContext.Intermediates := AConfig.IntermediateCertificates;
+  LVerifier := AConfig.ServerVerifierSource.CreateServerVerifier(LTrustContext);
+  // SPKI pinning composes over the source output, so it augments any source (built-in or OS delegate)
+  if System.Length(AConfig.CertificatePins) > 0 then
+    LVerifier := TPinningVerifier.Create(LVerifier, AConfig.CertificatePins,
+      AConfig.Provider) as IServerCertificateVerifier;
 
   L13 := Default(TClientHandshakeParams);
   L13.Provider := AConfig.Provider;
@@ -356,6 +367,8 @@ var
   L13: TServerHandshakeParams;
   L12: TServer12HandshakeParams;
   LServerRandom: TBytes;
+  LClientContext: TClientTrustContext;
+  LClientVerifier: IClientCertificateVerifier;
   LOffers13, LOffers12, LAsyncVerdict: Boolean;
   LVerdictDeadlineMs: Cardinal;
   LMachine: IHandshakeMachine;
@@ -372,6 +385,23 @@ begin
     LVerdictDeadlineMs := AConfig.AsyncCertificateVerdict.DeadlineMs
   else
     LVerdictDeadlineMs := 0;
+
+  // one client-certificate verifier from the source (built-in, injected, or the OS client
+  // delegate over the client-CA anchors), shared by both version machines; built only for mTLS
+  LClientVerifier := nil;
+  if AConfig.ClientAuth <> TClientAuthMode.None then
+  begin
+    LClientContext := Default(TClientTrustContext);
+    LClientContext.Provider := AConfig.Provider;
+    LClientContext.Clock := AConfig.Clock;
+    LClientContext.TrustStore := AConfig.TrustStore;
+    LClientContext.ChainLimits := AConfig.CertificateChainLimits;
+    LClientContext.RevocationPosture := AConfig.RevocationPosture;
+    LClientContext.Dangerous := AConfig.DangerousTrust;
+    LClientContext.AsyncVerdictEnabled := LAsyncVerdict;
+    LClientContext.Intermediates := AConfig.IntermediateCertificates;
+    LClientVerifier := AConfig.ClientVerifierSource.CreateClientVerifier(LClientContext);
+  end;
 
   L13 := Default(TServerHandshakeParams);
   L13.Provider := AConfig.Provider;
@@ -412,16 +442,7 @@ begin
   L13.ClientAuth := AConfig.ClientAuth;
   L13.ClientAuthSignatureSchemes := SchemeCodes(AConfig.SignatureSchemes);
   L13.ClientCertificateAuthorities := AConfig.ClientCertificateAuthorities;
-  if AConfig.ClientAuth <> TClientAuthMode.None then
-  begin
-    if AConfig.ClientCertificateVerifier <> nil then
-      L13.ClientCertificateVerifier := AConfig.ClientCertificateVerifier
-    else
-      L13.ClientCertificateVerifier := TCertificateVerifier.Create(AConfig.Provider,
-        AConfig.Clock, AConfig.TrustStore, False, AConfig.CertificateChainLimits,
-        AConfig.RevocationPosture, AConfig.CertificatePins, AConfig.DangerousTrust,
-        LAsyncVerdict, AConfig.IntermediateCertificates);
-  end;
+  L13.ClientCertificateVerifier := LClientVerifier;
   L13.AsyncVerdict := LAsyncVerdict;
 
   L12 := Default(TServer12HandshakeParams);
@@ -446,16 +467,7 @@ begin
   L12.AlpnProtocols := AConfig.AlpnProtocols;
   L12.ClientAuth := AConfig.ClientAuth;
   L12.ClientAuthSignatureSchemes := SchemeCodes(AConfig.SignatureSchemes);
-  if AConfig.ClientAuth <> TClientAuthMode.None then
-  begin
-    if AConfig.ClientCertificateVerifier <> nil then
-      L12.ClientCertificateVerifier := AConfig.ClientCertificateVerifier
-    else
-      L12.ClientCertificateVerifier := TCertificateVerifier.Create(AConfig.Provider,
-        AConfig.Clock, AConfig.TrustStore, False, AConfig.CertificateChainLimits,
-        AConfig.RevocationPosture, AConfig.CertificatePins, AConfig.DangerousTrust,
-        LAsyncVerdict, AConfig.IntermediateCertificates);
-  end;
+  L12.ClientCertificateVerifier := LClientVerifier;
   L12.AsyncVerdict := LAsyncVerdict;
 
   // resumption (RFC 8446 4.6.1 / RFC 5077): both version machines share the session

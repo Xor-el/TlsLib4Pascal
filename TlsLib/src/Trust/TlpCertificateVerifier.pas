@@ -77,7 +77,6 @@ type
     FCheckHostName: Boolean;
     FChainLimits: TCertificateChainLimits;
     FRevocationPosture: TRevocationPosture;
-    FCertificatePins: TArray<TBytes>;
     /// <summary>Untrusted intermediates that seed PKIX path building when the peer sends an
     /// incomplete chain; empty validates the chain exactly as received.</summary>
     FIntermediates: TArray<TBytes>;
@@ -96,11 +95,6 @@ type
     function VerifyPipeline(const AChain: TArray<TBytes>;
       const AServerName: TServerName; ACheckName: Boolean; const AOcspStaple: TBytes;
       AKeyPurpose: TCertKeyPurpose; out AAlert: TTlsAlertDescription): Boolean;
-    /// <summary>Optional SPKI public-key pinning (augments PKIX, never a bypass): when pins
-    /// are configured, some certificate in the chain must have a SubjectPublicKeyInfo whose
-    /// SHA-256 matches one pin, else bad_certificate.</summary>
-    function CheckPinning(const AChain: TArray<TBytes>;
-      out AAlert: TTlsAlertDescription): Boolean;
     /// <summary>The stapled OCSP verdict for the leaf, collapsed to what the trust
     /// decision needs: a current Good response, a definitive Revoked, or an
     /// indeterminate outcome (no staple, unauthorized, unknown, or stale).</summary>
@@ -119,13 +113,11 @@ type
     /// revocation. AClock backs the stapled-OCSP freshness window (RFC 6960).</summary>
     constructor Create(const AProvider: ICryptoProvider; const AClock: ITlsClock;
       const ATrustStore: ITrustAnchorStore; ACheckHostName: Boolean); overload;
-    /// <summary>A verifier with caller-tuned chain limits, revocation posture, and optional
-    /// SPKI pins.</summary>
+    /// <summary>A verifier with caller-tuned chain limits and revocation posture.</summary>
     constructor Create(const AProvider: ICryptoProvider; const AClock: ITlsClock;
       const ATrustStore: ITrustAnchorStore; ACheckHostName: Boolean;
       const AChainLimits: TCertificateChainLimits;
-      ARevocationPosture: TRevocationPosture;
-      const APins: TArray<TBytes> = nil); overload;
+      ARevocationPosture: TRevocationPosture); overload;
     /// <summary>As above, plus the dangerous escape hatches (InsecureSkipVerify bypasses the
     /// built-in pipeline, and a VerifyCallback that can only additionally reject) and
     /// AAsyncVerdictEnabled: when True, an indeterminate stapled-revocation outcome is deferred to
@@ -133,7 +125,7 @@ type
     constructor Create(const AProvider: ICryptoProvider; const AClock: ITlsClock;
       const ATrustStore: ITrustAnchorStore; ACheckHostName: Boolean;
       const AChainLimits: TCertificateChainLimits;
-      ARevocationPosture: TRevocationPosture; const APins: TArray<TBytes>;
+      ARevocationPosture: TRevocationPosture;
       const ADangerous: TDangerousTrust;
       AAsyncVerdictEnabled: Boolean); overload;
     /// <summary>As above, plus AIntermediates: untrusted intermediate certificates seeded into
@@ -143,13 +135,34 @@ type
     constructor Create(const AProvider: ICryptoProvider; const AClock: ITlsClock;
       const ATrustStore: ITrustAnchorStore; ACheckHostName: Boolean;
       const AChainLimits: TCertificateChainLimits;
-      ARevocationPosture: TRevocationPosture; const APins: TArray<TBytes>;
+      ARevocationPosture: TRevocationPosture;
       const ADangerous: TDangerousTrust; AAsyncVerdictEnabled: Boolean;
       const AIntermediates: TArray<TBytes>); overload;
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
       out AAlert: TTlsAlertDescription): Boolean;
     function VerifyClientCertificate(const AChain: TArray<TBytes>;
+      out AAlert: TTlsAlertDescription): Boolean;
+  end;
+
+  /// <summary>
+  /// SPKI public-key pinning as a decorator over any server-certificate verifier (augments,
+  /// never a bypass): the inner verifier must accept the chain AND some presented certificate's
+  /// SubjectPublicKeyInfo SHA-256 must match a configured pin, else bad_certificate. Composing
+  /// it over the source output pins uniformly over the built-in pipeline and an OS delegate.
+  /// </summary>
+  TPinningVerifier = class sealed(TInterfacedObject, IServerCertificateVerifier)
+  strict private
+  var
+    FInner: IServerCertificateVerifier;
+    FPins: TArray<TBytes>;
+    FProvider: ICryptoProvider;
+    function PinsMatch(const AChain: TArray<TBytes>): Boolean;
+  public
+    constructor Create(const AInner: IServerCertificateVerifier;
+      const APins: TArray<TBytes>; const AProvider: ICryptoProvider);
+    function VerifyServerCertificate(const AChain: TArray<TBytes>;
+      const AServerName: TServerName; const AOcspStaple: TBytes;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
@@ -221,29 +234,29 @@ end;
 constructor TCertificateVerifier.Create(const AProvider: ICryptoProvider;
   const AClock: ITlsClock; const ATrustStore: ITrustAnchorStore;
   ACheckHostName: Boolean; const AChainLimits: TCertificateChainLimits;
-  ARevocationPosture: TRevocationPosture; const APins: TArray<TBytes>);
+  ARevocationPosture: TRevocationPosture);
 var
   LNoDangerous: TDangerousTrust;
 begin
   LNoDangerous := Default(TDangerousTrust);
   Create(AProvider, AClock, ATrustStore, ACheckHostName, AChainLimits,
-    ARevocationPosture, APins, LNoDangerous, False);
+    ARevocationPosture, LNoDangerous, False);
 end;
 
 constructor TCertificateVerifier.Create(const AProvider: ICryptoProvider;
   const AClock: ITlsClock; const ATrustStore: ITrustAnchorStore;
   ACheckHostName: Boolean; const AChainLimits: TCertificateChainLimits;
-  ARevocationPosture: TRevocationPosture; const APins: TArray<TBytes>;
+  ARevocationPosture: TRevocationPosture;
   const ADangerous: TDangerousTrust; AAsyncVerdictEnabled: Boolean);
 begin
   Create(AProvider, AClock, ATrustStore, ACheckHostName, AChainLimits,
-    ARevocationPosture, APins, ADangerous, AAsyncVerdictEnabled, nil);
+    ARevocationPosture, ADangerous, AAsyncVerdictEnabled, nil);
 end;
 
 constructor TCertificateVerifier.Create(const AProvider: ICryptoProvider;
   const AClock: ITlsClock; const ATrustStore: ITrustAnchorStore;
   ACheckHostName: Boolean; const AChainLimits: TCertificateChainLimits;
-  ARevocationPosture: TRevocationPosture; const APins: TArray<TBytes>;
+  ARevocationPosture: TRevocationPosture;
   const ADangerous: TDangerousTrust; AAsyncVerdictEnabled: Boolean;
   const AIntermediates: TArray<TBytes>);
 begin
@@ -254,7 +267,6 @@ begin
   FCheckHostName := ACheckHostName;
   FChainLimits := AChainLimits;
   FRevocationPosture := ARevocationPosture;
-  FCertificatePins := APins;
   FIntermediates := AIntermediates;
   FDangerous := ADangerous;
   FAsyncVerdictEnabled := AAsyncVerdictEnabled;
@@ -264,31 +276,6 @@ function TCertificateVerifier.ValidationTimeUtc: TDateTime;
 begin
   // UnixMsToDateTime yields a UTC instant
   Result := TDateTimeUtilities.UnixMsToDateTime(Int64(FClock.NowUnixMillis));
-end;
-
-function TCertificateVerifier.CheckPinning(const AChain: TArray<TBytes>;
-  out AAlert: TTlsAlertDescription): Boolean;
-var
-  LHash: IHash;
-  LSpki, LDigest: TBytes;
-  LI, LJ: Int32;
-begin
-  Result := True;
-  if System.Length(FCertificatePins) = 0 then
-    Exit;
-  // some certificate in the chain must present a pinned public key (SPKI-SHA256)
-  for LI := 0 to System.High(AChain) do
-  begin
-    LSpki := FProvider.Certificates.PublicKeyInfo(AChain[LI]);
-    LHash := FProvider.Primitives.CreateHash(THashAlgorithm.SHA_256);
-    LHash.Update(LSpki, 0, System.Length(LSpki));
-    LDigest := LHash.DoFinal;
-    for LJ := 0 to System.High(FCertificatePins) do
-      if TArrayUtilities.AreEqual(LDigest, FCertificatePins[LJ]) then
-        Exit;
-  end;
-  AAlert := TTlsAlertDescription.BadCertificate;
-  Result := False;
 end;
 
 function TCertificateVerifier.EvaluateStaple(const AChain: TArray<TBytes>;
@@ -392,7 +379,7 @@ var
   LI, LTotal: Int32;
   // the chain PKIX actually validated: when the peer sent an incomplete chain that path
   // building completed from the configured intermediates, this carries the assembled path
-  // (with the recovered issuer), so revocation and pinning see it rather than the bare leaf
+  // (with the recovered issuer), so revocation sees it rather than the bare leaf
   LEffectiveChain: TArray<TBytes>;
   LLeaf: IInspectedCertificate;
 begin
@@ -452,11 +439,6 @@ begin
     end;
   end;
 
-  // optional SPKI pinning augments the validated chain; it never bypasses it. Pin against the
-  // validated chain so a pin on a recovered intermediate matches even for a leaf-only peer
-  if not CheckPinning(LEffectiveChain, AAlert) then
-    Exit;
-
   Result := True;
 end;
 
@@ -506,6 +488,55 @@ begin
       Exit;
     end;
   Result := True;
+end;
+
+{ TPinningVerifier }
+
+constructor TPinningVerifier.Create(const AInner: IServerCertificateVerifier;
+  const APins: TArray<TBytes>; const AProvider: ICryptoProvider);
+begin
+  inherited Create;
+  FInner := AInner;
+  FPins := APins;
+  FProvider := AProvider;
+end;
+
+function TPinningVerifier.PinsMatch(const AChain: TArray<TBytes>): Boolean;
+var
+  LHash: IHash;
+  LSpki, LDigest: TBytes;
+  LI, LJ: Int32;
+begin
+  Result := True;
+  if System.Length(FPins) = 0 then
+    Exit;
+  // some presented certificate must carry a pinned public key (SPKI-SHA256)
+  for LI := 0 to System.High(AChain) do
+  begin
+    LSpki := FProvider.Certificates.PublicKeyInfo(AChain[LI]);
+    LHash := FProvider.Primitives.CreateHash(THashAlgorithm.SHA_256);
+    LHash.Update(LSpki, 0, System.Length(LSpki));
+    LDigest := LHash.DoFinal;
+    for LJ := 0 to System.High(FPins) do
+      if TArrayUtilities.AreEqual(LDigest, FPins[LJ]) then
+        Exit;
+  end;
+  Result := False;
+end;
+
+function TPinningVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
+  const AServerName: TServerName; const AOcspStaple: TBytes;
+  out AAlert: TTlsAlertDescription): Boolean;
+begin
+  // pinning augments the inner verdict; it can only additionally reject
+  Result := FInner.VerifyServerCertificate(AChain, AServerName, AOcspStaple, AAlert);
+  if not Result then
+    Exit;
+  if not PinsMatch(AChain) then
+  begin
+    AAlert := TTlsAlertDescription.BadCertificate;
+    Result := False;
+  end;
 end;
 
 end.

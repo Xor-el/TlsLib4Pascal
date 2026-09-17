@@ -104,11 +104,13 @@ type
     procedure TestMalformedTlsFeatureAbortsBadCertificate;
     // SPKI public-key pinning
     procedure TestPinningMatchCompletes;
+    procedure TestPinningPresentedIssuerMatchCompletes;
     procedure TestPinningNoMatchAbortsBadCertificate;
+    procedure TestInsecureSkipVerifyStillEnforcesPins;
     // a leaf-only peer whose chain is completed from a configured intermediate: the recovered
-    // issuer must be available to the staple and pinning steps (not just the bare leaf)
+    // issuer must be available to the staple step (not just the bare leaf)
     procedure TestLeafOnlyGoodStapleHardCompletesViaConfiguredIssuer;
-    procedure TestLeafOnlyPinOnConfiguredIssuerMatches;
+    procedure TestLeafOnlyPinOnConfiguredIssuerDoesNotMatch;
   end;
 
 implementation
@@ -148,7 +150,7 @@ begin
   LNoDangerous := Default(TDangerousTrust);
   Result := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(V('root_cert')))
-    as ITrustAnchorStore, False, TCertificateChainLimits.Defaults, APosture, nil,
+    as ITrustAnchorStore, False, TCertificateChainLimits.Defaults, APosture,
     LNoDangerous, AAsyncResolver) as IServerCertificateVerifier;
 end;
 
@@ -200,8 +202,12 @@ begin
   LNoDangerous := Default(TDangerousTrust);
   Result := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(V('root_cert')))
-    as ITrustAnchorStore, False, TCertificateChainLimits.Defaults, APosture, APins,
+    as ITrustAnchorStore, False, TCertificateChainLimits.Defaults, APosture,
     LNoDangerous, False, AIntermediates) as IServerCertificateVerifier;
+  // pinning composes as a decorator over the built-in verifier, as the engine wires it
+  if System.Length(APins) > 0 then
+    Result := TPinningVerifier.Create(Result, APins, Provider)
+      as IServerCertificateVerifier;
 end;
 
 function TTestOcspStapling.VerifyWithPins(const APins: TArray<TBytes>;
@@ -213,7 +219,9 @@ begin
   LVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(V('root_cert')))
     as ITrustAnchorStore, False, TCertificateChainLimits.Defaults,
-    TRevocationPosture.Off, APins) as IServerCertificateVerifier;
+    TRevocationPosture.Off) as IServerCertificateVerifier;
+  LVerifier := TPinningVerifier.Create(LVerifier, APins, Provider)
+    as IServerCertificateVerifier;
   Result := LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName(''), nil, AAlert);
 end;
 
@@ -505,6 +513,42 @@ begin
     'a chain whose leaf SPKI matches a pin validates');
 end;
 
+procedure TTestOcspStapling.TestPinningPresentedIssuerMatchCompletes;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // a pin on an intermediate the peer actually presents (the issuer, present in Chain) matches:
+  // pinning is over the presented chain, so any presented certificate's SPKI can satisfy a pin
+  CheckTrue(VerifyWithPins(TArray<TBytes>.Create(IssuerSpkiPin), LAlert),
+    'a pin on a presented intermediate matches');
+end;
+
+procedure TTestOcspStapling.TestInsecureSkipVerifyStillEnforcesPins;
+var
+  LDangerous: TDangerousTrust;
+  LInner, LVerifier: IServerCertificateVerifier;
+  LAlert: TTlsAlertDescription;
+  LWrongPin: TBytes;
+begin
+  // InsecureSkipVerify bypasses PKIX, but a configured pin still applies (pin-only trust): a
+  // wrong pin rejects even the otherwise-accept-anything inner verifier
+  LDangerous := Default(TDangerousTrust);
+  LDangerous.InsecureSkipVerify := True;
+  LInner := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+    TTrustAnchorStore.Create(nil) as ITrustAnchorStore, False,
+    TCertificateChainLimits.Defaults, TRevocationPosture.Off, LDangerous, False)
+    as IServerCertificateVerifier;
+  LWrongPin := LeafSpkiPin;
+  LWrongPin[0] := LWrongPin[0] xor $FF;
+  LVerifier := TPinningVerifier.Create(LInner, TArray<TBytes>.Create(LWrongPin), Provider)
+    as IServerCertificateVerifier;
+  CheckFalse(LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName(''), nil, LAlert),
+    'a wrong pin rejects even under InsecureSkipVerify');
+  CheckTrue(TPinningVerifier.Create(LInner, TArray<TBytes>.Create(LeafSpkiPin), Provider)
+    .VerifyServerCertificate(Chain, TServerName.DnsName(''), nil, LAlert),
+    'the matching pin accepts under InsecureSkipVerify (pin-only trust)');
+end;
+
 procedure TTestOcspStapling.TestPinningNoMatchAbortsBadCertificate;
 var
   LWrongPin: TBytes;
@@ -532,18 +576,20 @@ begin
     'a good staple authenticates against the configured issuer for a leaf-only peer');
 end;
 
-procedure TTestOcspStapling.TestLeafOnlyPinOnConfiguredIssuerMatches;
+procedure TTestOcspStapling.TestLeafOnlyPinOnConfiguredIssuerDoesNotMatch;
 var
   LAlert: TTlsAlertDescription;
 begin
-  // pin the issuer's public key while the peer sends only its leaf: the pin must match the
-  // intermediate recovered by path building, not just the presented leaf. Revocation Off
-  // isolates the pinning step.
-  CheckTrue(IntermediateVerifierFor(TRevocationPosture.Off,
+  // pinning is over the PRESENTED chain: when the peer sends only its leaf, a pin on the issuer
+  // (a configured intermediate the peer did not send) does not match, even though path building
+  // recovers that issuer for validation. Revocation Off isolates the pinning step.
+  CheckFalse(IntermediateVerifierFor(TRevocationPosture.Off,
     TArray<TBytes>.Create(V('issuer_cert')),
     TArray<TBytes>.Create(IssuerSpkiPin)).VerifyServerCertificate(
     TArray<TBytes>.Create(V('leaf_cert')), TServerName.DnsName(''), nil, LAlert),
-    'a pin on the configured issuer matches the recovered path for a leaf-only peer');
+    'a pin on a configured-but-not-presented issuer does not match for a leaf-only peer');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
+    'the alert is bad_certificate');
 end;
 
 initialization

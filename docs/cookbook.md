@@ -300,9 +300,16 @@ uses TlpTlsCredential;   // TClientAuthMode
 LServerConfig := TTlsPresets.Compatible(P).Server
   .WithCredential(LoadFile('server-chain.pem'), LoadFile('server-key.pem'))
   .WithPeerAuth(TClientAuthMode.Required)                         // None | Requested | Required
-  .WithClientCertificateAuthorities(TArray<TBytes>.Create(LoadFile('client-ca.der')))
+  .WithTrustAnchors(LoadFile('client-ca.pem'))                    // the CA you accept clients from
   .Build;
 ```
+
+`WithTrustAnchors` (or `WithTrustStore`) is what actually **trusts** the client certificate — a
+client-auth server with none is refused at `Build`. `WithClientCertificateAuthorities(...)` is a
+separate, optional knob that only *advertises* the acceptable CA names to the client (the
+CertificateRequest); it does not establish trust. To validate client certificates with the **OS chain
+engine** against this private CA instead of the built-in pipeline, see
+[OS-engine client-certificate validation](system-trust.md#os-engine-client-certificate-validation-mtls).
 
 Client side — present your credential:
 

@@ -42,6 +42,12 @@ uses
   TlpICryptoProvider,
   TlpDefaultCryptoProvider,
   TlpICertificateTrust,
+  TlpICertificateVerifierSource,
+  TlpTrustPolicy,
+  TlpTlsAlert,
+  TlpIClock,
+  TlpClock,
+  MockClock,
   TlpSystemTrustExceptions,
   // portable engine - drives the always-on fixtures on every host
   TlpFileSystemTrust,
@@ -88,7 +94,7 @@ type
     procedure TestDistinctCertsAreNotMerged;
     procedure TestSnapshotSurvivesSourceFileDeletion;
     procedure TestFactoryAnchorStoreMatchesSupports;
-    procedure TestFactoryDelegateVerifierMatchesSupports;
+    procedure TestFactoryServerVerifierSourceMatchesSupports;
   end;
 
   /// <summary>Engine-agnostic contract for a real OS anchor store, written against
@@ -124,6 +130,31 @@ type
   strict protected
     function CreateAnchorStore: ITrustAnchorStore; override;
     function PlatformName: string; override;
+  end;
+
+  /// <summary>Behavioural tests for the Windows OS client-certificate delegate against a
+  /// self-contained private CA (the exclusive trust root is fully controllable, so unlike the
+  /// server delegate these are hermetic). Proves the H3 exclusive-root fix, the injected clock,
+  /// and the revocation posture over crypt32's real chain engine. Windows-only.</summary>
+  TTestWindowsClientDelegate = class(TTlsLibAlgorithmTestCase)
+  strict private
+    FProvider: ICryptoProvider;
+    FChain: TStringList;    // ClientAuthChain fields (private CA + dual-EKU leaf)
+    FForeign: TStringList;  // an unrelated private root
+    function Leaf: TArray<TBytes>;
+    function OwnAnchor: TArray<TBytes>;
+    function ForeignAnchor: TArray<TBytes>;
+    function Verify(const AAnchors: TArray<TBytes>; APosture: TRevocationPosture;
+      const AClock: ITlsClock; out AAlert: TTlsAlertDescription): Boolean;
+  protected
+    procedure SetUp; override;
+    procedure TearDown; override;
+  published
+    procedure TestAcceptsClientChainToConfiguredAnchor;
+    procedure TestRejectsClientChainToForeignAnchor;
+    procedure TestInjectedClockRejectsChainOutsideValidity;
+    procedure TestHardPostureRejectsUnrevocableChain;
+    procedure TestSoftPostureAcceptsUnrevocableChain;
   end;
 
 {$ENDIF TLSLIB_MSWINDOWS}
@@ -352,26 +383,26 @@ begin
   end;
 end;
 
-procedure TTestSystemTrustFixtures.TestFactoryDelegateVerifierMatchesSupports;
+procedure TTestSystemTrustFixtures.TestFactoryServerVerifierSourceMatchesSupports;
 var
   LRaised: Boolean;
 begin
-  // same contract for the OS delegate verifier: a verifier where supported (Windows/macOS/iOS/Android),
+  // same contract for the OS delegate source: a source where supported (Windows/macOS/iOS/Android),
   // a typed unsupported error where not (Linux/BSD/Solaris).
   if TOSSystemTrust.Supports(TSystemTrustMode.Delegate) then
-    CheckTrue(TOSSystemTrust.DelegateVerifier(FProvider) <> nil,
-      'a platform that supports Delegate must hand back an OS delegate verifier')
+    CheckTrue(TOSSystemTrust.ServerVerifierSource(FProvider) <> nil,
+      'a platform that supports Delegate must hand back an OS server-verifier source')
   else
   begin
     LRaised := False;
     try
-      TOSSystemTrust.DelegateVerifier(FProvider);
+      TOSSystemTrust.ServerVerifierSource(FProvider);
     except
       on E: ESystemTrustUnsupportedTlsLibException do
         LRaised := True;
     end;
     CheckTrue(LRaised,
-      'a platform that does not support Delegate must raise from DelegateVerifier');
+      'a platform that does not support Delegate must raise from ServerVerifierSource');
   end;
 end;
 
@@ -463,6 +494,105 @@ begin
   Result := 'Windows';
 end;
 
+{ TTestWindowsClientDelegate }
+
+procedure TTestWindowsClientDelegate.SetUp;
+begin
+  inherited SetUp;
+  FProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  FChain := LoadVectorFields('Certs/ClientAuthChain.txt');
+  FForeign := LoadVectorFields('Certs/OcspStapling.txt');
+end;
+
+procedure TTestWindowsClientDelegate.TearDown;
+begin
+  FChain.Free;
+  FForeign.Free;
+  inherited TearDown;
+end;
+
+function TTestWindowsClientDelegate.Leaf: TArray<TBytes>;
+begin
+  // the dual-EKU (serverAuth+clientAuth) leaf, presented alone (its issuer is the exclusive root)
+  Result := TArray<TBytes>.Create(DecodeHex(FChain.Values['leaf_cert']));
+end;
+
+function TTestWindowsClientDelegate.OwnAnchor: TArray<TBytes>;
+begin
+  Result := TArray<TBytes>.Create(DecodeHex(FChain.Values['root_cert']));
+end;
+
+function TTestWindowsClientDelegate.ForeignAnchor: TArray<TBytes>;
+begin
+  // an unrelated private root: the leaf does not chain to it
+  Result := TArray<TBytes>.Create(DecodeHex(FForeign.Values['root_cert']));
+end;
+
+function TTestWindowsClientDelegate.Verify(const AAnchors: TArray<TBytes>;
+  APosture: TRevocationPosture; const AClock: ITlsClock;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LVerifier: IClientCertificateVerifier;
+begin
+  LVerifier := TWindowsClientDelegateVerifier.Create(AAnchors, APosture, AClock)
+    as IClientCertificateVerifier;
+  Result := LVerifier.VerifyClientCertificate(Leaf, AAlert);
+end;
+
+procedure TTestWindowsClientDelegate.TestAcceptsClientChainToConfiguredAnchor;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // the leaf chains to the configured exclusive root and carries clientAuth: accepted
+  CheckTrue(Verify(OwnAnchor, TRevocationPosture.Off, TSystemClock.Create as ITlsClock,
+    LAlert), 'a client cert chaining to the configured anchor is accepted');
+end;
+
+procedure TTestWindowsClientDelegate.TestRejectsClientChainToForeignAnchor;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // audit H3: the anchors are the ONLY trust root, so a client cert that does not chain to them
+  // is rejected - never validated against the OS/public roots
+  CheckFalse(Verify(ForeignAnchor, TRevocationPosture.Off,
+    TSystemClock.Create as ITlsClock, LAlert),
+    'a client cert not chaining to the configured anchor is rejected');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert),
+    'the alert is unknown_ca');
+end;
+
+procedure TTestWindowsClientDelegate.TestInjectedClockRejectsChainOutsideValidity;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // the injected clock supplies the validation time: a far-future instant puts the chain past
+  // its validity, so the same chain that TestAccepts... accepts at 'now' is rejected here
+  CheckFalse(Verify(OwnAnchor, TRevocationPosture.Off,
+    TMockClock.Create(UInt64(10000000000000)) as ITlsClock, LAlert),
+    'the delegate honors the injected clock (chain outside validity is rejected)');
+end;
+
+procedure TTestWindowsClientDelegate.TestHardPostureRejectsUnrevocableChain;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // the private CA publishes no reachable revocation data, so the status is indeterminate;
+  // Hard posture rejects an indeterminate outcome
+  CheckFalse(Verify(OwnAnchor, TRevocationPosture.Hard,
+    TSystemClock.Create as ITlsClock, LAlert),
+    'Hard posture rejects a chain whose revocation status is indeterminate');
+end;
+
+procedure TTestWindowsClientDelegate.TestSoftPostureAcceptsUnrevocableChain;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // the same indeterminate outcome is accepted under Soft posture
+  CheckTrue(Verify(OwnAnchor, TRevocationPosture.Soft,
+    TSystemClock.Create as ITlsClock, LAlert),
+    'Soft posture accepts a chain whose revocation status is indeterminate');
+end;
+
 {$ENDIF TLSLIB_MSWINDOWS}
 
 {$IFDEF TLSLIB_MACOS}
@@ -527,8 +657,10 @@ initialization
 {$IFDEF TLSLIB_MSWINDOWS}
 {$IFDEF FPC}
   RegisterTest(TTestWindowsSystemTrust);
+  RegisterTest(TTestWindowsClientDelegate);
 {$ELSE}
   RegisterTest(TTestWindowsSystemTrust.Suite);
+  RegisterTest(TTestWindowsClientDelegate.Suite);
 {$ENDIF FPC}
 {$ENDIF TLSLIB_MSWINDOWS}
 

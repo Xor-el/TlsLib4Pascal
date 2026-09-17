@@ -102,6 +102,8 @@ contains
   TlpHandshakeConductor in '..\..\Handshake\TlpHandshakeConductor.pas',
   TlpCertificateVerify in '..\..\Handshake\TlpCertificateVerify.pas',
   TlpICertificateTrust in '..\..\Interfaces\Trust\TlpICertificateTrust.pas',
+  TlpICertificateVerifierSource in '..\..\Interfaces\Trust\TlpICertificateVerifierSource.pas',
+  TlpCertificateVerifierSource in '..\..\Trust\TlpCertificateVerifierSource.pas',
   TlpServerName in '..\..\Trust\TlpServerName.pas',
   TlpHpkeComposition in '..\..\Crypto\TlpHpkeComposition.pas',
   TlpDer in '..\..\Crypto\TlpDer.pas',

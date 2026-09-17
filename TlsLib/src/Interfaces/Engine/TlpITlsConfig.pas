@@ -22,6 +22,7 @@ uses
   TlpINegotiation,
   TlpNegotiationTypes,
   TlpICertificateTrust,
+  TlpICertificateVerifierSource,
   TlpICertificateCompression,
   TlpICertificateCompressionCache,
   TlpCertificateLimits,
@@ -135,10 +136,11 @@ type
     ['{2E9C6A14-5D73-4F80-B1A8-6C3E0D5B94F7}']
     /// <summary>Whether the server certificate must match the connected host (RFC 6125).</summary>
     function CheckServerName: Boolean;
-    /// <summary>An injected verifier for the peer server certificate that replaces the
-    /// built-in trust pipeline (e.g. an OS trust delegate). Mutually exclusive with any
-    /// anchor source. nil uses the built-in pipeline over TrustStore.</summary>
-    function ServerCertificateVerifier: IServerCertificateVerifier;
+    /// <summary>The source the engine builds the peer server-certificate verifier from, per
+    /// connection: the built-in PKIX source by default, else a wrapped injected verifier, else
+    /// an OS trust delegate (e.g. from TlsLib.Trust.System). Always non-nil after Build; the
+    /// context it receives carries the connection's clock and revocation posture.</summary>
+    function ServerVerifierSource: IServerCertificateVerifierSource;
     /// <summary>Whether the client offers status_request (OCSP stapling, RFC 6066). Off by
     /// default; a stapled response is only accepted when explicitly requested.</summary>
     function RequestOcspStapling: Boolean;
@@ -164,10 +166,11 @@ type
     /// <summary>Whether the server requests a client certificate and how strictly
     /// (RFC 8446 4.3.2 / RFC 5246 7.4.4).</summary>
     function ClientAuth: TClientAuthMode;
-    /// <summary>An injected verifier for the peer client certificate (mTLS) that replaces
-    /// the built-in trust pipeline. Mutually exclusive with any anchor source. nil uses the
-    /// built-in pipeline over TrustStore.</summary>
-    function ClientCertificateVerifier: IClientCertificateVerifier;
+    /// <summary>The source the engine builds the peer client-certificate verifier from, per
+    /// connection (mTLS): the built-in PKIX source by default, else a wrapped injected verifier,
+    /// else an OS client delegate (an exclusive-root chain engine over the configured client-CA
+    /// anchors). Always non-nil after Build; consulted only when ClientAuth is not None.</summary>
+    function ClientVerifierSource: IClientCertificateVerifierSource;
     /// <summary>The stateful session store (session-id and stateful tickets); nil uses the
     /// stateless STEK path (or disables stateful storage).</summary>
     function SessionStore: ISessionStore;

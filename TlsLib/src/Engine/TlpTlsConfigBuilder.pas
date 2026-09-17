@@ -26,7 +26,9 @@ uses
   TlpINegotiation,
   TlpNegotiationTypes,
   TlpICertificateTrust,
+  TlpICertificateVerifierSource,
   TlpCertificateVerifier,
+  TlpCertificateVerifierSource,
   TlpICertificateCompression,
   TlpICertificateCompressionCache,
   TlpZlibCertificateCompression,
@@ -72,7 +74,9 @@ type
     // Only the endpoint-appropriate slot is ever set (the facet is chosen up front).
     FAnchorStores: TArray<ITrustAnchorStore>;
     FServerCertVerifier: IServerCertificateVerifier;
+    FServerVerifierSource: IServerCertificateVerifierSource;
     FClientCertVerifier: IClientCertificateVerifier;
+    FClientVerifierSource: IClientCertificateVerifierSource;
     FVerifierCount: Int32;
     FCheckServerName: Boolean;
     FRequestOcspStapling: Boolean;
@@ -138,6 +142,14 @@ type
     /// of the built-in map/credential), else the SNI map plus the single credential as the
     /// default fallback, else nil for a PSK-only server.</summary>
     function ComposeCredentialResolver: ITlsServerCredentialResolver;
+    /// <summary>Composes the server-certificate verifier source at build: a custom source
+    /// (exclusive of the built-in), else a wrapped whole-verifier instance, else the built-in
+    /// PKIX source. The engine's single path builds the connection verifier from it.</summary>
+    function ComposeServerVerifierSource: IServerCertificateVerifierSource;
+    /// <summary>Composes the client-certificate verifier source at build (mTLS): a custom source
+    /// (the OS delegate, which consumes the configured client-CA anchors), else a wrapped
+    /// whole-verifier instance, else the built-in PKIX source.</summary>
+    function ComposeClientVerifierSource: IClientCertificateVerifierSource;
     /// <summary>Fails the build (typed error) when an SNI entry's certificate does not cover
     /// its host, so a swapped cert/host mapping is caught up front, not per handshake.</summary>
     procedure ValidateSniEntryCoversHost(const AHost: string;
@@ -156,8 +168,12 @@ type
     function WithTrustAnchors(const AData: TBytes): TTlsConfigBuilder;
     function WithServerCertificateVerifier(
       const AVerifier: IServerCertificateVerifier): TTlsConfigBuilder;
+    function WithServerCertificateVerifierSource(
+      const ASource: IServerCertificateVerifierSource): TTlsConfigBuilder;
     function WithClientCertificateVerifier(
       const AVerifier: IClientCertificateVerifier): TTlsConfigBuilder;
+    function WithClientCertificateVerifierSource(
+      const ASource: IClientCertificateVerifierSource): TTlsConfigBuilder;
     function WithCertificateChainLimits(
       const ALimits: TCertificateChainLimits): TTlsConfigBuilder;
     function WithCredential(const ACredential: TTlsCredential): TTlsConfigBuilder; overload;
@@ -337,7 +353,7 @@ type
   private
   var
     FCheckServerName: Boolean;
-    FServerCertVerifier: IServerCertificateVerifier;
+    FServerVerifierSource: IServerCertificateVerifierSource;
     FRequestOcspStapling: Boolean;
     FSessionCache: ISessionCache;
     FEarlyData: Boolean;
@@ -345,7 +361,7 @@ type
     FEchPolicy: IEchClientPolicy;
   public
     function CheckServerName: Boolean;
-    function ServerCertificateVerifier: IServerCertificateVerifier;
+    function ServerVerifierSource: IServerCertificateVerifierSource;
     function RequestOcspStapling: Boolean;
     function SessionCache: ISessionCache;
     function EarlyData: Boolean;
@@ -357,7 +373,7 @@ type
   private
   var
     FClientAuth: TClientAuthMode;
-    FClientCertVerifier: IClientCertificateVerifier;
+    FClientVerifierSource: IClientCertificateVerifierSource;
     FSessionStore: ISessionStore;
     FSessionTicketKeys: ISessionTicketKeyManager;
     FCredentialResolver: ITlsServerCredentialResolver;
@@ -369,7 +385,7 @@ type
     FEchTrialDecrypt: Boolean;
   public
     function ClientAuth: TClientAuthMode;
-    function ClientCertificateVerifier: IClientCertificateVerifier;
+    function ClientVerifierSource: IClientCertificateVerifierSource;
     function SessionStore: ISessionStore;
     function SessionTicketKeys: ISessionTicketKeyManager;
     function CredentialResolver: ITlsServerCredentialResolver;
@@ -405,6 +421,8 @@ type
     function WithTrustAnchors(const AData: TBytes): ITlsClientConfigBuilder;
     function WithCertificateVerifier(
       const AVerifier: IServerCertificateVerifier): ITlsClientConfigBuilder;
+    function WithCertificateVerifierSource(
+      const ASource: IServerCertificateVerifierSource): ITlsClientConfigBuilder;
     function WithCertificateChainLimits(
       const ALimits: TCertificateChainLimits): ITlsClientConfigBuilder;
     function WithCredential(const ACredential: TTlsCredential): ITlsClientConfigBuilder; overload;
@@ -459,6 +477,8 @@ type
     function WithTrustAnchors(const AData: TBytes): ITlsServerConfigBuilder;
     function WithCertificateVerifier(
       const AVerifier: IClientCertificateVerifier): ITlsServerConfigBuilder;
+    function WithCertificateVerifierSource(
+      const ASource: IClientCertificateVerifierSource): ITlsServerConfigBuilder;
     function WithCertificateChainLimits(
       const ALimits: TCertificateChainLimits): ITlsServerConfigBuilder;
     function WithCredential(const ACredential: TTlsCredential): ITlsServerConfigBuilder; overload;
@@ -709,9 +729,9 @@ begin
   Result := FCheckServerName;
 end;
 
-function TFrozenClientConfig.ServerCertificateVerifier: IServerCertificateVerifier;
+function TFrozenClientConfig.ServerVerifierSource: IServerCertificateVerifierSource;
 begin
-  Result := FServerCertVerifier;
+  Result := FServerVerifierSource;
 end;
 
 function TFrozenClientConfig.RequestOcspStapling: Boolean;
@@ -746,9 +766,9 @@ begin
   Result := FClientAuth;
 end;
 
-function TFrozenServerConfig.ClientCertificateVerifier: IClientCertificateVerifier;
+function TFrozenServerConfig.ClientVerifierSource: IClientCertificateVerifierSource;
 begin
-  Result := FClientCertVerifier;
+  Result := FClientVerifierSource;
 end;
 
 function TFrozenServerConfig.SessionStore: ISessionStore;
@@ -873,6 +893,13 @@ function TTlsClientConfigBuilder.WithCertificateVerifier(
   const AVerifier: IServerCertificateVerifier): ITlsClientConfigBuilder;
 begin
   FOwner.WithServerCertificateVerifier(AVerifier);
+  Result := Self;
+end;
+
+function TTlsClientConfigBuilder.WithCertificateVerifierSource(
+  const ASource: IServerCertificateVerifierSource): ITlsClientConfigBuilder;
+begin
+  FOwner.WithServerCertificateVerifierSource(ASource);
   Result := Self;
 end;
 
@@ -1106,6 +1133,13 @@ function TTlsServerConfigBuilder.WithCertificateVerifier(
   const AVerifier: IClientCertificateVerifier): ITlsServerConfigBuilder;
 begin
   FOwner.WithClientCertificateVerifier(AVerifier);
+  Result := Self;
+end;
+
+function TTlsServerConfigBuilder.WithCertificateVerifierSource(
+  const ASource: IClientCertificateVerifierSource): ITlsServerConfigBuilder;
+begin
+  FOwner.WithClientCertificateVerifierSource(ASource);
   Result := Self;
 end;
 
@@ -1586,6 +1620,18 @@ begin
   Result := Self;
 end;
 
+function TTlsConfigBuilder.WithServerCertificateVerifierSource(
+  const ASource: IServerCertificateVerifierSource): TTlsConfigBuilder;
+begin
+  GuardMutable;
+  if ASource <> nil then
+  begin
+    FServerVerifierSource := ASource;
+    Inc(FVerifierCount);
+  end;
+  Result := Self;
+end;
+
 function TTlsConfigBuilder.WithClientCertificateVerifier(
   const AVerifier: IClientCertificateVerifier): TTlsConfigBuilder;
 begin
@@ -1595,6 +1641,17 @@ begin
     FClientCertVerifier := AVerifier;
     Inc(FVerifierCount);
   end;
+  Result := Self;
+end;
+
+function TTlsConfigBuilder.WithClientCertificateVerifierSource(
+  const ASource: IClientCertificateVerifierSource): TTlsConfigBuilder;
+begin
+  GuardMutable;
+  // unlike a server source (OS roots, exclusive of anchors), a client source consumes the
+  // configured client-CA anchors as its exclusive trust root, so it is not counted against them
+  if ASource <> nil then
+    FClientVerifierSource := ASource;
   Result := Self;
 end;
 
@@ -1774,6 +1831,30 @@ begin
   // the single credential (WithCredential), if any, is the no-SNI / no-match default
   Result := TSniCredentialResolver.Create(FSniCredentialEntries, FHasCredential, FCredential)
     as ITlsServerCredentialResolver;
+end;
+
+function TTlsConfigBuilder.ComposeServerVerifierSource: IServerCertificateVerifierSource;
+begin
+  // a custom source (the OS delegate) wins; else a whole-verifier instance wrapped as a
+  // source; else the built-in PKIX source
+  if FServerVerifierSource <> nil then
+    Exit(FServerVerifierSource);
+  if FServerCertVerifier <> nil then
+    Exit(TInstanceServerVerifierSource.Create(FServerCertVerifier)
+      as IServerCertificateVerifierSource);
+  Result := TBuiltInServerVerifierSource.Create as IServerCertificateVerifierSource;
+end;
+
+function TTlsConfigBuilder.ComposeClientVerifierSource: IClientCertificateVerifierSource;
+begin
+  // a custom source (the OS delegate over the client-CA anchors) wins; else a whole-verifier
+  // instance wrapped as a source; else the built-in PKIX source
+  if FClientVerifierSource <> nil then
+    Exit(FClientVerifierSource);
+  if FClientCertVerifier <> nil then
+    Exit(TInstanceClientVerifierSource.Create(FClientCertVerifier)
+      as IClientCertificateVerifierSource);
+  Result := TBuiltInClientVerifierSource.Create as IClientCertificateVerifierSource;
 end;
 
 function TTlsConfigBuilder.WithCertificateCompressors(
@@ -2164,7 +2245,7 @@ begin
   LConfig.FResumption := FResumption;
   LConfig.FExternalPsks := FExternalPsks;
   LConfig.FCheckServerName := FCheckServerName;
-  LConfig.FServerCertVerifier := FServerCertVerifier;
+  LConfig.FServerVerifierSource := ComposeServerVerifierSource;
   LConfig.FRequestOcspStapling := FRequestOcspStapling;
   LConfig.FSessionCache := FSessionCache;
   LConfig.FClock := FClock;
@@ -2193,7 +2274,8 @@ begin
   // client authentication verifies the peer chain against a trust source; without one the
   // server would only fail closed at handshake time, so reject it at build (fail fast)
   if (FClientAuth <> TClientAuthMode.None) and
-    (System.Length(FAnchorStores) = 0) and (FClientCertVerifier = nil) then
+    (System.Length(FAnchorStores) = 0) and (FClientCertVerifier = nil) and
+    (FClientVerifierSource = nil) then
     raise EInvalidOperationTlsLibException.CreateRes(@SNoClientAuthTrustStore);
   // a Hard revocation posture on the client certificate rejects a client whose cert carries no
   // definite non-revoked status. A client cannot staple, so the only status source is a live
@@ -2233,7 +2315,7 @@ begin
   LConfig.FExternalPsks := FExternalPsks;
   LConfig.FClock := FClock;
   LConfig.FClientAuth := FClientAuth;
-  LConfig.FClientCertVerifier := FClientCertVerifier;
+  LConfig.FClientVerifierSource := ComposeClientVerifierSource;
   LConfig.FSessionStore := FSessionStore;
   LConfig.FCredentialResolver := ComposeCredentialResolver;
   // explicit keys always win; otherwise mint the default STEK from THIS builder's injected

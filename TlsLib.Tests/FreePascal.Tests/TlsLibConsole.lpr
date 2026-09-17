@@ -8,6 +8,7 @@ uses
   TlsLibTestResourceLoader,
   TlsLibTestBase,
   MockRandom,
+  MockClock,
   MockCryptoProvider,
   SecretTests,
   AlertTests,

@@ -18,6 +18,7 @@ interface
 uses
   TlpICryptoProvider,
   TlpICertificateTrust,
+  TlpICertificateVerifierSource,
   TlpITlsConfigBuilder,
   TlpSystemTrustExceptions,
   TlpOSSystemTrust;
@@ -37,17 +38,17 @@ resourcestring
 
 type
   /// <summary>
-  /// One-call OS trust for a config builder. Default picks the best source this
-  /// platform offers (harvest OS anchors into our validator everywhere except iOS
-  /// and Android, which are delegate-only); Anchors and Delegate force a source and raise a
-  /// typed error where it cannot be honored. Anchors compose with any other trust
-  /// contribution; a delegate is exclusive - both enforced at the builder's Build.
+  /// One-call OS trust for a config builder. Default picks the best source this platform
+  /// offers (harvest OS anchors into our validator where they can be enumerated, else a
+  /// delegate); Anchors and Delegate force a source and raise a typed error where it cannot
+  /// be honored. Anchors compose with any other trust contribution; a delegate is exclusive -
+  /// both enforced at the builder's Build.
   /// </summary>
   TSystemTrust = class sealed(TObject)
   strict private
     class procedure ResolveSource(const AProvider: ICryptoProvider;
       AMode: TSystemTrustMode; out AStore: ITrustAnchorStore;
-      out AVerifier: IServerCertificateVerifier); static;
+      out ASource: IServerCertificateVerifierSource); static;
   public
     class function WithSystemTrust(const ABuilder: ITlsClientConfigBuilder;
       const AProvider: ICryptoProvider;
@@ -65,12 +66,12 @@ implementation
 
 class procedure TSystemTrust.ResolveSource(const AProvider: ICryptoProvider;
   AMode: TSystemTrustMode; out AStore: ITrustAnchorStore;
-  out AVerifier: IServerCertificateVerifier);
+  out ASource: IServerCertificateVerifierSource);
 var
   LMode: TSystemTrustMode;
 begin
   AStore := nil;
-  AVerifier := nil;
+  ASource := nil;
   LMode := AMode;
   // Default = the best available source for this platform.
   if LMode = TSystemTrustMode.Default then
@@ -82,7 +83,7 @@ begin
   end;
   // A forced mode the platform cannot honor raises a typed error inside these.
   if LMode = TSystemTrustMode.Delegate then
-    AVerifier := TOSSystemTrust.DelegateVerifier(AProvider)
+    ASource := TOSSystemTrust.ServerVerifierSource(AProvider)
   else
     AStore := TOSSystemTrust.AnchorStore(AProvider);
 end;
@@ -92,11 +93,11 @@ class function TSystemTrust.WithSystemTrust(
   AMode: TSystemTrustMode): ITlsClientConfigBuilder;
 var
   LStore: ITrustAnchorStore;
-  LVerifier: IServerCertificateVerifier;
+  LSource: IServerCertificateVerifierSource;
 begin
-  ResolveSource(AProvider, AMode, LStore, LVerifier);
-  if LVerifier <> nil then
-    ABuilder.WithCertificateVerifier(LVerifier)
+  ResolveSource(AProvider, AMode, LStore, LSource);
+  if LSource <> nil then
+    ABuilder.WithCertificateVerifierSource(LSource)
   else
     ABuilder.WithTrustStore(LStore);
   Result := ABuilder;
@@ -107,14 +108,14 @@ class function TSystemTrust.WithSystemTrust(
   AMode: TSystemTrustMode): ITlsServerConfigBuilder;
 var
   LStore: ITrustAnchorStore;
-  LVerifier: IServerCertificateVerifier;
+  LSource: IServerCertificateVerifierSource;
 begin
-  ResolveSource(AProvider, AMode, LStore, LVerifier);
+  ResolveSource(AProvider, AMode, LStore, LSource);
   // the OS delegate verifies SERVER certificates (serverAuth); it cannot verify a peer
   // CLIENT certificate for an mTLS server. Point at Anchors mode where the platform can
   // enumerate OS roots, else at an explicit anchor - so a server never authenticates
   // clients against the OS (public web-PKI) roots by accident.
-  if LVerifier <> nil then
+  if LSource <> nil then
     if TOSSystemTrust.Supports(TSystemTrustMode.Anchors) then
       raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoServerDelegateUseAnchors)
     else

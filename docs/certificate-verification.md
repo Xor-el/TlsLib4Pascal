@@ -65,8 +65,10 @@ LConfig := TTlsLib.NewClientConfig(LoadFile('my-ca.pem'));   // Compatible prese
 
 ## 2. Pin a public key
 
-Require that some certificate in the chain presents a known public key (SPKI-SHA256). Pinning
-**augments** PKIX — it never replaces it, so the chain must *also* validate normally.
+Require that some certificate the peer **presents** carries a known public key (SPKI-SHA256).
+Pinning **augments** PKIX — it never replaces it, so the chain must *also* validate normally.
+(Pins match against the presented chain, so pin a certificate the peer actually sends — the leaf,
+or an intermediate it includes — not one supplied only as a local configured intermediate.)
 
 ```pascal
 uses TlpCryptoAlgorithms, TlpICryptoProvider;
@@ -116,8 +118,10 @@ production.**
 
 ### 4a. `InsecureSkipVerify` — accept *any* chain
 
-Bypasses the entire pipeline: PKIX, revocation, host-name, and pinning. For tests and pinned
-development peers only.
+Bypasses the built-in pipeline: PKIX, revocation, and host-name. Any configured public-key
+**pinning still applies** (it composes over the verifier, not inside the pipeline) — so
+`InsecureSkipVerify` together with `WithCertificatePinning` is pin-only trust: no CA validation,
+but the peer must still present a pinned key. For tests and pinned development peers only.
 
 ```pascal
 uses TlpICertificateTrust, TlpCertificateVerifier;   // TTrustAnchorStore
