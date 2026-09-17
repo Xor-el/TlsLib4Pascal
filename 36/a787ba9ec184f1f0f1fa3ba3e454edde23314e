@@ -1,0 +1,55 @@
+TlsLib.Tests/src/AppleAlertMapTests.pas
+  s_09d3c46d1a9b1f::t_4d64eb8cdefa3b 36
+  s_09d3c46d1a9b1f::t_6424d610aeaa47 102-103
+TlsLib/src/Trust/TlpCertificateVerifier.pas
+  s_09d3c46d1a9b1f::t_704f0a81993b4f 369
+  s_09d3c46d1a9b1f::t_d98922d8dfb859 306-308,315-317,319,321-323,333
+  s_09d3c46d1a9b1f::t_47ac35c43cb6ff 114-122
+TlsLib.Adapters/Indy/Adapter/TlsLibIndyTls.pas
+  s_09d3c46d1a9b1f::t_3e374e8b0d0d34 219
+TlsLib.Trust.System/src/TlpAppleSystemTrust.pas
+  s_09d3c46d1a9b1f::t_592e711d8d9057 26-28,67-71,74-76,78,84-125,135-136,150-152,179-187,189-190,195,239-250,284-291,294,315-319,322-325,327-336,389-399,402-403,427,441-466,468-484,486-487,489-490,493-494,496-498,515-517,520-521,524-528,530-607,610-612,614,617-640,642-691,693-730,732,734-736,738-739,742-772,778,785-823,838-839,842-849,1000-1007,1012-1054
+  s_09d3c46d1a9b1f::t_43a89246a546fb 188
+  s_09d3c46d1a9b1f::t_32a331e9aeff10 238
+  s_09d3c46d1a9b1f::t_01f363f63ccbea 400-401
+  s_09d3c46d1a9b1f::t_944273cc1bb0e8 292-293
+  s_09d3c46d1a9b1f::t_3f7846463c13b5 467
+TlsLib.Trust.System/src/TlpAndroidSystemTrust.pas
+  s_09d3c46d1a9b1f::t_de33758d520be7 481-483
+  s_09d3c46d1a9b1f::t_2c12224c670e63 595
+  s_09d3c46d1a9b1f::t_950a8d88d3fe8a 29-32,102-103,203,939-940
+  s_09d3c46d1a9b1f::t_cdfd4b6905ddb4 178-186,198-202
+  s_09d3c46d1a9b1f::t_3919f7545d54f4 434-435
+  s_09d3c46d1a9b1f::t_9b7eb6c7acbb27 668-849,852-853,857-858,865,869-892,904-938
+  s_09d3c46d1a9b1f::t_9245072d4966d2 42-50,55-56,58-59,65-101
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_27a1995a018427 2246
+TlsLib.Trust.System/src/TlpOSSystemTrust.pas
+  s_09d3c46d1a9b1f::t_4e07e86c6a846c 141,143
+  s_09d3c46d1a9b1f::t_e30fdae05aeaca 155-158
+docs/system-trust.md
+  s_09d3c46d1a9b1f::t_26b5850c26aa1c 166-171
+  s_09d3c46d1a9b1f::t_94b887395dd885 38-41
+  s_09d3c46d1a9b1f::t_b4e431a6b86477 140-146
+  s_09d3c46d1a9b1f::t_4e925d75749778 191-216
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_09d3c46d1a9b1f::t_78aaf9cb2661f4 172-197
+  s_09d3c46d1a9b1f::t_02d5aca3faf81d 645-743
+  s_09d3c46d1a9b1f::t_92ef820d280d6d 795,798
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "36a787ba9ec184f1f0f1fa3ba3e454edde23314e",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
