@@ -75,8 +75,8 @@ begin
   // X25519 first, then the hybrid and the NIST curves (the hybrid is 1.3-only)
   LBuilder.WithPreferredGroups(TArray<UInt16>.Create(
     TNamedGroupCatalog.X25519, TNamedGroupCatalog.X25519MlKem768,
-    TNamedGroupCatalog.Secp256r1, TNamedGroupCatalog.Secp384r1,
-    TNamedGroupCatalog.Secp521r1));
+    TNamedGroupCatalog.SecP256r1MlKem768, TNamedGroupCatalog.Secp256r1,
+    TNamedGroupCatalog.Secp384r1, TNamedGroupCatalog.Secp521r1));
   Result := LBuilder;
 end;
 
@@ -88,8 +88,8 @@ begin
   LBuilder := Base(AProvider);
   // the post-quantum hybrid is preferred, then classical X25519 and P-256
   LBuilder.WithPreferredGroups(TArray<UInt16>.Create(
-    TNamedGroupCatalog.X25519MlKem768, TNamedGroupCatalog.X25519,
-    TNamedGroupCatalog.Secp256r1));
+    TNamedGroupCatalog.X25519MlKem768, TNamedGroupCatalog.SecP256r1MlKem768,
+    TNamedGroupCatalog.X25519, TNamedGroupCatalog.Secp256r1));
   Result := LBuilder;
 end;
 

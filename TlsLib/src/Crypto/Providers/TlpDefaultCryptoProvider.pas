@@ -86,10 +86,13 @@ uses
   ClpX9ObjectIdentifiers,
   ClpSecObjectIdentifiers,
   ClpPkcsObjectIdentifiers,
+  ClpNistObjectIdentifiers,
+  ClpOiwObjectIdentifiers,
   ClpEdECObjectIdentifiers,
   ClpAsn1Objects,
   ClpAsn1Core,
   ClpRsaParameters,
+  ClpIRsaParameters,
   ClpX509CertificateParser,
   ClpIX509CertificateParser,
   ClpIX509Certificate,
@@ -564,6 +567,8 @@ type
     function KeyUsagePermits(AUsage: TCertKeyUsage): TCertAnswer;
     function KeyIsRsaPss: TCertAnswer;
     function KeyKind(out AKind: TCertKeyKind; out AEcNamedGroup: UInt16): Boolean;
+    function KeyFacts(out AFacts: TCertKeyFacts): Boolean;
+    function SignatureFacts(out AFacts: TCertSignatureFacts): Boolean;
     function PeerInfo(out ASubject, AIssuer, ACommonName, ASerialHex: string): Boolean;
   end;
 
@@ -2969,6 +2974,171 @@ begin
   else
     // a parseable certificate whose key algorithm we do not model is not classified
     Result := False;
+end;
+
+function TInspectedCertificate.KeyFacts(out AFacts: TCertKeyFacts): Boolean;
+var
+  LRsa: IRsaKeyParameters;
+begin
+  AFacts.Bits := 0;
+  if not KeyKind(AFacts.Kind, AFacts.EcNamedGroup) then
+    Exit(False);
+  try
+    case AFacts.Kind of
+      TCertKeyKind.Rsa:
+        if Supports(FCert.GetPublicKey, IRsaKeyParameters, LRsa) then
+          AFacts.Bits := LRsa.Modulus.BitLength
+        else
+          Exit(False);
+      TCertKeyKind.Ecdsa:
+        // field size follows the recognised named curve; an unrecognised curve stays 0
+        case AFacts.EcNamedGroup of
+          $0017:
+            AFacts.Bits := 256;
+          $0018:
+            AFacts.Bits := 384;
+          $0019:
+            AFacts.Bits := 521;
+        end;
+    end;
+    Result := True;
+  except
+    Result := False;
+  end;
+end;
+
+function TInspectedCertificate.SignatureFacts(out AFacts: TCertSignatureFacts): Boolean;
+var
+  LSig: IAlgorithmIdentifier;
+  LOid: IDerObjectIdentifier;
+
+  function HashOf(const AOid: IDerObjectIdentifier;
+    out AHash: TCertSignatureHash): Boolean;
+  begin
+    Result := True;
+    if AOid.Equals(TOiwObjectIdentifiers.IdSha1) then
+      AHash := TCertSignatureHash.Sha1
+    else if AOid.Equals(TNistObjectIdentifiers.IdSha224) then
+      AHash := TCertSignatureHash.Sha224
+    else if AOid.Equals(TNistObjectIdentifiers.IdSha256) then
+      AHash := TCertSignatureHash.Sha256
+    else if AOid.Equals(TNistObjectIdentifiers.IdSha384) then
+      AHash := TCertSignatureHash.Sha384
+    else if AOid.Equals(TNistObjectIdentifiers.IdSha512) then
+      AHash := TCertSignatureHash.Sha512
+    else
+      Result := False;
+  end;
+
+  function DigestLen(AHash: TCertSignatureHash): Int32;
+  begin
+    case AHash of
+      TCertSignatureHash.Sha1:
+        Result := 20;
+      TCertSignatureHash.Sha224:
+        Result := 28;
+      TCertSignatureHash.Sha256:
+        Result := 32;
+      TCertSignatureHash.Sha384:
+        Result := 48;
+      TCertSignatureHash.Sha512:
+        Result := 64;
+    else
+      Result := 0;
+    end;
+  end;
+
+  function FillPss(const APss: IAlgorithmIdentifier): Boolean;
+  var
+    LParams: IRsassaPssParameters;
+    LMgfHash: IAlgorithmIdentifier;
+  begin
+    AFacts.Family := TCertSignatureFamily.RsaPss;
+    AFacts.PssCanonical := False;
+    // RFC 4055: absent parameters default every field to SHA-1
+    if APss.Parameters = nil then
+    begin
+      AFacts.Hash := TCertSignatureHash.Sha1;
+      Exit(True);
+    end;
+    LParams := TRsassaPssParameters.GetInstance(APss.Parameters.ToAsn1Object);
+    if not HashOf(LParams.HashAlgorithm.Algorithm, AFacts.Hash) then
+      Exit(False);
+    // canonical iff MGF1 is over the same hash and the salt length equals the digest length;
+    // anything else leaves PssCanonical False so the chain-algorithm filter rejects it
+    if LParams.MaskGenAlgorithm.Algorithm.Equals(TPkcsObjectIdentifiers.IdMgf1) then
+    begin
+      LMgfHash := TAlgorithmIdentifier.GetInstance(
+        LParams.MaskGenAlgorithm.Parameters.ToAsn1Object);
+      AFacts.PssCanonical := LMgfHash.Algorithm.Equals(LParams.HashAlgorithm.Algorithm) and
+        (LParams.SaltLength <> nil) and
+        LParams.SaltLength.Value.Equals(TBigInteger.ValueOf(DigestLen(AFacts.Hash)));
+    end;
+    Result := True;
+  end;
+
+begin
+  AFacts.Family := TCertSignatureFamily.RsaPkcs1;
+  AFacts.Hash := TCertSignatureHash.Sha256;
+  AFacts.PssCanonical := False;
+  try
+    LSig := FCert.GetSignatureAlgorithm;
+    LOid := LSig.Algorithm;
+    Result := True;
+    if LOid.Equals(TPkcsObjectIdentifiers.Sha256WithRsaEncryption) then
+      AFacts.Hash := TCertSignatureHash.Sha256
+    else if LOid.Equals(TPkcsObjectIdentifiers.Sha384WithRsaEncryption) then
+      AFacts.Hash := TCertSignatureHash.Sha384
+    else if LOid.Equals(TPkcsObjectIdentifiers.Sha512WithRsaEncryption) then
+      AFacts.Hash := TCertSignatureHash.Sha512
+    else if LOid.Equals(TPkcsObjectIdentifiers.Sha224WithRsaEncryption) then
+      AFacts.Hash := TCertSignatureHash.Sha224
+    else if LOid.Equals(TPkcsObjectIdentifiers.Sha1WithRsaEncryption) then
+      AFacts.Hash := TCertSignatureHash.Sha1
+    else if LOid.Equals(TPkcsObjectIdentifiers.MD5WithRsaEncryption) then
+      AFacts.Hash := TCertSignatureHash.Md5
+    else if LOid.Equals(TX9ObjectIdentifiers.ECDsaWithSha256) then
+    begin
+      AFacts.Family := TCertSignatureFamily.Ecdsa;
+      AFacts.Hash := TCertSignatureHash.Sha256;
+    end
+    else if LOid.Equals(TX9ObjectIdentifiers.ECDsaWithSha384) then
+    begin
+      AFacts.Family := TCertSignatureFamily.Ecdsa;
+      AFacts.Hash := TCertSignatureHash.Sha384;
+    end
+    else if LOid.Equals(TX9ObjectIdentifiers.ECDsaWithSha512) then
+    begin
+      AFacts.Family := TCertSignatureFamily.Ecdsa;
+      AFacts.Hash := TCertSignatureHash.Sha512;
+    end
+    else if LOid.Equals(TX9ObjectIdentifiers.ECDsaWithSha224) then
+    begin
+      AFacts.Family := TCertSignatureFamily.Ecdsa;
+      AFacts.Hash := TCertSignatureHash.Sha224;
+    end
+    else if LOid.Equals(TX9ObjectIdentifiers.ECDsaWithSha1) then
+    begin
+      AFacts.Family := TCertSignatureFamily.Ecdsa;
+      AFacts.Hash := TCertSignatureHash.Sha1;
+    end
+    else if LOid.Equals(TEdECObjectIdentifiers.IdEd25519) then
+    begin
+      AFacts.Family := TCertSignatureFamily.Ed25519;
+      AFacts.Hash := TCertSignatureHash.Implicit;
+    end
+    else if LOid.Equals(TEdECObjectIdentifiers.IdEd448) then
+    begin
+      AFacts.Family := TCertSignatureFamily.Ed448;
+      AFacts.Hash := TCertSignatureHash.Implicit;
+    end
+    else if LOid.Equals(TPkcsObjectIdentifiers.IdRsassaPss) then
+      Result := FillPss(LSig)
+    else
+      Result := False;
+  except
+    Result := False;
+  end;
 end;
 
 function TCryptoPrimitives.CreateKeyAgreement(

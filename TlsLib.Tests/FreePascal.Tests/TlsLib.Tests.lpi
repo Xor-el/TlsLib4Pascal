@@ -40,7 +40,7 @@
         <PackageName Value="FCL"/>
       </Item7>
     </RequiredPackages>
-    <Units Count="67">
+    <Units Count="68">
       <Unit0>
         <Filename Value="TlsLib.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -309,6 +309,10 @@
         <Filename Value="..\src\MockClock.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit66>
+      <Unit67>
+        <Filename Value="..\src\ChainAlgorithmPolicyTests.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit67>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

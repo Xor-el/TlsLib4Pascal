@@ -206,8 +206,6 @@ type
   TBCryptDecrypt = function(hKey: Pointer; pbInput: PByte; cbInput: ULONG;
     pPaddingInfo: Pointer; pbIV: PByte; cbIV: ULONG; pbOutput: PByte;
     cbOutput: ULONG; var pcbResult: ULONG; dwFlags: ULONG): Integer; stdcall;
-  // KEM entry points (Win11 24H2+): optional - resolved but not part of the readiness
-  // gate, so their absence on older Windows leaves KEM to fall back, not the whole context
   TBCryptEncapsulate = function(hKey: Pointer; pbSecret: PByte; cbSecret: ULONG;
     var pcbSecret: ULONG; pbCipherText: PByte; cbCipherText: ULONG;
     var pcbCipherText: ULONG; dwFlags: ULONG): Integer; stdcall;
@@ -275,8 +273,7 @@ type
     FreeObject: TNCryptFreeObject;
   end;
 
-  // BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO (bcrypt.h). Field order and natural alignment
-  // match the C struct on x86 and x64; only the one-shot fields are used.
+  // BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO (bcrypt.h).
   TBCryptAuthCipherModeInfo = record
     cbSize: ULONG;
     dwInfoVersion: ULONG;

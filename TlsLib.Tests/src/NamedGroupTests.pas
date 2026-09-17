@@ -31,6 +31,7 @@ uses
   TlpTlsLibExceptions,
   TlpISecretBuffer,
   TlpSecretBuffer,
+  TlpArrayUtilities,
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpDefaultCryptoProvider,
@@ -57,11 +58,19 @@ type
     // import an UNCLAMPED external X25519 scalar (RFC 7748 6.1 Alice) and prove the derived
     // public is the RFC's published value - the seam an external HPKE/ECH key crosses
     procedure CheckUnclampedScalarImport(const AProvider: ICryptoProvider);
+    // pins a hybrid's wire layout: split the client share at the claimed boundary, encapsulate
+    // each leg standalone, reassemble the ciphertext in the claimed order, and prove the hybrid
+    // decapsulates to the concatenation in that same order - a flipped KEM/classical order fails
+    procedure CheckHybridOrder(const AHybrid, AClassical, AKem: INamedGroup;
+      AClassicalShareBytes, AKemEncapsBytes: Int32; AKemFirst: Boolean);
   published
     procedure TestX25519Rfc7748Kat;
     procedure TestX25519Agreement;
     procedure TestMlKem768Agreement;
     procedure TestHybridAgreement;
+    procedure TestSecP256r1MlKem768Agreement;
+    procedure TestHybridShareOrdering;
+    procedure TestSecP256r1MlKem768DecapsulateRejectsShortCiphertext;
     procedure TestNistAgreement;
     procedure TestNistValidationRejectsBadPoints;
     procedure TestX25519ValidationRejectsWrongLength;
@@ -76,6 +85,7 @@ type
     procedure TestKeyImportExportRoundTrip;
     procedure TestX25519ImportUnclampedScalar;
     procedure TestSystemX25519ImportUnclampedScalar;
+    procedure TestSystemHybridAgreement;
   end;
 
 implementation
@@ -197,10 +207,89 @@ begin
   CheckAgreement(TNamedGroups.CreateMlKem768(Provider), 32);
 end;
 
+procedure TTestNamedGroups.TestSystemHybridAgreement;
+var
+  LProvider: ICryptoProvider;
+begin
+  // the OS-native overlay: both hybrids compose over its primitives (P-256/X25519 + ML-KEM-768),
+  // native where CNG serves them and portable otherwise, so the round-trip holds on every host
+  LProvider := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider);
+  CheckAgreement(TNamedGroups.CreateX25519MlKem768(LProvider), 64);
+  CheckAgreement(TNamedGroups.CreateSecP256r1MlKem768(LProvider), 64);
+end;
+
 procedure TTestNamedGroups.TestHybridAgreement;
 begin
   // shared secret = ML-KEM-768 secret (32) || X25519 secret (32)
   CheckAgreement(TNamedGroups.CreateX25519MlKem768(Provider), 64);
+end;
+
+procedure TTestNamedGroups.TestSecP256r1MlKem768Agreement;
+begin
+  // shared secret = P-256 ECDH secret (32) || ML-KEM-768 secret (32) (RFC 10024)
+  CheckAgreement(TNamedGroups.CreateSecP256r1MlKem768(Provider), 64);
+end;
+
+procedure TTestNamedGroups.CheckHybridOrder(const AHybrid, AClassical,
+  AKem: INamedGroup; AClassicalShareBytes, AKemEncapsBytes: Int32;
+  AKemFirst: Boolean);
+var
+  LPriv: ISecretBuffer;
+  LPubShare, LClassPub, LKemPub, LClassCt, LKemCt, LCipher, LExpected: TBytes;
+  LClassSs, LKemSs, LHybridSs: ISecretBuffer;
+begin
+  AHybrid.GenerateKeyPair(LPriv, LPubShare);
+  // split the client share at the boundary the group's wire order claims
+  if AKemFirst then
+  begin
+    LKemPub := System.Copy(LPubShare, 0, AKemEncapsBytes);
+    LClassPub := System.Copy(LPubShare, AKemEncapsBytes, AClassicalShareBytes);
+  end
+  else
+  begin
+    LClassPub := System.Copy(LPubShare, 0, AClassicalShareBytes);
+    LKemPub := System.Copy(LPubShare, AClassicalShareBytes, AKemEncapsBytes);
+  end;
+  AClassical.Encapsulate(LClassPub, LClassCt, LClassSs);
+  AKem.Encapsulate(LKemPub, LKemCt, LKemSs);
+  // reassemble the ciphertext and the expected secret in the claimed order, then decapsulate
+  if AKemFirst then
+  begin
+    LCipher := TArrayUtilities.Concat(LKemCt, LClassCt);
+    LExpected := TArrayUtilities.Concat(SecretBytes(LKemSs), SecretBytes(LClassSs));
+  end
+  else
+  begin
+    LCipher := TArrayUtilities.Concat(LClassCt, LKemCt);
+    LExpected := TArrayUtilities.Concat(SecretBytes(LClassSs), SecretBytes(LKemSs));
+  end;
+  AHybrid.Decapsulate(LPriv, LCipher, LHybridSs);
+  CheckEqualBytes(AHybrid.Name + ' share/secret ordering', LExpected,
+    SecretBytes(LHybridSs));
+end;
+
+procedure TTestNamedGroups.TestHybridShareOrdering;
+begin
+  // X25519MLKEM768 writes ML-KEM first; SecP256r1MLKEM768 writes ECDH first (RFC 10024)
+  CheckHybridOrder(TNamedGroups.CreateX25519MlKem768(Provider),
+    TNamedGroups.CreateX25519(Provider), TNamedGroups.CreateMlKem768(Provider),
+    32, 1184, True);
+  CheckHybridOrder(TNamedGroups.CreateSecP256r1MlKem768(Provider),
+    TNamedGroups.CreateNistEcdh(Provider, 'secp256r1'),
+    TNamedGroups.CreateMlKem768(Provider), 65, 1184, False);
+end;
+
+procedure TTestNamedGroups.TestSecP256r1MlKem768DecapsulateRejectsShortCiphertext;
+var
+  LGroup: INamedGroup;
+  LPriv: ISecretBuffer;
+  LPub: TBytes;
+begin
+  LGroup := TNamedGroups.CreateSecP256r1MlKem768(Provider);
+  LGroup.GenerateKeyPair(LPriv, LPub);
+  // far shorter than the 65 + 1088 hybrid ciphertext; slicing must not reach the backend
+  CheckDecapIllegalParameter(LGroup, LPriv, Zeros(100),
+    'a short hybrid ciphertext is rejected as illegal_parameter');
 end;
 
 procedure TTestNamedGroups.TestNistAgreement;
@@ -347,6 +436,7 @@ begin
   LReg := TNamedGroups.CreateDefaultRegistry(Provider);
   CheckTrue(LReg.Contains(TNamedGroupCatalog.X25519), 'has X25519');
   CheckTrue(LReg.Contains(TNamedGroupCatalog.X25519MlKem768), 'has the hybrid');
+  CheckTrue(LReg.Contains(TNamedGroupCatalog.SecP256r1MlKem768), 'has the P-256 hybrid');
   CheckTrue(LReg.TryGet(TNamedGroupCatalog.X25519, LGroup), 'lookup by code');
   CheckEquals('X25519', LGroup.Name, 'get returns the group');
   LReg.Prune(TNamedGroupCatalog.Secp521r1);
@@ -368,6 +458,7 @@ begin
   CheckTrue(LReg.Contains(TNamedGroupCatalog.Secp384r1), 'has secp384r1');
   CheckTrue(LReg.Contains(TNamedGroupCatalog.Secp521r1), 'has secp521r1');
   CheckFalse(LReg.Contains(TNamedGroupCatalog.X25519MlKem768), 'no hybrid');
+  CheckFalse(LReg.Contains(TNamedGroupCatalog.SecP256r1MlKem768), 'no P-256 hybrid');
   CheckFalse(LReg.Contains(TNamedGroupCatalog.MlKem768), 'no ML-KEM');
 end;
 
@@ -381,6 +472,8 @@ begin
     'ML-KEM-768 is a KEM');
   CheckTrue(TNamedGroups.CreateX25519MlKem768(Provider).Kind =
     TNamedGroupKind.Hybrid, 'X25519MLKEM768 is a hybrid');
+  CheckTrue(TNamedGroups.CreateSecP256r1MlKem768(Provider).Kind =
+    TNamedGroupKind.Hybrid, 'SecP256r1MLKEM768 is a hybrid');
 end;
 
 procedure TTestNamedGroups.TestOnlyEcdheGroupsAreTls12Eligible;

@@ -81,6 +81,7 @@ type
     FCheckServerName: Boolean;
     FRequestOcspStapling: Boolean;
     FChainLimits: TCertificateChainLimits;
+    FStrengthPolicy: TCertificateStrengthPolicy;
     FCredential: TTlsCredential;
     FHasCredential: Boolean;
     FSniCredentialEntries: TArray<TSniCredentialEntry>;
@@ -176,6 +177,8 @@ type
       const ASource: IClientCertificateVerifierSource): TTlsConfigBuilder;
     function WithCertificateChainLimits(
       const ALimits: TCertificateChainLimits): TTlsConfigBuilder;
+    function WithMinimumCertificateStrength(
+      const APolicy: TCertificateStrengthPolicy): TTlsConfigBuilder;
     function WithCredential(const ACredential: TTlsCredential): TTlsConfigBuilder; overload;
     function WithCredential(const ACertificateChainData,
       APrivateKeyData: TBytes): TTlsConfigBuilder; overload;
@@ -305,6 +308,7 @@ type
     FCredential: TTlsCredential;
     FTrustStore: ITrustAnchorStore;
     FChainLimits: TCertificateChainLimits;
+    FStrengthPolicy: TCertificateStrengthPolicy;
     FRevocationPosture: TRevocationPosture;
     FCertificatePins: TArray<TBytes>;
     FIntermediateCertificates: TArray<TBytes>;
@@ -333,6 +337,7 @@ type
     function Credential: TTlsCredential;
     function TrustStore: ITrustAnchorStore;
     function CertificateChainLimits: TCertificateChainLimits;
+    function CertificateStrengthPolicy: TCertificateStrengthPolicy;
     function RevocationPosture: TRevocationPosture;
     function CertificatePins: TArray<TBytes>;
     function IntermediateCertificates: TArray<TBytes>;
@@ -425,6 +430,8 @@ type
       const ASource: IServerCertificateVerifierSource): ITlsClientConfigBuilder;
     function WithCertificateChainLimits(
       const ALimits: TCertificateChainLimits): ITlsClientConfigBuilder;
+    function WithMinimumCertificateStrength(
+      const APolicy: TCertificateStrengthPolicy): ITlsClientConfigBuilder;
     function WithCredential(const ACredential: TTlsCredential): ITlsClientConfigBuilder; overload;
     function WithCredential(const ACertificateChainData,
       APrivateKeyData: TBytes): ITlsClientConfigBuilder; overload;
@@ -481,6 +488,8 @@ type
       const ASource: IClientCertificateVerifierSource): ITlsServerConfigBuilder;
     function WithCertificateChainLimits(
       const ALimits: TCertificateChainLimits): ITlsServerConfigBuilder;
+    function WithMinimumCertificateStrength(
+      const APolicy: TCertificateStrengthPolicy): ITlsServerConfigBuilder;
     function WithCredential(const ACredential: TTlsCredential): ITlsServerConfigBuilder; overload;
     function WithCredential(const ACertificateChainData,
       APrivateKeyData: TBytes): ITlsServerConfigBuilder; overload;
@@ -642,6 +651,11 @@ end;
 function TFrozenCommonConfig.CertificateChainLimits: TCertificateChainLimits;
 begin
   Result := FChainLimits;
+end;
+
+function TFrozenCommonConfig.CertificateStrengthPolicy: TCertificateStrengthPolicy;
+begin
+  Result := FStrengthPolicy;
 end;
 
 function TFrozenCommonConfig.RevocationPosture: TRevocationPosture;
@@ -910,6 +924,13 @@ begin
   Result := Self;
 end;
 
+function TTlsClientConfigBuilder.WithMinimumCertificateStrength(
+  const APolicy: TCertificateStrengthPolicy): ITlsClientConfigBuilder;
+begin
+  FOwner.WithMinimumCertificateStrength(APolicy);
+  Result := Self;
+end;
+
 function TTlsClientConfigBuilder.WithCredential(
   const ACredential: TTlsCredential): ITlsClientConfigBuilder;
 begin
@@ -1147,6 +1168,13 @@ function TTlsServerConfigBuilder.WithCertificateChainLimits(
   const ALimits: TCertificateChainLimits): ITlsServerConfigBuilder;
 begin
   FOwner.WithCertificateChainLimits(ALimits);
+  Result := Self;
+end;
+
+function TTlsServerConfigBuilder.WithMinimumCertificateStrength(
+  const APolicy: TCertificateStrengthPolicy): ITlsServerConfigBuilder;
+begin
+  FOwner.WithMinimumCertificateStrength(APolicy);
   Result := Self;
 end;
 
@@ -1494,6 +1522,7 @@ begin
   // must-staple); presets may harden it
   FRevocationPosture := TRevocationPosture.Soft;
   FChainLimits := TCertificateChainLimits.Defaults;
+  FStrengthPolicy := TCertificateStrengthPolicy.Defaults;
   // certificate compression is on by default (RFC 8879) with the built-in zlib backend;
   // seeded directly, so it does not mark the 1.3 facet as explicitly configured
   FCertificateCompressors := TZlibCertificateCompression.DefaultCompressors;
@@ -1680,6 +1709,14 @@ function TTlsConfigBuilder.WithCertificateChainLimits(
 begin
   GuardMutable;
   FChainLimits := ALimits;
+  Result := Self;
+end;
+
+function TTlsConfigBuilder.WithMinimumCertificateStrength(
+  const APolicy: TCertificateStrengthPolicy): TTlsConfigBuilder;
+begin
+  GuardMutable;
+  FStrengthPolicy := APolicy;
   Result := Self;
 end;
 
@@ -2231,6 +2268,7 @@ begin
   LConfig.FCredential := FCredential;
   LConfig.FTrustStore := ComposeTrustStore;
   LConfig.FChainLimits := FChainLimits;
+  LConfig.FStrengthPolicy := FStrengthPolicy;
   LConfig.FRevocationPosture := FRevocationPosture;
   LConfig.FCertificatePins := FCertificatePins;
   LConfig.FIntermediateCertificates := FIntermediateCertificates;
@@ -2300,6 +2338,7 @@ begin
   LConfig.FCredential := FCredential;
   LConfig.FTrustStore := ComposeTrustStore;
   LConfig.FChainLimits := FChainLimits;
+  LConfig.FStrengthPolicy := FStrengthPolicy;
   LConfig.FRevocationPosture := FRevocationPosture;
   LConfig.FCertificatePins := FCertificatePins;
   LConfig.FIntermediateCertificates := FIntermediateCertificates;

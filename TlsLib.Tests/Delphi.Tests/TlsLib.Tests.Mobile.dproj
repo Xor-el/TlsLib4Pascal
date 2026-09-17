@@ -129,7 +129,6 @@
         <Icns_MainIcns>$(BDS)\bin\delphi_PROJECTICNS.icns</Icns_MainIcns>
         <AUP_NEARBY_WIFI_DEVICES>true</AUP_NEARBY_WIFI_DEVICES>
         <SanitizedProjectName>TlsLib_Tests_Mobile</SanitizedProjectName>
-        <DCC_UnitSearchPath>..\..\TlsLib.Trust.System\src;..\..\TlsLib.Tools\RootGen\src;..\..\TlsLib.Trust.Bundle\src;C:\DelphiDevLibs\CryptoLib4Pascal;C:\DelphiDevLibs\HashLib4Pascal;C:\DelphiDevLibs\SimpleBaseLib4Pascal;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base_Android)'!=''">
         <DCC_UsePackage>fmx;emshosting;DbxCommonDriver;bindengine;IndyIPCommon;emsclient;FireDACCommonDriver;IndyProtocols;IndyIPClient;dbxcds;FmxTeeUI;emsedge;bindcompfmx;ibmonitor;FireDACSqliteDriver;DbxClientDriver;soapmidas;fmxFireDAC;dbexpress;inet;DataSnapCommon;fmxase;dbrtl;FireDACDBXDriver;CustomIPTransport;DBXInterBaseDriver;IndySystem;ibxbindings;bindcomp;FireDACCommon;emsserverresource;inetstn;IndyCore;RESTBackendComponents;bindcompdbx;rtl;RESTComponents;DBXSqliteDriver;IndyIPServer;dsnapxml;DataSnapClient;DataSnapProviderClient;DataSnapFireDAC;emsclientfiredac;FireDAC;FireDACDSDriver;xmlrtl;tethering;ibxpress;dsnap;CloudService;DataSnapNativeClient;FMXTee;soaprtl;soapserver;FireDACIBDriver;$(DCC_UsePackage)</DCC_UsePackage>
@@ -438,6 +437,7 @@
         <DCCReference Include="..\..\TlsLib\src\Trust\TlpEndpointIdentity.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Trust\TlpCertificateVerifier.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Trust\TlpCertificateVerifierSource.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Trust\TlpChainAlgorithmPolicy.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Handshake\TlpTlsCredential.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Handshake\TlpITlsCredentialResolver.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Handshake\TlpCredentialResolvers.pas"/>
@@ -483,6 +483,7 @@
         <DCCReference Include="..\src\WireCodecTests.pas"/>
         <DCCReference Include="..\src\ProviderTests.pas"/>
         <DCCReference Include="..\src\NamedGroupTests.pas"/>
+        <DCCReference Include="..\src\ChainAlgorithmPolicyTests.pas"/>
         <DCCReference Include="..\src\MockRandom.pas"/>
         <DCCReference Include="..\src\MockClock.pas"/>
         <DCCReference Include="..\src\MockCryptoProvider.pas"/>

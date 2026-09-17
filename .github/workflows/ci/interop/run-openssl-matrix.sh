@@ -56,6 +56,15 @@ else
   echo "hybrid:  X25519MLKEM768 unsupported by this openssl (H-cells skipped)"
 fi
 
+# same probe for the P-256 hybrid (RFC 10024); its P-cells mirror the H-cells
+PHYBRID_OK=0
+if "$OPENSSL" list -tls-groups 2>/dev/null | grep -qi 'SecP256r1MLKEM768'; then
+  PHYBRID_OK=1
+  echo "hybrid:  SecP256r1MLKEM768 supported (P-cells enabled)"
+else
+  echo "hybrid:  SecP256r1MLKEM768 unsupported by this openssl (P-cells skipped)"
+fi
+
 # --- Cell 1: our server  <-  openssl s_client (openssl strictly verifies our cert) ---
 echo "=== cell 1: our server  <-  openssl s_client ==="
 ROOTHEX="$(grep '^root_cert=' "$DATA_DIR/Certs/EcP256Chain.txt" | cut -d= -f2)"
@@ -266,6 +275,56 @@ if [ "$HYBRID_OK" -eq 1 ]; then
   wait || true
 else
   echo "=== cells H1-H3 (X25519MLKEM768): SKIPPED (openssl < 3.5, 3 cells) ==="
+fi
+
+# --- PQ hybrid cells (SecP256r1MLKEM768, RFC 10024): the P-256 twin of H1-H3 -------
+if [ "$PHYBRID_OK" -eq 1 ]; then
+  TOTAL=$((TOTAL+3))
+
+  # --- Cell P1: our server  <-  openssl s_client -groups SecP256r1MLKEM768 (direct) ---
+  echo "=== cell P1: our server  <-  openssl s_client (SecP256r1MLKEM768) ==="
+  PP1=14594
+  "$DRIVER" --role server --port $PP1 --groups SecP256r1MLKEM768 --data-dir "$DATA_DIR" > "$TMP/sp1.log" 2>&1 &
+  for _ in $(seq 1 100); do grep -q 'listening on' "$TMP/sp1.log" && break; sleep 0.1; done
+  { printf 'PING-CELL-P1\n'; sleep 2; } | "$OPENSSL" s_client -connect 127.0.0.1:$PP1 -tls1_3 \
+       -groups SecP256r1MLKEM768 -CAfile "$TMP/root.pem" -servername localhost \
+       -verify_hostname localhost -verify_return_error > "$TMP/cp1.out" 2>"$TMP/cp1.err" || true
+  if grep -q 'PING-CELL-P1' "$TMP/cp1.out"; then
+    echo "  PASS: our server selected SecP256r1MLKEM768 (strict verify) + app-data echo"
+  else
+    echo "  FAIL: cell P1"; cat "$TMP/sp1.log" "$TMP/cp1.err"; FAILURES=$((FAILURES+1))
+  fi
+  wait || true
+
+  # --- Cell P2: our client (direct)  ->  openssl s_server -groups SecP256r1MLKEM768 ---
+  echo "=== cell P2: our client (direct)  ->  openssl s_server (SecP256r1MLKEM768) ==="
+  PP2=14595
+  "$OPENSSL" s_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_3 \
+    -groups SecP256r1MLKEM768 -accept $PP2 -rev -naccept 1 > "$TMP/sp2.log" 2>&1 &
+  for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/sp2.log" && break; sleep 0.1; done
+  if "$DRIVER" --role client --port $PP2 --host localhost --ca "$TMP/srv_cert.pem" \
+       --groups SecP256r1MLKEM768 --message "hello-cell-p2" --data-dir "$DATA_DIR"; then
+    echo "  PASS: our client key-shared the P-256 hybrid directly (no HRR) + app-data"
+  else
+    echo "  FAIL: cell P2"; cat "$TMP/sp2.log"; FAILURES=$((FAILURES+1))
+  fi
+  wait || true
+
+  # --- Cell P3: our client (classical key_share first)  ->  hybrid-only s_server = HRR ---
+  echo "=== cell P3: our client (HRR)  ->  openssl s_server (SecP256r1MLKEM768) ==="
+  PP3=14596
+  "$OPENSSL" s_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_3 \
+    -groups SecP256r1MLKEM768 -accept $PP3 -rev -naccept 1 > "$TMP/sp3.log" 2>&1 &
+  for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/sp3.log" && break; sleep 0.1; done
+  if "$DRIVER" --role client --port $PP3 --host localhost --ca "$TMP/srv_cert.pem" \
+       --groups X25519,SecP256r1MLKEM768 --message "hello-cell-p3" --data-dir "$DATA_DIR"; then
+    echo "  PASS: HelloRetryRequest drove our client onto the P-256 hybrid + app-data"
+  else
+    echo "  FAIL: cell P3"; cat "$TMP/sp3.log"; FAILURES=$((FAILURES+1))
+  fi
+  wait || true
+else
+  echo "=== cells P1-P3 (SecP256r1MLKEM768): SKIPPED (openssl without the group, 3 cells) ==="
 fi
 
 # --- ECH cells (RFC 9849): gated on an openssl that supports Encrypted Client Hello -----

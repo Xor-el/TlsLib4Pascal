@@ -20,6 +20,9 @@ case "$OS" in win*|*windows*) EXE=".exe" ;; esac
 
 INTEROP="$REPO_ROOT/TlsLib.Interop"
 SRC="$INTEROP/src"
+# the opt-in OS-native crypto overlay is pure source layered on the prebuilt core, so compile
+# its units on demand from src rather than prebuilding them
+CRYPTO_SYSTEM_SRC="$REPO_ROOT/TlsLib.Crypto.System/src"
 LPR_DIR="$INTEROP/FreePascal.Interop"
 BIN_DIR="$LPR_DIR/bin"
 mkdir -p "$BIN_DIR"
@@ -52,7 +55,8 @@ to_native() {
 }
 fpc "-T$OS" "-P$CPU" -MDelphi -O2 -B \
   -Fu"$(to_native "$CRYPTO_UNITS")" -Fu"$(to_native "$HASH_UNITS")" \
-  -Fu"$(to_native "$SB_UNITS")" -Fu"$(to_native "$TLS_UNITS")" -Fu"$(to_native "$SRC")" \
+  -Fu"$(to_native "$SB_UNITS")" -Fu"$(to_native "$TLS_UNITS")" \
+  -Fu"$(to_native "$CRYPTO_SYSTEM_SRC")" -Fu"$(to_native "$SRC")" \
   -FU"$(to_native "$BUILD_DIR")" -o"$(to_native "$BIN_DIR/TlsFuzzer$EXE")" "$(to_native "$LPR_DIR/TlsFuzzer.lpr")"
 chmod +x "$BIN_DIR/TlsFuzzer$EXE"
 

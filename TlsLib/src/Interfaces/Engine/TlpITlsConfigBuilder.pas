@@ -95,6 +95,11 @@ type
     /// <summary>The certificate-chain resource caps applied before PKIX validation.</summary>
     function WithCertificateChainLimits(
       const ALimits: TCertificateChainLimits): ITlsClientConfigBuilder;
+    /// <summary>The minimum-strength floors a peer certificate chain's keys must meet
+    /// (RSA modulus bits, allowed EC curves, EdDSA). The advertised-scheme chain-signature
+    /// filter and the MD5/SHA-1 rejection are always applied and not affected by this.</summary>
+    function WithMinimumCertificateStrength(
+      const APolicy: TCertificateStrengthPolicy): ITlsClientConfigBuilder;
     /// <summary>The client's own credential for mutual TLS, presented when the server
     /// sends a CertificateRequest the credential can satisfy.</summary>
     function WithCredential(const ACredential: TTlsCredential): ITlsClientConfigBuilder; overload;
@@ -280,6 +285,11 @@ type
       const ASource: IClientCertificateVerifierSource): ITlsServerConfigBuilder;
     function WithCertificateChainLimits(
       const ALimits: TCertificateChainLimits): ITlsServerConfigBuilder;
+    /// <summary>The minimum-strength floors a peer (client) certificate chain's keys must meet
+    /// (RSA modulus bits, allowed EC curves, EdDSA). The advertised-scheme chain-signature
+    /// filter and the MD5/SHA-1 rejection are always applied and not affected by this.</summary>
+    function WithMinimumCertificateStrength(
+      const APolicy: TCertificateStrengthPolicy): ITlsServerConfigBuilder;
     /// <summary>The server credential the Certificate chain is sent from and whose key
     /// signs the handshake.</summary>
     function WithCredential(const ACredential: TTlsCredential): ITlsServerConfigBuilder; overload;

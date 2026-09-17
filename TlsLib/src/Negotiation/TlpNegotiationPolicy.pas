@@ -250,7 +250,8 @@ begin
     TCipherSuiteRegistry.CreateDefault(AProvider),
     TNamedGroups.CreateDefaultRegistry(AProvider),
     TSignatureSchemeRegistry.CreateDefault,
-    TArray<UInt16>.Create(TNamedGroupCatalog.X25519MlKem768, TNamedGroupCatalog.X25519, TNamedGroupCatalog.Secp256r1,
+    TArray<UInt16>.Create(TNamedGroupCatalog.X25519MlKem768, TNamedGroupCatalog.SecP256r1MlKem768,
+    TNamedGroupCatalog.X25519, TNamedGroupCatalog.Secp256r1,
     TNamedGroupCatalog.Secp384r1, TNamedGroupCatalog.Secp521r1),
     TArray<UInt16>.Create(TlsWireVersionTls13), TServerCipherPreference.ServerOrder);
 end;

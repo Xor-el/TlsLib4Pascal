@@ -85,12 +85,16 @@ implementation
 
 function TBuiltInServerVerifierSource.CreateServerVerifier(
   const AContext: TServerTrustContext): IServerCertificateVerifier;
+var
+  LVerifier: TCertificateVerifier;
 begin
-  Result := TCertificateVerifier.Create(AContext.Provider, AContext.Clock,
+  LVerifier := TCertificateVerifier.Create(AContext.Provider, AContext.Clock,
     AContext.TrustStore, AContext.CheckHostName, AContext.ChainLimits,
     AContext.RevocationPosture, AContext.Dangerous,
-    AContext.AsyncVerdictEnabled, AContext.Intermediates)
-    as IServerCertificateVerifier;
+    AContext.AsyncVerdictEnabled, AContext.Intermediates);
+  LVerifier.SetChainAlgorithmPolicy(AContext.StrengthPolicy,
+    AContext.AdvertisedSignatureSchemes);
+  Result := LVerifier as IServerCertificateVerifier;
 end;
 
 { TInstanceServerVerifierSource }
@@ -112,12 +116,16 @@ end;
 
 function TBuiltInClientVerifierSource.CreateClientVerifier(
   const AContext: TClientTrustContext): IClientCertificateVerifier;
+var
+  LVerifier: TCertificateVerifier;
 begin
   // a client certificate carries no host identity, so name checking is always off
-  Result := TCertificateVerifier.Create(AContext.Provider, AContext.Clock,
+  LVerifier := TCertificateVerifier.Create(AContext.Provider, AContext.Clock,
     AContext.TrustStore, False, AContext.ChainLimits, AContext.RevocationPosture,
-    AContext.Dangerous, AContext.AsyncVerdictEnabled, AContext.Intermediates)
-    as IClientCertificateVerifier;
+    AContext.Dangerous, AContext.AsyncVerdictEnabled, AContext.Intermediates);
+  LVerifier.SetChainAlgorithmPolicy(AContext.StrengthPolicy,
+    AContext.AdvertisedSignatureSchemes);
+  Result := LVerifier as IClientCertificateVerifier;
 end;
 
 { TInstanceClientVerifierSource }

@@ -18,6 +18,7 @@ uses
   WireCodecTests,
   ProviderTests,
   NamedGroupTests,
+  ChainAlgorithmPolicyTests,
   MockTests,
   RecordHeaderTests,
   RecordProtectionTests,

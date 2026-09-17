@@ -282,6 +282,18 @@ type
     function KeyIsRsaPss: TCertAnswer;
     function KeyKind(out AKind: TCertKeyKind; out AEcNamedGroup: UInt16): Boolean;
     /// <summary>
+    /// The subject public key's strength facts (family, size, curve). Returns False (facts
+    /// undeterminable - unknown key OID, explicit EC parameters, malformed) so the caller
+    /// fails closed.
+    /// </summary>
+    function KeyFacts(out AFacts: TCertKeyFacts): Boolean;
+    /// <summary>
+    /// The algorithm the certificate was signed with (family, hash, canonical-PSS flag).
+    /// Returns False (undeterminable - unknown signature OID, malformed parameters) so the
+    /// caller fails closed.
+    /// </summary>
+    function SignatureFacts(out AFacts: TCertSignatureFacts): Boolean;
+    /// <summary>
     /// Extracts the certificate's human-readable identity from the already-decoded handle:
     /// the subject and issuer distinguished names, the subject common name, and the serial
     /// number in hex. Returns False (all empty) on a malformed field; never raises.

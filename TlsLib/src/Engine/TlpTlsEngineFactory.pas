@@ -241,6 +241,8 @@ begin
   LTrustContext.Dangerous := AConfig.DangerousTrust;
   LTrustContext.AsyncVerdictEnabled := LAsyncVerdict;
   LTrustContext.Intermediates := AConfig.IntermediateCertificates;
+  LTrustContext.StrengthPolicy := AConfig.CertificateStrengthPolicy;
+  LTrustContext.AdvertisedSignatureSchemes := SchemeCodes(AConfig.SignatureSchemes);
   LVerifier := AConfig.ServerVerifierSource.CreateServerVerifier(LTrustContext);
   // SPKI pinning composes over the source output, so it augments any source (built-in or OS delegate)
   if System.Length(AConfig.CertificatePins) > 0 then
@@ -400,6 +402,8 @@ begin
     LClientContext.Dangerous := AConfig.DangerousTrust;
     LClientContext.AsyncVerdictEnabled := LAsyncVerdict;
     LClientContext.Intermediates := AConfig.IntermediateCertificates;
+    LClientContext.StrengthPolicy := AConfig.CertificateStrengthPolicy;
+    LClientContext.AdvertisedSignatureSchemes := SchemeCodes(AConfig.SignatureSchemes);
     LClientVerifier := AConfig.ClientVerifierSource.CreateClientVerifier(LClientContext);
   end;
 

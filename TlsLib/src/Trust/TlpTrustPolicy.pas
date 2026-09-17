@@ -82,6 +82,25 @@ type
   end;
 
   /// <summary>
+  /// The minimum-strength floors a peer certificate chain's keys must meet, applied to the
+  /// leaf and intermediates (a configured trust anchor is exempt). MinRsaModulusBits sets the
+  /// smallest accepted RSA modulus; MaxRsaModulusBits caps it as a verify-cost defence (0 = no
+  /// cap); AllowedEcCurves is the accepted ECDSA named-group codes (empty = any curve the
+  /// provider recognises); AllowEdDsa admits Ed25519/Ed448 keys. The chain-signature algorithm
+  /// check (peer chain signed only with an advertised scheme, and the MD5/SHA-1 rejection RFC
+  /// 8446 4.4.2 mandates) is always applied and is not gated by this record.
+  /// </summary>
+  TCertificateStrengthPolicy = record
+    MinRsaModulusBits: Int32;
+    MaxRsaModulusBits: Int32;
+    AllowedEcCurves: TArray<UInt16>;
+    AllowEdDsa: Boolean;
+    /// <summary>The default floors, applied by every preset: RSA 2048..8192, the NIST P-curves,
+    /// EdDSA admitted.</summary>
+    class function Defaults: TCertificateStrengthPolicy; static;
+  end;
+
+  /// <summary>
   /// The trust parameters the engine gathers once from the frozen config and hands a
   /// verifier source to build the server-certificate verifier for a connection. The clock
   /// and posture are carried here so a source constructs its verifier with them injected
@@ -99,6 +118,8 @@ type
     Dangerous: TDangerousTrust;
     AsyncVerdictEnabled: Boolean;
     Intermediates: TArray<TBytes>;
+    StrengthPolicy: TCertificateStrengthPolicy;
+    AdvertisedSignatureSchemes: TArray<UInt16>;
   end;
 
   /// <summary>
@@ -118,6 +139,8 @@ type
     Dangerous: TDangerousTrust;
     AsyncVerdictEnabled: Boolean;
     Intermediates: TArray<TBytes>;
+    StrengthPolicy: TCertificateStrengthPolicy;
+    AdvertisedSignatureSchemes: TArray<UInt16>;
   end;
 
 implementation
@@ -127,6 +150,15 @@ class operator TDangerousTrust.Initialize({$IFDEF FPC}var{$ELSE}out{$ENDIF}
 begin
   AOptions.InsecureSkipVerify := False;
   AOptions.VerifyCallback := nil;
+end;
+
+class function TCertificateStrengthPolicy.Defaults: TCertificateStrengthPolicy;
+begin
+  Result.MinRsaModulusBits := 2048;
+  Result.MaxRsaModulusBits := 8192;
+  // secp256r1 / secp384r1 / secp521r1 IANA supported-group codes
+  Result.AllowedEcCurves := TArray<UInt16>.Create($0017, $0018, $0019);
+  Result.AllowEdDsa := True;
 end;
 
 end.

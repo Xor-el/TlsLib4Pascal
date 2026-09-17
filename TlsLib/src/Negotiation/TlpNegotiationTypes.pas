@@ -112,8 +112,8 @@ type
   end;
 
   /// <summary>
-  /// The named-group wire codepoints (RFC 8446 / RFC 9370) and the mapping between
-  /// a code and the provider group name it resolves to.
+  /// The named-group wire codepoints (RFC 8446, RFC 9370, RFC 10024) and the mapping
+  /// between a code and the provider group name it resolves to.
   /// </summary>
   TNamedGroupCatalog = class sealed(TObject)
   public const
@@ -122,6 +122,7 @@ type
     Secp384r1 = UInt16($0018);
     Secp521r1 = UInt16($0019);
     MlKem768 = UInt16($0201);
+    SecP256r1MlKem768 = UInt16($11EB);
     X25519MlKem768 = UInt16($11EC);
   public
     class function TryCode(const AName: string; out ACode: UInt16): Boolean; static;
@@ -161,6 +162,8 @@ begin
     ACode := Secp521r1
   else if AName = 'ML-KEM-768' then
     ACode := MlKem768
+  else if AName = 'SecP256r1MLKEM768' then
+    ACode := SecP256r1MlKem768
   else if AName = 'X25519MLKEM768' then
     ACode := X25519MlKem768
   else

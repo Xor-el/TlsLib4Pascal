@@ -71,6 +71,8 @@ type
     function TrustStore: ITrustAnchorStore;
     /// <summary>The certificate-chain resource caps applied before PKIX validation.</summary>
     function CertificateChainLimits: TCertificateChainLimits;
+    /// <summary>The peer-certificate minimum-strength floors (RSA bits, EC curves, EdDSA).</summary>
+    function CertificateStrengthPolicy: TCertificateStrengthPolicy;
     /// <summary>The stapled-OCSP revocation posture (RFC 6960): Soft (default), Hard, or
     /// Off. Applies to the peer server certificate; must-staple (RFC 7633) is enforced
     /// regardless.</summary>

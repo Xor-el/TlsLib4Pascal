@@ -25,6 +25,7 @@ uses
   TlpServerName,
   TlpEndpointIdentity,
   TlpCertificateLimits,
+  TlpChainAlgorithmPolicy,
   TlpTrustPolicy,
   TlpDateTimeUtilities,
   TlpIClock,
@@ -85,6 +86,12 @@ type
     /// (the live OCSP/CRL fetch at the park). When set, an indeterminate stapled outcome is
     /// DEFERRED to that resolver instead of being decided inline by the posture.</summary>
     FAsyncVerdictEnabled: Boolean;
+    /// <summary>The chain-algorithm policy (advertised-scheme filter + key-strength floors),
+    /// applied only when the engine set it via SetChainAlgorithmPolicy; a verifier built through
+    /// the bare constructors (no advertised set to filter against) does not run it.</summary>
+    FChainPolicyEnabled: Boolean;
+    FStrengthPolicy: TCertificateStrengthPolicy;
+    FAdvertisedSchemes: TArray<UInt16>;
     /// <summary>The injected clock as a UTC wall-clock instant, so every time-based cert
     /// check (chain validity, PKIX path date, OCSP responder validity) shares one source.</summary>
     function ValidationTimeUtc: TDateTime;
@@ -138,6 +145,12 @@ type
       ARevocationPosture: TRevocationPosture;
       const ADangerous: TDangerousTrust; AAsyncVerdictEnabled: Boolean;
       const AIntermediates: TArray<TBytes>); overload;
+    /// <summary>Turns on the chain-algorithm policy for this verifier: the peer chain must be
+    /// signed only with a scheme in AAdvertised (and never MD5/SHA-1) and its keys must meet
+    /// APolicy. The engine calls this from the verifier source with the connection's advertised
+    /// signature schemes; a bare-constructed verifier leaves it off.</summary>
+    procedure SetChainAlgorithmPolicy(const APolicy: TCertificateStrengthPolicy;
+      const AAdvertised: TArray<UInt16>);
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
       out AAlert: TTlsAlertDescription): Boolean;
@@ -278,6 +291,14 @@ begin
   Result := TDateTimeUtilities.UnixMsToDateTime(Int64(FClock.NowUnixMillis));
 end;
 
+procedure TCertificateVerifier.SetChainAlgorithmPolicy(
+  const APolicy: TCertificateStrengthPolicy; const AAdvertised: TArray<UInt16>);
+begin
+  FStrengthPolicy := APolicy;
+  FAdvertisedSchemes := AAdvertised;
+  FChainPolicyEnabled := True;
+end;
+
 function TCertificateVerifier.EvaluateStaple(const AChain: TArray<TBytes>;
   const AOcspStaple: TBytes): TStapleVerdict;
 var
@@ -415,6 +436,14 @@ begin
       Exit;
     end;
   end;
+
+  // chain-algorithm policy over the validated chain: every non-anchor certificate must be
+  // signed with an advertised scheme (MD5/SHA-1 refused outright) and meet the key-strength
+  // floors. Post-PKIX so it sees the assembled path; the anchor exemption keys off the roots.
+  if FChainPolicyEnabled and
+    (not TChainAlgorithmPolicy.Check(FProvider.Certificates, LEffectiveChain,
+    FTrustStore.RootCertificates, FStrengthPolicy, FAdvertisedSchemes, AAlert)) then
+    Exit;
 
   // revocation via the stapled OCSP response (RFC 6960), in-band only; run over the validated
   // chain so a staple can be authenticated against a recovered issuer the peer did not send

@@ -45,8 +45,10 @@ type
       const ACurveName: string): INamedGroup; static;
     /// <summary>ML-KEM-768 (post-quantum KEM).</summary>
     class function CreateMlKem768(const AProvider: ICryptoProvider): INamedGroup; static;
-    /// <summary>The X25519MLKEM768 hybrid combinator.</summary>
+    /// <summary>The X25519MLKEM768 hybrid (ML-KEM-768 first).</summary>
     class function CreateX25519MlKem768(const AProvider: ICryptoProvider): INamedGroup; static;
+    /// <summary>The SecP256r1MLKEM768 hybrid (P-256 ECDH first, RFC 10024).</summary>
+    class function CreateSecP256r1MlKem768(const AProvider: ICryptoProvider): INamedGroup; static;
     /// <summary>A registry pre-loaded with the default groups.</summary>
     class function CreateDefaultRegistry(const AProvider: ICryptoProvider): INamedGroupRegistry; static;
     /// <summary>The default registry with the post-quantum groups removed - classical ECDHE only.
@@ -60,10 +62,12 @@ type
 implementation
 
 const
-  X25519KeyBytes = 32;
-  // FIPS 203 ML-KEM-768 fixed sizes (the X25519MLKEM768 wire layout)
+  X25519KeyBytes = 32; // X25519 raw public = private = shared-secret length (RFC 7748)
+  SecP256r1ShareBytes = 65; // uncompressed SEC1 P-256 point: 0x04 || X(32) || Y(32)
+  // FIPS 203 ML-KEM-768 fixed sizes, shared by both hybrids
   MlKem768EncapsulationKeyBytes = 1184;
   MlKem768CiphertextBytes = 1088;
+  MlKem768PrivateKeyBytes = 2400; // decapsulation key; fixed, so it splits the stored private
 
 resourcestring
   SInvalidPeerShare = 'invalid peer key share for group %s';
@@ -115,15 +119,33 @@ type
     function ValidatePeerShare(const AShare: TBytes): Boolean;
   end;
 
-  // combinator: shares/ciphertext/secret concatenate ML-KEM then X25519.
-  TX25519MlKem768Group = class(TInterfacedObject, INamedGroup)
+  // which of a hybrid's two legs is written first on the wire (RFC 10024 fixes it per group)
+  THybridLegOrder = (KemFirst, ClassicalFirst);
+
+  // combinator over a classical (DH-as-KEM) leg and a KEM leg (RFC 10024 PQ/T hybrid). The wire
+  // layout is data: the fixed leg sizes and the leg order. That one order governs the client
+  // share, the server ciphertext and the concatenated secret alike.
+  THybridGroup = class(TInterfacedObject, INamedGroup)
   strict private
   var
     FComposition: TNamedGroupComposition;
-    FX25519: INamedGroup;
-    FMlKem: INamedGroup;
+    FClassical: INamedGroup;
+    FKem: INamedGroup;
+    FCode: UInt16;
+    FName: string;
+    FClassicalShareBytes: Int32;
+    FKemEncapsKeyBytes: Int32;
+    FKemCiphertextBytes: Int32;
+    FKemPrivBytes: Int32;
+    FOrder: THybridLegOrder;
+    // the only two places FOrder is consulted
+    function Join(const AClassical, AKem: TBytes): TBytes;
+    procedure Split(const ABytes: TBytes; AClassicalLen, AKemLen: Int32;
+      out AClassical, AKem: TBytes);
   public
-    constructor Create(const AProvider: ICryptoProvider);
+    constructor Create(const AClassical, AKem: INamedGroup; ACode: UInt16;
+      const AName: string; AClassicalShareBytes, AKemEncapsKeyBytes,
+      AKemCiphertextBytes, AKemPrivBytes: Int32; AOrder: THybridLegOrder);
     function Code: UInt16;
     function Name: string;
     function Kind: TNamedGroupKind;
@@ -263,128 +285,163 @@ begin
   Result := FKem.ValidatePublicKey(AShare);
 end;
 
-{ TX25519MlKem768Group }
+{ THybridGroup }
 
-constructor TX25519MlKem768Group.Create(const AProvider: ICryptoProvider);
+constructor THybridGroup.Create(const AClassical, AKem: INamedGroup; ACode: UInt16;
+  const AName: string; AClassicalShareBytes, AKemEncapsKeyBytes,
+  AKemCiphertextBytes, AKemPrivBytes: Int32; AOrder: THybridLegOrder);
 begin
   inherited Create;
-  FComposition := TNamedGroupComposition.From(TKeyAgreementAlgorithm.X25519,
-    TKemAlgorithm.ML_KEM_768);
-  FX25519 := TKeyAgreementGroup.Create(AProvider, FComposition.KeyAgreement,
-    TNamedGroupCatalog.X25519);
-  FMlKem := TKemGroup.Create(AProvider, FComposition.Kem, TNamedGroupCatalog.MlKem768);
+  FClassical := AClassical;
+  FKem := AKem;
+  FComposition := TNamedGroupComposition.From(AClassical.Composition.KeyAgreement,
+    AKem.Composition.Kem);
+  FCode := ACode;
+  FName := AName;
+  FClassicalShareBytes := AClassicalShareBytes;
+  FKemEncapsKeyBytes := AKemEncapsKeyBytes;
+  FKemCiphertextBytes := AKemCiphertextBytes;
+  FKemPrivBytes := AKemPrivBytes;
+  FOrder := AOrder;
 end;
 
-function TX25519MlKem768Group.Code: UInt16;
+function THybridGroup.Join(const AClassical, AKem: TBytes): TBytes;
 begin
-  Result := TNamedGroupCatalog.X25519MlKem768;
+  if FOrder = THybridLegOrder.KemFirst then
+    Result := TArrayUtilities.Concat(AKem, AClassical)
+  else
+    Result := TArrayUtilities.Concat(AClassical, AKem);
 end;
 
-function TX25519MlKem768Group.Name: string;
+procedure THybridGroup.Split(const ABytes: TBytes; AClassicalLen, AKemLen: Int32;
+  out AClassical, AKem: TBytes);
 begin
-  Result := 'X25519MLKEM768';
+  if FOrder = THybridLegOrder.KemFirst then
+  begin
+    AKem := System.Copy(ABytes, 0, AKemLen);
+    AClassical := System.Copy(ABytes, AKemLen, AClassicalLen);
+  end
+  else
+  begin
+    AClassical := System.Copy(ABytes, 0, AClassicalLen);
+    AKem := System.Copy(ABytes, AClassicalLen, AKemLen);
+  end;
 end;
 
-function TX25519MlKem768Group.Kind: TNamedGroupKind;
+function THybridGroup.Code: UInt16;
+begin
+  Result := FCode;
+end;
+
+function THybridGroup.Name: string;
+begin
+  Result := FName;
+end;
+
+function THybridGroup.Kind: TNamedGroupKind;
 begin
   Result := FComposition.Kind;
 end;
 
-function TX25519MlKem768Group.Composition: TNamedGroupComposition;
+function THybridGroup.Composition: TNamedGroupComposition;
 begin
   Result := FComposition;
 end;
 
-procedure TX25519MlKem768Group.GenerateKeyPair(out APriv: ISecretBuffer;
+procedure THybridGroup.GenerateKeyPair(out APriv: ISecretBuffer;
   out APubShare: TBytes);
 var
-  LXPriv, LMPriv: ISecretBuffer;
-  LXPub, LMPub, LXPrivBytes, LMPrivBytes, LPrivBytes: TBytes;
+  LCPriv, LKPriv: ISecretBuffer;
+  LCPub, LKPub, LCPrivBytes, LKPrivBytes, LPrivBytes: TBytes;
 begin
-  FX25519.GenerateKeyPair(LXPriv, LXPub);
-  FMlKem.GenerateKeyPair(LMPriv, LMPub);
-  APubShare := TArrayUtilities.Concat(LMPub, LXPub);
-  // private (internal, off-wire): X25519 first, then ML-KEM
-  LXPrivBytes := LXPriv.ToBytes;
-  LMPrivBytes := LMPriv.ToBytes;
-  LPrivBytes := TArrayUtilities.Concat(LXPrivBytes, LMPrivBytes);
+  FClassical.GenerateKeyPair(LCPriv, LCPub);
+  FKem.GenerateKeyPair(LKPriv, LKPub);
+  APubShare := Join(LCPub, LKPub);
+  // the private key stays classical || KEM off the wire, independent of the wire order
+  LCPrivBytes := LCPriv.ToBytes;
+  LKPrivBytes := LKPriv.ToBytes;
+  LPrivBytes := TArrayUtilities.Concat(LCPrivBytes, LKPrivBytes);
   try
     APriv := TSecretBuffer.From(LPrivBytes);
   finally
     TSecureMemory.WipeBytes(LPrivBytes);
-    TSecureMemory.WipeBytes(LXPrivBytes);
-    TSecureMemory.WipeBytes(LMPrivBytes);
+    TSecureMemory.WipeBytes(LCPrivBytes);
+    TSecureMemory.WipeBytes(LKPrivBytes);
   end;
 end;
 
-procedure TX25519MlKem768Group.Encapsulate(const APeerPub: TBytes;
+procedure THybridGroup.Encapsulate(const APeerPub: TBytes;
   out ACiphertext: TBytes; out ASharedSecret: ISecretBuffer);
 var
-  LMPub, LXPub, LMCt, LXCt, LMSsBytes, LXSsBytes, LSsBytes: TBytes;
-  LMSs, LXSs: ISecretBuffer;
+  LCPub, LKPub, LCCt, LKCt, LCSsBytes, LKSsBytes, LSsBytes: TBytes;
+  LCSs, LKSs: ISecretBuffer;
 begin
   if not ValidatePeerShare(APeerPub) then
     raise EPeerInputTlsLibException.CreateResFmt(@SInvalidPeerShare, [Name]);
-  LMPub := System.Copy(APeerPub, 0, MlKem768EncapsulationKeyBytes);
-  LXPub := System.Copy(APeerPub, MlKem768EncapsulationKeyBytes, X25519KeyBytes);
-  FMlKem.Encapsulate(LMPub, LMCt, LMSs);
-  FX25519.Encapsulate(LXPub, LXCt, LXSs);
-  ACiphertext := TArrayUtilities.Concat(LMCt, LXCt);
-  LMSsBytes := LMSs.ToBytes;
-  LXSsBytes := LXSs.ToBytes;
-  LSsBytes := TArrayUtilities.Concat(LMSsBytes, LXSsBytes);
+  Split(APeerPub, FClassicalShareBytes, FKemEncapsKeyBytes, LCPub, LKPub);
+  FClassical.Encapsulate(LCPub, LCCt, LCSs);
+  FKem.Encapsulate(LKPub, LKCt, LKSs);
+  ACiphertext := Join(LCCt, LKCt);
+  LCSsBytes := LCSs.ToBytes;
+  LKSsBytes := LKSs.ToBytes;
+  LSsBytes := Join(LCSsBytes, LKSsBytes);
   try
     ASharedSecret := TSecretBuffer.From(LSsBytes);
   finally
     TSecureMemory.WipeBytes(LSsBytes);
-    TSecureMemory.WipeBytes(LMSsBytes);
-    TSecureMemory.WipeBytes(LXSsBytes);
+    TSecureMemory.WipeBytes(LCSsBytes);
+    TSecureMemory.WipeBytes(LKSsBytes);
   end;
 end;
 
-procedure TX25519MlKem768Group.Decapsulate(const APriv: ISecretBuffer;
+procedure THybridGroup.Decapsulate(const APriv: ISecretBuffer;
   const ACiphertext: TBytes; out ASharedSecret: ISecretBuffer);
 var
-  LPrivBytes, LXPrivBytes, LMPrivBytes, LMCt, LXCt, LMSsBytes, LXSsBytes,
+  LPrivBytes, LCPrivBytes, LKPrivBytes, LCCt, LKCt, LCSsBytes, LKSsBytes,
     LSsBytes: TBytes;
-  LXPriv, LMPriv, LMSs, LXSs: ISecretBuffer;
+  LClassicalLen: Int32;
+  LCPriv, LKPriv, LCSs, LKSs: ISecretBuffer;
 begin
   // reject a short/long ciphertext before the fixed-offset slices reach the backend
-  if System.Length(ACiphertext) <> MlKem768CiphertextBytes + X25519KeyBytes then
+  if System.Length(ACiphertext) <> FClassicalShareBytes + FKemCiphertextBytes then
     raise EPeerInputTlsLibException.CreateResFmt(@SInvalidPeerShare, [Name]);
   LPrivBytes := APriv.ToBytes;
-  LXPrivBytes := System.Copy(LPrivBytes, 0, X25519KeyBytes);
-  LMPrivBytes := System.Copy(LPrivBytes, X25519KeyBytes,
-    System.Length(LPrivBytes) - X25519KeyBytes);
+  // the stored key is classical || KEM; the classical half is whatever the provider produced (a
+  // raw scalar or a backend key blob), so split off the fixed-length KEM tail, not a fixed head
+  LClassicalLen := System.Length(LPrivBytes) - FKemPrivBytes;
+  LCPrivBytes := System.Copy(LPrivBytes, 0, LClassicalLen);
+  LKPrivBytes := System.Copy(LPrivBytes, LClassicalLen, FKemPrivBytes);
   try
-    LXPriv := TSecretBuffer.From(LXPrivBytes);
-    LMPriv := TSecretBuffer.From(LMPrivBytes);
+    LCPriv := TSecretBuffer.From(LCPrivBytes);
+    LKPriv := TSecretBuffer.From(LKPrivBytes);
   finally
     TSecureMemory.WipeBytes(LPrivBytes);
-    TSecureMemory.WipeBytes(LXPrivBytes);
-    TSecureMemory.WipeBytes(LMPrivBytes);
+    TSecureMemory.WipeBytes(LCPrivBytes);
+    TSecureMemory.WipeBytes(LKPrivBytes);
   end;
-  LMCt := System.Copy(ACiphertext, 0, MlKem768CiphertextBytes);
-  LXCt := System.Copy(ACiphertext, MlKem768CiphertextBytes, X25519KeyBytes);
-  FMlKem.Decapsulate(LMPriv, LMCt, LMSs);
-  FX25519.Decapsulate(LXPriv, LXCt, LXSs);
-  LMSsBytes := LMSs.ToBytes;
-  LXSsBytes := LXSs.ToBytes;
-  LSsBytes := TArrayUtilities.Concat(LMSsBytes, LXSsBytes);
+  Split(ACiphertext, FClassicalShareBytes, FKemCiphertextBytes, LCCt, LKCt);
+  FClassical.Decapsulate(LCPriv, LCCt, LCSs);
+  FKem.Decapsulate(LKPriv, LKCt, LKSs);
+  LCSsBytes := LCSs.ToBytes;
+  LKSsBytes := LKSs.ToBytes;
+  LSsBytes := Join(LCSsBytes, LKSsBytes);
   try
     ASharedSecret := TSecretBuffer.From(LSsBytes);
   finally
     TSecureMemory.WipeBytes(LSsBytes);
-    TSecureMemory.WipeBytes(LMSsBytes);
-    TSecureMemory.WipeBytes(LXSsBytes);
+    TSecureMemory.WipeBytes(LCSsBytes);
+    TSecureMemory.WipeBytes(LKSsBytes);
   end;
 end;
 
-function TX25519MlKem768Group.ValidatePeerShare(const AShare: TBytes): Boolean;
+function THybridGroup.ValidatePeerShare(const AShare: TBytes): Boolean;
+var
+  LCPub, LKPub: TBytes;
 begin
-  Result := (System.Length(AShare) = MlKem768EncapsulationKeyBytes + X25519KeyBytes) and
-    FMlKem.ValidatePeerShare(System.Copy(AShare, 0, MlKem768EncapsulationKeyBytes)) and
-    FX25519.ValidatePeerShare(System.Copy(AShare, MlKem768EncapsulationKeyBytes, X25519KeyBytes));
+  if System.Length(AShare) <> FClassicalShareBytes + FKemEncapsKeyBytes then
+    Exit(False);
+  Split(AShare, FClassicalShareBytes, FKemEncapsKeyBytes, LCPub, LKPub);
+  Result := FClassical.ValidatePeerShare(LCPub) and FKem.ValidatePeerShare(LKPub);
 end;
 
 { TNamedGroupRegistry }
@@ -430,7 +487,18 @@ end;
 
 class function TNamedGroups.CreateX25519MlKem768(const AProvider: ICryptoProvider): INamedGroup;
 begin
-  Result := TX25519MlKem768Group.Create(AProvider);
+  Result := THybridGroup.Create(CreateX25519(AProvider), CreateMlKem768(AProvider),
+    TNamedGroupCatalog.X25519MlKem768, 'X25519MLKEM768', X25519KeyBytes,
+    MlKem768EncapsulationKeyBytes, MlKem768CiphertextBytes, MlKem768PrivateKeyBytes,
+    THybridLegOrder.KemFirst);
+end;
+
+class function TNamedGroups.CreateSecP256r1MlKem768(const AProvider: ICryptoProvider): INamedGroup;
+begin
+  Result := THybridGroup.Create(CreateNistEcdh(AProvider, 'secp256r1'),
+    CreateMlKem768(AProvider), TNamedGroupCatalog.SecP256r1MlKem768, 'SecP256r1MLKEM768',
+    SecP256r1ShareBytes, MlKem768EncapsulationKeyBytes, MlKem768CiphertextBytes,
+    MlKem768PrivateKeyBytes, THybridLegOrder.ClassicalFirst);
 end;
 
 class function TNamedGroups.CreateDefaultRegistry(const AProvider: ICryptoProvider): INamedGroupRegistry;
@@ -438,6 +506,7 @@ begin
   Result := TNamedGroupRegistry.Create;
   Result.Add(CreateX25519(AProvider));
   Result.Add(CreateX25519MlKem768(AProvider));
+  Result.Add(CreateSecP256r1MlKem768(AProvider));
   Result.Add(CreateMlKem768(AProvider));
   Result.Add(CreateNistEcdh(AProvider, 'secp256r1'));
   Result.Add(CreateNistEcdh(AProvider, 'secp384r1'));

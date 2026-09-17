@@ -104,6 +104,7 @@ contains
   TlpICertificateTrust in '..\..\Interfaces\Trust\TlpICertificateTrust.pas',
   TlpICertificateVerifierSource in '..\..\Interfaces\Trust\TlpICertificateVerifierSource.pas',
   TlpCertificateVerifierSource in '..\..\Trust\TlpCertificateVerifierSource.pas',
+  TlpChainAlgorithmPolicy in '..\..\Trust\TlpChainAlgorithmPolicy.pas',
   TlpServerName in '..\..\Trust\TlpServerName.pas',
   TlpHpkeComposition in '..\..\Crypto\TlpHpkeComposition.pas',
   TlpTls12PrfComposition in '..\..\Crypto\TlpTls12PrfComposition.pas',
