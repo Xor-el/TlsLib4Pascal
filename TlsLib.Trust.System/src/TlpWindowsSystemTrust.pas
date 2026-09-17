@@ -279,6 +279,7 @@ type
     class procedure CollectStore(AStoreName: PWideChar;
       const AExclude: TDictionary<TBytes, Boolean>;
       const ADest: TList<TBytes>); static;
+    class function UnixMillisToFileTime(AMillisUtc: UInt64): FILETIME; static;
   private
     class procedure ResolveDynamicImports; static;
     /// <summary>Frees the loaded crypt32 module (unit teardown).</summary>
@@ -435,6 +436,20 @@ begin
   end;
 end;
 
+class function TWindowsTrustApi.UnixMillisToFileTime(AMillisUtc: UInt64): FILETIME;
+const
+  // FILETIME counts 100ns ticks from 1601-01-01, so scale ms by 10000 and add the ticks
+  // between the 1601 and 1970 (Unix) epochs
+  TicksPerMillisecond = UInt64(10000);
+  UnixEpochInTicks = UInt64(116444736000000000);
+var
+  LTicks: UInt64;
+begin
+  LTicks := AMillisUtc * TicksPerMillisecond + UnixEpochInTicks;
+  Result.dwLowDateTime := DWORD(LTicks and $FFFFFFFF);
+  Result.dwHighDateTime := DWORD(LTicks shr 32);
+end;
+
 class function TWindowsTrustApi.EvaluateChain(const AChain: TArray<TBytes>;
   const AHostName: string; const AOcspStaple: TBytes;
   APosture: TRevocationPosture; const AClock: ITlsClock;
@@ -452,7 +467,6 @@ var
   LStapleBlob: CRYPT_DATA_BLOB;
   LFileTime: FILETIME;
   LTimePtr: Pointer;
-  LTicks: UInt64;
   LFlags: DWORD;
   LI: Integer;
 begin
@@ -515,9 +529,7 @@ begin
     LTimePtr := nil;
     if AClock <> nil then
     begin
-      LTicks := AClock.NowUnixMillis * UInt64(10000) + UInt64(116444736000000000);
-      LFileTime.dwLowDateTime := DWORD(LTicks and $FFFFFFFF);
-      LFileTime.dwHighDateTime := DWORD(LTicks shr 32);
+      LFileTime := UnixMillisToFileTime(AClock.NowUnixMillis);
       LTimePtr := @LFileTime;
     end;
 
@@ -610,7 +622,6 @@ var
   LStatus: CERT_CHAIN_POLICY_STATUS;
   LFileTime: FILETIME;
   LTimePtr: Pointer;
-  LTicks: UInt64;
   LFlags: DWORD;
   LI: Integer;
 begin
@@ -681,9 +692,7 @@ begin
     LTimePtr := nil;
     if AClock <> nil then
     begin
-      LTicks := AClock.NowUnixMillis * UInt64(10000) + UInt64(116444736000000000);
-      LFileTime.dwLowDateTime := DWORD(LTicks and $FFFFFFFF);
-      LFileTime.dwHighDateTime := DWORD(LTicks shr 32);
+      LFileTime := UnixMillisToFileTime(AClock.NowUnixMillis);
       LTimePtr := @LFileTime;
     end;
 
