@@ -27,6 +27,47 @@ FAILURES=0
 OSNAME="$(uname -s)"
 
 THUMB=""  # set after the CA exists
+
+# Hard-bound a command so a stray macOS auth prompt can never wedge the CI job (macOS has no
+# reliable GNU timeout). Returns 124 on timeout, tearing down the whole tree - the sudo child
+# (root-owned) and any pending SecurityAgent dialog. macOS-only kills are no-ops elsewhere.
+bounded() { # <secs> <cmd...>
+  local secs="$1"; shift
+  "$@" &
+  local pid=$!
+  ( sleep "$secs"; kill -0 "$pid" 2>/dev/null || exit 0
+    echo "  TIMEOUT(${secs}s): $*" >&2
+    sudo pkill -x SecurityAgent 2>/dev/null || true  # cancel the auth dialog -> caller returns
+    sudo pkill -9 -P "$pid" 2>/dev/null || true       # the security process under sudo
+    sudo kill -9 "$pid" 2>/dev/null || true
+  ) &
+  local wd=$!
+  local rc=0
+  wait "$pid" 2>/dev/null || rc=$?
+  kill "$wd" 2>/dev/null || true
+  wait "$wd" 2>/dev/null || true
+  if [ "$rc" -ge 128 ]; then rc=124; fi
+  return "$rc"
+}
+
+# macOS: SecTrustSettings and System-keychain writes can demand a GUI authorization even as root on
+# Big Sur+, which hangs a headless runner. Pre-authorize the rights they request (add AND remove hit
+# them), and verify the write took - a silent failure is what makes add work but remove still prompt.
+darwin_preauth() {
+  local r
+  for r in com.apple.trust-settings.admin system.keychain.modify; do
+    bounded 20 sudo security authorizationdb write "$r" allow >/dev/null 2>&1 || true
+  done
+  sudo security authorizationdb read com.apple.trust-settings.admin 2>/dev/null \
+    | grep -q '<string>allow</string>' || echo "  WARN: trust-settings.admin rule is not 'allow'"
+}
+darwin_unauth() {
+  local r
+  for r in com.apple.trust-settings.admin system.keychain.modify; do
+    bounded 20 sudo security authorizationdb remove "$r" >/dev/null 2>&1 || true
+  done
+}
+
 cleanup() {
   if [ "$INSTALLED" = 1 ]; then uninstall_root || true; fi
   rm -rf "$TMP"
@@ -37,36 +78,50 @@ install_root() { # into the machine store, non-interactively
     MINGW*|MSYS*|CYGWIN*|Windows*)
       certutil -addstore -f Root "$(cygpath -w "$CA/root.pem")" >/dev/null 2>&1 ;;
     Darwin)
-      # SecTrustSettings ops demand a GUI authorization even as root on Big Sur+, which hangs a
-      # headless runner; pre-authorize the trust-settings right so BOTH add- and remove-trusted-cert
-      # run non-interactively (restored in uninstall_root).
-      sudo security authorizationdb write com.apple.trust-settings.admin allow >/dev/null 2>&1 || true
-      sudo security add-trusted-cert -d -r trustRoot \
+      darwin_preauth
+      bounded 60 sudo security add-trusted-cert -d -r trustRoot \
         -k /Library/Keychains/System.keychain "$CA/root.pem" >/dev/null 2>&1 ;;
     *) return 1 ;;
   esac
 }
-uninstall_root() { # keyed by thumbprint so it can never touch another cert
+uninstall_root() { # un-anchor the root; every step bounded so a stray prompt can't wedge the job
   case "$OSNAME" in
     MINGW*|MSYS*|CYGWIN*|Windows*)
       certutil -delstore Root "$THUMB" >/dev/null 2>&1 || true ;;
     Darwin)
-      # remove-trusted-cert -d un-anchors the root; it shares the com.apple.trust-settings.admin
-      # right that install_root pre-authorizes with add-trusted-cert -d, so both are non-interactive.
-      # Un-anchoring is all the post-uninstall cell needs (a cert with no trust setting is not an
-      # anchor) and the runner is ephemeral, so delete-certificate stays disabled below. That admin
-      # right does NOT cover it: delete-certificate removes the keychain ITEM (a separate System-
-      # keychain-modification authorization), so it would still pop a GUI prompt and hang - it is
-      # neither the same right nor a clean authorizationdb flip.
-      sudo security remove-trusted-cert -d "$CA/root.pem" >/dev/null 2>&1 || true
-      # sudo security delete-certificate -Z "$THUMB" /Library/Keychains/System.keychain >/dev/null 2>&1 || true
-      # restore the trust-settings authorization to its default (install_root set it to allow)
-      sudo security authorizationdb remove com.apple.trust-settings.admin >/dev/null 2>&1 || true ;;
+      bounded 60 sudo security remove-trusted-cert -d "$CA/root.pem" >/dev/null 2>&1 || true
+      # fallback if the trust setting survived: root owns Admin.plist, so edit it directly and bounce
+      # trustd (launchd respawns it, it re-reads the file) - always non-interactive
+      if sudo security dump-trust-settings -d 2>/dev/null | grep -q "$RUNID"; then
+        sudo /usr/libexec/PlistBuddy -c "Delete :trustList:$THUMB" \
+          "/Library/Security/Trust Settings/Admin.plist" >/dev/null 2>&1 || true
+        sudo killall trustd >/dev/null 2>&1 || true
+      fi
+      darwin_unauth ;;
   esac
 }
+
+# trustd's own verdict, at its own clock, against the SAME installed root: verify-cert OK while our
+# accept cell FAILs isolates the bug to our process; both failing points at certs/store/runner clock
+macos_diag() {
+  echo "  diag: $(date -u +%FT%TZ) macOS $(sw_vers -productVersion 2>/dev/null) $(uname -m)"
+  local f
+  for f in root issuer leaf; do
+    echo "  diag: $f $("$OPENSSL" x509 -in "$CA/$f.pem" -noout -dates 2>&1 | tr '\n' ' ')"
+  done
+  bounded 30 sudo security verify-cert -c "$CA/leaf.pem" -c "$CA/issuer.pem" -p ssl -s localhost -L \
+    2>&1 | sed 's/^/  diag: verify-cert /' || true
+}
+
 trap cleanup EXIT
 
 OPENSSL="${OPENSSL:-openssl}"
+# on the macOS runner /usr/bin/openssl is LibreSSL; prefer Homebrew openssl@3 (as the openssl matrix
+# does) so the responder signs with SHA-256 and matches the rest of the interop
+if [ "$OSNAME" = "Darwin" ] && command -v brew >/dev/null 2>&1; then
+  BREW_SSL="$(brew --prefix openssl@3 2>/dev/null || true)"
+  [ -n "$BREW_SSL" ] && [ -x "$BREW_SSL/bin/openssl" ] && OPENSSL="$BREW_SSL/bin/openssl"
+fi
 OPENSSL="$OPENSSL" bash "$HERE/gen-trust-ca.sh" "$CA" "$RUNID"
 THUMB="$("$OPENSSL" x509 -in "$CA/root.pem" -noout -fingerprint -sha1 | sed 's/.*=//; s/://g')"
 # a verify time past the 30-day leaf notAfter, to prove the injected clock reaches validation
@@ -74,7 +129,8 @@ FUTURE_MS=$(( ($(date +%s) + 60*86400) * 1000 ))
 
 cell() { # <label> <shim-args...>
   local label="$1"; shift
-  if "$SHIM" "$@" > "$TMP/o" 2>&1; then
+  # bounded: a wedged delegate handshake is the other way a job gets wasted
+  if bounded 60 "$SHIM" "$@" > "$TMP/o" 2>&1; then
     echo "  PASS  $label"
   else
     echo "  FAIL  $label -> $(cat "$TMP/o")"; FAILURES=$((FAILURES+1))
@@ -124,6 +180,7 @@ if [ "$HAS_DELEGATE" = 1 ]; then
   if install_root; then
     INSTALLED=1
     echo "  (installed test root $THUMB)"
+    if [ "$OSNAME" = "Darwin" ]; then macos_diag; fi
     # posture Soft here: this cell proves the OS store trusts a chain to the installed root; it
     # does not assert the delegate honours our issuer-signed good staple under Hard (crypt32 does,
     # macOS trustd treats it as indeterminate). The portable cells cover good/Hard on every OS.

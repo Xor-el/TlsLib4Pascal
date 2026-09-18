@@ -352,6 +352,10 @@ type
       const AProvider: ICryptoProvider;
       const APolicy: TCertificateStrengthPolicy; const AAdvertised: TArray<UInt16>;
       out AAlert: TTlsAlertDescription): Boolean; static;
+    /// <summary>Unix epoch milliseconds to a CFAbsoluteTime (seconds since the 2001 CF epoch). The
+    /// explicit Double casts are load-bearing: single precision loses whole seconds off a current
+    /// timestamp.</summary>
+    class function UnixMillisToCFAbsoluteTime(AMillisUtc: UInt64): Double; static;
   private
     class procedure ResolveDynamicImports; static;
     /// <summary>Runs the OS SSL-server trust evaluation with network fetch off, at the validation
@@ -641,6 +645,11 @@ begin
   end;
 end;
 
+class function TAppleTrustApi.UnixMillisToCFAbsoluteTime(AMillisUtc: UInt64): Double;
+begin
+  Result := (Double(Int64(AMillisUtc)) / Double(1000)) - CFAbsoluteTimeUnixEpochDelta;
+end;
+
 class function TAppleTrustApi.EvaluateSslChain(const AChain: TArray<TBytes>;
   const AHostName: string; APosture: TRevocationPosture; const AClock: ITlsClock;
   const AOcspStaple: TBytes; const AProvider: ICryptoProvider;
@@ -761,8 +770,7 @@ begin
         AAlert := TTlsAlertDescription.InternalError;
         Exit;
       end;
-      LDate := FCFDateCreate(nil,
-        (Int64(AClock.NowUnixMillis) / 1000.0) - CFAbsoluteTimeUnixEpochDelta);
+      LDate := FCFDateCreate(nil, UnixMillisToCFAbsoluteTime(AClock.NowUnixMillis));
       if LDate = nil then
       begin
         AAlert := TTlsAlertDescription.InternalError;
@@ -973,8 +981,7 @@ begin
         AAlert := TTlsAlertDescription.InternalError;
         Exit;
       end;
-      LDate := FCFDateCreate(nil,
-        (Int64(AClock.NowUnixMillis) / 1000.0) - CFAbsoluteTimeUnixEpochDelta);
+      LDate := FCFDateCreate(nil, UnixMillisToCFAbsoluteTime(AClock.NowUnixMillis));
       if LDate = nil then
       begin
         AAlert := TTlsAlertDescription.InternalError;
