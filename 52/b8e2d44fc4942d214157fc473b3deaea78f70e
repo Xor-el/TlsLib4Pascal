@@ -1,0 +1,59 @@
+TlsLib.Interop/FreePascal.Interop/TrustDelegateInterop.lpr
+  s_09d3c46d1a9b1f::t_437675aacc1602 1-4,10-13,15-16,18
+  s_09d3c46d1a9b1f::t_584b62d1f9f9d4 5-9,14,17
+TlsLib.Interop/src/InteropSelfTestRunner.pas
+  s_09d3c46d1a9b1f::t_470b6875a07974 1-650
+.github/workflows/make.yml
+  s_09d3c46d1a9b1f::t_7ba47a455cc6a2 148,181,260,294,324
+  s_09d3c46d1a9b1f::t_c7b61ea1ee7053 69-71
+  s_09d3c46d1a9b1f::t_9fceb98bae2237 72
+TlsLib.Interop/src/InteropUtils.pas
+  s_09d3c46d1a9b1f::t_bc48a16a76c7f5 327-340
+  s_09d3c46d1a9b1f::t_7ef39993b89d4d 62-63
+TlsLib.Interop/FreePascal.Interop/TrustDelegateInterop.lpi
+  s_09d3c46d1a9b1f::t_3aea4da1a23370 34,40,43-46
+  s_09d3c46d1a9b1f::t_6d44c99724b164 48,52,56,59-62
+  s_09d3c46d1a9b1f::t_11e9a2b958008b 1-33,35-39,41-42,47,49-51,53-55,57-58,63-83
+TlsLib.Interop/FreePascal.Interop/InteropSelfTest.lpi
+  s_09d3c46d1a9b1f::t_6264ed7c6ce756 31,37,41,45,49,53,56-59
+.github/workflows/ci/interop/interop-build.sh
+  s_09d3c46d1a9b1f::t_076c7555bd732d 46-47
+  s_09d3c46d1a9b1f::t_30a1de2a3b56ec 85-86
+  s_09d3c46d1a9b1f::t_a7cd9bd24a4829 89,99,101,103
+  s_09d3c46d1a9b1f::t_e2b782e0d401c7 98,100,102
+  s_09d3c46d1a9b1f::t_c6cbc25dc079b1 104
+TlsLib.Interop/src/TlsFuzzerRunner.pas
+  s_09d3c46d1a9b1f::t_a52847b527c27d 550
+.github/workflows/ci/interop/trust/gen-trust-ca.sh
+  s_09d3c46d1a9b1f::t_1bf87e1f643147 26-28
+  s_09d3c46d1a9b1f::t_28afc7089f1eef 1-25,29-113
+.github/workflows/ci/interop/trust/run-trust.sh
+  s_09d3c46d1a9b1f::t_41594d8582e71a 19
+  s_09d3c46d1a9b1f::t_de785e1a6e0df4 16-18
+  s_09d3c46d1a9b1f::t_952de0a4d0d773 20-22
+  s_09d3c46d1a9b1f::t_fc9b4d10456fe5 1-15,23-144
+TlsLib.Interop/FreePascal.Interop/InteropSelfTest.lpr
+  s_09d3c46d1a9b1f::t_bfa96b0e60476d 5-9,14,17
+.github/workflows/ci/interop/interop-harness/action.yml
+  s_09d3c46d1a9b1f::t_461d88708954cb 29-33
+  s_09d3c46d1a9b1f::t_6129bd95d04359 87
+  s_09d3c46d1a9b1f::t_a4013160f50114 28
+TlsLib.Interop/src/TrustDelegateInteropRunner.pas
+  s_09d3c46d1a9b1f::t_192a5c574cd2a6 1-362
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "52b8e2d44fc4942d214157fc473b3deaea78f70e",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
