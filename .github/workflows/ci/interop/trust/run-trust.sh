@@ -28,101 +28,32 @@ OSNAME="$(uname -s)"
 
 THUMB=""  # set after the CA exists
 
-# Hard-bound a command so a stray macOS auth prompt can never wedge the CI job (macOS has no
-# reliable GNU timeout). Returns 124 on timeout, tearing down the whole tree - the sudo child
-# (root-owned) and any pending SecurityAgent dialog. macOS-only kills are no-ops elsewhere.
-bounded() { # <secs> <cmd...>
-  local secs="$1"; shift
-  "$@" &
-  local pid=$!
-  ( sleep "$secs"; kill -0 "$pid" 2>/dev/null || exit 0
-    echo "  TIMEOUT(${secs}s): $*" >&2
-    sudo pkill -x SecurityAgent 2>/dev/null || true  # cancel the auth dialog -> caller returns
-    sudo pkill -9 -P "$pid" 2>/dev/null || true       # the security process under sudo
-    sudo kill -9 "$pid" 2>/dev/null || true
-  ) &
-  local wd=$!
-  local rc=0
-  wait "$pid" 2>/dev/null || rc=$?
-  kill "$wd" 2>/dev/null || true
-  wait "$wd" 2>/dev/null || true
-  if [ "$rc" -ge 128 ]; then rc=124; fi
-  return "$rc"
-}
-
-# macOS: SecTrustSettings and System-keychain writes can demand a GUI authorization even as root on
-# Big Sur+, which hangs a headless runner. Pre-authorize the rights they request (add AND remove hit
-# them), and verify the write took - a silent failure is what makes add work but remove still prompt.
-darwin_preauth() {
-  local r
-  for r in com.apple.trust-settings.admin system.keychain.modify; do
-    bounded 20 sudo security authorizationdb write "$r" allow >/dev/null 2>&1 || true
-  done
-  sudo security authorizationdb read com.apple.trust-settings.admin 2>/dev/null \
-    | grep -q '<string>allow</string>' || echo "  WARN: trust-settings.admin rule is not 'allow'"
-}
-darwin_unauth() {
-  local r
-  for r in com.apple.trust-settings.admin system.keychain.modify; do
-    bounded 20 sudo security authorizationdb remove "$r" >/dev/null 2>&1 || true
-  done
-}
-
 cleanup() {
   if [ "$INSTALLED" = 1 ]; then uninstall_root || true; fi
   rm -rf "$TMP"
 }
 
-install_root() { # into the machine store, non-interactively
+install_root() { # add the test root to the machine store (non-interactive on an admin/root runner)
   case "$OSNAME" in
     MINGW*|MSYS*|CYGWIN*|Windows*)
       certutil -addstore -f Root "$(cygpath -w "$CA/root.pem")" >/dev/null 2>&1 ;;
     Darwin)
-      darwin_preauth
-      bounded 60 sudo security add-trusted-cert -d -r trustRoot \
+      sudo security add-trusted-cert -d -r trustRoot \
         -k /Library/Keychains/System.keychain "$CA/root.pem" >/dev/null 2>&1 ;;
     *) return 1 ;;
   esac
 }
-uninstall_root() { # un-anchor the root; every step bounded so a stray prompt can't wedge the job
+uninstall_root() { # remove the test root so the post-uninstall cell rejects again
   case "$OSNAME" in
     MINGW*|MSYS*|CYGWIN*|Windows*)
       certutil -delstore Root "$THUMB" >/dev/null 2>&1 || true ;;
     Darwin)
-      # remove-trusted-cert -d is unreliable on the runner (it needs the trust-settings.admin right,
-      # whose authorizationdb write does not stick under SIP - it hangs or no-ops). So deleting the
-      # keychain ITEM is the primary un-anchor: the server never sends the root, so with no keychain
-      # holding it trustd cannot build the path and rejects. As root the System keychain is unlocked,
-      # so this is non-interactive; bounded guards a stray prompt regardless.
-      bounded 60 sudo security remove-trusted-cert -d "$CA/root.pem" >/dev/null 2>&1 || true
-      bounded 60 sudo security delete-certificate -Z "$THUMB" \
-        /Library/Keychains/System.keychain >/dev/null 2>&1 || true
-      # last resort if a trust setting still lists our run id: root owns Admin.plist
-      if sudo security dump-trust-settings -d 2>/dev/null | grep -q "$RUNID"; then
-        sudo /usr/libexec/PlistBuddy -c "Delete :trustList:$THUMB" \
-          "/Library/Security/Trust Settings/Admin.plist" >/dev/null 2>&1 || true
-        sudo killall trustd >/dev/null 2>&1 || true
-      fi
-      if sudo security find-certificate -c "TlsLib Test Root $RUNID" \
-        /Library/Keychains/System.keychain >/dev/null 2>&1; then
-        echo "  uninstall: WARN root cert still in the System keychain"
-      else
-        echo "  uninstall: root cert removed"
-      fi
-      darwin_unauth ;;
+      # delete the keychain ITEM: with no keychain holding the root, trustd cannot build the path and
+      # rejects. Non-interactive as root (the System keychain is unlocked); this is what un-anchors,
+      # since remove-trusted-cert would need the SIP-restricted trust-settings.admin right.
+      sudo security delete-certificate -Z "$THUMB" \
+        /Library/Keychains/System.keychain >/dev/null 2>&1 || true ;;
   esac
-}
-
-# trustd's own verdict, at its own clock, against the SAME installed root: verify-cert OK while our
-# accept cell FAILs isolates the bug to our process; both failing points at certs/store/runner clock
-macos_diag() {
-  echo "  diag: $(date -u +%FT%TZ) macOS $(sw_vers -productVersion 2>/dev/null) $(uname -m)"
-  local f
-  for f in root issuer leaf; do
-    echo "  diag: $f $("$OPENSSL" x509 -in "$CA/$f.pem" -noout -dates 2>&1 | tr '\n' ' ')"
-  done
-  bounded 30 sudo security verify-cert -c "$CA/leaf.pem" -c "$CA/issuer.pem" -p ssl -s localhost -L \
-    2>&1 | sed 's/^/  diag: verify-cert /' || true
 }
 
 trap cleanup EXIT
@@ -141,8 +72,7 @@ FUTURE_MS=$(( ($(date +%s) + 60*86400) * 1000 ))
 
 cell() { # <label> <shim-args...>
   local label="$1"; shift
-  # bounded: a wedged delegate handshake is the other way a job gets wasted
-  if bounded 60 "$SHIM" "$@" > "$TMP/o" 2>&1; then
+  if "$SHIM" "$@" > "$TMP/o" 2>&1; then
     echo "  PASS  $label"
   else
     echo "  FAIL  $label -> $(cat "$TMP/o")"; FAILURES=$((FAILURES+1))
@@ -192,7 +122,6 @@ if [ "$HAS_DELEGATE" = 1 ]; then
   if install_root; then
     INSTALLED=1
     echo "  (installed test root $THUMB)"
-    if [ "$OSNAME" = "Darwin" ]; then macos_diag; fi
     # 2-tier chain (root -> leaf, no intermediate) under Hard: the only non-anchor cert is the leaf,
     # which carries a good stapled OCSP, so every element trustd/crypt32 revocation-checks has a
     # positive answer (the anchor is exempt). A 3-tier chain would leave the intermediate with no
