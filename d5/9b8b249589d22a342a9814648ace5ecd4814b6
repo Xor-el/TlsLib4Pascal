@@ -1,0 +1,24 @@
+TlsLib.Interop/src/BoGoShimRunner.pas
+  s_09d3c46d1a9b1f::t_e9cf8a56e9d7b2 154-158
+  s_09d3c46d1a9b1f::t_5afdd6abf4a2a4 671-672
+  s_09d3c46d1a9b1f::t_acc402fd179d45 1086-1089,1091
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_09d3c46d1a9b1f::t_eacf1921f71d64 2189,2192-2194
+  s_09d3c46d1a9b1f::t_77c01819a93293 2190-2191
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d59b8b249589d22a342a9814648ace5ecd4814b6",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
