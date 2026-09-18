@@ -89,13 +89,25 @@ uninstall_root() { # un-anchor the root; every step bounded so a stray prompt ca
     MINGW*|MSYS*|CYGWIN*|Windows*)
       certutil -delstore Root "$THUMB" >/dev/null 2>&1 || true ;;
     Darwin)
+      # remove-trusted-cert -d is unreliable on the runner (it needs the trust-settings.admin right,
+      # whose authorizationdb write does not stick under SIP - it hangs or no-ops). So deleting the
+      # keychain ITEM is the primary un-anchor: the server never sends the root, so with no keychain
+      # holding it trustd cannot build the path and rejects. As root the System keychain is unlocked,
+      # so this is non-interactive; bounded guards a stray prompt regardless.
       bounded 60 sudo security remove-trusted-cert -d "$CA/root.pem" >/dev/null 2>&1 || true
-      # fallback if the trust setting survived: root owns Admin.plist, so edit it directly and bounce
-      # trustd (launchd respawns it, it re-reads the file) - always non-interactive
+      bounded 60 sudo security delete-certificate -Z "$THUMB" \
+        /Library/Keychains/System.keychain >/dev/null 2>&1 || true
+      # last resort if a trust setting still lists our run id: root owns Admin.plist
       if sudo security dump-trust-settings -d 2>/dev/null | grep -q "$RUNID"; then
         sudo /usr/libexec/PlistBuddy -c "Delete :trustList:$THUMB" \
           "/Library/Security/Trust Settings/Admin.plist" >/dev/null 2>&1 || true
         sudo killall trustd >/dev/null 2>&1 || true
+      fi
+      if sudo security find-certificate -c "TlsLib Test Root $RUNID" \
+        /Library/Keychains/System.keychain >/dev/null 2>&1; then
+        echo "  uninstall: WARN root cert still in the System keychain"
+      else
+        echo "  uninstall: root cert removed"
       fi
       darwin_unauth ;;
   esac

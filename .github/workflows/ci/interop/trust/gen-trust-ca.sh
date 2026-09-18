@@ -104,8 +104,10 @@ REV="$(asn1_date 0)"
 printf 'V\t%s\t\t1001\tunknown\t/CN=localhost\n' "$EXP" > index_good.txt
 printf 'R\t%s\t%s\t1001\tunknown\t/CN=localhost\n' "$EXP" "$REV" > index_revoked.txt
 ocsp_resp() { # <index> <out.der>
+  # -rmd sha256 pins the response signature digest (LibreSSL's ocsp defaults to SHA-1, which a
+  # modern trust engine distrusts first) - so it is SHA-256 regardless of which openssl signs it
   "$OPENSSL" ocsp -index "$1" -CA issuer.pem -rsigner issuer.pem -rkey issuer.key \
-    -issuer issuer.pem -cert leaf.pem -no_nonce -ndays 7 -respout "$2" >/dev/null 2>&1
+    -issuer issuer.pem -cert leaf.pem -no_nonce -ndays 7 -rmd sha256 -respout "$2" >/dev/null 2>&1
 }
 ocsp_resp index_good.txt    ocsp_good.der
 ocsp_resp index_revoked.txt ocsp_revoked.der
