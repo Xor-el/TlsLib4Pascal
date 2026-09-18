@@ -1,0 +1,26 @@
+.github/workflows/ci/interop/trust/run-trust.sh
+  s_09d3c46d1a9b1f::t_29b15554a0906e 30-70,81-82,87,92-100,103-115,119-124
+  s_09d3c46d1a9b1f::t_39a8235630f4fd 132-133
+  s_09d3c46d1a9b1f::t_99b074f9bdaa54 183
+TlsLib.Trust.System/src/TlpAppleSystemTrust.pas
+  s_09d3c46d1a9b1f::t_6bc41051650b6d 773,984
+  s_09d3c46d1a9b1f::t_dbdcdc47f0272d 355-357
+  s_09d3c46d1a9b1f::t_d3b93759136152 358
+  s_09d3c46d1a9b1f::t_a599e242d44345 648-652
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c56df93e45486bf356ba5efbf88b34a8aa5b75de",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
