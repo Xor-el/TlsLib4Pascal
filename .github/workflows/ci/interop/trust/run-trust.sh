@@ -37,6 +37,10 @@ install_root() { # into the machine store, non-interactively
     MINGW*|MSYS*|CYGWIN*|Windows*)
       certutil -addstore -f Root "$(cygpath -w "$CA/root.pem")" >/dev/null 2>&1 ;;
     Darwin)
+      # SecTrustSettings ops demand a GUI authorization even as root on Big Sur+, which hangs a
+      # headless runner; pre-authorize the trust-settings right so BOTH add- and remove-trusted-cert
+      # run non-interactively (restored in uninstall_root).
+      sudo security authorizationdb write com.apple.trust-settings.admin allow >/dev/null 2>&1 || true
       sudo security add-trusted-cert -d -r trustRoot \
         -k /Library/Keychains/System.keychain "$CA/root.pem" >/dev/null 2>&1 ;;
     *) return 1 ;;
@@ -47,14 +51,17 @@ uninstall_root() { # keyed by thumbprint so it can never touch another cert
     MINGW*|MSYS*|CYGWIN*|Windows*)
       certutil -delstore Root "$THUMB" >/dev/null 2>&1 || true ;;
     Darwin)
-      # remove-trusted-cert -d un-anchors the root non-interactively (same authorization right as
-      # add-trusted-cert -d), which is all the post-uninstall cell needs. Also deleting the cert
-      # item is left disabled below: on the System keychain it pops a GUI auth prompt that hangs a
-      # headless runner (a different, authorizationdb-gated right), and the ephemeral runner is
-      # discarded anyway. Re-enable it only wrapped in `security authorizationdb write ... allow`.
+      # remove-trusted-cert -d un-anchors the root; it shares the com.apple.trust-settings.admin
+      # right that install_root pre-authorizes with add-trusted-cert -d, so both are non-interactive.
+      # Un-anchoring is all the post-uninstall cell needs (a cert with no trust setting is not an
+      # anchor) and the runner is ephemeral, so delete-certificate stays disabled below. That admin
+      # right does NOT cover it: delete-certificate removes the keychain ITEM (a separate System-
+      # keychain-modification authorization), so it would still pop a GUI prompt and hang - it is
+      # neither the same right nor a clean authorizationdb flip.
       sudo security remove-trusted-cert -d "$CA/root.pem" >/dev/null 2>&1 || true
       # sudo security delete-certificate -Z "$THUMB" /Library/Keychains/System.keychain >/dev/null 2>&1 || true
-      ;;
+      # restore the trust-settings authorization to its default (install_root set it to allow)
+      sudo security authorizationdb remove com.apple.trust-settings.admin >/dev/null 2>&1 || true ;;
   esac
 }
 trap cleanup EXIT
@@ -117,9 +124,12 @@ if [ "$HAS_DELEGATE" = 1 ]; then
   if install_root; then
     INSTALLED=1
     echo "  (installed test root $THUMB)"
-    cell "delegate accept (root installed, good/Hard)" --trust-mode os-delegate \
+    # posture Soft here: this cell proves the OS store trusts a chain to the installed root; it
+    # does not assert the delegate honours our issuer-signed good staple under Hard (crypt32 does,
+    # macOS trustd treats it as indeterminate). The portable cells cover good/Hard on every OS.
+    cell "delegate accept (root installed, good/Soft)" --trust-mode os-delegate \
       --server-cert "$CA/leaf_fullchain.pem" --server-key "$CA/leaf.key" \
-      --staple "$CA/ocsp_good.der" --posture hard --expect accept
+      --staple "$CA/ocsp_good.der" --posture soft --expect accept
     cell "delegate revoked staple -> reject" --trust-mode os-delegate \
       --server-cert "$CA/leaf_fullchain.pem" --server-key "$CA/leaf.key" \
       --staple "$CA/ocsp_revoked.der" --posture soft --expect reject

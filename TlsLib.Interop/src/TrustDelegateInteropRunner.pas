@@ -277,7 +277,13 @@ begin
     end;
 
     if LResult.Status <> TInteropStatus.Ok then
-      Exit('expected a completed handshake, got: ' + LResult.Detail);
+    begin
+      if LResult.HasAlert then
+        Exit(Format('expected a completed handshake, got status %d alert %d (%s)',
+          [Ord(LResult.Status), Ord(LResult.Alert), LResult.Detail]));
+      Exit(Format('expected a completed handshake, got status %d (%s)',
+        [Ord(LResult.Status), LResult.Detail]));
+    end;
     LSent := TEncoding.UTF8.GetBytes('native trust cell application data');
     TInteropPump.WriteAppData(LEngine, LSocket, LSent);
     LResult := TInteropPump.PumpAppData(LEngine, LSocket);
