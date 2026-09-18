@@ -237,6 +237,9 @@ type
     /// <summary>The Encrypted Client Hello outcome for this connection (RFC 9849): Accepted when
     /// ECH was offered and the inner ClientHello was used, Rejected/Greased/NotOffered otherwise.</summary>
     function EchStatus: TEchStatus;
+    /// <summary>Whether this connection resumed an earlier session rather than doing a full
+    /// handshake (RFC 8446 2.2 / RFC 5246 7.3).</summary>
+    function Resumed: Boolean;
     /// <summary>Clears the process-wide client config cache (shared by all handlers), so the next
     /// connect rebuilds from current SSLOptions; this also drops the cached sessions those configs
     /// owned. Call after rotating the client credential to purge the retired key. Class-wide because
@@ -823,6 +826,14 @@ begin
     Result := FStream.ConnectionInfo.EchStatus
   else
     Result := TEchStatus.NotOffered;
+end;
+
+function TTlsLibIOHandlerSocket.Resumed: Boolean;
+begin
+  if FStream <> nil then
+    Result := FStream.ConnectionInfo.Resumed
+  else
+    Result := False;
 end;
 
 class procedure TTlsLibIOHandlerSocket.FlushConfigCache;

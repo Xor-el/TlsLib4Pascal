@@ -151,6 +151,9 @@ type
     function PeerServerName: string;
     /// <summary>The Encrypted Client Hello outcome for this connection (RFC 9849).</summary>
     function EchStatus: TEchStatus;
+    /// <summary>Whether this connection resumed an earlier session rather than doing a full
+    /// handshake (RFC 8446 2.2 / RFC 5246 7.3). Cast Sock.SSL to TSSLTlsLib to read it.</summary>
+    function Resumed: Boolean;
     // native peer-certificate accessors an OnVerifyCert handler reads (no OpenSSL type)
     function GetPeerSubject: string; override;
     function GetPeerIssuer: string; override;
@@ -666,6 +669,14 @@ begin
     Result := FEngine.EchStatus
   else
     Result := TEchStatus.NotOffered;
+end;
+
+function TSSLTlsLib.Resumed: Boolean;
+begin
+  if FStream <> nil then
+    Result := FEngine.IsResumed
+  else
+    Result := False;
 end;
 
 function TSSLTlsLib.GetPeerSubject: string;

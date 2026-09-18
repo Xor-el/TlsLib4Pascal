@@ -177,6 +177,9 @@ type
     function PeerServerName: string;
     /// <summary>The Encrypted Client Hello outcome for this connection (RFC 9849).</summary>
     function EchStatus: TEchStatus;
+    /// <summary>Whether this connection resumed an earlier session rather than doing a full
+    /// handshake (RFC 8446 2.2 / RFC 5246 7.3).</summary>
+    function Resumed: Boolean;
     /// <summary>A human-readable description of the last Connect/Accept/Send/Recv failure.</summary>
     property LastErrorDesc: string read FLastErrorDesc;
     /// <summary>Opt into the OS system-trust anchors (Windows crypt32 / macOS SecTrust / Unix
@@ -809,6 +812,14 @@ begin
     Result := FStream.ConnectionInfo.EchStatus
   else
     Result := TEchStatus.NotOffered;
+end;
+
+function TTlsLibSocketHandler.Resumed: Boolean;
+begin
+  if FStream <> nil then
+    Result := FStream.ConnectionInfo.Resumed
+  else
+    Result := False;
 end;
 
 procedure FlushTlsLibFclNetConfigCache;

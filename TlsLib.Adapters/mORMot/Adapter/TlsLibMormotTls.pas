@@ -156,6 +156,9 @@ type
     function PeerServerName: string;
     /// <summary>The Encrypted Client Hello outcome for this connection (RFC 9849).</summary>
     function EchStatus: TEchStatus;
+    /// <summary>Whether this connection resumed an earlier session rather than doing a full
+    /// handshake (RFC 8446 2.2 / RFC 5246 7.3).</summary>
+    function Resumed: Boolean;
   end;
 
 /// <summary>The factory to point mORMot's global at: `NewNetTls := @NewTlsLib4PascalTls;`.</summary>
@@ -632,6 +635,14 @@ begin
     Result := FEngine.EchStatus
   else
     Result := TEchStatus.NotOffered;
+end;
+
+function TTlsLibNetTls.Resumed: Boolean;
+begin
+  if FEngine <> nil then
+    Result := FEngine.IsResumed
+  else
+    Result := False;
 end;
 
 function TTlsLibNetTls.GetRawTls: pointer;
