@@ -1,0 +1,63 @@
+TlsLib.Adapters/Indy/Adapter/TlsLibIndyTls.pas
+  s_09d3c46d1a9b1f::t_13c031440566a5 831-838
+  s_09d3c46d1a9b1f::t_6392307578eea0 240-242
+TlsLib.Adapters/Indy/Examples/Lazarus/IndyResumptionScope.lpi
+  s_09d3c46d1a9b1f::t_df7fdab0a7b71b 1-51
+TlsLib.Adapters/Synapse/Adapter/TlsLibSynapseTls.pas
+  s_09d3c46d1a9b1f::t_293035b245e71a 154-156
+  s_09d3c46d1a9b1f::t_77f525934b54c3 674-681
+TlsLib.Adapters/mORMot/Examples/src/MormotResumptionScopeExample.pas
+  s_09d3c46d1a9b1f::t_8cfe9d13423d8a 1-308
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_09d3c46d1a9b1f::t_5337a06cb71026 180-182
+  s_09d3c46d1a9b1f::t_8f3ba270805b78 817-824
+TlsLib.Adapters/mORMot/Examples/Delphi/MormotResumptionScope.dpr
+  s_09d3c46d1a9b1f::t_066c5ddb5ae980 1-12
+TlsLib.Adapters/Indy/Examples/Lazarus/IndyResumptionScope.lpr
+  s_09d3c46d1a9b1f::t_4e2b15bfac4f6c 1-16
+TlsLib.Adapters/FclNet/Examples/src/FclNetResumptionScopeExample.pas
+  s_09d3c46d1a9b1f::t_fb659fcd6c18b1 1-48,52-73,76-182,185,189-198,200-201,203-204,206-340
+  s_09d3c46d1a9b1f::t_33fafb12b19b82 74-75
+  s_09d3c46d1a9b1f::t_89abe10bf40ed7 183-184,186-188
+  s_09d3c46d1a9b1f::t_d8ff4ab8524ba0 199,202,205
+  s_09d3c46d1a9b1f::t_7fbd8d879107a6 49-51
+TlsLib.Adapters/Synapse/Examples/src/SynapseResumptionScopeExample.pas
+  s_09d3c46d1a9b1f::t_2a18d1412fa592 1-293
+TlsLib.Adapters/FclNet/Examples/Lazarus/FclNetResumptionScope.lpi
+  s_09d3c46d1a9b1f::t_7c0b2e90f1b96c 1-51
+TlsLib.Adapters/Indy/Examples/src/IndyResumptionScopeExample.pas
+  s_09d3c46d1a9b1f::t_96d127c068223e 1-259
+TlsLib.Adapters/Synapse/Examples/Lazarus/SynapseResumptionScope.lpi
+  s_09d3c46d1a9b1f::t_4ba0b5ef2d9228 1-51
+TlsLib.Adapters/FclNet/Examples/Lazarus/FclNetResumptionScope.lpr
+  s_09d3c46d1a9b1f::t_e608c45f9e9b14 1-16
+TlsLib.Adapters/mORMot/Examples/Lazarus/MormotResumptionScope.lpi
+  s_09d3c46d1a9b1f::t_5feaf6f2b8ce78 1-51
+TlsLib.Adapters/Synapse/Examples/Lazarus/SynapseResumptionScope.lpr
+  s_09d3c46d1a9b1f::t_27870e47e72173 1-16
+TlsLib.Adapters/Synapse/Examples/Delphi/SynapseResumptionScope.dpr
+  s_09d3c46d1a9b1f::t_0c9700a59880f5 1-12
+TlsLib.Adapters/Indy/Examples/Delphi/IndyResumptionScope.dpr
+  s_09d3c46d1a9b1f::t_a7be82a4c9711e 1-12
+TlsLib.Adapters/mORMot/Adapter/TlsLibMormotTls.pas
+  s_09d3c46d1a9b1f::t_4bd72a6ecec3f7 159-161
+  s_09d3c46d1a9b1f::t_e11beeffb070b5 640-647
+TlsLib.Adapters/mORMot/Examples/Lazarus/MormotResumptionScope.lpr
+  s_09d3c46d1a9b1f::t_866901c3699c14 1-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0d97b2ed3d129e9091ab4ea80612c828609767ef",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
