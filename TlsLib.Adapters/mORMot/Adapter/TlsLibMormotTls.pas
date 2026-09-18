@@ -48,6 +48,7 @@ uses
   TlpITlsConfigMemo,
   TlpTlsConfigMemo,
   TlpTlsSignatureBuilder,
+  TlpISession,
   TlpInMemorySessionCache,
   TlpITlsTransport,
   TlpTlsStreamPump,
@@ -401,7 +402,7 @@ begin
   if GSessionResumption then
   begin
     LClient.WithResumption(True);
-    LClient.WithSessionCache(TInMemorySessionCache.Shared);
+    LClient.WithSessionCache(TInMemorySessionCache.Create as ISessionCache);
   end
   else
     LClient.WithResumption(False);

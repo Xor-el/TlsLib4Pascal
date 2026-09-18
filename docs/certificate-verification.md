@@ -179,6 +179,10 @@ LConfig := TTlsPresets.Compatible(P).Client
   .Build;
 ```
 
+Implement the verifier (and any custom trust store) on `TInterfacedObject` or another
+reference-counted base: the config holds it by interface for its lifetime, so a non-refcounted
+object could be freed while still in use.
+
 ---
 
 ## 5. Coming from ASP.NET Core / .NET

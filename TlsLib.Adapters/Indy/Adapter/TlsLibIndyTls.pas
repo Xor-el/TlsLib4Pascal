@@ -51,6 +51,7 @@ uses
   TlpITlsConfigMemo,
   TlpTlsConfigMemo,
   TlpTlsSignatureBuilder,
+  TlpISession,
   TlpInMemorySessionCache,
   TlpITlsTransport,
   TlpTlsStreamPump,
@@ -189,7 +190,6 @@ type
     FStream: TTlsStream;
     FTransport: ITlsTransport;
     FEngine: ITlsEngine;
-    FClientMemo: ITlsClientConfigMemo;   // reuses the client config across reconnects
     FServerMemo: ITlsServerConfigMemo;   // shared with the listener; server peers reuse one config
     FHandshakeLock: TCriticalSection;    // serializes the deferred first-touch handshake
     procedure DoHandshake;
@@ -237,9 +237,11 @@ type
     /// <summary>The Encrypted Client Hello outcome for this connection (RFC 9849): Accepted when
     /// ECH was offered and the inner ClientHello was used, Rejected/Greased/NotOffered otherwise.</summary>
     function EchStatus: TEchStatus;
-    /// <summary>Clears this handler's build-once client config cache, so the next connect rebuilds
-    /// from current SSLOptions. Call after rotating the client credential to purge the retired key.</summary>
-    procedure FlushConfigCache;
+    /// <summary>Clears the process-wide client config cache (shared by all handlers), so the next
+    /// connect rebuilds from current SSLOptions; this also drops the cached sessions those configs
+    /// owned. Call after rotating the client credential to purge the retired key. Class-wide because
+    /// the cache it clears is, so it reads honestly at the call site.</summary>
+    class procedure FlushConfigCache;
   published
     property SSLOptions: TTlsLibSSLOptions read FOptions;
   end;
@@ -269,6 +271,10 @@ type
   end;
 
 implementation
+
+var
+  // process-global so handlers sharing a trust config reuse one frozen config and its session cache
+  GClientConfigMemo: ITlsClientConfigMemo;
 
 resourcestring
   SNoServerCredential = 'the Indy SSLOptions supply no server CertFile/KeyFile';
@@ -391,7 +397,6 @@ begin
   inherited InitComponent;
   FOptions := TTlsLibSSLOptions.Create;
   FHandshakeLock := TCriticalSection.Create;
-  FClientMemo := NewTlsClientConfigMemo;
   // Indy's base defaults PassThrough to True (connect plaintext, upgrade later). We default it to
   // False so assigning this handler to a raw client means "do TLS on connect" without extra setup -
   // the ergonomic common case. Callers that want plaintext override it: TIdHTTP sets it True for
@@ -529,7 +534,7 @@ begin
   if FOptions.SessionResumption then
   begin
     LClient.WithResumption(True);
-    LClient.WithSessionCache(TInMemorySessionCache.Shared);
+    LClient.WithSessionCache(TInMemorySessionCache.Create as ISessionCache);
   end
   else
     LClient.WithResumption(False);
@@ -638,10 +643,10 @@ begin
       FOptions.GuardNoConflict('ClientConfig');
       Exit(TTlsEngineFactory.CreateClientEngine(FOptions.ClientConfig, Host));
     end;
-    // build the frozen config once and reuse it across reconnects on this handler
+    // build the frozen config once and reuse it across reconnects and same-config handlers
     LSig := ClientSignature;
-    if not FClientMemo.TryGet(LSig, LClientCfg) then
-      LClientCfg := FClientMemo.StoreOrAdopt(LSig, BuildClientConfig);
+    if not GClientConfigMemo.TryGet(LSig, LClientCfg) then
+      LClientCfg := GClientConfigMemo.StoreOrAdopt(LSig, BuildClientConfig);
     Exit(TTlsEngineFactory.CreateClientEngine(LClientCfg, Host));
   end;
   if FOptions.ServerConfig <> nil then
@@ -651,8 +656,8 @@ begin
   end;
   // a server peer reuses the listener's shared memo so all peers bind to one config identity; a
   // standalone handler doing its own accepts (no TTlsLibServerIOHandler listener) lazily owns one,
-  // like it already owns FClientMemo, so its config - and the default STEK minted into it - stay
-  // stable across the connections it serves (this is serialized by the handshake lock)
+  // so its config - and the default STEK minted into it - stay stable across the connections it
+  // serves (this is serialized by the handshake lock)
   if FServerMemo = nil then
     FServerMemo := NewTlsServerConfigMemo;
   LSig := ServerSignature;
@@ -820,10 +825,10 @@ begin
     Result := TEchStatus.NotOffered;
 end;
 
-procedure TTlsLibIOHandlerSocket.FlushConfigCache;
+class procedure TTlsLibIOHandlerSocket.FlushConfigCache;
 begin
-  if FClientMemo <> nil then
-    FClientMemo.Clear;
+  if GClientConfigMemo <> nil then
+    GClientConfigMemo.Clear;
 end;
 
 function TTlsLibIOHandlerSocket.Clone: TIdSSLIOHandlerSocketBase;
@@ -905,5 +910,13 @@ begin
   if FServerMemo <> nil then
     FServerMemo.Clear;
 end;
+
+initialization
+  GClientConfigMemo := NewTlsClientConfigMemo;
+
+finalization
+  if GClientConfigMemo <> nil then
+    GClientConfigMemo.Clear;
+  GClientConfigMemo := nil;
 
 end.

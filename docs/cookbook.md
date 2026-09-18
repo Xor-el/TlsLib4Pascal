@@ -365,7 +365,8 @@ truly-single-use store.
 ```pascal
 uses TlpInMemorySessionCache, TlpInMemorySessionStore, TlpSessionTicketKeys, TlpISession;
 
-// CLIENT: keep tickets across connections in one cache (share it across your client configs)
+// CLIENT: reuse this config across connections and its cached tickets come with it. Don't share one
+// cache across configs with different trust — a stricter config could resume a looser one and skip its check.
 LClientConfig := TTlsPresets.Compatible(P).Client
   .WithTrustAnchors(caPem)
   .WithResumption(True)

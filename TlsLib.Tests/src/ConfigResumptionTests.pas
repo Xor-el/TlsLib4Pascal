@@ -30,6 +30,8 @@ uses
   TlpICryptoProvider,
   TlpICertificateTrust,
   TlpCertificateVerifier,
+  TlpServerName,
+  TlpTlsAlert,
   TlpTlsCredential,
   TlpISession,
   TlpInMemorySessionCache,
@@ -52,6 +54,8 @@ type
     function ClientTrust: ITrustAnchorStore;
     /// <summary>A TLS 1.3 client engine built through the public config surface.</summary>
     function NewClient13(const ACache: ISessionCache; AResumption: Boolean): ITlsEngine;
+    /// <summary>A TLS 1.3 client whose server-cert verifier rejects every chain (a strict config).</summary>
+    function NewRejectingClient13(const ACache: ISessionCache): ITlsEngine;
     /// <summary>A TLS 1.3 server engine; AIssueTickets tickets, resumption toggle.</summary>
     function NewServer13(const AStore: ISessionStore; AIssueTickets: Int32;
       AResumption: Boolean): ITlsEngine;
@@ -79,9 +83,27 @@ type
     procedure TestResumptionOffServerIssuesNoTicket;
     procedure TestStrictPresetLeavesResumptionOff;
     procedure TestStrictResumptionReEnabledWithNoGuard;
+    procedure TestPerConfigCacheIsolatesCrossConfigResumption;
   end;
 
 implementation
+
+type
+  // a whole-verifier that rejects every server chain (stands in for a strict pin / custom verifier)
+  TRejectingServerVerifier = class(TInterfacedObject, IServerCertificateVerifier)
+  public
+    function VerifyServerCertificate(const AChain: TArray<TBytes>;
+      const AServerName: TServerName; const AOcspStaple: TBytes;
+      out AAlert: TTlsAlertDescription): Boolean;
+  end;
+
+function TRejectingServerVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
+  const AServerName: TServerName; const AOcspStaple: TBytes;
+  out AAlert: TTlsAlertDescription): Boolean;
+begin
+  AAlert := TTlsAlertDescription.BadCertificate;
+  Result := False;
+end;
 
 { TTestConfigResumption }
 
@@ -118,6 +140,19 @@ begin
   LConfig := TTlsPresets.Hardened(Provider).Client
     .WithTrustStore(ClientTrust)
     .WithResumption(AResumption)
+    .WithSessionCache(ACache)
+    .Build;
+  Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
+end;
+
+function TTestConfigResumption.NewRejectingClient13(
+  const ACache: ISessionCache): ITlsEngine;
+var
+  LConfig: ITlsClientConfig;
+begin
+  LConfig := TTlsPresets.Hardened(Provider).Client
+    .WithCertificateVerifier(TRejectingServerVerifier.Create as IServerCertificateVerifier)
+    .WithResumption(True)
     .WithSessionCache(ACache)
     .Build;
   Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
@@ -433,6 +468,40 @@ begin
   CheckFalse(LServer.IsTerminal, 're-enabled Strict resume did not fail');
   CheckEquals(0, LStore.Count, 're-enabled Strict resumed (store consumed)');
   CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestConfigResumption.TestPerConfigCacheIsolatesCrossConfigResumption;
+var
+  LCacheA, LCacheB: ISessionCache;
+  LServerConfig: ITlsServerConfig;
+  LClient, LServer: ITlsEngine;
+begin
+  // a permissive client establishes and caches a resumable session; one STEK-backed server config
+  // is reused so the ticket stays openable across the connections below
+  LCacheA := TInMemorySessionCache.Create;
+  LServerConfig := TTlsPresets.Hardened(Provider).Server
+    .WithCredential(ServerCredential).Build;
+  LClient := NewClient13(LCacheA, True);
+  LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
+  PumpToCompletion(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking, 'the permissive handshake completed');
+  CheckTrue(LCacheA.Count >= 1, 'the permissive client cached a session');
+
+  // THE HAZARD, and why an adapter must not share one cache across configs: a client whose verifier
+  // rejects every chain, given the SAME cache, resumes the permissive session - a resumed handshake
+  // sends no certificate, so its verifier is never consulted
+  LClient := NewRejectingClient13(LCacheA);
+  LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LClient.IsResumed, 'a shared cache lets a rejecting config resume, bypassing its check');
+
+  // THE FIX: given its OWN cache (what each adapter trust configuration now owns) it cannot see the
+  // other configuration's session, so it runs a full handshake and its verifier rejects the server
+  LCacheB := TInMemorySessionCache.Create;
+  LClient := NewRejectingClient13(LCacheB);
+  LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LClient.IsTerminal, 'a per-config cache forces a full handshake, so the verifier rejects');
 end;
 
 initialization
