@@ -50,6 +50,12 @@ type
   /// that sends none, Required aborts when the client presents no certificate.</summary>
   TClientAuthMode = (None, Requested, Required);
 
+  /// <summary>How a client treats server-certificate verification when it resumes a session:
+  /// ReuseOriginal (the default) reuses the original handshake's authentication without
+  /// re-checking (RFC 8446 2.2); Reverify re-runs the certificate verifier against the stored
+  /// peer chain, for a stricter posture that re-checks a resumed server against current trust.</summary>
+  TResumeVerification = (ReuseOriginal, Reverify);
+
   /// <summary>A read-only snapshot of the ClientHello facts a server credential resolver may
   /// select on (SNI virtual hosting). ServerName is the raw SNI host_name (RFC 6066), empty
   /// when the client sent none; the arrays are the client's offers verbatim as IANA wire

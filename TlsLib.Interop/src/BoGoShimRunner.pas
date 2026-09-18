@@ -146,11 +146,14 @@ type
     /// verified (a server without client-auth), so it leaves other -async tests' outcome
     /// unchanged.</summary>
     AsyncVerify: Boolean;
-    /// <summary>-on-resume-verify-fail: verification fails only on the resumption handshake. We
-    /// never re-verify a certificate on PSK/abbreviated resumption (there is none), so the resume
-    /// succeeds - which is exactly BoringSSL's default (it does not re-verify unless
-    /// -reverify-on-resume, which we do not implement, so those variants stay out of scope).</summary>
+    /// <summary>-on-resume-verify-fail: verification fails only on the resumption handshake. It
+    /// bites only under -reverify-on-resume, where the resuming client re-runs its verifier
+    /// against the stored chain; otherwise resumption reuses the original authentication and it is
+    /// inert.</summary>
     OnResumeVerifyFail: Boolean;
+    /// <summary>-reverify-on-resume: the resuming client re-runs its certificate verifier against
+    /// the stored peer chain (RFC 8446 2.2 otherwise reuses the original authentication).</summary>
+    ReverifyOnResume: Boolean;
     /// <summary>Send one unsolicited post-handshake KeyUpdate (RFC 8446 4.6.3).</summary>
     KeyUpdate: Boolean;
     /// <summary>Number of resumption connections after the initial one (RFC 8446 2.2);
@@ -487,7 +490,7 @@ begin
       '-server-preference', '-permute-extensions', '-enable-signed-cert-timestamps',
       '-expect-not-resumable-across-names', '-install-cert-compression-algs',
       '-expect-no-peer-cert', '-on-resume-expect-no-session', '-decline-alpn',
-      '-on-resume-expect-reject-early-data', '-reverify-on-resume',
+      '-on-resume-expect-reject-early-data',
       '-use-custom-verify-callback', '-expect-verify-result',
       '-expect-ticket-supports-early-data', '-expect-accept-early-data',
       '-on-resume-expect-accept-early-data', '-expect-early-data-info',
@@ -660,6 +663,8 @@ begin
       AConfig.VerifyFail := True
     else if LArg = '-on-resume-verify-fail' then
       AConfig.OnResumeVerifyFail := True
+    else if LArg = '-reverify-on-resume' then
+      AConfig.ReverifyOnResume := True
     else if LArg = '-key-update' then
       // the shim sends one unsolicited post-handshake KeyUpdate; inbound KeyUpdates the
       // peer sends are handled by the engine automatically during the exchange
@@ -1068,13 +1073,19 @@ var
   LCaIdx, LRep, LRepeat: Int32;
 begin
   LOptions := BuildOptions(AProvider, AConfig, AIsResume);
+  LOptions.ReverifyOnResume := AConfig.ReverifyOnResume;
   // -verify-fail is fatal only under -verify-peer / -require-any-client-certificate (a hard
   // verify); without them BoringSSL soft-fails and completes, and so do we (the valid cert
-  // verifies and no reject is injected). -on-resume-verify-fail applies only on the resume,
-  // where there is no certificate to re-verify, so it is a no-op and the resume completes.
+  // verifies and no reject is injected). -on-resume-verify-fail bites on the resume only under
+  // -reverify-on-resume, where the client re-runs its verifier against the stored chain.
   LOptions.VerifyFail := (AConfig.VerifyFail or
     (AConfig.OnResumeVerifyFail and AIsResume)) and
-    (AConfig.VerifyPeer or AConfig.RequireClientCert);
+    (AConfig.VerifyPeer or AConfig.RequireClientCert or
+    (AConfig.ReverifyOnResume and AIsResume));
+  // reverify-on-resume runs the verifier synchronously on the resumed connection (there is no
+  // async park there), so an async verify-fail on that connection is a synchronous reject
+  if AIsResume and AConfig.ReverifyOnResume then
+    LOptions.AsyncVerify := False;
   LEngine := TInteropEngine.Build(AProvider, LOptions);
   // this connection writes first when -shim-writes-first, or on a resumption under
   // -on-resume-shim-writes-first; a client that also offered 0-RTT sends that first write

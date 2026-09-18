@@ -56,6 +56,8 @@ type
     function NewClient13(const ACache: ISessionCache; AResumption: Boolean): ITlsEngine;
     /// <summary>A TLS 1.3 client whose server-cert verifier rejects every chain (a strict config).</summary>
     function NewRejectingClient13(const ACache: ISessionCache): ITlsEngine;
+    /// <summary>Like NewRejectingClient13 but with Reverify, so it re-checks a resumed server.</summary>
+    function NewReverifyRejectClient13(const ACache: ISessionCache): ITlsEngine;
     /// <summary>A TLS 1.3 server engine; AIssueTickets tickets, resumption toggle.</summary>
     function NewServer13(const AStore: ISessionStore; AIssueTickets: Int32;
       AResumption: Boolean): ITlsEngine;
@@ -84,6 +86,7 @@ type
     procedure TestStrictPresetLeavesResumptionOff;
     procedure TestStrictResumptionReEnabledWithNoGuard;
     procedure TestPerConfigCacheIsolatesCrossConfigResumption;
+    procedure TestReverifyOnResumeRejectsUntrustedServer;
   end;
 
 implementation
@@ -153,6 +156,20 @@ begin
   LConfig := TTlsPresets.Hardened(Provider).Client
     .WithCertificateVerifier(TRejectingServerVerifier.Create as IServerCertificateVerifier)
     .WithResumption(True)
+    .WithSessionCache(ACache)
+    .Build;
+  Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
+end;
+
+function TTestConfigResumption.NewReverifyRejectClient13(
+  const ACache: ISessionCache): ITlsEngine;
+var
+  LConfig: ITlsClientConfig;
+begin
+  LConfig := TTlsPresets.Hardened(Provider).Client
+    .WithCertificateVerifier(TRejectingServerVerifier.Create as IServerCertificateVerifier)
+    .WithResumption(True)
+    .WithResumeVerification(TResumeVerification.Reverify)
     .WithSessionCache(ACache)
     .Build;
   Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
@@ -502,6 +519,32 @@ begin
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
   PumpToCompletion(LClient, LServer);
   CheckTrue(LClient.IsTerminal, 'a per-config cache forces a full handshake, so the verifier rejects');
+end;
+
+procedure TTestConfigResumption.TestReverifyOnResumeRejectsUntrustedServer;
+var
+  LCache: ISessionCache;
+  LServerConfig: ITlsServerConfig;
+  LClient, LServer: ITlsEngine;
+begin
+  // a permissive client caches a resumable session, storing the server chain it verified
+  LCache := TInMemorySessionCache.Create;
+  LServerConfig := TTlsPresets.Hardened(Provider).Server
+    .WithCredential(ServerCredential).Build;
+  LClient := NewClient13(LCache, True);
+  LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
+  PumpToCompletion(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking, 'the permissive handshake completed');
+  CheckTrue(LCache.Count >= 1, 'the permissive client cached a session');
+
+  // a client that opts into Reverify, resuming the SAME session, re-runs its verifier against the
+  // stored server chain; its rejecting verifier refuses the resumed server, so it aborts. (The
+  // default ReuseOriginal case - a resumption that does NOT re-verify - is covered by
+  // TestPerConfigCacheIsolatesCrossConfigResumption.)
+  LClient := NewReverifyRejectClient13(LCache);
+  LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LClient.IsTerminal, 'Reverify re-checked the resumed server and rejected it');
 end;
 
 initialization

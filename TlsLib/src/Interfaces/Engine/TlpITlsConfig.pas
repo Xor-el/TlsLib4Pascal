@@ -150,6 +150,9 @@ type
     /// <summary>The client-side session cache resumption draws from and stores into; nil
     /// disables client resumption.</summary>
     function SessionCache: ISessionCache;
+    /// <summary>How the client verifies a resumed server: ReuseOriginal (default) reuses the
+    /// original authentication; Reverify re-runs the certificate verifier against the stored chain.</summary>
+    function ResumeVerification: TResumeVerification;
     /// <summary>Whether the client offers TLS 1.3 early data (0-RTT) when a cached ticket
     /// authorizes it. Off by default; a separate, explicit opt-in.</summary>
     function EarlyData: Boolean;

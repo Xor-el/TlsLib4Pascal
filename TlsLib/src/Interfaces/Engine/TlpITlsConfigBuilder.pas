@@ -184,6 +184,11 @@ type
     function WithExternalPskRequired(AEnabled: Boolean): ITlsClientConfigBuilder;
     /// <summary>Whether session resumption is engaged; defaults to the preset's posture.</summary>
     function WithResumption(AEnabled: Boolean): ITlsClientConfigBuilder;
+    /// <summary>How the client verifies a resumed server: ReuseOriginal (the default) reuses the
+    /// original handshake's authentication (RFC 8446 2.2); Reverify re-runs the certificate
+    /// verifier against the stored peer chain, for a stricter posture that re-checks a resumed
+    /// server against current trust, at the cost of the verification work on every resume.</summary>
+    function WithResumeVerification(AMode: TResumeVerification): ITlsClientConfigBuilder;
     /// <summary>The TLS 1.3-only settings.</summary>
     function Tls13: ITls13ClientConfigFacet;
     /// <summary>The TLS 1.2-only settings.</summary>

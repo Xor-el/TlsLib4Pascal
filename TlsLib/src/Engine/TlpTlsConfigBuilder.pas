@@ -106,6 +106,7 @@ type
     FExternalPsks: TArray<TExternalPsk>;
     FExternalPskRequired: Boolean;
     FSessionCache: ISessionCache;
+    FResumeVerification: TResumeVerification;
     FClock: ITlsClock;
     FClientEarlyData: Boolean;
     FSessionStore: ISessionStore;
@@ -227,6 +228,7 @@ type
       const APsks: TArray<TExternalPsk>): TTlsConfigBuilder;
     function WithExternalPskRequired(AEnabled: Boolean): TTlsConfigBuilder;
     function WithSessionCache(const ACache: ISessionCache): TTlsConfigBuilder;
+    function WithResumeVerification(AMode: TResumeVerification): TTlsConfigBuilder;
     function WithClock(const AClock: ITlsClock): TTlsConfigBuilder;
     function WithSessionStore(const AStore: ISessionStore): TTlsConfigBuilder;
     function WithSessionTicketKeys(const AKeys: ISessionTicketKeyManager): TTlsConfigBuilder;
@@ -362,6 +364,7 @@ type
     FServerVerifierSource: IServerCertificateVerifierSource;
     FRequestOcspStapling: Boolean;
     FSessionCache: ISessionCache;
+    FResumeVerification: TResumeVerification;
     FEarlyData: Boolean;
     FExternalPskRequired: Boolean;
     FEchPolicy: IEchClientPolicy;
@@ -370,6 +373,7 @@ type
     function ServerVerifierSource: IServerCertificateVerifierSource;
     function RequestOcspStapling: Boolean;
     function SessionCache: ISessionCache;
+    function ResumeVerification: TResumeVerification;
     function EarlyData: Boolean;
     function ExternalPskRequired: Boolean;
     function EncryptedClientHello: IEchClientPolicy;
@@ -459,6 +463,7 @@ type
     function WithAsyncCertificateVerdict(AEnabled: Boolean;
       ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
     function WithSessionCache(const ACache: ISessionCache): ITlsClientConfigBuilder;
+    function WithResumeVerification(AMode: TResumeVerification): ITlsClientConfigBuilder;
     function WithClock(const AClock: ITlsClock): ITlsClientConfigBuilder;
     function WithExternalPreSharedKeys(
       const APsks: TArray<TExternalPsk>): ITlsClientConfigBuilder;
@@ -759,6 +764,11 @@ begin
   Result := FSessionCache;
 end;
 
+function TFrozenClientConfig.ResumeVerification: TResumeVerification;
+begin
+  Result := FResumeVerification;
+end;
+
 function TFrozenClientConfig.EarlyData: Boolean;
 begin
   Result := FEarlyData;
@@ -1019,6 +1029,13 @@ function TTlsClientConfigBuilder.WithSessionCache(
   const ACache: ISessionCache): ITlsClientConfigBuilder;
 begin
   FOwner.WithSessionCache(ACache);
+  Result := Self;
+end;
+
+function TTlsClientConfigBuilder.WithResumeVerification(
+  AMode: TResumeVerification): ITlsClientConfigBuilder;
+begin
+  FOwner.WithResumeVerification(AMode);
   Result := Self;
 end;
 
@@ -2084,6 +2101,14 @@ begin
   Result := Self;
 end;
 
+function TTlsConfigBuilder.WithResumeVerification(
+  AMode: TResumeVerification): TTlsConfigBuilder;
+begin
+  GuardMutable;
+  FResumeVerification := AMode;
+  Result := Self;
+end;
+
 function TTlsConfigBuilder.WithSessionCache(
   const ACache: ISessionCache): TTlsConfigBuilder;
 begin
@@ -2287,6 +2312,7 @@ begin
   LConfig.FServerVerifierSource := ComposeServerVerifierSource;
   LConfig.FRequestOcspStapling := FRequestOcspStapling;
   LConfig.FSessionCache := FSessionCache;
+  LConfig.FResumeVerification := FResumeVerification;
   LConfig.FClock := FClock;
   LConfig.FEarlyData := FClientEarlyData;
   LConfig.FExternalPskRequired := FExternalPskRequired;

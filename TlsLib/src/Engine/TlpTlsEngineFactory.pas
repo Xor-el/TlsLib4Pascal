@@ -330,9 +330,13 @@ begin
     begin
       L13.SessionCache := AConfig.SessionCache;
       L13.EarlyDataEnabled := AConfig.EarlyData;
+      L13.ResumeVerification := AConfig.ResumeVerification;
     end;
     if LOffers12 then
+    begin
       L12.SessionCache := AConfig.SessionCache;
+      L12.ResumeVerification := AConfig.ResumeVerification;
+    end;
   end;
 
   // out-of-band external PSKs (RFC 9258) are a TLS 1.3-only offer; the 1.2 machine ignores

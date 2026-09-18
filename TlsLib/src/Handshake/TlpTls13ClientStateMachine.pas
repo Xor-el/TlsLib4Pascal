@@ -117,6 +117,9 @@ type
     /// the server) and caches the NewSessionTickets the server issues. Nil disables
     /// resumption.</summary>
     SessionCache: ISessionCache;
+    /// <summary>How the client verifies a resumed server: ReuseOriginal (default) reuses the
+    /// original authentication; Reverify re-runs CertificateVerifier against the stored chain.</summary>
+    ResumeVerification: TResumeVerification;
     /// <summary>The clock read for a resumption PSK's obfuscated_ticket_age and ticket-lifetime
     /// expiry (RFC 8446 4.2.11 / 4.6.1). The factory always supplies one (system clock by
     /// default); a nil value falls back to the real clock at the call site.</summary>
@@ -203,6 +206,9 @@ type
     FPskOffers: TArray<IPreSharedKey>;
     /// <summary>The offered PSK the server selected (nil when none was accepted).</summary>
     FAcceptedPsk: IPreSharedKey;
+    // the peer chain the offered resumption session carried, kept to re-run the verifier against
+    // it when ReverifyOnResume is set (empty for an external PSK)
+    FResumptionPeerCertificates: TArray<TBytes>;
     /// <summary>A cached TLS 1.2 session this dual-version ClientHello offers for 1.2
     /// resumption (nil otherwise), and the session id it put in legacy_session_id so a 1.2
     /// hand-off can match the server's abbreviated echo. A 1.3 server ignores both.</summary>
@@ -350,6 +356,9 @@ type
       : TArray<THandshakeEffect>;
     function ProcessServerHello(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>;
+    /// <summary>Re-runs the certificate verifier against the resumed session's stored peer chain
+    /// (the ReuseOriginal-vs-Reverify opt-in); a negative verdict aborts the handshake.</summary>
+    procedure ReverifyResumedServer;
     /// <summary>Replaces the transcript with a fresh one under the selected suite's hash and
     /// replays the raw first ClientHello into it, for a 0-RTT reject whose full handshake uses
     /// a different PRF hash than the pre-activated PSK (RFC 8446 4.4.1). Not a message_hash
@@ -1254,6 +1263,7 @@ var
   LSession: IResumableSession;
   LContext: TExtensionContext;
   LMaxEarlyData: UInt32;
+  LPeerChain: TArray<TBytes>;
 begin
   Result := nil;
   // validate the ticket structure even when not caching (an empty/malformed ticket is a
@@ -1274,12 +1284,16 @@ begin
   if FParams.SessionCache = nil then
     Exit;
   LPsk := FSchedule.ResumptionPsk(FResumptionTranscriptHash, LNst.TicketNonce);
-  // the stored server chain (for an optional reverify-on-resume) is not populated here yet
+  // carry the verified server chain so an opt-in ReverifyOnResume can re-check it on resume. On a
+  // resumed connection no Certificate was sent, so the ticket inherits the resumed session's chain
+  LPeerChain := FCertificateChain;
+  if (System.Length(LPeerChain) = 0) and FPskAccepted then
+    LPeerChain := FResumptionPeerCertificates;
   LSession := TResumableSession.CreateTls13(FSelectedSuite.Common.Code,
     FSelectedSuite.Common.Hash, LPsk, FCurrentGroupCode, FNegotiatedAlpn,
     FParams.ServerName, LNst.Ticket,
     LNst.TicketLifetime, LNst.TicketAgeAdd, NowUnixMillis,
-    LMaxEarlyData, nil);
+    LMaxEarlyData, LPeerChain);
   FParams.SessionCache.Store(CacheServerIdentity, FParams.ServerName, LSession);
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.RaiseEvent(TTlsEventKind.SessionTicketReceived));
@@ -1331,7 +1345,11 @@ begin
       // expired PSK and does a full handshake rather than offer one the server will reject
       if (NowUnixMillis - LCached.IssuedAtMillis) <=
         (UInt64(LCached.TicketLifetime) * 1000) then
+      begin
         FPskOffers := TArray<IPreSharedKey>.Create(LCached.AsPreSharedKey);
+        // kept so ReverifyOnResume can re-check the server we resume against current trust
+        FResumptionPeerCertificates := LCached.PeerCertificates;
+      end;
     end
     else if FParams.AlsoOfferTls12 then
     begin
@@ -1459,6 +1477,22 @@ begin
     FParams.Provider.Primitives.CreateHash(FSelectedSuite.Common.Hash));
   LFresh.Update(FSentClientHelloRaw);
   FTranscript := LFresh;
+end;
+
+procedure TTls13ClientStateMachine.ReverifyResumedServer;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  if FParams.CertificateVerifier = nil then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.InternalError, @SNoCertificateVerifier);
+  // a resumed handshake carries no fresh OCSP staple; re-check the stored chain against current
+  // trust. An empty stored chain cannot be re-verified, so it fails closed
+  LAlert := TTlsAlertDescription.BadCertificate;
+  if (System.Length(FResumptionPeerCertificates) = 0) or
+    not FParams.CertificateVerifier.VerifyServerCertificate(FResumptionPeerCertificates,
+    FParams.ExpectedServerName, nil, LAlert) then
+    raise EFatalAlertTlsLibException.CreateRes(LAlert, @SUntrustedCertificate);
 end;
 
 function TTls13ClientStateMachine.ProcessServerHello(
@@ -1648,6 +1682,12 @@ var
   LEchData: TBytes;
 begin
   Result := nil;
+  // stricter opt-in: re-run the certificate verifier against the resumed server's stored chain
+  // (an external PSK carries no chain and is never re-verified). Done here, not at ServerHello, so
+  // a rejection's fatal alert goes out under the now-installed handshake write keys
+  if (FParams.ResumeVerification = TResumeVerification.Reverify) and FPskAccepted and
+    (FAcceptedPsk.BinderKind = TPskBinderKind.Resumption) then
+    ReverifyResumedServer;
   FTranscript.Update(AMessage.Raw);
   LContext := TExtensionContext.Create;
   try

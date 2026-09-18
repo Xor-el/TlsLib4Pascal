@@ -100,6 +100,9 @@ type
     /// client offers session_ticket support and, if a session is cached for this server,
     /// resumes it (RFC 5077 / RFC 5246 7.3). nil disables 1.2 resumption.</summary>
     SessionCache: ISessionCache;
+    /// <summary>How the client verifies a resumed server: ReuseOriginal (default) reuses the
+    /// original authentication; Reverify re-runs CertificateVerifier against the stored chain.</summary>
+    ResumeVerification: TResumeVerification;
     /// <summary>The clock read to stamp a cached 1.2 session's issue time (RFC 5077). A required
     /// input, like Provider: the engine factory supplies one from the config, and a direct sans-IO
     /// caller must set it.</summary>
@@ -204,6 +207,9 @@ type
     /// and either defers the read epoch for a forthcoming NewSessionTicket or installs it.</summary>
     function BeginAbbreviatedHandshake(const AContext: TExtensionContext)
       : TArray<THandshakeEffect>;
+    /// <summary>Re-runs the certificate verifier against the resumed session's stored peer chain
+    /// (the ReuseOriginal-vs-Reverify opt-in); a negative verdict aborts the handshake.</summary>
+    procedure ReverifyResumedServer;
     /// <summary>Records a full-handshake NewSessionTicket (RFC 5077), folds it into the
     /// transcript and installs the deferred read epoch for the server Finished.</summary>
     function ProcessNewSessionTicket(const AMessage: TTlsHandshakeMessage)
@@ -804,6 +810,7 @@ end;
 function TTls12ClientStateMachine.CacheCompletedSession: TArray<THandshakeEffect>;
 var
   LSession: IResumableSession;
+  LPeerChain: TArray<TBytes>;
 begin
   Result := nil;
   if FParams.SessionCache = nil then
@@ -811,12 +818,16 @@ begin
   // nothing to resume with unless the server issued a session id or a ticket
   if (System.Length(FServerSessionId) = 0) and (System.Length(FReceivedTicket) = 0) then
     Exit;
-  // the stored server chain (for an optional reverify-on-resume) is not populated here yet
+  // carry the verified server chain so an opt-in ReverifyOnResume can re-check it on resume. On an
+  // abbreviated handshake no Certificate was sent, so the session inherits the resumed chain
+  LPeerChain := FCertChain;
+  if (System.Length(LPeerChain) = 0) and (FResumptionOffer <> nil) then
+    LPeerChain := FResumptionOffer.PeerCertificates;
   LSession := TResumableSession.CreateTls12(FSelectedSuite.Common.Code,
     FSelectedSuite.Common.Hash, FSchedule.MasterSecret, FServerSessionId,
     FReceivedTicket, FUseExtendedMasterSecret, '', FParams.ServerName,
     FReceivedTicketLifetime, 0,
-    FParams.Clock.NowUnixMillis, nil);
+    FParams.Clock.NowUnixMillis, LPeerChain);
   FParams.SessionCache.Store(CacheServerIdentity, FParams.ServerName, LSession);
   if System.Length(FReceivedTicket) > 0 then
     Result := TArray<THandshakeEffect>.Create(
@@ -846,6 +857,21 @@ begin
     THandshakeEffects.HandshakeEstablished);
 end;
 
+procedure TTls12ClientStateMachine.ReverifyResumedServer;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  if FParams.CertificateVerifier = nil then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.InternalError, @SNoCertificateVerifier);
+  // an empty stored chain cannot be re-verified, so it fails closed
+  LAlert := TTlsAlertDescription.BadCertificate;
+  if (FResumptionOffer = nil) or (System.Length(FResumptionOffer.PeerCertificates) = 0) or
+    not FParams.CertificateVerifier.VerifyServerCertificate(
+    FResumptionOffer.PeerCertificates, FParams.ExpectedServerName, nil, LAlert) then
+    raise EFatalAlertTlsLibException.CreateRes(LAlert, @SUntrustedCertificate);
+end;
+
 function TTls12ClientStateMachine.BeginAbbreviatedHandshake(
   const AContext: TExtensionContext): TArray<THandshakeEffect>;
 begin
@@ -861,6 +887,9 @@ begin
   if FParams.RequireExtendedMasterSecret and not FUseExtendedMasterSecret then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.HandshakeFailure, @SNoExtendedMasterSecret);
+  // stricter opt-in: re-run the certificate verifier against the resumed server's stored chain
+  if FParams.ResumeVerification = TResumeVerification.Reverify then
+    ReverifyResumedServer;
 
   // reuse the stored master secret; the key block re-expands under the new randoms
   FSchedule := TTls12KeySchedule.Create(FParams.Provider,

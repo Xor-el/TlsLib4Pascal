@@ -117,6 +117,11 @@ type
     /// otherwise-rejected chain. Ignored under AsyncVerify, where the verdict is instead
     /// decided out-of-band via SetCertificateVerdict.</summary>
     VerifyFail: Boolean;
+    /// <summary>When True, a resuming client re-runs its certificate verifier against the stored
+    /// peer chain (the harness's -reverify-on-resume); otherwise resumption reuses the original
+    /// authentication. Combined with VerifyFail on the resumed connection this exercises a
+    /// resumption that its re-verification rejects.</summary>
+    ReverifyOnResume: Boolean;
     /// <summary>When True, async certificate verdicts are enabled (the harness's -async): the
     /// handshake parks after the built-in pipeline accepts the peer chain and the driver
     /// resolves it out-of-band with SetCertificateVerdict. Inert where no peer certificate is
@@ -327,6 +332,8 @@ begin
     // a separate opt-in on the 1.3 facet
     if AOptions.SessionCache <> nil then
       LClient.WithSessionCache(AOptions.SessionCache);
+    if AOptions.ReverifyOnResume then
+      LClient.WithResumeVerification(TResumeVerification.Reverify);
     if AOptions.Clock <> nil then
       LClient.WithClock(AOptions.Clock);
     if AOptions.OfferEarlyData then
