@@ -1682,12 +1682,6 @@ var
   LEchData: TBytes;
 begin
   Result := nil;
-  // stricter opt-in: re-run the certificate verifier against the resumed server's stored chain
-  // (an external PSK carries no chain and is never re-verified). Done here, not at ServerHello, so
-  // a rejection's fatal alert goes out under the now-installed handshake write keys
-  if (FParams.ResumeVerification = TResumeVerification.Reverify) and FPskAccepted and
-    (FAcceptedPsk.BinderKind = TPskBinderKind.Resumption) then
-    ReverifyResumedServer;
   FTranscript.Update(AMessage.Raw);
   LContext := TExtensionContext.Create;
   try
@@ -2192,6 +2186,12 @@ var
   LHashBeforeFinished, LHashAfterFinished, LClientVerifyData, LClientFinished,
     LEndOfEarlyData: TBytes;
 begin
+  // stricter opt-in: re-run the certificate verifier against the resumed server's stored chain (an
+  // external PSK carries no chain, so it is never re-verified). The handshake write keys are live
+  // by this point, so a rejection's fatal alert goes out under the right epoch.
+  if (FParams.ResumeVerification = TResumeVerification.Reverify) and FPskAccepted and
+    (FAcceptedPsk.BinderKind = TPskBinderKind.Resumption) then
+    ReverifyResumedServer;
   // the server Finished is over the transcript EXCLUDING itself
   LHashBeforeFinished := FTranscript.CurrentHash;
   if not FSchedule.VerifyFinished(TTlsDirection.ServerWrite, LHashBeforeFinished,

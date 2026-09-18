@@ -151,6 +151,11 @@ type
     /// against the stored chain; otherwise resumption reuses the original authentication and it is
     /// inert.</summary>
     OnResumeVerifyFail: Boolean;
+    /// <summary>-on-retry-verify-fail: verification fails on the retry - the resumption handshake's
+    /// continuation after a 0-RTT reject (or its full-handshake fallback when no ticket resumes).
+    /// In this shim's connection model that is the same resumed connection, and our re-verification
+    /// runs once the 0-RTT decision is known, so it bites there exactly like -on-resume-verify-fail.</summary>
+    OnRetryVerifyFail: Boolean;
     /// <summary>-reverify-on-resume: the resuming client re-runs its certificate verifier against
     /// the stored peer chain (RFC 8446 2.2 otherwise reuses the original authentication).</summary>
     ReverifyOnResume: Boolean;
@@ -663,6 +668,8 @@ begin
       AConfig.VerifyFail := True
     else if LArg = '-on-resume-verify-fail' then
       AConfig.OnResumeVerifyFail := True
+    else if LArg = '-on-retry-verify-fail' then
+      AConfig.OnRetryVerifyFail := True
     else if LArg = '-reverify-on-resume' then
       AConfig.ReverifyOnResume := True
     else if LArg = '-key-update' then
@@ -1076,10 +1083,12 @@ begin
   LOptions.ReverifyOnResume := AConfig.ReverifyOnResume;
   // -verify-fail is fatal only under -verify-peer / -require-any-client-certificate (a hard
   // verify); without them BoringSSL soft-fails and completes, and so do we (the valid cert
-  // verifies and no reject is injected). -on-resume-verify-fail bites on the resume only under
-  // -reverify-on-resume, where the client re-runs its verifier against the stored chain.
+  // verifies and no reject is injected). -on-resume-verify-fail and -on-retry-verify-fail bite on
+  // the resumed connection: the former on its re-verification (under -reverify-on-resume), the
+  // latter on the retry after a 0-RTT reject or on the full-handshake fallback when no ticket
+  // resumes - both land on the same resumed connection in this shim's model.
   LOptions.VerifyFail := (AConfig.VerifyFail or
-    (AConfig.OnResumeVerifyFail and AIsResume)) and
+    ((AConfig.OnResumeVerifyFail or AConfig.OnRetryVerifyFail) and AIsResume)) and
     (AConfig.VerifyPeer or AConfig.RequireClientCert or
     (AConfig.ReverifyOnResume and AIsResume));
   // reverify-on-resume runs the verifier synchronously on the resumed connection (there is no
