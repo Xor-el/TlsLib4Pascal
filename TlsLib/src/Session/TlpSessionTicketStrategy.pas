@@ -60,6 +60,9 @@ type
     class function SerializeSession(const ASession: IResumableSession): TBytes; static;
     class function DeserializeSession(const AData: TBytes;
       out ASession: IResumableSession): Boolean; static;
+    class procedure SerializeChain(const AWriter: IWireWriter;
+      const AChain: TArray<TBytes>); static;
+    class function DeserializeChain(var AReader: TWireReader): TArray<TBytes>; static;
   public
     constructor Create(const AProvider: ICryptoProvider;
       const AKeys: ISessionTicketKeyManager);
@@ -81,10 +84,15 @@ type
 implementation
 
 const
-  // bumped to 2 when the SNI host_name was added to the ticket (virtual-hosting resumption
-  // guard); a v1 ticket fails the version check on Open and simply draws a full handshake
-  TicketFormatVersion = Byte(2);
+  // bumped when the ticket layout changes; an older ticket fails the version check on Open and
+  // simply draws a full handshake. 2 added the SNI host_name (virtual-hosting guard); 3 added the
+  // peer certificate chain (so a resumed mTLS connection can surface the client's identity)
+  TicketFormatVersion = Byte(3);
   TicketNonceLength = Int32(12); // AES-256-GCM nonce
+  // the serialized session carries the peer chain the client volunteered; cap it so an oversized
+  // chain does not bloat the ticket and the resumed ClientHello that re-presents it. Past the cap
+  // the server issues no ticket for that connection rather than a chain-reduced one
+  MaxSerializedSessionLength = Int32(16384);
 
 { TStoreTicketStrategy }
 
@@ -168,7 +176,47 @@ begin
   LMarker := LWriter.OpenVector(2);
   LWriter.WriteBytes(ASession.SessionTicket);
   LWriter.CloseVector(LMarker);
+  SerializeChain(LWriter, ASession.PeerCertificates);
   Result := LWriter.ToBytes;
+end;
+
+class procedure TStekTicketStrategy.SerializeChain(const AWriter: IWireWriter;
+  const AChain: TArray<TBytes>);
+var
+  LChain, LCert: TWireVectorMarker;
+  LI: Int32;
+begin
+  // the peer certificate chain as TLS certificate_list: a 3-byte outer length, each cert a
+  // 3-byte-length opaque entry, leaf-first, exactly as the peer sent it
+  LChain := AWriter.OpenVector(3);
+  for LI := 0 to System.Length(AChain) - 1 do
+  begin
+    LCert := AWriter.OpenVector(3);
+    AWriter.WriteBytes(AChain[LI]);
+    AWriter.CloseVector(LCert);
+  end;
+  AWriter.CloseVector(LChain);
+end;
+
+class function TStekTicketStrategy.DeserializeChain(
+  var AReader: TWireReader): TArray<TBytes>;
+var
+  LChain, LCert: TWireReader;
+  LList: TArray<TBytes>;
+  LCount: Int32;
+begin
+  Result := nil;
+  LList := nil;
+  LCount := 0;
+  LChain := AReader.OpenVector(3);
+  while LChain.Remaining > 0 do
+  begin
+    LCert := LChain.OpenVector(3);
+    SetLength(LList, LCount + 1);
+    LList[LCount] := LCert.ReadBytes(LCert.Remaining);
+    Inc(LCount);
+  end;
+  Result := LList;
 end;
 
 class function TStekTicketStrategy.DeserializeSession(const AData: TBytes;
@@ -182,6 +230,7 @@ var
   LIssued: UInt64;
   LAlpn, LServerName: string;
   LResumption, LMaster, LSessionId, LSessionTicket: TBytes;
+  LPeerChain: TArray<TBytes>;
 begin
   ASession := nil;
   Result := False;
@@ -214,6 +263,7 @@ begin
   LSessionId := LVec.ReadBytes(LVec.Remaining);
   LVec := LReader.OpenVector(2);
   LSessionTicket := LVec.ReadBytes(LVec.Remaining);
+  LPeerChain := DeserializeChain(LReader);
 
   try
     // an authenticated body with trailing bytes is a format mismatch, not a valid ticket -> full
@@ -223,11 +273,11 @@ begin
     if LVersion = TlsWireVersionTls13 then
       ASession := TResumableSession.CreateTls13(LSuite, LHash,
         TSecretBuffer.From(LResumption), LGroup, LAlpn, LServerName, nil, LLifetime, LAgeAdd,
-        LIssued, LMaxEarly)
+        LIssued, LMaxEarly, LPeerChain)
     else if LVersion = TlsWireVersionTls12 then
       ASession := TResumableSession.CreateTls12(LSuite, LHash,
         TSecretBuffer.From(LMaster), LSessionId, LSessionTicket, LEms <> 0, LAlpn, LServerName,
-        LLifetime, LAgeAdd, LIssued)
+        LLifetime, LAgeAdd, LIssued, LPeerChain)
     else
       Exit;
   finally
@@ -246,10 +296,17 @@ begin
   Result := nil;
   if not FKeys.CurrentKey(LKeyName, LKey) then
     Exit;
+  LPlain := SerializeSession(ASession);
+  // an oversized peer chain would bloat the ticket and the resumed ClientHello; decline to issue
+  // rather than degrade it (the caller emits no ticket, leaving the client to full-handshake)
+  if System.Length(LPlain) > MaxSerializedSessionLength then
+  begin
+    TSecureMemory.WipeBytes(LPlain);
+    Exit;
+  end;
   LNonce := FProvider.Primitives.GetRandom.GenerateBytes(TicketNonceLength);
   LAead := FProvider.Primitives.CreateAead(TAeadAlgorithm.AES_256_GCM);
   LAead.Init(LKey);
-  LPlain := SerializeSession(ASession);
   try
     // the key name is authenticated as associated data (it is not secret)
     LCipher := LAead.Seal(LNonce, LKeyName, LPlain);

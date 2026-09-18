@@ -104,6 +104,7 @@ type
     procedure TestZeroRttReplayCaughtByStrikeRegister;
     procedure TestEarlyDataOffByDefault;
     procedure TestMutualAuthResumptionCompletes;
+    procedure TestMutualAuthRequiredDeclinesForeignTicket;
     procedure TestTicketIssuedUnderDifferentSniFallsBackToFullHandshake;
   end;
 
@@ -309,7 +310,7 @@ function TTestTls13Resumption.MakeSessionForHost(const AIdentity: TBytes;
 begin
   Result := TResumableSession.CreateTls13(TCipherSuites13.Aes128GcmSha256,
     THashAlgorithm.SHA_256, ASecret, TNamedGroupCatalog.X25519, '', AHost, AIdentity,
-    ALifetime, 0, UInt64(TDateTimeUtilities.CurrentUnixMs), 0);
+    ALifetime, 0, UInt64(TDateTimeUtilities.CurrentUnixMs), 0, nil);
 end;
 
 procedure TTestTls13Resumption.TestResumptionCompletesPskDheKe;
@@ -794,6 +795,115 @@ begin
   DriveHandshake(LClient, LServer);
   CheckFalse(LServer.IsHandshaking, 'the mutual-TLS resumption completed');
   CheckFalse(LServer.IsTerminal, 'no failure resuming a mutual-TLS session');
+  CheckTrue(LServer.IsResumed, 'the mutual-TLS session resumed (not a full handshake)');
+  // the ticket carried the verified client chain, so the resumed connection surfaces it even
+  // though a resumed handshake sends no Certificate (byte-equal to what was presented, which also
+  // proves the server accepts its own enlarged ticket back on the wire)
+  CheckEquals(System.Length(LClientCred.CertificateChain),
+    System.Length(LServer.PeerCertificates),
+    'the resumed connection surfaces the client chain the ticket carried');
+  CheckEqualBytes('the surfaced client leaf matches the one presented at full handshake',
+    LClientCred.CertificateChain[0], LServer.PeerCertificates[0]);
+  CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestTls13Resumption.TestMutualAuthRequiredDeclinesForeignTicket;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LClientCred: TTlsCredential;
+  LClientRoot: TBytes;
+  LV: TStringList;
+
+  function BuildMtlsClient: ITlsEngine;
+  var
+    LP: TClientHandshakeParams;
+  begin
+    LP := Default(TClientHandshakeParams);
+    LP.Clock := TSystemClock.Create;
+    LP.Provider := Provider;
+    LP.Group := TNamedGroups.CreateX25519(Provider);
+    LP.GroupCode := TNamedGroupCatalog.X25519;
+    LP.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+    LP.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+    LP.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
+    LP.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+    LP.ClientRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
+    LP.LegacySessionId := Filled($33, 32);
+    LP.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+      TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
+      as ITrustAnchorStore, True) as IServerCertificateVerifier;
+    LP.ExpectedServerName := TServerName.DnsName(ServerHost);
+    LP.ServerName := ServerHost;
+    LP.SessionCache := LCache;
+    LP.ClientCredential := LClientCred;
+    Result := TTlsEngine.CreateConfigured(
+      TTls13ClientStateMachine.Create(LP) as IHandshakeMachine, Provider);
+  end;
+
+  // one STEK shared by two server configs; AClientAuth lets the issuer run without client auth
+  // and the resumer require it - the operator-shared-STEK cross-config case
+  function BuildStekServer(AIssue: Int32; AClientAuth: TClientAuthMode): ITlsEngine;
+  var
+    LP: TServerHandshakeParams;
+  begin
+    LP := Default(TServerHandshakeParams);
+    LP.Clock := TSystemClock.Create;
+    LP.Provider := Provider;
+    LP.Policy := TNegotiationPolicy.CreateDefault(Provider);
+    LP.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+    LP.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+    LP.Group := TNamedGroups.CreateX25519(Provider);
+    LP.ServerRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
+    LP.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
+    LP.SessionTicketKeys := LStek;
+    LP.IssueTicketCount := AIssue;
+    LP.TicketLifetimeSeconds := 7200;
+    LP.ClientAuth := AClientAuth;
+    if AClientAuth <> TClientAuthMode.None then
+    begin
+      LP.ClientAuthSignatureSchemes := TArray<UInt16>.Create(
+        TSignatureSchemes.EcdsaSecp256r1Sha256);
+      LP.ClientCertificateVerifier := TCertificateVerifier.Create(Provider,
+        TSystemClock.Create as ITlsClock,
+        TTrustAnchorStore.Create(TArray<TBytes>.Create(LClientRoot))
+        as ITrustAnchorStore, False) as IClientCertificateVerifier;
+    end;
+    Result := TTlsEngine.CreateConfigured(
+      TTls13ServerStateMachine.Create(LP) as IHandshakeMachine, Provider);
+  end;
+
+begin
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LV := LoadVectorFields('Certs/ClientAuthChain.txt');
+  try
+    LClientRoot := DecodeHex(LV.Values['root_cert']);
+    LClientCred.CertificateChain := TArray<TBytes>.Create(DecodeHex(LV.Values['leaf_cert']));
+    LClientCred.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(LV.Values['leaf_key']));
+  finally
+    LV.Free;
+  end;
+
+  // a no-client-auth server issues a ticket that carries no client identity
+  LClient := BuildMtlsClient;
+  LServer := BuildStekServer(1, TClientAuthMode.None);
+  DriveHandshake(LClient, LServer);
+  CheckFalse(LServer.IsHandshaking, 'the no-auth handshake completed');
+  CheckEquals(1, LCache.Count, 'the client cached the identity-less ticket');
+
+  // a Required server sharing the STEK must NOT resume that identity-less ticket (it would skip
+  // client auth): it declines the PSK and runs a full handshake that requests the certificate
+  LClient := BuildMtlsClient;
+  LServer := BuildStekServer(0, TClientAuthMode.Required);
+  DriveHandshake(LClient, LServer);
+  CheckFalse(LServer.IsHandshaking, 'the fallback full handshake completed');
+  CheckFalse(LServer.IsTerminal, 'the fallback full handshake did not fail');
+  CheckFalse(LServer.IsResumed, 'a Required server declined the identity-less ticket');
+  CheckEquals(System.Length(LClientCred.CertificateChain),
+    System.Length(LServer.PeerCertificates),
+    'the full handshake verified and surfaced the client certificate');
   CheckAppDataFlows(LClient, LServer);
 end;
 

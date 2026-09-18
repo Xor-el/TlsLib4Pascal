@@ -109,14 +109,14 @@ function TTestSessionStore.MakeSession(const ATag: TBytes): IResumableSession;
 begin
   Result := TResumableSession.CreateTls13(TCipherSuites13.Aes128GcmSha256,
     THashAlgorithm.SHA_256, TSecretBuffer.From(ATag), TNamedGroupCatalog.X25519,
-    '', '', ATag, 7200, 0, 0, 0);
+    '', '', ATag, 7200, 0, 0, 0, nil);
 end;
 
 function TTestSessionStore.MakeTls12Session(const ATag: TBytes): IResumableSession;
 begin
   Result := TResumableSession.CreateTls12(TCipherSuites12.EcdheEcdsaAes128GcmSha256,
     THashAlgorithm.SHA_256,
-    TSecretBuffer.From(ATag), ATag, ATag, True, '', '', 7200, 0, 0);
+    TSecretBuffer.From(ATag), ATag, ATag, True, '', '', 7200, 0, 0, nil);
 end;
 
 procedure TTestSessionStore.TestCacheStoreAndTakeSingleUse;

@@ -103,6 +103,11 @@ type
     function SessionTicket: TBytes;
     /// <summary>Whether Extended Master Secret (RFC 7627) bound the TLS 1.2 session.</summary>
     function ExtendedMasterSecret: Boolean;
+    /// <summary>The peer certificate chain verified when this session was established (leaf-first,
+    /// as the peer sent it), empty when the peer presented none. A resumed handshake carries no
+    /// Certificate, so the endpoint surfaces this stored chain instead; it is NOT re-verified on
+    /// resumption.</summary>
+    function PeerCertificates: TArray<TBytes>;
     /// <summary>This session viewed as a TLS 1.3 PSK offer.</summary>
     function AsPreSharedKey: IPreSharedKey;
   end;

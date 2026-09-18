@@ -1274,11 +1274,12 @@ begin
   if FParams.SessionCache = nil then
     Exit;
   LPsk := FSchedule.ResumptionPsk(FResumptionTranscriptHash, LNst.TicketNonce);
+  // the stored server chain (for an optional reverify-on-resume) is not populated here yet
   LSession := TResumableSession.CreateTls13(FSelectedSuite.Common.Code,
     FSelectedSuite.Common.Hash, LPsk, FCurrentGroupCode, FNegotiatedAlpn,
     FParams.ServerName, LNst.Ticket,
     LNst.TicketLifetime, LNst.TicketAgeAdd, NowUnixMillis,
-    LMaxEarlyData);
+    LMaxEarlyData, nil);
   FParams.SessionCache.Store(CacheServerIdentity, FParams.ServerName, LSession);
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.RaiseEvent(TTlsEventKind.SessionTicketReceived));

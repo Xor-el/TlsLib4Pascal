@@ -223,6 +223,9 @@ type
     /// <summary>The client's certificate chain (leaf first), captured for the client
     /// CertificateVerify once the client Certificate is processed.</summary>
     FClientCertChain: TArray<TBytes>;
+    // the client chain the accepted ticket carried (empty when none), surfaced on the resumed
+    // connection since a resumed handshake sends no Certificate
+    FResumedPeerCertificates: TArray<TBytes>;
     // the client leaf parsed once for the well-formed gate, reused for the signing-policy
     // check and its SubjectPublicKeyInfo; released once the signature is verified
     FParsedClientLeaf: IInspectedCertificate;
@@ -791,6 +794,15 @@ begin
   LNowMs := FParams.Clock.NowUnixMillis;
   if LNowMs >= LSession.IssuedAtMillis + UInt64(LSession.TicketLifetime) * 1000 then
     Exit;
+  // mutual-TLS resumption gate. A resumed handshake never re-runs client auth (RFC 8446 4.3.2
+  // forbids a CertificateRequest in a PSK handshake), so the ticket must already carry the client
+  // identity: a Required server offered a ticket with no stored identity (e.g. a foreign ticket
+  // minted by a non-mTLS config sharing this STEK) falls through to a full handshake that requests
+  // it. Verification (sync or async) is otherwise NOT repeated on resume - the original
+  // handshake's authentication is reused (RFC 8446 2.2).
+  if (FParams.ClientAuth = TClientAuthMode.Required) and
+    (System.Length(LSession.PeerCertificates) = 0) then
+    Exit;
   // the binder MACs the ClientHello up to (excluding) the binders vector
   FSelectedSuite := LSuite; // so HashOf uses the PSK's hash
   LTruncated := System.Copy(ARawClientHello, 0,
@@ -812,6 +824,7 @@ begin
   FSelectedPskIdentity := 0;
   FAcceptedPskIdentity := AContext.OfferedPskIdentities[0];
   FPskSecret := LSession.ResumptionSecret;
+  FResumedPeerCertificates := LSession.PeerCertificates;
   // 0-RTT is bound to the ticket's ALPN: it is only accepted below when the resumed handshake
   // negotiates the same protocol (checked once ALPN is selected)
   FAcceptedSessionAlpn := LSession.Alpn;
@@ -1381,6 +1394,11 @@ begin
         THandshakeEffects.SkipEarlyData(MaxEarlyDataSkipBytes));
   end;
   AppendNegotiatedInfoEffects(Result);
+  // a resumed handshake sends no Certificate, so surface the client chain the ticket carried
+  // (mutual-TLS resumption); empty on a non-mTLS session
+  if FPskAccepted and (System.Length(FResumedPeerCertificates) > 0) then
+    TArrayUtilities.Append<THandshakeEffect>(Result,
+      THandshakeEffects.PeerCertificateChain(FResumedPeerCertificates));
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.SendHandshake(LFlight.EncryptedExtensions));
   if System.Length(LFlight.CertificateRequest) > 0 then
@@ -1785,12 +1803,18 @@ begin
     LPsk := FSchedule.ResumptionPsk(FResumptionTranscriptHash, LNonce);
     // the ticket identity is the sealed/handle output, so the session's own id is unused;
     // MaxEarlyData authorizes 0-RTT on the resumed connection
+    // carry the verified client chain so a resumed mutual-TLS connection surfaces it (empty on a
+    // non-mTLS handshake); FClientCertChain is set once the client Certificate is verified
     LSession := TResumableSession.CreateTls13(FSelectedSuite.Common.Code,
       FSelectedSuite.Common.Hash, LPsk, FSelectedGroup.Code, FSelectedAlpn,
       FRequestedServerName, nil,
       LLifetime, LAgeAdd, FParams.Clock.NowUnixMillis,
-      FParams.MaxEarlyData);
+      FParams.MaxEarlyData, FClientCertChain);
     LHandle := FTicketStrategy.Seal(LSession);
+    // an empty handle means the strategy declined to seal (e.g. an oversized chain over the cap):
+    // issue no ticket for this connection rather than an unusable one
+    if System.Length(LHandle) = 0 then
+      Continue;
     LNst := Default(TTlsNewSessionTicket);
     LNst.TicketLifetime := LLifetime;
     LNst.TicketAgeAdd := LAgeAdd;

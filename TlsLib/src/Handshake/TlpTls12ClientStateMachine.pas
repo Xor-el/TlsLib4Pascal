@@ -811,11 +811,12 @@ begin
   // nothing to resume with unless the server issued a session id or a ticket
   if (System.Length(FServerSessionId) = 0) and (System.Length(FReceivedTicket) = 0) then
     Exit;
+  // the stored server chain (for an optional reverify-on-resume) is not populated here yet
   LSession := TResumableSession.CreateTls12(FSelectedSuite.Common.Code,
     FSelectedSuite.Common.Hash, FSchedule.MasterSecret, FServerSessionId,
     FReceivedTicket, FUseExtendedMasterSecret, '', FParams.ServerName,
     FReceivedTicketLifetime, 0,
-    FParams.Clock.NowUnixMillis);
+    FParams.Clock.NowUnixMillis, nil);
   FParams.SessionCache.Store(CacheServerIdentity, FParams.ServerName, LSession);
   if System.Length(FReceivedTicket) > 0 then
     Result := TArray<THandshakeEffect>.Create(

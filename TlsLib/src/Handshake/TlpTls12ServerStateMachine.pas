@@ -859,6 +859,12 @@ begin
   // resume only when the ClientHello's EMS offer matches the original session
   if LSession.ExtendedMasterSecret <> AContext.ExtendedMasterSecret then
     Exit;
+  // mutual-TLS resumption gate (an abbreviated handshake re-runs no client auth): a Required
+  // server offered a ticket/session with no stored client identity falls through to a full
+  // handshake that requests the certificate. Verification is otherwise not repeated on resume
+  if (FParams.ClientAuth = TClientAuthMode.Required) and
+    (System.Length(LSession.PeerCertificates) = 0) then
+    Exit;
 
   FResumedSession := LSession;
   FResumedViaTicket := LViaTicket;
@@ -881,19 +887,28 @@ end;
 function TTls12ServerStateMachine.BuildStoredSession(
   const ASessionId: TBytes): IResumableSession;
 begin
+  // carry the verified client chain so a resumed mutual-TLS connection surfaces it (empty on a
+  // non-mTLS handshake)
   Result := TResumableSession.CreateTls12(FSelectedSuite.Common.Code,
     FSelectedSuite.Common.Hash, FSchedule.MasterSecret, ASessionId, nil,
     FUseExtendedMasterSecret, '', FRequestedServerName, EmittedTicketLifetime, 0,
-    FParams.Clock.NowUnixMillis);
+    FParams.Clock.NowUnixMillis, FClientCertChain);
 end;
 
 function TTls12ServerStateMachine.BuildNewSessionTicketMessage: TBytes;
 var
   LMsg: TTls12NewSessionTicket;
+  LTicket: TBytes;
 begin
-  LMsg.TicketLifetimeHint := EmittedTicketLifetime;
+  Result := nil;
   // the ticket seals the session (no session id) under the current STEK
-  LMsg.Ticket := FTicketStrategy.Seal(BuildStoredSession(nil));
+  LTicket := FTicketStrategy.Seal(BuildStoredSession(nil));
+  // an empty seal means the strategy declined (e.g. an oversized chain over the cap): issue no
+  // ticket rather than an unusable one
+  if System.Length(LTicket) = 0 then
+    Exit;
+  LMsg.TicketLifetimeHint := EmittedTicketLifetime;
+  LMsg.Ticket := LTicket;
   Result := THandshakeFraming.Frame(TTlsHandshakeType.NewSessionTicket,
     THandshakeMessages.EncodeTls12NewSessionTicket(LMsg));
 end;
@@ -922,12 +937,20 @@ begin
 
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.SendHandshake(LServerHello));
+  // a resumed handshake sends no Certificate, so surface the client chain the session carried
+  // (mutual-TLS resumption); empty on a non-mTLS session
+  if System.Length(FResumedSession.PeerCertificates) > 0 then
+    TArrayUtilities.Append<THandshakeEffect>(Result,
+      THandshakeEffects.PeerCertificateChain(FResumedSession.PeerCertificates));
   if FIssueNewTicket then
   begin
     LNst := BuildNewSessionTicketMessage;
-    FTranscript.Update(LNst);
-    TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.SendHandshake(LNst));
+    if System.Length(LNst) > 0 then
+    begin
+      FTranscript.Update(LNst);
+      TArrayUtilities.Append<THandshakeEffect>(Result,
+        THandshakeEffects.SendHandshake(LNst));
+    end;
   end;
 
   // the server Finished is over ClientHello, ServerHello, [NewSessionTicket]
@@ -989,9 +1012,12 @@ begin
   if FIssueNewTicket then
   begin
     LNst := BuildNewSessionTicketMessage;
-    FTranscript.Update(LNst);
-    TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.SendHandshake(LNst));
+    if System.Length(LNst) > 0 then
+    begin
+      FTranscript.Update(LNst);
+      TArrayUtilities.Append<THandshakeEffect>(Result,
+        THandshakeEffects.SendHandshake(LNst));
+    end;
   end;
   // session-id resumption stores the session under the id echoed in the ServerHello
   if (FParams.SessionStore <> nil) and (System.Length(FSessionId) > 0) then

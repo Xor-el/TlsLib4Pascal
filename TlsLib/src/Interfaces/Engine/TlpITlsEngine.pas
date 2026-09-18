@@ -192,8 +192,9 @@ type
     function PeerOcspStaple: TBytes;
     /// <summary>The validated peer certificate chain (leaf first, DER) the handshake accepted:
     /// the server chain for a client, or the client chain a server verified under mutual TLS.
-    /// Empty when the peer presented none (e.g. a resumed handshake, or a server the client did
-    /// not authenticate). Read after the handshake.</summary>
+    /// Empty when the peer presented none. On a resumed handshake this is the chain verified when
+    /// the session was issued (carried in the ticket, not re-verified here). Read after the
+    /// handshake.</summary>
     function PeerCertificates: TArray<TBytes>;
     /// <summary>The DER-encoded DistinguishedName certificate_authorities the peer named in its
     /// CertificateRequest (RFC 8446 4.2.4 / RFC 5246 7.4.4): the issuers a server will accept for

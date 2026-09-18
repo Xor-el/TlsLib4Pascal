@@ -100,6 +100,8 @@ type
     FSessionId: TBytes;
     FSessionTicket: TBytes;
     FExtendedMasterSecret: Boolean;
+    FPeerCertificates: TArray<TBytes>;
+    class function CopyChain(const AChain: TArray<TBytes>): TArray<TBytes>; static;
   public
     function Version: TTlsVersion;
     function CipherSuite: UInt16;
@@ -117,20 +119,23 @@ type
     function SessionId: TBytes;
     function SessionTicket: TBytes;
     function ExtendedMasterSecret: Boolean;
+    function PeerCertificates: TArray<TBytes>;
     function AsPreSharedKey: IPreSharedKey;
 
-    /// <summary>A TLS 1.3 resumable session (a resumption PSK + its selected parameters).</summary>
+    /// <summary>A TLS 1.3 resumable session (a resumption PSK + its selected parameters).
+    /// APeerCertificates is the peer chain verified at establishment (empty when none).</summary>
     class function CreateTls13(ACipherSuite: UInt16; AHash: THashAlgorithm;
       const AResumptionSecret: ISecretBuffer; ANamedGroup: UInt16;
       const AAlpn, AServerName: string; const ATicketIdentity: TBytes;
       ATicketLifetime, ATicketAgeAdd: UInt32; AIssuedAtMillis: UInt64;
-      AMaxEarlyData: UInt32): IResumableSession; static;
-    /// <summary>A TLS 1.2 resumable session (a master secret keyed by session id and/or ticket).</summary>
+      AMaxEarlyData: UInt32; const APeerCertificates: TArray<TBytes>): IResumableSession; static;
+    /// <summary>A TLS 1.2 resumable session (a master secret keyed by session id and/or ticket).
+    /// APeerCertificates is the peer chain verified at establishment (empty when none).</summary>
     class function CreateTls12(ACipherSuite: UInt16; AHash: THashAlgorithm;
       const AMasterSecret: ISecretBuffer; const ASessionId, ASessionTicket: TBytes;
       AExtendedMasterSecret: Boolean; const AAlpn, AServerName: string;
-      ATicketLifetime, ATicketAgeAdd: UInt32;
-      AIssuedAtMillis: UInt64): IResumableSession; static;
+      ATicketLifetime, ATicketAgeAdd: UInt32; AIssuedAtMillis: UInt64;
+      const APeerCertificates: TArray<TBytes>): IResumableSession; static;
   end;
 
 implementation
@@ -217,11 +222,22 @@ end;
 
 { TResumableSession }
 
+class function TResumableSession.CopyChain(
+  const AChain: TArray<TBytes>): TArray<TBytes>;
+var
+  LI: Int32;
+begin
+  Result := nil;
+  SetLength(Result, System.Length(AChain));
+  for LI := 0 to System.Length(AChain) - 1 do
+    Result[LI] := System.Copy(AChain[LI], 0, System.Length(AChain[LI]));
+end;
+
 class function TResumableSession.CreateTls13(ACipherSuite: UInt16;
   AHash: THashAlgorithm; const AResumptionSecret: ISecretBuffer;
   ANamedGroup: UInt16; const AAlpn, AServerName: string; const ATicketIdentity: TBytes;
   ATicketLifetime, ATicketAgeAdd: UInt32; AIssuedAtMillis: UInt64;
-  AMaxEarlyData: UInt32): IResumableSession;
+  AMaxEarlyData: UInt32; const APeerCertificates: TArray<TBytes>): IResumableSession;
 var
   LSession: TResumableSession;
 begin
@@ -239,6 +255,7 @@ begin
   LSession.FTicketAgeAdd := ATicketAgeAdd;
   LSession.FIssuedAtMillis := AIssuedAtMillis;
   LSession.FMaxEarlyData := AMaxEarlyData;
+  LSession.FPeerCertificates := CopyChain(APeerCertificates);
   Result := LSession;
 end;
 
@@ -246,7 +263,7 @@ class function TResumableSession.CreateTls12(ACipherSuite: UInt16;
   AHash: THashAlgorithm; const AMasterSecret: ISecretBuffer;
   const ASessionId, ASessionTicket: TBytes; AExtendedMasterSecret: Boolean;
   const AAlpn, AServerName: string; ATicketLifetime, ATicketAgeAdd: UInt32;
-  AIssuedAtMillis: UInt64): IResumableSession;
+  AIssuedAtMillis: UInt64; const APeerCertificates: TArray<TBytes>): IResumableSession;
 var
   LSession: TResumableSession;
 begin
@@ -264,6 +281,7 @@ begin
   LSession.FTicketLifetime := ATicketLifetime;
   LSession.FTicketAgeAdd := ATicketAgeAdd;
   LSession.FIssuedAtMillis := AIssuedAtMillis;
+  LSession.FPeerCertificates := CopyChain(APeerCertificates);
   Result := LSession;
 end;
 
@@ -348,6 +366,11 @@ end;
 function TResumableSession.ExtendedMasterSecret: Boolean;
 begin
   Result := FExtendedMasterSecret;
+end;
+
+function TResumableSession.PeerCertificates: TArray<TBytes>;
+begin
+  Result := CopyChain(FPeerCertificates);
 end;
 
 function TResumableSession.AsPreSharedKey: IPreSharedKey;

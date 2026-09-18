@@ -385,7 +385,7 @@ function TTestTls12Resumption.MakeTicketSession(const ATicket: TBytes;
 begin
   Result := TResumableSession.CreateTls12(TlsSuite, THashAlgorithm.SHA_256,
     TSecretBuffer.From(Provider.Primitives.GetRandom.GenerateBytes(48)), nil, ATicket,
-    AExtendedMasterSecret, '', '', 7200, 0, UInt64(TDateTimeUtilities.CurrentUnixMs));
+    AExtendedMasterSecret, '', '', 7200, 0, UInt64(TDateTimeUtilities.CurrentUnixMs), nil);
 end;
 
 function TTestTls12Resumption.MakeStoredSession(const AIdentity: TBytes;
@@ -394,7 +394,7 @@ begin
   // a session-id session (RFC 5246 7.3): the id resumes via the store, AHost is the host it was
   // issued under and what the cross-host guard checks
   Result := TResumableSession.CreateTls12(TlsSuite, THashAlgorithm.SHA_256, ASecret, AIdentity,
-    nil, True, '', AHost, 7200, 0, UInt64(TDateTimeUtilities.CurrentUnixMs));
+    nil, True, '', AHost, 7200, 0, UInt64(TDateTimeUtilities.CurrentUnixMs), nil);
 end;
 
 procedure TTestTls12Resumption.TestSessionIdResumeIsAbbreviated;
