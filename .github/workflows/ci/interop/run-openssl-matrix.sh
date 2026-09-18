@@ -221,6 +221,48 @@ else
 fi
 wait || true
 
+# --- Cell 9: our client (revocation)  ->  openssl s_server stapling a REVOKED response ---
+# The good-path cell 7 has openssl (as client) read our staple; this is the reject path with a
+# foreign encoder: openssl (as server) staples the committed ocsp_revoked vector, and our
+# client - offering status_request - must abort with certificate_revoked(44). Gated on an
+# openssl whose s_server supports -status_file (skipped cleanly otherwise).
+echo "=== cell 9: our client (revocation)  ->  openssl s_server -status_file (revoked) ==="
+if "$OPENSSL" s_server -help 2>&1 | grep -q 'status_file'; then
+  TOTAL=$((TOTAL+1))
+  # materialise the OCSP hierarchy's leaf, issuer, leaf key, root and the revoked response.
+  # -cert carries only the leaf and -cert_chain the issuer: a combined -cert file makes openssl
+  # send the leaf alone (it cannot build the chain without the root), which our client rejects
+  # as unknown_ca before ever reaching the staple.
+  for f in leaf_cert issuer_cert root_cert; do
+    H="$(grep "^${f}=" "$DATA_DIR/Certs/OcspStapling.txt" | cut -d= -f2)"
+    echo -n "$H" | xxd -r -p > "$TMP/o_${f}.der"
+    "$OPENSSL" x509 -inform DER -in "$TMP/o_${f}.der" -outform PEM -out "$TMP/o_${f}.pem"
+  done
+  LKHEX="$(grep '^leaf_key=' "$DATA_DIR/Certs/OcspStapling.txt" | cut -d= -f2)"
+  echo -n "$LKHEX" | xxd -r -p > "$TMP/o_leaf_key.der"
+  "$OPENSSL" pkey -inform DER -in "$TMP/o_leaf_key.der" -out "$TMP/o_leaf_key.pem"
+  REVHEX="$(grep '^ocsp_revoked=' "$DATA_DIR/Certs/OcspStapling.txt" | cut -d= -f2)"
+  echo -n "$REVHEX" | xxd -r -p > "$TMP/ocsp_revoked.der"
+  P9=14509
+  # -rev keeps s_server out of its interactive stdin-relay mode (which would close each
+  # connection at EOF under CI); -status_file staples the revoked response on status_request
+  "$OPENSSL" s_server -cert "$TMP/o_leaf_cert.pem" -key "$TMP/o_leaf_key.pem" \
+    -cert_chain "$TMP/o_issuer_cert.pem" -tls1_3 -rev -status_file "$TMP/ocsp_revoked.der" \
+    -accept $P9 -naccept 1 > "$TMP/s9.log" 2>&1 &
+  for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/s9.log" && break; sleep 0.1; done
+  # --expect-reject 44 inverts the driver's success: 0 iff the handshake aborts with that alert
+  if "$DRIVER" --role client --port $P9 --host localhost --ca "$TMP/o_root_cert.pem" \
+       --request-ocsp --revocation-posture soft --expect-reject 44 \
+       --data-dir "$DATA_DIR" > "$TMP/c9.out" 2>&1; then
+    echo "  PASS: our client rejected a foreign-stapled revoked response (certificate_revoked)"
+  else
+    echo "  FAIL: cell 9"; cat "$TMP/s9.log" "$TMP/c9.out"; FAILURES=$((FAILURES+1))
+  fi
+  wait || true
+else
+  echo "  SKIPPED: openssl s_server has no -status_file (cell 9)"
+fi
+
 # --- PQ hybrid cells (X25519MLKEM768): version-gated on openssl >= 3.5 -------------
 # These prove BOTH handshake shapes the single-key_share model produces against a real
 # peer: direct (hybrid key_share first) and HRR-induced (classical key_share first, peer

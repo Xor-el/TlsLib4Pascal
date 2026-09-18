@@ -22,6 +22,7 @@ uses
   Classes,
   TlpICryptoProvider,
   TlpTlsCredential,
+  TlpTrustPolicy,
   TlpNegotiationTypes,
   TlpISession,
   TlpSessionTicketKeys,
@@ -47,6 +48,10 @@ type
   TOpenSslInteropRunner = class sealed(TObject)
   strict private
     class function ArgValue(const AName: string; const ADefault: string): string; static;
+    /// <summary>True when a bare presence flag (e.g. --request-ocsp) is on the command line.</summary>
+    class function HasArg(const AName: string): Boolean; static;
+    /// <summary>Maps soft/hard/off to the revocation posture (soft when unrecognised).</summary>
+    class function ParsePosture(const ASpec: string): TRevocationPosture; static;
     /// <summary>Maps a comma-separated list of group names (e.g. "X25519,X25519MLKEM768")
     /// to their IANA codepoints; the first is the most-preferred / key_share group.</summary>
     class function ParseGroups(const ASpec: string): TArray<UInt16>; static;
@@ -61,12 +66,14 @@ type
     class function RunClient(APort: Word; const AHost, ACaPemFile, AMessage,
       AClientCredFile: string; AConnectionCount: Int32;
       const AOfferedGroups: TArray<UInt16>;
-      const AEchConfigList: TBytes): Int32; static;
-    /// <summary>One client connection over ASocket, using AOptions; returns 0 on a
-    /// completed handshake + echoed application data.</summary>
+      const AEchConfigList: TBytes; ARequestOcsp, AApplyRevocation: Boolean;
+      APosture: TRevocationPosture; AExpectRejectAlert: Int32): Int32; static;
+    /// <summary>One client connection over ASocket, using AOptions. Returns 0 on a completed
+    /// handshake + echoed application data; when AExpectRejectAlert >= 0 the semantics invert -
+    /// 0 iff the handshake aborts with exactly that alert (a completed handshake then fails).</summary>
     class function RunOneClient(const ASocket: TInteropSocket;
       const AProvider: ICryptoProvider; const AOptions: TInteropEngineOptions;
-      const AMessage: string): Int32; static;
+      const AMessage: string; AExpectRejectAlert: Int32): Int32; static;
   public
     /// <summary>Parses --role/--port/... and runs one exchange; returns the exit code.</summary>
     class function Run: Int32; static;
@@ -85,6 +92,27 @@ begin
   for LI := 1 to ParamCount - 1 do
     if ParamStr(LI) = AName then
       Exit(ParamStr(LI + 1));
+end;
+
+class function TOpenSslInteropRunner.HasArg(const AName: string): Boolean;
+var
+  LI: Int32;
+begin
+  Result := False;
+  for LI := 1 to ParamCount do
+    if ParamStr(LI) = AName then
+      Exit(True);
+end;
+
+class function TOpenSslInteropRunner.ParsePosture(
+  const ASpec: string): TRevocationPosture;
+begin
+  if SameText(ASpec, 'hard') then
+    Result := TRevocationPosture.Hard
+  else if SameText(ASpec, 'off') then
+    Result := TRevocationPosture.Off
+  else
+    Result := TRevocationPosture.Soft;
 end;
 
 class function TOpenSslInteropRunner.ParseGroups(const ASpec: string): TArray<UInt16>;
@@ -193,7 +221,9 @@ end;
 
 class function TOpenSslInteropRunner.RunClient(APort: Word; const AHost,
   ACaPemFile, AMessage, AClientCredFile: string; AConnectionCount: Int32;
-  const AOfferedGroups: TArray<UInt16>; const AEchConfigList: TBytes): Int32;
+  const AOfferedGroups: TArray<UInt16>; const AEchConfigList: TBytes;
+  ARequestOcsp, AApplyRevocation: Boolean; APosture: TRevocationPosture;
+  AExpectRejectAlert: Int32): Int32;
 var
   LSocket: TInteropSocket;
   LProvider: ICryptoProvider;
@@ -216,6 +246,10 @@ begin
   LOptions.SessionCache := LCache;
   LOptions.OfferedGroups := AOfferedGroups;
   LOptions.EchConfigList := AEchConfigList;
+  // offer status_request and pin a revocation posture so a stapled-revoked peer is evaluated
+  LOptions.RequestOcsp := ARequestOcsp;
+  LOptions.ApplyRevocation := AApplyRevocation;
+  LOptions.RevocationPosture := APosture;
   // mutual TLS: present a client credential when the server requests one
   if AClientCredFile <> '' then
   begin
@@ -228,7 +262,7 @@ begin
   begin
     LSocket := TInteropSocket.Connect(AHost, APort);
     try
-      Result := RunOneClient(LSocket, LProvider, LOptions, AMessage);
+      Result := RunOneClient(LSocket, LProvider, LOptions, AMessage, AExpectRejectAlert);
     finally
       LSocket.Free;
     end;
@@ -239,7 +273,7 @@ end;
 
 class function TOpenSslInteropRunner.RunOneClient(const ASocket: TInteropSocket;
   const AProvider: ICryptoProvider; const AOptions: TInteropEngineOptions;
-  const AMessage: string): Int32;
+  const AMessage: string; AExpectRejectAlert: Int32): Int32;
 var
   LEngine: ITlsEngine;
   LResult: TInteropResult;
@@ -251,6 +285,23 @@ begin
 
   LEngine.StartHandshake;
   LResult := TInteropPump.DriveHandshake(LEngine, ASocket);
+
+  // expect-reject: the handshake must abort with exactly the named alert (e.g. a peer that
+  // staples a revoked OCSP response - proving we parse and reject a foreign encoder's staple)
+  if AExpectRejectAlert >= 0 then
+  begin
+    if (LResult.Status = TInteropStatus.LocalAlert) and LResult.HasAlert and
+      (Ord(LResult.Alert) = AExpectRejectAlert) then
+    begin
+      Writeln('client rejected as expected with alert ', AExpectRejectAlert);
+      Exit(0);
+    end;
+    Writeln(ErrOutput, 'expected client reject with alert ', AExpectRejectAlert,
+      ', got status ', Ord(LResult.Status), ' alert ', Ord(LResult.Alert),
+      ' (', LResult.Detail, ')');
+    Exit(1);
+  end;
+
   if LResult.Status <> TInteropStatus.Ok then
   begin
     Writeln(ErrOutput, 'client handshake failed: ', LResult.Detail);
@@ -308,6 +359,10 @@ var
   LEchConfigFile, LEchKeyFile, LEchB64: string;
   LEchConfigList: TBytes;
   LEchKeyStore: IEchServerKeyStore;
+  LRequestOcsp, LApplyRev: Boolean;
+  LPostureStr: string;
+  LPosture: TRevocationPosture;
+  LExpectReject: Int32;
 begin
   LRole := ArgValue('--role', 'server');
   LPort := Word(StrToIntDef(ArgValue('--port', '0'), 0));
@@ -338,13 +393,20 @@ begin
     // --groups names the offered named groups (comma-separated, most-preferred first); the
     // first is the key_share group, so "X25519,X25519MLKEM768" forces an HRR onto the hybrid
     LOfferedGroups := ParseGroups(ArgValue('--groups', ''));
+    // client revocation flags: offer status_request, pin a posture, and (--expect-reject N)
+    // assert the handshake aborts with alert N instead of completing
+    LRequestOcsp := HasArg('--request-ocsp');
+    LPostureStr := ArgValue('--revocation-posture', '');
+    LApplyRev := LPostureStr <> '';
+    LPosture := ParsePosture(LPostureStr);
+    LExpectReject := StrToIntDef(ArgValue('--expect-reject', '-1'), -1);
     if LRole = 'client' then
       // --resume-count on a client means it makes ResumeCount+1 connections over one
       // shared cache, resuming a prior session on the later ones
       Result := RunClient(LPort, ArgValue('--host', 'localhost'),
         ArgValue('--ca', ''), ArgValue('--message', 'openssl interop hello'),
         ArgValue('--client-cred', ''), LResumeCount + 1, LOfferedGroups,
-        LEchConfigList)
+        LEchConfigList, LRequestOcsp, LApplyRev, LPosture, LExpectReject)
     else
     begin
       LStek := nil;

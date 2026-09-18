@@ -29,6 +29,7 @@ uses
   TlpINegotiation,
   TlpSignatureSchemeRegistry,
   TlpICertificateTrust,
+  TlpTrustPolicy,
   TlpServerName,
   TlpTlsAlert,
   TlpTlsCredential,
@@ -109,6 +110,14 @@ type
     /// <summary>The client offers status_request (OCSP stapling); off unless a test asks for
     /// a staple, so an unsolicited server staple is rejected.</summary>
     RequestOcsp: Boolean;
+    /// <summary>When True, the client's revocation posture is set to RevocationPosture;
+    /// otherwise the preset default stands (so shims that do not drive revocation are
+    /// unaffected).</summary>
+    ApplyRevocation: Boolean;
+    /// <summary>The client revocation posture applied under ApplyRevocation: Soft tolerates an
+    /// indeterminate staple, Hard rejects it, Off skips the check. A definitive Revoked and an
+    /// unsatisfied must-staple leaf reject regardless of this.</summary>
+    RevocationPosture: TRevocationPosture;
     /// <summary>The server's 0-RTT early-data byte budget (0 = no early data).</summary>
     MaxEarlyData: UInt32;
     /// <summary>When True, an augment-only verify callback that rejects is installed, so the
@@ -313,6 +322,8 @@ begin
     // deterministic assertions (e.g. exact key_share counts) are not perturbed
     LClient.WithGrease(AOptions.Grease);
     LClient.WithOcspStaplingRequest(AOptions.RequestOcsp);
+    if AOptions.ApplyRevocation then
+      LClient.WithRevocation(AOptions.RevocationPosture);
     // async verdict (-async): park after the pipeline accepts and let the driver resolve the
     // verdict out-of-band. Otherwise -verify-fail installs an augment hook that rejects inline.
     if AOptions.AsyncVerify then

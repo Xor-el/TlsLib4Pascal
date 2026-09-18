@@ -14,6 +14,8 @@ uses
   Classes,
   TlpTlsVersion,
   TlpTlsCredential,
+  TlpTrustPolicy,
+  TlpTlsAlert,
   TlpICryptoProvider,
   TlpITlsEngine,
   InteropSocket,
@@ -308,11 +310,231 @@ begin
   end;
 end;
 
+// ---- revocation-over-the-wire cells -----------------------------------------------------
+// Our server staples an OCSP response (or presents a must-staple leaf with none) and our
+// client, offering status_request under a chosen revocation posture, either completes the
+// handshake or aborts with a specific alert. This exercises the portable verifier's staple
+// evaluation end to end across both stapling framings (TLS 1.3 certificate-entry extension
+// and TLS 1.2 CertificateStatus), which the good-only openssl matrix cell never reaches.
+type
+  TRevExpect = (RevOk, RevClientAlert);
+
+  /// <summary>One revocation cell: the offered version, whether the server presents the
+  /// must-staple leaf, which OCSP vector it staples (empty = none), the client posture, and
+  /// the expected outcome (a clean handshake, or a client abort carrying Alert).</summary>
+  TRevCell = record
+    Name: string;
+    Version: UInt16;
+    MustStapleLeaf: Boolean;
+    StapleField: string;
+    Posture: TRevocationPosture;
+    Expect: TRevExpect;
+    Alert: TTlsAlertDescription;
+  end;
+
+  TRevServerThread = class(TThread)
+  strict private
+    FListener: TInteropListener;
+    FDataFile: string;
+    FCell: TRevCell;
+    FError: string;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(AListener: TInteropListener; const ADataFile: string;
+      const ACell: TRevCell);
+    // set only on an unexpected server exception; a client abort is an expected, clean
+    // handshake failure here, not a server error
+    property Error: string read FError;
+  end;
+
+constructor TRevServerThread.Create(AListener: TInteropListener;
+  const ADataFile: string; const ACell: TRevCell);
+begin
+  inherited Create(False);
+  FreeOnTerminate := False;
+  FListener := AListener;
+  FDataFile := ADataFile;
+  FCell := ACell;
+end;
+
+procedure TRevServerThread.Execute;
+var
+  LSocket: TInteropSocket;
+  LProvider: ICryptoProvider;
+  LOptions: TInteropEngineOptions;
+  LEngine: ITlsEngine;
+  LResult: TInteropResult;
+  LFields: TStringList;
+begin
+  FError := '';
+  LSocket := nil;
+  try
+    LSocket := FListener.Accept;
+    LProvider := TInteropEngine.DefaultProvider;
+    LOptions := Default(TInteropEngineOptions);
+    LOptions.Role := TInteropRole.Server;
+    LOptions.SupportedVersions := TArray<UInt16>.Create(FCell.Version);
+    LOptions.HasCredential := True;
+    if FCell.MustStapleLeaf then
+      LOptions.Credential := TInteropCredentials.ServerStaplingCredentialFields(
+        LProvider, FDataFile, 'muststaple_leaf_cert', 'muststaple_leaf_key')
+    else
+      LOptions.Credential := TInteropCredentials.ServerStaplingCredentialFields(
+        LProvider, FDataFile, 'leaf_cert', 'leaf_key');
+    if FCell.StapleField <> '' then
+    begin
+      LFields := TStringList.Create;
+      try
+        TInteropUtils.LoadFieldFile(FDataFile, LFields);
+        LOptions.OcspStaple := TInteropUtils.DecodeHex(LFields.Values[FCell.StapleField]);
+      finally
+        LFields.Free;
+      end;
+    end;
+    LEngine := TInteropEngine.Build(LProvider, LOptions);
+
+    LResult := TInteropPump.DriveHandshake(LEngine, LSocket);
+    // a client that rejects the staple aborts the handshake: expected for the reject cells,
+    // so only the accept cells reach the echo phase
+    if LResult.Status = TInteropStatus.Ok then
+    begin
+      repeat
+        LResult := TInteropPump.PumpAppData(LEngine, LSocket);
+        if System.Length(LResult.Data) > 0 then
+          TInteropPump.WriteAppData(LEngine, LSocket, LResult.Data);
+      until LResult.Status <> TInteropStatus.Ok;
+      if LResult.Status = TInteropStatus.PeerClosed then
+        TInteropPump.Close(LEngine, LSocket);
+    end;
+  except
+    on E: Exception do
+      FError := 'server exception: ' + E.Message;
+  end;
+  LSocket.Free;
+end;
+
+function RunRevClient(APort: Word; const ADataFile: string;
+  const ACell: TRevCell): string;
+var
+  LSocket: TInteropSocket;
+  LProvider: ICryptoProvider;
+  LOptions: TInteropEngineOptions;
+  LEngine: ITlsEngine;
+  LResult: TInteropResult;
+  LSent: TBytes;
+begin
+  Result := '';
+  LSocket := TInteropSocket.Connect('127.0.0.1', APort);
+  try
+    LProvider := TInteropEngine.DefaultProvider;
+    LOptions := Default(TInteropEngineOptions);
+    LOptions.Role := TInteropRole.Client;
+    LOptions.SupportedVersions := TArray<UInt16>.Create(ACell.Version);
+    LOptions.ServerName := 'localhost';
+    LOptions.CheckServerName := True;
+    LOptions.Trust := TInteropCredentials.TrustFromFieldFile(LProvider, ADataFile);
+    // offer status_request regardless of posture, else the server never staples and the cell
+    // proves nothing; pin the posture the cell dictates
+    LOptions.RequestOcsp := True;
+    LOptions.ApplyRevocation := True;
+    LOptions.RevocationPosture := ACell.Posture;
+    LEngine := TInteropEngine.Build(LProvider, LOptions);
+
+    LEngine.StartHandshake;
+    LResult := TInteropPump.DriveHandshake(LEngine, LSocket);
+
+    if ACell.Expect = TRevExpect.RevClientAlert then
+    begin
+      if LResult.Status <> TInteropStatus.LocalAlert then
+        Exit(Format('expected a client abort, got status %d (%s)',
+          [Ord(LResult.Status), LResult.Detail]));
+      if (not LResult.HasAlert) or (LResult.Alert <> ACell.Alert) then
+        Exit(Format('expected alert %d, got %d', [Ord(ACell.Alert), Ord(LResult.Alert)]));
+      Exit('');
+    end;
+
+    // RevOk: the handshake must complete and the connection carry application data
+    if LResult.Status <> TInteropStatus.Ok then
+      Exit('expected a completed handshake, got: ' + LResult.Detail);
+    LSent := StrBytes('revocation cell application data');
+    TInteropPump.WriteAppData(LEngine, LSocket, LSent);
+    LResult := TInteropPump.PumpAppData(LEngine, LSocket);
+    if not BytesEqual(LResult.Data, LSent) then
+      Exit('client did not receive its echo intact');
+    TInteropPump.Close(LEngine, LSocket);
+  finally
+    LSocket.Free;
+  end;
+end;
+
+function RunRevCell(const ADataFile: string; const ACell: TRevCell): string;
+var
+  LListener: TInteropListener;
+  LServer: TRevServerThread;
+begin
+  Result := '';
+  LListener := TInteropListener.Bind('127.0.0.1', 0);
+  try
+    LServer := TRevServerThread.Create(LListener, ADataFile, ACell);
+    try
+      Result := RunRevClient(LListener.Port, ADataFile, ACell);
+      LServer.WaitFor;
+      if LServer.Error <> '' then
+        if Result = '' then
+          Result := LServer.Error
+        else
+          Result := Result + ' | ' + LServer.Error;
+    finally
+      LServer.Free;
+    end;
+  finally
+    LListener.Free;
+  end;
+end;
+
+function RevCell(const AName: string; AVersion: UInt16; AMustStapleLeaf: Boolean;
+  const AStapleField: string; APosture: TRevocationPosture; AExpect: TRevExpect;
+  AAlert: TTlsAlertDescription): TRevCell;
+begin
+  Result.Name := AName;
+  Result.Version := AVersion;
+  Result.MustStapleLeaf := AMustStapleLeaf;
+  Result.StapleField := AStapleField;
+  Result.Posture := APosture;
+  Result.Expect := AExpect;
+  Result.Alert := AAlert;
+end;
+
+// the five posture x vector outcomes, run under both stapling framings
+function RevocationCellsFor(AVersion: UInt16): TArray<TRevCell>;
+begin
+  Result := TArray<TRevCell>.Create(
+    RevCell('good staple / Hard -> accept', AVersion, False, 'ocsp_good',
+      TRevocationPosture.Hard, TRevExpect.RevOk, TTlsAlertDescription.CloseNotify),
+    RevCell('revoked staple / Soft -> certificate_revoked', AVersion, False, 'ocsp_revoked',
+      TRevocationPosture.Soft, TRevExpect.RevClientAlert,
+      TTlsAlertDescription.CertificateRevoked),
+    RevCell('stale staple / Hard -> bad_certificate_status_response', AVersion, False,
+      'ocsp_stale', TRevocationPosture.Hard, TRevExpect.RevClientAlert,
+      TTlsAlertDescription.BadCertificateStatusResponse),
+    RevCell('stale staple / Soft -> accept', AVersion, False, 'ocsp_stale',
+      TRevocationPosture.Soft, TRevExpect.RevOk, TTlsAlertDescription.CloseNotify),
+    RevCell('must-staple, no staple / Off -> bad_certificate_status_response', AVersion,
+      True, '', TRevocationPosture.Off, TRevExpect.RevClientAlert,
+      TTlsAlertDescription.BadCertificateStatusResponse));
+end;
+
 var
   GCredentialFile: string;
   GScenarios: TArray<TScenario>;
   GScenario: TScenario;
   GError: string;
+  GStapleFile: string;
+  GRevVersions: TArray<UInt16>;
+  GRevVersion: UInt16;
+  GRevCell: TRevCell;
+  GRevLabel: string;
 begin
   ExitCode := 0;
   try
@@ -333,6 +555,32 @@ begin
         Break;
       end;
       WriteLn('PASS [', GScenario.Name, ']: handshake + echo + close over real TCP');
+    end;
+    if ExitCode = 0 then
+    begin
+      GStapleFile := TInteropUtils.LocateDataDir + PathDelim + 'Certs' +
+        PathDelim + 'OcspStapling.txt';
+      GRevVersions := TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12);
+      for GRevVersion in GRevVersions do
+      begin
+        if GRevVersion = TlsWireVersionTls12 then
+          GRevLabel := 'TLS 1.2'
+        else
+          GRevLabel := 'TLS 1.3';
+        for GRevCell in RevocationCellsFor(GRevVersion) do
+        begin
+          GError := RunRevCell(GStapleFile, GRevCell);
+          if GError <> '' then
+          begin
+            WriteLn('FAIL [', GRevLabel, ' revocation: ', GRevCell.Name, ']: ', GError);
+            ExitCode := 1;
+            Break;
+          end;
+          WriteLn('PASS [', GRevLabel, ' revocation: ', GRevCell.Name, ']');
+        end;
+        if ExitCode <> 0 then
+          Break;
+      end;
     end;
     if ExitCode = 0 then
     begin

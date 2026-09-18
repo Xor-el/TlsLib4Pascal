@@ -49,6 +49,11 @@ type
     /// against the issuer) and the key is leaf_key.</summary>
     class function ServerStaplingCredentialFromFieldFile(
       const AProvider: ICryptoProvider; const AFile: string): TTlsCredential; static;
+    /// <summary>As ServerStaplingCredentialFromFieldFile, but with an explicit leaf-cert and
+    /// key field name (chain = that leaf then issuer_cert), so a test can present the plain or
+    /// the must-staple leaf against the same issuer.</summary>
+    class function ServerStaplingCredentialFields(const AProvider: ICryptoProvider;
+      const AFile, ALeafField, AKeyField: string): TTlsCredential; static;
     /// <summary>A server credential from a PEM certificate file + PEM key file.</summary>
     class function ServerCredentialFromPem(const AProvider: ICryptoProvider;
       const ACertFile, AKeyFile: string): TTlsCredential; static;
@@ -96,6 +101,13 @@ end;
 
 class function TInteropCredentials.ServerStaplingCredentialFromFieldFile(
   const AProvider: ICryptoProvider; const AFile: string): TTlsCredential;
+begin
+  Result := ServerStaplingCredentialFields(AProvider, AFile, 'leaf_cert', 'leaf_key');
+end;
+
+class function TInteropCredentials.ServerStaplingCredentialFields(
+  const AProvider: ICryptoProvider;
+  const AFile, ALeafField, AKeyField: string): TTlsCredential;
 var
   LFields: TStringList;
 begin
@@ -103,10 +115,10 @@ begin
   try
     TInteropUtils.LoadFieldFile(AFile, LFields);
     Result.CertificateChain := TArray<TBytes>.Create(
-      TInteropUtils.DecodeHex(LFields.Values['leaf_cert']),
+      TInteropUtils.DecodeHex(LFields.Values[ALeafField]),
       TInteropUtils.DecodeHex(LFields.Values['issuer_cert']));
     Result.PrivateKey := AProvider.Signing.ImportSigningKey(
-      TInteropUtils.DecodeHex(LFields.Values['leaf_key']));
+      TInteropUtils.DecodeHex(LFields.Values[AKeyField]));
   finally
     LFields.Free;
   end;
