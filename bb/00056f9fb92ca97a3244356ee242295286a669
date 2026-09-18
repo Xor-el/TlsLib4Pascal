@@ -1,0 +1,71 @@
+TlsLib.Tests/src/ConfigResumptionTests.pas
+  s_09d3c46d1a9b1f::t_1940f795b7856b 59-60
+  s_09d3c46d1a9b1f::t_508bdbf416da4e 89
+  s_09d3c46d1a9b1f::t_b58c815f5ff9ac 524-549
+  s_09d3c46d1a9b1f::t_70ebbb6a08cd60 164-177
+TlsLib/src/Handshake/TlpTls12ClientStateMachine.pas
+  s_09d3c46d1a9b1f::t_5209aa5e3b1474 210-212
+  s_09d3c46d1a9b1f::t_e39733b8703039 813
+  s_09d3c46d1a9b1f::t_7bcd9dac7da3e9 821-825,830
+  s_09d3c46d1a9b1f::t_82b570c2369f12 860-874
+  s_09d3c46d1a9b1f::t_53c821cdbde061 103-105
+  s_09d3c46d1a9b1f::t_868f6ae87ea719 890-892
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_ccc939876993db 190
+  s_09d3c46d1a9b1f::t_29ce85d7ac8c09 187-189,191
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_09d3c46d1a9b1f::t_46b854ed5daf1c 1266
+  s_09d3c46d1a9b1f::t_9c8afd8f25ce47 359-361
+  s_09d3c46d1a9b1f::t_fb4de249fdff7f 1287-1291,1296
+  s_09d3c46d1a9b1f::t_bf5ab7b69f5768 209-211
+  s_09d3c46d1a9b1f::t_b0b89041562d82 120-122
+  s_09d3c46d1a9b1f::t_d99ad5d3457b3f 1348,1350-1352
+  s_09d3c46d1a9b1f::t_0d819faac1e47a 1482-1497
+  s_09d3c46d1a9b1f::t_1c9f12f05f2283 1685-1690
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_0ffbf07823d75d 2106-2107,2109-2111
+  s_09d3c46d1a9b1f::t_3e4f273718baf4 2315
+  s_09d3c46d1a9b1f::t_36956a77991aa9 768,770-771
+  s_09d3c46d1a9b1f::t_f7c967819a7c3c 109
+  s_09d3c46d1a9b1f::t_11320d54a260ff 231
+  s_09d3c46d1a9b1f::t_b2edc96e578c41 767,769
+  s_09d3c46d1a9b1f::t_1c551de31b168b 466
+  s_09d3c46d1a9b1f::t_4272223a70955b 1035-1036,1038
+  s_09d3c46d1a9b1f::t_6c487e443ca716 1037,1039-1041
+  s_09d3c46d1a9b1f::t_59b52c5be9779a 2104-2105,2108
+  s_09d3c46d1a9b1f::t_4217f5630db529 367,376
+.github/workflows/ci/interop/bogo-shim-config.json
+  s_09d3c46d1a9b1f::t_205b2773dbbdd5 26
+TlsLib/src/Handshake/TlpTlsCredential.pas
+  s_09d3c46d1a9b1f::t_998cbadcb3a10b 53-58
+TlsLib/src/Engine/TlpTlsEngineFactory.pas
+  s_09d3c46d1a9b1f::t_2a10faeba50022 336,339
+  s_09d3c46d1a9b1f::t_8169db592fdf34 333,338
+TlsLib.Interop/src/BoGoShimRunner.pas
+  s_09d3c46d1a9b1f::t_2eedbed11f9442 1076,1079-1080,1083-1084
+  s_09d3c46d1a9b1f::t_5868a3dcf4e8a3 493
+  s_09d3c46d1a9b1f::t_765b06bbbebf6d 666-667
+  s_09d3c46d1a9b1f::t_806960a787eedb 1085-1088
+  s_09d3c46d1a9b1f::t_4464c9996cb4c6 149-152,154-156
+TlsLib/src/Interfaces/Engine/TlpITlsConfig.pas
+  s_09d3c46d1a9b1f::t_2f3d6e9c89dce8 153-155
+TlsLib.Interop/src/InteropEngine.pas
+  s_09d3c46d1a9b1f::t_e114083f3a3203 120-124
+  s_09d3c46d1a9b1f::t_6d2103843c2ae4 335-336
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "bb00056f9fb92ca97a3244356ee242295286a669",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
