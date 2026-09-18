@@ -44,6 +44,8 @@ uses
   TlpICertificateTrust,
   TlpICertificateVerifierSource,
   TlpTrustPolicy,
+  TlpCertificateStrengthPolicy,
+  TlpNegotiationTypes,
   TlpTlsAlert,
   TlpIClock,
   TlpClock,
@@ -144,8 +146,13 @@ type
     function Leaf: TArray<TBytes>;
     function OwnAnchor: TArray<TBytes>;
     function ForeignAnchor: TArray<TBytes>;
+    // the full set of advertised schemes a stock config offers (the EC leaf's scheme is in it)
+    function Advertised: TArray<UInt16>;
     function Verify(const AAnchors: TArray<TBytes>; APosture: TRevocationPosture;
       const AClock: ITlsClock; out AAlert: TTlsAlertDescription): Boolean;
+    function VerifyPolicy(const AAnchors: TArray<TBytes>; APosture: TRevocationPosture;
+      const AClock: ITlsClock; const AStrength: TCertificateStrengthPolicy;
+      const AAdvertised: TArray<UInt16>; out AAlert: TTlsAlertDescription): Boolean;
   protected
     procedure SetUp; override;
     procedure TearDown; override;
@@ -155,6 +162,8 @@ type
     procedure TestInjectedClockRejectsChainOutsideValidity;
     procedure TestHardPostureRejectsUnrevocableChain;
     procedure TestSoftPostureAcceptsUnrevocableChain;
+    procedure TestRejectsUnadvertisedLeafScheme;
+    procedure TestRejectsLeafOnDisallowedCurve;
   end;
 
 {$ENDIF TLSLIB_MSWINDOWS}
@@ -182,8 +191,13 @@ type
     function Leaf: TArray<TBytes>;
     function OwnAnchor: TArray<TBytes>;
     function ForeignAnchor: TArray<TBytes>;
+    // the full set of advertised schemes a stock config offers (the EC leaf's scheme is in it)
+    function Advertised: TArray<UInt16>;
     function Verify(const AAnchors: TArray<TBytes>; APosture: TRevocationPosture;
       const AClock: ITlsClock; out AAlert: TTlsAlertDescription): Boolean;
+    function VerifyPolicy(const AAnchors: TArray<TBytes>; APosture: TRevocationPosture;
+      const AClock: ITlsClock; const AStrength: TCertificateStrengthPolicy;
+      const AAdvertised: TArray<UInt16>; out AAlert: TTlsAlertDescription): Boolean;
   protected
     procedure SetUp; override;
     procedure TearDown; override;
@@ -193,6 +207,8 @@ type
     procedure TestInjectedClockRejectsChainOutsideValidity;
     procedure TestHardPostureRejectsUnrevocableChain;
     procedure TestSoftPostureAcceptsUnrevocableChain;
+    procedure TestRejectsUnadvertisedLeafScheme;
+    procedure TestRejectsLeafOnDisallowedCurve;
   end;
 
 {$ENDIF TLSLIB_MACOS}
@@ -554,15 +570,35 @@ begin
   Result := TArray<TBytes>.Create(DecodeHex(FForeign.Values['root_cert']));
 end;
 
-function TTestWindowsClientDelegate.Verify(const AAnchors: TArray<TBytes>;
+function TTestWindowsClientDelegate.Advertised: TArray<UInt16>;
+begin
+  Result := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256,
+    TSignatureSchemes.EcdsaSecp384r1Sha384, TSignatureSchemes.EcdsaSecp521r1Sha512,
+    TSignatureSchemes.RsaPssRsaeSha256, TSignatureSchemes.RsaPssRsaeSha384,
+    TSignatureSchemes.RsaPssRsaeSha512, TSignatureSchemes.RsaPkcs1Sha256,
+    TSignatureSchemes.RsaPkcs1Sha384, TSignatureSchemes.RsaPkcs1Sha512);
+end;
+
+function TTestWindowsClientDelegate.VerifyPolicy(const AAnchors: TArray<TBytes>;
   APosture: TRevocationPosture; const AClock: ITlsClock;
+  const AStrength: TCertificateStrengthPolicy; const AAdvertised: TArray<UInt16>;
   out AAlert: TTlsAlertDescription): Boolean;
 var
   LVerifier: IClientCertificateVerifier;
 begin
-  LVerifier := TWindowsClientDelegateVerifier.Create(AAnchors, APosture, AClock)
-    as IClientCertificateVerifier;
+  LVerifier := TWindowsClientDelegateVerifier.Create(FProvider, AAnchors, APosture,
+    AClock, AStrength, AAdvertised) as IClientCertificateVerifier;
   Result := LVerifier.VerifyClientCertificate(Leaf, AAlert);
+end;
+
+function TTestWindowsClientDelegate.Verify(const AAnchors: TArray<TBytes>;
+  APosture: TRevocationPosture; const AClock: ITlsClock;
+  out AAlert: TTlsAlertDescription): Boolean;
+begin
+  // the existing posture/clock/exclusive-root behaviours, under a permissive policy (default
+  // strength + the leaf's scheme advertised) so only the property under test drives the verdict
+  Result := VerifyPolicy(AAnchors, APosture, AClock,
+    TCertificateStrengthPolicy.Defaults, Advertised, AAlert);
 end;
 
 procedure TTestWindowsClientDelegate.TestAcceptsClientChainToConfiguredAnchor;
@@ -617,6 +653,36 @@ begin
   CheckTrue(Verify(OwnAnchor, TRevocationPosture.Soft,
     TSystemClock.Create as ITlsClock, LAlert),
     'Soft posture accepts a chain whose revocation status is indeterminate');
+end;
+
+procedure TTestWindowsClientDelegate.TestRejectsUnadvertisedLeafScheme;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // the chain-algorithm policy now runs over the OS-built path: the EC leaf's ECDSA scheme is
+  // absent from an RSA-only advertised set, so a chain the OS trusts is still rejected
+  CheckFalse(VerifyPolicy(OwnAnchor, TRevocationPosture.Off,
+    TSystemClock.Create as ITlsClock, TCertificateStrengthPolicy.Defaults,
+    TArray<UInt16>.Create(TSignatureSchemes.RsaPkcs1Sha256), LAlert),
+    'a leaf signed with an unadvertised scheme is rejected over the OS path');
+  CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
+    'an unadvertised algorithm is unsupported_certificate');
+end;
+
+procedure TTestWindowsClientDelegate.TestRejectsLeafOnDisallowedCurve;
+var
+  LPolicy: TCertificateStrengthPolicy;
+  LAlert: TTlsAlertDescription;
+begin
+  // the key-strength floors run over the OS-built path too: an allowlist admitting only P-384
+  // rejects the P-256 leaf the OS trusts
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  LPolicy.AllowedEcCurves := TArray<UInt16>.Create(TNamedGroupCatalog.Secp384r1);
+  CheckFalse(VerifyPolicy(OwnAnchor, TRevocationPosture.Off,
+    TSystemClock.Create as ITlsClock, LPolicy, Advertised, LAlert),
+    'a leaf on a disallowed curve is rejected over the OS path');
+  CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
+    'a disallowed curve is unsupported_certificate');
 end;
 
 {$ENDIF TLSLIB_MSWINDOWS}
@@ -676,15 +742,35 @@ begin
   Result := TArray<TBytes>.Create(DecodeHex(FForeign.Values['root_cert']));
 end;
 
-function TTestAppleClientDelegate.Verify(const AAnchors: TArray<TBytes>;
+function TTestAppleClientDelegate.Advertised: TArray<UInt16>;
+begin
+  Result := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256,
+    TSignatureSchemes.EcdsaSecp384r1Sha384, TSignatureSchemes.EcdsaSecp521r1Sha512,
+    TSignatureSchemes.RsaPssRsaeSha256, TSignatureSchemes.RsaPssRsaeSha384,
+    TSignatureSchemes.RsaPssRsaeSha512, TSignatureSchemes.RsaPkcs1Sha256,
+    TSignatureSchemes.RsaPkcs1Sha384, TSignatureSchemes.RsaPkcs1Sha512);
+end;
+
+function TTestAppleClientDelegate.VerifyPolicy(const AAnchors: TArray<TBytes>;
   APosture: TRevocationPosture; const AClock: ITlsClock;
+  const AStrength: TCertificateStrengthPolicy; const AAdvertised: TArray<UInt16>;
   out AAlert: TTlsAlertDescription): Boolean;
 var
   LVerifier: IClientCertificateVerifier;
 begin
-  LVerifier := TAppleClientDelegateVerifier.Create(AAnchors, APosture, AClock)
-    as IClientCertificateVerifier;
+  LVerifier := TAppleClientDelegateVerifier.Create(FProvider, AAnchors, APosture,
+    AClock, AStrength, AAdvertised) as IClientCertificateVerifier;
   Result := LVerifier.VerifyClientCertificate(Leaf, AAlert);
+end;
+
+function TTestAppleClientDelegate.Verify(const AAnchors: TArray<TBytes>;
+  APosture: TRevocationPosture; const AClock: ITlsClock;
+  out AAlert: TTlsAlertDescription): Boolean;
+begin
+  // the existing posture/clock/anchors-only behaviours, under a permissive policy so only the
+  // property under test drives the verdict
+  Result := VerifyPolicy(AAnchors, APosture, AClock,
+    TCertificateStrengthPolicy.Defaults, Advertised, AAlert);
 end;
 
 procedure TTestAppleClientDelegate.TestAcceptsClientChainToConfiguredAnchor;
@@ -739,6 +825,36 @@ begin
   CheckTrue(Verify(OwnAnchor, TRevocationPosture.Soft,
     TSystemClock.Create as ITlsClock, LAlert),
     'Soft posture accepts a chain whose revocation status is indeterminate');
+end;
+
+procedure TTestAppleClientDelegate.TestRejectsUnadvertisedLeafScheme;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // the chain-algorithm policy now runs over the OS-built path: the EC leaf's ECDSA scheme is
+  // absent from an RSA-only advertised set, so a chain the OS trusts is still rejected
+  CheckFalse(VerifyPolicy(OwnAnchor, TRevocationPosture.Off,
+    TSystemClock.Create as ITlsClock, TCertificateStrengthPolicy.Defaults,
+    TArray<UInt16>.Create(TSignatureSchemes.RsaPkcs1Sha256), LAlert),
+    'a leaf signed with an unadvertised scheme is rejected over the OS path');
+  CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
+    'an unadvertised algorithm is unsupported_certificate');
+end;
+
+procedure TTestAppleClientDelegate.TestRejectsLeafOnDisallowedCurve;
+var
+  LPolicy: TCertificateStrengthPolicy;
+  LAlert: TTlsAlertDescription;
+begin
+  // the key-strength floors run over the OS-built path too: an allowlist admitting only P-384
+  // rejects the P-256 leaf the OS trusts
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  LPolicy.AllowedEcCurves := TArray<UInt16>.Create(TNamedGroupCatalog.Secp384r1);
+  CheckFalse(VerifyPolicy(OwnAnchor, TRevocationPosture.Off,
+    TSystemClock.Create as ITlsClock, LPolicy, Advertised, LAlert),
+    'a leaf on a disallowed curve is rejected over the OS path');
+  CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
+    'a disallowed curve is unsupported_certificate');
 end;
 
 {$ENDIF TLSLIB_MACOS}

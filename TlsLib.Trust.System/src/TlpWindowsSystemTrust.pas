@@ -22,8 +22,11 @@ uses
   Generics.Collections,
   SysUtils,
   TlpTlsAlert,
+  TlpICryptoProvider,
   TlpICertificateTrust,
   TlpICertificateVerifierSource,
+  TlpCertificateStrengthPolicy,
+  TlpChainAlgorithmPolicy,
   TlpTrustPolicy,
   TlpIClock,
   TlpServerName,
@@ -52,10 +55,16 @@ type
   /// </summary>
   TWindowsDelegateVerifier = class sealed(TInterfacedObject, IServerCertificateVerifier)
   strict private
+    FProvider: ICryptoProvider;
     FPosture: TRevocationPosture;
     FClock: ITlsClock;
+    FStrengthPolicy: TCertificateStrengthPolicy;
+    FAdvertised: TArray<UInt16>;
   public
-    constructor Create(APosture: TRevocationPosture; const AClock: ITlsClock);
+    constructor Create(const AProvider: ICryptoProvider;
+      APosture: TRevocationPosture; const AClock: ITlsClock;
+      const AStrengthPolicy: TCertificateStrengthPolicy;
+      const AAdvertised: TArray<UInt16>);
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
       out AAlert: TTlsAlertDescription): Boolean;
@@ -82,12 +91,17 @@ type
   TWindowsClientDelegateVerifier = class sealed(TInterfacedObject,
     IClientCertificateVerifier)
   strict private
+    FProvider: ICryptoProvider;
     FAnchors: TArray<TBytes>;
     FPosture: TRevocationPosture;
     FClock: ITlsClock;
+    FStrengthPolicy: TCertificateStrengthPolicy;
+    FAdvertised: TArray<UInt16>;
   public
-    constructor Create(const AAnchors: TArray<TBytes>;
-      APosture: TRevocationPosture; const AClock: ITlsClock);
+    constructor Create(const AProvider: ICryptoProvider;
+      const AAnchors: TArray<TBytes>; APosture: TRevocationPosture;
+      const AClock: ITlsClock; const AStrengthPolicy: TCertificateStrengthPolicy;
+      const AAdvertised: TArray<UInt16>);
     function VerifyClientCertificate(const AChain: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
@@ -222,6 +236,50 @@ type
     dwExclusiveFlags: DWORD;
   end;
 
+  CERT_TRUST_STATUS = record
+    dwInfoStatus: DWORD;
+    dwErrorStatus: DWORD;
+  end;
+
+  PCERT_CHAIN_ELEMENT = ^CERT_CHAIN_ELEMENT;
+
+  CERT_CHAIN_ELEMENT = record
+    cbSize: DWORD;
+    pCertContext: PCERT_CONTEXT;
+    TrustStatus: CERT_TRUST_STATUS;
+    pRevocationInfo: Pointer;
+    pIssuanceUsage: Pointer;
+    pApplicationUsage: Pointer;
+    pwszExtendedErrorInfo: PWideChar;
+  end;
+
+  PPCERT_CHAIN_ELEMENT = ^PCERT_CHAIN_ELEMENT;
+  PCERT_SIMPLE_CHAIN = ^CERT_SIMPLE_CHAIN;
+
+  CERT_SIMPLE_CHAIN = record
+    cbSize: DWORD;
+    TrustStatus: CERT_TRUST_STATUS;
+    cElement: DWORD;
+    rgpElement: PPCERT_CHAIN_ELEMENT;
+    pTrustListInfo: Pointer;
+    fHasRevocationFreshnessTime: BOOL;
+    dwRevocationFreshnessTime: DWORD;
+  end;
+
+  PPCERT_SIMPLE_CHAIN = ^PCERT_SIMPLE_CHAIN;
+  PCERT_CHAIN_CONTEXT = ^CERT_CHAIN_CONTEXT;
+
+  CERT_CHAIN_CONTEXT = record
+    cbSize: DWORD;
+    TrustStatus: CERT_TRUST_STATUS;
+    cChain: DWORD;
+    rgpChain: PPCERT_SIMPLE_CHAIN;
+    cLowerQualityChainContext: DWORD;
+    rgpLowerQualityChainContext: Pointer;
+    fHasRevocationFreshnessTime: BOOL;
+    dwRevocationFreshnessTime: DWORD;
+  end;
+
   TCertOpenSystemStoreWFunc = function(AProv: Pointer;
     ASubsystemProtocol: PWideChar): HCERTSTORE; stdcall;
   TCertCloseStoreFunc = function(ACertStore: HCERTSTORE; AFlags: DWORD)
@@ -292,6 +350,18 @@ type
     /// <summary>The raw DER of the ROOT and CA stores minus the Disallowed store.
     /// Validation and de-duplication are the caller's responsibility.</summary>
     class function HarvestAnchors: TArray<TBytes>; static;
+    /// <summary>Reads the DER of the end-entity simple chain the OS built (rgpChain[0]): element 0
+    /// the leaf, the last element the anchor. False on any malformed field (no chain/element, nil
+    /// or empty encoded cert) so the caller fails closed.</summary>
+    class function ReadChainPath(AChainCtx: Pointer;
+      out APath: TArray<TBytes>): Boolean; static;
+    /// <summary>Runs the chain-algorithm/key-strength policy over the OS-built path with the OS
+    /// anchor (the last element) exempt, so the leaf and every intermediate are checked. A nil
+    /// provider or empty path is internal_error.</summary>
+    class function ApplyStrengthPolicy(const AOsPath: TArray<TBytes>;
+      const AProvider: ICryptoProvider;
+      const APolicy: TCertificateStrengthPolicy; const AAdvertised: TArray<UInt16>;
+      out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>Runs the OS SSL-server chain evaluation with URL retrieval cache-only,
     /// consuming the stapled OCSP response as cached revocation data, at the validation time
     /// AClock supplies (nil = system time). APosture governs an indeterminate revocation
@@ -301,6 +371,9 @@ type
     class function EvaluateChain(const AChain: TArray<TBytes>;
       const AHostName: string; const AOcspStaple: TBytes;
       APosture: TRevocationPosture; const AClock: ITlsClock;
+      const AProvider: ICryptoProvider;
+      const AStrengthPolicy: TCertificateStrengthPolicy;
+      const AAdvertised: TArray<UInt16>;
       out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>Runs the OS chain evaluation for a peer CLIENT certificate against an
     /// exclusive-root engine built over AAnchors alone (never the OS/public roots), with the
@@ -309,6 +382,9 @@ type
     /// with internal_error when the exclusive-engine entry point is unavailable.</summary>
     class function EvaluateClientChain(const AChain, AAnchors: TArray<TBytes>;
       APosture: TRevocationPosture; const AClock: ITlsClock;
+      const AProvider: ICryptoProvider;
+      const AStrengthPolicy: TCertificateStrengthPolicy;
+      const AAdvertised: TArray<UInt16>;
       out AAlert: TTlsAlertDescription): Boolean; static;
   end;
 
@@ -450,9 +526,63 @@ begin
   Result.dwHighDateTime := DWORD(LTicks shr 32);
 end;
 
+class function TWindowsTrustApi.ReadChainPath(AChainCtx: Pointer;
+  out APath: TArray<TBytes>): Boolean;
+var
+  LCtx: PCERT_CHAIN_CONTEXT;
+  LSimple: PCERT_SIMPLE_CHAIN;
+  LElem: PCERT_CHAIN_ELEMENT;
+  LCert: PCERT_CONTEXT;
+  LI: DWORD;
+begin
+  Result := False;
+  APath := nil;
+  if AChainCtx = nil then
+    Exit;
+  LCtx := PCERT_CHAIN_CONTEXT(AChainCtx);
+  if (LCtx^.cChain = 0) or (LCtx^.rgpChain = nil) then
+    Exit;
+  LSimple := LCtx^.rgpChain^;
+  if (LSimple = nil) or (LSimple^.cElement = 0) or (LSimple^.rgpElement = nil) then
+    Exit;
+  SetLength(APath, LSimple^.cElement);
+  for LI := 0 to LSimple^.cElement - 1 do
+  begin
+    LElem := PPCERT_CHAIN_ELEMENT(PByte(LSimple^.rgpElement) +
+      LI * SizeOf(Pointer))^;
+    if LElem = nil then
+      Exit;
+    LCert := LElem^.pCertContext;
+    if (LCert = nil) or (LCert^.pbCertEncoded = nil) or
+      (LCert^.cbCertEncoded = 0) then
+      Exit;
+    SetLength(APath[LI], LCert^.cbCertEncoded);
+    Move(LCert^.pbCertEncoded^, APath[LI][0], LCert^.cbCertEncoded);
+  end;
+  Result := True;
+end;
+
+class function TWindowsTrustApi.ApplyStrengthPolicy(const AOsPath: TArray<TBytes>;
+  const AProvider: ICryptoProvider; const APolicy: TCertificateStrengthPolicy;
+  const AAdvertised: TArray<UInt16>; out AAlert: TTlsAlertDescription): Boolean;
+begin
+  Result := False;
+  if (AProvider = nil) or (Length(AOsPath) = 0) then
+  begin
+    AAlert := TTlsAlertDescription.InternalError;
+    Exit;
+  end;
+  // exempt the OS anchor (last path element); leaf and intermediates are checked
+  Result := TChainAlgorithmPolicy.Check(AProvider.Certificates, AOsPath,
+    TArray<TBytes>.Create(AOsPath[High(AOsPath)]), APolicy, AAdvertised, AAlert);
+end;
+
 class function TWindowsTrustApi.EvaluateChain(const AChain: TArray<TBytes>;
   const AHostName: string; const AOcspStaple: TBytes;
   APosture: TRevocationPosture; const AClock: ITlsClock;
+  const AProvider: ICryptoProvider;
+  const AStrengthPolicy: TCertificateStrengthPolicy;
+  const AAdvertised: TArray<UInt16>;
   out AAlert: TTlsAlertDescription): Boolean;
 var
   LLeaf: PCERT_CONTEXT;
@@ -469,6 +599,7 @@ var
   LTimePtr: Pointer;
   LFlags: DWORD;
   LI: Integer;
+  LOsPath: TArray<TBytes>;
 begin
   Result := False;
   AAlert := TTlsAlertDescription.BadCertificate;
@@ -567,10 +698,19 @@ begin
       Exit;
     end;
 
-    if LStatus.dwError = 0 then
-      Result := True
-    else
+    if LStatus.dwError <> 0 then
+    begin
       Result := MapPolicyError(LStatus.dwError, APosture, AAlert);
+      Exit;
+    end;
+    // trusted: policy over the OS-built path
+    if not ReadChainPath(LChain, LOsPath) then
+    begin
+      AAlert := TTlsAlertDescription.InternalError;
+      Exit;
+    end;
+    Result := ApplyStrengthPolicy(LOsPath, AProvider, AStrengthPolicy,
+      AAdvertised, AAlert);
   finally
     if LChain <> nil then
       FCertFreeCertificateChain(LChain);
@@ -609,6 +749,9 @@ end;
 
 class function TWindowsTrustApi.EvaluateClientChain(const AChain,
   AAnchors: TArray<TBytes>; APosture: TRevocationPosture; const AClock: ITlsClock;
+  const AProvider: ICryptoProvider;
+  const AStrengthPolicy: TCertificateStrengthPolicy;
+  const AAdvertised: TArray<UInt16>;
   out AAlert: TTlsAlertDescription): Boolean;
 var
   LLeaf: PCERT_CONTEXT;
@@ -624,6 +767,7 @@ var
   LTimePtr: Pointer;
   LFlags: DWORD;
   LI: Integer;
+  LOsPath: TArray<TBytes>;
 begin
   Result := False;
   AAlert := TTlsAlertDescription.BadCertificate;
@@ -724,10 +868,19 @@ begin
       Exit;
     end;
 
-    if LStatus.dwError = 0 then
-      Result := True
-    else
+    if LStatus.dwError <> 0 then
+    begin
       Result := MapPolicyError(LStatus.dwError, APosture, AAlert);
+      Exit;
+    end;
+    // trusted: policy over the OS-built path
+    if not ReadChainPath(LChain, LOsPath) then
+    begin
+      AAlert := TTlsAlertDescription.InternalError;
+      Exit;
+    end;
+    Result := ApplyStrengthPolicy(LOsPath, AProvider, AStrengthPolicy,
+      AAdvertised, AAlert);
   finally
     if LChain <> nil then
       FCertFreeCertificateChain(LChain);
@@ -768,12 +921,17 @@ end;
 
 { TWindowsDelegateVerifier }
 
-constructor TWindowsDelegateVerifier.Create(APosture: TRevocationPosture;
-  const AClock: ITlsClock);
+constructor TWindowsDelegateVerifier.Create(const AProvider: ICryptoProvider;
+  APosture: TRevocationPosture; const AClock: ITlsClock;
+  const AStrengthPolicy: TCertificateStrengthPolicy;
+  const AAdvertised: TArray<UInt16>);
 begin
   inherited Create;
+  FProvider := AProvider;
   FPosture := APosture;
   FClock := AClock;
+  FStrengthPolicy := AStrengthPolicy;
+  FAdvertised := AAdvertised;
 end;
 
 function TWindowsDelegateVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
@@ -781,7 +939,7 @@ function TWindowsDelegateVerifier.VerifyServerCertificate(const AChain: TArray<T
   out AAlert: TTlsAlertDescription): Boolean;
 begin
   Result := TWindowsTrustApi.EvaluateChain(AChain, AServerName.ToString,
-    AOcspStaple, FPosture, FClock, AAlert);
+    AOcspStaple, FPosture, FClock, FProvider, FStrengthPolicy, FAdvertised, AAlert);
 end;
 
 { TWindowsServerVerifierSource }
@@ -789,26 +947,32 @@ end;
 function TWindowsServerVerifierSource.CreateServerVerifier(
   const AContext: TServerTrustContext): IServerCertificateVerifier;
 begin
-  Result := TWindowsDelegateVerifier.Create(AContext.RevocationPosture,
-    AContext.Clock) as IServerCertificateVerifier;
+  Result := TWindowsDelegateVerifier.Create(AContext.Provider,
+    AContext.RevocationPosture, AContext.Clock, AContext.StrengthPolicy,
+    AContext.AdvertisedSignatureSchemes) as IServerCertificateVerifier;
 end;
 
 { TWindowsClientDelegateVerifier }
 
-constructor TWindowsClientDelegateVerifier.Create(const AAnchors: TArray<TBytes>;
-  APosture: TRevocationPosture; const AClock: ITlsClock);
+constructor TWindowsClientDelegateVerifier.Create(const AProvider: ICryptoProvider;
+  const AAnchors: TArray<TBytes>; APosture: TRevocationPosture;
+  const AClock: ITlsClock; const AStrengthPolicy: TCertificateStrengthPolicy;
+  const AAdvertised: TArray<UInt16>);
 begin
   inherited Create;
+  FProvider := AProvider;
   FAnchors := AAnchors;
   FPosture := APosture;
   FClock := AClock;
+  FStrengthPolicy := AStrengthPolicy;
+  FAdvertised := AAdvertised;
 end;
 
 function TWindowsClientDelegateVerifier.VerifyClientCertificate(
   const AChain: TArray<TBytes>; out AAlert: TTlsAlertDescription): Boolean;
 begin
   Result := TWindowsTrustApi.EvaluateClientChain(AChain, FAnchors, FPosture,
-    FClock, AAlert);
+    FClock, FProvider, FStrengthPolicy, FAdvertised, AAlert);
 end;
 
 { TWindowsClientVerifierSource }
@@ -821,8 +985,9 @@ begin
   LAnchors := nil;
   if AContext.TrustStore <> nil then
     LAnchors := AContext.TrustStore.RootCertificates;
-  Result := TWindowsClientDelegateVerifier.Create(LAnchors,
-    AContext.RevocationPosture, AContext.Clock) as IClientCertificateVerifier;
+  Result := TWindowsClientDelegateVerifier.Create(AContext.Provider, LAnchors,
+    AContext.RevocationPosture, AContext.Clock, AContext.StrengthPolicy,
+    AContext.AdvertisedSignatureSchemes) as IClientCertificateVerifier;
 end;
 
 initialization

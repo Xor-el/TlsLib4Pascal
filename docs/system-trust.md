@@ -175,8 +175,8 @@ the configured anchors (they are its exclusive root), so — unlike a whole veri
 The OS chain engine is not a byte-for-byte replacement for the built-in PKIX pipeline — choosing a
 delegate is choosing the OS's behaviour, which differs in a few security-relevant ways. The table
 below is the **Windows** delegate, verified against crypt32 (that is the delegate this library's tests
-exercise). The rows are a mix of Windows-specific mechanisms and generic delegate traits — the last
-two apply to any OS delegate; the rest are crypt32 specifics.
+exercise). The rows are a mix of Windows-specific mechanisms and generic delegate traits — the rows
+marked *(any delegate)* apply to any OS delegate; the rest are crypt32 specifics.
 
 | Area | Built-in verifier | Windows delegate (crypt32) |
 |---|---|---|
@@ -184,6 +184,7 @@ two apply to any OS delegate; the rest are crypt32 specifics.
 | **Uncached root** | validates against the roots you gave it | cache-only disables AuthRoot auto-download, so a valid-but-uncached root can surface as `unknown_ca` |
 | **Alert specificity** | maps each failure to its specific alert | a catch-all of engine error codes collapses to `bad_certificate` (posture/expiry/revocation/EKU are still specific) |
 | **OS distrust inputs** | unaware of them | honours the OS **Disallowed** store and CTLs |
+| **Chain-algorithm/strength policy** *(any delegate)* | over the assembled path, configured roots exempt | over the **OS-built path**, the OS anchor exempt (a whole-verifier instance source is not policy-checked) |
 | **Name matching** *(any delegate)* | our RFC 6125 matcher | the OS host-name logic (may differ on wildcards / IP literals) |
 | **Path building & name constraints** *(any delegate)* | CryptoLib `PkixCertPathBuilder` | the OS engine's own path building |
 
@@ -211,6 +212,14 @@ staple verdict. A few specifics worth stating:
   discovers the issuer itself).
 - **must-staple (RFC 7633) is enforced by the built-in verifier only** — no OS delegate, Windows
   included, honours it.
+- **Chain-algorithm/strength policy runs on every delegate, over the path the OS built** (the OS
+  anchor exempt), so the advertised-scheme filter, the MD5/SHA-1 refusal and the key-strength floors
+  apply under Delegate mode too — not just the portable pipeline. One ordering nuance follows from
+  *where* each platform checks revocation: Windows/Apple fold revocation into the OS chain verdict
+  (before our policy), so a certificate that is both weak and revoked reports `certificate_revoked`;
+  Android decides the staple in a post-check *after* our policy, so the same certificate reports
+  `unsupported_certificate`. A whole-verifier instance you inject as the trust source is not
+  policy-checked (you replaced the trust decision wholesale).
 
 None of these differences weaken the trust decision relative to a correctly-configured OS; they are
 behavioural *differences* to be aware of when you pick Delegate over the portable pipeline.

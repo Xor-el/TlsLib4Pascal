@@ -31,9 +31,12 @@ uses
   TestFramework,
 {$ENDIF FPC}
 {$IFDEF TLSLIB_MACOS}
+  TlpICryptoProvider,
+  TlpDefaultCryptoProvider,
   TlpICertificateTrust,
   TlpServerName,
   TlpTrustPolicy,
+  TlpCertificateStrengthPolicy,
 {$ENDIF TLSLIB_MACOS}
   TlpTlsAlert,
   TlpAppleSystemTrust,
@@ -99,7 +102,10 @@ begin
   finally
     LVectors.Free;
   end;
-  LVerifier := TAppleDelegateVerifier.Create(TRevocationPosture.Soft, nil)
+  // the untrusted root makes SecTrust reject before the policy runs; a real provider + default
+  // policy keep the construction valid regardless
+  LVerifier := TAppleDelegateVerifier.Create(TDefaultCryptoProvider.Create as ICryptoProvider,
+    TRevocationPosture.Soft, nil, TCertificateStrengthPolicy.Defaults, nil)
     as IServerCertificateVerifier;
   LAlert := TTlsAlertDescription.InternalError;
   CheckFalse(LVerifier.VerifyServerCertificate(LChain, TServerName.DnsName('localhost'), nil, LAlert),

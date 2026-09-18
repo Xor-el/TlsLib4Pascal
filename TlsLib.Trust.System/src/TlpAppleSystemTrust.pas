@@ -22,8 +22,11 @@ uses
 {$LINKFRAMEWORK Security}
 {$ENDIF}
   TlpPosixDynLib,
+  TlpICryptoProvider,
   TlpICertificateTrust,
   TlpICertificateVerifierSource,
+  TlpCertificateStrengthPolicy,
+  TlpChainAlgorithmPolicy,
   TlpTrustPolicy,
   TlpIClock,
   TlpServerName,
@@ -72,10 +75,16 @@ type
   /// </summary>
   TAppleDelegateVerifier = class sealed(TInterfacedObject, IServerCertificateVerifier)
   strict private
+    FProvider: ICryptoProvider;
     FPosture: TRevocationPosture;
     FClock: ITlsClock;
+    FStrengthPolicy: TCertificateStrengthPolicy;
+    FAdvertised: TArray<UInt16>;
   public
-    constructor Create(APosture: TRevocationPosture; const AClock: ITlsClock);
+    constructor Create(const AProvider: ICryptoProvider;
+      APosture: TRevocationPosture; const AClock: ITlsClock;
+      const AStrengthPolicy: TCertificateStrengthPolicy;
+      const AAdvertised: TArray<UInt16>);
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
       out AAlert: TTlsAlertDescription): Boolean;
@@ -102,12 +111,17 @@ type
   TAppleClientDelegateVerifier = class sealed(TInterfacedObject,
     IClientCertificateVerifier)
   strict private
+    FProvider: ICryptoProvider;
     FAnchors: TArray<TBytes>;
     FPosture: TRevocationPosture;
     FClock: ITlsClock;
+    FStrengthPolicy: TCertificateStrengthPolicy;
+    FAdvertised: TArray<UInt16>;
   public
-    constructor Create(const AAnchors: TArray<TBytes>;
-      APosture: TRevocationPosture; const AClock: ITlsClock);
+    constructor Create(const AProvider: ICryptoProvider;
+      const AAnchors: TArray<TBytes>; APosture: TRevocationPosture;
+      const AClock: ITlsClock; const AStrengthPolicy: TCertificateStrengthPolicy;
+      const AAdvertised: TArray<UInt16>);
     function VerifyClientCertificate(const AChain: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
@@ -246,6 +260,10 @@ type
     AAnchorCertificates: CFArrayRef): OSStatus; cdecl;
   TSecTrustSetAnchorCertificatesOnlyFunc = function(ATrust: SecTrustRef;
     AAnchorCertificatesOnly: Boolean): OSStatus; cdecl;
+  TSecTrustCopyCertificateChainFunc = function(ATrust: SecTrustRef): CFArrayRef; cdecl;
+  TSecTrustGetCertificateCountFunc = function(ATrust: SecTrustRef): CFIndex; cdecl;
+  TSecTrustGetCertificateAtIndexFunc = function(ATrust: SecTrustRef;
+    AIndex: CFIndex): SecCertificateRef; cdecl;
   // CFDateCreate takes a CFAbsoluteTime, which is a double
   TCFDateCreateFunc = function(AAllocator: Pointer; AAt: Double): CFDateRef; cdecl;
 {$IFDEF TLSLIB_MACOS}
@@ -288,6 +306,9 @@ type
     FSecTrustSetOCSPResponse: TSecTrustSetOCSPResponseFunc;
     FSecTrustSetAnchorCertificates: TSecTrustSetAnchorCertificatesFunc;
     FSecTrustSetAnchorCertificatesOnly: TSecTrustSetAnchorCertificatesOnlyFunc;
+    FSecTrustCopyCertificateChain: TSecTrustCopyCertificateChainFunc;
+    FSecTrustGetCertificateCount: TSecTrustGetCertificateCountFunc;
+    FSecTrustGetCertificateAtIndex: TSecTrustGetCertificateAtIndexFunc;
     FCFDateCreate: TCFDateCreateFunc;
     // the retaining-array callbacks: an array built with these owns its elements. Always
     // present, so unlike the hardening entry points above it gates FReady.
@@ -304,9 +325,11 @@ type
     FSecTrustSettingsCopyTrustSettings: TSecTrustSettingsCopyTrustSettingsFunc;
     FkSecTrustSettingsResult: CFStringRef;
 {$ENDIF}
-{$IFDEF TLSLIB_MACOS}
+    /// <summary>The DER of one certificate via SecCertificateCopyData. Empty on any failure.
+    /// Shared macOS/iOS (harvest on macOS, the validated-path read on both).</summary>
     class function CopyCertificateDer(ACertificate: SecCertificateRef)
       : TBytes; static;
+{$IFDEF TLSLIB_MACOS}
     class function DomainDeniesCertificate(ACertificate: SecCertificateRef;
       ADomain: SecTrustSettingsDomain): Boolean; static;
     class procedure HarvestDomain(ADomain: SecTrustSettingsDomain;
@@ -317,6 +340,18 @@ type
     /// the caller decides the alert. Never inserts a nil into the array.</summary>
     class function MakeCertArray(const ADers: TArray<TBytes>;
       out AArray: CFArrayRef): Boolean; static;
+    /// <summary>Reads the DER of the path SecTrust built: element 0 the leaf, the last element
+    /// the anchor. Prefers the owned-array API (released here); falls back to the indexed
+    /// accessors (unretained, not released). False on any unreadable element.</summary>
+    class function ReadTrustPath(ATrust: SecTrustRef;
+      out APath: TArray<TBytes>): Boolean; static;
+    /// <summary>Runs the chain-algorithm/key-strength policy over the OS-built path with the OS
+    /// anchor (the last element) exempt. A nil provider, missing read entry points, or an
+    /// unreadable path is internal_error.</summary>
+    class function ApplyStrengthPolicy(ATrust: SecTrustRef;
+      const AProvider: ICryptoProvider;
+      const APolicy: TCertificateStrengthPolicy; const AAdvertised: TArray<UInt16>;
+      out AAlert: TTlsAlertDescription): Boolean; static;
   private
     class procedure ResolveDynamicImports; static;
     /// <summary>Runs the OS SSL-server trust evaluation with network fetch off, at the validation
@@ -325,7 +360,10 @@ type
     /// when trusted; on rejection returns False with AAlert set to the matching fatal alert.</summary>
     class function EvaluateSslChain(const AChain: TArray<TBytes>;
       const AHostName: string; APosture: TRevocationPosture; const AClock: ITlsClock;
-      const AOcspStaple: TBytes; out AAlert: TTlsAlertDescription): Boolean; static;
+      const AOcspStaple: TBytes; const AProvider: ICryptoProvider;
+      const AStrengthPolicy: TCertificateStrengthPolicy;
+      const AAdvertised: TArray<UInt16>;
+      out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>Runs the OS trust evaluation for a peer CLIENT certificate against an
     /// anchors-only trust built over AAnchors alone (never the OS/public roots), with the client
     /// SSL policy, the posture revocation policy and the injected clock (a client certificate is
@@ -333,6 +371,9 @@ type
     /// internal_error when an anchors-only entry point is unavailable.</summary>
     class function EvaluateClientChain(const AChain, AAnchors: TArray<TBytes>;
       APosture: TRevocationPosture; const AClock: ITlsClock;
+      const AProvider: ICryptoProvider;
+      const AStrengthPolicy: TCertificateStrengthPolicy;
+      const AAdvertised: TArray<UInt16>;
       out AAlert: TTlsAlertDescription): Boolean; static;
 {$IFDEF TLSLIB_MACOS}
     /// <summary>The raw DER of every keychain-trusted certificate across the
@@ -396,6 +437,12 @@ begin
       LHandle, 'SecTrustSetAnchorCertificates'));
     FSecTrustSetAnchorCertificatesOnly := TSecTrustSetAnchorCertificatesOnlyFunc(
       TPosixDynLib.Resolve(LHandle, 'SecTrustSetAnchorCertificatesOnly'));
+    FSecTrustCopyCertificateChain := TSecTrustCopyCertificateChainFunc(
+      TPosixDynLib.Resolve(LHandle, 'SecTrustCopyCertificateChain'));
+    FSecTrustGetCertificateCount := TSecTrustGetCertificateCountFunc(
+      TPosixDynLib.Resolve(LHandle, 'SecTrustGetCertificateCount'));
+    FSecTrustGetCertificateAtIndex := TSecTrustGetCertificateAtIndexFunc(
+      TPosixDynLib.Resolve(LHandle, 'SecTrustGetCertificateAtIndex'));
     FCFDateCreate := TCFDateCreateFunc(TPosixDynLib.Resolve(LHandle, 'CFDateCreate'));
     // a data export whose address IS the callbacks struct CFArrayCreate wants: pass it as
     // resolved, do not dereference
@@ -436,6 +483,118 @@ begin
   FCanDecodeError := System.Assigned(FCFErrorGetCode) and
     System.Assigned(FCFErrorGetDomain) and System.Assigned(FCFEqual) and
     (FkCFErrorDomainOSStatus <> nil);
+end;
+
+class function TAppleTrustApi.CopyCertificateDer(
+  ACertificate: SecCertificateRef): TBytes;
+var
+  LData: CFDataRef;
+  LLen: CFIndex;
+  LPtr: PByte;
+begin
+  Result := nil;
+  if (ACertificate = nil) or (not System.Assigned(FSecCertificateCopyData)) then
+    Exit;
+  LData := FSecCertificateCopyData(ACertificate);
+  if LData = nil then
+    Exit;
+  try
+    LLen := FCFDataGetLength(LData);
+    LPtr := FCFDataGetBytePtr(LData);
+    if (LLen > 0) and (LPtr <> nil) then
+    begin
+      SetLength(Result, LLen);
+      Move(LPtr^, Result[0], LLen);
+    end;
+  finally
+    FCFRelease(LData);
+  end;
+end;
+
+class function TAppleTrustApi.ReadTrustPath(ATrust: SecTrustRef;
+  out APath: TArray<TBytes>): Boolean;
+var
+  LArr: CFArrayRef;
+  LOwned: Boolean;
+  LCount, LI: CFIndex;
+  LDer: TBytes;
+begin
+  Result := False;
+  APath := nil;
+  LArr := nil;
+  LOwned := False;
+  // prefer the owned-array API; else the indexed fallback
+  if System.Assigned(FSecTrustCopyCertificateChain) then
+  begin
+    LArr := FSecTrustCopyCertificateChain(ATrust);
+    if LArr = nil then
+      Exit;
+    LOwned := True;
+  end;
+  try
+    if LArr <> nil then
+    begin
+      if (not System.Assigned(FCFArrayGetCount)) or
+        (not System.Assigned(FCFArrayGetValueAtIndex)) then
+        Exit;
+      LCount := FCFArrayGetCount(LArr);
+      if LCount <= 0 then
+        Exit;
+      SetLength(APath, LCount);
+      for LI := 0 to LCount - 1 do
+      begin
+        // unretained; do not release
+        LDer := CopyCertificateDer(FCFArrayGetValueAtIndex(LArr, LI));
+        if Length(LDer) = 0 then
+          Exit;
+        APath[LI] := LDer;
+      end;
+    end
+    else
+    begin
+      if (not System.Assigned(FSecTrustGetCertificateCount)) or
+        (not System.Assigned(FSecTrustGetCertificateAtIndex)) then
+        Exit;
+      LCount := FSecTrustGetCertificateCount(ATrust);
+      if LCount <= 0 then
+        Exit;
+      SetLength(APath, LCount);
+      for LI := 0 to LCount - 1 do
+      begin
+        // unretained; do not release
+        LDer := CopyCertificateDer(FSecTrustGetCertificateAtIndex(ATrust, LI));
+        if Length(LDer) = 0 then
+          Exit;
+        APath[LI] := LDer;
+      end;
+    end;
+    Result := True;
+  finally
+    if LOwned and (LArr <> nil) then
+      FCFRelease(LArr);
+  end;
+end;
+
+class function TAppleTrustApi.ApplyStrengthPolicy(ATrust: SecTrustRef;
+  const AProvider: ICryptoProvider; const APolicy: TCertificateStrengthPolicy;
+  const AAdvertised: TArray<UInt16>; out AAlert: TTlsAlertDescription): Boolean;
+var
+  LPath: TArray<TBytes>;
+begin
+  Result := False;
+  if AProvider = nil then
+  begin
+    AAlert := TTlsAlertDescription.InternalError;
+    Exit;
+  end;
+  if not ReadTrustPath(ATrust, LPath) then
+  begin
+    AAlert := TTlsAlertDescription.InternalError;
+    Exit;
+  end;
+  // exempt the OS anchor (last path element); leaf and intermediates are checked
+  Result := TChainAlgorithmPolicy.Check(AProvider.Certificates, LPath,
+    TArray<TBytes>.Create(LPath[High(LPath)]), APolicy, AAdvertised, AAlert);
 end;
 
 class function TAppleTrustApi.MakeCertArray(const ADers: TArray<TBytes>;
@@ -484,7 +643,9 @@ end;
 
 class function TAppleTrustApi.EvaluateSslChain(const AChain: TArray<TBytes>;
   const AHostName: string; APosture: TRevocationPosture; const AClock: ITlsClock;
-  const AOcspStaple: TBytes; out AAlert: TTlsAlertDescription): Boolean;
+  const AOcspStaple: TBytes; const AProvider: ICryptoProvider;
+  const AStrengthPolicy: TCertificateStrengthPolicy;
+  const AAdvertised: TArray<UInt16>; out AAlert: TTlsAlertDescription): Boolean;
 var
   LCertArray, LPolicyArray: CFArrayRef;
   LSslPolicy, LRevPolicy: SecPolicyRef;
@@ -637,7 +798,9 @@ begin
 
     if FSecTrustEvaluateWithError(LTrust, @LError) then
     begin
-      Result := True;
+      // trusted: policy over the OS-built path
+      Result := ApplyStrengthPolicy(LTrust, AProvider, AStrengthPolicy,
+        AAdvertised, AAlert);
       Exit;
     end;
 
@@ -672,7 +835,9 @@ end;
 
 class function TAppleTrustApi.EvaluateClientChain(const AChain, AAnchors: TArray<TBytes>;
   APosture: TRevocationPosture; const AClock: ITlsClock;
-  out AAlert: TTlsAlertDescription): Boolean;
+  const AProvider: ICryptoProvider;
+  const AStrengthPolicy: TCertificateStrengthPolicy;
+  const AAdvertised: TArray<UInt16>; out AAlert: TTlsAlertDescription): Boolean;
 var
   LCertArray, LAnchorArray, LPolicyArray: CFArrayRef;
   LSslPolicy, LRevPolicy: SecPolicyRef;
@@ -824,7 +989,9 @@ begin
 
     if FSecTrustEvaluateWithError(LTrust, @LError) then
     begin
-      Result := True;
+      // trusted: policy over the OS-built path
+      Result := ApplyStrengthPolicy(LTrust, AProvider, AStrengthPolicy,
+        AAdvertised, AAlert);
       Exit;
     end;
 
@@ -853,32 +1020,6 @@ begin
 end;
 
 {$IFDEF TLSLIB_MACOS}
-
-class function TAppleTrustApi.CopyCertificateDer(
-  ACertificate: SecCertificateRef): TBytes;
-var
-  LData: CFDataRef;
-  LLen: CFIndex;
-  LPtr: PByte;
-begin
-  Result := nil;
-  if ACertificate = nil then
-    Exit;
-  LData := FSecCertificateCopyData(ACertificate);
-  if LData = nil then
-    Exit;
-  try
-    LLen := FCFDataGetLength(LData);
-    LPtr := FCFDataGetBytePtr(LData);
-    if (LLen > 0) and (LPtr <> nil) then
-    begin
-      SetLength(Result, LLen);
-      Move(LPtr^, Result[0], LLen);
-    end;
-  finally
-    FCFRelease(LData);
-  end;
-end;
 
 class function TAppleTrustApi.DomainDeniesCertificate(
   ACertificate: SecCertificateRef; ADomain: SecTrustSettingsDomain): Boolean;
@@ -997,12 +1138,17 @@ end;
 
 { TAppleDelegateVerifier }
 
-constructor TAppleDelegateVerifier.Create(APosture: TRevocationPosture;
-  const AClock: ITlsClock);
+constructor TAppleDelegateVerifier.Create(const AProvider: ICryptoProvider;
+  APosture: TRevocationPosture; const AClock: ITlsClock;
+  const AStrengthPolicy: TCertificateStrengthPolicy;
+  const AAdvertised: TArray<UInt16>);
 begin
   inherited Create;
+  FProvider := AProvider;
   FPosture := APosture;
   FClock := AClock;
+  FStrengthPolicy := AStrengthPolicy;
+  FAdvertised := AAdvertised;
 end;
 
 function TAppleDelegateVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
@@ -1010,7 +1156,7 @@ function TAppleDelegateVerifier.VerifyServerCertificate(const AChain: TArray<TBy
   out AAlert: TTlsAlertDescription): Boolean;
 begin
   Result := TAppleTrustApi.EvaluateSslChain(AChain, AServerName.ToString, FPosture,
-    FClock, AOcspStaple, AAlert);
+    FClock, AOcspStaple, FProvider, FStrengthPolicy, FAdvertised, AAlert);
 end;
 
 { TAppleServerVerifierSource }
@@ -1018,26 +1164,32 @@ end;
 function TAppleServerVerifierSource.CreateServerVerifier(
   const AContext: TServerTrustContext): IServerCertificateVerifier;
 begin
-  Result := TAppleDelegateVerifier.Create(AContext.RevocationPosture,
-    AContext.Clock) as IServerCertificateVerifier;
+  Result := TAppleDelegateVerifier.Create(AContext.Provider,
+    AContext.RevocationPosture, AContext.Clock, AContext.StrengthPolicy,
+    AContext.AdvertisedSignatureSchemes) as IServerCertificateVerifier;
 end;
 
 { TAppleClientDelegateVerifier }
 
-constructor TAppleClientDelegateVerifier.Create(const AAnchors: TArray<TBytes>;
-  APosture: TRevocationPosture; const AClock: ITlsClock);
+constructor TAppleClientDelegateVerifier.Create(const AProvider: ICryptoProvider;
+  const AAnchors: TArray<TBytes>; APosture: TRevocationPosture;
+  const AClock: ITlsClock; const AStrengthPolicy: TCertificateStrengthPolicy;
+  const AAdvertised: TArray<UInt16>);
 begin
   inherited Create;
+  FProvider := AProvider;
   FAnchors := AAnchors;
   FPosture := APosture;
   FClock := AClock;
+  FStrengthPolicy := AStrengthPolicy;
+  FAdvertised := AAdvertised;
 end;
 
 function TAppleClientDelegateVerifier.VerifyClientCertificate(
   const AChain: TArray<TBytes>; out AAlert: TTlsAlertDescription): Boolean;
 begin
   Result := TAppleTrustApi.EvaluateClientChain(AChain, FAnchors, FPosture,
-    FClock, AAlert);
+    FClock, FProvider, FStrengthPolicy, FAdvertised, AAlert);
 end;
 
 { TAppleClientVerifierSource }
@@ -1050,8 +1202,9 @@ begin
   LAnchors := nil;
   if AContext.TrustStore <> nil then
     LAnchors := AContext.TrustStore.RootCertificates;
-  Result := TAppleClientDelegateVerifier.Create(LAnchors,
-    AContext.RevocationPosture, AContext.Clock) as IClientCertificateVerifier;
+  Result := TAppleClientDelegateVerifier.Create(AContext.Provider, LAnchors,
+    AContext.RevocationPosture, AContext.Clock, AContext.StrengthPolicy,
+    AContext.AdvertisedSignatureSchemes) as IClientCertificateVerifier;
 end;
 
 initialization
