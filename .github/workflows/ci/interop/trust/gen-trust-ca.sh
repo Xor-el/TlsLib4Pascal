@@ -80,6 +80,27 @@ mk_leaf leaf       0x1001 "extendedKeyUsage=serverAuth"
 mk_leaf muststaple 0x1002 $'extendedKeyUsage=serverAuth\n1.3.6.1.5.5.7.1.24=DER:30:03:02:01:05'
 mk_leaf wrongeku   0x1003 "extendedKeyUsage=clientAuth"
 
+# a 2-tier leaf signed DIRECTLY by the root (no intermediate), for the delegate accept/Hard cell:
+# with only the leaf as a non-anchor cert and a good stapled OCSP for it, every non-anchor element
+# of the path has a positive revocation answer, so trustd accepts it under RequirePositiveResponse
+# (Hard). The 3-tier leaf above stays for the portable and reject cells.
+newkey direct_leaf.key
+"$OPENSSL" req -new -key direct_leaf.key -out direct_leaf.csr -subj "/CN=localhost"
+cat > direct_leaf.ext <<'EOF'
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature
+subjectAltName=DNS:localhost
+extendedKeyUsage=serverAuth
+authorityInfoAccess=OCSP;URI:http://ocsp.tlslib.invalid/
+crlDistributionPoints=URI:http://crl.tlslib.invalid/root.crl
+EOF
+"$OPENSSL" x509 -req -in direct_leaf.csr -CA root.pem -CAkey root.key \
+  -set_serial 0x3001 -sha256 -days 30 -extfile direct_leaf.ext -out direct_leaf.pem
+# present the root alongside the leaf so any verifier can find the leaf's issuer to authenticate the
+# stapled OCSP; the root is still the trust anchor (excluded from revocation), so Hard only needs the
+# leaf's positive staple.
+cat direct_leaf.pem root.pem > direct_fullchain.pem
+
 # --- a separate foreign hierarchy (the untrusted-root negative) ---------------------------
 newkey foreign_root.key
 "$OPENSSL" req -x509 -new -key foreign_root.key -sha256 -days 3650 -out foreign_root.pem \
@@ -103,13 +124,15 @@ EXP="$(asn1_date 365)"
 REV="$(asn1_date 0)"
 printf 'V\t%s\t\t1001\tunknown\t/CN=localhost\n' "$EXP" > index_good.txt
 printf 'R\t%s\t%s\t1001\tunknown\t/CN=localhost\n' "$EXP" "$REV" > index_revoked.txt
-ocsp_resp() { # <index> <out.der>
+printf 'V\t%s\t\t3001\tunknown\t/CN=localhost\n' "$EXP" > index_direct.txt
+ocsp_resp() { # <index> <out.der> <ca> <signer> <signer-key> <issuer> <cert>
   # -rmd sha256 pins the response signature digest (LibreSSL's ocsp defaults to SHA-1, which a
   # modern trust engine distrusts first) - so it is SHA-256 regardless of which openssl signs it
-  "$OPENSSL" ocsp -index "$1" -CA issuer.pem -rsigner issuer.pem -rkey issuer.key \
-    -issuer issuer.pem -cert leaf.pem -no_nonce -ndays 7 -rmd sha256 -respout "$2" >/dev/null 2>&1
+  "$OPENSSL" ocsp -index "$1" -CA "$3" -rsigner "$4" -rkey "$5" \
+    -issuer "$6" -cert "$7" -no_nonce -ndays 7 -rmd sha256 -respout "$2" >/dev/null 2>&1
 }
-ocsp_resp index_good.txt    ocsp_good.der
-ocsp_resp index_revoked.txt ocsp_revoked.der
+ocsp_resp index_good.txt    ocsp_good.der        issuer.pem issuer.pem issuer.key issuer.pem leaf.pem
+ocsp_resp index_revoked.txt ocsp_revoked.der     issuer.pem issuer.pem issuer.key issuer.pem leaf.pem
+ocsp_resp index_direct.txt  ocsp_good_direct.der root.pem   root.pem   root.key   root.pem   direct_leaf.pem
 
 echo "generated trust hierarchy in $OUTDIR (run id: $RUNID)"

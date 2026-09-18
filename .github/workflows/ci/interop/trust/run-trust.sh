@@ -193,12 +193,14 @@ if [ "$HAS_DELEGATE" = 1 ]; then
     INSTALLED=1
     echo "  (installed test root $THUMB)"
     if [ "$OSNAME" = "Darwin" ]; then macos_diag; fi
-    # posture Soft here: this cell proves the OS store trusts a chain to the installed root; it
-    # does not assert the delegate honours our issuer-signed good staple under Hard (crypt32 does,
-    # macOS trustd treats it as indeterminate). The portable cells cover good/Hard on every OS.
-    cell "delegate accept (root installed, good/Soft)" --trust-mode os-delegate \
-      --server-cert "$CA/leaf_fullchain.pem" --server-key "$CA/leaf.key" \
-      --staple "$CA/ocsp_good.der" --posture soft --expect accept
+    # 2-tier chain (root -> leaf, no intermediate) under Hard: the only non-anchor cert is the leaf,
+    # which carries a good stapled OCSP, so every element trustd/crypt32 revocation-checks has a
+    # positive answer (the anchor is exempt). A 3-tier chain would leave the intermediate with no
+    # staple -> indeterminate -> Hard rejects on macOS; the 3-tier good/Hard path is asserted by the
+    # portable cells instead.
+    cell "delegate accept (2-tier, good/Hard)" --trust-mode os-delegate \
+      --server-cert "$CA/direct_fullchain.pem" --server-key "$CA/direct_leaf.key" \
+      --staple "$CA/ocsp_good_direct.der" --posture hard --expect accept
     cell "delegate revoked staple -> reject" --trust-mode os-delegate \
       --server-cert "$CA/leaf_fullchain.pem" --server-key "$CA/leaf.key" \
       --staple "$CA/ocsp_revoked.der" --posture soft --expect reject
