@@ -47,9 +47,14 @@ uninstall_root() { # keyed by thumbprint so it can never touch another cert
     MINGW*|MSYS*|CYGWIN*|Windows*)
       certutil -delstore Root "$THUMB" >/dev/null 2>&1 || true ;;
     Darwin)
+      # remove-trusted-cert -d un-anchors the root non-interactively (same authorization right as
+      # add-trusted-cert -d), which is all the post-uninstall cell needs. Also deleting the cert
+      # item is left disabled below: on the System keychain it pops a GUI auth prompt that hangs a
+      # headless runner (a different, authorizationdb-gated right), and the ephemeral runner is
+      # discarded anyway. Re-enable it only wrapped in `security authorizationdb write ... allow`.
       sudo security remove-trusted-cert -d "$CA/root.pem" >/dev/null 2>&1 || true
-      sudo security delete-certificate -Z "$THUMB" \
-        /Library/Keychains/System.keychain >/dev/null 2>&1 || true ;;
+      # sudo security delete-certificate -Z "$THUMB" /Library/Keychains/System.keychain >/dev/null 2>&1 || true
+      ;;
   esac
 }
 trap cleanup EXIT
