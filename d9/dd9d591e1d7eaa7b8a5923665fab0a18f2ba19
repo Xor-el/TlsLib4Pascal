@@ -1,0 +1,40 @@
+TlsLib.Interop/FreePascal.Interop/InteropSelfTest.lpr
+  s_09d3c46d1a9b1f::t_c4ab36ebd37514 561-585
+  s_09d3c46d1a9b1f::t_2cba7fdf25adc5 313-361,363-527,533-537
+  s_09d3c46d1a9b1f::t_6e65a1a65d1c26 17-18,362,560
+.github/workflows/ci/interop/run-openssl-matrix.sh
+  s_09d3c46d1a9b1f::t_efa850df46b173 224-231,237-238,240-246,252-253,255-265
+  s_09d3c46d1a9b1f::t_786672692c2402 232-236,239,247-251,254
+TlsLib.Interop/src/InteropEngine.pas
+  s_09d3c46d1a9b1f::t_4019f6c3dac516 113-120
+  s_09d3c46d1a9b1f::t_15ba9aa3253283 325-326
+  s_09d3c46d1a9b1f::t_fb5d3be4188f0d 32
+TlsLib.Interop/src/OpenSslInteropRunner.pas
+  s_09d3c46d1a9b1f::t_de7d0049505fba 51-54
+  s_09d3c46d1a9b1f::t_17473b221407fb 362-365
+  s_09d3c46d1a9b1f::t_4c78d8138f1465 97-117
+  s_09d3c46d1a9b1f::t_1c4085d5d6f0d8 276,288-304
+  s_09d3c46d1a9b1f::t_31466cf8df25ec 69-73,76
+  s_09d3c46d1a9b1f::t_c1d635a6ea2d93 224-226,249-252,265
+  s_09d3c46d1a9b1f::t_919f50453b01bf 396-402,409
+  s_09d3c46d1a9b1f::t_de79cd09f1e0e5 25
+TlsLib.Interop/src/InteropCredentials.pas
+  s_09d3c46d1a9b1f::t_0e0fb413d5a2d0 52-56
+  s_09d3c46d1a9b1f::t_1dba102dd8661d 104-110,118,121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d9dd9d591e1d7eaa7b8a5923665fab0a18f2ba19",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
