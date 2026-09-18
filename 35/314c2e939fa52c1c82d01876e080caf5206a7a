@@ -1,0 +1,24 @@
+TlsLib.Interop/src/TrustDelegateInteropRunner.pas
+  s_09d3c46d1a9b1f::t_28dbb3b683cc13 280-286
+.github/workflows/ci/interop/trust/run-trust.sh
+  s_09d3c46d1a9b1f::t_571a8c4a216e10 54-60
+  s_09d3c46d1a9b1f::t_e3cab1d411ce27 40-43
+  s_09d3c46d1a9b1f::t_f66d9b1494800c 127-130,132
+  s_09d3c46d1a9b1f::t_d6bfb1984d4567 63-64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "35314c2e939fa52c1c82d01876e080caf5206a7a",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
