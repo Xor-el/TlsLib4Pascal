@@ -43,6 +43,8 @@ SRC="$INTEROP/src"
 # the opt-in OS-native crypto overlay is a small pure-source package layered on the already
 # prebuilt core, so we compile its units on demand from src rather than prebuilding them
 CRYPTO_SYSTEM_SRC="$REPO_ROOT/TlsLib.Crypto.System/src"
+# the OS-trust package is likewise layered from source (the TrustDelegateInterop shim needs it)
+TRUST_SYSTEM_SRC="$REPO_ROOT/TlsLib.Trust.System/src"
 LPR_DIR="$INTEROP/FreePascal.Interop"
 BIN_DIR="$LPR_DIR/bin"
 mkdir -p "$BIN_DIR"
@@ -80,10 +82,11 @@ compile() {  # <program-name>
   fpc "-T$OS" "-P$CPU" -MDelphi -O2 -B \
     -Fu"$(to_native "$CRYPTO_UNITS")" -Fu"$(to_native "$HASH_UNITS")" \
     -Fu"$(to_native "$SB_UNITS")" -Fu"$(to_native "$TLS_UNITS")" \
-    -Fu"$(to_native "$CRYPTO_SYSTEM_SRC")" -Fu"$(to_native "$SRC")" \
+    -Fu"$(to_native "$CRYPTO_SYSTEM_SRC")" -Fu"$(to_native "$TRUST_SYSTEM_SRC")" \
+    -Fu"$(to_native "$SRC")" \
     -FU"$(to_native "$BUILD_DIR")" -o"$(to_native "$BIN_DIR/$1$EXE")" "$(to_native "$LPR_DIR/$1.lpr")"
 }
-for p in InteropSelfTest OpenSslInterop TlsFuzzer BoGoShim; do
+for p in InteropSelfTest OpenSslInterop TlsFuzzer BoGoShim TrustDelegateInterop; do
   echo "    - $p"
   compile "$p"
   chmod +x "$BIN_DIR/$p$EXE"
@@ -91,6 +94,13 @@ done
 
 echo "==> self-test (loopback TLS 1.3 over real TCP, no external deps)"
 "$BIN_DIR/InteropSelfTest$EXE"
+
+if [ "${MAKE_RUN_TRUST:-true}" = "true" ]; then
+  echo "==> native-trust cells (portable verifier everywhere; OS delegate on Windows/macOS)"
+  bash "$HERE/trust/run-trust.sh" "$BIN_DIR/TrustDelegateInterop$EXE"
+else
+  echo "MAKE_RUN_TRUST != true - skipping the native-trust cells."
+fi
 
 echo "==> structure-aware parser fuzzer (per-push tier: regression replay + fixed-seed smoke)"
 # --iterations is the per-target smoke budget; the regression-corpus replay always runs.

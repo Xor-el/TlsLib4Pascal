@@ -524,7 +524,6 @@ class function TTlsFuzzerRunner.LoadDirBlobs(const ADir: string): TArray<TBytes>
 var
   LSearch: TSearchRec;
   LFound, LMaskIdx: Int32;
-  LStream: TFileStream;
   LBytes: TBytes;
   LPath, LMask: string;
   LMasks: TArray<string>;
@@ -548,17 +547,7 @@ begin
           if LMask = '*.hex' then
             LBytes := TInteropUtils.DecodeHex(TInteropUtils.ReadAllText(LPath))
           else
-          begin
-            LBytes := nil;
-            LStream := TFileStream.Create(LPath, fmOpenRead or fmShareDenyNone);
-            try
-              SetLength(LBytes, LStream.Size);
-              if LStream.Size > 0 then
-                LStream.ReadBuffer(LBytes[0], LStream.Size);
-            finally
-              LStream.Free;
-            end;
-          end;
+            LBytes := TInteropUtils.ReadAllBytes(LPath);
           LN := System.Length(Result);
           SetLength(Result, LN + 1);
           Result[LN] := LBytes;

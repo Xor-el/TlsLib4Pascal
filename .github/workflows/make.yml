@@ -66,6 +66,10 @@ env:
   # OpenSSL >= 3.x is available. So every platform can share this one toggle instead of a
   # per-job override.
   MAKE_RUN_OPENSSL: true
+  # When true (default), the interop step runs the native-trust cells: the portable verifier
+  # against a per-run generated CA on every native leg, plus - on Windows/macOS - the OS trust
+  # delegate against a throwaway root installed into the machine store. Set false to skip them.
+  MAKE_RUN_TRUST: true
   # When true, the interop harness (self-test, fuzzer, openssl matrix and BoGo) runs against
   # this platform's OS-native crypto facets overlaid on the portable base (TLSLIB_NATIVE_CRYPTO),
   # instead of the pure-Pascal provider. Only Windows has native facets today, so it is a no-op
@@ -141,6 +145,7 @@ jobs:
           run-bogo: ${{ env.MAKE_RUN_BOGO }}
           run-openssl: ${{ env.MAKE_RUN_OPENSSL }}
           native-crypto: ${{ env.MAKE_INTEROP_NATIVE_CRYPTO }}
+          run-trust: ${{ env.MAKE_RUN_TRUST }}
           bogo-ref: ${{ env.BOGO_REF }}
 
   linux-arm64:
@@ -173,6 +178,7 @@ jobs:
           run-bogo: ${{ env.MAKE_RUN_BOGO }}
           run-openssl: ${{ env.MAKE_RUN_OPENSSL }}
           native-crypto: ${{ env.MAKE_INTEROP_NATIVE_CRYPTO }}
+          run-trust: ${{ env.MAKE_RUN_TRUST }}
           bogo-ref: ${{ env.BOGO_REF }}
 
   # Scalar-dispatch legs: same native targets, but MAKE_DEFINES
@@ -251,6 +257,7 @@ jobs:
           run-bogo: ${{ env.MAKE_RUN_BOGO }}
           run-openssl: ${{ env.MAKE_RUN_OPENSSL }}
           native-crypto: ${{ env.MAKE_INTEROP_NATIVE_CRYPTO }}
+          run-trust: ${{ env.MAKE_RUN_TRUST }}
           bogo-ref: ${{ env.BOGO_REF }}
 
   macos-arm64:
@@ -284,6 +291,7 @@ jobs:
           run-bogo: ${{ env.MAKE_RUN_BOGO }}
           run-openssl: ${{ env.MAKE_RUN_OPENSSL }}
           native-crypto: ${{ env.MAKE_INTEROP_NATIVE_CRYPTO }}
+          run-trust: ${{ env.MAKE_RUN_TRUST }}
 
   macos-x64:
     name: "Native: macOS x86_64 (Intel)"
@@ -313,6 +321,7 @@ jobs:
           run-bogo: ${{ env.MAKE_RUN_BOGO }}
           run-openssl: ${{ env.MAKE_RUN_OPENSSL }}
           native-crypto: ${{ env.MAKE_INTEROP_NATIVE_CRYPTO }}
+          run-trust: ${{ env.MAKE_RUN_TRUST }}
 
   linux-arm32:
     name: "QEMU: Linux ARMv7"

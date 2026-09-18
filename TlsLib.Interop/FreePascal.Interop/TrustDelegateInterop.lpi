@@ -7,7 +7,7 @@
         <CompatibilityMode Value="True"/>
       </Flags>
       <SessionStorage Value="InProjectDir"/>
-      <Title Value="InteropSelfTest"/>
+      <Title Value="TrustDelegateInterop"/>
       <UseAppBundle Value="False"/>
       <ResourceType Value="res"/>
     </General>
@@ -17,7 +17,7 @@
     <PublishOptions>
       <Version Value="2"/>
     </PublishOptions>
-    <RequiredPackages Count="3">
+    <RequiredPackages Count="4">
       <Item1>
         <PackageName Value="TlsLib4PascalPackage"/>
       </Item1>
@@ -25,16 +25,19 @@
         <PackageName Value="TlsLib.Crypto.System"/>
       </Item2>
       <Item3>
-        <PackageName Value="FCL"/>
+        <PackageName Value="TlsLib.Trust.System"/>
       </Item3>
+      <Item4>
+        <PackageName Value="FCL"/>
+      </Item4>
     </RequiredPackages>
     <Units Count="7">
       <Unit0>
-        <Filename Value="InteropSelfTest.lpr"/>
+        <Filename Value="TrustDelegateInterop.lpr"/>
         <IsPartOfProject Value="True"/>
       </Unit0>
       <Unit1>
-        <Filename Value="..\src\InteropSelfTestRunner.pas"/>
+        <Filename Value="..\src\TrustDelegateInteropRunner.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit1>
       <Unit2>
@@ -63,7 +66,7 @@
     <Version Value="11"/>
     <PathDelim Value="\"/>
     <Target>
-      <Filename Value=".\bin\InteropSelfTest"/>
+      <Filename Value=".\bin\TrustDelegateInterop"/>
     </Target>
     <SearchPaths>
       <IncludeFiles Value="$(ProjOutDir)"/>

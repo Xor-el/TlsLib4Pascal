@@ -59,6 +59,8 @@ type
     class procedure LoadFieldFile(const AFile: string; AFields: TStrings); static;
     /// <summary>Reads a whole file as text.</summary>
     class function ReadAllText(const AFile: string): string; static;
+    /// <summary>Reads a whole file as raw bytes (e.g. a DER OCSP response).</summary>
+    class function ReadAllBytes(const AFile: string): TBytes; static;
     /// <summary>Concatenates two byte slices.</summary>
     class function Concat(const A, B: TBytes): TBytes; static;
     /// <summary>Whether two byte slices have the same length and contents.</summary>
@@ -319,6 +321,20 @@ begin
     Result := LList.Text;
   finally
     LList.Free;
+  end;
+end;
+
+class function TInteropUtils.ReadAllBytes(const AFile: string): TBytes;
+var
+  LStream: TFileStream;
+begin
+  LStream := TFileStream.Create(AFile, fmOpenRead or fmShareDenyWrite);
+  try
+    SetLength(Result, LStream.Size);
+    if LStream.Size > 0 then
+      LStream.ReadBuffer(Result[0], LStream.Size);
+  finally
+    LStream.Free;
   end;
 end;
 

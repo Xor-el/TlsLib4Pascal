@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# Generate a throwaway certificate hierarchy for the native-trust interop cells, fresh per run.
+# The static committed test-CA cannot drive a real OS trust engine (its intermediate has no
+# CDP/AIA, so chain-wide revocation returns "no revocation check"; its OCSP vectors are pinned
+# to a wall-clock date the OS honours). This mints, into $OUTDIR:
+#
+#   root.pem/.key            self-signed CA; CN carries the run id so an installed copy can
+#                            never collide with a leftover from a prior run
+#   issuer.pem/.key          intermediate CA WITH CDP + AIA (real crypt32 needs them present)
+#   leaf.pem/.key            EC serverAuth leaf, SAN localhost, serial 0x1001
+#   muststaple.pem/.key      as leaf + RFC 7633 TLS-feature status_request(5), serial 0x1002
+#   wrongeku.pem/.key        clientAuth-only leaf (no serverAuth), serial 0x1003
+#   foreign_root.pem/.key    an unrelated self-signed CA (the untrusted-root negative)
+#   foreign_leaf.pem/.key    serverAuth leaf under foreign_root, SAN localhost
+#   fullchain.pem            leaf + issuer (what a server presents)
+#   muststaple_fullchain.pem muststaple + issuer
+#   wrongeku_fullchain.pem   wrongeku + issuer
+#   foreign_fullchain.pem    foreign_leaf + foreign_root
+#   ocsp_good.der            a current Good OCSP response for the leaf (issuer-signed)
+#   ocsp_revoked.der         a Revoked OCSP response for the leaf
+#
+# "expired" is driven by the shim's injected clock (a future verify time past the leaf's
+# notAfter), so no separate expired leaf is minted here.
+set -euo pipefail
+
+# keep Git Bash from rewriting the /CN=... subject into a Windows path (ignored on Linux/macOS)
+export MSYS2_ARG_CONV_EXCL='/CN='
+
+OUTDIR="${1:?usage: gen-trust-ca.sh <outdir> [run-id]}"
+RUNID="${2:-local-$$}"
+OPENSSL="${OPENSSL:-openssl}"
+mkdir -p "$OUTDIR"
+
+# YYMMDDHHMMSSZ, N days from now - GNU date (Linux / Git Bash) and BSD date (macOS) differ
+asn1_date() { # <days-from-now>
+  date -u -d "+$1 days" +%y%m%d%H%M%SZ 2>/dev/null || date -u -v+"$1"d +%y%m%d%H%M%SZ
+}
+newkey() { "$OPENSSL" ecparam -name prime256v1 -genkey -noout -out "$1"; }
+
+cd "$OUTDIR"
+
+# --- root ---------------------------------------------------------------------------------
+newkey root.key
+"$OPENSSL" req -x509 -new -key root.key -sha256 -days 3650 -out root.pem \
+  -subj "/CN=TlsLib Test Root $RUNID" \
+  -addext "basicConstraints=critical,CA:TRUE" \
+  -addext "keyUsage=critical,keyCertSign,cRLSign"
+
+# --- issuer (intermediate CA, WITH CDP + AIA) ---------------------------------------------
+newkey issuer.key
+"$OPENSSL" req -new -key issuer.key -out issuer.csr -subj "/CN=TlsLib Test Issuer $RUNID"
+cat > issuer.ext <<'EOF'
+basicConstraints=critical,CA:TRUE,pathlen:0
+keyUsage=critical,keyCertSign,cRLSign
+authorityInfoAccess=OCSP;URI:http://ocsp.tlslib.invalid/
+crlDistributionPoints=URI:http://crl.tlslib.invalid/issuer.crl
+EOF
+"$OPENSSL" x509 -req -in issuer.csr -CA root.pem -CAkey root.key -CAcreateserial \
+  -sha256 -days 3650 -extfile issuer.ext -out issuer.pem
+
+# --- leaf (serverAuth, SAN localhost, explicit serial for the OCSP index) -----------------
+mk_leaf() { # <name> <serial-hex> <extra-ext-lines>
+  local name="$1" serial="$2" extra="$3"
+  newkey "$name.key"
+  "$OPENSSL" req -new -key "$name.key" -out "$name.csr" -subj "/CN=localhost"
+  { cat <<EOF
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature
+subjectAltName=DNS:localhost
+authorityInfoAccess=OCSP;URI:http://ocsp.tlslib.invalid/
+crlDistributionPoints=URI:http://crl.tlslib.invalid/issuer.crl
+EOF
+    printf '%s\n' "$extra"; } > "$name.ext"
+  "$OPENSSL" x509 -req -in "$name.csr" -CA issuer.pem -CAkey issuer.key \
+    -set_serial "$serial" -sha256 -days 30 -extfile "$name.ext" -out "$name.pem"
+  cat "$name.pem" issuer.pem > "${name}_fullchain.pem"
+}
+mk_leaf leaf       0x1001 "extendedKeyUsage=serverAuth"
+# RFC 7633 TLS Feature (OID 1.3.6.1.5.5.7.1.24) = SEQUENCE OF INTEGER { status_request(5) }
+mk_leaf muststaple 0x1002 $'extendedKeyUsage=serverAuth\n1.3.6.1.5.5.7.1.24=DER:30:03:02:01:05'
+mk_leaf wrongeku   0x1003 "extendedKeyUsage=clientAuth"
+
+# --- a separate foreign hierarchy (the untrusted-root negative) ---------------------------
+newkey foreign_root.key
+"$OPENSSL" req -x509 -new -key foreign_root.key -sha256 -days 3650 -out foreign_root.pem \
+  -subj "/CN=TlsLib Foreign Root $RUNID" -addext "basicConstraints=critical,CA:TRUE" \
+  -addext "keyUsage=critical,keyCertSign,cRLSign"
+newkey foreign_leaf.key
+"$OPENSSL" req -new -key foreign_leaf.key -out foreign_leaf.csr -subj "/CN=localhost"
+cat > foreign_leaf.ext <<'EOF'
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature
+extendedKeyUsage=serverAuth
+subjectAltName=DNS:localhost
+EOF
+"$OPENSSL" x509 -req -in foreign_leaf.csr -CA foreign_root.pem -CAkey foreign_root.key \
+  -set_serial 0x2001 -sha256 -days 30 -extfile foreign_leaf.ext -out foreign_leaf.pem
+cat foreign_leaf.pem foreign_root.pem > foreign_fullchain.pem
+
+# --- OCSP responses for the leaf (issuer-signed), Good and Revoked ------------------------
+# a minimal openssl OCSP index: status \t expiry \t [revdate] \t serial(hex) \t filename \t subject
+EXP="$(asn1_date 365)"
+REV="$(asn1_date 0)"
+printf 'V\t%s\t\t1001\tunknown\t/CN=localhost\n' "$EXP" > index_good.txt
+printf 'R\t%s\t%s\t1001\tunknown\t/CN=localhost\n' "$EXP" "$REV" > index_revoked.txt
+ocsp_resp() { # <index> <out.der>
+  "$OPENSSL" ocsp -index "$1" -CA issuer.pem -rsigner issuer.pem -rkey issuer.key \
+    -issuer issuer.pem -cert leaf.pem -no_nonce -ndays 7 -respout "$2" >/dev/null 2>&1
+}
+ocsp_resp index_good.txt    ocsp_good.der
+ocsp_resp index_revoked.txt ocsp_revoked.der
+
+echo "generated trust hierarchy in $OUTDIR (run id: $RUNID)"

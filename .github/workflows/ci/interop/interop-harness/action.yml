@@ -25,6 +25,12 @@ inputs:
     description: Whether to run the openssl s_client/s_server matrix (skipped where openssl is unavailable).
     required: false
     default: 'true'
+  run-trust:
+    description: >-
+      Whether to run the native-trust cells: the portable verifier against a per-run generated
+      CA everywhere, plus the OS trust delegate (with a machine-store root install) on Windows/macOS.
+    required: false
+    default: 'true'
   native-crypto:
     description: >-
       Run the harness against this platform's OS-native crypto facets (TLSLIB_NATIVE_CRYPTO)
@@ -78,6 +84,7 @@ runs:
         MAKE_RUN_INTEROP: 'true'
         MAKE_RUN_BOGO: ${{ inputs.run-bogo }}
         MAKE_RUN_OPENSSL: ${{ inputs.run-openssl }}
+        MAKE_RUN_TRUST: ${{ inputs.run-trust }}
         TLSLIB_NATIVE_CRYPTO: ${{ inputs.native-crypto }}
         BOGO_REF: ${{ inputs.bogo-ref }}
         BOGO_WORKERS: ${{ inputs.bogo-workers }}
