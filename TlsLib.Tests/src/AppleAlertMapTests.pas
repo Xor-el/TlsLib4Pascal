@@ -40,6 +40,7 @@ uses
 {$ENDIF TLSLIB_MACOS}
   TlpTlsAlert,
   TlpAppleSystemTrust,
+  TlpSystemTrustBase,
   TlsLibTestBase;
 
 type
@@ -105,8 +106,8 @@ begin
   // the untrusted root makes SecTrust reject before the policy runs; a real provider + default
   // policy keep the construction valid regardless
   LVerifier := TAppleDelegateVerifier.Create(TDefaultCryptoProvider.Create as ICryptoProvider,
-    TRevocationPosture.Soft, nil, TCertificateStrengthPolicy.Defaults, nil)
-    as IServerCertificateVerifier;
+    TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, nil,
+    TCertificateStrengthPolicy.Defaults, nil) as IServerCertificateVerifier;
   LAlert := TTlsAlertDescription.InternalError;
   CheckFalse(LVerifier.VerifyServerCertificate(LChain, TServerName.DnsName('localhost'), nil, LAlert),
     'an untrusted/expired chain must be rejected by the OS delegate');

@@ -160,10 +160,10 @@ if [ "$HAS_DELEGATE" = 1 ]; then
     # --now-ms: a live response is produced at wall-clock time, so a fixed verify date would push
     # it outside its validity window.
     cell "delegate live accept (2-tier, good/Hard)" --trust-mode os-delegate \
-      --revocation-fetch live --server-cert "$CA/live_fullchain.pem" \
+      --revocation-fetch live --server-cert "$CA/live_leaf_fullchain.pem" \
       --server-key "$CA/live_leaf.key" --posture hard --expect accept
     cell "delegate live revoked -> certificate_revoked" --trust-mode os-delegate \
-      --revocation-fetch live --server-cert "$CA/live_revoked_fullchain.pem" \
+      --revocation-fetch live --server-cert "$CA/live_revoked_leaf_fullchain.pem" \
       --server-key "$CA/live_revoked_leaf.key" --posture hard --expect reject:44
     # effective-Soft must not let a revocation-unknown outcome mask a real error: a Soft cache-only
     # delegate cell with a hostname mismatch still rejects
