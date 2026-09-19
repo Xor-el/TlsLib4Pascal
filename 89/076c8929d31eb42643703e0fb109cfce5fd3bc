@@ -1,0 +1,32 @@
+docs/certificate-verification.md
+  s_09d3c46d1a9b1f::t_ad232fe26ff960 177
+  s_09d3c46d1a9b1f::t_d48d5ada4d40f8 68,70-74
+  s_09d3c46d1a9b1f::t_2584fbb5868664 186-189
+TlsLib.Trust.System/src/TlpAppleSystemTrust.pas
+  s_09d3c46d1a9b1f::t_ddcaab024eb994 652-666
+  s_09d3c46d1a9b1f::t_e920c1b42236dd 398,400-408
+  s_09d3c46d1a9b1f::t_061e046f3cd819 415-429
+  s_09d3c46d1a9b1f::t_1b45b82d49114f 611-612,616-633
+  s_09d3c46d1a9b1f::t_093f7230771c3a 255-258,260
+  s_09d3c46d1a9b1f::t_7c0670a8aebfec 345-346
+  s_09d3c46d1a9b1f::t_c9ab4a7e5cd982 1376-1413,1418,1422,1424-1425,1430-1436,1440,1444-1445,1447-1460,1468-1489,1511,1527-1529,1533-1534
+docs/system-trust.md
+  s_09d3c46d1a9b1f::t_8c1999758d8c6c 28-29
+  s_09d3c46d1a9b1f::t_e14616669b229e 330-332
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "89076c8929d31eb42643703e0fb109cfce5fd3bc",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
