@@ -36,6 +36,7 @@ requires
 contains
   TlpSystemTrustExceptions in '..\..\src\TlpSystemTrustExceptions.pas',
   TlpSystemTrustBase in '..\..\src\TlpSystemTrustBase.pas',
+  TlpOSLiveRevocation in '..\..\src\TlpOSLiveRevocation.pas',
   TlpFileSystemTrust in '..\..\src\TlpFileSystemTrust.pas',
   TlpPosixDynLib in '..\..\src\TlpPosixDynLib.pas',
   TlpUnixSystemTrust in '..\..\src\TlpUnixSystemTrust.pas',

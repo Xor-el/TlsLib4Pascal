@@ -130,7 +130,8 @@ begin
       // a sink that does not handle async verdicts never sees this effect, because the
       // machine emits it only when async verdicts were enabled through the config
       if FVerdictSink <> nil then
-        FVerdictSink.OnCertificateVerdictNeeded(AEffect.Chain, AEffect.Text);
+        FVerdictSink.OnCertificateVerdictNeeded(AEffect.Chain, AEffect.Text,
+          AEffect.Bytes);
     THandshakeEffectKind.PeerCertificateChain:
       if FConnectionInfoSink <> nil then
         FConnectionInfoSink.OnPeerCertificateChain(AEffect.Chain);

@@ -83,8 +83,7 @@ type
     /// live revocation as the out-of-band verdict for a parked handshake. On reject, ARejectAlert
     /// is certificate_revoked for a definitive Revoked and bad_certificate_status_response for a
     /// hard-fail indeterminate.</summary>
-    function ResolveVerdict(const AChain: TArray<TBytes>;
-      const AHostName: string;
+    function ResolveVerdict(const ACtx: TCertificateVerdictContext;
       out ARejectAlert: TTlsAlertDescription): Boolean;
   end;
 
@@ -217,14 +216,14 @@ begin
   end;
 end;
 
-function TLiveRevocationChecker.ResolveVerdict(const AChain: TArray<TBytes>;
-  const AHostName: string;
+function TLiveRevocationChecker.ResolveVerdict(
+  const ACtx: TCertificateVerdictContext;
   out ARejectAlert: TTlsAlertDescription): Boolean;
 begin
   // a definitive Revoked aborts with certificate_revoked always; an indeterminate hard-fail
   // aborts with bad_certificate_status_response (the same alert a hard stapled-OCSP fail sends)
   ARejectAlert := TTlsAlertDescription.BadCertificate;
-  case Evaluate(AChain) of
+  case Evaluate(ACtx.Chain) of
     TLiveRevocationOutcome.Revoked:
       begin
         ARejectAlert := TTlsAlertDescription.CertificateRevoked;

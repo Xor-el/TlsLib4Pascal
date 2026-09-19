@@ -472,6 +472,7 @@ var
   LFetcher: TFakeHttpFetcher;
   LChecker: TLiveRevocationChecker;
   LAlert: TTlsAlertDescription;
+  LCtx: TCertificateVerdictContext;
 begin
   // the checker plugs into the Tier-2 verdict resolver seam: a live Revoked -> reject, and it
   // must abort with certificate_revoked, not the generic bad_certificate
@@ -481,7 +482,10 @@ begin
     TLiveRevocationMethod.Ocsp);
   try
     LAlert := TTlsAlertDescription.BadCertificate;
-    CheckFalse(LChecker.ResolveVerdict(Chain, 'localhost', LAlert),
+    LCtx := Default(TCertificateVerdictContext);
+    LCtx.Chain := Chain;
+    LCtx.HostName := 'localhost';
+    CheckFalse(LChecker.ResolveVerdict(LCtx, LAlert),
       'ResolveVerdict rejects a live-revoked chain');
     CheckTrue(LAlert = TTlsAlertDescription.CertificateRevoked,
       'a live Revoked aborts with certificate_revoked');

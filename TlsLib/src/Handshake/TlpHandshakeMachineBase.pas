@@ -59,6 +59,9 @@ type
     function RequestKeyUpdate(ARequestPeerUpdate: Boolean)
       : TArray<THandshakeEffect>; virtual;
     function TakePendingKeyUpdate: TArray<THandshakeEffect>; virtual;
+    /// <summary>No withheld continuation by default; the TLS 1.3 client overrides for its
+    /// reverify-on-resume park.</summary>
+    function ResumeAfterVerdict: TArray<THandshakeEffect>; virtual;
     /// <summary>No exporter until a machine derives its secrets; concrete versions override.</summary>
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       AUseContext: Boolean; ALength: Int32): TBytes; virtual;
@@ -93,6 +96,11 @@ begin
 end;
 
 function THandshakeMachineBase.TakePendingKeyUpdate: TArray<THandshakeEffect>;
+begin
+  Result := nil;
+end;
+
+function THandshakeMachineBase.ResumeAfterVerdict: TArray<THandshakeEffect>;
 begin
   Result := nil;
 end;

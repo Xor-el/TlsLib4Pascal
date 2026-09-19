@@ -22,24 +22,11 @@ uses
   TlpTlsError,
   TlpTlsLibExceptions,
   TlpEchConfig,
+  TlpTrustPolicy,
   TlpITlsEngine,
   TlpITlsTransport;
 
 type
-  /// <summary>
-  /// Decides a parked peer-certificate verdict out-of-band (RFC 8446 deferred-verdict seam):
-  /// AChain is the peer chain (leaf first, DER) the built-in pipeline already accepted, and
-  /// AHostName the expected host (empty on the server side). Return True to continue the
-  /// handshake, False to abort it. On a False return, ARejectAlert selects the abort alert
-  /// (default bad_certificate; a definitive live-revocation reject sets certificate_revoked) -
-  /// leave it untouched to keep the default. The resolver owns any deadline: a blocking check
-  /// that cannot decide in time must return False (fail-closed). Only reached when async
-  /// certificate verdicts are enabled on the config.
-  /// </summary>
-  TTlsVerdictResolver = function(const AChain: TArray<TBytes>;
-    const AHostName: string;
-    out ARejectAlert: TTlsAlertDescription): Boolean of object;
-
   /// <summary>How a single application read cycle ended.</summary>
   TTlsReadStatus = (
     Data,        // plaintext was produced (the returned count is > 0)
@@ -72,7 +59,7 @@ type
     class procedure ResolveVerdict(const AEngine: ITlsEngine;
       const ATransport: ITlsTransport;
       const ACertEvent: ICertificateReceivedEvent;
-      const AResolveVerdict: TTlsVerdictResolver); static;
+      const AResolveVerdict: TCertificateVerdictResolver); static;
   public
     /// <summary>Sends every pending outbound byte to the transport.</summary>
     class procedure Flush(const AEngine: ITlsEngine;
@@ -90,7 +77,7 @@ type
     /// overload.</summary>
     class procedure DriveHandshake(const AEngine: ITlsEngine;
       const ATransport: ITlsTransport; AIsClient: Boolean;
-      const AResolveVerdict: TTlsVerdictResolver); overload; static;
+      const AResolveVerdict: TCertificateVerdictResolver); overload; static;
     /// <summary>One application read cycle: drains engine-buffered plaintext (which may have
     /// arrived coalesced with the final handshake flight) before blocking on the transport.
     /// Returns the count copied into ADest and, via AStatus, whether more may follow, the
@@ -182,17 +169,23 @@ end;
 class procedure TTlsStreamPump.ResolveVerdict(const AEngine: ITlsEngine;
   const ATransport: ITlsTransport;
   const ACertEvent: ICertificateReceivedEvent;
-  const AResolveVerdict: TTlsVerdictResolver);
+  const AResolveVerdict: TCertificateVerdictResolver);
 var
   LAccept: Boolean;
   LAlert: TTlsAlertDescription;
+  LCtx: TCertificateVerdictContext;
 begin
   // fail-closed: with no resolver (or no captured chain) the parked handshake is rejected
   // with certificate_unknown (an unspecified acceptability problem, not a corrupt certificate)
   LAccept := False;
   LAlert := TTlsAlertDescription.CertificateUnknown;
   if Assigned(AResolveVerdict) and (ACertEvent <> nil) then
-    LAccept := AResolveVerdict(ACertEvent.Chain, ACertEvent.HostName, LAlert);
+  begin
+    LCtx.Chain := ACertEvent.Chain;
+    LCtx.HostName := ACertEvent.HostName;
+    LCtx.OcspStaple := ACertEvent.OcspStaple;
+    LAccept := AResolveVerdict(LCtx, LAlert);
+  end;
   AEngine.SetCertificateVerdict(LAccept, LAlert);
   Flush(AEngine, ATransport); // send the resumed flight, or the abort alert
   RaiseIfFatal(AEngine);      // a rejected verdict made the engine terminal
@@ -209,7 +202,7 @@ end;
 
 class procedure TTlsStreamPump.DriveHandshake(const AEngine: ITlsEngine;
   const ATransport: ITlsTransport; AIsClient: Boolean;
-  const AResolveVerdict: TTlsVerdictResolver);
+  const AResolveVerdict: TCertificateVerdictResolver);
 var
   LBuf: TBytes;
   LGot: Int32;

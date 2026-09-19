@@ -265,6 +265,37 @@ under Hard) peer — it does not blanket-reject an unstapled one. Without a reso
 inline as before (a missing staple is rejected); a `must-staple` leaf (RFC 7633) always requires a
 current Good staple and is never deferred.
 
+### OS-native live revocation (opt-in, Windows + Apple)
+
+When you verify the server certificate through the **OS trust delegate**, you can have the OS engine
+(Windows crypt32 / Apple SecTrust, macOS + iOS) do the live revocation fetch itself — still off the
+sans-IO engine thread, in the same async-verdict park. It is **off by default** (the delegate is
+cache-only): the inline pass stays socket-free and, when live is armed, *defers* an indeterminate
+revocation so the handshake parks; the OS then re-evaluates with network fetch enabled on the host
+thread and the verdict resolves the park.
+
+```pascal
+// 1. arm the OS delegate in live mode: this uses the delegate, defers inline, and enables the
+//    async park (the deadline must be non-zero). Windows + Apple only; other platforms raise.
+TSystemTrust.WithSystemTrust(client, provider, TSystemTrustFetch.Live, deadlineMs);
+// 2. wire the OS-native resolver, built from the frozen config, to the stream/adapter:
+resolver := TOSSystemTrust.LiveRevocationResolver(clientConfig);   // caller owns + frees it
+stream.SetCertificateVerdictResolver(resolver.ResolveVerdict);
+```
+
+The OS engine returns a tri-state: a definitive **Revoked** aborts with `certificate_revoked`; a
+**Good** accepts; an **indeterminate** (the OS could not fetch or decide) follows the posture —
+`Soft`/`Off` accept, `Hard` rejects with `bad_certificate_status_response`. A handshake staple is
+attached to the live evaluation, so a server that already stapled a current Good is not re-fetched.
+Pass an optional fallback resolver to `LiveRevocationResolver(config, fallback)` (typically a
+`TLiveRevocationChecker.ResolveVerdict`) to run the **portable** OCSP/CRL over your `IHttpFetcher`
+on an indeterminate OS outcome before the posture decides.
+
+**Android and Linux/BSD have no OS-native live revocation** (Android's platform TrustManager owns
+revocation with no network knob; Unix has no OS delegate). Compose the **portable**
+`TLiveRevocationChecker` there instead. `TSystemTrustFetch.Live` on those platforms raises a typed
+`ESystemTrustUnsupportedTlsLibException`, as does arming Live without the async verdict enabled.
+
 **Server-side (mutual-TLS client certificates).** The same posture applies to the client
 certificate a server verifies — set it with the server `WithRevocation`. A client cannot be asked
 to staple, so `Hard` client-certificate revocation is satisfiable **only** by a live resolver

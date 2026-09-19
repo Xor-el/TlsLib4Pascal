@@ -20,7 +20,11 @@ uses
   TlpICryptoProvider,
   TlpICertificateTrust,
   TlpICertificateVerifierSource,
+  TlpITlsConfig,
+  TlpTrustPolicy,
+  TlpTlsEngineFactory,
   TlpSystemTrustBase,
+  TlpOSLiveRevocation,
   TlpSystemTrustExceptions
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
   , TlpWindowsSystemTrust
@@ -56,11 +60,21 @@ type
     /// enumerate OS roots (a delegate-only platform). AProvider parses a PEM store.</summary>
     class function AnchorStore(const AProvider: ICryptoProvider)
       : ITrustAnchorStore; static;
-    /// <summary>The OS server-certificate verifier source (cache-only delegate), built per
-    /// connection from the trust context. Raises where the platform exposes no system
-    /// verifier.</summary>
-    class function ServerVerifierSource(const AProvider: ICryptoProvider)
-      : IServerCertificateVerifierSource; static;
+    /// <summary>The OS server-certificate verifier source, built per connection from the trust
+    /// context. AFetch fixes the inline behaviour: CacheOnly (no socket) or Live (defer an
+    /// indeterminate revocation to the async park). Raises where the platform exposes no system
+    /// verifier, or where Live is asked of a platform without OS-native live revocation.</summary>
+    class function ServerVerifierSource(const AProvider: ICryptoProvider;
+      AFetch: TSystemTrustFetch): IServerCertificateVerifierSource; static;
+    /// <summary>A host-owned OS-native live-revocation resolver read from the client config
+    /// (provider, clock, posture, strength policy, advertised schemes, park deadline): assign its
+    /// ResolveVerdict to the verdict seam. AFallback (may be nil) runs on an indeterminate OS
+    /// outcome before the posture decides. The caller owns and frees the result. Raises where the
+    /// platform has no OS-native live revocation.</summary>
+    class function LiveRevocationResolver(const AConfig: ITlsClientConfig;
+      const AFallback: TCertificateVerdictResolver): TOSLiveRevocationResolver; overload; static;
+    class function LiveRevocationResolver(const AConfig: ITlsClientConfig)
+      : TOSLiveRevocationResolver; overload; static;
     /// <summary>The OS client-certificate verifier source for an mTLS server: an exclusive-root
     /// chain engine over the configured client-CA anchors (never the OS/public roots). Raises
     /// where the platform exposes no OS client-certificate verifier.</summary>
@@ -78,6 +92,9 @@ resourcestring
   SNoClientDelegate =
     'this platform exposes no OS client-certificate verifier; use the built-in verifier over ' +
     'the configured client-CA anchors';
+  SNoLiveRevocation =
+    'this platform has no OS-native live revocation (only Windows and Apple do); keep cache-only ' +
+    'trust and compose the portable live-revocation checker for a live check here';
 
 { TOSSystemTrust }
 
@@ -131,19 +148,48 @@ begin
   end;
 end;
 
-class function TOSSystemTrust.ServerVerifierSource(const AProvider: ICryptoProvider)
-  : IServerCertificateVerifierSource;
+class function TOSSystemTrust.ServerVerifierSource(const AProvider: ICryptoProvider;
+  AFetch: TSystemTrustFetch): IServerCertificateVerifierSource;
 begin
   Result := nil;
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
-  Result := TWindowsServerVerifierSource.Create as IServerCertificateVerifierSource;
+  Result := TWindowsServerVerifierSource.Create(AFetch) as IServerCertificateVerifierSource;
 {$ELSEIF DEFINED(TLSLIB_IOS) OR DEFINED(TLSLIB_MACOS)}
-  Result := TAppleServerVerifierSource.Create as IServerCertificateVerifierSource;
+  Result := TAppleServerVerifierSource.Create(AFetch) as IServerCertificateVerifierSource;
 {$ELSEIF DEFINED(TLSLIB_ANDROID)}
+  // Android's platform TrustManager owns revocation and has no network-revocation knob; only
+  // cache-only (the staple post-check) is honoured here
+  if AFetch = TSystemTrustFetch.Live then
+    raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoLiveRevocation);
   Result := TAndroidServerVerifierSource.Create as IServerCertificateVerifierSource;
 {$ELSE}
   raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoDelegate);
 {$IFEND}
+end;
+
+class function TOSSystemTrust.LiveRevocationResolver(const AConfig: ITlsClientConfig;
+  const AFallback: TCertificateVerdictResolver): TOSLiveRevocationResolver;
+begin
+  Result := nil;
+{$IF DEFINED(TLSLIB_MSWINDOWS)}
+  Result := TWindowsLiveRevocationResolver.Create(AConfig.Provider,
+    AConfig.RevocationPosture, AConfig.Clock, AConfig.CertificateStrengthPolicy,
+    TTlsEngineFactory.SchemeCodes(AConfig.SignatureSchemes),
+    AConfig.AsyncCertificateVerdict.DeadlineMs, AFallback);
+{$ELSEIF DEFINED(TLSLIB_IOS) OR DEFINED(TLSLIB_MACOS)}
+  // Apple has no per-evaluation revocation timeout, so the park deadline is not threaded here
+  Result := TAppleLiveRevocationResolver.Create(AConfig.Provider,
+    AConfig.RevocationPosture, AConfig.Clock, AConfig.CertificateStrengthPolicy,
+    TTlsEngineFactory.SchemeCodes(AConfig.SignatureSchemes), AFallback);
+{$ELSE}
+  raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoLiveRevocation);
+{$IFEND}
+end;
+
+class function TOSSystemTrust.LiveRevocationResolver(const AConfig: ITlsClientConfig)
+  : TOSLiveRevocationResolver;
+begin
+  Result := LiveRevocationResolver(AConfig, nil);
 end;
 
 class function TOSSystemTrust.ClientVerifierSource(const AProvider: ICryptoProvider)

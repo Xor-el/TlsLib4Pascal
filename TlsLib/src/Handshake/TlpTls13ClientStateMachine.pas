@@ -160,7 +160,7 @@ type
   strict private
   type
     TPhase = (Initial, WaitServerHello, WaitEncryptedExtensions, WaitCertificate,
-      WaitCertificateVerify, WaitServerFinished, Connected);
+      WaitCertificateVerify, WaitServerFinished, WaitResumeVerdict, Connected);
     // how a ClientHelloOuter carrying ECH is built: the first flight, an accepting
     // HelloRetryRequest retry (re-seal at seq=1), or a rejecting one (echo CH1's ech verbatim)
     TEchChMode = (Initial, RetryAccept, RetryReject);
@@ -401,6 +401,12 @@ type
     function MiddleboxCcs: TArray<THandshakeEffect>;
     function ProcessServerFinished(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>;
+    /// <summary>The client's closing flight once the server Finished is verified and the
+    /// application secrets derived: EndOfEarlyData (accepted 0-RTT), the client-auth flight
+    /// (mutual TLS), the client Finished, the write/read application-key installs, the
+    /// resumption-transcript capture, the ECH-reject branch, and completion. Shared by the
+    /// inline path and the reverify-on-resume park's continuation.</summary>
+    function BuildClientFinishedFlight: TArray<THandshakeEffect>;
   strict protected
     function Route(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>; override;
@@ -411,6 +417,7 @@ type
     destructor Destroy; override;
     function Initiates: Boolean; override;
     function Start: TArray<THandshakeEffect>; override;
+    function ResumeAfterVerdict: TArray<THandshakeEffect>; override;
     /// <summary>The cached TLS 1.2 session this unified ClientHello offered (nil when it
     /// offered none), for a version-dispatching parent to hand to a 1.2 sub-machine when
     /// the server selects 1.2.</summary>
@@ -2010,7 +2017,7 @@ begin
   if FParams.AsyncVerdict then
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.AwaitCertificateVerdict(FCertificateChain,
-      FParams.ExpectedServerName.ToString));
+      FParams.ExpectedServerName.ToString, FReceivedOcspStaple));
 end;
 
 function TTls13ClientStateMachine.ProcessCertificate(
@@ -2183,14 +2190,15 @@ end;
 function TTls13ClientStateMachine.ProcessServerFinished(
   const AMessage: TTlsHandshakeMessage): TArray<THandshakeEffect>;
 var
-  LHashBeforeFinished, LHashAfterFinished, LClientVerifyData, LClientFinished,
-    LEndOfEarlyData: TBytes;
+  LHashBeforeFinished, LHashAfterFinished: TBytes;
+  LReverify: Boolean;
 begin
   // stricter opt-in: re-run the certificate verifier against the resumed server's stored chain (an
   // external PSK carries no chain, so it is never re-verified). The handshake write keys are live
   // by this point, so a rejection's fatal alert goes out under the right epoch.
-  if (FParams.ResumeVerification = TResumeVerification.Reverify) and FPskAccepted and
-    (FAcceptedPsk.BinderKind = TPskBinderKind.Resumption) then
+  LReverify := (FParams.ResumeVerification = TResumeVerification.Reverify) and FPskAccepted and
+    (FAcceptedPsk.BinderKind = TPskBinderKind.Resumption);
+  if LReverify then
     ReverifyResumedServer;
   // the server Finished is over the transcript EXCLUDING itself
   LHashBeforeFinished := FTranscript.CurrentHash;
@@ -2205,6 +2213,25 @@ begin
   LHashAfterFinished := FTranscript.CurrentHash;
   FSchedule.DeriveEpochSecrets(TTlsEpoch.Application, LHashAfterFinished);
 
+  // reverify-on-resume + async verdict: the inline reverify above accepted (under a live posture
+  // it defers), so park now and withhold the client's closing flight until the out-of-band
+  // verdict resolves - live revocation decides before we commit our Finished. No buffered peer
+  // message drives completion here, so the continuation comes from ResumeAfterVerdict.
+  if LReverify and FParams.AsyncVerdict then
+  begin
+    FPhase := TPhase.WaitResumeVerdict;
+    Exit(TArray<THandshakeEffect>.Create(
+      THandshakeEffects.AwaitCertificateVerdict(FResumptionPeerCertificates,
+      FParams.ExpectedServerName.ToString, nil)));
+  end;
+
+  Result := BuildClientFinishedFlight;
+end;
+
+function TTls13ClientStateMachine.BuildClientFinishedFlight: TArray<THandshakeEffect>;
+var
+  LClientVerifyData, LClientFinished, LEndOfEarlyData: TBytes;
+begin
   Result := nil;
   // accepted 0-RTT: EndOfEarlyData (under the early keys) closes early data and folds
   // into the transcript, then the write side moves to the handshake keys (RFC 8446 4.5)
@@ -2282,6 +2309,15 @@ begin
       THandshakeEffects.EchGreased);
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.HandshakeEstablished);
+end;
+
+function TTls13ClientStateMachine.ResumeAfterVerdict: TArray<THandshakeEffect>;
+begin
+  // only the reverify-on-resume park withholds a continuation; the initial-certificate park
+  // resumes by draining the buffered server flight, so there is nothing to emit for that one
+  Result := nil;
+  if FPhase = TPhase.WaitResumeVerdict then
+    Result := BuildClientFinishedFlight;
 end;
 
 function TTls13ClientStateMachine.WriteDirection: TTlsDirection;

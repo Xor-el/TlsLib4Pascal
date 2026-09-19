@@ -25,10 +25,15 @@ RUNID="tlslib-trust-$(date +%s)-$$"
 INSTALLED=0
 FAILURES=0
 OSNAME="$(uname -s)"
+# a per-run loopback port + URL for the live OCSP responder (the live cells fetch it)
+OCSP_PORT=$(( 20000 + (RANDOM % 20000) ))
+OCSP_URL="http://127.0.0.1:$OCSP_PORT"
+OCSP_PID=""
 
 THUMB=""  # set after the CA exists
 
 cleanup() {
+  if [ -n "$OCSP_PID" ]; then kill "$OCSP_PID" >/dev/null 2>&1 || true; fi
   if [ "$INSTALLED" = 1 ]; then uninstall_root || true; fi
   rm -rf "$TMP"
 }
@@ -65,8 +70,16 @@ if [ "$OSNAME" = "Darwin" ] && command -v brew >/dev/null 2>&1; then
   BREW_SSL="$(brew --prefix openssl@3 2>/dev/null || true)"
   [ -n "$BREW_SSL" ] && [ -x "$BREW_SSL/bin/openssl" ] && OPENSSL="$BREW_SSL/bin/openssl"
 fi
-OPENSSL="$OPENSSL" bash "$HERE/gen-trust-ca.sh" "$CA" "$RUNID"
+OPENSSL="$OPENSSL" bash "$HERE/gen-trust-ca.sh" "$CA" "$RUNID" "$OCSP_URL"
 THUMB="$("$OPENSSL" x509 -in "$CA/root.pem" -noout -fingerprint -sha1 | sed 's/.*=//; s/://g')"
+# a loopback OCSP responder for the live cells: serves the live index (accept leaf Valid, revoked
+# leaf Revoked) signed by the root-delegated OCSPSigning responder both crypt32 and trustd accept.
+# It runs for the whole bracket and is killed by the EXIT trap; the live cells only run after a
+# successful root install, so an unused responder here (no install privilege) is harmless.
+"$OPENSSL" ocsp -index "$CA/index_live.txt" -CA "$CA/root.pem" \
+  -rsigner "$CA/ocsp_signer.pem" -rkey "$CA/ocsp_signer.key" \
+  -port "$OCSP_PORT" -rmd sha256 >/dev/null 2>&1 &
+OCSP_PID=$!
 # a verify time past the 30-day leaf notAfter, to prove the injected clock reaches validation
 FUTURE_MS=$(( ($(date +%s) + 60*86400) * 1000 ))
 
@@ -142,6 +155,22 @@ if [ "$HAS_DELEGATE" = 1 ]; then
     cell "delegate expired via injected clock -> reject" --trust-mode os-delegate \
       --server-cert "$CA/leaf_fullchain.pem" --server-key "$CA/leaf.key" \
       --staple "$CA/ocsp_good.der" --posture hard --now-ms "$FUTURE_MS" --expect reject
+    # OS-native LIVE revocation: the OS engine fetches the loopback responder off the engine
+    # thread in the async park. Good -> accept under Hard; a definitive Revoked -> reject. No
+    # --now-ms: a live response is produced at wall-clock time, so a fixed verify date would push
+    # it outside its validity window.
+    cell "delegate live accept (2-tier, good/Hard)" --trust-mode os-delegate \
+      --revocation-fetch live --server-cert "$CA/live_fullchain.pem" \
+      --server-key "$CA/live_leaf.key" --posture hard --expect accept
+    cell "delegate live revoked -> certificate_revoked" --trust-mode os-delegate \
+      --revocation-fetch live --server-cert "$CA/live_revoked_fullchain.pem" \
+      --server-key "$CA/live_revoked_leaf.key" --posture hard --expect reject:44
+    # effective-Soft must not let a revocation-unknown outcome mask a real error: a Soft cache-only
+    # delegate cell with a hostname mismatch still rejects
+    cell "delegate soft name-mismatch -> reject" --trust-mode os-delegate \
+      --server-cert "$CA/direct_fullchain.pem" --server-key "$CA/direct_leaf.key" \
+      --staple "$CA/ocsp_good_direct.der" --posture soft --expect-name wrong.example \
+      --expect reject
     uninstall_root
     INSTALLED=0
     # bracket, after uninstall: cleanup verified - the same chain rejects again

@@ -64,6 +64,7 @@ uses
   TlpUnixSystemTrust,
 {$IFEND}
   TlpOSSystemTrust,
+  TlpSystemTrustBase,
   TlsLibTestBase;
 
 type
@@ -432,13 +433,14 @@ begin
   // same contract for the OS delegate source: a source where supported (Windows/macOS/iOS/Android),
   // a typed unsupported error where not (Linux/BSD/Solaris).
   if TOSSystemTrust.Supports(TSystemTrustMode.Delegate) then
-    CheckTrue(TOSSystemTrust.ServerVerifierSource(FProvider) <> nil,
+    CheckTrue(TOSSystemTrust.ServerVerifierSource(FProvider,
+      TSystemTrustFetch.CacheOnly) <> nil,
       'a platform that supports Delegate must hand back an OS server-verifier source')
   else
   begin
     LRaised := False;
     try
-      TOSSystemTrust.ServerVerifierSource(FProvider);
+      TOSSystemTrust.ServerVerifierSource(FProvider, TSystemTrustFetch.CacheOnly);
     except
       on E: ESystemTrustUnsupportedTlsLibException do
         LRaised := True;

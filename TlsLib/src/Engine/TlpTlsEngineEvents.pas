@@ -31,7 +31,7 @@ type
     class function MakePeerAlert(const AAlert: TReceivedAlert): ITlsEvent; static;
     class function MakeHandshakeFragment(const AData: TBytes): ITlsEvent; static;
     class function MakeCertificateReceived(const AChain: TArray<TBytes>;
-      const AHostName: string): ITlsEvent; static;
+      const AHostName: string; const AStaple: TBytes): ITlsEvent; static;
   end;
 
 implementation
@@ -72,11 +72,14 @@ type
   var
     FChain: TArray<TBytes>;
     FHostName: string;
+    FOcspStaple: TBytes;
   public
-    constructor Create(const AChain: TArray<TBytes>; const AHostName: string);
+    constructor Create(const AChain: TArray<TBytes>; const AHostName: string;
+      const AStaple: TBytes);
     function Kind: TTlsEventKind;
     function Chain: TArray<TBytes>;
     function HostName: string;
+    function OcspStaple: TBytes;
   end;
 
 { TSimpleEvent }
@@ -131,7 +134,7 @@ end;
 { TCertificateReceivedEvent }
 
 constructor TCertificateReceivedEvent.Create(const AChain: TArray<TBytes>;
-  const AHostName: string);
+  const AHostName: string; const AStaple: TBytes);
 var
   LI: Int32;
 begin
@@ -142,6 +145,7 @@ begin
   for LI := 0 to System.High(AChain) do
     FChain[LI] := System.Copy(AChain[LI]);
   FHostName := AHostName;
+  FOcspStaple := System.Copy(AStaple);
 end;
 
 function TCertificateReceivedEvent.Kind: TTlsEventKind;
@@ -162,6 +166,11 @@ end;
 function TCertificateReceivedEvent.HostName: string;
 begin
   Result := FHostName;
+end;
+
+function TCertificateReceivedEvent.OcspStaple: TBytes;
+begin
+  Result := System.Copy(FOcspStaple);
 end;
 
 { TTlsEvents }
@@ -197,9 +206,9 @@ begin
 end;
 
 class function TTlsEvents.MakeCertificateReceived(const AChain: TArray<TBytes>;
-  const AHostName: string): ITlsEvent;
+  const AHostName: string; const AStaple: TBytes): ITlsEvent;
 begin
-  Result := TCertificateReceivedEvent.Create(AChain, AHostName);
+  Result := TCertificateReceivedEvent.Create(AChain, AHostName, AStaple);
 end;
 
 end.

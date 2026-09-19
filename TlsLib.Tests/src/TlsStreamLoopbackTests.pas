@@ -123,12 +123,12 @@ type
       const AHostName: string): Boolean;
     function AlwaysAccept(const AChain: TArray<TBytes>;
       const AHostName: string): Boolean;
-    /// <summary>The verdict-resolver form (the seam's 3-arg signature): a live-revocation-style
+    /// <summary>The verdict-resolver form (the seam's context signature): a live-revocation-style
     /// resolver reporting the reject alert. Reuses AlwaysAccept/AlwaysReject for the decision.</summary>
-    function ResolverAccept(const AChain: TArray<TBytes>;
-      const AHostName: string; out ARejectAlert: TTlsAlertDescription): Boolean;
-    function ResolverReject(const AChain: TArray<TBytes>;
-      const AHostName: string; out ARejectAlert: TTlsAlertDescription): Boolean;
+    function ResolverAccept(const ACtx: TCertificateVerdictContext;
+      out ARejectAlert: TTlsAlertDescription): Boolean;
+    function ResolverReject(const ACtx: TCertificateVerdictContext;
+      out ARejectAlert: TTlsAlertDescription): Boolean;
     function SpkiSha256(const ACertDer: TBytes): TBytes;
     /// <summary>A client config with the async peer-certificate verdict enabled.</summary>
     function AsyncClientConfig: ITlsClientConfig;
@@ -414,18 +414,20 @@ begin
   Result := System.Length(AChain) > 0;
 end;
 
-function TTestTlsStreamLoopback.ResolverAccept(const AChain: TArray<TBytes>;
-  const AHostName: string; out ARejectAlert: TTlsAlertDescription): Boolean;
+function TTestTlsStreamLoopback.ResolverAccept(
+  const ACtx: TCertificateVerdictContext;
+  out ARejectAlert: TTlsAlertDescription): Boolean;
 begin
   ARejectAlert := TTlsAlertDescription.BadCertificate;
-  Result := AlwaysAccept(AChain, AHostName);
+  Result := AlwaysAccept(ACtx.Chain, ACtx.HostName);
 end;
 
-function TTestTlsStreamLoopback.ResolverReject(const AChain: TArray<TBytes>;
-  const AHostName: string; out ARejectAlert: TTlsAlertDescription): Boolean;
+function TTestTlsStreamLoopback.ResolverReject(
+  const ACtx: TCertificateVerdictContext;
+  out ARejectAlert: TTlsAlertDescription): Boolean;
 begin
   ARejectAlert := TTlsAlertDescription.BadCertificate;
-  Result := AlwaysReject(AChain, AHostName);
+  Result := AlwaysReject(ACtx.Chain, ACtx.HostName);
 end;
 
 function TTestTlsStreamLoopback.AsyncClientConfig: ITlsClientConfig;

@@ -63,6 +63,8 @@ type
     /// <summary>Forwards a post-handshake KeyUpdate request to the resolved sub-machine.</summary>
     function RequestKeyUpdate(ARequestPeerUpdate: Boolean): TArray<THandshakeEffect>;
     function TakePendingKeyUpdate: TArray<THandshakeEffect>;
+    /// <summary>Forwards a resume-after-verdict continuation to the resolved sub-machine.</summary>
+    function ResumeAfterVerdict: TArray<THandshakeEffect>;
     /// <summary>Forwards an exporter request to the resolved sub-machine.</summary>
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       AUseContext: Boolean; ALength: Int32): TBytes;
@@ -163,6 +165,14 @@ function TVersionDispatchMachineBase.TakePendingKeyUpdate: TArray<THandshakeEffe
 begin
   if FInner <> nil then
     Result := FInner.TakePendingKeyUpdate
+  else
+    Result := nil;
+end;
+
+function TVersionDispatchMachineBase.ResumeAfterVerdict: TArray<THandshakeEffect>;
+begin
+  if FInner <> nil then
+    Result := FInner.ResumeAfterVerdict
   else
     Result := nil;
 end;

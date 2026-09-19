@@ -25,6 +25,13 @@ uses
 
 type
   /// <summary>
+  /// How the OS trust delegate performs revocation. CacheOnly (the default) evaluates against the
+  /// OS revocation cache / the handshake staple with no socket, inline on the engine thread.
+  /// Live re-runs the OS engine with network fetch enabled, off the engine thread in the async
+  /// verdict park (the inline pass then defers an indeterminate revocation so the handshake parks).
+  /// </summary>
+  TSystemTrustFetch = (CacheOnly, Live);
+  /// <summary>
   /// Deduplicates harvested roots by exact bytes: a filesystem store walking
   /// hashed-symlink directories sees the same certificate under several names.
   /// </summary>

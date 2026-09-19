@@ -182,7 +182,7 @@ type
     procedure OnVersionNegotiated(const AVersion: TTlsVersion);
     procedure OnOcspStapleReceived(const AStaple: TBytes);
     procedure OnCertificateVerdictNeeded(const AChain: TArray<TBytes>;
-      const AHostName: string);
+      const AHostName: string; const AStaple: TBytes);
     procedure OnPeerCertificateChain(const AChain: TArray<TBytes>);
     procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>);
     procedure OnConnectionParams(ACipherSuite, ANamedGroup: UInt16; AResumed: Boolean;
@@ -244,7 +244,7 @@ type
     procedure OnVersionNegotiated(const AVersion: TTlsVersion);
     procedure OnOcspStapleReceived(const AStaple: TBytes);
     procedure OnCertificateVerdictNeeded(const AChain: TArray<TBytes>;
-      const AHostName: string);
+      const AHostName: string; const AStaple: TBytes);
     procedure OnPeerCertificateChain(const AChain: TArray<TBytes>);
     procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>);
     procedure OnConnectionParams(ACipherSuite, ANamedGroup: UInt16; AResumed: Boolean;
@@ -325,9 +325,9 @@ begin
 end;
 
 procedure TEngineHandshakeBridge.OnCertificateVerdictNeeded(
-  const AChain: TArray<TBytes>; const AHostName: string);
+  const AChain: TArray<TBytes>; const AHostName: string; const AStaple: TBytes);
 begin
-  FEngine.OnCertificateVerdictNeeded(AChain, AHostName);
+  FEngine.OnCertificateVerdictNeeded(AChain, AHostName, AStaple);
 end;
 
 procedure TEngineHandshakeBridge.OnPeerCertificateChain(
@@ -1024,13 +1024,16 @@ begin
 end;
 
 procedure TTlsEngine.OnCertificateVerdictNeeded(const AChain: TArray<TBytes>;
-  const AHostName: string);
+  const AHostName: string; const AStaple: TBytes);
 begin
   // the built-in pipeline has already accepted this chain; park and surface it so a host can
   // decide out-of-band (augment-only). The handshake makes no further progress until
-  // SetCertificateVerdict resumes it.
+  // SetCertificateVerdict resumes it. The park must not fire after completion.
+{$IFDEF DEBUG}
+  System.Assert(not FHandshakeComplete);
+{$ENDIF DEBUG}
   FAwaitingVerdict := True;
-  Enqueue(TTlsEvents.MakeCertificateReceived(AChain, AHostName));
+  Enqueue(TTlsEvents.MakeCertificateReceived(AChain, AHostName, AStaple));
 end;
 
 procedure TTlsEngine.OnHandshakeEstablished;

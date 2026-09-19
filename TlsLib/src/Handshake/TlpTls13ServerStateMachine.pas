@@ -1663,7 +1663,7 @@ begin
   // decision (the buffered CertificateVerify/Finished resume once SetCertificateVerdict does)
   if FParams.AsyncVerdict then
     TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.AwaitCertificateVerdict(FClientCertChain, ''));
+      THandshakeEffects.AwaitCertificateVerdict(FClientCertChain, '', nil));
 end;
 
 function TTls13ServerStateMachine.ProcessClientCertVerify(

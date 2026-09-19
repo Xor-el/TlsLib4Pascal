@@ -17,6 +17,7 @@ interface
 
 uses
   SysUtils,
+  TlpTlsAlert,
   TlpICryptoProvider,
   TlpIClock,
   TlpICertificateTrust,
@@ -81,6 +82,28 @@ type
     Enabled: Boolean;
     DeadlineMs: Cardinal;
   end;
+
+  /// <summary>
+  /// What an out-of-band verdict resolver receives for a parked peer certificate: the chain
+  /// (leaf first, DER) the built-in pipeline already accepted, the expected host (empty on the
+  /// server side), and the handshake OCSP staple (empty when none) so a live check can skip a
+  /// fetch the server already answered in-band.
+  /// </summary>
+  TCertificateVerdictContext = record
+    Chain: TArray<TBytes>;
+    HostName: string;
+    OcspStaple: TBytes;
+  end;
+
+  /// <summary>
+  /// Decides a parked peer-certificate verdict out-of-band (RFC 8446 deferred-verdict seam).
+  /// Return True to continue the handshake, False to abort it; on False, ARejectAlert selects
+  /// the abort alert (default bad_certificate; a definitive live-revocation reject sets
+  /// certificate_revoked). The resolver owns any deadline: a check that cannot decide in time
+  /// returns False (fail-closed). Reached only when async certificate verdicts are enabled.
+  /// </summary>
+  TCertificateVerdictResolver = function(const ACtx: TCertificateVerdictContext;
+    out ARejectAlert: TTlsAlertDescription): Boolean of object;
 
   /// <summary>
   /// The trust parameters the engine gathers once from the frozen config and hands a

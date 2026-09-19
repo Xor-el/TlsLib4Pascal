@@ -57,7 +57,6 @@ type
   TTlsEngineFactory = class sealed(TObject)
   strict private
     class function SuiteCodes(const ARegistry: ICipherSuiteRegistry): TArray<UInt16>; static;
-    class function SchemeCodes(const ARegistry: ISignatureSchemeRegistry): TArray<UInt16>; static;
     class function PreferredGroup(const AConfig: ITlsCommonConfig;
       out ACode: UInt16): INamedGroup; static;
     /// <summary>The first preferred classical ECDHE group (TLS 1.2 excludes KEM/hybrid).</summary>
@@ -77,6 +76,10 @@ type
     class function Offers(const AConfig: ITlsCommonConfig;
       AVersion: UInt16): Boolean; static;
   public
+    /// <summary>The advertised signature-scheme codepoints for a config's registry, in order -
+    /// the same set the trust context carries, so an out-of-band resolver built from the config
+    /// runs the chain-algorithm policy over exactly what was advertised on the wire.</summary>
+    class function SchemeCodes(const ARegistry: ISignatureSchemeRegistry): TArray<UInt16>; static;
     /// <summary>A client engine wired from the config, ready for StartHandshake.</summary>
     class function CreateClientEngine(const AConfig: ITlsClientConfig;
       const AHost: string): ITlsEngine; static;

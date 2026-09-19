@@ -30,7 +30,10 @@ uses
   TlpITlsConfigBuilder,
   TlpTlsPresets,
   TlpTlsEngineFactory,
+  TlpITlsConfig,
   TlpSystemTrustFacade,
+  TlpSystemTrustBase,
+  TlpOSLiveRevocation,
   TlpOSSystemTrust,
   InteropSocket,
   InteropEngine,
@@ -43,6 +46,7 @@ type
   TTrustCell = record
     TlsVersion: UInt16;
     Delegate: Boolean;
+    Live: Boolean;
     RootFile: string;
     ServerCertFile: string;
     ServerKeyFile: string;
@@ -71,8 +75,8 @@ type
     class function ParsePosture(const ASpec: string): TRevocationPosture; static;
     /// <summary>Parses --expect accept | reject | reject:&lt;alertnum&gt; into ACell.</summary>
     class procedure ParseExpect(const ASpec: string; var ACell: TTrustCell); static;
-    class function BuildClientEngine(const AProvider: ICryptoProvider;
-      const ACell: TTrustCell): ITlsEngine; static;
+    class function BuildClientConfig(const AProvider: ICryptoProvider;
+      const ACell: TTrustCell): ITlsClientConfig; static;
     class function RunClient(APort: Word; const ACell: TTrustCell): string; static;
     class function RunCell(const ACell: TTrustCell): string; static;
   public
@@ -226,8 +230,11 @@ begin
   end;
 end;
 
-class function TTrustDelegateInteropRunner.BuildClientEngine(
-  const AProvider: ICryptoProvider; const ACell: TTrustCell): ITlsEngine;
+class function TTrustDelegateInteropRunner.BuildClientConfig(
+  const AProvider: ICryptoProvider; const ACell: TTrustCell): ITlsClientConfig;
+const
+  // the async park deadline for the live cells; the OS fetch over loopback settles well within it
+  LiveDeadlineMs = Cardinal(10000);
 var
   LBuilder: ITlsConfigBuilder;
   LClient: ITlsClientConfigBuilder;
@@ -240,11 +247,17 @@ begin
   if ACell.UseClock then
     LClient.WithClock(TFixedClock.Create(ACell.NowMs) as ITlsClock);
   if ACell.Delegate then
-    // verify the server certificate through the OS trust engine against the real machine store
-    TSystemTrust.WithSystemTrust(LClient, AProvider, TSystemTrustMode.Delegate)
+  begin
+    // verify the server certificate through the OS trust engine against the real machine store;
+    // live arms the async park the OS-native resolver decides in
+    if ACell.Live then
+      TSystemTrust.WithSystemTrust(LClient, AProvider, TSystemTrustFetch.Live, LiveDeadlineMs)
+    else
+      TSystemTrust.WithSystemTrust(LClient, AProvider, TSystemTrustMode.Delegate);
+  end
   else
     LClient.WithTrustStore(TInteropCredentials.TrustFromPem(AProvider, ACell.RootFile));
-  Result := TTlsEngineFactory.CreateClientEngine(LClient.Build, ACell.ExpectName);
+  Result := LClient.Build;
 end;
 
 class function TTrustDelegateInteropRunner.RunClient(APort: Word;
@@ -252,7 +265,9 @@ class function TTrustDelegateInteropRunner.RunClient(APort: Word;
 var
   LSocket: TInteropSocket;
   LProvider: ICryptoProvider;
+  LConfig: ITlsClientConfig;
   LEngine: ITlsEngine;
+  LResolver: TOSLiveRevocationResolver;
   LResult: TInteropResult;
   LSent: TBytes;
 begin
@@ -260,9 +275,21 @@ begin
   LSocket := TInteropSocket.Connect('127.0.0.1', APort);
   try
     LProvider := TInteropEngine.DefaultProvider;
-    LEngine := BuildClientEngine(LProvider, ACell);
+    LConfig := BuildClientConfig(LProvider, ACell);
+    LEngine := TTlsEngineFactory.CreateClientEngine(LConfig, ACell.ExpectName);
     LEngine.StartHandshake;
-    LResult := TInteropPump.DriveHandshake(LEngine, LSocket);
+    if ACell.Live then
+    begin
+      // the host resolves the async park by re-running the OS engine live (network on)
+      LResolver := TOSSystemTrust.LiveRevocationResolver(LConfig);
+      try
+        LResult := TInteropPump.DriveHandshake(LEngine, LSocket, LResolver.ResolveVerdict);
+      finally
+        LResolver.Free;
+      end;
+    end
+    else
+      LResult := TInteropPump.DriveHandshake(LEngine, LSocket);
 
     if not ACell.ExpectAccept then
     begin
@@ -333,6 +360,10 @@ begin
     else
       LCell.TlsVersion := TlsWireVersionTls13;
     LCell.Delegate := SameText(ArgValue('--trust-mode', 'portable'), 'os-delegate');
+    // live OS-native revocation implies the OS delegate (the live re-check runs the OS engine)
+    LCell.Live := SameText(ArgValue('--revocation-fetch', 'cache'), 'live');
+    if LCell.Live then
+      LCell.Delegate := True;
     LCell.RootFile := ArgValue('--root', '');
     LCell.ServerCertFile := ArgValue('--server-cert', '');
     LCell.ServerKeyFile := ArgValue('--server-key', '');

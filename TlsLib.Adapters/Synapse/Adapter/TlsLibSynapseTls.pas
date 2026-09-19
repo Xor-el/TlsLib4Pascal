@@ -65,7 +65,7 @@ procedure SetTlsLibSynapseVerifyCallback(const ACallback: TTlsCertificateVerifyC
 /// <summary>Sets a process-wide out-of-band verdict resolver (e.g. live OCSP/CRL): when set,
 /// every client handshake parks after the pipeline accepts the chain and this decides it.
 /// ADeadlineMs is advisory. nil clears it.</summary>
-procedure SetTlsLibSynapseVerdictResolver(const AResolver: TTlsVerdictResolver;
+procedure SetTlsLibSynapseVerdictResolver(const AResolver: TCertificateVerdictResolver;
   ADeadlineMs: Cardinal);
 /// <summary>Clears the process-wide build-once config caches so the next handshake rebuilds from
 /// current inputs. Call after rotating a certificate/key to purge the retired credential (a cached
@@ -199,7 +199,7 @@ resourcestring
 var
   // process-wide neutral hooks the per-socket plugin threads into each client handshake
   GVerifyCallback: TTlsCertificateVerifyCallback;
-  GVerdictResolver: TTlsVerdictResolver;
+  GVerdictResolver: TCertificateVerdictResolver;
   GVerdictDeadlineMs: Cardinal;
   // the plugin is created per socket, so the build-once memos live process-wide (like the hooks
   // above); keyed so several servers with different certs in one process do not thrash
@@ -212,7 +212,7 @@ begin
   GVerifyCallback := ACallback;
 end;
 
-procedure SetTlsLibSynapseVerdictResolver(const AResolver: TTlsVerdictResolver;
+procedure SetTlsLibSynapseVerdictResolver(const AResolver: TCertificateVerdictResolver;
   ADeadlineMs: Cardinal);
 begin
   GVerdictResolver := AResolver;

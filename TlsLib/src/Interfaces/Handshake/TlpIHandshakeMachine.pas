@@ -48,6 +48,12 @@ type
     /// the engine flushes it just before the next application write. Empty when none is
     /// pending or the machine/version has no KeyUpdate.</summary>
     function TakePendingKeyUpdate: TArray<THandshakeEffect>;
+    /// <summary>Resumes a handshake parked for an out-of-band verdict at a point with no
+    /// buffered peer message to drive it (the TLS 1.3 reverify-on-resume park at ServerFinished),
+    /// returning the withheld continuation - the client's own closing flight. Empty for the
+    /// initial-certificate park (the buffered server flight drives that) and for every
+    /// machine/version that does not park at a message-less point.</summary>
+    function ResumeAfterVerdict: TArray<THandshakeEffect>;
     /// <summary>Exported keying material over the established secrets (RFC 8446 7.5 / RFC
     /// 5705). Empty for a machine/version that has not yet derived its secrets.</summary>
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
@@ -90,7 +96,7 @@ type
   IHandshakeVerdictSink = interface(IInterface)
     ['{6F1B4D28-7A93-4C05-9E16-2D7C4B8F0A31}']
     procedure OnCertificateVerdictNeeded(const AChain: TArray<TBytes>;
-      const AHostName: string);
+      const AHostName: string; const AStaple: TBytes);
   end;
 
   /// <summary>

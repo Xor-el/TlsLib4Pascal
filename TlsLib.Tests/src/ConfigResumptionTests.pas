@@ -58,6 +58,9 @@ type
     function NewRejectingClient13(const ACache: ISessionCache): ITlsEngine;
     /// <summary>Like NewRejectingClient13 but with Reverify, so it re-checks a resumed server.</summary>
     function NewReverifyRejectClient13(const ACache: ISessionCache): ITlsEngine;
+    /// <summary>A permissive client with Reverify + async verdict: the resumption handshake
+    /// re-checks inline (accepts) then parks at ServerFinished for the out-of-band verdict.</summary>
+    function NewReverifyAsyncClient13(const ACache: ISessionCache): ITlsEngine;
     /// <summary>A TLS 1.3 server engine; AIssueTickets tickets, resumption toggle.</summary>
     function NewServer13(const AStore: ISessionStore; AIssueTickets: Int32;
       AResumption: Boolean): ITlsEngine;
@@ -67,6 +70,10 @@ type
     procedure Feed(const AEngine: ITlsEngine; const AWire: TBytes);
     procedure Pump(const ASrc, ADst: ITlsEngine);
     procedure PumpToCompletion(const AClient, AServer: ITlsEngine);
+    /// <summary>Like PumpToCompletion but resolves a parked peer-certificate verdict with
+    /// AAccept/AAlert, so the async park (initial-cert or reverify-on-resume) can proceed.</summary>
+    procedure PumpToCompletionResolving(const AClient, AServer: ITlsEngine;
+      AAccept: Boolean; AAlert: TTlsAlertDescription);
     function ReadAllApp(const AEngine: ITlsEngine): TBytes;
     procedure CheckAppDataFlows(const AClient, AServer: ITlsEngine);
     /// <summary>Whether a plaintext handshake flight carries a Certificate (type 11):
@@ -87,6 +94,8 @@ type
     procedure TestStrictResumptionReEnabledWithNoGuard;
     procedure TestPerConfigCacheIsolatesCrossConfigResumption;
     procedure TestReverifyOnResumeRejectsUntrustedServer;
+    procedure TestReverifyOnResumeAsyncParkAcceptsCompletes;
+    procedure TestReverifyOnResumeAsyncParkRejectAborts;
   end;
 
 implementation
@@ -175,6 +184,23 @@ begin
   Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
 end;
 
+function TTestConfigResumption.NewReverifyAsyncClient13(
+  const ACache: ISessionCache): ITlsEngine;
+var
+  LConfig: ITlsClientConfig;
+begin
+  // permissive trust accepts the server chain inline; Reverify + async verdict make the
+  // resumption handshake re-check inline (accept) then park at ServerFinished for the verdict
+  LConfig := TTlsPresets.Hardened(Provider).Client
+    .WithTrustStore(ClientTrust)
+    .WithResumption(True)
+    .WithResumeVerification(TResumeVerification.Reverify)
+    .WithAsyncCertificateVerdict(True, 0)
+    .WithSessionCache(ACache)
+    .Build;
+  Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
+end;
+
 function TTestConfigResumption.NewServer13(const AStore: ISessionStore;
   AIssueTickets: Int32; AResumption: Boolean): ITlsEngine;
 var
@@ -258,6 +284,25 @@ begin
     Inc(LIterations);
   end;
   // flush any post-handshake NewSessionTicket from the server to the client
+  Pump(AServer, AClient);
+end;
+
+procedure TTestConfigResumption.PumpToCompletionResolving(const AClient,
+  AServer: ITlsEngine; AAccept: Boolean; AAlert: TTlsAlertDescription);
+var
+  LIterations: Int32;
+begin
+  AClient.StartHandshake;
+  LIterations := 0;
+  while (AClient.IsHandshaking or AServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    // resolve a parked peer-certificate verdict so the client can emit its withheld flight
+    if AClient.AwaitingCertificateVerdict then
+      AClient.SetCertificateVerdict(AAccept, AAlert);
+    Pump(AClient, AServer);
+    Pump(AServer, AClient);
+    Inc(LIterations);
+  end;
   Pump(AServer, AClient);
 end;
 
@@ -545,6 +590,56 @@ begin
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
   PumpToCompletion(LClient, LServer);
   CheckTrue(LClient.IsTerminal, 'Reverify re-checked the resumed server and rejected it');
+end;
+
+procedure TTestConfigResumption.TestReverifyOnResumeAsyncParkAcceptsCompletes;
+var
+  LCache: ISessionCache;
+  LServerConfig: ITlsServerConfig;
+  LClient, LServer: ITlsEngine;
+begin
+  // a permissive client caches a resumable session
+  LCache := TInMemorySessionCache.Create;
+  LServerConfig := TTlsPresets.Hardened(Provider).Server
+    .WithCredential(ServerCredential).Build;
+  LClient := NewClient13(LCache, True);
+  LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LCache.Count >= 1, 'the permissive client cached a session');
+
+  // resume with Reverify + async: the inline reverify accepts, the handshake parks at
+  // ServerFinished (the client Finished is withheld), and the accepted out-of-band verdict
+  // drives the withheld continuation to completion
+  LClient := NewReverifyAsyncClient13(LCache);
+  LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
+  PumpToCompletionResolving(LClient, LServer, True,
+    TTlsAlertDescription.BadCertificate);
+  CheckTrue(LClient.IsResumed, 'the async reverify-on-resume handshake resumed');
+  CheckFalse(LClient.IsHandshaking, 'the resumed handshake completed after the accepted park');
+  CheckFalse(LClient.IsTerminal, 'an accepted verdict did not abort');
+end;
+
+procedure TTestConfigResumption.TestReverifyOnResumeAsyncParkRejectAborts;
+var
+  LCache: ISessionCache;
+  LServerConfig: ITlsServerConfig;
+  LClient, LServer: ITlsEngine;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LServerConfig := TTlsPresets.Hardened(Provider).Server
+    .WithCredential(ServerCredential).Build;
+  LClient := NewClient13(LCache, True);
+  LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LCache.Count >= 1, 'the permissive client cached a session');
+
+  // resume with Reverify + async, then REJECT the out-of-band verdict: the parked handshake
+  // aborts fail-closed with the resolver's alert (augment-only); the client Finished is never sent
+  LClient := NewReverifyAsyncClient13(LCache);
+  LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
+  PumpToCompletionResolving(LClient, LServer, False,
+    TTlsAlertDescription.CertificateRevoked);
+  CheckTrue(LClient.IsTerminal, 'a rejected park aborted the resumed handshake');
 end;
 
 initialization

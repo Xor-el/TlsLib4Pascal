@@ -256,6 +256,9 @@ end;
 
 procedure THandshakeConductor.ResolveCertificateVerdict(AAccept: Boolean;
   AAlert: TTlsAlertDescription);
+var
+  LEffects: TArray<THandshakeEffect>;
+  LWasEstablished: Boolean;
 begin
   if not FVerdictPending then
     Exit;
@@ -268,8 +271,27 @@ begin
     FDriver.Apply(THandshakeEffects.Fail(AAlert));
     Exit;
   end;
-  // accepted: process the buffered remainder of the server flight (CertificateVerify,
-  // Finished), which drives the client's own flight and completes the handshake
+  // accepted. First apply any continuation the machine withheld behind the park: the TLS 1.3
+  // reverify-on-resume park sits at ServerFinished, where no peer message remains to drive
+  // completion, so the machine emits its closing flight here. The initial-certificate park
+  // returns none - its buffered server flight drives it below.
+  LWasEstablished := FEstablished;
+  LEffects := FMachine.ResumeAfterVerdict;
+  FDriver.ApplyAll(LEffects);
+  if HasFail(LEffects) then
+    Exit;
+  if HasEstablished(LEffects) then
+    FEstablished := True;
+  // the same flight-boundary excess-data guard DrainInbound applies to a batch: the peer's
+  // prior flight (the server Finished) must have ended on a record boundary
+  if FChannel.HasPartialInbound and
+    (HasEstablished(LEffects) or (HasFlightBoundary(LEffects) and not LWasEstablished)) then
+  begin
+    FDriver.Apply(THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage));
+    Exit;
+  end;
+  // process the buffered remainder: the initial-park server flight (CertificateVerify,
+  // Finished), or a NewSessionTicket coalesced behind the resumed server Finished
   DrainInbound;
 end;
 

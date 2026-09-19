@@ -751,7 +751,7 @@ begin
     // decision (the buffered ClientKeyExchange/CertificateVerify/Finished resume on accept)
     if FParams.AsyncVerdict then
       TArrayUtilities.Append<THandshakeEffect>(Result,
-        THandshakeEffects.AwaitCertificateVerdict(FClientCertChain, ''));
+        THandshakeEffects.AwaitCertificateVerdict(FClientCertChain, '', nil));
   end;
 
   FPhase := TPhase.WaitClientKeyExchange;

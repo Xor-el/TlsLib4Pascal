@@ -132,7 +132,7 @@ type
     FAlpnProtocols: TArray<string>;
     FKeyPassword: string;
     FVerifyCallback: TTlsCertificateVerifyCallback;
-    FVerdictResolver: TTlsVerdictResolver;
+    FVerdictResolver: TCertificateVerdictResolver;
     FVerdictDeadlineMs: Cardinal;
     FClientConfig: ITlsClientConfig;
     FServerConfig: ITlsServerConfig;
@@ -213,7 +213,7 @@ type
       write FVerifyCallback;
     /// <summary>When assigned, the handshake parks after the pipeline accepts the peer chain and
     /// this resolves the verdict out-of-band (e.g. live OCSP/CRL); augment-only, fail-closed.</summary>
-    property VerdictResolver: TTlsVerdictResolver read FVerdictResolver
+    property VerdictResolver: TCertificateVerdictResolver read FVerdictResolver
       write FVerdictResolver;
     /// <summary>The advisory deadline (ms) for an awaited verdict; 0 leaves it to the resolver.</summary>
     property VerdictDeadlineMs: Cardinal read FVerdictDeadlineMs

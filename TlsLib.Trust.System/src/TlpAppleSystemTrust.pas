@@ -28,11 +28,12 @@ uses
   TlpCertificateStrengthPolicy,
   TlpChainAlgorithmPolicy,
   TlpTrustPolicy,
+  TlpLiveRevocation,
   TlpIClock,
   TlpServerName,
-{$IFDEF TLSLIB_MACOS}
+  TlpSystemTrustExceptions,
   TlpSystemTrustBase,
-{$ENDIF}
+  TlpOSLiveRevocation,
 {$IFEND}
   Generics.Collections,
   SysUtils,
@@ -77,12 +78,13 @@ type
   strict private
     FProvider: ICryptoProvider;
     FPosture: TRevocationPosture;
+    FFetch: TSystemTrustFetch;
     FClock: ITlsClock;
     FStrengthPolicy: TCertificateStrengthPolicy;
     FAdvertised: TArray<UInt16>;
   public
     constructor Create(const AProvider: ICryptoProvider;
-      APosture: TRevocationPosture; const AClock: ITlsClock;
+      APosture: TRevocationPosture; AFetch: TSystemTrustFetch; const AClock: ITlsClock;
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>);
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
@@ -91,13 +93,38 @@ type
   end;
 
   /// <summary>
+  /// The Apple OS-native live-revocation resolver: re-runs SecTrust with network fetch enabled
+  /// (the revocation policy's network-disabled flag dropped, RequirePositiveResponse on) off the
+  /// engine thread in the async park, and classifies the outcome for the shared base. Host-owned;
+  /// assign ResolveVerdict to the seam. macOS and iOS.
+  /// </summary>
+  TAppleLiveRevocationResolver = class sealed(TOSLiveRevocationResolver)
+  strict private
+    FProvider: ICryptoProvider;
+    FClock: ITlsClock;
+    FStrengthPolicy: TCertificateStrengthPolicy;
+    FAdvertised: TArray<UInt16>;
+  strict protected
+    function EvaluateLive(const AChain: TArray<TBytes>; const AHostName: string;
+      const AStaple: TBytes; out AOutcome: TLiveRevocationOutcome;
+      out ARejectAlert: TTlsAlertDescription): Boolean; override;
+  public
+    constructor Create(const AProvider: ICryptoProvider; APosture: TRevocationPosture;
+      const AClock: ITlsClock; const AStrengthPolicy: TCertificateStrengthPolicy;
+      const AAdvertised: TArray<UInt16>; const AFallback: TCertificateVerdictResolver);
+  end;
+
+  /// <summary>
   /// The Apple server-certificate verifier source: builds a delegate from the connection's
   /// trust context, so its revocation posture and clock are injected the same way the built-in
-  /// verifier receives them.
+  /// verifier receives them. AFetch fixes cache-only vs live inline behaviour.
   /// </summary>
   TAppleServerVerifierSource = class sealed(TInterfacedObject,
     IServerCertificateVerifierSource)
+  strict private
+    FFetch: TSystemTrustFetch;
   public
+    constructor Create(AFetch: TSystemTrustFetch);
     function CreateServerVerifier(const AContext: TServerTrustContext)
       : IServerCertificateVerifier;
   end;
@@ -140,6 +167,11 @@ type
 {$IFEND}
 
 implementation
+
+resourcestring
+  SLiveNeedsAsyncVerdict =
+    'OS-native live revocation needs the async certificate verdict enabled (it defers the live ' +
+    'check to the out-of-band park); call WithAsyncCertificateVerdict, or use cache-only trust';
 
 const
   // errSec OSStatus values (SecBase.h) whose meaning we surface as a granular alert.
@@ -362,11 +394,36 @@ type
     /// time AClock supplies, consuming the stapled OCSP response as the cached response. APosture
     /// adds the revocation policy (Soft best-effort, Hard require-positive, Off none). Returns True
     /// when trusted; on rejection returns False with AAlert set to the matching fatal alert.</summary>
+    /// <summary>The shared SecTrust evaluation: builds the SSL trust (with a revocation policy
+    /// when AAddRevocation, network per ANetworkAllowed, RequirePositiveResponse per ARequirePositive),
+    /// pins the verify date, consumes the staple, and classifies the result as a tri-state. Returns
+    /// True with AOutcome in {Good, Revoked, Indeterminate}; False with AAlert on a definitive
+    /// non-revocation trust (or strength) failure. Good means trust + strength passed.</summary>
+    class function EvaluateTrust(const AChain: TArray<TBytes>;
+      const AHostName: string; const AOcspStaple: TBytes; ANetworkAllowed: Boolean;
+      AAddRevocation, ARequirePositive: Boolean; const AClock: ITlsClock;
+      const AProvider: ICryptoProvider;
+      const AStrengthPolicy: TCertificateStrengthPolicy;
+      const AAdvertised: TArray<UInt16>; out AOutcome: TLiveRevocationOutcome;
+      out AAlert: TTlsAlertDescription): Boolean; static;
+    /// <summary>The inline cache-only server evaluation (no socket). Live downgrades a configured
+    /// Hard to effective-Soft so an indeterminate revocation defers to the async park.</summary>
     class function EvaluateSslChain(const AChain: TArray<TBytes>;
-      const AHostName: string; APosture: TRevocationPosture; const AClock: ITlsClock;
+      const AHostName: string; APosture: TRevocationPosture; AFetch: TSystemTrustFetch;
+      const AClock: ITlsClock;
       const AOcspStaple: TBytes; const AProvider: ICryptoProvider;
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>;
+      out AAlert: TTlsAlertDescription): Boolean; static;
+    /// <summary>Runs the SERVER evaluation LIVE (network on, network-disabled flag dropped,
+    /// RequirePositiveResponse always on so an indeterminate surfaces), returning the tri-state for
+    /// the park resolver. For the off-engine-thread resolver only. Apple has no per-evaluation
+    /// revocation timeout, so the fetch is bounded by the OS default.</summary>
+    class function EvaluateServerLive(const AChain: TArray<TBytes>;
+      const AHostName: string; const AStaple: TBytes; const AClock: ITlsClock;
+      const AProvider: ICryptoProvider;
+      const AStrengthPolicy: TCertificateStrengthPolicy;
+      const AAdvertised: TArray<UInt16>; out AOutcome: TLiveRevocationOutcome;
       out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>Runs the OS trust evaluation for a peer CLIENT certificate against an
     /// anchors-only trust built over AAnchors alone (never the OS/public roots), with the client
@@ -650,12 +707,15 @@ begin
   Result := (Double(Int64(AMillisUtc)) / Double(1000)) - CFAbsoluteTimeUnixEpochDelta;
 end;
 
-class function TAppleTrustApi.EvaluateSslChain(const AChain: TArray<TBytes>;
-  const AHostName: string; APosture: TRevocationPosture; const AClock: ITlsClock;
-  const AOcspStaple: TBytes; const AProvider: ICryptoProvider;
+class function TAppleTrustApi.EvaluateTrust(const AChain: TArray<TBytes>;
+  const AHostName: string; const AOcspStaple: TBytes; ANetworkAllowed: Boolean;
+  AAddRevocation, ARequirePositive: Boolean; const AClock: ITlsClock;
+  const AProvider: ICryptoProvider;
   const AStrengthPolicy: TCertificateStrengthPolicy;
-  const AAdvertised: TArray<UInt16>; out AAlert: TTlsAlertDescription): Boolean;
+  const AAdvertised: TArray<UInt16>; out AOutcome: TLiveRevocationOutcome;
+  out AAlert: TTlsAlertDescription): Boolean;
 var
+  LStatusCode: Int32;
   LCertArray, LPolicyArray: CFArrayRef;
   LSslPolicy, LRevPolicy: SecPolicyRef;
   LTrust: SecTrustRef;
@@ -670,6 +730,7 @@ var
   LError: CFErrorRef;
 begin
   Result := False;
+  AOutcome := TLiveRevocationOutcome.Indeterminate;
   AAlert := TTlsAlertDescription.BadCertificate;
 
   if Length(AChain) = 0 then
@@ -708,16 +769,16 @@ begin
       Exit;
     end;
 
-    // the SSL policy, plus a revocation policy under a non-Off posture
+    // the SSL policy, plus a revocation policy when revocation is in play
     LPolicyRefs[0] := LSslPolicy;
     LPolicyCount := 1;
-    if APosture <> TRevocationPosture.Off then
+    if AAddRevocation then
     begin
       if not System.Assigned(FSecPolicyCreateRevocation) then
       begin
-        // Hard cannot be honored without the revocation policy - fail closed; Soft proceeds
-        // best-effort under the default cache-only behavior
-        if APosture = TRevocationPosture.Hard then
+        // a required positive response cannot be honored without the revocation policy - fail
+        // closed; a best-effort check proceeds under the default behavior
+        if ARequirePositive then
         begin
           AAlert := TTlsAlertDescription.InternalError;
           Exit;
@@ -725,9 +786,11 @@ begin
       end
       else
       begin
-        LFlags := KSecRevocationUseAnyAvailableMethod or
-          KSecRevocationNetworkAccessDisabled;
-        if APosture = TRevocationPosture.Hard then
+        LFlags := KSecRevocationUseAnyAvailableMethod;
+        // cache-only inline keeps the check off the network; the live re-check drops this
+        if not ANetworkAllowed then
+          LFlags := LFlags or KSecRevocationNetworkAccessDisabled;
+        if ARequirePositive then
           LFlags := LFlags or KSecRevocationRequirePositiveResponse;
         LRevPolicy := FSecPolicyCreateRevocation(LFlags);
         if LRevPolicy = nil then
@@ -754,8 +817,8 @@ begin
       Exit;
     end;
 
-    // cache-only: never open a socket for AIA / revocation during evaluation
-    if FSecTrustSetNetworkFetchAllowed(LTrust, False) <> ErrSecSuccess then
+    // network per the caller: cache-only inline (no socket), enabled for the live re-check
+    if FSecTrustSetNetworkFetchAllowed(LTrust, ANetworkAllowed) <> ErrSecSuccess then
     begin
       AAlert := TTlsAlertDescription.InternalError;
       Exit;
@@ -806,19 +869,36 @@ begin
 
     if FSecTrustEvaluateWithError(LTrust, @LError) then
     begin
-      // trusted: policy over the OS-built path
-      Result := ApplyStrengthPolicy(LTrust, AProvider, AStrengthPolicy,
-        AAdvertised, AAlert);
+      // trusted: strength policy over the OS-built path; a pass is a definitive Good
+      if not ApplyStrengthPolicy(LTrust, AProvider, AStrengthPolicy, AAdvertised, AAlert) then
+        Exit;
+      AOutcome := TLiveRevocationOutcome.Good;
+      Result := True;
       Exit;
     end;
 
     // Rejected: default to unknown_ca, then refine ONLY from an OSStatus-domain CFError
-    // (best-effort) so the real reason reaches the peer. Any other domain or a missing
-    // accessor stays unknown_ca - a rejection is never softened into success.
+    // (best-effort). A revoked or an incomplete-revocation status is a tri-state outcome the
+    // resolver acts on; every other reason is a definitive trust failure (Result stays False).
     AAlert := TTlsAlertDescription.UnknownCa;
     if (LError <> nil) and FCanDecodeError and
       FCFEqual(FCFErrorGetDomain(LError), FkCFErrorDomainOSStatus) then
-      AAlert := TAppleAlertMap.OsStatusToAlert(Int32(FCFErrorGetCode(LError)));
+    begin
+      LStatusCode := Int32(FCFErrorGetCode(LError));
+      if LStatusCode = ErrSecCertificateRevoked then
+      begin
+        AOutcome := TLiveRevocationOutcome.Revoked;
+        Result := True;
+        Exit;
+      end;
+      if LStatusCode = ErrSecIncompleteCertRevocationCheck then
+      begin
+        AOutcome := TLiveRevocationOutcome.Indeterminate;
+        Result := True;
+        Exit;
+      end;
+      AAlert := TAppleAlertMap.OsStatusToAlert(LStatusCode);
+    end;
   finally
     if LError <> nil then
       FCFRelease(LError);
@@ -839,6 +919,52 @@ begin
     if LCertArray <> nil then
       FCFRelease(LCertArray);
   end;
+end;
+
+class function TAppleTrustApi.EvaluateSslChain(const AChain: TArray<TBytes>;
+  const AHostName: string; APosture: TRevocationPosture; AFetch: TSystemTrustFetch;
+  const AClock: ITlsClock; const AOcspStaple: TBytes; const AProvider: ICryptoProvider;
+  const AStrengthPolicy: TCertificateStrengthPolicy;
+  const AAdvertised: TArray<UInt16>; out AAlert: TTlsAlertDescription): Boolean;
+var
+  LOutcome: TLiveRevocationOutcome;
+  LRequirePositive: Boolean;
+begin
+  // live defers a configured Hard to the async park: run effective-Soft inline (no positive-
+  // response requirement) so an indeterminate revocation accepts here and the handshake parks;
+  // configured Hard cache-only keeps requiring a positive response inline
+  LRequirePositive := (APosture = TRevocationPosture.Hard) and
+    (AFetch = TSystemTrustFetch.CacheOnly);
+  if not EvaluateTrust(AChain, AHostName, AOcspStaple, False,
+    APosture <> TRevocationPosture.Off, LRequirePositive, AClock, AProvider,
+    AStrengthPolicy, AAdvertised, LOutcome, AAlert) then
+    Exit(False);
+  case LOutcome of
+    TLiveRevocationOutcome.Revoked:
+      begin
+        AAlert := TTlsAlertDescription.CertificateRevoked;
+        Result := False;
+      end;
+    TLiveRevocationOutcome.Good:
+      Result := True;
+  else
+    // indeterminate surfaces only under effective-Hard (RequirePositiveResponse): reject
+    AAlert := TTlsAlertDescription.BadCertificateStatusResponse;
+    Result := False;
+  end;
+end;
+
+class function TAppleTrustApi.EvaluateServerLive(const AChain: TArray<TBytes>;
+  const AHostName: string; const AStaple: TBytes; const AClock: ITlsClock;
+  const AProvider: ICryptoProvider;
+  const AStrengthPolicy: TCertificateStrengthPolicy;
+  const AAdvertised: TArray<UInt16>; out AOutcome: TLiveRevocationOutcome;
+  out AAlert: TTlsAlertDescription): Boolean;
+begin
+  // network on, revocation network-disabled flag dropped, and always RequirePositiveResponse so an
+  // indeterminate surfaces distinctly; the resolver applies the configured posture and any fallback
+  Result := EvaluateTrust(AChain, AHostName, AStaple, True, True, True, AClock, AProvider,
+    AStrengthPolicy, AAdvertised, AOutcome, AAlert);
 end;
 
 class function TAppleTrustApi.EvaluateClientChain(const AChain, AAnchors: TArray<TBytes>;
@@ -1146,13 +1272,14 @@ end;
 { TAppleDelegateVerifier }
 
 constructor TAppleDelegateVerifier.Create(const AProvider: ICryptoProvider;
-  APosture: TRevocationPosture; const AClock: ITlsClock;
+  APosture: TRevocationPosture; AFetch: TSystemTrustFetch; const AClock: ITlsClock;
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>);
 begin
   inherited Create;
   FProvider := AProvider;
   FPosture := APosture;
+  FFetch := AFetch;
   FClock := AClock;
   FStrengthPolicy := AStrengthPolicy;
   FAdvertised := AAdvertised;
@@ -1163,16 +1290,49 @@ function TAppleDelegateVerifier.VerifyServerCertificate(const AChain: TArray<TBy
   out AAlert: TTlsAlertDescription): Boolean;
 begin
   Result := TAppleTrustApi.EvaluateSslChain(AChain, AServerName.ToString, FPosture,
-    FClock, AOcspStaple, FProvider, FStrengthPolicy, FAdvertised, AAlert);
+    FFetch, FClock, AOcspStaple, FProvider, FStrengthPolicy, FAdvertised, AAlert);
+end;
+
+{ TAppleLiveRevocationResolver }
+
+constructor TAppleLiveRevocationResolver.Create(const AProvider: ICryptoProvider;
+  APosture: TRevocationPosture; const AClock: ITlsClock;
+  const AStrengthPolicy: TCertificateStrengthPolicy;
+  const AAdvertised: TArray<UInt16>; const AFallback: TCertificateVerdictResolver);
+begin
+  inherited Create(APosture, AFallback);
+  FProvider := AProvider;
+  FClock := AClock;
+  FStrengthPolicy := AStrengthPolicy;
+  FAdvertised := AAdvertised;
+end;
+
+function TAppleLiveRevocationResolver.EvaluateLive(const AChain: TArray<TBytes>;
+  const AHostName: string; const AStaple: TBytes;
+  out AOutcome: TLiveRevocationOutcome;
+  out ARejectAlert: TTlsAlertDescription): Boolean;
+begin
+  Result := TAppleTrustApi.EvaluateServerLive(AChain, AHostName, AStaple, FClock,
+    FProvider, FStrengthPolicy, FAdvertised, AOutcome, ARejectAlert);
 end;
 
 { TAppleServerVerifierSource }
 
+constructor TAppleServerVerifierSource.Create(AFetch: TSystemTrustFetch);
+begin
+  inherited Create;
+  FFetch := AFetch;
+end;
+
 function TAppleServerVerifierSource.CreateServerVerifier(
   const AContext: TServerTrustContext): IServerCertificateVerifier;
 begin
+  // live inline defers an indeterminate revocation to the async park, so a park must be guaranteed;
+  // without it the delegate would silently run cache-only Soft. Fail at engine creation (before IO).
+  if (FFetch = TSystemTrustFetch.Live) and (not AContext.AsyncVerdictEnabled) then
+    raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SLiveNeedsAsyncVerdict);
   Result := TAppleDelegateVerifier.Create(AContext.Provider,
-    AContext.RevocationPosture, AContext.Clock, AContext.StrengthPolicy,
+    AContext.RevocationPosture, FFetch, AContext.Clock, AContext.StrengthPolicy,
     AContext.AdvertisedSignatureSchemes) as IServerCertificateVerifier;
 end;
 

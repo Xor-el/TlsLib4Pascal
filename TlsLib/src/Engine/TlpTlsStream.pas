@@ -20,6 +20,7 @@ uses
   Classes,
   TlpTlsLibExceptions,
   TlpTlsConnectionInfo,
+  TlpTrustPolicy,
   TlpITlsEngine,
   TlpITlsTransport,
   TlpTlsStreamPump;
@@ -46,7 +47,7 @@ type
     FWriteClosed: Boolean;
     FTruncated: Boolean;
     FReadChunk: TBytes;
-    FVerdictResolver: TTlsVerdictResolver;
+    FVerdictResolver: TCertificateVerdictResolver;
     procedure EnsureHandshake;
   public
     /// <summary>Wraps a ready engine and transport. AIsClient selects who opens the
@@ -59,7 +60,7 @@ type
     /// when async certificate verdicts are enabled on the config. It runs after the built-in
     /// pipeline has already accepted the chain and can only additionally reject (augment-only).
     /// Must be set before the handshake; with none set an enabled async verdict fails closed.</summary>
-    procedure SetCertificateVerdictResolver(const AResolver: TTlsVerdictResolver);
+    procedure SetCertificateVerdictResolver(const AResolver: TCertificateVerdictResolver);
     /// <summary>Runs the handshake if it has not already run; a no-op afterwards. The first
     /// Read/Write performs it implicitly, so calling this is optional - it lets a caller
     /// front-load the handshake (and its errors) before any application byte.</summary>
@@ -116,7 +117,7 @@ begin
 end;
 
 procedure TTlsStream.SetCertificateVerdictResolver(
-  const AResolver: TTlsVerdictResolver);
+  const AResolver: TCertificateVerdictResolver);
 begin
   FVerdictResolver := AResolver;
 end;

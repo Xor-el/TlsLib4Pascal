@@ -64,7 +64,7 @@ procedure SetTlsLibMormotVerifyCallback(const ACallback: TTlsCertificateVerifyCa
 /// <summary>Sets a process-wide out-of-band verdict resolver (e.g. live OCSP/CRL): when set,
 /// every client handshake parks after the pipeline accepts the chain and this decides it.
 /// ADeadlineMs is advisory. nil clears it.</summary>
-procedure SetTlsLibMormotVerdictResolver(const AResolver: TTlsVerdictResolver;
+procedure SetTlsLibMormotVerdictResolver(const AResolver: TCertificateVerdictResolver;
   ADeadlineMs: Cardinal);
 /// <summary>Sets a process-wide, fully-built client config that REPLACES the context-driven build:
 /// when set, every client handshake uses it as-is (the TNetTlsContext trust/cert fields are ignored).
@@ -182,7 +182,7 @@ resourcestring
 var
   // process-wide neutral hooks the per-connection adapter threads into each client handshake
   GVerifyCallback: TTlsCertificateVerifyCallback;
-  GVerdictResolver: TTlsVerdictResolver;
+  GVerdictResolver: TCertificateVerdictResolver;
   GVerdictDeadlineMs: Cardinal;
   // process-wide fully-built configs that, when set, REPLACE the context-driven build
   GClientConfig: ITlsClientConfig;
@@ -202,7 +202,7 @@ begin
   GVerifyCallback := ACallback;
 end;
 
-procedure SetTlsLibMormotVerdictResolver(const AResolver: TTlsVerdictResolver;
+procedure SetTlsLibMormotVerdictResolver(const AResolver: TCertificateVerdictResolver;
   ADeadlineMs: Cardinal);
 begin
   GVerdictResolver := AResolver;

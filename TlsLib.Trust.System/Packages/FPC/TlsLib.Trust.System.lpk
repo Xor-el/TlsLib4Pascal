@@ -21,7 +21,7 @@
     <Description Value="Optional OS system-trust sources (anchors + delegate) for TlsLib4Pascal"/>
     <License Value="MIT License"/>
     <Version Major="1" Minor="1"/>
-    <Files Count="10">
+    <Files Count="11">
       <Item1>
         <Filename Value="..\..\src\TlpSystemTrustExceptions.pas"/>
         <UnitName Value="TlpSystemTrustExceptions"/>
@@ -62,6 +62,10 @@
         <Filename Value="..\..\src\TlpPosixDynLib.pas"/>
         <UnitName Value="TlpPosixDynLib"/>
       </Item10>
+      <Item11>
+        <Filename Value="..\..\src\TlpOSLiveRevocation.pas"/>
+        <UnitName Value="TlpOSLiveRevocation"/>
+      </Item11>
     </Files>
     <RequiredPkgs Count="2">
       <Item1>

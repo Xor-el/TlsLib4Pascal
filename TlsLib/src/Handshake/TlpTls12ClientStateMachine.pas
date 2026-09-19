@@ -524,7 +524,7 @@ begin
   if FParams.AsyncVerdict then
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.AwaitCertificateVerdict(FCertChain,
-      FParams.ExpectedServerName.ToString));
+      FParams.ExpectedServerName.ToString, FReceivedOcspStaple));
 end;
 
 function TTls12ClientStateMachine.ProcessCertificate(

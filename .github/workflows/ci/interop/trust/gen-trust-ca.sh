@@ -26,8 +26,12 @@ set -euo pipefail
 # keep Git Bash from rewriting the /CN=... subject into a Windows path (ignored on Linux/macOS)
 export MSYS2_ARG_CONV_EXCL='/CN='
 
-OUTDIR="${1:?usage: gen-trust-ca.sh <outdir> [run-id]}"
+OUTDIR="${1:?usage: gen-trust-ca.sh <outdir> [run-id] [live-ocsp-url]}"
 RUNID="${2:-local-$$}"
+# the AIA OCSP URL baked into the live leaves: a reachable loopback responder run-trust.sh starts,
+# so a real OS engine fetches revocation over the network (the live cells). Cache-only leaves keep
+# the unreachable .invalid URL.
+LIVE_OCSP_URL="${3:-http://127.0.0.1:8888}"
 OPENSSL="${OPENSSL:-openssl}"
 mkdir -p "$OUTDIR"
 
@@ -135,4 +139,43 @@ ocsp_resp index_good.txt    ocsp_good.der        issuer.pem issuer.pem issuer.ke
 ocsp_resp index_revoked.txt ocsp_revoked.der     issuer.pem issuer.pem issuer.key issuer.pem leaf.pem
 ocsp_resp index_direct.txt  ocsp_good_direct.der root.pem   root.pem   root.key   root.pem   direct_leaf.pem
 
-echo "generated trust hierarchy in $OUTDIR (run id: $RUNID)"
+# --- LIVE material: a root-delegated OCSP responder + two root-signed leaves whose AIA points at
+# a reachable loopback responder, so a real OS engine fetches revocation over the network. The
+# leaves are root-issued (2-tier) so under Live+Hard the only non-anchor cert is the leaf, whose
+# status the responder answers. A delegated OCSPSigning responder (root-issued, id-pkix-ocsp-nocheck)
+# is what both crypt32 and trustd accept for a fetched response.
+newkey ocsp_signer.key
+"$OPENSSL" req -new -key ocsp_signer.key -out ocsp_signer.csr -subj "/CN=TlsLib OCSP Responder $RUNID"
+cat > ocsp_signer.ext <<'EOF'
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature
+extendedKeyUsage=critical,OCSPSigning
+1.3.6.1.5.5.7.48.1.5=DER:05:00
+EOF
+"$OPENSSL" x509 -req -in ocsp_signer.csr -CA root.pem -CAkey root.key -set_serial 0x5001 \
+  -sha256 -days 30 -extfile ocsp_signer.ext -out ocsp_signer.pem
+
+mk_live_leaf() { # <name> <serial-hex>
+  local name="$1" serial="$2"
+  newkey "$name.key"
+  "$OPENSSL" req -new -key "$name.key" -out "$name.csr" -subj "/CN=localhost"
+  cat > "$name.ext" <<EOF
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature
+subjectAltName=DNS:localhost
+extendedKeyUsage=serverAuth
+authorityInfoAccess=OCSP;URI:$LIVE_OCSP_URL
+crlDistributionPoints=URI:http://crl.tlslib.invalid/root.crl
+EOF
+  "$OPENSSL" x509 -req -in "$name.csr" -CA root.pem -CAkey root.key -set_serial "$serial" \
+    -sha256 -days 30 -extfile "$name.ext" -out "$name.pem"
+  cat "$name.pem" root.pem > "${name}_fullchain.pem"
+}
+mk_live_leaf live_leaf         0x4001
+mk_live_leaf live_revoked_leaf 0x4002
+
+# one live index the responder serves: the accept leaf Valid, the revoked leaf Revoked
+printf 'V\t%s\t\t4001\tunknown\t/CN=localhost\n' "$EXP" > index_live.txt
+printf 'R\t%s\t%s\t4002\tunknown\t/CN=localhost\n' "$EXP" "$REV" >> index_live.txt
+
+echo "generated trust hierarchy in $OUTDIR (run id: $RUNID, live ocsp: $LIVE_OCSP_URL)"

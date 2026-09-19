@@ -21,6 +21,7 @@ uses
   TlpICertificateVerifierSource,
   TlpITlsConfigBuilder,
   TlpSystemTrustExceptions,
+  TlpSystemTrustBase,
   TlpOSSystemTrust;
 
 resourcestring
@@ -58,6 +59,14 @@ type
       const AProvider: ICryptoProvider;
       AMode: TSystemTrustMode = TSystemTrustMode.Default)
       : ITlsServerConfigBuilder; overload; static;
+    /// <summary>OS trust with a revocation fetch mode. This form always uses the OS delegate
+    /// (Live is meaningless over harvested anchors), and for Live it also arms the async
+    /// certificate-verdict park (deadline ADeadlineMs, which must be non-zero) that the host-side
+    /// OS-native resolver resolves in. Pair it with TOSSystemTrust.LiveRevocationResolver on the
+    /// stream/adapter. Raises where the platform has no OS-native live revocation.</summary>
+    class function WithSystemTrust(const ABuilder: ITlsClientConfigBuilder;
+      const AProvider: ICryptoProvider; AFetch: TSystemTrustFetch;
+      ADeadlineMs: Cardinal): ITlsClientConfigBuilder; overload; static;
   end;
 
 implementation
@@ -83,7 +92,7 @@ begin
   end;
   // A forced mode the platform cannot honor raises a typed error inside these.
   if LMode = TSystemTrustMode.Delegate then
-    ASource := TOSSystemTrust.ServerVerifierSource(AProvider)
+    ASource := TOSSystemTrust.ServerVerifierSource(AProvider, TSystemTrustFetch.CacheOnly)
   else
     AStore := TOSSystemTrust.AnchorStore(AProvider);
 end;
@@ -100,6 +109,21 @@ begin
     ABuilder.WithCertificateVerifierSource(LSource)
   else
     ABuilder.WithTrustStore(LStore);
+  Result := ABuilder;
+end;
+
+class function TSystemTrust.WithSystemTrust(const ABuilder: ITlsClientConfigBuilder;
+  const AProvider: ICryptoProvider; AFetch: TSystemTrustFetch;
+  ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
+var
+  LSource: IServerCertificateVerifierSource;
+begin
+  // this form always delegates to the OS engine; Live additionally defers an indeterminate
+  // revocation to the async park and arms it (the host wires TOSSystemTrust.LiveRevocationResolver)
+  LSource := TOSSystemTrust.ServerVerifierSource(AProvider, AFetch);
+  ABuilder.WithCertificateVerifierSource(LSource);
+  if AFetch = TSystemTrustFetch.Live then
+    ABuilder.WithAsyncCertificateVerdict(True, ADeadlineMs);
   Result := ABuilder;
 end;
 

@@ -80,6 +80,9 @@ type
     function Chain: TArray<TBytes>;
     /// <summary>The host the certificate was validated for (empty on the server side).</summary>
     function HostName: string;
+    /// <summary>The handshake OCSP staple the peer delivered (empty when none), so an
+    /// out-of-band live check can skip a fetch the server already answered in-band.</summary>
+    function OcspStaple: TBytes;
   end;
 
   /// <summary>
