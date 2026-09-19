@@ -135,10 +135,11 @@ var
   LSource: IServerCertificateVerifierSource;
 begin
   ResolveSource(AProvider, AMode, LStore, LSource);
-  // the OS delegate verifies SERVER certificates (serverAuth); it cannot verify a peer
-  // CLIENT certificate for an mTLS server. Point at Anchors mode where the platform can
-  // enumerate OS roots, else at an explicit anchor - so a server never authenticates
-  // clients against the OS (public web-PKI) roots by accident.
+  // WithSystemTrust's delegate roots against the OS (public web-PKI) store, which is never right for
+  // authenticating a CLIENT certificate. Point at Anchors mode where the platform can enumerate OS
+  // roots, else at an explicit anchor - so a server never authenticates clients against public roots
+  // by accident. (To verify client certificates with the OS engine, install the OS client delegate
+  // over your private client-CA anchors instead: TOSSystemTrust.ClientVerifierSource.)
   if LSource <> nil then
     if TOSSystemTrust.Supports(TSystemTrustMode.Anchors) then
       raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoServerDelegateUseAnchors)

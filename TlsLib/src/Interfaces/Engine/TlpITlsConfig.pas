@@ -74,9 +74,10 @@ type
     function CertificateChainLimits: TCertificateChainLimits;
     /// <summary>The peer-certificate minimum-strength floors (RSA bits, EC curves, EdDSA).</summary>
     function CertificateStrengthPolicy: TCertificateStrengthPolicy;
-    /// <summary>The stapled-OCSP revocation posture (RFC 6960): Soft (default), Hard, or
-    /// Off. Applies to the peer server certificate; must-staple (RFC 7633) is enforced
-    /// regardless.</summary>
+    /// <summary>The revocation posture (RFC 6960): Soft (default), Hard, or Off. Governs how an
+    /// indeterminate revocation is treated for the peer certificate this endpoint verifies - the
+    /// server certificate on a client, or the client certificate on a mutual-TLS server;
+    /// must-staple (RFC 7633) is enforced regardless.</summary>
     function RevocationPosture: TRevocationPosture;
     /// <summary>Optional SPKI-SHA256 pins: when non-empty, some certificate in the peer
     /// chain must have a SubjectPublicKeyInfo whose SHA-256 matches one pin (public-key

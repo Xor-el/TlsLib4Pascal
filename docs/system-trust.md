@@ -159,16 +159,48 @@ LConfig := TTlsPresets.Compatible(P).Server
   .WithCredential(LoadFile('server-chain.pem'), LoadFile('server-key.pem'))
   .WithPeerAuth(TClientAuthMode.Required)                       // request + require a client cert
   .WithTrustAnchors(LoadFile('client-ca.pem'))                  // YOUR private client CA
-  .WithCertificateVerifierSource(TOSSystemTrust.ClientVerifierSource(P))
+  .WithCertificateVerifierSource(TOSSystemTrust.ClientVerifierSource(P, TSystemTrustFetch.CacheOnly))
   .Build;
 ```
 
 The delegate uses the `clientAuth` EKU + the OS client-auth policy (a client certificate is never
 stapled). It is available on **Windows, macOS, iOS and Android**: Windows and Apple apply the same
-posture/clock/cache-only revocation as the server delegate; the Android client delegate is an
+posture/clock revocation as the server delegate; the Android client delegate is an
 anchors-only KeyStore chain check (no posture/clock — see the Android note below). Note it **consumes**
 the configured anchors (they are its exclusive root), so — unlike a whole verifier — it *composes* with
-`WithTrustAnchors` rather than being exclusive of it.
+`WithTrustAnchors` rather than being exclusive of it. The `AFetch` argument selects cache-only
+(no socket) or live revocation — see the next section.
+
+#### Live client-certificate revocation (Windows + Apple, opt-in)
+
+By default the client delegate is **cache-only** (the inline pass never opens a socket). To have the OS
+engine fetch client-certificate revocation over the network — off the sans-IO engine thread, in the
+async-verdict park, exactly like the server-cert live path — arm the delegate `Live` and wire the
+OS-native resolver built from the **server** config:
+
+```pascal
+LConfig := TTlsPresets.Compatible(P).Server
+  .WithCredential(LoadFile('server-chain.pem'), LoadFile('server-key.pem'))
+  .WithPeerAuth(TClientAuthMode.Required)
+  .WithTrustAnchors(LoadFile('client-ca.pem'))
+  .WithRevocation(TRevocationPosture.Hard)
+  .WithAsyncCertificateVerdict(True, deadlineMs)     // the park the live check runs in (non-zero)
+  .WithCertificateVerifierSource(TOSSystemTrust.ClientVerifierSource(P, TSystemTrustFetch.Live))
+  .Build;
+resolver := TOSSystemTrust.LiveRevocationResolver(LConfig);   // reads the client-CA anchors + posture
+serverStream.SetCertificateVerdictResolver(resolver.ResolveVerdict);  // caller owns + frees it
+```
+
+The inline pass stays socket-free and *defers* an indeterminate revocation (effective-Soft) so the
+handshake parks; the OS engine then re-evaluates with network fetch enabled and resolves the park —
+a definitive **Revoked** aborts `certificate_revoked`, a **Good** accepts, an **indeterminate** follows
+the posture (`Soft`/`Off` accept, `Hard` rejects `bad_certificate_status_response`). Because the client
+path roots against an **in-memory exclusive client-CA store** (never the machine store), this needs no
+store install and is exercisable locally. `Live` requires `WithAsyncCertificateVerdict` (the park is
+where it runs) — a server built `Live` without it raises before any IO. Pass an optional portable
+fallback to `LiveRevocationResolver(config, fallback)` to run `TLiveRevocationChecker` over your
+`IHttpFetcher` on an indeterminate OS outcome. **Windows and Apple only** — Android/Unix `Live` raises
+`ESystemTrustUnsupportedTlsLibException` (compose the portable checker there instead).
 
 ### Policy differences vs. the built-in verifier
 
@@ -199,7 +231,9 @@ staple verdict. A few specifics worth stating:
   stapled (or, on Windows/Apple, cached) *Good* response: because the staple covers only the leaf and
   the intermediate has no cached response over a cold cache, Hard can reject a first, cold-cache
   handshake — the same on Windows and Apple. On the client (mTLS) path a certificate is never stapled,
-  so Hard mTLS through any OS delegate likewise needs a warm cache.
+  so cache-only Hard mTLS through any OS delegate likewise needs a warm cache — unless you arm the
+  Windows/Apple client delegate `Live` (see "Live client-certificate revocation" above), which fetches
+  revocation in the async park instead.
 - **Off is slightly stricter than the built-in / Windows Off on Apple and Android**: a definitive
   *Revoked* in a stapled/cached response still rejects (it is never softened), whereas Windows Off
   skips revocation entirely.

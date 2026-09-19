@@ -154,6 +154,11 @@ type
     function VerifyPolicy(const AAnchors: TArray<TBytes>; APosture: TRevocationPosture;
       const AClock: ITlsClock; const AStrength: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>; out AAlert: TTlsAlertDescription): Boolean;
+    /// <summary>Runs the OS-native LIVE client resolver over AAnchors as the exclusive root. Used to
+    /// prove exclusivity on the live path: a leaf that does not chain to the anchor fails trust
+    /// before any revocation fetch, so this needs no responder.</summary>
+    function VerifyLive(const AAnchors: TArray<TBytes>; APosture: TRevocationPosture;
+      out AAlert: TTlsAlertDescription): Boolean;
   protected
     procedure SetUp; override;
     procedure TearDown; override;
@@ -165,6 +170,8 @@ type
     procedure TestSoftPostureAcceptsUnrevocableChain;
     procedure TestRejectsUnadvertisedLeafScheme;
     procedure TestRejectsLeafOnDisallowedCurve;
+    procedure TestLiveFetchDefersUnrevocableChainInline;
+    procedure TestLiveEvaluationStaysExclusiveRoot;
   end;
 
 {$ENDIF TLSLIB_MSWINDOWS}
@@ -589,7 +596,7 @@ var
   LVerifier: IClientCertificateVerifier;
 begin
   LVerifier := TWindowsClientDelegateVerifier.Create(FProvider, AAnchors, APosture,
-    AClock, AStrength, AAdvertised) as IClientCertificateVerifier;
+    TSystemTrustFetch.CacheOnly, AClock, AStrength, AAdvertised) as IClientCertificateVerifier;
   Result := LVerifier.VerifyClientCertificate(Leaf, AAlert);
 end;
 
@@ -687,6 +694,53 @@ begin
     'a disallowed curve is unsupported_certificate');
 end;
 
+procedure TTestWindowsClientDelegate.TestLiveFetchDefersUnrevocableChainInline;
+var
+  LVerifier: IClientCertificateVerifier;
+  LAlert: TTlsAlertDescription;
+begin
+  // under Live the inline cache-only pass runs effective-Soft: an unrevocable client chain (no cached
+  // status) is accepted inline so the handshake parks for the off-thread live check, rather than being
+  // rejected inline the way configured-Hard cache-only does (TestHardPostureRejectsUnrevocableChain).
+  // A definitive cached Revoked and every trust failure still reject inline.
+  LVerifier := TWindowsClientDelegateVerifier.Create(FProvider, OwnAnchor,
+    TRevocationPosture.Hard, TSystemTrustFetch.Live, TSystemClock.Create as ITlsClock,
+    TCertificateStrengthPolicy.Defaults, Advertised) as IClientCertificateVerifier;
+  CheckTrue(LVerifier.VerifyClientCertificate(Leaf, LAlert),
+    'Live defers an unrevocable client chain inline (effective-Soft) so the handshake can park');
+end;
+
+function TTestWindowsClientDelegate.VerifyLive(const AAnchors: TArray<TBytes>;
+  APosture: TRevocationPosture; out AAlert: TTlsAlertDescription): Boolean;
+var
+  LResolver: TWindowsClientLiveRevocationResolver;
+  LCtx: TCertificateVerdictContext;
+begin
+  LResolver := TWindowsClientLiveRevocationResolver.Create(FProvider, AAnchors, APosture,
+    TSystemClock.Create as ITlsClock, TCertificateStrengthPolicy.Defaults, Advertised, 2000, nil);
+  try
+    LCtx.HostName := '';
+    LCtx.OcspStaple := nil;
+    LCtx.Chain := Leaf;
+    Result := LResolver.ResolveVerdict(LCtx, AAlert);
+  finally
+    LResolver.Free;
+  end;
+end;
+
+procedure TTestWindowsClientDelegate.TestLiveEvaluationStaysExclusiveRoot;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // the live re-evaluation stays exclusive-root too: a leaf that does not chain to the configured
+  // anchor is rejected, never validated against the OS/public roots. The untrusted-root failure
+  // precedes any revocation fetch, so this needs no responder.
+  CheckFalse(VerifyLive(ForeignAnchor, TRevocationPosture.Hard, LAlert),
+    'a client leaf that does not chain to the configured anchor is rejected on the live path');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert),
+    'a non-chaining client leaf is unknown_ca on the live path, never accepted against public roots');
+end;
+
 {$ENDIF TLSLIB_MSWINDOWS}
 
 {$IFDEF TLSLIB_MACOS}
@@ -761,7 +815,7 @@ var
   LVerifier: IClientCertificateVerifier;
 begin
   LVerifier := TAppleClientDelegateVerifier.Create(FProvider, AAnchors, APosture,
-    AClock, AStrength, AAdvertised) as IClientCertificateVerifier;
+    TSystemTrustFetch.CacheOnly, AClock, AStrength, AAdvertised) as IClientCertificateVerifier;
   Result := LVerifier.VerifyClientCertificate(Leaf, AAlert);
 end;
 

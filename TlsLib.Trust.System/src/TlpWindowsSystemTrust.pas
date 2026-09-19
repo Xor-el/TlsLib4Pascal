@@ -124,25 +124,58 @@ type
     FProvider: ICryptoProvider;
     FAnchors: TArray<TBytes>;
     FPosture: TRevocationPosture;
+    FFetch: TSystemTrustFetch;
     FClock: ITlsClock;
     FStrengthPolicy: TCertificateStrengthPolicy;
     FAdvertised: TArray<UInt16>;
   public
     constructor Create(const AProvider: ICryptoProvider;
       const AAnchors: TArray<TBytes>; APosture: TRevocationPosture;
-      const AClock: ITlsClock; const AStrengthPolicy: TCertificateStrengthPolicy;
+      AFetch: TSystemTrustFetch; const AClock: ITlsClock;
+      const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>);
     function VerifyClientCertificate(const AChain: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
   /// <summary>
+  /// The Windows OS-native live-revocation resolver for a peer CLIENT certificate (mTLS): re-runs
+  /// the exclusive-root crypt32 chain engine over the configured client-CA anchors with network
+  /// fetch enabled (revocation only, AIA disabled) off the engine thread in the async park, and
+  /// classifies the outcome for the shared base. Host-owned; assign ResolveVerdict to the seam.
+  /// </summary>
+  TWindowsClientLiveRevocationResolver = class sealed(TOSLiveRevocationResolver)
+  strict private
+    FProvider: ICryptoProvider;
+    FAnchors: TArray<TBytes>;
+    FClock: ITlsClock;
+    FStrengthPolicy: TCertificateStrengthPolicy;
+    FAdvertised: TArray<UInt16>;
+    FDeadlineMs: Cardinal;
+  strict protected
+    function EvaluateLive(const AChain: TArray<TBytes>; const AHostName: string;
+      const AStaple: TBytes; out AOutcome: TLiveRevocationOutcome;
+      out ARejectAlert: TTlsAlertDescription): Boolean; override;
+  public
+    constructor Create(const AProvider: ICryptoProvider;
+      const AAnchors: TArray<TBytes>; APosture: TRevocationPosture;
+      const AClock: ITlsClock; const AStrengthPolicy: TCertificateStrengthPolicy;
+      const AAdvertised: TArray<UInt16>; ADeadlineMs: Cardinal;
+      const AFallback: TCertificateVerdictResolver);
+  end;
+
+  /// <summary>
   /// The Windows client-certificate verifier source: builds a client delegate over the client-CA
   /// anchors in the context (the exclusive trust root), with the connection's posture and clock.
+  /// AFetch fixes cache-only vs live inline behaviour (Live defers an indeterminate revocation to
+  /// the async park).
   /// </summary>
   TWindowsClientVerifierSource = class sealed(TInterfacedObject,
     IClientCertificateVerifierSource)
+  strict private
+    FFetch: TSystemTrustFetch;
   public
+    constructor Create(AFetch: TSystemTrustFetch);
     function CreateClientVerifier(const AContext: TClientTrustContext)
       : IClientCertificateVerifier;
   end;
@@ -453,14 +486,26 @@ type
       out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>Runs the OS chain evaluation for a peer CLIENT certificate against an
     /// exclusive-root engine built over AAnchors alone (never the OS/public roots), with the
-    /// clientAuth EKU and the AUTHTYPE_CLIENT SSL policy. Same cache-only revocation, posture and
-    /// clock handling as the server path (a client certificate is never stapled). Returns False
-    /// with internal_error when the exclusive-engine entry point is unavailable.</summary>
+    /// clientAuth EKU and the AUTHTYPE_CLIENT SSL policy. Same posture and clock handling as the
+    /// server path (a client certificate is never stapled). AFetch fixes the inline behaviour:
+    /// CacheOnly (no socket) or Live, where a Hard revocation-unknown is deferred (effective-Soft)
+    /// so the handshake parks and the live resolver decides. Returns False with internal_error when
+    /// the exclusive-engine entry point is unavailable.</summary>
     class function EvaluateClientChain(const AChain, AAnchors: TArray<TBytes>;
-      APosture: TRevocationPosture; const AClock: ITlsClock;
+      APosture: TRevocationPosture; AFetch: TSystemTrustFetch; const AClock: ITlsClock;
       const AProvider: ICryptoProvider;
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>;
+      out AAlert: TTlsAlertDescription): Boolean; static;
+    /// <summary>Runs the CLIENT-certificate chain evaluation LIVE (network fetch enabled, revocation
+    /// only - AIA disabled) against the exclusive-root engine over AAnchors, bounded by ADeadlineMs,
+    /// over the OS-built path with the strength policy applied. Returns the tri-state revocation
+    /// outcome; on a definitive non-revocation trust failure returns False with AAlert set. For the
+    /// off-engine-thread park resolver only - never inline (it blocks on a socket).</summary>
+    class function EvaluateClientLive(const AChain, AAnchors: TArray<TBytes>;
+      ADeadlineMs: Cardinal; const AClock: ITlsClock; const AProvider: ICryptoProvider;
+      const AStrengthPolicy: TCertificateStrengthPolicy;
+      const AAdvertised: TArray<UInt16>; out AOutcome: TLiveRevocationOutcome;
       out AAlert: TTlsAlertDescription): Boolean; static;
   end;
 
@@ -834,8 +879,6 @@ var
   LFlags: DWORD;
   LI: Integer;
   LOsPath: TArray<TBytes>;
-  LCtx: PCERT_CHAIN_CONTEXT;
-  LErrStatus, LNonRevMask: DWORD;
 begin
   Result := False;
   AOutcome := TLiveRevocationOutcome.Indeterminate;
@@ -928,14 +971,6 @@ begin
       Exit;
     end;
 
-    LErrStatus := 0;
-    LCtx := PCERT_CHAIN_CONTEXT(LChain);
-    if LCtx <> nil then
-      LErrStatus := LCtx^.TrustStatus.dwErrorStatus;
-    // every error bit except the two revocation-reachability ones
-    LNonRevMask := not DWORD(CERT_TRUST_REVOCATION_STATUS_UNKNOWN or
-      CERT_TRUST_IS_OFFLINE_REVOCATION);
-
     if LStatus.dwError = 0 then
     begin
       // trusted and revocation was actually checked: run the strength policy over the OS path
@@ -955,11 +990,13 @@ begin
       AOutcome := TLiveRevocationOutcome.Revoked;
       Result := True;
     end
-    else if ((LStatus.dwError = CRYPT_E_NO_REVOCATION_CHECK) or
-      (LStatus.dwError = CRYPT_E_REVOCATION_OFFLINE)) and
-      ((LErrStatus and LNonRevMask) = 0) then
+    else if (LStatus.dwError = CRYPT_E_NO_REVOCATION_CHECK) or
+      (LStatus.dwError = CRYPT_E_REVOCATION_OFFLINE) then
     begin
-      // the only unmet check was revocation reachability: indeterminate
+      // revocation could not be reached or decided: indeterminate. The inline pass already rejected
+      // every definitive trust failure before the park (a name mismatch is rejected inline via the
+      // IGNORE_ALL_REV_UNKNOWN flags, not deferred), so the policy dwError is authoritative for the
+      // revocation question and the benign chain-status info bits do not gate it.
       AOutcome := TLiveRevocationOutcome.Indeterminate;
       Result := True;
     end
@@ -1003,7 +1040,8 @@ begin
 end;
 
 class function TWindowsTrustApi.EvaluateClientChain(const AChain,
-  AAnchors: TArray<TBytes>; APosture: TRevocationPosture; const AClock: ITlsClock;
+  AAnchors: TArray<TBytes>; APosture: TRevocationPosture; AFetch: TSystemTrustFetch;
+  const AClock: ITlsClock;
   const AProvider: ICryptoProvider;
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>;
@@ -1023,12 +1061,21 @@ var
   LFlags: DWORD;
   LI: Integer;
   LOsPath: TArray<TBytes>;
+  LEffectivePosture: TRevocationPosture;
 begin
   Result := False;
   AAlert := TTlsAlertDescription.BadCertificate;
 
   if Length(AChain) = 0 then
     Exit;
+
+  // live mode defers an indeterminate revocation to the async park: run the inline check as
+  // effective-Soft (accept indeterminate; a definitive cached Revoked and every trust failure
+  // still reject) so the handshake reaches the park, where the live re-check applies the real
+  // posture. Configured Hard cache-only keeps its fail-closed inline behaviour.
+  LEffectivePosture := APosture;
+  if (AFetch = TSystemTrustFetch.Live) and (APosture = TRevocationPosture.Hard) then
+    LEffectivePosture := TRevocationPosture.Soft;
 
   // the exclusive-root engine is required for client-auth: without it a client could validate
   // against the OS/public roots, so fail closed rather than fall back to a weaker check
@@ -1084,7 +1131,7 @@ begin
     LChainPara.RequestedUsage.Usage.rgpszUsageIdentifier := @LUsageArr[0];
 
     LFlags := CERT_CHAIN_CACHE_ONLY_URL_RETRIEVAL;
-    if APosture <> TRevocationPosture.Off then
+    if LEffectivePosture <> TRevocationPosture.Off then
       LFlags := LFlags or CERT_CHAIN_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT or
         CERT_CHAIN_REVOCATION_ACCUMULATIVE_TIMEOUT;
 
@@ -1110,7 +1157,12 @@ begin
 
     FillChar(LPolicyPara, SizeOf(LPolicyPara), 0);
     LPolicyPara.cbSize := SizeOf(LPolicyPara);
-    LPolicyPara.dwFlags := 0;
+    // effective-Soft (configured Soft, or Live deferring a Hard to the park) ignores a
+    // revocation-unknown at the policy layer; effective-Hard keeps dwFlags 0 so it rejects
+    if LEffectivePosture = TRevocationPosture.Soft then
+      LPolicyPara.dwFlags := CERT_CHAIN_POLICY_IGNORE_ALL_REV_UNKNOWN_FLAGS
+    else
+      LPolicyPara.dwFlags := 0;
     LPolicyPara.pvExtraPolicyPara := @LSslPara;
 
     FillChar(LStatus, SizeOf(LStatus), 0);
@@ -1125,7 +1177,7 @@ begin
 
     if LStatus.dwError <> 0 then
     begin
-      Result := MapPolicyError(LStatus.dwError, APosture, AAlert);
+      Result := MapPolicyError(LStatus.dwError, LEffectivePosture, AAlert);
       Exit;
     end;
     // trusted: policy over the OS-built path
@@ -1136,6 +1188,174 @@ begin
     end;
     Result := ApplyStrengthPolicy(LOsPath, AProvider, AStrengthPolicy,
       AAdvertised, AAlert);
+  finally
+    if LChain <> nil then
+      FCertFreeCertificateChain(LChain);
+    if LEngine <> nil then
+      FCertFreeCertificateChainEngine(LEngine);
+    if LInterStore <> nil then
+      FCertCloseStore(LInterStore, 0);
+    if LRootStore <> nil then
+      FCertCloseStore(LRootStore, 0);
+    FCertFreeCertificateContext(LLeaf);
+  end;
+end;
+
+class function TWindowsTrustApi.EvaluateClientLive(const AChain, AAnchors: TArray<TBytes>;
+  ADeadlineMs: Cardinal; const AClock: ITlsClock; const AProvider: ICryptoProvider;
+  const AStrengthPolicy: TCertificateStrengthPolicy;
+  const AAdvertised: TArray<UInt16>; out AOutcome: TLiveRevocationOutcome;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LLeaf: PCERT_CONTEXT;
+  LRootStore, LInterStore: HCERTSTORE;
+  LEngine, LChain: Pointer;
+  LUsageArr: array [0 .. 0] of PAnsiChar;
+  LChainPara: CERT_CHAIN_PARA_EX;
+  LEngineConfig: CERT_CHAIN_ENGINE_CONFIG;
+  LPolicyPara: CERT_CHAIN_POLICY_PARA;
+  LSslPara: SSL_EXTRA_CERT_CHAIN_POLICY_PARA;
+  LStatus: CERT_CHAIN_POLICY_STATUS;
+  LFileTime: FILETIME;
+  LTimePtr: Pointer;
+  LFlags: DWORD;
+  LI: Integer;
+  LOsPath: TArray<TBytes>;
+begin
+  Result := False;
+  AOutcome := TLiveRevocationOutcome.Indeterminate;
+  AAlert := TTlsAlertDescription.BadCertificate;
+
+  if Length(AChain) = 0 then
+    Exit;
+  // the exclusive-root engine is required for client-auth: the live re-check trusts the configured
+  // client-CA anchors alone, never the OS/public roots
+  if (not FReady) or (not System.Assigned(FCertCreateCertificateChainEngine)) or
+    (not System.Assigned(FCertFreeCertificateChainEngine)) then
+  begin
+    AAlert := TTlsAlertDescription.InternalError;
+    Exit;
+  end;
+
+  LLeaf := FCertCreateCertificateContext(MY_ENCODING_TYPE, PByte(AChain[0]),
+    Length(AChain[0]));
+  if LLeaf = nil then
+    Exit;
+
+  LRootStore := FCertOpenStore(CERT_STORE_PROV_MEMORY, MY_ENCODING_TYPE, nil, 0, nil);
+  LInterStore := FCertOpenStore(CERT_STORE_PROV_MEMORY, MY_ENCODING_TYPE, nil, 0, nil);
+  LEngine := nil;
+  LChain := nil;
+  try
+    if (LRootStore = nil) or (LInterStore = nil) then
+    begin
+      AAlert := TTlsAlertDescription.InternalError;
+      Exit;
+    end;
+
+    // the configured client-CA anchors are the ONLY trusted roots
+    for LI := 0 to Length(AAnchors) - 1 do
+      if Length(AAnchors[LI]) > 0 then
+        FCertAddEncodedCertificateToStore(LRootStore, MY_ENCODING_TYPE,
+          PByte(AAnchors[LI]), Length(AAnchors[LI]), CERT_STORE_ADD_ALWAYS, nil);
+    // the presented intermediates seed path building; the network is used for revocation only
+    for LI := 1 to Length(AChain) - 1 do
+      if Length(AChain[LI]) > 0 then
+        FCertAddEncodedCertificateToStore(LInterStore, MY_ENCODING_TYPE,
+          PByte(AChain[LI]), Length(AChain[LI]), CERT_STORE_ADD_ALWAYS, nil);
+
+    FillChar(LEngineConfig, SizeOf(LEngineConfig), 0);
+    LEngineConfig.cbSize := SizeOf(LEngineConfig);
+    LEngineConfig.hExclusiveRoot := LRootStore;
+    LEngineConfig.dwExclusiveFlags := CERT_CHAIN_EXCLUSIVE_ENABLE_CA_FLAG;
+    if not FCertCreateCertificateChainEngine(LEngineConfig, LEngine) then
+    begin
+      AAlert := TTlsAlertDescription.InternalError;
+      Exit;
+    end;
+
+    LUsageArr[0] := SZOID_PKIX_KP_CLIENT_AUTH;
+    FillChar(LChainPara, SizeOf(LChainPara), 0);
+    LChainPara.cbSize := SizeOf(LChainPara);
+    LChainPara.RequestedUsage.dwType := USAGE_MATCH_TYPE_AND;
+    LChainPara.RequestedUsage.Usage.cUsageIdentifier := 1;
+    LChainPara.RequestedUsage.Usage.rgpszUsageIdentifier := @LUsageArr[0];
+    LChainPara.dwUrlRetrievalTimeout := ADeadlineMs;
+
+    // live: whole-chain revocation over the network, AIA disabled so the built path matches the
+    // anchored/presented one; the accumulative timeout bounds the build to the deadline
+    LFlags := CERT_CHAIN_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT or
+      CERT_CHAIN_REVOCATION_ACCUMULATIVE_TIMEOUT or CERT_CHAIN_DISABLE_AIA;
+
+    LTimePtr := nil;
+    if AClock <> nil then
+    begin
+      LFileTime := UnixMillisToFileTime(AClock.NowUnixMillis);
+      LTimePtr := @LFileTime;
+    end;
+
+    if not FCertGetCertificateChain(LEngine, LLeaf, LTimePtr, LInterStore, @LChainPara,
+      LFlags, nil, LChain) then
+    begin
+      AAlert := TTlsAlertDescription.UnknownCa;
+      Exit;
+    end;
+
+    FillChar(LSslPara, SizeOf(LSslPara), 0);
+    LSslPara.cbSize := SizeOf(LSslPara);
+    LSslPara.dwAuthType := AUTHTYPE_CLIENT;
+    LSslPara.fdwChecks := 0;
+    LSslPara.pwszServerName := nil;
+
+    // query the Hard way (dwFlags 0): a revocation-unknown outcome surfaces so it is classified
+    // Indeterminate, not silently accepted - the resolver then applies posture and fallback
+    FillChar(LPolicyPara, SizeOf(LPolicyPara), 0);
+    LPolicyPara.cbSize := SizeOf(LPolicyPara);
+    LPolicyPara.dwFlags := 0;
+    LPolicyPara.pvExtraPolicyPara := @LSslPara;
+
+    FillChar(LStatus, SizeOf(LStatus), 0);
+    LStatus.cbSize := SizeOf(LStatus);
+
+    if not FCertVerifyCertificateChainPolicy(CERT_CHAIN_POLICY_SSL, LChain,
+      LPolicyPara, LStatus) then
+    begin
+      AAlert := TTlsAlertDescription.BadCertificate;
+      Exit;
+    end;
+
+    if LStatus.dwError = 0 then
+    begin
+      // trusted and revocation was actually checked: run the strength policy over the OS path
+      if not ReadChainPath(LChain, LOsPath) then
+      begin
+        AAlert := TTlsAlertDescription.InternalError;
+        Exit;
+      end;
+      if not ApplyStrengthPolicy(LOsPath, AProvider, AStrengthPolicy, AAdvertised, AAlert) then
+        Exit;
+      AOutcome := TLiveRevocationOutcome.Good;
+      Result := True;
+    end
+    else if (LStatus.dwError = CERT_E_REVOKED) or
+      (LStatus.dwError = CERT_E_REVOKED_ALT) then
+    begin
+      AOutcome := TLiveRevocationOutcome.Revoked;
+      Result := True;
+    end
+    else if (LStatus.dwError = CRYPT_E_NO_REVOCATION_CHECK) or
+      (LStatus.dwError = CRYPT_E_REVOCATION_OFFLINE) then
+    begin
+      // revocation could not be reached or decided: indeterminate. The inline pass already rejected
+      // every definitive trust failure before the park (a name mismatch cannot reach here - it is
+      // rejected inline), so the policy dwError is authoritative for the revocation question and the
+      // benign chain-status info bits (no-name-constraint, invalid-extension) do not gate it.
+      AOutcome := TLiveRevocationOutcome.Indeterminate;
+      Result := True;
+    end
+    else
+      // a real trust failure the live re-evaluation surfaced: reject outright
+      Result := MapPolicyError(LStatus.dwError, TRevocationPosture.Hard, AAlert);
   finally
     if LChain <> nil then
       FCertFreeCertificateChain(LChain);
@@ -1223,6 +1443,33 @@ begin
     FDeadlineMs, FClock, FProvider, FStrengthPolicy, FAdvertised, AOutcome, ARejectAlert);
 end;
 
+{ TWindowsClientLiveRevocationResolver }
+
+constructor TWindowsClientLiveRevocationResolver.Create(const AProvider: ICryptoProvider;
+  const AAnchors: TArray<TBytes>; APosture: TRevocationPosture; const AClock: ITlsClock;
+  const AStrengthPolicy: TCertificateStrengthPolicy;
+  const AAdvertised: TArray<UInt16>; ADeadlineMs: Cardinal;
+  const AFallback: TCertificateVerdictResolver);
+begin
+  inherited Create(APosture, AFallback);
+  FProvider := AProvider;
+  FAnchors := AAnchors;
+  FClock := AClock;
+  FStrengthPolicy := AStrengthPolicy;
+  FAdvertised := AAdvertised;
+  FDeadlineMs := ADeadlineMs;
+end;
+
+function TWindowsClientLiveRevocationResolver.EvaluateLive(const AChain: TArray<TBytes>;
+  const AHostName: string; const AStaple: TBytes;
+  out AOutcome: TLiveRevocationOutcome;
+  out ARejectAlert: TTlsAlertDescription): Boolean;
+begin
+  // a client certificate carries no host identity and is never stapled: AHostName/AStaple unused
+  Result := TWindowsTrustApi.EvaluateClientLive(AChain, FAnchors, FDeadlineMs, FClock,
+    FProvider, FStrengthPolicy, FAdvertised, AOutcome, ARejectAlert);
+end;
+
 { TWindowsServerVerifierSource }
 
 constructor TWindowsServerVerifierSource.Create(AFetch: TSystemTrustFetch);
@@ -1247,13 +1494,15 @@ end;
 
 constructor TWindowsClientDelegateVerifier.Create(const AProvider: ICryptoProvider;
   const AAnchors: TArray<TBytes>; APosture: TRevocationPosture;
-  const AClock: ITlsClock; const AStrengthPolicy: TCertificateStrengthPolicy;
+  AFetch: TSystemTrustFetch; const AClock: ITlsClock;
+  const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>);
 begin
   inherited Create;
   FProvider := AProvider;
   FAnchors := AAnchors;
   FPosture := APosture;
+  FFetch := AFetch;
   FClock := AClock;
   FStrengthPolicy := AStrengthPolicy;
   FAdvertised := AAdvertised;
@@ -1262,22 +1511,32 @@ end;
 function TWindowsClientDelegateVerifier.VerifyClientCertificate(
   const AChain: TArray<TBytes>; out AAlert: TTlsAlertDescription): Boolean;
 begin
-  Result := TWindowsTrustApi.EvaluateClientChain(AChain, FAnchors, FPosture,
+  Result := TWindowsTrustApi.EvaluateClientChain(AChain, FAnchors, FPosture, FFetch,
     FClock, FProvider, FStrengthPolicy, FAdvertised, AAlert);
 end;
 
 { TWindowsClientVerifierSource }
+
+constructor TWindowsClientVerifierSource.Create(AFetch: TSystemTrustFetch);
+begin
+  inherited Create;
+  FFetch := AFetch;
+end;
 
 function TWindowsClientVerifierSource.CreateClientVerifier(
   const AContext: TClientTrustContext): IClientCertificateVerifier;
 var
   LAnchors: TArray<TBytes>;
 begin
+  // live inline defers an indeterminate revocation to the async park, so a park must be guaranteed;
+  // without it the delegate would silently run cache-only Soft. Fail at engine creation (before IO).
+  if (FFetch = TSystemTrustFetch.Live) and (not AContext.AsyncVerdictEnabled) then
+    raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SLiveNeedsAsyncVerdict);
   LAnchors := nil;
   if AContext.TrustStore <> nil then
     LAnchors := AContext.TrustStore.RootCertificates;
   Result := TWindowsClientDelegateVerifier.Create(AContext.Provider, LAnchors,
-    AContext.RevocationPosture, AContext.Clock, AContext.StrengthPolicy,
+    AContext.RevocationPosture, FFetch, AContext.Clock, AContext.StrengthPolicy,
     AContext.AdvertisedSignatureSchemes) as IClientCertificateVerifier;
 end;
 
