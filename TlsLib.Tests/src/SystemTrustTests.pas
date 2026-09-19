@@ -774,10 +774,10 @@ end;
 
 procedure TTestMacOSSystemTrust.TestHarvestSymbolsResolved;
 begin
-  CheckTrue(TAppleTrustApi.HarvestSettingsReady,
+  CheckTrue(TAppleRootSource.HarvestSettingsReady,
     'macOS trust-settings-reading symbols must all resolve (else the anchor harvest degrades to ' +
     'System-origin only and cannot honour a user Deny)');
-  CheckTrue(TAppleTrustApi.HarvestSslScopeReady,
+  CheckTrue(TAppleRootSource.HarvestSslScopeReady,
     'macOS SSL-policy-scoping symbols must all resolve (else per-policy trust scoping is skipped)');
 end;
 

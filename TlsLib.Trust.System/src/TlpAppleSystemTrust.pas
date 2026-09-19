@@ -63,6 +63,14 @@ type
   strict protected
     function HarvestRoots: TArray<TBytes>; override;
     function SourceName: string; override;
+  public
+    /// <summary>Diagnostic probe (tests): whether the optional trust-settings-reading (tier 1)
+    /// and SSL-policy-scoping (tier 2) harvest symbols all resolved. When either is False the
+    /// harvest still runs at reduced fidelity (System-origin fallback / unscoped best-effort); a
+    /// real macOS build expects both True, so a test asserting this catches a resolution
+    /// regression (e.g. a key that must be created rather than dlsym'd) before it degrades trust.</summary>
+    class function HarvestSettingsReady: Boolean; static;
+    class function HarvestSslScopeReady: Boolean; static;
   end;
 {$ENDIF}
 
@@ -1613,6 +1621,16 @@ end;
 function TAppleRootSource.SourceName: string;
 begin
   Result := 'macOS';
+end;
+
+class function TAppleRootSource.HarvestSettingsReady: Boolean;
+begin
+  Result := TAppleTrustApi.HarvestSettingsReady;
+end;
+
+class function TAppleRootSource.HarvestSslScopeReady: Boolean;
+begin
+  Result := TAppleTrustApi.HarvestSslScopeReady;
 end;
 {$ENDIF}
 
