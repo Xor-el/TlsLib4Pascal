@@ -71,6 +71,7 @@ type
       const AAdvertised: TArray<UInt16>);
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
+      out AValidatedChain: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
@@ -135,6 +136,7 @@ type
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>);
     function VerifyClientCertificate(const AChain: TArray<TBytes>;
+      out AValidatedChain: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
@@ -472,6 +474,7 @@ type
       const AProvider: ICryptoProvider;
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>;
+      out AValidatedChain: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>Runs the OS SSL-server chain evaluation LIVE (network fetch enabled, revocation
     /// only - AIA disabled), at APosture, bounded by ADeadlineMs, over the OS-built path with the
@@ -496,6 +499,7 @@ type
       const AProvider: ICryptoProvider;
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>;
+      out AValidatedChain: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>Runs the CLIENT-certificate chain evaluation LIVE (network fetch enabled, revocation
     /// only - AIA disabled) against the exclusive-root engine over AAnchors, bounded by ADeadlineMs,
@@ -705,6 +709,7 @@ class function TWindowsTrustApi.EvaluateChain(const AChain: TArray<TBytes>;
   const AProvider: ICryptoProvider;
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>;
+  out AValidatedChain: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
 var
   LLeaf: PCERT_CONTEXT;
@@ -725,6 +730,7 @@ var
   LEffectivePosture: TRevocationPosture;
 begin
   Result := False;
+  AValidatedChain := nil;
   AAlert := TTlsAlertDescription.BadCertificate;
 
   if Length(AChain) = 0 then
@@ -848,6 +854,10 @@ begin
     end;
     Result := ApplyStrengthPolicy(LOsPath, AProvider, AStrengthPolicy,
       AAdvertised, AAlert);
+    // the OS-built path (leaf-first, ending at the anchor) is the validated chain a key-pin
+    // over the delegate must match against
+    if Result then
+      AValidatedChain := LOsPath;
   finally
     if LChain <> nil then
       FCertFreeCertificateChain(LChain);
@@ -1045,6 +1055,7 @@ class function TWindowsTrustApi.EvaluateClientChain(const AChain,
   const AProvider: ICryptoProvider;
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>;
+  out AValidatedChain: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
 var
   LLeaf: PCERT_CONTEXT;
@@ -1064,6 +1075,7 @@ var
   LEffectivePosture: TRevocationPosture;
 begin
   Result := False;
+  AValidatedChain := nil;
   AAlert := TTlsAlertDescription.BadCertificate;
 
   if Length(AChain) = 0 then
@@ -1188,6 +1200,8 @@ begin
     end;
     Result := ApplyStrengthPolicy(LOsPath, AProvider, AStrengthPolicy,
       AAdvertised, AAlert);
+    if Result then
+      AValidatedChain := LOsPath;
   finally
     if LChain <> nil then
       FCertFreeCertificateChain(LChain);
@@ -1412,10 +1426,12 @@ end;
 
 function TWindowsDelegateVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
   const AServerName: TServerName; const AOcspStaple: TBytes;
+  out AValidatedChain: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
   Result := TWindowsTrustApi.EvaluateChain(AChain, AServerName.ToString,
-    AOcspStaple, FPosture, FFetch, FClock, FProvider, FStrengthPolicy, FAdvertised, AAlert);
+    AOcspStaple, FPosture, FFetch, FClock, FProvider, FStrengthPolicy, FAdvertised,
+    AValidatedChain, AAlert);
 end;
 
 { TWindowsLiveRevocationResolver }
@@ -1509,10 +1525,11 @@ begin
 end;
 
 function TWindowsClientDelegateVerifier.VerifyClientCertificate(
-  const AChain: TArray<TBytes>; out AAlert: TTlsAlertDescription): Boolean;
+  const AChain: TArray<TBytes>; out AValidatedChain: TArray<TBytes>;
+  out AAlert: TTlsAlertDescription): Boolean;
 begin
   Result := TWindowsTrustApi.EvaluateClientChain(AChain, FAnchors, FPosture, FFetch,
-    FClock, FProvider, FStrengthPolicy, FAdvertised, AAlert);
+    FClock, FProvider, FStrengthPolicy, FAdvertised, AValidatedChain, AAlert);
 end;
 
 { TWindowsClientVerifierSource }

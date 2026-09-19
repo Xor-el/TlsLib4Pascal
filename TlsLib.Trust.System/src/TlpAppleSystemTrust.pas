@@ -89,6 +89,7 @@ type
       const AAdvertised: TArray<UInt16>);
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
+      out AValidatedChain: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
@@ -152,6 +153,7 @@ type
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>);
     function VerifyClientCertificate(const AChain: TArray<TBytes>;
+      out AValidatedChain: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
@@ -414,6 +416,7 @@ type
     class function ApplyStrengthPolicy(ATrust: SecTrustRef;
       const AProvider: ICryptoProvider;
       const APolicy: TCertificateStrengthPolicy; const AAdvertised: TArray<UInt16>;
+      out AValidatedChain: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>Unix epoch milliseconds to a CFAbsoluteTime (seconds since the 2001 CF epoch). The
     /// explicit Double casts are load-bearing: single precision loses whole seconds off a current
@@ -436,6 +439,7 @@ type
       const AProvider: ICryptoProvider;
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>; out AOutcome: TLiveRevocationOutcome;
+      out AValidatedChain: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>The inline cache-only server evaluation (no socket). Live downgrades a configured
     /// Hard to effective-Soft so an indeterminate revocation defers to the async park.</summary>
@@ -445,6 +449,7 @@ type
       const AOcspStaple: TBytes; const AProvider: ICryptoProvider;
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>;
+      out AValidatedChain: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>Runs the SERVER evaluation LIVE (network on, network-disabled flag dropped,
     /// RequirePositiveResponse always on so an indeterminate surfaces), returning the tri-state for
@@ -466,6 +471,7 @@ type
       const AProvider: ICryptoProvider;
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>; out AOutcome: TLiveRevocationOutcome;
+      out AValidatedChain: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>The inline cache-only CLIENT evaluation (no socket). Live downgrades a configured
     /// Hard to effective-Soft so an indeterminate revocation defers to the async park.</summary>
@@ -474,6 +480,7 @@ type
       const AProvider: ICryptoProvider;
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>;
+      out AValidatedChain: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>Runs the CLIENT evaluation LIVE (network on, network-disabled flag dropped,
     /// RequirePositiveResponse always on so an indeterminate surfaces), returning the tri-state for
@@ -686,11 +693,13 @@ end;
 
 class function TAppleTrustApi.ApplyStrengthPolicy(ATrust: SecTrustRef;
   const AProvider: ICryptoProvider; const APolicy: TCertificateStrengthPolicy;
-  const AAdvertised: TArray<UInt16>; out AAlert: TTlsAlertDescription): Boolean;
+  const AAdvertised: TArray<UInt16>; out AValidatedChain: TArray<TBytes>;
+  out AAlert: TTlsAlertDescription): Boolean;
 var
   LPath: TArray<TBytes>;
 begin
   Result := False;
+  AValidatedChain := nil;
   if AProvider = nil then
   begin
     AAlert := TTlsAlertDescription.InternalError;
@@ -704,6 +713,10 @@ begin
   // exempt the OS anchor (last path element); leaf and intermediates are checked
   Result := TChainAlgorithmPolicy.Check(AProvider.Certificates, LPath,
     TArray<TBytes>.Create(LPath[High(LPath)]), APolicy, AAdvertised, AAlert);
+  // the OS-built path (leaf-first, ending at the anchor) is the validated chain; ReadTrustPath
+  // copied each certificate's DER, so it outlives the SecTrustRef the caller releases
+  if Result then
+    AValidatedChain := LPath;
 end;
 
 class function TAppleTrustApi.MakeCertArray(const ADers: TArray<TBytes>;
@@ -761,6 +774,7 @@ class function TAppleTrustApi.EvaluateTrust(const AChain: TArray<TBytes>;
   const AProvider: ICryptoProvider;
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>; out AOutcome: TLiveRevocationOutcome;
+  out AValidatedChain: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
 var
   LStatusCode: Int32;
@@ -779,6 +793,7 @@ var
 begin
   Result := False;
   AOutcome := TLiveRevocationOutcome.Indeterminate;
+  AValidatedChain := nil;
   AAlert := TTlsAlertDescription.BadCertificate;
 
   if Length(AChain) = 0 then
@@ -917,8 +932,10 @@ begin
 
     if FSecTrustEvaluateWithError(LTrust, @LError) then
     begin
-      // trusted: strength policy over the OS-built path; a pass is a definitive Good
-      if not ApplyStrengthPolicy(LTrust, AProvider, AStrengthPolicy, AAdvertised, AAlert) then
+      // trusted: strength policy over the OS-built path; a pass is a definitive Good. The path
+      // is read here (before the finally releases LTrust) and handed back as the validated chain.
+      if not ApplyStrengthPolicy(LTrust, AProvider, AStrengthPolicy, AAdvertised,
+        AValidatedChain, AAlert) then
         Exit;
       AOutcome := TLiveRevocationOutcome.Good;
       Result := True;
@@ -973,11 +990,14 @@ class function TAppleTrustApi.EvaluateSslChain(const AChain: TArray<TBytes>;
   const AHostName: string; APosture: TRevocationPosture; AFetch: TSystemTrustFetch;
   const AClock: ITlsClock; const AOcspStaple: TBytes; const AProvider: ICryptoProvider;
   const AStrengthPolicy: TCertificateStrengthPolicy;
-  const AAdvertised: TArray<UInt16>; out AAlert: TTlsAlertDescription): Boolean;
+  const AAdvertised: TArray<UInt16>;
+  out AValidatedChain: TArray<TBytes>;
+  out AAlert: TTlsAlertDescription): Boolean;
 var
   LOutcome: TLiveRevocationOutcome;
   LRequirePositive: Boolean;
 begin
+  AValidatedChain := nil;
   // live defers a configured Hard to the async park: run effective-Soft inline (no positive-
   // response requirement) so an indeterminate revocation accepts here and the handshake parks;
   // configured Hard cache-only keeps requiring a positive response inline
@@ -985,7 +1005,7 @@ begin
     (AFetch = TSystemTrustFetch.CacheOnly);
   if not EvaluateTrust(AChain, AHostName, AOcspStaple, False,
     APosture <> TRevocationPosture.Off, LRequirePositive, AClock, AProvider,
-    AStrengthPolicy, AAdvertised, LOutcome, AAlert) then
+    AStrengthPolicy, AAdvertised, LOutcome, AValidatedChain, AAlert) then
     Exit(False);
   case LOutcome of
     TLiveRevocationOutcome.Revoked:
@@ -1008,11 +1028,14 @@ class function TAppleTrustApi.EvaluateServerLive(const AChain: TArray<TBytes>;
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>; out AOutcome: TLiveRevocationOutcome;
   out AAlert: TTlsAlertDescription): Boolean;
+var
+  LValidated: TArray<TBytes>;
 begin
   // network on, revocation network-disabled flag dropped, and always RequirePositiveResponse so an
-  // indeterminate surfaces distinctly; the resolver applies the configured posture and any fallback
+  // indeterminate surfaces distinctly; the resolver applies the configured posture and any fallback.
+  // The validated path is not surfaced from the live resolver (it renders a verdict, not a chain).
   Result := EvaluateTrust(AChain, AHostName, AStaple, True, True, True, AClock, AProvider,
-    AStrengthPolicy, AAdvertised, AOutcome, AAlert);
+    AStrengthPolicy, AAdvertised, AOutcome, LValidated, AAlert);
 end;
 
 class function TAppleTrustApi.EvaluateClientTrust(const AChain, AAnchors: TArray<TBytes>;
@@ -1020,6 +1043,7 @@ class function TAppleTrustApi.EvaluateClientTrust(const AChain, AAnchors: TArray
   const AProvider: ICryptoProvider;
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>; out AOutcome: TLiveRevocationOutcome;
+  out AValidatedChain: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
 var
   LStatusCode: Int32;
@@ -1035,6 +1059,7 @@ var
 begin
   Result := False;
   AOutcome := TLiveRevocationOutcome.Indeterminate;
+  AValidatedChain := nil;
   AAlert := TTlsAlertDescription.BadCertificate;
 
   if Length(AChain) = 0 then
@@ -1178,8 +1203,10 @@ begin
 
     if FSecTrustEvaluateWithError(LTrust, @LError) then
     begin
-      // trusted: strength policy over the OS-built path; a pass is a definitive Good
-      if not ApplyStrengthPolicy(LTrust, AProvider, AStrengthPolicy, AAdvertised, AAlert) then
+      // trusted: strength policy over the OS-built path; a pass is a definitive Good. The path
+      // is read here (before the finally releases LTrust) and handed back as the validated chain.
+      if not ApplyStrengthPolicy(LTrust, AProvider, AStrengthPolicy, AAdvertised,
+        AValidatedChain, AAlert) then
         Exit;
       AOutcome := TLiveRevocationOutcome.Good;
       Result := True;
@@ -1232,18 +1259,22 @@ class function TAppleTrustApi.EvaluateClientChain(const AChain, AAnchors: TArray
   APosture: TRevocationPosture; AFetch: TSystemTrustFetch; const AClock: ITlsClock;
   const AProvider: ICryptoProvider;
   const AStrengthPolicy: TCertificateStrengthPolicy;
-  const AAdvertised: TArray<UInt16>; out AAlert: TTlsAlertDescription): Boolean;
+  const AAdvertised: TArray<UInt16>;
+  out AValidatedChain: TArray<TBytes>;
+  out AAlert: TTlsAlertDescription): Boolean;
 var
   LOutcome: TLiveRevocationOutcome;
   LRequirePositive: Boolean;
 begin
+  AValidatedChain := nil;
   // live defers a configured Hard to the async park: run effective-Soft inline (no positive-
   // response requirement) so an indeterminate revocation accepts here and the handshake parks;
   // configured Hard cache-only keeps requiring a positive response inline
   LRequirePositive := (APosture = TRevocationPosture.Hard) and
     (AFetch = TSystemTrustFetch.CacheOnly);
   if not EvaluateClientTrust(AChain, AAnchors, False, APosture <> TRevocationPosture.Off,
-    LRequirePositive, AClock, AProvider, AStrengthPolicy, AAdvertised, LOutcome, AAlert) then
+    LRequirePositive, AClock, AProvider, AStrengthPolicy, AAdvertised, LOutcome,
+    AValidatedChain, AAlert) then
     Exit(False);
   case LOutcome of
     TLiveRevocationOutcome.Revoked:
@@ -1265,11 +1296,14 @@ class function TAppleTrustApi.EvaluateClientLive(const AChain, AAnchors: TArray<
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>; out AOutcome: TLiveRevocationOutcome;
   out AAlert: TTlsAlertDescription): Boolean;
+var
+  LValidated: TArray<TBytes>;
 begin
   // network on, revocation network-disabled flag dropped, and always RequirePositiveResponse so an
-  // indeterminate surfaces distinctly; the resolver applies the configured posture and any fallback
+  // indeterminate surfaces distinctly; the resolver applies the configured posture and any fallback.
+  // The validated path is not surfaced from the live resolver (it renders a verdict, not a chain).
   Result := EvaluateClientTrust(AChain, AAnchors, True, True, True, AClock, AProvider,
-    AStrengthPolicy, AAdvertised, AOutcome, AAlert);
+    AStrengthPolicy, AAdvertised, AOutcome, LValidated, AAlert);
 end;
 
 {$IFDEF TLSLIB_MACOS}
@@ -1407,10 +1441,12 @@ end;
 
 function TAppleDelegateVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
   const AServerName: TServerName; const AOcspStaple: TBytes;
+  out AValidatedChain: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
   Result := TAppleTrustApi.EvaluateSslChain(AChain, AServerName.ToString, FPosture,
-    FFetch, FClock, AOcspStaple, FProvider, FStrengthPolicy, FAdvertised, AAlert);
+    FFetch, FClock, AOcspStaple, FProvider, FStrengthPolicy, FAdvertised,
+    AValidatedChain, AAlert);
 end;
 
 { TAppleLiveRevocationResolver }
@@ -1500,10 +1536,11 @@ begin
 end;
 
 function TAppleClientDelegateVerifier.VerifyClientCertificate(
-  const AChain: TArray<TBytes>; out AAlert: TTlsAlertDescription): Boolean;
+  const AChain: TArray<TBytes>; out AValidatedChain: TArray<TBytes>;
+  out AAlert: TTlsAlertDescription): Boolean;
 begin
   Result := TAppleTrustApi.EvaluateClientChain(AChain, FAnchors, FPosture, FFetch,
-    FClock, FProvider, FStrengthPolicy, FAdvertised, AAlert);
+    FClock, FProvider, FStrengthPolicy, FAdvertised, AValidatedChain, AAlert);
 end;
 
 { TAppleClientVerifierSource }

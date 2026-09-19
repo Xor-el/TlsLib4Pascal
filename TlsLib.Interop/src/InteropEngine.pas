@@ -191,8 +191,10 @@ type
   public
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
+      out AValidatedChain: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean;
     function VerifyClientCertificate(const AChain: TArray<TBytes>;
+      out AValidatedChain: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
@@ -207,17 +209,25 @@ end;
 
 function TInteropAcceptAnyVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
   const AServerName: TServerName; const AOcspStaple: TBytes;
+  out AValidatedChain: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
+  AValidatedChain := nil;
   AAlert := TTlsAlertDescription.CertificateRequired;
   Result := System.Length(AChain) > 0;
+  if Result then
+    AValidatedChain := AChain;
 end;
 
 function TInteropAcceptAnyVerifier.VerifyClientCertificate(const AChain: TArray<TBytes>;
+  out AValidatedChain: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
+  AValidatedChain := nil;
   AAlert := TTlsAlertDescription.CertificateRequired;
   Result := System.Length(AChain) > 0;
+  if Result then
+    AValidatedChain := AChain;
 end;
 
 { TInteropEngine }

@@ -107,13 +107,16 @@ type
   public
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
+      out AValidatedChain: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
 function TRejectingServerVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
   const AServerName: TServerName; const AOcspStaple: TBytes;
+  out AValidatedChain: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
+  AValidatedChain := nil;
   AAlert := TTlsAlertDescription.BadCertificate;
   Result := False;
 end;

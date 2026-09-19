@@ -65,6 +65,7 @@ type
       const AAdvertised: TArray<UInt16>);
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
+      out AValidatedChain: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
@@ -99,6 +100,7 @@ type
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>);
     function VerifyClientCertificate(const AChain: TArray<TBytes>;
+      out AValidatedChain: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
@@ -959,10 +961,12 @@ end;
 
 function TAndroidDelegateVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
   const AServerName: TServerName; const AOcspStaple: TBytes;
+  out AValidatedChain: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
 var
   LOsPath: TArray<TBytes>;
 begin
+  AValidatedChain := nil;
   // the platform chain verdict first, yielding the path it built
   Result := TAndroidTrustApi.Evaluate(AChain, AServerName.ToString, LOsPath, AAlert);
   if not Result then
@@ -1007,6 +1011,9 @@ begin
       Result := False;
       AAlert := TTlsAlertDescription.BadCertificate;
     end;
+  // the OS-built path (leaf-first, ending at the anchor) is the validated chain a key-pin matches
+  if Result then
+    AValidatedChain := LOsPath;
 end;
 
 { TAndroidServerVerifierSource }
@@ -1034,8 +1041,10 @@ begin
 end;
 
 function TAndroidClientDelegateVerifier.VerifyClientCertificate(
-  const AChain: TArray<TBytes>; out AAlert: TTlsAlertDescription): Boolean;
+  const AChain: TArray<TBytes>; out AValidatedChain: TArray<TBytes>;
+  out AAlert: TTlsAlertDescription): Boolean;
 begin
+  AValidatedChain := nil;
   // checkClientTrusted returns void; the exclusive KeyStore + no AIA fetch make the presented
   // chain plus the configured anchors (exempt) the validated path
   Result := TAndroidTrustApi.EvaluateClient(AChain, FAnchors, AAlert);
@@ -1043,6 +1052,10 @@ begin
     Exit;
   Result := TAndroidTrustApi.ApplyStrengthPolicy(AChain, FAnchors, FProvider,
     FStrengthPolicy, FAdvertised, AAlert);
+  // the platform reports no path for a client certificate; the presented chain is the validated
+  // one (anchors are exempt and not appended - the contract permits omitting an unreportable anchor)
+  if Result then
+    AValidatedChain := AChain;
 end;
 
 { TAndroidClientVerifierSource }

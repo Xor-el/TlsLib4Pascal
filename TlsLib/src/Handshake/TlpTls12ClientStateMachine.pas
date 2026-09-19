@@ -508,6 +508,7 @@ end;
 function TTls12ClientStateMachine.VerifyServerChain: TArray<THandshakeEffect>;
 var
   LAlert: TTlsAlertDescription;
+  LValidated: TArray<TBytes>;
 begin
   Result := nil;
   // fail-closed trust: no verifier or a negative verdict aborts with the reason's alert
@@ -515,7 +516,7 @@ begin
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.InternalError, @SNoCertificateVerifier);
   if not FParams.CertificateVerifier.VerifyServerCertificate(FCertChain,
-    FParams.ExpectedServerName, FReceivedOcspStaple, LAlert) then
+    FParams.ExpectedServerName, FReceivedOcspStaple, LValidated, LAlert) then
     raise EFatalAlertTlsLibException.CreateRes(LAlert, @SUntrustedCertificate);
   // surface the validated chain for connection info (read-only)
   Result := TArray<THandshakeEffect>.Create(
@@ -861,6 +862,7 @@ end;
 procedure TTls12ClientStateMachine.ReverifyResumedServer;
 var
   LAlert: TTlsAlertDescription;
+  LValidated: TArray<TBytes>;
 begin
   if FParams.CertificateVerifier = nil then
     raise EFatalAlertTlsLibException.CreateRes(
@@ -869,7 +871,7 @@ begin
   LAlert := TTlsAlertDescription.BadCertificate;
   if (FResumptionOffer = nil) or (System.Length(FResumptionOffer.PeerCertificates) = 0) or
     not FParams.CertificateVerifier.VerifyServerCertificate(
-    FResumptionOffer.PeerCertificates, FParams.ExpectedServerName, nil, LAlert) then
+    FResumptionOffer.PeerCertificates, FParams.ExpectedServerName, nil, LValidated, LAlert) then
     raise EFatalAlertTlsLibException.CreateRes(LAlert, @SUntrustedCertificate);
 end;
 

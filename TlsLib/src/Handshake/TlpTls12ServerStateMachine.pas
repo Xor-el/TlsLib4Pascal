@@ -718,6 +718,7 @@ function TTls12ServerStateMachine.ProcessClientCertificate(
   const AMessage: TTlsHandshakeMessage): TArray<THandshakeEffect>;
 var
   LAlert: TTlsAlertDescription;
+  LValidated: TArray<TBytes>;
 begin
   Result := nil;
   FClientCertChain := THandshakeMessages.DecodeCertificate12(AMessage.Body);
@@ -743,7 +744,7 @@ begin
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.InternalError, @SNoClientCertificateVerifier);
     if not FParams.ClientCertificateVerifier.VerifyClientCertificate(FClientCertChain,
-      LAlert) then
+      LValidated, LAlert) then
       raise EFatalAlertTlsLibException.CreateRes(LAlert, @SUntrustedClientCertificate);
     // surface the validated client chain for connection info (read-only)
     Result := TArray<THandshakeEffect>.Create(

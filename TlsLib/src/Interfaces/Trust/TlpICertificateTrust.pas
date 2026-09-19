@@ -43,9 +43,14 @@ type
     /// <summary>True if AChain (leaf first, DER) is a trusted server certificate for
     /// AServerName; else False with AAlert set to the reason. AOcspStaple is the
     /// stapled OCSP response delivered in the handshake (empty when none), fed to the
-    /// revocation step.</summary>
+    /// revocation step. On True, AValidatedChain is the leaf-first DER path the verifier
+    /// actually validated, including the trust anchor where the validator can report it (a
+    /// delegate that cannot name the anchor returns the presented chain); under
+    /// InsecureSkipVerify it is the leaf alone. On False it is empty. A key-pinning check
+    /// must match against this validated path, never the presented AChain (RFC 7469 6).</summary>
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
+      out AValidatedChain: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
@@ -57,8 +62,12 @@ type
   IClientCertificateVerifier = interface(IInterface)
     ['{7B4C1E93-2F60-4A18-9D3B-5E8A0C2F41D6}']
     /// <summary>True if AChain (leaf first, DER) is a trusted client certificate;
-    /// else False with AAlert set to the reason.</summary>
+    /// else False with AAlert set to the reason. On True, AValidatedChain is the leaf-first
+    /// DER path the verifier validated, including the trust anchor where the validator can
+    /// report it (a delegate that cannot name the anchor returns the presented chain); under
+    /// InsecureSkipVerify it is the leaf alone. On False it is empty.</summary>
     function VerifyClientCertificate(const AChain: TArray<TBytes>;
+      out AValidatedChain: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 

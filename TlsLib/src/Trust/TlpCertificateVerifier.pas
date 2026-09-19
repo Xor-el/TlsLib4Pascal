@@ -102,7 +102,8 @@ type
     /// is the extendedKeyUsage the path must carry.</summary>
     function VerifyPipeline(const AChain: TArray<TBytes>;
       const AServerName: TServerName; ACheckName: Boolean; const AOcspStaple: TBytes;
-      AKeyPurpose: TCertKeyPurpose; out AAlert: TTlsAlertDescription): Boolean;
+      AKeyPurpose: TCertKeyPurpose; out AValidatedChain: TArray<TBytes>;
+      out AAlert: TTlsAlertDescription): Boolean;
     /// <summary>The stapled-OCSP revocation + must-staple step (RFC 6960 / RFC 7633),
     /// in-band only. A malformed TLS Feature extension is a hard bad_certificate. A
     /// definitive Revoked fails (certificate_revoked); a current Good passes. A must-staple
@@ -158,8 +159,10 @@ type
       const AAdvertised: TArray<UInt16>);
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
+      out AValidatedChain: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean;
     function VerifyClientCertificate(const AChain: TArray<TBytes>;
+      out AValidatedChain: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
@@ -181,6 +184,7 @@ type
       const APins: TArray<TBytes>; const AProvider: ICryptoProvider);
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
+      out AValidatedChain: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
@@ -405,7 +409,8 @@ end;
 
 function TCertificateVerifier.VerifyPipeline(const AChain: TArray<TBytes>;
   const AServerName: TServerName; ACheckName: Boolean; const AOcspStaple: TBytes;
-  AKeyPurpose: TCertKeyPurpose; out AAlert: TTlsAlertDescription): Boolean;
+  AKeyPurpose: TCertKeyPurpose; out AValidatedChain: TArray<TBytes>;
+  out AAlert: TTlsAlertDescription): Boolean;
 var
   LI, LTotal: Int32;
   // the chain PKIX actually validated: when the peer sent an incomplete chain that path
@@ -415,6 +420,7 @@ var
   LLeaf: IInspectedCertificate;
 begin
   Result := False;
+  AValidatedChain := nil;
   AAlert := TTlsAlertDescription.BadCertificate;
   if System.Length(AChain) = 0 then
     Exit;
@@ -478,22 +484,30 @@ begin
     end;
   end;
 
+  // the path PKIX validated (with the anchor and any recovered issuer), so a pinning
+  // decorator matches over the real chain of trust, not the certificates the peer sent
+  AValidatedChain := LEffectiveChain;
   Result := True;
 end;
 
 function TCertificateVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
   const AServerName: TServerName; const AOcspStaple: TBytes;
+  out AValidatedChain: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
   Result := False;
+  AValidatedChain := nil;
   AAlert := TTlsAlertDescription.BadCertificate;
   if System.Length(AChain) = 0 then
     Exit;
   // the loud escape hatch: skip the built-in pipeline entirely (tests / pinned dev peers)
-  if not FDangerous.InsecureSkipVerify then
-    if not VerifyPipeline(AChain, AServerName, FCheckHostName, AOcspStaple,
-      TCertKeyPurpose.ServerAuth, AAlert) then
-      Exit;
+  if FDangerous.InsecureSkipVerify then
+    // with no path validation nothing binds AChain[1..] to the leaf, so a pin may only be a
+    // leaf pin here: the validated chain is the leaf alone (never the peer-supplied rest)
+    AValidatedChain := TArray<TBytes>.Create(System.Copy(AChain[0]))
+  else if not VerifyPipeline(AChain, AServerName, FCheckHostName, AOcspStaple,
+    TCertKeyPurpose.ServerAuth, AValidatedChain, AAlert) then
+    Exit;
   // the augment-only hook runs last and can only additionally reject; it can never rescue a
   // chain the pipeline (when run) already rejected, since a rejection has returned above
   if Assigned(FDangerous.VerifyCallback) then
@@ -501,6 +515,7 @@ begin
     begin
       // a custom augment verifier's rejection is an unspecified acceptability problem, not a
       // corrupt/bad-signature certificate: certificate_unknown, not bad_certificate (RFC 8446 6.2)
+      AValidatedChain := nil;
       AAlert := TTlsAlertDescription.CertificateUnknown;
       Exit;
     end;
@@ -508,21 +523,25 @@ begin
 end;
 
 function TCertificateVerifier.VerifyClientCertificate(const AChain: TArray<TBytes>;
+  out AValidatedChain: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
   Result := False;
+  AValidatedChain := nil;
   AAlert := TTlsAlertDescription.BadCertificate;
   if System.Length(AChain) = 0 then
     Exit;
   // a client certificate carries no host identity and is never stapled: verify the chain
   // for the clientAuth role, with no endpoint-identity match and no OCSP staple
-  if not FDangerous.InsecureSkipVerify then
-    if not VerifyPipeline(AChain, Default(TServerName), False, nil,
-      TCertKeyPurpose.ClientAuth, AAlert) then
-      Exit;
+  if FDangerous.InsecureSkipVerify then
+    AValidatedChain := TArray<TBytes>.Create(System.Copy(AChain[0]))
+  else if not VerifyPipeline(AChain, Default(TServerName), False, nil,
+    TCertKeyPurpose.ClientAuth, AValidatedChain, AAlert) then
+    Exit;
   if Assigned(FDangerous.VerifyCallback) then
     if not FDangerous.VerifyCallback(AChain, '') then
     begin
+      AValidatedChain := nil;
       AAlert := TTlsAlertDescription.CertificateUnknown;
       Exit;
     end;
@@ -549,10 +568,19 @@ begin
   Result := True;
   if System.Length(FPins) = 0 then
     Exit;
-  // some presented certificate must carry a pinned public key (SPKI-SHA256)
+  // some certificate on the validated path must carry a pinned public key (SPKI-SHA256).
+  // A certificate the inspector cannot parse contributes no SPKI (it never matches a pin);
+  // it must never turn a pin decision into a raised internal_error.
   for LI := 0 to System.High(AChain) do
   begin
-    LSpki := FProvider.Certificates.PublicKeyInfo(AChain[LI]);
+    try
+      LSpki := FProvider.Certificates.PublicKeyInfo(AChain[LI]);
+    except
+      // a certificate on the validated path was already parsed by the pipeline, so this is
+      // defensive: any parse/encode failure yields no SPKI, so it simply cannot match a pin
+      on Exception do
+        Continue;
+    end;
     LHash := FProvider.Primitives.CreateHash(THashAlgorithm.SHA_256);
     LHash.Update(LSpki, 0, System.Length(LSpki));
     LDigest := LHash.DoFinal;
@@ -565,14 +593,20 @@ end;
 
 function TPinningVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
   const AServerName: TServerName; const AOcspStaple: TBytes;
+  out AValidatedChain: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
-  // pinning augments the inner verdict; it can only additionally reject
-  Result := FInner.VerifyServerCertificate(AChain, AServerName, AOcspStaple, AAlert);
+  // pinning augments the inner verdict; it can only additionally reject. It matches the pin
+  // against the chain the inner verifier actually validated (RFC 7469 6), never the presented
+  // certificates, so an attacker cannot append a pinned leaf to a chain that validated by
+  // another path.
+  Result := FInner.VerifyServerCertificate(AChain, AServerName, AOcspStaple,
+    AValidatedChain, AAlert);
   if not Result then
     Exit;
-  if not PinsMatch(AChain) then
+  if not PinsMatch(AValidatedChain) then
   begin
+    AValidatedChain := nil;
     AAlert := TTlsAlertDescription.BadCertificate;
     Result := False;
   end;

@@ -1616,6 +1616,7 @@ var
   LCert: TTlsCertificate;
   LI: Int32;
   LAlert: TTlsAlertDescription;
+  LValidated: TArray<TBytes>;
 begin
   Result := nil;
   LCert := THandshakeMessages.DecodeCertificate(AMessage.Body);
@@ -1653,7 +1654,8 @@ begin
   // trust the client chain (no hostname identity or OCSP staple applies to a client
   // certificate)
   if (FParams.ClientCertificateVerifier = nil) or
-    not FParams.ClientCertificateVerifier.VerifyClientCertificate(FClientCertChain, LAlert) then
+    not FParams.ClientCertificateVerifier.VerifyClientCertificate(FClientCertChain,
+    LValidated, LAlert) then
     raise EFatalAlertTlsLibException.CreateRes(LAlert, @SUntrustedClientCertificate);
   FPhase := TPhase.WaitClientCertVerify;
   // surface the validated client chain for connection info (read-only)

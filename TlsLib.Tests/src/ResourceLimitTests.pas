@@ -154,10 +154,12 @@ function TTestResourceLimit.VerifyAlert(const AChain: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
 var
   LVerifier: IServerCertificateVerifier;
+  LValidated: TArray<TBytes>;
 begin
   LVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(nil) as ITrustAnchorStore, False) as IServerCertificateVerifier;
-  Result := not LVerifier.VerifyServerCertificate(AChain, TServerName.DnsName(''), nil, AAlert);
+  Result := not LVerifier.VerifyServerCertificate(AChain, TServerName.DnsName(''), nil,
+    LValidated, AAlert);
 end;
 
 procedure TTestResourceLimit.TestOverLengthHandshakeMessageRejected;

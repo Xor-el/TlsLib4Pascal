@@ -1490,6 +1490,7 @@ end;
 procedure TTls13ClientStateMachine.ReverifyResumedServer;
 var
   LAlert: TTlsAlertDescription;
+  LValidated: TArray<TBytes>;
 begin
   if FParams.CertificateVerifier = nil then
     raise EFatalAlertTlsLibException.CreateRes(
@@ -1499,7 +1500,7 @@ begin
   LAlert := TTlsAlertDescription.BadCertificate;
   if (System.Length(FResumptionPeerCertificates) = 0) or
     not FParams.CertificateVerifier.VerifyServerCertificate(FResumptionPeerCertificates,
-    FParams.ExpectedServerName, nil, LAlert) then
+    FParams.ExpectedServerName, nil, LValidated, LAlert) then
     raise EFatalAlertTlsLibException.CreateRes(LAlert, @SUntrustedCertificate);
 end;
 
@@ -1952,6 +1953,7 @@ var
   LExtType: UInt16;
   LSeenCertExtTypes: TArray<UInt16>;
   LAlert: TTlsAlertDescription;
+  LValidated: TArray<TBytes>;
 begin
   LCert := THandshakeMessages.DecodeCertificate(ACertificateBody);
   if System.Length(LCert.Entries) = 0 then
@@ -2000,7 +2002,7 @@ begin
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.InternalError, @SNoCertificateVerifier);
   if not FParams.CertificateVerifier.VerifyServerCertificate(FCertificateChain,
-    FParams.ExpectedServerName, FReceivedOcspStaple, LAlert) then
+    FParams.ExpectedServerName, FReceivedOcspStaple, LValidated, LAlert) then
     raise EFatalAlertTlsLibException.CreateRes(LAlert, @SUntrustedCertificate);
 
   // the on-the-wire message (compressed, when compressed) is what feeds the transcript

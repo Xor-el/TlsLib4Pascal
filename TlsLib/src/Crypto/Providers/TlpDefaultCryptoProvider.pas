@@ -2248,6 +2248,25 @@ procedure TCertificatePathValidator.ValidateCertificatePath(const AChain,
         Exit(True);
   end;
 
+  // append the trust anchor the validator resolved to the effective path, so the leaf-first
+  // chain the caller sees ends at the anchor (a key-pin over the validated path can then pin
+  // the root, matching what an OS delegate reports). A no-op when the anchor is unknown or the
+  // path already ends in it (the peer sent the root, or the builder included it).
+  procedure AppendAnchor(const AAnchorCert: IX509Certificate);
+  var
+    LAnchorDer: TBytes;
+    LLen: Int32;
+  begin
+    if AAnchorCert = nil then
+      Exit;
+    LAnchorDer := AAnchorCert.GetEncoded;
+    LLen := System.Length(AEffectiveChain);
+    if (LLen > 0) and TArrayUtilities.AreEqual(AEffectiveChain[LLen - 1], LAnchorDer) then
+      Exit;
+    SetLength(AEffectiveChain, LLen + 1);
+    AEffectiveChain[LLen] := LAnchorDer;
+  end;
+
   // RFC 5280 4.2.1.12 extendedKeyUsage, enforced over the validated path (leaf + every
   // intermediate, never the trust anchor): a certificate carrying an EKU extension must
   // include the role's purpose; one with no EKU extension is unrestricted. anyExtendedKeyUsage
@@ -2313,6 +2332,7 @@ var
   LParams: IPkixParameters;
   LPath: IPkixCertPath;
   LValidator: IPkixCertPathValidator;
+  LValidatorResult: IPkixCertPathValidatorResult;
   LTarget: IX509CertStoreSelector;
   LBuilderParams: IPkixBuilderParameters;
   LPoolStore: IStore<IX509Certificate>;
@@ -2388,7 +2408,7 @@ begin
     LParams.SetDate(AValidationTimeUtc);
     LPath := TPkixCertPath.Create(LCerts);
     LValidator := TPkixCertPathValidator.Create;
-    LValidator.Validate(LPath, LParams);
+    LValidatorResult := LValidator.Validate(LPath, LParams);
     LLiteralValidated := True;
   except
     on E: ECryptoLibException do
@@ -2397,6 +2417,8 @@ begin
   if LLiteralValidated then
   begin
     EnforcePurpose(LCerts);
+    // the peer's chain validated as-is; append the resolved anchor unless the peer sent it
+    AppendAnchor(LValidatorResult.TrustAnchor.TrustedCert);
     Exit;
   end;
 
@@ -2455,6 +2477,8 @@ begin
   SetLength(AEffectiveChain, System.Length(LBuilt));
   for LI := 0 to High(LBuilt) do
     AEffectiveChain[LI] := LBuilt[LI].GetEncoded;
+  // a built PKIX path excludes the anchor; append it so the effective chain ends at the root
+  AppendAnchor(LBuildResult.TrustAnchor.TrustedCert);
 end;
 
 class function TRevocationChecker.OcspDelegatedResponder(const AResponderCert,
