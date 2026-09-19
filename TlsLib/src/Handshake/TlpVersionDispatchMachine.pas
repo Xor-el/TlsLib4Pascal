@@ -68,6 +68,7 @@ type
     /// <summary>Forwards an exporter request to the resolved sub-machine.</summary>
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       AUseContext: Boolean; ALength: Int32): TBytes;
+    function CanExportKeyingMaterial: Boolean;
   end;
 
   /// <summary>
@@ -180,11 +181,16 @@ end;
 function TVersionDispatchMachineBase.ExportKeyingMaterial(const ALabel: string;
   const AContext: TBytes; AUseContext: Boolean; ALength: Int32): TBytes;
 begin
-  // only meaningful once a version was resolved and its secrets derived (post-handshake)
+  // only meaningful once a version was resolved and its secrets derived
   if FInner <> nil then
     Result := FInner.ExportKeyingMaterial(ALabel, AContext, AUseContext, ALength)
   else
     Result := nil;
+end;
+
+function TVersionDispatchMachineBase.CanExportKeyingMaterial: Boolean;
+begin
+  Result := (FInner <> nil) and FInner.CanExportKeyingMaterial;
 end;
 
 class function TVersionDispatchMachineBase.ClientHelloVersions(

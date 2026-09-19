@@ -260,6 +260,7 @@ type
     function Start: TArray<THandshakeEffect>; override;
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       AUseContext: Boolean; ALength: Int32): TBytes; override;
+    function CanExportKeyingMaterial: Boolean; override;
   end;
 
 implementation
@@ -1095,10 +1096,17 @@ end;
 function TTls12ServerStateMachine.ExportKeyingMaterial(const ALabel: string;
   const AContext: TBytes; AUseContext: Boolean; ALength: Int32): TBytes;
 begin
+  // TLS 1.2 stays gated on completion (no False Start), so query and operation agree: the master
+  // exists from ClientKeyExchange, but the exporter is not offered before the handshake completes
   Result := nil;
-  if FSchedule = nil then
+  if (FSchedule = nil) or (FPhase <> TPhase.Connected) then
     Exit;
   Result := FSchedule.ExportKeyingMaterial(ALabel, AContext, AUseContext, ALength);
+end;
+
+function TTls12ServerStateMachine.CanExportKeyingMaterial: Boolean;
+begin
+  Result := FPhase = TPhase.Connected;
 end;
 
 end.

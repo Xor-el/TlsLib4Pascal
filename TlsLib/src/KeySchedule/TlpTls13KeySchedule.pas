@@ -108,6 +108,7 @@ type
     procedure DeriveEpochSecrets(AEpoch: TTlsEpoch; const ATranscriptHash: TBytes);
     function FinishedKey(ADirection: TTlsDirection): ISecretBuffer;
     procedure AdvanceKeyUpdate(ADirection: TTlsDirection);
+    function HasExporterSecret: Boolean;
     function ResumptionMasterSecret(const ATranscriptHash: TBytes): ISecretBuffer;
     function ResumptionPsk(const ATranscriptHash, ATicketNonce: TBytes): ISecretBuffer;
     function BinderKey(AKind: TPskBinderKind): ISecretBuffer;
@@ -390,6 +391,12 @@ begin
   LContextHash := HashOf(AContext);
   Result := THkdfLabel.HkdfExpandLabel(FHkdf, LDerived, 'exporter', LContextHash,
     ALength).ToBytes;
+end;
+
+function TTls13KeySchedule.HasExporterSecret: Boolean;
+begin
+  // set when the Application epoch secrets are derived (a KeyUpdate never touches it)
+  Result := FExporterMaster <> nil;
 end;
 
 function TTls13KeySchedule.ResumptionMasterSecret(

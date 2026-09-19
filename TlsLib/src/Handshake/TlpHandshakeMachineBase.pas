@@ -65,6 +65,8 @@ type
     /// <summary>No exporter until a machine derives its secrets; concrete versions override.</summary>
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       AUseContext: Boolean; ALength: Int32): TBytes; virtual;
+    /// <summary>No exporter available by default; concrete versions override.</summary>
+    function CanExportKeyingMaterial: Boolean; virtual;
   end;
 
 implementation
@@ -109,6 +111,11 @@ function THandshakeMachineBase.ExportKeyingMaterial(const ALabel: string;
   const AContext: TBytes; AUseContext: Boolean; ALength: Int32): TBytes;
 begin
   Result := nil;
+end;
+
+function THandshakeMachineBase.CanExportKeyingMaterial: Boolean;
+begin
+  Result := False;
 end;
 
 function THandshakeMachineBase.ProcessMessage(

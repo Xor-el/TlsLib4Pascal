@@ -412,6 +412,7 @@ type
       : TArray<THandshakeEffect>; override;
     function WriteDirection: TTlsDirection; override;
     function ReadDirection: TTlsDirection; override;
+    function ExportWithheld: Boolean; override;
   public
     constructor Create(const AParams: TClientHandshakeParams);
     destructor Destroy; override;
@@ -2328,6 +2329,14 @@ end;
 function TTls13ClientStateMachine.ReadDirection: TTlsDirection;
 begin
   Result := TTlsDirection.ServerWrite;
+end;
+
+function TTls13ClientStateMachine.ExportWithheld: Boolean;
+begin
+  // the application secrets (and the exporter secret) are derived at ServerFinished, but on a
+  // resumption a reverify-on-resume verdict may still be open; withhold the exporter until the
+  // peer is accepted so no keying material is exported over an unverified resumed identity
+  Result := FPhase = TPhase.WaitResumeVerdict;
 end;
 
 function TTls13ClientStateMachine.Route(

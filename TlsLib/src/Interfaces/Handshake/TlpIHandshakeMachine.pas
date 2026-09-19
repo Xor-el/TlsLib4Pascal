@@ -55,9 +55,14 @@ type
     /// machine/version that does not park at a message-less point.</summary>
     function ResumeAfterVerdict: TArray<THandshakeEffect>;
     /// <summary>Exported keying material over the established secrets (RFC 8446 7.5 / RFC
-    /// 5705). Empty for a machine/version that has not yet derived its secrets.</summary>
+    /// 5705). Empty unless CanExportKeyingMaterial (the exporter secret has been derived).</summary>
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       AUseContext: Boolean; ALength: Int32): TBytes;
+    /// <summary>Whether the exporter secret is available: for a TLS 1.3 server that is true in
+    /// half-RTT (after it sent its Finished), before the peer's Finished (RFC 8446 7.5); TLS 1.2
+    /// stays gated on completion. The client withholds it while a reverify-on-resume verdict is
+    /// still open.</summary>
+    function CanExportKeyingMaterial: Boolean;
   end;
 
   /// <summary>

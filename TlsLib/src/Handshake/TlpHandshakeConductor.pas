@@ -86,6 +86,9 @@ type
     /// RFC 5705).</summary>
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       AUseContext: Boolean; ALength: Int32): TBytes;
+    /// <summary>Whether the active machine's exporter secret is available (half-RTT for a
+    /// TLS 1.3 server).</summary>
+    function CanExportKeyingMaterial: Boolean;
   end;
 
 implementation
@@ -175,6 +178,11 @@ function THandshakeConductor.ExportKeyingMaterial(const ALabel: string;
   const AContext: TBytes; AUseContext: Boolean; ALength: Int32): TBytes;
 begin
   Result := FMachine.ExportKeyingMaterial(ALabel, AContext, AUseContext, ALength);
+end;
+
+function THandshakeConductor.CanExportKeyingMaterial: Boolean;
+begin
+  Result := FMachine.CanExportKeyingMaterial;
 end;
 
 procedure THandshakeConductor.FlushPendingKeyUpdate;

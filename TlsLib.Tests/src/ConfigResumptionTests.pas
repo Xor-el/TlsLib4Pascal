@@ -96,6 +96,7 @@ type
     procedure TestReverifyOnResumeRejectsUntrustedServer;
     procedure TestReverifyOnResumeAsyncParkAcceptsCompletes;
     procedure TestReverifyOnResumeAsyncParkRejectAborts;
+    procedure TestExporterWithheldDuringReverifyPark;
   end;
 
 implementation
@@ -617,6 +618,55 @@ begin
   CheckTrue(LClient.IsResumed, 'the async reverify-on-resume handshake resumed');
   CheckFalse(LClient.IsHandshaking, 'the resumed handshake completed after the accepted park');
   CheckFalse(LClient.IsTerminal, 'an accepted verdict did not abort');
+end;
+
+procedure TTestConfigResumption.TestExporterWithheldDuringReverifyPark;
+var
+  LCache: ISessionCache;
+  LServerConfig: ITlsServerConfig;
+  LClient, LServer: ITlsEngine;
+  LIterations: Int32;
+begin
+  // cache a resumable session
+  LCache := TInMemorySessionCache.Create;
+  LServerConfig := TTlsPresets.Hardened(Provider).Server
+    .WithCredential(ServerCredential).Build;
+  LClient := NewClient13(LCache, True);
+  LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
+  PumpToCompletion(LClient, LServer);
+
+  // resume with reverify + async: drive until the client parks on the verdict. It has processed
+  // ServerFinished (so its application/exporter secrets are derived), but the resumed identity is
+  // not yet accepted.
+  LClient := NewReverifyAsyncClient13(LCache);
+  LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
+  LClient.StartHandshake;
+  LIterations := 0;
+  while (not LClient.AwaitingCertificateVerdict) and LClient.IsHandshaking and
+    (LIterations < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LIterations);
+  end;
+  CheckTrue(LClient.AwaitingCertificateVerdict, 'the client parked on the reverify verdict');
+  // the exporter is withheld while parked, even though the secret is derived - no keying
+  // material is exported over an unverified resumed identity
+  CheckEquals(0, System.Length(LClient.ExportKeyingMaterial('EXPORTER-test',
+    DecodeHex('00010203'), True, 32)), 'no export while parked on the reverify verdict');
+
+  // accept and complete; the exporter is then available
+  LClient.SetCertificateVerdict(True, TTlsAlertDescription.BadCertificate);
+  LIterations := 0;
+  while LClient.IsHandshaking and (LIterations < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LIterations);
+  end;
+  CheckFalse(LClient.IsHandshaking, 'the handshake completed after the accepted verdict');
+  CheckEquals(32, System.Length(LClient.ExportKeyingMaterial('EXPORTER-test',
+    DecodeHex('00010203'), True, 32)), 'the exporter is available after the peer is accepted');
 end;
 
 procedure TTestConfigResumption.TestReverifyOnResumeAsyncParkRejectAborts;

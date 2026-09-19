@@ -225,7 +225,6 @@
     "*NextProtocol*": "[out-of-scope] the NextProtocol handshake message belongs to NPN, a deprecated non-standard extension superseded by ALPN; rustls has no NPN",
     "ExportKeyingMaterial-NoContext-*TLS13*": "[policy-difference] empty exporter label: TLS 1.3 HkdfLabel is opaque label<7..255> (RFC 8446 7.1), and an empty exporter label yields a 6-byte \"tls13 \" label below that minimum; we reject it (the spec recommends non-empty labels; rustls intends the same, issue #945), BoringSSL is lenient",
     "ExportKeyingMaterial-EmptyContext-*TLS13*": "[policy-difference] empty exporter label under TLS 1.3 - same as NoContext-TLS13: the 6-byte \"tls13 \" label is below the RFC 8446 7.1 opaque label<7..255> minimum",
-    "ExportKeyingMaterial-Server-HalfRTT-*": "[deferred] half-RTT server keying-material export (before the client Finished); the shim exports post-handshake only",
     "Resume-Client-NoResume-TLS1-TLS12-TLS": "[out-of-scope] cross-version resumption with a TLS 1.0/1.1 leg, not supported (RFC 8996)",
     "Resume-Client-NoResume-TLS1-TLS13-TLS": "[out-of-scope] cross-version resumption with a TLS 1.0/1.1 leg, not supported (RFC 8996)",
     "Resume-Client-NoResume-TLS11-TLS12-TLS": "[out-of-scope] cross-version resumption with a TLS 1.0/1.1 leg, not supported (RFC 8996)",

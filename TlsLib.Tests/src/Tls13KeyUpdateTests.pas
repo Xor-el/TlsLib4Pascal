@@ -61,6 +61,9 @@ type
     procedure TestServerInitiatedKeyUpdate;
     procedure TestRepeatedKeyUpdatesStayInSync;
     procedure TestConsecutiveKeyUpdateFloodIsRefused;
+    procedure TestServerExportsKeyingMaterialInHalfRtt;
+    procedure TestExportKeyingMaterialSurvivesKeyUpdate;
+    procedure TestExportUnavailableAfterFatal;
   end;
 
 implementation
@@ -288,6 +291,70 @@ begin
     Pump(LServer, LClient);
   end;
   CheckTrue(LClient.IsTerminal, 'the client refuses a consecutive KeyUpdate flood');
+end;
+
+procedure TTestTls13KeyUpdate.TestServerExportsKeyingMaterialInHalfRtt;
+var
+  LClient, LServer: ITlsEngine;
+  LCtx, LHalfRtt, LServerFinal, LClientFinal: TBytes;
+begin
+  LClient := NewClient;
+  LServer := NewServer;
+  LClient.StartHandshake;
+  // deliver the client's opening flight: the server sends its own flight and derives the
+  // application (and exporter) secrets - it is now in half-RTT, before the client's Finished
+  Pump(LClient, LServer);
+  CheckTrue(LServer.IsHandshaking,
+    'the server is in half-RTT (the client Finished is not yet processed)');
+  LCtx := DecodeHex('00010203');
+  LHalfRtt := LServer.ExportKeyingMaterial('EXPORTER-test', LCtx, True, 32);
+  CheckEquals(32, System.Length(LHalfRtt),
+    'the server exports keying material in half-RTT');
+  // finish the handshake
+  Pump(LServer, LClient);
+  Pump(LClient, LServer);
+  CheckFalse(LServer.IsHandshaking, 'the server completed');
+  CheckFalse(LClient.IsHandshaking, 'the client completed');
+  // the half-RTT value is byte-identical to the post-completion export, on both endpoints
+  LServerFinal := LServer.ExportKeyingMaterial('EXPORTER-test', LCtx, True, 32);
+  LClientFinal := LClient.ExportKeyingMaterial('EXPORTER-test', LCtx, True, 32);
+  CheckEqualBytes('the half-RTT export equals the server post-completion export',
+    LHalfRtt, LServerFinal);
+  CheckEqualBytes('the half-RTT export equals the client export', LHalfRtt, LClientFinal);
+end;
+
+procedure TTestTls13KeyUpdate.TestExportKeyingMaterialSurvivesKeyUpdate;
+var
+  LClient, LServer: ITlsEngine;
+  LCtx, LBefore, LAfter: TBytes;
+begin
+  Handshake(LClient, LServer);
+  LCtx := DecodeHex('aabbcc');
+  LBefore := LServer.ExportKeyingMaterial('EXPORTER-test', LCtx, True, 48);
+  CheckEquals(48, System.Length(LBefore), 'the server exported keying material');
+  // a KeyUpdate rotates the application traffic secrets; the exporter secret is fixed (RFC 8446
+  // 7.5), so the exported value must not change
+  LClient.RequestKeyUpdate(True);
+  Exchange(LClient, LServer);
+  LAfter := LServer.ExportKeyingMaterial('EXPORTER-test', LCtx, True, 48);
+  CheckEqualBytes('the exported keying material is unchanged after a KeyUpdate',
+    LBefore, LAfter);
+end;
+
+procedure TTestTls13KeyUpdate.TestExportUnavailableAfterFatal;
+var
+  LClient, LServer: ITlsEngine;
+  LGarbage: TBytes;
+begin
+  Handshake(LClient, LServer);
+  CheckEquals(32, System.Length(LServer.ExportKeyingMaterial('EXPORTER-test',
+    DecodeHex('00'), True, 32)), 'the exporter is available on an established connection');
+  // an application_data record that fails to decrypt makes the connection terminal
+  LGarbage := DecodeHex('170303001000112233445566778899aabbccddeeff');
+  LServer.ProcessInput(LGarbage, 0, System.Length(LGarbage));
+  CheckTrue(LServer.IsTerminal, 'a bad record made the connection terminal');
+  CheckEquals(0, System.Length(LServer.ExportKeyingMaterial('EXPORTER-test',
+    DecodeHex('00'), True, 32)), 'a terminal connection exports nothing');
 end;
 
 initialization

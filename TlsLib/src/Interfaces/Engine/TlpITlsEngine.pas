@@ -183,9 +183,13 @@ type
     /// <summary>The negotiated protocol version once the handshake has installed keys
     /// (TLS 1.2 or 1.3); a zero wire code before then. Read it after the handshake.</summary>
     function NegotiatedVersion: TTlsVersion;
-    /// <summary>Exported keying material derived from the established connection secrets
+    /// <summary>Exported keying material derived from the connection's exporter secret
     /// (RFC 8446 7.5 / RFC 5705). AUseContext distinguishes a supplied (possibly empty)
-    /// context from no context at all. Call after the handshake has installed keys.</summary>
+    /// context from no context at all. Available once the exporter secret is derived: for a
+    /// TLS 1.3 server that is half-RTT (after it sent its Finished) - the value binds the
+    /// transcript through the server Finished and so precedes client authentication under
+    /// mutual TLS; TLS 1.2 is available only after the handshake completes. Empty before then
+    /// (and on a failed connection).</summary>
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       AUseContext: Boolean; ALength: Int32): TBytes;
     /// <summary>The negotiated ALPN protocol, or empty when none was negotiated.</summary>

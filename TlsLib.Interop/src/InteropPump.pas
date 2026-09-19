@@ -52,6 +52,14 @@ type
     Data: TBytes;
   end;
 
+  /// <summary>Observes the engine each handshake-pump iteration while it is still handshaking, so a
+  /// caller can capture half-RTT state (e.g. a TLS 1.3 server's keying-material export, available
+  /// after its Finished but before the peer's). Implementations must not raise.</summary>
+  IHandshakeProbe = interface(IInterface)
+    ['{6B2E1D74-9A03-4C58-8E1F-3D7A0C56B9E2}']
+    procedure Observe(const AEngine: ITlsEngine);
+  end;
+
   /// <summary>
   /// Drives a sans-IO ITlsEngine over a blocking TInteropSocket: flush outbound,
   /// read inbound, repeat. It is the Tls13LoopbackTests pump with a socket in place
@@ -71,7 +79,8 @@ type
       const ACertEvent: ICertificateReceivedEvent); static;
     class function DriveHandshakeCore(const AEngine: ITlsEngine;
       const ASocket: TInteropSocket; AAcceptVerdict, AHalfRttEcho: Boolean;
-      const AResolver: TCertificateVerdictResolver): TInteropResult; static;
+      const AResolver: TCertificateVerdictResolver;
+      const AProbe: IHandshakeProbe): TInteropResult; static;
     class function ReadAppData(const AEngine: ITlsEngine): TBytes; static;
     class procedure EchoAvailable(const AEngine: ITlsEngine;
       const ASocket: TInteropSocket); static;
@@ -87,7 +96,8 @@ type
     /// half-RTT response before it sends EndOfEarlyData, so deferring the echo would deadlock.</summary>
     class function DriveHandshake(const AEngine: ITlsEngine;
       const ASocket: TInteropSocket; AAcceptVerdict: Boolean = True;
-      AHalfRttEcho: Boolean = False): TInteropResult; overload; static;
+      AHalfRttEcho: Boolean = False;
+      const AProbe: IHandshakeProbe = nil): TInteropResult; overload; static;
     /// <summary>As DriveHandshake, but resolves a parked verdict through AResolver (the peer chain
     /// + host + staple from the park event), so an OS-native live-revocation resolver decides it.
     /// A nil resolver fails the park closed.</summary>
@@ -228,21 +238,22 @@ end;
 
 class function TInteropPump.DriveHandshake(const AEngine: ITlsEngine;
   const ASocket: TInteropSocket; AAcceptVerdict: Boolean;
-  AHalfRttEcho: Boolean): TInteropResult;
+  AHalfRttEcho: Boolean; const AProbe: IHandshakeProbe): TInteropResult;
 begin
-  Result := DriveHandshakeCore(AEngine, ASocket, AAcceptVerdict, AHalfRttEcho, nil);
+  Result := DriveHandshakeCore(AEngine, ASocket, AAcceptVerdict, AHalfRttEcho, nil, AProbe);
 end;
 
 class function TInteropPump.DriveHandshake(const AEngine: ITlsEngine;
   const ASocket: TInteropSocket;
   const AResolver: TCertificateVerdictResolver): TInteropResult;
 begin
-  Result := DriveHandshakeCore(AEngine, ASocket, True, False, AResolver);
+  Result := DriveHandshakeCore(AEngine, ASocket, True, False, AResolver, nil);
 end;
 
 class function TInteropPump.DriveHandshakeCore(const AEngine: ITlsEngine;
   const ASocket: TInteropSocket; AAcceptVerdict, AHalfRttEcho: Boolean;
-  const AResolver: TCertificateVerdictResolver): TInteropResult;
+  const AResolver: TCertificateVerdictResolver;
+  const AProbe: IHandshakeProbe): TInteropResult;
 var
   LBuf: TBytes;
   LGot: Int32;
@@ -270,6 +281,10 @@ begin
       Exit(ResultOf(TInteropStatus.TransportEof, 'peer closed during handshake'));
     LOutcome := AEngine.ProcessInput(LBuf, 0, LGot);
     Flush(AEngine, ASocket);
+    // observe half-RTT state while still handshaking: a TLS 1.3 server's exporter is available
+    // after it has sent its Finished (done in the ProcessInput+Flush above), before the peer's
+    if (AProbe <> nil) and AEngine.IsHandshaking then
+      AProbe.Observe(AEngine);
     // a server that accepted 0-RTT echoes the client's early data as 0.5-RTT now (before the
     // next blocking Recv), so the peer receives it and proceeds to send EndOfEarlyData
     if AHalfRttEcho and AEngine.IsHandshaking and (AEngine.PendingAppData > 0) then

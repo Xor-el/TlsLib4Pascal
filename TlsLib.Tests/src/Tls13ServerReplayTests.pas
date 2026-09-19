@@ -106,6 +106,7 @@ type
     procedure TearDown; override;
   published
     procedure TestRfc8448ServerFlightByteExact;
+    procedure TestExporterAvailableInHalfRtt;
     procedure TestBadClientFinishedFailsClosed;
     procedure TestServerSigSchemeIncompatibleRejected;
     procedure TestServerSigSchemeMissingRejected;
@@ -314,6 +315,24 @@ begin
   // handshake is established
   LEffects := FSm.ProcessMessage(Msg('client_finished'));
   FDriver.ApplyAll(LEffects);
+end;
+
+procedure TTestTls13ServerReplay.TestExporterAvailableInHalfRtt;
+var
+  LExport: TBytes;
+begin
+  Arrange;
+  CheckFalse(FSm.CanExportKeyingMaterial,
+    'no exporter before the server derives its secrets');
+  // the ClientHello drives the server flight, which derives the exporter secret; the server is
+  // now in half-RTT (its Finished sent, the client Finished not yet processed)
+  FSm.ProcessMessage(Msg('client_hello'));
+  CheckTrue(FSm.CanExportKeyingMaterial, 'the exporter is available in half-RTT');
+  LExport := FSm.ExportKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), True, 32);
+  CheckEquals(32, System.Length(LExport),
+    'the machine exports keying material in half-RTT');
+  FSm.ProcessMessage(Msg('client_finished'));
+  CheckTrue(FSm.CanExportKeyingMaterial, 'the exporter stays available after completion');
 end;
 
 procedure TTestTls13ServerReplay.TestBadClientFinishedFailsClosed;

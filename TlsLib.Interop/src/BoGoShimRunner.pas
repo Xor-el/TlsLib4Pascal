@@ -276,6 +276,61 @@ const
   // the server's 0-RTT budget when early data is enabled (BoGo's test messages are small)
   EarlyDataBudget = UInt32(16384);
 
+type
+  /// <summary>Captures a TLS 1.3 server's keying-material export in half-RTT (the first non-nil
+  /// value while the handshake is still running, i.e. after the server Finished, before the
+  /// client's). The captured value is written post-handshake; a nil capture on a TLS 1.3 server
+  /// means the half-RTT export was unavailable and fails the test loudly (no post-handshake
+  /// fallback), so the BoGo exporter tests actually exercise the half-RTT path.</summary>
+  TExportProbe = class(TInterfacedObject, IHandshakeProbe)
+  strict private
+    FLabel: string;
+    FContext: TBytes;
+    FUseContext: Boolean;
+    FLength: Int32;
+    FCaptured: TBytes;
+    FHasCaptured: Boolean;
+  public
+    constructor Create(const ALabel: string; const AContext: TBytes;
+      AUseContext: Boolean; ALength: Int32);
+    procedure Observe(const AEngine: ITlsEngine);
+    property Captured: TBytes read FCaptured;
+    property HasCaptured: Boolean read FHasCaptured;
+  end;
+
+{ TExportProbe }
+
+constructor TExportProbe.Create(const ALabel: string; const AContext: TBytes;
+  AUseContext: Boolean; ALength: Int32);
+begin
+  inherited Create;
+  FLabel := ALabel;
+  FContext := AContext;
+  FUseContext := AUseContext;
+  FLength := ALength;
+  FHasCaptured := False;
+end;
+
+procedure TExportProbe.Observe(const AEngine: ITlsEngine);
+var
+  LBytes: TBytes;
+begin
+  if FHasCaptured then
+    Exit;
+  try
+    LBytes := AEngine.ExportKeyingMaterial(FLabel, FContext, FUseContext, FLength);
+  except
+    // a rejected label (the TLS 1.3 empty-label policy difference) - stay uncaptured; the
+    // outcome is decided post-handshake, matching the non-probe path
+    LBytes := nil;
+  end;
+  if System.Length(LBytes) > 0 then
+  begin
+    FCaptured := LBytes;
+    FHasCaptured := True;
+  end;
+end;
+
 { TInteropAdjustableClock }
 
 constructor TInteropAdjustableClock.Create;
@@ -1072,10 +1127,12 @@ var
   LResult: TInteropResult;
   LI: Int32;
   LEcho: TBytes;
-  LWritesFirst, LEarlyWrite, LServerHalfRtt: Boolean;
+  LWritesFirst, LEarlyWrite, LServerHalfRtt, LHalfRttExport: Boolean;
   LExportLen: Int32;
   LExportLabel: string;
   LExportContext, LExported, LInitialWrite: TBytes;
+  LExportProbe: TExportProbe;
+  LProbe: IHandshakeProbe;
   LSeenCas: TArray<TBytes>;
   LCaIdx, LRep, LRepeat: Int32;
 begin
@@ -1128,10 +1185,33 @@ begin
   // surfaces as app data, so the flag is inert.
   LServerHalfRtt := AConfig.IsServer and AIsResume and
     (AConfig.EnableEarlyData or AConfig.OnResumeEnableEarlyData);
+  // resolve the effective export parameters (on-resume overrides when supplied) up front so a
+  // server can capture its keying-material export in half-RTT (RFC 8446 7.5) during the pump
+  LExportLen := AConfig.ExportLen;
+  LExportLabel := AConfig.ExportLabel;
+  LExportContext := AConfig.ExportContext;
+  if AIsResume and (AConfig.OnResumeExportLen > 0) then
+  begin
+    LExportLen := AConfig.OnResumeExportLen;
+    LExportLabel := AConfig.OnResumeExportLabel;
+    LExportContext := AConfig.OnResumeExportContext;
+  end;
+  // every TLS 1.3 server export is captured in half-RTT (the value is transcript-fixed, so this is
+  // safe), turning the exporter tests into half-RTT guards. A TLS 1.2 server never captures (its
+  // exporter stays gated on completion), so it falls back to the post-handshake export below.
+  LHalfRttExport := AConfig.IsServer and (LExportLen > 0);
+  LProbe := nil;
+  LExportProbe := nil;
+  if LHalfRttExport then
+  begin
+    LExportProbe := TExportProbe.Create(LExportLabel, LExportContext,
+      AConfig.UseExportContext, LExportLen);
+    LProbe := LExportProbe;
+  end;
   // under -async the verdict is resolved out-of-band in the pump: accept unless this is a hard
   // verify-fail (in which case the parked handshake is rejected, fail-closed)
   LResult := TInteropPump.DriveHandshake(LEngine, ASocket, not LOptions.VerifyFail,
-    LServerHalfRtt);
+    LServerHalfRtt, LProbe);
   if LResult.Status <> TInteropStatus.Ok then
   begin
     Writeln(ErrOutput, 'handshake failed: ', LResult.Detail);
@@ -1192,22 +1272,25 @@ begin
       end;
   end;
 
-  // exported keying material is written first thing after the handshake so the runner reads
-  // it before the echo protocol (RFC 5705 / RFC 8446 7.5); a resumption uses the on-resume
-  // parameters when they were supplied, otherwise the initial-connection ones
-  LExportLen := AConfig.ExportLen;
-  LExportLabel := AConfig.ExportLabel;
-  LExportContext := AConfig.ExportContext;
-  if AIsResume and (AConfig.OnResumeExportLen > 0) then
-  begin
-    LExportLen := AConfig.OnResumeExportLen;
-    LExportLabel := AConfig.OnResumeExportLabel;
-    LExportContext := AConfig.OnResumeExportContext;
-  end;
+  // exported keying material is written first thing after the handshake so the runner reads it
+  // before the echo protocol (RFC 5705 / RFC 8446 7.5). A TLS 1.3 server writes the value it
+  // captured in half-RTT (the runner reads it post-handshake, but capturing it in half-RTT is what
+  // validates the capability); a nil capture there means the half-RTT export was unavailable and
+  // fails loudly rather than falling back. A client, or a TLS 1.2 server, exports post-handshake.
   if LExportLen > 0 then
   begin
-    LExported := LEngine.ExportKeyingMaterial(LExportLabel, LExportContext,
-      AConfig.UseExportContext, LExportLen);
+    if LHalfRttExport and (LEngine.NegotiatedVersion.WireValue = WireVersionTls13) then
+    begin
+      if not LExportProbe.HasCaptured then
+      begin
+        Writeln(ErrOutput, 'half-RTT keying-material export was unavailable');
+        Exit(ShimExitFail);
+      end;
+      LExported := LExportProbe.Captured;
+    end
+    else
+      LExported := LEngine.ExportKeyingMaterial(LExportLabel, LExportContext,
+        AConfig.UseExportContext, LExportLen);
     TInteropPump.WriteAppData(LEngine, ASocket, LExported);
   end;
 

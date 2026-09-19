@@ -94,6 +94,10 @@ type
     function FinishedKey(ADirection: TTlsDirection): ISecretBuffer;
     /// <summary>Advances the application traffic secret one generation (KeyUpdate).</summary>
     procedure AdvanceKeyUpdate(ADirection: TTlsDirection);
+    /// <summary>Whether the exporter_master_secret has been derived (RFC 8446 7.5): true once
+    /// the Application epoch secrets are derived - for a server that is half-RTT (after it has
+    /// sent its Finished), before the peer's Finished.</summary>
+    function HasExporterSecret: Boolean;
     /// <summary>The resumption master secret from the ClientHello..client Finished hash.</summary>
     function ResumptionMasterSecret(const ATranscriptHash: TBytes): ISecretBuffer;
     /// <summary>

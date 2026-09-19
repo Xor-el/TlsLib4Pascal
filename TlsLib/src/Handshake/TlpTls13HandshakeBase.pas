@@ -56,6 +56,11 @@ type
     /// Connected route.</summary>
     function HandleInboundKeyUpdate(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>;
+    /// <summary>Whether the exporter must be withheld even though its secret is derived: False
+    /// by default; the client overrides to withhold while its reverify-on-resume verdict is open.
+    /// (FPhase/TPhase are strict-private to each concrete machine and differ by role, so this is
+    /// a virtual hook rather than a base-level phase check.)</summary>
+    function ExportWithheld: Boolean; virtual;
   public
     function RequestKeyUpdate(ARequestPeerUpdate: Boolean)
       : TArray<THandshakeEffect>; override;
@@ -65,6 +70,7 @@ type
     function TakePendingKeyUpdate: TArray<THandshakeEffect>; override;
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       AUseContext: Boolean; ALength: Int32): TBytes; override;
+    function CanExportKeyingMaterial: Boolean; override;
   end;
 
 implementation
@@ -149,11 +155,25 @@ begin
     RekeyEffect(WriteDirection, TRecordSide.WriteSide));
 end;
 
+function TTls13HandshakeBase.ExportWithheld: Boolean;
+begin
+  Result := False;
+end;
+
+function TTls13HandshakeBase.CanExportKeyingMaterial: Boolean;
+begin
+  // available once the exporter_master_secret is derived - for a server that is half-RTT (after
+  // its Finished), before the peer's Finished (RFC 8446 7.5) - unless a role-specific gate
+  // withholds it (the client during its reverify-on-resume park)
+  Result := (FSchedule <> nil) and FSchedule.HasExporterSecret and not ExportWithheld;
+end;
+
 function TTls13HandshakeBase.ExportKeyingMaterial(const ALabel: string;
   const AContext: TBytes; AUseContext: Boolean; ALength: Int32): TBytes;
 begin
+  // query and operation agree: nothing to export until the secret is available (and not withheld)
   Result := nil;
-  if FSchedule = nil then
+  if not CanExportKeyingMaterial then
     Exit;
   Result := FSchedule.ExportKeyingMaterial(ALabel, AContext, AUseContext, ALength);
 end;
