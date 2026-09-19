@@ -1,0 +1,22 @@
+TlsLib.Trust.System/src/TlpAppleSystemTrust.pas
+  s_09d3c46d1a9b1f::t_595e75b972bf47 66-73
+  s_09d3c46d1a9b1f::t_e7cc23cbffee22 1625-1634
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_09d3c46d1a9b1f::t_f96b08cee97d50 777,780
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ba01d3c7e2b5079aae4fc39c024e53cbad9119cb",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
