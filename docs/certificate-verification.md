@@ -65,10 +65,13 @@ LConfig := TTlsLib.NewClientConfig(LoadFile('my-ca.pem'));   // Compatible prese
 
 ## 2. Pin a public key
 
-Require that some certificate the peer **presents** carries a known public key (SPKI-SHA256).
+Require that some certificate on the **validated path** carries a known public key (SPKI-SHA256).
 Pinning **augments** PKIX — it never replaces it, so the chain must *also* validate normally.
-(Pins match against the presented chain, so pin a certificate the peer actually sends — the leaf,
-or an intermediate it includes — not one supplied only as a local configured intermediate.)
+(Pins match against the chain the verifier validated — the leaf, any intermediate, and the trust
+anchor, including an issuer recovered from a configured intermediate — per RFC 7469. An attacker
+therefore cannot satisfy a pin by appending the genuine certificate to a chain that validated by a
+different path. Under `WithDangerousInsecureSkipVerify`, where no path is built, only the leaf is
+pinnable.)
 
 ```pascal
 uses TlpCryptoAlgorithms, TlpICryptoProvider;
@@ -171,6 +174,7 @@ type
   TMyServerVerifier = class(TInterfacedObject, IServerCertificateVerifier)
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
+      out AValidatedChain: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
@@ -178,6 +182,10 @@ LConfig := TTlsPresets.Compatible(P).Client
   .WithCertificateVerifier(TMyServerVerifier.Create as IServerCertificateVerifier)  // sole gate
   .Build;
 ```
+
+On a positive verdict set `AValidatedChain` to the leaf-first path you actually validated
+(including the trust anchor where you can name it); a key-pinning decorator matches its pins against
+that path, not the certificates the peer presented. On rejection leave it empty.
 
 Implement the verifier (and any custom trust store) on `TInterfacedObject` or another
 reference-counted base: the config holds it by interface for its lifetime, so a non-refcounted

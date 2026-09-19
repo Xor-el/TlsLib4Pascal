@@ -252,7 +252,12 @@ const
   KSecTrustSettingsDomainAdmin = 1;
   KSecTrustSettingsDomainSystem = 2;
 
+  // SecTrustSettings.h SecTrustSettingsResult values
+  KSecTrustSettingsResultInvalid = 0;
+  KSecTrustSettingsResultTrustRoot = 1;
+  KSecTrustSettingsResultTrustAsRoot = 2;
   KSecTrustSettingsResultDeny = 3;
+  KSecTrustSettingsResultUnspecified = 4;
   KCFNumberSInt32Type = 3;
 
   // SecPolicyCreateRevocation flags (SecPolicy.h): keep the check off the network, and under a
@@ -337,6 +342,8 @@ type
   TSecTrustSettingsCopyTrustSettingsFunc = function(ACertRef: SecCertificateRef;
     ADomain: SecTrustSettingsDomain; var ATrustSettings: CFArrayRef)
     : OSStatus; cdecl;
+  // returns a CFDictionaryRef of a policy's properties (kSecPolicyOid identifies the policy)
+  TSecPolicyCopyPropertiesFunc = function(APolicyRef: SecPolicyRef): Pointer; cdecl;
 {$ENDIF}
 
   /// <summary>
@@ -388,15 +395,38 @@ type
 {$IFDEF TLSLIB_MACOS}
     FSecTrustSettingsCopyCertificates: TSecTrustSettingsCopyCertificatesFunc;
     FSecTrustSettingsCopyTrustSettings: TSecTrustSettingsCopyTrustSettingsFunc;
+    FSecPolicyCopyProperties: TSecPolicyCopyPropertiesFunc;
     FkSecTrustSettingsResult: CFStringRef;
+    FkSecTrustSettingsPolicy: CFStringRef;
+    FkSecTrustSettingsApplication: CFStringRef;
+    FkSecTrustSettingsPolicyString: CFStringRef;
+    FkSecTrustSettingsAllowedError: CFStringRef;
+    FkSecPolicyOid: CFStringRef;
+    FkSecPolicyAppleSSL: CFStringRef;
+    // every symbol the anchor harvest needs; a miss makes CopyTrustSettingsCertificates fail
+    // closed rather than silently mis-scope a trust decision
+    FHarvestReady: Boolean;
 {$ENDIF}
     /// <summary>The DER of one certificate via SecCertificateCopyData. Empty on any failure.
     /// Shared macOS/iOS (harvest on macOS, the validated-path read on both).</summary>
     class function CopyCertificateDer(ACertificate: SecCertificateRef)
       : TBytes; static;
 {$IFDEF TLSLIB_MACOS}
-    class function DomainDeniesCertificate(ACertificate: SecCertificateRef;
-      ADomain: SecTrustSettingsDomain): Boolean; static;
+    /// <summary>True if a trust-settings dict is a general SSL grant to honour: not scoped to a
+    /// specific application, policy string, or allowed error, and its policy is the Apple SSL
+    /// policy or unset (applies to all policies). A non-SSL-scoped setting (e.g. S/MIME) is not.</summary>
+    class function EntryIsGeneralSslGrant(ADict: Pointer): Boolean; static;
+    /// <summary>Evaluates one domain's trust settings for a certificate. AApplicable is set when a
+    /// general SSL grant entry (or an empty settings array) yields a decision; Result is then the
+    /// admit verdict (False = Deny). No applicable entry leaves AApplicable False (no opinion).</summary>
+    class function DomainDecision(ACertificate: SecCertificateRef;
+      ADomain: SecTrustSettingsDomain; out AApplicable: Boolean): Boolean; static;
+    /// <summary>Whether the OS trusts the certificate as a TLS server-auth anchor, honouring
+    /// settings across domains (User -> Admin -> System, first applicable decides). A certificate
+    /// enumerated from the System domain with no explicit decision is a built-in root and stays
+    /// trusted; a User/Admin certificate needs an explicit SSL trust grant.</summary>
+    class function AdmitsServerAuth(ACertificate: SecCertificateRef;
+      AOriginDomain: SecTrustSettingsDomain): Boolean; static;
     class procedure HarvestDomain(ADomain: SecTrustSettingsDomain;
       const ADest: TList<TBytes>); static;
 {$ENDIF}
@@ -578,9 +608,29 @@ begin
       TPosixDynLib.Resolve(LHandle, 'SecTrustSettingsCopyCertificates'));
     FSecTrustSettingsCopyTrustSettings := TSecTrustSettingsCopyTrustSettingsFunc(
       TPosixDynLib.Resolve(LHandle, 'SecTrustSettingsCopyTrustSettings'));
+    FSecPolicyCopyProperties := TSecPolicyCopyPropertiesFunc(
+      TPosixDynLib.Resolve(LHandle, 'SecPolicyCopyProperties'));
     LSym := TPosixDynLib.Resolve(LHandle, 'kSecTrustSettingsResult');
     if LSym <> nil then
       FkSecTrustSettingsResult := CFStringRef(PPointer(LSym)^);
+    LSym := TPosixDynLib.Resolve(LHandle, 'kSecTrustSettingsPolicy');
+    if LSym <> nil then
+      FkSecTrustSettingsPolicy := CFStringRef(PPointer(LSym)^);
+    LSym := TPosixDynLib.Resolve(LHandle, 'kSecTrustSettingsApplication');
+    if LSym <> nil then
+      FkSecTrustSettingsApplication := CFStringRef(PPointer(LSym)^);
+    LSym := TPosixDynLib.Resolve(LHandle, 'kSecTrustSettingsPolicyString');
+    if LSym <> nil then
+      FkSecTrustSettingsPolicyString := CFStringRef(PPointer(LSym)^);
+    LSym := TPosixDynLib.Resolve(LHandle, 'kSecTrustSettingsAllowedError');
+    if LSym <> nil then
+      FkSecTrustSettingsAllowedError := CFStringRef(PPointer(LSym)^);
+    LSym := TPosixDynLib.Resolve(LHandle, 'kSecPolicyOid');
+    if LSym <> nil then
+      FkSecPolicyOid := CFStringRef(PPointer(LSym)^);
+    LSym := TPosixDynLib.Resolve(LHandle, 'kSecPolicyAppleSSL');
+    if LSym <> nil then
+      FkSecPolicyAppleSSL := CFStringRef(PPointer(LSym)^);
 {$ENDIF}
   finally
     TPosixDynLib.Close(LHandle);
@@ -599,6 +649,21 @@ begin
   FCanDecodeError := System.Assigned(FCFErrorGetCode) and
     System.Assigned(FCFErrorGetDomain) and System.Assigned(FCFEqual) and
     (FkCFErrorDomainOSStatus <> nil);
+
+{$IFDEF TLSLIB_MACOS}
+  // the anchor harvest reads and interprets per-domain trust settings; every symbol it needs
+  // must be present or it fails closed (an under-resolved harvest could mis-scope trust)
+  FHarvestReady := System.Assigned(FSecTrustSettingsCopyCertificates) and
+    System.Assigned(FSecTrustSettingsCopyTrustSettings) and
+    System.Assigned(FSecPolicyCopyProperties) and
+    System.Assigned(FCFArrayGetCount) and
+    System.Assigned(FCFArrayGetValueAtIndex) and
+    System.Assigned(FCFDictionaryGetValue) and
+    System.Assigned(FCFNumberGetValue) and System.Assigned(FCFRelease) and
+    System.Assigned(FCFEqual) and (FkSecTrustSettingsResult <> nil) and
+    (FkSecTrustSettingsPolicy <> nil) and (FkSecPolicyOid <> nil) and
+    (FkSecPolicyAppleSSL <> nil);
+{$ENDIF}
 end;
 
 class function TAppleTrustApi.CopyCertificateDer(
@@ -1308,43 +1373,118 @@ end;
 
 {$IFDEF TLSLIB_MACOS}
 
-class function TAppleTrustApi.DomainDeniesCertificate(
-  ACertificate: SecCertificateRef; ADomain: SecTrustSettingsDomain): Boolean;
+class function TAppleTrustApi.EntryIsGeneralSslGrant(ADict: Pointer): Boolean;
+var
+  LPolicy: SecPolicyRef;
+  LProps: Pointer;
+  LOid: Pointer;
+begin
+  Result := False;
+  if ADict = nil then
+    Exit;
+  // an entry scoped to a specific application, policy string, or allowed error is not a general
+  // TLS trust grant (SecTrustSettings.h)
+  if (FkSecTrustSettingsApplication <> nil) and
+    (FCFDictionaryGetValue(ADict, FkSecTrustSettingsApplication) <> nil) then
+    Exit;
+  if (FkSecTrustSettingsPolicyString <> nil) and
+    (FCFDictionaryGetValue(ADict, FkSecTrustSettingsPolicyString) <> nil) then
+    Exit;
+  if (FkSecTrustSettingsAllowedError <> nil) and
+    (FCFDictionaryGetValue(ADict, FkSecTrustSettingsAllowedError) <> nil) then
+    Exit;
+  // no policy key means the setting applies to every policy, SSL included
+  LPolicy := FCFDictionaryGetValue(ADict, FkSecTrustSettingsPolicy);
+  if LPolicy = nil then
+    Exit(True);
+  // otherwise it counts only if the policy is the Apple SSL policy
+  LProps := FSecPolicyCopyProperties(LPolicy);
+  if LProps = nil then
+    Exit;
+  try
+    LOid := FCFDictionaryGetValue(LProps, FkSecPolicyOid);
+    Result := (LOid <> nil) and FCFEqual(LOid, FkSecPolicyAppleSSL);
+  finally
+    FCFRelease(LProps);
+  end;
+end;
+
+class function TAppleTrustApi.DomainDecision(ACertificate: SecCertificateRef;
+  ADomain: SecTrustSettingsDomain; out AApplicable: Boolean): Boolean;
 var
   LSettings: CFArrayRef;
   LStatus: OSStatus;
   LI, LCount: CFIndex;
-  LDict: Pointer;
-  LNum: Pointer;
+  LDict, LNum: Pointer;
   LResult: Int32;
 begin
   Result := False;
+  AApplicable := False;
   LSettings := nil;
-  LStatus := FSecTrustSettingsCopyTrustSettings(ACertificate, ADomain,
-    LSettings);
-  // No explicit settings in this domain means "no opinion", not deny.
+  LStatus := FSecTrustSettingsCopyTrustSettings(ACertificate, ADomain, LSettings);
+  // no settings in this domain is "no opinion", not a decision
   if (LStatus <> ErrSecSuccess) or (LSettings = nil) then
     Exit;
   try
     LCount := FCFArrayGetCount(LSettings);
+    // an empty settings array is an unconditional trust-root grant (SecTrustSettings.h)
+    if LCount = 0 then
+    begin
+      AApplicable := True;
+      Result := True;
+      Exit;
+    end;
     for LI := 0 to LCount - 1 do
     begin
       LDict := FCFArrayGetValueAtIndex(LSettings, LI);
-      if LDict = nil then
+      if not EntryIsGeneralSslGrant(LDict) then
         Continue;
       LNum := FCFDictionaryGetValue(LDict, FkSecTrustSettingsResult);
       if LNum = nil then
+        LResult := KSecTrustSettingsResultTrustRoot // an absent result defaults to TrustRoot
+      else if not FCFNumberGetValue(LNum, KCFNumberSInt32Type, @LResult) then
         Continue;
-      LResult := 0;
-      if FCFNumberGetValue(LNum, KCFNumberSInt32Type, @LResult) then
-      begin
-        if LResult = KSecTrustSettingsResultDeny then
-          Exit(True);
+      case LResult of
+        KSecTrustSettingsResultDeny:
+          begin
+            AApplicable := True;
+            Result := False;
+            Exit;
+          end;
+        KSecTrustSettingsResultTrustRoot, KSecTrustSettingsResultTrustAsRoot:
+          begin
+            AApplicable := True;
+            Result := True;
+            Exit;
+          end;
+        // Unspecified / Invalid: no opinion, keep scanning
       end;
     end;
   finally
     FCFRelease(LSettings);
   end;
+end;
+
+class function TAppleTrustApi.AdmitsServerAuth(ACertificate: SecCertificateRef;
+  AOriginDomain: SecTrustSettingsDomain): Boolean;
+var
+  LApplicable: Boolean;
+  LAdmit: Boolean;
+begin
+  // User -> Admin -> System: the first domain with an applicable SSL grant decides, so a user
+  // "Never Trust" (a User-domain Deny) overrides a System root
+  LAdmit := DomainDecision(ACertificate, KSecTrustSettingsDomainUser, LApplicable);
+  if LApplicable then
+    Exit(LAdmit);
+  LAdmit := DomainDecision(ACertificate, KSecTrustSettingsDomainAdmin, LApplicable);
+  if LApplicable then
+    Exit(LAdmit);
+  LAdmit := DomainDecision(ACertificate, KSecTrustSettingsDomainSystem, LApplicable);
+  if LApplicable then
+    Exit(LAdmit);
+  // no explicit applicable grant anywhere: a built-in System root is trusted by default (the
+  // safety net that keeps the OS system roots harvested); a User/Admin certificate is not
+  Result := AOriginDomain = KSecTrustSettingsDomainSystem;
 end;
 
 class procedure TAppleTrustApi.HarvestDomain(ADomain: SecTrustSettingsDomain;
@@ -1368,7 +1508,7 @@ begin
       LCert := FCFArrayGetValueAtIndex(LCerts, LI);
       if LCert = nil then
         Continue;
-      if DomainDeniesCertificate(LCert, ADomain) then
+      if not AdmitsServerAuth(LCert, ADomain) then
         Continue;
       LDer := CopyCertificateDer(LCert);
       if Length(LDer) > 0 then
@@ -1384,10 +1524,14 @@ var
   LList: TList<TBytes>;
 begin
   Result := nil;
-  if not FReady then
+  // fail closed when any harvest symbol is missing (an under-resolved harvest could mis-scope
+  // a trust decision); TSystemRootSource.Harvest then raises on the empty result
+  if (not FReady) or (not FHarvestReady) then
     Exit;
   LList := TList<TBytes>.Create;
   try
+    // System first so a system root is harvested with its origin; a User/Admin "Never Trust"
+    // still excludes it because AdmitsServerAuth consults every domain regardless of origin
     HarvestDomain(KSecTrustSettingsDomainSystem, LList);
     HarvestDomain(KSecTrustSettingsDomainAdmin, LList);
     HarvestDomain(KSecTrustSettingsDomainUser, LList);

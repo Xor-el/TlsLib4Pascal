@@ -25,8 +25,8 @@ platform that can enumerate its store, that is the default:
 
 | Platform | Source | How |
 |---|---|---|
-| **Windows** | `ROOT` + `CA` system stores, minus `Disallowed` | `crypt32` enumeration → our validator |
-| **macOS** | System + admin + user trust settings | `Security.framework` → our validator |
+| **Windows** | `ROOT` store (server-auth-capable roots only), minus `Disallowed` | `crypt32` enumeration → our validator |
+| **macOS** | System + admin + user trust settings (SSL-scoped; a user "Never Trust" in any domain excludes) | `Security.framework` → our validator |
 | **Unix/Linux** | `/etc/ssl/certs` (and distro variants; honours `SSL_CERT_FILE` / `SSL_CERT_DIR`) | filesystem harvest → our validator |
 | **iOS** | *(no enumeration API)* | delegates the verdict to `SecTrust` |
 | **Android** | *(harvest banned — stale/partial)* | delegates the verdict to the platform `X509TrustManager` (Delphi: zero-config; FPC: one `TlsLibAndroidInitTrust` call) |
@@ -327,7 +327,9 @@ LHttp.IOHandler := LIO;
 
 Map mORMot's native `TNetTlsContext.CASystemStores`: naming an **anchor-bearing** store
 (`scsRoot` and/or `scsCA`) turns on the OS harvest, unioning with `CACertificatesFile`.
-`scsMY`/`scsSpc` are *not* server-auth anchors and do not trigger it.
+`scsMY`/`scsSpc` are *not* server-auth anchors and do not trigger it. (On Windows the harvest
+itself reads the `ROOT` store only — the `CA` store holds cached intermediates, not anchors — so
+`scsCA` and `scsRoot` both enable the same ROOT-only harvest.)
 
 ```pascal
 LClient.TLS.CASystemStores := [scsRoot];         // OS roots (unions with CACertificatesFile)
