@@ -1,0 +1,51 @@
+TlsLib.Trust.System/src/TlpOSSystemTrust.pas
+  s_09d3c46d1a9b1f::t_4520cfb21dcda9 207-210,213-216,218-221,223-239,243,245,247-250
+  s_09d3c46d1a9b1f::t_d7b489ef136ca2 78-87,89-94,211-212,217,222
+docs/system-trust.md
+  s_09d3c46d1a9b1f::t_c7ea8b3b3c1962 162,168,171-203
+  s_09d3c46d1a9b1f::t_69623e5cd707a1 234-236
+TlsLib.Trust.System/src/TlpWindowsSystemTrust.pas
+  s_09d3c46d1a9b1f::t_1661c21b00329b 1346-1347,1349-1352,1358
+  s_09d3c46d1a9b1f::t_611ba8840592b5 993-994,996-999
+  s_09d3c46d1a9b1f::t_9fc6e9e9803c2f 1446-1472
+  s_09d3c46d1a9b1f::t_e38852811e2a66 1204-1345,1348,1353-1357,1359-1371
+  s_09d3c46d1a9b1f::t_77e8da1fc147aa 1043-1044,1064,1072-1078
+  s_09d3c46d1a9b1f::t_9effdff1fbb6ac 489-493,495,500-508
+  s_09d3c46d1a9b1f::t_5395611788cced 127,134-135,141-166,170-171,175-176,178
+  s_09d3c46d1a9b1f::t_36fdc0f327a8ee 1497-1498,1505,1514,1520-1525,1531-1534,1539
+  s_09d3c46d1a9b1f::t_2436be4cd4d569 1134,1160-1165,1180
+  s_09d3c46d1a9b1f::t_4adcb3a0ffbf5e 509
+  s_09d3c46d1a9b1f::t_23bcec6a9f9b69 1079
+TlsLib.Trust.System/src/TlpAppleSystemTrust.pas
+  s_09d3c46d1a9b1f::t_77aeec1e3cb020 1018-1019,1022-1023,1025,1037,1094,1098-1100,1108-1112,1151-1152,1181-1185,1189-1191,1195-1210,1231-1259,1261-1272
+  s_09d3c46d1a9b1f::t_7ecfd8ee5151fd 144,151-152,158-181,185-186,190-191,193,486,1260,1273-1274
+  s_09d3c46d1a9b1f::t_2606ed22bac6cf 1488-1489,1496,1505,1511-1516,1522-1525,1530
+  s_09d3c46d1a9b1f::t_8eeadc4ad2ba96 459-471,473,478-485
+  s_09d3c46d1a9b1f::t_4a85cb1cf0e3de 1439-1463
+docs/certificate-verification.md
+  s_09d3c46d1a9b1f::t_d7db7cf41527f4 304-309
+TlsLib.Trust.System/src/TlpSystemTrustFacade.pas
+  s_09d3c46d1a9b1f::t_fea63772bc3193 138-142
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_09d3c46d1a9b1f::t_0c8bab3646a090 713-734,738-742
+  s_09d3c46d1a9b1f::t_7f548078dabad4 157-161,173-174,599,697-712,743,818
+  s_09d3c46d1a9b1f::t_6e40af94827184 735-737
+TlsLib/src/Interfaces/Engine/TlpITlsConfig.pas
+  s_09d3c46d1a9b1f::t_747c428ff4bd28 77-80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "93ac2a1930d97a5c2e45731e1d5a16dea5b4f11c",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
