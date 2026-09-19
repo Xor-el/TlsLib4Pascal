@@ -544,8 +544,9 @@ begin
     as IServerCertificateVerifier;
   CheckFalse(LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName(''), nil, LAlert),
     'a wrong pin rejects even under InsecureSkipVerify');
-  CheckTrue(TPinningVerifier.Create(LInner, TArray<TBytes>.Create(LeafSpkiPin), Provider)
-    .VerifyServerCertificate(Chain, TServerName.DnsName(''), nil, LAlert),
+  LVerifier := TPinningVerifier.Create(LInner, TArray<TBytes>.Create(LeafSpkiPin), Provider)
+    as IServerCertificateVerifier;
+  CheckTrue(LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName(''), nil, LAlert),
     'the matching pin accepts under InsecureSkipVerify (pin-only trust)');
 end;
 
