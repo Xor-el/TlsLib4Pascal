@@ -1,0 +1,53 @@
+TlsLib/src/Record/TlpRecordLayer.pas
+  s_09d3c46d1a9b1f::t_a0261f78115fd6 189
+  s_09d3c46d1a9b1f::t_355fb71b762f56 56-60
+  s_09d3c46d1a9b1f::t_fe7bc6116bc5ca 102-107
+  s_09d3c46d1a9b1f::t_19f5c445aeac2c 227
+  s_09d3c46d1a9b1f::t_e8eee5809bd6a4 259-271
+  s_09d3c46d1a9b1f::t_a73aaae08d1655 321-328
+  s_09d3c46d1a9b1f::t_ff1725a5b0abbb 204-205
+  s_09d3c46d1a9b1f::t_377348af1661a0 475-484
+TlsLib.Tests/src/ServerSideLiveRevocationTests.pas
+  s_09d3c46d1a9b1f::t_9ebbf6c3621511 128
+  s_09d3c46d1a9b1f::t_720330f7fa7233 556,562,565-567,575-577
+TlsLib/src/Handshake/TlpHandshakeDriver.pas
+  s_09d3c46d1a9b1f::t_94f4f3a2892bb4 100-103,105-108
+  s_09d3c46d1a9b1f::t_a4e44690b4f1c9 104
+  s_09d3c46d1a9b1f::t_de9728d99a20f4 22
+TlsLib/src/Engine/TlpTlsEngine.pas
+  s_09d3c46d1a9b1f::t_d5ebbdc79c5388 238
+  s_09d3c46d1a9b1f::t_2d129b4a9dc277 175
+  s_09d3c46d1a9b1f::t_52551400dd0e59 944-953
+  s_09d3c46d1a9b1f::t_793cb142febef3 283-288
+TlsLib/src/Interfaces/Engine/TlpITlsEngine.pas
+  s_09d3c46d1a9b1f::t_36553018dc285b 251-258
+TlsLib.Tests/src/RecordLayerTests.pas
+  s_09d3c46d1a9b1f::t_c008bbddd1d451 63-66
+  s_09d3c46d1a9b1f::t_44634377a300c4 435-558
+TlsLib.Tests/src/Tls13ClientReplayTests.pas
+  s_09d3c46d1a9b1f::t_6959ccf25a60dc 92
+  s_09d3c46d1a9b1f::t_6b9e0f30a31677 234-239
+TlsLib.Tests/src/HandshakeDriverTests.pas
+  s_09d3c46d1a9b1f::t_554c9685934381 75
+  s_09d3c46d1a9b1f::t_490b572fcf9a88 76-78,85-86
+  s_09d3c46d1a9b1f::t_10f28ae342d3a4 214-216,221
+  s_09d3c46d1a9b1f::t_75b2b7dce759ca 137-213,217-220,222-232
+  s_09d3c46d1a9b1f::t_570a19269b11b9 30
+  s_09d3c46d1a9b1f::t_793b47f937e3bc 31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "86399516cb690bb09cc096ed18ccb732beb39721",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
