@@ -207,6 +207,9 @@ const
   CERT_E_WRONG_USAGE = DWORD($800B0110);
   CERT_E_UNTRUSTEDCA = DWORD($800B0112);
   TRUST_E_CERT_SIGNATURE = DWORD($80096004);
+  // a definitive revocation from the chain engine: crypt32 reports CRYPT_E_REVOKED, while the
+  // wintrust/authenticode path uses CERT_E_REVOKED - map both so a revoked leaf is never generic
+  CERT_E_REVOKED_ALT = DWORD($80092010); // CRYPT_E_REVOKED
   // revocation could not be completed (no cached data / responder unreachable): indeterminate
   CRYPT_E_NO_REVOCATION_CHECK = DWORD($80092012);
   CRYPT_E_REVOCATION_OFFLINE = DWORD($80092013);
@@ -946,7 +949,8 @@ begin
       AOutcome := TLiveRevocationOutcome.Good;
       Result := True;
     end
-    else if LStatus.dwError = CERT_E_REVOKED then
+    else if (LStatus.dwError = CERT_E_REVOKED) or
+      (LStatus.dwError = CERT_E_REVOKED_ALT) then
     begin
       AOutcome := TLiveRevocationOutcome.Revoked;
       Result := True;
@@ -981,7 +985,7 @@ begin
     CERT_E_UNTRUSTEDROOT, CERT_E_UNTRUSTEDCA, CERT_E_CHAINING,
       TRUST_E_CERT_SIGNATURE:
       AAlert := TTlsAlertDescription.UnknownCa;
-    CERT_E_REVOKED:
+    CERT_E_REVOKED, CERT_E_REVOKED_ALT:
       // a definitive Revoked rejects under every posture
       AAlert := TTlsAlertDescription.CertificateRevoked;
     CRYPT_E_NO_REVOCATION_CHECK, CRYPT_E_REVOCATION_OFFLINE:
