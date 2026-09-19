@@ -1,0 +1,41 @@
+.github/workflows/ci/interop/trust/gen-trust-ca.sh
+  s_09d3c46d1a9b1f::t_04dbe2dbbb4d7b 161-164,166-174,179-186,188-192
+  s_09d3c46d1a9b1f::t_d734daeaab1015 29,35-37
+TlsLib.Interop/FreePascal.Interop/TrustDelegateInterop.lpr
+  s_09d3c46d1a9b1f::t_0cef8e78b65aa8 5-10
+TlsLib.Interop/src/TrustDelegateInteropRunner.pas
+  s_09d3c46d1a9b1f::t_d34ea8efc579a9 425-522
+  s_09d3c46d1a9b1f::t_449f0486fc665f 528-530
+  s_09d3c46d1a9b1f::t_7534d836c3fe7d 563,569-574,579-582,591-598
+  s_09d3c46d1a9b1f::t_04111500e5f7dd 355-379
+  s_09d3c46d1a9b1f::t_6d073940c1eb32 411-413
+  s_09d3c46d1a9b1f::t_f2d713dc45b966 89-97,100
+  s_09d3c46d1a9b1f::t_c2d104bc6e20b1 133-149
+  s_09d3c46d1a9b1f::t_1d977fd5fdd688 50-52,57-62
+  s_09d3c46d1a9b1f::t_2b57a210c506f9 217-251,266-272
+  s_09d3c46d1a9b1f::t_aac7fcdef7fb5c 252-265
+.github/workflows/ci/interop/trust/run-trust.sh
+  s_09d3c46d1a9b1f::t_bba6e9d93f4789 89,91-94,102,106
+  s_09d3c46d1a9b1f::t_1c388189518ca1 242-258
+  s_09d3c46d1a9b1f::t_1a482ccbbeb63e 40-47
+  s_09d3c46d1a9b1f::t_bb81dac18a107e 14-24
+  s_09d3c46d1a9b1f::t_fd1b7064188a33 159-178
+  s_09d3c46d1a9b1f::t_244e02ccc38dea 218-232
+  s_09d3c46d1a9b1f::t_b0f2884ba8985f 99-101,103-105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "965ef3f13395644f7fa86c21cdb126e24e9425bd",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
