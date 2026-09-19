@@ -27,6 +27,8 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpTlsAlert,
+  TlpTlsLibExceptions,
+  TlpTlsContentType,
   TlpTlsVersion,
   TlpSecretBuffer,
   TlpCryptoDomainTypes,
@@ -70,12 +72,18 @@ type
   private
     function DefaultSuite: TTlsCipherSuite;
     function TakeOutgoing(const ALayer: TRecordLayer): TBytes;
+    function SampleTrafficKeys: ITrafficKeys;
+    function DriverOver(const ALayer: TRecordLayer): THandshakeDriver;
+    function ReadInstallAlert(const AVersion: TTlsVersion;
+      out AAlert: TTlsAlertDescription): Boolean;
   published
     procedure TestChannelSendsHandshakeRecord;
     procedure TestChannelSendsChangeCipherSpec;
     procedure TestChannelReassemblesInbound;
     procedure TestDriverInstallKeysDecryptsRfc8448Record;
     procedure TestDriverReportsOutcomesToSink;
+    procedure TestDriverArmsTls12ReadInstallButInstallsTls13Immediately;
+    procedure TestDriverWriteInstallIsImmediate;
   end;
 
 implementation
@@ -124,6 +132,102 @@ end;
 function TTestHandshakeDriver.TakeOutgoing(const ALayer: TRecordLayer): TBytes;
 begin
   Result := ALayer.TakeOutgoing;
+end;
+
+function TTestHandshakeDriver.SampleTrafficKeys: ITrafficKeys;
+var
+  LSchedule: ITls13KeySchedule;
+  LHash: TBytes;
+begin
+  // any valid epoch keys; the routing tests only care where the driver installs them, not what
+  LSchedule := TTls13KeySchedule.Create(Provider, THashAlgorithm.SHA_256, 16);
+  LSchedule.SetSharedSecret(TSecretBuffer.From(DecodeHex(
+    '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f')));
+  SetLength(LHash, 32);
+  LSchedule.DeriveEpochSecrets(TTlsEpoch.Handshake, LHash);
+  Result := LSchedule.TrafficKeys(TTlsEpoch.Handshake, TTlsDirection.ServerWrite);
+end;
+
+function TTestHandshakeDriver.DriverOver(const ALayer: TRecordLayer): THandshakeDriver;
+begin
+  Result := THandshakeDriver.Create(
+    THandshakeChannel.Create(ALayer) as IHandshakeChannel,
+    TRecordLayerInstaller.Create(ALayer) as IRecordEpochInstaller, Provider,
+    TSilentSink.Create as IHandshakeSink);
+end;
+
+function TTestHandshakeDriver.ReadInstallAlert(const AVersion: TTlsVersion;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LLayer: TRecordLayer;
+  LDriver: THandshakeDriver;
+  LFrag: TTlsRecordFragment;
+begin
+  // apply a ReadSide install of the given version, then feed a plaintext handshake record and
+  // return the fatal alert it provokes. Tls12 arms (guard -> unexpected_message); Tls13 installs
+  // the real epoch immediately (the plaintext record fails AEAD -> bad_record_mac).
+  Result := False;
+  AAlert := TTlsAlertDescription.CloseNotify;
+  LLayer := TRecordLayer.Create;
+  LDriver := DriverOver(LLayer);
+  try
+    LDriver.Apply(THandshakeEffects.InstallKeys(SampleTrafficKeys, TRecordSide.ReadSide,
+      DefaultSuite.Common.Aead, AVersion));
+    try
+      LLayer.ProcessInput(DecodeHex('160303000401020304'), 0, 9);
+      LLayer.NextIncoming(LFrag);
+    except
+      on E: EFatalAlertTlsLibException do
+      begin
+        Result := True;
+        AAlert := E.AlertDescription;
+      end;
+    end;
+  finally
+    LDriver.Free;
+    LLayer.Free;
+  end;
+end;
+
+procedure TTestHandshakeDriver.TestDriverArmsTls12ReadInstallButInstallsTls13Immediately;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // a TLS 1.2 read install is armed for the peer's change_cipher_spec: the read epoch stays null,
+  // so a plaintext handshake record before the CCS trips the armed-epoch guard.
+  CheckTrue(ReadInstallAlert(TTlsVersion.Tls12, LAlert), 'a Tls12 read install arms and rejects');
+  CheckEquals(Ord(TTlsAlertDescription.UnexpectedMessage), Ord(LAlert),
+    'a plaintext handshake record while armed is unexpected_message');
+  // a TLS 1.3 read install is immediate: the same plaintext record hits the real AEAD epoch and
+  // fails to authenticate, proving it was installed rather than armed.
+  CheckTrue(ReadInstallAlert(TTlsVersion.Tls13, LAlert), 'a Tls13 read install is immediate');
+  CheckEquals(Ord(TTlsAlertDescription.BadRecordMac), Ord(LAlert),
+    'an immediate Tls13 read epoch fails the plaintext record under AEAD');
+end;
+
+procedure TTestHandshakeDriver.TestDriverWriteInstallIsImmediate;
+var
+  LLayer: TRecordLayer;
+  LDriver: THandshakeDriver;
+  LWire: TBytes;
+begin
+  // the write side is never armed (the driver routes only the read side by version; each endpoint
+  // switches its own write epoch when it sends its CCS): a write install takes effect at once, so
+  // the next write is protected (expanded by the AEAD tag), not a bare plaintext framing.
+  LLayer := TRecordLayer.Create;
+  LDriver := DriverOver(LLayer);
+  try
+    LDriver.Apply(THandshakeEffects.InstallKeys(SampleTrafficKeys, TRecordSide.WriteSide,
+      DefaultSuite.Common.Aead, TTlsVersion.Tls13));
+    LLayer.Write(TTlsContentType.ApplicationData, DecodeHex('0102030405'), 0, 5);
+    LWire := TakeOutgoing(LLayer);
+    // a plaintext framing of 5 bytes would be 10 bytes (5 header + 5 body); an AEAD record is
+    // larger (inner content-type byte + 16-byte tag)
+    CheckTrue(System.Length(LWire) > 10, 'the write epoch is protected immediately');
+  finally
+    LDriver.Free;
+    LLayer.Free;
+  end;
 end;
 
 procedure TTestHandshakeDriver.TestChannelSendsHandshakeRecord;

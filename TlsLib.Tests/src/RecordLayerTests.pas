@@ -60,6 +60,10 @@ type
     procedure TestChangeCipherSpecFloodCapped;
     procedure TestChangeCipherSpecAfterHandshakeRejected;
     procedure TestMalformedChangeCipherSpecRejected;
+    procedure TestArmedReadStaysNullForPlaintextAlert;
+    procedure TestArmedReadActivatesOnChangeCipherSpec;
+    procedure TestPlaintextHandshakeWhileArmedRejected;
+    procedure TestDoubleArmRejected;
     procedure TestUnknownContentTypeRejected;
     procedure TestPartialHeaderDoesNotOverRead;
     procedure TestTerminalAfterFatal;
@@ -423,6 +427,130 @@ begin
     // CCS payload must be exactly 0x01
     CheckTrue(ExpectFatal(LRecv, DecodeHex('140303000100'),
       TTlsAlertDescription.UnexpectedMessage), 'CCS with wrong payload rejected');
+  finally
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestArmedReadStaysNullForPlaintextAlert;
+var
+  LRecv: TRecordLayer;
+  LFrag: TTlsRecordFragment;
+  LKey, LIv: TBytes;
+begin
+  // a read epoch armed for the peer's change_cipher_spec must NOT activate early: a plaintext
+  // alert the peer sends before its CCS (an abort) is read under the still-null epoch. Had the
+  // epoch activated at arm time, this plaintext alert would fail to decrypt under AEAD keys.
+  LRecv := TRecordLayer.Create;
+  try
+    LKey := DecodeHex('000102030405060708090a0b0c0d0e0f');
+    LIv := DecodeHex('101112131415161718191a1b');
+    LRecv.ArmReadProtectionOnChangeCipherSpec(MakeTls13(LKey, LIv));
+    // a fatal alert record (level 2, certificate_revoked 0x2c) in the clear
+    LRecv.ProcessInput(DecodeHex('1503030002022c'), 0, 7);
+    CheckTrue(DrainOne(LRecv, LFrag), 'the plaintext alert surfaces under the null epoch');
+    CheckEquals(Ord(TTlsContentType.Alert), Ord(LFrag.ContentType), 'it is an alert record');
+    CheckEqualBytes('the alert body is read verbatim', DecodeHex('022c'), LFrag.Data);
+  finally
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestArmedReadActivatesOnChangeCipherSpec;
+var
+  LSend, LRecv: TRecordLayer;
+  LFrag: TTlsRecordFragment;
+  LKey, LIv, LPayload, LWire: TBytes;
+begin
+  // the armed read epoch activates when the peer's plaintext change_cipher_spec is consumed, so
+  // the record that follows it (here an encrypted application_data record standing in for the
+  // peer's encrypted Finished) decrypts under the promoted epoch.
+  LSend := TRecordLayer.Create;
+  LRecv := TRecordLayer.Create;
+  try
+    LKey := DecodeHex('000102030405060708090a0b0c0d0e0f');
+    LIv := DecodeHex('101112131415161718191a1b');
+    LSend.SetWriteProtection(MakeTls13(LKey, LIv));
+    LRecv.ArmReadProtectionOnChangeCipherSpec(MakeTls13(LKey, LIv));
+    LPayload := DecodeHex('48656c6c6f'); // "Hello"
+    LSend.Write(TTlsContentType.ApplicationData, LPayload, 0, System.Length(LPayload));
+    // the peer's CCS immediately precedes its first protected record
+    LWire := ConcatBytes(DecodeHex('140303000101'), LSend.TakeOutgoing);
+    LRecv.ProcessInput(LWire, 0, System.Length(LWire));
+    CheckTrue(DrainOne(LRecv, LFrag), 'the protected record after the CCS decrypts');
+    CheckEqualBytes('it decrypts under the promoted epoch', LPayload, LFrag.Data);
+    CheckFalse(DrainOne(LRecv, LFrag), 'no extra fragment');
+  finally
+    LSend.Free;
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestPlaintextHandshakeWhileArmedRejected;
+var
+  LRecv: TRecordLayer;
+  LFrag: TTlsRecordFragment;
+  LKey, LIv: TBytes;
+  LFailed: Boolean;
+begin
+  // while a read epoch is armed, a plaintext handshake record before the peer's CCS is illegal:
+  // the Finished is the first message under the new cipher spec (RFC 5246 7.4.9). This covers a
+  // full-looking record and a lone 5-byte fragment record (a Finished prefix split across the CCS).
+  LKey := DecodeHex('000102030405060708090a0b0c0d0e0f');
+  LIv := DecodeHex('101112131415161718191a1b');
+
+  LRecv := TRecordLayer.Create;
+  try
+    LRecv.ArmReadProtectionOnChangeCipherSpec(MakeTls13(LKey, LIv));
+    // a handshake record (type 0x16) with a 4-byte body, no preceding CCS
+    CheckTrue(ExpectFatal(LRecv, DecodeHex('160303000401020304'),
+      TTlsAlertDescription.UnexpectedMessage),
+      'a plaintext handshake record while armed is unexpected_message');
+    // the record layer is now in a failed state: any further pull raises
+    LFailed := False;
+    try
+      LRecv.NextIncoming(LFrag);
+    except
+      on E: EInvalidOperationTlsLibException do
+        LFailed := True;
+    end;
+    CheckTrue(LFailed, 'the layer is terminal after the violation');
+  finally
+    LRecv.Free;
+  end;
+
+  LRecv := TRecordLayer.Create;
+  try
+    LRecv.ArmReadProtectionOnChangeCipherSpec(MakeTls13(LKey, LIv));
+    // a lone 5-byte handshake fragment record, no preceding CCS
+    CheckTrue(ExpectFatal(LRecv, DecodeHex('16030300051400000c00'),
+      TTlsAlertDescription.UnexpectedMessage),
+      'a plaintext handshake fragment while armed is unexpected_message');
+  finally
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestDoubleArmRejected;
+var
+  LRecv: TRecordLayer;
+  LKey, LIv: TBytes;
+  LRaised: Boolean;
+begin
+  // one read install per 1.2 handshake; arming twice without an intervening CCS is a caller bug
+  LRecv := TRecordLayer.Create;
+  try
+    LKey := DecodeHex('000102030405060708090a0b0c0d0e0f');
+    LIv := DecodeHex('101112131415161718191a1b');
+    LRecv.ArmReadProtectionOnChangeCipherSpec(MakeTls13(LKey, LIv));
+    LRaised := False;
+    try
+      LRecv.ArmReadProtectionOnChangeCipherSpec(MakeTls13(LKey, LIv));
+    except
+      on E: EInvalidOperationTlsLibException do
+        LRaised := True;
+    end;
+    CheckTrue(LRaised, 'a second arm without a change_cipher_spec is rejected');
   finally
     LRecv.Free;
   end;

@@ -53,6 +53,11 @@ type
   var
     FReadProtection: IRecordProtection;
     FWriteProtection: IRecordProtection;
+    /// <summary>A read epoch armed to activate on the peer's next change_cipher_spec (TLS 1.2):
+    /// the read side stays on the current epoch until that plaintext CCS is consumed, so a peer's
+    /// plaintext rejection alert sent before its CCS is read under the right epoch (RFC 5246 7.1).
+    /// nil when nothing is armed. TLS 1.3 installs the read epoch immediately instead.</summary>
+    FPendingReadProtection: IRecordProtection;
     /// <summary>True until the first read epoch key is installed: an inbound application_data
     /// record decoded while the read side is still plaintext is never valid (0-RTT early data
     /// is encrypted under the early keys, later traffic under the application keys).</summary>
@@ -94,6 +99,12 @@ type
 
     /// <summary>Installs the active read (inbound) epoch. Defaults to plaintext.</summary>
     procedure SetReadProtection(const AProtection: IRecordProtection);
+    /// <summary>Arms a read epoch to activate when the peer's next change_cipher_spec is consumed
+    /// (TLS 1.2 read-cipher switch, RFC 5246 7.1), rather than immediately. Until then the read
+    /// side stays on the current epoch, so a peer's plaintext alert sent before its CCS reads
+    /// under the right epoch. Raises if a read epoch is already armed (a double-arm without an
+    /// intervening CCS is unreachable and would mask a caller bug).</summary>
+    procedure ArmReadProtectionOnChangeCipherSpec(const AProtection: IRecordProtection);
     /// <summary>Installs the active write (outbound) epoch. Defaults to plaintext.</summary>
     procedure SetWriteProtection(const AProtection: IRecordProtection);
     /// <summary>Reverts the write epoch to an unprotected (plaintext) one, abandoning an
@@ -175,6 +186,7 @@ const
   DefaultMaxChangeCipherSpec = Int32(2);
   OuterApplicationData = Byte(23); // TLSCiphertext outer content type
   OuterChangeCipherSpec = Byte(20); // the legacy change_cipher_spec outer content type
+  OuterHandshake = Byte(22); // the handshake outer content type
 
 resourcestring
   SRecordLayerFailed = 'the record layer is in a failed state';
@@ -189,6 +201,8 @@ resourcestring
   SChangeCipherSpecAfterHandshake = 'change_cipher_spec after the handshake completed';
   SProtectedChangeCipherSpec = 'a protected (encrypted) change_cipher_spec record is not allowed';
   SWriteSliceOutOfRange = 'the write offset/length is outside the source buffer';
+  SHandshakeBeforeChangeCipherSpec = 'a handshake record arrived before the peer''s change_cipher_spec';
+  SReadEpochAlreadyArmed = 'a read epoch is already armed for the next change_cipher_spec';
 
 { TRecordLayer }
 
@@ -210,6 +224,7 @@ begin
   FChangeCipherSpecCount := 0;
   FHandshakeComplete := False;
   FFailed := False;
+  FPendingReadProtection := nil;
 end;
 
 destructor TRecordLayer.Destroy;
@@ -238,6 +253,19 @@ procedure TRecordLayer.SetReadProtection(const AProtection: IRecordProtection);
 begin
   FReadProtection := AProtection;
   // a real read epoch (early / handshake / application keys) is now installed
+  FReadIsPlaintext := False;
+end;
+
+procedure TRecordLayer.ArmReadProtectionOnChangeCipherSpec(
+  const AProtection: IRecordProtection);
+begin
+  // one read install per TLS 1.2 handshake, promoted by the peer's next change_cipher_spec;
+  // arming twice without an intervening CCS would mean a caller bug, so refuse it loudly
+  if FPendingReadProtection <> nil then
+    raise EInvalidOperationTlsLibException.CreateRes(@SReadEpochAlreadyArmed);
+  FPendingReadProtection := AProtection;
+  // the keys are derived and owned from now, mirroring SetReadProtection; the active read
+  // epoch does not change until the change_cipher_spec promotes it (see HandleChangeCipherSpec)
   FReadIsPlaintext := False;
 end;
 
@@ -290,6 +318,14 @@ begin
   if FChangeCipherSpecCount > FMaxChangeCipherSpec then
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.UnexpectedMessage,
       @SChangeCipherSpecFlood);
+  // TLS 1.2 read-cipher switch: a read epoch armed for this change_cipher_spec now becomes the
+  // active read epoch, so the record that follows (the peer's encrypted Finished) decrypts under
+  // it. Nothing is armed under TLS 1.3, where the read epoch is installed directly.
+  if FPendingReadProtection <> nil then
+  begin
+    FReadProtection := FPendingReadProtection;
+    FPendingReadProtection := nil;
+  end;
 end;
 
 procedure TRecordLayer.SetHandshakeComplete;
@@ -436,6 +472,16 @@ begin
           System.Length(LRecord) - TRecordLimits.HeaderLength);
         Continue; // dropped during the handshake (or raised once it is complete)
       end;
+      // TLS 1.2 read-cipher switch: while a read epoch is armed, the only peer records expected
+      // are the plaintext change_cipher_spec that promotes it (handled above) and a plaintext
+      // alert (an abort the peer sends before its own CCS). A plaintext handshake record here -
+      // a Finished, or a fragment of one, sent before the CCS - is illegal (RFC 5246 7.4.9): the
+      // Finished is the first message under the new cipher spec. (application_data while the
+      // handshake is incomplete is already rejected by StrictApplicationData.)
+      if (FPendingReadProtection <> nil) and (System.Length(LRecord) > 0) and
+        (LRecord[0] = OuterHandshake) then
+        raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.UnexpectedMessage,
+          @SHandshakeBeforeChangeCipherSpec);
       if FEarlyDataSkipRemaining > 0 then
       begin
         // 0-RTT reject / HelloRetryRequest: drop the client's early-data records (bounded),

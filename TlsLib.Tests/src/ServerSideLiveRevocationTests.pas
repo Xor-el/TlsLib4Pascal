@@ -125,7 +125,7 @@ type
     procedure TestLiveIndeterminateHardRejectsTls13;
     procedure TestLiveIndeterminateSoftAcceptsTls13;
     procedure TestLiveGoodClientCompletesTls12;
-    procedure TestLiveRevokedClientFailsClosedTls12;
+    procedure TestLiveRevokedClientRejectedTls12;
     procedure TestStubResolverAcceptCompletes;
     procedure TestStubResolverRejectAborts;
     procedure TestLeafOnlyWithoutIssuerCandidateRejectsUnderHard;
@@ -553,19 +553,18 @@ begin
   end;
 end;
 
-procedure TTestServerSideLiveRevocation.TestLiveRevokedClientFailsClosedTls12;
+procedure TTestServerSideLiveRevocation.TestLiveRevokedClientRejectedTls12;
 var
   LClient: TTlsStream;
   LServer: TMtlsLiveServerRunner;
   LTransport: TMemoryTransport;
   LChecker: TLiveRevocationChecker;
+  LAlert: TTlsAlertDescription;
 begin
   // the 1.2 server parks on the client chain, the live checker reports Revoked, and the server
-  // aborts with certificate_revoked. The client fails closed. (The client observes a generic fatal
-  // alert rather than the exact certificate_revoked code: the 1.2 client installs its read epoch
-  // right after sending its own ChangeCipherSpec, so a server's plaintext rejection alert - sent
-  // before the server's ChangeCipherSpec - is read under the wrong epoch. Surfacing the true code
-  // is a separate 1.2 record-epoch robustness fix; the server-side code below is authoritative.)
+  // aborts with certificate_revoked before it sends its ChangeCipherSpec. The client reads that
+  // plaintext alert under the right epoch (its read epoch stays plaintext until the server's CCS)
+  // and surfaces the exact code, matching the TLS 1.3 sibling.
   FFetcher := TFakeHttpFetcher.Create;
   FFetcher.SetPost(True, CertField('ocsp_revoked'));
   LChecker := NewChecker(TRevocationPosture.Hard, True);
@@ -573,8 +572,9 @@ begin
     RunLoopback(ClientConfig(True), ServerConfig(TRevocationPosture.Hard, True),
       LChecker.ResolveVerdict, False, LClient, LServer, LTransport);
     try
-      // ClientFatalAlert asserts the client aborted fatally (fail-closed)
-      ClientFatalAlert(LClient);
+      LAlert := ClientFatalAlert(LClient);
+      CheckEquals(Int64(Ord(TTlsAlertDescription.CertificateRevoked)), Int64(Ord(LAlert)),
+        'the 1.2 client receives certificate_revoked for the revoked client certificate');
       LServer.WaitFor;
       CheckFalse(LServer.HandshakeOk, 'the 1.2 server rejected the revoked client certificate');
       CheckTrue(LServer.HasAlert, 'the 1.2 server aborted with an alert');

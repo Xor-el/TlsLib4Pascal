@@ -19,6 +19,7 @@ uses
   SysUtils,
   TlpICryptoProvider,
   TlpIRecordProtection,
+  TlpTlsVersion,
   TlpRecordProtectionFactory,
   TlpITlsEngine,
   TlpTlsAlert,
@@ -96,7 +97,15 @@ begin
   if FVersionSink <> nil then
     FVersionSink.OnVersionNegotiated(AEffect.Version);
   if AEffect.Side = TRecordSide.ReadSide then
-    FInstaller.InstallReadProtection(LProtection)
+  begin
+    // TLS 1.2 switches the read cipher on the peer's change_cipher_spec (RFC 5246 7.1), so arm
+    // the read epoch to activate then rather than immediately - this keeps a peer's plaintext
+    // alert sent before its CCS readable under the right epoch. TLS 1.3 installs directly.
+    if AEffect.Version.Equals(TTlsVersion.Tls12) then
+      FInstaller.ArmReadProtectionOnChangeCipherSpec(LProtection)
+    else
+      FInstaller.InstallReadProtection(LProtection);
+  end
   else
     FInstaller.InstallWriteProtection(LProtection);
 end;

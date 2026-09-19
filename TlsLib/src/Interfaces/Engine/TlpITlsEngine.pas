@@ -248,6 +248,14 @@ type
     procedure InstallReadProtection(const AProtection: IRecordProtection);
     procedure InstallWriteProtection(const AProtection: IRecordProtection);
     /// <summary>
+    /// Arms a read epoch to activate on the peer's next change_cipher_spec instead of
+    /// immediately (the TLS 1.2 read-cipher switch, RFC 5246 7.1). The active read epoch
+    /// stays put until that plaintext CCS is consumed, so a peer's plaintext alert sent
+    /// before its CCS is read under the right epoch. TLS 1.3 installs the read epoch
+    /// directly via InstallReadProtection; only TLS 1.2 read installs use this.
+    /// </summary>
+    procedure ArmReadProtectionOnChangeCipherSpec(const AProtection: IRecordProtection);
+    /// <summary>
     /// Reverts the write epoch to plaintext, abandoning an installed early-data write
     /// protection when a HelloRetryRequest rejects offered 0-RTT (RFC 8446 4.2.10): the
     /// second ClientHello and the rest of the client's flight are sent in the clear.

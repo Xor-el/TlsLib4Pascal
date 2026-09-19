@@ -172,6 +172,7 @@ type
     // longer implements those interfaces directly - see the bridge below)
     procedure InstallReadProtection(const AProtection: IRecordProtection);
     procedure InstallWriteProtection(const AProtection: IRecordProtection);
+    procedure ArmReadProtectionOnChangeCipherSpec(const AProtection: IRecordProtection);
     procedure RevertWriteToPlaintext;
     procedure SetRecordSizeLimit(AOutboundPlaintext, AInboundPlaintext: Int32);
     procedure SetEarlyDataSkip(AMaxBytes: Int32);
@@ -234,6 +235,7 @@ type
     constructor Create(const AEngine: TTlsEngine);
     procedure InstallReadProtection(const AProtection: IRecordProtection);
     procedure InstallWriteProtection(const AProtection: IRecordProtection);
+    procedure ArmReadProtectionOnChangeCipherSpec(const AProtection: IRecordProtection);
     procedure RevertWriteToPlaintext;
     procedure SetRecordSizeLimit(AOutboundPlaintext, AInboundPlaintext: Int32);
     procedure SetEarlyDataSkip(AMaxBytes: Int32);
@@ -276,6 +278,12 @@ procedure TEngineHandshakeBridge.InstallWriteProtection(
   const AProtection: IRecordProtection);
 begin
   FEngine.InstallWriteProtection(AProtection);
+end;
+
+procedure TEngineHandshakeBridge.ArmReadProtectionOnChangeCipherSpec(
+  const AProtection: IRecordProtection);
+begin
+  FEngine.ArmReadProtectionOnChangeCipherSpec(AProtection);
 end;
 
 procedure TEngineHandshakeBridge.RevertWriteToPlaintext;
@@ -930,6 +938,16 @@ end;
 procedure TTlsEngine.InstallReadProtection(const AProtection: IRecordProtection);
 begin
   FRecordLayer.SetReadProtection(AProtection);
+  Enqueue(TTlsEvents.MakeKeysInstalled);
+end;
+
+procedure TTlsEngine.ArmReadProtectionOnChangeCipherSpec(
+  const AProtection: IRecordProtection);
+begin
+  // the TLS 1.2 read epoch activates on the peer's change_cipher_spec, not here; the keys are
+  // derived and owned from now, so the keys-installed event fires at arm time (matching the
+  // immediate install) and the read epoch itself flips when the record layer consumes the CCS
+  FRecordLayer.ArmReadProtectionOnChangeCipherSpec(AProtection);
   Enqueue(TTlsEvents.MakeKeysInstalled);
 end;
 

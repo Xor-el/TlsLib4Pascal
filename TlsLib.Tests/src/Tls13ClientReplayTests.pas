@@ -89,6 +89,7 @@ type
     constructor Create(const ALayer: TRecordLayer);
     procedure InstallReadProtection(const AProtection: IRecordProtection);
     procedure InstallWriteProtection(const AProtection: IRecordProtection);
+    procedure ArmReadProtectionOnChangeCipherSpec(const AProtection: IRecordProtection);
     procedure RevertWriteToPlaintext;
     procedure SetRecordSizeLimit(AOutboundPlaintext, AInboundPlaintext: Int32);
     procedure SetEarlyDataSkip(AMaxBytes: Int32);
@@ -228,6 +229,12 @@ procedure TRecordLayerInstaller.InstallWriteProtection(
   const AProtection: IRecordProtection);
 begin
   FLayer.SetWriteProtection(AProtection);
+end;
+
+procedure TRecordLayerInstaller.ArmReadProtectionOnChangeCipherSpec(
+  const AProtection: IRecordProtection);
+begin
+  FLayer.ArmReadProtectionOnChangeCipherSpec(AProtection);
 end;
 
 procedure TRecordLayerInstaller.RevertWriteToPlaintext;
