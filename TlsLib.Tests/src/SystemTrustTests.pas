@@ -184,6 +184,12 @@ type
   strict protected
     function CreateAnchorStore: ITrustAnchorStore; override;
     function PlatformName: string; override;
+  published
+    /// <summary>Every optional harvest symbol must resolve on a real macOS: tier 1 (reading
+    /// per-domain trust settings) and tier 2 (SSL-policy scoping). If either is False the harvest
+    /// silently degrades (System-origin only / unscoped), so this guards against a resolution
+    /// regression - e.g. a trust-settings key that must be created rather than dlsym'd.</summary>
+    procedure TestHarvestSymbolsResolved;
   end;
 
   /// <summary>Behavioural tests for the macOS/iOS OS client-certificate delegate against a
@@ -764,6 +770,15 @@ end;
 function TTestMacOSSystemTrust.PlatformName: string;
 begin
   Result := 'macOS';
+end;
+
+procedure TTestMacOSSystemTrust.TestHarvestSymbolsResolved;
+begin
+  CheckTrue(TAppleTrustApi.HarvestSettingsReady,
+    'macOS trust-settings-reading symbols must all resolve (else the anchor harvest degrades to ' +
+    'System-origin only and cannot honour a user Deny)');
+  CheckTrue(TAppleTrustApi.HarvestSslScopeReady,
+    'macOS SSL-policy-scoping symbols must all resolve (else per-policy trust scoping is skipped)');
 end;
 
 { TTestAppleClientDelegate }
