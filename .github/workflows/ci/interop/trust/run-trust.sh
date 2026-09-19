@@ -11,9 +11,17 @@
 #                 discriminator (a leaked root cannot make it pass); the post-uninstall reject
 #                 proves cleanup. The root's CN carries a per-run id so it never collides.
 #
-# The delegate reject cells assert only that the handshake aborts (a fatal alert, not a hang or
-# EOF); tightening them to the exact OsStatusToAlert code (e.g. certificate_revoked) is a
-# follow-up once a CI run shows the real mapping per OS.
+# The server-cert delegate reject cells assert only that the handshake aborts (a fatal alert, not a
+# hang or EOF); tightening them to the exact OsStatusToAlert code is a follow-up once a CI run shows
+# the real mapping per OS.
+#
+#   * server verifies client (mTLS live) - our SERVER verifies the peer CLIENT certificate live
+#                 through the OS delegate (an in-process client presenter offers the cert). It roots
+#                 against the in-memory exclusive client-CA anchors, never the machine store, so the
+#                 good/revoked/unreachable cells need NO install and run locally too; only the
+#                 exclusivity cell (foreign resolver CA) runs inside the install bracket, where it can
+#                 discriminate. Its revoked(44)/indeterminate(113) alerts come from our resolver, not
+#                 the OS map, so they are asserted exactly on both platforms.
 set -euo pipefail
 
 SHIM="${1:?usage: run-trust.sh <TrustDelegateInterop binary>}"
@@ -29,6 +37,14 @@ OSNAME="$(uname -s)"
 OCSP_PORT=$(( 20000 + (RANDOM % 20000) ))
 OCSP_URL="http://127.0.0.1:$OCSP_PORT"
 OCSP_PID=""
+# a separate DEAD port for the server-verifies-client indeterminate cell: nothing ever listens here,
+# so the live client-cert check reaches the network and is refused fast (a distinct URL that never
+# changes state, so no cell ordering can flip the result)
+DEAD_PORT=$(( 40000 + (RANDOM % 20000) ))
+while [ "$DEAD_PORT" = "$OCSP_PORT" ] || (echo >"/dev/tcp/127.0.0.1/$DEAD_PORT") 2>/dev/null; do
+  DEAD_PORT=$(( 40000 + (RANDOM % 20000) ))  # in use (connect succeeded): pick another
+done
+DEAD_URL="http://127.0.0.1:$DEAD_PORT"
 
 THUMB=""  # set after the CA exists
 
@@ -70,16 +86,24 @@ if [ "$OSNAME" = "Darwin" ] && command -v brew >/dev/null 2>&1; then
   BREW_SSL="$(brew --prefix openssl@3 2>/dev/null || true)"
   [ -n "$BREW_SSL" ] && [ -x "$BREW_SSL/bin/openssl" ] && OPENSSL="$BREW_SSL/bin/openssl"
 fi
-OPENSSL="$OPENSSL" bash "$HERE/gen-trust-ca.sh" "$CA" "$RUNID" "$OCSP_URL"
+OPENSSL="$OPENSSL" bash "$HERE/gen-trust-ca.sh" "$CA" "$RUNID" "$OCSP_URL" "$DEAD_URL"
 THUMB="$("$OPENSSL" x509 -in "$CA/root.pem" -noout -fingerprint -sha1 | sed 's/.*=//; s/://g')"
-# a loopback OCSP responder for the live cells: serves the live index (accept leaf Valid, revoked
-# leaf Revoked) signed by the root-delegated OCSPSigning responder both crypt32 and trustd accept.
-# It runs for the whole bracket and is killed by the EXIT trap; the live cells only run after a
-# successful root install, so an unused responder here (no install privilege) is harmless.
+# a loopback OCSP responder for the live cells: serves the live index (accept leaves Valid, revoked
+# leaves Revoked) signed by the root-delegated OCSPSigning responder both crypt32 and trustd accept.
+# It runs for the whole bracket and is killed by the EXIT trap. The server-verifies-client live cells
+# below use it WITHOUT a store install, so it is load-bearing - wait for it to accept connections.
 "$OPENSSL" ocsp -index "$CA/index_live.txt" -CA "$CA/root.pem" \
   -rsigner "$CA/ocsp_signer.pem" -rkey "$CA/ocsp_signer.key" \
   -port "$OCSP_PORT" -rmd sha256 >/dev/null 2>&1 &
 OCSP_PID=$!
+# readiness probe: a REAL OCSP query (live_leaf is serial 4001, Valid in the index). A raw TCP
+# connect would be read by the single-threaded responder as a malformed request and disturb it; a
+# valid query it answers and loops. The new server cells run before the cells that used to warm it up.
+for _ in $(seq 1 50); do
+  if "$OPENSSL" ocsp -CAfile "$CA/root.pem" -issuer "$CA/root.pem" \
+    -cert "$CA/live_leaf.pem" -url "$OCSP_URL" >/dev/null 2>&1; then break; fi
+  sleep 0.2
+done
 # a verify time past the 30-day leaf notAfter, to prove the injected clock reaches validation
 FUTURE_MS=$(( ($(date +%s) + 60*86400) * 1000 ))
 
@@ -132,6 +156,26 @@ if [ "$HAS_DELEGATE" = 1 ]; then
     --server-cert "$CA/leaf_fullchain.pem" --server-key "$CA/leaf.key" \
     --staple "$CA/ocsp_good.der" --posture soft --expect reject
 
+  # server verifies a CLIENT certificate live through the OS delegate. This roots against the
+  # in-memory exclusive client-CA anchors (never the machine store), so it needs NO root install and
+  # runs on any OS-delegate platform - locally included. The reject alerts (44 revoked, 113
+  # indeterminate) come from our resolver, not the OS map, so they are asserted exactly on both
+  # platforms. The server presents a root-signed server cert the in-process client presenter trusts;
+  # the presenter offers the client leaf, whose AIA the OS server re-checks against the responder.
+  echo "=== OS trust delegate: server verifies client certificate (live) ==="
+  for V in 13 12; do
+    cell "[$V] server live good client -> accept" --role server --tls-version $V \
+      --root "$CA/root.pem" --server-cert "$CA/live_leaf_fullchain.pem" \
+      --server-key "$CA/live_leaf.key" --client-cert "$CA/live_client_good.pem" \
+      --client-key "$CA/live_client_good.key" --client-ca "$CA/root.pem" \
+      --posture hard --expect accept
+    cell "[$V] server live revoked client -> certificate_revoked" --role server --tls-version $V \
+      --root "$CA/root.pem" --server-cert "$CA/live_leaf_fullchain.pem" \
+      --server-key "$CA/live_leaf.key" --client-cert "$CA/live_client_revoked.pem" \
+      --client-key "$CA/live_client_revoked.key" --client-ca "$CA/root.pem" \
+      --posture hard --expect reject:44
+  done
+
   if install_root; then
     INSTALLED=1
     echo "  (installed test root $THUMB)"
@@ -171,6 +215,21 @@ if [ "$HAS_DELEGATE" = 1 ]; then
       --server-cert "$CA/direct_fullchain.pem" --server-key "$CA/direct_leaf.key" \
       --staple "$CA/ocsp_good_direct.der" --posture soft --expect-name wrong.example \
       --expect reject
+    # server-verifies-client exclusivity: the live resolver must root against the configured client CA
+    # ALONE. This is meaningful only with the run root installed - a broken (machine-store) live path
+    # would then find it and accept; without the install both a sound and a broken path reject (vacuous),
+    # which is why this pair runs inside the bracket. A baseline good->accept with the identical inline
+    # config runs first, so a reject is attributable to the resolver's foreign anchor, not the inline pass.
+    cell "server live exclusivity baseline -> accept" --role server \
+      --root "$CA/root.pem" --server-cert "$CA/live_leaf_fullchain.pem" \
+      --server-key "$CA/live_leaf.key" --client-cert "$CA/live_client_good.pem" \
+      --client-key "$CA/live_client_good.key" --client-ca "$CA/root.pem" \
+      --posture hard --expect accept
+    cell "server live exclusivity (foreign resolver CA) -> reject" --role server \
+      --root "$CA/root.pem" --server-cert "$CA/live_leaf_fullchain.pem" \
+      --server-key "$CA/live_leaf.key" --client-cert "$CA/live_client_good.pem" \
+      --client-key "$CA/live_client_good.key" --client-ca "$CA/root.pem" \
+      --live-client-ca "$CA/foreign_root.pem" --posture hard --expect reject
     uninstall_root
     INSTALLED=0
     # bracket, after uninstall: cleanup verified - the same chain rejects again
@@ -180,6 +239,23 @@ if [ "$HAS_DELEGATE" = 1 ]; then
   else
     echo "  SKIPPED: could not install the test root (need privilege); ran the reject path only"
   fi
+
+  # server-verifies-client with an UNREACHABLE responder: the client leaf's AIA is the dead port, so
+  # the live check is genuinely indeterminate. Soft accepts (proves the outcome is Indeterminate, not
+  # a definitive reject); Hard rejects bad_certificate_status_response(113). Needs no install (exclusive
+  # in-memory anchors); run LAST so no earlier cell can have warmed a cache for this URL (the port is
+  # dead anyway, and each cell is a fresh process).
+  echo "=== OS trust delegate: server verifies client, responder unreachable (live) ==="
+  cell "server live unreachable client (Soft) -> accept" --role server \
+    --root "$CA/root.pem" --server-cert "$CA/live_leaf_fullchain.pem" \
+    --server-key "$CA/live_leaf.key" --client-cert "$CA/live_client_down.pem" \
+    --client-key "$CA/live_client_down.key" --client-ca "$CA/root.pem" \
+    --posture soft --expect accept
+  cell "server live unreachable client (Hard) -> bad_certificate_status_response" --role server \
+    --root "$CA/root.pem" --server-cert "$CA/live_leaf_fullchain.pem" \
+    --server-key "$CA/live_leaf.key" --client-cert "$CA/live_client_down.pem" \
+    --client-key "$CA/live_client_down.key" --client-ca "$CA/root.pem" \
+    --posture hard --expect reject:113
 else
   echo "=== OS trust delegate: SKIPPED (no OS delegate on $OSNAME) ==="
 fi

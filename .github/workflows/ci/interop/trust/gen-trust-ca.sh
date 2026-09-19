@@ -26,12 +26,15 @@ set -euo pipefail
 # keep Git Bash from rewriting the /CN=... subject into a Windows path (ignored on Linux/macOS)
 export MSYS2_ARG_CONV_EXCL='/CN='
 
-OUTDIR="${1:?usage: gen-trust-ca.sh <outdir> [run-id] [live-ocsp-url]}"
+OUTDIR="${1:?usage: gen-trust-ca.sh <outdir> [run-id] [live-ocsp-url] [dead-ocsp-url]}"
 RUNID="${2:-local-$$}"
 # the AIA OCSP URL baked into the live leaves: a reachable loopback responder run-trust.sh starts,
 # so a real OS engine fetches revocation over the network (the live cells). Cache-only leaves keep
 # the unreachable .invalid URL.
 LIVE_OCSP_URL="${3:-http://127.0.0.1:8888}"
+# a loopback URL whose port is DEAD (connection refused): baked into the live client "down" leaf so
+# its live revocation is genuinely indeterminate (the OS reaches the network and is refused fast).
+DEAD_OCSP_URL="${4:-http://127.0.0.1:8889}"
 OPENSSL="${OPENSSL:-openssl}"
 mkdir -p "$OUTDIR"
 
@@ -155,27 +158,37 @@ EOF
 "$OPENSSL" x509 -req -in ocsp_signer.csr -CA root.pem -CAkey root.key -set_serial 0x5001 \
   -sha256 -days 30 -extfile ocsp_signer.ext -out ocsp_signer.pem
 
-mk_live_leaf() { # <name> <serial-hex>
-  local name="$1" serial="$2"
+mk_live_leaf() { # <name> <serial-hex> <eku> <aia-url>
+  local name="$1" serial="$2" eku="$3" aia="$4" cn="localhost"
+  # a serverAuth leaf carries the SAN a client name-checks; a clientAuth leaf is name-less
+  [ "$eku" = "clientAuth" ] && cn="live-client"
   newkey "$name.key"
-  "$OPENSSL" req -new -key "$name.key" -out "$name.csr" -subj "/CN=localhost"
-  cat > "$name.ext" <<EOF
-basicConstraints=critical,CA:FALSE
-keyUsage=critical,digitalSignature
-subjectAltName=DNS:localhost
-extendedKeyUsage=serverAuth
-authorityInfoAccess=OCSP;URI:$LIVE_OCSP_URL
-crlDistributionPoints=URI:http://crl.tlslib.invalid/root.crl
-EOF
+  "$OPENSSL" req -new -key "$name.key" -out "$name.csr" -subj "/CN=$cn"
+  {
+    echo "basicConstraints=critical,CA:FALSE"
+    echo "keyUsage=critical,digitalSignature"
+    [ "$eku" = "serverAuth" ] && echo "subjectAltName=DNS:localhost"
+    echo "extendedKeyUsage=$eku"
+    echo "authorityInfoAccess=OCSP;URI:$aia"
+    echo "crlDistributionPoints=URI:http://crl.tlslib.invalid/root.crl"
+  } > "$name.ext"
   "$OPENSSL" x509 -req -in "$name.csr" -CA root.pem -CAkey root.key -set_serial "$serial" \
     -sha256 -days 30 -extfile "$name.ext" -out "$name.pem"
   cat "$name.pem" root.pem > "${name}_fullchain.pem"
 }
-mk_live_leaf live_leaf         0x4001
-mk_live_leaf live_revoked_leaf 0x4002
+# serverAuth leaves (client-verifies-server live cells)
+mk_live_leaf live_leaf              0x4001 serverAuth "$LIVE_OCSP_URL"
+mk_live_leaf live_revoked_leaf      0x4002 serverAuth "$LIVE_OCSP_URL"
+# clientAuth leaves (server-verifies-client live cells): good, revoked, and one whose AIA is a dead
+# port so its live check is indeterminate (never in the responder index - the port is dead by design)
+mk_live_leaf live_client_good       0x4003 clientAuth "$LIVE_OCSP_URL"
+mk_live_leaf live_client_revoked    0x4004 clientAuth "$LIVE_OCSP_URL"
+mk_live_leaf live_client_down       0x4005 clientAuth "$DEAD_OCSP_URL"
 
-# one live index the responder serves: the accept leaf Valid, the revoked leaf Revoked
-printf 'V\t%s\t\t4001\tunknown\t/CN=localhost\n' "$EXP" > index_live.txt
-printf 'R\t%s\t%s\t4002\tunknown\t/CN=localhost\n' "$EXP" "$REV" >> index_live.txt
+# one live index the responder serves: accept leaves Valid, revoked leaves Revoked
+printf 'V\t%s\t\t4001\tunknown\t/CN=localhost\n'    "$EXP"        > index_live.txt
+printf 'R\t%s\t%s\t4002\tunknown\t/CN=localhost\n'  "$EXP" "$REV" >> index_live.txt
+printf 'V\t%s\t\t4003\tunknown\t/CN=live-client\n'  "$EXP"        >> index_live.txt
+printf 'R\t%s\t%s\t4004\tunknown\t/CN=live-client\n' "$EXP" "$REV" >> index_live.txt
 
 echo "generated trust hierarchy in $OUTDIR (run id: $RUNID, live ocsp: $LIVE_OCSP_URL)"
