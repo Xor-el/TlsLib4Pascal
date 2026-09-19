@@ -661,6 +661,8 @@ type
       out AUrls: TArray<string>): Boolean;
     function CheckCrlRevocation(const ALeafCert, AIssuerCert, ACrlDer: TBytes;
       out ARevoked: Boolean): Boolean;
+    function TryFindIssuer(const ALeafCert: TBytes; const ACandidates: TArray<TBytes>;
+      out AIssuerCert: TBytes): Boolean;
   end;
 
 { TRandomAdapter }
@@ -2760,6 +2762,47 @@ begin
     // an unparseable or unverifiable CRL is indeterminate, never a raise
     Result := False;
     ARevoked := False;
+  end;
+end;
+
+function TRevocationChecker.TryFindIssuer(const ALeafCert: TBytes;
+  const ACandidates: TArray<TBytes>; out AIssuerCert: TBytes): Boolean;
+var
+  LParser: IX509CertificateParser;
+  LLeaf, LCandidate: IX509Certificate;
+  LI: Int32;
+begin
+  Result := False;
+  AIssuerCert := nil;
+  if System.Length(ALeafCert) = 0 then
+    Exit;
+  try
+    LParser := TX509CertificateParser.Create;
+    LLeaf := LParser.ReadCertificate(ALeafCert);
+    for LI := 0 to System.High(ACandidates) do
+    begin
+      if System.Length(ACandidates[LI]) = 0 then
+        Continue;
+      LCandidate := LParser.ReadCertificate(ACandidates[LI]);
+      // name match is a prefilter only; the candidate is the issuer solely when its key verifies the
+      // leaf's signature, so a same-name/wrong-key candidate is rejected - that keeps the OCSP CertID
+      // issuerKeyHash bound to the true signer (a wrong pick could otherwise mis-key the request)
+      if not LLeaf.IssuerDN.Equivalent(LCandidate.SubjectDN, True) then
+        Continue;
+      try
+        LLeaf.Verify(LCandidate.GetPublicKey);
+      except
+        // this candidate did not sign the leaf; keep looking
+        Continue;
+      end;
+      AIssuerCert := ACandidates[LI];
+      Result := True;
+      Exit;
+    end;
+  except
+    // a malformed leaf or candidate leaves the issuer unresolved, never raises
+    Result := False;
+    AIssuerCert := nil;
   end;
 end;
 

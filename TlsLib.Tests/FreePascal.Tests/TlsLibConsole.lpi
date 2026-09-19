@@ -34,7 +34,7 @@
         <PackageName Value="FCL"/>
       </Item5>
     </RequiredPackages>
-    <Units Count="68">
+    <Units Count="69">
       <Unit0>
         <Filename Value="TlsLibConsole.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -307,6 +307,10 @@
         <Filename Value="..\src\ChainAlgorithmPolicyTests.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit67>
+      <Unit68>
+        <Filename Value="..\src\ServerSideLiveRevocationTests.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit68>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

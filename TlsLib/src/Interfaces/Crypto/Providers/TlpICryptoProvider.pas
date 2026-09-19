@@ -463,6 +463,17 @@ type
     /// </summary>
     function CheckCrlRevocation(const ALeafCert, AIssuerCert, ACrlDer: TBytes;
       out ARevoked: Boolean): Boolean;
+    /// <summary>
+    /// Finds, among ACandidates, the certificate that issued ALeaf - for a live revocation check on a
+    /// peer that presented a leaf-only chain (a mutual-TLS client whose issuer is a configured anchor,
+    /// not sent on the wire; RFC 8446 4.4.2). A candidate qualifies only when its subject name matches
+    /// the leaf's issuer name AND its public key verifies the leaf's signature, so a same-name/wrong-key
+    /// candidate is rejected (it would otherwise mis-key the OCSP CertID). Candidates must come from
+    /// local configuration (anchors / configured intermediates), never the peer. Returns False (no
+    /// issuer) when none qualifies or on malformed input; never raises.
+    /// </summary>
+    function TryFindIssuer(const ALeafCert: TBytes; const ACandidates: TArray<TBytes>;
+      out AIssuerCert: TBytes): Boolean;
   end;
 
 { ===== HPKE (RFC 9180) ===== }

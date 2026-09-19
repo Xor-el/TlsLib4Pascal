@@ -67,6 +67,7 @@ uses
   EchClientEngineTests,
   AsyncVerdictTests,
   LiveRevocationTests,
+  ServerSideLiveRevocationTests,
   ConfigBuilderTests,
   TrustCompositionTests,
   SystemTrustTests,

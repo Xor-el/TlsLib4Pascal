@@ -60,6 +60,7 @@ type
     FPosture: TRevocationPosture;
     FMethod: TLiveRevocationMethod;
     FTimeoutMs: Cardinal;
+    FIssuerCandidates: TArray<TBytes>;
     function EvaluateOcsp(const ALeaf, AIssuer: TBytes;
       const AResponderUrl: string): TLiveRevocationOutcome;
     function EvaluateCrl(const ALeaf, AIssuer: TBytes;
@@ -70,9 +71,18 @@ type
     /// each fetch (0 leaves it to the fetcher).</summary>
     constructor Create(const AProvider: ICryptoProvider; const AClock: ITlsClock;
       const AFetcher: IHttpFetcher; APosture: TRevocationPosture;
-      AMethod: TLiveRevocationMethod; ATimeoutMs: Cardinal);
+      AMethod: TLiveRevocationMethod; ATimeoutMs: Cardinal); overload;
+    /// <summary>As above, plus a set of candidate issuer certificates (configured trust anchors and
+    /// intermediates) used to recover the issuer when a peer presents a leaf-only chain - the normal
+    /// mutual-TLS client case, where the issuing CA is a configured anchor rather than sent on the
+    /// wire (RFC 8446 4.4.2). Candidates must come from local configuration, never the peer.</summary>
+    constructor Create(const AProvider: ICryptoProvider; const AClock: ITlsClock;
+      const AFetcher: IHttpFetcher; APosture: TRevocationPosture;
+      AMethod: TLiveRevocationMethod; ATimeoutMs: Cardinal;
+      const AIssuerCandidates: TArray<TBytes>); overload;
     /// <summary>The tri-state live outcome for the chain (leaf = AChain[0], issuer =
-    /// AChain[1]). A chain without an issuer entry is Indeterminate (nothing authenticates a
+    /// AChain[1]). When the chain carries no issuer entry the issuer is recovered from the configured
+    /// candidates if any qualify; failing that the outcome is Indeterminate (nothing authenticates a
     /// revocation).</summary>
     function Evaluate(const AChain: TArray<TBytes>): TLiveRevocationOutcome;
     /// <summary>The fail-closed accept/reject verdict for the chain: Revoked rejects always,
@@ -102,6 +112,15 @@ begin
   FPosture := APosture;
   FMethod := AMethod;
   FTimeoutMs := ATimeoutMs;
+end;
+
+constructor TLiveRevocationChecker.Create(const AProvider: ICryptoProvider;
+  const AClock: ITlsClock; const AFetcher: IHttpFetcher; APosture: TRevocationPosture;
+  AMethod: TLiveRevocationMethod; ATimeoutMs: Cardinal;
+  const AIssuerCandidates: TArray<TBytes>);
+begin
+  Create(AProvider, AClock, AFetcher, APosture, AMethod, ATimeoutMs);
+  FIssuerCandidates := AIssuerCandidates;
 end;
 
 function TLiveRevocationChecker.EvaluateOcsp(const ALeaf, AIssuer: TBytes;
@@ -177,11 +196,17 @@ begin
   // stapled Revoked is still honored upstream by the built-in pipeline before the park.
   if FPosture = TRevocationPosture.Off then
     Exit;
-  // a revocation check needs the issuer (next chain entry) to authenticate the response
-  if System.Length(AChain) < 2 then
+  if System.Length(AChain) = 0 then
     Exit;
   LLeaf := AChain[0];
-  LIssuer := AChain[1];
+  // a revocation check needs the issuer to authenticate the response. It is normally the next chain
+  // entry; when the peer presented a leaf only (a mutual-TLS client whose issuing CA is a configured
+  // anchor, not sent on the wire), recover it from the configured candidates - Indeterminate if none
+  // qualify (nothing authenticates a revocation)
+  if System.Length(AChain) >= 2 then
+    LIssuer := AChain[1]
+  else if not FProvider.Revocation.TryFindIssuer(LLeaf, FIssuerCandidates, LIssuer) then
+    Exit;
 
   if FMethod in [TLiveRevocationMethod.Ocsp, TLiveRevocationMethod.OcspThenCrl] then
     if FProvider.Revocation.TryGetOcspResponderUrl(LLeaf, LUrl) then

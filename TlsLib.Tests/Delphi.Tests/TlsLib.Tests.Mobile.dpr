@@ -193,6 +193,7 @@ uses
   EchClientEngineTests in '..\src\EchClientEngineTests.pas',
   AsyncVerdictTests in '..\src\AsyncVerdictTests.pas',
   LiveRevocationTests in '..\src\LiveRevocationTests.pas',
+  ServerSideLiveRevocationTests in '..\src\ServerSideLiveRevocationTests.pas',
   ConfigBuilderTests in '..\src\ConfigBuilderTests.pas',
   TrustCompositionTests in '..\src\TrustCompositionTests.pas',
   SystemTrustTests in '..\src\SystemTrustTests.pas',
