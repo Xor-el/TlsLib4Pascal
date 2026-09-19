@@ -37,9 +37,11 @@ uses
 
 type
   /// <summary>
-  /// Harvests the Windows machine/user trust anchors from the "ROOT" and "CA"
-  /// system stores, subtracting any certificate present in the "Disallowed" store
-  /// so OS distrust is honored. Emits neutral DER.
+  /// Harvests the Windows machine/user trust anchors from the "ROOT" system store,
+  /// keeping only roots whose effective trust purpose permits TLS server authentication
+  /// and subtracting any certificate present in the "Disallowed" store so OS distrust is
+  /// honored. The intermediate-cache "CA" store is deliberately not harvested (its entries
+  /// are cached intermediates, not anchors). Emits neutral DER.
   /// </summary>
   TWindowsRootSource = class sealed(TSystemRootSource)
   strict protected
@@ -228,6 +230,12 @@ const
 
   SZOID_PKIX_KP_SERVER_AUTH: PAnsiChar = '1.3.6.1.5.5.7.3.1';
   SZOID_PKIX_KP_CLIENT_AUTH: PAnsiChar = '1.3.6.1.5.5.7.3.2';
+  // anyExtendedKeyUsage: a root carrying it is valid for every purpose, server auth included
+  SZOID_ANY_ENHANCED_KEY_USAGE: PAnsiChar = '2.5.29.37.0';
+
+  // CertGetEnhancedKeyUsage sets this as last-error when a certificate has neither an EKU
+  // extension nor a trust-purpose property: it is then valid for all uses (not disabled)
+  CRYPT_E_NOT_FOUND = DWORD($80092004);
 
   // the configured client-CA anchors are the only trusted roots for the client-auth chain engine
   // (RFC-agnostic H3 fix); the CA flag lets a non-self-signed anchor still root a path
@@ -408,6 +416,10 @@ type
   TCertCreateCertificateChainEngineFunc = function(
     const AConfig: CERT_CHAIN_ENGINE_CONFIG; var AChainEngine: Pointer): BOOL; stdcall;
   TCertFreeCertificateChainEngineProc = procedure(AChainEngine: Pointer); stdcall;
+  // reads the effective enhanced key usage (extension intersected with the admin trust-purpose
+  // property when dwFlags = 0); the two-call size/decode pattern fills a CERT_ENHKEY_USAGE
+  TCertGetEnhancedKeyUsageFunc = function(ACertContext: PCERT_CONTEXT; AFlags: DWORD;
+    AUsage: Pointer; var ASize: DWORD): BOOL; stdcall;
 
   /// <summary>
   /// Resolves the crypt32 entry points once via LoadLibrary + GetProcAddress, so
@@ -432,10 +444,16 @@ type
     FCertVerifyCertificateChainPolicy: TCertVerifyCertificateChainPolicyFunc;
     FCertCreateCertificateChainEngine: TCertCreateCertificateChainEngineFunc;
     FCertFreeCertificateChainEngine: TCertFreeCertificateChainEngineProc;
+    FCertGetEnhancedKeyUsage: TCertGetEnhancedKeyUsageFunc;
     class function GetProc(const AName: AnsiString): Pointer; static;
+    /// <summary>True if the root's effective enhanced key usage (its EKU extension intersected
+    /// with the admin trust-purpose property) permits TLS server authentication: valid for all
+    /// uses (no EKU/property), or the list contains serverAuth or anyExtendedKeyUsage. A root
+    /// disabled for all purposes, or trusted only for a non-serverAuth purpose, returns False.</summary>
+    class function IsServerAuthAnchor(AContext: PCERT_CONTEXT): Boolean; static;
     class procedure CollectStore(AStoreName: PWideChar;
       const AExclude: TDictionary<TBytes, Boolean>;
-      const ADest: TList<TBytes>); static;
+      const ADest: TList<TBytes>; AServerAuthOnly: Boolean); static;
     class function UnixMillisToFileTime(AMillisUtc: UInt64): FILETIME; static;
   private
     class procedure ResolveDynamicImports; static;
@@ -446,8 +464,8 @@ type
     /// Revoked and every other error reject (False, AAlert set). Shared by both role delegates.</summary>
     class function MapPolicyError(ADwError: DWORD; APosture: TRevocationPosture;
       out AAlert: TTlsAlertDescription): Boolean; static;
-    /// <summary>The raw DER of the ROOT and CA stores minus the Disallowed store.
-    /// Validation and de-duplication are the caller's responsibility.</summary>
+    /// <summary>The raw DER of the ROOT store (server-auth-capable roots only) minus the
+    /// Disallowed store. Validation and de-duplication are the caller's responsibility.</summary>
     class function HarvestAnchors: TArray<TBytes>; static;
     /// <summary>Reads the DER of the end-entity simple chain the OS built (rgpChain[0]): element 0
     /// the leaf, the last element the anchor. False on any malformed field (no chain/element, nil
@@ -547,6 +565,9 @@ begin
     GetProc('CertFreeCertificateChain'));
   FCertVerifyCertificateChainPolicy := TCertVerifyCertificateChainPolicyFunc(
     GetProc('CertVerifyCertificateChainPolicy'));
+  // reads the effective trust purpose so the anchor harvest keeps only server-auth roots
+  FCertGetEnhancedKeyUsage := TCertGetEnhancedKeyUsageFunc(
+    GetProc('CertGetEnhancedKeyUsage'));
   // the exclusive-root chain engine (client-auth delegate) is optional and not part of FReady:
   // an OS lacking it simply cannot serve the OS client delegate, not the whole package
   FCertCreateCertificateChainEngine := TCertCreateCertificateChainEngineFunc(
@@ -563,7 +584,8 @@ begin
     System.Assigned(FCertAddEncodedCertificateToStore) and
     System.Assigned(FCertGetCertificateChain) and
     System.Assigned(FCertFreeCertificateChain) and
-    System.Assigned(FCertVerifyCertificateChainPolicy);
+    System.Assigned(FCertVerifyCertificateChainPolicy) and
+    System.Assigned(FCertGetEnhancedKeyUsage);
 end;
 
 class procedure TWindowsTrustApi.ReleaseDynamicImports;
@@ -575,8 +597,49 @@ begin
   end;
 end;
 
+class function TWindowsTrustApi.IsServerAuthAnchor(AContext: PCERT_CONTEXT): Boolean;
+var
+  LSize: DWORD;
+  LBuf: TBytes;
+  LUsage: ^CERT_ENHKEY_USAGE;
+  LOids: ^PAnsiChar;
+  LI: DWORD;
+begin
+  // read the EFFECTIVE enhanced key usage = the certificate's own EKU extension intersected with
+  // the admin-configured trust-purpose property (dwFlags = 0, what the chain engine applies).
+  if not System.Assigned(FCertGetEnhancedKeyUsage) then
+    Exit(True); // cannot evaluate purpose: do not over-restrict (FReady already gates on it)
+  LSize := 0;
+  SetLastError(0);
+  if not FCertGetEnhancedKeyUsage(AContext, 0, nil, LSize) then
+    // no EKU extension and no property leaves last-error CRYPT_E_NOT_FOUND: valid for all uses
+    Exit(GetLastError = CRYPT_E_NOT_FOUND);
+  if LSize < SizeOf(CERT_ENHKEY_USAGE) then
+    Exit(False);
+  SetLength(LBuf, LSize);
+  // reset last-error before the decode call: the sizing call above may have left a stale
+  // CRYPT_E_NOT_FOUND that would otherwise make a disabled (empty-usage) root look unrestricted
+  SetLastError(0);
+  LUsage := Pointer(@LBuf[0]);
+  if not FCertGetEnhancedKeyUsage(AContext, 0, LUsage, LSize) then
+    Exit(GetLastError = CRYPT_E_NOT_FOUND);
+  if LUsage^.cUsageIdentifier = 0 then
+    // empty usage set: "all uses" only when CRYPT_E_NOT_FOUND, else disabled for every purpose
+    Exit(GetLastError = CRYPT_E_NOT_FOUND);
+  LOids := LUsage^.rgpszUsageIdentifier;
+  for LI := 0 to LUsage^.cUsageIdentifier - 1 do
+  begin
+    if (StrComp(LOids^, SZOID_PKIX_KP_SERVER_AUTH) = 0) or
+      (StrComp(LOids^, SZOID_ANY_ENHANCED_KEY_USAGE) = 0) then
+      Exit(True);
+    Inc(LOids);
+  end;
+  Result := False;
+end;
+
 class procedure TWindowsTrustApi.CollectStore(AStoreName: PWideChar;
-  const AExclude: TDictionary<TBytes, Boolean>; const ADest: TList<TBytes>);
+  const AExclude: TDictionary<TBytes, Boolean>; const ADest: TList<TBytes>;
+  AServerAuthOnly: Boolean);
 var
   LStore: HCERTSTORE;
   LContext: PCERT_CONTEXT;
@@ -590,7 +653,8 @@ begin
     LContext := FCertEnumCertificatesInStore(LStore, nil);
     while LContext <> nil do
     begin
-      if (LContext^.cbCertEncoded > 0) and (LContext^.pbCertEncoded <> nil) then
+      if (LContext^.cbCertEncoded > 0) and (LContext^.pbCertEncoded <> nil) and
+        ((not AServerAuthOnly) or IsServerAuthAnchor(LContext)) then
       begin
         SetLength(LDer, LContext^.cbCertEncoded);
         Move(LContext^.pbCertEncoded^, LDer[0], LContext^.cbCertEncoded);
@@ -615,16 +679,18 @@ begin
     Exit;
   LDisallowed := TList<TBytes>.Create;
   try
-    // Distrust first, so it can be subtracted from the trusted stores.
-    CollectStore('Disallowed', nil, LDisallowed);
+    // Distrust first, so it can be subtracted from the trusted store.
+    CollectStore('Disallowed', nil, LDisallowed, False);
     LExclude := TDictionary<TBytes, Boolean>.Create;
     try
       for LI := 0 to LDisallowed.Count - 1 do
         LExclude.AddOrSetValue(LDisallowed[LI], True);
       LTrusted := TList<TBytes>.Create;
       try
-        CollectStore('ROOT', LExclude, LTrusted);
-        CollectStore('CA', LExclude, LTrusted);
+        // ROOT only, filtered to server-auth-capable roots: the "CA" store holds cached
+        // intermediates, not anchors, and roots disabled or scoped to a non-serverAuth purpose
+        // must not become standalone trust anchors
+        CollectStore('ROOT', LExclude, LTrusted, True);
         Result := LTrusted.ToArray;
       finally
         LTrusted.Free;
