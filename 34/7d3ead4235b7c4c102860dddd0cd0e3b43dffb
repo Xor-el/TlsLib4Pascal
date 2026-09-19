@@ -1,0 +1,140 @@
+TlsLib/src/Handshake/TlpHandshakeMachineBase.pas
+  s_09d3c46d1a9b1f::t_d8c0614e954632 103-107
+  s_09d3c46d1a9b1f::t_c99300a2853798 62-64
+TlsLib.Tests/src/LiveRevocationTests.pas
+  s_09d3c46d1a9b1f::t_a345c25ad1a1a6 485-488
+  s_09d3c46d1a9b1f::t_f8f5490bdb7fef 475
+TlsLib.Adapters/mORMot/Adapter/TlsLibMormotTls.pas
+  s_09d3c46d1a9b1f::t_d658fa716f636f 67,185,205
+TlsLib/src/Handshake/TlpHandshakeEffect.pas
+  s_09d3c46d1a9b1f::t_385b95fc49842d 71
+  s_09d3c46d1a9b1f::t_26c73b01d4a796 102-104,106
+  s_09d3c46d1a9b1f::t_5040d0aa80fb2c 232-233,239
+TlsLib/src/Engine/TlpTlsStream.pas
+  s_09d3c46d1a9b1f::t_d658fa716f636f 23,50,63,120
+TlsLib.Interop/src/TrustDelegateInteropRunner.pas
+  s_09d3c46d1a9b1f::t_4b8e17beefbbe2 49
+  s_09d3c46d1a9b1f::t_426acead121489 78-79
+  s_09d3c46d1a9b1f::t_ddd9509f640fc4 268,270,278-279,281-292
+  s_09d3c46d1a9b1f::t_92aeedc7d5cb75 363-366
+  s_09d3c46d1a9b1f::t_83a6f64a547c83 36
+  s_09d3c46d1a9b1f::t_9803f83c928f80 233-237,250-257,260
+  s_09d3c46d1a9b1f::t_542d6f63f7de44 33,35
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_7cf81fc3965c5a 1666
+TlsLib/src/Interfaces/Engine/TlpITlsEngine.pas
+  s_09d3c46d1a9b1f::t_2912c9b7f2a1f9 83-85
+TlsLib/src/Trust/TlpTrustPolicy.pas
+  s_09d3c46d1a9b1f::t_d658fa716f636f 20,86-107
+TlsLib/src/Engine/TlpTlsEngine.pas
+  s_09d3c46d1a9b1f::t_197930b79bfb3e 1027,1036
+  s_09d3c46d1a9b1f::t_2d17840900f850 1033
+  s_09d3c46d1a9b1f::t_bfa37101a6559a 1031-1032,1034
+  s_09d3c46d1a9b1f::t_a31c1d7433bc4e 185,247
+  s_09d3c46d1a9b1f::t_bdab0e8eab0add 328,330
+TlsLib/src/Handshake/TlpHandshakeDriver.pas
+  s_09d3c46d1a9b1f::t_1b4b106ab693f1 133-134
+TlsLib/src/Interfaces/Handshake/TlpIHandshakeMachine.pas
+  s_09d3c46d1a9b1f::t_de5211d145d592 51-56
+  s_09d3c46d1a9b1f::t_0c6f54035c5874 99
+TlsLib/src/Engine/TlpTlsEngineEvents.pas
+  s_09d3c46d1a9b1f::t_aaaa181292f97f 209,211
+  s_09d3c46d1a9b1f::t_c8e8247943c434 137,148
+  s_09d3c46d1a9b1f::t_9fb54b3fe2984f 34
+  s_09d3c46d1a9b1f::t_af249460c85c57 171-175
+  s_09d3c46d1a9b1f::t_e405f7a8a98fe1 75,77-78,82
+docs/certificate-verification.md
+  s_09d3c46d1a9b1f::t_92366c6e68537f 268-298
+TlsLib/src/Handshake/TlpHandshakeConductor.pas
+  s_09d3c46d1a9b1f::t_2448888f51e845 259-261,274-294
+.github/workflows/ci/interop/trust/gen-trust-ca.sh
+  s_09d3c46d1a9b1f::t_7a2c2feba11a68 29,31-34
+  s_09d3c46d1a9b1f::t_59a4f3b5ba881a 142-181
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_09d3c46d1a9b1f::t_e62e9c68a6692c 67
+  s_09d3c46d1a9b1f::t_3667c181251bd8 436-437,443
+TlsLib.Trust.System/Packages/Delphi/TlsLib.Trust.System.dpk
+  s_09d3c46d1a9b1f::t_62232a91ccd24b 39
+TlsLib/src/Trust/TlpLiveRevocation.pas
+  s_09d3c46d1a9b1f::t_942fca58f312bb 219-220,226
+  s_09d3c46d1a9b1f::t_c7995b9d85343b 86
+TlsLib/src/Handshake/TlpVersionDispatchMachine.pas
+  s_09d3c46d1a9b1f::t_a4d7b269497b08 66-67
+  s_09d3c46d1a9b1f::t_501470bbafd477 172-179
+TlsLib.Trust.System/src/TlpSystemTrustFacade.pas
+  s_09d3c46d1a9b1f::t_92357c9a839cf2 24
+  s_09d3c46d1a9b1f::t_4ffd01e25c27b1 62-69
+  s_09d3c46d1a9b1f::t_d8b3fd26cd7567 95
+  s_09d3c46d1a9b1f::t_0c7b0439c2c9f9 115-129
+TlsLib.Tests/src/ConfigResumptionTests.pas
+  s_09d3c46d1a9b1f::t_baecbb4dd6d786 290-308
+  s_09d3c46d1a9b1f::t_33575ed4a78dfc 187-203
+  s_09d3c46d1a9b1f::t_c713d96cbd5ec1 61-63
+  s_09d3c46d1a9b1f::t_3b1e9d802e93c8 595-644
+  s_09d3c46d1a9b1f::t_3b48ae252239f9 73-76
+  s_09d3c46d1a9b1f::t_962a989a702651 97-98
+TlsLib.Interop/src/InteropPump.pas
+  s_09d3c46d1a9b1f::t_d658fa716f636f 24,66-74,90-96,167-168,172,174-175,177,195-197,202-228,232-245,250,262,280-282,291-292,307,315,338
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_990df1868bd532 754
+TlsLib/src/Engine/TlpTlsStreamPump.pas
+  s_09d3c46d1a9b1f::t_d658fa716f636f 25,62,80,172,176,183-188,205
+TlsLib/src/Engine/TlpTlsEngineFactory.pas
+  s_09d3c46d1a9b1f::t_24559197469bb4 79-82
+TlsLib.Adapters/Indy/Adapter/TlsLibIndyTls.pas
+  s_09d3c46d1a9b1f::t_d658fa716f636f 83,120
+TlsLib.Trust.System/src/TlpOSLiveRevocation.pas
+  s_09d3c46d1a9b1f::t_55b32a7601ca6a 1-104
+TlsLib.Trust.System/src/TlpWindowsSystemTrust.pas
+  s_09d3c46d1a9b1f::t_6b1355b5e2cbc2 35-36
+  s_09d3c46d1a9b1f::t_d658fa716f636f 31,34,63,69,77-99,103,107-108,110,156-160,175-184,247-260,360-361,364,434-435,440-450,655-656,677,691-698,738,750,771-777,792,812-973,1094,1176,1183,1194-1219,1224-1229,1233-1236,1238
+TlsLib.Trust.System/src/TlpSystemTrustBase.pas
+  s_09d3c46d1a9b1f::t_d658fa716f636f 27-33
+TlsLib.Trust.System/src/TlpAppleSystemTrust.pas
+  s_09d3c46d1a9b1f::t_d658fa716f636f 31,34,81,87,95-116,120,124-125,127,171-175,397-410,412-413,418-427,710-713,715-716,718,733,772,775,779-781,789-793,820-821,872-876,881-882,886-901,924-969,1275,1282,1293-1316,1321-1326,1330-1333,1335
+  s_09d3c46d1a9b1f::t_90ba69eb90eb91 36
+TlsLib.Tests/src/TlsStreamLoopbackTests.pas
+  s_09d3c46d1a9b1f::t_304649831cccbb 126,128-131
+  s_09d3c46d1a9b1f::t_31fefadaa5994d 417-419,422,425-427,430
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_09d3c46d1a9b1f::t_d658fa716f636f 135,216
+.github/workflows/ci/interop/trust/run-trust.sh
+  s_09d3c46d1a9b1f::t_a7c4d5e1c0cf04 158-173
+  s_09d3c46d1a9b1f::t_ffc3d06042afb2 73,75-82
+  s_09d3c46d1a9b1f::t_94abc71ca7179f 28-31,36
+TlsLib.Adapters/Synapse/Adapter/TlsLibSynapseTls.pas
+  s_09d3c46d1a9b1f::t_d658fa716f636f 68,202,215
+TlsLib.Trust.System/src/TlpOSSystemTrust.pas
+  s_09d3c46d1a9b1f::t_d658fa716f636f 23-25,63-77,95-97,151-152,156,158,160-163,170-194
+  s_09d3c46d1a9b1f::t_35427d1baea281 27
+TlsLib/src/Handshake/TlpTls12ClientStateMachine.pas
+  s_09d3c46d1a9b1f::t_dcb34aa90bcae5 527
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_09d3c46d1a9b1f::t_0a706f5d9bd786 163
+  s_09d3c46d1a9b1f::t_5fad7be19c9e00 420
+  s_09d3c46d1a9b1f::t_40a40225e1a3ed 2193-2194,2199-2201,2216-2234
+  s_09d3c46d1a9b1f::t_7f51d1cfb42b8c 2314-2322
+  s_09d3c46d1a9b1f::t_70dc29bc9325f6 404-409
+  s_09d3c46d1a9b1f::t_2a5c11eea2015a 2020
+TlsLib.Trust.System/Packages/FPC/TlsLib.Trust.System.lpk
+  s_09d3c46d1a9b1f::t_e88d99bc295300 65-68
+  s_09d3c46d1a9b1f::t_6818880d01906f 24
+TlsLib.Trust.System/Packages/FPC/TlsLib.Trust.System.pas
+  s_09d3c46d1a9b1f::t_91152020bd5ff0 14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "347d3ead4235b7c4c102860dddd0cd0e3b43dffb",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
