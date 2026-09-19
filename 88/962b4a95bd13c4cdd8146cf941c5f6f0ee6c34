@@ -1,0 +1,48 @@
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpr
+  s_09d3c46d1a9b1f::t_a4f6202e8e0e9e 68
+TlsLib.Tests/FreePascal.Tests/TlsLib.Tests.lpi
+  s_09d3c46d1a9b1f::t_35d8d9cb66420b 43
+  s_09d3c46d1a9b1f::t_e6ace80a9897bf 316-319
+TlsLib/src/Interfaces/Crypto/Providers/TlpICryptoProvider.pas
+  s_09d3c46d1a9b1f::t_8bafda395a494a 466-476
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_09d3c46d1a9b1f::t_12102d2815df9e 2768-2808
+  s_09d3c46d1a9b1f::t_2a6d61d47017e7 664-665
+TlsLib.Tests/FreePascal.Tests/TlsLib.lpr
+  s_09d3c46d1a9b1f::t_690a2c6a15a7f2 70
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpi
+  s_09d3c46d1a9b1f::t_9923ce0cc5b2ce 37
+  s_09d3c46d1a9b1f::t_af5171a18bdee7 310-313
+TlsLib.Tests/src/ServerSideLiveRevocationTests.pas
+  s_09d3c46d1a9b1f::t_1c17c1de8a9158 22
+  s_09d3c46d1a9b1f::t_b264627763d283 128
+  s_09d3c46d1a9b1f::t_deed334dd6e465 374
+  s_09d3c46d1a9b1f::t_87d504fb71de44 1-21,23-127,129-373,375-555,557-562,569-575,578,580-679
+  s_09d3c46d1a9b1f::t_9538ddb36392a0 556,563-568,576-577,579
+TlsLib/src/Trust/TlpLiveRevocation.pas
+  s_09d3c46d1a9b1f::t_ae512458497083 63,74-82,84-85
+  s_09d3c46d1a9b1f::t_a6387c9a2dd6e8 199,202-209
+  s_09d3c46d1a9b1f::t_70f60b41386f60 117-125
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_09d3c46d1a9b1f::t_4ecb6c57370e4b 196
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_09d3c46d1a9b1f::t_3a734e6b709682 216
+docs/security-model.md
+  s_09d3c46d1a9b1f::t_1b10e44c491679 56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "88962b4a95bd13c4cdd8146cf941c5f6f0ee6c34",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
