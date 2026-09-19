@@ -1,0 +1,29 @@
+TlsLib.Trust.System/src/TlpAppleSystemTrust.pas
+  s_09d3c46d1a9b1f::t_1560b25900ce6c 544,547-556
+  s_09d3c46d1a9b1f::t_12cafe0810fd54 431-441,443-445
+  s_09d3c46d1a9b1f::t_7fc59bb6d00ec4 263-272
+  s_09d3c46d1a9b1f::t_4a9b35a6f370cd 1571-1572,1577-1578,1580-1586
+  s_09d3c46d1a9b1f::t_8db6a467b98891 1556-1565
+  s_09d3c46d1a9b1f::t_b203e38e7f8f2b 641-655,682-683,686-700
+  s_09d3c46d1a9b1f::t_813673dd4e875f 1411,1418-1425,1428-1432,1435,1438-1443,1449-1450,1456-1457,1459,1462,1469-1470,1474-1475,1481-1490,1492-1493,1502,1504-1520
+  s_09d3c46d1a9b1f::t_809847ced86f0b 409-412,417,420-421,423-424
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_09d3c46d1a9b1f::t_e92680e0bf82a2 775-783
+  s_09d3c46d1a9b1f::t_867df84fb692ca 187-192
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9faef9d1e67f5c78a2589c876fde11106c63f247",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
