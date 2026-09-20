@@ -46,7 +46,8 @@ type
   /// outbound queue, decrypted application data, and the event queue, all as TBytes
   /// with explicit offset/length. Single-threaded: the caller serializes access.
   /// </summary>
-  TTlsEngine = class sealed(TInterfacedObject, ITlsEngine, ITlsEventSource)
+  TTlsEngine = class sealed(TInterfacedObject, ITlsEngine, ITlsEventSource,
+    IEngineRecordTestHook)
   strict private
   var
     FRecordLayer: TRecordLayer;
@@ -155,6 +156,9 @@ type
     function IsInboundClosed: Boolean;
     function WriteClosed: Boolean;
     function LastError: TTlsError;
+    // IEngineRecordTestHook (test-only)
+    procedure SetWriteSequenceNumber(AValue: UInt64);
+    procedure SetReadSequenceNumber(AValue: UInt64);
     function NegotiatedVersion: TTlsVersion;
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       AUseContext: Boolean; ALength: Int32): TBytes;
@@ -223,6 +227,9 @@ resourcestring
   SWriteAfterClose =
     'Write after the write side was closed (close_notify sent, or received under TLS 1.2) ' +
     'or the connection failed';
+  SRecordLimitNoRekey =
+    'the write epoch reached its AEAD record limit and could not be rekeyed; ' +
+    'the connection was closed';
 
 type
   /// <summary>
@@ -678,6 +685,8 @@ begin
 end;
 
 procedure TTlsEngine.Write(const AData: TBytes; AOffset, ALength: Int32);
+var
+  LOffset, LRemaining, LWritten: Int32;
 begin
   // writing after our own close_notify or after a fatal is API misuse in either version. An
   // inbound close_notify closes only the read side under TLS 1.3 (RFC 8446 6.1: each half is
@@ -701,7 +710,39 @@ begin
         Exit;
       end;
     end;
-  FRecordLayer.Write(TTlsContentType.ApplicationData, AData, AOffset, ALength);
+  LOffset := AOffset;
+  LRemaining := ALength;
+  // seal in chunks; the record layer pauses application data at the write epoch's AEAD rekey
+  // threshold (RFC 8446 5.5). At each pause send a KeyUpdate (1.3) to rekey the write side and
+  // resume; TLS 1.2 has no KeyUpdate, so a write epoch that cannot be rekeyed closes the
+  // connection rather than exceed the AEAD safety bound.
+  repeat
+    LWritten := FRecordLayer.Write(TTlsContentType.ApplicationData, AData, LOffset,
+      LRemaining);
+    Inc(LOffset, LWritten);
+    Dec(LRemaining, LWritten);
+    if LRemaining <= 0 then
+      Break;
+    if (FConductor <> nil) and FHandshakeComplete then
+      try
+        FConductor.RequestKeyUpdate(False);
+      except
+        on E: Exception do
+        begin
+          Fail(E);
+          PullOutbound;
+          Exit;
+        end;
+      end;
+    // still at the threshold means the epoch could not be rekeyed (TLS 1.2, or pre-completion):
+    // close and refuse rather than spin or exceed the limit
+    if FRecordLayer.WriteNeedsKeyUpdate then
+    begin
+      SendClose;
+      PullOutbound;
+      raise ERecordLimitTlsLibException.CreateRes(@SRecordLimitNoRekey);
+    end;
+  until False;
   PullOutbound;
 end;
 
@@ -723,10 +764,11 @@ begin
     LAccept := ALength;
   if LAccept <= 0 then
     Exit;
-  FRecordLayer.Write(TTlsContentType.ApplicationData, AData, AOffset, LAccept);
-  Inc(FEarlyDataSent, LAccept);
+  // the early epoch cannot be rekeyed, so honor how many bytes the record layer actually sealed
+  // (it pauses at the AEAD limit); the caller resends any remainder as 1-RTT after the handshake
+  Result := FRecordLayer.Write(TTlsContentType.ApplicationData, AData, AOffset, LAccept);
+  Inc(FEarlyDataSent, Result);
   PullOutbound;
-  Result := LAccept;
 end;
 
 procedure TTlsEngine.RequestKeyUpdate(ARequestPeerUpdate: Boolean);
@@ -955,6 +997,16 @@ end;
 function TTlsEngine.IsInboundClosed: Boolean;
 begin
   Result := FClosed;
+end;
+
+procedure TTlsEngine.SetWriteSequenceNumber(AValue: UInt64);
+begin
+  FRecordLayer.SetWriteSequenceNumber(AValue);
+end;
+
+procedure TTlsEngine.SetReadSequenceNumber(AValue: UInt64);
+begin
+  FRecordLayer.SetReadSequenceNumber(AValue);
 end;
 
 function TTlsEngine.WriteClosed: Boolean;

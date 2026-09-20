@@ -61,6 +61,7 @@ type
     procedure TestServerInitiatedKeyUpdate;
     procedure TestRepeatedKeyUpdatesStayInSync;
     procedure TestConsecutiveKeyUpdateFloodIsRefused;
+    procedure TestWriteAtUsageLimitRekeysAutomatically;
     procedure TestServerExportsKeyingMaterialInHalfRtt;
     procedure TestExportKeyingMaterialSurvivesKeyUpdate;
     procedure TestExportUnavailableAfterFatal;
@@ -206,6 +207,33 @@ begin
   // clear the handshake-phase events (KeysInstalled, SessionTicketReceived, ...)
   CountKeyUpdateEvents(AClient);
   CountKeyUpdateEvents(AServer);
+end;
+
+procedure TTestTls13KeyUpdate.TestWriteAtUsageLimitRekeysAutomatically;
+var
+  LClient, LServer: ITlsEngine;
+  LClientHook, LServerHook: IEngineRecordTestHook;
+  LMsg: TBytes;
+begin
+  Handshake(LClient, LServer);
+  // park the client's write epoch at the LAST legal sequence before the hard AES-GCM limit
+  // (23726566): the next application write must auto-send a KeyUpdate - which itself still seals
+  // at this last sequence - before it can send data (RFC 8446 5.5). Advance the server's read
+  // epoch in step so the AEAD nonces stay synchronized across the endpoints.
+  CheckTrue(Supports(LClient, IEngineRecordTestHook, LClientHook), 'client test hook present');
+  CheckTrue(Supports(LServer, IEngineRecordTestHook, LServerHook), 'server test hook present');
+  LClientHook.SetWriteSequenceNumber(UInt64(23726566 - 1));
+  LServerHook.SetReadSequenceNumber(UInt64(23726566 - 1));
+  LMsg := DecodeHex('7061737420746865206c696d6974'); // "past the limit"
+  LClient.Write(LMsg, 0, System.Length(LMsg));
+  Pump(LClient, LServer);
+  CheckTrue(CountKeyUpdateEvents(LServer) >= 1,
+    'the server received the client''s automatic KeyUpdate');
+  CheckEqualBytes('the server decrypts the data written across the auto-rekey', LMsg,
+    ReadAllApp(LServer));
+  CheckFalse(LClient.IsTerminal or LServer.IsTerminal, 'neither side failed on the auto-rekey');
+  // and the connection keeps working under the new keys
+  CheckAppDataBothWays(LClient, LServer, 'after the automatic rekey');
 end;
 
 procedure TTestTls13KeyUpdate.TestClientKeyUpdateNoRequestRekeysServerRead;

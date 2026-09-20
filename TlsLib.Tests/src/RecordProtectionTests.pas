@@ -268,10 +268,12 @@ begin
   LProt := MakeTls13(DecodeHex('000102030405060708090a0b0c0d0e0f'),
     DecodeHex('101112131415161718191a1b'), TAeadAlgorithm.AES_128_GCM);
   Supports(LProt, IRecordProtectionTestHook, LHook);
-  LHook.SetSequenceNumber(UInt64(23726565));
-  CheckFalse(LProt.NeedsKeyUpdate, 'below the limit: no key update');
-  LHook.SetSequenceNumber(UInt64(23726566));
-  CheckTrue(LProt.NeedsKeyUpdate, 'at the limit: key update due');
+  // NeedsKeyUpdate is the soft threshold: a 16-record lead before the hard limit (23726566),
+  // so a KeyUpdate can still seal under the current epoch
+  LHook.SetSequenceNumber(UInt64(23726566 - 17));
+  CheckFalse(LProt.NeedsKeyUpdate, 'below the soft rekey threshold: no key update');
+  LHook.SetSequenceNumber(UInt64(23726566 - 16));
+  CheckTrue(LProt.NeedsKeyUpdate, 'at the soft rekey threshold: key update due');
 end;
 
 procedure TTestRecordProtection.TestProtectFailsAtUsageLimit;
@@ -280,11 +282,14 @@ var
   LHook: IRecordProtectionTestHook;
   LRaised: Boolean;
 begin
-  // at the AES-GCM usage limit, with no key update wired, Protect must fail loudly
-  // rather than seal a record past the safety bound (the sequence is not exhausted)
   LProt := MakeTls13(DecodeHex('000102030405060708090a0b0c0d0e0f'),
     DecodeHex('101112131415161718191a1b'), TAeadAlgorithm.AES_128_GCM);
   CheckTrue(Supports(LProt, IRecordProtectionTestHook, LHook), 'test hook present');
+  // at the soft threshold Protect still seals (so the KeyUpdate/alert that rekeys can go out)
+  LHook.SetSequenceNumber(UInt64(23726566 - 16));
+  LProt.Protect(TTlsContentType.ApplicationData, DecodeHex('00'), 0, 1);
+  // at the hard limit, with no key update wired, Protect must fail loudly rather than seal a
+  // record past the AEAD safety bound (the sequence itself is not exhausted)
   LHook.SetSequenceNumber(UInt64(23726566));
   LRaised := False;
   try
@@ -293,7 +298,7 @@ begin
     on E: EInvalidOperationTlsLibException do
       LRaised := True;
   end;
-  CheckTrue(LRaised, 'Protect at the usage limit must fail loudly');
+  CheckTrue(LRaised, 'Protect at the hard usage limit must fail loudly');
 end;
 
 procedure TTestRecordProtection.TestNullRecordProtectionFrames;

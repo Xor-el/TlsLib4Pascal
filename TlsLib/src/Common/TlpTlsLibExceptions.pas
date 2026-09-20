@@ -34,6 +34,12 @@ type
   /// <summary>An operation was attempted while in an invalid state.</summary>
   EInvalidOperationTlsLibException = class(EBaseTlsLibException);
 
+  /// <summary>The write epoch reached its AEAD record usage limit and could not be rekeyed
+  /// (TLS 1.2 has no KeyUpdate); the connection was closed and further writes are refused. Any
+  /// bytes sealed before the limit are already on the wire, so the caller must treat this as a
+  /// truncated write - the peer sees a clean close after them.</summary>
+  ERecordLimitTlsLibException = class(EBaseTlsLibException);
+
   /// <summary>A requested capability is not supported.</summary>
   ENotSupportedTlsLibException = class(EBaseTlsLibException);
 
