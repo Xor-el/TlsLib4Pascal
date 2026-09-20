@@ -1,0 +1,42 @@
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_09d3c46d1a9b1f::t_9e216e52025f56 648-650
+  s_09d3c46d1a9b1f::t_3e2a908d296f82 2469-2501
+  s_09d3c46d1a9b1f::t_b3b7b353d00036 3249-3252,3258-3259
+  s_09d3c46d1a9b1f::t_a48b4041b6c05a 3836-3839,3841-3842
+  s_09d3c46d1a9b1f::t_99d0c80dd8a3ab 2207
+  s_09d3c46d1a9b1f::t_bd2f78d83d1f66 2206,2208-2212
+  s_09d3c46d1a9b1f::t_ae522b64e40e0f 3189-3190,3201-3207,3209,3217-3226
+  s_09d3c46d1a9b1f::t_b5c0dc465b06f9 162
+TlsLib.Tests/src/HkdfLabelTests.pas
+  s_09d3c46d1a9b1f::t_48849ea2cde3ef 174-175
+  s_09d3c46d1a9b1f::t_41e1ca0fc31b25 48
+  s_09d3c46d1a9b1f::t_179aae44e19df0 33-34
+  s_09d3c46d1a9b1f::t_474b9d3f691b1c 155-173,176-180
+TlsLib.Tests/src/SignatureTests.pas
+  s_09d3c46d1a9b1f::t_1aa540c88d8aff 435-436,446
+  s_09d3c46d1a9b1f::t_3b68fb8102fb7c 31-32
+  s_09d3c46d1a9b1f::t_bf23bc660a52bf 73
+  s_09d3c46d1a9b1f::t_a68bea8a5b9f51 385-395
+  s_09d3c46d1a9b1f::t_50c9e7bc8ee6b6 74
+  s_09d3c46d1a9b1f::t_4fb1e91dc39610 401,403-406,415,419-426
+  s_09d3c46d1a9b1f::t_d73d14d17942d5 429-434,437-445,447-448
+  s_09d3c46d1a9b1f::t_b2d052d36994af 75
+  s_09d3c46d1a9b1f::t_08005953bab96c 396-400,402,407-414,416-418,427-428
+  s_09d3c46d1a9b1f::t_7275dbe1fd4481 50-51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "404616744178398787d94431f0ca4cf6837a4758",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
