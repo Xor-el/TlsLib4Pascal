@@ -568,16 +568,14 @@ begin
   Result := True;
   if System.Length(FPins) = 0 then
     Exit;
-  // some certificate on the validated path must carry a pinned public key (SPKI-SHA256).
-  // A certificate the inspector cannot parse contributes no SPKI (it never matches a pin);
-  // it must never turn a pin decision into a raised internal_error.
+  // some certificate on the validated path must carry a pinned public key (SPKI-SHA256)
   for LI := 0 to System.High(AChain) do
   begin
     try
       LSpki := FProvider.Certificates.PublicKeyInfo(AChain[LI]);
     except
-      // a certificate on the validated path was already parsed by the pipeline, so this is
-      // defensive: any parse/encode failure yields no SPKI, so it simply cannot match a pin
+      // defensive: a parse/encode failure yields no SPKI, so the cert cannot match a pin - it
+      // must never turn a pin decision into a raised internal_error
       on Exception do
         Continue;
     end;

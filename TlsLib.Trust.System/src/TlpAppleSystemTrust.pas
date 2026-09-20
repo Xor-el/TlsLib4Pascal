@@ -63,14 +63,6 @@ type
   strict protected
     function HarvestRoots: TArray<TBytes>; override;
     function SourceName: string; override;
-  public
-    /// <summary>Diagnostic probe (tests): whether the optional trust-settings-reading (tier 1)
-    /// and SSL-policy-scoping (tier 2) harvest symbols all resolved. When either is False the
-    /// harvest still runs at reduced fidelity (System-origin fallback / unscoped best-effort); a
-    /// real macOS build expects both True, so a test asserting this catches a resolution
-    /// regression (e.g. a key that must be created rather than dlsym'd) before it degrades trust.</summary>
-    class function HarvestSettingsReady: Boolean; static;
-    class function HarvestSslScopeReady: Boolean; static;
   end;
 {$ENDIF}
 
@@ -553,16 +545,6 @@ type
     /// de-duplication are the caller's responsibility.</summary>
     class function CopyTrustSettingsCertificates: TArray<TBytes>; static;
 {$ENDIF}
-  public
-{$IFDEF TLSLIB_MACOS}
-    /// <summary>Diagnostic probe (tests): whether the optional trust-settings-reading (tier 1)
-    /// and SSL-policy-scoping (tier 2) symbols all resolved. When either is False the harvest
-    /// still runs at reduced fidelity (System-origin fallback / unscoped best-effort); a real
-    /// macOS build expects both True, so a test asserting this catches a resolution regression
-    /// (e.g. a key that must be created rather than dlsym'd) before it silently degrades trust.</summary>
-    class function HarvestSettingsReady: Boolean; static;
-    class function HarvestSslScopeReady: Boolean; static;
-{$ENDIF}
   end;
 
 { TAppleTrustApi }
@@ -646,9 +628,7 @@ begin
       TPosixDynLib.Resolve(LHandle, 'SecTrustSettingsCopyTrustSettings'));
     FSecPolicyCopyProperties := TSecPolicyCopyPropertiesFunc(
       TPosixDynLib.Resolve(LHandle, 'SecPolicyCopyProperties'));
-    // the trust-settings dictionary keys are CFSTR() macros, not exported symbols: CREATE them
-    // (a dlsym would return nil - the cause of the earlier zeroed harvest). The dictionaries use
-    // content key comparison, so these match the framework's own literals.
+    // create (do not dlsym) the trust-settings keys - see the field declarations for why
     if System.Assigned(FCFStringCreateWithCString) then
     begin
       FkSecTrustSettingsResult := FCFStringCreateWithCString(nil,
@@ -1561,16 +1541,6 @@ begin
   end;
 end;
 
-class function TAppleTrustApi.HarvestSettingsReady: Boolean;
-begin
-  Result := FSettingsReady;
-end;
-
-class function TAppleTrustApi.HarvestSslScopeReady: Boolean;
-begin
-  Result := FSslScopeReady;
-end;
-
 class function TAppleTrustApi.CopyTrustSettingsCertificates: TArray<TBytes>;
 var
   LList: TList<TBytes>;
@@ -1621,16 +1591,6 @@ end;
 function TAppleRootSource.SourceName: string;
 begin
   Result := 'macOS';
-end;
-
-class function TAppleRootSource.HarvestSettingsReady: Boolean;
-begin
-  Result := TAppleTrustApi.HarvestSettingsReady;
-end;
-
-class function TAppleRootSource.HarvestSslScopeReady: Boolean;
-begin
-  Result := TAppleTrustApi.HarvestSslScopeReady;
 end;
 {$ENDIF}
 
