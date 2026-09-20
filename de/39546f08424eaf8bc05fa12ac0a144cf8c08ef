@@ -1,0 +1,62 @@
+.github/workflows/ci/interop/trust/run-trust.sh
+  s_09d3c46d1a9b1f::t_b4e6dbe8fdb912 14-18
+  s_09d3c46d1a9b1f::t_b343b1a1048408 195-208
+TlsLib.Tests/Data/Certs/EcP256Chain.txt
+  s_09d3c46d1a9b1f::t_1ccc44c86fd63e 6-7
+  s_09d3c46d1a9b1f::t_cd589708760ec9 14
+TlsLib.Trust.System/src/TlpOSLiveRevocation.pas
+  s_09d3c46d1a9b1f::t_643c843beb4788 78-82
+  s_09d3c46d1a9b1f::t_2a6ef8f8993bc2 22
+TlsLib.Trust.System/src/TlpSystemTrustBase.pas
+  s_09d3c46d1a9b1f::t_d8bfd54f4d2a3c 21-26,32-40,49-87
+  s_09d3c46d1a9b1f::t_b689e358042e69 147-211
+TlsLib.Trust.System/src/TlpWindowsSystemTrust.pas
+  s_09d3c46d1a9b1f::t_25f96528707f78 1579,1627
+  s_09d3c46d1a9b1f::t_067c6f0621d2d4 57-61
+  s_09d3c46d1a9b1f::t_5dc2032418d4b6 1496-1498,1501-1511
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_09d3c46d1a9b1f::t_03f4ad7351dffc 440,444-445
+  s_09d3c46d1a9b1f::t_054dea10a8f66f 47
+  s_09d3c46d1a9b1f::t_3467cdb5dec49c 104-136
+  s_09d3c46d1a9b1f::t_ebf7d427490523 1200,1203
+  s_09d3c46d1a9b1f::t_ce8bf6a75783c2 275-439,441-443,446-487
+TlsLib.Trust.System/src/TlpAndroidSystemTrust.pas
+  s_09d3c46d1a9b1f::t_561163db307ea8 993-994,1003-1004,1014-1016,1019-1020
+  s_09d3c46d1a9b1f::t_0f9f082003e96a 38-39
+  s_09d3c46d1a9b1f::t_106b61e147cc25 955,962
+  s_09d3c46d1a9b1f::t_4c93be5b1eebdc 61,67-68
+  s_09d3c46d1a9b1f::t_cabd5825f49fe0 976-979
+  s_09d3c46d1a9b1f::t_d338b410ebb48f 1036-1038
+  s_09d3c46d1a9b1f::t_54b4a104d7f4bf 49-51
+  s_09d3c46d1a9b1f::t_99807bc49e018b 1080-1084
+.github/workflows/ci/interop/trust/gen-trust-ca.sh
+  s_09d3c46d1a9b1f::t_706d643d0177a0 70-71,77,90-91
+  s_09d3c46d1a9b1f::t_3786faf2422674 13
+TlsLib.Trust.System/src/TlpAppleSystemTrust.pas
+  s_09d3c46d1a9b1f::t_924a868226f9c9 1616-1618,1621-1631
+  s_09d3c46d1a9b1f::t_8f40d8d843758f 75-78
+  s_09d3c46d1a9b1f::t_2fbec8bf20fbd0 1695,1743
+TlsLib.Interop/Data/Certs/EcP256Chain.txt
+  s_09d3c46d1a9b1f::t_3044e6604eb718 6-7,14
+docs/system-trust.md
+  s_09d3c46d1a9b1f::t_658c1b7d92b59d 236-237,240-242
+  s_09d3c46d1a9b1f::t_2f00f789ac5221 248-250
+  s_09d3c46d1a9b1f::t_149ef83fc60231 220
+  s_09d3c46d1a9b1f::t_d7236873eb7c14 238-239
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "de39546f08424eaf8bc05fa12ac0a144cf8c08ef",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
