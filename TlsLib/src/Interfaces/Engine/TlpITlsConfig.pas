@@ -153,6 +153,9 @@ type
     /// <summary>The client-side session cache resumption draws from and stores into; nil
     /// disables client resumption.</summary>
     function SessionCache: ISessionCache;
+    /// <summary>The opaque scope that partitions this configuration's sessions inside a possibly
+    /// shared cache, so trust does not leak across configurations; empty when no cache is set.</summary>
+    function SessionScope: TBytes;
     /// <summary>How the client verifies a resumed server: ReuseOriginal (default) reuses the
     /// original authentication; Reverify re-runs the certificate verifier against the stored chain.</summary>
     function ResumeVerification: TResumeVerification;

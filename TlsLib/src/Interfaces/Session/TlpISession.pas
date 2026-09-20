@@ -120,7 +120,10 @@ type
   /// dual-version client never downgrades on resumption when a 1.3 ticket is held.
   /// The cache also remembers, per server, the (EC)DHE group the server last
   /// selected (a key-exchange hint) so the next initial ClientHello can lead with
-  /// that group and avoid a HelloRetryRequest.
+  /// that group and avoid a HelloRetryRequest. The server-identity string a client
+  /// passes may carry the client configuration's opaque scope; an implementer must
+  /// treat the whole identity as opaque so a cache shared by two configurations
+  /// keeps their sessions apart.
   /// </summary>
   ISessionCache = interface(IInterface)
     ['{2E5B9F30-7C41-4A68-9D12-6B0E3F8C4A57}']

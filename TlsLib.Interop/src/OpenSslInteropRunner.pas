@@ -244,6 +244,9 @@ begin
   LOptions.CheckServerName := True;
   LOptions.Trust := TInteropCredentials.TrustFromPem(LProvider, ACaPemFile);
   LOptions.SessionCache := LCache;
+  // a shared scope so the per-connection rebuilt client configs resume each other's sessions
+  if LCache <> nil then
+    LOptions.SessionScope := LProvider.Primitives.GetRandom.GenerateBytes(16);
   LOptions.OfferedGroups := AOfferedGroups;
   LOptions.EchConfigList := AEchConfigList;
   // offer status_request and pin a revocation posture so a stapled-revoked peer is evaluated

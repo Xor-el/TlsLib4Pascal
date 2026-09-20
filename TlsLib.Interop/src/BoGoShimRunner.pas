@@ -191,6 +191,7 @@ type
     /// <summary>The client-side cache and the server-side STEK, created once and shared
     /// across the resume loop so a later connection resumes an earlier one.</summary>
     SessionCache: ISessionCache;
+    SessionScope: TBytes;
     SessionTicketKeys: ISessionTicketKeyManager;
     SessionStore: ISessionStore;
     /// <summary>-resumption-delay: seconds the runner advances its (and the shim's) clock
@@ -1046,7 +1047,10 @@ begin
     // separate opt-in the client uses when a cached ticket authorizes it. -on-resume-no-ticket
     // withholds the cache on the resumption connection so the client offers no cached session
     if not LDropTicketState then
+    begin
       Result.SessionCache := AConfig.SessionCache;
+      Result.SessionScope := AConfig.SessionScope;
+    end;
     // early data is a TLS 1.3 feature: a client capped below 1.3 offers none
     Result.OfferEarlyData := AConfig.EnableEarlyData and
       ((AConfig.MaxVersion < 0) or (AConfig.MaxVersion >= WireVersionTls13));
@@ -1404,7 +1408,11 @@ begin
     end;
   end
   else
+  begin
     LConfig.SessionCache := TInMemorySessionCache.Create as ISessionCache;
+    // one scope for the whole resume loop so the per-connection rebuilt client configs resume each other
+    LConfig.SessionScope := LProvider.Primitives.GetRandom.GenerateBytes(16);
+  end;
   // -resumption-delay drives a test clock the shim advances between connections (so a
   // resumption PSK's obfuscated_ticket_age and lifetime expiry are exact); without it every
   // engine keeps the real system clock. LClock is a raw view of the interface LConfig.Clock owns.
