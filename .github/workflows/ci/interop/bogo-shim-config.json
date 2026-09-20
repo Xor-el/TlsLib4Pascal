@@ -44,7 +44,6 @@
     "CheckECDSACurve-PSK-*": "[out-of-scope] RFC 4279 TLS 1.2 PSK cipher suite (legacy; rustls has none)",
     "ClientAuth-PSK*": "[out-of-scope] RFC 4279 TLS 1.2 PSK cipher suite (legacy; rustls has none)",
     "PSK-Server-CertOrPSK-Cert*": "[policy-difference] a matching external PSK is preferred over the server certificate; BoringSSL uses credential order (rustls has no external PSK)",
-    "TLS13-SendNoKEMModesWithPSK-Server": "[deferred] an empty psk_key_exchange_modes on a resumption ClientHello is not yet rejected as missing_extension",
     "*Renegotiat*": "[out-of-scope] renegotiation not performed",
     "ExtendedMasterSecret-Renego-*": "[out-of-scope] extended_master_secret behaviour across a renegotiation; we, like rustls, refuse renegotiation",
     "SendFallbackSCSV": "[policy-difference] the RFC 7507 version-fallback retry (and its TLS_FALLBACK_SCSV signal) is not performed; we, like rustls, negotiate the version via supported_versions and never downgrade-retry",
