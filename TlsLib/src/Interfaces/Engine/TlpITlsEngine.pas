@@ -249,6 +249,17 @@ type
   end;
 
   /// <summary>
+  /// A test-only seam to force the installed write epoch's record sequence counter, so the AEAD
+  /// usage-limit rekey path can be exercised without sealing 2^24 records. Reach it with
+  /// Supports(engine, IEngineRecordTestHook); never part of the engine contract.
+  /// </summary>
+  IEngineRecordTestHook = interface(IInterface)
+    ['{41BEA370-164C-4143-B248-CC374AE66AD5}']
+    procedure SetWriteSequenceNumber(AValue: UInt64);
+    procedure SetReadSequenceNumber(AValue: UInt64);
+  end;
+
+  /// <summary>
   /// The internal seam the handshake driver uses to install record-protection
   /// epochs as they become available, turning the plaintext engine into a
   /// protected one and, on the write side, marking the handshake established.

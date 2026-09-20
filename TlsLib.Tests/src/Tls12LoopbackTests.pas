@@ -87,6 +87,7 @@ type
     procedure TestEcdheEcdsaAesGcmWithExtendedMasterSecret;
     procedure TestEcdheEcdsaChaCha20WithExtendedMasterSecret;
     procedure TestWriteAfterInboundCloseNotifyClosesWrite;
+    procedure TestWriteAtUsageLimitClosesWhenNoRekey;
     procedure TestPlainMasterSecretWhenEmsNotOffered;
     procedure TestRequiredEmsAbortsWhenClientDoesNotOfferIt;
     procedure TestTamperedServerKeyExchangeSignatureAborts;
@@ -341,6 +342,46 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a TLS 1.2 write after an inbound close_notify raises');
+end;
+
+procedure TTestTls12Loopback.TestWriteAtUsageLimitClosesWhenNoRekey;
+var
+  LClient, LServer: ITlsEngine;
+  LHook, LServerHook: IEngineRecordTestHook;
+  LIterations: Int32;
+  LRaised: Boolean;
+begin
+  LClient := NewClient(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True);
+  LServer := NewServer(False);
+  LClient.StartHandshake;
+  LIterations := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LIterations);
+  end;
+  CheckFalse(LClient.IsHandshaking, 'the handshake completed');
+
+  // TLS 1.2 has no KeyUpdate; at the AEAD usage limit the write epoch cannot be rekeyed, so a
+  // write closes the connection and refuses rather than exceed the AEAD safety bound (RFC 8446
+  // 5.5 applies the same record limits to the 1.2 AEAD suites)
+  CheckTrue(Supports(LClient, IEngineRecordTestHook, LHook), 'client test hook present');
+  CheckTrue(Supports(LServer, IEngineRecordTestHook, LServerHook), 'server test hook present');
+  // the last legal sequence before the hard limit: the close_notify must still seal here
+  LHook.SetWriteSequenceNumber(UInt64(23726566 - 1));
+  LServerHook.SetReadSequenceNumber(UInt64(23726566 - 1));
+  LRaised := False;
+  try
+    LClient.Write(DecodeHex('00'), 0, 1);
+  except
+    on ERecordLimitTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a TLS 1.2 write at the usage limit raises ERecordLimitTlsLibException');
+  CheckTrue(LClient.WriteClosed, 'the connection is closed for writing after the limit');
+  Pump(LClient, LServer);
+  CheckTrue(LServer.IsInboundClosed, 'the peer received the close_notify emitted at the limit');
 end;
 
 procedure TTestTls12Loopback.RunHandshakeAndExchange(ASuite: UInt16;

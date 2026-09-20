@@ -52,7 +52,8 @@ type
     function InnerContentTypeLength: Int32;
     /// <summary>The next sequence number that will be used.</summary>
     function SequenceNumber: UInt64;
-    /// <summary>True once the epoch has reached its AEAD usage limit (rekey due).</summary>
+    /// <summary>True once the epoch nears its AEAD usage limit (a small lead before the hard
+    /// bound), so a key update should be sent before more application data (RFC 8446 5.5).</summary>
     function NeedsKeyUpdate: Boolean;
   end;
 

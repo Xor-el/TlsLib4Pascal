@@ -101,6 +101,7 @@ type
       ABodyLength: Int32);
     function TryDecodeFramed(const ARecord: TBytes;
       out AFragment: TTlsRecordFragment): Boolean;
+    procedure AppendOutgoing(const ARecord: TBytes);
   public
     constructor Create;
     destructor Destroy; override;
@@ -143,9 +144,22 @@ type
     /// </summary>
     procedure SetRecordSizeLimit(AOutboundLimit, AInboundLimit: Int32);
 
-    /// <summary>Fragments and protects an application/handshake write to the wire.</summary>
-    procedure Write(AContentType: TTlsContentType; const AData: TBytes;
-      AOffset, ALength: Int32);
+    /// <summary>Fragments and protects a write to the wire, returning the number of content
+    /// bytes actually sealed. For application data, sealing pauses at the write epoch's AEAD
+    /// rekey threshold and returns fewer than ALength (0 if already at it), so the caller can
+    /// send a KeyUpdate and resume; control records (handshake, alert, change_cipher_spec) are
+    /// always sealed in full so the KeyUpdate/alert that resolves the limit is never withheld.</summary>
+    function Write(AContentType: TTlsContentType; const AData: TBytes;
+      AOffset, ALength: Int32): Int32;
+    /// <summary>True when the write epoch has reached its AEAD rekey threshold, so further
+    /// application-data writes seal nothing until a KeyUpdate rekeys the write side.</summary>
+    function WriteNeedsKeyUpdate: Boolean;
+    /// <summary>Test-only: forces the write / read epoch's record sequence counter (no-op when
+    /// the protection exposes no test hook), so the usage-limit rekey path can be exercised
+    /// without sealing 2^24 records. The read side is set in step with the write side to keep the
+    /// AEAD nonces synchronized across the two endpoints.</summary>
+    procedure SetWriteSequenceNumber(AValue: UInt64);
+    procedure SetReadSequenceNumber(AValue: UInt64);
     /// <summary>Removes and returns all pending outbound wire bytes.</summary>
     function TakeOutgoing: TBytes;
     /// <summary>Pending outbound byte count.</summary>
@@ -228,6 +242,7 @@ resourcestring
   SChangeCipherSpecFlood = 'too many change_cipher_spec records';
   SChangeCipherSpecAfterHandshake = 'change_cipher_spec after the handshake completed';
   SChangeCipherSpecOutOfWindow = 'change_cipher_spec outside its legal window';
+  SSequenceRewindRejected = 'the record sequence counter may only be advanced, never rewound';
   SProtectedChangeCipherSpec = 'a protected (encrypted) change_cipher_spec record is not allowed';
   SWriteSliceOutOfRange = 'the write offset/length is outside the source buffer';
   SHandshakeBeforeChangeCipherSpec = 'a handshake record arrived before the peer''s change_cipher_spec';
@@ -605,17 +620,23 @@ begin
   end;
 end;
 
-procedure TRecordLayer.Write(AContentType: TTlsContentType; const AData: TBytes;
-  AOffset, ALength: Int32);
+function TRecordLayer.Write(AContentType: TTlsContentType; const AData: TBytes;
+  AOffset, ALength: Int32): Int32;
 var
-  LOffset, LRemaining, LChunk, LCount, LI, LBase, LAddLen, LPos, LLen,
-    LPlainCap: Int32;
-  LRecords: TArray<TBytes>;
+  LOffset, LRemaining, LChunk, LPlainCap: Int32;
+  LIsAppData: Boolean;
 begin
+  Result := 0;
   // reject an out-of-range slice at the single chokepoint before Protect
   if (AOffset < 0) or (ALength < 0) or
     (Int64(AOffset) + ALength > System.Length(AData)) then
     raise EArgumentTlsLibException.CreateRes(@SWriteSliceOutOfRange);
+  // only application data pauses at the rekey threshold (see the interface doc); a control
+  // record always seals so the KeyUpdate/alert that resolves the limit is never withheld, with
+  // the hard usage guard in Protect as the backstop.
+  LIsAppData := AContentType = TTlsContentType.ApplicationData;
+  if LIsAppData and FWriteProtection.NeedsKeyUpdate then
+    Exit(0);
   // deliberately not guarded by the read-side failure: the engine must still be
   // able to protect and queue an alert record after an inbound processing error
   LOffset := AOffset;
@@ -627,39 +648,67 @@ begin
     ((FOutboundRecordSizeLimit - FWriteProtection.InnerContentTypeLength) < LPlainCap) then
     LPlainCap := FOutboundRecordSizeLimit - FWriteProtection.InnerContentTypeLength;
   // never a non-positive cap (a pathological tiny limit set through the public setter would
-  // otherwise divide by zero below); at least one content byte per record
+  // otherwise divide by zero / loop forever below); at least one content byte per record
   if LPlainCap < 1 then
     LPlainCap := 1;
-  // fragment to at most that content cap per record; an empty write emits one empty record
+  // an empty write emits one empty record (Protect advances the sequence exactly once per record)
   if ALength <= 0 then
-    LCount := 1
-  else
-    LCount := (ALength + LPlainCap - 1) div LPlainCap;
-  // Protect advances the write epoch's record sequence number, so it must run
-  // exactly once per record
-  SetLength(LRecords, LCount);
-  LAddLen := 0;
-  for LI := 0 to LCount - 1 do
   begin
+    AppendOutgoing(FWriteProtection.Protect(AContentType, AData, LOffset, 0));
+    Exit(0);
+  end;
+  while LRemaining > 0 do
+  begin
+    // stop application data at the rekey threshold mid-flight; the caller rekeys and resumes
+    if LIsAppData and FWriteProtection.NeedsKeyUpdate then
+      Break;
     if LRemaining < LPlainCap then
       LChunk := LRemaining
     else
       LChunk := LPlainCap;
-    LRecords[LI] := FWriteProtection.Protect(AContentType, AData, LOffset, LChunk);
-    Inc(LAddLen, System.Length(LRecords[LI]));
+    AppendOutgoing(FWriteProtection.Protect(AContentType, AData, LOffset, LChunk));
     Inc(LOffset, LChunk);
     Dec(LRemaining, LChunk);
+    Inc(Result, LChunk);
   end;
+end;
+
+procedure TRecordLayer.AppendOutgoing(const ARecord: TBytes);
+var
+  LBase, LLen: Int32;
+begin
+  LLen := System.Length(ARecord);
+  if LLen <= 0 then
+    Exit;
   LBase := System.Length(FOutbound);
-  SetLength(FOutbound, LBase + LAddLen);
-  LPos := LBase;
-  for LI := 0 to LCount - 1 do
-  begin
-    LLen := System.Length(LRecords[LI]);
-    if LLen > 0 then
-      System.Move(LRecords[LI][0], FOutbound[LPos], LLen);
-    Inc(LPos, LLen);
-  end;
+  SetLength(FOutbound, LBase + LLen);
+  System.Move(ARecord[0], FOutbound[LBase], LLen);
+end;
+
+function TRecordLayer.WriteNeedsKeyUpdate: Boolean;
+begin
+  Result := FWriteProtection.NeedsKeyUpdate;
+end;
+
+procedure TRecordLayer.SetWriteSequenceNumber(AValue: UInt64);
+var
+  LHook: IRecordProtectionTestHook;
+begin
+  // only ever advance the counter: moving it backwards would reuse a nonce
+  if AValue < FWriteProtection.SequenceNumber then
+    raise EArgumentTlsLibException.CreateRes(@SSequenceRewindRejected);
+  if Supports(FWriteProtection, IRecordProtectionTestHook, LHook) then
+    LHook.SetSequenceNumber(AValue);
+end;
+
+procedure TRecordLayer.SetReadSequenceNumber(AValue: UInt64);
+var
+  LHook: IRecordProtectionTestHook;
+begin
+  if AValue < FReadProtection.SequenceNumber then
+    raise EArgumentTlsLibException.CreateRes(@SSequenceRewindRejected);
+  if Supports(FReadProtection, IRecordProtectionTestHook, LHook) then
+    LHook.SetSequenceNumber(AValue);
 end;
 
 function TRecordLayer.TakeOutgoing: TBytes;

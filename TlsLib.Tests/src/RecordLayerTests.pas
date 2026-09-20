@@ -60,6 +60,7 @@ type
     procedure TestRecordSizeLimitRejectsOversizeInbound;
     procedure TestRecordSizeLimitCountsInnerPlaintextNotContent;
     procedure TestRecordSizeLimitInnerPlaintextBoundary;
+    procedure TestWritePausesAppDataAtRekeyThreshold;
     procedure TestChangeCipherSpecDropped;
     procedure TestChangeCipherSpecBeforeHelloRejected;
     procedure TestTls12UnarmedChangeCipherSpecRejected;
@@ -494,6 +495,37 @@ begin
   finally
     LSend.Free;
     LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestWritePausesAppDataAtRekeyThreshold;
+var
+  LSend: TRecordLayer;
+  LProt: IRecordProtection;
+  LHook: IRecordProtectionTestHook;
+  LData: TBytes;
+begin
+  LSend := TRecordLayer.Create;
+  try
+    LProt := MakeTls13(DecodeHex('000102030405060708090a0b0c0d0e0f'),
+      DecodeHex('101112131415161718191a1b'));
+    LSend.SetWriteProtection(LProt);
+    // park the write epoch inside its rekey lead (one below the hard AES-GCM limit 23726566)
+    CheckTrue(Supports(LProt, IRecordProtectionTestHook, LHook), 'test hook present');
+    LHook.SetSequenceNumber(UInt64(23726566 - 1));
+    CheckTrue(LSend.WriteNeedsKeyUpdate, 'the write epoch reached the rekey threshold');
+    LData := nil;
+    SetLength(LData, 100);
+    // application data seals nothing while at the threshold, so the engine can rekey first
+    CheckEquals(0, LSend.Write(TTlsContentType.ApplicationData, LData, 0, 100),
+      'application data pauses at the rekey threshold');
+    CheckEquals(0, System.Length(LSend.TakeOutgoing), 'nothing was sealed for the app data');
+    // a control record (handshake) still seals in full so the KeyUpdate itself can go out
+    CheckEquals(4, LSend.Write(TTlsContentType.Handshake, LData, 0, 4),
+      'a control record still seals at the threshold');
+    CheckTrue(System.Length(LSend.TakeOutgoing) > 0, 'the control record reached the wire');
+  finally
+    LSend.Free;
   end;
 end;
 

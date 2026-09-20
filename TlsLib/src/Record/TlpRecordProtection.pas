@@ -154,10 +154,14 @@ const
   // is bounded only by the 2^64 sequence, so its limit is the counter itself.
   AesGcmRecordUsageLimit = UInt64(23726566);
   ChaChaRecordUsageLimit = High(UInt64);
+  // NeedsKeyUpdate reports the limit reached this many records early, so the KeyUpdate that
+  // rekeys the epoch (and a coalesced response and any alert) still seals under the old key
+  // before the hard limit refuses to seal at all.
+  RekeyLeadRecords = UInt64(16);
 
 resourcestring
   SSequenceExhausted = 'record sequence number exhausted; a key update is required';
-  SUsageLimitReached = 'the AEAD record usage limit was reached and no key update is available';
+  SUsageLimitReached = 'the AEAD record usage limit was reached before a key update could be sent';
   SEmptyInnerPlaintext = 'decrypted record carries no content type';
   SInnerPlaintextTooLong = 'the TLSInnerPlaintext exceeds the 2^14+1 limit';
   SUnknownContentType = 'record carries an unrecognized content type';
@@ -214,9 +218,10 @@ end;
 
 procedure TRecordProtectionBase.GuardUsageLimitNotReached;
 begin
-  // the AEAD usage limit is reached and no key update is wired yet; refuse to seal
-  // another record rather than silently exceeding the AEAD safety bound
-  if NeedsKeyUpdate then
+  // the hard bound: refuse to seal once the AEAD usage limit is actually reached, rather than
+  // silently exceeding the safety bound. NeedsKeyUpdate flags the soft threshold earlier so a
+  // key update is normally sent before this triggers.
+  if (FRecordLimit > 0) and (FSeq >= FRecordLimit) then
     raise EInvalidOperationTlsLibException.CreateRes(@SUsageLimitReached);
 end;
 
@@ -227,7 +232,9 @@ end;
 
 function TRecordProtectionBase.NeedsKeyUpdate: Boolean;
 begin
-  Result := (FRecordLimit > 0) and (FSeq >= FRecordLimit);
+  // soft threshold: reached a lead margin before the hard limit so a key update can still be
+  // sealed under the current epoch (RFC 8446 5.5 advises rekeying before the limit)
+  Result := (FRecordLimit > RekeyLeadRecords) and (FSeq >= FRecordLimit - RekeyLeadRecords);
 end;
 
 procedure TRecordProtectionBase.SetSequenceNumber(AValue: UInt64);
