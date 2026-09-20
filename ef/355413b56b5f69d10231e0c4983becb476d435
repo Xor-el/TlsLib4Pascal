@@ -1,0 +1,35 @@
+TlsLib.Tests/src/LiveRevocationTests.pas
+  s_09d3c46d1a9b1f::t_465a0a7706e80d 483-484
+  s_09d3c46d1a9b1f::t_17628a2a4494f0 303-334
+  s_09d3c46d1a9b1f::t_2d395b7dbb709f 264-268,272,274-275,282,284-285,289-302,335-348
+  s_09d3c46d1a9b1f::t_b922dd3ad5264a 97
+  s_09d3c46d1a9b1f::t_13daa3076f96af 475
+  s_09d3c46d1a9b1f::t_bbd390ae4c8edb 86
+  s_09d3c46d1a9b1f::t_ab7b392a7971ef 95-96
+  s_09d3c46d1a9b1f::t_d3e4ac815b828b 23,349-350
+  s_09d3c46d1a9b1f::t_254447abdd11ad 24
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_09d3c46d1a9b1f::t_6e0a4f907f0702 2757-2758,2768-2769,2784-2791,2803-2804
+  s_09d3c46d1a9b1f::t_7da4d62aed05ed 2792,2795
+  s_09d3c46d1a9b1f::t_e01c39e340f22e 663-664
+TlsLib/src/Interfaces/Crypto/Providers/TlpICryptoProvider.pas
+  s_09d3c46d1a9b1f::t_448966effcdfd8 464-470,473-474
+TlsLib/src/Trust/TlpLiveRevocation.pas
+  s_09d3c46d1a9b1f::t_68af9397ee410e 170,177-181
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ef355413b56b5f69d10231e0c4983becb476d435",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
