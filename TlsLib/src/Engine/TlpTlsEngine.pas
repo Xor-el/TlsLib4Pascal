@@ -176,7 +176,7 @@ type
     procedure InstallWriteProtection(const AProtection: IRecordProtection);
     procedure ArmReadProtectionOnChangeCipherSpec(const AProtection: IRecordProtection);
     procedure RevertWriteToPlaintext;
-    procedure SetRecordSizeLimit(AOutboundPlaintext, AInboundPlaintext: Int32);
+    procedure SetRecordSizeLimit(AOutboundLimit, AInboundLimit: Int32);
     procedure SetEarlyDataSkip(AMaxBytes: Int32);
     procedure SetEarlyDataLimit(AMaxBytes: Int32);
     procedure SetEarlyReadEpoch(AActive: Boolean);
@@ -239,7 +239,7 @@ type
     procedure InstallWriteProtection(const AProtection: IRecordProtection);
     procedure ArmReadProtectionOnChangeCipherSpec(const AProtection: IRecordProtection);
     procedure RevertWriteToPlaintext;
-    procedure SetRecordSizeLimit(AOutboundPlaintext, AInboundPlaintext: Int32);
+    procedure SetRecordSizeLimit(AOutboundLimit, AInboundLimit: Int32);
     procedure SetEarlyDataSkip(AMaxBytes: Int32);
     procedure SetEarlyDataLimit(AMaxBytes: Int32);
     procedure SetEarlyReadEpoch(AActive: Boolean);
@@ -293,10 +293,10 @@ begin
   FEngine.RevertWriteToPlaintext;
 end;
 
-procedure TEngineHandshakeBridge.SetRecordSizeLimit(AOutboundPlaintext,
-  AInboundPlaintext: Int32);
+procedure TEngineHandshakeBridge.SetRecordSizeLimit(AOutboundLimit,
+  AInboundLimit: Int32);
 begin
-  FEngine.SetRecordSizeLimit(AOutboundPlaintext, AInboundPlaintext);
+  FEngine.SetRecordSizeLimit(AOutboundLimit, AInboundLimit);
 end;
 
 procedure TEngineHandshakeBridge.SetEarlyDataSkip(AMaxBytes: Int32);
@@ -585,7 +585,7 @@ begin
         Enqueue(TTlsEvents.MakeHandshakeFragment(AFragment.Data));
     TTlsContentType.Alert:
       HandleIncomingAlert(AFragment.Data);
-    // change_cipher_spec is dropped in the record layer; nothing else reaches here
+    // change_cipher_spec is consumed (classified) in the record layer; nothing else reaches here
   end;
 end;
 
@@ -1052,9 +1052,9 @@ begin
   FRecordLayer.RevertWriteToPlaintext;
 end;
 
-procedure TTlsEngine.SetRecordSizeLimit(AOutboundPlaintext, AInboundPlaintext: Int32);
+procedure TTlsEngine.SetRecordSizeLimit(AOutboundLimit, AInboundLimit: Int32);
 begin
-  FRecordLayer.SetRecordSizeLimit(AOutboundPlaintext, AInboundPlaintext);
+  FRecordLayer.SetRecordSizeLimit(AOutboundLimit, AInboundLimit);
 end;
 
 procedure TTlsEngine.SetEarlyDataSkip(AMaxBytes: Int32);
@@ -1095,6 +1095,9 @@ end;
 procedure TTlsEngine.OnVersionNegotiated(const AVersion: TTlsVersion);
 begin
   FNegotiatedVersion := AVersion;
+  // the record layer needs the version to classify an incoming change_cipher_spec (drop under
+  // 1.3 vs reject out of window) before the next record after the peer's hello is pulled
+  FRecordLayer.SetNegotiatedVersion(AVersion);
 end;
 
 procedure TTlsEngine.OnOcspStapleReceived(const AStaple: TBytes);

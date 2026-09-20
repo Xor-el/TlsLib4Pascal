@@ -119,6 +119,9 @@ begin
       FChannel.SendChangeCipherSpec;
     THandshakeEffectKind.InstallKeys:
       ApplyInstallKeys(AEffect);
+    THandshakeEffectKind.NegotiatedVersion:
+      if FVersionSink <> nil then
+        FVersionSink.OnVersionNegotiated(AEffect.Version);
     THandshakeEffectKind.SelectAlpn:
       FSink.OnAlpnSelected(AEffect.Text);
     THandshakeEffectKind.PeerOcspStaple:

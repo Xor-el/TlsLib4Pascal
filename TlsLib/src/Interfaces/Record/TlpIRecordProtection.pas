@@ -46,6 +46,10 @@ type
       out AContentType: TTlsContentType): TBytes;
     /// <summary>Non-plaintext bytes the record body adds (tag, inner type, explicit nonce).</summary>
     function Overhead: Int32;
+    /// <summary>Content-type bytes carried inside the record plaintext: 1 for TLS 1.3's
+    /// TLSInnerPlaintext, 0 for TLS 1.2 and the null epoch. Lets a caller recover the
+    /// RFC 8449 TLSInnerPlaintext length from the wire record length.</summary>
+    function InnerContentTypeLength: Int32;
     /// <summary>The next sequence number that will be used.</summary>
     function SequenceNumber: UInt64;
     /// <summary>True once the epoch has reached its AEAD usage limit (rekey due).</summary>

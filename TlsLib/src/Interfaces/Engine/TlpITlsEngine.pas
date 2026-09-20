@@ -268,8 +268,9 @@ type
     /// second ClientHello and the rest of the client's flight are sent in the clear.
     /// </summary>
     procedure RevertWriteToPlaintext;
-    /// <summary>Applies the negotiated record_size_limit plaintext caps (RFC 8449).</summary>
-    procedure SetRecordSizeLimit(AOutboundPlaintext, AInboundPlaintext: Int32);
+    /// <summary>Applies the raw negotiated record_size_limit values (RFC 8449
+    /// TLSInnerPlaintext caps); 0 means the extension was not negotiated.</summary>
+    procedure SetRecordSizeLimit(AOutboundLimit, AInboundLimit: Int32);
     /// <summary>
     /// Enters the 0-RTT reject skip mode (RFC 8446 4.2.10): undecryptable early-data
     /// application records are dropped, up to AMaxBytes, until a record decrypts under
