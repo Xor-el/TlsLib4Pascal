@@ -1,0 +1,60 @@
+TlsLib/src/Session/TlpSessionTicketKeys.pas
+  s_09d3c46d1a9b1f::t_643abc56ff2375 285-286
+  s_09d3c46d1a9b1f::t_45c2f3f373a5ac 28,122,209-211
+  s_09d3c46d1a9b1f::t_978ef86ba82826 223-230,233-234,239
+  s_09d3c46d1a9b1f::t_2834552b8568f4 73-77,79,84-87,89-90
+  s_09d3c46d1a9b1f::t_590fe5e66063be 113-116,118-121
+  s_09d3c46d1a9b1f::t_0fae5663333d22 61,63-64,67
+  s_09d3c46d1a9b1f::t_1cb27783f53057 200,202-204,207-208
+  s_09d3c46d1a9b1f::t_2253a36107545a 135
+  s_09d3c46d1a9b1f::t_6c246aced65264 319-320,325,336
+  s_09d3c46d1a9b1f::t_7259a535c8d976 123-125,131-133,136-140,150-151,168-171
+  s_09d3c46d1a9b1f::t_95bd6d385d49ed 161-167,174
+  s_09d3c46d1a9b1f::t_9edd712a1e962f 321-324,326-327,330-331,334
+  s_09d3c46d1a9b1f::t_2fa914ed6c9676 48-49,62,65-66,68
+  s_09d3c46d1a9b1f::t_7222401f74961e 297-298
+  s_09d3c46d1a9b1f::t_9e1d8c35b91c10 192
+  s_09d3c46d1a9b1f::t_8ab3f189b8adeb 98-103
+  s_09d3c46d1a9b1f::t_efac2b5079c544 184-191,198-199,201,205-206
+  s_09d3c46d1a9b1f::t_75901401d7069e 288-292,300-301
+  s_09d3c46d1a9b1f::t_836895a5d8eaf0 221-222,231-232
+  s_09d3c46d1a9b1f::t_dc264f8c45349a 257
+  s_09d3c46d1a9b1f::t_ce1018acff4295 126
+  s_09d3c46d1a9b1f::t_8d7a25b0bb7d1c 37-40
+  s_09d3c46d1a9b1f::t_20cfb685e2a5b9 240
+TlsLib/src/Session/TlpSessionTicketStrategy.pas
+  s_09d3c46d1a9b1f::t_b68e3bf058f228 349-350
+  s_09d3c46d1a9b1f::t_d14951a85ea02b 351
+  s_09d3c46d1a9b1f::t_5ac2cfafdf41bf 310,313-314,316,318
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_cfc3152ce03260 2421-2424,2428-2429
+TlsLib.Tests/src/SessionStoreTests.pas
+  s_09d3c46d1a9b1f::t_f5d507e4ac3e21 409-417,420-439,442-446,449-452,455-458,460-461,471-499,502-518,521-541,544-560,563-583,586-606,609-630,635-641,643-647,649-651,656,666,668-669,717-738
+  s_09d3c46d1a9b1f::t_08d45d942e6bd9 121-160
+  s_09d3c46d1a9b1f::t_741ce0ca67b4f7 377,440-441,500-501,561-562,584-585,607-608,631-634,652-655
+  s_09d3c46d1a9b1f::t_04da2f9920db2b 447-448,453-454,459,462-470
+  s_09d3c46d1a9b1f::t_0d848b8d7b0ae9 642,648,657-665,667
+  s_09d3c46d1a9b1f::t_abc57bc9d5968c 76-78
+  s_09d3c46d1a9b1f::t_0ee9ae48f530cd 39,41
+  s_09d3c46d1a9b1f::t_fac148d3923116 97
+  s_09d3c46d1a9b1f::t_30f88f0140e76b 670-716
+  s_09d3c46d1a9b1f::t_2c7f779aaf51e3 116-120
+  s_09d3c46d1a9b1f::t_bdae1354e5ae97 65-75,79
+  s_09d3c46d1a9b1f::t_016803b0e39bfe 395,418-419,519-520,542-543
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6d36cdf5d4e1e4cd35e9d9e220026e71fb3c6278",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
