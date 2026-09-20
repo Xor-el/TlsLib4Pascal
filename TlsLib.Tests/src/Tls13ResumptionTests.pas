@@ -100,6 +100,7 @@ type
     procedure TestStekInvalidTicketFallsBackToFullHandshake;
     procedure TestStoreUpgradesOverStek;
     procedure TestZeroRttAcceptedDeliversEarlyData;
+    procedure TestWriteEarlyDataReturnsAcceptedCount;
     procedure TestZeroRttRejectedIsDiscardedNotReplayed;
     procedure TestZeroRttReplayCaughtByStrikeRegister;
     procedure TestEarlyDataOffByDefault;
@@ -604,6 +605,43 @@ begin
     ReadAllApp(LServer));
 end;
 
+procedure TTestTls13Resumption.TestWriteEarlyDataReturnsAcceptedCount;
+var
+  LStek: ISessionTicketKeyManager;
+  LAnti: IAntiReplayStrategy;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LEarly: TBytes;
+begin
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LAnti := TStrikeRegisterAntiReplay.Create;
+  LCache := TInMemorySessionCache.Create;
+
+  // issue a ticket authorizing only 2 bytes of early data
+  LClient := NewClient(LCache, False);
+  LServer := BuildServer(LStek, nil, 1, 7200, True, 2, LAnti);
+  DriveHandshake(LClient, LServer);
+
+  LClient := NewClient(LCache, True);
+  LServer := BuildServer(LStek, nil, 0, 7200, False, 2, LAnti);
+  LEarly := DecodeHex('68656c6c6f'); // "hello" (5 bytes)
+
+  // the window is not open until StartHandshake installs the early write epoch
+  CheckEquals(0, LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly)),
+    'no early data is accepted before StartHandshake opens the window');
+  LClient.StartHandshake;
+  // only the ticket's max_early_data (2) is accepted; the caller resends the remainder as 1-RTT
+  CheckEquals(2, LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly)),
+    'WriteEarlyData accepts only up to the ticket max_early_data budget and returns that count');
+  // the budget is now spent
+  CheckEquals(0, LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly)),
+    'once the budget is spent no further early data is accepted');
+  PumpToCompletion(LClient, LServer);
+  // the window is closed after completion
+  CheckEquals(0, LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly)),
+    'no early data is accepted after the handshake completes');
+end;
+
 procedure TTestTls13Resumption.TestZeroRttRejectedIsDiscardedNotReplayed;
 var
   LStek: ISessionTicketKeyManager;
@@ -623,8 +661,8 @@ begin
 
   // resume and send 0-RTT, but the server rejects early data (MaxEarlyData 0). The rejected
   // early data went out under the early keys and the server skips it; the engine does NOT
-  // transparently replay it as 1-RTT (RFC 8446 2.3 leaves any resend to the application, as
-  // rustls does), so nothing is delivered to the server for it.
+  // transparently replay it as 1-RTT (RFC 8446 2.3 leaves any resend to the application), so
+  // nothing is delivered to the server for it.
   LClient := NewClient(LCache, True);
   LServer := BuildServer(LStek, nil, 0, 7200, False, 0, LAnti);
   LEarly := DecodeHex('7265706c617965642064617461'); // "replayed data"

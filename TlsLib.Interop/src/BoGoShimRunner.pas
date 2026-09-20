@@ -21,6 +21,7 @@ uses
   SysUtils,
   TlpICryptoProvider,
   TlpCryptoDomainTypes,
+  TlpArrayUtilities,
   TlpISecretBuffer,
   TlpSecretBuffer,
   TlpTlsCredential,
@@ -1130,11 +1131,11 @@ var
   LWritesFirst, LEarlyWrite, LServerHalfRtt, LHalfRttExport: Boolean;
   LExportLen: Int32;
   LExportLabel: string;
-  LExportContext, LExported, LInitialWrite: TBytes;
+  LExportContext, LExported, LInitialWrite, LDeferred, LPayload: TBytes;
   LExportProbe: TExportProbe;
   LProbe: IHandshakeProbe;
   LSeenCas: TArray<TBytes>;
-  LCaIdx, LRep, LRepeat: Int32;
+  LCaIdx, LRep, LRepeat, LAccepted: Int32;
 begin
   LOptions := BuildOptions(AProvider, AConfig, AIsResume);
   LOptions.ReverifyOnResume := AConfig.ReverifyOnResume;
@@ -1173,11 +1174,17 @@ begin
     LEngine.StartHandshake;
   // 0-RTT: write the initial message under the early keys right after the ClientHello. A
   // repeated payload is written as one call per repeat so each becomes its own record (the
-  // runner asserts per-record); the engine sends up to the ticket's max_early_data as 0-RTT
-  // and defers the overflow to 1-RTT.
+  // runner asserts per-record); the engine sends up to the ticket's max_early_data as 0-RTT and
+  // returns how much it accepted - the shim resends the unaccepted remainder as 1-RTT below.
+  LDeferred := nil;
   if LEarlyWrite then
     for LRep := 1 to LRepeat do
-      LEngine.WriteEarlyData(LInitialWrite, 0, System.Length(LInitialWrite));
+    begin
+      LAccepted := LEngine.WriteEarlyData(LInitialWrite, 0, System.Length(LInitialWrite));
+      if LAccepted < System.Length(LInitialWrite) then
+        LDeferred := TArrayUtilities.Concat(LDeferred,
+          System.Copy(LInitialWrite, LAccepted, System.Length(LInitialWrite) - LAccepted));
+    end;
 
   // a resuming server that enabled 0-RTT may accept the client's early data; when it does, the
   // early bytes are echoed as 0.5-RTT during the handshake (the runner reads that half-RTT
@@ -1302,11 +1309,17 @@ begin
     TInteropPump.Flush(LEngine, ASocket);
   end;
 
-  // a writes-first connection sends its initial message as 1-RTT here, unless it already
-  // went out as 0-RTT early data above
-  if LWritesFirst and not LEarlyWrite and
-    (System.Length(LInitialWrite) > 0) then
-    TInteropPump.WriteAppData(LEngine, ASocket, LInitialWrite);
+  // a writes-first connection sends its initial message as 1-RTT here: the whole message when it
+  // did not go out as 0-RTT, or just the remainder the early-data budget could not fit
+  if LWritesFirst then
+  begin
+    if LEarlyWrite then
+      LPayload := LDeferred
+    else
+      LPayload := LInitialWrite;
+    if System.Length(LPayload) > 0 then
+      TInteropPump.WriteAppData(LEngine, ASocket, LPayload);
+  end;
 
   // -shim-shuts-down: the shim closes the connection right after the handshake instead of
   // echoing. Entering the echo loop would block on a read the runner never satisfies.

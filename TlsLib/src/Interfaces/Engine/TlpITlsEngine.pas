@@ -41,7 +41,7 @@ type
     KeysInstalled,      // a record-protection epoch was installed
     SessionTicketReceived, // a resumption ticket arrived and was cached (RFC 8446 4.6.1)
     EarlyDataAccepted,  // the server accepted the client's 0-RTT early data
-    EarlyDataRejected,  // the server rejected 0-RTT; the client replays it as 1-RTT
+    EarlyDataRejected,  // the server rejected 0-RTT; the accepted early data is discarded (not replayed)
     KeyUpdateReceived,  // the peer sent a post-handshake KeyUpdate; the read epoch rekeyed
     CertificateReceived // the peer chain passed the pipeline; a verdict is awaited (async)
   );
@@ -102,13 +102,16 @@ type
     /// <summary>Queues application data to be protected and sent.</summary>
     procedure Write(const AData: TBytes; AOffset, ALength: Int32);
     /// <summary>
-    /// Queues 0-RTT early application data (RFC 8446 2.3). Valid only for a client that
-    /// offered early data, after StartHandshake and before the server's response is
-    /// processed. The bytes are sent under the early keys and buffered so that, if the
-    /// server rejects 0-RTT, they are transparently replayed as 1-RTT once the handshake
-    /// completes. A no-op when early data is not open.
+    /// Queues 0-RTT early application data (RFC 8446 2.3) and returns the number of bytes
+    /// accepted as early data. Valid only for a client that offered early data, after
+    /// StartHandshake and before the server's response is processed. Bytes are sent under the
+    /// early keys up to the ticket's max_early_data; anything beyond that budget is NOT sent -
+    /// the caller resends the unaccepted remainder (ALength - result) itself once the handshake
+    /// completes (IsHandshaking is False). If the server rejects 0-RTT, the accepted early data
+    /// is discarded, not replayed - resending is the application's decision. Returns 0 when the
+    /// early-data window is not open.
     /// </summary>
-    procedure WriteEarlyData(const AData: TBytes; AOffset, ALength: Int32);
+    function WriteEarlyData(const AData: TBytes; AOffset, ALength: Int32): Int32;
     /// <summary>
     /// Initiates a post-handshake TLS 1.3 KeyUpdate (RFC 8446 4.6.3): rekeys the write
     /// epoch and sends a KeyUpdate. When ARequestPeerUpdate is True the peer is asked to
@@ -275,8 +278,9 @@ type
     procedure SetEarlyDataSkip(AMaxBytes: Int32);
     /// <summary>
     /// Caps outbound 0-RTT at the ticket's max_early_data (RFC 8446 4.2.10): the client
-    /// sends at most AMaxBytes of early data and defers any overflow to 1-RTT once the
-    /// handshake completes. Set when the client opens the early-data write window.
+    /// sends at most AMaxBytes of early data; WriteEarlyData returns how much was accepted and
+    /// the caller resends the rest as 1-RTT once the handshake completes. Set when the client
+    /// opens the early-data write window.
     /// </summary>
     procedure SetEarlyDataLimit(AMaxBytes: Int32);
     /// <summary>

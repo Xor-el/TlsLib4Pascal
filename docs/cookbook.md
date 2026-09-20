@@ -414,10 +414,11 @@ LClientConfig := TTlsPresets.Compatible(P).Client
   .Build;
 ```
 
-Sending the early bytes themselves is a sans-IO engine intent (`WriteEarlyData`), and acceptance is
-reported as an event; if the server rejects 0-RTT the data is transparently re-sent 1-RTT. Treat
-0-RTT as an advanced optimisation — leave it off unless you need it and your early request is
-idempotent.
+Sending the early bytes themselves is a sans-IO engine intent (`WriteEarlyData`, which returns how
+many bytes it accepted as 0-RTT), and acceptance is reported as an event. Bytes beyond the ticket's
+`max_early_data`, and any early data the server rejects, are **not** re-sent for you — resend them as
+1-RTT after the handshake completes if you need to. Treat 0-RTT as an advanced optimisation — leave it
+off unless you need it and your early request is idempotent.
 
 ## Set a revocation posture
 

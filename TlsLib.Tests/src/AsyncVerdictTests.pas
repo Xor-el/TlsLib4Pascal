@@ -83,6 +83,7 @@ type
     procedure TestCertificateReceivedEventCarriesLeaf;
     procedure TestDeadlineSurfacedToDriver;
     procedure TestRejectFailsClosedWithBadCertificate;
+    procedure TestParkedResumeOntoBadRecordFailsClosedNotRaise;
     procedure TestNoVerdictNeverCompletes;
     procedure TestDeadlineExpiryFailsClosed;
     procedure TestAcceptCannotResurrectPipelineRejectedChain;
@@ -360,6 +361,44 @@ begin
   CheckEquals(Int64(Ord(TTlsAlertDescription.BadCertificate)),
     Int64(Ord(LClient.LastError.Alert.Description)),
     'a rejected verdict aborts with bad_certificate');
+end;
+
+procedure TTestAsyncVerdict.TestParkedResumeOntoBadRecordFailsClosedNotRaise;
+var
+  LClient, LServer: ITlsEngine;
+  LBad: TBytes;
+begin
+  // resuming a parked verdict drains the buffered flight (CertificateVerify, Finished) and any
+  // record behind it. A malformed/undecryptable record there raises inside the machine; the
+  // engine must catch it, abort with the alert and stay non-terminal-free (terminal), NOT let the
+  // exception escape SetCertificateVerdict with no alert on the wire (regression guard for BL-7).
+  LClient := NewClient(ClientConfig(True, 0), 'localhost', LServer);
+  LClient.StartHandshake;
+  DriveUntilParkOrSettled(LClient, LServer);
+  CheckTrue(LClient.AwaitingCertificateVerdict, 'the client should be parked');
+
+  // frame an extra application_data record behind the buffered flight: content type 23, legacy
+  // version 0x0303, 32 bytes of ciphertext that cannot authenticate under the application read key
+  // the Finished is about to install. It is pulled after the handshake completes, during the
+  // resume drain, and fails its AEAD tag (bad_record_mac).
+  LBad := nil;
+  SetLength(LBad, 5 + 32);
+  LBad[0] := 23;
+  LBad[1] := 3;
+  LBad[2] := 3;
+  LBad[3] := 0;
+  LBad[4] := 32;
+  LClient.ProcessInput(LBad, 0, System.Length(LBad));
+
+  // must not raise out of SetCertificateVerdict
+  LClient.SetCertificateVerdict(True);
+
+  CheckTrue(LClient.IsTerminal,
+    'a bad record behind the resumed flight aborts the engine instead of escaping as an exception');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.BadRecordMac)),
+    Int64(Ord(LClient.LastError.Alert.Description)),
+    'the undecryptable record aborts with bad_record_mac');
+  CheckTrue(LClient.WantsWrite, 'the fatal alert is queued for the peer');
 end;
 
 procedure TTestAsyncVerdict.TestNoVerdictNeverCompletes;

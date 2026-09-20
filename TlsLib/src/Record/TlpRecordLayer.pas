@@ -74,9 +74,13 @@ type
     FInbound: TBytes;
     FOutbound: TBytes;
     FFramed: TQueue<TBytes>;
+    // running total of the bytes held in FFramed, so the caller can bound the framed backlog
+    // (records the peer sent faster than they are pulled) without walking the queue
+    FFramedBytes: Int32;
     FDropChangeCipherSpec: Boolean;
     FMaxCiphertextLength: Int32;
     FMaxInboundBuffer: Int32;
+    FMaxFramedBacklog: Int32;
     FMaxOutboundPlaintext: Int32;
     FMaxInboundPlaintext: Int32;
     FMaxConsecutiveEmptyRecords: Int32;
@@ -154,6 +158,17 @@ type
       write FMaxCiphertextLength;
     /// <summary>The hard cap on buffered partial-record bytes (anti-DoS).</summary>
     property MaxInboundBuffer: Int32 read FMaxInboundBuffer write FMaxInboundBuffer;
+    /// <summary>The cap on the total framed-but-not-yet-pulled backlog (complete records the peer
+    /// sent faster than the caller pulls them, e.g. while parked or under read backpressure).
+    /// InboundBacklogFull reports it; the caller stops feeding rather than growing without bound.</summary>
+    property MaxFramedBacklog: Int32 read FMaxFramedBacklog write FMaxFramedBacklog;
+    /// <summary>True once the framed backlog (plus any partial residual) has reached
+    /// MaxFramedBacklog: the caller must pull/drain before feeding more transport bytes. This is
+    /// flow control (a full read buffer), never a protocol error - it raises no alert.</summary>
+    function InboundBacklogFull: Boolean;
+    /// <summary>Drops all buffered inbound state (framed records and any partial residual). Used
+    /// once the connection is closed so post-close bytes are not retained.</summary>
+    procedure DiscardInbound;
     /// <summary>The cap on consecutive empty records before it is treated as abuse.</summary>
     property MaxConsecutiveEmptyRecords: Int32 read FMaxConsecutiveEmptyRecords
       write FMaxConsecutiveEmptyRecords;
@@ -184,6 +199,12 @@ const
   // each peer sends at most one middlebox change_cipher_spec; a small margin tolerates
   // an interleaved one without opening a flood vector (RFC 8446 D.4)
   DefaultMaxChangeCipherSpec = Int32(2);
+  // a handful of max-size records: comfortably holds a legitimate flight buffered while parked
+  // (CertificateVerify + Finished + a few NewSessionTickets) plus a small pull-ahead, while
+  // capping a peer that streams faster than the caller drains. Not tied to the (much larger)
+  // plaintext app-read buffer, which is a different bound on decrypted data.
+  DefaultMaxFramedBacklog = Int32(8) *
+    (TRecordLimits.HeaderLength + TRecordLimits.MaxCipherTextTls13);
   OuterApplicationData = Byte(23); // TLSCiphertext outer content type
   OuterChangeCipherSpec = Byte(20); // the legacy change_cipher_spec outer content type
   OuterHandshake = Byte(22); // the handshake outer content type
@@ -213,9 +234,11 @@ begin
   FWriteProtection := TNullRecordProtection.Create;
   FReadIsPlaintext := True;
   FFramed := TQueue<TBytes>.Create;
+  FFramedBytes := 0;
   FDropChangeCipherSpec := True;
   FMaxCiphertextLength := TRecordLimits.MaxCipherTextTls13;
   FMaxInboundBuffer := TRecordLimits.HeaderLength + TRecordLimits.MaxCipherTextTls13;
+  FMaxFramedBacklog := DefaultMaxFramedBacklog;
   FMaxOutboundPlaintext := TRecordLimits.MaxPlaintext;
   FMaxInboundPlaintext := TRecordLimits.MaxPlaintext;
   FMaxConsecutiveEmptyRecords := DefaultMaxConsecutiveEmptyRecords;
@@ -333,6 +356,18 @@ begin
   FHandshakeComplete := True;
 end;
 
+function TRecordLayer.InboundBacklogFull: Boolean;
+begin
+  Result := (FFramedBytes + System.Length(FInbound)) >= FMaxFramedBacklog;
+end;
+
+procedure TRecordLayer.DiscardInbound;
+begin
+  FFramed.Clear;
+  FFramedBytes := 0;
+  FInbound := nil;
+end;
+
 procedure TRecordLayer.SetEarlyDataSkip(AMaxBytes: Int32);
 begin
   if AMaxBytes > 0 then
@@ -436,6 +471,7 @@ begin
       // here would clear a change_cipher_spec coalesced with the peer's final flight before that
       // Finished flips the handshake-complete state.
       FFramed.Enqueue(System.Copy(FInbound, LPos, LRecordLength));
+      Inc(FFramedBytes, LRecordLength);
       Inc(LPos, LRecordLength);
     end;
     // keep the trailing partial record; bound how much may sit un-framed
@@ -460,6 +496,7 @@ begin
     while FFramed.Count > 0 do
     begin
       LRecord := FFramed.Dequeue;
+      Dec(FFramedBytes, System.Length(LRecord));
       // a plaintext change_cipher_spec (never encrypted, so its outer type is authoritative):
       // dropped as middlebox compatibility while the handshake runs, but a fatal
       // unexpected_message once it is complete (RFC 8446 5 / D.4). Judged here at pull time, so a

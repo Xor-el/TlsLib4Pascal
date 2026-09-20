@@ -54,6 +54,7 @@ type
     procedure TestProtected13LoopbackTwoRecords;
     procedure TestRecordOverflowOnOverlongLength;
     procedure TestReassemblyCapTripsFatally;
+    procedure TestFramedBacklogBoundAndDiscard;
     procedure TestEmptyRecordFloodCapped;
     procedure TestRecordSizeLimitRejectsOversizeInbound;
     procedure TestChangeCipherSpecDropped;
@@ -121,6 +122,42 @@ begin
     CheckEquals(Ord(TTlsContentType.Handshake), Ord(LFrag.ContentType), 'content type');
     CheckEqualBytes('payload round-trips', LPayload, LFrag.Data);
     CheckFalse(DrainOne(LRecv, LFrag), 'no extra fragment');
+  finally
+    LSend.Free;
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestFramedBacklogBoundAndDiscard;
+var
+  LSend, LRecv: TRecordLayer;
+  LFrag: TTlsRecordFragment;
+  LPayload, LWire: TBytes;
+begin
+  // the framed backlog (complete records queued but not yet pulled) is bounded so a peer cannot
+  // stage unbounded ciphertext while the caller is not pulling (e.g. parked / backpressured)
+  LSend := TRecordLayer.Create;
+  LRecv := TRecordLayer.Create;
+  try
+    LPayload := DecodeHex('01020304050607'); // one small handshake record (~12 wire bytes)
+    LSend.Write(TTlsContentType.Handshake, LPayload, 0, System.Length(LPayload));
+    LWire := LSend.TakeOutgoing;
+
+    LRecv.MaxFramedBacklog := 20; // two of these records exceed it
+    CheckFalse(LRecv.InboundBacklogFull, 'an empty layer is not backlog-full');
+    LRecv.ProcessInput(LWire, 0, System.Length(LWire));
+    CheckFalse(LRecv.InboundBacklogFull, 'one framed record is under the cap');
+    LRecv.ProcessInput(LWire, 0, System.Length(LWire));
+    CheckTrue(LRecv.InboundBacklogFull, 'two framed records reach the cap');
+
+    // pulling one record relieves the backlog
+    CheckTrue(LRecv.NextIncoming(LFrag), 'a framed record is pulled');
+    CheckFalse(LRecv.InboundBacklogFull, 'pulling one record drops back under the cap');
+
+    // discarding clears everything and resets the counter
+    LRecv.DiscardInbound;
+    CheckFalse(LRecv.InboundBacklogFull, 'discard clears the backlog');
+    CheckFalse(LRecv.NextIncoming(LFrag), 'discard drops the remaining framed record');
   finally
     LSend.Free;
     LRecv.Free;

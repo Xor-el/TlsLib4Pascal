@@ -72,11 +72,10 @@ type
     // still open until the outcome is known
     FWriteProtectionInstalled: Boolean;
     FEarlyDataClosed: Boolean;
-    // 0-RTT outbound cap: the ticket's max_early_data budget, how much has gone out as
-    // early data, and any overflow held back to send as 1-RTT once the handshake completes
+    // 0-RTT outbound cap: the ticket's max_early_data budget and how much has gone out as
+    // early data (over-budget bytes are not held - the caller resends them, see WriteEarlyData)
     FEarlyDataLimit: Int32;
     FEarlyDataSent: Int32;
-    FEarlyDataOverflow: TBytes;
     FNegotiatedAlpn: string;
     FNegotiatedVersion: TTlsVersion;
     FPeerOcspStaple: TBytes;
@@ -98,6 +97,9 @@ type
     // and the advisory deadline the driver enforces (the engine owns no timer)
     FAwaitingVerdict: Boolean;
     FAsyncVerdictDeadlineMs: Cardinal;
+    // guards against re-entering the record-layer drain (a read-triggered resume must not run
+    // while a drain is already in progress, e.g. from a sink callback)
+    FDraining: Boolean;
     FLastError: TTlsError;
     procedure Enqueue(const AEvent: ITlsEvent);
     procedure PullOutbound;
@@ -132,7 +134,7 @@ type
 
     function ProcessInput(const AWire: TBytes; AOffset, ALength: Int32): TTlsOutcome;
     procedure Write(const AData: TBytes; AOffset, ALength: Int32);
-    procedure WriteEarlyData(const AData: TBytes; AOffset, ALength: Int32);
+    function WriteEarlyData(const AData: TBytes; AOffset, ALength: Int32): Int32;
     procedure RequestKeyUpdate(ARequestPeerUpdate: Boolean);
     procedure SendClose;
     procedure SendAlert(ADescription: TTlsAlertDescription);
@@ -215,8 +217,8 @@ resourcestring
   STooManyWarningAlerts = 'the peer sent too many warning-level alerts';
   SBogusAlertLevel = 'the alert carries a level that is neither warning nor fatal';
   SLocalFatalAlert = 'a fatal alert was sent';
-  SAppReadBufferFull =
-    'unread application data would exceed the read-buffer limit (honor WantsRead)';
+  SInboundBacklogFull =
+    'the framed inbound backlog is full; pull/read before feeding more input (honor WantsRead)';
 
 type
   /// <summary>
@@ -495,9 +497,9 @@ procedure TTlsEngine.AppendAppData(const AData: TBytes);
 begin
   if System.Length(AData) = 0 then
     Exit;
-  // bound the buffer: a caller that ignores WantsRead cannot grow it without limit
-  if Int64(FAppAvail) + System.Length(AData) > FMaxAppReadBuffer then
-    raise EInvalidOperationTlsLibException.CreateRes(@SAppReadBufferFull);
+  // no hard cap here: the read buffer is bounded by backpressure - DrainRecordLayer stops pulling
+  // once FAppAvail reaches FMaxAppReadBuffer, and WantsRead reports False, so a caller that honours
+  // it stops feeding. A single pulled record may overshoot the soft cap by at most one record.
   // drop any fully-consumed chunks at the front (bounds the queue; copies only the
   // few live chunk references, never the payload bytes)
   if FAppChunkHead > 0 then
@@ -524,6 +526,8 @@ begin
   if LReceived.IsCloseNotify then
   begin
     FClosed := True;
+    // the peer's write side is closed; release any inbound state and ignore later bytes (RFC 9846 6.1)
+    FRecordLayer.DiscardInbound;
     Enqueue(TTlsEvents.MakeClosed);
     Exit;
   end;
@@ -598,13 +602,21 @@ begin
   // resolves and SetCertificateVerdict resumes the drain in the correct epoch order.
   if FAwaitingVerdict then
     Exit;
-  // stop pulling the moment the connection becomes terminal/closed (e.g. a fatal alert or
-  // close_notify coalesced ahead of app-data): the trailing record stays framed, undecrypted
-  while (not (FTerminal or FClosed)) and FRecordLayer.NextIncoming(LFragment) do
-  begin
-    RouteFragment(LFragment);
-    if FAwaitingVerdict then
-      Break;
+  FDraining := True;
+  try
+    // stop pulling the moment the connection becomes terminal/closed (e.g. a fatal alert or
+    // close_notify coalesced ahead of app-data): the trailing record stays framed, undecrypted.
+    // Also stop once the app-read buffer is full: unread plaintext applies backpressure (the
+    // record stays framed, WantsRead reports False) instead of growing the buffer without bound.
+    while (not (FTerminal or FClosed)) and (AppReadAvailable < FMaxAppReadBuffer) and
+      FRecordLayer.NextIncoming(LFragment) do
+    begin
+      RouteFragment(LFragment);
+      if FAwaitingVerdict then
+        Break;
+    end;
+  finally
+    FDraining := False;
   end;
 end;
 
@@ -628,14 +640,25 @@ function TTlsEngine.ProcessInput(const AWire: TBytes; AOffset,
 begin
   if FTerminal then
     Exit(TTlsOutcome.Fatal);
-  try
-    FRecordLayer.ProcessInput(AWire, AOffset, ALength);
-    DrainRecordLayer;
-    // a driven handshake may have written a response flight into the record layer
-    PullOutbound;
-  except
-    on E: Exception do
-      Exit(Fail(E));
+  // after an inbound close_notify the peer's write side is closed: discard anything it keeps
+  // sending rather than frame it (RFC 9846 6.1). Checked before the backlog bound so a post-close
+  // feed never raises. The tail below still reports any already-buffered app data / events.
+  if not FClosed then
+  begin
+    // flow control, not a protocol error: the caller ignored WantsRead and the framed backlog is
+    // full. Raise API-misuse WITHOUT going through Fail (no wire alert, engine stays alive); the
+    // caller must pull/drain before feeding more.
+    if FRecordLayer.InboundBacklogFull then
+      raise EInvalidOperationTlsLibException.CreateRes(@SInboundBacklogFull);
+    try
+      FRecordLayer.ProcessInput(AWire, AOffset, ALength);
+      DrainRecordLayer;
+      // a driven handshake may have written a response flight into the record layer
+      PullOutbound;
+    except
+      on E: Exception do
+        Exit(Fail(E));
+    end;
   end;
   if FTerminal then // a received fatal alert or a handshake failure
     Exit(TTlsOutcome.Fatal);
@@ -650,37 +673,46 @@ begin
   if FTerminal or FClosed or FSentClose then
     Exit;
   // a KeyUpdate owed to a peer update_requested must precede our next application data
-  // (RFC 8446 4.6.3); flushing here coalesces repeats into one response before the write
+  // (RFC 8446 4.6.3); flushing here coalesces repeats into one response before the write.
+  // A failure to build/flush it is fatal - abort with its alert and do NOT queue the app
+  // plaintext behind that alert (the record layer's Write is not blocked by a failed read side).
   if (FConductor <> nil) and FHandshakeComplete then
-    FConductor.FlushPendingKeyUpdate;
+    try
+      FConductor.FlushPendingKeyUpdate;
+    except
+      on E: Exception do
+      begin
+        Fail(E);
+        PullOutbound;
+        Exit;
+      end;
+    end;
   FRecordLayer.Write(TTlsContentType.ApplicationData, AData, AOffset, ALength);
   PullOutbound;
 end;
 
-procedure TTlsEngine.WriteEarlyData(const AData: TBytes; AOffset, ALength: Int32);
+function TTlsEngine.WriteEarlyData(const AData: TBytes; AOffset, ALength: Int32): Int32;
 var
   LAccept: Int32;
 begin
+  Result := 0;
   // only in the open early-data window: handshaking, a (early) write epoch installed,
   // and the client has not yet ended early data
   if FTerminal or FClosed or FSentClose or FHandshakeComplete or FEarlyDataClosed or
     (not FWriteProtectionInstalled) or (ALength <= 0) then
     Exit;
   // cap outbound 0-RTT at the ticket's max_early_data (RFC 8446 4.2.10): send at most the
-  // remaining budget as early data; anything beyond is deferred to 1-RTT after the handshake
+  // remaining budget as early data and return that count; the caller resends the rest as 1-RTT
+  // once the handshake completes
   LAccept := FEarlyDataLimit - FEarlyDataSent;
   if LAccept > ALength then
     LAccept := ALength;
-  if LAccept > 0 then
-  begin
-    FRecordLayer.Write(TTlsContentType.ApplicationData, AData, AOffset, LAccept);
-    Inc(FEarlyDataSent, LAccept);
-  end;
-  // hold the over-budget remainder; it is sent as 1-RTT once the handshake completes
-  if LAccept < ALength then
-    FEarlyDataOverflow := TArrayUtilities.Concat(FEarlyDataOverflow,
-      System.Copy(AData, AOffset + LAccept, ALength - LAccept));
+  if LAccept <= 0 then
+    Exit;
+  FRecordLayer.Write(TTlsContentType.ApplicationData, AData, AOffset, LAccept);
+  Inc(FEarlyDataSent, LAccept);
   PullOutbound;
+  Result := LAccept;
 end;
 
 procedure TTlsEngine.RequestKeyUpdate(ARequestPeerUpdate: Boolean);
@@ -690,7 +722,18 @@ begin
   if FTerminal or FClosed or FSentClose or (not FHandshakeComplete) or
     (FConductor = nil) then
     Exit;
-  FConductor.RequestKeyUpdate(ARequestPeerUpdate);
+  // a failure to build the KeyUpdate is fatal: abort with its alert rather than let the
+  // exception escape the engine
+  try
+    FConductor.RequestKeyUpdate(ARequestPeerUpdate);
+  except
+    on E: Exception do
+    begin
+      Fail(E);
+      PullOutbound;
+      Exit;
+    end;
+  end;
   PullOutbound;
 end;
 
@@ -724,9 +767,21 @@ end;
 
 procedure TTlsEngine.StartHandshake;
 begin
+  // a nil conductor is API misuse (no handshake configured), not a peer failure: raise, do not
+  // turn it into a wire alert
   if FConductor = nil then
     raise ENotSupportedTlsLibException.CreateRes(@SHandshakeNotConfigured);
-  FConductor.Start;
+  // an in-band start failure (ECH/PSK/crypto setup) aborts with its alert rather than escaping
+  try
+    FConductor.Start;
+  except
+    on E: Exception do
+    begin
+      Fail(E);
+      PullOutbound;
+      Exit;
+    end;
+  end;
   PullOutbound;
 end;
 
@@ -737,14 +792,25 @@ begin
   if not FAwaitingVerdict then
     Exit;
   FAwaitingVerdict := False;
-  // reject aborts fail-closed (the conductor emits AAlert, making the engine terminal);
-  // accept drains the buffered flight and completes the handshake
-  FConductor.ResolveCertificateVerdict(AAccept, AAlert);
-  // with the park cleared, resume pulling the framed remainder of the flight that was held
-  // back while parked, so each record decrypts under the epoch installed by the record
-  // before it (the Finished installs the application read epoch ahead of any app data)
-  if not FTerminal then
-    DrainRecordLayer;
+  // reject aborts fail-closed (the conductor emits AAlert, making the engine terminal); accept
+  // drains the buffered flight and completes the handshake. A malformed/bad-signature record in
+  // that buffered flight is fatal: abort with its alert instead of letting the exception escape
+  // the engine (and the pump) with no alert on the wire and the engine left non-terminal.
+  try
+    FConductor.ResolveCertificateVerdict(AAccept, AAlert);
+    // with the park cleared, resume pulling the framed remainder of the flight that was held
+    // back while parked, so each record decrypts under the epoch installed by the record
+    // before it (the Finished installs the application read epoch ahead of any app data)
+    if not FTerminal then
+      DrainRecordLayer;
+  except
+    on E: Exception do
+    begin
+      Fail(E);
+      PullOutbound;
+      Exit;
+    end;
+  end;
   PullOutbound;
 end;
 
@@ -808,6 +874,21 @@ begin
     FAppChunkHead := 0;
     FAppBytePos := 0;
   end;
+  // reading down the buffer relieves backpressure: resume the drain so records held back at the
+  // app-read cap (a raw embedder that fed a large buffer) surface, and a KeyUpdate/alert produced
+  // while pulling reaches the wire (PullOutbound). Not while parked, not re-entrantly (a sink's
+  // OnEvent could call ReadAppData mid-drain), and never turning a pull failure into an escape.
+  if (not FAwaitingVerdict) and (not FDraining) and (not FTerminal) and (not FClosed) and
+    (FAppAvail < FMaxAppReadBuffer) then
+  begin
+    try
+      DrainRecordLayer;
+    except
+      on E: Exception do
+        Fail(E);
+    end;
+    PullOutbound;
+  end;
 end;
 
 function TTlsEngine.PendingAppData: Int32;
@@ -827,7 +908,8 @@ end;
 function TTlsEngine.WantsRead: Boolean;
 begin
   Result := (not FTerminal) and (not FClosed) and
-    (AppReadAvailable < FMaxAppReadBuffer);
+    (AppReadAvailable < FMaxAppReadBuffer) and
+    (not FRecordLayer.InboundBacklogFull);
 end;
 
 function TTlsEngine.WantsWrite: Boolean;
@@ -998,10 +1080,8 @@ begin
       // the early data was delivered under the 0-RTT keys; nothing more to do
       FEarlyDataClosed := True;
     TTlsEventKind.EarlyDataRejected:
-      // the early data already went out under the early keys; on a reject it is discarded,
-      // not retransmitted as 1-RTT (RFC 8446 2.3 leaves any resend to the application, as
-      // rustls does). Only the over-budget remainder that never fit in the 0-RTT window
-      // (FEarlyDataOverflow) still follows as ordinary application data.
+      // the early data already went out under the early keys; on a reject it is discarded, not
+      // retransmitted as 1-RTT (RFC 8446 2.3 leaves any resend to the application)
       FEarlyDataClosed := True;
   end;
   Enqueue(TTlsEvents.MakeSimple(AEvent));
@@ -1056,24 +1136,10 @@ begin
 end;
 
 procedure TTlsEngine.OnHandshakeEstablished;
-var
-  LFlushed: Boolean;
 begin
   FHandshakeComplete := True;
   // a change_cipher_spec is no longer in its legal window once the handshake is done
   FRecordLayer.SetHandshakeComplete;
-  LFlushed := False;
-  // flush any over-budget early data held back by the max_early_data cap; it never went out
-  // as 0-RTT, so it follows as ordinary 1-RTT application data
-  if System.Length(FEarlyDataOverflow) > 0 then
-  begin
-    FRecordLayer.Write(TTlsContentType.ApplicationData, FEarlyDataOverflow, 0,
-      System.Length(FEarlyDataOverflow));
-    FEarlyDataOverflow := nil;
-    LFlushed := True;
-  end;
-  if LFlushed then
-    PullOutbound;
 end;
 
 procedure TTlsEngine.OnHandshakeFailed(AAlert: TTlsAlertDescription);
