@@ -167,14 +167,18 @@ function TLiveRevocationChecker.EvaluateCrl(const ALeaf, AIssuer: TBytes;
 var
   LCrl: TBytes;
   LRevoked: Boolean;
+  LThisUpdate, LNextUpdate: TDateTime;
 begin
   Result := TLiveRevocationOutcome.Indeterminate;
   if (ACrlUrl = '') or (FFetcher = nil) then
     Exit;
   if not FFetcher.Get(ACrlUrl, FTimeoutMs, LCrl) then
     Exit;
-  // an unparseable or issuer-unverifiable CRL is indeterminate, never trusted
-  if not FProvider.Revocation.CheckCrlRevocation(ALeaf, AIssuer, LCrl, LRevoked) then
+  // an unparseable, issuer-unverifiable or out-of-window CRL is indeterminate, never trusted;
+  // the validity window is judged at the injected clock, not the wall clock
+  if not FProvider.Revocation.CheckCrlRevocation(ALeaf, AIssuer, LCrl,
+    TDateTimeUtilities.UnixMsToDateTime(Int64(FClock.NowUnixMillis)), LRevoked,
+    LThisUpdate, LNextUpdate) then
     Exit;
   if LRevoked then
     Result := TLiveRevocationOutcome.Revoked
