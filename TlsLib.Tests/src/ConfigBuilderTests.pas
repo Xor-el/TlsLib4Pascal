@@ -108,6 +108,8 @@ type
     // RFC 8446 4.6.1: a server MUST NOT advertise a ticket lifetime over 604800 seconds
     procedure TestTicketLifetimeAboveCapIsRejected;
     procedure TestTicketLifetimeAtCapIsAccepted;
+    procedure TestResumptionScopeAboveCapIsRejected;
+    procedure TestResumptionScopeAtCapIsAccepted;
     procedure TestClientRejectsServerSniCredential;
     procedure TestServerRejectsPublicSuffixSniWildcard;
     // a restricted (classical-only) registry composes with a preset whose preferred order still
@@ -896,6 +898,41 @@ begin
     .WithTicketLifetime(604800)
     .Build;
   CheckNotNull(LConfig, 'the boundary ticket lifetime (604800) is accepted');
+end;
+
+procedure TTestConfigBuilder.TestResumptionScopeAboveCapIsRejected;
+var
+  LServer: ITlsServerConfigBuilder;
+  LScope: TBytes;
+  LRaised: Boolean;
+begin
+  LServer := TTlsPresets.Compatible(Provider).Server;
+  LScope := nil;
+  SetLength(LScope, 33); // one over the 32-byte cap
+  LRaised := False;
+  try
+    LServer.WithResumptionScope(LScope);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a resumption scope above 32 bytes is rejected');
+end;
+
+procedure TTestConfigBuilder.TestResumptionScopeAtCapIsAccepted;
+var
+  LConfig: ITlsServerConfig;
+  LScope: TBytes;
+begin
+  LScope := nil;
+  SetLength(LScope, 32); // the boundary value is legal
+  FillChar(LScope[0], 32, $5C);
+  LConfig := TTlsPresets.Compatible(Provider).Server
+    .WithCredential(ServerCredential)
+    .WithResumptionScope(LScope)
+    .Build;
+  CheckEqualBytes('the boundary resumption scope (32 bytes) round-trips', LScope,
+    LConfig.ResumptionScope);
 end;
 
 procedure TTestConfigBuilder.TestClientRejectsServerSniCredential;

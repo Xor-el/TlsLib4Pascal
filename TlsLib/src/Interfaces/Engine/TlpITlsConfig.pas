@@ -189,6 +189,9 @@ type
     /// <summary>The session-ticket encryption keys for stateless tickets; nil disables
     /// stateless ticket issuance.</summary>
     function SessionTicketKeys: ISessionTicketKeyManager;
+    /// <summary>The opaque scope sealed into issued tickets/sessions and required to match on
+    /// resumption, partitioning configurations that share a ticket key or store; empty when none.</summary>
+    function ResumptionScope: TBytes;
     /// <summary>Selects the server certificate per handshake from the client's SNI (virtual
     /// hosting). Composed at build from WithCredential / WithSniCredential / a custom
     /// WithCredentialResolver. nil for a PSK-only server (no certificate). The Credential

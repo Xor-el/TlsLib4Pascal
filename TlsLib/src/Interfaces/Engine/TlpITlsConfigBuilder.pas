@@ -400,10 +400,23 @@ type
     function WithExternalPreSharedKeys(
       const APsks: TArray<TExternalPsk>): ITlsServerConfigBuilder;
     /// <summary>The stateful session store backing session-id resumption and stateful
-    /// tickets; providing one engages server resumption (subject to WithResumption).</summary>
+    /// tickets; providing one engages server resumption (subject to WithResumption). A store or
+    /// ticket-key manager shared across configurations lets them resume each other's sessions;
+    /// use WithResumptionScope to partition configurations that do not trust identically.</summary>
     function WithSessionStore(const AStore: ISessionStore): ITlsServerConfigBuilder;
-    /// <summary>The session-ticket encryption keys for stateless (STEK) tickets.</summary>
+    /// <summary>The session-ticket encryption keys for stateless (STEK) tickets. A manager shared
+    /// across configurations (e.g. a fleet key) lets them resume each other's tickets; use
+    /// WithResumptionScope to partition configurations that do not trust identically.</summary>
     function WithSessionTicketKeys(const AKeys: ISessionTicketKeyManager): ITlsServerConfigBuilder;
+    /// <summary>An opaque scope (at most 32 bytes) sealed into every ticket/session this
+    /// configuration issues and required to match on resumption. When a ticket key or session
+    /// store is shared across configurations, only those given the same scope resume each other's
+    /// sessions - so a configuration never
+    /// resumes a session another established under different client-authentication trust. Empty
+    /// (the default) does not partition: configurations sharing a key/store resume each other, as
+    /// before. Set the same scope on configurations that trust identically, different scopes to
+    /// keep them apart.</summary>
+    function WithResumptionScope(const AScope: TBytes): ITlsServerConfigBuilder;
     /// <summary>Requests a default STEK, minted at build time from this configuration's own
     /// provider RNG and clock, so stateless tickets honor an injected crypto provider rather than
     /// any concrete default. An explicit WithSessionTicketKeys always overrides this. The keys are

@@ -87,7 +87,7 @@ const
   // bumped when the ticket layout changes; an older ticket fails the version check on Open and
   // simply draws a full handshake. 2 added the SNI host_name (virtual-hosting guard); 3 added the
   // peer certificate chain (so a resumed mTLS connection can surface the client's identity)
-  TicketFormatVersion = Byte(3);
+  TicketFormatVersion = Byte(4);
   TicketNonceLength = Int32(12); // AES-256-GCM nonce
   // the serialized session carries the peer chain the client volunteered; cap it so an oversized
   // chain does not bloat the ticket and the resumed ClientHello that re-presents it. Past the cap
@@ -177,6 +177,10 @@ begin
   LWriter.WriteBytes(ASession.SessionTicket);
   LWriter.CloseVector(LMarker);
   SerializeChain(LWriter, ASession.PeerCertificates);
+  // the opaque resumption scope, so a configuration only reuses a ticket sealed under the same scope
+  LMarker := LWriter.OpenVector(1);
+  LWriter.WriteBytes(ASession.ResumptionScope);
+  LWriter.CloseVector(LMarker);
   Result := LWriter.ToBytes;
 end;
 
@@ -229,7 +233,7 @@ var
   LLifetime, LAgeAdd, LMaxEarly, LHi, LLo: UInt32;
   LIssued: UInt64;
   LAlpn, LServerName: string;
-  LResumption, LMaster, LSessionId, LSessionTicket: TBytes;
+  LResumption, LMaster, LSessionId, LSessionTicket, LScope: TBytes;
   LPeerChain: TArray<TBytes>;
 begin
   ASession := nil;
@@ -264,6 +268,8 @@ begin
   LVec := LReader.OpenVector(2);
   LSessionTicket := LVec.ReadBytes(LVec.Remaining);
   LPeerChain := DeserializeChain(LReader);
+  LVec := LReader.OpenVector(1);
+  LScope := LVec.ReadBytes(LVec.Remaining);
 
   try
     // an authenticated body with trailing bytes is a format mismatch, not a valid ticket -> full
@@ -273,11 +279,11 @@ begin
     if LVersion = TlsWireVersionTls13 then
       ASession := TResumableSession.CreateTls13(LSuite, LHash,
         TSecretBuffer.From(LResumption), LGroup, LAlpn, LServerName, nil, LLifetime, LAgeAdd,
-        LIssued, LMaxEarly, LPeerChain)
+        LIssued, LMaxEarly, LPeerChain, LScope)
     else if LVersion = TlsWireVersionTls12 then
       ASession := TResumableSession.CreateTls12(LSuite, LHash,
         TSecretBuffer.From(LMaster), LSessionId, LSessionTicket, LEms <> 0, LAlpn, LServerName,
-        LLifetime, LAgeAdd, LIssued, LPeerChain)
+        LLifetime, LAgeAdd, LIssued, LPeerChain, LScope)
     else
       Exit;
   finally

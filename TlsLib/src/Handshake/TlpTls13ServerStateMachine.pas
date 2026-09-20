@@ -159,6 +159,9 @@ type
     /// <summary>When set, upgrades resumption to stateful single-use handles into this
     /// store (over the STEK default). Nil (with no STEK) disables 1.3 resumption.</summary>
     SessionStore: ISessionStore;
+    /// <summary>An opaque scope sealed into issued tickets and required to match on resumption,
+    /// partitioning configurations that share a ticket key or store; empty does not partition.</summary>
+    ResumptionScope: TBytes;
     /// <summary>How many NewSessionTickets to send after the handshake (0 = none).</summary>
     IssueTicketCount: Int32;
     /// <summary>The ticket lifetime hint in seconds carried in each NewSessionTicket.</summary>
@@ -812,6 +815,11 @@ begin
   // a ticket issued under one SNI host must not resume as another (virtual-hosting guard): a
   // host mismatch falls through to a full handshake under the name the client now requests
   if not SameText(LSession.ServerName, FRequestedServerName) then
+    Exit;
+  // resumption-scope guard: a ticket minted under a different scope belongs to a configuration
+  // that may not share this one's client-auth trust, so decline it to a full handshake rather than
+  // reuse its stored identity
+  if not TArrayUtilities.AreEqual(LSession.ResumptionScope, FParams.ResumptionScope) then
     Exit;
   // the client must still offer the PSK's suite (RFC 8446 4.2.11)
   if not (TArrayUtilities.Contains<UInt16>(AClientHello.CipherSuites,
@@ -1822,6 +1830,7 @@ var
   LNst: TTlsNewSessionTicket;
   LContext: TExtensionContext;
   LLifetime: UInt32;
+  LChainForTicket: TArray<TBytes>;
 begin
   if (FTicketStrategy = nil) or (FParams.IssueTicketCount <= 0) then
     Exit;
@@ -1844,14 +1853,19 @@ begin
       FParams.Provider.Primitives.GetRandom.GenerateBytes(4), 0);
     LPsk := FSchedule.ResumptionPsk(LNonce);
     // the ticket identity is the sealed/handle output, so the session's own id is unused;
-    // MaxEarlyData authorizes 0-RTT on the resumed connection
-    // carry the verified client chain so a resumed mutual-TLS connection surfaces it (empty on a
-    // non-mTLS handshake); FClientCertChain is set once the client Certificate is verified
+    // MaxEarlyData authorizes 0-RTT on the resumed connection. Carry the client chain forward so a
+    // re-issued ticket does not drop the client identity and force the next connection to a full
+    // handshake; a resumed chain is only ever one this configuration accepted under its own scope,
+    // so re-sealing it launders no foreign identity. Empty on a non-mTLS handshake.
+    if System.Length(FClientCertChain) > 0 then
+      LChainForTicket := FClientCertChain
+    else
+      LChainForTicket := FResumedPeerCertificates;
     LSession := TResumableSession.CreateTls13(FSelectedSuite.Common.Code,
       FSelectedSuite.Common.Hash, LPsk, FSelectedGroup.Code, FSelectedAlpn,
       FRequestedServerName, nil,
       LLifetime, LAgeAdd, FParams.Clock.NowUnixMillis,
-      FParams.MaxEarlyData, FClientCertChain);
+      FParams.MaxEarlyData, LChainForTicket, FParams.ResumptionScope);
     LHandle := FTicketStrategy.Seal(LSession);
     // an empty handle means the strategy declined to seal (e.g. an oversized chain over the cap):
     // issue no ticket for this connection rather than an unusable one

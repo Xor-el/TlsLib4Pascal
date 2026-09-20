@@ -111,6 +111,10 @@ type
     /// server seals the session under the current key and re-presents it in a
     /// NewSessionTicket. nil disables ticket issuance.</summary>
     SessionTicketKeys: ISessionTicketKeyManager;
+    /// <summary>An opaque scope sealed into issued tickets/sessions and required to match on
+    /// resumption, partitioning configurations that share a ticket key or store; empty does not
+    /// partition.</summary>
+    ResumptionScope: TBytes;
     /// <summary>The lifetime advertised for issued sessions and tickets, in seconds.</summary>
     TicketLifetimeSeconds: UInt32;
     /// <summary>The clock read for a cached session's issue time and freshness (RFC 5077). A
@@ -841,6 +845,11 @@ begin
   // guard): a host mismatch falls through to a full handshake under the requested name
   if not SameText(LSession.ServerName, FRequestedServerName) then
     Exit;
+  // resumption-scope guard: a ticket/session minted under a different scope belongs to a
+  // configuration that may not share this one's client-auth trust, so decline it to a full
+  // handshake rather than reuse its stored identity
+  if not TArrayUtilities.AreEqual(LSession.ResumptionScope, FParams.ResumptionScope) then
+    Exit;
   // the recovered session must be a live 1.2 session whose suite the client still offers
   if LSession.Version.WireValue <> TlsWireVersionTls12 then
     Exit;
@@ -861,6 +870,10 @@ begin
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SResumedEmsDowngrade);
   if AContext.ExtendedMasterSecret and not LSession.ExtendedMasterSecret then
+    Exit;
+  // a server that requires EMS must not resume a session established without it; decline to a full
+  // handshake, which then enforces the requirement (RFC 7627 5.3)
+  if FParams.RequireExtendedMasterSecret and not LSession.ExtendedMasterSecret then
     Exit;
   // mutual-TLS resumption gate (an abbreviated handshake re-runs no client auth): a Required
   // server offered a ticket/session with no stored client identity falls through to a full
@@ -889,13 +902,23 @@ end;
 
 function TTls12ServerStateMachine.BuildStoredSession(
   const ASessionId: TBytes): IResumableSession;
+var
+  LChainForTicket: TArray<TBytes>;
 begin
-  // carry the verified client chain so a resumed mutual-TLS connection surfaces it (empty on a
-  // non-mTLS handshake)
+  // carry the client chain forward so a re-issued ticket does not drop the client identity and
+  // force the next connection to a full handshake; a resumed chain is only ever one accepted under
+  // this configuration's own scope, so re-sealing it launders no foreign identity. Empty on a
+  // non-mTLS handshake.
+  if System.Length(FClientCertChain) > 0 then
+    LChainForTicket := FClientCertChain
+  else if FResumedSession <> nil then
+    LChainForTicket := FResumedSession.PeerCertificates
+  else
+    LChainForTicket := nil;
   Result := TResumableSession.CreateTls12(FSelectedSuite.Common.Code,
     FSelectedSuite.Common.Hash, FSchedule.MasterSecret, ASessionId, nil,
     FUseExtendedMasterSecret, '', FRequestedServerName, EmittedTicketLifetime, 0,
-    FParams.Clock.NowUnixMillis, FClientCertChain);
+    FParams.Clock.NowUnixMillis, LChainForTicket, FParams.ResumptionScope);
 end;
 
 function TTls12ServerStateMachine.BuildNewSessionTicketMessage: TBytes;

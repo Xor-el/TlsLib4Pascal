@@ -514,6 +514,7 @@ begin
   begin
     L13.SessionStore := AConfig.SessionStore;
     L13.SessionTicketKeys := AConfig.SessionTicketKeys;
+    L13.ResumptionScope := AConfig.ResumptionScope;
     L13.IssueTicketCount := AConfig.TicketCount;
     L13.TicketLifetimeSeconds := AConfig.TicketLifetimeSeconds;
     L13.MaxEarlyData := AConfig.MaxEarlyData;
@@ -524,6 +525,7 @@ begin
       L13.AntiReplay := TStrikeRegisterAntiReplay.Create as IAntiReplayStrategy;
     L12.SessionStore := AConfig.SessionStore;
     L12.SessionTicketKeys := AConfig.SessionTicketKeys;
+    L12.ResumptionScope := AConfig.ResumptionScope;
     L12.TicketLifetimeSeconds := AConfig.TicketLifetimeSeconds;
   end;
 
