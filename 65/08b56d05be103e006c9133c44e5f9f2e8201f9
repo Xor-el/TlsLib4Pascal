@@ -1,0 +1,61 @@
+TlsLib/src/KeySchedule/TlpTls13KeySchedule.pas
+  s_09d3c46d1a9b1f::t_f0405ab14df2f3 60-61,113,115-117,132-135,177-178,185-187,197-198,207-208,220-221,296-297,303-304,419-434,441-442,445,449-455,457,459
+TlsLib/src/Interfaces/KeySchedule/TlpIKeySchedule.pas
+  s_09d3c46d1a9b1f::t_195d08559f9394 73-80
+  s_09d3c46d1a9b1f::t_94fdd945f73da5 109-116,119-120,122
+TlsLib.Tests/src/Tls12KeyScheduleTests.pas
+  s_09d3c46d1a9b1f::t_4dc812b04b8f6d 51
+  s_09d3c46d1a9b1f::t_67ae43555917fc 168-196
+  s_09d3c46d1a9b1f::t_7f5af33f7f25c2 38
+TlsLib/src/Handshake/TlpTls12ClientStateMachine.pas
+  s_09d3c46d1a9b1f::t_549b3d7b248bae 858-860
+  s_09d3c46d1a9b1f::t_8ab9efa7d7b8b6 999-1000
+TlsLib/src/Codec/TlpWireWriter.pas
+  s_09d3c46d1a9b1f::t_0fe4e9a770a93c 84-89,93,103-110
+  s_09d3c46d1a9b1f::t_53f9202da6297d 32-33,44
+  s_09d3c46d1a9b1f::t_1b21ac0b256192 23
+TlsLib/src/KeySchedule/TlpTls12KeySchedule.pas
+  s_09d3c46d1a9b1f::t_102d4079e36572 84
+  s_09d3c46d1a9b1f::t_526b7e1b6275ef 100
+  s_09d3c46d1a9b1f::t_5d6deb5e31ad55 218-219
+  s_09d3c46d1a9b1f::t_d0678eb1bc5426 158-159
+  s_09d3c46d1a9b1f::t_049af4e3adf6db 276-287
+TlsLib.Tests/src/Tls13KeyScheduleTests.pas
+  s_09d3c46d1a9b1f::t_31412d470685f8 73-76
+  s_09d3c46d1a9b1f::t_5696cd9112e486 37
+  s_09d3c46d1a9b1f::t_f9a69c0bcc7e2b 426-456,458-465,501-539
+  s_09d3c46d1a9b1f::t_1bddfefbd8fee7 457,466-500
+  s_09d3c46d1a9b1f::t_a80c40cec81c98 160,162
+TlsLib.Tests/src/WireCodecTests.pas
+  s_09d3c46d1a9b1f::t_98af6075e63687 379-402
+  s_09d3c46d1a9b1f::t_c30ee0029ef404 57
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_09d3c46d1a9b1f::t_a80661e2e60308 2272-2273
+  s_09d3c46d1a9b1f::t_c37808b15c3cbe 2271,2274
+  s_09d3c46d1a9b1f::t_b7ab377c9db2e3 1296
+  s_09d3c46d1a9b1f::t_0f739aa54eeba8 2275-2276
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_80b91bf77ce98a 1054-1056
+  s_09d3c46d1a9b1f::t_eb8ec27acbcaec 997-998
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_cf8fbc8eac0362 1374,1376-1379
+  s_09d3c46d1a9b1f::t_467e66b27e1b5d 1811-1813
+  s_09d3c46d1a9b1f::t_ad009ecc0a40cf 1791
+  s_09d3c46d1a9b1f::t_b38ed7be856a89 1848
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6508b56d05be103e006c9133c44e5f9f2e8201f9",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": null
+    }
+  }
+}
