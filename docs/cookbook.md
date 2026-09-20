@@ -253,10 +253,12 @@ end;
 `Read` returns 0 on an orderly close; `TransportTruncated` tells you whether that close was preceded
 by a proper `close_notify`.
 
-Once the connection is closed — either you called `CloseNotify`, or the peer half-closed with an
-inbound `close_notify` — a further `Write` raises `EInvalidOperationTlsLibException` rather than
-silently discarding the bytes. The engine never reports data as sent that it did not send, so a
-write on a closed stream is always surfaced, never a phantom success.
+Once the write side is closed — you called `CloseNotify`, the connection failed, or (under TLS 1.2
+only) the peer sent an inbound `close_notify` — a further `Write` raises
+`EInvalidOperationTlsLibException` rather than silently discarding the bytes. Under TLS 1.3 an
+inbound `close_notify` closes only the read side (RFC 8446 6.1), so you may keep writing until you
+close your own side; `WriteClosed` tells you which case you are in. The engine never reports data as
+sent that it did not send, so a write on a closed stream is always surfaced, never a phantom success.
 
 ## Drive the raw sans-IO engine
 

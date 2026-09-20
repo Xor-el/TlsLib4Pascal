@@ -30,6 +30,7 @@ uses
 {$ENDIF FPC}
   TlpTlsVersion,
   TlpTlsAlert,
+  TlpTlsLibExceptions,
   TlpNamedGroups,
   TlpNegotiationTypes,
   TlpCipherSuiteRegistry,
@@ -85,6 +86,7 @@ type
   published
     procedure TestEcdheEcdsaAesGcmWithExtendedMasterSecret;
     procedure TestEcdheEcdsaChaCha20WithExtendedMasterSecret;
+    procedure TestWriteAfterInboundCloseNotifyClosesWrite;
     procedure TestPlainMasterSecretWhenEmsNotOffered;
     procedure TestRequiredEmsAbortsWhenClientDoesNotOfferIt;
     procedure TestTamperedServerKeyExchangeSignatureAborts;
@@ -306,6 +308,39 @@ begin
     if LGot > 0 then
       Result := ConcatBytes(Result, System.Copy(LChunk, 0, LGot));
   until LGot = 0;
+end;
+
+procedure TTestTls12Loopback.TestWriteAfterInboundCloseNotifyClosesWrite;
+var
+  LClient, LServer: ITlsEngine;
+  LIterations: Int32;
+  LRaised: Boolean;
+begin
+  LClient := NewClient(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True);
+  LServer := NewServer(False);
+  LClient.StartHandshake;
+  LIterations := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LIterations);
+  end;
+  CheckFalse(LClient.IsHandshaking, 'the handshake completed');
+
+  // under TLS 1.2 an inbound close_notify closes the write side too (RFC 5246 7.2.1)
+  LServer.SendClose;
+  Pump(LServer, LClient);
+  CheckTrue(LClient.IsInboundClosed, 'the client saw the inbound close_notify');
+  CheckTrue(LClient.WriteClosed, 'TLS 1.2 closes the write side on an inbound close_notify');
+  LRaised := False;
+  try
+    LClient.Write(DecodeHex('00'), 0, 1);
+  except
+    on EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a TLS 1.2 write after an inbound close_notify raises');
 end;
 
 procedure TTestTls12Loopback.RunHandshakeAndExchange(ASuite: UInt16;

@@ -103,6 +103,7 @@ type
     FLastError: TTlsError;
     procedure Enqueue(const AEvent: ITlsEvent);
     procedure PullOutbound;
+    function IsTls13: Boolean;
     procedure QueueAlertRecord(const AAlert: TTlsAlert);
     procedure AppendAppData(const AData: TBytes);
     function AppReadAvailable: Int32;
@@ -219,6 +220,9 @@ resourcestring
   SLocalFatalAlert = 'a fatal alert was sent';
   SInboundBacklogFull =
     'the framed inbound backlog is full; pull/read before feeding more input (honor WantsRead)';
+  SWriteAfterClose =
+    'Write after the write side was closed (close_notify sent, or received under TLS 1.2) ' +
+    'or the connection failed';
 
 type
   /// <summary>
@@ -668,10 +672,20 @@ begin
     Result := TTlsOutcome.NeedMoreInput;
 end;
 
+function TTlsEngine.IsTls13: Boolean;
+begin
+  Result := FNegotiatedVersion.WireValue = TlsWireVersionTls13;
+end;
+
 procedure TTlsEngine.Write(const AData: TBytes; AOffset, ALength: Int32);
 begin
-  if FTerminal or FClosed or FSentClose then
-    Exit;
+  // writing after our own close_notify or after a fatal is API misuse in either version. An
+  // inbound close_notify closes only the read side under TLS 1.3 (RFC 8446 6.1: each half is
+  // independent), so a 1.3 write continues; under TLS 1.2 it closes the connection (RFC 5246
+  // 7.2.1 discards pending writes - deliberately stricter than a common implementation's
+  // half-close, which we do not offer for 1.2).
+  if FTerminal or FSentClose or (FClosed and not IsTls13) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SWriteAfterClose);
   // a KeyUpdate owed to a peer update_requested must precede our next application data
   // (RFC 8446 4.6.3); flushing here coalesces repeats into one response before the write.
   // A failure to build/flush it is fatal - abort with its alert and do NOT queue the app
@@ -718,8 +732,9 @@ end;
 procedure TTlsEngine.RequestKeyUpdate(ARequestPeerUpdate: Boolean);
 begin
   // post-handshake only, over an established connection with a live handshake machine
-  // (TLS 1.2 machines make this a no-op); the KeyUpdate is protected and queued outbound
-  if FTerminal or FClosed or FSentClose or (not FHandshakeComplete) or
+  // (TLS 1.2 machines make this a no-op); the KeyUpdate is protected and queued outbound. An
+  // inbound close_notify does not stop 1.3 writes, so it must not stop rekeying them either.
+  if FTerminal or FSentClose or (FClosed and not IsTls13) or (not FHandshakeComplete) or
     (FConductor = nil) then
     Exit;
   // a failure to build the KeyUpdate is fatal: abort with its alert rather than let the
@@ -944,8 +959,9 @@ end;
 
 function TTlsEngine.WriteClosed: Boolean;
 begin
-  // mirrors the guard in Write: these three states each silently drop outbound app data
-  Result := FTerminal or FClosed or FSentClose;
+  // mirrors the guard in Write: a Write in this state raises. An inbound close_notify closes the
+  // write side only under TLS 1.2; under TLS 1.3 the write half stays open (RFC 8446 6.1).
+  Result := FTerminal or FSentClose or (FClosed and not IsTls13);
 end;
 
 function TTlsEngine.LastError: TTlsError;

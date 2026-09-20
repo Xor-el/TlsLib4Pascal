@@ -356,6 +356,9 @@ end;
 class procedure TInteropPump.WriteAppData(const AEngine: ITlsEngine;
   const ASocket: TInteropSocket; const AData: TBytes);
 begin
+  // Write raises once the write side is closed; the shim must not let that escape uncaught
+  if AEngine.WriteClosed then
+    Exit;
   AEngine.Write(AData, 0, System.Length(AData));
   Flush(AEngine, ASocket);
 end;

@@ -302,8 +302,8 @@ end;
 class procedure TTlsStreamPump.WriteApp(const AEngine: ITlsEngine;
   const ATransport: ITlsTransport; const AData: TBytes; AOffset, ALength: Int32);
 begin
-  // the engine silently drops a write once terminal/closed; surface it instead of
-  // letting the stream report the bytes as sent
+  // the engine's Write raises once the write side is closed; pre-check so the stream reports a
+  // clear error rather than the raw engine exception (and never counts the bytes as sent)
   if AEngine.WriteClosed then
     raise EInvalidOperationTlsLibException.CreateRes(@SWriteAfterClose);
   AEngine.Write(AData, AOffset, ALength);
