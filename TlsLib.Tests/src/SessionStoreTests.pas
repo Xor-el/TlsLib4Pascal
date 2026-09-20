@@ -36,7 +36,9 @@ uses
   TlpInMemorySessionCache,
   TlpInMemorySessionStore,
   TlpSessionTicketKeys,
+  TlpSessionTicketStrategy,
   TlpAntiReplay,
+  TlpTlsLibExceptions,
   TlsLibTestBase;
 
 type
@@ -60,6 +62,21 @@ type
     procedure TestStekWindowRetiresOldKeys;
     procedure TestStekInstallKey;
     procedure TestStekAutoRotatesOnInterval;
+    procedure TestStekOpenPathRetiresExpiredKey;
+    procedure TestStekCurrentKeyRecoversAfterFullExpiry;
+    procedure TestStekManualManagerNeverExpires;
+    procedure TestStekSealCapRotates;
+    procedure TestStekSealCapInFleetModeStopsSealing;
+    procedure TestStekCreateDefaultRotatesOnLifetime;
+    procedure TestStekCreateDefaultZeroLifetimeStillRotates;
+    procedure TestStekInstallKeyRejectsBadNameLength;
+    procedure TestStekInstallKeyRejectsBadKeyLength;
+    procedure TestStekInstallKeyRejectsNilKey;
+    procedure TestStekInstallKeyDisablesAutoRotation;
+    procedure TestStekInstalledKeyDoesNotTimeExpire;
+    procedure TestStekRotateDoesNotShortenTimer;
+    procedure TestStekBackwardsClockDoesNotExpireOrRaise;
+    procedure TestStekOpenWithUnbindableKeyFallsBack;
     procedure TestAntiReplayDetectsReplay;
     procedure TestAntiReplayFreshAfterExpiry;
     procedure TestAntiReplayRejectsEmpty;
@@ -77,6 +94,7 @@ type
     constructor Create(AStartMillis: UInt64);
     function NowUnixMillis: UInt64;
     procedure Advance(AMillis: UInt64);
+    procedure Retreat(AMillis: UInt64);
   end;
 
 constructor TAdjustableClock.Create(AStartMillis: UInt64);
@@ -93,6 +111,51 @@ end;
 procedure TAdjustableClock.Advance(AMillis: UInt64);
 begin
   Inc(FNowMillis, AMillis);
+end;
+
+procedure TAdjustableClock.Retreat(AMillis: UInt64);
+begin
+  Dec(FNowMillis, AMillis);
+end;
+
+type
+  // a key manager that hands the open path a wrong-length key, to prove the strategy falls back to
+  // a full handshake rather than letting the AEAD Init exception escape
+  TBadKeyManager = class sealed(TInterfacedObject, ISessionTicketKeyManager)
+  public
+    function CurrentKey(out AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
+    function KeyByName(const AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
+    procedure Rotate;
+    function KeyNameLength: Int32;
+  end;
+
+function TBadKeyManager.CurrentKey(out AKeyName: TBytes;
+  out AKey: ISecretBuffer): Boolean;
+begin
+  AKeyName := nil;
+  AKey := nil;
+  Result := False;
+end;
+
+function TBadKeyManager.KeyByName(const AKeyName: TBytes;
+  out AKey: ISecretBuffer): Boolean;
+var
+  LRaw: TBytes;
+begin
+  LRaw := nil;
+  SetLength(LRaw, 16); // too short for AES-256-GCM, so Init must reject it
+  FillChar(LRaw[0], 16, $AB);
+  AKey := TSecretBuffer.From(LRaw);
+  Result := True;
+end;
+
+procedure TBadKeyManager.Rotate;
+begin
+end;
+
+function TBadKeyManager.KeyNameLength: Int32;
+begin
+  Result := 16;
 end;
 
 { TTestSessionStore }
@@ -311,7 +374,7 @@ var
   LKey, LCurrent: ISecretBuffer;
 begin
   LConcrete := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
-  LStek := LConcrete; // the interface reference governs lifetime
+  LStek := LConcrete;
   LName := Tag($55, 16);
   LKey := TSecretBuffer.From(Tag($66, 32));
   LConcrete.InstallKey(LName, LKey);
@@ -329,7 +392,7 @@ var
   LKey, LFound: ISecretBuffer;
 begin
   LClockObj := TAdjustableClock.Create(1000000);
-  LClock := LClockObj; // the interface reference governs lifetime
+  LClock := LClockObj;
   // a 10-second auto-rotation interval driven by the injected clock
   LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom, 0, LClock, 10);
   LStek.CurrentKey(LName1, LKey);
@@ -341,6 +404,336 @@ begin
   CheckFalse(AreEqual(LName1, LName3), 'the elapsed interval rotates the current key');
   CheckTrue(LStek.KeyByName(LName1, LFound),
     'the rotated-out key still opens tickets within the decrypt window');
+end;
+
+procedure TTestSessionStore.TestStekOpenPathRetiresExpiredKey;
+var
+  LClockObj: TAdjustableClock;
+  LClock: ITlsClock;
+  LStek: ISessionTicketKeyManager;
+  LName1: TBytes;
+  LKey, LFound: ISecretBuffer;
+begin
+  LClockObj := TAdjustableClock.Create(1000000);
+  LClock := LClockObj;
+  // window 2, interval 10 s: a key must open tickets for its whole 2x10 s age and no longer, on the
+  // open path alone (no seal traffic in between)
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom, 2, LClock, 10);
+  LStek.CurrentKey(LName1, LKey);
+  LClockObj.Advance(15000); // t = 15 s: still inside the 20 s age bound
+  CheckTrue(LStek.KeyByName(LName1, LFound),
+    'a key still within its age bound opens tickets');
+  LClockObj.Advance(6000); // t = 21 s: past the age bound, with no intervening seal
+  CheckFalse(LStek.KeyByName(LName1, LFound),
+    'an aged-out key is retired even on a quiet server');
+end;
+
+procedure TTestSessionStore.TestStekCurrentKeyRecoversAfterFullExpiry;
+var
+  LClockObj: TAdjustableClock;
+  LClock: ITlsClock;
+  LStek: ISessionTicketKeyManager;
+  LName1, LName2: TBytes;
+  LKey: ISecretBuffer;
+begin
+  LClockObj := TAdjustableClock.Create(1000000);
+  LClock := LClockObj;
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom, 2, LClock, 10);
+  LStek.CurrentKey(LName1, LKey);
+  LClockObj.Advance(25000); // every key has aged out
+  CheckTrue(LStek.CurrentKey(LName2, LKey),
+    'the manager re-mints after the whole ring expires');
+  CheckFalse(AreEqual(LName1, LName2), 'and the recovered current key is fresh');
+  CheckFalse(LStek.KeyByName(LName1, LKey),
+    'the expired key was pruned, not merely rotated behind the window');
+end;
+
+procedure TTestSessionStore.TestStekManualManagerNeverExpires;
+var
+  LClockObj: TAdjustableClock;
+  LClock: ITlsClock;
+  LStek: ISessionTicketKeyManager;
+  LName: TBytes;
+  LKey, LFound: ISecretBuffer;
+begin
+  // a clockless manager leaves key lifetime to the caller: no key expires by time
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek.CurrentKey(LName, LKey);
+  CheckTrue(LStek.KeyByName(LName, LFound), 'a clockless manager never retires its key');
+  // a clock with a zero interval likewise never expires keys (no interval means no age bound)
+  LClockObj := TAdjustableClock.Create(1000000);
+  LClock := LClockObj;
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom, 2, LClock, 0);
+  LStek.CurrentKey(LName, LKey);
+  LClockObj.Advance(UInt64(1000000) * 1000);
+  CheckTrue(LStek.KeyByName(LName, LFound),
+    'a zero interval leaves the key valid however far the clock advances');
+end;
+
+procedure TTestSessionStore.TestStekSealCapRotates;
+var
+  LStek: ISessionTicketKeyManager;
+  LName1, LName2, LName3, LName4: TBytes;
+  LKey, LFound: ISecretBuffer;
+begin
+  // a per-key seal cap of 3: the fourth seal must draw a fresh key
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom, 0, nil, 0, 3);
+  LStek.CurrentKey(LName1, LKey);
+  LStek.CurrentKey(LName2, LKey);
+  LStek.CurrentKey(LName3, LKey);
+  CheckTrue(AreEqual(LName1, LName2), 'the key is reused under its seal cap');
+  CheckTrue(AreEqual(LName1, LName3), 'the key is reused under its seal cap');
+  LStek.CurrentKey(LName4, LKey);
+  CheckFalse(AreEqual(LName1, LName4), 'the key rotates once its seal cap is reached');
+  CheckTrue(LStek.KeyByName(LName1, LFound),
+    'the capped-out key still opens tickets within the window');
+end;
+
+procedure TTestSessionStore.TestStekSealCapInFleetModeStopsSealing;
+var
+  LConcrete: TStekTicketKeyManager;
+  LStek: ISessionTicketKeyManager;
+  LInstalled, LName: TBytes;
+  LKey: ISecretBuffer;
+begin
+  LConcrete := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom, 0, nil, 0, 2);
+  LStek := LConcrete;
+  LInstalled := Tag($55, 16);
+  LConcrete.InstallKey(LInstalled, TSecretBuffer.From(Tag($66, 32)));
+  CheckTrue(LStek.CurrentKey(LName, LKey), 'the installed key seals a first ticket');
+  CheckTrue(AreEqual(LInstalled, LName), 'under the installed name');
+  CheckTrue(LStek.CurrentKey(LName, LKey), 'and a second');
+  CheckFalse(LStek.CurrentKey(LName, LKey),
+    'an exhausted installed key stops sealing rather than being silently reminted');
+end;
+
+procedure TTestSessionStore.TestStekCreateDefaultRotatesOnLifetime;
+var
+  LClockObj: TAdjustableClock;
+  LClock: ITlsClock;
+  LStek: ISessionTicketKeyManager;
+  LName1, LName2: TBytes;
+  LKey, LFound: ISecretBuffer;
+begin
+  LClockObj := TAdjustableClock.Create(1000000);
+  LClock := LClockObj;
+  // the default STEK rotates on the advertised ticket lifetime, not a fixed interval
+  LStek := TStekTicketKeyManager.CreateDefault(Provider, LClock, 100);
+  LStek.CurrentKey(LName1, LKey);
+  LClockObj.Advance(100000); // one lifetime
+  LStek.CurrentKey(LName2, LKey);
+  CheckFalse(AreEqual(LName1, LName2), 'a key rotates after one advertised lifetime');
+  CheckTrue(LStek.KeyByName(LName1, LFound),
+    'the prior key still opens tickets across its lifetime');
+  LClockObj.Advance(100000); // two lifetimes since the first key was minted
+  CheckFalse(LStek.KeyByName(LName1, LFound),
+    'a key older than twice the lifetime cannot back a live ticket');
+end;
+
+procedure TTestSessionStore.TestStekCreateDefaultZeroLifetimeStillRotates;
+var
+  LClockObj: TAdjustableClock;
+  LClock: ITlsClock;
+  LStek: ISessionTicketKeyManager;
+  LName1, LName2: TBytes;
+  LKey: ISecretBuffer;
+begin
+  LClockObj := TAdjustableClock.Create(1000000);
+  LClock := LClockObj;
+  // an unadvertised (zero) lifetime falls back to a bounded default rather than never rotating
+  LStek := TStekTicketKeyManager.CreateDefault(Provider, LClock, 0);
+  LStek.CurrentKey(LName1, LKey);
+  LClockObj.Advance(UInt64(7200) * 1000); // the fallback interval
+  LStek.CurrentKey(LName2, LKey);
+  CheckFalse(AreEqual(LName1, LName2),
+    'a zero lifetime still rotates on the fallback interval');
+end;
+
+procedure TTestSessionStore.TestStekInstallKeyRejectsBadNameLength;
+var
+  LConcrete: TStekTicketKeyManager;
+  LStek: ISessionTicketKeyManager;
+  LBefore, LAfter: TBytes;
+  LKey: ISecretBuffer;
+  LRaised: Boolean;
+begin
+  LConcrete := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := LConcrete;
+  LStek.CurrentKey(LBefore, LKey);
+  LRaised := False;
+  try
+    LConcrete.InstallKey(Tag($55, 15), TSecretBuffer.From(Tag($66, 32)));
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a wrong-length key name is rejected at install time');
+  LStek.CurrentKey(LAfter, LKey);
+  CheckTrue(AreEqual(LBefore, LAfter), 'and the ring is left unchanged');
+end;
+
+procedure TTestSessionStore.TestStekInstallKeyRejectsBadKeyLength;
+var
+  LConcrete: TStekTicketKeyManager;
+  LStek: ISessionTicketKeyManager;
+  LBefore, LAfter: TBytes;
+  LKey: ISecretBuffer;
+  LRaised: Boolean;
+begin
+  LConcrete := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := LConcrete;
+  LStek.CurrentKey(LBefore, LKey);
+  LRaised := False;
+  try
+    LConcrete.InstallKey(Tag($55, 16), TSecretBuffer.From(Tag($66, 31)));
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a wrong-length key is rejected at install time');
+  LStek.CurrentKey(LAfter, LKey);
+  CheckTrue(AreEqual(LBefore, LAfter), 'and the ring is left unchanged');
+end;
+
+procedure TTestSessionStore.TestStekInstallKeyRejectsNilKey;
+var
+  LConcrete: TStekTicketKeyManager;
+  LStek: ISessionTicketKeyManager;
+  LBefore, LAfter: TBytes;
+  LKey: ISecretBuffer;
+  LRaised: Boolean;
+begin
+  LConcrete := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := LConcrete;
+  LStek.CurrentKey(LBefore, LKey);
+  LRaised := False;
+  try
+    LConcrete.InstallKey(Tag($55, 16), nil);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a nil key is rejected at install time');
+  LStek.CurrentKey(LAfter, LKey);
+  CheckTrue(AreEqual(LBefore, LAfter), 'and the ring is left unchanged');
+end;
+
+procedure TTestSessionStore.TestStekInstallKeyDisablesAutoRotation;
+var
+  LClockObj: TAdjustableClock;
+  LClock: ITlsClock;
+  LConcrete: TStekTicketKeyManager;
+  LStek: ISessionTicketKeyManager;
+  LInstalled, LName: TBytes;
+  LKey: ISecretBuffer;
+begin
+  LClockObj := TAdjustableClock.Create(1000000);
+  LClock := LClockObj;
+  LConcrete := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom, 0, LClock, 10);
+  LStek := LConcrete;
+  LInstalled := Tag($55, 16);
+  LConcrete.InstallKey(LInstalled, TSecretBuffer.From(Tag($66, 32)));
+  LClockObj.Advance(11000); // past the auto-rotation interval
+  LStek.CurrentKey(LName, LKey);
+  CheckTrue(AreEqual(LInstalled, LName),
+    'installing a key freezes auto-rotation for fleet coordination');
+end;
+
+procedure TTestSessionStore.TestStekInstalledKeyDoesNotTimeExpire;
+var
+  LClockObj: TAdjustableClock;
+  LClock: ITlsClock;
+  LConcrete: TStekTicketKeyManager;
+  LStek: ISessionTicketKeyManager;
+  LInstalled, LNext, LName: TBytes;
+  LKey, LFound: ISecretBuffer;
+begin
+  LClockObj := TAdjustableClock.Create(1000000);
+  LClock := LClockObj;
+  LConcrete := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom, 2, LClock, 10);
+  LStek := LConcrete;
+  LInstalled := Tag($55, 16);
+  LConcrete.InstallKey(LInstalled, TSecretBuffer.From(Tag($66, 32)));
+  LClockObj.Advance(1000000); // far past any age bound: the fleet, not the clock, owns retirement
+  CheckTrue(LStek.KeyByName(LInstalled, LFound),
+    'an installed key is not retired by the local clock (fleet nodes stamp it independently)');
+  CheckTrue(LStek.CurrentKey(LName, LKey), 'and it still seals');
+  CheckTrue(AreEqual(LInstalled, LName), 'under the installed name');
+  // the operator retires an old key by installing newer ones until the window pushes it out
+  LNext := Tag($77, 16);
+  LConcrete.InstallKey(LNext, TSecretBuffer.From(Tag($88, 32)));
+  LConcrete.InstallKey(Tag($99, 16), TSecretBuffer.From(Tag($AA, 32)));
+  CheckFalse(LStek.KeyByName(LInstalled, LFound),
+    'the first installed key falls out of the window once newer keys arrive');
+end;
+
+procedure TTestSessionStore.TestStekRotateDoesNotShortenTimer;
+var
+  LClockObj: TAdjustableClock;
+  LClock: ITlsClock;
+  LStek: ISessionTicketKeyManager;
+  LNameA, LName: TBytes;
+  LKey, LFound: ISecretBuffer;
+begin
+  LClockObj := TAdjustableClock.Create(1000000);
+  LClock := LClockObj;
+  // window 2, interval 10 s
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom, 2, LClock, 10);
+  LStek.CurrentKey(LNameA, LKey);
+  LClockObj.Advance(9000); // just before the interval elapses
+  LStek.Rotate; // an out-of-schedule rotation must push the next timed rotation out, not keep it
+  LClockObj.Advance(2000); // t = 11 s: past the ORIGINAL interval, before the rescheduled one
+  LStek.CurrentKey(LName, LKey); // would fire a second rotation (evicting A by count) if unshifted
+  CheckTrue(LStek.KeyByName(LNameA, LFound),
+    'a manual rotation reschedules the timer so the prior key is not evicted early');
+end;
+
+procedure TTestSessionStore.TestStekBackwardsClockDoesNotExpireOrRaise;
+var
+  LClockObj: TAdjustableClock;
+  LClock: ITlsClock;
+  LStek: ISessionTicketKeyManager;
+  LNameA, LName: TBytes;
+  LKey, LFound: ISecretBuffer;
+  LRaised: Boolean;
+begin
+  LClockObj := TAdjustableClock.Create(1000000);
+  LClock := LClockObj;
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom, 2, LClock, 10);
+  LStek.CurrentKey(LNameA, LKey);
+  LClockObj.Advance(5000);
+  LClockObj.Retreat(8000); // the clock steps back before the key's birth
+  LRaised := False;
+  try
+    CheckTrue(LStek.KeyByName(LNameA, LFound),
+      'a backwards clock step does not prematurely expire a live key');
+    LStek.CurrentKey(LName, LKey);
+  except
+    LRaised := True;
+  end;
+  CheckFalse(LRaised, 'a backwards clock step does not underflow or raise');
+end;
+
+procedure TTestSessionStore.TestStekOpenWithUnbindableKeyFallsBack;
+var
+  LStrategy: ISessionTicketStrategy;
+  LTicket: TBytes;
+  LSession: IResumableSession;
+  LOk, LRaised: Boolean;
+begin
+  // a key the manager cannot bind (here, a wrong-length one) must fall back to a full handshake,
+  // not let the AEAD Init exception escape the open path
+  LStrategy := TStekTicketStrategy.Create(Provider, TBadKeyManager.Create as ISessionTicketKeyManager);
+  LTicket := Tag($01, 60); // long enough to pass the framing length check and reach the AEAD
+  LRaised := False;
+  LOk := True;
+  try
+    LOk := LStrategy.Open(LTicket, LSession);
+  except
+    LRaised := True;
+  end;
+  CheckFalse(LRaised, 'opening with an unbindable key does not raise');
+  CheckFalse(LOk, 'it falls back to a full handshake');
 end;
 
 procedure TTestSessionStore.TestAntiReplayDetectsReplay;

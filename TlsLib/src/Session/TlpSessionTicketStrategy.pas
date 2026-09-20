@@ -306,13 +306,16 @@ begin
   end;
   LNonce := FProvider.Primitives.GetRandom.GenerateBytes(TicketNonceLength);
   LAead := FProvider.Primitives.CreateAead(TAeadAlgorithm.AES_256_GCM);
-  LAead.Init(LKey);
   try
+    LAead.Init(LKey);
     // the key name is authenticated as associated data (it is not secret)
     LCipher := LAead.Seal(LNonce, LKeyName, LPlain);
-  finally
+  except
+    // a custom manager that hands over an unusable key must not fault the handshake; issue no ticket
     TSecureMemory.WipeBytes(LPlain);
+    Exit;
   end;
+  TSecureMemory.WipeBytes(LPlain);
   SetLength(Result, System.Length(LKeyName) + System.Length(LNonce) +
     System.Length(LCipher));
   Move(LKeyName[0], Result[0], System.Length(LKeyName));
@@ -342,11 +345,12 @@ begin
   LNonce := System.Copy(ATicket, LNameLen, TicketNonceLength);
   LCipher := System.Copy(ATicket, LNameLen + TicketNonceLength,
     System.Length(ATicket) - LNameLen - TicketNonceLength);
-  LAead.Init(LKey);
   try
+    // Init can reject a key a custom manager cannot bind (e.g. a wrong-length one); keep it inside
+    // the guard so that, like an authentication failure, it falls back to a full handshake
+    LAead.Init(LKey);
     LPlain := LAead.Open(LNonce, LKeyName, LCipher);
   except
-    // authentication failure (tampered / wrong key) -> full handshake
     Exit;
   end;
   try
