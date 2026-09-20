@@ -28,6 +28,8 @@ uses
 {$ENDIF FPC}
   TlpICryptoProvider,
   TlpISigningKey,
+  TlpDefaultCryptoProvider,
+  TlpOSCryptoProvider,
   TlpCryptoDomainTypes,
   TlpNegotiationTypes,
   TlpHandshakeMessages,
@@ -45,6 +47,8 @@ type
     function TamperedVerifyFails(AScheme: TSignatureScheme;
       const APrivDer, APubDer: TBytes): Boolean;
     function Rfc8448LeafSpki: TBytes;
+    function VerifyEcdsa(const AProvider: ICryptoProvider;
+      const ASig, AMsg: TBytes): Boolean;
     function HashOf(const ANames: array of string): TBytes;
     function ServerCertVerifyContent(const ATranscriptHash: TBytes): TBytes;
     function CertVerifySignature: TBytes;
@@ -66,6 +70,9 @@ type
     procedure TestVerifierRejectsUnclassifiableKey;
     procedure TestSignerRejectsSchemeOutsideCapableSchemes;
     procedure TestLeafPolicyRejectsSchemeFamilyMismatch;
+    // the overlay ECDSA verifier accepts a valid signature and rejects a non-DER encoding
+    procedure TestSystemEcdsaVerifiesValidAndRejectsTrailingBytes;
+    procedure TestSystemSignerRejectsSchemeOutsideCapableSchemes;
   end;
 
 implementation
@@ -373,6 +380,70 @@ begin
   CheckTrue(LRaised, 'an RSA leaf presented for an ecdsa_* signature is rejected');
   CheckEquals(Ord(TTlsAlertDescription.IllegalParameter), Ord(LAlert),
     'the alert is illegal_parameter');
+end;
+
+function TTestSignature.VerifyEcdsa(const AProvider: ICryptoProvider;
+  const ASig, AMsg: TBytes): Boolean;
+var
+  LVerifier: ISignatureVerifier;
+begin
+  LVerifier := AProvider.Signing.CreateSignatureVerifier(
+    TSignatureScheme.ECDSA_SECP256R1_SHA256, DecodeHex(FKeys.Values['ecdsa_pub']));
+  LVerifier.Update(AMsg, 0, System.Length(AMsg));
+  Result := LVerifier.Verify(ASig);
+end;
+
+procedure TTestSignature.TestSystemEcdsaVerifiesValidAndRejectsTrailingBytes;
+var
+  LProvider: ICryptoProvider;
+  LMessage, LSig, LTampered: TBytes;
+  LSigner: ISignatureSigner;
+  LRejected: Boolean;
+begin
+  // the OS-native overlay (native where present, portable fallback otherwise): a valid ECDSA
+  // signature verifies (no regression from the stricter DER check), and a signature with a
+  // trailing byte after the SEQUENCE is rejected - either as a False verdict (the native decoder)
+  // or by the strict DER decoder raising, so the check tolerates both
+  LProvider := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider);
+  LMessage := DecodeHex('54686520717569636b2062726f776e20666f78'); // "The quick brown fox"
+  LSigner := LProvider.Signing.CreateSignatureSigner(
+    TSignatureScheme.ECDSA_SECP256R1_SHA256,
+    LProvider.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ecdsa_key'])));
+  LSigner.Update(LMessage, 0, System.Length(LMessage));
+  LSig := LSigner.Sign;
+
+  CheckTrue(VerifyEcdsa(LProvider, LSig, LMessage), 'a valid ECDSA signature verifies');
+
+  LTampered := System.Copy(LSig);
+  SetLength(LTampered, System.Length(LTampered) + 1); // a trailing byte after the DER SEQUENCE
+  LRejected := False;
+  try
+    LRejected := not VerifyEcdsa(LProvider, LTampered, LMessage);
+  except
+    on E: Exception do
+      LRejected := True;
+  end;
+  CheckTrue(LRejected, 'a signature with a trailing byte is rejected');
+end;
+
+procedure TTestSignature.TestSystemSignerRejectsSchemeOutsideCapableSchemes;
+var
+  LProvider: ICryptoProvider;
+  LKey: ISigningKey;
+  LRaised: Boolean;
+begin
+  // the overlay signer enforces the same CapableSchemes gate as the portable one (native where
+  // present, portable fallback otherwise), so this holds on every host
+  LProvider := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider);
+  LKey := LProvider.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ecdsa_key']));
+  LRaised := False;
+  try
+    LProvider.Signing.CreateSignatureSigner(TSignatureScheme.RSA_PSS_RSAE_SHA256, LKey);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the overlay signer refuses a scheme outside the key''s CapableSchemes');
 end;
 
 initialization
