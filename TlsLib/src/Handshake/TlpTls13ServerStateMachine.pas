@@ -246,8 +246,6 @@ type
     /// <summary>The configured external PSKs imported for every supported KDF hash, in
     /// server preference order; matched against a ClientHello's offered identities.</summary>
     FExternalPsks: TArray<IPreSharedKey>;
-    /// <summary>The transcript hash through the client Finished, for issuing tickets.</summary>
-    FResumptionTranscriptHash: TBytes;
     /// <summary>How tickets are sealed and opened (STEK stateless, or store single-use);
     /// nil when resumption is not configured.</summary>
     FTicketStrategy: ISessionTicketStrategy;
@@ -1373,7 +1371,12 @@ begin
     FSelectedSuite.Common.KeyLength);
   // psk_dhe_ke: the resumption PSK seeds the early secret, the fresh ECDHE the handshake
   if FPskAccepted then
+  begin
     FSchedule.SetPsk(FPskSecret);
+    // the PSK is now folded into the early secret; drop this reference so it does not outlive
+    // the handshake (the schedule releases its own copy after the extract)
+    FPskSecret := nil;
+  end;
   FSchedule.SetSharedSecret(LShared);
   FSchedule.DeriveEpochSecrets(TTlsEpoch.Handshake, FTranscript.CurrentHash);
 
@@ -1785,7 +1788,7 @@ begin
       @SBadClientFinished);
   FTranscript.Update(AMessage.Raw);
   // the resumption master secret is over the transcript through the client Finished
-  FResumptionTranscriptHash := FTranscript.CurrentHash;
+  FSchedule.DeriveResumptionMasterSecret(FTranscript.CurrentHash);
 
   FPhase := TPhase.Connected;
   Result := TArray<THandshakeEffect>.Create(
@@ -1805,6 +1808,9 @@ begin
     THandshakeEffects.HandshakeEstablished);
   // issue resumption tickets under the freshly-installed application write keys
   EmitNewSessionTickets(Result);
+  // tickets are minted; release the handshake-stage secrets (the connection keeps its application
+  // traffic secrets, exporter, and the resumption master derived above)
+  FSchedule.ForgetHandshakeSecrets;
 end;
 
 procedure TTls13ServerStateMachine.EmitNewSessionTickets(
@@ -1839,7 +1845,7 @@ begin
     // the same value is sealed into the session so the offered age reconciles on resumption
     LAgeAdd := TBinaryPrimitives.ReadUInt32BigEndian(
       FParams.Provider.Primitives.GetRandom.GenerateBytes(4), 0);
-    LPsk := FSchedule.ResumptionPsk(FResumptionTranscriptHash, LNonce);
+    LPsk := FSchedule.ResumptionPsk(LNonce);
     // the ticket identity is the sealed/handle output, so the session's own id is unused;
     // MaxEarlyData authorizes 0-RTT on the resumed connection
     // carry the verified client chain so a resumed mutual-TLS connection surfaces it (empty on a

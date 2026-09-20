@@ -35,6 +35,7 @@ uses
   TlpRecordProtection,
   TlpIKeySchedule,
   TlpTls12KeySchedule,
+  TlpTlsLibExceptions,
   TlsLibTestBase;
 
 type
@@ -47,6 +48,7 @@ type
     procedure TestExtendedMasterSecretChangesTheMaster;
     procedure TestVerifyDataComputeAndReject;
     procedure TestExporterIsDeterministic;
+    procedure TestForgetKeepsMasterForExporterAndReleasesKeyBlock;
   end;
 
 implementation
@@ -161,6 +163,35 @@ begin
   LSecond := LSched.ExportKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), True, 32);
   CheckEquals(32, System.Length(LFirst), 'requested length honored');
   CheckEqualBytes('exporter is deterministic', LFirst, LSecond);
+end;
+
+procedure TTestTls12KeySchedule.TestForgetKeepsMasterForExporterAndReleasesKeyBlock;
+var
+  LSched: ITls12KeySchedule;
+  LExportBefore, LExportAfter: TBytes;
+  LRaised: Boolean;
+begin
+  // after forget the master secret (RFC 5705 exporter) still works, but the key-block traffic
+  // keys are released
+  LSched := NewSchedule;
+  LSched.DeriveMasterSecret;
+  LSched.DeriveKeyBlock;
+  LExportBefore := LSched.ExportKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), True, 32);
+
+  LSched.ForgetHandshakeSecrets;
+
+  LExportAfter := LSched.ExportKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), True, 32);
+  CheckEqualBytes('exporter unchanged after forget', LExportBefore, LExportAfter);
+  CheckTrue(LSched.MasterSecret <> nil, 'master secret retained after forget');
+
+  LRaised := False;
+  try
+    LSched.TrafficKeys(TTlsEpoch.Application, TTlsDirection.ClientWrite);
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the key-block traffic keys are released after forget');
 end;
 
 initialization

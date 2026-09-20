@@ -54,6 +54,7 @@ type
     procedure TestUInt24OverflowRaises;
     procedure TestVectorBodyTooLongRaises;
     procedure TestInvalidPrefixWidthRaises;
+    procedure TestGrowthAcrossManyReallocationsRoundTrips;
   end;
 
 implementation
@@ -373,6 +374,30 @@ begin
   finally
     LWriter.Free;
   end;
+end;
+
+procedure TTestWireCodec.TestGrowthAcrossManyReallocationsRoundTrips;
+var
+  LWriter: TWireWriter;
+  LReader: TWireReader;
+  LI: Int32;
+  LOk: Boolean;
+begin
+  // force many buffer reallocations (the wiping-growth path) and confirm the content survives
+  LWriter := TWireWriter.Create;
+  try
+    for LI := 0 to 4999 do
+      LWriter.WriteUInt8(Byte(LI and $FF));
+    LReader := TWireReader.Create(LWriter.ToBytes);
+  finally
+    LWriter.Free;
+  end;
+  LOk := True;
+  for LI := 0 to 4999 do
+    if LReader.ReadUInt8 <> Byte(LI and $FF) then
+      LOk := False;
+  CheckTrue(LOk, 'every byte survives repeated growth');
+  CheckTrue(LReader.EndReached, 'all consumed');
 end;
 
 initialization

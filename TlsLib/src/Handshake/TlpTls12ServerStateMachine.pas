@@ -994,6 +994,8 @@ begin
     THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code, 0, True,
     FRequestedServerName),
     THandshakeEffects.HandshakeEstablished);
+  // the read keys are installed and the session re-stored; release the handshake-stage material
+  FSchedule.ForgetHandshakeSecrets;
 end;
 
 function TTls12ServerStateMachine.ProcessClientFinished(
@@ -1049,6 +1051,9 @@ begin
     FRequestedServerName));
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.HandshakeEstablished);
+  // the stored session captured the master secret and the write keys are installed; release the
+  // handshake-stage material (the master secret stays for the RFC 5705 exporter)
+  FSchedule.ForgetHandshakeSecrets;
 end;
 
 function TTls12ServerStateMachine.Route(

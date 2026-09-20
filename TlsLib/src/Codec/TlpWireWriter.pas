@@ -20,6 +20,7 @@ uses
   TlpBinaryPrimitives,
   TlpWireVectorMarker,
   TlpIWireWriter,
+  TlpSecureMemory,
   TlpTlsLibExceptions;
 
 type
@@ -28,7 +29,8 @@ type
   /// growable buffer. Big-endian integers, and length-prefixed vectors written as
   /// an OpenVector/CloseVector pair that emits a length placeholder, appends the
   /// body, then back-patches the prefix (so nested structures need no size
-  /// pre-computation).
+  /// pre-computation). The buffer is wiped on growth and on destruction, so a serialized
+  /// secret (e.g. a session's master secret or resumption PSK) does not linger in a freed block.
   /// </summary>
   TWireWriter = class sealed(TInterfacedObject, IWireWriter)
   strict private
@@ -39,6 +41,7 @@ type
     procedure AppendByte(AValue: Byte);
   public
     constructor Create;
+    destructor Destroy; override;
 
     procedure WriteUInt8(AValue: Byte);
     procedure WriteUInt16(AValue: UInt16);
@@ -78,9 +81,16 @@ begin
   FLen := 0;
 end;
 
+destructor TWireWriter.Destroy;
+begin
+  TSecureMemory.WipeBytes(FBuf);
+  inherited Destroy;
+end;
+
 procedure TWireWriter.EnsureCapacity(AAdditional: Int32);
 var
   LCapacity, LNeeded: Int32;
+  LNew: TBytes;
 begin
   LNeeded := FLen + AAdditional;
   LCapacity := System.Length(FBuf);
@@ -90,7 +100,14 @@ begin
     LCapacity := 64;
   while LCapacity < LNeeded do
     LCapacity := LCapacity * 2;
-  SetLength(FBuf, LCapacity);
+  // grow into a fresh block and wipe the old one: SetLength would move the contents and free the
+  // old block unwiped, leaving a copy of any serialized secret behind
+  LNew := nil;
+  SetLength(LNew, LCapacity);
+  if FLen > 0 then
+    Move(FBuf[0], LNew[0], FLen);
+  TSecureMemory.WipeBytes(FBuf);
+  FBuf := LNew;
 end;
 
 procedure TWireWriter.AppendByte(AValue: Byte);

@@ -34,6 +34,7 @@ uses
   TlpIRecordProtection,
   TlpRecordProtection,
   TlpHkdfLabel,
+  TlpTlsLibExceptions,
   TlpIKeySchedule,
   TlpTls13KeySchedule,
   TlpITranscriptHash,
@@ -69,6 +70,10 @@ type
     procedure TestPskDheKeDiffersFromPskKe;
     procedure TestPartialTranscriptForBinder;
     procedure TestExternalPskImporterIdentityAndBinder;
+    procedure TestForgetKeepsApplicationEpochAndExporter;
+    procedure TestForgetReleasesHandshakeStages;
+    procedure TestForgetBeforeApplicationEpochRaises;
+    procedure TestResumptionPskSurvivesForget;
   end;
 
 implementation
@@ -152,8 +157,9 @@ begin
 
   // the resumption master secret is the schedule's own public output
   LResumption := NewSchedule;
+  LResumption.DeriveResumptionMasterSecret(Bytes('hash_ch_cf'));
   CheckEqualBytes('resumption master', Bytes('res_master'),
-    ToBytes(LResumption.ResumptionMasterSecret(Bytes('hash_ch_cf'))));
+    ToBytes(LResumption.ResumptionMasterSecret));
 end;
 
 procedure TTestTls13KeySchedule.TestTrafficKeysRfc8448;
@@ -415,6 +421,120 @@ begin
   CheckFalse(AreEqual(LImpBinder,
     LClient.ComputeBinder(TPskBinderKind.Resumption, LTrunc)),
     'the imported and resumption binders differ for the same key');
+end;
+
+procedure TTestTls13KeySchedule.TestForgetKeepsApplicationEpochAndExporter;
+var
+  LSched: ITls13KeySchedule;
+  LApKeyBefore, LExportBefore, LApKeyAfter, LExportAfter: TBytes;
+begin
+  // after releasing the handshake secrets, the live connection's application traffic keys,
+  // exporter, and KeyUpdate must all keep working
+  LSched := NewSchedule;
+  LSched.DeriveEpochSecrets(TTlsEpoch.Handshake, Bytes('hash_ch_sh'));
+  LSched.DeriveEpochSecrets(TTlsEpoch.Application, Bytes('hash_ch_sf'));
+  LApKeyBefore := ToBytes(LSched.TrafficKeys(TTlsEpoch.Application,
+    TTlsDirection.ClientWrite).Key);
+  LExportBefore := LSched.ExportKeyingMaterial('EXPORTER-x', Bytes('ctx'), True, 32);
+
+  LSched.DeriveResumptionMasterSecret(Bytes('hash_ch_cf'));
+  LSched.ForgetHandshakeSecrets;
+
+  LApKeyAfter := ToBytes(LSched.TrafficKeys(TTlsEpoch.Application,
+    TTlsDirection.ClientWrite).Key);
+  LExportAfter := LSched.ExportKeyingMaterial('EXPORTER-x', Bytes('ctx'), True, 32);
+  CheckEqualBytes('application key unchanged after forget', LApKeyBefore, LApKeyAfter);
+  CheckEqualBytes('exporter unchanged after forget', LExportBefore, LExportAfter);
+  CheckTrue(LSched.HasExporterSecret, 'exporter secret retained after forget');
+  LSched.AdvanceKeyUpdate(TTlsDirection.ClientWrite);
+  CheckFalse(AreEqual(LApKeyAfter, ToBytes(LSched.TrafficKeys(TTlsEpoch.Application,
+    TTlsDirection.ClientWrite).Key)), 'KeyUpdate still advances the application key after forget');
+end;
+
+procedure TTestTls13KeySchedule.TestForgetReleasesHandshakeStages;
+var
+  LSched: ITls13KeySchedule;
+  LRaisedTraffic, LRaisedFinished, LRaisedSetPsk, LRaisedDerive: Boolean;
+begin
+  LSched := NewSchedule;
+  LSched.DeriveEpochSecrets(TTlsEpoch.Handshake, Bytes('hash_ch_sh'));
+  LSched.DeriveEpochSecrets(TTlsEpoch.Application, Bytes('hash_ch_sf'));
+  LSched.DeriveResumptionMasterSecret(Bytes('hash_ch_cf'));
+  LSched.ForgetHandshakeSecrets;
+
+  // the handshake-stage reads now fail, and no derivation silently rebuilds a zero tree
+  LRaisedTraffic := False;
+  try
+    LSched.TrafficKeys(TTlsEpoch.Handshake, TTlsDirection.ClientWrite);
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaisedTraffic := True;
+  end;
+  CheckTrue(LRaisedTraffic, 'handshake traffic keys released');
+
+  LRaisedFinished := False;
+  try
+    LSched.FinishedKey(TTlsDirection.ServerWrite);
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaisedFinished := True;
+  end;
+  CheckTrue(LRaisedFinished, 'finished key released');
+
+  LRaisedSetPsk := False;
+  try
+    LSched.SetPsk(TSecretBuffer.From(Bytes('x')));
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaisedSetPsk := True;
+  end;
+  CheckTrue(LRaisedSetPsk, 'SetPsk rejected after forget');
+
+  LRaisedDerive := False;
+  try
+    LSched.DeriveEpochSecrets(TTlsEpoch.Handshake, Bytes('hash_ch_sh'));
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaisedDerive := True;
+  end;
+  CheckTrue(LRaisedDerive, 'no silent handshake re-derivation after forget');
+end;
+
+procedure TTestTls13KeySchedule.TestForgetBeforeApplicationEpochRaises;
+var
+  LSched: ITls13KeySchedule;
+  LRaised: Boolean;
+begin
+  LSched := NewSchedule;
+  LSched.DeriveEpochSecrets(TTlsEpoch.Handshake, Bytes('hash_ch_sh'));
+  LRaised := False;
+  try
+    LSched.ForgetHandshakeSecrets; // application epoch not derived yet
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'forgetting before the application epoch exists is rejected');
+end;
+
+procedure TTestTls13KeySchedule.TestResumptionPskSurvivesForget;
+var
+  LKept, LReference: ITls13KeySchedule;
+begin
+  // the resumption master (derived before forget) still yields a per-ticket PSK afterwards,
+  // matching a schedule that never forgot
+  LKept := NewSchedule;
+  LKept.DeriveEpochSecrets(TTlsEpoch.Application, Bytes('hash_ch_sf'));
+  LKept.DeriveResumptionMasterSecret(Bytes('hash_ch_cf'));
+  LKept.ForgetHandshakeSecrets;
+
+  LReference := NewSchedule;
+  LReference.DeriveEpochSecrets(TTlsEpoch.Application, Bytes('hash_ch_sf'));
+  LReference.DeriveResumptionMasterSecret(Bytes('hash_ch_cf'));
+
+  CheckEqualBytes('resumption PSK survives forget',
+    ToBytes(LReference.ResumptionPsk(Bytes('nonce'))),
+    ToBytes(LKept.ResumptionPsk(Bytes('nonce'))));
 end;
 
 initialization
