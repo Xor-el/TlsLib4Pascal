@@ -139,7 +139,7 @@ type
     procedure TestCoalescedCrossEpochFlightCompletes;
     procedure TestAppDataAcrossRecordsChunkedReads;
     procedure TestUnexpectedMessageAbortsWithUnexpectedMessage;
-    procedure TestMiddleboxChangeCipherSpecIgnored;
+    procedure TestMiddleboxChangeCipherSpec;
     procedure TestStapledGoodOcspCompletesUnderHardPosture;
     procedure TestMissingStapleAbortsUnderHardPosture;
     procedure TestSniSelectsHostCredentialAmongMany;
@@ -1665,22 +1665,36 @@ begin
     Ord(LClient.LastError.Alert.Description), 'it aborts with unexpected_message');
 end;
 
-procedure TTestTls13Loopback.TestMiddleboxChangeCipherSpecIgnored;
+procedure TTestTls13Loopback.TestMiddleboxChangeCipherSpec;
 var
-  LClient: ITlsEngine;
-  LOutcome: TTlsOutcome;
+  LClient, LServer: ITlsEngine;
+  LI: Int32;
 begin
+  // before any ServerHello has fixed the version, a bare change_cipher_spec is out of its legal
+  // window (RFC 8446 D.4): the client fails with unexpected_message, not a silent drop
   LClient := NewClient;
   LClient.StartHandshake;
   Drain(LClient);
+  LClient.ProcessInput(DecodeHex('14 03 03 00 01 01'), 0, 6);
+  CheckTrue(LClient.IsTerminal, 'a change_cipher_spec before the ServerHello fails the client');
+  CheckTrue(LClient.LastError.Alert.Description = TTlsAlertDescription.UnexpectedMessage,
+    'the pre-hello change_cipher_spec is unexpected_message');
 
-  // a bare change_cipher_spec arriving mid-handshake is dropped, not an error
-  LOutcome := LClient.ProcessInput(DecodeHex('14 03 03 00 01 01'), 0, 6);
-
-  CheckEquals(Ord(TTlsOutcome.NeedMoreInput), Ord(LOutcome),
-    'the CCS produced nothing and the engine wants more input');
-  CheckFalse(LClient.IsTerminal, 'the CCS did not fail the engine');
-  CheckTrue(LClient.IsHandshaking, 'the client is still handshaking');
+  // a normal handshake carries the server's middlebox change_cipher_spec right after its
+  // ServerHello; the client drops it once the version is fixed, so the handshake completes
+  LClient := NewClient;
+  LServer := NewServer;
+  LClient.StartHandshake;
+  LI := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LI < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LI);
+  end;
+  CheckFalse(LClient.IsTerminal or LServer.IsTerminal,
+    'the handshake carrying the middlebox change_cipher_spec completed');
+  CheckFalse(LClient.IsHandshaking, 'the client finished the handshake');
 end;
 
 procedure TTestTls13Loopback.TestStapledGoodOcspCompletesUnderHardPosture;

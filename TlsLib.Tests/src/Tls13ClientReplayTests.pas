@@ -92,7 +92,7 @@ type
     procedure InstallWriteProtection(const AProtection: IRecordProtection);
     procedure ArmReadProtectionOnChangeCipherSpec(const AProtection: IRecordProtection);
     procedure RevertWriteToPlaintext;
-    procedure SetRecordSizeLimit(AOutboundPlaintext, AInboundPlaintext: Int32);
+    procedure SetRecordSizeLimit(AOutboundLimit, AInboundLimit: Int32);
     procedure SetEarlyDataSkip(AMaxBytes: Int32);
     procedure SetEarlyDataLimit(AMaxBytes: Int32);
     procedure SetEarlyReadEpoch(AActive: Boolean);
@@ -250,10 +250,10 @@ begin
   FLayer.SetEarlyReadAccepted(AActive);
 end;
 
-procedure TRecordLayerInstaller.SetRecordSizeLimit(AOutboundPlaintext,
-  AInboundPlaintext: Int32);
+procedure TRecordLayerInstaller.SetRecordSizeLimit(AOutboundLimit,
+  AInboundLimit: Int32);
 begin
-  FLayer.SetRecordSizeLimit(AOutboundPlaintext, AInboundPlaintext);
+  FLayer.SetRecordSizeLimit(AOutboundLimit, AInboundLimit);
 end;
 
 procedure TRecordLayerInstaller.SetEarlyDataSkip(AMaxBytes: Int32);

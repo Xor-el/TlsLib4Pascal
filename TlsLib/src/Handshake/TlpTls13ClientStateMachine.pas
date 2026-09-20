@@ -1663,9 +1663,12 @@ begin
   FSchedule.DeriveEpochSecrets(TTlsEpoch.Handshake, FTranscript.CurrentHash);
 
   FPhase := TPhase.WaitEncryptedExtensions;
-  // the middlebox change_cipher_spec goes out first (empty here when 0-RTT already sent
-  // it), then the server handshake read keys install
-  Result := MiddleboxCcs;
+  // the version leads the flight so the server's change_cipher_spec is classified (dropped)
+  // before it is pulled; then the middlebox change_cipher_spec goes out (empty here when 0-RTT
+  // already sent it) and the server handshake read keys install
+  Result := TArrayUtilities.Concat<THandshakeEffect>(
+    TArray<THandshakeEffect>.Create(
+    THandshakeEffects.NegotiatedVersion(TTlsVersion.Tls13)), MiddleboxCcs);
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Handshake,
     TTlsDirection.ServerWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13));
@@ -1686,7 +1689,6 @@ function TTls13ClientStateMachine.ProcessEncryptedExtensions(
   const AMessage: TTlsHandshakeMessage): TArray<THandshakeEffect>;
 var
   LContext: TExtensionContext;
-  LOutbound, LInbound: Int32;
   LServerAcceptedEarly, LHasEch: Boolean;
   LEchData: TBytes;
 begin
@@ -1712,23 +1714,16 @@ begin
         THandshakeEffects.SelectAlpn(LContext.SelectedAlpn));
     end;
 
-    // apply the negotiated record_size_limit (RFC 8449): content-byte caps are the
-    // negotiated value less the 1.3 inner content-type byte
+    // apply the negotiated record_size_limit (RFC 8449) as raw TLSInnerPlaintext caps;
+    // the record layer accounts for the inner content-type byte
     if (LContext.RecordSizeLimit > 0) or (FParams.RecordSizeLimit > 0) then
     begin
       if (LContext.RecordSizeLimit > 0) and (LContext.RecordSizeLimit < 64) then
         raise EFatalAlertTlsLibException.CreateRes(
           TTlsAlertDescription.IllegalParameter, @SBadRecordSizeLimit);
-      if LContext.RecordSizeLimit > 0 then
-        LOutbound := LContext.RecordSizeLimit - 1
-      else
-        LOutbound := 0;
-      if FParams.RecordSizeLimit > 0 then
-        LInbound := FParams.RecordSizeLimit - 1
-      else
-        LInbound := 0;
       TArrayUtilities.Append<THandshakeEffect>(Result,
-        THandshakeEffects.SetRecordSizeLimit(LOutbound, LInbound));
+        THandshakeEffects.SetRecordSizeLimit(LContext.RecordSizeLimit,
+        FParams.RecordSizeLimit));
     end;
   finally
     LContext.Free;
@@ -1929,8 +1924,13 @@ begin
   end;
   FPhase := TPhase.WaitServerHello;
   // on a retry the client's second flight is the second ClientHello, so the middlebox
-  // change_cipher_spec goes immediately before it (RFC 8446 D.4)
-  Result := MiddleboxCcs;
+  // change_cipher_spec goes immediately before it (RFC 8446 D.4). The negotiated version leads
+  // the flight so the server's post-HelloRetryRequest change_cipher_spec is classified (dropped)
+  // before it is pulled: a retry installs no keys, so nothing else fixes the version until the
+  // real ServerHello.
+  Result := TArrayUtilities.Concat<THandshakeEffect>(
+    TArray<THandshakeEffect>.Create(
+    THandshakeEffects.NegotiatedVersion(TTlsVersion.Tls13)), MiddleboxCcs);
   // when this ClientHello had opened the 0-RTT write window, the early data is now rejected:
   // signal it and drop the write epoch back to plaintext so the second ClientHello onward is
   // sent in the clear (the middlebox change_cipher_spec was already emitted with the first flight)

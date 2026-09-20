@@ -28,6 +28,7 @@ uses
   TlpTlsAlert,
   TlpTlsLibExceptions,
   TlpTlsContentType,
+  TlpTlsVersion,
   TlpSecretBuffer,
   TlpICryptoProvider,
   TlpCryptoDomainTypes,
@@ -57,7 +58,11 @@ type
     procedure TestFramedBacklogBoundAndDiscard;
     procedure TestEmptyRecordFloodCapped;
     procedure TestRecordSizeLimitRejectsOversizeInbound;
+    procedure TestRecordSizeLimitCountsInnerPlaintextNotContent;
+    procedure TestRecordSizeLimitInnerPlaintextBoundary;
     procedure TestChangeCipherSpecDropped;
+    procedure TestChangeCipherSpecBeforeHelloRejected;
+    procedure TestTls12UnarmedChangeCipherSpecRejected;
     procedure TestChangeCipherSpecFloodCapped;
     procedure TestChangeCipherSpecAfterHandshakeRejected;
     procedure TestMalformedChangeCipherSpecRejected;
@@ -403,6 +408,95 @@ begin
   end;
 end;
 
+procedure TTestRecordLayer.TestRecordSizeLimitCountsInnerPlaintextNotContent;
+var
+  LRecv: TRecordLayer;
+  LAead: IAead;
+  LKey, LIv, LInner, LHeader, LCipher, LRecord: TBytes;
+  LFrag: TTlsRecordFragment;
+  LCipherLen: Int32;
+  LRaised: Boolean;
+begin
+  LKey := DecodeHex('000102030405060708090a0b0c0d0e0f');
+  LIv := DecodeHex('101112131415161718191a1b');
+  // craft a TLS 1.3 record: 10 content bytes, the application_data inner type, then 100
+  // padding bytes. Content (10) is well under a 64-byte limit, but the TLSInnerPlaintext
+  // (111) is not - padding must not hide the overflow (RFC 8449).
+  LInner := nil;
+  SetLength(LInner, 111);
+  LInner[10] := Byte(Ord(TTlsContentType.ApplicationData)); // rest stay zero (padding)
+  LAead := Provider.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM);
+  LAead.Init(TSecretBuffer.From(LKey));
+  LCipherLen := System.Length(LInner) + LAead.TagSize;
+  SetLength(LHeader, TRecordLimits.HeaderLength);
+  LHeader[0] := Byte(Ord(TTlsContentType.ApplicationData));
+  LHeader[1] := $03;
+  LHeader[2] := $03;
+  LHeader[3] := Byte(LCipherLen shr 8);
+  LHeader[4] := Byte(LCipherLen and $FF);
+  LCipher := LAead.Seal(LIv, LHeader, LInner); // seq 0 => nonce = IV
+  SetLength(LRecord, System.Length(LHeader) + System.Length(LCipher));
+  System.Move(LHeader[0], LRecord[0], System.Length(LHeader));
+  System.Move(LCipher[0], LRecord[System.Length(LHeader)], System.Length(LCipher));
+
+  LRecv := TRecordLayer.Create;
+  try
+    LRecv.SetReadProtection(MakeTls13(LKey, LIv));
+    LRecv.SetRecordSizeLimit(TRecordLimits.MaxPlaintext, 64);
+    LRaised := False;
+    try
+      LRecv.ProcessInput(LRecord, 0, System.Length(LRecord));
+      DrainOne(LRecv, LFrag);
+    except
+      on E: EFatalAlertTlsLibException do
+        LRaised := Ord(E.AlertDescription) = Ord(TTlsAlertDescription.RecordOverflow);
+    end;
+    CheckTrue(LRaised,
+      'padding must not hide an over-limit record: TLSInnerPlaintext is measured, not content');
+  finally
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestRecordSizeLimitInnerPlaintextBoundary;
+var
+  LSend, LRecv: TRecordLayer;
+  LKey, LIv, LData, LWire: TBytes;
+  LFrag: TTlsRecordFragment;
+  LRaised: Boolean;
+begin
+  LSend := TRecordLayer.Create;
+  LRecv := TRecordLayer.Create;
+  try
+    LKey := DecodeHex('000102030405060708090a0b0c0d0e0f');
+    LIv := DecodeHex('101112131415161718191a1b');
+    LSend.SetWriteProtection(MakeTls13(LKey, LIv));
+    LRecv.SetReadProtection(MakeTls13(LKey, LIv));
+    // limit 64: 63 content bytes make an inner plaintext of exactly 64 (content + type) and
+    // must pass; 64 content bytes make 65 and must be record_overflow
+    LData := nil;
+    SetLength(LData, 64);
+    LSend.Write(TTlsContentType.ApplicationData, LData, 0, 63); // inner 64 == limit
+    LSend.Write(TTlsContentType.ApplicationData, LData, 0, 64); // inner 65 > limit
+    LWire := LSend.TakeOutgoing;
+    LRecv.SetRecordSizeLimit(TRecordLimits.MaxPlaintext, 64);
+    LRecv.ProcessInput(LWire, 0, System.Length(LWire));
+    CheckTrue(DrainOne(LRecv, LFrag), 'the inner-plaintext-at-limit record is accepted');
+    CheckEquals(63, System.Length(LFrag.Data), 'the accepted record carries its content');
+    LRaised := False;
+    try
+      DrainOne(LRecv, LFrag);
+    except
+      on E: EFatalAlertTlsLibException do
+        LRaised := Ord(E.AlertDescription) = Ord(TTlsAlertDescription.RecordOverflow);
+    end;
+    CheckTrue(LRaised, 'the inner-plaintext-over-limit record is record_overflow');
+  finally
+    LSend.Free;
+    LRecv.Free;
+  end;
+end;
+
 procedure TTestRecordLayer.TestChangeCipherSpecDropped;
 var
   LRecv: TRecordLayer;
@@ -410,9 +504,44 @@ var
 begin
   LRecv := TRecordLayer.Create;
   try
-    // a well-formed legacy CCS (type 20, single 0x01) is silently discarded
+    // under TLS 1.3 a well-formed legacy CCS (type 20, single 0x01) is middlebox-compat
+    // filler: silently discarded
+    LRecv.SetNegotiatedVersion(TTlsVersion.Tls13);
     LRecv.ProcessInput(DecodeHex('140303000101'), 0, 6);
     CheckFalse(DrainOne(LRecv, LFrag), 'CCS is not delivered');
+  finally
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestChangeCipherSpecBeforeHelloRejected;
+var
+  LRecv: TRecordLayer;
+begin
+  LRecv := TRecordLayer.Create;
+  try
+    // before any peer hello fixes the version, a change_cipher_spec is out of its legal
+    // window (RFC 8446 D.4): unexpected_message, not silently dropped
+    CheckTrue(ExpectFatal(LRecv, DecodeHex('140303000101'),
+      TTlsAlertDescription.UnexpectedMessage),
+      'a change_cipher_spec before the peer hello is unexpected_message');
+  finally
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestTls12UnarmedChangeCipherSpecRejected;
+var
+  LRecv: TRecordLayer;
+begin
+  LRecv := TRecordLayer.Create;
+  try
+    // a TLS 1.2 change_cipher_spec with no read epoch armed (before ClientKeyExchange, or a
+    // stray extra one) is out of its legal window, not dropped (RFC 5246 7.1)
+    LRecv.SetNegotiatedVersion(TTlsVersion.Tls12);
+    CheckTrue(ExpectFatal(LRecv, DecodeHex('140303000101'),
+      TTlsAlertDescription.UnexpectedMessage),
+      'an unarmed TLS 1.2 change_cipher_spec is unexpected_message');
   finally
     LRecv.Free;
   end;
@@ -426,6 +555,7 @@ var
 begin
   LRecv := TRecordLayer.Create;
   try
+    LRecv.SetNegotiatedVersion(TTlsVersion.Tls13);
     LRecv.MaxChangeCipherSpec := 2;
     LCcs := DecodeHex('140303000101'); // one legal middlebox CCS
     LFlood := nil;

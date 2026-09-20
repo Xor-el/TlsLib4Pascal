@@ -40,9 +40,9 @@ type
   /// opaque transport bytes into demultiplexed plaintext fragments and application
   /// writes into protected records. Framing and decryption are split: ProcessInput
   /// only frames (a record may span several feeds or several records may be
-  /// coalesced in one), enforcing the size and reassembly limits and dropping the
-  /// legacy 1.3 change_cipher_spec, while NextIncoming decrypts the head framed
-  /// record lazily under the read epoch installed at pull time. That split lets a
+  /// coalesced in one), enforcing the reassembly limit, while NextIncoming decrypts
+  /// the head framed record lazily under the read epoch installed at pull time and
+  /// classifies a legacy change_cipher_spec there. That split lets a
   /// coalesced flight change epoch mid-buffer: the plaintext record installs the
   /// next read epoch before the following record is pulled and decrypted under it.
   /// Outbound it fragments to 2^14 and protects through the write epoch. Sans-IO
@@ -77,12 +77,16 @@ type
     // running total of the bytes held in FFramed, so the caller can bound the framed backlog
     // (records the peer sent faster than they are pulled) without walking the queue
     FFramedBytes: Int32;
-    FDropChangeCipherSpec: Boolean;
+    // the negotiated protocol version once the peer's hello has fixed it; the default
+    // (wire value 0) means unknown - no peer hello processed yet
+    FNegotiatedVersion: TTlsVersion;
     FMaxCiphertextLength: Int32;
     FMaxInboundBuffer: Int32;
     FMaxFramedBacklog: Int32;
-    FMaxOutboundPlaintext: Int32;
-    FMaxInboundPlaintext: Int32;
+    // raw negotiated record_size_limit values (RFC 8449: the full TLSInnerPlaintext
+    // length, incl. content type and padding); 0 = not negotiated (no extra cap)
+    FOutboundRecordSizeLimit: Int32;
+    FInboundRecordSizeLimit: Int32;
     FMaxConsecutiveEmptyRecords: Int32;
     FConsecutiveEmptyRecords: Int32;
     FMaxChangeCipherSpec: Int32;
@@ -130,13 +134,14 @@ type
     function NextIncoming(out AFragment: TTlsRecordFragment): Boolean;
 
     /// <summary>
-    /// Applies the negotiated record_size_limit plaintext caps (RFC 8449): outbound
-    /// records are fragmented to at most AOutboundPlaintext content bytes, and an
-    /// inbound record whose plaintext exceeds AInboundPlaintext is record_overflow.
-    /// Both are content-byte caps (the 1.3 inner content-type byte is accounted for
-    /// by the caller); each is clamped to the 2^14 TLSPlaintext ceiling.
+    /// Applies the negotiated record_size_limit (RFC 8449) as raw TLSInnerPlaintext
+    /// caps: each value is the full plaintext length including the content-type byte and
+    /// padding. Outbound records are fragmented so their TLSInnerPlaintext stays within
+    /// AOutboundLimit, and an inbound record whose TLSInnerPlaintext exceeds AInboundLimit
+    /// is record_overflow. 0 means the extension was not negotiated (no extra cap beyond
+    /// the protocol maximum).
     /// </summary>
-    procedure SetRecordSizeLimit(AOutboundPlaintext, AInboundPlaintext: Int32);
+    procedure SetRecordSizeLimit(AOutboundLimit, AInboundLimit: Int32);
 
     /// <summary>Fragments and protects an application/handshake write to the wire.</summary>
     procedure Write(AContentType: TTlsContentType; const AData: TBytes;
@@ -146,9 +151,11 @@ type
     /// <summary>Pending outbound byte count.</summary>
     function PendingOutgoing: Int32;
 
-    /// <summary>Whether an incoming change_cipher_spec is dropped (1.3 middlebox compatibility).</summary>
-    property DropChangeCipherSpec: Boolean read FDropChangeCipherSpec
-      write FDropChangeCipherSpec;
+    /// <summary>Records the negotiated protocol version once the peer's hello fixes it, so an
+    /// incoming change_cipher_spec can be classified: middlebox-compat filler to drop under TLS
+    /// 1.3, but out of its legal window (fatal) before any hello or under an unarmed TLS 1.2
+    /// read epoch (RFC 8446 D.4 / RFC 5246 7.1).</summary>
+    procedure SetNegotiatedVersion(const AVersion: TTlsVersion);
     /// <summary>When set, a cleartext application_data record is rejected as unexpected (RFC
     /// 8446 5.1). The engine sets it for a real handshake; off by default for framing tests.</summary>
     property StrictApplicationData: Boolean read FStrictApplicationData
@@ -220,6 +227,7 @@ resourcestring
   SRecordSizeLimitExceeded = 'inbound record plaintext exceeds the negotiated record_size_limit';
   SChangeCipherSpecFlood = 'too many change_cipher_spec records';
   SChangeCipherSpecAfterHandshake = 'change_cipher_spec after the handshake completed';
+  SChangeCipherSpecOutOfWindow = 'change_cipher_spec outside its legal window';
   SProtectedChangeCipherSpec = 'a protected (encrypted) change_cipher_spec record is not allowed';
   SWriteSliceOutOfRange = 'the write offset/length is outside the source buffer';
   SHandshakeBeforeChangeCipherSpec = 'a handshake record arrived before the peer''s change_cipher_spec';
@@ -235,12 +243,11 @@ begin
   FReadIsPlaintext := True;
   FFramed := TQueue<TBytes>.Create;
   FFramedBytes := 0;
-  FDropChangeCipherSpec := True;
   FMaxCiphertextLength := TRecordLimits.MaxCipherTextTls13;
   FMaxInboundBuffer := TRecordLimits.HeaderLength + TRecordLimits.MaxCipherTextTls13;
   FMaxFramedBacklog := DefaultMaxFramedBacklog;
-  FMaxOutboundPlaintext := TRecordLimits.MaxPlaintext;
-  FMaxInboundPlaintext := TRecordLimits.MaxPlaintext;
+  FOutboundRecordSizeLimit := 0;
+  FInboundRecordSizeLimit := 0;
   FMaxConsecutiveEmptyRecords := DefaultMaxConsecutiveEmptyRecords;
   FConsecutiveEmptyRecords := 0;
   FMaxChangeCipherSpec := DefaultMaxChangeCipherSpec;
@@ -315,40 +322,69 @@ begin
   FWriteProtection := LNull;
 end;
 
-procedure TRecordLayer.SetRecordSizeLimit(AOutboundPlaintext,
-  AInboundPlaintext: Int32);
+procedure TRecordLayer.SetRecordSizeLimit(AOutboundLimit, AInboundLimit: Int32);
+const
+  // the largest a TLSInnerPlaintext may be (RFC 8446 5.4: 2^14 content + 1 type byte)
+  MaxInnerPlaintext = TRecordLimits.MaxPlaintext + 1;
 begin
-  // never above the 2^14 TLSPlaintext ceiling, and never a non-positive cap
-  if (AOutboundPlaintext > 0) and (AOutboundPlaintext <= TRecordLimits.MaxPlaintext) then
-    FMaxOutboundPlaintext := AOutboundPlaintext;
-  if (AInboundPlaintext > 0) and (AInboundPlaintext <= TRecordLimits.MaxPlaintext) then
-    FMaxInboundPlaintext := AInboundPlaintext;
+  // raw TLSInnerPlaintext caps; ignore a non-positive value and clamp defensively
+  if AOutboundLimit > 0 then
+  begin
+    if AOutboundLimit <= MaxInnerPlaintext then
+      FOutboundRecordSizeLimit := AOutboundLimit
+    else
+      FOutboundRecordSizeLimit := MaxInnerPlaintext;
+  end;
+  if AInboundLimit > 0 then
+  begin
+    if AInboundLimit <= MaxInnerPlaintext then
+      FInboundRecordSizeLimit := AInboundLimit
+    else
+      FInboundRecordSizeLimit := MaxInnerPlaintext;
+  end;
 end;
 
 procedure TRecordLayer.HandleChangeCipherSpec(const ARecord: TBytes;
   ABodyOffset, ABodyLength: Int32);
 begin
-  // a legacy 1.3 change_cipher_spec is a single 0x01 byte carried in the clear;
-  // recognize and discard it, but reject a malformed one
+  // a change_cipher_spec is a single 0x01 byte carried in the clear; reject a malformed one
   if (ABodyLength <> 1) or (ARecord[ABodyOffset] <> 1) then
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.UnexpectedMessage,
       @SBadChangeCipherSpec);
-  // it is legal only during the handshake, and only a bounded number of times
+  // never legal once the handshake is complete (RFC 8446 D.4)
   if FHandshakeComplete then
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.UnexpectedMessage,
       @SChangeCipherSpecAfterHandshake);
-  Inc(FChangeCipherSpecCount);
-  if FChangeCipherSpecCount > FMaxChangeCipherSpec then
-    raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.UnexpectedMessage,
-      @SChangeCipherSpecFlood);
   // TLS 1.2 read-cipher switch: a read epoch armed for this change_cipher_spec now becomes the
   // active read epoch, so the record that follows (the peer's encrypted Finished) decrypts under
-  // it. Nothing is armed under TLS 1.3, where the read epoch is installed directly.
+  // it. This is the only place a TLS 1.2 change_cipher_spec is legal.
   if FPendingReadProtection <> nil then
   begin
     FReadProtection := FPendingReadProtection;
     FPendingReadProtection := nil;
+    Exit;
   end;
+  // TLS 1.3 middlebox-compatibility filler: dropped, but only a bounded number of times and only
+  // once the peer's hello has fixed the version (RFC 8446 D.4 - a change_cipher_spec before the
+  // peer's first hello is an unexpected record type).
+  if FNegotiatedVersion.Equals(TTlsVersion.Tls13) then
+  begin
+    Inc(FChangeCipherSpecCount);
+    if FChangeCipherSpecCount > FMaxChangeCipherSpec then
+      raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.UnexpectedMessage,
+        @SChangeCipherSpecFlood);
+    Exit;
+  end;
+  // otherwise out of its legal window: before the peer's first hello (version still unknown), or
+  // a TLS 1.2 change_cipher_spec with no read epoch armed (before ClientKeyExchange, or a stray
+  // extra one) (RFC 8446 D.4 / RFC 5246 7.1)
+  raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.UnexpectedMessage,
+    @SChangeCipherSpecOutOfWindow);
+end;
+
+procedure TRecordLayer.SetNegotiatedVersion(const AVersion: TTlsVersion);
+begin
+  FNegotiatedVersion := AVersion;
 end;
 
 procedure TRecordLayer.SetHandshakeComplete;
@@ -390,8 +426,12 @@ begin
   // epoch between records, so the epoch is resolved here, per record, not at framing
   AFragment.Data := FReadProtection.Unprotect(ARecord, 0, System.Length(ARecord),
     AFragment.ContentType);
-  // a record whose plaintext exceeds the record_size_limit we advertised is overflow
-  if System.Length(AFragment.Data) > FMaxInboundPlaintext then
+  // RFC 8449: the record_size_limit caps the whole TLSInnerPlaintext (content + type +
+  // padding), so measure it from the wire record - content alone would let padding hide
+  // an over-limit record. Only enforced once the extension has been negotiated.
+  if (FInboundRecordSizeLimit > 0) and
+    ((System.Length(ARecord) - TRecordLimits.HeaderLength - FReadProtection.Overhead +
+    FReadProtection.InnerContentTypeLength) > FInboundRecordSizeLimit) then
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.RecordOverflow,
       @SRecordSizeLimitExceeded);
   case AFragment.ContentType of
@@ -502,12 +542,11 @@ begin
       // unexpected_message once it is complete (RFC 8446 5 / D.4). Judged here at pull time, so a
       // change_cipher_spec coalesced with the peer's final flight is decided after that flight's
       // Finished has been processed (which set the handshake complete), not eagerly at framing.
-      if FDropChangeCipherSpec and (System.Length(LRecord) > 0) and
-        (LRecord[0] = OuterChangeCipherSpec) then
+      if (System.Length(LRecord) > 0) and (LRecord[0] = OuterChangeCipherSpec) then
       begin
         HandleChangeCipherSpec(LRecord, TRecordLimits.HeaderLength,
           System.Length(LRecord) - TRecordLimits.HeaderLength);
-        Continue; // dropped during the handshake (or raised once it is complete)
+        Continue; // classified: promoted (1.2), dropped (1.3), or raised (out of window)
       end;
       // TLS 1.2 read-cipher switch: while a read epoch is armed, the only peer records expected
       // are the plaintext change_cipher_spec that promotes it (handled above) and a plaintext
@@ -569,7 +608,8 @@ end;
 procedure TRecordLayer.Write(AContentType: TTlsContentType; const AData: TBytes;
   AOffset, ALength: Int32);
 var
-  LOffset, LRemaining, LChunk, LCount, LI, LBase, LAddLen, LPos, LLen: Int32;
+  LOffset, LRemaining, LChunk, LCount, LI, LBase, LAddLen, LPos, LLen,
+    LPlainCap: Int32;
   LRecords: TArray<TBytes>;
 begin
   // reject an out-of-range slice at the single chokepoint before Protect
@@ -580,22 +620,31 @@ begin
   // able to protect and queue an alert record after an inbound processing error
   LOffset := AOffset;
   LRemaining := ALength;
-  // fragment to at most the negotiated outbound plaintext cap (<= 2^14) per record;
-  // an empty write emits one empty record
+  // per-record content cap: the 2^14 TLSPlaintext ceiling, further reduced to the
+  // negotiated record_size_limit less this epoch's inner content-type byte (RFC 8449)
+  LPlainCap := TRecordLimits.MaxPlaintext;
+  if (FOutboundRecordSizeLimit > 0) and
+    ((FOutboundRecordSizeLimit - FWriteProtection.InnerContentTypeLength) < LPlainCap) then
+    LPlainCap := FOutboundRecordSizeLimit - FWriteProtection.InnerContentTypeLength;
+  // never a non-positive cap (a pathological tiny limit set through the public setter would
+  // otherwise divide by zero below); at least one content byte per record
+  if LPlainCap < 1 then
+    LPlainCap := 1;
+  // fragment to at most that content cap per record; an empty write emits one empty record
   if ALength <= 0 then
     LCount := 1
   else
-    LCount := (ALength + FMaxOutboundPlaintext - 1) div FMaxOutboundPlaintext;
+    LCount := (ALength + LPlainCap - 1) div LPlainCap;
   // Protect advances the write epoch's record sequence number, so it must run
   // exactly once per record
   SetLength(LRecords, LCount);
   LAddLen := 0;
   for LI := 0 to LCount - 1 do
   begin
-    if LRemaining < FMaxOutboundPlaintext then
+    if LRemaining < LPlainCap then
       LChunk := LRemaining
     else
-      LChunk := FMaxOutboundPlaintext;
+      LChunk := LPlainCap;
     LRecords[LI] := FWriteProtection.Protect(AContentType, AData, LOffset, LChunk);
     Inc(LAddLen, System.Length(LRecords[LI]));
     Inc(LOffset, LChunk);

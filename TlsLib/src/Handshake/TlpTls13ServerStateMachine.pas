@@ -527,27 +527,16 @@ end;
 
 procedure TTls13ServerStateMachine.AppendNegotiatedInfoEffects(
   var AEffects: TArray<THandshakeEffect>);
-var
-  LOutbound, LInbound: Int32;
 begin
   if FSelectedAlpn <> '' then
     TArrayUtilities.Append<THandshakeEffect>(AEffects,
       THandshakeEffects.SelectAlpn(FSelectedAlpn));
-  // record_size_limit caps are content-byte caps: the negotiated value less the 1.3
-  // inner content-type byte. 0 leaves the record layer's 2^14 default in place.
+  // pass the raw negotiated record_size_limit values (RFC 8449 TLSInnerPlaintext caps);
+  // the record layer accounts for the inner content-type byte. 0 means not negotiated.
   if (FPeerRecordSizeLimit > 0) or (FParams.RecordSizeLimit > 0) then
-  begin
-    if FPeerRecordSizeLimit > 0 then
-      LOutbound := FPeerRecordSizeLimit - 1
-    else
-      LOutbound := 0;
-    if FParams.RecordSizeLimit > 0 then
-      LInbound := FParams.RecordSizeLimit - 1
-    else
-      LInbound := 0;
     TArrayUtilities.Append<THandshakeEffect>(AEffects,
-      THandshakeEffects.SetRecordSizeLimit(LOutbound, LInbound));
-  end;
+      THandshakeEffects.SetRecordSizeLimit(FPeerRecordSizeLimit,
+      FParams.RecordSizeLimit));
 end;
 
 procedure TTls13ServerStateMachine.NegotiateFrom(
@@ -1114,8 +1103,11 @@ begin
   FHelloRetrySent := True;
   FEarlyDataAccepted := False;
   FPhase := TPhase.WaitSecondClientHello;
-  // no per-connection state is retained: the transcript is rebuilt from the cookie
+  // no per-connection state is retained: the transcript is rebuilt from the cookie.
+  // the version leads the flight so the record layer can classify the client's post-hello
+  // change_cipher_spec: a HelloRetryRequest installs no keys, so nothing else fixes it here
   Result := TArray<THandshakeEffect>.Create(
+    THandshakeEffects.NegotiatedVersion(TTlsVersion.Tls13),
     THandshakeEffects.SendHandshake(LHrr),
     THandshakeEffects.SendChangeCipherSpec);
   // 0-RTT records the client already sent after ClientHello1 arrive before ClientHello2; the
@@ -1359,7 +1351,10 @@ begin
     FPhase := TPhase.WaitClientCertificate
   else
     FPhase := TPhase.WaitClientFinished;
+  // the version leads the flight so the record layer classifies a coalesced client
+  // change_cipher_spec (dropped) before it is pulled
   Result := TArray<THandshakeEffect>.Create(
+    THandshakeEffects.NegotiatedVersion(TTlsVersion.Tls13),
     THandshakeEffects.SendHandshake(LServerHelloBytes));
   // the legacy change_cipher_spec is sent once, after the server's first flight
   if ASendChangeCipherSpec then

@@ -32,6 +32,7 @@ type
     SendHandshake,        // frame and send a handshake message
     SendChangeCipherSpec, // emit the middlebox-compatibility dummy CCS
     InstallKeys,          // install an epoch's record protection on one side
+    NegotiatedVersion,    // surface the negotiated protocol version to the record layer
     SelectAlpn,           // surface the negotiated ALPN protocol
     PeerOcspStaple,       // surface the stapled OCSP response the peer delivered
     SetRecordSizeLimit,   // apply the negotiated record_size_limit to the record layer
@@ -63,10 +64,10 @@ type
     Keys: ITrafficKeys;          // InstallKeys
     Side: TRecordSide;           // InstallKeys
     Aead: TAeadAlgorithm;        // InstallKeys (the negotiated suite's AEAD)
-    Version: TTlsVersion;        // InstallKeys (which record protection to build)
+    Version: TTlsVersion;        // InstallKeys (which record protection to build) / NegotiatedVersion
     Text: string;                // SelectAlpn
-    Outbound: Int32;             // SetRecordSizeLimit (max outbound plaintext)
-    Inbound: Int32;              // SetRecordSizeLimit (max inbound plaintext)
+    Outbound: Int32;             // SetRecordSizeLimit (raw outbound record_size_limit)
+    Inbound: Int32;              // SetRecordSizeLimit (raw inbound record_size_limit)
     Event: TTlsEventKind;        // RaiseEvent
     Chain: TArray<TBytes>;       // AwaitCertificateVerdict / PeerCertificateChain (peer chain, leaf first)
     CipherSuite: UInt16;         // ConnectionParams (the negotiated cipher suite code)
@@ -83,6 +84,7 @@ type
     class function SendChangeCipherSpec: THandshakeEffect; static;
     class function InstallKeys(const AKeys: ITrafficKeys; ASide: TRecordSide;
       AAead: TAeadAlgorithm; const AVersion: TTlsVersion): THandshakeEffect; static;
+    class function NegotiatedVersion(const AVersion: TTlsVersion): THandshakeEffect; static;
     class function SelectAlpn(const AProtocol: string): THandshakeEffect; static;
     class function PeerOcspStaple(const AStaple: TBytes): THandshakeEffect; static;
     class function SetRecordSizeLimit(AOutbound, AInbound: Int32): THandshakeEffect; static;
@@ -166,6 +168,14 @@ begin
   Result.Keys := AKeys;
   Result.Side := ASide;
   Result.Aead := AAead;
+  Result.Version := AVersion;
+end;
+
+class function THandshakeEffects.NegotiatedVersion(
+  const AVersion: TTlsVersion): THandshakeEffect;
+begin
+  Result := Default(THandshakeEffect);
+  Result.Kind := THandshakeEffectKind.NegotiatedVersion;
   Result.Version := AVersion;
 end;
 

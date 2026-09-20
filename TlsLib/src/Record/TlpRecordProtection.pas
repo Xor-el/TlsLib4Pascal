@@ -61,6 +61,8 @@ type
     function Unprotect(const ARecord: TBytes; AOffset, ALength: Int32;
       out AContentType: TTlsContentType): TBytes; virtual; abstract;
     function Overhead: Int32; virtual; abstract;
+    // 0 for TLS 1.2 and the null epoch; TLS 1.3 overrides to 1 (TLSInnerPlaintext type byte)
+    function InnerContentTypeLength: Int32; virtual;
     function SequenceNumber: UInt64;
     function NeedsKeyUpdate: Boolean;
     procedure SetSequenceNumber(AValue: UInt64);
@@ -109,6 +111,7 @@ type
     function Unprotect(const ARecord: TBytes; AOffset, ALength: Int32;
       out AContentType: TTlsContentType): TBytes; override;
     function Overhead: Int32; override;
+    function InnerContentTypeLength: Int32; override;
   end;
 
   /// <summary>
@@ -230,6 +233,11 @@ end;
 procedure TRecordProtectionBase.SetSequenceNumber(AValue: UInt64);
 begin
   FSeq := AValue;
+end;
+
+function TRecordProtectionBase.InnerContentTypeLength: Int32;
+begin
+  Result := 0;
 end;
 
 { TNullRecordProtection }
@@ -401,6 +409,11 @@ function TTls13RecordProtection.Overhead: Int32;
 begin
   // one inner content-type byte plus the AEAD tag
   Result := 1 + FAead.TagSize;
+end;
+
+function TTls13RecordProtection.InnerContentTypeLength: Int32;
+begin
+  Result := 1;
 end;
 
 { TTls12RecordProtection }
