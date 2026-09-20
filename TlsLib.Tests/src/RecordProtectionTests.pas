@@ -54,6 +54,7 @@ type
     procedure TestTls13SequenceCouplesNonce;
     procedure TestSequenceExhaustionRaises;
     procedure TestNeedsKeyUpdateAtUsageLimit;
+    procedure TestAesGcmRoundTripNearUsageLimit;
     procedure TestProtectFailsAtUsageLimit;
     procedure TestNullRecordProtectionFrames;
     procedure TestTls12Aes128GcmRecord;
@@ -299,6 +300,30 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'Protect at the hard usage limit must fail loudly');
+end;
+
+procedure TTestRecordProtection.TestAesGcmRoundTripNearUsageLimit;
+var
+  LSend, LRecv: IRecordProtection;
+  LHookS, LHookR: IRecordProtectionTestHook;
+  LPlain, LRecord, LBack: TBytes;
+  LType: TTlsContentType;
+begin
+  // an AES-GCM record sealed at the last sequence before the rekey point (the state a KeyUpdate
+  // is emitted from) must decrypt back to itself - independent of the AES backend (SIMD/scalar)
+  LSend := MakeTls13(DecodeHex('000102030405060708090a0b0c0d0e0f'),
+    DecodeHex('101112131415161718191a1b'), TAeadAlgorithm.AES_128_GCM);
+  LRecv := MakeTls13(DecodeHex('000102030405060708090a0b0c0d0e0f'),
+    DecodeHex('101112131415161718191a1b'), TAeadAlgorithm.AES_128_GCM);
+  CheckTrue(Supports(LSend, IRecordProtectionTestHook, LHookS), 'send hook present');
+  CheckTrue(Supports(LRecv, IRecordProtectionTestHook, LHookR), 'recv hook present');
+  LHookS.SetSequenceNumber(UInt64(23726566 - 1));
+  LHookR.SetSequenceNumber(UInt64(23726566 - 1));
+  LPlain := DecodeHex('7061737420746865206c696d6974');
+  LRecord := LSend.Protect(TTlsContentType.ApplicationData, LPlain, 0,
+    System.Length(LPlain));
+  LBack := LRecv.Unprotect(LRecord, 0, System.Length(LRecord), LType);
+  CheckEqualBytes('an AES-GCM record round-trips at a high sequence number', LPlain, LBack);
 end;
 
 procedure TTestRecordProtection.TestNullRecordProtectionFrames;

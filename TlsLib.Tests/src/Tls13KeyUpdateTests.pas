@@ -31,6 +31,9 @@ uses
   TlpTlsCredential,
   TlpTlsPresets,
   TlpTlsEngineFactory,
+  TlpINegotiation,
+  TlpNegotiationTypes,
+  TlpCipherSuiteRegistry,
   TlpITlsEngine,
   TlsLibTestBase;
 
@@ -43,6 +46,7 @@ type
     FCerts: TStringList;
     function ServerCredential: TTlsCredential;
     function ClientTrust: ITrustAnchorStore;
+    function AesGcmRegistry: ICipherSuiteRegistry;
     function NewClient: ITlsEngine;
     function NewServer: ITlsEngine;
     function Drain(const AEngine: ITlsEngine): TBytes;
@@ -209,17 +213,47 @@ begin
   CountKeyUpdateEvents(AServer);
 end;
 
+function TTestTls13KeyUpdate.AesGcmRegistry: ICipherSuiteRegistry;
+begin
+  // AES-128-GCM only: its 2^24.5-record limit is the bound the auto-rekey defends. The
+  // CPU-adaptive default prefers ChaCha20 (limited only by the 2^64 sequence, so it never rekeys
+  // by count) on a host without hardware AES, which would make the rekey test host-dependent.
+  Result := TCipherSuiteRegistry.CreateDefault(Provider);
+  Result.Prune(TCipherSuites13.ChaCha20Poly1305Sha256);
+  Result.Prune(TCipherSuites13.Aes256GcmSha384);
+end;
+
 procedure TTestTls13KeyUpdate.TestWriteAtUsageLimitRekeysAutomatically;
 var
   LClient, LServer: ITlsEngine;
   LClientHook, LServerHook: IEngineRecordTestHook;
   LMsg: TBytes;
+  LI: Int32;
 begin
-  Handshake(LClient, LServer);
-  // park the client's write epoch at the LAST legal sequence before the hard AES-GCM limit
-  // (23726566): the next application write must auto-send a KeyUpdate - which itself still seals
-  // at this last sequence - before it can send data (RFC 8446 5.5). Advance the server's read
-  // epoch in step so the AEAD nonces stay synchronized across the endpoints.
+  LClient := TTlsEngineFactory.CreateClientEngine(
+    TTlsPresets.Hardened(Provider).Client.WithTrustStore(ClientTrust)
+    .WithCipherSuites(AesGcmRegistry).Build, ServerHost);
+  LServer := TTlsEngineFactory.CreateServerEngine(
+    TTlsPresets.Hardened(Provider).Server.WithCredential(ServerCredential)
+    .WithCipherSuites(AesGcmRegistry).Build);
+  LClient.StartHandshake;
+  LI := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LI < 16) do
+  begin
+    Exchange(LClient, LServer);
+    Inc(LI);
+  end;
+  CheckFalse(LClient.IsHandshaking, 'the handshake completed');
+  CountKeyUpdateEvents(LClient); // clear handshake-phase events
+  CountKeyUpdateEvents(LServer);
+  CheckEquals(Integer(TCipherSuites13.Aes128GcmSha256),
+    Integer(LClient.NegotiatedCipherSuite),
+    'AES-128-GCM was negotiated so the record limit is deterministic');
+
+  // park both epochs at the LAST legal sequence before the hard AES-GCM limit (23726566): the
+  // next application write must auto-send a KeyUpdate - which itself still seals at this last
+  // sequence - before it can send data (RFC 8446 5.5). The two sides advance in step so the AEAD
+  // nonces stay synchronized.
   CheckTrue(Supports(LClient, IEngineRecordTestHook, LClientHook), 'client test hook present');
   CheckTrue(Supports(LServer, IEngineRecordTestHook, LServerHook), 'server test hook present');
   LClientHook.SetWriteSequenceNumber(UInt64(23726566 - 1));
@@ -232,7 +266,6 @@ begin
   CheckEqualBytes('the server decrypts the data written across the auto-rekey', LMsg,
     ReadAllApp(LServer));
   CheckFalse(LClient.IsTerminal or LServer.IsTerminal, 'neither side failed on the auto-rekey');
-  // and the connection keeps working under the new keys
   CheckAppDataBothWays(LClient, LServer, 'after the automatic rekey');
 end;
 
