@@ -1,0 +1,37 @@
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_2160a536677909 1694-1696
+TlsLib/src/Handshake/TlpCertificateVerify.pas
+  s_09d3c46d1a9b1f::t_343115f64c2fb8 62-68
+  s_09d3c46d1a9b1f::t_f819824b793ea7 84-85,89-100
+  s_09d3c46d1a9b1f::t_7f57b90c81642c 24,101
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_8528d2d574f039 222-224
+  s_09d3c46d1a9b1f::t_3b8161fcdc4c57 743-745
+  s_09d3c46d1a9b1f::t_8cbc2c8b1a0777 459-462
+  s_09d3c46d1a9b1f::t_ac3e1320837def 858-866
+  s_09d3c46d1a9b1f::t_b49dfff73d2386 283-284
+TlsLib.Tests/src/Tls12ResumptionTests.pas
+  s_09d3c46d1a9b1f::t_f3789f35dd5fa0 32
+  s_09d3c46d1a9b1f::t_a8f33925fc5c96 101-102
+  s_09d3c46d1a9b1f::t_52bcdd5e357157 512-573
+TlsLib.Tests/src/ClientAuthTests.pas
+  s_09d3c46d1a9b1f::t_f424c62624b760 76
+  s_09d3c46d1a9b1f::t_a6a7c3a9c6743b 332-356
+  s_09d3c46d1a9b1f::t_2ed7aa381fc229 41-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "57150224963d5d353ccfbddbb0039f93f76ded13",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
