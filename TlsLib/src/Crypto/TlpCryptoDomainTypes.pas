@@ -236,12 +236,16 @@ type
     /// version. All schemes are valid in TLS 1.2; the legacy rsa_pkcs1_* schemes are
     /// certificate-only in TLS 1.3 (RFC 8446 4.2.3).</summary>
     function IsValidForHandshake(const AVersion: TTlsVersion): Boolean;
+    /// <summary>The leaf key family a signature under this scheme must come from (RFC 8446
+    /// 4.2.3): ecdsa_* -> Ecdsa, ed25519 -> Ed25519, ed448 -> Ed448, all rsa_* -> Rsa.</summary>
+    function KeyKind: TCertKeyKind;
   end;
 
 implementation
 
 resourcestring
   SNoSchemeCode = 'signature scheme enum value %d has no wire codepoint';
+  SNoSchemeKeyKind = 'signature scheme enum value %d has no mapped key family';
 
 { TNamedGroupComposition }
 
@@ -360,6 +364,31 @@ begin
   // the legacy rsa_pkcs1_* schemes are certificate-only in TLS 1.3 (RFC 8446 4.2.3);
   // every scheme may carry a TLS 1.2 handshake signature
   Result := (not AVersion.Equals(TTlsVersion.Tls13)) or (not IsRsaPkcs1);
+end;
+
+function TSignatureSchemeHelper.KeyKind: TCertKeyKind;
+begin
+  // every scheme is mapped explicitly (no catch-all): a future scheme with a different key family
+  // must add its own arm rather than be silently miscategorised as RSA
+  case Self of
+    TSignatureScheme.ECDSA_SECP256R1_SHA256,
+    TSignatureScheme.ECDSA_SECP384R1_SHA384,
+    TSignatureScheme.ECDSA_SECP521R1_SHA512:
+      Result := TCertKeyKind.Ecdsa;
+    TSignatureScheme.ED25519:
+      Result := TCertKeyKind.Ed25519;
+    TSignatureScheme.ED448:
+      Result := TCertKeyKind.Ed448;
+    TSignatureScheme.RSA_PSS_RSAE_SHA256,
+    TSignatureScheme.RSA_PSS_RSAE_SHA384,
+    TSignatureScheme.RSA_PSS_RSAE_SHA512,
+    TSignatureScheme.RSA_PKCS1_SHA256,
+    TSignatureScheme.RSA_PKCS1_SHA384,
+    TSignatureScheme.RSA_PKCS1_SHA512:
+      Result := TCertKeyKind.Rsa;
+  else
+    raise ENotSupportedTlsLibException.CreateResFmt(@SNoSchemeKeyKind, [Ord(Self)]);
+  end;
 end;
 
 end.

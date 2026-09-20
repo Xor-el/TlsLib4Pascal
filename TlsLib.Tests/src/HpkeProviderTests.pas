@@ -31,6 +31,7 @@ uses
   TlpISecretBuffer,
   TlpSecretBuffer,
   TlpTlsLibExceptions,
+  MockCryptoProvider,
   TlsLibTestBase;
 
 type
@@ -65,6 +66,12 @@ type
     procedure TestSuiteSupported;
     procedure TestGenerateKeyPairUnsupportedKemRaises;
     procedure TestImportMismatchedAlgorithmRaises;
+    // an out-of-range or wrong-length EC scalar is rejected at import
+    procedure TestImportRecipientKeyRejectsZeroScalar;
+    procedure TestImportRecipientKeyRejectsScalarAtOrAboveOrder;
+    procedure TestImportRecipientKeyRejectsWrongLengthScalar;
+    // a suite the provider's primitives cannot build is reported as nil, not a live suite
+    procedure TestSuiteIsNilWhenAeadUnavailable;
   end;
 
 implementation
@@ -327,6 +334,83 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a key whose algorithm does not match the KEM must be rejected');
+end;
+
+procedure TTestHpkeProvider.TestImportRecipientKeyRejectsZeroScalar;
+var
+  LRaised: Boolean;
+  LZero: TBytes;
+begin
+  // a P-256 scalar of 0 is outside [1, n-1]; import must reject it, not reduce it mod n
+  LZero := nil;
+  SetLength(LZero, 32); // all-zero
+  LRaised := False;
+  try
+    Provider.Hpke.ImportRecipientKey(THpkeKem.DHKEM_P256_HKDF_SHA256,
+      TSecretBuffer.From(LZero));
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a zero EC scalar is rejected');
+end;
+
+procedure TTestHpkeProvider.TestImportRecipientKeyRejectsScalarAtOrAboveOrder;
+var
+  LRaised: Boolean;
+  LHigh: TBytes;
+  LI: Int32;
+begin
+  // 32 bytes of 0xFF exceeds the P-256 group order n, so it is outside [1, n-1]
+  LHigh := nil;
+  SetLength(LHigh, 32);
+  for LI := 0 to 31 do
+    LHigh[LI] := $FF;
+  LRaised := False;
+  try
+    Provider.Hpke.ImportRecipientKey(THpkeKem.DHKEM_P256_HKDF_SHA256,
+      TSecretBuffer.From(LHigh));
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an EC scalar at or above the group order is rejected');
+end;
+
+procedure TTestHpkeProvider.TestImportRecipientKeyRejectsWrongLengthScalar;
+var
+  LRaised: Boolean;
+  LShort: TBytes;
+begin
+  // a P-256 scalar must be exactly the 32-byte field width
+  LShort := nil;
+  SetLength(LShort, 31);
+  LShort[30] := 1;
+  LRaised := False;
+  try
+    Provider.Hpke.ImportRecipientKey(THpkeKem.DHKEM_P256_HKDF_SHA256,
+      TSecretBuffer.From(LShort));
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a wrong-length EC scalar is rejected');
+end;
+
+procedure TTestHpkeProvider.TestSuiteIsNilWhenAeadUnavailable;
+var
+  LProvider: ICryptoProvider;
+begin
+  // a provider whose primitives cannot build ChaCha20-Poly1305 must report a ChaCha suite as nil
+  // (so an ECH offer for it becomes a clean reject), while an AES-GCM suite stays usable
+  LProvider := TMissingAeadProvider.Create(Provider,
+    TAeadAlgorithm.CHACHA20_POLY1305) as ICryptoProvider;
+  CheckTrue(LProvider.Hpke.Suite(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+    THpkeKdf.HKDF_SHA256, THpkeAead.CHACHA20_POLY1305) = nil,
+    'a suite needing the unavailable AEAD is nil');
+  CheckTrue(LProvider.Hpke.Suite(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+    THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM) <> nil,
+    'a suite whose primitives are all available stays usable');
 end;
 
 initialization

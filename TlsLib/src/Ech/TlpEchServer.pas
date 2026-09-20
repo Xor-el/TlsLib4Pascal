@@ -376,6 +376,10 @@ begin
     except
       on E: EHpkeOpenTlsLibException do
         LOpened := False;
+      // a primitive this provider cannot build for the offered suite is "cannot open here", a
+      // normal trial-decrypt miss (Suite() already probes, so this is defence in depth), not a fault
+      on E: ENotSupportedTlsLibException do
+        LOpened := False;
     end;
     if LOpened then
     begin

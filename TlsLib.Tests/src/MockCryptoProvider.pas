@@ -21,6 +21,7 @@ uses
   SysUtils,
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
+  TlpTlsLibExceptions,
   TlpDefaultCryptoProvider;
 
 type
@@ -89,7 +90,48 @@ type
     function Hpke: IHpkeCrypto;
   end;
 
+  /// <summary>
+  /// An <see cref="ICryptoPrimitives" /> decorator that cannot build one configured AEAD - it
+  /// raises ENotSupportedTlsLibException for that algorithm and forwards everything else - so a
+  /// composed provider models an overlay that lacks a primitive (for the HPKE suite-probe check).
+  /// </summary>
+  TMissingAeadPrimitives = class(TInterfacedObject, ICryptoPrimitives)
+  strict private
+  var
+    FInner: ICryptoPrimitives;
+    FMissing: TAeadAlgorithm;
+  public
+    constructor Create(const AInner: ICryptoPrimitives; AMissing: TAeadAlgorithm);
+    function GetRandom: IRandom;
+    function CreateHash(AAlgorithm: THashAlgorithm): IHash;
+    function CreateHmac(AAlgorithm: THashAlgorithm): IHmac;
+    function CreateHkdf(AAlgorithm: THashAlgorithm): IHkdf;
+    function CreateTls12Prf(AAlgorithm: THashAlgorithm): ITls12Prf;
+    function CreateAead(AAlgorithm: TAeadAlgorithm): IAead;
+    function CreateKeyAgreement(AAlgorithm: TKeyAgreementAlgorithm): IKeyAgreement;
+    function CreateKem(AAlgorithm: TKemAlgorithm): IKem;
+    function HasHardwareAes: Boolean;
+  end;
+
+  /// <summary>A test provider whose primitives cannot build one configured AEAD.</summary>
+  TMissingAeadProvider = class(TInterfacedObject, ICryptoProvider)
+  strict private
+  var
+    FComposed: ICryptoProvider;
+  public
+    constructor Create(const AInner: ICryptoProvider; AMissing: TAeadAlgorithm);
+    function Primitives: ICryptoPrimitives;
+    function Signing: ISigningCrypto;
+    function Certificates: ICertificateInspector;
+    function PathValidation: ICertificatePathValidator;
+    function Revocation: IRevocationChecker;
+    function Hpke: IHpkeCrypto;
+  end;
+
 implementation
+
+resourcestring
+  SMissingAead = 'this primitives facet does not provide the requested AEAD';
 
 { TMockCryptoProvider }
 
@@ -229,6 +271,109 @@ begin
 end;
 
 function TFixedAesProvider.Hpke: IHpkeCrypto;
+begin
+  Result := FComposed.Hpke;
+end;
+
+{ TMissingAeadPrimitives }
+
+constructor TMissingAeadPrimitives.Create(const AInner: ICryptoPrimitives;
+  AMissing: TAeadAlgorithm);
+begin
+  inherited Create;
+  FInner := AInner;
+  FMissing := AMissing;
+end;
+
+function TMissingAeadPrimitives.GetRandom: IRandom;
+begin
+  Result := FInner.GetRandom;
+end;
+
+function TMissingAeadPrimitives.CreateHash(AAlgorithm: THashAlgorithm): IHash;
+begin
+  Result := FInner.CreateHash(AAlgorithm);
+end;
+
+function TMissingAeadPrimitives.CreateHmac(AAlgorithm: THashAlgorithm): IHmac;
+begin
+  Result := FInner.CreateHmac(AAlgorithm);
+end;
+
+function TMissingAeadPrimitives.CreateHkdf(AAlgorithm: THashAlgorithm): IHkdf;
+begin
+  Result := FInner.CreateHkdf(AAlgorithm);
+end;
+
+function TMissingAeadPrimitives.CreateTls12Prf(AAlgorithm: THashAlgorithm): ITls12Prf;
+begin
+  Result := FInner.CreateTls12Prf(AAlgorithm);
+end;
+
+function TMissingAeadPrimitives.CreateAead(AAlgorithm: TAeadAlgorithm): IAead;
+begin
+  if AAlgorithm = FMissing then
+    raise ENotSupportedTlsLibException.CreateRes(@SMissingAead);
+  Result := FInner.CreateAead(AAlgorithm);
+end;
+
+function TMissingAeadPrimitives.CreateKeyAgreement(
+  AAlgorithm: TKeyAgreementAlgorithm): IKeyAgreement;
+begin
+  Result := FInner.CreateKeyAgreement(AAlgorithm);
+end;
+
+function TMissingAeadPrimitives.CreateKem(AAlgorithm: TKemAlgorithm): IKem;
+begin
+  Result := FInner.CreateKem(AAlgorithm);
+end;
+
+function TMissingAeadPrimitives.HasHardwareAes: Boolean;
+begin
+  Result := FInner.HasHardwareAes;
+end;
+
+{ TMissingAeadProvider }
+
+constructor TMissingAeadProvider.Create(const AInner: ICryptoProvider;
+  AMissing: TAeadAlgorithm);
+var
+  LBuilder: ICryptoProviderBuilder;
+begin
+  inherited Create;
+  LBuilder := TCryptoProviderBuilder.Create;
+  FComposed := LBuilder
+    .WithPrimitives(TMissingAeadPrimitives.Create(AInner.Primitives, AMissing)
+      as ICryptoPrimitives)
+    .Build;
+end;
+
+function TMissingAeadProvider.Primitives: ICryptoPrimitives;
+begin
+  Result := FComposed.Primitives;
+end;
+
+function TMissingAeadProvider.Signing: ISigningCrypto;
+begin
+  Result := FComposed.Signing;
+end;
+
+function TMissingAeadProvider.Certificates: ICertificateInspector;
+begin
+  Result := FComposed.Certificates;
+end;
+
+function TMissingAeadProvider.PathValidation: ICertificatePathValidator;
+begin
+  Result := FComposed.PathValidation;
+end;
+
+function TMissingAeadProvider.Revocation: IRevocationChecker;
+begin
+  Result := FComposed.Revocation;
+end;
+
+function TMissingAeadProvider.Hpke: IHpkeCrypto;
 begin
   Result := FComposed.Hpke;
 end;

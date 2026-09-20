@@ -27,9 +27,13 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpICryptoProvider,
+  TlpISigningKey,
   TlpCryptoDomainTypes,
   TlpNegotiationTypes,
   TlpHandshakeMessages,
+  TlpCertificateVerify,
+  TlpTlsAlert,
+  TlpTlsLibExceptions,
   TlsLibTestBase;
 
 type
@@ -55,6 +59,13 @@ type
     procedure TestRsaPssVerifiesRfc8448CertificateVerify;
     procedure TestRsaPssRejectsWrongTranscript;
     procedure TestSignatureSchemeCodesMatchCatalog;
+    // the provider seam binds the scheme's key family and never leaks a backend exception
+    procedure TestVerifierRejectsSchemeKeyFamilyMismatch;
+    procedure TestVerifierAllowsEcdsaCurveHashDecoupling;
+    procedure TestVerifierRejectsMalformedSpki;
+    procedure TestVerifierRejectsUnclassifiableKey;
+    procedure TestSignerRejectsSchemeOutsideCapableSchemes;
+    procedure TestLeafPolicyRejectsSchemeFamilyMismatch;
   end;
 
 implementation
@@ -245,6 +256,123 @@ begin
     TSignatureScheme.RSA_PKCS1_SHA384.ToCode, 'rsa_pkcs1_sha384');
   CheckEquals(TSignatureSchemes.RsaPkcs1Sha512,
     TSignatureScheme.RSA_PKCS1_SHA512.ToCode, 'rsa_pkcs1_sha512');
+end;
+
+procedure TTestSignature.TestVerifierRejectsSchemeKeyFamilyMismatch;
+
+  procedure CheckMismatchRaises(AScheme: TSignatureScheme; const APubDer: TBytes;
+    const AWhat: string);
+  var
+    LRaised: Boolean;
+  begin
+    LRaised := False;
+    try
+      Provider.Signing.CreateSignatureVerifier(AScheme, APubDer);
+    except
+      on E: EArgumentTlsLibException do
+        LRaised := True;
+    end;
+    CheckTrue(LRaised, AWhat);
+  end;
+
+begin
+  // a scheme whose key family does not match the SPKI must be refused with a typed exception at
+  // the seam, never a raw backend exception
+  CheckMismatchRaises(TSignatureScheme.RSA_PSS_RSAE_SHA256,
+    DecodeHex(FKeys.Values['ecdsa_pub']), 'an EC key under rsa_pss_rsae_* is rejected');
+  CheckMismatchRaises(TSignatureScheme.ECDSA_SECP256R1_SHA256, Rfc8448LeafSpki,
+    'an RSA key under ecdsa_* is rejected');
+  CheckMismatchRaises(TSignatureScheme.ECDSA_SECP256R1_SHA256,
+    DecodeHex(FKeys.Values['ed25519_pub']), 'an Ed25519 key under ecdsa_* is rejected');
+end;
+
+procedure TTestSignature.TestVerifierAllowsEcdsaCurveHashDecoupling;
+var
+  LVerifier: ISignatureVerifier;
+begin
+  // the seam binds the key FAMILY, not the curve: a P-256 key under ecdsa_secp384r1_sha384 is a
+  // legitimate TLS 1.2 pairing (the curve bind is a TLS 1.3 handshake concern), so it constructs
+  LVerifier := Provider.Signing.CreateSignatureVerifier(
+    TSignatureScheme.ECDSA_SECP384R1_SHA384, DecodeHex(FKeys.Values['ecdsa_pub']));
+  CheckTrue(LVerifier <> nil, 'an EC key under a different-curve ecdsa_* scheme still constructs');
+end;
+
+procedure TTestSignature.TestVerifierRejectsMalformedSpki;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    Provider.Signing.CreateSignatureVerifier(TSignatureScheme.ECDSA_SECP256R1_SHA256,
+      DecodeHex('deadbeefdeadbeef'));
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a malformed SubjectPublicKeyInfo raises a typed exception, not a backend one');
+end;
+
+procedure TTestSignature.TestVerifierRejectsUnclassifiableKey;
+var
+  LX25519Spki: TBytes;
+  LRaised: Boolean;
+begin
+  // an X25519 SubjectPublicKeyInfo parses to a valid key that cannot sign ANY TLS scheme; the seam
+  // must reject it with a typed exception, never let a raw backend cast exception cross (a scheme
+  // whose family the provider cannot classify has no usable pairing)
+  LX25519Spki := DecodeHex('302a300506032b656e032100' +
+    '0000000000000000000000000000000000000000000000000000000000000000');
+  LRaised := False;
+  try
+    Provider.Signing.CreateSignatureVerifier(TSignatureScheme.ED25519, LX25519Spki);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an X25519 key (unclassifiable for signing) is rejected at the seam');
+end;
+
+procedure TTestSignature.TestSignerRejectsSchemeOutsideCapableSchemes;
+var
+  LKey: ISigningKey;
+  LRaised: Boolean;
+begin
+  // an EC key cannot sign an rsa_pss_rsae_* scheme; the seam refuses it before the backend
+  LKey := Provider.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ecdsa_key']));
+  LRaised := False;
+  try
+    Provider.Signing.CreateSignatureSigner(TSignatureScheme.RSA_PSS_RSAE_SHA256, LKey);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a scheme outside the key''s CapableSchemes is refused');
+end;
+
+procedure TTestSignature.TestLeafPolicyRejectsSchemeFamilyMismatch;
+var
+  LLeaf: IInspectedCertificate;
+  LRaised: Boolean;
+  LAlert: TTlsAlertDescription;
+begin
+  // the handshake leaf-policy gate rejects a scheme/leaf family mismatch with illegal_parameter
+  // before signature verification (an RSA leaf presented for an ecdsa_* signature)
+  LLeaf := Provider.Certificates.Parse(DecodeHex(FKeys.Values['rsa_cert']));
+  LRaised := False;
+  LAlert := TTlsAlertDescription.BadCertificate;
+  try
+    TCertificateVerify.EnforceSigningLeafPolicy(LLeaf,
+      TSignatureScheme.ECDSA_SECP256R1_SHA256, True);
+  except
+    on E: EFatalAlertTlsLibException do
+    begin
+      LRaised := True;
+      LAlert := E.AlertDescription;
+    end;
+  end;
+  CheckTrue(LRaised, 'an RSA leaf presented for an ecdsa_* signature is rejected');
+  CheckEquals(Ord(TTlsAlertDescription.IllegalParameter), Ord(LAlert),
+    'the alert is illegal_parameter');
 end;
 
 initialization

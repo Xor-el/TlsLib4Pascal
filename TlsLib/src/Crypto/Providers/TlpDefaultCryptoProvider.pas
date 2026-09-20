@@ -93,6 +93,8 @@ uses
   ClpAsn1Core,
   ClpRsaParameters,
   ClpIRsaParameters,
+  ClpIEd25519Parameters,
+  ClpIEd448Parameters,
   ClpX509CertificateParser,
   ClpIX509CertificateParser,
   ClpIX509Certificate,
@@ -246,6 +248,13 @@ resourcestring
   SMalformedPrivateKey = 'the private key could not be parsed in any supported encoding';
   SUnsupportedKeyAlgorithm = 'the private key uses an algorithm this library cannot sign with';
   SForeignSigningKey = 'the signing key was not produced by this provider';
+  SMalformedPublicKey = 'the public key could not be parsed as a SubjectPublicKeyInfo';
+  SSchemeKeyFamilyMismatch = 'the signature scheme does not match the key algorithm family';
+  SSchemeNotCapable = 'the signing key cannot sign with the requested signature scheme';
+  SKeyUnusableForScheme = 'the key cannot be used with the requested signature scheme';
+  SInvalidScalarSize =
+    'the EC private scalar size (%d) does not match the curve field size (%d)';
+  SScalarOutOfRange = 'the EC private scalar is outside the valid range [1, n-1]';
   SMalformedCertificate = 'a certificate could not be parsed as PEM or DER';
   SNoCertificatesFound = 'no certificates were found in the input';
   SMalformedPkcs12 = 'the PKCS#12 blob could not be read (wrong password, bad MAC, or malformed)';
@@ -368,6 +377,10 @@ type
     function WrapPeer(const APeerPub: TBytes): IECPublicKeyParameters;
     function AgreeParams(const APriv: IECPrivateKeyParameters;
       const APeer: IECPublicKeyParameters; AUsage: TKeyAgreementUsage): ISecretBuffer;
+    /// <summary>Validates a raw EC private scalar and returns it: it must be exactly the curve
+    /// field size and lie in [1, n-1] (RFC 5915 / SEC1). Raises EArgumentTlsLibException
+    /// otherwise, rather than letting an out-of-range scalar reduce mod n inside the backend.</summary>
+    function ScalarFromBytes(const ARaw: TBytes): TBigInteger;
   public
     constructor Create(const AName: string; const ARandom: ISecureRandom);
     function Name: string;
@@ -538,6 +551,11 @@ type
   var
     FRandom: ISecureRandom;
     class function SignerMechanismForScheme(AScheme: TSignatureScheme): string; static;
+    /// <summary>Classifies a parsed public key into its TLS key family; False for a key kind the
+    /// provider does not model (e.g. X25519/DH/DSA), which the verifier factory then rejects since
+    /// no catalogued signature scheme can be verified with such a key.</summary>
+    class function KeyKindOf(const AKey: IAsymmetricKeyParameter;
+      out AKind: TCertKeyKind): Boolean; static;
   public
     constructor Create(const ARandom: ISecureRandom);
     function ImportSigningKey(const AData: TBytes): ISigningKey; overload;
@@ -1056,6 +1074,11 @@ var
 begin
   LPrivBytes := ARawPrivateKey.ToBytes;
   try
+    // X25519 clamps the scalar, so any 32 bytes are usable, but a wrong length is a caller
+    // error (a truncated/overlong buffer) rather than something to silently accept
+    if System.Length(LPrivBytes) <> TX25519PrivateKeyParameters.KeySize then
+      raise EArgumentTlsLibException.CreateResFmt(@SInvalidScalarSize,
+        [System.Length(LPrivBytes), Int32(TX25519PrivateKeyParameters.KeySize)]);
     LPriv := TX25519PrivateKeyParameters.Create(LPrivBytes);
     APublicKey := LPriv.GeneratePublicKey.GetEncoded;
     Result := TSecretBuffer.From(LPrivBytes);
@@ -1156,6 +1179,17 @@ begin
   end;
 end;
 
+function TNistEcAgreement.ScalarFromBytes(const ARaw: TBytes): TBigInteger;
+begin
+  if System.Length(ARaw) <> FFieldSize then
+    raise EArgumentTlsLibException.CreateResFmt(@SInvalidScalarSize,
+      [System.Length(ARaw), FFieldSize]);
+  // an unsigned scalar; reject 0 and anything >= n rather than let [d]G silently reduce d mod n
+  Result := TBigInteger.Create(1, ARaw);
+  if (Result.SignValue <= 0) or (Result.CompareTo(FDomain.N) >= 0) then
+    raise EArgumentTlsLibException.CreateRes(@SScalarOutOfRange);
+end;
+
 function TNistEcAgreement.Agree(const APrivateKey: ISecretBuffer;
   const APeerPublicKey: TBytes; AUsage: TKeyAgreementUsage): ISecretBuffer;
 var
@@ -1164,8 +1198,7 @@ var
 begin
   LPrivBytes := APrivateKey.ToBytes;
   try
-    LPrivParams := TECPrivateKeyParameters.Create(TBigInteger.Create(1, LPrivBytes),
-      FDomain);
+    LPrivParams := TECPrivateKeyParameters.Create(ScalarFromBytes(LPrivBytes), FDomain);
     Result := AgreeParams(LPrivParams, WrapPeer(APeerPublicKey), AUsage);
   finally
     TSecureMemory.WipeBytes(LPrivBytes);
@@ -1199,8 +1232,8 @@ var
 begin
   LScalar := ARawPrivateKey.ToBytes;
   try
-    // the public value is the SEC1 uncompressed encoding of [d]G
-    APublicKey := FDomain.G.Multiply(TBigInteger.Create(1, LScalar))
+    // the public value is the SEC1 uncompressed encoding of [d]G (d validated in [1, n-1])
+    APublicKey := FDomain.G.Multiply(ScalarFromBytes(LScalar))
       .Normalize.GetEncoded(False);
     Result := TSecretBuffer.From(LScalar);
   finally
@@ -1895,6 +1928,22 @@ begin
   Result := TCredentialImport.ImportKey(AData, APassword, True);
 end;
 
+class function TSigningCrypto.KeyKindOf(const AKey: IAsymmetricKeyParameter;
+  out AKind: TCertKeyKind): Boolean;
+begin
+  Result := True;
+  if Supports(AKey, IRsaKeyParameters) then
+    AKind := TCertKeyKind.Rsa
+  else if Supports(AKey, IECPublicKeyParameters) then
+    AKind := TCertKeyKind.Ecdsa
+  else if Supports(AKey, IEd25519PublicKeyParameters) then
+    AKind := TCertKeyKind.Ed25519
+  else if Supports(AKey, IEd448PublicKeyParameters) then
+    AKind := TCertKeyKind.Ed448
+  else
+    Result := False;
+end;
+
 function TSigningCrypto.CreateSignatureSigner(AScheme: TSignatureScheme;
   const AKey: ISigningKey): ISignatureSigner;
 var
@@ -1903,24 +1952,57 @@ var
 begin
   if not Supports(AKey, IProviderSigningKey, LProviderKey) then
     raise EArgumentTlsLibException.CreateRes(@SForeignSigningKey);
+  // the key may only sign with a scheme it declared capable of (the import narrows this, and
+  // WithPreferredSchemes narrows it further); refuse anything else rather than let the backend
+  // produce a signature the key was never meant to make
+  if not (TArrayUtilities.Contains<TSignatureScheme>(AKey.CapableSchemes, AScheme)) then
+    raise EArgumentTlsLibException.CreateRes(@SSchemeNotCapable);
   // the key was parsed and validated once at import; reuse it rather than re-parsing and
   // re-validating it on every sign - InitSigner still makes a fresh per-call signer for
   // the digest state, so concurrent handshakes stay independent
   LKey := LProviderKey.KeyParameter;
-  Result := TSignatureSignerAdapter.Create(
-    TSignerUtilities.InitSigner(SignerMechanismForScheme(AScheme), True, LKey, FRandom),
-    TEnumUtilities.GetName<TSignatureScheme>(AScheme));
+  try
+    Result := TSignatureSignerAdapter.Create(
+      TSignerUtilities.InitSigner(SignerMechanismForScheme(AScheme), True, LKey, FRandom),
+      TEnumUtilities.GetName<TSignatureScheme>(AScheme));
+  except
+    // a backend rejection here is a key/scheme problem our own config produced; keep a typed
+    // exception at the seam rather than letting a raw backend exception cross it
+    on E: ECryptoLibException do
+      raise EArgumentTlsLibException.CreateRes(@SKeyUnusableForScheme);
+  end;
 end;
 
 function TSigningCrypto.CreateSignatureVerifier(AScheme: TSignatureScheme;
   const APublicKeyDer: TBytes): ISignatureVerifier;
 var
   LKey: IAsymmetricKeyParameter;
+  LKind: TCertKeyKind;
   LSigner: ISigner;
 begin
-  LKey := TPublicKeyFactory.CreateKey(APublicKeyDer);
-  LSigner := TSignerUtilities.GetSigner(SignerMechanismForScheme(AScheme));
-  LSigner.Init(False, LKey);
+  // parse the SubjectPublicKeyInfo behind a typed exception (a malformed SPKI is a caller/peer
+  // input problem, never a raw backend exception crossing the seam)
+  try
+    LKey := TPublicKeyFactory.CreateKey(APublicKeyDer);
+  except
+    on E: ECryptoLibException do
+      raise EArgumentTlsLibException.CreateRes(@SMalformedPublicKey);
+  end;
+  // bind the scheme's key family to the key: an EC key under rsa_pss_rsae_*, or an RSA key under
+  // ecdsa_*, could otherwise reach a backend signer that raises an untyped exception (RFC 8446
+  // 4.2.3). Fail closed on a key family we cannot classify too: every catalogued scheme signs with
+  // one of the four known families, so an unclassifiable key can never verify any scheme, and
+  // letting it reach the backend risks a raw cast exception crossing the seam. The curve-vs-scheme
+  // bind stays a TLS 1.3 handshake concern (TCertificateVerify).
+  if (not KeyKindOf(LKey, LKind)) or (LKind <> AScheme.KeyKind) then
+    raise EArgumentTlsLibException.CreateRes(@SSchemeKeyFamilyMismatch);
+  try
+    LSigner := TSignerUtilities.GetSigner(SignerMechanismForScheme(AScheme));
+    LSigner.Init(False, LKey);
+  except
+    on E: ECryptoLibException do
+      raise EArgumentTlsLibException.CreateRes(@SKeyUnusableForScheme);
+  end;
   Result := TSignatureVerifierAdapter.Create(LSigner,
     TEnumUtilities.GetName<TSignatureScheme>(AScheme));
 end;
