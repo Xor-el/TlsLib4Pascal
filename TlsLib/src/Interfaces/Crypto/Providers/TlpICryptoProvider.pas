@@ -250,10 +250,15 @@ type
     /// </summary>
     function ImportPkcs12(const AData: TBytes;
       const APassword: string): TTlsCredential;
-    /// <summary>A signer for AScheme over the imported signing key AKey.</summary>
+    /// <summary>A signer for AScheme over the imported signing key AKey. Raises
+    /// EArgumentTlsLibException when AScheme is not among the key's CapableSchemes or the key
+    /// cannot produce it; never lets a raw backend exception cross the seam.</summary>
     function CreateSignatureSigner(AScheme: TSignatureScheme;
       const AKey: ISigningKey): ISignatureSigner;
-    /// <summary>A verifier for AScheme over the SubjectPublicKeyInfo in APublicKeyDer.</summary>
+    /// <summary>A verifier for AScheme over the SubjectPublicKeyInfo in APublicKeyDer. Raises
+    /// EArgumentTlsLibException on a malformed SPKI or when the scheme's key family does not
+    /// match the key (e.g. an EC key under rsa_pss_rsae_*); never lets a raw backend exception
+    /// cross the seam.</summary>
     function CreateSignatureVerifier(AScheme: TSignatureScheme;
       const APublicKeyDer: TBytes): ISignatureVerifier;
   end;
@@ -578,9 +583,11 @@ type
     ['{4D8F1C60-3A72-4E59-9B14-6C0D2E7A3B58}']
     /// <summary>
     /// The provider's instance of the suite (AKem, AKdf, AAead), or nil when it cannot
-    /// instantiate it - a known KEM, a known KDF, and a real (not export-only) AEAD. The ECH
-    /// config filter skips a nil suite rather than raising; a non-nil suite is ready to seal
-    /// or open with.
+    /// instantiate it: nil unless the KEM, KDF and AEAD ids are all known AND this provider's
+    /// primitives can actually build every one of them (the KEM curve and its KDF hash, the
+    /// suite KDF hash, and the AEAD). The ECH config filter skips a nil suite rather than
+    /// raising, so an offer this provider cannot satisfy is a clean reject, not internal_error;
+    /// a non-nil suite is ready to seal or open with.
     /// </summary>
     function Suite(AKem, AKdf, AAead: UInt16): IHpkeSuite;
     /// <summary>

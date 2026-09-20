@@ -105,6 +105,11 @@ type
     class function IsKnownKem(AKem: UInt16): Boolean; static;
     class function IsKnownKdf(AKdf: UInt16): Boolean; static;
     class function IsRealAead(AAead: UInt16): Boolean; static;
+    /// <summary>Whether APrimitives can actually instantiate every primitive a suite needs (the
+    /// KEM curve + its KDF hash, the suite KDF hash, and the AEAD). A known id an overlay lacks
+    /// makes Suite return nil, so an ECH offer for it becomes a clean reject, not internal_error.</summary>
+    class function CanCompose(const APrimitives: ICryptoPrimitives;
+      AKem, AKdf, AAead: UInt16): Boolean; static;
     // Encap(pkR) -> (shared_secret, enc); raises (via Agree) on a malformed/degenerate pkR
     class procedure Encap(const APrimitives: ICryptoPrimitives; AKem: UInt16;
       const ARecipientPublicKey: TBytes; out ASharedSecret: ISecretBuffer;
@@ -239,6 +244,24 @@ begin
   // every AEAD except export-only (0xFFFF), which cannot seal/open
   Result := (AAead = THpkeAead.AES_128_GCM) or (AAead = THpkeAead.AES_256_GCM) or
     (AAead = THpkeAead.CHACHA20_POLY1305);
+end;
+
+class function THpkeCore.CanCompose(const APrimitives: ICryptoPrimitives;
+  AKem, AKdf, AAead: UInt16): Boolean;
+begin
+  // instantiate each primitive the suite would use; an overlay that lacks one raises a typed
+  // ENotSupported (a subclass of EBaseTlsLibException), which means "not usable here", not a fault
+  Result := False;
+  try
+    APrimitives.CreateKeyAgreement(KemKeyAgreement(AKem));
+    APrimitives.CreateHkdf(KemKdfHash(AKem));
+    APrimitives.CreateHkdf(KdfHash(AKdf));
+    APrimitives.CreateAead(AeadAlgorithm(AAead));
+    Result := True;
+  except
+    on E: EBaseTlsLibException do
+      Result := False;
+  end;
 end;
 
 class function THpkeCore.KemKeyAgreement(AKem: UInt16): TKeyAgreementAlgorithm;
@@ -528,14 +551,14 @@ end;
 
 class function THpkePkcs8.LeftPad(const A: TBytes; ALen: Int32): TBytes;
 begin
-  if System.Length(A) >= ALen then
-    Result := System.Copy(A, System.Length(A) - ALen, ALen)
-  else
-  begin
-    Result := nil;
-    SetLength(Result, ALen);
+  // a scalar wider than the field is never a leading-zero artefact to trim - it is malformed, and
+  // truncating it would silently accept a different key
+  if System.Length(A) > ALen then
+    raise EArgumentTlsLibException.CreateRes(@SHpkeMalformedPrivateKey);
+  Result := nil;
+  SetLength(Result, ALen);
+  if System.Length(A) > 0 then
     Move(A[0], Result[ALen - System.Length(A)], System.Length(A));
-  end;
 end;
 
 class function THpkePkcs8.DecodeScalar(AKem: UInt16;
@@ -604,8 +627,10 @@ begin
   Expect(LOfs, $04, LCOfs, LCLen, LNext); // privateKey OCTET STRING
   if LX25519 then
   begin
-    // CurvePrivateKey ::= OCTET STRING (the 32-byte scalar)
+    // CurvePrivateKey ::= OCTET STRING (the 32-byte scalar), exactly the KEM scalar width
     Expect(LCOfs, $04, LCOfs, LCLen, LNext);
+    if LCLen <> THpkeCore.KemNsk(AKem) then
+      Fail;
     LScalar := System.Copy(APkcs8Der, LCOfs, LCLen);
   end
   else
@@ -614,7 +639,10 @@ begin
     Expect(LCOfs, $30, LCOfs, LCLen, LNext);
     Expect(LCOfs, $02, LOidOfs, LOidLen, LNext);     // version
     Expect(LNext, $04, LCOfs, LCLen, LNext);         // privateKey OCTET STRING
-    // RFC 5915 fixes the scalar at field width; normalise defensively
+    // RFC 5915 allows a scalar with leading zeros stripped (never wider than the field); reject a
+    // missing or oversized scalar, then left-pad to the fixed field width
+    if (LCLen = 0) or (LCLen > THpkeCore.KemNsk(AKem)) then
+      Fail;
     LScalar := LeftPad(System.Copy(APkcs8Der, LCOfs, LCLen), THpkeCore.KemNsk(AKem));
   end;
   try
@@ -634,8 +662,11 @@ end;
 
 function THpkeComposition.Suite(AKem, AKdf, AAead: UInt16): IHpkeSuite;
 begin
+  // return a suite only when the ids are known AND this provider's primitives can actually build
+  // it - otherwise a caller (ECH) would get a non-nil suite whose Encap/SetupOpener then fails
   if THpkeCore.IsKnownKem(AKem) and THpkeCore.IsKnownKdf(AKdf) and
-    THpkeCore.IsRealAead(AAead) then
+    THpkeCore.IsRealAead(AAead) and
+    THpkeCore.CanCompose(FPrimitives, AKem, AKdf, AAead) then
     Result := THpkeCompositionSuite.Create(FPrimitives, AKem, AKdf, AAead) as IHpkeSuite
   else
     Result := nil;

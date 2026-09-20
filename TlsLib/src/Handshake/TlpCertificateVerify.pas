@@ -43,8 +43,9 @@ type
       const ATranscriptHash: TBytes): TBytes; static;
     /// <summary>Enforces the peer leaf's signing policy before verifying a handshake
     /// signature (a CertificateVerify, or a 1.2 ServerKeyExchange): the leaf must permit
-    /// digitalSignature if it carries keyUsage (RFC 5280 4.2.1.3), and an rsa_pss_rsae_*
-    /// scheme must not be produced by an id-RSASSA-PSS leaf key (RFC 8446 4.2.3). When
+    /// digitalSignature if it carries keyUsage (RFC 5280 4.2.1.3), the scheme's key family
+    /// must match the leaf key's family (an EC leaf cannot sign rsa_pss_rsae_*, etc.), and an
+    /// rsa_pss_rsae_* scheme must not be produced by an id-RSASSA-PSS leaf key (RFC 8446 4.2.3). When
     /// ABindEcdsaCurve is set (TLS 1.3), an ecdsa_* scheme additionally requires the leaf
     /// EC key to be on the scheme's named curve (RFC 8446 4.2.3) - TLS 1.2 leaves the curve
     /// to the supported_groups list, so it passes False. Applies symmetrically to a client
@@ -68,6 +69,8 @@ resourcestring
     'an rsa_pss_rsae_* signature requires an rsaEncryption leaf key, not id-RSASSA-PSS';
   SEcdsaSchemeCurveMismatch =
     'the ecdsa_* signature scheme requires a leaf key on the scheme''s named curve';
+  SSchemeKeyFamilyMismatch =
+    'the signature scheme does not match the leaf key algorithm family';
   SUnparseableLeafCertificate =
     'the peer leaf is not a well-formed X.509 certificate';
 
@@ -133,14 +136,22 @@ class procedure TCertificateVerify.EnforceSigningLeafPolicy(
   ABindEcdsaCurve: Boolean);
 var
   LKind: TCertKeyKind;
+  LKindKnown: Boolean;
   LCertGroup, LSchemeGroup: UInt16;
 begin
-  // the caller passes the leaf already parsed by ParseWellFormedLeaf, answering all three
-  // signing-policy queries from that one decode; only a definite No/Yes trips the raise,
+  // the caller passes the leaf already parsed by ParseWellFormedLeaf, answering every
+  // signing-policy query from that one decode; only a definite No/Yes trips the raise,
   // an Undetermined field passes (fail-open per check)
   if ALeaf.KeyUsagePermits(TCertKeyUsage.DigitalSignature) = TCertAnswer.No then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.BadCertificate, @SLeafKeyUsageForbidsSigning);
+  // the signature scheme's key family must match the leaf key's family: an EC leaf under
+  // rsa_pss_rsae_*, or an RSA leaf under ecdsa_*, is a wrong-signature-type (RFC 8446 4.2.3).
+  // A leaf key the provider cannot classify passes (fail-open); the provider seam is the backstop.
+  LKindKnown := ALeaf.KeyKind(LKind, LCertGroup);
+  if LKindKnown and (LKind <> AScheme.KeyKind) then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.IllegalParameter, @SSchemeKeyFamilyMismatch);
   if AScheme.IsRsaPssRsae and (ALeaf.KeyIsRsaPss = TCertAnswer.Yes) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SPssLeafKeyUnsupported);
@@ -149,7 +160,7 @@ begin
   if ABindEcdsaCurve then
   begin
     LSchemeGroup := EcdsaSchemeNamedGroup(AScheme);
-    if (LSchemeGroup <> 0) and ALeaf.KeyKind(LKind, LCertGroup) and
+    if (LSchemeGroup <> 0) and LKindKnown and
       (LKind = TCertKeyKind.Ecdsa) and (LCertGroup <> LSchemeGroup) then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SEcdsaSchemeCurveMismatch);
