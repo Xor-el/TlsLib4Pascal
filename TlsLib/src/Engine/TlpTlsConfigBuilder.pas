@@ -1842,10 +1842,10 @@ begin
     LOk := TEndpointIdentity.Matches(TServerName.DnsName(AHost), LSans, nil)
   else
   begin
-    // only a single left-most-label wildcard over a non-empty suffix is matchable at runtime
-    // (RFC 6125); a wildcard anywhere else validates against a literal SAN yet never selects a host
-    if (System.Length(AHost) < 3) or (System.Copy(AHost, 1, 2) <> '*.') or
-      (Pos('*', System.Copy(AHost, 3, System.Length(AHost) - 2)) <> 0) then
+    // only a runtime-matchable pattern is accepted - a single left-most-label wildcard that
+    // leaves at least two labels below it (never *.com), the same rule the matcher enforces, so
+    // a registered pattern and name verification can never disagree (RFC 6125 / RFC 9525)
+    if not TEndpointIdentity.IsMatchableDnsPattern(AHost) then
       raise EInvalidOperationTlsLibException.CreateResFmt(@SSniWildcardMalformed, [AHost]);
     // a wildcard entry needs the leaf to carry that same wildcard SAN
     LOk := False;
