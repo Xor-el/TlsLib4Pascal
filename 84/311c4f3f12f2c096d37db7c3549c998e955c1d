@@ -1,0 +1,28 @@
+TlsLib.Tests/src/ClientAuthTests.pas
+  s_09d3c46d1a9b1f::t_1196564e74a1de 358-388
+  s_09d3c46d1a9b1f::t_7ba0b362bdf52b 41-43,76-77,333-357
+TlsLib/src/Handshake/TlpCertificateVerify.pas
+  s_09d3c46d1a9b1f::t_d955987a529050 24,62-67,83-84,88-100
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_d420ebfb278ae1 1693-1695
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_e3f48d793b3dd5 222-224,283-284,459-462,743-744,857-863
+TlsLib.Tests/src/Tls12ResumptionTests.pas
+  s_09d3c46d1a9b1f::t_1ea57154dbc64d 32,101-102,512-578
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "84311c4f3f12f2c096d37db7c3549c998e955c1d",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": null
+    }
+  }
+}
