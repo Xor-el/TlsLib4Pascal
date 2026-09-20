@@ -117,7 +117,8 @@ type
       const APassword: string): ITlsClientConfigBuilder;
     /// <summary>The stapled-OCSP revocation posture (RFC 6960): Soft (default) accepts a
     /// missing or indeterminate staple, Hard requires a current Good one, Off skips the
-    /// check. Must-staple (RFC 7633) is always enforced.</summary>
+    /// check. Must-staple (RFC 7633) is enforced only for an initial-handshake server
+    /// certificate the client requested a staple for (WithOcspStaplingRequest).</summary>
     function WithRevocation(APosture: TRevocationPosture): ITlsClientConfigBuilder;
     /// <summary>SPKI-SHA256 public-key pins: when set, some certificate in the server chain
     /// must match one pin. Augments PKIX validation; never a bypass. Empty disables it.</summary>
@@ -156,14 +157,22 @@ type
     /// verify callback.</summary>
     function WithCertificateVerifyCallback(
       const ACallback: TTlsCertificateVerifyCallback): ITlsClientConfigBuilder;
-    /// <summary>Enables the async peer-certificate verdict (the deferred-verdict seam): after
-    /// the built-in pipeline accepts the server chain the handshake parks and raises a
+    /// <summary>Enables a host-decision peer-certificate verdict (the deferred-verdict seam):
+    /// after the built-in pipeline accepts the server chain the handshake parks and raises a
     /// CertificateReceived event for an out-of-band decision, resumed with the engine's
-    /// SetCertificateVerdict. Augment-only and fail-closed. ADeadlineMs is advisory to the
-    /// driver (the engine owns no timer); 0 imposes no engine-suggested deadline. Off by
-    /// default.</summary>
+    /// SetCertificateVerdict. Augment-only and fail-closed; it does not change how an
+    /// indeterminate stapled revocation outcome is decided (the posture still decides that
+    /// inline). ADeadlineMs is advisory to the driver (the engine owns no timer); 0 imposes no
+    /// engine-suggested deadline. Off by default. The last of this and WithLiveRevocationVerdict
+    /// wins.</summary>
     function WithAsyncCertificateVerdict(AEnabled: Boolean;
       ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
+    /// <summary>Defers an indeterminate stapled revocation outcome to a live OCSP/CRL resolver at
+    /// the park (rather than deciding it inline by the posture), so a Hard posture is reachable for
+    /// a server that carries no staple. Parks after the pipeline accepts the chain, augment-only and
+    /// fail-closed. ADeadlineMs is advisory (the engine owns no timer). The last of this and
+    /// WithAsyncCertificateVerdict wins.</summary>
+    function WithLiveRevocationVerdict(ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
     /// <summary>The client-side session cache to draw resumed sessions from and store new
     /// ones into; providing one engages client resumption (subject to WithResumption).</summary>
     function WithSessionCache(const ACache: ISessionCache): ITlsClientConfigBuilder;
@@ -334,7 +343,8 @@ type
     /// Defaults to None.</summary>
     function WithPeerAuth(AMode: TClientAuthMode): ITlsServerConfigBuilder;
     /// <summary>The revocation posture applied to a requested client certificate (RFC 6960);
-    /// Soft by default. Must-staple (RFC 7633) is always enforced.</summary>
+    /// Soft by default. Must-staple (RFC 7633) never applies to a client certificate (it is
+    /// never stapled).</summary>
     function WithRevocation(APosture: TRevocationPosture): ITlsServerConfigBuilder;
     /// <summary>SPKI-SHA256 pins the requested client chain must match one of; augments
     /// PKIX, never a bypass. Empty disables it.</summary>
@@ -357,13 +367,21 @@ type
     /// and can only additionally reject (never loosen it).</summary>
     function WithCertificateVerifyCallback(
       const ACallback: TTlsCertificateVerifyCallback): ITlsServerConfigBuilder;
-    /// <summary>Enables the async client-certificate verdict (the deferred-verdict seam) for a
-    /// server that requests client authentication: after the built-in pipeline accepts the
-    /// client chain the handshake parks for an out-of-band decision, resumed with the engine's
-    /// SetCertificateVerdict. Augment-only and fail-closed. ADeadlineMs is advisory (the
-    /// engine owns no timer). Off by default.</summary>
+    /// <summary>Enables a host-decision client-certificate verdict (the deferred-verdict seam) for a
+    /// server that requests client authentication: after the built-in pipeline accepts the client
+    /// chain the handshake parks for an out-of-band decision, resumed with the engine's
+    /// SetCertificateVerdict. Augment-only and fail-closed; it does not change how an indeterminate
+    /// revocation outcome is decided (the posture still decides that inline). ADeadlineMs is
+    /// advisory (the engine owns no timer). Off by default. The last of this and
+    /// WithLiveRevocationVerdict wins.</summary>
     function WithAsyncCertificateVerdict(AEnabled: Boolean;
       ADeadlineMs: Cardinal): ITlsServerConfigBuilder;
+    /// <summary>Defers an indeterminate client-certificate revocation outcome to a live OCSP/CRL
+    /// resolver at the park (rather than deciding it inline by the posture). A client certificate is
+    /// never stapled, so this is the only way a Hard posture is reachable for client authentication.
+    /// Parks after the pipeline accepts the chain, augment-only and fail-closed. ADeadlineMs is
+    /// advisory. The last of this and WithAsyncCertificateVerdict wins.</summary>
+    function WithLiveRevocationVerdict(ADeadlineMs: Cardinal): ITlsServerConfigBuilder;
     /// <summary>The out-of-band external pre-shared keys (RFC 9258) the server imports and
     /// matches an offered pre_shared_key against (TLS 1.3 only), in preference order. A
     /// matching PSK is preferred over the server's certificate. Empty leaves external PSK

@@ -191,9 +191,9 @@ implementation
 {$IFDEF TLSLIB_MSWINDOWS}
 
 resourcestring
-  SLiveNeedsAsyncVerdict =
-    'OS-native live revocation needs the async certificate verdict enabled (it defers the live ' +
-    'check to the out-of-band park); call WithAsyncCertificateVerdict, or use cache-only trust';
+  SLiveNeedsLiveRevocationVerdict =
+    'OS-native live revocation needs the live-revocation verdict enabled (it defers the live ' +
+    'check to the out-of-band park); call WithLiveRevocationVerdict, or use cache-only trust';
 
 const
   CRYPT32_DLL = 'crypt32.dll';
@@ -1565,8 +1565,8 @@ function TWindowsServerVerifierSource.CreateServerVerifier(
 begin
   // live inline defers an indeterminate revocation to the async park, so a park must be guaranteed;
   // without it the delegate would silently run cache-only Soft. Fail at engine creation (before IO).
-  if (FFetch = TSystemTrustFetch.Live) and (not AContext.AsyncVerdictEnabled) then
-    raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SLiveNeedsAsyncVerdict);
+  if (FFetch = TSystemTrustFetch.Live) and (AContext.Deferral <> TVerdictDeferral.LiveRevocation) then
+    raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SLiveNeedsLiveRevocationVerdict);
   Result := TWindowsDelegateVerifier.Create(AContext.Provider,
     AContext.RevocationPosture, FFetch, AContext.Clock, AContext.StrengthPolicy,
     AContext.AdvertisedSignatureSchemes) as IServerCertificateVerifier;
@@ -1613,8 +1613,8 @@ var
 begin
   // live inline defers an indeterminate revocation to the async park, so a park must be guaranteed;
   // without it the delegate would silently run cache-only Soft. Fail at engine creation (before IO).
-  if (FFetch = TSystemTrustFetch.Live) and (not AContext.AsyncVerdictEnabled) then
-    raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SLiveNeedsAsyncVerdict);
+  if (FFetch = TSystemTrustFetch.Live) and (AContext.Deferral <> TVerdictDeferral.LiveRevocation) then
+    raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SLiveNeedsLiveRevocationVerdict);
   LAnchors := nil;
   if AContext.TrustStore <> nil then
     LAnchors := AContext.TrustStore.RootCertificates;

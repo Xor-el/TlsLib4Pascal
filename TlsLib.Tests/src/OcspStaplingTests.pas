@@ -52,7 +52,10 @@ type
     function Chain: TArray<TBytes>;
     function ChainFor(const ALeafName: string): TArray<TBytes>;
     function VerifierFor(APosture: TRevocationPosture;
-      AAsyncResolver: Boolean = False): IServerCertificateVerifier;
+      ADeferral: TVerdictDeferral = TVerdictDeferral.None;
+      AStatusRequestOffered: Boolean = True;
+      AOccasion: TVerificationOccasion = TVerificationOccasion.InitialHandshake)
+      : IServerCertificateVerifier;
     function VerifyStaple(APosture: TRevocationPosture; const AStaple: TBytes;
       out AAlert: TTlsAlertDescription): Boolean;
     function VerifyChain(APosture: TRevocationPosture; const AChain: TArray<TBytes>;
@@ -96,12 +99,22 @@ type
     procedure TestNoStapleHardWithResolverDefers;
     procedure TestRevokedStapleAbortsEvenWithResolver;
     procedure TestMustStapleMissingStapleAbortsEvenWithResolver;
+    // a host-decision park is augment-only: it does NOT defer the revocation gate, so a no-staple
+    // leaf under Hard is still rejected inline (only LiveRevocation defers)
+    procedure TestNoStapleHardHostDecisionRejectsInline;
     // must-staple (RFC 7633) + TLS Feature well-formedness
     procedure TestMustStapleWithGoodStapleCompletes;
     procedure TestMustStapleMissingStapleAbortsUnderSoft;
     procedure TestMustStapleMissingStapleAbortsUnderOff;
     procedure TestMustStapleNonMatchingStapleAborts;
     procedure TestMalformedTlsFeatureAbortsBadCertificate;
+    // RFC 7633 4.3.3: must-staple binds only to an initial-handshake server certificate the client
+    // asked to have stapled - not when unrequested, not on resumption, not for a client certificate;
+    // a MALFORMED TLS Feature stays fatal regardless
+    procedure TestMustStapleNotRequestedAcceptsUnderSoft;
+    procedure TestMustStapleNotRequestedAcceptsUnderOff;
+    procedure TestMustStapleNotEnforcedOnResumption;
+    procedure TestMalformedTlsFeatureAbortsEvenWhenNotRequested;
     // SPKI public-key pinning
     procedure TestPinningMatchCompletes;
     procedure TestPinningPresentedIssuerMatchCompletes;
@@ -142,17 +155,20 @@ begin
 end;
 
 function TTestOcspStapling.VerifierFor(APosture: TRevocationPosture;
-  AAsyncResolver: Boolean): IServerCertificateVerifier;
+  ADeferral: TVerdictDeferral; AStatusRequestOffered: Boolean;
+  AOccasion: TVerificationOccasion): IServerCertificateVerifier;
 var
   LNoDangerous: TDangerousTrust;
 begin
-  // AAsyncResolver models an out-of-band verdict resolver (live OCSP/CRL) running at the park;
-  // when set, an indeterminate stapled outcome is deferred to it instead of decided inline
+  // LiveRevocation defers an indeterminate stapled outcome to the out-of-band resolver at the
+  // park; AStatusRequestOffered/AOccasion model whether the client asked to staple and whether
+  // this is the initial handshake (must-staple binds only there)
   LNoDangerous := Default(TDangerousTrust);
   Result := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(V('root_cert')))
     as ITrustAnchorStore, False, TCertificateChainLimits.Defaults, APosture,
-    LNoDangerous, AAsyncResolver) as IServerCertificateVerifier;
+    LNoDangerous, ADeferral, nil, AStatusRequestOffered, AOccasion)
+    as IServerCertificateVerifier;
 end;
 
 function TTestOcspStapling.ChainFor(const ALeafName: string): TArray<TBytes>;
@@ -210,7 +226,8 @@ begin
   Result := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(V('root_cert')))
     as ITrustAnchorStore, False, TCertificateChainLimits.Defaults, APosture,
-    LNoDangerous, False, AIntermediates) as IServerCertificateVerifier;
+    LNoDangerous, TVerdictDeferral.None, AIntermediates, True,
+    TVerificationOccasion.InitialHandshake) as IServerCertificateVerifier;
   // pinning composes as a decorator over the built-in verifier, as the engine wires it
   if System.Length(APins) > 0 then
     Result := TPinningVerifier.Create(Result, APins, Provider)
@@ -408,7 +425,7 @@ var
 begin
   // with a live verdict resolver, a no-staple leaf under Hard is accepted here (deferred) so the
   // handshake reaches the park where the resolver decides - not rejected inline
-  CheckTrue(VerifierFor(TRevocationPosture.Hard, {AAsyncResolver=} True)
+  CheckTrue(VerifierFor(TRevocationPosture.Hard, TVerdictDeferral.LiveRevocation)
     .VerifyServerCertificate(Chain, TServerName.DnsName(''), nil, LValidated, LAlert),
     'a missing staple under Hard is deferred to the resolver, not rejected inline');
 end;
@@ -419,7 +436,7 @@ var
   LValidated: TArray<TBytes>;
 begin
   // a definitive stapled Revoked is authoritative and short-circuits before any deferral
-  CheckFalse(VerifierFor(TRevocationPosture.Hard, {AAsyncResolver=} True)
+  CheckFalse(VerifierFor(TRevocationPosture.Hard, TVerdictDeferral.LiveRevocation)
     .VerifyServerCertificate(Chain, TServerName.DnsName(''), V('ocsp_revoked'), LValidated, LAlert),
     'a revoked staple aborts even when a resolver is present');
   CheckEquals(Ord(TTlsAlertDescription.CertificateRevoked), Ord(LAlert),
@@ -433,7 +450,7 @@ var
 begin
   // RFC 7633: a must-staple leaf demands a current Good staple; a live fetch does not satisfy it,
   // so it is rejected inline even with a resolver present (the deferral never applies)
-  CheckFalse(VerifierFor(TRevocationPosture.Hard, {AAsyncResolver=} True)
+  CheckFalse(VerifierFor(TRevocationPosture.Hard, TVerdictDeferral.LiveRevocation)
     .VerifyServerCertificate(ChainFor('muststaple_leaf_cert'), TServerName.DnsName(''), nil,
     LValidated, LAlert),
     'a must-staple leaf with no staple aborts even with a resolver present');
@@ -517,6 +534,74 @@ begin
     'the alert is bad_certificate');
 end;
 
+procedure TTestOcspStapling.TestNoStapleHardHostDecisionRejectsInline;
+var
+  LAlert: TTlsAlertDescription;
+  LValidated: TArray<TBytes>;
+begin
+  // a host-decision park does not defer the revocation gate, so a no-staple leaf under Hard is
+  // rejected inline exactly as with no deferral (only LiveRevocation would defer it)
+  CheckFalse(VerifierFor(TRevocationPosture.Hard, TVerdictDeferral.HostDecision)
+    .VerifyServerCertificate(Chain, TServerName.DnsName(''), nil, LValidated, LAlert),
+    'a missing staple under Hard + host-decision is rejected inline, not deferred');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificateStatusResponse), Ord(LAlert),
+    'the alert is bad_certificate_status_response');
+end;
+
+procedure TTestOcspStapling.TestMustStapleNotRequestedAcceptsUnderSoft;
+var
+  LAlert: TTlsAlertDescription;
+  LValidated: TArray<TBytes>;
+begin
+  // the client never offered status_request, so a must-staple leaf is not required to staple
+  CheckTrue(VerifierFor(TRevocationPosture.Soft, TVerdictDeferral.None,
+    {AStatusRequestOffered=} False)
+    .VerifyServerCertificate(ChainFor('muststaple_leaf_cert'),
+    TServerName.DnsName(''), nil, LValidated, LAlert),
+    'an unrequested must-staple leaf is accepted under soft-fail');
+end;
+
+procedure TTestOcspStapling.TestMustStapleNotRequestedAcceptsUnderOff;
+var
+  LAlert: TTlsAlertDescription;
+  LValidated: TArray<TBytes>;
+begin
+  CheckTrue(VerifierFor(TRevocationPosture.Off, TVerdictDeferral.None,
+    {AStatusRequestOffered=} False)
+    .VerifyServerCertificate(ChainFor('muststaple_leaf_cert'),
+    TServerName.DnsName(''), nil, LValidated, LAlert),
+    'an unrequested must-staple leaf is accepted under Off');
+end;
+
+procedure TTestOcspStapling.TestMustStapleNotEnforcedOnResumption;
+var
+  LAlert: TTlsAlertDescription;
+  LValidated: TArray<TBytes>;
+begin
+  // no Certificate is on the wire on a resumption, so must-staple never fires even when the
+  // client offered status_request
+  CheckTrue(VerifierFor(TRevocationPosture.Soft, TVerdictDeferral.None,
+    {AStatusRequestOffered=} True, TVerificationOccasion.Resumption)
+    .VerifyServerCertificate(ChainFor('muststaple_leaf_cert'),
+    TServerName.DnsName(''), nil, LValidated, LAlert),
+    'must-staple is not enforced on a resumption');
+end;
+
+procedure TTestOcspStapling.TestMalformedTlsFeatureAbortsEvenWhenNotRequested;
+var
+  LAlert: TTlsAlertDescription;
+  LValidated: TArray<TBytes>;
+begin
+  // TLS Feature well-formedness is a hard invariant independent of request/occasion
+  CheckFalse(VerifierFor(TRevocationPosture.Off, TVerdictDeferral.None,
+    {AStatusRequestOffered=} False, TVerificationOccasion.Resumption)
+    .VerifyServerCertificate(ChainFor('badfeature_leaf_cert'),
+    TServerName.DnsName(''), nil, LValidated, LAlert),
+    'a malformed TLS Feature is fatal even when stapling was not requested');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
+    'the alert is bad_certificate');
+end;
+
 procedure TTestOcspStapling.TestPinningMatchCompletes;
 var
   LAlert: TTlsAlertDescription;
@@ -551,7 +636,7 @@ begin
   LDangerous.InsecureSkipVerify := True;
   LInner := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(nil) as ITrustAnchorStore, False,
-    TCertificateChainLimits.Defaults, TRevocationPosture.Off, LDangerous, False)
+    TCertificateChainLimits.Defaults, TRevocationPosture.Off, LDangerous, TVerdictDeferral.None)
     as IServerCertificateVerifier;
   LWrongPin := LeafSpkiPin;
   LWrongPin[0] := LWrongPin[0] xor $FF;
@@ -626,7 +711,7 @@ begin
   LDangerous.InsecureSkipVerify := True;
   LInner := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(nil) as ITrustAnchorStore, False,
-    TCertificateChainLimits.Defaults, TRevocationPosture.Off, LDangerous, False)
+    TCertificateChainLimits.Defaults, TRevocationPosture.Off, LDangerous, TVerdictDeferral.None)
     as IServerCertificateVerifier;
   LVerifier := TPinningVerifier.Create(LInner, TArray<TBytes>.Create(LeafSpkiPin), Provider)
     as IServerCertificateVerifier;

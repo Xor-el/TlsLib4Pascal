@@ -223,6 +223,7 @@ type
       const ACallback: TTlsCertificateVerifyCallback): TTlsConfigBuilder;
     function WithAsyncCertificateVerdict(AEnabled: Boolean;
       ADeadlineMs: Cardinal): TTlsConfigBuilder;
+    function WithLiveRevocationVerdict(ADeadlineMs: Cardinal): TTlsConfigBuilder;
     function WithResumption(AEnabled: Boolean): TTlsConfigBuilder;
     function WithExternalPreSharedKeys(
       const APsks: TArray<TExternalPsk>): TTlsConfigBuilder;
@@ -281,11 +282,11 @@ resourcestring
   SHardRevocationUnusable = 'a Hard revocation posture rejects a peer whose certificate has no ' +
     'stapled OCSP response, so it always-rejects unless the client obtains revocation status: ' +
     'call WithOcspStaplingRequest(True) to request a staple, or configure a live OCSP/CRL verdict ' +
-    'resolver (WithAsyncCertificateVerdict)';
+    'resolver (WithLiveRevocationVerdict)';
   SHardServerRevocationUnusable = 'a Hard revocation posture rejects a client whose certificate ' +
     'has no revocation status; a server cannot request a client OCSP staple, so Hard ' +
     'client-certificate revocation requires a live OCSP/CRL verdict resolver ' +
-    '(WithAsyncCertificateVerdict)';
+    '(WithLiveRevocationVerdict)';
   STicketLifetimeTooLong = 'the session-ticket lifetime must not exceed 604800 seconds ' +
     '(7 days), the maximum a server may advertise (RFC 8446 4.6.1)';
 
@@ -448,7 +449,7 @@ type
     /// status; Off skips revocation. Hard REQUIRES a definite not-revoked status and rejects a
     /// peer certificate with no stapled OCSP response - so Hard is only usable together with
     /// WithOcspStaplingRequest(True) or a live OCSP/CRL verdict resolver
-    /// (WithAsyncCertificateVerdict); Build rejects a Hard client that has neither.</summary>
+    /// (WithLiveRevocationVerdict); Build rejects a Hard client that has neither.</summary>
     function WithRevocation(APosture: TRevocationPosture): ITlsClientConfigBuilder;
     function WithCertificatePinning(
       const APins: TArray<TBytes>): ITlsClientConfigBuilder;
@@ -461,6 +462,8 @@ type
     function WithCertificateVerifyCallback(
       const ACallback: TTlsCertificateVerifyCallback): ITlsClientConfigBuilder;
     function WithAsyncCertificateVerdict(AEnabled: Boolean;
+      ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
+    function WithLiveRevocationVerdict(
       ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
     function WithSessionCache(const ACache: ISessionCache): ITlsClientConfigBuilder;
     function WithResumeVerification(AMode: TResumeVerification): ITlsClientConfigBuilder;
@@ -516,7 +519,7 @@ type
     /// 4.4.2). Soft (default) accepts an indeterminate status; Off skips revocation. Hard REQUIRES
     /// a definite not-revoked status - and since a client cannot be asked to staple an OCSP
     /// response, Hard client-certificate revocation is satisfiable ONLY by a live OCSP/CRL verdict
-    /// resolver (WithAsyncCertificateVerdict + TTlsStream.SetCertificateVerdictResolver); Build
+    /// resolver (WithLiveRevocationVerdict + TTlsStream.SetCertificateVerdictResolver); Build
     /// rejects a Hard, client-authenticating server that has no resolver. Governs nothing when
     /// client authentication is not requested.</summary>
     function WithRevocation(APosture: TRevocationPosture): ITlsServerConfigBuilder;
@@ -529,6 +532,8 @@ type
     function WithCertificateVerifyCallback(
       const ACallback: TTlsCertificateVerifyCallback): ITlsServerConfigBuilder;
     function WithAsyncCertificateVerdict(AEnabled: Boolean;
+      ADeadlineMs: Cardinal): ITlsServerConfigBuilder;
+    function WithLiveRevocationVerdict(
       ADeadlineMs: Cardinal): ITlsServerConfigBuilder;
     function WithExternalPreSharedKeys(
       const APsks: TArray<TExternalPsk>): ITlsServerConfigBuilder;
@@ -1018,6 +1023,13 @@ begin
   Result := Self;
 end;
 
+function TTlsClientConfigBuilder.WithLiveRevocationVerdict(
+  ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
+begin
+  FOwner.WithLiveRevocationVerdict(ADeadlineMs);
+  Result := Self;
+end;
+
 function TTlsClientConfigBuilder.WithCertificateVerifyCallback(
   const ACallback: TTlsCertificateVerifyCallback): ITlsClientConfigBuilder;
 begin
@@ -1299,6 +1311,13 @@ function TTlsServerConfigBuilder.WithAsyncCertificateVerdict(AEnabled: Boolean;
   ADeadlineMs: Cardinal): ITlsServerConfigBuilder;
 begin
   FOwner.WithAsyncCertificateVerdict(AEnabled, ADeadlineMs);
+  Result := Self;
+end;
+
+function TTlsServerConfigBuilder.WithLiveRevocationVerdict(
+  ADeadlineMs: Cardinal): ITlsServerConfigBuilder;
+begin
+  FOwner.WithLiveRevocationVerdict(ADeadlineMs);
   Result := Self;
 end;
 
@@ -2089,7 +2108,20 @@ function TTlsConfigBuilder.WithAsyncCertificateVerdict(AEnabled: Boolean;
   ADeadlineMs: Cardinal): TTlsConfigBuilder;
 begin
   GuardMutable;
-  FAsyncVerdict.Enabled := AEnabled;
+  // last call wins across the two verdict-deferral setters
+  if AEnabled then
+    FAsyncVerdict.Deferral := TVerdictDeferral.HostDecision
+  else
+    FAsyncVerdict.Deferral := TVerdictDeferral.None;
+  FAsyncVerdict.DeadlineMs := ADeadlineMs;
+  Result := Self;
+end;
+
+function TTlsConfigBuilder.WithLiveRevocationVerdict(
+  ADeadlineMs: Cardinal): TTlsConfigBuilder;
+begin
+  GuardMutable;
+  FAsyncVerdict.Deferral := TVerdictDeferral.LiveRevocation;
   FAsyncVerdict.DeadlineMs := ADeadlineMs;
   Result := Self;
 end;
@@ -2276,7 +2308,7 @@ begin
   // obtains revocation status some way: by requesting a staple, or by a live OCSP/CRL verdict
   // resolver (the async-verdict seam). Fail fast at Build rather than reject every connection.
   if (FRevocationPosture = TRevocationPosture.Hard) and (not FRequestOcspStapling) and
-    (not FAsyncVerdict.Enabled) then
+    (FAsyncVerdict.Deferral <> TVerdictDeferral.LiveRevocation) then
     raise EInvalidOperationTlsLibException.CreateRes(@SHardRevocationUnusable);
   ValidateVersionScoping;
   LConfig := TFrozenClientConfig.Create;
@@ -2347,7 +2379,8 @@ begin
   // OCSP/CRL verdict resolver; without one, Hard would reject every client. Fail fast at Build
   // (only meaningful when client authentication is actually requested).
   if (FClientAuth <> TClientAuthMode.None) and
-    (FRevocationPosture = TRevocationPosture.Hard) and (not FAsyncVerdict.Enabled) then
+    (FRevocationPosture = TRevocationPosture.Hard) and
+    (FAsyncVerdict.Deferral <> TVerdictDeferral.LiveRevocation) then
     raise EInvalidOperationTlsLibException.CreateRes(@SHardServerRevocationUnusable);
   ValidateVersionScoping;
   LConfig := TFrozenServerConfig.Create;

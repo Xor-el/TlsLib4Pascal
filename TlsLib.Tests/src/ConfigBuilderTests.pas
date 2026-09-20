@@ -97,7 +97,11 @@ type
     // Build fails fast without one, builds with one, and is inert when client auth is off
     procedure TestServerHardClientRevocationWithoutResolverIsRefused;
     procedure TestServerHardClientRevocationWithResolverBuilds;
+    procedure TestServerHardClientRevocationHostDecisionIsRefused;
     procedure TestServerHardRevocationWithoutClientAuthBuilds;
+    procedure TestClientHardHostDecisionWithoutStapleIsRefused;
+    procedure TestClientHardLiveRevocationBuilds;
+    procedure TestAsyncVerdictMapsToHostDecision;
     procedure TestWithCertificatePinningLandsInFrozenConfig;
     procedure TestServerWithOcspStapleLandsInFrozenConfig;
     procedure TestFieldwiseCredentialClearsPriorStaple;
@@ -454,15 +458,38 @@ end;
 
 procedure TTestConfigBuilder.TestServerHardClientRevocationWithResolverBuilds;
 begin
-  // with a live verdict resolver, Hard client-cert revocation is satisfiable - Build succeeds
+  // with a live-revocation verdict resolver, Hard client-cert revocation is satisfiable - Build
+  // succeeds (a host-decision park would not: it does not defer the revocation gate)
   TTlsPresets.Compatible(Provider).Server
     .WithCredential(ServerCredential)
     .WithPeerAuth(TClientAuthMode.Required)
     .WithTrustStore(ClientTrust)
     .WithRevocation(TRevocationPosture.Hard)
-    .WithAsyncCertificateVerdict(True, 0)
+    .WithLiveRevocationVerdict(0)
     .Build;
   Check(True, 'a Hard client-cert-revocation server with a resolver builds');
+end;
+
+procedure TTestConfigBuilder.TestServerHardClientRevocationHostDecisionIsRefused;
+var
+  LRaised: Boolean;
+begin
+  // a host-decision park does not defer the revocation gate, so it does not satisfy Hard mTLS
+  // (only a live-revocation resolver does) - Build must still refuse
+  LRaised := False;
+  try
+    TTlsPresets.Compatible(Provider).Server
+      .WithCredential(ServerCredential)
+      .WithPeerAuth(TClientAuthMode.Required)
+      .WithTrustStore(ClientTrust)
+      .WithRevocation(TRevocationPosture.Hard)
+      .WithAsyncCertificateVerdict(True, 0)
+      .Build;
+  except
+    on EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a host-decision park does not satisfy Hard client-cert revocation');
 end;
 
 procedure TTestConfigBuilder.TestServerHardRevocationWithoutClientAuthBuilds;
@@ -474,6 +501,55 @@ begin
     .WithRevocation(TRevocationPosture.Hard)
     .Build;
   Check(True, 'Hard revocation without client auth builds (guard inert)');
+end;
+
+procedure TTestConfigBuilder.TestClientHardHostDecisionWithoutStapleIsRefused;
+var
+  LRaised: Boolean;
+begin
+  // a Hard client with neither a staple request nor a live-revocation resolver always-rejects;
+  // a host-decision park does not defer the revocation gate, so it does not rescue this
+  LRaised := False;
+  try
+    TTlsPresets.Compatible(Provider).Client
+      .WithTrustStore(ClientTrust)
+      .WithRevocation(TRevocationPosture.Hard)
+      .WithAsyncCertificateVerdict(True, 0)
+      .Build;
+  except
+    on EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a Hard client with only a host-decision park is refused');
+end;
+
+procedure TTestConfigBuilder.TestClientHardLiveRevocationBuilds;
+var
+  LConfig: ITlsClientConfig;
+begin
+  // a live-revocation resolver satisfies a Hard client with no staple request, and the frozen
+  // config carries the LiveRevocation deferral
+  LConfig := TTlsPresets.Compatible(Provider).Client
+    .WithTrustStore(ClientTrust)
+    .WithRevocation(TRevocationPosture.Hard)
+    .WithLiveRevocationVerdict(0)
+    .Build;
+  CheckEquals(Ord(TVerdictDeferral.LiveRevocation),
+    Ord(LConfig.AsyncCertificateVerdict.Deferral),
+    'the frozen config carries the live-revocation deferral');
+end;
+
+procedure TTestConfigBuilder.TestAsyncVerdictMapsToHostDecision;
+var
+  LConfig: ITlsClientConfig;
+begin
+  LConfig := TTlsPresets.Compatible(Provider).Client
+    .WithTrustStore(ClientTrust)
+    .WithAsyncCertificateVerdict(True, 0)
+    .Build;
+  CheckEquals(Ord(TVerdictDeferral.HostDecision),
+    Ord(LConfig.AsyncCertificateVerdict.Deferral),
+    'WithAsyncCertificateVerdict enables the host-decision deferral');
 end;
 
 procedure TTestConfigBuilder.TestFacadeDrivesLoopback;

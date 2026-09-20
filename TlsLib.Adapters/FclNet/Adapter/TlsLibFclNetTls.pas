@@ -504,7 +504,7 @@ begin
   if Assigned(FVerifyCallback) then
     LClient.WithCertificateVerifyCallback(FVerifyCallback);
   if Assigned(FVerdictResolver) then
-    LClient.WithAsyncCertificateVerdict(True, FVerdictDeadlineMs);
+    LClient.WithLiveRevocationVerdict(FVerdictDeadlineMs);
   if FSessionResumption then
   begin
     LClient.WithResumption(True);

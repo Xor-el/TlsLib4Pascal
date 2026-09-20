@@ -83,10 +83,15 @@ type
     /// incomplete chain; empty validates the chain exactly as received.</summary>
     FIntermediates: TArray<TBytes>;
     FDangerous: TDangerousTrust;
-    /// <summary>Whether an out-of-band async certificate-verdict resolver runs after the pipeline
-    /// (the live OCSP/CRL fetch at the park). When set, an indeterminate stapled outcome is
-    /// DEFERRED to that resolver instead of being decided inline by the posture.</summary>
-    FAsyncVerdictEnabled: Boolean;
+    /// <summary>How a verdict is deferred out-of-band. Only LiveRevocation defers an indeterminate
+    /// stapled outcome to the resolver (the live OCSP/CRL fetch at the park); None and HostDecision
+    /// decide it inline by the posture.</summary>
+    FDeferral: TVerdictDeferral;
+    /// <summary>Whether the client offered status_request, and whether this is the initial
+    /// handshake or a resumption: must-staple binds only to an initial-handshake server
+    /// certificate the client actually asked to have stapled (RFC 7633 4.3.3).</summary>
+    FStatusRequestOffered: Boolean;
+    FOccasion: TVerificationOccasion;
     /// <summary>The chain-algorithm policy (advertised-scheme filter + key-strength floors),
     /// applied only when the engine set it via SetChainAlgorithmPolicy; a verifier built through
     /// the bare constructors (no advertised set to filter against) does not run it.</summary>
@@ -107,11 +112,11 @@ type
     /// <summary>The stapled-OCSP revocation + must-staple step (RFC 6960 / RFC 7633),
     /// in-band only. A malformed TLS Feature extension is a hard bad_certificate. A
     /// definitive Revoked fails (certificate_revoked); a current Good passes. A must-staple
-    /// leaf demands a current Good staple regardless of posture. An indeterminate outcome is
-    /// deferred to the async verdict resolver when one runs (live OCSP/CRL), else accepted under
-    /// Soft/Off and rejected under Hard.</summary>
+    /// leaf demands a current Good staple only when the client asked for one on the initial
+    /// handshake (RFC 7633 4.3.3). An indeterminate outcome is deferred to the live-revocation
+    /// resolver when one runs, else accepted under Soft/Off and rejected under Hard.</summary>
     function CheckRevocation(const AChain: TArray<TBytes>; const AOcspStaple: TBytes;
-      out AAlert: TTlsAlertDescription): Boolean;
+      AKeyPurpose: TCertKeyPurpose; out AAlert: TTlsAlertDescription): Boolean;
   public
     /// <summary>The stapled OCSP verdict for a leaf (RFC 6960), shared by the built-in
     /// pipeline and an OS delegate that runs its own post-check: a current Good response, a
@@ -132,15 +137,15 @@ type
       const AChainLimits: TCertificateChainLimits;
       ARevocationPosture: TRevocationPosture); overload;
     /// <summary>As above, plus the dangerous escape hatches (InsecureSkipVerify bypasses the
-    /// built-in pipeline, and a VerifyCallback that can only additionally reject) and
-    /// AAsyncVerdictEnabled: when True, an indeterminate stapled-revocation outcome is deferred to
-    /// the out-of-band verdict resolver (live OCSP/CRL) rather than decided inline by the posture.</summary>
+    /// built-in pipeline, and a VerifyCallback that can only additionally reject) and ADeferral:
+    /// LiveRevocation defers an indeterminate stapled-revocation outcome to the out-of-band verdict
+    /// resolver (live OCSP/CRL); None and HostDecision decide it inline by the posture.</summary>
     constructor Create(const AProvider: ICryptoProvider; const AClock: ITlsClock;
       const ATrustStore: ITrustAnchorStore; ACheckHostName: Boolean;
       const AChainLimits: TCertificateChainLimits;
       ARevocationPosture: TRevocationPosture;
       const ADangerous: TDangerousTrust;
-      AAsyncVerdictEnabled: Boolean); overload;
+      ADeferral: TVerdictDeferral); overload;
     /// <summary>As above, plus AIntermediates: untrusted intermediate certificates seeded into
     /// PKIX path building for a peer that sends an incomplete chain (e.g. a leaf-only server).
     /// They never anchor a path and never bypass validation; empty behaves exactly as the
@@ -149,8 +154,19 @@ type
       const ATrustStore: ITrustAnchorStore; ACheckHostName: Boolean;
       const AChainLimits: TCertificateChainLimits;
       ARevocationPosture: TRevocationPosture;
-      const ADangerous: TDangerousTrust; AAsyncVerdictEnabled: Boolean;
+      const ADangerous: TDangerousTrust; ADeferral: TVerdictDeferral;
       const AIntermediates: TArray<TBytes>); overload;
+    /// <summary>As above, plus the must-staple gating inputs: AStatusRequestOffered is whether the
+    /// client offered status_request, and AOccasion whether this is the initial handshake or a
+    /// resumption. Must-staple (RFC 7633) is enforced only for an initial-handshake server
+    /// certificate the client asked to have stapled.</summary>
+    constructor Create(const AProvider: ICryptoProvider; const AClock: ITlsClock;
+      const ATrustStore: ITrustAnchorStore; ACheckHostName: Boolean;
+      const AChainLimits: TCertificateChainLimits;
+      ARevocationPosture: TRevocationPosture;
+      const ADangerous: TDangerousTrust; ADeferral: TVerdictDeferral;
+      const AIntermediates: TArray<TBytes>; AStatusRequestOffered: Boolean;
+      AOccasion: TVerificationOccasion); overload;
     /// <summary>Turns on the chain-algorithm policy for this verifier: the peer chain must be
     /// signed only with a scheme in AAdvertised (and never MD5/SHA-1) and its keys must meet
     /// APolicy. The engine calls this from the verifier source with the connection's advertised
@@ -262,25 +278,38 @@ var
 begin
   LNoDangerous := Default(TDangerousTrust);
   Create(AProvider, AClock, ATrustStore, ACheckHostName, AChainLimits,
-    ARevocationPosture, LNoDangerous, False);
+    ARevocationPosture, LNoDangerous, TVerdictDeferral.None);
 end;
 
 constructor TCertificateVerifier.Create(const AProvider: ICryptoProvider;
   const AClock: ITlsClock; const ATrustStore: ITrustAnchorStore;
   ACheckHostName: Boolean; const AChainLimits: TCertificateChainLimits;
   ARevocationPosture: TRevocationPosture;
-  const ADangerous: TDangerousTrust; AAsyncVerdictEnabled: Boolean);
+  const ADangerous: TDangerousTrust; ADeferral: TVerdictDeferral);
 begin
   Create(AProvider, AClock, ATrustStore, ACheckHostName, AChainLimits,
-    ARevocationPosture, ADangerous, AAsyncVerdictEnabled, nil);
+    ARevocationPosture, ADangerous, ADeferral, nil);
 end;
 
 constructor TCertificateVerifier.Create(const AProvider: ICryptoProvider;
   const AClock: ITlsClock; const ATrustStore: ITrustAnchorStore;
   ACheckHostName: Boolean; const AChainLimits: TCertificateChainLimits;
   ARevocationPosture: TRevocationPosture;
-  const ADangerous: TDangerousTrust; AAsyncVerdictEnabled: Boolean;
+  const ADangerous: TDangerousTrust; ADeferral: TVerdictDeferral;
   const AIntermediates: TArray<TBytes>);
+begin
+  Create(AProvider, AClock, ATrustStore, ACheckHostName, AChainLimits,
+    ARevocationPosture, ADangerous, ADeferral, AIntermediates, False,
+    TVerificationOccasion.InitialHandshake);
+end;
+
+constructor TCertificateVerifier.Create(const AProvider: ICryptoProvider;
+  const AClock: ITlsClock; const ATrustStore: ITrustAnchorStore;
+  ACheckHostName: Boolean; const AChainLimits: TCertificateChainLimits;
+  ARevocationPosture: TRevocationPosture;
+  const ADangerous: TDangerousTrust; ADeferral: TVerdictDeferral;
+  const AIntermediates: TArray<TBytes>; AStatusRequestOffered: Boolean;
+  AOccasion: TVerificationOccasion);
 begin
   inherited Create;
   FProvider := AProvider;
@@ -291,7 +320,9 @@ begin
   FRevocationPosture := ARevocationPosture;
   FIntermediates := AIntermediates;
   FDangerous := ADangerous;
-  FAsyncVerdictEnabled := AAsyncVerdictEnabled;
+  FDeferral := ADeferral;
+  FStatusRequestOffered := AStatusRequestOffered;
+  FOccasion := AOccasion;
 end;
 
 function TCertificateVerifier.ValidationTimeUtc: TDateTime;
@@ -345,7 +376,8 @@ begin
 end;
 
 function TCertificateVerifier.CheckRevocation(const AChain: TArray<TBytes>;
-  const AOcspStaple: TBytes; out AAlert: TTlsAlertDescription): Boolean;
+  const AOcspStaple: TBytes; AKeyPurpose: TCertKeyPurpose;
+  out AAlert: TTlsAlertDescription): Boolean;
 const
   // RFC 7633 TLS Feature id: status_request means the certificate is must-staple
   MustStapleFeature = UInt16(5);
@@ -356,20 +388,30 @@ var
   LI: Int32;
 begin
   // the RFC 7633 TLS Feature extension well-formedness is a hard invariant, enforced
-  // regardless of posture: a value that is not a SEQUENCE OF INTEGER is fatal
+  // regardless of posture, role, or occasion: a value that is not a SEQUENCE OF INTEGER is fatal
   if not FProvider.Certificates.TlsFeatures(AChain[0], LFeatures) then
   begin
     AAlert := TTlsAlertDescription.BadCertificate;
     Result := False;
     Exit;
   end;
-  LMustStaple := False;
-  for LI := 0 to System.High(LFeatures) do
-    if LFeatures[LI] = MustStapleFeature then
-    begin
-      LMustStaple := True;
-      Break;
-    end;
+  // must-staple binds only to a server certificate on the initial handshake that the client
+  // asked to have stapled (RFC 7633 4.3.3): a client never asks to staple a client certificate,
+  // no Certificate is on the wire on a resumption, and a client that did not offer status_request
+  // cannot demand what it did not request
+  LMustStaple := FStatusRequestOffered and
+    (FOccasion = TVerificationOccasion.InitialHandshake) and
+    (AKeyPurpose = TCertKeyPurpose.ServerAuth);
+  if LMustStaple then
+  begin
+    LMustStaple := False;
+    for LI := 0 to System.High(LFeatures) do
+      if LFeatures[LI] = MustStapleFeature then
+      begin
+        LMustStaple := True;
+        Break;
+      end;
+  end;
 
   LVerdict := StapleVerdict(FProvider, FClock, AChain, AOcspStaple);
 
@@ -392,14 +434,16 @@ begin
   //  - a must-staple leaf still requires a current Good staple, even under Soft/Off, and even
   //    when a live resolver exists - a leaf that demands stapling is not satisfied by a live
   //    fetch (RFC 7633). Always reject.
-  //  - else, when an out-of-band verdict resolver will run (live OCSP/CRL at the park), DEFER
-  //    to it: accept here so the handshake reaches the park, where the resolver renders the
-  //    posture's verdict over a live fetch. This is what makes a Hard posture reachable for a
-  //    peer that carries no staple (e.g. a client certificate, which is never stapled).
-  //  - else (no live channel), decide inline by the posture: only Hard rejects.
+  //  - else, only when the verdict is deferred to a live-revocation resolver (the live OCSP/CRL
+  //    fetch at the park), DEFER to it: accept here so the handshake reaches the park, where the
+  //    resolver renders the posture's verdict over a live fetch. This is what makes a Hard posture
+  //    reachable for a peer that carries no staple (e.g. a client certificate, never stapled). A
+  //    host-decision park is augment-only: it does not defer the revocation gate, so the posture
+  //    still decides inline exactly as with no deferral.
+  //  - else, decide inline by the posture: only Hard rejects.
   if LMustStaple then
     Result := False
-  else if FAsyncVerdictEnabled then
+  else if FDeferral = TVerdictDeferral.LiveRevocation then
     Result := True
   else
     Result := FRevocationPosture <> TRevocationPosture.Hard;
@@ -463,7 +507,7 @@ begin
 
   // revocation via the stapled OCSP response (RFC 6960), in-band only; run over the validated
   // chain so a staple can be authenticated against a recovered issuer the peer did not send
-  if not CheckRevocation(LEffectiveChain, AOcspStaple, AAlert) then
+  if not CheckRevocation(LEffectiveChain, AOcspStaple, AKeyPurpose, AAlert) then
     Exit;
 
   // endpoint identity (RFC 6125) over the leaf's dNSName / iPAddress SANs (server cert only)

@@ -70,8 +70,6 @@ type
 implementation
 
 uses
-  // implementation-only: TEndpointIdentity's interface uses this unit, so the reference here
-  // stays in the implementation section to avoid a circular interface dependency
   TlpEndpointIdentity;
 
 { TServerName }

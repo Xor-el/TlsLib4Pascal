@@ -401,7 +401,7 @@ begin
   if Assigned(GVerifyCallback) then
     LClient.WithCertificateVerifyCallback(GVerifyCallback);
   if Assigned(GVerdictResolver) then
-    LClient.WithAsyncCertificateVerdict(True, GVerdictDeadlineMs);
+    LClient.WithLiveRevocationVerdict(GVerdictDeadlineMs);
   if GSessionResumption then
   begin
     LClient.WithResumption(True);

@@ -105,6 +105,10 @@ type
     /// <summary>Decides whether the server's certificate chain is trusted. Required:
     /// with none configured the handshake fails closed.</summary>
     CertificateVerifier: IServerCertificateVerifier;
+    /// <summary>Verifies a resumed server's stored chain on reverify-on-resume: no Certificate
+    /// and no fresh staple are on the wire, so must-staple never fires. nil falls back to
+    /// CertificateVerifier (never looser than it).</summary>
+    ResumeCertificateVerifier: IServerCertificateVerifier;
     /// <summary>The name the server certificate must be valid for (RFC 6125).</summary>
     ExpectedServerName: TServerName;
     /// <summary>When set, Start sends these framed ClientHello bytes verbatim (replay/testing).</summary>
@@ -1489,17 +1493,23 @@ end;
 
 procedure TTls13ClientStateMachine.ReverifyResumedServer;
 var
+  LVerifier: IServerCertificateVerifier;
   LAlert: TTlsAlertDescription;
   LValidated: TArray<TBytes>;
 begin
-  if FParams.CertificateVerifier = nil then
+  // prefer the resumption-occasion verifier (no must-staple on a chain with no Certificate);
+  // fall back to the primary for a direct caller that wired only one
+  LVerifier := FParams.ResumeCertificateVerifier;
+  if LVerifier = nil then
+    LVerifier := FParams.CertificateVerifier;
+  if LVerifier = nil then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.InternalError, @SNoCertificateVerifier);
   // a resumed handshake carries no fresh OCSP staple; re-check the stored chain against current
   // trust. An empty stored chain cannot be re-verified, so it fails closed
   LAlert := TTlsAlertDescription.BadCertificate;
   if (System.Length(FResumptionPeerCertificates) = 0) or
-    not FParams.CertificateVerifier.VerifyServerCertificate(FResumptionPeerCertificates,
+    not LVerifier.VerifyServerCertificate(FResumptionPeerCertificates,
     FParams.ExpectedServerName, nil, LValidated, LAlert) then
     raise EFatalAlertTlsLibException.CreateRes(LAlert, @SUntrustedCertificate);
 end;

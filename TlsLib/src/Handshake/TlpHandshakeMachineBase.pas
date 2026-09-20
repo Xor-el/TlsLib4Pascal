@@ -59,8 +59,8 @@ type
     function RequestKeyUpdate(ARequestPeerUpdate: Boolean)
       : TArray<THandshakeEffect>; virtual;
     function TakePendingKeyUpdate: TArray<THandshakeEffect>; virtual;
-    /// <summary>No withheld continuation by default; the TLS 1.3 client overrides for its
-    /// reverify-on-resume park.</summary>
+    /// <summary>No withheld continuation by default; the TLS 1.3 and 1.2 clients override for
+    /// their reverify-on-resume park.</summary>
     function ResumeAfterVerdict: TArray<THandshakeEffect>; virtual;
     /// <summary>No exporter until a machine derives its secrets; concrete versions override.</summary>
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
