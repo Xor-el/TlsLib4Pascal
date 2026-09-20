@@ -99,7 +99,10 @@ type
     function ProcessInput(const AWire: TBytes; AOffset, ALength: Int32): TTlsOutcome;
 
     // --- application -> engine ---
-    /// <summary>Queues application data to be protected and sent.</summary>
+    /// <summary>Queues application data to be protected and sent. Raises
+    /// EInvalidOperationTlsLibException if the connection is terminal, our close_notify was
+    /// already sent, or (TLS 1.2 only) an inbound close_notify closed it - check WriteClosed
+    /// first. Under TLS 1.3 an inbound close_notify leaves the write side open (RFC 8446 6.1).</summary>
     procedure Write(const AData: TBytes; AOffset, ALength: Int32);
     /// <summary>
     /// Queues 0-RTT early application data (RFC 8446 2.3) and returns the number of bytes
@@ -116,7 +119,8 @@ type
     /// Initiates a post-handshake TLS 1.3 KeyUpdate (RFC 8446 4.6.3): rekeys the write
     /// epoch and sends a KeyUpdate. When ARequestPeerUpdate is True the peer is asked to
     /// rekey and send its own KeyUpdate back. A no-op before the handshake completes, on a
-    /// TLS 1.2 connection, or once terminal/closed.
+    /// TLS 1.2 connection, once terminal or after our own close_notify, and (like Write) after
+    /// an inbound close_notify only under TLS 1.2 - a 1.3 write half stays open and rekeyable.
     /// </summary>
     procedure RequestKeyUpdate(ARequestPeerUpdate: Boolean);
     /// <summary>Sends a close_notify (clean shutdown).</summary>
@@ -177,9 +181,10 @@ type
     /// with the peer's final handshake flight and be observed by the handshake driver before
     /// the read loop ever runs).</summary>
     function IsInboundClosed: Boolean;
-    /// <summary>Whether outbound application data is no longer accepted: the engine is
-    /// terminal, the peer half-closed (inbound close_notify), or we sent close_notify.
-    /// A Write in this state is silently dropped, so callers must check this first.</summary>
+    /// <summary>Whether outbound application data is no longer accepted: the engine is terminal,
+    /// we sent close_notify, or (TLS 1.2 only) the peer's inbound close_notify closed it. Under
+    /// TLS 1.3 an inbound close_notify leaves the write side open (RFC 8446 6.1). A Write in this
+    /// state raises EInvalidOperationTlsLibException, so callers must check this first.</summary>
     function WriteClosed: Boolean;
     /// <summary>The structured error after a Fatal outcome.</summary>
     function LastError: TTlsError;

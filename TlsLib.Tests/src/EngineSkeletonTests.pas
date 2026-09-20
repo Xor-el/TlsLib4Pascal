@@ -218,6 +218,7 @@ procedure TTestEngineSkeleton.TestFatalPreQueuesAlertAndTerminal;
 var
   LEngine: ITlsEngine;
   LOutcome: TTlsOutcome;
+  LRaised: Boolean;
 begin
   LEngine := NewEngine;
   // an over-long record length trips record_overflow in the record layer
@@ -229,11 +230,18 @@ begin
     TakeAll(LEngine));
   CheckEquals(Ord(TTlsAlertDescription.RecordOverflow),
     Ord(LEngine.LastError.Alert.Description), 'last error is record_overflow');
-  // further input is refused with Fatal, and writes are no-ops
+  // further input is refused with Fatal, and a write after a fatal is API misuse (raises)
   CheckEquals(Ord(TTlsOutcome.Fatal),
     Ord(LEngine.ProcessInput(DecodeHex('1703030000'), 0, 5)), 'still fatal');
-  LEngine.Write(DecodeHex('00'), 0, 1);
-  CheckEquals(0, System.Length(TakeAll(LEngine)), 'no output after terminal');
+  CheckTrue(LEngine.WriteClosed, 'the write side is closed after a fatal');
+  LRaised := False;
+  try
+    LEngine.Write(DecodeHex('00'), 0, 1);
+  except
+    on EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a write after a fatal raises');
 end;
 
 procedure TTestEngineSkeleton.TestWantsReadWantsWriteReflectState;

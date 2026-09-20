@@ -29,6 +29,7 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpTlsAlert,
+  TlpTlsLibExceptions,
   TlpICryptoProvider,
   TlpNamedGroups,
   TlpNegotiationTypes,
@@ -140,6 +141,7 @@ type
     procedure TestAppDataAcrossRecordsChunkedReads;
     procedure TestUnexpectedMessageAbortsWithUnexpectedMessage;
     procedure TestMiddleboxChangeCipherSpec;
+    procedure TestWriteAfterInboundCloseNotifyHalfCloses;
     procedure TestStapledGoodOcspCompletesUnderHardPosture;
     procedure TestMissingStapleAbortsUnderHardPosture;
     procedure TestSniSelectsHostCredentialAmongMany;
@@ -1695,6 +1697,59 @@ begin
   CheckFalse(LClient.IsTerminal or LServer.IsTerminal,
     'the handshake carrying the middlebox change_cipher_spec completed');
   CheckFalse(LClient.IsHandshaking, 'the client finished the handshake');
+end;
+
+procedure TTestTls13Loopback.TestWriteAfterInboundCloseNotifyHalfCloses;
+var
+  LClient, LServer: ITlsEngine;
+  LI: Int32;
+  LMsg: TBytes;
+  LRaised: Boolean;
+begin
+  LClient := NewClient;
+  LServer := NewServer;
+  LClient.StartHandshake;
+  LI := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LI < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LI);
+  end;
+  CheckFalse(LClient.IsHandshaking, 'the handshake completed');
+
+  // the server closes its write side; the client receives the inbound close_notify
+  LServer.SendClose;
+  Pump(LServer, LClient);
+  CheckTrue(LClient.IsInboundClosed, 'the client saw the inbound close_notify');
+  // under TLS 1.3 an inbound close_notify closes only the read side (RFC 8446 6.1): the client's
+  // write half stays open, so it can still write and rekey
+  CheckFalse(LClient.WriteClosed, 'the TLS 1.3 write side stays open after an inbound close');
+  LMsg := DecodeHex('61667465722d636c6f7365'); // "after-close"
+  LClient.Write(LMsg, 0, System.Length(LMsg));
+  Pump(LClient, LServer);
+  CheckEqualBytes('the client can still write after the inbound close_notify', LMsg,
+    ReadAllApp(LServer));
+  // a KeyUpdate on the still-open write half is permitted and writes continue under it
+  LClient.RequestKeyUpdate(False);
+  Pump(LClient, LServer);
+  LClient.Write(LMsg, 0, System.Length(LMsg));
+  Pump(LClient, LServer);
+  CheckEqualBytes('writes continue under the updated keys', LMsg, ReadAllApp(LServer));
+  CheckFalse(LClient.IsTerminal or LServer.IsTerminal,
+    'the half-close rekey did not fail either side');
+
+  // once the client closes its OWN write side, further writes are API misuse (the FSentClose leg)
+  LClient.SendClose;
+  CheckTrue(LClient.WriteClosed, 'the write side is closed after our own close_notify');
+  LRaised := False;
+  try
+    LClient.Write(LMsg, 0, System.Length(LMsg));
+  except
+    on EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a write after our own close_notify raises');
 end;
 
 procedure TTestTls13Loopback.TestStapledGoodOcspCompletesUnderHardPosture;
