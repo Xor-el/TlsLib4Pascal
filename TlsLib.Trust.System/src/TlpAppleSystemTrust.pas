@@ -72,7 +72,10 @@ type
   /// network fetch disabled (cache-only). The revocation posture adds a revocation policy
   /// (Soft best-effort, Hard requires a positive response, Off none) and the injected clock
   /// pins the validation date; a stapled OCSP response is consumed as the cached response.
-  /// Shared by macOS and iOS. Fail-closed.
+  /// A definitive stapled Revoked rejects under every posture, Off included (a library
+  /// post-check after the OS verdict). An IP-literal identity is matched in the library against
+  /// the leaf's iPAddress SANs (the OS name check only ever sees a DNS host). Shared by macOS
+  /// and iOS. Fail-closed.
   /// </summary>
   TAppleDelegateVerifier = class sealed(TInterfacedObject, IServerCertificateVerifier)
   strict private
@@ -200,11 +203,6 @@ type
 {$IFEND}
 
 implementation
-
-resourcestring
-  SLiveNeedsLiveRevocationVerdict =
-    'OS-native live revocation needs the live-revocation verdict enabled (it defers the live ' +
-    'check to the out-of-band park); call WithLiveRevocationVerdict, or use cache-only trust';
 
 const
   // errSec OSStatus values (SecBase.h) whose meaning we surface as a granular alert.
@@ -1615,9 +1613,22 @@ function TAppleDelegateVerifier.VerifyServerCertificate(const AChain: TArray<TBy
   out AValidatedChain: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
-  Result := TAppleTrustApi.EvaluateSslChain(AChain, AServerName.ToString, FPosture,
+  // the OS name check only ever sees a DNS host (empty for an IP literal); an IP is matched in
+  // the library against iPAddress SANs below
+  Result := TAppleTrustApi.EvaluateSslChain(AChain, AServerName.AsDns, FPosture,
     FFetch, FClock, AOcspStaple, FProvider, FStrengthPolicy, FAdvertised,
     AValidatedChain, AAlert);
+  if not Result then
+    Exit;
+  // a definitive stapled Revoked wins under every posture, Off included; then match an IP-literal
+  // identity the OS never name-checked
+  if TDelegatePostChecks.RejectStapledRevoked(FProvider, FClock, AValidatedChain,
+    AOcspStaple, AAlert) or
+    TDelegatePostChecks.RejectIpMismatch(AServerName, FProvider, AValidatedChain, AAlert) then
+  begin
+    AValidatedChain := nil;
+    Result := False;
+  end;
 end;
 
 { TAppleLiveRevocationResolver }
@@ -1681,7 +1692,7 @@ function TAppleServerVerifierSource.CreateServerVerifier(
 begin
   // live inline defers an indeterminate revocation to the async park, so a park must be guaranteed;
   // without it the delegate would silently run cache-only Soft. Fail at engine creation (before IO).
-  if (FFetch = TSystemTrustFetch.Live) and (AContext.Deferral <> TVerdictDeferral.LiveRevocation) then
+  if TDelegatePostChecks.LiveNeedsLiveRevocation(FFetch, AContext.Deferral) then
     raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SLiveNeedsLiveRevocationVerdict);
   Result := TAppleDelegateVerifier.Create(AContext.Provider,
     AContext.RevocationPosture, FFetch, AContext.Clock, AContext.StrengthPolicy,
@@ -1729,7 +1740,7 @@ var
 begin
   // live inline defers an indeterminate revocation to the async park, so a park must be guaranteed;
   // without it the delegate would silently run cache-only Soft. Fail at engine creation (before IO).
-  if (FFetch = TSystemTrustFetch.Live) and (AContext.Deferral <> TVerdictDeferral.LiveRevocation) then
+  if TDelegatePostChecks.LiveNeedsLiveRevocation(FFetch, AContext.Deferral) then
     raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SLiveNeedsLiveRevocationVerdict);
   LAnchors := nil;
   if AContext.TrustStore <> nil then

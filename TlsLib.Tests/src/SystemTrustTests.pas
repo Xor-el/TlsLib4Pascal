@@ -44,6 +44,7 @@ uses
   TlpICertificateTrust,
   TlpICertificateVerifierSource,
   TlpTrustPolicy,
+  TlpServerName,
   TlpCertificateStrengthPolicy,
   TlpNegotiationTypes,
   TlpTlsAlert,
@@ -98,6 +99,39 @@ type
     procedure TestSnapshotSurvivesSourceFileDeletion;
     procedure TestFactoryAnchorStoreMatchesSupports;
     procedure TestFactoryServerVerifierSourceMatchesSupports;
+  end;
+
+  /// <summary>Portable suite (always runs): the shared OS-delegate post-checks
+  /// (TDelegatePostChecks) - stapled-Revoked-always-wins, IP-literal identity, and the
+  /// Hard/Live-need-live-revocation predicates - exercised without touching any real OS store.</summary>
+  TTestDelegatePostChecks = class(TTlsLibAlgorithmTestCase)
+  private
+    FProvider: ICryptoProvider;
+    FClock: ITlsClock;
+    FOcsp: TStringList;      // OcspStapling.txt: a real chain + Good/Revoked/stale staples
+    FEc: TStringList;        // EcP256Chain.txt: a DNS-only leaf and an IP-SAN leaf
+    function OcspChain: TArray<TBytes>;
+    function Ocsp(const AName: string): TBytes;
+    function Ec(const AName: string): TBytes;
+  protected
+    procedure SetUp; override;
+    procedure TearDown; override;
+  published
+    procedure TestRevokedStapleRejectsOverOsPath;
+    procedure TestGoodAndAbsentStapleDoNotFire;
+    procedure TestStaleStapleIsNotRevoked;
+    procedure TestLeafOnlyPathIsNotRevoked;
+    procedure TestNilClockFallsBackToSystemTime;
+    procedure TestNilProviderIsNotRevoked;
+    procedure TestIpNameMatchesIpSanLeaf;
+    procedure TestIpNameAgainstDnsOnlyLeafRejects;
+    procedure TestDnsNameIsNotRecheckedHere;
+    procedure TestEmptyNameIsNotRechecked;
+    procedure TestIpNameNilProviderFailsClosed;
+    procedure TestIpNameEmptyPathFailsClosed;
+    procedure TestHardNeedsLiveRevocation;
+    procedure TestLiveNeedsLiveRevocation;
+    procedure TestOsHostNameStripsIpLiterals;
   end;
 
   /// <summary>Engine-agnostic contract for a real OS anchor store, written against
@@ -237,6 +271,219 @@ type
 {$IFEND}
 
 implementation
+
+{ TTestDelegatePostChecks }
+
+procedure TTestDelegatePostChecks.SetUp;
+begin
+  inherited SetUp;
+  FProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  FClock := TSystemClock.Create as ITlsClock;
+  FOcsp := LoadVectorFields('Certs/OcspStapling.txt');
+  FEc := LoadVectorFields('Certs/EcP256Chain.txt');
+end;
+
+procedure TTestDelegatePostChecks.TearDown;
+begin
+  FEc.Free;
+  FOcsp.Free;
+  inherited TearDown;
+end;
+
+function TTestDelegatePostChecks.Ocsp(const AName: string): TBytes;
+begin
+  Result := DecodeHex(FOcsp.Values[AName]);
+end;
+
+function TTestDelegatePostChecks.Ec(const AName: string): TBytes;
+begin
+  Result := DecodeHex(FEc.Values[AName]);
+end;
+
+function TTestDelegatePostChecks.OcspChain: TArray<TBytes>;
+begin
+  // leaf first, then its issuer (needed to authenticate the staple)
+  Result := TArray<TBytes>.Create(Ocsp('leaf_cert'), Ocsp('issuer_cert'));
+end;
+
+procedure TTestDelegatePostChecks.TestRevokedStapleRejectsOverOsPath;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  LAlert := TTlsAlertDescription.BadCertificate;
+  CheckTrue(TDelegatePostChecks.RejectStapledRevoked(FProvider, FClock, OcspChain,
+    Ocsp('ocsp_revoked'), LAlert), 'a definitive stapled Revoked always rejects');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateRevoked), Ord(LAlert),
+    'the alert is certificate_revoked');
+end;
+
+procedure TTestDelegatePostChecks.TestGoodAndAbsentStapleDoNotFire;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(TDelegatePostChecks.RejectStapledRevoked(FProvider, FClock, OcspChain,
+    Ocsp('ocsp_good'), LAlert), 'a current Good staple does not fire the Revoked post-check');
+  CheckFalse(TDelegatePostChecks.RejectStapledRevoked(FProvider, FClock, OcspChain,
+    nil, LAlert), 'an absent staple does not fire the Revoked post-check');
+end;
+
+procedure TTestDelegatePostChecks.TestStaleStapleIsNotRevoked;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // a stale (out-of-window) response is indeterminate, not Revoked - the posture decides it, so
+  // this post-check must not fire
+  CheckFalse(TDelegatePostChecks.RejectStapledRevoked(FProvider, FClock, OcspChain,
+    Ocsp('ocsp_stale'), LAlert), 'a stale staple is indeterminate, not Revoked');
+end;
+
+procedure TTestDelegatePostChecks.TestLeafOnlyPathIsNotRevoked;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // with no issuer to authenticate the response, the verdict is indeterminate, not Revoked
+  CheckFalse(TDelegatePostChecks.RejectStapledRevoked(FProvider, FClock,
+    TArray<TBytes>.Create(Ocsp('leaf_cert')), Ocsp('ocsp_revoked'), LAlert),
+    'a leaf-only path cannot render a definitive Revoked');
+end;
+
+procedure TTestDelegatePostChecks.TestNilClockFallsBackToSystemTime;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // a nil clock must not silently skip the check (it would otherwise make every staple
+  // indeterminate); it falls back to system time
+  CheckTrue(TDelegatePostChecks.RejectStapledRevoked(FProvider, nil, OcspChain,
+    Ocsp('ocsp_revoked'), LAlert), 'a nil clock falls back to system time, still catching Revoked');
+end;
+
+procedure TTestDelegatePostChecks.TestNilProviderIsNotRevoked;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // a nil provider cannot authenticate a response, so no definitive Revoked is rendered (the
+  // delegates fail closed earlier, on the strength policy)
+  CheckFalse(TDelegatePostChecks.RejectStapledRevoked(nil, FClock, OcspChain,
+    Ocsp('ocsp_revoked'), LAlert), 'a nil provider cannot render a Revoked verdict');
+end;
+
+procedure TTestDelegatePostChecks.TestIpNameMatchesIpSanLeaf;
+var
+  LName: TServerName;
+  LAlert: TTlsAlertDescription;
+begin
+  // the IP-SAN leaf carries IP:127.0.0.1, so an IP-literal identity matches and does not fire
+  CheckTrue(TServerName.TryParse('127.0.0.1', LName));
+  CheckFalse(TDelegatePostChecks.RejectIpMismatch(LName, FProvider,
+    TArray<TBytes>.Create(Ec('ipsan_leaf_cert')), LAlert),
+    'an IP literal matching an iPAddress SAN is accepted');
+  CheckTrue(TServerName.TryParse('[::1]', LName));
+  CheckFalse(TDelegatePostChecks.RejectIpMismatch(LName, FProvider,
+    TArray<TBytes>.Create(Ec('ipsan_leaf_cert')), LAlert),
+    'an IPv6 literal matching an iPAddress SAN is accepted');
+end;
+
+procedure TTestDelegatePostChecks.TestIpNameAgainstDnsOnlyLeafRejects;
+var
+  LName: TServerName;
+  LAlert: TTlsAlertDescription;
+begin
+  // the EC leaf has only DNS:localhost, so an IP-literal identity has no iPAddress SAN to match
+  CheckTrue(TServerName.TryParse('127.0.0.1', LName));
+  CheckTrue(TDelegatePostChecks.RejectIpMismatch(LName, FProvider,
+    TArray<TBytes>.Create(Ec('leaf_cert')), LAlert),
+    'an IP literal against a DNS-only leaf is rejected');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
+    'the alert is bad_certificate');
+end;
+
+procedure TTestDelegatePostChecks.TestDnsNameIsNotRecheckedHere;
+var
+  LName: TServerName;
+  LAlert: TTlsAlertDescription;
+begin
+  // a DNS host was matched by the OS name logic; this post-check leaves it alone (a nil provider
+  // would fail closed if it did run)
+  CheckTrue(TServerName.TryParse('localhost', LName));
+  CheckFalse(TDelegatePostChecks.RejectIpMismatch(LName, nil, nil, LAlert),
+    'a DNS host is not re-checked by the IP post-check');
+end;
+
+procedure TTestDelegatePostChecks.TestEmptyNameIsNotRechecked;
+var
+  LName: TServerName;
+  LAlert: TTlsAlertDescription;
+begin
+  LName := Default(TServerName);
+  CheckFalse(TDelegatePostChecks.RejectIpMismatch(LName, nil, nil, LAlert),
+    'an empty name (name-checking off) is not re-checked');
+end;
+
+procedure TTestDelegatePostChecks.TestIpNameNilProviderFailsClosed;
+var
+  LName: TServerName;
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(TServerName.TryParse('127.0.0.1', LName));
+  CheckTrue(TDelegatePostChecks.RejectIpMismatch(LName, nil,
+    TArray<TBytes>.Create(Ec('ipsan_leaf_cert')), LAlert),
+    'an IP literal with no provider to read SANs fails closed');
+  CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LAlert),
+    'the fail-closed alert is internal_error');
+end;
+
+procedure TTestDelegatePostChecks.TestIpNameEmptyPathFailsClosed;
+var
+  LName: TServerName;
+  LAlert: TTlsAlertDescription;
+begin
+  LAlert := TTlsAlertDescription.BadCertificate;
+  CheckTrue(TServerName.TryParse('127.0.0.1', LName));
+  CheckTrue(TDelegatePostChecks.RejectIpMismatch(LName, FProvider, nil, LAlert),
+    'an IP literal with no validated leaf fails closed');
+  CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LAlert),
+    'the fail-closed alert is internal_error');
+end;
+
+procedure TTestDelegatePostChecks.TestHardNeedsLiveRevocation;
+begin
+  CheckTrue(TDelegatePostChecks.HardNeedsLiveRevocation(TRevocationPosture.Hard,
+    TVerdictDeferral.None), 'Hard with no deferral needs live revocation');
+  CheckTrue(TDelegatePostChecks.HardNeedsLiveRevocation(TRevocationPosture.Hard,
+    TVerdictDeferral.HostDecision), 'Hard with a host-decision park still needs live revocation');
+  CheckFalse(TDelegatePostChecks.HardNeedsLiveRevocation(TRevocationPosture.Hard,
+    TVerdictDeferral.LiveRevocation), 'Hard with live revocation is satisfied');
+  CheckFalse(TDelegatePostChecks.HardNeedsLiveRevocation(TRevocationPosture.Soft,
+    TVerdictDeferral.None), 'Soft never needs live revocation');
+  CheckFalse(TDelegatePostChecks.HardNeedsLiveRevocation(TRevocationPosture.Off,
+    TVerdictDeferral.None), 'Off never needs live revocation');
+end;
+
+procedure TTestDelegatePostChecks.TestLiveNeedsLiveRevocation;
+begin
+  CheckTrue(TDelegatePostChecks.LiveNeedsLiveRevocation(TSystemTrustFetch.Live,
+    TVerdictDeferral.None), 'a Live source with no deferral needs live revocation');
+  CheckTrue(TDelegatePostChecks.LiveNeedsLiveRevocation(TSystemTrustFetch.Live,
+    TVerdictDeferral.HostDecision), 'a Live source with a host-decision park still needs it');
+  CheckFalse(TDelegatePostChecks.LiveNeedsLiveRevocation(TSystemTrustFetch.Live,
+    TVerdictDeferral.LiveRevocation), 'a Live source with live revocation is satisfied');
+  CheckFalse(TDelegatePostChecks.LiveNeedsLiveRevocation(TSystemTrustFetch.CacheOnly,
+    TVerdictDeferral.None), 'a cache-only source never needs it');
+end;
+
+procedure TTestDelegatePostChecks.TestOsHostNameStripsIpLiterals;
+begin
+  CheckEquals('localhost', TDelegatePostChecks.OsHostName('localhost'),
+    'a DNS host passes through');
+  CheckEquals('', TDelegatePostChecks.OsHostName('127.0.0.1'),
+    'an IPv4 literal is stripped');
+  CheckEquals('', TDelegatePostChecks.OsHostName('[::1]'),
+    'a bracketed IPv6 literal is stripped');
+  CheckEquals('', TDelegatePostChecks.OsHostName(''),
+    'an empty host passes through as empty');
+  CheckEquals('', TDelegatePostChecks.OsHostName('127.0.0.1.'),
+    'a trailing-dot IPv4 literal is still stripped');
+end;
 
 { TTestSystemTrustFixtures }
 
@@ -950,8 +1197,10 @@ initialization
 
 {$IFDEF FPC}
   RegisterTest(TTestSystemTrustFixtures);
+  RegisterTest(TTestDelegatePostChecks);
 {$ELSE}
   RegisterTest(TTestSystemTrustFixtures.Suite);
+  RegisterTest(TTestDelegatePostChecks.Suite);
 {$ENDIF FPC}
 
 {$IFDEF TLSLIB_MSWINDOWS}

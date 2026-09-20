@@ -54,8 +54,11 @@ type
   /// retrieval forced cache-only (no socket), consuming the handshake OCSP staple as
   /// cached revocation data, then applies the SSL server policy (server-auth EKU + host
   /// name). The revocation posture governs an indeterminate outcome (offline/unchecked):
-  /// accepted under Soft, rejected under Hard; a definitive Revoked always rejects. The
-  /// injected clock supplies the validation time; nil uses system time. Fail-closed; maps
+  /// accepted under Soft, rejected under Hard. A definitive stapled Revoked rejects under
+  /// every posture, Off included (a library post-check after the OS verdict, since the OS
+  /// engine does not consult the staple under Off). An IP-literal identity is matched in the
+  /// library against the leaf's iPAddress SANs (the OS name check only ever sees a DNS host).
+  /// The injected clock supplies the validation time; nil uses system time. Fail-closed; maps
   /// the policy error to the matching fatal alert.
   /// </summary>
   TWindowsDelegateVerifier = class sealed(TInterfacedObject, IServerCertificateVerifier)
@@ -189,11 +192,6 @@ type
 implementation
 
 {$IFDEF TLSLIB_MSWINDOWS}
-
-resourcestring
-  SLiveNeedsLiveRevocationVerdict =
-    'OS-native live revocation needs the live-revocation verdict enabled (it defers the live ' +
-    'check to the out-of-band park); call WithLiveRevocationVerdict, or use cache-only trust';
 
 const
   CRYPT32_DLL = 'crypt32.dll';
@@ -1495,9 +1493,22 @@ function TWindowsDelegateVerifier.VerifyServerCertificate(const AChain: TArray<T
   out AValidatedChain: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
-  Result := TWindowsTrustApi.EvaluateChain(AChain, AServerName.ToString,
+  // the OS name check only ever sees a DNS host (empty for an IP literal); an IP is matched in
+  // the library against iPAddress SANs below
+  Result := TWindowsTrustApi.EvaluateChain(AChain, AServerName.AsDns,
     AOcspStaple, FPosture, FFetch, FClock, FProvider, FStrengthPolicy, FAdvertised,
     AValidatedChain, AAlert);
+  if not Result then
+    Exit;
+  // a definitive stapled Revoked wins under every posture, Off included (the OS engine does not
+  // consult the staple under Off); then match an IP-literal identity the OS never name-checked
+  if TDelegatePostChecks.RejectStapledRevoked(FProvider, FClock, AValidatedChain,
+    AOcspStaple, AAlert) or
+    TDelegatePostChecks.RejectIpMismatch(AServerName, FProvider, AValidatedChain, AAlert) then
+  begin
+    AValidatedChain := nil;
+    Result := False;
+  end;
 end;
 
 { TWindowsLiveRevocationResolver }
@@ -1565,7 +1576,7 @@ function TWindowsServerVerifierSource.CreateServerVerifier(
 begin
   // live inline defers an indeterminate revocation to the async park, so a park must be guaranteed;
   // without it the delegate would silently run cache-only Soft. Fail at engine creation (before IO).
-  if (FFetch = TSystemTrustFetch.Live) and (AContext.Deferral <> TVerdictDeferral.LiveRevocation) then
+  if TDelegatePostChecks.LiveNeedsLiveRevocation(FFetch, AContext.Deferral) then
     raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SLiveNeedsLiveRevocationVerdict);
   Result := TWindowsDelegateVerifier.Create(AContext.Provider,
     AContext.RevocationPosture, FFetch, AContext.Clock, AContext.StrengthPolicy,
@@ -1613,7 +1624,7 @@ var
 begin
   // live inline defers an indeterminate revocation to the async park, so a park must be guaranteed;
   // without it the delegate would silently run cache-only Soft. Fail at engine creation (before IO).
-  if (FFetch = TSystemTrustFetch.Live) and (AContext.Deferral <> TVerdictDeferral.LiveRevocation) then
+  if TDelegatePostChecks.LiveNeedsLiveRevocation(FFetch, AContext.Deferral) then
     raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SLiveNeedsLiveRevocationVerdict);
   LAnchors := nil;
   if AContext.TrustStore <> nil then

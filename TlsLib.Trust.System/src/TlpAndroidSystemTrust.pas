@@ -35,6 +35,8 @@ uses
   TlpEndpointIdentity,
   TlpServerName,
   TlpPosixDynLib,
+  TlpSystemTrustBase,
+  TlpSystemTrustExceptions,
   TlpTlsAlert;
 
 type
@@ -44,8 +46,9 @@ type
   /// android.net.http.X509TrustManagerExtensions.checkServerTrusted. The platform TrustManager
   /// does not consult a stapled OCSP response, so a revocation post-check over the injected
   /// provider and clock decides the staple (a definitive Revoked always rejects; an indeterminate
-  /// outcome rejects only under a Hard posture) - run before the RFC 6125 hostname identity so a
-  /// revoked certificate is not masked by a name mismatch. Hostname identity is enforced
+  /// outcome rejects under a Hard posture unless the live-revocation verdict defers it to the
+  /// park) - run before the RFC 6125 hostname identity so a revoked certificate is not masked by a
+  /// name mismatch. Hostname identity is enforced
   /// in-library because checkServerTrusted validates the chain but NOT the host (Android splits
   /// TrustManager from HostnameVerifier). Construction is init-independent; the JVM is acquired
   /// lazily inside Verify (Delphi resolves it automatically, FPC needs TlsLibAndroidInitTrust).
@@ -55,12 +58,14 @@ type
   strict private
     FProvider: ICryptoProvider;
     FPosture: TRevocationPosture;
+    FDeferral: TVerdictDeferral;
     FClock: ITlsClock;
     FStrengthPolicy: TCertificateStrengthPolicy;
     FAdvertised: TArray<UInt16>;
   public
     constructor Create(const AProvider: ICryptoProvider;
-      APosture: TRevocationPosture; const AClock: ITlsClock;
+      APosture: TRevocationPosture; ADeferral: TVerdictDeferral;
+      const AClock: ITlsClock;
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>);
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
@@ -947,13 +952,14 @@ end;
 { TAndroidDelegateVerifier }
 
 constructor TAndroidDelegateVerifier.Create(const AProvider: ICryptoProvider;
-  APosture: TRevocationPosture; const AClock: ITlsClock;
+  APosture: TRevocationPosture; ADeferral: TVerdictDeferral; const AClock: ITlsClock;
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>);
 begin
   inherited Create;
   FProvider := AProvider;
   FPosture := APosture;
+  FDeferral := ADeferral;
   FClock := AClock;
   FStrengthPolicy := AStrengthPolicy;
   FAdvertised := AAdvertised;
@@ -967,7 +973,10 @@ var
   LOsPath: TArray<TBytes>;
 begin
   AValidatedChain := nil;
-  // the platform chain verdict first, yielding the path it built
+  // the platform chain verdict first, yielding the path it built. The host is the
+  // network-security-config domain key, NOT a name check (Android's host-aware TrustManager
+  // requires a non-null host once per-domain configs exist), so it is passed through as-is; the
+  // RFC 6125 identity (DNS and IP alike) is matched in-library below
   Result := TAndroidTrustApi.Evaluate(AChain, AServerName.ToString, LOsPath, AAlert);
   if not Result then
     Exit;
@@ -981,8 +990,8 @@ begin
 
   // revocation before identity, as the built-in pipeline orders it: the platform ignores a stapled
   // OCSP response, so decide the staple here over the OS-built path (a leaf-only peer's staple can
-  // then authenticate against the OS-supplied issuer). Revoked always rejects; indeterminate only
-  // under Hard.
+  // then authenticate against the OS-supplied issuer). Revoked always rejects; an indeterminate
+  // outcome rejects under Hard, unless the live-revocation verdict defers it to the park.
   case TCertificateVerifier.StapleVerdict(FProvider, FClock, LOsPath, AOcspStaple) of
     TStapleVerdict.Revoked:
       begin
@@ -991,7 +1000,8 @@ begin
         Exit;
       end;
     TStapleVerdict.Indeterminate:
-      if FPosture = TRevocationPosture.Hard then
+      if (FPosture = TRevocationPosture.Hard) and
+        (FDeferral <> TVerdictDeferral.LiveRevocation) then
       begin
         Result := False;
         AAlert := TTlsAlertDescription.BadCertificateStatusResponse;
@@ -1001,12 +1011,13 @@ begin
 
   // endpoint identity (RFC 6125): the platform validates the chain but NOT the host (Android
   // separates X509TrustManager from HostnameVerifier). An empty name skips it; a nil provider
-  // cannot match, so it fails closed rather than trusting blindly.
-  if AServerName.ToString <> '' then
+  // cannot match, so it fails closed rather than trusting blindly. Matched over the OS-validated
+  // leaf, and an IP literal against its iPAddress SANs.
+  if not AServerName.IsEmpty then
     if (FProvider = nil) or
       (not TEndpointIdentity.Matches(AServerName,
-      FProvider.Certificates.DnsNames(AChain[0]),
-      FProvider.Certificates.IpAddresses(AChain[0]))) then
+      FProvider.Certificates.DnsNames(LOsPath[0]),
+      FProvider.Certificates.IpAddresses(LOsPath[0]))) then
     begin
       Result := False;
       AAlert := TTlsAlertDescription.BadCertificate;
@@ -1022,8 +1033,9 @@ function TAndroidServerVerifierSource.CreateServerVerifier(
   const AContext: TServerTrustContext): IServerCertificateVerifier;
 begin
   Result := TAndroidDelegateVerifier.Create(AContext.Provider,
-    AContext.RevocationPosture, AContext.Clock, AContext.StrengthPolicy,
-    AContext.AdvertisedSignatureSchemes) as IServerCertificateVerifier;
+    AContext.RevocationPosture, AContext.Deferral, AContext.Clock,
+    AContext.StrengthPolicy, AContext.AdvertisedSignatureSchemes)
+    as IServerCertificateVerifier;
 end;
 
 { TAndroidClientDelegateVerifier }
@@ -1065,6 +1077,11 @@ function TAndroidClientVerifierSource.CreateClientVerifier(
 var
   LAnchors: TArray<TBytes>;
 begin
+  // a client certificate is never stapled, so a cache-only delegate has no way to obtain a
+  // revocation status: a Hard posture is unsatisfiable without the live-revocation verdict
+  if TDelegatePostChecks.HardNeedsLiveRevocation(AContext.RevocationPosture,
+    AContext.Deferral) then
+    raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SHardNeedsLiveRevocationVerdict);
   LAnchors := nil;
   if AContext.TrustStore <> nil then
     LAnchors := AContext.TrustStore.RootCertificates;

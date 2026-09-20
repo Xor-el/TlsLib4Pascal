@@ -11,9 +11,11 @@
 #                 discriminator (a leaked root cannot make it pass); the post-uninstall reject
 #                 proves cleanup. The root's CN carries a per-run id so it never collides.
 #
-# The server-cert delegate reject cells assert only that the handshake aborts (a fatal alert, not a
-# hang or EOF); tightening them to the exact OsStatusToAlert code is a follow-up once a CI run shows
-# the real mapping per OS.
+# The server-cert delegate reject cells whose alert comes from the OS map assert only that the
+# handshake aborts (a fatal alert, not a hang or EOF); tightening them to the exact OsStatusToAlert
+# code is a follow-up once a CI run shows the real mapping per OS. The library post-check cells (a
+# stapled Revoked under Off, and an IP-literal against a DNS-only leaf) DO assert the exact alert,
+# since it is produced by the library, not the OS.
 #
 #   * server verifies client (mTLS live) - our SERVER verifies the peer CLIENT certificate live
 #                 through the OS delegate (an in-process client presenter offers the cert). It roots
@@ -190,6 +192,20 @@ if [ "$HAS_DELEGATE" = 1 ]; then
     cell "delegate revoked staple -> reject" --trust-mode os-delegate \
       --server-cert "$CA/leaf_fullchain.pem" --server-key "$CA/leaf.key" \
       --staple "$CA/ocsp_revoked.der" --posture soft --expect reject
+    # a definitive stapled Revoked wins under EVERY posture, Off included: the OS engine skips
+    # revocation under Off, so this reject comes solely from the library post-check - hence exact 44
+    cell "delegate revoked staple under Off -> certificate_revoked" --trust-mode os-delegate \
+      --server-cert "$CA/leaf_fullchain.pem" --server-key "$CA/leaf.key" \
+      --staple "$CA/ocsp_revoked.der" --posture off --expect reject:44
+    # IP-literal identity: the OS never name-checks an IP (it is handed ''); the library matches it
+    # against the leaf's iPAddress SAN. An IP-SAN leaf accepts; a DNS-only leaf rejects (exact 42,
+    # since only the library IP post-check can fire).
+    cell "delegate IP-literal vs iPAddress SAN -> accept" --trust-mode os-delegate \
+      --server-cert "$CA/ipleaf_fullchain.pem" --server-key "$CA/ipleaf.key" \
+      --posture soft --expect-name 127.0.0.1 --expect accept
+    cell "delegate IP-literal vs DNS-only leaf -> bad_certificate" --trust-mode os-delegate \
+      --server-cert "$CA/leaf_fullchain.pem" --server-key "$CA/leaf.key" \
+      --posture soft --expect-name 127.0.0.1 --expect reject:42
     cell "delegate hostname mismatch -> reject" --trust-mode os-delegate \
       --server-cert "$CA/leaf_fullchain.pem" --server-key "$CA/leaf.key" \
       --staple "$CA/ocsp_good.der" --posture hard --expect-name wrong.example --expect reject
