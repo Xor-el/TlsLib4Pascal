@@ -97,6 +97,9 @@ type
     /// <summary>The client-side session cache, shared across a resume-count loop so a
     /// later connection resumes an earlier one; nil disables client resumption.</summary>
     SessionCache: ISessionCache;
+    /// <summary>The cache scope, shared across the resume-count loop so the per-connection
+    /// rebuilt client configs resume each other (they are the same logical client).</summary>
+    SessionScope: TBytes;
     /// <summary>The clock the client reads for a resumption PSK's obfuscated_ticket_age and
     /// ticket-lifetime expiry; nil uses the system clock. Injected so the harness can advance
     /// it by -resumption-delay to drive deterministic ticket timing.</summary>
@@ -352,7 +355,13 @@ begin
     // resumption: the shared cache carries a ticket from an earlier connection; 0-RTT is
     // a separate opt-in on the 1.3 facet
     if AOptions.SessionCache <> nil then
-      LClient.WithSessionCache(AOptions.SessionCache);
+    begin
+      // a per-connection rebuild without a shared scope would silently never resume; make the
+      // omission a loud harness error rather than an unexplained interop mismatch
+      if System.Length(AOptions.SessionScope) = 0 then
+        raise Exception.Create('a shared interop session cache requires a shared scope');
+      LClient.WithSessionCache(AOptions.SessionCache, AOptions.SessionScope);
+    end;
     if AOptions.ReverifyOnResume then
       LClient.WithResumeVerification(TResumeVerification.Reverify);
     if AOptions.Clock <> nil then

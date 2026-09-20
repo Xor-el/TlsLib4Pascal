@@ -106,6 +106,7 @@ type
     FExternalPsks: TArray<TExternalPsk>;
     FExternalPskRequired: Boolean;
     FSessionCache: ISessionCache;
+    FSessionScope: TBytes;
     FResumeVerification: TResumeVerification;
     FClock: ITlsClock;
     FClientEarlyData: Boolean;
@@ -228,7 +229,9 @@ type
     function WithExternalPreSharedKeys(
       const APsks: TArray<TExternalPsk>): TTlsConfigBuilder;
     function WithExternalPskRequired(AEnabled: Boolean): TTlsConfigBuilder;
-    function WithSessionCache(const ACache: ISessionCache): TTlsConfigBuilder;
+    function WithSessionCache(const ACache: ISessionCache): TTlsConfigBuilder; overload;
+    function WithSessionCache(const ACache: ISessionCache;
+      const AScope: TBytes): TTlsConfigBuilder; overload;
     function WithResumeVerification(AMode: TResumeVerification): TTlsConfigBuilder;
     function WithClock(const AClock: ITlsClock): TTlsConfigBuilder;
     function WithSessionStore(const AStore: ISessionStore): TTlsConfigBuilder;
@@ -293,6 +296,7 @@ resourcestring
 const
   DefaultTicketLifetimeSeconds = UInt32(7200);
   DefaultTicketCount = Int32(2);
+  SessionScopeLength = Int32(16);
 
 type
   /// <summary>The immutable common settings, shared by the client and server config.</summary>
@@ -365,6 +369,7 @@ type
     FServerVerifierSource: IServerCertificateVerifierSource;
     FRequestOcspStapling: Boolean;
     FSessionCache: ISessionCache;
+    FSessionScope: TBytes;
     FResumeVerification: TResumeVerification;
     FEarlyData: Boolean;
     FExternalPskRequired: Boolean;
@@ -374,6 +379,7 @@ type
     function ServerVerifierSource: IServerCertificateVerifierSource;
     function RequestOcspStapling: Boolean;
     function SessionCache: ISessionCache;
+    function SessionScope: TBytes;
     function ResumeVerification: TResumeVerification;
     function EarlyData: Boolean;
     function ExternalPskRequired: Boolean;
@@ -465,7 +471,9 @@ type
       ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
     function WithLiveRevocationVerdict(
       ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
-    function WithSessionCache(const ACache: ISessionCache): ITlsClientConfigBuilder;
+    function WithSessionCache(const ACache: ISessionCache): ITlsClientConfigBuilder; overload;
+    function WithSessionCache(const ACache: ISessionCache;
+      const AScope: TBytes): ITlsClientConfigBuilder; overload;
     function WithResumeVerification(AMode: TResumeVerification): ITlsClientConfigBuilder;
     function WithClock(const AClock: ITlsClock): ITlsClientConfigBuilder;
     function WithExternalPreSharedKeys(
@@ -769,6 +777,13 @@ begin
   Result := FSessionCache;
 end;
 
+function TFrozenClientConfig.SessionScope: TBytes;
+begin
+  // copy like the other array getters: a dynamic array has no copy-on-write, so returning the
+  // field by reference would let a caller mutating its result re-scope every engine already built
+  Result := System.Copy(FSessionScope);
+end;
+
 function TFrozenClientConfig.ResumeVerification: TResumeVerification;
 begin
   Result := FResumeVerification;
@@ -1041,6 +1056,13 @@ function TTlsClientConfigBuilder.WithSessionCache(
   const ACache: ISessionCache): ITlsClientConfigBuilder;
 begin
   FOwner.WithSessionCache(ACache);
+  Result := Self;
+end;
+
+function TTlsClientConfigBuilder.WithSessionCache(const ACache: ISessionCache;
+  const AScope: TBytes): ITlsClientConfigBuilder;
+begin
+  FOwner.WithSessionCache(ACache, AScope);
   Result := Self;
 end;
 
@@ -2146,6 +2168,16 @@ function TTlsConfigBuilder.WithSessionCache(
 begin
   GuardMutable;
   FSessionCache := ACache;
+  FSessionScope := nil; // a fresh per-configuration scope is minted at BuildClient
+  Result := Self;
+end;
+
+function TTlsConfigBuilder.WithSessionCache(const ACache: ISessionCache;
+  const AScope: TBytes): TTlsConfigBuilder;
+begin
+  GuardMutable;
+  FSessionCache := ACache;
+  FSessionScope := System.Copy(AScope);
   Result := Self;
 end;
 
@@ -2344,6 +2376,15 @@ begin
   LConfig.FServerVerifierSource := ComposeServerVerifierSource;
   LConfig.FRequestOcspStapling := FRequestOcspStapling;
   LConfig.FSessionCache := FSessionCache;
+  // partition this configuration's sessions inside a possibly shared cache: an explicit scope opts
+  // into sharing with configurations given the same one, otherwise each build gets a fresh scope so
+  // trust never leaks across configurations
+  if FSessionCache = nil then
+    LConfig.FSessionScope := nil
+  else if System.Length(FSessionScope) > 0 then
+    LConfig.FSessionScope := System.Copy(FSessionScope)
+  else
+    LConfig.FSessionScope := FProvider.Primitives.GetRandom.GenerateBytes(SessionScopeLength);
   LConfig.FResumeVerification := FResumeVerification;
   LConfig.FClock := FClock;
   LConfig.FEarlyData := FClientEarlyData;

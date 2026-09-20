@@ -53,7 +53,10 @@ type
   /// <summary>How a client treats server-certificate verification when it resumes a session:
   /// ReuseOriginal (the default) reuses the original handshake's authentication without
   /// re-checking (RFC 8446 2.2); Reverify re-runs the certificate verifier against the stored
-  /// peer chain, for a stricter posture that re-checks a resumed server against current trust.</summary>
+  /// peer chain, for a stricter posture that re-checks a resumed server against current trust.
+  /// Sessions are scoped per configuration (see WithSessionCache), so this does not govern
+  /// cross-configuration resumption; it re-checks the sessions this configuration, or a scope it
+  /// explicitly shares, stored.</summary>
   TResumeVerification = (ReuseOriginal, Reverify);
 
   /// <summary>A read-only snapshot of the ClientHello facts a server credential resolver may

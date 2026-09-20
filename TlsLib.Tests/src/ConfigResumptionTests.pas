@@ -52,23 +52,29 @@ type
     FCerts: TStringList;
     function ServerCredential: TTlsCredential;
     function ClientTrust: ITrustAnchorStore;
-    /// <summary>A TLS 1.3 client engine built through the public config surface.</summary>
-    function NewClient13(const ACache: ISessionCache; AResumption: Boolean): ITlsEngine;
+    /// <summary>A TLS 1.3 client engine built through the public config surface. A non-empty
+    /// AScope opts the config into sharing sessions with configs given the same scope.</summary>
+    function NewClient13(const ACache: ISessionCache; AResumption: Boolean;
+      const AScope: TBytes = nil): ITlsEngine;
     /// <summary>A TLS 1.3 client whose server-cert verifier rejects every chain (a strict config).</summary>
     function NewRejectingClient13(const ACache: ISessionCache): ITlsEngine;
     /// <summary>Like NewRejectingClient13 but with Reverify, so it re-checks a resumed server.</summary>
-    function NewReverifyRejectClient13(const ACache: ISessionCache): ITlsEngine;
+    function NewReverifyRejectClient13(const ACache: ISessionCache;
+      const AScope: TBytes = nil): ITlsEngine;
     /// <summary>A permissive client with Reverify + async verdict: the resumption handshake
     /// re-checks inline (accepts) then parks at ServerFinished for the out-of-band verdict.</summary>
-    function NewReverifyAsyncClient13(const ACache: ISessionCache): ITlsEngine;
+    function NewReverifyAsyncClient13(const ACache: ISessionCache;
+      const AScope: TBytes = nil): ITlsEngine;
     /// <summary>A TLS 1.3 server engine; AIssueTickets tickets, resumption toggle.</summary>
     function NewServer13(const AStore: ISessionStore; AIssueTickets: Int32;
       AResumption: Boolean): ITlsEngine;
-    function NewClient12(const ACache: ISessionCache): ITlsEngine;
+    function NewClient12(const ACache: ISessionCache;
+      const AScope: TBytes = nil): ITlsEngine;
     /// <summary>A permissive TLS 1.2 client with Reverify + async verdict: the abbreviated
     /// resumption handshake re-checks inline (accepts) then parks at the abbreviated
     /// ServerFinished for the out-of-band verdict.</summary>
-    function NewReverifyAsyncClient12(const ACache: ISessionCache): ITlsEngine;
+    function NewReverifyAsyncClient12(const ACache: ISessionCache;
+      const AScope: TBytes = nil): ITlsEngine;
     function NewServer12(const AStore: ISessionStore): ITlsEngine;
     function Drain(const AEngine: ITlsEngine): TBytes;
     procedure Feed(const AEngine: ITlsEngine; const AWire: TBytes);
@@ -96,7 +102,9 @@ type
     procedure TestResumptionOffServerIssuesNoTicket;
     procedure TestStrictPresetLeavesResumptionOff;
     procedure TestStrictResumptionReEnabledWithNoGuard;
-    procedure TestPerConfigCacheIsolatesCrossConfigResumption;
+    procedure TestSharedCacheDoesNotResumeAcrossConfigurations;
+    procedure TestSharedCacheDoesNotResumeAcrossConfigurationsTls12;
+    procedure TestSharedSessionScopeResumesAcrossRebuiltConfigs;
     procedure TestReverifyOnResumeRejectsUntrustedServer;
     procedure TestReverifyOnResumeAsyncParkAcceptsCompletes;
     procedure TestReverifyOnResumeAsyncParkRejectAborts;
@@ -155,7 +163,7 @@ begin
 end;
 
 function TTestConfigResumption.NewClient13(const ACache: ISessionCache;
-  AResumption: Boolean): ITlsEngine;
+  AResumption: Boolean; const AScope: TBytes): ITlsEngine;
 var
   LConfig: ITlsClientConfig;
 begin
@@ -163,7 +171,7 @@ begin
   LConfig := TTlsPresets.Hardened(Provider).Client
     .WithTrustStore(ClientTrust)
     .WithResumption(AResumption)
-    .WithSessionCache(ACache)
+    .WithSessionCache(ACache, AScope)
     .Build;
   Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
 end;
@@ -182,7 +190,7 @@ begin
 end;
 
 function TTestConfigResumption.NewReverifyRejectClient13(
-  const ACache: ISessionCache): ITlsEngine;
+  const ACache: ISessionCache; const AScope: TBytes): ITlsEngine;
 var
   LConfig: ITlsClientConfig;
 begin
@@ -190,13 +198,13 @@ begin
     .WithCertificateVerifier(TRejectingServerVerifier.Create as IServerCertificateVerifier)
     .WithResumption(True)
     .WithResumeVerification(TResumeVerification.Reverify)
-    .WithSessionCache(ACache)
+    .WithSessionCache(ACache, AScope)
     .Build;
   Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
 end;
 
 function TTestConfigResumption.NewReverifyAsyncClient13(
-  const ACache: ISessionCache): ITlsEngine;
+  const ACache: ISessionCache; const AScope: TBytes): ITlsEngine;
 var
   LConfig: ITlsClientConfig;
 begin
@@ -207,7 +215,7 @@ begin
     .WithResumption(True)
     .WithResumeVerification(TResumeVerification.Reverify)
     .WithAsyncCertificateVerdict(True, 0)
-    .WithSessionCache(ACache)
+    .WithSessionCache(ACache, AScope)
     .Build;
   Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
 end;
@@ -226,20 +234,21 @@ begin
   Result := TTlsEngineFactory.CreateServerEngine(LConfig);
 end;
 
-function TTestConfigResumption.NewClient12(const ACache: ISessionCache): ITlsEngine;
+function TTestConfigResumption.NewClient12(const ACache: ISessionCache;
+  const AScope: TBytes): ITlsEngine;
 var
   LConfig: ITlsClientConfig;
 begin
   LConfig := TTlsPresets.Compatible(Provider).Client
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
     .WithTrustStore(ClientTrust)
-    .WithSessionCache(ACache)
+    .WithSessionCache(ACache, AScope)
     .Build;
   Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
 end;
 
 function TTestConfigResumption.NewReverifyAsyncClient12(
-  const ACache: ISessionCache): ITlsEngine;
+  const ACache: ISessionCache; const AScope: TBytes): ITlsEngine;
 var
   LConfig: ITlsClientConfig;
 begin
@@ -251,7 +260,7 @@ begin
     .WithResumption(True)
     .WithResumeVerification(TResumeVerification.Reverify)
     .WithAsyncCertificateVerdict(True, 0)
-    .WithSessionCache(ACache)
+    .WithSessionCache(ACache, AScope)
     .Build;
   Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
 end;
@@ -412,15 +421,18 @@ end;
 procedure TTestConfigResumption.TestTls13StoreResumptionViaConfig;
 var
   LCache: ISessionCache;
+  LScope: TBytes;
   LStore: ISessionStore;
   LClient, LServer: ITlsEngine;
 begin
   // the public surface: a store-backed 1.3 server issues one stateful ticket; a later
-  // handshake resumes it. The store single-use consumption proves the config wired through
+  // handshake resumes it. The store single-use consumption proves the config wired through.
+  // One logical client reconnecting keeps its scope, so both connections share it.
   LCache := TInMemorySessionCache.Create;
+  LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
   LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
 
-  LClient := NewClient13(LCache, True);
+  LClient := NewClient13(LCache, True, LScope);
   LServer := NewServer13(LStore, 1, True);
   PumpToCompletion(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the initial 1.3 handshake completed');
@@ -428,7 +440,7 @@ begin
   CheckEquals(1, LCache.Count, 'the client cached the ticket');
 
   // the resuming server issues no new ticket, so a consumed store proves resumption
-  LClient := NewClient13(LCache, True);
+  LClient := NewClient13(LCache, True, LScope);
   LServer := NewServer13(LStore, 0, True);
   PumpToCompletion(LClient, LServer);
   CheckFalse(LServer.IsHandshaking, 'the resuming server completed');
@@ -440,21 +452,24 @@ end;
 procedure TTestConfigResumption.TestTls12ResumptionViaConfig;
 var
   LCache: ISessionCache;
+  LScope: TBytes;
   LStore: ISessionStore;
   LClient, LServer: ITlsEngine;
 begin
   // a TLS 1.2 client and server through the public surface: the second handshake resumes,
-  // proven by the abbreviated server flight (no plaintext Certificate)
+  // proven by the abbreviated server flight (no plaintext Certificate). One logical client
+  // reconnecting shares its scope across both connections.
   LCache := TInMemorySessionCache.Create;
+  LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
   LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
 
-  LClient := NewClient12(LCache);
+  LClient := NewClient12(LCache, LScope);
   LServer := NewServer12(LStore);
   PumpToCompletion(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the initial 1.2 handshake completed');
   CheckEquals(1, LCache.Count, 'the client cached the 1.2 session');
 
-  LClient := NewClient12(LCache);
+  LClient := NewClient12(LCache, LScope);
   LServer := NewServer12(LStore);
   CheckFalse(DriveObservingServerCert(LClient, LServer),
     '1.2 resumption via the config is abbreviated (no Certificate)');
@@ -465,24 +480,27 @@ end;
 procedure TTestConfigResumption.TestDefaultServerIssuesTicketsOutOfBox;
 var
   LCache: ISessionCache;
+  LScope: TBytes;
   LServerConfig: ITlsServerConfig;
   LClient, LServer: ITlsEngine;
 begin
   // a server built through the public surface with only a credential - no WithSessionStore and
   // no WithDefaultSessionTicketKeys - resumes out of the box: the resume-by-default posture mints
   // a STEK, so the server issues a ticket the client caches and can later present. One frozen
-  // config is reused across both handshakes so the same STEK opens the ticket
+  // config is reused across both handshakes so the same STEK opens the ticket. One logical client
+  // reconnecting shares its scope across both connections.
   LCache := TInMemorySessionCache.Create;
+  LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
   LServerConfig := TTlsPresets.Hardened(Provider).Server
     .WithCredential(ServerCredential).Build;
 
-  LClient := NewClient13(LCache, True);
+  LClient := NewClient13(LCache, True, LScope);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
   PumpToCompletion(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the initial handshake completed');
   CheckTrue(LCache.Count >= 1, 'the default server issued a ticket the client cached');
 
-  LClient := NewClient13(LCache, True);
+  LClient := NewClient13(LCache, True, LScope);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
   PumpToCompletion(LClient, LServer);
   CheckFalse(LServer.IsHandshaking, 'the resuming server completed');
@@ -533,15 +551,18 @@ end;
 procedure TTestConfigResumption.TestStrictResumptionReEnabledWithNoGuard;
 var
   LCache: ISessionCache;
+  LScope: TBytes;
   LStore: ISessionStore;
   LClient, LServer: ITlsEngine;
 begin
-  // Strict is a mutable starting point: re-enabling resumption on it needs no ceremony
+  // Strict is a mutable starting point: re-enabling resumption on it needs no ceremony. One logical
+  // client reconnecting shares its scope across both connections.
   LCache := TInMemorySessionCache.Create;
+  LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
   LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
 
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Strict(Provider).Client
-    .WithResumption(True).WithTrustStore(ClientTrust).WithSessionCache(LCache).Build,
+    .WithResumption(True).WithTrustStore(ClientTrust).WithSessionCache(LCache, LScope).Build,
     ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Strict(Provider).Server
     .WithResumption(True).WithCredential(ServerCredential).WithSessionStore(LStore)
@@ -550,7 +571,7 @@ begin
   CheckEquals(1, LStore.Count, 're-enabled Strict stored a session');
 
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Strict(Provider).Client
-    .WithResumption(True).WithTrustStore(ClientTrust).WithSessionCache(LCache).Build,
+    .WithResumption(True).WithTrustStore(ClientTrust).WithSessionCache(LCache, LScope).Build,
     ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Strict(Provider).Server
     .WithResumption(True).WithCredential(ServerCredential).WithSessionStore(LStore)
@@ -561,51 +582,107 @@ begin
   CheckAppDataFlows(LClient, LServer);
 end;
 
-procedure TTestConfigResumption.TestPerConfigCacheIsolatesCrossConfigResumption;
-var
-  LCacheA, LCacheB: ISessionCache;
-  LServerConfig: ITlsServerConfig;
-  LClient, LServer: ITlsEngine;
-begin
-  // a permissive client establishes and caches a resumable session; one STEK-backed server config
-  // is reused so the ticket stays openable across the connections below
-  LCacheA := TInMemorySessionCache.Create;
-  LServerConfig := TTlsPresets.Hardened(Provider).Server
-    .WithCredential(ServerCredential).Build;
-  LClient := NewClient13(LCacheA, True);
-  LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
-  PumpToCompletion(LClient, LServer);
-  CheckFalse(LClient.IsHandshaking, 'the permissive handshake completed');
-  CheckTrue(LCacheA.Count >= 1, 'the permissive client cached a session');
-
-  // THE HAZARD, and why an adapter must not share one cache across configs: a client whose verifier
-  // rejects every chain, given the SAME cache, resumes the permissive session - a resumed handshake
-  // sends no certificate, so its verifier is never consulted
-  LClient := NewRejectingClient13(LCacheA);
-  LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
-  PumpToCompletion(LClient, LServer);
-  CheckTrue(LClient.IsResumed, 'a shared cache lets a rejecting config resume, bypassing its check');
-
-  // THE FIX: given its OWN cache (what each adapter trust configuration now owns) it cannot see the
-  // other configuration's session, so it runs a full handshake and its verifier rejects the server
-  LCacheB := TInMemorySessionCache.Create;
-  LClient := NewRejectingClient13(LCacheB);
-  LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
-  PumpToCompletion(LClient, LServer);
-  CheckTrue(LClient.IsTerminal, 'a per-config cache forces a full handshake, so the verifier rejects');
-end;
-
-procedure TTestConfigResumption.TestReverifyOnResumeRejectsUntrustedServer;
+procedure TTestConfigResumption.TestSharedCacheDoesNotResumeAcrossConfigurations;
 var
   LCache: ISessionCache;
   LServerConfig: ITlsServerConfig;
   LClient, LServer: ITlsEngine;
 begin
-  // a permissive client caches a resumable session, storing the server chain it verified
+  // a permissive client establishes and caches a resumable session; one STEK-backed server config
+  // is reused so the ticket stays openable across the connections below
   LCache := TInMemorySessionCache.Create;
   LServerConfig := TTlsPresets.Hardened(Provider).Server
     .WithCredential(ServerCredential).Build;
   LClient := NewClient13(LCache, True);
+  LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
+  PumpToCompletion(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking, 'the permissive handshake completed');
+  CheckTrue(LCache.Count >= 1, 'the permissive client cached a session');
+
+  // a client whose verifier rejects every chain, given the SAME cache instance but its own
+  // configuration, must not see the permissive config's session (scopes differ by construction):
+  // it runs a full handshake and its verifier rejects the server. Were it to resume, its verifier
+  // would never be consulted (a resumed handshake sends no certificate) - the bypass this prevents.
+  LClient := NewRejectingClient13(LCache);
+  LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
+  PumpToCompletion(LClient, LServer);
+  CheckFalse(LClient.IsResumed, 'a shared cache does not resume across configurations');
+  CheckTrue(LClient.IsTerminal,
+    'so the strict config runs a full handshake and its verifier rejects the server');
+end;
+
+procedure TTestConfigResumption.TestSharedCacheDoesNotResumeAcrossConfigurationsTls12;
+var
+  LCache: ISessionCache;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+begin
+  // the 1.2 twin of the isolation property: one cache instance shared by two client configurations
+  // (each its own fresh scope) does not resume across them
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LClient := NewClient12(LCache);
+  LServer := NewServer12(LStore);
+  PumpToCompletion(LClient, LServer);
+  CheckEquals(1, LCache.Count, 'the first 1.2 configuration cached a session');
+
+  // a different configuration sharing the same cache cannot see it (scopes differ), so the server
+  // flight carries a full Certificate rather than an abbreviated resume
+  LClient := NewClient12(LCache);
+  LServer := NewServer12(LStore);
+  CheckTrue(DriveObservingServerCert(LClient, LServer),
+    'a shared cache does not resume a 1.2 session across configurations');
+end;
+
+procedure TTestConfigResumption.TestSharedSessionScopeResumesAcrossRebuiltConfigs;
+var
+  LCache: ISessionCache;
+  LScope: TBytes;
+  LServerConfig: ITlsServerConfig;
+  LClient, LServer: ITlsEngine;
+begin
+  // two client configurations given the SAME explicit scope share sessions through one cache (the
+  // caller asserts they trust identically) - the pattern an app rebuilding its config per connection
+  // relies on to keep resuming
+  LCache := TInMemorySessionCache.Create;
+  LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
+  LServerConfig := TTlsPresets.Hardened(Provider).Server
+    .WithCredential(ServerCredential).Build;
+  LClient := NewClient13(LCache, True, LScope);
+  LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LCache.Count >= 1, 'the first scoped configuration cached a session');
+
+  LClient := NewClient13(LCache, True, LScope);
+  LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LClient.IsResumed, 'a configuration with the same scope resumes the shared session');
+
+  // a configuration with no explicit scope (a fresh per-build one) does not resume across them,
+  // even sharing the same cache instance; a scoped session must remain for the check to be real
+  CheckTrue(LCache.Count >= 1, 'a session remains for the unshared configuration to be denied');
+  LClient := NewClient13(LCache, True);
+  LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
+  PumpToCompletion(LClient, LServer);
+  CheckFalse(LClient.IsResumed,
+    'an unshared-scope configuration does not draw another configuration''s session');
+end;
+
+procedure TTestConfigResumption.TestReverifyOnResumeRejectsUntrustedServer;
+var
+  LCache: ISessionCache;
+  LScope: TBytes;
+  LServerConfig: ITlsServerConfig;
+  LClient, LServer: ITlsEngine;
+  LBefore: Int32;
+begin
+  // a permissive client caches a resumable session, storing the server chain it verified; the two
+  // configs share a scope so the resuming one draws the stored session (they trust identically)
+  LCache := TInMemorySessionCache.Create;
+  LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
+  LServerConfig := TTlsPresets.Hardened(Provider).Server
+    .WithCredential(ServerCredential).Build;
+  LClient := NewClient13(LCache, True, LScope);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
   PumpToCompletion(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the permissive handshake completed');
@@ -614,24 +691,30 @@ begin
   // a client that opts into Reverify, resuming the SAME session, re-runs its verifier against the
   // stored server chain; its rejecting verifier refuses the resumed server, so it aborts. (The
   // default ReuseOriginal case - a resumption that does NOT re-verify - is covered by
-  // TestPerConfigCacheIsolatesCrossConfigResumption.)
-  LClient := NewReverifyRejectClient13(LCache);
+  // TestSharedCacheDoesNotResumeAcrossConfigurations.)
+  LBefore := LCache.Count;
+  LClient := NewReverifyRejectClient13(LCache, LScope);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
   PumpToCompletion(LClient, LServer);
+  // it drew the cached session (single-use Take), proving it resumed and then reverified - not a
+  // full handshake that would also end terminal
+  CheckEquals(LBefore - 1, LCache.Count, 'the client drew the cached session to resume it');
   CheckTrue(LClient.IsTerminal, 'Reverify re-checked the resumed server and rejected it');
 end;
 
 procedure TTestConfigResumption.TestReverifyOnResumeAsyncParkAcceptsCompletes;
 var
   LCache: ISessionCache;
+  LScope: TBytes;
   LServerConfig: ITlsServerConfig;
   LClient, LServer: ITlsEngine;
 begin
-  // a permissive client caches a resumable session
+  // a permissive client caches a resumable session (shared scope so the resuming config draws it)
   LCache := TInMemorySessionCache.Create;
+  LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
   LServerConfig := TTlsPresets.Hardened(Provider).Server
     .WithCredential(ServerCredential).Build;
-  LClient := NewClient13(LCache, True);
+  LClient := NewClient13(LCache, True, LScope);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
   PumpToCompletion(LClient, LServer);
   CheckTrue(LCache.Count >= 1, 'the permissive client cached a session');
@@ -639,7 +722,7 @@ begin
   // resume with Reverify + async: the inline reverify accepts, the handshake parks at
   // ServerFinished (the client Finished is withheld), and the accepted out-of-band verdict
   // drives the withheld continuation to completion
-  LClient := NewReverifyAsyncClient13(LCache);
+  LClient := NewReverifyAsyncClient13(LCache, LScope);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
   PumpToCompletionResolving(LClient, LServer, True,
     TTlsAlertDescription.BadCertificate);
@@ -651,22 +734,25 @@ end;
 procedure TTestConfigResumption.TestExporterWithheldDuringReverifyPark;
 var
   LCache: ISessionCache;
+  LScope: TBytes;
   LServerConfig: ITlsServerConfig;
   LClient, LServer: ITlsEngine;
-  LIterations: Int32;
+  LIterations, LBefore: Int32;
 begin
-  // cache a resumable session
+  // cache a resumable session (shared scope so the resuming config draws it)
   LCache := TInMemorySessionCache.Create;
+  LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
   LServerConfig := TTlsPresets.Hardened(Provider).Server
     .WithCredential(ServerCredential).Build;
-  LClient := NewClient13(LCache, True);
+  LClient := NewClient13(LCache, True, LScope);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
   PumpToCompletion(LClient, LServer);
 
   // resume with reverify + async: drive until the client parks on the verdict. It has processed
   // ServerFinished (so its application/exporter secrets are derived), but the resumed identity is
   // not yet accepted.
-  LClient := NewReverifyAsyncClient13(LCache);
+  LBefore := LCache.Count;
+  LClient := NewReverifyAsyncClient13(LCache, LScope);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
   LClient.StartHandshake;
   LIterations := 0;
@@ -678,6 +764,9 @@ begin
     Inc(LIterations);
   end;
   CheckTrue(LClient.AwaitingCertificateVerdict, 'the client parked on the reverify verdict');
+  // it drew the cached session (single-use Take) to reach this park, proving a resumption not a
+  // full handshake (which would also park under an async verdict)
+  CheckEquals(LBefore - 1, LCache.Count, 'the client drew the cached session to resume it');
   // the exporter is withheld while parked, even though the secret is derived - no keying
   // material is exported over an unverified resumed identity
   CheckEquals(0, System.Length(LClient.ExportKeyingMaterial('EXPORTER-test',
@@ -700,36 +789,44 @@ end;
 procedure TTestConfigResumption.TestReverifyOnResumeAsyncParkRejectAborts;
 var
   LCache: ISessionCache;
+  LScope: TBytes;
   LServerConfig: ITlsServerConfig;
   LClient, LServer: ITlsEngine;
+  LBefore: Int32;
 begin
   LCache := TInMemorySessionCache.Create;
+  LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
   LServerConfig := TTlsPresets.Hardened(Provider).Server
     .WithCredential(ServerCredential).Build;
-  LClient := NewClient13(LCache, True);
+  LClient := NewClient13(LCache, True, LScope);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
   PumpToCompletion(LClient, LServer);
   CheckTrue(LCache.Count >= 1, 'the permissive client cached a session');
 
   // resume with Reverify + async, then REJECT the out-of-band verdict: the parked handshake
   // aborts fail-closed with the resolver's alert (augment-only); the client Finished is never sent
-  LClient := NewReverifyAsyncClient13(LCache);
+  LBefore := LCache.Count;
+  LClient := NewReverifyAsyncClient13(LCache, LScope);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
   PumpToCompletionResolving(LClient, LServer, False,
     TTlsAlertDescription.CertificateRevoked);
+  // it drew the cached session (single-use Take), proving it parked on a resumption not a full handshake
+  CheckEquals(LBefore - 1, LCache.Count, 'the client drew the cached session to resume it');
   CheckTrue(LClient.IsTerminal, 'a rejected park aborted the resumed handshake');
 end;
 
 procedure TTestConfigResumption.TestTls12ReverifyOnResumeAsyncParkAcceptsCompletes;
 var
   LCache: ISessionCache;
+  LScope: TBytes;
   LStore: ISessionStore;
   LClient, LServer: ITlsEngine;
 begin
-  // a permissive 1.2 client caches a resumable session
+  // a permissive 1.2 client caches a resumable session (shared scope so the resuming config draws it)
   LCache := TInMemorySessionCache.Create;
+  LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
   LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
-  LClient := NewClient12(LCache);
+  LClient := NewClient12(LCache, LScope);
   LServer := NewServer12(LStore);
   PumpToCompletion(LClient, LServer);
   CheckEquals(1, LCache.Count, 'the client cached the 1.2 session');
@@ -737,7 +834,7 @@ begin
   // resume with Reverify + async: the inline reverify accepts, the abbreviated handshake parks at
   // the server Finished (the client Finished is withheld), and the accepted out-of-band verdict
   // drives the withheld continuation to completion
-  LClient := NewReverifyAsyncClient12(LCache);
+  LClient := NewReverifyAsyncClient12(LCache, LScope);
   LServer := NewServer12(LStore);
   PumpToCompletionResolving(LClient, LServer, True,
     TTlsAlertDescription.BadCertificate);
@@ -749,22 +846,27 @@ end;
 procedure TTestConfigResumption.TestTls12ReverifyOnResumeAsyncParkRejectAborts;
 var
   LCache: ISessionCache;
+  LScope: TBytes;
   LStore: ISessionStore;
   LClient, LServer: ITlsEngine;
 begin
   LCache := TInMemorySessionCache.Create;
+  LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
   LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
-  LClient := NewClient12(LCache);
+  LClient := NewClient12(LCache, LScope);
   LServer := NewServer12(LStore);
   PumpToCompletion(LClient, LServer);
   CheckEquals(1, LCache.Count, 'the client cached the 1.2 session');
 
   // resume, then REJECT the out-of-band verdict: the parked handshake aborts fail-closed with the
   // resolver's alert (augment-only); the client Finished is never sent, so the server also aborts
-  LClient := NewReverifyAsyncClient12(LCache);
+  LClient := NewReverifyAsyncClient12(LCache, LScope);
   LServer := NewServer12(LStore);
   PumpToCompletionResolving(LClient, LServer, False,
     TTlsAlertDescription.CertificateRevoked);
+  // the client drew the one cached session (single-use Take), proving it resumed rather than
+  // running a full handshake that would also end terminal
+  CheckEquals(0, LCache.Count, 'the client drew the cached 1.2 session to resume it');
   CheckTrue(LClient.IsTerminal, 'a rejected park aborted the resumed 1.2 handshake');
   CheckTrue(LServer.IsTerminal, 'the abort reached the server');
 end;
@@ -772,19 +874,21 @@ end;
 procedure TTestConfigResumption.TestTls12ReverifyOnResumeExporterWithheld;
 var
   LCache: ISessionCache;
+  LScope: TBytes;
   LStore: ISessionStore;
   LClient, LServer: ITlsEngine;
   LIterations: Int32;
 begin
   LCache := TInMemorySessionCache.Create;
+  LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
   LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
-  LClient := NewClient12(LCache);
+  LClient := NewClient12(LCache, LScope);
   LServer := NewServer12(LStore);
   PumpToCompletion(LClient, LServer);
 
   // drive until the client parks on the verdict; no verdict is supplied, so the handshake must
   // not complete and no keying material may be exported over the unverified resumed identity
-  LClient := NewReverifyAsyncClient12(LCache);
+  LClient := NewReverifyAsyncClient12(LCache, LScope);
   LServer := NewServer12(LStore);
   LClient.StartHandshake;
   LIterations := 0;
@@ -796,6 +900,8 @@ begin
     Inc(LIterations);
   end;
   CheckTrue(LClient.AwaitingCertificateVerdict, 'the 1.2 client parked on the reverify verdict');
+  // it drew the one cached session (single-use Take) to reach this park, proving a resumption
+  CheckEquals(0, LCache.Count, 'the client drew the cached 1.2 session to resume it');
   CheckTrue(LClient.IsHandshaking, 'the parked 1.2 handshake has not completed without a verdict');
   CheckEquals(0, System.Length(LClient.ExportKeyingMaterial('EXPORTER-test',
     DecodeHex('00010203'), True, 32)), 'no export while parked on the reverify verdict');

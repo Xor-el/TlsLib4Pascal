@@ -353,12 +353,14 @@ begin
     if LOffers13 then
     begin
       L13.SessionCache := AConfig.SessionCache;
+      L13.SessionScope := AConfig.SessionScope;
       L13.EarlyDataEnabled := AConfig.EarlyData;
       L13.ResumeVerification := AConfig.ResumeVerification;
     end;
     if LOffers12 then
     begin
       L12.SessionCache := AConfig.SessionCache;
+      L12.SessionScope := AConfig.SessionScope;
       L12.ResumeVerification := AConfig.ResumeVerification;
     end;
   end;

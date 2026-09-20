@@ -174,8 +174,19 @@ type
     /// WithAsyncCertificateVerdict wins.</summary>
     function WithLiveRevocationVerdict(ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
     /// <summary>The client-side session cache to draw resumed sessions from and store new
-    /// ones into; providing one engages client resumption (subject to WithResumption).</summary>
-    function WithSessionCache(const ACache: ISessionCache): ITlsClientConfigBuilder;
+    /// ones into; providing one engages client resumption (subject to WithResumption). Sessions
+    /// this configuration establishes are scoped to it: a cache instance shared with another
+    /// configuration does not resume across the two, so a strict configuration never resumes a
+    /// session a lenient one authenticated. Use the overload with an explicit scope to opt two
+    /// configurations into sharing (asserting they trust identically), or WithResumeVerification
+    /// to re-check a resumed server when trust may differ.</summary>
+    function WithSessionCache(const ACache: ISessionCache): ITlsClientConfigBuilder; overload;
+    /// <summary>As above, but pins the cache scope to AScope so configurations given the same
+    /// scope resume each other's sessions from a shared cache. Caller asserts they trust
+    /// identically. An empty scope behaves like the no-scope overload (a fresh per-configuration
+    /// scope).</summary>
+    function WithSessionCache(const ACache: ISessionCache;
+      const AScope: TBytes): ITlsClientConfigBuilder; overload;
     /// <summary>The clock the client reads for a resumption PSK's obfuscated_ticket_age and
     /// ticket-lifetime expiry (RFC 8446 4.2.11 / 4.6.1); nil (the default) uses the system
     /// clock. Injectable primarily so tests can drive a deterministic time.</summary>

@@ -18,6 +18,7 @@ interface
 uses
   SysUtils,
   TlpArrayUtilities,
+  TlpDataEncoding,
   TlpSecureMemory,
   TlpTlsAlert,
   TlpTlsVersion,
@@ -121,6 +122,9 @@ type
     /// the server) and caches the NewSessionTickets the server issues. Nil disables
     /// resumption.</summary>
     SessionCache: ISessionCache;
+    /// <summary>An opaque tag folded into the cache identity so a shared cache does not resume
+    /// across configurations; empty (the direct sans-IO default) leaves the identity unscoped.</summary>
+    SessionScope: TBytes;
     /// <summary>How the client verifies a resumed server: ReuseOriginal (default) reuses the
     /// original authentication; Reverify re-runs CertificateVerifier against the stored chain.</summary>
     ResumeVerification: TResumeVerification;
@@ -1161,6 +1165,10 @@ begin
     Result := FParams.ServerIdentity
   else
     Result := FParams.ServerName;
+  // fold the configuration scope into the key so a cache shared with another configuration does not
+  // resume across the two (the separator is a control char that cannot occur in a server identity)
+  if System.Length(FParams.SessionScope) > 0 then
+    Result := Result + #31 + TDataEncoding.HexEncode(FParams.SessionScope);
 end;
 
 function TTls13ClientStateMachine.NowUnixMillis: UInt64;
