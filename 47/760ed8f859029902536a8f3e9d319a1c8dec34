@@ -1,0 +1,27 @@
+TlsLib.Tests/src/Tls13ResumptionTests.pas
+  s_09d3c46d1a9b1f::t_8836207a5a3c24 106
+  s_09d3c46d1a9b1f::t_56d3fdeccfaed0 711-742
+  s_09d3c46d1a9b1f::t_9b883e3e416e4e 680-710,743-744
+  s_09d3c46d1a9b1f::t_58ca25becee731 105
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_b1494429e382a1 258-260
+  s_09d3c46d1a9b1f::t_d3c431aa033060 810-813
+  s_09d3c46d1a9b1f::t_09ffc7313dc6a1 517,519-521,525,527-535
+  s_09d3c46d1a9b1f::t_f349b2954992a3 65,261,367-370,473-476,515-516,518,522-524,526,536-543,1160,1431
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "47760ed8f859029902536a8f3e9d319a1c8dec34",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
