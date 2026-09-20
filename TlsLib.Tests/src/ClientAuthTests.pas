@@ -38,6 +38,9 @@ uses
   TlpTlsEngine,
   TlpIHandshakeMachine,
   TlpICertificateTrust,
+  TlpCertificateVerify,
+  TlpTlsAlert,
+  TlpTlsLibExceptions,
   TlpServerName,
   TlpCertificateVerifier,
   TlpTlsCredential,
@@ -70,6 +73,8 @@ type
     procedure TestTls12RequiredClientAuthCompletes;
     procedure TestTls12RequiredClientAuthMissingCertAborts;
     procedure TestTls12RequestedClientAuthWithoutCertCompletes;
+    procedure TestVerifyClientChainNilVerifierFailsClosed;
+    procedure TestTls13NilClientVerifierWithCertAborts;
   end;
 
 implementation
@@ -323,6 +328,62 @@ begin
   CheckFalse(LClient.IsHandshaking or LServer.IsHandshaking,
     '1.2 requested mTLS completes without a client cert');
   CheckFalse(LClient.IsTerminal or LServer.IsTerminal, '1.2 requested mTLS: no failure');
+end;
+
+procedure TTestClientAuth.TestVerifyClientChainNilVerifierFailsClosed;
+var
+  LChain: TArray<TBytes>;
+  LAlert, LGotAlert: TTlsAlertDescription;
+  LRaised: Boolean;
+begin
+  // the shared client-chain gate must fail closed on a nil verifier (a server misconfiguration):
+  // there is no basis to trust the chain, and it must not read an unassigned alert
+  LChain := TArray<TBytes>.Create(Filled($01, 32));
+  LRaised := False;
+  LGotAlert := TTlsAlertDescription.CloseNotify; // a sentinel distinct from the expected alert
+  try
+    TCertificateVerify.VerifyClientChain(nil, LChain, LAlert);
+  except
+    on E: EFatalAlertTlsLibException do
+    begin
+      LRaised := True;
+      LGotAlert := E.AlertDescription;
+    end;
+  end;
+  CheckTrue(LRaised, 'a nil client-certificate verifier fails closed');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.InternalError)), Int64(Ord(LGotAlert)),
+    'the nil-verifier failure is internal_error');
+end;
+
+procedure TTestClientAuth.TestTls13NilClientVerifierWithCertAborts;
+var
+  LParams: TServerHandshakeParams;
+  LClient, LServer: ITlsEngine;
+begin
+  // end-to-end: a 1.3 server that requires client auth but has no verifier configured must abort
+  // with internal_error when a client presents a certificate (the call site routes through the
+  // fail-closed gate), rather than raising with an unassigned alert
+  LParams := Default(TServerHandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Provider := Provider;
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.ServerRandom := Filled($22, 32);
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(Credential);
+  LParams.ClientAuth := TClientAuthMode.Required;
+  LParams.ClientAuthSignatureSchemes := TArray<UInt16>.Create(
+    TSignatureSchemes.EcdsaSecp256r1Sha256);
+  // ClientCertificateVerifier deliberately left nil (Default leaves it nil)
+  LServer := TTlsEngine.CreateConfigured(
+    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+  LClient := New13Client(True);
+  Drive(LClient, LServer);
+  CheckTrue(LServer.IsTerminal, 'a nil client-certificate verifier aborts the handshake');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.InternalError)),
+    Int64(Ord(LServer.LastError.Alert.Description)),
+    'the nil-verifier abort is internal_error');
 end;
 
 initialization

@@ -219,8 +219,9 @@ type
       : TArray<THandshakeEffect>;
     /// <summary>Attempts to resume a TLS 1.2 session from the offered ticket (RFC 5077)
     /// or session id (RFC 5246). Validates version, freshness, suite and Extended Master
-    /// Secret consistency; any mismatch returns False so the caller falls through to a
-    /// full handshake. On success it fixes the suite, EMS use and the echoed session id.</summary>
+    /// Secret consistency; a mismatch returns False so the caller falls through to a full
+    /// handshake, except that an EMS session offered without EMS raises (RFC 7627 5.3). On
+    /// success it fixes the suite, EMS use and the echoed session id.</summary>
     function TryAcceptResumption(const AHello: TTlsClientHello;
       const AContext: TExtensionContext): Boolean;
     /// <summary>Sends the abbreviated server flight (ServerHello, an optional
@@ -279,7 +280,8 @@ resourcestring
   SBadClientFinished = 'the client Finished did not verify';
   SClientCertificateRequired = 'client authentication is required but none was sent';
   SUntrustedClientCertificate = 'the client certificate chain was not trusted';
-  SNoClientCertificateVerifier = 'no client certificate verifier configured (fail-closed)';
+  SResumedEmsDowngrade =
+    'a session established with extended_master_secret cannot resume without it (RFC 7627 5.3)';
   SBadClientCertVerify = 'the client CertificateVerify did not verify';
   SAlpnRejected = 'the server rejects the offered application protocols (RFC 7301)';
 
@@ -454,9 +456,10 @@ begin
     FClientSentServerName := LContext.ServerName <> '';
     FRequestedServerName := LContext.ServerName;
 
-    // resumption is attempted before any full-handshake negotiation; any mismatch
-    // (bad/expired ticket or session id, suite/EMS conflict) falls through to a full
-    // handshake rather than failing (RFC 5077 3.4 / RFC 5246 7.3)
+    // resumption is attempted before any full-handshake negotiation; a mismatch (bad/expired
+    // ticket or session id, suite conflict, or EMS now offered for a non-EMS session) falls
+    // through to a full handshake rather than failing (RFC 5077 3.4 / RFC 5246 7.3); the one
+    // exception is an EMS session offered without EMS, which aborts (RFC 7627 5.3)
     FResuming := TryAcceptResumption(LHello, LContext);
     if not FResuming then
     begin
@@ -718,7 +721,6 @@ function TTls12ServerStateMachine.ProcessClientCertificate(
   const AMessage: TTlsHandshakeMessage): TArray<THandshakeEffect>;
 var
   LAlert: TTlsAlertDescription;
-  LValidated: TArray<TBytes>;
 begin
   Result := nil;
   FClientCertChain := THandshakeMessages.DecodeCertificate12(AMessage.Body);
@@ -738,13 +740,8 @@ begin
     // the verifier (which, for -require-any-client-certificate, does not parse the chain)
     FParsedClientLeaf := TCertificateVerify.ParseWellFormedLeaf(FParams.Provider,
       FClientCertChain[0]);
-    // fail-closed: without a verifier there is no basis to trust the chain (LAlert would
-    // otherwise be read unassigned when the nil check short-circuits the Verify call)
-    if FParams.ClientCertificateVerifier = nil then
-      raise EFatalAlertTlsLibException.CreateRes(
-        TTlsAlertDescription.InternalError, @SNoClientCertificateVerifier);
-    if not FParams.ClientCertificateVerifier.VerifyClientCertificate(FClientCertChain,
-      LValidated, LAlert) then
+    if not TCertificateVerify.VerifyClientChain(FParams.ClientCertificateVerifier,
+      FClientCertChain, LAlert) then
       raise EFatalAlertTlsLibException.CreateRes(LAlert, @SUntrustedClientCertificate);
     // surface the validated client chain for connection info (read-only)
     Result := TArray<THandshakeEffect>.Create(
@@ -857,9 +854,13 @@ begin
   if not (TArrayUtilities.Contains<UInt16>(AHello.CipherSuites,
     LSession.CipherSuite)) then
     Exit;
-  // Extended Master Secret must be consistent across the resumption (RFC 7627 5.3):
-  // resume only when the ClientHello's EMS offer matches the original session
-  if LSession.ExtendedMasterSecret <> AContext.ExtendedMasterSecret then
+  // RFC 7627 5.3: an EMS session offered again without EMS MUST abort - the omission signals a
+  // downgrade (or an attacker stripping the extension) - while a non-EMS session now offered with
+  // EMS simply declines to a full handshake
+  if LSession.ExtendedMasterSecret and not AContext.ExtendedMasterSecret then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.IllegalParameter, @SResumedEmsDowngrade);
+  if AContext.ExtendedMasterSecret and not LSession.ExtendedMasterSecret then
     Exit;
   // mutual-TLS resumption gate (an abbreviated handshake re-runs no client auth): a Required
   // server offered a ticket/session with no stored client identity falls through to a full

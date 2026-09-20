@@ -29,6 +29,7 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpTlsVersion,
+  TlpTlsAlert,
   TlpICryptoProvider,
   TlpISecretBuffer,
   TlpSecretBuffer,
@@ -97,6 +98,8 @@ type
     procedure TestTicketResumeIsAbbreviated;
     procedure TestResumePreservesExtendedMasterSecretOn;
     procedure TestResumePreservesExtendedMasterSecretOff;
+    procedure TestEmsSessionOfferedWithoutEmsAborts;
+    procedure TestNonEmsSessionOfferedWithEmsFallsBackToFullHandshake;
     procedure TestExpiredTicketFallsBackToFullHandshake;
     procedure TestBogusTicketFallsBackToFullHandshake;
     procedure TestNoResumptionWithoutCache;
@@ -504,6 +507,73 @@ begin
     'a non-EMS session resumes abbreviated');
   CheckFalse(LServer.IsTerminal, 'the non-EMS resume did not fail');
   CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestTls12Resumption.TestEmsSessionOfferedWithoutEmsAborts;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache1, LCache2: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LSession: IResumableSession;
+  LTicket: TBytes;
+begin
+  // establish a real EMS session, then re-present its (EMS) ticket as a non-EMS cache entry so the
+  // client offers the ticket without the extension; the server opening it as EMS must abort rather
+  // than resume with an inconsistent master secret (RFC 7627 5.3)
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LCache1 := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache1, True);
+  LServer := NewServer(nil, LStek, 7200, True);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LCache1.Take(ServerHost + ':443', ServerHost, LSession),
+    'the EMS session was cached');
+  LTicket := LSession.SessionTicket;
+
+  LCache2 := TInMemorySessionCache.Create;
+  LCache2.Store(ServerHost + ':443', ServerHost, MakeTicketSession(LTicket, False));
+  LClient := NewClient(LCache2, False);
+  LServer := NewServer(nil, LStek, 7200, True);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LServer.IsTerminal, 'an EMS session offered without EMS aborts');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.IllegalParameter)),
+    Int64(Ord(LServer.LastError.Alert.Description)),
+    'the abort is illegal_parameter (RFC 7627 5.3)');
+  // the fatal alert reached the wire, not just the server's own state
+  CheckTrue(LClient.IsTerminal, 'the client received the fatal alert');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.IllegalParameter)),
+    Int64(Ord(LClient.LastError.Alert.Description)),
+    'the client saw illegal_parameter');
+end;
+
+procedure TTestTls12Resumption.TestNonEmsSessionOfferedWithEmsFallsBackToFullHandshake;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache1, LCache2: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LSession: IResumableSession;
+  LTicket: TBytes;
+begin
+  // the reverse direction: a non-EMS session re-presented as EMS so the client offers EMS; the
+  // server opening a non-EMS ticket under an EMS offer declines to a full handshake, not an abort
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LCache1 := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache1, False);
+  LServer := NewServer(nil, LStek, 7200, True);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LCache1.Take(ServerHost + ':443', ServerHost, LSession),
+    'the non-EMS session was cached');
+  LTicket := LSession.SessionTicket;
+
+  LCache2 := TInMemorySessionCache.Create;
+  LCache2.Store(ServerHost + ':443', ServerHost, MakeTicketSession(LTicket, True));
+  LClient := NewClient(LCache2, True);
+  LServer := NewServer(nil, LStek, 7200, True);
+  CheckTrue(DriveObservingServerCert(LClient, LServer),
+    'a non-EMS session offered with EMS falls back to a full handshake (Certificate sent)');
+  CheckFalse(LServer.IsTerminal, 'the reverse EMS mismatch is not fatal');
 end;
 
 procedure TTestTls12Resumption.TestExpiredTicketFallsBackToFullHandshake;

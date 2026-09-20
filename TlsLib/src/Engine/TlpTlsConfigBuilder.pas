@@ -779,8 +779,6 @@ end;
 
 function TFrozenClientConfig.SessionScope: TBytes;
 begin
-  // copy like the other array getters: a dynamic array has no copy-on-write, so returning the
-  // field by reference would let a caller mutating its result re-scope every engine already built
   Result := System.Copy(FSessionScope);
 end;
 
