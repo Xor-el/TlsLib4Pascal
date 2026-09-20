@@ -2418,14 +2418,15 @@ begin
   LConfig.FSessionStore := FSessionStore;
   LConfig.FCredentialResolver := ComposeCredentialResolver;
   // explicit keys always win; otherwise mint the default STEK from THIS builder's injected
-  // provider + clock (never a concrete default provider), scoped to the config's life. With
-  // resumption on and neither ticket keys nor a session store configured, the STEK is minted so
-  // a server resumes out of the box rather than silently issuing nothing; a store-only (stateful)
-  // server and WithResumption(False) both opt out.
+  // provider + clock (never a concrete default provider), scoped to the config's life and rotating
+  // on the advertised ticket lifetime. With resumption on and neither ticket keys nor a session
+  // store configured, the STEK is minted so a server resumes out of the box rather than silently
+  // issuing nothing; a store-only (stateful) server and WithResumption(False) both opt out.
   if FSessionTicketKeys <> nil then
     LConfig.FSessionTicketKeys := FSessionTicketKeys
   else if FWantDefaultSessionTicketKeys or (FResumption and (FSessionStore = nil)) then
-    LConfig.FSessionTicketKeys := TStekTicketKeyManager.CreateDefault(FProvider, FClock);
+    LConfig.FSessionTicketKeys := TStekTicketKeyManager.CreateDefault(FProvider, FClock,
+      FTicketLifetimeSeconds);
   LConfig.FAntiReplay := FAntiReplay;
   LConfig.FTicketLifetimeSeconds := FTicketLifetimeSeconds;
   LConfig.FTicketCount := FTicketCount;
