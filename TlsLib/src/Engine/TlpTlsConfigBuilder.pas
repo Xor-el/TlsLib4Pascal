@@ -112,6 +112,7 @@ type
     FClientEarlyData: Boolean;
     FSessionStore: ISessionStore;
     FSessionTicketKeys: ISessionTicketKeyManager;
+    FResumptionScope: TBytes;
     FWantDefaultSessionTicketKeys: Boolean;
     FAntiReplay: IAntiReplayStrategy;
     FTicketLifetimeSeconds: UInt32;
@@ -236,6 +237,7 @@ type
     function WithClock(const AClock: ITlsClock): TTlsConfigBuilder;
     function WithSessionStore(const AStore: ISessionStore): TTlsConfigBuilder;
     function WithSessionTicketKeys(const AKeys: ISessionTicketKeyManager): TTlsConfigBuilder;
+    function WithResumptionScope(const AScope: TBytes): TTlsConfigBuilder;
     function WithDefaultSessionTicketKeys: TTlsConfigBuilder;
     function WithTicketLifetime(ASeconds: UInt32): TTlsConfigBuilder;
     function WithTicketCount(ACount: Int32): TTlsConfigBuilder;
@@ -292,11 +294,13 @@ resourcestring
     '(WithLiveRevocationVerdict)';
   STicketLifetimeTooLong = 'the session-ticket lifetime must not exceed 604800 seconds ' +
     '(7 days), the maximum a server may advertise (RFC 8446 4.6.1)';
+  SResumptionScopeTooLong = 'the resumption scope must not exceed 32 bytes';
 
 const
   DefaultTicketLifetimeSeconds = UInt32(7200);
   DefaultTicketCount = Int32(2);
   SessionScopeLength = Int32(16);
+  MaxResumptionScopeLength = Int32(32);
 
 type
   /// <summary>The immutable common settings, shared by the client and server config.</summary>
@@ -393,6 +397,7 @@ type
     FClientVerifierSource: IClientCertificateVerifierSource;
     FSessionStore: ISessionStore;
     FSessionTicketKeys: ISessionTicketKeyManager;
+    FResumptionScope: TBytes;
     FCredentialResolver: ITlsServerCredentialResolver;
     FAntiReplay: IAntiReplayStrategy;
     FTicketLifetimeSeconds: UInt32;
@@ -405,6 +410,7 @@ type
     function ClientVerifierSource: IClientCertificateVerifierSource;
     function SessionStore: ISessionStore;
     function SessionTicketKeys: ISessionTicketKeyManager;
+    function ResumptionScope: TBytes;
     function CredentialResolver: ITlsServerCredentialResolver;
     function AntiReplay: IAntiReplayStrategy;
     function TicketLifetimeSeconds: UInt32;
@@ -547,6 +553,7 @@ type
       const APsks: TArray<TExternalPsk>): ITlsServerConfigBuilder;
     function WithSessionStore(const AStore: ISessionStore): ITlsServerConfigBuilder;
     function WithSessionTicketKeys(const AKeys: ISessionTicketKeyManager): ITlsServerConfigBuilder;
+    function WithResumptionScope(const AScope: TBytes): ITlsServerConfigBuilder;
     function WithDefaultSessionTicketKeys: ITlsServerConfigBuilder;
     function WithClock(const AClock: ITlsClock): ITlsServerConfigBuilder;
     function WithTicketLifetime(ASeconds: UInt32): ITlsServerConfigBuilder;
@@ -822,6 +829,11 @@ end;
 function TFrozenServerConfig.SessionTicketKeys: ISessionTicketKeyManager;
 begin
   Result := FSessionTicketKeys;
+end;
+
+function TFrozenServerConfig.ResumptionScope: TBytes;
+begin
+  Result := System.Copy(FResumptionScope);
 end;
 
 function TFrozenServerConfig.CredentialResolver: ITlsServerCredentialResolver;
@@ -1359,6 +1371,13 @@ function TTlsServerConfigBuilder.WithSessionTicketKeys(
   const AKeys: ISessionTicketKeyManager): ITlsServerConfigBuilder;
 begin
   FOwner.WithSessionTicketKeys(AKeys);
+  Result := Self;
+end;
+
+function TTlsServerConfigBuilder.WithResumptionScope(
+  const AScope: TBytes): ITlsServerConfigBuilder;
+begin
+  FOwner.WithResumptionScope(AScope);
   Result := Self;
 end;
 
@@ -2219,6 +2238,16 @@ begin
   Result := Self;
 end;
 
+function TTlsConfigBuilder.WithResumptionScope(
+  const AScope: TBytes): TTlsConfigBuilder;
+begin
+  GuardMutable;
+  if System.Length(AScope) > MaxResumptionScopeLength then
+    raise EArgumentTlsLibException.CreateRes(@SResumptionScopeTooLong);
+  FResumptionScope := System.Copy(AScope);
+  Result := Self;
+end;
+
 function TTlsConfigBuilder.WithDefaultSessionTicketKeys: TTlsConfigBuilder;
 begin
   GuardMutable;
@@ -2455,6 +2484,7 @@ begin
   LConfig.FClientAuth := FClientAuth;
   LConfig.FClientVerifierSource := ComposeClientVerifierSource;
   LConfig.FSessionStore := FSessionStore;
+  LConfig.FResumptionScope := System.Copy(FResumptionScope);
   LConfig.FCredentialResolver := ComposeCredentialResolver;
   // explicit keys always win; otherwise mint the default STEK from THIS builder's injected
   // provider + clock (never a concrete default provider), scoped to the config's life and rotating

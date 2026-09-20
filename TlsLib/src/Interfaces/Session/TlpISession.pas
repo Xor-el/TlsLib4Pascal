@@ -108,6 +108,12 @@ type
     /// Certificate, so the endpoint surfaces this stored chain instead; it is NOT re-verified on
     /// resumption.</summary>
     function PeerCertificates: TArray<TBytes>;
+    /// <summary>The opaque scope the issuing server configuration sealed into the ticket to
+    /// partition resumption across configurations that share a ticket key or store; empty when
+    /// none. A server resumes a ticket only when this equals its own configured scope, so a
+    /// configuration never resumes a session another established under a different scope. Compared
+    /// byte-for-byte, never interpreted.</summary>
+    function ResumptionScope: TBytes;
     /// <summary>This session viewed as a TLS 1.3 PSK offer.</summary>
     function AsPreSharedKey: IPreSharedKey;
   end;

@@ -89,6 +89,12 @@ type
       const ASecret: ISecretBuffer; ALifetime: UInt32): IResumableSession;
     function MakeSessionForHost(const AIdentity: TBytes; const ASecret: ISecretBuffer;
       ALifetime: UInt32; const AHost: string): IResumableSession;
+    // shared mTLS-resumption scaffolding parameterized by the resumption scope
+    function LoadClientAuthCredential(out ARootCert: TBytes): TTlsCredential;
+    function BuildMtlsClientEngine(const ACache: ISessionCache;
+      const ACredential: TTlsCredential): ITlsEngine;
+    function BuildMtlsServerEngine(const AStek: ISessionTicketKeyManager; AIssue: Int32;
+      AClientAuth: TClientAuthMode; const AClientRoot, AScope: TBytes): ITlsEngine;
   published
     procedure TestResumptionCompletesPskDheKe;
     procedure TestSingleUseTicketReplayRejected;
@@ -108,6 +114,9 @@ type
     procedure TestEarlyDataOffByDefault;
     procedure TestMutualAuthResumptionCompletes;
     procedure TestMutualAuthRequiredDeclinesForeignTicket;
+    procedure TestResumptionScopeMismatchDeclinesTicket;
+    procedure TestResumptionSameScopeResumes;
+    procedure TestMutualAuthTicketReissueCarriesChain;
     procedure TestTicketIssuedUnderDifferentSniFallsBackToFullHandshake;
   end;
 
@@ -1010,6 +1019,180 @@ begin
     System.Length(LServer.PeerCertificates),
     'the full handshake verified and surfaced the client certificate');
   CheckAppDataFlows(LClient, LServer);
+end;
+
+function TTestTls13Resumption.LoadClientAuthCredential(
+  out ARootCert: TBytes): TTlsCredential;
+var
+  LV: TStringList;
+begin
+  LV := LoadVectorFields('Certs/ClientAuthChain.txt');
+  try
+    ARootCert := DecodeHex(LV.Values['root_cert']);
+    Result.CertificateChain := TArray<TBytes>.Create(DecodeHex(LV.Values['leaf_cert']));
+    Result.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(LV.Values['leaf_key']));
+  finally
+    LV.Free;
+  end;
+end;
+
+function TTestTls13Resumption.BuildMtlsClientEngine(const ACache: ISessionCache;
+  const ACredential: TTlsCredential): ITlsEngine;
+var
+  LP: TClientHandshakeParams;
+begin
+  LP := Default(TClientHandshakeParams);
+  LP.Clock := TSystemClock.Create;
+  LP.Provider := Provider;
+  LP.Group := TNamedGroups.CreateX25519(Provider);
+  LP.GroupCode := TNamedGroupCatalog.X25519;
+  LP.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LP.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LP.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
+  LP.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+  LP.ClientRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
+  LP.LegacySessionId := Filled($33, 32);
+  LP.CertificateVerifier := TCertificateVerifier.Create(Provider,
+    TSystemClock.Create as ITlsClock,
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
+    as ITrustAnchorStore, True) as IServerCertificateVerifier;
+  LP.ExpectedServerName := TServerName.DnsName(ServerHost);
+  LP.ServerName := ServerHost;
+  LP.SessionCache := ACache;
+  LP.ClientCredential := ACredential;
+  Result := TTlsEngine.CreateConfigured(
+    TTls13ClientStateMachine.Create(LP) as IHandshakeMachine, Provider);
+end;
+
+function TTestTls13Resumption.BuildMtlsServerEngine(
+  const AStek: ISessionTicketKeyManager; AIssue: Int32; AClientAuth: TClientAuthMode;
+  const AClientRoot, AScope: TBytes): ITlsEngine;
+var
+  LP: TServerHandshakeParams;
+begin
+  LP := Default(TServerHandshakeParams);
+  LP.Clock := TSystemClock.Create;
+  LP.Provider := Provider;
+  LP.Policy := TNegotiationPolicy.CreateDefault(Provider);
+  LP.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LP.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LP.Group := TNamedGroups.CreateX25519(Provider);
+  LP.ServerRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
+  LP.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
+  LP.SessionTicketKeys := AStek;
+  LP.ResumptionScope := AScope;
+  LP.IssueTicketCount := AIssue;
+  LP.TicketLifetimeSeconds := 7200;
+  LP.ClientAuth := AClientAuth;
+  if AClientAuth <> TClientAuthMode.None then
+  begin
+    LP.ClientAuthSignatureSchemes := TArray<UInt16>.Create(
+      TSignatureSchemes.EcdsaSecp256r1Sha256);
+    LP.ClientCertificateVerifier := TCertificateVerifier.Create(Provider,
+      TSystemClock.Create as ITlsClock,
+      TTrustAnchorStore.Create(TArray<TBytes>.Create(AClientRoot))
+      as ITrustAnchorStore, False) as IClientCertificateVerifier;
+  end;
+  Result := TTlsEngine.CreateConfigured(
+    TTls13ServerStateMachine.Create(LP) as IHandshakeMachine, Provider);
+end;
+
+procedure TTestTls13Resumption.TestResumptionScopeMismatchDeclinesTicket;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LCred: TTlsCredential;
+  LClientRoot: TBytes;
+begin
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LCred := LoadClientAuthCredential(LClientRoot);
+
+  // an issuer under scope A mints an mTLS ticket carrying the verified client chain
+  LClient := BuildMtlsClientEngine(LCache, LCred);
+  LServer := BuildMtlsServerEngine(LStek, 1, TClientAuthMode.Required, LClientRoot,
+    Filled($A1, 8));
+  DriveHandshake(LClient, LServer);
+  CheckEquals(1, LCache.Count, 'the client cached the scope-A ticket');
+
+  // a configuration sharing the STEK but under scope B must not reuse that stored identity: the
+  // ticket's scope does not match, so it is declined to a full handshake, which re-requests and
+  // verifies the certificate under B's own trust
+  LClient := BuildMtlsClientEngine(LCache, LCred);
+  LServer := BuildMtlsServerEngine(LStek, 0, TClientAuthMode.Required, LClientRoot,
+    Filled($B2, 8));
+  DriveHandshake(LClient, LServer);
+  CheckFalse(LServer.IsResumed, 'a different-scope configuration does not resume the ticket');
+  CheckFalse(LServer.IsTerminal, 'it completes a full handshake instead');
+  CheckTrue(System.Length(LServer.PeerCertificates) > 0,
+    'the full handshake verified the client certificate itself');
+end;
+
+procedure TTestTls13Resumption.TestResumptionSameScopeResumes;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LCred: TTlsCredential;
+  LClientRoot, LScope: TBytes;
+begin
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LCred := LoadClientAuthCredential(LClientRoot);
+  LScope := Filled($5C, 8);
+
+  LClient := BuildMtlsClientEngine(LCache, LCred);
+  LServer := BuildMtlsServerEngine(LStek, 1, TClientAuthMode.Required, LClientRoot, LScope);
+  DriveHandshake(LClient, LServer);
+  CheckEquals(1, LCache.Count, 'the client cached the ticket');
+
+  // the same scope reuses the stored identity as-is: the resuming server trusts a DIFFERENT client
+  // root (so its verifier would reject this chain), yet it still resumes - proving the resumed chain
+  // is not re-verified, only the scope is checked
+  LClient := BuildMtlsClientEngine(LCache, LCred);
+  LServer := BuildMtlsServerEngine(LStek, 0, TClientAuthMode.Required, TestRootCertificate,
+    LScope);
+  DriveHandshake(LClient, LServer);
+  CheckTrue(LServer.IsResumed, 'a same-scope configuration resumes without re-verifying the chain');
+  CheckTrue(System.Length(LServer.PeerCertificates) > 0,
+    'and surfaces the client chain the ticket carried');
+end;
+
+procedure TTestTls13Resumption.TestMutualAuthTicketReissueCarriesChain;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LCred: TTlsCredential;
+  LClientRoot, LScope: TBytes;
+begin
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LCred := LoadClientAuthCredential(LClientRoot);
+  LScope := Filled($5C, 8);
+
+  // full mutual-TLS handshake -> ticket #1
+  LClient := BuildMtlsClientEngine(LCache, LCred);
+  LServer := BuildMtlsServerEngine(LStek, 1, TClientAuthMode.Required, LClientRoot, LScope);
+  DriveHandshake(LClient, LServer);
+  CheckEquals(1, LCache.Count, 'ticket #1 was cached');
+
+  // resume ticket #1 and re-issue ticket #2, which must carry the chain (and scope) forward
+  LClient := BuildMtlsClientEngine(LCache, LCred);
+  LServer := BuildMtlsServerEngine(LStek, 1, TClientAuthMode.Required, LClientRoot, LScope);
+  DriveHandshake(LClient, LServer);
+  CheckTrue(LServer.IsResumed, 'the first resumption resumed');
+  CheckEquals(1, LCache.Count, 'a fresh ticket #2 was re-issued');
+
+  // resume ticket #2: it resumes only if it carried the chain forward (else a Required server
+  // declines the identity-less ticket to a full handshake)
+  LClient := BuildMtlsClientEngine(LCache, LCred);
+  LServer := BuildMtlsServerEngine(LStek, 0, TClientAuthMode.Required, LClientRoot, LScope);
+  DriveHandshake(LClient, LServer);
+  CheckTrue(LServer.IsResumed, 'the re-issued ticket carried the chain, so it resumes again');
+  CheckTrue(System.Length(LServer.PeerCertificates) > 0,
+    'and the resumed connection surfaces the client chain');
 end;
 
 procedure TTestTls13Resumption.TestTicketIssuedUnderDifferentSniFallsBackToFullHandshake;
