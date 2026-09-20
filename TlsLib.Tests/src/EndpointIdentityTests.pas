@@ -40,6 +40,14 @@ type
     procedure TestWildcardMatchesOneLabel;
     procedure TestWildcardDoesNotMatchBareDomain;
     procedure TestWildcardDoesNotMatchMultipleLabels;
+    procedure TestWildcardPublicSuffixNotMatched;
+    procedure TestWildcardTwoLabelSuffixMatches;
+    procedure TestPartialWildcardIgnored;
+    procedure TestMultipleWildcardsIgnored;
+    procedure TestReferenceHostWildcardRejected;
+    procedure TestReferenceHostNonLdhRejected;
+    procedure TestReferenceHostUnderscoreAndALabelAccepted;
+    procedure TestDnsPatternPredicatesDirect;
     procedure TestFirstOfSeveralNamesMatches;
     procedure TestIpLiteralDoesNotMatchWildcardDns;
     procedure TestIpLiteralMatchesIpSan;
@@ -106,6 +114,79 @@ end;
 procedure TTestEndpointIdentity.TestWildcardMatchesOneLabel;
 begin
   CheckTrue(Matches('a.example.com', ['*.example.com']));
+end;
+
+procedure TTestEndpointIdentity.TestWildcardPublicSuffixNotMatched;
+begin
+  // *.com leaves only one label below the wildcard - it must never match (RFC 9525 6.3)
+  CheckFalse(Matches('example.com', ['*.com']));
+end;
+
+procedure TTestEndpointIdentity.TestWildcardTwoLabelSuffixMatches;
+begin
+  // a wildcard leaving two labels below it is fine (*.co.uk vs host.co.uk)
+  CheckTrue(Matches('host.co.uk', ['*.co.uk']));
+end;
+
+procedure TTestEndpointIdentity.TestPartialWildcardIgnored;
+begin
+  // a wildcard that is not the entire leftmost label is ill-formed and ignored, not a literal
+  CheckFalse(Matches('foo.example.com', ['f*.example.com']));
+  CheckFalse(Matches('foo.example.com', ['*oo.example.com']));
+end;
+
+procedure TTestEndpointIdentity.TestMultipleWildcardsIgnored;
+begin
+  CheckFalse(Matches('a.b.com', ['*.*.com']));
+end;
+
+procedure TTestEndpointIdentity.TestReferenceHostWildcardRejected;
+var
+  LName: TServerName;
+begin
+  // a client verifies a concrete host; a wildcard is not a usable reference host
+  CheckFalse(TServerName.TryParse('*.example.com', LName));
+end;
+
+procedure TTestEndpointIdentity.TestReferenceHostNonLdhRejected;
+var
+  LName: TServerName;
+begin
+  CheckFalse(TServerName.TryParse('bad host.example.com', LName));
+end;
+
+procedure TTestEndpointIdentity.TestReferenceHostUnderscoreAndALabelAccepted;
+var
+  LName: TServerName;
+begin
+  // underscore is tolerated; a punycode A-label is a normal LDH host
+  CheckTrue(TServerName.TryParse('_dmarc.example.com', LName));
+  CheckTrue(TServerName.TryParse('xn--nxasmq6b.example.com', LName));
+end;
+
+procedure TTestEndpointIdentity.TestDnsPatternPredicatesDirect;
+begin
+  // matchable patterns (exactly what MatchesOneDns accepts)
+  CheckTrue(TEndpointIdentity.IsMatchableDnsPattern('example.com'));
+  CheckTrue(TEndpointIdentity.IsMatchableDnsPattern('*.example.com'));
+  CheckTrue(TEndpointIdentity.IsMatchableDnsPattern('*.co.uk'));
+  // unmatchable / ill-formed
+  CheckFalse(TEndpointIdentity.IsMatchableDnsPattern('*.com'));
+  CheckFalse(TEndpointIdentity.IsMatchableDnsPattern('*'));
+  CheckFalse(TEndpointIdentity.IsMatchableDnsPattern('*.'));
+  CheckFalse(TEndpointIdentity.IsMatchableDnsPattern('f*.example.com'));
+  CheckFalse(TEndpointIdentity.IsMatchableDnsPattern('a.*.com'));
+  CheckFalse(TEndpointIdentity.IsMatchableDnsPattern('a..com')); // empty label
+  CheckFalse(TEndpointIdentity.IsMatchableDnsPattern('example.com.')); // trailing dot
+  CheckFalse(TEndpointIdentity.IsMatchableDnsPattern('bad host.com')); // non-LDH
+  CheckFalse(TEndpointIdentity.IsMatchableDnsPattern(''));
+  // presented-name well-formedness (allows a whole-leftmost-label wildcard)
+  CheckTrue(TEndpointIdentity.IsValidPresentedDnsName('*.example.com'));
+  CheckFalse(TEndpointIdentity.IsValidPresentedDnsName('a b.com'));
+  // reference-host validity: never a wildcard
+  CheckTrue(TEndpointIdentity.IsValidReferenceHostName('localhost'));
+  CheckTrue(TEndpointIdentity.IsValidReferenceHostName('_dmarc.example.com'));
+  CheckFalse(TEndpointIdentity.IsValidReferenceHostName('*.example.com'));
 end;
 
 procedure TTestEndpointIdentity.TestWildcardDoesNotMatchBareDomain;

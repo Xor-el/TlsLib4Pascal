@@ -105,6 +105,7 @@ type
     procedure TestTicketLifetimeAboveCapIsRejected;
     procedure TestTicketLifetimeAtCapIsAccepted;
     procedure TestClientRejectsServerSniCredential;
+    procedure TestServerRejectsPublicSuffixSniWildcard;
     // a restricted (classical-only) registry composes with a preset whose preferred order still
     // names the pruned hybrid: the engine drops it from the offer instead of failing to build,
     // and the handshake negotiates a classical group
@@ -841,6 +842,25 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a client configuration rejects server-only SNI credential settings');
+end;
+
+procedure TTestConfigBuilder.TestServerRejectsPublicSuffixSniWildcard;
+var
+  LBuilder: ITlsConfigBuilder;
+  LRaised: Boolean;
+begin
+  // a public-suffix wildcard (*.com) can never match a host at runtime, so it is rejected as an
+  // SNI pattern at configuration - the same rule name verification enforces
+  LBuilder := TTlsConfigBuilder.Create(Provider);
+  LBuilder.Server.WithSniCredential('*.com', ServerCredential);
+  LRaised := False;
+  try
+    LBuilder.Server.Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a *.com SNI wildcard is rejected at configuration');
 end;
 
 procedure TTestConfigBuilder.TestClassicalRegistryOverPresetNegotiatesClassical;

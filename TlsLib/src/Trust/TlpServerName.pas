@@ -69,6 +69,11 @@ type
 
 implementation
 
+uses
+  // implementation-only: TEndpointIdentity's interface uses this unit, so the reference here
+  // stays in the implementation section to avoid a circular interface dependency
+  TlpEndpointIdentity;
+
 { TServerName }
 
 class function TServerName.TryParseIPv4(const AHost: string;
@@ -243,6 +248,12 @@ begin
 
   // an IPv6-shaped string that did not parse as an address is not a valid DNS name
   if Pos(':', LHost) > 0 then
+    Exit;
+
+  // a reference host to verify against must be a well-formed DNS name with no wildcard: a client
+  // checks a concrete host, and a malformed host would otherwise be compared as an opaque literal
+  // that can never match a SAN. Callers pass A-labels (punycode), not U-labels.
+  if not TEndpointIdentity.IsValidReferenceHostName(LHost) then
     Exit;
 
   AName.FKind := TServerNameKind.Dns;
