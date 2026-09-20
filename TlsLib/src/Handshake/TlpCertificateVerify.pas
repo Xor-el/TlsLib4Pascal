@@ -21,6 +21,7 @@ uses
   TlpTlsLibExceptions,
   TlpCryptoDomainTypes,
   TlpNegotiationTypes,
+  TlpICertificateTrust,
   TlpICryptoProvider;
 
 type
@@ -58,6 +59,12 @@ type
     /// decode. Applies to a received server or client leaf.</summary>
     class function ParseWellFormedLeaf(const AProvider: ICryptoProvider;
       const ALeafCertificate: TBytes): IInspectedCertificate; static;
+    /// <summary>The single fail-closed gate for a received client certificate chain, shared by
+    /// both server versions: a nil verifier is a server misconfiguration and raises internal_error
+    /// (there is no basis to trust the chain); otherwise it returns the verifier's verdict with
+    /// AAlert set on rejection.</summary>
+    class function VerifyClientChain(const AVerifier: IClientCertificateVerifier;
+      const AChain: TArray<TBytes>; out AAlert: TTlsAlertDescription): Boolean; static;
   end;
 
 implementation
@@ -73,8 +80,23 @@ resourcestring
     'the signature scheme does not match the leaf key algorithm family';
   SUnparseableLeafCertificate =
     'the peer leaf is not a well-formed X.509 certificate';
+  SNoClientCertificateVerifier =
+    'no client certificate verifier configured (fail-closed)';
 
 { TCertificateVerify }
+
+class function TCertificateVerify.VerifyClientChain(
+  const AVerifier: IClientCertificateVerifier; const AChain: TArray<TBytes>;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LValidated: TArray<TBytes>;
+begin
+  AAlert := TTlsAlertDescription.InternalError;
+  if AVerifier = nil then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.InternalError, @SNoClientCertificateVerifier);
+  Result := AVerifier.VerifyClientCertificate(AChain, LValidated, AAlert);
+end;
 
 class function TCertificateVerify.ParseWellFormedLeaf(
   const AProvider: ICryptoProvider;
