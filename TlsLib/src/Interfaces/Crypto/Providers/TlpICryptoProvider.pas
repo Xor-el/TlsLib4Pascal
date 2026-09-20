@@ -461,13 +461,17 @@ type
     function TryGetCrlDistributionPoints(const ACert: TBytes;
       out AUrls: TArray<string>): Boolean;
     /// <summary>
-    /// Checks the leaf against a fetched DER CRL (RFC 5280): confirms the CRL is signed by
-    /// the issuer, then reports whether the leaf serial appears in the revoked list.
-    /// Returns True when the CRL parsed and verified (ARevoked then meaningful); False on a
-    /// malformed or unverifiable CRL (indeterminate). Never raises.
+    /// Checks the leaf against a fetched DER CRL (RFC 5280): confirms the CRL is signed by the
+    /// issuer, enforces its thisUpdate/nextUpdate freshness window at AValidationTimeUtc (so the
+    /// caller's injected clock drives it, not the wall clock), then reports whether the leaf
+    /// serial appears in the revoked list. Returns True when the CRL parsed, verified and is
+    /// current (ARevoked then meaningful); False on a malformed, unverifiable or out-of-window
+    /// CRL (indeterminate). AThisUpdate/ANextUpdate report the window (ANextUpdate 0 when absent).
+    /// Never raises.
     /// </summary>
     function CheckCrlRevocation(const ALeafCert, AIssuerCert, ACrlDer: TBytes;
-      out ARevoked: Boolean): Boolean;
+      const AValidationTimeUtc: TDateTime; out ARevoked: Boolean;
+      out AThisUpdate, ANextUpdate: TDateTime): Boolean;
     /// <summary>
     /// Finds, among ACandidates, the certificate that issued ALeaf - for a live revocation check on a
     /// peer that presented a leaf-only chain (a mutual-TLS client whose issuer is a configured anchor,

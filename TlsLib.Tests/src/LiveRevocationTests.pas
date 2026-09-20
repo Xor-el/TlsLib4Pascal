@@ -20,6 +20,8 @@ interface
 uses
   TlpIClock,
   TlpClock,
+  TlpDateTimeUtilities,
+  MockClock,
   SysUtils,
   Classes,
 {$IFDEF FPC}
@@ -81,6 +83,7 @@ type
     function Chain: TArray<TBytes>;
     function NewChecker(const AFetcher: IHttpFetcher; APosture: TRevocationPosture;
       AMethod: TLiveRevocationMethod): TLiveRevocationChecker;
+    function NowUtc: TDateTime;
   published
     // provider primitives
     procedure TestOcspResponderUrlExtracted;
@@ -89,6 +92,9 @@ type
     procedure TestCertificatePeerInfoExtracted;
     procedure TestCrlRevocationDetectsRevoked;
     procedure TestCrlRevocationDetectsNotRevoked;
+    procedure TestCrlWindowUsesInjectedValidationTime;
+    procedure TestCrlExpiredAtInjectedTimeIsIndeterminate;
+    procedure TestLiveCrlUsesInjectedClockEndToEnd;
     // checker fail-closed matrix (OCSP)
     procedure TestLiveOcspGoodAccepts;
     procedure TestLiveOcspRevokedRejectsUnderEveryPosture;
@@ -255,22 +261,91 @@ begin
   CheckTrue(LSerialHex <> '', 'a serial number is reported');
 end;
 
+function TTestLiveRevocation.NowUtc: TDateTime;
+begin
+  Result := TDateTimeUtilities.UnixMsToDateTime(TDateTimeUtilities.CurrentUnixMs);
+end;
+
 procedure TTestLiveRevocation.TestCrlRevocationDetectsRevoked;
 var
   LRevoked: Boolean;
+  LThisUpdate, LNextUpdate: TDateTime;
 begin
-  CheckTrue(Provider.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlRevoked, LRevoked),
-    'the issuer-signed CRL parses and verifies');
+  CheckTrue(Provider.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlRevoked, NowUtc,
+    LRevoked, LThisUpdate, LNextUpdate), 'the issuer-signed CRL parses and verifies');
   CheckTrue(LRevoked, 'the leaf serial is listed as revoked in the CRL');
 end;
 
 procedure TTestLiveRevocation.TestCrlRevocationDetectsNotRevoked;
 var
   LRevoked: Boolean;
+  LThisUpdate, LNextUpdate: TDateTime;
 begin
-  CheckTrue(Provider.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlGood, LRevoked),
-    'the issuer-signed CRL parses and verifies');
+  CheckTrue(Provider.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlGood, NowUtc,
+    LRevoked, LThisUpdate, LNextUpdate), 'the issuer-signed CRL parses and verifies');
   CheckFalse(LRevoked, 'the leaf is not listed in the good CRL');
+end;
+
+procedure TTestLiveRevocation.TestCrlWindowUsesInjectedValidationTime;
+var
+  LRevoked: Boolean;
+  LThisUpdate, LNextUpdate: TDateTime;
+begin
+  // the stale CRL is out of window at the current time, but the check reports its window; judged
+  // at an injected time INSIDE that window the same CRL is authoritative - proving the injected
+  // clock, not the wall clock, drives CRL freshness
+  CheckFalse(Provider.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlStale, NowUtc,
+    LRevoked, LThisUpdate, LNextUpdate), 'the stale CRL is indeterminate at the current time');
+  CheckTrue(LNextUpdate > 0, 'the CRL reports a nextUpdate window');
+  CheckTrue(Provider.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlStale,
+    LThisUpdate + (LNextUpdate - LThisUpdate) / 2, LRevoked, LThisUpdate, LNextUpdate),
+    'the same CRL verifies when the injected time is inside its window');
+  // and one day before thisUpdate it is not yet valid -> indeterminate
+  CheckFalse(Provider.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlStale,
+    LThisUpdate - 1, LRevoked, LThisUpdate, LNextUpdate),
+    'the CRL is not yet valid before its thisUpdate');
+end;
+
+procedure TTestLiveRevocation.TestLiveCrlUsesInjectedClockEndToEnd;
+var
+  LRevoked: Boolean;
+  LThisUpdate, LNextUpdate: TDateTime;
+  LFetcher: TFakeHttpFetcher;
+  LChecker: TLiveRevocationChecker;
+  LMidMs: Int64;
+begin
+  // end-to-end: derive the stale CRL's window, then drive the checker with a MockClock parked
+  // inside it. The stale CRL - indeterminate at the wall clock - now reads Good, proving the
+  // checker feeds its injected clock through to the CRL freshness judgement.
+  CheckFalse(Provider.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlStale, NowUtc,
+    LRevoked, LThisUpdate, LNextUpdate), 'the stale CRL is indeterminate now');
+  LMidMs := (TDateTimeUtilities.DateTimeToUnixMs(LThisUpdate) +
+    TDateTimeUtilities.DateTimeToUnixMs(LNextUpdate)) div 2;
+  LFetcher := TFakeHttpFetcher.Create;
+  LFetcher.SetGet(True, CrlStale);
+  LChecker := TLiveRevocationChecker.Create(Provider,
+    TMockClock.Create(UInt64(LMidMs)) as ITlsClock, LFetcher as IHttpFetcher,
+    TRevocationPosture.Hard, TLiveRevocationMethod.Crl, 0);
+  try
+    CheckTrue(LChecker.CheckChain(Chain),
+      'under a clock inside the CRL window the stale CRL is authoritative and accepts');
+  finally
+    LChecker.Free;
+  end;
+end;
+
+procedure TTestLiveRevocation.TestCrlExpiredAtInjectedTimeIsIndeterminate;
+var
+  LRevoked: Boolean;
+  LThisUpdate, LNextUpdate: TDateTime;
+begin
+  // capture the good CRL's window, then judge it one day past nextUpdate: indeterminate
+  CheckTrue(Provider.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlGood, NowUtc,
+    LRevoked, LThisUpdate, LNextUpdate), 'the good CRL verifies at the current time');
+  CheckTrue(LNextUpdate > 0, 'the good CRL reports a nextUpdate window');
+  CheckFalse(Provider.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlGood,
+    LNextUpdate + 1, LRevoked, LThisUpdate, LNextUpdate),
+    'a CRL judged past its nextUpdate is indeterminate');
 end;
 
 procedure TTestLiveRevocation.TestLiveOcspGoodAccepts;
@@ -397,6 +472,7 @@ end;
 procedure TTestLiveRevocation.TestLiveCrlStaleIsIndeterminate;
 var
   LRevoked: Boolean;
+  LThisUpdate, LNextUpdate: TDateTime;
   LFetcher: TFakeHttpFetcher;
   LChecker: TLiveRevocationChecker;
 begin
@@ -404,7 +480,8 @@ begin
   // check it reads as a definitive Good; the window check makes it indeterminate, defeating a
   // stale-CRL replay. The provider primitive reports it directly, and the checker follows the
   // posture (Hard rejects).
-  CheckFalse(Provider.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlStale, LRevoked),
+  CheckFalse(Provider.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlStale, NowUtc,
+    LRevoked, LThisUpdate, LNextUpdate),
     'a stale CRL (out of its validity window) is not authoritative');
   CheckFalse(LRevoked, 'a stale CRL yields no definitive revocation');
 

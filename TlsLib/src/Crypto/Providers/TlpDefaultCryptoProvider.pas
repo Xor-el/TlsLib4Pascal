@@ -660,7 +660,8 @@ type
     function TryGetCrlDistributionPoints(const ACert: TBytes;
       out AUrls: TArray<string>): Boolean;
     function CheckCrlRevocation(const ALeafCert, AIssuerCert, ACrlDer: TBytes;
-      out ARevoked: Boolean): Boolean;
+      const AValidationTimeUtc: TDateTime; out ARevoked: Boolean;
+      out AThisUpdate, ANextUpdate: TDateTime): Boolean;
     function TryFindIssuer(const ALeafCert: TBytes; const ACandidates: TArray<TBytes>;
       out AIssuerCert: TBytes): Boolean;
   end;
@@ -2753,7 +2754,8 @@ begin
 end;
 
 function TRevocationChecker.CheckCrlRevocation(const ALeafCert, AIssuerCert,
-  ACrlDer: TBytes; out ARevoked: Boolean): Boolean;
+  ACrlDer: TBytes; const AValidationTimeUtc: TDateTime; out ARevoked: Boolean;
+  out AThisUpdate, ANextUpdate: TDateTime): Boolean;
 var
   LParser: IX509CertificateParser;
   LLeaf, LIssuer: IX509Certificate;
@@ -2763,6 +2765,8 @@ var
 begin
   Result := False;
   ARevoked := False;
+  AThisUpdate := 0;
+  ANextUpdate := 0;
   if (System.Length(ALeafCert) = 0) or (System.Length(AIssuerCert) = 0) or
     (System.Length(ACrlDer) = 0) then
     Exit;
@@ -2777,15 +2781,18 @@ begin
     // the CRL must be signed by the leaf's issuer to be authoritative
     if not LCrl.IsSignatureValid(LIssuer.GetPublicKey) then
       Exit;
-    // honor the CRL validity window (mirrors the OCSP thisUpdate/nextUpdate check): a validly
-    // signed but not-yet-valid or expired CRL is never authoritative - a MITM could otherwise
-    // replay an old, legitimately-signed CRL predating the revocation. Out of window -> False
-    // (indeterminate), never a silent Good.
-    LNowMs := TDateTimeUtilities.CurrentUnixMs;
-    if LNowMs < TDateTimeUtilities.DateTimeToUnixMs(LCrl.ThisUpdate) then
+    AThisUpdate := LCrl.ThisUpdate;
+    if LCrl.NextUpdate.HasValue then
+      ANextUpdate := LCrl.NextUpdate.Value;
+    // honor the CRL validity window at the injected validation time (mirrors the OCSP
+    // thisUpdate/nextUpdate check): a validly signed but not-yet-valid or expired CRL is never
+    // authoritative - a MITM could otherwise replay an old, legitimately-signed CRL predating
+    // the revocation. Out of window -> False (indeterminate), never a silent Good.
+    LNowMs := TDateTimeUtilities.DateTimeToUnixMs(AValidationTimeUtc);
+    if LNowMs < TDateTimeUtilities.DateTimeToUnixMs(AThisUpdate) then
       Exit;
     if LCrl.NextUpdate.HasValue and
-      (LNowMs >= TDateTimeUtilities.DateTimeToUnixMs(LCrl.NextUpdate.Value)) then
+      (LNowMs >= TDateTimeUtilities.DateTimeToUnixMs(ANextUpdate)) then
       Exit;
     ARevoked := LCrl.GetRevokedCertificate(LLeaf.SerialNumber) <> nil;
     Result := True;
@@ -2793,6 +2800,8 @@ begin
     // an unparseable or unverifiable CRL is indeterminate, never a raise
     Result := False;
     ARevoked := False;
+    AThisUpdate := 0;
+    ANextUpdate := 0;
   end;
 end;
 
