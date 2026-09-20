@@ -1,0 +1,24 @@
+TlsLib.Tests/src/Tls13KeyUpdateTests.pas
+  s_09d3c46d1a9b1f::t_ccd0ae22304a0a 34-36
+  s_09d3c46d1a9b1f::t_9d957dcf3c179e 216-225,231,233-256
+  s_09d3c46d1a9b1f::t_b0a34e4af1f5b8 49
+TlsLib.Tests/src/RecordProtectionTests.pas
+  s_09d3c46d1a9b1f::t_85f0bf42771b34 57
+  s_09d3c46d1a9b1f::t_85fbc341a9da99 305-328
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "80ee19e9399f024afce284a1689fc0c66833e42a",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
