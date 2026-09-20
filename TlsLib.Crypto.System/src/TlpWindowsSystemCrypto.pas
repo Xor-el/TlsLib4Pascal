@@ -159,6 +159,7 @@ resourcestring
   SInvalidNonceSize = 'AEAD nonce size %d does not match the required %d bytes';
   SHkdfExpandTooLong = 'HKDF-Expand output length %d exceeds 255 * HashLen (%d)';
   SInvalidScalarSize = 'private scalar size %d does not match the curve field size %d';
+  SSchemeNotCapable = 'the signing key cannot sign with the requested signature scheme';
 
 type
   // bcrypt.dll entry points, resolved at runtime (no static import, so an absent DLL or
@@ -644,6 +645,9 @@ type
     /// PRK-and-finalize path (Expand only). False on any CNG failure, so the caller falls back.</summary>
     function DoNativeHkdfExpand(const AHashName: WideString; const APrk, AInfo: TBytes;
       ALength: Int32; out AOkm: TBytes): Boolean;
+    /// <summary>Runs the RFC 5869 A.1 HKDF-Expand known-answer test against the opened CNG
+    /// provider. False (so the caller nils the handle and falls back) when the output diverges.</summary>
+    function HkdfExpandSelfTest: Boolean;
   public
     constructor Create;
     destructor Destroy; override;
@@ -2199,6 +2203,13 @@ begin
   if System.Assigned(FApi.KeyDerivation) and System.Assigned(FApi.GenerateSymmetricKey) and
     System.Assigned(FApi.SetProperty) and System.Assigned(FApi.DestroyKey) then
     FHkdfAlg := TryOpenAlg(BCRYPT_HKDF_ALG);
+  // gate the native HKDF-Expand on a known-answer test: if the provider's output diverges from
+  // RFC 5869 A.1, drop it and fall back to the portable HMAC T-loop
+  if (FHkdfAlg <> nil) and (not HkdfExpandSelfTest) then
+  begin
+    FApi.CloseAlgorithmProvider(FHkdfAlg, 0);
+    FHkdfAlg := nil;
+  end;
 end;
 
 destructor TWindowsCng.Destroy;
@@ -2453,6 +2464,39 @@ begin
       TSecureMemory.WipeBytes(LOkm);
     FApi.DestroyKey(LKey);
   end;
+end;
+
+function TWindowsCng.HkdfExpandSelfTest: Boolean;
+const
+  // RFC 5869 Appendix A.1 (SHA-256): PRK, info, and the expected 42-byte OKM
+  KatPrk: array [0 .. 31] of Byte = ($07, $77, $09, $36, $2C, $2E, $32, $DF,
+    $0D, $DC, $3F, $0D, $C4, $7B, $BA, $63, $90, $B6, $C7, $3B, $B5, $0F, $9C,
+    $31, $22, $EC, $84, $4A, $D7, $C2, $B3, $E5);
+  KatInfo: array [0 .. 9] of Byte = ($F0, $F1, $F2, $F3, $F4, $F5, $F6, $F7,
+    $F8, $F9);
+  KatOkm: array [0 .. 41] of Byte = ($3C, $B2, $5F, $25, $FA, $AC, $D5, $7A,
+    $90, $43, $4F, $64, $D0, $36, $2F, $2A, $2D, $2D, $0A, $90, $CF, $1A, $5A,
+    $4C, $5D, $B0, $2D, $56, $EC, $C4, $C5, $BF, $34, $00, $72, $08, $D5, $B8,
+    $87, $18, $58, $65);
+var
+  LPrk, LInfo, LOkm: TBytes;
+  LI: Int32;
+begin
+  Result := False;
+  LPrk := nil;
+  SetLength(LPrk, System.Length(KatPrk));
+  Move(KatPrk[0], LPrk[0], System.Length(KatPrk));
+  LInfo := nil;
+  SetLength(LInfo, System.Length(KatInfo));
+  Move(KatInfo[0], LInfo[0], System.Length(KatInfo));
+  if not DoNativeHkdfExpand(HASH_ALG_SHA256, LPrk, LInfo, System.Length(KatOkm), LOkm) then
+    Exit;
+  if System.Length(LOkm) <> System.Length(KatOkm) then
+    Exit;
+  for LI := 0 to System.High(KatOkm) do
+    if LOkm[LI] <> KatOkm[LI] then
+      Exit;
+  Result := True;
 end;
 
 function TWindowsCng.TryHkdfExpandNative(AAlgorithm: THashAlgorithm;
@@ -3142,7 +3186,8 @@ var
   // AValue, and advances LPos past the whole TLV
   function ReadInt(AOffset: Int32; out AValue: TBytes): Boolean;
   var
-    LLenOrig, LLen, LStart: Int32;
+    LLenOrig, LLen, LStart, LI: Int32;
+    LAllZero: Boolean;
   begin
     Result := False;
     if (AOffset + 2 > LEnd) or (ADer[AOffset] <> $02) then
@@ -3153,14 +3198,31 @@ var
     LStart := AOffset + 2;
     if LStart + LLenOrig > LEnd then
       Exit;
+    // strict DER INTEGER: a non-empty, non-negative, minimally-encoded value (r, s are positive)
+    if LLenOrig = 0 then
+      Exit;
+    if (ADer[LStart] and $80) <> 0 then // negative (high bit set) is not a valid r/s
+      Exit;
+    if (LLenOrig > 1) and (ADer[LStart] = 0) and ((ADer[LStart + 1] and $80) = 0) then
+      Exit; // a leading 0x00 is legal only to clear the sign bit of the next byte
     LLen := LLenOrig;
-    // skip a single leading zero sign byte
+    // strip a single leading zero sign byte
     if (LLen > 1) and (ADer[LStart] = 0) then
     begin
       Inc(LStart);
       Dec(LLen);
     end;
     if (LLen = 0) or (LLen > AFieldSize) then
+      Exit;
+    // r and s must be non-zero
+    LAllZero := True;
+    for LI := 0 to LLen - 1 do
+      if ADer[LStart + LI] <> 0 then
+      begin
+        LAllZero := False;
+        Break;
+      end;
+    if LAllZero then
       Exit;
     AValue := nil;
     SetLength(AValue, AFieldSize);
@@ -3184,12 +3246,17 @@ begin
     if (LSeqLen <> $81) or (LN < 3) then
       Exit(False);
     LSeqLen := ADer[2];
+    // long form must be used only when it is required (content length >= 0x80): a value that
+    // fits short form encoded in long form is not DER-minimal
+    if LSeqLen < $80 then
+      Exit(False);
     LPos := 3;
   end
   else
     LPos := 2;
   LEnd := LPos + LSeqLen;
-  if LEnd > LN then
+  // the SEQUENCE must span exactly the input: trailing bytes after it are rejected
+  if LEnd <> LN then
     Exit(False);
   if not ReadInt(LPos, LR) then
     Exit(False);
@@ -3766,8 +3833,13 @@ begin
   // route to the backend that produced the key handle: native signer for our own handle,
   // else the portable facet that minted it
   if Supports(AKey, IWindowsSigningKey, LNative) then
+  begin
+    // the key may only sign with a scheme it declared capable of, as the portable facet enforces
+    if not (TArrayUtilities.Contains<TSignatureScheme>(AKey.CapableSchemes, AScheme)) then
+      raise EArgumentTlsLibException.CreateRes(@SSchemeNotCapable);
     Result := TWindowsSignatureSigner.Create(FNCrypt, LNative.SigningKeyOwner,
-      AScheme, SchemeName(AScheme))
+      AScheme, SchemeName(AScheme));
+  end
   else
     Result := FInner.CreateSignatureSigner(AScheme, AKey);
 end;
