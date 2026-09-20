@@ -66,7 +66,7 @@ type
   /// source (no silent-insecure).
   /// </summary>
   ITlsClientConfigBuilder = interface(IInterface)
-    ['{2E9C6A14-5D73-4F80-B1A8-6C3E0D5B94F7}']
+    ['{FAB3A447-2D3D-4F89-BCC4-58C9A3AD99C2}']
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): ITlsClientConfigBuilder;
     function WithSignatureSchemes(const ARegistry: ISignatureSchemeRegistry): ITlsClientConfigBuilder;
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): ITlsClientConfigBuilder;
@@ -200,7 +200,7 @@ type
   /// <summary>The TLS 1.3-only client settings; each setter returns this facet so they
   /// chain, and the endpoint build and the sibling version facet are reachable here.</summary>
   ITls13ClientConfigFacet = interface(IInterface)
-    ['{7C3A9E12-4F85-4B60-A1D9-2E6C0B5F84A7}']
+    ['{BB34A64C-9B36-435A-A380-263DCA60E186}']
     /// <summary>The certificate-compression backends this endpoint advertises and can
     /// decompress (RFC 8879); empty omits compress_certificate. Defaults to zlib.</summary>
     function WithCertificateDecompressors(
@@ -252,7 +252,7 @@ type
   /// certificate credential.
   /// </summary>
   ITlsServerConfigBuilder = interface(IInterface)
-    ['{9A4E1C28-6D50-4B63-8F17-2E6C0A5F84D3}']
+    ['{B4AB75A4-975B-4CA0-8177-9E863866E875}']
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): ITlsServerConfigBuilder;
     function WithSignatureSchemes(const ARegistry: ISignatureSchemeRegistry): ITlsServerConfigBuilder;
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): ITlsServerConfigBuilder;
