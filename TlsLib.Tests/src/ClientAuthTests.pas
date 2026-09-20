@@ -64,6 +64,9 @@ type
     function New12Server(AMode: TClientAuthMode): ITlsEngine;
     function Drain(const AEngine: ITlsEngine): TBytes;
     procedure Feed(const AEngine: ITlsEngine; const AWire: TBytes);
+    // rewrites the signature scheme of the first plaintext CertificateVerify (handshake type 15)
+    // in a wire flight, to forge a client CertificateVerify under an unadvertised scheme
+    procedure PatchFirstCertVerifyScheme(var AWire: TBytes; AScheme: UInt16);
     procedure Pump(const ASrc, ADst: ITlsEngine);
     procedure Drive(const AClient, AServer: ITlsEngine);
   published
@@ -75,6 +78,7 @@ type
     procedure TestTls12RequestedClientAuthWithoutCertCompletes;
     procedure TestVerifyClientChainNilVerifierFailsClosed;
     procedure TestTls13NilClientVerifierWithCertAborts;
+    procedure TestTls12ServerRejectsUnrequestedClientCertVerifyScheme;
   end;
 
 implementation
@@ -242,6 +246,35 @@ begin
   end;
 end;
 
+procedure TTestClientAuth.PatchFirstCertVerifyScheme(var AWire: TBytes;
+  AScheme: UInt16);
+var
+  LPos, LRecLen, LInner, LMsgLen: Int32;
+begin
+  LPos := 0;
+  while LPos + 5 <= System.Length(AWire) do
+  begin
+    LRecLen := (AWire[LPos + 3] shl 8) or AWire[LPos + 4];
+    if AWire[LPos] = 22 then // handshake record (plaintext, before the client ChangeCipherSpec)
+    begin
+      LInner := LPos + 5;
+      while LInner + 4 <= LPos + 5 + LRecLen do
+      begin
+        LMsgLen := (AWire[LInner + 1] shl 16) or (AWire[LInner + 2] shl 8) or
+          AWire[LInner + 3];
+        if AWire[LInner] = 15 then // CertificateVerify: body starts with the 2-byte scheme
+        begin
+          AWire[LInner + 4] := Byte(AScheme shr 8);
+          AWire[LInner + 5] := Byte(AScheme and $FF);
+          Exit;
+        end;
+        LInner := LInner + 4 + LMsgLen;
+      end;
+    end;
+    LPos := LPos + 5 + LRecLen;
+  end;
+end;
+
 procedure TTestClientAuth.Pump(const ASrc, ADst: ITlsEngine);
 begin
   Feed(ADst, Drain(ASrc));
@@ -384,6 +417,30 @@ begin
   CheckEquals(Int64(Ord(TTlsAlertDescription.InternalError)),
     Int64(Ord(LServer.LastError.Alert.Description)),
     'the nil-verifier abort is internal_error');
+end;
+
+procedure TTestClientAuth.TestTls12ServerRejectsUnrequestedClientCertVerifyScheme;
+var
+  LClient, LServer: ITlsEngine;
+  LFlight: TBytes;
+begin
+  // the server's CertificateRequest advertises only ecdsa_secp256r1_sha256; forge the client's
+  // CertificateVerify to claim ecdsa_secp384r1_sha384 (0x0503) - a valid, recognized code the
+  // request did not offer. The server must reject the unadvertised scheme (RFC 5246 7.4.8) rather
+  // than merely fail signature verification (which pre-fix gave decrypt_error), so the alert
+  // discriminates the fix.
+  LClient := New12Client(True);
+  LServer := New12Server(TClientAuthMode.Required);
+  LClient.StartHandshake;
+  Pump(LClient, LServer); // ClientHello -> server
+  Pump(LServer, LClient); // server flight -> client; the client now holds its response flight
+  LFlight := Drain(LClient);
+  PatchFirstCertVerifyScheme(LFlight, $0503);
+  Feed(LServer, LFlight);
+  CheckTrue(LServer.IsTerminal, 'the server aborts a CertificateVerify under an unadvertised scheme');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.IllegalParameter)),
+    Int64(Ord(LServer.LastError.Alert.Description)),
+    'the abort is illegal_parameter, not a signature-verification failure');
 end;
 
 initialization

@@ -63,7 +63,7 @@ type
       out AAlert: TTlsAlertDescription): Boolean;
     function BuildHrr(AGroup, ASuite: UInt16; const ACookie, ASessionId: TBytes): TBytes;
     function BuildClientHello2(AGroup: UInt16; const AKeyShare, ACookie,
-      ASessionId: TBytes): TBytes;
+      ASessionId: TBytes; ASuite: UInt16 = 0): TBytes;
     function CookieFromHrr(const AHrr: TBytes): TBytes;
     function NewSecp256r1Server(const ACookieOverride: TBytes): IHandshakeMachine;
     function NewRetryClient: IHandshakeMachine;
@@ -80,6 +80,7 @@ type
     procedure TestServerRejectsSecondClientHelloWithoutCookie;
     procedure TestServerRejectsTamperedCookie;
     procedure TestServerRejectsUnexpectedMessageDuringRetryWait;
+    procedure TestServerRejectsRetryClientHelloThatChangesSuite;
   end;
 
 implementation
@@ -188,12 +189,14 @@ begin
 end;
 
 function TTestHelloRetryRequest.BuildClientHello2(AGroup: UInt16;
-  const AKeyShare, ACookie, ASessionId: TBytes): TBytes;
+  const AKeyShare, ACookie, ASessionId: TBytes; ASuite: UInt16): TBytes;
 var
   LCodec: IExtensionBlockCodec;
   LContext: TExtensionContext;
   LHello: TTlsClientHello;
 begin
+  if ASuite = 0 then
+    ASuite := TCipherSuites13.Aes128GcmSha256;
   LCodec := TExtensionBlockCodec.Create(TCoreExtensions.CreateDefaultRegistry);
   LContext := TExtensionContext.Create;
   try
@@ -209,7 +212,7 @@ begin
     LHello.Random := nil;
     SetLength(LHello.Random, 32);
     LHello.LegacySessionId := ASessionId;
-    LHello.CipherSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
+    LHello.CipherSuites := TArray<UInt16>.Create(ASuite);
     LHello.Extensions := LCodec.ProduceBlock(LContext,
       TTlsExtensionContextKind.ClientHello);
   finally
@@ -471,6 +474,41 @@ begin
     LAlert), 'a non-ClientHello during the retry wait aborts');
   CheckTrue(LAlert = TTlsAlertDescription.UnexpectedMessage,
     'it is unexpected_message');
+end;
+
+procedure TTestHelloRetryRequest.TestServerRejectsRetryClientHelloThatChangesSuite;
+var
+  LServer: IHandshakeMachine;
+  LHrr, LCookie, LCh2, LShare: TBytes;
+  LPriv: ISecretBuffer;
+  LAlert: TTlsAlertDescription;
+begin
+  // a valid P-256 share, so the retry reaches suite negotiation rather than aborting on the share:
+  // a server without the pin would emit a ServerHello, which is what makes this test discriminate
+  TNamedGroups.CreateNistEcdh(Provider, 'secp256r1').GenerateKeyPair(LPriv, LShare);
+
+  // the server selects AES-128-GCM from ClientHello1 and names it in the HelloRetryRequest; a
+  // retry that offers a different suite (here ChaCha20-Poly1305, same SHA-256 hash) must abort
+  // rather than re-negotiate (RFC 8446 4.1.4)
+  LServer := NewSecp256r1Server(nil);
+  LHrr := SendHandshakeOf(LServer.ProcessMessage(MsgFrom(Vec('client_hello_1'))))[0];
+  LCookie := CookieFromHrr(LHrr);
+  LCh2 := BuildClientHello2(TNamedGroupCatalog.Secp256r1, LShare, LCookie, DecodeHex(''),
+    TCipherSuites13.ChaCha20Poly1305Sha256);
+  CheckTrue(FailAlertOf(LServer.ProcessMessage(MsgFrom(LCh2)), LAlert),
+    'a retry ClientHello that changes the cipher suite aborts');
+  CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
+    'a changed retry suite is illegal_parameter');
+
+  // positive control: the same retry keeping the selected suite proceeds to a ServerHello, proving
+  // the pin does not trip on a conformant retry
+  LServer := NewSecp256r1Server(nil);
+  LHrr := SendHandshakeOf(LServer.ProcessMessage(MsgFrom(Vec('client_hello_1'))))[0];
+  LCookie := CookieFromHrr(LHrr);
+  LCh2 := BuildClientHello2(TNamedGroupCatalog.Secp256r1, LShare, LCookie, DecodeHex(''),
+    TCipherSuites13.Aes128GcmSha256);
+  CheckTrue(System.Length(SendHandshakeOf(LServer.ProcessMessage(MsgFrom(LCh2)))) > 0,
+    'a conformant retry that keeps the suite proceeds to a ServerHello');
 end;
 
 initialization

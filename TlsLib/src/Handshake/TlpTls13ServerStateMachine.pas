@@ -449,11 +449,15 @@ resourcestring
   SPskMissingOnRetry = 'the second ClientHello dropped the pre_shared_key the server selected';
   SPskIdentityNotFound = 'the second ClientHello no longer offers the selected pre_shared_key identity';
   SPreSharedKeyNotLast = 'pre_shared_key is not the last ClientHello extension';
+  SPskWithoutKeyExchangeModes =
+    'pre_shared_key was offered without psk_key_exchange_modes';
   SClientCertificateRequired = 'client authentication is required but none was sent';
   SUnsolicitedClientCertExtension =
     'the client certificate carries an extension that was not requested';
   SUntrustedClientCertificate = 'the client certificate chain was not trusted';
   SBadClientCertVerify = 'the client CertificateVerify did not verify';
+  SUnrequestedClientCertVerifyScheme =
+    'the client CertificateVerify uses a signature scheme the CertificateRequest did not offer';
   SLegacyPkcs1InClientCertVerify = 'the client CertificateVerify uses a legacy rsa_pkcs1 ' +
     'scheme, which is certificate-only in TLS 1.3';
   SNoCookieAuthority = 'no cookie secret configured for a HelloRetryRequest';
@@ -461,6 +465,8 @@ resourcestring
   SBadCookie = 'the HelloRetryRequest cookie did not verify';
   SCookieGroupMismatch = 'the cookie group does not match the selected group';
   SNoRetryKeyShare = 'the second ClientHello sent no key_share for the requested group';
+  SRetrySuiteChanged =
+    'the retry ClientHello does not keep the cipher suite the HelloRetryRequest selected';
   SNoAlpnOverlap = 'no overlap between the client and server ALPN protocols';
   SBadRecordSizeLimit = 'the peer record_size_limit is below the 64-byte minimum';
   SNonEmptyEndOfEarlyData = 'the EndOfEarlyData message must be empty';
@@ -595,6 +601,13 @@ begin
     not PreSharedKeyIsLast(AClientHello.Extensions) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SPreSharedKeyNotLast);
+  // a pre_shared_key offer without psk_key_exchange_modes leaves the server no way to know which
+  // key agreement the PSK may use, so it MUST abort rather than fall through to a full handshake
+  // (RFC 8446 4.2.9 / 9.2)
+  if (System.Length(AContext.OfferedPskIdentities) > 0) and
+    not AContext.WasOffered(TExtensionTypes.PskKeyExchangeModes) then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.MissingExtension, @SPskWithoutKeyExchangeModes);
   FEarlyDataOfferedByClient := AContext.EarlyDataOffered;
   FStatusRequestOffered := AContext.StatusRequestOffered;
   FClientOfferedPskDheKe := TArrayUtilities.Contains<Byte>(AContext.PskModes,
@@ -1237,7 +1250,7 @@ function TTls13ServerStateMachine.ProcessSecondClientHello(
 var
   LClientHello: TTlsClientHello;
   LContext: TExtensionContext;
-  LSelectedGroup, LCookieGroup: UInt16;
+  LSelectedGroup, LCookieGroup, LPinnedSuite: UInt16;
   LCh1Hash, LClientShare, LHrr, LCh2Raw, LEchHrrHash: TBytes;
   LEchAccepted: Boolean;
 begin
@@ -1259,8 +1272,19 @@ begin
     System.Copy(LCh2Raw, 4, System.Length(LCh2Raw) - 4));
   LContext := TExtensionContext.Create;
   try
+    // the HelloRetryRequest named the suite selected from CH1, and the retry transcript is rebuilt
+    // under its hash (RFC 8446 4.1.4). Check the retry still offers it before re-negotiating, so a
+    // dropped suite aborts illegal_parameter rather than handshake_failure from suite selection.
+    LPinnedSuite := FSelectedSuite.Common.Code;
+    if not (TArrayUtilities.Contains<UInt16>(LClientHello.CipherSuites, LPinnedSuite)) then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.IllegalParameter, @SRetrySuiteChanged);
     // resumption is not attempted on the retry ClientHello (kept to the first flight)
     NegotiateFrom(LClientHello, LContext, LCh2Raw, False, LSelectedGroup);
+    // the server must still negotiate that same suite (guards a reordered CH2 under client-preference)
+    if FSelectedSuite.Common.Code <> LPinnedSuite then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.IllegalParameter, @SRetrySuiteChanged);
 
     // the retry must echo a cookie that verifies under the server secret (RFC 8446
     // 4.1.4); the cookie carries Hash(ClientHello1) and the requested group
@@ -1723,6 +1747,12 @@ var
 begin
   Result := nil;
   LCertVerify := THandshakeMessages.DecodeCertificateVerify(AMessage.Body);
+  // the client may sign only with a scheme the CertificateRequest advertised: a scheme outside
+  // that set is a wrong signature type even if this server could otherwise verify it (RFC 8446 4.4.3)
+  if not (TArrayUtilities.Contains<UInt16>(FParams.ClientAuthSignatureSchemes,
+    LCertVerify.Algorithm)) then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.IllegalParameter, @SUnrequestedClientCertVerifyScheme);
   if not TSignatureScheme.TryFromCode(LCertVerify.Algorithm, LScheme) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SBadClientCertVerify);

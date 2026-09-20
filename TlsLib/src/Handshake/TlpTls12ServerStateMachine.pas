@@ -287,6 +287,8 @@ resourcestring
   SResumedEmsDowngrade =
     'a session established with extended_master_secret cannot resume without it (RFC 7627 5.3)';
   SBadClientCertVerify = 'the client CertificateVerify did not verify';
+  SUnrequestedClientCertVerifyScheme =
+    'the client CertificateVerify uses a signature scheme the CertificateRequest did not offer';
   SAlpnRejected = 'the server rejects the offered application protocols (RFC 7301)';
 
 const
@@ -795,6 +797,12 @@ var
   LVerifier: ISignatureVerifier;
 begin
   LCertVerify := THandshakeMessages.DecodeCertificateVerify(AMessage.Body);
+  // the client may sign only with a scheme the CertificateRequest advertised (RFC 5246 7.4.8);
+  // one outside that set is a wrong signature type even if this server could otherwise verify it
+  if not (TArrayUtilities.Contains<UInt16>(FParams.ClientAuthSignatureSchemes,
+    LCertVerify.Algorithm)) then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.IllegalParameter, @SUnrequestedClientCertVerifyScheme);
   if not TSignatureScheme.TryFromCode(LCertVerify.Algorithm, LScheme) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SBadClientCertVerify);
