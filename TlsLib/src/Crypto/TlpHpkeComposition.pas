@@ -375,7 +375,7 @@ var
 begin
   LKa := APrimitives.CreateKeyAgreement(KemKeyAgreement(AKem));
   LKa.GenerateKeyPair(LSkE, AEnc); // AEnc is the serialized ephemeral public key (pkE)
-  LDh := LKa.Agree(LSkE, ARecipientPublicKey);
+  LDh := LKa.Agree(LSkE, ARecipientPublicKey, TKeyAgreementUsage.Ephemeral);
   ASharedSecret := ExtractAndExpand(APrimitives, AKem, LDh,
     TArrayUtilities.Concat(AEnc, ARecipientPublicKey));
 end;
@@ -388,7 +388,8 @@ var
   LDh: ISecretBuffer;
 begin
   LKa := APrimitives.CreateKeyAgreement(KemKeyAgreement(AKem));
-  LDh := LKa.Agree(APrivateKey, AEnc);
+  // The recipient key is long-lived and reused against attacker-chosen enc values.
+  LDh := LKa.Agree(APrivateKey, AEnc, TKeyAgreementUsage.Static);
   Result := ExtractAndExpand(APrimitives, AKem, LDh,
     TArrayUtilities.Concat(AEnc, ARecipientPublicKey));
 end;

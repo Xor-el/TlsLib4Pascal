@@ -452,7 +452,7 @@ type
     function Name: string;
     procedure GenerateKeyPair(out APrivateKey: ISecretBuffer; out APublicKey: TBytes);
     function Agree(const APrivateKey: ISecretBuffer;
-      const APeerPublicKey: TBytes): ISecretBuffer;
+      const APeerPublicKey: TBytes; AUsage: TKeyAgreementUsage): ISecretBuffer;
     function ValidatePublicKey(const APublicKey: TBytes): Boolean;
     function ImportPrivateKey(const ARawPrivateKey: ISecretBuffer;
       out APublicKey: TBytes): ISecretBuffer;
@@ -473,7 +473,7 @@ type
     function Name: string;
     procedure GenerateKeyPair(out APrivateKey: ISecretBuffer; out APublicKey: TBytes);
     function Agree(const APrivateKey: ISecretBuffer;
-      const APeerPublicKey: TBytes): ISecretBuffer;
+      const APeerPublicKey: TBytes; AUsage: TKeyAgreementUsage): ISecretBuffer;
     function ValidatePublicKey(const APublicKey: TBytes): Boolean;
     function ImportPrivateKey(const ARawPrivateKey: ISecretBuffer;
       out APublicKey: TBytes): ISecretBuffer;
@@ -1541,11 +1541,13 @@ begin
 end;
 
 function TWindowsCngKeyAgreement.Agree(const APrivateKey: ISecretBuffer;
-  const APeerPublicKey: TBytes): ISecretBuffer;
+  const APeerPublicKey: TBytes; AUsage: TKeyAgreementUsage): ISecretBuffer;
 var
   LPrivateBlob, LSecretBytes: TBytes;
   LPrivKey, LPeerKey, LSecret: Pointer;
 begin
+  // The backend exposes no scalar-blinding control; its scalar multiplication is
+  // constant-time by its own contract, so AUsage has no effect here.
   LPrivKey := nil;
   LPeerKey := nil;
   LSecret := nil;
@@ -1769,11 +1771,13 @@ begin
 end;
 
 function TWindowsCngX25519.Agree(const APrivateKey: ISecretBuffer;
-  const APeerPublicKey: TBytes): ISecretBuffer;
+  const APeerPublicKey: TBytes; AUsage: TKeyAgreementUsage): ISecretBuffer;
 var
   LScalar, LPrivateBlob, LPeerBlob, LSecretBytes: TBytes;
   LPrivKey, LPeerKey, LSecret: Pointer;
 begin
+  // X25519's ladder is constant-time regardless of scalar reuse, so AUsage has no
+  // effect here.
   if System.Length(APeerPublicKey) <> X25519_KEY_SIZE then
     raise EPeerInputTlsLibException.CreateRes(@SInvalidPeerPoint);
   LScalar := APrivateKey.ToBytes;
@@ -1838,7 +1842,7 @@ begin
     LBasepoint := nil;
     SetLength(LBasepoint, X25519_KEY_SIZE);
     LBasepoint[0] := 9; // RFC 7748 base point u = 9
-    APublicKey := Agree(ARawPrivateKey, LBasepoint).ToBytes;
+    APublicKey := Agree(ARawPrivateKey, LBasepoint, TKeyAgreementUsage.Ephemeral).ToBytes;
     // the neutral currency is the raw scalar itself (matches GenerateKeyPair / Agree)
     Result := TSecretBuffer.From(LScalar);
   finally

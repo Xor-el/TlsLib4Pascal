@@ -348,7 +348,7 @@ type
     function Name: string;
     procedure GenerateKeyPair(out APrivateKey: ISecretBuffer; out APublicKey: TBytes);
     function Agree(const APrivateKey: ISecretBuffer;
-      const APeerPublicKey: TBytes): ISecretBuffer;
+      const APeerPublicKey: TBytes; AUsage: TKeyAgreementUsage): ISecretBuffer;
     function ValidatePublicKey(const APublicKey: TBytes): Boolean;
     function ImportPrivateKey(const ARawPrivateKey: ISecretBuffer;
       out APublicKey: TBytes): ISecretBuffer;
@@ -367,13 +367,13 @@ type
       out APub: IECPublicKeyParameters);
     function WrapPeer(const APeerPub: TBytes): IECPublicKeyParameters;
     function AgreeParams(const APriv: IECPrivateKeyParameters;
-      const APeer: IECPublicKeyParameters): ISecretBuffer;
+      const APeer: IECPublicKeyParameters; AUsage: TKeyAgreementUsage): ISecretBuffer;
   public
     constructor Create(const AName: string; const ARandom: ISecureRandom);
     function Name: string;
     procedure GenerateKeyPair(out APrivateKey: ISecretBuffer; out APublicKey: TBytes);
     function Agree(const APrivateKey: ISecretBuffer;
-      const APeerPublicKey: TBytes): ISecretBuffer;
+      const APeerPublicKey: TBytes; AUsage: TKeyAgreementUsage): ISecretBuffer;
     function ValidatePublicKey(const APublicKey: TBytes): Boolean;
     function ImportPrivateKey(const ARawPrivateKey: ISecretBuffer;
       out APublicKey: TBytes): ISecretBuffer;
@@ -1006,11 +1006,13 @@ begin
 end;
 
 function TX25519Agreement.Agree(const APrivateKey: ISecretBuffer;
-  const APeerPublicKey: TBytes): ISecretBuffer;
+  const APeerPublicKey: TBytes; AUsage: TKeyAgreementUsage): ISecretBuffer;
 var
   LPriv: IX25519PrivateKeyParameters;
   LPrivBytes, LSecret: TBytes;
 begin
+  // X25519's ladder is constant-time regardless of scalar reuse, so AUsage has no
+  // effect here.
   LPrivBytes := APrivateKey.ToBytes;
   try
     LPriv := TX25519PrivateKeyParameters.Create(LPrivBytes);
@@ -1114,15 +1116,20 @@ begin
 end;
 
 function TNistEcAgreement.AgreeParams(const APriv: IECPrivateKeyParameters;
-  const APeer: IECPublicKeyParameters): ISecretBuffer;
+  const APeer: IECPublicKeyParameters; AUsage: TKeyAgreementUsage): ISecretBuffer;
 var
   LAgreement: IEphemeralECDHAgreement;
+  LBlindBits: Int32;
   LZ: TBytes;
 begin
-  // The handshake scalar is generated fresh and used once, so a single-use
-  // agreement with the deterministic fixed-length posture is safe here.
-  LAgreement := TEphemeralECDHAgreement.Create(APriv,
-    TECCurveConstants.SCALAR_BLIND_DETERMINISTIC);
+  // A fresh single-use scalar has no cross-operation leakage to defeat, so the
+  // deterministic fixed-length posture suffices. A long-lived scalar reused against
+  // attacker-chosen points needs full per-operation random scalar blinding.
+  if AUsage = TKeyAgreementUsage.Static then
+    LBlindBits := TECCurveConstants.SCALAR_BLIND_FULL
+  else
+    LBlindBits := TECCurveConstants.SCALAR_BLIND_DETERMINISTIC;
+  LAgreement := TEphemeralECDHAgreement.Create(APriv, LBlindBits);
   LZ := TBigIntegerUtilities.AsUnsignedByteArray(FFieldSize, LAgreement.CalculateAgreement(APeer));
   try
     Result := TSecretBuffer.From(LZ);
@@ -1149,7 +1156,7 @@ begin
 end;
 
 function TNistEcAgreement.Agree(const APrivateKey: ISecretBuffer;
-  const APeerPublicKey: TBytes): ISecretBuffer;
+  const APeerPublicKey: TBytes; AUsage: TKeyAgreementUsage): ISecretBuffer;
 var
   LPrivBytes: TBytes;
   LPrivParams: IECPrivateKeyParameters;
@@ -1158,7 +1165,7 @@ begin
   try
     LPrivParams := TECPrivateKeyParameters.Create(TBigInteger.Create(1, LPrivBytes),
       FDomain);
-    Result := AgreeParams(LPrivParams, WrapPeer(APeerPublicKey));
+    Result := AgreeParams(LPrivParams, WrapPeer(APeerPublicKey), AUsage);
   finally
     TSecureMemory.WipeBytes(LPrivBytes);
   end;

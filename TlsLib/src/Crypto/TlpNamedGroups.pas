@@ -220,7 +220,7 @@ begin
     raise EPeerInputTlsLibException.CreateResFmt(@SInvalidPeerShare, [Name]);
   // a fresh ephemeral pair; the ciphertext is its public value
   FAgreement.GenerateKeyPair(LEphPriv, ACiphertext);
-  ASharedSecret := FAgreement.Agree(LEphPriv, APeerPub);
+  ASharedSecret := FAgreement.Agree(LEphPriv, APeerPub, TKeyAgreementUsage.Ephemeral);
 end;
 
 procedure TKeyAgreementGroup.Decapsulate(const APriv: ISecretBuffer;
@@ -230,7 +230,7 @@ begin
   // agreement, symmetric with Encapsulate
   if not ValidatePeerShare(ACiphertext) then
     raise EPeerInputTlsLibException.CreateResFmt(@SInvalidPeerShare, [Name]);
-  ASharedSecret := FAgreement.Agree(APriv, ACiphertext);
+  ASharedSecret := FAgreement.Agree(APriv, ACiphertext, TKeyAgreementUsage.Ephemeral);
 end;
 
 function TKeyAgreementGroup.ValidatePeerShare(const AShare: TBytes): Boolean;

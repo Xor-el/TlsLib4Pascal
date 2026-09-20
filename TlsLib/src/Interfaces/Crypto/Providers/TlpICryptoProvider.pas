@@ -130,8 +130,13 @@ type
     function Name: string;
     /// <summary>A fresh key pair: the private key and the public value to send.</summary>
     procedure GenerateKeyPair(out APrivateKey: ISecretBuffer; out APublicKey: TBytes);
-    /// <summary>The shared secret from our private key and a peer's public value.</summary>
-    function Agree(const APrivateKey: ISecretBuffer; const APeerPublicKey: TBytes): ISecretBuffer;
+    /// <summary>The shared secret from our private key and a peer's public value.
+    /// AUsage declares whether the private key is a fresh single-use scalar or a
+    /// long-lived one reused across operations; callers must pass Static for any key
+    /// that outlives one operation. A backend that can select a reuse-hardened
+    /// scalar-blinding posture does so for Static; others accept it without effect.</summary>
+    function Agree(const APrivateKey: ISecretBuffer; const APeerPublicKey: TBytes;
+      AUsage: TKeyAgreementUsage): ISecretBuffer;
     /// <summary>Whether a peer's public value is well-formed and safe to use.</summary>
     function ValidatePublicKey(const APublicKey: TBytes): Boolean;
     /// <summary>A private key adopted from a raw scalar (the curve's fixed-width

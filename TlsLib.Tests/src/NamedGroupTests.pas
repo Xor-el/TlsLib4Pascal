@@ -55,6 +55,9 @@ type
     // export a fresh key's raw scalar, re-import it, and prove the derived public and
     // the resulting agreement are identical - the neutral-currency seam HPKE relies on
     procedure CheckKeyImportRoundTrip(AAlgorithm: TKeyAgreementAlgorithm);
+    // a Static-usage agreement (full scalar blinding, for a long-lived recipient key)
+    // must yield the same secret as the Ephemeral one: the blind is r*n, so [k+r*n]P = [k]P
+    procedure CheckStaticUsageAgreesLikeEphemeral(AAlgorithm: TKeyAgreementAlgorithm);
     // import an UNCLAMPED external X25519 scalar (RFC 7748 6.1 Alice) and prove the derived
     // public is the RFC's published value - the seam an external HPKE/ECH key crosses
     procedure CheckUnclampedScalarImport(const AProvider: ICryptoProvider);
@@ -83,6 +86,7 @@ type
     procedure TestGroupKindClassifiesEcdheKemHybrid;
     procedure TestOnlyEcdheGroupsAreTls12Eligible;
     procedure TestKeyImportExportRoundTrip;
+    procedure TestStaticUsageAgreesLikeEphemeral;
     procedure TestX25519ImportUnclampedScalar;
     procedure TestSystemX25519ImportUnclampedScalar;
     procedure TestSystemHybridAgreement;
@@ -161,7 +165,27 @@ begin
   // the re-imported key agrees identically with a peer (functionally the same key)
   LKa.GenerateKeyPair(LPeerPriv, LPeerPub);
   CheckEqualBytes(LKa.Name + ' re-imported key agrees identically',
-    SecretBytes(LKa.Agree(LPriv, LPeerPub)), SecretBytes(LKa.Agree(LPriv2, LPeerPub)));
+    SecretBytes(LKa.Agree(LPriv, LPeerPub, TKeyAgreementUsage.Ephemeral)),
+    SecretBytes(LKa.Agree(LPriv2, LPeerPub, TKeyAgreementUsage.Ephemeral)));
+end;
+
+procedure TTestNamedGroups.CheckStaticUsageAgreesLikeEphemeral(
+  AAlgorithm: TKeyAgreementAlgorithm);
+var
+  LKa: IKeyAgreement;
+  LPriv, LPeerPriv: ISecretBuffer;
+  LPub, LPeerPub: TBytes;
+begin
+  LKa := Provider.Primitives.CreateKeyAgreement(AAlgorithm);
+  LKa.GenerateKeyPair(LPriv, LPub);
+  LKa.GenerateKeyPair(LPeerPriv, LPeerPub);
+  CheckEqualBytes(LKa.Name + ' static usage agrees like ephemeral',
+    SecretBytes(LKa.Agree(LPriv, LPeerPub, TKeyAgreementUsage.Ephemeral)),
+    SecretBytes(LKa.Agree(LPriv, LPeerPub, TKeyAgreementUsage.Static)));
+  // both parties reach the same secret under full blinding (DH is commutative)
+  CheckEqualBytes(LKa.Name + ' static usage is commutative',
+    SecretBytes(LKa.Agree(LPriv, LPeerPub, TKeyAgreementUsage.Static)),
+    SecretBytes(LKa.Agree(LPeerPriv, LPub, TKeyAgreementUsage.Static)));
 end;
 
 procedure TTestNamedGroups.TestKeyImportExportRoundTrip;
@@ -170,6 +194,14 @@ begin
   CheckKeyImportRoundTrip(TKeyAgreementAlgorithm.SECP256R1);
   CheckKeyImportRoundTrip(TKeyAgreementAlgorithm.SECP384R1);
   CheckKeyImportRoundTrip(TKeyAgreementAlgorithm.SECP521R1);
+end;
+
+procedure TTestNamedGroups.TestStaticUsageAgreesLikeEphemeral;
+begin
+  CheckStaticUsageAgreesLikeEphemeral(TKeyAgreementAlgorithm.X25519);
+  CheckStaticUsageAgreesLikeEphemeral(TKeyAgreementAlgorithm.SECP256R1);
+  CheckStaticUsageAgreesLikeEphemeral(TKeyAgreementAlgorithm.SECP384R1);
+  CheckStaticUsageAgreesLikeEphemeral(TKeyAgreementAlgorithm.SECP521R1);
 end;
 
 procedure TTestNamedGroups.CheckUnclampedScalarImport(

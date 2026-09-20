@@ -38,6 +38,13 @@ type
   /// <summary>The Diffie-Hellman key-agreement primitives (X25519 and NIST prime curves).</summary>
   TKeyAgreementAlgorithm = (X25519, SECP256R1, SECP384R1, SECP521R1);
 
+  /// <summary>How a private key is used in an agreement. Ephemeral is a fresh scalar
+  /// used once (handshake ECDHE, HPKE sender); Static is a long-lived scalar reused
+  /// across operations against attacker-chosen points (an HPKE/ECH recipient key),
+  /// which needs the reuse-hardened scalar-blinding posture on backends that can
+  /// distinguish it.</summary>
+  TKeyAgreementUsage = (Ephemeral, Static);
+
   /// <summary>The key-encapsulation primitives.</summary>
   TKemAlgorithm = (ML_KEM_768);
 
