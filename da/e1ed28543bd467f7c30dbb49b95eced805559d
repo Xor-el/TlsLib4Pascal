@@ -1,0 +1,41 @@
+TlsLib/src/Trust/TlpEndpointIdentity.pas
+  s_09d3c46d1a9b1f::t_93d5859992fc08 177-180
+  s_09d3c46d1a9b1f::t_0cf5fb76a93576 25-33
+  s_09d3c46d1a9b1f::t_a953a1a28148ae 61-65
+  s_09d3c46d1a9b1f::t_a0ed6251112777 85-86
+  s_09d3c46d1a9b1f::t_82a8d2193c08d2 81-84
+  s_09d3c46d1a9b1f::t_613489495f0f10 37-41
+  s_09d3c46d1a9b1f::t_e249d2682b2190 173-176,181-185
+  s_09d3c46d1a9b1f::t_0e559d8ef64a88 53-60,171-172
+  s_09d3c46d1a9b1f::t_086610998b66dc 106-170
+TlsLib/src/Trust/TlpServerName.pas
+  s_09d3c46d1a9b1f::t_08c73df5db9141 72-76
+  s_09d3c46d1a9b1f::t_8a0b596113a218 253-258
+TlsLib.Tests/src/EndpointIdentityTests.pas
+  s_09d3c46d1a9b1f::t_c8dfdf6719e163 43-49
+  s_09d3c46d1a9b1f::t_c11f07faea99ae 167-191
+  s_09d3c46d1a9b1f::t_28895f8a4c0de6 119-166
+  s_09d3c46d1a9b1f::t_3e51b14429fbba 50
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_e2547819aede7c 1845-1848
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_09d3c46d1a9b1f::t_079fa1ee700e29 108
+  s_09d3c46d1a9b1f::t_1f7d5f376e135c 855,858
+  s_09d3c46d1a9b1f::t_cbceef58af6e4f 847-854,856-857,859-865
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "dae1ed28543bd467f7c30dbb49b95eced805559d",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
