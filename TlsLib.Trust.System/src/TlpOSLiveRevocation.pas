@@ -19,6 +19,7 @@ uses
   SysUtils,
   TlpTlsAlert,
   TlpTrustPolicy,
+  TlpSystemTrustBase,
   TlpLiveRevocation;
 
 type
@@ -74,8 +75,11 @@ begin
   // settled trust and any definitive cached revocation, so accept
   if FPosture = TRevocationPosture.Off then
     Exit(True);
-  // a definitive non-revocation trust failure from the live re-evaluation rejects outright
-  if not EvaluateLive(ACtx.Chain, ACtx.HostName, ACtx.OcspStaple, LOutcome, ARejectAlert) then
+  // a definitive non-revocation trust failure from the live re-evaluation rejects outright. The
+  // live re-check is revocation-only (identity was settled inline), so an IP literal is never
+  // handed to the OS name logic - it would only ever spuriously fail to match
+  if not EvaluateLive(ACtx.Chain, TDelegatePostChecks.OsHostName(ACtx.HostName),
+    ACtx.OcspStaple, LOutcome, ARejectAlert) then
     Exit(False);
   case LOutcome of
     TLiveRevocationOutcome.Revoked:

@@ -18,10 +18,25 @@ interface
 uses
   SysUtils,
   Generics.Collections,
+  TlpTlsAlert,
+  TlpIClock,
+  TlpClock,
+  TlpServerName,
+  TlpEndpointIdentity,
+  TlpTrustPolicy,
   TlpICryptoProvider,
   TlpICertificateTrust,
   TlpCertificateVerifier,
   TlpSystemTrustExceptions;
+
+resourcestring
+  SLiveNeedsLiveRevocationVerdict =
+    'OS-native live revocation needs the live-revocation verdict enabled (it defers the live ' +
+    'check to the out-of-band park); call WithLiveRevocationVerdict, or use cache-only trust';
+  SHardNeedsLiveRevocationVerdict =
+    'a Hard revocation posture on this platform needs the live-revocation verdict (the OS ' +
+    'delegate is cache-only and cannot obtain a live revocation status); call ' +
+    'WithLiveRevocationVerdict, or use a softer posture';
 
 type
   /// <summary>
@@ -31,6 +46,45 @@ type
   /// verdict park (the inline pass then defers an indeterminate revocation so the handshake parks).
   /// </summary>
   TSystemTrustFetch = (CacheOnly, Live);
+
+  /// <summary>
+  /// The post-checks every OS trust delegate applies once the OS engine has accepted the peer:
+  /// they can only reject a peer or refuse a configuration, never turn an OS rejection into an
+  /// acceptance. Centralized so the Windows, Apple and Android delegates decide these the same way:
+  /// a definitive stapled Revoked always wins (RFC 6960), an IP-literal identity is matched in the
+  /// library against iPAddress SANs (the OS name logic only ever sees a DNS host), and a cache-only
+  /// delegate cannot satisfy a Hard posture without the live-revocation verdict.
+  /// </summary>
+  TDelegatePostChecks = class sealed(TObject)
+  public
+    /// <summary>True (with AAlert = certificate_revoked) when the handshake staple is a definitive,
+    /// authenticated Revoked over the OS-validated path - honored under every posture. A missing,
+    /// Good or indeterminate staple does not fire here (the posture governs those). AOsPath carries
+    /// the OS-supplied issuer so a leaf-only peer's staple can be authenticated. A nil clock falls
+    /// back to system time (a nil clock would otherwise render every staple indeterminate).</summary>
+    class function RejectStapledRevoked(const AProvider: ICryptoProvider;
+      const AClock: ITlsClock; const AOsPath: TArray<TBytes>; const AStaple: TBytes;
+      out AAlert: TTlsAlertDescription): Boolean; static;
+    /// <summary>True when AName is an IP literal that does not match an iPAddress SAN on the
+    /// OS-validated leaf (RFC 6125 forbids matching an IP host against dNSName/wildcards). A DNS or
+    /// empty name never fires (the OS did that name check). Fail-closed: a nil provider or empty
+    /// path is a mismatch (internal_error); a genuine mismatch is bad_certificate.</summary>
+    class function RejectIpMismatch(const AName: TServerName;
+      const AProvider: ICryptoProvider; const AOsPath: TArray<TBytes>;
+      out AAlert: TTlsAlertDescription): Boolean; static;
+    /// <summary>Whether a Hard posture is unsatisfiable for a cache-only delegate: Hard with no
+    /// live-revocation verdict (a client certificate is never stapled, so a cache-only delegate
+    /// has no revocation status to act on).</summary>
+    class function HardNeedsLiveRevocation(APosture: TRevocationPosture;
+      ADeferral: TVerdictDeferral): Boolean; static;
+    /// <summary>Whether a Live fetch source is unusable without the live-revocation verdict (the
+    /// live check runs only in the park that verdict arms).</summary>
+    class function LiveNeedsLiveRevocation(AFetch: TSystemTrustFetch;
+      ADeferral: TVerdictDeferral): Boolean; static;
+    /// <summary>The host to hand the OS name check: the DNS host, or '' for an IP literal (which
+    /// the OS must never name-check - the library matches it against iPAddress SANs instead).</summary>
+    class function OsHostName(const AHostName: string): string; static;
+  end;
   /// <summary>
   /// Deduplicates harvested roots by exact bytes: a filesystem store walking
   /// hashed-symlink directories sees the same certificate under several names.
@@ -89,6 +143,71 @@ resourcestring
   SSystemTrustEmpty =
     'the %s trust store could not be read or contained no usable root certificates';
   SNoProvider = 'a crypto provider is required to read the system trust store';
+
+{ TDelegatePostChecks }
+
+class function TDelegatePostChecks.RejectStapledRevoked(
+  const AProvider: ICryptoProvider; const AClock: ITlsClock;
+  const AOsPath: TArray<TBytes>; const AStaple: TBytes;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LClock: ITlsClock;
+begin
+  // a nil clock would make every staple indeterminate; the delegates accept a nil clock and mean
+  // "system time", so honor that here rather than silently skipping the revocation check
+  LClock := AClock;
+  if LClock = nil then
+    LClock := TSystemClock.Create as ITlsClock;
+  Result := TCertificateVerifier.StapleVerdict(AProvider, LClock, AOsPath, AStaple) =
+    TStapleVerdict.Revoked;
+  if Result then
+    AAlert := TTlsAlertDescription.CertificateRevoked;
+end;
+
+class function TDelegatePostChecks.RejectIpMismatch(const AName: TServerName;
+  const AProvider: ICryptoProvider; const AOsPath: TArray<TBytes>;
+  out AAlert: TTlsAlertDescription): Boolean;
+begin
+  // only an IP-literal identity is re-checked here; a DNS host (or an empty name) was matched by
+  // the OS name logic
+  if not AName.IsIp then
+    Exit(False);
+  // fail closed: without a provider to read the SANs, or with no validated leaf, an IP host cannot
+  // be confirmed against an iPAddress SAN
+  if (AProvider = nil) or (System.Length(AOsPath) = 0) then
+  begin
+    AAlert := TTlsAlertDescription.InternalError;
+    Exit(True);
+  end;
+  Result := not TEndpointIdentity.Matches(AName, nil,
+    AProvider.Certificates.IpAddresses(AOsPath[0]));
+  if Result then
+    AAlert := TTlsAlertDescription.BadCertificate;
+end;
+
+class function TDelegatePostChecks.HardNeedsLiveRevocation(
+  APosture: TRevocationPosture; ADeferral: TVerdictDeferral): Boolean;
+begin
+  Result := (APosture = TRevocationPosture.Hard) and
+    (ADeferral <> TVerdictDeferral.LiveRevocation);
+end;
+
+class function TDelegatePostChecks.LiveNeedsLiveRevocation(
+  AFetch: TSystemTrustFetch; ADeferral: TVerdictDeferral): Boolean;
+begin
+  Result := (AFetch = TSystemTrustFetch.Live) and
+    (ADeferral <> TVerdictDeferral.LiveRevocation);
+end;
+
+class function TDelegatePostChecks.OsHostName(const AHostName: string): string;
+var
+  LName: TServerName;
+begin
+  if TServerName.TryParse(AHostName, LName) and LName.IsIp then
+    Result := ''
+  else
+    Result := AHostName;
+end;
 
 { TSystemRootAccumulator }
 

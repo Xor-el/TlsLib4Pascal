@@ -10,6 +10,7 @@
 #   leaf.pem/.key            EC serverAuth leaf, SAN localhost, serial 0x1001
 #   muststaple.pem/.key      as leaf + RFC 7633 TLS-feature status_request(5), serial 0x1002
 #   wrongeku.pem/.key        clientAuth-only leaf (no serverAuth), serial 0x1003
+#   ipleaf.pem/.key          serverAuth leaf, SAN IP:127.0.0.1 (no DNS), serial 0x1005
 #   foreign_root.pem/.key    an unrelated self-signed CA (the untrusted-root negative)
 #   foreign_leaf.pem/.key    serverAuth leaf under foreign_root, SAN localhost
 #   fullchain.pem            leaf + issuer (what a server presents)
@@ -66,14 +67,14 @@ EOF
   -sha256 -days 3650 -extfile issuer.ext -out issuer.pem
 
 # --- leaf (serverAuth, SAN localhost, explicit serial for the OCSP index) -----------------
-mk_leaf() { # <name> <serial-hex> <extra-ext-lines>
-  local name="$1" serial="$2" extra="$3"
+mk_leaf() { # <name> <serial-hex> <extra-ext-lines> [subjectAltName]
+  local name="$1" serial="$2" extra="$3" san="${4:-DNS:localhost}"
   newkey "$name.key"
   "$OPENSSL" req -new -key "$name.key" -out "$name.csr" -subj "/CN=localhost"
   { cat <<EOF
 basicConstraints=critical,CA:FALSE
 keyUsage=critical,digitalSignature
-subjectAltName=DNS:localhost
+subjectAltName=$san
 authorityInfoAccess=OCSP;URI:http://ocsp.tlslib.invalid/
 crlDistributionPoints=URI:http://crl.tlslib.invalid/issuer.crl
 EOF
@@ -86,6 +87,8 @@ mk_leaf leaf       0x1001 "extendedKeyUsage=serverAuth"
 # RFC 7633 TLS Feature (OID 1.3.6.1.5.5.7.1.24) = SEQUENCE OF INTEGER { status_request(5) }
 mk_leaf muststaple 0x1002 $'extendedKeyUsage=serverAuth\n1.3.6.1.5.5.7.1.24=DER:30:03:02:01:05'
 mk_leaf wrongeku   0x1003 "extendedKeyUsage=clientAuth"
+# an IP-literal leaf (iPAddress SAN, no DNS): the delegate matches an IP host against it in-library
+mk_leaf ipleaf     0x1005 "extendedKeyUsage=serverAuth" "IP:127.0.0.1"
 
 # a 2-tier leaf signed DIRECTLY by the root (no intermediate), for the delegate accept/Hard cell:
 # with only the leaf as a non-anchor cert and a good stapled OCSP for it, every non-anchor element
