@@ -70,6 +70,14 @@ type
     /// context contributes nothing, which produce different output (RFC 5705 4).</summary>
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       AUseContext: Boolean; ALength: Int32): TBytes;
+    /// <summary>Releases every stage input and intermediate secret the completed handshake no
+    /// longer needs, so a later heap disclosure cannot recover the key tree. Keeps only what the
+    /// live connection still uses: the TLS 1.3 application traffic secrets (for KeyUpdate), the
+    /// exporter master secret, and the resumption master secret (derive it first); the TLS 1.2
+    /// master secret (it is the RFC 5705 exporter secret). Call once both Finished are processed
+    /// - on TLS 1.3 after DeriveResumptionMasterSecret. Idempotent; a schedule that has forgotten
+    /// its handshake secrets rejects any further derivation.</summary>
+    procedure ForgetHandshakeSecrets;
   end;
 
   /// <summary>
@@ -98,13 +106,20 @@ type
     /// the Application epoch secrets are derived - for a server that is half-RTT (after it has
     /// sent its Finished), before the peer's Finished.</summary>
     function HasExporterSecret: Boolean;
-    /// <summary>The resumption master secret from the ClientHello..client Finished hash.</summary>
-    function ResumptionMasterSecret(const ATranscriptHash: TBytes): ISecretBuffer;
+    /// <summary>Derives and caches the resumption master secret from the ClientHello..client
+    /// Finished transcript hash. Call once at handshake completion, before ForgetHandshakeSecrets
+    /// (it is the one stage that outlives the released handshake secrets, since a NewSessionTicket
+    /// may issue arbitrarily later).</summary>
+    procedure DeriveResumptionMasterSecret(const ATranscriptHash: TBytes);
+    /// <summary>The resumption master secret cached by DeriveResumptionMasterSecret; raises if it
+    /// has not been derived.</summary>
+    function ResumptionMasterSecret: ISecretBuffer;
     /// <summary>
     /// The per-ticket resumption PSK (RFC 8446 4.6.1):
-    /// HKDF-Expand-Label(resumption_master_secret, "resumption", ticket_nonce).
+    /// HKDF-Expand-Label(resumption_master_secret, "resumption", ticket_nonce). Requires the
+    /// resumption master secret to have been derived.
     /// </summary>
-    function ResumptionPsk(const ATranscriptHash, ATicketNonce: TBytes): ISecretBuffer;
+    function ResumptionPsk(const ATicketNonce: TBytes): ISecretBuffer;
     /// <summary>
     /// The PSK binder key (RFC 8446 7.1): Derive-Secret(early_secret, AKind's label, "").
     /// AKind selects the binder label ("res binder" / "ext binder" / "imp binder").

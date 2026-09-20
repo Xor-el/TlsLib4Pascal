@@ -243,8 +243,6 @@ type
     /// rebuilt from the raw first ClientHello under the newly selected hash (RFC 8446 4.4.1).</summary>
     FTranscriptPreActivated: Boolean;
     FPreActivatedHash: THashAlgorithm;
-    /// <summary>The transcript hash through the client Finished, for caching tickets.</summary>
-    FResumptionTranscriptHash: TBytes;
     /// <summary>The ALPN protocol negotiated in EncryptedExtensions, stored on a ticket.</summary>
     FNegotiatedAlpn: string;
     /// <summary>Encrypted Client Hello per-connection state (RFC 9849), live only when
@@ -1295,7 +1293,7 @@ begin
     Exit;
   if FParams.SessionCache = nil then
     Exit;
-  LPsk := FSchedule.ResumptionPsk(FResumptionTranscriptHash, LNst.TicketNonce);
+  LPsk := FSchedule.ResumptionPsk(LNst.TicketNonce);
   // carry the verified server chain so an opt-in ReverifyOnResume can re-check it on resume. On a
   // resumed connection no Certificate was sent, so the ticket inherits the resumed session's chain
   LPeerChain := FCertificateChain;
@@ -2270,9 +2268,12 @@ begin
   LClientFinished := THandshakeFraming.Frame(TTlsHandshakeType.Finished,
     THandshakeMessages.EncodeFinished(LClientVerifyData));
   FTranscript.Update(LClientFinished);
-  // the resumption master secret (for caching future tickets) is over the transcript
-  // through the client Finished
-  FResumptionTranscriptHash := FTranscript.CurrentHash;
+  // the resumption master secret is over the transcript through the client Finished
+  FSchedule.DeriveResumptionMasterSecret(FTranscript.CurrentHash);
+  FSchedule.ForgetHandshakeSecrets;
+  // drop the offered/accepted PSKs too, so a resumption PSK does not outlive the handshake
+  FAcceptedPsk := nil;
+  FPskOffers := nil;
 
   // ECH reject: the flight to the public_name is complete (cert verified against it, our
   // Finished built); send that Finished, then abort with ech_required and surface the

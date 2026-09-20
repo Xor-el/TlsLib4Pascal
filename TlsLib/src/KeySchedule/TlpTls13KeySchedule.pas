@@ -57,6 +57,8 @@ type
     FClientApTraffic: ISecretBuffer;
     FServerApTraffic: ISecretBuffer;
     FExporterMaster: ISecretBuffer;
+    FResumptionMaster: ISecretBuffer;
+    FHandshakeSecretsReleased: Boolean;
     function ZeroSecret: ISecretBuffer;
     function HashOf(const AData: TBytes): TBytes;
     procedure EnsureEarlySecret;
@@ -108,9 +110,11 @@ type
     procedure DeriveEpochSecrets(AEpoch: TTlsEpoch; const ATranscriptHash: TBytes);
     function FinishedKey(ADirection: TTlsDirection): ISecretBuffer;
     procedure AdvanceKeyUpdate(ADirection: TTlsDirection);
+    procedure ForgetHandshakeSecrets;
     function HasExporterSecret: Boolean;
-    function ResumptionMasterSecret(const ATranscriptHash: TBytes): ISecretBuffer;
-    function ResumptionPsk(const ATranscriptHash, ATicketNonce: TBytes): ISecretBuffer;
+    procedure DeriveResumptionMasterSecret(const ATranscriptHash: TBytes);
+    function ResumptionMasterSecret: ISecretBuffer;
+    function ResumptionPsk(const ATicketNonce: TBytes): ISecretBuffer;
     function BinderKey(AKind: TPskBinderKind): ISecretBuffer;
     function ComputeBinder(AKind: TPskBinderKind;
       const ATruncatedTranscriptHash: TBytes): TBytes;
@@ -125,6 +129,10 @@ const
 
 resourcestring
   SEpochNotDerived = 'the requested epoch secrets have not been derived';
+  SHandshakeSecretsReleased = 'the handshake secrets have been released';
+  SResumptionMasterNotDerived = 'the resumption master secret has not been derived';
+  SForgetBeforeApplication =
+    'the application epoch must be derived before releasing the handshake secrets';
 
 { TTls13KeySchedule }
 
@@ -166,12 +174,17 @@ var
 begin
   if FEarlySecret <> nil then
     Exit;
+  if FHandshakeSecretsReleased then
+    raise EInvalidOperationTlsLibException.CreateRes(@SHandshakeSecretsReleased);
   if FPsk <> nil then
     LIkm := FPsk
   else
     LIkm := ZeroSecret;
   // an empty salt is treated as HashLen zeros by the provider
   FEarlySecret := FHkdf.Extract(nil, LIkm);
+  // the PSK is consumed by this one Extract; release it (the binder key derives from the early
+  // secret, not the PSK)
+  FPsk := nil;
 end;
 
 procedure TTls13KeySchedule.EnsureHandshakeSecret;
@@ -181,6 +194,8 @@ var
 begin
   if FHandshakeSecret <> nil then
     Exit;
+  if FHandshakeSecretsReleased then
+    raise EInvalidOperationTlsLibException.CreateRes(@SHandshakeSecretsReleased);
   EnsureEarlySecret;
   LSalt := THkdfLabel.DeriveSecret(FHkdf, FEarlySecret, 'derived', FHashEmpty).ToBytes;
   try
@@ -189,6 +204,8 @@ begin
     else
       LIkm := ZeroSecret;
     FHandshakeSecret := FHkdf.Extract(LSalt, LIkm);
+    // the (EC)DHE shared secret is consumed by this one Extract; release it
+    FSharedSecret := nil;
   finally
     TSecureMemory.WipeBytes(LSalt);
   end;
@@ -200,6 +217,8 @@ var
 begin
   if FMasterSecret <> nil then
     Exit;
+  if FHandshakeSecretsReleased then
+    raise EInvalidOperationTlsLibException.CreateRes(@SHandshakeSecretsReleased);
   EnsureHandshakeSecret;
   LSalt := THkdfLabel.DeriveSecret(FHkdf, FHandshakeSecret, 'derived', FHashEmpty).ToBytes;
   try
@@ -274,11 +293,15 @@ end;
 
 procedure TTls13KeySchedule.SetPsk(const APsk: ISecretBuffer);
 begin
+  if FHandshakeSecretsReleased then
+    raise EInvalidOperationTlsLibException.CreateRes(@SHandshakeSecretsReleased);
   FPsk := APsk;
 end;
 
 procedure TTls13KeySchedule.SetSharedSecret(const ASharedSecret: ISecretBuffer);
 begin
+  if FHandshakeSecretsReleased then
+    raise EInvalidOperationTlsLibException.CreateRes(@SHandshakeSecretsReleased);
   FSharedSecret := ASharedSecret;
 end;
 
@@ -393,27 +416,46 @@ begin
     ALength).ToBytes;
 end;
 
+procedure TTls13KeySchedule.ForgetHandshakeSecrets;
+begin
+  if FExporterMaster = nil then
+    raise EInvalidOperationTlsLibException.CreateRes(@SForgetBeforeApplication);
+  FPsk := nil;
+  FSharedSecret := nil;
+  FEarlySecret := nil;
+  FHandshakeSecret := nil;
+  FMasterSecret := nil;
+  FClientEarlyTraffic := nil;
+  FClientHsTraffic := nil;
+  FServerHsTraffic := nil;
+  FHandshakeSecretsReleased := True;
+end;
+
 function TTls13KeySchedule.HasExporterSecret: Boolean;
 begin
   // set when the Application epoch secrets are derived (a KeyUpdate never touches it)
   Result := FExporterMaster <> nil;
 end;
 
-function TTls13KeySchedule.ResumptionMasterSecret(
-  const ATranscriptHash: TBytes): ISecretBuffer;
+procedure TTls13KeySchedule.DeriveResumptionMasterSecret(
+  const ATranscriptHash: TBytes);
 begin
   EnsureMasterSecret;
-  Result := THkdfLabel.DeriveSecret(FHkdf, FMasterSecret, 'res master',
+  FResumptionMaster := THkdfLabel.DeriveSecret(FHkdf, FMasterSecret, 'res master',
     ATranscriptHash);
 end;
 
-function TTls13KeySchedule.ResumptionPsk(
-  const ATranscriptHash, ATicketNonce: TBytes): ISecretBuffer;
-var
-  LResMaster: ISecretBuffer;
+function TTls13KeySchedule.ResumptionMasterSecret: ISecretBuffer;
 begin
-  LResMaster := ResumptionMasterSecret(ATranscriptHash);
-  Result := THkdfLabel.HkdfExpandLabel(FHkdf, LResMaster, 'resumption',
+  if FResumptionMaster = nil then
+    raise EInvalidOperationTlsLibException.CreateRes(@SResumptionMasterNotDerived);
+  Result := FResumptionMaster;
+end;
+
+function TTls13KeySchedule.ResumptionPsk(
+  const ATicketNonce: TBytes): ISecretBuffer;
+begin
+  Result := THkdfLabel.HkdfExpandLabel(FHkdf, ResumptionMasterSecret, 'resumption',
     ATicketNonce, FHashLength);
 end;
 

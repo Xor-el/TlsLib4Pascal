@@ -81,6 +81,7 @@ type
     procedure DeriveExtendedMasterSecret(const ASessionHash: TBytes);
     procedure DeriveKeyBlock;
     function MasterSecret: ISecretBuffer;
+    procedure ForgetHandshakeSecrets;
   end;
 
 implementation
@@ -96,6 +97,7 @@ const
 resourcestring
   SNoSuchEpoch = 'the TLS 1.2 schedule has only an application-data epoch';
   SMasterNotDerived = 'the master secret has not been derived';
+  SKeyBlockNotDerived = 'the key block is unavailable (not derived, or released after the handshake)';
 
 { TTls12KeySchedule }
 
@@ -153,6 +155,8 @@ begin
   LMaster := Prf(FPreMaster, ALabel, ASeed, Tls12MasterSecretLength);
   try
     FMasterSecret := TSecretBuffer.From(LMaster);
+    // the pre-master secret is consumed by this one PRF; release it
+    FPreMaster := nil;
   finally
     TSecureMemory.WipeBytes(LMaster);
   end;
@@ -211,6 +215,8 @@ begin
   GuardMaster;
   if AEpoch <> TTlsEpoch.Application then
     raise EInvalidOperationTlsLibException.CreateRes(@SNoSuchEpoch);
+  if FClientKey = nil then
+    raise EInvalidOperationTlsLibException.CreateRes(@SKeyBlockNotDerived);
   if ADirection = TTlsDirection.ClientWrite then
     Result := TTrafficKeys.Create(FClientKey, FClientSalt)
   else
@@ -265,6 +271,18 @@ begin
       TArrayUtilities.Concat(LContextLen, AContext));
   end;
   Result := Prf(FMasterSecret, ALabel, LSeed, ALength);
+end;
+
+procedure TTls12KeySchedule.ForgetHandshakeSecrets;
+begin
+  // release the pre-master and the key-block slices once the record layer holds its keys; keep
+  // the master secret (it is the RFC 5705 exporter secret for the connection's lifetime) and the
+  // public randoms (also exporter seeds)
+  FPreMaster := nil;
+  FClientKey := nil;
+  FServerKey := nil;
+  FClientSalt := nil;
+  FServerSalt := nil;
 end;
 
 end.

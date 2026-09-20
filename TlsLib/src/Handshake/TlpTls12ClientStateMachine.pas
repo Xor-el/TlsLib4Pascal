@@ -855,6 +855,9 @@ begin
 
   FPhase := TPhase.Connected;
   Result := CacheCompletedSession;
+  // the session is cached (it captured the master secret); release the handshake-stage key
+  // material - the connection keeps the master secret for the RFC 5705 exporter
+  FSchedule.ForgetHandshakeSecrets;
   // a full TLS 1.2 handshake here is ECDHE (the only 1.2 key exchange), so FCurrentGroup is set
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code,
@@ -993,6 +996,8 @@ begin
     THandshakeEffects.SendHandshake(LClientFinished));
   // re-cache the resumed session (carrying any freshly issued ticket) for the next resume
   Result := TArrayUtilities.Concat<THandshakeEffect>(Result, CacheCompletedSession);
+  // the write keys are installed and the session is re-cached; release the handshake-stage material
+  FSchedule.ForgetHandshakeSecrets;
   // an abbreviated resumption performs no fresh key exchange, so there is no negotiated group
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code, 0, True,
