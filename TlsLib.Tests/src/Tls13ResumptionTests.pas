@@ -102,6 +102,8 @@ type
     procedure TestZeroRttAcceptedDeliversEarlyData;
     procedure TestWriteEarlyDataReturnsAcceptedCount;
     procedure TestZeroRttRejectedIsDiscardedNotReplayed;
+    procedure TestZeroRttRejectAboveFixedBudgetIsSkipped;
+    procedure TestZeroRttForeignTicketKeepsFixedSkipBudget;
     procedure TestZeroRttReplayCaughtByStrikeRegister;
     procedure TestEarlyDataOffByDefault;
     procedure TestMutualAuthResumptionCompletes;
@@ -673,6 +675,71 @@ begin
   CheckFalse(LServer.IsTerminal, 'the reject is not fatal');
   CheckEquals(0, System.Length(ReadAllApp(LServer)),
     'the rejected early data is discarded, not auto-replayed as 1-RTT');
+end;
+
+procedure TTestTls13Resumption.TestZeroRttRejectAboveFixedBudgetIsSkipped;
+var
+  LStek: ISessionTicketKeyManager;
+  LAnti: IAntiReplayStrategy;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LEarly: TBytes;
+begin
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LAnti := TStrikeRegisterAntiReplay.Create;
+  LCache := TInMemorySessionCache.Create;
+
+  // issue a ticket authorizing more early data than the fixed 16 KiB fallback skip budget
+  LClient := NewClient(LCache, False);
+  LServer := BuildServer(LStek, nil, 1, 7200, True, 40000, LAnti);
+  DriveHandshake(LClient, LServer);
+
+  // resume and send more than 16 KiB of 0-RTT; the server rejects it (its own MaxEarlyData is 0)
+  // but the PSK still opens, so the skip budget tracks the ticket's authorization and the extra
+  // bytes are skipped rather than tripping "too much skipped early data"
+  LClient := NewClient(LCache, True);
+  LServer := BuildServer(LStek, nil, 0, 7200, False, 0, LAnti);
+  LEarly := Filled($5a, 40000);
+  LClient.StartHandshake;
+  CheckTrue(LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly)) > 16384,
+    'the ticket authorized more early data than the fixed fallback');
+  PumpToCompletion(LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'the oversize rejected 0-RTT is skipped, not fatal');
+  CheckFalse(LServer.IsHandshaking, 'the resumption completed despite the reject');
+  CheckEquals(0, System.Length(ReadAllApp(LServer)),
+    'the rejected early data is discarded');
+  CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestTls13Resumption.TestZeroRttForeignTicketKeepsFixedSkipBudget;
+var
+  LStekA, LStekB: ISessionTicketKeyManager;
+  LAnti: IAntiReplayStrategy;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LEarly: TBytes;
+begin
+  LStekA := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStekB := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LAnti := TStrikeRegisterAntiReplay.Create;
+  LCache := TInMemorySessionCache.Create;
+
+  // a 0-RTT-capable ticket is minted under one STEK
+  LClient := NewClient(LCache, False);
+  LServer := BuildServer(LStekA, nil, 1, 7200, True, 40000, LAnti);
+  DriveHandshake(LClient, LServer);
+
+  // resume against a server with a DIFFERENT STEK: the ticket never opens, so no ticket
+  // authorization is known and the skip budget stays the fixed fallback. Sending more than that
+  // fallback of unreadable early data is treated as too much skipped early data (fatal).
+  LClient := NewClient(LCache, True);
+  LServer := BuildServer(LStekB, nil, 0, 7200, False, 0, LAnti);
+  LEarly := Filled($5a, 20000);
+  LClient.StartHandshake;
+  LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly));
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LServer.IsTerminal,
+    'more than the fixed fallback of unauthorized skipped early data is fatal');
 end;
 
 procedure TTestTls13Resumption.TestZeroRttReplayCaughtByStrikeRegister;

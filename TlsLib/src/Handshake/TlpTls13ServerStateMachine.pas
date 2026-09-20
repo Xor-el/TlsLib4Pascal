@@ -62,6 +62,7 @@ uses
   TlpWireWriter,
   TlpWireVectorMarker,
   TlpHandshakeEffect,
+  TlpRecordHeader,
   TlpTls13HandshakeBase;
 
 type
@@ -254,6 +255,10 @@ type
     /// 0-RTT (a valid ticket within max_early_data that passed anti-replay).</summary>
     FEarlyDataOfferedByClient: Boolean;
     FEarlyDataAccepted: Boolean;
+    /// <summary>The max_early_data_size the resumed ticket authorized; bounds how much rejected
+    /// 0-RTT to skip. 0 when no ticket opened (e.g. a foreign STEK), in which case the skip budget
+    /// falls back to the fixed default unless this server's own config authorizes early data.</summary>
+    FResumedMaxEarlyData: UInt32;
     /// <summary>Whether the ClientHello offered status_request, so the server staples its
     /// configured OCSP response in the leaf CertificateEntry (RFC 8446 4.4.2.1).</summary>
     FStatusRequestOffered: Boolean;
@@ -359,6 +364,10 @@ type
     class function KeyShareFor(const AContext: TExtensionContext;
       AGroup: UInt16): TBytes; static;
     function HashOf(const AData: TBytes): TBytes;
+    /// <summary>The wire-byte budget for skipping rejected 0-RTT records: the ticket-authorized
+    /// max_early_data plus each record's header + AEAD expansion (RFC 8446 4.6.1), counted the
+    /// way the record layer debits the skip; the fixed fallback applies with no authorization.</summary>
+    function EarlyDataSkipBudget: Int32;
     /// <summary>Emits a HelloRetryRequest for ASelectedGroup and waits for the retry.</summary>
     function EmitHelloRetryRequest(const AClientHello: TTlsClientHello;
       const ARaw: TBytes; ASelectedGroup: UInt16): TArray<THandshakeEffect>;
@@ -461,10 +470,10 @@ resourcestring
 const
   PskDheKeMode = Byte(1);       // psk_key_exchange_modes: psk_dhe_ke
   TicketNonceLength = Int32(8); // per-ticket nonce for the resumption PSK derivation
-  // the bounded budget for dropping undecryptable early records when 0-RTT is rejected: at
-  // most one record layer's worth of plaintext (RFC 8446 4.6.1 / 5.1; matches BoringSSL's
-  // 16 KiB skip limit, beyond which the peer is treated as sending too much skipped early data)
-  MaxEarlyDataSkipBytes = Int32(16384);
+  // fallback skip budget when no ticket authorization is known (RFC 8446 4.6.1 / 5.1): one
+  // record layer's worth of plaintext, beyond which a rejected-0-RTT peer is treated as
+  // sending too much skipped early data
+  DefaultMaxEarlyDataSkipBytes = Int32(16384);
 
 { TTls13ServerStateMachine }
 
@@ -501,6 +510,35 @@ begin
   LHash := FParams.Provider.Primitives.CreateHash(FSelectedSuite.Common.Hash);
   LHash.Update(AData, 0, System.Length(AData));
   Result := LHash.DoFinal;
+end;
+
+function TTls13ServerStateMachine.EarlyDataSkipBudget: Int32;
+var
+  LLimit, LContentCap, LRecords, LBudget: Int64;
+begin
+  // the record layer debits skipped records in WIRE bytes, so convert the authorized
+  // max_early_data (larger of ticket and config) to a wire budget: the plaintext plus each
+  // record's header + AEAD expansion, with one record of slack.
+  LLimit := FResumedMaxEarlyData;
+  if Int64(FParams.MaxEarlyData) > LLimit then
+    LLimit := FParams.MaxEarlyData;
+  if LLimit = 0 then
+    Exit(DefaultMaxEarlyDataSkipBytes);
+  // count records at the content cap the client actually fragments early data to: the
+  // record_size_limit we advertised (less the inner content-type byte), else the 2^14 ceiling.
+  // A smaller cap means more records, hence more per-record overhead to allow (RFC 8449 4).
+  LContentCap := TRecordLimits.MaxPlaintext;
+  if (FParams.RecordSizeLimit > 0) and (FParams.RecordSizeLimit - 1 < LContentCap) then
+    LContentCap := FParams.RecordSizeLimit - 1;
+  if LContentCap < 1 then
+    LContentCap := 1;
+  LRecords := (LLimit + LContentCap - 1) div LContentCap;
+  LBudget := LLimit + (LRecords + 1) *
+    (TRecordLimits.HeaderLength +
+    (TRecordLimits.MaxCipherTextTls13 - TRecordLimits.MaxPlaintext));
+  if LBudget > High(Int32) then
+    LBudget := High(Int32);
+  Result := Int32(LBudget);
 end;
 
 function TTls13ServerStateMachine.SelectAlpn(
@@ -769,6 +807,10 @@ begin
     Exit;
   if not LSession.Version.Equals(TTlsVersion.Tls13) then
     Exit;
+  // remember what this authenticated ticket authorized as early data, so a rejected 0-RTT skip is
+  // bounded by the client's actual authorization even when the ticket is then declined (SNI/suite/
+  // expiry/mTLS) or 0-RTT is refused (e.g. a retry), all of which still skip the client's records
+  FResumedMaxEarlyData := LSession.MaxEarlyData;
   // a ticket issued under one SNI host must not resume as another (virtual-hosting guard): a
   // host mismatch falls through to a full handshake under the name the client now requests
   if not SameText(LSession.ServerName, FRequestedServerName) then
@@ -1115,7 +1157,7 @@ begin
   // (bounded) while waiting for the second ClientHello
   if FEarlyDataOfferedByClient then
     TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.SkipEarlyData(MaxEarlyDataSkipBytes));
+      THandshakeEffects.SkipEarlyData(EarlyDataSkipBudget));
 end;
 
 function TTls13ServerStateMachine.BuildHelloRetryRequest(
@@ -1386,7 +1428,7 @@ begin
     // early-data records on the second flight are illegal and must fail (bad record MAC).
     if FEarlyDataOfferedByClient and (not FHelloRetrySent) then
       TArrayUtilities.Append<THandshakeEffect>(Result,
-        THandshakeEffects.SkipEarlyData(MaxEarlyDataSkipBytes));
+        THandshakeEffects.SkipEarlyData(EarlyDataSkipBudget));
   end;
   AppendNegotiatedInfoEffects(Result);
   // a resumed handshake sends no Certificate, so surface the client chain the ticket carried
