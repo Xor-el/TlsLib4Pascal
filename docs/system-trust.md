@@ -134,7 +134,7 @@ settings the built-in verifier does:
 - **The injected clock** (`WithClock`) supplies the validation time.
 
 Because it is cache-only, the delegate is synchronous — the asynchronous live-OCSP/CRL resolver
-(`WithAsyncCertificateVerdict`) is **not** engaged in Delegate mode. That is by design, not a
+(`WithLiveRevocationVerdict`) is **not** engaged in Delegate mode. That is by design, not a
 regression.
 
 The **macOS, iOS and Android** delegates honour the same three settings — Apple through a
@@ -184,7 +184,7 @@ LConfig := TTlsPresets.Compatible(P).Server
   .WithPeerAuth(TClientAuthMode.Required)
   .WithTrustAnchors(LoadFile('client-ca.pem'))
   .WithRevocation(TRevocationPosture.Hard)
-  .WithAsyncCertificateVerdict(True, deadlineMs)     // the park the live check runs in (non-zero)
+  .WithLiveRevocationVerdict(deadlineMs)             // the park the live check runs in (non-zero)
   .WithCertificateVerifierSource(TOSSystemTrust.ClientVerifierSource(P, TSystemTrustFetch.Live))
   .Build;
 resolver := TOSSystemTrust.LiveRevocationResolver(LConfig);   // reads the client-CA anchors + posture
@@ -196,7 +196,7 @@ handshake parks; the OS engine then re-evaluates with network fetch enabled and 
 a definitive **Revoked** aborts `certificate_revoked`, a **Good** accepts, an **indeterminate** follows
 the posture (`Soft`/`Off` accept, `Hard` rejects `bad_certificate_status_response`). Because the client
 path roots against an **in-memory exclusive client-CA store** (never the machine store), this needs no
-store install and is exercisable locally. `Live` requires `WithAsyncCertificateVerdict` (the park is
+store install and is exercisable locally. `Live` requires `WithLiveRevocationVerdict` (the park is
 where it runs) — a server built `Live` without it raises before any IO. Pass an optional portable
 fallback to `LiveRevocationResolver(config, fallback)` to run `TLiveRevocationChecker` over your
 `IHttpFetcher` on an indeterminate OS outcome. **Windows and Apple only** — Android/Unix `Live` raises

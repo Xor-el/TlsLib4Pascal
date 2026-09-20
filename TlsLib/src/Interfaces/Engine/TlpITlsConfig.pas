@@ -77,7 +77,8 @@ type
     /// <summary>The revocation posture (RFC 6960): Soft (default), Hard, or Off. Governs how an
     /// indeterminate revocation is treated for the peer certificate this endpoint verifies - the
     /// server certificate on a client, or the client certificate on a mutual-TLS server;
-    /// must-staple (RFC 7633) is enforced regardless.</summary>
+    /// must-staple (RFC 7633) binds only to an initial-handshake server certificate the client
+    /// requested a staple for.</summary>
     function RevocationPosture: TRevocationPosture;
     /// <summary>Optional SPKI-SHA256 pins: when non-empty, some certificate in the peer
     /// chain must have a SubjectPublicKeyInfo whose SHA-256 matches one pin (public-key
@@ -113,10 +114,11 @@ type
     /// InsecureSkipVerify that bypasses the built-in trust pipeline, and an augment-only
     /// VerifyCallback that can only additionally reject. Both default off.</summary>
     function DangerousTrust: TDangerousTrust;
-    /// <summary>The asynchronous peer-certificate verdict setting. When enabled, the engine
-    /// parks the handshake after its built-in trust pipeline accepts the chain and raises a
-    /// CertificateReceived event so a host can decide out-of-band, resuming with
-    /// SetCertificateVerdict (augment-only, fail-closed). Disabled by default (inline).</summary>
+    /// <summary>The peer-certificate verdict-deferral setting. When the deferral mode is not
+    /// None, the engine parks the handshake after its built-in trust pipeline accepts the chain
+    /// so a host (HostDecision) or a live OCSP/CRL resolver (LiveRevocation) can decide
+    /// out-of-band, resuming with SetCertificateVerdict (augment-only, fail-closed). None by
+    /// default (inline).</summary>
     function AsyncCertificateVerdict: TAsyncCertificateVerdict;
     /// <summary>Whether session resumption is engaged (RFC 8446 4.6.1 / RFC 5077). When
     /// False, the endpoint neither offers/uses (client) nor issues/accepts (server) a

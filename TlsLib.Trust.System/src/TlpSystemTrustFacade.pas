@@ -123,7 +123,7 @@ begin
   LSource := TOSSystemTrust.ServerVerifierSource(AProvider, AFetch);
   ABuilder.WithCertificateVerifierSource(LSource);
   if AFetch = TSystemTrustFetch.Live then
-    ABuilder.WithAsyncCertificateVerdict(True, ADeadlineMs);
+    ABuilder.WithLiveRevocationVerdict(ADeadlineMs);
   Result := ABuilder;
 end;
 

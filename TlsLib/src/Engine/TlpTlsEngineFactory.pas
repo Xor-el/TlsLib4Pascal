@@ -207,18 +207,20 @@ var
   L13: TClientHandshakeParams;
   L12: TClient12HandshakeParams;
   LClientRandom, LSessionId: TBytes;
-  LVerifier: IServerCertificateVerifier;
-  LTrustContext: TServerTrustContext;
+  LVerifier, LResumeVerifier: IServerCertificateVerifier;
+  LTrustContext, LResumeContext: TServerTrustContext;
   LServerName: TServerName;
+  LDeferral: TVerdictDeferral;
   LOffers13, LOffers12, LAsyncVerdict: Boolean;
   LVerdictDeadlineMs: Cardinal;
   LMachine: IHandshakeMachine;
 begin
   LOffers13 := Offers(AConfig, TlsWireVersionTls13);
   LOffers12 := Offers(AConfig, TlsWireVersionTls12);
-  // the async peer-certificate verdict parks the handshake after the pipeline accepts the
-  // server chain; the deadline is surfaced to the driver (the engine owns no timer)
-  LAsyncVerdict := AConfig.AsyncCertificateVerdict.Enabled;
+  // a verdict-deferral mode parks the handshake after the pipeline accepts the server chain;
+  // the deadline is surfaced to the driver (the engine owns no timer)
+  LDeferral := AConfig.AsyncCertificateVerdict.Deferral;
+  LAsyncVerdict := LDeferral <> TVerdictDeferral.None;
   if LAsyncVerdict then
     LVerdictDeadlineMs := AConfig.AsyncCertificateVerdict.DeadlineMs
   else
@@ -242,15 +244,32 @@ begin
   LTrustContext.ChainLimits := AConfig.CertificateChainLimits;
   LTrustContext.RevocationPosture := AConfig.RevocationPosture;
   LTrustContext.Dangerous := AConfig.DangerousTrust;
-  LTrustContext.AsyncVerdictEnabled := LAsyncVerdict;
+  LTrustContext.Deferral := LDeferral;
   LTrustContext.Intermediates := AConfig.IntermediateCertificates;
   LTrustContext.StrengthPolicy := AConfig.CertificateStrengthPolicy;
   LTrustContext.AdvertisedSignatureSchemes := SchemeCodes(AConfig.SignatureSchemes);
+  // the initial-handshake verifier: must-staple binds here only when the client offers status_request
+  LTrustContext.StatusRequestOffered := AConfig.RequestOcspStapling;
+  LTrustContext.Occasion := TVerificationOccasion.InitialHandshake;
   LVerifier := AConfig.ServerVerifierSource.CreateServerVerifier(LTrustContext);
   // SPKI pinning composes over the source output, so it augments any source (built-in or OS delegate)
   if System.Length(AConfig.CertificatePins) > 0 then
     LVerifier := TPinningVerifier.Create(LVerifier, AConfig.CertificatePins,
       AConfig.Provider) as IServerCertificateVerifier;
+  // reverify-on-resume re-checks the stored chain, which carries no Certificate and no fresh
+  // staple: a second verifier built for the Resumption occasion so must-staple never fires on a
+  // resume. Built only when a resume can actually reverify (composed with the same pins).
+  LResumeVerifier := nil;
+  if AConfig.Resumption and (AConfig.SessionCache <> nil) and
+    (AConfig.ResumeVerification = TResumeVerification.Reverify) then
+  begin
+    LResumeContext := LTrustContext;
+    LResumeContext.Occasion := TVerificationOccasion.Resumption;
+    LResumeVerifier := AConfig.ServerVerifierSource.CreateServerVerifier(LResumeContext);
+    if System.Length(AConfig.CertificatePins) > 0 then
+      LResumeVerifier := TPinningVerifier.Create(LResumeVerifier, AConfig.CertificatePins,
+        AConfig.Provider) as IServerCertificateVerifier;
+  end;
 
   L13 := Default(TClientHandshakeParams);
   L13.Provider := AConfig.Provider;
@@ -284,6 +303,7 @@ begin
   // destination on its own cache key even though an IP is never sent as SNI
   L13.ServerIdentity := LServerName.ToString;
   L13.CertificateVerifier := LVerifier;
+  L13.ResumeCertificateVerifier := LResumeVerifier;
   L13.AsyncVerdict := LAsyncVerdict;
   // Encrypted Client Hello policy (RFC 9849), nil when not offered
   L13.EchPolicy := AConfig.EncryptedClientHello;
@@ -319,6 +339,7 @@ begin
   L12.RequireExtendedMasterSecret := AConfig.RequireExtendedMasterSecret;
   L12.RequestOcspStapling := AConfig.RequestOcspStapling;
   L12.CertificateVerifier := LVerifier;
+  L12.ResumeCertificateVerifier := LResumeVerifier;
   L12.AsyncVerdict := LAsyncVerdict;
   L12.ExpectedServerName := LServerName;
   L12.ClientCredential := AConfig.Credential;
@@ -378,6 +399,7 @@ var
   LServerRandom: TBytes;
   LClientContext: TClientTrustContext;
   LClientVerifier: IClientCertificateVerifier;
+  LDeferral: TVerdictDeferral;
   LOffers13, LOffers12, LAsyncVerdict: Boolean;
   LVerdictDeadlineMs: Cardinal;
   LMachine: IHandshakeMachine;
@@ -386,10 +408,12 @@ begin
   LOffers13 := Offers(AConfig, TlsWireVersionTls13);
   LOffers12 := Offers(AConfig, TlsWireVersionTls12);
   LServerRandom := AConfig.Provider.Primitives.GetRandom.GenerateBytes(32);
-  // the async client-certificate verdict parks the handshake after the pipeline accepts the
-  // client chain (only meaningful when the server requests client authentication)
-  LAsyncVerdict := AConfig.AsyncCertificateVerdict.Enabled and
-    (AConfig.ClientAuth <> TClientAuthMode.None);
+  // a verdict-deferral mode parks the handshake after the pipeline accepts the client chain
+  // (only meaningful when the server requests client authentication)
+  LDeferral := AConfig.AsyncCertificateVerdict.Deferral;
+  if AConfig.ClientAuth = TClientAuthMode.None then
+    LDeferral := TVerdictDeferral.None;
+  LAsyncVerdict := LDeferral <> TVerdictDeferral.None;
   if LAsyncVerdict then
     LVerdictDeadlineMs := AConfig.AsyncCertificateVerdict.DeadlineMs
   else
@@ -407,7 +431,7 @@ begin
     LClientContext.ChainLimits := AConfig.CertificateChainLimits;
     LClientContext.RevocationPosture := AConfig.RevocationPosture;
     LClientContext.Dangerous := AConfig.DangerousTrust;
-    LClientContext.AsyncVerdictEnabled := LAsyncVerdict;
+    LClientContext.Deferral := LDeferral;
     LClientContext.Intermediates := AConfig.IntermediateCertificates;
     LClientContext.StrengthPolicy := AConfig.CertificateStrengthPolicy;
     LClientContext.AdvertisedSignatureSchemes := SchemeCodes(AConfig.SignatureSchemes);

@@ -33,8 +33,9 @@ type
   /// default) accepts a missing or indeterminate staple; Hard rejects anything short of a
   /// current Good staple (bad_certificate_status_response); Off does not require a stapled
   /// OCSP response (a missing or indeterminate staple is accepted), but still rejects a
-  /// definitive Revoked. Must-staple (RFC 7633) is enforced at the TLS layer regardless
-  /// of this setting.
+  /// definitive Revoked. Must-staple (RFC 7633) is enforced at the TLS layer independently of
+  /// this setting, but only for an initial-handshake server certificate the client requested a
+  /// staple for (never a client certificate, never on a resumption).
   /// </summary>
   TRevocationPosture = (Soft, Hard, Off);
 
@@ -67,19 +68,34 @@ type
   end;
 
   /// <summary>
-  /// The asynchronous certificate-verdict setting. When Enabled, the engine runs its
-  /// built-in trust pipeline synchronously (as always) and, only if that pipeline
-  /// accepts the peer chain, parks the handshake and raises a CertificateReceived event
-  /// so a host can decide out-of-band (e.g. live OCSP/CRL, an operator prompt) and resume
-  /// with SetCertificateVerdict. This is augment-only: the host verdict can only
-  /// additionally reject, never resurrect a chain the pipeline already rejected. The park
+  /// How a peer-certificate verdict is deferred out-of-band. None (the default) decides the
+  /// verdict entirely inline. HostDecision parks the handshake after the built-in pipeline
+  /// accepts the chain and raises a CertificateReceived event so a host decides out-of-band
+  /// (e.g. an operator prompt); it is augment-only and does not change how an indeterminate
+  /// stapled revocation outcome is decided (the posture still decides that inline).
+  /// LiveRevocation additionally defers an indeterminate stapled outcome to the resolver at
+  /// the park, so a live OCSP/CRL fetch renders the posture's verdict - the only way a Hard
+  /// posture is reachable for a peer that carries no staple (e.g. a client certificate).
+  /// </summary>
+  TVerdictDeferral = (None, HostDecision, LiveRevocation);
+
+  /// <summary>Whether a certificate is being verified on the initial handshake (a Certificate
+  /// flight is on the wire) or on a resumption (no Certificate; the stored chain is
+  /// re-checked). Must-staple is enforced only on the initial handshake.</summary>
+  TVerificationOccasion = (InitialHandshake, Resumption);
+
+  /// <summary>
+  /// The asynchronous certificate-verdict setting. When Deferral is not None, the engine runs
+  /// its built-in trust pipeline synchronously (as always) and, only if that pipeline accepts
+  /// the peer chain, parks the handshake so a host or a live-revocation resolver can decide
+  /// out-of-band and resume with SetCertificateVerdict. This is augment-only: the verdict can
+  /// only additionally reject, never resurrect a chain the pipeline already rejected. The park
   /// is fail-closed - no verdict, a rejection, or an expired deadline aborts the handshake.
   /// DeadlineMs is advisory to the driver (the sans-IO engine owns no timer); 0 means the
-  /// host imposes no engine-suggested deadline. Disabled (the default) keeps the verdict
-  /// inline.
+  /// host imposes no engine-suggested deadline. None (the default) keeps the verdict inline.
   /// </summary>
   TAsyncCertificateVerdict = record
-    Enabled: Boolean;
+    Deferral: TVerdictDeferral;
     DeadlineMs: Cardinal;
   end;
 
@@ -100,7 +116,7 @@ type
   /// Return True to continue the handshake, False to abort it; on False, ARejectAlert selects
   /// the abort alert (default bad_certificate; a definitive live-revocation reject sets
   /// certificate_revoked). The resolver owns any deadline: a check that cannot decide in time
-  /// returns False (fail-closed). Reached only when async certificate verdicts are enabled.
+  /// returns False (fail-closed). Reached only when a verdict-deferral mode is set.
   /// </summary>
   TCertificateVerdictResolver = function(const ACtx: TCertificateVerdictContext;
     out ARejectAlert: TTlsAlertDescription): Boolean of object;
@@ -111,7 +127,10 @@ type
   /// and posture are carried here so a source constructs its verifier with them injected
   /// (the built-in and the OS-native delegate alike), rather than receiving a pre-built
   /// verifier that could not see the connection's clock or revocation posture. SPKI pinning
-  /// is applied by a decorator over the source output, so no pins appear here.
+  /// is applied by a decorator over the source output, so no pins appear here. The factory
+  /// builds one verifier per occasion (an initial-handshake verifier and, for reverify-on-
+  /// resume, a second Occasion=Resumption verifier), so must-staple binds only where a
+  /// Certificate is actually on the wire.
   /// </summary>
   TServerTrustContext = record
     Provider: ICryptoProvider;
@@ -121,10 +140,14 @@ type
     ChainLimits: TCertificateChainLimits;
     RevocationPosture: TRevocationPosture;
     Dangerous: TDangerousTrust;
-    AsyncVerdictEnabled: Boolean;
+    Deferral: TVerdictDeferral;
     Intermediates: TArray<TBytes>;
     StrengthPolicy: TCertificateStrengthPolicy;
     AdvertisedSignatureSchemes: TArray<UInt16>;
+    /// <summary>Whether the client offered status_request on this connection: must-staple is
+    /// enforced only when it did (RFC 7633 4.3.3 binds the requirement to the client's ask).</summary>
+    StatusRequestOffered: Boolean;
+    Occasion: TVerificationOccasion;
   end;
 
   /// <summary>
@@ -142,7 +165,7 @@ type
     ChainLimits: TCertificateChainLimits;
     RevocationPosture: TRevocationPosture;
     Dangerous: TDangerousTrust;
-    AsyncVerdictEnabled: Boolean;
+    Deferral: TVerdictDeferral;
     Intermediates: TArray<TBytes>;
     StrengthPolicy: TCertificateStrengthPolicy;
     AdvertisedSignatureSchemes: TArray<UInt16>;

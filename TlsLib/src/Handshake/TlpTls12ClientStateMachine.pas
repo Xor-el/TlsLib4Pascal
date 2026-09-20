@@ -95,6 +95,9 @@ type
     ClientCredential: TTlsCredential;
     /// <summary>Decides whether the server chain is trusted; none configured fails closed.</summary>
     CertificateVerifier: IServerCertificateVerifier;
+    /// <summary>Verifies a resumed server's stored chain on reverify-on-resume (no Certificate,
+    /// no staple gate); nil falls back to CertificateVerifier (never looser than it).</summary>
+    ResumeCertificateVerifier: IServerCertificateVerifier;
     ExpectedServerName: TServerName;
     /// <summary>The client-side cache resumption draws from and stores into. When set, the
     /// client offers session_ticket support and, if a session is cached for this server,
@@ -129,7 +132,7 @@ type
     TPhase = (Initial, WaitServerHello, WaitCertificate, WaitCertificateStatus,
       WaitServerKeyExchange, WaitServerHelloDone, WaitNewSessionTicket,
       WaitServerFinished, WaitAbbreviatedNewSessionTicket,
-      WaitAbbreviatedServerFinished, Connected);
+      WaitAbbreviatedServerFinished, WaitResumeVerdict, Connected);
   var
     FParams: TClient12HandshakeParams;
     FPhase: TPhase;
@@ -218,10 +221,14 @@ type
     /// epoch for the following server Finished.</summary>
     function ProcessAbbreviatedNewSessionTicket(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>;
-    /// <summary>Verifies the abbreviated server Finished, sends the client
-    /// ChangeCipherSpec and Finished, and completes the resumed connection.</summary>
+    /// <summary>Verifies the abbreviated server Finished, then either parks for a reverify-on-
+    /// resume verdict (withholding the closing flight) or completes the resumed connection.</summary>
     function ProcessAbbreviatedServerFinished(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>;
+    /// <summary>The client's closing flight for a resumed handshake: ChangeCipherSpec, the
+    /// client write keys, the client Finished, the re-cache and connection events. Emitted
+    /// inline, or from ResumeAfterVerdict when a reverify-on-resume park withheld it.</summary>
+    function BuildAbbreviatedClientFlight: TArray<THandshakeEffect>;
     /// <summary>Caches the completed session (session id and/or ticket) for later
     /// resumption and returns the SessionTicketReceived event when a ticket was issued.</summary>
     function CacheCompletedSession: TArray<THandshakeEffect>;
@@ -239,6 +246,7 @@ type
     destructor Destroy; override;
     function Initiates: Boolean; override;
     function Start: TArray<THandshakeEffect>; override;
+    function ResumeAfterVerdict: TArray<THandshakeEffect>; override;
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       AUseContext: Boolean; ALength: Int32): TBytes; override;
     function CanExportKeyingMaterial: Boolean; override;
@@ -861,16 +869,22 @@ end;
 
 procedure TTls12ClientStateMachine.ReverifyResumedServer;
 var
+  LVerifier: IServerCertificateVerifier;
   LAlert: TTlsAlertDescription;
   LValidated: TArray<TBytes>;
 begin
-  if FParams.CertificateVerifier = nil then
+  // prefer the resumption-occasion verifier (no must-staple on a chain with no Certificate);
+  // fall back to the primary for a direct caller that wired only one
+  LVerifier := FParams.ResumeCertificateVerifier;
+  if LVerifier = nil then
+    LVerifier := FParams.CertificateVerifier;
+  if LVerifier = nil then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.InternalError, @SNoCertificateVerifier);
   // an empty stored chain cannot be re-verified, so it fails closed
   LAlert := TTlsAlertDescription.BadCertificate;
   if (FResumptionOffer = nil) or (System.Length(FResumptionOffer.PeerCertificates) = 0) or
-    not FParams.CertificateVerifier.VerifyServerCertificate(
+    not LVerifier.VerifyServerCertificate(
     FResumptionOffer.PeerCertificates, FParams.ExpectedServerName, nil, LValidated, LAlert) then
     raise EFatalAlertTlsLibException.CreateRes(LAlert, @SUntrustedCertificate);
 end;
@@ -935,16 +949,35 @@ end;
 
 function TTls12ClientStateMachine.ProcessAbbreviatedServerFinished(
   const AMessage: TTlsHandshakeMessage): TArray<THandshakeEffect>;
-var
-  LVerifyData, LClientFinished: TBytes;
 begin
-  // the server Finished is over ClientHello, ServerHello, [NewSessionTicket]
+  // the server Finished is over ClientHello, ServerHello, [NewSessionTicket]; verify it before
+  // any park so we never withhold a flight on an unauthenticated Finished
   if not FSchedule.VerifyFinished(TTlsDirection.ServerWrite,
     FTranscript.CurrentHash, AMessage.Body) then
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.DecryptError,
       @SBadServerFinished);
   FTranscript.Update(AMessage.Raw);
 
+  // reverify-on-resume + async verdict: the inline reverify at the ServerHello accepted (under a
+  // live posture it defers), so park now and withhold the client's closing flight until the
+  // out-of-band verdict resolves - live revocation decides before we commit our Finished. The
+  // transcript is untouched between here and the resume, so the verify_data is identical either way.
+  if (FParams.ResumeVerification = TResumeVerification.Reverify) and FParams.AsyncVerdict then
+  begin
+    FPhase := TPhase.WaitResumeVerdict;
+    Exit(TArray<THandshakeEffect>.Create(
+      THandshakeEffects.AwaitCertificateVerdict(FResumptionOffer.PeerCertificates,
+      FParams.ExpectedServerName.ToString, nil)));
+  end;
+
+  Result := BuildAbbreviatedClientFlight;
+end;
+
+function TTls12ClientStateMachine.BuildAbbreviatedClientFlight
+  : TArray<THandshakeEffect>;
+var
+  LVerifyData, LClientFinished: TBytes;
+begin
   // the client Finished is over the abbreviated transcript including the server Finished
   LVerifyData := FSchedule.ComputeVerifyData(TTlsDirection.ClientWrite,
     FTranscript.CurrentHash);
@@ -966,6 +999,15 @@ begin
     FParams.ServerName));
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.HandshakeEstablished);
+end;
+
+function TTls12ClientStateMachine.ResumeAfterVerdict: TArray<THandshakeEffect>;
+begin
+  // only the reverify-on-resume park withholds a continuation; other paths resume by draining
+  // the buffered server flight, so there is nothing to emit for them
+  Result := nil;
+  if FPhase = TPhase.WaitResumeVerdict then
+    Result := BuildAbbreviatedClientFlight;
 end;
 
 function TTls12ClientStateMachine.Route(
@@ -1035,6 +1077,10 @@ begin
         Result := ProcessAbbreviatedServerFinished(AMessage)
       else
         Result := Unexpected;
+    TPhase.WaitResumeVerdict:
+      // parked for the out-of-band verdict; the driver buffers peer messages and resumes via
+      // ResumeAfterVerdict, so any message routed here is out of turn
+      Result := Unexpected;
   else
     Result := Unexpected;
   end;

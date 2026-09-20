@@ -98,7 +98,7 @@ type
     /// <summary>A fully-built client config that REPLACES the options-driven build: when set, the
     /// cert/trust options here are not allowed alongside it (the adapter raises). VerdictResolver/
     /// VerdictDeadlineMs are the exception - a runtime stream hook, not part of the frozen config -
-    /// and still apply (arm them with WithAsyncCertificateVerdict). The escape hatch to the full
+    /// and still apply (arm them with WithLiveRevocationVerdict). The escape hatch to the full
     /// builder API (cipher order, groups, resumption, ALPN, ...).</summary>
     property ClientConfig: ITlsClientConfig read FClientConfig write FClientConfig;
     /// <summary>A fully-built server config that REPLACES the options-driven build (the server-side
@@ -528,12 +528,12 @@ begin
   if FOptions.CertFile <> '' then
     LClient.WithCredential(LoadFileBytes(FOptions.CertFile),
       LoadFileBytes(FOptions.KeyFile), FOptions.KeyPassword);
-  // an app's augment-only verify rule, and the async-verdict flag (the resolver itself is a
-  // runtime stream hook applied in DoHandshake, not part of the frozen config)
+  // an app's augment-only verify rule, and the live-revocation verdict flag (the resolver itself
+  // is a runtime stream hook applied in DoHandshake, not part of the frozen config)
   if Assigned(FOptions.VerifyCallback) then
     LClient.WithCertificateVerifyCallback(FOptions.VerifyCallback);
   if Assigned(FOptions.VerdictResolver) then
-    LClient.WithAsyncCertificateVerdict(True, FOptions.VerdictDeadlineMs);
+    LClient.WithLiveRevocationVerdict(FOptions.VerdictDeadlineMs);
   if FOptions.SessionResumption then
   begin
     LClient.WithResumption(True);

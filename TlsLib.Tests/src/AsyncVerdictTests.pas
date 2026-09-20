@@ -217,7 +217,7 @@ begin
     .WithTrustAnchors(TrustRoot)
     .WithPeerAuth(TClientAuthMode.Required)
     .WithRevocation(TRevocationPosture.Hard)
-    .WithAsyncCertificateVerdict(True, 0);
+    .WithLiveRevocationVerdict(0);
   LServerCfg := LServer.Build;
 
   Result := TTlsEngineFactory.CreateClientEngine(LClientCfg, 'localhost');

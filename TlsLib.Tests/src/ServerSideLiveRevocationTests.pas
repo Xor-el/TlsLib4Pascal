@@ -276,7 +276,7 @@ begin
     .WithPeerAuth(TClientAuthMode.Required)
     .WithTrustAnchors(ClientCa) // the private client CA (issues the client leaf)
     .WithRevocation(APosture)
-    .WithAsyncCertificateVerdict(True, 0); // arm the park so the resolver runs off the engine
+    .WithLiveRevocationVerdict(0); // arm the park so the live resolver runs off the engine
   if AForce12 then
     LServer.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12));
   Result := LServer.Build;

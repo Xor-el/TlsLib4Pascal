@@ -65,6 +65,10 @@ type
     function NewServer13(const AStore: ISessionStore; AIssueTickets: Int32;
       AResumption: Boolean): ITlsEngine;
     function NewClient12(const ACache: ISessionCache): ITlsEngine;
+    /// <summary>A permissive TLS 1.2 client with Reverify + async verdict: the abbreviated
+    /// resumption handshake re-checks inline (accepts) then parks at the abbreviated
+    /// ServerFinished for the out-of-band verdict.</summary>
+    function NewReverifyAsyncClient12(const ACache: ISessionCache): ITlsEngine;
     function NewServer12(const AStore: ISessionStore): ITlsEngine;
     function Drain(const AEngine: ITlsEngine): TBytes;
     procedure Feed(const AEngine: ITlsEngine; const AWire: TBytes);
@@ -97,6 +101,9 @@ type
     procedure TestReverifyOnResumeAsyncParkAcceptsCompletes;
     procedure TestReverifyOnResumeAsyncParkRejectAborts;
     procedure TestExporterWithheldDuringReverifyPark;
+    procedure TestTls12ReverifyOnResumeAsyncParkAcceptsCompletes;
+    procedure TestTls12ReverifyOnResumeAsyncParkRejectAborts;
+    procedure TestTls12ReverifyOnResumeExporterWithheld;
   end;
 
 implementation
@@ -226,6 +233,24 @@ begin
   LConfig := TTlsPresets.Compatible(Provider).Client
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
     .WithTrustStore(ClientTrust)
+    .WithSessionCache(ACache)
+    .Build;
+  Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
+end;
+
+function TTestConfigResumption.NewReverifyAsyncClient12(
+  const ACache: ISessionCache): ITlsEngine;
+var
+  LConfig: ITlsClientConfig;
+begin
+  // permissive trust accepts the resumed chain inline; Reverify + async verdict make the
+  // abbreviated resumption re-check inline (accept) then park for the out-of-band verdict
+  LConfig := TTlsPresets.Compatible(Provider).Client
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
+    .WithTrustStore(ClientTrust)
+    .WithResumption(True)
+    .WithResumeVerification(TResumeVerification.Reverify)
+    .WithAsyncCertificateVerdict(True, 0)
     .WithSessionCache(ACache)
     .Build;
   Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
@@ -693,6 +718,87 @@ begin
   PumpToCompletionResolving(LClient, LServer, False,
     TTlsAlertDescription.CertificateRevoked);
   CheckTrue(LClient.IsTerminal, 'a rejected park aborted the resumed handshake');
+end;
+
+procedure TTestConfigResumption.TestTls12ReverifyOnResumeAsyncParkAcceptsCompletes;
+var
+  LCache: ISessionCache;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+begin
+  // a permissive 1.2 client caches a resumable session
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LClient := NewClient12(LCache);
+  LServer := NewServer12(LStore);
+  PumpToCompletion(LClient, LServer);
+  CheckEquals(1, LCache.Count, 'the client cached the 1.2 session');
+
+  // resume with Reverify + async: the inline reverify accepts, the abbreviated handshake parks at
+  // the server Finished (the client Finished is withheld), and the accepted out-of-band verdict
+  // drives the withheld continuation to completion
+  LClient := NewReverifyAsyncClient12(LCache);
+  LServer := NewServer12(LStore);
+  PumpToCompletionResolving(LClient, LServer, True,
+    TTlsAlertDescription.BadCertificate);
+  CheckTrue(LClient.IsResumed, 'the async reverify-on-resume 1.2 handshake resumed');
+  CheckFalse(LClient.IsHandshaking, 'the resumed handshake completed after the accepted park');
+  CheckFalse(LClient.IsTerminal, 'an accepted verdict did not abort');
+end;
+
+procedure TTestConfigResumption.TestTls12ReverifyOnResumeAsyncParkRejectAborts;
+var
+  LCache: ISessionCache;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LClient := NewClient12(LCache);
+  LServer := NewServer12(LStore);
+  PumpToCompletion(LClient, LServer);
+  CheckEquals(1, LCache.Count, 'the client cached the 1.2 session');
+
+  // resume, then REJECT the out-of-band verdict: the parked handshake aborts fail-closed with the
+  // resolver's alert (augment-only); the client Finished is never sent, so the server also aborts
+  LClient := NewReverifyAsyncClient12(LCache);
+  LServer := NewServer12(LStore);
+  PumpToCompletionResolving(LClient, LServer, False,
+    TTlsAlertDescription.CertificateRevoked);
+  CheckTrue(LClient.IsTerminal, 'a rejected park aborted the resumed 1.2 handshake');
+  CheckTrue(LServer.IsTerminal, 'the abort reached the server');
+end;
+
+procedure TTestConfigResumption.TestTls12ReverifyOnResumeExporterWithheld;
+var
+  LCache: ISessionCache;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+  LIterations: Int32;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LClient := NewClient12(LCache);
+  LServer := NewServer12(LStore);
+  PumpToCompletion(LClient, LServer);
+
+  // drive until the client parks on the verdict; no verdict is supplied, so the handshake must
+  // not complete and no keying material may be exported over the unverified resumed identity
+  LClient := NewReverifyAsyncClient12(LCache);
+  LServer := NewServer12(LStore);
+  LClient.StartHandshake;
+  LIterations := 0;
+  while (not LClient.AwaitingCertificateVerdict) and LClient.IsHandshaking and
+    (LIterations < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LIterations);
+  end;
+  CheckTrue(LClient.AwaitingCertificateVerdict, 'the 1.2 client parked on the reverify verdict');
+  CheckTrue(LClient.IsHandshaking, 'the parked 1.2 handshake has not completed without a verdict');
+  CheckEquals(0, System.Length(LClient.ExportKeyingMaterial('EXPORTER-test',
+    DecodeHex('00010203'), True, 32)), 'no export while parked on the reverify verdict');
 end;
 
 initialization

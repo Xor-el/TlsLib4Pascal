@@ -442,8 +442,8 @@ begin
   // the configured client-CA is the exclusive anchor the OS client delegate roots against
   LServer.WithTrustStore(TInteropCredentials.TrustFromPem(AProvider, ACaFile));
   LServer.WithRevocation(ACell.Posture);
-  // arm the async park the OS-native live resolver decides in (Hard client-cert revocation needs it)
-  LServer.WithAsyncCertificateVerdict(True, LiveDeadlineMs);
+  // arm the live-revocation park the OS-native resolver decides in (Hard client-cert needs it)
+  LServer.WithLiveRevocationVerdict(LiveDeadlineMs);
   // a NewSessionTicket would otherwise arrive before the echo and look like a broken round-trip
   LServer.WithResumption(False);
   // verify the peer CLIENT certificate through the OS trust engine, live (network on) at the park

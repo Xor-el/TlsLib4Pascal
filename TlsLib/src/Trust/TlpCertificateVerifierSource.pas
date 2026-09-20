@@ -90,8 +90,8 @@ var
 begin
   LVerifier := TCertificateVerifier.Create(AContext.Provider, AContext.Clock,
     AContext.TrustStore, AContext.CheckHostName, AContext.ChainLimits,
-    AContext.RevocationPosture, AContext.Dangerous,
-    AContext.AsyncVerdictEnabled, AContext.Intermediates);
+    AContext.RevocationPosture, AContext.Dangerous, AContext.Deferral,
+    AContext.Intermediates, AContext.StatusRequestOffered, AContext.Occasion);
   LVerifier.SetChainAlgorithmPolicy(AContext.StrengthPolicy,
     AContext.AdvertisedSignatureSchemes);
   Result := LVerifier as IServerCertificateVerifier;
@@ -122,7 +122,7 @@ begin
   // a client certificate carries no host identity, so name checking is always off
   LVerifier := TCertificateVerifier.Create(AContext.Provider, AContext.Clock,
     AContext.TrustStore, False, AContext.ChainLimits, AContext.RevocationPosture,
-    AContext.Dangerous, AContext.AsyncVerdictEnabled, AContext.Intermediates);
+    AContext.Dangerous, AContext.Deferral, AContext.Intermediates);
   LVerifier.SetChainAlgorithmPolicy(AContext.StrengthPolicy,
     AContext.AdvertisedSignatureSchemes);
   Result := LVerifier as IClientCertificateVerifier;

@@ -279,8 +279,8 @@ begin
     FDriver.Apply(THandshakeEffects.Fail(AAlert));
     Exit;
   end;
-  // accepted. First apply any continuation the machine withheld behind the park: the TLS 1.3
-  // reverify-on-resume park sits at ServerFinished, where no peer message remains to drive
+  // accepted. First apply any continuation the machine withheld behind the park: a reverify-on-
+  // resume park sits at the (abbreviated) ServerFinished, where no peer message remains to drive
   // completion, so the machine emits its closing flight here. The initial-certificate park
   // returns none - its buffered server flight drives it below.
   LWasEstablished := FEstablished;

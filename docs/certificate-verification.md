@@ -248,9 +248,9 @@ builder takes no `IHttpFetcher`, by design, so the engine stays network-free. Yo
 `TTlsStream` (the convenience blocking stream) by attaching a checker to the parked verdict:
 
 ```pascal
-// 1. enable async verdicts on the config, so the engine parks for an out-of-band
-//    decision instead of deciding inline: ...WithRevocation(TRevocationPosture.Hard)
-//    .WithAsyncCertificateVerdict(True, deadlineMs)  <-- without this the resolver never fires
+// 1. enable the live-revocation verdict on the config, so the engine defers an indeterminate
+//    stapled outcome and parks for the live check: ...WithRevocation(TRevocationPosture.Hard)
+//    .WithLiveRevocationVerdict(deadlineMs)  <-- without this the resolver never fires
 // 2. attach the live checker to the stream (the clock drives the deadline; the
 //    fetcher owns every socket):
 checker := TLiveRevocationChecker.Create(provider, clock, fetcher, TRevocationPosture.Hard,
@@ -266,12 +266,18 @@ Posture **`Off` performs no live fetch at all** (its network and privacy cost is
 stapled Revoked is still honoured by the pipeline. CRL responses are only trusted inside their
 `thisUpdate`/`nextUpdate` window, so a replayed stale CRL is treated as indeterminate, never a Good.
 
-The config **`WithRevocation` posture and the live channel are one policy**: when a verdict
-resolver is attached, an indeterminate/no-staple leaf is *deferred* to it rather than decided
-inline, so `WithRevocation(Hard)` + a resolver rejects only a genuinely revoked (or unreachable,
-under Hard) peer — it does not blanket-reject an unstapled one. Without a resolver, `Hard` decides
-inline as before (a missing staple is rejected); a `must-staple` leaf (RFC 7633) always requires a
-current Good staple and is never deferred.
+The config **`WithRevocation` posture and the live channel are one policy**: with
+`WithLiveRevocationVerdict`, an indeterminate/no-staple leaf is *deferred* to the resolver rather
+than decided inline, so `WithRevocation(Hard)` + `WithLiveRevocationVerdict` rejects only a
+genuinely revoked (or unreachable, under Hard) peer — it does not blanket-reject an unstapled one.
+A `WithAsyncCertificateVerdict` (host-decision) park is augment-only: it does **not** defer the
+revocation gate, so under it `Hard` still rejects a missing staple inline. Without any live
+deferral, `Hard` decides inline (a missing staple is rejected); a `must-staple` leaf (RFC 7633)
+requires a current Good staple, and is enforced only for an initial-handshake server certificate
+the client requested a staple for (`WithOcspStaplingRequest`) — never deferred. An app that
+previously paired `WithRevocation(Hard)` with `WithAsyncCertificateVerdict` and a live checker
+should switch to `WithLiveRevocationVerdict` (Build now refuses a Hard client that has neither a
+staple request nor live-revocation deferral).
 
 ### OS-native live revocation (opt-in, Windows + Apple)
 

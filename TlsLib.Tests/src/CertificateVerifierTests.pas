@@ -148,7 +148,7 @@ begin
   Result := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(ARoot)) as ITrustAnchorStore,
     False, TCertificateChainLimits.Defaults, TRevocationPosture.Soft,
-    LNoDangerous, False, AIntermediates) as IServerCertificateVerifier;
+    LNoDangerous, TVerdictDeferral.None, AIntermediates) as IServerCertificateVerifier;
 end;
 
 procedure TTestCertificateVerifier.TestValidChainTrusted;
