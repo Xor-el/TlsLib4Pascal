@@ -94,10 +94,9 @@ type
     // set only when a client aborts with ech_required over a rejected ECH offer, so a server's
     // benign Rejected status (a completed GREASE handshake) is never read as an ECH abort
     FEchRejectAborted: Boolean;
-    // async peer-certificate verdict: whether the handshake is parked awaiting a verdict,
-    // and the advisory deadline the driver enforces (the engine owns no timer)
+    // async peer-certificate verdict: whether the handshake is parked awaiting a verdict. Any
+    // time budget belongs to the resolver, not the engine (the engine owns no timer)
     FAwaitingVerdict: Boolean;
-    FAsyncVerdictDeadlineMs: Cardinal;
     // guards against re-entering the record-layer drain (a read-triggered resume must not run
     // while a drain is already in progress, e.g. from a sink callback)
     FDraining: Boolean;
@@ -122,8 +121,7 @@ type
     /// and ConfigureHandshake stays off the public ITlsEngine surface.
     /// </summary>
     class function CreateConfigured(const AInitialMachine: IHandshakeMachine;
-      const AProvider: ICryptoProvider;
-      AAsyncVerdictDeadlineMs: Cardinal = 0): ITlsEngine; static;
+      const AProvider: ICryptoProvider): ITlsEngine; static;
 
     /// <summary>
     /// Wires the handshake: builds the channel over this engine's record layer and a
@@ -132,7 +130,7 @@ type
     /// graph). Call once, before StartHandshake.
     /// </summary>
     procedure ConfigureHandshake(const AInitialMachine: IHandshakeMachine;
-      const AProvider: ICryptoProvider; AAsyncVerdictDeadlineMs: Cardinal = 0);
+      const AProvider: ICryptoProvider);
 
     function ProcessInput(const AWire: TBytes; AOffset, ALength: Int32): TTlsOutcome;
     procedure Write(const AData: TBytes; AOffset, ALength: Int32);
@@ -151,7 +149,6 @@ type
     function WantsWrite: Boolean;
     function IsHandshaking: Boolean;
     function AwaitingCertificateVerdict: Boolean;
-    function AsyncCertificateVerdictDeadlineMs: Cardinal;
     function IsTerminal: Boolean;
     function IsInboundClosed: Boolean;
     function WriteClosed: Boolean;
@@ -430,7 +427,6 @@ begin
   FHandshakeComplete := False;
   FWarningAlertCount := 0;
   FAwaitingVerdict := False;
-  FAsyncVerdictDeadlineMs := 0;
   FNegotiatedCipherSuite := 0;
   FNegotiatedGroup := 0;
   FPeerServerName := '';
@@ -456,18 +452,17 @@ end;
 
 class function TTlsEngine.CreateConfigured(
   const AInitialMachine: IHandshakeMachine;
-  const AProvider: ICryptoProvider;
-  AAsyncVerdictDeadlineMs: Cardinal): ITlsEngine;
+  const AProvider: ICryptoProvider): ITlsEngine;
 var
   LEngine: TTlsEngine;
 begin
   LEngine := TTlsEngine.Create;
   Result := LEngine; // assign the interface result before the fallible ConfigureHandshake
-  LEngine.ConfigureHandshake(AInitialMachine, AProvider, AAsyncVerdictDeadlineMs);
+  LEngine.ConfigureHandshake(AInitialMachine, AProvider);
 end;
 
 procedure TTlsEngine.ConfigureHandshake(const AInitialMachine: IHandshakeMachine;
-  const AProvider: ICryptoProvider; AAsyncVerdictDeadlineMs: Cardinal);
+  const AProvider: ICryptoProvider);
 var
   LChannel: IHandshakeChannel;
   LBridge: TEngineHandshakeBridge;
@@ -475,7 +470,6 @@ var
 begin
   if FConductor <> nil then
     raise EInvalidOperationTlsLibException.CreateRes(@SHandshakeAlreadyConfigured);
-  FAsyncVerdictDeadlineMs := AAsyncVerdictDeadlineMs;
   // a real handshake enforces the TLS record-phase rules: a cleartext application_data record
   // (before any read epoch key) is unexpected (RFC 8446 5.1)
   FRecordLayer.StrictApplicationData := True;
@@ -997,11 +991,6 @@ end;
 function TTlsEngine.AwaitingCertificateVerdict: Boolean;
 begin
   Result := FAwaitingVerdict;
-end;
-
-function TTlsEngine.AsyncCertificateVerdictDeadlineMs: Cardinal;
-begin
-  Result := FAsyncVerdictDeadlineMs;
 end;
 
 function TTlsEngine.IsTerminal: Boolean;

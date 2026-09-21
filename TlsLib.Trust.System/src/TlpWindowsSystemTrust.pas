@@ -1519,7 +1519,7 @@ constructor TWindowsLiveRevocationResolver.Create(const AProvider: ICryptoProvid
   const AAdvertised: TArray<UInt16>; ADeadlineMs: Cardinal;
   const AFallback: TCertificateVerdictResolver);
 begin
-  inherited Create(APosture, AFallback);
+  inherited Create(APosture, TPeerRole.Server, AFallback);
   FProvider := AProvider;
   FClock := AClock;
   FStrengthPolicy := AStrengthPolicy;
@@ -1544,7 +1544,7 @@ constructor TWindowsClientLiveRevocationResolver.Create(const AProvider: ICrypto
   const AAdvertised: TArray<UInt16>; ADeadlineMs: Cardinal;
   const AFallback: TCertificateVerdictResolver);
 begin
-  inherited Create(APosture, AFallback);
+  inherited Create(APosture, TPeerRole.Client, AFallback);
   FProvider := AProvider;
   FAnchors := AAnchors;
   FClock := AClock;

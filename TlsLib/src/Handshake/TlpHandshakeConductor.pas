@@ -281,7 +281,7 @@ begin
   FVerdictPending := False;
   if not AAccept then
   begin
-    // fail-closed: the host rejected the peer chain (or the deadline expired). The built-in
+    // fail-closed: the host rejected the peer chain (or its resolver timed out). The built-in
     // pipeline had already accepted it, so this can only additionally reject - augment-only.
     // AAlert lets a definitive live-revocation reject abort with certificate_revoked
     FDriver.Apply(THandshakeEffects.Fail(AAlert));

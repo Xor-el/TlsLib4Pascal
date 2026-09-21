@@ -79,6 +79,10 @@ type
     procedure TestEmptyEchConfigListWithoutGreaseRejectedAtBuild;
     procedure TestEchGreaseOnlyBuildsWithoutConfig;
     procedure TestEchGreaseFalseWithoutConfigIsNoOp;
+    procedure TestEmptySupportedVersionsIsRefused;
+    procedure TestNonNegotiableVersionIsRefused;
+    procedure TestDuplicateVersionIsRefused;
+    procedure TestRawBuilderWithoutVersionsIsRefusedAtBuild;
     procedure TestBuilderRejectsMutationAfterBuild;
     procedure TestSecondBuildIsRejected;
     procedure TestReturnedPinsArrayCannotMutateConfig;
@@ -300,6 +304,87 @@ begin
   // fail-closed empty policy), so a caller passing a runtime flag is not surprised by a raise
   LConfig := NewClientBuilder.Client.Tls13.WithEchGrease(False).Build;
   CheckTrue(LConfig.EncryptedClientHello = nil, 'no ECH policy is configured');
+end;
+
+procedure TTestConfigBuilder.TestEmptySupportedVersionsIsRefused;
+var
+  LBuilder: ITlsConfigBuilder;
+  LRaised: Boolean;
+  LNone: TArray<UInt16>;
+begin
+  LBuilder := TTlsConfigBuilder.Create(Provider);
+  LNone := nil;
+  LRaised := False;
+  try
+    LBuilder.Client.WithSupportedVersions(LNone);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an empty supported-versions set is refused');
+end;
+
+procedure TTestConfigBuilder.TestNonNegotiableVersionIsRefused;
+var
+  LBuilder: ITlsConfigBuilder;
+  LRaised: Boolean;
+begin
+  LBuilder := TTlsConfigBuilder.Create(Provider);
+  LRaised := False;
+  try
+    // TLS 1.0 is not a version the engine can build
+    LBuilder.Client.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls10));
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a non-negotiable version is refused');
+end;
+
+procedure TTestConfigBuilder.TestDuplicateVersionIsRefused;
+var
+  LBuilder: ITlsConfigBuilder;
+  LRaised: Boolean;
+begin
+  LBuilder := TTlsConfigBuilder.Create(Provider);
+  LRaised := False;
+  try
+    LBuilder.Client.WithSupportedVersions(
+      TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls13));
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a duplicate version is refused');
+end;
+
+procedure TTestConfigBuilder.TestRawBuilderWithoutVersionsIsRefusedAtBuild;
+var
+  LBuilder: ITlsConfigBuilder;
+  LRaised: Boolean;
+  LMsg: string;
+begin
+  // a builder that never called WithSupportedVersions cannot build a machine
+  LBuilder := TTlsConfigBuilder.Create(Provider);
+  LRaised := False;
+  LMsg := '';
+  try
+    LBuilder.Server
+      .WithCipherSuites(TCipherSuiteRegistry.CreateDefault(Provider))
+      .WithSignatureSchemes(TSignatureSchemeRegistry.CreateDefault)
+      .WithNamedGroups(TNamedGroups.CreateDefaultRegistry(Provider))
+      .WithCredential(ServerCredential)
+      .Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+    begin
+      LRaised := True;
+      LMsg := E.Message;
+    end;
+  end;
+  CheckTrue(LRaised, 'a build with no offered versions is refused');
+  CheckTrue(Pos('must be offered', LMsg) > 0,
+    'the message names the missing offered versions');
 end;
 
 function TTestConfigBuilder.Drain(const AEngine: ITlsEngine): TBytes;
@@ -599,8 +684,9 @@ var
   LClient, LServer: ITlsEngine;
   LFromClient: TBytes;
 begin
-  LClient := TTlsLib.NewClientEngine('localhost', ClientTrust);
-  LServer := TTlsLib.NewServerEngine(ServerCredential);
+  // build the config once via the facade, then create an engine per connection through the factory
+  LClient := TTlsEngineFactory.CreateClientEngine(TTlsLib.NewClientConfig(ClientTrust), 'localhost');
+  LServer := TTlsEngineFactory.CreateServerEngine(TTlsLib.NewServerConfig(ServerCredential));
   RunHandshake(LClient, LServer);
 
   CheckFalse(LClient.IsHandshaking, 'the facade client completed the handshake');

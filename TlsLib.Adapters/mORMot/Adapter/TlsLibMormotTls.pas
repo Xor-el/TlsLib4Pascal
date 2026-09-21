@@ -61,14 +61,26 @@ uses
 /// mORMot builds an INetTls per connection through a global factory, so the adapter's neutral
 /// hooks are configured with these unit-level setters. nil clears it.</summary>
 procedure SetTlsLibMormotVerifyCallback(const ACallback: TTlsCertificateVerifyCallback);
-/// <summary>Sets a process-wide out-of-band verdict resolver (e.g. live OCSP/CRL): when set,
-/// every client handshake parks after the pipeline accepts the chain and this decides it.
-/// ADeadlineMs is advisory. nil clears it.</summary>
+/// <summary>Sets a process-wide out-of-band verdict resolver for the CLIENT role (e.g. live
+/// OCSP/CRL over the SERVER's chain): when set, every client handshake parks after the pipeline
+/// accepts the server chain and this decides it. Pair it with a client-config resolver
+/// (TOSSystemTrust.LiveRevocationResolver over a client config binds server-auth EKU). For an mTLS
+/// server that must vet the CLIENT chain, use SetTlsLibMormotServerVerdictResolver instead - the
+/// two roles evaluate different EKUs, so one resolver cannot serve both. ADeadlineMs is the
+/// resolver's fetch budget. nil clears it.</summary>
 procedure SetTlsLibMormotVerdictResolver(const AResolver: TCertificateVerdictResolver;
   ADeadlineMs: Cardinal);
+/// <summary>Sets a process-wide out-of-band verdict resolver for the SERVER role (live revocation
+/// over an mTLS CLIENT's chain): when set, every server handshake that requests client auth parks
+/// after the pipeline accepts the client chain and this decides it. Pair it with a server-config
+/// resolver (binds client-auth EKU). ADeadlineMs is the resolver's fetch budget. nil clears it.</summary>
+procedure SetTlsLibMormotServerVerdictResolver(
+  const AResolver: TCertificateVerdictResolver; ADeadlineMs: Cardinal);
 /// <summary>Sets a process-wide, fully-built client config that REPLACES the context-driven build:
 /// when set, every client handshake uses it as-is (the TNetTlsContext trust/cert fields are ignored).
-/// The escape hatch to the full builder API - cipher order, groups, resumption, ALPN. nil clears it.</summary>
+/// The verdict resolver still applies, but only if this config armed the deferral
+/// (WithLiveRevocationVerdict/WithAsyncCertificateVerdict) - else the handshake never parks. The
+/// escape hatch to the full builder API - cipher order, groups, resumption, ALPN. nil clears it.</summary>
 procedure SetTlsLibMormotClientConfig(const AConfig: ITlsClientConfig);
 /// <summary>Sets a process-wide, fully-built server config that REPLACES the context-driven build
 /// (the server-side counterpart of SetTlsLibMormotClientConfig). nil clears it.</summary>
@@ -182,8 +194,12 @@ resourcestring
 var
   // process-wide neutral hooks the per-connection adapter threads into each client handshake
   GVerifyCallback: TTlsCertificateVerifyCallback;
+  // the client-role resolver evaluates the server's chain; the server-role resolver evaluates an
+  // mTLS client's chain. They bind different EKUs, so the two roles keep separate hooks
   GVerdictResolver: TCertificateVerdictResolver;
   GVerdictDeadlineMs: Cardinal;
+  GServerVerdictResolver: TCertificateVerdictResolver;
+  GServerVerdictDeadlineMs: Cardinal;
   // process-wide fully-built configs that, when set, REPLACE the context-driven build
   GClientConfig: ITlsClientConfig;
   GServerConfig: ITlsServerConfig;
@@ -207,6 +223,13 @@ procedure SetTlsLibMormotVerdictResolver(const AResolver: TCertificateVerdictRes
 begin
   GVerdictResolver := AResolver;
   GVerdictDeadlineMs := ADeadlineMs;
+end;
+
+procedure SetTlsLibMormotServerVerdictResolver(
+  const AResolver: TCertificateVerdictResolver; ADeadlineMs: Cardinal);
+begin
+  GServerVerdictResolver := AResolver;
+  GServerVerdictDeadlineMs := ADeadlineMs;
 end;
 
 procedure SetTlsLibMormotClientConfig(const AConfig: ITlsClientConfig);
@@ -438,6 +461,10 @@ begin
       TSystemTrust.WithSystemTrust(LServer, LProvider);
     if AContext.CACertificatesFile <> '' then
       LServer.WithTrustAnchors(LoadFile(AContext.CACertificatesFile));
+    // arm the async client-certificate verdict park so the server-role resolver runs server-side
+    // (live client-cert revocation); without this the stream's resolver is never invoked
+    if Assigned(GServerVerdictResolver) then
+      LServer.WithLiveRevocationVerdict(GServerVerdictDeadlineMs);
   end;
   if GSessionResumption then
   begin
@@ -487,6 +514,8 @@ begin
   LSig.AddFile('ca', Utf8ToString(AContext.CACertificatesFile));
   LSig.AddFlag('scsRoot', scsRoot in AContext.CASystemStores);
   LSig.AddFlag('scsCA', scsCA in AContext.CASystemStores);
+  LSig.AddFlag('asyncVerdict', Assigned(GServerVerdictResolver));
+  LSig.AddCardinal('deadline', GServerVerdictDeadlineMs);
   Result := LSig.Value;
 end;
 
@@ -554,8 +583,15 @@ begin
   LTransport.SetReadTimeout(DefaultHandshakeReadTimeoutMs);
   FTransport := LTransport as ITlsTransport;
   FStream := TTlsStream.Create(FTransport, FEngine, AIsClient, AHost);
-  if AIsClient and Assigned(GVerdictResolver) then
-    FStream.SetCertificateVerdictResolver(GVerdictResolver);
+  // attach the role-correct resolver: a client parks on the server's chain, a server (client auth)
+  // on the mTLS client's chain - the two bind different EKUs
+  if AIsClient then
+  begin
+    if Assigned(GVerdictResolver) then
+      FStream.SetCertificateVerdictResolver(GVerdictResolver);
+  end
+  else if Assigned(GServerVerdictResolver) then
+    FStream.SetCertificateVerdictResolver(GServerVerdictResolver);
   try
     FStream.Handshake;
   finally

@@ -59,16 +59,16 @@ type
     class procedure ResolveVerdict(const AEngine: ITlsEngine;
       const ATransport: ITlsTransport;
       const ACertEvent: ICertificateReceivedEvent;
-      const AResolveVerdict: TCertificateVerdictResolver); static;
+      const AResolveVerdict: TCertificateVerdictResolver;
+      APeerRole: TPeerRole); static;
   public
     /// <summary>Sends every pending outbound byte to the transport.</summary>
     class procedure Flush(const AEngine: ITlsEngine;
       const ATransport: ITlsTransport); static;
     /// <summary>Runs the handshake to completion. A client sends its opening flight first
-    /// (StartHandshake); a server waits for the ClientHello. Raises on failure. When async
-    /// certificate verdicts are enabled, the parked verdict resolves inline via the built-in
-    /// trust pipeline (the deferred verdict is never awaited); use the resolver overload to
-    /// decide it out-of-band.</summary>
+    /// (StartHandshake); a server waits for the ClientHello. Raises on failure. This overload has
+    /// no resolver, so with async certificate verdicts enabled a parked verdict fails closed with
+    /// certificate_unknown; use the resolver overload to decide it out-of-band.</summary>
     class procedure DriveHandshake(const AEngine: ITlsEngine;
       const ATransport: ITlsTransport; AIsClient: Boolean); overload; static;
     /// <summary>Runs the handshake to completion, resolving any parked peer-certificate
@@ -169,7 +169,8 @@ end;
 class procedure TTlsStreamPump.ResolveVerdict(const AEngine: ITlsEngine;
   const ATransport: ITlsTransport;
   const ACertEvent: ICertificateReceivedEvent;
-  const AResolveVerdict: TCertificateVerdictResolver);
+  const AResolveVerdict: TCertificateVerdictResolver;
+  APeerRole: TPeerRole);
 var
   LAccept: Boolean;
   LAlert: TTlsAlertDescription;
@@ -181,6 +182,7 @@ begin
   LAlert := TTlsAlertDescription.CertificateUnknown;
   if Assigned(AResolveVerdict) and (ACertEvent <> nil) then
   begin
+    LCtx.PeerRole := APeerRole;
     LCtx.Chain := ACertEvent.Chain;
     LCtx.HostName := ACertEvent.HostName;
     LCtx.OcspStaple := ACertEvent.OcspStaple;
@@ -209,7 +211,14 @@ var
   LTotal: Int64;
   LPeerClosed: Boolean;
   LCertEvent: ICertificateReceivedEvent;
+  LPeerRole: TPeerRole;
 begin
+  // our role fixes whose certificate a park concerns: a client verifies the server's chain,
+  // a server the mTLS client's
+  if AIsClient then
+    LPeerRole := TPeerRole.Server
+  else
+    LPeerRole := TPeerRole.Client;
   // the client emits its opening flight now; a server has nothing to send until it
   // reads the ClientHello
   if AIsClient then
@@ -225,7 +234,7 @@ begin
     // that would never return (the peer already sent the rest of its flight)
     if AEngine.AwaitingCertificateVerdict then
     begin
-      ResolveVerdict(AEngine, ATransport, LCertEvent, AResolveVerdict);
+      ResolveVerdict(AEngine, ATransport, LCertEvent, AResolveVerdict, LPeerRole);
       LCertEvent := nil;
       Continue;
     end;

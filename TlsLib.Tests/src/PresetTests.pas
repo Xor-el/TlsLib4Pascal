@@ -29,6 +29,7 @@ uses
   TlpICertificateTrust,
   TlpCertificateVerifier,
   TlpCertificateLimits,
+  TlpTrustPolicy,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpTlsPresets,
@@ -45,6 +46,9 @@ type
     procedure TestStrictTightensCertificateChainLimits;
     procedure TestHardenedAndStrictAreTls13Only;
     procedure TestCompatibleOffersTls13And12;
+    procedure TestHardenedAndStrictRequestOcspStapling;
+    procedure TestCompatibleDoesNotRequestStapling;
+    procedure TestStrictWithHardRevocationBuilds;
   end;
 
 implementation
@@ -126,6 +130,36 @@ begin
   // a hardened 1.2 ECDHE-ECDSA suite is present in the offered registry
   CheckTrue(LConfig.CipherSuites.Contains(
     TCipherSuites12.EcdheEcdsaAes128GcmSha256), 'a hardened 1.2 suite is offered');
+end;
+
+procedure TTestPreset.TestHardenedAndStrictRequestOcspStapling;
+begin
+  // the stricter presets request an OCSP staple (connectivity-safe under the soft-fail default)
+  CheckTrue(ClientOf(TTlsPresets.Hardened(Provider)).RequestOcspStapling,
+    'Hardened requests an OCSP staple');
+  CheckTrue(ClientOf(TTlsPresets.Strict(Provider)).RequestOcspStapling,
+    'Strict requests an OCSP staple');
+end;
+
+procedure TTestPreset.TestCompatibleDoesNotRequestStapling;
+begin
+  // Compatible keeps the default (no staple requested) for maximum reach
+  CheckFalse(ClientOf(TTlsPresets.Compatible(Provider)).RequestOcspStapling,
+    'Compatible does not request a staple');
+end;
+
+procedure TTestPreset.TestStrictWithHardRevocationBuilds;
+var
+  LConfig: ITlsClientConfig;
+begin
+  // Strict already requests a staple, so raising the posture to Hard is satisfiable without a
+  // staple request of the caller's own - Build does not fail fast as always-rejecting
+  LConfig := TTlsPresets.Strict(Provider).Client
+    .WithTrustStore(TTrustAnchorStore.Create(nil) as ITrustAnchorStore)
+    .WithRevocation(TRevocationPosture.Hard)
+    .Build;
+  CheckEquals(Ord(TRevocationPosture.Hard), Ord(LConfig.RevocationPosture),
+    'Strict builds with Hard revocation on the staple it already requests');
 end;
 
 initialization

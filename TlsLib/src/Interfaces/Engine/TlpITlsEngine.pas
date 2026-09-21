@@ -135,8 +135,8 @@ type
     /// pipeline has already passed, so this only confirms the augment verdict. AAccept False
     /// aborts fail-closed with AAlert (default bad_certificate; a live-revocation reject passes
     /// certificate_revoked, an indeterminate hard-fail bad_certificate_status_response). A no-op
-    /// when no verdict is awaited. Called by the driver on the host's decision or, on deadline
-    /// expiry, with False (the engine owns no timer).
+    /// when no verdict is awaited. Called by the driver on the host's decision or with False when
+    /// a resolver could not decide within its budget (the engine owns no timer).
     /// </summary>
     procedure SetCertificateVerdict(AAccept: Boolean;
       AAlert: TTlsAlertDescription = TTlsAlertDescription.BadCertificate);
@@ -166,13 +166,6 @@ type
     /// False when async certificate verdicts are disabled (the verdict resolves inline).
     /// </summary>
     function AwaitingCertificateVerdict: Boolean;
-    /// <summary>
-    /// The advisory deadline, in milliseconds, within which the host should deliver an
-    /// awaited certificate verdict; the driver enforces it (the engine owns no timer) and
-    /// on expiry calls SetCertificateVerdict(False). 0 when async verdicts are disabled or
-    /// no deadline was configured.
-    /// </summary>
-    function AsyncCertificateVerdictDeadlineMs: Cardinal;
     /// <summary>Whether the engine has failed or closed and accepts no more work.</summary>
     function IsTerminal: Boolean;
     /// <summary>Whether the peer sent close_notify: a clean inbound shutdown. Unlike the

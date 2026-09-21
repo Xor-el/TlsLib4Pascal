@@ -1638,7 +1638,7 @@ constructor TAppleLiveRevocationResolver.Create(const AProvider: ICryptoProvider
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>; const AFallback: TCertificateVerdictResolver);
 begin
-  inherited Create(APosture, AFallback);
+  inherited Create(APosture, TPeerRole.Server, AFallback);
   FProvider := AProvider;
   FClock := AClock;
   FStrengthPolicy := AStrengthPolicy;
@@ -1661,7 +1661,7 @@ constructor TAppleClientLiveRevocationResolver.Create(const AProvider: ICryptoPr
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>; const AFallback: TCertificateVerdictResolver);
 begin
-  inherited Create(APosture, AFallback);
+  inherited Create(APosture, TPeerRole.Client, AFallback);
   FProvider := AProvider;
   FAnchors := AAnchors;
   FClock := AClock;

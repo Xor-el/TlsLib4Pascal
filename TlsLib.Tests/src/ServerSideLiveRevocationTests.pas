@@ -86,6 +86,7 @@ type
   TTestServerSideLiveRevocation = class(TTlsLibAlgorithmTestCase)
   strict private
     FFetcher: TMockHttpFetcher; // one primed fetcher per test, referenced by the checker
+    FStubPeerRole: TPeerRole;   // the role the pump handed the stub resolver at the server park
     function CertField(const AName: string): TBytes;
     function ServerRoot: TBytes;
     function ServerLeaf: TBytes;
@@ -344,6 +345,7 @@ function TTestServerSideLiveRevocation.StubAccept(
   const ACtx: TCertificateVerdictContext;
   out ARejectAlert: TTlsAlertDescription): Boolean;
 begin
+  FStubPeerRole := ACtx.PeerRole; // record the role the pump attributed to the parked chain
   ARejectAlert := TTlsAlertDescription.BadCertificate;
   Result := System.Length(ACtx.Chain) > 0;
 end;
@@ -596,6 +598,7 @@ var
   LTransport: TMemoryTransport;
 begin
   // the server park -> resolve -> resume wiring, independent of the live checker
+  FStubPeerRole := TPeerRole.Unknown; // seed with the unset value so the assert is meaningful
   RunLoopback(ClientConfig(False), ServerConfig(TRevocationPosture.Hard, False),
     StubAccept, True, LClient, LServer, LTransport);
   try
@@ -606,6 +609,9 @@ begin
     LServer.WaitFor;
     CheckTrue(LServer.HandshakeOk, 'the server accepted the client via the stub resolver');
     CheckEquals('', LServer.Error, 'the server side ran without error');
+    // the server park concerns the mTLS client's chain (WaitFor is the memory barrier)
+    CheckEquals(Ord(TPeerRole.Client), Ord(FStubPeerRole),
+      'a server park attributes the parked chain to the client role');
   finally
     LServer.Free;
     LClient.Free;

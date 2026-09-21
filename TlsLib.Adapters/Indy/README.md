@@ -43,7 +43,8 @@ when the protocol says "go secure", set `IO.PassThrough := False` and the handsh
 | `VerifyPeer` (server)             | `WithPeerAuth(Required)` when a `RootCertFile` is set      |
 | `VerifyPeer = False` / `InsecureSkipVerify` | **`dangerous` `WithDangerousInsecureSkipVerify`** |
 | `VerifyCallback`                  | neutral augment-only hook (`WithCertificateVerifyCallback`) |
-| `VerdictResolver` + `VerdictDeadlineMs` | out-of-band async verdict, e.g. live OCSP/CRL      |
+| `VerdictResolver` + `VerdictDeadlineMs` | client-role out-of-band verdict (server's chain), e.g. live OCSP/CRL |
+| `ServerVerdictResolver` + `ServerVerdictDeadlineMs` | server-role out-of-band verdict (mTLS client's chain) |
 
 **Certificate chain**: `CertFile` is the chain the server *presents* — put your leaf **followed by any
 intermediates** in one PEM file (a concatenation) so clients build a complete chain. `RootCertFile` is
@@ -68,15 +69,19 @@ honouring it would re-couple the adapter to OpenSSL — the dependency it exists
 Instead, the neutral hooks are on `SSLOptions` directly (no drop to Tier-2):
 
 ```pascal
-IO.SSLOptions.VerifyCallback  := cb;         // augment-only  chain+host -> Boolean (reject further)
-IO.SSLOptions.VerdictResolver := resolver;   // out-of-band verdict; parks the handshake
-IO.SSLOptions.VerdictDeadlineMs := 5000;     // advisory deadline for the resolver
+IO.SSLOptions.VerifyCallback  := cb;               // augment-only  chain+host -> Boolean (reject further)
+IO.SSLOptions.VerdictResolver := resolver;         // client role: decides the server's chain
+IO.SSLOptions.VerdictDeadlineMs := 5000;           // client resolver's fetch budget (ms)
+IO.SSLOptions.ServerVerdictResolver := resolver;   // server role: decides an mTLS client's chain
+IO.SSLOptions.ServerVerdictDeadlineMs := 5000;     // server resolver's fetch budget (ms)
 ```
 
 `VerifyCallback` runs after our pipeline accepts the chain and can only additionally reject.
-`VerdictResolver` decides a parked verdict out-of-band — wire `TLiveRevocationChecker.ResolveVerdict`
-(from `TlpLiveRevocation`, over an injected `IHttpFetcher`) to it for live OCSP/CRL. Both are
-fail-closed and never loosen our verdict.
+The verdict resolvers decide a parked verdict out-of-band — wire `TLiveRevocationChecker.ResolveVerdict`
+(from `TlpLiveRevocation`, over an injected `IHttpFetcher`) to them for live OCSP/CRL. The resolver is
+role-specific: the client hook evaluates the server's chain (server-auth EKU), the server hook an mTLS
+client's chain (client-auth EKU), so pair each with the matching `TOSSystemTrust.LiveRevocationResolver`
+overload (client vs server config). All are fail-closed and never loosen our verdict.
 
 For the full trust picture — trusting a private CA, public-key pinning, host-name-only
 relaxation, the `dangerous` escape hatches, and an ASP.NET Core mapping — see

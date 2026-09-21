@@ -67,8 +67,8 @@ type
     class function ServerVerifierSource(const AProvider: ICryptoProvider;
       AFetch: TSystemTrustFetch): IServerCertificateVerifierSource; static;
     /// <summary>A host-owned OS-native live-revocation resolver read from the client config
-    /// (provider, clock, posture, strength policy, advertised schemes, park deadline): assign its
-    /// ResolveVerdict to the verdict seam. AFallback (may be nil) runs on an indeterminate OS
+    /// (provider, clock, posture, strength policy, advertised schemes, resolver fetch budget): assign
+    /// its ResolveVerdict to the verdict seam. AFallback (may be nil) runs on an indeterminate OS
     /// outcome before the posture decides. The caller owns and frees the result. Raises where the
     /// platform has no OS-native live revocation.</summary>
     class function LiveRevocationResolver(const AConfig: ITlsClientConfig;
@@ -77,7 +77,7 @@ type
       : TOSLiveRevocationResolver; overload; static;
     /// <summary>A host-owned OS-native live-revocation resolver for the peer CLIENT certificate an
     /// mTLS server verifies, read from the server config (provider, clock, posture, strength policy,
-    /// advertised schemes, park deadline, and the client-CA anchors as the exclusive trust root):
+    /// advertised schemes, resolver fetch budget, and the client-CA anchors as the exclusive trust root):
     /// assign its ResolveVerdict to the verdict seam. AFallback (may be nil) runs on an indeterminate
     /// OS outcome before the posture decides. The caller owns and frees the result. Raises where the
     /// platform has no OS-native live revocation.</summary>

@@ -134,6 +134,8 @@ type
     FVerifyCallback: TTlsCertificateVerifyCallback;
     FVerdictResolver: TCertificateVerdictResolver;
     FVerdictDeadlineMs: Cardinal;
+    FServerVerdictResolver: TCertificateVerdictResolver;
+    FServerVerdictDeadlineMs: Cardinal;
     FClientConfig: ITlsClientConfig;
     FServerConfig: ITlsServerConfig;
     function LoadFileBytes(const APath: string): TBytes;
@@ -211,19 +213,35 @@ type
     /// only additionally reject (never loosen it).</summary>
     property VerifyCallback: TTlsCertificateVerifyCallback read FVerifyCallback
       write FVerifyCallback;
-    /// <summary>When assigned, the handshake parks after the pipeline accepts the peer chain and
-    /// this resolves the verdict out-of-band (e.g. live OCSP/CRL); augment-only, fail-closed.</summary>
+    /// <summary>The CLIENT-role verdict resolver: when assigned, a client handshake parks after
+    /// the pipeline accepts the SERVER's chain and this resolves it out-of-band (e.g. live
+    /// OCSP/CRL over a server-auth trust engine); augment-only, fail-closed. For an mTLS server
+    /// that must vet the CLIENT chain use ServerVerdictResolver - the two roles bind different
+    /// EKUs, so one resolver cannot serve both.</summary>
     property VerdictResolver: TCertificateVerdictResolver read FVerdictResolver
       write FVerdictResolver;
-    /// <summary>The advisory deadline (ms) for an awaited verdict; 0 leaves it to the resolver.</summary>
+    /// <summary>The fetch budget (ms) the client-role resolver is given; 0 leaves it to the
+    /// resolver.</summary>
     property VerdictDeadlineMs: Cardinal read FVerdictDeadlineMs
       write FVerdictDeadlineMs;
+    /// <summary>The SERVER-role verdict resolver: when assigned, a server handshake that requests
+    /// a client certificate parks after the pipeline accepts the CLIENT's chain and this resolves
+    /// it out-of-band (live client-cert revocation over a client-auth trust engine); augment-only,
+    /// fail-closed.</summary>
+    property ServerVerdictResolver: TCertificateVerdictResolver read FServerVerdictResolver
+      write FServerVerdictResolver;
+    /// <summary>The fetch budget (ms) the server-role resolver is given; 0 leaves it to the
+    /// resolver.</summary>
+    property ServerVerdictDeadlineMs: Cardinal read FServerVerdictDeadlineMs
+      write FServerVerdictDeadlineMs;
     /// <summary>A fully-built client config that REPLACES the property-driven build: when set, the
     /// cert/trust properties (CertificateData trust/cert, UseSystemTrust, a custom store/verifier,
-    /// ALPN) are not allowed alongside it (the handler raises). VerdictResolver still applies - it is
-    /// a runtime stream hook, not part of the frozen config. The escape hatch to the full builder API
-    /// - cipher order, groups, resumption. For a stock TFPHTTPClient, set it in an OnGetSocketHandler
-    /// hook.</summary>
+    /// ALPN) are not allowed alongside it (the handler raises). The verdict resolvers
+    /// (VerdictResolver/ServerVerdictResolver) still apply - runtime stream hooks, not part of the
+    /// frozen config - provided the supplied config itself armed the deferral
+    /// (WithLiveRevocationVerdict/WithAsyncCertificateVerdict), else the handshake never parks. The
+    /// escape hatch to the full builder API - cipher order, groups, resumption. For a stock
+    /// TFPHTTPClient, set it in an OnGetSocketHandler hook.</summary>
     property ClientConfig: ITlsClientConfig read FClientConfig write FClientConfig;
     /// <summary>A fully-built server config that REPLACES the property-driven build (the server-side
     /// counterpart of ClientConfig; same conflict rule).</summary>
@@ -410,8 +428,8 @@ end;
 procedure TTlsLibSocketHandler.GuardNoConflict(const APropertyName: string);
 begin
   // a supplied config owns trust/credential entirely; naming these alongside it would be silently
-  // dropped, so fail loud. VerdictResolver is excluded: it is a runtime stream hook (not part of
-  // the frozen config) and still applies with a supplied config.
+  // dropped, so fail loud. The verdict resolvers (client and server role) are excluded: they are
+  // runtime stream hooks (not part of the frozen config) and still apply with a supplied config.
   if HasTrustSource or (not CertificateData.Certificate.Empty) or
     (System.Length(FAlpnProtocols) > 0) or Assigned(FVerifyCallback) or
     (FUserProvider <> nil) then
@@ -536,6 +554,10 @@ begin
   begin
     LServer.WithPeerAuth(TClientAuthMode.Required);
     ApplyServerClientAuth(LServer);
+    // arm the async client-certificate verdict park so the server-role resolver runs server-side
+    // (live client-cert revocation); without this the stream's resolver is never invoked
+    if Assigned(FServerVerdictResolver) then
+      LServer.WithLiveRevocationVerdict(FServerVerdictDeadlineMs);
   end;
   if FSessionResumption then
   begin
@@ -593,6 +615,8 @@ begin
   LSig.AddFlag('systemTrust', FUseSystemTrust);
   LSig.AddPointer('customVerifier', FCustomClientCertVerifier);
   LSig.AddPointer('customStore', FCustomTrustStore);
+  LSig.AddFlag('asyncVerdict', Assigned(FServerVerdictResolver));
+  LSig.AddCardinal('deadline', FServerVerdictDeadlineMs);
   for LProto in FAlpnProtocols do
     LSig.AddText('alpn', LProto);
   Result := LSig.Value;
@@ -661,8 +685,15 @@ begin
     LTransport := TFclNetSocketTransport.Create(Socket.Handle);
     FTransport := LTransport as ITlsTransport;
     FStream := TTlsStream.Create(FTransport, FEngine, AIsClient, AHost);
-    if Assigned(FVerdictResolver) then
-      FStream.SetCertificateVerdictResolver(FVerdictResolver);
+    // attach the role-correct resolver: a client parks on the server's chain, a server (client
+    // auth) on the mTLS client's chain - the two bind different EKUs
+    if AIsClient then
+    begin
+      if Assigned(FVerdictResolver) then
+        FStream.SetCertificateVerdictResolver(FVerdictResolver);
+    end
+    else if Assigned(FServerVerdictResolver) then
+      FStream.SetCertificateVerdictResolver(FServerVerdictResolver);
     // bound the handshake read: the app's IOTimeout when set, else the default; restore it after
     LPriorTimeoutMs := Socket.IOTimeout;
     LEffectiveMs := LPriorTimeoutMs;

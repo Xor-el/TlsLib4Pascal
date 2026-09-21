@@ -91,7 +91,9 @@ trust the familiar way. Only what fcl-net lacks is added as extension properties
 | `CheckHostName: Boolean` (default True)               | on by default; off via `WithDangerousDisableServerNameCheck` |
 | `AlpnProtocols: TArray<string>`                       | `WithAlpnProtocols`                                |
 | `VerifyPeerCert` (fcl-net native, default **True** here) | verify on/off; **False** → `dangerous` `WithDangerousInsecureSkipVerify` |
-| `VerifyCallback` / `VerdictResolver` + `VerdictDeadlineMs` | augment-only hook / out-of-band verdict (live OCSP/CRL) |
+| `VerifyCallback` | augment-only hook (chain+host → Boolean) |
+| `VerdictResolver` + `VerdictDeadlineMs` | client-role out-of-band verdict (server's chain), e.g. live OCSP/CRL |
+| `ServerVerdictResolver` + `ServerVerdictDeadlineMs` | server-role out-of-band verdict (mTLS client's chain) |
 | `OnVerifyCertificate` (fcl-net native)                | augment-only reject after our pipeline             |
 
 **Certificate chain**: `CertificateData.Certificate` is the chain the server *presents* — put your leaf

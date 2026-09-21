@@ -206,6 +206,8 @@ type
     procedure TestRejectsLeafOnDisallowedCurve;
     procedure TestLiveFetchDefersUnrevocableChainInline;
     procedure TestLiveEvaluationStaysExclusiveRoot;
+    procedure TestWrongRolePeerRefusedWithInternalError;
+    procedure TestServerChainResolverRefusesClientParkAtOff;
   end;
 
 {$ENDIF TLSLIB_MSWINDOWS}
@@ -968,6 +970,7 @@ begin
   LResolver := TWindowsClientLiveRevocationResolver.Create(FProvider, AAnchors, APosture,
     TSystemClock.Create as ITlsClock, TCertificateStrengthPolicy.Defaults, Advertised, 2000, nil);
   try
+    LCtx.PeerRole := TPeerRole.Client; // a client-chain resolver evaluates a client certificate
     LCtx.HostName := '';
     LCtx.OcspStaple := nil;
     LCtx.Chain := Leaf;
@@ -988,6 +991,59 @@ begin
     'a client leaf that does not chain to the configured anchor is rejected on the live path');
   CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert),
     'a non-chaining client leaf is unknown_ca on the live path, never accepted against public roots');
+end;
+
+procedure TTestWindowsClientDelegate.TestWrongRolePeerRefusedWithInternalError;
+var
+  LResolver: TWindowsClientLiveRevocationResolver;
+  LCtx: TCertificateVerdictContext;
+  LAlert: TTlsAlertDescription;
+begin
+  // a client-chain resolver (client-auth EKU) handed a SERVER-role park is a local misconfiguration
+  // - a single process-wide resolver wired for the wrong role. It must refuse with internal_error,
+  // not run its client-auth engine over a server chain and surface a misleading trust failure.
+  LResolver := TWindowsClientLiveRevocationResolver.Create(FProvider, OwnAnchor,
+    TRevocationPosture.Hard, TSystemClock.Create as ITlsClock,
+    TCertificateStrengthPolicy.Defaults, Advertised, 2000, nil);
+  try
+    LCtx.PeerRole := TPeerRole.Server; // wrong role for a client-chain resolver
+    LCtx.HostName := '';
+    LCtx.OcspStaple := nil;
+    LCtx.Chain := Leaf;
+    CheckFalse(LResolver.ResolveVerdict(LCtx, LAlert),
+      'a wrong-role park is refused, not evaluated');
+    CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LAlert),
+      'a role mismatch surfaces as internal_error (local misconfiguration), not a trust failure');
+  finally
+    LResolver.Free;
+  end;
+end;
+
+procedure TTestWindowsClientDelegate.TestServerChainResolverRefusesClientParkAtOff;
+var
+  LResolver: TWindowsLiveRevocationResolver;
+  LCtx: TCertificateVerdictContext;
+  LAlert: TTlsAlertDescription;
+begin
+  // the exact A-3 bug direction: a SERVER-chain resolver (server-auth EKU) wired into a server's
+  // mTLS park would evaluate a CLIENT chain against the wrong EKU and reject every client. The
+  // role guard must refuse it - and even under the Off posture, because the misconfiguration is
+  // posture-independent (Off would otherwise accept without evaluating, hiding the mistake until a
+  // later posture change). This pins both the bug direction and the guard-before-Off ordering.
+  LResolver := TWindowsLiveRevocationResolver.Create(FProvider, TRevocationPosture.Off,
+    TSystemClock.Create as ITlsClock, TCertificateStrengthPolicy.Defaults, Advertised, 2000, nil);
+  try
+    LCtx.PeerRole := TPeerRole.Client; // a client chain handed to a server-chain resolver
+    LCtx.HostName := '';
+    LCtx.OcspStaple := nil;
+    LCtx.Chain := Leaf;
+    CheckFalse(LResolver.ResolveVerdict(LCtx, LAlert),
+      'a server-chain resolver refuses a client park even under Off');
+    CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LAlert),
+      'the refusal is internal_error, and the guard runs before the Off short-circuit');
+  finally
+    LResolver.Free;
+  end;
 end;
 
 {$ENDIF TLSLIB_MSWINDOWS}
