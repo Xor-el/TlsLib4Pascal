@@ -63,6 +63,7 @@ uses
   TlpEchClient,
   TlpITlsEngine,
   TlpHandshakeEffect,
+  TlpIHandshakeMachine,
   TlpTls13HandshakeBase;
 
 type
@@ -114,8 +115,6 @@ type
     ResumeCertificateVerifier: IServerCertificateVerifier;
     /// <summary>The name the server certificate must be valid for (RFC 6125).</summary>
     ExpectedServerName: TServerName;
-    /// <summary>When set, Start sends these framed ClientHello bytes verbatim (replay/testing).</summary>
-    ClientHelloOverride: TBytes;
     /// <summary>The client's credential for mutual TLS: presented when the server sends
     /// a CertificateRequest and the credential can satisfy it. An empty chain sends an
     /// empty client Certificate (declining to authenticate).</summary>
@@ -169,7 +168,7 @@ type
   /// effects and never touches the record layer; the driver applies them. Certificate
   /// trust runs inline and fail-closed.
   /// </summary>
-  TTls13ClientStateMachine = class sealed(TTls13HandshakeBase)
+  TTls13ClientStateMachine = class sealed(TTls13HandshakeBase, ITls13ClientReplay)
   strict private
   type
     TPhase = (Initial, WaitServerHello, WaitEncryptedExtensions, WaitCertificate,
@@ -179,6 +178,8 @@ type
     TEchChMode = (Initial, RetryAccept, RetryReject);
   var
     FParams: TClientHandshakeParams;
+    // ITls13ClientReplay: a supplied ClientHello emitted verbatim, empty otherwise
+    FVerbatimClientHello: TBytes;
     FEphemeralPrivate: ISecretBuffer;
     FEphemeralPublic: TBytes;
     FCurrentGroup: INamedGroup;
@@ -415,6 +416,8 @@ type
     /// resumption-transcript capture, the ECH-reject branch, and completion. Shared by the
     /// inline path and the reverify-on-resume park's continuation.</summary>
     function BuildClientFinishedFlight: TArray<THandshakeEffect>;
+    // ITls13ClientReplay
+    procedure SetVerbatimClientHello(const AFramed: TBytes);
   strict protected
     function Route(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>; override;
@@ -463,6 +466,8 @@ resourcestring
   SNoCertificateVerifier = 'no certificate verifier configured (fail-closed)';
   SEchExtensionUnregistered = 'the extension registry has no encrypted_client_hello ' +
     'handler, so an ECH ClientHello cannot be built (fail-closed)';
+  SVerbatimHelloWithEchOrCache = 'a verbatim replay ClientHello is incompatible with ECH ' +
+    'or a session cache (both rewrite the ClientHello)';
   SUntrustedCertificate = 'the server certificate chain was not trusted';
   SUnofferedAlpn = 'the server selected an ALPN protocol that was not offered';
   SEarlyDataSuiteMismatch = 'the server accepted early data under a cipher suite that differs from the resumption ticket';
@@ -511,8 +516,9 @@ begin
   FEchStatus := TEchStatus.NotOffered;
   // select a usable ECH config up front; with none usable but GREASE enabled, offer a decoy
   // ech instead (RFC 9849 sec. 6.2), generated once so a HelloRetryRequest re-sends it verbatim.
-  // A verbatim ClientHelloOverride bypasses ECH entirely - the caller supplied the exact bytes
-  if (System.Length(AParams.ClientHelloOverride) = 0) and (AParams.EchPolicy <> nil) then
+  // a preset verbatim ClientHello is mutually exclusive with ECH - enforced in
+  // SetVerbatimClientHello - so ECH selection runs purely off the policy here
+  if AParams.EchPolicy <> nil then
   begin
     if TEchConfigList.TrySelect(AParams.EchPolicy.Configs, AParams.Crypto,
       FSelectedEchConfig, FSelectedEchSuite) then
@@ -544,6 +550,15 @@ end;
 destructor TTls13ClientStateMachine.Destroy;
 begin
   inherited Destroy;
+end;
+
+procedure TTls13ClientStateMachine.SetVerbatimClientHello(const AFramed: TBytes);
+begin
+  // a captured ClientHello is sent as-is, so the machine must not also try to offer ECH or a
+  // resumption PSK against it (those rewrite the hello); reject that misconfiguration up front
+  if (FParams.EchPolicy <> nil) or (FParams.SessionCache <> nil) then
+    raise EArgumentTlsLibException.CreateRes(@SVerbatimHelloWithEchOrCache);
+  FVerbatimClientHello := AFramed;
 end;
 
 procedure TTls13ClientStateMachine.RememberOffered(
@@ -1288,7 +1303,8 @@ begin
   // session is instead offered as a legacy session_ticket / session id in this dual-version
   // hello, for a 1.2 server to resume (a 1.3 server ignores it); the taken session is
   // threaded to a 1.2 sub-machine by the version-dispatching parent.
-  if (FParams.SessionCache <> nil) and (System.Length(FParams.ClientHelloOverride) = 0)
+  // a preset verbatim ClientHello forbids a SessionCache, so no resumption take here
+  if (FParams.SessionCache <> nil)
     and FParams.SessionCache.Take(CacheServerIdentity, FParams.ServerName, LCached) then
   begin
     if LCached.Version.WireValue = TlsWireVersionTls13 then
@@ -1357,8 +1373,8 @@ begin
       FInnerTranscript.Activate(
         FParams.Crypto.Primitives.CreateHash(FPreActivatedHash));
   end;
-  if System.Length(FParams.ClientHelloOverride) > 0 then
-    LClientHello := FParams.ClientHelloOverride
+  if System.Length(FVerbatimClientHello) > 0 then
+    LClientHello := FVerbatimClientHello
   else if FEchActive then
     LClientHello := BuildEchClientHello(TEchChMode.Initial)
   else

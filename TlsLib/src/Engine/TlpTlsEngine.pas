@@ -47,7 +47,7 @@ type
   /// with explicit offset/length. Single-threaded: the caller serializes access.
   /// </summary>
   TTlsEngine = class sealed(TInterfacedObject, ITlsEngine, ITlsEventSource,
-    IEngineRecordTestHook)
+    IEngineRecordSequenceControl)
   strict private
   var
     FRecordLayer: TRecordLayer;
@@ -153,7 +153,7 @@ type
     function IsInboundClosed: Boolean;
     function WriteClosed: Boolean;
     function LastError: TTlsError;
-    // IEngineRecordTestHook (test-only)
+    // IEngineRecordSequenceControl
     procedure SetWriteSequenceNumber(AValue: UInt64);
     procedure SetReadSequenceNumber(AValue: UInt64);
     function NegotiatedVersion: TTlsVersion;

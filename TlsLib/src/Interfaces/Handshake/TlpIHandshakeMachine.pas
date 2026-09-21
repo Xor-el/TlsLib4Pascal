@@ -157,6 +157,34 @@ type
     procedure OnEchRejected(const ARetryConfigs: TBytes; AIsRetryAttempt: Boolean);
   end;
 
+  /// <summary>
+  /// Makes a TLS 1.3 client machine emit a supplied framed ClientHello verbatim instead of
+  /// building one, for byte-exact replay of a recorded trace (RFC 8448 vectors, whose hello's
+  /// extension order and padding differ from a built one). Reached with Supports on the machine;
+  /// kept off IHandshakeMachine, and a factory-built client never carries it. A verbatim
+  /// ClientHello offers no PSK and no ECH, so the setter rejects a machine configured with either.
+  /// </summary>
+  ITls13ClientReplay = interface(IInterface)
+    ['{7B0BCE0E-3CA0-47DA-A65F-76FC641C20E9}']
+    procedure SetVerbatimClientHello(const AFramed: TBytes);
+  end;
+
+  /// <summary>
+  /// Makes a TLS 1.3 server machine emit supplied HelloRetryRequest cookie / EncryptedExtensions /
+  /// Certificate / CertificateVerify bytes verbatim, for byte-exact replay of a recorded trace (a
+  /// produced CertificateVerify carries a random RSA-PSS salt, and the RFC 8448 EncryptedExtensions
+  /// and cookie are bound to that trace). Reached with Supports on the machine; kept off
+  /// IHandshakeMachine, and a factory-built server never carries it. Each empty value leaves that
+  /// message built normally.
+  /// </summary>
+  ITls13ServerReplay = interface(IInterface)
+    ['{C8DC8971-07BB-4A26-9F0D-F6DADA0CC137}']
+    procedure SetVerbatimRetryCookie(const ACookie: TBytes);
+    procedure SetVerbatimEncryptedExtensions(const AFramed: TBytes);
+    procedure SetVerbatimCertificate(const AFramed: TBytes);
+    procedure SetVerbatimCertificateVerify(const AFramed: TBytes);
+  end;
+
 implementation
 
 end.

@@ -257,6 +257,7 @@ var
   LServerHello: TBytes;
   LServerShare: TBytes;
   LCred: TTlsCredential;
+  LReplay: ITls13ServerReplay;
 begin
   // the server's key_share pubshare and 32-byte random come straight from the RFC
   // ServerHello (the mock KEM returns this share and the recorded shared secret)
@@ -277,16 +278,18 @@ begin
     DecodeHex(FSched.Values['shared_secret'])) as INamedGroup;
   // the ServerHello random sits after type(1) length(3) legacy_version(2)
   LParams.ServerRandom := System.Copy(LServerHello, 6, 32);
-  LParams.EncryptedExtensionsOverride := DecodeHex(FHs.Values['encrypted_ext']);
-  // inject the RFC 8448 Certificate + CertificateVerify verbatim for byte-exact replay
-  LParams.CertificateOverride := DecodeHex(FHs.Values['certificate']);
-  LParams.CertificateVerifyOverride := DecodeHex(FHs.Values['cert_verify']);
   // the RFC 8448 server signs with rsa_pss_rsae_sha256, which the RFC client offers;
   // the CertificateVerify is replayed verbatim, so the key only drives scheme selection
   LCred := Default(TTlsCredential);
   LCred.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_key']));
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(LCred);
   FSm := TTls13ServerStateMachine.Create(LParams);
+  // inject the RFC 8448 EncryptedExtensions + Certificate + CertificateVerify verbatim
+  // for byte-exact replay
+  LReplay := FSm as ITls13ServerReplay;
+  LReplay.SetVerbatimEncryptedExtensions(DecodeHex(FHs.Values['encrypted_ext']));
+  LReplay.SetVerbatimCertificate(DecodeHex(FHs.Values['certificate']));
+  LReplay.SetVerbatimCertificateVerify(DecodeHex(FHs.Values['cert_verify']));
   BuildDriver(LParams.Crypto);
   FSm.Start;
 end;
@@ -456,7 +459,7 @@ begin
   LParams.Group := TReplayServerGroup.Create(LFill, LFill) as INamedGroup;
   LParams.ServerRandom := LFill;
   // one RSA key; its capable schemes are the three rsa_pss_rsae_* variants, and the
-  // machine signs for real (no CertificateVerifyOverride)
+  // machine signs for real (no verbatim CertificateVerify is set)
   LCred := Default(TTlsCredential);
   LCred.CertificateChain := TArray<TBytes>.Create(DecodeHex(FKeys.Values['rsa_cert']));
   LCred.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_key']));

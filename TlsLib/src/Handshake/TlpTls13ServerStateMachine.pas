@@ -61,6 +61,7 @@ uses
   TlpEchServer,
   TlpHandshakeEffect,
   TlpRecordHeader,
+  TlpIHandshakeMachine,
   TlpTls13HandshakeBase;
 
 type
@@ -100,12 +101,6 @@ type
     /// <summary>The per-server-instance secret authenticating the HelloRetryRequest
     /// cookie. Required for a server that may answer with a HelloRetryRequest.</summary>
     CookieSecret: ISecretBuffer;
-    /// <summary>When set, this cookie is emitted in the HelloRetryRequest instead of
-    /// a freshly minted one (used for byte-exact replay).</summary>
-    CookieOverride: TBytes;
-    /// <summary>When set, this framed EncryptedExtensions is sent verbatim instead
-    /// of the machine's serialized empty block (used for byte-exact replay).</summary>
-    EncryptedExtensionsOverride: TBytes;
     /// <summary>The certificate-compression algorithms the server can compress with
     /// (RFC 8879). When the client advertised a matching algorithm and compression
     /// shrinks the Certificate, the server sends a CompressedCertificate; empty never
@@ -146,11 +141,6 @@ type
     // whether the async verdict is a live-revocation deferral (vs a host-decision park): a
     // live-revocation park is skipped when the verifier settled revocation inline
     LiveRevocationDeferral: Boolean;
-    /// <summary>When set, these framed messages are sent verbatim instead of being
-    /// produced - used for the RFC 8448 byte-exact replay (a produced
-    /// CertificateVerify has a random RSA-PSS salt, so it cannot be byte-exact).</summary>
-    CertificateOverride: TBytes;
-    CertificateVerifyOverride: TBytes;
     /// <summary>The out-of-band external PSKs (RFC 9258) the server imports and matches an
     /// offered pre_shared_key against, in preference order. A matching PSK is preferred over
     /// the server certificate. Empty leaves external PSK off.</summary>
@@ -190,7 +180,7 @@ type
   /// keys, then verifies the client Finished and installs the read keys. It returns
   /// effects and never touches the record layer.
   /// </summary>
-  TTls13ServerStateMachine = class sealed(TTls13HandshakeBase)
+  TTls13ServerStateMachine = class sealed(TTls13HandshakeBase, ITls13ServerReplay)
   strict private
   type
     TPhase = (Initial, WaitSecondClientHello, WaitClientCertificate,
@@ -283,6 +273,11 @@ type
     FEchStatus: TEchStatus;
     FEchInnerRandom: TBytes;
     FEchRetryConfigs: TBytes;
+    // ITls13ServerReplay: framed messages emitted verbatim when set, built normally when empty
+    FVerbatimRetryCookie: TBytes;
+    FVerbatimEncryptedExtensions: TBytes;
+    FVerbatimCertificate: TBytes;
+    FVerbatimCertificateVerify: TBytes;
     /// <summary>Stamps the ECH accept confirmation into the last 8 bytes of the framed
     /// ServerHello (RFC 9849 sec. 7.2), computed over the inner transcript through this
     /// ServerHello with those 8 bytes zeroed.</summary>
@@ -420,6 +415,11 @@ type
     /// <summary>Verifies the client CertificateVerify signature against the client leaf.</summary>
     function ProcessClientCertVerify(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>;
+    // ITls13ServerReplay
+    procedure SetVerbatimRetryCookie(const ACookie: TBytes);
+    procedure SetVerbatimEncryptedExtensions(const AFramed: TBytes);
+    procedure SetVerbatimCertificate(const AFramed: TBytes);
+    procedure SetVerbatimCertificateVerify(const AFramed: TBytes);
   strict protected
     function Route(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>; override;
@@ -511,6 +511,28 @@ function TTls13ServerStateMachine.Start: TArray<THandshakeEffect>;
 begin
   // a server does not initiate; it starts on the first ClientHello
   Result := nil;
+end;
+
+procedure TTls13ServerStateMachine.SetVerbatimRetryCookie(const ACookie: TBytes);
+begin
+  FVerbatimRetryCookie := ACookie;
+end;
+
+procedure TTls13ServerStateMachine.SetVerbatimEncryptedExtensions(
+  const AFramed: TBytes);
+begin
+  FVerbatimEncryptedExtensions := AFramed;
+end;
+
+procedure TTls13ServerStateMachine.SetVerbatimCertificate(const AFramed: TBytes);
+begin
+  FVerbatimCertificate := AFramed;
+end;
+
+procedure TTls13ServerStateMachine.SetVerbatimCertificateVerify(
+  const AFramed: TBytes);
+begin
+  FVerbatimCertificateVerify := AFramed;
 end;
 
 function TTls13ServerStateMachine.HashOf(const AData: TBytes): TBytes;
@@ -1135,8 +1157,8 @@ begin
   // ARaw is the inner ClientHello on ECH accept, the outer otherwise, so its hash is the one
   // the cookie binds and the one the HRR ech confirmation is computed over
   LCh1Hash := HashOf(ARaw);
-  if System.Length(FParams.CookieOverride) > 0 then
-    LCookie := FParams.CookieOverride
+  if System.Length(FVerbatimRetryCookie) > 0 then
+    LCookie := FVerbatimRetryCookie
   else
   begin
     if FCookie = nil then
@@ -1527,13 +1549,13 @@ begin
       Result.CertificateRequest := BuildCertificateRequest;
       FTranscript.Update(Result.CertificateRequest);
     end;
-    if System.Length(FParams.CertificateOverride) > 0 then
-      Result.Certificate := FParams.CertificateOverride
+    if System.Length(FVerbatimCertificate) > 0 then
+      Result.Certificate := FVerbatimCertificate
     else
       Result.Certificate := BuildCertificate;
     FTranscript.Update(Result.Certificate);
-    if System.Length(FParams.CertificateVerifyOverride) > 0 then
-      Result.CertificateVerify := FParams.CertificateVerifyOverride
+    if System.Length(FVerbatimCertificateVerify) > 0 then
+      Result.CertificateVerify := FVerbatimCertificateVerify
     else
       Result.CertificateVerify := SignCertificateVerify(FTranscript.CurrentHash);
     FTranscript.Update(Result.CertificateVerify);
@@ -1553,8 +1575,8 @@ var
   LContext: TExtensionContext;
   LBlock: TBytes;
 begin
-  if System.Length(FParams.EncryptedExtensionsOverride) > 0 then
-    Exit(System.Copy(FParams.EncryptedExtensionsOverride));
+  if System.Length(FVerbatimEncryptedExtensions) > 0 then
+    Exit(System.Copy(FVerbatimEncryptedExtensions));
   // serialize the negotiated EncryptedExtensions (ALPN selection, record_size_limit)
   LContext := TExtensionContext.Create;
   try

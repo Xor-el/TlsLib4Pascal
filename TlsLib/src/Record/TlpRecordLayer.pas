@@ -154,10 +154,10 @@ type
     /// <summary>True when the write epoch has reached its AEAD rekey threshold, so further
     /// application-data writes seal nothing until a KeyUpdate rekeys the write side.</summary>
     function WriteNeedsKeyUpdate: Boolean;
-    /// <summary>Test-only: forces the write / read epoch's record sequence counter (no-op when
-    /// the protection exposes no test hook), so the usage-limit rekey path can be exercised
-    /// without sealing 2^24 records. The read side is set in step with the write side to keep the
-    /// AEAD nonces synchronized across the two endpoints.</summary>
+    /// <summary>Forces the write / read epoch's record sequence counter forward (no-op when the
+    /// protection exposes no IRecordSequenceControl), so the usage-limit rekey path can be
+    /// exercised without sealing 2^24 records. The read side is set in step with the write side to
+    /// keep the AEAD nonces synchronized across the two endpoints.</summary>
     procedure SetWriteSequenceNumber(AValue: UInt64);
     procedure SetReadSequenceNumber(AValue: UInt64);
     /// <summary>Removes and returns all pending outbound wire bytes.</summary>
@@ -692,22 +692,22 @@ end;
 
 procedure TRecordLayer.SetWriteSequenceNumber(AValue: UInt64);
 var
-  LHook: IRecordProtectionTestHook;
+  LHook: IRecordSequenceControl;
 begin
   // only ever advance the counter: moving it backwards would reuse a nonce
   if AValue < FWriteProtection.SequenceNumber then
     raise EArgumentTlsLibException.CreateRes(@SSequenceRewindRejected);
-  if Supports(FWriteProtection, IRecordProtectionTestHook, LHook) then
+  if Supports(FWriteProtection, IRecordSequenceControl, LHook) then
     LHook.SetSequenceNumber(AValue);
 end;
 
 procedure TRecordLayer.SetReadSequenceNumber(AValue: UInt64);
 var
-  LHook: IRecordProtectionTestHook;
+  LHook: IRecordSequenceControl;
 begin
   if AValue < FReadProtection.SequenceNumber then
     raise EArgumentTlsLibException.CreateRes(@SSequenceRewindRejected);
-  if Supports(FReadProtection, IRecordProtectionTestHook, LHook) then
+  if Supports(FReadProtection, IRecordSequenceControl, LHook) then
     LHook.SetSequenceNumber(AValue);
 end;
 

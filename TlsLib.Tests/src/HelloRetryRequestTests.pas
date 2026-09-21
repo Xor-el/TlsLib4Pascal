@@ -66,7 +66,7 @@ type
     function BuildClientHello2(AGroup: UInt16; const AKeyShare, ACookie,
       ASessionId: TBytes; ASuite: UInt16 = 0): TBytes;
     function CookieFromHrr(const AHrr: TBytes): TBytes;
-    function NewSecp256r1Server(const ACookieOverride: TBytes): IHandshakeMachine;
+    function NewSecp256r1Server(const AVerbatimCookie: TBytes): IHandshakeMachine;
     function NewRetryClient: IHandshakeMachine;
   protected
     procedure SetUp; override;
@@ -250,7 +250,7 @@ begin
 end;
 
 function TTestHelloRetryRequest.NewSecp256r1Server(
-  const ACookieOverride: TBytes): IHandshakeMachine;
+  const AVerbatimCookie: TBytes): IHandshakeMachine;
 var
   LParams: TServerHandshakeParams;
   LCerts: TStringList;
@@ -269,7 +269,6 @@ begin
   LParams.Group := TNamedGroups.CreateNistEcdh(LParams.Crypto, 'secp256r1');
   LParams.ServerRandom := DecodeHex(StringOfChar('2', 64));
   LParams.CookieSecret := CookieSecret;
-  LParams.CookieOverride := ACookieOverride;
   // a P-256 signing key; its lone capable scheme is ecdsa_secp256r1_sha256, which the
   // negotiation needs when it processes the first ClientHello (before the retry)
   LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
@@ -281,6 +280,9 @@ begin
     LCerts.Free;
   end;
   Result := TTls13ServerStateMachine.Create(LParams);
+  // a preset cookie makes the emitted HelloRetryRequest byte-exact; empty mints one
+  if System.Length(AVerbatimCookie) > 0 then
+    (Result as ITls13ServerReplay).SetVerbatimRetryCookie(AVerbatimCookie);
   Result.Start;
 end;
 
