@@ -76,7 +76,7 @@ type
       const AAdvertised: TArray<UInt16>);
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
-      out AValidatedChain: TArray<TBytes>;
+      out AVerified: TVerifiedChain;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
@@ -141,7 +141,7 @@ type
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>);
     function VerifyClientCertificate(const AChain: TArray<TBytes>;
-      out AValidatedChain: TArray<TBytes>;
+      out AVerified: TVerifiedChain;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
@@ -1490,25 +1490,31 @@ end;
 
 function TWindowsDelegateVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
   const AServerName: TServerName; const AOcspStaple: TBytes;
-  out AValidatedChain: TArray<TBytes>;
+  out AVerified: TVerifiedChain;
   out AAlert: TTlsAlertDescription): Boolean;
+var
+  LValidated: TArray<TBytes>;
 begin
+  AVerified := Default(TVerifiedChain);
   // the OS name check only ever sees a DNS host (empty for an IP literal); an IP is matched in
   // the library against iPAddress SANs below
   Result := TWindowsTrustApi.EvaluateChain(AChain, AServerName.AsDns,
     AOcspStaple, FPosture, FFetch, FClock, FProvider, FStrengthPolicy, FAdvertised,
-    AValidatedChain, AAlert);
+    LValidated, AAlert);
   if not Result then
     Exit;
   // a definitive stapled Revoked wins under every posture, Off included (the OS engine does not
   // consult the staple under Off); then match an IP-literal identity the OS never name-checked
-  if TDelegatePostChecks.RejectStapledRevoked(FProvider, FClock, AValidatedChain,
+  if TDelegatePostChecks.RejectStapledRevoked(FProvider, FClock, LValidated,
     AOcspStaple, AAlert) or
-    TDelegatePostChecks.RejectIpMismatch(AServerName, FProvider, AValidatedChain, AAlert) then
+    TDelegatePostChecks.RejectIpMismatch(AServerName, FProvider, LValidated, AAlert) then
   begin
-    AValidatedChain := nil;
     Result := False;
+    Exit;
   end;
+  // the outcome stays Trusted even for a Good leaf staple: a leaf staple attests only the leaf, so
+  // the OS live pass at the park still checks intermediate-CA revocation the staple cannot cover
+  AVerified.Path := LValidated;
 end;
 
 { TWindowsLiveRevocationResolver }
@@ -1602,11 +1608,18 @@ begin
 end;
 
 function TWindowsClientDelegateVerifier.VerifyClientCertificate(
-  const AChain: TArray<TBytes>; out AValidatedChain: TArray<TBytes>;
+  const AChain: TArray<TBytes>; out AVerified: TVerifiedChain;
   out AAlert: TTlsAlertDescription): Boolean;
+var
+  LValidated: TArray<TBytes>;
 begin
+  AVerified := Default(TVerifiedChain);
   Result := TWindowsTrustApi.EvaluateClientChain(AChain, FAnchors, FPosture, FFetch,
-    FClock, FProvider, FStrengthPolicy, FAdvertised, AValidatedChain, AAlert);
+    FClock, FProvider, FStrengthPolicy, FAdvertised, LValidated, AAlert);
+  if not Result then
+    Exit;
+  AVerified.Path := LValidated;
+  AVerified.Outcome := TVerificationOutcome.Trusted;
 end;
 
 { TWindowsClientVerifierSource }

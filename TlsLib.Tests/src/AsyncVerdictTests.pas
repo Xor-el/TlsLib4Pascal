@@ -57,6 +57,13 @@ type
     function ServerConfig: ITlsServerConfig;
     function MtlsClientConfig: ITlsClientConfig;
     function MtlsServerConfig(AAsync: Boolean): ITlsServerConfig;
+    function OcspVec(const AName: string): TBytes;
+    // a server presenting the OCSP-stapling cert set with AStaple sealed on its credential, and a
+    // client that requests a staple and defers revocation (live, or host-decision), so the park is
+    // exercised end-to-end. The client's host check is disabled to isolate the revocation behaviour.
+    function StapledServer(const AStaple: TBytes): ITlsEngine;
+    function StaplingRevocationClient(AHostDecision: Boolean;
+      out AServer: ITlsEngine; const AStaple: TBytes): ITlsEngine;
     function NewClient(const AConfig: ITlsClientConfig; const AHost: string;
       out AServer: ITlsEngine): ITlsEngine;
     /// <summary>A mutual-TLS pair: the server requests client auth and (optionally) parks on
@@ -88,6 +95,15 @@ type
     procedure TestAcceptCannotResurrectPipelineRejectedChain;
     procedure TestDisabledResolvesInlineNoPark;
     procedure TestServerParkThenAcceptCompletes;
+    // the server park carries the pipeline-validated client path (issuer at index 1), distinct from
+    // the presented leaf-only chain, so a live resolver authenticates against the PKIX issuer
+    procedure TestServerParkEventCarriesValidatedPath;
+    // PR3 behaviour end-to-end: under live-revocation a definitive Good staple settles revocation
+    // inline, so the client completes WITHOUT the now-redundant park; an unstapled peer still parks;
+    // and a host-decision park is never skipped by a Good staple
+    procedure TestGoodStapleLiveRevocationSkipsPark;
+    procedure TestNoStapleLiveRevocationParks;
+    procedure TestGoodStapleHostDecisionStillParks;
     // a server that requests client auth but sets no verdict deferral must decide the client chain
     // inline and complete - it must never park (the park is armed only by a verdict-deferral setting)
     procedure TestServerClientAuthWithoutDeferralDoesNotPark;
@@ -185,6 +201,51 @@ begin
   if AAsync then
     LServer.WithAsyncCertificateVerdict(True, 0);
   Result := LServer.Build;
+end;
+
+function TTestAsyncVerdict.OcspVec(const AName: string): TBytes;
+var
+  LV: TStringList;
+begin
+  LV := LoadVectorFields('Certs/OcspStapling.txt');
+  try
+    Result := DecodeHex(LV.Values[AName]);
+  finally
+    LV.Free;
+  end;
+end;
+
+function TTestAsyncVerdict.StapledServer(const AStaple: TBytes): ITlsEngine;
+var
+  LCred: TTlsCredential;
+begin
+  // present the leaf + its issuer, and seal the OCSP staple on the credential so the server sends
+  // a CertificateStatus when the client requests one
+  LCred.CertificateChain := TArray<TBytes>.Create(OcspVec('leaf_cert'), OcspVec('issuer_cert'));
+  LCred.PrivateKey := Provider.Signing.ImportSigningKey(OcspVec('leaf_key'));
+  LCred.OcspStaple := AStaple;
+  Result := TTlsEngineFactory.CreateServerEngine(
+    TTlsPresets.Compatible(Provider).Server.WithCredential(LCred).Build);
+end;
+
+function TTestAsyncVerdict.StaplingRevocationClient(AHostDecision: Boolean;
+  out AServer: ITlsEngine; const AStaple: TBytes): ITlsEngine;
+var
+  LClient: ITlsClientConfigBuilder;
+begin
+  // request a staple and require revocation; the host check is disabled so the test isolates the
+  // revocation park from the leaf's SAN identity
+  LClient := TTlsPresets.Compatible(Provider).Client
+    .WithTrustAnchors(OcspVec('root_cert'))
+    .WithDangerousDisableServerNameCheck
+    .WithOcspStaplingRequest(True)
+    .WithRevocation(TRevocationPosture.Hard);
+  if AHostDecision then
+    LClient.WithAsyncCertificateVerdict(True, 0)
+  else
+    LClient.WithLiveRevocationVerdict(0);
+  AServer := StapledServer(AStaple);
+  Result := TTlsEngineFactory.CreateClientEngine(LClient.Build, 'localhost');
 end;
 
 function TTestAsyncVerdict.NewHardMtls(AForce12: Boolean;
@@ -491,6 +552,79 @@ begin
   CheckFalse(LServer.IsTerminal, 'the accepted server handshake must not be terminal');
   CheckFalse(LServer.IsHandshaking, 'the server handshake must complete');
   CheckFalse(LClient.IsHandshaking, 'the client handshake must complete');
+end;
+
+procedure TTestAsyncVerdict.TestServerParkEventCarriesValidatedPath;
+var
+  LClient, LServer: ITlsEngine;
+  LEvent: ICertificateReceivedEvent;
+  LPresented, LValidated: TArray<TBytes>;
+begin
+  // the mTLS server parks on the client certificate; the CertificateReceived event carries both the
+  // chain as presented and the validated path. The client presents a leaf-only credential, but the
+  // pipeline assembles the issuer, so the validated path is longer and terminates at the trust root
+  LClient := NewMtls(True, LServer);
+  LClient.StartHandshake;
+  DriveUntilParkOrSettled(LClient, LServer);
+  CheckTrue(LServer.AwaitingCertificateVerdict, 'the server should be parked');
+
+  CheckTrue(TakeCertificateEvent(LServer, LEvent),
+    'a CertificateReceived event is raised on the server park');
+  LPresented := LEvent.Chain;
+  LValidated := LEvent.ValidatedPath;
+  CheckTrue(AreEqual(LeafCert, LPresented[0]), 'the presented chain leaf is the client leaf');
+  CheckTrue(System.Length(LValidated) >= 2,
+    'the validated path carries the assembled issuer, not just the leaf');
+  CheckTrue(AreEqual(LeafCert, LValidated[0]), 'the validated path leaf is the client leaf');
+  CheckTrue(AreEqual(TrustRoot, LValidated[System.High(LValidated)]),
+    'the validated path terminates at the configured trust anchor');
+end;
+
+procedure TTestAsyncVerdict.TestGoodStapleLiveRevocationSkipsPark;
+var
+  LClient, LServer: ITlsEngine;
+  LEvent: ICertificateReceivedEvent;
+begin
+  // under live-revocation, a current Good staple settles revocation inline, so the redundant live
+  // park is skipped: the client never awaits a verdict and completes the handshake
+  LClient := StaplingRevocationClient({AHostDecision=} False, LServer, OcspVec('ocsp_good'));
+  LClient.StartHandshake;
+  DriveToCompletion(LClient, LServer);
+
+  CheckFalse(LClient.AwaitingCertificateVerdict,
+    'a Good-stapled live-revocation client skips the redundant park');
+  CheckFalse(TakeCertificateEvent(LClient, LEvent),
+    'no CertificateReceived event is raised when the park is skipped');
+  CheckFalse(LClient.IsHandshaking, 'the handshake completed without a park');
+  CheckFalse(LClient.IsTerminal, 'the handshake succeeded');
+end;
+
+procedure TTestAsyncVerdict.TestNoStapleLiveRevocationParks;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // the same client with no staple: revocation is indeterminate and deferred, so the park runs -
+  // proving the skip is gated on the settled staple, not on the live-revocation mode itself
+  LClient := StaplingRevocationClient({AHostDecision=} False, LServer, nil);
+  LClient.StartHandshake;
+  DriveUntilParkOrSettled(LClient, LServer);
+
+  CheckTrue(LClient.AwaitingCertificateVerdict,
+    'an unstapled live-revocation client parks for the live check');
+end;
+
+procedure TTestAsyncVerdict.TestGoodStapleHostDecisionStillParks;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // a host-decision park is a separate policy (prompt on every accepted peer): a Good staple never
+  // skips it
+  LClient := StaplingRevocationClient({AHostDecision=} True, LServer, OcspVec('ocsp_good'));
+  LClient.StartHandshake;
+  DriveUntilParkOrSettled(LClient, LServer);
+
+  CheckTrue(LClient.AwaitingCertificateVerdict,
+    'a host-decision park is not skipped by a Good staple');
 end;
 
 procedure TTestAsyncVerdict.TestServerClientAuthWithoutDeferralDoesNotPark;

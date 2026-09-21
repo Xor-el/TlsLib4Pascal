@@ -75,7 +75,11 @@ type
   /// stapled revocation outcome is decided (the posture still decides that inline).
   /// LiveRevocation additionally defers an indeterminate stapled outcome to the resolver at
   /// the park, so a live OCSP/CRL fetch renders the posture's verdict - the only way a Hard
-  /// posture is reachable for a peer that carries no staple (e.g. a client certificate).
+  /// posture is reachable for a peer that carries no staple (e.g. a client certificate). Under
+  /// LiveRevocation the park is skipped when the verifier already settled revocation inline (a
+  /// current, authenticated Good staple), so the resolver sees only peers whose revocation is still
+  /// undecided; a host that must observe every accepted peer (an audit hook, extra policy) uses
+  /// HostDecision, which always parks.
   /// </summary>
   TVerdictDeferral = (None, HostDecision, LiveRevocation);
 
@@ -112,18 +116,28 @@ type
 
   /// <summary>
   /// What an out-of-band verdict resolver receives for a parked peer certificate: whose chain it
-  /// is (PeerRole), the chain itself (leaf first, DER) the built-in pipeline already accepted, the
-  /// expected host (empty on the server side), and the handshake OCSP staple (empty when none) so a
-  /// live check can skip a fetch the server already answered in-band. A client certificate may also
-  /// carry a staple (RFC 8446 4.4.2.1 lets a server request status_request of a client), so the
-  /// staple is not a role signal - branch on PeerRole. A caller that hand-builds this record MUST
-  /// set PeerRole; a role-specific resolver refuses the unset (Unknown) value.
+  /// is (PeerRole); the chain as the peer presented it (Chain, leaf first, DER); the leaf-first path
+  /// the built-in pipeline validated (ValidatedPath, with the leaf's issuer at index 1 and the
+  /// anchor where nameable); the expected host (empty on the server side); and the handshake OCSP
+  /// staple (empty when none) so a live check can skip a fetch the server already answered in-band.
+  /// A revocation check should authenticate against RevocationPath (ValidatedPath when the pipeline
+  /// produced one, else the presented Chain), so the responder is bound to the issuer PKIX already
+  /// authenticated rather than a re-guess. A client certificate may also carry a staple (RFC 8446
+  /// 4.4.2.1 lets a server request status_request of a client), so the staple is not a role signal -
+  /// branch on PeerRole. A caller that hand-builds this record MUST set PeerRole (a role-specific
+  /// resolver refuses the unset Unknown value); ValidatedPath may be left empty, and RevocationPath
+  /// then falls back to Chain.
   /// </summary>
   TCertificateVerdictContext = record
     PeerRole: TPeerRole;
     Chain: TArray<TBytes>;
+    ValidatedPath: TArray<TBytes>;
     HostName: string;
     OcspStaple: TBytes;
+    /// <summary>The path a revocation check should authenticate against: the validated path when
+    /// the pipeline produced one, else the presented chain (never the reverse, so a hand-built
+    /// context that set only Chain keeps its meaning).</summary>
+    function RevocationPath: TArray<TBytes>;
   end;
 
   /// <summary>
@@ -193,6 +207,16 @@ class operator TDangerousTrust.Initialize({$IFDEF FPC}var{$ELSE}out{$ENDIF}
 begin
   AOptions.InsecureSkipVerify := False;
   AOptions.VerifyCallback := nil;
+end;
+
+function TCertificateVerdictContext.RevocationPath: TArray<TBytes>;
+begin
+  // prefer the pipeline-validated path (issuer authenticated at index 1); fall back to the
+  // presented chain so a hand-built context that set only Chain still resolves
+  if System.Length(ValidatedPath) > 0 then
+    Result := ValidatedPath
+  else
+    Result := Chain;
 end;
 
 end.

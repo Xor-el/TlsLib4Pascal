@@ -120,6 +120,9 @@ type
     /// machine parks the handshake for an out-of-band verdict (the deferred-verdict seam)
     /// rather than continuing inline. Augment-only and fail-closed. OFF by default.</summary>
     AsyncVerdict: Boolean;
+    // whether the async verdict is a live-revocation deferral (vs a host-decision park): a
+    // live-revocation park is skipped when the verifier settled revocation inline
+    LiveRevocationDeferral: Boolean;
   end;
 
   /// <summary>
@@ -162,6 +165,9 @@ type
     /// the ClientHello carried (to detect the server's abbreviated echo), and the server's
     /// echoed id / issued ticket captured for caching on completion.</summary>
     FResumptionOffer: IResumableSession;
+    // the validated path the reverify-on-resume check produced, surfaced to an async park so a
+    // live resolver authenticates against the PKIX issuer rather than a re-guess
+    FResumeValidatedPath: TArray<TBytes>;
     FOfferedSessionId: TBytes;
     FServerSessionId: TBytes;
     FReceivedTicket: TBytes;
@@ -537,7 +543,7 @@ end;
 function TTls12ClientStateMachine.VerifyServerChain: TArray<THandshakeEffect>;
 var
   LAlert: TTlsAlertDescription;
-  LValidated: TArray<TBytes>;
+  LVerified: TVerifiedChain;
 begin
   Result := nil;
   // fail-closed trust: no verifier or a negative verdict aborts with the reason's alert
@@ -545,16 +551,21 @@ begin
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.InternalError, @SNoCertificateVerifier);
   if not FParams.CertificateVerifier.VerifyServerCertificate(FCertChain,
-    FParams.ExpectedServerName, FReceivedOcspStaple, LValidated, LAlert) then
+    FParams.ExpectedServerName, FReceivedOcspStaple, LVerified, LAlert) then
     raise EFatalAlertTlsLibException.CreateRes(LAlert, @SUntrustedCertificate);
-  // surface the validated chain for connection info (read-only)
+  // surface the validated path (leaf first, with the recovered issuer/anchor) for connection info
+  // (read-only), not the raw presented chain
   Result := TArray<THandshakeEffect>.Create(
-    THandshakeEffects.PeerCertificateChain(FCertChain));
-  // async verdict: the pipeline accepted the chain; park for the host's out-of-band
-  // decision (the rest of the flight stays buffered until SetCertificateVerdict resumes it)
-  if FParams.AsyncVerdict then
+    THandshakeEffects.PeerCertificateChain(LVerified.Path));
+  // async verdict: the pipeline accepted the chain; park for the host's out-of-band decision.
+  // Carry both the presented chain and the validated path (issuer at index 1), so a live resolver
+  // authenticates against the PKIX issuer, never a guess. The rest of the flight stays buffered
+  // until SetCertificateVerdict resumes it
+  if FParams.AsyncVerdict and
+    not (FParams.LiveRevocationDeferral and
+    (LVerified.Outcome = TVerificationOutcome.RevocationSettledInline)) then
     TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.AwaitCertificateVerdict(FCertChain,
+      THandshakeEffects.AwaitCertificateVerdict(FCertChain, LVerified.Path,
       FParams.ExpectedServerName.ToString, FReceivedOcspStaple));
 end;
 
@@ -906,7 +917,7 @@ procedure TTls12ClientStateMachine.ReverifyResumedServer;
 var
   LVerifier: IServerCertificateVerifier;
   LAlert: TTlsAlertDescription;
-  LValidated: TArray<TBytes>;
+  LVerified: TVerifiedChain;
 begin
   // prefer the resumption-occasion verifier (no must-staple on a chain with no Certificate);
   // fall back to the primary for a direct caller that wired only one
@@ -920,8 +931,9 @@ begin
   LAlert := TTlsAlertDescription.BadCertificate;
   if (FResumptionOffer = nil) or (System.Length(FResumptionOffer.PeerCertificates) = 0) or
     not LVerifier.VerifyServerCertificate(
-    FResumptionOffer.PeerCertificates, FParams.ExpectedServerName, nil, LValidated, LAlert) then
+    FResumptionOffer.PeerCertificates, FParams.ExpectedServerName, nil, LVerified, LAlert) then
     raise EFatalAlertTlsLibException.CreateRes(LAlert, @SUntrustedCertificate);
+  FResumeValidatedPath := LVerified.Path;
 end;
 
 function TTls12ClientStateMachine.BeginAbbreviatedHandshake(
@@ -1007,12 +1019,13 @@ begin
   // live posture it defers), so park now and withhold the client's closing flight until the
   // out-of-band verdict resolves - live revocation decides before we commit our Finished. The
   // transcript is untouched between here and the resume, so the verify_data is identical either way.
+  // A resumption carries no staple, so the verifier never settles revocation inline; the park stands.
   if (FParams.ResumeVerification = TResumeVerification.Reverify) and FParams.AsyncVerdict then
   begin
     FPhase := TPhase.WaitResumeVerdict;
     Exit(TArray<THandshakeEffect>.Create(
       THandshakeEffects.AwaitCertificateVerdict(FResumptionOffer.PeerCertificates,
-      FParams.ExpectedServerName.ToString, nil)));
+      FResumeValidatedPath, FParams.ExpectedServerName.ToString, nil)));
   end;
 
   Result := BuildAbbreviatedClientFlight;

@@ -71,6 +71,7 @@ type
     Inbound: Int32;              // SetRecordSizeLimit (raw inbound record_size_limit)
     Event: TTlsEventKind;        // RaiseEvent
     Chain: TArray<TBytes>;       // AwaitCertificateVerdict / PeerCertificateChain (peer chain, leaf first)
+    ValidatedPath: TArray<TBytes>; // AwaitCertificateVerdict (the pipeline-validated path; issuer at [1])
     CipherSuite: UInt16;         // ConnectionParams (the negotiated cipher suite code)
     NamedGroup: UInt16;          // ConnectionParams (0 when none / non-(EC)DHE)
     Resumed: Boolean;            // ConnectionParams (resumed); EchRejected (was a retry)
@@ -102,13 +103,16 @@ type
     class function SetEarlyReadEpoch(AActive: Boolean): THandshakeEffect; static;
     class function RaiseEvent(AEvent: TTlsEventKind): THandshakeEffect; static;
     /// <summary>Parks the handshake for an out-of-band peer-certificate verdict: the driver
-    /// surfaces AChain, AHostName and the handshake OCSP staple (empty when none) to the host,
-    /// which resumes with SetCertificateVerdict. Emitted only after the built-in trust pipeline
-    /// has already accepted the chain. The staple rides the record's Bytes slot.</summary>
-    class function AwaitCertificateVerdict(const AChain: TArray<TBytes>;
+    /// surfaces AChain (as presented), AValidatedPath (the pipeline-validated path, leaf first with
+    /// the issuer at index 1), AHostName and the handshake OCSP staple (empty when none) to the
+    /// host, which resumes with SetCertificateVerdict. Emitted only after the built-in trust
+    /// pipeline has already accepted the chain. The staple rides the record's Bytes slot.</summary>
+    class function AwaitCertificateVerdict(const AChain, AValidatedPath: TArray<TBytes>;
       const AHostName: string; const AStaple: TBytes): THandshakeEffect; static;
-    /// <summary>Surfaces the validated peer certificate chain (leaf first, DER) for
-    /// read-only connection info; carries no verdict and never blocks the handshake.</summary>
+    /// <summary>Surfaces the peer certificate chain (leaf first, DER) for read-only connection
+    /// info; carries no verdict and never blocks the handshake. On an initial handshake this is
+    /// the validated path (with the recovered issuer/anchor); a server re-emits it on a resumption
+    /// as the chain presented when the session was established (re-checked, not re-assembled).</summary>
     class function PeerCertificateChain(
       const AChain: TArray<TBytes>): THandshakeEffect; static;
     /// <summary>Surfaces the DER-encoded DistinguishedName certificate_authorities a peer
@@ -244,12 +248,13 @@ begin
 end;
 
 class function THandshakeEffects.AwaitCertificateVerdict(
-  const AChain: TArray<TBytes>; const AHostName: string;
+  const AChain, AValidatedPath: TArray<TBytes>; const AHostName: string;
   const AStaple: TBytes): THandshakeEffect;
 begin
   Result := Default(THandshakeEffect);
   Result.Kind := THandshakeEffectKind.AwaitCertificateVerdict;
   Result.Chain := AChain;
+  Result.ValidatedPath := AValidatedPath;
   Result.Text := AHostName;
   Result.Bytes := AStaple;
 end;

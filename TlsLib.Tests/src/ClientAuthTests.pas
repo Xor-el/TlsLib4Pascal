@@ -406,6 +406,7 @@ end;
 procedure TTestClientAuth.TestVerifyClientChainNilVerifierFailsClosed;
 var
   LChain: TArray<TBytes>;
+  LVerified: TVerifiedChain;
   LAlert, LGotAlert: TTlsAlertDescription;
   LRaised: Boolean;
 begin
@@ -415,7 +416,7 @@ begin
   LRaised := False;
   LGotAlert := TTlsAlertDescription.CloseNotify; // a sentinel distinct from the expected alert
   try
-    TCertificateVerify.VerifyClientChain(nil, LChain, LAlert);
+    TCertificateVerify.VerifyClientChain(nil, LChain, LVerified, LAlert);
   except
     on E: EFatalAlertTlsLibException do
     begin

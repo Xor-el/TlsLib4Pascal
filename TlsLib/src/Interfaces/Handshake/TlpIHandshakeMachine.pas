@@ -111,7 +111,7 @@ type
   /// </summary>
   IHandshakeVerdictSink = interface(IInterface)
     ['{6F1B4D28-7A93-4C05-9E16-2D7C4B8F0A31}']
-    procedure OnCertificateVerdictNeeded(const AChain: TArray<TBytes>;
+    procedure OnCertificateVerdictNeeded(const AChain, AValidatedPath: TArray<TBytes>;
       const AHostName: string; const AStaple: TBytes);
   end;
 

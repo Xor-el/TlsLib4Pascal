@@ -92,7 +92,7 @@ type
       const AAdvertised: TArray<UInt16>);
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
-      out AValidatedChain: TArray<TBytes>;
+      out AVerified: TVerifiedChain;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
@@ -156,7 +156,7 @@ type
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>);
     function VerifyClientCertificate(const AChain: TArray<TBytes>;
-      out AValidatedChain: TArray<TBytes>;
+      out AVerified: TVerifiedChain;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
@@ -1610,25 +1610,30 @@ end;
 
 function TAppleDelegateVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
   const AServerName: TServerName; const AOcspStaple: TBytes;
-  out AValidatedChain: TArray<TBytes>;
+  out AVerified: TVerifiedChain;
   out AAlert: TTlsAlertDescription): Boolean;
+var
+  LValidated: TArray<TBytes>;
 begin
+  AVerified := Default(TVerifiedChain);
   // the OS name check only ever sees a DNS host (empty for an IP literal); an IP is matched in
   // the library against iPAddress SANs below
   Result := TAppleTrustApi.EvaluateSslChain(AChain, AServerName.AsDns, FPosture,
     FFetch, FClock, AOcspStaple, FProvider, FStrengthPolicy, FAdvertised,
-    AValidatedChain, AAlert);
+    LValidated, AAlert);
   if not Result then
     Exit;
   // a definitive stapled Revoked wins under every posture, Off included; then match an IP-literal
   // identity the OS never name-checked
-  if TDelegatePostChecks.RejectStapledRevoked(FProvider, FClock, AValidatedChain,
+  if TDelegatePostChecks.RejectStapledRevoked(FProvider, FClock, LValidated,
     AOcspStaple, AAlert) or
-    TDelegatePostChecks.RejectIpMismatch(AServerName, FProvider, AValidatedChain, AAlert) then
+    TDelegatePostChecks.RejectIpMismatch(AServerName, FProvider, LValidated, AAlert) then
   begin
-    AValidatedChain := nil;
     Result := False;
+    Exit;
   end;
+  AVerified.Path := LValidated;
+  AVerified.Outcome := TVerificationOutcome.Trusted;
 end;
 
 { TAppleLiveRevocationResolver }
@@ -1718,11 +1723,18 @@ begin
 end;
 
 function TAppleClientDelegateVerifier.VerifyClientCertificate(
-  const AChain: TArray<TBytes>; out AValidatedChain: TArray<TBytes>;
+  const AChain: TArray<TBytes>; out AVerified: TVerifiedChain;
   out AAlert: TTlsAlertDescription): Boolean;
+var
+  LValidated: TArray<TBytes>;
 begin
+  AVerified := Default(TVerifiedChain);
   Result := TAppleTrustApi.EvaluateClientChain(AChain, FAnchors, FPosture, FFetch,
-    FClock, FProvider, FStrengthPolicy, FAdvertised, AValidatedChain, AAlert);
+    FClock, FProvider, FStrengthPolicy, FAdvertised, LValidated, AAlert);
+  if not Result then
+    Exit;
+  AVerified.Path := LValidated;
+  AVerified.Outcome := TVerificationOutcome.Trusted;
 end;
 
 { TAppleClientVerifierSource }

@@ -90,7 +90,7 @@ var
   LChain: TArray<TBytes>;
   LVerifier: IServerCertificateVerifier;
   LAlert: TTlsAlertDescription;
-  LValidated: TArray<TBytes>;
+  LVerified: TVerifiedChain;
 begin
   // Best-effort: our test root is not in the macOS system store, so SecTrust rejects
   // the chain as untrusted (unknown_ca). We assert only that it IS rejected - a granular
@@ -111,7 +111,7 @@ begin
     TCertificateStrengthPolicy.Defaults, nil) as IServerCertificateVerifier;
   LAlert := TTlsAlertDescription.InternalError;
   CheckFalse(LVerifier.VerifyServerCertificate(LChain, TServerName.DnsName('localhost'), nil,
-    LValidated, LAlert),
+    LVerified, LAlert),
     'an untrusted/expired chain must be rejected by the OS delegate');
 end;
 {$ENDIF TLSLIB_MACOS}

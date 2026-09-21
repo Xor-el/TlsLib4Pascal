@@ -62,7 +62,7 @@ type
   public
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
-      out AValidatedChain: TArray<TBytes>;
+      out AVerified: TVerifiedChain;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
@@ -130,10 +130,11 @@ implementation
 
 function TAcceptAllVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
   const AServerName: TServerName; const AOcspStaple: TBytes;
-  out AValidatedChain: TArray<TBytes>;
+  out AVerified: TVerifiedChain;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
-  AValidatedChain := AChain;
+  AVerified.Path := AChain;
+  AVerified.Outcome := TVerificationOutcome.Trusted;
   AAlert := TTlsAlertDescription.BadCertificate;
   Result := True;
 end;

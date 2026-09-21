@@ -108,7 +108,7 @@ type
     function VerifyPipeline(const AChain: TArray<TBytes>;
       const AServerName: TServerName; ACheckName: Boolean; const AOcspStaple: TBytes;
       AKeyPurpose: TCertKeyPurpose; out AValidatedChain: TArray<TBytes>;
-      out AAlert: TTlsAlertDescription): Boolean;
+      out ARevocationSettled: Boolean; out AAlert: TTlsAlertDescription): Boolean;
     /// <summary>The stapled-OCSP revocation + must-staple step (RFC 6960 / RFC 7633),
     /// in-band only. A malformed TLS Feature extension is a hard bad_certificate. A
     /// definitive Revoked fails (certificate_revoked); a current Good passes. A must-staple
@@ -116,7 +116,8 @@ type
     /// handshake (RFC 7633 4.3.3). An indeterminate outcome is deferred to the live-revocation
     /// resolver when one runs, else accepted under Soft/Off and rejected under Hard.</summary>
     function CheckRevocation(const AChain: TArray<TBytes>; const AOcspStaple: TBytes;
-      AKeyPurpose: TCertKeyPurpose; out AAlert: TTlsAlertDescription): Boolean;
+      AKeyPurpose: TCertKeyPurpose; out ASettled: Boolean;
+      out AAlert: TTlsAlertDescription): Boolean;
   public
     /// <summary>The stapled OCSP verdict for a leaf (RFC 6960), shared by the built-in
     /// pipeline and an OS delegate that runs its own post-check: a current Good response, a
@@ -175,10 +176,10 @@ type
       const AAdvertised: TArray<UInt16>);
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
-      out AValidatedChain: TArray<TBytes>;
+      out AVerified: TVerifiedChain;
       out AAlert: TTlsAlertDescription): Boolean;
     function VerifyClientCertificate(const AChain: TArray<TBytes>;
-      out AValidatedChain: TArray<TBytes>;
+      out AVerified: TVerifiedChain;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
@@ -200,7 +201,7 @@ type
       const APins: TArray<TBytes>; const AProvider: ICryptoProvider);
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
-      out AValidatedChain: TArray<TBytes>;
+      out AVerified: TVerifiedChain;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
@@ -376,7 +377,7 @@ begin
 end;
 
 function TCertificateVerifier.CheckRevocation(const AChain: TArray<TBytes>;
-  const AOcspStaple: TBytes; AKeyPurpose: TCertKeyPurpose;
+  const AOcspStaple: TBytes; AKeyPurpose: TCertKeyPurpose; out ASettled: Boolean;
   out AAlert: TTlsAlertDescription): Boolean;
 const
   // RFC 7633 TLS Feature id: status_request means the certificate is must-staple
@@ -387,6 +388,9 @@ var
   LVerdict: TStapleVerdict;
   LI: Int32;
 begin
+  // settled = a definitive, authenticated revocation verdict was reached inline (a current Good, or
+  // a Revoked that rejects); an indeterminate outcome deferred to the live park is NOT settled
+  ASettled := False;
   // the RFC 7633 TLS Feature extension well-formedness is a hard invariant, enforced
   // regardless of posture, role, or occasion: a value that is not a SEQUENCE OF INTEGER is fatal
   if not FProvider.Certificates.TlsFeatures(AChain[0], LFeatures) then
@@ -426,6 +430,9 @@ begin
 
   if LVerdict = TStapleVerdict.GoodFresh then
   begin
+    // a current, authenticated Good settles revocation inline: a configured live-revocation park
+    // would only re-fetch what the staple already answered, so the caller may skip it
+    ASettled := True;
     Result := True;
     Exit;
   end;
@@ -454,7 +461,7 @@ end;
 function TCertificateVerifier.VerifyPipeline(const AChain: TArray<TBytes>;
   const AServerName: TServerName; ACheckName: Boolean; const AOcspStaple: TBytes;
   AKeyPurpose: TCertKeyPurpose; out AValidatedChain: TArray<TBytes>;
-  out AAlert: TTlsAlertDescription): Boolean;
+  out ARevocationSettled: Boolean; out AAlert: TTlsAlertDescription): Boolean;
 var
   LI, LTotal: Int32;
   // the chain PKIX actually validated: when the peer sent an incomplete chain that path
@@ -465,6 +472,7 @@ var
 begin
   Result := False;
   AValidatedChain := nil;
+  ARevocationSettled := False;
   AAlert := TTlsAlertDescription.BadCertificate;
   if System.Length(AChain) = 0 then
     Exit;
@@ -507,7 +515,8 @@ begin
 
   // revocation via the stapled OCSP response (RFC 6960), in-band only; run over the validated
   // chain so a staple can be authenticated against a recovered issuer the peer did not send
-  if not CheckRevocation(LEffectiveChain, AOcspStaple, AKeyPurpose, AAlert) then
+  if not CheckRevocation(LEffectiveChain, AOcspStaple, AKeyPurpose, ARevocationSettled,
+    AAlert) then
     Exit;
 
   // endpoint identity (RFC 6125) over the leaf's dNSName / iPAddress SANs (server cert only)
@@ -536,22 +545,32 @@ end;
 
 function TCertificateVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
   const AServerName: TServerName; const AOcspStaple: TBytes;
-  out AValidatedChain: TArray<TBytes>;
+  out AVerified: TVerifiedChain;
   out AAlert: TTlsAlertDescription): Boolean;
+var
+  LValidated: TArray<TBytes>;
+  LSettled: Boolean;
 begin
   Result := False;
-  AValidatedChain := nil;
+  AVerified := Default(TVerifiedChain);
   AAlert := TTlsAlertDescription.BadCertificate;
   if System.Length(AChain) = 0 then
     Exit;
   // the loud escape hatch: skip the built-in pipeline entirely (tests / pinned dev peers)
   if FDangerous.InsecureSkipVerify then
     // with no path validation nothing binds AChain[1..] to the leaf, so a pin may only be a
-    // leaf pin here: the validated chain is the leaf alone (never the peer-supplied rest)
-    AValidatedChain := TArray<TBytes>.Create(System.Copy(AChain[0]))
-  else if not VerifyPipeline(AChain, AServerName, FCheckHostName, AOcspStaple,
-    TCertKeyPurpose.ServerAuth, AValidatedChain, AAlert) then
-    Exit;
+    // leaf pin here: the validated chain is the leaf alone (never the peer-supplied rest). No
+    // revocation ran, so the outcome stays Trusted (a configured live park still runs)
+    AVerified.Path := TArray<TBytes>.Create(System.Copy(AChain[0]))
+  else
+  begin
+    if not VerifyPipeline(AChain, AServerName, FCheckHostName, AOcspStaple,
+      TCertKeyPurpose.ServerAuth, LValidated, LSettled, AAlert) then
+      Exit;
+    AVerified.Path := LValidated;
+    if LSettled then
+      AVerified.Outcome := TVerificationOutcome.RevocationSettledInline;
+  end;
   // the augment-only hook runs last and can only additionally reject; it can never rescue a
   // chain the pipeline (when run) already rejected, since a rejection has returned above
   if Assigned(FDangerous.VerifyCallback) then
@@ -559,7 +578,7 @@ begin
     begin
       // a custom augment verifier's rejection is an unspecified acceptability problem, not a
       // corrupt/bad-signature certificate: certificate_unknown, not bad_certificate (RFC 8446 6.2)
-      AValidatedChain := nil;
+      AVerified := Default(TVerifiedChain);
       AAlert := TTlsAlertDescription.CertificateUnknown;
       Exit;
     end;
@@ -567,25 +586,34 @@ begin
 end;
 
 function TCertificateVerifier.VerifyClientCertificate(const AChain: TArray<TBytes>;
-  out AValidatedChain: TArray<TBytes>;
+  out AVerified: TVerifiedChain;
   out AAlert: TTlsAlertDescription): Boolean;
+var
+  LValidated: TArray<TBytes>;
+  LSettled: Boolean;
 begin
   Result := False;
-  AValidatedChain := nil;
+  AVerified := Default(TVerifiedChain);
   AAlert := TTlsAlertDescription.BadCertificate;
   if System.Length(AChain) = 0 then
     Exit;
   // a client certificate carries no host identity and is never stapled: verify the chain
   // for the clientAuth role, with no endpoint-identity match and no OCSP staple
   if FDangerous.InsecureSkipVerify then
-    AValidatedChain := TArray<TBytes>.Create(System.Copy(AChain[0]))
-  else if not VerifyPipeline(AChain, Default(TServerName), False, nil,
-    TCertKeyPurpose.ClientAuth, AValidatedChain, AAlert) then
-    Exit;
+    AVerified.Path := TArray<TBytes>.Create(System.Copy(AChain[0]))
+  else
+  begin
+    if not VerifyPipeline(AChain, Default(TServerName), False, nil,
+      TCertKeyPurpose.ClientAuth, LValidated, LSettled, AAlert) then
+      Exit;
+    AVerified.Path := LValidated;
+    if LSettled then
+      AVerified.Outcome := TVerificationOutcome.RevocationSettledInline;
+  end;
   if Assigned(FDangerous.VerifyCallback) then
     if not FDangerous.VerifyCallback(AChain, '') then
     begin
-      AValidatedChain := nil;
+      AVerified := Default(TVerifiedChain);
       AAlert := TTlsAlertDescription.CertificateUnknown;
       Exit;
     end;
@@ -635,7 +663,7 @@ end;
 
 function TPinningVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
   const AServerName: TServerName; const AOcspStaple: TBytes;
-  out AValidatedChain: TArray<TBytes>;
+  out AVerified: TVerifiedChain;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
   // pinning augments the inner verdict; it can only additionally reject. It matches the pin
@@ -643,12 +671,12 @@ begin
   // certificates, so an attacker cannot append a pinned leaf to a chain that validated by
   // another path.
   Result := FInner.VerifyServerCertificate(AChain, AServerName, AOcspStaple,
-    AValidatedChain, AAlert);
+    AVerified, AAlert);
   if not Result then
     Exit;
-  if not PinsMatch(AValidatedChain) then
+  if not PinsMatch(AVerified.Path) then
   begin
-    AValidatedChain := nil;
+    AVerified := Default(TVerifiedChain);
     AAlert := TTlsAlertDescription.BadCertificate;
     Result := False;
   end;

@@ -102,6 +102,9 @@ type
     /// parks the handshake for an out-of-band verdict (the deferred-verdict seam) rather than
     /// continuing inline. Augment-only and fail-closed. OFF by default.</summary>
     AsyncVerdict: Boolean;
+    // whether the async verdict is a live-revocation deferral (vs a host-decision park): a
+    // live-revocation park is skipped when the verifier settled revocation inline
+    LiveRevocationDeferral: Boolean;
     /// <summary>The stateful store backing TLS 1.2 session-id resumption (RFC 5246 7.3):
     /// on a full handshake the server echoes a fresh session id and stores the session
     /// under it, then resumes on a later ClientHello that offers it. nil disables the
@@ -751,6 +754,7 @@ function TTls12ServerStateMachine.ProcessClientCertificate(
   const AMessage: TTlsHandshakeMessage): TArray<THandshakeEffect>;
 var
   LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
 begin
   Result := nil;
   FClientCertChain := THandshakeMessages.DecodeCertificate12(AMessage.Body);
@@ -771,16 +775,21 @@ begin
     FParsedClientLeaf := TCertificateVerify.ParseWellFormedLeaf(FParams.Provider,
       FClientCertChain[0]);
     if not TCertificateVerify.VerifyClientChain(FParams.ClientCertificateVerifier,
-      FClientCertChain, LAlert) then
+      FClientCertChain, LVerified, LAlert) then
       raise EFatalAlertTlsLibException.CreateRes(LAlert, @SUntrustedClientCertificate);
-    // surface the validated client chain for connection info (read-only)
+    // surface the validated client path (leaf first, with the recovered issuer/anchor) for
+    // connection info (read-only), not the raw presented chain
     Result := TArray<THandshakeEffect>.Create(
-      THandshakeEffects.PeerCertificateChain(FClientCertChain));
+      THandshakeEffects.PeerCertificateChain(LVerified.Path));
     // async verdict: the pipeline accepted the client chain; park for the host's out-of-band
-    // decision (the buffered ClientKeyExchange/CertificateVerify/Finished resume on accept)
-    if FParams.AsyncVerdict then
+    // decision. Carry both the presented chain and the validated path (issuer at index 1), so a
+    // live resolver authenticates against the PKIX issuer, never a guess. The buffered
+    // ClientKeyExchange/CertificateVerify/Finished resume on accept.
+    if FParams.AsyncVerdict and
+      not (FParams.LiveRevocationDeferral and
+      (LVerified.Outcome = TVerificationOutcome.RevocationSettledInline)) then
       TArrayUtilities.Append<THandshakeEffect>(Result,
-        THandshakeEffects.AwaitCertificateVerdict(FClientCertChain, '', nil));
+        THandshakeEffects.AwaitCertificateVerdict(FClientCertChain, LVerified.Path, '', nil));
   end;
 
   FPhase := TPhase.WaitClientKeyExchange;

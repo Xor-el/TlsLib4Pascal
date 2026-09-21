@@ -62,9 +62,12 @@ type
     /// <summary>The single fail-closed gate for a received client certificate chain, shared by
     /// both server versions: a nil verifier is a server misconfiguration and raises internal_error
     /// (there is no basis to trust the chain); otherwise it returns the verifier's verdict with
-    /// AAlert set on rejection.</summary>
+    /// AAlert set on rejection. On acceptance AVerified carries the PKIX-validated path (leaf first,
+    /// with the recovered issuer and anchor where nameable) and how acceptance was reached, so a
+    /// caller parks or reports the validated path rather than the raw presented chain.</summary>
     class function VerifyClientChain(const AVerifier: IClientCertificateVerifier;
-      const AChain: TArray<TBytes>; out AAlert: TTlsAlertDescription): Boolean; static;
+      const AChain: TArray<TBytes>; out AVerified: TVerifiedChain;
+      out AAlert: TTlsAlertDescription): Boolean; static;
   end;
 
 implementation
@@ -87,15 +90,14 @@ resourcestring
 
 class function TCertificateVerify.VerifyClientChain(
   const AVerifier: IClientCertificateVerifier; const AChain: TArray<TBytes>;
-  out AAlert: TTlsAlertDescription): Boolean;
-var
-  LValidated: TArray<TBytes>;
+  out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
 begin
   AAlert := TTlsAlertDescription.InternalError;
+  AVerified := Default(TVerifiedChain);
   if AVerifier = nil then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.InternalError, @SNoClientCertificateVerifier);
-  Result := AVerifier.VerifyClientCertificate(AChain, LValidated, AAlert);
+  Result := AVerifier.VerifyClientCertificate(AChain, AVerified, AAlert);
 end;
 
 class function TCertificateVerify.ParseWellFormedLeaf(

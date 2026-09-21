@@ -84,6 +84,9 @@ type
     procedure TestTlsFeaturesMalformedRejected;
     // trust pipeline revocation posture
     procedure TestGoodStapleCompletes;
+    // a definitive Good staple settles revocation inline (RevocationSettledInline), so a live
+    // park is redundant; an indeterminate outcome stays Trusted so the live park still runs
+    procedure TestGoodStapleUnderLiveRevocationSettlesInline;
     procedure TestRevokedStapleAbortsCertificateRevoked;
     procedure TestDelegatedGoodStapleCompletes;
     procedure TestStaleStapleSoftCompletes;
@@ -179,20 +182,20 @@ end;
 function TTestOcspStapling.VerifyStaple(APosture: TRevocationPosture;
   const AStaple: TBytes; out AAlert: TTlsAlertDescription): Boolean;
 var
-  LValidated: TArray<TBytes>;
+  LVerified: TVerifiedChain;
 begin
   Result := VerifierFor(APosture).VerifyServerCertificate(Chain, TServerName.DnsName(''),
-    AStaple, LValidated, AAlert);
+    AStaple, LVerified, AAlert);
 end;
 
 function TTestOcspStapling.VerifyChain(APosture: TRevocationPosture;
   const AChain: TArray<TBytes>; const AStaple: TBytes;
   out AAlert: TTlsAlertDescription): Boolean;
 var
-  LValidated: TArray<TBytes>;
+  LVerified: TVerifiedChain;
 begin
   Result := VerifierFor(APosture).VerifyServerCertificate(AChain, TServerName.DnsName(''),
-    AStaple, LValidated, AAlert);
+    AStaple, LVerified, AAlert);
 end;
 
 function TTestOcspStapling.LeafSpkiPin: TBytes;
@@ -238,7 +241,7 @@ function TTestOcspStapling.VerifyWithPins(const APins: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
 var
   LVerifier: IServerCertificateVerifier;
-  LValidated: TArray<TBytes>;
+  LVerified: TVerifiedChain;
 begin
   // revocation Off isolates the pinning step from the stapled-OCSP step
   LVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
@@ -248,7 +251,7 @@ begin
   LVerifier := TPinningVerifier.Create(LVerifier, APins, Provider)
     as IServerCertificateVerifier;
   Result := LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName(''), nil,
-    LValidated, AAlert);
+    LVerified, AAlert);
 end;
 
 procedure TTestOcspStapling.TestValidateStapleGood;
@@ -354,6 +357,30 @@ begin
     'a current Good staple lets the chain validate');
 end;
 
+procedure TTestOcspStapling.TestGoodStapleUnderLiveRevocationSettlesInline;
+var
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  // under a live-revocation deferral a definitive Good staple settles revocation inline, so the
+  // verifier reports RevocationSettledInline and the caller may skip the redundant live park
+  LVerifier := VerifierFor(TRevocationPosture.Hard, TVerdictDeferral.LiveRevocation, True,
+    TVerificationOccasion.InitialHandshake);
+  CheckTrue(LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName(''), V('ocsp_good'),
+    LVerified, LAlert), 'a Good staple accepts under Hard + live revocation');
+  CheckEquals(Ord(TVerificationOutcome.RevocationSettledInline), Ord(LVerified.Outcome),
+    'a definitive Good staple settles revocation inline (the live park would be redundant)');
+
+  // an indeterminate outcome (no staple) is instead deferred to the park, staying Trusted so the
+  // live-revocation park still runs
+  CheckTrue(LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName(''), nil,
+    LVerified, LAlert),
+    'an unstapled leaf is deferred to the live park under Hard + live revocation');
+  CheckEquals(Ord(TVerificationOutcome.Trusted), Ord(LVerified.Outcome),
+    'an indeterminate outcome stays Trusted so the live park runs');
+end;
+
 procedure TTestOcspStapling.TestRevokedStapleAbortsCertificateRevoked;
 var
   LAlert: TTlsAlertDescription;
@@ -421,23 +448,23 @@ end;
 procedure TTestOcspStapling.TestNoStapleHardWithResolverDefers;
 var
   LAlert: TTlsAlertDescription;
-  LValidated: TArray<TBytes>;
+  LVerified: TVerifiedChain;
 begin
   // with a live verdict resolver, a no-staple leaf under Hard is accepted here (deferred) so the
   // handshake reaches the park where the resolver decides - not rejected inline
   CheckTrue(VerifierFor(TRevocationPosture.Hard, TVerdictDeferral.LiveRevocation)
-    .VerifyServerCertificate(Chain, TServerName.DnsName(''), nil, LValidated, LAlert),
+    .VerifyServerCertificate(Chain, TServerName.DnsName(''), nil, LVerified, LAlert),
     'a missing staple under Hard is deferred to the resolver, not rejected inline');
 end;
 
 procedure TTestOcspStapling.TestRevokedStapleAbortsEvenWithResolver;
 var
   LAlert: TTlsAlertDescription;
-  LValidated: TArray<TBytes>;
+  LVerified: TVerifiedChain;
 begin
   // a definitive stapled Revoked is authoritative and short-circuits before any deferral
   CheckFalse(VerifierFor(TRevocationPosture.Hard, TVerdictDeferral.LiveRevocation)
-    .VerifyServerCertificate(Chain, TServerName.DnsName(''), V('ocsp_revoked'), LValidated, LAlert),
+    .VerifyServerCertificate(Chain, TServerName.DnsName(''), V('ocsp_revoked'), LVerified, LAlert),
     'a revoked staple aborts even when a resolver is present');
   CheckEquals(Ord(TTlsAlertDescription.CertificateRevoked), Ord(LAlert),
     'the alert is certificate_revoked');
@@ -446,13 +473,13 @@ end;
 procedure TTestOcspStapling.TestMustStapleMissingStapleAbortsEvenWithResolver;
 var
   LAlert: TTlsAlertDescription;
-  LValidated: TArray<TBytes>;
+  LVerified: TVerifiedChain;
 begin
   // RFC 7633: a must-staple leaf demands a current Good staple; a live fetch does not satisfy it,
   // so it is rejected inline even with a resolver present (the deferral never applies)
   CheckFalse(VerifierFor(TRevocationPosture.Hard, TVerdictDeferral.LiveRevocation)
     .VerifyServerCertificate(ChainFor('muststaple_leaf_cert'), TServerName.DnsName(''), nil,
-    LValidated, LAlert),
+    LVerified, LAlert),
     'a must-staple leaf with no staple aborts even with a resolver present');
   CheckEquals(Ord(TTlsAlertDescription.BadCertificateStatusResponse), Ord(LAlert),
     'the alert is bad_certificate_status_response');
@@ -537,12 +564,12 @@ end;
 procedure TTestOcspStapling.TestNoStapleHardHostDecisionRejectsInline;
 var
   LAlert: TTlsAlertDescription;
-  LValidated: TArray<TBytes>;
+  LVerified: TVerifiedChain;
 begin
   // a host-decision park does not defer the revocation gate, so a no-staple leaf under Hard is
   // rejected inline exactly as with no deferral (only LiveRevocation would defer it)
   CheckFalse(VerifierFor(TRevocationPosture.Hard, TVerdictDeferral.HostDecision)
-    .VerifyServerCertificate(Chain, TServerName.DnsName(''), nil, LValidated, LAlert),
+    .VerifyServerCertificate(Chain, TServerName.DnsName(''), nil, LVerified, LAlert),
     'a missing staple under Hard + host-decision is rejected inline, not deferred');
   CheckEquals(Ord(TTlsAlertDescription.BadCertificateStatusResponse), Ord(LAlert),
     'the alert is bad_certificate_status_response');
@@ -551,52 +578,52 @@ end;
 procedure TTestOcspStapling.TestMustStapleNotRequestedAcceptsUnderSoft;
 var
   LAlert: TTlsAlertDescription;
-  LValidated: TArray<TBytes>;
+  LVerified: TVerifiedChain;
 begin
   // the client never offered status_request, so a must-staple leaf is not required to staple
   CheckTrue(VerifierFor(TRevocationPosture.Soft, TVerdictDeferral.None,
     {AStatusRequestOffered=} False)
     .VerifyServerCertificate(ChainFor('muststaple_leaf_cert'),
-    TServerName.DnsName(''), nil, LValidated, LAlert),
+    TServerName.DnsName(''), nil, LVerified, LAlert),
     'an unrequested must-staple leaf is accepted under soft-fail');
 end;
 
 procedure TTestOcspStapling.TestMustStapleNotRequestedAcceptsUnderOff;
 var
   LAlert: TTlsAlertDescription;
-  LValidated: TArray<TBytes>;
+  LVerified: TVerifiedChain;
 begin
   CheckTrue(VerifierFor(TRevocationPosture.Off, TVerdictDeferral.None,
     {AStatusRequestOffered=} False)
     .VerifyServerCertificate(ChainFor('muststaple_leaf_cert'),
-    TServerName.DnsName(''), nil, LValidated, LAlert),
+    TServerName.DnsName(''), nil, LVerified, LAlert),
     'an unrequested must-staple leaf is accepted under Off');
 end;
 
 procedure TTestOcspStapling.TestMustStapleNotEnforcedOnResumption;
 var
   LAlert: TTlsAlertDescription;
-  LValidated: TArray<TBytes>;
+  LVerified: TVerifiedChain;
 begin
   // no Certificate is on the wire on a resumption, so must-staple never fires even when the
   // client offered status_request
   CheckTrue(VerifierFor(TRevocationPosture.Soft, TVerdictDeferral.None,
     {AStatusRequestOffered=} True, TVerificationOccasion.Resumption)
     .VerifyServerCertificate(ChainFor('muststaple_leaf_cert'),
-    TServerName.DnsName(''), nil, LValidated, LAlert),
+    TServerName.DnsName(''), nil, LVerified, LAlert),
     'must-staple is not enforced on a resumption');
 end;
 
 procedure TTestOcspStapling.TestMalformedTlsFeatureAbortsEvenWhenNotRequested;
 var
   LAlert: TTlsAlertDescription;
-  LValidated: TArray<TBytes>;
+  LVerified: TVerifiedChain;
 begin
   // TLS Feature well-formedness is a hard invariant independent of request/occasion
   CheckFalse(VerifierFor(TRevocationPosture.Off, TVerdictDeferral.None,
     {AStatusRequestOffered=} False, TVerificationOccasion.Resumption)
     .VerifyServerCertificate(ChainFor('badfeature_leaf_cert'),
-    TServerName.DnsName(''), nil, LValidated, LAlert),
+    TServerName.DnsName(''), nil, LVerified, LAlert),
     'a malformed TLS Feature is fatal even when stapling was not requested');
   CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
     'the alert is bad_certificate');
@@ -627,7 +654,7 @@ var
   LInner, LVerifier: IServerCertificateVerifier;
   LAlert: TTlsAlertDescription;
   LWrongPin: TBytes;
-  LValidated: TArray<TBytes>;
+  LVerified: TVerifiedChain;
 begin
   // InsecureSkipVerify bypasses PKIX, but a configured LEAF pin still applies (pin-only trust): a
   // wrong pin rejects even the otherwise-accept-anything inner verifier. Under skip-verify the
@@ -643,12 +670,12 @@ begin
   LVerifier := TPinningVerifier.Create(LInner, TArray<TBytes>.Create(LWrongPin), Provider)
     as IServerCertificateVerifier;
   CheckFalse(LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName(''), nil,
-    LValidated, LAlert),
+    LVerified, LAlert),
     'a wrong pin rejects even under InsecureSkipVerify');
   LVerifier := TPinningVerifier.Create(LInner, TArray<TBytes>.Create(LeafSpkiPin), Provider)
     as IServerCertificateVerifier;
   CheckTrue(LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName(''), nil,
-    LValidated, LAlert),
+    LVerified, LAlert),
     'the matching leaf pin accepts under InsecureSkipVerify (pin-only trust)');
 end;
 
@@ -669,7 +696,7 @@ end;
 procedure TTestOcspStapling.TestLeafOnlyGoodStapleHardCompletesViaConfiguredIssuer;
 var
   LAlert: TTlsAlertDescription;
-  LValidated: TArray<TBytes>;
+  LVerified: TVerifiedChain;
 begin
   // the peer sends only its leaf; the issuer that signs the staple is supplied as a configured
   // intermediate. Under Hard posture a good staple must still be authenticated - which is only
@@ -677,14 +704,14 @@ begin
   CheckTrue(IntermediateVerifierFor(TRevocationPosture.Hard,
     TArray<TBytes>.Create(V('issuer_cert'))).VerifyServerCertificate(
     TArray<TBytes>.Create(V('leaf_cert')), TServerName.DnsName(''), V('ocsp_good'),
-    LValidated, LAlert),
+    LVerified, LAlert),
     'a good staple authenticates against the configured issuer for a leaf-only peer');
 end;
 
 procedure TTestOcspStapling.TestLeafOnlyPinOnConfiguredIssuerMatchesOverValidatedPath;
 var
   LAlert: TTlsAlertDescription;
-  LValidated: TArray<TBytes>;
+  LVerified: TVerifiedChain;
 begin
   // pinning is over the VALIDATED path (RFC 7469 6): when the peer sends only its leaf, path
   // building recovers the configured issuer into the validated chain, so a pin on that issuer
@@ -692,7 +719,7 @@ begin
   CheckTrue(IntermediateVerifierFor(TRevocationPosture.Off,
     TArray<TBytes>.Create(V('issuer_cert')),
     TArray<TBytes>.Create(IssuerSpkiPin)).VerifyServerCertificate(
-    TArray<TBytes>.Create(V('leaf_cert')), TServerName.DnsName(''), nil, LValidated, LAlert),
+    TArray<TBytes>.Create(V('leaf_cert')), TServerName.DnsName(''), nil, LVerified, LAlert),
     'a pin on a recovered issuer matches over the validated path for a leaf-only peer');
 end;
 
@@ -701,7 +728,7 @@ var
   LDangerous: TDangerousTrust;
   LInner, LVerifier: IServerCertificateVerifier;
   LAlert: TTlsAlertDescription;
-  LValidated: TArray<TBytes>;
+  LVerified: TVerifiedChain;
 begin
   // the pin-bypass guard for skip-verify: an attacker sends [attackerLeaf, pinnedLeaf]. Under
   // InsecureSkipVerify the validated chain is the leaf (index 0, the attacker's) alone, so a pin
@@ -717,7 +744,7 @@ begin
     as IServerCertificateVerifier;
   CheckFalse(LVerifier.VerifyServerCertificate(
     TArray<TBytes>.Create(V('issuer_cert'), V('leaf_cert')), TServerName.DnsName(''), nil,
-    LValidated, LAlert),
+    LVerified, LAlert),
     'a leaf pin does not match a genuine leaf appended behind an attacker leaf under skip-verify');
   CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
     'the alert is bad_certificate');
