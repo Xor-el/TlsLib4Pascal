@@ -160,7 +160,7 @@ begin
   LSocket := nil;
   try
     LSocket := FListener.Accept;
-    LCrypto := TInteropEngine.DefaultProvider;
+    LCrypto := TInteropEngine.DefaultCrypto;
     LPkix := TInteropEngine.DefaultPkix;
     LOptions := Default(TInteropEngineOptions);
     LOptions.Role := TInteropRole.Server;
@@ -226,7 +226,7 @@ begin
   LSocket := nil;
   try
     LSocket := FListener.Accept;
-    LCrypto := TInteropEngine.DefaultProvider;
+    LCrypto := TInteropEngine.DefaultCrypto;
     LOptions := Default(TInteropEngineOptions);
     LOptions.Role := TInteropRole.Server;
     LOptions.SupportedVersions := TArray<UInt16>.Create(FCell.Version);
@@ -313,7 +313,7 @@ begin
   Result := '';
   LSocket := TInteropSocket.Connect('127.0.0.1', APort);
   try
-    LCrypto := TInteropEngine.DefaultProvider;
+    LCrypto := TInteropEngine.DefaultCrypto;
     LPkix := TInteropEngine.DefaultPkix;
     LOptions := Default(TInteropEngineOptions);
     LOptions.Role := TInteropRole.Client;
@@ -422,7 +422,7 @@ begin
   Result := '';
   LSocket := TInteropSocket.Connect('127.0.0.1', APort);
   try
-    LCrypto := TInteropEngine.DefaultProvider;
+    LCrypto := TInteropEngine.DefaultCrypto;
     LPkix := TInteropEngine.DefaultPkix;
     LOptions := Default(TInteropEngineOptions);
     LOptions.Role := TInteropRole.Client;

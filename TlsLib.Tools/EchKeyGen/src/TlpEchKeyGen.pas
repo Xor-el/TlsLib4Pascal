@@ -69,11 +69,11 @@ type
     /// <summary>
     /// Generates a single-config ECHConfigList for public_name APublicName under the
     /// HPKE suite (AKem, AKdf, AAead) with the operator-chosen config id AConfigId and
-    /// the padding hint AMaximumNameLength. AProvider frames the PEM (RFC 7468) so the
+    /// the padding hint AMaximumNameLength. ACryptoProvider frames the PEM (RFC 7468) so the
     /// output matches what the server store reads. The DNS line is published at AOrigin
     /// (the name clients connect to). Raises for an unsupported KEM or an invalid name.
     /// </summary>
-    class function Generate(const AProvider: ICryptoProvider;
+    class function Generate(const ACryptoProvider: ICryptoProvider;
       const APublicName, AOrigin: string; AConfigId: Byte; AKem, AKdf, AAead: UInt16;
       AMaximumNameLength: Byte): TEchKeyGenResult; static;
     /// <summary>
@@ -88,7 +88,7 @@ implementation
 
 { TEchKeyGenerator }
 
-class function TEchKeyGenerator.Generate(const AProvider: ICryptoProvider;
+class function TEchKeyGenerator.Generate(const ACryptoProvider: ICryptoProvider;
   const APublicName, AOrigin: string; AConfigId: Byte; AKem, AKdf, AAead: UInt16;
   AMaximumNameLength: Byte): TEchKeyGenResult;
 var

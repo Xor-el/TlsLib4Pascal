@@ -66,7 +66,7 @@ const
 function TTestTls12KeySchedule.NewSchedule: ITls12KeySchedule;
 begin
   // TLS_ECDHE_..._WITH_AES_128_GCM_SHA256: PRF SHA-256, 16-byte key, 4-byte GCM salt
-  Result := TTls12KeySchedule.Create(Provider, THashAlgorithm.SHA_256, 16,
+  Result := TTls12KeySchedule.Create(Crypto, THashAlgorithm.SHA_256, 16,
     TAeadAlgorithm.AES_128_GCM);
   Result.SetPreMasterSecret(TSecretBuffer.From(DecodeHex(PreMasterHex)));
   Result.SetRandoms(DecodeHex(ClientRandomHex), DecodeHex(ServerRandomHex));
@@ -79,7 +79,7 @@ var
 begin
   LVec := LoadVectorFields('Tls12/PrfSha256.txt');
   try
-    LOutput := Provider.Primitives.CreateTls12Prf(THashAlgorithm.SHA_256).Compute(
+    LOutput := Crypto.Primitives.CreateTls12Prf(THashAlgorithm.SHA_256).Compute(
       TSecretBuffer.From(DecodeHex(LVec.Values['secret'])),
       LVec.Values['label'], DecodeHex(LVec.Values['seed']),
       StrToInt(LVec.Values['length']));
@@ -103,9 +103,9 @@ begin
   // the client write (key, salt) must drive TLS 1.2 AEAD record protection
   LKeys := LSched.TrafficKeys(TTlsEpoch.Application, TTlsDirection.ClientWrite);
   LSender := TTls12RecordProtection.Create(LKeys.Key, LKeys.Iv,
-    Provider.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
+    Crypto.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
   LReceiver := TTls12RecordProtection.Create(LKeys.Key, LKeys.Iv,
-    Provider.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
+    Crypto.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
   LPlain := DecodeHex('141516171819');
   LRecord := LSender.Protect(TTlsContentType.ApplicationData, LPlain, 0,
     System.Length(LPlain));

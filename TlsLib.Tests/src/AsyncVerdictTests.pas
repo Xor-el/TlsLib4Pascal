@@ -162,7 +162,7 @@ function TTestAsyncVerdict.ClientConfig(AAsync: Boolean;
 var
   LClient: ITlsClientConfigBuilder;
 begin
-  LClient := TTlsPresets.Compatible(Provider, Pkix).Client.WithTrustAnchors(TrustRoot);
+  LClient := TTlsPresets.Compatible(Crypto, Pkix).Client.WithTrustAnchors(TrustRoot);
   if AAsync then
     LClient.WithAsyncCertificateVerdict(True, ADeadlineMs);
   Result := LClient.Build;
@@ -170,7 +170,7 @@ end;
 
 function TTestAsyncVerdict.ServerConfig: ITlsServerConfig;
 begin
-  Result := TTlsPresets.Compatible(Provider, Pkix).Server
+  Result := TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(LeafCert, LeafKey).Build;
 end;
 
@@ -185,7 +185,7 @@ function TTestAsyncVerdict.MtlsClientConfig: ITlsClientConfig;
 begin
   // the client trusts the server root and presents its own credential when the server
   // requests client authentication (the same vector leaf serves both directions)
-  Result := TTlsPresets.Compatible(Provider, Pkix).Client
+  Result := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithTrustAnchors(TrustRoot)
     .WithCredential(LeafCert, LeafKey).Build;
 end;
@@ -194,7 +194,7 @@ function TTestAsyncVerdict.MtlsServerConfig(AAsync: Boolean): ITlsServerConfig;
 var
   LServer: ITlsServerConfigBuilder;
 begin
-  LServer := TTlsPresets.Compatible(Provider, Pkix).Server
+  LServer := TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(LeafCert, LeafKey)
     .WithTrustAnchors(TrustRoot)
     .WithPeerAuth(TClientAuthMode.Required);
@@ -222,10 +222,10 @@ begin
   // present the leaf + its issuer, and seal the OCSP staple on the credential so the server sends
   // a CertificateStatus when the client requests one
   LCred.CertificateChain := TArray<TBytes>.Create(OcspVec('leaf_cert'), OcspVec('issuer_cert'));
-  LCred.PrivateKey := Provider.Signing.ImportSigningKey(OcspVec('leaf_key'));
+  LCred.PrivateKey := Crypto.Signing.ImportSigningKey(OcspVec('leaf_key'));
   LCred.OcspStaple := AStaple;
   Result := TTlsEngineFactory.CreateServerEngine(
-    TTlsPresets.Compatible(Provider, Pkix).Server.WithCredential(LCred).Build);
+    TTlsPresets.Compatible(Crypto, Pkix).Server.WithCredential(LCred).Build);
 end;
 
 function TTestAsyncVerdict.StaplingRevocationClient(AHostDecision: Boolean;
@@ -235,7 +235,7 @@ var
 begin
   // request a staple and require revocation; the host check is disabled so the test isolates the
   // revocation park from the leaf's SAN identity
-  LClient := TTlsPresets.Compatible(Provider, Pkix).Client
+  LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithTrustAnchors(OcspVec('root_cert'))
     .WithDangerousDisableServerNameCheck
     .WithOcspStaplingRequest(True)
@@ -266,14 +266,14 @@ begin
     LVer := TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12);
   // the client presents its credential and verifies the server inline (default Soft); only the
   // SERVER runs Hard client-cert revocation with an async resolver, so only it parks
-  LClientOwner := TTlsPresets.Compatible(Provider, Pkix);
+  LClientOwner := TTlsPresets.Compatible(Crypto, Pkix);
   LClient := LClientOwner.Client
     .WithSupportedVersions(LVer)
     .WithTrustAnchors(TrustRoot)
     .WithCredential(LeafCert, LeafKey);
   LClientCfg := LClient.Build;
 
-  LServerOwner := TTlsPresets.Compatible(Provider, Pkix);
+  LServerOwner := TTlsPresets.Compatible(Crypto, Pkix);
   LServer := LServerOwner.Server
     .WithSupportedVersions(LVer)
     .WithCredential(LeafCert, LeafKey)

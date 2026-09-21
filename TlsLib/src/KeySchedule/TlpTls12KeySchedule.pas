@@ -61,7 +61,7 @@ type
     /// <summary>AHash is the PRF hash; AKeyLength the AEAD key size; AAead selects the
     /// implicit-nonce length from the key_block - a 4-byte salt for AES-GCM (RFC 5288) or
     /// the full 12-byte write IV for ChaCha20-Poly1305 (RFC 7905).</summary>
-    constructor Create(const AProvider: ICryptoProvider; AHash: THashAlgorithm;
+    constructor Create(const ACryptoProvider: ICryptoProvider; AHash: THashAlgorithm;
       AKeyLength: Int32; AAead: TAeadAlgorithm);
 
     // IKeySchedule
@@ -101,12 +101,12 @@ resourcestring
 
 { TTls12KeySchedule }
 
-constructor TTls12KeySchedule.Create(const AProvider: ICryptoProvider;
+constructor TTls12KeySchedule.Create(const ACryptoProvider: ICryptoProvider;
   AHash: THashAlgorithm; AKeyLength: Int32; AAead: TAeadAlgorithm);
 begin
   inherited Create;
-  FCrypto := AProvider;
-  FPrf := AProvider.Primitives.CreateTls12Prf(AHash);
+  FCrypto := ACryptoProvider;
+  FPrf := ACryptoProvider.Primitives.CreateTls12Prf(AHash);
   FHash := AHash;
   FKeyLength := AKeyLength;
   // ChaCha20-Poly1305 draws a full 12-byte write IV from the key_block (RFC 7905); AES-GCM

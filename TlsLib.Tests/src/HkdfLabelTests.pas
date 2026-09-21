@@ -54,7 +54,7 @@ implementation
 
 function TTestHkdfLabel.Hkdf: IHkdf;
 begin
-  Result := Provider.Primitives.CreateHkdf(THashAlgorithm.SHA_256);
+  Result := Crypto.Primitives.CreateHkdf(THashAlgorithm.SHA_256);
 end;
 
 procedure TTestHkdfLabel.TestHkdfLabelEncoding;

@@ -67,7 +67,7 @@ type
     procedure ReconstructInner(const AEncoded: TBytes;
       const AOuter: TTlsClientHello; const AOuterEntries: TArray<TEchExtEntry>);
   public
-    constructor Create(const AProvider: ICryptoProvider;
+    constructor Create(const ACryptoProvider: ICryptoProvider;
       const AKeyStore: IEchServerKeyStore; ATrialDecryptAll: Boolean);
     destructor Destroy; override;
     /// <summary>
@@ -108,11 +108,11 @@ resourcestring
 
 { TEchServerHandshake }
 
-constructor TEchServerHandshake.Create(const AProvider: ICryptoProvider;
+constructor TEchServerHandshake.Create(const ACryptoProvider: ICryptoProvider;
   const AKeyStore: IEchServerKeyStore; ATrialDecryptAll: Boolean);
 begin
   inherited Create;
-  FCrypto := AProvider;
+  FCrypto := ACryptoProvider;
   FKeyStore := AKeyStore;
   FTrialDecryptAll := ATrialDecryptAll;
   FStatus := TEchStatus.NotOffered;

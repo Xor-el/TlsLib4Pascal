@@ -56,7 +56,7 @@ type
     procedure ApplyInstallKeys(const AEffect: THandshakeEffect);
   public
     constructor Create(const AChannel: IHandshakeChannel;
-      const AInstaller: IRecordEpochInstaller; const AProvider: ICryptoProvider;
+      const AInstaller: IRecordEpochInstaller; const ACryptoProvider: ICryptoProvider;
       const ASink: IHandshakeSink);
 
     procedure Apply(const AEffect: THandshakeEffect);
@@ -68,13 +68,13 @@ implementation
 { THandshakeDriver }
 
 constructor THandshakeDriver.Create(const AChannel: IHandshakeChannel;
-  const AInstaller: IRecordEpochInstaller; const AProvider: ICryptoProvider;
+  const AInstaller: IRecordEpochInstaller; const ACryptoProvider: ICryptoProvider;
   const ASink: IHandshakeSink);
 begin
   inherited Create;
   FChannel := AChannel;
   FInstaller := AInstaller;
-  FCrypto := AProvider;
+  FCrypto := ACryptoProvider;
   FSink := ASink;
   if not Supports(ASink, IHandshakeVersionSink, FVersionSink) then
     FVersionSink := nil;

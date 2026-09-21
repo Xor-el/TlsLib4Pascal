@@ -93,7 +93,7 @@ var
   LHash: TBytes;
 begin
   // any valid epoch keys; the routing tests only care where the driver installs them, not what
-  LSchedule := TTls13KeySchedule.Create(Provider, THashAlgorithm.SHA_256, 16);
+  LSchedule := TTls13KeySchedule.Create(Crypto, THashAlgorithm.SHA_256, 16);
   LSchedule.SetSharedSecret(TSecretBuffer.From(DecodeHex(
     '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f')));
   SetLength(LHash, 32);
@@ -105,7 +105,7 @@ function TTestHandshakeDriver.DriverOver(const ALayer: TRecordLayer): THandshake
 begin
   Result := THandshakeDriver.Create(
     THandshakeChannel.Create(ALayer) as IHandshakeChannel,
-    TRecordLayerInstaller.Create(ALayer) as IRecordEpochInstaller, Provider,
+    TRecordLayerInstaller.Create(ALayer) as IRecordEpochInstaller, Crypto,
     TMockHandshakeSink.Create as IHandshakeSink);
 end;
 
@@ -256,7 +256,7 @@ begin
   LLayer := TRecordLayer.Create;
   LDriver := nil;
   try
-    LSchedule := TTls13KeySchedule.Create(Provider, THashAlgorithm.SHA_256, 16);
+    LSchedule := TTls13KeySchedule.Create(Crypto, THashAlgorithm.SHA_256, 16);
     LSchedule.SetSharedSecret(TSecretBuffer.From(DecodeHex(LVec.Values['shared_secret'])));
     LSchedule.DeriveEpochSecrets(TTlsEpoch.Handshake,
       DecodeHex(LVec.Values['hash_ch_sh']));
@@ -266,7 +266,7 @@ begin
     // installer seam that a caller could take a counted reference to
     LDriver := THandshakeDriver.Create(
       THandshakeChannel.Create(LLayer) as IHandshakeChannel,
-      TRecordLayerInstaller.Create(LLayer) as IRecordEpochInstaller, Provider,
+      TRecordLayerInstaller.Create(LLayer) as IRecordEpochInstaller, Crypto,
       TMockHandshakeSink.Create as IHandshakeSink);
     LDriver.Apply(THandshakeEffects.InstallKeys(LSchedule.TrafficKeys(
       TTlsEpoch.Handshake, TTlsDirection.ClientWrite), TRecordSide.ReadSide,
@@ -296,7 +296,7 @@ begin
   LSink := TMockHandshakeSink.Create;
   LSinkRef := LSink;
   LDriver := THandshakeDriver.Create(THandshakeChannel.Create(LLayer) as IHandshakeChannel, nil,
-    Provider, LSinkRef);
+    Crypto, LSinkRef);
   try
     LDriver.Apply(THandshakeEffects.RaiseEvent(TTlsEventKind.KeysInstalled));
     LDriver.Apply(THandshakeEffects.HandshakeEstablished);

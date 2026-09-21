@@ -127,7 +127,7 @@ end;
 
 function TTestEchConfig.Usable(const AConfig: TEchConfig): Boolean;
 begin
-  Result := AConfig.IsUsable(Provider);
+  Result := AConfig.IsUsable(Crypto);
 end;
 
 procedure TTestEchConfig.TestParseRealConfig;
@@ -197,7 +197,7 @@ begin
   LGood := ConfigWith(THpkeKem.DHKEM_X25519_HKDF_SHA256,
     OneSuite(THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM), 'cover.example', nil);
   LList := TArray<TEchConfig>.Create(LStale, LGood);
-  CheckTrue(TEchConfigList.TrySelect(LList, Provider, LChosen, LSuite),
+  CheckTrue(TEchConfigList.TrySelect(LList, Crypto, LChosen, LSuite),
     'a usable config is selected');
   CheckEquals(Integer(TEchConfig.SupportedVersion), Integer(LChosen.Version),
     'the supported-version config was chosen');
@@ -234,7 +234,7 @@ begin
   LSuites[1].AeadId := THpkeAead.AES_128_GCM;
   LConfig := ConfigWith(THpkeKem.DHKEM_X25519_HKDF_SHA256, LSuites,
     'cover.example', nil);
-  CheckTrue(LConfig.TrySelectSuite(Provider, LSuite), 'a supported suite exists');
+  CheckTrue(LConfig.TrySelectSuite(Crypto, LSuite), 'a supported suite exists');
   CheckEquals(Integer(THpkeAead.AES_128_GCM), Integer(LSuite.Aead),
     'the real AEAD was selected, not export-only');
 end;

@@ -133,7 +133,7 @@ begin
   try
     Result.CertificateChain := TArray<TBytes>.Create(
       DecodeHex(LCerts.Values['leaf_cert']));
-    Result.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
+    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
   finally
     LCerts.Free;
   end;
@@ -146,10 +146,10 @@ var
 begin
   LParams := Default(TClient12HandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Provider);
+  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.OfferedSuites := TArray<UInt16>.Create(ASuite);
   // TLS 1.2 supported_groups gates both the ECDHE key-exchange group and the ECDSA leaf's
@@ -172,7 +172,7 @@ end;
 function TTestTls12Loopback.NewClient(ASuite: UInt16;
   AOfferEms: Boolean): ITlsEngine;
 begin
-  Result := TTlsEngine.CreateConfigured(ClientMachine(ASuite, AOfferEms), Provider);
+  Result := TTlsEngine.CreateConfigured(ClientMachine(ASuite, AOfferEms), Crypto);
 end;
 
 function TTestTls12Loopback.ServerMachine(ARequireEms: Boolean): IHandshakeMachine;
@@ -181,11 +181,11 @@ var
 begin
   LParams := Default(TServer12HandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Provider);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
   LParams.ServerRandom := Filled($22, 32);
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
   LParams.RequireExtendedMasterSecret := ARequireEms;
@@ -211,21 +211,21 @@ var
 begin
   LParams := Default(TServer12HandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Provider);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
   LParams.ServerRandom := Filled($22, 32);
   // the leaf's issuer travels in the chain so the client can authenticate the staple
   LCred := Default(TTlsCredential);
   LCred.CertificateChain := TArray<TBytes>.Create(
     OcspField('leaf_cert'), OcspField('issuer_cert'));
-  LCred.PrivateKey := Provider.Signing.ImportSigningKey(OcspField('leaf_key'));
+  LCred.PrivateKey := Crypto.Signing.ImportSigningKey(OcspField('leaf_key'));
   LCred.OcspStaple := AStaple;
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(LCred);
   Result := TTlsEngine.CreateConfigured(
-    TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls12Loopback.NewHardRevocationClient: ITlsEngine;
@@ -234,10 +234,10 @@ var
 begin
   LParams := Default(TClient12HandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Provider);
+  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.OfferedSuites := TArray<UInt16>.Create(
     TCipherSuites12.EcdheEcdsaAes128GcmSha256);
@@ -261,12 +261,12 @@ begin
     TRevocationPosture.Hard) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
   Result := TTlsEngine.CreateConfigured(
-    TTls12ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls12ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls12Loopback.NewServer(ARequireEms: Boolean): ITlsEngine;
 begin
-  Result := TTlsEngine.CreateConfigured(ServerMachine(ARequireEms), Provider);
+  Result := TTlsEngine.CreateConfigured(ServerMachine(ARequireEms), Crypto);
 end;
 
 function TTestTls12Loopback.Drain(const AEngine: ITlsEngine): TBytes;

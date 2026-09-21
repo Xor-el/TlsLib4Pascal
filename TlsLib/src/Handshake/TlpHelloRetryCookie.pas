@@ -43,7 +43,7 @@ type
     function Mac(const AContent: TBytes): TBytes;
   public
     /// <summary>The cookie authority keyed by a per-server-instance secret.</summary>
-    constructor Create(const AProvider: ICryptoProvider; const ASecret: ISecretBuffer);
+    constructor Create(const ACryptoProvider: ICryptoProvider; const ASecret: ISecretBuffer);
     /// <summary>Mints a cookie binding Hash(ClientHello1) and the selected group.</summary>
     function Mint(const ACh1Hash: TBytes; ASelectedGroup: UInt16): TBytes;
     /// <summary>
@@ -59,11 +59,11 @@ implementation
 
 { THelloRetryCookie }
 
-constructor THelloRetryCookie.Create(const AProvider: ICryptoProvider;
+constructor THelloRetryCookie.Create(const ACryptoProvider: ICryptoProvider;
   const ASecret: ISecretBuffer);
 begin
   inherited Create;
-  FCrypto := AProvider;
+  FCrypto := ACryptoProvider;
   FSecret := ASecret;
 end;
 

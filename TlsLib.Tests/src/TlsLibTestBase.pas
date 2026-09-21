@@ -57,19 +57,19 @@ type
   /// <summary>Adds hex / comparison / resource helpers used across the suites.</summary>
   TTlsLibAlgorithmTestCase = class abstract(TTlsLibTestCase)
   strict private
-    FProvider: ICryptoProvider;
+    FCrypto: ICryptoProvider;
     FPkix: IPkixProvider;
-    function GetProvider: ICryptoProvider;
+    function GetCrypto: ICryptoProvider;
     function GetPkix: IPkixProvider;
   strict protected
     // Overridable so a fixture can supply a different provider (e.g. a mock).
-    function CreateProvider: ICryptoProvider; virtual;
+    function CreateCrypto: ICryptoProvider; virtual;
     // Overridable so a fixture can supply a different PKIX provider (e.g. a mock).
     function CreatePkix: IPkixProvider; virtual;
   protected
     procedure TearDown; override;
     // The crypto provider, created once per test on first use.
-    property Provider: ICryptoProvider read GetProvider;
+    property Crypto: ICryptoProvider read GetCrypto;
     // The PKIX provider, created once per test on first use.
     property Pkix: IPkixProvider read GetPkix;
     function DecodeHex(const AData: String): TBytes;
@@ -134,13 +134,13 @@ end;
 procedure TTlsLibAlgorithmTestCase.TearDown;
 begin
   // the fixture instance is reused across suite runs; drop the cached providers so a stateful mock
-  // cannot bleed into the next run (GetProvider/GetPkix lazily rebuild them)
-  FProvider := nil;
+  // cannot bleed into the next run (GetCrypto/GetPkix lazily rebuild them)
+  FCrypto := nil;
   FPkix := nil;
   inherited TearDown;
 end;
 
-function TTlsLibAlgorithmTestCase.CreateProvider: ICryptoProvider;
+function TTlsLibAlgorithmTestCase.CreateCrypto: ICryptoProvider;
 begin
   Result := TDefaultCryptoProvider.Create;
 end;
@@ -150,11 +150,11 @@ begin
   Result := TDefaultPkixProvider.Create;
 end;
 
-function TTlsLibAlgorithmTestCase.GetProvider: ICryptoProvider;
+function TTlsLibAlgorithmTestCase.GetCrypto: ICryptoProvider;
 begin
-  if FProvider = nil then
-    FProvider := CreateProvider;
-  Result := FProvider;
+  if FCrypto = nil then
+    FCrypto := CreateCrypto;
+  Result := FCrypto;
 end;
 
 function TTlsLibAlgorithmTestCase.GetPkix: IPkixProvider;

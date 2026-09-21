@@ -108,11 +108,11 @@ var
   LStore: IEchServerKeyStore;
   LEntries: TArray<TEchKeyEntry>;
 begin
-  LGen := TEchKeyGenerator.Generate(Provider, 'public.example', 'secret.example', 42,
+  LGen := TEchKeyGenerator.Generate(Crypto, 'public.example', 'secret.example', 42,
     THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256,
     THpkeAead.AES_128_GCM, 64);
   // the generated PEM loads through the server key store (PKCS#8 private key + ECHCONFIG)
-  LStore := TInMemoryEchKeyStore.FromPem(LGen.Pem, Provider);
+  LStore := TInMemoryEchKeyStore.FromPem(LGen.Pem, Crypto);
   LEntries := LStore.Entries;
   CheckEquals(1, System.Length(LEntries), 'the store parsed one ECH config');
   CheckEquals(42, LEntries[0].Config.ConfigId, 'the config id round-tripped');
@@ -135,12 +135,12 @@ var
   LOpener: IHpkeOpener;
   LEnc, LPlain, LCipher, LOut: TBytes;
 begin
-  LGen := TEchKeyGenerator.Generate(Provider, 'public.example', 'secret.example', 5,
+  LGen := TEchKeyGenerator.Generate(Crypto, 'public.example', 'secret.example', 5,
     THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256,
     THpkeAead.AES_128_GCM, 0);
-  LStore := TInMemoryEchKeyStore.FromPem(LGen.Pem, Provider);
+  LStore := TInMemoryEchKeyStore.FromPem(LGen.Pem, Crypto);
   LEntry := LStore.Entries[0];
-  CheckTrue(LEntry.Config.TrySelectSuite(Provider, LSuite),
+  CheckTrue(LEntry.Config.TrySelectSuite(Crypto, LSuite),
     'the config advertises a supported suite');
   // seal to the generated public key, open with the imported private key: a mismatch
   // (a wrong PKCS#8 encode/decode) would fail the AEAD authentication
@@ -159,13 +159,13 @@ var
 begin
   // the DNS line is published at the origin (the name clients connect to), while the public_name
   // lives only inside the ECHConfig (RFC 9848 sec. 3; RFC 9849 sec. 4)
-  LGen := TEchKeyGenerator.Generate(Provider, 'public.example', 'secret.example', 7,
+  LGen := TEchKeyGenerator.Generate(Crypto, 'public.example', 'secret.example', 7,
     THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM, 0);
   CheckEquals(1, Pos('secret.example. HTTPS 1 . ech="', LGen.DnsLine),
     'the DNS line is owned by the origin');
   CheckEquals(0, Pos('public.example', LGen.DnsLine),
     'the public_name does not appear in the DNS owner name');
-  LStore := TInMemoryEchKeyStore.FromPem(LGen.Pem, Provider);
+  LStore := TInMemoryEchKeyStore.FromPem(LGen.Pem, Crypto);
   CheckEquals('public.example', LStore.Entries[0].Config.PublicName,
     'the public_name is carried inside the ECHConfig');
 end;
@@ -176,7 +176,7 @@ var
 begin
   LRaised := False;
   try
-    TEchKeyGenerator.Generate(Provider, 'public.example', 'bad_origin!', 1,
+    TEchKeyGenerator.Generate(Crypto, 'public.example', 'bad_origin!', 1,
       THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM, 0);
   except
     on E: EArgumentException do
@@ -190,7 +190,7 @@ var
   LGen: TEchKeyGenResult;
   LRdata, LOut: TBytes;
 begin
-  LGen := TEchKeyGenerator.Generate(Provider, 'public.example', 'secret.example', 1,
+  LGen := TEchKeyGenerator.Generate(Crypto, 'public.example', 'secret.example', 1,
     THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256,
     THpkeAead.AES_128_GCM, 0);
   LRdata := BuildHttpsRdata(1, True, LGen.EchConfigList);
@@ -309,10 +309,10 @@ var
 begin
   // pair one config's PRIVATE KEY with a different config's ECHCONFIG: the store must reject the
   // mismatch at load, not accept a store that would silently reject every ECH handshake
-  LGen1 := TEchKeyGenerator.Generate(Provider, 'a.example', 'a-origin.example', 1,
+  LGen1 := TEchKeyGenerator.Generate(Crypto, 'a.example', 'a-origin.example', 1,
     THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256,
     THpkeAead.AES_128_GCM, 0);
-  LGen2 := TEchKeyGenerator.Generate(Provider, 'b.example', 'b-origin.example', 2,
+  LGen2 := TEchKeyGenerator.Generate(Crypto, 'b.example', 'b-origin.example', 2,
     THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256,
     THpkeAead.AES_128_GCM, 0);
   LBlocks1 := TPem.ReadBlocks(LGen1.Pem);
@@ -323,7 +323,7 @@ begin
   LMixedPem := TPem.WriteBlocks(LMixed);
   LRaised := False;
   try
-    TInMemoryEchKeyStore.FromPem(LMixedPem, Provider);
+    TInMemoryEchKeyStore.FromPem(LMixedPem, Crypto);
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
@@ -336,7 +336,7 @@ function TTestEchTooling.BuildEchConfigFor(out APublicKey: TBytes;
 var
   LSuite: TEchCipherSuite;
 begin
-  Provider.Hpke.GenerateKeyPair(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+  Crypto.Hpke.GenerateKeyPair(THpkeKem.DHKEM_X25519_HKDF_SHA256,
     APublicKey, APrivateKey);
   LSuite.KdfId := THpkeKdf.HKDF_SHA256;
   LSuite.AeadId := THpkeAead.AES_128_GCM;
@@ -360,7 +360,7 @@ begin
   LRaised := False;
   try
     // the config's public key is LPub1, but LSk2 is a different key
-    TInMemoryEchKeyStore.FromConfig(LConfigList, LSk2, Provider);
+    TInMemoryEchKeyStore.FromConfig(LConfigList, LSk2, Crypto);
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
@@ -378,7 +378,7 @@ var
 begin
   SetLength(LEntries, 1);
   LEntries[0].Config := BuildEchConfigFor(LPub, LSk);
-  LEntries[0].RecipientKey := Provider.Hpke.ImportRecipientKey(
+  LEntries[0].RecipientKey := Crypto.Hpke.ImportRecipientKey(
     THpkeKem.DHKEM_X25519_HKDF_SHA256, LSk);
   LEntries[0].IsRetry := False; // a store that advertises no retry_configs
   LRaised := False;
@@ -410,7 +410,7 @@ begin
     TEncoding.ASCII.GetBytes('b.example'), nil);
   LConfigList := TEchConfigList.Encode(
     TArray<TEchConfig>.Create(LStale, LSupported));
-  LStore := TInMemoryEchKeyStore.FromConfig(LConfigList, LSk, Provider);
+  LStore := TInMemoryEchKeyStore.FromConfig(LConfigList, LSk, Crypto);
   CheckEquals(1, System.Length(LStore.Entries),
     'only the supported-version config becomes a key');
 end;
@@ -434,7 +434,7 @@ begin
   LRaised := False;
   try
     // a list with no config of a version this library serves must not yield an empty store
-    TInMemoryEchKeyStore.FromConfig(LConfigList, LSk, Provider);
+    TInMemoryEchKeyStore.FromConfig(LConfigList, LSk, Crypto);
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
@@ -465,7 +465,7 @@ begin
   LRaised := False;
   try
     // the check must skip the export-only suite and still detect the mismatched key
-    TInMemoryEchKeyStore.FromConfig(LConfigList, LSk2, Provider);
+    TInMemoryEchKeyStore.FromConfig(LConfigList, LSk2, Crypto);
   except
     on E: EArgumentTlsLibException do
       LRaised := True;

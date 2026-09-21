@@ -152,7 +152,7 @@ begin
   try
     Result.CertificateChain := TArray<TBytes>.Create(
       DecodeHex(LCerts.Values['leaf_cert']));
-    Result.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
+    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
   finally
     LCerts.Free;
   end;
@@ -165,10 +165,10 @@ var
 begin
   LParams := Default(TClient12HandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Provider);
+  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.OfferedSuites := TArray<UInt16>.Create(TlsSuite);
   // TLS 1.2 supported_groups gates both the ECDHE key-exchange group and the ECDSA leaf's
@@ -178,7 +178,7 @@ begin
   LParams.OfferedSchemes := TArray<UInt16>.Create(
     TSignatureSchemes.EcdsaSecp256r1Sha256);
   LParams.OfferedVersions := TArray<UInt16>.Create(TlsWireVersionTls12);
-  LParams.ClientRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
+  LParams.ClientRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
   LParams.OfferExtendedMasterSecret := AOfferEms;
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
@@ -188,7 +188,7 @@ begin
   LParams.ServerIdentity := ServerHost + ':443';
   LParams.SessionCache := ACache;
   Result := TTlsEngine.CreateConfigured(
-    TTls12ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls12ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls12Resumption.NewDualVersionClient(
@@ -204,14 +204,14 @@ begin
     as ITrustAnchorStore, True) as IServerCertificateVerifier;
   // the dispatcher sends one unified ClientHello, so both sub-machines must share the same
   // client_random and legacy_session_id (the abbreviated Finished MAC binds them)
-  LRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
-  LSessionId := Provider.Primitives.GetRandom.GenerateBytes(32);
+  LRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
+  LSessionId := Crypto.Primitives.GetRandom.GenerateBytes(32);
 
   L13 := Default(TClientHandshakeParams);
   L13.Clock := TSystemClock.Create;
-  L13.Crypto := Provider;
+  L13.Crypto := Crypto;
   L13.Inspector := Pkix.Certificates;
-  L13.Group := TNamedGroups.CreateX25519(Provider);
+  L13.Group := TNamedGroups.CreateX25519(Crypto);
   L13.GroupCode := TNamedGroupCatalog.X25519;
   // the unified ClientHello carries the 1.3 machine's supported_groups, which for a 1.2
   // fallback with a P-256 ECDSA server certificate must also list Secp256r1 - TLS 1.2
@@ -219,8 +219,8 @@ begin
   // X25519-only
   L13.OfferedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
     TNamedGroupCatalog.Secp256r1);
-  L13.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Provider);
-  L13.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Provider);
+  L13.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Crypto);
+  L13.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
   L13.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   L13.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256, TlsSuite);
   L13.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
@@ -234,10 +234,10 @@ begin
 
   L12 := Default(TClient12HandshakeParams);
   L12.Clock := TSystemClock.Create;
-  L12.Crypto := Provider;
+  L12.Crypto := Crypto;
   L12.Inspector := Pkix.Certificates;
-  L12.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Provider);
-  L12.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Provider);
+  L12.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Crypto);
+  L12.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
   L12.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   L12.OfferedSuites := TArray<UInt16>.Create(TlsSuite);
   L12.OfferedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
@@ -254,7 +254,7 @@ begin
   L12.SessionCache := ACache;
 
   Result := TTlsEngine.CreateConfigured(
-    TClientVersionDispatchMachine.Create(L13, L12) as IHandshakeMachine, Provider);
+    TClientVersionDispatchMachine.Create(L13, L12) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls12Resumption.NewServer(const AStore: ISessionStore;
@@ -265,12 +265,12 @@ var
 begin
   LParams := Default(TServer12HandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Provider);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  LParams.Group := TNamedGroups.CreateX25519(Provider);
-  LParams.ServerRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
+  LParams.ServerRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
   LParams.EmitDowngradeSentinel := AEmitSentinel;
   if AWithCredential then
     LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
@@ -278,7 +278,7 @@ begin
   LParams.SessionTicketKeys := AStek;
   LParams.TicketLifetimeSeconds := ALifetime;
   Result := TTlsEngine.CreateConfigured(
-    TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls12Resumption.Drain(const AEngine: ITlsEngine): TBytes;
@@ -464,7 +464,7 @@ function TTestTls12Resumption.MakeTicketSession(const ATicket: TBytes;
   AExtendedMasterSecret: Boolean): IResumableSession;
 begin
   Result := TResumableSession.CreateTls12(TlsSuite, THashAlgorithm.SHA_256,
-    TSecretBuffer.From(Provider.Primitives.GetRandom.GenerateBytes(48)), nil, ATicket,
+    TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(48)), nil, ATicket,
     AExtendedMasterSecret, '', '', 7200, 0, UInt64(TDateTimeUtilities.CurrentUnixMs), nil);
 end;
 
@@ -485,7 +485,7 @@ var
 begin
   // a store (no STEK) drives session-id resumption (RFC 5246 7.3)
   LCache := TInMemorySessionCache.Create;
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
 
   LClient := NewClient(LCache, True);
   LServer := NewServer(LStore, nil, 7200, True);
@@ -515,7 +515,7 @@ var
   LClient, LServer: ITlsEngine;
 begin
   // a STEK (no store) drives stateless RFC 5077 ticket resumption
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
 
   LClient := NewClient(LCache, True);
@@ -543,7 +543,7 @@ var
 begin
   // a session established with Extended Master Secret resumes only when the client
   // re-offers EMS; the abbreviated completion proves the EMS state round-tripped
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
 
   LClient := NewClient(LCache, True);
@@ -569,7 +569,7 @@ begin
   // a session established WITHOUT EMS must resume without the client offering EMS on the
   // resumption ClientHello, or the server would decline (RFC 7627 5.3); an abbreviated
   // completion proves the client aligned its EMS offer to the cached session
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
 
   LClient := NewClient(LCache, False);
@@ -597,7 +597,7 @@ begin
   // establish a real EMS session, then re-present its (EMS) ticket as a non-EMS cache entry so the
   // client offers the ticket without the extension; the server opening it as EMS must abort rather
   // than resume with an inconsistent master secret (RFC 7627 5.3)
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache1 := TInMemorySessionCache.Create;
   LClient := NewClient(LCache1, True);
   LServer := NewServer(nil, LStek, 7200, True);
@@ -634,7 +634,7 @@ var
 begin
   // the reverse direction: a non-EMS session re-presented as EMS so the client offers EMS; the
   // server opening a non-EMS ticket under an EMS offer declines to a full handshake, not an abort
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache1 := TInMemorySessionCache.Create;
   LClient := NewClient(LCache1, False);
   LServer := NewServer(nil, LStek, 7200, True);
@@ -662,7 +662,7 @@ begin
   try
     ARootCert := DecodeHex(LV.Values['root_cert']);
     Result.CertificateChain := TArray<TBytes>.Create(DecodeHex(LV.Values['leaf_cert']));
-    Result.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(LV.Values['leaf_key']));
+    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LV.Values['leaf_key']));
   finally
     LV.Free;
   end;
@@ -675,17 +675,17 @@ var
 begin
   LParams := Default(TClient12HandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Provider);
+  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.OfferedSuites := TArray<UInt16>.Create(TlsSuite);
   LParams.OfferedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
     TNamedGroupCatalog.Secp256r1);
   LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
   LParams.OfferedVersions := TArray<UInt16>.Create(TlsWireVersionTls12);
-  LParams.ClientRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
+  LParams.ClientRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
   LParams.OfferExtendedMasterSecret := True;
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
@@ -697,7 +697,7 @@ begin
   LParams.SessionCache := ACache;
   LParams.ClientCredential := ACredential;
   Result := TTlsEngine.CreateConfigured(
-    TTls12ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls12ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls12Resumption.BuildMtlsServer(const AStek: ISessionTicketKeyManager;
@@ -707,12 +707,12 @@ var
 begin
   LParams := Default(TServer12HandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Provider);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  LParams.Group := TNamedGroups.CreateX25519(Provider);
-  LParams.ServerRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
+  LParams.ServerRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
   LParams.SessionTicketKeys := AStek;
   LParams.ResumptionScope := AScope;
@@ -728,7 +728,7 @@ begin
       as ITrustAnchorStore, False) as IClientCertificateVerifier;
   end;
   Result := TTlsEngine.CreateConfigured(
-    TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 procedure TTestTls12Resumption.TestResumptionScopeMismatchDeclinesTicket;
@@ -739,7 +739,7 @@ var
   LCred: TTlsCredential;
   LClientRoot: TBytes;
 begin
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
   LCred := LoadClientAuthCredential(LClientRoot);
 
@@ -771,7 +771,7 @@ var
   LCred: TTlsCredential;
   LClientRoot, LScope: TBytes;
 begin
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
   LCred := LoadClientAuthCredential(LClientRoot);
   LScope := DecodeHex('5c5c5c5c5c5c5c5c');
@@ -840,7 +840,7 @@ var
 begin
   // a zero-lifetime ticket is expired the instant it is sealed; the resuming server must
   // reject it on freshness and complete a full handshake instead
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
 
   LClient := NewClient(LCache, True);
@@ -866,10 +866,10 @@ var
 begin
   // the client presents a ticket that is not a valid STEK seal; the server cannot open it
   // and completes a full handshake
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
   LCache.Store(ServerHost, ServerHost,
-    MakeTicketSession(Provider.Primitives.GetRandom.GenerateBytes(64), False));
+    MakeTicketSession(Crypto.Primitives.GetRandom.GenerateBytes(64), False));
 
   LClient := NewClient(LCache, True);
   LServer := NewServer(nil, LStek, 7200, True);
@@ -887,7 +887,7 @@ var
 begin
   // with no client cache the client never offers a session id or ticket, so even a
   // store-backed server runs a full handshake
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
   LClient := NewClient(nil, True);
   LServer := NewServer(LStore, nil, 7200, True);
   CheckTrue(DriveObservingServerCert(LClient, LServer),
@@ -904,7 +904,7 @@ var
   LClient, LServer: ITlsEngine;
 begin
   LCache := TInMemorySessionCache.Create;
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
 
   // connection 1: a dual-version client (offers 1.3 + 1.2) meets a 1.2-only server, so it
   // negotiates 1.2 in full and caches the issued 1.2 session
@@ -936,7 +936,7 @@ begin
   // a 1.3-capable client aborts a stamped downgrade even on an abbreviated (resumption)
   // ServerHello, not only on a full one (RFC 8446 4.1.3)
   LCache := TInMemorySessionCache.Create;
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
 
   LClient := NewDualVersionClient(LCache);
   LServer := NewServer(nil, LStek, 7200, True);
@@ -966,12 +966,12 @@ begin
   // the 1.2 cross-host resumption guard: a session issued while serving one host must not resume
   // a client that requests another (RFC 6066 3). The client always requests ServerHost, so the
   // server-stored session carries the issuing host the guard checks
-  LIdentity := Provider.Primitives.GetRandom.GenerateBytes(32);
-  LSecret := TSecretBuffer.From(Provider.Primitives.GetRandom.GenerateBytes(48));
+  LIdentity := Crypto.Primitives.GetRandom.GenerateBytes(32);
+  LSecret := TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(48));
 
   // control: issued under the requested host -> resumes (abbreviated, no Certificate)
   LCache := TInMemorySessionCache.Create;
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
   LCache.Store(ServerHost + ':443', ServerHost, MakeStoredSession(LIdentity, LSecret, ServerHost));
   LStore.PutWithId(LIdentity, MakeStoredSession(LIdentity, LSecret, ServerHost));
   LClient := NewClient(LCache, True);
@@ -983,7 +983,7 @@ begin
   // guarded: issued under a different host -> the credentialed server ignores the session id and
   // runs a full handshake (Certificate sent) instead of resuming under the wrong identity
   LCache := TInMemorySessionCache.Create;
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
   LCache.Store(ServerHost + ':443', ServerHost, MakeStoredSession(LIdentity, LSecret, ServerHost));
   LStore.PutWithId(LIdentity, MakeStoredSession(LIdentity, LSecret, 'other.example'));
   LClient := NewClient(LCache, True);

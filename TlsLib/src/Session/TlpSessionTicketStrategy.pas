@@ -64,7 +64,7 @@ type
       const AChain: TArray<TBytes>); static;
     class function DeserializeChain(var AReader: TWireReader): TArray<TBytes>; static;
   public
-    constructor Create(const AProvider: ICryptoProvider;
+    constructor Create(const ACryptoProvider: ICryptoProvider;
       const AKeys: ISessionTicketKeyManager);
     function Seal(const ASession: IResumableSession): TBytes;
     function Open(const ATicket: TBytes; out ASession: IResumableSession): Boolean;
@@ -76,7 +76,7 @@ type
   public
     /// <summary>The store strategy when AStore is set, else the STEK strategy when AKeys
     /// is set, else nil (resumption disabled).</summary>
-    class function ForServer(const AProvider: ICryptoProvider;
+    class function ForServer(const ACryptoProvider: ICryptoProvider;
       const AKeys: ISessionTicketKeyManager;
       const AStore: ISessionStore): ISessionTicketStrategy; static;
   end;
@@ -115,11 +115,11 @@ end;
 
 { TStekTicketStrategy }
 
-constructor TStekTicketStrategy.Create(const AProvider: ICryptoProvider;
+constructor TStekTicketStrategy.Create(const ACryptoProvider: ICryptoProvider;
   const AKeys: ISessionTicketKeyManager);
 begin
   inherited Create;
-  FCrypto := AProvider;
+  FCrypto := ACryptoProvider;
   FKeys := AKeys;
 end;
 
@@ -375,7 +375,7 @@ end;
 
 { TSessionTicketStrategies }
 
-class function TSessionTicketStrategies.ForServer(const AProvider: ICryptoProvider;
+class function TSessionTicketStrategies.ForServer(const ACryptoProvider: ICryptoProvider;
   const AKeys: ISessionTicketKeyManager;
   const AStore: ISessionStore): ISessionTicketStrategy;
 begin
@@ -383,7 +383,7 @@ begin
   if AStore <> nil then
     Result := TStoreTicketStrategy.Create(AStore)
   else if AKeys <> nil then
-    Result := TStekTicketStrategy.Create(AProvider, AKeys)
+    Result := TStekTicketStrategy.Create(ACryptoProvider, AKeys)
   else
     Result := nil;
 end;

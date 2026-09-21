@@ -73,7 +73,7 @@ type
     /// handshake + echoed application data; when AExpectRejectAlert >= 0 the semantics invert -
     /// 0 iff the handshake aborts with exactly that alert (a completed handshake then fails).</summary>
     class function RunOneClient(const ASocket: TInteropSocket;
-      const AProvider: ICryptoProvider; const AOptions: TInteropEngineOptions;
+      const ACryptoProvider: ICryptoProvider; const AOptions: TInteropEngineOptions;
       const AMessage: string; AExpectRejectAlert: Int32): Int32; static;
   public
     /// <summary>Parses --role/--port/... and runs one exchange; returns the exit code.</summary>
@@ -170,7 +170,7 @@ var
   LConn: Int32;
 begin
   Result := 1;
-  LCrypto := TInteropEngine.DefaultProvider;
+  LCrypto := TInteropEngine.DefaultCrypto;
   LListener := TInteropListener.Bind('127.0.0.1', APort);
   try
     Writeln('listening on 127.0.0.1:', LListener.Port);
@@ -234,7 +234,7 @@ var
   LConn: Int32;
 begin
   Result := 1;
-  LCrypto := TInteropEngine.DefaultProvider;
+  LCrypto := TInteropEngine.DefaultCrypto;
   LPkix := TInteropEngine.DefaultPkix;
   // one shared cache carries a ticket from an earlier connection so a later one resumes it
   LCache := nil;
@@ -278,7 +278,7 @@ begin
 end;
 
 class function TOpenSslInteropRunner.RunOneClient(const ASocket: TInteropSocket;
-  const AProvider: ICryptoProvider; const AOptions: TInteropEngineOptions;
+  const ACryptoProvider: ICryptoProvider; const AOptions: TInteropEngineOptions;
   const AMessage: string; AExpectRejectAlert: Int32): Int32;
 var
   LEngine: ITlsEngine;
@@ -287,7 +287,7 @@ var
   LI: Int32;
 begin
   Result := 1;
-  LEngine := TInteropEngine.Build(AProvider, AOptions);
+  LEngine := TInteropEngine.Build(ACryptoProvider, AOptions);
 
   LEngine.StartHandshake;
   LResult := TInteropPump.DriveHandshake(LEngine, ASocket);
@@ -418,9 +418,9 @@ begin
     begin
       LStek := nil;
       if LResumeCount > 0 then
-        LStek := TStekTicketKeyManager.Create(TInteropEngine.DefaultProvider.Primitives.GetRandom)
+        LStek := TStekTicketKeyManager.Create(TInteropEngine.DefaultCrypto.Primitives.GetRandom)
           as ISessionTicketKeyManager;
-      LCrypto := TInteropEngine.DefaultProvider;
+      LCrypto := TInteropEngine.DefaultCrypto;
       LPkix := TInteropEngine.DefaultPkix;
       LStaple := nil;
       if LStapleField <> '' then

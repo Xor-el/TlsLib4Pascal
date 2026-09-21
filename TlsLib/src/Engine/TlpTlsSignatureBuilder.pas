@@ -31,7 +31,7 @@ uses
   TlpDataEncoding;
 
 type
-  /// <summary>A value type - build it on the stack, feed it, read Value. AProvider is only consulted
+  /// <summary>A value type - build it on the stack, feed it, read Value. ACryptoProvider is only consulted
   /// by AddBytesDigest (in-memory byte inputs); pass nil when only files/scalars are contributed.</summary>
   TTlsSignatureBuilder = record
   strict private
@@ -40,7 +40,7 @@ type
     FBuffer: string;
     procedure Append(const APart: string);
   public
-    class function Create(const AProvider: ICryptoProvider): TTlsSignatureBuilder; static;
+    class function Create(const ACryptoProvider: ICryptoProvider): TTlsSignatureBuilder; static;
     procedure AddText(const AName, AValue: string);
     procedure AddFlag(const AName: string; AValue: Boolean);
     procedure AddCardinal(const AName: string; AValue: Cardinal);
@@ -75,9 +75,9 @@ const
 { TTlsSignatureBuilder }
 
 class function TTlsSignatureBuilder.Create(
-  const AProvider: ICryptoProvider): TTlsSignatureBuilder;
+  const ACryptoProvider: ICryptoProvider): TTlsSignatureBuilder;
 begin
-  Result.FCrypto := AProvider;
+  Result.FCrypto := ACryptoProvider;
   Result.FBuffer := '';
 end;
 

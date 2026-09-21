@@ -40,24 +40,24 @@ type
   TNamedGroups = class sealed(TObject)
   public
     /// <summary>X25519 (key agreement wrapped as a KEM).</summary>
-    class function CreateX25519(const AProvider: ICryptoProvider): INamedGroup; static;
+    class function CreateX25519(const ACryptoProvider: ICryptoProvider): INamedGroup; static;
     /// <summary>A NIST prime-curve ECDH group (e.g. "secp256r1").</summary>
-    class function CreateNistEcdh(const AProvider: ICryptoProvider;
+    class function CreateNistEcdh(const ACryptoProvider: ICryptoProvider;
       const ACurveName: string): INamedGroup; static;
     /// <summary>ML-KEM-768 (post-quantum KEM).</summary>
-    class function CreateMlKem768(const AProvider: ICryptoProvider): INamedGroup; static;
+    class function CreateMlKem768(const ACryptoProvider: ICryptoProvider): INamedGroup; static;
     /// <summary>The X25519MLKEM768 hybrid (ML-KEM-768 first).</summary>
-    class function CreateX25519MlKem768(const AProvider: ICryptoProvider): INamedGroup; static;
+    class function CreateX25519MlKem768(const ACryptoProvider: ICryptoProvider): INamedGroup; static;
     /// <summary>The SecP256r1MLKEM768 hybrid (P-256 ECDH first, RFC 10024).</summary>
-    class function CreateSecP256r1MlKem768(const AProvider: ICryptoProvider): INamedGroup; static;
+    class function CreateSecP256r1MlKem768(const ACryptoProvider: ICryptoProvider): INamedGroup; static;
     /// <summary>A registry pre-loaded with the default groups.</summary>
-    class function CreateDefaultRegistry(const AProvider: ICryptoProvider): INamedGroupRegistry; static;
+    class function CreateDefaultRegistry(const ACryptoProvider: ICryptoProvider): INamedGroupRegistry; static;
     /// <summary>The default registry with the post-quantum groups removed - classical ECDHE only.
     /// A post-quantum key share enlarges the ClientHello enough to fail on some constrained paths
     /// (reduced-MTU tunnels/VPNs, or middleboxes intolerant of a fragmented ClientHello); this
     /// trades post-quantum protection for a smaller ClientHello there. Install it with
     /// WithNamedGroups.</summary>
-    class function CreateClassicalRegistry(const AProvider: ICryptoProvider): INamedGroupRegistry; static;
+    class function CreateClassicalRegistry(const ACryptoProvider: ICryptoProvider): INamedGroupRegistry; static;
   end;
 
 implementation
@@ -87,7 +87,7 @@ type
     FAgreement: IKeyAgreement;
     FCode: UInt16;
   public
-    constructor Create(const AProvider: ICryptoProvider;
+    constructor Create(const ACryptoProvider: ICryptoProvider;
       AAlgorithm: TKeyAgreementAlgorithm; ACode: UInt16);
     function Code: UInt16;
     function Name: string;
@@ -109,7 +109,7 @@ type
     FKem: IKem;
     FCode: UInt16;
   public
-    constructor Create(const AProvider: ICryptoProvider;
+    constructor Create(const ACryptoProvider: ICryptoProvider;
       AAlgorithm: TKemAlgorithm; ACode: UInt16);
     function Code: UInt16;
     function Name: string;
@@ -176,12 +176,12 @@ type
 
 { TKeyAgreementGroup }
 
-constructor TKeyAgreementGroup.Create(const AProvider: ICryptoProvider;
+constructor TKeyAgreementGroup.Create(const ACryptoProvider: ICryptoProvider;
   AAlgorithm: TKeyAgreementAlgorithm; ACode: UInt16);
 begin
   inherited Create;
   FComposition := TNamedGroupComposition.From(AAlgorithm);
-  FAgreement := AProvider.Primitives.CreateKeyAgreement(FComposition.KeyAgreement);
+  FAgreement := ACryptoProvider.Primitives.CreateKeyAgreement(FComposition.KeyAgreement);
   FCode := ACode;
 end;
 
@@ -240,12 +240,12 @@ end;
 
 { TKemGroup }
 
-constructor TKemGroup.Create(const AProvider: ICryptoProvider;
+constructor TKemGroup.Create(const ACryptoProvider: ICryptoProvider;
   AAlgorithm: TKemAlgorithm; ACode: UInt16);
 begin
   inherited Create;
   FComposition := TNamedGroupComposition.From(AAlgorithm);
-  FKem := AProvider.Primitives.CreateKem(FComposition.Kem);
+  FKem := ACryptoProvider.Primitives.CreateKem(FComposition.Kem);
   FCode := ACode;
 end;
 
@@ -479,13 +479,13 @@ end;
 
 { TNamedGroups }
 
-class function TNamedGroups.CreateX25519(const AProvider: ICryptoProvider): INamedGroup;
+class function TNamedGroups.CreateX25519(const ACryptoProvider: ICryptoProvider): INamedGroup;
 begin
-  Result := TKeyAgreementGroup.Create(AProvider, TKeyAgreementAlgorithm.X25519,
+  Result := TKeyAgreementGroup.Create(ACryptoProvider, TKeyAgreementAlgorithm.X25519,
     TNamedGroupCatalog.X25519);
 end;
 
-class function TNamedGroups.CreateNistEcdh(const AProvider: ICryptoProvider;
+class function TNamedGroups.CreateNistEcdh(const ACryptoProvider: ICryptoProvider;
   const ACurveName: string): INamedGroup;
 var
   LCode: UInt16;
@@ -498,42 +498,42 @@ begin
   LHasAlg := TEnumUtilities.TryGetEnumValue<TKeyAgreementAlgorithm>(ACurveName, LAlg);
   if (not LHasCode) or (not LHasAlg) then
     raise EArgumentTlsLibException.CreateResFmt(@SUnknownCurve, [ACurveName]);
-  Result := TKeyAgreementGroup.Create(AProvider, LAlg, LCode);
+  Result := TKeyAgreementGroup.Create(ACryptoProvider, LAlg, LCode);
 end;
 
-class function TNamedGroups.CreateMlKem768(const AProvider: ICryptoProvider): INamedGroup;
+class function TNamedGroups.CreateMlKem768(const ACryptoProvider: ICryptoProvider): INamedGroup;
 begin
-  Result := TKemGroup.Create(AProvider, TKemAlgorithm.ML_KEM_768, TNamedGroupCatalog.MlKem768);
+  Result := TKemGroup.Create(ACryptoProvider, TKemAlgorithm.ML_KEM_768, TNamedGroupCatalog.MlKem768);
 end;
 
-class function TNamedGroups.CreateX25519MlKem768(const AProvider: ICryptoProvider): INamedGroup;
+class function TNamedGroups.CreateX25519MlKem768(const ACryptoProvider: ICryptoProvider): INamedGroup;
 begin
-  Result := THybridGroup.Create(CreateX25519(AProvider), CreateMlKem768(AProvider),
+  Result := THybridGroup.Create(CreateX25519(ACryptoProvider), CreateMlKem768(ACryptoProvider),
     TNamedGroupCatalog.X25519MlKem768, 'X25519MLKEM768', X25519KeyBytes,
     MlKem768EncapsulationKeyBytes, MlKem768CiphertextBytes, THybridLegOrder.KemFirst);
 end;
 
-class function TNamedGroups.CreateSecP256r1MlKem768(const AProvider: ICryptoProvider): INamedGroup;
+class function TNamedGroups.CreateSecP256r1MlKem768(const ACryptoProvider: ICryptoProvider): INamedGroup;
 begin
-  Result := THybridGroup.Create(CreateNistEcdh(AProvider, 'secp256r1'),
-    CreateMlKem768(AProvider), TNamedGroupCatalog.SecP256r1MlKem768, 'SecP256r1MLKEM768',
+  Result := THybridGroup.Create(CreateNistEcdh(ACryptoProvider, 'secp256r1'),
+    CreateMlKem768(ACryptoProvider), TNamedGroupCatalog.SecP256r1MlKem768, 'SecP256r1MLKEM768',
     SecP256r1ShareBytes, MlKem768EncapsulationKeyBytes, MlKem768CiphertextBytes,
     THybridLegOrder.ClassicalFirst);
 end;
 
-class function TNamedGroups.CreateDefaultRegistry(const AProvider: ICryptoProvider): INamedGroupRegistry;
+class function TNamedGroups.CreateDefaultRegistry(const ACryptoProvider: ICryptoProvider): INamedGroupRegistry;
 begin
   Result := TNamedGroupRegistry.Create;
-  Result.Add(CreateX25519(AProvider));
-  Result.Add(CreateX25519MlKem768(AProvider));
-  Result.Add(CreateSecP256r1MlKem768(AProvider));
-  Result.Add(CreateMlKem768(AProvider));
-  Result.Add(CreateNistEcdh(AProvider, 'secp256r1'));
-  Result.Add(CreateNistEcdh(AProvider, 'secp384r1'));
-  Result.Add(CreateNistEcdh(AProvider, 'secp521r1'));
+  Result.Add(CreateX25519(ACryptoProvider));
+  Result.Add(CreateX25519MlKem768(ACryptoProvider));
+  Result.Add(CreateSecP256r1MlKem768(ACryptoProvider));
+  Result.Add(CreateMlKem768(ACryptoProvider));
+  Result.Add(CreateNistEcdh(ACryptoProvider, 'secp256r1'));
+  Result.Add(CreateNistEcdh(ACryptoProvider, 'secp384r1'));
+  Result.Add(CreateNistEcdh(ACryptoProvider, 'secp521r1'));
 end;
 
-class function TNamedGroups.CreateClassicalRegistry(const AProvider: ICryptoProvider): INamedGroupRegistry;
+class function TNamedGroups.CreateClassicalRegistry(const ACryptoProvider: ICryptoProvider): INamedGroupRegistry;
 var
   LDefault: INamedGroupRegistry;
   LGroup: INamedGroup;
@@ -541,7 +541,7 @@ begin
   // derived from the default registry with the post-quantum (KEM/hybrid) groups filtered out, so
   // a classical group added to CreateDefaultRegistry is carried here without a second hand-kept list
   Result := TNamedGroupRegistry.Create;
-  LDefault := CreateDefaultRegistry(AProvider);
+  LDefault := CreateDefaultRegistry(ACryptoProvider);
   for LGroup in LDefault.Items do
     if LGroup.Kind = TNamedGroupKind.Ecdhe then
       Result.Add(LGroup);

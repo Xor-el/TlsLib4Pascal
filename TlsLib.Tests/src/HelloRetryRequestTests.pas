@@ -259,7 +259,7 @@ begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
   // a fixed HasHardwareAes=True makes the suite choice deterministically AES-128-GCM
-  LParams.Crypto := TFixedAesProvider.Create(Provider, True);
+  LParams.Crypto := TFixedAesProvider.Create(Crypto, True);
   LParams.Inspector := Pkix.Certificates;
   LParams.Policy := TNegotiationPolicy.CreateDefault(LParams.Crypto);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(LParams.Crypto);
@@ -275,7 +275,7 @@ begin
   LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
   try
     LCred := Default(TTlsCredential);
-    LCred.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
+    LCred.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
     LParams.CredentialResolver := TSniCredentialResolver.ForCredential(LCred);
   finally
     LCerts.Free;
@@ -290,15 +290,15 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
   LParams.GroupCode := TNamedGroupCatalog.X25519;
   // advertises secp256r1 as well, so the server may retry us onto it
   LParams.OfferedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1,
     TNamedGroupCatalog.X25519);
-  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
   LParams.OfferedSchemes := TArray<UInt16>.Create(
@@ -331,7 +331,7 @@ var
   LOutHash: TBytes;
   LGroup: UInt16;
 begin
-  LCookie := THelloRetryCookie.Create(Provider, CookieSecret);
+  LCookie := THelloRetryCookie.Create(Crypto, CookieSecret);
   try
     LCh1Hash := DecodeHex(StringOfChar('5', 64)); // a 32-byte stand-in transcript hash
     LMinted := LCookie.Mint(LCh1Hash, TNamedGroupCatalog.Secp256r1);
@@ -349,7 +349,7 @@ var
   LMinted, LOutHash: TBytes;
   LGroup: UInt16;
 begin
-  LCookie := THelloRetryCookie.Create(Provider, CookieSecret);
+  LCookie := THelloRetryCookie.Create(Crypto, CookieSecret);
   try
     LMinted := LCookie.Mint(DecodeHex(StringOfChar('5', 64)),
       TNamedGroupCatalog.Secp256r1);
@@ -522,7 +522,7 @@ var
 begin
   // a valid P-256 share, so the retry reaches suite negotiation rather than aborting on the share:
   // a server without the pin would emit a ServerHello, which is what makes this test discriminate
-  TNamedGroups.CreateNistEcdh(Provider, 'secp256r1').GenerateKeyPair(LPriv, LShare);
+  TNamedGroups.CreateNistEcdh(Crypto, 'secp256r1').GenerateKeyPair(LPriv, LShare);
 
   // the server selects AES-128-GCM from ClientHello1 and names it in the HelloRetryRequest; a
   // retry that offers a different suite (here ChaCha20-Poly1305, same SHA-256 hash) must abort

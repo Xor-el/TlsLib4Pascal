@@ -53,7 +53,7 @@ type
     /// <summary>Drains everything ASrc has queued into ADst; True if any bytes moved.</summary>
     function Pump(const ASrc, ADst: ITlsEngine): Boolean;
   public
-    constructor Create(const AProvider: ICryptoProvider;
+    constructor Create(const ACryptoProvider: ICryptoProvider;
       const APkix: IPkixProvider;
       const ACredential: TTlsBenchmarkCredential; AWireVersion, AGroupCode: UInt16);
     /// <summary>One complete client+server handshake; raises on a non-completing exchange.</summary>
@@ -79,7 +79,7 @@ begin
     Result := TArray<UInt16>.Create(AGroupCode, ACertGroup);
 end;
 
-constructor TTlsLibHandshakePeer.Create(const AProvider: ICryptoProvider;
+constructor TTlsLibHandshakePeer.Create(const ACryptoProvider: ICryptoProvider;
   const APkix: IPkixProvider;
   const ACredential: TTlsBenchmarkCredential; AWireVersion, AGroupCode: UInt16);
 var
@@ -102,7 +102,7 @@ begin
 
   // hold the builder in an interface local while configuring: the facets keep only a raw
   // back-reference, so a captured owner is what refcounts and frees it after Build
-  LClientBuilder := TTlsPresets.Compatible(AProvider, APkix);
+  LClientBuilder := TTlsPresets.Compatible(ACryptoProvider, APkix);
   LClient := LClientBuilder.Client;
   LClient.WithSupportedVersions(TArray<UInt16>.Create(AWireVersion));
   LClient.WithPreferredGroups(OfferedGroups(AGroupCode, LCertGroup));
@@ -110,7 +110,7 @@ begin
   LClient.WithTrustAnchors(ACredential.RootCertDer); // a trust source is still required by Build
   FClientConfig := LClient.Build;
 
-  LServerBuilder := TTlsPresets.Compatible(AProvider, APkix);
+  LServerBuilder := TTlsPresets.Compatible(ACryptoProvider, APkix);
   LServer := LServerBuilder.Server;
   LServer.WithSupportedVersions(TArray<UInt16>.Create(AWireVersion));
   LServer.WithPreferredGroups(OfferedGroups(AGroupCode, LCertGroup)); // AGroupCode first -> negotiated

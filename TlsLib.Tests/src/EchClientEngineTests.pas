@@ -105,12 +105,12 @@ function TTestEchClientEngine.BaseParams(
   const AEchConfigList: TBytes): TClientHandshakeParams;
 begin
   Result := Default(TClientHandshakeParams);
-  Result.Crypto := Provider;
+  Result.Crypto := Crypto;
   Result.Inspector := Pkix.Certificates;
   Result.Clock := TSystemClock.Create;
-  Result.Group := TNamedGroups.CreateX25519(Provider);
+  Result.Group := TNamedGroups.CreateX25519(Crypto);
   Result.GroupCode := TNamedGroupCatalog.X25519;
-  Result.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  Result.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   Result.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   Result.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
   Result.OfferedSchemes :=
@@ -261,11 +261,11 @@ begin
   LConfigs := TEchConfigList.Parse(DecodeHex(FVec.Values['config_list']));
   LConfig := LConfigs[0];
   TEchExtension.Decode(LEch.Data, LType, LOuterEch); // re-decode for the real payload
-  LSuite := Provider.Hpke.Suite(LConfig.KemId, LOuterEch.CipherSuite.KdfId,
+  LSuite := Crypto.Hpke.Suite(LConfig.KemId, LOuterEch.CipherSuite.KdfId,
     LOuterEch.CipherSuite.AeadId);
-  LSk := Provider.Hpke.ImportPrivateKey(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+  LSk := Crypto.Hpke.ImportPrivateKey(THpkeKem.DHKEM_X25519_HKDF_SHA256,
     DecodeHex(FVec.Values['config_private_key']));
-  LOpener := Provider.Hpke.ImportRecipientKey(LSuite.Kem, LSk)
+  LOpener := Crypto.Hpke.ImportRecipientKey(LSuite.Kem, LSk)
     .SetupOpener(LSuite, LOuterEch.Enc, LConfig.HpkeInfo);
   LEncoded := LOpener.Open(LAad, LOuterEch.Payload);
 
@@ -350,10 +350,10 @@ var
 begin
   // ProcessRetryOuter is only valid after an accepted first ClientHelloOuter; calling it up front
   // is a programming error that must fail loud, not access a nil opener
-  LGen := TEchKeyGenerator.Generate(Provider, 'public.example', 'origin.example', $AA,
+  LGen := TEchKeyGenerator.Generate(Crypto, 'public.example', 'origin.example', $AA,
     THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM, 0);
-  LStore := TInMemoryEchKeyStore.FromPem(LGen.Pem, Provider);
-  LEch := TEchServerHandshake.Create(Provider, LStore, False) as IEchServerHandshake;
+  LStore := TInMemoryEchKeyStore.FromPem(LGen.Pem, Crypto);
+  LEch := TEchServerHandshake.Create(Crypto, LStore, False) as IEchServerHandshake;
   LRaised := False;
   try
     LEch.ProcessRetryOuter(OuterClientHello);
@@ -373,10 +373,10 @@ var
 begin
   // a store whose key cannot open the outer ech rejects it; ProcessRetryOuter must then fail loud
   // rather than dereference a suite left set with a nil opener
-  LGen := TEchKeyGenerator.Generate(Provider, 'public.example', 'origin.example', $BB,
+  LGen := TEchKeyGenerator.Generate(Crypto, 'public.example', 'origin.example', $BB,
     THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM, 0);
-  LStore := TInMemoryEchKeyStore.FromPem(LGen.Pem, Provider);
-  LEch := TEchServerHandshake.Create(Provider, LStore, True) as IEchServerHandshake;
+  LStore := TInMemoryEchKeyStore.FromPem(LGen.Pem, Crypto);
+  LEch := TEchServerHandshake.Create(Crypto, LStore, True) as IEchServerHandshake;
   CheckTrue(LEch.ProcessOuter(OuterClientHello) = TEchStatus.Rejected,
     'the mismatched store rejects the outer ech');
   LRaised := False;

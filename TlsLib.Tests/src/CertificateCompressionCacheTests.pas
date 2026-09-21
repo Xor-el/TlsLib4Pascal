@@ -286,8 +286,8 @@ begin
   LBody := ByteBlob($3C, 2048);
   LDirect := DirectCompress(LBody);
   // first call is a miss (computes + stores); second is a hit (returns the stored bytes)
-  LMiss := TCertificateCompression.CompressWithCache(LCache, Provider, ZlibCompressor, LBody);
-  LHit := TCertificateCompression.CompressWithCache(LCache, Provider, ZlibCompressor, LBody);
+  LMiss := TCertificateCompression.CompressWithCache(LCache, Crypto, ZlibCompressor, LBody);
+  LHit := TCertificateCompression.CompressWithCache(LCache, Crypto, ZlibCompressor, LBody);
   CheckEqualBytes('a miss equals a direct Compress', LDirect, LMiss);
   CheckEqualBytes('a hit equals a direct Compress', LDirect, LHit);
 end;
@@ -303,8 +303,8 @@ begin
   LSpy := TSpyCompressor.Create;
   LSpyRef := LSpy; // the interface reference governs lifetime; read Count off the object
   LBody := ByteBlob($77, 4096);
-  LFirst := TCertificateCompression.CompressWithCache(LCache, Provider, LSpyRef, LBody);
-  LSecond := TCertificateCompression.CompressWithCache(LCache, Provider, LSpyRef, LBody);
+  LFirst := TCertificateCompression.CompressWithCache(LCache, Crypto, LSpyRef, LBody);
+  LSecond := TCertificateCompression.CompressWithCache(LCache, Crypto, LSpyRef, LBody);
   CheckEquals(1, LSpy.Count, 'the same body is compressed exactly once');
   CheckEqualBytes('both calls return the same bytes', LFirst, LSecond);
 end;
@@ -322,9 +322,9 @@ begin
   LBodyA := ByteBlob($10, 2048);
   // a changed leaf staple changes the exact bytes handed to Compress, so the key differs
   LBodyB := ByteBlob($10, 2049);
-  LOutA := TCertificateCompression.CompressWithCache(LCache, Provider, LSpyRef, LBodyA);
-  TCertificateCompression.CompressWithCache(LCache, Provider, LSpyRef, LBodyA); // hit
-  LOutB := TCertificateCompression.CompressWithCache(LCache, Provider, LSpyRef, LBodyB);
+  LOutA := TCertificateCompression.CompressWithCache(LCache, Crypto, LSpyRef, LBodyA);
+  TCertificateCompression.CompressWithCache(LCache, Crypto, LSpyRef, LBodyA); // hit
+  LOutB := TCertificateCompression.CompressWithCache(LCache, Crypto, LSpyRef, LBodyB);
   CheckEquals(2, LSpy.Count, 'a distinct body forces a recompute; a repeat does not');
   CheckEqualBytes('body A stays byte-correct', DirectCompress(LBodyA), LOutA);
   CheckEqualBytes('body B stays byte-correct', DirectCompress(LBodyB), LOutB);
@@ -335,7 +335,7 @@ var
   LBody, LOut: TBytes;
 begin
   LBody := ByteBlob($5A, 1024);
-  LOut := TCertificateCompression.CompressWithCache(nil, Provider, ZlibCompressor, LBody);
+  LOut := TCertificateCompression.CompressWithCache(nil, Crypto, ZlibCompressor, LBody);
   CheckEqualBytes('a nil cache compresses directly', DirectCompress(LBody), LOut);
 end;
 
@@ -359,7 +359,7 @@ begin
   try
     Result.CertificateChain := TArray<TBytes>.Create(
       DecodeHex(LCerts.Values['leaf_cert']));
-    Result.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
+    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
   finally
     LCerts.Free;
   end;
@@ -393,11 +393,11 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
   LParams.GroupCode := TNamedGroupCatalog.X25519;
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
   LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
@@ -422,12 +422,12 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
   LParams.ServerRandom := DecodeHex(StringOfChar('2', 64));
   LParams.CertificateCompressors := ACompressors;
   LParams.CertificateCompressionCache := ACache;

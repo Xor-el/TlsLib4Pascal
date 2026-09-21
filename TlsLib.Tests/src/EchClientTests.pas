@@ -98,7 +98,7 @@ var
   LChosen: TEchConfig;
 begin
   LConfigs := TEchConfigList.Parse(DecodeHex(FVec.Values['config_list']));
-  CheckTrue(TEchConfigList.TrySelect(LConfigs, Provider, LChosen, ASuite),
+  CheckTrue(TEchConfigList.TrySelect(LConfigs, Crypto, LChosen, ASuite),
     'the vector config is usable');
   Result := LChosen;
 end;
@@ -236,7 +236,7 @@ begin
     Entry(TExtensionTypes.SupportedVersions, DecodeHex('020304')));
 
   LInner := InnerBody(LInnerEntries);
-  LEch := TEchClientHandshake.Create(Provider, LConfig, LSuite);
+  LEch := TEchClientHandshake.Create(Crypto, LConfig, LSuite);
   try
     LEncoded := LEch.BuildEncodedInner(LInner, LOuterEntries);
     LEnc := LEch.SetupSeal;
@@ -247,9 +247,9 @@ begin
   end;
 
   // server side: decrypt with the config's real private key + the same HPKE info
-  LSk := Provider.Hpke.ImportPrivateKey(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+  LSk := Crypto.Hpke.ImportPrivateKey(THpkeKem.DHKEM_X25519_HKDF_SHA256,
     DecodeHex(FVec.Values['config_private_key']));
-  LOpener := Provider.Hpke.ImportRecipientKey(LSuite.Kem, LSk)
+  LOpener := Crypto.Hpke.ImportRecipientKey(LSuite.Kem, LSk)
     .SetupOpener(LSuite, LEnc, LConfig.HpkeInfo);
   LDecrypted := LOpener.Open(LAad, LPayload);
   CheckEqualBytes('decrypted equals the encoded inner', LEncoded, LDecrypted);
@@ -281,7 +281,7 @@ begin
     Entry(TExtensionTypes.SupportedGroups, DecodeHex('00020017')));
   LOuter := TArray<TEchExtEntry>.Create(
     Entry(TExtensionTypes.SupportedGroups, DecodeHex('00020017')));
-  LEch := TEchClientHandshake.Create(Provider, LConfig, LSuite);
+  LEch := TEchClientHandshake.Create(Crypto, LConfig, LSuite);
   try
     LEncoded := LEch.BuildEncodedInner(InnerBody(LEntries), LOuter);
   finally
@@ -311,7 +311,7 @@ begin
   LOuter := TArray<TEchExtEntry>.Create(
     Entry(TExtensionTypes.SupportedGroups, DecodeHex('00020017')),
     Entry(TExtensionTypes.KeyShare, DecodeHex('0017000401020304')));
-  LEch := TEchClientHandshake.Create(Provider, LConfig, LSuite);
+  LEch := TEchClientHandshake.Create(Crypto, LConfig, LSuite);
   try
     LEncoded := LEch.BuildEncodedInner(InnerBody(LInnerEntries), LOuter);
   finally
@@ -344,12 +344,12 @@ begin
   LGood := DecodeHex(
     '000000000000000000000000000000000000000000000000113047a36d18f54c');
   CheckTrue(TEchClientHandshake.AcceptConfirmationMatches(
-    Provider.Primitives.CreateHkdf(THashAlgorithm.SHA_256), LInnerRandom,
+    Crypto.Primitives.CreateHkdf(THashAlgorithm.SHA_256), LInnerRandom,
     LTranscript, LGood), 'a matching confirmation is accepted');
   LBad := DecodeHex(
     '0000000000000000000000000000000000000000000000000000000000000000');
   CheckFalse(TEchClientHandshake.AcceptConfirmationMatches(
-    Provider.Primitives.CreateHkdf(THashAlgorithm.SHA_256), LInnerRandom,
+    Crypto.Primitives.CreateHkdf(THashAlgorithm.SHA_256), LInnerRandom,
     LTranscript, LBad), 'a non-matching confirmation is rejected');
 end;
 
@@ -359,9 +359,9 @@ var
 begin
   // a GREASE ech carries a real KEM encapsulation as its enc (RFC 9849 sec. 6.2): for X25519 that
   // is a 32-byte value the KEM accepts, not merely a bare generated public key
-  LEnc := Provider.Hpke.RandomEncapsulation(THpkeKem.DHKEM_X25519_HKDF_SHA256);
+  LEnc := Crypto.Hpke.RandomEncapsulation(THpkeKem.DHKEM_X25519_HKDF_SHA256);
   CheckEquals(32, System.Length(LEnc), 'an X25519 encapsulation is 32 bytes');
-  CheckTrue(Provider.Hpke.ValidatePublicKey(THpkeKem.DHKEM_X25519_HKDF_SHA256, LEnc),
+  CheckTrue(Crypto.Hpke.ValidatePublicKey(THpkeKem.DHKEM_X25519_HKDF_SHA256, LEnc),
     'the GREASE encapsulation is a well-formed KEM value');
 end;
 

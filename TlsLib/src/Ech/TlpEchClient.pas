@@ -77,7 +77,7 @@ type
     class function CompressibleRun(const AInner, AOuter: TArray<TEchExtEntry>;
       out AStart, ALength: Int32): Boolean; static;
   public
-    constructor Create(const AProvider: ICryptoProvider; const AConfig: TEchConfig;
+    constructor Create(const ACryptoProvider: ICryptoProvider; const AConfig: TEchConfig;
       const ASuite: IHpkeSuite);
 
     /// <summary>
@@ -164,11 +164,11 @@ end;
 
 { TEchClientHandshake }
 
-constructor TEchClientHandshake.Create(const AProvider: ICryptoProvider;
+constructor TEchClientHandshake.Create(const ACryptoProvider: ICryptoProvider;
   const AConfig: TEchConfig; const ASuite: IHpkeSuite);
 begin
   inherited Create;
-  FCrypto := AProvider;
+  FCrypto := ACryptoProvider;
   FConfig := AConfig;
   FSuite := ASuite;
 end;

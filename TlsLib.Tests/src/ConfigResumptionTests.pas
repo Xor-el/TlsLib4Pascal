@@ -153,7 +153,7 @@ end;
 function TTestConfigResumption.ServerCredential: TTlsCredential;
 begin
   Result.CertificateChain := TArray<TBytes>.Create(DecodeHex(FCerts.Values['leaf_cert']));
-  Result.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(FCerts.Values['leaf_key']));
+  Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(FCerts.Values['leaf_key']));
 end;
 
 function TTestConfigResumption.ClientTrust: ITrustAnchorStore;
@@ -168,7 +168,7 @@ var
   LConfig: ITlsClientConfig;
 begin
   // Hardened is TLS 1.3-only; the public surface wires the cache and resumption toggle
-  LConfig := TTlsPresets.Hardened(Provider, Pkix).Client
+  LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
     .WithTrustStore(ClientTrust)
     .WithResumption(AResumption)
     .WithSessionCache(ACache, AScope)
@@ -181,7 +181,7 @@ function TTestConfigResumption.NewRejectingClient13(
 var
   LConfig: ITlsClientConfig;
 begin
-  LConfig := TTlsPresets.Hardened(Provider, Pkix).Client
+  LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
     .WithCertificateVerifier(TRejectingServerVerifier.Create as IServerCertificateVerifier)
     .WithResumption(True)
     .WithSessionCache(ACache)
@@ -194,7 +194,7 @@ function TTestConfigResumption.NewReverifyRejectClient13(
 var
   LConfig: ITlsClientConfig;
 begin
-  LConfig := TTlsPresets.Hardened(Provider, Pkix).Client
+  LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
     .WithCertificateVerifier(TRejectingServerVerifier.Create as IServerCertificateVerifier)
     .WithResumption(True)
     .WithResumeVerification(TResumeVerification.Reverify)
@@ -210,7 +210,7 @@ var
 begin
   // permissive trust accepts the server chain inline; Reverify + async verdict make the
   // resumption handshake re-check inline (accept) then park at ServerFinished for the verdict
-  LConfig := TTlsPresets.Hardened(Provider, Pkix).Client
+  LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
     .WithTrustStore(ClientTrust)
     .WithResumption(True)
     .WithResumeVerification(TResumeVerification.Reverify)
@@ -225,7 +225,7 @@ function TTestConfigResumption.NewServer13(const AStore: ISessionStore;
 var
   LConfig: ITlsServerConfig;
 begin
-  LConfig := TTlsPresets.Hardened(Provider, Pkix).Server
+  LConfig := TTlsPresets.Hardened(Crypto, Pkix).Server
     .WithCredential(ServerCredential)
     .WithResumption(AResumption)
     .WithSessionStore(AStore)
@@ -239,7 +239,7 @@ function TTestConfigResumption.NewClient12(const ACache: ISessionCache;
 var
   LConfig: ITlsClientConfig;
 begin
-  LConfig := TTlsPresets.Compatible(Provider, Pkix).Client
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
     .WithTrustStore(ClientTrust)
     .WithSessionCache(ACache, AScope)
@@ -254,7 +254,7 @@ var
 begin
   // permissive trust accepts the resumed chain inline; Reverify + async verdict make the
   // abbreviated resumption re-check inline (accept) then park for the out-of-band verdict
-  LConfig := TTlsPresets.Compatible(Provider, Pkix).Client
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
     .WithTrustStore(ClientTrust)
     .WithResumption(True)
@@ -269,7 +269,7 @@ function TTestConfigResumption.NewServer12(const AStore: ISessionStore): ITlsEng
 var
   LConfig: ITlsServerConfig;
 begin
-  LConfig := TTlsPresets.Compatible(Provider, Pkix).Server
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
     .WithCredential(ServerCredential)
     .WithSessionStore(AStore)
@@ -429,8 +429,8 @@ begin
   // handshake resumes it. The store single-use consumption proves the config wired through.
   // One logical client reconnecting keeps its scope, so both connections share it.
   LCache := TInMemorySessionCache.Create;
-  LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
 
   LClient := NewClient13(LCache, True, LScope);
   LServer := NewServer13(LStore, 1, True);
@@ -460,8 +460,8 @@ begin
   // proven by the abbreviated server flight (no plaintext Certificate). One logical client
   // reconnecting shares its scope across both connections.
   LCache := TInMemorySessionCache.Create;
-  LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
 
   LClient := NewClient12(LCache, LScope);
   LServer := NewServer12(LStore);
@@ -490,8 +490,8 @@ begin
   // config is reused across both handshakes so the same STEK opens the ticket. One logical client
   // reconnecting shares its scope across both connections.
   LCache := TInMemorySessionCache.Create;
-  LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
-  LServerConfig := TTlsPresets.Hardened(Provider, Pkix).Server
+  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
+  LServerConfig := TTlsPresets.Hardened(Crypto, Pkix).Server
     .WithCredential(ServerCredential).Build;
 
   LClient := NewClient13(LCache, True, LScope);
@@ -519,7 +519,7 @@ begin
   // engaged, so no ticket is issued and the client caches nothing
   LCache := TInMemorySessionCache.Create;
   LClient := NewClient13(LCache, True);
-  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Hardened(Provider, Pkix).Server
+  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Hardened(Crypto, Pkix).Server
     .WithCredential(ServerCredential).WithResumption(False).Build);
   PumpToCompletion(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the handshake completed');
@@ -535,11 +535,11 @@ begin
   // the Strict preset defaults resumption OFF: even with a cache and store supplied, the
   // factory does not engage them, so nothing is cached or stored
   LCache := TInMemorySessionCache.Create;
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
 
-  LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Strict(Provider, Pkix).Client
+  LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Strict(Crypto, Pkix).Client
     .WithTrustStore(ClientTrust).WithSessionCache(LCache).Build, ServerHost);
-  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Strict(Provider, Pkix).Server
+  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Strict(Crypto, Pkix).Server
     .WithCredential(ServerCredential).WithSessionStore(LStore).Build);
   PumpToCompletion(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the Strict handshake completed');
@@ -558,22 +558,22 @@ begin
   // Strict is a mutable starting point: re-enabling resumption on it needs no ceremony. One logical
   // client reconnecting shares its scope across both connections.
   LCache := TInMemorySessionCache.Create;
-  LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
 
-  LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Strict(Provider, Pkix).Client
+  LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Strict(Crypto, Pkix).Client
     .WithResumption(True).WithTrustStore(ClientTrust).WithSessionCache(LCache, LScope).Build,
     ServerHost);
-  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Strict(Provider, Pkix).Server
+  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Strict(Crypto, Pkix).Server
     .WithResumption(True).WithCredential(ServerCredential).WithSessionStore(LStore)
     .WithTicketCount(1).Build);
   PumpToCompletion(LClient, LServer);
   CheckEquals(1, LStore.Count, 're-enabled Strict stored a session');
 
-  LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Strict(Provider, Pkix).Client
+  LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Strict(Crypto, Pkix).Client
     .WithResumption(True).WithTrustStore(ClientTrust).WithSessionCache(LCache, LScope).Build,
     ServerHost);
-  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Strict(Provider, Pkix).Server
+  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Strict(Crypto, Pkix).Server
     .WithResumption(True).WithCredential(ServerCredential).WithSessionStore(LStore)
     .WithTicketCount(0).Build);
   PumpToCompletion(LClient, LServer);
@@ -591,7 +591,7 @@ begin
   // a permissive client establishes and caches a resumable session; one STEK-backed server config
   // is reused so the ticket stays openable across the connections below
   LCache := TInMemorySessionCache.Create;
-  LServerConfig := TTlsPresets.Hardened(Provider, Pkix).Server
+  LServerConfig := TTlsPresets.Hardened(Crypto, Pkix).Server
     .WithCredential(ServerCredential).Build;
   LClient := NewClient13(LCache, True);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
@@ -620,7 +620,7 @@ begin
   // the 1.2 twin of the isolation property: one cache instance shared by two client configurations
   // (each its own fresh scope) does not resume across them
   LCache := TInMemorySessionCache.Create;
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
   LClient := NewClient12(LCache);
   LServer := NewServer12(LStore);
   PumpToCompletion(LClient, LServer);
@@ -645,8 +645,8 @@ begin
   // caller asserts they trust identically) - the pattern an app rebuilding its config per connection
   // relies on to keep resuming
   LCache := TInMemorySessionCache.Create;
-  LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
-  LServerConfig := TTlsPresets.Hardened(Provider, Pkix).Server
+  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
+  LServerConfig := TTlsPresets.Hardened(Crypto, Pkix).Server
     .WithCredential(ServerCredential).Build;
   LClient := NewClient13(LCache, True, LScope);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
@@ -679,8 +679,8 @@ begin
   // a permissive client caches a resumable session, storing the server chain it verified; the two
   // configs share a scope so the resuming one draws the stored session (they trust identically)
   LCache := TInMemorySessionCache.Create;
-  LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
-  LServerConfig := TTlsPresets.Hardened(Provider, Pkix).Server
+  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
+  LServerConfig := TTlsPresets.Hardened(Crypto, Pkix).Server
     .WithCredential(ServerCredential).Build;
   LClient := NewClient13(LCache, True, LScope);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
@@ -711,8 +711,8 @@ var
 begin
   // a permissive client caches a resumable session (shared scope so the resuming config draws it)
   LCache := TInMemorySessionCache.Create;
-  LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
-  LServerConfig := TTlsPresets.Hardened(Provider, Pkix).Server
+  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
+  LServerConfig := TTlsPresets.Hardened(Crypto, Pkix).Server
     .WithCredential(ServerCredential).Build;
   LClient := NewClient13(LCache, True, LScope);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
@@ -741,8 +741,8 @@ var
 begin
   // cache a resumable session (shared scope so the resuming config draws it)
   LCache := TInMemorySessionCache.Create;
-  LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
-  LServerConfig := TTlsPresets.Hardened(Provider, Pkix).Server
+  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
+  LServerConfig := TTlsPresets.Hardened(Crypto, Pkix).Server
     .WithCredential(ServerCredential).Build;
   LClient := NewClient13(LCache, True, LScope);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
@@ -795,8 +795,8 @@ var
   LBefore: Int32;
 begin
   LCache := TInMemorySessionCache.Create;
-  LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
-  LServerConfig := TTlsPresets.Hardened(Provider, Pkix).Server
+  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
+  LServerConfig := TTlsPresets.Hardened(Crypto, Pkix).Server
     .WithCredential(ServerCredential).Build;
   LClient := NewClient13(LCache, True, LScope);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
@@ -824,8 +824,8 @@ var
 begin
   // a permissive 1.2 client caches a resumable session (shared scope so the resuming config draws it)
   LCache := TInMemorySessionCache.Create;
-  LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
   LClient := NewClient12(LCache, LScope);
   LServer := NewServer12(LStore);
   PumpToCompletion(LClient, LServer);
@@ -851,8 +851,8 @@ var
   LClient, LServer: ITlsEngine;
 begin
   LCache := TInMemorySessionCache.Create;
-  LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
   LClient := NewClient12(LCache, LScope);
   LServer := NewServer12(LStore);
   PumpToCompletion(LClient, LServer);
@@ -880,8 +880,8 @@ var
   LIterations: Int32;
 begin
   LCache := TInMemorySessionCache.Create;
-  LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
   LClient := NewClient12(LCache, LScope);
   LServer := NewServer12(LStore);
   PumpToCompletion(LClient, LServer);

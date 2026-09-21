@@ -161,7 +161,7 @@ type
     /// <summary>True when a non-empty offered-group set holds only KEM/hybrid groups:
     /// such a set is 1.3-only and cannot satisfy a TLS 1.2 handshake, which needs a
     /// classical ECDHE group.</summary>
-    class function OnlyPostQuantumGroups(const AProvider: ICryptoProvider;
+    class function OnlyPostQuantumGroups(const ACryptoProvider: ICryptoProvider;
       const ACodes: TArray<UInt16>): Boolean; static;
     /// <summary>Returns AVersions without the TLS 1.2 wire version.</summary>
     class function WithoutTls12(const AVersions: TArray<UInt16>): TArray<UInt16>; static;
@@ -171,12 +171,12 @@ type
       const ACodes: TArray<UInt16>): ISignatureSchemeRegistry; static;
   public
     /// <summary>The default CryptoLib-backed crypto provider.</summary>
-    class function DefaultProvider: ICryptoProvider; static;
+    class function DefaultCrypto: ICryptoProvider; static;
     /// <summary>The default PKIX provider (certificate inspection, path validation,
-    /// revocation), mirroring DefaultProvider for the crypto facets.</summary>
+    /// revocation), mirroring DefaultCrypto for the crypto facets.</summary>
     class function DefaultPkix: IPkixProvider; static;
     /// <summary>A client or server engine ready for the harness pump.</summary>
-    class function Build(const AProvider: ICryptoProvider;
+    class function Build(const ACryptoProvider: ICryptoProvider;
       const AOptions: TInteropEngineOptions): ITlsEngine; static;
   end;
 
@@ -246,7 +246,7 @@ end;
 
 { TInteropEngine }
 
-class function TInteropEngine.DefaultProvider: ICryptoProvider;
+class function TInteropEngine.DefaultCrypto: ICryptoProvider;
 begin
   Result := TDefaultCryptoProvider.Create as ICryptoProvider;
   // opt-in: run the conformance matrix against this platform's OS-native facets. 'true'
@@ -260,7 +260,7 @@ begin
   Result := TDefaultPkixProvider.Shared;
 end;
 
-class function TInteropEngine.OnlyPostQuantumGroups(const AProvider: ICryptoProvider;
+class function TInteropEngine.OnlyPostQuantumGroups(const ACryptoProvider: ICryptoProvider;
   const ACodes: TArray<UInt16>): Boolean;
 var
   LRegistry: INamedGroupRegistry;
@@ -270,7 +270,7 @@ begin
   Result := System.Length(ACodes) > 0;
   if not Result then
     Exit;
-  LRegistry := TNamedGroups.CreateDefaultRegistry(AProvider);
+  LRegistry := TNamedGroups.CreateDefaultRegistry(ACryptoProvider);
   for LCode in ACodes do
     if LRegistry.TryGet(LCode, LGroup) and (LGroup.Kind = TNamedGroupKind.Ecdhe) then
       Exit(False);
@@ -304,7 +304,7 @@ begin
       Result.Add(LScheme);
 end;
 
-class function TInteropEngine.Build(const AProvider: ICryptoProvider;
+class function TInteropEngine.Build(const ACryptoProvider: ICryptoProvider;
   const AOptions: TInteropEngineOptions): ITlsEngine;
 var
   LBuilder: ITlsConfigBuilder;
@@ -315,11 +315,11 @@ var
 begin
   // Compatible seeds the suites, signature schemes, named-group registry and the
   // TLS 1.3 + hardened 1.2 version offer; the harness only overrides what a test dictates
-  LBuilder := TTlsPresets.Compatible(AProvider, DefaultPkix);
+  LBuilder := TTlsPresets.Compatible(ACryptoProvider, DefaultPkix);
   // a curve restriction to post-quantum-only groups is implicitly 1.3-only; drop the
   // 1.2 offer so the version/group pair stays consistent (the preset default offers 1.2)
   LVersions := AOptions.SupportedVersions;
-  if OnlyPostQuantumGroups(AProvider, AOptions.OfferedGroups) then
+  if OnlyPostQuantumGroups(ACryptoProvider, AOptions.OfferedGroups) then
     if System.Length(LVersions) = 0 then
       LVersions := TArray<UInt16>.Create(TlsWireVersionTls13)
     else

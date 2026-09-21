@@ -75,7 +75,7 @@ type
     /// older than twice the lifetime cannot back any live ticket. Honors whatever provider and clock
     /// the caller injected, with no tie to any concrete default provider. Tickets are scoped to this
     /// manager's lifetime; share a STEK across servers/a fleet with InstallKey.</summary>
-    class function CreateDefault(const AProvider: ICryptoProvider;
+    class function CreateDefault(const ACryptoProvider: ICryptoProvider;
       const AClock: ITlsClock; ALifetimeSeconds: UInt32): ISessionTicketKeyManager; static;
     /// <summary>A manager with a fresh current key and an AWindowSize decrypt window (a default
     /// applies when 0 or less). Never auto-rotates.</summary>
@@ -127,7 +127,7 @@ resourcestring
 
 { TStekTicketKeyManager }
 
-class function TStekTicketKeyManager.CreateDefault(const AProvider: ICryptoProvider;
+class function TStekTicketKeyManager.CreateDefault(const ACryptoProvider: ICryptoProvider;
   const AClock: ITlsClock; ALifetimeSeconds: UInt32): ISessionTicketKeyManager;
 var
   LInterval: UInt32;
@@ -136,7 +136,7 @@ begin
   LInterval := ALifetimeSeconds;
   if LInterval = 0 then
     LInterval := DefaultStekRotateSeconds;
-  Result := TStekTicketKeyManager.Create(AProvider.Primitives.GetRandom,
+  Result := TStekTicketKeyManager.Create(ACryptoProvider.Primitives.GetRandom,
     DefaultStekLifetimeWindow, AClock, LInterval) as ISessionTicketKeyManager;
 end;
 

@@ -1007,7 +1007,7 @@ begin
   FCorpusDir := LDataDir + PathDelim + 'Corpus';
   FRegressDir := FCorpusDir + PathDelim + 'regress';
   FFailuresDir := FCorpusDir + PathDelim + 'failures';
-  FProvider := TInteropEngine.DefaultProvider;
+  FProvider := TInteropEngine.DefaultCrypto;
   FPkix := TInteropEngine.DefaultPkix;
   LoadSeeds;
 

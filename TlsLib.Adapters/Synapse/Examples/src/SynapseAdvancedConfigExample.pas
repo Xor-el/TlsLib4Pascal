@@ -109,12 +109,12 @@ end;
 
 // an ordered, bound TLS 1.2 cipher-suite preference: only these suites may be negotiated and the
 // Add order is the preference order (server-preference is the model, so the server's order wins)
-function OrderedSuites(const AProvider: ICryptoProvider): ICipherSuiteRegistry;
+function OrderedSuites(const ACryptoProvider: ICryptoProvider): ICipherSuiteRegistry;
 var
   LAll, LOrdered: ICipherSuiteRegistry;
   LSuite: TTlsCipherSuite;
 begin
-  LAll := TCipherSuiteRegistry.CreateDualVersion(AProvider);
+  LAll := TCipherSuiteRegistry.CreateDualVersion(ACryptoProvider);
   LOrdered := TCipherSuiteRegistry.Create;
   if LAll.TryGet(TCipherSuites12.EcdheEcdsaAes256GcmSha384, LSuite) then LOrdered.Add(LSuite);
   if LAll.TryGet(TCipherSuites12.EcdheEcdsaChaCha20Poly1305Sha256, LSuite) then LOrdered.Add(LSuite);

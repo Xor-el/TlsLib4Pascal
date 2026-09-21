@@ -121,7 +121,7 @@ type
     /// and ConfigureHandshake stays off the public ITlsEngine surface.
     /// </summary>
     class function CreateConfigured(const AInitialMachine: IHandshakeMachine;
-      const AProvider: ICryptoProvider): ITlsEngine; static;
+      const ACryptoProvider: ICryptoProvider): ITlsEngine; static;
 
     /// <summary>
     /// Wires the handshake: builds the channel over this engine's record layer and a
@@ -130,7 +130,7 @@ type
     /// graph). Call once, before StartHandshake.
     /// </summary>
     procedure ConfigureHandshake(const AInitialMachine: IHandshakeMachine;
-      const AProvider: ICryptoProvider);
+      const ACryptoProvider: ICryptoProvider);
 
     function ProcessInput(const AWire: TBytes; AOffset, ALength: Int32): TTlsOutcome;
     procedure Write(const AData: TBytes; AOffset, ALength: Int32);
@@ -453,17 +453,17 @@ end;
 
 class function TTlsEngine.CreateConfigured(
   const AInitialMachine: IHandshakeMachine;
-  const AProvider: ICryptoProvider): ITlsEngine;
+  const ACryptoProvider: ICryptoProvider): ITlsEngine;
 var
   LEngine: TTlsEngine;
 begin
   LEngine := TTlsEngine.Create;
   Result := LEngine; // assign the interface result before the fallible ConfigureHandshake
-  LEngine.ConfigureHandshake(AInitialMachine, AProvider);
+  LEngine.ConfigureHandshake(AInitialMachine, ACryptoProvider);
 end;
 
 procedure TTlsEngine.ConfigureHandshake(const AInitialMachine: IHandshakeMachine;
-  const AProvider: ICryptoProvider);
+  const ACryptoProvider: ICryptoProvider);
 var
   LChannel: IHandshakeChannel;
   LBridge: TEngineHandshakeBridge;
@@ -481,7 +481,7 @@ begin
   LChannel := THandshakeChannel.Create(FRecordLayer) as IHandshakeChannel;
   LBridge := TEngineHandshakeBridge.Create(Self);
   LDriver := THandshakeDriver.Create(LChannel, LBridge as IRecordEpochInstaller,
-    AProvider, LBridge as IHandshakeSink);
+    ACryptoProvider, LBridge as IHandshakeSink);
   FConductor := THandshakeConductor.Create(LChannel, LDriver, AInitialMachine);
 end;
 

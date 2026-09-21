@@ -101,12 +101,12 @@ var
 begin
   LScheme := ACredential.PrivateKey.CapableSchemes[0];
   LMessage := DecodeHex(SMessageHex);
-  LSigner := Provider.Signing.CreateSignatureSigner(LScheme, ACredential.PrivateKey);
+  LSigner := Crypto.Signing.CreateSignatureSigner(LScheme, ACredential.PrivateKey);
   LSigner.Update(LMessage, 0, System.Length(LMessage));
   LSignature := LSigner.Sign;
 
   LSpki := Pkix.Certificates.PublicKeyInfo(ACredential.CertificateChain[0]);
-  LVerifier := Provider.Signing.CreateSignatureVerifier(LScheme, LSpki);
+  LVerifier := Crypto.Signing.CreateSignatureVerifier(LScheme, LSpki);
   LVerifier.Update(LMessage, 0, System.Length(LMessage));
   Result := LVerifier.Verify(LSignature);
 end;
@@ -115,7 +115,7 @@ procedure TTestPkcs12Import.TestRsaPfxImportsToCredential;
 var
   LCredential: TTlsCredential;
 begin
-  LCredential := Provider.Signing.ImportPkcs12(Blob('rsa_pfx'), SPassword);
+  LCredential := Crypto.Signing.ImportPkcs12(Blob('rsa_pfx'), SPassword);
   CheckEquals(1, System.Length(LCredential.CertificateChain),
     'a single-leaf .pfx yields a one-certificate chain');
   CheckTrue(TSignatureScheme.RSA_PSS_RSAE_SHA256 =
@@ -128,7 +128,7 @@ procedure TTestPkcs12Import.TestEcPfxImportsToCredential;
 var
   LCredential: TTlsCredential;
 begin
-  LCredential := Provider.Signing.ImportPkcs12(Blob('ec_pfx'), SPassword);
+  LCredential := Crypto.Signing.ImportPkcs12(Blob('ec_pfx'), SPassword);
   CheckEquals(1, System.Length(LCredential.CertificateChain),
     'a single-leaf EC .pfx yields a one-certificate chain');
   CheckTrue(TSignatureScheme.ECDSA_SECP256R1_SHA256 =
@@ -145,7 +145,7 @@ var
   LVerified: TVerifiedChain;
 begin
   // the store holds a leaf signed by a test CA plus that CA certificate
-  LCredential := Provider.Signing.ImportPkcs12(Blob('chain_pfx'), SPassword);
+  LCredential := Crypto.Signing.ImportPkcs12(Blob('chain_pfx'), SPassword);
   CheckEquals(2, System.Length(LCredential.CertificateChain),
     'the chain .pfx yields leaf + CA');
   CheckTrue(KeyPairsLeaf(LCredential),
@@ -168,7 +168,7 @@ begin
   // the same RSA leaf stored under a different PBE profile (PBES2 AES-128-CBC bags + a
   // SHA-1 integrity MAC, versus rsa_pfx's AES-256-CBC + SHA-256) imports the same way:
   // import is driven by the store's declared algorithms, not pinned to one profile
-  LCredential := Provider.Signing.ImportPkcs12(Blob('rsa_altalg_pfx'), SPassword);
+  LCredential := Crypto.Signing.ImportPkcs12(Blob('rsa_altalg_pfx'), SPassword);
   CheckEquals(1, System.Length(LCredential.CertificateChain),
     'the alternate-profile .pfx yields the leaf');
   CheckTrue(KeyPairsLeaf(LCredential),
@@ -184,7 +184,7 @@ begin
   // alias order is not stable, so it must be rejected rather than binding an arbitrary one
   LRaised := False;
   try
-    LCredential := Provider.Signing.ImportPkcs12(Blob('multikey_pfx'), SPassword);
+    LCredential := Crypto.Signing.ImportPkcs12(Blob('multikey_pfx'), SPassword);
     CheckEquals(0, System.Length(LCredential.CertificateChain),
       'unreachable: a multi-key store must not return a credential');
   except
@@ -202,7 +202,7 @@ begin
   LRaised := False;
   try
     // a bad-MAC/wrong-password store must raise a typed TlsLib exception, not a Clp* one
-    LCredential := Provider.Signing.ImportPkcs12(Blob('rsa_pfx'), 'not-the-password');
+    LCredential := Crypto.Signing.ImportPkcs12(Blob('rsa_pfx'), 'not-the-password');
     CheckEquals(0, System.Length(LCredential.CertificateChain),
       'unreachable: a wrong password must not return a credential');
   except
@@ -220,7 +220,7 @@ begin
   LRaised := False;
   try
     // a truncated/garbage blob must fail closed with a typed exception, never an AV
-    LCredential := Provider.Signing.ImportPkcs12(
+    LCredential := Crypto.Signing.ImportPkcs12(
       DecodeHex('3082deadbeefdeadbeefdeadbeef'), SPassword);
     CheckEquals(0, System.Length(LCredential.CertificateChain),
       'unreachable: a malformed blob must not return a credential');

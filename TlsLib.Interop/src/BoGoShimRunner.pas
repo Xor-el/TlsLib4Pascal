@@ -252,16 +252,16 @@ type
     class function VersionRange(const AConfig: TBoGoConfig): TArray<UInt16>; static;
     /// <summary>Builds an ECH server key store from the parsed -ech-server-config triples,
     /// or nil when the test served no config.</summary>
-    class function BuildEchKeyStore(const AProvider: ICryptoProvider;
+    class function BuildEchKeyStore(const ACryptoProvider: ICryptoProvider;
       const AConfigs: TArray<TBoGoEchServerConfig>): IEchServerKeyStore; static;
     /// <summary>Whether the runner expects ECH accepted on this connection: the base
     /// -expect-ech-accept unless a per-connection -on-initial / -on-resume override applies.</summary>
     class function EchAcceptExpected(const AConfig: TBoGoConfig;
       AIsResume: Boolean): Boolean; static;
-    class function BuildOptions(const AProvider: ICryptoProvider;
+    class function BuildOptions(const ACryptoProvider: ICryptoProvider;
       const APkix: IPkixProvider; const AConfig: TBoGoConfig;
       AIsResume: Boolean): TInteropEngineOptions; static;
-    class function RunExchange(const AProvider: ICryptoProvider;
+    class function RunExchange(const ACryptoProvider: ICryptoProvider;
       const APkix: IPkixProvider; const ASocket: TInteropSocket;
       const AConfig: TBoGoConfig; AIsResume: Boolean): Int32; static;
     class function FinishShutdown(const AEngine: ITlsEngine;
@@ -896,7 +896,7 @@ begin
   Consider(WireVersionTls12);
 end;
 
-class function TBoGoShimRunner.BuildEchKeyStore(const AProvider: ICryptoProvider;
+class function TBoGoShimRunner.BuildEchKeyStore(const ACryptoProvider: ICryptoProvider;
   const AConfigs: TArray<TBoGoEchServerConfig>): IEchServerKeyStore;
 var
   LEntries: TArray<TEchKeyEntry>;
@@ -912,7 +912,7 @@ begin
     // (not PKCS#8), imported into a prepared recipient key
     LReader := TWireReader.Create(AConfigs[LI].Config);
     LEntries[LI].Config := TEchConfig.Parse(LReader);
-    LEntries[LI].RecipientKey := AProvider.Hpke.ImportRecipientKey(
+    LEntries[LI].RecipientKey := ACryptoProvider.Hpke.ImportRecipientKey(
       LEntries[LI].Config.KemId, TSecretBuffer.From(AConfigs[LI].Key) as ISecretBuffer);
     LEntries[LI].IsRetry := AConfigs[LI].IsRetry;
   end;
@@ -930,7 +930,7 @@ begin
     Result := AConfig.ExpectEchAccept;
 end;
 
-class function TBoGoShimRunner.BuildOptions(const AProvider: ICryptoProvider;
+class function TBoGoShimRunner.BuildOptions(const ACryptoProvider: ICryptoProvider;
   const APkix: IPkixProvider; const AConfig: TBoGoConfig;
   AIsResume: Boolean): TInteropEngineOptions;
 var
@@ -959,7 +959,7 @@ begin
     begin
       Result.HasCredential := True;
       Result.Credential := TInteropCredentials.ServerCredentialFromPem(
-        AProvider, APkix, AConfig.CertFile, AConfig.KeyFile);
+        ACryptoProvider, APkix, AConfig.CertFile, AConfig.KeyFile);
       // honor BoGo -signing-prefs: pin the CertificateVerify scheme to the requested
       // ones (like rustls' FixedSignatureSchemeSigningKey); empty is a no-op
       Result.Credential.PrivateKey := Result.Credential.PrivateKey.WithPreferredSchemes(
@@ -1014,7 +1014,7 @@ begin
       Result.MaxEarlyData := EarlyDataBudget;
     // the ECH key store is the same across the resume loop; a client whose config id we do
     // not hold is shared-mode rejected (retry_configs from the is_retry entries)
-    Result.EchKeyStore := BuildEchKeyStore(AProvider, AConfig.EchServerConfigs);
+    Result.EchKeyStore := BuildEchKeyStore(ACryptoProvider, AConfig.EchServerConfigs);
   end
   else
   begin
@@ -1055,7 +1055,7 @@ begin
     begin
       Result.HasCredential := True;
       Result.Credential := TInteropCredentials.ServerCredentialFromPem(
-        AProvider, APkix, AConfig.CertFile, AConfig.KeyFile);
+        ACryptoProvider, APkix, AConfig.CertFile, AConfig.KeyFile);
       // honor BoGo -signing-prefs for the client credential too (empty is a no-op)
       Result.Credential.PrivateKey := Result.Credential.PrivateKey.WithPreferredSchemes(
         TInteropCredentials.SchemesFromCodes(AConfig.SigningPrefs));
@@ -1140,7 +1140,7 @@ begin
   Result := ShimExitPass;
 end;
 
-class function TBoGoShimRunner.RunExchange(const AProvider: ICryptoProvider;
+class function TBoGoShimRunner.RunExchange(const ACryptoProvider: ICryptoProvider;
   const APkix: IPkixProvider; const ASocket: TInteropSocket;
   const AConfig: TBoGoConfig; AIsResume: Boolean): Int32;
 var
@@ -1158,7 +1158,7 @@ var
   LSeenCas: TArray<TBytes>;
   LCaIdx, LRep, LRepeat, LAccepted: Int32;
 begin
-  LOptions := BuildOptions(AProvider, APkix, AConfig, AIsResume);
+  LOptions := BuildOptions(ACryptoProvider, APkix, AConfig, AIsResume);
   LOptions.ReverifyOnResume := AConfig.ReverifyOnResume;
   // -verify-fail is fatal only under -verify-peer / -require-any-client-certificate (a hard
   // verify); without them BoringSSL soft-fails and completes, and so do we (the valid cert
@@ -1174,7 +1174,7 @@ begin
   // async park there), so an async verify-fail on that connection is a synchronous reject
   if AIsResume and AConfig.ReverifyOnResume then
     LOptions.AsyncVerify := False;
-  LEngine := TInteropEngine.Build(AProvider, LOptions);
+  LEngine := TInteropEngine.Build(ACryptoProvider, LOptions);
   // this connection writes first when -shim-writes-first, or on a resumption under
   // -on-resume-shim-writes-first; a client that also offered 0-RTT sends that first write
   // as early data before the handshake completes
@@ -1404,7 +1404,7 @@ begin
     Exit(ShimExitUnimplemented);
   end;
 
-  LCrypto := TInteropEngine.DefaultProvider;
+  LCrypto := TInteropEngine.DefaultCrypto;
   LPkix := TInteropEngine.DefaultPkix;
   // one session cache (client) / STEK (server) shared across every connection, so a
   // the client always keeps a session cache so it offers psk_key_exchange_modes and accepts

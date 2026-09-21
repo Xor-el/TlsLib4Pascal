@@ -54,7 +54,7 @@ type
     function EffectiveSuiteOrder(ANegotiatedVersion: UInt16): TArray<UInt16>;
     class function ProtocolOf(ANegotiatedVersion: UInt16): TSuiteProtocol; static;
   public
-    constructor Create(const AProvider: ICryptoProvider;
+    constructor Create(const ACryptoProvider: ICryptoProvider;
       const ACipherSuites: ICipherSuiteRegistry; const AGroups: INamedGroupRegistry;
       const ASignatureSchemes: ISignatureSchemeRegistry;
       const APreferredGroups, ASupportedVersions: TArray<UInt16>;
@@ -68,13 +68,13 @@ type
     function SelectSignatureScheme(const AClientSchemes: TArray<UInt16>): UInt16;
 
     /// <summary>A policy wired with the default registries and a 1.3-only version set.</summary>
-    class function CreateDefault(const AProvider: ICryptoProvider)
+    class function CreateDefault(const ACryptoProvider: ICryptoProvider)
       : INegotiationPolicy; static;
 
     /// <summary>The AProtocol suites in server-preference order with the hardware-AES
     /// tiebreak applied (ChaCha20-Poly1305 ahead of AES-GCM only without hardware AES).
     /// The one order the 1.3 fresh path, the 1.2 server, and the 1.3 PSK pick all share.</summary>
-    class function SuitePreferenceOrder(const AProvider: ICryptoProvider;
+    class function SuitePreferenceOrder(const ACryptoProvider: ICryptoProvider;
       const ASuites: ICipherSuiteRegistry; AProtocol: TSuiteProtocol)
       : TArray<UInt16>; static;
   end;
@@ -119,14 +119,14 @@ resourcestring
 
 { TNegotiationPolicy }
 
-constructor TNegotiationPolicy.Create(const AProvider: ICryptoProvider;
+constructor TNegotiationPolicy.Create(const ACryptoProvider: ICryptoProvider;
   const ACipherSuites: ICipherSuiteRegistry; const AGroups: INamedGroupRegistry;
   const ASignatureSchemes: ISignatureSchemeRegistry;
   const APreferredGroups, ASupportedVersions: TArray<UInt16>;
   ACipherPreference: TServerCipherPreference);
 begin
   inherited Create;
-  FCrypto := AProvider;
+  FCrypto := ACryptoProvider;
   FCipherSuites := ACipherSuites;
   FGroups := AGroups;
   FSignatureSchemes := ASignatureSchemes;
@@ -145,7 +145,7 @@ begin
 end;
 
 class function TNegotiationPolicy.SuitePreferenceOrder(
-  const AProvider: ICryptoProvider; const ASuites: ICipherSuiteRegistry;
+  const ACryptoProvider: ICryptoProvider; const ASuites: ICipherSuiteRegistry;
   AProtocol: TSuiteProtocol): TArray<UInt16>;
 var
   LAes, LChaCha: TArray<UInt16>;
@@ -162,7 +162,7 @@ begin
       else
         TArrayUtilities.Append<UInt16>(LAes, LSuite.Common.Code);
   // AES-GCM first when hardware AES is present; otherwise ChaCha20-Poly1305 first
-  if AProvider.Primitives.HasHardwareAes then
+  if ACryptoProvider.Primitives.HasHardwareAes then
     Result := TArrayUtilities.Concat<UInt16>(LAes, LChaCha)
   else
     Result := TArrayUtilities.Concat<UInt16>(LChaCha, LAes);
@@ -243,12 +243,12 @@ begin
     @SNoCommonScheme);
 end;
 
-class function TNegotiationPolicy.CreateDefault(const AProvider: ICryptoProvider)
+class function TNegotiationPolicy.CreateDefault(const ACryptoProvider: ICryptoProvider)
   : INegotiationPolicy;
 begin
-  Result := TNegotiationPolicy.Create(AProvider,
-    TCipherSuiteRegistry.CreateDefault(AProvider),
-    TNamedGroups.CreateDefaultRegistry(AProvider),
+  Result := TNegotiationPolicy.Create(ACryptoProvider,
+    TCipherSuiteRegistry.CreateDefault(ACryptoProvider),
+    TNamedGroups.CreateDefaultRegistry(ACryptoProvider),
     TSignatureSchemeRegistry.CreateDefault,
     TArray<UInt16>.Create(TNamedGroupCatalog.X25519MlKem768, TNamedGroupCatalog.SecP256r1MlKem768,
     TNamedGroupCatalog.X25519, TNamedGroupCatalog.Secp256r1,

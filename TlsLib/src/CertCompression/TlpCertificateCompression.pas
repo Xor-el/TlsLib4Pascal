@@ -51,7 +51,7 @@ type
   TCertificateCompression = class sealed(TObject)
   strict private
     /// <summary>The content-addressed cache key: SHA-256 over be16(algorithm) and ABody.</summary>
-    class function DeriveKey(const AProvider: ICryptoProvider; AAlgorithm: UInt16;
+    class function DeriveKey(const ACryptoProvider: ICryptoProvider; AAlgorithm: UInt16;
       const ABody: TBytes): TBytes; static;
   public const
     /// <summary>The hard ceiling on decompressed certificate-message bytes.</summary>
@@ -68,13 +68,13 @@ type
       const APeerAlgorithms: TArray<UInt16>): ICertificateCompressor; static;
     /// <summary>
     /// Compresses ABody with ACompressor, memoized through ACache when non-nil (keyed by
-    /// a SHA-256 digest of the algorithm codepoint and ABody derived through AProvider).
+    /// a SHA-256 digest of the algorithm codepoint and ABody derived through ACryptoProvider).
     /// Because Compress is pure, a hit returns exactly what a fresh Compress(ABody) would,
     /// so the cache never changes the result. ACache = nil compresses directly. The caller
     /// still applies the strictly-smaller check before framing a CompressedCertificate.
     /// </summary>
     class function CompressWithCache(
-      const ACache: ICertificateCompressionCache; const AProvider: ICryptoProvider;
+      const ACache: ICertificateCompressionCache; const ACryptoProvider: ICryptoProvider;
       const ACompressor: ICertificateCompressor; const ABody: TBytes): TBytes; static;
     /// <summary>
     /// Decompresses ACompressed under AAlgorithm using ADecompressors, bounded to
@@ -121,7 +121,7 @@ begin
       Exit(LCompressor);
 end;
 
-class function TCertificateCompression.DeriveKey(const AProvider: ICryptoProvider;
+class function TCertificateCompression.DeriveKey(const ACryptoProvider: ICryptoProvider;
   AAlgorithm: UInt16; const ABody: TBytes): TBytes;
 var
   LHash: IHash;
@@ -129,14 +129,14 @@ var
 begin
   SetLength(LPrefix, SizeOf(UInt16));
   TBinaryPrimitives.WriteUInt16BigEndian(LPrefix, 0, AAlgorithm);
-  LHash := AProvider.Primitives.CreateHash(THashAlgorithm.SHA_256);
+  LHash := ACryptoProvider.Primitives.CreateHash(THashAlgorithm.SHA_256);
   LHash.Update(LPrefix, 0, System.Length(LPrefix));
   LHash.Update(ABody, 0, System.Length(ABody));
   Result := LHash.DoFinal;
 end;
 
 class function TCertificateCompression.CompressWithCache(
-  const ACache: ICertificateCompressionCache; const AProvider: ICryptoProvider;
+  const ACache: ICertificateCompressionCache; const ACryptoProvider: ICryptoProvider;
   const ACompressor: ICertificateCompressor; const ABody: TBytes): TBytes;
 var
   LKey: TBytes;
@@ -145,7 +145,7 @@ begin
     Exit(ACompressor.Compress(ABody));
   // content-addressed memoization: hashing ABody is far cheaper than deflating it, so a
   // miss still wins; a hit returns the identical bytes a fresh Compress would produce
-  LKey := DeriveKey(AProvider, ACompressor.Algorithm, ABody);
+  LKey := DeriveKey(ACryptoProvider, ACompressor.Algorithm, ABody);
   if ACache.TryGet(LKey, Result) then
     Exit;
   Result := ACompressor.Compress(ABody);

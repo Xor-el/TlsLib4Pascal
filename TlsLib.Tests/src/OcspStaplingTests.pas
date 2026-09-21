@@ -205,7 +205,7 @@ var
   LHash: IHash;
 begin
   LSpki := Pkix.Certificates.PublicKeyInfo(V('leaf_cert'));
-  LHash := Provider.Primitives.CreateHash(THashAlgorithm.SHA_256);
+  LHash := Crypto.Primitives.CreateHash(THashAlgorithm.SHA_256);
   LHash.Update(LSpki, 0, System.Length(LSpki));
   Result := LHash.DoFinal;
 end;
@@ -216,7 +216,7 @@ var
   LHash: IHash;
 begin
   LSpki := Pkix.Certificates.PublicKeyInfo(V('issuer_cert'));
-  LHash := Provider.Primitives.CreateHash(THashAlgorithm.SHA_256);
+  LHash := Crypto.Primitives.CreateHash(THashAlgorithm.SHA_256);
   LHash.Update(LSpki, 0, System.Length(LSpki));
   Result := LHash.DoFinal;
 end;
@@ -234,7 +234,7 @@ begin
     TVerificationOccasion.InitialHandshake) as IServerCertificateVerifier;
   // pinning composes as a decorator over the built-in verifier, as the engine wires it
   if System.Length(APins) > 0 then
-    Result := TPinningVerifier.Create(Result, APins, Provider, Pkix)
+    Result := TPinningVerifier.Create(Result, APins, Crypto, Pkix)
       as IServerCertificateVerifier;
 end;
 
@@ -249,7 +249,7 @@ begin
     TTrustAnchorStore.Create(TArray<TBytes>.Create(V('root_cert')))
     as ITrustAnchorStore, False, TCertificateChainLimits.Defaults,
     TRevocationPosture.Off) as IServerCertificateVerifier;
-  LVerifier := TPinningVerifier.Create(LVerifier, APins, Provider, Pkix)
+  LVerifier := TPinningVerifier.Create(LVerifier, APins, Crypto, Pkix)
     as IServerCertificateVerifier;
   Result := LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName(''), nil,
     LVerified, AAlert);
@@ -668,12 +668,12 @@ begin
     as IServerCertificateVerifier;
   LWrongPin := LeafSpkiPin;
   LWrongPin[0] := LWrongPin[0] xor $FF;
-  LVerifier := TPinningVerifier.Create(LInner, TArray<TBytes>.Create(LWrongPin), Provider, Pkix)
+  LVerifier := TPinningVerifier.Create(LInner, TArray<TBytes>.Create(LWrongPin), Crypto, Pkix)
     as IServerCertificateVerifier;
   CheckFalse(LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName(''), nil,
     LVerified, LAlert),
     'a wrong pin rejects even under InsecureSkipVerify');
-  LVerifier := TPinningVerifier.Create(LInner, TArray<TBytes>.Create(LeafSpkiPin), Provider, Pkix)
+  LVerifier := TPinningVerifier.Create(LInner, TArray<TBytes>.Create(LeafSpkiPin), Crypto, Pkix)
     as IServerCertificateVerifier;
   CheckTrue(LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName(''), nil,
     LVerified, LAlert),
@@ -741,7 +741,7 @@ begin
     TTrustAnchorStore.Create(nil) as ITrustAnchorStore, False,
     TCertificateChainLimits.Defaults, TRevocationPosture.Off, LDangerous, TVerdictDeferral.None)
     as IServerCertificateVerifier;
-  LVerifier := TPinningVerifier.Create(LInner, TArray<TBytes>.Create(LeafSpkiPin), Provider, Pkix)
+  LVerifier := TPinningVerifier.Create(LInner, TArray<TBytes>.Create(LeafSpkiPin), Crypto, Pkix)
     as IServerCertificateVerifier;
   CheckFalse(LVerifier.VerifyServerCertificate(
     TArray<TBytes>.Create(V('issuer_cert'), V('leaf_cert')), TServerName.DnsName(''), nil,
