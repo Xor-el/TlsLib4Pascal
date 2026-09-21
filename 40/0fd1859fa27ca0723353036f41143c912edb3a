@@ -1,0 +1,52 @@
+TlsLib.Benchmark/src/Core/TlsLibThroughputPeer.pas
+  s_09d3c46d1a9b1f::t_6fb3d34a3c0d85 87,92
+TlsLib/src/Interfaces/Pkix/Providers/TlpIPkixProvider.pas
+  s_09d3c46d1a9b1f::t_6fb3d34a3c0d85 52,145
+TlsLib/src/Trust/TlpChainAlgorithmPolicy.pas
+  s_09d3c46d1a9b1f::t_6fb3d34a3c0d85 116,119,126
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_09d3c46d1a9b1f::t_6fb3d34a3c0d85 540,1769,1773,1775,1777,1779,1817
+TlsLib/src/Pkix/Providers/TlpDefaultPkixProvider.pas
+  s_09d3c46d1a9b1f::t_6fb3d34a3c0d85 99,126,1187,1193,1270,1276,1287,1289,1291,1295,1318,1323
+TlsLib.Trust.System/Examples/Delphi/SystemTrustDemoFormUnit.pas
+  s_09d3c46d1a9b1f::t_3f04972609bc53 28,50-52,71-83,90-102,104-115,117-120,122-123,125-127,129-132,153-185,190-192,197-207,215-218
+  s_09d3c46d1a9b1f::t_bc4e8845d99f13 103
+  s_09d3c46d1a9b1f::t_4662bea690d106 116,121,124,128
+TlsLib/src/Crypto/TlpCryptoDomainTypes.pas
+  s_09d3c46d1a9b1f::t_6fb3d34a3c0d85 113,185,313,321,323,325,332
+TlsLib/src/Pkix/TlpPkixDomainTypes.pas
+  s_09d3c46d1a9b1f::t_6fb3d34a3c0d85 63
+TlsLib.Benchmark/src/Core/TlsHandshakeBenchmark.pas
+  s_09d3c46d1a9b1f::t_6fb3d34a3c0d85 129,134
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_6fb3d34a3c0d85 426,438
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_09d3c46d1a9b1f::t_c2aeb76b786618 374-376
+  s_09d3c46d1a9b1f::t_3f04972609bc53 132
+TlsLib/src/Handshake/TlpTls12ClientStateMachine.pas
+  s_09d3c46d1a9b1f::t_6fb3d34a3c0d85 577,595,597,602,721,734
+TlsLib.Trust.System/Examples/Delphi/SystemTrustDemo.dproj
+  s_09d3c46d1a9b1f::t_717855000a9dc2 124
+TlsLib/src/Handshake/TlpCertificateVerify.pas
+  s_09d3c46d1a9b1f::t_6fb3d34a3c0d85 163,189
+TlsLib.Benchmark/src/Core/TlsLibHandshakePeer.pas
+  s_09d3c46d1a9b1f::t_6fb3d34a3c0d85 90,100
+TlsLib.Tests/src/ChainAlgorithmPolicyTests.pas
+  s_09d3c46d1a9b1f::t_6fb3d34a3c0d85 106,118
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "400fd1859fa27ca0723353036f41143c912edb3a",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
