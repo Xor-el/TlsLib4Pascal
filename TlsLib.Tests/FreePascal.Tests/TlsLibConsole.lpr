@@ -78,6 +78,7 @@ uses
   EchToolingTests,
   BundleTrustTests,
   PresetTests,
+  ExtensionVectorTests,
   ExtensionCodecTests,
   NegotiationTests
 ;
