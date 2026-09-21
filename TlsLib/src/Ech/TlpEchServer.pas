@@ -22,9 +22,6 @@ uses
   TlpISecretBuffer,
   TlpWireReader,
   TlpExtensionVector,
-  TlpIWireWriter,
-  TlpWireWriter,
-  TlpWireVectorMarker,
   TlpHandshakeMessage,
   TlpHandshakeMessages,
   TlpCoreExtensions,
@@ -62,11 +59,10 @@ type
       AKdf, AAead: UInt16): Boolean; static;
     class function LocateOuterEchPayload(const ABody: TBytes;
       out AStart, ALen: Int32): Boolean; static;
-    class function SingleEchIndex(const AEntries: TArray<TEchExtEntry>): Int32; static;
     class function OuterAad(const AOuterBody: TBytes): TBytes; static;
     class function IsVersions13Only(const AData: TBytes): Boolean; static;
     procedure ReconstructInner(const AEncoded: TBytes;
-      const AOuter: TTlsClientHello; const AOuterEntries: TArray<TEchExtEntry>);
+      const AOuter: TTlsClientHello; const AOuterEntries: TExtensionVector);
   public
     constructor Create(const ACryptoProvider: ICryptoProvider;
       const AKeyStore: IEchServerKeyStore; ATrialDecryptAll: Boolean);
@@ -95,7 +91,6 @@ implementation
 
 resourcestring
   SWireInnerEch = 'an inner-type encrypted_client_hello arrived at a client-facing server';
-  SDuplicateEch = 'more than one encrypted_client_hello extension';
   SNonZeroPadding = 'EncodedClientHelloInner padding is not all zero';
   SInnerSessionIdNotEmpty = 'the EncodedClientHelloInner legacy_session_id is not empty';
   SEncodedInnerNotCanonical = 'the EncodedClientHelloInner legacy_version or ' +
@@ -176,24 +171,6 @@ begin
   Result := True;
 end;
 
-class function TEchServerHandshake.SingleEchIndex(
-  const AEntries: TArray<TEchExtEntry>): Int32;
-var
-  LI: Int32;
-begin
-  // at most one encrypted_client_hello (RFC 8446 4.2 forbids a repeated extension type); the
-  // first is authoritative everywhere, so a duplicate is rejected before any trial decryption
-  Result := -1;
-  for LI := 0 to System.High(AEntries) do
-    if AEntries[LI].ExtType = TExtensionTypes.EncryptedClientHello then
-    begin
-      if Result >= 0 then
-        raise EFatalAlertTlsLibException.CreateRes(
-          TTlsAlertDescription.IllegalParameter, @SDuplicateEch);
-      Result := LI;
-    end;
-end;
-
 class function TEchServerHandshake.OuterAad(const AOuterBody: TBytes): TBytes;
 var
   LStart, LLen: Int32;
@@ -234,18 +211,16 @@ begin
 end;
 
 procedure TEchServerHandshake.ReconstructInner(const AEncoded: TBytes;
-  const AOuter: TTlsClientHello; const AOuterEntries: TArray<TEchExtEntry>);
+  const AOuter: TTlsClientHello; const AOuterEntries: TExtensionVector);
 var
-  LReader, LSession, LSuites, LComp, LExts: TWireReader;
-  LEncEntries, LReconEntries: TArray<TEchExtEntry>;
+  LReader, LSession, LSuites, LComp: TWireReader;
+  LEncEntries, LReconEntries: TExtensionVector;
   LInner: TTlsClientHello;
   LType: TEchClientHelloType;
   LOuterEch: TEchOuterClientHello;
   LPadding, LCompMethods: TBytes;
   LI: Int32;
   LHasVersions: Boolean;
-  LWriter: IWireWriter;
-  LMarker: TWireVectorMarker;
 begin
   // parse EncodedClientHelloInner: client_hello (extensions bounded by their own length
   // prefix) followed by padding, which must be all zero
@@ -279,9 +254,9 @@ begin
   if (System.Length(LCompMethods) <> 1) or (LCompMethods[0] <> 0) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SEncodedInnerNotCanonical);
-  LExts := LReader.OpenVector(2);
-  LEncEntries := TEchOuterExtensions.ParseExtensions(
-    LExts.ReadBytes(LExts.Remaining));
+  // the EncodedClientHelloInner extensions are a length-prefixed vector; ParseFrom leaves the
+  // cursor after it so the remainder is the padding
+  LEncEntries := TExtensionVector.ParseFrom(LReader);
   LPadding := LReader.ReadBytes(LReader.Remaining);
   if not TSecureMemory.ConstantTimeIsAllZero(LPadding) then
     raise EFatalAlertTlsLibException.CreateRes(
@@ -292,14 +267,14 @@ begin
   // the inner must carry an inner-type ech marker and must be TLS 1.3-only
   LType := TEchClientHelloType.Outer;
   LHasVersions := False;
-  for LI := 0 to System.High(LReconEntries) do
+  for LI := 0 to LReconEntries.Count - 1 do
   begin
-    if LReconEntries[LI].ExtType = TExtensionTypes.EncryptedClientHello then
-      TEchExtension.Decode(LReconEntries[LI].Data, LType, LOuterEch)
-    else if LReconEntries[LI].ExtType = TExtensionTypes.SupportedVersions then
+    if LReconEntries.Entries[LI].ExtensionType = TExtensionTypes.EncryptedClientHello then
+      TEchExtension.Decode(LReconEntries.Entries[LI].Data, LType, LOuterEch)
+    else if LReconEntries.Entries[LI].ExtensionType = TExtensionTypes.SupportedVersions then
     begin
       LHasVersions := True;
-      if not IsVersions13Only(LReconEntries[LI].Data) then
+      if not IsVersions13Only(LReconEntries.Entries[LI].Data) then
         raise EFatalAlertTlsLibException.CreateRes(
           TTlsAlertDescription.IllegalParameter, @SInnerOffersLegacy);
     end;
@@ -313,11 +288,7 @@ begin
 
   // re-frame the inner: legacy_session_id copied from the outer (RFC 9849 sec. 5.1)
   LInner.LegacySessionId := AOuter.LegacySessionId;
-  LWriter := TWireWriter.Create;
-  LMarker := LWriter.OpenVector(2);
-  LWriter.WriteBytes(TEchOuterExtensions.EncodeExtensions(LReconEntries));
-  LWriter.CloseVector(LMarker);
-  LInner.Extensions := LWriter.ToBytes;
+  LInner.Extensions := LReconEntries.Encode;
   FInnerRandom := LInner.Random;
   FInnerFramed := THandshakeFraming.Frame(TTlsHandshakeType.ClientHello,
     THandshakeMessages.EncodeClientHello(LInner));
@@ -328,8 +299,7 @@ function TEchServerHandshake.ProcessOuter(
 var
   LOuterBody, LAad, LEncoded: TBytes;
   LOuter: TTlsClientHello;
-  LEntries: TArray<TEchExtEntry>;
-  LReader, LBody: TWireReader;
+  LEntries: TExtensionVector;
   LI, LEchIdx: Int32;
   LType: TEchClientHelloType;
   LOuterEch: TEchOuterClientHello;
@@ -348,18 +318,18 @@ begin
     FStatus := TEchStatus.NotOffered;
     Exit(FStatus);
   end;
-  LReader := TWireReader.Create(LOuter.Extensions);
-  LBody := LReader.OpenVector(2);
-  LEntries := TEchOuterExtensions.ParseExtensions(LBody.ReadBytes(LBody.Remaining));
+  // Parse rejects a repeated extension type (illegal_parameter), so a duplicate ech is caught
+  // here, before any trial decryption
+  LEntries := TExtensionVector.Parse(LOuter.Extensions);
 
-  LEchIdx := SingleEchIndex(LEntries);
+  LEchIdx := LEntries.IndexOf(TExtensionTypes.EncryptedClientHello);
   if LEchIdx < 0 then
   begin
     FStatus := TEchStatus.NotOffered;
     Exit(FStatus);
   end;
 
-  TEchExtension.Decode(LEntries[LEchIdx].Data, LType, LOuterEch);
+  TEchExtension.Decode(LEntries.Entries[LEchIdx].Data, LType, LOuterEch);
   if LType = TEchClientHelloType.Inner then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SWireInnerEch);
@@ -419,9 +389,8 @@ function TEchServerHandshake.ProcessRetryOuter(
 var
   LOuterBody, LAad, LEncoded: TBytes;
   LOuter: TTlsClientHello;
-  LEntries: TArray<TEchExtEntry>;
-  LReader, LBody: TWireReader;
-  LI, LEchIdx: Int32;
+  LEntries: TExtensionVector;
+  LEchIdx: Int32;
   LType: TEchClientHelloType;
   LOuterEch: TEchOuterClientHello;
 begin
@@ -436,15 +405,13 @@ begin
   if System.Length(LOuter.Extensions) = 0 then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.MissingExtension, @SEchRetryMismatch);
-  LReader := TWireReader.Create(LOuter.Extensions);
-  LBody := LReader.OpenVector(2);
-  LEntries := TEchOuterExtensions.ParseExtensions(LBody.ReadBytes(LBody.Remaining));
-  LEchIdx := SingleEchIndex(LEntries);
+  LEntries := TExtensionVector.Parse(LOuter.Extensions);
+  LEchIdx := LEntries.IndexOf(TExtensionTypes.EncryptedClientHello);
   // CH1 was accepted, so CH2 MUST re-offer the outer ech (RFC 9849 sec. 6.1.5)
   if LEchIdx < 0 then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.MissingExtension, @SEchRetryMismatch);
-  TEchExtension.Decode(LEntries[LEchIdx].Data, LType, LOuterEch);
+  TEchExtension.Decode(LEntries.Entries[LEchIdx].Data, LType, LOuterEch);
   if LType = TEchClientHelloType.Inner then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SWireInnerEch);

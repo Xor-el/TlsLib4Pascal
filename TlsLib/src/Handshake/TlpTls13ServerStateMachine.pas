@@ -58,11 +58,7 @@ uses
   TlpIEch,
   TlpEchConfig,
   TlpEchExtension,
-  TlpEchOuterExtensions,
   TlpEchServer,
-  TlpIWireWriter,
-  TlpWireWriter,
-  TlpWireVectorMarker,
   TlpHandshakeEffect,
   TlpRecordHeader,
   TlpTls13HandshakeBase;

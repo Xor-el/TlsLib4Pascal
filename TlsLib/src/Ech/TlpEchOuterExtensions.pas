@@ -17,22 +17,13 @@ interface
 
 uses
   SysUtils,
-  TlpWireReader,
-  TlpIWireWriter,
-  TlpWireWriter,
-  TlpWireVectorMarker,
   TlpCoreExtensions,
   TlpEchExtension,
+  TlpExtensionVector,
   TlpTlsAlert,
   TlpTlsLibExceptions;
 
 type
-  /// <summary>One ClientHello extension: its type and its opaque body.</summary>
-  TEchExtEntry = record
-    ExtType: UInt16;
-    Data: TBytes;
-  end;
-
   /// <summary>
   /// The ClientHelloInner extension compression of RFC 9849 sec. 5.1. The client
   /// replaces a chosen set of extensions in the EncodedClientHelloInner with one
@@ -57,12 +48,6 @@ type
     /// </summary>
     class function IsCompressible(AExtType: UInt16): Boolean; static;
 
-    /// <summary>Parses a ClientHello extensions vector body (a concatenation of
-    /// type||opaque data&lt;2&gt; entries) into ordered entries.</summary>
-    class function ParseExtensions(const ABody: TBytes): TArray<TEchExtEntry>; static;
-    /// <summary>Serializes ordered entries back into an extensions vector body.</summary>
-    class function EncodeExtensions(const AEntries: TArray<TEchExtEntry>): TBytes; static;
-
     /// <summary>
     /// Reconstructs the full ClientHelloInner extensions from the inner extensions
     /// AInner (one entry being ech_outer_extensions) and the ClientHelloOuter extensions
@@ -73,7 +58,7 @@ type
     /// it is returned unchanged.
     /// </summary>
     class function Reconstruct(const AOuter,
-      AInner: TArray<TEchExtEntry>): TArray<TEchExtEntry>; static;
+      AInner: TExtensionVector): TExtensionVector; static;
   end;
 
 implementation
@@ -85,13 +70,6 @@ resourcestring
     'a referenced outer extension is missing or out of order';
   SDuplicateReference = 'ech_outer_extensions references an extension twice';
   SDuplicateOuterExtensions = 'more than one ech_outer_extensions block';
-  STooManyExtensions = 'the extensions block has more entries than a hello may carry';
-
-const
-  // a ClientHello never legitimately carries this many extensions (matches the extension-block
-  // codec's cap); bounding the count keeps this parse - run on every hello before that codec -
-  // linear on unauthenticated input (RFC 9849 sec. 5.1)
-  MaxEntries = Int32(64);
 
 { TEchOuterExtensions }
 
@@ -108,46 +86,6 @@ begin
   end;
 end;
 
-class function TEchOuterExtensions.ParseExtensions(
-  const ABody: TBytes): TArray<TEchExtEntry>;
-var
-  LReader, LData: TWireReader;
-  LCount: Int32;
-begin
-  Result := nil;
-  LReader := TWireReader.Create(ABody);
-  SetLength(Result, MaxEntries);
-  LCount := 0;
-  while not LReader.EndReached do
-  begin
-    if LCount >= MaxEntries then
-      raise EDecodeErrorTlsLibException.CreateRes(@STooManyExtensions);
-    Result[LCount].ExtType := LReader.ReadUInt16;
-    LData := LReader.OpenVector(2);
-    Result[LCount].Data := LData.ReadBytes(LData.Remaining);
-    Inc(LCount);
-  end;
-  SetLength(Result, LCount);
-end;
-
-class function TEchOuterExtensions.EncodeExtensions(
-  const AEntries: TArray<TEchExtEntry>): TBytes;
-var
-  LWriter: IWireWriter;
-  LMarker: TWireVectorMarker;
-  LI: Int32;
-begin
-  LWriter := TWireWriter.Create;
-  for LI := 0 to System.High(AEntries) do
-  begin
-    LWriter.WriteUInt16(AEntries[LI].ExtType);
-    LMarker := LWriter.OpenVector(2);
-    LWriter.WriteBytes(AEntries[LI].Data);
-    LWriter.CloseVector(LMarker);
-  end;
-  Result := LWriter.ToBytes;
-end;
-
 class function TEchOuterExtensions.CheckNoDuplicate(
   const ATypes: TArray<UInt16>): Boolean;
 var
@@ -161,25 +99,22 @@ begin
 end;
 
 class function TEchOuterExtensions.Reconstruct(const AOuter,
-  AInner: TArray<TEchExtEntry>): TArray<TEchExtEntry>;
+  AInner: TExtensionVector): TExtensionVector;
 var
-  LResult: TArray<TEchExtEntry>;
+  LResult: TExtensionVector;
   LRefTypes: TArray<UInt16>;
-  LCount, LCursor, LI, LJ, LK, LFound: Int32;
+  LCursor, LI, LJ, LK, LFound: Int32;
   LType: UInt16;
   LSeenOuterExtensions: Boolean;
 begin
-  LResult := nil;
-  LCount := 0;
+  LResult := TExtensionVector.Empty;
   LCursor := 0;
   LSeenOuterExtensions := False;
-  for LI := 0 to System.High(AInner) do
+  for LI := 0 to AInner.Count - 1 do
   begin
-    if AInner[LI].ExtType <> TExtensionTypes.EchOuterExtensions then
+    if AInner.Entries[LI].ExtensionType <> TExtensionTypes.EchOuterExtensions then
     begin
-      SetLength(LResult, LCount + 1);
-      LResult[LCount] := AInner[LI];
-      Inc(LCount);
+      LResult.Append(AInner.Entries[LI]);
       Continue;
     end;
 
@@ -190,7 +125,7 @@ begin
         TTlsAlertDescription.IllegalParameter, @SDuplicateOuterExtensions);
     LSeenOuterExtensions := True;
 
-    LRefTypes := TEchExtension.DecodeOuterExtensions(AInner[LI].Data);
+    LRefTypes := TEchExtension.DecodeOuterExtensions(AInner.Entries[LI].Data);
     if not CheckNoDuplicate(LRefTypes) then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SDuplicateReference);
@@ -207,8 +142,8 @@ begin
       // a single forward cursor: the match must be at or after it, never behind,
       // which is exactly "present, in the same relative order, referenced once"
       LFound := -1;
-      for LK := LCursor to System.High(AOuter) do
-        if AOuter[LK].ExtType = LType then
+      for LK := LCursor to AOuter.Count - 1 do
+        if AOuter.Entries[LK].ExtensionType = LType then
         begin
           LFound := LK;
           Break;
@@ -216,9 +151,7 @@ begin
       if LFound < 0 then
         raise EFatalAlertTlsLibException.CreateRes(
           TTlsAlertDescription.IllegalParameter, @SMissingOrOutOfOrder);
-      SetLength(LResult, LCount + 1);
-      LResult[LCount] := AOuter[LFound];
-      Inc(LCount);
+      LResult.Append(AOuter.Entries[LFound]);
       LCursor := LFound + 1;
     end;
   end;

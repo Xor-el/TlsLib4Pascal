@@ -54,7 +54,7 @@ uses
   TlpISecretBuffer,
   TlpWireReader,
   TlpHandshakeMessages,
-  TlpEchOuterExtensions,
+  TlpExtensionVector,
   TlpEchConfig,
   TlpEchClient,
   TlpInMemoryEchKeyStore,
@@ -716,11 +716,11 @@ end;
 
 function TTestTls13Loopback.OuterPskExtData(const AFlight: TBytes): TBytes;
 var
-  LPos, LRecLen, LHsLen, LI: Int32;
+  LPos, LRecLen, LHsLen: Int32;
   LBody: TBytes;
   LHello: TTlsClientHello;
-  LReader, LExtsVec: TWireReader;
-  LEntries: TArray<TEchExtEntry>;
+  LVec: TExtensionVector;
+  LEntry: TExtensionEntry;
 begin
   Result := nil;
   LPos := 0;
@@ -734,13 +734,9 @@ begin
       LHsLen := (AFlight[LPos + 6] shl 16) or (AFlight[LPos + 7] shl 8) or AFlight[LPos + 8];
       LBody := System.Copy(AFlight, LPos + 9, LHsLen);
       LHello := THandshakeMessages.DecodeClientHello(LBody);
-      LReader := TWireReader.Create(LHello.Extensions);
-      LExtsVec := LReader.OpenVector(2);
-      LEntries := TEchOuterExtensions.ParseExtensions(
-        LExtsVec.ReadBytes(LExtsVec.Remaining));
-      for LI := 0 to System.High(LEntries) do
-        if LEntries[LI].ExtType = TExtensionTypes.PreSharedKey then
-          Exit(LEntries[LI].Data);
+      LVec := TExtensionVector.Parse(LHello.Extensions);
+      if LVec.TryFind(TExtensionTypes.PreSharedKey, LEntry) then
+        Exit(LEntry.Data);
       Exit;
     end;
     Inc(LPos, 5 + LRecLen);

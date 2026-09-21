@@ -18,7 +18,7 @@ interface
 uses
   SysUtils,
   TlpISecretBuffer,
-  TlpEchOuterExtensions,
+  TlpExtensionVector,
   TlpEchConfig;
 
 type
@@ -71,7 +71,7 @@ type
     /// <summary>The EncodedClientHelloInner for AInnerBody: the inner extensions replaced by an
     /// ech_outer_extensions block referencing the outer, padded per RFC 9849 sec. 6.1.3.</summary>
     function BuildEncodedInner(const AInnerBody: TBytes;
-      const AOuterEntries: TArray<TEchExtEntry>): TBytes;
+      const AOuter: TExtensionVector): TBytes;
     /// <summary>Sets up the HPKE sender against the selected config and returns the enc.</summary>
     function SetupSeal: TBytes;
     /// <summary>Seals APlaintext under the ClientHelloOuterAAD AAad at the current sequence.</summary>

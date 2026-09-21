@@ -60,7 +60,6 @@ uses
   TlpIEch,
   TlpEchConfig,
   TlpEchExtension,
-  TlpEchOuterExtensions,
   TlpEchClient,
   TlpITlsEngine,
   TlpHandshakeEffect,
@@ -334,9 +333,6 @@ type
     /// Used to capture retry_configs on reject and to reject an unsolicited one on accept.</summary>
     function FindEchInEncryptedExtensions(const AEeBody: TBytes;
       out AData: TBytes): Boolean;
-    /// <summary>Wraps extension entries in a 2-byte-length-prefixed extensions field.</summary>
-    class function EchEncodeExtField(
-      const AEntries: TArray<TEchExtEntry>): TBytes; static;
     /// <summary>The server_name extension data (RFC 6066 ServerNameList) for AHost.</summary>
     class function EchServerNameData(const AHost: string): TBytes; static;
     /// <summary>The (server identity, SNI) key this client caches resumable sessions under.</summary>
@@ -720,19 +716,6 @@ begin
   end;
 end;
 
-class function TTls13ClientStateMachine.EchEncodeExtField(
-  const AEntries: TArray<TEchExtEntry>): TBytes;
-var
-  LWriter: IWireWriter;
-  LMarker: TWireVectorMarker;
-begin
-  LWriter := TWireWriter.Create;
-  LMarker := LWriter.OpenVector(2);
-  LWriter.WriteBytes(TEchOuterExtensions.EncodeExtensions(AEntries));
-  LWriter.CloseVector(LMarker);
-  Result := LWriter.ToBytes;
-end;
-
 class function TTls13ClientStateMachine.EchServerNameData(
   const AHost: string): TBytes;
 var
@@ -792,11 +775,9 @@ function TTls13ClientStateMachine.BuildEchClientHello(AMode: TEchChMode): TBytes
 var
   LInnerFramed, LInnerBody, LOuterBody, LEnc, LEncodedInner, LPayload: TBytes;
   LMsg: TTlsClientHello;
-  LEntries, LOuterEntries: TArray<TEchExtEntry>;
-  LI, LEchIdx, LPayloadLen: Int32;
+  LEntries, LOuterEntries: TExtensionVector;
+  LEchIdx, LPayloadLen: Int32;
   LOuterEch: TEchOuterClientHello;
-  LReader, LBody: TWireReader;
-  LHasServerName: Boolean;
 begin
   // 1. the inner ClientHello: real SNI, its own random, the real pre_shared_key when resuming,
   // and the inner-type ech marker - which the registry places before pre_shared_key (RFC 8446
@@ -804,9 +785,7 @@ begin
   LInnerFramed := BuildClientHello(FInnerRandom, TEchExtension.EncodeInner);
   LInnerBody := System.Copy(LInnerFramed, 4, System.Length(LInnerFramed) - 4);
   LMsg := THandshakeMessages.DecodeClientHello(LInnerBody);
-  LReader := TWireReader.Create(LMsg.Extensions);
-  LBody := LReader.OpenVector(2);
-  LEntries := TEchOuterExtensions.ParseExtensions(LBody.ReadBytes(LBody.Remaining));
+  LEntries := TExtensionVector.Parse(LMsg.Extensions);
 
   // 2. patch the real PSK binder over the inner ClientHello (its transcript is empty on the
   // first flight, so it MACs Hash(inner-prefix)); the encoded inner then carries that binder
@@ -820,50 +799,36 @@ begin
   // 3. the outer entries: shared extensions stay byte-identical (so they compress), server_name
   // becomes the public_name, the marker becomes the outer ech extension, and the real
   // pre_shared_key becomes a same-shape GREASE offer (RFC 9849 sec. 6.1.2)
-  SetLength(LOuterEntries, System.Length(LEntries));
-  LEchIdx := -1;
-  LHasServerName := False;
-  for LI := 0 to System.High(LEntries) do
+  LOuterEntries := LEntries;
+  if LOuterEntries.Contains(TExtensionTypes.ServerName) then
+    LOuterEntries.SetData(LOuterEntries.IndexOf(TExtensionTypes.ServerName),
+      EchServerNameData(FSelectedEchConfig.PublicName));
+  if LOuterEntries.Contains(TExtensionTypes.PreSharedKey) then
   begin
-    LOuterEntries[LI] := LEntries[LI];
-    if LEntries[LI].ExtType = TExtensionTypes.ServerName then
-    begin
-      LOuterEntries[LI].Data := EchServerNameData(FSelectedEchConfig.PublicName);
-      LHasServerName := True;
-    end
-    else if LEntries[LI].ExtType = TExtensionTypes.EncryptedClientHello then
-      LEchIdx := LI
-    else if LEntries[LI].ExtType = TExtensionTypes.PreSharedKey then
-    begin
-      // a retry keeps CH1's GREASE PSK identities and ages (RFC 8446 4.1.2), minted on the first
-      // flight; the binders are regenerated each hello so a decoy's CH2 does not carry CH1's binders
-      // verbatim the way a real one never would
-      if AMode = TEchChMode.Initial then
-        MintGreasePskIdentities;
-      LOuterEntries[LI].Data := BuildGreasePskData;
-    end;
+    // a retry keeps CH1's GREASE PSK identities and ages (RFC 8446 4.1.2), minted on the first
+    // flight; the binders are regenerated each hello so a decoy's CH2 does not carry CH1's binders
+    // verbatim the way a real one never would
+    if AMode = TEchChMode.Initial then
+      MintGreasePskIdentities;
+    LOuterEntries.SetData(LOuterEntries.IndexOf(TExtensionTypes.PreSharedKey),
+      BuildGreasePskData);
   end;
   // the ClientHelloOuter always presents the public_name (RFC 9849 sec. 6.1), even when the
   // inner offers no server_name; prepend it so the outer is a well-formed public handshake
-  if not LHasServerName then
-  begin
-    SetLength(LOuterEntries, System.Length(LOuterEntries) + 1);
-    for LI := System.High(LOuterEntries) downto 1 do
-      LOuterEntries[LI] := LOuterEntries[LI - 1];
-    LOuterEntries[0].ExtType := TExtensionTypes.ServerName;
-    LOuterEntries[0].Data := EchServerNameData(FSelectedEchConfig.PublicName);
-    Inc(LEchIdx);
-  end;
+  if not LOuterEntries.Contains(TExtensionTypes.ServerName) then
+    LOuterEntries.InsertAt(0, TExtensionEntry.Create(TExtensionTypes.ServerName,
+      EchServerNameData(FSelectedEchConfig.PublicName)));
+  LEchIdx := LOuterEntries.IndexOf(TExtensionTypes.EncryptedClientHello);
 
   // a rejecting HelloRetryRequest: the server ignored our ech, so CH2's outer ech extension is
   // an exact copy of CH1's (RFC 9849 sec. 6.1.5); the rest of the outer carries the retry's new
   // key_share and cookie, but the ech payload is never re-sealed
   if AMode = TEchChMode.RetryReject then
   begin
-    LOuterEntries[LEchIdx].Data := FSentOuterEchExt;
+    LOuterEntries.SetData(LEchIdx, FSentOuterEchExt);
     LMsg.Random := FParams.ClientRandom;
     LMsg.LegacySessionId := FParams.LegacySessionId;
-    LMsg.Extensions := EchEncodeExtField(LOuterEntries);
+    LMsg.Extensions := LOuterEntries.Encode;
     Result := THandshakeFraming.Frame(TTlsHandshakeType.ClientHello,
       THandshakeMessages.EncodeClientHello(LMsg));
     Exit;
@@ -881,26 +846,26 @@ begin
   LOuterEch.CipherSuite.AeadId := FSelectedEchSuite.Aead;
   LOuterEch.ConfigId := FSelectedEchConfig.ConfigId;
   LOuterEch.Enc := LEnc;
-  LOuterEntries[LEchIdx].Data := TEchExtension.EncodeOuter(LOuterEch);
+  LOuterEntries.SetData(LEchIdx, TEchExtension.EncodeOuter(LOuterEch));
   LEncodedInner := FEch.BuildEncodedInner(LInnerBody, LOuterEntries);
 
   // 4. size the payload (plaintext + AEAD tag), place a zero placeholder, and serialize the
   // ClientHelloOuterAAD (RFC 9849 sec. 5.2): the outer body with the ech payload zeroed
   LPayloadLen := System.Length(LEncodedInner) + FSelectedEchSuite.AeadTagLength;
   System.SetLength(LOuterEch.Payload, LPayloadLen);
-  LOuterEntries[LEchIdx].Data := TEchExtension.EncodeOuter(LOuterEch);
+  LOuterEntries.SetData(LEchIdx, TEchExtension.EncodeOuter(LOuterEch));
   LMsg.Random := FParams.ClientRandom;
   LMsg.LegacySessionId := FParams.LegacySessionId;
-  LMsg.Extensions := EchEncodeExtField(LOuterEntries);
+  LMsg.Extensions := LOuterEntries.Encode;
   LOuterBody := THandshakeMessages.EncodeClientHello(LMsg);
 
   // 5. seal, then patch the real payload into the outer ech extension
   LPayload := FEch.Seal(LOuterBody, LEncodedInner);
   LOuterEch.Payload := LPayload;
-  LOuterEntries[LEchIdx].Data := TEchExtension.EncodeOuter(LOuterEch);
+  LOuterEntries.SetData(LEchIdx, TEchExtension.EncodeOuter(LOuterEch));
   // keep the outer ech extension so a rejecting HelloRetryRequest can echo it verbatim
-  FSentOuterEchExt := LOuterEntries[LEchIdx].Data;
-  LMsg.Extensions := EchEncodeExtField(LOuterEntries);
+  FSentOuterEchExt := LOuterEntries.Entries[LEchIdx].Data;
+  LMsg.Extensions := LOuterEntries.Encode;
   Result := THandshakeFraming.Frame(TTlsHandshakeType.ClientHello,
     THandshakeMessages.EncodeClientHello(LMsg));
 end;

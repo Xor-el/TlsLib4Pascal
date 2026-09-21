@@ -36,14 +36,12 @@ uses
   TlpCipherSuiteRegistry,
   TlpCoreExtensions,
   TlpWireReader,
-  TlpIWireWriter,
-  TlpWireWriter,
-  TlpWireVectorMarker,
   TlpHandshakeMessages,
   TlpHandshakeEffect,
   TlpTls13ClientStateMachine,
   TlpServerName,
   TlpEchConfig,
+  TlpExtensionVector,
   TlpEchExtension,
   TlpEchOuterExtensions,
   TlpEchClient,
@@ -66,8 +64,6 @@ type
     FVec: TStringList;
     function BaseParams(const AEchConfigList: TBytes): TClientHandshakeParams;
     function OuterClientHello: TBytes;
-    function FindEntry(const AEntries: TArray<TEchExtEntry>;
-      AType: UInt16; out AEntry: TEchExtEntry): Boolean;
     function SniHost(const AServerNameData: TBytes): string;
     function Contains(const AHaystack, ANeedle: TBytes): Boolean;
   protected
@@ -144,20 +140,6 @@ begin
   end;
 end;
 
-function TTestEchClientEngine.FindEntry(const AEntries: TArray<TEchExtEntry>;
-  AType: UInt16; out AEntry: TEchExtEntry): Boolean;
-var
-  LI: Int32;
-begin
-  for LI := 0 to System.High(AEntries) do
-    if AEntries[LI].ExtType = AType then
-    begin
-      AEntry := AEntries[LI];
-      Exit(True);
-    end;
-  Result := False;
-end;
-
 function TTestEchClientEngine.SniHost(const AServerNameData: TBytes): string;
 var
   LReader, LList, LName: TWireReader;
@@ -202,13 +184,11 @@ procedure TTestEchClientEngine.TestOuterHidesRealSniAndDecryptsToInner;
 var
   LOuterFramed, LOuterBody, LAad, LEncoded: TBytes;
   LOuter: TTlsClientHello;
-  LEntries, LEncEntries, LReconstructed: TArray<TEchExtEntry>;
-  LSni, LEch, LReEch: TEchExtEntry;
+  LEntries, LEncEntries, LReconstructed: TExtensionVector;
+  LSni, LEch: TExtensionEntry;
   LType: TEchClientHelloType;
   LOuterEch: TEchOuterClientHello;
-  LReader, LBody, LExtReader, LSessReader: TWireReader;
-  LWriter: IWireWriter;
-  LMarker: TWireVectorMarker;
+  LReader, LSessReader: TWireReader;
   LConfigs: TArray<TEchConfig>;
   LConfig: TEchConfig;
   LSuite: IHpkeSuite;
@@ -229,32 +209,23 @@ begin
 
   LOuterBody := System.Copy(LOuterFramed, 4, System.Length(LOuterFramed) - 4);
   LOuter := THandshakeMessages.DecodeClientHello(LOuterBody);
-  LReader := TWireReader.Create(LOuter.Extensions);
-  LBody := LReader.OpenVector(2);
-  LEntries := TEchOuterExtensions.ParseExtensions(LBody.ReadBytes(LBody.Remaining));
+  LEntries := TExtensionVector.Parse(LOuter.Extensions);
 
   // the outer offers the public_name
-  CheckTrue(FindEntry(LEntries, TExtensionTypes.ServerName, LSni), 'outer has SNI');
+  CheckTrue(LEntries.TryFind(TExtensionTypes.ServerName, LSni), 'outer has SNI');
   CheckEquals(PublicName, SniHost(LSni.Data), 'the outer SNI is the public_name');
 
   // decode the outer encrypted_client_hello extension
-  CheckTrue(FindEntry(LEntries, TExtensionTypes.EncryptedClientHello, LEch),
+  CheckTrue(LEntries.TryFind(TExtensionTypes.EncryptedClientHello, LEch),
     'outer has an ech extension');
   TEchExtension.Decode(LEch.Data, LType, LOuterEch);
   CheckEquals(Ord(TEchClientHelloType.Outer), Ord(LType), 'it is the outer form');
 
   // rebuild the ClientHelloOuterAAD: the outer body with the ech payload zeroed
-  LReEch := LEch;
   FillChar(LOuterEch.Payload[0], System.Length(LOuterEch.Payload), 0);
-  LReEch.Data := TEchExtension.EncodeOuter(LOuterEch);
-  for LI := 0 to System.High(LEntries) do
-    if LEntries[LI].ExtType = TExtensionTypes.EncryptedClientHello then
-      LEntries[LI] := LReEch;
-  LWriter := TWireWriter.Create;
-  LMarker := LWriter.OpenVector(2);
-  LWriter.WriteBytes(TEchOuterExtensions.EncodeExtensions(LEntries));
-  LWriter.CloseVector(LMarker);
-  LOuter.Extensions := LWriter.ToBytes;
+  LEntries.SetData(LEntries.IndexOf(TExtensionTypes.EncryptedClientHello),
+    TEchExtension.EncodeOuter(LOuterEch));
+  LOuter.Extensions := LEntries.Encode;
   LAad := THandshakeMessages.EncodeClientHello(LOuter);
 
   // decrypt with the config's private key and the config's HPKE info
@@ -277,13 +248,11 @@ begin
   CheckEquals(0, LSessReader.Remaining, 'the encoded inner session_id is empty');
   LSessReader := LReader.OpenVector(2); // cipher_suites (advance)
   LSessReader := LReader.OpenVector(1); // compression (advance)
-  LExtReader := LReader.OpenVector(2);
-  LEncEntries := TEchOuterExtensions.ParseExtensions(
-    LExtReader.ReadBytes(LExtReader.Remaining));
+  LEncEntries := TExtensionVector.ParseFrom(LReader);
   LReconstructed := TEchOuterExtensions.Reconstruct(LEntries, LEncEntries);
 
   // the reconstructed inner carries the real SNI
-  CheckTrue(FindEntry(LReconstructed, TExtensionTypes.ServerName, LSni),
+  CheckTrue(LReconstructed.TryFind(TExtensionTypes.ServerName, LSni),
     'the inner has a server_name');
   CheckEquals(RealSni, SniHost(LSni.Data),
     'the reconstructed inner SNI is the real host');
