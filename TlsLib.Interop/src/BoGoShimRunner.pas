@@ -1373,7 +1373,7 @@ class function TBoGoShimRunner.Run: Int32;
 var
   LConfig: TBoGoConfig;
   LReason: string;
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LPkix: IPkixProvider;
   LSocket: TInteropSocket;
   LConn: Int32;
@@ -1404,7 +1404,7 @@ begin
     Exit(ShimExitUnimplemented);
   end;
 
-  LProvider := TInteropEngine.DefaultProvider;
+  LCrypto := TInteropEngine.DefaultProvider;
   LPkix := TInteropEngine.DefaultPkix;
   // one session cache (client) / STEK (server) shared across every connection, so a
   // the client always keeps a session cache so it offers psk_key_exchange_modes and accepts
@@ -1420,9 +1420,9 @@ begin
       // resumes via the session id, which the server can only honor from a persistent store.
       // -no-ticket suppresses the STEK so no ticket is minted, leaving only the session-id path
       if not LConfig.NoTicket then
-        LConfig.SessionTicketKeys := TStekTicketKeyManager.Create(LProvider.Primitives.GetRandom)
+        LConfig.SessionTicketKeys := TStekTicketKeyManager.Create(LCrypto.Primitives.GetRandom)
           as ISessionTicketKeyManager;
-      LConfig.SessionStore := TInMemorySessionStore.Create(LProvider.Primitives.GetRandom)
+      LConfig.SessionStore := TInMemorySessionStore.Create(LCrypto.Primitives.GetRandom)
         as ISessionStore;
     end;
   end
@@ -1430,7 +1430,7 @@ begin
   begin
     LConfig.SessionCache := TInMemorySessionCache.Create as ISessionCache;
     // one scope for the whole resume loop so the per-connection rebuilt client configs resume each other
-    LConfig.SessionScope := LProvider.Primitives.GetRandom.GenerateBytes(16);
+    LConfig.SessionScope := LCrypto.Primitives.GetRandom.GenerateBytes(16);
   end;
   // -resumption-delay drives a test clock the shim advances between connections (so a
   // resumption PSK's obfuscated_ticket_age and lifetime expiry are exact); without it every
@@ -1458,7 +1458,7 @@ begin
       LSocket := TInteropSocket.Connect(LAddress, LConfig.Port);
       try
         AnnounceShimId(LSocket, LConfig.ShimId);
-        Result := RunExchange(LProvider, LPkix, LSocket, LConfig, LConn > 0);
+        Result := RunExchange(LCrypto, LPkix, LSocket, LConfig, LConn > 0);
       finally
         LSocket.Free;
       end;

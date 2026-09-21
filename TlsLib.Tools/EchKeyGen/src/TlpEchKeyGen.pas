@@ -212,7 +212,7 @@ end;
 
 class function TEchKeyGenerator.RunConsole: Integer;
 var
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LPublicName, LOrigin, LOutPath, LSuite, LArg, LValue: string;
   LKem, LKdf, LAead: UInt16;
   LConfigId, LMaxNameLen: Int32;
@@ -284,12 +284,12 @@ begin
   end;
 
   try
-    LProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+    LCrypto := TDefaultCryptoProvider.Create as ICryptoProvider;
     // the config id is an operator-chosen hint; default to a random byte (the server
     // matches an incoming ECH by it, so it need only be stable, not secret)
     if not LHasConfigId then
-      LConfigId := LProvider.Primitives.GetRandom.GenerateBytes(1)[0];
-    LResult := Generate(LProvider, LPublicName, LOrigin, Byte(LConfigId), LKem, LKdf, LAead,
+      LConfigId := LCrypto.Primitives.GetRandom.GenerateBytes(1)[0];
+    LResult := Generate(LCrypto, LPublicName, LOrigin, Byte(LConfigId), LKem, LKdf, LAead,
       Byte(LMaxNameLen));
     WriteFile(LOutPath, LResult.Pem);
     WriteLn(LResult.DnsLine);

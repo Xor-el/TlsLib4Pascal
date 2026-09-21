@@ -399,16 +399,16 @@ end;
 
 procedure TTestHpkeProvider.TestSuiteIsNilWhenAeadUnavailable;
 var
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
 begin
   // a provider whose primitives cannot build ChaCha20-Poly1305 must report a ChaCha suite as nil
   // (so an ECH offer for it becomes a clean reject), while an AES-GCM suite stays usable
-  LProvider := TMissingAeadProvider.Create(Provider,
+  LCrypto := TMissingAeadProvider.Create(Provider,
     TAeadAlgorithm.CHACHA20_POLY1305) as ICryptoProvider;
-  CheckTrue(LProvider.Hpke.Suite(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+  CheckTrue(LCrypto.Hpke.Suite(THpkeKem.DHKEM_X25519_HKDF_SHA256,
     THpkeKdf.HKDF_SHA256, THpkeAead.CHACHA20_POLY1305) = nil,
     'a suite needing the unavailable AEAD is nil');
-  CheckTrue(LProvider.Hpke.Suite(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+  CheckTrue(LCrypto.Hpke.Suite(THpkeKem.DHKEM_X25519_HKDF_SHA256,
     THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM) <> nil,
     'a suite whose primitives are all available stays usable');
 end;

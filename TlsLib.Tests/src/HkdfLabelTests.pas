@@ -154,7 +154,7 @@ end;
 
 procedure TTestHkdfLabel.TestSystemHkdfMatchesRfc5869A1;
 var
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LHkdf: IHkdf;
   LIkm: TBytes;
   LSalt, LInfo, LExpectedOkm: TBytes;
@@ -163,8 +163,8 @@ var
 begin
   // the OS-native overlay HKDF (self-tested at construction, portable fallback otherwise) must
   // match RFC 5869 Appendix A.1 on every host - the KAT the native HKDF-Expand is gated on
-  LProvider := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider);
-  LHkdf := LProvider.Primitives.CreateHkdf(THashAlgorithm.SHA_256);
+  LCrypto := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider);
+  LHkdf := LCrypto.Primitives.CreateHkdf(THashAlgorithm.SHA_256);
   LIkm := nil;
   SetLength(LIkm, 22);
   for LI := 0 to 21 do

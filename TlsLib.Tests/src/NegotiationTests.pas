@@ -102,15 +102,15 @@ end;
 
 procedure TTestNegotiation.TestCipherSuiteHonorClientOrderWhenEnabled;
 var
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LPolicy: INegotiationPolicy;
 begin
   // same hardware-AES setup as above (server order prefers AES-128), but with honor-client-order
   // on: the client's most-preferred suite (AES-256) wins instead of the server's AES-128
-  LProvider := TFixedAesProvider.Create(Provider, True);
-  LPolicy := TNegotiationPolicy.Create(LProvider,
-    TCipherSuiteRegistry.CreateDefault(LProvider),
-    TNamedGroups.CreateDefaultRegistry(LProvider),
+  LCrypto := TFixedAesProvider.Create(Provider, True);
+  LPolicy := TNegotiationPolicy.Create(LCrypto,
+    TCipherSuiteRegistry.CreateDefault(LCrypto),
+    TNamedGroups.CreateDefaultRegistry(LCrypto),
     TSignatureSchemeRegistry.CreateDefault,
     TArray<UInt16>.Create(TNamedGroupCatalog.X25519, TNamedGroupCatalog.Secp256r1),
     TArray<UInt16>.Create(TlsWireVersionTls13),
@@ -123,16 +123,16 @@ end;
 
 procedure TTestNegotiation.TestClientOrderOverridesHardwareAesTiebreak;
 var
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LPolicy: INegotiationPolicy;
 begin
   // the hardware-AES tiebreak lives in the SERVER's order (AES-GCM ahead of ChaCha with hardware
   // AES). Under ClientOrder the client's order decides and that tiebreak is bypassed: a ChaCha-
   // first client gets ChaCha even from a hardware-AES server (the mobile-client case)
-  LProvider := TFixedAesProvider.Create(Provider, True);
-  LPolicy := TNegotiationPolicy.Create(LProvider,
-    TCipherSuiteRegistry.CreateDefault(LProvider),
-    TNamedGroups.CreateDefaultRegistry(LProvider),
+  LCrypto := TFixedAesProvider.Create(Provider, True);
+  LPolicy := TNegotiationPolicy.Create(LCrypto,
+    TCipherSuiteRegistry.CreateDefault(LCrypto),
+    TNamedGroups.CreateDefaultRegistry(LCrypto),
     TSignatureSchemeRegistry.CreateDefault,
     TArray<UInt16>.Create(TNamedGroupCatalog.X25519, TNamedGroupCatalog.Secp256r1),
     TArray<UInt16>.Create(TlsWireVersionTls13),

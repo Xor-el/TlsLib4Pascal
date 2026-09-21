@@ -396,7 +396,7 @@ end;
 
 procedure TTestSignature.TestSystemEcdsaVerifiesValidAndRejectsTrailingBytes;
 var
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LMessage, LSig, LTampered: TBytes;
   LSigner: ISignatureSigner;
   LRejected: Boolean;
@@ -405,21 +405,21 @@ begin
   // signature verifies (no regression from the stricter DER check), and a signature with a
   // trailing byte after the SEQUENCE is rejected - either as a False verdict (the native decoder)
   // or by the strict DER decoder raising, so the check tolerates both
-  LProvider := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider);
+  LCrypto := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider);
   LMessage := DecodeHex('54686520717569636b2062726f776e20666f78'); // "The quick brown fox"
-  LSigner := LProvider.Signing.CreateSignatureSigner(
+  LSigner := LCrypto.Signing.CreateSignatureSigner(
     TSignatureScheme.ECDSA_SECP256R1_SHA256,
-    LProvider.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ecdsa_key'])));
+    LCrypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ecdsa_key'])));
   LSigner.Update(LMessage, 0, System.Length(LMessage));
   LSig := LSigner.Sign;
 
-  CheckTrue(VerifyEcdsa(LProvider, LSig, LMessage), 'a valid ECDSA signature verifies');
+  CheckTrue(VerifyEcdsa(LCrypto, LSig, LMessage), 'a valid ECDSA signature verifies');
 
   LTampered := System.Copy(LSig);
   SetLength(LTampered, System.Length(LTampered) + 1); // a trailing byte after the DER SEQUENCE
   LRejected := False;
   try
-    LRejected := not VerifyEcdsa(LProvider, LTampered, LMessage);
+    LRejected := not VerifyEcdsa(LCrypto, LTampered, LMessage);
   except
     on E: Exception do
       LRejected := True;
@@ -429,17 +429,17 @@ end;
 
 procedure TTestSignature.TestSystemSignerRejectsSchemeOutsideCapableSchemes;
 var
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LKey: ISigningKey;
   LRaised: Boolean;
 begin
   // the overlay signer enforces the same CapableSchemes gate as the portable one (native where
   // present, portable fallback otherwise), so this holds on every host
-  LProvider := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider);
-  LKey := LProvider.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ecdsa_key']));
+  LCrypto := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider);
+  LKey := LCrypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ecdsa_key']));
   LRaised := False;
   try
-    LProvider.Signing.CreateSignatureSigner(TSignatureScheme.RSA_PSS_RSAE_SHA256, LKey);
+    LCrypto.Signing.CreateSignatureSigner(TSignatureScheme.RSA_PSS_RSAE_SHA256, LKey);
   except
     on E: EArgumentTlsLibException do
       LRaised := True;

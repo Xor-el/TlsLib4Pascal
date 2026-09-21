@@ -149,7 +149,7 @@ end;
 
 class function TIndyEchLoopbackExample.Run: Integer;
 var
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LPkix: IPkixProvider;
   LEch: TEchKeyGenResult;
   LServerBuilder: ITlsServerConfigBuilder;
@@ -169,26 +169,26 @@ begin
   GServerError := '';
   GServerEch := TEchStatus.NotOffered;
   GVector := TVec.Find;
-  LProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  LCrypto := TDefaultCryptoProvider.Create as ICryptoProvider;
   LPkix := TDefaultPkixProvider.Create as IPkixProvider;
 
   // one ECH key pair drives both sides: the PEM the server store loads (private key + config)
   // and the ECHConfigList the client offers (DHKEM-X25519 / HKDF-SHA256 / AES-128-GCM)
-  LEch := TEchKeyGenerator.Generate(LProvider, PUBLIC_NAME, INNER_HOST, 1,
+  LEch := TEchKeyGenerator.Generate(LCrypto, PUBLIC_NAME, INNER_HOST, 1,
     THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256,
     THpkeAead.AES_128_GCM, 0);
 
   // server config: the localhost leaf credential plus the ECH key store, trial decryption on so
   // the server matches a client that hid the config id
-  LServerBuilder := TTlsPresets.Compatible(LProvider, LPkix).Server
+  LServerBuilder := TTlsPresets.Compatible(LCrypto, LPkix).Server
     .WithCredential(TVec.Bytes('leaf_cert'), TVec.Bytes('leaf_key'), '');
   LServerBuilder.Tls13.WithEchKeyStore(
-    TInMemoryEchKeyStore.FromPem(LEch.Pem, LProvider));
+    TInMemoryEchKeyStore.FromPem(LEch.Pem, LCrypto));
   LServerBuilder.Tls13.WithEchTrialDecrypt(True);
   LServerConfig := LServerBuilder.Build;
 
   // client config: trust the test root, verify the inner name, and offer ECH with the config list
-  LClientBuilder := TTlsPresets.Compatible(LProvider, LPkix).Client
+  LClientBuilder := TTlsPresets.Compatible(LCrypto, LPkix).Client
     .WithTrustAnchors(TVec.Bytes('root_cert'));
   LClientBuilder.Tls13.WithEncryptedClientHello(LEch.EchConfigList);
   LClientConfig := LClientBuilder.Build;

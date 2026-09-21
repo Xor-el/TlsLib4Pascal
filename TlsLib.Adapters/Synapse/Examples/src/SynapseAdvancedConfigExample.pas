@@ -124,35 +124,35 @@ end;
 
 function BuildClientConfig: ITlsClientConfig;
 var
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LPkix: IPkixProvider;
   LClient: ITlsClientConfigBuilder;
 begin
-  LProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  LCrypto := TDefaultCryptoProvider.Create as ICryptoProvider;
   LPkix := TDefaultPkixProvider.Create as IPkixProvider;
-  LClient := TTlsPresets.Compatible(LProvider, LPkix).Client;
+  LClient := TTlsPresets.Compatible(LCrypto, LPkix).Client;
   LClient.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12));
   // X25519 for the ECDHE, plus the leaf's P-256 curve (RFC 8422 5.4)
   LClient.WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
     TNamedGroupCatalog.Secp256r1));
-  LClient.WithCipherSuites(OrderedSuites(LProvider));
+  LClient.WithCipherSuites(OrderedSuites(LCrypto));
   LClient.WithTrustAnchors(GRootDer);
   Result := LClient.Build;
 end;
 
 function BuildServerConfig: ITlsServerConfig;
 var
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LPkix: IPkixProvider;
   LServer: ITlsServerConfigBuilder;
 begin
-  LProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  LCrypto := TDefaultCryptoProvider.Create as ICryptoProvider;
   LPkix := TDefaultPkixProvider.Create as IPkixProvider;
-  LServer := TTlsPresets.Compatible(LProvider, LPkix).Server;
+  LServer := TTlsPresets.Compatible(LCrypto, LPkix).Server;
   LServer.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12));
   LServer.WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
     TNamedGroupCatalog.Secp256r1));
-  LServer.WithCipherSuites(OrderedSuites(LProvider));
+  LServer.WithCipherSuites(OrderedSuites(LCrypto));
   LServer.WithCredential(GLeafDer, GKeyDer);
   Result := LServer.Build;
 end;
