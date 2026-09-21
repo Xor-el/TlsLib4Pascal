@@ -246,7 +246,8 @@ const
 implementation
 
 uses
-  TlpCoreExtensions;
+  TlpCoreExtensions,
+  TlpExtensionVector;
 
 resourcestring
   SNoNullCompression =
@@ -438,24 +439,23 @@ end;
 class function THandshakeMessages.ServerHelloSelectedVersion(
   const AExtensions: TBytes): UInt16;
 var
-  LReader, LOuter, LData: TWireReader;
-  LType: UInt16;
+  LVector: TExtensionVector;
+  LEntry: TExtensionEntry;
+  LReader: TWireReader;
 begin
   Result := 0;
   // an omitted extensions field (a TLS 1.2 ServerHello may end after compression_method)
-  // carries no supported_versions, so the selected version is the legacy one (0)
+  // carries no supported_versions, so the selected version is the legacy one (0). a present
+  // field is parsed in full, so a malformed ServerHello is refused with its structural alert
+  // before the version is trusted
   if System.Length(AExtensions) = 0 then
     Exit;
-  LReader := TWireReader.Create(AExtensions);
-  LOuter := LReader.OpenVector(2);
-  while not LOuter.EndReached do
+  LVector := TExtensionVector.Parse(AExtensions);
+  if LVector.TryFind(TExtensionTypes.SupportedVersions, LEntry) then
   begin
-    LType := LOuter.ReadUInt16;
-    LData := LOuter.OpenVector(2);
-    if LType = TExtensionTypes.SupportedVersions then
-      // a ServerHello supported_versions carries the single selected uint16 version
-      Exit(LData.ReadUInt16);
-    LData.ReadBytes(LData.Remaining);
+    // a ServerHello supported_versions carries the single selected uint16 version
+    LReader := TWireReader.Create(LEntry.Data);
+    Result := LReader.ReadUInt16;
   end;
 end;
 
@@ -554,69 +554,43 @@ end;
 class function THandshakeMessages.EncodeLeafStapleExtensions(
   const AResponse: TBytes): TBytes;
 var
-  LWriter: IWireWriter;
-  LOuter, LExt: TWireVectorMarker;
+  LVector: TExtensionVector;
 begin
-  Result := nil;
-  LWriter := TWireWriter.Create;
-  LOuter := LWriter.OpenVector(2); // extensions<0..2^16-1>
-  LWriter.WriteUInt16(StatusRequestExtensionCode);
-  LExt := LWriter.OpenVector(2); // extension_data<0..2^16-1>
-  LWriter.WriteBytes(EncodeCertificateStatus(AResponse));
-  LWriter.CloseVector(LExt);
-  LWriter.CloseVector(LOuter);
-  Result := LWriter.ToBytes;
+  // a leaf CertificateEntry's extensions carry a single status_request holding the OCSP staple
+  LVector := TExtensionVector.Empty;
+  LVector.Append(TExtensionEntry.Create(StatusRequestExtensionCode,
+    EncodeCertificateStatus(AResponse)));
+  Result := LVector.Encode;
 end;
 
 class function THandshakeMessages.TryExtractLeafStaple(const AExtensions: TBytes;
   out AResponse: TBytes): Boolean;
 var
-  LReader, LEntries, LData: TWireReader;
-  LType: UInt16;
-  LBody: TBytes;
+  LVector: TExtensionVector;
+  LEntry: TExtensionEntry;
 begin
   Result := False;
   AResponse := nil;
   if System.Length(AExtensions) = 0 then
     Exit;
-  LReader := TWireReader.Create(AExtensions);
-  LEntries := LReader.OpenVector(2);
-  LReader.ExpectEnd;
-  while not LEntries.EndReached do
+  LVector := TExtensionVector.Parse(AExtensions);
+  if LVector.TryFind(StatusRequestExtensionCode, LEntry) then
   begin
-    LType := LEntries.ReadUInt16;
-    LData := LEntries.OpenVector(2);
-    LBody := LData.ReadBytes(LData.Remaining);
-    if LType = StatusRequestExtensionCode then
-    begin
-      AResponse := DecodeCertificateStatus(LBody);
-      Result := True;
-      Exit;
-    end;
+    AResponse := DecodeCertificateStatus(LEntry.Data);
+    Result := True;
   end;
 end;
 
 class function THandshakeMessages.CertificateEntryExtensionTypes(
   const AExtensions: TBytes): TArray<UInt16>;
 var
-  LReader, LEntries, LData: TWireReader;
-  LCount: Int32;
+  LVector: TExtensionVector;
 begin
   Result := nil;
-  LCount := 0;
   if System.Length(AExtensions) = 0 then
     Exit;
-  LReader := TWireReader.Create(AExtensions);
-  LEntries := LReader.OpenVector(2);
-  LReader.ExpectEnd;
-  while not LEntries.EndReached do
-  begin
-    SetLength(Result, LCount + 1);
-    Result[LCount] := LEntries.ReadUInt16;
-    Inc(LCount);
-    LData := LEntries.OpenVector(2);
-    LData.ReadBytes(LData.Remaining);
-  end;
+  LVector := TExtensionVector.Parse(AExtensions);
+  Result := LVector.Types;
 end;
 
 class function THandshakeMessages.EncodeCertificateVerify(

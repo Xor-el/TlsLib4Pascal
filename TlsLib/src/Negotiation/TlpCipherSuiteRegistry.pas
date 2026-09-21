@@ -31,7 +31,7 @@ type
     class function CodeOf(const ASuite: TTlsCipherSuite): UInt16; static;
     /// <summary>Whether the provider can build both the suite's AEAD and hash, so an
     /// entry is offered only when runnable (or flagged mandatory-to-implement).</summary>
-    class function SuiteRunnable(const AProvider: ICryptoProvider;
+    class function SuiteRunnable(const ACryptoProvider: ICryptoProvider;
       AAead: TAeadAlgorithm; AHash: THashAlgorithm): Boolean; static;
   public
     constructor Create;
@@ -40,7 +40,7 @@ type
     /// The TLS 1.3 suites the provider can actually run, in preference order.
     /// TLS_AES_128_GCM_SHA256 is mandatory-to-implement and always kept.
     /// </summary>
-    class function CreateDefault(const AProvider: ICryptoProvider)
+    class function CreateDefault(const ACryptoProvider: ICryptoProvider)
       : ICipherSuiteRegistry; static;
 
     /// <summary>
@@ -48,7 +48,7 @@ type
     /// TLS 1.2 suites (ECDHE-ECDSA/RSA over AES-GCM and ChaCha20-Poly1305). One
     /// registry holds both; selection is branched on the negotiated version.
     /// </summary>
-    class function CreateDualVersion(const AProvider: ICryptoProvider)
+    class function CreateDualVersion(const ACryptoProvider: ICryptoProvider)
       : ICipherSuiteRegistry; static;
   end;
 
@@ -64,20 +64,20 @@ begin
   Result := ASuite.Common.Code;
 end;
 
-class function TCipherSuiteRegistry.SuiteRunnable(const AProvider: ICryptoProvider;
+class function TCipherSuiteRegistry.SuiteRunnable(const ACryptoProvider: ICryptoProvider;
   AAead: TAeadAlgorithm; AHash: THashAlgorithm): Boolean;
 begin
   Result := True;
   try
-    AProvider.Primitives.CreateAead(AAead);
-    AProvider.Primitives.CreateHash(AHash);
+    ACryptoProvider.Primitives.CreateAead(AAead);
+    ACryptoProvider.Primitives.CreateHash(AHash);
   except
     on E: Exception do
       Result := False;
   end;
 end;
 
-class function TCipherSuiteRegistry.CreateDefault(const AProvider: ICryptoProvider)
+class function TCipherSuiteRegistry.CreateDefault(const ACryptoProvider: ICryptoProvider)
   : ICipherSuiteRegistry;
 var
   LRegistry: ICipherSuiteRegistry;
@@ -87,7 +87,7 @@ var
   var
     LSuite: TTlsCipherSuite;
   begin
-    if not (AAlwaysKeep or SuiteRunnable(AProvider, AAead, AHash)) then
+    if not (AAlwaysKeep or SuiteRunnable(ACryptoProvider, AAead, AHash)) then
       Exit;
     LSuite.Common.Code := ACode;
     LSuite.Common.Aead := AAead;
@@ -112,7 +112,7 @@ begin
 end;
 
 class function TCipherSuiteRegistry.CreateDualVersion(
-  const AProvider: ICryptoProvider): ICipherSuiteRegistry;
+  const ACryptoProvider: ICryptoProvider): ICipherSuiteRegistry;
 var
   LRegistry: ICipherSuiteRegistry;
 
@@ -122,7 +122,7 @@ var
   var
     LSuite: TTlsCipherSuite;
   begin
-    if not SuiteRunnable(AProvider, AAead, AHash) then
+    if not SuiteRunnable(ACryptoProvider, AAead, AHash) then
       Exit;
     LSuite.Common.Code := ACode;
     LSuite.Common.Aead := AAead;
@@ -136,7 +136,7 @@ var
   end;
 
 begin
-  LRegistry := CreateDefault(AProvider);
+  LRegistry := CreateDefault(ACryptoProvider);
   // hardened TLS 1.2 suites: ECDHE key exchange, ECDSA/RSA auth, AEAD only
   Consider12(TCipherSuites12.EcdheEcdsaAes128GcmSha256, TKeyExchangeMethod.Ecdhe,
     TAuthMethod.Ecdsa, TAeadAlgorithm.AES_128_GCM, THashAlgorithm.SHA_256, 16);

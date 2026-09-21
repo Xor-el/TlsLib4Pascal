@@ -273,7 +273,7 @@ function TTestServerSideLiveRevocation.ServerConfig(APosture: TRevocationPosture
 var
   LServer: ITlsServerConfigBuilder;
 begin
-  LServer := TTlsPresets.Compatible(Provider, Pkix).Server
+  LServer := TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(ServerLeaf, ServerKey)
     .WithPeerAuth(TClientAuthMode.Required)
     .WithTrustAnchors(ClientCa) // the private client CA (issues the client leaf)
@@ -288,7 +288,7 @@ function TTestServerSideLiveRevocation.ClientConfig(AForce12: Boolean): ITlsClie
 var
   LClient: ITlsClientConfigBuilder;
 begin
-  LClient := TTlsPresets.Compatible(Provider, Pkix).Client
+  LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithTrustAnchors(ServerRoot)
     .WithCredential(ClientLeaf, ClientKey); // present the client certificate (leaf only)
   if AForce12 then

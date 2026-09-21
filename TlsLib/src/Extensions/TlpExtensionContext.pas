@@ -125,6 +125,13 @@ type
     /// (echoed as an empty status_request in the ServerHello), and set true inbound on the
     /// client when that echo is present so it expects a CertificateStatus message.</summary>
     StatusRequestResponsePending: Boolean;
+    /// <summary>encrypted_client_hello (RFC 9849 5): the extension_data to emit for the current
+    /// message kind - the outer/inner form in a ClientHello, the 8-byte confirmation in a
+    /// HelloRetryRequest, or retry_configs in EncryptedExtensions. Empty to omit the extension.
+    /// The ECH machinery builds this body; the extension only frames it.</summary>
+    EchExtensionData: TBytes;
+    /// <summary>Set true inbound when the peer's encrypted_client_hello was present.</summary>
+    EchPresent: Boolean;
 
     /// <summary>Records that an extension type was offered in the ClientHello.</summary>
     procedure MarkOffered(AExtensionType: UInt16);

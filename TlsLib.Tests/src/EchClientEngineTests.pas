@@ -36,14 +36,12 @@ uses
   TlpCipherSuiteRegistry,
   TlpCoreExtensions,
   TlpWireReader,
-  TlpIWireWriter,
-  TlpWireWriter,
-  TlpWireVectorMarker,
   TlpHandshakeMessages,
   TlpHandshakeEffect,
   TlpTls13ClientStateMachine,
   TlpServerName,
   TlpEchConfig,
+  TlpExtensionVector,
   TlpEchExtension,
   TlpEchOuterExtensions,
   TlpEchClient,
@@ -66,8 +64,6 @@ type
     FVec: TStringList;
     function BaseParams(const AEchConfigList: TBytes): TClientHandshakeParams;
     function OuterClientHello: TBytes;
-    function FindEntry(const AEntries: TArray<TEchExtEntry>;
-      AType: UInt16; out AEntry: TEchExtEntry): Boolean;
     function SniHost(const AServerNameData: TBytes): string;
     function Contains(const AHaystack, ANeedle: TBytes): Boolean;
   protected
@@ -105,12 +101,12 @@ function TTestEchClientEngine.BaseParams(
   const AEchConfigList: TBytes): TClientHandshakeParams;
 begin
   Result := Default(TClientHandshakeParams);
-  Result.Crypto := Provider;
+  Result.Crypto := Crypto;
   Result.Inspector := Pkix.Certificates;
   Result.Clock := TSystemClock.Create;
-  Result.Group := TNamedGroups.CreateX25519(Provider);
+  Result.Group := TNamedGroups.CreateX25519(Crypto);
   Result.GroupCode := TNamedGroupCatalog.X25519;
-  Result.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  Result.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   Result.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   Result.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
   Result.OfferedSchemes :=
@@ -142,20 +138,6 @@ begin
   finally
     LMachine.Free;
   end;
-end;
-
-function TTestEchClientEngine.FindEntry(const AEntries: TArray<TEchExtEntry>;
-  AType: UInt16; out AEntry: TEchExtEntry): Boolean;
-var
-  LI: Int32;
-begin
-  for LI := 0 to System.High(AEntries) do
-    if AEntries[LI].ExtType = AType then
-    begin
-      AEntry := AEntries[LI];
-      Exit(True);
-    end;
-  Result := False;
 end;
 
 function TTestEchClientEngine.SniHost(const AServerNameData: TBytes): string;
@@ -202,13 +184,11 @@ procedure TTestEchClientEngine.TestOuterHidesRealSniAndDecryptsToInner;
 var
   LOuterFramed, LOuterBody, LAad, LEncoded: TBytes;
   LOuter: TTlsClientHello;
-  LEntries, LEncEntries, LReconstructed: TArray<TEchExtEntry>;
-  LSni, LEch, LReEch: TEchExtEntry;
+  LEntries, LEncEntries, LReconstructed: TExtensionVector;
+  LSni, LEch: TExtensionEntry;
   LType: TEchClientHelloType;
   LOuterEch: TEchOuterClientHello;
-  LReader, LBody, LExtReader, LSessReader: TWireReader;
-  LWriter: IWireWriter;
-  LMarker: TWireVectorMarker;
+  LReader, LSessReader: TWireReader;
   LConfigs: TArray<TEchConfig>;
   LConfig: TEchConfig;
   LSuite: IHpkeSuite;
@@ -229,43 +209,34 @@ begin
 
   LOuterBody := System.Copy(LOuterFramed, 4, System.Length(LOuterFramed) - 4);
   LOuter := THandshakeMessages.DecodeClientHello(LOuterBody);
-  LReader := TWireReader.Create(LOuter.Extensions);
-  LBody := LReader.OpenVector(2);
-  LEntries := TEchOuterExtensions.ParseExtensions(LBody.ReadBytes(LBody.Remaining));
+  LEntries := TExtensionVector.Parse(LOuter.Extensions);
 
   // the outer offers the public_name
-  CheckTrue(FindEntry(LEntries, TExtensionTypes.ServerName, LSni), 'outer has SNI');
+  CheckTrue(LEntries.TryFind(TExtensionTypes.ServerName, LSni), 'outer has SNI');
   CheckEquals(PublicName, SniHost(LSni.Data), 'the outer SNI is the public_name');
 
   // decode the outer encrypted_client_hello extension
-  CheckTrue(FindEntry(LEntries, TExtensionTypes.EncryptedClientHello, LEch),
+  CheckTrue(LEntries.TryFind(TExtensionTypes.EncryptedClientHello, LEch),
     'outer has an ech extension');
   TEchExtension.Decode(LEch.Data, LType, LOuterEch);
   CheckEquals(Ord(TEchClientHelloType.Outer), Ord(LType), 'it is the outer form');
 
   // rebuild the ClientHelloOuterAAD: the outer body with the ech payload zeroed
-  LReEch := LEch;
   FillChar(LOuterEch.Payload[0], System.Length(LOuterEch.Payload), 0);
-  LReEch.Data := TEchExtension.EncodeOuter(LOuterEch);
-  for LI := 0 to System.High(LEntries) do
-    if LEntries[LI].ExtType = TExtensionTypes.EncryptedClientHello then
-      LEntries[LI] := LReEch;
-  LWriter := TWireWriter.Create;
-  LMarker := LWriter.OpenVector(2);
-  LWriter.WriteBytes(TEchOuterExtensions.EncodeExtensions(LEntries));
-  LWriter.CloseVector(LMarker);
-  LOuter.Extensions := LWriter.ToBytes;
+  LEntries.SetData(LEntries.IndexOf(TExtensionTypes.EncryptedClientHello),
+    TEchExtension.EncodeOuter(LOuterEch));
+  LOuter.Extensions := LEntries.Encode;
   LAad := THandshakeMessages.EncodeClientHello(LOuter);
 
   // decrypt with the config's private key and the config's HPKE info
   LConfigs := TEchConfigList.Parse(DecodeHex(FVec.Values['config_list']));
   LConfig := LConfigs[0];
   TEchExtension.Decode(LEch.Data, LType, LOuterEch); // re-decode for the real payload
-  LSuite := Provider.Hpke.Suite(LConfig.KemId, LOuterEch.CipherSuite.KdfId,
+  LSuite := Crypto.Hpke.Suite(LConfig.KemId, LOuterEch.CipherSuite.KdfId,
     LOuterEch.CipherSuite.AeadId);
-  LSk := Provider.Hpke.ImportPrivateKey(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+  LSk := Crypto.Hpke.ImportPrivateKey(THpkeKem.DHKEM_X25519_HKDF_SHA256,
     DecodeHex(FVec.Values['config_private_key']));
-  LOpener := Provider.Hpke.ImportRecipientKey(LSuite.Kem, LSk)
+  LOpener := Crypto.Hpke.ImportRecipientKey(LSuite.Kem, LSk)
     .SetupOpener(LSuite, LOuterEch.Enc, LConfig.HpkeInfo);
   LEncoded := LOpener.Open(LAad, LOuterEch.Payload);
 
@@ -277,13 +248,11 @@ begin
   CheckEquals(0, LSessReader.Remaining, 'the encoded inner session_id is empty');
   LSessReader := LReader.OpenVector(2); // cipher_suites (advance)
   LSessReader := LReader.OpenVector(1); // compression (advance)
-  LExtReader := LReader.OpenVector(2);
-  LEncEntries := TEchOuterExtensions.ParseExtensions(
-    LExtReader.ReadBytes(LExtReader.Remaining));
+  LEncEntries := TExtensionVector.ParseFrom(LReader);
   LReconstructed := TEchOuterExtensions.Reconstruct(LEntries, LEncEntries);
 
   // the reconstructed inner carries the real SNI
-  CheckTrue(FindEntry(LReconstructed, TExtensionTypes.ServerName, LSni),
+  CheckTrue(LReconstructed.TryFind(TExtensionTypes.ServerName, LSni),
     'the inner has a server_name');
   CheckEquals(RealSni, SniHost(LSni.Data),
     'the reconstructed inner SNI is the real host');
@@ -350,10 +319,10 @@ var
 begin
   // ProcessRetryOuter is only valid after an accepted first ClientHelloOuter; calling it up front
   // is a programming error that must fail loud, not access a nil opener
-  LGen := TEchKeyGenerator.Generate(Provider, 'public.example', 'origin.example', $AA,
+  LGen := TEchKeyGenerator.Generate(Crypto, 'public.example', 'origin.example', $AA,
     THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM, 0);
-  LStore := TInMemoryEchKeyStore.FromPem(LGen.Pem, Provider);
-  LEch := TEchServerHandshake.Create(Provider, LStore, False) as IEchServerHandshake;
+  LStore := TInMemoryEchKeyStore.FromPem(LGen.Pem, Crypto);
+  LEch := TEchServerHandshake.Create(Crypto, LStore, False) as IEchServerHandshake;
   LRaised := False;
   try
     LEch.ProcessRetryOuter(OuterClientHello);
@@ -373,10 +342,10 @@ var
 begin
   // a store whose key cannot open the outer ech rejects it; ProcessRetryOuter must then fail loud
   // rather than dereference a suite left set with a nil opener
-  LGen := TEchKeyGenerator.Generate(Provider, 'public.example', 'origin.example', $BB,
+  LGen := TEchKeyGenerator.Generate(Crypto, 'public.example', 'origin.example', $BB,
     THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM, 0);
-  LStore := TInMemoryEchKeyStore.FromPem(LGen.Pem, Provider);
-  LEch := TEchServerHandshake.Create(Provider, LStore, True) as IEchServerHandshake;
+  LStore := TInMemoryEchKeyStore.FromPem(LGen.Pem, Crypto);
+  LEch := TEchServerHandshake.Create(Crypto, LStore, True) as IEchServerHandshake;
   CheckTrue(LEch.ProcessOuter(OuterClientHello) = TEchStatus.Rejected,
     'the mismatched store rejects the outer ech');
   LRaised := False;

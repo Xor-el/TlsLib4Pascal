@@ -258,7 +258,7 @@ var
   LHandle: TBytes;
   LTaken: IResumableSession;
 begin
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
   LHandle := LStore.Put(MakeSession(Tag($22, 8)));
   CheckTrue(System.Length(LHandle) > 0, 'Put returns an opaque handle');
   CheckTrue(LStore.Take(LHandle, LTaken), 'the handle resolves');
@@ -272,7 +272,7 @@ var
   LId: TBytes;
   LTaken: IResumableSession;
 begin
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
   LId := Tag($33, 32);
   LStore.PutWithId(LId, MakeSession(Tag($44, 4)));
   CheckTrue(LStore.Take(LId, LTaken), 'a caller-chosen id resolves');
@@ -284,7 +284,7 @@ var
   LStore: ISessionStore;
   LI: Int32;
 begin
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom, 3);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom, 3);
   for LI := 0 to 9 do
     LStore.Put(MakeSession(Tag(Byte(LI), 4)));
   CheckEquals(3, LStore.Count, 'the store never grows past its cap');
@@ -303,7 +303,7 @@ begin
   // the live count tiny, so ordinary eviction rarely fires and the order structure must be
   // compacted instead of accumulating one dead entry per ticket, RFC 8446 18.6).
   // Compaction must preserve still-live entries and single-use semantics.
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom, 8);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom, 8);
   for LI := 0 to 4 do
     LLive[LI] := LStore.Put(MakeSession(Tag(Byte($A0 + LI), 8)));
   for LI := 0 to 999 do
@@ -327,7 +327,7 @@ var
   LName: TBytes;
   LKey, LFound: ISecretBuffer;
 begin
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   CheckTrue(LStek.CurrentKey(LName, LKey), 'a fresh manager has a current key');
   CheckEquals(LStek.KeyNameLength, System.Length(LName), 'the key name is fixed length');
   CheckTrue(LStek.KeyByName(LName, LFound), 'the current key is found by name');
@@ -341,7 +341,7 @@ var
   LKey: ISecretBuffer;
   LOld: ISecretBuffer;
 begin
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LStek.CurrentKey(LName1, LKey);
   LStek.Rotate;
   LStek.CurrentKey(LName2, LKey);
@@ -357,7 +357,7 @@ var
   LKey, LFound: ISecretBuffer;
   LI: Int32;
 begin
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom, 2);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom, 2);
   LStek.CurrentKey(LFirst, LKey);
   for LI := 0 to 2 do
     LStek.Rotate; // push the first key out of a 2-wide window
@@ -373,7 +373,7 @@ var
   LName: TBytes;
   LKey, LCurrent: ISecretBuffer;
 begin
-  LConcrete := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LConcrete := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LStek := LConcrete;
   LName := Tag($55, 16);
   LKey := TSecretBuffer.From(Tag($66, 32));
@@ -394,7 +394,7 @@ begin
   LClockObj := TAdjustableClock.Create(1000000);
   LClock := LClockObj;
   // a 10-second auto-rotation interval driven by the injected clock
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom, 0, LClock, 10);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom, 0, LClock, 10);
   LStek.CurrentKey(LName1, LKey);
   LClockObj.Advance(5000); // within the interval: the current key is unchanged
   LStek.CurrentKey(LName2, LKey);
@@ -418,7 +418,7 @@ begin
   LClock := LClockObj;
   // window 2, interval 10 s: a key must open tickets for its whole 2x10 s age and no longer, on the
   // open path alone (no seal traffic in between)
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom, 2, LClock, 10);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom, 2, LClock, 10);
   LStek.CurrentKey(LName1, LKey);
   LClockObj.Advance(15000); // t = 15 s: still inside the 20 s age bound
   CheckTrue(LStek.KeyByName(LName1, LFound),
@@ -438,7 +438,7 @@ var
 begin
   LClockObj := TAdjustableClock.Create(1000000);
   LClock := LClockObj;
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom, 2, LClock, 10);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom, 2, LClock, 10);
   LStek.CurrentKey(LName1, LKey);
   LClockObj.Advance(25000); // every key has aged out
   CheckTrue(LStek.CurrentKey(LName2, LKey),
@@ -457,13 +457,13 @@ var
   LKey, LFound: ISecretBuffer;
 begin
   // a clockless manager leaves key lifetime to the caller: no key expires by time
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LStek.CurrentKey(LName, LKey);
   CheckTrue(LStek.KeyByName(LName, LFound), 'a clockless manager never retires its key');
   // a clock with a zero interval likewise never expires keys (no interval means no age bound)
   LClockObj := TAdjustableClock.Create(1000000);
   LClock := LClockObj;
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom, 2, LClock, 0);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom, 2, LClock, 0);
   LStek.CurrentKey(LName, LKey);
   LClockObj.Advance(UInt64(1000000) * 1000);
   CheckTrue(LStek.KeyByName(LName, LFound),
@@ -477,7 +477,7 @@ var
   LKey, LFound: ISecretBuffer;
 begin
   // a per-key seal cap of 3: the fourth seal must draw a fresh key
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom, 0, nil, 0, 3);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom, 0, nil, 0, 3);
   LStek.CurrentKey(LName1, LKey);
   LStek.CurrentKey(LName2, LKey);
   LStek.CurrentKey(LName3, LKey);
@@ -496,7 +496,7 @@ var
   LInstalled, LName: TBytes;
   LKey: ISecretBuffer;
 begin
-  LConcrete := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom, 0, nil, 0, 2);
+  LConcrete := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom, 0, nil, 0, 2);
   LStek := LConcrete;
   LInstalled := Tag($55, 16);
   LConcrete.InstallKey(LInstalled, TSecretBuffer.From(Tag($66, 32)));
@@ -518,7 +518,7 @@ begin
   LClockObj := TAdjustableClock.Create(1000000);
   LClock := LClockObj;
   // the default STEK rotates on the advertised ticket lifetime, not a fixed interval
-  LStek := TStekTicketKeyManager.CreateDefault(Provider, LClock, 100);
+  LStek := TStekTicketKeyManager.CreateDefault(Crypto, LClock, 100);
   LStek.CurrentKey(LName1, LKey);
   LClockObj.Advance(100000); // one lifetime
   LStek.CurrentKey(LName2, LKey);
@@ -541,7 +541,7 @@ begin
   LClockObj := TAdjustableClock.Create(1000000);
   LClock := LClockObj;
   // an unadvertised (zero) lifetime falls back to a bounded default rather than never rotating
-  LStek := TStekTicketKeyManager.CreateDefault(Provider, LClock, 0);
+  LStek := TStekTicketKeyManager.CreateDefault(Crypto, LClock, 0);
   LStek.CurrentKey(LName1, LKey);
   LClockObj.Advance(UInt64(7200) * 1000); // the fallback interval
   LStek.CurrentKey(LName2, LKey);
@@ -557,7 +557,7 @@ var
   LKey: ISecretBuffer;
   LRaised: Boolean;
 begin
-  LConcrete := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LConcrete := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LStek := LConcrete;
   LStek.CurrentKey(LBefore, LKey);
   LRaised := False;
@@ -580,7 +580,7 @@ var
   LKey: ISecretBuffer;
   LRaised: Boolean;
 begin
-  LConcrete := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LConcrete := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LStek := LConcrete;
   LStek.CurrentKey(LBefore, LKey);
   LRaised := False;
@@ -603,7 +603,7 @@ var
   LKey: ISecretBuffer;
   LRaised: Boolean;
 begin
-  LConcrete := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LConcrete := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LStek := LConcrete;
   LStek.CurrentKey(LBefore, LKey);
   LRaised := False;
@@ -629,7 +629,7 @@ var
 begin
   LClockObj := TAdjustableClock.Create(1000000);
   LClock := LClockObj;
-  LConcrete := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom, 0, LClock, 10);
+  LConcrete := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom, 0, LClock, 10);
   LStek := LConcrete;
   LInstalled := Tag($55, 16);
   LConcrete.InstallKey(LInstalled, TSecretBuffer.From(Tag($66, 32)));
@@ -650,7 +650,7 @@ var
 begin
   LClockObj := TAdjustableClock.Create(1000000);
   LClock := LClockObj;
-  LConcrete := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom, 2, LClock, 10);
+  LConcrete := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom, 2, LClock, 10);
   LStek := LConcrete;
   LInstalled := Tag($55, 16);
   LConcrete.InstallKey(LInstalled, TSecretBuffer.From(Tag($66, 32)));
@@ -678,7 +678,7 @@ begin
   LClockObj := TAdjustableClock.Create(1000000);
   LClock := LClockObj;
   // window 2, interval 10 s
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom, 2, LClock, 10);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom, 2, LClock, 10);
   LStek.CurrentKey(LNameA, LKey);
   LClockObj.Advance(9000); // just before the interval elapses
   LStek.Rotate; // an out-of-schedule rotation must push the next timed rotation out, not keep it
@@ -699,7 +699,7 @@ var
 begin
   LClockObj := TAdjustableClock.Create(1000000);
   LClock := LClockObj;
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom, 2, LClock, 10);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom, 2, LClock, 10);
   LStek.CurrentKey(LNameA, LKey);
   LClockObj.Advance(5000);
   LClockObj.Retreat(8000); // the clock steps back before the key's birth
@@ -723,7 +723,7 @@ var
 begin
   // a key the manager cannot bind (here, a wrong-length one) must fall back to a full handshake,
   // not let the AEAD Init exception escape the open path
-  LStrategy := TStekTicketStrategy.Create(Provider, TBadKeyManager.Create as ISessionTicketKeyManager);
+  LStrategy := TStekTicketStrategy.Create(Crypto, TBadKeyManager.Create as ISessionTicketKeyManager);
   LTicket := Tag($01, 60); // long enough to pass the framing length check and reach the AEAD
   LRaised := False;
   LOk := True;

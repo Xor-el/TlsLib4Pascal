@@ -67,7 +67,7 @@ procedure TTestPreset.TestHardenedPrefersPqHybridGroup;
 var
   LConfig: ITlsClientConfig;
 begin
-  LConfig := ClientOf(TTlsPresets.Hardened(Provider, Pkix));
+  LConfig := ClientOf(TTlsPresets.Hardened(Crypto, Pkix));
   CheckEquals(TNamedGroupCatalog.X25519MlKem768, LConfig.PreferredGroups[0],
     'Hardened prefers the post-quantum hybrid group');
 end;
@@ -76,7 +76,7 @@ procedure TTestPreset.TestCompatiblePrefersX25519;
 var
   LConfig: ITlsClientConfig;
 begin
-  LConfig := ClientOf(TTlsPresets.Compatible(Provider, Pkix));
+  LConfig := ClientOf(TTlsPresets.Compatible(Crypto, Pkix));
   CheckEquals(TNamedGroupCatalog.X25519, LConfig.PreferredGroups[0],
     'Compatible prefers classical X25519');
 end;
@@ -85,7 +85,7 @@ procedure TTestPreset.TestStrictIsGroupAllowlist;
 var
   LConfig: ITlsClientConfig;
 begin
-  LConfig := ClientOf(TTlsPresets.Strict(Provider, Pkix));
+  LConfig := ClientOf(TTlsPresets.Strict(Crypto, Pkix));
   CheckEquals(2, System.Length(LConfig.PreferredGroups),
     'Strict allows exactly two groups');
   CheckEquals(TNamedGroupCatalog.X25519MlKem768, LConfig.PreferredGroups[0], 'hybrid');
@@ -97,8 +97,8 @@ var
   LStrict, LCompatible: TCertificateChainLimits;
 begin
   // Strict expects a short chain of compact certificates, tighter than the default
-  LStrict := ClientOf(TTlsPresets.Strict(Provider, Pkix)).CertificateChainLimits;
-  LCompatible := ClientOf(TTlsPresets.Compatible(Provider, Pkix)).CertificateChainLimits;
+  LStrict := ClientOf(TTlsPresets.Strict(Crypto, Pkix)).CertificateChainLimits;
+  LCompatible := ClientOf(TTlsPresets.Compatible(Crypto, Pkix)).CertificateChainLimits;
   CheckEquals(5, LStrict.MaxChainLength, 'Strict caps the chain length tightly');
   CheckTrue(LStrict.MaxChainLength < LCompatible.MaxChainLength,
     'Strict is tighter than the default profile');
@@ -110,10 +110,10 @@ procedure TTestPreset.TestHardenedAndStrictAreTls13Only;
 var
   LHardened, LStrict: ITlsClientConfig;
 begin
-  LHardened := ClientOf(TTlsPresets.Hardened(Provider, Pkix));
+  LHardened := ClientOf(TTlsPresets.Hardened(Crypto, Pkix));
   CheckEquals(1, System.Length(LHardened.SupportedVersions), 'Hardened is single-version');
   CheckEquals(TlsWireVersionTls13, LHardened.SupportedVersions[0], 'Hardened is TLS 1.3 only');
-  LStrict := ClientOf(TTlsPresets.Strict(Provider, Pkix));
+  LStrict := ClientOf(TTlsPresets.Strict(Crypto, Pkix));
   CheckEquals(1, System.Length(LStrict.SupportedVersions), 'Strict is single-version');
   CheckEquals(TlsWireVersionTls13, LStrict.SupportedVersions[0], 'Strict is TLS 1.3 only');
 end;
@@ -123,7 +123,7 @@ var
   LConfig: ITlsClientConfig;
 begin
   // the broad default now offers TLS 1.3 and the hardened TLS 1.2 profile
-  LConfig := ClientOf(TTlsPresets.Compatible(Provider, Pkix));
+  LConfig := ClientOf(TTlsPresets.Compatible(Crypto, Pkix));
   CheckEquals(2, System.Length(LConfig.SupportedVersions), 'two offered versions');
   CheckEquals(TlsWireVersionTls13, LConfig.SupportedVersions[0], '1.3 preferred first');
   CheckEquals(TlsWireVersionTls12, LConfig.SupportedVersions[1], '1.2 offered second');
@@ -135,16 +135,16 @@ end;
 procedure TTestPreset.TestHardenedAndStrictRequestOcspStapling;
 begin
   // the stricter presets request an OCSP staple (connectivity-safe under the soft-fail default)
-  CheckTrue(ClientOf(TTlsPresets.Hardened(Provider, Pkix)).RequestOcspStapling,
+  CheckTrue(ClientOf(TTlsPresets.Hardened(Crypto, Pkix)).RequestOcspStapling,
     'Hardened requests an OCSP staple');
-  CheckTrue(ClientOf(TTlsPresets.Strict(Provider, Pkix)).RequestOcspStapling,
+  CheckTrue(ClientOf(TTlsPresets.Strict(Crypto, Pkix)).RequestOcspStapling,
     'Strict requests an OCSP staple');
 end;
 
 procedure TTestPreset.TestCompatibleDoesNotRequestStapling;
 begin
   // Compatible keeps the default (no staple requested) for maximum reach
-  CheckFalse(ClientOf(TTlsPresets.Compatible(Provider, Pkix)).RequestOcspStapling,
+  CheckFalse(ClientOf(TTlsPresets.Compatible(Crypto, Pkix)).RequestOcspStapling,
     'Compatible does not request a staple');
 end;
 
@@ -154,7 +154,7 @@ var
 begin
   // Strict already requests a staple, so raising the posture to Hard is satisfiable without a
   // staple request of the caller's own - Build does not fail fast as always-rejecting
-  LConfig := TTlsPresets.Strict(Provider, Pkix).Client
+  LConfig := TTlsPresets.Strict(Crypto, Pkix).Client
     .WithTrustStore(TTrustAnchorStore.Create(nil) as ITrustAnchorStore)
     .WithRevocation(TRevocationPosture.Hard)
     .Build;

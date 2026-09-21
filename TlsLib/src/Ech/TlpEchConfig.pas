@@ -75,7 +75,7 @@ type
   private
     /// <summary>The version, public_name, extension, and public_key checks a usable config
     /// must pass, independent of cipher-suite selection.</summary>
-    function IsStructurallyUsable(const AProvider: ICryptoProvider): Boolean;
+    function IsStructurallyUsable(const ACryptoProvider: ICryptoProvider): Boolean;
   public
     /// <summary>Parses one ECHConfig from AReader (advancing past it) and captures its
     /// raw bytes. Raises EDecodeErrorTlsLibException on a malformed structure.</summary>
@@ -100,11 +100,11 @@ type
     /// <summary>The public_name as an ASCII string.</summary>
     function PublicName: string;
     /// <summary>
-    /// The first advertised cipher suite AProvider can instantiate (in advertised
+    /// The first advertised cipher suite ACryptoProvider can instantiate (in advertised
     /// order), joined with the config's KEM into a full HPKE suite. False when none is
     /// supported - which also means the KEM is unsupported.
     /// </summary>
-    function TrySelectSuite(const AProvider: ICryptoProvider;
+    function TrySelectSuite(const ACryptoProvider: ICryptoProvider;
       out ASuite: IHpkeSuite): Boolean;
     /// <summary>
     /// Whether a client may offer ECH with this config (RFC 9849 sec. 4.1, 6.1): a
@@ -112,7 +112,7 @@ type
     /// extension, and at least one KEM/KDF/AEAD suite the provider supports. An
     /// unusable config is skipped, never fatal.
     /// </summary>
-    function IsUsable(const AProvider: ICryptoProvider): Boolean;
+    function IsUsable(const ACryptoProvider: ICryptoProvider): Boolean;
     property Version: UInt16 read FVersion;
     property ConfigId: Byte read FConfigId;
     property KemId: UInt16 read FKemId;
@@ -152,7 +152,7 @@ type
     /// first match in preference order). False when no config is usable.
     /// </summary>
     class function TrySelect(const AConfigs: TArray<TEchConfig>;
-      const AProvider: ICryptoProvider; out AConfig: TEchConfig;
+      const ACryptoProvider: ICryptoProvider; out AConfig: TEchConfig;
       out ASuite: IHpkeSuite): Boolean; static;
   end;
 
@@ -311,7 +311,7 @@ begin
   Result := TEncoding.ASCII.GetString(FPublicName);
 end;
 
-function TEchConfig.TrySelectSuite(const AProvider: ICryptoProvider;
+function TEchConfig.TrySelectSuite(const ACryptoProvider: ICryptoProvider;
   out ASuite: IHpkeSuite): Boolean;
 var
   LSuite: TEchCipherSuite;
@@ -319,14 +319,14 @@ begin
   Result := False;
   for LSuite in FCipherSuites do
   begin
-    ASuite := AProvider.Hpke.Suite(FKemId, LSuite.KdfId, LSuite.AeadId);
+    ASuite := ACryptoProvider.Hpke.Suite(FKemId, LSuite.KdfId, LSuite.AeadId);
     if ASuite <> nil then
       Exit(True);
   end;
 end;
 
 function TEchConfig.IsStructurallyUsable(
-  const AProvider: ICryptoProvider): Boolean;
+  const ACryptoProvider: ICryptoProvider): Boolean;
 var
   LExt: TEchConfigExtension;
   LOther: TEchConfigExtension;
@@ -352,14 +352,14 @@ begin
   end;
   // the public_key must be a well-formed KEM key (a DNS-published config could carry a wrong
   // length or an invalid EC point); an unusable one is skipped, never sealed against
-  Result := AProvider.Hpke.ValidatePublicKey(FKemId, FPublicKey);
+  Result := ACryptoProvider.Hpke.ValidatePublicKey(FKemId, FPublicKey);
 end;
 
-function TEchConfig.IsUsable(const AProvider: ICryptoProvider): Boolean;
+function TEchConfig.IsUsable(const ACryptoProvider: ICryptoProvider): Boolean;
 var
   LSuite: IHpkeSuite;
 begin
-  Result := IsStructurallyUsable(AProvider) and TrySelectSuite(AProvider, LSuite);
+  Result := IsStructurallyUsable(ACryptoProvider) and TrySelectSuite(ACryptoProvider, LSuite);
 end;
 
 class function TEchConfig.IsAllDigitsOrHex(const ALabel: TBytes;
@@ -483,15 +483,15 @@ begin
 end;
 
 class function TEchConfigList.TrySelect(const AConfigs: TArray<TEchConfig>;
-  const AProvider: ICryptoProvider; out AConfig: TEchConfig;
+  const ACryptoProvider: ICryptoProvider; out AConfig: TEchConfig;
   out ASuite: IHpkeSuite): Boolean;
 var
   LI: Int32;
 begin
   Result := False;
   for LI := 0 to System.High(AConfigs) do
-    if AConfigs[LI].IsStructurallyUsable(AProvider) and
-      AConfigs[LI].TrySelectSuite(AProvider, ASuite) then
+    if AConfigs[LI].IsStructurallyUsable(ACryptoProvider) and
+      AConfigs[LI].TrySelectSuite(ACryptoProvider, ASuite) then
     begin
       AConfig := AConfigs[LI];
       Exit(True);

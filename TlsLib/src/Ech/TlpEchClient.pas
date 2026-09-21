@@ -20,11 +20,9 @@ uses
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpWireReader,
-  TlpIWireWriter,
-  TlpWireWriter,
-  TlpWireVectorMarker,
   TlpHandshakeMessages,
   TlpCoreExtensions,
+  TlpExtensionVector,
   TlpEchConfig,
   TlpEchExtension,
   TlpEchOuterExtensions,
@@ -67,17 +65,14 @@ type
     FSuite: IHpkeSuite;
     FSealer: IHpkeSealer;
     FEnc: TBytes;
-    class function ExtensionsBody(const AExtensionsField: TBytes): TBytes; static;
-    class function EncodeExtensionsField(
-      const AEntries: TArray<TEchExtEntry>): TBytes; static;
-    class function ServerNameLength(const AEntries: TArray<TEchExtEntry>;
+    class function ServerNameLength(const AEntries: TExtensionVector;
       out AHasServerName: Boolean): Int32; static;
-    class function MatchesOuter(const AEntry: TEchExtEntry;
-      const AOuter: TArray<TEchExtEntry>): Boolean; static;
-    class function CompressibleRun(const AInner, AOuter: TArray<TEchExtEntry>;
+    class function MatchesOuter(const AEntry: TExtensionEntry;
+      const AOuter: TExtensionVector): Boolean; static;
+    class function CompressibleRun(const AInner, AOuter: TExtensionVector;
       out AStart, ALength: Int32): Boolean; static;
   public
-    constructor Create(const AProvider: ICryptoProvider; const AConfig: TEchConfig;
+    constructor Create(const ACryptoProvider: ICryptoProvider; const AConfig: TEchConfig;
       const ASuite: IHpkeSuite);
 
     /// <summary>
@@ -96,7 +91,7 @@ type
     /// verbatim in the outer with one ech_outer_extensions block, and appends padding.
     /// </summary>
     function BuildEncodedInner(const AInnerBody: TBytes;
-      const AOuterEntries: TArray<TEchExtEntry>): TBytes;
+      const AOuter: TExtensionVector): TBytes;
 
     /// <summary>
     /// Sets up the HPKE sender against the selected config's public key and returns the
@@ -164,11 +159,11 @@ end;
 
 { TEchClientHandshake }
 
-constructor TEchClientHandshake.Create(const AProvider: ICryptoProvider;
+constructor TEchClientHandshake.Create(const ACryptoProvider: ICryptoProvider;
   const AConfig: TEchConfig; const ASuite: IHpkeSuite);
 begin
   inherited Create;
-  FCrypto := AProvider;
+  FCrypto := ACryptoProvider;
   FConfig := AConfig;
   FSuite := ASuite;
 end;
@@ -195,74 +190,45 @@ begin
   Result := LPad + LRound;
 end;
 
-class function TEchClientHandshake.ExtensionsBody(
-  const AExtensionsField: TBytes): TBytes;
-var
-  LReader, LBody: TWireReader;
-begin
-  // the ClientHello extensions field is a 2-byte-length-prefixed vector; return its body
-  if System.Length(AExtensionsField) = 0 then
-    Exit(nil);
-  LReader := TWireReader.Create(AExtensionsField);
-  LBody := LReader.OpenVector(2);
-  Result := LBody.ReadBytes(LBody.Remaining);
-end;
-
-class function TEchClientHandshake.EncodeExtensionsField(
-  const AEntries: TArray<TEchExtEntry>): TBytes;
-var
-  LWriter: IWireWriter;
-  LMarker: TWireVectorMarker;
-begin
-  LWriter := TWireWriter.Create;
-  LMarker := LWriter.OpenVector(2);
-  LWriter.WriteBytes(TEchOuterExtensions.EncodeExtensions(AEntries));
-  LWriter.CloseVector(LMarker);
-  Result := LWriter.ToBytes;
-end;
-
 class function TEchClientHandshake.ServerNameLength(
-  const AEntries: TArray<TEchExtEntry>; out AHasServerName: Boolean): Int32;
+  const AEntries: TExtensionVector; out AHasServerName: Boolean): Int32;
 var
-  LI: Int32;
+  LEntry: TExtensionEntry;
   LReader, LList, LName: TWireReader;
 begin
   AHasServerName := False;
   Result := 0;
-  for LI := 0 to System.High(AEntries) do
-    if AEntries[LI].ExtType = TExtensionTypes.ServerName then
-    begin
-      // ServerNameList: the first host_name (type 0) entry's HostName length
-      LReader := TWireReader.Create(AEntries[LI].Data);
-      if LReader.Remaining < 1 then
-        Exit;
-      LList := LReader.OpenVector(2);
-      if (LList.Remaining >= 1) and (LList.ReadUInt8 = 0) then
-      begin
-        LName := LList.OpenVector(2);
-        AHasServerName := True;
-        Result := LName.Remaining;
-      end;
-      Exit;
-    end;
+  if not AEntries.TryFind(TExtensionTypes.ServerName, LEntry) then
+    Exit;
+  // ServerNameList: the first host_name (type 0) entry's HostName length
+  LReader := TWireReader.Create(LEntry.Data);
+  if LReader.Remaining < 1 then
+    Exit;
+  LList := LReader.OpenVector(2);
+  if (LList.Remaining >= 1) and (LList.ReadUInt8 = 0) then
+  begin
+    LName := LList.OpenVector(2);
+    AHasServerName := True;
+    Result := LName.Remaining;
+  end;
 end;
 
-class function TEchClientHandshake.MatchesOuter(const AEntry: TEchExtEntry;
-  const AOuter: TArray<TEchExtEntry>): Boolean;
+class function TEchClientHandshake.MatchesOuter(const AEntry: TExtensionEntry;
+  const AOuter: TExtensionVector): Boolean;
 var
   LI: Int32;
 begin
   // inner and outer extension bytes are both public ClientHello material, so a plain
   // variable-time comparison is correct here - no secret is being matched
-  for LI := 0 to System.High(AOuter) do
-    if (AOuter[LI].ExtType = AEntry.ExtType) and
-      TArrayUtilities.AreEqual(AOuter[LI].Data, AEntry.Data) then
+  for LI := 0 to AOuter.Count - 1 do
+    if (AOuter.Entries[LI].ExtensionType = AEntry.ExtensionType) and
+      TArrayUtilities.AreEqual(AOuter.Entries[LI].Data, AEntry.Data) then
       Exit(True);
   Result := False;
 end;
 
 class function TEchClientHandshake.CompressibleRun(const AInner,
-  AOuter: TArray<TEchExtEntry>; out AStart, ALength: Int32): Boolean;
+  AOuter: TExtensionVector; out AStart, ALength: Int32): Boolean;
 var
   LI, LRunStart, LRunLen, LBestStart, LBestLen: Int32;
   LCompressible: Boolean;
@@ -274,10 +240,10 @@ begin
   LBestLen := 0;
   LRunStart := 0;
   LRunLen := 0;
-  for LI := 0 to System.High(AInner) do
+  for LI := 0 to AInner.Count - 1 do
   begin
-    LCompressible := TEchOuterExtensions.IsCompressible(AInner[LI].ExtType) and
-      MatchesOuter(AInner[LI], AOuter);
+    LCompressible := TEchOuterExtensions.IsCompressible(
+      AInner.Entries[LI].ExtensionType) and MatchesOuter(AInner.Entries[LI], AOuter);
     if LCompressible then
     begin
       if LRunLen = 0 then
@@ -300,48 +266,33 @@ begin
 end;
 
 function TEchClientHandshake.BuildEncodedInner(const AInnerBody: TBytes;
-  const AOuterEntries: TArray<TEchExtEntry>): TBytes;
+  const AOuter: TExtensionVector): TBytes;
 var
   LInner: TTlsClientHello;
-  LInnerEntries, LEncodedEntries: TArray<TEchExtEntry>;
-  LStart, LLen, LI, LOut, LSniLen, LPad: Int32;
+  LInnerEntries, LEncodedEntries: TExtensionVector;
+  LStart, LLen, LI, LSniLen, LPad: Int32;
   LHasSni: Boolean;
   LRefTypes: TArray<UInt16>;
   LEncoded: TBytes;
 begin
   LInner := THandshakeMessages.DecodeClientHello(AInnerBody);
-  LInnerEntries := TEchOuterExtensions.ParseExtensions(
-    ExtensionsBody(LInner.Extensions));
+  LInnerEntries := TExtensionVector.Parse(LInner.Extensions);
 
-  if CompressibleRun(LInnerEntries, AOuterEntries, LStart, LLen) then
+  LEncodedEntries := LInnerEntries;
+  if CompressibleRun(LInnerEntries, AOuter, LStart, LLen) then
   begin
     SetLength(LRefTypes, LLen);
     for LI := 0 to LLen - 1 do
-      LRefTypes[LI] := LInnerEntries[LStart + LI].ExtType;
+      LRefTypes[LI] := LInnerEntries.Entries[LStart + LI].ExtensionType;
     // inner entries with [LStart..LStart+LLen) replaced by one ech_outer_extensions block
-    SetLength(LEncodedEntries, System.Length(LInnerEntries) - LLen + 1);
-    LOut := 0;
-    for LI := 0 to System.High(LInnerEntries) do
-    begin
-      if LI = LStart then
-      begin
-        LEncodedEntries[LOut].ExtType := TExtensionTypes.EchOuterExtensions;
-        LEncodedEntries[LOut].Data := TEchExtension.EncodeOuterExtensions(LRefTypes);
-        Inc(LOut);
-      end
-      else if (LI < LStart) or (LI >= LStart + LLen) then
-      begin
-        LEncodedEntries[LOut] := LInnerEntries[LI];
-        Inc(LOut);
-      end;
-    end;
-  end
-  else
-    LEncodedEntries := LInnerEntries;
+    LEncodedEntries.ReplaceRange(LStart, LLen,
+      TExtensionEntry.Create(TExtensionTypes.EchOuterExtensions,
+      TEchExtension.EncodeOuterExtensions(LRefTypes)));
+  end;
 
   // EncodedClientHelloInner.client_hello: the inner with an empty legacy_session_id
   LInner.LegacySessionId := nil;
-  LInner.Extensions := EncodeExtensionsField(LEncodedEntries);
+  LInner.Extensions := LEncodedEntries.Encode;
   LEncoded := THandshakeMessages.EncodeClientHello(LInner);
 
   LSniLen := ServerNameLength(LInnerEntries, LHasSni);

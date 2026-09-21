@@ -48,7 +48,7 @@ type
     class function ImportedIdentity(const AExternalIdentity, AContext: TBytes;
       ATargetProtocol, ATargetKdf: UInt16): TBytes; static;
     /// <summary>Imports ASpec for ATargetProtocol and ATargetHash into a wire PSK.</summary>
-    class function Import(const AProvider: ICryptoProvider; const ASpec: TExternalPsk;
+    class function Import(const ACryptoProvider: ICryptoProvider; const ASpec: TExternalPsk;
       ATargetProtocol: UInt16; ATargetHash: THashAlgorithm): IPreSharedKey; static;
   end;
 
@@ -92,7 +92,7 @@ begin
   Result := LWriter.ToBytes;
 end;
 
-class function TExternalPskImporter.Import(const AProvider: ICryptoProvider;
+class function TExternalPskImporter.Import(const ACryptoProvider: ICryptoProvider;
   const ASpec: TExternalPsk; ATargetProtocol: UInt16;
   ATargetHash: THashAlgorithm): IPreSharedKey;
 var
@@ -110,14 +110,14 @@ begin
 
   // the derivation is keyed on the provisioned hash (ASpec.Hash); only the output length
   // follows the target hash (RFC 9258 4.1)
-  LHash := AProvider.Primitives.CreateHash(ASpec.Hash);
+  LHash := ACryptoProvider.Primitives.CreateHash(ASpec.Hash);
   LHash.Update(LIdentity, 0, System.Length(LIdentity));
   LIdentityHash := LHash.DoFinal;
 
-  LHkdf := AProvider.Primitives.CreateHkdf(ASpec.Hash);
+  LHkdf := ACryptoProvider.Primitives.CreateHkdf(ASpec.Hash);
   // epskx = HKDF-Extract(0, epsk): an empty salt is HashLen zeros
   LEpsk := LHkdf.Extract(nil, ASpec.Secret);
-  LOutLen := AProvider.Primitives.CreateHash(ATargetHash).HashSize;
+  LOutLen := ACryptoProvider.Primitives.CreateHash(ATargetHash).HashSize;
   // ipskx = HKDF-Expand-Label(epskx, "derived psk", Hash(ImportedIdentity), L)
   LIpsk := THkdfLabel.HkdfExpandLabel(LHkdf, LEpsk, DerivedPskLabel, LIdentityHash,
     LOutLen);

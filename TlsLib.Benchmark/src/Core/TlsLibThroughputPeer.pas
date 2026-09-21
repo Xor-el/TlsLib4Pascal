@@ -48,12 +48,12 @@ type
     FPayload: TBytes;
     FScratch: TBytes;
     FRecordSize: Int32;
-    function BuildConfigs(const AProvider: ICryptoProvider;
+    function BuildConfigs(const ACryptoProvider: ICryptoProvider;
       const APkix: IPkixProvider;
       const ACredential: TTlsBenchmarkCredential; ASuiteCode: UInt16;
       out AClientConfig: ITlsClientConfig; out AServerConfig: ITlsServerConfig): Boolean;
   public
-    constructor Create(const AProvider: ICryptoProvider;
+    constructor Create(const ACryptoProvider: ICryptoProvider;
       const APkix: IPkixProvider;
       const ACredential: TTlsBenchmarkCredential; ASuiteCode: UInt16;
       ARecordSize, APayloadBytes: Int32);
@@ -69,13 +69,13 @@ const
   // a wide pull buffer keeps the seal->open pump to a few TakeOutgoing/ProcessInput calls
   CScratchBuffer = 65536;
 
-function SingleSuiteRegistry(const AProvider: ICryptoProvider;
+function SingleSuiteRegistry(const ACryptoProvider: ICryptoProvider;
   ASuiteCode: UInt16): ICipherSuiteRegistry;
 var
   LAll: ICipherSuiteRegistry;
   LSuite: TTlsCipherSuite;
 begin
-  LAll := TCipherSuiteRegistry.CreateDualVersion(AProvider);
+  LAll := TCipherSuiteRegistry.CreateDualVersion(ACryptoProvider);
   Result := TCipherSuiteRegistry.Create;
   if LAll.TryGet(ASuiteCode, LSuite) then
     Result.Add(LSuite);
@@ -95,7 +95,7 @@ begin
     Result := TArray<UInt16>.Create(TNamedGroupCatalog.X25519);
 end;
 
-function TTlsLibThroughputPeer.BuildConfigs(const AProvider: ICryptoProvider;
+function TTlsLibThroughputPeer.BuildConfigs(const ACryptoProvider: ICryptoProvider;
   const APkix: IPkixProvider;
   const ACredential: TTlsBenchmarkCredential; ASuiteCode: UInt16;
   out AClientConfig: ITlsClientConfig; out AServerConfig: ITlsServerConfig): Boolean;
@@ -107,26 +107,26 @@ var
 begin
   LGroups := OfferedGroups(APkix, ACredential);
 
-  LClientBuilder := TTlsPresets.Compatible(AProvider, APkix);
+  LClientBuilder := TTlsPresets.Compatible(ACryptoProvider, APkix);
   LClient := LClientBuilder.Client;
   LClient.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12));
   LClient.WithPreferredGroups(LGroups);
-  LClient.WithCipherSuites(SingleSuiteRegistry(AProvider, ASuiteCode));
+  LClient.WithCipherSuites(SingleSuiteRegistry(ACryptoProvider, ASuiteCode));
   LClient.WithDangerousInsecureSkipVerify(True);
   LClient.WithTrustAnchors(ACredential.RootCertDer);
   AClientConfig := LClient.Build;
 
-  LServerBuilder := TTlsPresets.Compatible(AProvider, APkix);
+  LServerBuilder := TTlsPresets.Compatible(ACryptoProvider, APkix);
   LServer := LServerBuilder.Server;
   LServer.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12));
   LServer.WithPreferredGroups(LGroups);
-  LServer.WithCipherSuites(SingleSuiteRegistry(AProvider, ASuiteCode));
+  LServer.WithCipherSuites(SingleSuiteRegistry(ACryptoProvider, ASuiteCode));
   LServer.WithCredential(ACredential.LeafCertDer, ACredential.LeafKeyDer);
   AServerConfig := LServer.Build;
   Result := True;
 end;
 
-constructor TTlsLibThroughputPeer.Create(const AProvider: ICryptoProvider;
+constructor TTlsLibThroughputPeer.Create(const ACryptoProvider: ICryptoProvider;
   const APkix: IPkixProvider;
   const ACredential: TTlsBenchmarkCredential; ASuiteCode: UInt16;
   ARecordSize, APayloadBytes: Int32);
@@ -141,7 +141,7 @@ begin
   SetLength(FScratch, CScratchBuffer);
   SetLength(FPayload, APayloadBytes);
 
-  BuildConfigs(AProvider, APkix, ACredential, ASuiteCode, LClientConfig, LServerConfig);
+  BuildConfigs(ACryptoProvider, APkix, ACredential, ASuiteCode, LClientConfig, LServerConfig);
   FClient := TTlsEngineFactory.CreateClientEngine(LClientConfig, 'localhost');
   FServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
 

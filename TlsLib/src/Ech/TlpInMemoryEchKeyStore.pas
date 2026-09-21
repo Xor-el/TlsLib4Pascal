@@ -49,9 +49,9 @@ type
       const AConfig: TEchConfig): Boolean; static;
     /// <summary>Parses an RFC 9934 ECH PEM (a PKCS#8 PRIVATE KEY block and an ECHCONFIG
     /// block holding an ECHConfigList) into one entry per config, importing the private
-    /// key for each config's KEM through AProvider. Malformed input raises.</summary>
+    /// key for each config's KEM through ACryptoProvider. Malformed input raises.</summary>
     class function EntriesFromPem(const APem: TBytes;
-      const AProvider: ICryptoProvider; AIsRetry: Boolean): TArray<TEchKeyEntry>; static;
+      const ACryptoProvider: ICryptoProvider; AIsRetry: Boolean): TArray<TEchKeyEntry>; static;
     /// <summary>Builds one entry from a config and its prepared HPKE recipient key.</summary>
     class function Entry(const AConfig: TEchConfig;
       const ARecipientKey: IHpkeRecipientKey; AIsRetry: Boolean): TEchKeyEntry; static;
@@ -68,7 +68,7 @@ type
     /// swapping the store); for expiry, build TEchKeyEntry values and use the constructor.
     /// </summary>
     class function FromPem(const APem: TBytes;
-      const AProvider: ICryptoProvider): IEchServerKeyStore; static;
+      const ACryptoProvider: ICryptoProvider): IEchServerKeyStore; static;
     /// <summary>
     /// A store built from an explicit ECHConfigList and its HPKE private key (the non-PEM
     /// path): every config becomes a key and a retry_config. No per-entry expiry. Raises if the
@@ -76,7 +76,7 @@ type
     /// </summary>
     class function FromConfig(const AEchConfigList: TBytes;
       const APrivateKey: ISecretBuffer;
-      const AProvider: ICryptoProvider): IEchServerKeyStore; static;
+      const ACryptoProvider: ICryptoProvider): IEchServerKeyStore; static;
   end;
 
 implementation
@@ -173,7 +173,7 @@ begin
 end;
 
 class function TInMemoryEchKeyStore.EntriesFromPem(const APem: TBytes;
-  const AProvider: ICryptoProvider; AIsRetry: Boolean): TArray<TEchKeyEntry>;
+  const ACryptoProvider: ICryptoProvider; AIsRetry: Boolean): TArray<TEchKeyEntry>;
 var
   LBlocks: TArray<TPemBlock>;
   LPkcs8, LConfigListBytes: TBytes;
@@ -198,10 +198,10 @@ begin
         Continue;
       // a current-version config the server cannot serve (export-only or unknown suite/KEM) is a
       // misconfiguration: it would be advertised as retry_configs yet reject every offer
-      if not LConfigs[LI].TrySelectSuite(AProvider, LSuite) then
+      if not LConfigs[LI].TrySelectSuite(ACryptoProvider, LSuite) then
         raise EArgumentTlsLibException.CreateRes(@SEchNoUsableSuite);
-      LRecipient := AProvider.Hpke.ImportRecipientKey(LConfigs[LI].KemId,
-        AProvider.Hpke.ImportPrivateKey(LConfigs[LI].KemId, LPkcs8));
+      LRecipient := ACryptoProvider.Hpke.ImportRecipientKey(LConfigs[LI].KemId,
+        ACryptoProvider.Hpke.ImportPrivateKey(LConfigs[LI].KemId, LPkcs8));
       // fail at load if the PEM pairs a private key with a config whose public key it does not
       // match - otherwise every ECH handshake would silently reject with no diagnosable cause
       if not KeyMatchesConfig(LRecipient, LConfigs[LI]) then
@@ -219,15 +219,15 @@ begin
 end;
 
 class function TInMemoryEchKeyStore.FromPem(const APem: TBytes;
-  const AProvider: ICryptoProvider): IEchServerKeyStore;
+  const ACryptoProvider: ICryptoProvider): IEchServerKeyStore;
 begin
-  Result := TInMemoryEchKeyStore.Create(EntriesFromPem(APem, AProvider, True))
+  Result := TInMemoryEchKeyStore.Create(EntriesFromPem(APem, ACryptoProvider, True))
     as IEchServerKeyStore;
 end;
 
 class function TInMemoryEchKeyStore.FromConfig(const AEchConfigList: TBytes;
   const APrivateKey: ISecretBuffer;
-  const AProvider: ICryptoProvider): IEchServerKeyStore;
+  const ACryptoProvider: ICryptoProvider): IEchServerKeyStore;
 var
   LConfigs: TArray<TEchConfig>;
   LEntries: TArray<TEchKeyEntry>;
@@ -244,9 +244,9 @@ begin
     if LConfigs[LI].Version <> TEchConfig.SupportedVersion then
       Continue;
     // a current-version config with no provider-usable suite could never serve an offer
-    if not LConfigs[LI].TrySelectSuite(AProvider, LSuite) then
+    if not LConfigs[LI].TrySelectSuite(ACryptoProvider, LSuite) then
       raise EArgumentTlsLibException.CreateRes(@SEchNoUsableSuite);
-    LRecipient := AProvider.Hpke.ImportRecipientKey(LConfigs[LI].KemId, APrivateKey);
+    LRecipient := ACryptoProvider.Hpke.ImportRecipientKey(LConfigs[LI].KemId, APrivateKey);
     // reject a private key that does not match the config's public key - the same undiagnosable
     // silent-reject the PEM path guards against
     if not KeyMatchesConfig(LRecipient, LConfigs[LI]) then

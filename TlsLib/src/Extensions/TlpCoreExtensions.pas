@@ -201,7 +201,8 @@ type
 implementation
 
 uses
-  TlpSessionExtensions;
+  TlpSessionExtensions,
+  TlpEchRegistryExtension;
 
 resourcestring
   SUnknownNameType = 'server_name carries an unknown name_type';
@@ -1046,6 +1047,10 @@ begin
   Result.Add(TSessionTicketExtension.Create as ITlsExtension);
   Result.Add(TPskKeyExchangeModesExtension.Create as ITlsExtension);
   Result.Add(TEarlyDataExtension.Create as ITlsExtension);
+  // encrypted_client_hello sits immediately before pre_shared_key: last in a ClientHello
+  // (else just before the PSK), and last in HelloRetryRequest / EncryptedExtensions - the exact
+  // positions the former hand-rolled ECH splices produced (RFC 9849 sec. 5)
+  Result.Add(TEncryptedClientHelloExtension.Create as ITlsExtension);
   // pre_shared_key MUST be the last ClientHello extension (RFC 8446 4.2.11)
   Result.Add(TPreSharedKeyExtension.Create as ITlsExtension);
 end;

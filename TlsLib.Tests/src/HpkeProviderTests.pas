@@ -97,13 +97,13 @@ end;
 
 function TTestHpkeProvider.X25519Suite: IHpkeSuite;
 begin
-  Result := Provider.Hpke.Suite(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+  Result := Crypto.Hpke.Suite(THpkeKem.DHKEM_X25519_HKDF_SHA256,
     THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM);
 end;
 
 function TTestHpkeProvider.P256Suite: IHpkeSuite;
 begin
-  Result := Provider.Hpke.Suite(THpkeKem.DHKEM_P256_HKDF_SHA256,
+  Result := Crypto.Hpke.Suite(THpkeKem.DHKEM_P256_HKDF_SHA256,
     THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM);
 end;
 
@@ -126,7 +126,7 @@ var
 begin
   // RFC 9180 A.1: opening the seq=0 ciphertext yields the known plaintext
   LSkR := TSecretBuffer.From(V('base_skRm'));
-  LOpener := Provider.Hpke.ImportRecipientKey(X25519Suite.Kem, LSkR)
+  LOpener := Crypto.Hpke.ImportRecipientKey(X25519Suite.Kem, LSkR)
     .SetupOpener(X25519Suite, V('base_enc'), V('base_info'));
   CheckEqualBytes('seq 0 plaintext', V('base_pt'),
     LOpener.Open(V('base_aad0'), V('base_ct0')));
@@ -140,7 +140,7 @@ begin
   // one opener, two messages in order: opening seq=0 advances the sequence number so
   // the second Open runs at seq=1 (the state the HRR second ClientHello reuses)
   LSkR := TSecretBuffer.From(V('base_skRm'));
-  LOpener := Provider.Hpke.ImportRecipientKey(X25519Suite.Kem, LSkR)
+  LOpener := Crypto.Hpke.ImportRecipientKey(X25519Suite.Kem, LSkR)
     .SetupOpener(X25519Suite, V('base_enc'), V('base_info'));
   CheckEqualBytes('seq 0 plaintext', V('base_pt'),
     LOpener.Open(V('base_aad0'), V('base_ct0')));
@@ -156,7 +156,7 @@ begin
   // a fresh opener is at seq=0; the seq=1 ciphertext must not open against it,
   // confirming the sequence number really participates in the nonce
   LSkR := TSecretBuffer.From(V('base_skRm'));
-  LOpener := Provider.Hpke.ImportRecipientKey(X25519Suite.Kem, LSkR)
+  LOpener := Crypto.Hpke.ImportRecipientKey(X25519Suite.Kem, LSkR)
     .SetupOpener(X25519Suite, V('base_enc'), V('base_info'));
   CheckTrue(OpenRaised(LOpener, V('base_aad1'), V('base_ct1')),
     'a seq=0 opener must fail on a seq=1 ciphertext');
@@ -171,7 +171,7 @@ begin
   // RFC 9180 sec. 5.2: a failed Open must not advance the sequence, so a rejected
   // ciphertext cannot desynchronise the receiver from the sender
   LSkR := TSecretBuffer.From(V('base_skRm'));
-  LOpener := Provider.Hpke.ImportRecipientKey(X25519Suite.Kem, LSkR)
+  LOpener := Crypto.Hpke.ImportRecipientKey(X25519Suite.Kem, LSkR)
     .SetupOpener(X25519Suite, V('base_enc'), V('base_info'));
   LTampered := V('base_ct0');
   LTampered[0] := LTampered[0] xor $FF;
@@ -190,12 +190,12 @@ var
   LSealer: IHpkeSealer;
   LOpener: IHpkeOpener;
 begin
-  Provider.Hpke.GenerateKeyPair(THpkeKem.DHKEM_X25519_HKDF_SHA256, LPk, LSk);
+  Crypto.Hpke.GenerateKeyPair(THpkeKem.DHKEM_X25519_HKDF_SHA256, LPk, LSk);
   LAad := TBytes.Create(1, 2, 3, 4);
   LPt := TBytes.Create(10, 20, 30, 40, 50);
   X25519Suite.SetupSealer(LPk, V('base_info'), LEnc, LSealer);
   LCt := LSealer.Seal(LAad, LPt);
-  LOpener := Provider.Hpke.ImportRecipientKey(X25519Suite.Kem, LSk)
+  LOpener := Crypto.Hpke.ImportRecipientKey(X25519Suite.Kem, LSk)
     .SetupOpener(X25519Suite, LEnc, V('base_info'));
   CheckEqualBytes('round-trip plaintext', LPt, LOpener.Open(LAad, LCt));
 end;
@@ -212,15 +212,15 @@ begin
   // KDF and AEAD codepoints overlap numerically (both 1/2/3), so the default suite
   // (kdf=aead=1) cannot catch a kdf<->aead transposition. Use HKDF-SHA384 (2) with
   // ChaCha20-Poly1305 (3): a swap would pick a different, wrong suite and fail here.
-  LSuite := Provider.Hpke.Suite(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+  LSuite := Crypto.Hpke.Suite(THpkeKem.DHKEM_X25519_HKDF_SHA256,
     THpkeKdf.HKDF_SHA384, THpkeAead.CHACHA20_POLY1305);
   CheckTrue(LSuite <> nil, 'the asymmetric suite is supported');
-  Provider.Hpke.GenerateKeyPair(THpkeKem.DHKEM_X25519_HKDF_SHA256, LPk, LSk);
+  Crypto.Hpke.GenerateKeyPair(THpkeKem.DHKEM_X25519_HKDF_SHA256, LPk, LSk);
   LAad := TBytes.Create(7, 7, 7);
   LPt := TBytes.Create(70, 71, 72, 73, 74);
   LSuite.SetupSealer(LPk, V('base_info'), LEnc, LSealer);
   LCt := LSealer.Seal(LAad, LPt);
-  LOpener := Provider.Hpke.ImportRecipientKey(LSuite.Kem, LSk)
+  LOpener := Crypto.Hpke.ImportRecipientKey(LSuite.Kem, LSk)
     .SetupOpener(LSuite, LEnc, V('base_info'));
   CheckEqualBytes('asymmetric-suite round-trip', LPt, LOpener.Open(LAad, LCt));
 end;
@@ -234,13 +234,13 @@ var
   LOpener: IHpkeOpener;
 begin
   // two sealed messages open in order: sealer and opener each advance one step
-  Provider.Hpke.GenerateKeyPair(THpkeKem.DHKEM_X25519_HKDF_SHA256, LPk, LSk);
+  Crypto.Hpke.GenerateKeyPair(THpkeKem.DHKEM_X25519_HKDF_SHA256, LPk, LSk);
   LM0 := TBytes.Create(1, 1, 1);
   LM1 := TBytes.Create(2, 2, 2, 2);
   X25519Suite.SetupSealer(LPk, V('base_info'), LEnc, LSealer);
   LCt0 := LSealer.Seal(nil, LM0);
   LCt1 := LSealer.Seal(nil, LM1);
-  LOpener := Provider.Hpke.ImportRecipientKey(X25519Suite.Kem, LSk)
+  LOpener := Crypto.Hpke.ImportRecipientKey(X25519Suite.Kem, LSk)
     .SetupOpener(X25519Suite, LEnc, V('base_info'));
   CheckEqualBytes('message 0', LM0, LOpener.Open(nil, LCt0));
   CheckEqualBytes('message 1', LM1, LOpener.Open(nil, LCt1));
@@ -255,13 +255,13 @@ var
 begin
   // the PKCS#8 import path (RFC 8410 X25519): the imported scalar must be the pair of
   // the published public key, so the round-trip only closes if the decode is correct
-  LSk := Provider.Hpke.ImportPrivateKey(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+  LSk := Crypto.Hpke.ImportPrivateKey(THpkeKem.DHKEM_X25519_HKDF_SHA256,
     V('import_x25519_pkcs8'));
   LAad := TBytes.Create(9, 8, 7);
   LPt := TBytes.Create(11, 22, 33, 44);
   X25519Suite.SetupSealer(V('import_x25519_pub'), V('base_info'), LEnc, LSealer);
   LCt := LSealer.Seal(LAad, LPt);
-  LOpener := Provider.Hpke.ImportRecipientKey(X25519Suite.Kem, LSk)
+  LOpener := Crypto.Hpke.ImportRecipientKey(X25519Suite.Kem, LSk)
     .SetupOpener(X25519Suite, LEnc, V('base_info'));
   CheckEqualBytes('imported X25519 round-trip', LPt, LOpener.Open(LAad, LCt));
 end;
@@ -274,13 +274,13 @@ var
   LOpener: IHpkeOpener;
 begin
   // the PKCS#8 import path (RFC 5915 EC) for the P-256 KEM
-  LSk := Provider.Hpke.ImportPrivateKey(THpkeKem.DHKEM_P256_HKDF_SHA256,
+  LSk := Crypto.Hpke.ImportPrivateKey(THpkeKem.DHKEM_P256_HKDF_SHA256,
     V('import_p256_pkcs8'));
   LAad := TBytes.Create(5, 5);
   LPt := TBytes.Create(60, 61, 62, 63, 64, 65);
   P256Suite.SetupSealer(V('import_p256_pub'), V('base_info'), LEnc, LSealer);
   LCt := LSealer.Seal(LAad, LPt);
-  LOpener := Provider.Hpke.ImportRecipientKey(P256Suite.Kem, LSk)
+  LOpener := Crypto.Hpke.ImportRecipientKey(P256Suite.Kem, LSk)
     .SetupOpener(P256Suite, LEnc, V('base_info'));
   CheckEqualBytes('imported P-256 round-trip', LPt, LOpener.Open(LAad, LCt));
 end;
@@ -292,15 +292,15 @@ begin
   // caller never obtains a handle to seal or open with
   CheckTrue(X25519Suite <> nil, 'X25519/HKDF-SHA256/AES-128-GCM is supported');
   CheckTrue(P256Suite <> nil, 'P-256/HKDF-SHA256/AES-128-GCM is supported');
-  CheckTrue(Provider.Hpke.Suite(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+  CheckTrue(Crypto.Hpke.Suite(THpkeKem.DHKEM_X25519_HKDF_SHA256,
     THpkeKdf.HKDF_SHA256, THpkeAead.CHACHA20_POLY1305) <> nil,
     'ChaCha20-Poly1305 is a supported AEAD');
-  CheckTrue(Provider.Hpke.Suite(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+  CheckTrue(Crypto.Hpke.Suite(THpkeKem.DHKEM_X25519_HKDF_SHA256,
     THpkeKdf.HKDF_SHA256, THpkeAead.EXPORT_ONLY) = nil,
     'export-only cannot seal/open');
-  CheckTrue(Provider.Hpke.Suite(UInt16($0009), THpkeKdf.HKDF_SHA256,
+  CheckTrue(Crypto.Hpke.Suite(UInt16($0009), THpkeKdf.HKDF_SHA256,
     THpkeAead.AES_128_GCM) = nil, 'an unknown KEM is unsupported');
-  CheckTrue(Provider.Hpke.Suite(THpkeKem.DHKEM_X25519_HKDF_SHA256, UInt16($00FF),
+  CheckTrue(Crypto.Hpke.Suite(THpkeKem.DHKEM_X25519_HKDF_SHA256, UInt16($00FF),
     THpkeAead.AES_128_GCM) = nil, 'an unknown KDF is unsupported');
 end;
 
@@ -312,7 +312,7 @@ var
 begin
   LRaised := False;
   try
-    Provider.Hpke.GenerateKeyPair(UInt16($0009), LPk, LSk);
+    Crypto.Hpke.GenerateKeyPair(UInt16($0009), LPk, LSk);
   except
     on E: ENotSupportedTlsLibException do
       LRaised := True;
@@ -327,7 +327,7 @@ begin
   // an X25519 PKCS#8 imported as a P-256 key must be rejected, not silently reshaped
   LRaised := False;
   try
-    Provider.Hpke.ImportPrivateKey(THpkeKem.DHKEM_P256_HKDF_SHA256,
+    Crypto.Hpke.ImportPrivateKey(THpkeKem.DHKEM_P256_HKDF_SHA256,
       V('import_x25519_pkcs8'));
   except
     on E: EArgumentTlsLibException do
@@ -346,7 +346,7 @@ begin
   SetLength(LZero, 32); // all-zero
   LRaised := False;
   try
-    Provider.Hpke.ImportRecipientKey(THpkeKem.DHKEM_P256_HKDF_SHA256,
+    Crypto.Hpke.ImportRecipientKey(THpkeKem.DHKEM_P256_HKDF_SHA256,
       TSecretBuffer.From(LZero));
   except
     on E: EArgumentTlsLibException do
@@ -368,7 +368,7 @@ begin
     LHigh[LI] := $FF;
   LRaised := False;
   try
-    Provider.Hpke.ImportRecipientKey(THpkeKem.DHKEM_P256_HKDF_SHA256,
+    Crypto.Hpke.ImportRecipientKey(THpkeKem.DHKEM_P256_HKDF_SHA256,
       TSecretBuffer.From(LHigh));
   except
     on E: EArgumentTlsLibException do
@@ -388,7 +388,7 @@ begin
   LShort[30] := 1;
   LRaised := False;
   try
-    Provider.Hpke.ImportRecipientKey(THpkeKem.DHKEM_P256_HKDF_SHA256,
+    Crypto.Hpke.ImportRecipientKey(THpkeKem.DHKEM_P256_HKDF_SHA256,
       TSecretBuffer.From(LShort));
   except
     on E: EArgumentTlsLibException do
@@ -399,16 +399,16 @@ end;
 
 procedure TTestHpkeProvider.TestSuiteIsNilWhenAeadUnavailable;
 var
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
 begin
   // a provider whose primitives cannot build ChaCha20-Poly1305 must report a ChaCha suite as nil
   // (so an ECH offer for it becomes a clean reject), while an AES-GCM suite stays usable
-  LProvider := TMissingAeadProvider.Create(Provider,
+  LCrypto := TMissingAeadProvider.Create(Crypto,
     TAeadAlgorithm.CHACHA20_POLY1305) as ICryptoProvider;
-  CheckTrue(LProvider.Hpke.Suite(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+  CheckTrue(LCrypto.Hpke.Suite(THpkeKem.DHKEM_X25519_HKDF_SHA256,
     THpkeKdf.HKDF_SHA256, THpkeAead.CHACHA20_POLY1305) = nil,
     'a suite needing the unavailable AEAD is nil');
-  CheckTrue(LProvider.Hpke.Suite(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+  CheckTrue(LCrypto.Hpke.Suite(THpkeKem.DHKEM_X25519_HKDF_SHA256,
     THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM) <> nil,
     'a suite whose primitives are all available stays usable');
 end;

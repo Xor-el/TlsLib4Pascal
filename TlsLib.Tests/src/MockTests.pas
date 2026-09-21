@@ -65,25 +65,25 @@ end;
 
 procedure TTestMocks.TestMockProviderInjectsRandom;
 var
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LReference: IRandom;
 begin
-  LProvider := TMockCryptoProvider.Create(TMockRandom.Create(7) as IRandom);
+  LCrypto := TMockCryptoProvider.Create(TMockRandom.Create(7) as IRandom);
   LReference := TMockRandom.Create(7);
   // the provider hands back the injected deterministic stream
   CheckEqualBytes('injected random', LReference.GenerateBytes(16),
-    LProvider.Primitives.GetRandom.GenerateBytes(16));
+    LCrypto.Primitives.GetRandom.GenerateBytes(16));
 end;
 
 procedure TTestMocks.TestMockProviderDelegatesCrypto;
 var
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LHash: IHash;
   LMsg: TBytes;
 begin
   // crypto is delegated to the inner real provider
-  LProvider := TMockCryptoProvider.Create(TMockRandom.Create(0) as IRandom);
-  LHash := LProvider.Primitives.CreateHash(THashAlgorithm.SHA_256);
+  LCrypto := TMockCryptoProvider.Create(TMockRandom.Create(0) as IRandom);
+  LHash := LCrypto.Primitives.CreateHash(THashAlgorithm.SHA_256);
   LMsg := DecodeHex('616263'); // "abc"
   LHash.Update(LMsg, 0, System.Length(LMsg));
   CheckEqualBytes('delegated SHA-256(abc)',

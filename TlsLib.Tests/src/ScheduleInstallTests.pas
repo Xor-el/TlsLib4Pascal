@@ -100,12 +100,12 @@ begin
   try
     // derive the RFC 8448 client handshake epoch and route its keys through the
     // install-path factory into the engine's read side
-    LSched := TTls13KeySchedule.Create(Provider, THashAlgorithm.SHA_256, 16);
+    LSched := TTls13KeySchedule.Create(Crypto, THashAlgorithm.SHA_256, 16);
     LSched.SetSharedSecret(TSecretBuffer.From(DecodeHex(LVec.Values['shared_secret'])));
     LSched.DeriveEpochSecrets(TTlsEpoch.Handshake, DecodeHex(LVec.Values['hash_ch_sh']));
     LKeys := LSched.TrafficKeys(TTlsEpoch.Handshake, TTlsDirection.ClientWrite);
     LProt := TRecordProtectionFactory.Build(TTlsVersion.Tls13, LKeys,
-      Provider.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
+      Crypto.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
 
     LEngineObj := TTlsEngine.Create;
     LEngine := LEngineObj;
@@ -144,7 +144,7 @@ var
 begin
   // derive the TLS 1.2 application keys, install the read side through the factory,
   // and confirm a record the same keys produced surfaces as application data
-  LSched := TTls12KeySchedule.Create(Provider, THashAlgorithm.SHA_256, 16,
+  LSched := TTls12KeySchedule.Create(Crypto, THashAlgorithm.SHA_256, 16,
     TAeadAlgorithm.AES_128_GCM);
   LSched.SetPreMasterSecret(TSecretBuffer.From(DecodeHex(Tls12PreMasterHex)));
   LSched.SetRandoms(DecodeHex(Tls12ClientRandomHex), DecodeHex(Tls12ServerRandomHex));
@@ -153,9 +153,9 @@ begin
   LKeys := LSched.TrafficKeys(TTlsEpoch.Application, TTlsDirection.ClientWrite);
 
   LSender := TRecordProtectionFactory.Build(TTlsVersion.Tls12, LKeys,
-    Provider.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
+    Crypto.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
   LReceiver := TRecordProtectionFactory.Build(TTlsVersion.Tls12, LKeys,
-    Provider.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
+    Crypto.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
 
   LEngineObj := TTlsEngine.Create;
   LEngine := LEngineObj;
@@ -177,7 +177,7 @@ var
   LKeys: ITrafficKeys;
   LRaised: Boolean;
 begin
-  LSched := TTls13KeySchedule.Create(Provider, THashAlgorithm.SHA_256, 16);
+  LSched := TTls13KeySchedule.Create(Crypto, THashAlgorithm.SHA_256, 16);
   LSched.SetSharedSecret(TSecretBuffer.From(DecodeHex('00')));
   LSched.DeriveEpochSecrets(TTlsEpoch.Handshake, DecodeHex('00'));
   LKeys := LSched.TrafficKeys(TTlsEpoch.Handshake, TTlsDirection.ClientWrite);
@@ -185,7 +185,7 @@ begin
   try
     // 0x0301 is a legacy record version, never a negotiable protocol
     TRecordProtectionFactory.Build(TTlsVersion.LegacyRecordInitial, LKeys,
-      Provider.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
+      Crypto.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
   except
     on E: EArgumentTlsLibException do
       LRaised := True;

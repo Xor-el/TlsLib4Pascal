@@ -109,12 +109,12 @@ end;
 
 // an ordered, bound TLS 1.2 cipher-suite preference: only these suites may be negotiated and the
 // Add order is the preference order (server-preference is the model, so the server's order wins)
-function OrderedSuites(const AProvider: ICryptoProvider): ICipherSuiteRegistry;
+function OrderedSuites(const ACryptoProvider: ICryptoProvider): ICipherSuiteRegistry;
 var
   LAll, LOrdered: ICipherSuiteRegistry;
   LSuite: TTlsCipherSuite;
 begin
-  LAll := TCipherSuiteRegistry.CreateDualVersion(AProvider);
+  LAll := TCipherSuiteRegistry.CreateDualVersion(ACryptoProvider);
   LOrdered := TCipherSuiteRegistry.Create;
   if LAll.TryGet(TCipherSuites12.EcdheEcdsaAes256GcmSha384, LSuite) then LOrdered.Add(LSuite);
   if LAll.TryGet(TCipherSuites12.EcdheEcdsaChaCha20Poly1305Sha256, LSuite) then LOrdered.Add(LSuite);
@@ -124,35 +124,35 @@ end;
 
 function BuildClientConfig: ITlsClientConfig;
 var
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LPkix: IPkixProvider;
   LClient: ITlsClientConfigBuilder;
 begin
-  LProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  LCrypto := TDefaultCryptoProvider.Create as ICryptoProvider;
   LPkix := TDefaultPkixProvider.Create as IPkixProvider;
-  LClient := TTlsPresets.Compatible(LProvider, LPkix).Client;
+  LClient := TTlsPresets.Compatible(LCrypto, LPkix).Client;
   LClient.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12));
   // X25519 for the ECDHE, plus the leaf's P-256 curve (RFC 8422 5.4)
   LClient.WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
     TNamedGroupCatalog.Secp256r1));
-  LClient.WithCipherSuites(OrderedSuites(LProvider));
+  LClient.WithCipherSuites(OrderedSuites(LCrypto));
   LClient.WithTrustAnchors(GRootDer);
   Result := LClient.Build;
 end;
 
 function BuildServerConfig: ITlsServerConfig;
 var
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LPkix: IPkixProvider;
   LServer: ITlsServerConfigBuilder;
 begin
-  LProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  LCrypto := TDefaultCryptoProvider.Create as ICryptoProvider;
   LPkix := TDefaultPkixProvider.Create as IPkixProvider;
-  LServer := TTlsPresets.Compatible(LProvider, LPkix).Server;
+  LServer := TTlsPresets.Compatible(LCrypto, LPkix).Server;
   LServer.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12));
   LServer.WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
     TNamedGroupCatalog.Secp256r1));
-  LServer.WithCipherSuites(OrderedSuites(LProvider));
+  LServer.WithCipherSuites(OrderedSuites(LCrypto));
   LServer.WithCredential(GLeafDer, GKeyDer);
   Result := LServer.Build;
 end;

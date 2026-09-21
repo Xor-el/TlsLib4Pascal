@@ -56,7 +56,7 @@ implementation
 
 function TTestEchConfirmation.Hkdf(AHash: THashAlgorithm): IHkdf;
 begin
-  Result := Provider.Primitives.CreateHkdf(AHash);
+  Result := Crypto.Primitives.CreateHkdf(AHash);
 end;
 
 function TTestEchConfirmation.InnerRandom: TBytes;

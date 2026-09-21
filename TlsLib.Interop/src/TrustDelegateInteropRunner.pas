@@ -85,7 +85,7 @@ type
     class function ParsePosture(const ASpec: string): TRevocationPosture; static;
     /// <summary>Parses --expect accept | reject | reject:&lt;alertnum&gt; into ACell.</summary>
     class procedure ParseExpect(const ASpec: string; var ACell: TTrustCell); static;
-    class function BuildClientConfig(const AProvider: ICryptoProvider;
+    class function BuildClientConfig(const ACryptoProvider: ICryptoProvider;
       const APkix: IPkixProvider; const ACell: TTrustCell): ITlsClientConfig; static;
     /// <summary>Maps a handshake outcome to '' (matched --expect) or a failure message. Shared by
     /// the client-verifies-server and server-verifies-client paths.</summary>
@@ -94,7 +94,7 @@ type
     /// <summary>The server config for the mTLS cell: an OS client delegate (Live) over ACaFile as the
     /// exclusive client-CA anchor. Built here (not via InteropEngine) so the frozen ITlsServerConfig
     /// is kept for both the engine and the live resolver.</summary>
-    class function BuildServerConfig(const AProvider: ICryptoProvider;
+    class function BuildServerConfig(const ACryptoProvider: ICryptoProvider;
       const APkix: IPkixProvider; const ACell: TTrustCell;
       const ACaFile: string): ITlsServerConfig; static;
     class function RunClient(APort: Word; const ACell: TTrustCell): string; static;
@@ -176,7 +176,7 @@ end;
 procedure TTrustServerThread.Execute;
 var
   LSocket: TInteropSocket;
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LPkix: IPkixProvider;
   LOptions: TInteropEngineOptions;
   LEngine: ITlsEngine;
@@ -186,17 +186,17 @@ begin
   LSocket := nil;
   try
     LSocket := FListener.Accept;
-    LProvider := TInteropEngine.DefaultProvider;
+    LCrypto := TInteropEngine.DefaultCrypto;
     LPkix := TInteropEngine.DefaultPkix;
     LOptions := Default(TInteropEngineOptions);
     LOptions.Role := TInteropRole.Server;
     LOptions.SupportedVersions := TArray<UInt16>.Create(FCell.TlsVersion);
     LOptions.HasCredential := True;
-    LOptions.Credential := TInteropCredentials.ServerCredentialFromPem(LProvider, LPkix,
+    LOptions.Credential := TInteropCredentials.ServerCredentialFromPem(LCrypto, LPkix,
       FCell.ServerCertFile, FCell.ServerKeyFile);
     if FCell.StapleFile <> '' then
       LOptions.OcspStaple := TInteropUtils.ReadAllBytes(FCell.StapleFile);
-    LEngine := TInteropEngine.Build(LProvider, LOptions);
+    LEngine := TInteropEngine.Build(LCrypto, LOptions);
 
     LResult := TInteropPump.DriveHandshake(LEngine, LSocket);
     // a client that rejects the chain aborts the handshake (the reject cells); only an accept
@@ -231,7 +231,7 @@ end;
 
 procedure TClientPresenterThread.Execute;
 var
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LPkix: IPkixProvider;
   LBuilder: ITlsConfigBuilder;
   LClient: ITlsClientConfigBuilder;
@@ -242,15 +242,15 @@ var
 begin
   FError := '';
   try
-    LProvider := TInteropEngine.DefaultProvider;
+    LCrypto := TInteropEngine.DefaultCrypto;
     LPkix := TInteropEngine.DefaultPkix;
-    LBuilder := TTlsPresets.Compatible(LProvider, LPkix);
+    LBuilder := TTlsPresets.Compatible(LCrypto, LPkix);
     LClient := LBuilder.Client;
     LClient.WithSupportedVersions(TArray<UInt16>.Create(FCell.TlsVersion));
     // trust the server's own certificate (portable, cache-only - this side is not under test)
     LClient.WithTrustStore(TInteropCredentials.TrustFromPem(LPkix, FCell.RootFile));
     // offer the client certificate the server verifies (leaf-only: the CA is the server's anchor)
-    LClient.WithCredential(TInteropCredentials.ServerCredentialFromPem(LProvider, LPkix,
+    LClient.WithCredential(TInteropCredentials.ServerCredentialFromPem(LCrypto, LPkix,
       FCell.ClientCertFile, FCell.ClientKeyFile));
     LConfig := LClient.Build;
     LEngine := TTlsEngineFactory.CreateClientEngine(LConfig, FCell.ExpectName);
@@ -329,7 +329,7 @@ begin
 end;
 
 class function TTrustDelegateInteropRunner.BuildClientConfig(
-  const AProvider: ICryptoProvider; const APkix: IPkixProvider;
+  const ACryptoProvider: ICryptoProvider; const APkix: IPkixProvider;
   const ACell: TTrustCell): ITlsClientConfig;
 const
   // the resolver fetch budget for the live cells; the OS fetch over loopback settles well within it
@@ -338,7 +338,7 @@ var
   LBuilder: ITlsConfigBuilder;
   LClient: ITlsClientConfigBuilder;
 begin
-  LBuilder := TTlsPresets.Compatible(AProvider, APkix);
+  LBuilder := TTlsPresets.Compatible(ACryptoProvider, APkix);
   LClient := LBuilder.Client;
   LClient.WithSupportedVersions(TArray<UInt16>.Create(ACell.TlsVersion));
   LClient.WithOcspStaplingRequest(True);
@@ -388,7 +388,7 @@ class function TTrustDelegateInteropRunner.RunClient(APort: Word;
   const ACell: TTrustCell): string;
 var
   LSocket: TInteropSocket;
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LPkix: IPkixProvider;
   LConfig: ITlsClientConfig;
   LEngine: ITlsEngine;
@@ -399,9 +399,9 @@ begin
   Result := '';
   LSocket := TInteropSocket.Connect('127.0.0.1', APort);
   try
-    LProvider := TInteropEngine.DefaultProvider;
+    LCrypto := TInteropEngine.DefaultCrypto;
     LPkix := TInteropEngine.DefaultPkix;
-    LConfig := BuildClientConfig(LProvider, LPkix, ACell);
+    LConfig := BuildClientConfig(LCrypto, LPkix, ACell);
     LEngine := TTlsEngineFactory.CreateClientEngine(LConfig, ACell.ExpectName);
     LEngine.StartHandshake;
     if ACell.Live then
@@ -433,7 +433,7 @@ begin
 end;
 
 class function TTrustDelegateInteropRunner.BuildServerConfig(
-  const AProvider: ICryptoProvider; const APkix: IPkixProvider;
+  const ACryptoProvider: ICryptoProvider; const APkix: IPkixProvider;
   const ACell: TTrustCell; const ACaFile: string): ITlsServerConfig;
 const
   // the resolver fetch budget for the live client-cert check; the OS fetch over loopback settles
@@ -443,10 +443,10 @@ var
   LBuilder: ITlsConfigBuilder;
   LServer: ITlsServerConfigBuilder;
 begin
-  LBuilder := TTlsPresets.Compatible(AProvider, APkix);
+  LBuilder := TTlsPresets.Compatible(ACryptoProvider, APkix);
   LServer := LBuilder.Server;
   LServer.WithSupportedVersions(TArray<UInt16>.Create(ACell.TlsVersion));
-  LServer.WithCredential(TInteropCredentials.ServerCredentialFromPem(AProvider, APkix,
+  LServer.WithCredential(TInteropCredentials.ServerCredentialFromPem(ACryptoProvider, APkix,
     ACell.ServerCertFile, ACell.ServerKeyFile));
   LServer.WithPeerAuth(TClientAuthMode.Required);
   // the configured client-CA is the exclusive anchor the OS client delegate roots against
@@ -467,7 +467,7 @@ var
   LListener: TInteropListener;
   LPresenterSocket, LServerSocket: TInteropSocket;
   LPresenter: TClientPresenterThread;
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LPkix: IPkixProvider;
   LConfig: ITlsServerConfig;
   LEngine: ITlsEngine;
@@ -476,7 +476,7 @@ var
   LLiveCaFile: string;
 begin
   Result := '';
-  LProvider := TInteropEngine.DefaultProvider;
+  LCrypto := TInteropEngine.DefaultCrypto;
   LPkix := TInteropEngine.DefaultPkix;
   LListener := TInteropListener.Bind('127.0.0.1', 0);
   try
@@ -487,7 +487,7 @@ begin
     try
       LServerSocket := LListener.Accept;
       try
-        LConfig := BuildServerConfig(LProvider, LPkix, ACell, ACell.ClientCaFile);
+        LConfig := BuildServerConfig(LCrypto, LPkix, ACell, ACell.ClientCaFile);
         LEngine := TTlsEngineFactory.CreateServerEngine(LConfig);
         // the live resolver roots against the client-CA of a possibly-different config: for the
         // exclusivity cell that is a foreign CA (--live-client-ca), else the same inline client CA
@@ -495,7 +495,7 @@ begin
         if LLiveCaFile = '' then
           LLiveCaFile := ACell.ClientCaFile;
         LResolver := TOSSystemTrust.LiveRevocationResolver(
-          BuildServerConfig(LProvider, LPkix, ACell, LLiveCaFile));
+          BuildServerConfig(LCrypto, LPkix, ACell, LLiveCaFile));
         try
           LResult := TInteropPump.DriveHandshake(LEngine, LServerSocket,
             LResolver.ResolveVerdict, False);

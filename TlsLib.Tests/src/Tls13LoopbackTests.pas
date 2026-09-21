@@ -54,7 +54,7 @@ uses
   TlpISecretBuffer,
   TlpWireReader,
   TlpHandshakeMessages,
-  TlpEchOuterExtensions,
+  TlpExtensionVector,
   TlpEchConfig,
   TlpEchClient,
   TlpInMemoryEchKeyStore,
@@ -176,11 +176,11 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
   LParams.GroupCode := TNamedGroupCatalog.X25519;
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   // offering a single suite makes the server's choice unambiguous on any CPU
   LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
@@ -195,7 +195,7 @@ begin
   LParams.ExpectedServerName := TServerName.DnsName(AExpectedHost);
 
   Result := TTlsEngine.CreateConfigured(
-    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls13Loopback.TestRootCertificate: TBytes;
@@ -218,7 +218,7 @@ begin
   try
     Result.CertificateChain := TArray<TBytes>.Create(
       DecodeHex(LCerts.Values['leaf_cert']));
-    Result.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
+    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
   finally
     LCerts.Free;
   end;
@@ -235,7 +235,7 @@ begin
   try
     Result.CertificateChain := TArray<TBytes>.Create(
       DecodeHex(LCerts.Values['wrongname_cert']));
-    Result.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
+    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
   finally
     LCerts.Free;
   end;
@@ -253,19 +253,19 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
   LParams.ServerRandom := Filled($22, 32);
   // the machine serializes EncryptedExtensions itself; the Certificate +
   // CertificateVerify are produced and signed from the credential the resolver picks by SNI
   LParams.CredentialResolver := AResolver;
 
   Result := TTlsEngine.CreateConfigured(
-    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls13Loopback.EchConfigListBytes: TBytes;
@@ -287,7 +287,7 @@ var
   LConfig: TEchConfig;
   LSuite: TEchCipherSuite;
 begin
-  Provider.Hpke.GenerateKeyPair(THpkeKem.DHKEM_X25519_HKDF_SHA256, LPublicKey,
+  Crypto.Hpke.GenerateKeyPair(THpkeKem.DHKEM_X25519_HKDF_SHA256, LPublicKey,
     APrivateKey);
   LSuite.KdfId := THpkeKdf.HKDF_SHA256;
   LSuite.AeadId := THpkeAead.AES_128_GCM;
@@ -310,11 +310,11 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
   LParams.GroupCode := TNamedGroupCatalog.X25519;
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
   LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
@@ -331,7 +331,7 @@ begin
     as IEchClientPolicy;
   LParams.SessionCache := ACache;
   Result := TTlsEngine.CreateConfigured(
-    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls13Loopback.NewEchAcceptServer(const AConfigList: TBytes;
@@ -342,21 +342,21 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
   LParams.ServerRandom := Filled($22, 32);
   LParams.CredentialResolver :=
     TSniCredentialResolver.ForCredential(ServerCredential);
-  LParams.EchKeyStore := TInMemoryEchKeyStore.FromConfig(AConfigList, APrivateKey, Provider);
+  LParams.EchKeyStore := TInMemoryEchKeyStore.FromConfig(AConfigList, APrivateKey, Crypto);
   LParams.SessionStore := AStore;
   LParams.IssueTicketCount := AIssueTickets;
   LParams.TicketLifetimeSeconds := 7200;
   Result := TTlsEngine.CreateConfigured(
-    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls13Loopback.NewEchServer: ITlsEngine;
@@ -367,25 +367,25 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
   LParams.ServerRandom := Filled($22, 32);
   LParams.CredentialResolver :=
     TSniCredentialResolver.ForCredential(ServerCredential);
   LVec := LoadVectorFields('Certs/Ech.txt');
   try
-    LSk := Provider.Hpke.ImportPrivateKey(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+    LSk := Crypto.Hpke.ImportPrivateKey(THpkeKem.DHKEM_X25519_HKDF_SHA256,
       DecodeHex(LVec.Values['config_private_key']));
   finally
     LVec.Free;
   end;
-  LParams.EchKeyStore := TInMemoryEchKeyStore.FromConfig(EchConfigListBytes, LSk, Provider);
+  LParams.EchKeyStore := TInMemoryEchKeyStore.FromConfig(EchConfigListBytes, LSk, Crypto);
   Result := TTlsEngine.CreateConfigured(
-    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls13Loopback.NewEchRejectServer(const AConfigList: TBytes;
@@ -395,19 +395,19 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
   LParams.ServerRandom := Filled($22, 32);
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
   // an is_retry config the store advertises as retry_configs; its config_id differs from the
   // client's offer, so trial-decrypt finds no match and the server rejects ECH
-  LParams.EchKeyStore := TInMemoryEchKeyStore.FromConfig(AConfigList, APrivateKey, Provider);
+  LParams.EchKeyStore := TInMemoryEchKeyStore.FromConfig(AConfigList, APrivateKey, Crypto);
   Result := TTlsEngine.CreateConfigured(
-    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls13Loopback.NewEchHrrClient(
@@ -417,17 +417,17 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
   LParams.SessionCache := ACache;
   // key-shares X25519 but advertises secp256r1 too, so the ECH-capable secp256r1-only
   // server retries the client onto secp256r1 (a HelloRetryRequest under ECH)
-  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
   LParams.GroupCode := TNamedGroupCatalog.X25519;
   LParams.OfferedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1,
     TNamedGroupCatalog.X25519);
-  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
   LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
@@ -442,7 +442,7 @@ begin
   LParams.EchPolicy := TEchClientPolicy.Create(EchConfigListBytes, False, False)
     as IEchClientPolicy;
   Result := TTlsEngine.CreateConfigured(
-    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls13Loopback.NewEchHrrServer(const AStore: ISessionStore;
@@ -454,31 +454,31 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   // offers only secp256r1; a client that key-shared another group is retried
-  LParams.Group := TNamedGroups.CreateNistEcdh(Provider, 'secp256r1');
+  LParams.Group := TNamedGroups.CreateNistEcdh(Crypto, 'secp256r1');
   LParams.ServerRandom := Filled($22, 32);
   LParams.CookieSecret := TSecretBuffer.From(
-    Provider.Primitives.GetRandom.GenerateBytes(32));
+    Crypto.Primitives.GetRandom.GenerateBytes(32));
   LParams.CredentialResolver :=
     TSniCredentialResolver.ForCredential(ServerCredential);
   LVec := LoadVectorFields('Certs/Ech.txt');
   try
-    LSk := Provider.Hpke.ImportPrivateKey(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+    LSk := Crypto.Hpke.ImportPrivateKey(THpkeKem.DHKEM_X25519_HKDF_SHA256,
       DecodeHex(LVec.Values['config_private_key']));
   finally
     LVec.Free;
   end;
-  LParams.EchKeyStore := TInMemoryEchKeyStore.FromConfig(EchConfigListBytes, LSk, Provider);
+  LParams.EchKeyStore := TInMemoryEchKeyStore.FromConfig(EchConfigListBytes, LSk, Crypto);
   LParams.SessionStore := AStore;
   LParams.IssueTicketCount := AIssueTickets;
   LParams.TicketLifetimeSeconds := 7200;
   Result := TTlsEngine.CreateConfigured(
-    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls13Loopback.NewEchHrrRejectClient(
@@ -488,15 +488,15 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
   // key-shares X25519 but advertises secp256r1 too, so a secp256r1-only server retries it
-  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
   LParams.GroupCode := TNamedGroupCatalog.X25519;
   LParams.OfferedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1,
     TNamedGroupCatalog.X25519);
-  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
   LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
@@ -511,7 +511,7 @@ begin
   LParams.EchPolicy := TEchClientPolicy.Create(AConfigList, False, False)
     as IEchClientPolicy;
   Result := TTlsEngine.CreateConfigured(
-    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls13Loopback.NewEchHrrRejectServer(const AConfigList: TBytes;
@@ -521,21 +521,21 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   // offers only secp256r1, so an X25519 key_share is retried; holds a mismatched ECH config, so
   // trial-decrypt fails and ECH is rejected - the reject and the HelloRetryRequest coincide
-  LParams.Group := TNamedGroups.CreateNistEcdh(Provider, 'secp256r1');
+  LParams.Group := TNamedGroups.CreateNistEcdh(Crypto, 'secp256r1');
   LParams.ServerRandom := Filled($22, 32);
   LParams.CookieSecret := TSecretBuffer.From(
-    Provider.Primitives.GetRandom.GenerateBytes(32));
+    Crypto.Primitives.GetRandom.GenerateBytes(32));
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
-  LParams.EchKeyStore := TInMemoryEchKeyStore.FromConfig(AConfigList, APrivateKey, Provider);
+  LParams.EchKeyStore := TInMemoryEchKeyStore.FromConfig(AConfigList, APrivateKey, Crypto);
   Result := TTlsEngine.CreateConfigured(
-    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls13Loopback.NewEchResumeClient(
@@ -545,11 +545,11 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
   LParams.GroupCode := TNamedGroupCatalog.X25519;
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
   LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
@@ -566,7 +566,7 @@ begin
   LParams.SessionCache := ACache;
   LParams.EarlyDataEnabled := AEarlyData;
   Result := TTlsEngine.CreateConfigured(
-    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls13Loopback.NewEchResumeServer(const AStore: ISessionStore;
@@ -579,30 +579,30 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
   LParams.ServerRandom := Filled($22, 32);
   LParams.CredentialResolver :=
     TSniCredentialResolver.ForCredential(ServerCredential);
   LVec := LoadVectorFields('Certs/Ech.txt');
   try
-    LSk := Provider.Hpke.ImportPrivateKey(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+    LSk := Crypto.Hpke.ImportPrivateKey(THpkeKem.DHKEM_X25519_HKDF_SHA256,
       DecodeHex(LVec.Values['config_private_key']));
   finally
     LVec.Free;
   end;
-  LParams.EchKeyStore := TInMemoryEchKeyStore.FromConfig(EchConfigListBytes, LSk, Provider);
+  LParams.EchKeyStore := TInMemoryEchKeyStore.FromConfig(EchConfigListBytes, LSk, Crypto);
   LParams.SessionStore := AStore;
   LParams.IssueTicketCount := AIssueTickets;
   LParams.TicketLifetimeSeconds := 7200;
   LParams.MaxEarlyData := AMaxEarlyData;
   LParams.AntiReplay := AAntiReplay;
   Result := TTlsEngine.CreateConfigured(
-    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 procedure TTestTls13Loopback.TestEchHrrAcceptLoopback;
@@ -677,7 +677,7 @@ begin
   // CH2's binder must MAC the inner transcript (message_hash(innerCH1), inner HRR, inner CH2).
   // A binder computed over the outer transcript would fail the server's inner binder check.
   LCache := TInMemorySessionCache.Create;
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
 
   // first ECH connection (itself retried onto secp256r1) issues one resumption ticket
   LClient := NewEchHrrClient(LCache);
@@ -716,11 +716,11 @@ end;
 
 function TTestTls13Loopback.OuterPskExtData(const AFlight: TBytes): TBytes;
 var
-  LPos, LRecLen, LHsLen, LI: Int32;
+  LPos, LRecLen, LHsLen: Int32;
   LBody: TBytes;
   LHello: TTlsClientHello;
-  LReader, LExtsVec: TWireReader;
-  LEntries: TArray<TEchExtEntry>;
+  LVec: TExtensionVector;
+  LEntry: TExtensionEntry;
 begin
   Result := nil;
   LPos := 0;
@@ -734,13 +734,9 @@ begin
       LHsLen := (AFlight[LPos + 6] shl 16) or (AFlight[LPos + 7] shl 8) or AFlight[LPos + 8];
       LBody := System.Copy(AFlight, LPos + 9, LHsLen);
       LHello := THandshakeMessages.DecodeClientHello(LBody);
-      LReader := TWireReader.Create(LHello.Extensions);
-      LExtsVec := LReader.OpenVector(2);
-      LEntries := TEchOuterExtensions.ParseExtensions(
-        LExtsVec.ReadBytes(LExtsVec.Remaining));
-      for LI := 0 to System.High(LEntries) do
-        if LEntries[LI].ExtType = TExtensionTypes.PreSharedKey then
-          Exit(LEntries[LI].Data);
+      LVec := TExtensionVector.Parse(LHello.Extensions);
+      if LVec.TryFind(TExtensionTypes.PreSharedKey, LEntry) then
+        Exit(LEntry.Data);
       Exit;
     end;
     Inc(LPos, 5 + LRecLen);
@@ -762,7 +758,7 @@ begin
   // resumption CH2 does - a fresh age or a verbatim binder would fingerprint the decoy (RFC 9849
   // sec. 10.10.4, RFC 8446 4.1.2/4.2.11.1)
   LCache := TInMemorySessionCache.Create;
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
 
   // first ECH+HRR handshake issues a resumption ticket
   LClient := NewEchHrrClient(LCache);
@@ -821,7 +817,7 @@ var
   LIterations: Int32;
 begin
   LCache := TInMemorySessionCache.Create;
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
 
   // first ECH connection: a full accept that issues one resumption ticket
   LClient := NewEchResumeClient(LCache);
@@ -872,7 +868,7 @@ begin
   LConfigA := BuildEchConfigList($AA, 'localhost', LSkA);
   LConfigB := BuildEchConfigList($BB, 'localhost', LSkB);
   LCache := TInMemorySessionCache.Create;
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
 
   // first: accept config_A and issue a ticket the client caches
   LClient := NewEchClientWith(LConfigA, LCache);
@@ -915,7 +911,7 @@ var
   LEarly: TBytes;
 begin
   LCache := TInMemorySessionCache.Create;
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
   LAnti := TStrikeRegisterAntiReplay.Create;
 
   // first ECH connection: a full accept issuing a 0-RTT-capable ticket
@@ -1037,23 +1033,23 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
   LParams.ServerRandom := Filled($22, 32);
   // the leaf's issuer travels in the chain so the client can authenticate the staple
   LCred := Default(TTlsCredential);
   LCred.CertificateChain := TArray<TBytes>.Create(
     OcspField('leaf_cert'), OcspField('issuer_cert'));
-  LCred.PrivateKey := Provider.Signing.ImportSigningKey(OcspField('leaf_key'));
+  LCred.PrivateKey := Crypto.Signing.ImportSigningKey(OcspField('leaf_key'));
   LCred.OcspStaple := AStaple;
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(LCred);
 
   Result := TTlsEngine.CreateConfigured(
-    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls13Loopback.NewHardRevocationClient: ITlsEngine;
@@ -1062,11 +1058,11 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
   LParams.GroupCode := TNamedGroupCatalog.X25519;
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
   LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
@@ -1082,7 +1078,7 @@ begin
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
 
   Result := TTlsEngine.CreateConfigured(
-    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls13Loopback.NewHrrClient: ITlsEngine;
@@ -1091,16 +1087,16 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
   // key-shares X25519 but advertises secp256r1 too, so the secp256r1-only server
   // retries the client onto secp256r1
-  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
   LParams.GroupCode := TNamedGroupCatalog.X25519;
   LParams.OfferedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1,
     TNamedGroupCatalog.X25519);
-  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
   LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
@@ -1112,7 +1108,7 @@ begin
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
 
   Result := TTlsEngine.CreateConfigured(
-    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls13Loopback.NewHrrServer: ITlsEngine;
@@ -1121,19 +1117,19 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   // the server offers only secp256r1; a client that key-shared another group is retried
-  LParams.Group := TNamedGroups.CreateNistEcdh(Provider, 'secp256r1');
+  LParams.Group := TNamedGroups.CreateNistEcdh(Crypto, 'secp256r1');
   LParams.ServerRandom := Filled($22, 32);
-  LParams.CookieSecret := TSecretBuffer.From(Provider.Primitives.GetRandom.GenerateBytes(32));
+  LParams.CookieSecret := TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32));
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
 
   Result := TTlsEngine.CreateConfigured(
-    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls13Loopback.NewP256OnlyClient: ITlsEngine;
@@ -1142,15 +1138,15 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
   // a client that key-shares secp256r1 and lists ONLY secp256r1 (like a JDK 11 client that
   // omits X25519); the server must select secp256r1 rather than insisting on X25519
-  LParams.Group := TNamedGroups.CreateNistEcdh(Provider, 'secp256r1');
+  LParams.Group := TNamedGroups.CreateNistEcdh(Crypto, 'secp256r1');
   LParams.GroupCode := TNamedGroupCatalog.Secp256r1;
   LParams.OfferedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1);
-  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
   LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
@@ -1162,7 +1158,7 @@ begin
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
 
   Result := TTlsEngine.CreateConfigured(
-    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls13Loopback.NewMultiGroupServer: ITlsEngine;
@@ -1171,23 +1167,23 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   // the server offers X25519 first, then secp256r1; a client that omits X25519 negotiates
   // secp256r1 (mandatory to implement, RFC 8446 9.1) without a HelloRetryRequest
   LParams.OfferedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
     TNamedGroupCatalog.Secp256r1);
-  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Provider);
+  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Crypto);
   LParams.ServerRandom := Filled($22, 32);
   // a cookie secret lets it answer with a HelloRetryRequest if it ever needed to (it must not)
-  LParams.CookieSecret := TSecretBuffer.From(Provider.Primitives.GetRandom.GenerateBytes(32));
+  LParams.CookieSecret := TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32));
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
 
   Result := TTlsEngine.CreateConfigured(
-    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls13Loopback.NewHybridClient: ITlsEngine;
@@ -1196,13 +1192,13 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
   // key-share the X25519MLKEM768 hybrid directly: a large (X25519 32 + ML-KEM
   // encaps-key 1184 = 1216 B) key_share, ML-KEM-first on the wire
-  LParams.Group := TNamedGroups.CreateX25519MlKem768(Provider);
+  LParams.Group := TNamedGroups.CreateX25519MlKem768(Crypto);
   LParams.GroupCode := TNamedGroupCatalog.X25519MlKem768;
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
   LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
@@ -1214,7 +1210,7 @@ begin
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
 
   Result := TTlsEngine.CreateConfigured(
-    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls13Loopback.NewHybridServer: ITlsEngine;
@@ -1223,17 +1219,17 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  LParams.Group := TNamedGroups.CreateX25519MlKem768(Provider);
+  LParams.Group := TNamedGroups.CreateX25519MlKem768(Crypto);
   LParams.ServerRandom := Filled($22, 32);
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
 
   Result := TTlsEngine.CreateConfigured(
-    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls13Loopback.NewHybridHrrClient: ITlsEngine;
@@ -1242,16 +1238,16 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
   // offers [X25519, X25519MLKEM768] but key-shares the classical X25519 first, so a
   // hybrid-only server retries the client onto X25519MLKEM768 (the Compatible-preset path)
-  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
   LParams.GroupCode := TNamedGroupCatalog.X25519;
   LParams.OfferedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
     TNamedGroupCatalog.X25519MlKem768);
-  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
   LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
@@ -1263,7 +1259,7 @@ begin
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
 
   Result := TTlsEngine.CreateConfigured(
-    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls13Loopback.NewHybridHrrServer: ITlsEngine;
@@ -1272,19 +1268,19 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   // the server offers only the hybrid; a client that key-shared a classical group is retried
-  LParams.Group := TNamedGroups.CreateX25519MlKem768(Provider);
+  LParams.Group := TNamedGroups.CreateX25519MlKem768(Crypto);
   LParams.ServerRandom := Filled($22, 32);
-  LParams.CookieSecret := TSecretBuffer.From(Provider.Primitives.GetRandom.GenerateBytes(32));
+  LParams.CookieSecret := TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32));
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
 
   Result := TTlsEngine.CreateConfigured(
-    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls13Loopback.CountHelloRetryRequests(const AWire: TBytes): Int32;

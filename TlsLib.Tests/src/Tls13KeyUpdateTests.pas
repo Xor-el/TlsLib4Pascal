@@ -81,7 +81,7 @@ begin
   try
     Result.CertificateChain := TArray<TBytes>.Create(
       DecodeHex(FCerts.Values['leaf_cert']));
-    Result.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(FCerts.Values['leaf_key']));
+    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(FCerts.Values['leaf_key']));
   finally
     FreeAndNil(FCerts);
   end;
@@ -104,13 +104,13 @@ function TTestTls13KeyUpdate.NewClient: ITlsEngine;
 begin
   // Hardened is TLS 1.3-only, the version that has KeyUpdate
   Result := TTlsEngineFactory.CreateClientEngine(
-    TTlsPresets.Hardened(Provider, Pkix).Client.WithTrustStore(ClientTrust).Build, ServerHost);
+    TTlsPresets.Hardened(Crypto, Pkix).Client.WithTrustStore(ClientTrust).Build, ServerHost);
 end;
 
 function TTestTls13KeyUpdate.NewServer: ITlsEngine;
 begin
   Result := TTlsEngineFactory.CreateServerEngine(
-    TTlsPresets.Hardened(Provider, Pkix).Server.WithCredential(ServerCredential).Build);
+    TTlsPresets.Hardened(Crypto, Pkix).Server.WithCredential(ServerCredential).Build);
 end;
 
 function TTestTls13KeyUpdate.Drain(const AEngine: ITlsEngine): TBytes;
@@ -218,7 +218,7 @@ begin
   // AES-128-GCM only: its 2^24.5-record limit is the bound the auto-rekey defends. The
   // CPU-adaptive default prefers ChaCha20 (limited only by the 2^64 sequence, so it never rekeys
   // by count) on a host without hardware AES, which would make the rekey test host-dependent.
-  Result := TCipherSuiteRegistry.CreateDefault(Provider);
+  Result := TCipherSuiteRegistry.CreateDefault(Crypto);
   Result.Prune(TCipherSuites13.ChaCha20Poly1305Sha256);
   Result.Prune(TCipherSuites13.Aes256GcmSha384);
 end;
@@ -231,10 +231,10 @@ var
   LI: Int32;
 begin
   LClient := TTlsEngineFactory.CreateClientEngine(
-    TTlsPresets.Hardened(Provider, Pkix).Client.WithTrustStore(ClientTrust)
+    TTlsPresets.Hardened(Crypto, Pkix).Client.WithTrustStore(ClientTrust)
     .WithCipherSuites(AesGcmRegistry).Build, ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(
-    TTlsPresets.Hardened(Provider, Pkix).Server.WithCredential(ServerCredential)
+    TTlsPresets.Hardened(Crypto, Pkix).Server.WithCredential(ServerCredential)
     .WithCipherSuites(AesGcmRegistry).Build);
   LClient.StartHandshake;
   LI := 0;

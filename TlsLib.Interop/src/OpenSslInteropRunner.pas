@@ -73,7 +73,7 @@ type
     /// handshake + echoed application data; when AExpectRejectAlert >= 0 the semantics invert -
     /// 0 iff the handshake aborts with exactly that alert (a completed handshake then fails).</summary>
     class function RunOneClient(const ASocket: TInteropSocket;
-      const AProvider: ICryptoProvider; const AOptions: TInteropEngineOptions;
+      const ACryptoProvider: ICryptoProvider; const AOptions: TInteropEngineOptions;
       const AMessage: string; AExpectRejectAlert: Int32): Int32; static;
   public
     /// <summary>Parses --role/--port/... and runs one exchange; returns the exit code.</summary>
@@ -163,14 +163,14 @@ class function TOpenSslInteropRunner.RunServer(APort: Word;
 var
   LListener: TInteropListener;
   LSocket: TInteropSocket;
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LOptions: TInteropEngineOptions;
   LEngine: ITlsEngine;
   LResult: TInteropResult;
   LConn: Int32;
 begin
   Result := 1;
-  LProvider := TInteropEngine.DefaultProvider;
+  LCrypto := TInteropEngine.DefaultCrypto;
   LListener := TInteropListener.Bind('127.0.0.1', APort);
   try
     Writeln('listening on 127.0.0.1:', LListener.Port);
@@ -189,7 +189,7 @@ begin
         LOptions.SessionTicketKeys := AStek;
         LOptions.OfferedGroups := AOfferedGroups;
         LOptions.EchKeyStore := AEchKeyStore;
-        LEngine := TInteropEngine.Build(LProvider, LOptions);
+        LEngine := TInteropEngine.Build(LCrypto, LOptions);
 
         LResult := TInteropPump.DriveHandshake(LEngine, LSocket);
         if LResult.Status <> TInteropStatus.Ok then
@@ -227,14 +227,14 @@ class function TOpenSslInteropRunner.RunClient(APort: Word; const AHost,
   AExpectRejectAlert: Int32): Int32;
 var
   LSocket: TInteropSocket;
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LPkix: IPkixProvider;
   LOptions: TInteropEngineOptions;
   LCache: ISessionCache;
   LConn: Int32;
 begin
   Result := 1;
-  LProvider := TInteropEngine.DefaultProvider;
+  LCrypto := TInteropEngine.DefaultCrypto;
   LPkix := TInteropEngine.DefaultPkix;
   // one shared cache carries a ticket from an earlier connection so a later one resumes it
   LCache := nil;
@@ -249,7 +249,7 @@ begin
   LOptions.SessionCache := LCache;
   // a shared scope so the per-connection rebuilt client configs resume each other's sessions
   if LCache <> nil then
-    LOptions.SessionScope := LProvider.Primitives.GetRandom.GenerateBytes(16);
+    LOptions.SessionScope := LCrypto.Primitives.GetRandom.GenerateBytes(16);
   LOptions.OfferedGroups := AOfferedGroups;
   LOptions.EchConfigList := AEchConfigList;
   // offer status_request and pin a revocation posture so a stapled-revoked peer is evaluated
@@ -261,14 +261,14 @@ begin
   begin
     LOptions.HasCredential := True;
     LOptions.Credential :=
-      TInteropCredentials.ServerCredentialFromFieldFile(LProvider, LPkix, AClientCredFile);
+      TInteropCredentials.ServerCredentialFromFieldFile(LCrypto, LPkix, AClientCredFile);
   end;
 
   for LConn := 1 to AConnectionCount do
   begin
     LSocket := TInteropSocket.Connect(AHost, APort);
     try
-      Result := RunOneClient(LSocket, LProvider, LOptions, AMessage, AExpectRejectAlert);
+      Result := RunOneClient(LSocket, LCrypto, LOptions, AMessage, AExpectRejectAlert);
     finally
       LSocket.Free;
     end;
@@ -278,7 +278,7 @@ begin
 end;
 
 class function TOpenSslInteropRunner.RunOneClient(const ASocket: TInteropSocket;
-  const AProvider: ICryptoProvider; const AOptions: TInteropEngineOptions;
+  const ACryptoProvider: ICryptoProvider; const AOptions: TInteropEngineOptions;
   const AMessage: string; AExpectRejectAlert: Int32): Int32;
 var
   LEngine: ITlsEngine;
@@ -287,7 +287,7 @@ var
   LI: Int32;
 begin
   Result := 1;
-  LEngine := TInteropEngine.Build(AProvider, AOptions);
+  LEngine := TInteropEngine.Build(ACryptoProvider, AOptions);
 
   LEngine.StartHandshake;
   LResult := TInteropPump.DriveHandshake(LEngine, ASocket);
@@ -357,7 +357,7 @@ var
   LDataDir, LCredentialFile: string;
   LResumeCount: Int32;
   LStek: ISessionTicketKeyManager;
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LPkix: IPkixProvider;
   LCredential: TTlsCredential;
   LStaple: TBytes;
@@ -418,9 +418,9 @@ begin
     begin
       LStek := nil;
       if LResumeCount > 0 then
-        LStek := TStekTicketKeyManager.Create(TInteropEngine.DefaultProvider.Primitives.GetRandom)
+        LStek := TStekTicketKeyManager.Create(TInteropEngine.DefaultCrypto.Primitives.GetRandom)
           as ISessionTicketKeyManager;
-      LProvider := TInteropEngine.DefaultProvider;
+      LCrypto := TInteropEngine.DefaultCrypto;
       LPkix := TInteropEngine.DefaultPkix;
       LStaple := nil;
       if LStapleField <> '' then
@@ -428,7 +428,7 @@ begin
         LCredentialFile := LDataDir + PathDelim + 'Certs' + PathDelim +
           'OcspStapling.txt';
         LCredential := TInteropCredentials.ServerStaplingCredentialFromFieldFile(
-          LProvider, LCredentialFile);
+          LCrypto, LCredentialFile);
         LFields := TStringList.Create;
         try
           TInteropUtils.LoadFieldFile(LCredentialFile, LFields);
@@ -439,11 +439,11 @@ begin
       end
       else
         LCredential := TInteropCredentials.ServerCredentialFromFieldFile(
-          LProvider, LPkix, LCredentialFile);
+          LCrypto, LPkix, LCredentialFile);
       LEchKeyStore := nil;
       if LEchKeyFile <> '' then
         LEchKeyStore := TInMemoryEchKeyStore.FromPem(
-          BytesOf(TInteropUtils.ReadAllText(LEchKeyFile)), LProvider);
+          BytesOf(TInteropUtils.ReadAllText(LEchKeyFile)), LCrypto);
       Result := RunServer(LPort, LCredential, LStaple, LResumeCount + 1, LStek,
         LOfferedGroups, LEchKeyStore);
     end;

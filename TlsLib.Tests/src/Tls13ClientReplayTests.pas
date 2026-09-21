@@ -263,11 +263,11 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
   LParams.Group := TReplayGroup.Create(DecodeHex(FSched.Values['shared_secret']));
   LParams.GroupCode := TNamedGroupCatalog.X25519;
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
   // the RFC 8448 server signs its CertificateVerify with rsa_pss_rsae_sha256, so the
@@ -283,7 +283,7 @@ begin
 
   FDriver := Own<THandshakeDriver>(THandshakeDriver.Create(
     THandshakeChannel.Create(FLayer) as IHandshakeChannel,
-    TRecordLayerInstaller.Create(FLayer) as IRecordEpochInstaller, Provider,
+    TRecordLayerInstaller.Create(FLayer) as IRecordEpochInstaller, Crypto,
     TMockHandshakeSink.Create as IHandshakeSink));
 
   FDriver.ApplyAll(FSm.Start);

@@ -69,11 +69,11 @@ type
     /// <summary>
     /// Generates a single-config ECHConfigList for public_name APublicName under the
     /// HPKE suite (AKem, AKdf, AAead) with the operator-chosen config id AConfigId and
-    /// the padding hint AMaximumNameLength. AProvider frames the PEM (RFC 7468) so the
+    /// the padding hint AMaximumNameLength. ACryptoProvider frames the PEM (RFC 7468) so the
     /// output matches what the server store reads. The DNS line is published at AOrigin
     /// (the name clients connect to). Raises for an unsupported KEM or an invalid name.
     /// </summary>
-    class function Generate(const AProvider: ICryptoProvider;
+    class function Generate(const ACryptoProvider: ICryptoProvider;
       const APublicName, AOrigin: string; AConfigId: Byte; AKem, AKdf, AAead: UInt16;
       AMaximumNameLength: Byte): TEchKeyGenResult; static;
     /// <summary>
@@ -88,7 +88,7 @@ implementation
 
 { TEchKeyGenerator }
 
-class function TEchKeyGenerator.Generate(const AProvider: ICryptoProvider;
+class function TEchKeyGenerator.Generate(const ACryptoProvider: ICryptoProvider;
   const APublicName, AOrigin: string; AConfigId: Byte; AKem, AKdf, AAead: UInt16;
   AMaximumNameLength: Byte): TEchKeyGenResult;
 var
@@ -212,7 +212,7 @@ end;
 
 class function TEchKeyGenerator.RunConsole: Integer;
 var
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LPublicName, LOrigin, LOutPath, LSuite, LArg, LValue: string;
   LKem, LKdf, LAead: UInt16;
   LConfigId, LMaxNameLen: Int32;
@@ -284,12 +284,12 @@ begin
   end;
 
   try
-    LProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+    LCrypto := TDefaultCryptoProvider.Create as ICryptoProvider;
     // the config id is an operator-chosen hint; default to a random byte (the server
     // matches an incoming ECH by it, so it need only be stable, not secret)
     if not LHasConfigId then
-      LConfigId := LProvider.Primitives.GetRandom.GenerateBytes(1)[0];
-    LResult := Generate(LProvider, LPublicName, LOrigin, Byte(LConfigId), LKem, LKdf, LAead,
+      LConfigId := LCrypto.Primitives.GetRandom.GenerateBytes(1)[0];
+    LResult := Generate(LCrypto, LPublicName, LOrigin, Byte(LConfigId), LKem, LKdf, LAead,
       Byte(LMaxNameLen));
     WriteFile(LOutPath, LResult.Pem);
     WriteLn(LResult.DnsLine);

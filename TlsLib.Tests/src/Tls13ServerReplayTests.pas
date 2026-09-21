@@ -84,9 +84,9 @@ type
     FDriver: THandshakeDriver;
     FSm: IHandshakeMachine;
     function Msg(const AName: string): TTlsHandshakeMessage;
-    /// <summary>Rebuilds FDriver over AProvider, releasing any driver from a prior
+    /// <summary>Rebuilds FDriver over ACryptoProvider, releasing any driver from a prior
     /// arrange first so a re-arranged test never leaks the previous graph.</summary>
-    procedure BuildDriver(const AProvider: ICryptoProvider);
+    procedure BuildDriver(const ACryptoProvider: ICryptoProvider);
     /// <summary>Arranges a server whose RSA credential can sign any rsa_pss_rsae_*
     /// variant (schemes listed [sha384, sha256, sha512]); it really signs, no override.</summary>
     procedure ArrangeMultiSchemeRsa;
@@ -241,13 +241,13 @@ begin
     end;
 end;
 
-procedure TTestTls13ServerReplay.BuildDriver(const AProvider: ICryptoProvider);
+procedure TTestTls13ServerReplay.BuildDriver(const ACryptoProvider: ICryptoProvider);
 begin
   // a test may arrange more than once; Own accumulates, and the base disposes every driver at
   // TearDown. A superseded driver holds only non-owning refs to FLayer, so it is inert until then
   FDriver := Own<THandshakeDriver>(THandshakeDriver.Create(
     THandshakeChannel.Create(FLayer) as IHandshakeChannel,
-    TRecordLayerInstaller.Create(FLayer) as IRecordEpochInstaller, AProvider,
+    TRecordLayerInstaller.Create(FLayer) as IRecordEpochInstaller, ACryptoProvider,
     TMockHandshakeSink.Create as IHandshakeSink));
 end;
 
@@ -268,7 +268,7 @@ begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
   // a fixed HasHardwareAes=True makes the suite choice deterministically AES-128-GCM
-  LParams.Crypto := TFixedAesProvider.Create(Provider, True);
+  LParams.Crypto := TFixedAesProvider.Create(Crypto, True);
   LParams.Inspector := Pkix.Certificates;
   LParams.Policy := TNegotiationPolicy.CreateDefault(LParams.Crypto);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(LParams.Crypto);
@@ -284,7 +284,7 @@ begin
   // the RFC 8448 server signs with rsa_pss_rsae_sha256, which the RFC client offers;
   // the CertificateVerify is replayed verbatim, so the key only drives scheme selection
   LCred := Default(TTlsCredential);
-  LCred.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_key']));
+  LCred.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_key']));
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(LCred);
   FSm := TTls13ServerStateMachine.Create(LParams);
   BuildDriver(LParams.Crypto);
@@ -448,10 +448,10 @@ begin
   LFill := DecodeHex(StringOfChar('a', 64)); // 32 bytes; the mock KEM ignores its value
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.Group := TReplayServerGroup.Create(LFill, LFill) as INamedGroup;
   LParams.ServerRandom := LFill;
@@ -459,10 +459,10 @@ begin
   // machine signs for real (no CertificateVerifyOverride)
   LCred := Default(TTlsCredential);
   LCred.CertificateChain := TArray<TBytes>.Create(DecodeHex(FKeys.Values['rsa_cert']));
-  LCred.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_key']));
+  LCred.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_key']));
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(LCred);
   FSm := TTls13ServerStateMachine.Create(LParams);
-  BuildDriver(Provider);
+  BuildDriver(Crypto);
   FSm.Start;
 end;
 

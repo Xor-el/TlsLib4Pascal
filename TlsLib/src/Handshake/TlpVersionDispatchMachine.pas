@@ -22,6 +22,7 @@ uses
   TlpTlsAlert,
   TlpTlsLibExceptions,
   TlpWireReader,
+  TlpExtensionVector,
   TlpCoreExtensions,
   TlpNegotiationTypes,
   TlpNegotiationPolicy,
@@ -201,51 +202,40 @@ end;
 class function TVersionDispatchMachineBase.ClientHelloVersions(
   const AExtensions: TBytes): TArray<UInt16>;
 var
-  LReader, LOuter, LData, LVers: TWireReader;
-  LType: UInt16;
+  LVector: TExtensionVector;
+  LEntry: TExtensionEntry;
+  LReader, LVers: TWireReader;
 begin
   Result := nil;
-  // an absent extensions field is a legacy ClientHello shape: no supported_versions to read
+  // an absent extensions field is a legacy ClientHello shape: no supported_versions to read.
+  // a present field is parsed in full here - a duplicate type, an over-cap count or trailing
+  // bytes are rejected with their structural alert before the version is chosen, rather than
+  // slipping through this tolerant pre-scan to fail later during the message's own extension pass
   if System.Length(AExtensions) = 0 then
     Exit;
-  LReader := TWireReader.Create(AExtensions);
-  LOuter := LReader.OpenVector(2);
-  while not LOuter.EndReached do
+  LVector := TExtensionVector.Parse(AExtensions);
+  if LVector.TryFind(TExtensionTypes.SupportedVersions, LEntry) then
   begin
-    LType := LOuter.ReadUInt16;
-    LData := LOuter.OpenVector(2);
-    if LType = TExtensionTypes.SupportedVersions then
-    begin
-      // ClientHello supported_versions: a 1-byte-length list of uint16 versions
-      LVers := LData.OpenVector(1);
-      while not LVers.EndReached do
-        TArrayUtilities.Append<UInt16>(Result, LVers.ReadUInt16);
-      Exit;
-    end;
-    LData.ReadBytes(LData.Remaining);
+    // ClientHello supported_versions: a 1-byte-length list of uint16 versions
+    LReader := TWireReader.Create(LEntry.Data);
+    LVers := LReader.OpenVector(1);
+    while not LVers.EndReached do
+      TArrayUtilities.Append<UInt16>(Result, LVers.ReadUInt16);
   end;
 end;
 
 class function TVersionDispatchMachineBase.HasEncryptedClientHello(
   const AExtensions: TBytes): Boolean;
 var
-  LReader, LOuter, LData: TWireReader;
-  LType: UInt16;
+  LVector: TExtensionVector;
 begin
   Result := False;
-  // an absent extensions field is a legacy ClientHello shape: no extensions to find
+  // an absent extensions field is a legacy ClientHello shape: no extensions to find. a present
+  // field is parsed in full (see ClientHelloVersions) before the ECH question is answered
   if System.Length(AExtensions) = 0 then
     Exit;
-  LReader := TWireReader.Create(AExtensions);
-  LOuter := LReader.OpenVector(2);
-  while not LOuter.EndReached do
-  begin
-    LType := LOuter.ReadUInt16;
-    LData := LOuter.OpenVector(2);
-    if LType = TExtensionTypes.EncryptedClientHello then
-      Exit(True);
-    LData.ReadBytes(LData.Remaining);
-  end;
+  LVector := TExtensionVector.Parse(AExtensions);
+  Result := LVector.Contains(TExtensionTypes.EncryptedClientHello);
 end;
 
 { TServerVersionDispatchMachine }

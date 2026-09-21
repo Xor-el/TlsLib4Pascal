@@ -43,7 +43,7 @@ type
   /// </summary>
   TSystemCryptoStrictness = class sealed(TObject)
   strict private
-    class function Report(const AProvider: ICryptoProvider): ICryptoBackendReport; static;
+    class function Report(const ACryptoProvider: ICryptoProvider): ICryptoBackendReport; static;
     // reads the group's composition via a local (direct field access) and checks each
     // primitive component against the report; a group is served natively when every
     // component it is built from is System-backed (both halves, for a hybrid).
@@ -51,20 +51,20 @@ type
       const AGroup: INamedGroup): Boolean; static;
     class function CommaList(const AItems: TArray<string>): string; static;
   public
-    class function NativeNamedGroups(const AProvider: ICryptoProvider;
+    class function NativeNamedGroups(const ACryptoProvider: ICryptoProvider;
       out ADropped: TArray<string>): INamedGroupRegistry; static;
-    class function NativeCipherSuites(const AProvider: ICryptoProvider;
+    class function NativeCipherSuites(const ACryptoProvider: ICryptoProvider;
       out ADropped: TArray<string>): ICipherSuiteRegistry; static;
-    class function NativeSignatureSchemes(const AProvider: ICryptoProvider;
+    class function NativeSignatureSchemes(const ACryptoProvider: ICryptoProvider;
       out ADropped: TArray<string>): ISignatureSchemeRegistry; static;
     /// <summary>Fail-fast startup gates: raise
     /// <see cref="ESystemCryptoRequirementTlsLibException" /> listing every requested entry
     /// the OS-native backend does not serve, or return quietly when all are served.</summary>
-    class procedure RequireNamedGroups(const AProvider: ICryptoProvider;
+    class procedure RequireNamedGroups(const ACryptoProvider: ICryptoProvider;
       const ACodes: array of UInt16); static;
-    class procedure RequireCipherSuites(const AProvider: ICryptoProvider;
+    class procedure RequireCipherSuites(const ACryptoProvider: ICryptoProvider;
       const ACodes: array of UInt16); static;
-    class procedure RequireSignatureSchemes(const AProvider: ICryptoProvider;
+    class procedure RequireSignatureSchemes(const ACryptoProvider: ICryptoProvider;
       const ASchemes: array of TSignatureScheme); static;
   end;
 
@@ -81,9 +81,9 @@ resourcestring
 { TSystemCryptoStrictness }
 
 class function TSystemCryptoStrictness.Report(
-  const AProvider: ICryptoProvider): ICryptoBackendReport;
+  const ACryptoProvider: ICryptoProvider): ICryptoBackendReport;
 begin
-  if not Supports(AProvider, ICryptoBackendReport, Result) then
+  if not Supports(ACryptoProvider, ICryptoBackendReport, Result) then
     Result := nil;
 end;
 
@@ -113,7 +113,7 @@ begin
 end;
 
 class function TSystemCryptoStrictness.NativeNamedGroups(
-  const AProvider: ICryptoProvider; out ADropped: TArray<string>): INamedGroupRegistry;
+  const ACryptoProvider: ICryptoProvider; out ADropped: TArray<string>): INamedGroupRegistry;
 var
   LReport: ICryptoBackendReport;
   LGroup: INamedGroup;
@@ -122,10 +122,10 @@ var
 begin
   ADropped := nil;
   LCodes := nil;
-  LReport := Report(AProvider);
+  LReport := Report(ACryptoProvider);
   // start from the provider's default registry (a fresh instance) and prune what is not
   // served natively
-  Result := TNamedGroups.CreateDefaultRegistry(AProvider);
+  Result := TNamedGroups.CreateDefaultRegistry(ACryptoProvider);
   for LGroup in Result.Items do
     if not GroupIsNative(LReport, LGroup) then
     begin
@@ -137,7 +137,7 @@ begin
 end;
 
 class function TSystemCryptoStrictness.NativeCipherSuites(
-  const AProvider: ICryptoProvider; out ADropped: TArray<string>): ICipherSuiteRegistry;
+  const ACryptoProvider: ICryptoProvider; out ADropped: TArray<string>): ICipherSuiteRegistry;
 var
   LReport: ICryptoBackendReport;
   LSuite: TTlsCipherSuite;
@@ -147,8 +147,8 @@ var
 begin
   ADropped := nil;
   LCodes := nil;
-  LReport := Report(AProvider);
-  Result := TCipherSuiteRegistry.CreateDefault(AProvider);
+  LReport := Report(ACryptoProvider);
+  Result := TCipherSuiteRegistry.CreateDefault(ACryptoProvider);
   // a suite is native when both its record-protection hash and its AEAD are System-backed
   for LSuite in Result.Items do
   begin
@@ -166,7 +166,7 @@ begin
 end;
 
 class function TSystemCryptoStrictness.NativeSignatureSchemes(
-  const AProvider: ICryptoProvider; out ADropped: TArray<string>): ISignatureSchemeRegistry;
+  const ACryptoProvider: ICryptoProvider; out ADropped: TArray<string>): ISignatureSchemeRegistry;
 var
   LReport: ICryptoBackendReport;
   LScheme: TSignatureScheme;
@@ -176,7 +176,7 @@ var
 begin
   ADropped := nil;
   LCodes := nil;
-  LReport := Report(AProvider);
+  LReport := Report(ACryptoProvider);
   Result := TSignatureSchemeRegistry.CreateDefault;
   for LScheme in Result.Items do
     if (LReport = nil) or
@@ -203,13 +203,13 @@ begin
 end;
 
 class procedure TSystemCryptoStrictness.RequireNamedGroups(
-  const AProvider: ICryptoProvider; const ACodes: array of UInt16);
+  const ACryptoProvider: ICryptoProvider; const ACodes: array of UInt16);
 var
   LNative: INamedGroupRegistry;
   LDropped, LMissing: TArray<string>;
   LI: Int32;
 begin
-  LNative := NativeNamedGroups(AProvider, LDropped);
+  LNative := NativeNamedGroups(ACryptoProvider, LDropped);
   LMissing := nil;
   for LI := 0 to System.High(ACodes) do
     if not LNative.Contains(ACodes[LI]) then
@@ -220,13 +220,13 @@ begin
 end;
 
 class procedure TSystemCryptoStrictness.RequireCipherSuites(
-  const AProvider: ICryptoProvider; const ACodes: array of UInt16);
+  const ACryptoProvider: ICryptoProvider; const ACodes: array of UInt16);
 var
   LNative: ICipherSuiteRegistry;
   LDropped, LMissing: TArray<string>;
   LI: Int32;
 begin
-  LNative := NativeCipherSuites(AProvider, LDropped);
+  LNative := NativeCipherSuites(ACryptoProvider, LDropped);
   LMissing := nil;
   for LI := 0 to System.High(ACodes) do
     if not LNative.Contains(ACodes[LI]) then
@@ -237,14 +237,14 @@ begin
 end;
 
 class procedure TSystemCryptoStrictness.RequireSignatureSchemes(
-  const AProvider: ICryptoProvider; const ASchemes: array of TSignatureScheme);
+  const ACryptoProvider: ICryptoProvider; const ASchemes: array of TSignatureScheme);
 var
   LNative: ISignatureSchemeRegistry;
   LDropped, LMissing: TArray<string>;
   LI: Int32;
   LName: string;
 begin
-  LNative := NativeSignatureSchemes(AProvider, LDropped);
+  LNative := NativeSignatureSchemes(ACryptoProvider, LDropped);
   LMissing := nil;
   for LI := 0 to System.High(ASchemes) do
     if not LNative.Contains(ASchemes[LI].ToCode) then

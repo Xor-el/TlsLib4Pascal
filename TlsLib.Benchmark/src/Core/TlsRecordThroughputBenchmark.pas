@@ -75,7 +75,7 @@ type
 
 class function TTlsRecordThroughputBenchmark.Run(ALogProc: TBenchmarkLogProc): Int32;
 var
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LPkix: IPkixProvider;
   LCredential: TTlsBenchmarkCredential;
   LOpenSslAvailable: Boolean;
@@ -115,7 +115,7 @@ var
   begin
     Result := -1.0;
     try
-      LPeer := TTlsLibThroughputPeer.Create(LProvider, LPkix, LCredential, ASuiteCode,
+      LPeer := TTlsLibThroughputPeer.Create(LCrypto, LPkix, LCredential, ASuiteCode,
         ARecordSize, BENCH_TP_PAYLOAD);
       try
         Result := TBenchmarkTiming.MeasureThroughputMbPerSec(LPeer.SendOnce, LPeer.PayloadBytes);
@@ -152,7 +152,7 @@ var
 
 begin
   Result := BENCH_LABEL_COL_WIDTH + 3 * BENCH_TP_VALUE_COL_WIDTH;
-  LProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  LCrypto := TDefaultCryptoProvider.Create as ICryptoProvider;
   LPkix := TDefaultPkixProvider.Create as IPkixProvider;
   LCredential := TTlsBenchmarkData.LoadEcP256;
   LOpenSslAvailable := TOpenSslThroughputPeer.IsAvailable;

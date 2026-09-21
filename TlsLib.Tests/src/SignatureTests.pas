@@ -48,7 +48,7 @@ type
     function TamperedVerifyFails(AScheme: TSignatureScheme;
       const APrivDer, APubDer: TBytes): Boolean;
     function Rfc8448LeafSpki: TBytes;
-    function VerifyEcdsa(const AProvider: ICryptoProvider;
+    function VerifyEcdsa(const ACryptoProvider: ICryptoProvider;
       const ASig, AMsg: TBytes): Boolean;
     function HashOf(const ANames: array of string): TBytes;
     function ServerCertVerifyContent(const ATranscriptHash: TBytes): TBytes;
@@ -102,11 +102,11 @@ var
   LMessage, LSignature: TBytes;
 begin
   LMessage := DecodeHex('54686520717569636b2062726f776e20666f78'); // "The quick brown fox"
-  LSigner := Provider.Signing.CreateSignatureSigner(AScheme, Provider.Signing.ImportSigningKey(APrivDer));
+  LSigner := Crypto.Signing.CreateSignatureSigner(AScheme, Crypto.Signing.ImportSigningKey(APrivDer));
   LSigner.Update(LMessage, 0, System.Length(LMessage));
   LSignature := LSigner.Sign;
 
-  LVerifier := Provider.Signing.CreateSignatureVerifier(AScheme, APubDer);
+  LVerifier := Crypto.Signing.CreateSignatureVerifier(AScheme, APubDer);
   LVerifier.Update(LMessage, 0, System.Length(LMessage));
   Result := LVerifier.Verify(LSignature);
 end;
@@ -119,14 +119,14 @@ var
   LMessage, LSignature: TBytes;
 begin
   LMessage := DecodeHex('54686520717569636b2062726f776e20666f78');
-  LSigner := Provider.Signing.CreateSignatureSigner(AScheme, Provider.Signing.ImportSigningKey(APrivDer));
+  LSigner := Crypto.Signing.CreateSignatureSigner(AScheme, Crypto.Signing.ImportSigningKey(APrivDer));
   LSigner.Update(LMessage, 0, System.Length(LMessage));
   LSignature := LSigner.Sign;
   // flip a signature byte
   LSignature[System.Length(LSignature) - 1] :=
     Byte(LSignature[System.Length(LSignature) - 1] xor $01);
 
-  LVerifier := Provider.Signing.CreateSignatureVerifier(AScheme, APubDer);
+  LVerifier := Crypto.Signing.CreateSignatureVerifier(AScheme, APubDer);
   LVerifier.Update(LMessage, 0, System.Length(LMessage));
   Result := not LVerifier.Verify(LSignature);
 end;
@@ -137,7 +137,7 @@ var
   LMsg: TBytes;
   LI: Int32;
 begin
-  LHash := Provider.Primitives.CreateHash(THashAlgorithm.SHA_256);
+  LHash := Crypto.Primitives.CreateHash(THashAlgorithm.SHA_256);
   for LI := 0 to High(ANames) do
   begin
     LMsg := DecodeHex(FHs.Values[ANames[LI]]);
@@ -218,7 +218,7 @@ begin
   // the genuine RFC 8448 server CertificateVerify over the real transcript
   LContent := ServerCertVerifyContent(HashOf(['client_hello', 'server_hello',
     'encrypted_ext', 'certificate']));
-  LVerifier := Provider.Signing.CreateSignatureVerifier(TSignatureScheme.RSA_PSS_RSAE_SHA256, Rfc8448LeafSpki);
+  LVerifier := Crypto.Signing.CreateSignatureVerifier(TSignatureScheme.RSA_PSS_RSAE_SHA256, Rfc8448LeafSpki);
   LVerifier.Update(LContent, 0, System.Length(LContent));
   CheckTrue(LVerifier.Verify(CertVerifySignature),
     'the genuine RFC 8448 server CertificateVerify verifies against the leaf key');
@@ -233,7 +233,7 @@ begin
   LHash := HashOf(['client_hello', 'server_hello', 'encrypted_ext', 'certificate']);
   LHash[0] := Byte(LHash[0] xor $01);
   LContent := ServerCertVerifyContent(LHash);
-  LVerifier := Provider.Signing.CreateSignatureVerifier(TSignatureScheme.RSA_PSS_RSAE_SHA256, Rfc8448LeafSpki);
+  LVerifier := Crypto.Signing.CreateSignatureVerifier(TSignatureScheme.RSA_PSS_RSAE_SHA256, Rfc8448LeafSpki);
   LVerifier.Update(LContent, 0, System.Length(LContent));
   CheckFalse(LVerifier.Verify(CertVerifySignature),
     'the signature does not verify over a different transcript');
@@ -275,7 +275,7 @@ procedure TTestSignature.TestVerifierRejectsSchemeKeyFamilyMismatch;
   begin
     LRaised := False;
     try
-      Provider.Signing.CreateSignatureVerifier(AScheme, APubDer);
+      Crypto.Signing.CreateSignatureVerifier(AScheme, APubDer);
     except
       on E: EArgumentTlsLibException do
         LRaised := True;
@@ -300,7 +300,7 @@ var
 begin
   // the seam binds the key FAMILY, not the curve: a P-256 key under ecdsa_secp384r1_sha384 is a
   // legitimate TLS 1.2 pairing (the curve bind is a TLS 1.3 handshake concern), so it constructs
-  LVerifier := Provider.Signing.CreateSignatureVerifier(
+  LVerifier := Crypto.Signing.CreateSignatureVerifier(
     TSignatureScheme.ECDSA_SECP384R1_SHA384, DecodeHex(FKeys.Values['ecdsa_pub']));
   CheckTrue(LVerifier <> nil, 'an EC key under a different-curve ecdsa_* scheme still constructs');
 end;
@@ -311,7 +311,7 @@ var
 begin
   LRaised := False;
   try
-    Provider.Signing.CreateSignatureVerifier(TSignatureScheme.ECDSA_SECP256R1_SHA256,
+    Crypto.Signing.CreateSignatureVerifier(TSignatureScheme.ECDSA_SECP256R1_SHA256,
       DecodeHex('deadbeefdeadbeef'));
   except
     on E: EArgumentTlsLibException do
@@ -332,7 +332,7 @@ begin
     '0000000000000000000000000000000000000000000000000000000000000000');
   LRaised := False;
   try
-    Provider.Signing.CreateSignatureVerifier(TSignatureScheme.ED25519, LX25519Spki);
+    Crypto.Signing.CreateSignatureVerifier(TSignatureScheme.ED25519, LX25519Spki);
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
@@ -346,10 +346,10 @@ var
   LRaised: Boolean;
 begin
   // an EC key cannot sign an rsa_pss_rsae_* scheme; the seam refuses it before the backend
-  LKey := Provider.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ecdsa_key']));
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ecdsa_key']));
   LRaised := False;
   try
-    Provider.Signing.CreateSignatureSigner(TSignatureScheme.RSA_PSS_RSAE_SHA256, LKey);
+    Crypto.Signing.CreateSignatureSigner(TSignatureScheme.RSA_PSS_RSAE_SHA256, LKey);
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
@@ -383,12 +383,12 @@ begin
     'the alert is illegal_parameter');
 end;
 
-function TTestSignature.VerifyEcdsa(const AProvider: ICryptoProvider;
+function TTestSignature.VerifyEcdsa(const ACryptoProvider: ICryptoProvider;
   const ASig, AMsg: TBytes): Boolean;
 var
   LVerifier: ISignatureVerifier;
 begin
-  LVerifier := AProvider.Signing.CreateSignatureVerifier(
+  LVerifier := ACryptoProvider.Signing.CreateSignatureVerifier(
     TSignatureScheme.ECDSA_SECP256R1_SHA256, DecodeHex(FKeys.Values['ecdsa_pub']));
   LVerifier.Update(AMsg, 0, System.Length(AMsg));
   Result := LVerifier.Verify(ASig);
@@ -396,7 +396,7 @@ end;
 
 procedure TTestSignature.TestSystemEcdsaVerifiesValidAndRejectsTrailingBytes;
 var
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LMessage, LSig, LTampered: TBytes;
   LSigner: ISignatureSigner;
   LRejected: Boolean;
@@ -405,21 +405,21 @@ begin
   // signature verifies (no regression from the stricter DER check), and a signature with a
   // trailing byte after the SEQUENCE is rejected - either as a False verdict (the native decoder)
   // or by the strict DER decoder raising, so the check tolerates both
-  LProvider := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider);
+  LCrypto := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider);
   LMessage := DecodeHex('54686520717569636b2062726f776e20666f78'); // "The quick brown fox"
-  LSigner := LProvider.Signing.CreateSignatureSigner(
+  LSigner := LCrypto.Signing.CreateSignatureSigner(
     TSignatureScheme.ECDSA_SECP256R1_SHA256,
-    LProvider.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ecdsa_key'])));
+    LCrypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ecdsa_key'])));
   LSigner.Update(LMessage, 0, System.Length(LMessage));
   LSig := LSigner.Sign;
 
-  CheckTrue(VerifyEcdsa(LProvider, LSig, LMessage), 'a valid ECDSA signature verifies');
+  CheckTrue(VerifyEcdsa(LCrypto, LSig, LMessage), 'a valid ECDSA signature verifies');
 
   LTampered := System.Copy(LSig);
   SetLength(LTampered, System.Length(LTampered) + 1); // a trailing byte after the DER SEQUENCE
   LRejected := False;
   try
-    LRejected := not VerifyEcdsa(LProvider, LTampered, LMessage);
+    LRejected := not VerifyEcdsa(LCrypto, LTampered, LMessage);
   except
     on E: Exception do
       LRejected := True;
@@ -429,17 +429,17 @@ end;
 
 procedure TTestSignature.TestSystemSignerRejectsSchemeOutsideCapableSchemes;
 var
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LKey: ISigningKey;
   LRaised: Boolean;
 begin
   // the overlay signer enforces the same CapableSchemes gate as the portable one (native where
   // present, portable fallback otherwise), so this holds on every host
-  LProvider := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider);
-  LKey := LProvider.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ecdsa_key']));
+  LCrypto := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider);
+  LKey := LCrypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ecdsa_key']));
   LRaised := False;
   try
-    LProvider.Signing.CreateSignatureSigner(TSignatureScheme.RSA_PSS_RSAE_SHA256, LKey);
+    LCrypto.Signing.CreateSignatureSigner(TSignatureScheme.RSA_PSS_RSAE_SHA256, LKey);
   except
     on E: EArgumentTlsLibException do
       LRaised := True;

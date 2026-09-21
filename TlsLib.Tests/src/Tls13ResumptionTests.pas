@@ -153,7 +153,7 @@ begin
   try
     Result.CertificateChain := TArray<TBytes>.Create(
       DecodeHex(LCerts.Values['leaf_cert']));
-    Result.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
+    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
   finally
     LCerts.Free;
   end;
@@ -166,15 +166,15 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
   LParams.GroupCode := TNamedGroupCatalog.X25519;
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
   LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
-  LParams.ClientRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
+  LParams.ClientRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
   LParams.LegacySessionId := Filled($33, 32);
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
@@ -185,7 +185,7 @@ begin
   LParams.EarlyDataEnabled := AEarlyData;
 
   Result := TTlsEngine.CreateConfigured(
-    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls13Resumption.BuildServer(const AStek: ISessionTicketKeyManager;
@@ -197,13 +197,13 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  LParams.Group := TNamedGroups.CreateX25519(Provider);
-  LParams.ServerRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
+  LParams.ServerRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
   if AWithCredential then
     LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
   LParams.SessionTicketKeys := AStek;
@@ -214,7 +214,7 @@ begin
   LParams.AntiReplay := AAntiReplay;
 
   Result := TTlsEngine.CreateConfigured(
-    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls13Resumption.NewServer(const AStore: ISessionStore;
@@ -335,7 +335,7 @@ var
   LClient, LServer: ITlsEngine;
 begin
   LCache := TInMemorySessionCache.Create;
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
 
   // first connection: a full handshake that issues one ticket
   LClient := NewClient(LCache);
@@ -372,10 +372,10 @@ var
   LSecret: ISecretBuffer;
 begin
   // seed a matching client cache entry and server store entry (same identity+secret)
-  LIdentity := Provider.Primitives.GetRandom.GenerateBytes(32);
-  LSecret := TSecretBuffer.From(Provider.Primitives.GetRandom.GenerateBytes(32));
+  LIdentity := Crypto.Primitives.GetRandom.GenerateBytes(32);
+  LSecret := TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32));
   LCache := TInMemorySessionCache.Create;
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
   LCache.Store(ServerHost, ServerHost, MakeSession(LIdentity, LSecret, 7200));
   LStore.PutWithId(LIdentity, MakeSession(LIdentity, LSecret, 7200));
 
@@ -407,9 +407,9 @@ var
 begin
   // the client's cached secret differs from the server's stored secret for the same
   // identity, so the server opens the ticket but its binder does not validate
-  LIdentity := Provider.Primitives.GetRandom.GenerateBytes(32);
+  LIdentity := Crypto.Primitives.GetRandom.GenerateBytes(32);
   LCache := TInMemorySessionCache.Create;
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
   LCache.Store(ServerHost, ServerHost, MakeSession(LIdentity,
     TSecretBuffer.From(Filled($AA, 32)), 7200));
   LStore.PutWithId(LIdentity, MakeSession(LIdentity,
@@ -437,10 +437,10 @@ begin
   // an expired ticket (lifetime 0) against a credential-less server: the server must
   // reject the PSK on freshness and then cannot run a full handshake, so it does not
   // complete - proving the expired ticket was not accepted
-  LIdentity := Provider.Primitives.GetRandom.GenerateBytes(32);
-  LSecret := TSecretBuffer.From(Provider.Primitives.GetRandom.GenerateBytes(32));
+  LIdentity := Crypto.Primitives.GetRandom.GenerateBytes(32);
+  LSecret := TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32));
   LCache := TInMemorySessionCache.Create;
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
   LCache.Store(ServerHost, ServerHost, MakeSession(LIdentity, LSecret, 0));
   LStore.PutWithId(LIdentity, MakeSession(LIdentity, LSecret, 0));
 
@@ -460,7 +460,7 @@ begin
   // a ticket_lifetime of 0 means the client discards it immediately and must not cache it
   // (RFC 8446 4.6.1)
   LCache := TInMemorySessionCache.Create;
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
   LClient := NewClient(LCache);
   LServer := NewServer(LStore, 1, 0, True);
   DriveHandshake(LClient, LServer);
@@ -511,7 +511,7 @@ var
 begin
   // the default (no store) strategy: AEAD-sealed tickets under a shared STEK, no
   // server-side storage
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
 
   LClient := NewClient(LCache);
@@ -535,7 +535,7 @@ var
   LClient, LServer: ITlsEngine;
   LI: Int32;
 begin
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
 
   // issue a real STEK ticket
@@ -564,11 +564,11 @@ var
   LClient, LServer: ITlsEngine;
 begin
   // a client offering a garbage "ticket" that is not a valid STEK seal
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
   LCache.Store(ServerHost, ServerHost, MakeSession(
-    Provider.Primitives.GetRandom.GenerateBytes(48),
-    TSecretBuffer.From(Provider.Primitives.GetRandom.GenerateBytes(32)), 7200));
+    Crypto.Primitives.GetRandom.GenerateBytes(48),
+    TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32)), 7200));
 
   // the server cannot open the bogus ticket and completes a full handshake instead
   LClient := NewClient(LCache);
@@ -588,8 +588,8 @@ var
   LClient, LServer: ITlsEngine;
 begin
   // configuring both a STEK and a store upgrades to the stateful single-use store
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
 
   LClient := NewClient(LCache);
@@ -612,7 +612,7 @@ var
   LClient, LServer: ITlsEngine;
   LEarly: TBytes;
 begin
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LAnti := TStrikeRegisterAntiReplay.Create;
   LCache := TInMemorySessionCache.Create;
 
@@ -645,7 +645,7 @@ var
   LClient, LServer: ITlsEngine;
   LEarly: TBytes;
 begin
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LAnti := TStrikeRegisterAntiReplay.Create;
   LCache := TInMemorySessionCache.Create;
 
@@ -682,7 +682,7 @@ var
   LClient, LServer: ITlsEngine;
   LEarly: TBytes;
 begin
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LAnti := TStrikeRegisterAntiReplay.Create;
   LCache := TInMemorySessionCache.Create;
 
@@ -715,7 +715,7 @@ var
   LClient, LServer: ITlsEngine;
   LEarly: TBytes;
 begin
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LAnti := TStrikeRegisterAntiReplay.Create;
   LCache := TInMemorySessionCache.Create;
 
@@ -749,8 +749,8 @@ var
   LClient, LServer: ITlsEngine;
   LEarly: TBytes;
 begin
-  LStekA := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
-  LStekB := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStekA := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LStekB := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LAnti := TStrikeRegisterAntiReplay.Create;
   LCache := TInMemorySessionCache.Create;
 
@@ -780,7 +780,7 @@ var
   LClient, LServerA, LServerB: ITlsEngine;
   LEarly, LFlight: TBytes;
 begin
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LAnti := TStrikeRegisterAntiReplay.Create;
   LCache := TInMemorySessionCache.Create;
 
@@ -817,7 +817,7 @@ var
   LClient, LServer: ITlsEngine;
   LEarly: TBytes;
 begin
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LAnti := TStrikeRegisterAntiReplay.Create;
   LCache := TInMemorySessionCache.Create;
 
@@ -853,15 +853,15 @@ var
   begin
     LP := Default(TClientHandshakeParams);
     LP.Clock := TSystemClock.Create;
-    LP.Crypto := Provider;
+    LP.Crypto := Crypto;
     LP.Inspector := Pkix.Certificates;
-    LP.Group := TNamedGroups.CreateX25519(Provider);
+    LP.Group := TNamedGroups.CreateX25519(Crypto);
     LP.GroupCode := TNamedGroupCatalog.X25519;
-    LP.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+    LP.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
     LP.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
     LP.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
     LP.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
-    LP.ClientRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
+    LP.ClientRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
     LP.LegacySessionId := Filled($33, 32);
     LP.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
       TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
@@ -871,7 +871,7 @@ var
     LP.SessionCache := LCache;
     LP.ClientCredential := LClientCred; // present a dual-EKU (clientAuth) leaf as the client certificate
     Result := TTlsEngine.CreateConfigured(
-      TTls13ClientStateMachine.Create(LP) as IHandshakeMachine, Provider);
+      TTls13ClientStateMachine.Create(LP) as IHandshakeMachine, Crypto);
   end;
 
   function BuildMtlsStekServer(AIssue: Int32; AWithCredential: Boolean): ITlsEngine;
@@ -880,13 +880,13 @@ var
   begin
     LP := Default(TServerHandshakeParams);
     LP.Clock := TSystemClock.Create;
-    LP.Crypto := Provider;
+    LP.Crypto := Crypto;
     LP.Inspector := Pkix.Certificates;
-    LP.Policy := TNegotiationPolicy.CreateDefault(Provider);
-    LP.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+    LP.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+    LP.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
     LP.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-    LP.Group := TNamedGroups.CreateX25519(Provider);
-    LP.ServerRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
+    LP.Group := TNamedGroups.CreateX25519(Crypto);
+    LP.ServerRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
     if AWithCredential then
       LP.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
     LP.SessionTicketKeys := LStek;
@@ -900,18 +900,18 @@ var
       TTrustAnchorStore.Create(TArray<TBytes>.Create(LClientRoot))
       as ITrustAnchorStore, False) as IClientCertificateVerifier;
     Result := TTlsEngine.CreateConfigured(
-      TTls13ServerStateMachine.Create(LP) as IHandshakeMachine, Provider);
+      TTls13ServerStateMachine.Create(LP) as IHandshakeMachine, Crypto);
   end;
 
 begin
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
   // the client presents a dual-EKU (clientAuth) leaf; the server trusts its dedicated root
   LV := LoadVectorFields('Certs/ClientAuthChain.txt');
   try
     LClientRoot := DecodeHex(LV.Values['root_cert']);
     LClientCred.CertificateChain := TArray<TBytes>.Create(DecodeHex(LV.Values['leaf_cert']));
-    LClientCred.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(LV.Values['leaf_key']));
+    LClientCred.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LV.Values['leaf_key']));
   finally
     LV.Free;
   end;
@@ -959,15 +959,15 @@ var
   begin
     LP := Default(TClientHandshakeParams);
     LP.Clock := TSystemClock.Create;
-    LP.Crypto := Provider;
+    LP.Crypto := Crypto;
     LP.Inspector := Pkix.Certificates;
-    LP.Group := TNamedGroups.CreateX25519(Provider);
+    LP.Group := TNamedGroups.CreateX25519(Crypto);
     LP.GroupCode := TNamedGroupCatalog.X25519;
-    LP.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+    LP.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
     LP.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
     LP.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
     LP.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
-    LP.ClientRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
+    LP.ClientRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
     LP.LegacySessionId := Filled($33, 32);
     LP.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
       TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
@@ -977,7 +977,7 @@ var
     LP.SessionCache := LCache;
     LP.ClientCredential := LClientCred;
     Result := TTlsEngine.CreateConfigured(
-      TTls13ClientStateMachine.Create(LP) as IHandshakeMachine, Provider);
+      TTls13ClientStateMachine.Create(LP) as IHandshakeMachine, Crypto);
   end;
 
   // one STEK shared by two server configs; AClientAuth lets the issuer run without client auth
@@ -988,13 +988,13 @@ var
   begin
     LP := Default(TServerHandshakeParams);
     LP.Clock := TSystemClock.Create;
-    LP.Crypto := Provider;
+    LP.Crypto := Crypto;
     LP.Inspector := Pkix.Certificates;
-    LP.Policy := TNegotiationPolicy.CreateDefault(Provider);
-    LP.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+    LP.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+    LP.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
     LP.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-    LP.Group := TNamedGroups.CreateX25519(Provider);
-    LP.ServerRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
+    LP.Group := TNamedGroups.CreateX25519(Crypto);
+    LP.ServerRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
     LP.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
     LP.SessionTicketKeys := LStek;
     LP.IssueTicketCount := AIssue;
@@ -1010,17 +1010,17 @@ var
         as ITrustAnchorStore, False) as IClientCertificateVerifier;
     end;
     Result := TTlsEngine.CreateConfigured(
-      TTls13ServerStateMachine.Create(LP) as IHandshakeMachine, Provider);
+      TTls13ServerStateMachine.Create(LP) as IHandshakeMachine, Crypto);
   end;
 
 begin
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
   LV := LoadVectorFields('Certs/ClientAuthChain.txt');
   try
     LClientRoot := DecodeHex(LV.Values['root_cert']);
     LClientCred.CertificateChain := TArray<TBytes>.Create(DecodeHex(LV.Values['leaf_cert']));
-    LClientCred.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(LV.Values['leaf_key']));
+    LClientCred.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LV.Values['leaf_key']));
   finally
     LV.Free;
   end;
@@ -1058,7 +1058,7 @@ begin
   try
     ARootCert := DecodeHex(LV.Values['root_cert']);
     Result.CertificateChain := TArray<TBytes>.Create(DecodeHex(LV.Values['leaf_cert']));
-    Result.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(LV.Values['leaf_key']));
+    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LV.Values['leaf_key']));
   finally
     LV.Free;
   end;
@@ -1071,15 +1071,15 @@ var
 begin
   LP := Default(TClientHandshakeParams);
   LP.Clock := TSystemClock.Create;
-  LP.Crypto := Provider;
+  LP.Crypto := Crypto;
   LP.Inspector := Pkix.Certificates;
-  LP.Group := TNamedGroups.CreateX25519(Provider);
+  LP.Group := TNamedGroups.CreateX25519(Crypto);
   LP.GroupCode := TNamedGroupCatalog.X25519;
-  LP.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LP.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LP.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LP.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
   LP.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
-  LP.ClientRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
+  LP.ClientRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
   LP.LegacySessionId := Filled($33, 32);
   LP.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
@@ -1090,7 +1090,7 @@ begin
   LP.SessionCache := ACache;
   LP.ClientCredential := ACredential;
   Result := TTlsEngine.CreateConfigured(
-    TTls13ClientStateMachine.Create(LP) as IHandshakeMachine, Provider);
+    TTls13ClientStateMachine.Create(LP) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls13Resumption.BuildMtlsServerEngine(
@@ -1101,13 +1101,13 @@ var
 begin
   LP := Default(TServerHandshakeParams);
   LP.Clock := TSystemClock.Create;
-  LP.Crypto := Provider;
+  LP.Crypto := Crypto;
   LP.Inspector := Pkix.Certificates;
-  LP.Policy := TNegotiationPolicy.CreateDefault(Provider);
-  LP.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LP.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LP.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LP.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  LP.Group := TNamedGroups.CreateX25519(Provider);
-  LP.ServerRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
+  LP.Group := TNamedGroups.CreateX25519(Crypto);
+  LP.ServerRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
   LP.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
   LP.SessionTicketKeys := AStek;
   LP.ResumptionScope := AScope;
@@ -1124,7 +1124,7 @@ begin
       as ITrustAnchorStore, False) as IClientCertificateVerifier;
   end;
   Result := TTlsEngine.CreateConfigured(
-    TTls13ServerStateMachine.Create(LP) as IHandshakeMachine, Provider);
+    TTls13ServerStateMachine.Create(LP) as IHandshakeMachine, Crypto);
 end;
 
 procedure TTestTls13Resumption.TestResumptionScopeMismatchDeclinesTicket;
@@ -1135,7 +1135,7 @@ var
   LCred: TTlsCredential;
   LClientRoot: TBytes;
 begin
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
   LCred := LoadClientAuthCredential(LClientRoot);
 
@@ -1167,7 +1167,7 @@ var
   LCred: TTlsCredential;
   LClientRoot, LScope: TBytes;
 begin
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
   LCred := LoadClientAuthCredential(LClientRoot);
   LScope := Filled($5C, 8);
@@ -1197,7 +1197,7 @@ var
   LCred: TTlsCredential;
   LClientRoot, LScope: TBytes;
 begin
-  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
   LCred := LoadClientAuthCredential(LClientRoot);
   LScope := Filled($5C, 8);
@@ -1236,12 +1236,12 @@ begin
   // the cross-host resumption guard: a ticket the server issued while serving one host must not
   // resume a connection that requests a different host (RFC 6066 3), even with a matching binder.
   // The client always requests ServerHost, so the server-stored session carries the issuing host
-  LIdentity := Provider.Primitives.GetRandom.GenerateBytes(32);
-  LSecret := TSecretBuffer.From(Provider.Primitives.GetRandom.GenerateBytes(32));
+  LIdentity := Crypto.Primitives.GetRandom.GenerateBytes(32);
+  LSecret := TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32));
 
   // control: issued under the requested host -> resumes
   LCache := TInMemorySessionCache.Create;
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
   LCache.Store(ServerHost, ServerHost, MakeSession(LIdentity, LSecret, 7200));
   LStore.PutWithId(LIdentity, MakeSessionForHost(LIdentity, LSecret, 7200, ServerHost));
   LClient := NewClient(LCache);
@@ -1252,7 +1252,7 @@ begin
   // guarded: issued under a different host -> the credentialed server ignores the PSK and runs a
   // full handshake instead of resuming under the wrong identity
   LCache := TInMemorySessionCache.Create;
-  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
   LCache.Store(ServerHost, ServerHost, MakeSession(LIdentity, LSecret, 7200));
   LStore.PutWithId(LIdentity, MakeSessionForHost(LIdentity, LSecret, 7200, 'other.example'));
   LClient := NewClient(LCache);

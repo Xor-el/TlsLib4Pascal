@@ -78,7 +78,7 @@ end;
 
 function TTestTranscriptHash.Sha256: IHash;
 begin
-  Result := Provider.Primitives.CreateHash(THashAlgorithm.SHA_256);
+  Result := Crypto.Primitives.CreateHash(THashAlgorithm.SHA_256);
 end;
 
 function TTestTranscriptHash.RawSha256(const AData: TBytes): TBytes;

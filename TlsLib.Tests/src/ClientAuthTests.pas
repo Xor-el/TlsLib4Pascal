@@ -119,7 +119,7 @@ begin
   try
     Result.CertificateChain := TArray<TBytes>.Create(
       DecodeHex(LCerts.Values['leaf_cert']));
-    Result.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
+    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
   finally
     LCerts.Free;
   end;
@@ -139,11 +139,11 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
   LParams.GroupCode := TNamedGroupCatalog.X25519;
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
   LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
@@ -154,7 +154,7 @@ begin
   if AWithCredential then
     LParams.ClientCredential := Credential;
   Result := TTlsEngine.CreateConfigured(
-    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestClientAuth.New13Server(AMode: TClientAuthMode): ITlsEngine;
@@ -163,19 +163,19 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
   LParams.ServerRandom := Filled($22, 32);
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(Credential);
   LParams.ClientAuth := AMode;
   LParams.ClientAuthSignatureSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
   LParams.ClientCertificateVerifier := PeerVerifier;
   Result := TTlsEngine.CreateConfigured(
-    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestClientAuth.New12Client(AWithCredential: Boolean): ITlsEngine;
@@ -184,10 +184,10 @@ var
 begin
   LParams := Default(TClient12HandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Provider);
+  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.OfferedSuites := TArray<UInt16>.Create(
     TCipherSuites12.EcdheEcdsaAes128GcmSha256);
@@ -204,7 +204,7 @@ begin
   if AWithCredential then
     LParams.ClientCredential := Credential;
   Result := TTlsEngine.CreateConfigured(
-    TTls12ClientStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls12ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestClientAuth.New12Server(AMode: TClientAuthMode): ITlsEngine;
@@ -213,18 +213,18 @@ var
 begin
   LParams := Default(TServer12HandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Provider);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
   LParams.ServerRandom := Filled($22, 32);
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(Credential);
   LParams.ClientAuth := AMode;
   LParams.ClientAuthSignatureSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
   LParams.ClientCertificateVerifier := PeerVerifier;
   Result := TTlsEngine.CreateConfigured(
-    TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestClientAuth.Drain(const AEngine: ITlsEngine): TBytes;
@@ -443,12 +443,12 @@ begin
   // fail-closed gate), rather than raising with an unassigned alert
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Provider;
+  LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  LParams.Group := TNamedGroups.CreateX25519(Provider);
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
   LParams.ServerRandom := Filled($22, 32);
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(Credential);
   LParams.ClientAuth := TClientAuthMode.Required;
@@ -456,7 +456,7 @@ begin
     TSignatureSchemes.EcdsaSecp256r1Sha256);
   // ClientCertificateVerifier deliberately left nil (Default leaves it nil)
   LServer := TTlsEngine.CreateConfigured(
-    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Provider);
+    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
   LClient := New13Client(True);
   Drive(LClient, LServer);
   CheckTrue(LServer.IsTerminal, 'a nil client-certificate verifier aborts the handshake');

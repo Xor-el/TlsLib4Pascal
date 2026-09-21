@@ -150,7 +150,7 @@ end;
 procedure TServerThread.Execute;
 var
   LSocket: TInteropSocket;
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LPkix: IPkixProvider;
   LOptions: TInteropEngineOptions;
   LEngine: ITlsEngine;
@@ -160,14 +160,14 @@ begin
   LSocket := nil;
   try
     LSocket := FListener.Accept;
-    LProvider := TInteropEngine.DefaultProvider;
+    LCrypto := TInteropEngine.DefaultCrypto;
     LPkix := TInteropEngine.DefaultPkix;
     LOptions := Default(TInteropEngineOptions);
     LOptions.Role := TInteropRole.Server;
     LOptions.SupportedVersions := FScenario.Versions;
     LOptions.HasCredential := True;
     LOptions.Credential :=
-      TInteropCredentials.ServerCredentialFromFieldFile(LProvider, LPkix, FCredentialFile);
+      TInteropCredentials.ServerCredentialFromFieldFile(LCrypto, LPkix, FCredentialFile);
     if FScenario.MutualTls then
     begin
       // request and verify the client certificate against the client-auth (dual-EKU) root:
@@ -176,7 +176,7 @@ begin
       LOptions.Trust := TInteropCredentials.TrustFromFieldFile(LPkix,
         ExtractFilePath(FCredentialFile) + 'ClientAuthChain.txt');
     end;
-    LEngine := TInteropEngine.Build(LProvider, LOptions);
+    LEngine := TInteropEngine.Build(LCrypto, LOptions);
 
     LResult := TInteropPump.DriveHandshake(LEngine, LSocket);
     if LResult.Status <> TInteropStatus.Ok then
@@ -216,7 +216,7 @@ end;
 procedure TRevServerThread.Execute;
 var
   LSocket: TInteropSocket;
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LOptions: TInteropEngineOptions;
   LEngine: ITlsEngine;
   LResult: TInteropResult;
@@ -226,17 +226,17 @@ begin
   LSocket := nil;
   try
     LSocket := FListener.Accept;
-    LProvider := TInteropEngine.DefaultProvider;
+    LCrypto := TInteropEngine.DefaultCrypto;
     LOptions := Default(TInteropEngineOptions);
     LOptions.Role := TInteropRole.Server;
     LOptions.SupportedVersions := TArray<UInt16>.Create(FCell.Version);
     LOptions.HasCredential := True;
     if FCell.MustStapleLeaf then
       LOptions.Credential := TInteropCredentials.ServerStaplingCredentialFields(
-        LProvider, FDataFile, 'muststaple_leaf_cert', 'muststaple_leaf_key')
+        LCrypto, FDataFile, 'muststaple_leaf_cert', 'muststaple_leaf_key')
     else
       LOptions.Credential := TInteropCredentials.ServerStaplingCredentialFields(
-        LProvider, FDataFile, 'leaf_cert', 'leaf_key');
+        LCrypto, FDataFile, 'leaf_cert', 'leaf_key');
     if FCell.StapleField <> '' then
     begin
       LFields := TStringList.Create;
@@ -247,7 +247,7 @@ begin
         LFields.Free;
       end;
     end;
-    LEngine := TInteropEngine.Build(LProvider, LOptions);
+    LEngine := TInteropEngine.Build(LCrypto, LOptions);
 
     LResult := TInteropPump.DriveHandshake(LEngine, LSocket);
     // a client that rejects the staple aborts the handshake: expected for the reject cells,
@@ -303,7 +303,7 @@ class function TInteropSelfTestRunner.RunClient(APort: Word;
   const ACredentialFile: string; const AScenario: TScenario): string;
 var
   LSocket: TInteropSocket;
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LPkix: IPkixProvider;
   LOptions: TInteropEngineOptions;
   LEngine: ITlsEngine;
@@ -313,7 +313,7 @@ begin
   Result := '';
   LSocket := TInteropSocket.Connect('127.0.0.1', APort);
   try
-    LProvider := TInteropEngine.DefaultProvider;
+    LCrypto := TInteropEngine.DefaultCrypto;
     LPkix := TInteropEngine.DefaultPkix;
     LOptions := Default(TInteropEngineOptions);
     LOptions.Role := TInteropRole.Client;
@@ -325,10 +325,10 @@ begin
     begin
       // present a dual-EKU (clientAuth) client certificate the server requests
       LOptions.HasCredential := True;
-      LOptions.Credential := TInteropCredentials.ServerCredentialFromFieldFile(LProvider, LPkix,
+      LOptions.Credential := TInteropCredentials.ServerCredentialFromFieldFile(LCrypto, LPkix,
         ExtractFilePath(ACredentialFile) + 'ClientAuthChain.txt');
     end;
-    LEngine := TInteropEngine.Build(LProvider, LOptions);
+    LEngine := TInteropEngine.Build(LCrypto, LOptions);
 
     LEngine.StartHandshake;
     LResult := TInteropPump.DriveHandshake(LEngine, LSocket);
@@ -412,7 +412,7 @@ class function TInteropSelfTestRunner.RunRevClient(APort: Word;
   const ADataFile: string; const ACell: TRevCell): string;
 var
   LSocket: TInteropSocket;
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LPkix: IPkixProvider;
   LOptions: TInteropEngineOptions;
   LEngine: ITlsEngine;
@@ -422,7 +422,7 @@ begin
   Result := '';
   LSocket := TInteropSocket.Connect('127.0.0.1', APort);
   try
-    LProvider := TInteropEngine.DefaultProvider;
+    LCrypto := TInteropEngine.DefaultCrypto;
     LPkix := TInteropEngine.DefaultPkix;
     LOptions := Default(TInteropEngineOptions);
     LOptions.Role := TInteropRole.Client;
@@ -435,7 +435,7 @@ begin
     LOptions.RequestOcsp := True;
     LOptions.ApplyRevocation := True;
     LOptions.RevocationPosture := ACell.Posture;
-    LEngine := TInteropEngine.Build(LProvider, LOptions);
+    LEngine := TInteropEngine.Build(LCrypto, LOptions);
 
     LEngine.StartHandshake;
     LResult := TInteropPump.DriveHandshake(LEngine, LSocket);

@@ -72,7 +72,7 @@ type
       const AInnerRandom, ATranscriptHash: TBytes): TBytes; static;
   public
     /// <summary>AHash is the suite hash; AKeyLength the AEAD key size.</summary>
-    constructor Create(const AProvider: ICryptoProvider; AHash: THashAlgorithm;
+    constructor Create(const ACryptoProvider: ICryptoProvider; AHash: THashAlgorithm;
       AKeyLength: Int32);
 
     /// <summary>
@@ -136,18 +136,18 @@ resourcestring
 
 { TTls13KeySchedule }
 
-constructor TTls13KeySchedule.Create(const AProvider: ICryptoProvider;
+constructor TTls13KeySchedule.Create(const ACryptoProvider: ICryptoProvider;
   AHash: THashAlgorithm; AKeyLength: Int32);
 var
   LHash: IHash;
 begin
   inherited Create;
-  FCrypto := AProvider;
+  FCrypto := ACryptoProvider;
   FHash := AHash;
   FKeyLength := AKeyLength;
   FIvLength := Tls13IvLength;
-  FHkdf := AProvider.Primitives.CreateHkdf(AHash);
-  LHash := AProvider.Primitives.CreateHash(AHash);
+  FHkdf := ACryptoProvider.Primitives.CreateHkdf(AHash);
+  LHash := ACryptoProvider.Primitives.CreateHash(AHash);
   FHashLength := LHash.HashSize;
   FHashEmpty := LHash.DoFinal; // hash of the empty input
 end;
