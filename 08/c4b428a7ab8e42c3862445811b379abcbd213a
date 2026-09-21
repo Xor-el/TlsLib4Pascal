@@ -1,0 +1,180 @@
+TlsLib.Adapters/Indy/Adapter/TlsLibIndyTls.pas
+  s_09d3c46d1a9b1f::t_3b64798eb1b6f4 722-730
+  s_09d3c46d1a9b1f::t_0d0d5a6fd9d584 598
+  s_09d3c46d1a9b1f::t_a8071fc0ad3462 101-102
+  s_09d3c46d1a9b1f::t_e80a61c671304b 121-125,128-129,132-141
+  s_09d3c46d1a9b1f::t_79dab5b2a0b569 85-86
+  s_09d3c46d1a9b1f::t_47cdf907282181 597,599-600
+  s_09d3c46d1a9b1f::t_f2c1b236922eaf 103-106
+  s_09d3c46d1a9b1f::t_2c01645a12fc5f 654-655
+  s_09d3c46d1a9b1f::t_2ee02054c2f384 338-339
+  s_09d3c46d1a9b1f::t_517ef3a966428c 353-354
+TlsLib.Interop/src/InteropPump.pas
+  s_09d3c46d1a9b1f::t_6bc87ba34f0c8d 247-249
+  s_09d3c46d1a9b1f::t_a75065de642d32 254-257,259-265
+  s_09d3c46d1a9b1f::t_d86de7c195f782 271
+  s_09d3c46d1a9b1f::t_b4e4608e547de3 218,231
+  s_09d3c46d1a9b1f::t_533f06551ef4f2 103-105,108-109
+  s_09d3c46d1a9b1f::t_0db9b4d1d60717 321
+  s_09d3c46d1a9b1f::t_3b79aee0ccf2ac 79
+  s_09d3c46d1a9b1f::t_800e9bf67157a5 83
+TlsLib/src/Engine/TlpTlsEngine.pas
+  s_09d3c46d1a9b1f::t_538da3ea7a03c2 97-98
+  s_09d3c46d1a9b1f::t_ac66f1e04ae54f 124,133
+  s_09d3c46d1a9b1f::t_729ff2ee3b3ba2 455,461,465
+TlsLib/src/Engine/TlpTlsEngineFactory.pas
+  s_09d3c46d1a9b1f::t_abbdfa003c33c4 541
+  s_09d3c46d1a9b1f::t_7bf25270bff99f 387
+  s_09d3c46d1a9b1f::t_de4fceb374f9b2 219-220
+TlsLib.Adapters/Indy/README.md
+  s_09d3c46d1a9b1f::t_748a4dd89b10f7 46-47
+  s_09d3c46d1a9b1f::t_7b77dc4a483f81 72-76,80-84
+TlsLib.Adapters/mORMot/Adapter/TlsLibMormotTls.pas
+  s_09d3c46d1a9b1f::t_c18e88bbb13a12 64-70,73-78
+  s_09d3c46d1a9b1f::t_12a47d0a385d3e 517-518
+  s_09d3c46d1a9b1f::t_c03d99a73fab54 465
+  s_09d3c46d1a9b1f::t_02d1a99d951ec8 586-594
+  s_09d3c46d1a9b1f::t_9f15af086117a1 81-83
+  s_09d3c46d1a9b1f::t_107a7a4340bfc3 197-198,201-202
+  s_09d3c46d1a9b1f::t_b4f085c4d8d1e4 464,466-467
+  s_09d3c46d1a9b1f::t_9a6fabc13d1343 228-234
+TlsLib.Adapters/Synapse/README.md
+  s_09d3c46d1a9b1f::t_62105f6f07b51e 49,81-83,87-90
+  s_09d3c46d1a9b1f::t_448f1e136d96bc 78
+  s_09d3c46d1a9b1f::t_6d8c4684fe2361 38,42,46-48
+TlsLib.Tests/src/ServerSideLiveRevocationTests.pas
+  s_09d3c46d1a9b1f::t_0155e47baebfd0 348
+  s_09d3c46d1a9b1f::t_5a9baeed548a8e 601,612-614
+  s_09d3c46d1a9b1f::t_11df61a684f498 89
+TlsLib.Adapters/mORMot/README.md
+  s_09d3c46d1a9b1f::t_7daa3026b25c18 60-62,66-70
+TlsLib/src/Trust/TlpTrustPolicy.pas
+  s_09d3c46d1a9b1f::t_2336749e8fd6d8 103-106
+  s_09d3c46d1a9b1f::t_f283f59ec7cb7a 114-118,123
+  s_09d3c46d1a9b1f::t_e76f67f20c4509 87-90,95
+  s_09d3c46d1a9b1f::t_19edf627665146 91-94
+  s_09d3c46d1a9b1f::t_a1ee93b4e43f88 119-120
+  s_09d3c46d1a9b1f::t_28a50602612445 102
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_a24b1c24e70306 384-386
+  s_09d3c46d1a9b1f::t_5cd720b9ffea77 392-393
+  s_09d3c46d1a9b1f::t_88c74e10d70da6 165-166
+  s_09d3c46d1a9b1f::t_f49063dc27596d 172-173
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_09d3c46d1a9b1f::t_350fa54920870e 558
+  s_09d3c46d1a9b1f::t_84f34376cd8cc0 618-619
+  s_09d3c46d1a9b1f::t_d9befae55e11f0 216-220,223-224,227-236
+  s_09d3c46d1a9b1f::t_6913a728dbaf7b 241-244
+  s_09d3c46d1a9b1f::t_ca7dd638843e0e 557,559-560
+  s_09d3c46d1a9b1f::t_eaa958abbbe24b 239-240
+  s_09d3c46d1a9b1f::t_f7e6b216fcb9fa 137-138
+  s_09d3c46d1a9b1f::t_855b67229de4f3 431-432
+  s_09d3c46d1a9b1f::t_99993d9c66c213 688-696
+TlsLib.Trust.System/src/TlpAppleSystemTrust.pas
+  s_09d3c46d1a9b1f::t_2000fcb28b65fd 1664
+  s_09d3c46d1a9b1f::t_941899d4876461 1641
+TlsLib.Trust.System/src/TlpWindowsSystemTrust.pas
+  s_09d3c46d1a9b1f::t_061a9b520a3814 1547
+  s_09d3c46d1a9b1f::t_54ae7d48221564 1522
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_d225bf8d2f18d5 1645-1648
+  s_09d3c46d1a9b1f::t_2ea5f7df85967e 1683-1684,1687-1700
+  s_09d3c46d1a9b1f::t_c8db8b624ecb35 287-290
+TlsLib/src/Interfaces/Engine/TlpITlsEngine.pas
+  s_09d3c46d1a9b1f::t_696575e8dbd5ae 138-139
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_09d3c46d1a9b1f::t_f5401359635fc4 365,370,380,382-383,386-387
+  s_09d3c46d1a9b1f::t_6f84a4d7c216b2 82-85
+  s_09d3c46d1a9b1f::t_b05637fa137861 311,315,319,329,332,336,346,349,352,363,367-368,372-377
+  s_09d3c46d1a9b1f::t_d5a7a4e9783e05 309-310,312-314,316-318,320-328,330-331,333-334,337-345,347-348,350-351,353-362,364,366,369,371,378-379,381,384-385,388-389
+  s_09d3c46d1a9b1f::t_c4dae1cfbe4ee6 335
+  s_09d3c46d1a9b1f::t_a14c85efc9b205 687-689
+TlsLib.Interop/src/TrustDelegateInteropRunner.pas
+  s_09d3c46d1a9b1f::t_803203d53c639a 328
+  s_09d3c46d1a9b1f::t_684bd0dd5f2d17 403-404
+  s_09d3c46d1a9b1f::t_6cf9b7f4667b5f 430-431
+  s_09d3c46d1a9b1f::t_58726782dadfe0 490
+docs/certificate-verification.md
+  s_09d3c46d1a9b1f::t_93ec0e7049fb14 244-252
+  s_09d3c46d1a9b1f::t_05b0a57880ab53 302-303
+TlsLib.Adapters/Synapse/Adapter/TlsLibSynapseTls.pas
+  s_09d3c46d1a9b1f::t_66134b16c83375 185-188
+  s_09d3c46d1a9b1f::t_c8e93eaded9d24 424-430,434
+  s_09d3c46d1a9b1f::t_f9c78dc685197c 482-483
+  s_09d3c46d1a9b1f::t_65522b9cf08df3 563-564
+  s_09d3c46d1a9b1f::t_3bf46316ec7bb3 173-181
+  s_09d3c46d1a9b1f::t_5011b8e3bc2b43 547-555
+  s_09d3c46d1a9b1f::t_37e73c558760c6 479-481
+  s_09d3c46d1a9b1f::t_1b3de4fc65c41a 421-423,431-433
+  s_09d3c46d1a9b1f::t_15e0bab8fc44ed 217-218,221-222
+  s_09d3c46d1a9b1f::t_c4a25b7ba5cae5 241-247
+  s_09d3c46d1a9b1f::t_1166d9eab39d8d 341-343
+  s_09d3c46d1a9b1f::t_cbdfdeea297110 65-70,73-79
+  s_09d3c46d1a9b1f::t_864d364f752e24 167
+TlsLib/src/Engine/TlpTlsStreamPump.pas
+  s_09d3c46d1a9b1f::t_f151e627706a72 214,216-221
+  s_09d3c46d1a9b1f::t_3bc22079532352 63
+  s_09d3c46d1a9b1f::t_6ac49521ab5b90 172
+  s_09d3c46d1a9b1f::t_dd579d4d3f650d 62
+  s_09d3c46d1a9b1f::t_ea1268e3559982 173,185
+  s_09d3c46d1a9b1f::t_21a455b50146c6 69-71
+  s_09d3c46d1a9b1f::t_94fb2d349882ca 237
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_09d3c46d1a9b1f::t_ba078bfcfb80bf 973
+  s_09d3c46d1a9b1f::t_a8a71c9c1a4a97 209
+  s_09d3c46d1a9b1f::t_2a8b8637068db6 996-1021
+  s_09d3c46d1a9b1f::t_c1b37c945cd74d 210
+  s_09d3c46d1a9b1f::t_41da4bbee2e9d1 1022-1048
+TlsLib.Adapters/FclNet/README.md
+  s_09d3c46d1a9b1f::t_6bdd178c130efb 94-96
+TlsLib/src/Handshake/TlpHandshakeConductor.pas
+  s_09d3c46d1a9b1f::t_4491a9f174caec 284
+TlsLib.Trust.System/src/TlpOSSystemTrust.pas
+  s_09d3c46d1a9b1f::t_3d1085767416df 80
+  s_09d3c46d1a9b1f::t_9464426b0845f3 70-71
+TlsLib/src/Engine/TlpTlsLib.pas
+  s_09d3c46d1a9b1f::t_f183c7eb31d0da 25,29-33,37,43
+  s_09d3c46d1a9b1f::t_563a8d8620237b 59,66,73,80
+TlsLib.Tests/src/AsyncVerdictTests.pas
+  s_09d3c46d1a9b1f::t_2a0c03e75e06ad 416,420-421,427,429,432
+  s_09d3c46d1a9b1f::t_19655c7eb2c8f8 91-92
+  s_09d3c46d1a9b1f::t_d6949f643378b0 93
+  s_09d3c46d1a9b1f::t_f20e4aba3883ca 496
+  s_09d3c46d1a9b1f::t_4c2eff65f9fc99 497-513
+  s_09d3c46d1a9b1f::t_628c0ec98e2c57 87
+TlsLib.Tests/src/TlsStreamLoopbackTests.pas
+  s_09d3c46d1a9b1f::t_11627095e100b5 277
+  s_09d3c46d1a9b1f::t_eb5ab250623069 542-543
+  s_09d3c46d1a9b1f::t_91c8ff0fc9a7cb 537
+  s_09d3c46d1a9b1f::t_5db0a66c58abcb 76
+TlsLib.Tests/src/PresetTests.pas
+  s_09d3c46d1a9b1f::t_c8b14cde30d806 32
+  s_09d3c46d1a9b1f::t_1806e198f6d794 49-50,135-150
+  s_09d3c46d1a9b1f::t_0fc9022c705c8c 51
+  s_09d3c46d1a9b1f::t_43c826a559bc52 151-164
+TlsLib.Trust.System/src/TlpOSLiveRevocation.pas
+  s_09d3c46d1a9b1f::t_815664c90da968 39,48-51
+  s_09d3c46d1a9b1f::t_0aa4d25ccb4f39 54-56
+  s_09d3c46d1a9b1f::t_4448060d0cb732 81-89
+  s_09d3c46d1a9b1f::t_254fe19f85a19b 66,70
+TlsLib/src/Engine/TlpTlsPresets.pas
+  s_09d3c46d1a9b1f::t_f5ef05d90a4cb2 120-124
+  s_09d3c46d1a9b1f::t_6eeb330a4111aa 93-99
+  s_09d3c46d1a9b1f::t_c4c6527f3c4e61 125
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "08c4b428a7ab8e42c3862445811b379abcbd213a",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
