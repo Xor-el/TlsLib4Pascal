@@ -67,6 +67,9 @@ type
     // rewrites the signature scheme of the first plaintext CertificateVerify (handshake type 15)
     // in a wire flight, to forge a client CertificateVerify under an unadvertised scheme
     procedure PatchFirstCertVerifyScheme(var AWire: TBytes; AScheme: UInt16);
+    // inserts a duplicate of the first CertificateRequest (handshake type 13) record into a wire
+    // flight, right after the original, to drive a second CertificateRequest in the same phase
+    function DuplicateCertificateRequest(const AWire: TBytes): TBytes;
     procedure Pump(const ASrc, ADst: ITlsEngine);
     procedure Drive(const AClient, AServer: ITlsEngine);
   published
@@ -79,6 +82,7 @@ type
     procedure TestVerifyClientChainNilVerifierFailsClosed;
     procedure TestTls13NilClientVerifierWithCertAborts;
     procedure TestTls12ServerRejectsUnrequestedClientCertVerifyScheme;
+    procedure TestTls12ClientRejectsSecondCertificateRequest;
   end;
 
 implementation
@@ -275,6 +279,42 @@ begin
   end;
 end;
 
+function TTestClientAuth.DuplicateCertificateRequest(const AWire: TBytes): TBytes;
+var
+  LPos, LRecLen, LInner, LMsgLen: Int32;
+  LMsg, LRecord: TBytes;
+begin
+  LPos := 0;
+  while LPos + 5 <= System.Length(AWire) do
+  begin
+    LRecLen := (AWire[LPos + 3] shl 8) or AWire[LPos + 4];
+    if AWire[LPos] = 22 then // handshake record (plaintext, before any ChangeCipherSpec)
+    begin
+      LInner := LPos + 5;
+      while LInner + 4 <= LPos + 5 + LRecLen do
+      begin
+        LMsgLen := (AWire[LInner + 1] shl 16) or (AWire[LInner + 2] shl 8) or
+          AWire[LInner + 3];
+        if AWire[LInner] = 13 then // CertificateRequest
+        begin
+          LMsg := System.Copy(AWire, LInner, 4 + LMsgLen);
+          LRecord := ConcatBytes(TBytes.Create(22, 3, 3, Byte(System.Length(LMsg) shr 8),
+            Byte(System.Length(LMsg) and $FF)), LMsg);
+          // original wire up to and including this record, then the duplicate, then the rest
+          Result := ConcatBytes(ConcatBytes(
+            System.Copy(AWire, 0, LPos + 5 + LRecLen), LRecord),
+            System.Copy(AWire, LPos + 5 + LRecLen,
+            System.Length(AWire) - (LPos + 5 + LRecLen)));
+          Exit;
+        end;
+        LInner := LInner + 4 + LMsgLen;
+      end;
+    end;
+    LPos := LPos + 5 + LRecLen;
+  end;
+  Result := System.Copy(AWire);
+end;
+
 procedure TTestClientAuth.Pump(const ASrc, ADst: ITlsEngine);
 begin
   Feed(ADst, Drain(ASrc));
@@ -441,6 +481,25 @@ begin
   CheckEquals(Int64(Ord(TTlsAlertDescription.IllegalParameter)),
     Int64(Ord(LServer.LastError.Alert.Description)),
     'the abort is illegal_parameter, not a signature-verification failure');
+end;
+
+procedure TTestClientAuth.TestTls12ClientRejectsSecondCertificateRequest;
+var
+  LClient, LServer: ITlsEngine;
+  LFlight: TBytes;
+begin
+  // a CertificateRequest may appear at most once (RFC 5246 7.4.4); duplicating the server's real
+  // request in the same flight must make the client abort with unexpected_message
+  LClient := New12Client(True);
+  LServer := New12Server(TClientAuthMode.Required);
+  LClient.StartHandshake;
+  Pump(LClient, LServer); // ClientHello -> server
+  LFlight := DuplicateCertificateRequest(Drain(LServer));
+  Feed(LClient, LFlight);
+  CheckTrue(LClient.IsTerminal, 'the client aborts a second CertificateRequest');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.UnexpectedMessage)),
+    Int64(Ord(LClient.LastError.Alert.Description)),
+    'a second CertificateRequest is unexpected_message');
 end;
 
 initialization
