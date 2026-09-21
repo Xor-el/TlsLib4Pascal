@@ -84,15 +84,26 @@ type
   /// re-checked). Must-staple is enforced only on the initial handshake.</summary>
   TVerificationOccasion = (InitialHandshake, Resumption);
 
+  /// <summary>Whose certificate a parked verdict concerns. Server: we are the client and the chain
+  /// is the server's, matched against HostName. Client: we are the server and the chain is an mTLS
+  /// client's, with no host identity to match. A resolver that evaluates a role-specific trust
+  /// engine (an OS-native live check binds the server-auth or client-auth EKU) must branch on this
+  /// rather than assume a role - the same process may run both a client and an mTLS server. Unknown
+  /// is the zero value so a hand-built context that forgets to set the role fails a role-specific
+  /// resolver's check closed rather than defaulting to a wrong role.</summary>
+  TPeerRole = (Unknown, Server, Client);
+
   /// <summary>
   /// The asynchronous certificate-verdict setting. When Deferral is not None, the engine runs
   /// its built-in trust pipeline synchronously (as always) and, only if that pipeline accepts
   /// the peer chain, parks the handshake so a host or a live-revocation resolver can decide
   /// out-of-band and resume with SetCertificateVerdict. This is augment-only: the verdict can
   /// only additionally reject, never resurrect a chain the pipeline already rejected. The park
-  /// is fail-closed - no verdict, a rejection, or an expired deadline aborts the handshake.
-  /// DeadlineMs is advisory to the driver (the sans-IO engine owns no timer); 0 means the
-  /// host imposes no engine-suggested deadline. None (the default) keeps the verdict inline.
+  /// is fail-closed - no verdict or a rejection aborts the handshake. DeadlineMs is the time
+  /// budget a resolver built from this config is given (the Windows live resolver bounds its URL
+  /// retrieval by it; Apple exposes no per-evaluation timeout, so there it is informational);
+  /// neither the engine nor the stream drivers enforce it - a resolver that cannot decide within
+  /// its budget returns False. None (the default) keeps the verdict inline.
   /// </summary>
   TAsyncCertificateVerdict = record
     Deferral: TVerdictDeferral;
@@ -100,12 +111,16 @@ type
   end;
 
   /// <summary>
-  /// What an out-of-band verdict resolver receives for a parked peer certificate: the chain
-  /// (leaf first, DER) the built-in pipeline already accepted, the expected host (empty on the
-  /// server side), and the handshake OCSP staple (empty when none) so a live check can skip a
-  /// fetch the server already answered in-band.
+  /// What an out-of-band verdict resolver receives for a parked peer certificate: whose chain it
+  /// is (PeerRole), the chain itself (leaf first, DER) the built-in pipeline already accepted, the
+  /// expected host (empty on the server side), and the handshake OCSP staple (empty when none) so a
+  /// live check can skip a fetch the server already answered in-band. A client certificate may also
+  /// carry a staple (RFC 8446 4.4.2.1 lets a server request status_request of a client), so the
+  /// staple is not a role signal - branch on PeerRole. A caller that hand-builds this record MUST
+  /// set PeerRole; a role-specific resolver refuses the unset (Unknown) value.
   /// </summary>
   TCertificateVerdictContext = record
+    PeerRole: TPeerRole;
     Chain: TArray<TBytes>;
     HostName: string;
     OcspStaple: TBytes;

@@ -90,6 +90,13 @@ begin
   LBuilder.WithPreferredGroups(TArray<UInt16>.Create(
     TNamedGroupCatalog.X25519MlKem768, TNamedGroupCatalog.SecP256r1MlKem768,
     TNamedGroupCatalog.X25519, TNamedGroupCatalog.Secp256r1));
+  // request an OCSP staple so the revocation pipeline has status to act on and any must-staple
+  // is enforceable; the posture stays soft-fail, so this never breaks a server that does not staple
+  LBuilder.WithOcspStaplingRequest(True);
+  // the certificate strength floors and signature schemes stay at the web-PKI-compatible defaults:
+  // the RSA floor covers public CAs, and PKCS#1-v1.5 codepoints are certificate-only in TLS 1.3
+  // (RFC 8446 4.2.3), while the handshake CertificateVerify is already PSS-only by construction, so
+  // there is nothing to tighten without refusing the servers a hardened client must still reach
   Result := LBuilder;
 end;
 
@@ -110,10 +117,12 @@ begin
   LBuilder.WithCertificateChainLimits(LLimits);
   // the strictest posture defaults resumption off; a caller may re-enable it with no guard
   LBuilder.WithResumption(False);
-  // revocation stays soft-fail even here (the architecture's locked default): hard-fail
-  // OCSP breaks connectivity to the many servers that do not staple, so a caller opts into
-  // it explicitly with WithRevocation(Hard). Public-key pinning is likewise operator-supplied
-  // (WithCertificatePinning), since a preset cannot know a deployment's pins.
+  // request an OCSP staple so a caller can opt into WithRevocation(Hard) without every handshake
+  // failing for a missing staple; the posture stays soft-fail (hard-fail OCSP breaks connectivity
+  // to the many servers that do not staple), and strength floors stay web-PKI-compatible as in
+  // Hardened. Public-key pinning is operator-supplied (WithCertificatePinning): a preset cannot
+  // know a deployment's pins.
+  LBuilder.WithOcspStaplingRequest(True);
   Result := LBuilder;
 end;
 

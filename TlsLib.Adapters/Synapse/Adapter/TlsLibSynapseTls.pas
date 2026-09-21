@@ -62,11 +62,21 @@ uses
 /// nil clears it. The Synapse plugin is created per socket by SSLImplementation, so its
 /// neutral (non-TCustomSSL) hooks are configured through these unit-level setters.</summary>
 procedure SetTlsLibSynapseVerifyCallback(const ACallback: TTlsCertificateVerifyCallback);
-/// <summary>Sets a process-wide out-of-band verdict resolver (e.g. live OCSP/CRL): when set,
-/// every client handshake parks after the pipeline accepts the chain and this decides it.
-/// ADeadlineMs is advisory. nil clears it.</summary>
+/// <summary>Sets a process-wide out-of-band verdict resolver for the CLIENT role (e.g. live
+/// OCSP/CRL over the SERVER's chain): when set, every client handshake parks after the pipeline
+/// accepts the server chain and this decides it. Pair it with a client-config resolver (binds
+/// server-auth EKU). For an mTLS server that must vet the CLIENT chain, use
+/// SetTlsLibSynapseServerVerdictResolver - the two roles evaluate different EKUs, so one resolver
+/// cannot serve both. ADeadlineMs is the resolver's fetch budget. nil clears it.</summary>
 procedure SetTlsLibSynapseVerdictResolver(const AResolver: TCertificateVerdictResolver;
   ADeadlineMs: Cardinal);
+/// <summary>Sets a process-wide out-of-band verdict resolver for the SERVER role (live revocation
+/// over an mTLS CLIENT's chain): when set, a server handshake that requests a client certificate
+/// parks after the pipeline accepts the client chain and this decides it. Pair it with a
+/// server-config resolver (binds client-auth EKU). ADeadlineMs is the resolver's fetch budget.
+/// nil clears it.</summary>
+procedure SetTlsLibSynapseServerVerdictResolver(
+  const AResolver: TCertificateVerdictResolver; ADeadlineMs: Cardinal);
 /// <summary>Clears the process-wide build-once config caches so the next handshake rebuilds from
 /// current inputs. Call after rotating a certificate/key to purge the retired credential (a cached
 /// config holds its private key alive). Call only with no TLS traffic in flight.</summary>
@@ -154,23 +164,28 @@ type
     /// <summary>Whether this connection resumed an earlier session rather than doing a full
     /// handshake (RFC 8446 2.2 / RFC 5246 7.3). Cast Sock.SSL to TSSLTlsLib to read it.</summary>
     function Resumed: Boolean;
-    // native peer-certificate accessors an OnVerifyCert handler reads (no OpenSSL type)
+    // native peer-certificate accessors an OnVerifyCert handler reads
     function GetPeerSubject: string; override;
     function GetPeerIssuer: string; override;
     function GetPeerName: string; override;
     function GetPeerFingerprint: AnsiString; override;
     function GetPeerSerialNo: integer; override;
-    /// <summary>Opt this connection into the OS system-trust anchors. Alone it verifies against
-    /// the OS store; combined with a CertCAFile bundle it UNIONS the two (the "public web PKI +
-    /// private CA" case). Synapse exposes no such switch, so it lives here; cast Sock.SSL to
-    /// TSSLTlsLib to set it. System trust is never implicit - when VerifyCert is on you must
-    /// name a source (this or CertCAFile) or the build fails closed. Per-connection (never a
-    /// process-wide global), so it composes and stays thread-safe.</summary>
+    /// <summary>Opt this connection into the OS system-trust anchors. On a client it trusts the
+    /// server's chain against the OS store; on a server with VerifyCert it trusts an mTLS client's
+    /// chain against the OS store too - a very broad surface, since client certificates normally
+    /// chain to a private CA (prefer CertCAFile there). Alone it verifies against the OS store;
+    /// combined with a CertCAFile bundle it UNIONS the two (the "public web PKI + private CA"
+    /// case). Synapse exposes no such switch, so it lives here; cast Sock.SSL to TSSLTlsLib to set
+    /// it. System trust is never implicit - when VerifyCert is on you must name a source (this or
+    /// CertCAFile) or the build fails closed. Per-connection (never a process-wide global), so it
+    /// composes and stays thread-safe.</summary>
     property UseSystemTrust: Boolean read FUseSystemTrust write FUseSystemTrust;
     /// <summary>A fully-built client config that REPLACES the property-driven build: when set, the
     /// cert/trust properties (CertCAFile, CertificateFile, UseSystemTrust) are not allowed alongside
-    /// it (the plugin raises). The escape hatch to the full builder API - cipher order, groups,
-    /// resumption, ALPN. Cast Sock.SSL to TSSLTlsLib to set it.</summary>
+    /// it (the plugin raises). The verdict resolver still applies, but only if this config armed the
+    /// deferral (WithLiveRevocationVerdict/WithAsyncCertificateVerdict) - else the handshake never
+    /// parks. The escape hatch to the full builder API - cipher order, groups, resumption, ALPN.
+    /// Cast Sock.SSL to TSSLTlsLib to set it.</summary>
     property ClientConfig: ITlsClientConfig read FClientConfig write FClientConfig;
     /// <summary>A fully-built server config that REPLACES the property-driven build (the server-side
     /// counterpart of ClientConfig; same conflict rule).</summary>
@@ -199,8 +214,12 @@ resourcestring
 var
   // process-wide neutral hooks the per-socket plugin threads into each client handshake
   GVerifyCallback: TTlsCertificateVerifyCallback;
+  // the client-role resolver evaluates the server's chain; the server-role resolver an mTLS
+  // client's chain. They bind different EKUs, so the two roles keep separate hooks
   GVerdictResolver: TCertificateVerdictResolver;
   GVerdictDeadlineMs: Cardinal;
+  GServerVerdictResolver: TCertificateVerdictResolver;
+  GServerVerdictDeadlineMs: Cardinal;
   // the plugin is created per socket, so the build-once memos live process-wide (like the hooks
   // above); keyed so several servers with different certs in one process do not thrash
   GServerConfigMemo: ITlsServerConfigMemo;
@@ -217,6 +236,13 @@ procedure SetTlsLibSynapseVerdictResolver(const AResolver: TCertificateVerdictRe
 begin
   GVerdictResolver := AResolver;
   GVerdictDeadlineMs := ADeadlineMs;
+end;
+
+procedure SetTlsLibSynapseServerVerdictResolver(
+  const AResolver: TCertificateVerdictResolver; ADeadlineMs: Cardinal);
+begin
+  GServerVerdictResolver := AResolver;
+  GServerVerdictDeadlineMs := ADeadlineMs;
 end;
 
 procedure FlushTlsLibSynapseConfigCache;
@@ -312,8 +338,9 @@ end;
 procedure TSSLTlsLib.GuardNoConflict(const APropertyName: string);
 begin
   // a supplied config owns trust/credential entirely; naming these alongside it would be silently
-  // dropped, so fail loud. The native OnVerifyCert hook and the process-wide verdict resolver are
-  // runtime hooks (not part of the frozen config) and still apply, so they are not conflicts.
+  // dropped, so fail loud. The native OnVerifyCert hook and the verdict resolvers (client and
+  // server role) are runtime hooks (not part of the frozen config) and still apply, so they are
+  // not conflicts.
   if (FCertificateFile <> '') or (FPrivateKeyFile <> '') or (FCertCAFile <> '') or
     FUseSystemTrust or (FUserProvider <> nil) then
     raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
@@ -391,6 +418,20 @@ begin
   LServer := TTlsPresets.Compatible(LProvider).Server
     .WithCredential(LoadFileBytes(FCertificateFile), LoadFileBytes(FPrivateKeyFile),
     FKeyPassword);
+  // VerifyCert on a server requests (does not require) a client certificate, so map it to
+  // Requested and only when a client-trust source is named. This adapter defaults VerifyCert on,
+  // so a server that sets CertCAFile starts requesting client certificates.
+  if FVerifyCert and ((FCertCAFile <> '') or FUseSystemTrust) then
+  begin
+    LServer.WithPeerAuth(TClientAuthMode.Requested);
+    if FCertCAFile <> '' then
+      LServer.WithTrustAnchors(LoadFileBytes(FCertCAFile));
+    if FUseSystemTrust then
+      TSystemTrust.WithSystemTrust(LServer, LProvider);
+    // arm the async client-certificate verdict park so the server-role resolver runs server-side
+    if Assigned(GServerVerdictResolver) then
+      LServer.WithLiveRevocationVerdict(GServerVerdictDeadlineMs);
+  end;
   if FSessionResumption then
   begin
     LServer.WithResumption(True);
@@ -435,6 +476,11 @@ begin
   LSig.AddFile('cert', FCertificateFile);
   LSig.AddFile('key', FPrivateKeyFile);
   LSig.AddSecret('keypw', FKeyPassword);
+  LSig.AddFlag('verifyCert', FVerifyCert);
+  LSig.AddFile('ca', FCertCAFile);
+  LSig.AddFlag('systemTrust', FUseSystemTrust);
+  LSig.AddFlag('asyncVerdict', Assigned(GServerVerdictResolver));
+  LSig.AddCardinal('deadline', GServerVerdictDeadlineMs);
   Result := LSig.Value;
 end;
 
@@ -498,8 +544,15 @@ begin
     LTransport := TSynapseSocketTransport.Create(FSocket);
     FTransport := LTransport as ITlsTransport;
     FStream := TTlsStream.Create(FTransport, FEngine, AIsClient, AHost);
-    if Assigned(GVerdictResolver) then
-      FStream.SetCertificateVerdictResolver(GVerdictResolver);
+    // attach the role-correct resolver: a client parks on the server's chain, a server (client
+    // auth) on the mTLS client's chain - the two bind different EKUs
+    if AIsClient then
+    begin
+      if Assigned(GVerdictResolver) then
+        FStream.SetCertificateVerdictResolver(GVerdictResolver);
+    end
+    else if Assigned(GServerVerdictResolver) then
+      FStream.SetCertificateVerdictResolver(GServerVerdictResolver);
     // bound the handshake read; cleared afterward so app reads block
     LTransport.SetReadTimeout(DefaultHandshakeReadTimeoutMs);
     try
@@ -507,8 +560,8 @@ begin
     finally
       LTransport.SetReadTimeout(0);
     end;
-    // Synapse's native OnVerifyCert hook (RFC-agnostic, no OpenSSL type): the app inspects
-    // the peer via GetPeer* and returns False to reject - fail-closed
+    // Synapse's native OnVerifyCert hook: the app inspects the peer via GetPeer* and returns
+    // False to reject - fail-closed
     if not RunPeerVerifyHook then
     begin
       FStream.CloseNotify;

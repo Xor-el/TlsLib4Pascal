@@ -36,6 +36,7 @@ type
   TOSLiveRevocationResolver = class abstract(TObject)
   strict protected
     FPosture: TRevocationPosture;
+    FExpectedPeer: TPeerRole;
     FFallback: TCertificateVerdictResolver;
     /// <summary>Runs the platform trust engine live (network on) at the configured posture,
     /// classifying the outcome: True with AOutcome in {Good, Revoked, Indeterminate}; False with
@@ -44,10 +45,15 @@ type
       const AStaple: TBytes; out AOutcome: TLiveRevocationOutcome;
       out ARejectAlert: TTlsAlertDescription): Boolean; virtual; abstract;
   public
-    constructor Create(APosture: TRevocationPosture;
+    /// <summary>AExpectedPeer is the certificate role this resolver was built to evaluate (a
+    /// server-config resolver binds server-auth EKU; a client-config resolver binds client-auth):
+    /// a park for the other role is refused as a misconfiguration rather than evaluated.</summary>
+    constructor Create(APosture: TRevocationPosture; AExpectedPeer: TPeerRole;
       const AFallback: TCertificateVerdictResolver);
     /// <summary>The TCertificateVerdictResolver seam entry: assign it to
-    /// SetCertificateVerdictResolver or an adapter's VerdictResolver.</summary>
+    /// SetCertificateVerdictResolver or the adapter hook matching this resolver's role -
+    /// VerdictResolver for a resolver built from a client config, ServerVerdictResolver for one
+    /// built from a server config (a role mismatch is refused with internal_error).</summary>
     function ResolveVerdict(const ACtx: TCertificateVerdictContext;
       out ARejectAlert: TTlsAlertDescription): Boolean;
   end;
@@ -57,10 +63,11 @@ implementation
 { TOSLiveRevocationResolver }
 
 constructor TOSLiveRevocationResolver.Create(APosture: TRevocationPosture;
-  const AFallback: TCertificateVerdictResolver);
+  AExpectedPeer: TPeerRole; const AFallback: TCertificateVerdictResolver);
 begin
   inherited Create;
   FPosture := APosture;
+  FExpectedPeer := AExpectedPeer;
   FFallback := AFallback;
 end;
 
@@ -71,6 +78,15 @@ var
   LOutcome: TLiveRevocationOutcome;
 begin
   ARejectAlert := TTlsAlertDescription.BadCertificate;
+  // this resolver's trust engine is bound to one certificate role (server-auth vs client-auth
+  // EKU); a park for the other role cannot be evaluated here. Refuse it as a local
+  // misconfiguration (internal_error, RFC 8446 6.2) rather than let it surface as a misleading
+  // trust failure that would look like a rejected peer
+  if ACtx.PeerRole <> FExpectedPeer then
+  begin
+    ARejectAlert := TTlsAlertDescription.InternalError;
+    Exit(False);
+  end;
   // Off suppresses the live fetch (its network + privacy cost); the inline pipeline already
   // settled trust and any definitive cached revocation, so accept
   if FPosture = TRevocationPosture.Off then

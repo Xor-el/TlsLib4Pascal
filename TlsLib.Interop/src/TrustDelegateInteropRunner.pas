@@ -325,7 +325,7 @@ end;
 class function TTrustDelegateInteropRunner.BuildClientConfig(
   const AProvider: ICryptoProvider; const ACell: TTrustCell): ITlsClientConfig;
 const
-  // the async park deadline for the live cells; the OS fetch over loopback settles well within it
+  // the resolver fetch budget for the live cells; the OS fetch over loopback settles well within it
   LiveDeadlineMs = Cardinal(10000);
 var
   LBuilder: ITlsConfigBuilder;
@@ -400,7 +400,8 @@ begin
       // the host resolves the async park by re-running the OS engine live (network on)
       LResolver := TOSSystemTrust.LiveRevocationResolver(LConfig);
       try
-        LResult := TInteropPump.DriveHandshake(LEngine, LSocket, LResolver.ResolveVerdict);
+        LResult := TInteropPump.DriveHandshake(LEngine, LSocket,
+          LResolver.ResolveVerdict, True);
       finally
         LResolver.Free;
       end;
@@ -426,8 +427,8 @@ class function TTrustDelegateInteropRunner.BuildServerConfig(
   const AProvider: ICryptoProvider; const ACell: TTrustCell;
   const ACaFile: string): ITlsServerConfig;
 const
-  // the async park deadline for the live client-cert check; the OS fetch over loopback settles well
-  // within it
+  // the resolver fetch budget for the live client-cert check; the OS fetch over loopback settles
+  // well within it
   LiveDeadlineMs = Cardinal(10000);
 var
   LBuilder: ITlsConfigBuilder;
@@ -486,7 +487,7 @@ begin
           BuildServerConfig(LProvider, ACell, LLiveCaFile));
         try
           LResult := TInteropPump.DriveHandshake(LEngine, LServerSocket,
-            LResolver.ResolveVerdict);
+            LResolver.ResolveVerdict, False);
           // accept path: echo the presenter's app data so both sides complete cleanly
           if LResult.Status = TInteropStatus.Ok then
           begin

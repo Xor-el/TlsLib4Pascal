@@ -212,19 +212,14 @@ var
   LServerName: TServerName;
   LDeferral: TVerdictDeferral;
   LOffers13, LOffers12, LAsyncVerdict: Boolean;
-  LVerdictDeadlineMs: Cardinal;
   LMachine: IHandshakeMachine;
 begin
   LOffers13 := Offers(AConfig, TlsWireVersionTls13);
   LOffers12 := Offers(AConfig, TlsWireVersionTls12);
-  // a verdict-deferral mode parks the handshake after the pipeline accepts the server chain;
-  // the deadline is surfaced to the driver (the engine owns no timer)
+  // a verdict-deferral mode parks the handshake after the pipeline accepts the server chain; any
+  // time budget belongs to the resolver built from the config, not the engine
   LDeferral := AConfig.AsyncCertificateVerdict.Deferral;
   LAsyncVerdict := LDeferral <> TVerdictDeferral.None;
-  if LAsyncVerdict then
-    LVerdictDeadlineMs := AConfig.AsyncCertificateVerdict.DeadlineMs
-  else
-    LVerdictDeadlineMs := 0;
   // the two client machines must share one client random and session id so a 1.2
   // hand-off keeps the ServerKeyExchange/master-secret binding of the sent ClientHello
   LClientRandom := AConfig.Provider.Primitives.GetRandom.GenerateBytes(32);
@@ -389,8 +384,7 @@ begin
   else
     LMachine := TTls12ClientStateMachine.Create(L12);
 
-  Result := TTlsEngine.CreateConfigured(LMachine, AConfig.Provider,
-    LVerdictDeadlineMs);
+  Result := TTlsEngine.CreateConfigured(LMachine, AConfig.Provider);
 end;
 
 class function TTlsEngineFactory.CreateServerEngine(
@@ -403,7 +397,6 @@ var
   LClientVerifier: IClientCertificateVerifier;
   LDeferral: TVerdictDeferral;
   LOffers13, LOffers12, LAsyncVerdict: Boolean;
-  LVerdictDeadlineMs: Cardinal;
   LMachine: IHandshakeMachine;
   LGroupCode: UInt16;
 begin
@@ -416,10 +409,6 @@ begin
   if AConfig.ClientAuth = TClientAuthMode.None then
     LDeferral := TVerdictDeferral.None;
   LAsyncVerdict := LDeferral <> TVerdictDeferral.None;
-  if LAsyncVerdict then
-    LVerdictDeadlineMs := AConfig.AsyncCertificateVerdict.DeadlineMs
-  else
-    LVerdictDeadlineMs := 0;
 
   // one client-certificate verifier from the source (built-in, injected, or the OS client
   // delegate over the client-CA anchors), shared by both version machines; built only for mTLS
@@ -549,8 +538,7 @@ begin
   else
     LMachine := TTls12ServerStateMachine.Create(L12);
 
-  Result := TTlsEngine.CreateConfigured(LMachine, AConfig.Provider,
-    LVerdictDeadlineMs);
+  Result := TTlsEngine.CreateConfigured(LMachine, AConfig.Provider);
 end;
 
 end.

@@ -73,6 +73,7 @@ type
 
   TTestTlsStreamLoopback = class(TTlsLibAlgorithmTestCase)
   strict private
+    FCapturedPeerRole: TPeerRole; // the role the pump handed the resolver at the park
     function TrustRoot: TBytes;
     function LeafCert: TBytes;
     function LeafKey: TBytes;
@@ -273,6 +274,7 @@ function TTestTlsStreamLoopback.ResolverAccept(
   const ACtx: TCertificateVerdictContext;
   out ARejectAlert: TTlsAlertDescription): Boolean;
 begin
+  FCapturedPeerRole := ACtx.PeerRole; // record the role the pump attributed to the parked chain
   ARejectAlert := TTlsAlertDescription.BadCertificate;
   Result := AlwaysAccept(ACtx.Chain, ACtx.HostName);
 end;
@@ -532,10 +534,13 @@ begin
   RunLoopback(AsyncClientConfig, TServerBehavior.EchoThenClose, LClient, LServer,
     LTransport);
   try
+    FCapturedPeerRole := TPeerRole.Unknown; // seed with the unset value so the assert is meaningful
     LClient.SetCertificateVerdictResolver(ResolverAccept);
     LClient.Handshake;
     CheckTrue(LClient.IsHandshakeComplete,
       'an accepted async verdict completes the handshake over the pump');
+    CheckEquals(Ord(TPeerRole.Server), Ord(FCapturedPeerRole),
+      'a client park attributes the parked chain to the server role');
     LPing := DecodeHex(PingHex);
     LClient.Write(LPing[0], System.Length(LPing));
     SetLength(LEcho, 4096);

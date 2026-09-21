@@ -82,6 +82,8 @@ type
     FVerifyCallback: TTlsCertificateVerifyCallback;
     FVerdictResolver: TCertificateVerdictResolver;
     FVerdictDeadlineMs: Cardinal;
+    FServerVerdictResolver: TCertificateVerdictResolver;
+    FServerVerdictDeadlineMs: Cardinal;
     FClientConfig: ITlsClientConfig;
     FServerConfig: ITlsServerConfig;
     FProvider: ICryptoProvider;
@@ -96,10 +98,12 @@ type
     constructor Create;
     procedure Assign(ASource: TPersistent); override;
     /// <summary>A fully-built client config that REPLACES the options-driven build: when set, the
-    /// cert/trust options here are not allowed alongside it (the adapter raises). VerdictResolver/
-    /// VerdictDeadlineMs are the exception - a runtime stream hook, not part of the frozen config -
-    /// and still apply (arm them with WithLiveRevocationVerdict). The escape hatch to the full
-    /// builder API (cipher order, groups, resumption, ALPN, ...).</summary>
+    /// cert/trust options here are not allowed alongside it (the adapter raises). The verdict
+    /// resolvers (VerdictResolver/ServerVerdictResolver and their deadlines) are the exception -
+    /// runtime stream hooks, not part of the frozen config - and still apply, provided the supplied
+    /// config itself armed the deferral (WithLiveRevocationVerdict/WithAsyncCertificateVerdict);
+    /// otherwise the handshake never parks and the resolver never fires. The escape hatch to the
+    /// full builder API (cipher order, groups, resumption, ALPN, ...).</summary>
     property ClientConfig: ITlsClientConfig read FClientConfig write FClientConfig;
     /// <summary>A fully-built server config that REPLACES the options-driven build (the server-side
     /// counterpart of ClientConfig; same conflict rule).</summary>
@@ -114,14 +118,27 @@ type
     /// verify rule.</summary>
     property VerifyCallback: TTlsCertificateVerifyCallback read FVerifyCallback
       write FVerifyCallback;
-    /// <summary>When assigned, the handshake parks after the pipeline accepts the peer chain
-    /// and this resolves the verdict out-of-band (e.g. live OCSP/CRL); augment-only,
-    /// fail-closed.</summary>
+    /// <summary>The CLIENT-role verdict resolver: when assigned, a client handshake parks after
+    /// the pipeline accepts the SERVER's chain and this resolves it out-of-band (e.g. live
+    /// OCSP/CRL over a server-auth trust engine); augment-only, fail-closed. For an mTLS server
+    /// that must vet the CLIENT chain use ServerVerdictResolver - the two roles bind different
+    /// EKUs, so one resolver cannot serve both.</summary>
     property VerdictResolver: TCertificateVerdictResolver read FVerdictResolver
       write FVerdictResolver;
-    /// <summary>The advisory deadline (ms) for an awaited verdict; 0 leaves it to the resolver.</summary>
+    /// <summary>The fetch budget (ms) the client-role resolver is given; 0 leaves it to the
+    /// resolver.</summary>
     property VerdictDeadlineMs: Cardinal read FVerdictDeadlineMs
       write FVerdictDeadlineMs;
+    /// <summary>The SERVER-role verdict resolver: when assigned, a server handshake that requests
+    /// a client certificate parks after the pipeline accepts the CLIENT's chain and this resolves
+    /// it out-of-band (live client-cert revocation over a client-auth trust engine); augment-only,
+    /// fail-closed.</summary>
+    property ServerVerdictResolver: TCertificateVerdictResolver read FServerVerdictResolver
+      write FServerVerdictResolver;
+    /// <summary>The fetch budget (ms) the server-role resolver is given; 0 leaves it to the
+    /// resolver.</summary>
+    property ServerVerdictDeadlineMs: Cardinal read FServerVerdictDeadlineMs
+      write FServerVerdictDeadlineMs;
     /// <summary>An injected anchor store; when set it UNIONS with RootCertFile and UseSystemTrust
     /// (e.g. a fully custom root set alongside the OS anchors).</summary>
     property CustomTrustStore: ITrustAnchorStore read FCustomTrustStore
@@ -318,6 +335,8 @@ begin
     FVerifyCallback := LSrc.FVerifyCallback;
     FVerdictResolver := LSrc.FVerdictResolver;
     FVerdictDeadlineMs := LSrc.FVerdictDeadlineMs;
+    FServerVerdictResolver := LSrc.FServerVerdictResolver;
+    FServerVerdictDeadlineMs := LSrc.FServerVerdictDeadlineMs;
     FClientConfig := LSrc.FClientConfig;
     FServerConfig := LSrc.FServerConfig;
     FProvider := LSrc.FProvider;
@@ -331,8 +350,8 @@ end;
 procedure TTlsLibSSLOptions.GuardNoConflict(const APropertyName: string);
 begin
   // a supplied config owns trust/credential entirely; naming these alongside it would be silently
-  // dropped, so fail loud. VerdictResolver is deliberately excluded: it is a runtime stream hook
-  // (not part of the frozen config) and still applies with a supplied config.
+  // dropped, so fail loud. The verdict resolvers (client and server role) are deliberately
+  // excluded: they are runtime stream hooks (not part of the frozen config) and still apply.
   if (FCertFile <> '') or (FKeyFile <> '') or (FRootCertFile <> '') or FUseSystemTrust or
     (FCustomServerCertVerifier <> nil) or (FCustomClientCertVerifier <> nil) or
     (FCustomTrustStore <> nil) or Assigned(FVerifyCallback) or
@@ -575,6 +594,10 @@ begin
         TSystemTrust.WithSystemTrust(LServer, LProvider);
       if FOptions.CustomTrustStore <> nil then
         LServer.WithTrustStore(FOptions.CustomTrustStore);
+      // arm the async client-certificate verdict park so the server-role resolver runs server-side
+      // (live client-cert revocation); without this the stream's resolver is never invoked
+      if Assigned(FOptions.ServerVerdictResolver) then
+        LServer.WithLiveRevocationVerdict(FOptions.ServerVerdictDeadlineMs);
     end;
   end;
   if FOptions.SessionResumption then
@@ -628,6 +651,8 @@ begin
   LSig.AddFlag('systemTrust', FOptions.UseSystemTrust);
   LSig.AddPointer('customVerifier', FOptions.CustomClientCertificateVerifier);
   LSig.AddPointer('customStore', FOptions.CustomTrustStore);
+  LSig.AddFlag('asyncVerdict', Assigned(FOptions.ServerVerdictResolver));
+  LSig.AddCardinal('deadline', FOptions.ServerVerdictDeadlineMs);
   Result := LSig.Value;
 end;
 
@@ -694,8 +719,15 @@ begin
     LTransport.SetReadTimeout(LTimeoutMs);
     FTransport := LTransport as ITlsTransport;
     FStream := TTlsStream.Create(FTransport, FEngine, not IsPeer, Host);
-    if Assigned(FOptions.VerdictResolver) then
-      FStream.SetCertificateVerdictResolver(FOptions.VerdictResolver);
+    // attach the role-correct resolver: a client (not IsPeer) parks on the server's chain, a
+    // server on the mTLS client's chain - the two bind different EKUs
+    if not IsPeer then
+    begin
+      if Assigned(FOptions.VerdictResolver) then
+        FStream.SetCertificateVerdictResolver(FOptions.VerdictResolver);
+    end
+    else if Assigned(FOptions.ServerVerdictResolver) then
+      FStream.SetCertificateVerdictResolver(FOptions.ServerVerdictResolver);
     try
       FStream.Handshake;
     finally

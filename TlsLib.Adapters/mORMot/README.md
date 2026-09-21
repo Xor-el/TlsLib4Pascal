@@ -57,13 +57,17 @@ Instead, the neutral hooks are process-wide setters (mORMot builds an `INetTls` 
 through the global factory, so its hooks are set the same way):
 
 ```pascal
-SetTlsLibMormotVerifyCallback(cb);                      // augment-only  chain+host -> Boolean
-SetTlsLibMormotVerdictResolver(resolver, deadlineMs);   // out-of-band verdict; parks the handshake
+SetTlsLibMormotVerifyCallback(cb);                            // augment-only  chain+host -> Boolean
+SetTlsLibMormotVerdictResolver(resolver, deadlineMs);         // client role: decides the server's chain
+SetTlsLibMormotServerVerdictResolver(resolver, deadlineMs);   // server role: decides an mTLS client's chain
 ```
 
 `VerifyCallback` runs after our pipeline accepts the chain and can only additionally reject.
-The resolver decides a parked verdict out-of-band — wire `TLiveRevocationChecker.ResolveVerdict`
-(from `TlpLiveRevocation`, over an injected `IHttpFetcher`) to it for live OCSP/CRL. Both are
+The resolvers decide a parked verdict out-of-band — wire `TLiveRevocationChecker.ResolveVerdict`
+(from `TlpLiveRevocation`, over an injected `IHttpFetcher`) to them for live OCSP/CRL. The verdict
+resolver is role-specific: the client hook evaluates the server's chain (server-auth EKU), the
+server hook an mTLS client's chain (client-auth EKU), so they are separate — pair each with the
+matching `TOSSystemTrust.LiveRevocationResolver` overload (client vs server config). Both are
 fail-closed and never loosen our verdict.
 
 For the full trust picture — trusting a private CA, public-key pinning, host-name-only

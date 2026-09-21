@@ -81,14 +81,16 @@ type
   published
     procedure TestParkThenAcceptCompletes;
     procedure TestCertificateReceivedEventCarriesLeaf;
-    procedure TestDeadlineSurfacedToDriver;
     procedure TestRejectFailsClosedWithBadCertificate;
     procedure TestParkedResumeOntoBadRecordFailsClosedNotRaise;
     procedure TestNoVerdictNeverCompletes;
-    procedure TestDeadlineExpiryFailsClosed;
+    procedure TestResolverTimeoutRejectFailsClosed;
     procedure TestAcceptCannotResurrectPipelineRejectedChain;
     procedure TestDisabledResolvesInlineNoPark;
     procedure TestServerParkThenAcceptCompletes;
+    // a server that requests client auth but sets no verdict deferral must decide the client chain
+    // inline and complete - it must never park (the park is armed only by a verdict-deferral setting)
+    procedure TestServerClientAuthWithoutDeferralDoesNotPark;
     procedure TestServerRejectFailsClosedWithBadCertificate;
     procedure TestRejectWithRevokedAlertReachesPeer;
     procedure TestServerRejectWithRevokedAlertReachesPeer;
@@ -336,15 +338,6 @@ begin
   CheckEquals('localhost', LEvent.HostName, 'the event carries the expected host');
 end;
 
-procedure TTestAsyncVerdict.TestDeadlineSurfacedToDriver;
-var
-  LClient, LServer: ITlsEngine;
-begin
-  LClient := NewClient(ClientConfig(True, 2500), 'localhost', LServer);
-  CheckEquals(Int64(2500), Int64(LClient.AsyncCertificateVerdictDeadlineMs),
-    'the configured deadline is surfaced to the driver');
-end;
-
 procedure TTestAsyncVerdict.TestRejectFailsClosedWithBadCertificate;
 var
   LClient, LServer: ITlsEngine;
@@ -420,23 +413,23 @@ begin
   CheckFalse(LClient.IsTerminal, 'the parked handshake has not failed of its own accord');
 end;
 
-procedure TTestAsyncVerdict.TestDeadlineExpiryFailsClosed;
+procedure TTestAsyncVerdict.TestResolverTimeoutRejectFailsClosed;
 var
   LClient, LServer: ITlsEngine;
 begin
-  // the driver enforces the deadline (the engine owns no timer); on expiry it calls the
-  // verdict path with a failure. That path is SetCertificateVerdict(False) - fail-closed.
+  // a resolver that cannot decide in time returns a failure; that path is
+  // SetCertificateVerdict(False) - fail-closed (the engine owns no timer)
   LClient := NewClient(ClientConfig(True, 1), 'localhost', LServer);
   LClient.StartHandshake;
   DriveUntilParkOrSettled(LClient, LServer);
   CheckTrue(LClient.AwaitingCertificateVerdict, 'the client should be parked');
 
-  LClient.SetCertificateVerdict(False); // the driver's deadline-expiry action
+  LClient.SetCertificateVerdict(False); // the resolver's timeout action
 
-  CheckTrue(LClient.IsTerminal, 'an expired deadline aborts the handshake (fail-closed)');
+  CheckTrue(LClient.IsTerminal, 'a resolver-timeout reject aborts the handshake (fail-closed)');
   CheckEquals(Int64(Ord(TTlsAlertDescription.BadCertificate)),
     Int64(Ord(LClient.LastError.Alert.Description)),
-    'a deadline expiry aborts with bad_certificate');
+    'the reject aborts with bad_certificate');
 end;
 
 procedure TTestAsyncVerdict.TestAcceptCannotResurrectPipelineRejectedChain;
@@ -473,8 +466,6 @@ begin
 
   CheckFalse(LClient.AwaitingCertificateVerdict,
     'the inline path never awaits a verdict');
-  CheckEquals(Int64(0), Int64(LClient.AsyncCertificateVerdictDeadlineMs),
-    'a disabled async verdict surfaces no deadline');
   CheckFalse(LClient.IsHandshaking, 'the inline handshake completes');
   CheckFalse(LClient.IsTerminal, 'the inline handshake succeeds');
 end;
@@ -500,6 +491,24 @@ begin
   CheckFalse(LServer.IsTerminal, 'the accepted server handshake must not be terminal');
   CheckFalse(LServer.IsHandshaking, 'the server handshake must complete');
   CheckFalse(LClient.IsHandshaking, 'the client handshake must complete');
+end;
+
+procedure TTestAsyncVerdict.TestServerClientAuthWithoutDeferralDoesNotPark;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // the server requests client auth but arms no async verdict: it verifies the client chain inline
+  // (default Soft) and completes. Neither side parks - the deferral park is armed only by a resolver
+  LClient := NewMtls(False, LServer);
+  LClient.StartHandshake;
+  DriveToCompletion(LClient, LServer);
+
+  CheckFalse(LServer.AwaitingCertificateVerdict,
+    'a Requested-auth server with no deferral must not park on the client chain');
+  CheckFalse(LClient.AwaitingCertificateVerdict, 'the client resolves inline');
+  CheckFalse(LServer.IsHandshaking, 'the server handshake completes inline');
+  CheckFalse(LClient.IsHandshaking, 'the client handshake completes inline');
+  CheckFalse(LServer.IsTerminal, 'the inline mutual handshake succeeds');
 end;
 
 procedure TTestAsyncVerdict.TestServerRejectFailsClosedWithBadCertificate;

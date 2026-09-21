@@ -35,12 +35,17 @@ peer.SSLAcceptConnection;             // handshake
 
 | Synapse `TCustomSSL` property                        | TlsLib4Pascal                            |
 |------------------------------------------------------|------------------------------------------|
-| `CertCAFile`                                         | `WithTrustAnchors` (client trust)        |
+| `CertCAFile`                                         | `WithTrustAnchors` (client trust, or a server's client-auth CA) |
 | `CertificateFile` + `PrivateKeyFile` + `KeyPassword` | `WithCredential` (server cert/key)       |
 | `SNIHost`                                            | SNI + the verified host name             |
 | `VerifyCert` (default **True** here)                 | verify on/off; **False** → **`dangerous` `WithDangerousInsecureSkipVerify`** |
+| `VerifyCert` + (`CertCAFile` or `UseSystemTrust`), **server** | `WithPeerAuth(Requested)` — the server requests (does not require) a client certificate and verifies a presented one; mTLS |
 | `OnVerifyCert` (native hook)                         | augment-only bridge (see below)          |
 | `SSLType`                                            | accepted and ignored (we are TLS 1.2+)   |
+
+Because `VerifyCert` defaults to **True**, a server that sets `CertCAFile` (or `UseSystemTrust`)
+starts requesting client certificates: a client that presents one must chain to that trust source,
+and a client that presents none is still accepted (request, not require).
 
 **Certificate chain**: `CertificateFile` is the chain the server *presents* — put your leaf **followed
 by any intermediates** in one PEM file so clients build a complete chain. `CertCAFile` is a **trust
@@ -70,15 +75,19 @@ pipeline already rejected. (Unlike Indy's and mORMot's native hooks, `OnVerifyCe
 `function(Sender: TObject): Boolean` — carries no OpenSSL type, so bridging it forces no coupling.)
 
 **Neutral hooks (no drop to Tier-2).** For an app's own augment rule, or an out-of-band verdict
-such as live OCSP/CRL, set the process-wide hooks the plugin threads into every client handshake:
+such as live OCSP/CRL, set the process-wide hooks the plugin threads into each handshake, by role:
 
 ```pascal
-SetTlsLibSynapseVerifyCallback(cb);                      // augment-only  chain+host -> Boolean
-SetTlsLibSynapseVerdictResolver(resolver, deadlineMs);   // parks the handshake for a verdict
+SetTlsLibSynapseVerifyCallback(cb);                            // augment-only  chain+host -> Boolean
+SetTlsLibSynapseVerdictResolver(resolver, deadlineMs);         // client role: decides the server's chain
+SetTlsLibSynapseServerVerdictResolver(resolver, deadlineMs);   // server role: decides an mTLS client's chain
 ```
 
 Wire `TLiveRevocationChecker.ResolveVerdict` (from `TlpLiveRevocation`, over an injected
-`IHttpFetcher`) as the resolver to get live revocation.
+`IHttpFetcher`) as the resolver to get live revocation. The resolver is role-specific — the client
+hook evaluates the server's chain (server-auth EKU), the server hook an mTLS client's chain
+(client-auth EKU) — so pair each with the matching `TOSSystemTrust.LiveRevocationResolver` overload
+(client vs server config).
 
 For the full trust picture — trusting a private CA, public-key pinning, host-name-only
 relaxation, the `dangerous` escape hatches, and an ASP.NET Core mapping — see

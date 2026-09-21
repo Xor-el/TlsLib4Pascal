@@ -241,6 +241,15 @@ out-of-band **verdict resolver** that parks the handshake for a decision; wire
 `TLiveRevocationChecker.ResolveVerdict` (live OCSP/CRL over an injected `IHttpFetcher`) to it. All
 of these are augment-only and fail-closed. See each adapter's README for details.
 
+The verdict resolver is **role-specific**: the *client* hook decides the server's chain (a
+server-auth trust engine), the *server* hook decides an mTLS client's chain (a client-auth engine).
+The two evaluate different EKUs, so each adapter exposes them separately — a client hook
+(`VerdictResolver` / `SetTlsLib…VerdictResolver`) and a server hook (`ServerVerdictResolver` /
+`SetTlsLib…ServerVerdictResolver`). Pair each with the matching `TOSSystemTrust.LiveRevocationResolver`
+overload (a client config for the client hook, a server config for the server hook). An OS-native
+resolver handed a chain of the wrong role refuses it with `internal_error` (a local
+misconfiguration) rather than a misleading trust failure.
+
 ### Live OCSP/CRL revocation (opt-in)
 
 Live revocation is **off by default** and never happens inside the sans-IO core: the config
@@ -290,7 +299,8 @@ thread and the verdict resolves the park.
 
 ```pascal
 // 1. arm the OS delegate in live mode: this uses the delegate, defers inline, and enables the
-//    async park (the deadline must be non-zero). Windows + Apple only; other platforms raise.
+//    async park. Give a non-zero deadline so the Windows resolver can bound its fetch (Apple has
+//    no per-evaluation timeout). Windows + Apple only; other platforms raise.
 TSystemTrust.WithSystemTrust(client, provider, TSystemTrustFetch.Live, deadlineMs);
 // 2. wire the OS-native resolver, built from the frozen config, to the stream/adapter:
 resolver := TOSSystemTrust.LiveRevocationResolver(clientConfig);   // caller owns + frees it

@@ -76,11 +76,11 @@ type
     class procedure ResolveVerdict(const AEngine: ITlsEngine;
       const ASocket: TInteropSocket; AAcceptVerdict: Boolean;
       const AResolver: TCertificateVerdictResolver;
-      const ACertEvent: ICertificateReceivedEvent); static;
+      const ACertEvent: ICertificateReceivedEvent; APeerRole: TPeerRole); static;
     class function DriveHandshakeCore(const AEngine: ITlsEngine;
       const ASocket: TInteropSocket; AAcceptVerdict, AHalfRttEcho: Boolean;
       const AResolver: TCertificateVerdictResolver;
-      const AProbe: IHandshakeProbe): TInteropResult; static;
+      const AProbe: IHandshakeProbe; APeerRole: TPeerRole): TInteropResult; static;
     class function ReadAppData(const AEngine: ITlsEngine): TBytes; static;
     class procedure EchoAvailable(const AEngine: ITlsEngine;
       const ASocket: TInteropSocket); static;
@@ -100,10 +100,13 @@ type
       const AProbe: IHandshakeProbe = nil): TInteropResult; overload; static;
     /// <summary>As DriveHandshake, but resolves a parked verdict through AResolver (the peer chain
     /// + host + staple from the park event), so an OS-native live-revocation resolver decides it.
-    /// A nil resolver fails the park closed.</summary>
+    /// AIsClient sets the parked chain's role (a client verifies the server's chain, a server the
+    /// mTLS client's) so a role-specific resolver evaluates the right trust engine. A nil resolver
+    /// fails the park closed.</summary>
     class function DriveHandshake(const AEngine: ITlsEngine;
       const ASocket: TInteropSocket;
-      const AResolver: TCertificateVerdictResolver): TInteropResult; overload; static;
+      const AResolver: TCertificateVerdictResolver;
+      AIsClient: Boolean): TInteropResult; overload; static;
     /// <summary>One read/decrypt cycle; Data carries any plaintext produced.</summary>
     class function PumpAppData(const AEngine: ITlsEngine;
       const ASocket: TInteropSocket): TInteropResult; static;
@@ -212,7 +215,7 @@ end;
 class procedure TInteropPump.ResolveVerdict(const AEngine: ITlsEngine;
   const ASocket: TInteropSocket; AAcceptVerdict: Boolean;
   const AResolver: TCertificateVerdictResolver;
-  const ACertEvent: ICertificateReceivedEvent);
+  const ACertEvent: ICertificateReceivedEvent; APeerRole: TPeerRole);
 var
   LAccept: Boolean;
   LAlert: TTlsAlertDescription;
@@ -225,6 +228,7 @@ begin
     LAlert := TTlsAlertDescription.CertificateUnknown;
     if ACertEvent <> nil then
     begin
+      LCtx.PeerRole := APeerRole;
       LCtx.Chain := ACertEvent.Chain;
       LCtx.HostName := ACertEvent.HostName;
       LCtx.OcspStaple := ACertEvent.OcspStaple;
@@ -240,20 +244,31 @@ class function TInteropPump.DriveHandshake(const AEngine: ITlsEngine;
   const ASocket: TInteropSocket; AAcceptVerdict: Boolean;
   AHalfRttEcho: Boolean; const AProbe: IHandshakeProbe): TInteropResult;
 begin
-  Result := DriveHandshakeCore(AEngine, ASocket, AAcceptVerdict, AHalfRttEcho, nil, AProbe);
+  // no resolver on this overload, so no verdict context is ever built; the role is unused
+  Result := DriveHandshakeCore(AEngine, ASocket, AAcceptVerdict, AHalfRttEcho, nil, AProbe,
+    TPeerRole.Unknown);
 end;
 
 class function TInteropPump.DriveHandshake(const AEngine: ITlsEngine;
   const ASocket: TInteropSocket;
-  const AResolver: TCertificateVerdictResolver): TInteropResult;
+  const AResolver: TCertificateVerdictResolver;
+  AIsClient: Boolean): TInteropResult;
+var
+  LPeerRole: TPeerRole;
 begin
-  Result := DriveHandshakeCore(AEngine, ASocket, True, False, AResolver, nil);
+  // our role fixes whose certificate a park concerns: a client verifies the server's chain,
+  // a server the mTLS client's
+  if AIsClient then
+    LPeerRole := TPeerRole.Server
+  else
+    LPeerRole := TPeerRole.Client;
+  Result := DriveHandshakeCore(AEngine, ASocket, True, False, AResolver, nil, LPeerRole);
 end;
 
 class function TInteropPump.DriveHandshakeCore(const AEngine: ITlsEngine;
   const ASocket: TInteropSocket; AAcceptVerdict, AHalfRttEcho: Boolean;
   const AResolver: TCertificateVerdictResolver;
-  const AProbe: IHandshakeProbe): TInteropResult;
+  const AProbe: IHandshakeProbe; APeerRole: TPeerRole): TInteropResult;
 var
   LBuf: TBytes;
   LGot: Int32;
@@ -303,7 +318,7 @@ begin
     // before the next Recv is required - a parked engine sends nothing, so the peer sends nothing
     if AEngine.AwaitingCertificateVerdict then
     begin
-      ResolveVerdict(AEngine, ASocket, AAcceptVerdict, AResolver, LCertEvent);
+      ResolveVerdict(AEngine, ASocket, AAcceptVerdict, AResolver, LCertEvent, APeerRole);
       LCertEvent := nil;
       Flush(AEngine, ASocket);
       if AEngine.IsTerminal then

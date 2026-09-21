@@ -284,6 +284,10 @@ resourcestring
   SDualVerifier = 'only one custom certificate verifier may be configured';
   STls13NotOffered = 'TLS 1.3 settings were configured but TLS 1.3 is not in the offered versions';
   STls12NotOffered = 'TLS 1.2 settings were configured but TLS 1.2 is not in the offered versions';
+  SNoSupportedVersions = 'at least one protocol version must be offered (TLS 1.3 and/or TLS 1.2)';
+  SUnsupportedVersion = 'protocol version 0x%.4x is not negotiable; only TLS 1.3 (0x0304) and ' +
+    'TLS 1.2 (0x0303) are supported';
+  SDuplicateVersion = 'a protocol version may be offered only once';
   SHardRevocationUnusable = 'a Hard revocation posture rejects a peer whose certificate has no ' +
     'stapled OCSP response, so it always-rejects unless the client obtains revocation status: ' +
     'call WithOcspStaplingRequest(True) to request a staple, or configure a live OCSP/CRL verdict ' +
@@ -1638,6 +1642,10 @@ end;
 
 procedure TTlsConfigBuilder.ValidateVersionScoping;
 begin
+  // a raw builder that never called WithSupportedVersions has none; a machine cannot be built
+  // without an offered version (RFC 8446 / the factory only builds TLS 1.3 and 1.2)
+  if System.Length(FSupportedVersions) = 0 then
+    raise EInvalidOperationTlsLibException.CreateRes(@SNoSupportedVersions);
   if FTls13Configured and not (TArrayUtilities.Contains<UInt16>(FSupportedVersions,
     TlsWireVersionTls13)) then
     raise EInvalidOperationTlsLibException.CreateRes(@STls13NotOffered);
@@ -1672,9 +1680,24 @@ end;
 
 function TTlsConfigBuilder.WithSupportedVersions(
   const AVersions: TArray<UInt16>): TTlsConfigBuilder;
+var
+  LI, LJ: Int32;
 begin
   GuardMutable;
-  FSupportedVersions := AVersions;
+  // the offered set is a non-empty, duplicate-free preference list of negotiable versions; the
+  // factory only builds TLS 1.3/1.2, so anything else would silently fall through to a nil-registry
+  // 1.2 machine (RFC 8446 4.2.1)
+  if System.Length(AVersions) = 0 then
+    raise EArgumentTlsLibException.CreateRes(@SNoSupportedVersions);
+  for LI := 0 to System.High(AVersions) do
+  begin
+    if (AVersions[LI] <> TlsWireVersionTls13) and (AVersions[LI] <> TlsWireVersionTls12) then
+      raise EArgumentTlsLibException.CreateResFmt(@SUnsupportedVersion, [AVersions[LI]]);
+    for LJ := LI + 1 to System.High(AVersions) do
+      if AVersions[LJ] = AVersions[LI] then
+        raise EArgumentTlsLibException.CreateRes(@SDuplicateVersion);
+  end;
+  FSupportedVersions := System.Copy(AVersions);
   Result := Self;
 end;
 
