@@ -142,7 +142,7 @@ var
   LCredential: TTlsCredential;
   LVerifier: IServerCertificateVerifier;
   LAlert: TTlsAlertDescription;
-  LValidated: TArray<TBytes>;
+  LVerified: TVerifiedChain;
 begin
   // the store holds a leaf signed by a test CA plus that CA certificate
   LCredential := Provider.Signing.ImportPkcs12(Blob('chain_pfx'), SPassword);
@@ -157,7 +157,7 @@ begin
     TTrustAnchorStore.Create(TArray<TBytes>.Create(Blob('ca_cert_der'))), False);
   LAlert := TTlsAlertDescription.InternalError;
   CheckTrue(LVerifier.VerifyServerCertificate(LCredential.CertificateChain, TServerName.DnsName(''), nil,
-    LValidated, LAlert),
+    LVerified, LAlert),
     'the imported chain validates against the test CA anchor');
 end;
 

@@ -184,6 +184,7 @@ begin
   begin
     LCtx.PeerRole := APeerRole;
     LCtx.Chain := ACertEvent.Chain;
+    LCtx.ValidatedPath := ACertEvent.ValidatedPath;
     LCtx.HostName := ACertEvent.HostName;
     LCtx.OcspStaple := ACertEvent.OcspStaple;
     LAccept := AResolveVerdict(LCtx, LAlert);

@@ -93,8 +93,10 @@ begin
     Exit(True);
   // a definitive non-revocation trust failure from the live re-evaluation rejects outright. The
   // live re-check is revocation-only (identity was settled inline), so an IP literal is never
-  // handed to the OS name logic - it would only ever spuriously fail to match
-  if not EvaluateLive(ACtx.Chain, TDelegatePostChecks.OsHostName(ACtx.HostName),
+  // handed to the OS name logic - it would only ever spuriously fail to match. Re-run over the
+  // validated path (when the pipeline produced one) so the OS engine sees the path the inline pass
+  // completed, not an incomplete presented chain it cannot re-assemble with AIA disabled
+  if not EvaluateLive(ACtx.RevocationPath, TDelegatePostChecks.OsHostName(ACtx.HostName),
     ACtx.OcspStaple, LOutcome, ARejectAlert) then
     Exit(False);
   case LOutcome of

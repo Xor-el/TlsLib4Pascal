@@ -843,11 +843,11 @@ function TTestWindowsClientDelegate.VerifyPolicy(const AAnchors: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
 var
   LVerifier: IClientCertificateVerifier;
-  LValidated: TArray<TBytes>;
+  LVerified: TVerifiedChain;
 begin
   LVerifier := TWindowsClientDelegateVerifier.Create(FProvider, AAnchors, APosture,
     TSystemTrustFetch.CacheOnly, AClock, AStrength, AAdvertised) as IClientCertificateVerifier;
-  Result := LVerifier.VerifyClientCertificate(Leaf, LValidated, AAlert);
+  Result := LVerifier.VerifyClientCertificate(Leaf, LVerified, AAlert);
 end;
 
 function TTestWindowsClientDelegate.Verify(const AAnchors: TArray<TBytes>;
@@ -948,7 +948,7 @@ procedure TTestWindowsClientDelegate.TestLiveFetchDefersUnrevocableChainInline;
 var
   LVerifier: IClientCertificateVerifier;
   LAlert: TTlsAlertDescription;
-  LValidated: TArray<TBytes>;
+  LVerified: TVerifiedChain;
 begin
   // under Live the inline cache-only pass runs effective-Soft: an unrevocable client chain (no cached
   // status) is accepted inline so the handshake parks for the off-thread live check, rather than being
@@ -957,7 +957,7 @@ begin
   LVerifier := TWindowsClientDelegateVerifier.Create(FProvider, OwnAnchor,
     TRevocationPosture.Hard, TSystemTrustFetch.Live, TSystemClock.Create as ITlsClock,
     TCertificateStrengthPolicy.Defaults, Advertised) as IClientCertificateVerifier;
-  CheckTrue(LVerifier.VerifyClientCertificate(Leaf, LValidated, LAlert),
+  CheckTrue(LVerifier.VerifyClientCertificate(Leaf, LVerified, LAlert),
     'Live defers an unrevocable client chain inline (effective-Soft) so the handshake can park');
 end;
 
@@ -1118,11 +1118,11 @@ function TTestAppleClientDelegate.VerifyPolicy(const AAnchors: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
 var
   LVerifier: IClientCertificateVerifier;
-  LValidated: TArray<TBytes>;
+  LVerified: TVerifiedChain;
 begin
   LVerifier := TAppleClientDelegateVerifier.Create(FProvider, AAnchors, APosture,
     TSystemTrustFetch.CacheOnly, AClock, AStrength, AAdvertised) as IClientCertificateVerifier;
-  Result := LVerifier.VerifyClientCertificate(Leaf, LValidated, AAlert);
+  Result := LVerifier.VerifyClientCertificate(Leaf, LVerified, AAlert);
 end;
 
 function TTestAppleClientDelegate.Verify(const AAnchors: TArray<TBytes>;

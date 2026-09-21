@@ -76,8 +76,13 @@ type
   /// </summary>
   ICertificateReceivedEvent = interface(ITlsEvent)
     ['{1A6C4E80-3B72-4D95-8F21-7C0E5B9A2D46}']
-    /// <summary>The peer certificate chain, leaf first, DER.</summary>
+    /// <summary>The peer certificate chain as presented, leaf first, DER.</summary>
     function Chain: TArray<TBytes>;
+    /// <summary>The leaf-first path the built-in pipeline validated (the leaf's issuer at index 1
+    /// where the validator can name it; the leaf alone under InsecureSkipVerify), so an out-of-band
+    /// revocation check authenticates the responder against the issuer PKIX already established
+    /// rather than a re-guess.</summary>
+    function ValidatedPath: TArray<TBytes>;
     /// <summary>The host the certificate was validated for (empty on the server side).</summary>
     function HostName: string;
     /// <summary>The handshake OCSP staple the peer delivered (empty when none), so an
@@ -198,10 +203,12 @@ type
     /// <summary>The stapled OCSP response (DER) the peer delivered in the handshake, or
     /// empty when none was stapled (RFC 6066 / RFC 8446 4.4.2.1).</summary>
     function PeerOcspStaple: TBytes;
-    /// <summary>The validated peer certificate chain (leaf first, DER) the handshake accepted:
-    /// the server chain for a client, or the client chain a server verified under mutual TLS.
-    /// Empty when the peer presented none. On a resumed handshake this is the chain verified when
-    /// the session was issued (carried in the ticket, not re-verified here). Read after the
+    /// <summary>The peer certificate chain (leaf first, DER) the handshake accepted: the server
+    /// chain for a client, or the client chain a server verified under mutual TLS. Empty when the
+    /// peer presented none. On an initial handshake this is the validated path (with the recovered
+    /// issuer/anchor). On a resumption a server re-surfaces the chain as presented when the session
+    /// was issued (carried in the ticket, re-checked but not re-assembled); a client does not
+    /// re-surface a resumed chain, so on a pure client resumption this is empty. Read after the
     /// handshake.</summary>
     function PeerCertificates: TArray<TBytes>;
     /// <summary>The DER-encoded DistinguishedName certificate_authorities the peer named in its

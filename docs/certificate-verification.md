@@ -174,7 +174,7 @@ type
   TMyServerVerifier = class(TInterfacedObject, IServerCertificateVerifier)
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
-      out AValidatedChain: TArray<TBytes>;
+      out AVerified: TVerifiedChain;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
@@ -183,9 +183,12 @@ LConfig := TTlsPresets.Compatible(P).Client
   .Build;
 ```
 
-On a positive verdict set `AValidatedChain` to the leaf-first path you actually validated
-(including the trust anchor where you can name it); a key-pinning decorator matches its pins against
-that path, not the certificates the peer presented. On rejection leave it empty.
+On a positive verdict set `AVerified.Path` to the leaf-first path you actually validated (including
+the trust anchor where you can name it); a key-pinning decorator matches its pins against that path,
+not the certificates the peer presented. Leave `AVerified.Outcome` at its default `Trusted` unless
+you reached a definitive, authenticated revocation verdict inline (a current Good staple), in which
+case set `RevocationSettledInline` and a configured live-revocation park is skipped. On rejection
+return `Default(TVerifiedChain)`.
 
 Implement the verifier (and any custom trust store) on `TInterfacedObject` or another
 reference-counted base: the config holds it by interface for its lifetime, so a non-refcounted
@@ -268,7 +271,12 @@ stream.SetCertificateVerdictResolver(checker.ResolveVerdict);
 ```
 
 A **stapled** OCSP response (validated in the handshake pipeline, before the park) is preferred;
-the live fetch is the fallback for a leaf that carries no staple. The posture governs the
+the live fetch is the fallback for a leaf that carries no staple. When the staple already settles
+revocation with a current, authenticated **Good**, the live park is **skipped** (the fetch would only
+re-answer what the staple already did), so a `WithLiveRevocationVerdict` resolver is invoked only for
+peers whose status is still undecided. A host that must observe *every* accepted peer (an audit hook,
+extra policy) uses the host-decision park (`WithAsyncCertificateVerdict`), which always parks. The
+posture governs the
 *indeterminate* outcome — `Hard` rejects an unreachable/malformed/stale result, `Soft` accepts it
 — while a definitive, issuer-authenticated **Revoked** always aborts with `certificate_revoked`.
 Posture **`Off` performs no live fetch at all** (its network and privacy cost is suppressed); a

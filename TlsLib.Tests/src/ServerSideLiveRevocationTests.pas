@@ -129,7 +129,8 @@ type
     procedure TestLiveRevokedClientRejectedTls12;
     procedure TestStubResolverAcceptCompletes;
     procedure TestStubResolverRejectAborts;
-    procedure TestLeafOnlyWithoutIssuerCandidateRejectsUnderHard;
+    procedure TestLeafOnlyClientResolvesIssuerFromValidatedPathWithoutCandidates;
+    procedure TestLeafOnlyClientBadResponseRejectsUnderHardWithoutCandidates;
   end;
 
 implementation
@@ -639,7 +640,44 @@ begin
   end;
 end;
 
-procedure TTestServerSideLiveRevocation.TestLeafOnlyWithoutIssuerCandidateRejectsUnderHard;
+procedure TTestServerSideLiveRevocation.TestLeafOnlyClientResolvesIssuerFromValidatedPathWithoutCandidates;
+var
+  LClient: TTlsStream;
+  LServer: TMtlsLiveServerRunner;
+  LTransport: TMemoryTransport;
+  LChecker: TLiveRevocationChecker;
+begin
+  // the client presents a leaf-only chain and the checker is given NO issuer candidates, yet the
+  // handshake park carries the pipeline-VALIDATED path (issuer at index 1), so the checker resolves
+  // the issuer from there and authenticates a Good response. The live check fetches once and the
+  // handshake completes - the issuer comes from PKIX, not from configured candidates.
+  FFetcher := TMockHttpFetcher.Create;
+  FFetcher.SetPost(True, CertField('ocsp_good'));
+  LChecker := NewChecker(TRevocationPosture.Hard, False);
+  try
+    RunLoopback(ClientConfig(False), ServerConfig(TRevocationPosture.Hard, False),
+      LChecker.ResolveVerdict, True, LClient, LServer, LTransport);
+    try
+      LClient.Handshake;
+      CheckTrue(LClient.IsHandshakeComplete,
+        'the leaf-only client completed: the issuer came from the validated path');
+      ExchangePingEcho(LClient);
+      LClient.CloseNotify;
+      LServer.WaitFor;
+      CheckTrue(LServer.HandshakeOk, 'the server accepted the live-good leaf-only client');
+      CheckEquals('', LServer.Error, 'the server side ran without error');
+      CheckEquals(1, FFetcher.PostCount,
+        'the responder was queried once - the validated path supplied the issuer');
+    finally
+      LServer.Free;
+      LClient.Free;
+    end;
+  finally
+    LChecker.Free;
+  end;
+end;
+
+procedure TTestServerSideLiveRevocation.TestLeafOnlyClientBadResponseRejectsUnderHardWithoutCandidates;
 var
   LClient: TTlsStream;
   LServer: TMtlsLiveServerRunner;
@@ -647,11 +685,11 @@ var
   LChecker: TLiveRevocationChecker;
   LAlert: TTlsAlertDescription;
 begin
-  // a good OCSP is primed, but the checker is given NO issuer candidates: a leaf-only client chain
-  // then has no issuer to authenticate a response, so the live check is indeterminate and never even
-  // fetches - under Hard the server rejects. This locks the documented recovery-required behaviour.
+  // the mirror of the accept case: leaf-only client, no candidates, but the responder returns an
+  // unusable answer. The validated path still lets the checker fetch (so the responder IS queried),
+  // and an unauthenticated/indeterminate answer under Hard rejects with bad_certificate_status_response.
   FFetcher := TMockHttpFetcher.Create;
-  FFetcher.SetPost(True, CertField('ocsp_good'));
+  FFetcher.SetPost(False, nil); // the responder was reached, but no usable OCSP came back
   LChecker := NewChecker(TRevocationPosture.Hard, False);
   try
     RunLoopback(ClientConfig(False), ServerConfig(TRevocationPosture.Hard, False),
@@ -660,11 +698,11 @@ begin
       LAlert := ClientFatalAlert(LClient);
       CheckEquals(Int64(Ord(TTlsAlertDescription.BadCertificateStatusResponse)),
         Int64(Ord(LAlert)),
-        'a leaf-only client with no recoverable issuer is indeterminate -> Hard rejects');
+        'an indeterminate live outcome under Hard rejects');
       LServer.WaitFor;
-      CheckFalse(LServer.HandshakeOk, 'the server rejected the unrecoverable-issuer client');
-      CheckEquals(0, FFetcher.PostCount,
-        'no OCSP fetch is attempted when the issuer cannot be recovered');
+      CheckFalse(LServer.HandshakeOk, 'the server rejected the indeterminate client');
+      CheckEquals(1, FFetcher.PostCount,
+        'the responder was still queried - the validated path supplied the issuer');
     finally
       LServer.Free;
       LClient.Free;

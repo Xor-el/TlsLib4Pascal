@@ -1034,9 +1034,12 @@ begin
   CheckFalse(LServer.IsHandshaking, 'the fallback full handshake completed');
   CheckFalse(LServer.IsTerminal, 'the fallback full handshake did not fail');
   CheckFalse(LServer.IsResumed, 'a Required server declined the identity-less ticket');
-  CheckEquals(System.Length(LClientCred.CertificateChain),
-    System.Length(LServer.PeerCertificates),
+  // the full handshake surfaces the VALIDATED client path (leaf first, with the assembled issuer),
+  // so its leaf is the client's certificate even though the path is longer than the presented one
+  CheckTrue(System.Length(LServer.PeerCertificates) > 0,
     'the full handshake verified and surfaced the client certificate');
+  CheckEqualBytes('the surfaced leaf is the client credential leaf',
+    LClientCred.CertificateChain[0], LServer.PeerCertificates[0]);
   CheckAppDataFlows(LClient, LServer);
 end;
 

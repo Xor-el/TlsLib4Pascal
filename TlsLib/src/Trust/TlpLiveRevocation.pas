@@ -252,7 +252,9 @@ begin
   // a definitive Revoked aborts with certificate_revoked always; an indeterminate hard-fail
   // aborts with bad_certificate_status_response (the same alert a hard stapled-OCSP fail sends)
   ARejectAlert := TTlsAlertDescription.BadCertificate;
-  case Evaluate(ACtx.Chain) of
+  // authenticate against the validated path (issuer at index 1) when the pipeline produced one,
+  // so the leaf's issuer comes from PKIX, not a re-guess over configured candidates
+  case Evaluate(ACtx.RevocationPath) of
     TLiveRevocationOutcome.Revoked:
       begin
         ARejectAlert := TTlsAlertDescription.CertificateRevoked;

@@ -186,7 +186,7 @@ type
     procedure OnAlpnSelected(const AProtocol: string);
     procedure OnVersionNegotiated(const AVersion: TTlsVersion);
     procedure OnOcspStapleReceived(const AStaple: TBytes);
-    procedure OnCertificateVerdictNeeded(const AChain: TArray<TBytes>;
+    procedure OnCertificateVerdictNeeded(const AChain, AValidatedPath: TArray<TBytes>;
       const AHostName: string; const AStaple: TBytes);
     procedure OnPeerCertificateChain(const AChain: TArray<TBytes>);
     procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>);
@@ -256,7 +256,7 @@ type
     procedure OnAlpnSelected(const AProtocol: string);
     procedure OnVersionNegotiated(const AVersion: TTlsVersion);
     procedure OnOcspStapleReceived(const AStaple: TBytes);
-    procedure OnCertificateVerdictNeeded(const AChain: TArray<TBytes>;
+    procedure OnCertificateVerdictNeeded(const AChain, AValidatedPath: TArray<TBytes>;
       const AHostName: string; const AStaple: TBytes);
     procedure OnPeerCertificateChain(const AChain: TArray<TBytes>);
     procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>);
@@ -345,9 +345,10 @@ begin
 end;
 
 procedure TEngineHandshakeBridge.OnCertificateVerdictNeeded(
-  const AChain: TArray<TBytes>; const AHostName: string; const AStaple: TBytes);
+  const AChain, AValidatedPath: TArray<TBytes>; const AHostName: string;
+  const AStaple: TBytes);
 begin
-  FEngine.OnCertificateVerdictNeeded(AChain, AHostName, AStaple);
+  FEngine.OnCertificateVerdictNeeded(AChain, AValidatedPath, AHostName, AStaple);
 end;
 
 procedure TEngineHandshakeBridge.OnPeerCertificateChain(
@@ -1197,8 +1198,8 @@ begin
   FIsResumed := AResumed;
 end;
 
-procedure TTlsEngine.OnCertificateVerdictNeeded(const AChain: TArray<TBytes>;
-  const AHostName: string; const AStaple: TBytes);
+procedure TTlsEngine.OnCertificateVerdictNeeded(const AChain,
+  AValidatedPath: TArray<TBytes>; const AHostName: string; const AStaple: TBytes);
 begin
   // the built-in pipeline has already accepted this chain; park and surface it so a host can
   // decide out-of-band (augment-only). The handshake makes no further progress until
@@ -1207,7 +1208,7 @@ begin
   System.Assert(not FHandshakeComplete);
 {$ENDIF DEBUG}
   FAwaitingVerdict := True;
-  Enqueue(TTlsEvents.MakeCertificateReceived(AChain, AHostName, AStaple));
+  Enqueue(TTlsEvents.MakeCertificateReceived(AChain, AValidatedPath, AHostName, AStaple));
 end;
 
 procedure TTlsEngine.OnHandshakeEstablished;

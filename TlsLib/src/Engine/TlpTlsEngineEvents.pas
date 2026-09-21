@@ -30,7 +30,7 @@ type
     class function MakeKeysInstalled: ITlsEvent; static;
     class function MakePeerAlert(const AAlert: TReceivedAlert): ITlsEvent; static;
     class function MakeHandshakeFragment(const AData: TBytes): ITlsEvent; static;
-    class function MakeCertificateReceived(const AChain: TArray<TBytes>;
+    class function MakeCertificateReceived(const AChain, AValidatedPath: TArray<TBytes>;
       const AHostName: string; const AStaple: TBytes): ITlsEvent; static;
   end;
 
@@ -71,13 +71,16 @@ type
   strict private
   var
     FChain: TArray<TBytes>;
+    FValidatedPath: TArray<TBytes>;
     FHostName: string;
     FOcspStaple: TBytes;
+    class function DeepCopy(const AChain: TArray<TBytes>): TArray<TBytes>; static;
   public
-    constructor Create(const AChain: TArray<TBytes>; const AHostName: string;
-      const AStaple: TBytes);
+    constructor Create(const AChain, AValidatedPath: TArray<TBytes>;
+      const AHostName: string; const AStaple: TBytes);
     function Kind: TTlsEventKind;
     function Chain: TArray<TBytes>;
+    function ValidatedPath: TArray<TBytes>;
     function HostName: string;
     function OcspStaple: TBytes;
   end;
@@ -133,17 +136,23 @@ end;
 
 { TCertificateReceivedEvent }
 
-constructor TCertificateReceivedEvent.Create(const AChain: TArray<TBytes>;
-  const AHostName: string; const AStaple: TBytes);
+class function TCertificateReceivedEvent.DeepCopy(
+  const AChain: TArray<TBytes>): TArray<TBytes>;
 var
   LI: Int32;
 begin
-  inherited Create;
-  // a deep copy: the chain outlives the effect that carried it and a consumer must not
-  // be able to mutate the engine's captured chain
-  SetLength(FChain, System.Length(AChain));
+  Result := nil;
+  SetLength(Result, System.Length(AChain));
   for LI := 0 to System.High(AChain) do
-    FChain[LI] := System.Copy(AChain[LI]);
+    Result[LI] := System.Copy(AChain[LI]);
+end;
+
+constructor TCertificateReceivedEvent.Create(const AChain,
+  AValidatedPath: TArray<TBytes>; const AHostName: string; const AStaple: TBytes);
+begin
+  inherited Create;
+  FChain := DeepCopy(AChain);
+  FValidatedPath := DeepCopy(AValidatedPath);
   FHostName := AHostName;
   FOcspStaple := System.Copy(AStaple);
 end;
@@ -154,13 +163,13 @@ begin
 end;
 
 function TCertificateReceivedEvent.Chain: TArray<TBytes>;
-var
-  LI: Int32;
 begin
-  Result := nil;
-  SetLength(Result, System.Length(FChain));
-  for LI := 0 to System.High(FChain) do
-    Result[LI] := System.Copy(FChain[LI]);
+  Result := DeepCopy(FChain);
+end;
+
+function TCertificateReceivedEvent.ValidatedPath: TArray<TBytes>;
+begin
+  Result := DeepCopy(FValidatedPath);
 end;
 
 function TCertificateReceivedEvent.HostName: string;
@@ -205,10 +214,11 @@ begin
   Result := THandshakeDataEvent.Create(AData);
 end;
 
-class function TTlsEvents.MakeCertificateReceived(const AChain: TArray<TBytes>;
-  const AHostName: string; const AStaple: TBytes): ITlsEvent;
+class function TTlsEvents.MakeCertificateReceived(const AChain,
+  AValidatedPath: TArray<TBytes>; const AHostName: string;
+  const AStaple: TBytes): ITlsEvent;
 begin
-  Result := TCertificateReceivedEvent.Create(AChain, AHostName, AStaple);
+  Result := TCertificateReceivedEvent.Create(AChain, AValidatedPath, AHostName, AStaple);
 end;
 
 end.

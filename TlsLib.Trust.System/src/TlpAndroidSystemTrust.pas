@@ -70,7 +70,7 @@ type
       const AAdvertised: TArray<UInt16>);
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
-      out AValidatedChain: TArray<TBytes>;
+      out AVerified: TVerifiedChain;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
@@ -105,7 +105,7 @@ type
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>);
     function VerifyClientCertificate(const AChain: TArray<TBytes>;
-      out AValidatedChain: TArray<TBytes>;
+      out AVerified: TVerifiedChain;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
@@ -967,12 +967,12 @@ end;
 
 function TAndroidDelegateVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
   const AServerName: TServerName; const AOcspStaple: TBytes;
-  out AValidatedChain: TArray<TBytes>;
+  out AVerified: TVerifiedChain;
   out AAlert: TTlsAlertDescription): Boolean;
 var
   LOsPath: TArray<TBytes>;
 begin
-  AValidatedChain := nil;
+  AVerified := Default(TVerifiedChain);
   // the platform chain verdict first, yielding the path it built. The host is the
   // network-security-config domain key, NOT a name check (Android's host-aware TrustManager
   // requires a non-null host once per-domain configs exist), so it is passed through as-is; the
@@ -1024,7 +1024,10 @@ begin
     end;
   // the OS-built path (leaf-first, ending at the anchor) is the validated chain a key-pin matches
   if Result then
-    AValidatedChain := LOsPath;
+  begin
+    AVerified.Path := LOsPath;
+    AVerified.Outcome := TVerificationOutcome.Trusted;
+  end;
 end;
 
 { TAndroidServerVerifierSource }
@@ -1053,10 +1056,10 @@ begin
 end;
 
 function TAndroidClientDelegateVerifier.VerifyClientCertificate(
-  const AChain: TArray<TBytes>; out AValidatedChain: TArray<TBytes>;
+  const AChain: TArray<TBytes>; out AVerified: TVerifiedChain;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
-  AValidatedChain := nil;
+  AVerified := Default(TVerifiedChain);
   // checkClientTrusted returns void; the exclusive KeyStore + no AIA fetch make the presented
   // chain plus the configured anchors (exempt) the validated path
   Result := TAndroidTrustApi.EvaluateClient(AChain, FAnchors, AAlert);
@@ -1067,7 +1070,10 @@ begin
   // the platform reports no path for a client certificate; the presented chain is the validated
   // one (anchors are exempt and not appended - the contract permits omitting an unreportable anchor)
   if Result then
-    AValidatedChain := AChain;
+  begin
+    AVerified.Path := AChain;
+    AVerified.Outcome := TVerificationOutcome.Trusted;
+  end;
 end;
 
 { TAndroidClientVerifierSource }
