@@ -1,0 +1,40 @@
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_24f667340655e7 50
+  s_09d3c46d1a9b1f::t_a23bfadf3a5fb0 1179,1186
+TlsLib/src/Engine/TlpTlsEngine.pas
+  s_09d3c46d1a9b1f::t_1e02a5ac64cc63 812-813
+TlsLib.Tests/src/AsyncVerdictTests.pas
+  s_09d3c46d1a9b1f::t_ab6af38c1571c5 98,558-586
+TlsLib/src/Handshake/TlpTls12ClientStateMachine.pas
+  s_09d3c46d1a9b1f::t_9eae6fbcc6b854 53
+  s_09d3c46d1a9b1f::t_f1b5001442c083 1167,1174
+TlsLib/src/Interfaces/Handshake/TlpIHandshakeMachine.pas
+  s_09d3c46d1a9b1f::t_a0b184d8ec4c92 68-70
+TlsLib/src/Handshake/TlpHandshakeConductor.pas
+  s_09d3c46d1a9b1f::t_4b4f0ae7620b65 270,278-279
+  s_09d3c46d1a9b1f::t_f81e9b3ac947bc 129,131
+  s_09d3c46d1a9b1f::t_e1f436458c7453 22
+  s_09d3c46d1a9b1f::t_b478c453b6a33a 190,193,198,216
+  s_09d3c46d1a9b1f::t_0d6025f63bdac6 48-50
+  s_09d3c46d1a9b1f::t_fbb5815054cf74 229-230
+TlsLib/src/Handshake/TlpTls13HandshakeBase.pas
+  s_09d3c46d1a9b1f::t_00073555ef6a6c 108-110
+  s_09d3c46d1a9b1f::t_3ea06710aaf6b4 28
+  s_09d3c46d1a9b1f::t_9e6b658d594407 158-163
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a5121cba685392d5bda2a2be0a06cec768c2dbce",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": null
+    }
+  }
+}
