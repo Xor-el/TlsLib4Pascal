@@ -17,7 +17,7 @@ interface
 
 uses
   SysUtils,
-  TlpICryptoProvider,
+  TlpIPkixProvider,
   TlpFileSystemTrust;
 
 type
@@ -34,7 +34,7 @@ type
   public
     /// <summary>Uses the process SSL_CERT_FILE / SSL_CERT_DIR environment and the
     /// built-in path table.</summary>
-    constructor Create(const AProvider: ICryptoProvider); overload;
+    constructor Create(const APkix: IPkixProvider); overload;
   end;
 
 implementation
@@ -88,9 +88,9 @@ end;
 
 { TUnixRootSource }
 
-constructor TUnixRootSource.Create(const AProvider: ICryptoProvider);
+constructor TUnixRootSource.Create(const APkix: IPkixProvider);
 begin
-  inherited Create(AProvider,
+  inherited Create(APkix,
     GetEnvironmentVariable(TUnixTrustPaths.EnvFileVar),
     GetEnvironmentVariable(TUnixTrustPaths.EnvDirVar),
     TUnixTrustPaths.CandidateFiles,

@@ -20,6 +20,7 @@ interface
 uses
   SysUtils,
   TlpICryptoProvider,
+  TlpIPkixProvider,
   TlpCryptoDomainTypes,
   TlpArrayUtilities,
   TlpISecretBuffer,
@@ -258,10 +259,11 @@ type
     class function EchAcceptExpected(const AConfig: TBoGoConfig;
       AIsResume: Boolean): Boolean; static;
     class function BuildOptions(const AProvider: ICryptoProvider;
-      const AConfig: TBoGoConfig; AIsResume: Boolean): TInteropEngineOptions; static;
+      const APkix: IPkixProvider; const AConfig: TBoGoConfig;
+      AIsResume: Boolean): TInteropEngineOptions; static;
     class function RunExchange(const AProvider: ICryptoProvider;
-      const ASocket: TInteropSocket; const AConfig: TBoGoConfig;
-      AIsResume: Boolean): Int32; static;
+      const APkix: IPkixProvider; const ASocket: TInteropSocket;
+      const AConfig: TBoGoConfig; AIsResume: Boolean): Int32; static;
     class function FinishShutdown(const AEngine: ITlsEngine;
       const ASocket: TInteropSocket; ACheckCloseNotify: Boolean): Int32; static;
   public
@@ -929,7 +931,8 @@ begin
 end;
 
 class function TBoGoShimRunner.BuildOptions(const AProvider: ICryptoProvider;
-  const AConfig: TBoGoConfig; AIsResume: Boolean): TInteropEngineOptions;
+  const APkix: IPkixProvider; const AConfig: TBoGoConfig;
+  AIsResume: Boolean): TInteropEngineOptions;
 var
   LDropTicketState: Boolean;
 begin
@@ -956,7 +959,7 @@ begin
     begin
       Result.HasCredential := True;
       Result.Credential := TInteropCredentials.ServerCredentialFromPem(
-        AProvider, AConfig.CertFile, AConfig.KeyFile);
+        AProvider, APkix, AConfig.CertFile, AConfig.KeyFile);
       // honor BoGo -signing-prefs: pin the CertificateVerify scheme to the requested
       // ones (like rustls' FixedSignatureSchemeSigningKey); empty is a no-op
       Result.Credential.PrivateKey := Result.Credential.PrivateKey.WithPreferredSchemes(
@@ -970,7 +973,7 @@ begin
     else if AConfig.VerifyPeer then
       Result.ClientAuth := TClientAuthMode.Requested;
     if (Result.ClientAuth <> TClientAuthMode.None) and (AConfig.TrustCert <> '') then
-      Result.Trust := TInteropCredentials.TrustFromPem(AProvider, AConfig.TrustCert);
+      Result.Trust := TInteropCredentials.TrustFromPem(APkix, AConfig.TrustCert);
     // -require-any-client-certificate requests a client cert with no CA to validate it
     // against: accept any presented chain (an accept-any whole-verifier in the engine)
     Result.AcceptAnyPeerCert := (Result.ClientAuth <> TClientAuthMode.None) and
@@ -1036,7 +1039,7 @@ begin
     // (PSK-required). A leaf that is not a well-formed certificate is still rejected at parse
     // (GarbageCertificate-Client) before any trust decision.
     if (AConfig.TrustCert <> '') and AConfig.VerifyPeer then
-      Result.Trust := TInteropCredentials.TrustFromPem(AProvider, AConfig.TrustCert)
+      Result.Trust := TInteropCredentials.TrustFromPem(APkix, AConfig.TrustCert)
     else if (System.Length(AConfig.ExternalPsks) = 0) or AConfig.VerifyPeer then
       Result.AcceptAnyPeerCert := True;
     // per-connection ALPN advertisement overrides the fixed -advertise-alpn on the matching
@@ -1052,7 +1055,7 @@ begin
     begin
       Result.HasCredential := True;
       Result.Credential := TInteropCredentials.ServerCredentialFromPem(
-        AProvider, AConfig.CertFile, AConfig.KeyFile);
+        AProvider, APkix, AConfig.CertFile, AConfig.KeyFile);
       // honor BoGo -signing-prefs for the client credential too (empty is a no-op)
       Result.Credential.PrivateKey := Result.Credential.PrivateKey.WithPreferredSchemes(
         TInteropCredentials.SchemesFromCodes(AConfig.SigningPrefs));
@@ -1138,8 +1141,8 @@ begin
 end;
 
 class function TBoGoShimRunner.RunExchange(const AProvider: ICryptoProvider;
-  const ASocket: TInteropSocket; const AConfig: TBoGoConfig;
-  AIsResume: Boolean): Int32;
+  const APkix: IPkixProvider; const ASocket: TInteropSocket;
+  const AConfig: TBoGoConfig; AIsResume: Boolean): Int32;
 var
   LEngine: ITlsEngine;
   LOptions: TInteropEngineOptions;
@@ -1155,7 +1158,7 @@ var
   LSeenCas: TArray<TBytes>;
   LCaIdx, LRep, LRepeat, LAccepted: Int32;
 begin
-  LOptions := BuildOptions(AProvider, AConfig, AIsResume);
+  LOptions := BuildOptions(AProvider, APkix, AConfig, AIsResume);
   LOptions.ReverifyOnResume := AConfig.ReverifyOnResume;
   // -verify-fail is fatal only under -verify-peer / -require-any-client-certificate (a hard
   // verify); without them BoringSSL soft-fails and completes, and so do we (the valid cert
@@ -1371,6 +1374,7 @@ var
   LConfig: TBoGoConfig;
   LReason: string;
   LProvider: ICryptoProvider;
+  LPkix: IPkixProvider;
   LSocket: TInteropSocket;
   LConn: Int32;
   LAddress: string;
@@ -1401,6 +1405,7 @@ begin
   end;
 
   LProvider := TInteropEngine.DefaultProvider;
+  LPkix := TInteropEngine.DefaultPkix;
   // one session cache (client) / STEK (server) shared across every connection, so a
   // the client always keeps a session cache so it offers psk_key_exchange_modes and accepts
   // (and validates) the NewSessionTickets the server issues, even on a non-resume connection;
@@ -1453,7 +1458,7 @@ begin
       LSocket := TInteropSocket.Connect(LAddress, LConfig.Port);
       try
         AnnounceShimId(LSocket, LConfig.ShimId);
-        Result := RunExchange(LProvider, LSocket, LConfig, LConn > 0);
+        Result := RunExchange(LProvider, LPkix, LSocket, LConfig, LConn > 0);
       finally
         LSocket.Free;
       end;

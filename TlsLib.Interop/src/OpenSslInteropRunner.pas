@@ -21,6 +21,7 @@ uses
   SysUtils,
   Classes,
   TlpICryptoProvider,
+  TlpIPkixProvider,
   TlpTlsCredential,
   TlpTrustPolicy,
   TlpNegotiationTypes,
@@ -227,12 +228,14 @@ class function TOpenSslInteropRunner.RunClient(APort: Word; const AHost,
 var
   LSocket: TInteropSocket;
   LProvider: ICryptoProvider;
+  LPkix: IPkixProvider;
   LOptions: TInteropEngineOptions;
   LCache: ISessionCache;
   LConn: Int32;
 begin
   Result := 1;
   LProvider := TInteropEngine.DefaultProvider;
+  LPkix := TInteropEngine.DefaultPkix;
   // one shared cache carries a ticket from an earlier connection so a later one resumes it
   LCache := nil;
   if AConnectionCount > 1 then
@@ -242,7 +245,7 @@ begin
   LOptions.Role := TInteropRole.Client;
   LOptions.ServerName := AHost;
   LOptions.CheckServerName := True;
-  LOptions.Trust := TInteropCredentials.TrustFromPem(LProvider, ACaPemFile);
+  LOptions.Trust := TInteropCredentials.TrustFromPem(LPkix, ACaPemFile);
   LOptions.SessionCache := LCache;
   // a shared scope so the per-connection rebuilt client configs resume each other's sessions
   if LCache <> nil then
@@ -258,7 +261,7 @@ begin
   begin
     LOptions.HasCredential := True;
     LOptions.Credential :=
-      TInteropCredentials.ServerCredentialFromFieldFile(LProvider, AClientCredFile);
+      TInteropCredentials.ServerCredentialFromFieldFile(LProvider, LPkix, AClientCredFile);
   end;
 
   for LConn := 1 to AConnectionCount do
@@ -355,6 +358,7 @@ var
   LResumeCount: Int32;
   LStek: ISessionTicketKeyManager;
   LProvider: ICryptoProvider;
+  LPkix: IPkixProvider;
   LCredential: TTlsCredential;
   LStaple: TBytes;
   LFields: TStringList;
@@ -417,6 +421,7 @@ begin
         LStek := TStekTicketKeyManager.Create(TInteropEngine.DefaultProvider.Primitives.GetRandom)
           as ISessionTicketKeyManager;
       LProvider := TInteropEngine.DefaultProvider;
+      LPkix := TInteropEngine.DefaultPkix;
       LStaple := nil;
       if LStapleField <> '' then
       begin
@@ -434,7 +439,7 @@ begin
       end
       else
         LCredential := TInteropCredentials.ServerCredentialFromFieldFile(
-          LProvider, LCredentialFile);
+          LProvider, LPkix, LCredentialFile);
       LEchKeyStore := nil;
       if LEchKeyFile <> '' then
         LEchKeyStore := TInMemoryEchKeyStore.FromPem(

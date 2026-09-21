@@ -56,8 +56,8 @@ uses
   TlpDataEncoding,
   TlpIClock,
   TlpClock,
-  TlpICryptoProvider,
-  TlpDefaultCryptoProvider,
+  TlpIPkixProvider,
+  TlpDefaultPkixProvider,
   TlpTrustPolicy,
   TlpIHttpFetcher,
   TlpSocketHttpFetcher;
@@ -104,7 +104,7 @@ end;
 
 class function TRealPeerRevocationProbeExample.Run: Integer;
 var
-  LProvider: ICryptoProvider;
+  LPkix: IPkixProvider;
   LFetcher: IHttpFetcher;
   LChecker: TLiveRevocationChecker;
   LFields: TStringList;
@@ -129,10 +129,10 @@ begin
     LGoodChain := TArray<TBytes>.Create(LoadField(LFields, 'good_leaf'),
       LoadField(LFields, 'good_issuer'));
 
-    LProvider := TDefaultCryptoProvider.Create;
+    LPkix := TDefaultPkixProvider.Create;
     LFetcher := TSocketHttpFetcher.Create;
     // hard-fail posture over the live CRL distribution points
-    LChecker := TLiveRevocationChecker.Create(LProvider, TSystemClock.Create as ITlsClock,
+    LChecker := TLiveRevocationChecker.Create(LPkix, TSystemClock.Create as ITlsClock,
       LFetcher, TRevocationPosture.Hard, TLiveRevocationMethod.Crl, FetchTimeoutMs);
 
     LRevoked := LChecker.Evaluate(LRevokedChain);

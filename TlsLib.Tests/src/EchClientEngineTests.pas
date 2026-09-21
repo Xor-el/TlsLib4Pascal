@@ -105,7 +105,8 @@ function TTestEchClientEngine.BaseParams(
   const AEchConfigList: TBytes): TClientHandshakeParams;
 begin
   Result := Default(TClientHandshakeParams);
-  Result.Provider := Provider;
+  Result.Crypto := Provider;
+  Result.Inspector := Pkix.Certificates;
   Result.Clock := TSystemClock.Create;
   Result.Group := TNamedGroups.CreateX25519(Provider);
   Result.GroupCode := TNamedGroupCatalog.X25519;

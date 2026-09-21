@@ -126,7 +126,7 @@ end;
 function TTestCertificateVerifier.VerifierFor(const ARoot: TBytes;
   ACheckHostName: Boolean): IServerCertificateVerifier;
 begin
-  Result := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+  Result := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(ARoot)) as ITrustAnchorStore,
     ACheckHostName) as IServerCertificateVerifier;
 end;
@@ -134,7 +134,7 @@ end;
 function TTestCertificateVerifier.ClientVerifierFor(const ARoot: TBytes)
   : IClientCertificateVerifier;
 begin
-  Result := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+  Result := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(ARoot)) as ITrustAnchorStore,
     False) as IClientCertificateVerifier;
 end;
@@ -145,7 +145,7 @@ var
   LNoDangerous: TDangerousTrust;
 begin
   LNoDangerous := Default(TDangerousTrust);
-  Result := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+  Result := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(ARoot)) as ITrustAnchorStore,
     False, TCertificateChainLimits.Defaults, TRevocationPosture.Soft,
     LNoDangerous, TVerdictDeferral.None, AIntermediates) as IServerCertificateVerifier;

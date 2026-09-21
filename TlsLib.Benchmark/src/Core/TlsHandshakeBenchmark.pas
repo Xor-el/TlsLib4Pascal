@@ -52,7 +52,9 @@ uses
   TlpNegotiationTypes,
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
+  TlpIPkixProvider,
   TlpDefaultCryptoProvider,
+  TlpDefaultPkixProvider,
   TlsBenchmarkData,
   TlsLibHandshakePeer,
   OpenSslHandshakePeer;
@@ -84,6 +86,7 @@ type
 class function TTlsHandshakeBenchmark.Run(ALogProc: TBenchmarkLogProc): Int32;
 var
   LProvider: ICryptoProvider;
+  LPkix: IPkixProvider;
   LCredential: TTlsBenchmarkCredential;
   LOpenSslAvailable: Boolean;
   LDeferred: TArray<string>;
@@ -127,7 +130,7 @@ var
     LCurve: UInt16;
   begin
     Result := 0;
-    if LProvider.Certificates.KeyKind(LCredential.LeafCertDer, LKind, LCurve)
+    if LPkix.Certificates.KeyKind(LCredential.LeafCertDer, LKind, LCurve)
       and (LKind = TCertKeyKind.Ecdsa) then
       Result := LCurve;
   end;
@@ -139,7 +142,7 @@ var
   begin
     Result := -1.0;
     try
-      LPeer := TTlsLibHandshakePeer.Create(LProvider, LCredential, AWire, ACurve);
+      LPeer := TTlsLibHandshakePeer.Create(LProvider, LPkix, LCredential, AWire, ACurve);
       try
         for LWarm := 1 to BENCH_HS_WARMUP do
           LPeer.RunOneHandshake;
@@ -179,6 +182,7 @@ var
 begin
   Result := BENCH_LABEL_COL_WIDTH + 5 * BENCH_HS_VALUE_COL_WIDTH;
   LProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  LPkix := TDefaultPkixProvider.Create as IPkixProvider;
   LOpenSslAvailable := TOpenSslHandshakePeer.IsAvailable;
   LDeferred := nil;
 

@@ -25,6 +25,7 @@ uses
   TlpTrustPolicy,
   TlpTlsAlert,
   TlpICryptoProvider,
+  TlpIPkixProvider,
   TlpITlsEngine,
   InteropSocket,
   InteropEngine,
@@ -150,6 +151,7 @@ procedure TServerThread.Execute;
 var
   LSocket: TInteropSocket;
   LProvider: ICryptoProvider;
+  LPkix: IPkixProvider;
   LOptions: TInteropEngineOptions;
   LEngine: ITlsEngine;
   LResult: TInteropResult;
@@ -159,18 +161,19 @@ begin
   try
     LSocket := FListener.Accept;
     LProvider := TInteropEngine.DefaultProvider;
+    LPkix := TInteropEngine.DefaultPkix;
     LOptions := Default(TInteropEngineOptions);
     LOptions.Role := TInteropRole.Server;
     LOptions.SupportedVersions := FScenario.Versions;
     LOptions.HasCredential := True;
     LOptions.Credential :=
-      TInteropCredentials.ServerCredentialFromFieldFile(LProvider, FCredentialFile);
+      TInteropCredentials.ServerCredentialFromFieldFile(LProvider, LPkix, FCredentialFile);
     if FScenario.MutualTls then
     begin
       // request and verify the client certificate against the client-auth (dual-EKU) root:
       // a TLS client certificate must carry the clientAuth extendedKeyUsage
       LOptions.ClientAuth := TClientAuthMode.Required;
-      LOptions.Trust := TInteropCredentials.TrustFromFieldFile(LProvider,
+      LOptions.Trust := TInteropCredentials.TrustFromFieldFile(LPkix,
         ExtractFilePath(FCredentialFile) + 'ClientAuthChain.txt');
     end;
     LEngine := TInteropEngine.Build(LProvider, LOptions);
@@ -301,6 +304,7 @@ class function TInteropSelfTestRunner.RunClient(APort: Word;
 var
   LSocket: TInteropSocket;
   LProvider: ICryptoProvider;
+  LPkix: IPkixProvider;
   LOptions: TInteropEngineOptions;
   LEngine: ITlsEngine;
   LResult: TInteropResult;
@@ -310,17 +314,18 @@ begin
   LSocket := TInteropSocket.Connect('127.0.0.1', APort);
   try
     LProvider := TInteropEngine.DefaultProvider;
+    LPkix := TInteropEngine.DefaultPkix;
     LOptions := Default(TInteropEngineOptions);
     LOptions.Role := TInteropRole.Client;
     LOptions.SupportedVersions := AScenario.Versions;
     LOptions.ServerName := 'localhost';
     LOptions.CheckServerName := True;
-    LOptions.Trust := TInteropCredentials.TrustFromFieldFile(LProvider, ACredentialFile);
+    LOptions.Trust := TInteropCredentials.TrustFromFieldFile(LPkix, ACredentialFile);
     if AScenario.MutualTls then
     begin
       // present a dual-EKU (clientAuth) client certificate the server requests
       LOptions.HasCredential := True;
-      LOptions.Credential := TInteropCredentials.ServerCredentialFromFieldFile(LProvider,
+      LOptions.Credential := TInteropCredentials.ServerCredentialFromFieldFile(LProvider, LPkix,
         ExtractFilePath(ACredentialFile) + 'ClientAuthChain.txt');
     end;
     LEngine := TInteropEngine.Build(LProvider, LOptions);
@@ -408,6 +413,7 @@ class function TInteropSelfTestRunner.RunRevClient(APort: Word;
 var
   LSocket: TInteropSocket;
   LProvider: ICryptoProvider;
+  LPkix: IPkixProvider;
   LOptions: TInteropEngineOptions;
   LEngine: ITlsEngine;
   LResult: TInteropResult;
@@ -417,12 +423,13 @@ begin
   LSocket := TInteropSocket.Connect('127.0.0.1', APort);
   try
     LProvider := TInteropEngine.DefaultProvider;
+    LPkix := TInteropEngine.DefaultPkix;
     LOptions := Default(TInteropEngineOptions);
     LOptions.Role := TInteropRole.Client;
     LOptions.SupportedVersions := TArray<UInt16>.Create(ACell.Version);
     LOptions.ServerName := 'localhost';
     LOptions.CheckServerName := True;
-    LOptions.Trust := TInteropCredentials.TrustFromFieldFile(LProvider, ADataFile);
+    LOptions.Trust := TInteropCredentials.TrustFromFieldFile(LPkix, ADataFile);
     // offer status_request regardless of posture, else the server never staples and the cell
     // proves nothing; pin the posture the cell dictates
     LOptions.RequestOcsp := True;

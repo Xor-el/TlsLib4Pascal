@@ -27,6 +27,7 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpCryptoDomainTypes,
+  TlpPkixDomainTypes,
   TlpICryptoProvider,
   TlsLibTestBase;
 
@@ -88,7 +89,7 @@ var
 begin
   // asserts the certificate yields a determined answer (never Undetermined) and reports
   // whether it permits the usage
-  LAnswer := Provider.Certificates.KeyUsagePermits(V(ACertName), AUsage);
+  LAnswer := Pkix.Certificates.KeyUsagePermits(V(ACertName), AUsage);
   CheckTrue(LAnswer <> TCertAnswer.Undetermined, 'the certificate should parse');
   Result := LAnswer = TCertAnswer.Yes;
 end;
@@ -127,7 +128,7 @@ procedure TTestCertificateChecks.TestMalformedCertLeavesUsagePermitted;
 begin
   // a certificate that does not parse cannot restrict usage: the answer is Undetermined
   CheckEquals(Ord(TCertAnswer.Undetermined),
-    Ord(Provider.Certificates.KeyUsagePermits(
+    Ord(Pkix.Certificates.KeyUsagePermits(
     TBytes.Create(1, 2, 3, 4), TCertKeyUsage.DigitalSignature)),
     'a malformed certificate cannot be determined');
 end;
@@ -135,28 +136,28 @@ end;
 procedure TTestCertificateChecks.TestRsaPssKeyIsDetected;
 begin
   CheckEquals(Ord(TCertAnswer.Yes),
-    Ord(Provider.Certificates.KeyIsRsaPss(V('rsapss_cert'))),
+    Ord(Pkix.Certificates.KeyIsRsaPss(V('rsapss_cert'))),
     'an id-RSASSA-PSS SubjectPublicKeyInfo is detected');
 end;
 
 procedure TTestCertificateChecks.TestNormalRsaKeyIsNotPss;
 begin
   CheckEquals(Ord(TCertAnswer.No),
-    Ord(Provider.Certificates.KeyIsRsaPss(V('rsa_normal_cert'))),
+    Ord(Pkix.Certificates.KeyIsRsaPss(V('rsa_normal_cert'))),
     'an rsaEncryption key is not id-RSASSA-PSS');
 end;
 
 procedure TTestCertificateChecks.TestEcKeyIsNotPss;
 begin
   CheckEquals(Ord(TCertAnswer.No),
-    Ord(Provider.Certificates.KeyIsRsaPss(V('ku_digsig_cert'))),
+    Ord(Pkix.Certificates.KeyIsRsaPss(V('ku_digsig_cert'))),
     'an ecPublicKey key is not id-RSASSA-PSS');
 end;
 
 procedure TTestCertificateChecks.TestMalformedCertIsNotPss;
 begin
   CheckEquals(Ord(TCertAnswer.Undetermined),
-    Ord(Provider.Certificates.KeyIsRsaPss(TBytes.Create(9, 9, 9))),
+    Ord(Pkix.Certificates.KeyIsRsaPss(TBytes.Create(9, 9, 9))),
     'a malformed certificate cannot be determined');
 end;
 

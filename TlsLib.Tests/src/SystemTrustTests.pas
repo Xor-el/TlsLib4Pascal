@@ -39,8 +39,8 @@ uses
 {$ELSE}
   TestFramework,
 {$ENDIF FPC}
-  TlpICryptoProvider,
-  TlpDefaultCryptoProvider,
+  TlpIPkixProvider,
+  TlpDefaultPkixProvider,
   TlpICertificateTrust,
   TlpICertificateVerifierSource,
   TlpTrustPolicy,
@@ -74,7 +74,7 @@ type
   TTestSystemTrustFixtures = class(TTlsLibAlgorithmTestCase)
   private
   var
-    FProvider: ICryptoProvider;
+    FPkix: IPkixProvider;
     FDir: string;       // a throwaway fixture directory under the working dir
     FFile: string;      // a fixture bundle file holding the test root
     FMissing: string;   // a path that does not exist
@@ -106,7 +106,7 @@ type
   /// Hard/Live-need-live-revocation predicates - exercised without touching any real OS store.</summary>
   TTestDelegatePostChecks = class(TTlsLibAlgorithmTestCase)
   private
-    FProvider: ICryptoProvider;
+    FPkix: IPkixProvider;
     FClock: ITlsClock;
     FOcsp: TStringList;      // OcspStapling.txt: a real chain + Good/Revoked/stale staples
     FEc: TStringList;        // EcP256Chain.txt: a DNS-only leaf and an IP-SAN leaf
@@ -140,7 +140,7 @@ type
   /// automatically. Never registered on its own.</summary>
   TSystemTrustAnchorContractTestBase = class abstract(TTlsLibAlgorithmTestCase)
   strict protected
-    FProvider: ICryptoProvider;
+    FPkix: IPkixProvider;
     // ---- per-OS hooks ----
     function CreateAnchorStore: ITrustAnchorStore; virtual; abstract;
     function PlatformName: string; virtual; abstract;
@@ -175,7 +175,7 @@ type
   /// and the revocation posture over crypt32's real chain engine. Windows-only.</summary>
   TTestWindowsClientDelegate = class(TTlsLibAlgorithmTestCase)
   strict private
-    FProvider: ICryptoProvider;
+    FPkix: IPkixProvider;
     FChain: TStringList;    // ClientAuthChain fields (private CA + dual-EKU leaf)
     FForeign: TStringList;  // an unrelated private root
     function Leaf: TArray<TBytes>;
@@ -229,7 +229,7 @@ type
   /// Registered on macOS (the shared macOS/iOS code path; iOS has no CI runner).</summary>
   TTestAppleClientDelegate = class(TTlsLibAlgorithmTestCase)
   strict private
-    FProvider: ICryptoProvider;
+    FPkix: IPkixProvider;
     FChain: TStringList;    // ClientAuthChain fields (private CA + dual-EKU leaf)
     FForeign: TStringList;  // an unrelated private root
     function Leaf: TArray<TBytes>;
@@ -279,7 +279,7 @@ implementation
 procedure TTestDelegatePostChecks.SetUp;
 begin
   inherited SetUp;
-  FProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  FPkix := TDefaultPkixProvider.Create as IPkixProvider;
   FClock := TSystemClock.Create as ITlsClock;
   FOcsp := LoadVectorFields('Certs/OcspStapling.txt');
   FEc := LoadVectorFields('Certs/EcP256Chain.txt');
@@ -313,7 +313,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   LAlert := TTlsAlertDescription.BadCertificate;
-  CheckTrue(TDelegatePostChecks.RejectStapledRevoked(FProvider, FClock, OcspChain,
+  CheckTrue(TDelegatePostChecks.RejectStapledRevoked(FPkix, FClock, OcspChain,
     Ocsp('ocsp_revoked'), LAlert), 'a definitive stapled Revoked always rejects');
   CheckEquals(Ord(TTlsAlertDescription.CertificateRevoked), Ord(LAlert),
     'the alert is certificate_revoked');
@@ -323,9 +323,9 @@ procedure TTestDelegatePostChecks.TestGoodAndAbsentStapleDoNotFire;
 var
   LAlert: TTlsAlertDescription;
 begin
-  CheckFalse(TDelegatePostChecks.RejectStapledRevoked(FProvider, FClock, OcspChain,
+  CheckFalse(TDelegatePostChecks.RejectStapledRevoked(FPkix, FClock, OcspChain,
     Ocsp('ocsp_good'), LAlert), 'a current Good staple does not fire the Revoked post-check');
-  CheckFalse(TDelegatePostChecks.RejectStapledRevoked(FProvider, FClock, OcspChain,
+  CheckFalse(TDelegatePostChecks.RejectStapledRevoked(FPkix, FClock, OcspChain,
     nil, LAlert), 'an absent staple does not fire the Revoked post-check');
 end;
 
@@ -335,7 +335,7 @@ var
 begin
   // a stale (out-of-window) response is indeterminate, not Revoked - the posture decides it, so
   // this post-check must not fire
-  CheckFalse(TDelegatePostChecks.RejectStapledRevoked(FProvider, FClock, OcspChain,
+  CheckFalse(TDelegatePostChecks.RejectStapledRevoked(FPkix, FClock, OcspChain,
     Ocsp('ocsp_stale'), LAlert), 'a stale staple is indeterminate, not Revoked');
 end;
 
@@ -344,7 +344,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   // with no issuer to authenticate the response, the verdict is indeterminate, not Revoked
-  CheckFalse(TDelegatePostChecks.RejectStapledRevoked(FProvider, FClock,
+  CheckFalse(TDelegatePostChecks.RejectStapledRevoked(FPkix, FClock,
     TArray<TBytes>.Create(Ocsp('leaf_cert')), Ocsp('ocsp_revoked'), LAlert),
     'a leaf-only path cannot render a definitive Revoked');
 end;
@@ -355,7 +355,7 @@ var
 begin
   // a nil clock must not silently skip the check (it would otherwise make every staple
   // indeterminate); it falls back to system time
-  CheckTrue(TDelegatePostChecks.RejectStapledRevoked(FProvider, nil, OcspChain,
+  CheckTrue(TDelegatePostChecks.RejectStapledRevoked(FPkix, nil, OcspChain,
     Ocsp('ocsp_revoked'), LAlert), 'a nil clock falls back to system time, still catching Revoked');
 end;
 
@@ -376,11 +376,11 @@ var
 begin
   // the IP-SAN leaf carries IP:127.0.0.1, so an IP-literal identity matches and does not fire
   CheckTrue(TServerName.TryParse('127.0.0.1', LName));
-  CheckFalse(TDelegatePostChecks.RejectIpMismatch(LName, FProvider,
+  CheckFalse(TDelegatePostChecks.RejectIpMismatch(LName, FPkix,
     TArray<TBytes>.Create(Ec('ipsan_leaf_cert')), LAlert),
     'an IP literal matching an iPAddress SAN is accepted');
   CheckTrue(TServerName.TryParse('[::1]', LName));
-  CheckFalse(TDelegatePostChecks.RejectIpMismatch(LName, FProvider,
+  CheckFalse(TDelegatePostChecks.RejectIpMismatch(LName, FPkix,
     TArray<TBytes>.Create(Ec('ipsan_leaf_cert')), LAlert),
     'an IPv6 literal matching an iPAddress SAN is accepted');
 end;
@@ -392,7 +392,7 @@ var
 begin
   // the EC leaf has only DNS:localhost, so an IP-literal identity has no iPAddress SAN to match
   CheckTrue(TServerName.TryParse('127.0.0.1', LName));
-  CheckTrue(TDelegatePostChecks.RejectIpMismatch(LName, FProvider,
+  CheckTrue(TDelegatePostChecks.RejectIpMismatch(LName, FPkix,
     TArray<TBytes>.Create(Ec('leaf_cert')), LAlert),
     'an IP literal against a DNS-only leaf is rejected');
   CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
@@ -441,7 +441,7 @@ var
 begin
   LAlert := TTlsAlertDescription.BadCertificate;
   CheckTrue(TServerName.TryParse('127.0.0.1', LName));
-  CheckTrue(TDelegatePostChecks.RejectIpMismatch(LName, FProvider, nil, LAlert),
+  CheckTrue(TDelegatePostChecks.RejectIpMismatch(LName, FPkix, nil, LAlert),
     'an IP literal with no validated leaf fails closed');
   CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LAlert),
     'the fail-closed alert is internal_error');
@@ -494,7 +494,7 @@ function TTestSystemTrustFixtures.FileSnapshot(const AEnvFile, AEnvDir: string;
 var
   LSource: TFileSystemRootSource;
 begin
-  LSource := TFileSystemRootSource.Create(FProvider, AEnvFile, AEnvDir, AFiles, ADirs);
+  LSource := TFileSystemRootSource.Create(FPkix, AEnvFile, AEnvDir, AFiles, ADirs);
   try
     Result := LSource.Snapshot;
   finally
@@ -521,7 +521,7 @@ var
   LVectors: TStringList;
 begin
   inherited SetUp;
-  FProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  FPkix := TDefaultPkixProvider.Create as IPkixProvider;
   FDir := IncludeTrailingPathDelimiter(GetCurrentDir) + 'systrust_fixtures';
   ForceDirectories(FDir);
   FCertDir := IncludeTrailingPathDelimiter(FDir) + 'certsdir';
@@ -661,7 +661,7 @@ begin
   if TOSSystemTrust.Supports(TSystemTrustMode.Anchors) then
   begin
     try
-      CheckTrue(TOSSystemTrust.AnchorStore(FProvider) <> nil,
+      CheckTrue(TOSSystemTrust.AnchorStore(FPkix) <> nil,
         'a platform that supports Anchors hands back an anchor snapshot');
     except
       on E: ESystemTrustUnavailableTlsLibException do
@@ -672,7 +672,7 @@ begin
   begin
     LRaised := False;
     try
-      TOSSystemTrust.AnchorStore(FProvider);
+      TOSSystemTrust.AnchorStore(FPkix);
     except
       on E: ESystemTrustUnsupportedTlsLibException do
         LRaised := True;
@@ -689,14 +689,13 @@ begin
   // same contract for the OS delegate source: a source where supported (Windows/macOS/iOS/Android),
   // a typed unsupported error where not (Linux/BSD/Solaris).
   if TOSSystemTrust.Supports(TSystemTrustMode.Delegate) then
-    CheckTrue(TOSSystemTrust.ServerVerifierSource(FProvider,
-      TSystemTrustFetch.CacheOnly) <> nil,
+    CheckTrue(TOSSystemTrust.ServerVerifierSource(TSystemTrustFetch.CacheOnly) <> nil,
       'a platform that supports Delegate must hand back an OS server-verifier source')
   else
   begin
     LRaised := False;
     try
-      TOSSystemTrust.ServerVerifierSource(FProvider, TSystemTrustFetch.CacheOnly);
+      TOSSystemTrust.ServerVerifierSource(TSystemTrustFetch.CacheOnly);
     except
       on E: ESystemTrustUnsupportedTlsLibException do
         LRaised := True;
@@ -711,7 +710,7 @@ end;
 procedure TSystemTrustAnchorContractTestBase.SetUp;
 begin
   inherited SetUp;
-  FProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  FPkix := TDefaultPkixProvider.Create as IPkixProvider;
 end;
 
 function TSystemTrustAnchorContractTestBase.RequiresPopulatedStore: Boolean;
@@ -756,7 +755,7 @@ begin
   if not HarvestOrSkip(LRoots) then
     Exit;
   for LI := 0 to System.Length(LRoots) - 1 do
-    CheckTrue(FProvider.Certificates.IsWellFormed(LRoots[LI]),
+    CheckTrue(FPkix.Certificates.IsWellFormed(LRoots[LI]),
       Format('%s harvested root #%d is a well-formed certificate', [PlatformName, LI]));
 end;
 
@@ -781,7 +780,7 @@ function TTestWindowsSystemTrust.CreateAnchorStore: ITrustAnchorStore;
 var
   LSource: TWindowsRootSource;
 begin
-  LSource := TWindowsRootSource.Create(FProvider);
+  LSource := TWindowsRootSource.Create(FPkix);
   try
     Result := LSource.Snapshot;
   finally
@@ -799,7 +798,7 @@ end;
 procedure TTestWindowsClientDelegate.SetUp;
 begin
   inherited SetUp;
-  FProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  FPkix := TDefaultPkixProvider.Create as IPkixProvider;
   FChain := LoadVectorFields('Certs/ClientAuthChain.txt');
   FForeign := LoadVectorFields('Certs/OcspStapling.txt');
 end;
@@ -845,7 +844,7 @@ var
   LVerifier: IClientCertificateVerifier;
   LVerified: TVerifiedChain;
 begin
-  LVerifier := TWindowsClientDelegateVerifier.Create(FProvider, AAnchors, APosture,
+  LVerifier := TWindowsClientDelegateVerifier.Create(FPkix, AAnchors, APosture,
     TSystemTrustFetch.CacheOnly, AClock, AStrength, AAdvertised) as IClientCertificateVerifier;
   Result := LVerifier.VerifyClientCertificate(Leaf, LVerified, AAlert);
 end;
@@ -954,7 +953,7 @@ begin
   // status) is accepted inline so the handshake parks for the off-thread live check, rather than being
   // rejected inline the way configured-Hard cache-only does (TestHardPostureRejectsUnrevocableChain).
   // A definitive cached Revoked and every trust failure still reject inline.
-  LVerifier := TWindowsClientDelegateVerifier.Create(FProvider, OwnAnchor,
+  LVerifier := TWindowsClientDelegateVerifier.Create(FPkix, OwnAnchor,
     TRevocationPosture.Hard, TSystemTrustFetch.Live, TSystemClock.Create as ITlsClock,
     TCertificateStrengthPolicy.Defaults, Advertised) as IClientCertificateVerifier;
   CheckTrue(LVerifier.VerifyClientCertificate(Leaf, LVerified, LAlert),
@@ -967,7 +966,7 @@ var
   LResolver: TWindowsClientLiveRevocationResolver;
   LCtx: TCertificateVerdictContext;
 begin
-  LResolver := TWindowsClientLiveRevocationResolver.Create(FProvider, AAnchors, APosture,
+  LResolver := TWindowsClientLiveRevocationResolver.Create(FPkix, AAnchors, APosture,
     TSystemClock.Create as ITlsClock, TCertificateStrengthPolicy.Defaults, Advertised, 2000, nil);
   try
     LCtx.PeerRole := TPeerRole.Client; // a client-chain resolver evaluates a client certificate
@@ -1002,7 +1001,7 @@ begin
   // a client-chain resolver (client-auth EKU) handed a SERVER-role park is a local misconfiguration
   // - a single process-wide resolver wired for the wrong role. It must refuse with internal_error,
   // not run its client-auth engine over a server chain and surface a misleading trust failure.
-  LResolver := TWindowsClientLiveRevocationResolver.Create(FProvider, OwnAnchor,
+  LResolver := TWindowsClientLiveRevocationResolver.Create(FPkix, OwnAnchor,
     TRevocationPosture.Hard, TSystemClock.Create as ITlsClock,
     TCertificateStrengthPolicy.Defaults, Advertised, 2000, nil);
   try
@@ -1030,7 +1029,7 @@ begin
   // role guard must refuse it - and even under the Off posture, because the misconfiguration is
   // posture-independent (Off would otherwise accept without evaluating, hiding the mistake until a
   // later posture change). This pins both the bug direction and the guard-before-Off ordering.
-  LResolver := TWindowsLiveRevocationResolver.Create(FProvider, TRevocationPosture.Off,
+  LResolver := TWindowsLiveRevocationResolver.Create(FPkix, TRevocationPosture.Off,
     TSystemClock.Create as ITlsClock, TCertificateStrengthPolicy.Defaults, Advertised, 2000, nil);
   try
     LCtx.PeerRole := TPeerRole.Client; // a client chain handed to a server-chain resolver
@@ -1056,7 +1055,7 @@ function TTestMacOSSystemTrust.CreateAnchorStore: ITrustAnchorStore;
 var
   LSource: TAppleRootSource;
 begin
-  LSource := TAppleRootSource.Create(FProvider);
+  LSource := TAppleRootSource.Create(FPkix);
   try
     Result := LSource.Snapshot;
   finally
@@ -1074,7 +1073,7 @@ end;
 procedure TTestAppleClientDelegate.SetUp;
 begin
   inherited SetUp;
-  FProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  FPkix := TDefaultPkixProvider.Create as IPkixProvider;
   FChain := LoadVectorFields('Certs/ClientAuthChain.txt');
   FForeign := LoadVectorFields('Certs/OcspStapling.txt');
 end;
@@ -1120,7 +1119,7 @@ var
   LVerifier: IClientCertificateVerifier;
   LVerified: TVerifiedChain;
 begin
-  LVerifier := TAppleClientDelegateVerifier.Create(FProvider, AAnchors, APosture,
+  LVerifier := TAppleClientDelegateVerifier.Create(FPkix, AAnchors, APosture,
     TSystemTrustFetch.CacheOnly, AClock, AStrength, AAdvertised) as IClientCertificateVerifier;
   Result := LVerifier.VerifyClientCertificate(Leaf, LVerified, AAlert);
 end;
@@ -1229,7 +1228,7 @@ function TTestUnixSystemTrust.CreateAnchorStore: ITrustAnchorStore;
 var
   LSource: TUnixRootSource;
 begin
-  LSource := TUnixRootSource.Create(FProvider);
+  LSource := TUnixRootSource.Create(FPkix);
   try
     Result := LSource.Snapshot;
   finally

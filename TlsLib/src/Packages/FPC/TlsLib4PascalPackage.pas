@@ -45,7 +45,9 @@ uses
   TlpEchOuterExtensions, TlpEchClient, TlpIEch, TlpInMemoryEchKeyStore, 
   TlpEchServer, TlpServerName, TlpHpkeComposition, TlpDer, TlpPem, 
   TlpICertificateVerifierSource, TlpCertificateVerifierSource, 
-  TlpTls12PrfComposition, TlpChainAlgorithmPolicy, TlpCertificateStrengthPolicy;
+  TlpTls12PrfComposition, TlpChainAlgorithmPolicy, 
+  TlpCertificateStrengthPolicy, TlpPkixDomainTypes, TlpIPkixProvider, 
+  TlpDefaultPkixProvider;
 
 implementation
 

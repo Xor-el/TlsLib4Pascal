@@ -16,7 +16,7 @@ unit TlpSystemTrustFacade;
 interface
 
 uses
-  TlpICryptoProvider,
+  TlpIPkixProvider,
   TlpICertificateTrust,
   TlpICertificateVerifierSource,
   TlpITlsConfigBuilder,
@@ -47,16 +47,16 @@ type
   /// </summary>
   TSystemTrust = class sealed(TObject)
   strict private
-    class procedure ResolveSource(const AProvider: ICryptoProvider;
+    class procedure ResolveSource(const APkixProvider: IPkixProvider;
       AMode: TSystemTrustMode; out AStore: ITrustAnchorStore;
       out ASource: IServerCertificateVerifierSource); static;
   public
     class function WithSystemTrust(const ABuilder: ITlsClientConfigBuilder;
-      const AProvider: ICryptoProvider;
+      const APkixProvider: IPkixProvider;
       AMode: TSystemTrustMode = TSystemTrustMode.Default)
       : ITlsClientConfigBuilder; overload; static;
     class function WithSystemTrust(const ABuilder: ITlsServerConfigBuilder;
-      const AProvider: ICryptoProvider;
+      const APkixProvider: IPkixProvider;
       AMode: TSystemTrustMode = TSystemTrustMode.Default)
       : ITlsServerConfigBuilder; overload; static;
     /// <summary>OS trust with a revocation fetch mode. This form always uses the OS delegate
@@ -65,7 +65,7 @@ type
     /// OS-native resolver resolves in. Pair it with TOSSystemTrust.LiveRevocationResolver on the
     /// stream/adapter. Raises where the platform has no OS-native live revocation.</summary>
     class function WithSystemTrust(const ABuilder: ITlsClientConfigBuilder;
-      const AProvider: ICryptoProvider; AFetch: TSystemTrustFetch;
+      const APkixProvider: IPkixProvider; AFetch: TSystemTrustFetch;
       ADeadlineMs: Cardinal): ITlsClientConfigBuilder; overload; static;
   end;
 
@@ -73,7 +73,7 @@ implementation
 
 { TSystemTrust }
 
-class procedure TSystemTrust.ResolveSource(const AProvider: ICryptoProvider;
+class procedure TSystemTrust.ResolveSource(const APkixProvider: IPkixProvider;
   AMode: TSystemTrustMode; out AStore: ITrustAnchorStore;
   out ASource: IServerCertificateVerifierSource);
 var
@@ -92,19 +92,19 @@ begin
   end;
   // A forced mode the platform cannot honor raises a typed error inside these.
   if LMode = TSystemTrustMode.Delegate then
-    ASource := TOSSystemTrust.ServerVerifierSource(AProvider, TSystemTrustFetch.CacheOnly)
+    ASource := TOSSystemTrust.ServerVerifierSource(TSystemTrustFetch.CacheOnly)
   else
-    AStore := TOSSystemTrust.AnchorStore(AProvider);
+    AStore := TOSSystemTrust.AnchorStore(APkixProvider);
 end;
 
 class function TSystemTrust.WithSystemTrust(
-  const ABuilder: ITlsClientConfigBuilder; const AProvider: ICryptoProvider;
+  const ABuilder: ITlsClientConfigBuilder; const APkixProvider: IPkixProvider;
   AMode: TSystemTrustMode): ITlsClientConfigBuilder;
 var
   LStore: ITrustAnchorStore;
   LSource: IServerCertificateVerifierSource;
 begin
-  ResolveSource(AProvider, AMode, LStore, LSource);
+  ResolveSource(APkixProvider, AMode, LStore, LSource);
   if LSource <> nil then
     ABuilder.WithCertificateVerifierSource(LSource)
   else
@@ -113,14 +113,14 @@ begin
 end;
 
 class function TSystemTrust.WithSystemTrust(const ABuilder: ITlsClientConfigBuilder;
-  const AProvider: ICryptoProvider; AFetch: TSystemTrustFetch;
+  const APkixProvider: IPkixProvider; AFetch: TSystemTrustFetch;
   ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
 var
   LSource: IServerCertificateVerifierSource;
 begin
   // this form always delegates to the OS engine; Live additionally defers an indeterminate
   // revocation to the async park and arms it (the host wires TOSSystemTrust.LiveRevocationResolver)
-  LSource := TOSSystemTrust.ServerVerifierSource(AProvider, AFetch);
+  LSource := TOSSystemTrust.ServerVerifierSource(AFetch);
   ABuilder.WithCertificateVerifierSource(LSource);
   if AFetch = TSystemTrustFetch.Live then
     ABuilder.WithLiveRevocationVerdict(ADeadlineMs);
@@ -128,13 +128,13 @@ begin
 end;
 
 class function TSystemTrust.WithSystemTrust(
-  const ABuilder: ITlsServerConfigBuilder; const AProvider: ICryptoProvider;
+  const ABuilder: ITlsServerConfigBuilder; const APkixProvider: IPkixProvider;
   AMode: TSystemTrustMode): ITlsServerConfigBuilder;
 var
   LStore: ITrustAnchorStore;
   LSource: IServerCertificateVerifierSource;
 begin
-  ResolveSource(AProvider, AMode, LStore, LSource);
+  ResolveSource(APkixProvider, AMode, LStore, LSource);
   // WithSystemTrust's delegate roots against the OS (public web-PKI) store, which is never right for
   // authenticating a CLIENT certificate. Point at Anchors mode where the platform can enumerate OS
   // roots, else at an explicit anchor - so a server never authenticates clients against public roots

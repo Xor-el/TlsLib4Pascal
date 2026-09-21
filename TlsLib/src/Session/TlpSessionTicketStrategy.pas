@@ -55,7 +55,7 @@ type
   TStekTicketStrategy = class sealed(TInterfacedObject, ISessionTicketStrategy)
   strict private
   var
-    FProvider: ICryptoProvider;
+    FCrypto: ICryptoProvider;
     FKeys: ISessionTicketKeyManager;
     class function SerializeSession(const ASession: IResumableSession): TBytes; static;
     class function DeserializeSession(const AData: TBytes;
@@ -119,7 +119,7 @@ constructor TStekTicketStrategy.Create(const AProvider: ICryptoProvider;
   const AKeys: ISessionTicketKeyManager);
 begin
   inherited Create;
-  FProvider := AProvider;
+  FCrypto := AProvider;
   FKeys := AKeys;
 end;
 
@@ -310,8 +310,8 @@ begin
     TSecureMemory.WipeBytes(LPlain);
     Exit;
   end;
-  LNonce := FProvider.Primitives.GetRandom.GenerateBytes(TicketNonceLength);
-  LAead := FProvider.Primitives.CreateAead(TAeadAlgorithm.AES_256_GCM);
+  LNonce := FCrypto.Primitives.GetRandom.GenerateBytes(TicketNonceLength);
+  LAead := FCrypto.Primitives.CreateAead(TAeadAlgorithm.AES_256_GCM);
   try
     LAead.Init(LKey);
     // the key name is authenticated as associated data (it is not secret)
@@ -341,7 +341,7 @@ begin
   ASession := nil;
   Result := False;
   LNameLen := FKeys.KeyNameLength;
-  LAead := FProvider.Primitives.CreateAead(TAeadAlgorithm.AES_256_GCM);
+  LAead := FCrypto.Primitives.CreateAead(TAeadAlgorithm.AES_256_GCM);
   // key_name || nonce || ciphertext+tag; reject anything shorter than the framing
   if System.Length(ATicket) < LNameLen + TicketNonceLength + LAead.TagSize then
     Exit;

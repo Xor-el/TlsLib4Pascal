@@ -31,6 +31,8 @@ uses
   TlpDataEncoding,
   TlpICryptoProvider,
   TlpDefaultCryptoProvider,
+  TlpIPkixProvider,
+  TlpDefaultPkixProvider,
   TlsLibTestResourceLoader;
 
 type
@@ -56,14 +58,20 @@ type
   TTlsLibAlgorithmTestCase = class abstract(TTlsLibTestCase)
   strict private
     FProvider: ICryptoProvider;
+    FPkix: IPkixProvider;
     function GetProvider: ICryptoProvider;
+    function GetPkix: IPkixProvider;
   strict protected
     // Overridable so a fixture can supply a different provider (e.g. a mock).
     function CreateProvider: ICryptoProvider; virtual;
+    // Overridable so a fixture can supply a different PKIX provider (e.g. a mock).
+    function CreatePkix: IPkixProvider; virtual;
   protected
     procedure TearDown; override;
     // The crypto provider, created once per test on first use.
     property Provider: ICryptoProvider read GetProvider;
+    // The PKIX provider, created once per test on first use.
+    property Pkix: IPkixProvider read GetPkix;
     function DecodeHex(const AData: String): TBytes;
     function EncodeHex(const AData: TBytes): String;
     function AreEqual(const AA, AB: TBytes): Boolean;
@@ -125,9 +133,10 @@ end;
 
 procedure TTlsLibAlgorithmTestCase.TearDown;
 begin
-  // the fixture instance is reused across suite runs; drop the cached provider so a stateful mock
-  // cannot bleed into the next run (GetProvider lazily rebuilds it)
+  // the fixture instance is reused across suite runs; drop the cached providers so a stateful mock
+  // cannot bleed into the next run (GetProvider/GetPkix lazily rebuild them)
   FProvider := nil;
+  FPkix := nil;
   inherited TearDown;
 end;
 
@@ -136,11 +145,23 @@ begin
   Result := TDefaultCryptoProvider.Create;
 end;
 
+function TTlsLibAlgorithmTestCase.CreatePkix: IPkixProvider;
+begin
+  Result := TDefaultPkixProvider.Create;
+end;
+
 function TTlsLibAlgorithmTestCase.GetProvider: ICryptoProvider;
 begin
   if FProvider = nil then
     FProvider := CreateProvider;
   Result := FProvider;
+end;
+
+function TTlsLibAlgorithmTestCase.GetPkix: IPkixProvider;
+begin
+  if FPkix = nil then
+    FPkix := CreatePkix;
+  Result := FPkix;
 end;
 
 function TTlsLibAlgorithmTestCase.DecodeHex(const AData: String): TBytes;

@@ -52,6 +52,8 @@ uses
   TlpINegotiation,
   TlpCipherSuiteRegistry,
   TlpICryptoProvider,
+  TlpIPkixProvider,
+  TlpDefaultPkixProvider,
   TlpDefaultCryptoProvider,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
@@ -67,6 +69,7 @@ var
   GVector: string;
   GLeafDer, GKeyDer, GRootDer: TBytes;
   GProvider: ICryptoProvider;
+  GPkix: IPkixProvider;
 
 function LocateVector: string;
 const
@@ -130,7 +133,7 @@ function BuildServerConfig(APreference: TServerCipherPreference): ITlsServerConf
 var
   LServer: ITlsServerConfigBuilder;
 begin
-  LServer := TTlsPresets.Compatible(GProvider).Server;
+  LServer := TTlsPresets.Compatible(GProvider, GPkix).Server;
   LServer.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13));
   LServer.WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519));
   // the server offers both AES suites; its selection strategy is the knob under test
@@ -145,7 +148,7 @@ function BuildClientConfig(const AClientOrder: array of UInt16): ITlsClientConfi
 var
   LClient: ITlsClientConfigBuilder;
 begin
-  LClient := TTlsPresets.Compatible(GProvider).Client;
+  LClient := TTlsPresets.Compatible(GProvider, GPkix).Client;
   LClient.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13));
   LClient.WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519));
   LClient.WithCipherSuites(OrderedRegistry(AClientOrder)); // the client's advertised order
@@ -228,6 +231,7 @@ begin
   GKeyDer := FieldDer('leaf_key');
   GRootDer := FieldDer('root_cert');
   GProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  GPkix := TDefaultPkixProvider.Create as IPkixProvider;
   try
     // ClientOrder: the server honors the client's advertised order, so the client's first suite wins
     LClientPref256 := Negotiate(TServerCipherPreference.ClientOrder,

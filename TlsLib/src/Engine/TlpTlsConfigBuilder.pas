@@ -22,6 +22,7 @@ uses
   TlpHandshakeMessages,
   TlpTlsLibExceptions,
   TlpICryptoProvider,
+  TlpIPkixProvider,
   TlpINamedGroup,
   TlpINegotiation,
   TlpNegotiationTypes,
@@ -64,7 +65,8 @@ type
   strict private
   var
     FFrozen: Boolean;
-    FProvider: ICryptoProvider;
+    FCrypto: ICryptoProvider;
+    FPkix: IPkixProvider;
     FCipherSuites: ICipherSuiteRegistry;
     FSignatureSchemes: ISignatureSchemeRegistry;
     FNamedGroups: INamedGroupRegistry;
@@ -160,7 +162,8 @@ type
     procedure ValidateSniEntryCoversHost(const AHost: string;
       const ACredential: TTlsCredential);
   public
-    constructor Create(const AProvider: ICryptoProvider);
+    constructor Create(const ACryptoProvider: ICryptoProvider;
+      const APkixProvider: IPkixProvider);
 
     // the single-source-of-truth mutators (endpoint views, facets and presets call these)
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): TTlsConfigBuilder;
@@ -311,7 +314,8 @@ type
   TFrozenCommonConfig = class(TInterfacedObject)
   protected
   var
-    FProvider: ICryptoProvider;
+    FCrypto: ICryptoProvider;
+    FPkix: IPkixProvider;
     FCipherSuites: ICipherSuiteRegistry;
     FSignatureSchemes: ISignatureSchemeRegistry;
     FNamedGroups: INamedGroupRegistry;
@@ -340,7 +344,8 @@ type
     FExternalPsks: TArray<TExternalPsk>;
     FClock: ITlsClock;
   public
-    function Provider: ICryptoProvider;
+    function Crypto: ICryptoProvider;
+    function Pkix: IPkixProvider;
     function CipherSuites: ICipherSuiteRegistry;
     function SignatureSchemes: ISignatureSchemeRegistry;
     function NamedGroups: INamedGroupRegistry;
@@ -616,9 +621,14 @@ type
 
 { TFrozenCommonConfig }
 
-function TFrozenCommonConfig.Provider: ICryptoProvider;
+function TFrozenCommonConfig.Crypto: ICryptoProvider;
 begin
-  Result := FProvider;
+  Result := FCrypto;
+end;
+
+function TFrozenCommonConfig.Pkix: IPkixProvider;
+begin
+  Result := FPkix;
 end;
 
 function TFrozenCommonConfig.CipherSuites: ICipherSuiteRegistry;
@@ -1589,10 +1599,12 @@ end;
 
 { TTlsConfigBuilder }
 
-constructor TTlsConfigBuilder.Create(const AProvider: ICryptoProvider);
+constructor TTlsConfigBuilder.Create(const ACryptoProvider: ICryptoProvider;
+  const APkixProvider: IPkixProvider);
 begin
   inherited Create;
-  FProvider := AProvider;
+  FCrypto := ACryptoProvider;
+  FPkix := APkixProvider;
   FFrozen := False;
   FHasCredential := False;
   FCheckServerName := True;
@@ -1731,7 +1743,7 @@ function TTlsConfigBuilder.WithTrustAnchors(const AData: TBytes): TTlsConfigBuil
 begin
   GuardMutable;
   TArrayUtilities.Append<ITrustAnchorStore>(FAnchorStores,
-    TTrustAnchorStore.Create(FProvider.Certificates.LoadChain(AData))
+    TTrustAnchorStore.Create(FPkix.Certificates.LoadChain(AData))
     as ITrustAnchorStore);
   Result := Self;
 end;
@@ -1835,8 +1847,8 @@ var
 begin
   GuardMutable;
   // a whole fresh record, so nothing (e.g. a staple) bleeds in from a prior credential
-  LCredential.CertificateChain := FProvider.Certificates.LoadChain(ACertificateChainData);
-  LCredential.PrivateKey := FProvider.Signing.ImportSigningKey(APrivateKeyData);
+  LCredential.CertificateChain := FPkix.Certificates.LoadChain(ACertificateChainData);
+  LCredential.PrivateKey := FCrypto.Signing.ImportSigningKey(APrivateKeyData);
   FCredential := LCredential;
   FHasCredential := True;
   Result := Self;
@@ -1849,8 +1861,8 @@ var
 begin
   GuardMutable;
   // a whole fresh record, so nothing (e.g. a staple) bleeds in from a prior credential
-  LCredential.CertificateChain := FProvider.Certificates.LoadChain(ACertificateChainData);
-  LCredential.PrivateKey := FProvider.Signing.ImportSigningKey(APrivateKeyData, APassword);
+  LCredential.CertificateChain := FPkix.Certificates.LoadChain(ACertificateChainData);
+  LCredential.PrivateKey := FCrypto.Signing.ImportSigningKey(APrivateKeyData, APassword);
   FCredential := LCredential;
   FHasCredential := True;
   Result := Self;
@@ -1860,7 +1872,7 @@ function TTlsConfigBuilder.WithCredentialPkcs12(const AData: TBytes;
   const APassword: string): TTlsConfigBuilder;
 begin
   GuardMutable;
-  FCredential := FProvider.Signing.ImportPkcs12(AData, APassword);
+  FCredential := FCrypto.Signing.ImportPkcs12(AData, APassword);
   FHasCredential := True;
   Result := Self;
 end;
@@ -1883,8 +1895,8 @@ var
   LCredential: TTlsCredential;
 begin
   GuardMutable;
-  LCredential.CertificateChain := FProvider.Certificates.LoadChain(ACertificateChainData);
-  LCredential.PrivateKey := FProvider.Signing.ImportSigningKey(APrivateKeyData);
+  LCredential.CertificateChain := FPkix.Certificates.LoadChain(ACertificateChainData);
+  LCredential.PrivateKey := FCrypto.Signing.ImportSigningKey(APrivateKeyData);
   Result := WithSniCredential(AHost, LCredential);
 end;
 
@@ -1895,8 +1907,8 @@ var
   LCredential: TTlsCredential;
 begin
   GuardMutable;
-  LCredential.CertificateChain := FProvider.Certificates.LoadChain(ACertificateChainData);
-  LCredential.PrivateKey := FProvider.Signing.ImportSigningKey(APrivateKeyData, APassword);
+  LCredential.CertificateChain := FPkix.Certificates.LoadChain(ACertificateChainData);
+  LCredential.PrivateKey := FCrypto.Signing.ImportSigningKey(APrivateKeyData, APassword);
   Result := WithSniCredential(AHost, LCredential);
 end;
 
@@ -1917,7 +1929,7 @@ var
 begin
   if System.Length(ACredential.CertificateChain) = 0 then
     raise EInvalidOperationTlsLibException.CreateResFmt(@SSniCertMissing, [AHost]);
-  LSans := FProvider.Certificates.DnsNames(ACredential.CertificateChain[0]);
+  LSans := FPkix.Certificates.DnsNames(ACredential.CertificateChain[0]);
   if Pos('*', AHost) = 0 then
     // an exact host must be covered by the leaf's dNSName SANs (RFC 6125/9525)
     LOk := TEndpointIdentity.Matches(TServerName.DnsName(AHost), LSans, nil)
@@ -2148,7 +2160,7 @@ var
 begin
   GuardMutable;
   // parse the bundle and accumulate, so successive calls add more intermediates
-  LCerts := FProvider.Certificates.LoadChain(AData);
+  LCerts := FPkix.Certificates.LoadChain(AData);
   for LI := 0 to System.High(LCerts) do
     TArrayUtilities.Append<TBytes>(FIntermediateCertificates, LCerts[LI]);
   Result := Self;
@@ -2405,7 +2417,8 @@ begin
     LEchPolicy := TEchClientPolicy.Create(FEchConfigList, FEchGrease, FEchIsRetry)
       as IEchClientPolicy;
   LConfig := TFrozenClientConfig.Create;
-  LConfig.FProvider := FProvider;
+  LConfig.FCrypto := FCrypto;
+  LConfig.FPkix := FPkix;
   LConfig.FCipherSuites := FCipherSuites;
   LConfig.FSignatureSchemes := FSignatureSchemes;
   LConfig.FNamedGroups := FNamedGroups;
@@ -2445,7 +2458,7 @@ begin
   else if System.Length(FSessionScope) > 0 then
     LConfig.FSessionScope := System.Copy(FSessionScope)
   else
-    LConfig.FSessionScope := FProvider.Primitives.GetRandom.GenerateBytes(SessionScopeLength);
+    LConfig.FSessionScope := FCrypto.Primitives.GetRandom.GenerateBytes(SessionScopeLength);
   LConfig.FResumeVerification := FResumeVerification;
   LConfig.FClock := FClock;
   LConfig.FEarlyData := FClientEarlyData;
@@ -2483,7 +2496,8 @@ begin
     raise EInvalidOperationTlsLibException.CreateRes(@SHardServerRevocationUnusable);
   ValidateVersionScoping;
   LConfig := TFrozenServerConfig.Create;
-  LConfig.FProvider := FProvider;
+  LConfig.FCrypto := FCrypto;
+  LConfig.FPkix := FPkix;
   LConfig.FCipherSuites := FCipherSuites;
   LConfig.FSignatureSchemes := FSignatureSchemes;
   LConfig.FNamedGroups := FNamedGroups;
@@ -2525,7 +2539,7 @@ begin
   if FSessionTicketKeys <> nil then
     LConfig.FSessionTicketKeys := FSessionTicketKeys
   else if FWantDefaultSessionTicketKeys or (FResumption and (FSessionStore = nil)) then
-    LConfig.FSessionTicketKeys := TStekTicketKeyManager.CreateDefault(FProvider, FClock,
+    LConfig.FSessionTicketKeys := TStekTicketKeyManager.CreateDefault(FCrypto, FClock,
       FTicketLifetimeSeconds);
   LConfig.FAntiReplay := FAntiReplay;
   LConfig.FTicketLifetimeSeconds := FTicketLifetimeSeconds;

@@ -156,7 +156,7 @@ var
   LVerifier: IServerCertificateVerifier;
   LVerified: TVerifiedChain;
 begin
-  LVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+  LVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(nil) as ITrustAnchorStore, False) as IServerCertificateVerifier;
   Result := not LVerifier.VerifyServerCertificate(AChain, TServerName.DnsName(''), nil,
     LVerified, AAlert);

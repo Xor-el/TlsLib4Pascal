@@ -88,7 +88,7 @@ function TBuiltInServerVerifierSource.CreateServerVerifier(
 var
   LVerifier: TCertificateVerifier;
 begin
-  LVerifier := TCertificateVerifier.Create(AContext.Provider, AContext.Clock,
+  LVerifier := TCertificateVerifier.Create(AContext.Pkix, AContext.Clock,
     AContext.TrustStore, AContext.CheckHostName, AContext.ChainLimits,
     AContext.RevocationPosture, AContext.Dangerous, AContext.Deferral,
     AContext.Intermediates, AContext.StatusRequestOffered, AContext.Occasion);
@@ -120,7 +120,7 @@ var
   LVerifier: TCertificateVerifier;
 begin
   // a client certificate carries no host identity, so name checking is always off
-  LVerifier := TCertificateVerifier.Create(AContext.Provider, AContext.Clock,
+  LVerifier := TCertificateVerifier.Create(AContext.Pkix, AContext.Clock,
     AContext.TrustStore, False, AContext.ChainLimits, AContext.RevocationPosture,
     AContext.Dangerous, AContext.Deferral, AContext.Intermediates);
   LVerifier.SetChainAlgorithmPolicy(AContext.StrengthPolicy,

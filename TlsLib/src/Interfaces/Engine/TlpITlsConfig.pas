@@ -18,6 +18,7 @@ interface
 uses
   SysUtils,
   TlpICryptoProvider,
+  TlpIPkixProvider,
   TlpINamedGroup,
   TlpINegotiation,
   TlpNegotiationTypes,
@@ -44,7 +45,9 @@ type
   /// </summary>
   ITlsCommonConfig = interface(IInterface)
     ['{7C2A9E15-4D83-4B70-A1F6-3E5C0D7B92A8}']
-    function Provider: ICryptoProvider;
+    function Crypto: ICryptoProvider;
+    /// <summary>The PKIX provider: X.509 inspection, path validation, revocation.</summary>
+    function Pkix: IPkixProvider;
     function CipherSuites: ICipherSuiteRegistry;
     function SignatureSchemes: ISignatureSchemeRegistry;
     function NamedGroups: INamedGroupRegistry;

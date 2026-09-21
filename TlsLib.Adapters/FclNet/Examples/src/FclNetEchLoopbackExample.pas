@@ -43,6 +43,8 @@ uses
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpDefaultCryptoProvider,
+  TlpIPkixProvider,
+  TlpDefaultPkixProvider,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpTlsPresets,
@@ -207,6 +209,7 @@ end;
 class function TFclNetEchLoopbackExample.Run: Integer;
 var
   LProvider: ICryptoProvider;
+  LPkix: IPkixProvider;
   LEch: TEchKeyGenResult;
   LServerBuilder: ITlsServerConfigBuilder;
   LClientBuilder: ITlsClientConfigBuilder;
@@ -228,19 +231,20 @@ begin
   GServerEch := TEchStatus.NotOffered;
   TVec.Locate;
   LProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  LPkix := TDefaultPkixProvider.Create as IPkixProvider;
 
   LEch := TEchKeyGenerator.Generate(LProvider, PUBLIC_NAME, INNER_HOST, 1,
     THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256,
     THpkeAead.AES_128_GCM, 0);
 
-  LServerBuilder := TTlsPresets.Compatible(LProvider).Server
+  LServerBuilder := TTlsPresets.Compatible(LProvider, LPkix).Server
     .WithCredential(TVec.Bytes('leaf_cert'), TVec.Bytes('leaf_key'), '');
   LServerBuilder.Tls13.WithEchKeyStore(
     TInMemoryEchKeyStore.FromPem(LEch.Pem, LProvider));
   LServerBuilder.Tls13.WithEchTrialDecrypt(True);
   LServerConfig := LServerBuilder.Build;
 
-  LClientBuilder := TTlsPresets.Compatible(LProvider).Client
+  LClientBuilder := TTlsPresets.Compatible(LProvider, LPkix).Client
     .WithTrustAnchors(TVec.Bytes('root_cert'));
   LClientBuilder.Tls13.WithEncryptedClientHello(LEch.EchConfigList);
   LClientConfig := LClientBuilder.Build;

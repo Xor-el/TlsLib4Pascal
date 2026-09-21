@@ -36,7 +36,7 @@ type
   TTlsSignatureBuilder = record
   strict private
   var
-    FProvider: ICryptoProvider;
+    FCrypto: ICryptoProvider;
     FBuffer: string;
     procedure Append(const APart: string);
   public
@@ -77,7 +77,7 @@ const
 class function TTlsSignatureBuilder.Create(
   const AProvider: ICryptoProvider): TTlsSignatureBuilder;
 begin
-  Result.FProvider := AProvider;
+  Result.FCrypto := AProvider;
   Result.FBuffer := '';
 end;
 
@@ -140,7 +140,7 @@ begin
     Append(AName + PairSep + '<empty>');
     Exit;
   end;
-  LHash := FProvider.Primitives.CreateHash(THashAlgorithm.SHA_256);
+  LHash := FCrypto.Primitives.CreateHash(THashAlgorithm.SHA_256);
   LHash.Update(AData, 0, System.Length(AData));
   LDigest := LHash.DoFinal;
   Append(AName + PairSep + TDataEncoding.HexEncode(LDigest));

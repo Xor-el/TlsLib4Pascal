@@ -203,7 +203,7 @@ var
   LChain: TArray<TBytes>;
 begin
   // a fullchain PEM (leaf then root) splits into the two ordered DER certificates
-  LChain := Provider.Certificates.LoadChain(DecodeHex(FV.Values['chain_pem']));
+  LChain := Pkix.Certificates.LoadChain(DecodeHex(FV.Values['chain_pem']));
   CheckEquals(2, System.Length(LChain), 'the PEM bundle yields two certificates');
   CheckEqualBytes('leaf DER', DecodeHex(FV.Values['chain_leaf_der']), LChain[0]);
   CheckEqualBytes('root DER', DecodeHex(FV.Values['chain_root_der']), LChain[1]);
@@ -214,7 +214,7 @@ var
   LChain: TArray<TBytes>;
 begin
   // a lone DER certificate still loads (as a single-element chain)
-  LChain := Provider.Certificates.LoadChain(DecodeHex(FV.Values['single_leaf_der']));
+  LChain := Pkix.Certificates.LoadChain(DecodeHex(FV.Values['single_leaf_der']));
   CheckEquals(1, System.Length(LChain), 'a lone DER certificate is a one-element chain');
   CheckEqualBytes('single DER', DecodeHex(FV.Values['single_leaf_der']), LChain[0]);
 end;

@@ -17,7 +17,7 @@ interface
 
 uses
   SysUtils,
-  TlpICryptoProvider,
+  TlpIPkixProvider,
   TlpICertificateTrust,
   TlpICertificateVerifierSource,
   TlpITlsConfig,
@@ -57,15 +57,15 @@ type
     /// <summary>True if this platform can honor AMode.</summary>
     class function Supports(AMode: TSystemTrustMode): Boolean; static;
     /// <summary>The OS-anchor store for our validator. Raises where the platform cannot
-    /// enumerate OS roots (a delegate-only platform). AProvider parses a PEM store.</summary>
-    class function AnchorStore(const AProvider: ICryptoProvider)
+    /// enumerate OS roots (a delegate-only platform). APkixProvider parses a PEM store.</summary>
+    class function AnchorStore(const APkixProvider: IPkixProvider)
       : ITrustAnchorStore; static;
     /// <summary>The OS server-certificate verifier source, built per connection from the trust
     /// context. AFetch fixes the inline behaviour: CacheOnly (no socket) or Live (defer an
     /// indeterminate revocation to the async park). Raises where the platform exposes no system
     /// verifier, or where Live is asked of a platform without OS-native live revocation.</summary>
-    class function ServerVerifierSource(const AProvider: ICryptoProvider;
-      AFetch: TSystemTrustFetch): IServerCertificateVerifierSource; static;
+    class function ServerVerifierSource(AFetch: TSystemTrustFetch)
+      : IServerCertificateVerifierSource; static;
     /// <summary>A host-owned OS-native live-revocation resolver read from the client config
     /// (provider, clock, posture, strength policy, advertised schemes, resolver fetch budget): assign
     /// its ResolveVerdict to the verdict seam. AFallback (may be nil) runs on an indeterminate OS
@@ -90,8 +90,8 @@ type
     /// the inline behaviour: CacheOnly (no socket) or Live (defer an indeterminate revocation to the
     /// async park). Raises where the platform exposes no OS client-certificate verifier, or where
     /// Live is asked of a platform without OS-native live revocation.</summary>
-    class function ClientVerifierSource(const AProvider: ICryptoProvider;
-      AFetch: TSystemTrustFetch): IClientCertificateVerifierSource; static;
+    class function ClientVerifierSource(AFetch: TSystemTrustFetch)
+      : IClientCertificateVerifierSource; static;
   end;
 
 implementation
@@ -132,24 +132,24 @@ begin
   end;
 end;
 
-class function TOSSystemTrust.AnchorStore(const AProvider: ICryptoProvider)
+class function TOSSystemTrust.AnchorStore(const APkixProvider: IPkixProvider)
   : ITrustAnchorStore;
 var
   LSource: TSystemRootSource;
 begin
   LSource := nil;
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
-  LSource := TWindowsRootSource.Create(AProvider);
+  LSource := TWindowsRootSource.Create(APkixProvider);
 {$ELSEIF DEFINED(TLSLIB_IOS)}
   raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoHarvest);
 {$ELSEIF DEFINED(TLSLIB_MACOS)}
-  LSource := TAppleRootSource.Create(AProvider);
+  LSource := TAppleRootSource.Create(APkixProvider);
 {$ELSEIF DEFINED(TLSLIB_ANDROID)}
   // Android is delegate-only: the filesystem store is stale/partial (APEX-updated roots,
   // user-installed CAs, network-security-config), so harvesting is banned - use the OS delegate.
   raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoHarvest);
 {$ELSEIF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_BSD) OR DEFINED(TLSLIB_SOLARIS)}
-  LSource := TUnixRootSource.Create(AProvider);
+  LSource := TUnixRootSource.Create(APkixProvider);
 {$ELSE}
   {$MESSAGE ERROR 'UNSUPPORTED TARGET.'}
 {$IFEND}
@@ -160,8 +160,8 @@ begin
   end;
 end;
 
-class function TOSSystemTrust.ServerVerifierSource(const AProvider: ICryptoProvider;
-  AFetch: TSystemTrustFetch): IServerCertificateVerifierSource;
+class function TOSSystemTrust.ServerVerifierSource(AFetch: TSystemTrustFetch)
+  : IServerCertificateVerifierSource;
 begin
   Result := nil;
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
@@ -184,13 +184,13 @@ class function TOSSystemTrust.LiveRevocationResolver(const AConfig: ITlsClientCo
 begin
   Result := nil;
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
-  Result := TWindowsLiveRevocationResolver.Create(AConfig.Provider,
+  Result := TWindowsLiveRevocationResolver.Create(AConfig.Pkix,
     AConfig.RevocationPosture, AConfig.Clock, AConfig.CertificateStrengthPolicy,
     TTlsEngineFactory.SchemeCodes(AConfig.SignatureSchemes),
     AConfig.AsyncCertificateVerdict.DeadlineMs, AFallback);
 {$ELSEIF DEFINED(TLSLIB_IOS) OR DEFINED(TLSLIB_MACOS)}
   // Apple has no per-evaluation revocation timeout, so the park deadline is not threaded here
-  Result := TAppleLiveRevocationResolver.Create(AConfig.Provider,
+  Result := TAppleLiveRevocationResolver.Create(AConfig.Pkix,
     AConfig.RevocationPosture, AConfig.Clock, AConfig.CertificateStrengthPolicy,
     TTlsEngineFactory.SchemeCodes(AConfig.SignatureSchemes), AFallback);
 {$ELSE}
@@ -215,13 +215,13 @@ begin
   if AConfig.TrustStore <> nil then
     LAnchors := AConfig.TrustStore.RootCertificates;
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
-  Result := TWindowsClientLiveRevocationResolver.Create(AConfig.Provider, LAnchors,
+  Result := TWindowsClientLiveRevocationResolver.Create(AConfig.Pkix, LAnchors,
     AConfig.RevocationPosture, AConfig.Clock, AConfig.CertificateStrengthPolicy,
     TTlsEngineFactory.SchemeCodes(AConfig.SignatureSchemes),
     AConfig.AsyncCertificateVerdict.DeadlineMs, AFallback);
 {$ELSEIF DEFINED(TLSLIB_IOS) OR DEFINED(TLSLIB_MACOS)}
   // Apple has no per-evaluation revocation timeout, so the park deadline is not threaded here
-  Result := TAppleClientLiveRevocationResolver.Create(AConfig.Provider, LAnchors,
+  Result := TAppleClientLiveRevocationResolver.Create(AConfig.Pkix, LAnchors,
     AConfig.RevocationPosture, AConfig.Clock, AConfig.CertificateStrengthPolicy,
     TTlsEngineFactory.SchemeCodes(AConfig.SignatureSchemes), AFallback);
 {$ELSE}
@@ -235,8 +235,8 @@ begin
   Result := LiveRevocationResolver(AConfig, nil);
 end;
 
-class function TOSSystemTrust.ClientVerifierSource(const AProvider: ICryptoProvider;
-  AFetch: TSystemTrustFetch): IClientCertificateVerifierSource;
+class function TOSSystemTrust.ClientVerifierSource(AFetch: TSystemTrustFetch)
+  : IClientCertificateVerifierSource;
 begin
   Result := nil;
 {$IF DEFINED(TLSLIB_MSWINDOWS)}

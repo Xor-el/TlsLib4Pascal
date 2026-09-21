@@ -28,6 +28,7 @@ uses
 {$ENDIF FPC}
   TlpTlsAlert,
   TlpCryptoDomainTypes,
+  TlpPkixDomainTypes,
   TlpICryptoProvider,
   TlpTrustPolicy,
   TlpCertificateStrengthPolicy,
@@ -100,7 +101,7 @@ procedure TTestChainAlgorithmPolicy.TestEcP256LeafKeyFacts;
 var
   LFacts: TCertKeyFacts;
 begin
-  CheckTrue(Provider.Certificates.Parse(EcCert('leaf_cert')).KeyFacts(LFacts),
+  CheckTrue(Pkix.Certificates.Parse(EcCert('leaf_cert')).KeyFacts(LFacts),
     'the P-256 leaf key is classifiable');
   CheckTrue(LFacts.Kind = TCertKeyKind.Ecdsa, 'ECDSA key');
   CheckEquals(Integer(TNamedGroupCatalog.Secp256r1), Integer(LFacts.EcNamedGroup),
@@ -112,7 +113,7 @@ procedure TTestChainAlgorithmPolicy.TestRsa2048LeafKeyFacts;
 var
   LFacts: TCertKeyFacts;
 begin
-  CheckTrue(Provider.Certificates.Parse(RsaCert('leaf_cert')).KeyFacts(LFacts),
+  CheckTrue(Pkix.Certificates.Parse(RsaCert('leaf_cert')).KeyFacts(LFacts),
     'the RSA leaf key is classifiable');
   CheckTrue(LFacts.Kind = TCertKeyKind.Rsa, 'RSA key');
   CheckEquals(2048, LFacts.Bits, 'RSA-2048 modulus');
@@ -122,7 +123,7 @@ procedure TTestChainAlgorithmPolicy.TestAcceptsStandardEcChain;
 var
   LAlert: TTlsAlertDescription;
 begin
-  CheckTrue(TChainAlgorithmPolicy.Check(Provider.Certificates,
+  CheckTrue(TChainAlgorithmPolicy.Check(Pkix.Certificates,
     TArray<TBytes>.Create(EcCert('leaf_cert')),
     TArray<TBytes>.Create(EcCert('root_cert')),
     TCertificateStrengthPolicy.Defaults, Advertised, LAlert),
@@ -133,7 +134,7 @@ procedure TTestChainAlgorithmPolicy.TestAcceptsStandardRsaChain;
 var
   LAlert: TTlsAlertDescription;
 begin
-  CheckTrue(TChainAlgorithmPolicy.Check(Provider.Certificates,
+  CheckTrue(TChainAlgorithmPolicy.Check(Pkix.Certificates,
     TArray<TBytes>.Create(RsaCert('leaf_cert')),
     TArray<TBytes>.Create(RsaCert('root_cert')),
     TCertificateStrengthPolicy.Defaults, Advertised, LAlert),
@@ -146,7 +147,7 @@ var
 begin
   // the root appears at index > 0 and is DER-equal to a configured anchor, so it is exempt;
   // the leaf is still checked
-  CheckTrue(TChainAlgorithmPolicy.Check(Provider.Certificates,
+  CheckTrue(TChainAlgorithmPolicy.Check(Pkix.Certificates,
     TArray<TBytes>.Create(EcCert('leaf_cert'), EcCert('root_cert')),
     TArray<TBytes>.Create(EcCert('root_cert')),
     TCertificateStrengthPolicy.Defaults, Advertised, LAlert),
@@ -160,7 +161,7 @@ var
 begin
   LPolicy := TCertificateStrengthPolicy.Defaults;
   LPolicy.MinRsaModulusBits := 4096; // the 2048 leaf is now below the floor
-  CheckFalse(TChainAlgorithmPolicy.Check(Provider.Certificates,
+  CheckFalse(TChainAlgorithmPolicy.Check(Pkix.Certificates,
     TArray<TBytes>.Create(RsaCert('leaf_cert')),
     TArray<TBytes>.Create(RsaCert('root_cert')), LPolicy, Advertised, LAlert),
     'an RSA-2048 leaf is rejected under a 4096-bit floor');
@@ -173,7 +174,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   // advertise only RSA-PKCS1 schemes: the ECDSA-signed P-256 leaf now has no match
-  CheckFalse(TChainAlgorithmPolicy.Check(Provider.Certificates,
+  CheckFalse(TChainAlgorithmPolicy.Check(Pkix.Certificates,
     TArray<TBytes>.Create(EcCert('leaf_cert')),
     TArray<TBytes>.Create(EcCert('root_cert')),
     TCertificateStrengthPolicy.Defaults,
@@ -190,7 +191,7 @@ var
 begin
   LPolicy := TCertificateStrengthPolicy.Defaults;
   LPolicy.AllowedEcCurves := TArray<UInt16>.Create(TNamedGroupCatalog.Secp384r1);
-  CheckFalse(TChainAlgorithmPolicy.Check(Provider.Certificates,
+  CheckFalse(TChainAlgorithmPolicy.Check(Pkix.Certificates,
     TArray<TBytes>.Create(EcCert('leaf_cert')),
     TArray<TBytes>.Create(EcCert('root_cert')), LPolicy, Advertised, LAlert),
     'a P-256 leaf is rejected when the allowlist admits only P-384');

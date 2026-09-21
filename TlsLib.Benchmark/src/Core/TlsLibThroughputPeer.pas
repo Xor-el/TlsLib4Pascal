@@ -20,6 +20,7 @@ interface
 uses
   SysUtils,
   TlpICryptoProvider,
+  TlpIPkixProvider,
   TlpTlsPresets,
   TlpTlsVersion,
   TlpITlsConfigBuilder,
@@ -48,10 +49,12 @@ type
     FScratch: TBytes;
     FRecordSize: Int32;
     function BuildConfigs(const AProvider: ICryptoProvider;
+      const APkix: IPkixProvider;
       const ACredential: TTlsBenchmarkCredential; ASuiteCode: UInt16;
       out AClientConfig: ITlsClientConfig; out AServerConfig: ITlsServerConfig): Boolean;
   public
     constructor Create(const AProvider: ICryptoProvider;
+      const APkix: IPkixProvider;
       const ACredential: TTlsBenchmarkCredential; ASuiteCode: UInt16;
       ARecordSize, APayloadBytes: Int32);
     /// <summary>Bytes of application data moved per SendOnce (the throughput pass size).</summary>
@@ -78,14 +81,14 @@ begin
     Result.Add(LSuite);
 end;
 
-function OfferedGroups(const AProvider: ICryptoProvider;
+function OfferedGroups(const APkix: IPkixProvider;
   const ACredential: TTlsBenchmarkCredential): TArray<UInt16>;
 var
   LKind: TCertKeyKind;
   LCurve: UInt16;
 begin
   // X25519 for the ECDHE key exchange, plus the ECDSA leaf's curve (RFC 8422 5.4)
-  if AProvider.Certificates.KeyKind(ACredential.LeafCertDer, LKind, LCurve)
+  if APkix.Certificates.KeyKind(ACredential.LeafCertDer, LKind, LCurve)
     and (LKind = TCertKeyKind.Ecdsa) and (LCurve <> TNamedGroupCatalog.X25519) then
     Result := TArray<UInt16>.Create(TNamedGroupCatalog.X25519, LCurve)
   else
@@ -93,6 +96,7 @@ begin
 end;
 
 function TTlsLibThroughputPeer.BuildConfigs(const AProvider: ICryptoProvider;
+  const APkix: IPkixProvider;
   const ACredential: TTlsBenchmarkCredential; ASuiteCode: UInt16;
   out AClientConfig: ITlsClientConfig; out AServerConfig: ITlsServerConfig): Boolean;
 var
@@ -101,9 +105,9 @@ var
   LServer: ITlsServerConfigBuilder;
   LGroups: TArray<UInt16>;
 begin
-  LGroups := OfferedGroups(AProvider, ACredential);
+  LGroups := OfferedGroups(APkix, ACredential);
 
-  LClientBuilder := TTlsPresets.Compatible(AProvider);
+  LClientBuilder := TTlsPresets.Compatible(AProvider, APkix);
   LClient := LClientBuilder.Client;
   LClient.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12));
   LClient.WithPreferredGroups(LGroups);
@@ -112,7 +116,7 @@ begin
   LClient.WithTrustAnchors(ACredential.RootCertDer);
   AClientConfig := LClient.Build;
 
-  LServerBuilder := TTlsPresets.Compatible(AProvider);
+  LServerBuilder := TTlsPresets.Compatible(AProvider, APkix);
   LServer := LServerBuilder.Server;
   LServer.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12));
   LServer.WithPreferredGroups(LGroups);
@@ -123,6 +127,7 @@ begin
 end;
 
 constructor TTlsLibThroughputPeer.Create(const AProvider: ICryptoProvider;
+  const APkix: IPkixProvider;
   const ACredential: TTlsBenchmarkCredential; ASuiteCode: UInt16;
   ARecordSize, APayloadBytes: Int32);
 var
@@ -136,7 +141,7 @@ begin
   SetLength(FScratch, CScratchBuffer);
   SetLength(FPayload, APayloadBytes);
 
-  BuildConfigs(AProvider, ACredential, ASuiteCode, LClientConfig, LServerConfig);
+  BuildConfigs(AProvider, APkix, ACredential, ASuiteCode, LClientConfig, LServerConfig);
   FClient := TTlsEngineFactory.CreateClientEngine(LClientConfig, 'localhost');
   FServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
 

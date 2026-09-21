@@ -259,13 +259,14 @@ begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
   // a fixed HasHardwareAes=True makes the suite choice deterministically AES-128-GCM
-  LParams.Provider := TFixedAesProvider.Create(Provider, True);
-  LParams.Policy := TNegotiationPolicy.CreateDefault(LParams.Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(LParams.Provider);
+  LParams.Crypto := TFixedAesProvider.Create(Provider, True);
+  LParams.Inspector := Pkix.Certificates;
+  LParams.Policy := TNegotiationPolicy.CreateDefault(LParams.Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(LParams.Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   // the server offers only secp256r1, which the RFC 8448 Section 5 client listed but
   // did not key-share, so the server answers with a HelloRetryRequest
-  LParams.Group := TNamedGroups.CreateNistEcdh(LParams.Provider, 'secp256r1');
+  LParams.Group := TNamedGroups.CreateNistEcdh(LParams.Crypto, 'secp256r1');
   LParams.ServerRandom := DecodeHex(StringOfChar('2', 64));
   LParams.CookieSecret := CookieSecret;
   LParams.CookieOverride := ACookieOverride;
@@ -289,7 +290,8 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Group := TNamedGroups.CreateX25519(Provider);
   LParams.GroupCode := TNamedGroupCatalog.X25519;
   // advertises secp256r1 as well, so the server may retry us onto it

@@ -25,6 +25,7 @@ uses
   Math,
   TlpTlsLibExceptions,
   TlpICryptoProvider,
+  TlpIPkixProvider,
   TlpITlsEngine,
   TlpNegotiationTypes,
   TlpHandshakeMessage,
@@ -110,6 +111,7 @@ type
   strict private
   class var
     FProvider: ICryptoProvider;
+    FPkix: IPkixProvider;
     FCredentialFile: string;
     FRootFile: string;
     FCorpusDir: string;
@@ -293,7 +295,7 @@ begin
   LOptions.Role := TInteropRole.Server;
   LOptions.HasCredential := True;
   LOptions.Credential :=
-    TInteropCredentials.ServerCredentialFromFieldFile(FProvider, FCredentialFile);
+    TInteropCredentials.ServerCredentialFromFieldFile(FProvider, FPkix, FCredentialFile);
   AEngine := TInteropEngine.Build(FProvider, LOptions);
 end;
 
@@ -305,7 +307,7 @@ begin
   LOptions.Role := TInteropRole.Client;
   LOptions.ServerName := 'localhost';
   LOptions.CheckServerName := True;
-  LOptions.Trust := TInteropCredentials.TrustFromFieldFile(FProvider, FRootFile);
+  LOptions.Trust := TInteropCredentials.TrustFromFieldFile(FPkix, FRootFile);
   AEngine := TInteropEngine.Build(FProvider, LOptions);
 end;
 
@@ -1006,6 +1008,7 @@ begin
   FRegressDir := FCorpusDir + PathDelim + 'regress';
   FFailuresDir := FCorpusDir + PathDelim + 'failures';
   FProvider := TInteropEngine.DefaultProvider;
+  FPkix := TInteropEngine.DefaultPkix;
   LoadSeeds;
 
   // no silent caps: log every parser fuzzed and each tier's budget

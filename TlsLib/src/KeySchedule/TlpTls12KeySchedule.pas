@@ -39,7 +39,7 @@ type
     ITls12KeySchedule)
   strict private
   var
-    FProvider: ICryptoProvider;
+    FCrypto: ICryptoProvider;
     FPrf: ITls12Prf;
     FHash: THashAlgorithm;
     FKeyLength: Int32;
@@ -105,7 +105,7 @@ constructor TTls12KeySchedule.Create(const AProvider: ICryptoProvider;
   AHash: THashAlgorithm; AKeyLength: Int32; AAead: TAeadAlgorithm);
 begin
   inherited Create;
-  FProvider := AProvider;
+  FCrypto := AProvider;
   FPrf := AProvider.Primitives.CreateTls12Prf(AHash);
   FHash := AHash;
   FKeyLength := AKeyLength;

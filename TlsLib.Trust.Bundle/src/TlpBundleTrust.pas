@@ -18,13 +18,13 @@ interface
 uses
   SysUtils,
   Classes,
-  TlpICryptoProvider,
+  TlpIPkixProvider,
   TlpICertificateTrust;
 
 type
   /// <summary>
   /// Builds a trust-anchor store from a PEM CA bundle - a single certificate or a
-  /// concatenated bundle - parsed through the crypto provider. The result is an
+  /// concatenated bundle - parsed through the PKIX provider. The result is an
   /// ordinary anchor source, so it composes (unions) with system trust or another
   /// bundle via the builder. Fail-closed: a bundle that yields no certificate
   /// raises through the provider.
@@ -34,10 +34,10 @@ type
     class function ReadAllBytes(const AFileName: string): TBytes; static;
   public
     /// <summary>An anchor store over the certificates in the PEM/DER bundle bytes.</summary>
-    class function FromPem(const AProvider: ICryptoProvider;
+    class function FromPem(const APkixProvider: IPkixProvider;
       const AData: TBytes): ITrustAnchorStore; static;
     /// <summary>As FromPem, reading the bundle from a file.</summary>
-    class function FromPemFile(const AProvider: ICryptoProvider;
+    class function FromPemFile(const APkixProvider: IPkixProvider;
       const AFileName: string): ITrustAnchorStore; static;
   end;
 
@@ -64,17 +64,17 @@ begin
   end;
 end;
 
-class function TBundleTrust.FromPem(const AProvider: ICryptoProvider;
+class function TBundleTrust.FromPem(const APkixProvider: IPkixProvider;
   const AData: TBytes): ITrustAnchorStore;
 begin
-  Result := TTrustAnchorStore.Create(AProvider.Certificates.LoadChain(AData))
+  Result := TTrustAnchorStore.Create(APkixProvider.Certificates.LoadChain(AData))
     as ITrustAnchorStore;
 end;
 
-class function TBundleTrust.FromPemFile(const AProvider: ICryptoProvider;
+class function TBundleTrust.FromPemFile(const APkixProvider: IPkixProvider;
   const AFileName: string): ITrustAnchorStore;
 begin
-  Result := FromPem(AProvider, ReadAllBytes(AFileName));
+  Result := FromPem(APkixProvider, ReadAllBytes(AFileName));
 end;
 
 end.

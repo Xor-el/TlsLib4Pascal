@@ -146,7 +146,8 @@ var
 begin
   LParams := Default(TClient12HandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Provider);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Provider);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
@@ -161,7 +162,7 @@ begin
   LParams.ClientRandom := Filled($11, 32);
   LParams.LegacySessionId := nil;
   LParams.OfferExtendedMasterSecret := AOfferEms;
-  LParams.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+  LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
     as ITrustAnchorStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
@@ -180,7 +181,8 @@ var
 begin
   LParams := Default(TServer12HandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Provider);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.Group := TNamedGroups.CreateX25519(Provider);
@@ -209,7 +211,8 @@ var
 begin
   LParams := Default(TServer12HandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Provider);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.Group := TNamedGroups.CreateX25519(Provider);
@@ -231,7 +234,8 @@ var
 begin
   LParams := Default(TClient12HandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Provider);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Provider);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
@@ -251,7 +255,7 @@ begin
   // delivered here in a CertificateStatus message (RFC 6066 8), so the client offers
   // status_request to solicit the staple
   LParams.RequestOcspStapling := True;
-  LParams.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+  LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(OcspField('root_cert')))
     as ITrustAnchorStore, True, TCertificateChainLimits.Defaults,
     TRevocationPosture.Hard) as IServerCertificateVerifier;

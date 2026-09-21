@@ -393,7 +393,8 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Group := TNamedGroups.CreateX25519(Provider);
   LParams.GroupCode := TNamedGroupCatalog.X25519;
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
@@ -402,7 +403,7 @@ begin
   LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
   LParams.ClientRandom := DecodeHex(StringOfChar('1', 64));
   LParams.LegacySessionId := DecodeHex(StringOfChar('3', 64));
-  LParams.CertificateVerifier := TCertificateVerifier.Create(Provider,
+  LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
     True) as IServerCertificateVerifier;
@@ -421,7 +422,8 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;

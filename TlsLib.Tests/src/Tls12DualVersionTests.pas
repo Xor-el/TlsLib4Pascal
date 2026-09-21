@@ -159,7 +159,8 @@ function TTestTls12DualVersion.Client13Params: TClientHandshakeParams;
 begin
   Result := Default(TClientHandshakeParams);
   Result.Clock := TSystemClock.Create;
-  Result.Provider := Provider;
+  Result.Crypto := Provider;
+  Result.Inspector := Pkix.Certificates;
   Result.Group := TNamedGroups.CreateX25519(Provider);
   Result.GroupCode := TNamedGroupCatalog.X25519;
   // the unified ClientHello carries these supported_groups; a 1.2 fallback with a P-256
@@ -176,7 +177,7 @@ begin
   Result.Grease := False;
   Result.ClientRandom := Filled($11, 32);
   Result.LegacySessionId := Filled($33, 32);
-  Result.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+  Result.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
     as ITrustAnchorStore, True) as IServerCertificateVerifier;
   Result.ExpectedServerName := TServerName.DnsName('localhost');
@@ -186,7 +187,8 @@ function TTestTls12DualVersion.Client12Params: TClient12HandshakeParams;
 begin
   Result := Default(TClient12HandshakeParams);
   Result.Clock := TSystemClock.Create;
-  Result.Provider := Provider;
+  Result.Crypto := Provider;
+  Result.Inspector := Pkix.Certificates;
   Result.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Provider);
   Result.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Provider);
   Result.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
@@ -203,7 +205,7 @@ begin
   Result.ClientRandom := Filled($11, 32);
   Result.LegacySessionId := Filled($33, 32);
   Result.OfferExtendedMasterSecret := True;
-  Result.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+  Result.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
     as ITrustAnchorStore, True) as IServerCertificateVerifier;
   Result.ExpectedServerName := TServerName.DnsName('localhost');
@@ -213,7 +215,8 @@ function TTestTls12DualVersion.Server13Params: TServerHandshakeParams;
 begin
   Result := Default(TServerHandshakeParams);
   Result.Clock := TSystemClock.Create;
-  Result.Provider := Provider;
+  Result.Crypto := Provider;
+  Result.Inspector := Pkix.Certificates;
   Result.Policy := TNegotiationPolicy.Create(Provider,
     TCipherSuiteRegistry.CreateDualVersion(Provider),
     TNamedGroups.CreateDefaultRegistry(Provider),
@@ -232,7 +235,8 @@ function TTestTls12DualVersion.Server12Params: TServer12HandshakeParams;
 begin
   Result := Default(TServer12HandshakeParams);
   Result.Clock := TSystemClock.Create;
-  Result.Provider := Provider;
+  Result.Crypto := Provider;
+  Result.Inspector := Pkix.Certificates;
   Result.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Provider);
   Result.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   Result.Group := TNamedGroups.CreateX25519(Provider);
@@ -429,9 +433,9 @@ var
   LClient, LServer: ITlsEngine;
 begin
   // the whole public stack: the Compatible preset (dual-version) + the engine factory
-  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Compatible(Provider)
+  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Compatible(Provider, Pkix)
     .Server.WithCredential(ServerCredential).Build);
-  LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Provider)
+  LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Provider, Pkix)
     .Client.WithTrustStore(TTrustAnchorStore.Create(
     TArray<TBytes>.Create(TestRootCertificate))
     as ITrustAnchorStore).Build, 'localhost');
@@ -457,12 +461,12 @@ begin
   finally
     LV.Free;
   end;
-  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Compatible(Provider)
+  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Compatible(Provider, Pkix)
     .Server.WithCredential(ServerCredential)
     .WithPeerAuth(TClientAuthMode.Required)
     .WithTrustStore(TTrustAnchorStore.Create(TArray<TBytes>.Create(LClientRoot))
     as ITrustAnchorStore).Build);
-  LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Provider)
+  LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Provider, Pkix)
     .Client.WithCredential(LClientCred)
     .WithTrustStore(TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
     as ITrustAnchorStore).Build, 'localhost');
@@ -622,7 +626,7 @@ begin
   // to verify the certificate against must raise rather than silently skip RFC 6125.
   LRaised := False;
   try
-    TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Provider)
+    TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Provider, Pkix)
       .Client.WithTrustStore(TTrustAnchorStore.Create(
       TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore).Build, '');
   except
@@ -632,7 +636,7 @@ begin
   CheckTrue(LRaised, 'a client engine with name-check on and no host fails closed');
 
   // opting out with WithDangerousDisableServerNameCheck allows an empty host (chain-only trust, no SNI)
-  TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Provider)
+  TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Provider, Pkix)
     .Client.WithTrustStore(TTrustAnchorStore.Create(
     TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore)
     .WithDangerousDisableServerNameCheck.Build, '');

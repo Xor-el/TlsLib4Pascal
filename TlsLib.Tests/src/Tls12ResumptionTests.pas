@@ -165,7 +165,8 @@ var
 begin
   LParams := Default(TClient12HandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Provider);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Provider);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
@@ -179,7 +180,7 @@ begin
   LParams.OfferedVersions := TArray<UInt16>.Create(TlsWireVersionTls12);
   LParams.ClientRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
   LParams.OfferExtendedMasterSecret := AOfferEms;
-  LParams.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+  LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
     as ITrustAnchorStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName(ServerHost);
@@ -198,7 +199,7 @@ var
   LVerifier: IServerCertificateVerifier;
   LRandom, LSessionId: TBytes;
 begin
-  LVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+  LVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
     as ITrustAnchorStore, True) as IServerCertificateVerifier;
   // the dispatcher sends one unified ClientHello, so both sub-machines must share the same
@@ -208,7 +209,8 @@ begin
 
   L13 := Default(TClientHandshakeParams);
   L13.Clock := TSystemClock.Create;
-  L13.Provider := Provider;
+  L13.Crypto := Provider;
+  L13.Inspector := Pkix.Certificates;
   L13.Group := TNamedGroups.CreateX25519(Provider);
   L13.GroupCode := TNamedGroupCatalog.X25519;
   // the unified ClientHello carries the 1.3 machine's supported_groups, which for a 1.2
@@ -232,7 +234,8 @@ begin
 
   L12 := Default(TClient12HandshakeParams);
   L12.Clock := TSystemClock.Create;
-  L12.Provider := Provider;
+  L12.Crypto := Provider;
+  L12.Inspector := Pkix.Certificates;
   L12.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Provider);
   L12.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Provider);
   L12.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
@@ -262,7 +265,8 @@ var
 begin
   LParams := Default(TServer12HandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Provider);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.Group := TNamedGroups.CreateX25519(Provider);
@@ -671,7 +675,8 @@ var
 begin
   LParams := Default(TClient12HandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Provider);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Provider);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
@@ -682,7 +687,7 @@ begin
   LParams.OfferedVersions := TArray<UInt16>.Create(TlsWireVersionTls12);
   LParams.ClientRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
   LParams.OfferExtendedMasterSecret := True;
-  LParams.CertificateVerifier := TCertificateVerifier.Create(Provider,
+  LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
     as ITrustAnchorStore, True) as IServerCertificateVerifier;
@@ -702,7 +707,8 @@ var
 begin
   LParams := Default(TServer12HandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Provider);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.Group := TNamedGroups.CreateX25519(Provider);
@@ -716,7 +722,7 @@ begin
   begin
     LParams.ClientAuthSignatureSchemes := TArray<UInt16>.Create(
       TSignatureSchemes.EcdsaSecp256r1Sha256);
-    LParams.ClientCertificateVerifier := TCertificateVerifier.Create(Provider,
+    LParams.ClientCertificateVerifier := TCertificateVerifier.Create(Pkix,
       TSystemClock.Create as ITlsClock,
       TTrustAnchorStore.Create(TArray<TBytes>.Create(AClientRoot))
       as ITrustAnchorStore, False) as IClientCertificateVerifier;

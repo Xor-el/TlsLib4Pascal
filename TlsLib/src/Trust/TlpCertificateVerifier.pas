@@ -21,7 +21,9 @@ uses
   TlpTlsLibExceptions,
   TlpArrayUtilities,
   TlpCryptoDomainTypes,
+  TlpPkixDomainTypes,
   TlpICryptoProvider,
+  TlpIPkixProvider,
   TlpServerName,
   TlpEndpointIdentity,
   TlpCertificateLimits,
@@ -73,7 +75,7 @@ type
     IClientCertificateVerifier)
   strict private
   var
-    FProvider: ICryptoProvider;
+    FPkix: IPkixProvider;
     FClock: ITlsClock;
     FTrustStore: ITrustAnchorStore;
     FCheckHostName: Boolean;
@@ -125,15 +127,15 @@ type
     /// outside its validity window). A nil provider or clock cannot render a verdict, so it
     /// returns Indeterminate. AClock supplies both the responder-validity time and the
     /// freshness window.</summary>
-    class function StapleVerdict(const AProvider: ICryptoProvider;
+    class function StapleVerdict(const APkix: IPkixProvider;
       const AClock: ITlsClock; const AChain: TArray<TBytes>;
       const AStaple: TBytes): TStapleVerdict; static;
     /// <summary>A verifier with the conservative default chain limits and soft-fail
     /// revocation. AClock backs the stapled-OCSP freshness window (RFC 6960).</summary>
-    constructor Create(const AProvider: ICryptoProvider; const AClock: ITlsClock;
+    constructor Create(const APkix: IPkixProvider; const AClock: ITlsClock;
       const ATrustStore: ITrustAnchorStore; ACheckHostName: Boolean); overload;
     /// <summary>A verifier with caller-tuned chain limits and revocation posture.</summary>
-    constructor Create(const AProvider: ICryptoProvider; const AClock: ITlsClock;
+    constructor Create(const APkix: IPkixProvider; const AClock: ITlsClock;
       const ATrustStore: ITrustAnchorStore; ACheckHostName: Boolean;
       const AChainLimits: TCertificateChainLimits;
       ARevocationPosture: TRevocationPosture); overload;
@@ -141,7 +143,7 @@ type
     /// built-in pipeline, and a VerifyCallback that can only additionally reject) and ADeferral:
     /// LiveRevocation defers an indeterminate stapled-revocation outcome to the out-of-band verdict
     /// resolver (live OCSP/CRL); None and HostDecision decide it inline by the posture.</summary>
-    constructor Create(const AProvider: ICryptoProvider; const AClock: ITlsClock;
+    constructor Create(const APkix: IPkixProvider; const AClock: ITlsClock;
       const ATrustStore: ITrustAnchorStore; ACheckHostName: Boolean;
       const AChainLimits: TCertificateChainLimits;
       ARevocationPosture: TRevocationPosture;
@@ -151,7 +153,7 @@ type
     /// PKIX path building for a peer that sends an incomplete chain (e.g. a leaf-only server).
     /// They never anchor a path and never bypass validation; empty behaves exactly as the
     /// overload without it.</summary>
-    constructor Create(const AProvider: ICryptoProvider; const AClock: ITlsClock;
+    constructor Create(const APkix: IPkixProvider; const AClock: ITlsClock;
       const ATrustStore: ITrustAnchorStore; ACheckHostName: Boolean;
       const AChainLimits: TCertificateChainLimits;
       ARevocationPosture: TRevocationPosture;
@@ -161,7 +163,7 @@ type
     /// client offered status_request, and AOccasion whether this is the initial handshake or a
     /// resumption. Must-staple (RFC 7633) is enforced only for an initial-handshake server
     /// certificate the client asked to have stapled.</summary>
-    constructor Create(const AProvider: ICryptoProvider; const AClock: ITlsClock;
+    constructor Create(const APkix: IPkixProvider; const AClock: ITlsClock;
       const ATrustStore: ITrustAnchorStore; ACheckHostName: Boolean;
       const AChainLimits: TCertificateChainLimits;
       ARevocationPosture: TRevocationPosture;
@@ -194,11 +196,13 @@ type
   var
     FInner: IServerCertificateVerifier;
     FPins: TArray<TBytes>;
-    FProvider: ICryptoProvider;
+    FCrypto: ICryptoProvider;
+    FPkix: IPkixProvider;
     function PinsMatch(const AChain: TArray<TBytes>): Boolean;
   public
     constructor Create(const AInner: IServerCertificateVerifier;
-      const APins: TArray<TBytes>; const AProvider: ICryptoProvider);
+      const APins: TArray<TBytes>; const ACryptoProvider: ICryptoProvider;
+      const APkixProvider: IPkixProvider);
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
       out AVerified: TVerifiedChain;
@@ -262,15 +266,15 @@ end;
 
 { TCertificateVerifier }
 
-constructor TCertificateVerifier.Create(const AProvider: ICryptoProvider;
+constructor TCertificateVerifier.Create(const APkix: IPkixProvider;
   const AClock: ITlsClock; const ATrustStore: ITrustAnchorStore;
   ACheckHostName: Boolean);
 begin
-  Create(AProvider, AClock, ATrustStore, ACheckHostName,
+  Create(APkix, AClock, ATrustStore, ACheckHostName,
     TCertificateChainLimits.Defaults, TRevocationPosture.Soft);
 end;
 
-constructor TCertificateVerifier.Create(const AProvider: ICryptoProvider;
+constructor TCertificateVerifier.Create(const APkix: IPkixProvider;
   const AClock: ITlsClock; const ATrustStore: ITrustAnchorStore;
   ACheckHostName: Boolean; const AChainLimits: TCertificateChainLimits;
   ARevocationPosture: TRevocationPosture);
@@ -278,33 +282,33 @@ var
   LNoDangerous: TDangerousTrust;
 begin
   LNoDangerous := Default(TDangerousTrust);
-  Create(AProvider, AClock, ATrustStore, ACheckHostName, AChainLimits,
+  Create(APkix, AClock, ATrustStore, ACheckHostName, AChainLimits,
     ARevocationPosture, LNoDangerous, TVerdictDeferral.None);
 end;
 
-constructor TCertificateVerifier.Create(const AProvider: ICryptoProvider;
+constructor TCertificateVerifier.Create(const APkix: IPkixProvider;
   const AClock: ITlsClock; const ATrustStore: ITrustAnchorStore;
   ACheckHostName: Boolean; const AChainLimits: TCertificateChainLimits;
   ARevocationPosture: TRevocationPosture;
   const ADangerous: TDangerousTrust; ADeferral: TVerdictDeferral);
 begin
-  Create(AProvider, AClock, ATrustStore, ACheckHostName, AChainLimits,
+  Create(APkix, AClock, ATrustStore, ACheckHostName, AChainLimits,
     ARevocationPosture, ADangerous, ADeferral, nil);
 end;
 
-constructor TCertificateVerifier.Create(const AProvider: ICryptoProvider;
+constructor TCertificateVerifier.Create(const APkix: IPkixProvider;
   const AClock: ITlsClock; const ATrustStore: ITrustAnchorStore;
   ACheckHostName: Boolean; const AChainLimits: TCertificateChainLimits;
   ARevocationPosture: TRevocationPosture;
   const ADangerous: TDangerousTrust; ADeferral: TVerdictDeferral;
   const AIntermediates: TArray<TBytes>);
 begin
-  Create(AProvider, AClock, ATrustStore, ACheckHostName, AChainLimits,
+  Create(APkix, AClock, ATrustStore, ACheckHostName, AChainLimits,
     ARevocationPosture, ADangerous, ADeferral, AIntermediates, False,
     TVerificationOccasion.InitialHandshake);
 end;
 
-constructor TCertificateVerifier.Create(const AProvider: ICryptoProvider;
+constructor TCertificateVerifier.Create(const APkix: IPkixProvider;
   const AClock: ITlsClock; const ATrustStore: ITrustAnchorStore;
   ACheckHostName: Boolean; const AChainLimits: TCertificateChainLimits;
   ARevocationPosture: TRevocationPosture;
@@ -313,7 +317,7 @@ constructor TCertificateVerifier.Create(const AProvider: ICryptoProvider;
   AOccasion: TVerificationOccasion);
 begin
   inherited Create;
-  FProvider := AProvider;
+  FPkix := APkix;
   FClock := AClock;
   FTrustStore := ATrustStore;
   FCheckHostName := ACheckHostName;
@@ -340,7 +344,7 @@ begin
   FChainPolicyEnabled := True;
 end;
 
-class function TCertificateVerifier.StapleVerdict(const AProvider: ICryptoProvider;
+class function TCertificateVerifier.StapleVerdict(const APkix: IPkixProvider;
   const AClock: ITlsClock; const AChain: TArray<TBytes>;
   const AStaple: TBytes): TStapleVerdict;
 var
@@ -350,12 +354,12 @@ var
 begin
   Result := TStapleVerdict.Indeterminate;
   // a public entry point: without a provider or a clock no verdict can be rendered
-  if (AProvider = nil) or (AClock = nil) then
+  if (APkix = nil) or (AClock = nil) then
     Exit;
   // a staple needs the issuer (the next chain entry) to authenticate it
   if (System.Length(AStaple) = 0) or (System.Length(AChain) < 2) then
     Exit;
-  if not AProvider.Revocation.ValidateOcspStaple(AChain[0], AChain[1], AStaple,
+  if not APkix.Revocation.ValidateOcspStaple(AChain[0], AChain[1], AStaple,
     TDateTimeUtilities.UnixMsToDateTime(Int64(AClock.NowUnixMillis)), LStatus,
     LThisUpdate, LNextUpdate) then
     Exit;
@@ -393,7 +397,7 @@ begin
   ASettled := False;
   // the RFC 7633 TLS Feature extension well-formedness is a hard invariant, enforced
   // regardless of posture, role, or occasion: a value that is not a SEQUENCE OF INTEGER is fatal
-  if not FProvider.Certificates.TlsFeatures(AChain[0], LFeatures) then
+  if not FPkix.Certificates.TlsFeatures(AChain[0], LFeatures) then
   begin
     AAlert := TTlsAlertDescription.BadCertificate;
     Result := False;
@@ -417,7 +421,7 @@ begin
       end;
   end;
 
-  LVerdict := StapleVerdict(FProvider, FClock, AChain, AOcspStaple);
+  LVerdict := StapleVerdict(FPkix, FClock, AChain, AOcspStaple);
 
   if LVerdict = TStapleVerdict.Revoked then
   begin
@@ -495,7 +499,7 @@ begin
   // back the chain it actually validated (the assembled path when it completed an incomplete one)
   LEffectiveChain := AChain;
   try
-    FProvider.PathValidation.ValidateCertificatePath(AChain, FTrustStore.RootCertificates,
+    FPkix.PathValidation.ValidateCertificatePath(AChain, FTrustStore.RootCertificates,
       FIntermediates, ValidationTimeUtc, AKeyPurpose, LEffectiveChain);
   except
     on E: EFatalAlertTlsLibException do
@@ -509,7 +513,7 @@ begin
   // signed with an advertised scheme (MD5/SHA-1 refused outright) and meet the key-strength
   // floors. Post-PKIX so it sees the assembled path; the anchor exemption keys off the roots.
   if FChainPolicyEnabled and
-    (not TChainAlgorithmPolicy.Check(FProvider.Certificates, LEffectiveChain,
+    (not TChainAlgorithmPolicy.Check(FPkix.Certificates, LEffectiveChain,
     FTrustStore.RootCertificates, FStrengthPolicy, FAdvertisedSchemes, AAlert)) then
     Exit;
 
@@ -529,7 +533,7 @@ begin
       AAlert := TTlsAlertDescription.BadCertificate;
       Exit;
     end;
-    LLeaf := FProvider.Certificates.Parse(AChain[0]);
+    LLeaf := FPkix.Certificates.Parse(AChain[0]);
     if not TEndpointIdentity.Matches(AServerName, LLeaf.DnsNames, LLeaf.IpAddresses) then
     begin
       AAlert := TTlsAlertDescription.BadCertificate;
@@ -623,12 +627,14 @@ end;
 { TPinningVerifier }
 
 constructor TPinningVerifier.Create(const AInner: IServerCertificateVerifier;
-  const APins: TArray<TBytes>; const AProvider: ICryptoProvider);
+  const APins: TArray<TBytes>; const ACryptoProvider: ICryptoProvider;
+  const APkixProvider: IPkixProvider);
 begin
   inherited Create;
   FInner := AInner;
   FPins := APins;
-  FProvider := AProvider;
+  FCrypto := ACryptoProvider;
+  FPkix := APkixProvider;
 end;
 
 function TPinningVerifier.PinsMatch(const AChain: TArray<TBytes>): Boolean;
@@ -644,14 +650,14 @@ begin
   for LI := 0 to System.High(AChain) do
   begin
     try
-      LSpki := FProvider.Certificates.PublicKeyInfo(AChain[LI]);
+      LSpki := FPkix.Certificates.PublicKeyInfo(AChain[LI]);
     except
       // defensive: a parse/encode failure yields no SPKI, so the cert cannot match a pin - it
       // must never turn a pin decision into a raised internal_error
       on Exception do
         Continue;
     end;
-    LHash := FProvider.Primitives.CreateHash(THashAlgorithm.SHA_256);
+    LHash := FCrypto.Primitives.CreateHash(THashAlgorithm.SHA_256);
     LHash.Update(LSpki, 0, System.Length(LSpki));
     LDigest := LHash.DoFinal;
     for LJ := 0 to System.High(FPins) do

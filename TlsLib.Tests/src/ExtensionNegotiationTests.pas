@@ -211,7 +211,8 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Group := TNamedGroups.CreateX25519(Provider);
   LParams.GroupCode := TNamedGroupCatalog.X25519;
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
@@ -222,7 +223,7 @@ begin
   LParams.RecordSizeLimit := ARecordSizeLimit;
   LParams.ClientRandom := DecodeHex(StringOfChar('1', 64));
   LParams.LegacySessionId := DecodeHex(StringOfChar('3', 64));
-  LParams.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+  LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
     True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
@@ -237,7 +238,8 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
@@ -348,7 +350,8 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Group := TNamedGroups.CreateX25519(Provider);
   LParams.GroupCode := TNamedGroupCatalog.X25519;
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
@@ -358,7 +361,7 @@ begin
   LParams.AlpnProtocols := AAlpn;
   LParams.ClientRandom := DecodeHex(StringOfChar('1', 64));
   LParams.LegacySessionId := DecodeHex(StringOfChar('3', 64));
-  LParams.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+  LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
     True) as IServerCertificateVerifier;
   LParams.CertificateDecompressors := ADecompressors;
@@ -373,7 +376,8 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
@@ -392,7 +396,8 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
@@ -812,7 +817,8 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Group := TNamedGroups.CreateX25519(Provider);
   LParams.GroupCode := TNamedGroupCatalog.X25519;
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
@@ -822,7 +828,7 @@ begin
   LParams.Grease := True;
   LParams.ClientRandom := DecodeHex(StringOfChar('1', 64));
   LParams.LegacySessionId := DecodeHex(StringOfChar('3', 64));
-  LParams.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+  LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
     True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');

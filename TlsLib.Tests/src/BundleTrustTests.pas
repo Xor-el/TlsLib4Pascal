@@ -31,8 +31,8 @@ uses
 {$ELSE}
   TestFramework,
 {$ENDIF FPC}
-  TlpICryptoProvider,
-  TlpDefaultCryptoProvider,
+  TlpIPkixProvider,
+  TlpDefaultPkixProvider,
   TlpICertificateTrust,
   TlpBundleTrust,
   TlsLibTestBase;
@@ -40,7 +40,7 @@ uses
 type
   TTestBundleTrust = class(TTlsLibAlgorithmTestCase)
   strict private
-    FProvider: ICryptoProvider;
+    FPkix: IPkixProvider;
     FRootDer: TBytes;
   protected
     procedure SetUp; override;
@@ -58,7 +58,7 @@ var
   LVectors: TStringList;
 begin
   inherited SetUp;
-  FProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  FPkix := TDefaultPkixProvider.Create as IPkixProvider;
   // reuse the shared EC P-256 test root (its DER form; LoadCertificateChain accepts it)
   LVectors := LoadVectorFields('Certs/EcP256Chain.txt');
   try
@@ -72,11 +72,11 @@ procedure TTestBundleTrust.TestFromPemLoadsRoot;
 var
   LStore: ITrustAnchorStore;
 begin
-  LStore := TBundleTrust.FromPem(FProvider, FRootDer);
+  LStore := TBundleTrust.FromPem(FPkix, FRootDer);
   CheckTrue(LStore <> nil, 'FromPem returns an anchor store');
   CheckEquals(1, Length(LStore.RootCertificates),
     'the one-cert bundle yields exactly one anchor');
-  CheckTrue(FProvider.Certificates.IsWellFormed(LStore.RootCertificates[0]),
+  CheckTrue(FPkix.Certificates.IsWellFormed(LStore.RootCertificates[0]),
     'the harvested anchor is a well-formed certificate');
 end;
 
@@ -94,7 +94,7 @@ begin
     LStream.Free;
   end;
   try
-    LStore := TBundleTrust.FromPemFile(FProvider, LPath);
+    LStore := TBundleTrust.FromPemFile(FPkix, LPath);
     CheckTrue(LStore <> nil, 'FromPemFile returns an anchor store');
     CheckEquals(1, Length(LStore.RootCertificates),
       'the bundle file yields exactly one anchor');

@@ -62,7 +62,7 @@ type
   TEchClientHandshake = class sealed(TInterfacedObject, IEchClientHandshake)
   strict private
   var
-    FProvider: ICryptoProvider;
+    FCrypto: ICryptoProvider;
     FConfig: TEchConfig;
     FSuite: IHpkeSuite;
     FSealer: IHpkeSealer;
@@ -168,7 +168,7 @@ constructor TEchClientHandshake.Create(const AProvider: ICryptoProvider;
   const AConfig: TEchConfig; const ASuite: IHpkeSuite);
 begin
   inherited Create;
-  FProvider := AProvider;
+  FCrypto := AProvider;
   FConfig := AConfig;
   FSuite := ASuite;
 end;

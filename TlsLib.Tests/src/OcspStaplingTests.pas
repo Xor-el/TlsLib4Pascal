@@ -31,6 +31,7 @@ uses
 {$ENDIF FPC}
   TlpTlsAlert,
   TlpCryptoDomainTypes,
+  TlpPkixDomainTypes,
   TlpICryptoProvider,
   TlpICertificateTrust,
   TlpServerName,
@@ -167,7 +168,7 @@ begin
   // park; AStatusRequestOffered/AOccasion model whether the client asked to staple and whether
   // this is the initial handshake (must-staple binds only there)
   LNoDangerous := Default(TDangerousTrust);
-  Result := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+  Result := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(V('root_cert')))
     as ITrustAnchorStore, False, TCertificateChainLimits.Defaults, APosture,
     LNoDangerous, ADeferral, nil, AStatusRequestOffered, AOccasion)
@@ -203,7 +204,7 @@ var
   LSpki: TBytes;
   LHash: IHash;
 begin
-  LSpki := Provider.Certificates.PublicKeyInfo(V('leaf_cert'));
+  LSpki := Pkix.Certificates.PublicKeyInfo(V('leaf_cert'));
   LHash := Provider.Primitives.CreateHash(THashAlgorithm.SHA_256);
   LHash.Update(LSpki, 0, System.Length(LSpki));
   Result := LHash.DoFinal;
@@ -214,7 +215,7 @@ var
   LSpki: TBytes;
   LHash: IHash;
 begin
-  LSpki := Provider.Certificates.PublicKeyInfo(V('issuer_cert'));
+  LSpki := Pkix.Certificates.PublicKeyInfo(V('issuer_cert'));
   LHash := Provider.Primitives.CreateHash(THashAlgorithm.SHA_256);
   LHash.Update(LSpki, 0, System.Length(LSpki));
   Result := LHash.DoFinal;
@@ -226,14 +227,14 @@ var
   LNoDangerous: TDangerousTrust;
 begin
   LNoDangerous := Default(TDangerousTrust);
-  Result := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+  Result := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(V('root_cert')))
     as ITrustAnchorStore, False, TCertificateChainLimits.Defaults, APosture,
     LNoDangerous, TVerdictDeferral.None, AIntermediates, True,
     TVerificationOccasion.InitialHandshake) as IServerCertificateVerifier;
   // pinning composes as a decorator over the built-in verifier, as the engine wires it
   if System.Length(APins) > 0 then
-    Result := TPinningVerifier.Create(Result, APins, Provider)
+    Result := TPinningVerifier.Create(Result, APins, Provider, Pkix)
       as IServerCertificateVerifier;
 end;
 
@@ -244,11 +245,11 @@ var
   LVerified: TVerifiedChain;
 begin
   // revocation Off isolates the pinning step from the stapled-OCSP step
-  LVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+  LVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(V('root_cert')))
     as ITrustAnchorStore, False, TCertificateChainLimits.Defaults,
     TRevocationPosture.Off) as IServerCertificateVerifier;
-  LVerifier := TPinningVerifier.Create(LVerifier, APins, Provider)
+  LVerifier := TPinningVerifier.Create(LVerifier, APins, Provider, Pkix)
     as IServerCertificateVerifier;
   Result := LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName(''), nil,
     LVerified, AAlert);
@@ -259,7 +260,7 @@ var
   LStatus: TOcspStatus;
   LThis, LNext: TDateTime;
 begin
-  CheckTrue(Provider.Revocation.ValidateOcspStaple(V('leaf_cert'), V('issuer_cert'),
+  CheckTrue(Pkix.Revocation.ValidateOcspStaple(V('leaf_cert'), V('issuer_cert'),
     V('ocsp_good'), TDateTimeUtilities.ToUniversalTime(Now), LStatus, LThis, LNext),
     'an issuer-signed response about the leaf is authoritative');
   CheckEquals(Ord(TOcspStatus.Good), Ord(LStatus), 'the status is Good');
@@ -271,7 +272,7 @@ var
   LStatus: TOcspStatus;
   LThis, LNext: TDateTime;
 begin
-  CheckTrue(Provider.Revocation.ValidateOcspStaple(V('leaf_cert'), V('issuer_cert'),
+  CheckTrue(Pkix.Revocation.ValidateOcspStaple(V('leaf_cert'), V('issuer_cert'),
     V('ocsp_revoked'), TDateTimeUtilities.ToUniversalTime(Now), LStatus, LThis,
     LNext), 'a revoked response is authoritative');
   CheckEquals(Ord(TOcspStatus.Revoked), Ord(LStatus), 'the status is Revoked');
@@ -283,7 +284,7 @@ var
   LThis, LNext: TDateTime;
 begin
   // signed by an id-kp-OCSPSigning responder the issuer delegated to (RFC 6960 4.2.2.2)
-  CheckTrue(Provider.Revocation.ValidateOcspStaple(V('leaf_cert'), V('issuer_cert'),
+  CheckTrue(Pkix.Revocation.ValidateOcspStaple(V('leaf_cert'), V('issuer_cert'),
     V('ocsp_good_delegated'), TDateTimeUtilities.ToUniversalTime(Now), LStatus,
     LThis, LNext), 'a delegated responder is authoritative');
   CheckEquals(Ord(TOcspStatus.Good), Ord(LStatus), 'the status is Good');
@@ -295,7 +296,7 @@ var
   LThis, LNext: TDateTime;
 begin
   // signed by an unrelated CA the issuer never delegated to
-  CheckFalse(Provider.Revocation.ValidateOcspStaple(V('leaf_cert'), V('issuer_cert'),
+  CheckFalse(Pkix.Revocation.ValidateOcspStaple(V('leaf_cert'), V('issuer_cert'),
     V('ocsp_unauthorized'), TDateTimeUtilities.ToUniversalTime(Now), LStatus,
     LThis, LNext), 'an unauthorized signer leaves the status indeterminate');
 end;
@@ -306,7 +307,7 @@ var
   LThis, LNext: TDateTime;
 begin
   // the CertID names the real issuer, so it does not match an unrelated one
-  CheckFalse(Provider.Revocation.ValidateOcspStaple(V('leaf_cert'), V('other_ca_cert'),
+  CheckFalse(Pkix.Revocation.ValidateOcspStaple(V('leaf_cert'), V('other_ca_cert'),
     V('ocsp_good'), TDateTimeUtilities.ToUniversalTime(Now), LStatus, LThis, LNext),
     'a response whose CertID does not match the issuer is indeterminate');
 end;
@@ -316,7 +317,7 @@ var
   LStatus: TOcspStatus;
   LThis, LNext: TDateTime;
 begin
-  CheckFalse(Provider.Revocation.ValidateOcspStaple(V('leaf_cert'), V('issuer_cert'),
+  CheckFalse(Pkix.Revocation.ValidateOcspStaple(V('leaf_cert'), V('issuer_cert'),
     TBytes.Create(1, 2, 3, 4), TDateTimeUtilities.ToUniversalTime(Now), LStatus,
     LThis, LNext), 'an unparseable response returns False, never raises');
 end;
@@ -325,7 +326,7 @@ procedure TTestOcspStapling.TestTlsFeaturesAbsentIsEmpty;
 var
   LFeatures: TArray<UInt16>;
 begin
-  CheckTrue(Provider.Certificates.TlsFeatures(V('leaf_cert'), LFeatures),
+  CheckTrue(Pkix.Certificates.TlsFeatures(V('leaf_cert'), LFeatures),
     'a certificate without the TLS Feature extension is well formed');
   CheckEquals(0, System.Length(LFeatures), 'it carries no features');
 end;
@@ -334,7 +335,7 @@ procedure TTestOcspStapling.TestTlsFeaturesMustStaple;
 var
   LFeatures: TArray<UInt16>;
 begin
-  CheckTrue(Provider.Certificates.TlsFeatures(V('muststaple_leaf_cert'), LFeatures),
+  CheckTrue(Pkix.Certificates.TlsFeatures(V('muststaple_leaf_cert'), LFeatures),
     'a well-formed TLS Feature extension parses');
   CheckEquals(1, System.Length(LFeatures), 'it lists one feature');
   CheckEquals(5, LFeatures[0], 'the feature is status_request (5)');
@@ -345,7 +346,7 @@ var
   LFeatures: TArray<UInt16>;
 begin
   // the extension value is a bare INTEGER, not a SEQUENCE OF INTEGER
-  CheckFalse(Provider.Certificates.TlsFeatures(V('badfeature_leaf_cert'), LFeatures),
+  CheckFalse(Pkix.Certificates.TlsFeatures(V('badfeature_leaf_cert'), LFeatures),
     'a non-SEQUENCE TLS Feature value is rejected as malformed');
 end;
 
@@ -661,18 +662,18 @@ begin
   // validated chain is the leaf alone, so only a leaf pin is meaningful.
   LDangerous := Default(TDangerousTrust);
   LDangerous.InsecureSkipVerify := True;
-  LInner := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+  LInner := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(nil) as ITrustAnchorStore, False,
     TCertificateChainLimits.Defaults, TRevocationPosture.Off, LDangerous, TVerdictDeferral.None)
     as IServerCertificateVerifier;
   LWrongPin := LeafSpkiPin;
   LWrongPin[0] := LWrongPin[0] xor $FF;
-  LVerifier := TPinningVerifier.Create(LInner, TArray<TBytes>.Create(LWrongPin), Provider)
+  LVerifier := TPinningVerifier.Create(LInner, TArray<TBytes>.Create(LWrongPin), Provider, Pkix)
     as IServerCertificateVerifier;
   CheckFalse(LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName(''), nil,
     LVerified, LAlert),
     'a wrong pin rejects even under InsecureSkipVerify');
-  LVerifier := TPinningVerifier.Create(LInner, TArray<TBytes>.Create(LeafSpkiPin), Provider)
+  LVerifier := TPinningVerifier.Create(LInner, TArray<TBytes>.Create(LeafSpkiPin), Provider, Pkix)
     as IServerCertificateVerifier;
   CheckTrue(LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName(''), nil,
     LVerified, LAlert),
@@ -736,11 +737,11 @@ begin
   // the presented chain would wrongly accept it.
   LDangerous := Default(TDangerousTrust);
   LDangerous.InsecureSkipVerify := True;
-  LInner := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+  LInner := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(nil) as ITrustAnchorStore, False,
     TCertificateChainLimits.Defaults, TRevocationPosture.Off, LDangerous, TVerdictDeferral.None)
     as IServerCertificateVerifier;
-  LVerifier := TPinningVerifier.Create(LInner, TArray<TBytes>.Create(LeafSpkiPin), Provider)
+  LVerifier := TPinningVerifier.Create(LInner, TArray<TBytes>.Create(LeafSpkiPin), Provider, Pkix)
     as IServerCertificateVerifier;
   CheckFalse(LVerifier.VerifyServerCertificate(
     TArray<TBytes>.Create(V('issuer_cert'), V('leaf_cert')), TServerName.DnsName(''), nil,

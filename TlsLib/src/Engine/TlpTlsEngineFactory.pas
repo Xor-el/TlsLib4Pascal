@@ -222,8 +222,8 @@ begin
   LAsyncVerdict := LDeferral <> TVerdictDeferral.None;
   // the two client machines must share one client random and session id so a 1.2
   // hand-off keeps the ServerKeyExchange/master-secret binding of the sent ClientHello
-  LClientRandom := AConfig.Provider.Primitives.GetRandom.GenerateBytes(32);
-  LSessionId := AConfig.Provider.Primitives.GetRandom.GenerateBytes(32);
+  LClientRandom := AConfig.Crypto.Primitives.GetRandom.GenerateBytes(32);
+  LSessionId := AConfig.Crypto.Primitives.GetRandom.GenerateBytes(32);
   // fail closed: when name checking is on, a client must have a usable server name to verify
   // the leaf against. A missing/unparsable host here would otherwise silently skip RFC 6125.
   if not TServerName.TryParse(AHost, LServerName) then
@@ -232,7 +232,7 @@ begin
   // the source builds the verifier from this context, so the clock and posture reach the
   // built-in and an OS delegate the same way
   LTrustContext := Default(TServerTrustContext);
-  LTrustContext.Provider := AConfig.Provider;
+  LTrustContext.Pkix := AConfig.Pkix;
   LTrustContext.Clock := AConfig.Clock;
   LTrustContext.TrustStore := AConfig.TrustStore;
   LTrustContext.CheckHostName := AConfig.CheckServerName;
@@ -250,7 +250,7 @@ begin
   // SPKI pinning composes over the source output, so it augments any source (built-in or OS delegate)
   if System.Length(AConfig.CertificatePins) > 0 then
     LVerifier := TPinningVerifier.Create(LVerifier, AConfig.CertificatePins,
-      AConfig.Provider) as IServerCertificateVerifier;
+      AConfig.Crypto, AConfig.Pkix) as IServerCertificateVerifier;
   // reverify-on-resume re-checks the stored chain, which carries no Certificate and no fresh
   // staple: a second verifier built for the Resumption occasion so must-staple never fires on a
   // resume. Built only when a resume can actually reverify (composed with the same pins).
@@ -263,11 +263,12 @@ begin
     LResumeVerifier := AConfig.ServerVerifierSource.CreateServerVerifier(LResumeContext);
     if System.Length(AConfig.CertificatePins) > 0 then
       LResumeVerifier := TPinningVerifier.Create(LResumeVerifier, AConfig.CertificatePins,
-        AConfig.Provider) as IServerCertificateVerifier;
+        AConfig.Crypto, AConfig.Pkix) as IServerCertificateVerifier;
   end;
 
   L13 := Default(TClientHandshakeParams);
-  L13.Provider := AConfig.Provider;
+  L13.Crypto := AConfig.Crypto;
+  L13.Inspector := AConfig.Pkix.Certificates;
   L13.Group := PreferredGroup(AConfig, L13.GroupCode);
   // advertise every preferred group the registry holds (a pruned/absent group is dropped, not
   // advertised-then-unresolvable) and carry the registry, so the server may retry the client
@@ -309,7 +310,8 @@ begin
   L13.ClientCredential := AConfig.Credential;
 
   L12 := Default(TClient12HandshakeParams);
-  L12.Provider := AConfig.Provider;
+  L12.Crypto := AConfig.Crypto;
+  L12.Inspector := AConfig.Pkix.Certificates;
   L12.GroupRegistry := AConfig.NamedGroups;
   L12.CipherSuites := AConfig.CipherSuites;
   if LOffers12 then
@@ -386,7 +388,7 @@ begin
   else
     LMachine := TTls12ClientStateMachine.Create(L12);
 
-  Result := TTlsEngine.CreateConfigured(LMachine, AConfig.Provider);
+  Result := TTlsEngine.CreateConfigured(LMachine, AConfig.Crypto);
 end;
 
 class function TTlsEngineFactory.CreateServerEngine(
@@ -404,7 +406,7 @@ var
 begin
   LOffers13 := Offers(AConfig, TlsWireVersionTls13);
   LOffers12 := Offers(AConfig, TlsWireVersionTls12);
-  LServerRandom := AConfig.Provider.Primitives.GetRandom.GenerateBytes(32);
+  LServerRandom := AConfig.Crypto.Primitives.GetRandom.GenerateBytes(32);
   // a verdict-deferral mode parks the handshake after the pipeline accepts the client chain
   // (only meaningful when the server requests client authentication)
   LDeferral := AConfig.AsyncCertificateVerdict.Deferral;
@@ -418,7 +420,7 @@ begin
   if AConfig.ClientAuth <> TClientAuthMode.None then
   begin
     LClientContext := Default(TClientTrustContext);
-    LClientContext.Provider := AConfig.Provider;
+    LClientContext.Pkix := AConfig.Pkix;
     LClientContext.Clock := AConfig.Clock;
     LClientContext.TrustStore := AConfig.TrustStore;
     LClientContext.ChainLimits := AConfig.CertificateChainLimits;
@@ -432,9 +434,10 @@ begin
   end;
 
   L13 := Default(TServerHandshakeParams);
-  L13.Provider := AConfig.Provider;
+  L13.Crypto := AConfig.Crypto;
+  L13.Inspector := AConfig.Pkix.Certificates;
   L13.Clock := AConfig.Clock;
-  L13.Policy := TNegotiationPolicy.Create(AConfig.Provider, AConfig.CipherSuites,
+  L13.Policy := TNegotiationPolicy.Create(AConfig.Crypto, AConfig.CipherSuites,
     AConfig.NamedGroups, AConfig.SignatureSchemes, AConfig.PreferredGroups,
     AConfig.SupportedVersions, AConfig.CipherSuitePreference);
   L13.CipherSuites := AConfig.CipherSuites;
@@ -459,7 +462,7 @@ begin
   // memoize that compression across connections (a stable certificate deflates once)
   L13.CertificateCompressionCache := AConfig.CertificateCompressionCache;
   // a per-server-instance secret so the server can answer with a stateless HelloRetryRequest
-  L13.CookieSecret := TSecretBuffer.From(AConfig.Provider.Primitives.GetRandom.GenerateBytes(32));
+  L13.CookieSecret := TSecretBuffer.From(AConfig.Crypto.Primitives.GetRandom.GenerateBytes(32));
   // the resolver selects the credential per handshake from the client's SNI (virtual hosting);
   // each credential carries the chain, key, and (when set) the OCSP staple the server sends for
   // its leaf once the client offers status_request
@@ -475,7 +478,8 @@ begin
   L13.LiveRevocationDeferral := LDeferral = TVerdictDeferral.LiveRevocation;
 
   L12 := Default(TServer12HandshakeParams);
-  L12.Provider := AConfig.Provider;
+  L12.Crypto := AConfig.Crypto;
+  L12.Inspector := AConfig.Pkix.Certificates;
   L12.Clock := AConfig.Clock;
   L12.CipherSuites := AConfig.CipherSuites;
   if LOffers12 then
@@ -542,7 +546,7 @@ begin
   else
     LMachine := TTls12ServerStateMachine.Create(L12);
 
-  Result := TTlsEngine.CreateConfigured(LMachine, AConfig.Provider);
+  Result := TTlsEngine.CreateConfigured(LMachine, AConfig.Crypto);
 end;
 
 end.

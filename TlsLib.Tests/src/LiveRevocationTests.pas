@@ -144,7 +144,7 @@ function TTestLiveRevocation.NewChecker(const AFetcher: IHttpFetcher;
   APosture: TRevocationPosture;
   AMethod: TLiveRevocationMethod): TLiveRevocationChecker;
 begin
-  Result := TLiveRevocationChecker.Create(Provider, TSystemClock.Create as ITlsClock,
+  Result := TLiveRevocationChecker.Create(Pkix, TSystemClock.Create as ITlsClock,
     AFetcher, APosture, AMethod, 0);
 end;
 
@@ -152,7 +152,7 @@ procedure TTestLiveRevocation.TestOcspResponderUrlExtracted;
 var
   LUrl: string;
 begin
-  CheckTrue(Provider.Revocation.TryGetOcspResponderUrl(LeafCert, LUrl),
+  CheckTrue(Pkix.Revocation.TryGetOcspResponderUrl(LeafCert, LUrl),
     'the leaf AIA carries an OCSP responder URL');
   CheckEquals('http://ocsp.tlslib.test/', LUrl, 'the OCSP URL is extracted verbatim');
 end;
@@ -161,7 +161,7 @@ procedure TTestLiveRevocation.TestCrlDistributionPointsExtracted;
 var
   LUrls: TArray<string>;
 begin
-  CheckTrue(Provider.Revocation.TryGetCrlDistributionPoints(LeafCert, LUrls),
+  CheckTrue(Pkix.Revocation.TryGetCrlDistributionPoints(LeafCert, LUrls),
     'the leaf carries a CRL distribution point');
   CheckTrue(System.Length(LUrls) >= 1, 'at least one CRL URL is returned');
   CheckEquals('http://crl.tlslib.test/ca.crl', LUrls[0], 'the CRL URL is extracted');
@@ -171,7 +171,7 @@ procedure TTestLiveRevocation.TestBuildOcspRequestNonEmpty;
 var
   LReq: TBytes;
 begin
-  CheckTrue(Provider.Revocation.BuildOcspRequest(LeafCert, CaCert, LReq),
+  CheckTrue(Pkix.Revocation.BuildOcspRequest(LeafCert, CaCert, LReq),
     'an OCSP request is built for the leaf/issuer');
   CheckTrue(System.Length(LReq) > 0, 'the OCSP request is non-empty DER');
 end;
@@ -182,7 +182,7 @@ var
 begin
   // the neutral peer-identity accessor an adapter's native verify hook (Synapse GetPeer*)
   // reads, so no adapter touches a CryptoLib type
-  CheckTrue(Provider.Certificates.PeerInfo(LeafCert, LSubject, LIssuer, LCommonName,
+  CheckTrue(Pkix.Certificates.PeerInfo(LeafCert, LSubject, LIssuer, LCommonName,
     LSerialHex), 'peer info is extracted from the leaf');
   CheckEquals('localhost', LCommonName, 'the leaf common name is localhost');
   CheckTrue(Pos('localhost', LSubject) > 0, 'the subject DN carries the common name');
@@ -200,7 +200,7 @@ var
   LRevoked: Boolean;
   LThisUpdate, LNextUpdate: TDateTime;
 begin
-  CheckTrue(Provider.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlRevoked, NowUtc,
+  CheckTrue(Pkix.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlRevoked, NowUtc,
     LRevoked, LThisUpdate, LNextUpdate), 'the issuer-signed CRL parses and verifies');
   CheckTrue(LRevoked, 'the leaf serial is listed as revoked in the CRL');
 end;
@@ -210,7 +210,7 @@ var
   LRevoked: Boolean;
   LThisUpdate, LNextUpdate: TDateTime;
 begin
-  CheckTrue(Provider.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlGood, NowUtc,
+  CheckTrue(Pkix.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlGood, NowUtc,
     LRevoked, LThisUpdate, LNextUpdate), 'the issuer-signed CRL parses and verifies');
   CheckFalse(LRevoked, 'the leaf is not listed in the good CRL');
 end;
@@ -223,14 +223,14 @@ begin
   // the stale CRL is out of window at the current time, but the check reports its window; judged
   // at an injected time INSIDE that window the same CRL is authoritative - proving the injected
   // clock, not the wall clock, drives CRL freshness
-  CheckFalse(Provider.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlStale, NowUtc,
+  CheckFalse(Pkix.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlStale, NowUtc,
     LRevoked, LThisUpdate, LNextUpdate), 'the stale CRL is indeterminate at the current time');
   CheckTrue(LNextUpdate > 0, 'the CRL reports a nextUpdate window');
-  CheckTrue(Provider.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlStale,
+  CheckTrue(Pkix.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlStale,
     LThisUpdate + (LNextUpdate - LThisUpdate) / 2, LRevoked, LThisUpdate, LNextUpdate),
     'the same CRL verifies when the injected time is inside its window');
   // and one day before thisUpdate it is not yet valid -> indeterminate
-  CheckFalse(Provider.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlStale,
+  CheckFalse(Pkix.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlStale,
     LThisUpdate - 1, LRevoked, LThisUpdate, LNextUpdate),
     'the CRL is not yet valid before its thisUpdate');
 end;
@@ -246,13 +246,13 @@ begin
   // end-to-end: derive the stale CRL's window, then drive the checker with a MockClock parked
   // inside it. The stale CRL - indeterminate at the wall clock - now reads Good, proving the
   // checker feeds its injected clock through to the CRL freshness judgement.
-  CheckFalse(Provider.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlStale, NowUtc,
+  CheckFalse(Pkix.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlStale, NowUtc,
     LRevoked, LThisUpdate, LNextUpdate), 'the stale CRL is indeterminate now');
   LMidMs := (TDateTimeUtilities.DateTimeToUnixMs(LThisUpdate) +
     TDateTimeUtilities.DateTimeToUnixMs(LNextUpdate)) div 2;
   LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetGet(True, CrlStale);
-  LChecker := TLiveRevocationChecker.Create(Provider,
+  LChecker := TLiveRevocationChecker.Create(Pkix,
     TMockClock.Create(UInt64(LMidMs)) as ITlsClock, LFetcher as IHttpFetcher,
     TRevocationPosture.Hard, TLiveRevocationMethod.Crl, 0);
   try
@@ -269,10 +269,10 @@ var
   LThisUpdate, LNextUpdate: TDateTime;
 begin
   // capture the good CRL's window, then judge it one day past nextUpdate: indeterminate
-  CheckTrue(Provider.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlGood, NowUtc,
+  CheckTrue(Pkix.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlGood, NowUtc,
     LRevoked, LThisUpdate, LNextUpdate), 'the good CRL verifies at the current time');
   CheckTrue(LNextUpdate > 0, 'the good CRL reports a nextUpdate window');
-  CheckFalse(Provider.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlGood,
+  CheckFalse(Pkix.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlGood,
     LNextUpdate + 1, LRevoked, LThisUpdate, LNextUpdate),
     'a CRL judged past its nextUpdate is indeterminate');
 end;
@@ -409,7 +409,7 @@ begin
   // check it reads as a definitive Good; the window check makes it indeterminate, defeating a
   // stale-CRL replay. The provider primitive reports it directly, and the checker follows the
   // posture (Hard rejects).
-  CheckFalse(Provider.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlStale, NowUtc,
+  CheckFalse(Pkix.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlStale, NowUtc,
     LRevoked, LThisUpdate, LNextUpdate),
     'a stale CRL (out of its validity window) is not authoritative');
   CheckFalse(LRevoked, 'a stale CRL yields no definitive revocation');

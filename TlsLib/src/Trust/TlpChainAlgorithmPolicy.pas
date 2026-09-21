@@ -19,7 +19,8 @@ uses
   SysUtils,
   TlpArrayUtilities,
   TlpCryptoDomainTypes,
-  TlpICryptoProvider,
+  TlpPkixDomainTypes,
+  TlpIPkixProvider,
   TlpNegotiationTypes,
   TlpCertificateStrengthPolicy,
   TlpTlsAlert;

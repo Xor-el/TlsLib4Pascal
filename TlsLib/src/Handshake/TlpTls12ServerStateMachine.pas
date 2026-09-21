@@ -25,6 +25,7 @@ uses
   TlpISecretBuffer,
   TlpISigningKey,
   TlpICryptoProvider,
+  TlpIPkixProvider,
   TlpINamedGroup,
   TlpIKeySchedule,
   TlpTls12KeySchedule,
@@ -51,7 +52,8 @@ uses
 type
   /// <summary>The inputs a TLS 1.2 server handshake needs to negotiate and drive its flight.</summary>
   TServer12HandshakeParams = record
-    Provider: ICryptoProvider;
+    Crypto: ICryptoProvider;
+    Inspector: ICertificateInspector;
     CipherSuites: ICipherSuiteRegistry;
     ExtensionRegistry: IExtensionRegistry;
     /// <summary>The server's ECDHE groups in preference order; the first that the client
@@ -311,7 +313,7 @@ begin
   if AParams.Group <> nil then
     FGroupCode := AParams.Group.Code;
   // TLS 1.2 tickets are stateless STEK only; the session-id path uses SessionStore
-  FTicketStrategy := TSessionTicketStrategies.ForServer(AParams.Provider,
+  FTicketStrategy := TSessionTicketStrategies.ForServer(AParams.Crypto,
     AParams.SessionTicketKeys, nil);
   FHandshakeLog := TBytesStream.Create;
 end;
@@ -362,7 +364,7 @@ begin
   // server preference is the shared hardware-AES-aware order; a 1.2 suite is eligible only
   // if the client offered it and the credential can sign the suite's auth with a scheme the
   // client also offered
-  for LCode in TNegotiationPolicy.SuitePreferenceOrder(FParams.Provider,
+  for LCode in TNegotiationPolicy.SuitePreferenceOrder(FParams.Crypto,
     FParams.CipherSuites, TSuiteProtocol.Tls12) do
   begin
     if not FParams.CipherSuites.TryGet(LCode, LSuite) then
@@ -430,7 +432,7 @@ begin
   Result := True;
   if System.Length(FResolvedCredential.CertificateChain) = 0 then
     Exit;
-  if not FParams.Provider.Certificates.KeyKind(
+  if not FParams.Inspector.KeyKind(
     FResolvedCredential.CertificateChain[0], LKind, LCurve) then
     Exit;
   if LKind <> TCertKeyKind.Ecdsa then
@@ -543,7 +545,7 @@ begin
   // a full handshake issues a fresh session id (when a store is configured) and, when
   // the client supports tickets, a NewSessionTicket sealed under the STEK
   if FParams.SessionStore <> nil then
-    FSessionId := FParams.Provider.Primitives.GetRandom.GenerateBytes(SessionIdLength)
+    FSessionId := FParams.Crypto.Primitives.GetRandom.GenerateBytes(SessionIdLength)
   else
     FSessionId := nil;
   FIssueNewTicket := (FTicketStrategy <> nil) and FClientOfferedSessionTicket;
@@ -559,7 +561,7 @@ begin
   if System.Length(AMessage.Raw) > 0 then
     FHandshakeLog.Write(AMessage.Raw[0], System.Length(AMessage.Raw));
   FTranscript.Update(AMessage.Raw);
-  FTranscript.Activate(FParams.Provider.Primitives.CreateHash(FSelectedSuite.Common.Hash));
+  FTranscript.Activate(FParams.Crypto.Primitives.CreateHash(FSelectedSuite.Common.Hash));
   // staple when the client offered status_request and a staple is configured; the
   // ServerHello echoes an empty status_request and a CertificateStatus follows the
   // Certificate (RFC 6066 8)
@@ -708,7 +710,7 @@ begin
   // the SKE signature covers client_random + server_random + the ECDHE params (RFC 8422 5.4)
   LContent := TArrayUtilities.Concat(
     TArrayUtilities.Concat(FClientRandom, FServerRandom), AParams);
-  LSigner := FParams.Provider.Signing.CreateSignatureSigner(FSelectedScheme,
+  LSigner := FParams.Crypto.Signing.CreateSignatureSigner(FSelectedScheme,
     FResolvedCredential.PrivateKey);
   LSigner.Update(LContent, 0, System.Length(LContent));
   Result := LSigner.Sign;
@@ -730,7 +732,7 @@ end;
 procedure TTls12ServerStateMachine.DeriveSecrets(const APreMaster: ISecretBuffer;
   const ASessionHash: TBytes);
 begin
-  FSchedule := TTls12KeySchedule.Create(FParams.Provider,
+  FSchedule := TTls12KeySchedule.Create(FParams.Crypto,
     FSelectedSuite.Common.Hash, FSelectedSuite.Common.KeyLength, FSelectedSuite.Common.Aead);
   FSchedule.SetRandoms(FClientRandom, FServerRandom);
   FSchedule.SetPreMasterSecret(APreMaster);
@@ -772,7 +774,7 @@ begin
   begin
     // a client leaf that is not a well-formed certificate is a decode error, caught before
     // the verifier (which, for -require-any-client-certificate, does not parse the chain)
-    FParsedClientLeaf := TCertificateVerify.ParseWellFormedLeaf(FParams.Provider,
+    FParsedClientLeaf := TCertificateVerify.ParseWellFormedLeaf(FParams.Inspector,
       FClientCertChain[0]);
     if not TCertificateVerify.VerifyClientChain(FParams.ClientCertificateVerifier,
       FClientCertChain, LVerified, LAlert) then
@@ -845,7 +847,7 @@ begin
   // the 1.2 CertificateVerify signs the raw handshake log through ClientKeyExchange;
   // the scheme applies its own hash, so the suite PRF hash does not matter here
   LPublicKeyInfo := FParsedClientLeaf.PublicKeyInfo;
-  LVerifier := FParams.Provider.Signing.CreateSignatureVerifier(LScheme, LPublicKeyInfo);
+  LVerifier := FParams.Crypto.Signing.CreateSignatureVerifier(LScheme, LPublicKeyInfo);
   LVerifier.Update(FHandshakeLog.Bytes, 0, FHandshakeLog.Size);
   // the parsed leaf is no longer needed; release it rather than pin the ASN.1 graph
   FParsedClientLeaf := nil;
@@ -991,12 +993,12 @@ begin
   // the abbreviated transcript is ClientHello, ServerHello, [NewSessionTicket]; the raw
   // handshake log is unused (no CertificateVerify on an abbreviated handshake)
   FTranscript.Update(AClientHelloRaw);
-  FTranscript.Activate(FParams.Provider.Primitives.CreateHash(FSelectedSuite.Common.Hash));
+  FTranscript.Activate(FParams.Crypto.Primitives.CreateHash(FSelectedSuite.Common.Hash));
   LServerHello := BuildServerHello;
   FTranscript.Update(LServerHello);
 
   // reuse the stored master secret; the key block re-expands under the new randoms
-  FSchedule := TTls12KeySchedule.Create(FParams.Provider,
+  FSchedule := TTls12KeySchedule.Create(FParams.Crypto,
     FSelectedSuite.Common.Hash, FSelectedSuite.Common.KeyLength, FSelectedSuite.Common.Aead);
   FSchedule.SetRandoms(FClientRandom, FServerRandom);
   FSchedule.SetMasterSecret(FResumedSession.MasterSecret);
