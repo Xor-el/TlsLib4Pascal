@@ -21,6 +21,7 @@ uses
   TlpICryptoProvider,
   TlpISecretBuffer,
   TlpWireReader,
+  TlpExtensionVector,
   TlpIWireWriter,
   TlpWireWriter,
   TlpWireVectorMarker,
@@ -142,8 +143,9 @@ end;
 class function TEchServerHandshake.LocateOuterEchPayload(const ABody: TBytes;
   out AStart, ALen: Int32): Boolean;
 var
-  LReader, LExts, LEchData, LPayload: TWireReader;
-  LExtType: UInt16;
+  LReader, LEchData, LPayload: TWireReader;
+  LVector: TExtensionVector;
+  LEntry: TExtensionEntry;
   LType: TEchClientHelloType;
 begin
   // walk the ClientHello body to the outer-form ech extension's payload vector and report its
@@ -157,25 +159,21 @@ begin
   LReader.OpenVector(1);     // legacy_session_id
   LReader.OpenVector(2);     // cipher_suites
   LReader.OpenVector(1);     // legacy_compression_methods
-  LExts := LReader.OpenVector(2);
-  while not LExts.EndReached do
-  begin
-    LExtType := LExts.ReadUInt16;
-    LEchData := LExts.OpenVector(2);
-    if LExtType = TExtensionTypes.EncryptedClientHello then
-    begin
-      if not TEchClientHelloType.TryFromByte(LEchData.ReadUInt8, LType) then
-        Exit;
-      if LType <> TEchClientHelloType.Outer then
-        Exit;
-      LEchData.Skip(2 + 2 + 1); // kdf_id, aead_id, config_id
-      LEchData.OpenVector(2);   // enc
-      LPayload := LEchData.OpenVector(2);
-      AStart := LPayload.Position;
-      ALen := LPayload.Remaining;
-      Exit(True);
-    end;
-  end;
+  LVector := TExtensionVector.ParseFrom(LReader);
+  if not LVector.TryFind(TExtensionTypes.EncryptedClientHello, LEntry) then
+    Exit;
+  LEchData := TWireReader.Create(LEntry.Data);
+  if not TEchClientHelloType.TryFromByte(LEchData.ReadUInt8, LType) then
+    Exit;
+  if LType <> TEchClientHelloType.Outer then
+    Exit;
+  LEchData.Skip(2 + 2 + 1);  // kdf_id, aead_id, config_id
+  LEchData.OpenVector(2);    // enc
+  LPayload := LEchData.OpenVector(2);
+  // Position is relative to the extension data copy; shift by the data's absolute offset in ABody
+  AStart := LEntry.DataOffset + LPayload.Position;
+  ALen := LPayload.Remaining;
+  Result := True;
 end;
 
 class function TEchServerHandshake.SingleEchIndex(

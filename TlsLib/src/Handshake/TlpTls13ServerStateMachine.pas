@@ -43,6 +43,7 @@ uses
   TlpExtensionContext,
   TlpITlsExtension,
   TlpCoreExtensions,
+  TlpExtensionVector,
   TlpWireReader,
   TlpHandshakeMessage,
   TlpHandshakeMessages,
@@ -786,21 +787,12 @@ end;
 class function TTls13ServerStateMachine.PreSharedKeyIsLast(
   const AExtensions: TBytes): Boolean;
 var
-  LReader, LOuter, LData: TWireReader;
-  LLastType: Int32;
+  LVector: TExtensionVector;
 begin
-  // walk the extension block, tracking the final extension type. Called only when a
-  // pre_shared_key was offered, so "last is pre_shared_key" is the required condition.
-  LLastType := -1;
-  LReader := TWireReader.Create(AExtensions);
-  LOuter := LReader.OpenVector(2);
-  while not LOuter.EndReached do
-  begin
-    LLastType := LOuter.ReadUInt16;
-    LData := LOuter.OpenVector(2); // skip this extension's data
-    LData.ReadBytes(LData.Remaining);
-  end;
-  Result := LLastType = Int32(TExtensionTypes.PreSharedKey);
+  // Called only when a pre_shared_key was offered, so "last is pre_shared_key" is the required
+  // condition (RFC 8446 4.2.11: pre_shared_key must be the final ClientHello extension)
+  LVector := TExtensionVector.Parse(AExtensions);
+  Result := LVector.IsLast(TExtensionTypes.PreSharedKey);
 end;
 
 function TTls13ServerStateMachine.TryAcceptResumption(
@@ -1346,9 +1338,8 @@ end;
 class function TTls13ServerStateMachine.DetectBackendEch(
   const AClientHello: TTlsClientHello): Boolean;
 var
-  LReader, LBody: TWireReader;
-  LEntries: TArray<TEchExtEntry>;
-  LI: Int32;
+  LVector: TExtensionVector;
+  LEntry: TExtensionEntry;
   LType: TEchClientHelloType;
   LOuter: TEchOuterClientHello;
 begin
@@ -1357,17 +1348,14 @@ begin
   // negotiation to reject with protocol_version rather than fail here as a decode_error
   if System.Length(AClientHello.Extensions) = 0 then
     Exit;
-  LReader := TWireReader.Create(AClientHello.Extensions);
-  LBody := LReader.OpenVector(2);
-  LEntries := TEchOuterExtensions.ParseExtensions(LBody.ReadBytes(LBody.Remaining));
-  for LI := 0 to System.High(LEntries) do
-    if LEntries[LI].ExtType = TExtensionTypes.EncryptedClientHello then
-    begin
-      // Decode validates the wire shape: an out-of-range type is illegal_parameter, a malformed
-      // body a decode_error - the boundary maps either to the alert
-      TEchExtension.Decode(LEntries[LI].Data, LType, LOuter);
-      Exit(LType = TEchClientHelloType.Inner);
-    end;
+  LVector := TExtensionVector.Parse(AClientHello.Extensions);
+  if LVector.TryFind(TExtensionTypes.EncryptedClientHello, LEntry) then
+  begin
+    // Decode validates the wire shape: an out-of-range type is illegal_parameter, a malformed
+    // body a decode_error - the boundary maps either to the alert
+    TEchExtension.Decode(LEntry.Data, LType, LOuter);
+    Result := LType = TEchClientHelloType.Inner;
+  end;
 end;
 
 procedure TTls13ServerStateMachine.StampEchAcceptConfirmation(

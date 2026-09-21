@@ -35,6 +35,7 @@ uses
   TlpINegotiation,
   TlpNegotiationPolicy,
   TlpWireReader,
+  TlpExtensionVector,
   TlpExtensionContext,
   TlpITlsExtension,
   TlpHandshakeMessage,
@@ -323,20 +324,11 @@ procedure TTls12ClientStateMachine.RememberOffered(
   const AFramedClientHello: TBytes);
 var
   LHello: TTlsClientHello;
-  LReader, LOuter, LData: TWireReader;
 begin
-  FOfferedExtensions := nil;
   // strip the 4-byte handshake header to reach the body
   LHello := THandshakeMessages.DecodeClientHello(System.Copy(AFramedClientHello, 4,
     System.Length(AFramedClientHello) - 4));
-  LReader := TWireReader.Create(LHello.Extensions);
-  LOuter := LReader.OpenVector(2);
-  while not LOuter.EndReached do
-  begin
-    TArrayUtilities.Append<UInt16>(FOfferedExtensions, LOuter.ReadUInt16);
-    LData := LOuter.OpenVector(2);
-    LData.ReadBytes(LData.Remaining);
-  end;
+  FOfferedExtensions := TExtensionVector.Parse(LHello.Extensions).Types;
 end;
 
 procedure TTls12ClientStateMachine.ApplyOffered(const AContext: TExtensionContext);

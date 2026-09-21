@@ -36,6 +36,7 @@ uses
   TlpINegotiation,
   TlpNegotiationPolicy,
   TlpWireReader,
+  TlpExtensionVector,
   TlpIWireWriter,
   TlpWireWriter,
   TlpWireVectorMarker,
@@ -463,8 +464,6 @@ resourcestring
   SEmptyCertificate = 'the server sent an empty certificate list';
   SUnsolicitedCertExtension =
     'the server certificate carries an extension that was not requested';
-  SDuplicateCertExtension =
-    'the server certificate entry repeats an extension';
   SUnofferedScheme = 'the CertificateVerify uses a signature scheme that was not offered';
   SLegacyPkcs1InTls13 = 'the CertificateVerify uses a legacy rsa_pkcs1 scheme, which is ' +
     'certificate-only in TLS 1.3';
@@ -557,20 +556,11 @@ procedure TTls13ClientStateMachine.RememberOffered(
   const AFramedClientHello: TBytes);
 var
   LHello: TTlsClientHello;
-  LReader, LOuter, LData: TWireReader;
 begin
-  FOfferedExtensions := nil;
   // strip the 4-byte handshake header (type + uint24 length) to reach the body
   LHello := THandshakeMessages.DecodeClientHello(System.Copy(AFramedClientHello, 4,
     System.Length(AFramedClientHello) - 4));
-  LReader := TWireReader.Create(LHello.Extensions);
-  LOuter := LReader.OpenVector(2);
-  while not LOuter.EndReached do
-  begin
-    TArrayUtilities.Append<UInt16>(FOfferedExtensions, LOuter.ReadUInt16);
-    LData := LOuter.OpenVector(2); // advances past this extension's data
-    LData.ReadBytes(LData.Remaining);
-  end;
+  FOfferedExtensions := TExtensionVector.Parse(LHello.Extensions).Types;
 end;
 
 procedure TTls13ClientStateMachine.ApplyOffered(const AContext: TExtensionContext);
@@ -1079,28 +1069,22 @@ end;
 function TTls13ClientStateMachine.FindEchInEncryptedExtensions(
   const AEeBody: TBytes; out AData: TBytes): Boolean;
 var
-  LReader, LInner: TWireReader;
-  LEntries: TArray<TEchExtEntry>;
-  LI: Int32;
+  LVector: TExtensionVector;
+  LEntry: TExtensionEntry;
 begin
-  Result := False;
   AData := nil;
-  LReader := TWireReader.Create(AEeBody);
-  LInner := LReader.OpenVector(2);
-  LEntries := TEchOuterExtensions.ParseExtensions(LInner.ReadBytes(LInner.Remaining));
-  for LI := 0 to System.High(LEntries) do
-    if LEntries[LI].ExtType = TExtensionTypes.EncryptedClientHello then
-    begin
-      AData := LEntries[LI].Data;
-      Exit(True);
-    end;
+  LVector := TExtensionVector.Parse(AEeBody);
+  Result := LVector.TryFind(TExtensionTypes.EncryptedClientHello, LEntry);
+  if Result then
+    AData := LEntry.Data;
 end;
 
 function TTls13ClientStateMachine.LocateHrrEchConfirmation(const ARaw: TBytes;
   out AOffset: Int32): Boolean;
 var
-  LReader, LSid, LExts: TWireReader;
-  LType, LLen: Int32;
+  LReader, LSid: TWireReader;
+  LVector: TExtensionVector;
+  LEntry: TExtensionEntry;
 begin
   Result := False;
   AOffset := 0;
@@ -1112,20 +1096,15 @@ begin
   LSid.Skip(LSid.Remaining);
   LReader.Skip(2);  // cipher_suite
   LReader.Skip(1);  // legacy_compression_method
-  LExts := LReader.OpenVector(2);
-  while not LExts.EndReached do
+  LVector := TExtensionVector.ParseFrom(LReader);
+  if LVector.TryFind(TExtensionTypes.EncryptedClientHello, LEntry) then
   begin
-    LType := LExts.ReadUInt16;
-    LLen := LExts.ReadUInt16;
-    if LType = TExtensionTypes.EncryptedClientHello then
-    begin
-      if LLen <> 8 then
-        raise EFatalAlertTlsLibException.CreateRes(
-          TTlsAlertDescription.DecodeError, @SEchBadHrrConfirmation);
-      AOffset := LExts.Position; // absolute offset of the 8-byte payload in ARaw
-      Exit(True);
-    end;
-    LExts.Skip(LLen);
+    if System.Length(LEntry.Data) <> 8 then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.DecodeError, @SEchBadHrrConfirmation);
+    // DataOffset is absolute in ARaw: the 8-byte HelloRetryRequest ECH confirmation payload
+    AOffset := LEntry.DataOffset;
+    Result := True;
   end;
 end;
 
@@ -1502,25 +1481,20 @@ end;
 class procedure TTls13ClientStateMachine.EnforceTls13ServerHelloExtensions(
   const AExtensions: TBytes);
 var
-  LReader, LEntries, LData: TWireReader;
+  LVector: TExtensionVector;
+  LTypes: TArray<UInt16>;
   LType: UInt16;
 begin
   if System.Length(AExtensions) = 0 then
     Exit;
-  LReader := TWireReader.Create(AExtensions);
-  LEntries := LReader.OpenVector(2);
-  LReader.ExpectEnd;
-  while not LEntries.EndReached do
-  begin
-    LType := LEntries.ReadUInt16;
-    LData := LEntries.OpenVector(2);
-    LData.ReadBytes(LData.Remaining);
+  LVector := TExtensionVector.Parse(AExtensions);
+  LTypes := LVector.Types;
+  for LType in LTypes do
     if (LType <> TExtensionTypes.SupportedVersions) and
       (LType <> TExtensionTypes.KeyShare) and
       (LType <> TExtensionTypes.PreSharedKey) then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.UnsupportedExtension, @SServerHelloExtNotAllowed);
-  end;
 end;
 
 procedure TTls13ClientStateMachine.RebuildTranscriptUnderSelectedHash;
@@ -2010,7 +1984,6 @@ var
   LCert: TTlsCertificate;
   LI: Int32;
   LExtType: UInt16;
-  LSeenCertExtTypes: TArray<UInt16>;
   LAlert: TTlsAlertDescription;
   LVerified: TVerifiedChain;
 begin
@@ -2021,23 +1994,14 @@ begin
   // RFC 8446 4.4.2: a leaf CertificateEntry extension must correspond to one offered in the
   // ClientHello, and only status_request / SCT are defined for a certificate entry; an
   // unsolicited or unknown extension is unsupported_extension. Intermediate entries' extensions
-  // are allowed but ignored.
-  LSeenCertExtTypes := nil;
+  // are allowed but ignored. A repeated type is already illegal_parameter from the extension
+  // parse in CertificateEntryExtensionTypes, so it never reaches this solicitation check.
   for LExtType in THandshakeMessages.CertificateEntryExtensionTypes(
     LCert.Entries[0].Extensions) do
-  begin
-    // a repeated extension in a CertificateEntry is illegal (RFC 8446 4.2), reported before
-    // the solicitation check so a duplicated - even solicited - extension is caught as the
-    // duplicate it is (consistent with the ClientHello/ServerHello duplicate-extension policy)
-    if TArrayUtilities.Contains<UInt16>(LSeenCertExtTypes, LExtType) then
-      raise EFatalAlertTlsLibException.CreateRes(
-        TTlsAlertDescription.IllegalParameter, @SDuplicateCertExtension);
-    TArrayUtilities.Append<UInt16>(LSeenCertExtTypes, LExtType);
     if not (((LExtType = StatusRequestExtensionCode) or (LExtType = SctExtensionCode)) and
       (TArrayUtilities.Contains<UInt16>(FOfferedExtensions, LExtType))) then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.UnsupportedExtension, @SUnsolicitedCertExtension);
-  end;
   // keep the chain (leaf first) for the CertificateVerify and the trust verdict
   FCertificateChain := nil;
   FParsedServerLeaf := nil;
