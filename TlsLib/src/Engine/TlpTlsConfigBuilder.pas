@@ -1605,8 +1605,6 @@ constructor TTlsConfigBuilder.Create(const ACryptoProvider: ICryptoProvider;
   const APkixProvider: IPkixProvider);
 begin
   inherited Create;
-  // both are required dependencies: a nil provider would otherwise surface later as an access
-  // violation deep in the engine (fail-closed by crash), so reject it up front with a clear error
   if ACryptoProvider = nil then
     raise EArgumentTlsLibException.CreateRes(@SNilCryptoProvider);
   if APkixProvider = nil then
