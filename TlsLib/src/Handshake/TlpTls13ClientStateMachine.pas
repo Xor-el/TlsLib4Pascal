@@ -462,6 +462,8 @@ resourcestring
     'certificate-only in TLS 1.3';
   SBadCertificateVerify = 'the CertificateVerify signature did not verify';
   SNoCertificateVerifier = 'no certificate verifier configured (fail-closed)';
+  SEchExtensionUnregistered = 'the extension registry has no encrypted_client_hello ' +
+    'handler, so an ECH ClientHello cannot be built (fail-closed)';
   SUntrustedCertificate = 'the server certificate chain was not trusted';
   SUnofferedAlpn = 'the server selected an ALPN protocol that was not offered';
   SEarlyDataSuiteMismatch = 'the server accepted early data under a cipher suite that differs from the resumption ticket';
@@ -549,11 +551,13 @@ procedure TTls13ClientStateMachine.RememberOffered(
   const AFramedClientHello: TBytes);
 var
   LHello: TTlsClientHello;
+  LVector: TExtensionVector;
 begin
   // strip the 4-byte handshake header (type + uint24 length) to reach the body
   LHello := THandshakeMessages.DecodeClientHello(System.Copy(AFramedClientHello, 4,
     System.Length(AFramedClientHello) - 4));
-  FOfferedExtensions := TExtensionVector.Parse(LHello.Extensions).Types;
+  LVector := TExtensionVector.Parse(LHello.Extensions);
+  FOfferedExtensions := LVector.Types;
 end;
 
 procedure TTls13ClientStateMachine.ApplyOffered(const AContext: TExtensionContext);
@@ -819,6 +823,12 @@ begin
     LOuterEntries.InsertAt(0, TExtensionEntry.Create(TExtensionTypes.ServerName,
       EchServerNameData(FSelectedEchConfig.PublicName)));
   LEchIdx := LOuterEntries.IndexOf(TExtensionTypes.EncryptedClientHello);
+  // the inner was built with the ech marker via the registry, so it must be present here; its
+  // absence means the injected extension registry omits encrypted_client_hello - a build-time
+  // misconfiguration, not a wire condition. Fail closed rather than write past the vector.
+  if LEchIdx < 0 then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.InternalError, @SEchExtensionUnregistered);
 
   // a rejecting HelloRetryRequest: the server ignored our ech, so CH2's outer ech extension is
   // an exact copy of CH1's (RFC 9849 sec. 6.1.5); the rest of the outer carries the retry's new

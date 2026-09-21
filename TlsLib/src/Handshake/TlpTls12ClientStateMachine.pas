@@ -324,11 +324,13 @@ procedure TTls12ClientStateMachine.RememberOffered(
   const AFramedClientHello: TBytes);
 var
   LHello: TTlsClientHello;
+  LVector: TExtensionVector;
 begin
   // strip the 4-byte handshake header to reach the body
   LHello := THandshakeMessages.DecodeClientHello(System.Copy(AFramedClientHello, 4,
     System.Length(AFramedClientHello) - 4));
-  FOfferedExtensions := TExtensionVector.Parse(LHello.Extensions).Types;
+  LVector := TExtensionVector.Parse(LHello.Extensions);
+  FOfferedExtensions := LVector.Types;
 end;
 
 procedure TTls12ClientStateMachine.ApplyOffered(const AContext: TExtensionContext);
