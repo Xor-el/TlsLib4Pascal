@@ -17,14 +17,10 @@ interface
 
 uses
   SysUtils,
-  TlpArrayUtilities,
   TlpCodeKeyedRegistry,
   TlpTlsAlert,
   TlpTlsLibExceptions,
-  TlpWireReader,
-  TlpWireVectorMarker,
-  TlpIWireWriter,
-  TlpWireWriter,
+  TlpExtensionVector,
   TlpExtensionContext,
   TlpITlsExtension;
 
@@ -63,15 +59,9 @@ type
 
 implementation
 
-const
-  // a hello never legitimately carries this many extensions; a larger block is abuse
-  MaxExtensionsPerBlock = Int32(64);
-
 resourcestring
-  SDuplicateExtension = 'a duplicate extension type appears in the block';
   SWrongContextExtension = 'an extension appears in a message it is not allowed in';
   SUnsolicitedExtension = 'the peer sent an extension that was not offered';
-  STooManyExtensions = 'the extension block carries too many extensions';
 
 { TExtensionRegistry }
 
@@ -110,17 +100,14 @@ end;
 function TExtensionBlockCodec.ProduceBlock(const AContext: TExtensionContext;
   AKind: TTlsExtensionContextKind): TBytes;
 var
-  LWriter: IWireWriter;
-  LOuter, LInner: TWireVectorMarker;
+  LVector: TExtensionVector;
   LAll: TArray<ITlsExtension>;
   LExt: ITlsExtension;
   LBody: TBytes;
   LI: Int32;
 begin
-  Result := nil;
   AContext.MessageContext := AKind;
-  LWriter := TWireWriter.Create;
-  LOuter := LWriter.OpenVector(2);
+  LVector := TExtensionVector.Empty;
   LAll := FRegistry.Items;
   for LI := 0 to High(LAll) do
   begin
@@ -129,24 +116,19 @@ begin
       Continue;
     if not LExt.Produce(AContext, LBody) then
       Continue;
-    LWriter.WriteUInt16(LExt.ExtensionType);
-    LInner := LWriter.OpenVector(2);
-    LWriter.WriteBytes(LBody);
-    LWriter.CloseVector(LInner);
+    LVector.Append(TExtensionEntry.Create(LExt.ExtensionType, LBody));
     if AKind = TTlsExtensionContextKind.ClientHello then
       AContext.MarkOffered(LExt.ExtensionType);
   end;
-  LWriter.CloseVector(LOuter);
-  Result := LWriter.ToBytes;
+  Result := LVector.Encode;
 end;
 
 procedure TExtensionBlockCodec.ConsumeBlock(const AContext: TExtensionContext;
   AKind: TTlsExtensionContextKind; const ABlock: TBytes);
 var
-  LOuter, LEntries, LData: TWireReader;
+  LVector: TExtensionVector;
+  LEntry: TExtensionEntry;
   LType: UInt16;
-  LTypes: TArray<UInt16>;
-  LBodies: TArray<TBytes>;
   LExt: ITlsExtension;
   LI: Int32;
 begin
@@ -155,42 +137,27 @@ begin
   // extensions<0..> vector) carries no extensions; only a TLS 1.2 ClientHello/ServerHello may
   // end after compression_method (RFC 5246 7.4.1) - accept it there as the empty offer it is.
   // Every other message (EncryptedExtensions, Certificate, ...) carries a mandatory extensions
-  // vector, so an absent one falls through to the reader below and is a decode_error
+  // vector, so an absent one is a decode_error - which TExtensionVector.Parse raises, since it
+  // does not treat an empty field as the empty vector
   if (System.Length(ABlock) = 0) and
     (AKind in [TTlsExtensionContextKind.ClientHello,
     TTlsExtensionContextKind.ServerHello]) then
     Exit;
-  LOuter := TWireReader.Create(ABlock);
-  LEntries := LOuter.OpenVector(2);
-  LOuter.ExpectEnd; // nothing may follow the extensions vector
 
-  // structural pass: collect every entry, rejecting a repeated type (illegal_parameter, RFC
-  // 8446 4.2 forbids it but leaves the alert unspecified) and bounding the count. The duplicate
-  // check runs here, before any semantic rule such as the unsolicited-extension check below, so
-  // a duplicated type - even an unoffered/bogus one - is reported as the duplicate it is rather
-  // than as an unsolicited extension.
-  LTypes := nil;
-  LBodies := nil;
-  while not LEntries.EndReached do
-  begin
-    LType := LEntries.ReadUInt16;
-    LData := LEntries.OpenVector(2);
-    if TArrayUtilities.Contains<UInt16>(LTypes, LType) then
-      raise EFatalAlertTlsLibException.CreateRes(
-        TTlsAlertDescription.IllegalParameter, @SDuplicateExtension);
-    if System.Length(LTypes) >= MaxExtensionsPerBlock then
-      raise EDecodeErrorTlsLibException.CreateRes(@STooManyExtensions);
-    TArrayUtilities.Append<UInt16>(LTypes, LType);
-    TArrayUtilities.Append<TBytes>(LBodies, LData.ReadBytes(LData.Remaining));
-  end;
+  // the codec owns the structural pass: TExtensionVector.Parse rejects a repeated type
+  // (illegal_parameter), bounds the count (decode_error) and forbids trailing bytes
+  // (decode_error) - before any semantic rule below, so a duplicated type, even an
+  // unoffered/bogus one, is reported as the duplicate it is rather than as unsolicited
+  LVector := TExtensionVector.Parse(ABlock);
 
   // semantic pass: record which types an inbound ClientHello carried (symmetric with the
   // produce path, so the server can enforce presence rules such as RFC 8446 9.2's mutually-
   // required extensions), reject a response extension the ClientHello never offered, and
   // dispatch each known type to its handler (an unknown type, incl. GREASE, is skipped)
-  for LI := 0 to High(LTypes) do
+  for LI := 0 to LVector.Count - 1 do
   begin
-    LType := LTypes[LI];
+    LEntry := LVector.Entries[LI];
+    LType := LEntry.ExtensionType;
     if AKind = TTlsExtensionContextKind.ClientHello then
       AContext.MarkOffered(LType);
 
@@ -203,7 +170,7 @@ begin
       if not (AKind in LExt.ValidContexts) then
         raise EFatalAlertTlsLibException.CreateRes(
           TTlsAlertDescription.UnsupportedExtension, @SWrongContextExtension);
-      LExt.Consume(AContext, LBodies[LI]);
+      LExt.Consume(AContext, LEntry.Data);
     end;
   end;
 end;
