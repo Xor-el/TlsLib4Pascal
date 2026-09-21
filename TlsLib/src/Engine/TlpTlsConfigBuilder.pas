@@ -269,6 +269,8 @@ type
 implementation
 
 resourcestring
+  SNilCryptoProvider = 'a crypto provider is required (pass a provider, not nil)';
+  SNilPkixProvider = 'a PKIX provider is required (pass a provider, not nil)';
   SBuilderFrozen = 'the configuration has been built and can no longer be changed';
   SNoTrustStore = 'a client configuration requires a trust source (no silent-insecure)';
   SNoCredential = 'a server configuration requires a certificate credential';
@@ -1603,6 +1605,12 @@ constructor TTlsConfigBuilder.Create(const ACryptoProvider: ICryptoProvider;
   const APkixProvider: IPkixProvider);
 begin
   inherited Create;
+  // both are required dependencies: a nil provider would otherwise surface later as an access
+  // violation deep in the engine (fail-closed by crash), so reject it up front with a clear error
+  if ACryptoProvider = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilCryptoProvider);
+  if APkixProvider = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilPkixProvider);
   FCrypto := ACryptoProvider;
   FPkix := APkixProvider;
   FFrozen := False;
