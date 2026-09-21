@@ -437,6 +437,9 @@ type
     /// id. A 1.2 sub-machine uses it to detect a server echoing the id, whether that echo is a
     /// genuine resumption or a false one (RFC 5246 7.4.1.3).</summary>
     property SentLegacySessionId: TBytes read FSentLegacySessionId;
+    /// <summary>Whether this ClientHello offered early data (0-RTT). A version-dispatching parent
+    /// reads it to refuse a 1.2 hand-off, since 0-RTT is a TLS 1.3 construct (RFC 8446 4.2.10).</summary>
+    property EarlyDataOffered: Boolean read FEarlyDataOffered;
   end;
 
 implementation
@@ -467,6 +470,7 @@ resourcestring
   SHelloRetryUnoffered = 'the HelloRetryRequest named a group that was not offered';
   SHelloRetrySameGroup = 'the HelloRetryRequest named the already-offered key_share group';
   SHelloRetryTwice = 'the server sent a second HelloRetryRequest';
+  SHelloRetryVersion = 'the HelloRetryRequest does not select TLS 1.3';
   SHelloRetryNoGroup = 'the HelloRetryRequest group is not available';
   SHelloRetryNoChange =
     'the HelloRetryRequest changes neither the key_share group nor adds a cookie';
@@ -475,6 +479,7 @@ resourcestring
   SServerHelloExtNotAllowed =
     'the ServerHello carries an extension not permitted in a TLS 1.3 ServerHello';
   SRequestContextNotEmpty = 'the CertificateRequest carried a non-empty request context in the handshake';
+  SCertificateRequestTwice = 'the server sent a second CertificateRequest';
   SNoClientAuthScheme = 'no configured client credential scheme satisfies the server signature_algorithms';
   SBadSelectedPskIdentity = 'the server selected a pre_shared_key identity index beyond the offered list';
   SPskHashMismatch = 'the selected cipher suite hash does not match the accepted pre_shared_key hash';
@@ -1282,6 +1287,7 @@ var
   LContext: TExtensionContext;
   LMaxEarlyData: UInt32;
   LPeerChain: TArray<TBytes>;
+  LLifetime: UInt32;
 begin
   Result := nil;
   // validate the ticket structure even when not caching (an empty/malformed ticket is a
@@ -1301,6 +1307,13 @@ begin
     Exit;
   if FParams.SessionCache = nil then
     Exit;
+  // ticket_lifetime 0 means discard immediately, and a client MUST NOT cache a ticket for longer
+  // than seven days regardless of what the server advertised (RFC 8446 4.6.1)
+  if LNst.TicketLifetime = 0 then
+    Exit;
+  LLifetime := LNst.TicketLifetime;
+  if LLifetime > MaxTicketLifetimeSeconds then
+    LLifetime := MaxTicketLifetimeSeconds;
   LPsk := FSchedule.ResumptionPsk(LNst.TicketNonce);
   // carry the verified server chain so an opt-in ReverifyOnResume can re-check it on resume. On a
   // resumed connection no Certificate was sent, so the ticket inherits the resumed session's chain
@@ -1310,7 +1323,7 @@ begin
   LSession := TResumableSession.CreateTls13(FSelectedSuite.Common.Code,
     FSelectedSuite.Common.Hash, LPsk, FCurrentGroupCode, FNegotiatedAlpn,
     FParams.ServerName, LNst.Ticket,
-    LNst.TicketLifetime, LNst.TicketAgeAdd, NowUnixMillis,
+    LLifetime, LNst.TicketAgeAdd, NowUnixMillis,
     LMaxEarlyData, LPeerChain);
   FParams.SessionCache.Store(CacheServerIdentity, FParams.ServerName, LSession);
   Result := TArray<THandshakeEffect>.Create(
@@ -1329,6 +1342,7 @@ var
   LPskSuite: TTlsCipherSuite;
   LHint: UInt16;
   LHintGroup: INamedGroup;
+  LCappedLifetime: UInt32;
 begin
   // key-exchange hint: lead the key_share with the group the server last selected for this
   // server, to avoid a HelloRetryRequest. Only an offered, resolvable group is honored. Under
@@ -1360,9 +1374,14 @@ begin
     if LCached.Version.WireValue = TlsWireVersionTls13 then
     begin
       // a ticket past its lifetime is not offered (RFC 8446 4.6.1): the client drops the
-      // expired PSK and does a full handshake rather than offer one the server will reject
-      if (NowUnixMillis - LCached.IssuedAtMillis) <=
-        (UInt64(LCached.TicketLifetime) * 1000) then
+      // expired PSK and does a full handshake rather than offer one the server will reject.
+      // A zero lifetime means discard immediately, and the seven-day ceiling is enforced here
+      // too so a ticket cached out-of-band cannot outlive the RFC bound.
+      LCappedLifetime := LCached.TicketLifetime;
+      if LCappedLifetime > MaxTicketLifetimeSeconds then
+        LCappedLifetime := MaxTicketLifetimeSeconds;
+      if (LCached.TicketLifetime > 0) and ((NowUnixMillis - LCached.IssuedAtMillis) <=
+        (UInt64(LCappedLifetime) * 1000)) then
       begin
         FPskOffers := TArray<IPreSharedKey>.Create(LCached.AsPreSharedKey);
         // kept so ReverifyOnResume can re-check the server we resume against current trust
@@ -1371,11 +1390,20 @@ begin
     end
     else if FParams.AlsoOfferTls12 then
     begin
-      FTls12ResumptionSession := LCached;
-      if System.Length(LCached.SessionId) > 0 then
-        FTls12OfferedSessionId := LCached.SessionId
-      else
-        FTls12OfferedSessionId := FParams.LegacySessionId;
+      // a 1.2 ticket past its hinted lifetime is dropped (RFC 5077 3.3); a hint of 0 is
+      // unspecified and still offered; the seven-day ceiling bounds an out-of-band session
+      LCappedLifetime := LCached.TicketLifetime;
+      if LCappedLifetime > MaxTicketLifetimeSeconds then
+        LCappedLifetime := MaxTicketLifetimeSeconds;
+      if (LCached.TicketLifetime = 0) or ((NowUnixMillis - LCached.IssuedAtMillis) <=
+        (UInt64(LCappedLifetime) * 1000)) then
+      begin
+        FTls12ResumptionSession := LCached;
+        if System.Length(LCached.SessionId) > 0 then
+          FTls12OfferedSessionId := LCached.SessionId
+        else
+          FTls12OfferedSessionId := FParams.LegacySessionId;
+      end;
     end;
   end;
   // configured out-of-band external PSKs (RFC 9258) are offered after any cached resumption
@@ -1826,6 +1854,12 @@ begin
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.UnexpectedMessage, @SHelloRetryTwice);
 
+  // a HelloRetryRequest is a TLS 1.3 message, so its supported_versions MUST select TLS 1.3;
+  // absent or any other value is a version this client did not agree to (RFC 8446 4.1.4, 4.2.1)
+  if THandshakeMessages.ServerHelloSelectedVersion(AHello.Extensions) <> TlsWireVersionTls13 then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.IllegalParameter, @SHelloRetryVersion);
+
   // the selected suite must be one we offered (RFC 8446 4.1.3)
   if not (TArrayUtilities.Contains<UInt16>(FParams.OfferedSuites, AHello.CipherSuite)) then
     raise EFatalAlertTlsLibException.CreateRes(
@@ -2109,6 +2143,11 @@ var
   LRequest: TTlsCertificateRequest13;
   LContext: TExtensionContext;
 begin
+  // one CertificateRequest per handshake; post-handshake authentication is not offered, so a
+  // second one has no legal slot (RFC 8446 4.3.2, 4.6.2)
+  if FCertificateRequested then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.UnexpectedMessage, @SCertificateRequestTwice);
   LRequest := THandshakeMessages.DecodeCertificateRequest13(AMessage.Body);
   // the certificate_request_context is zero-length in the handshake CertificateRequest;
   // a non-empty one is only valid in post-handshake auth, which is not offered (RFC 8446 4.3.2)

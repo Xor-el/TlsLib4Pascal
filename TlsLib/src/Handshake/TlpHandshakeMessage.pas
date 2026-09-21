@@ -28,6 +28,7 @@ type
   /// <summary>The handshake message types (RFC 8446 4; RFC 5246 7.4 for the
   /// TLS 1.2-only ServerKeyExchange / ServerHelloDone / ClientKeyExchange).</summary>
   TTlsHandshakeType = (
+    HelloRequest = 0,
     ClientHello = 1,
     ServerHello = 2,
     NewSessionTicket = 4,
@@ -129,6 +130,8 @@ class function TTlsHandshakeTypeHelper.TryFromByte(AValue: Byte;
 begin
   Result := True;
   case AValue of
+    0:
+      AType := TTlsHandshakeType.HelloRequest;
     1:
       AType := TTlsHandshakeType.ClientHello;
     2:

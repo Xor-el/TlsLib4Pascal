@@ -236,13 +236,15 @@ type
     function ProcessAbbreviatedClientFinished(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>;
     /// <summary>Seals the current session under the STEK and frames a NewSessionTicket
-    /// (RFC 5077 3.3), with a freshly stamped issue time.</summary>
+    /// (RFC 5077 3.3), with a freshly stamped issue time; frames a zero-length ticket when the
+    /// strategy declines to seal.</summary>
     function BuildNewSessionTicketMessage: TBytes;
     /// <summary>The configured ticket lifetime, capped at the RFC 8446 4.6.1 ceiling.</summary>
     function EmittedTicketLifetime: UInt32;
     /// <summary>The resumable session for the current connection, under ASessionId.</summary>
     function BuildStoredSession(const ASessionId: TBytes): IResumableSession;
     function BuildServerHello: TBytes;
+    procedure StampServerRandom;
     /// <summary>Selects the application protocol from the client's ALPN offer: the first server
     /// preference the client also offered, empty when ALPN was not offered/configured, or an
     /// abort with no_application_protocol on reject-mode or no overlap (RFC 7301).</summary>
@@ -271,6 +273,7 @@ type
 implementation
 
 resourcestring
+  SNoTls12Offered = 'the client offered no protocol version this server supports';
   SNoCompatibleSuite =
     'no mutually supported TLS 1.2 ECDHE suite the credential can authenticate';
   SNoServerCertificate = 'the server has no certificate for a full TLS 1.2 handshake';
@@ -448,6 +451,20 @@ begin
     FCodec.ConsumeBlock(LContext, TTlsExtensionContextKind.ClientHello,
       LHello.Extensions);
 
+    // this machine only speaks TLS 1.2, so a client that offered supported_versions without 1.2,
+    // or (absent the extension) a legacy_version below 1.2, shares no version with it: the client
+    // selected nothing this server supports (RFC 8446 4.2.1)
+    if System.Length(LContext.SupportedVersions) > 0 then
+    begin
+      if not (TArrayUtilities.Contains<UInt16>(LContext.SupportedVersions,
+        TlsWireVersionTls12)) then
+        raise EFatalAlertTlsLibException.CreateRes(
+          TTlsAlertDescription.ProtocolVersion, @SNoTls12Offered);
+    end
+    else if LHello.LegacyVersion < TlsWireVersionTls12 then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.ProtocolVersion, @SNoTls12Offered);
+
     // select (or reject) the application protocol from the client's ALPN offer (RFC 7301)
     FSelectedAlpn := SelectAlpn(LContext.AlpnProtocols);
 
@@ -528,9 +545,7 @@ begin
     FSessionId := nil;
   FIssueNewTicket := (FTicketStrategy <> nil) and FClientOfferedSessionTicket;
 
-  FServerRandom := System.Copy(FParams.ServerRandom);
-  if FParams.EmitDowngradeSentinel then
-    Move(Tls12DowngradeSentinel[0], FServerRandom[24], 8);
+  StampServerRandom;
 
   // the server's ECDHE ephemeral: its public value is signed into the ServerKeyExchange
   FSelectedGroup.GenerateKeyPair(FEcdhePrivate, FEcdhePublic);
@@ -608,6 +623,15 @@ begin
   // configured, offered, but nothing overlaps (RFC 7301 3.2)
   raise EFatalAlertTlsLibException.CreateRes(
     TTlsAlertDescription.NoApplicationProtocol, @SAlpnRejected);
+end;
+
+procedure TTls12ServerStateMachine.StampServerRandom;
+begin
+  // a server that can speak TLS 1.3 stamps the downgrade sentinel into ServerHello.random on
+  // every TLS 1.2 negotiation, full or abbreviated (RFC 8446 4.1.3)
+  FServerRandom := System.Copy(FParams.ServerRandom);
+  if FParams.EmitDowngradeSentinel then
+    Move(Tls12DowngradeSentinel[0], FServerRandom[24], 8);
 end;
 
 function TTls12ServerStateMachine.BuildServerHello: TBytes;
@@ -934,14 +958,15 @@ var
   LMsg: TTls12NewSessionTicket;
   LTicket: TBytes;
 begin
-  Result := nil;
-  // the ticket seals the session (no session id) under the current STEK
+  // the ticket seals the session (no session id) under the current STEK. Having echoed the
+  // session_ticket extension, the server MUST still send a NewSessionTicket; when the strategy
+  // declines (e.g. an oversized chain over the cap) it sends a zero-length ticket with an
+  // unspecified lifetime rather than nothing, so the client is not left awaiting one (RFC 5077 3.3)
   LTicket := FTicketStrategy.Seal(BuildStoredSession(nil));
-  // an empty seal means the strategy declined (e.g. an oversized chain over the cap): issue no
-  // ticket rather than an unusable one
   if System.Length(LTicket) = 0 then
-    Exit;
-  LMsg.TicketLifetimeHint := EmittedTicketLifetime;
+    LMsg.TicketLifetimeHint := 0
+  else
+    LMsg.TicketLifetimeHint := EmittedTicketLifetime;
   LMsg.Ticket := LTicket;
   Result := THandshakeFraming.Frame(TTlsHandshakeType.NewSessionTicket,
     THandshakeMessages.EncodeTls12NewSessionTicket(LMsg));
@@ -952,8 +977,7 @@ function TTls12ServerStateMachine.EmitAbbreviatedFlight(
 var
   LServerHello, LNst, LServerFinished, LVerifyData: TBytes;
 begin
-  // resuming a 1.2 session is the client's explicit choice, so no downgrade sentinel
-  FServerRandom := System.Copy(FParams.ServerRandom);
+  StampServerRandom;
 
   // the abbreviated transcript is ClientHello, ServerHello, [NewSessionTicket]; the raw
   // handshake log is unused (no CertificateVerify on an abbreviated handshake)
@@ -979,12 +1003,9 @@ begin
   if FIssueNewTicket then
   begin
     LNst := BuildNewSessionTicketMessage;
-    if System.Length(LNst) > 0 then
-    begin
-      FTranscript.Update(LNst);
-      TArrayUtilities.Append<THandshakeEffect>(Result,
-        THandshakeEffects.SendHandshake(LNst));
-    end;
+    FTranscript.Update(LNst);
+    TArrayUtilities.Append<THandshakeEffect>(Result,
+      THandshakeEffects.SendHandshake(LNst));
   end;
 
   // the server Finished is over ClientHello, ServerHello, [NewSessionTicket]
@@ -1048,12 +1069,9 @@ begin
   if FIssueNewTicket then
   begin
     LNst := BuildNewSessionTicketMessage;
-    if System.Length(LNst) > 0 then
-    begin
-      FTranscript.Update(LNst);
-      TArrayUtilities.Append<THandshakeEffect>(Result,
-        THandshakeEffects.SendHandshake(LNst));
-    end;
+    FTranscript.Update(LNst);
+    TArrayUtilities.Append<THandshakeEffect>(Result,
+      THandshakeEffects.SendHandshake(LNst));
   end;
   // session-id resumption stores the session under the id echoed in the ServerHello
   if (FParams.SessionStore <> nil) and (System.Length(FSessionId) > 0) then
@@ -1124,6 +1142,13 @@ begin
     TPhase.WaitAbbreviatedClientFinished:
       if LKnown and (LType = TTlsHandshakeType.Finished) then
         Result := ProcessAbbreviatedClientFinished(AMessage)
+      else
+        Result := Unexpected;
+    TPhase.Connected:
+      // this server does not renegotiate: a renegotiation ClientHello is answered with a warning
+      // no_renegotiation and the connection continues (RFC 5246 7.2.2, RFC 5746 4.2)
+      if LKnown and (LType = TTlsHandshakeType.ClientHello) then
+        Result := RefuseRenegotiation
       else
         Result := Unexpected;
   else

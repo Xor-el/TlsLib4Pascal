@@ -41,8 +41,8 @@ uses
   TlpTlsStream,
   TlpTlsLibExceptions,
   TlpLiveRevocation,
-  TlsStreamLoopbackTests, // TMemoryPipe / TMemoryTransport - the loopback duplex
-  LiveRevocationTests,    // TFakeHttpFetcher - the no-network OCSP/CRL double
+  MockTransport,
+  MockHttpFetcher,
   TlsLibTestBase;
 
 type
@@ -85,7 +85,7 @@ type
   /// </summary>
   TTestServerSideLiveRevocation = class(TTlsLibAlgorithmTestCase)
   strict private
-    FFetcher: TFakeHttpFetcher; // one primed fetcher per test, referenced by the checker
+    FFetcher: TMockHttpFetcher; // one primed fetcher per test, referenced by the checker
     function CertField(const AName: string): TBytes;
     function ServerRoot: TBytes;
     function ServerLeaf: TBytes;
@@ -397,7 +397,7 @@ var
   LTransport: TMemoryTransport;
   LChecker: TLiveRevocationChecker;
 begin
-  FFetcher := TFakeHttpFetcher.Create;
+  FFetcher := TMockHttpFetcher.Create;
   FFetcher.SetPost(True, CertField('ocsp_good'));
   LChecker := NewChecker(TRevocationPosture.Hard, True);
   try
@@ -430,7 +430,7 @@ var
   LChecker: TLiveRevocationChecker;
   LAlert: TTlsAlertDescription;
 begin
-  FFetcher := TFakeHttpFetcher.Create;
+  FFetcher := TMockHttpFetcher.Create;
   FFetcher.SetPost(True, CertField('ocsp_revoked'));
   LChecker := NewChecker(TRevocationPosture.Hard, True);
   try
@@ -463,7 +463,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   // the responder is unreachable (fetch fails) -> indeterminate; under Hard the server rejects
-  FFetcher := TFakeHttpFetcher.Create;
+  FFetcher := TMockHttpFetcher.Create;
   FFetcher.SetPost(False, nil);
   FFetcher.SetGet(False, nil);
   LChecker := NewChecker(TRevocationPosture.Hard, True);
@@ -494,7 +494,7 @@ var
   LChecker: TLiveRevocationChecker;
 begin
   // same unreachable responder, but Soft accepts an indeterminate result
-  FFetcher := TFakeHttpFetcher.Create;
+  FFetcher := TMockHttpFetcher.Create;
   FFetcher.SetPost(False, nil);
   FFetcher.SetGet(False, nil);
   LChecker := NewChecker(TRevocationPosture.Soft, True);
@@ -527,7 +527,7 @@ var
   LChecker: TLiveRevocationChecker;
 begin
   // the TLS 1.2 server machine also parks on the client-chain verdict; a live-good client completes
-  FFetcher := TFakeHttpFetcher.Create;
+  FFetcher := TMockHttpFetcher.Create;
   FFetcher.SetPost(True, CertField('ocsp_good'));
   LChecker := NewChecker(TRevocationPosture.Hard, True);
   try
@@ -565,7 +565,7 @@ begin
   // aborts with certificate_revoked before it sends its ChangeCipherSpec. The client reads that
   // plaintext alert under the right epoch (its read epoch stays plaintext until the server's CCS)
   // and surfaces the exact code, matching the TLS 1.3 sibling.
-  FFetcher := TFakeHttpFetcher.Create;
+  FFetcher := TMockHttpFetcher.Create;
   FFetcher.SetPost(True, CertField('ocsp_revoked'));
   LChecker := NewChecker(TRevocationPosture.Hard, True);
   try
@@ -644,7 +644,7 @@ begin
   // a good OCSP is primed, but the checker is given NO issuer candidates: a leaf-only client chain
   // then has no issuer to authenticate a response, so the live check is indeterminate and never even
   // fetches - under Hard the server rejects. This locks the documented recovery-required behaviour.
-  FFetcher := TFakeHttpFetcher.Create;
+  FFetcher := TMockHttpFetcher.Create;
   FFetcher.SetPost(True, CertField('ocsp_good'));
   LChecker := NewChecker(TRevocationPosture.Hard, False);
   try

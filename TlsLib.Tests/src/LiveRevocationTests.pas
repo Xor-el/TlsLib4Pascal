@@ -22,6 +22,7 @@ uses
   TlpClock,
   TlpDateTimeUtilities,
   MockClock,
+  MockHttpFetcher,
   SysUtils,
   Classes,
 {$IFDEF FPC}
@@ -37,33 +38,6 @@ uses
   TlsLibTestBase;
 
 type
-  /// <summary>
-  /// A fake IHttpFetcher: it returns a preset response (or a failure) for GET and POST,
-  /// so the live-revocation checker's fetch/parse/verdict logic is exercised with no real
-  /// network. Records the last URL for assertions.
-  /// </summary>
-  TFakeHttpFetcher = class(TInterfacedObject, IHttpFetcher)
-  strict private
-  var
-    FGetOk, FPostOk: Boolean;
-    FGetBody, FPostBody: TBytes;
-    FLastPostUrl, FLastGetUrl: string;
-    FGetCount, FPostCount: Int32;
-  public
-    constructor Create;
-    function Get(const AUrl: string; ATimeoutMs: Cardinal;
-      out AResponse: TBytes): Boolean;
-    function Post(const AUrl, AContentType: string; const ABody: TBytes;
-      ATimeoutMs: Cardinal; out AResponse: TBytes): Boolean;
-    procedure SetPost(AOk: Boolean; const ABody: TBytes);
-    procedure SetGet(AOk: Boolean; const ABody: TBytes);
-    property LastPostUrl: string read FLastPostUrl;
-    property LastGetUrl: string read FLastGetUrl;
-    /// <summary>How many times Get/Post were invoked (0 proves no live fetch happened).</summary>
-    property GetCount: Int32 read FGetCount;
-    property PostCount: Int32 read FPostCount;
-  end;
-
   /// <summary>
   /// Live OCSP/CRL revocation over the injected IHttpFetcher. Proves the
   /// provider request/URL/CRL primitives and the checker's fail-closed matrix: a definitive
@@ -111,51 +85,6 @@ type
   end;
 
 implementation
-
-{ TFakeHttpFetcher }
-
-constructor TFakeHttpFetcher.Create;
-begin
-  inherited Create;
-  FGetOk := False;
-  FPostOk := False;
-end;
-
-function TFakeHttpFetcher.Get(const AUrl: string; ATimeoutMs: Cardinal;
-  out AResponse: TBytes): Boolean;
-begin
-  Inc(FGetCount);
-  FLastGetUrl := AUrl;
-  Result := FGetOk;
-  if Result then
-    AResponse := System.Copy(FGetBody)
-  else
-    AResponse := nil;
-end;
-
-function TFakeHttpFetcher.Post(const AUrl, AContentType: string;
-  const ABody: TBytes; ATimeoutMs: Cardinal; out AResponse: TBytes): Boolean;
-begin
-  Inc(FPostCount);
-  FLastPostUrl := AUrl;
-  Result := FPostOk;
-  if Result then
-    AResponse := System.Copy(FPostBody)
-  else
-    AResponse := nil;
-end;
-
-procedure TFakeHttpFetcher.SetPost(AOk: Boolean; const ABody: TBytes);
-begin
-  FPostOk := AOk;
-  FPostBody := ABody;
-end;
-
-procedure TFakeHttpFetcher.SetGet(AOk: Boolean; const ABody: TBytes);
-begin
-  FGetOk := AOk;
-  FGetBody := ABody;
-end;
 
 { TTestLiveRevocation }
 
@@ -310,7 +239,7 @@ procedure TTestLiveRevocation.TestLiveCrlUsesInjectedClockEndToEnd;
 var
   LRevoked: Boolean;
   LThisUpdate, LNextUpdate: TDateTime;
-  LFetcher: TFakeHttpFetcher;
+  LFetcher: TMockHttpFetcher;
   LChecker: TLiveRevocationChecker;
   LMidMs: Int64;
 begin
@@ -321,7 +250,7 @@ begin
     LRevoked, LThisUpdate, LNextUpdate), 'the stale CRL is indeterminate now');
   LMidMs := (TDateTimeUtilities.DateTimeToUnixMs(LThisUpdate) +
     TDateTimeUtilities.DateTimeToUnixMs(LNextUpdate)) div 2;
-  LFetcher := TFakeHttpFetcher.Create;
+  LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetGet(True, CrlStale);
   LChecker := TLiveRevocationChecker.Create(Provider,
     TMockClock.Create(UInt64(LMidMs)) as ITlsClock, LFetcher as IHttpFetcher,
@@ -350,10 +279,10 @@ end;
 
 procedure TTestLiveRevocation.TestLiveOcspGoodAccepts;
 var
-  LFetcher: TFakeHttpFetcher;
+  LFetcher: TMockHttpFetcher;
   LChecker: TLiveRevocationChecker;
 begin
-  LFetcher := TFakeHttpFetcher.Create;
+  LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetPost(True, OcspGood);
   LChecker := NewChecker(LFetcher as IHttpFetcher, TRevocationPosture.Hard,
     TLiveRevocationMethod.Ocsp);
@@ -370,10 +299,10 @@ end;
 
 procedure TTestLiveRevocation.TestLiveOcspRevokedRejectsUnderEveryPosture;
 var
-  LFetcher: TFakeHttpFetcher;
+  LFetcher: TMockHttpFetcher;
   LSoft, LHard: TLiveRevocationChecker;
 begin
-  LFetcher := TFakeHttpFetcher.Create;
+  LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetPost(True, OcspRevoked);
   LSoft := NewChecker(LFetcher as IHttpFetcher, TRevocationPosture.Soft,
     TLiveRevocationMethod.Ocsp);
@@ -393,10 +322,10 @@ end;
 
 procedure TTestLiveRevocation.TestLiveOcspUnreachableIsPostureGated;
 var
-  LFetcher: TFakeHttpFetcher;
+  LFetcher: TMockHttpFetcher;
   LSoft, LHard: TLiveRevocationChecker;
 begin
-  LFetcher := TFakeHttpFetcher.Create;
+  LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetPost(False, nil); // responder unreachable
   LSoft := NewChecker(LFetcher as IHttpFetcher, TRevocationPosture.Soft,
     TLiveRevocationMethod.Ocsp);
@@ -415,10 +344,10 @@ end;
 
 procedure TTestLiveRevocation.TestLiveOcspMalformedIsIndeterminate;
 var
-  LFetcher: TFakeHttpFetcher;
+  LFetcher: TMockHttpFetcher;
   LHard: TLiveRevocationChecker;
 begin
-  LFetcher := TFakeHttpFetcher.Create;
+  LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetPost(True, TBytes.Create(1, 2, 3, 4, 5)); // garbage, not an OCSP response
   LHard := NewChecker(LFetcher as IHttpFetcher, TRevocationPosture.Hard,
     TLiveRevocationMethod.Ocsp);
@@ -433,10 +362,10 @@ end;
 
 procedure TTestLiveRevocation.TestLiveCrlRevokedRejects;
 var
-  LFetcher: TFakeHttpFetcher;
+  LFetcher: TMockHttpFetcher;
   LSoft: TLiveRevocationChecker;
 begin
-  LFetcher := TFakeHttpFetcher.Create;
+  LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetGet(True, CrlRevoked);
   LSoft := NewChecker(LFetcher as IHttpFetcher, TRevocationPosture.Soft,
     TLiveRevocationMethod.Crl);
@@ -453,10 +382,10 @@ end;
 
 procedure TTestLiveRevocation.TestLiveCrlGoodAccepts;
 var
-  LFetcher: TFakeHttpFetcher;
+  LFetcher: TMockHttpFetcher;
   LHard: TLiveRevocationChecker;
 begin
-  LFetcher := TFakeHttpFetcher.Create;
+  LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetGet(True, CrlGood);
   LHard := NewChecker(LFetcher as IHttpFetcher, TRevocationPosture.Hard,
     TLiveRevocationMethod.Crl);
@@ -473,7 +402,7 @@ procedure TTestLiveRevocation.TestLiveCrlStaleIsIndeterminate;
 var
   LRevoked: Boolean;
   LThisUpdate, LNextUpdate: TDateTime;
-  LFetcher: TFakeHttpFetcher;
+  LFetcher: TMockHttpFetcher;
   LChecker: TLiveRevocationChecker;
 begin
   // a validly-signed but expired CRL (nextUpdate in the past), leaf absent: without the window
@@ -485,7 +414,7 @@ begin
     'a stale CRL (out of its validity window) is not authoritative');
   CheckFalse(LRevoked, 'a stale CRL yields no definitive revocation');
 
-  LFetcher := TFakeHttpFetcher.Create;
+  LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetGet(True, CrlStale);
   LChecker := NewChecker(LFetcher as IHttpFetcher, TRevocationPosture.Hard,
     TLiveRevocationMethod.Crl);
@@ -501,13 +430,13 @@ end;
 
 procedure TTestLiveRevocation.TestOffPosturePerformsNoFetch;
 var
-  LFetcher: TFakeHttpFetcher;
+  LFetcher: TMockHttpFetcher;
   LChecker: TLiveRevocationChecker;
 begin
   // Off suppresses the live fetch entirely (network + privacy cost): even with a Revoked OCSP
   // and CRL primed, the checker never calls the fetcher and yields Indeterminate -> accept (Off
   // is soft). A stapled Revoked would still be caught upstream, before the park.
-  LFetcher := TFakeHttpFetcher.Create;
+  LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetPost(True, OcspRevoked);
   LFetcher.SetGet(True, CrlRevoked);
   LChecker := NewChecker(LFetcher as IHttpFetcher, TRevocationPosture.Off,
@@ -525,10 +454,10 @@ end;
 
 procedure TTestLiveRevocation.TestChainWithoutIssuerIsIndeterminate;
 var
-  LFetcher: TFakeHttpFetcher;
+  LFetcher: TMockHttpFetcher;
   LHard: TLiveRevocationChecker;
 begin
-  LFetcher := TFakeHttpFetcher.Create;
+  LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetPost(True, OcspGood);
   LHard := NewChecker(LFetcher as IHttpFetcher, TRevocationPosture.Hard,
     TLiveRevocationMethod.OcspThenCrl);
@@ -546,14 +475,14 @@ end;
 
 procedure TTestLiveRevocation.TestResolveVerdictRejectsRevoked;
 var
-  LFetcher: TFakeHttpFetcher;
+  LFetcher: TMockHttpFetcher;
   LChecker: TLiveRevocationChecker;
   LAlert: TTlsAlertDescription;
   LCtx: TCertificateVerdictContext;
 begin
   // the checker plugs into the Tier-2 verdict resolver seam: a live Revoked -> reject, and it
   // must abort with certificate_revoked, not the generic bad_certificate
-  LFetcher := TFakeHttpFetcher.Create;
+  LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetPost(True, OcspRevoked);
   LChecker := NewChecker(LFetcher as IHttpFetcher, TRevocationPosture.Soft,
     TLiveRevocationMethod.Ocsp);

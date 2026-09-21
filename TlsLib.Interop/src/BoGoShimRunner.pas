@@ -563,7 +563,11 @@ begin
       '-expect-resumable-across-names', '-on-retry-expect-no-session', '-expect-no-session',
       '-allow-hint-mismatch', '-on-resume-allow-hint-mismatch', '-install-ddos-callback',
       '-expect-secure-renegotiation', '-expect-no-offer-early-data',
-      '-on-resume-expect-no-offer-early-data', '-expect-reject-early-data']) then
+      '-on-resume-expect-no-offer-early-data', '-expect-reject-early-data',
+      // this shim never renegotiates: it answers a renegotiation request with a warning
+      // no_renegotiation and continues. The runner drops that warning, so its expectation for
+      // both flags (ignore-and-continue, or forbid-after-handshake) is satisfied regardless
+      '-renegotiate-ignore', '-forbid-renegotiation-after-handshake']) then
     begin
       // accepted no-op
     end
@@ -827,6 +831,16 @@ begin
       '-on-resume-expect-no-ech-name-override']) then
     begin
       // no value; the public_name override is not separately asserted
+    end
+    else if LArg = '-expect-total-renegotiations' then
+    begin
+      // this shim never renegotiates, so only an expectation of zero renegotiations is
+      // satisfiable; any other count is a request it cannot fulfill (exit 89)
+      if NextValue(LArg) <> '0' then
+      begin
+        AReason := 'unsupported -expect-total-renegotiations (renegotiation not performed)';
+        Exit(False);
+      end;
     end
     else
     begin

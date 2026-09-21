@@ -261,6 +261,7 @@ implementation
 resourcestring
   SUnofferedSuite = 'the server selected a cipher suite that was not offered';
   SUnknownSelectedSuite = 'the selected cipher suite is not in the registry';
+  SCertificateRequestTwice = 'the server sent a second CertificateRequest';
   SCertKeyMismatchesSuite =
     'the certificate key algorithm does not match the negotiated suite authentication';
   SLeafCurveNotOffered =
@@ -410,6 +411,7 @@ function TTls12ClientStateMachine.Start: TArray<THandshakeEffect>;
 var
   LClientHello: TBytes;
   LCached: IResumableSession;
+  LCappedLifetime: UInt32;
 begin
   FPhase := TPhase.WaitServerHello;
   // a version-dispatching parent may have already sent a unified ClientHello: seed the
@@ -426,11 +428,21 @@ begin
       FResumptionOffer := FParams.PresentResumptionSession;
     Exit(nil);
   end;
-  // resumption: pop one cached TLS 1.2 session for this server to offer in the ClientHello
+  // resumption: pop one cached TLS 1.2 session for this server to offer in the ClientHello.
+  // A ticket past its hinted lifetime is dropped (RFC 5077 3.3); a hint of 0 is unspecified and
+  // still offered. When a lifetime is hinted, a seven-day retention cap (local policy) bounds it.
   if (FParams.SessionCache <> nil) and
     FParams.SessionCache.Take(CacheServerIdentity, FParams.ServerName, LCached) and
     (LCached.Version.WireValue = TlsWireVersionTls12) then
-    FResumptionOffer := LCached;
+  begin
+    LCappedLifetime := LCached.TicketLifetime;
+    if LCappedLifetime > MaxTicketLifetimeSeconds then
+      LCappedLifetime := MaxTicketLifetimeSeconds;
+    if (LCached.TicketLifetime = 0) or
+      ((FParams.Clock.NowUnixMillis - LCached.IssuedAtMillis) <=
+      (UInt64(LCappedLifetime) * 1000)) then
+      FResumptionOffer := LCached;
+  end;
   LClientHello := BuildClientHello;
   RememberOffered(LClientHello);
   Absorb(LClientHello);
@@ -462,6 +474,14 @@ begin
   FServerSessionId := LHello.LegacySessionIdEcho;
   FTranscript.Activate(FParams.Provider.Primitives.CreateHash(FSelectedSuite.Common.Hash));
   Absorb(AMessage.Raw);
+
+  // a 1.3-capable client aborts a stamped downgrade (RFC 8446 4.1.3) before acting on the rest
+  // of the ServerHello, so an abbreviated (resumption) ServerHello is checked too; a genuine
+  // 1.2-only server never stamps the sentinel
+  if TDowngradeProtection.IsDowngradeAttack(LHello.Random, FClientSupportsTls13,
+    TlsWireVersionTls12) then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.IllegalParameter, @SDowngradeDetected);
 
   LContext := TExtensionContext.Create;
   try
@@ -510,13 +530,6 @@ begin
   finally
     LContext.Free;
   end;
-
-  // a 1.3-capable client aborts a stamped downgrade (RFC 8446 4.1.3): a genuine
-  // 1.2-only server never stamps the sentinel
-  if TDowngradeProtection.IsDowngradeAttack(LHello.Random, FClientSupportsTls13,
-    TlsWireVersionTls12) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.IllegalParameter, @SDowngradeDetected);
 
   FPhase := TPhase.WaitCertificate;
 end;
@@ -670,6 +683,11 @@ procedure TTls12ClientStateMachine.ProcessCertificateRequest(
 var
   LRequest: TTlsCertificateRequest12;
 begin
+  // at most one CertificateRequest, sent before ServerHelloDone (RFC 5246 7.4.4); a second one
+  // has no legal slot
+  if FCertificateRequested then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.UnexpectedMessage, @SCertificateRequestTwice);
   LRequest := THandshakeMessages.DecodeCertificateRequest12(AMessage.Body);
   FClientAuthSchemes := LRequest.SupportedSignatureAlgorithms;
   FClientAuthCertTypes := LRequest.CertificateTypes;
@@ -829,6 +847,7 @@ function TTls12ClientStateMachine.CacheCompletedSession: TArray<THandshakeEffect
 var
   LSession: IResumableSession;
   LPeerChain: TArray<TBytes>;
+  LLifetime: UInt32;
 begin
   Result := nil;
   if FParams.SessionCache = nil then
@@ -836,6 +855,11 @@ begin
   // nothing to resume with unless the server issued a session id or a ticket
   if (System.Length(FServerSessionId) = 0) and (System.Length(FReceivedTicket) = 0) then
     Exit;
+  // a seven-day retention cap (local policy) bounds a stored ticket; a lifetime_hint of 0 is
+  // left unspecified per RFC 5077 3.3 rather than discarded
+  LLifetime := FReceivedTicketLifetime;
+  if LLifetime > MaxTicketLifetimeSeconds then
+    LLifetime := MaxTicketLifetimeSeconds;
   // carry the verified server chain so an opt-in ReverifyOnResume can re-check it on resume. On an
   // abbreviated handshake no Certificate was sent, so the session inherits the resumed chain
   LPeerChain := FCertChain;
@@ -844,7 +868,7 @@ begin
   LSession := TResumableSession.CreateTls12(FSelectedSuite.Common.Code,
     FSelectedSuite.Common.Hash, FSchedule.MasterSecret, FServerSessionId,
     FReceivedTicket, FUseExtendedMasterSecret, '', FParams.ServerName,
-    FReceivedTicketLifetime, 0,
+    LLifetime, 0,
     FParams.Clock.NowUnixMillis, LPeerChain);
   FParams.SessionCache.Store(CacheServerIdentity, FParams.ServerName, LSession);
   if System.Length(FReceivedTicket) > 0 then
@@ -948,8 +972,18 @@ var
   LNst: TTls12NewSessionTicket;
 begin
   LNst := THandshakeMessages.DecodeTls12NewSessionTicket(AMessage.Body);
-  FReceivedTicket := LNst.Ticket;
-  FReceivedTicketLifetime := LNst.TicketLifetimeHint;
+  // a zero-length ticket on a renewal means "no new ticket": keep the resumed session's existing
+  // ticket rather than replacing it with an empty one that could not resume (RFC 5077 3.3)
+  if (System.Length(LNst.Ticket) = 0) and (FResumptionOffer <> nil) then
+  begin
+    FReceivedTicket := FResumptionOffer.SessionTicket;
+    FReceivedTicketLifetime := FResumptionOffer.TicketLifetime;
+  end
+  else
+  begin
+    FReceivedTicket := LNst.Ticket;
+    FReceivedTicketLifetime := LNst.TicketLifetimeHint;
+  end;
   Absorb(AMessage.Raw);
   FPhase := TPhase.WaitAbbreviatedServerFinished;
   Result := TArray<THandshakeEffect>.Create(
@@ -1094,6 +1128,20 @@ begin
       // parked for the out-of-band verdict; the driver buffers peer messages and resumes via
       // ResumeAfterVerdict, so any message routed here is out of turn
       Result := Unexpected;
+    TPhase.Connected:
+      // this client does not renegotiate: a HelloRequest is answered with a warning
+      // no_renegotiation and the connection continues (RFC 5246 7.2.2, RFC 5746 4.2). Its body
+      // is empty (RFC 5246 7.4.1.1); anything else is a decode_error
+      if LKnown and (LType = TTlsHandshakeType.HelloRequest) then
+      begin
+        if System.Length(AMessage.Body) <> 0 then
+          Result := TArray<THandshakeEffect>.Create(
+            THandshakeEffects.Fail(TTlsAlertDescription.DecodeError))
+        else
+          Result := RefuseRenegotiation;
+      end
+      else
+        Result := Unexpected;
   else
     Result := Unexpected;
   end;

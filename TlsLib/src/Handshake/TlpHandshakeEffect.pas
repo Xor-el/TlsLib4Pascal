@@ -51,6 +51,7 @@ type
     EchBackend,           // ECH split-mode backend (server): record the status for connection info
     EchServerRejected,    // ECH rejected at the server: record the status (the handshake continues)
     EchRejected,          // ECH was rejected (client): abort with ech_required, surface retry_configs
+    SendWarningAlert,     // emit a warning-level alert and continue (e.g. no_renegotiation)
     Fail);                // abort with a fatal alert
 
   /// <summary>
@@ -120,6 +121,10 @@ type
     class function ConnectionParams(ACipherSuite, ANamedGroup: UInt16;
       AResumed: Boolean; const AServerName: string): THandshakeEffect; static;
     class function HandshakeEstablished: THandshakeEffect; static;
+    /// <summary>Emits a warning-level alert without tearing down the connection: the driver
+    /// delivers it through the sink so the engine writes it under the current epoch and stays
+    /// live (e.g. no_renegotiation, RFC 5246 7.2.2 / RFC 5746 4.2).</summary>
+    class function SendWarningAlert(AAlert: TTlsAlertDescription): THandshakeEffect; static;
     class function Fail(AAlert: TTlsAlertDescription): THandshakeEffect; static;
     /// <summary>ECH was accepted (RFC 9849): record the accepted status so connection info
     /// reports it. Emitted by the 1.3 machines at completion when ECH was in play.</summary>
@@ -280,6 +285,14 @@ class function THandshakeEffects.HandshakeEstablished: THandshakeEffect;
 begin
   Result := Default(THandshakeEffect);
   Result.Kind := THandshakeEffectKind.HandshakeEstablished;
+end;
+
+class function THandshakeEffects.SendWarningAlert(
+  AAlert: TTlsAlertDescription): THandshakeEffect;
+begin
+  Result := Default(THandshakeEffect);
+  Result.Kind := THandshakeEffectKind.SendWarningAlert;
+  Result.Alert := AAlert;
 end;
 
 class function THandshakeEffects.Fail(

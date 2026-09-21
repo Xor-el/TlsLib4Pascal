@@ -88,6 +88,8 @@ type
       const AExtensions: TBytes): TTlsHandshakeMessage;
     function HasInappropriateFallback(
       const AEffects: TArray<THandshakeEffect>): Boolean;
+    function HasFailAlert(const AEffects: TArray<THandshakeEffect>;
+      AAlert: TTlsAlertDescription): Boolean;
   published
     procedure TestDualClientDualServerNegotiates13;
     procedure TestDualClientTls13OnlyServerNegotiates13;
@@ -98,6 +100,9 @@ type
     procedure TestScsvFromLowerClientAborts;
     procedure TestScsvFromCurrentClientDoesNotAbort;
     procedure TestScsvToLegacyOnlyServerDoesNotAbort;
+    procedure TestServerRejectsSupportedVersionsWithoutCommonVersion;
+    procedure TestTls13OnlyDispatcherRejectsTls12OnlyOffer;
+    procedure TestTls12OnlyServerRejectsTls13OnlyOffer;
     procedure TestCompatiblePresetEngineLoopback;
     procedure TestCompatiblePresetMutualTlsCompletes;
     procedure TestClientEngineWithoutHostFailsClosed;
@@ -511,6 +516,58 @@ begin
     if (LEffect.Kind = THandshakeEffectKind.Fail) and
       (LEffect.Alert = TTlsAlertDescription.InappropriateFallback) then
       Result := True;
+end;
+
+function TTestTls12DualVersion.HasFailAlert(
+  const AEffects: TArray<THandshakeEffect>; AAlert: TTlsAlertDescription): Boolean;
+var
+  LEffect: THandshakeEffect;
+begin
+  Result := False;
+  for LEffect in AEffects do
+    if (LEffect.Kind = THandshakeEffectKind.Fail) and (LEffect.Alert = AAlert) then
+      Result := True;
+end;
+
+procedure TTestTls12DualVersion.TestServerRejectsSupportedVersionsWithoutCommonVersion;
+var
+  LServer: IHandshakeMachine;
+begin
+  // a client that offers only 0x1111 in supported_versions shares no version with a
+  // 1.3+1.2 server: protocol_version, not a 1.2 handshake (RFC 8446 4.2.1)
+  LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
+    TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12)) as IHandshakeMachine;
+  CheckTrue(HasFailAlert(LServer.ProcessMessage(MakeClientHello(
+    TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256),
+    DecodeHex('0007002B0003021111'))), TTlsAlertDescription.ProtocolVersion),
+    'no common version aborts protocol_version');
+end;
+
+procedure TTestTls12DualVersion.TestTls13OnlyDispatcherRejectsTls12OnlyOffer;
+var
+  LServer: IHandshakeMachine;
+begin
+  // a 1.3-only server reached by a client offering only 1.2 in supported_versions shares no
+  // version: protocol_version
+  LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
+    TArray<UInt16>.Create(TlsWireVersionTls13)) as IHandshakeMachine;
+  CheckTrue(HasFailAlert(LServer.ProcessMessage(MakeClientHello(
+    TArray<UInt16>.Create(TCipherSuites12.EcdheEcdsaAes128GcmSha256),
+    DecodeHex('0007002B0003020303'))), TTlsAlertDescription.ProtocolVersion),
+    'a 1.2-only offer to a 1.3-only server aborts protocol_version');
+end;
+
+procedure TTestTls12DualVersion.TestTls12OnlyServerRejectsTls13OnlyOffer;
+var
+  LServer: IHandshakeMachine;
+begin
+  // the 1.2-only server machine, reached directly, rejects a client that offers only 1.3 in
+  // supported_versions: it shares no version with it (RFC 8446 4.2.1)
+  LServer := TTls12ServerStateMachine.Create(Server12Params) as IHandshakeMachine;
+  CheckTrue(HasFailAlert(LServer.ProcessMessage(MakeClientHello(
+    TArray<UInt16>.Create(TCipherSuites12.EcdheEcdsaAes128GcmSha256),
+    DecodeHex('0007002B0003020304'))), TTlsAlertDescription.ProtocolVersion),
+    'a 1.3-only offer to a 1.2-only server aborts protocol_version');
 end;
 
 procedure TTestTls12DualVersion.TestScsvFromLowerClientAborts;

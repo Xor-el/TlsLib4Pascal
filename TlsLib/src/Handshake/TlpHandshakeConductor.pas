@@ -89,6 +89,9 @@ type
     /// <summary>Whether the active machine's exporter secret is available (half-RTT for a
     /// TLS 1.3 server).</summary>
     function CanExportKeyingMaterial: Boolean;
+    /// <summary>Whether a handshake message is partially buffered (spanning records). A
+    /// non-handshake record arriving now would interleave with it (RFC 8446 5.1).</summary>
+    function HasBufferedHandshake: Boolean;
   end;
 
 implementation
@@ -183,6 +186,11 @@ end;
 function THandshakeConductor.CanExportKeyingMaterial: Boolean;
 begin
   Result := FMachine.CanExportKeyingMaterial;
+end;
+
+function THandshakeConductor.HasBufferedHandshake: Boolean;
+begin
+  Result := FChannel.HasPartialInbound;
 end;
 
 procedure THandshakeConductor.FlushPendingKeyUpdate;

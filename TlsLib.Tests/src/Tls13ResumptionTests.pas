@@ -100,6 +100,7 @@ type
     procedure TestSingleUseTicketReplayRejected;
     procedure TestMismatchedBinderAbortsDecryptError;
     procedure TestExpiredTicketNotAccepted;
+    procedure TestZeroLifetimeTicketIsNotCached;
     procedure TestCustomSessionCacheAndStoreAreUsed;
     procedure TestStatelessStekResumptionCompletes;
     procedure TestStekRetiredKeyNotAccepted;
@@ -446,6 +447,24 @@ begin
   DriveHandshake(LClient, LServer);
   CheckFalse((not LServer.IsHandshaking) and (not LServer.IsTerminal),
     'an expired ticket is not accepted');
+end;
+
+procedure TTestTls13Resumption.TestZeroLifetimeTicketIsNotCached;
+var
+  LCache: ISessionCache;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+begin
+  // a ticket_lifetime of 0 means the client discards it immediately and must not cache it
+  // (RFC 8446 4.6.1)
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
+  LClient := NewClient(LCache);
+  LServer := NewServer(LStore, 1, 0, True);
+  DriveHandshake(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking, 'the handshake completed');
+  CheckFalse(LClient.IsTerminal, 'the handshake did not fail');
+  CheckEquals(0, LCache.Count, 'a lifetime-0 ticket is not cached');
 end;
 
 procedure TTestTls13Resumption.TestCustomSessionCacheAndStoreAreUsed;

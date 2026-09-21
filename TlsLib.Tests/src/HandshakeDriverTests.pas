@@ -43,31 +43,11 @@ uses
   TlpIHandshakeMachine,
   TlpHandshakeEffect,
   TlpHandshakeDriver,
-  Tls13ClientReplayTests,
+  MockSink,
+  MockRecordInstaller,
   TlsLibTestBase;
 
 type
-  TRecordingSink = class(TInterfacedObject, IHandshakeSink)
-  strict private
-  var
-    FEventCount: Int32;
-    FLastEvent: TTlsEventKind;
-    FEstablished: Boolean;
-    FFailed: Boolean;
-    FFailedAlert: TTlsAlertDescription;
-  public
-    procedure OnHandshakeEvent(AEvent: TTlsEventKind);
-    procedure OnAlpnSelected(const AProtocol: string);
-    procedure OnOcspStapleReceived(const AStaple: TBytes);
-    procedure OnHandshakeEstablished;
-    procedure OnHandshakeFailed(AAlert: TTlsAlertDescription);
-    property EventCount: Int32 read FEventCount;
-    property LastEvent: TTlsEventKind read FLastEvent;
-    property Established: Boolean read FEstablished;
-    property Failed: Boolean read FFailed;
-    property FailedAlert: TTlsAlertDescription read FFailedAlert;
-  end;
-
   TTestHandshakeDriver = class(TTlsLibAlgorithmTestCase)
   private
     function DefaultSuite: TTlsCipherSuite;
@@ -87,33 +67,6 @@ type
   end;
 
 implementation
-
-{ TRecordingSink }
-
-procedure TRecordingSink.OnHandshakeEvent(AEvent: TTlsEventKind);
-begin
-  Inc(FEventCount);
-  FLastEvent := AEvent;
-end;
-
-procedure TRecordingSink.OnOcspStapleReceived(const AStaple: TBytes);
-begin
-end;
-
-procedure TRecordingSink.OnAlpnSelected(const AProtocol: string);
-begin
-end;
-
-procedure TRecordingSink.OnHandshakeEstablished;
-begin
-  FEstablished := True;
-end;
-
-procedure TRecordingSink.OnHandshakeFailed(AAlert: TTlsAlertDescription);
-begin
-  FFailed := True;
-  FFailedAlert := AAlert;
-end;
 
 { TTestHandshakeDriver }
 
@@ -153,7 +106,7 @@ begin
   Result := THandshakeDriver.Create(
     THandshakeChannel.Create(ALayer) as IHandshakeChannel,
     TRecordLayerInstaller.Create(ALayer) as IRecordEpochInstaller, Provider,
-    TSilentSink.Create as IHandshakeSink);
+    TMockHandshakeSink.Create as IHandshakeSink);
 end;
 
 function TTestHandshakeDriver.ReadInstallAlert(const AVersion: TTlsVersion;
@@ -314,7 +267,7 @@ begin
     LDriver := THandshakeDriver.Create(
       THandshakeChannel.Create(LLayer) as IHandshakeChannel,
       TRecordLayerInstaller.Create(LLayer) as IRecordEpochInstaller, Provider,
-      TSilentSink.Create as IHandshakeSink);
+      TMockHandshakeSink.Create as IHandshakeSink);
     LDriver.Apply(THandshakeEffects.InstallKeys(LSchedule.TrafficKeys(
       TTlsEpoch.Handshake, TTlsDirection.ClientWrite), TRecordSide.ReadSide,
       DefaultSuite.Common.Aead, TTlsVersion.Tls13));
@@ -336,23 +289,27 @@ procedure TTestHandshakeDriver.TestDriverReportsOutcomesToSink;
 var
   LLayer: TRecordLayer;
   LDriver: THandshakeDriver;
-  LSink: TRecordingSink;
+  LSink: TMockHandshakeSink;
   LSinkRef: IHandshakeSink;
 begin
   LLayer := TRecordLayer.Create;
-  LSink := TRecordingSink.Create;
+  LSink := TMockHandshakeSink.Create;
   LSinkRef := LSink;
   LDriver := THandshakeDriver.Create(THandshakeChannel.Create(LLayer) as IHandshakeChannel, nil,
     Provider, LSinkRef);
   try
     LDriver.Apply(THandshakeEffects.RaiseEvent(TTlsEventKind.KeysInstalled));
     LDriver.Apply(THandshakeEffects.HandshakeEstablished);
+    LDriver.Apply(THandshakeEffects.SendWarningAlert(TTlsAlertDescription.NoRenegotiation));
     LDriver.Apply(THandshakeEffects.Fail(TTlsAlertDescription.DecodeError));
     LDriver.Apply(THandshakeEffects.SendChangeCipherSpec);
 
     CheckEquals(1, LSink.EventCount, 'one event raised');
     CheckEquals(Ord(TTlsEventKind.KeysInstalled), Ord(LSink.LastEvent), 'the event');
     CheckTrue(LSink.Established, 'handshake established');
+    CheckTrue(LSink.Warned, 'warning alert reported');
+    CheckEquals(Ord(TTlsAlertDescription.NoRenegotiation), Ord(LSink.WarnedAlert),
+      'warning alert code');
     CheckTrue(LSink.Failed, 'failure reported');
     CheckEquals(Ord(TTlsAlertDescription.DecodeError), Ord(LSink.FailedAlert), 'alert');
     // the CCS effect reached the record layer

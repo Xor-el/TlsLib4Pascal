@@ -80,6 +80,17 @@ type
   end;
 
   /// <summary>
+  /// An optional companion the driver reaches with Supports on the sink to emit a warning-level
+  /// alert the machine chose to raise without failing (e.g. no_renegotiation): the engine writes
+  /// it under the current epoch and stays live. Kept off IHandshakeSink so existing sinks (and
+  /// their test doubles) need not implement it; only the engine bridge does.
+  /// </summary>
+  IWarningAlertSink = interface(IInterface)
+    ['{4A9E2C71-6D38-4B05-9F17-3C8A0E5B7D42}']
+    procedure OnWarningAlert(AAlert: TTlsAlertDescription);
+  end;
+
+  /// <summary>
   /// An optional companion the driver reaches with Supports on the sink to report the
   /// negotiated protocol version once an epoch's keys are installed. Kept off IHandshakeSink
   /// so existing sinks (and their test doubles) need not implement it; only the engine bridge
