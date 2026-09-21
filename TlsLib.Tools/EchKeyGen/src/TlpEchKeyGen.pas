@@ -45,8 +45,8 @@ type
     Pem: TBytes;
     /// <summary>The raw ECHConfigList a client uses as its ECH configuration.</summary>
     EchConfigList: TBytes;
-    /// <summary>The DNS presentation line publishing the ECHConfigList in an HTTPS
-    /// record's "ech" SvcParam.</summary>
+    /// <summary>The DNS presentation line publishing the ECHConfigList in the origin's HTTPS
+    /// record "ech" SvcParam (the name clients connect to, RFC 9848 sec. 3).</summary>
     DnsLine: string;
   end;
 
@@ -70,10 +70,11 @@ type
     /// Generates a single-config ECHConfigList for public_name APublicName under the
     /// HPKE suite (AKem, AKdf, AAead) with the operator-chosen config id AConfigId and
     /// the padding hint AMaximumNameLength. AProvider frames the PEM (RFC 7468) so the
-    /// output matches what the server store reads. Raises for an unsupported KEM.
+    /// output matches what the server store reads. The DNS line is published at AOrigin
+    /// (the name clients connect to). Raises for an unsupported KEM or an invalid name.
     /// </summary>
     class function Generate(const AProvider: ICryptoProvider;
-      const APublicName: string; AConfigId: Byte; AKem, AKdf, AAead: UInt16;
+      const APublicName, AOrigin: string; AConfigId: Byte; AKem, AKdf, AAead: UInt16;
       AMaximumNameLength: Byte): TEchKeyGenResult; static;
     /// <summary>
     /// The command-line entry point: parses the arguments, generates the key material,
@@ -88,7 +89,7 @@ implementation
 { TEchKeyGenerator }
 
 class function TEchKeyGenerator.Generate(const AProvider: ICryptoProvider;
-  const APublicName: string; AConfigId: Byte; AKem, AKdf, AAead: UInt16;
+  const APublicName, AOrigin: string; AConfigId: Byte; AKem, AKdf, AAead: UInt16;
   AMaximumNameLength: Byte): TEchKeyGenResult;
 var
   LKem: IHpkeKem;
@@ -99,10 +100,18 @@ var
   LConfig: TEchConfig;
   LBlocks: TArray<TPemBlock>;
   LPublicNameBytes: TBytes;
+  LOrigin: string;
 begin
   LPublicNameBytes := TEncoding.ASCII.GetBytes(APublicName);
   if not TEchConfig.IsValidPublicName(LPublicNameBytes) then
     raise EArgumentException.Create('the public_name is not a valid LDH host name');
+  // the DNS record is queried at the origin (the name a client connects to and puts in the
+  // inner SNI), not the public_name; validate it as an LDH host, tolerating one trailing dot
+  LOrigin := AOrigin;
+  if (LOrigin <> '') and (LOrigin[System.Length(LOrigin)] = '.') then
+    LOrigin := System.Copy(LOrigin, 1, System.Length(LOrigin) - 1);
+  if not TEchConfig.IsValidPublicName(TEncoding.ASCII.GetBytes(LOrigin)) then
+    raise EArgumentException.Create('the origin is not a valid LDH host name');
   LKem := TDhKem.Create(THpkeKemId(AKem)) as IHpkeKem;
   LPair := LKem.GeneratePrivateKey();
   LPublicKey := LKem.SerializePublicKey(LPair.&Public);
@@ -125,8 +134,9 @@ begin
   Result.Pem := TPem.WriteBlocks(LBlocks);
 
   // an HTTPS record in ServiceMode (priority 1) with the ECHConfigList in the "ech"
-  // SvcParam, base64 as the presentation format expects
-  Result.DnsLine := APublicName + '. HTTPS 1 . ech="' +
+  // SvcParam, base64 as the presentation format expects. It is published at the origin the
+  // client connects to; the public_name lives only inside the ECHConfig, as the outer SNI.
+  Result.DnsLine := LOrigin + '. HTTPS 1 . ech="' +
     TDataEncoding.Base64Encode(Result.EchConfigList) + '"';
 end;
 
@@ -203,7 +213,7 @@ end;
 class function TEchKeyGenerator.RunConsole: Integer;
 var
   LProvider: ICryptoProvider;
-  LPublicName, LOutPath, LSuite, LArg, LValue: string;
+  LPublicName, LOrigin, LOutPath, LSuite, LArg, LValue: string;
   LKem, LKdf, LAead: UInt16;
   LConfigId, LMaxNameLen: Int32;
   LHasConfigId: Boolean;
@@ -211,6 +221,7 @@ var
   LResult: TEchKeyGenResult;
 begin
   LPublicName := '';
+  LOrigin := '';
   LOutPath := '';
   LSuite := 'x25519,hkdf-sha256,aes-128-gcm';
   LMaxNameLen := 0;
@@ -226,6 +237,8 @@ begin
       LValue := '';
     if LArg = '-public_name' then
       LPublicName := LValue
+    else if LArg = '-origin' then
+      LOrigin := LValue
     else if LArg = '-out' then
       LOutPath := LValue
     else if LArg = '-suite' then
@@ -245,9 +258,9 @@ begin
     Inc(LI, 2);
   end;
 
-  if (LPublicName = '') or (LOutPath = '') then
+  if (LPublicName = '') or (LOrigin = '') or (LOutPath = '') then
   begin
-    WriteLn('usage: EchKeyGen -public_name <name> -out <file.pem> ' +
+    WriteLn('usage: EchKeyGen -public_name <name> -origin <name> -out <file.pem> ' +
       '[-suite kem,kdf,aead] [-max_name_len N] [-config_id N]');
     WriteLn('  kem:  x25519 | x448 | p256 | p384 | p521');
     WriteLn('  kdf:  hkdf-sha256 | hkdf-sha384 | hkdf-sha512');
@@ -276,7 +289,7 @@ begin
     // matches an incoming ECH by it, so it need only be stable, not secret)
     if not LHasConfigId then
       LConfigId := LProvider.Primitives.GetRandom.GenerateBytes(1)[0];
-    LResult := Generate(LProvider, LPublicName, Byte(LConfigId), LKem, LKdf, LAead,
+    LResult := Generate(LProvider, LPublicName, LOrigin, Byte(LConfigId), LKem, LKdf, LAead,
       Byte(LMaxNameLen));
     WriteFile(LOutPath, LResult.Pem);
     WriteLn(LResult.DnsLine);

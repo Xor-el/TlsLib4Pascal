@@ -55,6 +55,8 @@ type
   published
     procedure TestKeyGenPemRoundTripsThroughStore;
     procedure TestKeyGenKeyPairSealsAndOpens;
+    procedure TestKeyGenDnsLineNamesOrigin;
+    procedure TestKeyGenRejectsInvalidOrigin;
     procedure TestSvcbExtractsEchConfigList;
     procedure TestSvcbAliasModeHasNoEch;
     procedure TestSvcbWithoutEchParamReturnsFalse;
@@ -106,7 +108,7 @@ var
   LStore: IEchServerKeyStore;
   LEntries: TArray<TEchKeyEntry>;
 begin
-  LGen := TEchKeyGenerator.Generate(Provider, 'public.example', 42,
+  LGen := TEchKeyGenerator.Generate(Provider, 'public.example', 'secret.example', 42,
     THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256,
     THpkeAead.AES_128_GCM, 64);
   // the generated PEM loads through the server key store (PKCS#8 private key + ECHCONFIG)
@@ -133,7 +135,7 @@ var
   LOpener: IHpkeOpener;
   LEnc, LPlain, LCipher, LOut: TBytes;
 begin
-  LGen := TEchKeyGenerator.Generate(Provider, 'public.example', 5,
+  LGen := TEchKeyGenerator.Generate(Provider, 'public.example', 'secret.example', 5,
     THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256,
     THpkeAead.AES_128_GCM, 0);
   LStore := TInMemoryEchKeyStore.FromPem(LGen.Pem, Provider);
@@ -150,12 +152,45 @@ begin
   CheckEqualBytes('the generated key pair seals and opens', LPlain, LOut);
 end;
 
+procedure TTestEchTooling.TestKeyGenDnsLineNamesOrigin;
+var
+  LGen: TEchKeyGenResult;
+  LStore: IEchServerKeyStore;
+begin
+  // the DNS line is published at the origin (the name clients connect to), while the public_name
+  // lives only inside the ECHConfig (RFC 9848 sec. 3; RFC 9849 sec. 4)
+  LGen := TEchKeyGenerator.Generate(Provider, 'public.example', 'secret.example', 7,
+    THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM, 0);
+  CheckEquals(1, Pos('secret.example. HTTPS 1 . ech="', LGen.DnsLine),
+    'the DNS line is owned by the origin');
+  CheckEquals(0, Pos('public.example', LGen.DnsLine),
+    'the public_name does not appear in the DNS owner name');
+  LStore := TInMemoryEchKeyStore.FromPem(LGen.Pem, Provider);
+  CheckEquals('public.example', LStore.Entries[0].Config.PublicName,
+    'the public_name is carried inside the ECHConfig');
+end;
+
+procedure TTestEchTooling.TestKeyGenRejectsInvalidOrigin;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    TEchKeyGenerator.Generate(Provider, 'public.example', 'bad_origin!', 1,
+      THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM, 0);
+  except
+    on E: EArgumentException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an invalid origin host name is rejected');
+end;
+
 procedure TTestEchTooling.TestSvcbExtractsEchConfigList;
 var
   LGen: TEchKeyGenResult;
   LRdata, LOut: TBytes;
 begin
-  LGen := TEchKeyGenerator.Generate(Provider, 'public.example', 1,
+  LGen := TEchKeyGenerator.Generate(Provider, 'public.example', 'secret.example', 1,
     THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256,
     THpkeAead.AES_128_GCM, 0);
   LRdata := BuildHttpsRdata(1, True, LGen.EchConfigList);
@@ -274,10 +309,10 @@ var
 begin
   // pair one config's PRIVATE KEY with a different config's ECHCONFIG: the store must reject the
   // mismatch at load, not accept a store that would silently reject every ECH handshake
-  LGen1 := TEchKeyGenerator.Generate(Provider, 'a.example', 1,
+  LGen1 := TEchKeyGenerator.Generate(Provider, 'a.example', 'a-origin.example', 1,
     THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256,
     THpkeAead.AES_128_GCM, 0);
-  LGen2 := TEchKeyGenerator.Generate(Provider, 'b.example', 2,
+  LGen2 := TEchKeyGenerator.Generate(Provider, 'b.example', 'b-origin.example', 2,
     THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256,
     THpkeAead.AES_128_GCM, 0);
   LBlocks1 := TPem.ReadBlocks(LGen1.Pem);

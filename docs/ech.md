@@ -48,9 +48,11 @@ try
   LStream.Handshake; // or the adapter's connect
 except
   on E: EEchRejectedTlsLibException do
-    // E.RetryConfigs holds the server's retry_configs (may be empty); E.IsRetryAttempt is True
-    // when this handshake was already a retry (honor the one-retry cap). Reconnect with the new
-    // configs if your policy allows, or surface the failure.
+    // E.RetryConfigs holds the server's retry_configs; E.IsRetryAttempt is True when this
+    // handshake was already a retry (honor the one-retry cap). Reconnect with the new configs if
+    // your policy allows, or surface the failure. If RetryConfigs is empty the server has
+    // securely disabled ECH (RFC 9849 6.1.6): retry WITHOUT an ECH policy (or with GREASE), not
+    // with an empty config list, which is rejected at Build.
 end;
 ```
 
@@ -69,7 +71,9 @@ expose your client certificate to the wrong party.
 If you configure an `ECHConfigList` but **none** of its configs is usable — an unsupported HPKE
 suite, an invalid public key, or a mandatory unknown extension — and GREASE is off, the client
 **fails closed**: `CreateClientEngine` raises `EArgumentTlsLibException` rather than silently
-sending the true SNI in the clear. Enable GREASE to opt into connecting without ECH in that case.
+sending the true SNI in the clear. An **empty** config list with GREASE off is rejected the same
+way at `Build`. Enable GREASE to opt into connecting without ECH in that case; `WithEchGrease(True)`
+on its own (no config list) is the explicit GREASE-only mode.
 
 To make ECH users indistinguishable from non-users, a client with no usable config can send a decoy
 ECH extension (RFC 9849 §6.2):
@@ -109,15 +113,18 @@ clock-rotated, so it tracks exactly what you publish in DNS.
 `TlsLib.Tools/EchKeyGen` is a standalone CLI that produces everything an operator needs:
 
 ```
-EchKeyGen -public_name public.example -out ech.pem [-suite x25519,hkdf-sha256,aes-128-gcm]
-          [-max_name_len 64] [-config_id N]
+EchKeyGen -public_name public.example -origin secret.example -out ech.pem
+          [-suite x25519,hkdf-sha256,aes-128-gcm] [-max_name_len 64] [-config_id N]
 ```
 
-It writes an RFC 9934 PEM (a PKCS#8 `PRIVATE KEY` block the server store loads, plus an `ECHCONFIG`
-block) and prints the DNS presentation line:
+`-public_name` is the client-facing name carried inside the `ECHConfig` (the outer SNI);
+`-origin` is the name clients actually connect to (the inner SNI) and is the owner of the HTTPS
+record where the config is published (RFC 9848 §3, RFC 9849 §4). It writes an RFC 9934 PEM (a
+PKCS#8 `PRIVATE KEY` block the server store loads, plus an `ECHCONFIG` block) and prints the DNS
+presentation line, owned by the origin:
 
 ```
-public.example. HTTPS 1 . ech="AD7+DQA6BwAg..."
+secret.example. HTTPS 1 . ech="AD7+DQA6BwAg..."
 ```
 
 Set **`-max_name_len`** to the length of the longest backend name this config serves. The client
@@ -131,7 +138,8 @@ leaks its length within that bucket. Prefer a value that covers your names when 
 ## 4. DNS — publishing and fetching the config
 
 The `ECHConfigList` is published as the **`ech` SvcParam (key 5)** of an HTTPS/SVCB record
-(RFC 9460). Publish the line `EchKeyGen` prints. On the client side, once the application has
+(RFC 9460) for the **origin** (the name clients connect to), not the `public_name`. Publish the
+line `EchKeyGen` prints at that owner name. On the client side, once the application has
 resolved the HTTPS record, extract the config with the out-of-core helper (no resolver is pulled
 into the TLS core):
 

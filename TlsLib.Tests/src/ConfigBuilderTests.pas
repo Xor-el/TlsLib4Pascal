@@ -76,6 +76,9 @@ type
     procedure TearDown; override;
   published
     procedure TestEchThroughServerBuilder;
+    procedure TestEmptyEchConfigListWithoutGreaseRejectedAtBuild;
+    procedure TestEchGreaseOnlyBuildsWithoutConfig;
+    procedure TestEchGreaseFalseWithoutConfigIsNoOp;
     procedure TestBuilderRejectsMutationAfterBuild;
     procedure TestSecondBuildIsRejected;
     procedure TestReturnedPinsArrayCannotMutateConfig;
@@ -260,6 +263,43 @@ begin
   Feed(LServer, Drain(LClient));
   CheckEqualBytes('app data flows over the builder-configured ECH connection', LMsg,
     ReadAllApp(LServer));
+end;
+
+procedure TTestConfigBuilder.TestEmptyEchConfigListWithoutGreaseRejectedAtBuild;
+var
+  LRaised: Boolean;
+begin
+  // an empty ECHConfigList with GREASE off would send the true SNI in the clear: reject at Build
+  LRaised := False;
+  try
+    NewClientBuilder.Client.Tls13.WithEncryptedClientHello(nil).Build;
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an empty ECHConfigList with GREASE off is rejected at Build');
+end;
+
+procedure TTestConfigBuilder.TestEchGreaseOnlyBuildsWithoutConfig;
+var
+  LConfig: ITlsClientConfig;
+begin
+  // GREASE with no config list is the explicit GREASE-only mode; it builds
+  LConfig := NewClientBuilder.Client.Tls13.WithEchGrease(True).Build;
+  CheckTrue(LConfig.EncryptedClientHello <> nil, 'GREASE-only ECH is configured');
+  CheckTrue(LConfig.EncryptedClientHello.GreaseEnabled, 'the policy is GREASE-enabled');
+  CheckEquals(0, System.Length(LConfig.EncryptedClientHello.Configs),
+    'GREASE-only has no config list');
+end;
+
+procedure TTestConfigBuilder.TestEchGreaseFalseWithoutConfigIsNoOp;
+var
+  LConfig: ITlsClientConfig;
+begin
+  // WithEchGrease(False) with no config list does not configure ECH (it is a no-op, not a
+  // fail-closed empty policy), so a caller passing a runtime flag is not surprised by a raise
+  LConfig := NewClientBuilder.Client.Tls13.WithEchGrease(False).Build;
+  CheckTrue(LConfig.EncryptedClientHello = nil, 'no ECH policy is configured');
 end;
 
 function TTestConfigBuilder.Drain(const AEngine: ITlsEngine): TBytes;

@@ -88,7 +88,9 @@ type
     /// <summary>Trial-decrypts the ClientHelloOuter AOuterFramed: Accepted (inner reconstructed),
     /// Rejected (serve the public_name), or NotOffered / Backend.</summary>
     function ProcessOuter(const AOuterFramed: TBytes): TEchStatus;
-    /// <summary>Decrypts the retry ClientHelloOuter (seq 1, empty enc) after an accepted CH1.</summary>
+    /// <summary>Decrypts the retry ClientHelloOuter (seq 1, empty enc) after an accepted CH1.
+    /// Precondition: the first ClientHelloOuter was accepted (ProcessOuter returned Accepted);
+    /// calling it otherwise is a programming error and raises.</summary>
     function ProcessRetryOuter(const AOuterFramed: TBytes): TEchStatus;
     /// <summary>The reconstructed inner ClientHello, framed as a handshake message.</summary>
     function InnerFramed: TBytes;

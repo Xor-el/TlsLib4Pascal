@@ -47,6 +47,9 @@ uses
   TlpEchExtension,
   TlpEchOuterExtensions,
   TlpEchClient,
+  TlpEchServer,
+  TlpInMemoryEchKeyStore,
+  TlpEchKeyGen,
   TlpIEch,
   TlpTlsLibExceptions,
   TlsLibTestBase;
@@ -73,6 +76,9 @@ type
   published
     procedure TestOuterHidesRealSniAndDecryptsToInner;
     procedure TestUnusableConfigFailsClosed;
+    procedure TestEmptyConfigListWithoutGreaseFailsClosed;
+    procedure TestServerRetryOuterBeforeAcceptFailsLoud;
+    procedure TestServerRetryOuterAfterRejectFailsLoud;
   end;
 
 implementation
@@ -316,6 +322,70 @@ begin
     LMachine.Free;
   end;
   CheckTrue(LRaised, 'an all-unusable ECH config with GREASE off fails closed');
+end;
+
+procedure TTestEchClientEngine.TestEmptyConfigListWithoutGreaseFailsClosed;
+var
+  LRaised: Boolean;
+begin
+  // an empty ECHConfigList with GREASE off would silently send the true SNI: reject it at
+  // configuration time rather than fall back to cleartext
+  LRaised := False;
+  try
+    TEchClientPolicy.Create(nil, False, False);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an empty ECHConfigList with GREASE off fails closed');
+end;
+
+procedure TTestEchClientEngine.TestServerRetryOuterBeforeAcceptFailsLoud;
+var
+  LGen: TEchKeyGenResult;
+  LStore: IEchServerKeyStore;
+  LEch: IEchServerHandshake;
+  LRaised: Boolean;
+begin
+  // ProcessRetryOuter is only valid after an accepted first ClientHelloOuter; calling it up front
+  // is a programming error that must fail loud, not access a nil opener
+  LGen := TEchKeyGenerator.Generate(Provider, 'public.example', 'origin.example', $AA,
+    THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM, 0);
+  LStore := TInMemoryEchKeyStore.FromPem(LGen.Pem, Provider);
+  LEch := TEchServerHandshake.Create(Provider, LStore, False) as IEchServerHandshake;
+  LRaised := False;
+  try
+    LEch.ProcessRetryOuter(OuterClientHello);
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'ProcessRetryOuter without an accepted CH1 fails loud');
+end;
+
+procedure TTestEchClientEngine.TestServerRetryOuterAfterRejectFailsLoud;
+var
+  LGen: TEchKeyGenResult;
+  LStore: IEchServerKeyStore;
+  LEch: IEchServerHandshake;
+  LRaised: Boolean;
+begin
+  // a store whose key cannot open the outer ech rejects it; ProcessRetryOuter must then fail loud
+  // rather than dereference a suite left set with a nil opener
+  LGen := TEchKeyGenerator.Generate(Provider, 'public.example', 'origin.example', $BB,
+    THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM, 0);
+  LStore := TInMemoryEchKeyStore.FromPem(LGen.Pem, Provider);
+  LEch := TEchServerHandshake.Create(Provider, LStore, True) as IEchServerHandshake;
+  CheckTrue(LEch.ProcessOuter(OuterClientHello) = TEchStatus.Rejected,
+    'the mismatched store rejects the outer ech');
+  LRaised := False;
+  try
+    LEch.ProcessRetryOuter(OuterClientHello);
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'ProcessRetryOuter after a reject fails loud');
 end;
 
 initialization

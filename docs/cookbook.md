@@ -467,7 +467,7 @@ output — in [certificate-compression.md](certificate-compression.md).
 ## Hide the SNI with Encrypted Client Hello
 
 ECH (RFC 9849) encrypts the true SNI. As a **client**, fetch the operator's `ECHConfigList` (the `ech`
-SvcParam of its DNS HTTPS record) and offer it — the leaf is verified against the true name, and a
+SvcParam of the HTTPS record for the name you connect to) and offer it — the leaf is verified against the true name, and a
 reject never falls back to plaintext:
 
 ```pascal

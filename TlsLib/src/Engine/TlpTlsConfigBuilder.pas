@@ -2014,7 +2014,11 @@ function TTlsConfigBuilder.WithEchGrease(AEnabled: Boolean): TTlsConfigBuilder;
 begin
   GuardMutable;
   FEchGrease := AEnabled;
-  FEchConfigured := True;
+  // enabling GREASE configures ECH (GREASE-only when no config list is supplied); disabling it
+  // does not by itself configure ECH, so WithEchGrease(False) with no list stays a no-op rather
+  // than a fail-closed empty policy
+  if AEnabled then
+    FEchConfigured := True;
   FTls13Configured := True;
   Result := Self;
 end;
@@ -2348,6 +2352,7 @@ end;
 function TTlsConfigBuilder.BuildClient: ITlsClientConfig;
 var
   LConfig: TFrozenClientConfig;
+  LEchPolicy: IEchClientPolicy;
 begin
   // a builder is single-use
   GuardMutable;
@@ -2370,6 +2375,12 @@ begin
     (FAsyncVerdict.Deferral <> TVerdictDeferral.LiveRevocation) then
     raise EInvalidOperationTlsLibException.CreateRes(@SHardRevocationUnusable);
   ValidateVersionScoping;
+  // build the ECH policy before allocating the frozen config, so a rejected ECHConfigList (a
+  // malformed list, or an empty one with GREASE off) raises here without leaking the config
+  LEchPolicy := nil;
+  if FEchConfigured then
+    LEchPolicy := TEchClientPolicy.Create(FEchConfigList, FEchGrease, FEchIsRetry)
+      as IEchClientPolicy;
   LConfig := TFrozenClientConfig.Create;
   LConfig.FProvider := FProvider;
   LConfig.FCipherSuites := FCipherSuites;
@@ -2416,10 +2427,7 @@ begin
   LConfig.FClock := FClock;
   LConfig.FEarlyData := FClientEarlyData;
   LConfig.FExternalPskRequired := FExternalPskRequired;
-  // a malformed ECHConfigList is rejected here, at build time
-  if FEchConfigured then
-    LConfig.FEchPolicy := TEchClientPolicy.Create(FEchConfigList, FEchGrease,
-      FEchIsRetry) as IEchClientPolicy;
+  LConfig.FEchPolicy := LEchPolicy;
   FFrozen := True;
   Result := LConfig;
 end;
