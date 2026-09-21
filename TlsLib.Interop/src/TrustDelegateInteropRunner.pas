@@ -495,7 +495,7 @@ begin
         if LLiveCaFile = '' then
           LLiveCaFile := ACell.ClientCaFile;
         LResolver := TOSSystemTrust.LiveRevocationResolver(
-          BuildServerConfig(LProvider, ACell, LLiveCaFile));
+          BuildServerConfig(LProvider, LPkix, ACell, LLiveCaFile));
         try
           LResult := TInteropPump.DriveHandshake(LEngine, LServerSocket,
             LResolver.ResolveVerdict, False);
