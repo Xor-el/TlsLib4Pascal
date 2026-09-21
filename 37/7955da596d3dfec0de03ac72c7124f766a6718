@@ -1,0 +1,38 @@
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_09d3c46d1a9b1f::t_325499d3995512 123
+TlsLib/src/Extensions/TlpCoreExtensions.pas
+  s_09d3c46d1a9b1f::t_8b1e1b48dfea56 204-205
+  s_09d3c46d1a9b1f::t_649d1cdc14d84c 1050-1053
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
+  s_09d3c46d1a9b1f::t_65546f783437ef 31
+  s_09d3c46d1a9b1f::t_a713b2af948ee8 556-559
+TlsLib.Tests/src/ExtensionCodecTests.pas
+  s_09d3c46d1a9b1f::t_247212fa357a0c 590-648
+  s_09d3c46d1a9b1f::t_446196fbe60ad5 76-79
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.pas
+  s_09d3c46d1a9b1f::t_73e5f147bf2adb 50
+TlsLib/src/Packages/Delphi/TlsLib4PascalPackage.dpk
+  s_09d3c46d1a9b1f::t_41e60d436ad5a1 139
+TlsLib/src/Extensions/TlpExtensionContext.pas
+  s_09d3c46d1a9b1f::t_82f38457757769 128-134
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_09d3c46d1a9b1f::t_2af98d9512e55d 455
+TlsLib/src/Ech/TlpEchRegistryExtension.pas
+  s_09d3c46d1a9b1f::t_dd307c8f5797bf 1-83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "377955da596d3dfec0de03ac72c7124f766a6718",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
