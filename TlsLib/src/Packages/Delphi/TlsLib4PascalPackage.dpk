@@ -136,6 +136,7 @@ contains
   TlpTlsEngineFactory in '..\..\Engine\TlpTlsEngineFactory.pas',
   TlpExtensionContext in '..\..\Extensions\TlpExtensionContext.pas',
   TlpExtensionVector in '..\..\Extensions\TlpExtensionVector.pas',
+  TlpEchRegistryExtension in '..\..\Ech\TlpEchRegistryExtension.pas',
   TlpITlsExtension in '..\..\Interfaces\Extensions\TlpITlsExtension.pas',
   TlpExtensionBlockCodec in '..\..\Extensions\TlpExtensionBlockCodec.pas',
   TlpCoreExtensions in '..\..\Extensions\TlpCoreExtensions.pas',

@@ -452,6 +452,7 @@
         <DCCReference Include="..\..\TlsLib\src\Ech\TlpEchClient.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Ech\TlpInMemoryEchKeyStore.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Ech\TlpEchServer.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Ech\TlpEchRegistryExtension.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Engine\TlpITlsConfig.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Engine\TlpITlsConfigBuilder.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsConfigBuilder.pas"/>

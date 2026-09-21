@@ -73,6 +73,10 @@ type
     procedure TestEarlyDataAcceptInEncryptedExtensionsRoundTrip;
     procedure TestEarlyDataMaxSizeInNewSessionTicketRoundTrip;
     procedure TestPreSharedKeyIsLastClientHelloExtension;
+    procedure TestEchRecognizedInClientHello;
+    procedure TestEchInServerHelloIsUnsupportedExtension;
+    procedure TestEchInCertificateIsUnsupportedExtension;
+    procedure TestHrrEchNotEightBytesIsDecodeError;
   end;
 
 implementation
@@ -580,6 +584,65 @@ begin
       'pre_shared_key is the last ClientHello extension');
   finally
     LSrc.Free;
+  end;
+end;
+
+procedure TTestExtensionCodec.TestEchRecognizedInClientHello;
+var
+  LCtx: TExtensionContext;
+begin
+  // one encrypted_client_hello (0xfe0d) with an 8-byte body in a ClientHello
+  LCtx := NewContext;
+  try
+    FCodec.ConsumeBlock(LCtx, TTlsExtensionContextKind.ClientHello,
+      DecodeHex('000cfe0d00080011223344556677'));
+    CheckTrue(LCtx.EchPresent,
+      'an encrypted_client_hello in a ClientHello is recognized');
+    CheckEquals(Int64(8), Int64(System.Length(LCtx.EchExtensionData)),
+      'the ech extension_data is captured');
+  finally
+    LCtx.Free;
+  end;
+end;
+
+procedure TTestExtensionCodec.TestEchInServerHelloIsUnsupportedExtension;
+begin
+  // an empty encrypted_client_hello in a ServerHello, offered so it clears the unsolicited
+  // check and reaches the context check (ech is valid only in CH / HRR / EE)
+  CheckTrue(ConsumeRaisesUnsupported(TTlsExtensionContextKind.ServerHello,
+    DecodeHex('0004fe0d0000'), Int32(TExtensionTypes.EncryptedClientHello)),
+    'an encrypted_client_hello in a ServerHello is unsupported_extension');
+end;
+
+procedure TTestExtensionCodec.TestEchInCertificateIsUnsupportedExtension;
+begin
+  // an empty encrypted_client_hello in a Certificate, offered so the context check is reached
+  CheckTrue(ConsumeRaisesUnsupported(TTlsExtensionContextKind.Certificate,
+    DecodeHex('0004fe0d0000'), Int32(TExtensionTypes.EncryptedClientHello)),
+    'an encrypted_client_hello in a Certificate is unsupported_extension');
+end;
+
+procedure TTestExtensionCodec.TestHrrEchNotEightBytesIsDecodeError;
+var
+  LCtx: TExtensionContext;
+  LRaised: Boolean;
+begin
+  LCtx := NewContext;
+  try
+    LCtx.MarkOffered(TExtensionTypes.EncryptedClientHello);
+    LRaised := False;
+    try
+      // a HelloRetryRequest ech carries the fixed 8-byte confirmation; three bytes is malformed
+      FCodec.ConsumeBlock(LCtx, TTlsExtensionContextKind.HelloRetryRequest,
+        DecodeHex('0007fe0d0003aabbcc'));
+    except
+      on E: EDecodeErrorTlsLibException do
+        LRaised := True;
+    end;
+    CheckTrue(LRaised,
+      'a HelloRetryRequest ech that is not 8 bytes is a decode_error');
+  finally
+    LCtx.Free;
   end;
 end;
 

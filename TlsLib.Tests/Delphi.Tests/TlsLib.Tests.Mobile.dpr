@@ -120,6 +120,7 @@ uses
   TlpTlsEngineFactory in '..\..\TlsLib\src\Engine\TlpTlsEngineFactory.pas',
   TlpExtensionContext in '..\..\TlsLib\src\Extensions\TlpExtensionContext.pas',
   TlpExtensionVector in '..\..\TlsLib\src\Extensions\TlpExtensionVector.pas',
+  TlpEchRegistryExtension in '..\..\TlsLib\src\Ech\TlpEchRegistryExtension.pas',
   TlpITlsExtension in '..\..\TlsLib\src\Interfaces\Extensions\TlpITlsExtension.pas',
   TlpExtensionBlockCodec in '..\..\TlsLib\src\Extensions\TlpExtensionBlockCodec.pas',
   TlpCoreExtensions in '..\..\TlsLib\src\Extensions\TlpCoreExtensions.pas',
