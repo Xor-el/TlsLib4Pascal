@@ -1,0 +1,38 @@
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_09d3c46d1a9b1f::t_b5aaf5030c5e1b 143
+TlsLib.Tests/src/ExtensionCodecTests.pas
+  s_09d3c46d1a9b1f::t_a58f5790586acd 34
+  s_09d3c46d1a9b1f::t_11bcaced099e65 81-82
+  s_09d3c46d1a9b1f::t_bd650a00248fec 652-703
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_09d3c46d1a9b1f::t_18d502f7a8f9e5 298-299
+  s_09d3c46d1a9b1f::t_518043be2b742c 571-572
+  s_09d3c46d1a9b1f::t_16b7b47d8b1e23 704-709
+  s_09d3c46d1a9b1f::t_3264f2b771bf04 796
+  s_09d3c46d1a9b1f::t_6d8e3e6520c8b0 801-804
+  s_09d3c46d1a9b1f::t_e293aa45db16e9 1391-1392
+  s_09d3c46d1a9b1f::t_a49a557b3647db 1910-1912
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_9b36b6d0d2e3ee 1198
+  s_09d3c46d1a9b1f::t_2c4a6f8d4bb986 1558,1573-1577
+  s_09d3c46d1a9b1f::t_5a9be882a884a3 1193-1197,1199-1201,1205
+TlsLib/src/Extensions/TlpGrease.pas
+  s_09d3c46d1a9b1f::t_2e1344ed54d684 20
+  s_09d3c46d1a9b1f::t_a5f32ddcb8f2da 74,76-80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "07f65dd20c3027f92e45bfdc68d459b7289f3fa3",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
