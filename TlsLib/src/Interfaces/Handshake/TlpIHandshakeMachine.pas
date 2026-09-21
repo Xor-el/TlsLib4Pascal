@@ -20,6 +20,7 @@ uses
   TlpTlsAlert,
   TlpTlsVersion,
   TlpITlsEngine,
+  TlpHandshakeStage,
   TlpHandshakeMessage,
   TlpHandshakeEffect;
 
@@ -37,6 +38,10 @@ type
     /// ClientHello) rather than responding to it (a server). Drives the initial
     /// legacy_record_version (RFC 8446 5.1).</summary>
     function Initiates: Boolean;
+    /// <summary>The coarse handshake stage (Handshaking / ParkedForVerdict / Connected), read by
+    /// the engine and conductor to gate KeyUpdate, exporter availability, and completion without
+    /// scanning effects or proxy flags.</summary>
+    function Stage: THandshakeStage;
     function Start: TArray<THandshakeEffect>;
     function ProcessMessage(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>;

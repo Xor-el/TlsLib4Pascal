@@ -259,7 +259,7 @@ type
     destructor Destroy; override;
     function Initiates: Boolean; override;
     function Start: TArray<THandshakeEffect>; override;
-    function ResumeAfterVerdict: TArray<THandshakeEffect>; override;
+    function ContinueAfterVerdict: TArray<THandshakeEffect>; override;
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       AUseContext: Boolean; ALength: Int32): TBytes; override;
     function CanExportKeyingMaterial: Boolean; override;
@@ -561,7 +561,7 @@ begin
     not (FParams.LiveRevocationDeferral and
     (LVerified.Outcome = TVerificationOutcome.RevocationSettledInline)) then
     TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.AwaitCertificateVerdict(FCertChain, LVerified.Path,
+      ParkForVerdict(FCertChain, LVerified.Path,
       FParams.ExpectedServerName.ToString, FReceivedOcspStaple));
 end;
 
@@ -893,6 +893,7 @@ begin
       @SBadServerFinished);
 
   FPhase := TPhase.Connected;
+  MarkConnected;
   Result := CacheCompletedSession;
   // the session is cached (it captured the master secret); release the handshake-stage key
   // material - the connection keeps the master secret for the RFC 5705 exporter
@@ -1020,7 +1021,7 @@ begin
   begin
     FPhase := TPhase.WaitResumeVerdict;
     Exit(TArray<THandshakeEffect>.Create(
-      THandshakeEffects.AwaitCertificateVerdict(FResumptionOffer.PeerCertificates,
+      ParkForVerdict(FResumptionOffer.PeerCertificates,
       FResumeValidatedPath, FParams.ExpectedServerName.ToString, nil)));
   end;
 
@@ -1039,6 +1040,7 @@ begin
     THandshakeMessages.EncodeFinished(LVerifyData));
 
   FPhase := TPhase.Connected;
+  MarkConnected;
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.SendChangeCipherSpec,
     THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
@@ -1057,7 +1059,7 @@ begin
     THandshakeEffects.HandshakeEstablished);
 end;
 
-function TTls12ClientStateMachine.ResumeAfterVerdict: TArray<THandshakeEffect>;
+function TTls12ClientStateMachine.ContinueAfterVerdict: TArray<THandshakeEffect>;
 begin
   // only the reverify-on-resume park withholds a continuation; other paths resume by draining
   // the buffered server flight, so there is nothing to emit for them

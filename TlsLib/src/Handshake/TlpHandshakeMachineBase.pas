@@ -24,6 +24,7 @@ uses
   TlpTranscriptHash,
   TlpITlsExtension,
   TlpExtensionBlockCodec,
+  TlpHandshakeStage,
   TlpHandshakeMessage,
   TlpHandshakeEffect,
   TlpIHandshakeMachine;
@@ -43,9 +44,21 @@ type
     FTranscript: ITranscriptHash;
     FSelectedSuite: TTlsCipherSuite;
     FRenegotiationRefused: Boolean;
+    FStage: THandshakeStage;
     /// <summary>Routes one message to its phase handler.</summary>
     function Route(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>; virtual; abstract;
+    /// <summary>Marks the handshake established (Stage = Connected). Called where a machine emits
+    /// its HandshakeEstablished, so Stage = Connected iff that event was emitted.</summary>
+    procedure MarkConnected;
+    /// <summary>Suspends the machine for an out-of-band peer-certificate verdict: sets Stage =
+    /// ParkedForVerdict and returns the AwaitCertificateVerdict effect the driver reports.</summary>
+    function ParkForVerdict(const AChain, AValidatedPath: TArray<TBytes>;
+      const AHostName: string; const AStaple: TBytes): THandshakeEffect;
+    /// <summary>The withheld continuation resumed after a message-less verdict park; nil by
+    /// default, overridden by the clients' reverify-on-resume park. ResumeAfterVerdict clears the
+    /// park stage and returns this.</summary>
+    function ContinueAfterVerdict: TArray<THandshakeEffect>; virtual;
     /// <summary>The effect that aborts on a message arriving out of phase.</summary>
     class function Unexpected: TArray<THandshakeEffect>; static;
     /// <summary>Refuses a post-handshake renegotiation request: the first is answered with a
@@ -56,6 +69,9 @@ type
     constructor Create(const AExtensionRegistry: IExtensionRegistry);
     /// <summary>A responder (server) by default; the client machines override to True.</summary>
     function Initiates: Boolean; virtual;
+    /// <summary>The coarse handshake stage; starts Handshaking, MarkConnected/ParkForVerdict/
+    /// ResumeAfterVerdict move it.</summary>
+    function Stage: THandshakeStage;
     function Start: TArray<THandshakeEffect>; virtual; abstract;
     function ProcessMessage(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>;
@@ -64,9 +80,10 @@ type
     function RequestKeyUpdate(ARequestPeerUpdate: Boolean)
       : TArray<THandshakeEffect>; virtual;
     function TakePendingKeyUpdate: TArray<THandshakeEffect>; virtual;
-    /// <summary>No withheld continuation by default; the TLS 1.3 and 1.2 clients override for
-    /// their reverify-on-resume park.</summary>
-    function ResumeAfterVerdict: TArray<THandshakeEffect>; virtual;
+    /// <summary>Resumes a message-less verdict park: clears the park stage (back to Handshaking)
+    /// and returns the machine's withheld continuation (ContinueAfterVerdict). The client machines
+    /// supply the continuation by overriding ContinueAfterVerdict.</summary>
+    function ResumeAfterVerdict: TArray<THandshakeEffect>;
     /// <summary>No exporter until a machine derives its secrets; concrete versions override.</summary>
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       AUseContext: Boolean; ALength: Int32): TBytes; virtual;
@@ -88,6 +105,30 @@ end;
 function THandshakeMachineBase.Initiates: Boolean;
 begin
   Result := False;
+end;
+
+function THandshakeMachineBase.Stage: THandshakeStage;
+begin
+  Result := FStage;
+end;
+
+procedure THandshakeMachineBase.MarkConnected;
+begin
+  FStage := THandshakeStage.Connected;
+end;
+
+function THandshakeMachineBase.ParkForVerdict(const AChain,
+  AValidatedPath: TArray<TBytes>; const AHostName: string;
+  const AStaple: TBytes): THandshakeEffect;
+begin
+  FStage := THandshakeStage.ParkedForVerdict;
+  Result := THandshakeEffects.AwaitCertificateVerdict(AChain, AValidatedPath,
+    AHostName, AStaple);
+end;
+
+function THandshakeMachineBase.ContinueAfterVerdict: TArray<THandshakeEffect>;
+begin
+  Result := nil;
 end;
 
 class function THandshakeMachineBase.Unexpected: TArray<THandshakeEffect>;
@@ -122,7 +163,9 @@ end;
 
 function THandshakeMachineBase.ResumeAfterVerdict: TArray<THandshakeEffect>;
 begin
-  Result := nil;
+  // the out-of-band verdict resolved: leave the park and hand back the withheld continuation
+  FStage := THandshakeStage.Handshaking;
+  Result := ContinueAfterVerdict;
 end;
 
 function THandshakeMachineBase.ExportKeyingMaterial(const ALabel: string;

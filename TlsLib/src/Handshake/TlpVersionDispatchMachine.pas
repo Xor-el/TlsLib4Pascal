@@ -29,6 +29,7 @@ uses
   TlpHandshakeMessage,
   TlpHandshakeMessages,
   TlpHandshakeEffect,
+  TlpHandshakeStage,
   TlpIHandshakeMachine,
   TlpTls13ClientStateMachine,
   TlpTls13ServerStateMachine,
@@ -58,6 +59,9 @@ type
   public
     /// <summary>A responder (server dispatcher) by default; the client dispatcher overrides.</summary>
     function Initiates: Boolean; virtual;
+    /// <summary>Forwards the coarse stage from the resolved sub-machine (Handshaking until one
+    /// is chosen).</summary>
+    function Stage: THandshakeStage;
     function Start: TArray<THandshakeEffect>; virtual; abstract;
     function ProcessMessage(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>;
@@ -156,6 +160,15 @@ begin
         Result := TArray<THandshakeEffect>.Create(
           THandshakeEffects.Fail(E.AlertDescription));
     end;
+end;
+
+function TVersionDispatchMachineBase.Stage: THandshakeStage;
+begin
+  // Handshaking until a sub-machine is resolved; then whatever it reports
+  if FInner <> nil then
+    Result := FInner.Stage
+  else
+    Result := THandshakeStage.Handshaking;
 end;
 
 function TVersionDispatchMachineBase.RequestKeyUpdate(

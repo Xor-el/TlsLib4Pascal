@@ -791,7 +791,7 @@ begin
       not (FParams.LiveRevocationDeferral and
       (LVerified.Outcome = TVerificationOutcome.RevocationSettledInline)) then
       TArrayUtilities.Append<THandshakeEffect>(Result,
-        THandshakeEffects.AwaitCertificateVerdict(FClientCertChain, LVerified.Path, '', nil));
+        ParkForVerdict(FClientCertChain, LVerified.Path, '', nil));
   end;
 
   FPhase := TPhase.WaitClientKeyExchange;
@@ -1053,6 +1053,7 @@ begin
     (System.Length(FSessionId) > 0) then
     FParams.SessionStore.PutWithId(FSessionId, FResumedSession);
   FPhase := TPhase.Connected;
+  MarkConnected;
   // an abbreviated resumption performs no fresh key exchange, so there is no negotiated group
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code, 0, True,
@@ -1096,6 +1097,7 @@ begin
   FTranscript.Update(LServerFinished);
 
   FPhase := TPhase.Connected;
+  MarkConnected;
   // change_cipher_spec, then the write side moves to the application keys, then the
   // encrypted server Finished is sent
   TArrayUtilities.Append<THandshakeEffect>(Result,

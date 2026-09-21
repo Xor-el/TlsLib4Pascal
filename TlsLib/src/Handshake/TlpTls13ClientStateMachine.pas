@@ -426,7 +426,7 @@ type
     destructor Destroy; override;
     function Initiates: Boolean; override;
     function Start: TArray<THandshakeEffect>; override;
-    function ResumeAfterVerdict: TArray<THandshakeEffect>; override;
+    function ContinueAfterVerdict: TArray<THandshakeEffect>; override;
     /// <summary>The cached TLS 1.2 session this unified ClientHello offered (nil when it
     /// offered none), for a version-dispatching parent to hand to a 1.2 sub-machine when
     /// the server selects 1.2.</summary>
@@ -1984,7 +1984,7 @@ begin
     not (FParams.LiveRevocationDeferral and
     (LVerified.Outcome = TVerificationOutcome.RevocationSettledInline)) then
     TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.AwaitCertificateVerdict(FCertificateChain, LVerified.Path,
+      ParkForVerdict(FCertificateChain, LVerified.Path,
       FParams.ExpectedServerName.ToString, FReceivedOcspStaple));
 end;
 
@@ -2195,8 +2195,8 @@ begin
   begin
     FPhase := TPhase.WaitResumeVerdict;
     Exit(TArray<THandshakeEffect>.Create(
-      THandshakeEffects.AwaitCertificateVerdict(FResumptionPeerCertificates,
-      FResumeValidatedPath, FParams.ExpectedServerName.ToString, nil)));
+      ParkForVerdict(FResumptionPeerCertificates, FResumeValidatedPath,
+      FParams.ExpectedServerName.ToString, nil)));
   end;
 
   Result := BuildClientFinishedFlight;
@@ -2259,6 +2259,7 @@ begin
   end;
 
   FPhase := TPhase.Connected;
+  MarkConnected;
   // the client auth flight and Finished are sent under the handshake write keys, THEN
   // the write side moves to the application keys - order matters
   TArrayUtilities.Append<THandshakeEffect>(Result,
@@ -2288,7 +2289,7 @@ begin
     THandshakeEffects.HandshakeEstablished);
 end;
 
-function TTls13ClientStateMachine.ResumeAfterVerdict: TArray<THandshakeEffect>;
+function TTls13ClientStateMachine.ContinueAfterVerdict: TArray<THandshakeEffect>;
 begin
   // only the reverify-on-resume park withholds a continuation; the initial-certificate park
   // resumes by draining the buffered server flight, so there is nothing to emit for that one

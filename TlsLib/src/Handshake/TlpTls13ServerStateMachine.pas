@@ -1714,7 +1714,7 @@ begin
     not (FParams.LiveRevocationDeferral and
     (LVerified.Outcome = TVerificationOutcome.RevocationSettledInline)) then
     TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.AwaitCertificateVerdict(FClientCertChain, LVerified.Path, '', nil));
+      ParkForVerdict(FClientCertChain, LVerified.Path, '', nil));
 end;
 
 function TTls13ServerStateMachine.ProcessClientCertVerify(
@@ -1806,6 +1806,7 @@ begin
   FSchedule.DeriveResumptionMasterSecret(FTranscript.CurrentHash);
 
   FPhase := TPhase.Connected;
+  MarkConnected;
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
     TTlsDirection.ClientWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13),
