@@ -49,7 +49,7 @@ type
     /// No when it is not, Undetermined on a malformed certificate.
     /// </summary>
     function KeyIsRsaPss: TCertAnswer;
-    function KeyKind(out AKind: TCertKeyKind; out AEcNamedGroup: UInt16): Boolean;
+    function KeyKind(out AKind: TSignatureKeyKind; out AEcNamedGroup: UInt16): Boolean;
     /// <summary>
     /// The subject public key's strength facts (family, size, curve). Returns False (facts
     /// undeterminable - unknown key OID, explicit EC parameters, malformed) so the caller
@@ -142,7 +142,7 @@ type
     /// determine) on a malformed or unrecognized certificate, leaving AKind = Other.
     /// </summary>
     function KeyKind(const ACertificateDer: TBytes;
-      out AKind: TCertKeyKind; out AEcNamedGroup: UInt16): Boolean;
+      out AKind: TSignatureKeyKind; out AEcNamedGroup: UInt16): Boolean;
   end;
 
   /// <summary>

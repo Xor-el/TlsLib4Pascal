@@ -423,7 +423,7 @@ end;
 function TTls12ServerStateMachine.EcdsaCredentialCurveOffered(
   const AClientGroups: TArray<UInt16>): Boolean;
 var
-  LKind: TCertKeyKind;
+  LKind: TSignatureKeyKind;
   LCurve: UInt16;
 begin
   // RFC 8422 5.4 / RFC 4492 5.5: an ECDSA server certificate is usable only when its
@@ -435,7 +435,7 @@ begin
   if not FParams.Inspector.KeyKind(
     FResolvedCredential.CertificateChain[0], LKind, LCurve) then
     Exit;
-  if LKind <> TCertKeyKind.Ecdsa then
+  if LKind <> TSignatureKeyKind.Ecdsa then
     Exit;
   Result := TArrayUtilities.Contains<UInt16>(AClientGroups, LCurve);
 end;

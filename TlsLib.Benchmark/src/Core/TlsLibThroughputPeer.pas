@@ -84,12 +84,12 @@ end;
 function OfferedGroups(const APkix: IPkixProvider;
   const ACredential: TTlsBenchmarkCredential): TArray<UInt16>;
 var
-  LKind: TCertKeyKind;
+  LKind: TSignatureKeyKind;
   LCurve: UInt16;
 begin
   // X25519 for the ECDHE key exchange, plus the ECDSA leaf's curve (RFC 8422 5.4)
   if APkix.Certificates.KeyKind(ACredential.LeafCertDer, LKind, LCurve)
-    and (LKind = TCertKeyKind.Ecdsa) and (LCurve <> TNamedGroupCatalog.X25519) then
+    and (LKind = TSignatureKeyKind.Ecdsa) and (LCurve <> TNamedGroupCatalog.X25519) then
     Result := TArray<UInt16>.Create(TNamedGroupCatalog.X25519, LCurve)
   else
     Result := TArray<UInt16>.Create(TNamedGroupCatalog.X25519);

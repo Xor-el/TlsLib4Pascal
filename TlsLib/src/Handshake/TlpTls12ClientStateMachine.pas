@@ -574,7 +574,7 @@ end;
 function TTls12ClientStateMachine.ProcessCertificate(
   const AMessage: TTlsHandshakeMessage): TArray<THandshakeEffect>;
 var
-  LKind: TCertKeyKind;
+  LKind: TSignatureKeyKind;
   LEcGroup: UInt16;
 begin
   Result := nil;
@@ -592,14 +592,14 @@ begin
     // the leaf key algorithm must match the negotiated suite's authentication method (a
     // CertificateCipherMismatch, RFC 5246 7.4.2): an *_RSA suite needs an RSA leaf; an
     // *_ECDSA suite an EC-family leaf - ECDSA or, per RFC 8422, an EdDSA key
-    if ((FSelectedSuite.Auth = TAuthMethod.Rsa) and (LKind <> TCertKeyKind.Rsa)) or
+    if ((FSelectedSuite.Auth = TAuthMethod.Rsa) and (LKind <> TSignatureKeyKind.Rsa)) or
       ((FSelectedSuite.Auth = TAuthMethod.Ecdsa) and
-      not (LKind in [TCertKeyKind.Ecdsa, TCertKeyKind.Ed25519, TCertKeyKind.Ed448])) then
+      not (LKind in [TSignatureKeyKind.Ecdsa, TSignatureKeyKind.Ed25519, TSignatureKeyKind.Ed448])) then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SCertKeyMismatchesSuite);
     // an ECDSA leaf's curve must be one we advertised: TLS 1.2 takes the ECDSA curve from
     // supported_groups, not the signature algorithm (RFC 8422 5.1 / CheckLeafCurve)
-    if (LKind = TCertKeyKind.Ecdsa) and
+    if (LKind = TSignatureKeyKind.Ecdsa) and
       not (TArrayUtilities.Contains<UInt16>(FParams.OfferedGroups, LEcGroup)) then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SLeafCurveNotOffered);
@@ -718,7 +718,7 @@ var
   LScheme: TSignatureScheme;
   LChain: TArray<TBytes>;
   LCertBytes: TBytes;
-  LKind: TCertKeyKind;
+  LKind: TSignatureKeyKind;
   LEcGroup: UInt16;
   LCertType: Byte;
 begin
@@ -731,7 +731,7 @@ begin
   if (System.Length(LChain) > 0) and
     FParams.Inspector.KeyKind(LChain[0], LKind, LEcGroup) then
   begin
-    if LKind = TCertKeyKind.Rsa then
+    if LKind = TSignatureKeyKind.Rsa then
       LCertType := RsaSignCertType
     else
       LCertType := EcdsaSignCertType;

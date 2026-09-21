@@ -96,7 +96,7 @@ type
     function IpAddresses: TArray<TBytes>;
     function KeyUsagePermits(AUsage: TCertKeyUsage): TCertAnswer;
     function KeyIsRsaPss: TCertAnswer;
-    function KeyKind(out AKind: TCertKeyKind; out AEcNamedGroup: UInt16): Boolean;
+    function KeyKind(out AKind: TSignatureKeyKind; out AEcNamedGroup: UInt16): Boolean;
     function KeyFacts(out AFacts: TCertKeyFacts): Boolean;
     function SignatureFacts(out AFacts: TCertSignatureFacts): Boolean;
     function PeerInfo(out ASubject, AIssuer, ACommonName, ASerialHex: string): Boolean;
@@ -123,7 +123,7 @@ type
       AUsage: TCertKeyUsage): TCertAnswer;
     function KeyIsRsaPss(const ACertificateDer: TBytes): TCertAnswer;
     function KeyKind(const ACertificateDer: TBytes;
-      out AKind: TCertKeyKind; out AEcNamedGroup: UInt16): Boolean;
+      out AKind: TSignatureKeyKind; out AEcNamedGroup: UInt16): Boolean;
   end;
 
   // ICertificatePathValidator - RFC 5280 path validation. The trust-anchor ring is a
@@ -1184,13 +1184,13 @@ begin
 end;
 
 function TCertificateInspector.KeyKind(const ACertificateDer: TBytes;
-  out AKind: TCertKeyKind; out AEcNamedGroup: UInt16): Boolean;
+  out AKind: TSignatureKeyKind; out AEcNamedGroup: UInt16): Boolean;
 begin
   try
     Result := Parse(ACertificateDer).KeyKind(AKind, AEcNamedGroup);
   except
     // an unparseable certificate cannot be classified
-    AKind := TCertKeyKind.Rsa;
+    AKind := TSignatureKeyKind.Rsa;
     AEcNamedGroup := 0;
     Result := False;
   end;
@@ -1267,13 +1267,13 @@ begin
   end;
 end;
 
-function TInspectedCertificate.KeyKind(out AKind: TCertKeyKind;
+function TInspectedCertificate.KeyKind(out AKind: TSignatureKeyKind;
   out AEcNamedGroup: UInt16): Boolean;
 var
   LAlg: IAlgorithmIdentifier;
   LOid, LCurve: IDerObjectIdentifier;
 begin
-  AKind := TCertKeyKind.Rsa; // ignored unless Result is True
+  AKind := TSignatureKeyKind.Rsa; // ignored unless Result is True
   AEcNamedGroup := 0;
   try
     LAlg := FCert.GetSubjectPublicKeyInfo.GetAlgorithm;
@@ -1284,15 +1284,15 @@ begin
   Result := True;
   if LOid.Equals(TPkcsObjectIdentifiers.RsaEncryption) or
     (LOid.GetID = RsaSsaPssKeyOid) then
-    AKind := TCertKeyKind.Rsa
+    AKind := TSignatureKeyKind.Rsa
   else if LOid.Equals(TEdECObjectIdentifiers.IdEd25519) then
-    AKind := TCertKeyKind.Ed25519
+    AKind := TSignatureKeyKind.Ed25519
   else if LOid.Equals(TEdECObjectIdentifiers.IdEd448) then
-    AKind := TCertKeyKind.Ed448
+    AKind := TSignatureKeyKind.Ed448
   else if LOid.Equals(TX9ObjectIdentifiers.IdECPublicKey) and (LAlg.Parameters <> nil) and
     Supports(LAlg.Parameters.ToAsn1Object, IDerObjectIdentifier, LCurve) then
   begin
-    AKind := TCertKeyKind.Ecdsa;
+    AKind := TSignatureKeyKind.Ecdsa;
     // the leaf's named curve as an IANA supported_groups code; 0 when unrecognized
     if LCurve.Equals(TX9ObjectIdentifiers.Prime256v1) then
       AEcNamedGroup := TNamedGroupCatalog.Secp256r1
@@ -1315,12 +1315,12 @@ begin
     Exit(False);
   try
     case AFacts.Kind of
-      TCertKeyKind.Rsa:
+      TSignatureKeyKind.Rsa:
         if Supports(FCert.GetPublicKey, IRsaKeyParameters, LRsa) then
           AFacts.Bits := LRsa.Modulus.BitLength
         else
           Exit(False);
-      TCertKeyKind.Ecdsa:
+      TSignatureKeyKind.Ecdsa:
         // field size follows the recognised named curve; an unrecognised curve stays 0
         case AFacts.EcNamedGroup of
           TNamedGroupCatalog.Secp256r1:

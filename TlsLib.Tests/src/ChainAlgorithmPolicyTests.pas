@@ -103,7 +103,7 @@ var
 begin
   CheckTrue(Pkix.Certificates.Parse(EcCert('leaf_cert')).KeyFacts(LFacts),
     'the P-256 leaf key is classifiable');
-  CheckTrue(LFacts.Kind = TCertKeyKind.Ecdsa, 'ECDSA key');
+  CheckTrue(LFacts.Kind = TSignatureKeyKind.Ecdsa, 'ECDSA key');
   CheckEquals(Integer(TNamedGroupCatalog.Secp256r1), Integer(LFacts.EcNamedGroup),
     'secp256r1 named group');
   CheckEquals(256, LFacts.Bits, 'P-256 field size');
@@ -115,7 +115,7 @@ var
 begin
   CheckTrue(Pkix.Certificates.Parse(RsaCert('leaf_cert')).KeyFacts(LFacts),
     'the RSA leaf key is classifiable');
-  CheckTrue(LFacts.Kind = TCertKeyKind.Rsa, 'RSA key');
+  CheckTrue(LFacts.Kind = TSignatureKeyKind.Rsa, 'RSA key');
   CheckEquals(2048, LFacts.Bits, 'RSA-2048 modulus');
 end;
 

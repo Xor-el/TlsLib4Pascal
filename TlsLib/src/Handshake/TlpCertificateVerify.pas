@@ -160,7 +160,7 @@ class procedure TCertificateVerify.EnforceSigningLeafPolicy(
   const ALeaf: IInspectedCertificate; const AScheme: TSignatureScheme;
   ABindEcdsaCurve: Boolean);
 var
-  LKind: TCertKeyKind;
+  LKind: TSignatureKeyKind;
   LKindKnown: Boolean;
   LCertGroup, LSchemeGroup: UInt16;
 begin
@@ -186,7 +186,7 @@ begin
   begin
     LSchemeGroup := EcdsaSchemeNamedGroup(AScheme);
     if (LSchemeGroup <> 0) and LKindKnown and
-      (LKind = TCertKeyKind.Ecdsa) and (LCertGroup <> LSchemeGroup) then
+      (LKind = TSignatureKeyKind.Ecdsa) and (LCertGroup <> LSchemeGroup) then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SEcdsaSchemeCurveMismatch);
   end;

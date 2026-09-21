@@ -60,7 +60,7 @@ type
   /// family, its size (RSA modulus bits; EC field size in bits; 0 for EdDSA), and the IANA
   /// named-group code of a recognized curve (0 = other or explicit parameters).</summary>
   TCertKeyFacts = record
-    Kind: TCertKeyKind;
+    Kind: TSignatureKeyKind;
     Bits: Int32;
     EcNamedGroup: UInt16;
   end;

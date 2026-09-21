@@ -110,7 +110,7 @@ type
   /// Maps a signature scheme to the leaf key family it needs (RFC 8446 4.2.3) and classifies
   /// a bare public key for signature verification; also the key family a certificate carries.
   /// </summary>
-  TCertKeyKind = (Rsa, Ecdsa, Ed25519, Ed448);
+  TSignatureKeyKind = (Rsa, Ecdsa, Ed25519, Ed448);
 
   /// <summary>
   /// How a named group performs its key exchange: Ecdhe is a classical ephemeral
@@ -182,7 +182,7 @@ type
     function IsValidForHandshake(const AVersion: TTlsVersion): Boolean;
     /// <summary>The leaf key family a signature under this scheme must come from (RFC 8446
     /// 4.2.3): ecdsa_* -> Ecdsa, ed25519 -> Ed25519, ed448 -> Ed448, all rsa_* -> Rsa.</summary>
-    function KeyKind: TCertKeyKind;
+    function KeyKind: TSignatureKeyKind;
   end;
 
 implementation
@@ -310,7 +310,7 @@ begin
   Result := (not AVersion.Equals(TTlsVersion.Tls13)) or (not IsRsaPkcs1);
 end;
 
-function TSignatureSchemeHelper.KeyKind: TCertKeyKind;
+function TSignatureSchemeHelper.KeyKind: TSignatureKeyKind;
 begin
   // every scheme is mapped explicitly (no catch-all): a future scheme with a different key family
   // must add its own arm rather than be silently miscategorised as RSA
@@ -318,18 +318,18 @@ begin
     TSignatureScheme.ECDSA_SECP256R1_SHA256,
     TSignatureScheme.ECDSA_SECP384R1_SHA384,
     TSignatureScheme.ECDSA_SECP521R1_SHA512:
-      Result := TCertKeyKind.Ecdsa;
+      Result := TSignatureKeyKind.Ecdsa;
     TSignatureScheme.ED25519:
-      Result := TCertKeyKind.Ed25519;
+      Result := TSignatureKeyKind.Ed25519;
     TSignatureScheme.ED448:
-      Result := TCertKeyKind.Ed448;
+      Result := TSignatureKeyKind.Ed448;
     TSignatureScheme.RSA_PSS_RSAE_SHA256,
     TSignatureScheme.RSA_PSS_RSAE_SHA384,
     TSignatureScheme.RSA_PSS_RSAE_SHA512,
     TSignatureScheme.RSA_PKCS1_SHA256,
     TSignatureScheme.RSA_PKCS1_SHA384,
     TSignatureScheme.RSA_PKCS1_SHA512:
-      Result := TCertKeyKind.Rsa;
+      Result := TSignatureKeyKind.Rsa;
   else
     raise ENotSupportedTlsLibException.CreateResFmt(@SNoSchemeKeyKind, [Ord(Self)]);
   end;

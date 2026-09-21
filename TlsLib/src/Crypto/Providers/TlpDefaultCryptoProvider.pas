@@ -537,7 +537,7 @@ type
     /// provider does not model (e.g. X25519/DH/DSA), which the verifier factory then rejects since
     /// no catalogued signature scheme can be verified with such a key.</summary>
     class function KeyKindOf(const AKey: IAsymmetricKeyParameter;
-      out AKind: TCertKeyKind): Boolean; static;
+      out AKind: TSignatureKeyKind): Boolean; static;
   public
     constructor Create(const ARandom: ISecureRandom);
     function ImportSigningKey(const AData: TBytes): ISigningKey; overload;
@@ -1766,17 +1766,17 @@ begin
 end;
 
 class function TSigningCrypto.KeyKindOf(const AKey: IAsymmetricKeyParameter;
-  out AKind: TCertKeyKind): Boolean;
+  out AKind: TSignatureKeyKind): Boolean;
 begin
   Result := True;
   if Supports(AKey, IRsaKeyParameters) then
-    AKind := TCertKeyKind.Rsa
+    AKind := TSignatureKeyKind.Rsa
   else if Supports(AKey, IECPublicKeyParameters) then
-    AKind := TCertKeyKind.Ecdsa
+    AKind := TSignatureKeyKind.Ecdsa
   else if Supports(AKey, IEd25519PublicKeyParameters) then
-    AKind := TCertKeyKind.Ed25519
+    AKind := TSignatureKeyKind.Ed25519
   else if Supports(AKey, IEd448PublicKeyParameters) then
-    AKind := TCertKeyKind.Ed448
+    AKind := TSignatureKeyKind.Ed448
   else
     Result := False;
 end;
@@ -1814,7 +1814,7 @@ function TSigningCrypto.CreateSignatureVerifier(AScheme: TSignatureScheme;
   const APublicKeyDer: TBytes): ISignatureVerifier;
 var
   LKey: IAsymmetricKeyParameter;
-  LKind: TCertKeyKind;
+  LKind: TSignatureKeyKind;
   LSigner: ISigner;
 begin
   // parse the SubjectPublicKeyInfo behind a typed exception (a malformed SPKI is a caller/peer

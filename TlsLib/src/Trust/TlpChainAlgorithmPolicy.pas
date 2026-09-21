@@ -113,17 +113,17 @@ class function TChainAlgorithmPolicy.KeyMeetsPolicy(const AFacts: TCertKeyFacts;
   const APolicy: TCertificateStrengthPolicy): Boolean;
 begin
   case AFacts.Kind of
-    TCertKeyKind.Rsa:
+    TSignatureKeyKind.Rsa:
       Result := (AFacts.Bits >= APolicy.MinRsaModulusBits) and
         ((APolicy.MaxRsaModulusBits = 0) or (AFacts.Bits <= APolicy.MaxRsaModulusBits));
-    TCertKeyKind.Ecdsa:
+    TSignatureKeyKind.Ecdsa:
       // an empty allowlist admits any curve the provider recognises (a code of 0 is unknown)
       if System.Length(APolicy.AllowedEcCurves) = 0 then
         Result := AFacts.EcNamedGroup <> 0
       else
         Result := TArrayUtilities.Contains<UInt16>(APolicy.AllowedEcCurves,
           AFacts.EcNamedGroup);
-    TCertKeyKind.Ed25519, TCertKeyKind.Ed448:
+    TSignatureKeyKind.Ed25519, TSignatureKeyKind.Ed448:
       Result := APolicy.AllowEdDsa;
   else
     Result := False;

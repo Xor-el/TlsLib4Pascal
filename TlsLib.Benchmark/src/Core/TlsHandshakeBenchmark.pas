@@ -126,12 +126,12 @@ var
   // it (RFC 8422 5.4) exactly as the TlsLib peer does; 0 for a non-ECDSA leaf
   function CertGroupCode: UInt16;
   var
-    LKind: TCertKeyKind;
+    LKind: TSignatureKeyKind;
     LCurve: UInt16;
   begin
     Result := 0;
     if LPkix.Certificates.KeyKind(LCredential.LeafCertDer, LKind, LCurve)
-      and (LKind = TCertKeyKind.Ecdsa) then
+      and (LKind = TSignatureKeyKind.Ecdsa) then
       Result := LCurve;
   end;
 

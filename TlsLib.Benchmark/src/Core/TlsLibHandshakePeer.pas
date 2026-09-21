@@ -87,7 +87,7 @@ var
   LServerBuilder: ITlsConfigBuilder;
   LClient: ITlsClientConfigBuilder;
   LServer: ITlsServerConfigBuilder;
-  LKind: TCertKeyKind;
+  LKind: TSignatureKeyKind;
   LCertCurve, LCertGroup: UInt16;
 begin
   inherited Create;
@@ -97,7 +97,7 @@ begin
   // not tied to one curve; 0 (offer nothing extra) for a non-ECDSA leaf
   LCertGroup := 0;
   if APkix.Certificates.KeyKind(ACredential.LeafCertDer, LKind, LCertCurve)
-    and (LKind = TCertKeyKind.Ecdsa) then
+    and (LKind = TSignatureKeyKind.Ecdsa) then
     LCertGroup := LCertCurve;
 
   // hold the builder in an interface local while configuring: the facets keep only a raw
