@@ -31,6 +31,7 @@ uses
   TlpNegotiationTypes,
   TlpWireReader,
   TlpExtensionContext,
+  TlpExtensionVector,
   TlpITlsExtension,
   TlpExtensionBlockCodec,
   TlpCoreExtensions,
@@ -77,6 +78,8 @@ type
     procedure TestEchInServerHelloIsUnsupportedExtension;
     procedure TestEchInCertificateIsUnsupportedExtension;
     procedure TestHrrEchNotEightBytesIsDecodeError;
+    procedure TestEchOffersBeforePreSharedKey;
+    procedure TestEchIsLastWithoutPreSharedKey;
   end;
 
 implementation
@@ -643,6 +646,58 @@ begin
       'a HelloRetryRequest ech that is not 8 bytes is a decode_error');
   finally
     LCtx.Free;
+  end;
+end;
+
+procedure TTestExtensionCodec.TestEchOffersBeforePreSharedKey;
+var
+  LSrc: TExtensionContext;
+  LVector: TExtensionVector;
+begin
+  // ech and pre_shared_key both offered: the registry must place ech immediately before the
+  // PSK (which stays last), reproducing the position the former insert-before-PSK splice held
+  LSrc := NewContext;
+  try
+    LSrc.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls13);
+    LSrc.SupportedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.X25519);
+    LSrc.EchExtensionData := DecodeHex('0011223344556677');
+    LSrc.PskModes := TBytes.Create(Byte(1));
+    SetLength(LSrc.OfferedPskIdentities, 1);
+    LSrc.OfferedPskIdentities[0] := DecodeHex('AABBCC');
+    SetLength(LSrc.OfferedPskAges, 1);
+    LSrc.OfferedPskAges[0] := 0;
+    SetLength(LSrc.OfferedPskBinders, 1);
+    SetLength(LSrc.OfferedPskBinders[0], 32);
+    LVector := TExtensionVector.Parse(
+      FCodec.ProduceBlock(LSrc, TTlsExtensionContextKind.ClientHello));
+    CheckTrue(LVector.Contains(TExtensionTypes.EncryptedClientHello), 'ech is present');
+    CheckTrue(LVector.IsLast(TExtensionTypes.PreSharedKey),
+      'pre_shared_key is the last extension');
+    CheckEquals(Int64(LVector.IndexOf(TExtensionTypes.PreSharedKey) - 1),
+      Int64(LVector.IndexOf(TExtensionTypes.EncryptedClientHello)),
+      'ech sits immediately before pre_shared_key');
+  finally
+    LSrc.Free;
+  end;
+end;
+
+procedure TTestExtensionCodec.TestEchIsLastWithoutPreSharedKey;
+var
+  LSrc: TExtensionContext;
+  LVector: TExtensionVector;
+begin
+  // ech offered without a PSK: nothing follows it in registration order, so it is last
+  LSrc := NewContext;
+  try
+    LSrc.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls13);
+    LSrc.SupportedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.X25519);
+    LSrc.EchExtensionData := DecodeHex('0011223344556677');
+    LVector := TExtensionVector.Parse(
+      FCodec.ProduceBlock(LSrc, TTlsExtensionContextKind.ClientHello));
+    CheckTrue(LVector.IsLast(TExtensionTypes.EncryptedClientHello),
+      'ech is the last ClientHello extension when no pre_shared_key follows');
+  finally
+    LSrc.Free;
   end;
 end;
 

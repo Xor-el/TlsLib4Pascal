@@ -1183,10 +1183,6 @@ function TTls13ServerStateMachine.BuildHelloRetryRequest(
 var
   LContext: TExtensionContext;
   LHello: TTlsServerHello;
-  LBlock, LBody: TBytes;
-  LEchEntry: TArray<TEchExtEntry>;
-  LWriter: IWireWriter;
-  LMarker: TWireVectorMarker;
   LZeroConf: TBytes;
 begin
   LContext := TExtensionContext.Create;
@@ -1194,31 +1190,23 @@ begin
     LContext.HelloRetryGroup := ASelectedGroup;
     LContext.Cookie := ACookie;
     LContext.SelectedVersion := TlsWireVersionTls13;
+    // under ECH accept the HRR carries an encrypted_client_hello with an 8-byte accept
+    // confirmation; the registry places it LAST (nothing in a HRR follows it), so its payload is
+    // the final 8 bytes (RFC 9849 sec. 7.2.1) - stamped in below over the zero placeholder
+    if System.Length(AEchInnerCh1Hash) > 0 then
+    begin
+      LZeroConf := nil;
+      SetLength(LZeroConf, 8);
+      LContext.EchExtensionData := TEchExtension.EncodeHrrConfirmation(LZeroConf);
+    end;
     LHello.Random := THelloRetryRequest.SentinelRandom;
     LHello.LegacySessionIdEcho := ALegacySessionId;
     LHello.CipherSuite := FSelectedSuite.Common.Code;
-    LBlock := FCodec.ProduceBlock(LContext,
+    LHello.Extensions := FCodec.ProduceBlock(LContext,
       TTlsExtensionContextKind.HelloRetryRequest);
   finally
     LContext.Free;
   end;
-  // under ECH accept the HRR carries an encrypted_client_hello with an 8-byte accept
-  // confirmation, spliced LAST so its payload is the final 8 bytes (RFC 9849 sec. 7.2.1)
-  if System.Length(AEchInnerCh1Hash) > 0 then
-  begin
-    SetLength(LZeroConf, 8);
-    SetLength(LEchEntry, 1);
-    LEchEntry[0].ExtType := TExtensionTypes.EncryptedClientHello;
-    LEchEntry[0].Data := TEchExtension.EncodeHrrConfirmation(LZeroConf);
-    LBody := System.Copy(LBlock, 2, System.Length(LBlock) - 2) +
-      TEchOuterExtensions.EncodeExtensions(LEchEntry);
-    LWriter := TWireWriter.Create;
-    LMarker := LWriter.OpenVector(2);
-    LWriter.WriteBytes(LBody);
-    LWriter.CloseVector(LMarker);
-    LBlock := LWriter.ToBytes;
-  end;
-  LHello.Extensions := LBlock;
   Result := THandshakeFraming.Frame(TTlsHandshakeType.ServerHello,
     THandshakeMessages.EncodeServerHello(LHello));
   if System.Length(AEchInnerCh1Hash) > 0 then
@@ -1567,10 +1555,7 @@ end;
 function TTls13ServerStateMachine.BuildEncryptedExtensions: TBytes;
 var
   LContext: TExtensionContext;
-  LBlock, LBody: TBytes;
-  LEchEntry: TArray<TEchExtEntry>;
-  LWriter: IWireWriter;
-  LMarker: TWireVectorMarker;
+  LBlock: TBytes;
 begin
   if System.Length(FParams.EncryptedExtensionsOverride) > 0 then
     Exit(System.Copy(FParams.EncryptedExtensionsOverride));
@@ -1585,26 +1570,15 @@ begin
       FParams.ServerNameAck and not FPskAccepted;
     // signal 0-RTT acceptance to the client (an empty early_data in EncryptedExtensions)
     LContext.EarlyDataAccepted := FEarlyDataAccepted;
+    // on ECH reject the client-facing server advertises retry_configs so the client can refresh
+    // its keys (RFC 9849 sec. 7.1); the registry places the ech extension (payload is an
+    // ECHConfigList) last in the EncryptedExtensions vector
+    if (FEchStatus = TEchStatus.Rejected) and (System.Length(FEchRetryConfigs) > 0) then
+      LContext.EchExtensionData := TEchExtension.EncodeRetryConfigs(FEchRetryConfigs);
     LBlock := FCodec.ProduceBlock(LContext,
       TTlsExtensionContextKind.EncryptedExtensions);
   finally
     LContext.Free;
-  end;
-  // on ECH reject the client-facing server advertises retry_configs so the client can refresh
-  // its keys (RFC 9849 sec. 7.1); splice the ech extension (payload is an ECHConfigList) into
-  // the produced extensions vector - it wraps the entries, so unwrap, append, and re-wrap
-  if (FEchStatus = TEchStatus.Rejected) and (System.Length(FEchRetryConfigs) > 0) then
-  begin
-    SetLength(LEchEntry, 1);
-    LEchEntry[0].ExtType := TExtensionTypes.EncryptedClientHello;
-    LEchEntry[0].Data := TEchExtension.EncodeRetryConfigs(FEchRetryConfigs);
-    LBody := System.Copy(LBlock, 2, System.Length(LBlock) - 2) +
-      TEchOuterExtensions.EncodeExtensions(LEchEntry);
-    LWriter := TWireWriter.Create;
-    LMarker := LWriter.OpenVector(2);
-    LWriter.WriteBytes(LBody);
-    LWriter.CloseVector(LMarker);
-    LBlock := LWriter.ToBytes;
   end;
   Result := THandshakeFraming.Frame(TTlsHandshakeType.EncryptedExtensions,
     THandshakeMessages.EncodeEncryptedExtensions(LBlock));
