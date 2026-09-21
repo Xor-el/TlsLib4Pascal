@@ -1,0 +1,44 @@
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.pas
+  s_09d3c46d1a9b1f::t_070a25dadebb8a 50
+TlsLib/src/Extensions/TlpExtensionVector.pas
+  s_09d3c46d1a9b1f::t_a4a6ecb00a4d6e 1-303
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_09d3c46d1a9b1f::t_378ac6a99f806c 214
+  s_09d3c46d1a9b1f::t_e3f9c17b777cc5 122
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpr
+  s_09d3c46d1a9b1f::t_1a3f00bb17c0cd 81
+TlsLib.Tests/FreePascal.Tests/TlsLib.lpr
+  s_09d3c46d1a9b1f::t_1a3f00bb17c0cd 83
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
+  s_09d3c46d1a9b1f::t_bd719deca56e8e 552-555
+  s_09d3c46d1a9b1f::t_03f99f4428d438 31
+TlsLib.Tests/src/ExtensionVectorTests.pas
+  s_09d3c46d1a9b1f::t_b9b2f7a7da9b03 202-203
+  s_09d3c46d1a9b1f::t_6301420626ac11 40
+  s_09d3c46d1a9b1f::t_d58396ad6fb392 94-104
+  s_09d3c46d1a9b1f::t_71ad124940e898 125
+  s_09d3c46d1a9b1f::t_9dab1d14111388 1-39,41-93,105-124,126-143,146-150,153-201,204-354
+  s_09d3c46d1a9b1f::t_0785f5ea9d7eb3 144-145
+  s_09d3c46d1a9b1f::t_e2184ac8a34ddf 151-152
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_09d3c46d1a9b1f::t_842719c017cea7 142
+  s_09d3c46d1a9b1f::t_59f168165de290 234
+TlsLib/src/Packages/Delphi/TlsLib4PascalPackage.dpk
+  s_09d3c46d1a9b1f::t_99cf30d1028ad7 138
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a0a526b881ebbd7683c97ebd304255fbfa1587cf",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
