@@ -1,0 +1,34 @@
+TlsLib.Adapters/Indy/Adapter/TlsLibIndyTls.pas
+  s_09d3c46d1a9b1f::t_d5601c4a48835a 520-521
+  s_09d3c46d1a9b1f::t_2777478852abbb 91,118,224,352,369,518,536,541,543,589,596,598,639,641-643,664,666-668
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_746c2ac2b96faf::t_e893741a818a05 100,129-130,152,260,263,389,451,456,458-459,519,521,569,571,602,604-606,631,633-635
+TlsLib.Adapters/Synapse/Adapter/TlsLibSynapseTls.pas
+  s_746c2ac2b96faf::t_29e1bd920642ed 117-118,127,203,356,361,363-364,379,383,385,431,439,441,471,473-475,494,496-498,522,530,543,550,810,812
+TlsLib.Adapters/mORMot/Adapter/TlsLibMormotTls.pas
+  s_746c2ac2b96faf::t_3f24f049eeba03 94,144,220,256,258,390,392-393,409,414,416,467,471,473,510,512-514,533,535-537
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "42cb5325ea826f419c3032e1d1f4a966e2c32e26",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_746c2ac2b96faf": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a54db073f4a62f1e7",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
