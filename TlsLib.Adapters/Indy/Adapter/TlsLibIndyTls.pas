@@ -88,7 +88,7 @@ type
     FServerVerdictDeadlineMs: Cardinal;
     FClientConfig: ITlsClientConfig;
     FServerConfig: ITlsServerConfig;
-    FProvider: ICryptoProvider;
+    FCrypto: ICryptoProvider;
     FPkix: IPkixProvider;
     FSessionResumption: Boolean;
     FHandshakeTimeoutMs: Integer;
@@ -115,7 +115,7 @@ type
     /// nil (the default) uses the process-wide shared default. Set it to inject a custom backend
     /// (HSM, FIPS, a test mock). Not allowed alongside a supplied ClientConfig/ServerConfig, which
     /// carries its own provider.</summary>
-    property Provider: ICryptoProvider read FProvider write FProvider;
+    property Crypto: ICryptoProvider read FCrypto write FCrypto;
     /// <summary>The PKIX provider the options-driven build uses (certificate parsing, path
     /// validation, revocation). nil (the default) uses the process-wide shared default. Set it to
     /// inject a custom backend. Not allowed alongside a supplied ClientConfig/ServerConfig, which
@@ -221,7 +221,7 @@ type
     procedure ResetTlsSession;
     function LoadFileBytes(const APath: string): TBytes;
     /// <summary>The injected provider, or the process-wide shared default when none is set.</summary>
-    function EffectiveProvider: ICryptoProvider;
+    function EffectiveCrypto: ICryptoProvider;
     /// <summary>The injected PKIX provider, or the process-wide shared default when none is set.</summary>
     function EffectivePkix: IPkixProvider;
     function BuildClientConfig: ITlsClientConfig;
@@ -349,7 +349,7 @@ begin
     FServerVerdictDeadlineMs := LSrc.FServerVerdictDeadlineMs;
     FClientConfig := LSrc.FClientConfig;
     FServerConfig := LSrc.FServerConfig;
-    FProvider := LSrc.FProvider;
+    FCrypto := LSrc.FCrypto;
     FPkix := LSrc.FPkix;
     FSessionResumption := LSrc.FSessionResumption;
     FHandshakeTimeoutMs := LSrc.FHandshakeTimeoutMs;
@@ -366,7 +366,7 @@ begin
   if (FCertFile <> '') or (FKeyFile <> '') or (FRootCertFile <> '') or FUseSystemTrust or
     (FCustomServerCertVerifier <> nil) or (FCustomClientCertVerifier <> nil) or
     (FCustomTrustStore <> nil) or Assigned(FVerifyCallback) or
-    (FProvider <> nil) or (FPkix <> nil) then
+    (FCrypto <> nil) or (FPkix <> nil) then
     raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
       Format(SConfigAndOptionsConflict, [APropertyName]));
 end;
@@ -515,10 +515,10 @@ begin
   FServerMemo := AMemo;
 end;
 
-function TTlsLibIOHandlerSocket.EffectiveProvider: ICryptoProvider;
+function TTlsLibIOHandlerSocket.EffectiveCrypto: ICryptoProvider;
 begin
-  if FOptions.Provider <> nil then
-    Result := FOptions.Provider
+  if FOptions.Crypto <> nil then
+    Result := FOptions.Crypto
   else
     Result := TDefaultCryptoProvider.Shared;
 end;
@@ -533,14 +533,14 @@ end;
 
 function TTlsLibIOHandlerSocket.BuildClientConfig: ITlsClientConfig;
 var
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LPkix: IPkixProvider;
   LClient: ITlsClientConfigBuilder;
   LHasSource: Boolean;
 begin
-  LProvider := EffectiveProvider;
+  LCrypto := EffectiveCrypto;
   LPkix := EffectivePkix;
-  LClient := TTlsPresets.Compatible(LProvider, LPkix).Client;
+  LClient := TTlsPresets.Compatible(LCrypto, LPkix).Client;
   // compose peer trust from orthogonal sources: a whole-verifier REPLACES the pipeline, else a
   // RootCertFile bundle + the OS anchors + a custom store all UNION. Adding both a verifier and
   // an anchor source is left to fail as the builder's typed conflict. System trust is never
@@ -586,16 +586,16 @@ end;
 
 function TTlsLibIOHandlerSocket.BuildServerConfig: ITlsServerConfig;
 var
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LPkix: IPkixProvider;
   LServer: ITlsServerConfigBuilder;
   LHasSource: Boolean;
 begin
   if FOptions.CertFile = '' then
     raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SNoServerCredential);
-  LProvider := EffectiveProvider;
+  LCrypto := EffectiveCrypto;
   LPkix := EffectivePkix;
-  LServer := TTlsPresets.Compatible(LProvider, LPkix).Server
+  LServer := TTlsPresets.Compatible(LCrypto, LPkix).Server
     .WithCredential(LoadFileBytes(FOptions.CertFile),
     LoadFileBytes(FOptions.KeyFile), FOptions.KeyPassword);
   if FOptions.VerifyPeer then
@@ -636,11 +636,11 @@ end;
 function TTlsLibIOHandlerSocket.ClientSignature: string;
 var
   LSig: TTlsSignatureBuilder;
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
 begin
-  LProvider := EffectiveProvider;
-  LSig := TTlsSignatureBuilder.Create(LProvider);
-  LSig.AddPointer('provider', LProvider);
+  LCrypto := EffectiveCrypto;
+  LSig := TTlsSignatureBuilder.Create(LCrypto);
+  LSig.AddPointer('crypto', LCrypto);
   LSig.AddPointer('pkix', EffectivePkix);
   LSig.AddFlag('resume', FOptions.SessionResumption);
   LSig.AddFile('cert', FOptions.CertFile);
@@ -661,11 +661,11 @@ end;
 function TTlsLibIOHandlerSocket.ServerSignature: string;
 var
   LSig: TTlsSignatureBuilder;
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
 begin
-  LProvider := EffectiveProvider;
-  LSig := TTlsSignatureBuilder.Create(LProvider);
-  LSig.AddPointer('provider', LProvider);
+  LCrypto := EffectiveCrypto;
+  LSig := TTlsSignatureBuilder.Create(LCrypto);
+  LSig.AddPointer('crypto', LCrypto);
   LSig.AddPointer('pkix', EffectivePkix);
   LSig.AddFlag('resume', FOptions.SessionResumption);
   LSig.AddFile('cert', FOptions.CertFile);

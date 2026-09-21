@@ -97,7 +97,7 @@ type
     /// <summary>A crypto provider every new handler starts with (hashing, RNG, cert parsing) - so
     /// an auto-created handler (a plain TFPHTTPClient) uses a custom backend (HSM, FIPS, a test
     /// mock). nil (the default) uses the process-wide shared default. Set once at startup.</summary>
-    Provider: ICryptoProvider;
+    Crypto: ICryptoProvider;
     /// <summary>A PKIX provider every new handler starts with (certificate parsing, path
     /// validation, revocation). nil (the default) uses the process-wide shared default. Set once
     /// at startup.</summary>
@@ -126,8 +126,8 @@ type
     FStream: TTlsStream;
     FTransport: ITlsTransport;
     FEngine: ITlsEngine;
-    FProvider: ICryptoProvider;
-    FUserProvider: ICryptoProvider;
+    FCrypto: ICryptoProvider;
+    FUserCrypto: ICryptoProvider;
     FPkix: IPkixProvider;
     FUserPkix: IPkixProvider;
     FSessionResumption: Boolean;
@@ -149,7 +149,7 @@ type
     function LoadFileBytes(const APath: string): TBytes;
     function SSLDataBytes(const AData: TSSLData): TBytes;
     /// <summary>The injected provider, or the process-wide shared default when none is set.</summary>
-    function EffectiveProvider: ICryptoProvider;
+    function EffectiveCrypto: ICryptoProvider;
     /// <summary>The injected PKIX provider, or the process-wide shared default when none is set.</summary>
     function EffectivePkix: IPkixProvider;
     function HasTrustSource: Boolean;
@@ -257,10 +257,10 @@ type
     /// counterpart of ClientConfig; same conflict rule).</summary>
     property ServerConfig: ITlsServerConfig read FServerConfig write FServerConfig;
     /// <summary>The crypto provider the property-driven build uses (hashing, RNG, cert parsing);
-    /// seeded from TlsLibFclNetTrustDefaults.Provider at construction. nil uses the process-wide
+    /// seeded from TlsLibFclNetTrustDefaults.Crypto at construction. nil uses the process-wide
     /// shared default; set it to inject a custom backend (HSM, FIPS, a test mock). Not allowed
     /// alongside a supplied ClientConfig/ServerConfig, which carries its own provider.</summary>
-    property Provider: ICryptoProvider read FUserProvider write FUserProvider;
+    property Crypto: ICryptoProvider read FUserCrypto write FUserCrypto;
     /// <summary>The PKIX provider the property-driven build uses (certificate parsing, path
     /// validation, revocation); seeded from TlsLibFclNetTrustDefaults.Pkix at construction. nil uses
     /// the process-wide shared default; set it to inject a custom backend. Not allowed alongside a
@@ -386,7 +386,7 @@ begin
   // handler for TFPHTTPClient, so this is the only place a global "use the OS store" preference can
   // reach it. A per-connection handler still overrides afterwards.
   FUseSystemTrust := TlsLibFclNetTrustDefaults.UseSystemTrust;
-  FUserProvider := TlsLibFclNetTrustDefaults.Provider;
+  FUserCrypto := TlsLibFclNetTrustDefaults.Crypto;
   FUserPkix := TlsLibFclNetTrustDefaults.Pkix;
   FSessionResumption := TlsLibFclNetTrustDefaults.SessionResumption;
   // secure by default: fcl-net's own handler leaves VerifyPeerCert False (so stock TFPHTTPClient
@@ -448,15 +448,15 @@ begin
   // runtime stream hooks (not part of the frozen config) and still apply with a supplied config.
   if HasTrustSource or (not CertificateData.Certificate.Empty) or
     (System.Length(FAlpnProtocols) > 0) or Assigned(FVerifyCallback) or
-    (FUserProvider <> nil) or (FUserPkix <> nil) then
+    (FUserCrypto <> nil) or (FUserPkix <> nil) then
     raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
       Format(SConfigAndOptionsConflict, [APropertyName]));
 end;
 
-function TTlsLibSocketHandler.EffectiveProvider: ICryptoProvider;
+function TTlsLibSocketHandler.EffectiveCrypto: ICryptoProvider;
 begin
-  if FUserProvider <> nil then
-    Result := FUserProvider
+  if FUserCrypto <> nil then
+    Result := FUserCrypto
   else
     Result := TDefaultCryptoProvider.Shared;
 end;
@@ -516,9 +516,9 @@ function TTlsLibSocketHandler.BuildClientConfig: ITlsClientConfig;
 var
   LClient: ITlsClientConfigBuilder;
 begin
-  FProvider := EffectiveProvider;
+  FCrypto := EffectiveCrypto;
   FPkix := EffectivePkix;
-  LClient := TTlsPresets.Compatible(FProvider, FPkix).Client;
+  LClient := TTlsPresets.Compatible(FCrypto, FPkix).Client;
   // VerifyPeerCert is fcl-net's native verify switch: True runs real verification (and fails closed
   // below when no source is named), False accepts the chain unverified (our loud dangerous bypass).
   // This adapter defaults it True in the constructor, so an unconfigured handler is secure.
@@ -566,9 +566,9 @@ begin
   // (DriveHandshake wraps this into FLastError/FLastErrorDesc - no exception escapes)
   if CertificateData.Certificate.Empty then
     raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SNoServerCredential);
-  FProvider := EffectiveProvider;
+  FCrypto := EffectiveCrypto;
   FPkix := EffectivePkix;
-  LServer := TTlsPresets.Compatible(FProvider, FPkix).Server
+  LServer := TTlsPresets.Compatible(FCrypto, FPkix).Server
     .WithCredential(SSLDataBytes(CertificateData.Certificate),
     SSLDataBytes(CertificateData.PrivateKey), FKeyPassword);
   if System.Length(FAlpnProtocols) > 0 then
@@ -599,11 +599,11 @@ function TTlsLibSocketHandler.ClientSignature: string;
 var
   LSig: TTlsSignatureBuilder;
   LProto: string;
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
 begin
-  LProvider := EffectiveProvider;
-  LSig := TTlsSignatureBuilder.Create(LProvider);
-  LSig.AddPointer('provider', LProvider);
+  LCrypto := EffectiveCrypto;
+  LSig := TTlsSignatureBuilder.Create(LCrypto);
+  LSig.AddPointer('crypto', LCrypto);
   LSig.AddPointer('pkix', EffectivePkix);
   LSig.AddFlag('resume', FSessionResumption);
   SignSslData(LSig, 'cert', CertificateData.Certificate);
@@ -628,11 +628,11 @@ function TTlsLibSocketHandler.ServerSignature: string;
 var
   LSig: TTlsSignatureBuilder;
   LProto: string;
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
 begin
-  LProvider := EffectiveProvider;
-  LSig := TTlsSignatureBuilder.Create(LProvider);
-  LSig.AddPointer('provider', LProvider);
+  LCrypto := EffectiveCrypto;
+  LSig := TTlsSignatureBuilder.Create(LCrypto);
+  LSig.AddPointer('crypto', LCrypto);
   LSig.AddPointer('pkix', EffectivePkix);
   LSig.AddFlag('resume', FSessionResumption);
   SignSslData(LSig, 'cert', CertificateData.Certificate);

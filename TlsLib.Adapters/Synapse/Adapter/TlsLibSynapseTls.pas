@@ -114,8 +114,8 @@ type
     FStream: TTlsStream;
     FTransport: ITlsTransport;
     FEngine: ITlsEngine;
-    FProvider: ICryptoProvider;
-    FUserProvider: ICryptoProvider;
+    FCrypto: ICryptoProvider;
+    FUserCrypto: ICryptoProvider;
     FPkix: IPkixProvider;
     FUserPkix: IPkixProvider;
     FUseSystemTrust: Boolean;
@@ -124,7 +124,7 @@ type
     FServerConfig: ITlsServerConfig;
     function LoadFileBytes(const APath: string): TBytes;
     /// <summary>The injected provider, or the process-wide shared default when none is set.</summary>
-    function EffectiveProvider: ICryptoProvider;
+    function EffectiveCrypto: ICryptoProvider;
     /// <summary>The injected PKIX provider, or the process-wide shared default when none is set.</summary>
     function EffectivePkix: IPkixProvider;
     function BuildClientConfig: ITlsClientConfig;
@@ -200,7 +200,7 @@ type
     /// nil (the default) uses the process-wide shared default; set it to inject a custom backend
     /// (HSM, FIPS, a test mock). Not allowed alongside a supplied ClientConfig/ServerConfig, which
     /// carries its own provider. Cast Sock.SSL to TSSLTlsLib to set it.</summary>
-    property Provider: ICryptoProvider read FUserProvider write FUserProvider;
+    property Crypto: ICryptoProvider read FUserCrypto write FUserCrypto;
     /// <summary>The PKIX provider the property-driven build uses (certificate parsing, path
     /// validation, revocation). nil (the default) uses the process-wide shared default; set it to
     /// inject a custom backend. Not allowed alongside a supplied ClientConfig/ServerConfig, which
@@ -353,15 +353,15 @@ begin
   // server role) are runtime hooks (not part of the frozen config) and still apply, so they are
   // not conflicts.
   if (FCertificateFile <> '') or (FPrivateKeyFile <> '') or (FCertCAFile <> '') or
-    FUseSystemTrust or (FUserProvider <> nil) or (FUserPkix <> nil) then
+    FUseSystemTrust or (FUserCrypto <> nil) or (FUserPkix <> nil) then
     raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
       Format(SConfigAndOptionsConflict, [APropertyName]));
 end;
 
-function TSSLTlsLib.EffectiveProvider: ICryptoProvider;
+function TSSLTlsLib.EffectiveCrypto: ICryptoProvider;
 begin
-  if FUserProvider <> nil then
-    Result := FUserProvider
+  if FUserCrypto <> nil then
+    Result := FUserCrypto
   else
     Result := TDefaultCryptoProvider.Shared;
 end;
@@ -376,13 +376,13 @@ end;
 
 function TSSLTlsLib.BuildClientConfig: ITlsClientConfig;
 var
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LPkix: IPkixProvider;
   LClient: ITlsClientConfigBuilder;
 begin
-  LProvider := EffectiveProvider;
+  LCrypto := EffectiveCrypto;
   LPkix := EffectivePkix;
-  LClient := TTlsPresets.Compatible(LProvider, LPkix).Client;
+  LClient := TTlsPresets.Compatible(LCrypto, LPkix).Client;
   // Synapse exposes no dedicated system-trust switch, so we compose peer trust from the props it
   // already has (CertCAFile + VerifyCert) plus our per-connection UseSystemTrust. System trust is
   // never implicit - it must be asked for:
@@ -428,7 +428,7 @@ end;
 
 function TSSLTlsLib.BuildServerConfig: ITlsServerConfig;
 var
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
   LPkix: IPkixProvider;
   LServer: ITlsServerConfigBuilder;
 begin
@@ -436,9 +436,9 @@ begin
   // (DriveHandshake wraps this into FLastError/FLastErrorDesc - no exception escapes)
   if FCertificateFile = '' then
     raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SNoServerCredential);
-  LProvider := EffectiveProvider;
+  LCrypto := EffectiveCrypto;
   LPkix := EffectivePkix;
-  LServer := TTlsPresets.Compatible(LProvider, LPkix).Server
+  LServer := TTlsPresets.Compatible(LCrypto, LPkix).Server
     .WithCredential(LoadFileBytes(FCertificateFile), LoadFileBytes(FPrivateKeyFile),
     FKeyPassword);
   // VerifyCert on a server requests (does not require) a client certificate, so map it to
@@ -468,11 +468,11 @@ end;
 function TSSLTlsLib.ClientSignature: string;
 var
   LSig: TTlsSignatureBuilder;
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
 begin
-  LProvider := EffectiveProvider;
-  LSig := TTlsSignatureBuilder.Create(LProvider);
-  LSig.AddPointer('provider', LProvider);
+  LCrypto := EffectiveCrypto;
+  LSig := TTlsSignatureBuilder.Create(LCrypto);
+  LSig.AddPointer('crypto', LCrypto);
   LSig.AddPointer('pkix', EffectivePkix);
   LSig.AddFlag('resume', FSessionResumption);
   LSig.AddFile('cert', FCertificateFile);
@@ -491,11 +491,11 @@ end;
 function TSSLTlsLib.ServerSignature: string;
 var
   LSig: TTlsSignatureBuilder;
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
 begin
-  LProvider := EffectiveProvider;
-  LSig := TTlsSignatureBuilder.Create(LProvider);
-  LSig.AddPointer('provider', LProvider);
+  LCrypto := EffectiveCrypto;
+  LSig := TTlsSignatureBuilder.Create(LCrypto);
+  LSig.AddPointer('crypto', LCrypto);
   LSig.AddPointer('pkix', EffectivePkix);
   LSig.AddFlag('resume', FSessionResumption);
   LSig.AddFile('cert', FCertificateFile);
@@ -519,7 +519,7 @@ begin
   if FClientConfig <> nil then
   begin
     GuardNoConflict('ClientConfig');
-    FProvider := FClientConfig.Crypto;
+    FCrypto := FClientConfig.Crypto;
     FPkix := FClientConfig.Pkix;
     Exit(TTlsEngineFactory.CreateClientEngine(FClientConfig, FSNIHost));
   end;
@@ -527,7 +527,7 @@ begin
   if not GClientConfigMemo.TryGet(LSig, LCfg) then
     LCfg := GClientConfigMemo.StoreOrAdopt(LSig, BuildClientConfig);
   // the peer-info accessors reuse the config's providers (crypto for hashing, pkix for parsing)
-  FProvider := LCfg.Crypto;
+  FCrypto := LCfg.Crypto;
   FPkix := LCfg.Pkix;
   Result := TTlsEngineFactory.CreateClientEngine(LCfg, FSNIHost);
 end;
@@ -540,14 +540,14 @@ begin
   if FServerConfig <> nil then
   begin
     GuardNoConflict('ServerConfig');
-    FProvider := FServerConfig.Crypto;
+    FCrypto := FServerConfig.Crypto;
     FPkix := FServerConfig.Pkix;
     Exit(TTlsEngineFactory.CreateServerEngine(FServerConfig));
   end;
   LSig := ServerSignature;
   if not GServerConfigMemo.TryGet(LSig, LCfg) then
     LCfg := GServerConfigMemo.StoreOrAdopt(LSig, BuildServerConfig);
-  FProvider := LCfg.Crypto;
+  FCrypto := LCfg.Crypto;
   FPkix := LCfg.Pkix;
   Result := TTlsEngineFactory.CreateServerEngine(LCfg);
 end;
@@ -807,9 +807,9 @@ begin
   // exact digest is adapter convention)
   Result := '';
   LLeaf := PeerLeaf;
-  if (FProvider = nil) or (System.Length(LLeaf) = 0) then
+  if (FCrypto = nil) or (System.Length(LLeaf) = 0) then
     Exit;
-  LHash := FProvider.Primitives.CreateHash(THashAlgorithm.SHA_256);
+  LHash := FCrypto.Primitives.CreateHash(THashAlgorithm.SHA_256);
   LHash.Update(LLeaf, 0, System.Length(LLeaf));
   LDigest := LHash.DoFinal;
   Result := AnsiString(TDataEncoding.HexEncode(LDigest));
