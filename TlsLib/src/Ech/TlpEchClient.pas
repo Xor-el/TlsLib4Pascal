@@ -31,6 +31,7 @@ uses
   TlpIEch,
   TlpTls13KeySchedule,
   TlpArrayUtilities,
+  TlpTlsLibExceptions,
   TlpSecureMemory;
 
 type
@@ -121,6 +122,10 @@ type
 
 implementation
 
+resourcestring
+  SEchEmptyConfigNoGrease = 'an empty ECHConfigList with ECH GREASE disabled would send the ' +
+    'true SNI in the clear; supply a config list or enable GREASE';
+
 const
   ServerHelloRandomLength = Int32(32);
   ConfirmationOffset = Int32(24);
@@ -132,10 +137,12 @@ constructor TEchClientPolicy.Create(const AConfigListBytes: TBytes;
   AGrease, AIsRetry: Boolean);
 begin
   inherited Create;
-  // a malformed list is a typed decode error at configuration time; an empty list is a
-  // GREASE-only policy
+  // a malformed list is a typed decode error at configuration time; an empty list is only
+  // meaningful as a GREASE-only policy - without GREASE it would silently send the true SNI
   if System.Length(AConfigListBytes) > 0 then
-    FConfigs := TEchConfigList.Parse(AConfigListBytes);
+    FConfigs := TEchConfigList.Parse(AConfigListBytes)
+  else if not AGrease then
+    raise EArgumentTlsLibException.CreateRes(@SEchEmptyConfigNoGrease);
   FGrease := AGrease;
   FIsRetry := AIsRetry;
 end;

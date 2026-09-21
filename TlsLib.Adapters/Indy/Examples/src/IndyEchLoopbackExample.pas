@@ -170,7 +170,7 @@ begin
 
   // one ECH key pair drives both sides: the PEM the server store loads (private key + config)
   // and the ECHConfigList the client offers (DHKEM-X25519 / HKDF-SHA256 / AES-128-GCM)
-  LEch := TEchKeyGenerator.Generate(LProvider, PUBLIC_NAME, 1,
+  LEch := TEchKeyGenerator.Generate(LProvider, PUBLIC_NAME, INNER_HOST, 1,
     THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256,
     THpkeAead.AES_128_GCM, 0);
 

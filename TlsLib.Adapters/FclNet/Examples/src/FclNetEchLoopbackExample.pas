@@ -229,7 +229,7 @@ begin
   TVec.Locate;
   LProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
 
-  LEch := TEchKeyGenerator.Generate(LProvider, PUBLIC_NAME, 1,
+  LEch := TEchKeyGenerator.Generate(LProvider, PUBLIC_NAME, INNER_HOST, 1,
     THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256,
     THpkeAead.AES_128_GCM, 0);
 

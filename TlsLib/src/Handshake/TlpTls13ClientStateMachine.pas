@@ -532,8 +532,8 @@ begin
         FEchStatus := TEchStatus.Greased;
       end;
     end
-    else if System.Length(AParams.EchPolicy.Configs) > 0 then
-      // configs were supplied but none is usable and GREASE is off: fail closed rather than
+    else
+      // ECH was requested but no config is usable and GREASE is off: fail closed rather than
       // silently send the true SNI in the clear, defeating the ECH the caller asked for. A
       // caller that would rather connect without ECH enables GREASE to opt into that
       raise EArgumentTlsLibException.CreateRes(@SEchNoUsableConfig);

@@ -471,6 +471,7 @@ resourcestring
   SBadRecordSizeLimit = 'the peer record_size_limit is below the 64-byte minimum';
   SNonEmptyEndOfEarlyData = 'the EndOfEarlyData message must be empty';
   SEchInnerRandomChanged = 'the ClientHelloInner random changed across the HelloRetryRequest';
+  SEchAcceptedWithoutHandshake = 'ECH is marked accepted but the handshake state is gone';
   SEchInnerAtClientFacing = 'an inner-type Encrypted Client Hello reached a server that ' +
     'holds ECH keys; it must arrive only at a split-mode backend';
 
@@ -1256,7 +1257,12 @@ var
 begin
   // when ECH was accepted on CH1, the retry outer reuses the CH1 HPKE context at seq=1
   // (RFC 9849 sec. 6.1.5); the reconstructed inner CH2 is the logical ClientHello2
-  LEchAccepted := (FEchStatus = TEchStatus.Accepted) and (FEch <> nil);
+  // the accept invariant must hold here (the flight that releases FEch runs later); a broken one
+  // is an internal fault, not a silent fall-through to the outer ClientHello
+  if (FEchStatus = TEchStatus.Accepted) and (FEch = nil) then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.InternalError, @SEchAcceptedWithoutHandshake);
+  LEchAccepted := FEchStatus = TEchStatus.Accepted;
   if LEchAccepted then
   begin
     FEch.ProcessRetryOuter(AMessage.Raw);
@@ -1398,6 +1404,11 @@ begin
   if FEchStatus in [TEchStatus.Accepted, TEchStatus.Backend] then
     StampEchAcceptConfirmation(LServerHelloBytes);
   FTranscript.Update(LServerHelloBytes);
+  // the decrypted inner ClientHello and the HPKE opener the ECH handshake held are no longer
+  // needed once the server flight is out (the inner is in the transcript and the accept/reject
+  // status is recorded); release it rather than keep the real SNI and key state alive for the
+  // whole connection. A HelloRetryRequest, if any, consumed the opener before this flight.
+  FEch := nil;
 
   FSchedule := TTls13KeySchedule.Create(FParams.Provider, FSelectedSuite.Common.Hash,
     FSelectedSuite.Common.KeyLength);

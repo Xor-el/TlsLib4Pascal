@@ -69,6 +69,7 @@ type
   public
     constructor Create(const AProvider: ICryptoProvider;
       const AKeyStore: IEchServerKeyStore; ATrialDecryptAll: Boolean);
+    destructor Destroy; override;
     /// <summary>
     /// Processes the framed ClientHelloOuter AOuterFramed. Returns NotOffered (no ech
     /// extension), Accepted (an ech opened; the reconstructed inner is available), or
@@ -102,6 +103,8 @@ resourcestring
   SInnerOffersLegacy = 'the inner ClientHello offers TLS 1.2 or below';
   SEchRetryMismatch = 'the retry ech changed config_id/cipher_suite or set a non-empty enc';
   SEchRetryDecrypt = 'the retry ech failed to decrypt at seq=1';
+  SEchRetryWithoutAccept = 'the retry ClientHelloOuter was processed without an accepted first ' +
+    'ClientHelloOuter';
 
 { TEchServerHandshake }
 
@@ -113,6 +116,15 @@ begin
   FKeyStore := AKeyStore;
   FTrialDecryptAll := ATrialDecryptAll;
   FStatus := TEchStatus.NotOffered;
+end;
+
+destructor TEchServerHandshake.Destroy;
+begin
+  // the reconstructed inner carries the real SNI (and, on resumption, PSK binders); wipe it
+  // rather than merely release it
+  TSecureMemory.WipeBytes(FInnerFramed);
+  TSecureMemory.WipeBytes(FInnerRandom);
+  inherited Destroy;
 end;
 
 class function TEchServerHandshake.ConfigSupports(const AConfig: TEchConfig;
@@ -326,6 +338,7 @@ var
   LEntry: TEchKeyEntry;
   LKeys: TArray<TEchKeyEntry>;
   LOpener: IHpkeOpener;
+  LSuite: IHpkeSuite;
   LOpened: Boolean;
 begin
   LOuterBody := System.Copy(AOuterFramed, 4, System.Length(AOuterFramed) - 4);
@@ -363,13 +376,15 @@ begin
     if not ConfigSupports(LEntry.Config, LOuterEch.CipherSuite.KdfId,
       LOuterEch.CipherSuite.AeadId) then
       Continue;
-    FSuite := FProvider.Hpke.Suite(LEntry.Config.KemId,
+    // resolve the suite into a local; commit it to the object only on a successful open, so a
+    // rejected outcome never leaves FSuite set with a nil FOpener
+    LSuite := FProvider.Hpke.Suite(LEntry.Config.KemId,
       LOuterEch.CipherSuite.KdfId, LOuterEch.CipherSuite.AeadId);
-    if FSuite = nil then
+    if LSuite = nil then
       Continue;
     LOpened := False;
     try
-      LOpener := LEntry.RecipientKey.SetupOpener(FSuite, LOuterEch.Enc,
+      LOpener := LEntry.RecipientKey.SetupOpener(LSuite, LOuterEch.Enc,
         LEntry.Config.HpkeInfo);
       LEncoded := LOpener.Open(LAad, LOuterEch.Payload);
       LOpened := True;
@@ -386,6 +401,7 @@ begin
       try
         ReconstructInner(LEncoded, LOuter, LEntries);
         FOpener := LOpener;
+        FSuite := LSuite;
         FConfig := LEntry.Config;
         FStatus := TEchStatus.Accepted;
       finally
@@ -411,6 +427,10 @@ var
   LType: TEchClientHelloType;
   LOuterEch: TEchOuterClientHello;
 begin
+  // the retry path only applies once the first ClientHelloOuter was accepted (the opener is live
+  // at seq=1); calling it otherwise is a programming error, not a wire condition
+  if (FStatus <> TEchStatus.Accepted) or (FOpener = nil) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SEchRetryWithoutAccept);
   LOuterBody := System.Copy(AOuterFramed, 4, System.Length(AOuterFramed) - 4);
   LOuter := THandshakeMessages.DecodeClientHello(LOuterBody);
   // CH1 was accepted, so CH2 MUST re-offer the outer ech (RFC 9849 sec. 6.1.5); an absent
