@@ -1,0 +1,19 @@
+TlsLib.Interop/src/TrustDelegateInteropRunner.pas
+  s_09d3c46d1a9b1f::t_8156e1a103f6b2 498
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d5004434c114ce20af9ac0737334d410e96b306b",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
