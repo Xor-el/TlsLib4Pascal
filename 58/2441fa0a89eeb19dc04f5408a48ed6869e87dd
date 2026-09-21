@@ -1,0 +1,57 @@
+TlsLib.Benchmark/src/Core/TlsRecordThroughputBenchmark.pas
+  s_09d3c46d1a9b1f::t_e593da2e505144 78,118,155
+TlsLib.Tests/src/HpkeProviderTests.pas
+  s_09d3c46d1a9b1f::t_e593da2e505144 402,406,408,411
+TlsLib.Interop/src/OpenSslInteropRunner.pas
+  s_09d3c46d1a9b1f::t_e593da2e505144 166,173,192,230,237,252,264,271,360,423,431,442,446
+TlsLib.Adapters/Indy/Examples/src/IndyEchLoopbackExample.pas
+  s_09d3c46d1a9b1f::t_e593da2e505144 152,172,177,183,186,191
+TlsLib.Adapters/FclNet/Examples/src/FclNetAdvancedConfigExample.pas
+  s_09d3c46d1a9b1f::t_e593da2e505144 123,127,129,134,141,145,147,151
+TlsLib.Interop/src/BoGoShimRunner.pas
+  s_09d3c46d1a9b1f::t_e593da2e505144 1376,1407,1423,1425,1433,1461
+TlsLib.Tests/src/HkdfLabelTests.pas
+  s_09d3c46d1a9b1f::t_e593da2e505144 157,166-167
+TlsLib.Adapters/mORMot/Examples/src/MormotAdvancedConfigExample.pas
+  s_09d3c46d1a9b1f::t_e593da2e505144 130,134,136,141,148,152,154,158
+TlsLib.Adapters/mORMot/Examples/src/MormotEchLoopbackExample.pas
+  s_09d3c46d1a9b1f::t_e593da2e505144 180,199,202,208,211,215
+TlsLib.Adapters/Synapse/Examples/src/SynapseEchLoopbackExample.pas
+  s_09d3c46d1a9b1f::t_e593da2e505144 183,198,201,205,208,212
+TlsLib.Benchmark/src/Core/TlsHandshakeBenchmark.pas
+  s_09d3c46d1a9b1f::t_e593da2e505144 88,145,184
+TlsLib.Tests/src/SignatureTests.pas
+  s_09d3c46d1a9b1f::t_e593da2e505144 399,408,410,412,416,422,432,438-439,442
+TlsLib.Tools/EchKeyGen/src/TlpEchKeyGen.pas
+  s_09d3c46d1a9b1f::t_e593da2e505144 215,287,291-292
+TlsLib.Adapters/FclNet/Examples/src/FclNetEchLoopbackExample.pas
+  s_09d3c46d1a9b1f::t_e593da2e505144 211,233,236,240,243,247
+TlsLib.Adapters/Synapse/Examples/src/SynapseAdvancedConfigExample.pas
+  s_09d3c46d1a9b1f::t_e593da2e505144 127,131,133,138,145,149,151,155
+TlsLib.Interop/src/TrustDelegateInteropRunner.pas
+  s_09d3c46d1a9b1f::t_e593da2e505144 179,189,195,199,234,245,247,253,391,402,404,470,479,490,498
+TlsLib.Tests/src/NegotiationTests.pas
+  s_09d3c46d1a9b1f::t_e593da2e505144 105,110-113,126,132-135
+TlsLib.Tests/src/NamedGroupTests.pas
+  s_09d3c46d1a9b1f::t_e593da2e505144 244,248-250
+TlsLib.Tests/src/MockTests.pas
+  s_09d3c46d1a9b1f::t_e593da2e505144 68,71,75,80,85-86
+TlsLib.Interop/src/InteropSelfTestRunner.pas
+  s_09d3c46d1a9b1f::t_e593da2e505144 153,163,170,179,219,229,236,239,250,306,316,328,331,415,425,438
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "582441fa0a89eeb19dc04f5408a48ed6869e87dd",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
