@@ -1,0 +1,81 @@
+TlsLib/src/Ech/TlpEchClient.pas
+  s_09d3c46d1a9b1f::t_c1d883ce01b8dd 34
+  s_09d3c46d1a9b1f::t_2dad2c50530d3e 125-128
+  s_09d3c46d1a9b1f::t_75f4e00f937f62 140-141,143-145
+TlsLib.Adapters/Indy/Examples/src/IndyEchLoopbackExample.pas
+  s_09d3c46d1a9b1f::t_b5a444e226d872 173
+TlsLib.Adapters/mORMot/Examples/src/MormotEchLoopbackExample.pas
+  s_09d3c46d1a9b1f::t_b5a444e226d872 198
+TlsLib.Tools/EchKeyGen/src/TlpEchKeyGen.pas
+  s_09d3c46d1a9b1f::t_5b700cc1be0df1 73-74,77
+  s_09d3c46d1a9b1f::t_ac5757e1edbfd1 224
+  s_09d3c46d1a9b1f::t_5b5d575c5088b1 292
+  s_09d3c46d1a9b1f::t_da5f1ee67a7eef 261,263
+  s_09d3c46d1a9b1f::t_0c3534ee96619c 48-49
+  s_09d3c46d1a9b1f::t_f4179148a0f230 92,103,108-114
+  s_09d3c46d1a9b1f::t_fe8d18f39c6bc5 240-241
+  s_09d3c46d1a9b1f::t_c539d496db6e1d 137-139
+  s_09d3c46d1a9b1f::t_26bd2918e20ad2 216
+TlsLib.Adapters/FclNet/Examples/src/FclNetEchLoopbackExample.pas
+  s_09d3c46d1a9b1f::t_b5a444e226d872 232
+docs/cookbook.md
+  s_09d3c46d1a9b1f::t_ed06e2481a14a8 470
+TlsLib/src/Ech/TlpEchServer.pas
+  s_09d3c46d1a9b1f::t_8a169880ff185b 72
+  s_09d3c46d1a9b1f::t_e02fd82a62c7b8 106-107
+  s_09d3c46d1a9b1f::t_d146df0cc80730 341
+  s_09d3c46d1a9b1f::t_4a9705f5c03aec 404
+  s_09d3c46d1a9b1f::t_ddc7c7d3cbb94d 121-129
+  s_09d3c46d1a9b1f::t_6724b3f01a2179 430-433
+  s_09d3c46d1a9b1f::t_89d13fa44471a1 379-381,383,387
+TlsLib.Tests/src/EchClientEngineTests.pas
+  s_09d3c46d1a9b1f::t_556d3f578374b8 50-51
+  s_09d3c46d1a9b1f::t_604baab6388c83 52
+  s_09d3c46d1a9b1f::t_8b85da7d050bf6 327-344,346-351,355-373,375-390
+  s_09d3c46d1a9b1f::t_5e73fdb74d7e0e 345,352-354
+  s_09d3c46d1a9b1f::t_c024979218afc5 374
+  s_09d3c46d1a9b1f::t_3fabe20babc71e 79-81
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_dc7cb91ddf0b89 2355
+  s_09d3c46d1a9b1f::t_21f2cf0df3eda3 2017-2021
+  s_09d3c46d1a9b1f::t_942e2445bad2c9 2378-2383
+  s_09d3c46d1a9b1f::t_c7535b40a80e87 2430
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_8b9fc481ba0447 1260-1265
+  s_09d3c46d1a9b1f::t_c3afb5cf45f7ba 474
+  s_09d3c46d1a9b1f::t_f12712c737d664 1407-1411
+TlsLib/src/Interfaces/Ech/TlpIEch.pas
+  s_09d3c46d1a9b1f::t_37c6ae8c8d32a3 91-93
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_09d3c46d1a9b1f::t_1ff33d98b929aa 535-536
+TlsLib.Tests/src/EchToolingTests.pas
+  s_09d3c46d1a9b1f::t_55549efc0b78ea 58-59
+  s_09d3c46d1a9b1f::t_728e675fb8ccb0 111,138,193,312,315
+  s_09d3c46d1a9b1f::t_b07cb4addfa053 155-187
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_09d3c46d1a9b1f::t_a8d7eeb17f5e65 79-81
+  s_09d3c46d1a9b1f::t_8802392e1647b4 268-304
+docs/ech.md
+  s_09d3c46d1a9b1f::t_2ad56e1bf6d8af 74-76
+  s_09d3c46d1a9b1f::t_67ee128e8e3bd1 116-117,120-124,127
+  s_09d3c46d1a9b1f::t_ed1ae25d362e50 141-142
+  s_09d3c46d1a9b1f::t_81da3dd3b6b610 51-55
+TlsLib.Adapters/Synapse/Examples/src/SynapseEchLoopbackExample.pas
+  s_09d3c46d1a9b1f::t_b5a444e226d872 197
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "35edb6399a92d05e2b2f35df18018dd14b8a07bf",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
