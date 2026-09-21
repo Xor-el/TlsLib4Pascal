@@ -197,6 +197,7 @@ type
       const AServerName: string);
     procedure OnHandshakeEstablished;
     procedure OnHandshakeFailed(AAlert: TTlsAlertDescription);
+    procedure OnWarningAlert(AAlert: TTlsAlertDescription);
     procedure OnEchAccepted;
     procedure OnEchGreased;
     procedure OnEchBackend;
@@ -240,7 +241,7 @@ type
   /// </summary>
   TEngineHandshakeBridge = class sealed(TInterfacedObject, IRecordEpochInstaller,
     IHandshakeSink, IHandshakeVersionSink, IHandshakeVerdictSink,
-    IHandshakeConnectionInfoSink, IEchStatusSink)
+    IHandshakeConnectionInfoSink, IEchStatusSink, IWarningAlertSink)
   strict private
   var
     FEngine: TTlsEngine;
@@ -266,6 +267,7 @@ type
       const AServerName: string);
     procedure OnHandshakeEstablished;
     procedure OnHandshakeFailed(AAlert: TTlsAlertDescription);
+    procedure OnWarningAlert(AAlert: TTlsAlertDescription);
     procedure OnEchAccepted;
     procedure OnEchGreased;
     procedure OnEchBackend;
@@ -377,6 +379,11 @@ end;
 procedure TEngineHandshakeBridge.OnHandshakeFailed(AAlert: TTlsAlertDescription);
 begin
   FEngine.OnHandshakeFailed(AAlert);
+end;
+
+procedure TEngineHandshakeBridge.OnWarningAlert(AAlert: TTlsAlertDescription);
+begin
+  FEngine.OnWarningAlert(AAlert);
 end;
 
 procedure TEngineHandshakeBridge.OnEchAccepted;
@@ -581,6 +588,14 @@ begin
   case AFragment.ContentType of
     TTlsContentType.ApplicationData:
       begin
+        // a handshake message that spans records MUST NOT have another record type interleaved
+        // between its fragments (RFC 8446 5.1); an application_data record arriving while one is
+        // partially buffered is that violation
+        if (FConductor <> nil) and FConductor.HasBufferedHandshake then
+        begin
+          OnHandshakeFailed(TTlsAlertDescription.UnexpectedMessage);
+          Exit;
+        end;
         // genuine traffic resets the peer's post-handshake message flood counter
         if FConductor <> nil then
           FConductor.NoteApplicationData;
@@ -1220,6 +1235,15 @@ begin
   FLastError := TTlsError.CreateFatal(AAlert, SLocalFatalAlert);
   QueueAlertRecord(TTlsAlert.CreateFatal(AAlert));
   FTerminal := True;
+end;
+
+procedure TTlsEngine.OnWarningAlert(AAlert: TTlsAlertDescription);
+begin
+  // a warning alert does not tear down the connection; suppress it once the connection is
+  // terminal or the write half was closed, so nothing is written after our close_notify
+  if FTerminal or FSentClose then
+    Exit;
+  QueueAlertRecord(TTlsAlert.Create(TTlsAlertLevel.Warning, AAlert));
 end;
 
 procedure TTlsEngine.OnEchAccepted;

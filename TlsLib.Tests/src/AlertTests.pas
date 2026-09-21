@@ -61,6 +61,7 @@ begin
   CheckRoundTrip(TTlsAlertDescription.BadRecordMac, 20);
   CheckRoundTrip(TTlsAlertDescription.HandshakeFailure, 40);
   CheckRoundTrip(TTlsAlertDescription.DecodeError, 50);
+  CheckRoundTrip(TTlsAlertDescription.NoRenegotiation, 100);
   CheckRoundTrip(TTlsAlertDescription.UnsupportedExtension, 110);
   CheckRoundTrip(TTlsAlertDescription.NoApplicationProtocol, 120);
 end;

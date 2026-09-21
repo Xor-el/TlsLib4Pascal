@@ -303,8 +303,8 @@ begin
   if not FKeys.CurrentKey(LKeyName, LKey) then
     Exit;
   LPlain := SerializeSession(ASession);
-  // an oversized peer chain would bloat the ticket and the resumed ClientHello; decline to issue
-  // rather than degrade it (the caller emits no ticket, leaving the client to full-handshake)
+  // an oversized peer chain would bloat the ticket and the resumed ClientHello; decline to seal
+  // rather than degrade it, and the caller signals the decline in its protocol's terms
   if System.Length(LPlain) > MaxSerializedSessionLength then
   begin
     TSecureMemory.WipeBytes(LPlain);
@@ -317,7 +317,7 @@ begin
     // the key name is authenticated as associated data (it is not secret)
     LCipher := LAead.Seal(LNonce, LKeyName, LPlain);
   except
-    // a custom manager that hands over an unusable key must not fault the handshake; issue no ticket
+    // a custom manager that hands over an unusable key must not fault the handshake; decline to seal
     TSecureMemory.WipeBytes(LPlain);
     Exit;
   end;

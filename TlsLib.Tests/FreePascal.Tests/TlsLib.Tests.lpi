@@ -317,6 +317,22 @@
         <Filename Value="..\src\ServerSideLiveRevocationTests.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit68>
+      <Unit69>
+        <Filename Value="..\src\MockHttpFetcher.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit69>
+      <Unit70>
+        <Filename Value="..\src\MockSink.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit70>
+      <Unit71>
+        <Filename Value="..\src\MockRecordInstaller.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit71>
+      <Unit72>
+        <Filename Value="..\src\MockTransport.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit72>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

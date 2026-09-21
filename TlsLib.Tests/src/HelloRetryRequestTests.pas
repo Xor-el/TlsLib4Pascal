@@ -61,7 +61,8 @@ type
     function SendHandshakeOf(const AEffects: TArray<THandshakeEffect>): TArray<TBytes>;
     function FailAlertOf(const AEffects: TArray<THandshakeEffect>;
       out AAlert: TTlsAlertDescription): Boolean;
-    function BuildHrr(AGroup, ASuite: UInt16; const ACookie, ASessionId: TBytes): TBytes;
+    function BuildHrr(AGroup, ASuite: UInt16; const ACookie, ASessionId: TBytes;
+      ASelectedVersion: UInt16 = TlsWireVersionTls13): TBytes;
     function BuildClientHello2(AGroup: UInt16; const AKeyShare, ACookie,
       ASessionId: TBytes; ASuite: UInt16 = 0): TBytes;
     function CookieFromHrr(const AHrr: TBytes): TBytes;
@@ -77,6 +78,8 @@ type
     procedure TestClientHandlesHelloRetryRequestEmitsSecondClientHello;
     procedure TestClientRejectsSecondHelloRetryRequest;
     procedure TestClientRejectsHelloRetryUnofferedGroup;
+    procedure TestClientRejectsHelloRetryWithoutSupportedVersions;
+    procedure TestClientRejectsHelloRetrySelectingTls12;
     procedure TestServerRejectsSecondClientHelloWithoutCookie;
     procedure TestServerRejectsTamperedCookie;
     procedure TestServerRejectsUnexpectedMessageDuringRetryWait;
@@ -164,7 +167,7 @@ begin
 end;
 
 function TTestHelloRetryRequest.BuildHrr(AGroup, ASuite: UInt16;
-  const ACookie, ASessionId: TBytes): TBytes;
+  const ACookie, ASessionId: TBytes; ASelectedVersion: UInt16): TBytes;
 var
   LCodec: IExtensionBlockCodec;
   LContext: TExtensionContext;
@@ -175,7 +178,8 @@ begin
   try
     LContext.HelloRetryGroup := AGroup;
     LContext.Cookie := ACookie;
-    LContext.SelectedVersion := TlsWireVersionTls13;
+    // 0 omits supported_versions from the HelloRetryRequest (the codec produces nothing for 0)
+    LContext.SelectedVersion := ASelectedVersion;
     LHello.Random := THelloRetryRequest.SentinelRandom;
     LHello.LegacySessionIdEcho := ASessionId;
     LHello.CipherSuite := ASuite;
@@ -421,6 +425,37 @@ begin
     'a HelloRetryRequest for an unoffered group aborts');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
     'an unoffered retry group is illegal_parameter');
+end;
+
+procedure TTestHelloRetryRequest.TestClientRejectsHelloRetryWithoutSupportedVersions;
+var
+  LClient: IHandshakeMachine;
+  LHrr: TBytes;
+  LAlert: TTlsAlertDescription;
+begin
+  LClient := NewRetryClient;
+  // a HelloRetryRequest is a TLS 1.3 message: one lacking supported_versions did not select 1.3
+  LHrr := BuildHrr(TNamedGroupCatalog.Secp256r1, TCipherSuites13.Aes128GcmSha256,
+    DecodeHex('a1b2c3'), DecodeHex(StringOfChar('3', 64)), 0);
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(MsgFrom(LHrr)), LAlert),
+    'a HelloRetryRequest without supported_versions aborts');
+  CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
+    'a HelloRetryRequest that does not select TLS 1.3 is illegal_parameter');
+end;
+
+procedure TTestHelloRetryRequest.TestClientRejectsHelloRetrySelectingTls12;
+var
+  LClient: IHandshakeMachine;
+  LHrr: TBytes;
+  LAlert: TTlsAlertDescription;
+begin
+  LClient := NewRetryClient;
+  LHrr := BuildHrr(TNamedGroupCatalog.Secp256r1, TCipherSuites13.Aes128GcmSha256,
+    DecodeHex('a1b2c3'), DecodeHex(StringOfChar('3', 64)), TlsWireVersionTls12);
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(MsgFrom(LHrr)), LAlert),
+    'a HelloRetryRequest selecting TLS 1.2 aborts');
+  CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
+    'a HelloRetryRequest selecting a non-1.3 version is illegal_parameter');
 end;
 
 procedure TTestHelloRetryRequest.TestServerRejectsSecondClientHelloWithoutCookie;

@@ -488,6 +488,10 @@
         <DCCReference Include="..\src\MockRandom.pas"/>
         <DCCReference Include="..\src\MockClock.pas"/>
         <DCCReference Include="..\src\MockCryptoProvider.pas"/>
+        <DCCReference Include="..\src\MockHttpFetcher.pas"/>
+        <DCCReference Include="..\src\MockSink.pas"/>
+        <DCCReference Include="..\src\MockRecordInstaller.pas"/>
+        <DCCReference Include="..\src\MockTransport.pas"/>
         <DCCReference Include="..\src\MockTests.pas"/>
         <DCCReference Include="..\src\RecordHeaderTests.pas"/>
         <DCCReference Include="..\src\RecordProtectionTests.pas"/>

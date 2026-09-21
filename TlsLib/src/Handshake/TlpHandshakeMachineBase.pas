@@ -42,11 +42,16 @@ type
     FCodec: IExtensionBlockCodec;
     FTranscript: ITranscriptHash;
     FSelectedSuite: TTlsCipherSuite;
+    FRenegotiationRefused: Boolean;
     /// <summary>Routes one message to its phase handler.</summary>
     function Route(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>; virtual; abstract;
     /// <summary>The effect that aborts on a message arriving out of phase.</summary>
     class function Unexpected: TArray<THandshakeEffect>; static;
+    /// <summary>Refuses a post-handshake renegotiation request: the first is answered with a
+    /// warning no_renegotiation and the connection continues; a second is fatal (RFC 5246 7.2.2,
+    /// RFC 5746 4.2). Used by the TLS 1.2 machines, which do not renegotiate.</summary>
+    function RefuseRenegotiation: TArray<THandshakeEffect>;
   public
     constructor Create(const AExtensionRegistry: IExtensionRegistry);
     /// <summary>A responder (server) by default; the client machines override to True.</summary>
@@ -89,6 +94,19 @@ class function THandshakeMachineBase.Unexpected: TArray<THandshakeEffect>;
 begin
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage));
+end;
+
+function THandshakeMachineBase.RefuseRenegotiation: TArray<THandshakeEffect>;
+begin
+  if FRenegotiationRefused then
+    Result := TArray<THandshakeEffect>.Create(
+      THandshakeEffects.Fail(TTlsAlertDescription.IllegalParameter))
+  else
+  begin
+    FRenegotiationRefused := True;
+    Result := TArray<THandshakeEffect>.Create(
+      THandshakeEffects.SendWarningAlert(TTlsAlertDescription.NoRenegotiation));
+  end;
 end;
 
 function THandshakeMachineBase.RequestKeyUpdate(

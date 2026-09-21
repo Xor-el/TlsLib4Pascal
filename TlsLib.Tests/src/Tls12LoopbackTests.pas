@@ -93,6 +93,8 @@ type
     procedure TestTamperedServerKeyExchangeSignatureAborts;
     procedure TestTamperedClientFinishedAborts;
     procedure TestServerRejectsClientFinishedWithWrongVerifyData;
+    procedure TestClientAnswersHelloRequestWithWarningThenAborts;
+    procedure TestNonEmptyHelloRequestIsDecodeError;
     procedure TestStapledGoodOcspCompletesUnderHardPosture;
     procedure TestMissingStapleAbortsUnderHardPosture;
   end;
@@ -643,6 +645,62 @@ begin
       LRejected := True;
   CheckTrue(LRejected,
     'the server rejects a client Finished with wrong verify_data (decrypt_error)');
+end;
+
+procedure TTestTls12Loopback.TestClientAnswersHelloRequestWithWarningThenAborts;
+var
+  LClient, LServer: IHandshakeMachine;
+  LEffects: TArray<THandshakeEffect>;
+  LEffect: THandshakeEffect;
+  LWarnings, LFails: Int32;
+begin
+  // white-box: two bare 1.2 machines driven to Connected. This client does not renegotiate,
+  // so a post-handshake HelloRequest is answered with a warning no_renegotiation and the
+  // connection continues; a second one is fatal (RFC 5246 7.2.2, RFC 5746 4.2)
+  LClient := ClientMachine(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True);
+  LServer := ServerMachine(False);
+  // ClientHello -> server flight -> client ClientKeyExchange+Finished -> server Finished -> client
+  DeliverFlight(LClient, SendMessages(DeliverFlight(LServer,
+    SendMessages(DeliverFlight(LClient, SendMessages(DeliverFlight(LServer,
+    SendMessages(LClient.Start))))))));
+
+  // a HelloRequest is type 0 with an empty body
+  LWarnings := 0;
+  for LEffect in DeliverFlight(LClient, TArray<TBytes>.Create(DecodeHex('00000000'))) do
+    if (LEffect.Kind = THandshakeEffectKind.SendWarningAlert) and
+      (LEffect.Alert = TTlsAlertDescription.NoRenegotiation) then
+      Inc(LWarnings);
+  CheckEquals(1, LWarnings, 'the first HelloRequest yields one warning no_renegotiation');
+
+  LFails := 0;
+  LEffects := DeliverFlight(LClient, TArray<TBytes>.Create(DecodeHex('00000000')));
+  for LEffect in LEffects do
+    if (LEffect.Kind = THandshakeEffectKind.Fail) and
+      (LEffect.Alert = TTlsAlertDescription.IllegalParameter) then
+      Inc(LFails);
+  CheckEquals(1, LFails, 'a second HelloRequest is fatal illegal_parameter');
+end;
+
+procedure TTestTls12Loopback.TestNonEmptyHelloRequestIsDecodeError;
+var
+  LClient, LServer: IHandshakeMachine;
+  LEffect: THandshakeEffect;
+  LFails: Int32;
+begin
+  // a HelloRequest carries an empty body (RFC 5246 7.4.1.1); a non-empty one is a decode_error
+  LClient := ClientMachine(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True);
+  LServer := ServerMachine(False);
+  DeliverFlight(LClient, SendMessages(DeliverFlight(LServer,
+    SendMessages(DeliverFlight(LClient, SendMessages(DeliverFlight(LServer,
+    SendMessages(LClient.Start))))))));
+
+  LFails := 0;
+  // type 0, length 1, one body byte
+  for LEffect in DeliverFlight(LClient, TArray<TBytes>.Create(DecodeHex('00000001FF'))) do
+    if (LEffect.Kind = THandshakeEffectKind.Fail) and
+      (LEffect.Alert = TTlsAlertDescription.DecodeError) then
+      Inc(LFails);
+  CheckEquals(1, LFails, 'a HelloRequest with a non-empty body is decode_error');
 end;
 
 procedure TTestTls12Loopback.TestStapledGoodOcspCompletesUnderHardPosture;

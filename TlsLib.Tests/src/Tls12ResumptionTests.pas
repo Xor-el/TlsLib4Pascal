@@ -59,6 +59,15 @@ uses
   TlsLibTestBase;
 
 type
+  // a ticket-key manager that always declines to seal, so the strategy returns an empty ticket
+  TDecliningTicketKeys = class sealed(TInterfacedObject, ISessionTicketKeyManager)
+  public
+    function CurrentKey(out AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
+    function KeyByName(const AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
+    procedure Rotate;
+    function KeyNameLength: Int32;
+  end;
+
   TTestTls12Resumption = class(TTlsLibAlgorithmTestCase)
   private const
     TlsSuite = TCipherSuites12.EcdheEcdsaAes128GcmSha256;
@@ -76,7 +85,7 @@ type
     /// handshake).</summary>
     function NewServer(const AStore: ISessionStore;
       const AStek: ISessionTicketKeyManager; ALifetime: UInt32;
-      AWithCredential: Boolean): ITlsEngine;
+      AWithCredential: Boolean; AEmitSentinel: Boolean = False): ITlsEngine;
     function Drain(const AEngine: ITlsEngine): TBytes;
     procedure Feed(const AEngine: ITlsEngine; const AWire: TBytes);
     procedure Pump(const ASrc, ADst: ITlsEngine);
@@ -86,6 +95,8 @@ type
     /// <summary>Whether a plaintext handshake flight carries a Certificate (type 11): a
     /// full handshake does, an abbreviated (resumed) handshake does not.</summary>
     function FlightHasCertificate(const AWire: TBytes): Boolean;
+    /// <summary>Whether a plaintext handshake flight carries a NewSessionTicket (type 4).</summary>
+    function FlightHasNewSessionTicket(const AWire: TBytes): Boolean;
     /// <summary>Runs the client and server to completion and reports whether the server's
     /// first response flight contained a Certificate (i.e. it ran a full handshake).</summary>
     function DriveObservingServerCert(const AClient, AServer: ITlsEngine): Boolean;
@@ -108,10 +119,12 @@ type
     procedure TestNonEmsSessionOfferedWithEmsFallsBackToFullHandshake;
     procedure TestResumptionScopeMismatchDeclinesTicket;
     procedure TestMutualAuthTicketReissueCarriesChain;
+    procedure TestDecliningSealStillSendsZeroLengthTicket;
     procedure TestExpiredTicketFallsBackToFullHandshake;
     procedure TestBogusTicketFallsBackToFullHandshake;
     procedure TestNoResumptionWithoutCache;
     procedure TestDualVersionClientResumesTls12;
+    procedure TestDualVersionClientAbortsStampedAbbreviatedResumption;
     procedure TestSessionIssuedUnderDifferentSniFallsBackToFullHandshake;
   end;
 
@@ -243,7 +256,7 @@ end;
 
 function TTestTls12Resumption.NewServer(const AStore: ISessionStore;
   const AStek: ISessionTicketKeyManager; ALifetime: UInt32;
-  AWithCredential: Boolean): ITlsEngine;
+  AWithCredential: Boolean; AEmitSentinel: Boolean): ITlsEngine;
 var
   LParams: TServer12HandshakeParams;
 begin
@@ -254,6 +267,7 @@ begin
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.Group := TNamedGroups.CreateX25519(Provider);
   LParams.ServerRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
+  LParams.EmitDowngradeSentinel := AEmitSentinel;
   if AWithCredential then
     LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
   LParams.SessionStore := AStore;
@@ -338,6 +352,57 @@ begin
   Pump(AServer, AClient);
   CheckEqualBytes('the client decrypts the server application data', LFromServer,
     ReadAllApp(AClient));
+end;
+
+function TDecliningTicketKeys.CurrentKey(out AKeyName: TBytes;
+  out AKey: ISecretBuffer): Boolean;
+begin
+  AKeyName := nil;
+  AKey := nil;
+  Result := False;
+end;
+
+function TDecliningTicketKeys.KeyByName(const AKeyName: TBytes;
+  out AKey: ISecretBuffer): Boolean;
+begin
+  AKey := nil;
+  Result := False;
+end;
+
+procedure TDecliningTicketKeys.Rotate;
+begin
+end;
+
+function TDecliningTicketKeys.KeyNameLength: Int32;
+begin
+  Result := 16;
+end;
+
+function TTestTls12Resumption.FlightHasNewSessionTicket(const AWire: TBytes): Boolean;
+var
+  LPos, LRecLen, LInner, LMsgLen: Int32;
+begin
+  Result := False;
+  LPos := 0;
+  while LPos + 5 <= System.Length(AWire) do
+  begin
+    LRecLen := (AWire[LPos + 3] shl 8) or AWire[LPos + 4];
+    if AWire[LPos] = 20 then // stop at ChangeCipherSpec; the encrypted flight follows
+      Exit;
+    if AWire[LPos] = 22 then
+    begin
+      LInner := LPos + 5;
+      while LInner + 4 <= LPos + 5 + LRecLen do
+      begin
+        LMsgLen := (AWire[LInner + 1] shl 16) or (AWire[LInner + 2] shl 8) or
+          AWire[LInner + 3];
+        if AWire[LInner] = 4 then // NewSessionTicket
+          Exit(True);
+        LInner := LInner + 4 + LMsgLen;
+      end;
+    end;
+    Inc(LPos, 5 + LRecLen);
+  end;
 end;
 
 function TTestTls12Resumption.FlightHasCertificate(const AWire: TBytes): Boolean;
@@ -730,6 +795,37 @@ begin
     'and the resumed connection surfaces the client chain');
 end;
 
+procedure TTestTls12Resumption.TestDecliningSealStillSendsZeroLengthTicket;
+var
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LServerWire, LServerOut: TBytes;
+  LIterations: Int32;
+begin
+  // a server that echoed the session_ticket extension MUST still send a NewSessionTicket, even
+  // when the strategy declines to seal - a zero-length one - so the client is not left awaiting
+  // it (RFC 5077 3.3)
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(nil, TDecliningTicketKeys.Create, 7200, True);
+  LClient.StartHandshake;
+  LServerWire := nil;
+  LIterations := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    Feed(LServer, Drain(LClient));
+    LServerOut := Drain(LServer);
+    LServerWire := ConcatBytes(LServerWire, LServerOut);
+    Feed(LClient, LServerOut);
+    Inc(LIterations);
+  end;
+  CheckFalse(LClient.IsHandshaking, 'the client completed despite the declined ticket');
+  CheckFalse(LServer.IsHandshaking, 'the server completed');
+  CheckTrue(FlightHasNewSessionTicket(LServerWire),
+    'the server still sent a NewSessionTicket (zero-length)');
+  CheckAppDataFlows(LClient, LServer);
+end;
+
 procedure TTestTls12Resumption.TestExpiredTicketFallsBackToFullHandshake;
 var
   LStek: ISessionTicketKeyManager;
@@ -823,6 +919,34 @@ begin
   CheckFalse(LClient.IsHandshaking, 'the resumed dual-version handshake completed');
   CheckFalse(LServer.IsTerminal, 'the resumed handshake did not fail');
   CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestTls12Resumption.TestDualVersionClientAbortsStampedAbbreviatedResumption;
+var
+  LCache: ISessionCache;
+  LStek: ISessionTicketKeyManager;
+  LClient, LServer: ITlsEngine;
+begin
+  // a 1.3-capable client aborts a stamped downgrade even on an abbreviated (resumption)
+  // ServerHello, not only on a full one (RFC 8446 4.1.3)
+  LCache := TInMemorySessionCache.Create;
+  LStek := TStekTicketKeyManager.Create(Provider.Primitives.GetRandom);
+
+  LClient := NewDualVersionClient(LCache);
+  LServer := NewServer(nil, LStek, 7200, True);
+  CheckTrue(DriveObservingServerCert(LClient, LServer),
+    'the first dual-version handshake is full');
+  CheckEquals(1, LCache.Count, 'the dual-version client cached the 1.2 session');
+
+  // the resuming server stamps the downgrade sentinel on the abbreviated ServerHello
+  LClient := NewDualVersionClient(LCache);
+  LServer := NewServer(nil, LStek, 7200, True, True);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LClient.IsTerminal, 'the client aborts a stamped abbreviated ServerHello');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.IllegalParameter)),
+    Int64(Ord(LClient.LastError.Alert.Description)),
+    'the abort is illegal_parameter (RFC 8446 4.1.3)');
 end;
 
 procedure TTestTls12Resumption.TestSessionIssuedUnderDifferentSniFallsBackToFullHandshake;

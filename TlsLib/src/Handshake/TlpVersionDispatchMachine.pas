@@ -80,6 +80,7 @@ type
   TServerVersionDispatchMachine = class sealed(TVersionDispatchMachineBase)
   strict private
     FServerSupportsTls13: Boolean;
+    FServerSupportsTls12: Boolean;
     FServerHighestVersion: UInt16;
     FParams13: TServerHandshakeParams;
     FParams12: TServer12HandshakeParams;
@@ -124,6 +125,10 @@ type
   end;
 
 implementation
+
+resourcestring
+  SEchRequiresTls13 = 'Encrypted Client Hello requires TLS 1.3; it cannot be offered by a ' +
+    'version-dispatching client that also offers TLS 1.2';
 
 { TVersionDispatchMachineBase }
 
@@ -266,6 +271,8 @@ begin
   FParams12 := AParams12;
   FServerSupportsTls13 := TArrayUtilities.Contains<UInt16>(ASupportedVersions,
     TlsWireVersionTls13);
+  FServerSupportsTls12 := TArrayUtilities.Contains<UInt16>(ASupportedVersions,
+    TlsWireVersionTls12);
   FServerHighestVersion := HighestVersion(ASupportedVersions);
 end;
 
@@ -281,6 +288,7 @@ var
   LHello: TTlsClientHello;
   LClientVersions: TArray<UInt16>;
   LClientSupportsTls13: Boolean;
+  LClientOffers12: Boolean;
   LClientHighest: UInt16;
 begin
   LHello := THandshakeMessages.DecodeClientHello(AMessage.Body);
@@ -321,6 +329,11 @@ begin
     Exit(TArray<THandshakeEffect>.Create(
       THandshakeEffects.Fail(TTlsAlertDescription.ProtocolVersion)));
 
+  // a client with no supported_versions offers 1.2 through its legacy_version (already floored
+  // at 1.2 above); a 1.3 client that lists supported_versions must name 1.2 there to negotiate it
+  LClientOffers12 := (System.Length(LClientVersions) = 0) or
+    (TArrayUtilities.Contains<UInt16>(LClientVersions, TlsWireVersionTls12));
+
   if FServerSupportsTls13 and LClientSupportsTls13 then
   begin
     // a TLS 1.3 ClientHello's legacy_compression_methods is exactly the single null byte;
@@ -332,13 +345,17 @@ begin
         THandshakeEffects.Fail(TTlsAlertDescription.IllegalParameter)));
     FInner := TTls13ServerStateMachine.Create(FParams13) as IHandshakeMachine;
   end
-  else
+  else if FServerSupportsTls12 and LClientOffers12 then
   begin
     // a 1.3-capable server that negotiates 1.2 stamps the downgrade sentinel so a
     // 1.3-capable client detects a stripped 1.3 offer (RFC 8446 4.1.3)
     FParams12.EmitDowngradeSentinel := FServerSupportsTls13;
     FInner := TTls12ServerStateMachine.Create(FParams12) as IHandshakeMachine;
-  end;
+  end
+  else
+    // the client and server share no supported protocol version (RFC 8446 4.2.1)
+    Exit(TArray<THandshakeEffect>.Create(
+      THandshakeEffects.Fail(TTlsAlertDescription.ProtocolVersion)));
   Result := FInner.ProcessMessage(AMessage);
 end;
 
@@ -351,6 +368,11 @@ var
   L13: TClientHandshakeParams;
 begin
   inherited Create;
+  // a config carrying ECH keys cannot go through the dual-version client: the dispatcher offers
+  // TLS 1.2 in the outer ClientHello, and ECH is defined only for TLS 1.3 (RFC 9849 sec. 6.1).
+  // GREASE-only ECH (an empty config list) stays allowed
+  if (AParams13.EchPolicy <> nil) and (System.Length(AParams13.EchPolicy.Configs) > 0) then
+    raise EArgumentTlsLibException.CreateRes(@SEchRequiresTls13);
   L13 := AParams13;
   L13.AlsoOfferTls12 := True;
   FPrimary13Typed := TTls13ClientStateMachine.Create(L13);
@@ -416,6 +438,11 @@ begin
     if FRequirePsk then
       Exit(TArray<THandshakeEffect>.Create(
         THandshakeEffects.Fail(TTlsAlertDescription.ProtocolVersion)));
+    // 0-RTT was offered but the server chose 1.2, where early data cannot exist: the response
+    // is inconsistent with the offer (RFC 8446 D.3)
+    if FPrimary13Typed.EarlyDataOffered then
+      Exit(TArray<THandshakeEffect>.Create(
+        THandshakeEffects.Fail(TTlsAlertDescription.IllegalParameter)));
     FParams12.PresentClientHello := FClientHello;
     // carry any cached 1.2 session the unified ClientHello offered into the 1.2 machine, so
     // it resumes when the server echoes the offered session id (read before releasing the

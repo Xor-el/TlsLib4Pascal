@@ -54,7 +54,8 @@ uses
   TlpTlsCredential,
   TlpCredentialResolvers,
   MockCryptoProvider,
-  Tls13ClientReplayTests,
+  MockSink,
+  MockRecordInstaller,
   TlsLibTestBase;
 
 type
@@ -247,7 +248,7 @@ begin
   FDriver := Own<THandshakeDriver>(THandshakeDriver.Create(
     THandshakeChannel.Create(FLayer) as IHandshakeChannel,
     TRecordLayerInstaller.Create(FLayer) as IRecordEpochInstaller, AProvider,
-    TSilentSink.Create as IHandshakeSink));
+    TMockHandshakeSink.Create as IHandshakeSink));
 end;
 
 procedure TTestTls13ServerReplay.Arrange;

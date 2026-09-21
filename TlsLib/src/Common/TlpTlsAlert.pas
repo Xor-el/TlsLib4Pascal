@@ -52,6 +52,7 @@ type
     InternalError = 80,
     InappropriateFallback = 86,
     UserCanceled = 90,
+    NoRenegotiation = 100,
     MissingExtension = 109,
     UnsupportedExtension = 110,
     UnrecognizedName = 112,
@@ -131,6 +132,7 @@ begin
     80: ADescription := TTlsAlertDescription.InternalError;
     86: ADescription := TTlsAlertDescription.InappropriateFallback;
     90: ADescription := TTlsAlertDescription.UserCanceled;
+    100: ADescription := TTlsAlertDescription.NoRenegotiation;
     109: ADescription := TTlsAlertDescription.MissingExtension;
     110: ADescription := TTlsAlertDescription.UnsupportedExtension;
     112: ADescription := TTlsAlertDescription.UnrecognizedName;
