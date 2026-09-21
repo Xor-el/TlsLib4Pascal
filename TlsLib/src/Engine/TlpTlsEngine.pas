@@ -809,7 +809,8 @@ function TTlsEngine.ExportKeyingMaterial(const ALabel: string;
 begin
   // available once the connection's exporter secret is derived - for a TLS 1.3 server that is
   // half-RTT (after it sent its Finished), before the peer's Finished (RFC 8446 7.5); TLS 1.2
-  // stays gated on completion. A failed (terminal) connection exports nothing.
+  // stays gated on completion. Withheld while parked on an out-of-band peer-certificate verdict,
+  // and a failed (terminal) connection exports nothing.
   if (FConductor = nil) or FTerminal or (not FConductor.CanExportKeyingMaterial) then
     Exit(nil);
   Result := FConductor.ExportKeyingMaterial(ALabel, AContext, AUseContext, ALength);

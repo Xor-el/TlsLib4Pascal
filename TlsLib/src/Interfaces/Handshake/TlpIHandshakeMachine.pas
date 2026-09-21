@@ -65,8 +65,9 @@ type
       AUseContext: Boolean; ALength: Int32): TBytes;
     /// <summary>Whether the exporter secret is available: for a TLS 1.3 server that is true in
     /// half-RTT (after it sent its Finished), before the peer's Finished (RFC 8446 7.5); TLS 1.2
-    /// stays gated on completion. The client withholds it while a reverify-on-resume verdict is
-    /// still open.</summary>
+    /// stays gated on completion. Never available while the machine is parked on an out-of-band
+    /// peer-certificate verdict (Stage = ParkedForVerdict) - neither side exports over a peer
+    /// identity still being decided.</summary>
     function CanExportKeyingMaterial: Boolean;
   end;
 

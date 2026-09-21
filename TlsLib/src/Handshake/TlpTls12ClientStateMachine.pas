@@ -50,6 +50,7 @@ uses
   TlpSession,
   TlpITlsEngine,
   TlpHandshakeEffect,
+  TlpHandshakeStage,
   TlpHandshakeMachineBase;
 
 type
@@ -1163,14 +1164,14 @@ function TTls12ClientStateMachine.ExportKeyingMaterial(const ALabel: string;
 begin
   // TLS 1.2 stays gated on completion (no False Start), so query and operation agree
   Result := nil;
-  if (FSchedule = nil) or (FPhase <> TPhase.Connected) then
+  if Stage <> THandshakeStage.Connected then
     Exit;
   Result := FSchedule.ExportKeyingMaterial(ALabel, AContext, AUseContext, ALength);
 end;
 
 function TTls12ClientStateMachine.CanExportKeyingMaterial: Boolean;
 begin
-  Result := FPhase = TPhase.Connected;
+  Result := Stage = THandshakeStage.Connected;
 end;
 
 end.

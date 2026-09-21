@@ -47,6 +47,7 @@ uses
   TlpSession,
   TlpSessionTicketStrategy,
   TlpHandshakeEffect,
+  TlpHandshakeStage,
   TlpHandshakeMachineBase;
 
 type
@@ -1175,14 +1176,14 @@ begin
   // TLS 1.2 stays gated on completion (no False Start), so query and operation agree: the master
   // exists from ClientKeyExchange, but the exporter is not offered before the handshake completes
   Result := nil;
-  if (FSchedule = nil) or (FPhase <> TPhase.Connected) then
+  if Stage <> THandshakeStage.Connected then
     Exit;
   Result := FSchedule.ExportKeyingMaterial(ALabel, AContext, AUseContext, ALength);
 end;
 
 function TTls12ServerStateMachine.CanExportKeyingMaterial: Boolean;
 begin
-  Result := FPhase = TPhase.Connected;
+  Result := Stage = THandshakeStage.Connected;
 end;
 
 end.
