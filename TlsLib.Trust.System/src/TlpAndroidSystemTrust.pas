@@ -24,7 +24,7 @@ uses
 {$ELSE}
   Androidapi.Jni,
 {$ENDIF}
-  TlpICryptoProvider,
+  TlpIPkixProvider,
   TlpICertificateTrust,
   TlpICertificateVerifierSource,
   TlpCertificateVerifier,
@@ -56,14 +56,14 @@ type
   /// </summary>
   TAndroidDelegateVerifier = class sealed(TInterfacedObject, IServerCertificateVerifier)
   strict private
-    FProvider: ICryptoProvider;
+    FPkix: IPkixProvider;
     FPosture: TRevocationPosture;
     FDeferral: TVerdictDeferral;
     FClock: ITlsClock;
     FStrengthPolicy: TCertificateStrengthPolicy;
     FAdvertised: TArray<UInt16>;
   public
-    constructor Create(const AProvider: ICryptoProvider;
+    constructor Create(const APkix: IPkixProvider;
       APosture: TRevocationPosture; ADeferral: TVerdictDeferral;
       const AClock: ITlsClock;
       const AStrengthPolicy: TCertificateStrengthPolicy;
@@ -95,12 +95,12 @@ type
   TAndroidClientDelegateVerifier = class sealed(TInterfacedObject,
     IClientCertificateVerifier)
   strict private
-    FProvider: ICryptoProvider;
+    FPkix: IPkixProvider;
     FAnchors: TArray<TBytes>;
     FStrengthPolicy: TCertificateStrengthPolicy;
     FAdvertised: TArray<UInt16>;
   public
-    constructor Create(const AProvider: ICryptoProvider;
+    constructor Create(const APkix: IPkixProvider;
       const AAnchors: TArray<TBytes>;
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>);
@@ -224,7 +224,7 @@ type
     /// OS-built path with its anchor for the server; the presented chain with the configured
     /// anchors for the client). A nil provider or empty chain is internal_error.</summary>
     class function ApplyStrengthPolicy(const AChain, ARoots: TArray<TBytes>;
-      const AProvider: ICryptoProvider;
+      const APkix: IPkixProvider;
       const APolicy: TCertificateStrengthPolicy; const AAdvertised: TArray<UInt16>;
       out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>Runs the platform client-auth trust decision for the peer CLIENT chain against a
@@ -633,17 +633,17 @@ begin
 end;
 
 class function TAndroidTrustApi.ApplyStrengthPolicy(const AChain,
-  ARoots: TArray<TBytes>; const AProvider: ICryptoProvider;
+  ARoots: TArray<TBytes>; const APkix: IPkixProvider;
   const APolicy: TCertificateStrengthPolicy; const AAdvertised: TArray<UInt16>;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
   Result := False;
-  if (AProvider = nil) or (Length(AChain) = 0) then
+  if (APkix = nil) or (Length(AChain) = 0) then
   begin
     AAlert := TTlsAlertDescription.InternalError;
     Exit;
   end;
-  Result := TChainAlgorithmPolicy.Check(AProvider.Certificates, AChain, ARoots,
+  Result := TChainAlgorithmPolicy.Check(APkix.Certificates, AChain, ARoots,
     APolicy, AAdvertised, AAlert);
 end;
 
@@ -951,13 +951,13 @@ end;
 
 { TAndroidDelegateVerifier }
 
-constructor TAndroidDelegateVerifier.Create(const AProvider: ICryptoProvider;
+constructor TAndroidDelegateVerifier.Create(const APkix: IPkixProvider;
   APosture: TRevocationPosture; ADeferral: TVerdictDeferral; const AClock: ITlsClock;
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>);
 begin
   inherited Create;
-  FProvider := AProvider;
+  FPkix := APkix;
   FPosture := APosture;
   FDeferral := ADeferral;
   FClock := AClock;
@@ -983,7 +983,7 @@ begin
 
   // strength/algorithm policy over the OS-built path, the OS anchor (last element) exempt
   Result := TAndroidTrustApi.ApplyStrengthPolicy(LOsPath,
-    TArray<TBytes>.Create(LOsPath[High(LOsPath)]), FProvider, FStrengthPolicy,
+    TArray<TBytes>.Create(LOsPath[High(LOsPath)]), FPkix, FStrengthPolicy,
     FAdvertised, AAlert);
   if not Result then
     Exit;
@@ -992,7 +992,7 @@ begin
   // OCSP response, so decide the staple here over the OS-built path (a leaf-only peer's staple can
   // then authenticate against the OS-supplied issuer). Revoked always rejects; an indeterminate
   // outcome rejects under Hard, unless the live-revocation verdict defers it to the park.
-  case TCertificateVerifier.StapleVerdict(FProvider, FClock, LOsPath, AOcspStaple) of
+  case TCertificateVerifier.StapleVerdict(FPkix, FClock, LOsPath, AOcspStaple) of
     TStapleVerdict.Revoked:
       begin
         Result := False;
@@ -1014,10 +1014,10 @@ begin
   // cannot match, so it fails closed rather than trusting blindly. Matched over the OS-validated
   // leaf, and an IP literal against its iPAddress SANs.
   if not AServerName.IsEmpty then
-    if (FProvider = nil) or
+    if (FPkix = nil) or
       (not TEndpointIdentity.Matches(AServerName,
-      FProvider.Certificates.DnsNames(LOsPath[0]),
-      FProvider.Certificates.IpAddresses(LOsPath[0]))) then
+      FPkix.Certificates.DnsNames(LOsPath[0]),
+      FPkix.Certificates.IpAddresses(LOsPath[0]))) then
     begin
       Result := False;
       AAlert := TTlsAlertDescription.BadCertificate;
@@ -1035,7 +1035,7 @@ end;
 function TAndroidServerVerifierSource.CreateServerVerifier(
   const AContext: TServerTrustContext): IServerCertificateVerifier;
 begin
-  Result := TAndroidDelegateVerifier.Create(AContext.Provider,
+  Result := TAndroidDelegateVerifier.Create(AContext.Pkix,
     AContext.RevocationPosture, AContext.Deferral, AContext.Clock,
     AContext.StrengthPolicy, AContext.AdvertisedSignatureSchemes)
     as IServerCertificateVerifier;
@@ -1043,13 +1043,13 @@ end;
 
 { TAndroidClientDelegateVerifier }
 
-constructor TAndroidClientDelegateVerifier.Create(const AProvider: ICryptoProvider;
+constructor TAndroidClientDelegateVerifier.Create(const APkix: IPkixProvider;
   const AAnchors: TArray<TBytes>;
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>);
 begin
   inherited Create;
-  FProvider := AProvider;
+  FPkix := APkix;
   FAnchors := AAnchors;
   FStrengthPolicy := AStrengthPolicy;
   FAdvertised := AAdvertised;
@@ -1065,7 +1065,7 @@ begin
   Result := TAndroidTrustApi.EvaluateClient(AChain, FAnchors, AAlert);
   if not Result then
     Exit;
-  Result := TAndroidTrustApi.ApplyStrengthPolicy(AChain, FAnchors, FProvider,
+  Result := TAndroidTrustApi.ApplyStrengthPolicy(AChain, FAnchors, FPkix,
     FStrengthPolicy, FAdvertised, AAlert);
   // the platform reports no path for a client certificate; the presented chain is the validated
   // one (anchors are exempt and not appended - the contract permits omitting an unreportable anchor)
@@ -1091,7 +1091,7 @@ begin
   LAnchors := nil;
   if AContext.TrustStore <> nil then
     LAnchors := AContext.TrustStore.RootCertificates;
-  Result := TAndroidClientDelegateVerifier.Create(AContext.Provider, LAnchors,
+  Result := TAndroidClientDelegateVerifier.Create(AContext.Pkix, LAnchors,
     AContext.StrengthPolicy, AContext.AdvertisedSignatureSchemes)
     as IClientCertificateVerifier;
 end;

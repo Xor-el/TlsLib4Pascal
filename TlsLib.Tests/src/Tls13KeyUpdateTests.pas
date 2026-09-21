@@ -104,13 +104,13 @@ function TTestTls13KeyUpdate.NewClient: ITlsEngine;
 begin
   // Hardened is TLS 1.3-only, the version that has KeyUpdate
   Result := TTlsEngineFactory.CreateClientEngine(
-    TTlsPresets.Hardened(Provider).Client.WithTrustStore(ClientTrust).Build, ServerHost);
+    TTlsPresets.Hardened(Provider, Pkix).Client.WithTrustStore(ClientTrust).Build, ServerHost);
 end;
 
 function TTestTls13KeyUpdate.NewServer: ITlsEngine;
 begin
   Result := TTlsEngineFactory.CreateServerEngine(
-    TTlsPresets.Hardened(Provider).Server.WithCredential(ServerCredential).Build);
+    TTlsPresets.Hardened(Provider, Pkix).Server.WithCredential(ServerCredential).Build);
 end;
 
 function TTestTls13KeyUpdate.Drain(const AEngine: ITlsEngine): TBytes;
@@ -231,10 +231,10 @@ var
   LI: Int32;
 begin
   LClient := TTlsEngineFactory.CreateClientEngine(
-    TTlsPresets.Hardened(Provider).Client.WithTrustStore(ClientTrust)
+    TTlsPresets.Hardened(Provider, Pkix).Client.WithTrustStore(ClientTrust)
     .WithCipherSuites(AesGcmRegistry).Build, ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(
-    TTlsPresets.Hardened(Provider).Server.WithCredential(ServerCredential)
+    TTlsPresets.Hardened(Provider, Pkix).Server.WithCredential(ServerCredential)
     .WithCipherSuites(AesGcmRegistry).Build);
   LClient.StartHandshake;
   LI := 0;

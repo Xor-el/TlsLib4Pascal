@@ -39,7 +39,7 @@ type
     ITls13KeySchedule)
   strict private
   var
-    FProvider: ICryptoProvider;
+    FCrypto: ICryptoProvider;
     FHkdf: IHkdf;
     FHash: THashAlgorithm;
     FKeyLength: Int32;
@@ -142,7 +142,7 @@ var
   LHash: IHash;
 begin
   inherited Create;
-  FProvider := AProvider;
+  FCrypto := AProvider;
   FHash := AHash;
   FKeyLength := AKeyLength;
   FIvLength := Tls13IvLength;
@@ -162,7 +162,7 @@ var
   LHash: IHash;
 begin
   Result := nil;
-  LHash := FProvider.Primitives.CreateHash(FHash);
+  LHash := FCrypto.Primitives.CreateHash(FHash);
   if System.Length(AData) > 0 then
     LHash.Update(AData, 0, System.Length(AData));
   Result := LHash.DoFinal;
@@ -364,7 +364,7 @@ var
   LHmac: IHmac;
 begin
   Result := nil;
-  LHmac := FProvider.Primitives.CreateHmac(FHash);
+  LHmac := FCrypto.Primitives.CreateHmac(FHash);
   LHmac.Init(FinishedKey(ADirection));
   LHmac.Update(ATranscriptHash, 0, System.Length(ATranscriptHash));
   Result := LHmac.DoFinal;
@@ -486,7 +486,7 @@ begin
   LBinderKey := BinderKey(AKind);
   LFinishedKey := THkdfLabel.HkdfExpandLabel(FHkdf, LBinderKey, 'finished', nil,
     FHashLength);
-  LHmac := FProvider.Primitives.CreateHmac(FHash);
+  LHmac := FCrypto.Primitives.CreateHmac(FHash);
   LHmac.Init(LFinishedKey);
   LHmac.Update(ATruncatedTranscriptHash, 0,
     System.Length(ATruncatedTranscriptHash));

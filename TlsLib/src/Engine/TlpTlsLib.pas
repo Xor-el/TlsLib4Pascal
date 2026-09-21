@@ -18,6 +18,7 @@ interface
 uses
   SysUtils,
   TlpDefaultCryptoProvider,
+  TlpDefaultPkixProvider,
   TlpICertificateTrust,
   TlpTlsCredential,
   TlpITlsConfig,
@@ -56,28 +57,32 @@ implementation
 class function TTlsLib.NewClientConfig(
   const ATrustStore: ITrustAnchorStore): ITlsClientConfig;
 begin
-  Result := TTlsPresets.Compatible(TDefaultCryptoProvider.Shared)
+  Result := TTlsPresets.Compatible(TDefaultCryptoProvider.Shared,
+    TDefaultPkixProvider.Shared)
     .Client.WithTrustStore(ATrustStore).Build;
 end;
 
 class function TTlsLib.NewClientConfig(
   const ATrustAnchorsData: TBytes): ITlsClientConfig;
 begin
-  Result := TTlsPresets.Compatible(TDefaultCryptoProvider.Shared)
+  Result := TTlsPresets.Compatible(TDefaultCryptoProvider.Shared,
+    TDefaultPkixProvider.Shared)
     .Client.WithTrustAnchors(ATrustAnchorsData).Build;
 end;
 
 class function TTlsLib.NewServerConfig(
   const ACredential: TTlsCredential): ITlsServerConfig;
 begin
-  Result := TTlsPresets.Compatible(TDefaultCryptoProvider.Shared)
+  Result := TTlsPresets.Compatible(TDefaultCryptoProvider.Shared,
+    TDefaultPkixProvider.Shared)
     .Server.WithCredential(ACredential).Build;
 end;
 
 class function TTlsLib.NewServerConfig(const ACertificateChainData,
   APrivateKeyData: TBytes): ITlsServerConfig;
 begin
-  Result := TTlsPresets.Compatible(TDefaultCryptoProvider.Shared)
+  Result := TTlsPresets.Compatible(TDefaultCryptoProvider.Shared,
+    TDefaultPkixProvider.Shared)
     .Server.WithCredential(ACertificateChainData, APrivateKeyData).Build;
 end;
 

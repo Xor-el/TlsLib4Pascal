@@ -166,7 +166,8 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Group := TNamedGroups.CreateX25519(Provider);
   LParams.GroupCode := TNamedGroupCatalog.X25519;
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
@@ -175,7 +176,7 @@ begin
   LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
   LParams.ClientRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
   LParams.LegacySessionId := Filled($33, 32);
-  LParams.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+  LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
     as ITrustAnchorStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName(ServerHost);
@@ -196,7 +197,8 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
@@ -851,7 +853,8 @@ var
   begin
     LP := Default(TClientHandshakeParams);
     LP.Clock := TSystemClock.Create;
-    LP.Provider := Provider;
+    LP.Crypto := Provider;
+    LP.Inspector := Pkix.Certificates;
     LP.Group := TNamedGroups.CreateX25519(Provider);
     LP.GroupCode := TNamedGroupCatalog.X25519;
     LP.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
@@ -860,7 +863,7 @@ var
     LP.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
     LP.ClientRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
     LP.LegacySessionId := Filled($33, 32);
-    LP.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+    LP.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
       TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
       as ITrustAnchorStore, True) as IServerCertificateVerifier;
     LP.ExpectedServerName := TServerName.DnsName(ServerHost);
@@ -877,7 +880,8 @@ var
   begin
     LP := Default(TServerHandshakeParams);
     LP.Clock := TSystemClock.Create;
-    LP.Provider := Provider;
+    LP.Crypto := Provider;
+    LP.Inspector := Pkix.Certificates;
     LP.Policy := TNegotiationPolicy.CreateDefault(Provider);
     LP.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
     LP.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
@@ -892,7 +896,7 @@ var
     LP.ClientAuth := TClientAuthMode.Required;
     LP.ClientAuthSignatureSchemes := TArray<UInt16>.Create(
       TSignatureSchemes.EcdsaSecp256r1Sha256);
-    LP.ClientCertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+    LP.ClientCertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
       TTrustAnchorStore.Create(TArray<TBytes>.Create(LClientRoot))
       as ITrustAnchorStore, False) as IClientCertificateVerifier;
     Result := TTlsEngine.CreateConfigured(
@@ -955,7 +959,8 @@ var
   begin
     LP := Default(TClientHandshakeParams);
     LP.Clock := TSystemClock.Create;
-    LP.Provider := Provider;
+    LP.Crypto := Provider;
+    LP.Inspector := Pkix.Certificates;
     LP.Group := TNamedGroups.CreateX25519(Provider);
     LP.GroupCode := TNamedGroupCatalog.X25519;
     LP.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
@@ -964,7 +969,7 @@ var
     LP.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
     LP.ClientRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
     LP.LegacySessionId := Filled($33, 32);
-    LP.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+    LP.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
       TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
       as ITrustAnchorStore, True) as IServerCertificateVerifier;
     LP.ExpectedServerName := TServerName.DnsName(ServerHost);
@@ -983,7 +988,8 @@ var
   begin
     LP := Default(TServerHandshakeParams);
     LP.Clock := TSystemClock.Create;
-    LP.Provider := Provider;
+    LP.Crypto := Provider;
+    LP.Inspector := Pkix.Certificates;
     LP.Policy := TNegotiationPolicy.CreateDefault(Provider);
     LP.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
     LP.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
@@ -998,7 +1004,7 @@ var
     begin
       LP.ClientAuthSignatureSchemes := TArray<UInt16>.Create(
         TSignatureSchemes.EcdsaSecp256r1Sha256);
-      LP.ClientCertificateVerifier := TCertificateVerifier.Create(Provider,
+      LP.ClientCertificateVerifier := TCertificateVerifier.Create(Pkix,
         TSystemClock.Create as ITlsClock,
         TTrustAnchorStore.Create(TArray<TBytes>.Create(LClientRoot))
         as ITrustAnchorStore, False) as IClientCertificateVerifier;
@@ -1065,7 +1071,8 @@ var
 begin
   LP := Default(TClientHandshakeParams);
   LP.Clock := TSystemClock.Create;
-  LP.Provider := Provider;
+  LP.Crypto := Provider;
+  LP.Inspector := Pkix.Certificates;
   LP.Group := TNamedGroups.CreateX25519(Provider);
   LP.GroupCode := TNamedGroupCatalog.X25519;
   LP.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
@@ -1074,7 +1081,7 @@ begin
   LP.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
   LP.ClientRandom := Provider.Primitives.GetRandom.GenerateBytes(32);
   LP.LegacySessionId := Filled($33, 32);
-  LP.CertificateVerifier := TCertificateVerifier.Create(Provider,
+  LP.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
     as ITrustAnchorStore, True) as IServerCertificateVerifier;
@@ -1094,7 +1101,8 @@ var
 begin
   LP := Default(TServerHandshakeParams);
   LP.Clock := TSystemClock.Create;
-  LP.Provider := Provider;
+  LP.Crypto := Provider;
+  LP.Inspector := Pkix.Certificates;
   LP.Policy := TNegotiationPolicy.CreateDefault(Provider);
   LP.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
   LP.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
@@ -1110,7 +1118,7 @@ begin
   begin
     LP.ClientAuthSignatureSchemes := TArray<UInt16>.Create(
       TSignatureSchemes.EcdsaSecp256r1Sha256);
-    LP.ClientCertificateVerifier := TCertificateVerifier.Create(Provider,
+    LP.ClientCertificateVerifier := TCertificateVerifier.Create(Pkix,
       TSystemClock.Create as ITlsClock,
       TTrustAnchorStore.Create(TArray<TBytes>.Create(AClientRoot))
       as ITrustAnchorStore, False) as IClientCertificateVerifier;

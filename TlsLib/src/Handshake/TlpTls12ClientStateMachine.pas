@@ -25,6 +25,7 @@ uses
   TlpTlsLibExceptions,
   TlpISecretBuffer,
   TlpICryptoProvider,
+  TlpIPkixProvider,
   TlpINamedGroup,
   TlpIKeySchedule,
   TlpTls12KeySchedule,
@@ -53,7 +54,8 @@ uses
 type
   /// <summary>The inputs a TLS 1.2 client handshake needs to build and drive its flight.</summary>
   TClient12HandshakeParams = record
-    Provider: ICryptoProvider;
+    Crypto: ICryptoProvider;
+    Inspector: ICertificateInspector;
     /// <summary>Resolves the ECDHE group the server names in its ServerKeyExchange to a
     /// usable group; the client key-exchanges on whichever offered curve the server
     /// picks (only classical ECDHE groups are eligible for 1.2).</summary>
@@ -382,7 +384,7 @@ begin
           FOfferedSessionId := FResumptionOffer.SessionId
         else if System.Length(FResumptionOffer.SessionTicket) > 0 then
           // a ticket-only session still carries an id so the server's echo signals resumption
-          FOfferedSessionId := FParams.Provider.Primitives.GetRandom.GenerateBytes(32);
+          FOfferedSessionId := FParams.Crypto.Primitives.GetRandom.GenerateBytes(32);
         LHello.LegacySessionId := FOfferedSessionId;
       end;
     end;
@@ -478,7 +480,7 @@ begin
 
   FServerRandom := LHello.Random;
   FServerSessionId := LHello.LegacySessionIdEcho;
-  FTranscript.Activate(FParams.Provider.Primitives.CreateHash(FSelectedSuite.Common.Hash));
+  FTranscript.Activate(FParams.Crypto.Primitives.CreateHash(FSelectedSuite.Common.Hash));
   Absorb(AMessage.Raw);
 
   // a 1.3-capable client aborts a stamped downgrade (RFC 8446 4.1.3) before acting on the rest
@@ -572,7 +574,7 @@ end;
 function TTls12ClientStateMachine.ProcessCertificate(
   const AMessage: TTlsHandshakeMessage): TArray<THandshakeEffect>;
 var
-  LKind: TCertKeyKind;
+  LKind: TSignatureKeyKind;
   LEcGroup: UInt16;
 begin
   Result := nil;
@@ -582,7 +584,7 @@ begin
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.DecodeError, @SEmptyCertificate);
   // a server leaf that is not a well-formed certificate is a decode error
-  FParsedServerLeaf := TCertificateVerify.ParseWellFormedLeaf(FParams.Provider,
+  FParsedServerLeaf := TCertificateVerify.ParseWellFormedLeaf(FParams.Inspector,
     FCertChain[0]);
 
   if FParsedServerLeaf.KeyKind(LKind, LEcGroup) then
@@ -590,14 +592,14 @@ begin
     // the leaf key algorithm must match the negotiated suite's authentication method (a
     // CertificateCipherMismatch, RFC 5246 7.4.2): an *_RSA suite needs an RSA leaf; an
     // *_ECDSA suite an EC-family leaf - ECDSA or, per RFC 8422, an EdDSA key
-    if ((FSelectedSuite.Auth = TAuthMethod.Rsa) and (LKind <> TCertKeyKind.Rsa)) or
+    if ((FSelectedSuite.Auth = TAuthMethod.Rsa) and (LKind <> TSignatureKeyKind.Rsa)) or
       ((FSelectedSuite.Auth = TAuthMethod.Ecdsa) and
-      not (LKind in [TCertKeyKind.Ecdsa, TCertKeyKind.Ed25519, TCertKeyKind.Ed448])) then
+      not (LKind in [TSignatureKeyKind.Ecdsa, TSignatureKeyKind.Ed25519, TSignatureKeyKind.Ed448])) then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SCertKeyMismatchesSuite);
     // an ECDSA leaf's curve must be one we advertised: TLS 1.2 takes the ECDSA curve from
     // supported_groups, not the signature algorithm (RFC 8422 5.1 / CheckLeafCurve)
-    if (LKind = TCertKeyKind.Ecdsa) and
+    if (LKind = TSignatureKeyKind.Ecdsa) and
       not (TArrayUtilities.Contains<UInt16>(FParams.OfferedGroups, LEcGroup)) then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SLeafCurveNotOffered);
@@ -662,7 +664,7 @@ begin
     TArrayUtilities.Concat(FParams.ClientRandom, FServerRandom),
     THandshakeMessages.EcdheServerParams(LSke.NamedCurve, LSke.PublicKey));
   LPublicKeyInfo := FParsedServerLeaf.PublicKeyInfo;
-  LVerifier := FParams.Provider.Signing.CreateSignatureVerifier(LScheme, LPublicKeyInfo);
+  LVerifier := FParams.Crypto.Signing.CreateSignatureVerifier(LScheme, LPublicKeyInfo);
   LVerifier.Update(LContent, 0, System.Length(LContent));
   // the parsed leaf is no longer needed; release it rather than pin the ASN.1 graph
   FParsedServerLeaf := nil;
@@ -678,7 +680,7 @@ end;
 procedure TTls12ClientStateMachine.DeriveSecrets(const APreMaster: ISecretBuffer;
   const ASessionHash: TBytes);
 begin
-  FSchedule := TTls12KeySchedule.Create(FParams.Provider,
+  FSchedule := TTls12KeySchedule.Create(FParams.Crypto,
     FSelectedSuite.Common.Hash, FSelectedSuite.Common.KeyLength, FSelectedSuite.Common.Aead);
   FSchedule.SetRandoms(FParams.ClientRandom, FServerRandom);
   FSchedule.SetPreMasterSecret(APreMaster);
@@ -716,7 +718,7 @@ var
   LScheme: TSignatureScheme;
   LChain: TArray<TBytes>;
   LCertBytes: TBytes;
-  LKind: TCertKeyKind;
+  LKind: TSignatureKeyKind;
   LEcGroup: UInt16;
   LCertType: Byte;
 begin
@@ -727,9 +729,9 @@ begin
   // usable signature scheme must exist; otherwise present an empty Certificate (RFC 5246 7.4.4)
   LCertType := 0;
   if (System.Length(LChain) > 0) and
-    FParams.Provider.Certificates.KeyKind(LChain[0], LKind, LEcGroup) then
+    FParams.Inspector.KeyKind(LChain[0], LKind, LEcGroup) then
   begin
-    if LKind = TCertKeyKind.Rsa then
+    if LKind = TSignatureKeyKind.Rsa then
       LCertType := RsaSignCertType
     else
       LCertType := EcdsaSignCertType;
@@ -793,7 +795,7 @@ begin
   // a CertificateVerify proves possession over the raw handshake log through the CKE
   if LSentCertificate then
   begin
-    LSigner := FParams.Provider.Signing.CreateSignatureSigner(LScheme,
+    LSigner := FParams.Crypto.Signing.CreateSignatureSigner(LScheme,
       FParams.ClientCredential.PrivateKey);
     LSigner.Update(FHandshakeLog.Bytes, 0, FHandshakeLog.Size);
     LVerify.Algorithm := LScheme.ToCode;
@@ -956,7 +958,7 @@ begin
     ReverifyResumedServer;
 
   // reuse the stored master secret; the key block re-expands under the new randoms
-  FSchedule := TTls12KeySchedule.Create(FParams.Provider,
+  FSchedule := TTls12KeySchedule.Create(FParams.Crypto,
     FSelectedSuite.Common.Hash, FSelectedSuite.Common.KeyLength, FSelectedSuite.Common.Aead);
   FSchedule.SetRandoms(FParams.ClientRandom, FServerRandom);
   FSchedule.SetMasterSecret(FResumptionOffer.MasterSecret);

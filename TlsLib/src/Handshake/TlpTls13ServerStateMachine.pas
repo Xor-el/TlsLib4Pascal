@@ -25,6 +25,7 @@ uses
   TlpISecretBuffer,
   TlpISigningKey,
   TlpICryptoProvider,
+  TlpIPkixProvider,
   TlpINamedGroup,
   TlpIKeySchedule,
   TlpTls13KeySchedule,
@@ -68,7 +69,8 @@ uses
 type
   /// <summary>The inputs a server handshake needs to negotiate and send its flight.</summary>
   TServerHandshakeParams = record
-    Provider: ICryptoProvider;
+    Crypto: ICryptoProvider;
+    Inspector: ICertificateInspector;
     Policy: INegotiationPolicy;
     CipherSuites: ICipherSuiteRegistry;
     ExtensionRegistry: IExtensionRegistry;
@@ -495,9 +497,9 @@ begin
   FPhase := TPhase.Initial;
   FEchStatus := TEchStatus.NotOffered;
   if FParams.CookieSecret <> nil then
-    FCookie := THelloRetryCookie.Create(FParams.Provider, FParams.CookieSecret);
+    FCookie := THelloRetryCookie.Create(FParams.Crypto, FParams.CookieSecret);
   // a configured store upgrades the stateless STEK default to single-use handles
-  FTicketStrategy := TSessionTicketStrategies.ForServer(FParams.Provider,
+  FTicketStrategy := TSessionTicketStrategies.ForServer(FParams.Crypto,
     FParams.SessionTicketKeys, FParams.SessionStore);
   FExternalPsks := ImportExternalPsks;
 end;
@@ -518,7 +520,7 @@ function TTls13ServerStateMachine.HashOf(const AData: TBytes): TBytes;
 var
   LHash: IHash;
 begin
-  LHash := FParams.Provider.Primitives.CreateHash(FSelectedSuite.Common.Hash);
+  LHash := FParams.Crypto.Primitives.CreateHash(FSelectedSuite.Common.Hash);
   LHash.Update(AData, 0, System.Length(AData));
   Result := LHash.DoFinal;
 end;
@@ -861,7 +863,7 @@ begin
   FSelectedSuite := LSuite; // so HashOf uses the PSK's hash
   LTruncated := System.Copy(ARawClientHello, 0,
     System.Length(ARawClientHello) - BindersVectorLength(AContext.OfferedPskBinders));
-  LTemp := TTls13KeySchedule.Create(FParams.Provider, LSuite.Common.Hash,
+  LTemp := TTls13KeySchedule.Create(FParams.Crypto, LSuite.Common.Hash,
     LSuite.Common.KeyLength);
   LTemp.SetPsk(LSession.ResumptionSecret);
   // a present binder that does not validate against a successfully opened ticket is fatal
@@ -906,10 +908,10 @@ begin
   for LSpec in FParams.ExternalPsks do
   begin
     TArrayUtilities.Append<IPreSharedKey>(Result,
-      TExternalPskImporter.Import(FParams.Provider, LSpec, TlsWireVersionTls13,
+      TExternalPskImporter.Import(FParams.Crypto, LSpec, TlsWireVersionTls13,
       THashAlgorithm.SHA_256));
     TArrayUtilities.Append<IPreSharedKey>(Result,
-      TExternalPskImporter.Import(FParams.Provider, LSpec, TlsWireVersionTls13,
+      TExternalPskImporter.Import(FParams.Crypto, LSpec, TlsWireVersionTls13,
       THashAlgorithm.SHA_384));
   end;
 end;
@@ -935,7 +937,7 @@ begin
   Result := False;
   // server preference (the shared hardware-AES-aware order), constrained to a 1.3 suite of
   // the PSK's hash the client also offered
-  for LCode in TNegotiationPolicy.SuitePreferenceOrder(FParams.Provider,
+  for LCode in TNegotiationPolicy.SuitePreferenceOrder(FParams.Crypto,
     FParams.CipherSuites, TSuiteProtocol.Tls13) do
     if FParams.CipherSuites.TryGet(LCode, LSuite) and
       (LSuite.Protocol = TSuiteProtocol.Tls13) and (LSuite.Common.Hash = AHash) and
@@ -977,7 +979,7 @@ begin
     FSelectedSuite := LSuite; // so HashOf uses the PSK's hash
     LTruncated := System.Copy(ARawClientHello, 0,
       System.Length(ARawClientHello) - BindersVectorLength(AContext.OfferedPskBinders));
-    LTemp := TTls13KeySchedule.Create(FParams.Provider, LOffer.Hash,
+    LTemp := TTls13KeySchedule.Create(FParams.Crypto, LOffer.Hash,
       LSuite.Common.KeyLength);
     LTemp.SetPsk(LOffer.Key);
     // a matched identity whose binder does not validate is fatal (RFC 8446 4.2.11.2)
@@ -1031,7 +1033,7 @@ begin
       TTlsAlertDescription.IllegalParameter, @SPskIdentityNotFound);
   LTruncated := System.Copy(ARawClientHello, 0,
     System.Length(ARawClientHello) - BindersVectorLength(AContext.OfferedPskBinders));
-  LTemp := TTls13KeySchedule.Create(FParams.Provider, FSelectedSuite.Common.Hash,
+  LTemp := TTls13KeySchedule.Create(FParams.Crypto, FSelectedSuite.Common.Hash,
     FSelectedSuite.Common.KeyLength);
   LTemp.SetPsk(FPskSecret);
   // the binder hash runs over the seeded transcript (message_hash(CH1), HRR) plus this
@@ -1101,7 +1103,7 @@ begin
   end
   else if FParams.EchKeyStore <> nil then
   begin
-    FEch := TEchServerHandshake.Create(FParams.Provider, FParams.EchKeyStore,
+    FEch := TEchServerHandshake.Create(FParams.Crypto, FParams.EchKeyStore,
       FParams.EchTrialDecrypt);
     FEchStatus := FEch.ProcessOuter(AMessage.Raw);
     if FEchStatus = TEchStatus.Accepted then
@@ -1125,7 +1127,7 @@ begin
     begin
       // transcript: ClientHello, then (activated) ServerHello inside EmitServerFlight
       FTranscript.Update(LEchRaw);
-      FTranscript.Activate(FParams.Provider.Primitives.CreateHash(FSelectedSuite.Common.Hash));
+      FTranscript.Activate(FParams.Crypto.Primitives.CreateHash(FSelectedSuite.Common.Hash));
       // the client_early_traffic secret is over the ClientHello-only transcript
       if FEarlyDataAccepted then
         FEarlyTranscriptHash := FTranscript.CurrentHash;
@@ -1241,10 +1243,10 @@ begin
   // still zero here, so hashing AHrrBytes hashes the HRR with the payload zeroed
   LClone := TTranscriptHash.Create;
   LClone.SeedWithMessageHash(
-    FParams.Provider.Primitives.CreateHash(FSelectedSuite.Common.Hash), AInnerCh1Hash);
+    FParams.Crypto.Primitives.CreateHash(FSelectedSuite.Common.Hash), AInnerCh1Hash);
   LClone.Update(AHrrBytes);
   LConf := TTls13KeySchedule.EchHrrAcceptConfirmation(
-    FParams.Provider.Primitives.CreateHkdf(FSelectedSuite.Common.Hash),
+    FParams.Crypto.Primitives.CreateHkdf(FSelectedSuite.Common.Hash),
     FEchInnerRandom, LClone.CurrentHash);
   Move(LConf[0], AHrrBytes[System.Length(AHrrBytes) - 8], 8);
 end;
@@ -1318,7 +1320,7 @@ begin
     // HelloRetryRequest (byte-identical to the one sent, including its ech confirmation on
     // accept, from the echoed cookie's Hash(CH1)), then this ClientHello (the inner on accept)
     FTranscript := TTranscriptHash.Create;
-    FTranscript.SeedWithMessageHash(FParams.Provider.Primitives.CreateHash(FSelectedSuite.Common.Hash),
+    FTranscript.SeedWithMessageHash(FParams.Crypto.Primitives.CreateHash(FSelectedSuite.Common.Hash),
       LCh1Hash);
     // the sent HelloRetryRequest carried the ech confirmation on ECH accept and in the backend
     // role, so its transcript reconstruction must too (else the ServerHello confirmation diverges)
@@ -1384,7 +1386,7 @@ begin
   LClone := FTranscript.Clone;
   LClone.Update(LZeroed);
   LConf := TTls13KeySchedule.EchAcceptConfirmation(
-    FParams.Provider.Primitives.CreateHkdf(FSelectedSuite.Common.Hash),
+    FParams.Crypto.Primitives.CreateHkdf(FSelectedSuite.Common.Hash),
     FEchInnerRandom, LClone.CurrentHash);
   Move(LConf[0], AServerHelloBytes[30], 8);
 end;
@@ -1413,7 +1415,7 @@ begin
   // whole connection. A HelloRetryRequest, if any, consumed the opener before this flight.
   FEch := nil;
 
-  FSchedule := TTls13KeySchedule.Create(FParams.Provider, FSelectedSuite.Common.Hash,
+  FSchedule := TTls13KeySchedule.Create(FParams.Crypto, FSelectedSuite.Common.Hash,
     FSelectedSuite.Common.KeyLength);
   // psk_dhe_ke: the resumption PSK seeds the early secret, the fresh ECDHE the handshake
   if FPskAccepted then
@@ -1663,7 +1665,7 @@ begin
   if LCompressor <> nil then
   begin
     LCompressed := TCertificateCompression.CompressWithCache(
-      FParams.CertificateCompressionCache, FParams.Provider, LCompressor, LBody);
+      FParams.CertificateCompressionCache, FParams.Crypto, LCompressor, LBody);
     if System.Length(LCompressed) < System.Length(LBody) then
     begin
       LMsg.Algorithm := LCompressor.Algorithm;
@@ -1727,7 +1729,7 @@ begin
 
   // a client leaf that is not a well-formed certificate is a decode error, caught before
   // the verifier (which, for -require-any-client-certificate, does not parse the chain)
-  FParsedClientLeaf := TCertificateVerify.ParseWellFormedLeaf(FParams.Provider,
+  FParsedClientLeaf := TCertificateVerify.ParseWellFormedLeaf(FParams.Inspector,
     FClientCertChain[0]);
 
   // RFC 8446 4.4.2: extensions on a client CertificateEntry must correspond to ones in the
@@ -1787,7 +1789,7 @@ begin
   // the client signs the transcript through its Certificate, client-side context string
   LContent := TCertificateVerify.SignatureContent(False, FTranscript.CurrentHash);
   LPublicKeyInfo := FParsedClientLeaf.PublicKeyInfo;
-  LVerifier := FParams.Provider.Signing.CreateSignatureVerifier(LScheme, LPublicKeyInfo);
+  LVerifier := FParams.Crypto.Signing.CreateSignatureVerifier(LScheme, LPublicKeyInfo);
   LVerifier.Update(LContent, 0, System.Length(LContent));
   // the parsed leaf is no longer needed; release it rather than pin the ASN.1 graph
   FParsedClientLeaf := nil;
@@ -1806,7 +1808,7 @@ var
   LVerify: TTlsCertificateVerify;
 begin
   LContent := TCertificateVerify.SignatureContent(True, ATranscriptHash);
-  LSigner := FParams.Provider.Signing.CreateSignatureSigner(
+  LSigner := FParams.Crypto.Signing.CreateSignatureSigner(
     FSelectedSignatureScheme, FResolvedCredential.PrivateKey);
   LSigner.Update(LContent, 0, System.Length(LContent));
   LVerify.Algorithm := FSelectedSignatureScheme.ToCode;
@@ -1896,11 +1898,11 @@ begin
     LLifetime := MaxTicketLifetimeSeconds;
   for LI := 0 to FParams.IssueTicketCount - 1 do
   begin
-    LNonce := FParams.Provider.Primitives.GetRandom.GenerateBytes(TicketNonceLength);
+    LNonce := FParams.Crypto.Primitives.GetRandom.GenerateBytes(TicketNonceLength);
     // a fresh random ticket_age_add per ticket obfuscates the wire age (RFC 8446 4.6.1);
     // the same value is sealed into the session so the offered age reconciles on resumption
     LAgeAdd := TBinaryPrimitives.ReadUInt32BigEndian(
-      FParams.Provider.Primitives.GetRandom.GenerateBytes(4), 0);
+      FParams.Crypto.Primitives.GetRandom.GenerateBytes(4), 0);
     LPsk := FSchedule.ResumptionPsk(LNonce);
     // the ticket identity is the sealed/handle output, so the session's own id is unused;
     // MaxEarlyData authorizes 0-RTT on the resumed connection. Carry the client chain forward so a

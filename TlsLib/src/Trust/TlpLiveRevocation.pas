@@ -18,8 +18,8 @@ interface
 uses
   SysUtils,
   TlpTlsAlert,
-  TlpCryptoDomainTypes,
-  TlpICryptoProvider,
+  TlpPkixDomainTypes,
+  TlpIPkixProvider,
   TlpIClock,
   TlpIHttpFetcher,
   TlpTrustPolicy,
@@ -54,7 +54,7 @@ type
   const
     OcspRequestContentType = 'application/ocsp-request';
   var
-    FProvider: ICryptoProvider;
+    FPkix: IPkixProvider;
     FClock: ITlsClock;
     FFetcher: IHttpFetcher;
     FPosture: TRevocationPosture;
@@ -69,14 +69,14 @@ type
     /// <summary>Builds a checker over an injected provider and fetcher. APosture governs how
     /// an indeterminate result is treated (Hard rejects, Soft/Off accept). ATimeoutMs bounds
     /// each fetch (0 leaves it to the fetcher).</summary>
-    constructor Create(const AProvider: ICryptoProvider; const AClock: ITlsClock;
+    constructor Create(const APkix: IPkixProvider; const AClock: ITlsClock;
       const AFetcher: IHttpFetcher; APosture: TRevocationPosture;
       AMethod: TLiveRevocationMethod; ATimeoutMs: Cardinal); overload;
     /// <summary>As above, plus a set of candidate issuer certificates (configured trust anchors and
     /// intermediates) used to recover the issuer when a peer presents a leaf-only chain - the normal
     /// mutual-TLS client case, where the issuing CA is a configured anchor rather than sent on the
     /// wire (RFC 8446 4.4.2). Candidates must come from local configuration, never the peer.</summary>
-    constructor Create(const AProvider: ICryptoProvider; const AClock: ITlsClock;
+    constructor Create(const APkix: IPkixProvider; const AClock: ITlsClock;
       const AFetcher: IHttpFetcher; APosture: TRevocationPosture;
       AMethod: TLiveRevocationMethod; ATimeoutMs: Cardinal;
       const AIssuerCandidates: TArray<TBytes>); overload;
@@ -101,12 +101,12 @@ implementation
 
 { TLiveRevocationChecker }
 
-constructor TLiveRevocationChecker.Create(const AProvider: ICryptoProvider;
+constructor TLiveRevocationChecker.Create(const APkix: IPkixProvider;
   const AClock: ITlsClock; const AFetcher: IHttpFetcher; APosture: TRevocationPosture;
   AMethod: TLiveRevocationMethod; ATimeoutMs: Cardinal);
 begin
   inherited Create;
-  FProvider := AProvider;
+  FPkix := APkix;
   FClock := AClock;
   FFetcher := AFetcher;
   FPosture := APosture;
@@ -114,12 +114,12 @@ begin
   FTimeoutMs := ATimeoutMs;
 end;
 
-constructor TLiveRevocationChecker.Create(const AProvider: ICryptoProvider;
+constructor TLiveRevocationChecker.Create(const APkix: IPkixProvider;
   const AClock: ITlsClock; const AFetcher: IHttpFetcher; APosture: TRevocationPosture;
   AMethod: TLiveRevocationMethod; ATimeoutMs: Cardinal;
   const AIssuerCandidates: TArray<TBytes>);
 begin
-  Create(AProvider, AClock, AFetcher, APosture, AMethod, ATimeoutMs);
+  Create(APkix, AClock, AFetcher, APosture, AMethod, ATimeoutMs);
   FIssuerCandidates := AIssuerCandidates;
 end;
 
@@ -134,7 +134,7 @@ begin
   Result := TLiveRevocationOutcome.Indeterminate;
   if (AResponderUrl = '') or (FFetcher = nil) then
     Exit;
-  if not FProvider.Revocation.BuildOcspRequest(ALeaf, AIssuer, LRequest) then
+  if not FPkix.Revocation.BuildOcspRequest(ALeaf, AIssuer, LRequest) then
     Exit;
   // unreachable / non-2xx / empty body -> indeterminate (never a silent pass)
   if not FFetcher.Post(AResponderUrl, OcspRequestContentType, LRequest, FTimeoutMs,
@@ -143,7 +143,7 @@ begin
   // reuse the in-band parser: it authenticates the response (issuer- or delegated-signed)
   // and binds the CertID to this leaf; a malformed/unauthorized response is indeterminate.
   // the responder-validity date comes from the injected clock, like the window below
-  if not FProvider.Revocation.ValidateOcspStaple(ALeaf, AIssuer, LResponse,
+  if not FPkix.Revocation.ValidateOcspStaple(ALeaf, AIssuer, LResponse,
     TDateTimeUtilities.UnixMsToDateTime(Int64(FClock.NowUnixMillis)), LStatus,
     LThisUpdate, LNextUpdate) then
     Exit;
@@ -176,7 +176,7 @@ begin
     Exit;
   // an unparseable, issuer-unverifiable or out-of-window CRL is indeterminate, never trusted;
   // the validity window is judged at the injected clock, not the wall clock
-  if not FProvider.Revocation.CheckCrlRevocation(ALeaf, AIssuer, LCrl,
+  if not FPkix.Revocation.CheckCrlRevocation(ALeaf, AIssuer, LCrl,
     TDateTimeUtilities.UnixMsToDateTime(Int64(FClock.NowUnixMillis)), LRevoked,
     LThisUpdate, LNextUpdate) then
     Exit;
@@ -209,11 +209,11 @@ begin
   // qualify (nothing authenticates a revocation)
   if System.Length(AChain) >= 2 then
     LIssuer := AChain[1]
-  else if not FProvider.Revocation.TryFindIssuer(LLeaf, FIssuerCandidates, LIssuer) then
+  else if not FPkix.Revocation.TryFindIssuer(LLeaf, FIssuerCandidates, LIssuer) then
     Exit;
 
   if FMethod in [TLiveRevocationMethod.Ocsp, TLiveRevocationMethod.OcspThenCrl] then
-    if FProvider.Revocation.TryGetOcspResponderUrl(LLeaf, LUrl) then
+    if FPkix.Revocation.TryGetOcspResponderUrl(LLeaf, LUrl) then
     begin
       Result := EvaluateOcsp(LLeaf, LIssuer, LUrl);
       if Result <> TLiveRevocationOutcome.Indeterminate then
@@ -221,7 +221,7 @@ begin
     end;
 
   if FMethod in [TLiveRevocationMethod.Crl, TLiveRevocationMethod.OcspThenCrl] then
-    if FProvider.Revocation.TryGetCrlDistributionPoints(LLeaf, LUrls) then
+    if FPkix.Revocation.TryGetCrlDistributionPoints(LLeaf, LUrls) then
       for LI := 0 to System.High(LUrls) do
       begin
         Result := EvaluateCrl(LLeaf, LIssuer, LUrls[LI]);

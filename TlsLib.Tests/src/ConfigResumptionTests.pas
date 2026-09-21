@@ -168,7 +168,7 @@ var
   LConfig: ITlsClientConfig;
 begin
   // Hardened is TLS 1.3-only; the public surface wires the cache and resumption toggle
-  LConfig := TTlsPresets.Hardened(Provider).Client
+  LConfig := TTlsPresets.Hardened(Provider, Pkix).Client
     .WithTrustStore(ClientTrust)
     .WithResumption(AResumption)
     .WithSessionCache(ACache, AScope)
@@ -181,7 +181,7 @@ function TTestConfigResumption.NewRejectingClient13(
 var
   LConfig: ITlsClientConfig;
 begin
-  LConfig := TTlsPresets.Hardened(Provider).Client
+  LConfig := TTlsPresets.Hardened(Provider, Pkix).Client
     .WithCertificateVerifier(TRejectingServerVerifier.Create as IServerCertificateVerifier)
     .WithResumption(True)
     .WithSessionCache(ACache)
@@ -194,7 +194,7 @@ function TTestConfigResumption.NewReverifyRejectClient13(
 var
   LConfig: ITlsClientConfig;
 begin
-  LConfig := TTlsPresets.Hardened(Provider).Client
+  LConfig := TTlsPresets.Hardened(Provider, Pkix).Client
     .WithCertificateVerifier(TRejectingServerVerifier.Create as IServerCertificateVerifier)
     .WithResumption(True)
     .WithResumeVerification(TResumeVerification.Reverify)
@@ -210,7 +210,7 @@ var
 begin
   // permissive trust accepts the server chain inline; Reverify + async verdict make the
   // resumption handshake re-check inline (accept) then park at ServerFinished for the verdict
-  LConfig := TTlsPresets.Hardened(Provider).Client
+  LConfig := TTlsPresets.Hardened(Provider, Pkix).Client
     .WithTrustStore(ClientTrust)
     .WithResumption(True)
     .WithResumeVerification(TResumeVerification.Reverify)
@@ -225,7 +225,7 @@ function TTestConfigResumption.NewServer13(const AStore: ISessionStore;
 var
   LConfig: ITlsServerConfig;
 begin
-  LConfig := TTlsPresets.Hardened(Provider).Server
+  LConfig := TTlsPresets.Hardened(Provider, Pkix).Server
     .WithCredential(ServerCredential)
     .WithResumption(AResumption)
     .WithSessionStore(AStore)
@@ -239,7 +239,7 @@ function TTestConfigResumption.NewClient12(const ACache: ISessionCache;
 var
   LConfig: ITlsClientConfig;
 begin
-  LConfig := TTlsPresets.Compatible(Provider).Client
+  LConfig := TTlsPresets.Compatible(Provider, Pkix).Client
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
     .WithTrustStore(ClientTrust)
     .WithSessionCache(ACache, AScope)
@@ -254,7 +254,7 @@ var
 begin
   // permissive trust accepts the resumed chain inline; Reverify + async verdict make the
   // abbreviated resumption re-check inline (accept) then park for the out-of-band verdict
-  LConfig := TTlsPresets.Compatible(Provider).Client
+  LConfig := TTlsPresets.Compatible(Provider, Pkix).Client
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
     .WithTrustStore(ClientTrust)
     .WithResumption(True)
@@ -269,7 +269,7 @@ function TTestConfigResumption.NewServer12(const AStore: ISessionStore): ITlsEng
 var
   LConfig: ITlsServerConfig;
 begin
-  LConfig := TTlsPresets.Compatible(Provider).Server
+  LConfig := TTlsPresets.Compatible(Provider, Pkix).Server
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
     .WithCredential(ServerCredential)
     .WithSessionStore(AStore)
@@ -491,7 +491,7 @@ begin
   // reconnecting shares its scope across both connections.
   LCache := TInMemorySessionCache.Create;
   LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
-  LServerConfig := TTlsPresets.Hardened(Provider).Server
+  LServerConfig := TTlsPresets.Hardened(Provider, Pkix).Server
     .WithCredential(ServerCredential).Build;
 
   LClient := NewClient13(LCache, True, LScope);
@@ -519,7 +519,7 @@ begin
   // engaged, so no ticket is issued and the client caches nothing
   LCache := TInMemorySessionCache.Create;
   LClient := NewClient13(LCache, True);
-  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Hardened(Provider).Server
+  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Hardened(Provider, Pkix).Server
     .WithCredential(ServerCredential).WithResumption(False).Build);
   PumpToCompletion(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the handshake completed');
@@ -537,9 +537,9 @@ begin
   LCache := TInMemorySessionCache.Create;
   LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
 
-  LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Strict(Provider).Client
+  LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Strict(Provider, Pkix).Client
     .WithTrustStore(ClientTrust).WithSessionCache(LCache).Build, ServerHost);
-  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Strict(Provider).Server
+  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Strict(Provider, Pkix).Server
     .WithCredential(ServerCredential).WithSessionStore(LStore).Build);
   PumpToCompletion(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the Strict handshake completed');
@@ -561,19 +561,19 @@ begin
   LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
   LStore := TInMemorySessionStore.Create(Provider.Primitives.GetRandom);
 
-  LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Strict(Provider).Client
+  LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Strict(Provider, Pkix).Client
     .WithResumption(True).WithTrustStore(ClientTrust).WithSessionCache(LCache, LScope).Build,
     ServerHost);
-  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Strict(Provider).Server
+  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Strict(Provider, Pkix).Server
     .WithResumption(True).WithCredential(ServerCredential).WithSessionStore(LStore)
     .WithTicketCount(1).Build);
   PumpToCompletion(LClient, LServer);
   CheckEquals(1, LStore.Count, 're-enabled Strict stored a session');
 
-  LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Strict(Provider).Client
+  LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Strict(Provider, Pkix).Client
     .WithResumption(True).WithTrustStore(ClientTrust).WithSessionCache(LCache, LScope).Build,
     ServerHost);
-  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Strict(Provider).Server
+  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Strict(Provider, Pkix).Server
     .WithResumption(True).WithCredential(ServerCredential).WithSessionStore(LStore)
     .WithTicketCount(0).Build);
   PumpToCompletion(LClient, LServer);
@@ -591,7 +591,7 @@ begin
   // a permissive client establishes and caches a resumable session; one STEK-backed server config
   // is reused so the ticket stays openable across the connections below
   LCache := TInMemorySessionCache.Create;
-  LServerConfig := TTlsPresets.Hardened(Provider).Server
+  LServerConfig := TTlsPresets.Hardened(Provider, Pkix).Server
     .WithCredential(ServerCredential).Build;
   LClient := NewClient13(LCache, True);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
@@ -646,7 +646,7 @@ begin
   // relies on to keep resuming
   LCache := TInMemorySessionCache.Create;
   LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
-  LServerConfig := TTlsPresets.Hardened(Provider).Server
+  LServerConfig := TTlsPresets.Hardened(Provider, Pkix).Server
     .WithCredential(ServerCredential).Build;
   LClient := NewClient13(LCache, True, LScope);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
@@ -680,7 +680,7 @@ begin
   // configs share a scope so the resuming one draws the stored session (they trust identically)
   LCache := TInMemorySessionCache.Create;
   LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
-  LServerConfig := TTlsPresets.Hardened(Provider).Server
+  LServerConfig := TTlsPresets.Hardened(Provider, Pkix).Server
     .WithCredential(ServerCredential).Build;
   LClient := NewClient13(LCache, True, LScope);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
@@ -712,7 +712,7 @@ begin
   // a permissive client caches a resumable session (shared scope so the resuming config draws it)
   LCache := TInMemorySessionCache.Create;
   LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
-  LServerConfig := TTlsPresets.Hardened(Provider).Server
+  LServerConfig := TTlsPresets.Hardened(Provider, Pkix).Server
     .WithCredential(ServerCredential).Build;
   LClient := NewClient13(LCache, True, LScope);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
@@ -742,7 +742,7 @@ begin
   // cache a resumable session (shared scope so the resuming config draws it)
   LCache := TInMemorySessionCache.Create;
   LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
-  LServerConfig := TTlsPresets.Hardened(Provider).Server
+  LServerConfig := TTlsPresets.Hardened(Provider, Pkix).Server
     .WithCredential(ServerCredential).Build;
   LClient := NewClient13(LCache, True, LScope);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
@@ -796,7 +796,7 @@ var
 begin
   LCache := TInMemorySessionCache.Create;
   LScope := Provider.Primitives.GetRandom.GenerateBytes(16);
-  LServerConfig := TTlsPresets.Hardened(Provider).Server
+  LServerConfig := TTlsPresets.Hardened(Provider, Pkix).Server
     .WithCredential(ServerCredential).Build;
   LClient := NewClient13(LCache, True, LScope);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);

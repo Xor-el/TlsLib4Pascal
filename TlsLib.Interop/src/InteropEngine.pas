@@ -23,6 +23,8 @@ uses
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpDefaultCryptoProvider,
+  TlpIPkixProvider,
+  TlpDefaultPkixProvider,
   TlpOSCryptoProvider,
   TlpINamedGroup,
   TlpNamedGroups,
@@ -170,6 +172,9 @@ type
   public
     /// <summary>The default CryptoLib-backed crypto provider.</summary>
     class function DefaultProvider: ICryptoProvider; static;
+    /// <summary>The default PKIX provider (certificate inspection, path validation,
+    /// revocation), mirroring DefaultProvider for the crypto facets.</summary>
+    class function DefaultPkix: IPkixProvider; static;
     /// <summary>A client or server engine ready for the harness pump.</summary>
     class function Build(const AProvider: ICryptoProvider;
       const AOptions: TInteropEngineOptions): ITlsEngine; static;
@@ -250,6 +255,11 @@ begin
     Result := TOSCryptoProvider.Compose(Result);
 end;
 
+class function TInteropEngine.DefaultPkix: IPkixProvider;
+begin
+  Result := TDefaultPkixProvider.Shared;
+end;
+
 class function TInteropEngine.OnlyPostQuantumGroups(const AProvider: ICryptoProvider;
   const ACodes: TArray<UInt16>): Boolean;
 var
@@ -305,7 +315,7 @@ var
 begin
   // Compatible seeds the suites, signature schemes, named-group registry and the
   // TLS 1.3 + hardened 1.2 version offer; the harness only overrides what a test dictates
-  LBuilder := TTlsPresets.Compatible(AProvider);
+  LBuilder := TTlsPresets.Compatible(AProvider, DefaultPkix);
   // a curve restriction to post-quantum-only groups is implicitly 1.3-only; drop the
   // 1.2 offer so the version/group pair stays consistent (the preset default offers 1.2)
   LVersions := AOptions.SupportedVersions;

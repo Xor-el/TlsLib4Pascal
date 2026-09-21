@@ -20,6 +20,7 @@ interface
 uses
   SysUtils,
   TlpICryptoProvider,
+  TlpIPkixProvider,
   TlpTlsPresets,
   TlpITlsConfigBuilder,
   TlpITlsConfig,
@@ -53,6 +54,7 @@ type
     function Pump(const ASrc, ADst: ITlsEngine): Boolean;
   public
     constructor Create(const AProvider: ICryptoProvider;
+      const APkix: IPkixProvider;
       const ACredential: TTlsBenchmarkCredential; AWireVersion, AGroupCode: UInt16);
     /// <summary>One complete client+server handshake; raises on a non-completing exchange.</summary>
     procedure RunOneHandshake;
@@ -78,13 +80,14 @@ begin
 end;
 
 constructor TTlsLibHandshakePeer.Create(const AProvider: ICryptoProvider;
+  const APkix: IPkixProvider;
   const ACredential: TTlsBenchmarkCredential; AWireVersion, AGroupCode: UInt16);
 var
   LClientBuilder: ITlsConfigBuilder;
   LServerBuilder: ITlsConfigBuilder;
   LClient: ITlsClientConfigBuilder;
   LServer: ITlsServerConfigBuilder;
-  LKind: TCertKeyKind;
+  LKind: TSignatureKeyKind;
   LCertCurve, LCertGroup: UInt16;
 begin
   inherited Create;
@@ -93,13 +96,13 @@ begin
   // the leaf's own curve (RFC 8422 5.4 fallback), read from the certificate so the peer is
   // not tied to one curve; 0 (offer nothing extra) for a non-ECDSA leaf
   LCertGroup := 0;
-  if AProvider.Certificates.KeyKind(ACredential.LeafCertDer, LKind, LCertCurve)
-    and (LKind = TCertKeyKind.Ecdsa) then
+  if APkix.Certificates.KeyKind(ACredential.LeafCertDer, LKind, LCertCurve)
+    and (LKind = TSignatureKeyKind.Ecdsa) then
     LCertGroup := LCertCurve;
 
   // hold the builder in an interface local while configuring: the facets keep only a raw
   // back-reference, so a captured owner is what refcounts and frees it after Build
-  LClientBuilder := TTlsPresets.Compatible(AProvider);
+  LClientBuilder := TTlsPresets.Compatible(AProvider, APkix);
   LClient := LClientBuilder.Client;
   LClient.WithSupportedVersions(TArray<UInt16>.Create(AWireVersion));
   LClient.WithPreferredGroups(OfferedGroups(AGroupCode, LCertGroup));
@@ -107,7 +110,7 @@ begin
   LClient.WithTrustAnchors(ACredential.RootCertDer); // a trust source is still required by Build
   FClientConfig := LClient.Build;
 
-  LServerBuilder := TTlsPresets.Compatible(AProvider);
+  LServerBuilder := TTlsPresets.Compatible(AProvider, APkix);
   LServer := LServerBuilder.Server;
   LServer.WithSupportedVersions(TArray<UInt16>.Create(AWireVersion));
   LServer.WithPreferredGroups(OfferedGroups(AGroupCode, LCertGroup)); // AGroupCode first -> negotiated

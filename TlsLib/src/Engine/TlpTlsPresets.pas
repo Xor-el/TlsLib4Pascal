@@ -18,6 +18,7 @@ interface
 uses
   TlpTlsVersion,
   TlpICryptoProvider,
+  TlpIPkixProvider,
   TlpNegotiationTypes,
   TlpCipherSuiteRegistry,
   TlpSignatureSchemeRegistry,
@@ -39,37 +40,41 @@ type
   /// </summary>
   TTlsPresets = class sealed(TObject)
   strict private
-    class function Base(const AProvider: ICryptoProvider): TTlsConfigBuilder; static;
+    class function Base(const ACryptoProvider: ICryptoProvider;
+      const APkixProvider: IPkixProvider): TTlsConfigBuilder; static;
   public
-    class function Compatible(const AProvider: ICryptoProvider): ITlsConfigBuilder; static;
-    class function Hardened(const AProvider: ICryptoProvider): ITlsConfigBuilder; static;
-    class function Strict(const AProvider: ICryptoProvider): ITlsConfigBuilder; static;
+    class function Compatible(const ACryptoProvider: ICryptoProvider;
+      const APkixProvider: IPkixProvider): ITlsConfigBuilder; static;
+    class function Hardened(const ACryptoProvider: ICryptoProvider;
+      const APkixProvider: IPkixProvider): ITlsConfigBuilder; static;
+    class function Strict(const ACryptoProvider: ICryptoProvider;
+      const APkixProvider: IPkixProvider): ITlsConfigBuilder; static;
   end;
 
 implementation
 
 { TTlsPresets }
 
-class function TTlsPresets.Base(
-  const AProvider: ICryptoProvider): TTlsConfigBuilder;
+class function TTlsPresets.Base(const ACryptoProvider: ICryptoProvider;
+  const APkixProvider: IPkixProvider): TTlsConfigBuilder;
 begin
   // the presets seed the shared defaults through the concrete builder, then hand back
   // the endpoint selector; the caller narrows to .Client or .Server
-  Result := TTlsConfigBuilder.Create(AProvider);
-  Result.WithCipherSuites(TCipherSuiteRegistry.CreateDefault(AProvider));
+  Result := TTlsConfigBuilder.Create(ACryptoProvider, APkixProvider);
+  Result.WithCipherSuites(TCipherSuiteRegistry.CreateDefault(ACryptoProvider));
   Result.WithSignatureSchemes(TSignatureSchemeRegistry.CreateDefault);
-  Result.WithNamedGroups(TNamedGroups.CreateDefaultRegistry(AProvider));
+  Result.WithNamedGroups(TNamedGroups.CreateDefaultRegistry(ACryptoProvider));
   Result.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13));
 end;
 
-class function TTlsPresets.Compatible(
-  const AProvider: ICryptoProvider): ITlsConfigBuilder;
+class function TTlsPresets.Compatible(const ACryptoProvider: ICryptoProvider;
+  const APkixProvider: IPkixProvider): ITlsConfigBuilder;
 var
   LBuilder: TTlsConfigBuilder;
 begin
-  LBuilder := Base(AProvider);
+  LBuilder := Base(ACryptoProvider, APkixProvider);
   // the broad default offers TLS 1.3 and the hardened TLS 1.2 suites over one registry
-  LBuilder.WithCipherSuites(TCipherSuiteRegistry.CreateDualVersion(AProvider));
+  LBuilder.WithCipherSuites(TCipherSuiteRegistry.CreateDualVersion(ACryptoProvider));
   LBuilder.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13,
     TlsWireVersionTls12));
   // X25519 first, then the hybrid and the NIST curves (the hybrid is 1.3-only)
@@ -80,12 +85,12 @@ begin
   Result := LBuilder;
 end;
 
-class function TTlsPresets.Hardened(
-  const AProvider: ICryptoProvider): ITlsConfigBuilder;
+class function TTlsPresets.Hardened(const ACryptoProvider: ICryptoProvider;
+  const APkixProvider: IPkixProvider): ITlsConfigBuilder;
 var
   LBuilder: TTlsConfigBuilder;
 begin
-  LBuilder := Base(AProvider);
+  LBuilder := Base(ACryptoProvider, APkixProvider);
   // the post-quantum hybrid is preferred, then classical X25519 and P-256
   LBuilder.WithPreferredGroups(TArray<UInt16>.Create(
     TNamedGroupCatalog.X25519MlKem768, TNamedGroupCatalog.SecP256r1MlKem768,
@@ -100,13 +105,13 @@ begin
   Result := LBuilder;
 end;
 
-class function TTlsPresets.Strict(
-  const AProvider: ICryptoProvider): ITlsConfigBuilder;
+class function TTlsPresets.Strict(const ACryptoProvider: ICryptoProvider;
+  const APkixProvider: IPkixProvider): ITlsConfigBuilder;
 var
   LBuilder: TTlsConfigBuilder;
   LLimits: TCertificateChainLimits;
 begin
-  LBuilder := Base(AProvider);
+  LBuilder := Base(ACryptoProvider, APkixProvider);
   // a fixed allowlist: only X25519 and the post-quantum hybrid
   LBuilder.WithPreferredGroups(TArray<UInt16>.Create(
     TNamedGroupCatalog.X25519MlKem768, TNamedGroupCatalog.X25519));

@@ -273,7 +273,7 @@ function TTestServerSideLiveRevocation.ServerConfig(APosture: TRevocationPosture
 var
   LServer: ITlsServerConfigBuilder;
 begin
-  LServer := TTlsPresets.Compatible(Provider).Server
+  LServer := TTlsPresets.Compatible(Provider, Pkix).Server
     .WithCredential(ServerLeaf, ServerKey)
     .WithPeerAuth(TClientAuthMode.Required)
     .WithTrustAnchors(ClientCa) // the private client CA (issues the client leaf)
@@ -288,7 +288,7 @@ function TTestServerSideLiveRevocation.ClientConfig(AForce12: Boolean): ITlsClie
 var
   LClient: ITlsClientConfigBuilder;
 begin
-  LClient := TTlsPresets.Compatible(Provider).Client
+  LClient := TTlsPresets.Compatible(Provider, Pkix).Client
     .WithTrustAnchors(ServerRoot)
     .WithCredential(ClientLeaf, ClientKey); // present the client certificate (leaf only)
   if AForce12 then
@@ -334,11 +334,11 @@ function TTestServerSideLiveRevocation.NewChecker(APosture: TRevocationPosture;
   AWithCandidates: Boolean): TLiveRevocationChecker;
 begin
   if AWithCandidates then
-    Result := TLiveRevocationChecker.Create(Provider, TSystemClock.Create as ITlsClock,
+    Result := TLiveRevocationChecker.Create(Pkix, TSystemClock.Create as ITlsClock,
       FFetcher, APosture, TLiveRevocationMethod.OcspThenCrl, 0,
       TArray<TBytes>.Create(ClientCa))
   else
-    Result := TLiveRevocationChecker.Create(Provider, TSystemClock.Create as ITlsClock,
+    Result := TLiveRevocationChecker.Create(Pkix, TSystemClock.Create as ITlsClock,
       FFetcher, APosture, TLiveRevocationMethod.OcspThenCrl, 0);
 end;
 

@@ -20,9 +20,10 @@ uses
   TlpTlsAlert,
   TlpTlsLibExceptions,
   TlpCryptoDomainTypes,
+  TlpPkixDomainTypes,
   TlpNegotiationTypes,
   TlpICertificateTrust,
-  TlpICryptoProvider;
+  TlpIPkixProvider;
 
 type
   /// <summary>
@@ -57,7 +58,7 @@ type
     /// certificate with a decode_error alert before it reaches signature verification or
     /// the trust pipeline, and returns the parsed handle so the caller reuses the single
     /// decode. Applies to a received server or client leaf.</summary>
-    class function ParseWellFormedLeaf(const AProvider: ICryptoProvider;
+    class function ParseWellFormedLeaf(const AInspector: ICertificateInspector;
       const ALeafCertificate: TBytes): IInspectedCertificate; static;
     /// <summary>The single fail-closed gate for a received client certificate chain, shared by
     /// both server versions: a nil verifier is a server misconfiguration and raises internal_error
@@ -101,14 +102,14 @@ begin
 end;
 
 class function TCertificateVerify.ParseWellFormedLeaf(
-  const AProvider: ICryptoProvider;
+  const AInspector: ICertificateInspector;
   const ALeafCertificate: TBytes): IInspectedCertificate;
 var
   LSubject, LIssuer, LCommonName, LSerialHex: string;
 begin
   // the catch-all except covers uncaught backend exception types from the ASN.1 decode
   try
-    Result := AProvider.Certificates.Parse(ALeafCertificate);
+    Result := AInspector.Parse(ALeafCertificate);
   except
     raise EDecodeErrorTlsLibException.CreateRes(@SUnparseableLeafCertificate);
   end;
@@ -159,7 +160,7 @@ class procedure TCertificateVerify.EnforceSigningLeafPolicy(
   const ALeaf: IInspectedCertificate; const AScheme: TSignatureScheme;
   ABindEcdsaCurve: Boolean);
 var
-  LKind: TCertKeyKind;
+  LKind: TSignatureKeyKind;
   LKindKnown: Boolean;
   LCertGroup, LSchemeGroup: UInt16;
 begin
@@ -185,7 +186,7 @@ begin
   begin
     LSchemeGroup := EcdsaSchemeNamedGroup(AScheme);
     if (LSchemeGroup <> 0) and LKindKnown and
-      (LKind = TCertKeyKind.Ecdsa) and (LCertGroup <> LSchemeGroup) then
+      (LKind = TSignatureKeyKind.Ecdsa) and (LCertGroup <> LSchemeGroup) then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SEcdsaSchemeCurveMismatch);
   end;

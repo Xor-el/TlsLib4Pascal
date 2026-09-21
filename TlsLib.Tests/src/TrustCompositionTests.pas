@@ -106,7 +106,7 @@ var
   LConfig: ITlsClientConfig;
 begin
   // two distinct single-anchor stores added separately must both survive into the frozen config
-  LConfig := TTlsPresets.Compatible(Provider).Client
+  LConfig := TTlsPresets.Compatible(Provider, Pkix).Client
     .WithTrustStore(StoreOf('root_cert'))
     .WithTrustStore(StoreOf('leaf_cert'))
     .Build;
@@ -125,7 +125,7 @@ begin
   // a whole-verifier is a valid, self-sufficient trust source (no anchors needed); it is wrapped
   // as an instance source that returns it unchanged for every connection
   LStub := TStubCertificateVerifier.Create as IServerCertificateVerifier;
-  LConfig := TTlsPresets.Compatible(Provider).Client
+  LConfig := TTlsPresets.Compatible(Provider, Pkix).Client
     .WithCertificateVerifier(LStub)
     .Build;
   LContext := Default(TServerTrustContext);
@@ -140,7 +140,7 @@ begin
   // verifier + anchor source is the exclusivity conflict: refused at Build, fail-closed
   LRaised := False;
   try
-    TTlsPresets.Compatible(Provider).Client
+    TTlsPresets.Compatible(Provider, Pkix).Client
       .WithCertificateVerifier(TStubCertificateVerifier.Create as IServerCertificateVerifier)
       .WithTrustStore(StoreOf('root_cert'))
       .Build;
@@ -159,7 +159,7 @@ begin
   // two whole-verifiers is the dual-verifier conflict: refused at Build
   LRaised := False;
   try
-    TTlsPresets.Compatible(Provider).Client
+    TTlsPresets.Compatible(Provider, Pkix).Client
       .WithCertificateVerifier(TStubCertificateVerifier.Create as IServerCertificateVerifier)
       .WithCertificateVerifier(TStubCertificateVerifier.Create as IServerCertificateVerifier)
       .Build;

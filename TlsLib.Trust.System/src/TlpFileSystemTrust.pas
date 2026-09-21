@@ -18,7 +18,7 @@ interface
 uses
   SysUtils,
   Classes,
-  TlpICryptoProvider,
+  TlpIPkixProvider,
   TlpSystemTrustBase,
   TlpSystemTrustExceptions;
 
@@ -29,7 +29,7 @@ type
   /// well-known CA bundle file or certificate directory that exists. The chosen
   /// source is authoritative: if it cannot be parsed the harvest fails closed
   /// rather than falling through to a different store. PEM parsing is delegated
-  /// to the crypto provider.
+  /// to the PKIX provider.
   ///
   /// The path resolution is platform-neutral - it only manipulates strings and
   /// files - so this store is driven with injected path lists on any host, and
@@ -58,7 +58,7 @@ type
     /// <summary>The explicit form: the env overrides and candidate lists are all
     /// supplied, decoupled from the process environment and any built-in table.
     /// This is the form tests and advanced callers use.</summary>
-    constructor Create(const AProvider: ICryptoProvider;
+    constructor Create(const APkix: IPkixProvider;
       const AEnvFile, AEnvDir: string;
       const AFiles, ADirs: TArray<string>); overload;
   end;
@@ -75,10 +75,10 @@ resourcestring
 
 { TFileSystemRootSource }
 
-constructor TFileSystemRootSource.Create(const AProvider: ICryptoProvider;
+constructor TFileSystemRootSource.Create(const APkix: IPkixProvider;
   const AEnvFile, AEnvDir: string; const AFiles, ADirs: TArray<string>);
 begin
-  inherited Create(AProvider);
+  inherited Create(APkix);
   FEnvFile := AEnvFile;
   FEnvDir := AEnvDir;
   FFiles := AFiles;
@@ -106,7 +106,7 @@ begin
   if Length(AData) = 0 then
     Result := nil
   else
-    Result := Provider.Certificates.LoadChain(AData);
+    Result := Pkix.Certificates.LoadChain(AData);
 end;
 
 procedure TFileSystemRootSource.HarvestFile(const APath: string;

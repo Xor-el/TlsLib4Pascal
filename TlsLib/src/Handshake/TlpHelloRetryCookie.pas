@@ -38,7 +38,7 @@ type
     MacBytes = Int32(32);
     GroupBytes = Int32(2);
   var
-    FProvider: ICryptoProvider;
+    FCrypto: ICryptoProvider;
     FSecret: ISecretBuffer;
     function Mac(const AContent: TBytes): TBytes;
   public
@@ -63,7 +63,7 @@ constructor THelloRetryCookie.Create(const AProvider: ICryptoProvider;
   const ASecret: ISecretBuffer);
 begin
   inherited Create;
-  FProvider := AProvider;
+  FCrypto := AProvider;
   FSecret := ASecret;
 end;
 
@@ -71,7 +71,7 @@ function THelloRetryCookie.Mac(const AContent: TBytes): TBytes;
 var
   LHmac: IHmac;
 begin
-  LHmac := FProvider.Primitives.CreateHmac(THashAlgorithm.SHA_256);
+  LHmac := FCrypto.Primitives.CreateHmac(THashAlgorithm.SHA_256);
   LHmac.Init(FSecret);
   LHmac.Update(AContent, 0, System.Length(AContent));
   Result := LHmac.DoFinal;

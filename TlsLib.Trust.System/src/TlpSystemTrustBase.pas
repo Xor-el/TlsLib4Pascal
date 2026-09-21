@@ -24,7 +24,7 @@ uses
   TlpServerName,
   TlpEndpointIdentity,
   TlpTrustPolicy,
-  TlpICryptoProvider,
+  TlpIPkixProvider,
   TlpICertificateTrust,
   TlpCertificateVerifier,
   TlpSystemTrustExceptions;
@@ -62,7 +62,7 @@ type
     /// Good or indeterminate staple does not fire here (the posture governs those). AOsPath carries
     /// the OS-supplied issuer so a leaf-only peer's staple can be authenticated. A nil clock falls
     /// back to system time (a nil clock would otherwise render every staple indeterminate).</summary>
-    class function RejectStapledRevoked(const AProvider: ICryptoProvider;
+    class function RejectStapledRevoked(const APkix: IPkixProvider;
       const AClock: ITlsClock; const AOsPath: TArray<TBytes>; const AStaple: TBytes;
       out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>True when AName is an IP literal that does not match an iPAddress SAN on the
@@ -70,7 +70,7 @@ type
     /// empty name never fires (the OS did that name check). Fail-closed: a nil provider or empty
     /// path is a mismatch (internal_error); a genuine mismatch is bad_certificate.</summary>
     class function RejectIpMismatch(const AName: TServerName;
-      const AProvider: ICryptoProvider; const AOsPath: TArray<TBytes>;
+      const APkix: IPkixProvider; const AOsPath: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>Whether a Hard posture is unsatisfiable for a cache-only delegate: Hard with no
     /// live-revocation verdict (a client certificate is never stapled, so a cache-only delegate
@@ -112,15 +112,15 @@ type
   /// </summary>
   TSystemRootSource = class abstract(TObject)
   strict private
-    FProvider: ICryptoProvider;
+    FPkix: IPkixProvider;
   strict protected
     /// <summary>Gather the platform's trusted roots as DER. May return empty; Harvest
     /// turns an empty result into a fail-closed error.</summary>
     function HarvestRoots: TArray<TBytes>; virtual; abstract;
     /// <summary>Human-readable source label, used in the fail-closed message.</summary>
     function SourceName: string; virtual; abstract;
-    /// <summary>The crypto provider, for subclasses that must parse (e.g. PEM).</summary>
-    property Provider: ICryptoProvider read FProvider;
+    /// <summary>The PKIX provider, for subclasses that must parse (e.g. PEM).</summary>
+    property Pkix: IPkixProvider read FPkix;
   protected
     /// <summary>Adds ADer to AAccumulator only if the provider confirms it a
     /// well-formed X.509 certificate; the accumulator handles the exact-byte
@@ -128,7 +128,7 @@ type
     procedure AddUnique(const AAccumulator: TSystemRootAccumulator;
       const ADer: TBytes);
   public
-    constructor Create(const AProvider: ICryptoProvider);
+    constructor Create(const APkix: IPkixProvider);
     /// <summary>Reads the source now. Fail-closed: an empty or unreadable source
     /// raises ESystemTrustUnavailableTlsLibException; a non-empty result is returned
     /// as harvested.</summary>
@@ -142,12 +142,12 @@ implementation
 resourcestring
   SSystemTrustEmpty =
     'the %s trust store could not be read or contained no usable root certificates';
-  SNoProvider = 'a crypto provider is required to read the system trust store';
+  SNoProvider = 'a PKIX provider is required to read the system trust store';
 
 { TDelegatePostChecks }
 
 class function TDelegatePostChecks.RejectStapledRevoked(
-  const AProvider: ICryptoProvider; const AClock: ITlsClock;
+  const APkix: IPkixProvider; const AClock: ITlsClock;
   const AOsPath: TArray<TBytes>; const AStaple: TBytes;
   out AAlert: TTlsAlertDescription): Boolean;
 var
@@ -158,14 +158,14 @@ begin
   LClock := AClock;
   if LClock = nil then
     LClock := TSystemClock.Create as ITlsClock;
-  Result := TCertificateVerifier.StapleVerdict(AProvider, LClock, AOsPath, AStaple) =
+  Result := TCertificateVerifier.StapleVerdict(APkix, LClock, AOsPath, AStaple) =
     TStapleVerdict.Revoked;
   if Result then
     AAlert := TTlsAlertDescription.CertificateRevoked;
 end;
 
 class function TDelegatePostChecks.RejectIpMismatch(const AName: TServerName;
-  const AProvider: ICryptoProvider; const AOsPath: TArray<TBytes>;
+  const APkix: IPkixProvider; const AOsPath: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
   // only an IP-literal identity is re-checked here; a DNS host (or an empty name) was matched by
@@ -174,13 +174,13 @@ begin
     Exit(False);
   // fail closed: without a provider to read the SANs, or with no validated leaf, an IP host cannot
   // be confirmed against an iPAddress SAN
-  if (AProvider = nil) or (System.Length(AOsPath) = 0) then
+  if (APkix = nil) or (System.Length(AOsPath) = 0) then
   begin
     AAlert := TTlsAlertDescription.InternalError;
     Exit(True);
   end;
   Result := not TEndpointIdentity.Matches(AName, nil,
-    AProvider.Certificates.IpAddresses(AOsPath[0]));
+    APkix.Certificates.IpAddresses(AOsPath[0]));
   if Result then
     AAlert := TTlsAlertDescription.BadCertificate;
 end;
@@ -243,18 +243,18 @@ end;
 
 { TSystemRootSource }
 
-constructor TSystemRootSource.Create(const AProvider: ICryptoProvider);
+constructor TSystemRootSource.Create(const APkix: IPkixProvider);
 begin
   inherited Create;
-  if AProvider = nil then
+  if APkix = nil then
     raise ESystemTrustUnavailableTlsLibException.CreateRes(@SNoProvider);
-  FProvider := AProvider;
+  FPkix := APkix;
 end;
 
 procedure TSystemRootSource.AddUnique(const AAccumulator: TSystemRootAccumulator;
   const ADer: TBytes);
 begin
-  if not FProvider.Certificates.IsWellFormed(ADer) then
+  if not FPkix.Certificates.IsWellFormed(ADer) then
     Exit;
   AAccumulator.Add(ADer);
 end;

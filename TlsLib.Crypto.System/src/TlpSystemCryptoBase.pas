@@ -83,9 +83,6 @@ type
       const AReport: ICryptoBackendReport);
     function Primitives: ICryptoPrimitives;
     function Signing: ISigningCrypto;
-    function Certificates: ICertificateInspector;
-    function PathValidation: ICertificatePathValidator;
-    function Revocation: IRevocationChecker;
     function Hpke: IHpkeCrypto;
   end;
 
@@ -181,21 +178,6 @@ begin
     Result := FSigning
   else
     Result := FInner.Signing;
-end;
-
-function TOverlayCryptoProvider.Certificates: ICertificateInspector;
-begin
-  Result := FInner.Certificates;
-end;
-
-function TOverlayCryptoProvider.PathValidation: ICertificatePathValidator;
-begin
-  Result := FInner.PathValidation;
-end;
-
-function TOverlayCryptoProvider.Revocation: IRevocationChecker;
-begin
-  Result := FInner.Revocation;
 end;
 
 function TOverlayCryptoProvider.Hpke: IHpkeCrypto;

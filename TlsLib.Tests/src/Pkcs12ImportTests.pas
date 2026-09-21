@@ -105,7 +105,7 @@ begin
   LSigner.Update(LMessage, 0, System.Length(LMessage));
   LSignature := LSigner.Sign;
 
-  LSpki := Provider.Certificates.PublicKeyInfo(ACredential.CertificateChain[0]);
+  LSpki := Pkix.Certificates.PublicKeyInfo(ACredential.CertificateChain[0]);
   LVerifier := Provider.Signing.CreateSignatureVerifier(LScheme, LSpki);
   LVerifier.Update(LMessage, 0, System.Length(LMessage));
   Result := LVerifier.Verify(LSignature);
@@ -153,7 +153,7 @@ begin
 
   // feed the imported chain through the real certificate-verifier path: it must validate
   // to the test CA (leaf-first ordering + the CA present prove the chain wired through)
-  LVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+  LVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(Blob('ca_cert_der'))), False);
   LAlert := TTlsAlertDescription.InternalError;
   CheckTrue(LVerifier.VerifyServerCertificate(LCredential.CertificateChain, TServerName.DnsName(''), nil,

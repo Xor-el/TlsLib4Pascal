@@ -22,7 +22,7 @@ uses
 {$LINKFRAMEWORK Security}
 {$ENDIF}
   TlpPosixDynLib,
-  TlpICryptoProvider,
+  TlpIPkixProvider,
   TlpICertificateTrust,
   TlpICertificateVerifierSource,
   TlpCertificateStrengthPolicy,
@@ -79,14 +79,14 @@ type
   /// </summary>
   TAppleDelegateVerifier = class sealed(TInterfacedObject, IServerCertificateVerifier)
   strict private
-    FProvider: ICryptoProvider;
+    FPkix: IPkixProvider;
     FPosture: TRevocationPosture;
     FFetch: TSystemTrustFetch;
     FClock: ITlsClock;
     FStrengthPolicy: TCertificateStrengthPolicy;
     FAdvertised: TArray<UInt16>;
   public
-    constructor Create(const AProvider: ICryptoProvider;
+    constructor Create(const APkix: IPkixProvider;
       APosture: TRevocationPosture; AFetch: TSystemTrustFetch; const AClock: ITlsClock;
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>);
@@ -104,7 +104,7 @@ type
   /// </summary>
   TAppleLiveRevocationResolver = class sealed(TOSLiveRevocationResolver)
   strict private
-    FProvider: ICryptoProvider;
+    FPkix: IPkixProvider;
     FClock: ITlsClock;
     FStrengthPolicy: TCertificateStrengthPolicy;
     FAdvertised: TArray<UInt16>;
@@ -113,7 +113,7 @@ type
       const AStaple: TBytes; out AOutcome: TLiveRevocationOutcome;
       out ARejectAlert: TTlsAlertDescription): Boolean; override;
   public
-    constructor Create(const AProvider: ICryptoProvider; APosture: TRevocationPosture;
+    constructor Create(const APkix: IPkixProvider; APosture: TRevocationPosture;
       const AClock: ITlsClock; const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>; const AFallback: TCertificateVerdictResolver);
   end;
@@ -142,7 +142,7 @@ type
   TAppleClientDelegateVerifier = class sealed(TInterfacedObject,
     IClientCertificateVerifier)
   strict private
-    FProvider: ICryptoProvider;
+    FPkix: IPkixProvider;
     FAnchors: TArray<TBytes>;
     FPosture: TRevocationPosture;
     FFetch: TSystemTrustFetch;
@@ -150,7 +150,7 @@ type
     FStrengthPolicy: TCertificateStrengthPolicy;
     FAdvertised: TArray<UInt16>;
   public
-    constructor Create(const AProvider: ICryptoProvider;
+    constructor Create(const APkix: IPkixProvider;
       const AAnchors: TArray<TBytes>; APosture: TRevocationPosture;
       AFetch: TSystemTrustFetch; const AClock: ITlsClock;
       const AStrengthPolicy: TCertificateStrengthPolicy;
@@ -168,7 +168,7 @@ type
   /// </summary>
   TAppleClientLiveRevocationResolver = class sealed(TOSLiveRevocationResolver)
   strict private
-    FProvider: ICryptoProvider;
+    FPkix: IPkixProvider;
     FAnchors: TArray<TBytes>;
     FClock: ITlsClock;
     FStrengthPolicy: TCertificateStrengthPolicy;
@@ -178,7 +178,7 @@ type
       const AStaple: TBytes; out AOutcome: TLiveRevocationOutcome;
       out ARejectAlert: TTlsAlertDescription): Boolean; override;
   public
-    constructor Create(const AProvider: ICryptoProvider;
+    constructor Create(const APkix: IPkixProvider;
       const AAnchors: TArray<TBytes>; APosture: TRevocationPosture;
       const AClock: ITlsClock; const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>; const AFallback: TCertificateVerdictResolver);
@@ -460,7 +460,7 @@ type
     /// anchor (the last element) exempt. A nil provider, missing read entry points, or an
     /// unreadable path is internal_error.</summary>
     class function ApplyStrengthPolicy(ATrust: SecTrustRef;
-      const AProvider: ICryptoProvider;
+      const APkix: IPkixProvider;
       const APolicy: TCertificateStrengthPolicy; const AAdvertised: TArray<UInt16>;
       out AValidatedChain: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean; static;
@@ -482,7 +482,7 @@ type
     class function EvaluateTrust(const AChain: TArray<TBytes>;
       const AHostName: string; const AOcspStaple: TBytes; ANetworkAllowed: Boolean;
       AAddRevocation, ARequirePositive: Boolean; const AClock: ITlsClock;
-      const AProvider: ICryptoProvider;
+      const APkix: IPkixProvider;
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>; out AOutcome: TLiveRevocationOutcome;
       out AValidatedChain: TArray<TBytes>;
@@ -492,7 +492,7 @@ type
     class function EvaluateSslChain(const AChain: TArray<TBytes>;
       const AHostName: string; APosture: TRevocationPosture; AFetch: TSystemTrustFetch;
       const AClock: ITlsClock;
-      const AOcspStaple: TBytes; const AProvider: ICryptoProvider;
+      const AOcspStaple: TBytes; const APkix: IPkixProvider;
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>;
       out AValidatedChain: TArray<TBytes>;
@@ -503,7 +503,7 @@ type
     /// revocation timeout, so the fetch is bounded by the OS default.</summary>
     class function EvaluateServerLive(const AChain: TArray<TBytes>;
       const AHostName: string; const AStaple: TBytes; const AClock: ITlsClock;
-      const AProvider: ICryptoProvider;
+      const APkix: IPkixProvider;
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>; out AOutcome: TLiveRevocationOutcome;
       out AAlert: TTlsAlertDescription): Boolean; static;
@@ -514,7 +514,7 @@ type
     /// Classifies the result as a tri-state, exactly like EvaluateTrust. For the wrappers below.</summary>
     class function EvaluateClientTrust(const AChain, AAnchors: TArray<TBytes>;
       ANetworkAllowed, AAddRevocation, ARequirePositive: Boolean; const AClock: ITlsClock;
-      const AProvider: ICryptoProvider;
+      const APkix: IPkixProvider;
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>; out AOutcome: TLiveRevocationOutcome;
       out AValidatedChain: TArray<TBytes>;
@@ -523,7 +523,7 @@ type
     /// Hard to effective-Soft so an indeterminate revocation defers to the async park.</summary>
     class function EvaluateClientChain(const AChain, AAnchors: TArray<TBytes>;
       APosture: TRevocationPosture; AFetch: TSystemTrustFetch; const AClock: ITlsClock;
-      const AProvider: ICryptoProvider;
+      const APkix: IPkixProvider;
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>;
       out AValidatedChain: TArray<TBytes>;
@@ -533,7 +533,7 @@ type
     /// the park resolver. For the off-engine-thread resolver only. Apple has no per-evaluation
     /// revocation timeout, so the fetch is bounded by the OS default.</summary>
     class function EvaluateClientLive(const AChain, AAnchors: TArray<TBytes>;
-      const AClock: ITlsClock; const AProvider: ICryptoProvider;
+      const AClock: ITlsClock; const APkix: IPkixProvider;
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>; out AOutcome: TLiveRevocationOutcome;
       out AAlert: TTlsAlertDescription): Boolean; static;
@@ -778,7 +778,7 @@ begin
 end;
 
 class function TAppleTrustApi.ApplyStrengthPolicy(ATrust: SecTrustRef;
-  const AProvider: ICryptoProvider; const APolicy: TCertificateStrengthPolicy;
+  const APkix: IPkixProvider; const APolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>; out AValidatedChain: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
 var
@@ -786,7 +786,7 @@ var
 begin
   Result := False;
   AValidatedChain := nil;
-  if AProvider = nil then
+  if APkix = nil then
   begin
     AAlert := TTlsAlertDescription.InternalError;
     Exit;
@@ -797,7 +797,7 @@ begin
     Exit;
   end;
   // exempt the OS anchor (last path element); leaf and intermediates are checked
-  Result := TChainAlgorithmPolicy.Check(AProvider.Certificates, LPath,
+  Result := TChainAlgorithmPolicy.Check(APkix.Certificates, LPath,
     TArray<TBytes>.Create(LPath[High(LPath)]), APolicy, AAdvertised, AAlert);
   // the OS-built path (leaf-first, ending at the anchor) is the validated chain; ReadTrustPath
   // copied each certificate's DER, so it outlives the SecTrustRef the caller releases
@@ -857,7 +857,7 @@ end;
 class function TAppleTrustApi.EvaluateTrust(const AChain: TArray<TBytes>;
   const AHostName: string; const AOcspStaple: TBytes; ANetworkAllowed: Boolean;
   AAddRevocation, ARequirePositive: Boolean; const AClock: ITlsClock;
-  const AProvider: ICryptoProvider;
+  const APkix: IPkixProvider;
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>; out AOutcome: TLiveRevocationOutcome;
   out AValidatedChain: TArray<TBytes>;
@@ -1020,7 +1020,7 @@ begin
     begin
       // trusted: strength policy over the OS-built path; a pass is a definitive Good. The path
       // is read here (before the finally releases LTrust) and handed back as the validated chain.
-      if not ApplyStrengthPolicy(LTrust, AProvider, AStrengthPolicy, AAdvertised,
+      if not ApplyStrengthPolicy(LTrust, APkix, AStrengthPolicy, AAdvertised,
         AValidatedChain, AAlert) then
         Exit;
       AOutcome := TLiveRevocationOutcome.Good;
@@ -1074,7 +1074,7 @@ end;
 
 class function TAppleTrustApi.EvaluateSslChain(const AChain: TArray<TBytes>;
   const AHostName: string; APosture: TRevocationPosture; AFetch: TSystemTrustFetch;
-  const AClock: ITlsClock; const AOcspStaple: TBytes; const AProvider: ICryptoProvider;
+  const AClock: ITlsClock; const AOcspStaple: TBytes; const APkix: IPkixProvider;
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>;
   out AValidatedChain: TArray<TBytes>;
@@ -1090,7 +1090,7 @@ begin
   LRequirePositive := (APosture = TRevocationPosture.Hard) and
     (AFetch = TSystemTrustFetch.CacheOnly);
   if not EvaluateTrust(AChain, AHostName, AOcspStaple, False,
-    APosture <> TRevocationPosture.Off, LRequirePositive, AClock, AProvider,
+    APosture <> TRevocationPosture.Off, LRequirePositive, AClock, APkix,
     AStrengthPolicy, AAdvertised, LOutcome, AValidatedChain, AAlert) then
     Exit(False);
   case LOutcome of
@@ -1110,7 +1110,7 @@ end;
 
 class function TAppleTrustApi.EvaluateServerLive(const AChain: TArray<TBytes>;
   const AHostName: string; const AStaple: TBytes; const AClock: ITlsClock;
-  const AProvider: ICryptoProvider;
+  const APkix: IPkixProvider;
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>; out AOutcome: TLiveRevocationOutcome;
   out AAlert: TTlsAlertDescription): Boolean;
@@ -1120,13 +1120,13 @@ begin
   // network on, revocation network-disabled flag dropped, and always RequirePositiveResponse so an
   // indeterminate surfaces distinctly; the resolver applies the configured posture and any fallback.
   // The validated path is not surfaced from the live resolver (it renders a verdict, not a chain).
-  Result := EvaluateTrust(AChain, AHostName, AStaple, True, True, True, AClock, AProvider,
+  Result := EvaluateTrust(AChain, AHostName, AStaple, True, True, True, AClock, APkix,
     AStrengthPolicy, AAdvertised, AOutcome, LValidated, AAlert);
 end;
 
 class function TAppleTrustApi.EvaluateClientTrust(const AChain, AAnchors: TArray<TBytes>;
   ANetworkAllowed, AAddRevocation, ARequirePositive: Boolean; const AClock: ITlsClock;
-  const AProvider: ICryptoProvider;
+  const APkix: IPkixProvider;
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>; out AOutcome: TLiveRevocationOutcome;
   out AValidatedChain: TArray<TBytes>;
@@ -1291,7 +1291,7 @@ begin
     begin
       // trusted: strength policy over the OS-built path; a pass is a definitive Good. The path
       // is read here (before the finally releases LTrust) and handed back as the validated chain.
-      if not ApplyStrengthPolicy(LTrust, AProvider, AStrengthPolicy, AAdvertised,
+      if not ApplyStrengthPolicy(LTrust, APkix, AStrengthPolicy, AAdvertised,
         AValidatedChain, AAlert) then
         Exit;
       AOutcome := TLiveRevocationOutcome.Good;
@@ -1343,7 +1343,7 @@ end;
 
 class function TAppleTrustApi.EvaluateClientChain(const AChain, AAnchors: TArray<TBytes>;
   APosture: TRevocationPosture; AFetch: TSystemTrustFetch; const AClock: ITlsClock;
-  const AProvider: ICryptoProvider;
+  const APkix: IPkixProvider;
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>;
   out AValidatedChain: TArray<TBytes>;
@@ -1359,7 +1359,7 @@ begin
   LRequirePositive := (APosture = TRevocationPosture.Hard) and
     (AFetch = TSystemTrustFetch.CacheOnly);
   if not EvaluateClientTrust(AChain, AAnchors, False, APosture <> TRevocationPosture.Off,
-    LRequirePositive, AClock, AProvider, AStrengthPolicy, AAdvertised, LOutcome,
+    LRequirePositive, AClock, APkix, AStrengthPolicy, AAdvertised, LOutcome,
     AValidatedChain, AAlert) then
     Exit(False);
   case LOutcome of
@@ -1378,7 +1378,7 @@ begin
 end;
 
 class function TAppleTrustApi.EvaluateClientLive(const AChain, AAnchors: TArray<TBytes>;
-  const AClock: ITlsClock; const AProvider: ICryptoProvider;
+  const AClock: ITlsClock; const APkix: IPkixProvider;
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>; out AOutcome: TLiveRevocationOutcome;
   out AAlert: TTlsAlertDescription): Boolean;
@@ -1388,7 +1388,7 @@ begin
   // network on, revocation network-disabled flag dropped, and always RequirePositiveResponse so an
   // indeterminate surfaces distinctly; the resolver applies the configured posture and any fallback.
   // The validated path is not surfaced from the live resolver (it renders a verdict, not a chain).
-  Result := EvaluateClientTrust(AChain, AAnchors, True, True, True, AClock, AProvider,
+  Result := EvaluateClientTrust(AChain, AAnchors, True, True, True, AClock, APkix,
     AStrengthPolicy, AAdvertised, AOutcome, LValidated, AAlert);
 end;
 
@@ -1594,13 +1594,13 @@ end;
 
 { TAppleDelegateVerifier }
 
-constructor TAppleDelegateVerifier.Create(const AProvider: ICryptoProvider;
+constructor TAppleDelegateVerifier.Create(const APkix: IPkixProvider;
   APosture: TRevocationPosture; AFetch: TSystemTrustFetch; const AClock: ITlsClock;
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>);
 begin
   inherited Create;
-  FProvider := AProvider;
+  FPkix := APkix;
   FPosture := APosture;
   FFetch := AFetch;
   FClock := AClock;
@@ -1619,15 +1619,15 @@ begin
   // the OS name check only ever sees a DNS host (empty for an IP literal); an IP is matched in
   // the library against iPAddress SANs below
   Result := TAppleTrustApi.EvaluateSslChain(AChain, AServerName.AsDns, FPosture,
-    FFetch, FClock, AOcspStaple, FProvider, FStrengthPolicy, FAdvertised,
+    FFetch, FClock, AOcspStaple, FPkix, FStrengthPolicy, FAdvertised,
     LValidated, AAlert);
   if not Result then
     Exit;
   // a definitive stapled Revoked wins under every posture, Off included; then match an IP-literal
   // identity the OS never name-checked
-  if TDelegatePostChecks.RejectStapledRevoked(FProvider, FClock, LValidated,
+  if TDelegatePostChecks.RejectStapledRevoked(FPkix, FClock, LValidated,
     AOcspStaple, AAlert) or
-    TDelegatePostChecks.RejectIpMismatch(AServerName, FProvider, LValidated, AAlert) then
+    TDelegatePostChecks.RejectIpMismatch(AServerName, FPkix, LValidated, AAlert) then
   begin
     Result := False;
     Exit;
@@ -1638,13 +1638,13 @@ end;
 
 { TAppleLiveRevocationResolver }
 
-constructor TAppleLiveRevocationResolver.Create(const AProvider: ICryptoProvider;
+constructor TAppleLiveRevocationResolver.Create(const APkix: IPkixProvider;
   APosture: TRevocationPosture; const AClock: ITlsClock;
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>; const AFallback: TCertificateVerdictResolver);
 begin
   inherited Create(APosture, TPeerRole.Server, AFallback);
-  FProvider := AProvider;
+  FPkix := APkix;
   FClock := AClock;
   FStrengthPolicy := AStrengthPolicy;
   FAdvertised := AAdvertised;
@@ -1656,18 +1656,18 @@ function TAppleLiveRevocationResolver.EvaluateLive(const AChain: TArray<TBytes>;
   out ARejectAlert: TTlsAlertDescription): Boolean;
 begin
   Result := TAppleTrustApi.EvaluateServerLive(AChain, AHostName, AStaple, FClock,
-    FProvider, FStrengthPolicy, FAdvertised, AOutcome, ARejectAlert);
+    FPkix, FStrengthPolicy, FAdvertised, AOutcome, ARejectAlert);
 end;
 
 { TAppleClientLiveRevocationResolver }
 
-constructor TAppleClientLiveRevocationResolver.Create(const AProvider: ICryptoProvider;
+constructor TAppleClientLiveRevocationResolver.Create(const APkix: IPkixProvider;
   const AAnchors: TArray<TBytes>; APosture: TRevocationPosture; const AClock: ITlsClock;
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>; const AFallback: TCertificateVerdictResolver);
 begin
   inherited Create(APosture, TPeerRole.Client, AFallback);
-  FProvider := AProvider;
+  FPkix := APkix;
   FAnchors := AAnchors;
   FClock := AClock;
   FStrengthPolicy := AStrengthPolicy;
@@ -1680,7 +1680,7 @@ function TAppleClientLiveRevocationResolver.EvaluateLive(const AChain: TArray<TB
   out ARejectAlert: TTlsAlertDescription): Boolean;
 begin
   // a client certificate carries no host identity and is never stapled: AHostName/AStaple unused
-  Result := TAppleTrustApi.EvaluateClientLive(AChain, FAnchors, FClock, FProvider,
+  Result := TAppleTrustApi.EvaluateClientLive(AChain, FAnchors, FClock, FPkix,
     FStrengthPolicy, FAdvertised, AOutcome, ARejectAlert);
 end;
 
@@ -1699,21 +1699,21 @@ begin
   // without it the delegate would silently run cache-only Soft. Fail at engine creation (before IO).
   if TDelegatePostChecks.LiveNeedsLiveRevocation(FFetch, AContext.Deferral) then
     raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SLiveNeedsLiveRevocationVerdict);
-  Result := TAppleDelegateVerifier.Create(AContext.Provider,
+  Result := TAppleDelegateVerifier.Create(AContext.Pkix,
     AContext.RevocationPosture, FFetch, AContext.Clock, AContext.StrengthPolicy,
     AContext.AdvertisedSignatureSchemes) as IServerCertificateVerifier;
 end;
 
 { TAppleClientDelegateVerifier }
 
-constructor TAppleClientDelegateVerifier.Create(const AProvider: ICryptoProvider;
+constructor TAppleClientDelegateVerifier.Create(const APkix: IPkixProvider;
   const AAnchors: TArray<TBytes>; APosture: TRevocationPosture;
   AFetch: TSystemTrustFetch; const AClock: ITlsClock;
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>);
 begin
   inherited Create;
-  FProvider := AProvider;
+  FPkix := APkix;
   FAnchors := AAnchors;
   FPosture := APosture;
   FFetch := AFetch;
@@ -1730,7 +1730,7 @@ var
 begin
   AVerified := Default(TVerifiedChain);
   Result := TAppleTrustApi.EvaluateClientChain(AChain, FAnchors, FPosture, FFetch,
-    FClock, FProvider, FStrengthPolicy, FAdvertised, LValidated, AAlert);
+    FClock, FPkix, FStrengthPolicy, FAdvertised, LValidated, AAlert);
   if not Result then
     Exit;
   AVerified.Path := LValidated;
@@ -1757,7 +1757,7 @@ begin
   LAnchors := nil;
   if AContext.TrustStore <> nil then
     LAnchors := AContext.TrustStore.RootCertificates;
-  Result := TAppleClientDelegateVerifier.Create(AContext.Provider, LAnchors,
+  Result := TAppleClientDelegateVerifier.Create(AContext.Pkix, LAnchors,
     AContext.RevocationPosture, FFetch, AContext.Clock, AContext.StrengthPolicy,
     AContext.AdvertisedSignatureSchemes) as IClientCertificateVerifier;
 end;

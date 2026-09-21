@@ -162,7 +162,7 @@ function TTestAsyncVerdict.ClientConfig(AAsync: Boolean;
 var
   LClient: ITlsClientConfigBuilder;
 begin
-  LClient := TTlsPresets.Compatible(Provider).Client.WithTrustAnchors(TrustRoot);
+  LClient := TTlsPresets.Compatible(Provider, Pkix).Client.WithTrustAnchors(TrustRoot);
   if AAsync then
     LClient.WithAsyncCertificateVerdict(True, ADeadlineMs);
   Result := LClient.Build;
@@ -170,7 +170,7 @@ end;
 
 function TTestAsyncVerdict.ServerConfig: ITlsServerConfig;
 begin
-  Result := TTlsPresets.Compatible(Provider).Server
+  Result := TTlsPresets.Compatible(Provider, Pkix).Server
     .WithCredential(LeafCert, LeafKey).Build;
 end;
 
@@ -185,7 +185,7 @@ function TTestAsyncVerdict.MtlsClientConfig: ITlsClientConfig;
 begin
   // the client trusts the server root and presents its own credential when the server
   // requests client authentication (the same vector leaf serves both directions)
-  Result := TTlsPresets.Compatible(Provider).Client
+  Result := TTlsPresets.Compatible(Provider, Pkix).Client
     .WithTrustAnchors(TrustRoot)
     .WithCredential(LeafCert, LeafKey).Build;
 end;
@@ -194,7 +194,7 @@ function TTestAsyncVerdict.MtlsServerConfig(AAsync: Boolean): ITlsServerConfig;
 var
   LServer: ITlsServerConfigBuilder;
 begin
-  LServer := TTlsPresets.Compatible(Provider).Server
+  LServer := TTlsPresets.Compatible(Provider, Pkix).Server
     .WithCredential(LeafCert, LeafKey)
     .WithTrustAnchors(TrustRoot)
     .WithPeerAuth(TClientAuthMode.Required);
@@ -225,7 +225,7 @@ begin
   LCred.PrivateKey := Provider.Signing.ImportSigningKey(OcspVec('leaf_key'));
   LCred.OcspStaple := AStaple;
   Result := TTlsEngineFactory.CreateServerEngine(
-    TTlsPresets.Compatible(Provider).Server.WithCredential(LCred).Build);
+    TTlsPresets.Compatible(Provider, Pkix).Server.WithCredential(LCred).Build);
 end;
 
 function TTestAsyncVerdict.StaplingRevocationClient(AHostDecision: Boolean;
@@ -235,7 +235,7 @@ var
 begin
   // request a staple and require revocation; the host check is disabled so the test isolates the
   // revocation park from the leaf's SAN identity
-  LClient := TTlsPresets.Compatible(Provider).Client
+  LClient := TTlsPresets.Compatible(Provider, Pkix).Client
     .WithTrustAnchors(OcspVec('root_cert'))
     .WithDangerousDisableServerNameCheck
     .WithOcspStaplingRequest(True)
@@ -266,14 +266,14 @@ begin
     LVer := TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12);
   // the client presents its credential and verifies the server inline (default Soft); only the
   // SERVER runs Hard client-cert revocation with an async resolver, so only it parks
-  LClientOwner := TTlsPresets.Compatible(Provider);
+  LClientOwner := TTlsPresets.Compatible(Provider, Pkix);
   LClient := LClientOwner.Client
     .WithSupportedVersions(LVer)
     .WithTrustAnchors(TrustRoot)
     .WithCredential(LeafCert, LeafKey);
   LClientCfg := LClient.Build;
 
-  LServerOwner := TTlsPresets.Compatible(Provider);
+  LServerOwner := TTlsPresets.Compatible(Provider, Pkix);
   LServer := LServerOwner.Server
     .WithSupportedVersions(LVer)
     .WithCredential(LeafCert, LeafKey)

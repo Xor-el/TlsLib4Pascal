@@ -42,7 +42,7 @@ type
   TNegotiationPolicy = class sealed(TInterfacedObject, INegotiationPolicy)
   strict private
   var
-    FProvider: ICryptoProvider;
+    FCrypto: ICryptoProvider;
     FCipherSuites: ICipherSuiteRegistry;
     FGroups: INamedGroupRegistry;
     FSignatureSchemes: ISignatureSchemeRegistry;
@@ -126,7 +126,7 @@ constructor TNegotiationPolicy.Create(const AProvider: ICryptoProvider;
   ACipherPreference: TServerCipherPreference);
 begin
   inherited Create;
-  FProvider := AProvider;
+  FCrypto := AProvider;
   FCipherSuites := ACipherSuites;
   FGroups := AGroups;
   FSignatureSchemes := ASignatureSchemes;
@@ -171,7 +171,7 @@ end;
 function TNegotiationPolicy.EffectiveSuiteOrder(
   ANegotiatedVersion: UInt16): TArray<UInt16>;
 begin
-  Result := SuitePreferenceOrder(FProvider, FCipherSuites,
+  Result := SuitePreferenceOrder(FCrypto, FCipherSuites,
     ProtocolOf(ANegotiatedVersion));
 end;
 

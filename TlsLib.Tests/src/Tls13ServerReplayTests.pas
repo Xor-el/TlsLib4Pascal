@@ -268,9 +268,10 @@ begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
   // a fixed HasHardwareAes=True makes the suite choice deterministically AES-128-GCM
-  LParams.Provider := TFixedAesProvider.Create(Provider, True);
-  LParams.Policy := TNegotiationPolicy.CreateDefault(LParams.Provider);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(LParams.Provider);
+  LParams.Crypto := TFixedAesProvider.Create(Provider, True);
+  LParams.Inspector := Pkix.Certificates;
+  LParams.Policy := TNegotiationPolicy.CreateDefault(LParams.Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(LParams.Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.Group := TReplayServerGroup.Create(LServerShare,
     DecodeHex(FSched.Values['shared_secret'])) as INamedGroup;
@@ -286,7 +287,7 @@ begin
   LCred.PrivateKey := Provider.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_key']));
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(LCred);
   FSm := TTls13ServerStateMachine.Create(LParams);
-  BuildDriver(LParams.Provider);
+  BuildDriver(LParams.Crypto);
   FSm.Start;
 end;
 
@@ -447,7 +448,8 @@ begin
   LFill := DecodeHex(StringOfChar('a', 64)); // 32 bytes; the mock KEM ignores its value
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;

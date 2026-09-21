@@ -263,7 +263,8 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Group := TReplayGroup.Create(DecodeHex(FSched.Values['shared_secret']));
   LParams.GroupCode := TNamedGroupCatalog.X25519;
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);

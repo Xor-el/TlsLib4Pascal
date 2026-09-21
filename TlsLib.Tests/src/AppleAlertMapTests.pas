@@ -31,8 +31,8 @@ uses
   TestFramework,
 {$ENDIF FPC}
 {$IFDEF TLSLIB_MACOS}
-  TlpICryptoProvider,
-  TlpDefaultCryptoProvider,
+  TlpIPkixProvider,
+  TlpDefaultPkixProvider,
   TlpICertificateTrust,
   TlpServerName,
   TlpTrustPolicy,
@@ -106,7 +106,7 @@ begin
   end;
   // the untrusted root makes SecTrust reject before the policy runs; a real provider + default
   // policy keep the construction valid regardless
-  LVerifier := TAppleDelegateVerifier.Create(TDefaultCryptoProvider.Create as ICryptoProvider,
+  LVerifier := TAppleDelegateVerifier.Create(TDefaultPkixProvider.Create as IPkixProvider,
     TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, nil,
     TCertificateStrengthPolicy.Defaults, nil) as IServerCertificateVerifier;
   LAlert := TTlsAlertDescription.InternalError;

@@ -48,7 +48,7 @@ type
   TEchServerHandshake = class sealed(TInterfacedObject, IEchServerHandshake)
   strict private
   var
-    FProvider: ICryptoProvider;
+    FCrypto: ICryptoProvider;
     FKeyStore: IEchServerKeyStore;
     FTrialDecryptAll: Boolean;
     FStatus: TEchStatus;
@@ -112,7 +112,7 @@ constructor TEchServerHandshake.Create(const AProvider: ICryptoProvider;
   const AKeyStore: IEchServerKeyStore; ATrialDecryptAll: Boolean);
 begin
   inherited Create;
-  FProvider := AProvider;
+  FCrypto := AProvider;
   FKeyStore := AKeyStore;
   FTrialDecryptAll := ATrialDecryptAll;
   FStatus := TEchStatus.NotOffered;
@@ -378,7 +378,7 @@ begin
       Continue;
     // resolve the suite into a local; commit it to the object only on a successful open, so a
     // rejected outcome never leaves FSuite set with a nil FOpener
-    LSuite := FProvider.Hpke.Suite(LEntry.Config.KemId,
+    LSuite := FCrypto.Hpke.Suite(LEntry.Config.KemId,
       LOuterEch.CipherSuite.KdfId, LOuterEch.CipherSuite.AeadId);
     if LSuite = nil then
       Continue;

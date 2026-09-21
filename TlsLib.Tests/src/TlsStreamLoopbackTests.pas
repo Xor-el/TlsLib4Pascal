@@ -206,7 +206,7 @@ function TTestTlsStreamLoopback.ClientConfig(AInsecureSkipVerify: Boolean;
 var
   LClient: ITlsClientConfigBuilder;
 begin
-  LClient := TTlsPresets.Compatible(Provider).Client
+  LClient := TTlsPresets.Compatible(Provider, Pkix).Client
     .WithAlpnProtocols(TArray<string>.Create('h2', 'http/1.1'));
   if AInsecureSkipVerify then
     LClient.WithDangerousInsecureSkipVerify(True)
@@ -220,7 +220,7 @@ end;
 
 function TTestTlsStreamLoopback.ServerConfig: ITlsServerConfig;
 begin
-  Result := TTlsPresets.Compatible(Provider).Server
+  Result := TTlsPresets.Compatible(Provider, Pkix).Server
     .WithAlpnProtocols(TArray<string>.Create('h2', 'http/1.1'))
     .WithCredential(LeafCert, LeafKey).Build;
 end;
@@ -289,7 +289,7 @@ end;
 
 function TTestTlsStreamLoopback.AsyncClientConfig: ITlsClientConfig;
 begin
-  Result := TTlsPresets.Compatible(Provider).Client
+  Result := TTlsPresets.Compatible(Provider, Pkix).Client
     .WithTrustAnchors(TrustRoot)
     .WithAsyncCertificateVerdict(True, 0).Build;
 end;
@@ -299,7 +299,7 @@ var
   LHash: IHash;
   LSpki: TBytes;
 begin
-  LSpki := Provider.Certificates.PublicKeyInfo(ACertDer);
+  LSpki := Pkix.Certificates.PublicKeyInfo(ACertDer);
   LHash := Provider.Primitives.CreateHash(THashAlgorithm.SHA_256);
   LHash.Update(LSpki, 0, System.Length(LSpki));
   Result := LHash.DoFinal;
@@ -422,7 +422,7 @@ var
 begin
   // a client that trusts an unrelated anchor (the leaf's own cert, not its issuer) must
   // reject the server chain through PKIX - no dangerous flag is set
-  LConfig := TTlsPresets.Compatible(Provider).Client
+  LConfig := TTlsPresets.Compatible(Provider, Pkix).Client
     .WithTrustAnchors(LeafCert).Build;
   RunLoopback(LConfig, TServerBehavior.EchoThenClose, LClient, LServer, LTransport);
   try
@@ -450,7 +450,7 @@ var
 begin
   // the same otherwise-untrusted anchor, but InsecureSkipVerify bypasses the pipeline so
   // the handshake completes (test-only; never production)
-  LConfig := TTlsPresets.Compatible(Provider).Client
+  LConfig := TTlsPresets.Compatible(Provider, Pkix).Client
     .WithDangerousInsecureSkipVerify(True)
     .WithTrustAnchors(LeafCert).Build;
   RunLoopback(LConfig, TServerBehavior.EchoThenClose, LClient, LServer, LTransport);
@@ -503,7 +503,7 @@ var
 begin
   // a private root trusted via WithTrustAnchors plus an SPKI pin on the leaf: the chain is
   // still fully verified (PKIX + pinning both hold), so the handshake completes
-  LConfig := TTlsPresets.Compatible(Provider).Client
+  LConfig := TTlsPresets.Compatible(Provider, Pkix).Client
     .WithTrustAnchors(TrustRoot)
     .WithCertificatePinning(TArray<TBytes>.Create(
       SpkiSha256(LeafCert))).Build;

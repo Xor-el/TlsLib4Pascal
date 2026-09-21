@@ -176,7 +176,8 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Group := TNamedGroups.CreateX25519(Provider);
   LParams.GroupCode := TNamedGroupCatalog.X25519;
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
@@ -188,7 +189,7 @@ begin
   LParams.LegacySessionId := Filled($33, 32);
   // ServerName is the SNI sent on the wire; ExpectedHostName is the name the leaf is checked against
   LParams.ServerName := ASni;
-  LParams.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+  LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
     True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName(AExpectedHost);
@@ -252,7 +253,8 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
@@ -308,7 +310,8 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Group := TNamedGroups.CreateX25519(Provider);
   LParams.GroupCode := TNamedGroupCatalog.X25519;
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
@@ -320,7 +323,7 @@ begin
   // the true (inner) SNI; the leaf is checked against it once ECH is accepted
   LParams.ServerName := 'localhost';
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
-  LParams.CertificateVerifier := TCertificateVerifier.Create(Provider,
+  LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
     as ITrustAnchorStore, True) as IServerCertificateVerifier;
@@ -339,7 +342,8 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
@@ -363,7 +367,8 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
@@ -390,7 +395,8 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
@@ -411,7 +417,8 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.SessionCache := ACache;
   // key-shares X25519 but advertises secp256r1 too, so the ECH-capable secp256r1-only
   // server retries the client onto secp256r1 (a HelloRetryRequest under ECH)
@@ -428,7 +435,7 @@ begin
   LParams.LegacySessionId := Filled($33, 32);
   LParams.ServerName := 'localhost';
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
-  LParams.CertificateVerifier := TCertificateVerifier.Create(Provider,
+  LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
     as ITrustAnchorStore, True) as IServerCertificateVerifier;
@@ -447,7 +454,8 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
@@ -480,7 +488,8 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   // key-shares X25519 but advertises secp256r1 too, so a secp256r1-only server retries it
   LParams.Group := TNamedGroups.CreateX25519(Provider);
   LParams.GroupCode := TNamedGroupCatalog.X25519;
@@ -495,7 +504,7 @@ begin
   LParams.LegacySessionId := Filled($33, 32);
   LParams.ServerName := 'localhost';
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
-  LParams.CertificateVerifier := TCertificateVerifier.Create(Provider,
+  LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
     as ITrustAnchorStore, True) as IServerCertificateVerifier;
@@ -512,7 +521,8 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
@@ -535,7 +545,8 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Group := TNamedGroups.CreateX25519(Provider);
   LParams.GroupCode := TNamedGroupCatalog.X25519;
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
@@ -546,7 +557,7 @@ begin
   LParams.LegacySessionId := Filled($33, 32);
   LParams.ServerName := 'localhost';
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
-  LParams.CertificateVerifier := TCertificateVerifier.Create(Provider,
+  LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
     as ITrustAnchorStore, True) as IServerCertificateVerifier;
@@ -568,7 +579,8 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
@@ -1025,7 +1037,8 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
@@ -1049,7 +1062,8 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Group := TNamedGroups.CreateX25519(Provider);
   LParams.GroupCode := TNamedGroupCatalog.X25519;
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
@@ -1061,7 +1075,7 @@ begin
   // hard-fail revocation: the leaf must come with a current Good stapled OCSP response, so
   // the client offers status_request to solicit the staple
   LParams.RequestOcspStapling := True;
-  LParams.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+  LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(OcspField('root_cert')))
     as ITrustAnchorStore, True, TCertificateChainLimits.Defaults,
     TRevocationPosture.Hard) as IServerCertificateVerifier;
@@ -1077,7 +1091,8 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   // key-shares X25519 but advertises secp256r1 too, so the secp256r1-only server
   // retries the client onto secp256r1
   LParams.Group := TNamedGroups.CreateX25519(Provider);
@@ -1091,7 +1106,7 @@ begin
   LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
   LParams.ClientRandom := Filled($11, 32);
   LParams.LegacySessionId := Filled($33, 32);
-  LParams.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+  LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
     True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
@@ -1106,7 +1121,8 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
@@ -1126,7 +1142,8 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   // a client that key-shares secp256r1 and lists ONLY secp256r1 (like a JDK 11 client that
   // omits X25519); the server must select secp256r1 rather than insisting on X25519
   LParams.Group := TNamedGroups.CreateNistEcdh(Provider, 'secp256r1');
@@ -1139,7 +1156,7 @@ begin
   LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
   LParams.ClientRandom := Filled($11, 32);
   LParams.LegacySessionId := Filled($33, 32);
-  LParams.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+  LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
     True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
@@ -1154,7 +1171,8 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
@@ -1178,7 +1196,8 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   // key-share the X25519MLKEM768 hybrid directly: a large (X25519 32 + ML-KEM
   // encaps-key 1184 = 1216 B) key_share, ML-KEM-first on the wire
   LParams.Group := TNamedGroups.CreateX25519MlKem768(Provider);
@@ -1189,7 +1208,7 @@ begin
   LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
   LParams.ClientRandom := Filled($11, 32);
   LParams.LegacySessionId := Filled($33, 32);
-  LParams.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+  LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
     True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
@@ -1204,7 +1223,8 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
@@ -1222,7 +1242,8 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   // offers [X25519, X25519MLKEM768] but key-shares the classical X25519 first, so a
   // hybrid-only server retries the client onto X25519MLKEM768 (the Compatible-preset path)
   LParams.Group := TNamedGroups.CreateX25519(Provider);
@@ -1236,7 +1257,7 @@ begin
   LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
   LParams.ClientRandom := Filled($11, 32);
   LParams.LegacySessionId := Filled($33, 32);
-  LParams.CertificateVerifier := TCertificateVerifier.Create(Provider, TSystemClock.Create as ITlsClock,
+  LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
     True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
@@ -1251,7 +1272,8 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
-  LParams.Provider := Provider;
+  LParams.Crypto := Provider;
+  LParams.Inspector := Pkix.Certificates;
   LParams.Policy := TNegotiationPolicy.CreateDefault(Provider);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Provider);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;

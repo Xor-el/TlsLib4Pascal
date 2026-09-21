@@ -36,6 +36,8 @@ uses
   TlpEchConfig,
   TlpICryptoProvider,
   TlpDefaultCryptoProvider,
+  TlpIPkixProvider,
+  TlpDefaultPkixProvider,
   TlpICertificateTrust,
   TlpCertificateVerifier,
   TlpTrustPolicy,
@@ -89,7 +91,12 @@ procedure SetTlsLibMormotServerConfig(const AConfig: ITlsServerConfig);
 /// parsing). nil (the default) uses the shared default; set it to inject a custom backend (HSM,
 /// FIPS, a test mock). A process-wide config-in (SetTlsLibMormot{Client,Server}Config) carries its
 /// own provider and takes precedence; this only governs the context-driven path.</summary>
-procedure SetTlsLibMormotProvider(const AProvider: ICryptoProvider);
+procedure SetTlsLibMormotCrypto(const ACryptoProvider: ICryptoProvider);
+/// <summary>Sets a process-wide PKIX provider for the context-driven build (certificate parsing,
+/// path validation, revocation). nil (the default) uses the shared default; set it to inject a
+/// custom backend. A process-wide config-in carries its own PKIX provider and takes precedence;
+/// this only governs the context-driven path.</summary>
+procedure SetTlsLibMormotPkix(const APkix: IPkixProvider);
 /// <summary>Enables/disables TLS session resumption for the context-driven build (a server issues
 /// tickets; a client caches and reuses them), so a reconnect skips the asymmetric handshake.
 /// Forward-secret (TLS 1.3 psk_dhe_ke); 0-RTT is never enabled. Default True.</summary>
@@ -134,7 +141,9 @@ type
     class function ContextCarriesTrustOrCredential(
       const AContext: TNetTlsContext): Boolean; static;
     /// <summary>The injected process-wide provider, or the shared default when none is set.</summary>
-    class function EffectiveProvider: ICryptoProvider; static;
+    class function EffectiveCrypto: ICryptoProvider; static;
+    /// <summary>The injected process-wide PKIX provider, or the shared default when none is set.</summary>
+    class function EffectivePkix: IPkixProvider; static;
     class function BuildClientConfig(const AContext: TNetTlsContext): ITlsClientConfig; static;
     class function BuildServerConfig(const AContext: TNetTlsContext): ITlsServerConfig; static;
     class function ClientSignature(const AContext: TNetTlsContext): string; static;
@@ -208,7 +217,9 @@ var
   GServerConfigMemo: ITlsServerConfigMemo;
   GClientConfigMemo: ITlsClientConfigMemo;
   // an injected provider for the context-driven build; nil uses the shared default
-  GProvider: ICryptoProvider;
+  GCrypto: ICryptoProvider;
+  // an injected PKIX provider for the context-driven build; nil uses the shared default
+  GPkix: IPkixProvider;
   // whether the context-driven build enables session resumption (default True, set in init)
   GSessionResumption: Boolean;
 
@@ -242,9 +253,14 @@ begin
   GServerConfig := AConfig;
 end;
 
-procedure SetTlsLibMormotProvider(const AProvider: ICryptoProvider);
+procedure SetTlsLibMormotCrypto(const ACryptoProvider: ICryptoProvider);
 begin
-  GProvider := AProvider;
+  GCrypto := ACryptoProvider;
+end;
+
+procedure SetTlsLibMormotPkix(const APkix: IPkixProvider);
+begin
+  GPkix := APkix;
 end;
 
 procedure SetTlsLibMormotSessionResumption(AEnabled: Boolean);
@@ -371,23 +387,33 @@ begin
     (AContext.CACertificatesRaw <> nil);
 end;
 
-class function TTlsLibNetTls.EffectiveProvider: ICryptoProvider;
+class function TTlsLibNetTls.EffectiveCrypto: ICryptoProvider;
 begin
-  if GProvider <> nil then
-    Result := GProvider
+  if GCrypto <> nil then
+    Result := GCrypto
   else
     Result := TDefaultCryptoProvider.Shared;
+end;
+
+class function TTlsLibNetTls.EffectivePkix: IPkixProvider;
+begin
+  if GPkix <> nil then
+    Result := GPkix
+  else
+    Result := TDefaultPkixProvider.Shared;
 end;
 
 class function TTlsLibNetTls.BuildClientConfig(
   const AContext: TNetTlsContext): ITlsClientConfig;
 var
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
+  LPkix: IPkixProvider;
   LClient: ITlsClientConfigBuilder;
   LHasTrust: Boolean;
 begin
-  LProvider := EffectiveProvider;
-  LClient := TTlsPresets.Compatible(LProvider).Client;
+  LCrypto := EffectiveCrypto;
+  LPkix := EffectivePkix;
+  LClient := TTlsPresets.Compatible(LCrypto, LPkix).Client;
   LHasTrust := False;
   // trust: a CASystemStores set that names an anchor-bearing store (the ROOT and/or CA store -
   // exactly what our OS harvester collects) routes to the OS trust store (Windows crypt32 /
@@ -397,7 +423,7 @@ begin
   if (scsRoot in AContext.CASystemStores) or
     (scsCA in AContext.CASystemStores) then
   begin
-    TSystemTrust.WithSystemTrust(LClient, LProvider);
+    TSystemTrust.WithSystemTrust(LClient, LPkix);
     LHasTrust := True;
   end;
   if AContext.CACertificatesFile <> '' then
@@ -438,11 +464,13 @@ end;
 class function TTlsLibNetTls.BuildServerConfig(
   const AContext: TNetTlsContext): ITlsServerConfig;
 var
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
+  LPkix: IPkixProvider;
   LServer: ITlsServerConfigBuilder;
 begin
-  LProvider := EffectiveProvider;
-  LServer := TTlsPresets.Compatible(LProvider).Server;
+  LCrypto := EffectiveCrypto;
+  LPkix := EffectivePkix;
+  LServer := TTlsPresets.Compatible(LCrypto, LPkix).Server;
   if AContext.CertificateFile <> '' then
     LServer.WithCredential(LoadFile(AContext.CertificateFile),
       LoadFile(AContext.PrivateKeyFile), Utf8ToString(AContext.PrivatePassword))
@@ -458,7 +486,7 @@ begin
     // CA supplied via CACertificatesFile). We map mORMot's config faithfully; the caller opted in.
     if (scsRoot in AContext.CASystemStores) or
       (scsCA in AContext.CASystemStores) then
-      TSystemTrust.WithSystemTrust(LServer, LProvider);
+      TSystemTrust.WithSystemTrust(LServer, LPkix);
     if AContext.CACertificatesFile <> '' then
       LServer.WithTrustAnchors(LoadFile(AContext.CACertificatesFile));
     // arm the async client-certificate verdict park so the server-role resolver runs server-side
@@ -479,11 +507,12 @@ end;
 class function TTlsLibNetTls.ClientSignature(const AContext: TNetTlsContext): string;
 var
   LSig: TTlsSignatureBuilder;
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
 begin
-  LProvider := EffectiveProvider;
-  LSig := TTlsSignatureBuilder.Create(LProvider);
-  LSig.AddPointer('provider', LProvider);
+  LCrypto := EffectiveCrypto;
+  LSig := TTlsSignatureBuilder.Create(LCrypto);
+  LSig.AddPointer('crypto', LCrypto);
+  LSig.AddPointer('pkix', EffectivePkix);
   LSig.AddFlag('resume', GSessionResumption);
   LSig.AddFile('cert', Utf8ToString(AContext.CertificateFile));
   LSig.AddFile('key', Utf8ToString(AContext.PrivateKeyFile));
@@ -501,11 +530,12 @@ end;
 class function TTlsLibNetTls.ServerSignature(const AContext: TNetTlsContext): string;
 var
   LSig: TTlsSignatureBuilder;
-  LProvider: ICryptoProvider;
+  LCrypto: ICryptoProvider;
 begin
-  LProvider := EffectiveProvider;
-  LSig := TTlsSignatureBuilder.Create(LProvider);
-  LSig.AddPointer('provider', LProvider);
+  LCrypto := EffectiveCrypto;
+  LSig := TTlsSignatureBuilder.Create(LCrypto);
+  LSig.AddPointer('crypto', LCrypto);
+  LSig.AddPointer('pkix', EffectivePkix);
   LSig.AddFlag('resume', GSessionResumption);
   LSig.AddFile('cert', Utf8ToString(AContext.CertificateFile));
   LSig.AddFile('key', Utf8ToString(AContext.PrivateKeyFile));

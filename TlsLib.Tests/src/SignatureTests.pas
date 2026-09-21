@@ -27,6 +27,7 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpICryptoProvider,
+  TlpIPkixProvider,
   TlpISigningKey,
   TlpDefaultCryptoProvider,
   TlpOSCryptoProvider,
@@ -155,7 +156,7 @@ begin
   LFramed := DecodeHex(FHs.Values['certificate']);
   LBody := System.Copy(LFramed, 4, System.Length(LFramed) - 4);
   LCert := THandshakeMessages.DecodeCertificate(LBody);
-  Result := Provider.Certificates.PublicKeyInfo(LCert.Entries[0].CertData);
+  Result := Pkix.Certificates.PublicKeyInfo(LCert.Entries[0].CertData);
 end;
 
 function TTestSignature.CertVerifySignature: TBytes;
@@ -364,7 +365,7 @@ var
 begin
   // the handshake leaf-policy gate rejects a scheme/leaf family mismatch with illegal_parameter
   // before signature verification (an RSA leaf presented for an ecdsa_* signature)
-  LLeaf := Provider.Certificates.Parse(DecodeHex(FKeys.Values['rsa_cert']));
+  LLeaf := Pkix.Certificates.Parse(DecodeHex(FKeys.Values['rsa_cert']));
   LRaised := False;
   LAlert := TTlsAlertDescription.BadCertificate;
   try

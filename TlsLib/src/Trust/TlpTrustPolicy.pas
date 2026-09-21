@@ -18,7 +18,7 @@ interface
 uses
   SysUtils,
   TlpTlsAlert,
-  TlpICryptoProvider,
+  TlpIPkixProvider,
   TlpIClock,
   TlpICertificateTrust,
   TlpCertificateLimits,
@@ -162,7 +162,7 @@ type
   /// Certificate is actually on the wire.
   /// </summary>
   TServerTrustContext = record
-    Provider: ICryptoProvider;
+    Pkix: IPkixProvider;
     Clock: ITlsClock;
     TrustStore: ITrustAnchorStore;
     CheckHostName: Boolean;
@@ -188,7 +188,7 @@ type
   /// the OS/public-web-PKI roots.
   /// </summary>
   TClientTrustContext = record
-    Provider: ICryptoProvider;
+    Pkix: IPkixProvider;
     Clock: ITlsClock;
     TrustStore: ITrustAnchorStore;
     ChainLimits: TCertificateChainLimits;

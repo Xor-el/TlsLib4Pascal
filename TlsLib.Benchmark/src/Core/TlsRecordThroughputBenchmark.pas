@@ -47,7 +47,9 @@ uses
   StrUtils,
   TlpNegotiationTypes,
   TlpICryptoProvider,
+  TlpIPkixProvider,
   TlpDefaultCryptoProvider,
+  TlpDefaultPkixProvider,
   TlsBenchmarkData,
   TlsLibThroughputPeer,
   OpenSslThroughputPeer;
@@ -74,6 +76,7 @@ type
 class function TTlsRecordThroughputBenchmark.Run(ALogProc: TBenchmarkLogProc): Int32;
 var
   LProvider: ICryptoProvider;
+  LPkix: IPkixProvider;
   LCredential: TTlsBenchmarkCredential;
   LOpenSslAvailable: Boolean;
   LDeferred: TArray<string>;
@@ -112,7 +115,7 @@ var
   begin
     Result := -1.0;
     try
-      LPeer := TTlsLibThroughputPeer.Create(LProvider, LCredential, ASuiteCode,
+      LPeer := TTlsLibThroughputPeer.Create(LProvider, LPkix, LCredential, ASuiteCode,
         ARecordSize, BENCH_TP_PAYLOAD);
       try
         Result := TBenchmarkTiming.MeasureThroughputMbPerSec(LPeer.SendOnce, LPeer.PayloadBytes);
@@ -150,6 +153,7 @@ var
 begin
   Result := BENCH_LABEL_COL_WIDTH + 3 * BENCH_TP_VALUE_COL_WIDTH;
   LProvider := TDefaultCryptoProvider.Create as ICryptoProvider;
+  LPkix := TDefaultPkixProvider.Create as IPkixProvider;
   LCredential := TTlsBenchmarkData.LoadEcP256;
   LOpenSslAvailable := TOpenSslThroughputPeer.IsAvailable;
   LDeferred := nil;

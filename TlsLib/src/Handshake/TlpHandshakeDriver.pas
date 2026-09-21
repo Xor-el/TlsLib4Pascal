@@ -42,7 +42,7 @@ type
   var
     FChannel: IHandshakeChannel;
     FInstaller: IRecordEpochInstaller;
-    FProvider: ICryptoProvider;
+    FCrypto: ICryptoProvider;
     FSink: IHandshakeSink;
     // resolved once from the sink; nil when the sink does not track the version
     FVersionSink: IHandshakeVersionSink;
@@ -74,7 +74,7 @@ begin
   inherited Create;
   FChannel := AChannel;
   FInstaller := AInstaller;
-  FProvider := AProvider;
+  FCrypto := AProvider;
   FSink := ASink;
   if not Supports(ASink, IHandshakeVersionSink, FVersionSink) then
     FVersionSink := nil;
@@ -96,7 +96,7 @@ begin
   // driver needs no up-front suite (a live client does not know the version or suite
   // until the ServerHello)
   LProtection := TRecordProtectionFactory.Build(AEffect.Version, AEffect.Keys,
-    FProvider.Primitives.CreateAead(AEffect.Aead));
+    FCrypto.Primitives.CreateAead(AEffect.Aead));
   // the negotiated version rides every key install; surface it for connection info
   if FVersionSink <> nil then
     FVersionSink.OnVersionNegotiated(AEffect.Version);

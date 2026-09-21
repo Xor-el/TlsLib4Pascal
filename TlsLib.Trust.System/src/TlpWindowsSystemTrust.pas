@@ -22,7 +22,7 @@ uses
   Generics.Collections,
   SysUtils,
   TlpTlsAlert,
-  TlpICryptoProvider,
+  TlpIPkixProvider,
   TlpICertificateTrust,
   TlpICertificateVerifierSource,
   TlpCertificateStrengthPolicy,
@@ -63,14 +63,14 @@ type
   /// </summary>
   TWindowsDelegateVerifier = class sealed(TInterfacedObject, IServerCertificateVerifier)
   strict private
-    FProvider: ICryptoProvider;
+    FPkix: IPkixProvider;
     FPosture: TRevocationPosture;
     FFetch: TSystemTrustFetch;
     FClock: ITlsClock;
     FStrengthPolicy: TCertificateStrengthPolicy;
     FAdvertised: TArray<UInt16>;
   public
-    constructor Create(const AProvider: ICryptoProvider;
+    constructor Create(const APkix: IPkixProvider;
       APosture: TRevocationPosture; AFetch: TSystemTrustFetch; const AClock: ITlsClock;
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>);
@@ -87,7 +87,7 @@ type
   /// </summary>
   TWindowsLiveRevocationResolver = class sealed(TOSLiveRevocationResolver)
   strict private
-    FProvider: ICryptoProvider;
+    FPkix: IPkixProvider;
     FClock: ITlsClock;
     FStrengthPolicy: TCertificateStrengthPolicy;
     FAdvertised: TArray<UInt16>;
@@ -97,7 +97,7 @@ type
       const AStaple: TBytes; out AOutcome: TLiveRevocationOutcome;
       out ARejectAlert: TTlsAlertDescription): Boolean; override;
   public
-    constructor Create(const AProvider: ICryptoProvider; APosture: TRevocationPosture;
+    constructor Create(const APkix: IPkixProvider; APosture: TRevocationPosture;
       const AClock: ITlsClock; const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>; ADeadlineMs: Cardinal;
       const AFallback: TCertificateVerdictResolver);
@@ -127,7 +127,7 @@ type
   TWindowsClientDelegateVerifier = class sealed(TInterfacedObject,
     IClientCertificateVerifier)
   strict private
-    FProvider: ICryptoProvider;
+    FPkix: IPkixProvider;
     FAnchors: TArray<TBytes>;
     FPosture: TRevocationPosture;
     FFetch: TSystemTrustFetch;
@@ -135,7 +135,7 @@ type
     FStrengthPolicy: TCertificateStrengthPolicy;
     FAdvertised: TArray<UInt16>;
   public
-    constructor Create(const AProvider: ICryptoProvider;
+    constructor Create(const APkix: IPkixProvider;
       const AAnchors: TArray<TBytes>; APosture: TRevocationPosture;
       AFetch: TSystemTrustFetch; const AClock: ITlsClock;
       const AStrengthPolicy: TCertificateStrengthPolicy;
@@ -153,7 +153,7 @@ type
   /// </summary>
   TWindowsClientLiveRevocationResolver = class sealed(TOSLiveRevocationResolver)
   strict private
-    FProvider: ICryptoProvider;
+    FPkix: IPkixProvider;
     FAnchors: TArray<TBytes>;
     FClock: ITlsClock;
     FStrengthPolicy: TCertificateStrengthPolicy;
@@ -164,7 +164,7 @@ type
       const AStaple: TBytes; out AOutcome: TLiveRevocationOutcome;
       out ARejectAlert: TTlsAlertDescription): Boolean; override;
   public
-    constructor Create(const AProvider: ICryptoProvider;
+    constructor Create(const APkix: IPkixProvider;
       const AAnchors: TArray<TBytes>; APosture: TRevocationPosture;
       const AClock: ITlsClock; const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>; ADeadlineMs: Cardinal;
@@ -474,7 +474,7 @@ type
     /// anchor (the last element) exempt, so the leaf and every intermediate are checked. A nil
     /// provider or empty path is internal_error.</summary>
     class function ApplyStrengthPolicy(const AOsPath: TArray<TBytes>;
-      const AProvider: ICryptoProvider;
+      const APkix: IPkixProvider;
       const APolicy: TCertificateStrengthPolicy; const AAdvertised: TArray<UInt16>;
       out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>Runs the OS SSL-server chain evaluation with URL retrieval cache-only,
@@ -487,7 +487,7 @@ type
       const AHostName: string; const AOcspStaple: TBytes;
       APosture: TRevocationPosture; AFetch: TSystemTrustFetch;
       const AClock: ITlsClock;
-      const AProvider: ICryptoProvider;
+      const APkix: IPkixProvider;
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>;
       out AValidatedChain: TArray<TBytes>;
@@ -499,7 +499,7 @@ type
     /// resolver only - never inline (it blocks on a socket).</summary>
     class function EvaluateServerLive(const AChain: TArray<TBytes>;
       const AHostName: string; const AStaple: TBytes; ADeadlineMs: Cardinal;
-      const AClock: ITlsClock; const AProvider: ICryptoProvider;
+      const AClock: ITlsClock; const APkix: IPkixProvider;
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>; out AOutcome: TLiveRevocationOutcome;
       out AAlert: TTlsAlertDescription): Boolean; static;
@@ -512,7 +512,7 @@ type
     /// the exclusive-engine entry point is unavailable.</summary>
     class function EvaluateClientChain(const AChain, AAnchors: TArray<TBytes>;
       APosture: TRevocationPosture; AFetch: TSystemTrustFetch; const AClock: ITlsClock;
-      const AProvider: ICryptoProvider;
+      const APkix: IPkixProvider;
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>;
       out AValidatedChain: TArray<TBytes>;
@@ -523,7 +523,7 @@ type
     /// outcome; on a definitive non-revocation trust failure returns False with AAlert set. For the
     /// off-engine-thread park resolver only - never inline (it blocks on a socket).</summary>
     class function EvaluateClientLive(const AChain, AAnchors: TArray<TBytes>;
-      ADeadlineMs: Cardinal; const AClock: ITlsClock; const AProvider: ICryptoProvider;
+      ADeadlineMs: Cardinal; const AClock: ITlsClock; const APkix: IPkixProvider;
       const AStrengthPolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>; out AOutcome: TLiveRevocationOutcome;
       out AAlert: TTlsAlertDescription): Boolean; static;
@@ -752,17 +752,17 @@ begin
 end;
 
 class function TWindowsTrustApi.ApplyStrengthPolicy(const AOsPath: TArray<TBytes>;
-  const AProvider: ICryptoProvider; const APolicy: TCertificateStrengthPolicy;
+  const APkix: IPkixProvider; const APolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>; out AAlert: TTlsAlertDescription): Boolean;
 begin
   Result := False;
-  if (AProvider = nil) or (Length(AOsPath) = 0) then
+  if (APkix = nil) or (Length(AOsPath) = 0) then
   begin
     AAlert := TTlsAlertDescription.InternalError;
     Exit;
   end;
   // exempt the OS anchor (last path element); leaf and intermediates are checked
-  Result := TChainAlgorithmPolicy.Check(AProvider.Certificates, AOsPath,
+  Result := TChainAlgorithmPolicy.Check(APkix.Certificates, AOsPath,
     TArray<TBytes>.Create(AOsPath[High(AOsPath)]), APolicy, AAdvertised, AAlert);
 end;
 
@@ -770,7 +770,7 @@ class function TWindowsTrustApi.EvaluateChain(const AChain: TArray<TBytes>;
   const AHostName: string; const AOcspStaple: TBytes;
   APosture: TRevocationPosture; AFetch: TSystemTrustFetch;
   const AClock: ITlsClock;
-  const AProvider: ICryptoProvider;
+  const APkix: IPkixProvider;
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>;
   out AValidatedChain: TArray<TBytes>;
@@ -916,7 +916,7 @@ begin
       AAlert := TTlsAlertDescription.InternalError;
       Exit;
     end;
-    Result := ApplyStrengthPolicy(LOsPath, AProvider, AStrengthPolicy,
+    Result := ApplyStrengthPolicy(LOsPath, APkix, AStrengthPolicy,
       AAdvertised, AAlert);
     // the OS-built path (leaf-first, ending at the anchor) is the validated chain a key-pin
     // over the delegate must match against
@@ -933,7 +933,7 @@ end;
 
 class function TWindowsTrustApi.EvaluateServerLive(const AChain: TArray<TBytes>;
   const AHostName: string; const AStaple: TBytes; ADeadlineMs: Cardinal;
-  const AClock: ITlsClock; const AProvider: ICryptoProvider;
+  const AClock: ITlsClock; const APkix: IPkixProvider;
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>; out AOutcome: TLiveRevocationOutcome;
   out AAlert: TTlsAlertDescription): Boolean;
@@ -1053,7 +1053,7 @@ begin
         AAlert := TTlsAlertDescription.InternalError;
         Exit;
       end;
-      if not ApplyStrengthPolicy(LOsPath, AProvider, AStrengthPolicy, AAdvertised, AAlert) then
+      if not ApplyStrengthPolicy(LOsPath, APkix, AStrengthPolicy, AAdvertised, AAlert) then
         Exit;
       AOutcome := TLiveRevocationOutcome.Good;
       Result := True;
@@ -1116,7 +1116,7 @@ end;
 class function TWindowsTrustApi.EvaluateClientChain(const AChain,
   AAnchors: TArray<TBytes>; APosture: TRevocationPosture; AFetch: TSystemTrustFetch;
   const AClock: ITlsClock;
-  const AProvider: ICryptoProvider;
+  const APkix: IPkixProvider;
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>;
   out AValidatedChain: TArray<TBytes>;
@@ -1262,7 +1262,7 @@ begin
       AAlert := TTlsAlertDescription.InternalError;
       Exit;
     end;
-    Result := ApplyStrengthPolicy(LOsPath, AProvider, AStrengthPolicy,
+    Result := ApplyStrengthPolicy(LOsPath, APkix, AStrengthPolicy,
       AAdvertised, AAlert);
     if Result then
       AValidatedChain := LOsPath;
@@ -1280,7 +1280,7 @@ begin
 end;
 
 class function TWindowsTrustApi.EvaluateClientLive(const AChain, AAnchors: TArray<TBytes>;
-  ADeadlineMs: Cardinal; const AClock: ITlsClock; const AProvider: ICryptoProvider;
+  ADeadlineMs: Cardinal; const AClock: ITlsClock; const APkix: IPkixProvider;
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>; out AOutcome: TLiveRevocationOutcome;
   out AAlert: TTlsAlertDescription): Boolean;
@@ -1410,7 +1410,7 @@ begin
         AAlert := TTlsAlertDescription.InternalError;
         Exit;
       end;
-      if not ApplyStrengthPolicy(LOsPath, AProvider, AStrengthPolicy, AAdvertised, AAlert) then
+      if not ApplyStrengthPolicy(LOsPath, APkix, AStrengthPolicy, AAdvertised, AAlert) then
         Exit;
       AOutcome := TLiveRevocationOutcome.Good;
       Result := True;
@@ -1474,13 +1474,13 @@ end;
 
 { TWindowsDelegateVerifier }
 
-constructor TWindowsDelegateVerifier.Create(const AProvider: ICryptoProvider;
+constructor TWindowsDelegateVerifier.Create(const APkix: IPkixProvider;
   APosture: TRevocationPosture; AFetch: TSystemTrustFetch; const AClock: ITlsClock;
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>);
 begin
   inherited Create;
-  FProvider := AProvider;
+  FPkix := APkix;
   FPosture := APosture;
   FFetch := AFetch;
   FClock := AClock;
@@ -1499,15 +1499,15 @@ begin
   // the OS name check only ever sees a DNS host (empty for an IP literal); an IP is matched in
   // the library against iPAddress SANs below
   Result := TWindowsTrustApi.EvaluateChain(AChain, AServerName.AsDns,
-    AOcspStaple, FPosture, FFetch, FClock, FProvider, FStrengthPolicy, FAdvertised,
+    AOcspStaple, FPosture, FFetch, FClock, FPkix, FStrengthPolicy, FAdvertised,
     LValidated, AAlert);
   if not Result then
     Exit;
   // a definitive stapled Revoked wins under every posture, Off included (the OS engine does not
   // consult the staple under Off); then match an IP-literal identity the OS never name-checked
-  if TDelegatePostChecks.RejectStapledRevoked(FProvider, FClock, LValidated,
+  if TDelegatePostChecks.RejectStapledRevoked(FPkix, FClock, LValidated,
     AOcspStaple, AAlert) or
-    TDelegatePostChecks.RejectIpMismatch(AServerName, FProvider, LValidated, AAlert) then
+    TDelegatePostChecks.RejectIpMismatch(AServerName, FPkix, LValidated, AAlert) then
   begin
     Result := False;
     Exit;
@@ -1519,14 +1519,14 @@ end;
 
 { TWindowsLiveRevocationResolver }
 
-constructor TWindowsLiveRevocationResolver.Create(const AProvider: ICryptoProvider;
+constructor TWindowsLiveRevocationResolver.Create(const APkix: IPkixProvider;
   APosture: TRevocationPosture; const AClock: ITlsClock;
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>; ADeadlineMs: Cardinal;
   const AFallback: TCertificateVerdictResolver);
 begin
   inherited Create(APosture, TPeerRole.Server, AFallback);
-  FProvider := AProvider;
+  FPkix := APkix;
   FClock := AClock;
   FStrengthPolicy := AStrengthPolicy;
   FAdvertised := AAdvertised;
@@ -1539,19 +1539,19 @@ function TWindowsLiveRevocationResolver.EvaluateLive(const AChain: TArray<TBytes
   out ARejectAlert: TTlsAlertDescription): Boolean;
 begin
   Result := TWindowsTrustApi.EvaluateServerLive(AChain, AHostName, AStaple,
-    FDeadlineMs, FClock, FProvider, FStrengthPolicy, FAdvertised, AOutcome, ARejectAlert);
+    FDeadlineMs, FClock, FPkix, FStrengthPolicy, FAdvertised, AOutcome, ARejectAlert);
 end;
 
 { TWindowsClientLiveRevocationResolver }
 
-constructor TWindowsClientLiveRevocationResolver.Create(const AProvider: ICryptoProvider;
+constructor TWindowsClientLiveRevocationResolver.Create(const APkix: IPkixProvider;
   const AAnchors: TArray<TBytes>; APosture: TRevocationPosture; const AClock: ITlsClock;
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>; ADeadlineMs: Cardinal;
   const AFallback: TCertificateVerdictResolver);
 begin
   inherited Create(APosture, TPeerRole.Client, AFallback);
-  FProvider := AProvider;
+  FPkix := APkix;
   FAnchors := AAnchors;
   FClock := AClock;
   FStrengthPolicy := AStrengthPolicy;
@@ -1566,7 +1566,7 @@ function TWindowsClientLiveRevocationResolver.EvaluateLive(const AChain: TArray<
 begin
   // a client certificate carries no host identity and is never stapled: AHostName/AStaple unused
   Result := TWindowsTrustApi.EvaluateClientLive(AChain, FAnchors, FDeadlineMs, FClock,
-    FProvider, FStrengthPolicy, FAdvertised, AOutcome, ARejectAlert);
+    FPkix, FStrengthPolicy, FAdvertised, AOutcome, ARejectAlert);
 end;
 
 { TWindowsServerVerifierSource }
@@ -1584,21 +1584,21 @@ begin
   // without it the delegate would silently run cache-only Soft. Fail at engine creation (before IO).
   if TDelegatePostChecks.LiveNeedsLiveRevocation(FFetch, AContext.Deferral) then
     raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SLiveNeedsLiveRevocationVerdict);
-  Result := TWindowsDelegateVerifier.Create(AContext.Provider,
+  Result := TWindowsDelegateVerifier.Create(AContext.Pkix,
     AContext.RevocationPosture, FFetch, AContext.Clock, AContext.StrengthPolicy,
     AContext.AdvertisedSignatureSchemes) as IServerCertificateVerifier;
 end;
 
 { TWindowsClientDelegateVerifier }
 
-constructor TWindowsClientDelegateVerifier.Create(const AProvider: ICryptoProvider;
+constructor TWindowsClientDelegateVerifier.Create(const APkix: IPkixProvider;
   const AAnchors: TArray<TBytes>; APosture: TRevocationPosture;
   AFetch: TSystemTrustFetch; const AClock: ITlsClock;
   const AStrengthPolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>);
 begin
   inherited Create;
-  FProvider := AProvider;
+  FPkix := APkix;
   FAnchors := AAnchors;
   FPosture := APosture;
   FFetch := AFetch;
@@ -1615,7 +1615,7 @@ var
 begin
   AVerified := Default(TVerifiedChain);
   Result := TWindowsTrustApi.EvaluateClientChain(AChain, FAnchors, FPosture, FFetch,
-    FClock, FProvider, FStrengthPolicy, FAdvertised, LValidated, AAlert);
+    FClock, FPkix, FStrengthPolicy, FAdvertised, LValidated, AAlert);
   if not Result then
     Exit;
   AVerified.Path := LValidated;
@@ -1642,7 +1642,7 @@ begin
   LAnchors := nil;
   if AContext.TrustStore <> nil then
     LAnchors := AContext.TrustStore.RootCertificates;
-  Result := TWindowsClientDelegateVerifier.Create(AContext.Provider, LAnchors,
+  Result := TWindowsClientDelegateVerifier.Create(AContext.Pkix, LAnchors,
     AContext.RevocationPosture, FFetch, AContext.Clock, AContext.StrengthPolicy,
     AContext.AdvertisedSignatureSchemes) as IClientCertificateVerifier;
 end;

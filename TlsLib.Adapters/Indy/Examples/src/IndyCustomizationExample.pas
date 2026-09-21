@@ -76,6 +76,7 @@ uses
   TlpINegotiation,
   TlpCipherSuiteRegistry,
   TlpDefaultCryptoProvider,
+  TlpDefaultPkixProvider,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpTlsPresets,
@@ -210,7 +211,7 @@ function BuildServerConfig(const ACertPem, AKeyPem: TBytes): ITlsServerConfig;
 var
   LServer: ITlsServerConfigBuilder;
 begin
-  LServer := TTlsPresets.Compatible(TDefaultCryptoProvider.Shared).Server;
+  LServer := TTlsPresets.Compatible(TDefaultCryptoProvider.Shared, TDefaultPkixProvider.Shared).Server;
   LServer.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13));
   // P-256 first => the key_share curve is secp256r1, not x25519; X25519 stays negotiable
   LServer.WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1,
@@ -227,7 +228,7 @@ function BuildClientConfig(const ARootPem: TBytes): ITlsClientConfig;
 var
   LClient: ITlsClientConfigBuilder;
 begin
-  LClient := TTlsPresets.Compatible(TDefaultCryptoProvider.Shared).Client;
+  LClient := TTlsPresets.Compatible(TDefaultCryptoProvider.Shared, TDefaultPkixProvider.Shared).Client;
   LClient.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13));
   LClient.WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1,
     TNamedGroupCatalog.X25519));
@@ -434,7 +435,7 @@ function BuildVirtualHostServerConfig(const ALeafPem, AKeyPem,
 var
   LServer: ITlsServerConfigBuilder;
 begin
-  LServer := TTlsPresets.Compatible(TDefaultCryptoProvider.Shared).Server;
+  LServer := TTlsPresets.Compatible(TDefaultCryptoProvider.Shared, TDefaultPkixProvider.Shared).Server;
   LServer.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13));
   LServer.WithServerNameAcknowledgement(True);
   LServer.WithSniCredential(SNI_HOST, ALeafPem, AKeyPem);

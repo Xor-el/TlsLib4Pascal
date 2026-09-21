@@ -25,6 +25,7 @@ uses
   TlpTlsLibExceptions,
   TlpISecretBuffer,
   TlpICryptoProvider,
+  TlpIPkixProvider,
   TlpINamedGroup,
   TlpIKeySchedule,
   TlpTls13KeySchedule,
@@ -67,7 +68,8 @@ uses
 type
   /// <summary>The inputs a client handshake needs to build and drive its flight.</summary>
   TClientHandshakeParams = record
-    Provider: ICryptoProvider;
+    Crypto: ICryptoProvider;
+    Inspector: ICertificateInspector;
     Group: INamedGroup;
     GroupCode: UInt16;
     /// <summary>The supported_groups the client advertises (preference order). When
@@ -519,12 +521,12 @@ begin
   // A verbatim ClientHelloOverride bypasses ECH entirely - the caller supplied the exact bytes
   if (System.Length(AParams.ClientHelloOverride) = 0) and (AParams.EchPolicy <> nil) then
   begin
-    if TEchConfigList.TrySelect(AParams.EchPolicy.Configs, AParams.Provider,
+    if TEchConfigList.TrySelect(AParams.EchPolicy.Configs, AParams.Crypto,
       FSelectedEchConfig, FSelectedEchSuite) then
     begin
       FEchActive := True;
-      FInnerRandom := AParams.Provider.Primitives.GetRandom.GenerateBytes(32);
-      FEch := TEchClientHandshake.Create(AParams.Provider, FSelectedEchConfig,
+      FInnerRandom := AParams.Crypto.Primitives.GetRandom.GenerateBytes(32);
+      FEch := TEchClientHandshake.Create(AParams.Crypto, FSelectedEchConfig,
         FSelectedEchSuite);
     end
     else if AParams.EchPolicy.GreaseEnabled then
@@ -637,7 +639,7 @@ begin
       // choose the seed once; a HelloRetryRequest retry reuses it so its GREASE codepoints
       // match the first ClientHello exactly (RFC 8446 4.1.4)
       if FGreaseSeed < 0 then
-        FGreaseSeed := FParams.Provider.Primitives.GetRandom.GenerateBytes(1)[0];
+        FGreaseSeed := FParams.Crypto.Primitives.GetRandom.GenerateBytes(1)[0];
       LSeed := FGreaseSeed;
       LContext.SupportedVersions := TGrease.Prepend(LContext.SupportedVersions,
         TGrease.ValueAt(LSeed));
@@ -698,7 +700,7 @@ begin
         else
           LContext.OfferedPskAges[LI] := 0;
         SetLength(LContext.OfferedPskBinders[LI],
-          FParams.Provider.Primitives.CreateHash(FPskOffers[LI].Hash).HashSize);
+          FParams.Crypto.Primitives.CreateHash(FPskOffers[LI].Hash).HashSize);
       end;
     end;
 
@@ -796,16 +798,16 @@ var
   LSuite: THpkeSuiteId;
   LPayloadLength: Int32;
 begin
-  LRandom := FParams.Provider.Primitives.GetRandom;
+  LRandom := FParams.Crypto.Primitives.GetRandom;
   // enc is a real KEM encapsulation against a throwaway recipient (not a bare public key), so the
   // decoy is a valid encapsulation for any KEM, not only a DH one where the two happen to coincide
-  LEnc := FParams.Provider.Hpke.RandomEncapsulation(GreaseKem);
+  LEnc := FParams.Crypto.Hpke.RandomEncapsulation(GreaseKem);
   if System.Length(LEnc) = 0 then
     Exit(nil);
   // draw the suite from the ones the provider actually supports (RFC 9849 sec. 6.2), so a fixed
   // value cannot fingerprint the decoy as GREASE and a newly-supported algorithm is picked up
   // automatically - the provider is the single source of the HPKE vocabulary
-  LSuites := FParams.Provider.Hpke.SupportedSuites(GreaseKem);
+  LSuites := FParams.Crypto.Hpke.SupportedSuites(GreaseKem);
   if System.Length(LSuites) = 0 then
     Exit(nil);
   LSel := LRandom.GenerateBytes(2);
@@ -959,7 +961,7 @@ var
   LRandom: IRandom;
   LI: Int32;
 begin
-  LRandom := FParams.Provider.Primitives.GetRandom;
+  LRandom := FParams.Crypto.Primitives.GetRandom;
   SetLength(FGreasePskIdentities, System.Length(FPskOffers));
   SetLength(FGreasePskAges, System.Length(FPskOffers));
   for LI := 0 to System.High(FPskOffers) do
@@ -980,7 +982,7 @@ begin
   // the identities and obfuscated ticket ages are the minted, retry-stable values (a real offer
   // re-sends both across a retry); only the binders are drawn fresh here, as a real client
   // recomputes them over the new transcript
-  LRandom := FParams.Provider.Primitives.GetRandom;
+  LRandom := FParams.Crypto.Primitives.GetRandom;
   LWriter := TWireWriter.Create;
   LIds := LWriter.OpenVector(2);
   for LI := 0 to System.High(FPskOffers) do
@@ -996,7 +998,7 @@ begin
   begin
     LBinder := LWriter.OpenVector(1);
     LWriter.WriteBytes(LRandom.GenerateBytes(
-      FParams.Provider.Primitives.CreateHash(FPskOffers[LI].Hash).HashSize));
+      FParams.Crypto.Primitives.CreateHash(FPskOffers[LI].Hash).HashSize));
     LWriter.CloseVector(LBinder);
   end;
   LWriter.CloseVector(LBinders);
@@ -1018,18 +1020,18 @@ begin
   if FTranscriptPreActivated and (FPreActivatedHash <> AHash) then
   begin
     FTranscript := TTranscriptHash.Create(
-      FParams.Provider.Primitives.CreateHash(AHash));
+      FParams.Crypto.Primitives.CreateHash(AHash));
     FTranscript.Update(FSentClientHelloRaw);
     FInnerTranscript := TTranscriptHash.Create(
-      FParams.Provider.Primitives.CreateHash(AHash));
+      FParams.Crypto.Primitives.CreateHash(AHash));
     FInnerTranscript.Update(FSentInnerRaw);
   end
   else
   begin
     if not FTranscript.IsActive then
-      FTranscript.Activate(FParams.Provider.Primitives.CreateHash(AHash));
+      FTranscript.Activate(FParams.Crypto.Primitives.CreateHash(AHash));
     if not FInnerTranscript.IsActive then
-      FInnerTranscript.Activate(FParams.Provider.Primitives.CreateHash(AHash));
+      FInnerTranscript.Activate(FParams.Crypto.Primitives.CreateHash(AHash));
   end;
   // the accept confirmation is over the inner transcript through a ServerHello whose
   // last 8 random bytes are zeroed (RFC 9849 sec. 7.2); the random sits at offset 6 of
@@ -1042,7 +1044,7 @@ begin
   LInnerClone.Update(LModifiedSh);
   LConfHash := LInnerClone.CurrentHash;
   LMatched := TEchClientHandshake.AcceptConfirmationMatches(
-    FParams.Provider.Primitives.CreateHkdf(AHash), FInnerRandom, LConfHash,
+    FParams.Crypto.Primitives.CreateHkdf(AHash), FInnerRandom, LConfHash,
     AServerRandom);
   // if a HelloRetryRequest already decided ECH accept/reject, the ServerHello MUST agree
   // (RFC 9849 sec. 5): a divergence is illegal_parameter
@@ -1152,10 +1154,10 @@ begin
       LHrrZeroed[LEchOffset + LI] := 0;
     LInnerCh1Hash := HashUnder(LHash, FSentInnerRaw);
     LConf := TTranscriptHash.Create;
-    LConf.SeedWithMessageHash(FParams.Provider.Primitives.CreateHash(LHash), LInnerCh1Hash);
+    LConf.SeedWithMessageHash(FParams.Crypto.Primitives.CreateHash(LHash), LInnerCh1Hash);
     LConf.Update(LHrrZeroed);
     LExpected := TTls13KeySchedule.EchHrrAcceptConfirmation(
-      FParams.Provider.Primitives.CreateHkdf(LHash), FInnerRandom, LConf.CurrentHash);
+      FParams.Crypto.Primitives.CreateHkdf(LHash), FInnerRandom, LConf.CurrentHash);
     FEchHrrAccepted := TSecureMemory.ConstantTimeAreEqual(LExpected, LActual);
   end
   else
@@ -1166,7 +1168,7 @@ begin
 
   // rebase the inner transcript to message_hash(Hash(innerCH1)), then the HRR (as received)
   FInnerTranscript.SeedWithMessageHash(
-    FParams.Provider.Primitives.CreateHash(LHash), LInnerCh1Hash);
+    FParams.Crypto.Primitives.CreateHash(LHash), LInnerCh1Hash);
   FInnerTranscript.Update(AMessage.Raw);
 end;
 
@@ -1193,7 +1195,7 @@ function TTls13ClientStateMachine.HashUnder(AHash: THashAlgorithm;
 var
   LHash: IHash;
 begin
-  LHash := FParams.Provider.Primitives.CreateHash(AHash);
+  LHash := FParams.Crypto.Primitives.CreateHash(AHash);
   LHash.Update(AData, 0, System.Length(AData));
   Result := LHash.DoFinal;
 end;
@@ -1208,7 +1210,7 @@ begin
   // the binders vector: a 2-byte list length, then per PSK a 1-byte entry length + binder
   LBindersLen := 2;
   for LI := 0 to High(FPskOffers) do
-    Inc(LBindersLen, 1 + FParams.Provider.Primitives.CreateHash(FPskOffers[LI].Hash).HashSize);
+    Inc(LBindersLen, 1 + FParams.Crypto.Primitives.CreateHash(FPskOffers[LI].Hash).HashSize);
   LTotal := System.Length(AClientHello);
   LPartial := System.Copy(AClientHello, 0, LTotal - LBindersLen);
 
@@ -1221,13 +1223,13 @@ begin
   LOffset := (LTotal - LBindersLen) + 2; // past the 2-byte binders list length
   for LI := 0 to High(FPskOffers) do
   begin
-    LHashLen := FParams.Provider.Primitives.CreateHash(FPskOffers[LI].Hash).HashSize;
+    LHashLen := FParams.Crypto.Primitives.CreateHash(FPskOffers[LI].Hash).HashSize;
     if ATranscript.IsActive then
       LPrefixHash := ATranscript.HashPrefixExcludingBinders(LPartial)
     else
       LPrefixHash := HashUnder(FPskOffers[LI].Hash, LPartial);
     // the key length is irrelevant to the binder MAC (only the hash matters)
-    LTemp := TTls13KeySchedule.Create(FParams.Provider, FPskOffers[LI].Hash, LHashLen);
+    LTemp := TTls13KeySchedule.Create(FParams.Crypto, FPskOffers[LI].Hash, LHashLen);
     LTemp.SetPsk(FPskOffers[LI].Key);
     LBinder := LTemp.ComputeBinder(FPskOffers[LI].BinderKind, LPrefixHash);
     Move(LBinder[0], AClientHello[LOffset + 1], LHashLen); // +1 past the 1-byte entry length
@@ -1245,10 +1247,10 @@ begin
   for LSpec in FParams.ExternalPsks do
   begin
     TArrayUtilities.Append<IPreSharedKey>(Result,
-      TExternalPskImporter.Import(FParams.Provider, LSpec, TlsWireVersionTls13,
+      TExternalPskImporter.Import(FParams.Crypto, LSpec, TlsWireVersionTls13,
       THashAlgorithm.SHA_256));
     TArrayUtilities.Append<IPreSharedKey>(Result,
-      TExternalPskImporter.Import(FParams.Provider, LSpec, TlsWireVersionTls13,
+      TExternalPskImporter.Import(FParams.Crypto, LSpec, TlsWireVersionTls13,
       THashAlgorithm.SHA_384));
   end;
 end;
@@ -1424,7 +1426,7 @@ begin
   // resumption / 0-RTT path relies on it); several offers defer activation to ServerHello
   if System.Length(FPskOffers) = 1 then
   begin
-    FTranscript.Activate(FParams.Provider.Primitives.CreateHash(FPskOffers[0].Hash));
+    FTranscript.Activate(FParams.Crypto.Primitives.CreateHash(FPskOffers[0].Hash));
     FTranscriptPreActivated := True;
     FPreActivatedHash := FPskOffers[0].Hash;
   end;
@@ -1441,7 +1443,7 @@ begin
     FInnerTranscript := TTranscriptHash.Create;
     if FTranscriptPreActivated then
       FInnerTranscript.Activate(
-        FParams.Provider.Primitives.CreateHash(FPreActivatedHash));
+        FParams.Crypto.Primitives.CreateHash(FPreActivatedHash));
   end;
   if System.Length(FParams.ClientHelloOverride) > 0 then
     LClientHello := FParams.ClientHelloOverride
@@ -1477,7 +1479,7 @@ begin
     // derive the client_early_traffic keys from the ClientHello transcript and open the
     // early write epoch, after the (plaintext) middlebox CCS. Under ECH the 0-RTT keys derive
     // from the inner transcript (+ inner random), the logical ClientHello (RFC 9849 sec. 6.1.4)
-    FSchedule := TTls13KeySchedule.Create(FParams.Provider, LPskSuite.Common.Hash,
+    FSchedule := TTls13KeySchedule.Create(FParams.Crypto, LPskSuite.Common.Hash,
       LPskSuite.Common.KeyLength);
     FSchedule.SetPsk(FPskOffers[0].Key);
     if FEchActive then
@@ -1526,7 +1528,7 @@ var
   LFresh: ITranscriptHash;
 begin
   LFresh := TTranscriptHash.Create(
-    FParams.Provider.Primitives.CreateHash(FSelectedSuite.Common.Hash));
+    FParams.Crypto.Primitives.CreateHash(FSelectedSuite.Common.Hash));
   LFresh.Update(FSentClientHelloRaw);
   FTranscript := LFresh;
 end;
@@ -1623,7 +1625,7 @@ begin
   else
   begin
     if not FTranscript.IsActive then
-      FTranscript.Activate(FParams.Provider.Primitives.CreateHash(FSelectedSuite.Common.Hash))
+      FTranscript.Activate(FParams.Crypto.Primitives.CreateHash(FSelectedSuite.Common.Hash))
     else if FTranscriptPreActivated and
       (FPreActivatedHash <> FSelectedSuite.Common.Hash) then
       RebuildTranscriptUnderSelectedHash;
@@ -1704,7 +1706,7 @@ begin
   // PSK-seeded for psk_dhe_ke) for the full/non-early or different-suite handshake
   if (FSchedule = nil) or (not FPskAccepted) or (not FEarlySuiteMatched) then
   begin
-    FSchedule := TTls13KeySchedule.Create(FParams.Provider, FSelectedSuite.Common.Hash,
+    FSchedule := TTls13KeySchedule.Create(FParams.Crypto, FSelectedSuite.Common.Hash,
       FSelectedSuite.Common.KeyLength);
     // psk_dhe_ke: seed the accepted PSK before deriving the handshake secret
     if FPskAccepted then
@@ -1887,10 +1889,10 @@ begin
   // retry-selected hash (RFC 8446 4.4.1), computed from the RAW first ClientHello. Using the
   // raw bytes keeps this correct even when a single-PSK resumption pre-activated the transcript
   // under a different hash the retry then rejects (a non-resumable-cipher HRR). Then add the HRR.
-  LCh1Hash := FParams.Provider.Primitives.CreateHash(FSelectedSuite.Common.Hash);
+  LCh1Hash := FParams.Crypto.Primitives.CreateHash(FSelectedSuite.Common.Hash);
   LCh1Hash.Update(FSentClientHelloRaw, 0, System.Length(FSentClientHelloRaw));
   FTranscript.SeedWithMessageHash(
-    FParams.Provider.Primitives.CreateHash(FSelectedSuite.Common.Hash), LCh1Hash.DoFinal);
+    FParams.Crypto.Primitives.CreateHash(FSelectedSuite.Common.Hash), LCh1Hash.DoFinal);
   FTranscript.Update(AMessage.Raw);
   // the retry-selected hash is now the transcript's hash, so the pre-activation reconciliation
   // (the different-PRF rebuild in ProcessServerHello) no longer applies to the next ServerHello
@@ -2045,7 +2047,7 @@ begin
 
   // a server leaf that is not a well-formed certificate is a decode error, caught before
   // the CertificateVerify signature check and the trust verdict
-  FParsedServerLeaf := TCertificateVerify.ParseWellFormedLeaf(FParams.Provider,
+  FParsedServerLeaf := TCertificateVerify.ParseWellFormedLeaf(FParams.Inspector,
     FCertificateChain[0]);
 
   // capture any stapled OCSP response carried in the leaf entry (RFC 8446 4.4.2.1)
@@ -2140,7 +2142,7 @@ begin
   // the signature is over the transcript through the Certificate (this message not yet folded in)
   LContent := TCertificateVerify.SignatureContent(True, FTranscript.CurrentHash);
   LPublicKeyInfo := FParsedServerLeaf.PublicKeyInfo;
-  LVerifier := FParams.Provider.Signing.CreateSignatureVerifier(LScheme, LPublicKeyInfo);
+  LVerifier := FParams.Crypto.Signing.CreateSignatureVerifier(LScheme, LPublicKeyInfo);
   LVerifier.Update(LContent, 0, System.Length(LContent));
   // the parsed leaf is no longer needed; release it rather than pin the ASN.1 graph
   FParsedServerLeaf := nil;
@@ -2236,7 +2238,7 @@ begin
     Exit;
   // the CertificateVerify signs the transcript through the client Certificate
   LContent := TCertificateVerify.SignatureContent(False, FTranscript.CurrentHash);
-  LSigner := FParams.Provider.Signing.CreateSignatureSigner(LScheme,
+  LSigner := FParams.Crypto.Signing.CreateSignatureSigner(LScheme,
     FParams.ClientCredential.PrivateKey);
   LSigner.Update(LContent, 0, System.Length(LContent));
   LVerify.Algorithm := LScheme.ToCode;

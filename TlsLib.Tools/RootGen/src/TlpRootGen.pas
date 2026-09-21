@@ -353,13 +353,13 @@ begin
     AppendLine('interface');
     AppendLine('');
     AppendLine('uses');
-    AppendLine('  TlpICryptoProvider,');
+    AppendLine('  TlpIPkixProvider,');
     AppendLine('  TlpICertificateTrust;');
     AppendLine('');
     AppendLine('type');
     AppendLine('  ' + LClass + ' = class sealed(TObject)');
     AppendLine('  public');
-    AppendLine('    class function AnchorStore(const AProvider: ICryptoProvider)');
+    AppendLine('    class function AnchorStore(const AProvider: IPkixProvider)');
     AppendLine('      : ITrustAnchorStore; static;');
     AppendLine('  end;');
     AppendLine('');
@@ -391,7 +391,7 @@ begin
     AppendLine('{ ' + LClass + ' }');
     AppendLine('');
     AppendLine('class function ' + LClass +
-      '.AnchorStore(const AProvider: ICryptoProvider): ITrustAnchorStore;');
+      '.AnchorStore(const AProvider: IPkixProvider): ITrustAnchorStore;');
     AppendLine('var');
     AppendLine('  LBuilder: TStringBuilder;');
     AppendLine('  LI: Integer;');
