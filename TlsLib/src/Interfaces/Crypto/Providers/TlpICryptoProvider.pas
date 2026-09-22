@@ -76,8 +76,10 @@ type
   /// </summary>
   IHkdf = interface(IInterface)
     ['{CE8C6F1F-9C1E-46F2-95EC-8F8FA500A5DD}']
-    /// <summary>PRK = HMAC-Hash(salt, IKM); an empty salt is treated as HashLen zeros.</summary>
-    function Extract(const ASalt: TBytes; const AIkm: ISecretBuffer): ISecretBuffer;
+    /// <summary>PRK = HMAC-Hash(salt, IKM); a nil or zero-length salt is treated as HashLen
+    /// zeros. The salt is secret material (a derived-secret in the TLS 1.3 schedule), so it is
+    /// passed as a wiped buffer rather than a bare byte array the caller must scrub.</summary>
+    function Extract(const ASalt, AIkm: ISecretBuffer): ISecretBuffer;
     /// <summary>OKM = HKDF-Expand(PRK, info, ALength).</summary>
     function Expand(const APrk: ISecretBuffer; const AInfo: TBytes;
       ALength: Int32): ISecretBuffer;
@@ -92,7 +94,7 @@ type
   ITls12Prf = interface(IInterface)
     ['{3F9A2C71-5E84-4B60-9D17-8A2C4E7B10F5}']
     function Compute(const ASecret: ISecretBuffer; const ALabel: string;
-      const ASeed: TBytes; ALength: Int32): TBytes;
+      const ASeed: TBytes; ALength: Int32): ISecretBuffer;
   end;
 
   /// <summary>

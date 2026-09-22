@@ -189,43 +189,35 @@ end;
 
 procedure TTls13KeySchedule.EnsureHandshakeSecret;
 var
-  LSalt: TBytes;
-  LIkm: ISecretBuffer;
+  LSalt, LIkm: ISecretBuffer;
 begin
   if FHandshakeSecret <> nil then
     Exit;
   if FHandshakeSecretsReleased then
     raise EInvalidOperationTlsLibException.CreateRes(@SHandshakeSecretsReleased);
   EnsureEarlySecret;
-  LSalt := THkdfLabel.DeriveSecret(FHkdf, FEarlySecret, 'derived', FHashEmpty).ToBytes;
-  try
-    if FSharedSecret <> nil then
-      LIkm := FSharedSecret
-    else
-      LIkm := ZeroSecret;
-    FHandshakeSecret := FHkdf.Extract(LSalt, LIkm);
-    // the (EC)DHE shared secret is consumed by this one Extract; release it
-    FSharedSecret := nil;
-  finally
-    TSecureMemory.WipeBytes(LSalt);
-  end;
+  // the derived-secret salt is a wiped buffer end to end - no bare-bytes copy to scrub
+  LSalt := THkdfLabel.DeriveSecret(FHkdf, FEarlySecret, 'derived', FHashEmpty);
+  if FSharedSecret <> nil then
+    LIkm := FSharedSecret
+  else
+    LIkm := ZeroSecret;
+  FHandshakeSecret := FHkdf.Extract(LSalt, LIkm);
+  // the (EC)DHE shared secret is consumed by this one Extract; release it
+  FSharedSecret := nil;
 end;
 
 procedure TTls13KeySchedule.EnsureMasterSecret;
 var
-  LSalt: TBytes;
+  LSalt: ISecretBuffer;
 begin
   if FMasterSecret <> nil then
     Exit;
   if FHandshakeSecretsReleased then
     raise EInvalidOperationTlsLibException.CreateRes(@SHandshakeSecretsReleased);
   EnsureHandshakeSecret;
-  LSalt := THkdfLabel.DeriveSecret(FHkdf, FHandshakeSecret, 'derived', FHashEmpty).ToBytes;
-  try
-    FMasterSecret := FHkdf.Extract(LSalt, ZeroSecret);
-  finally
-    TSecureMemory.WipeBytes(LSalt);
-  end;
+  LSalt := THkdfLabel.DeriveSecret(FHkdf, FHandshakeSecret, 'derived', FHashEmpty);
+  FMasterSecret := FHkdf.Extract(LSalt, ZeroSecret);
 end;
 
 function TTls13KeySchedule.HandshakeTrafficSecret(ADirection: TTlsDirection): ISecretBuffer;

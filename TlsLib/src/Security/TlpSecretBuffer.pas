@@ -52,6 +52,10 @@ type
     /// without materializing the secret in a non-wiped intermediate.</summary>
     class function Concat(const APrefix: TBytes;
       const ASecret: ISecretBuffer): ISecretBuffer; static;
+    /// <summary>A secret buffer holding ASource[AOffset .. AOffset+ALength), copied without a
+    /// non-wiped byte-array intermediate (a TLS 1.2 key block sliced into per-direction keys).</summary>
+    class function Slice(const ASource: ISecretBuffer;
+      AOffset, ALength: Int32): ISecretBuffer; static;
   end;
 
 implementation
@@ -59,6 +63,7 @@ implementation
 resourcestring
   SNegativeLength = 'secret buffer length cannot be negative';
   SCopyLengthExceedsBuffer = 'copy length %d exceeds secret buffer length %d';
+  SSliceOutOfRange = 'secret buffer slice is out of range';
 
 { TSecretBuffer }
 
@@ -158,6 +163,17 @@ begin
     Move(APrefix[0], LDst^, LPrefixLen);
   if LSecretLen > 0 then
     Move(ASecret.DataPtr^, (LDst + LPrefixLen)^, LSecretLen);
+end;
+
+class function TSecretBuffer.Slice(const ASource: ISecretBuffer;
+  AOffset, ALength: Int32): ISecretBuffer;
+begin
+  if (ASource = nil) or (AOffset < 0) or (ALength < 0) or
+    (AOffset + ALength > ASource.Len) then
+    raise EArgumentTlsLibException.CreateRes(@SSliceOutOfRange);
+  Result := TSecretBuffer.Create(ALength);
+  if ALength > 0 then
+    Move((ASource.DataPtr + AOffset)^, Result.DataPtr^, ALength);
 end;
 
 end.

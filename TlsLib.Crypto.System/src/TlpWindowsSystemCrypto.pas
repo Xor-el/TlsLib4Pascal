@@ -578,8 +578,7 @@ type
   public
     constructor Create(const ACng: IWindowsCng; AAlgorithm: THashAlgorithm;
       AMacSize: Int32);
-    function Extract(const ASalt: TBytes;
-      const AIkm: ISecretBuffer): ISecretBuffer;
+    function Extract(const ASalt, AIkm: ISecretBuffer): ISecretBuffer;
     function Expand(const APrk: ISecretBuffer; const AInfo: TBytes;
       ALength: Int32): ISecretBuffer;
   end;
@@ -1191,19 +1190,18 @@ begin
     raise ESystemCryptoBackendTlsLibException.CreateRes(@SCngUnavailable);
 end;
 
-function TWindowsCngHkdf.Extract(const ASalt: TBytes;
-  const AIkm: ISecretBuffer): ISecretBuffer;
+function TWindowsCngHkdf.Extract(const ASalt, AIkm: ISecretBuffer): ISecretBuffer;
 var
-  LSalt, LIkm, LPrk: TBytes;
-  LSaltBuf: ISecretBuffer;
+  LIkm, LPrk: TBytes;
   LMac: IHmac;
 begin
-  LSalt := ASalt;
-  if System.Length(LSalt) = 0 then
-    SetLength(LSalt, FMacSize); // an empty salt is HashLen zero bytes
   LMac := NewMac;
-  LSaltBuf := TSecretBuffer.From(LSalt);
-  LMac.Init(LSaltBuf);
+  // the salt is secret material used directly as the HMAC key; a nil or empty salt is HashLen
+  // zeros (an allocated secret is zero-filled), so no bare byte copy of the salt is made here
+  if (ASalt <> nil) and (ASalt.Len > 0) then
+    LMac.Init(ASalt)
+  else
+    LMac.Init(TSecretBuffer.Allocate(FMacSize));
   LIkm := AIkm.ToBytes;
   try
     LMac.Update(LIkm, 0, System.Length(LIkm));

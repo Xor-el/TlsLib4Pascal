@@ -138,12 +138,12 @@ begin
   CheckEqualBytes('early secret', Bytes('early_secret'), ToBytes(LEarly));
 
   LDerived := THkdfLabel.DeriveSecret(LHkdf, LEarly, 'derived', LEmptyHash);
-  LHandshake := LHkdf.Extract(ToBytes(LDerived),
+  LHandshake := LHkdf.Extract(LDerived,
     TSecretBuffer.From(Bytes('shared_secret')));
   CheckEqualBytes('handshake secret', Bytes('handshake_secret'), ToBytes(LHandshake));
 
   LDerived := THkdfLabel.DeriveSecret(LHkdf, LHandshake, 'derived', LEmptyHash);
-  LMaster := LHkdf.Extract(ToBytes(LDerived), LZeros);
+  LMaster := LHkdf.Extract(LDerived, LZeros);
   CheckEqualBytes('master secret', Bytes('master_secret'), ToBytes(LMaster));
 
   CheckEqualBytes('c hs traffic', Bytes('c_hs_traffic'), ToBytes(

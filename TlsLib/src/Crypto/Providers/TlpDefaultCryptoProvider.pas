@@ -274,7 +274,7 @@ type
     function NewDigest: IDigest;
   public
     constructor Create(AAlgorithm: THashAlgorithm);
-    function Extract(const ASalt: TBytes; const AIkm: ISecretBuffer): ISecretBuffer;
+    function Extract(const ASalt, AIkm: ISecretBuffer): ISecretBuffer;
     function Expand(const APrk: ISecretBuffer; const AInfo: TBytes;
       ALength: Int32): ISecretBuffer;
   end;
@@ -652,28 +652,34 @@ begin
   Result := TDigestUtilities.GetDigest(TEnumUtilities.GetName<THashAlgorithm>(FAlgorithm));
 end;
 
-function THkdfAdapter.Extract(const ASalt: TBytes;
-  const AIkm: ISecretBuffer): ISecretBuffer;
+function THkdfAdapter.Extract(const ASalt, AIkm: ISecretBuffer): ISecretBuffer;
 var
   LMac: IMac;
   LSalt, LIkmBytes, LPrk: TBytes;
 begin
   LMac := FExtractMac;
-  LSalt := ASalt;
-  if System.Length(LSalt) = 0 then
-    SetLength(LSalt, LMac.GetMacSize); // HashLen zero bytes
-  LMac.Init(TKeyParameter.Create(LSalt) as IKeyParameter);
-  LIkmBytes := AIkm.ToBytes;
+  // a nil or empty salt is HashLen zeros; otherwise the salt is secret material, so it is
+  // materialised into a private copy here and wiped, not aliased from the caller
+  if (ASalt = nil) or (ASalt.Len = 0) then
+    SetLength(LSalt, LMac.GetMacSize)
+  else
+    LSalt := ASalt.ToBytes;
   try
-    LMac.BlockUpdate(LIkmBytes, 0, System.Length(LIkmBytes));
-    LPrk := LMac.DoFinal;
+    LMac.Init(TKeyParameter.Create(LSalt) as IKeyParameter);
+    LIkmBytes := AIkm.ToBytes;
     try
-      Result := TSecretBuffer.From(LPrk);
+      LMac.BlockUpdate(LIkmBytes, 0, System.Length(LIkmBytes));
+      LPrk := LMac.DoFinal;
+      try
+        Result := TSecretBuffer.From(LPrk);
+      finally
+        TSecureMemory.WipeBytes(LPrk);
+      end;
     finally
-      TSecureMemory.WipeBytes(LPrk);
+      TSecureMemory.WipeBytes(LIkmBytes);
     end;
   finally
-    TSecureMemory.WipeBytes(LIkmBytes);
+    TSecureMemory.WipeBytes(LSalt);
   end;
 end;
 

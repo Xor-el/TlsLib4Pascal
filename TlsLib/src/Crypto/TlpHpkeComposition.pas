@@ -89,8 +89,8 @@ type
     class function HpkeSuiteId(AKem, AKdf, AAead: UInt16): TBytes; static;
     // LabeledExtract(salt, label, ikm) = Extract(salt, "HPKE-v1" || suite_id || label || ikm)
     class function LabeledExtract(const APrimitives: ICryptoPrimitives;
-      AHash: THashAlgorithm; const ASuiteId, ASalt: TBytes; const ALabel: string;
-      const AIkm: ISecretBuffer): ISecretBuffer; static;
+      AHash: THashAlgorithm; const ASuiteId: TBytes; const ASalt: ISecretBuffer;
+      const ALabel: string; const AIkm: ISecretBuffer): ISecretBuffer; static;
     // LabeledExpand(prk, label, info, L) = Expand(prk, I2OSP(L,2)||"HPKE-v1"||suite_id||label||info, L)
     class function LabeledExpand(const APrimitives: ICryptoPrimitives;
       AHash: THashAlgorithm; const ASuiteId: TBytes; const APrk: ISecretBuffer;
@@ -353,8 +353,8 @@ begin
 end;
 
 class function THpkeCore.LabeledExtract(const APrimitives: ICryptoPrimitives;
-  AHash: THashAlgorithm; const ASuiteId, ASalt: TBytes; const ALabel: string;
-  const AIkm: ISecretBuffer): ISecretBuffer;
+  AHash: THashAlgorithm; const ASuiteId: TBytes; const ASalt: ISecretBuffer;
+  const ALabel: string; const AIkm: ISecretBuffer): ISecretBuffer;
 var
   LPrefix: TBytes;
 begin
@@ -422,7 +422,7 @@ class function THpkeCore.NewBaseContext(const APrimitives: ICryptoPrimitives;
   const AInfo: TBytes): THpkeContext;
 var
   LHash: THashAlgorithm;
-  LSuiteId, LKsContext, LSharedBytes, LBaseNonce: TBytes;
+  LSuiteId, LKsContext, LBaseNonce: TBytes;
   LAead: IAead;
   LPskIdHash, LInfoHash, LSecret, LKey: ISecretBuffer;
 begin
@@ -436,14 +436,10 @@ begin
     TSecretBuffer.From(AInfo));
   LKsContext := TArrayUtilities.Concat([TBytes.Create(0), LPskIdHash.ToBytes,
     LInfoHash.ToBytes]);
-  // secret = LabeledExtract(shared_secret, "secret", psk): the shared secret is the salt
-  LSharedBytes := ASharedSecret.ToBytes;
-  try
-    LSecret := LabeledExtract(APrimitives, LHash, LSuiteId, LSharedBytes, 'secret',
-      TSecretBuffer.From(nil));
-  finally
-    TSecureMemory.WipeBytes(LSharedBytes);
-  end;
+  // secret = LabeledExtract(shared_secret, "secret", psk): the shared secret is the salt, passed
+  // straight through as a wiped buffer
+  LSecret := LabeledExtract(APrimitives, LHash, LSuiteId, ASharedSecret, 'secret',
+    TSecretBuffer.From(nil));
   LKey := LabeledExpand(APrimitives, LHash, LSuiteId, LSecret, 'key', LKsContext,
     LAead.KeySize);
   LBaseNonce := LabeledExpand(APrimitives, LHash, LSuiteId, LSecret, 'base_nonce',

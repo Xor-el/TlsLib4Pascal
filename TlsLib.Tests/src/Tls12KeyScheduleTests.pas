@@ -82,7 +82,7 @@ begin
     LOutput := Crypto.Primitives.CreateTls12Prf(THashAlgorithm.SHA_256).Compute(
       TSecretBuffer.From(DecodeHex(LVec.Values['secret'])),
       LVec.Values['label'], DecodeHex(LVec.Values['seed']),
-      StrToInt(LVec.Values['length']));
+      StrToInt(LVec.Values['length'])).ToBytes;
     CheckEqualBytes('PRF-SHA256 output', DecodeHex(LVec.Values['output']), LOutput);
   finally
     LVec.Free;
