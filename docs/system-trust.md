@@ -208,7 +208,12 @@ The OS chain engine is not a byte-for-byte replacement for the built-in PKIX pip
 delegate is choosing the OS's behaviour, which differs in a few security-relevant ways. The table
 below is the **Windows** delegate, verified against crypt32 (that is the delegate this library's tests
 exercise). The rows are a mix of Windows-specific mechanisms and generic delegate traits — the rows
-marked *(any delegate)* apply to any OS delegate; the rest are crypt32 specifics.
+marked *(any delegate)* apply to any OS delegate; the rest are crypt32 specifics. Every delegate runs
+one shared pipeline over a per-OS chain engine: the OS builds and trusts the path and reports a
+revocation outcome, then the same chain-strength policy, revocation-posture decision, stapled-OCSP
+check and endpoint-identity match run over it — so the *(any delegate)* rows are literally the same
+code on every platform, and only the chain build/trust, the OS's own distrust inputs and its alert
+codes are platform-specific.
 
 | Area | Built-in verifier | Windows delegate (crypt32) |
 |---|---|---|
