@@ -327,7 +327,6 @@ type
     FAlpnProtocols: TArray<string>;
     FCertificateCompressors: TArray<ICertificateCompressor>;
     FCertificateDecompressors: TArray<ICertificateDecompressor>;
-    FCertificateCompressionCache: ICertificateCompressionCache;
     FCredential: TTlsCredential;
     FTrustStore: ITrustAnchorStore;
     FChainLimits: TCertificateChainLimits;
@@ -338,11 +337,6 @@ type
     FDangerousTrust: TDangerousTrust;
     FAsyncVerdict: TAsyncCertificateVerdict;
     FRequireExtendedMasterSecret: Boolean;
-    FServerNameAck: Boolean;
-    FCipherPreference: TServerCipherPreference;
-    FAlpnRejectAll: Boolean;
-    FClientCertificateAuthorities: TArray<TBytes>;
-    FGrease: Boolean;
     FResumption: Boolean;
     FExternalPsks: TArray<TExternalPsk>;
     FClock: ITlsClock;
@@ -357,7 +351,6 @@ type
     function AlpnProtocols: TArray<string>;
     function CertificateCompressors: TArray<ICertificateCompressor>;
     function CertificateDecompressors: TArray<ICertificateDecompressor>;
-    function CertificateCompressionCache: ICertificateCompressionCache;
     function Credential: TTlsCredential;
     function TrustStore: ITrustAnchorStore;
     function CertificateChainLimits: TCertificateChainLimits;
@@ -368,11 +361,6 @@ type
     function DangerousTrust: TDangerousTrust;
     function AsyncCertificateVerdict: TAsyncCertificateVerdict;
     function RequireExtendedMasterSecret: Boolean;
-    function ServerNameAcknowledgement: Boolean;
-    function CipherSuitePreference: TServerCipherPreference;
-    function AlpnRejectAll: Boolean;
-    function ClientCertificateAuthorities: TArray<TBytes>;
-    function Grease: Boolean;
     function Resumption: Boolean;
     function ExternalPsks: TArray<TExternalPsk>;
     function Clock: ITlsClock;
@@ -381,6 +369,7 @@ type
   TFrozenClientConfig = class sealed(TFrozenCommonConfig, ITlsClientConfig)
   private
   var
+    FGrease: Boolean;
     FCheckServerName: Boolean;
     FServerVerifierSource: IServerCertificateVerifierSource;
     FRequestOcspStapling: Boolean;
@@ -391,6 +380,7 @@ type
     FExternalPskRequired: Boolean;
     FEchPolicy: IEchClientPolicy;
   public
+    function Grease: Boolean;
     function CheckServerName: Boolean;
     function ServerVerifierSource: IServerCertificateVerifierSource;
     function RequestOcspStapling: Boolean;
@@ -405,6 +395,11 @@ type
   TFrozenServerConfig = class sealed(TFrozenCommonConfig, ITlsServerConfig)
   private
   var
+    FCertificateCompressionCache: ICertificateCompressionCache;
+    FServerNameAck: Boolean;
+    FCipherPreference: TServerCipherPreference;
+    FAlpnRejectAll: Boolean;
+    FClientCertificateAuthorities: TArray<TBytes>;
     FClientAuth: TClientAuthMode;
     FClientVerifierSource: IClientCertificateVerifierSource;
     FSessionStore: ISessionStore;
@@ -418,6 +413,11 @@ type
     FEchKeyStore: IEchServerKeyStore;
     FEchTrialDecrypt: Boolean;
   public
+    function CertificateCompressionCache: ICertificateCompressionCache;
+    function ServerNameAcknowledgement: Boolean;
+    function CipherSuitePreference: TServerCipherPreference;
+    function AlpnRejectAll: Boolean;
+    function ClientCertificateAuthorities: TArray<TBytes>;
     function ClientAuth: TClientAuthMode;
     function ClientVerifierSource: IClientCertificateVerifierSource;
     function SessionStore: ISessionStore;
@@ -674,13 +674,6 @@ begin
   Result := System.Copy(FCertificateDecompressors);
 end;
 
-function TFrozenCommonConfig.CertificateCompressionCache: ICertificateCompressionCache;
-begin
-  // the shared instance, not a copy: every connection from this config memoizes into the
-  // same cache - that cross-connection sharing is the whole point of this seam
-  Result := FCertificateCompressionCache;
-end;
-
 function TFrozenCommonConfig.Credential: TTlsCredential;
 begin
   Result := FCredential;
@@ -739,31 +732,6 @@ begin
   Result := FRequireExtendedMasterSecret;
 end;
 
-function TFrozenCommonConfig.ServerNameAcknowledgement: Boolean;
-begin
-  Result := FServerNameAck;
-end;
-
-function TFrozenCommonConfig.CipherSuitePreference: TServerCipherPreference;
-begin
-  Result := FCipherPreference;
-end;
-
-function TFrozenCommonConfig.AlpnRejectAll: Boolean;
-begin
-  Result := FAlpnRejectAll;
-end;
-
-function TFrozenCommonConfig.ClientCertificateAuthorities: TArray<TBytes>;
-begin
-  Result := FClientCertificateAuthorities;
-end;
-
-function TFrozenCommonConfig.Grease: Boolean;
-begin
-  Result := FGrease;
-end;
-
 function TFrozenCommonConfig.Resumption: Boolean;
 begin
   Result := FResumption;
@@ -780,6 +748,11 @@ begin
 end;
 
 { TFrozenClientConfig }
+
+function TFrozenClientConfig.Grease: Boolean;
+begin
+  Result := FGrease;
+end;
 
 function TFrozenClientConfig.CheckServerName: Boolean;
 begin
@@ -827,6 +800,33 @@ begin
 end;
 
 { TFrozenServerConfig }
+
+function TFrozenServerConfig.CertificateCompressionCache: ICertificateCompressionCache;
+begin
+  // the shared instance, not a copy: every connection from this config memoizes into the
+  // same cache - that cross-connection sharing is the whole point of this seam
+  Result := FCertificateCompressionCache;
+end;
+
+function TFrozenServerConfig.ServerNameAcknowledgement: Boolean;
+begin
+  Result := FServerNameAck;
+end;
+
+function TFrozenServerConfig.CipherSuitePreference: TServerCipherPreference;
+begin
+  Result := FCipherPreference;
+end;
+
+function TFrozenServerConfig.AlpnRejectAll: Boolean;
+begin
+  Result := FAlpnRejectAll;
+end;
+
+function TFrozenServerConfig.ClientCertificateAuthorities: TArray<TBytes>;
+begin
+  Result := FClientCertificateAuthorities;
+end;
 
 function TFrozenServerConfig.ClientAuth: TClientAuthMode;
 begin
@@ -2436,8 +2436,6 @@ begin
   LConfig.FAlpnProtocols := FAlpnProtocols;
   LConfig.FCertificateCompressors := FCertificateCompressors;
   LConfig.FCertificateDecompressors := FCertificateDecompressors;
-  // the shared instance carries over uncopied: connections share one cache (server path)
-  LConfig.FCertificateCompressionCache := FCertificateCompressionCache;
   LConfig.FCredential := FCredential;
   LConfig.FTrustStore := ComposeTrustStore;
   LConfig.FChainLimits := FChainLimits;
@@ -2448,10 +2446,6 @@ begin
   LConfig.FDangerousTrust := FDangerousTrust;
   LConfig.FAsyncVerdict := FAsyncVerdict;
   LConfig.FRequireExtendedMasterSecret := FRequireExtendedMasterSecret;
-  LConfig.FServerNameAck := FServerNameAck;
-  LConfig.FCipherPreference := FCipherPreference;
-  LConfig.FAlpnRejectAll := FAlpnRejectAll;
-  LConfig.FClientCertificateAuthorities := FClientCertificateAuthorities;
   LConfig.FGrease := FGrease;
   LConfig.FResumption := FResumption;
   LConfig.FExternalPsks := FExternalPsks;
@@ -2531,7 +2525,6 @@ begin
   LConfig.FCipherPreference := FCipherPreference;
   LConfig.FAlpnRejectAll := FAlpnRejectAll;
   LConfig.FClientCertificateAuthorities := FClientCertificateAuthorities;
-  LConfig.FGrease := FGrease;
   LConfig.FResumption := FResumption;
   LConfig.FExternalPsks := FExternalPsks;
   LConfig.FClock := FClock;
