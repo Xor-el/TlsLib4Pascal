@@ -136,21 +136,8 @@ type
     // IEngineRecordSequenceControl
     procedure SetWriteSequenceNumber(AValue: UInt64);
     procedure SetReadSequenceNumber(AValue: UInt64);
-    function NegotiatedVersion: TTlsVersion;
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       AUseContext: Boolean; ALength: Int32): TBytes;
-    function NegotiatedAlpnProtocol: string;
-    function PeerOcspStaple: TBytes;
-    function PeerCertificates: TArray<TBytes>;
-    function RequestedCertificateAuthorities: TArray<TBytes>;
-    function NegotiatedCipherSuite: UInt16;
-    function NegotiatedGroup: UInt16;
-    function PeerServerName: string;
-    function IsResumed: Boolean;
-    function EchStatus: TEchStatus;
-    function EchRetryConfigs: TBytes;
-    function EchIsRetryAttempt: Boolean;
-    function EchRejectAborted: Boolean;
   private
     // reached only by the handshake bridge below
     procedure InstallReadProtection(const AProtection: IRecordProtection);
@@ -941,71 +928,6 @@ begin
   // the one defensive copy the retry_configs reader has always made, so a caller cannot
   // mutate the engine's held bytes through the returned snapshot
   Result.EchRetryConfigs := System.Copy(FInfo.EchRetryConfigs);
-end;
-
-function TTlsEngine.NegotiatedVersion: TTlsVersion;
-begin
-  Result := FInfo.NegotiatedVersion;
-end;
-
-function TTlsEngine.NegotiatedAlpnProtocol: string;
-begin
-  Result := FInfo.AlpnProtocol;
-end;
-
-function TTlsEngine.PeerOcspStaple: TBytes;
-begin
-  Result := FInfo.PeerOcspStaple;
-end;
-
-function TTlsEngine.PeerCertificates: TArray<TBytes>;
-begin
-  Result := FInfo.PeerCertificates;
-end;
-
-function TTlsEngine.RequestedCertificateAuthorities: TArray<TBytes>;
-begin
-  Result := FInfo.RequestedCertificateAuthorities;
-end;
-
-function TTlsEngine.NegotiatedCipherSuite: UInt16;
-begin
-  Result := FInfo.CipherSuite;
-end;
-
-function TTlsEngine.NegotiatedGroup: UInt16;
-begin
-  Result := FInfo.NamedGroup;
-end;
-
-function TTlsEngine.PeerServerName: string;
-begin
-  Result := FInfo.ServerName;
-end;
-
-function TTlsEngine.IsResumed: Boolean;
-begin
-  Result := FInfo.Resumed;
-end;
-
-function TTlsEngine.EchStatus: TEchStatus;
-begin
-  Result := FInfo.EchStatus;
-end;
-
-function TTlsEngine.EchRetryConfigs: TBytes;
-begin
-  Result := System.Copy(FInfo.EchRetryConfigs);
-end;
-
-function TTlsEngine.EchIsRetryAttempt: Boolean;
-begin
-  Result := FInfo.EchIsRetryAttempt;
-end;
-
-function TTlsEngine.EchRejectAborted: Boolean;
-begin
-  Result := FInfo.EchRejectAborted;
 end;
 
 procedure TTlsEngine.InstallReadProtection(const AProtection: IRecordProtection);

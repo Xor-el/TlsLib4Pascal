@@ -20,10 +20,7 @@ uses
   TlpTlsAlert,
   TlpTlsAlertProtocol,
   TlpTlsError,
-  TlpTlsVersion,
-  TlpEchConfig,
-  TlpTlsConnectionInfo,
-  TlpIRecordProtection;
+  TlpTlsConnectionInfo;
 
 type
   /// <summary>
@@ -184,9 +181,6 @@ type
     function WriteClosed: Boolean;
     /// <summary>The structured error after a Fatal outcome.</summary>
     function LastError: TTlsError;
-    /// <summary>The negotiated protocol version once the handshake has installed keys
-    /// (TLS 1.2 or 1.3); a zero wire code before then. Read it after the handshake.</summary>
-    function NegotiatedVersion: TTlsVersion;
     /// <summary>Exported keying material derived from the connection's exporter secret
     /// (RFC 8446 7.5 / RFC 5705). AUseContext distinguishes a supplied (possibly empty)
     /// context from no context at all. Available once the exporter secret is derived: for a
@@ -196,54 +190,6 @@ type
     /// (and on a failed connection).</summary>
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       AUseContext: Boolean; ALength: Int32): TBytes;
-    /// <summary>The negotiated ALPN protocol, or empty when none was negotiated.</summary>
-    function NegotiatedAlpnProtocol: string;
-    /// <summary>The stapled OCSP response (DER) the peer delivered in the handshake, or
-    /// empty when none was stapled (RFC 6066 / RFC 8446 4.4.2.1).</summary>
-    function PeerOcspStaple: TBytes;
-    /// <summary>The peer certificate chain (leaf first, DER) the handshake accepted: the server
-    /// chain for a client, or the client chain a server verified under mutual TLS. Empty when the
-    /// peer presented none. On an initial handshake this is the validated path (with the recovered
-    /// issuer/anchor). On a resumption a server re-surfaces the chain as presented when the session
-    /// was issued (carried in the ticket, re-checked but not re-assembled); a client does not
-    /// re-surface a resumed chain, so on a pure client resumption this is empty. Read after the
-    /// handshake.</summary>
-    function PeerCertificates: TArray<TBytes>;
-    /// <summary>The DER-encoded DistinguishedName certificate_authorities the peer named in its
-    /// CertificateRequest (RFC 8446 4.2.4 / RFC 5246 7.4.4): the issuers a server will accept for
-    /// client authentication, as seen by the client. Empty when none was requested or named.
-    /// Read after the handshake.</summary>
-    function RequestedCertificateAuthorities: TArray<TBytes>;
-    /// <summary>The negotiated cipher suite code (IANA), or 0 before the handshake resolves it.
-    /// Read after the handshake.</summary>
-    function NegotiatedCipherSuite: UInt16;
-    /// <summary>The negotiated named group (IANA) used for key exchange, or 0 when none applies
-    /// (a non-(EC)DHE TLS 1.2 key exchange). Read after the handshake.</summary>
-    function NegotiatedGroup: UInt16;
-    /// <summary>The SNI server_name in play for this connection (RFC 6066): the host_name a
-    /// client requested, as seen by a server, or the host_name a client sent. Empty when the
-    /// client offered no SNI. Read after the handshake.</summary>
-    function PeerServerName: string;
-    /// <summary>Whether the handshake was resumed/abbreviated (a TLS 1.3 PSK resumption or a
-    /// TLS 1.2 abbreviated handshake), so the peer presented no certificate.</summary>
-    function IsResumed: Boolean;
-    /// <summary>The Encrypted Client Hello outcome for this connection (RFC 9849): NotOffered,
-    /// Greased, Accepted, Rejected, or (a split-mode backend) Backend. Read after the
-    /// handshake.</summary>
-    function EchStatus: TEchStatus;
-    /// <summary>On an ECH reject (LastError is ech_required), the retry_configs the server
-    /// advertised - an ECHConfigList the application may re-offer on a fresh connection, or
-    /// empty if the server sent none. Empty otherwise.</summary>
-    function EchRetryConfigs: TBytes;
-    /// <summary>On an ECH reject, whether this handshake was itself a retry (the one-retry cap
-    /// of RFC 9849 sec. 6.1.6): the application must not loop on retry_configs indefinitely.</summary>
-    function EchIsRetryAttempt: Boolean;
-    /// <summary>Whether this endpoint aborted the handshake with ech_required because its own ECH
-    /// offer was rejected (RFC 9849 sec. 6.1.6). True only for a client that offered ECH and was
-    /// refused - never for a server, whose EchStatus can read Rejected after a benign GREASE
-    /// handshake that completed normally. Distinguishes the ECH abort from any other terminal
-    /// state so callers do not mistake a later fatal for an ECH rejection.</summary>
-    function EchRejectAborted: Boolean;
   end;
 
   /// <summary>
