@@ -22,7 +22,8 @@ uses
   TlpITlsEngine,
   TlpHandshakeStage,
   TlpHandshakeMessage,
-  TlpHandshakeEffect;
+  TlpHandshakeEffect,
+  TlpIRecordProtection;
 
 type
   /// <summary>
@@ -184,6 +185,55 @@ type
     procedure SetVerbatimEncryptedExtensions(const AFramed: TBytes);
     procedure SetVerbatimCertificate(const AFramed: TBytes);
     procedure SetVerbatimCertificateVerify(const AFramed: TBytes);
+  end;
+
+  /// <summary>
+  /// The internal seam the handshake driver uses to install record-protection
+  /// epochs as they become available, turning the plaintext engine into a
+  /// protected one and, on the write side, marking the handshake established.
+  /// Deliberately kept off the public ITlsEngine surface (a caller never installs
+  /// epochs directly); reach it with Supports(engine, IRecordEpochInstaller, x).
+  /// </summary>
+  IRecordEpochInstaller = interface(IInterface)
+    ['{4D0F7B36-8E12-4A59-9C63-5A7E1B0D82C4}']
+    procedure InstallReadProtection(const AProtection: IRecordProtection);
+    procedure InstallWriteProtection(const AProtection: IRecordProtection);
+    /// <summary>
+    /// Arms a read epoch to activate on the peer's next change_cipher_spec instead of
+    /// immediately (the TLS 1.2 read-cipher switch, RFC 5246 7.1). The active read epoch
+    /// stays put until that plaintext CCS is consumed, so a peer's plaintext alert sent
+    /// before its CCS is read under the right epoch. TLS 1.3 installs the read epoch
+    /// directly via InstallReadProtection; only TLS 1.2 read installs use this.
+    /// </summary>
+    procedure ArmReadProtectionOnChangeCipherSpec(const AProtection: IRecordProtection);
+    /// <summary>
+    /// Reverts the write epoch to plaintext, abandoning an installed early-data write
+    /// protection when a HelloRetryRequest rejects offered 0-RTT (RFC 8446 4.2.10): the
+    /// second ClientHello and the rest of the client's flight are sent in the clear.
+    /// </summary>
+    procedure RevertWriteToPlaintext;
+    /// <summary>Applies the raw negotiated record_size_limit values (RFC 8449
+    /// TLSInnerPlaintext caps); 0 means the extension was not negotiated.</summary>
+    procedure SetRecordSizeLimit(AOutboundLimit, AInboundLimit: Int32);
+    /// <summary>
+    /// Enters the 0-RTT reject skip mode (RFC 8446 4.2.10): undecryptable early-data
+    /// application records are dropped, up to AMaxBytes, until a record decrypts under
+    /// the installed epoch. Used when the server rejects offered early data.
+    /// </summary>
+    procedure SetEarlyDataSkip(AMaxBytes: Int32);
+    /// <summary>
+    /// Caps outbound 0-RTT at the ticket's max_early_data (RFC 8446 4.2.10): the client
+    /// sends at most AMaxBytes of early data; WriteEarlyData returns how much was accepted and
+    /// the caller resends the rest as 1-RTT once the handshake completes. Set when the client
+    /// opens the early-data write window.
+    /// </summary>
+    procedure SetEarlyDataLimit(AMaxBytes: Int32);
+    /// <summary>
+    /// Opens (AActive) or closes the accepted-0-RTT early-data read window (RFC 8446 4.2.10):
+    /// while open, an application_data record legitimately precedes the handshake completion.
+    /// A server opens it on installing the early read keys and closes it at EndOfEarlyData.
+    /// </summary>
+    procedure SetEarlyReadEpoch(AActive: Boolean);
   end;
 
 implementation

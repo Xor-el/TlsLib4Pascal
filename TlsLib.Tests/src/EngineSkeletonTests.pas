@@ -35,6 +35,7 @@ uses
   TlpRecordProtection,
   TlpRecordLayer,
   TlpITlsEngine,
+  TlpIHandshakeMachine,
   TlpITlsEventSink,
   TlpTlsEngine,
   TlsLibTestBase;
