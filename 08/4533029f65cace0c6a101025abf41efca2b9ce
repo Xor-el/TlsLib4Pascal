@@ -1,0 +1,51 @@
+TlsLib.Trust.System/src/TlpOSDelegateVerifier.pas
+  s_09d3c46d1a9b1f::t_c4b3289f428c1e 1-382,384,386-404
+  s_09d3c46d1a9b1f::t_051ab6bde4d618 383,385
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpi
+  s_09d3c46d1a9b1f::t_04c713aab1dac9 330-333
+TlsLib.Trust.System/Packages/FPC/TlsLib.Trust.System.pas
+  s_09d3c46d1a9b1f::t_810cf5d225251d 14
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_09d3c46d1a9b1f::t_5c268d63f20beb 69-70,138-177,533-642,649-984
+  s_09d3c46d1a9b1f::t_354f398717bf96 71
+  s_09d3c46d1a9b1f::t_f79780aff023c1 1751,1755
+  s_09d3c46d1a9b1f::t_1fa9023a68122a 643-648
+TlsLib.Trust.System/src/TlpSystemTrustBase.pas
+  s_09d3c46d1a9b1f::t_a03a0dfef00da9 40-42
+  s_09d3c46d1a9b1f::t_57c562050403f0 134-140
+  s_09d3c46d1a9b1f::t_614b6a7cdcc974 53-96
+  s_09d3c46d1a9b1f::t_4a71215f711342 266-286
+TlsLib.Trust.System/Packages/Delphi/TlsLib.Trust.System.dpk
+  s_09d3c46d1a9b1f::t_fddff9e325fdb0 40-41
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_09d3c46d1a9b1f::t_64d5699c5f74c3 498
+TlsLib.Trust.System/src/TlpIPlatformChainEngine.pas
+  s_09d3c46d1a9b1f::t_6bc5e639f6191a 1-48
+TlsLib.Tests/FreePascal.Tests/TlsLib.Tests.lpi
+  s_09d3c46d1a9b1f::t_586932fcc72b2f 336-339
+TlsLib.Tests/src/MockPlatformChainEngine.pas
+  s_09d3c46d1a9b1f::t_5720a725d18530 1-100
+TlsLib.Trust.System/Packages/FPC/TlsLib.Trust.System.lpk
+  s_09d3c46d1a9b1f::t_e727ccb82eeaf9 69-76
+  s_09d3c46d1a9b1f::t_d45bd48cbff40a 24
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_09d3c46d1a9b1f::t_bf4ff31a57221f 176
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_09d3c46d1a9b1f::t_2fd3192c1ef6f7 156
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "084533029f65cace0c6a101025abf41efca2b9ce",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
