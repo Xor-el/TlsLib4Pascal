@@ -1,0 +1,24 @@
+TlsLib.Tests/src/MockRecordInstaller.pas
+  s_09d3c46d1a9b1f::t_d5decad8d77218 22
+TlsLib/src/Interfaces/Handshake/TlpIHandshakeMachine.pas
+  s_09d3c46d1a9b1f::t_3c90d1906f7b92 25-26,190-236
+  s_09d3c46d1a9b1f::t_4844f98e624652 237-238
+TlsLib.Tests/src/EngineSkeletonTests.pas
+  s_09d3c46d1a9b1f::t_416acab1d47aef 38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "22adf1e051f2fe4e0bc9422bdc98da6d7ce2162a",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
