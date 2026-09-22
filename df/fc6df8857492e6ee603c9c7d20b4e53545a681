@@ -1,0 +1,47 @@
+TlsLib.Trust.System/src/TlpWindowsSystemTrust.pas
+  s_09d3c46d1a9b1f::t_6b7eb2dfe4704e 826-827,834-835,846,849,861-862,878-879,881-885,887-888,901-903,905-912,915-920,923,926,928,932,947,960
+  s_09d3c46d1a9b1f::t_3ff871322d1534 809-810
+  s_09d3c46d1a9b1f::t_6e5f513bd862bf 664-665,672-673,677,686,689,698-700,702-703,711,714-715,720,723,725,727-728,733-735,737-743,747-752,755,759,761,765,776,778,786,799
+  s_09d3c46d1a9b1f::t_f78f765aef4561 999,1001,1003-1005,1008-1009,1011,1014-1015,1017
+  s_09d3c46d1a9b1f::t_635a3825a50df3 600-601,603-633,636-654,659-661
+  s_09d3c46d1a9b1f::t_0d41109c051484 361,363-375
+  s_09d3c46d1a9b1f::t_0206f51d76a0e3 29,602,757
+  s_09d3c46d1a9b1f::t_2c73715142829e 46-52,54,56-60
+  s_09d3c46d1a9b1f::t_ef9a25c0d651c2 333-352
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_09d3c46d1a9b1f::t_232bdeb5f1bce4 1340-1357,1366-1369
+  s_09d3c46d1a9b1f::t_4fea12a6a4ea4e 229-234
+  s_09d3c46d1a9b1f::t_919d1f2247883d 1489,1492-1495
+  s_09d3c46d1a9b1f::t_449bac41e4e49e 1522,1529-1533
+  s_09d3c46d1a9b1f::t_5794b55ef9d2d5 1550,1559-1563
+  s_09d3c46d1a9b1f::t_abd630f3613eb4 1477-1481
+TlsLib.Trust.System/src/TlpOSSystemTrust.pas
+  s_09d3c46d1a9b1f::t_2418c6eaea5bb5 251-259,261-264
+  s_09d3c46d1a9b1f::t_999a70bdc114ad 210-224
+  s_09d3c46d1a9b1f::t_49de5c32974894 206-208
+  s_09d3c46d1a9b1f::t_96c6730afd7be2 184-185
+  s_09d3c46d1a9b1f::t_305e287dc7c2fc 260
+  s_09d3c46d1a9b1f::t_08f35e74a81b70 285-287
+  s_09d3c46d1a9b1f::t_ca945e73d4bd03 27-28
+  s_09d3c46d1a9b1f::t_35550a98453ebb 187-191
+  s_09d3c46d1a9b1f::t_30c3a7a2560d85 282-283
+  s_09d3c46d1a9b1f::t_2785355539a37f 58-62
+  s_09d3c46d1a9b1f::t_36f79b547b5646 243-244
+  s_09d3c46d1a9b1f::t_690f2540d1a210 120-131
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "dffc6df8857492e6ee603c9c7d20b4e53545a681",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
