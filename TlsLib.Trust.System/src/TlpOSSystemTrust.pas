@@ -125,8 +125,11 @@ begin
 {$ELSEIF DEFINED(TLSLIB_IOS) OR DEFINED(TLSLIB_MACOS)}
   AEngine := TAppleChainEngine.Create as IPlatformChainEngine;
   Result := True;
+{$ELSEIF DEFINED(TLSLIB_ANDROID)}
+  AEngine := TAndroidChainEngine.Create as IPlatformChainEngine;
+  Result := True;
 {$ELSE}
-  // Android exposes an engine too; that arm is wired when Android is ported.
+  // an anchors-only platform (Unix/BSD/Solaris) exposes no OS chain engine
   AEngine := nil;
   Result := False;
 {$IFEND}
@@ -191,15 +194,7 @@ begin
   // fetch on an engine without live fetch at construction, matching the per-platform refusal timing)
   if TryChainEngine(LEngine) then
     Exit(TOSVerifierSource.Create(LEngine, AFetch) as IServerCertificateVerifierSource);
-{$IF DEFINED(TLSLIB_ANDROID)}
-  // Android's platform TrustManager owns revocation and has no network-revocation knob; only
-  // cache-only (the staple post-check) is honoured here
-  if AFetch = TSystemTrustFetch.Live then
-    raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoLiveRevocation);
-  Result := TAndroidServerVerifierSource.Create as IServerCertificateVerifierSource;
-{$ELSE}
   raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoDelegate);
-{$IFEND}
 end;
 
 class function TOSSystemTrust.LiveRevocationResolver(const AConfig: ITlsClientConfig;
@@ -271,15 +266,7 @@ var
 begin
   if TryChainEngine(LEngine) then
     Exit(TOSVerifierSource.Create(LEngine, AFetch) as IClientCertificateVerifierSource);
-{$IF DEFINED(TLSLIB_ANDROID)}
-  // Android's platform TrustManager owns revocation and has no network-revocation knob; only
-  // cache-only client verification is honoured here
-  if AFetch = TSystemTrustFetch.Live then
-    raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoLiveRevocation);
-  Result := TAndroidClientVerifierSource.Create as IClientCertificateVerifierSource;
-{$ELSE}
   raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoClientDelegate);
-{$IFEND}
 end;
 
 end.
