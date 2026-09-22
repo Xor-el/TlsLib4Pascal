@@ -15,7 +15,9 @@
 /// speaks our managed TLS instead of OpenSSL - the initialization block registers it as the
 /// process-wide SSLImplementation. This is a compile-time plugin: exactly ONE SSL plugin unit
 /// may be linked per project (do not also link ssl_openssl). This unit is the only place our
-/// types and Synapse's types meet.
+/// types and Synapse's types meet: it maps Synapse's TCustomSSL properties onto the host-neutral
+/// adapter core (config composition, timed transport, session drive) and supplies the Synapse
+/// socket glue.
 /// </summary>
 unit TlsLibSynapseTls;
 
@@ -30,33 +32,22 @@ uses
   Classes,
   blcksock,
   synsock,
-  TlpTlsVersion,
   TlpTlsAlert,
   TlpEchConfig,
   TlpCryptoDomainTypes,
   TlpDataEncoding,
   TlpICryptoProvider,
-  TlpDefaultCryptoProvider,
   TlpIPkixProvider,
-  TlpDefaultPkixProvider,
-  TlpICertificateTrust,
-  TlpCertificateVerifier,
   TlpTrustPolicy,
   TlpTlsCredential,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
-  TlpTlsPresets,
   TlpITlsEngine,
   TlpTlsEngineFactory,
   TlpITlsConfigMemo,
   TlpTlsConfigMemo,
-  TlpTlsSignatureBuilder,
-  TlpISession,
-  TlpInMemorySessionCache,
-  TlpITlsTransport,
-  TlpTlsStreamPump,
   TlpTlsLibExceptions,
-  TlpTlsStream,
+  TlpTlsAdapterCore,
   TlpSystemTrustFacade;
 
 /// <summary>Sets a process-wide augment-only verify callback the plugin threads into every
@@ -87,33 +78,33 @@ procedure FlushTlsLibSynapseConfigCache;
 type
   /// <summary>An ITlsTransport over a Synapse block socket: raw ciphertext moves through synsock
   /// Recv/Send on the socket handle, bypassing TTCPBlockSocket's SSL-aware buffered methods
-  /// (which would otherwise recurse back into this plugin once SSLEnabled is set).</summary>
-  TSynapseSocketTransport = class sealed(TInterfacedObject, ITlsTransport)
+  /// (which would otherwise recurse back into this plugin once SSLEnabled is set). The
+  /// handshake-phase read cap comes from the shared timed-transport base; readiness is polled with
+  /// CanRead so no socket option (which Synapse cannot read back to restore) is touched.</summary>
+  TSynapseSocketTransport = class sealed(TTlsTimedTransportBase)
   strict private
   var
     FSocket: TTCPBlockSocket;
-    FReadTimeoutMs: Int32; // > 0 bounds a read (the handshake phase); 0 = block (app data)
+  strict protected
+    function WaitReadable(AMs: Int32): Boolean; override;
+    function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
+    function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
   public
     constructor Create(const ASocket: TTCPBlockSocket);
-    /// <summary>Bounds each Read to AMs ms (0 = block); uses CanRead so no socket option
-    /// (which Synapse cannot read back to restore) is touched.</summary>
-    procedure SetReadTimeout(AMs: Int32);
-    function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
-    procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
   end;
 
   /// <summary>
   /// TlsLib4Pascal's implementation of Synapse's TCustomSSL. Connect / Accept run the
   /// handshake; SendBuffer / RecvBuffer move application data; WaitingData reports buffered
   /// plaintext; Shutdown / BiShutdown send close_notify. It maps the TCustomSSL properties
-  /// (cert/key files, CA, VerifyCert, SNIHost) onto our immutable config.
+  /// (cert/key files, CA, VerifyCert, SNIHost) plus the per-connection extras Synapse lacks
+  /// (UseSystemTrust, a supplied config, Crypto/Pkix, resumption, the handshake read cap) onto the
+  /// host-neutral adapter core.
   /// </summary>
   TSSLTlsLib = class(TCustomSSL)
   strict private
   var
-    FStream: TTlsStream;
-    FTransport: ITlsTransport;
-    FEngine: ITlsEngine;
+    FSession: TTlsAdapterSession;
     FCrypto: ICryptoProvider;
     FUserCrypto: ICryptoProvider;
     FPkix: IPkixProvider;
@@ -122,20 +113,14 @@ type
     FSessionResumption: Boolean;
     FClientConfig: ITlsClientConfig;
     FServerConfig: ITlsServerConfig;
-    function LoadFileBytes(const APath: string): TBytes;
-    /// <summary>The injected provider, or the process-wide shared default when none is set.</summary>
-    function EffectiveCrypto: ICryptoProvider;
-    /// <summary>The injected PKIX provider, or the process-wide shared default when none is set.</summary>
-    function EffectivePkix: IPkixProvider;
-    function BuildClientConfig: ITlsClientConfig;
-    function BuildServerConfig: ITlsServerConfig;
-    function ClientSignature: string;
-    function ServerSignature: string;
+    FHandshakeTimeoutMs: Integer;
+    /// <summary>The host-neutral snapshot the adapter core composes into a TLS configuration: one
+    /// value per handshake, so a property changed mid-connection is never seen half-applied. The
+    /// role (client vs server) is chosen by the caller when it resolves the config and attaches the
+    /// resolver, not here.</summary>
+    function Snapshot: TTlsAdapterOptions;
     function BuildClientEngine: ITlsEngine;
     function BuildServerEngine: ITlsEngine;
-    /// <summary>Raises when a supplied config is set together with cert/trust properties a
-    /// fully-built config replaces (APropertyName names the config property in the message).</summary>
-    procedure GuardNoConflict(const APropertyName: string);
     function DriveHandshake(AIsClient: Boolean; const AHost: string): Boolean;
     /// <summary>The peer leaf certificate (DER), or empty when none was presented.</summary>
     function PeerLeaf: TBytes;
@@ -210,17 +195,19 @@ type
     /// them) so a reconnect skips the asymmetric handshake. Forward-secret (TLS 1.3 psk_dhe_ke);
     /// 0-RTT is never enabled. Default True; cast Sock.SSL to TSSLTlsLib to set it False.</summary>
     property SessionResumption: Boolean read FSessionResumption write FSessionResumption;
+    /// <summary>The read timeout (ms) bounding the handshake, so a peer that connects but sends no
+    /// data cannot park the connection's thread. Deliberately NOT an app-read deadline. 0 (the
+    /// default) uses the 30 s library default; a positive value overrides it. Cast Sock.SSL to
+    /// TSSLTlsLib to set it.</summary>
+    property HandshakeTimeoutMs: Integer read FHandshakeTimeoutMs write FHandshakeTimeoutMs;
   end;
 
 implementation
 
 resourcestring
-  SNoServerCredential = 'the Synapse SSL config supplies no server certificate/key';
   SPeerVerifyRejected = 'the OnVerifyCert handler rejected the peer certificate';
-  SNoTrustSource = 'VerifyCert is on but no trust source was named; set a CertCAFile bundle ' +
-    'and/or UseSystemTrust (system trust is never implicit), or set VerifyCert := False to skip';
-  SConfigAndOptionsConflict = '%s is set together with cert/trust properties that a fully-built ' +
-    'config replaces; supply either the config or the cert/trust properties, not both';
+  SSynapseSendNoProgress = 'Synapse socket send returned no progress';
+  SSynapseTrustSourceHint = 'a CertCAFile bundle and/or UseSystemTrust';
 
 var
   // process-wide neutral hooks the per-socket plugin threads into each client handshake
@@ -270,38 +257,25 @@ begin
   FSocket := ASocket;
 end;
 
-procedure TSynapseSocketTransport.SetReadTimeout(AMs: Int32);
+function TSynapseSocketTransport.WaitReadable(AMs: Int32): Boolean;
 begin
-  FReadTimeoutMs := AMs;
+  Result := FSocket.CanRead(AMs);
 end;
 
-function TSynapseSocketTransport.Read(var ABuffer: TBytes; AOffset,
+function TSynapseSocketTransport.ReceiveRaw(var ABuffer: TBytes; AOffset,
   AMaxLength: Int32): Int32;
 begin
-  // bounded during the handshake; distinct from a peer close (which returns 0 below)
-  if (FReadTimeoutMs > 0) and (not FSocket.CanRead(FReadTimeoutMs)) then
-    raise ETlsHandshakeTimeout.Create(
-      Format('the peer sent no handshake data within %d ms', [FReadTimeoutMs]));
+  // 0 on an orderly close and a negative error both surface as end-of-stream to the pump (the base
+  // coerces the negative to 0)
   Result := synsock.Recv(FSocket.Socket, @ABuffer[AOffset], AMaxLength, MSG_NOSIGNAL);
-  if Result <= 0 then
-    Result := 0; // <0 error or 0 orderly close: surface as EOF to the pump
 end;
 
-procedure TSynapseSocketTransport.Write(const ABuffer: TBytes; AOffset,
-  ALength: Int32);
-var
-  LOff, LRemain, LN: Integer;
+function TSynapseSocketTransport.SendRaw(const ABuffer: TBytes; AOffset,
+  ALength: Int32): Int32;
 begin
-  LOff := AOffset;
-  LRemain := ALength;
-  while LRemain > 0 do
-  begin
-    LN := synsock.Send(FSocket.Socket, @ABuffer[LOff], LRemain, MSG_NOSIGNAL);
-    if LN <= 0 then
-      raise ETlsStreamError.Create('Synapse socket send returned no progress');
-    Inc(LOff, LN);
-    Dec(LRemain, LN);
-  end;
+  Result := synsock.Send(FSocket.Socket, @ABuffer[AOffset], ALength, MSG_NOSIGNAL);
+  if Result <= 0 then
+    raise ETlsStreamError.Create(SSynapseSendNoProgress);
 end;
 
 { TSSLTlsLib }
@@ -317,7 +291,8 @@ end;
 
 destructor TSSLTlsLib.Destroy;
 begin
-  FStream.Free;
+  FSession.Free;
+  FSession := nil;
   inherited Destroy;
 end;
 
@@ -331,270 +306,106 @@ begin
   Result := 'TlsLibSynapseTls';
 end;
 
-function TSSLTlsLib.LoadFileBytes(const APath: string): TBytes;
-var
-  LStream: TFileStream;
+function TSSLTlsLib.Snapshot: TTlsAdapterOptions;
 begin
-  Result := nil;
-  LStream := TFileStream.Create(APath, fmOpenRead or fmShareDenyWrite);
-  try
-    SetLength(Result, LStream.Size);
-    if LStream.Size > 0 then
-      LStream.ReadBuffer(Result[0], LStream.Size);
-  finally
-    LStream.Free;
-  end;
-end;
-
-procedure TSSLTlsLib.GuardNoConflict(const APropertyName: string);
-begin
-  // a supplied config owns trust/credential entirely; naming these alongside it would be silently
-  // dropped, so fail loud. The native OnVerifyCert hook and the verdict resolvers (client and
-  // server role) are runtime hooks (not part of the frozen config) and still apply, so they are
-  // not conflicts.
-  if (FCertificateFile <> '') or (FPrivateKeyFile <> '') or (FCertCAFile <> '') or
-    FUseSystemTrust or (FUserCrypto <> nil) or (FUserPkix <> nil) then
-    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
-      Format(SConfigAndOptionsConflict, [APropertyName]));
-end;
-
-function TSSLTlsLib.EffectiveCrypto: ICryptoProvider;
-begin
-  if FUserCrypto <> nil then
-    Result := FUserCrypto
-  else
-    Result := TDefaultCryptoProvider.Shared;
-end;
-
-function TSSLTlsLib.EffectivePkix: IPkixProvider;
-begin
-  if FUserPkix <> nil then
-    Result := FUserPkix
-  else
-    Result := TDefaultPkixProvider.Shared;
-end;
-
-function TSSLTlsLib.BuildClientConfig: ITlsClientConfig;
-var
-  LCrypto: ICryptoProvider;
-  LPkix: IPkixProvider;
-  LClient: ITlsClientConfigBuilder;
-begin
-  LCrypto := EffectiveCrypto;
-  LPkix := EffectivePkix;
-  LClient := TTlsPresets.Compatible(LCrypto, LPkix).Client;
-  // Synapse exposes no dedicated system-trust switch, so we compose peer trust from the props it
-  // already has (CertCAFile + VerifyCert) plus our per-connection UseSystemTrust. System trust is
-  // never implicit - it must be asked for:
-  //   VerifyCert=False                             -> the loud InsecureSkipVerify bypass, never silent
-  //   VerifyCert=True, CertCAFile set              -> pin to that CA bundle
-  //   VerifyCert=True, UseSystemTrust              -> OS system-trust store
-  //   VerifyCert=True, UseSystemTrust + CertCAFile -> UNION: system anchors PLUS the private bundle
-  //   VerifyCert=True, neither                     -> fail closed (no implicit trust)
-  // (OS store = Windows crypt32 / macOS SecTrust / Unix bundle.)
+  Result := TTlsAdapterOptions.Default;
+  Result.Crypto := FUserCrypto;
+  Result.Pkix := FUserPkix;
+  Result.Certificate := TTlsAdapterBlobSource.FromFile(FCertificateFile);
+  Result.PrivateKey := TTlsAdapterBlobSource.FromFile(FPrivateKeyFile);
+  Result.KeyPassword := FKeyPassword;
+  // Synapse gates trust on its native VerifyCert: a CertCAFile bundle and UseSystemTrust are trust
+  // sources only when verifying, so a skip-verify client names none (kept off HasClientTrustSource).
+  // UseSystemTrust reaches the OS store through the host-neutral installer seam, so the core never
+  // depends on the system-trust package.
   if FVerifyCert then
   begin
-    if (FCertCAFile = '') and (not FUseSystemTrust) then
-      raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SNoTrustSource);
     if FCertCAFile <> '' then
-      LClient.WithTrustAnchors(LoadFileBytes(FCertCAFile));
+    begin
+      SetLength(Result.TrustAnchors, 1);
+      Result.TrustAnchors[0] := TTlsAdapterBlobSource.FromFile(FCertCAFile);
+    end;
     if FUseSystemTrust then
-      TSystemTrust.WithSystemTrust(LClient, LPkix);
-  end
-  else
-  begin
-    // a client build still requires a trust source even when verification is skipped
-    LClient.WithTrustStore(TTrustAnchorStore.Create(nil) as ITrustAnchorStore);
-    LClient.WithDangerousInsecureSkipVerify(True);
+      Result.SystemTrust := TSystemTrustInstaller.Create as ISystemTrustInstaller;
   end;
-  if FCertificateFile <> '' then
-    LClient.WithCredential(LoadFileBytes(FCertificateFile),
-      LoadFileBytes(FPrivateKeyFile), FKeyPassword);
-  // the process-wide neutral augment hook, and an out-of-band verdict resolver that parks
-  // the handshake for a decision (live revocation etc.)
-  if Assigned(GVerifyCallback) then
-    LClient.WithCertificateVerifyCallback(GVerifyCallback);
-  if Assigned(GVerdictResolver) then
-    LClient.WithLiveRevocationVerdict(GVerdictDeadlineMs);
-  if FSessionResumption then
-  begin
-    LClient.WithResumption(True);
-    LClient.WithSessionCache(TInMemorySessionCache.Create as ISessionCache);
-  end
-  else
-    LClient.WithResumption(False);
-  Result := LClient.Build;
-end;
-
-function TSSLTlsLib.BuildServerConfig: ITlsServerConfig;
-var
-  LCrypto: ICryptoProvider;
-  LPkix: IPkixProvider;
-  LServer: ITlsServerConfigBuilder;
-begin
-  // a clear message when no cert is configured, rather than an opaque file-open error
-  // (DriveHandshake wraps this into FLastError/FLastErrorDesc - no exception escapes)
-  if FCertificateFile = '' then
-    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SNoServerCredential);
-  LCrypto := EffectiveCrypto;
-  LPkix := EffectivePkix;
-  LServer := TTlsPresets.Compatible(LCrypto, LPkix).Server
-    .WithCredential(LoadFileBytes(FCertificateFile), LoadFileBytes(FPrivateKeyFile),
-    FKeyPassword);
-  // VerifyCert on a server requests (does not require) a client certificate, so map it to
-  // Requested and only when a client-trust source is named. This adapter defaults VerifyCert on,
-  // so a server that sets CertCAFile starts requesting client certificates.
-  if FVerifyCert and ((FCertCAFile <> '') or FUseSystemTrust) then
-  begin
-    LServer.WithPeerAuth(TClientAuthMode.Requested);
-    if FCertCAFile <> '' then
-      LServer.WithTrustAnchors(LoadFileBytes(FCertCAFile));
-    if FUseSystemTrust then
-      TSystemTrust.WithSystemTrust(LServer, LPkix);
-    // arm the async client-certificate verdict park so the server-role resolver runs server-side
-    if Assigned(GServerVerdictResolver) then
-      LServer.WithLiveRevocationVerdict(GServerVerdictDeadlineMs);
-  end;
-  if FSessionResumption then
-  begin
-    LServer.WithResumption(True);
-    LServer.WithDefaultSessionTicketKeys;
-  end
-  else
-    LServer.WithResumption(False);
-  Result := LServer.Build;
-end;
-
-function TSSLTlsLib.ClientSignature: string;
-var
-  LSig: TTlsSignatureBuilder;
-  LCrypto: ICryptoProvider;
-begin
-  LCrypto := EffectiveCrypto;
-  LSig := TTlsSignatureBuilder.Create(LCrypto);
-  LSig.AddPointer('crypto', LCrypto);
-  LSig.AddPointer('pkix', EffectivePkix);
-  LSig.AddFlag('resume', FSessionResumption);
-  LSig.AddFile('cert', FCertificateFile);
-  LSig.AddFile('key', FPrivateKeyFile);
-  LSig.AddSecret('keypw', FKeyPassword);
-  LSig.AddFile('ca', FCertCAFile);
-  LSig.AddFlag('verifyCert', FVerifyCert);
-  LSig.AddFlag('systemTrust', FUseSystemTrust);
-  // the process-wide hooks are baked into the built config, so they belong in the key
-  LSig.AddMethod('verifyCb', TMethod(GVerifyCallback));
-  LSig.AddFlag('asyncVerdict', Assigned(GVerdictResolver));
-  LSig.AddCardinal('deadline', GVerdictDeadlineMs);
-  Result := LSig.Value;
-end;
-
-function TSSLTlsLib.ServerSignature: string;
-var
-  LSig: TTlsSignatureBuilder;
-  LCrypto: ICryptoProvider;
-begin
-  LCrypto := EffectiveCrypto;
-  LSig := TTlsSignatureBuilder.Create(LCrypto);
-  LSig.AddPointer('crypto', LCrypto);
-  LSig.AddPointer('pkix', EffectivePkix);
-  LSig.AddFlag('resume', FSessionResumption);
-  LSig.AddFile('cert', FCertificateFile);
-  LSig.AddFile('key', FPrivateKeyFile);
-  LSig.AddSecret('keypw', FKeyPassword);
-  LSig.AddFlag('verifyCert', FVerifyCert);
-  LSig.AddFile('ca', FCertCAFile);
-  LSig.AddFlag('systemTrust', FUseSystemTrust);
-  LSig.AddFlag('asyncVerdict', Assigned(GServerVerdictResolver));
-  LSig.AddCardinal('deadline', GServerVerdictDeadlineMs);
-  Result := LSig.Value;
+  Result.VerifyPeer := FVerifyCert;
+  Result.InsecureSkipVerify := not FVerifyCert;
+  // CheckHostName keeps the composable default (True); Synapse exposes no knob. VerifyCert on a
+  // server requests (does not require) a client certificate, so the client-auth mode is Requested.
+  Result.ClientAuth := TClientAuthMode.Requested;
+  Result.VerifyCallback := GVerifyCallback;
+  Result.ClientVerdictResolver := GVerdictResolver;
+  Result.ClientVerdictDeadlineMs := GVerdictDeadlineMs;
+  Result.ServerVerdictResolver := GServerVerdictResolver;
+  Result.ServerVerdictDeadlineMs := GServerVerdictDeadlineMs;
+  Result.SessionResumption := FSessionResumption;
+  Result.HandshakeTimeoutMs := FHandshakeTimeoutMs;
+  Result.ClientConfig := FClientConfig;
+  Result.ServerConfig := FServerConfig;
+  Result.TrustSourceHint := SSynapseTrustSourceHint;
 end;
 
 function TSSLTlsLib.BuildClientEngine: ITlsEngine;
 var
-  LCfg: ITlsClientConfig;
-  LSig: string;
+  LOptions: TTlsAdapterOptions;
+  LConfig: ITlsClientConfig;
 begin
-  // a fully-built config supplied by the app REPLACES the property-driven build outright; naming
-  // cert/trust properties alongside it fails loud rather than dropping them silently
-  if FClientConfig <> nil then
-  begin
-    GuardNoConflict('ClientConfig');
-    FCrypto := FClientConfig.Crypto;
-    FPkix := FClientConfig.Pkix;
-    Exit(TTlsEngineFactory.CreateClientEngine(FClientConfig, FSNIHost));
-  end;
-  LSig := ClientSignature;
-  if not GClientConfigMemo.TryGet(LSig, LCfg) then
-    LCfg := GClientConfigMemo.StoreOrAdopt(LSig, BuildClientConfig);
+  LOptions := Snapshot;
+  // a fully-built config supplied by the app REPLACES the property-driven build outright; the
+  // composer's conflict guard fails loud when cert/trust properties are named alongside it
+  LConfig := TTlsAdapterConfigComposer.ResolveClientConfig(LOptions, GClientConfigMemo,
+    'ClientConfig');
   // the peer-info accessors reuse the config's providers (crypto for hashing, pkix for parsing)
-  FCrypto := LCfg.Crypto;
-  FPkix := LCfg.Pkix;
-  Result := TTlsEngineFactory.CreateClientEngine(LCfg, FSNIHost);
+  FCrypto := LConfig.Crypto;
+  FPkix := LConfig.Pkix;
+  Result := TTlsEngineFactory.CreateClientEngine(LConfig, FSNIHost);
 end;
 
 function TSSLTlsLib.BuildServerEngine: ITlsEngine;
 var
-  LCfg: ITlsServerConfig;
-  LSig: string;
+  LOptions: TTlsAdapterOptions;
+  LConfig: ITlsServerConfig;
 begin
-  if FServerConfig <> nil then
-  begin
-    GuardNoConflict('ServerConfig');
-    FCrypto := FServerConfig.Crypto;
-    FPkix := FServerConfig.Pkix;
-    Exit(TTlsEngineFactory.CreateServerEngine(FServerConfig));
-  end;
-  LSig := ServerSignature;
-  if not GServerConfigMemo.TryGet(LSig, LCfg) then
-    LCfg := GServerConfigMemo.StoreOrAdopt(LSig, BuildServerConfig);
-  FCrypto := LCfg.Crypto;
-  FPkix := LCfg.Pkix;
-  Result := TTlsEngineFactory.CreateServerEngine(LCfg);
+  LOptions := Snapshot;
+  LConfig := TTlsAdapterConfigComposer.ResolveServerConfig(LOptions, GServerConfigMemo,
+    'ServerConfig');
+  FCrypto := LConfig.Crypto;
+  FPkix := LConfig.Pkix;
+  Result := TTlsEngineFactory.CreateServerEngine(LConfig);
 end;
 
 function TSSLTlsLib.DriveHandshake(AIsClient: Boolean;
   const AHost: string): Boolean;
-const
-  DefaultHandshakeReadTimeoutMs = 30000; // no user read timeout in Synapse's SSL layer
 var
-  LTransport: TSynapseSocketTransport;
+  LEngine: ITlsEngine;
+  LResolver: TCertificateVerdictResolver;
 begin
   Result := False;
   try
     // a reconnect reuses this TCustomSSL instance; drop any prior session so we rebuild on the
     // new socket cleanly instead of leaking the previous stream over a stale engine
-    FStream.Free;
-    FStream := nil;
-    FTransport := nil;
-    FEngine := nil;
+    FSession.Free;
+    FSession := nil;
     if AIsClient then
-      FEngine := BuildClientEngine
+      LEngine := BuildClientEngine
     else
-      FEngine := BuildServerEngine;
-    LTransport := TSynapseSocketTransport.Create(FSocket);
-    FTransport := LTransport as ITlsTransport;
-    FStream := TTlsStream.Create(FTransport, FEngine, AIsClient, AHost);
+      LEngine := BuildServerEngine;
     // attach the role-correct resolver: a client parks on the server's chain, a server (client
-    // auth) on the mTLS client's chain - the two bind different EKUs
+    // auth) on the mTLS client's chain - the two bind different EKUs. The session never guesses.
     if AIsClient then
-    begin
-      if Assigned(GVerdictResolver) then
-        FStream.SetCertificateVerdictResolver(GVerdictResolver);
-    end
-    else if Assigned(GServerVerdictResolver) then
-      FStream.SetCertificateVerdictResolver(GServerVerdictResolver);
-    // bound the handshake read; cleared afterward so app reads block
-    LTransport.SetReadTimeout(DefaultHandshakeReadTimeoutMs);
-    try
-      FStream.Handshake;
-    finally
-      LTransport.SetReadTimeout(0);
-    end;
+      LResolver := GVerdictResolver
+    else
+      LResolver := GServerVerdictResolver;
+    FSession := TTlsAdapterSession.Create(LEngine,
+      TSynapseSocketTransport.Create(FSocket), AIsClient, AHost, LResolver);
+    // bound the handshake read by HandshakeTimeoutMs; the session arms and clears the cap, even
+    // when the handshake raised, so a later app read is not left bounded
+    FSession.Handshake(FHandshakeTimeoutMs);
     // Synapse's native OnVerifyCert hook: the app inspects the peer via GetPeer* and returns
     // False to reject - fail-closed
     if not RunPeerVerifyHook then
     begin
-      FStream.CloseNotify;
+      FSession.CloseNotify;
       raise ETlsStreamError.Create(TTlsAlertDescription.BadCertificate,
         SPeerVerifyRejected);
     end;
@@ -610,15 +421,11 @@ begin
 end;
 
 function TSSLTlsLib.PeerLeaf: TBytes;
-var
-  LChain: TArray<TBytes>;
 begin
-  Result := nil;
-  if FEngine = nil then
-    Exit;
-  LChain := FEngine.PeerCertificates;
-  if System.Length(LChain) > 0 then
-    Result := LChain[0];
+  if FSession <> nil then
+    Result := FSession.PeerLeaf
+  else
+    Result := nil;
 end;
 
 function TSSLTlsLib.RunPeerVerifyHook: Boolean;
@@ -645,11 +452,8 @@ end;
 function TSSLTlsLib.Shutdown: boolean;
 begin
   // best-effort: a close_notify write to a peer that already closed must not raise here
-  if FStream <> nil then
-    try
-      FStream.CloseNotify;
-    except
-    end;
+  if FSession <> nil then
+    FSession.CloseNotifyQuietly;
   FSSLEnabled := False;
   Result := True;
 end;
@@ -666,7 +470,7 @@ begin
   FLastError := 0;
   FLastErrorDesc := '';
   try
-    FStream.Write(PByte(Buffer)^, Len);
+    FSession.Write(PByte(Buffer)^, Len);
     Result := Len;
   except
     on E: Exception do
@@ -684,7 +488,7 @@ begin
   FLastErrorDesc := '';
   try
     // a clean close_notify surfaces as 0 (no error), matching ssl_openssl's ZERO_RETURN path
-    Result := FStream.Read(PByte(Buffer)^, Len);
+    Result := FSession.Read(PByte(Buffer)^, Len);
   except
     on E: Exception do
     begin
@@ -697,24 +501,18 @@ end;
 
 function TSSLTlsLib.WaitingData: Integer;
 begin
-  if FStream <> nil then
-    Result := FStream.PendingReadBytes
+  if FSession <> nil then
+    Result := FSession.PendingReadBytes
   else
     Result := 0;
 end;
 
 function TSSLTlsLib.GetSSLVersion: string;
 begin
-  if (FStream = nil) then
-    Exit('');
-  case FEngine.NegotiatedVersion.WireValue of
-    TlsWireVersionTls13:
-      Result := 'TLSv1.3';
-    TlsWireVersionTls12:
-      Result := 'TLSv1.2';
+  if FSession <> nil then
+    Result := FSession.VersionName
   else
     Result := '';
-  end;
 end;
 
 function TSSLTlsLib.GetCipherName: string;
@@ -724,40 +522,40 @@ end;
 
 function TSSLTlsLib.NegotiatedCipherSuite: UInt16;
 begin
-  if FStream <> nil then
-    Result := FEngine.NegotiatedCipherSuite
+  if FSession <> nil then
+    Result := FSession.NegotiatedCipherSuite
   else
     Result := 0;
 end;
 
 function TSSLTlsLib.NegotiatedGroup: UInt16;
 begin
-  if FStream <> nil then
-    Result := FEngine.NegotiatedGroup
+  if FSession <> nil then
+    Result := FSession.NegotiatedGroup
   else
     Result := 0;
 end;
 
 function TSSLTlsLib.PeerServerName: string;
 begin
-  if FStream <> nil then
-    Result := FEngine.PeerServerName
+  if FSession <> nil then
+    Result := FSession.PeerServerName
   else
     Result := '';
 end;
 
 function TSSLTlsLib.EchStatus: TEchStatus;
 begin
-  if FStream <> nil then
-    Result := FEngine.EchStatus
+  if FSession <> nil then
+    Result := FSession.EchStatus
   else
     Result := TEchStatus.NotOffered;
 end;
 
 function TSSLTlsLib.Resumed: Boolean;
 begin
-  if FStream <> nil then
-    Result := FEngine.IsResumed
+  if FSession <> nil then
+    Result := FSession.Resumed
   else
     Result := False;
 end;
