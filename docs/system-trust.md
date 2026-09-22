@@ -241,7 +241,7 @@ engaged — Windows and Apple can opt into `Live`, which fetches in the async pa
 | **Host handed to the OS** | the DNS host (an IP literal is stripped) | the DNS host (IP stripped) | the connected host as-is — the network-security-config domain key, not a name check |
 | **Issuer discovery for Hard** | discovers the issuer itself | discovers it itself | needs the peer to send its issuer (a leaf-only chain is indeterminate → Hard rejects, unless `WithLiveRevocationVerdict` defers it to the park) |
 | **A weak *and* revoked leaf** | `certificate_revoked` (revocation is folded into the OS verdict, before our policy) | `certificate_revoked` | `unsupported_certificate` (the staple is a post-check *after* our strength policy) |
-| **An uncached valid root** | may surface as `unknown_ca` (cache-only disables AuthRoot auto-download) | — | — |
+| **An uncached valid root** | may surface as `unknown_ca` (cache-only disables AuthRoot auto-download) | n/a — the OS ships its root store | n/a — the OS ships its root store |
 
 None of these differences weaken the trust decision relative to a correctly-configured OS; they are
 behavioural *differences* to weigh when you pick Delegate over the portable pipeline.
