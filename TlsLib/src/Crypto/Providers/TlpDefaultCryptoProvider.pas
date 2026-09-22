@@ -221,6 +221,8 @@ resourcestring
     'the key-exchange private key was not produced by this crypto provider';
   SKeyExchangeKeyNotExportable =
     'this key-exchange key has no raw scalar to export (a KEM or hybrid key)';
+  SPassphraseNotWholeChars =
+    'the passphrase buffer length is not a whole number of host code units';
   SMalformedPkcs12 = 'the PKCS#12 blob could not be read (wrong password, bad MAC, or malformed)';
   SPkcs12NoKeyEntry = 'the PKCS#12 blob holds no private-key entry';
   SPkcs12MultipleKeys =
@@ -1130,6 +1132,11 @@ var
 begin
   if not Supports(APrivateKey, IProviderKeyExchangeKey, LKey) then
     raise EArgumentTlsLibException.CreateRes(@SForeignKeyExchangeKey);
+  // a key from a different primitive (a KEM has no scalar; X25519 or a different curve has a
+  // different scalar width) is rejected rather than agreed under the wrong domain - the length
+  // gate the pre-handle Agree applied when it re-parsed the scalar
+  if (LKey.Scalar = nil) or (LKey.Scalar.Len <> FFieldSize) then
+    raise EArgumentTlsLibException.CreateRes(@SForeignKeyExchangeKey);
   // reuse the EC key parameter parsed at mint; the key's Usage drives the blinding posture
   LPrivParams := LKey.KeyParameter as IECPrivateKeyParameters;
   Result := AgreeParams(LPrivParams, WrapPeer(APeerPublicKey), APrivateKey.Usage);
@@ -1409,6 +1416,10 @@ begin
   // reader expects. nil and a zero-length buffer both yield no chars (an empty passphrase)
   if (APassword = nil) or (APassword.Len = 0) then
     Exit;
+  // the buffer must be a whole number of host code units; a stray odd byte (e.g. UTF-8 bytes
+  // handed in where WideChars are expected under Delphi) would otherwise write past the array
+  if (APassword.Len mod SizeOf(Char)) <> 0 then
+    raise EArgumentTlsLibException.CreateRes(@SPassphraseNotWholeChars);
   SetLength(Result, APassword.Len div SizeOf(Char));
   Move(APassword.DataPtr^, Result[0], APassword.Len);
 end;

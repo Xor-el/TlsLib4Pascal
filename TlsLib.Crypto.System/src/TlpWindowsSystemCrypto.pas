@@ -3494,17 +3494,22 @@ class function TWindowsNCrypt.WidePassword(
 {$IFDEF FPC}
 var
   LWideLen: Integer;
+  LCodePage: UINT;
 {$ENDIF FPC}
 begin
   Result := nil;
   if (APassword = nil) or (APassword.Len = 0) then
     Exit;
 {$IFDEF FPC}
-  LWideLen := MultiByteToWideChar(CP_ACP, 0, PAnsiChar(APassword.DataPtr),
+  // widen with the RTL's own default system codepage - the exact conversion the prior
+  // WideString(AnsiString) did (a UTF8_RTL / LazUtils app sets this to CP_UTF8), not the OS
+  // ANSI codepage, so a non-ASCII passphrase is not silently re-encoded
+  LCodePage := DefaultSystemCodePage;
+  LWideLen := MultiByteToWideChar(LCodePage, 0, PAnsiChar(APassword.DataPtr),
     APassword.Len, nil, 0);
   SetLength(Result, LWideLen + 1); // + NUL terminator
   if LWideLen > 0 then
-    MultiByteToWideChar(CP_ACP, 0, PAnsiChar(APassword.DataPtr), APassword.Len,
+    MultiByteToWideChar(LCodePage, 0, PAnsiChar(APassword.DataPtr), APassword.Len,
       PWideChar(Result), LWideLen);
   Result[LWideLen] := #0;
 {$ELSE}
@@ -3752,6 +3757,7 @@ var
   LBlob: TCryptDataBlob;
   LPassword: TArray<WideChar>;
   LPasswordPtr: PWideChar;
+  LEmptyPassword: WideChar;
   LStore, LCert: Pointer;
   LKey: NativeUInt;
   LSize: DWORD;
@@ -3762,13 +3768,15 @@ begin
     Exit(False);
   LBlob.cbData := System.Length(APfx);
   LBlob.pbData := PByte(APfx);
-  // an empty/absent passphrase is a nil pointer (as the prior empty WideString gave); a real
-  // one is the owned wide buffer, wiped once the import returns
+  // an empty/absent passphrase is L"" (a pointer to a single NUL) - exactly what the prior empty
+  // WideString gave, and distinct from NULL, which PFXImportCertStore may treat differently from
+  // an empty password (RFC 7292); a real one is the owned wide buffer, wiped once import returns
   LPassword := WidePassword(APassword);
+  LEmptyPassword := #0;
   if System.Length(LPassword) > 0 then
     LPasswordPtr := @LPassword[0]
   else
-    LPasswordPtr := nil;
+    LPasswordPtr := @LEmptyPassword;
   // keep the key CNG-backed (PKCS12_ALWAYS_CNG_KSP) and off disk (PKCS12_NO_PERSIST_KEY)
   LStore := FCryptApi.PFXImportCertStore(@LBlob, LPasswordPtr,
     PKCS12_NO_PERSIST_KEY or PKCS12_ALWAYS_CNG_KSP);
