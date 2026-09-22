@@ -1,0 +1,25 @@
+TlsLib/src/Interfaces/Engine/TlpITlsConfig.pas
+  s_09d3c46d1a9b1f::t_dec71fa66d8131 124-126
+  s_09d3c46d1a9b1f::t_e5b0f3a8dc047f 162-179
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_b6a266b020c29a 372,383
+  s_09d3c46d1a9b1f::t_64ce2e6b65410d 398-402,416-420
+  s_09d3c46d1a9b1f::t_8ff328aee90fa5 804-830
+  s_09d3c46d1a9b1f::t_81304fd12979c0 752-756
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "34bd2a96281cfdfb50c85e510f9d0089f30de915",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
