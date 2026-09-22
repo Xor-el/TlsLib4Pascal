@@ -86,6 +86,7 @@ type
     InsecureSkipVerify: Boolean;                 // default False
     CheckHostName: Boolean;                      // default True
     ClientAuth: TClientAuthMode;                 // applied when a client-trust source is named
+    ClientAuthRequested: Boolean;                // server: host asked for client auth (no source -> fails loud)
     AlpnProtocols: TArray<string>;
     VerifyCallback: TTlsCertificateVerifyCallback;
     ClientVerdictResolver: TCertificateVerdictResolver;
@@ -111,6 +112,7 @@ type
     class function Load(const ASource: TTlsAdapterBlobSource): TBytes; static;
     class procedure Sign(var ASig: TTlsSignatureBuilder; const AName: string;
       const ASource: TTlsAdapterBlobSource); static;
+    class function HasTrustAnchor(const AOptions: TTlsAdapterOptions): Boolean; static;
     class function HasClientTrustSource(const AOptions: TTlsAdapterOptions): Boolean; static;
     class function HasClientAuthTrustSource(const AOptions: TTlsAdapterOptions): Boolean; static;
   public
@@ -125,11 +127,13 @@ type
     class function BuildServerConfig(const AOptions: TTlsAdapterOptions): ITlsServerConfig; static;
     class function ClientSignature(const AOptions: TTlsAdapterOptions): string; static;
     class function ServerSignature(const AOptions: TTlsAdapterOptions): string; static;
-    /// <summary>Raises when a fully-built config is supplied together with options it would silently
-    /// replace (APropertyName names the config property in the message). The verdict resolvers and
-    /// the handshake timeout are runtime hooks and never conflict.</summary>
+    /// <summary>Raises when a fully-built config is supplied together with an option the same role's
+    /// options-driven build would consume and the config therefore silently replaces (APropertyName
+    /// names the config property in the message). Role-aware: only the client build reads the augment
+    /// callback and the server-cert verifier, only the server build reads the client-cert verifier.
+    /// The verdict resolvers and the handshake timeout are runtime hooks and never conflict.</summary>
     class procedure GuardNoConflict(const AOptions: TTlsAdapterOptions;
-      const APropertyName: string); static;
+      AIsClient: Boolean; const APropertyName: string); static;
     /// <summary>The client config for one handshake: the supplied ClientConfig (after the conflict
     /// guard), else the memoised options-driven build.</summary>
     class function ResolveClientConfig(const AOptions: TTlsAdapterOptions;
@@ -176,7 +180,7 @@ type
   strict private
   var
     FStream: TTlsStream;
-    FTransport: ITlsTransport;               // keeps the transport alive
+    FTransport: ITlsTransport;
     FTimed: TTlsTimedTransportBase;          // the same object, typed for the cap
     FEngine: ITlsEngine;
     FIsClient: Boolean;
@@ -220,6 +224,9 @@ const
 resourcestring
   SNoServerCredential =
     'no server certificate/private key was supplied';
+  SNoClientAuthSource =
+    'client authentication is requested but no client-trust source was named; set %s, or turn ' +
+    'client authentication off';
   SNoClientTrust =
     'peer verification is on but no trust source was named; set %s (system trust is never ' +
     'implicit), or turn peer verification off to skip verification';
@@ -227,6 +234,7 @@ resourcestring
     '%s is set together with cert/trust options that a fully-built config replaces; supply either ' +
     'the config or the cert/trust options, not both';
   SHandshakeReadTimedOut = 'the peer sent no handshake data within %d ms';
+  SSendNoProgress = 'the host transport reported no send progress';
 
 { TTlsAdapterBlobSource }
 
@@ -309,17 +317,28 @@ begin
     ASig.AddFile(AName, ASource.FileName);
 end;
 
+class function TTlsAdapterConfigComposer.HasTrustAnchor(
+  const AOptions: TTlsAdapterOptions): Boolean;
+var
+  LI: Int32;
+begin
+  for LI := 0 to System.High(AOptions.TrustAnchors) do
+    if not AOptions.TrustAnchors[LI].IsEmpty then
+      Exit(True);
+  Result := False;
+end;
+
 class function TTlsAdapterConfigComposer.HasClientTrustSource(
   const AOptions: TTlsAdapterOptions): Boolean;
 begin
-  Result := (AOptions.ServerCertificateVerifier <> nil) or (System.Length(AOptions.TrustAnchors) > 0) or
+  Result := (AOptions.ServerCertificateVerifier <> nil) or HasTrustAnchor(AOptions) or
     (AOptions.SystemTrust <> nil) or (AOptions.CustomTrustStore <> nil);
 end;
 
 class function TTlsAdapterConfigComposer.HasClientAuthTrustSource(
   const AOptions: TTlsAdapterOptions): Boolean;
 begin
-  Result := (AOptions.ClientCertificateVerifier <> nil) or (System.Length(AOptions.TrustAnchors) > 0) or
+  Result := (AOptions.ClientCertificateVerifier <> nil) or HasTrustAnchor(AOptions) or
     (AOptions.SystemTrust <> nil) or (AOptions.CustomTrustStore <> nil);
 end;
 
@@ -385,6 +404,11 @@ var
 begin
   if AOptions.Certificate.IsEmpty then
     raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SNoServerCredential);
+  // a host that explicitly asked for client authentication but named no client-trust source must
+  // fail loud, never fall through to a server that quietly asks for no certificate
+  if AOptions.ClientAuthRequested and (not HasClientAuthTrustSource(AOptions)) then
+    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
+      Format(SNoClientAuthSource, [AOptions.TrustSourceHint]));
   LPkix := EffectivePkix(AOptions);
   LServer := TTlsPresets.Compatible(EffectiveCrypto(AOptions), LPkix).Server
     .WithCredential(Load(AOptions.Certificate), Load(AOptions.PrivateKey), AOptions.KeyPassword);
@@ -471,6 +495,7 @@ begin
   LSig.AddPointer('customVerifier', AOptions.ClientCertificateVerifier);
   LSig.AddPointer('customStore', AOptions.CustomTrustStore);
   LSig.AddCardinal('clientAuth', Cardinal(Ord(AOptions.ClientAuth)));
+  LSig.AddFlag('clientAuthRequested', AOptions.ClientAuthRequested);
   for LI := 0 to System.High(AOptions.AlpnProtocols) do
     LSig.AddText('alpn', AOptions.AlpnProtocols[LI]);
   LSig.AddFlag('asyncVerdict', Assigned(AOptions.ServerVerdictResolver));
@@ -479,16 +504,26 @@ begin
 end;
 
 class procedure TTlsAdapterConfigComposer.GuardNoConflict(
-  const AOptions: TTlsAdapterOptions; const APropertyName: string);
+  const AOptions: TTlsAdapterOptions; AIsClient: Boolean; const APropertyName: string);
+var
+  LConflict: Boolean;
 begin
-  // a supplied config owns trust/credential entirely; naming these alongside it would be silently
-  // dropped, so fail loud. The verdict resolvers and the handshake timeout are runtime hooks (not
-  // part of the frozen config) and are deliberately excluded.
-  if (not AOptions.Certificate.IsEmpty) or (not AOptions.PrivateKey.IsEmpty) or
-    (System.Length(AOptions.TrustAnchors) > 0) or (AOptions.SystemTrust <> nil) or
-    (AOptions.CustomTrustStore <> nil) or (AOptions.ServerCertificateVerifier <> nil) or
-    (AOptions.ClientCertificateVerifier <> nil) or Assigned(AOptions.VerifyCallback) or
-    (System.Length(AOptions.AlpnProtocols) > 0) or (AOptions.Crypto <> nil) or (AOptions.Pkix <> nil) then
+  // a supplied config owns the frozen build entirely; naming an option the same role's own build
+  // would consume alongside it silently drops it, so fail loud. Credential, trust sources, ALPN and
+  // providers are read by both roles; the augment callback and the server-cert verifier are client-
+  // only reads and the client-cert verifier a server-only read, so flagging one on the other role
+  // would reject an option that role never consumes. The verdict resolvers and the handshake timeout
+  // are runtime hooks and never conflict.
+  LConflict := (not AOptions.Certificate.IsEmpty) or (not AOptions.PrivateKey.IsEmpty) or
+    HasTrustAnchor(AOptions) or (AOptions.SystemTrust <> nil) or
+    (AOptions.CustomTrustStore <> nil) or (System.Length(AOptions.AlpnProtocols) > 0) or
+    (AOptions.Crypto <> nil) or (AOptions.Pkix <> nil);
+  if AIsClient then
+    LConflict := LConflict or (AOptions.ServerCertificateVerifier <> nil) or
+      Assigned(AOptions.VerifyCallback)
+  else
+    LConflict := LConflict or (AOptions.ClientCertificateVerifier <> nil);
+  if LConflict then
     raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
       Format(SConfigAndOptionsConflict, [APropertyName]));
 end;
@@ -504,7 +539,7 @@ begin
   // cert/trust options alongside it fails loud rather than dropping them silently
   if AOptions.ClientConfig <> nil then
   begin
-    GuardNoConflict(AOptions, AConfigPropertyName);
+    GuardNoConflict(AOptions, True, AConfigPropertyName);
     Exit(AOptions.ClientConfig);
   end;
   LSig := ClientSignature(AOptions);
@@ -522,7 +557,7 @@ var
 begin
   if AOptions.ServerConfig <> nil then
   begin
-    GuardNoConflict(AOptions, AConfigPropertyName);
+    GuardNoConflict(AOptions, False, AConfigPropertyName);
     Exit(AOptions.ServerConfig);
   end;
   LSig := ServerSignature(AOptions);
@@ -566,6 +601,8 @@ begin
   while LRemain > 0 do
   begin
     LN := SendRaw(ABuffer, LOff, LRemain);
+    if LN <= 0 then
+      raise ETlsStreamError.Create(SSendNoProgress);
     Inc(LOff, LN);
     Dec(LRemain, LN);
   end;
@@ -580,8 +617,6 @@ begin
   inherited Create;
   FEngine := AEngine;
   FTimed := ATransport;
-  // the one refcount holder: the caller passes a fresh instance straight in (const skips AddRef),
-  // so this reference is what keeps the transport alive for the connection's lifetime
   FTransport := ATransport as ITlsTransport;
   FIsClient := AIsClient;
   FServerName := AServerName;

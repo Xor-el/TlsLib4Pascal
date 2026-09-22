@@ -105,6 +105,9 @@ type
     procedure TestGuardIncludesVerifyCallback;
     procedure TestGuardMessageNamesTheProperty;
     procedure TestGuardIgnoresResolverAndTimeout;
+    procedure TestServerClientAuthRequestedWithoutSourceRaises;
+    procedure TestServerGuardAllowsClientOnlyOptions;
+    procedure TestClientGuardFlagsServerCertVerifier;
     // timed transport
     procedure TestTransportTimesOutWhenSilent;
     procedure TestTransportReturnsDataWhenReadable;
@@ -586,7 +589,7 @@ procedure TTestAdapterCore.TestServerNoClientSourceLeavesNoClientAuth;
 var
   LOpts: TTlsAdapterOptions;
 begin
-  // a server resolver set but no client-trust source: the park is not armed (today's rule)
+  // a server resolver set but no client-trust source: the park is not armed
   LOpts := ServerOptsWithCredential;
   LOpts.ServerVerdictResolver := StubResolver;
   CheckEquals(Ord(TClientAuthMode.None),
@@ -612,7 +615,7 @@ var
   LOpts: TTlsAdapterOptions;
   LConfig: ITlsServerConfig;
 begin
-  // the A-3 pin: a client-CA source plus a server-role resolver arms the client-cert verdict park
+  // a client-CA source plus a server-role resolver arms the client-cert verdict park
   LOpts := ServerOptsWithCredential;
   LOpts.TrustAnchors := TArray<TTlsAdapterBlobSource>.Create(
     TTlsAdapterBlobSource.FromBytes(RootAnchor));
@@ -867,7 +870,7 @@ begin
   LOpts.CustomTrustStore := TTrustAnchorStore.Create(nil) as ITrustAnchorStore;
   LMsg := '';
   try
-    TTlsAdapterConfigComposer.GuardNoConflict(LOpts, 'ServerConfig');
+    TTlsAdapterConfigComposer.GuardNoConflict(LOpts, False, 'ServerConfig');
   except
     on E: ETlsStreamError do
       LMsg := E.Message;
@@ -885,8 +888,64 @@ begin
   LOpts.ClientVerdictResolver := StubResolver;
   LOpts.ServerVerdictResolver := StubResolver;
   // no raise expected
-  TTlsAdapterConfigComposer.GuardNoConflict(LOpts, 'ClientConfig');
+  TTlsAdapterConfigComposer.GuardNoConflict(LOpts, True, 'ClientConfig');
   CheckTrue(True, 'a resolver or timeout alone does not conflict');
+end;
+
+procedure TTestAdapterCore.TestServerClientAuthRequestedWithoutSourceRaises;
+var
+  LOpts: TTlsAdapterOptions;
+  LMsg: string;
+begin
+  // an explicit request for client authentication with no client-trust source must fail loud, not
+  // fall through to a server that quietly asks for no certificate
+  LOpts := ServerOptsWithCredential;
+  LOpts.ClientAuthRequested := True;
+  CheckTrue(RaisesStreamError(LOpts, False, LMsg),
+    'requested client auth without a client-trust source fails closed');
+end;
+
+procedure TTestAdapterCore.TestServerGuardAllowsClientOnlyOptions;
+var
+  LOpts: TTlsAdapterOptions;
+  LRaised: Boolean;
+begin
+  // the augment callback and the server-cert verifier are client-only reads, so they do not conflict
+  // with a supplied server config; a shared option (a certificate) still does
+  LOpts := TTlsAdapterOptions.Default;
+  LOpts.VerifyCallback := StubVerifyCallback;
+  LOpts.ServerCertificateVerifier := TFakeServerVerifier.Create as IServerCertificateVerifier;
+  LOpts.ServerConfig := TTlsAdapterConfigComposer.BuildServerConfig(ServerOptsWithCredential);
+  CheckNotNull(TTlsAdapterConfigComposer.ResolveServerConfig(LOpts, NewTlsServerConfigMemo,
+    'ServerConfig'), 'client-only options do not conflict with a server config-in');
+  LOpts.Certificate := TTlsAdapterBlobSource.FromBytes(ServerCert);
+  LRaised := False;
+  try
+    TTlsAdapterConfigComposer.ResolveServerConfig(LOpts, NewTlsServerConfigMemo, 'ServerConfig');
+  except
+    on E: ETlsStreamError do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a shared cert/trust option still conflicts with a server config-in');
+end;
+
+procedure TTestAdapterCore.TestClientGuardFlagsServerCertVerifier;
+var
+  LOpts: TTlsAdapterOptions;
+  LRaised: Boolean;
+begin
+  // the server-cert verifier is a client-role read, so it conflicts with a supplied client config
+  LOpts := TTlsAdapterOptions.Default;
+  LOpts.ServerCertificateVerifier := TFakeServerVerifier.Create as IServerCertificateVerifier;
+  LOpts.ClientConfig := TTlsAdapterConfigComposer.BuildClientConfig(ClientOptsWithStore);
+  LRaised := False;
+  try
+    TTlsAdapterConfigComposer.ResolveClientConfig(LOpts, NewTlsClientConfigMemo, 'ClientConfig');
+  except
+    on E: ETlsStreamError do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a server-cert verifier conflicts with a client config-in');
 end;
 
 procedure TTestAdapterCore.TestTransportTimesOutWhenSilent;

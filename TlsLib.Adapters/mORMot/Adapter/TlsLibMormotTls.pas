@@ -384,6 +384,7 @@ begin
   begin
     Result.VerifyPeer := True;
     Result.InsecureSkipVerify := False;
+    Result.ClientAuthRequested := AContext.ClientCertificateAuthentication;
   end;
   // CheckHostName and ClientAuth keep the composable defaults (True / Required); mORMot exposes no
   // knob for either, and offers no ALPN surface
