@@ -46,10 +46,8 @@ type
 
     /// <summary>A secret buffer holding a copy of ABytes.</summary>
     class function From(const ABytes: TBytes): ISecretBuffer; static;
-    /// <summary>A secret buffer holding AValue's raw host code units (1-byte chars under FPC
-    /// {$MODE DELPHI}, 2-byte under Delphi), so a passphrase can be carried as a wiped buffer
-    /// instead of an immutable string. An empty string yields a zero-length buffer (an empty
-    /// passphrase), distinct from nil (no passphrase).</summary>
+    /// <summary>A secret buffer holding AValue as UTF-8, so a passphrase is carried as a wiped
+    /// buffer instead of an immutable string. Empty yields a zero-length buffer, distinct from nil.</summary>
     class function FromString(const AValue: string): ISecretBuffer; static;
     /// <summary>A zero-filled secret buffer of ALen bytes.</summary>
     class function Allocate(ALen: Int32): ISecretBuffer; static;
@@ -156,13 +154,8 @@ begin
 end;
 
 class function TSecretBuffer.FromString(const AValue: string): ISecretBuffer;
-var
-  LLen: Int32;
 begin
-  LLen := System.Length(AValue) * SizeOf(Char);
-  Result := TSecretBuffer.Create(LLen);
-  if LLen > 0 then
-    Move(AValue[1], Result.DataPtr^, LLen);
+  Result := TSecretBuffer.From(TEncoding.UTF8.GetBytes(AValue));
 end;
 
 class function TSecretBuffer.Concat(const APrefix: TBytes;

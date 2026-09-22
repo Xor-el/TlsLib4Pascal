@@ -885,10 +885,6 @@ type
     // wraps a PKCS#1 (RSAPrivateKey) or SEC1 (ECPrivateKey) DER into a PKCS#8 the KSP
     // imports; a PKCS#8 (plain or encrypted) or unrecognized blob passes through unchanged
     class function WrapPkcs8IfNeeded(const ADer: TBytes): TBytes; static;
-    // the passphrase widened to an owned, NUL-terminated UTF-16 buffer the caller wipes; empty
-    // for nil or a zero-length passphrase. Under FPC the secret holds AnsiChar code units, widened
-    // with the system codepage (as the old WideString(AnsiString) did); under Delphi it is already
-    // UTF-16. No AnsiString/WideString temp lingers with the passphrase.
     class function WidePassword(const APassword: ISecretBuffer): TArray<WideChar>; static;
     function AlgName(AKey: NativeUInt): string;
     function KeySchemes(AKey: NativeUInt;
@@ -3491,32 +3487,21 @@ end;
 
 class function TWindowsNCrypt.WidePassword(
   const APassword: ISecretBuffer): TArray<WideChar>;
-{$IFDEF FPC}
 var
   LWideLen: Integer;
-  LCodePage: UINT;
-{$ENDIF FPC}
 begin
   Result := nil;
   if (APassword = nil) or (APassword.Len = 0) then
     Exit;
-{$IFDEF FPC}
-  // widen with the RTL's own default system codepage - the exact conversion the prior
-  // WideString(AnsiString) did (a UTF8_RTL / LazUtils app sets this to CP_UTF8), not the OS
-  // ANSI codepage, so a non-ASCII passphrase is not silently re-encoded
-  LCodePage := DefaultSystemCodePage;
-  LWideLen := MultiByteToWideChar(LCodePage, 0, PAnsiChar(APassword.DataPtr),
+  // the passphrase crosses the seam as UTF-8; widen it to the UTF-16 the KSP/PFX APIs take,
+  // into an owned buffer the caller wipes
+  LWideLen := MultiByteToWideChar(CP_UTF8, 0, PAnsiChar(APassword.DataPtr),
     APassword.Len, nil, 0);
   SetLength(Result, LWideLen + 1); // + NUL terminator
   if LWideLen > 0 then
-    MultiByteToWideChar(LCodePage, 0, PAnsiChar(APassword.DataPtr), APassword.Len,
+    MultiByteToWideChar(CP_UTF8, 0, PAnsiChar(APassword.DataPtr), APassword.Len,
       PWideChar(Result), LWideLen);
   Result[LWideLen] := #0;
-{$ELSE}
-  SetLength(Result, (APassword.Len div SizeOf(WideChar)) + 1); // + NUL terminator
-  System.Move(APassword.DataPtr^, Result[0], APassword.Len);
-  Result[System.Length(Result) - 1] := #0;
-{$ENDIF FPC}
 end;
 
 function TWindowsNCrypt.TryImportKey(const APkcs8: TBytes; const APassword: ISecretBuffer;

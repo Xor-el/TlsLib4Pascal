@@ -221,8 +221,6 @@ resourcestring
     'the key-exchange private key was not produced by this crypto provider';
   SKeyExchangeKeyNotExportable =
     'this key-exchange key has no raw scalar to export (a KEM or hybrid key)';
-  SPassphraseNotWholeChars =
-    'the passphrase buffer length is not a whole number of host code units';
   SMalformedPkcs12 = 'the PKCS#12 blob could not be read (wrong password, bad MAC, or malformed)';
   SPkcs12NoKeyEntry = 'the PKCS#12 blob holds no private-key entry';
   SPkcs12MultipleKeys =
@@ -900,7 +898,7 @@ end;
 
 destructor TKeyExchangePrivateKey.Destroy;
 begin
-  FScalar := nil; // the secret buffer wipes itself on release
+  FScalar := nil;
   FKeyParameter := nil;
   inherited Destroy;
 end;
@@ -1344,8 +1342,6 @@ end;
 
 destructor TStaticPasswordFinder.Destroy;
 begin
-  // the finder hands the passphrase chars by reference to the PEM reader; wipe the copy once
-  // it is released
   TCredentialImport.WipePasswordChars(FPassword);
   inherited Destroy;
 end;
@@ -1412,16 +1408,16 @@ class function TCredentialImport.PasswordChars(
   const APassword: ISecretBuffer): TArray<Char>;
 begin
   Result := nil;
-  // the secret holds the passphrase's raw host code units; rebuild the char array the backend
-  // reader expects. nil and a zero-length buffer both yield no chars (an empty passphrase)
+  // nil and a zero-length buffer both yield no chars (an empty passphrase)
   if (APassword = nil) or (APassword.Len = 0) then
     Exit;
-  // the buffer must be a whole number of host code units; a stray odd byte (e.g. UTF-8 bytes
-  // handed in where WideChars are expected under Delphi) would otherwise write past the array
-  if (APassword.Len mod SizeOf(Char)) <> 0 then
-    raise EArgumentTlsLibException.CreateRes(@SPassphraseNotWholeChars);
-  SetLength(Result, APassword.Len div SizeOf(Char));
+{$IFDEF FPC}
+  // Char is a byte here, so the stored bytes are copied into the array unchanged, not decoded
+  SetLength(Result, APassword.Len);
   Move(APassword.DataPtr^, Result[0], APassword.Len);
+{$ELSE}
+  Result := TEncoding.UTF8.GetChars(APassword.ToBytes);
+{$ENDIF FPC}
 end;
 
 class procedure TCredentialImport.WipePasswordChars(

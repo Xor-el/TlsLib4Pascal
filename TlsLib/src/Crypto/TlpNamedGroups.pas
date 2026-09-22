@@ -127,8 +127,6 @@ type
   // which of a hybrid's two legs is written first on the wire (RFC 10024 fixes it per group)
   THybridLegOrder = (KemFirst, ClassicalFirst);
 
-  // the provider-internal face of a hybrid private key: its two leg handles, so Decapsulate
-  // reaches each leg's own parsed key. Kept off IKeyExchangePrivateKey so a foreign key is rejected.
   IHybridKeyExchangeKey = interface(IInterface)
     ['{9D4C1E7A-6F35-4B82-A1D0-3E8B2C5F70A9}']
     function Classical: IKeyExchangePrivateKey;
