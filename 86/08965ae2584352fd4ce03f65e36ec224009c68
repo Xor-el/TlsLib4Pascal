@@ -1,0 +1,49 @@
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_09d3c46d1a9b1f::t_c6e4a9870372c3 432,563
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
+  s_09d3c46d1a9b1f::t_c6e4a9870372c3 577-578
+TlsLib.Adapters/Indy/Adapter/TlsLibIndyTls.pas
+  s_09d3c46d1a9b1f::t_c6e4a9870372c3 52,93,206,338,340,343-344,350,431-434,447-448,471,474,486,493,502,510,516,526,531,548-549,598,602,611,613,619-620,627-628,635-636,643-644,651-652,659-660
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_09d3c46d1a9b1f::t_c6e4a9870372c3 50,119,141,146,364-365,377,381,383,386,388,390,435,444,449,457,475-476,487,500,508,541-542,561,579,592-593,600-601,608-609,616-617,624-625,632-633,640-641
+TlsLib/src/Packages/Delphi/TlsLib4PascalPackage.dpk
+  s_09d3c46d1a9b1f::t_c6e4a9870372c3 171
+TlsLib.Adapters/Synapse/Adapter/TlsLibSynapseTls.pas
+  s_09d3c46d1a9b1f::t_c6e4a9870372c3 50,107,121,294-295,309,311,314-315,326,350,356,366,370,387-388,399,403,408,425-426,455-456,473,491,504-505,512-513,525-526,533-534,541-542,549-550,557-558
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_09d3c46d1a9b1f::t_c6e4a9870372c3 89,223
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpi
+  s_09d3c46d1a9b1f::t_c6e4a9870372c3 335
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpr
+  s_09d3c46d1a9b1f::t_c6e4a9870372c3 84
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.pas
+  s_09d3c46d1a9b1f::t_c6e4a9870372c3 52
+TlsLib.Tests/src/TlsConnectionTests.pas
+  s_09d3c46d1a9b1f::t_c6e4a9870372c3 1-1063
+TlsLib.Tests/FreePascal.Tests/TlsLib.Tests.lpi
+  s_09d3c46d1a9b1f::t_c6e4a9870372c3 341
+TlsLib.Adapters/mORMot/Adapter/TlsLibMormotTls.pas
+  s_09d3c46d1a9b1f::t_c6e4a9870372c3 48,130,136,339-342,347,351,354-355,371,415,427,444,446,488-489,496-497,504-505,512-513,520-521,539,541,551,566,572
+TlsLib/src/Engine/TlpTlsConnection.pas
+  s_09d3c46d1a9b1f::t_c6e4a9870372c3 1-754
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_09d3c46d1a9b1f::t_c6e4a9870372c3 109,243
+TlsLib.Tests/FreePascal.Tests/TlsLib.lpr
+  s_09d3c46d1a9b1f::t_c6e4a9870372c3 86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8608965ae2584352fd4ce03f65e36ec224009c68",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
