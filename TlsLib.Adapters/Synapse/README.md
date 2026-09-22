@@ -84,6 +84,9 @@ SetTlsLibSynapseVerdictResolver(resolver, deadlineMs);         // client role: d
 SetTlsLibSynapseServerVerdictResolver(resolver, deadlineMs);   // server role: decides an mTLS client's chain
 ```
 
+Being process-wide, set these before opening any connection; changing a hook while connections are
+in flight is not supported.
+
 Wire `TLiveRevocationChecker.ResolveVerdict` (from `TlpLiveRevocation`, over an injected
 `IHttpFetcher`) as the resolver to get live revocation. The resolver is role-specific — the client
 hook evaluates the server's chain (server-auth EKU), the server hook an mTLS client's chain
