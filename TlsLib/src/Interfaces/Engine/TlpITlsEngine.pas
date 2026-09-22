@@ -35,7 +35,6 @@ type
   /// <summary>The kind of a queued engine event.</summary>
   TTlsEventKind = (
     AppData,            // application data is available via ReadAppData
-    HandshakeFragment,  // a handshake record surfaced (the handshake state machine consumes it)
     PeerAlert,          // the peer sent an alert
     Closed,             // a close_notify was received (clean shutdown)
     KeysInstalled,      // a record-protection epoch was installed
@@ -60,12 +59,6 @@ type
     /// the code is recognized (a peer may send an unknown alert code).
     /// </summary>
     function Alert: TReceivedAlert;
-  end;
-
-  /// <summary>A handshake fragment, carried by a HandshakeFragment event.</summary>
-  IHandshakeDataEvent = interface(ITlsEvent)
-    ['{9F5B2A48-6C1E-4D70-B3A2-0E7D5C816B2F}']
-    function Data: TBytes;
   end;
 
   /// <summary>
@@ -132,7 +125,8 @@ type
     procedure SendClose;
     /// <summary>Sends a fatal alert and makes the engine terminal.</summary>
     procedure SendAlert(ADescription: TTlsAlertDescription);
-    /// <summary>Starts the handshake; raises if the engine has no handshake machine configured.</summary>
+    /// <summary>Starts the handshake: a client emits its first flight; a server has nothing to
+    /// send until the ClientHello.</summary>
     procedure StartHandshake;
     /// <summary>
     /// Resumes a handshake parked for an async peer-certificate verdict (RFC 8446

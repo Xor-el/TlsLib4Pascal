@@ -40,10 +40,10 @@ uses
 
 type
   /// <summary>
-  /// The default sans-IO engine: a shell that plumbs the record layer and the
-  /// alert protocol, with no handshake logic yet. It buffers inbound assembly, the
-  /// outbound queue, decrypted application data, and the event queue, all as TBytes
-  /// with explicit offset/length. Single-threaded: the caller serializes access.
+  /// The default sans-IO engine over a record layer, the alert protocol, and a
+  /// driven handshake. It buffers inbound assembly, the outbound queue, decrypted
+  /// application data, and the event queue, all as TBytes with explicit
+  /// offset/length. Single-threaded: the caller serializes access.
   /// </summary>
   TTlsEngine = class sealed(TInterfacedObject, ITlsEngine,
     IEngineRecordSequenceControl)
@@ -107,25 +107,22 @@ type
     procedure DrainRecordLayer;
     function Fail(const AException: Exception): TTlsOutcome;
   public
-    constructor Create;
+    /// <summary>
+    /// Builds the engine and wires its handshake in one step: a channel over the
+    /// record layer and a driver that installs epochs and reports outcomes back here,
+    /// held as the conductor. The initial machine selects the role (a client or server
+    /// graph) and whether the engine initiates the first flight.
+    /// </summary>
+    constructor Create(const AInitialMachine: IHandshakeMachine;
+      const ACryptoProvider: ICryptoProvider);
     destructor Destroy; override;
 
     /// <summary>
-    /// Creates an engine and wires its handshake in one exception-safe step, returning
-    /// it as an ITlsEngine, so callers do not repeat the create-then-configure sequence
-    /// and ConfigureHandshake stays off the public ITlsEngine surface.
+    /// Returns a wired engine as an ITlsEngine, side-stepping the leak of passing a
+    /// bare instance straight into an interface parameter.
     /// </summary>
     class function CreateConfigured(const AInitialMachine: IHandshakeMachine;
       const ACryptoProvider: ICryptoProvider): ITlsEngine; static;
-
-    /// <summary>
-    /// Wires the handshake: builds the channel over this engine's record layer and a
-    /// driver that installs epochs and reports outcomes back here, then holds the
-    /// resulting conductor. The initial state selects the role (a client or server
-    /// graph). Call once, before StartHandshake.
-    /// </summary>
-    procedure ConfigureHandshake(const AInitialMachine: IHandshakeMachine;
-      const ACryptoProvider: ICryptoProvider);
 
     function ProcessInput(const AWire: TBytes; AOffset, ALength: Int32): TTlsOutcome;
     procedure Write(const AData: TBytes; AOffset, ALength: Int32);
@@ -166,9 +163,8 @@ type
     function EchRetryConfigs: TBytes;
     function EchIsRetryAttempt: Boolean;
     function EchRejectAborted: Boolean;
-
-    // installer + sink operations the handshake bridge forwards to (the engine no
-    // longer implements those interfaces directly - see the bridge below)
+  private
+    // reached only by the handshake bridge below
     procedure InstallReadProtection(const AProtection: IRecordProtection);
     procedure InstallWriteProtection(const AProtection: IRecordProtection);
     procedure ArmReadProtectionOnChangeCipherSpec(const AProtection: IRecordProtection);
@@ -206,8 +202,6 @@ const
   MaxWarningAlerts = Int32(4);
 
 resourcestring
-  SHandshakeNotConfigured = 'no handshake was configured on this engine';
-  SHandshakeAlreadyConfigured = 'a handshake was already configured on this engine';
   SPeerFatalAlert = 'the peer sent a fatal alert';
   SWarningAlertInTls13 = 'a warning alert other than user_canceled is not permitted in TLS 1.3';
   STooManyWarningAlerts = 'the peer sent too many warning-level alerts';
@@ -405,12 +399,16 @@ end;
 
 { TTlsEngine }
 
-constructor TTlsEngine.Create;
+constructor TTlsEngine.Create(const AInitialMachine: IHandshakeMachine;
+  const ACryptoProvider: ICryptoProvider);
+var
+  LChannel: IHandshakeChannel;
+  LBridge: TEngineHandshakeBridge;
+  LDriver: THandshakeDriver;
 begin
   inherited Create;
   FRecordLayer := TRecordLayer.Create;
   FEvents := TQueue<ITlsEvent>.Create;
-  FConductor := nil;
   FMaxAppReadBuffer := DefaultMaxAppReadBuffer;
   FAppChunkHead := 0;
   FAppBytePos := 0;
@@ -432,6 +430,18 @@ begin
   // a zero wire code until an epoch's keys name the negotiated version
   FNegotiatedVersion := TTlsVersion.Create(0);
   FLastError := TTlsError.CreateFatal(TTlsAlertDescription.InternalError, '');
+  // a cleartext application_data record (before any read epoch key) is unexpected on a
+  // real handshake (RFC 8446 5.1)
+  FRecordLayer.StrictApplicationData := True;
+  // a client stamps its initial ClientHello record with legacy_record_version 0x0301 for
+  // backward compatibility before the negotiated version is known (RFC 8446 5.1)
+  if AInitialMachine.Initiates then
+    FRecordLayer.UseClientInitialRecordVersion;
+  LChannel := THandshakeChannel.Create(FRecordLayer) as IHandshakeChannel;
+  LBridge := TEngineHandshakeBridge.Create(Self);
+  LDriver := THandshakeDriver.Create(LChannel, LBridge as IRecordEpochInstaller,
+    ACryptoProvider, LBridge as IHandshakeSink);
+  FConductor := THandshakeConductor.Create(LChannel, LDriver, AInitialMachine);
 end;
 
 destructor TTlsEngine.Destroy;
@@ -447,35 +457,8 @@ end;
 class function TTlsEngine.CreateConfigured(
   const AInitialMachine: IHandshakeMachine;
   const ACryptoProvider: ICryptoProvider): ITlsEngine;
-var
-  LEngine: TTlsEngine;
 begin
-  LEngine := TTlsEngine.Create;
-  Result := LEngine; // assign the interface result before the fallible ConfigureHandshake
-  LEngine.ConfigureHandshake(AInitialMachine, ACryptoProvider);
-end;
-
-procedure TTlsEngine.ConfigureHandshake(const AInitialMachine: IHandshakeMachine;
-  const ACryptoProvider: ICryptoProvider);
-var
-  LChannel: IHandshakeChannel;
-  LBridge: TEngineHandshakeBridge;
-  LDriver: THandshakeDriver;
-begin
-  if FConductor <> nil then
-    raise EInvalidOperationTlsLibException.CreateRes(@SHandshakeAlreadyConfigured);
-  // a real handshake enforces the TLS record-phase rules: a cleartext application_data record
-  // (before any read epoch key) is unexpected (RFC 8446 5.1)
-  FRecordLayer.StrictApplicationData := True;
-  // a client stamps its initial ClientHello record with legacy_record_version 0x0301 for
-  // backward compatibility before the negotiated version is known (RFC 8446 5.1)
-  if AInitialMachine.Initiates then
-    FRecordLayer.UseClientInitialRecordVersion;
-  LChannel := THandshakeChannel.Create(FRecordLayer) as IHandshakeChannel;
-  LBridge := TEngineHandshakeBridge.Create(Self);
-  LDriver := THandshakeDriver.Create(LChannel, LBridge as IRecordEpochInstaller,
-    ACryptoProvider, LBridge as IHandshakeSink);
-  FConductor := THandshakeConductor.Create(LChannel, LDriver, AInitialMachine);
+  Result := TTlsEngine.Create(AInitialMachine, ACryptoProvider);
 end;
 
 procedure TTlsEngine.Enqueue(const AEvent: ITlsEvent);
@@ -577,24 +560,19 @@ begin
         // a handshake message that spans records MUST NOT have another record type interleaved
         // between its fragments (RFC 8446 5.1); an application_data record arriving while one is
         // partially buffered is that violation
-        if (FConductor <> nil) and FConductor.HasBufferedHandshake then
+        if FConductor.HasBufferedHandshake then
         begin
           OnHandshakeFailed(TTlsAlertDescription.UnexpectedMessage);
           Exit;
         end;
         // genuine traffic resets the peer's post-handshake message flood counter
-        if FConductor <> nil then
-          FConductor.NoteApplicationData;
+        FConductor.NoteApplicationData;
         AppendAppData(AFragment.Data);
         Enqueue(TTlsEvents.MakeAppData);
       end;
     TTlsContentType.Handshake:
-      // a configured handshake consumes the fragment and drives its state machine;
-      // otherwise it surfaces as an event for a caller-supplied handshake layer
-      if FConductor <> nil then
-        FConductor.DeliverHandshake(AFragment.Data, 0, System.Length(AFragment.Data))
-      else
-        Enqueue(TTlsEvents.MakeHandshakeFragment(AFragment.Data));
+      // the handshake consumes the fragment and drives its state machine
+      FConductor.DeliverHandshake(AFragment.Data, 0, System.Length(AFragment.Data));
     TTlsContentType.Alert:
       HandleIncomingAlert(AFragment.Data);
     // change_cipher_spec is consumed (classified) in the record layer; nothing else reaches here
@@ -695,7 +673,7 @@ begin
   // (RFC 8446 4.6.3); flushing here coalesces repeats into one response before the write.
   // A failure to build/flush it is fatal - abort with its alert and do NOT queue the app
   // plaintext behind that alert (the record layer's Write is not blocked by a failed read side).
-  if (FConductor <> nil) and FHandshakeComplete then
+  if FHandshakeComplete then
     try
       FConductor.FlushPendingKeyUpdate;
     except
@@ -719,7 +697,7 @@ begin
     Dec(LRemaining, LWritten);
     if LRemaining <= 0 then
       Break;
-    if (FConductor <> nil) and FHandshakeComplete then
+    if FHandshakeComplete then
       try
         FConductor.RequestKeyUpdate(False);
       except
@@ -772,8 +750,7 @@ begin
   // post-handshake only, over an established connection with a live handshake machine
   // (TLS 1.2 machines make this a no-op); the KeyUpdate is protected and queued outbound. An
   // inbound close_notify does not stop 1.3 writes, so it must not stop rekeying them either.
-  if FTerminal or FSentClose or (FClosed and not IsTls13) or (not FHandshakeComplete) or
-    (FConductor = nil) then
+  if FTerminal or FSentClose or (FClosed and not IsTls13) or (not FHandshakeComplete) then
     Exit;
   // a failure to build the KeyUpdate is fatal: abort with its alert rather than let the
   // exception escape the engine
@@ -797,7 +774,7 @@ begin
   // half-RTT (after it sent its Finished), before the peer's Finished (RFC 8446 7.5); TLS 1.2
   // stays gated on completion. Withheld while parked on an out-of-band peer-certificate verdict,
   // and a failed (terminal) connection exports nothing.
-  if (FConductor = nil) or FTerminal or (not FConductor.CanExportKeyingMaterial) then
+  if FTerminal or (not FConductor.CanExportKeyingMaterial) then
     Exit(nil);
   Result := FConductor.ExportKeyingMaterial(ALabel, AContext, AUseContext, ALength);
 end;
@@ -821,10 +798,6 @@ end;
 
 procedure TTlsEngine.StartHandshake;
 begin
-  // a nil conductor is API misuse (no handshake configured), not a peer failure: raise, do not
-  // turn it into a wire alert
-  if FConductor = nil then
-    raise ENotSupportedTlsLibException.CreateRes(@SHandshakeNotConfigured);
   // an in-band start failure (ECH/PSK/crypto setup) aborts with its alert rather than escaping
   try
     FConductor.Start;

@@ -29,7 +29,6 @@ type
     class function MakeClosed: ITlsEvent; static;
     class function MakeKeysInstalled: ITlsEvent; static;
     class function MakePeerAlert(const AAlert: TReceivedAlert): ITlsEvent; static;
-    class function MakeHandshakeFragment(const AData: TBytes): ITlsEvent; static;
     class function MakeCertificateReceived(const AChain, AValidatedPath: TArray<TBytes>;
       const AHostName: string; const AStaple: TBytes): ITlsEvent; static;
   end;
@@ -54,16 +53,6 @@ type
     constructor Create(const AAlert: TReceivedAlert);
     function Kind: TTlsEventKind;
     function Alert: TReceivedAlert;
-  end;
-
-  THandshakeDataEvent = class(TInterfacedObject, ITlsEvent, IHandshakeDataEvent)
-  strict private
-  var
-    FData: TBytes;
-  public
-    constructor Create(const AData: TBytes);
-    function Kind: TTlsEventKind;
-    function Data: TBytes;
   end;
 
   TCertificateReceivedEvent = class(TInterfacedObject, ITlsEvent,
@@ -114,24 +103,6 @@ end;
 function TPeerAlertEvent.Alert: TReceivedAlert;
 begin
   Result := FAlert;
-end;
-
-{ THandshakeDataEvent }
-
-constructor THandshakeDataEvent.Create(const AData: TBytes);
-begin
-  inherited Create;
-  FData := System.Copy(AData);
-end;
-
-function THandshakeDataEvent.Kind: TTlsEventKind;
-begin
-  Result := TTlsEventKind.HandshakeFragment;
-end;
-
-function THandshakeDataEvent.Data: TBytes;
-begin
-  Result := System.Copy(FData);
 end;
 
 { TCertificateReceivedEvent }
@@ -207,11 +178,6 @@ end;
 class function TTlsEvents.MakePeerAlert(const AAlert: TReceivedAlert): ITlsEvent;
 begin
   Result := TPeerAlertEvent.Create(AAlert);
-end;
-
-class function TTlsEvents.MakeHandshakeFragment(const AData: TBytes): ITlsEvent;
-begin
-  Result := THandshakeDataEvent.Create(AData);
 end;
 
 class function TTlsEvents.MakeCertificateReceived(const AChain,
