@@ -18,7 +18,7 @@
 /// reaches the OS system-trust source only through ISystemTrustInstaller, so this unit never depends
 /// on the system-trust package.
 /// </summary>
-unit TlpTlsAdapterCore;
+unit TlpTlsConnection;
 
 {$I ..\Include\TlsLib.inc}
 
@@ -57,11 +57,11 @@ type
   /// when the config is built. Empty when neither is set. Signed by digest (bytes) or by path+stat
   /// (file) for the build-once config identity, so a rotated file rebuilds and unchanged bytes
   /// reuse.</summary>
-  TTlsAdapterBlobSource = record
+  TTlsBlobSource = record
     FileName: string;
     Data: TBytes;
-    class function FromFile(const APath: string): TTlsAdapterBlobSource; static;
-    class function FromBytes(const AData: TBytes): TTlsAdapterBlobSource; static;
+    class function FromFile(const APath: string): TTlsBlobSource; static;
+    class function FromBytes(const AData: TBytes): TTlsBlobSource; static;
     function IsEmpty: Boolean;
   end;
 
@@ -71,13 +71,13 @@ type
   /// fully-built config that replaces the whole options-driven build. A value: an adapter fills one
   /// snapshot per handshake, so a concurrent change to a process-wide setter is never seen
   /// half-applied.</summary>
-  TTlsAdapterOptions = record
+  TTlsOptions = record
     Crypto: ICryptoProvider;                     // nil = TDefaultCryptoProvider.Shared
     Pkix: IPkixProvider;                         // nil = TDefaultPkixProvider.Shared
-    Certificate: TTlsAdapterBlobSource;          // own chain (server: required; client: mTLS)
-    PrivateKey: TTlsAdapterBlobSource;
+    Certificate: TTlsBlobSource;          // own chain (server: required; client: mTLS)
+    PrivateKey: TTlsBlobSource;
     KeyPassword: string;
-    TrustAnchors: TArray<TTlsAdapterBlobSource>; // each -> WithTrustAnchors (union)
+    TrustAnchors: TArray<TTlsBlobSource>; // each -> WithTrustAnchors (union)
     SystemTrust: ISystemTrustInstaller;          // non-nil = opt into the OS store (union)
     CustomTrustStore: ITrustAnchorStore;         // WithTrustStore (union)
     ServerCertificateVerifier: IServerCertificateVerifier;   // client role; replaces the pipeline
@@ -101,45 +101,45 @@ type
     /// <summary>A value with the composable defaults: VerifyPeer / CheckHostName / SessionResumption
     /// on, ClientAuth Required. Assign it at snapshot time (no class operator Initialize, to dodge
     /// the Delphi nested-managed-record leak trap).</summary>
-    class function Default: TTlsAdapterOptions; static;
+    class function Default: TTlsOptions; static;
   end;
 
   /// <summary>The single site that composes an adapter's TLS configuration from its options, memoises
   /// it, and guards a supplied config against the options it would silently replace. Every method is
   /// static: the composer holds no state.</summary>
-  TTlsAdapterConfigComposer = class sealed(TObject)
+  TTlsConfigComposer = class sealed(TObject)
   strict private
-    class function Load(const ASource: TTlsAdapterBlobSource): TBytes; static;
+    class function Load(const ASource: TTlsBlobSource): TBytes; static;
     class procedure Sign(var ASig: TTlsSignatureBuilder; const AName: string;
-      const ASource: TTlsAdapterBlobSource); static;
-    class function HasTrustAnchor(const AOptions: TTlsAdapterOptions): Boolean; static;
-    class function HasClientTrustSource(const AOptions: TTlsAdapterOptions): Boolean; static;
-    class function HasClientAuthTrustSource(const AOptions: TTlsAdapterOptions): Boolean; static;
+      const ASource: TTlsBlobSource); static;
+    class function HasTrustAnchor(const AOptions: TTlsOptions): Boolean; static;
+    class function HasClientTrustSource(const AOptions: TTlsOptions): Boolean; static;
+    class function HasClientAuthTrustSource(const AOptions: TTlsOptions): Boolean; static;
   public
-    class function EffectiveCrypto(const AOptions: TTlsAdapterOptions): ICryptoProvider; static;
-    class function EffectivePkix(const AOptions: TTlsAdapterOptions): IPkixProvider; static;
+    class function EffectiveCrypto(const AOptions: TTlsOptions): ICryptoProvider; static;
+    class function EffectivePkix(const AOptions: TTlsOptions): IPkixProvider; static;
     /// <summary>The options-driven client config (the build the memo caches). Raises
     /// ETlsStreamError(internal_error) when verification is on and no trust source is named.</summary>
-    class function BuildClientConfig(const AOptions: TTlsAdapterOptions): ITlsClientConfig; static;
+    class function BuildClientConfig(const AOptions: TTlsOptions): ITlsClientConfig; static;
     /// <summary>The options-driven server config. Raises without a certificate. Requests client
     /// authentication (at AOptions.ClientAuth) only when a client-trust source is named, and arms the
     /// live-revocation verdict park for the server-role resolver only then.</summary>
-    class function BuildServerConfig(const AOptions: TTlsAdapterOptions): ITlsServerConfig; static;
-    class function ClientSignature(const AOptions: TTlsAdapterOptions): string; static;
-    class function ServerSignature(const AOptions: TTlsAdapterOptions): string; static;
+    class function BuildServerConfig(const AOptions: TTlsOptions): ITlsServerConfig; static;
+    class function ClientSignature(const AOptions: TTlsOptions): string; static;
+    class function ServerSignature(const AOptions: TTlsOptions): string; static;
     /// <summary>Raises when a fully-built config is supplied together with an option the same role's
     /// options-driven build would consume and the config therefore silently replaces (APropertyName
     /// names the config property in the message). Role-aware: only the client build reads the augment
     /// callback and the server-cert verifier, only the server build reads the client-cert verifier.
     /// The verdict resolvers and the handshake timeout are runtime hooks and never conflict.</summary>
-    class procedure GuardNoConflict(const AOptions: TTlsAdapterOptions;
+    class procedure GuardNoConflict(const AOptions: TTlsOptions;
       AIsClient: Boolean; const APropertyName: string); static;
     /// <summary>The client config for one handshake: the supplied ClientConfig (after the conflict
     /// guard), else the memoised options-driven build.</summary>
-    class function ResolveClientConfig(const AOptions: TTlsAdapterOptions;
+    class function ResolveClientConfig(const AOptions: TTlsOptions;
       const AMemo: ITlsClientConfigMemo;
       const AConfigPropertyName: string): ITlsClientConfig; static;
-    class function ResolveServerConfig(const AOptions: TTlsAdapterOptions;
+    class function ResolveServerConfig(const AOptions: TTlsOptions;
       const AMemo: ITlsServerConfigMemo;
       const AConfigPropertyName: string): ITlsServerConfig; static;
   end;
@@ -176,7 +176,7 @@ type
   /// and then cleared, application reads and writes, and the negotiated facts (zero values before
   /// the handshake). Host-owned; freeing it frees the stream and releases the transport and engine
   /// without sending close_notify (a host calls CloseNotify at its own close hook).</summary>
-  TTlsAdapterSession = class sealed(TObject)
+  TTlsConnection = class sealed(TObject)
   strict private
   var
     FStream: TTlsStream;
@@ -236,42 +236,42 @@ resourcestring
   SHandshakeReadTimedOut = 'the peer sent no handshake data within %d ms';
   SSendNoProgress = 'the host transport reported no send progress';
 
-{ TTlsAdapterBlobSource }
+{ TTlsBlobSource }
 
-class function TTlsAdapterBlobSource.FromFile(
-  const APath: string): TTlsAdapterBlobSource;
+class function TTlsBlobSource.FromFile(
+  const APath: string): TTlsBlobSource;
 begin
   Result.FileName := APath;
   Result.Data := nil;
 end;
 
-class function TTlsAdapterBlobSource.FromBytes(
-  const AData: TBytes): TTlsAdapterBlobSource;
+class function TTlsBlobSource.FromBytes(
+  const AData: TBytes): TTlsBlobSource;
 begin
   Result.FileName := '';
   Result.Data := AData;
 end;
 
-function TTlsAdapterBlobSource.IsEmpty: Boolean;
+function TTlsBlobSource.IsEmpty: Boolean;
 begin
   Result := (FileName = '') and (System.Length(Data) = 0);
 end;
 
-{ TTlsAdapterOptions }
+{ TTlsOptions }
 
-class function TTlsAdapterOptions.Default: TTlsAdapterOptions;
+class function TTlsOptions.Default: TTlsOptions;
 begin
-  Result := System.Default(TTlsAdapterOptions);
+  Result := System.Default(TTlsOptions);
   Result.VerifyPeer := True;
   Result.CheckHostName := True;
   Result.SessionResumption := True;
   Result.ClientAuth := TClientAuthMode.Required;
 end;
 
-{ TTlsAdapterConfigComposer }
+{ TTlsConfigComposer }
 
-class function TTlsAdapterConfigComposer.EffectiveCrypto(
-  const AOptions: TTlsAdapterOptions): ICryptoProvider;
+class function TTlsConfigComposer.EffectiveCrypto(
+  const AOptions: TTlsOptions): ICryptoProvider;
 begin
   if AOptions.Crypto <> nil then
     Result := AOptions.Crypto
@@ -279,8 +279,8 @@ begin
     Result := TDefaultCryptoProvider.Shared;
 end;
 
-class function TTlsAdapterConfigComposer.EffectivePkix(
-  const AOptions: TTlsAdapterOptions): IPkixProvider;
+class function TTlsConfigComposer.EffectivePkix(
+  const AOptions: TTlsOptions): IPkixProvider;
 begin
   if AOptions.Pkix <> nil then
     Result := AOptions.Pkix
@@ -288,8 +288,8 @@ begin
     Result := TDefaultPkixProvider.Shared;
 end;
 
-class function TTlsAdapterConfigComposer.Load(
-  const ASource: TTlsAdapterBlobSource): TBytes;
+class function TTlsConfigComposer.Load(
+  const ASource: TTlsBlobSource): TBytes;
 var
   LStream: TFileStream;
 begin
@@ -308,8 +308,8 @@ begin
   end;
 end;
 
-class procedure TTlsAdapterConfigComposer.Sign(var ASig: TTlsSignatureBuilder;
-  const AName: string; const ASource: TTlsAdapterBlobSource);
+class procedure TTlsConfigComposer.Sign(var ASig: TTlsSignatureBuilder;
+  const AName: string; const ASource: TTlsBlobSource);
 begin
   if System.Length(ASource.Data) > 0 then
     ASig.AddBytesDigest(AName, ASource.Data)
@@ -317,8 +317,8 @@ begin
     ASig.AddFile(AName, ASource.FileName);
 end;
 
-class function TTlsAdapterConfigComposer.HasTrustAnchor(
-  const AOptions: TTlsAdapterOptions): Boolean;
+class function TTlsConfigComposer.HasTrustAnchor(
+  const AOptions: TTlsOptions): Boolean;
 var
   LI: Int32;
 begin
@@ -328,22 +328,22 @@ begin
   Result := False;
 end;
 
-class function TTlsAdapterConfigComposer.HasClientTrustSource(
-  const AOptions: TTlsAdapterOptions): Boolean;
+class function TTlsConfigComposer.HasClientTrustSource(
+  const AOptions: TTlsOptions): Boolean;
 begin
   Result := (AOptions.ServerCertificateVerifier <> nil) or HasTrustAnchor(AOptions) or
     (AOptions.SystemTrust <> nil) or (AOptions.CustomTrustStore <> nil);
 end;
 
-class function TTlsAdapterConfigComposer.HasClientAuthTrustSource(
-  const AOptions: TTlsAdapterOptions): Boolean;
+class function TTlsConfigComposer.HasClientAuthTrustSource(
+  const AOptions: TTlsOptions): Boolean;
 begin
   Result := (AOptions.ClientCertificateVerifier <> nil) or HasTrustAnchor(AOptions) or
     (AOptions.SystemTrust <> nil) or (AOptions.CustomTrustStore <> nil);
 end;
 
-class function TTlsAdapterConfigComposer.BuildClientConfig(
-  const AOptions: TTlsAdapterOptions): ITlsClientConfig;
+class function TTlsConfigComposer.BuildClientConfig(
+  const AOptions: TTlsOptions): ITlsClientConfig;
 var
   LPkix: IPkixProvider;
   LClient: ITlsClientConfigBuilder;
@@ -395,8 +395,8 @@ begin
   Result := LClient.Build;
 end;
 
-class function TTlsAdapterConfigComposer.BuildServerConfig(
-  const AOptions: TTlsAdapterOptions): ITlsServerConfig;
+class function TTlsConfigComposer.BuildServerConfig(
+  const AOptions: TTlsOptions): ITlsServerConfig;
 var
   LPkix: IPkixProvider;
   LServer: ITlsServerConfigBuilder;
@@ -442,8 +442,8 @@ begin
   Result := LServer.Build;
 end;
 
-class function TTlsAdapterConfigComposer.ClientSignature(
-  const AOptions: TTlsAdapterOptions): string;
+class function TTlsConfigComposer.ClientSignature(
+  const AOptions: TTlsOptions): string;
 var
   LSig: TTlsSignatureBuilder;
   LCrypto: ICryptoProvider;
@@ -473,8 +473,8 @@ begin
   Result := LSig.Value;
 end;
 
-class function TTlsAdapterConfigComposer.ServerSignature(
-  const AOptions: TTlsAdapterOptions): string;
+class function TTlsConfigComposer.ServerSignature(
+  const AOptions: TTlsOptions): string;
 var
   LSig: TTlsSignatureBuilder;
   LCrypto: ICryptoProvider;
@@ -503,8 +503,8 @@ begin
   Result := LSig.Value;
 end;
 
-class procedure TTlsAdapterConfigComposer.GuardNoConflict(
-  const AOptions: TTlsAdapterOptions; AIsClient: Boolean; const APropertyName: string);
+class procedure TTlsConfigComposer.GuardNoConflict(
+  const AOptions: TTlsOptions; AIsClient: Boolean; const APropertyName: string);
 var
   LConflict: Boolean;
 begin
@@ -528,8 +528,8 @@ begin
       Format(SConfigAndOptionsConflict, [APropertyName]));
 end;
 
-class function TTlsAdapterConfigComposer.ResolveClientConfig(
-  const AOptions: TTlsAdapterOptions; const AMemo: ITlsClientConfigMemo;
+class function TTlsConfigComposer.ResolveClientConfig(
+  const AOptions: TTlsOptions; const AMemo: ITlsClientConfigMemo;
   const AConfigPropertyName: string): ITlsClientConfig;
 var
   LSig: string;
@@ -548,8 +548,8 @@ begin
   Result := LConfig;
 end;
 
-class function TTlsAdapterConfigComposer.ResolveServerConfig(
-  const AOptions: TTlsAdapterOptions; const AMemo: ITlsServerConfigMemo;
+class function TTlsConfigComposer.ResolveServerConfig(
+  const AOptions: TTlsOptions; const AMemo: ITlsServerConfigMemo;
   const AConfigPropertyName: string): ITlsServerConfig;
 var
   LSig: string;
@@ -608,9 +608,9 @@ begin
   end;
 end;
 
-{ TTlsAdapterSession }
+{ TTlsConnection }
 
-constructor TTlsAdapterSession.Create(const AEngine: ITlsEngine;
+constructor TTlsConnection.Create(const AEngine: ITlsEngine;
   const ATransport: TTlsTimedTransportBase; AIsClient: Boolean;
   const AServerName: string; const AResolver: TCertificateVerdictResolver);
 begin
@@ -627,7 +627,7 @@ begin
     FStream.SetCertificateVerdictResolver(AResolver);
 end;
 
-destructor TTlsAdapterSession.Destroy;
+destructor TTlsConnection.Destroy;
 begin
   FStream.Free;
   FStream := nil;
@@ -637,7 +637,7 @@ begin
   inherited Destroy;
 end;
 
-function TTlsAdapterSession.Info: TTlsConnectionInfo;
+function TTlsConnection.Info: TTlsConnectionInfo;
 begin
   if FStream <> nil then
     Result := FStream.ConnectionInfo
@@ -645,7 +645,7 @@ begin
     Result := System.Default(TTlsConnectionInfo);
 end;
 
-procedure TTlsAdapterSession.Handshake(AHandshakeTimeoutMs: Int32);
+procedure TTlsConnection.Handshake(AHandshakeTimeoutMs: Int32);
 var
   LMs: Int32;
 begin
@@ -661,22 +661,22 @@ begin
   end;
 end;
 
-function TTlsAdapterSession.IsHandshakeComplete: Boolean;
+function TTlsConnection.IsHandshakeComplete: Boolean;
 begin
   Result := (FStream <> nil) and FStream.IsHandshakeComplete;
 end;
 
-function TTlsAdapterSession.Read(var ABuffer; ACount: Longint): Longint;
+function TTlsConnection.Read(var ABuffer; ACount: Longint): Longint;
 begin
   Result := FStream.Read(ABuffer, ACount);
 end;
 
-function TTlsAdapterSession.Write(const ABuffer; ACount: Longint): Longint;
+function TTlsConnection.Write(const ABuffer; ACount: Longint): Longint;
 begin
   Result := FStream.Write(ABuffer, ACount);
 end;
 
-function TTlsAdapterSession.PendingReadBytes: Int32;
+function TTlsConnection.PendingReadBytes: Int32;
 begin
   if FStream <> nil then
     Result := FStream.PendingReadBytes
@@ -684,13 +684,13 @@ begin
     Result := 0;
 end;
 
-procedure TTlsAdapterSession.CloseNotify;
+procedure TTlsConnection.CloseNotify;
 begin
   if FStream <> nil then
     FStream.CloseNotify;
 end;
 
-procedure TTlsAdapterSession.CloseNotifyQuietly;
+procedure TTlsConnection.CloseNotifyQuietly;
 begin
   if FStream <> nil then
     try
@@ -699,37 +699,37 @@ begin
     end;
 end;
 
-function TTlsAdapterSession.NegotiatedVersion: TTlsVersion;
+function TTlsConnection.NegotiatedVersion: TTlsVersion;
 begin
   Result := Info.NegotiatedVersion;
 end;
 
-function TTlsAdapterSession.NegotiatedCipherSuite: UInt16;
+function TTlsConnection.NegotiatedCipherSuite: UInt16;
 begin
   Result := Info.CipherSuite;
 end;
 
-function TTlsAdapterSession.NegotiatedGroup: UInt16;
+function TTlsConnection.NegotiatedGroup: UInt16;
 begin
   Result := Info.NamedGroup;
 end;
 
-function TTlsAdapterSession.PeerServerName: string;
+function TTlsConnection.PeerServerName: string;
 begin
   Result := Info.ServerName;
 end;
 
-function TTlsAdapterSession.EchStatus: TEchStatus;
+function TTlsConnection.EchStatus: TEchStatus;
 begin
   Result := Info.EchStatus;
 end;
 
-function TTlsAdapterSession.Resumed: Boolean;
+function TTlsConnection.Resumed: Boolean;
 begin
   Result := Info.Resumed;
 end;
 
-function TTlsAdapterSession.PeerLeaf: TBytes;
+function TTlsConnection.PeerLeaf: TBytes;
 var
   LChain: TArray<TBytes>;
 begin
@@ -739,7 +739,7 @@ begin
     Result := LChain[0];
 end;
 
-function TTlsAdapterSession.VersionName: string;
+function TTlsConnection.VersionName: string;
 begin
   case Info.NegotiatedVersion.WireValue of
     TlsWireVersionTls13:

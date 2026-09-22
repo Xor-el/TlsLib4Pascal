@@ -574,8 +574,8 @@
         <UnitName Value="TlpIKeyExchangePrivateKey"/>
       </Item136>
       <Item137>
-        <Filename Value="..\..\Engine\TlpTlsAdapterCore.pas"/>
-        <UnitName Value="TlpTlsAdapterCore"/>
+        <Filename Value="..\..\Engine\TlpTlsConnection.pas"/>
+        <UnitName Value="TlpTlsConnection"/>
       </Item137>
     </Files>
     <CompatibilityMode Value="True"/>

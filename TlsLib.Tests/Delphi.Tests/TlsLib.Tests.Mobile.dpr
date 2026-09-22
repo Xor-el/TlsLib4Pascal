@@ -86,7 +86,7 @@ uses
   TlpTlsConnectionInfo in '..\..\TlsLib\src\Engine\TlpTlsConnectionInfo.pas',
   TlpTlsStreamPump in '..\..\TlsLib\src\Engine\TlpTlsStreamPump.pas',
   TlpTlsStream in '..\..\TlsLib\src\Engine\TlpTlsStream.pas',
-  TlpTlsAdapterCore in '..\..\TlsLib\src\Engine\TlpTlsAdapterCore.pas',
+  TlpTlsConnection in '..\..\TlsLib\src\Engine\TlpTlsConnection.pas',
   TlpIHttpFetcher in '..\..\TlsLib\src\Interfaces\Trust\TlpIHttpFetcher.pas',
   TlpLiveRevocation in '..\..\TlsLib\src\Trust\TlpLiveRevocation.pas',
   TlpICertificateCompression in '..\..\TlsLib\src\Interfaces\CertCompression\TlpICertificateCompression.pas',
@@ -220,7 +220,7 @@ uses
   ExtensionCodecTests in '..\src\ExtensionCodecTests.pas',
   ExtensionVectorTests in '..\src\ExtensionVectorTests.pas',
   NegotiationTests in '..\src\NegotiationTests.pas',
-  AdapterCoreTests in '..\src\AdapterCoreTests.pas';
+  TlsConnectionTests in '..\src\TlsConnectionTests.pas';
 
 {$R *.res}
 
