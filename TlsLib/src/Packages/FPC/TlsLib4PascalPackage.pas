@@ -49,7 +49,7 @@ uses
   TlpCertificateStrengthPolicy, TlpPkixDomainTypes, TlpIPkixProvider, 
   TlpDefaultPkixProvider, TlpExtensionVector, TlpEchRegistryExtension, 
   TlpHandshakeStage, TlpServerOfferSelection, TlpPeerAuthentication,
-  TlpIKeyExchangePrivateKey, TlpTlsAdapterCore;
+  TlpIKeyExchangePrivateKey, TlpTlsConnection;
 
 implementation
 

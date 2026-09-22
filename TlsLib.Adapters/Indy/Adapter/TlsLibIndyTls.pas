@@ -49,7 +49,7 @@ uses
   TlpITlsConfigMemo,
   TlpTlsConfigMemo,
   TlpTlsLibExceptions,
-  TlpTlsAdapterCore,
+  TlpTlsConnection,
   TlpSystemTrustFacade;
 
 type
@@ -90,7 +90,7 @@ type
     /// value per handshake, so a design-time property changed mid-connection is never seen
     /// half-applied. The role (client vs server) is chosen by the caller when it resolves the
     /// config and attaches the resolver, not here.</summary>
-    function Snapshot: TTlsAdapterOptions;
+    function Snapshot: TTlsOptions;
     /// <summary>A fully-built client config that REPLACES the options-driven build: when set, the
     /// cert/trust options here are not allowed alongside it (the adapter raises). The verdict
     /// resolvers (VerdictResolver/ServerVerdictResolver and their deadlines) are the exception -
@@ -203,7 +203,7 @@ type
   strict private
   var
     FOptions: TTlsLibSSLOptions;
-    FSession: TTlsAdapterSession;
+    FConnection: TTlsConnection;
     FServerMemo: ITlsServerConfigMemo;   // shared with the listener; server peers reuse one config
     FHandshakeLock: TCriticalSection;    // serializes the deferred first-touch handshake
     procedure DoHandshake;
@@ -335,19 +335,19 @@ begin
     inherited Assign(ASource);
 end;
 
-function TTlsLibSSLOptions.Snapshot: TTlsAdapterOptions;
+function TTlsLibSSLOptions.Snapshot: TTlsOptions;
 begin
-  Result := TTlsAdapterOptions.Default;
+  Result := TTlsOptions.Default;
   Result.Crypto := FCrypto;
   Result.Pkix := FPkix;
-  Result.Certificate := TTlsAdapterBlobSource.FromFile(FCertFile);
-  Result.PrivateKey := TTlsAdapterBlobSource.FromFile(FKeyFile);
+  Result.Certificate := TTlsBlobSource.FromFile(FCertFile);
+  Result.PrivateKey := TTlsBlobSource.FromFile(FKeyFile);
   Result.KeyPassword := FKeyPassword;
   // a named RootCertFile is one trust anchor; leaving it out keeps HasClientTrustSource honest
   if FRootCertFile <> '' then
   begin
     SetLength(Result.TrustAnchors, 1);
-    Result.TrustAnchors[0] := TTlsAdapterBlobSource.FromFile(FRootCertFile);
+    Result.TrustAnchors[0] := TTlsBlobSource.FromFile(FRootCertFile);
   end;
   // UseSystemTrust opts into the OS store through the host-neutral installer seam, so the core
   // never depends on the system-trust package
@@ -428,10 +428,10 @@ destructor TTlsLibIOHandlerSocket.Destroy;
 begin
   // belt-and-braces for a handler freed directly without a prior Close: emit close_notify while
   // the socket may still be open. Idempotent - a no-op when Close already sent it.
-  if FSession <> nil then
-    FSession.CloseNotifyQuietly;
-  FSession.Free;
-  FSession := nil; // inherited Destroy calls Close; keep it from touching a freed session
+  if FConnection <> nil then
+    FConnection.CloseNotifyQuietly;
+  FConnection.Free;
+  FConnection := nil; // inherited Destroy calls Close; keep it from touching a freed session
   FOptions.Free;
   FHandshakeLock.Free;
   inherited Destroy;
@@ -444,8 +444,8 @@ begin
   // only writes and flushes (it never waits for the peer's answering close_notify, so there is
   // no wedge), is idempotent, and no-ops on a stream that never finished the handshake. A write
   // to an already-dead peer is expected and ignored.
-  if FSession <> nil then
-    FSession.CloseNotifyQuietly;
+  if FConnection <> nil then
+    FConnection.CloseNotifyQuietly;
   inherited Close;
 end;
 
@@ -468,10 +468,10 @@ begin
   // aborted by the handshake read timeout rather than pinning this worker thread. Then surface
   // engine-buffered plaintext (a record coalesced with the peer's final flight) that a raw
   // socket select cannot see, before falling back to the base socket-readability check.
-  if (not fPassThrough) and (FSession = nil) and (Binding <> nil) and
+  if (not fPassThrough) and (FConnection = nil) and (Binding <> nil) and
     Binding.HandleAllocated then
     DoHandshake;
-  if (FSession <> nil) and (FSession.PendingReadBytes > 0) then
+  if (FConnection <> nil) and (FConnection.PendingReadBytes > 0) then
     Exit(True);
   Result := inherited Readable(AMSec);
 end;
@@ -483,14 +483,14 @@ end;
 
 function TTlsLibIOHandlerSocket.BuildEngine(AIsClient: Boolean): ITlsEngine;
 var
-  LOptions: TTlsAdapterOptions;
+  LOptions: TTlsOptions;
 begin
   LOptions := FOptions.Snapshot;
   // a fully-built config supplied by the app REPLACES the options-driven build outright; the
   // composer's conflict guard fails loud when cert/trust options are named alongside it
   if AIsClient then
     Exit(TTlsEngineFactory.CreateClientEngine(
-      TTlsAdapterConfigComposer.ResolveClientConfig(LOptions, GClientConfigMemo,
+      TTlsConfigComposer.ResolveClientConfig(LOptions, GClientConfigMemo,
       'SSLOptions.ClientConfig'), Host));
   // a server peer reuses the listener's shared memo so all peers bind to one config identity; a
   // standalone handler doing its own accepts (no TTlsLibServerIOHandler listener) lazily owns one,
@@ -499,7 +499,7 @@ begin
   if FServerMemo = nil then
     FServerMemo := NewTlsServerConfigMemo;
   Result := TTlsEngineFactory.CreateServerEngine(
-    TTlsAdapterConfigComposer.ResolveServerConfig(LOptions, FServerMemo, 'SSLOptions.ServerConfig'));
+    TTlsConfigComposer.ResolveServerConfig(LOptions, FServerMemo, 'SSLOptions.ServerConfig'));
 end;
 
 procedure TTlsLibIOHandlerSocket.DoHandshake;
@@ -507,13 +507,13 @@ var
   LEngine: ITlsEngine;
   LResolver: TCertificateVerdictResolver;
 begin
-  if FSession <> nil then
+  if FConnection <> nil then
     Exit; // fast path: handshake already run
   // the deferred handshake can be reached concurrently by RecvEnc, SendEnc and Readable (a
   // broadcaster writing while the worker reads); serialize so it runs exactly once
   FHandshakeLock.Enter;
   try
-    if FSession <> nil then
+    if FConnection <> nil then
       Exit;
     LEngine := BuildEngine(not IsPeer);
     // pick the role-correct resolver: a client (not IsPeer) parks on the server's chain, a
@@ -523,12 +523,12 @@ begin
       LResolver := FOptions.VerdictResolver
     else
       LResolver := FOptions.ServerVerdictResolver;
-    FSession := TTlsAdapterSession.Create(LEngine, TIndySocketTransport.Create(Binding),
+    FConnection := TTlsConnection.Create(LEngine, TIndySocketTransport.Create(Binding),
       not IsPeer, Host, LResolver);
     // bound the handshake read by the dedicated HandshakeTimeoutMs option, NOT app ReadTimeout
     // (a short app-read deadline would wrongly abort slow-but-valid handshakes); the session
     // arms and clears the cap, even when the handshake raised
-    FSession.Handshake(FOptions.HandshakeTimeoutMs);
+    FConnection.Handshake(FOptions.HandshakeTimeoutMs);
   finally
     FHandshakeLock.Leave;
   end;
@@ -545,8 +545,8 @@ begin
   // a fresh underlying connection invalidates any prior TLS session: drop the session (and with
   // it the stream, engine and transport) so the next handshake runs anew instead of reusing
   // stale keys on a new socket
-  FSession.Free;
-  FSession := nil;
+  FConnection.Free;
+  FConnection := nil;
 end;
 
 procedure TTlsLibIOHandlerSocket.ConnectClient;
@@ -595,11 +595,11 @@ var
 begin
   // a deferred server handshake runs here, on this connection's own worker thread, the first
   // time the application touches the stream - never on the shared listener thread
-  if FSession = nil then
+  if FConnection = nil then
     DoHandshake;
   LTmp := nil;
   SetLength(LTmp, 32768);
-  Result := FSession.Read(LTmp[0], System.Length(LTmp));
+  Result := FConnection.Read(LTmp[0], System.Length(LTmp));
   SetLength(ABuffer, Result);
   if Result > 0 then
     Move(LTmp[0], ABuffer[0], Result);
@@ -608,56 +608,56 @@ end;
 function TTlsLibIOHandlerSocket.SendEnc(const ABuffer: TIdBytes;
   const AOffset, ALength: Integer): Integer;
 begin
-  if FSession = nil then
+  if FConnection = nil then
     DoHandshake;
-  FSession.Write(ABuffer[AOffset], ALength);
+  FConnection.Write(ABuffer[AOffset], ALength);
   Result := ALength;
 end;
 
 function TTlsLibIOHandlerSocket.NegotiatedVersion: TTlsVersion;
 begin
-  if FSession <> nil then
-    Result := FSession.NegotiatedVersion
+  if FConnection <> nil then
+    Result := FConnection.NegotiatedVersion
   else
     Result := TTlsVersion.Create(0);
 end;
 
 function TTlsLibIOHandlerSocket.NegotiatedCipherSuite: UInt16;
 begin
-  if FSession <> nil then
-    Result := FSession.NegotiatedCipherSuite
+  if FConnection <> nil then
+    Result := FConnection.NegotiatedCipherSuite
   else
     Result := 0;
 end;
 
 function TTlsLibIOHandlerSocket.NegotiatedGroup: UInt16;
 begin
-  if FSession <> nil then
-    Result := FSession.NegotiatedGroup
+  if FConnection <> nil then
+    Result := FConnection.NegotiatedGroup
   else
     Result := 0;
 end;
 
 function TTlsLibIOHandlerSocket.PeerServerName: string;
 begin
-  if FSession <> nil then
-    Result := FSession.PeerServerName
+  if FConnection <> nil then
+    Result := FConnection.PeerServerName
   else
     Result := '';
 end;
 
 function TTlsLibIOHandlerSocket.EchStatus: TEchStatus;
 begin
-  if FSession <> nil then
-    Result := FSession.EchStatus
+  if FConnection <> nil then
+    Result := FConnection.EchStatus
   else
     Result := TEchStatus.NotOffered;
 end;
 
 function TTlsLibIOHandlerSocket.Resumed: Boolean;
 begin
-  if FSession <> nil then
-    Result := FSession.Resumed
+  if FConnection <> nil then
+    Result := FConnection.Resumed
   else
     Result := False;
 end;

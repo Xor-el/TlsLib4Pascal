@@ -45,7 +45,7 @@ uses
   TlpITlsConfigMemo,
   TlpTlsConfigMemo,
   TlpTlsLibExceptions,
-  TlpTlsAdapterCore,
+  TlpTlsConnection,
   TlpSystemTrustFacade;
 
 /// <summary>Sets a process-wide augment-only verify callback the adapter threads into every
@@ -127,13 +127,13 @@ type
   TTlsLibNetTls = class sealed(TInterfacedObject, INetTls)
   strict private
   var
-    FSession: TTlsAdapterSession;
+    FConnection: TTlsConnection;
     /// <summary>The host-neutral snapshot the adapter core composes into a TLS configuration for
     /// the given role: the process-wide setters overlaid with this connection's TNetTlsContext.
     /// A client always composes its peer trust from the context; a server does so only when it
     /// requests a client certificate.</summary>
     class function Snapshot(const AContext: TNetTlsContext;
-      AIsClient: Boolean): TTlsAdapterOptions; static;
+      AIsClient: Boolean): TTlsOptions; static;
     class function BuildClientEngine(var AContext: TNetTlsContext;
       const AHost: string): ITlsEngine; static;
     class function BuildServerEngine(const AContext: TNetTlsContext): ITlsEngine; static;
@@ -336,23 +336,23 @@ begin
   // TCrtSocket.Close releases this interface (running us here) BEFORE it closes the socket, so the
   // socket is still open and the alert goes out. Best-effort: a write to a peer that already RST
   // the connection is expected and ignored.
-  if FSession <> nil then
-    FSession.CloseNotifyQuietly;
-  FSession.Free;
-  FSession := nil;
+  if FConnection <> nil then
+    FConnection.CloseNotifyQuietly;
+  FConnection.Free;
+  FConnection := nil;
   inherited Destroy;
 end;
 
 class function TTlsLibNetTls.Snapshot(const AContext: TNetTlsContext;
-  AIsClient: Boolean): TTlsAdapterOptions;
+  AIsClient: Boolean): TTlsOptions;
 var
   LWantTrust: Boolean;
 begin
-  Result := TTlsAdapterOptions.Default;
+  Result := TTlsOptions.Default;
   Result.Crypto := GCrypto;
   Result.Pkix := GPkix;
-  Result.Certificate := TTlsAdapterBlobSource.FromFile(Utf8ToString(AContext.CertificateFile));
-  Result.PrivateKey := TTlsAdapterBlobSource.FromFile(Utf8ToString(AContext.PrivateKeyFile));
+  Result.Certificate := TTlsBlobSource.FromFile(Utf8ToString(AContext.CertificateFile));
+  Result.PrivateKey := TTlsBlobSource.FromFile(Utf8ToString(AContext.PrivateKeyFile));
   Result.KeyPassword := Utf8ToString(AContext.PrivatePassword);
   // trust sources: a client always composes them from the context; a server does so only when it
   // requests a client certificate, so a server without client auth names no source and requests
@@ -368,7 +368,7 @@ begin
     begin
       SetLength(Result.TrustAnchors, 1);
       Result.TrustAnchors[0] :=
-        TTlsAdapterBlobSource.FromFile(Utf8ToString(AContext.CACertificatesFile));
+        TTlsBlobSource.FromFile(Utf8ToString(AContext.CACertificatesFile));
     end;
     if (scsRoot in AContext.CASystemStores) or (scsCA in AContext.CASystemStores) then
       Result.SystemTrust := TSystemTrustInstaller.Create as ISystemTrustInstaller;
@@ -412,7 +412,7 @@ begin
   // a process-wide config supplied via SetTlsLibMormotClientConfig REPLACES the context-driven build
   // outright; the composer's conflict guard fails loud when the context also carries cert/trust
   // fields, rather than dropping them silently
-  LConfig := TTlsAdapterConfigComposer.ResolveClientConfig(Snapshot(AContext, True),
+  LConfig := TTlsConfigComposer.ResolveClientConfig(Snapshot(AContext, True),
     GClientConfigMemo, 'SetTlsLibMormotClientConfig');
   AContext.Enabled := True;
   Result := TTlsEngineFactory.CreateClientEngine(LConfig, AHost);
@@ -424,7 +424,7 @@ begin
   if AContext.CACertificatesRaw <> nil then
     raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SCARawUnsupported);
   Result := TTlsEngineFactory.CreateServerEngine(
-    TTlsAdapterConfigComposer.ResolveServerConfig(Snapshot(AContext, False),
+    TTlsConfigComposer.ResolveServerConfig(Snapshot(AContext, False),
     GServerConfigMemo, 'SetTlsLibMormotServerConfig'));
 end;
 
@@ -441,9 +441,9 @@ begin
     LResolver := GServerVerdictResolver;
   // bound the handshake read by the process-wide timeout (0 = the library default); the session
   // arms and clears the cap, even when the handshake raised, so a later app read is not left bounded
-  FSession := TTlsAdapterSession.Create(AEngine,
+  FConnection := TTlsConnection.Create(AEngine,
     TMormotSocketTransport.Create(ASocket), AIsClient, AHost, LResolver);
-  FSession.Handshake(GHandshakeTimeoutMs);
+  FConnection.Handshake(GHandshakeTimeoutMs);
 end;
 
 procedure TTlsLibNetTls.AfterConnection(Socket: TNetSocket;
@@ -485,40 +485,40 @@ function TTlsLibNetTls.GetCipherName: RawUtf8;
 begin
   // we do not surface the raw suite name; report the negotiated protocol version, which is
   // what mORMot logs the cipher for
-  if FSession <> nil then
-    Result := StringToUtf8(FSession.VersionName)
+  if FConnection <> nil then
+    Result := StringToUtf8(FConnection.VersionName)
   else
     Result := '';
 end;
 
 function TTlsLibNetTls.NegotiatedGroup: UInt16;
 begin
-  if FSession <> nil then
-    Result := FSession.NegotiatedGroup
+  if FConnection <> nil then
+    Result := FConnection.NegotiatedGroup
   else
     Result := 0;
 end;
 
 function TTlsLibNetTls.PeerServerName: string;
 begin
-  if FSession <> nil then
-    Result := FSession.PeerServerName
+  if FConnection <> nil then
+    Result := FConnection.PeerServerName
   else
     Result := '';
 end;
 
 function TTlsLibNetTls.EchStatus: TEchStatus;
 begin
-  if FSession <> nil then
-    Result := FSession.EchStatus
+  if FConnection <> nil then
+    Result := FConnection.EchStatus
   else
     Result := TEchStatus.NotOffered;
 end;
 
 function TTlsLibNetTls.Resumed: Boolean;
 begin
-  if FSession <> nil then
-    Result := FSession.Resumed
+  if FConnection <> nil then
+    Result := FConnection.Resumed
   else
     Result := False;
 end;
@@ -536,9 +536,9 @@ begin
   // the peer leaf certificate DER (mORMot uses it for certificate pinning / peer info). We do
   // not surface the signature-hash name, so TLS channel binding that requires it stays inert.
   Result := '';
-  if FSession = nil then
+  if FConnection = nil then
     Exit;
-  LLeaf := FSession.PeerLeaf;
+  LLeaf := FConnection.PeerLeaf;
   if System.Length(LLeaf) > 0 then
     SetString(Result, PAnsiChar(@LLeaf[0]), System.Length(LLeaf));
 end;
@@ -548,7 +548,7 @@ var
   LGot: Integer;
 begin
   try
-    LGot := FSession.Read(Buffer^, Length);
+    LGot := FConnection.Read(Buffer^, Length);
     Length := LGot;
     if LGot > 0 then
       Result := nrOK
@@ -563,13 +563,13 @@ end;
 
 function TTlsLibNetTls.ReceivePending: integer;
 begin
-  Result := FSession.PendingReadBytes;
+  Result := FConnection.PendingReadBytes;
 end;
 
 function TTlsLibNetTls.Send(Buffer: pointer; var Length: integer): TNetResult;
 begin
   try
-    FSession.Write(Buffer^, Length);
+    FConnection.Write(Buffer^, Length);
     Result := nrOK;
   except
     Length := 0;

@@ -83,7 +83,7 @@ uses
   ExtensionVectorTests,
   ExtensionCodecTests,
   NegotiationTests,
-  AdapterCoreTests
+  TlsConnectionTests
 ;
 
 begin

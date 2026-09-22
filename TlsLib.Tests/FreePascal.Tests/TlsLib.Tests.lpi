@@ -338,7 +338,7 @@
         <IsPartOfProject Value="True"/>
       </Unit73>
       <Unit74>
-        <Filename Value="..\src\AdapterCoreTests.pas"/>
+        <Filename Value="..\src\TlsConnectionTests.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit74>
     </Units>

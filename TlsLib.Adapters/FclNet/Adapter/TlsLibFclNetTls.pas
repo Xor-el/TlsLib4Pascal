@@ -47,7 +47,7 @@ uses
   TlpITlsConfigMemo,
   TlpTlsConfigMemo,
   TlpTlsLibExceptions,
-  TlpTlsAdapterCore,
+  TlpTlsConnection,
   TlpSystemTrustFacade;
 
 type
@@ -116,7 +116,7 @@ type
   TTlsLibSocketHandler = class(TSSLSocketHandler)
   strict private
   var
-    FSession: TTlsAdapterSession;
+    FConnection: TTlsConnection;
     FUserCrypto: ICryptoProvider;
     FUserPkix: IPkixProvider;
     FSessionResumption: Boolean;
@@ -138,12 +138,12 @@ type
     FHandshakeTimeoutMs: Integer;
     /// <summary>A fcl-net cert slot as a host-neutral blob source: its inline bytes when present,
     /// else its file path, else empty.</summary>
-    class function SslDataBlob(const AData: TSSLData): TTlsAdapterBlobSource; static;
+    class function SslDataBlob(const AData: TSSLData): TTlsBlobSource; static;
     /// <summary>The host-neutral snapshot the adapter core composes into a TLS configuration: one
     /// value per handshake, so a handler setting changed mid-connection is never seen half-applied.
     /// The role (client vs server) is chosen by the caller when it resolves the config and attaches
     /// the resolver, not here.</summary>
-    function Snapshot: TTlsAdapterOptions;
+    function Snapshot: TTlsOptions;
     function BuildClientEngine(const AHost: string): ITlsEngine;
     function BuildServerEngine: ITlsEngine;
     function DriveHandshake(AIsClient: Boolean; const AHost: string): Boolean;
@@ -361,8 +361,8 @@ end;
 
 destructor TTlsLibSocketHandler.Destroy;
 begin
-  FSession.Free;
-  FSession := nil;
+  FConnection.Free;
+  FConnection := nil;
   inherited Destroy;
 end;
 
@@ -374,20 +374,20 @@ begin
 end;
 
 class function TTlsLibSocketHandler.SslDataBlob(
-  const AData: TSSLData): TTlsAdapterBlobSource;
+  const AData: TSSLData): TTlsBlobSource;
 begin
   // each fcl-net cert slot holds EITHER inline bytes OR a file path; prefer the bytes
   if System.Length(AData.Value) > 0 then
-    Result := TTlsAdapterBlobSource.FromBytes(AData.Value)
+    Result := TTlsBlobSource.FromBytes(AData.Value)
   else
-    Result := TTlsAdapterBlobSource.FromFile(AData.FileName);
+    Result := TTlsBlobSource.FromFile(AData.FileName);
 end;
 
-function TTlsLibSocketHandler.Snapshot: TTlsAdapterOptions;
+function TTlsLibSocketHandler.Snapshot: TTlsOptions;
 var
-  LAnchors: TArray<TTlsAdapterBlobSource>;
+  LAnchors: TArray<TTlsBlobSource>;
 begin
-  Result := TTlsAdapterOptions.Default;
+  Result := TTlsOptions.Default;
   Result.Crypto := FUserCrypto;
   Result.Pkix := FUserPkix;
   Result.Certificate := SslDataBlob(CertificateData.Certificate);
@@ -432,7 +432,7 @@ end;
 
 function TTlsLibSocketHandler.BuildClientEngine(const AHost: string): ITlsEngine;
 var
-  LOptions: TTlsAdapterOptions;
+  LOptions: TTlsOptions;
 begin
   LOptions := Snapshot;
   // host-name verification requested but the socket carries no host to check against: fail closed
@@ -441,12 +441,12 @@ begin
   if FCheckHostName and VerifyPeerCert and (AHost = '') and (FClientConfig = nil) then
     raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SNoHostForNameCheck);
   Result := TTlsEngineFactory.CreateClientEngine(
-    TTlsAdapterConfigComposer.ResolveClientConfig(LOptions, GClientConfigMemo, 'ClientConfig'), AHost);
+    TTlsConfigComposer.ResolveClientConfig(LOptions, GClientConfigMemo, 'ClientConfig'), AHost);
 end;
 
 function TTlsLibSocketHandler.BuildServerEngine: ITlsEngine;
 var
-  LOptions: TTlsAdapterOptions;
+  LOptions: TTlsOptions;
 begin
   LOptions := Snapshot;
   // a server never consults VerifyPeerCert (that switch governs a client verifying a server); it
@@ -454,7 +454,7 @@ begin
   // the composer's server-side gate on regardless of the client-oriented VerifyPeer value
   LOptions.VerifyPeer := True;
   Result := TTlsEngineFactory.CreateServerEngine(
-    TTlsAdapterConfigComposer.ResolveServerConfig(LOptions, GServerConfigMemo, 'ServerConfig'));
+    TTlsConfigComposer.ResolveServerConfig(LOptions, GServerConfigMemo, 'ServerConfig'));
 end;
 
 function TTlsLibSocketHandler.DriveHandshake(AIsClient: Boolean;
@@ -472,8 +472,8 @@ begin
   try
     // a reused handler drops any prior session so we rebuild cleanly on the new socket instead of
     // leaking the previous stream over a stale engine
-    FSession.Free;
-    FSession := nil;
+    FConnection.Free;
+    FConnection := nil;
     if AIsClient then
       LEngine := BuildClientEngine(AHost)
     else
@@ -484,7 +484,7 @@ begin
       LResolver := FVerdictResolver
     else
       LResolver := FServerVerdictResolver;
-    FSession := TTlsAdapterSession.Create(LEngine,
+    FConnection := TTlsConnection.Create(LEngine,
       TFclNetSocketTransport.Create(Socket.Handle), AIsClient, AHost, LResolver);
     // fcl-net has no readiness wait, so the handshake read is bounded by SO_RCVTIMEO through
     // Socket.IOTimeout: the property when set, else today's IOTimeout, else the default; restore it
@@ -497,7 +497,7 @@ begin
     LPriorTimeoutMs := Socket.IOTimeout;
     Socket.IOTimeout := LEffectiveMs;
     try
-      FSession.Handshake(LEffectiveMs);
+      FConnection.Handshake(LEffectiveMs);
     finally
       Socket.IOTimeout := LPriorTimeoutMs;
     end;
@@ -505,7 +505,7 @@ begin
     // only additionally reject (augment-only, fail-closed)
     if not DoVerifyCert then
     begin
-      FSession.CloseNotify;
+      FConnection.CloseNotify;
       raise ETlsStreamError.Create(TTlsAlertDescription.BadCertificate, SPeerVerifyRejected);
     end;
     SetSSLActive(True);
@@ -538,8 +538,8 @@ function TTlsLibSocketHandler.Shutdown(BiDirectional: Boolean): Boolean;
 begin
   // best effort: flush close_notify, then optionally shut the transport write side. A peer that
   // already vanished must not turn a clean shutdown into an exception.
-  if FSession <> nil then
-    FSession.CloseNotifyQuietly;
+  if FConnection <> nil then
+    FConnection.CloseNotifyQuietly;
   SetSSLActive(False);
   if BiDirectional and (Socket <> nil) then
     fpShutdown(Socket.Handle, 1);
@@ -558,7 +558,7 @@ begin
   FLastError := 0;
   FLastErrorDesc := '';
   try
-    FSession.Write(PByte(@Buffer)^, Count);
+    FConnection.Write(PByte(@Buffer)^, Count);
     Result := Count;
   except
     on E: Exception do
@@ -576,7 +576,7 @@ begin
   FLastErrorDesc := '';
   try
     // a clean close_notify surfaces as 0 (EOF, no error)
-    Result := FSession.Read(PByte(@Buffer)^, Count);
+    Result := FConnection.Read(PByte(@Buffer)^, Count);
   except
     on E: Exception do
     begin
@@ -589,56 +589,56 @@ end;
 
 function TTlsLibSocketHandler.BytesAvailable: Integer;
 begin
-  if FSession <> nil then
-    Result := FSession.PendingReadBytes
+  if FConnection <> nil then
+    Result := FConnection.PendingReadBytes
   else
     Result := 0;
 end;
 
 function TTlsLibSocketHandler.NegotiatedVersion: TTlsVersion;
 begin
-  if FSession <> nil then
-    Result := FSession.NegotiatedVersion
+  if FConnection <> nil then
+    Result := FConnection.NegotiatedVersion
   else
     Result := TTlsVersion.Create(0);
 end;
 
 function TTlsLibSocketHandler.NegotiatedCipherSuite: UInt16;
 begin
-  if FSession <> nil then
-    Result := FSession.NegotiatedCipherSuite
+  if FConnection <> nil then
+    Result := FConnection.NegotiatedCipherSuite
   else
     Result := 0;
 end;
 
 function TTlsLibSocketHandler.NegotiatedGroup: UInt16;
 begin
-  if FSession <> nil then
-    Result := FSession.NegotiatedGroup
+  if FConnection <> nil then
+    Result := FConnection.NegotiatedGroup
   else
     Result := 0;
 end;
 
 function TTlsLibSocketHandler.PeerServerName: string;
 begin
-  if FSession <> nil then
-    Result := FSession.PeerServerName
+  if FConnection <> nil then
+    Result := FConnection.PeerServerName
   else
     Result := '';
 end;
 
 function TTlsLibSocketHandler.EchStatus: TEchStatus;
 begin
-  if FSession <> nil then
-    Result := FSession.EchStatus
+  if FConnection <> nil then
+    Result := FConnection.EchStatus
   else
     Result := TEchStatus.NotOffered;
 end;
 
 function TTlsLibSocketHandler.Resumed: Boolean;
 begin
-  if FSession <> nil then
-    Result := FSession.Resumed
+  if FConnection <> nil then
+    Result := FConnection.Resumed
   else
     Result := False;
 end;

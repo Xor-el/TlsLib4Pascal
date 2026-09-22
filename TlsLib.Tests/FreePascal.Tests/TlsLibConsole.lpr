@@ -81,7 +81,7 @@ uses
   ExtensionVectorTests,
   ExtensionCodecTests,
   NegotiationTests,
-  AdapterCoreTests
+  TlsConnectionTests
 ;
 
 type

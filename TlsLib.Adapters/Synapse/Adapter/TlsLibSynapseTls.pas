@@ -47,7 +47,7 @@ uses
   TlpITlsConfigMemo,
   TlpTlsConfigMemo,
   TlpTlsLibExceptions,
-  TlpTlsAdapterCore,
+  TlpTlsConnection,
   TlpSystemTrustFacade;
 
 /// <summary>Sets a process-wide augment-only verify callback the plugin threads into every
@@ -104,7 +104,7 @@ type
   TSSLTlsLib = class(TCustomSSL)
   strict private
   var
-    FSession: TTlsAdapterSession;
+    FConnection: TTlsConnection;
     FCrypto: ICryptoProvider;
     FUserCrypto: ICryptoProvider;
     FPkix: IPkixProvider;
@@ -118,7 +118,7 @@ type
     /// value per handshake, so a property changed mid-connection is never seen half-applied. The
     /// role (client vs server) is chosen by the caller when it resolves the config and attaches the
     /// resolver, not here.</summary>
-    function Snapshot: TTlsAdapterOptions;
+    function Snapshot: TTlsOptions;
     function BuildClientEngine: ITlsEngine;
     function BuildServerEngine: ITlsEngine;
     function DriveHandshake(AIsClient: Boolean; const AHost: string): Boolean;
@@ -291,8 +291,8 @@ end;
 
 destructor TSSLTlsLib.Destroy;
 begin
-  FSession.Free;
-  FSession := nil;
+  FConnection.Free;
+  FConnection := nil;
   inherited Destroy;
 end;
 
@@ -306,13 +306,13 @@ begin
   Result := 'TlsLibSynapseTls';
 end;
 
-function TSSLTlsLib.Snapshot: TTlsAdapterOptions;
+function TSSLTlsLib.Snapshot: TTlsOptions;
 begin
-  Result := TTlsAdapterOptions.Default;
+  Result := TTlsOptions.Default;
   Result.Crypto := FUserCrypto;
   Result.Pkix := FUserPkix;
-  Result.Certificate := TTlsAdapterBlobSource.FromFile(FCertificateFile);
-  Result.PrivateKey := TTlsAdapterBlobSource.FromFile(FPrivateKeyFile);
+  Result.Certificate := TTlsBlobSource.FromFile(FCertificateFile);
+  Result.PrivateKey := TTlsBlobSource.FromFile(FPrivateKeyFile);
   Result.KeyPassword := FKeyPassword;
   // Synapse gates trust on its native VerifyCert: a CertCAFile bundle and UseSystemTrust are trust
   // sources only when verifying, so a skip-verify client names none (kept off HasClientTrustSource).
@@ -323,7 +323,7 @@ begin
     if FCertCAFile <> '' then
     begin
       SetLength(Result.TrustAnchors, 1);
-      Result.TrustAnchors[0] := TTlsAdapterBlobSource.FromFile(FCertCAFile);
+      Result.TrustAnchors[0] := TTlsBlobSource.FromFile(FCertCAFile);
     end;
     if FUseSystemTrust then
       Result.SystemTrust := TSystemTrustInstaller.Create as ISystemTrustInstaller;
@@ -347,13 +347,13 @@ end;
 
 function TSSLTlsLib.BuildClientEngine: ITlsEngine;
 var
-  LOptions: TTlsAdapterOptions;
+  LOptions: TTlsOptions;
   LConfig: ITlsClientConfig;
 begin
   LOptions := Snapshot;
   // a fully-built config supplied by the app REPLACES the property-driven build outright; the
   // composer's conflict guard fails loud when cert/trust properties are named alongside it
-  LConfig := TTlsAdapterConfigComposer.ResolveClientConfig(LOptions, GClientConfigMemo,
+  LConfig := TTlsConfigComposer.ResolveClientConfig(LOptions, GClientConfigMemo,
     'ClientConfig');
   // the peer-info accessors reuse the config's providers (crypto for hashing, pkix for parsing)
   FCrypto := LConfig.Crypto;
@@ -363,11 +363,11 @@ end;
 
 function TSSLTlsLib.BuildServerEngine: ITlsEngine;
 var
-  LOptions: TTlsAdapterOptions;
+  LOptions: TTlsOptions;
   LConfig: ITlsServerConfig;
 begin
   LOptions := Snapshot;
-  LConfig := TTlsAdapterConfigComposer.ResolveServerConfig(LOptions, GServerConfigMemo,
+  LConfig := TTlsConfigComposer.ResolveServerConfig(LOptions, GServerConfigMemo,
     'ServerConfig');
   FCrypto := LConfig.Crypto;
   FPkix := LConfig.Pkix;
@@ -384,8 +384,8 @@ begin
   try
     // a reconnect reuses this TCustomSSL instance; drop any prior session so we rebuild on the
     // new socket cleanly instead of leaking the previous stream over a stale engine
-    FSession.Free;
-    FSession := nil;
+    FConnection.Free;
+    FConnection := nil;
     if AIsClient then
       LEngine := BuildClientEngine
     else
@@ -396,16 +396,16 @@ begin
       LResolver := GVerdictResolver
     else
       LResolver := GServerVerdictResolver;
-    FSession := TTlsAdapterSession.Create(LEngine,
+    FConnection := TTlsConnection.Create(LEngine,
       TSynapseSocketTransport.Create(FSocket), AIsClient, AHost, LResolver);
     // bound the handshake read by HandshakeTimeoutMs; the session arms and clears the cap, even
     // when the handshake raised, so a later app read is not left bounded
-    FSession.Handshake(FHandshakeTimeoutMs);
+    FConnection.Handshake(FHandshakeTimeoutMs);
     // Synapse's native OnVerifyCert hook: the app inspects the peer via GetPeer* and returns
     // False to reject - fail-closed
     if not RunPeerVerifyHook then
     begin
-      FSession.CloseNotify;
+      FConnection.CloseNotify;
       raise ETlsStreamError.Create(TTlsAlertDescription.BadCertificate,
         SPeerVerifyRejected);
     end;
@@ -422,8 +422,8 @@ end;
 
 function TSSLTlsLib.PeerLeaf: TBytes;
 begin
-  if FSession <> nil then
-    Result := FSession.PeerLeaf
+  if FConnection <> nil then
+    Result := FConnection.PeerLeaf
   else
     Result := nil;
 end;
@@ -452,8 +452,8 @@ end;
 function TSSLTlsLib.Shutdown: boolean;
 begin
   // best-effort: a close_notify write to a peer that already closed must not raise here
-  if FSession <> nil then
-    FSession.CloseNotifyQuietly;
+  if FConnection <> nil then
+    FConnection.CloseNotifyQuietly;
   FSSLEnabled := False;
   Result := True;
 end;
@@ -470,7 +470,7 @@ begin
   FLastError := 0;
   FLastErrorDesc := '';
   try
-    FSession.Write(PByte(Buffer)^, Len);
+    FConnection.Write(PByte(Buffer)^, Len);
     Result := Len;
   except
     on E: Exception do
@@ -488,7 +488,7 @@ begin
   FLastErrorDesc := '';
   try
     // a clean close_notify surfaces as 0 (no error), matching ssl_openssl's ZERO_RETURN path
-    Result := FSession.Read(PByte(Buffer)^, Len);
+    Result := FConnection.Read(PByte(Buffer)^, Len);
   except
     on E: Exception do
     begin
@@ -501,16 +501,16 @@ end;
 
 function TSSLTlsLib.WaitingData: Integer;
 begin
-  if FSession <> nil then
-    Result := FSession.PendingReadBytes
+  if FConnection <> nil then
+    Result := FConnection.PendingReadBytes
   else
     Result := 0;
 end;
 
 function TSSLTlsLib.GetSSLVersion: string;
 begin
-  if FSession <> nil then
-    Result := FSession.VersionName
+  if FConnection <> nil then
+    Result := FConnection.VersionName
   else
     Result := '';
 end;
@@ -522,40 +522,40 @@ end;
 
 function TSSLTlsLib.NegotiatedCipherSuite: UInt16;
 begin
-  if FSession <> nil then
-    Result := FSession.NegotiatedCipherSuite
+  if FConnection <> nil then
+    Result := FConnection.NegotiatedCipherSuite
   else
     Result := 0;
 end;
 
 function TSSLTlsLib.NegotiatedGroup: UInt16;
 begin
-  if FSession <> nil then
-    Result := FSession.NegotiatedGroup
+  if FConnection <> nil then
+    Result := FConnection.NegotiatedGroup
   else
     Result := 0;
 end;
 
 function TSSLTlsLib.PeerServerName: string;
 begin
-  if FSession <> nil then
-    Result := FSession.PeerServerName
+  if FConnection <> nil then
+    Result := FConnection.PeerServerName
   else
     Result := '';
 end;
 
 function TSSLTlsLib.EchStatus: TEchStatus;
 begin
-  if FSession <> nil then
-    Result := FSession.EchStatus
+  if FConnection <> nil then
+    Result := FConnection.EchStatus
   else
     Result := TEchStatus.NotOffered;
 end;
 
 function TSSLTlsLib.Resumed: Boolean;
 begin
-  if FSession <> nil then
-    Result := FSession.Resumed
+  if FConnection <> nil then
+    Result := FConnection.Resumed
   else
     Result := False;
 end;
