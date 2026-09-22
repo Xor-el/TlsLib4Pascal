@@ -30,7 +30,6 @@ uses
   TlpIRecordProtection,
   TlpRecordLayer,
   TlpITlsEngine,
-  TlpITlsEventSink,
   TlpTlsEngineEvents,
   TlpIHandshakeChannel,
   TlpHandshakeChannel,
@@ -46,13 +45,12 @@ type
   /// outbound queue, decrypted application data, and the event queue, all as TBytes
   /// with explicit offset/length. Single-threaded: the caller serializes access.
   /// </summary>
-  TTlsEngine = class sealed(TInterfacedObject, ITlsEngine, ITlsEventSource,
+  TTlsEngine = class sealed(TInterfacedObject, ITlsEngine,
     IEngineRecordSequenceControl)
   strict private
   var
     FRecordLayer: TRecordLayer;
     FEvents: TQueue<ITlsEvent>;
-    FSink: ITlsEventSink;
     FConductor: THandshakeConductor;
     FOutbound: TBytes;
     // decrypted application data waiting for the caller, as a queue of record-sized
@@ -97,9 +95,6 @@ type
     // async peer-certificate verdict: whether the handshake is parked awaiting a verdict. Any
     // time budget belongs to the resolver, not the engine (the engine owns no timer)
     FAwaitingVerdict: Boolean;
-    // guards against re-entering the record-layer drain (a read-triggered resume must not run
-    // while a drain is already in progress, e.g. from a sink callback)
-    FDraining: Boolean;
     FLastError: TTlsError;
     procedure Enqueue(const AEvent: ITlsEvent);
     procedure PullOutbound;
@@ -200,8 +195,6 @@ type
     procedure OnEchBackend;
     procedure OnEchServerRejected;
     procedure OnEchRejected(const ARetryConfigs: TBytes; AIsRetryAttempt: Boolean);
-    // ITlsEventSource
-    procedure SetEventSink(const ASink: ITlsEventSink);
   end;
 
 implementation
@@ -488,8 +481,6 @@ end;
 procedure TTlsEngine.Enqueue(const AEvent: ITlsEvent);
 begin
   FEvents.Enqueue(AEvent);
-  if FSink <> nil then
-    FSink.OnEvent(AEvent);
 end;
 
 procedure TTlsEngine.PullOutbound;
@@ -623,21 +614,16 @@ begin
   // resolves and SetCertificateVerdict resumes the drain in the correct epoch order.
   if FAwaitingVerdict then
     Exit;
-  FDraining := True;
-  try
-    // stop pulling the moment the connection becomes terminal/closed (e.g. a fatal alert or
-    // close_notify coalesced ahead of app-data): the trailing record stays framed, undecrypted.
-    // Also stop once the app-read buffer is full: unread plaintext applies backpressure (the
-    // record stays framed, WantsRead reports False) instead of growing the buffer without bound.
-    while (not (FTerminal or FClosed)) and (AppReadAvailable < FMaxAppReadBuffer) and
-      FRecordLayer.NextIncoming(LFragment) do
-    begin
-      RouteFragment(LFragment);
-      if FAwaitingVerdict then
-        Break;
-    end;
-  finally
-    FDraining := False;
+  // stop pulling the moment the connection becomes terminal/closed (e.g. a fatal alert or
+  // close_notify coalesced ahead of app-data): the trailing record stays framed, undecrypted.
+  // Also stop once the app-read buffer is full: unread plaintext applies backpressure (the
+  // record stays framed, WantsRead reports False) instead of growing the buffer without bound.
+  while (not (FTerminal or FClosed)) and (AppReadAvailable < FMaxAppReadBuffer) and
+    FRecordLayer.NextIncoming(LFragment) do
+  begin
+    RouteFragment(LFragment);
+    if FAwaitingVerdict then
+      Break;
   end;
 end;
 
@@ -944,9 +930,9 @@ begin
   end;
   // reading down the buffer relieves backpressure: resume the drain so records held back at the
   // app-read cap (a raw embedder that fed a large buffer) surface, and a KeyUpdate/alert produced
-  // while pulling reaches the wire (PullOutbound). Not while parked, not re-entrantly (a sink's
-  // OnEvent could call ReadAppData mid-drain), and never turning a pull failure into an escape.
-  if (not FAwaitingVerdict) and (not FDraining) and (not FTerminal) and (not FClosed) and
+  // while pulling reaches the wire (PullOutbound). Not while parked, and never turning a pull
+  // failure into an escape.
+  if (not FAwaitingVerdict) and (not FTerminal) and (not FClosed) and
     (FAppAvail < FMaxAppReadBuffer) then
   begin
     try
@@ -1268,11 +1254,6 @@ begin
   FEchIsRetryAttempt := AIsRetryAttempt;
   FEchRejectAborted := True;
   OnHandshakeFailed(TTlsAlertDescription.EchRequired);
-end;
-
-procedure TTlsEngine.SetEventSink(const ASink: ITlsEventSink);
-begin
-  FSink := ASink;
 end;
 
 end.

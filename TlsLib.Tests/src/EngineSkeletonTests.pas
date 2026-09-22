@@ -36,28 +36,10 @@ uses
   TlpRecordLayer,
   TlpITlsEngine,
   TlpIHandshakeMachine,
-  TlpITlsEventSink,
   TlpTlsEngine,
   TlsLibTestBase;
 
 type
-  IRecordingSink = interface(ITlsEventSink)
-    ['{1A2B3C4D-5E6F-4071-8192-A3B4C5D6E7F8}']
-    function EventCount: Int32;
-    function LastKind: TTlsEventKind;
-  end;
-
-  TRecordingSink = class(TInterfacedObject, ITlsEventSink, IRecordingSink)
-  strict private
-  var
-    FCount: Int32;
-    FLastKind: TTlsEventKind;
-  public
-    procedure OnEvent(const AEvent: ITlsEvent);
-    function EventCount: Int32;
-    function LastKind: TTlsEventKind;
-  end;
-
   TTestEngineSkeleton = class(TTlsLibAlgorithmTestCase)
   private
     function NewEngine: ITlsEngine;
@@ -75,28 +57,9 @@ type
     procedure TestStartHandshakeRaisesNotSupported;
     procedure TestReceivedCloseNotify;
     procedure TestReceivedFatalAlertIsTerminal;
-    procedure TestPushSinkDeliversEvents;
   end;
 
 implementation
-
-{ TRecordingSink }
-
-procedure TRecordingSink.OnEvent(const AEvent: ITlsEvent);
-begin
-  Inc(FCount);
-  FLastKind := AEvent.Kind;
-end;
-
-function TRecordingSink.EventCount: Int32;
-begin
-  Result := FCount;
-end;
-
-function TRecordingSink.LastKind: TTlsEventKind;
-begin
-  Result := FLastKind;
-end;
 
 { TTestEngineSkeleton }
 
@@ -347,22 +310,6 @@ begin
     Ord(LEngine.LastError.Alert.Description), 'last error reflects the peer alert');
 end;
 
-procedure TTestEngineSkeleton.TestPushSinkDeliversEvents;
-var
-  LEngine: ITlsEngine;
-  LSource: ITlsEventSource;
-  LSink: IRecordingSink;
-  LWire: TBytes;
-begin
-  LEngine := NewEngine;
-  LSink := TRecordingSink.Create;
-  CheckTrue(Supports(LEngine, ITlsEventSource, LSource), 'engine is an event source');
-  LSource.SetEventSink(LSink);
-  LWire := PeerRecord(TTlsContentType.ApplicationData, DecodeHex('01020304'));
-  LEngine.ProcessInput(LWire, 0, System.Length(LWire));
-  CheckTrue(LSink.EventCount >= 1, 'the sink is notified');
-  CheckEquals(Ord(TTlsEventKind.AppData), Ord(LSink.LastKind), 'app-data pushed');
-end;
 
 initialization
 

@@ -51,7 +51,6 @@ uses
   TlpTlsAlertProtocol in '..\..\TlsLib\src\Common\TlpTlsAlertProtocol.pas',
   TlpAlertMapping in '..\..\TlsLib\src\Common\TlpAlertMapping.pas',
   TlpITlsEngine in '..\..\TlsLib\src\Interfaces\Engine\TlpITlsEngine.pas',
-  TlpITlsEventSink in '..\..\TlsLib\src\Interfaces\Engine\TlpITlsEventSink.pas',
   TlpTlsEngineEvents in '..\..\TlsLib\src\Engine\TlpTlsEngineEvents.pas',
   TlpTlsEngine in '..\..\TlsLib\src\Engine\TlpTlsEngine.pas',
   TlpHkdfLabel in '..\..\TlsLib\src\KeySchedule\TlpHkdfLabel.pas',
