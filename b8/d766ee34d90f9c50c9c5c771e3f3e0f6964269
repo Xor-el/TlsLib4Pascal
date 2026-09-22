@@ -1,0 +1,38 @@
+TlsLib.Tests/src/AppleAlertMapTests.pas
+  s_09d3c46d1a9b1f::t_20ade2f718b999 40-41
+  s_09d3c46d1a9b1f::t_52e7148a194f76 96,112-123
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_09d3c46d1a9b1f::t_694c504f7cc64f 1425-1428,1724-1727
+  s_09d3c46d1a9b1f::t_fcf621b5af0047 1655-1668
+TlsLib.Trust.System/src/TlpAppleSystemTrust.pas
+  s_09d3c46d1a9b1f::t_c4da1a18ecc8b3 1307,1309,1311-1314,1317-1318,1320-1327,1330-1331,1333-1338
+  s_09d3c46d1a9b1f::t_8ea604c9e69573 29
+  s_09d3c46d1a9b1f::t_dd0406449c9d37 838-839,841-853
+  s_09d3c46d1a9b1f::t_e4abb4b5d9efe6 1044-1048,1050-1053,1059
+  s_09d3c46d1a9b1f::t_05daaf315bf796 883,896,899-900
+  s_09d3c46d1a9b1f::t_cbb91d8993c5b2 657,673,676-677
+  s_09d3c46d1a9b1f::t_2cc4f58bd0e3de 64-71,73,75-79
+  s_09d3c46d1a9b1f::t_e7c0c2d8cc32ae 1066-1067,1069-1081
+  s_09d3c46d1a9b1f::t_ea72e4d864d4bb 344-350,354,356-360,363
+  s_09d3c46d1a9b1f::t_f33db56914bcac 816-820,822-825,832
+TlsLib.Trust.System/src/TlpOSSystemTrust.pas
+  s_09d3c46d1a9b1f::t_f5bf4909ad2173 274
+  s_09d3c46d1a9b1f::t_1e02e6aa337d7c 194
+  s_09d3c46d1a9b1f::t_df6443c49a8a35 125-127,129
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b8d766ee34d90f9c50c9c5c771e3f3e0f6964269",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
