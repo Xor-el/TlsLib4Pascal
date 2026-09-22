@@ -66,6 +66,9 @@ uses
 {$IFEND}
   TlpOSSystemTrust,
   TlpSystemTrustBase,
+  TlpIPlatformChainEngine,
+  TlpOSDelegateVerifier,
+  MockPlatformChainEngine,
   TlsLibTestBase;
 
 type
@@ -132,6 +135,46 @@ type
     procedure TestHardNeedsLiveRevocation;
     procedure TestLiveNeedsLiveRevocation;
     procedure TestOsHostNameStripsIpLiterals;
+    procedure TestNameMismatchMatchesDnsLeaf;
+    procedure TestNameMismatchMatchesIpLeaf;
+    procedure TestNameMismatchRejectsWrongName;
+    procedure TestNameMismatchEmptyNameIsNotChecked;
+    procedure TestNameMismatchNilProviderFailsClosed;
+  end;
+
+  /// <summary>Platform-neutral tests for the OS delegate template over a fake platform engine: the
+  /// request shaping, the strength/revocation/identity tail, the source-construction guards and the
+  /// live-resolver dispatch, pinned on every CI leg before any platform is cut over.</summary>
+  TTestOSDelegateTemplate = class(TTlsLibAlgorithmTestCase)
+  strict private
+    FPkix: IPkixProvider;
+    FClock: ITlsClock;
+    FOcsp: TStringList;
+    function Ocsp(const AName: string): TBytes;
+    function OcspChain: TArray<TBytes>;
+    function Result_(AOutcome: TLiveRevocationOutcome;
+      const APath: TArray<TBytes>): TPlatformChainResult;
+    function Policy(APosture: TRevocationPosture; AFetch: TSystemTrustFetch;
+      ADeferral: TVerdictDeferral; const AAnchors: TArray<TBytes>): TOSDelegatePolicy;
+  protected
+    procedure SetUp; override;
+    procedure TearDown; override;
+  published
+    procedure TestRequestShapingRevocationLevels;
+    procedure TestRequestNetworkNotAllowedInline;
+    procedure TestClientRequestCarriesAnchors;
+    procedure TestEngineFailurePassesAlertThrough;
+    procedure TestAcceptFillsTrustedPath;
+    procedure TestStapledRevokedOverridesUnderOff;
+    procedure TestEngineRevokedRejects;
+    procedure TestHardIndeterminateRejectsCacheOnly;
+    procedure TestHardIndeterminateAcceptsWhenDeferred;
+    procedure TestNameMismatchRejectsWithoutDnsCapability;
+    procedure TestSourceRefusesLiveWithoutLiveFetch;
+    procedure TestServerSourceRefusesLiveWithoutVerdict;
+    procedure TestClientSourceRefusesHardWithoutCachedRevocation;
+    procedure TestLiveResolverDispatchesToServer;
+    procedure TestLiveResolverWrongRoleRefused;
   end;
 
   /// <summary>Engine-agnostic contract for a real OS anchor store, written against
@@ -485,6 +528,458 @@ begin
     'an empty host passes through as empty');
   CheckEquals('', TDelegatePostChecks.OsHostName('127.0.0.1.'),
     'a trailing-dot IPv4 literal is still stripped');
+end;
+
+procedure TTestDelegatePostChecks.TestNameMismatchMatchesDnsLeaf;
+var
+  LName: TServerName;
+  LAlert: TTlsAlertDescription;
+begin
+  // the EC leaf carries DNS:localhost, so a matching DNS host does not fire
+  CheckTrue(TServerName.TryParse('localhost', LName));
+  CheckFalse(TDelegatePostChecks.RejectNameMismatch(LName, FPkix,
+    TArray<TBytes>.Create(Ec('leaf_cert')), LAlert),
+    'a DNS host matching a dNSName SAN is accepted');
+end;
+
+procedure TTestDelegatePostChecks.TestNameMismatchMatchesIpLeaf;
+var
+  LName: TServerName;
+  LAlert: TTlsAlertDescription;
+begin
+  // full RFC 6125 identity here also matches an iPAddress SAN
+  CheckTrue(TServerName.TryParse('127.0.0.1', LName));
+  CheckFalse(TDelegatePostChecks.RejectNameMismatch(LName, FPkix,
+    TArray<TBytes>.Create(Ec('ipsan_leaf_cert')), LAlert),
+    'an IP literal matching an iPAddress SAN is accepted');
+end;
+
+procedure TTestDelegatePostChecks.TestNameMismatchRejectsWrongName;
+var
+  LName: TServerName;
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(TServerName.TryParse('wrong.example', LName));
+  CheckTrue(TDelegatePostChecks.RejectNameMismatch(LName, FPkix,
+    TArray<TBytes>.Create(Ec('leaf_cert')), LAlert),
+    'a host matching no SAN is rejected');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
+    'the alert is bad_certificate');
+end;
+
+procedure TTestDelegatePostChecks.TestNameMismatchEmptyNameIsNotChecked;
+var
+  LName: TServerName;
+  LAlert: TTlsAlertDescription;
+begin
+  LName := Default(TServerName);
+  CheckFalse(TDelegatePostChecks.RejectNameMismatch(LName, FPkix,
+    TArray<TBytes>.Create(Ec('leaf_cert')), LAlert),
+    'an empty name never fires');
+end;
+
+procedure TTestDelegatePostChecks.TestNameMismatchNilProviderFailsClosed;
+var
+  LName: TServerName;
+  LAlert: TTlsAlertDescription;
+begin
+  // without a provider to read the SANs a non-empty name cannot be confirmed, so it fails closed
+  CheckTrue(TServerName.TryParse('localhost', LName));
+  CheckTrue(TDelegatePostChecks.RejectNameMismatch(LName, nil,
+    TArray<TBytes>.Create(Ec('leaf_cert')), LAlert),
+    'a nil provider fails closed');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
+    'the fail-closed alert is bad_certificate');
+end;
+
+{ TTestOSDelegateTemplate }
+
+procedure TTestOSDelegateTemplate.SetUp;
+begin
+  inherited SetUp;
+  FPkix := TDefaultPkixProvider.Create as IPkixProvider;
+  FClock := TSystemClock.Create as ITlsClock;
+  FOcsp := LoadVectorFields('Certs/OcspStapling.txt');
+end;
+
+procedure TTestOSDelegateTemplate.TearDown;
+begin
+  FOcsp.Free;
+  inherited TearDown;
+end;
+
+function TTestOSDelegateTemplate.Ocsp(const AName: string): TBytes;
+begin
+  Result := DecodeHex(FOcsp.Values[AName]);
+end;
+
+function TTestOSDelegateTemplate.OcspChain: TArray<TBytes>;
+begin
+  Result := TArray<TBytes>.Create(Ocsp('leaf_cert'), Ocsp('issuer_cert'));
+end;
+
+function TTestOSDelegateTemplate.Result_(AOutcome: TLiveRevocationOutcome;
+  const APath: TArray<TBytes>): TPlatformChainResult;
+begin
+  Result := Default(TPlatformChainResult);
+  Result.Outcome := AOutcome;
+  Result.Path := APath;
+  // exempt the whole path so the strength policy is a no-op here; the strength gate itself is
+  // covered hermetically by the real-engine delegate tests
+  Result.PolicyExempt := APath;
+end;
+
+function TTestOSDelegateTemplate.Policy(APosture: TRevocationPosture;
+  AFetch: TSystemTrustFetch; ADeferral: TVerdictDeferral;
+  const AAnchors: TArray<TBytes>): TOSDelegatePolicy;
+begin
+  Result := Default(TOSDelegatePolicy);
+  Result.Pkix := FPkix;
+  Result.Clock := FClock;
+  Result.Posture := APosture;
+  Result.Fetch := AFetch;
+  Result.Deferral := ADeferral;
+  Result.StrengthPolicy := TCertificateStrengthPolicy.Defaults;
+  // the leaf is always strength-checked, so advertise the stock scheme set its signature is in
+  Result.AdvertisedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256,
+    TSignatureSchemes.EcdsaSecp384r1Sha384, TSignatureSchemes.EcdsaSecp521r1Sha512,
+    TSignatureSchemes.RsaPssRsaeSha256, TSignatureSchemes.RsaPssRsaeSha384,
+    TSignatureSchemes.RsaPssRsaeSha512, TSignatureSchemes.RsaPkcs1Sha256,
+    TSignatureSchemes.RsaPkcs1Sha384, TSignatureSchemes.RsaPkcs1Sha512);
+  Result.Anchors := AAnchors;
+end;
+
+procedure TTestOSDelegateTemplate.TestRequestShapingRevocationLevels;
+
+  function Level(APosture: TRevocationPosture; AFetch: TSystemTrustFetch;
+    ADeferral: TVerdictDeferral): TPlatformRevocationCheck;
+  var
+    LFake: TMockPlatformChainEngine;
+    LEngine: IPlatformChainEngine;
+    LVerifier: IServerCertificateVerifier;
+    LVerified: TVerifiedChain;
+    LAlert: TTlsAlertDescription;
+  begin
+    LFake := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation], False,
+      Result_(TLiveRevocationOutcome.Indeterminate, OcspChain), TTlsAlertDescription.BadCertificate);
+    LEngine := LFake;
+    LVerifier := TOSDelegateServerVerifier.Create(LEngine,
+      Policy(APosture, AFetch, ADeferral, nil)) as IServerCertificateVerifier;
+    LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('host.example'), nil,
+      LVerified, LAlert);
+    Result := LFake.Last.Revocation;
+  end;
+
+begin
+  CheckEquals(Ord(TPlatformRevocationCheck.None),
+    Ord(Level(TRevocationPosture.Off, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None)),
+    'Off asks for no revocation processing');
+  CheckEquals(Ord(TPlatformRevocationCheck.BestEffort),
+    Ord(Level(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None)),
+    'Soft asks for best-effort revocation');
+  CheckEquals(Ord(TPlatformRevocationCheck.RequirePositive),
+    Ord(Level(TRevocationPosture.Hard, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None)),
+    'Hard decided inline requires a positive response');
+  CheckEquals(Ord(TPlatformRevocationCheck.BestEffort),
+    Ord(Level(TRevocationPosture.Hard, TSystemTrustFetch.Live, TVerdictDeferral.LiveRevocation)),
+    'Hard deferred to a live check runs best-effort inline');
+end;
+
+procedure TTestOSDelegateTemplate.TestRequestNetworkNotAllowedInline;
+var
+  LFake: TMockPlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  LFake := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation], False,
+    Result_(TLiveRevocationOutcome.Good, OcspChain), TTlsAlertDescription.BadCertificate);
+  LEngine := LFake;
+  LVerifier := TOSDelegateServerVerifier.Create(LEngine,
+    Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil))
+    as IServerCertificateVerifier;
+  LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('host.example'), nil,
+    LVerified, LAlert);
+  CheckFalse(LFake.Last.NetworkAllowed, 'the inline pass never allows a network fetch');
+end;
+
+procedure TTestOSDelegateTemplate.TestClientRequestCarriesAnchors;
+var
+  LFake: TMockPlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LVerifier: IClientCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  LFake := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation], False,
+    Result_(TLiveRevocationOutcome.Good, OcspChain), TTlsAlertDescription.BadCertificate);
+  LEngine := LFake;
+  LVerifier := TOSDelegateClientVerifier.Create(LEngine,
+    Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, OcspChain))
+    as IClientCertificateVerifier;
+  LVerifier.VerifyClientCertificate(OcspChain, LVerified, LAlert);
+  CheckEquals(2, System.Length(LFake.Last.Anchors), 'the client path carries the exclusive anchors');
+  CheckTrue(LFake.Last.ServerName.IsEmpty, 'the client path has no server identity');
+  CheckEquals(1, LFake.ClientCalls, 'the client engine method ran');
+  CheckEquals(0, LFake.ServerCalls, 'the server engine method did not run');
+end;
+
+procedure TTestOSDelegateTemplate.TestEngineFailurePassesAlertThrough;
+var
+  LFake: TMockPlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  LFake := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation, TPlatformChainCapability.DnsIdentity],
+    False, Result_(TLiveRevocationOutcome.Good, OcspChain), TTlsAlertDescription.UnknownCa);
+  LEngine := LFake;
+  LVerifier := TOSDelegateServerVerifier.Create(LEngine,
+    Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil))
+    as IServerCertificateVerifier;
+  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('host.example'), nil,
+    LVerified, LAlert), 'an engine rejection rejects');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'the engine alert passes through');
+  CheckEquals(0, System.Length(LVerified.Path), 'a rejection leaves the verified path empty');
+end;
+
+procedure TTestOSDelegateTemplate.TestAcceptFillsTrustedPath;
+var
+  LFake: TMockPlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  LFake := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation, TPlatformChainCapability.DnsIdentity],
+    True, Result_(TLiveRevocationOutcome.Good, OcspChain), TTlsAlertDescription.BadCertificate);
+  LEngine := LFake;
+  LVerifier := TOSDelegateServerVerifier.Create(LEngine,
+    Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil))
+    as IServerCertificateVerifier;
+  CheckTrue(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('host.example'), nil,
+    LVerified, LAlert), 'a trusted Good path is accepted');
+  CheckEquals(2, System.Length(LVerified.Path), 'the built path is returned');
+  CheckEquals(Ord(TVerificationOutcome.Trusted), Ord(LVerified.Outcome),
+    'the outcome is Trusted (the live park still runs for a delegate)');
+end;
+
+procedure TTestOSDelegateTemplate.TestStapledRevokedOverridesUnderOff;
+var
+  LFake: TMockPlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  // engine says Good, but a definitive stapled Revoked wins under every posture, including Off
+  LFake := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation, TPlatformChainCapability.DnsIdentity],
+    True, Result_(TLiveRevocationOutcome.Good, OcspChain), TTlsAlertDescription.BadCertificate);
+  LEngine := LFake;
+  LVerifier := TOSDelegateServerVerifier.Create(LEngine,
+    Policy(TRevocationPosture.Off, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil))
+    as IServerCertificateVerifier;
+  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('host.example'),
+    Ocsp('ocsp_revoked'), LVerified, LAlert), 'a stapled Revoked overrides an engine Good under Off');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateRevoked), Ord(LAlert), 'the alert is certificate_revoked');
+end;
+
+procedure TTestOSDelegateTemplate.TestEngineRevokedRejects;
+var
+  LFake: TMockPlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  LFake := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation, TPlatformChainCapability.DnsIdentity],
+    True, Result_(TLiveRevocationOutcome.Revoked, OcspChain), TTlsAlertDescription.BadCertificate);
+  LEngine := LFake;
+  LVerifier := TOSDelegateServerVerifier.Create(LEngine,
+    Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil))
+    as IServerCertificateVerifier;
+  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('host.example'), nil,
+    LVerified, LAlert), 'an engine Revoked outcome rejects');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateRevoked), Ord(LAlert), 'the alert is certificate_revoked');
+end;
+
+procedure TTestOSDelegateTemplate.TestHardIndeterminateRejectsCacheOnly;
+var
+  LFake: TMockPlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  LFake := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation, TPlatformChainCapability.DnsIdentity],
+    True, Result_(TLiveRevocationOutcome.Indeterminate, OcspChain), TTlsAlertDescription.BadCertificate);
+  LEngine := LFake;
+  LVerifier := TOSDelegateServerVerifier.Create(LEngine,
+    Policy(TRevocationPosture.Hard, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil))
+    as IServerCertificateVerifier;
+  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('host.example'), nil,
+    LVerified, LAlert), 'Hard rejects an indeterminate cache-only outcome');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificateStatusResponse), Ord(LAlert),
+    'the alert is bad_certificate_status_response');
+end;
+
+procedure TTestOSDelegateTemplate.TestHardIndeterminateAcceptsWhenDeferred;
+var
+  LFake: TMockPlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  // Hard whose indeterminate case defers to the live park accepts inline (effective Soft)
+  LFake := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation, TPlatformChainCapability.DnsIdentity,
+    TPlatformChainCapability.LiveFetch],
+    True, Result_(TLiveRevocationOutcome.Indeterminate, OcspChain), TTlsAlertDescription.BadCertificate);
+  LEngine := LFake;
+  LVerifier := TOSDelegateServerVerifier.Create(LEngine,
+    Policy(TRevocationPosture.Hard, TSystemTrustFetch.Live, TVerdictDeferral.LiveRevocation, nil))
+    as IServerCertificateVerifier;
+  CheckTrue(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('host.example'), nil,
+    LVerified, LAlert), 'Hard deferred to a live check accepts an indeterminate outcome inline');
+end;
+
+procedure TTestOSDelegateTemplate.TestNameMismatchRejectsWithoutDnsCapability;
+var
+  LFake: TMockPlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  // no DnsIdentity capability: the library matches the full identity here, so a wrong host rejects
+  LFake := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation],
+    True, Result_(TLiveRevocationOutcome.Good, OcspChain), TTlsAlertDescription.BadCertificate);
+  LEngine := LFake;
+  LVerifier := TOSDelegateServerVerifier.Create(LEngine,
+    Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil))
+    as IServerCertificateVerifier;
+  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('wrong.example'), nil,
+    LVerified, LAlert), 'a wrong host is rejected when the engine matches no identity itself');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'the alert is bad_certificate');
+end;
+
+procedure TTestOSDelegateTemplate.TestSourceRefusesLiveWithoutLiveFetch;
+var
+  LEngine: IPlatformChainEngine;
+  LRaised: Boolean;
+begin
+  LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation], False,
+    Result_(TLiveRevocationOutcome.Good, OcspChain), TTlsAlertDescription.BadCertificate);
+  LRaised := False;
+  try
+    TOSVerifierSource.Create(LEngine, TSystemTrustFetch.Live);
+  except
+    on E: ESystemTrustUnsupportedTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a Live source over an engine without live fetch is refused at construction');
+end;
+
+procedure TTestOSDelegateTemplate.TestServerSourceRefusesLiveWithoutVerdict;
+var
+  LEngine: IPlatformChainEngine;
+  LSource: IServerCertificateVerifierSource;
+  LContext: TServerTrustContext;
+  LRaised: Boolean;
+begin
+  LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation, TPlatformChainCapability.LiveFetch],
+    False, Result_(TLiveRevocationOutcome.Good, OcspChain), TTlsAlertDescription.BadCertificate);
+  LSource := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.Live) as IServerCertificateVerifierSource;
+  LContext := Default(TServerTrustContext);
+  LContext.Pkix := FPkix;
+  LContext.Deferral := TVerdictDeferral.None;
+  LRaised := False;
+  try
+    LSource.CreateServerVerifier(LContext);
+  except
+    on E: ESystemTrustUnsupportedTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a Live fetch without the live-revocation verdict is refused at verifier creation');
+end;
+
+procedure TTestOSDelegateTemplate.TestClientSourceRefusesHardWithoutCachedRevocation;
+var
+  LEngine: IPlatformChainEngine;
+  LSource: IClientCertificateVerifierSource;
+  LContext: TClientTrustContext;
+  LRaised: Boolean;
+begin
+  // an engine that renders no cached revocation outcome cannot satisfy a Hard client posture
+  LEngine := TMockPlatformChainEngine.Create([], False,
+    Result_(TLiveRevocationOutcome.Good, OcspChain), TTlsAlertDescription.BadCertificate);
+  LSource := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly) as IClientCertificateVerifierSource;
+  LContext := Default(TClientTrustContext);
+  LContext.Pkix := FPkix;
+  LContext.RevocationPosture := TRevocationPosture.Hard;
+  LContext.Deferral := TVerdictDeferral.None;
+  LRaised := False;
+  try
+    LSource.CreateClientVerifier(LContext);
+  except
+    on E: ESystemTrustUnsupportedTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a Hard client posture over a no-cached-revocation engine is refused');
+end;
+
+procedure TTestOSDelegateTemplate.TestLiveResolverDispatchesToServer;
+var
+  LFake: TMockPlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LResolver: TOSDelegateLiveResolver;
+  LContext: TCertificateVerdictContext;
+  LAlert: TTlsAlertDescription;
+begin
+  LFake := TMockPlatformChainEngine.Create([TPlatformChainCapability.LiveFetch], True,
+    Result_(TLiveRevocationOutcome.Indeterminate, OcspChain), TTlsAlertDescription.BadCertificate);
+  LEngine := LFake;
+  LResolver := TOSDelegateLiveResolver.Create(LEngine, TPeerRole.Server,
+    Policy(TRevocationPosture.Soft, TSystemTrustFetch.Live, TVerdictDeferral.LiveRevocation, nil), nil);
+  try
+    LContext := Default(TCertificateVerdictContext);
+    LContext.PeerRole := TPeerRole.Server;
+    LContext.Chain := OcspChain;
+    LContext.HostName := 'host.example';
+    CheckTrue(LResolver.ResolveVerdict(LContext, LAlert),
+      'an indeterminate live result accepts under Soft');
+    CheckEquals(1, LFake.ServerCalls, 'a server park dispatched to the server engine method');
+    CheckEquals(0, LFake.ClientCalls, 'the client engine method did not run');
+  finally
+    LResolver.Free;
+  end;
+end;
+
+procedure TTestOSDelegateTemplate.TestLiveResolverWrongRoleRefused;
+var
+  LFake: TMockPlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LResolver: TOSDelegateLiveResolver;
+  LContext: TCertificateVerdictContext;
+  LAlert: TTlsAlertDescription;
+begin
+  LFake := TMockPlatformChainEngine.Create([TPlatformChainCapability.LiveFetch], True,
+    Result_(TLiveRevocationOutcome.Good, OcspChain), TTlsAlertDescription.BadCertificate);
+  LEngine := LFake;
+  LResolver := TOSDelegateLiveResolver.Create(LEngine, TPeerRole.Server,
+    Policy(TRevocationPosture.Soft, TSystemTrustFetch.Live, TVerdictDeferral.LiveRevocation, nil), nil);
+  try
+    LContext := Default(TCertificateVerdictContext);
+    LContext.PeerRole := TPeerRole.Client;
+    LContext.Chain := OcspChain;
+    CheckFalse(LResolver.ResolveVerdict(LContext, LAlert), 'a wrong-role park is refused');
+    CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LAlert), 'the alert is internal_error');
+    CheckEquals(0, LFake.ServerCalls, 'the engine is not consulted for a wrong-role park');
+  finally
+    LResolver.Free;
+  end;
 end;
 
 { TTestSystemTrustFixtures }
@@ -1253,9 +1748,11 @@ initialization
 {$IFDEF FPC}
   RegisterTest(TTestSystemTrustFixtures);
   RegisterTest(TTestDelegatePostChecks);
+  RegisterTest(TTestOSDelegateTemplate);
 {$ELSE}
   RegisterTest(TTestSystemTrustFixtures.Suite);
   RegisterTest(TTestDelegatePostChecks.Suite);
+  RegisterTest(TTestOSDelegateTemplate.Suite);
 {$ENDIF FPC}
 
 {$IFDEF TLSLIB_MSWINDOWS}

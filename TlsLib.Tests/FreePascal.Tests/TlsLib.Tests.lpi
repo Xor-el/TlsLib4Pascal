@@ -333,6 +333,10 @@
         <Filename Value="..\src\MockTransport.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit72>
+      <Unit73>
+        <Filename Value="..\src\MockPlatformChainEngine.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit73>
     </Units>
   </ProjectOptions>
   <CompilerOptions>
