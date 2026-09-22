@@ -1,0 +1,34 @@
+TlsLib.Tests/src/EngineSkeletonTests.pas
+  s_09d3c46d1a9b1f::t_f12144b3e155c4 32-35,50,61-67,123-125,150-151,156,159,161-162,164-170
+TlsLib/src/Engine/TlpTlsEngine.pas
+  s_09d3c46d1a9b1f::t_97be6f9df082cc 166-167
+  s_09d3c46d1a9b1f::t_2709ca169a7bfd 402-407,433-444
+  s_09d3c46d1a9b1f::t_d830fcaa059b71 753
+  s_09d3c46d1a9b1f::t_1143a0d6be8b7a 563,569,574-575
+  s_09d3c46d1a9b1f::t_61aa4c59c5c5bc 43-46
+  s_09d3c46d1a9b1f::t_c7bb8a6ce535d0 676
+  s_09d3c46d1a9b1f::t_1a7d2e685cb7d9 110-117,121-122
+  s_09d3c46d1a9b1f::t_574b8d059c199a 700
+  s_09d3c46d1a9b1f::t_14e569cacea41b 777
+  s_09d3c46d1a9b1f::t_ae96bbd8917fc6 461
+TlsLib/src/Interfaces/Engine/TlpITlsEngine.pas
+  s_09d3c46d1a9b1f::t_c020cbed7c1853 128-129
+TlsLib.Tests/src/ScheduleInstallTests.pas
+  s_09d3c46d1a9b1f::t_bf55962696a727 40,46-47,61,66,69,75,83-95,102,107,109,111-112,126-140
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "16fa162d935d60562a7ab55430ef389c70a562b4",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
