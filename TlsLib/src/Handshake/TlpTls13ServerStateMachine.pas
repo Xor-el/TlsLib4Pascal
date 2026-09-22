@@ -52,6 +52,7 @@ uses
   TlpICertificateCompression,
   TlpICertificateCompressionCache,
   TlpCertificateVerify,
+  TlpPeerAuthentication,
   TlpICertificateTrust,
   TlpTlsCredential,
   TlpITlsCredentialResolver,
@@ -1655,9 +1656,8 @@ begin
   // Carry both the presented chain and the validated path (issuer at index 1), so a live resolver
   // authenticates against the PKIX issuer, never a guess. The buffered CertificateVerify/Finished
   // resume once SetCertificateVerdict does.
-  if FParams.AsyncVerdict and
-    not (FParams.LiveRevocationDeferral and
-    (LVerified.Outcome = TVerificationOutcome.RevocationSettledInline)) then
+  if TPeerAuthentication.ShouldPark(FParams.AsyncVerdict,
+    FParams.LiveRevocationDeferral, LVerified.Outcome) then
     TArrayUtilities.Append<THandshakeEffect>(Result,
       ParkForVerdict(FClientCertChain, LVerified.Path, '', nil));
 end;
@@ -1667,38 +1667,18 @@ function TTls13ServerStateMachine.ProcessClientCertVerify(
 var
   LCertVerify: TTlsCertificateVerify;
   LScheme: TSignatureScheme;
-  LContent, LPublicKeyInfo: TBytes;
-  LVerifier: ISignatureVerifier;
+  LContent: TBytes;
 begin
   Result := nil;
   LCertVerify := THandshakeMessages.DecodeCertificateVerify(AMessage.Body);
-  // the client may sign only with a scheme the CertificateRequest advertised: a scheme outside
-  // that set is a wrong signature type even if this server could otherwise verify it (RFC 8446 4.4.3)
-  if not (TArrayUtilities.Contains<UInt16>(FParams.ClientAuthSignatureSchemes,
-    LCertVerify.Algorithm)) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.IllegalParameter, @SUnrequestedClientCertVerifyScheme);
-  if not TSignatureScheme.TryFromCode(LCertVerify.Algorithm, LScheme) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.IllegalParameter, @SBadClientCertVerify);
-  // rsa_pkcs1_* are certificate-only in TLS 1.3 and MUST NOT sign a CertificateVerify,
-  // even when the server offered them for backward compatibility (RFC 8446 4.2.3)
-  if not LScheme.IsValidForHandshake(TTlsVersion.Tls13) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.IllegalParameter, @SLegacyPkcs1InClientCertVerify);
-  // the client leaf must permit digitalSignature and, for an rsa_pss_rsae_* scheme, not
-  // be an id-RSASSA-PSS key (symmetric with the client verifying the server leaf)
-  TCertificateVerify.EnforceSigningLeafPolicy(FParsedClientLeaf, LScheme, True);
+  // the client may sign only with a scheme the CertificateRequest advertised, valid for a TLS 1.3
+  // handshake, and the client leaf's key must be allowed to produce it (RFC 8446 4.4.3)
+  LScheme := TPeerAuthentication.RequirePeerScheme(FParams.ClientAuthSignatureSchemes,
+    LCertVerify.Algorithm, TTlsVersion.Tls13, FParsedClientLeaf);
   // the client signs the transcript through its Certificate, client-side context string
   LContent := TCertificateVerify.SignatureContent(False, FTranscript.CurrentHash);
-  LPublicKeyInfo := FParsedClientLeaf.PublicKeyInfo;
-  LVerifier := FParams.Crypto.Signing.CreateSignatureVerifier(LScheme, LPublicKeyInfo);
-  LVerifier.Update(LContent, 0, System.Length(LContent));
-  // the parsed leaf is no longer needed; release it rather than pin the ASN.1 graph
-  FParsedClientLeaf := nil;
-  if not LVerifier.Verify(LCertVerify.Signature) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.DecryptError, @SBadClientCertVerify);
+  TPeerAuthentication.VerifyPeerSignature(FParams.Crypto, FParsedClientLeaf, LScheme,
+    LContent, LCertVerify.Signature);
   FTranscript.Update(AMessage.Raw);
   FPhase := TPhase.WaitClientFinished;
 end;

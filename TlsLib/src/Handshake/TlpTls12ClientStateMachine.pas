@@ -41,6 +41,7 @@ uses
   TlpHandshakeMessage,
   TlpHandshakeMessages,
   TlpCertificateVerify,
+  TlpPeerAuthentication,
   TlpICertificateTrust,
   TlpServerName,
   TlpISigningKey,
@@ -558,9 +559,8 @@ begin
   // Carry both the presented chain and the validated path (issuer at index 1), so a live resolver
   // authenticates against the PKIX issuer, never a guess. The rest of the flight stays buffered
   // until SetCertificateVerdict resumes it
-  if FParams.AsyncVerdict and
-    not (FParams.LiveRevocationDeferral and
-    (LVerified.Outcome = TVerificationOutcome.RevocationSettledInline)) then
+  if TPeerAuthentication.ShouldPark(FParams.AsyncVerdict,
+    FParams.LiveRevocationDeferral, LVerified.Outcome) then
     TArrayUtilities.Append<THandshakeEffect>(Result,
       ParkForVerdict(FCertChain, LVerified.Path,
       FParams.ExpectedServerName.ToString, FReceivedOcspStaple));
@@ -629,22 +629,14 @@ function TTls12ClientStateMachine.ProcessServerKeyExchange(
 var
   LSke: TTlsServerKeyExchangeEcdhe;
   LScheme: TSignatureScheme;
-  LContent, LPublicKeyInfo: TBytes;
-  LVerifier: ISignatureVerifier;
+  LContent: TBytes;
 begin
   Result := nil;
   LSke := THandshakeMessages.DecodeServerKeyExchangeEcdhe(AMessage.Body);
-  if not (TArrayUtilities.Contains<UInt16>(FParams.OfferedSchemes,
-    LSke.SignatureScheme)) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.IllegalParameter, @SUnofferedScheme);
-  if not TSignatureScheme.TryFromCode(LSke.SignatureScheme, LScheme) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.IllegalParameter, @SUnofferedScheme);
-
-  // the leaf that signs the ServerKeyExchange must permit digitalSignature and, for an
-  // rsa_pss_rsae_* scheme, not be an id-RSASSA-PSS key
-  TCertificateVerify.EnforceSigningLeafPolicy(FParsedServerLeaf, LScheme, False);
+  // the leaf must sign with a scheme we offered (RFC 5246 7.4.3) whose key family it can produce;
+  // TLS 1.2 does not bind the ECDSA curve to the scheme (that is the supported_groups list below)
+  LScheme := TPeerAuthentication.RequirePeerScheme(FParams.OfferedSchemes,
+    LSke.SignatureScheme, TTlsVersion.Tls12, FParsedServerLeaf);
 
   // the server's curve must be one we offered and a classical ECDHE group we hold;
   // the client key-exchanges on exactly this curve
@@ -658,14 +650,8 @@ begin
   LContent := TArrayUtilities.Concat(
     TArrayUtilities.Concat(FParams.ClientRandom, FServerRandom),
     THandshakeMessages.EcdheServerParams(LSke.NamedCurve, LSke.PublicKey));
-  LPublicKeyInfo := FParsedServerLeaf.PublicKeyInfo;
-  LVerifier := FParams.Crypto.Signing.CreateSignatureVerifier(LScheme, LPublicKeyInfo);
-  LVerifier.Update(LContent, 0, System.Length(LContent));
-  // the parsed leaf is no longer needed; release it rather than pin the ASN.1 graph
-  FParsedServerLeaf := nil;
-  if not LVerifier.Verify(LSke.Signature) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.DecryptError, @SBadServerKeyExchangeSig);
+  TPeerAuthentication.VerifyPeerSignature(FParams.Crypto, FParsedServerLeaf, LScheme,
+    LContent, LSke.Signature);
 
   FServerEcdhePublic := LSke.PublicKey;
   Absorb(AMessage.Raw);

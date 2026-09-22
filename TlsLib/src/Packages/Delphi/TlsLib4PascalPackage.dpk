@@ -86,6 +86,7 @@ contains
   TlpHandshakeEffect in '..\..\Handshake\TlpHandshakeEffect.pas',
   TlpHandshakeStage in '..\..\Handshake\TlpHandshakeStage.pas',
   TlpServerOfferSelection in '..\..\Handshake\TlpServerOfferSelection.pas',
+  TlpPeerAuthentication in '..\..\Handshake\TlpPeerAuthentication.pas',
   TlpIHandshakeMachine in '..\..\Interfaces\Handshake\TlpIHandshakeMachine.pas',
   TlpHandshakeChannel in '..\..\Handshake\TlpHandshakeChannel.pas',
   TlpHandshakeDriver in '..\..\Handshake\TlpHandshakeDriver.pas',

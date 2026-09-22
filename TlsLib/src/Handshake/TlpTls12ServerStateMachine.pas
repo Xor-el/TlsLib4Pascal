@@ -39,6 +39,7 @@ uses
   TlpHandshakeMessage,
   TlpHandshakeMessages,
   TlpCertificateVerify,
+  TlpPeerAuthentication,
   TlpICertificateTrust,
   TlpTlsCredential,
   TlpITlsCredentialResolver,
@@ -732,9 +733,8 @@ begin
     // decision. Carry both the presented chain and the validated path (issuer at index 1), so a
     // live resolver authenticates against the PKIX issuer, never a guess. The buffered
     // ClientKeyExchange/CertificateVerify/Finished resume on accept.
-    if FParams.AsyncVerdict and
-      not (FParams.LiveRevocationDeferral and
-      (LVerified.Outcome = TVerificationOutcome.RevocationSettledInline)) then
+    if TPeerAuthentication.ShouldPark(FParams.AsyncVerdict,
+      FParams.LiveRevocationDeferral, LVerified.Outcome) then
       TArrayUtilities.Append<THandshakeEffect>(Result,
         ParkForVerdict(FClientCertChain, LVerified.Path, '', nil));
   end;
@@ -773,32 +773,19 @@ function TTls12ServerStateMachine.ProcessClientCertVerify(
 var
   LCertVerify: TTlsCertificateVerify;
   LScheme: TSignatureScheme;
-  LPublicKeyInfo: TBytes;
-  LVerifier: ISignatureVerifier;
+  LHandshakeLog: TBytes;
 begin
   LCertVerify := THandshakeMessages.DecodeCertificateVerify(AMessage.Body);
-  // the client may sign only with a scheme the CertificateRequest advertised (RFC 5246 7.4.8);
-  // one outside that set is a wrong signature type even if this server could otherwise verify it
-  if not (TArrayUtilities.Contains<UInt16>(FParams.ClientAuthSignatureSchemes,
-    LCertVerify.Algorithm)) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.IllegalParameter, @SUnrequestedClientCertVerifyScheme);
-  if not TSignatureScheme.TryFromCode(LCertVerify.Algorithm, LScheme) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.IllegalParameter, @SBadClientCertVerify);
-  // the client leaf must permit digitalSignature and, for an rsa_pss_rsae_* scheme, not
-  // be an id-RSASSA-PSS key (symmetric with the client verifying the server leaf)
-  TCertificateVerify.EnforceSigningLeafPolicy(FParsedClientLeaf, LScheme, False);
-  // the 1.2 CertificateVerify signs the raw handshake log through ClientKeyExchange;
-  // the scheme applies its own hash, so the suite PRF hash does not matter here
-  LPublicKeyInfo := FParsedClientLeaf.PublicKeyInfo;
-  LVerifier := FParams.Crypto.Signing.CreateSignatureVerifier(LScheme, LPublicKeyInfo);
-  LVerifier.Update(FHandshakeLog.Bytes, 0, FHandshakeLog.Size);
-  // the parsed leaf is no longer needed; release it rather than pin the ASN.1 graph
-  FParsedClientLeaf := nil;
-  if not LVerifier.Verify(LCertVerify.Signature) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.DecryptError, @SBadClientCertVerify);
+  // the client may sign only with a scheme the CertificateRequest advertised (RFC 5246 7.4.8) whose
+  // key family the client leaf can produce; one outside that set is a wrong signature type
+  LScheme := TPeerAuthentication.RequirePeerScheme(FParams.ClientAuthSignatureSchemes,
+    LCertVerify.Algorithm, TTlsVersion.Tls12, FParsedClientLeaf);
+  // the 1.2 CertificateVerify signs the raw handshake log through ClientKeyExchange; the scheme
+  // applies its own hash, so the suite PRF hash does not matter here (the stream buffer is capacity-
+  // sized, so verify over exactly the logged bytes)
+  LHandshakeLog := System.Copy(FHandshakeLog.Bytes, 0, FHandshakeLog.Size);
+  TPeerAuthentication.VerifyPeerSignature(FParams.Crypto, FParsedClientLeaf, LScheme,
+    LHandshakeLog, LCertVerify.Signature);
   Absorb(AMessage.Raw);
 
   FPhase := TPhase.WaitClientFinished;
