@@ -247,7 +247,7 @@ begin
   CountKeyUpdateEvents(LClient); // clear handshake-phase events
   CountKeyUpdateEvents(LServer);
   CheckEquals(Integer(TCipherSuites13.Aes128GcmSha256),
-    Integer(LClient.NegotiatedCipherSuite),
+    Integer(LClient.ConnectionInfo.CipherSuite),
     'AES-128-GCM was negotiated so the record limit is deterministic');
 
   // park both epochs at the LAST legal sequence before the hard AES-GCM limit (23726566): the

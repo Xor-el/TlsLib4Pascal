@@ -38,6 +38,7 @@ uses
   TlpNegotiationTypes,
   TlpCipherSuiteRegistry,
   TlpCoreExtensions,
+  TlpTlsConnectionInfo,
   TlpITlsEngine,
   TlpTlsEngine,
   TlpIHandshakeMachine,
@@ -759,7 +760,7 @@ begin
   CheckTrue(DriveObservingServerCert(LClient, LServer),
     'a different-scope configuration runs a full handshake (Certificate sent), not a resume');
   CheckFalse(LServer.IsTerminal, 'the full handshake completed');
-  CheckTrue(System.Length(LServer.PeerCertificates) > 0,
+  CheckTrue(System.Length(LServer.ConnectionInfo.PeerCertificates) > 0,
     'the full handshake verified the client certificate itself');
 end;
 
@@ -770,6 +771,7 @@ var
   LClient, LServer: ITlsEngine;
   LCred: TTlsCredential;
   LClientRoot, LScope: TBytes;
+  LServerInfo: TTlsConnectionInfo;
 begin
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
@@ -788,7 +790,7 @@ begin
   LServer := BuildMtlsServer(LStek, TClientAuthMode.Required, LClientRoot, LScope);
   LClient.StartHandshake;
   PumpToCompletion(LClient, LServer);
-  CheckTrue(LServer.IsResumed, 'the first resumption resumed');
+  CheckTrue(LServer.ConnectionInfo.Resumed, 'the first resumption resumed');
   CheckEquals(1, LCache.Count, 'the client holds a ticket for the next connection');
 
   // resume ticket #2: resumes only if it carried the chain (else Required declines to full)
@@ -796,8 +798,9 @@ begin
   LServer := BuildMtlsServer(LStek, TClientAuthMode.Required, LClientRoot, LScope);
   LClient.StartHandshake;
   PumpToCompletion(LClient, LServer);
-  CheckTrue(LServer.IsResumed, 'the re-issued ticket carried the chain, so it resumes again');
-  CheckTrue(System.Length(LServer.PeerCertificates) > 0,
+  LServerInfo := LServer.ConnectionInfo;
+  CheckTrue(LServerInfo.Resumed, 'the re-issued ticket carried the chain, so it resumes again');
+  CheckTrue(System.Length(LServerInfo.PeerCertificates) > 0,
     'and the resumed connection surfaces the client chain');
 end;
 
@@ -978,7 +981,7 @@ begin
   LServer := NewServer(LStore, nil, 7200, True);
   CheckFalse(DriveObservingServerCert(LClient, LServer),
     'a session issued under the requested host resumes');
-  CheckTrue(LServer.IsResumed, 'the control 1.2 handshake resumed');
+  CheckTrue(LServer.ConnectionInfo.Resumed, 'the control 1.2 handshake resumed');
 
   // guarded: issued under a different host -> the credentialed server ignores the session id and
   // runs a full handshake (Certificate sent) instead of resuming under the wrong identity
@@ -990,7 +993,7 @@ begin
   LServer := NewServer(LStore, nil, 7200, True);
   CheckTrue(DriveObservingServerCert(LClient, LServer),
     'a session issued under a different host falls back to a full handshake');
-  CheckFalse(LServer.IsResumed, 'a session issued under a different host does not resume');
+  CheckFalse(LServer.ConnectionInfo.Resumed, 'a session issued under a different host does not resume');
 end;
 
 initialization

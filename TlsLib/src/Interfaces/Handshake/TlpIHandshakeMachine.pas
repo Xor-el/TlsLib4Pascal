@@ -101,7 +101,7 @@ type
   /// An optional companion the driver reaches with Supports on the sink to report the
   /// negotiated protocol version once an epoch's keys are installed. Kept off IHandshakeSink
   /// so existing sinks (and their test doubles) need not implement it; only the engine bridge
-  /// does, surfacing the version on ITlsEngine.NegotiatedVersion.
+  /// does, surfacing the version on ITlsEngine.ConnectionInfo.
   /// </summary>
   IHandshakeVersionSink = interface(IInterface)
     ['{5E7A1C63-2D48-4F91-8B0A-6C3E5D7F1A29}']
@@ -126,17 +126,17 @@ type
   /// An optional companion the driver reaches with Supports on the sink to report read-only
   /// connection-info the negotiation resolved (currently the validated peer certificate
   /// chain). Kept off IHandshakeSink so existing sinks and their test doubles need not
-  /// implement it; only the engine bridge does, surfacing it on ITlsEngine.
+  /// implement it; only the engine bridge does, surfacing it on ITlsEngine.ConnectionInfo.
   /// </summary>
   IHandshakeConnectionInfoSink = interface(IInterface)
     ['{2B8D5F14-9C60-4A73-B1E8-4F0A7C6D3B95}']
     procedure OnPeerCertificateChain(const AChain: TArray<TBytes>);
     /// <summary>Reports the DER DistinguishedName certificate_authorities a peer named in its
-    /// CertificateRequest (RFC 8446 4.2.4 / RFC 5246 7.4.4) - surfaced read-only on ITlsEngine.</summary>
+    /// CertificateRequest (RFC 8446 4.2.4 / RFC 5246 7.4.4) - surfaced read-only on ITlsEngine.ConnectionInfo.</summary>
     procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>);
     /// <summary>Reports the negotiated cipher suite, named group (0 when none / non-(EC)DHE),
     /// whether the handshake resumed, and the SNI server_name in play (the host a client
-    /// requested, as seen by a server; empty when none) - surfaced read-only on ITlsEngine.</summary>
+    /// requested, as seen by a server; empty when none) - surfaced read-only on ITlsEngine.ConnectionInfo.</summary>
     procedure OnConnectionParams(ACipherSuite, ANamedGroup: UInt16; AResumed: Boolean;
       const AServerName: string);
   end;

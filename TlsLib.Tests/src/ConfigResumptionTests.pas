@@ -506,7 +506,7 @@ begin
   CheckFalse(LServer.IsHandshaking, 'the resuming server completed');
   CheckFalse(LServer.IsTerminal, 'the resuming server did not fail');
   // prove it actually resumed via the out-of-box ticket, not a silent full-handshake fallback
-  CheckTrue(LClient.IsResumed, 'the second handshake resumed off the auto-issued ticket');
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'the second handshake resumed off the auto-issued ticket');
   CheckAppDataFlows(LClient, LServer);
 end;
 
@@ -606,7 +606,7 @@ begin
   LClient := NewRejectingClient13(LCache);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
   PumpToCompletion(LClient, LServer);
-  CheckFalse(LClient.IsResumed, 'a shared cache does not resume across configurations');
+  CheckFalse(LClient.ConnectionInfo.Resumed, 'a shared cache does not resume across configurations');
   CheckTrue(LClient.IsTerminal,
     'so the strict config runs a full handshake and its verifier rejects the server');
 end;
@@ -656,7 +656,7 @@ begin
   LClient := NewClient13(LCache, True, LScope);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
   PumpToCompletion(LClient, LServer);
-  CheckTrue(LClient.IsResumed, 'a configuration with the same scope resumes the shared session');
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'a configuration with the same scope resumes the shared session');
 
   // a configuration with no explicit scope (a fresh per-build one) does not resume across them,
   // even sharing the same cache instance; a scoped session must remain for the check to be real
@@ -664,7 +664,7 @@ begin
   LClient := NewClient13(LCache, True);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
   PumpToCompletion(LClient, LServer);
-  CheckFalse(LClient.IsResumed,
+  CheckFalse(LClient.ConnectionInfo.Resumed,
     'an unshared-scope configuration does not draw another configuration''s session');
 end;
 
@@ -726,7 +726,7 @@ begin
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
   PumpToCompletionResolving(LClient, LServer, True,
     TTlsAlertDescription.BadCertificate);
-  CheckTrue(LClient.IsResumed, 'the async reverify-on-resume handshake resumed');
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'the async reverify-on-resume handshake resumed');
   CheckFalse(LClient.IsHandshaking, 'the resumed handshake completed after the accepted park');
   CheckFalse(LClient.IsTerminal, 'an accepted verdict did not abort');
 end;
@@ -838,7 +838,7 @@ begin
   LServer := NewServer12(LStore);
   PumpToCompletionResolving(LClient, LServer, True,
     TTlsAlertDescription.BadCertificate);
-  CheckTrue(LClient.IsResumed, 'the async reverify-on-resume 1.2 handshake resumed');
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'the async reverify-on-resume 1.2 handshake resumed');
   CheckFalse(LClient.IsHandshaking, 'the resumed handshake completed after the accepted park');
   CheckFalse(LClient.IsTerminal, 'an accepted verdict did not abort');
 end;

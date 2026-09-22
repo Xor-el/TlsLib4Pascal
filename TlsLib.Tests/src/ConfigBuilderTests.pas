@@ -46,6 +46,7 @@ uses
   TlpCryptoDomainTypes,
   TlpEchConfig,
   TlpInMemoryEchKeyStore,
+  TlpTlsConnectionInfo,
   TlpITlsEngine,
   TlpITlsConfigBuilder,
   TlpTlsPresets,
@@ -260,7 +261,7 @@ begin
   CheckFalse(LServer.IsHandshaking, 'the ECH server completed the handshake');
   CheckFalse(LClient.IsTerminal, 'the ECH client did not abort');
   CheckFalse(LServer.IsTerminal, 'the ECH server did not abort');
-  CheckTrue(LClient.EchStatus = TEchStatus.Accepted,
+  CheckTrue(LClient.ConnectionInfo.EchStatus = TEchStatus.Accepted,
     'the builder-configured connection surfaced ECH Accepted');
   LMsg := DecodeHex('6563682d6f6b'); // "ech-ok"
   LClient.Write(LMsg, 0, System.Length(LMsg));
@@ -1105,6 +1106,7 @@ end;
 procedure TTestConfigBuilder.TestClassicalRegistryOverPresetNegotiatesClassical;
 var
   LClient, LServer: ITlsEngine;
+  LClientInfo, LServerInfo: TTlsConnectionInfo;
 begin
   // Hardened prefers X25519MLKEM768 first; installing the classical-only registry prunes it.
   // Before the registry became authoritative this raised at engine creation (preferred group not
@@ -1120,9 +1122,11 @@ begin
   CheckFalse(LClient.IsHandshaking, 'the handshake completed');
   CheckFalse(LClient.IsTerminal, 'the client did not fail');
   CheckFalse(LServer.IsTerminal, 'the server did not fail');
-  CheckEquals(Integer(TNamedGroupCatalog.X25519), Integer(LClient.NegotiatedGroup),
+  LClientInfo := LClient.ConnectionInfo;
+  LServerInfo := LServer.ConnectionInfo;
+  CheckEquals(Integer(TNamedGroupCatalog.X25519), Integer(LClientInfo.NamedGroup),
     'negotiated classical X25519, not the pruned post-quantum hybrid');
-  CheckEquals(Integer(LClient.NegotiatedGroup), Integer(LServer.NegotiatedGroup),
+  CheckEquals(Integer(LClientInfo.NamedGroup), Integer(LServerInfo.NamedGroup),
     'client and server agree on the negotiated group');
 end;
 
@@ -1144,7 +1148,7 @@ begin
   CheckFalse(LClient.IsHandshaking, 'the handshake completed');
   CheckFalse(LClient.IsTerminal, 'the client did not fail (no retry into a pruned group)');
   CheckFalse(LServer.IsTerminal, 'the server did not fail');
-  CheckEquals(Integer(TNamedGroupCatalog.X25519), Integer(LClient.NegotiatedGroup),
+  CheckEquals(Integer(TNamedGroupCatalog.X25519), Integer(LClient.ConnectionInfo.NamedGroup),
     'negotiated classical X25519 though the server prefers the hybrid');
 end;
 

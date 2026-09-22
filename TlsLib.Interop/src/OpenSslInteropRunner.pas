@@ -197,7 +197,7 @@ begin
           Writeln(ErrOutput, 'server handshake failed: ', LResult.Detail);
           Exit(1);
         end;
-        Writeln('ech-status: ', EchStatusName(LEngine.EchStatus));
+        Writeln('ech-status: ', EchStatusName(LEngine.ConnectionInfo.EchStatus));
         Writeln('handshake complete; echoing');
         repeat
           LResult := TInteropPump.PumpAppData(LEngine, LSocket);
@@ -313,7 +313,7 @@ begin
     Writeln(ErrOutput, 'client handshake failed: ', LResult.Detail);
     Exit(1);
   end;
-  Writeln('ech-status: ', EchStatusName(LEngine.EchStatus));
+  Writeln('ech-status: ', EchStatusName(LEngine.ConnectionInfo.EchStatus));
   Writeln('handshake complete; sending');
 
   // a trailing newline lets a line-oriented openssl peer (s_server -rev) flush

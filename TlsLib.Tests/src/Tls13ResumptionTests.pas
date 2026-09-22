@@ -37,6 +37,7 @@ uses
   TlpCoreExtensions,
   TlpISecretBuffer,
   TlpSecretBuffer,
+  TlpTlsConnectionInfo,
   TlpITlsEngine,
   TlpTlsEngine,
   TlpIHandshakeMachine,
@@ -343,8 +344,8 @@ begin
   DriveHandshake(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the initial client handshake completed');
   CheckFalse(LServer.IsHandshaking, 'the initial server handshake completed');
-  CheckFalse(LClient.IsResumed, 'the initial client handshake is not resumed');
-  CheckFalse(LServer.IsResumed, 'the initial server handshake is not resumed');
+  CheckFalse(LClient.ConnectionInfo.Resumed, 'the initial client handshake is not resumed');
+  CheckFalse(LServer.ConnectionInfo.Resumed, 'the initial server handshake is not resumed');
   CheckEquals(1, LCache.Count, 'the client cached the issued ticket');
   CheckEquals(1, LStore.Count, 'the server stored the resumable session');
 
@@ -357,8 +358,8 @@ begin
   CheckFalse(LServer.IsHandshaking, 'the credential-less server completed via the PSK');
   CheckFalse(LClient.IsTerminal, 'the resuming client did not fail');
   CheckFalse(LServer.IsTerminal, 'the resuming server did not fail');
-  CheckTrue(LClient.IsResumed, 'the resuming client reports a resumed handshake');
-  CheckTrue(LServer.IsResumed, 'the resuming server reports a resumed handshake');
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'the resuming client reports a resumed handshake');
+  CheckTrue(LServer.ConnectionInfo.Resumed, 'the resuming server reports a resumed handshake');
   CheckEquals(0, LStore.Count, 'the ticket was consumed (single-use)');
   CheckAppDataFlows(LClient, LServer);
 end;
@@ -846,6 +847,7 @@ var
   LClientCred: TTlsCredential;
   LClientRoot: TBytes;
   LV: TStringList;
+  LServerInfo: TTlsConnectionInfo;
 
   function BuildMtlsClient: ITlsEngine;
   var
@@ -932,15 +934,16 @@ begin
   DriveHandshake(LClient, LServer);
   CheckFalse(LServer.IsHandshaking, 'the mutual-TLS resumption completed');
   CheckFalse(LServer.IsTerminal, 'no failure resuming a mutual-TLS session');
-  CheckTrue(LServer.IsResumed, 'the mutual-TLS session resumed (not a full handshake)');
+  LServerInfo := LServer.ConnectionInfo;
+  CheckTrue(LServerInfo.Resumed, 'the mutual-TLS session resumed (not a full handshake)');
   // the ticket carried the verified client chain, so the resumed connection surfaces it even
   // though a resumed handshake sends no Certificate (byte-equal to what was presented, which also
   // proves the server accepts its own enlarged ticket back on the wire)
   CheckEquals(System.Length(LClientCred.CertificateChain),
-    System.Length(LServer.PeerCertificates),
+    System.Length(LServerInfo.PeerCertificates),
     'the resumed connection surfaces the client chain the ticket carried');
   CheckEqualBytes('the surfaced client leaf matches the one presented at full handshake',
-    LClientCred.CertificateChain[0], LServer.PeerCertificates[0]);
+    LClientCred.CertificateChain[0], LServerInfo.PeerCertificates[0]);
   CheckAppDataFlows(LClient, LServer);
 end;
 
@@ -952,6 +955,7 @@ var
   LClientCred: TTlsCredential;
   LClientRoot: TBytes;
   LV: TStringList;
+  LServerInfo: TTlsConnectionInfo;
 
   function BuildMtlsClient: ITlsEngine;
   var
@@ -1039,13 +1043,14 @@ begin
   DriveHandshake(LClient, LServer);
   CheckFalse(LServer.IsHandshaking, 'the fallback full handshake completed');
   CheckFalse(LServer.IsTerminal, 'the fallback full handshake did not fail');
-  CheckFalse(LServer.IsResumed, 'a Required server declined the identity-less ticket');
+  LServerInfo := LServer.ConnectionInfo;
+  CheckFalse(LServerInfo.Resumed, 'a Required server declined the identity-less ticket');
   // the full handshake surfaces the VALIDATED client path (leaf first, with the assembled issuer),
   // so its leaf is the client's certificate even though the path is longer than the presented one
-  CheckTrue(System.Length(LServer.PeerCertificates) > 0,
+  CheckTrue(System.Length(LServerInfo.PeerCertificates) > 0,
     'the full handshake verified and surfaced the client certificate');
   CheckEqualBytes('the surfaced leaf is the client credential leaf',
-    LClientCred.CertificateChain[0], LServer.PeerCertificates[0]);
+    LClientCred.CertificateChain[0], LServerInfo.PeerCertificates[0]);
   CheckAppDataFlows(LClient, LServer);
 end;
 
@@ -1134,6 +1139,7 @@ var
   LClient, LServer: ITlsEngine;
   LCred: TTlsCredential;
   LClientRoot: TBytes;
+  LServerInfo: TTlsConnectionInfo;
 begin
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
@@ -1153,9 +1159,10 @@ begin
   LServer := BuildMtlsServerEngine(LStek, 0, TClientAuthMode.Required, LClientRoot,
     Filled($B2, 8));
   DriveHandshake(LClient, LServer);
-  CheckFalse(LServer.IsResumed, 'a different-scope configuration does not resume the ticket');
+  LServerInfo := LServer.ConnectionInfo;
+  CheckFalse(LServerInfo.Resumed, 'a different-scope configuration does not resume the ticket');
   CheckFalse(LServer.IsTerminal, 'it completes a full handshake instead');
-  CheckTrue(System.Length(LServer.PeerCertificates) > 0,
+  CheckTrue(System.Length(LServerInfo.PeerCertificates) > 0,
     'the full handshake verified the client certificate itself');
 end;
 
@@ -1166,6 +1173,7 @@ var
   LClient, LServer: ITlsEngine;
   LCred: TTlsCredential;
   LClientRoot, LScope: TBytes;
+  LServerInfo: TTlsConnectionInfo;
 begin
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
@@ -1184,8 +1192,9 @@ begin
   LServer := BuildMtlsServerEngine(LStek, 0, TClientAuthMode.Required, TestRootCertificate,
     LScope);
   DriveHandshake(LClient, LServer);
-  CheckTrue(LServer.IsResumed, 'a same-scope configuration resumes without re-verifying the chain');
-  CheckTrue(System.Length(LServer.PeerCertificates) > 0,
+  LServerInfo := LServer.ConnectionInfo;
+  CheckTrue(LServerInfo.Resumed, 'a same-scope configuration resumes without re-verifying the chain');
+  CheckTrue(System.Length(LServerInfo.PeerCertificates) > 0,
     'and surfaces the client chain the ticket carried');
 end;
 
@@ -1196,6 +1205,7 @@ var
   LClient, LServer: ITlsEngine;
   LCred: TTlsCredential;
   LClientRoot, LScope: TBytes;
+  LServerInfo: TTlsConnectionInfo;
 begin
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
@@ -1212,7 +1222,7 @@ begin
   LClient := BuildMtlsClientEngine(LCache, LCred);
   LServer := BuildMtlsServerEngine(LStek, 1, TClientAuthMode.Required, LClientRoot, LScope);
   DriveHandshake(LClient, LServer);
-  CheckTrue(LServer.IsResumed, 'the first resumption resumed');
+  CheckTrue(LServer.ConnectionInfo.Resumed, 'the first resumption resumed');
   CheckEquals(1, LCache.Count, 'a fresh ticket #2 was re-issued');
 
   // resume ticket #2: it resumes only if it carried the chain forward (else a Required server
@@ -1220,8 +1230,9 @@ begin
   LClient := BuildMtlsClientEngine(LCache, LCred);
   LServer := BuildMtlsServerEngine(LStek, 0, TClientAuthMode.Required, LClientRoot, LScope);
   DriveHandshake(LClient, LServer);
-  CheckTrue(LServer.IsResumed, 'the re-issued ticket carried the chain, so it resumes again');
-  CheckTrue(System.Length(LServer.PeerCertificates) > 0,
+  LServerInfo := LServer.ConnectionInfo;
+  CheckTrue(LServerInfo.Resumed, 'the re-issued ticket carried the chain, so it resumes again');
+  CheckTrue(System.Length(LServerInfo.PeerCertificates) > 0,
     'and the resumed connection surfaces the client chain');
 end;
 
@@ -1247,7 +1258,7 @@ begin
   LClient := NewClient(LCache);
   LServer := NewServer(LStore, 0, 7200, True);
   DriveHandshake(LClient, LServer);
-  CheckTrue(LServer.IsResumed, 'a ticket issued under the requested host resumes');
+  CheckTrue(LServer.ConnectionInfo.Resumed, 'a ticket issued under the requested host resumes');
 
   // guarded: issued under a different host -> the credentialed server ignores the PSK and runs a
   // full handshake instead of resuming under the wrong identity
@@ -1260,7 +1271,7 @@ begin
   DriveHandshake(LClient, LServer);
   CheckFalse(LServer.IsHandshaking, 'the guarded handshake completed');
   CheckFalse(LServer.IsTerminal, 'the guarded handshake did not fail');
-  CheckFalse(LServer.IsResumed, 'a ticket issued under a different host does not resume');
+  CheckFalse(LServer.ConnectionInfo.Resumed, 'a ticket issued under a different host does not resume');
 end;
 
 initialization

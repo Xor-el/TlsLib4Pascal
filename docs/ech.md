@@ -56,11 +56,10 @@ except
 end;
 ```
 
-A sans-IO caller reads the same outcome off the engine instead: `LEngine.EchStatus` reports
-`NotOffered`, `Greased`, `Accepted`, `Rejected`, or `Backend`, and on a reject
-`LEngine.EchRetryConfigs` / `LEngine.EchIsRetryAttempt` carry the retry material — the engine
-records the reject rather than raising. `ConnectionInfo.EchStatus` mirrors the status for a
-completed connection.
+A sans-IO caller reads the same outcome off the engine instead: `LEngine.ConnectionInfo.EchStatus`
+reports `NotOffered`, `Greased`, `Accepted`, `Rejected`, or `Backend`, and on a reject
+`LEngine.ConnectionInfo.EchRetryConfigs` / `LEngine.ConnectionInfo.EchIsRetryAttempt` carry the
+retry material — the engine records the reject rather than raising.
 
 On rejection the client is talking to the *client-facing* server on the public name, not your
 intended server, so it **declines client authentication** (sends an empty `Certificate`) rather than

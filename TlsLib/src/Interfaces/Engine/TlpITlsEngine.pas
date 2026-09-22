@@ -22,6 +22,7 @@ uses
   TlpTlsError,
   TlpTlsVersion,
   TlpEchConfig,
+  TlpTlsConnectionInfo,
   TlpIRecordProtection;
 
 type
@@ -152,6 +153,9 @@ type
     function NextEvent(out AEvent: ITlsEvent): Boolean;
 
     // --- status ---
+    /// <summary>A snapshot of the negotiated facts; zero values before the handshake resolves
+    /// each of them.</summary>
+    function ConnectionInfo: TTlsConnectionInfo;
     /// <summary>Whether the engine wants more transport bytes.</summary>
     function WantsRead: Boolean;
     /// <summary>Whether outbound bytes are waiting to be taken.</summary>

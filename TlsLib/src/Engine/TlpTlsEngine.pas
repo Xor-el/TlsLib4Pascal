@@ -29,6 +29,7 @@ uses
   TlpICryptoProvider,
   TlpIRecordProtection,
   TlpRecordLayer,
+  TlpTlsConnectionInfo,
   TlpITlsEngine,
   TlpTlsEngineEvents,
   TlpIHandshakeChannel,
@@ -74,23 +75,11 @@ type
     // early data (over-budget bytes are not held - the caller resends them, see WriteEarlyData)
     FEarlyDataLimit: Int32;
     FEarlyDataSent: Int32;
-    FNegotiatedAlpn: string;
-    FNegotiatedVersion: TTlsVersion;
-    FPeerOcspStaple: TBytes;
-    FPeerCertificates: TArray<TBytes>;
-    FRequestedCertificateAuthorities: TArray<TBytes>;
-    FNegotiatedCipherSuite: UInt16;
-    FNegotiatedGroup: UInt16;
-    FPeerServerName: string;
-    FIsResumed: Boolean;
-    // ECH outcome surfaced to callers: the status, and on a reject the retry_configs the
-    // server advertised plus whether this handshake was itself a retry (RFC 9849 sec. 6.1.6)
-    FEchStatus: TEchStatus;
-    FEchRetryConfigs: TBytes;
-    FEchIsRetryAttempt: Boolean;
-    // set only when a client aborts with ech_required over a rejected ECH offer, so a server's
-    // benign Rejected status (a completed GREASE handshake) is never read as an ECH abort
-    FEchRejectAborted: Boolean;
+    // the negotiated facts surfaced to callers as one snapshot: version, ALPN, server name,
+    // peer OCSP staple, peer chain, requested CAs, cipher suite, named group, resumption, and
+    // the ECH outcome (on a client reject, the server's retry_configs, whether this handshake
+    // was itself a retry, and whether this endpoint aborted with ech_required)
+    FInfo: TTlsConnectionInfo;
     // async peer-certificate verdict: whether the handshake is parked awaiting a verdict. Any
     // time budget belongs to the resolver, not the engine (the engine owns no timer)
     FAwaitingVerdict: Boolean;
@@ -143,6 +132,7 @@ type
     function IsInboundClosed: Boolean;
     function WriteClosed: Boolean;
     function LastError: TTlsError;
+    function ConnectionInfo: TTlsConnectionInfo;
     // IEngineRecordSequenceControl
     procedure SetWriteSequenceNumber(AValue: UInt64);
     procedure SetReadSequenceNumber(AValue: UInt64);
@@ -417,16 +407,9 @@ begin
   FHandshakeComplete := False;
   FWarningAlertCount := 0;
   FAwaitingVerdict := False;
-  FNegotiatedCipherSuite := 0;
-  FNegotiatedGroup := 0;
-  FPeerServerName := '';
-  FIsResumed := False;
-  FEchStatus := TEchStatus.NotOffered;
-  FEchIsRetryAttempt := False;
-  FEchRejectAborted := False;
-  FNegotiatedAlpn := '';
+  FInfo.EchStatus := TEchStatus.NotOffered;
   // a zero wire code until an epoch's keys name the negotiated version
-  FNegotiatedVersion := TTlsVersion.Create(0);
+  FInfo.NegotiatedVersion := TTlsVersion.Create(0);
   FLastError := TTlsError.CreateFatal(TTlsAlertDescription.InternalError, '');
   // a cleartext application_data record (before any read epoch key) is unexpected on a
   // real handshake (RFC 8446 5.1)
@@ -515,7 +498,7 @@ begin
   // flood is refused. close_notify is handled above regardless of level.
   if LReceived.LevelByte = TTlsAlertLevel.Warning.ToByte then
   begin
-    if (FNegotiatedVersion.WireValue = TlsWireVersionTls13) and
+    if (FInfo.NegotiatedVersion.WireValue = TlsWireVersionTls13) and
       not (LReceived.HasKnownDescription and
       (LReceived.Description = TTlsAlertDescription.UserCanceled)) then
       raise EFatalAlertTlsLibException.CreateRes(
@@ -646,7 +629,7 @@ end;
 
 function TTlsEngine.IsTls13: Boolean;
 begin
-  Result := FNegotiatedVersion.WireValue = TlsWireVersionTls13;
+  Result := FInfo.NegotiatedVersion.WireValue = TlsWireVersionTls13;
 end;
 
 procedure TTlsEngine.Write(const AData: TBytes; AOffset, ALength: Int32);
@@ -952,69 +935,77 @@ begin
   Result := FLastError;
 end;
 
+function TTlsEngine.ConnectionInfo: TTlsConnectionInfo;
+begin
+  Result := FInfo;
+  // the one defensive copy the retry_configs reader has always made, so a caller cannot
+  // mutate the engine's held bytes through the returned snapshot
+  Result.EchRetryConfigs := System.Copy(FInfo.EchRetryConfigs);
+end;
+
 function TTlsEngine.NegotiatedVersion: TTlsVersion;
 begin
-  Result := FNegotiatedVersion;
+  Result := FInfo.NegotiatedVersion;
 end;
 
 function TTlsEngine.NegotiatedAlpnProtocol: string;
 begin
-  Result := FNegotiatedAlpn;
+  Result := FInfo.AlpnProtocol;
 end;
 
 function TTlsEngine.PeerOcspStaple: TBytes;
 begin
-  Result := FPeerOcspStaple;
+  Result := FInfo.PeerOcspStaple;
 end;
 
 function TTlsEngine.PeerCertificates: TArray<TBytes>;
 begin
-  Result := FPeerCertificates;
+  Result := FInfo.PeerCertificates;
 end;
 
 function TTlsEngine.RequestedCertificateAuthorities: TArray<TBytes>;
 begin
-  Result := FRequestedCertificateAuthorities;
+  Result := FInfo.RequestedCertificateAuthorities;
 end;
 
 function TTlsEngine.NegotiatedCipherSuite: UInt16;
 begin
-  Result := FNegotiatedCipherSuite;
+  Result := FInfo.CipherSuite;
 end;
 
 function TTlsEngine.NegotiatedGroup: UInt16;
 begin
-  Result := FNegotiatedGroup;
+  Result := FInfo.NamedGroup;
 end;
 
 function TTlsEngine.PeerServerName: string;
 begin
-  Result := FPeerServerName;
+  Result := FInfo.ServerName;
 end;
 
 function TTlsEngine.IsResumed: Boolean;
 begin
-  Result := FIsResumed;
+  Result := FInfo.Resumed;
 end;
 
 function TTlsEngine.EchStatus: TEchStatus;
 begin
-  Result := FEchStatus;
+  Result := FInfo.EchStatus;
 end;
 
 function TTlsEngine.EchRetryConfigs: TBytes;
 begin
-  Result := System.Copy(FEchRetryConfigs);
+  Result := System.Copy(FInfo.EchRetryConfigs);
 end;
 
 function TTlsEngine.EchIsRetryAttempt: Boolean;
 begin
-  Result := FEchIsRetryAttempt;
+  Result := FInfo.EchIsRetryAttempt;
 end;
 
 function TTlsEngine.EchRejectAborted: Boolean;
 begin
-  Result := FEchRejectAborted;
+  Result := FInfo.EchRejectAborted;
 end;
 
 procedure TTlsEngine.InstallReadProtection(const AProtection: IRecordProtection);
@@ -1088,12 +1079,12 @@ end;
 
 procedure TTlsEngine.OnAlpnSelected(const AProtocol: string);
 begin
-  FNegotiatedAlpn := AProtocol;
+  FInfo.AlpnProtocol := AProtocol;
 end;
 
 procedure TTlsEngine.OnVersionNegotiated(const AVersion: TTlsVersion);
 begin
-  FNegotiatedVersion := AVersion;
+  FInfo.NegotiatedVersion := AVersion;
   // the record layer needs the version to classify an incoming change_cipher_spec (drop under
   // 1.3 vs reject out of window) before the next record after the peer's hello is pulled
   FRecordLayer.SetNegotiatedVersion(AVersion);
@@ -1101,27 +1092,27 @@ end;
 
 procedure TTlsEngine.OnOcspStapleReceived(const AStaple: TBytes);
 begin
-  FPeerOcspStaple := AStaple;
+  FInfo.PeerOcspStaple := AStaple;
 end;
 
 procedure TTlsEngine.OnPeerCertificateChain(const AChain: TArray<TBytes>);
 begin
-  FPeerCertificates := AChain;
+  FInfo.PeerCertificates := AChain;
 end;
 
 procedure TTlsEngine.OnRequestedCertificateAuthorities(
   const AAuthorities: TArray<TBytes>);
 begin
-  FRequestedCertificateAuthorities := AAuthorities;
+  FInfo.RequestedCertificateAuthorities := AAuthorities;
 end;
 
 procedure TTlsEngine.OnConnectionParams(ACipherSuite, ANamedGroup: UInt16;
   AResumed: Boolean; const AServerName: string);
 begin
-  FNegotiatedCipherSuite := ACipherSuite;
-  FNegotiatedGroup := ANamedGroup;
-  FPeerServerName := AServerName;
-  FIsResumed := AResumed;
+  FInfo.CipherSuite := ACipherSuite;
+  FInfo.NamedGroup := ANamedGroup;
+  FInfo.ServerName := AServerName;
+  FInfo.Resumed := AResumed;
 end;
 
 procedure TTlsEngine.OnCertificateVerdictNeeded(const AChain,
@@ -1164,23 +1155,23 @@ end;
 
 procedure TTlsEngine.OnEchAccepted;
 begin
-  FEchStatus := TEchStatus.Accepted;
+  FInfo.EchStatus := TEchStatus.Accepted;
 end;
 
 procedure TTlsEngine.OnEchGreased;
 begin
-  FEchStatus := TEchStatus.Greased;
+  FInfo.EchStatus := TEchStatus.Greased;
 end;
 
 procedure TTlsEngine.OnEchBackend;
 begin
-  FEchStatus := TEchStatus.Backend;
+  FInfo.EchStatus := TEchStatus.Backend;
 end;
 
 procedure TTlsEngine.OnEchServerRejected;
 begin
   // the server rejected ECH and completed to the public_name; record it, do not abort
-  FEchStatus := TEchStatus.Rejected;
+  FInfo.EchStatus := TEchStatus.Rejected;
 end;
 
 procedure TTlsEngine.OnEchRejected(const ARetryConfigs: TBytes;
@@ -1188,10 +1179,10 @@ procedure TTlsEngine.OnEchRejected(const ARetryConfigs: TBytes;
 begin
   // the client completed its flight to the public_name; surface the reject (retry_configs
   // and the retry flag) then abort with ech_required - never a plaintext fall-back
-  FEchStatus := TEchStatus.Rejected;
-  FEchRetryConfigs := ARetryConfigs;
-  FEchIsRetryAttempt := AIsRetryAttempt;
-  FEchRejectAborted := True;
+  FInfo.EchStatus := TEchStatus.Rejected;
+  FInfo.EchRetryConfigs := ARetryConfigs;
+  FInfo.EchIsRetryAttempt := AIsRetryAttempt;
+  FInfo.EchRejectAborted := True;
   OnHandshakeFailed(TTlsAlertDescription.EchRequired);
 end;
 

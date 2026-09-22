@@ -23,6 +23,7 @@ uses
   TlpTlsLibExceptions,
   TlpEchConfig,
   TlpTrustPolicy,
+  TlpTlsConnectionInfo,
   TlpITlsEngine,
   TlpITlsTransport;
 
@@ -104,6 +105,8 @@ resourcestring
 { TTlsStreamPump }
 
 class procedure TTlsStreamPump.RaiseIfFatal(const AEngine: ITlsEngine);
+var
+  LInfo: TTlsConnectionInfo;
 begin
   if not AEngine.IsTerminal then
     Exit;
@@ -111,9 +114,10 @@ begin
   // retry_configs and the retry flag through a typed exception so the application can decide to
   // reconnect. keyed on the abort itself, not EchStatus - a server reads Rejected after a benign
   // GREASE handshake that completed, so a later fatal there must surface as its true error
-  if AEngine.EchRejectAborted then
-    raise EEchRejectedTlsLibException.Create(AEngine.EchRetryConfigs,
-      AEngine.EchIsRetryAttempt);
+  LInfo := AEngine.ConnectionInfo;
+  if LInfo.EchRejectAborted then
+    raise EEchRejectedTlsLibException.Create(LInfo.EchRetryConfigs,
+      LInfo.EchIsRetryAttempt);
   raise ETlsStreamError.Create(AEngine.LastError);
 end;
 

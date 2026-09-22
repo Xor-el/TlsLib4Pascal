@@ -41,6 +41,7 @@ uses
   TlpHandshakeMessages,
   TlpHandshakeEffect,
   TlpSecretBuffer,
+  TlpTlsConnectionInfo,
   TlpITlsEngine,
   TlpTlsEngine,
   TlpTlsEngineFactory,
@@ -404,6 +405,7 @@ end;
 procedure TTestTls12DualVersion.TestDualClientOfferingHybridExcludesItOnTls12;
 var
   LClient, LServer: ITlsEngine;
+  LClientInfo: TTlsConnectionInfo;
 begin
   // the dual client lists X25519MLKEM768 in supported_groups, but a 1.2-only server must
   // negotiate a classical ECDHE group - a KEM hybrid is never selected on TLS 1.2 (RFC 8446)
@@ -411,9 +413,10 @@ begin
   LServer := NewServerDispatch(TArray<UInt16>.Create(TlsWireVersionTls12));
   DriveToCompletion(LClient, LServer);
   CheckExchangesData(LClient, LServer, 'dual client offering hybrid + 1.2-only server');
-  CheckEquals(Integer(TlsWireVersionTls12), Integer(LClient.NegotiatedVersion.WireValue),
+  LClientInfo := LClient.ConnectionInfo;
+  CheckEquals(Integer(TlsWireVersionTls12), Integer(LClientInfo.NegotiatedVersion.WireValue),
     'the connection negotiated TLS 1.2');
-  CheckEquals(Integer(TNamedGroupCatalog.X25519), Integer(LClient.NegotiatedGroup),
+  CheckEquals(Integer(TNamedGroupCatalog.X25519), Integer(LClientInfo.NamedGroup),
     'a classical group (not the X25519MLKEM768 hybrid) was selected on 1.2');
 end;
 

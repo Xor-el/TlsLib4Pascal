@@ -377,7 +377,7 @@ begin
   CheckFalse(LClient.AwaitingCertificateVerdict,
     'the verdict was resolved, so nothing is awaited');
   CheckEquals(Int64(TlsWireVersionTls13),
-    Int64(LClient.NegotiatedVersion.WireValue),
+    Int64(LClient.ConnectionInfo.NegotiatedVersion.WireValue),
     'the resumed handshake negotiates TLS 1.3');
 end;
 
