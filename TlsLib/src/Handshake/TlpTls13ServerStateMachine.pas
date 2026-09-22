@@ -334,9 +334,6 @@ type
     /// <summary>The index of AIdentity in AOffered (exact bytes), or -1 when absent.</summary>
     class function IndexOfOfferedIdentity(const AOffered: TArray<TBytes>;
       const AIdentity: TBytes): Int32; static;
-    /// <summary>Imports the configured external PSKs for every supported KDF hash, in
-    /// server preference order (each spec once per hash).</summary>
-    function ImportExternalPsks: TArray<IPreSharedKey>;
     /// <summary>Rejects a malformed pre_shared_key that offers unequal identity and binder
     /// counts (RFC 8446 4.2.11); a no-op when no PSK is offered. Runs on every ClientHello
     /// (including the retry) so a mismatch introduced on either flight is caught.</summary>
@@ -498,7 +495,10 @@ begin
   // a configured store upgrades the stateless STEK default to single-use handles
   FTicketStrategy := TSessionTicketStrategies.ForServer(FParams.Crypto,
     FParams.SessionTicketKeys, FParams.SessionStore);
-  FExternalPsks := ImportExternalPsks;
+  // each configured external PSK imported once per supported KDF hash, in server preference
+  // order, so an offered identity for either hash can be matched (RFC 9258)
+  FExternalPsks := TExternalPskImporter.ImportAll(FParams.Crypto, FParams.ExternalPsks,
+    TlsWireVersionTls13);
 end;
 
 destructor TTls13ServerStateMachine.Destroy;
@@ -906,24 +906,6 @@ begin
     FParams.AntiReplay.CheckAndRecord(AContext.OfferedPskBinders[0], LNowMs,
     LNowMs + UInt64(LSession.TicketLifetime) * 1000);
   Result := True;
-end;
-
-function TTls13ServerStateMachine.ImportExternalPsks: TArray<IPreSharedKey>;
-var
-  LSpec: TExternalPsk;
-begin
-  Result := nil;
-  // import each configured external PSK once per supported KDF hash (RFC 9258), preserving
-  // server preference order, so an offered identity for either hash can be matched
-  for LSpec in FParams.ExternalPsks do
-  begin
-    TArrayUtilities.Append<IPreSharedKey>(Result,
-      TExternalPskImporter.Import(FParams.Crypto, LSpec, TlsWireVersionTls13,
-      THashAlgorithm.SHA_256));
-    TArrayUtilities.Append<IPreSharedKey>(Result,
-      TExternalPskImporter.Import(FParams.Crypto, LSpec, TlsWireVersionTls13,
-      THashAlgorithm.SHA_384));
-  end;
 end;
 
 class function TTls13ServerStateMachine.IndexOfOfferedIdentity(

@@ -341,10 +341,6 @@ type
     /// <summary>The current time in Unix milliseconds from the injected clock, falling back to
     /// the system clock when none was supplied (a directly-built params record).</summary>
     function NowUnixMillis: UInt64;
-    /// <summary>Imports the configured external PSKs (RFC 9258) into the wire PSK offer
-    /// list: each spec is imported once per supported KDF hash (SHA-256 then SHA-384), in
-    /// spec order, so the server can match whichever the negotiated cipher's hash needs.</summary>
-    function ImportExternalOffers: TArray<IPreSharedKey>;
     /// <summary>The digest of AData under AHash (the per-PSK binder transcript on the first
     /// ClientHello, where the transcript is otherwise just this message).</summary>
     function HashUnder(AHash: THashAlgorithm; const AData: TBytes): TBytes;
@@ -1164,24 +1160,6 @@ begin
   end;
 end;
 
-function TTls13ClientStateMachine.ImportExternalOffers: TArray<IPreSharedKey>;
-var
-  LSpec: TExternalPsk;
-begin
-  Result := nil;
-  // import each external PSK once per supported KDF hash (RFC 9258): a SHA-256 and a
-  // SHA-384 variant, so whichever the negotiated cipher's hash needs is on offer
-  for LSpec in FParams.ExternalPsks do
-  begin
-    TArrayUtilities.Append<IPreSharedKey>(Result,
-      TExternalPskImporter.Import(FParams.Crypto, LSpec, TlsWireVersionTls13,
-      THashAlgorithm.SHA_256));
-    TArrayUtilities.Append<IPreSharedKey>(Result,
-      TExternalPskImporter.Import(FParams.Crypto, LSpec, TlsWireVersionTls13,
-      THashAlgorithm.SHA_384));
-  end;
-end;
-
 procedure TTls13ClientStateMachine.PruneOffersToHash(AHash: THashAlgorithm);
 var
   LKept: TArray<IPreSharedKey>;
@@ -1349,7 +1327,9 @@ begin
   // (activated once the ServerHello fixes the suite) and each binder is MAC'd under its own
   // PSK's hash in PatchBinder.
   if System.Length(FParams.ExternalPsks) > 0 then
-    FPskOffers := TArrayUtilities.Concat<IPreSharedKey>(FPskOffers, ImportExternalOffers);
+    FPskOffers := TArrayUtilities.Concat<IPreSharedKey>(FPskOffers,
+      TExternalPskImporter.ImportAll(FParams.Crypto, FParams.ExternalPsks,
+      TlsWireVersionTls13));
   // a single offered PSK has one known hash, so activate the transcript on it now (the
   // resumption / 0-RTT path relies on it); several offers defer activation to ServerHello
   if System.Length(FPskOffers) = 1 then
