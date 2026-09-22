@@ -52,7 +52,6 @@ type
     FRecordLayer: TRecordLayer;
     FEvents: TQueue<ITlsEvent>;
     FConductor: THandshakeConductor;
-    FOutbound: TBytes;
     // decrypted application data waiting for the caller, as a queue of record-sized
     // chunks: FAppChunkHead/FAppBytePos is the read cursor, FAppAvail the unread total
     FAppChunks: TArray<TBytes>;
@@ -97,7 +96,6 @@ type
     FAwaitingVerdict: Boolean;
     FLastError: TTlsError;
     procedure Enqueue(const AEvent: ITlsEvent);
-    procedure PullOutbound;
     function IsTls13: Boolean;
     procedure QueueAlertRecord(const AAlert: TTlsAlert);
     procedure AppendAppData(const AData: TBytes);
@@ -466,18 +464,12 @@ begin
   FEvents.Enqueue(AEvent);
 end;
 
-procedure TTlsEngine.PullOutbound;
-begin
-  FOutbound := TArrayUtilities.Concat(FOutbound, FRecordLayer.TakeOutgoing);
-end;
-
 procedure TTlsEngine.QueueAlertRecord(const AAlert: TTlsAlert);
 var
   LBytes: TBytes;
 begin
   LBytes := TTlsAlertProtocol.Encode(AAlert);
   FRecordLayer.Write(TTlsContentType.Alert, LBytes, 0, System.Length(LBytes));
-  PullOutbound;
 end;
 
 procedure TTlsEngine.AppendAppData(const AData: TBytes);
@@ -639,7 +631,6 @@ begin
       FRecordLayer.ProcessInput(AWire, AOffset, ALength);
       DrainRecordLayer;
       // a driven handshake may have written a response flight into the record layer
-      PullOutbound;
     except
       on E: Exception do
         Exit(Fail(E));
@@ -647,7 +638,7 @@ begin
   end;
   if FTerminal then // a received fatal alert or a handshake failure
     Exit(TTlsOutcome.Fatal);
-  if (AppReadAvailable > 0) or (FEvents.Count > 0) or (System.Length(FOutbound) > 0) then
+  if (AppReadAvailable > 0) or (FEvents.Count > 0) or (FRecordLayer.PendingOutgoing > 0) then
     Result := TTlsOutcome.Advanced
   else
     Result := TTlsOutcome.NeedMoreInput;
@@ -680,7 +671,6 @@ begin
       on E: Exception do
       begin
         Fail(E);
-        PullOutbound;
         Exit;
       end;
     end;
@@ -704,7 +694,6 @@ begin
         on E: Exception do
         begin
           Fail(E);
-          PullOutbound;
           Exit;
         end;
       end;
@@ -713,11 +702,9 @@ begin
     if FRecordLayer.WriteNeedsKeyUpdate then
     begin
       SendClose;
-      PullOutbound;
       raise ERecordLimitTlsLibException.CreateRes(@SRecordLimitNoRekey);
     end;
   until False;
-  PullOutbound;
 end;
 
 function TTlsEngine.WriteEarlyData(const AData: TBytes; AOffset, ALength: Int32): Int32;
@@ -742,7 +729,6 @@ begin
   // (it pauses at the AEAD limit); the caller resends any remainder as 1-RTT after the handshake
   Result := FRecordLayer.Write(TTlsContentType.ApplicationData, AData, AOffset, LAccept);
   Inc(FEarlyDataSent, Result);
-  PullOutbound;
 end;
 
 procedure TTlsEngine.RequestKeyUpdate(ARequestPeerUpdate: Boolean);
@@ -760,11 +746,9 @@ begin
     on E: Exception do
     begin
       Fail(E);
-      PullOutbound;
       Exit;
     end;
   end;
-  PullOutbound;
 end;
 
 function TTlsEngine.ExportKeyingMaterial(const ALabel: string;
@@ -805,11 +789,9 @@ begin
     on E: Exception do
     begin
       Fail(E);
-      PullOutbound;
       Exit;
     end;
   end;
-  PullOutbound;
 end;
 
 procedure TTlsEngine.SetCertificateVerdict(AAccept: Boolean;
@@ -834,29 +816,14 @@ begin
     on E: Exception do
     begin
       Fail(E);
-      PullOutbound;
       Exit;
     end;
   end;
-  PullOutbound;
 end;
 
 function TTlsEngine.TakeOutgoing(var ADest: TBytes; ADestOffset: Int32): Int32;
-var
-  LCapacity: Int32;
 begin
-  PullOutbound;
-  LCapacity := System.Length(ADest) - ADestOffset;
-  if (ADestOffset < 0) or (LCapacity <= 0) then
-    Exit(0);
-  Result := System.Length(FOutbound);
-  if Result > LCapacity then
-    Result := LCapacity;
-  if Result > 0 then
-  begin
-    Move(FOutbound[0], ADest[ADestOffset], Result);
-    FOutbound := System.Copy(FOutbound, Result, System.Length(FOutbound) - Result);
-  end;
+  Result := FRecordLayer.TakeOutgoing(ADest, ADestOffset);
 end;
 
 function TTlsEngine.ReadAppData(var ADest: TBytes; ADestOffset,
@@ -903,8 +870,8 @@ begin
   end;
   // reading down the buffer relieves backpressure: resume the drain so records held back at the
   // app-read cap (a raw embedder that fed a large buffer) surface, and a KeyUpdate/alert produced
-  // while pulling reaches the wire (PullOutbound). Not while parked, and never turning a pull
-  // failure into an escape.
+  // while pulling reaches the record layer's outbound queue. Not while parked, and never turning a
+  // pull failure into an escape.
   if (not FAwaitingVerdict) and (not FTerminal) and (not FClosed) and
     (FAppAvail < FMaxAppReadBuffer) then
   begin
@@ -914,7 +881,6 @@ begin
       on E: Exception do
         Fail(E);
     end;
-    PullOutbound;
   end;
 end;
 
@@ -941,7 +907,7 @@ end;
 
 function TTlsEngine.WantsWrite: Boolean;
 begin
-  Result := System.Length(FOutbound) > 0;
+  Result := FRecordLayer.PendingOutgoing > 0;
 end;
 
 function TTlsEngine.IsHandshaking: Boolean;
