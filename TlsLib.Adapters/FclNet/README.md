@@ -94,6 +94,7 @@ trust the familiar way. Only what fcl-net lacks is added as extension properties
 | `VerifyCallback` | augment-only hook (chain+host → Boolean) |
 | `VerdictResolver` + `VerdictDeadlineMs` | client-role out-of-band verdict (server's chain), e.g. live OCSP/CRL |
 | `ServerVerdictResolver` + `ServerVerdictDeadlineMs` | server-role out-of-band verdict (mTLS client's chain) |
+| `HandshakeTimeoutMs` | bounds the handshake read (ms); `0` = 30 s default |
 | `OnVerifyCertificate` (fcl-net native)                | augment-only reject after our pipeline             |
 
 **Certificate chain**: `CertificateData.Certificate` is the chain the server *presents* — put your leaf
@@ -152,4 +153,5 @@ not a test gate**: it needs outbound HTTPS and exits 0 (PASS) / 2 (SKIP, offline
 each handler a fully-built config through `ServerConfig` / `ClientConfig` — an ordered, bound
 cipher-suite preference pinned to TLS 1.2, so the negotiated 1.2 (the preset would pick 1.3) proves
 the injected config replaced the built-in build. This is the escape hatch to the whole builder API
-(cipher order, groups, resumption, ALPN, …).
+(cipher order, groups, resumption, ALPN, …). A built config supplied alongside cert/trust options
+(or a verify callback or a crypto/PKIX provider) is refused, not silently dropped.

@@ -42,6 +42,7 @@ peer.SSLAcceptConnection;             // handshake
 | `VerifyCert` + (`CertCAFile` or `UseSystemTrust`), **server** | `WithPeerAuth(Requested)` — the server requests (does not require) a client certificate and verifies a presented one; mTLS |
 | `OnVerifyCert` (native hook)                         | augment-only bridge (see below)          |
 | `SSLType`                                            | accepted and ignored (we are TLS 1.2+)   |
+| `HandshakeTimeoutMs`                                 | bounds the handshake read (ms); `0` = 30 s default |
 
 Because `VerifyCert` defaults to **True**, a server that sets `CertCAFile` (or `UseSystemTrust`)
 starts requesting client certificates: a client that presents one must chain to that trust source,
@@ -122,4 +123,5 @@ adapter's connection-reuse path end to end.
 `(Sock.SSL as TSSLTlsLib).ServerConfig` / `ClientConfig` — an ordered, bound cipher-suite
 preference pinned to TLS 1.2, so the negotiated 1.2 (the preset would pick 1.3) proves the injected
 config replaced the built-in build. This is the escape hatch to the whole builder API (cipher
-order, groups, resumption, ALPN, …).
+order, groups, resumption, ALPN, …). A built config supplied alongside cert/trust options (or a
+verify callback or a crypto/PKIX provider) is refused, not silently dropped.

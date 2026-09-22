@@ -45,6 +45,7 @@ when the protocol says "go secure", set `IO.PassThrough := False` and the handsh
 | `VerifyCallback`                  | neutral augment-only hook (`WithCertificateVerifyCallback`) |
 | `VerdictResolver` + `VerdictDeadlineMs` | client-role out-of-band verdict (server's chain), e.g. live OCSP/CRL |
 | `ServerVerdictResolver` + `ServerVerdictDeadlineMs` | server-role out-of-band verdict (mTLS client's chain) |
+| `HandshakeTimeoutMs`              | bounds the handshake read (ms); `0` = 30 s default        |
 
 **Certificate chain**: `CertFile` is the chain the server *presents* — put your leaf **followed by any
 intermediates** in one PEM file (a concatenation) so clients build a complete chain. `RootCertFile` is
@@ -120,3 +121,6 @@ order, `ClientOrder` honors the client's. It reads the result back through the a
 suite always wins (flip the client's order, flip the result), while under `ServerOrder` the
 negotiated suite is stable regardless of the client's order — proving, through the real handshake,
 that only the server guides selection and can defer to the client when it chooses to.
+
+A built config (`SSLOptions.ServerConfig` / `SSLOptions.ClientConfig`) supplied alongside cert/trust
+options (or a verify callback or a crypto/PKIX provider) is refused, not silently dropped.

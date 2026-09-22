@@ -60,6 +60,7 @@ through the global factory, so its hooks are set the same way):
 SetTlsLibMormotVerifyCallback(cb);                            // augment-only  chain+host -> Boolean
 SetTlsLibMormotVerdictResolver(resolver, deadlineMs);         // client role: decides the server's chain
 SetTlsLibMormotServerVerdictResolver(resolver, deadlineMs);   // server role: decides an mTLS client's chain
+SetTlsLibMormotHandshakeTimeout(ms);                          // bounds the handshake read; 0 = 30 s default
 ```
 
 `VerifyCallback` runs after our pipeline accepts the chain and can only additionally reject.
@@ -106,4 +107,5 @@ and exits 0 (PASS) / 2 (SKIP, offline) / 1 (FAIL).
 `SetTlsLibMormotServerConfig` / `SetTlsLibMormotClientConfig` — an ordered, bound cipher-suite
 preference pinned to TLS 1.2, so the negotiated 1.2 (the preset would pick 1.3) proves the injected
 config replaced the built-in build. This is the escape hatch to the whole builder API (cipher
-order, groups, resumption, ALPN, …).
+order, groups, resumption, ALPN, …). A built config supplied alongside cert/trust options (or a
+verify callback or a crypto/PKIX provider) is refused, not silently dropped.
