@@ -1,0 +1,24 @@
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_09d3c46d1a9b1f::t_e53d447d1cf00f 3497,3504-3508,3512
+  s_09d3c46d1a9b1f::t_c6f72161f0d68c 3760,3771-3773,3775,3779
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_09d3c46d1a9b1f::t_ddd33d17258c60 224-225
+  s_09d3c46d1a9b1f::t_b555bc69bf7a6b 1135-1139
+  s_09d3c46d1a9b1f::t_51eb9b1a347df3 1419-1422
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "45708f6930de0f81699e963bd2b6db3a5b6d1360",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
