@@ -41,6 +41,7 @@ uses
   TlpHandshakeMessage,
   TlpHandshakeMessages,
   TlpCertificateVerify,
+  TlpPeerAuthentication,
   TlpICertificateTrust,
   TlpServerName,
   TlpISigningKey,
@@ -50,6 +51,7 @@ uses
   TlpSession,
   TlpITlsEngine,
   TlpHandshakeEffect,
+  TlpHandshakeStage,
   TlpHandshakeMachineBase;
 
 type
@@ -254,12 +256,12 @@ type
   strict protected
     function Route(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>; override;
+    function ContinueAfterVerdict: TArray<THandshakeEffect>; override;
   public
     constructor Create(const AParams: TClient12HandshakeParams);
     destructor Destroy; override;
     function Initiates: Boolean; override;
     function Start: TArray<THandshakeEffect>; override;
-    function ResumeAfterVerdict: TArray<THandshakeEffect>; override;
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       AUseContext: Boolean; ALength: Int32): TBytes; override;
     function CanExportKeyingMaterial: Boolean; override;
@@ -282,10 +284,8 @@ resourcestring
   SEmptyCertificate = 'the server sent an empty certificate list';
   SNoCertificateVerifier = 'no certificate verifier configured (fail-closed)';
   SUntrustedCertificate = 'the server certificate chain was not trusted';
-  SUnofferedScheme = 'the ServerKeyExchange uses a signature scheme that was not offered';
   SUnofferedAlpn = 'the server selected an ALPN protocol that was not offered';
   SBadServerKeyExchangeCurve = 'the ServerKeyExchange named a group that was not offered';
-  SBadServerKeyExchangeSig = 'the ServerKeyExchange signature did not verify';
   SBadServerFinished = 'the server Finished did not verify';
   SResumedSuiteMismatch =
     'the resumed ServerHello selected a suite other than the cached session''s';
@@ -557,11 +557,10 @@ begin
   // Carry both the presented chain and the validated path (issuer at index 1), so a live resolver
   // authenticates against the PKIX issuer, never a guess. The rest of the flight stays buffered
   // until SetCertificateVerdict resumes it
-  if FParams.AsyncVerdict and
-    not (FParams.LiveRevocationDeferral and
-    (LVerified.Outcome = TVerificationOutcome.RevocationSettledInline)) then
+  if TPeerAuthentication.ShouldPark(FParams.AsyncVerdict,
+    FParams.LiveRevocationDeferral, LVerified.Outcome) then
     TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.AwaitCertificateVerdict(FCertChain, LVerified.Path,
+      ParkForVerdict(FCertChain, LVerified.Path,
       FParams.ExpectedServerName.ToString, FReceivedOcspStaple));
 end;
 
@@ -628,22 +627,14 @@ function TTls12ClientStateMachine.ProcessServerKeyExchange(
 var
   LSke: TTlsServerKeyExchangeEcdhe;
   LScheme: TSignatureScheme;
-  LContent, LPublicKeyInfo: TBytes;
-  LVerifier: ISignatureVerifier;
+  LContent: TBytes;
 begin
   Result := nil;
   LSke := THandshakeMessages.DecodeServerKeyExchangeEcdhe(AMessage.Body);
-  if not (TArrayUtilities.Contains<UInt16>(FParams.OfferedSchemes,
-    LSke.SignatureScheme)) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.IllegalParameter, @SUnofferedScheme);
-  if not TSignatureScheme.TryFromCode(LSke.SignatureScheme, LScheme) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.IllegalParameter, @SUnofferedScheme);
-
-  // the leaf that signs the ServerKeyExchange must permit digitalSignature and, for an
-  // rsa_pss_rsae_* scheme, not be an id-RSASSA-PSS key
-  TCertificateVerify.EnforceSigningLeafPolicy(FParsedServerLeaf, LScheme, False);
+  // the leaf must sign with a scheme we offered (RFC 5246 7.4.3) whose key family it can produce;
+  // TLS 1.2 does not bind the ECDSA curve to the scheme (that is the supported_groups list below)
+  LScheme := TPeerAuthentication.RequirePeerScheme(FParams.OfferedSchemes,
+    LSke.SignatureScheme, TTlsVersion.Tls12, FParsedServerLeaf);
 
   // the server's curve must be one we offered and a classical ECDHE group we hold;
   // the client key-exchanges on exactly this curve
@@ -657,14 +648,8 @@ begin
   LContent := TArrayUtilities.Concat(
     TArrayUtilities.Concat(FParams.ClientRandom, FServerRandom),
     THandshakeMessages.EcdheServerParams(LSke.NamedCurve, LSke.PublicKey));
-  LPublicKeyInfo := FParsedServerLeaf.PublicKeyInfo;
-  LVerifier := FParams.Crypto.Signing.CreateSignatureVerifier(LScheme, LPublicKeyInfo);
-  LVerifier.Update(LContent, 0, System.Length(LContent));
-  // the parsed leaf is no longer needed; release it rather than pin the ASN.1 graph
-  FParsedServerLeaf := nil;
-  if not LVerifier.Verify(LSke.Signature) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.DecryptError, @SBadServerKeyExchangeSig);
+  TPeerAuthentication.VerifyPeerSignature(FParams.Crypto, FParsedServerLeaf, LScheme,
+    LContent, LSke.Signature);
 
   FServerEcdhePublic := LSke.PublicKey;
   Absorb(AMessage.Raw);
@@ -893,6 +878,7 @@ begin
       @SBadServerFinished);
 
   FPhase := TPhase.Connected;
+  MarkConnected;
   Result := CacheCompletedSession;
   // the session is cached (it captured the master secret); release the handshake-stage key
   // material - the connection keeps the master secret for the RFC 5705 exporter
@@ -1020,7 +1006,7 @@ begin
   begin
     FPhase := TPhase.WaitResumeVerdict;
     Exit(TArray<THandshakeEffect>.Create(
-      THandshakeEffects.AwaitCertificateVerdict(FResumptionOffer.PeerCertificates,
+      ParkForVerdict(FResumptionOffer.PeerCertificates,
       FResumeValidatedPath, FParams.ExpectedServerName.ToString, nil)));
   end;
 
@@ -1039,6 +1025,7 @@ begin
     THandshakeMessages.EncodeFinished(LVerifyData));
 
   FPhase := TPhase.Connected;
+  MarkConnected;
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.SendChangeCipherSpec,
     THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
@@ -1057,7 +1044,7 @@ begin
     THandshakeEffects.HandshakeEstablished);
 end;
 
-function TTls12ClientStateMachine.ResumeAfterVerdict: TArray<THandshakeEffect>;
+function TTls12ClientStateMachine.ContinueAfterVerdict: TArray<THandshakeEffect>;
 begin
   // only the reverify-on-resume park withholds a continuation; other paths resume by draining
   // the buffered server flight, so there is nothing to emit for them
@@ -1161,14 +1148,14 @@ function TTls12ClientStateMachine.ExportKeyingMaterial(const ALabel: string;
 begin
   // TLS 1.2 stays gated on completion (no False Start), so query and operation agree
   Result := nil;
-  if (FSchedule = nil) or (FPhase <> TPhase.Connected) then
+  if Stage <> THandshakeStage.Connected then
     Exit;
   Result := FSchedule.ExportKeyingMaterial(ALabel, AContext, AUseContext, ALength);
 end;
 
 function TTls12ClientStateMachine.CanExportKeyingMaterial: Boolean;
 begin
-  Result := FPhase = TPhase.Connected;
+  Result := Stage = THandshakeStage.Connected;
 end;
 
 end.

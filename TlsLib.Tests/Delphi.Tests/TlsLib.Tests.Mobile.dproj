@@ -408,6 +408,9 @@
         <DCCReference Include="..\..\TlsLib\src\Handshake\TlpTranscriptHash.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Handshake\TlpHandshakeMessages.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Handshake\TlpHandshakeEffect.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Handshake\TlpHandshakeStage.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Handshake\TlpServerOfferSelection.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Handshake\TlpPeerAuthentication.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Handshake\TlpIHandshakeMachine.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Handshake\TlpHandshakeChannel.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Handshake\TlpHandshakeDriver.pas"/>

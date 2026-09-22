@@ -40,6 +40,12 @@ type
   /// </summary>
   TExternalPskImporter = class sealed(TObject)
   strict private
+  const
+    /// <summary>The KDF hashes a PSK is imported for, so whichever the negotiated cipher's
+    /// hash needs is on offer (RFC 9258): a SHA-256 and a SHA-384 variant.</summary>
+    SupportedKdfHashes: array [0 .. 1] of THashAlgorithm =
+      (THashAlgorithm.SHA_256, THashAlgorithm.SHA_384);
+  strict private
     /// <summary>The RFC 8446 / IANA KDF id for a hash: HKDF-SHA256 = 1, HKDF-SHA384 = 2.</summary>
     class function KdfId(AHash: THashAlgorithm): UInt16; static;
   public
@@ -50,6 +56,11 @@ type
     /// <summary>Imports ASpec for ATargetProtocol and ATargetHash into a wire PSK.</summary>
     class function Import(const ACryptoProvider: ICryptoProvider; const ASpec: TExternalPsk;
       ATargetProtocol: UInt16; ATargetHash: THashAlgorithm): IPreSharedKey; static;
+    /// <summary>Imports every spec once per supported KDF hash for ATargetProtocol, preserving
+    /// spec order with each spec's per-hash variants adjacent (RFC 9258). Empty for no specs.</summary>
+    class function ImportAll(const ACryptoProvider: ICryptoProvider;
+      const ASpecs: TArray<TExternalPsk>; ATargetProtocol: UInt16)
+      : TArray<IPreSharedKey>; static;
   end;
 
 implementation
@@ -123,6 +134,22 @@ begin
     LOutLen);
 
   Result := TPreSharedKey.CreateImported(LIdentity, LIpsk, ATargetHash);
+end;
+
+class function TExternalPskImporter.ImportAll(const ACryptoProvider: ICryptoProvider;
+  const ASpecs: TArray<TExternalPsk>; ATargetProtocol: UInt16): TArray<IPreSharedKey>;
+var
+  LSpecIdx, LHashIdx, LOut: Int32;
+begin
+  System.SetLength(Result, System.Length(ASpecs) * System.Length(SupportedKdfHashes));
+  LOut := 0;
+  for LSpecIdx := 0 to System.High(ASpecs) do
+    for LHashIdx := 0 to System.High(SupportedKdfHashes) do
+    begin
+      Result[LOut] := Import(ACryptoProvider, ASpecs[LSpecIdx], ATargetProtocol,
+        SupportedKdfHashes[LHashIdx]);
+      System.Inc(LOut);
+    end;
 end;
 
 end.

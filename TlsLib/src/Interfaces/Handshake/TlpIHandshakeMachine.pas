@@ -20,6 +20,7 @@ uses
   TlpTlsAlert,
   TlpTlsVersion,
   TlpITlsEngine,
+  TlpHandshakeStage,
   TlpHandshakeMessage,
   TlpHandshakeEffect;
 
@@ -37,6 +38,10 @@ type
     /// ClientHello) rather than responding to it (a server). Drives the initial
     /// legacy_record_version (RFC 8446 5.1).</summary>
     function Initiates: Boolean;
+    /// <summary>The coarse handshake stage (Handshaking / ParkedForVerdict / Connected), read by
+    /// the engine and conductor to gate KeyUpdate, exporter availability, and completion without
+    /// scanning effects or proxy flags.</summary>
+    function Stage: THandshakeStage;
     function Start: TArray<THandshakeEffect>;
     function ProcessMessage(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>;
@@ -60,8 +65,9 @@ type
       AUseContext: Boolean; ALength: Int32): TBytes;
     /// <summary>Whether the exporter secret is available: for a TLS 1.3 server that is true in
     /// half-RTT (after it sent its Finished), before the peer's Finished (RFC 8446 7.5); TLS 1.2
-    /// stays gated on completion. The client withholds it while a reverify-on-resume verdict is
-    /// still open.</summary>
+    /// stays gated on completion. Never available while the machine is parked on an out-of-band
+    /// peer-certificate verdict (Stage = ParkedForVerdict) - neither side exports over a peer
+    /// identity still being decided.</summary>
     function CanExportKeyingMaterial: Boolean;
   end;
 
@@ -149,6 +155,35 @@ type
     procedure OnEchBackend;
     procedure OnEchServerRejected;
     procedure OnEchRejected(const ARetryConfigs: TBytes; AIsRetryAttempt: Boolean);
+  end;
+
+  /// <summary>
+  /// Makes a TLS 1.3 client machine emit a supplied framed ClientHello verbatim instead of
+  /// building one, for byte-exact replay of a recorded trace (RFC 8448 vectors, whose hello's
+  /// extension order and padding differ from a built one). Reached with Supports on the machine;
+  /// kept off IHandshakeMachine, and not reachable through a factory-built engine (which never
+  /// exposes its machine). A verbatim ClientHello offers no PSK and no ECH, so the setter rejects
+  /// a machine configured with either.
+  /// </summary>
+  ITls13ClientReplay = interface(IInterface)
+    ['{7B0BCE0E-3CA0-47DA-A65F-76FC641C20E9}']
+    procedure SetVerbatimClientHello(const AFramed: TBytes);
+  end;
+
+  /// <summary>
+  /// Makes a TLS 1.3 server machine emit supplied HelloRetryRequest cookie / EncryptedExtensions /
+  /// Certificate / CertificateVerify bytes verbatim, for byte-exact replay of a recorded trace (a
+  /// produced CertificateVerify carries a random RSA-PSS salt, and the RFC 8448 EncryptedExtensions
+  /// and cookie are bound to that trace). Reached with Supports on the machine; kept off
+  /// IHandshakeMachine, and not reachable through a factory-built engine (which never exposes its
+  /// machine). Each empty value leaves that message built normally.
+  /// </summary>
+  ITls13ServerReplay = interface(IInterface)
+    ['{C8DC8971-07BB-4A26-9F0D-F6DADA0CC137}']
+    procedure SetVerbatimRetryCookie(const ACookie: TBytes);
+    procedure SetVerbatimEncryptedExtensions(const AFramed: TBytes);
+    procedure SetVerbatimCertificate(const AFramed: TBytes);
+    procedure SetVerbatimCertificateVerify(const AFramed: TBytes);
   end;
 
 implementation

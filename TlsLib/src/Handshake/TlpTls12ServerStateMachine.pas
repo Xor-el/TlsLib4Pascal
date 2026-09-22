@@ -39,14 +39,17 @@ uses
   TlpHandshakeMessage,
   TlpHandshakeMessages,
   TlpCertificateVerify,
+  TlpPeerAuthentication,
   TlpICertificateTrust,
   TlpTlsCredential,
   TlpITlsCredentialResolver,
+  TlpServerOfferSelection,
   TlpISession,
   TlpIClock,
   TlpSession,
   TlpSessionTicketStrategy,
   TlpHandshakeEffect,
+  TlpHandshakeStage,
   TlpHandshakeMachineBase;
 
 type
@@ -250,14 +253,7 @@ type
     function BuildStoredSession(const ASessionId: TBytes): IResumableSession;
     function BuildServerHello: TBytes;
     procedure StampServerRandom;
-    /// <summary>Selects the application protocol from the client's ALPN offer: the first server
-    /// preference the client also offered, empty when ALPN was not offered/configured, or an
-    /// abort with no_application_protocol on reject-mode or no overlap (RFC 7301).</summary>
-    function SelectAlpn(const AClientOffered: TArray<string>): string;
     function BuildCertificate: TBytes;
-    /// <summary>The configured stapled OCSP response (the callback takes precedence over
-    /// the static blob); empty when the server is not stapling.</summary>
-    function ResolveOcspStaple: TBytes;
     function BuildCertificateRequest: TBytes;
     function BuildServerKeyExchange: TBytes;
     function SignServerParams(const AParams: TBytes): TBytes;
@@ -281,9 +277,6 @@ resourcestring
   SNoTls12Offered = 'the client offered no protocol version this server supports';
   SNoCompatibleSuite =
     'no mutually supported TLS 1.2 ECDHE suite the credential can authenticate';
-  SNoServerCertificate = 'the server has no certificate for a full TLS 1.2 handshake';
-  SCredentialNoSigningKey = 'the selected server credential has no signing key';
-  SNoCredentialForServerName = 'no server certificate is configured for the requested SNI host';
   SNoSignatureAlgorithms = 'the client offered no signature_algorithms';
   SGroupNotOffered = 'the client did not offer the server''s ECDHE group';
   SGroupNotEcdhe = 'the configured 1.2 group is not an ECDHE group';
@@ -294,10 +287,6 @@ resourcestring
   SUntrustedClientCertificate = 'the client certificate chain was not trusted';
   SResumedEmsDowngrade =
     'a session established with extended_master_secret cannot resume without it (RFC 7627 5.3)';
-  SBadClientCertVerify = 'the client CertificateVerify did not verify';
-  SUnrequestedClientCertVerifyScheme =
-    'the client CertificateVerify uses a signature scheme the CertificateRequest did not offer';
-  SAlpnRejected = 'the server rejects the offered application protocols (RFC 7301)';
 
 const
   SessionIdLength = Int32(32);
@@ -445,7 +434,6 @@ function TTls12ServerStateMachine.ProcessClientHello(
 var
   LHello: TTlsClientHello;
   LContext: TExtensionContext;
-  LClientHelloInfo: TTlsClientHelloInfo;
   LServerHello, LCertificate, LCertificateStatus, LServerKeyExchange, LCertRequest,
     LServerHelloDone, LStaple: TBytes;
 begin
@@ -471,7 +459,8 @@ begin
         TTlsAlertDescription.ProtocolVersion, @SNoTls12Offered);
 
     // select (or reject) the application protocol from the client's ALPN offer (RFC 7301)
-    FSelectedAlpn := SelectAlpn(LContext.AlpnProtocols);
+    FSelectedAlpn := TServerOfferSelection.SelectAlpn(FParams.AlpnProtocols,
+      LContext.AlpnProtocols, FParams.AlpnRejectAll);
 
     // echo renegotiation_info if the client signalled secure renegotiation by either the
     // extension or the TLS_EMPTY_RENEGOTIATION_INFO_SCSV cipher suite (RFC 5746 3.4/3.6)
@@ -493,28 +482,8 @@ begin
     begin
       // select the server certificate for this handshake from the client's SNI (virtual hosting),
       // before suite/scheme negotiation which depends on the selected leaf's key
-      if FParams.CredentialResolver = nil then
-        raise EFatalAlertTlsLibException.CreateRes(
-          TTlsAlertDescription.HandshakeFailure, @SNoServerCertificate);
-      LClientHelloInfo.ServerName := FRequestedServerName;
-      LClientHelloInfo.SignatureSchemes := LContext.SignatureSchemes;
-      LClientHelloInfo.AlpnProtocols := LContext.AlpnProtocols;
-      LClientHelloInfo.CipherSuites := LHello.CipherSuites;
-      LClientHelloInfo.SupportedGroups := LContext.SupportedGroups;
-      LClientHelloInfo.ProtocolVersion := TTlsVersion.Tls12;
-      if not FParams.CredentialResolver.TryResolve(LClientHelloInfo, FResolvedCredential) then
-      begin
-        if FRequestedServerName <> '' then
-          raise EFatalAlertTlsLibException.CreateRes(
-            TTlsAlertDescription.UnrecognizedName, @SNoCredentialForServerName);
-        raise EFatalAlertTlsLibException.CreateRes(
-          TTlsAlertDescription.HandshakeFailure, @SNoServerCertificate);
-      end;
-      // a resolved credential with no signing key cannot complete certificate auth; reject it
-      // as a handshake_failure rather than dereferencing a nil key during scheme selection
-      if not Assigned(FResolvedCredential.PrivateKey) then
-        raise EFatalAlertTlsLibException.CreateRes(
-          TTlsAlertDescription.HandshakeFailure, @SCredentialNoSigningKey);
+      FResolvedCredential := TServerOfferSelection.ResolveCredential(
+        FParams.CredentialResolver, LContext, LHello.CipherSuites, TTlsVersion.Tls12);
       // select the ECDHE group: the first server-preferred group the client also
       // advertised in supported_groups (RFC 8422 5.1). Unknown/non-ECDHE offered
       // codes are simply not chosen, so a client mixing bogus curves still succeeds.
@@ -565,7 +534,7 @@ begin
   // staple when the client offered status_request and a staple is configured; the
   // ServerHello echoes an empty status_request and a CertificateStatus follows the
   // Certificate (RFC 6066 8)
-  LStaple := ResolveOcspStaple;
+  LStaple := FResolvedCredential.CurrentOcspStaple;
   FWillStaple := FStatusRequestOffered and (System.Length(LStaple) > 0);
 
   LServerHello := BuildServerHello;
@@ -606,28 +575,6 @@ begin
       THandshakeEffects.SendHandshake(LCertRequest));
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.SendHandshake(LServerHelloDone));
-end;
-
-function TTls12ServerStateMachine.SelectAlpn(
-  const AClientOffered: TArray<string>): string;
-var
-  LPref, LOffered: string;
-begin
-  Result := '';
-  // reject mode: any client ALPN offer is refused with no_application_protocol (RFC 7301 3.2)
-  if FParams.AlpnRejectAll and (System.Length(AClientOffered) > 0) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.NoApplicationProtocol, @SAlpnRejected);
-  // no selection when the server is not configured for ALPN or the client did not offer it
-  if (System.Length(FParams.AlpnProtocols) = 0) or (System.Length(AClientOffered) = 0) then
-    Exit;
-  for LPref in FParams.AlpnProtocols do
-    for LOffered in AClientOffered do
-      if LPref = LOffered then
-        Exit(LPref);
-  // configured, offered, but nothing overlaps (RFC 7301 3.2)
-  raise EFatalAlertTlsLibException.CreateRes(
-    TTlsAlertDescription.NoApplicationProtocol, @SAlpnRejected);
 end;
 
 procedure TTls12ServerStateMachine.StampServerRandom;
@@ -680,14 +627,6 @@ function TTls12ServerStateMachine.BuildCertificate: TBytes;
 begin
   Result := THandshakeFraming.Frame(TTlsHandshakeType.Certificate,
     THandshakeMessages.EncodeCertificate12(FResolvedCredential.CertificateChain));
-end;
-
-function TTls12ServerStateMachine.ResolveOcspStaple: TBytes;
-begin
-  if Assigned(FResolvedCredential.OcspStapleCallback) then
-    Result := FResolvedCredential.OcspStapleCallback
-  else
-    Result := FResolvedCredential.OcspStaple;
 end;
 
 function TTls12ServerStateMachine.BuildCertificateRequest: TBytes;
@@ -787,11 +726,10 @@ begin
     // decision. Carry both the presented chain and the validated path (issuer at index 1), so a
     // live resolver authenticates against the PKIX issuer, never a guess. The buffered
     // ClientKeyExchange/CertificateVerify/Finished resume on accept.
-    if FParams.AsyncVerdict and
-      not (FParams.LiveRevocationDeferral and
-      (LVerified.Outcome = TVerificationOutcome.RevocationSettledInline)) then
+    if TPeerAuthentication.ShouldPark(FParams.AsyncVerdict,
+      FParams.LiveRevocationDeferral, LVerified.Outcome) then
       TArrayUtilities.Append<THandshakeEffect>(Result,
-        THandshakeEffects.AwaitCertificateVerdict(FClientCertChain, LVerified.Path, '', nil));
+        ParkForVerdict(FClientCertChain, LVerified.Path, '', nil));
   end;
 
   FPhase := TPhase.WaitClientKeyExchange;
@@ -828,32 +766,19 @@ function TTls12ServerStateMachine.ProcessClientCertVerify(
 var
   LCertVerify: TTlsCertificateVerify;
   LScheme: TSignatureScheme;
-  LPublicKeyInfo: TBytes;
-  LVerifier: ISignatureVerifier;
+  LHandshakeLog: TBytes;
 begin
   LCertVerify := THandshakeMessages.DecodeCertificateVerify(AMessage.Body);
-  // the client may sign only with a scheme the CertificateRequest advertised (RFC 5246 7.4.8);
-  // one outside that set is a wrong signature type even if this server could otherwise verify it
-  if not (TArrayUtilities.Contains<UInt16>(FParams.ClientAuthSignatureSchemes,
-    LCertVerify.Algorithm)) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.IllegalParameter, @SUnrequestedClientCertVerifyScheme);
-  if not TSignatureScheme.TryFromCode(LCertVerify.Algorithm, LScheme) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.IllegalParameter, @SBadClientCertVerify);
-  // the client leaf must permit digitalSignature and, for an rsa_pss_rsae_* scheme, not
-  // be an id-RSASSA-PSS key (symmetric with the client verifying the server leaf)
-  TCertificateVerify.EnforceSigningLeafPolicy(FParsedClientLeaf, LScheme, False);
-  // the 1.2 CertificateVerify signs the raw handshake log through ClientKeyExchange;
-  // the scheme applies its own hash, so the suite PRF hash does not matter here
-  LPublicKeyInfo := FParsedClientLeaf.PublicKeyInfo;
-  LVerifier := FParams.Crypto.Signing.CreateSignatureVerifier(LScheme, LPublicKeyInfo);
-  LVerifier.Update(FHandshakeLog.Bytes, 0, FHandshakeLog.Size);
-  // the parsed leaf is no longer needed; release it rather than pin the ASN.1 graph
-  FParsedClientLeaf := nil;
-  if not LVerifier.Verify(LCertVerify.Signature) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.DecryptError, @SBadClientCertVerify);
+  // the client may sign only with a scheme the CertificateRequest advertised (RFC 5246 7.4.8) whose
+  // key family the client leaf can produce; one outside that set is a wrong signature type
+  LScheme := TPeerAuthentication.RequirePeerScheme(FParams.ClientAuthSignatureSchemes,
+    LCertVerify.Algorithm, TTlsVersion.Tls12, FParsedClientLeaf);
+  // the 1.2 CertificateVerify signs the raw handshake log through ClientKeyExchange; the scheme
+  // applies its own hash, so the suite PRF hash does not matter here (the stream buffer is capacity-
+  // sized, so verify over exactly the logged bytes)
+  LHandshakeLog := System.Copy(FHandshakeLog.Bytes, 0, FHandshakeLog.Size);
+  TPeerAuthentication.VerifyPeerSignature(FParams.Crypto, FParsedClientLeaf, LScheme,
+    LHandshakeLog, LCertVerify.Signature);
   Absorb(AMessage.Raw);
 
   FPhase := TPhase.WaitClientFinished;
@@ -1053,6 +978,7 @@ begin
     (System.Length(FSessionId) > 0) then
     FParams.SessionStore.PutWithId(FSessionId, FResumedSession);
   FPhase := TPhase.Connected;
+  MarkConnected;
   // an abbreviated resumption performs no fresh key exchange, so there is no negotiated group
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code, 0, True,
@@ -1096,6 +1022,7 @@ begin
   FTranscript.Update(LServerFinished);
 
   FPhase := TPhase.Connected;
+  MarkConnected;
   // change_cipher_spec, then the write side moves to the application keys, then the
   // encrypted server Finished is sent
   TArrayUtilities.Append<THandshakeEffect>(Result,
@@ -1173,14 +1100,14 @@ begin
   // TLS 1.2 stays gated on completion (no False Start), so query and operation agree: the master
   // exists from ClientKeyExchange, but the exporter is not offered before the handshake completes
   Result := nil;
-  if (FSchedule = nil) or (FPhase <> TPhase.Connected) then
+  if Stage <> THandshakeStage.Connected then
     Exit;
   Result := FSchedule.ExportKeyingMaterial(ALabel, AContext, AUseContext, ALength);
 end;
 
 function TTls12ServerStateMachine.CanExportKeyingMaterial: Boolean;
 begin
-  Result := FPhase = TPhase.Connected;
+  Result := Stage = THandshakeStage.Connected;
 end;
 
 end.

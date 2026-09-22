@@ -502,7 +502,7 @@ procedure TTestRecordLayer.TestWritePausesAppDataAtRekeyThreshold;
 var
   LSend: TRecordLayer;
   LProt: IRecordProtection;
-  LHook: IRecordProtectionTestHook;
+  LSeq: IRecordSequenceControl;
   LData: TBytes;
 begin
   LSend := TRecordLayer.Create;
@@ -511,8 +511,8 @@ begin
       DecodeHex('101112131415161718191a1b'));
     LSend.SetWriteProtection(LProt);
     // park the write epoch inside its rekey lead (one below the hard AES-GCM limit 23726566)
-    CheckTrue(Supports(LProt, IRecordProtectionTestHook, LHook), 'test hook present');
-    LHook.SetSequenceNumber(UInt64(23726566 - 1));
+    CheckTrue(Supports(LProt, IRecordSequenceControl, LSeq), 'sequence control present');
+    LSeq.SetSequenceNumber(UInt64(23726566 - 1));
     CheckTrue(LSend.WriteNeedsKeyUpdate, 'the write epoch reached the rekey threshold');
     LData := nil;
     SetLength(LData, 100);

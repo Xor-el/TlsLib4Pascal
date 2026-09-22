@@ -19,6 +19,7 @@ uses
   SysUtils,
   TlpTlsAlert,
   TlpHandshakeMessage,
+  TlpHandshakeStage,
   TlpIHandshakeChannel,
   TlpIHandshakeMachine,
   TlpHandshakeEffect,
@@ -40,17 +41,13 @@ type
     // set when the machine parks on a peer-certificate verdict (async): further inbound
     // messages are buffered, not processed, until the verdict resolves the park
     FVerdictPending: Boolean;
-    // set once the handshake completes; gates the flight-boundary excess-data check off for
-    // post-handshake traffic (NewSessionTicket / KeyUpdate legitimately span records)
-    FEstablished: Boolean;
     // count of post-handshake messages (KeyUpdate / NewSessionTicket) received with no
     // intervening application data; bounded to refuse a flood, reset by genuine traffic
     FPostHandshakeMessages: Int32;
     class function HasFail(const AEffects: TArray<THandshakeEffect>): Boolean; static;
-    class function HasAwaitVerdict(
-      const AEffects: TArray<THandshakeEffect>): Boolean; static;
-    class function HasEstablished(
-      const AEffects: TArray<THandshakeEffect>): Boolean; static;
+    /// <summary>Whether the machine has established (Stage = Connected); gates the flight-boundary
+    /// excess-data check off for post-handshake traffic (NewSessionTicket / KeyUpdate span records).</summary>
+    function IsEstablished: Boolean;
     /// <summary>Whether the effects begin a new outbound flight or change the read epoch - a
     /// flight boundary at which the peer's prior flight must have ended on a record boundary.</summary>
     class function HasFlightBoundary(
@@ -129,26 +126,9 @@ begin
       Exit(True);
 end;
 
-class function THandshakeConductor.HasAwaitVerdict(
-  const AEffects: TArray<THandshakeEffect>): Boolean;
-var
-  LEffect: THandshakeEffect;
+function THandshakeConductor.IsEstablished: Boolean;
 begin
-  Result := False;
-  for LEffect in AEffects do
-    if LEffect.Kind = THandshakeEffectKind.AwaitCertificateVerdict then
-      Exit(True);
-end;
-
-class function THandshakeConductor.HasEstablished(
-  const AEffects: TArray<THandshakeEffect>): Boolean;
-var
-  LEffect: THandshakeEffect;
-begin
-  Result := False;
-  for LEffect in AEffects do
-    if LEffect.Kind = THandshakeEffectKind.HandshakeEstablished then
-      Exit(True);
+  Result := FMachine.Stage = THandshakeStage.Connected;
 end;
 
 class function THandshakeConductor.HasFlightBoundary(
@@ -207,16 +187,17 @@ procedure THandshakeConductor.DrainInbound;
 var
   LMessage: TTlsHandshakeMessage;
   LEffects: TArray<THandshakeEffect>;
-  LEstablished, LFlightBoundary, LWasEstablished: Boolean;
+  LFlightBoundary, LWasEstablished: Boolean;
 begin
-  LEstablished := False;
   LFlightBoundary := False;
-  LWasEstablished := FEstablished;
+  LWasEstablished := IsEstablished;
   while FChannel.ReceiveHandshake(LMessage) do
   begin
     // once established, bound a peer flooding post-handshake messages (KeyUpdate /
-    // NewSessionTicket) with no intervening application data to reset the count
-    if FEstablished then
+    // NewSessionTicket) with no intervening application data to reset the count. Gated on the
+    // entry state so a message that establishes the connection in this same drain, and any
+    // coalesced with it, are not counted until a later drain (as before the stage refactor).
+    if LWasEstablished then
     begin
       Inc(FPostHandshakeMessages);
       if FPostHandshakeMessages > MaxConsecutivePostHandshakeMessages then
@@ -230,20 +211,16 @@ begin
     // a Fail makes the connection terminal; do not keep feeding the machine
     if HasFail(LEffects) then
       Exit;
-    if HasEstablished(LEffects) then
-      LEstablished := True;
     if HasFlightBoundary(LEffects) then
       LFlightBoundary := True;
     // a park for an async peer-certificate verdict suspends processing: the rest of the
     // (possibly coalesced) flight stays buffered until the verdict resumes it
-    if HasAwaitVerdict(LEffects) then
+    if FMachine.Stage = THandshakeStage.ParkedForVerdict then
     begin
       FVerdictPending := True;
       Break;
     end;
   end;
-  if LEstablished then
-    FEstablished := True;
   // the peer must not pack the next flight's bytes into the record that ends the current one
   // (RFC 8446 5.1). Once we complete the handshake, or - while still handshaking - respond
   // with a new flight or change the read epoch, any handshake bytes still buffered form a
@@ -251,7 +228,8 @@ begin
   // (NewSessionTicket / KeyUpdate) may legitimately span records, so the mid-handshake
   // boundary check is gated off once established.
   if FChannel.HasPartialInbound and
-    (LEstablished or (LFlightBoundary and not LWasEstablished)) then
+    ((IsEstablished and not LWasEstablished) or
+    (LFlightBoundary and not LWasEstablished)) then
     FDriver.Apply(THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage));
 end;
 
@@ -291,17 +269,16 @@ begin
   // resume park sits at the (abbreviated) ServerFinished, where no peer message remains to drive
   // completion, so the machine emits its closing flight here. The initial-certificate park
   // returns none - its buffered server flight drives it below.
-  LWasEstablished := FEstablished;
+  LWasEstablished := IsEstablished;
   LEffects := FMachine.ResumeAfterVerdict;
   FDriver.ApplyAll(LEffects);
   if HasFail(LEffects) then
     Exit;
-  if HasEstablished(LEffects) then
-    FEstablished := True;
   // the same flight-boundary excess-data guard DrainInbound applies to a batch: the peer's
   // prior flight (the server Finished) must have ended on a record boundary
   if FChannel.HasPartialInbound and
-    (HasEstablished(LEffects) or (HasFlightBoundary(LEffects) and not LWasEstablished)) then
+    ((IsEstablished and not LWasEstablished) or
+    (HasFlightBoundary(LEffects) and not LWasEstablished)) then
   begin
     FDriver.Apply(THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage));
     Exit;

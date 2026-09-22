@@ -40,7 +40,7 @@ type
   /// utilities. Protect / Unprotect / Overhead are supplied by the descendants.
   /// </summary>
   TRecordProtectionBase = class abstract(TInterfacedObject, IRecordProtection,
-    IRecordProtectionTestHook)
+    IRecordSequenceControl)
   strict protected
   var
     FSeq: UInt64;

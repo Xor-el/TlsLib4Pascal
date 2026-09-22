@@ -353,7 +353,7 @@ end;
 procedure TTestTls12Loopback.TestWriteAtUsageLimitClosesWhenNoRekey;
 var
   LClient, LServer: ITlsEngine;
-  LHook, LServerHook: IEngineRecordTestHook;
+  LSeq, LServerSeq: IEngineRecordSequenceControl;
   LIterations: Int32;
   LRaised: Boolean;
 begin
@@ -372,11 +372,11 @@ begin
   // TLS 1.2 has no KeyUpdate; at the AEAD usage limit the write epoch cannot be rekeyed, so a
   // write closes the connection and refuses rather than exceed the AEAD safety bound (RFC 8446
   // 5.5 applies the same record limits to the 1.2 AEAD suites)
-  CheckTrue(Supports(LClient, IEngineRecordTestHook, LHook), 'client test hook present');
-  CheckTrue(Supports(LServer, IEngineRecordTestHook, LServerHook), 'server test hook present');
+  CheckTrue(Supports(LClient, IEngineRecordSequenceControl, LSeq), 'client sequence control present');
+  CheckTrue(Supports(LServer, IEngineRecordSequenceControl, LServerSeq), 'server sequence control present');
   // the last legal sequence before the hard limit: the close_notify must still seal here
-  LHook.SetWriteSequenceNumber(UInt64(23726566 - 1));
-  LServerHook.SetReadSequenceNumber(UInt64(23726566 - 1));
+  LSeq.SetWriteSequenceNumber(UInt64(23726566 - 1));
+  LServerSeq.SetReadSequenceNumber(UInt64(23726566 - 1));
   LRaised := False;
   try
     LClient.Write(DecodeHex('00'), 0, 1);

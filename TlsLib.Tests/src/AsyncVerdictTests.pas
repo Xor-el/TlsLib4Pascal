@@ -95,6 +95,7 @@ type
     procedure TestAcceptCannotResurrectPipelineRejectedChain;
     procedure TestDisabledResolvesInlineNoPark;
     procedure TestServerParkThenAcceptCompletes;
+    procedure TestServerExporterWithheldWhileParked;
     // the server park carries the pipeline-validated client path (issuer at index 1), distinct from
     // the presented leaf-only chain, so a live resolver authenticates against the PKIX issuer
     procedure TestServerParkEventCarriesValidatedPath;
@@ -552,6 +553,35 @@ begin
   CheckFalse(LServer.IsTerminal, 'the accepted server handshake must not be terminal');
   CheckFalse(LServer.IsHandshaking, 'the server handshake must complete');
   CheckFalse(LClient.IsHandshaking, 'the client handshake must complete');
+end;
+
+procedure TTestAsyncVerdict.TestServerExporterWithheldWhileParked;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // a TLS 1.3 server derives its exporter secret at half-RTT (it has sent its Finished), but while
+  // it is parked on an async client-certificate verdict the peer identity is still being decided,
+  // so the exporter is withheld - never exported over an unverified client. It becomes available
+  // the moment the verdict clears the park (before the buffered client flight even finishes driving
+  // completion), and matches the client's after.
+  LClient := NewMtls(True, LServer);
+  LClient.StartHandshake;
+  DriveUntilParkOrSettled(LClient, LServer);
+  CheckTrue(LServer.AwaitingCertificateVerdict,
+    'the server should park awaiting the client-certificate verdict');
+
+  CheckEquals(0, System.Length(LServer.ExportKeyingMaterial('EXPORTER-test', nil, False, 32)),
+    'the server withholds the half-RTT exporter while parked on the client-cert verdict');
+
+  LServer.SetCertificateVerdict(True);
+  CheckEquals(32, System.Length(LServer.ExportKeyingMaterial('EXPORTER-test', nil, False, 32)),
+    'the exporter is available again once the verdict clears the park, not only at Connected');
+
+  DriveToCompletion(LClient, LServer);
+  CheckFalse(LServer.IsHandshaking, 'the server handshake must complete');
+  CheckEqualBytes('client and server export the same keying material after completion',
+    LClient.ExportKeyingMaterial('EXPORTER-test', nil, False, 32),
+    LServer.ExportKeyingMaterial('EXPORTER-test', nil, False, 32));
 end;
 
 procedure TTestAsyncVerdict.TestServerParkEventCarriesValidatedPath;

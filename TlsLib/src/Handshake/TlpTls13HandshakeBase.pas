@@ -25,6 +25,7 @@ uses
   TlpIKeySchedule,
   TlpHandshakeMessage,
   TlpHandshakeEffect,
+  TlpHandshakeStage,
   TlpITlsEngine,
   TlpHandshakeMachineBase;
 
@@ -56,11 +57,6 @@ type
     /// Connected route.</summary>
     function HandleInboundKeyUpdate(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>;
-    /// <summary>Whether the exporter must be withheld even though its secret is derived: False
-    /// by default; the client overrides to withhold while its reverify-on-resume verdict is open.
-    /// (FPhase/TPhase are strict-private to each concrete machine and differ by role, so this is
-    /// a virtual hook rather than a base-level phase check.)</summary>
-    function ExportWithheld: Boolean; virtual;
   public
     function RequestKeyUpdate(ARequestPeerUpdate: Boolean)
       : TArray<THandshakeEffect>; override;
@@ -109,8 +105,9 @@ var
   LMessage: TBytes;
 begin
   Result := nil;
-  // only meaningful once the application epoch exists (the engine also guards on complete)
-  if FSchedule = nil then
+  // only meaningful once the handshake is established (the application epoch exists); the engine
+  // also guards on complete
+  if Stage <> THandshakeStage.Connected then
     Exit;
   // the KeyUpdate goes out under the current write keys; the write epoch rekeys after it
   LMessage := BuildKeyUpdate(ARequestPeerUpdate);
@@ -155,17 +152,15 @@ begin
     RekeyEffect(WriteDirection, TRecordSide.WriteSide));
 end;
 
-function TTls13HandshakeBase.ExportWithheld: Boolean;
-begin
-  Result := False;
-end;
-
 function TTls13HandshakeBase.CanExportKeyingMaterial: Boolean;
 begin
   // available once the exporter_master_secret is derived - for a server that is half-RTT (after
-  // its Finished), before the peer's Finished (RFC 8446 7.5) - unless a role-specific gate
-  // withholds it (the client during its reverify-on-resume park)
-  Result := (FSchedule <> nil) and FSchedule.HasExporterSecret and not ExportWithheld;
+  // its Finished), before the peer's Finished (RFC 8446 7.5) - but never while parked on an
+  // out-of-band peer-certificate verdict: neither side exports over a peer identity still being
+  // decided (the client during its reverify-on-resume park; the server while an async
+  // client-certificate verdict is open). Export resumes the moment the verdict clears the park.
+  Result := (FSchedule <> nil) and FSchedule.HasExporterSecret and
+    (Stage <> THandshakeStage.ParkedForVerdict);
 end;
 
 function TTls13HandshakeBase.ExportKeyingMaterial(const ALabel: string;

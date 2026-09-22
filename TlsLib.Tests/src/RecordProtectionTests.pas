@@ -243,13 +243,13 @@ end;
 procedure TTestRecordProtection.TestSequenceExhaustionRaises;
 var
   LProt: IRecordProtection;
-  LHook: IRecordProtectionTestHook;
+  LSeq: IRecordSequenceControl;
   LRaised: Boolean;
 begin
   LProt := MakeTls13(DecodeHex('000102030405060708090a0b0c0d0e0f'),
     DecodeHex('101112131415161718191a1b'), TAeadAlgorithm.AES_128_GCM);
-  CheckTrue(Supports(LProt, IRecordProtectionTestHook, LHook), 'test hook present');
-  LHook.SetSequenceNumber(High(UInt64));
+  CheckTrue(Supports(LProt, IRecordSequenceControl, LSeq), 'sequence control present');
+  LSeq.SetSequenceNumber(High(UInt64));
   LRaised := False;
   try
     LProt.Protect(TTlsContentType.ApplicationData, DecodeHex('00'), 0, 1);
@@ -263,35 +263,35 @@ end;
 procedure TTestRecordProtection.TestNeedsKeyUpdateAtUsageLimit;
 var
   LProt: IRecordProtection;
-  LHook: IRecordProtectionTestHook;
+  LSeq: IRecordSequenceControl;
 begin
   // AES-GCM usage limit is ~2^24.5 records
   LProt := MakeTls13(DecodeHex('000102030405060708090a0b0c0d0e0f'),
     DecodeHex('101112131415161718191a1b'), TAeadAlgorithm.AES_128_GCM);
-  Supports(LProt, IRecordProtectionTestHook, LHook);
+  Supports(LProt, IRecordSequenceControl, LSeq);
   // NeedsKeyUpdate is the soft threshold: a 16-record lead before the hard limit (23726566),
   // so a KeyUpdate can still seal under the current epoch
-  LHook.SetSequenceNumber(UInt64(23726566 - 17));
+  LSeq.SetSequenceNumber(UInt64(23726566 - 17));
   CheckFalse(LProt.NeedsKeyUpdate, 'below the soft rekey threshold: no key update');
-  LHook.SetSequenceNumber(UInt64(23726566 - 16));
+  LSeq.SetSequenceNumber(UInt64(23726566 - 16));
   CheckTrue(LProt.NeedsKeyUpdate, 'at the soft rekey threshold: key update due');
 end;
 
 procedure TTestRecordProtection.TestProtectFailsAtUsageLimit;
 var
   LProt: IRecordProtection;
-  LHook: IRecordProtectionTestHook;
+  LSeq: IRecordSequenceControl;
   LRaised: Boolean;
 begin
   LProt := MakeTls13(DecodeHex('000102030405060708090a0b0c0d0e0f'),
     DecodeHex('101112131415161718191a1b'), TAeadAlgorithm.AES_128_GCM);
-  CheckTrue(Supports(LProt, IRecordProtectionTestHook, LHook), 'test hook present');
+  CheckTrue(Supports(LProt, IRecordSequenceControl, LSeq), 'sequence control present');
   // at the soft threshold Protect still seals (so the KeyUpdate/alert that rekeys can go out)
-  LHook.SetSequenceNumber(UInt64(23726566 - 16));
+  LSeq.SetSequenceNumber(UInt64(23726566 - 16));
   LProt.Protect(TTlsContentType.ApplicationData, DecodeHex('00'), 0, 1);
   // at the hard limit, with no key update wired, Protect must fail loudly rather than seal a
   // record past the AEAD safety bound (the sequence itself is not exhausted)
-  LHook.SetSequenceNumber(UInt64(23726566));
+  LSeq.SetSequenceNumber(UInt64(23726566));
   LRaised := False;
   try
     LProt.Protect(TTlsContentType.ApplicationData, DecodeHex('00'), 0, 1);
@@ -305,7 +305,7 @@ end;
 procedure TTestRecordProtection.TestAesGcmRoundTripNearUsageLimit;
 var
   LSend, LRecv: IRecordProtection;
-  LHookS, LHookR: IRecordProtectionTestHook;
+  LSeqS, LSeqR: IRecordSequenceControl;
   LPlain, LRecord, LBack: TBytes;
   LType: TTlsContentType;
 begin
@@ -315,10 +315,10 @@ begin
     DecodeHex('101112131415161718191a1b'), TAeadAlgorithm.AES_128_GCM);
   LRecv := MakeTls13(DecodeHex('000102030405060708090a0b0c0d0e0f'),
     DecodeHex('101112131415161718191a1b'), TAeadAlgorithm.AES_128_GCM);
-  CheckTrue(Supports(LSend, IRecordProtectionTestHook, LHookS), 'send hook present');
-  CheckTrue(Supports(LRecv, IRecordProtectionTestHook, LHookR), 'recv hook present');
-  LHookS.SetSequenceNumber(UInt64(23726566 - 1));
-  LHookR.SetSequenceNumber(UInt64(23726566 - 1));
+  CheckTrue(Supports(LSend, IRecordSequenceControl, LSeqS), 'send sequence control present');
+  CheckTrue(Supports(LRecv, IRecordSequenceControl, LSeqR), 'recv sequence control present');
+  LSeqS.SetSequenceNumber(UInt64(23726566 - 1));
+  LSeqR.SetSequenceNumber(UInt64(23726566 - 1));
   LPlain := DecodeHex('7061737420746865206c696d6974');
   LRecord := LSend.Protect(TTlsContentType.ApplicationData, LPlain, 0,
     System.Length(LPlain));

@@ -43,6 +43,10 @@ type
     // zeroes the unmanaged OcspStapleCallback so no construction path leaves it garbage
     class operator Initialize({$IFDEF FPC}var{$ELSE}out{$ENDIF}
       ACredential: TTlsCredential);
+    /// <summary>The stapled OCSP response (DER) to send for this leaf: the callback's result
+    /// when a callback is set (it refreshes an expiring staple), else the static OcspStaple;
+    /// empty declines stapling.</summary>
+    function CurrentOcspStaple: TBytes;
   end;
 
   /// <summary>How a server treats client-certificate authentication (RFC 8446 4.3.2 /
@@ -79,6 +83,14 @@ class operator TTlsCredential.Initialize({$IFDEF FPC}var{$ELSE}out{$ENDIF}
   ACredential: TTlsCredential);
 begin
   ACredential.OcspStapleCallback := nil;
+end;
+
+function TTlsCredential.CurrentOcspStaple: TBytes;
+begin
+  if Assigned(OcspStapleCallback) then
+    Result := OcspStapleCallback
+  else
+    Result := OcspStaple;
 end;
 
 end.

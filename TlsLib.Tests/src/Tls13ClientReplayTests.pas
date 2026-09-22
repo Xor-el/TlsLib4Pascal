@@ -278,8 +278,9 @@ begin
   // the RFC 8448 leaf is not part of any test trust store; this replay exercises
   // the message flow, not trust, so accept any chain
   LParams.CertificateVerifier := TAcceptAllVerifier.Create;
-  LParams.ClientHelloOverride := DecodeHex(FHs.Values['client_hello']);
   FSm := TTls13ClientStateMachine.Create(LParams);
+  (FSm as ITls13ClientReplay).SetVerbatimClientHello(
+    DecodeHex(FHs.Values['client_hello']));
 
   FDriver := Own<THandshakeDriver>(THandshakeDriver.Create(
     THandshakeChannel.Create(FLayer) as IHandshakeChannel,

@@ -49,6 +49,7 @@ uses
   TlpCertificateCompression,
   TlpICertificateCompression,
   TlpCertificateVerify,
+  TlpPeerAuthentication,
   TlpICertificateTrust,
   TlpServerName,
   TlpISigningKey,
@@ -63,6 +64,7 @@ uses
   TlpEchClient,
   TlpITlsEngine,
   TlpHandshakeEffect,
+  TlpIHandshakeMachine,
   TlpTls13HandshakeBase;
 
 type
@@ -114,8 +116,6 @@ type
     ResumeCertificateVerifier: IServerCertificateVerifier;
     /// <summary>The name the server certificate must be valid for (RFC 6125).</summary>
     ExpectedServerName: TServerName;
-    /// <summary>When set, Start sends these framed ClientHello bytes verbatim (replay/testing).</summary>
-    ClientHelloOverride: TBytes;
     /// <summary>The client's credential for mutual TLS: presented when the server sends
     /// a CertificateRequest and the credential can satisfy it. An empty chain sends an
     /// empty client Certificate (declining to authenticate).</summary>
@@ -169,7 +169,7 @@ type
   /// effects and never touches the record layer; the driver applies them. Certificate
   /// trust runs inline and fail-closed.
   /// </summary>
-  TTls13ClientStateMachine = class sealed(TTls13HandshakeBase)
+  TTls13ClientStateMachine = class sealed(TTls13HandshakeBase, ITls13ClientReplay)
   strict private
   type
     TPhase = (Initial, WaitServerHello, WaitEncryptedExtensions, WaitCertificate,
@@ -179,6 +179,8 @@ type
     TEchChMode = (Initial, RetryAccept, RetryReject);
   var
     FParams: TClientHandshakeParams;
+    // ITls13ClientReplay: a supplied ClientHello emitted verbatim, empty otherwise
+    FVerbatimClientHello: TBytes;
     FEphemeralPrivate: ISecretBuffer;
     FEphemeralPublic: TBytes;
     FCurrentGroup: INamedGroup;
@@ -340,10 +342,6 @@ type
     /// <summary>The current time in Unix milliseconds from the injected clock, falling back to
     /// the system clock when none was supplied (a directly-built params record).</summary>
     function NowUnixMillis: UInt64;
-    /// <summary>Imports the configured external PSKs (RFC 9258) into the wire PSK offer
-    /// list: each spec is imported once per supported KDF hash (SHA-256 then SHA-384), in
-    /// spec order, so the server can match whichever the negotiated cipher's hash needs.</summary>
-    function ImportExternalOffers: TArray<IPreSharedKey>;
     /// <summary>The digest of AData under AHash (the per-PSK binder transcript on the first
     /// ClientHello, where the transcript is otherwise just this message).</summary>
     function HashUnder(AHash: THashAlgorithm; const AData: TBytes): TBytes;
@@ -415,18 +413,19 @@ type
     /// resumption-transcript capture, the ECH-reject branch, and completion. Shared by the
     /// inline path and the reverify-on-resume park's continuation.</summary>
     function BuildClientFinishedFlight: TArray<THandshakeEffect>;
+    // ITls13ClientReplay
+    procedure SetVerbatimClientHello(const AFramed: TBytes);
   strict protected
     function Route(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>; override;
     function WriteDirection: TTlsDirection; override;
     function ReadDirection: TTlsDirection; override;
-    function ExportWithheld: Boolean; override;
+    function ContinueAfterVerdict: TArray<THandshakeEffect>; override;
   public
     constructor Create(const AParams: TClientHandshakeParams);
     destructor Destroy; override;
     function Initiates: Boolean; override;
     function Start: TArray<THandshakeEffect>; override;
-    function ResumeAfterVerdict: TArray<THandshakeEffect>; override;
     /// <summary>The cached TLS 1.2 session this unified ClientHello offered (nil when it
     /// offered none), for a version-dispatching parent to hand to a 1.2 sub-machine when
     /// the server selects 1.2.</summary>
@@ -457,13 +456,11 @@ resourcestring
   SEmptyCertificate = 'the server sent an empty certificate list';
   SUnsolicitedCertExtension =
     'the server certificate carries an extension that was not requested';
-  SUnofferedScheme = 'the CertificateVerify uses a signature scheme that was not offered';
-  SLegacyPkcs1InTls13 = 'the CertificateVerify uses a legacy rsa_pkcs1 scheme, which is ' +
-    'certificate-only in TLS 1.3';
-  SBadCertificateVerify = 'the CertificateVerify signature did not verify';
   SNoCertificateVerifier = 'no certificate verifier configured (fail-closed)';
   SEchExtensionUnregistered = 'the extension registry has no encrypted_client_hello ' +
     'handler, so an ECH ClientHello cannot be built (fail-closed)';
+  SVerbatimHelloWithEchOrCache = 'a verbatim replay ClientHello is incompatible with ECH ' +
+    'or a session cache (both rewrite the ClientHello)';
   SUntrustedCertificate = 'the server certificate chain was not trusted';
   SUnofferedAlpn = 'the server selected an ALPN protocol that was not offered';
   SEarlyDataSuiteMismatch = 'the server accepted early data under a cipher suite that differs from the resumption ticket';
@@ -512,8 +509,9 @@ begin
   FEchStatus := TEchStatus.NotOffered;
   // select a usable ECH config up front; with none usable but GREASE enabled, offer a decoy
   // ech instead (RFC 9849 sec. 6.2), generated once so a HelloRetryRequest re-sends it verbatim.
-  // A verbatim ClientHelloOverride bypasses ECH entirely - the caller supplied the exact bytes
-  if (System.Length(AParams.ClientHelloOverride) = 0) and (AParams.EchPolicy <> nil) then
+  // a preset verbatim ClientHello is mutually exclusive with ECH - enforced in
+  // SetVerbatimClientHello - so ECH selection runs purely off the policy here
+  if AParams.EchPolicy <> nil then
   begin
     if TEchConfigList.TrySelect(AParams.EchPolicy.Configs, AParams.Crypto,
       FSelectedEchConfig, FSelectedEchSuite) then
@@ -545,6 +543,15 @@ end;
 destructor TTls13ClientStateMachine.Destroy;
 begin
   inherited Destroy;
+end;
+
+procedure TTls13ClientStateMachine.SetVerbatimClientHello(const AFramed: TBytes);
+begin
+  // a captured ClientHello is sent as-is, so the machine must not also try to offer ECH or a
+  // resumption PSK against it (those rewrite the hello); reject that misconfiguration up front
+  if (FParams.EchPolicy <> nil) or (FParams.SessionCache <> nil) then
+    raise EArgumentTlsLibException.CreateRes(@SVerbatimHelloWithEchOrCache);
+  FVerbatimClientHello := AFramed;
 end;
 
 procedure TTls13ClientStateMachine.RememberOffered(
@@ -1150,24 +1157,6 @@ begin
   end;
 end;
 
-function TTls13ClientStateMachine.ImportExternalOffers: TArray<IPreSharedKey>;
-var
-  LSpec: TExternalPsk;
-begin
-  Result := nil;
-  // import each external PSK once per supported KDF hash (RFC 9258): a SHA-256 and a
-  // SHA-384 variant, so whichever the negotiated cipher's hash needs is on offer
-  for LSpec in FParams.ExternalPsks do
-  begin
-    TArrayUtilities.Append<IPreSharedKey>(Result,
-      TExternalPskImporter.Import(FParams.Crypto, LSpec, TlsWireVersionTls13,
-      THashAlgorithm.SHA_256));
-    TArrayUtilities.Append<IPreSharedKey>(Result,
-      TExternalPskImporter.Import(FParams.Crypto, LSpec, TlsWireVersionTls13,
-      THashAlgorithm.SHA_384));
-  end;
-end;
-
 procedure TTls13ClientStateMachine.PruneOffersToHash(AHash: THashAlgorithm);
 var
   LKept: TArray<IPreSharedKey>;
@@ -1289,7 +1278,8 @@ begin
   // session is instead offered as a legacy session_ticket / session id in this dual-version
   // hello, for a 1.2 server to resume (a 1.3 server ignores it); the taken session is
   // threaded to a 1.2 sub-machine by the version-dispatching parent.
-  if (FParams.SessionCache <> nil) and (System.Length(FParams.ClientHelloOverride) = 0)
+  // a preset verbatim ClientHello forbids a SessionCache, so no resumption take here
+  if (FParams.SessionCache <> nil)
     and FParams.SessionCache.Take(CacheServerIdentity, FParams.ServerName, LCached) then
   begin
     if LCached.Version.WireValue = TlsWireVersionTls13 then
@@ -1334,7 +1324,9 @@ begin
   // (activated once the ServerHello fixes the suite) and each binder is MAC'd under its own
   // PSK's hash in PatchBinder.
   if System.Length(FParams.ExternalPsks) > 0 then
-    FPskOffers := TArrayUtilities.Concat<IPreSharedKey>(FPskOffers, ImportExternalOffers);
+    FPskOffers := TArrayUtilities.Concat<IPreSharedKey>(FPskOffers,
+      TExternalPskImporter.ImportAll(FParams.Crypto, FParams.ExternalPsks,
+      TlsWireVersionTls13));
   // a single offered PSK has one known hash, so activate the transcript on it now (the
   // resumption / 0-RTT path relies on it); several offers defer activation to ServerHello
   if System.Length(FPskOffers) = 1 then
@@ -1358,8 +1350,8 @@ begin
       FInnerTranscript.Activate(
         FParams.Crypto.Primitives.CreateHash(FPreActivatedHash));
   end;
-  if System.Length(FParams.ClientHelloOverride) > 0 then
-    LClientHello := FParams.ClientHelloOverride
+  if System.Length(FVerbatimClientHello) > 0 then
+    LClientHello := FVerbatimClientHello
   else if FEchActive then
     LClientHello := BuildEchClientHello(TEchChMode.Initial)
   else
@@ -1980,11 +1972,10 @@ begin
   // Carry both the presented chain and the validated path (issuer at index 1), so a live resolver
   // authenticates against the PKIX issuer, never a guess. The rest of the flight stays buffered
   // until SetCertificateVerdict resumes it.
-  if FParams.AsyncVerdict and
-    not (FParams.LiveRevocationDeferral and
-    (LVerified.Outcome = TVerificationOutcome.RevocationSettledInline)) then
+  if TPeerAuthentication.ShouldPark(FParams.AsyncVerdict,
+    FParams.LiveRevocationDeferral, LVerified.Outcome) then
     TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.AwaitCertificateVerdict(FCertificateChain, LVerified.Path,
+      ParkForVerdict(FCertificateChain, LVerified.Path,
       FParams.ExpectedServerName.ToString, FReceivedOcspStaple));
 end;
 
@@ -2018,38 +2009,17 @@ procedure TTls13ClientStateMachine.VerifyCertificateVerify(
 var
   LCertVerify: TTlsCertificateVerify;
   LScheme: TSignatureScheme;
-  LContent, LPublicKeyInfo: TBytes;
-  LVerifier: ISignatureVerifier;
+  LContent: TBytes;
 begin
   LCertVerify := THandshakeMessages.DecodeCertificateVerify(AMessage.Body);
-  // the server must sign with a scheme the client offered
-  if not (TArrayUtilities.Contains<UInt16>(FParams.OfferedSchemes,
-    LCertVerify.Algorithm)) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.IllegalParameter, @SUnofferedScheme);
-  if not TSignatureScheme.TryFromCode(LCertVerify.Algorithm, LScheme) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.IllegalParameter, @SUnofferedScheme);
-  // rsa_pkcs1_* are certificate-only in TLS 1.3: they may be offered for backward
-  // compatibility but MUST NOT sign a CertificateVerify (RFC 8446 4.2.3)
-  if not LScheme.IsValidForHandshake(TTlsVersion.Tls13) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.IllegalParameter, @SLegacyPkcs1InTls13);
-
-  // the server leaf must permit digitalSignature and, for an rsa_pss_rsae_* scheme, not
-  // be an id-RSASSA-PSS key (shared with the server verifying the client leaf)
-  TCertificateVerify.EnforceSigningLeafPolicy(FParsedServerLeaf, LScheme, True);
-
+  // the server must sign with a scheme the client offered, valid for a TLS 1.3 handshake, and
+  // the leaf's key must be allowed to produce it
+  LScheme := TPeerAuthentication.RequirePeerScheme(FParams.OfferedSchemes,
+    LCertVerify.Algorithm, TTlsVersion.Tls13, FParsedServerLeaf);
   // the signature is over the transcript through the Certificate (this message not yet folded in)
   LContent := TCertificateVerify.SignatureContent(True, FTranscript.CurrentHash);
-  LPublicKeyInfo := FParsedServerLeaf.PublicKeyInfo;
-  LVerifier := FParams.Crypto.Signing.CreateSignatureVerifier(LScheme, LPublicKeyInfo);
-  LVerifier.Update(LContent, 0, System.Length(LContent));
-  // the parsed leaf is no longer needed; release it rather than pin the ASN.1 graph
-  FParsedServerLeaf := nil;
-  if not LVerifier.Verify(LCertVerify.Signature) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.DecryptError, @SBadCertificateVerify);
+  TPeerAuthentication.VerifyPeerSignature(FParams.Crypto, FParsedServerLeaf, LScheme,
+    LContent, LCertVerify.Signature);
 end;
 
 procedure TTls13ClientStateMachine.ProcessCertificateRequest(
@@ -2195,8 +2165,8 @@ begin
   begin
     FPhase := TPhase.WaitResumeVerdict;
     Exit(TArray<THandshakeEffect>.Create(
-      THandshakeEffects.AwaitCertificateVerdict(FResumptionPeerCertificates,
-      FResumeValidatedPath, FParams.ExpectedServerName.ToString, nil)));
+      ParkForVerdict(FResumptionPeerCertificates, FResumeValidatedPath,
+      FParams.ExpectedServerName.ToString, nil)));
   end;
 
   Result := BuildClientFinishedFlight;
@@ -2259,6 +2229,7 @@ begin
   end;
 
   FPhase := TPhase.Connected;
+  MarkConnected;
   // the client auth flight and Finished are sent under the handshake write keys, THEN
   // the write side moves to the application keys - order matters
   TArrayUtilities.Append<THandshakeEffect>(Result,
@@ -2288,7 +2259,7 @@ begin
     THandshakeEffects.HandshakeEstablished);
 end;
 
-function TTls13ClientStateMachine.ResumeAfterVerdict: TArray<THandshakeEffect>;
+function TTls13ClientStateMachine.ContinueAfterVerdict: TArray<THandshakeEffect>;
 begin
   // only the reverify-on-resume park withholds a continuation; the initial-certificate park
   // resumes by draining the buffered server flight, so there is nothing to emit for that one
@@ -2305,14 +2276,6 @@ end;
 function TTls13ClientStateMachine.ReadDirection: TTlsDirection;
 begin
   Result := TTlsDirection.ServerWrite;
-end;
-
-function TTls13ClientStateMachine.ExportWithheld: Boolean;
-begin
-  // the application secrets (and the exporter secret) are derived at ServerFinished, but on a
-  // resumption a reverify-on-resume verdict may still be open; withhold the exporter until the
-  // peer is accepted so no keying material is exported over an unverified resumed identity
-  Result := FPhase = TPhase.WaitResumeVerdict;
 end;
 
 function TTls13ClientStateMachine.Route(

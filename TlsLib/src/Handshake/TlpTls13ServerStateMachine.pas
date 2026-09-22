@@ -52,15 +52,18 @@ uses
   TlpICertificateCompression,
   TlpICertificateCompressionCache,
   TlpCertificateVerify,
+  TlpPeerAuthentication,
   TlpICertificateTrust,
   TlpTlsCredential,
   TlpITlsCredentialResolver,
+  TlpServerOfferSelection,
   TlpIEch,
   TlpEchConfig,
   TlpEchExtension,
   TlpEchServer,
   TlpHandshakeEffect,
   TlpRecordHeader,
+  TlpIHandshakeMachine,
   TlpTls13HandshakeBase;
 
 type
@@ -100,12 +103,6 @@ type
     /// <summary>The per-server-instance secret authenticating the HelloRetryRequest
     /// cookie. Required for a server that may answer with a HelloRetryRequest.</summary>
     CookieSecret: ISecretBuffer;
-    /// <summary>When set, this cookie is emitted in the HelloRetryRequest instead of
-    /// a freshly minted one (used for byte-exact replay).</summary>
-    CookieOverride: TBytes;
-    /// <summary>When set, this framed EncryptedExtensions is sent verbatim instead
-    /// of the machine's serialized empty block (used for byte-exact replay).</summary>
-    EncryptedExtensionsOverride: TBytes;
     /// <summary>The certificate-compression algorithms the server can compress with
     /// (RFC 8879). When the client advertised a matching algorithm and compression
     /// shrinks the Certificate, the server sends a CompressedCertificate; empty never
@@ -146,11 +143,6 @@ type
     // whether the async verdict is a live-revocation deferral (vs a host-decision park): a
     // live-revocation park is skipped when the verifier settled revocation inline
     LiveRevocationDeferral: Boolean;
-    /// <summary>When set, these framed messages are sent verbatim instead of being
-    /// produced - used for the RFC 8448 byte-exact replay (a produced
-    /// CertificateVerify has a random RSA-PSS salt, so it cannot be byte-exact).</summary>
-    CertificateOverride: TBytes;
-    CertificateVerifyOverride: TBytes;
     /// <summary>The out-of-band external PSKs (RFC 9258) the server imports and matches an
     /// offered pre_shared_key against, in preference order. A matching PSK is preferred over
     /// the server certificate. Empty leaves external PSK off.</summary>
@@ -190,7 +182,7 @@ type
   /// keys, then verifies the client Finished and installs the read keys. It returns
   /// effects and never touches the record layer.
   /// </summary>
-  TTls13ServerStateMachine = class sealed(TTls13HandshakeBase)
+  TTls13ServerStateMachine = class sealed(TTls13HandshakeBase, ITls13ServerReplay)
   strict private
   type
     TPhase = (Initial, WaitSecondClientHello, WaitClientCertificate,
@@ -283,6 +275,11 @@ type
     FEchStatus: TEchStatus;
     FEchInnerRandom: TBytes;
     FEchRetryConfigs: TBytes;
+    // ITls13ServerReplay: framed messages emitted verbatim when set, built normally when empty
+    FVerbatimRetryCookie: TBytes;
+    FVerbatimEncryptedExtensions: TBytes;
+    FVerbatimCertificate: TBytes;
+    FVerbatimCertificateVerify: TBytes;
     /// <summary>Stamps the ECH accept confirmation into the last 8 bytes of the framed
     /// ServerHello (RFC 9849 sec. 7.2), computed over the inner transcript through this
     /// ServerHello with those 8 bytes zeroed.</summary>
@@ -296,9 +293,6 @@ type
     /// computed over message_hash(AInnerCh1Hash) then the HRR with that payload zeroed.</summary>
     procedure StampHrrEchConfirmation(var AHrrBytes: TBytes;
       const AInnerCh1Hash: TBytes);
-    /// <summary>Selects the ALPN protocol from the client's offer, or aborts with
-    /// no_application_protocol when the server is configured but nothing overlaps.</summary>
-    function SelectAlpn(const AClientOffered: TArray<string>): string;
     /// <summary>Appends the SelectAlpn and SetRecordSizeLimit effects for the flight.</summary>
     procedure AppendNegotiatedInfoEffects(var AEffects: TArray<THandshakeEffect>);
     function ProcessClientHello(const AMessage: TTlsHandshakeMessage)
@@ -339,9 +333,6 @@ type
     /// <summary>The index of AIdentity in AOffered (exact bytes), or -1 when absent.</summary>
     class function IndexOfOfferedIdentity(const AOffered: TArray<TBytes>;
       const AIdentity: TBytes): Int32; static;
-    /// <summary>Imports the configured external PSKs for every supported KDF hash, in
-    /// server preference order (each spec once per hash).</summary>
-    function ImportExternalPsks: TArray<IPreSharedKey>;
     /// <summary>Rejects a malformed pre_shared_key that offers unequal identity and binder
     /// counts (RFC 8446 4.2.11); a no-op when no PSK is offered. Runs on every ClientHello
     /// (including the retry) so a mismatch introduced on either flight is caught.</summary>
@@ -405,9 +396,6 @@ type
     /// <summary>Serializes the EncryptedExtensions from a typed empty extension list.</summary>
     function BuildEncryptedExtensions: TBytes;
     /// <summary>Frames the Certificate message from the credential's chain.</summary>
-    /// <summary>The configured stapled OCSP response (the callback takes precedence over
-    /// the static blob); empty when the server is not stapling.</summary>
-    function ResolveOcspStaple: TBytes;
     function BuildCertificate: TBytes;
     /// <summary>Frames a CertificateRequest advertising the accepted signature schemes.</summary>
     function BuildCertificateRequest: TBytes;
@@ -420,6 +408,11 @@ type
     /// <summary>Verifies the client CertificateVerify signature against the client leaf.</summary>
     function ProcessClientCertVerify(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>;
+    // ITls13ServerReplay
+    procedure SetVerbatimRetryCookie(const ACookie: TBytes);
+    procedure SetVerbatimEncryptedExtensions(const AFramed: TBytes);
+    procedure SetVerbatimCertificate(const AFramed: TBytes);
+    procedure SetVerbatimCertificateVerify(const AFramed: TBytes);
   strict protected
     function Route(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>; override;
@@ -441,10 +434,6 @@ resourcestring
     'supported_groups and key_share must both be present or both absent';
   SNoSignatureAlgorithms = 'the client offered no signature_algorithms';
   SNoCompatibleScheme = 'the server credential cannot satisfy the client signature_algorithms';
-  SNoPskOrCertificate = 'no offered pre_shared_key matched and the server has no certificate';
-  SNoCredentialForServerName = 'no server certificate is configured for the requested SNI host';
-  SNoDefaultCredential = 'the client sent no server_name and no default certificate is configured';
-  SCredentialNoSigningKey = 'the selected server credential has no signing key';
   SBadClientFinished = 'the client Finished did not verify';
   SBadPskBinder = 'the pre_shared_key binder did not validate';
   SPskBinderCountMismatch = 'the pre_shared_key offers unequal identity and binder counts';
@@ -457,11 +446,6 @@ resourcestring
   SUnsolicitedClientCertExtension =
     'the client certificate carries an extension that was not requested';
   SUntrustedClientCertificate = 'the client certificate chain was not trusted';
-  SBadClientCertVerify = 'the client CertificateVerify did not verify';
-  SUnrequestedClientCertVerifyScheme =
-    'the client CertificateVerify uses a signature scheme the CertificateRequest did not offer';
-  SLegacyPkcs1InClientCertVerify = 'the client CertificateVerify uses a legacy rsa_pkcs1 ' +
-    'scheme, which is certificate-only in TLS 1.3';
   SNoCookieAuthority = 'no cookie secret configured for a HelloRetryRequest';
   SMissingCookie = 'the second ClientHello carried no cookie';
   SBadCookie = 'the HelloRetryRequest cookie did not verify';
@@ -469,7 +453,6 @@ resourcestring
   SNoRetryKeyShare = 'the second ClientHello sent no key_share for the requested group';
   SRetrySuiteChanged =
     'the retry ClientHello does not keep the cipher suite the HelloRetryRequest selected';
-  SNoAlpnOverlap = 'no overlap between the client and server ALPN protocols';
   SBadRecordSizeLimit = 'the peer record_size_limit is below the 64-byte minimum';
   SNonEmptyEndOfEarlyData = 'the EndOfEarlyData message must be empty';
   SEchInnerRandomChanged = 'the ClientHelloInner random changed across the HelloRetryRequest';
@@ -498,7 +481,10 @@ begin
   // a configured store upgrades the stateless STEK default to single-use handles
   FTicketStrategy := TSessionTicketStrategies.ForServer(FParams.Crypto,
     FParams.SessionTicketKeys, FParams.SessionStore);
-  FExternalPsks := ImportExternalPsks;
+  // each configured external PSK imported once per supported KDF hash, in server preference
+  // order, so an offered identity for either hash can be matched (RFC 9258)
+  FExternalPsks := TExternalPskImporter.ImportAll(FParams.Crypto, FParams.ExternalPsks,
+    TlsWireVersionTls13);
 end;
 
 destructor TTls13ServerStateMachine.Destroy;
@@ -511,6 +497,28 @@ function TTls13ServerStateMachine.Start: TArray<THandshakeEffect>;
 begin
   // a server does not initiate; it starts on the first ClientHello
   Result := nil;
+end;
+
+procedure TTls13ServerStateMachine.SetVerbatimRetryCookie(const ACookie: TBytes);
+begin
+  FVerbatimRetryCookie := ACookie;
+end;
+
+procedure TTls13ServerStateMachine.SetVerbatimEncryptedExtensions(
+  const AFramed: TBytes);
+begin
+  FVerbatimEncryptedExtensions := AFramed;
+end;
+
+procedure TTls13ServerStateMachine.SetVerbatimCertificate(const AFramed: TBytes);
+begin
+  FVerbatimCertificate := AFramed;
+end;
+
+procedure TTls13ServerStateMachine.SetVerbatimCertificateVerify(
+  const AFramed: TBytes);
+begin
+  FVerbatimCertificateVerify := AFramed;
 end;
 
 function TTls13ServerStateMachine.HashOf(const AData: TBytes): TBytes;
@@ -551,28 +559,6 @@ begin
   Result := Int32(LBudget);
 end;
 
-function TTls13ServerStateMachine.SelectAlpn(
-  const AClientOffered: TArray<string>): string;
-var
-  LPref, LOffered: string;
-begin
-  Result := '';
-  // reject mode: any client ALPN offer is refused with no_application_protocol (RFC 7301 3.2)
-  if FParams.AlpnRejectAll and (System.Length(AClientOffered) > 0) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.NoApplicationProtocol, @SNoAlpnOverlap);
-  // no selection when the server is not configured for ALPN or the client did not offer it
-  if (System.Length(FParams.AlpnProtocols) = 0) or (System.Length(AClientOffered) = 0) then
-    Exit;
-  for LPref in FParams.AlpnProtocols do
-    for LOffered in AClientOffered do
-      if LPref = LOffered then
-        Exit(LPref);
-  // configured, offered, but nothing overlaps (RFC 7301 3.2)
-  raise EFatalAlertTlsLibException.CreateRes(
-    TTlsAlertDescription.NoApplicationProtocol, @SNoAlpnOverlap);
-end;
-
 procedure TTls13ServerStateMachine.AppendNegotiatedInfoEffects(
   var AEffects: TArray<THandshakeEffect>);
 begin
@@ -593,7 +579,6 @@ procedure TTls13ServerStateMachine.NegotiateFrom(
   out ASelectedGroup: UInt16);
 var
   LSuiteCode, LGroupCode: UInt16;
-  LClientHelloInfo: TTlsClientHelloInfo;
 begin
   FCodec.ConsumeBlock(AContext, TTlsExtensionContextKind.ClientHello,
     AClientHello.Extensions);
@@ -646,35 +631,11 @@ begin
 
   if not FPskAccepted then
   begin
-    // no PSK matched: fall back to the server certificate. A PSK-only server (external PSKs
-    // configured, no certificate) has nothing to fall back on, so an unmatched offer is a
-    // handshake failure (RFC 8446 4.2.11 / e.g. no common PSK)
-    // select the server certificate for this handshake from the client's SNI (virtual hosting);
-    // a PSK-only server (nil resolver) has nothing to fall back on
-    if FParams.CredentialResolver = nil then
-      raise EFatalAlertTlsLibException.CreateRes(
-        TTlsAlertDescription.HandshakeFailure, @SNoPskOrCertificate);
-    LClientHelloInfo.ServerName := FRequestedServerName;
-    LClientHelloInfo.SignatureSchemes := AContext.SignatureSchemes;
-    LClientHelloInfo.AlpnProtocols := AContext.AlpnProtocols;
-    LClientHelloInfo.CipherSuites := AClientHello.CipherSuites;
-    LClientHelloInfo.SupportedGroups := AContext.SupportedGroups;
-    LClientHelloInfo.ProtocolVersion := TTlsVersion.Tls13;
-    if not FParams.CredentialResolver.TryResolve(LClientHelloInfo, FResolvedCredential) then
-    begin
-      // no certificate for the requested host: unrecognized_name when the client named one,
-      // else handshake_failure (RFC 6066 3)
-      if FRequestedServerName <> '' then
-        raise EFatalAlertTlsLibException.CreateRes(
-          TTlsAlertDescription.UnrecognizedName, @SNoCredentialForServerName);
-      // the resolver had certificates but no default for a no-SNI client: no name to be
-      // "unrecognized", so handshake_failure (RFC 8446 6.2)
-      raise EFatalAlertTlsLibException.CreateRes(
-        TTlsAlertDescription.HandshakeFailure, @SNoDefaultCredential);
-    end;
-    if not Assigned(FResolvedCredential.PrivateKey) then
-      raise EFatalAlertTlsLibException.CreateRes(
-        TTlsAlertDescription.HandshakeFailure, @SCredentialNoSigningKey);
+    // no PSK matched: fall back to the server certificate for this handshake, selected from the
+    // client's SNI (virtual hosting). A PSK-only server (external PSKs configured, no certificate)
+    // has nothing to fall back on, so an unmatched offer is a handshake failure (RFC 8446 4.2.11)
+    FResolvedCredential := TServerOfferSelection.ResolveCredential(
+      FParams.CredentialResolver, AContext, AClientHello.CipherSuites, TTlsVersion.Tls13);
     // certificate-based auth requires the client to offer signature_algorithms
     // (RFC 8446 4.4.2.2 / 4.4.3); the CertificateVerify scheme is then the first of the
     // credential's key-compatible schemes the client also offered
@@ -725,7 +686,8 @@ begin
 
   // ALPN + record_size_limit are negotiated from the same ClientHello extensions and
   // echoed later in EncryptedExtensions
-  FSelectedAlpn := SelectAlpn(AContext.AlpnProtocols);
+  FSelectedAlpn := TServerOfferSelection.SelectAlpn(FParams.AlpnProtocols,
+    AContext.AlpnProtocols, FParams.AlpnRejectAll);
   // 0-RTT is bound to the ticket's ALPN (RFC 8446 4.2.11): a resumed handshake that negotiates
   // a different protocol than the ticket carried must reject early data (the session still
   // resumes). Only applies to an accepted resumption ticket.
@@ -884,24 +846,6 @@ begin
     FParams.AntiReplay.CheckAndRecord(AContext.OfferedPskBinders[0], LNowMs,
     LNowMs + UInt64(LSession.TicketLifetime) * 1000);
   Result := True;
-end;
-
-function TTls13ServerStateMachine.ImportExternalPsks: TArray<IPreSharedKey>;
-var
-  LSpec: TExternalPsk;
-begin
-  Result := nil;
-  // import each configured external PSK once per supported KDF hash (RFC 9258), preserving
-  // server preference order, so an offered identity for either hash can be matched
-  for LSpec in FParams.ExternalPsks do
-  begin
-    TArrayUtilities.Append<IPreSharedKey>(Result,
-      TExternalPskImporter.Import(FParams.Crypto, LSpec, TlsWireVersionTls13,
-      THashAlgorithm.SHA_256));
-    TArrayUtilities.Append<IPreSharedKey>(Result,
-      TExternalPskImporter.Import(FParams.Crypto, LSpec, TlsWireVersionTls13,
-      THashAlgorithm.SHA_384));
-  end;
 end;
 
 class function TTls13ServerStateMachine.IndexOfOfferedIdentity(
@@ -1135,8 +1079,8 @@ begin
   // ARaw is the inner ClientHello on ECH accept, the outer otherwise, so its hash is the one
   // the cookie binds and the one the HRR ech confirmation is computed over
   LCh1Hash := HashOf(ARaw);
-  if System.Length(FParams.CookieOverride) > 0 then
-    LCookie := FParams.CookieOverride
+  if System.Length(FVerbatimRetryCookie) > 0 then
+    LCookie := FVerbatimRetryCookie
   else
   begin
     if FCookie = nil then
@@ -1527,13 +1471,13 @@ begin
       Result.CertificateRequest := BuildCertificateRequest;
       FTranscript.Update(Result.CertificateRequest);
     end;
-    if System.Length(FParams.CertificateOverride) > 0 then
-      Result.Certificate := FParams.CertificateOverride
+    if System.Length(FVerbatimCertificate) > 0 then
+      Result.Certificate := FVerbatimCertificate
     else
       Result.Certificate := BuildCertificate;
     FTranscript.Update(Result.Certificate);
-    if System.Length(FParams.CertificateVerifyOverride) > 0 then
-      Result.CertificateVerify := FParams.CertificateVerifyOverride
+    if System.Length(FVerbatimCertificateVerify) > 0 then
+      Result.CertificateVerify := FVerbatimCertificateVerify
     else
       Result.CertificateVerify := SignCertificateVerify(FTranscript.CurrentHash);
     FTranscript.Update(Result.CertificateVerify);
@@ -1553,8 +1497,8 @@ var
   LContext: TExtensionContext;
   LBlock: TBytes;
 begin
-  if System.Length(FParams.EncryptedExtensionsOverride) > 0 then
-    Exit(System.Copy(FParams.EncryptedExtensionsOverride));
+  if System.Length(FVerbatimEncryptedExtensions) > 0 then
+    Exit(System.Copy(FVerbatimEncryptedExtensions));
   // serialize the negotiated EncryptedExtensions (ALPN selection, record_size_limit)
   LContext := TExtensionContext.Create;
   try
@@ -1580,14 +1524,6 @@ begin
     THandshakeMessages.EncodeEncryptedExtensions(LBlock));
 end;
 
-function TTls13ServerStateMachine.ResolveOcspStaple: TBytes;
-begin
-  if Assigned(FResolvedCredential.OcspStapleCallback) then
-    Result := FResolvedCredential.OcspStapleCallback
-  else
-    Result := FResolvedCredential.OcspStaple;
-end;
-
 function TTls13ServerStateMachine.BuildCertificate: TBytes;
 var
   LCert: TTlsCertificate;
@@ -1609,7 +1545,7 @@ begin
   // and a staple is configured (RFC 8446 4.4.2.1)
   if FStatusRequestOffered and (System.Length(LCert.Entries) > 0) then
   begin
-    LStaple := ResolveOcspStaple;
+    LStaple := FResolvedCredential.CurrentOcspStaple;
     if System.Length(LStaple) > 0 then
       LCert.Entries[0].Extensions :=
         THandshakeMessages.EncodeLeafStapleExtensions(LStaple);
@@ -1710,11 +1646,10 @@ begin
   // Carry both the presented chain and the validated path (issuer at index 1), so a live resolver
   // authenticates against the PKIX issuer, never a guess. The buffered CertificateVerify/Finished
   // resume once SetCertificateVerdict does.
-  if FParams.AsyncVerdict and
-    not (FParams.LiveRevocationDeferral and
-    (LVerified.Outcome = TVerificationOutcome.RevocationSettledInline)) then
+  if TPeerAuthentication.ShouldPark(FParams.AsyncVerdict,
+    FParams.LiveRevocationDeferral, LVerified.Outcome) then
     TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.AwaitCertificateVerdict(FClientCertChain, LVerified.Path, '', nil));
+      ParkForVerdict(FClientCertChain, LVerified.Path, '', nil));
 end;
 
 function TTls13ServerStateMachine.ProcessClientCertVerify(
@@ -1722,38 +1657,18 @@ function TTls13ServerStateMachine.ProcessClientCertVerify(
 var
   LCertVerify: TTlsCertificateVerify;
   LScheme: TSignatureScheme;
-  LContent, LPublicKeyInfo: TBytes;
-  LVerifier: ISignatureVerifier;
+  LContent: TBytes;
 begin
   Result := nil;
   LCertVerify := THandshakeMessages.DecodeCertificateVerify(AMessage.Body);
-  // the client may sign only with a scheme the CertificateRequest advertised: a scheme outside
-  // that set is a wrong signature type even if this server could otherwise verify it (RFC 8446 4.4.3)
-  if not (TArrayUtilities.Contains<UInt16>(FParams.ClientAuthSignatureSchemes,
-    LCertVerify.Algorithm)) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.IllegalParameter, @SUnrequestedClientCertVerifyScheme);
-  if not TSignatureScheme.TryFromCode(LCertVerify.Algorithm, LScheme) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.IllegalParameter, @SBadClientCertVerify);
-  // rsa_pkcs1_* are certificate-only in TLS 1.3 and MUST NOT sign a CertificateVerify,
-  // even when the server offered them for backward compatibility (RFC 8446 4.2.3)
-  if not LScheme.IsValidForHandshake(TTlsVersion.Tls13) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.IllegalParameter, @SLegacyPkcs1InClientCertVerify);
-  // the client leaf must permit digitalSignature and, for an rsa_pss_rsae_* scheme, not
-  // be an id-RSASSA-PSS key (symmetric with the client verifying the server leaf)
-  TCertificateVerify.EnforceSigningLeafPolicy(FParsedClientLeaf, LScheme, True);
+  // the client may sign only with a scheme the CertificateRequest advertised, valid for a TLS 1.3
+  // handshake, and the client leaf's key must be allowed to produce it (RFC 8446 4.4.3)
+  LScheme := TPeerAuthentication.RequirePeerScheme(FParams.ClientAuthSignatureSchemes,
+    LCertVerify.Algorithm, TTlsVersion.Tls13, FParsedClientLeaf);
   // the client signs the transcript through its Certificate, client-side context string
   LContent := TCertificateVerify.SignatureContent(False, FTranscript.CurrentHash);
-  LPublicKeyInfo := FParsedClientLeaf.PublicKeyInfo;
-  LVerifier := FParams.Crypto.Signing.CreateSignatureVerifier(LScheme, LPublicKeyInfo);
-  LVerifier.Update(LContent, 0, System.Length(LContent));
-  // the parsed leaf is no longer needed; release it rather than pin the ASN.1 graph
-  FParsedClientLeaf := nil;
-  if not LVerifier.Verify(LCertVerify.Signature) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.DecryptError, @SBadClientCertVerify);
+  TPeerAuthentication.VerifyPeerSignature(FParams.Crypto, FParsedClientLeaf, LScheme,
+    LContent, LCertVerify.Signature);
   FTranscript.Update(AMessage.Raw);
   FPhase := TPhase.WaitClientFinished;
 end;
@@ -1806,6 +1721,7 @@ begin
   FSchedule.DeriveResumptionMasterSecret(FTranscript.CurrentHash);
 
   FPhase := TPhase.Connected;
+  MarkConnected;
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
     TTlsDirection.ClientWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13),

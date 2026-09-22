@@ -226,7 +226,7 @@ end;
 procedure TTestTls13KeyUpdate.TestWriteAtUsageLimitRekeysAutomatically;
 var
   LClient, LServer: ITlsEngine;
-  LClientHook, LServerHook: IEngineRecordTestHook;
+  LClientSeq, LServerSeq: IEngineRecordSequenceControl;
   LMsg: TBytes;
   LI: Int32;
 begin
@@ -254,10 +254,10 @@ begin
   // next application write must auto-send a KeyUpdate - which itself still seals at this last
   // sequence - before it can send data (RFC 8446 5.5). The two sides advance in step so the AEAD
   // nonces stay synchronized.
-  CheckTrue(Supports(LClient, IEngineRecordTestHook, LClientHook), 'client test hook present');
-  CheckTrue(Supports(LServer, IEngineRecordTestHook, LServerHook), 'server test hook present');
-  LClientHook.SetWriteSequenceNumber(UInt64(23726566 - 1));
-  LServerHook.SetReadSequenceNumber(UInt64(23726566 - 1));
+  CheckTrue(Supports(LClient, IEngineRecordSequenceControl, LClientSeq), 'client sequence control present');
+  CheckTrue(Supports(LServer, IEngineRecordSequenceControl, LServerSeq), 'server sequence control present');
+  LClientSeq.SetWriteSequenceNumber(UInt64(23726566 - 1));
+  LServerSeq.SetReadSequenceNumber(UInt64(23726566 - 1));
   LMsg := DecodeHex('7061737420746865206c696d6974'); // "past the limit"
   LClient.Write(LMsg, 0, System.Length(LMsg));
   Pump(LClient, LServer);
