@@ -48,6 +48,9 @@ type
     procedure TestConstantTimeAreEqual;
     procedure TestWipeOnLastRelease;
     procedure TestConstantTimeIsAllZeroMatchesVariableTime;
+    procedure TestFromStringHoldsUtf8;
+    procedure TestFromStringNonAsciiIsUtf8;
+    procedure TestFromStringEmptyIsZeroLength;
   end;
 
 implementation
@@ -258,6 +261,49 @@ begin
       LData[LI] := 0;
     end;
   end;
+end;
+
+procedure TTestSecretBuffer.TestFromStringHoldsUtf8;
+var
+  LStr: string;
+begin
+  // FromString carries the passphrase as UTF-8 (so it lives in a wiped buffer, not an immutable
+  // string); for ASCII that is the same bytes
+  LStr := 'tlslib';
+  CheckEqualBytes('ASCII FromString is its UTF-8 octets', DecodeHex('746C736C6962'),
+    TSecretBuffer.FromString(LStr).ToBytes);
+  CheckEqualBytes('FromString equals UTF8.GetBytes', TEncoding.UTF8.GetBytes(LStr),
+    TSecretBuffer.FromString(LStr).ToBytes);
+end;
+
+procedure TTestSecretBuffer.TestFromStringNonAsciiIsUtf8;
+
+  procedure CheckRoundTrip(const AHexUtf8, ALabel: string);
+  var
+    LUtf8: TBytes;
+    LStr: string;
+  begin
+    LUtf8 := DecodeHex(AHexUtf8);
+    LStr := TEncoding.UTF8.GetString(LUtf8);
+    CheckEqualBytes(ALabel, LUtf8, TSecretBuffer.FromString(LStr).ToBytes);
+  end;
+
+begin
+  // accented passphrases round-trip as UTF-8; built from known octets so the test does not depend
+  // on the source file's encoding
+  CheckRoundTrip('636166C3A9', 'e-acute: cafe');
+  CheckRoundTrip('C3B1C3BCC3B6C3A7', 'assorted accents: n-tilde u/o-diaeresis c-cedilla');
+  CheckRoundTrip('506173732DC3A92D39', 'mixed ASCII and accent: Pass-e-acute-9');
+end;
+
+procedure TTestSecretBuffer.TestFromStringEmptyIsZeroLength;
+var
+  LSecret: ISecretBuffer;
+begin
+  // an empty string yields a zero-length buffer (an empty passphrase), distinct from nil
+  LSecret := TSecretBuffer.FromString('');
+  CheckTrue(LSecret <> nil, 'FromString of an empty string returns a buffer, not nil');
+  CheckEquals(0, LSecret.Len, 'the buffer is zero-length');
 end;
 
 initialization

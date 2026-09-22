@@ -1406,18 +1406,25 @@ end;
 
 class function TCredentialImport.PasswordChars(
   const APassword: ISecretBuffer): TArray<Char>;
+
+  function Utf8ToChars(const AUtf8: TBytes): TArray<Char>;
+  begin
+  {$IF SizeOf(Char) = 1}
+    // a one-byte Char: the passphrase's UTF-8 octets are the char array, copied as-is
+    SetLength(Result, System.Length(AUtf8));
+    Move(AUtf8[0], Result[0], System.Length(AUtf8));
+  {$ELSE}
+    // a wide Char: decode the UTF-8 octets to characters
+    Result := TEncoding.UTF8.GetChars(AUtf8);
+  {$IFEND}
+  end;
+
 begin
   Result := nil;
   // nil and a zero-length buffer both yield no chars (an empty passphrase)
   if (APassword = nil) or (APassword.Len = 0) then
     Exit;
-{$IFDEF FPC}
-  // Char is a byte here, so the stored bytes are copied into the array unchanged, not decoded
-  SetLength(Result, APassword.Len);
-  Move(APassword.DataPtr^, Result[0], APassword.Len);
-{$ELSE}
-  Result := TEncoding.UTF8.GetChars(APassword.ToBytes);
-{$ENDIF FPC}
+  Result := Utf8ToChars(APassword.ToBytes);
 end;
 
 class procedure TCredentialImport.WipePasswordChars(
