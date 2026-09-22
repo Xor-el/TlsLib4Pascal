@@ -1,0 +1,19 @@
+TlsLib.Adapters/Indy/Adapter/TlsLibIndyTls.pas
+  s_09d3c46d1a9b1f::t_c679dab55994ab 17-19,52,89-93,183-185,189-192,206,290-292,338,340-372,383,385,388,397,400-401,408-410,431-434,447-448,471,474,486,488-490,492-494,501-502,507-508,510,516,518-521,523-531,545-549,598,602,611,613,619-620,627-628,635-636,643-644,651-652,659-660
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5b9d028f1da3993187e920b8f4de0575f988ffd3",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
