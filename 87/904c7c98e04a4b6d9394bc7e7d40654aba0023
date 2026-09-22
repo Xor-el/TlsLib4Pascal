@@ -1,0 +1,67 @@
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.pas
+  s_09d3c46d1a9b1f::t_d536d8254bbea4 51-52
+TlsLib.Tests/src/AdapterCoreTests.pas
+  s_09d3c46d1a9b1f::t_5d6833b2f5a0a5 464
+  s_09d3c46d1a9b1f::t_da696c9811e3b9 889-890
+  s_09d3c46d1a9b1f::t_4e73bcbbb13e4b 621
+  s_09d3c46d1a9b1f::t_d76d54f1215d68 635
+  s_09d3c46d1a9b1f::t_8472c5fb1f9ff0 452
+  s_09d3c46d1a9b1f::t_b534a4efcad645 52-59
+  s_09d3c46d1a9b1f::t_1b0f18cfb4b70b 36
+  s_09d3c46d1a9b1f::t_03a6dd5179c34f 1-35,37-51,60-260,281-451,453-463,465-592,594-620,622-634,636-746,748,750-851,853-888,891-1008
+  s_09d3c46d1a9b1f::t_02934504a9a4ae 747,749
+  s_09d3c46d1a9b1f::t_dfd1fadc8b736c 261-280
+  s_09d3c46d1a9b1f::t_b40e71937feeda 593
+  s_09d3c46d1a9b1f::t_2d20d7b7b6d31e 852
+TlsLib.Tests/FreePascal.Tests/TlsLib.Tests.lpi
+  s_09d3c46d1a9b1f::t_709dec962f0396 340-343
+TlsLib.Trust.System/src/TlpSystemTrustFacade.pas
+  s_09d3c46d1a9b1f::t_95b01837fc863e 72-86
+  s_09d3c46d1a9b1f::t_1367875d805ae5 167-182
+TlsLib/src/Engine/TlpTlsAdapterCore.pas
+  s_09d3c46d1a9b1f::t_0763fc6f0b775c 1-113,116,119-120,122,124,128-130,132-134,136-137,139-265,267,270-274,276,279-313,315,318-320,322,325-327,329-333,336-338,349,351,353-355,357,359,364-365,371-380,382-386,388,394-396,398,411,413-422,424-428,430-431,450-453,455-459,461-462,479-482,484-487,493-497,499-505,507,510,512,514-517,519-523,525,528,530,532-720
+  s_09d3c46d1a9b1f::t_84d67195377537 114-115,117-118,121,123,125-127,131,135,138,266,268-269,275,277-278,314,316-317,321,323-324,328,334-335,339-348,350,352,356,358,360-363,366-370,381,387,389-393,397,399-410,412,423,429,432-449,454,460,463-478,483,488-492,498,506,508-509,511,513,518,524,526-527,529,531
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_09d3c46d1a9b1f::t_934e9174e64692 109
+  s_09d3c46d1a9b1f::t_b6368c70c2841f 242-243
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_09d3c46d1a9b1f::t_b2d3bcf02c5ac3 432
+  s_09d3c46d1a9b1f::t_a67f86a84f3234 563
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_0e18080ccf7162 23,62
+  s_09d3c46d1a9b1f::t_522cc4b8f1340d 63-79
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpi
+  s_09d3c46d1a9b1f::t_709dec962f0396 334-337
+TlsLib.Tests/FreePascal.Tests/TlsLib.lpr
+  s_09d3c46d1a9b1f::t_b195bb19f34f33 85-86
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpr
+  s_09d3c46d1a9b1f::t_b195bb19f34f33 83-84
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
+  s_09d3c46d1a9b1f::t_f5d82416d4f2ec 31
+  s_09d3c46d1a9b1f::t_daa58762cc62eb 576-579
+TlsLib/src/Packages/Delphi/TlsLib4PascalPackage.dpk
+  s_09d3c46d1a9b1f::t_7bbdc05888bc89 171
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_09d3c46d1a9b1f::t_344c8cec75fc96 1876-1921,1928,1933
+  s_09d3c46d1a9b1f::t_a214e7095307fd 71-74
+  s_09d3c46d1a9b1f::t_bc0a9bdba73f76 111-119
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_09d3c46d1a9b1f::t_83d6e300ea7bb5 89
+  s_09d3c46d1a9b1f::t_b6368c70c2841f 222-223
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "87904c7c98e04a4b6d9394bc7e7d40654aba0023",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
