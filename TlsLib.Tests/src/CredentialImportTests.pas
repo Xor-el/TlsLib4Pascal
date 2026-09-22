@@ -27,6 +27,7 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpICryptoProvider,
+  TlpSecretBuffer,
   TlpCryptoDomainTypes,
   TlpISigningKey,
   TlpTlsLibExceptions,
@@ -184,16 +185,16 @@ var
   LKey: ISigningKey;
 begin
   // encrypted PKCS#8 in DER and PEM, decrypted with the password
-  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['rsa_enc_der']), SPassword);
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['rsa_enc_der']), TSecretBuffer.FromString(SPassword));
   CheckTrue(RoundTrips(TSignatureScheme.RSA_PSS_RSAE_SHA256, LKey, 'rsa_pub'),
     'encrypted RSA PKCS#8 (DER) imports and signs');
-  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['rsa_enc_pem']), SPassword);
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['rsa_enc_pem']), TSecretBuffer.FromString(SPassword));
   CheckTrue(RoundTrips(TSignatureScheme.RSA_PSS_RSAE_SHA256, LKey, 'rsa_pub'),
     'encrypted RSA PKCS#8 (PEM) imports and signs');
-  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['ec256_enc_der']), SPassword);
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['ec256_enc_der']), TSecretBuffer.FromString(SPassword));
   CheckTrue(RoundTrips(TSignatureScheme.ECDSA_SECP256R1_SHA256, LKey, 'ec256_pub'),
     'encrypted EC P-256 PKCS#8 (DER) imports and signs');
-  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['ed25519_enc_der']), SPassword);
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['ed25519_enc_der']), TSecretBuffer.FromString(SPassword));
   CheckTrue(RoundTrips(TSignatureScheme.ED25519, LKey, 'ed25519_pub'),
     'encrypted Ed25519 PKCS#8 (DER) imports and signs');
 end;
@@ -255,7 +256,7 @@ var
 begin
   LRaised := False;
   try
-    Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['rsa_enc_der']), 'not-the-password');
+    Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['rsa_enc_der']), TSecretBuffer.FromString('not-the-password'));
   except
     on E: EArgumentTlsLibException do
       LRaised := True;

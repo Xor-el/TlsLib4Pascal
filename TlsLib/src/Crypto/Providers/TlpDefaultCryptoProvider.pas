@@ -400,7 +400,8 @@ type
   var
     FPassword: TArray<Char>;
   public
-    constructor Create(const APassword: string);
+    constructor Create(const APassword: ISecretBuffer);
+    destructor Destroy; override;
     function GetPassword: TArray<Char>;
   end;
 
@@ -441,18 +442,18 @@ type
     class function DetectDerKeyShape(const AData: TBytes): TDerKeyShape; static;
     class function SchemesForKeyInfo(const AInfo: IPrivateKeyInfo)
       : TArray<TSignatureScheme>; static;
-    class function KeyParamFromPem(const AData: TBytes; const APassword: string;
-      AHasPassword: Boolean): IAsymmetricKeyParameter; static;
-    class function KeyParamFromDer(const AData: TBytes; const APassword: string;
-      AHasPassword: Boolean): IAsymmetricKeyParameter; static;
+    class function KeyParamFromPem(const AData: TBytes;
+      const APassword: ISecretBuffer): IAsymmetricKeyParameter; static;
+    class function KeyParamFromDer(const AData: TBytes;
+      const APassword: ISecretBuffer): IAsymmetricKeyParameter; static;
   public
-    /// <summary>The password as the character array the PEM/PKCS#12 backends expect;
-    /// empty yields nil (no password). Wipe it with WipePasswordChars after use.</summary>
-    class function PasswordChars(const APassword: string): TArray<Char>; static;
+    /// <summary>The passphrase's code units as the character array the PEM/PKCS#12 backends
+    /// expect; nil or an empty buffer yields nil. Wipe it with WipePasswordChars after use.</summary>
+    class function PasswordChars(const APassword: ISecretBuffer): TArray<Char>; static;
     /// <summary>Zeroes a password character array in place.</summary>
     class procedure WipePasswordChars(var APassword: TArray<Char>); static;
-    class function ImportKey(const AData: TBytes; const APassword: string;
-      AHasPassword: Boolean): ISigningKey; static;
+    class function ImportKey(const AData: TBytes;
+      const APassword: ISecretBuffer): ISigningKey; static;
     /// <summary>The one signing-key construction path: normalizes a parsed private-key
     /// parameter to canonical PKCS#8 (held wipeably), derives its schemes, and wraps it.
     /// Both raw-key and PKCS#12 import funnel through here. Raises ENotSupported for a key
@@ -519,9 +520,9 @@ type
     constructor Create(const ARandom: ISecureRandom);
     function ImportSigningKey(const AData: TBytes): ISigningKey; overload;
     function ImportSigningKey(const AData: TBytes;
-      const APassword: string): ISigningKey; overload;
+      const APassword: ISecretBuffer): ISigningKey; overload;
     function ImportPkcs12(const AData: TBytes;
-      const APassword: string): TTlsCredential;
+      const APassword: ISecretBuffer): TTlsCredential;
     function CreateSignatureSigner(AScheme: TSignatureScheme;
       const AKey: ISigningKey): ISignatureSigner;
     function CreateSignatureVerifier(AScheme: TSignatureScheme;
@@ -1257,10 +1258,18 @@ end;
 
 { TStaticPasswordFinder }
 
-constructor TStaticPasswordFinder.Create(const APassword: string);
+constructor TStaticPasswordFinder.Create(const APassword: ISecretBuffer);
 begin
   inherited Create;
   FPassword := TCredentialImport.PasswordChars(APassword);
+end;
+
+destructor TStaticPasswordFinder.Destroy;
+begin
+  // the finder hands the passphrase chars by reference to the PEM reader; wipe the copy once
+  // it is released
+  TCredentialImport.WipePasswordChars(FPassword);
+  inherited Destroy;
 end;
 
 function TStaticPasswordFinder.GetPassword: TArray<Char>;
@@ -1322,14 +1331,15 @@ end;
 { TCredentialImport }
 
 class function TCredentialImport.PasswordChars(
-  const APassword: string): TArray<Char>;
-var
-  LI: Int32;
+  const APassword: ISecretBuffer): TArray<Char>;
 begin
   Result := nil;
-  SetLength(Result, System.Length(APassword));
-  for LI := 1 to System.Length(APassword) do
-    Result[LI - 1] := APassword[LI];
+  // the secret holds the passphrase's raw host code units; rebuild the char array the backend
+  // reader expects. nil and a zero-length buffer both yield no chars (an empty passphrase)
+  if (APassword = nil) or (APassword.Len = 0) then
+    Exit;
+  SetLength(Result, APassword.Len div SizeOf(Char));
+  Move(APassword.DataPtr^, Result[0], APassword.Len);
 end;
 
 class procedure TCredentialImport.WipePasswordChars(
@@ -1413,7 +1423,7 @@ end;
 // The private half of the key object the PEM reader returned (a bare key parameter,
 // or the private key of a returned key pair).
 class function TCredentialImport.KeyParamFromPem(const AData: TBytes;
-  const APassword: string; AHasPassword: Boolean): IAsymmetricKeyParameter;
+  const APassword: ISecretBuffer): IAsymmetricKeyParameter;
 var
   LStream: TBytesStream;
   LReader: IOpenSslPemReader;
@@ -1424,7 +1434,7 @@ begin
   Result := nil;
   LStream := TBytesStream.Create(AData);
   try
-    if AHasPassword then
+    if APassword <> nil then
       LReader := TOpenSslPemReader.Create(LStream,
         TStaticPasswordFinder.Create(APassword) as IOpenSslPasswordFinder)
     else
@@ -1448,7 +1458,7 @@ end;
 // The key parameter for a DER private key, dispatched on its ASN.1 shape. PKCS#1
 // and SEC1 are wrapped into a PrivateKeyInfo exactly as the PEM reader does.
 class function TCredentialImport.KeyParamFromDer(const AData: TBytes;
-  const APassword: string; AHasPassword: Boolean): IAsymmetricKeyParameter;
+  const APassword: ISecretBuffer): IAsymmetricKeyParameter;
 var
   LRsa: IRsaPrivateKeyStructure;
   LEc: IECPrivateKeyStructure;
@@ -1462,7 +1472,7 @@ begin
       Result := TPrivateKeyFactory.CreateKey(AData);
     TDerKeyShape.EncryptedPkcs8:
       begin
-        if not AHasPassword then
+        if APassword = nil then
           raise EArgumentTlsLibException.CreateRes(@SMalformedPrivateKey);
         LPass := PasswordChars(APassword);
         try
@@ -1519,15 +1529,15 @@ end;
 // parse failure is reclassified as a typed library exception, so no Clp*/ASN.1
 // exception escapes the provider.
 class function TCredentialImport.ImportKey(const AData: TBytes;
-  const APassword: string; AHasPassword: Boolean): ISigningKey;
+  const APassword: ISecretBuffer): ISigningKey;
 var
   LKeyParam: IAsymmetricKeyParameter;
 begin
   try
     if TPem.IsArmored(AData) then
-      LKeyParam := KeyParamFromPem(AData, APassword, AHasPassword)
+      LKeyParam := KeyParamFromPem(AData, APassword)
     else
-      LKeyParam := KeyParamFromDer(AData, APassword, AHasPassword);
+      LKeyParam := KeyParamFromDer(AData, APassword);
     Result := SigningKeyFromParam(LKeyParam);
   except
     on E: EBaseTlsLibException do
@@ -1616,8 +1626,13 @@ var
 begin
   if ALen <= 0 then
     Exit;
+  // the generated bytes may seed key material downstream; wipe this copy once handed over
   LGen := FRandom.GenerateBytes(ALen);
-  System.Move(LGen[0], ABytes[AStart], ALen);
+  try
+    System.Move(LGen[0], ABytes[AStart], ALen);
+  finally
+    TSecureMemory.WipeBytes(LGen);
+  end;
 end;
 
 { TCryptoPrimitives }
@@ -1739,13 +1754,13 @@ end;
 
 function TSigningCrypto.ImportSigningKey(const AData: TBytes): ISigningKey;
 begin
-  Result := TCredentialImport.ImportKey(AData, '', False);
+  Result := TCredentialImport.ImportKey(AData, nil);
 end;
 
 function TSigningCrypto.ImportSigningKey(const AData: TBytes;
-  const APassword: string): ISigningKey;
+  const APassword: ISecretBuffer): ISigningKey;
 begin
-  Result := TCredentialImport.ImportKey(AData, APassword, True);
+  Result := TCredentialImport.ImportKey(AData, APassword);
 end;
 
 class function TSigningCrypto.KeyKindOf(const AKey: IAsymmetricKeyParameter;
@@ -1828,7 +1843,7 @@ begin
 end;
 
 function TSigningCrypto.ImportPkcs12(const AData: TBytes;
-  const APassword: string): TTlsCredential;
+  const APassword: ISecretBuffer): TTlsCredential;
 var
   LStore: IPkcs12Store;
   LStoreBuilder: IPkcs12StoreBuilder;

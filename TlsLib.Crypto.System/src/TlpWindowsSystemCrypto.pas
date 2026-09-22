@@ -714,7 +714,7 @@ type
     /// ECDSA) and reports the schemes it can sign with; False when the key is not one this
     /// facet serves natively (the caller then delegates to the portable facet). A non-empty
     /// APassword decrypts an encrypted PKCS#8 (EncryptedPrivateKeyInfo) in the same call.</summary>
-    function TryImportKey(const APkcs8: TBytes; const APassword: string;
+    function TryImportKey(const APkcs8: TBytes; const APassword: ISecretBuffer;
       out AKey: NativeUInt; out ASchemes: TArray<TSignatureScheme>): Boolean;
     function SignData(AKey: NativeUInt; AScheme: TSignatureScheme;
       const AData: TBytes): TBytes;
@@ -732,7 +732,7 @@ type
     procedure FreeVerifyKey(AKeyHandle: Pointer);
     /// <summary>Imports a PKCS#12 blob and adopts its private key as a native CNG-backed
     /// signing key; False when it cannot (the caller then keeps the portable key).</summary>
-    function TryImportPkcs12Key(const APfx: TBytes; const APassword: string;
+    function TryImportPkcs12Key(const APfx: TBytes; const APassword: ISecretBuffer;
       out AKey: ISigningKey): Boolean;
     /// <summary>Releases a PKCS#12-acquired key: the key handle (when caller-owned), its
     /// certificate context, and the in-memory store.</summary>
@@ -853,6 +853,11 @@ type
     // wraps a PKCS#1 (RSAPrivateKey) or SEC1 (ECPrivateKey) DER into a PKCS#8 the KSP
     // imports; a PKCS#8 (plain or encrypted) or unrecognized blob passes through unchanged
     class function WrapPkcs8IfNeeded(const ADer: TBytes): TBytes; static;
+    // the passphrase widened to an owned, NUL-terminated UTF-16 buffer the caller wipes; empty
+    // for nil or a zero-length passphrase. Under FPC the secret holds AnsiChar code units, widened
+    // with the system codepage (as the old WideString(AnsiString) did); under Delphi it is already
+    // UTF-16. No AnsiString/WideString temp lingers with the passphrase.
+    class function WidePassword(const APassword: ISecretBuffer): TArray<WideChar>; static;
     function AlgName(AKey: NativeUInt): string;
     function KeySchemes(AKey: NativeUInt;
       out ASchemes: TArray<TSignatureScheme>): Boolean;
@@ -869,7 +874,7 @@ type
     class function IsNativeScheme(AScheme: TSignatureScheme): Boolean; static;
     constructor Create(const ACng: IWindowsCng);
     destructor Destroy; override;
-    function TryImportKey(const APkcs8: TBytes; const APassword: string;
+    function TryImportKey(const APkcs8: TBytes; const APassword: ISecretBuffer;
       out AKey: NativeUInt; out ASchemes: TArray<TSignatureScheme>): Boolean;
     function SignData(AKey: NativeUInt; AScheme: TSignatureScheme;
       const AData: TBytes): TBytes;
@@ -879,7 +884,7 @@ type
     function VerifyData(AKeyHandle: Pointer; AScheme: TSignatureScheme;
       const AData, ASignature: TBytes): Boolean;
     procedure FreeVerifyKey(AKeyHandle: Pointer);
-    function TryImportPkcs12Key(const APfx: TBytes; const APassword: string;
+    function TryImportPkcs12Key(const APfx: TBytes; const APassword: ISecretBuffer;
       out AKey: ISigningKey): Boolean;
     procedure FreePfxKey(AStore, ACert: Pointer; AHandle: NativeUInt;
       ACallerFree: Boolean);
@@ -899,16 +904,16 @@ type
     class function SchemeName(AScheme: TSignatureScheme): string; static;
     // decodes a PEM PKCS#8 block to DER and imports it natively; the decoded bytes are the
     // plain or still-encrypted PKCS#8 the KSP accepts
-    function TryImportPemNative(const AData: TBytes; const APassword: string;
+    function TryImportPemNative(const AData: TBytes; const APassword: ISecretBuffer;
       out AKey: ISigningKey): Boolean;
   public
     constructor Create(const AInner: ISigningCrypto;
       const ANCrypt: IWindowsNCrypt);
     function ImportSigningKey(const AData: TBytes): ISigningKey; overload;
     function ImportSigningKey(const AData: TBytes;
-      const APassword: string): ISigningKey; overload;
+      const APassword: ISecretBuffer): ISigningKey; overload;
     function ImportPkcs12(const AData: TBytes;
-      const APassword: string): TTlsCredential;
+      const APassword: ISecretBuffer): TTlsCredential;
     function CreateSignatureSigner(AScheme: TSignatureScheme;
       const AKey: ISigningKey): ISignatureSigner;
     function CreateSignatureVerifier(AScheme: TSignatureScheme;
@@ -3428,11 +3433,36 @@ begin
   Result := System.Length(ASchemes) > 0;
 end;
 
-function TWindowsNCrypt.TryImportKey(const APkcs8: TBytes; const APassword: string;
+class function TWindowsNCrypt.WidePassword(
+  const APassword: ISecretBuffer): TArray<WideChar>;
+{$IFDEF FPC}
+var
+  LWideLen: Integer;
+{$ENDIF FPC}
+begin
+  Result := nil;
+  if (APassword = nil) or (APassword.Len = 0) then
+    Exit;
+{$IFDEF FPC}
+  LWideLen := MultiByteToWideChar(CP_ACP, 0, PAnsiChar(APassword.DataPtr),
+    APassword.Len, nil, 0);
+  SetLength(Result, LWideLen + 1); // + NUL terminator
+  if LWideLen > 0 then
+    MultiByteToWideChar(CP_ACP, 0, PAnsiChar(APassword.DataPtr), APassword.Len,
+      PWideChar(Result), LWideLen);
+  Result[LWideLen] := #0;
+{$ELSE}
+  SetLength(Result, (APassword.Len div SizeOf(WideChar)) + 1); // + NUL terminator
+  System.Move(APassword.DataPtr^, Result[0], APassword.Len);
+  Result[System.Length(Result) - 1] := #0;
+{$ENDIF FPC}
+end;
+
+function TWindowsNCrypt.TryImportKey(const APkcs8: TBytes; const APassword: ISecretBuffer;
   out AKey: NativeUInt; out ASchemes: TArray<TSignatureScheme>): Boolean;
 var
   LKey: NativeUInt;
-  LPwd: WideString;
+  LPwd: TArray<WideChar>;
   LBuf: TNCryptBuffer;
   LDesc: TNCryptBufferDesc;
   LParam: Pointer;
@@ -3444,26 +3474,31 @@ begin
   // a raw PKCS#1 / SEC1 key is wrapped into the PKCS#8 the KSP imports; a PKCS#8 (plain or
   // encrypted, as for a non-empty password) passes through unchanged
   LDer := WrapPkcs8IfNeeded(APkcs8);
-  // a non-empty password imports an encrypted PKCS#8: the KSP decrypts it from the
+  // a non-empty passphrase imports an encrypted PKCS#8: the KSP decrypts it from the
   // NCRYPTBUFFER_PKCS_SECRET buffer. LPwd must outlive the ImportKey call (it does - it is
-  // this frame's local, pointed at by the buffer)
+  // this frame's local, pointed at by the buffer) and is wiped in the finally
   LParam := nil;
-  if APassword <> '' then
-  begin
-    LPwd := WideString(APassword);
-    LBuf.cbBuffer := (ULONG(System.Length(LPwd)) + 1) * SizeOf(WideChar);
-    LBuf.BufferType := NCRYPTBUFFER_PKCS_SECRET;
-    LBuf.pvBuffer := PWideChar(LPwd);
-    LDesc.ulVersion := NCRYPTBUFFER_VERSION;
-    LDesc.cBuffers := 1;
-    LDesc.pBuffers := @LBuf;
-    LParam := @LDesc;
+  LPwd := WidePassword(APassword);
+  try
+    if System.Length(LPwd) > 0 then
+    begin
+      LBuf.cbBuffer := ULONG(System.Length(LPwd)) * SizeOf(WideChar); // includes NUL
+      LBuf.BufferType := NCRYPTBUFFER_PKCS_SECRET;
+      LBuf.pvBuffer := @LPwd[0];
+      LDesc.ulVersion := NCRYPTBUFFER_VERSION;
+      LDesc.cBuffers := 1;
+      LDesc.pBuffers := @LBuf;
+      LParam := @LDesc;
+    end;
+    // the KSP parses the PKCS#8 PrivateKeyInfo; a non-PKCS#8 / unsupported-PBE / unsupported key
+    // (or a wrong password) simply fails to import and the caller delegates to the portable facet
+    if FApi.ImportKey(FProvider, 0, PWideChar(BLOB_PKCS8_PRIVATE), LParam, LKey,
+      PByte(LDer), System.Length(LDer), NCRYPT_SILENT_FLAG) <> STATUS_SUCCESS then
+      Exit(False);
+  finally
+    if System.Length(LPwd) > 0 then
+      FillChar(LPwd[0], System.Length(LPwd) * SizeOf(WideChar), 0);
   end;
-  // the KSP parses the PKCS#8 PrivateKeyInfo; a non-PKCS#8 / unsupported-PBE / unsupported key
-  // (or a wrong password) simply fails to import and the caller delegates to the portable facet
-  if FApi.ImportKey(FProvider, 0, PWideChar(BLOB_PKCS8_PRIVATE), LParam, LKey,
-    PByte(LDer), System.Length(LDer), NCRYPT_SILENT_FLAG) <> STATUS_SUCCESS then
-    Exit(False);
   if KeySchemes(LKey, ASchemes) then
   begin
     AKey := LKey;
@@ -3656,10 +3691,11 @@ begin
 end;
 
 function TWindowsNCrypt.TryImportPkcs12Key(const APfx: TBytes;
-  const APassword: string; out AKey: ISigningKey): Boolean;
+  const APassword: ISecretBuffer; out AKey: ISigningKey): Boolean;
 var
   LBlob: TCryptDataBlob;
-  LPassword: WideString;
+  LPassword: TArray<WideChar>;
+  LPasswordPtr: PWideChar;
   LStore, LCert: Pointer;
   LKey: NativeUInt;
   LSize: DWORD;
@@ -3670,10 +3706,18 @@ begin
     Exit(False);
   LBlob.cbData := System.Length(APfx);
   LBlob.pbData := PByte(APfx);
-  LPassword := WideString(APassword);
+  // an empty/absent passphrase is a nil pointer (as the prior empty WideString gave); a real
+  // one is the owned wide buffer, wiped once the import returns
+  LPassword := WidePassword(APassword);
+  if System.Length(LPassword) > 0 then
+    LPasswordPtr := @LPassword[0]
+  else
+    LPasswordPtr := nil;
   // keep the key CNG-backed (PKCS12_ALWAYS_CNG_KSP) and off disk (PKCS12_NO_PERSIST_KEY)
-  LStore := FCryptApi.PFXImportCertStore(@LBlob, PWideChar(LPassword),
+  LStore := FCryptApi.PFXImportCertStore(@LBlob, LPasswordPtr,
     PKCS12_NO_PERSIST_KEY or PKCS12_ALWAYS_CNG_KSP);
+  if System.Length(LPassword) > 0 then
+    FillChar(LPassword[0], System.Length(LPassword) * SizeOf(WideChar), 0);
   if LStore = nil then
     Exit(False);
   // the portable import already guaranteed exactly one key entry, so the first cert with a
@@ -3726,7 +3770,7 @@ begin
 end;
 
 function TWindowsSigningCrypto.TryImportPemNative(const AData: TBytes;
-  const APassword: string; out AKey: ISigningKey): Boolean;
+  const APassword: ISecretBuffer; out AKey: ISigningKey): Boolean;
 var
   LBlocks: TArray<TPemBlock>;
   LI: Int32;
@@ -3750,7 +3794,7 @@ begin
     else if (LBlocks[LI].PemType = 'PRIVATE KEY') or
       (LBlocks[LI].PemType = 'RSA PRIVATE KEY') or
       (LBlocks[LI].PemType = 'EC PRIVATE KEY') then
-      LImported := FNCrypt.TryImportKey(LBlocks[LI].Content, '', LKey, LSchemes)
+      LImported := FNCrypt.TryImportKey(LBlocks[LI].Content, nil, LKey, LSchemes)
     else
       LImported := False;
     if LImported then
@@ -3773,10 +3817,10 @@ begin
   // decoded first; a PKCS#1/SEC1 or Ed25519 key delegates to the portable facet
   if TPem.IsArmored(AData) then
   begin
-    if not TryImportPemNative(AData, '', Result) then
+    if not TryImportPemNative(AData, nil, Result) then
       Result := FInner.ImportSigningKey(AData);
   end
-  else if FNCrypt.TryImportKey(AData, '', LKey, LSchemes) then
+  else if FNCrypt.TryImportKey(AData, nil, LKey, LSchemes) then
   begin
     LOwner := TNCryptKeyOwner.Create(FNCrypt, LKey);
     Result := TWindowsSigningKey.Create(LOwner, LSchemes);
@@ -3786,7 +3830,7 @@ begin
 end;
 
 function TWindowsSigningCrypto.ImportSigningKey(const AData: TBytes;
-  const APassword: string): ISigningKey;
+  const APassword: ISecretBuffer): ISigningKey;
 var
   LKey: NativeUInt;
   LSchemes: TArray<TSignatureScheme>;
@@ -3811,7 +3855,7 @@ begin
 end;
 
 function TWindowsSigningCrypto.ImportPkcs12(const AData: TBytes;
-  const APassword: string): TTlsCredential;
+  const APassword: ISecretBuffer): TTlsCredential;
 var
   LNativeKey: ISigningKey;
 begin

@@ -237,10 +237,12 @@ type
     function ImportSigningKey(const AData: TBytes): ISigningKey; overload;
     /// <summary>
     /// As <see cref="ImportSigningKey" />, decrypting an encrypted PKCS#8 key (DER
-    /// EncryptedPrivateKeyInfo or an encrypted PEM key) with APassword.
+    /// EncryptedPrivateKeyInfo or an encrypted PEM key) with APassword. The passphrase is a
+    /// wiped buffer of host code units: nil means no passphrase, a zero-length buffer means an
+    /// empty passphrase.
     /// </summary>
     function ImportSigningKey(const AData: TBytes;
-      const APassword: string): ISigningKey; overload;
+      const APassword: ISecretBuffer): ISigningKey; overload;
     /// <summary>
     /// Imports a PKCS#12 (.pfx/.p12) blob decrypted with APassword into a complete
     /// credential: the leaf and any intermediates as the chain (leaf first, DER) and an
@@ -248,10 +250,11 @@ type
     /// private-key entry - a multi-identity store is ambiguous and rejected. Fails closed:
     /// a wrong password, bad MAC, malformed store, or an ambiguous/absent key raises
     /// EArgumentTlsLibException and no partial credential is returned; an unsupported key
-    /// algorithm raises ENotSupportedTlsLibException.
+    /// algorithm raises ENotSupportedTlsLibException. The passphrase is a wiped buffer of host
+    /// code units: nil means no passphrase, a zero-length buffer means an empty passphrase.
     /// </summary>
     function ImportPkcs12(const AData: TBytes;
-      const APassword: string): TTlsCredential;
+      const APassword: ISecretBuffer): TTlsCredential;
     /// <summary>A signer for AScheme over the imported signing key AKey. Raises
     /// EArgumentTlsLibException when AScheme is not among the key's CapableSchemes or the key
     /// cannot produce it; never lets a raw backend exception cross the seam.</summary>
