@@ -173,6 +173,7 @@ uses
   ChainAlgorithmPolicyTests in '..\src\ChainAlgorithmPolicyTests.pas',
   MockRandom in '..\src\MockRandom.pas',
   MockClock in '..\src\MockClock.pas',
+  MockPlatformChainEngine in '..\src\MockPlatformChainEngine.pas',
   MockCryptoProvider in '..\src\MockCryptoProvider.pas',
   MockHttpFetcher in '..\src\MockHttpFetcher.pas',
   MockSink in '..\src\MockSink.pas',

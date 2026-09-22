@@ -84,6 +84,16 @@ type
     procedure TestResolveVerdictRejectsRevoked;
   end;
 
+  /// <summary>The one revocation-decision table every verifier and resolver applies (RFC 6960):
+  /// a definitive Revoked rejects under every posture (certificate_revoked), a Good accepts, and an
+  /// indeterminate outcome follows the effective posture - Hard rejects (bad_certificate_status_response)
+  /// unless deferral to a live check lowers it to Soft.</summary>
+  TTestRevocationDecision = class(TTlsLibAlgorithmTestCase)
+  published
+    procedure TestDecideTruthTable;
+    procedure TestEffectivePosture;
+  end;
+
 implementation
 
 { TTestLiveRevocation }
@@ -500,12 +510,73 @@ begin
   end;
 end;
 
+{ TTestRevocationDecision }
+
+procedure TTestRevocationDecision.TestDecideTruthTable;
+var
+  LOutcome: TLiveRevocationOutcome;
+  LPosture: TRevocationPosture;
+  LDeferIdx: Integer;
+  LDefer, LResult, LExpected: Boolean;
+  LAlert, LAlert2: TTlsAlertDescription;
+begin
+  for LOutcome := Low(TLiveRevocationOutcome) to High(TLiveRevocationOutcome) do
+    for LPosture := Low(TRevocationPosture) to High(TRevocationPosture) do
+      for LDeferIdx := 0 to 1 do
+      begin
+        LDefer := LDeferIdx = 1;
+        LAlert := TTlsAlertDescription.InternalError; // sentinel: untouched on accept
+        LResult := TRevocationDecision.Decide(LOutcome, LPosture, LDefer, LAlert);
+        case LOutcome of
+          TLiveRevocationOutcome.Good:
+            LExpected := True;
+          TLiveRevocationOutcome.Revoked:
+            LExpected := False;
+        else
+          LExpected := TRevocationDecision.EffectivePosture(LPosture, LDefer) <>
+            TRevocationPosture.Hard;
+        end;
+        CheckTrue(LResult = LExpected, 'Decide verdict');
+        if LResult then
+          CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LAlert),
+            'the alert is left untouched on accept')
+        else if LOutcome = TLiveRevocationOutcome.Revoked then
+          CheckEquals(Ord(TTlsAlertDescription.CertificateRevoked), Ord(LAlert),
+            'a Revoked outcome aborts certificate_revoked')
+        else
+          CheckEquals(Ord(TTlsAlertDescription.BadCertificateStatusResponse), Ord(LAlert),
+            'an undeferred Hard indeterminate aborts bad_certificate_status_response');
+        // deferral is expressed as an effective posture: Decide(o,p,d) = Decide(o, eff(p,d), False)
+        CheckTrue(LResult = TRevocationDecision.Decide(LOutcome,
+          TRevocationDecision.EffectivePosture(LPosture, LDefer), False, LAlert2),
+          'Decide via the effective posture matches');
+      end;
+end;
+
+procedure TTestRevocationDecision.TestEffectivePosture;
+begin
+  CheckEquals(Ord(TRevocationPosture.Off),
+    Ord(TRevocationDecision.EffectivePosture(TRevocationPosture.Off, False)), 'Off inline');
+  CheckEquals(Ord(TRevocationPosture.Off),
+    Ord(TRevocationDecision.EffectivePosture(TRevocationPosture.Off, True)), 'Off deferred');
+  CheckEquals(Ord(TRevocationPosture.Soft),
+    Ord(TRevocationDecision.EffectivePosture(TRevocationPosture.Soft, False)), 'Soft inline');
+  CheckEquals(Ord(TRevocationPosture.Soft),
+    Ord(TRevocationDecision.EffectivePosture(TRevocationPosture.Soft, True)), 'Soft deferred');
+  CheckEquals(Ord(TRevocationPosture.Hard),
+    Ord(TRevocationDecision.EffectivePosture(TRevocationPosture.Hard, False)), 'Hard inline stays Hard');
+  CheckEquals(Ord(TRevocationPosture.Soft),
+    Ord(TRevocationDecision.EffectivePosture(TRevocationPosture.Hard, True)), 'Hard deferred becomes Soft');
+end;
+
 initialization
 
 {$IFDEF FPC}
   RegisterTest(TTestLiveRevocation);
+  RegisterTest(TTestRevocationDecision);
 {$ELSE}
   RegisterTest(TTestLiveRevocation.Suite);
+  RegisterTest(TTestRevocationDecision.Suite);
 {$ENDIF FPC}
 
 end.

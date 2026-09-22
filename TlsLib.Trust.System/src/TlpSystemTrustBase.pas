@@ -37,6 +37,9 @@ resourcestring
     'a Hard revocation posture on this platform needs the live-revocation verdict (the OS ' +
     'delegate is cache-only and cannot obtain a live revocation status); call ' +
     'WithLiveRevocationVerdict, or use a softer posture';
+  SNoLiveRevocation =
+    'this platform has no OS-native live revocation (only Windows and Apple do); keep cache-only ' +
+    'trust and compose the portable live-revocation checker for a live check here';
 
 type
   /// <summary>
@@ -46,6 +49,50 @@ type
   /// verdict park (the inline pass then defers an indeterminate revocation so the handshake parks).
   /// </summary>
   TSystemTrustFetch = (CacheOnly, Live);
+
+  /// <summary>What a platform chain engine can do beyond building and trusting a path. LiveFetch: it
+  /// can re-evaluate with network revocation fetch on (the async park's live check). CachedRevocation:
+  /// it renders a revocation outcome of its own from its cache and the handshake staple, so the inline
+  /// pass decides Hard from that; an engine without it renders none, and the staple is the only inline
+  /// revocation source. DnsIdentity: it matches a DNS host itself, so the library only re-checks an
+  /// IP-literal identity; an engine without it validates the chain only and the library matches the
+  /// full RFC 6125 identity.</summary>
+  TPlatformChainCapability = (LiveFetch, CachedRevocation, DnsIdentity);
+  TPlatformChainCapabilities = set of TPlatformChainCapability;
+
+  /// <summary>What the engine is asked to do about revocation, already resolved from the posture and
+  /// the deferral by the caller: None (Off), BestEffort (Soft, or a Hard whose indeterminate case is
+  /// deferred to the park), RequirePositive (Hard decided here, or every live re-check so an
+  /// indeterminate surfaces distinctly).</summary>
+  TPlatformRevocationCheck = (None, BestEffort, RequirePositive);
+
+  /// <summary>One platform chain evaluation. Chain is the peer chain (leaf first, DER). Anchors is the
+  /// exclusive trust root of a client-certificate evaluation (empty on the server path, where the OS
+  /// roots apply). ServerName is the server-path identity (the engine reads AsDns or ToString as its
+  /// platform requires; empty on the client path). OcspStaple is consumed as cached revocation data
+  /// where the platform can. NetworkAllowed is False inline (no socket) and True only from the
+  /// off-engine-thread park. Clock nil means platform time. DeadlineMs bounds a network fetch where the
+  /// platform honours one.</summary>
+  TPlatformChainRequest = record
+    Chain: TArray<TBytes>;
+    Anchors: TArray<TBytes>;
+    ServerName: TServerName;
+    OcspStaple: TBytes;
+    Revocation: TPlatformRevocationCheck;
+    NetworkAllowed: Boolean;
+    Clock: ITlsClock;
+    DeadlineMs: Cardinal;
+  end;
+
+  /// <summary>What the engine reports when the platform built a path: the revocation outcome it
+  /// rendered (Indeterminate for an engine without CachedRevocation), the leaf-first path it built
+  /// (empty where the platform reports none), and the certificates the strength policy skips (the OS
+  /// anchor, or the configured client-CA anchors where the path is the presented chain).</summary>
+  TPlatformChainResult = record
+    Outcome: TLiveRevocationOutcome;
+    Path: TArray<TBytes>;
+    PolicyExempt: TArray<TBytes>;
+  end;
 
   /// <summary>
   /// The post-checks every OS trust delegate applies once the OS engine has accepted the peer:
@@ -84,6 +131,13 @@ type
     /// <summary>The host to hand the OS name check: the DNS host, or '' for an IP literal (which
     /// the OS must never name-check - the library matches it against iPAddress SANs instead).</summary>
     class function OsHostName(const AHostName: string): string; static;
+    /// <summary>True (with AAlert = bad_certificate) when a non-empty AName does not match the leaf's
+    /// dNSName / iPAddress SANs (RFC 6125), for an engine that validates the chain but not the host.
+    /// An empty name never fires. A nil provider or empty path cannot match and fails closed
+    /// (bad_certificate).</summary>
+    class function RejectNameMismatch(const AName: TServerName;
+      const APkix: IPkixProvider; const AOsPath: TArray<TBytes>;
+      out AAlert: TTlsAlertDescription): Boolean; static;
   end;
   /// <summary>
   /// Deduplicates harvested roots by exact bytes: a filesystem store walking
@@ -207,6 +261,27 @@ begin
     Result := ''
   else
     Result := AHostName;
+end;
+
+class function TDelegatePostChecks.RejectNameMismatch(const AName: TServerName;
+  const APkix: IPkixProvider; const AOsPath: TArray<TBytes>;
+  out AAlert: TTlsAlertDescription): Boolean;
+begin
+  // an engine that validates the chain but not the host: the full RFC 6125 identity is matched here.
+  // an empty name never fires; without a provider to read the SANs, or with no validated leaf, the
+  // name cannot be confirmed and fails closed
+  if AName.IsEmpty then
+    Exit(False);
+  if (APkix = nil) or (System.Length(AOsPath) = 0) then
+  begin
+    AAlert := TTlsAlertDescription.BadCertificate;
+    Exit(True);
+  end;
+  Result := not TEndpointIdentity.Matches(AName,
+    APkix.Certificates.DnsNames(AOsPath[0]),
+    APkix.Certificates.IpAddresses(AOsPath[0]));
+  if Result then
+    AAlert := TTlsAlertDescription.BadCertificate;
 end;
 
 { TSystemRootAccumulator }

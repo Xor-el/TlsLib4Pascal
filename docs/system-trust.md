@@ -205,62 +205,46 @@ fallback to `LiveRevocationResolver(config, fallback)` to run `TLiveRevocationCh
 ### Policy differences vs. the built-in verifier
 
 The OS chain engine is not a byte-for-byte replacement for the built-in PKIX pipeline — choosing a
-delegate is choosing the OS's behaviour, which differs in a few security-relevant ways. The table
-below is the **Windows** delegate, verified against crypt32 (that is the delegate this library's tests
-exercise). The rows are a mix of Windows-specific mechanisms and generic delegate traits — the rows
-marked *(any delegate)* apply to any OS delegate; the rest are crypt32 specifics.
+delegate is choosing the OS's behaviour, which differs in a few security-relevant ways. Every delegate
+runs **one shared pipeline over a per-OS chain engine**: the OS builds and trusts the path and reports
+a revocation outcome, then the same chain-strength policy, revocation-posture decision, stapled-OCSP
+check and endpoint-identity match run over it. So the library-side post-checks below are identical on
+every platform; only the chain build/trust, the OS's own distrust inputs and its alert codes differ.
 
-| Area | Built-in verifier | Windows delegate (crypt32) |
-|---|---|---|
-| **Revocation fetch** | live OCSP/CRL via the async resolver (at the park) | **cache-only** + the handshake staple; no network, async resolver not engaged |
-| **Uncached root** | validates against the roots you gave it | cache-only disables AuthRoot auto-download, so a valid-but-uncached root can surface as `unknown_ca` |
-| **Alert specificity** | maps each failure to its specific alert | a catch-all of engine error codes collapses to `bad_certificate` (posture/expiry/revocation/EKU are still specific) |
-| **OS distrust inputs** | unaware of them | honours the OS **Disallowed** store and CTLs |
-| **Chain-algorithm/strength policy** *(any delegate)* | over the assembled path, configured roots exempt | over the **OS-built path**, the OS anchor exempt (a whole-verifier instance source is not policy-checked) |
-| **Name matching** *(any delegate)* | our RFC 6125 matcher | the OS host-name logic for a DNS host; an **IP literal** is matched in the library against the leaf's iPAddress SANs (the OS name check only ever sees a DNS host) |
-| **Path building & name constraints** *(any delegate)* | CryptoLib `PkixCertPathBuilder` | the OS engine's own path building |
+**Shared by every delegate** — the same code on Windows, Apple and Android (and, unlike the built-in
+verifier, all **cache-only**: no network revocation during the handshake, so the async resolver is not
+engaged — Windows and Apple can opt into `Live`, which fetches in the async park instead):
 
-The macOS, iOS and Android delegates diverge from the built-in pipeline in *analogous* ways, but along
-their own platform's lines — their own distrust inputs (SecTrust settings, the Android store) and their
-own alert mapping. Like the Windows delegate they are **cache-only** (no network revocation during the
-handshake): the Apple delegate disables SecTrust network fetch and applies the posture as a
-`SecPolicyCreateRevocation` policy; the Android delegate applies the posture through the library's own
-staple verdict. A few specifics worth stating:
+- **Chain-strength policy** runs over the OS-built path (the OS anchor exempt): the advertised-scheme
+  filter, the MD5/SHA-1 refusal and the key-strength floors apply under Delegate mode too. A
+  whole-verifier instance you inject as the trust source is *not* policy-checked (you replaced the
+  trust decision wholesale).
+- **RFC 6125 identity** is matched in-library: an IP literal always (the OS name logic only ever sees a
+  DNS host), and the full identity on an engine that checks no host itself (Android).
+- **Revocation posture** (`Soft`/`Hard`/`Off`) is honoured cache-only. **Hard** needs a fresh *Good*
+  (a stapled leaf response, or a cached one on Windows/Apple) — a cold cache, or the intermediate that
+  a staple never covers, can make Hard reject a first handshake. A client certificate is never stapled,
+  so **Hard mTLS** needs `WithLiveRevocationVerdict` on every platform (`Build` refuses a Hard,
+  client-authenticating server without it).
+- **A definitive stapled *Revoked* rejects under every posture, `Off` included** — a library post-check
+  honours the staple even where the OS skipped revocation — aborting `certificate_revoked`.
+- **must-staple (RFC 7633)** is enforced by the built-in verifier only; no delegate honours it.
 
-- **Revocation posture is honoured on every delegate**, cache-only. **Hard** therefore needs a fresh
-  stapled (or, on Windows/Apple, cached) *Good* response: because the staple covers only the leaf and
-  the intermediate has no cached response over a cold cache, Hard can reject a first, cold-cache
-  handshake — the same on Windows and Apple. On the client (mTLS) path a certificate is never stapled,
-  so cache-only Hard mTLS through any OS delegate likewise needs a warm cache — unless you arm the
-  Windows/Apple client delegate `Live` (see "Live client-certificate revocation" above), which fetches
-  revocation in the async park instead. On **Android** a cache-only client (mTLS) delegate cannot
-  obtain a revocation status for a client certificate at all, so Hard mTLS there requires
-  `WithLiveRevocationVerdict` — as it does on every platform, where `Build` refuses a Hard,
-  client-authenticating server without it.
-- **A definitive stapled *Revoked* rejects under every posture, Off included, on every delegate**: a
-  library post-check after the OS verdict honours the handshake staple even where the OS engine skips
-  revocation under Off. On Windows/Apple/Android alike it aborts `certificate_revoked`.
-- **Injected clock:** honoured for chain validity on Windows and Apple. On **Android** the platform
-  `X509TrustManager` exposes no verify-date seam, so the chain is validated at the platform's own time;
-  the clock *is* honoured for the staple-freshness window (the library decides that). This is the one
-  documented Android limitation.
-- **Android needs the peer to send its issuer for Hard**: the staple post-check authenticates the
-  staple against the OS-built path's issuer, so a leaf-only chain the OS cannot complete is
-  indeterminate and Hard rejects it (Windows discovers the issuer itself). Under
-  `WithLiveRevocationVerdict` an indeterminate staple defers to the park instead of rejecting inline.
-- **must-staple (RFC 7633) is enforced by the built-in verifier only** — no OS delegate, Windows
-  included, honours it.
-- **Chain-algorithm/strength policy runs on every delegate, over the path the OS built** (the OS
-  anchor exempt), so the advertised-scheme filter, the MD5/SHA-1 refusal and the key-strength floors
-  apply under Delegate mode too — not just the portable pipeline. One ordering nuance follows from
-  *where* each platform checks revocation: Windows/Apple fold revocation into the OS chain verdict
-  (before our policy), so a certificate that is both weak and revoked reports `certificate_revoked`;
-  Android decides the staple in a post-check *after* our policy, so the same certificate reports
-  `unsupported_certificate`. A whole-verifier instance you inject as the trust source is not
-  policy-checked (you replaced the trust decision wholesale).
+**Per-platform specifics:**
+
+| | Windows (crypt32) | Apple (SecTrust) | Android (`X509TrustManager`) |
+|---|---|---|---|
+| **Revocation mechanism** | chain revocation flags + cache-only URL retrieval, plus the staple | `SecPolicyCreateRevocation`, network fetch disabled | none of its own — the library's staple verdict |
+| **OS distrust inputs** | the **Disallowed** store + CTLs | SecTrust settings | the platform trust store |
+| **Alert mapping** | crypt32 codes → a specific alert, else `bad_certificate` | `OSStatus` → a specific alert, else `bad_certificate` | mapped from the `X509TrustManager` exception |
+| **Injected clock** | chain validity + staple freshness | chain validity + staple freshness | staple freshness only — no verify-date seam, so the chain validates at the platform's own time (the one documented Android limitation) |
+| **Host handed to the OS** | the DNS host (an IP literal is stripped) | the DNS host (IP stripped) | the connected host as-is — the network-security-config domain key, not a name check |
+| **Issuer discovery for Hard** | discovers the issuer itself | discovers it itself | needs the peer to send its issuer (a leaf-only chain is indeterminate → Hard rejects, unless `WithLiveRevocationVerdict` defers it to the park) |
+| **A weak *and* revoked leaf** | `certificate_revoked` (revocation is folded into the OS verdict, before our policy) | `certificate_revoked` | `unsupported_certificate` (the staple is a post-check *after* our strength policy) |
+| **An uncached valid root** | may surface as `unknown_ca` (cache-only disables AuthRoot auto-download) | n/a — the OS ships its root store | n/a — the OS ships its root store |
 
 None of these differences weaken the trust decision relative to a correctly-configured OS; they are
-behavioural *differences* to be aware of when you pick Delegate over the portable pipeline.
+behavioural *differences* to weigh when you pick Delegate over the portable pipeline.
 
 ---
 

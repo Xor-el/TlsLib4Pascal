@@ -24,100 +24,35 @@ uses
 {$ELSE}
   Androidapi.Jni,
 {$ENDIF}
-  TlpIPkixProvider,
-  TlpICertificateTrust,
-  TlpICertificateVerifierSource,
-  TlpCertificateVerifier,
-  TlpCertificateStrengthPolicy,
-  TlpChainAlgorithmPolicy,
   TlpTrustPolicy,
-  TlpIClock,
-  TlpEndpointIdentity,
-  TlpServerName,
   TlpPosixDynLib,
   TlpSystemTrustBase,
-  TlpSystemTrustExceptions,
+  TlpIPlatformChainEngine,
   TlpTlsAlert;
 
 type
   /// <summary>
-  /// Delegates chain trust to the platform's Java engine over JNI - roots, revocation,
-  /// network-security-config (per-domain trust, user-CA opt-in, pinning) - via
-  /// android.net.http.X509TrustManagerExtensions.checkServerTrusted. The platform TrustManager
-  /// does not consult a stapled OCSP response, so a revocation post-check over the injected
-  /// provider and clock decides the staple (a definitive Revoked always rejects; an indeterminate
-  /// outcome rejects under a Hard posture unless the live-revocation verdict defers it to the
-  /// park) - run before the RFC 6125 hostname identity so a revoked certificate is not masked by a
-  /// name mismatch. Hostname identity is enforced
-  /// in-library because checkServerTrusted validates the chain but NOT the host (Android splits
-  /// TrustManager from HostnameVerifier). Construction is init-independent; the JVM is acquired
-  /// lazily inside Verify (Delphi resolves it automatically, FPC needs TlsLibAndroidInitTrust).
-  /// Fail-closed.
+  /// The Android platform chain engine behind the OS trust delegate: builds and trusts a
+  /// certificate path with the platform's Java engine over JNI - the system trust store and its
+  /// network-security-config (per-domain trust, user-CA opt-in, pinning) for a server certificate
+  /// via android.net.http.X509TrustManagerExtensions.checkServerTrusted, an exclusive KeyStore of
+  /// the configured client-CA anchors for a client certificate via checkClientTrusted (never the
+  /// OS or public-web-PKI roots). The platform TrustManager owns revocation and exposes no cached
+  /// outcome and no network-revocation knob, so the engine renders an indeterminate revocation
+  /// outcome and matches no host - posture, the strength policy, the staple decision and the
+  /// RFC 6125 identity belong to the delegate that owns it. The server host is passed as the
+  /// network-security-config domain key (a null host throws once a per-domain config exists), never
+  /// a name check. Construction is init-independent; the JVM is acquired lazily inside the
+  /// evaluation (Delphi resolves it automatically, FPC needs TlsLibAndroidInitTrust). Stateless and
+  /// thread-reusable. Fail-closed.
   /// </summary>
-  TAndroidDelegateVerifier = class sealed(TInterfacedObject, IServerCertificateVerifier)
-  strict private
-    FPkix: IPkixProvider;
-    FPosture: TRevocationPosture;
-    FDeferral: TVerdictDeferral;
-    FClock: ITlsClock;
-    FStrengthPolicy: TCertificateStrengthPolicy;
-    FAdvertised: TArray<UInt16>;
+  TAndroidChainEngine = class sealed(TInterfacedObject, IPlatformChainEngine)
   public
-    constructor Create(const APkix: IPkixProvider;
-      APosture: TRevocationPosture; ADeferral: TVerdictDeferral;
-      const AClock: ITlsClock;
-      const AStrengthPolicy: TCertificateStrengthPolicy;
-      const AAdvertised: TArray<UInt16>);
-    function VerifyServerCertificate(const AChain: TArray<TBytes>;
-      const AServerName: TServerName; const AOcspStaple: TBytes;
-      out AVerified: TVerifiedChain;
-      out AAlert: TTlsAlertDescription): Boolean;
-  end;
-
-  /// <summary>
-  /// The Android server-certificate verifier source: builds a delegate from the connection's
-  /// trust context, so the provider, revocation posture and clock (the staple post-check) are
-  /// injected the same way the built-in verifier receives them.
-  /// </summary>
-  TAndroidServerVerifierSource = class sealed(TInterfacedObject,
-    IServerCertificateVerifierSource)
-  public
-    function CreateServerVerifier(const AContext: TServerTrustContext)
-      : IServerCertificateVerifier;
-  end;
-
-  /// <summary>
-  /// Verifies a peer CLIENT certificate (mTLS) via the platform's Java engine, restricted to an
-  /// exclusive trust root built from the configured client-CA anchors alone - a KeyStore holding
-  /// only those anchors, never the OS or public-web-PKI roots. Applies the platform's client-auth
-  /// chain check (checkClientTrusted); a client certificate is not stapled. Fail-closed.
-  /// </summary>
-  TAndroidClientDelegateVerifier = class sealed(TInterfacedObject,
-    IClientCertificateVerifier)
-  strict private
-    FPkix: IPkixProvider;
-    FAnchors: TArray<TBytes>;
-    FStrengthPolicy: TCertificateStrengthPolicy;
-    FAdvertised: TArray<UInt16>;
-  public
-    constructor Create(const APkix: IPkixProvider;
-      const AAnchors: TArray<TBytes>;
-      const AStrengthPolicy: TCertificateStrengthPolicy;
-      const AAdvertised: TArray<UInt16>);
-    function VerifyClientCertificate(const AChain: TArray<TBytes>;
-      out AVerified: TVerifiedChain;
-      out AAlert: TTlsAlertDescription): Boolean;
-  end;
-
-  /// <summary>
-  /// The Android client-certificate verifier source: builds a client delegate over the client-CA
-  /// anchors in the context (the exclusive trust root).
-  /// </summary>
-  TAndroidClientVerifierSource = class sealed(TInterfacedObject,
-    IClientCertificateVerifierSource)
-  public
-    function CreateClientVerifier(const AContext: TClientTrustContext)
-      : IClientCertificateVerifier;
+    function Capabilities: TPlatformChainCapabilities;
+    function EvaluateServer(const ARequest: TPlatformChainRequest;
+      out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean;
+    function EvaluateClient(const ARequest: TPlatformChainRequest;
+      out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean;
   end;
 
 /// <summary>
@@ -220,13 +155,6 @@ type
     /// alert.</summary>
     class function Evaluate(const AChain: TArray<TBytes>; const AHostName: string;
       out AOsPath: TArray<TBytes>; out AAlert: TTlsAlertDescription): Boolean; static;
-    /// <summary>Runs the chain-algorithm/key-strength policy over AChain with ARoots exempt (the
-    /// OS-built path with its anchor for the server; the presented chain with the configured
-    /// anchors for the client). A nil provider or empty chain is internal_error.</summary>
-    class function ApplyStrengthPolicy(const AChain, ARoots: TArray<TBytes>;
-      const APkix: IPkixProvider;
-      const APolicy: TCertificateStrengthPolicy; const AAdvertised: TArray<UInt16>;
-      out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>Runs the platform client-auth trust decision for the peer CLIENT chain against a
     /// KeyStore of the configured client-CA anchors alone (checkClientTrusted) - never the system
     /// roots. Zero anchors reject before the engine. Returns True when trusted; on rejection or
@@ -632,21 +560,6 @@ begin
   Result := True;
 end;
 
-class function TAndroidTrustApi.ApplyStrengthPolicy(const AChain,
-  ARoots: TArray<TBytes>; const APkix: IPkixProvider;
-  const APolicy: TCertificateStrengthPolicy; const AAdvertised: TArray<UInt16>;
-  out AAlert: TTlsAlertDescription): Boolean;
-begin
-  Result := False;
-  if (APkix = nil) or (Length(AChain) = 0) then
-  begin
-    AAlert := TTlsAlertDescription.InternalError;
-    Exit;
-  end;
-  Result := TChainAlgorithmPolicy.Check(APkix.Certificates, AChain, ARoots,
-    APolicy, AAdvertised, AAlert);
-end;
-
 class function TAndroidTrustApi.Evaluate(const AChain: TArray<TBytes>;
   const AHostName: string; out AOsPath: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
@@ -949,151 +862,50 @@ begin
   end;
 end;
 
-{ TAndroidDelegateVerifier }
+{ TAndroidChainEngine }
 
-constructor TAndroidDelegateVerifier.Create(const APkix: IPkixProvider;
-  APosture: TRevocationPosture; ADeferral: TVerdictDeferral; const AClock: ITlsClock;
-  const AStrengthPolicy: TCertificateStrengthPolicy;
-  const AAdvertised: TArray<UInt16>);
+function TAndroidChainEngine.Capabilities: TPlatformChainCapabilities;
 begin
-  inherited Create;
-  FPkix := APkix;
-  FPosture := APosture;
-  FDeferral := ADeferral;
-  FClock := AClock;
-  FStrengthPolicy := AStrengthPolicy;
-  FAdvertised := AAdvertised;
+  // the platform TrustManager owns revocation with no cached outcome and no network-revocation
+  // knob, and validates the chain but not the host (Android separates X509TrustManager from
+  // HostnameVerifier), so the delegate decides revocation from the staple and matches the identity
+  Result := [];
 end;
 
-function TAndroidDelegateVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
-  const AServerName: TServerName; const AOcspStaple: TBytes;
-  out AVerified: TVerifiedChain;
-  out AAlert: TTlsAlertDescription): Boolean;
+function TAndroidChainEngine.EvaluateServer(const ARequest: TPlatformChainRequest;
+  out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean;
 var
   LOsPath: TArray<TBytes>;
 begin
-  AVerified := Default(TVerifiedChain);
-  // the platform chain verdict first, yielding the path it built. The host is the
-  // network-security-config domain key, NOT a name check (Android's host-aware TrustManager
-  // requires a non-null host once per-domain configs exist), so it is passed through as-is; the
-  // RFC 6125 identity (DNS and IP alike) is matched in-library below
-  Result := TAndroidTrustApi.Evaluate(AChain, AServerName.ToString, LOsPath, AAlert);
+  AResult := Default(TPlatformChainResult);
+  // the host is the network-security-config domain key, NOT a name check (Android's host-aware
+  // TrustManager requires a non-null host once per-domain configs exist), so it is passed as-is;
+  // the RFC 6125 identity is matched in-library by the delegate
+  Result := TAndroidTrustApi.Evaluate(ARequest.Chain, ARequest.ServerName.ToString,
+    LOsPath, AAlert);
   if not Result then
     Exit;
+  // the OS-built path (leaf first, anchor last) is the validated chain, its anchor (last element)
+  // exempt from the strength policy; the platform renders no revocation outcome of its own
+  AResult.Path := LOsPath;
+  AResult.PolicyExempt := TArray<TBytes>.Create(LOsPath[High(LOsPath)]);
+  AResult.Outcome := TLiveRevocationOutcome.Indeterminate;
+end;
 
-  // strength/algorithm policy over the OS-built path, the OS anchor (last element) exempt
-  Result := TAndroidTrustApi.ApplyStrengthPolicy(LOsPath,
-    TArray<TBytes>.Create(LOsPath[High(LOsPath)]), FPkix, FStrengthPolicy,
-    FAdvertised, AAlert);
+function TAndroidChainEngine.EvaluateClient(const ARequest: TPlatformChainRequest;
+  out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean;
+begin
+  AResult := Default(TPlatformChainResult);
+  // anchors-only over the configured client-CA anchors (never the system roots); checkClientTrusted
+  // reports no path, so the presented chain is the validated one with the configured anchors exempt
+  // (and not appended - the contract permits omitting an unreportable anchor), and it renders no
+  // revocation outcome (a client certificate is never stapled)
+  Result := TAndroidTrustApi.EvaluateClient(ARequest.Chain, ARequest.Anchors, AAlert);
   if not Result then
     Exit;
-
-  // revocation before identity, as the built-in pipeline orders it: the platform ignores a stapled
-  // OCSP response, so decide the staple here over the OS-built path (a leaf-only peer's staple can
-  // then authenticate against the OS-supplied issuer). Revoked always rejects; an indeterminate
-  // outcome rejects under Hard, unless the live-revocation verdict defers it to the park.
-  case TCertificateVerifier.StapleVerdict(FPkix, FClock, LOsPath, AOcspStaple) of
-    TStapleVerdict.Revoked:
-      begin
-        Result := False;
-        AAlert := TTlsAlertDescription.CertificateRevoked;
-        Exit;
-      end;
-    TStapleVerdict.Indeterminate:
-      if (FPosture = TRevocationPosture.Hard) and
-        (FDeferral <> TVerdictDeferral.LiveRevocation) then
-      begin
-        Result := False;
-        AAlert := TTlsAlertDescription.BadCertificateStatusResponse;
-        Exit;
-      end;
-  end;
-
-  // endpoint identity (RFC 6125): the platform validates the chain but NOT the host (Android
-  // separates X509TrustManager from HostnameVerifier). An empty name skips it; a nil provider
-  // cannot match, so it fails closed rather than trusting blindly. Matched over the OS-validated
-  // leaf, and an IP literal against its iPAddress SANs.
-  if not AServerName.IsEmpty then
-    if (FPkix = nil) or
-      (not TEndpointIdentity.Matches(AServerName,
-      FPkix.Certificates.DnsNames(LOsPath[0]),
-      FPkix.Certificates.IpAddresses(LOsPath[0]))) then
-    begin
-      Result := False;
-      AAlert := TTlsAlertDescription.BadCertificate;
-    end;
-  // the OS-built path (leaf-first, ending at the anchor) is the validated chain a key-pin matches
-  if Result then
-  begin
-    AVerified.Path := LOsPath;
-    AVerified.Outcome := TVerificationOutcome.Trusted;
-  end;
-end;
-
-{ TAndroidServerVerifierSource }
-
-function TAndroidServerVerifierSource.CreateServerVerifier(
-  const AContext: TServerTrustContext): IServerCertificateVerifier;
-begin
-  Result := TAndroidDelegateVerifier.Create(AContext.Pkix,
-    AContext.RevocationPosture, AContext.Deferral, AContext.Clock,
-    AContext.StrengthPolicy, AContext.AdvertisedSignatureSchemes)
-    as IServerCertificateVerifier;
-end;
-
-{ TAndroidClientDelegateVerifier }
-
-constructor TAndroidClientDelegateVerifier.Create(const APkix: IPkixProvider;
-  const AAnchors: TArray<TBytes>;
-  const AStrengthPolicy: TCertificateStrengthPolicy;
-  const AAdvertised: TArray<UInt16>);
-begin
-  inherited Create;
-  FPkix := APkix;
-  FAnchors := AAnchors;
-  FStrengthPolicy := AStrengthPolicy;
-  FAdvertised := AAdvertised;
-end;
-
-function TAndroidClientDelegateVerifier.VerifyClientCertificate(
-  const AChain: TArray<TBytes>; out AVerified: TVerifiedChain;
-  out AAlert: TTlsAlertDescription): Boolean;
-begin
-  AVerified := Default(TVerifiedChain);
-  // checkClientTrusted returns void; the exclusive KeyStore + no AIA fetch make the presented
-  // chain plus the configured anchors (exempt) the validated path
-  Result := TAndroidTrustApi.EvaluateClient(AChain, FAnchors, AAlert);
-  if not Result then
-    Exit;
-  Result := TAndroidTrustApi.ApplyStrengthPolicy(AChain, FAnchors, FPkix,
-    FStrengthPolicy, FAdvertised, AAlert);
-  // the platform reports no path for a client certificate; the presented chain is the validated
-  // one (anchors are exempt and not appended - the contract permits omitting an unreportable anchor)
-  if Result then
-  begin
-    AVerified.Path := AChain;
-    AVerified.Outcome := TVerificationOutcome.Trusted;
-  end;
-end;
-
-{ TAndroidClientVerifierSource }
-
-function TAndroidClientVerifierSource.CreateClientVerifier(
-  const AContext: TClientTrustContext): IClientCertificateVerifier;
-var
-  LAnchors: TArray<TBytes>;
-begin
-  // a client certificate is never stapled, so a cache-only delegate has no way to obtain a
-  // revocation status: a Hard posture is unsatisfiable without the live-revocation verdict
-  if TDelegatePostChecks.HardNeedsLiveRevocation(AContext.RevocationPosture,
-    AContext.Deferral) then
-    raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SHardNeedsLiveRevocationVerdict);
-  LAnchors := nil;
-  if AContext.TrustStore <> nil then
-    LAnchors := AContext.TrustStore.RootCertificates;
-  Result := TAndroidClientDelegateVerifier.Create(AContext.Pkix, LAnchors,
-    AContext.StrengthPolicy, AContext.AdvertisedSignatureSchemes)
-    as IClientCertificateVerifier;
+  AResult.Path := ARequest.Chain;
+  AResult.PolicyExempt := ARequest.Anchors;
+  AResult.Outcome := TLiveRevocationOutcome.Indeterminate;
 end;
 
 procedure TlsLibAndroidInitTrust(AJavaVM: Pointer);

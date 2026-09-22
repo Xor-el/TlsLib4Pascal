@@ -39,6 +39,31 @@ type
   /// </summary>
   TRevocationPosture = (Soft, Hard, Off);
 
+  /// <summary>The result of a revocation check for one certificate: a definitive Good or Revoked,
+  /// or Indeterminate when no authoritative status was obtained (missing/expired/unreachable).</summary>
+  TLiveRevocationOutcome = (Good, Revoked, Indeterminate);
+
+  /// <summary>
+  /// The one revocation-decision table every verifier and resolver applies: a definitive Revoked
+  /// rejects under every posture (certificate_revoked); a Good accepts; an Indeterminate accepts
+  /// unless the posture is Hard and the decision is not deferred to a live check, in which case it
+  /// rejects (bad_certificate_status_response). Deferral to a live check is expressed by evaluating
+  /// at an effective posture of Soft, so the handshake reaches the park where the live result is
+  /// decided at the configured posture.
+  /// </summary>
+  TRevocationDecision = class sealed(TObject)
+  public
+    /// <summary>The posture an inline evaluation runs at: Hard becomes Soft while the indeterminate
+    /// case is deferred to a live check; otherwise the configured posture.</summary>
+    class function EffectivePosture(APosture: TRevocationPosture;
+      ADeferToLive: Boolean): TRevocationPosture; static;
+    /// <summary>True to accept; False with AAlert (certificate_revoked for Revoked,
+    /// bad_certificate_status_response for an undeferred Indeterminate under Hard). AAlert is
+    /// untouched on True.</summary>
+    class function Decide(AOutcome: TLiveRevocationOutcome; APosture: TRevocationPosture;
+      ADeferToLive: Boolean; out AAlert: TTlsAlertDescription): Boolean; static;
+  end;
+
   /// <summary>
   /// An augment-only peer-certificate check the caller supplies: it runs after the
   /// built-in pipeline (PKIX, revocation, endpoint identity, pinning) has already
@@ -217,6 +242,38 @@ begin
     Result := ValidatedPath
   else
     Result := Chain;
+end;
+
+{ TRevocationDecision }
+
+class function TRevocationDecision.EffectivePosture(APosture: TRevocationPosture;
+  ADeferToLive: Boolean): TRevocationPosture;
+begin
+  if ADeferToLive and (APosture = TRevocationPosture.Hard) then
+    Result := TRevocationPosture.Soft
+  else
+    Result := APosture;
+end;
+
+class function TRevocationDecision.Decide(AOutcome: TLiveRevocationOutcome;
+  APosture: TRevocationPosture; ADeferToLive: Boolean;
+  out AAlert: TTlsAlertDescription): Boolean;
+begin
+  case AOutcome of
+    TLiveRevocationOutcome.Revoked:
+      begin
+        AAlert := TTlsAlertDescription.CertificateRevoked;
+        Result := False;
+      end;
+    TLiveRevocationOutcome.Good:
+      Result := True;
+  else
+    // Indeterminate: reject only under an effective Hard posture (a Hard check not deferred to a
+    // live one); Soft/Off, or a deferred Hard, accept and let the live check (if any) decide
+    Result := EffectivePosture(APosture, ADeferToLive) <> TRevocationPosture.Hard;
+    if not Result then
+      AAlert := TTlsAlertDescription.BadCertificateStatusResponse;
+  end;
 end;
 
 end.
