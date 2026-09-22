@@ -10,7 +10,7 @@
 (* &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&& *)
 
 /// <summary>
-/// The host-neutral core the Tier-3 integration adapters share: a value snapshot of everything a
+/// The host-neutral core the framework integration adapters share: a value snapshot of everything a
 /// host maps onto a TLS configuration, the single config-composition site that turns it into a
 /// frozen client/server config (with the build-once memo and the config-in conflict guard), a timed
 /// transport base that bounds the handshake read, and a session that drives one connection and

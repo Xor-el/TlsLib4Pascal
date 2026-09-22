@@ -985,7 +985,7 @@ begin
   try
     CheckEquals(0, LTransport.ArmedTimeout, 'the cap starts cleared');
     LTransport.SetReadTimeout(30000);
-    CheckEquals(30000, LTransport.ArmedTimeout, 'the armed cap is observable (the S12 knob)');
+    CheckEquals(30000, LTransport.ArmedTimeout, 'the armed cap is observable');
     LTransport.SetReadTimeout(0);
     CheckEquals(0, LTransport.ArmedTimeout, 'the cap clears back to blocking');
   finally
