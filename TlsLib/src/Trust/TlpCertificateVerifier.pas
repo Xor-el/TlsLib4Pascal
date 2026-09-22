@@ -453,13 +453,13 @@ begin
   //    still decides inline exactly as with no deferral.
   //  - else, decide inline by the posture: only Hard rejects.
   if LMustStaple then
-    Result := False
-  else if FDeferral = TVerdictDeferral.LiveRevocation then
-    Result := True
-  else
-    Result := FRevocationPosture <> TRevocationPosture.Hard;
-  if not Result then
+  begin
     AAlert := TTlsAlertDescription.BadCertificateStatusResponse;
+    Result := False;
+  end
+  else
+    Result := TRevocationDecision.Decide(TLiveRevocationOutcome.Indeterminate,
+      FRevocationPosture, FDeferral = TVerdictDeferral.LiveRevocation, AAlert);
 end;
 
 function TCertificateVerifier.VerifyPipeline(const AChain: TArray<TBytes>;

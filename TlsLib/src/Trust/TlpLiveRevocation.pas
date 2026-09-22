@@ -26,11 +26,6 @@ uses
   TlpDateTimeUtilities;
 
 type
-  /// <summary>The live revocation outcome for a leaf: a current Good response, a definitive
-  /// Revoked, or an indeterminate result (no responder, unreachable, malformed, unknown, or
-  /// outside the response validity window).</summary>
-  TLiveRevocationOutcome = (Good, Revoked, Indeterminate);
-
   /// <summary>Which live revocation source(s) to consult, in order.</summary>
   TLiveRevocationMethod = (Ocsp, Crl, OcspThenCrl);
 

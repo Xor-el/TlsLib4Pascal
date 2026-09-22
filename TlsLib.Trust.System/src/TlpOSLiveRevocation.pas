@@ -99,28 +99,14 @@ begin
   if not EvaluateLive(ACtx.RevocationPath, TDelegatePostChecks.OsHostName(ACtx.HostName),
     ACtx.OcspStaple, LOutcome, ARejectAlert) then
     Exit(False);
-  case LOutcome of
-    TLiveRevocationOutcome.Revoked:
-      begin
-        ARejectAlert := TTlsAlertDescription.CertificateRevoked;
-        Result := False;
-      end;
-    TLiveRevocationOutcome.Good:
-      Result := True;
+  // an indeterminate live result (the OS could not fetch or decide) defers to the portable
+  // fallback when one is wired (OCSP/CRL over the host's IHttpFetcher); otherwise the shared
+  // decision table applies the posture (Revoked rejects, Good accepts, Hard rejects an
+  // indeterminate with bad_certificate_status_response, Soft/Off accept)
+  if (LOutcome = TLiveRevocationOutcome.Indeterminate) and System.Assigned(FFallback) then
+    Result := FFallback(ACtx, ARejectAlert)
   else
-    // indeterminate: the OS could not fetch or decide. Defer to the portable fallback if one is
-    // wired (OCSP/CRL over the host's IHttpFetcher), else apply the posture (Soft/Off accept,
-    // Hard reject with bad_certificate_status_response).
-    if System.Assigned(FFallback) then
-      Result := FFallback(ACtx, ARejectAlert)
-    else if FPosture = TRevocationPosture.Hard then
-    begin
-      ARejectAlert := TTlsAlertDescription.BadCertificateStatusResponse;
-      Result := False;
-    end
-    else
-      Result := True;
-  end;
+    Result := TRevocationDecision.Decide(LOutcome, FPosture, False, ARejectAlert);
 end;
 
 end.
