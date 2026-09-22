@@ -420,12 +420,12 @@ type
       : TArray<THandshakeEffect>; override;
     function WriteDirection: TTlsDirection; override;
     function ReadDirection: TTlsDirection; override;
+    function ContinueAfterVerdict: TArray<THandshakeEffect>; override;
   public
     constructor Create(const AParams: TClientHandshakeParams);
     destructor Destroy; override;
     function Initiates: Boolean; override;
     function Start: TArray<THandshakeEffect>; override;
-    function ContinueAfterVerdict: TArray<THandshakeEffect>; override;
     /// <summary>The cached TLS 1.2 session this unified ClientHello offered (nil when it
     /// offered none), for a version-dispatching parent to hand to a 1.2 sub-machine when
     /// the server selects 1.2.</summary>

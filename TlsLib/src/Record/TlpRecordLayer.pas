@@ -692,23 +692,23 @@ end;
 
 procedure TRecordLayer.SetWriteSequenceNumber(AValue: UInt64);
 var
-  LHook: IRecordSequenceControl;
+  LSeq: IRecordSequenceControl;
 begin
   // only ever advance the counter: moving it backwards would reuse a nonce
   if AValue < FWriteProtection.SequenceNumber then
     raise EArgumentTlsLibException.CreateRes(@SSequenceRewindRejected);
-  if Supports(FWriteProtection, IRecordSequenceControl, LHook) then
-    LHook.SetSequenceNumber(AValue);
+  if Supports(FWriteProtection, IRecordSequenceControl, LSeq) then
+    LSeq.SetSequenceNumber(AValue);
 end;
 
 procedure TRecordLayer.SetReadSequenceNumber(AValue: UInt64);
 var
-  LHook: IRecordSequenceControl;
+  LSeq: IRecordSequenceControl;
 begin
   if AValue < FReadProtection.SequenceNumber then
     raise EArgumentTlsLibException.CreateRes(@SSequenceRewindRejected);
-  if Supports(FReadProtection, IRecordSequenceControl, LHook) then
-    LHook.SetSequenceNumber(AValue);
+  if Supports(FReadProtection, IRecordSequenceControl, LSeq) then
+    LSeq.SetSequenceNumber(AValue);
 end;
 
 function TRecordLayer.TakeOutgoing: TBytes;

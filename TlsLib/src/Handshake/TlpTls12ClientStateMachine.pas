@@ -256,12 +256,12 @@ type
   strict protected
     function Route(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>; override;
+    function ContinueAfterVerdict: TArray<THandshakeEffect>; override;
   public
     constructor Create(const AParams: TClient12HandshakeParams);
     destructor Destroy; override;
     function Initiates: Boolean; override;
     function Start: TArray<THandshakeEffect>; override;
-    function ContinueAfterVerdict: TArray<THandshakeEffect>; override;
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       AUseContext: Boolean; ALength: Int32): TBytes; override;
     function CanExportKeyingMaterial: Boolean; override;

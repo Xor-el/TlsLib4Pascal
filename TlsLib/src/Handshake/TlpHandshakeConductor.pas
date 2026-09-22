@@ -194,8 +194,10 @@ begin
   while FChannel.ReceiveHandshake(LMessage) do
   begin
     // once established, bound a peer flooding post-handshake messages (KeyUpdate /
-    // NewSessionTicket) with no intervening application data to reset the count
-    if IsEstablished then
+    // NewSessionTicket) with no intervening application data to reset the count. Gated on the
+    // entry state so a message that establishes the connection in this same drain, and any
+    // coalesced with it, are not counted until a later drain (as before the stage refactor).
+    if LWasEstablished then
     begin
       Inc(FPostHandshakeMessages);
       if FPostHandshakeMessages > MaxConsecutivePostHandshakeMessages then
