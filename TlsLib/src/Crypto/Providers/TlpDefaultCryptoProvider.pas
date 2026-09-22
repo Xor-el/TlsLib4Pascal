@@ -115,6 +115,7 @@ uses
   TlpEnumUtilities,
   TlpICryptoProvider,
   TlpISigningKey,
+  TlpIKeyExchangePrivateKey,
   TlpTlsCredential,
   TlpISecretBuffer,
   TlpSecretBuffer,
@@ -216,6 +217,10 @@ resourcestring
   SInvalidScalarSize =
     'the EC private scalar size (%d) does not match the curve field size (%d)';
   SScalarOutOfRange = 'the EC private scalar is outside the valid range [1, n-1]';
+  SForeignKeyExchangeKey =
+    'the key-exchange private key was not produced by this crypto provider';
+  SKeyExchangeKeyNotExportable =
+    'this key-exchange key has no raw scalar to export (a KEM or hybrid key)';
   SMalformedPkcs12 = 'the PKCS#12 blob could not be read (wrong password, bad MAC, or malformed)';
   SPkcs12NoKeyEntry = 'the PKCS#12 blob holds no private-key entry';
   SPkcs12MultipleKeys =
@@ -306,6 +311,37 @@ type
     function Open(const ANonce, AAad, ACiphertext: TBytes): TBytes;
   end;
 
+  // The provider-internal face of a minted key-exchange key: the raw scalar (nil for a KEM key,
+  // whose ExportRaw is unsupported) and the parsed backend parameter (the EC private key, or the
+  // ML-KEM decapsulation key), so an agreement reuses the one parse done at mint. Kept off
+  // IKeyExchangePrivateKey so a foreign key handed to Agree/Decapsulate is rejected, not misused.
+  IProviderKeyExchangeKey = interface(IInterface)
+    ['{2F5A9C3D-8B14-4E6A-9F02-7C1D5B8E3A46}']
+    function Scalar: ISecretBuffer;
+    function KeyParameter: IAsymmetricKeyParameter;
+  end;
+
+  // One key-exchange key class for all three default-backend primitives: it carries the fixed
+  // Usage, the raw scalar (for ExportRaw and the scalar-based X25519 agreement), and the parsed
+  // parameter (NIST EC private key / ML-KEM decapsulation key). A KEM key is not exportable.
+  TKeyExchangePrivateKey = class(TInterfacedObject, IKeyExchangePrivateKey,
+    IProviderKeyExchangeKey)
+  strict private
+  var
+    FUsage: TKeyAgreementUsage;
+    FScalar: ISecretBuffer;
+    FKeyParameter: IAsymmetricKeyParameter;
+    FExportable: Boolean;
+  public
+    constructor Create(AUsage: TKeyAgreementUsage; const AScalar: ISecretBuffer;
+      const AKeyParameter: IAsymmetricKeyParameter; AExportable: Boolean);
+    destructor Destroy; override;
+    function Usage: TKeyAgreementUsage;
+    function ExportRaw: ISecretBuffer;
+    function Scalar: ISecretBuffer;
+    function KeyParameter: IAsymmetricKeyParameter;
+  end;
+
   // X25519 key agreement wrapped as a group's IKeyAgreement.
   TX25519Agreement = class(TInterfacedObject, IKeyAgreement)
   strict private
@@ -314,13 +350,13 @@ type
   public
     constructor Create(const ARandom: ISecureRandom);
     function Name: string;
-    procedure GenerateKeyPair(out APrivateKey: ISecretBuffer; out APublicKey: TBytes);
-    function Agree(const APrivateKey: ISecretBuffer;
-      const APeerPublicKey: TBytes; AUsage: TKeyAgreementUsage): ISecretBuffer;
+    procedure GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
+      out APublicKey: TBytes);
+    function Agree(const APrivateKey: IKeyExchangePrivateKey;
+      const APeerPublicKey: TBytes): ISecretBuffer;
     function ValidatePublicKey(const APublicKey: TBytes): Boolean;
     function ImportPrivateKey(const ARawPrivateKey: ISecretBuffer;
-      out APublicKey: TBytes): ISecretBuffer;
-    function ExportPrivateKey(const APrivateKey: ISecretBuffer): ISecretBuffer;
+      AUsage: TKeyAgreementUsage; out APublicKey: TBytes): IKeyExchangePrivateKey;
   end;
 
   // A NIST prime-curve ECDH key agreement over the constant-time custom Nat curves.
@@ -343,13 +379,13 @@ type
   public
     constructor Create(const AName: string; const ARandom: ISecureRandom);
     function Name: string;
-    procedure GenerateKeyPair(out APrivateKey: ISecretBuffer; out APublicKey: TBytes);
-    function Agree(const APrivateKey: ISecretBuffer;
-      const APeerPublicKey: TBytes; AUsage: TKeyAgreementUsage): ISecretBuffer;
+    procedure GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
+      out APublicKey: TBytes);
+    function Agree(const APrivateKey: IKeyExchangePrivateKey;
+      const APeerPublicKey: TBytes): ISecretBuffer;
     function ValidatePublicKey(const APublicKey: TBytes): Boolean;
     function ImportPrivateKey(const ARawPrivateKey: ISecretBuffer;
-      out APublicKey: TBytes): ISecretBuffer;
-    function ExportPrivateKey(const APrivateKey: ISecretBuffer): ISecretBuffer;
+      AUsage: TKeyAgreementUsage; out APublicKey: TBytes): IKeyExchangePrivateKey;
   end;
 
   TKemAdapter = class(TInterfacedObject, IKem)
@@ -362,11 +398,12 @@ type
     constructor Create(const AName: string; const AParams: IMlKemParameters;
       const ARandom: ISecureRandom);
     function Name: string;
-    procedure GenerateKeyPair(out APrivateKey: ISecretBuffer; out APublicKey: TBytes);
+    procedure GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
+      out APublicKey: TBytes);
     procedure Encapsulate(const APeerPublicKey: TBytes; out ACiphertext: TBytes;
       out ASharedSecret: ISecretBuffer);
-    procedure Decapsulate(const APrivateKey: ISecretBuffer; const ACiphertext: TBytes;
-      out ASharedSecret: ISecretBuffer);
+    procedure Decapsulate(const APrivateKey: IKeyExchangePrivateKey;
+      const ACiphertext: TBytes; out ASharedSecret: ISecretBuffer);
     function ValidatePublicKey(const APublicKey: TBytes): Boolean;
   end;
 
@@ -846,6 +883,48 @@ begin
   end;
 end;
 
+{ TKeyExchangePrivateKey }
+
+constructor TKeyExchangePrivateKey.Create(AUsage: TKeyAgreementUsage;
+  const AScalar: ISecretBuffer; const AKeyParameter: IAsymmetricKeyParameter;
+  AExportable: Boolean);
+begin
+  inherited Create;
+  FUsage := AUsage;
+  FScalar := AScalar;
+  FKeyParameter := AKeyParameter;
+  FExportable := AExportable;
+end;
+
+destructor TKeyExchangePrivateKey.Destroy;
+begin
+  FScalar := nil; // the secret buffer wipes itself on release
+  FKeyParameter := nil;
+  inherited Destroy;
+end;
+
+function TKeyExchangePrivateKey.Usage: TKeyAgreementUsage;
+begin
+  Result := FUsage;
+end;
+
+function TKeyExchangePrivateKey.ExportRaw: ISecretBuffer;
+begin
+  if (not FExportable) or (FScalar = nil) then
+    raise ENotSupportedTlsLibException.CreateRes(@SKeyExchangeKeyNotExportable);
+  Result := FScalar;
+end;
+
+function TKeyExchangePrivateKey.Scalar: ISecretBuffer;
+begin
+  Result := FScalar;
+end;
+
+function TKeyExchangePrivateKey.KeyParameter: IAsymmetricKeyParameter;
+begin
+  Result := FKeyParameter;
+end;
+
 { TX25519Agreement }
 
 constructor TX25519Agreement.Create(const ARandom: ISecureRandom);
@@ -859,7 +938,7 @@ begin
   Result := 'X25519';
 end;
 
-procedure TX25519Agreement.GenerateKeyPair(out APrivateKey: ISecretBuffer;
+procedure TX25519Agreement.GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
   out APublicKey: TBytes);
 var
   LX25519: IX25519PrivateKeyParameters;
@@ -869,21 +948,25 @@ begin
   APublicKey := LX25519.GeneratePublicKey.GetEncoded;
   LPrivBytes := LX25519.GetEncoded;
   try
-    APrivateKey := TSecretBuffer.From(LPrivBytes);
+    APrivateKey := TKeyExchangePrivateKey.Create(TKeyAgreementUsage.Ephemeral,
+      TSecretBuffer.From(LPrivBytes), nil, True);
   finally
     TSecureMemory.WipeBytes(LPrivBytes);
   end;
 end;
 
-function TX25519Agreement.Agree(const APrivateKey: ISecretBuffer;
-  const APeerPublicKey: TBytes; AUsage: TKeyAgreementUsage): ISecretBuffer;
+function TX25519Agreement.Agree(const APrivateKey: IKeyExchangePrivateKey;
+  const APeerPublicKey: TBytes): ISecretBuffer;
 var
+  LKey: IProviderKeyExchangeKey;
   LPriv: IX25519PrivateKeyParameters;
   LPrivBytes, LSecret: TBytes;
 begin
-  // X25519's ladder is constant-time regardless of scalar reuse, so AUsage has no
+  // X25519's ladder is constant-time regardless of scalar reuse, so the key's Usage has no
   // effect here.
-  LPrivBytes := APrivateKey.ToBytes;
+  if not Supports(APrivateKey, IProviderKeyExchangeKey, LKey) then
+    raise EArgumentTlsLibException.CreateRes(@SForeignKeyExchangeKey);
+  LPrivBytes := LKey.Scalar.ToBytes;
   try
     LPriv := TX25519PrivateKeyParameters.Create(LPrivBytes);
     LSecret := nil;
@@ -918,7 +1001,7 @@ begin
 end;
 
 function TX25519Agreement.ImportPrivateKey(const ARawPrivateKey: ISecretBuffer;
-  out APublicKey: TBytes): ISecretBuffer;
+  AUsage: TKeyAgreementUsage; out APublicKey: TBytes): IKeyExchangePrivateKey;
 var
   LPriv: IX25519PrivateKeyParameters;
   LPrivBytes: TBytes;
@@ -932,17 +1015,12 @@ begin
         [System.Length(LPrivBytes), Int32(TX25519PrivateKeyParameters.KeySize)]);
     LPriv := TX25519PrivateKeyParameters.Create(LPrivBytes);
     APublicKey := LPriv.GeneratePublicKey.GetEncoded;
-    Result := TSecretBuffer.From(LPrivBytes);
+    // the raw scalar is the neutral currency; keep it for ExportRaw and the agreement
+    Result := TKeyExchangePrivateKey.Create(AUsage, TSecretBuffer.From(LPrivBytes),
+      nil, True);
   finally
     TSecureMemory.WipeBytes(LPrivBytes);
   end;
-end;
-
-function TX25519Agreement.ExportPrivateKey(
-  const APrivateKey: ISecretBuffer): ISecretBuffer;
-begin
-  // the private key already is the raw scalar
-  Result := APrivateKey;
 end;
 
 { TNistEcAgreement }
@@ -1013,7 +1091,7 @@ begin
   end;
 end;
 
-procedure TNistEcAgreement.GenerateKeyPair(out APrivateKey: ISecretBuffer;
+procedure TNistEcAgreement.GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
   out APublicKey: TBytes);
 var
   LPriv: IECPrivateKeyParameters;
@@ -1024,7 +1102,10 @@ begin
   APublicKey := LPub.Q.GetEncoded(False);
   LPrivBytes := TBigIntegerUtilities.AsUnsignedByteArray(FFieldSize, LPriv.D);
   try
-    APrivateKey := TSecretBuffer.From(LPrivBytes);
+    // keep the parsed EC key parameter so Agree does not re-parse the scalar; the raw scalar
+    // is retained for ExportRaw
+    APrivateKey := TKeyExchangePrivateKey.Create(TKeyAgreementUsage.Ephemeral,
+      TSecretBuffer.From(LPrivBytes), LPriv, True);
   finally
     TSecureMemory.WipeBytes(LPrivBytes);
   end;
@@ -1041,19 +1122,17 @@ begin
     raise EArgumentTlsLibException.CreateRes(@SScalarOutOfRange);
 end;
 
-function TNistEcAgreement.Agree(const APrivateKey: ISecretBuffer;
-  const APeerPublicKey: TBytes; AUsage: TKeyAgreementUsage): ISecretBuffer;
+function TNistEcAgreement.Agree(const APrivateKey: IKeyExchangePrivateKey;
+  const APeerPublicKey: TBytes): ISecretBuffer;
 var
-  LPrivBytes: TBytes;
+  LKey: IProviderKeyExchangeKey;
   LPrivParams: IECPrivateKeyParameters;
 begin
-  LPrivBytes := APrivateKey.ToBytes;
-  try
-    LPrivParams := TECPrivateKeyParameters.Create(ScalarFromBytes(LPrivBytes), FDomain);
-    Result := AgreeParams(LPrivParams, WrapPeer(APeerPublicKey), AUsage);
-  finally
-    TSecureMemory.WipeBytes(LPrivBytes);
-  end;
+  if not Supports(APrivateKey, IProviderKeyExchangeKey, LKey) then
+    raise EArgumentTlsLibException.CreateRes(@SForeignKeyExchangeKey);
+  // reuse the EC key parameter parsed at mint; the key's Usage drives the blinding posture
+  LPrivParams := LKey.KeyParameter as IECPrivateKeyParameters;
+  Result := AgreeParams(LPrivParams, WrapPeer(APeerPublicKey), APrivateKey.Usage);
 end;
 
 function TNistEcAgreement.ValidatePublicKey(const APublicKey: TBytes): Boolean;
@@ -1077,26 +1156,22 @@ begin
 end;
 
 function TNistEcAgreement.ImportPrivateKey(const ARawPrivateKey: ISecretBuffer;
-  out APublicKey: TBytes): ISecretBuffer;
+  AUsage: TKeyAgreementUsage; out APublicKey: TBytes): IKeyExchangePrivateKey;
 var
   LScalar: TBytes;
+  LD: TBigInteger;
 begin
   LScalar := ARawPrivateKey.ToBytes;
   try
-    // the public value is the SEC1 uncompressed encoding of [d]G (d validated in [1, n-1])
-    APublicKey := FDomain.G.Multiply(ScalarFromBytes(LScalar))
-      .Normalize.GetEncoded(False);
-    Result := TSecretBuffer.From(LScalar);
+    // d validated in [1, n-1]; the public value is the SEC1 uncompressed encoding of [d]G
+    LD := ScalarFromBytes(LScalar);
+    APublicKey := FDomain.G.Multiply(LD).Normalize.GetEncoded(False);
+    // parse the EC key parameter once here so a later Agree reuses it; keep the raw scalar
+    Result := TKeyExchangePrivateKey.Create(AUsage, TSecretBuffer.From(LScalar),
+      TECPrivateKeyParameters.Create(LD, FDomain), True);
   finally
     TSecureMemory.WipeBytes(LScalar);
   end;
-end;
-
-function TNistEcAgreement.ExportPrivateKey(
-  const APrivateKey: ISecretBuffer): ISecretBuffer;
-begin
-  // the private key already is the raw big-endian scalar
-  Result := APrivateKey;
 end;
 
 { TKemAdapter }
@@ -1115,23 +1190,20 @@ begin
   Result := FName;
 end;
 
-procedure TKemAdapter.GenerateKeyPair(out APrivateKey: ISecretBuffer;
+procedure TKemAdapter.GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
   out APublicKey: TBytes);
 var
   LGen: IMlKemKeyPairGenerator;
   LKp: IAsymmetricCipherKeyPair;
-  LPrivBytes: TBytes;
 begin
   LGen := TMlKemKeyPairGenerator.Create;
   LGen.Init(TMlKemKeyGenerationParameters.Create(FRandom, FParams) as IKeyGenerationParameters);
   LKp := LGen.GenerateKeyPair;
   APublicKey := (LKp.Public as IMlKemPublicKeyParameters).GetEncoded;
-  LPrivBytes := (LKp.Private as IMlKemPrivateKeyParameters).GetEncoded;
-  try
-    APrivateKey := TSecretBuffer.From(LPrivBytes);
-  finally
-    TSecureMemory.WipeBytes(LPrivBytes);
-  end;
+  // hold the parsed decapsulation key so Decapsulate does not re-decode it; a KEM key has no
+  // single raw scalar, so it is not exportable
+  APrivateKey := TKeyExchangePrivateKey.Create(TKeyAgreementUsage.Ephemeral, nil,
+    LKp.Private, False);
 end;
 
 procedure TKemAdapter.Encapsulate(const APeerPublicKey: TBytes;
@@ -1155,33 +1227,32 @@ begin
   end;
 end;
 
-procedure TKemAdapter.Decapsulate(const APrivateKey: ISecretBuffer;
+procedure TKemAdapter.Decapsulate(const APrivateKey: IKeyExchangePrivateKey;
   const ACiphertext: TBytes; out ASharedSecret: ISecretBuffer);
 var
+  LKey: IProviderKeyExchangeKey;
   LDec: IKemDecapsulator;
-  LPrivBytes, LSecret: TBytes;
+  LSecret: TBytes;
 begin
-  LPrivBytes := APrivateKey.ToBytes;
+  if not Supports(APrivateKey, IProviderKeyExchangeKey, LKey) then
+    raise EArgumentTlsLibException.CreateRes(@SForeignKeyExchangeKey);
   try
+    LDec := TMlKemDecapsulator.Create(FParams);
+    // reuse the decapsulation key parsed at mint
+    LDec.Init(LKey.KeyParameter as IMlKemPrivateKeyParameters);
+    LSecret := nil;
+    SetLength(LSecret, LDec.GetSecretLength);
     try
-      LDec := TMlKemDecapsulator.Create(FParams);
-      LDec.Init(TMlKemPrivateKeyParameters.FromEncoding(FParams, LPrivBytes));
-      LSecret := nil;
-      SetLength(LSecret, LDec.GetSecretLength);
-      try
-        LDec.Decapsulate(ACiphertext, 0, System.Length(ACiphertext), LSecret, 0,
-          System.Length(LSecret));
-        ASharedSecret := TSecretBuffer.From(LSecret);
-      finally
-        TSecureMemory.WipeBytes(LSecret);
-      end;
-    except
-      // a malformed peer ciphertext must not leak a backend exception
-      on E: ECryptoLibException do
-        raise EPeerInputTlsLibException.CreateRes(@SInvalidCiphertext);
+      LDec.Decapsulate(ACiphertext, 0, System.Length(ACiphertext), LSecret, 0,
+        System.Length(LSecret));
+      ASharedSecret := TSecretBuffer.From(LSecret);
+    finally
+      TSecureMemory.WipeBytes(LSecret);
     end;
-  finally
-    TSecureMemory.WipeBytes(LPrivBytes);
+  except
+    // a malformed peer ciphertext must not leak a backend exception
+    on E: ECryptoLibException do
+      raise EPeerInputTlsLibException.CreateRes(@SInvalidCiphertext);
   end;
 end;
 

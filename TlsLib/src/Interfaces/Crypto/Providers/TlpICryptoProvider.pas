@@ -19,6 +19,7 @@ uses
   SysUtils,
   TlpCryptoDomainTypes,
   TlpISigningKey,
+  TlpIKeyExchangePrivateKey,
   TlpTlsCredential,
   TlpISecretBuffer;
 
@@ -130,26 +131,24 @@ type
   IKeyAgreement = interface(IInterface)
     ['{FFE70BE6-D33F-4CD4-B6B4-AA381B8863DE}']
     function Name: string;
-    /// <summary>A fresh key pair: the private key and the public value to send.</summary>
-    procedure GenerateKeyPair(out APrivateKey: ISecretBuffer; out APublicKey: TBytes);
-    /// <summary>The shared secret from our private key and a peer's public value.
-    /// AUsage declares whether the private key is a fresh single-use scalar or a
-    /// long-lived one reused across operations; callers must pass Static for any key
-    /// that outlives one operation. A backend that can select a reuse-hardened
-    /// scalar-blinding posture does so for Static; others accept it without effect.</summary>
-    function Agree(const APrivateKey: ISecretBuffer; const APeerPublicKey: TBytes;
-      AUsage: TKeyAgreementUsage): ISecretBuffer;
+    /// <summary>A fresh key pair: the private key (an Ephemeral handle) and the public value
+    /// to send.</summary>
+    procedure GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
+      out APublicKey: TBytes);
+    /// <summary>The shared secret from our private key and a peer's public value. The key's
+    /// own Usage (fixed at mint) tells the backend whether it is a fresh single-use scalar or a
+    /// long-lived one, so a backend that can select a reuse-hardened scalar-blinding posture
+    /// does so for a Static key.</summary>
+    function Agree(const APrivateKey: IKeyExchangePrivateKey;
+      const APeerPublicKey: TBytes): ISecretBuffer;
     /// <summary>Whether a peer's public value is well-formed and safe to use.</summary>
     function ValidatePublicKey(const APublicKey: TBytes): Boolean;
-    /// <summary>A private key adopted from a raw scalar (the curve's fixed-width
-    /// serialization), plus its derived public value. The returned key is in this
-    /// backend's own representation, ready for <see cref="Agree" />.</summary>
+    /// <summary>A private key adopted from a raw scalar (the curve's fixed-width serialization),
+    /// plus its derived public value. AUsage declares whether it will be reused (Static) or is
+    /// single-use (Ephemeral) - the one place a Static posture is set. The returned key is in
+    /// this backend's own representation, ready for <see cref="Agree" />.</summary>
     function ImportPrivateKey(const ARawPrivateKey: ISecretBuffer;
-      out APublicKey: TBytes): ISecretBuffer;
-    /// <summary>The raw scalar behind a private key from GenerateKeyPair /
-    /// ImportPrivateKey - the neutral currency a caller can persist and re-import,
-    /// on either backend.</summary>
-    function ExportPrivateKey(const APrivateKey: ISecretBuffer): ISecretBuffer;
+      AUsage: TKeyAgreementUsage; out APublicKey: TBytes): IKeyExchangePrivateKey;
   end;
 
   /// <summary>
@@ -159,16 +158,17 @@ type
   IKem = interface(IInterface)
     ['{F362C3EF-E378-4C84-A7AB-45777EC1A8CA}']
     function Name: string;
-    /// <summary>A fresh key pair: the private (decapsulation) key and the public
+    /// <summary>A fresh key pair: the private (decapsulation) key handle and the public
     /// (encapsulation) key to send.</summary>
-    procedure GenerateKeyPair(out APrivateKey: ISecretBuffer; out APublicKey: TBytes);
+    procedure GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
+      out APublicKey: TBytes);
     /// <summary>Against a peer's public key, the ciphertext to send and the
     /// shared secret.</summary>
     procedure Encapsulate(const APeerPublicKey: TBytes; out ACiphertext: TBytes;
       out ASharedSecret: ISecretBuffer);
     /// <summary>From the private key and a ciphertext, the shared secret.</summary>
-    procedure Decapsulate(const APrivateKey: ISecretBuffer; const ACiphertext: TBytes;
-      out ASharedSecret: ISecretBuffer);
+    procedure Decapsulate(const APrivateKey: IKeyExchangePrivateKey;
+      const ACiphertext: TBytes; out ASharedSecret: ISecretBuffer);
     /// <summary>Whether a peer's public key is well-formed.</summary>
     function ValidatePublicKey(const APublicKey: TBytes): Boolean;
   end;

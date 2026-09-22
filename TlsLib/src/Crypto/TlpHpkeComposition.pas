@@ -21,6 +21,7 @@ uses
   TlpCryptoDomainTypes,
   TlpDer,
   TlpICryptoProvider,
+  TlpIKeyExchangePrivateKey,
   TlpISecretBuffer,
   TlpSecretBuffer,
   TlpSecureMemory,
@@ -116,7 +117,8 @@ type
       out AEnc: TBytes); static;
     // Decap(enc, skR) -> shared_secret; ARecipientPublicKey is the recipient's own derived public
     class function Decap(const APrimitives: ICryptoPrimitives; AKem: UInt16;
-      const AEnc: TBytes; const APrivateKey: ISecretBuffer;
+      const AEnc: TBytes; const AKeyAgreement: IKeyAgreement;
+      const APrivateKey: IKeyExchangePrivateKey;
       const ARecipientPublicKey: TBytes): ISecretBuffer; static;
     // the base-mode key schedule (RFC 9180 sec. 5.1) yielding a ready context
     class function NewBaseContext(const APrimitives: ICryptoPrimitives;
@@ -144,11 +146,15 @@ type
   var
     FPrimitives: ICryptoPrimitives;
     FKem: UInt16;
-    FPrivateKey: ISecretBuffer;
+    // the key-agreement that adopted the recipient key (Static) and the resulting key handle;
+    // held together so every SetupOpener reuses the one imported, backend-bound key
+    FAgreement: IKeyAgreement;
+    FKey: IKeyExchangePrivateKey;
     FPublicKey: TBytes;
   public
     constructor Create(const APrimitives: ICryptoPrimitives; AKem: UInt16;
-      const APrivateKey: ISecretBuffer; const APublicKey: TBytes);
+      const AAgreement: IKeyAgreement; const AKey: IKeyExchangePrivateKey;
+      const APublicKey: TBytes);
     function Kem: UInt16;
     function PublicKey: TBytes;
     function SetupOpener(const ASuite: IHpkeSuite;
@@ -394,25 +400,26 @@ class procedure THpkeCore.Encap(const APrimitives: ICryptoPrimitives; AKem: UInt
   out AEnc: TBytes);
 var
   LKa: IKeyAgreement;
-  LSkE, LDh: ISecretBuffer;
+  LSkE: IKeyExchangePrivateKey;
+  LDh: ISecretBuffer;
 begin
   LKa := APrimitives.CreateKeyAgreement(KemKeyAgreement(AKem));
   LKa.GenerateKeyPair(LSkE, AEnc); // AEnc is the serialized ephemeral public key (pkE)
-  LDh := LKa.Agree(LSkE, ARecipientPublicKey, TKeyAgreementUsage.Ephemeral);
+  LDh := LKa.Agree(LSkE, ARecipientPublicKey);
   ASharedSecret := ExtractAndExpand(APrimitives, AKem, LDh,
     TArrayUtilities.Concat(AEnc, ARecipientPublicKey));
 end;
 
 class function THpkeCore.Decap(const APrimitives: ICryptoPrimitives; AKem: UInt16;
-  const AEnc: TBytes; const APrivateKey: ISecretBuffer;
+  const AEnc: TBytes; const AKeyAgreement: IKeyAgreement;
+  const APrivateKey: IKeyExchangePrivateKey;
   const ARecipientPublicKey: TBytes): ISecretBuffer;
 var
-  LKa: IKeyAgreement;
   LDh: ISecretBuffer;
 begin
-  LKa := APrimitives.CreateKeyAgreement(KemKeyAgreement(AKem));
-  // The recipient key is long-lived and reused against attacker-chosen enc values.
-  LDh := LKa.Agree(APrivateKey, AEnc, TKeyAgreementUsage.Static);
+  // the recipient key is long-lived (a Static handle), reused against attacker-chosen enc
+  // values; the agreement that adopted it does the reuse-hardened work
+  LDh := AKeyAgreement.Agree(APrivateKey, AEnc);
   Result := ExtractAndExpand(APrimitives, AKem, LDh,
     TArrayUtilities.Concat(AEnc, ARecipientPublicKey));
 end;
@@ -503,12 +510,14 @@ end;
 { THpkeCompositionRecipientKey }
 
 constructor THpkeCompositionRecipientKey.Create(const APrimitives: ICryptoPrimitives;
-  AKem: UInt16; const APrivateKey: ISecretBuffer; const APublicKey: TBytes);
+  AKem: UInt16; const AAgreement: IKeyAgreement;
+  const AKey: IKeyExchangePrivateKey; const APublicKey: TBytes);
 begin
   inherited Create;
   FPrimitives := APrimitives;
   FKem := AKem;
-  FPrivateKey := APrivateKey;
+  FAgreement := AAgreement;
+  FKey := AKey;
   FPublicKey := APublicKey;
 end;
 
@@ -530,7 +539,8 @@ begin
   if ASuite.Kem <> FKem then
     raise EArgumentTlsLibException.CreateRes(@SHpkeRecipientKemMismatch);
   try
-    LSharedSecret := THpkeCore.Decap(FPrimitives, FKem, AEnc, FPrivateKey, FPublicKey);
+    LSharedSecret := THpkeCore.Decap(FPrimitives, FKem, AEnc, FAgreement, FKey,
+      FPublicKey);
   except
     on E: EPeerInputTlsLibException do
       raise EHpkeOpenTlsLibException.CreateRes(@SHpkeMalformedEnc);
@@ -672,20 +682,21 @@ function THpkeComposition.ImportRecipientKey(AKem: UInt16;
   const APrivateKey: ISecretBuffer): IHpkeRecipientKey;
 var
   LKa: IKeyAgreement;
-  LKey: ISecretBuffer;
+  LKey: IKeyExchangePrivateKey;
   LPub: TBytes;
 begin
   if not THpkeCore.IsKnownKem(AKem) then
     raise ENotSupportedTlsLibException.CreateRes(@SHpkeUnsupportedKem);
   LKa := FPrimitives.CreateKeyAgreement(THpkeCore.KemKeyAgreement(AKem));
   try
-    // adopt the raw scalar into an agreement key, deriving its public value once
-    LKey := LKa.ImportPrivateKey(APrivateKey, LPub);
+    // adopt the raw scalar as a long-lived (Static) agreement key, deriving its public value
+    // once; the recipient key retains this agreement so every open reuses the one handle
+    LKey := LKa.ImportPrivateKey(APrivateKey, TKeyAgreementUsage.Static, LPub);
   except
     on E: Exception do
       raise EArgumentTlsLibException.CreateRes(@SHpkeMalformedPrivateKey);
   end;
-  Result := THpkeCompositionRecipientKey.Create(FPrimitives, AKem, LKey, LPub)
+  Result := THpkeCompositionRecipientKey.Create(FPrimitives, AKem, LKa, LKey, LPub)
     as IHpkeRecipientKey;
 end;
 
@@ -693,13 +704,13 @@ procedure THpkeComposition.GenerateKeyPair(AKem: UInt16; out APublicKey: TBytes;
   out APrivateKey: ISecretBuffer);
 var
   LKa: IKeyAgreement;
-  LKey: ISecretBuffer;
+  LKey: IKeyExchangePrivateKey;
 begin
   if not THpkeCore.IsKnownKem(AKem) then
     raise ENotSupportedTlsLibException.CreateRes(@SHpkeUnsupportedKem);
   LKa := FPrimitives.CreateKeyAgreement(THpkeCore.KemKeyAgreement(AKem));
   LKa.GenerateKeyPair(LKey, APublicKey);
-  APrivateKey := LKa.ExportPrivateKey(LKey); // the raw scalar, the neutral currency
+  APrivateKey := LKey.ExportRaw; // the raw scalar, the neutral currency
 end;
 
 function THpkeComposition.ImportPrivateKey(AKem: UInt16;

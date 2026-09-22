@@ -33,6 +33,7 @@ uses
   TlpSecretBuffer,
   TlpCryptoDomainTypes,
   TlpINamedGroup,
+  TlpIKeyExchangePrivateKey,
   TlpIRecordProtection,
   TlpNegotiationTypes,
   TlpCipherSuiteRegistry,
@@ -66,6 +67,13 @@ type
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
+  /// <summary>A minimal key-exchange key double for the replay group (no real material).</summary>
+  TReplayKeyExchangeKey = class(TInterfacedObject, IKeyExchangePrivateKey)
+  public
+    function Usage: TKeyAgreementUsage;
+    function ExportRaw: ISecretBuffer;
+  end;
+
   /// <summary>A named group that yields a fixed shared secret (for RFC replay).</summary>
   TReplayGroup = class(TInterfacedObject, INamedGroup)
   strict private
@@ -76,10 +84,10 @@ type
     function Name: string;
     function Kind: TNamedGroupKind;
     function Composition: TNamedGroupComposition;
-    procedure GenerateKeyPair(out APriv: ISecretBuffer; out APubShare: TBytes);
+    procedure GenerateKeyPair(out APriv: IKeyExchangePrivateKey; out APubShare: TBytes);
     procedure Encapsulate(const APeerPub: TBytes; out ACiphertext: TBytes;
       out ASharedSecret: ISecretBuffer);
-    procedure Decapsulate(const APriv: ISecretBuffer; const ACiphertext: TBytes;
+    procedure Decapsulate(const APriv: IKeyExchangePrivateKey; const ACiphertext: TBytes;
       out ASharedSecret: ISecretBuffer);
     function ValidatePeerShare(const AShare: TBytes): Boolean;
   end;
@@ -167,10 +175,20 @@ begin
   Result := TNamedGroupComposition.From(TKeyAgreementAlgorithm.X25519);
 end;
 
-procedure TReplayGroup.GenerateKeyPair(out APriv: ISecretBuffer;
+function TReplayKeyExchangeKey.Usage: TKeyAgreementUsage;
+begin
+  Result := TKeyAgreementUsage.Ephemeral;
+end;
+
+function TReplayKeyExchangeKey.ExportRaw: ISecretBuffer;
+begin
+  Result := TSecretBuffer.Allocate(0);
+end;
+
+procedure TReplayGroup.GenerateKeyPair(out APriv: IKeyExchangePrivateKey;
   out APubShare: TBytes);
 begin
-  APriv := TSecretBuffer.Allocate(32);
+  APriv := TReplayKeyExchangeKey.Create;
   APubShare := nil;
   SetLength(APubShare, 32);
 end;
@@ -182,7 +200,7 @@ begin
   ASharedSecret := TSecretBuffer.From(FShared);
 end;
 
-procedure TReplayGroup.Decapsulate(const APriv: ISecretBuffer;
+procedure TReplayGroup.Decapsulate(const APriv: IKeyExchangePrivateKey;
   const ACiphertext: TBytes; out ASharedSecret: ISecretBuffer);
 begin
   ASharedSecret := TSecretBuffer.From(FShared);

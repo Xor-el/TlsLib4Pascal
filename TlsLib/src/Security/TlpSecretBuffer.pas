@@ -61,6 +61,10 @@ type
     /// non-wiped byte-array intermediate (a TLS 1.2 key block sliced into per-direction keys).</summary>
     class function Slice(const ASource: ISecretBuffer;
       AOffset, ALength: Int32): ISecretBuffer; static;
+    /// <summary>A secret buffer holding AFirst's bytes followed by ASecond's, neither
+    /// materialized in a non-wiped intermediate (a hybrid group's concatenated shared secret).
+    /// A nil operand contributes nothing.</summary>
+    class function Join(const AFirst, ASecond: ISecretBuffer): ISecretBuffer; static;
   end;
 
 implementation
@@ -189,6 +193,28 @@ begin
   Result := TSecretBuffer.Create(ALength);
   if ALength > 0 then
     Move((ASource.DataPtr + AOffset)^, Result.DataPtr^, ALength);
+end;
+
+class function TSecretBuffer.Join(const AFirst,
+  ASecond: ISecretBuffer): ISecretBuffer;
+var
+  LFirstLen, LSecondLen: Int32;
+  LDst: PByte;
+begin
+  if AFirst <> nil then
+    LFirstLen := AFirst.Len
+  else
+    LFirstLen := 0;
+  if ASecond <> nil then
+    LSecondLen := ASecond.Len
+  else
+    LSecondLen := 0;
+  Result := TSecretBuffer.Create(LFirstLen + LSecondLen);
+  LDst := Result.DataPtr;
+  if LFirstLen > 0 then
+    Move(AFirst.DataPtr^, LDst^, LFirstLen);
+  if LSecondLen > 0 then
+    Move(ASecond.DataPtr^, (LDst + LFirstLen)^, LSecondLen);
 end;
 
 end.

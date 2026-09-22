@@ -27,6 +27,7 @@ uses
   TlpDer,
   TlpSystemCryptoTypes,
   TlpICryptoProvider,
+  TlpIKeyExchangePrivateKey,
   TlpICryptoBackendReport,
   TlpISigningKey,
   TlpTlsCredential,
@@ -160,6 +161,10 @@ resourcestring
   SHkdfExpandTooLong = 'HKDF-Expand output length %d exceeds 255 * HashLen (%d)';
   SInvalidScalarSize = 'private scalar size %d does not match the curve field size %d';
   SSchemeNotCapable = 'the signing key cannot sign with the requested signature scheme';
+  SForeignCngKeyExchangeKey =
+    'the key-exchange private key was not produced by this Windows CNG provider';
+  SCngKeyExchangeKeyNotExportable =
+    'this key-exchange key has no raw scalar to export (a KEM key)';
 
 type
   // bcrypt.dll entry points, resolved at runtime (no static import, so an absent DLL or
@@ -416,6 +421,32 @@ type
     function BcryptApi: TCngApi;
   end;
 
+  // The provider-internal face of a CNG key-exchange key: the re-importable backend material
+  // (an ECCPRIVATE blob, an X25519 scalar, or an ML-KEM private blob), which each primitive
+  // re-imports per operation (no shared live handle, so agreements stay thread-safe without a
+  // lock). Kept off IKeyExchangePrivateKey so a foreign key handed to Agree/Decapsulate is
+  // rejected.
+  IWindowsCngKeyExchangeKey = interface(IInterface)
+    ['{7A3E9C1F-4D82-4B60-A5E7-2F8C6D0B93A4}']
+    function Material: ISecretBuffer;
+  end;
+
+  // One CNG key-exchange key class for all three CNG primitives: the fixed Usage, the raw
+  // scalar (for ExportRaw; nil for a KEM key), and the backend material re-imported per op.
+  TWindowsCngKeyExchangeKey = class(TInterfacedObject, IKeyExchangePrivateKey,
+    IWindowsCngKeyExchangeKey)
+  strict private
+  var
+    FUsage: TKeyAgreementUsage;
+    FScalar: ISecretBuffer;
+    FMaterial: ISecretBuffer;
+  public
+    constructor Create(AUsage: TKeyAgreementUsage; const AScalar, AMaterial: ISecretBuffer);
+    function Usage: TKeyAgreementUsage;
+    function ExportRaw: ISecretBuffer;
+    function Material: ISecretBuffer;
+  end;
+
   // Shared state and blob export for the CNG asymmetric primitives (ECDH, X25519, ML-KEM):
   // the resolved API table by value, the borrowed algorithm handle, and the owning context
   // that keeps that handle alive.
@@ -451,13 +482,13 @@ type
     constructor Create(const AApi: TCngApi; AAlg: Pointer; const ACurve: TCngCurve;
       const AKeeper: IWindowsCng);
     function Name: string;
-    procedure GenerateKeyPair(out APrivateKey: ISecretBuffer; out APublicKey: TBytes);
-    function Agree(const APrivateKey: ISecretBuffer;
-      const APeerPublicKey: TBytes; AUsage: TKeyAgreementUsage): ISecretBuffer;
+    procedure GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
+      out APublicKey: TBytes);
+    function Agree(const APrivateKey: IKeyExchangePrivateKey;
+      const APeerPublicKey: TBytes): ISecretBuffer;
     function ValidatePublicKey(const APublicKey: TBytes): Boolean;
     function ImportPrivateKey(const ARawPrivateKey: ISecretBuffer;
-      out APublicKey: TBytes): ISecretBuffer;
-    function ExportPrivateKey(const APrivateKey: ISecretBuffer): ISecretBuffer;
+      AUsage: TKeyAgreementUsage; out APublicKey: TBytes): IKeyExchangePrivateKey;
   end;
 
   // X25519 (RFC 7748) key agreement via CNG's generic curve25519 ECDH. Keys are the raw
@@ -472,13 +503,13 @@ type
     function DeriveSecret(ASecret: Pointer): TBytes;
   public
     function Name: string;
-    procedure GenerateKeyPair(out APrivateKey: ISecretBuffer; out APublicKey: TBytes);
-    function Agree(const APrivateKey: ISecretBuffer;
-      const APeerPublicKey: TBytes; AUsage: TKeyAgreementUsage): ISecretBuffer;
+    procedure GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
+      out APublicKey: TBytes);
+    function Agree(const APrivateKey: IKeyExchangePrivateKey;
+      const APeerPublicKey: TBytes): ISecretBuffer;
     function ValidatePublicKey(const APublicKey: TBytes): Boolean;
     function ImportPrivateKey(const ARawPrivateKey: ISecretBuffer;
-      out APublicKey: TBytes): ISecretBuffer;
-    function ExportPrivateKey(const APrivateKey: ISecretBuffer): ISecretBuffer;
+      AUsage: TKeyAgreementUsage; out APublicKey: TBytes): IKeyExchangePrivateKey;
   end;
 
   // ML-KEM-768 (FIPS 203) key encapsulation via CNG (Win11 24H2+). Keys and ciphertext
@@ -493,11 +524,12 @@ type
     function ImportPrivate(const APrivateBlob: TBytes): Pointer;
   public
     function Name: string;
-    procedure GenerateKeyPair(out APrivateKey: ISecretBuffer; out APublicKey: TBytes);
+    procedure GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
+      out APublicKey: TBytes);
     procedure Encapsulate(const APeerPublicKey: TBytes; out ACiphertext: TBytes;
       out ASharedSecret: ISecretBuffer);
-    procedure Decapsulate(const APrivateKey: ISecretBuffer; const ACiphertext: TBytes;
-      out ASharedSecret: ISecretBuffer);
+    procedure Decapsulate(const APrivateKey: IKeyExchangePrivateKey;
+      const ACiphertext: TBytes; out ASharedSecret: ISecretBuffer);
     function ValidatePublicKey(const APublicKey: TBytes): Boolean;
   end;
 
@@ -961,6 +993,34 @@ end;
 class function TModuleApi.Proc(AModule: THandle; const AName: AnsiString): Pointer;
 begin
   Result := GetProcAddress(AModule, PAnsiChar(AName));
+end;
+
+{ TWindowsCngKeyExchangeKey }
+
+constructor TWindowsCngKeyExchangeKey.Create(AUsage: TKeyAgreementUsage;
+  const AScalar, AMaterial: ISecretBuffer);
+begin
+  inherited Create;
+  FUsage := AUsage;
+  FScalar := AScalar;
+  FMaterial := AMaterial;
+end;
+
+function TWindowsCngKeyExchangeKey.Usage: TKeyAgreementUsage;
+begin
+  Result := FUsage;
+end;
+
+function TWindowsCngKeyExchangeKey.ExportRaw: ISecretBuffer;
+begin
+  if FScalar = nil then
+    raise ENotSupportedTlsLibException.CreateRes(@SCngKeyExchangeKeyNotExportable);
+  Result := FScalar;
+end;
+
+function TWindowsCngKeyExchangeKey.Material: ISecretBuffer;
+begin
+  Result := FMaterial;
 end;
 
 { TWindowsCngKeyPrimitive }
@@ -1519,11 +1579,11 @@ begin
   end;
 end;
 
-procedure TWindowsCngKeyAgreement.GenerateKeyPair(out APrivateKey: ISecretBuffer;
+procedure TWindowsCngKeyAgreement.GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
   out APublicKey: TBytes);
 var
   LKey: Pointer;
-  LPublicBlob, LPrivateBlob: TBytes;
+  LPublicBlob, LPrivateBlob, LScalar: TBytes;
 begin
   LKey := nil;
   TCngError.Check(FApi.GenerateKeyPair(FAlg, LKey, FCurve.KeyBits, 0));
@@ -1534,12 +1594,18 @@ begin
     SetLength(APublicKey, 1 + 2 * FCurve.FieldSize);
     APublicKey[0] := UncompressedPointPrefix;
     Move(LPublicBlob[ECC_BLOB_HEADER_SIZE], APublicKey[1], 2 * FCurve.FieldSize);
-    // the private blob (header + X + Y + d) is the opaque round-trip material Agree
-    // re-imports; it carries the secret scalar, so it is held wipeably
+    // the private blob (header + X + Y + d) is the opaque round-trip material Agree re-imports;
+    // it and the extracted raw scalar d (the neutral currency) carry the secret, held wipeably
     LPrivateBlob := ExportBlob(LKey, BLOB_ECCPRIVATE);
+    LScalar := nil;
+    SetLength(LScalar, FCurve.FieldSize);
     try
-      APrivateKey := TSecretBuffer.From(LPrivateBlob);
+      Move(LPrivateBlob[ECC_BLOB_HEADER_SIZE + 2 * FCurve.FieldSize], LScalar[0],
+        FCurve.FieldSize);
+      APrivateKey := TWindowsCngKeyExchangeKey.Create(TKeyAgreementUsage.Ephemeral,
+        TSecretBuffer.From(LScalar), TSecretBuffer.From(LPrivateBlob));
     finally
+      TSecureMemory.WipeBytes(LScalar);
       TSecureMemory.WipeBytes(LPrivateBlob);
     end;
   finally
@@ -1547,19 +1613,23 @@ begin
   end;
 end;
 
-function TWindowsCngKeyAgreement.Agree(const APrivateKey: ISecretBuffer;
-  const APeerPublicKey: TBytes; AUsage: TKeyAgreementUsage): ISecretBuffer;
+function TWindowsCngKeyAgreement.Agree(const APrivateKey: IKeyExchangePrivateKey;
+  const APeerPublicKey: TBytes): ISecretBuffer;
 var
+  LKeyHandle: IWindowsCngKeyExchangeKey;
   LPrivateBlob, LSecretBytes: TBytes;
   LPrivKey, LPeerKey, LSecret: Pointer;
 begin
-  // The backend exposes no scalar-blinding control; its scalar multiplication is
-  // constant-time by its own contract, so AUsage has no effect here.
+  // The backend exposes no scalar-blinding control; its scalar multiplication is constant-time
+  // by its own contract, and the material is re-imported per call (no shared handle), so the
+  // key's Usage has no effect here.
+  if not Supports(APrivateKey, IWindowsCngKeyExchangeKey, LKeyHandle) then
+    raise EArgumentTlsLibException.CreateRes(@SForeignCngKeyExchangeKey);
   LPrivKey := nil;
   LPeerKey := nil;
   LSecret := nil;
   LSecretBytes := nil;
-  LPrivateBlob := APrivateKey.ToBytes;
+  LPrivateBlob := LKeyHandle.Material.ToBytes;
   try
     TCngError.Check(FApi.ImportKeyPair(FAlg, nil, PWideChar(BLOB_ECCPRIVATE),
       LPrivKey, PByte(LPrivateBlob), System.Length(LPrivateBlob), 0));
@@ -1621,7 +1691,7 @@ begin
 end;
 
 function TWindowsCngKeyAgreement.ImportPrivateKey(const ARawPrivateKey: ISecretBuffer;
-  out APublicKey: TBytes): ISecretBuffer;
+  AUsage: TKeyAgreementUsage; out APublicKey: TBytes): IKeyExchangePrivateKey;
 var
   LScalar, LScalarBlob, LFullPrivate, LPublicBlob: TBytes;
   LKey: Pointer;
@@ -1643,11 +1713,12 @@ begin
       SetLength(APublicKey, 1 + 2 * FCurve.FieldSize);
       APublicKey[0] := UncompressedPointPrefix;
       Move(LPublicBlob[ECC_BLOB_HEADER_SIZE], APublicKey[1], 2 * FCurve.FieldSize);
-      // private key handed back = the full ECCPRIVATE blob (X,Y now populated), the
-      // representation Agree re-imports; held wipeably as it carries the scalar
+      // the key's material is the full ECCPRIVATE blob (X,Y now populated) that Agree re-imports;
+      // the raw scalar d is retained as the neutral currency for ExportRaw
       LFullPrivate := ExportBlob(LKey, BLOB_ECCPRIVATE);
       try
-        Result := TSecretBuffer.From(LFullPrivate);
+        Result := TWindowsCngKeyExchangeKey.Create(AUsage, TSecretBuffer.From(LScalar),
+          TSecretBuffer.From(LFullPrivate));
       finally
         TSecureMemory.WipeBytes(LFullPrivate);
       end;
@@ -1657,27 +1728,6 @@ begin
   finally
     TSecureMemory.WipeBytes(LScalar);
     TSecureMemory.WipeBytes(LScalarBlob);
-  end;
-end;
-
-function TWindowsCngKeyAgreement.ExportPrivateKey(
-  const APrivateKey: ISecretBuffer): ISecretBuffer;
-var
-  LBlob, LScalar: TBytes;
-begin
-  // extract d (the trailing field-width big-endian bytes) from the ECCPRIVATE blob
-  LBlob := APrivateKey.ToBytes;
-  LScalar := nil;
-  try
-    if System.Length(LBlob) <> ECC_BLOB_HEADER_SIZE + 3 * FCurve.FieldSize then
-      raise EArgumentTlsLibException.CreateResFmt(@SInvalidScalarSize,
-        [System.Length(LBlob), ECC_BLOB_HEADER_SIZE + 3 * FCurve.FieldSize]);
-    SetLength(LScalar, FCurve.FieldSize);
-    Move(LBlob[ECC_BLOB_HEADER_SIZE + 2 * FCurve.FieldSize], LScalar[0], FCurve.FieldSize);
-    Result := TSecretBuffer.From(LScalar);
-  finally
-    TSecureMemory.WipeBytes(LScalar);
-    TSecureMemory.WipeBytes(LBlob);
   end;
 end;
 
@@ -1744,11 +1794,12 @@ begin
   end;
 end;
 
-procedure TWindowsCngX25519.GenerateKeyPair(out APrivateKey: ISecretBuffer;
+procedure TWindowsCngX25519.GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
   out APublicKey: TBytes);
 var
   LKey: Pointer;
   LPublicBlob, LPrivateBlob, LScalar: TBytes;
+  LScalarBuf: ISecretBuffer;
 begin
   LKey := nil;
   TCngError.Check(FApi.GenerateKeyPair(FAlg, LKey, 255, 0));
@@ -1759,15 +1810,17 @@ begin
     APublicKey := nil;
     SetLength(APublicKey, X25519_KEY_SIZE);
     Move(LPublicBlob[ECC_BLOB_HEADER_SIZE], APublicKey[0], X25519_KEY_SIZE);
-    // the private key is the raw 32-byte scalar d (blob layout: header + X + Y + d), the
-    // neutral currency Agree re-imports; held wipeably
+    // the raw 32-byte scalar d (blob layout: header + X + Y + d) is both the neutral currency
+    // and the material Agree re-imports; held wipeably
     LPrivateBlob := ExportBlob(LKey, BLOB_ECCPRIVATE);
     LScalar := nil;
     SetLength(LScalar, X25519_KEY_SIZE);
     try
       Move(LPrivateBlob[ECC_BLOB_HEADER_SIZE + 2 * X25519_KEY_SIZE], LScalar[0],
         X25519_KEY_SIZE);
-      APrivateKey := TSecretBuffer.From(LScalar);
+      LScalarBuf := TSecretBuffer.From(LScalar);
+      APrivateKey := TWindowsCngKeyExchangeKey.Create(TKeyAgreementUsage.Ephemeral,
+        LScalarBuf, LScalarBuf);
     finally
       TSecureMemory.WipeBytes(LScalar);
       TSecureMemory.WipeBytes(LPrivateBlob);
@@ -1777,17 +1830,20 @@ begin
   end;
 end;
 
-function TWindowsCngX25519.Agree(const APrivateKey: ISecretBuffer;
-  const APeerPublicKey: TBytes; AUsage: TKeyAgreementUsage): ISecretBuffer;
+function TWindowsCngX25519.Agree(const APrivateKey: IKeyExchangePrivateKey;
+  const APeerPublicKey: TBytes): ISecretBuffer;
 var
+  LKeyHandle: IWindowsCngKeyExchangeKey;
   LScalar, LPrivateBlob, LPeerBlob, LSecretBytes: TBytes;
   LPrivKey, LPeerKey, LSecret: Pointer;
 begin
-  // X25519's ladder is constant-time regardless of scalar reuse, so AUsage has no
+  // X25519's ladder is constant-time regardless of scalar reuse, so the key's Usage has no
   // effect here.
+  if not Supports(APrivateKey, IWindowsCngKeyExchangeKey, LKeyHandle) then
+    raise EArgumentTlsLibException.CreateRes(@SForeignCngKeyExchangeKey);
   if System.Length(APeerPublicKey) <> X25519_KEY_SIZE then
     raise EPeerInputTlsLibException.CreateRes(@SInvalidPeerPoint);
-  LScalar := APrivateKey.ToBytes;
+  LScalar := LKeyHandle.Material.ToBytes;
   if System.Length(LScalar) <> X25519_KEY_SIZE then
     raise EPeerInputTlsLibException.CreateRes(@SInvalidPeerPoint);
   LPrivKey := nil;
@@ -1836,32 +1892,27 @@ begin
 end;
 
 function TWindowsCngX25519.ImportPrivateKey(const ARawPrivateKey: ISecretBuffer;
-  out APublicKey: TBytes): ISecretBuffer;
+  AUsage: TKeyAgreementUsage; out APublicKey: TBytes): IKeyExchangePrivateKey;
 var
   LScalar, LBasepoint: TBytes;
+  LScalarBuf: ISecretBuffer;
 begin
   LScalar := ARawPrivateKey.ToBytes;
   try
     if System.Length(LScalar) <> X25519_KEY_SIZE then
       raise EArgumentTlsLibException.CreateResFmt(@SInvalidScalarSize,
         [System.Length(LScalar), X25519_KEY_SIZE]);
-    // the public key is X25519(scalar, base point)
+    // the raw scalar is both the neutral currency and the re-imported material
+    LScalarBuf := TSecretBuffer.From(LScalar);
+    Result := TWindowsCngKeyExchangeKey.Create(AUsage, LScalarBuf, LScalarBuf);
+    // the public key is X25519(scalar, base point); derive it through the key just built
     LBasepoint := nil;
     SetLength(LBasepoint, X25519_KEY_SIZE);
     LBasepoint[0] := 9; // RFC 7748 base point u = 9
-    APublicKey := Agree(ARawPrivateKey, LBasepoint, TKeyAgreementUsage.Ephemeral).ToBytes;
-    // the neutral currency is the raw scalar itself (matches GenerateKeyPair / Agree)
-    Result := TSecretBuffer.From(LScalar);
+    APublicKey := Agree(Result, LBasepoint).ToBytes;
   finally
     TSecureMemory.WipeBytes(LScalar);
   end;
-end;
-
-function TWindowsCngX25519.ExportPrivateKey(
-  const APrivateKey: ISecretBuffer): ISecretBuffer;
-begin
-  // native X25519's private key is already the raw scalar
-  Result := APrivateKey;
 end;
 
 { TWindowsCngKem }
@@ -1920,7 +1971,7 @@ begin
     PByte(APrivateBlob), System.Length(APrivateBlob), 0));
 end;
 
-procedure TWindowsCngKem.GenerateKeyPair(out APrivateKey: ISecretBuffer;
+procedure TWindowsCngKem.GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
   out APublicKey: TBytes);
 var
   LKey: Pointer;
@@ -1935,10 +1986,12 @@ begin
     TCngError.Check(FApi.FinalizeKeyPair(LKey, 0));
     LPublicBlob := ExportBlob(LKey, BLOB_MLKEM_PUBLIC);
     APublicKey := ExtractPublicKey(LPublicBlob);
-    // the decapsulation blob carries the secret key; held wipeably and re-imported per op
+    // the decapsulation blob is the material re-imported per op; a KEM key has no raw scalar,
+    // so it is not exportable (nil scalar)
     LPrivateBlob := ExportBlob(LKey, BLOB_MLKEM_PRIVATE);
     try
-      APrivateKey := TSecretBuffer.From(LPrivateBlob);
+      APrivateKey := TWindowsCngKeyExchangeKey.Create(TKeyAgreementUsage.Ephemeral, nil,
+        TSecretBuffer.From(LPrivateBlob));
     finally
       TSecureMemory.WipeBytes(LPrivateBlob);
     end;
@@ -1974,14 +2027,17 @@ begin
   end;
 end;
 
-procedure TWindowsCngKem.Decapsulate(const APrivateKey: ISecretBuffer;
+procedure TWindowsCngKem.Decapsulate(const APrivateKey: IKeyExchangePrivateKey;
   const ACiphertext: TBytes; out ASharedSecret: ISecretBuffer);
 var
+  LKeyHandle: IWindowsCngKeyExchangeKey;
   LPrivateBlob, LSecret: TBytes;
   LPrivKey: Pointer;
   LSecretLen: ULONG;
 begin
-  LPrivateBlob := APrivateKey.ToBytes;
+  if not Supports(APrivateKey, IWindowsCngKeyExchangeKey, LKeyHandle) then
+    raise EArgumentTlsLibException.CreateRes(@SForeignCngKeyExchangeKey);
+  LPrivateBlob := LKeyHandle.Material.ToBytes;
   LSecret := nil;
   try
     LPrivKey := ImportPrivate(LPrivateBlob);
