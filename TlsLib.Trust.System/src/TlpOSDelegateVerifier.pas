@@ -53,14 +53,15 @@ type
       AFetch: TSystemTrustFetch): TOSDelegatePolicy; static;
   end;
 
-  /// <summary>What every OS delegate does around its platform engine, in the built-in pipeline's
-  /// order: the platform builds and trusts the path; the chain-algorithm/key-strength policy runs over
-  /// that path with the engine's exempt certificates skipped; the revocation outcome (the engine's
-  /// own, or the handshake staple's where the engine renders none - a definitive stapled Revoked
-  /// always wins) is decided by the one revocation-decision table at the configured posture, deferring
-  /// an indeterminate case to the async park only when a live fetch will decide it there; then the
-  /// identity the platform did not match is matched here (an IP literal against iPAddress SANs, or the
-  /// full RFC 6125 identity for an engine that checks no host). Fail-closed throughout.</summary>
+  /// <summary>What every OS delegate does around its platform engine, matching each platform's order:
+  /// the platform builds and trusts the path; an engine that renders its own revocation outcome has it
+  /// decided (by the one revocation-decision table at the configured posture) before the chain-algorithm/
+  /// key-strength policy, so a chain that is both revoked and weak reports the revocation alert; an
+  /// engine that renders none runs strength first and decides revocation from the handshake staple. A
+  /// definitive stapled Revoked always wins under every posture, and an indeterminate case defers to the
+  /// async park only when a live fetch will decide it there. Then the identity the platform did not
+  /// match is matched here (an IP literal against iPAddress SANs, or the full RFC 6125 identity for an
+  /// engine that checks no host). Fail-closed throughout.</summary>
   TOSDelegateVerifierBase = class abstract(TInterfacedObject)
   strict private
     FEngine: IPlatformChainEngine;
@@ -239,28 +240,37 @@ function TOSDelegateVerifierBase.Complete(const AResult: TPlatformChainResult;
   const AServerName: TServerName; const AStaple: TBytes;
   out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
 var
-  LStaple, LOutcome: TLiveRevocationOutcome;
+  LStaple: TLiveRevocationOutcome;
 begin
   AVerified := Default(TVerifiedChain);
-  // strength: without a provider or a built path there is nothing to check over - fail closed
+  // without a provider or a built path there is nothing to decide over - fail closed
   if (FPolicy.Pkix = nil) or (System.Length(AResult.Path) = 0) then
   begin
     AAlert := TTlsAlertDescription.InternalError;
     Exit(False);
   end;
+  // an engine that renders its own revocation outcome (the OS folds revocation into its chain
+  // verdict) decides it before the strength policy, so a chain that is both revoked and weak still
+  // reports the revocation alert; an engine that renders none defers revocation to the staple below
+  if TPlatformChainCapability.CachedRevocation in Engine.Capabilities then
+    if not TRevocationDecision.Decide(AResult.Outcome, FPolicy.Posture, DeferToLive, AAlert) then
+      Exit(False);
+  // strength over the OS-built path, the engine's exempt certificates skipped
   if not TChainAlgorithmPolicy.Check(FPolicy.Pkix.Certificates, AResult.Path,
     AResult.PolicyExempt, FPolicy.StrengthPolicy, FPolicy.AdvertisedSchemes, AAlert) then
     Exit(False);
-  // revocation: a definitive stapled Revoked overrides under every posture; otherwise the engine's
-  // own outcome where it renders one, else the staple; then the shared decision table
+  // a definitive stapled Revoked overrides under every posture (a staple the engine did not fold in,
+  // e.g. under Off); an engine with no revocation outcome of its own decides revocation from it here
   LStaple := StapleOutcome(AResult.Path, AStaple);
-  if LStaple = TLiveRevocationOutcome.Revoked then
-    LOutcome := TLiveRevocationOutcome.Revoked
-  else if TPlatformChainCapability.CachedRevocation in Engine.Capabilities then
-    LOutcome := AResult.Outcome
-  else
-    LOutcome := LStaple;
-  if not TRevocationDecision.Decide(LOutcome, FPolicy.Posture, DeferToLive, AAlert) then
+  if TPlatformChainCapability.CachedRevocation in Engine.Capabilities then
+  begin
+    if LStaple = TLiveRevocationOutcome.Revoked then
+    begin
+      AAlert := TTlsAlertDescription.CertificateRevoked;
+      Exit(False);
+    end;
+  end
+  else if not TRevocationDecision.Decide(LStaple, FPolicy.Posture, DeferToLive, AAlert) then
     Exit(False);
   // identity: an engine that matched the DNS host leaves only an IP literal to re-check; one that
   // checked no host has the full identity matched here (an empty client-role name fires neither)

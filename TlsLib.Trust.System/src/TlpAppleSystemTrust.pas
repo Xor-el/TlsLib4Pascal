@@ -24,7 +24,6 @@ uses
   TlpPosixDynLib,
   TlpTrustPolicy,
   TlpIClock,
-  TlpServerName,
   TlpSystemTrustBase,
   TlpIPlatformChainEngine,
 {$IFEND}

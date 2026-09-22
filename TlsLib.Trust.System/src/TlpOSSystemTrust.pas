@@ -111,9 +111,8 @@ resourcestring
   SNoClientDelegate =
     'this platform exposes no OS client-certificate verifier; use the built-in verifier over ' +
     'the configured client-CA anchors';
-  SNoLiveRevocation =
-    'this platform has no OS-native live revocation (only Windows and Apple do); keep cache-only ' +
-    'trust and compose the portable live-revocation checker for a live check here';
+  // SNoLiveRevocation is declared once in TlpSystemTrustBase (used by both the factory here and the
+  // generic source/resolver), so it is not redeclared
 
 { TOSSystemTrust }
 

@@ -175,6 +175,8 @@ type
     procedure TestClientSourceRefusesHardWithoutCachedRevocation;
     procedure TestLiveResolverDispatchesToServer;
     procedure TestLiveResolverWrongRoleRefused;
+    procedure TestClientRoutesByStapleWithoutCachedRevocation;
+    procedure TestStapledRevokedRejectsWithoutCachedRevocation;
   end;
 
   /// <summary>Engine-agnostic contract for a real OS anchor store, written against
@@ -958,6 +960,11 @@ begin
       'an indeterminate live result accepts under Soft');
     CheckEquals(1, LFake.ServerCalls, 'a server park dispatched to the server engine method');
     CheckEquals(0, LFake.ClientCalls, 'the client engine method did not run');
+    CheckTrue(LFake.Last.NetworkAllowed, 'the live re-check allows a network fetch');
+    CheckEquals(Ord(TPlatformRevocationCheck.RequirePositive), Ord(LFake.Last.Revocation),
+      'the live re-check requires a positive revocation response');
+    CheckEquals('host.example', LFake.Last.ServerName.AsDns,
+      'the live re-check carries the DNS host');
   finally
     LResolver.Free;
   end;
@@ -986,6 +993,62 @@ begin
   finally
     LResolver.Free;
   end;
+end;
+
+procedure TTestOSDelegateTemplate.TestClientRoutesByStapleWithoutCachedRevocation;
+
+  function VerifyClient(APosture: TRevocationPosture; AFetch: TSystemTrustFetch;
+    ADeferral: TVerdictDeferral; out AAlert: TTlsAlertDescription): Boolean;
+  var
+    LFake: TMockPlatformChainEngine;
+    LEngine: IPlatformChainEngine;
+    LVerifier: IClientCertificateVerifier;
+    LVerified: TVerifiedChain;
+  begin
+    // no CachedRevocation (Android-shaped): the engine renders no revocation outcome of its own, so
+    // an absent client-certificate staple leaves the outcome indeterminate, routed by posture/deferral
+    LFake := TMockPlatformChainEngine.Create([], True,
+      Result_(TLiveRevocationOutcome.Indeterminate, OcspChain), TTlsAlertDescription.BadCertificate);
+    LEngine := LFake;
+    LVerifier := TOSDelegateClientVerifier.Create(LEngine,
+      Policy(APosture, AFetch, ADeferral, OcspChain)) as IClientCertificateVerifier;
+    Result := LVerifier.VerifyClientCertificate(OcspChain, LVerified, AAlert);
+  end;
+
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(VerifyClient(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly,
+    TVerdictDeferral.None, LAlert), 'Soft accepts an indeterminate no-cached-revocation client');
+  CheckFalse(VerifyClient(TRevocationPosture.Hard, TSystemTrustFetch.CacheOnly,
+    TVerdictDeferral.None, LAlert), 'Hard rejects it inline');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificateStatusResponse), Ord(LAlert),
+    'the inline Hard rejection is bad_certificate_status_response');
+  CheckTrue(VerifyClient(TRevocationPosture.Hard, TSystemTrustFetch.CacheOnly,
+    TVerdictDeferral.LiveRevocation, LAlert),
+    'Hard defers the indeterminate case to the park when the live verdict is armed');
+end;
+
+procedure TTestOSDelegateTemplate.TestStapledRevokedRejectsWithoutCachedRevocation;
+var
+  LFake: TMockPlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  // no CachedRevocation + a definitive stapled Revoked rejects under Off (the staple is the
+  // revocation source here); an empty server name keeps the identity check out of the way
+  LFake := TMockPlatformChainEngine.Create([], True,
+    Result_(TLiveRevocationOutcome.Indeterminate, OcspChain), TTlsAlertDescription.BadCertificate);
+  LEngine := LFake;
+  LVerifier := TOSDelegateServerVerifier.Create(LEngine,
+    Policy(TRevocationPosture.Off, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil))
+    as IServerCertificateVerifier;
+  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, Default(TServerName), Ocsp('ocsp_revoked'),
+    LVerified, LAlert), 'a stapled Revoked rejects a no-cached-revocation server under Off');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateRevoked), Ord(LAlert),
+    'the alert is certificate_revoked');
 end;
 
 { TTestSystemTrustFixtures }

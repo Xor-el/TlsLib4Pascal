@@ -25,7 +25,6 @@ uses
   Androidapi.Jni,
 {$ENDIF}
   TlpTrustPolicy,
-  TlpServerName,
   TlpPosixDynLib,
   TlpSystemTrustBase,
   TlpIPlatformChainEngine,

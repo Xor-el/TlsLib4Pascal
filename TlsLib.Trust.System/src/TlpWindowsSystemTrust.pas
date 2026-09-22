@@ -23,8 +23,6 @@ uses
   SysUtils,
   TlpTlsAlert,
   TlpTrustPolicy,
-  TlpIClock,
-  TlpServerName,
   TlpSystemTrustBase,
   TlpIPlatformChainEngine;
 

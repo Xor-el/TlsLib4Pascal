@@ -19,8 +19,7 @@ uses
   SysUtils,
   TlpTlsAlert,
   TlpTrustPolicy,
-  TlpSystemTrustBase,
-  TlpLiveRevocation;
+  TlpSystemTrustBase;
 
 type
   /// <summary>
