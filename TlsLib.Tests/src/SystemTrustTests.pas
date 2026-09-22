@@ -226,6 +226,12 @@ type
     function ForeignAnchor: TArray<TBytes>;
     // the full set of advertised schemes a stock config offers (the EC leaf's scheme is in it)
     function Advertised: TArray<UInt16>;
+    /// <summary>The connection-scoped policy the delegate template applies around the Windows engine,
+    /// assembled the way the trust context would populate it.</summary>
+    function MakePolicy(const AAnchors: TArray<TBytes>; APosture: TRevocationPosture;
+      AFetch: TSystemTrustFetch; ADeferral: TVerdictDeferral; const AClock: ITlsClock;
+      const AStrength: TCertificateStrengthPolicy;
+      const AAdvertised: TArray<UInt16>): TOSDelegatePolicy;
     function Verify(const AAnchors: TArray<TBytes>; APosture: TRevocationPosture;
       const AClock: ITlsClock; out AAlert: TTlsAlertDescription): Boolean;
     function VerifyPolicy(const AAnchors: TArray<TBytes>; APosture: TRevocationPosture;
@@ -1331,6 +1337,24 @@ begin
     TSignatureSchemes.RsaPkcs1Sha384, TSignatureSchemes.RsaPkcs1Sha512);
 end;
 
+function TTestWindowsClientDelegate.MakePolicy(const AAnchors: TArray<TBytes>;
+  APosture: TRevocationPosture; AFetch: TSystemTrustFetch; ADeferral: TVerdictDeferral;
+  const AClock: ITlsClock; const AStrength: TCertificateStrengthPolicy;
+  const AAdvertised: TArray<UInt16>): TOSDelegatePolicy;
+begin
+  Result := Default(TOSDelegatePolicy);
+  Result.Pkix := FPkix;
+  Result.Clock := AClock;
+  Result.Posture := APosture;
+  Result.Fetch := AFetch;
+  Result.Deferral := ADeferral;
+  Result.StrengthPolicy := AStrength;
+  Result.AdvertisedSchemes := AAdvertised;
+  Result.Anchors := AAnchors;
+  // the inline verifier ignores the deadline; the live resolver honours it
+  Result.DeadlineMs := 2000;
+end;
+
 function TTestWindowsClientDelegate.VerifyPolicy(const AAnchors: TArray<TBytes>;
   APosture: TRevocationPosture; const AClock: ITlsClock;
   const AStrength: TCertificateStrengthPolicy; const AAdvertised: TArray<UInt16>;
@@ -1339,8 +1363,10 @@ var
   LVerifier: IClientCertificateVerifier;
   LVerified: TVerifiedChain;
 begin
-  LVerifier := TWindowsClientDelegateVerifier.Create(FPkix, AAnchors, APosture,
-    TSystemTrustFetch.CacheOnly, AClock, AStrength, AAdvertised) as IClientCertificateVerifier;
+  LVerifier := TOSDelegateClientVerifier.Create(
+    TWindowsChainEngine.Create as IPlatformChainEngine,
+    MakePolicy(AAnchors, APosture, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None,
+    AClock, AStrength, AAdvertised)) as IClientCertificateVerifier;
   Result := LVerifier.VerifyClientCertificate(Leaf, LVerified, AAlert);
 end;
 
@@ -1448,9 +1474,11 @@ begin
   // status) is accepted inline so the handshake parks for the off-thread live check, rather than being
   // rejected inline the way configured-Hard cache-only does (TestHardPostureRejectsUnrevocableChain).
   // A definitive cached Revoked and every trust failure still reject inline.
-  LVerifier := TWindowsClientDelegateVerifier.Create(FPkix, OwnAnchor,
-    TRevocationPosture.Hard, TSystemTrustFetch.Live, TSystemClock.Create as ITlsClock,
-    TCertificateStrengthPolicy.Defaults, Advertised) as IClientCertificateVerifier;
+  LVerifier := TOSDelegateClientVerifier.Create(
+    TWindowsChainEngine.Create as IPlatformChainEngine,
+    MakePolicy(OwnAnchor, TRevocationPosture.Hard, TSystemTrustFetch.Live,
+    TVerdictDeferral.LiveRevocation, TSystemClock.Create as ITlsClock,
+    TCertificateStrengthPolicy.Defaults, Advertised)) as IClientCertificateVerifier;
   CheckTrue(LVerifier.VerifyClientCertificate(Leaf, LVerified, LAlert),
     'Live defers an unrevocable client chain inline (effective-Soft) so the handshake can park');
 end;
@@ -1458,11 +1486,13 @@ end;
 function TTestWindowsClientDelegate.VerifyLive(const AAnchors: TArray<TBytes>;
   APosture: TRevocationPosture; out AAlert: TTlsAlertDescription): Boolean;
 var
-  LResolver: TWindowsClientLiveRevocationResolver;
+  LResolver: TOSDelegateLiveResolver;
   LCtx: TCertificateVerdictContext;
 begin
-  LResolver := TWindowsClientLiveRevocationResolver.Create(FPkix, AAnchors, APosture,
-    TSystemClock.Create as ITlsClock, TCertificateStrengthPolicy.Defaults, Advertised, 2000, nil);
+  LResolver := TOSDelegateLiveResolver.Create(
+    TWindowsChainEngine.Create as IPlatformChainEngine, TPeerRole.Client,
+    MakePolicy(AAnchors, APosture, TSystemTrustFetch.Live, TVerdictDeferral.LiveRevocation,
+    TSystemClock.Create as ITlsClock, TCertificateStrengthPolicy.Defaults, Advertised), nil);
   try
     LCtx.PeerRole := TPeerRole.Client; // a client-chain resolver evaluates a client certificate
     LCtx.HostName := '';
@@ -1489,16 +1519,18 @@ end;
 
 procedure TTestWindowsClientDelegate.TestWrongRolePeerRefusedWithInternalError;
 var
-  LResolver: TWindowsClientLiveRevocationResolver;
+  LResolver: TOSDelegateLiveResolver;
   LCtx: TCertificateVerdictContext;
   LAlert: TTlsAlertDescription;
 begin
   // a client-chain resolver (client-auth EKU) handed a SERVER-role park is a local misconfiguration
   // - a single process-wide resolver wired for the wrong role. It must refuse with internal_error,
   // not run its client-auth engine over a server chain and surface a misleading trust failure.
-  LResolver := TWindowsClientLiveRevocationResolver.Create(FPkix, OwnAnchor,
-    TRevocationPosture.Hard, TSystemClock.Create as ITlsClock,
-    TCertificateStrengthPolicy.Defaults, Advertised, 2000, nil);
+  LResolver := TOSDelegateLiveResolver.Create(
+    TWindowsChainEngine.Create as IPlatformChainEngine, TPeerRole.Client,
+    MakePolicy(OwnAnchor, TRevocationPosture.Hard, TSystemTrustFetch.Live,
+    TVerdictDeferral.LiveRevocation, TSystemClock.Create as ITlsClock,
+    TCertificateStrengthPolicy.Defaults, Advertised), nil);
   try
     LCtx.PeerRole := TPeerRole.Server; // wrong role for a client-chain resolver
     LCtx.HostName := '';
@@ -1515,7 +1547,7 @@ end;
 
 procedure TTestWindowsClientDelegate.TestServerChainResolverRefusesClientParkAtOff;
 var
-  LResolver: TWindowsLiveRevocationResolver;
+  LResolver: TOSDelegateLiveResolver;
   LCtx: TCertificateVerdictContext;
   LAlert: TTlsAlertDescription;
 begin
@@ -1524,8 +1556,11 @@ begin
   // role guard must refuse it - and even under the Off posture, because the misconfiguration is
   // posture-independent (Off would otherwise accept without evaluating, hiding the mistake until a
   // later posture change). This pins both the bug direction and the guard-before-Off ordering.
-  LResolver := TWindowsLiveRevocationResolver.Create(FPkix, TRevocationPosture.Off,
-    TSystemClock.Create as ITlsClock, TCertificateStrengthPolicy.Defaults, Advertised, 2000, nil);
+  LResolver := TOSDelegateLiveResolver.Create(
+    TWindowsChainEngine.Create as IPlatformChainEngine, TPeerRole.Server,
+    MakePolicy(nil, TRevocationPosture.Off, TSystemTrustFetch.Live,
+    TVerdictDeferral.LiveRevocation, TSystemClock.Create as ITlsClock,
+    TCertificateStrengthPolicy.Defaults, Advertised), nil);
   try
     LCtx.PeerRole := TPeerRole.Client; // a client chain handed to a server-chain resolver
     LCtx.HostName := '';

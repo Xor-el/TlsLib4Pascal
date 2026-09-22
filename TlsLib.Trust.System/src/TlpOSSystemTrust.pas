@@ -24,6 +24,8 @@ uses
   TlpTrustPolicy,
   TlpTlsEngineFactory,
   TlpSystemTrustBase,
+  TlpIPlatformChainEngine,
+  TlpOSDelegateVerifier,
   TlpOSLiveRevocation,
   TlpSystemTrustExceptions
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
@@ -53,6 +55,11 @@ type
   /// its OS handles behind the neutral trust interfaces.
   /// </summary>
   TOSSystemTrust = class sealed(TObject)
+  strict private
+    /// <summary>The platform chain engine, or False where this OS exposes none (anchors-only
+    /// targets); the four delegate factories build the generic verifier source and live resolver
+    /// over it.</summary>
+    class function TryChainEngine(out AEngine: IPlatformChainEngine): Boolean; static;
   public
     /// <summary>True if this platform can honor AMode.</summary>
     class function Supports(AMode: TSystemTrustMode): Boolean; static;
@@ -110,6 +117,18 @@ resourcestring
 
 { TOSSystemTrust }
 
+class function TOSSystemTrust.TryChainEngine(out AEngine: IPlatformChainEngine): Boolean;
+begin
+{$IF DEFINED(TLSLIB_MSWINDOWS)}
+  AEngine := TWindowsChainEngine.Create as IPlatformChainEngine;
+  Result := True;
+{$ELSE}
+  // Apple and Android expose an engine too; those arms are wired as each platform is ported.
+  AEngine := nil;
+  Result := False;
+{$IFEND}
+end;
+
 class function TOSSystemTrust.Supports(AMode: TSystemTrustMode): Boolean;
 begin
   case AMode of
@@ -162,11 +181,14 @@ end;
 
 class function TOSSystemTrust.ServerVerifierSource(AFetch: TSystemTrustFetch)
   : IServerCertificateVerifierSource;
+var
+  LEngine: IPlatformChainEngine;
 begin
-  Result := nil;
-{$IF DEFINED(TLSLIB_MSWINDOWS)}
-  Result := TWindowsServerVerifierSource.Create(AFetch) as IServerCertificateVerifierSource;
-{$ELSEIF DEFINED(TLSLIB_IOS) OR DEFINED(TLSLIB_MACOS)}
+  // where a platform chain engine exists, the generic source over it (the source refuses a Live
+  // fetch on an engine without live fetch at construction, matching the per-platform refusal timing)
+  if TryChainEngine(LEngine) then
+    Exit(TOSVerifierSource.Create(LEngine, AFetch) as IServerCertificateVerifierSource);
+{$IF DEFINED(TLSLIB_IOS) OR DEFINED(TLSLIB_MACOS)}
   Result := TAppleServerVerifierSource.Create(AFetch) as IServerCertificateVerifierSource;
 {$ELSEIF DEFINED(TLSLIB_ANDROID)}
   // Android's platform TrustManager owns revocation and has no network-revocation knob; only
@@ -181,14 +203,25 @@ end;
 
 class function TOSSystemTrust.LiveRevocationResolver(const AConfig: ITlsClientConfig;
   const AFallback: TCertificateVerdictResolver): TOSLiveRevocationResolver;
+var
+  LEngine: IPlatformChainEngine;
+  LPolicy: TOSDelegatePolicy;
 begin
-  Result := nil;
-{$IF DEFINED(TLSLIB_MSWINDOWS)}
-  Result := TWindowsLiveRevocationResolver.Create(AConfig.Pkix,
-    AConfig.RevocationPosture, AConfig.Clock, AConfig.CertificateStrengthPolicy,
-    TTlsEngineFactory.SchemeCodes(AConfig.SignatureSchemes),
-    AConfig.AsyncCertificateVerdict.DeadlineMs, AFallback);
-{$ELSEIF DEFINED(TLSLIB_IOS) OR DEFINED(TLSLIB_MACOS)}
+  if TryChainEngine(LEngine) then
+  begin
+    LPolicy := Default(TOSDelegatePolicy);
+    LPolicy.Pkix := AConfig.Pkix;
+    LPolicy.Clock := AConfig.Clock;
+    LPolicy.Posture := AConfig.RevocationPosture;
+    LPolicy.Fetch := TSystemTrustFetch.Live;
+    LPolicy.StrengthPolicy := AConfig.CertificateStrengthPolicy;
+    LPolicy.AdvertisedSchemes := TTlsEngineFactory.SchemeCodes(AConfig.SignatureSchemes);
+    // a server certificate is validated against the OS roots, so no exclusive anchor set
+    LPolicy.Anchors := nil;
+    LPolicy.DeadlineMs := AConfig.AsyncCertificateVerdict.DeadlineMs;
+    Exit(TOSDelegateLiveResolver.Create(LEngine, TPeerRole.Server, LPolicy, AFallback));
+  end;
+{$IF DEFINED(TLSLIB_IOS) OR DEFINED(TLSLIB_MACOS)}
   // Apple has no per-evaluation revocation timeout, so the park deadline is not threaded here
   Result := TAppleLiveRevocationResolver.Create(AConfig.Pkix,
     AConfig.RevocationPosture, AConfig.Clock, AConfig.CertificateStrengthPolicy,
@@ -207,19 +240,28 @@ end;
 class function TOSSystemTrust.LiveRevocationResolver(const AConfig: ITlsServerConfig;
   const AFallback: TCertificateVerdictResolver): TOSLiveRevocationResolver;
 var
+  LEngine: IPlatformChainEngine;
+  LPolicy: TOSDelegatePolicy;
   LAnchors: TArray<TBytes>;
 begin
-  Result := nil;
   // the client-CA anchors are the exclusive trust root the live re-check builds against
   LAnchors := nil;
   if AConfig.TrustStore <> nil then
     LAnchors := AConfig.TrustStore.RootCertificates;
-{$IF DEFINED(TLSLIB_MSWINDOWS)}
-  Result := TWindowsClientLiveRevocationResolver.Create(AConfig.Pkix, LAnchors,
-    AConfig.RevocationPosture, AConfig.Clock, AConfig.CertificateStrengthPolicy,
-    TTlsEngineFactory.SchemeCodes(AConfig.SignatureSchemes),
-    AConfig.AsyncCertificateVerdict.DeadlineMs, AFallback);
-{$ELSEIF DEFINED(TLSLIB_IOS) OR DEFINED(TLSLIB_MACOS)}
+  if TryChainEngine(LEngine) then
+  begin
+    LPolicy := Default(TOSDelegatePolicy);
+    LPolicy.Pkix := AConfig.Pkix;
+    LPolicy.Clock := AConfig.Clock;
+    LPolicy.Posture := AConfig.RevocationPosture;
+    LPolicy.Fetch := TSystemTrustFetch.Live;
+    LPolicy.StrengthPolicy := AConfig.CertificateStrengthPolicy;
+    LPolicy.AdvertisedSchemes := TTlsEngineFactory.SchemeCodes(AConfig.SignatureSchemes);
+    LPolicy.Anchors := LAnchors;
+    LPolicy.DeadlineMs := AConfig.AsyncCertificateVerdict.DeadlineMs;
+    Exit(TOSDelegateLiveResolver.Create(LEngine, TPeerRole.Client, LPolicy, AFallback));
+  end;
+{$IF DEFINED(TLSLIB_IOS) OR DEFINED(TLSLIB_MACOS)}
   // Apple has no per-evaluation revocation timeout, so the park deadline is not threaded here
   Result := TAppleClientLiveRevocationResolver.Create(AConfig.Pkix, LAnchors,
     AConfig.RevocationPosture, AConfig.Clock, AConfig.CertificateStrengthPolicy,
@@ -237,11 +279,12 @@ end;
 
 class function TOSSystemTrust.ClientVerifierSource(AFetch: TSystemTrustFetch)
   : IClientCertificateVerifierSource;
+var
+  LEngine: IPlatformChainEngine;
 begin
-  Result := nil;
-{$IF DEFINED(TLSLIB_MSWINDOWS)}
-  Result := TWindowsClientVerifierSource.Create(AFetch) as IClientCertificateVerifierSource;
-{$ELSEIF DEFINED(TLSLIB_IOS) OR DEFINED(TLSLIB_MACOS)}
+  if TryChainEngine(LEngine) then
+    Exit(TOSVerifierSource.Create(LEngine, AFetch) as IClientCertificateVerifierSource);
+{$IF DEFINED(TLSLIB_IOS) OR DEFINED(TLSLIB_MACOS)}
   Result := TAppleClientVerifierSource.Create(AFetch) as IClientCertificateVerifierSource;
 {$ELSEIF DEFINED(TLSLIB_ANDROID)}
   // Android's platform TrustManager owns revocation and has no network-revocation knob; only
