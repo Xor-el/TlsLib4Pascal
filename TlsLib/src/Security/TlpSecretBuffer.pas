@@ -46,12 +46,25 @@ type
 
     /// <summary>A secret buffer holding a copy of ABytes.</summary>
     class function From(const ABytes: TBytes): ISecretBuffer; static;
+    /// <summary>A secret buffer holding AValue's raw host code units (1-byte chars under FPC
+    /// {$MODE DELPHI}, 2-byte under Delphi), so a passphrase can be carried as a wiped buffer
+    /// instead of an immutable string. An empty string yields a zero-length buffer (an empty
+    /// passphrase), distinct from nil (no passphrase).</summary>
+    class function FromString(const AValue: string): ISecretBuffer; static;
     /// <summary>A zero-filled secret buffer of ALen bytes.</summary>
     class function Allocate(ALen: Int32): ISecretBuffer; static;
     /// <summary>A secret buffer holding APrefix (public) followed by ASecret's bytes,
     /// without materializing the secret in a non-wiped intermediate.</summary>
     class function Concat(const APrefix: TBytes;
       const ASecret: ISecretBuffer): ISecretBuffer; static;
+    /// <summary>A secret buffer holding ASource[AOffset .. AOffset+ALength), copied without a
+    /// non-wiped byte-array intermediate (a TLS 1.2 key block sliced into per-direction keys).</summary>
+    class function Slice(const ASource: ISecretBuffer;
+      AOffset, ALength: Int32): ISecretBuffer; static;
+    /// <summary>A secret buffer holding AFirst's bytes followed by ASecond's, neither
+    /// materialized in a non-wiped intermediate (a hybrid group's concatenated shared secret).
+    /// A nil operand contributes nothing.</summary>
+    class function Join(const AFirst, ASecond: ISecretBuffer): ISecretBuffer; static;
   end;
 
 implementation
@@ -59,6 +72,7 @@ implementation
 resourcestring
   SNegativeLength = 'secret buffer length cannot be negative';
   SCopyLengthExceedsBuffer = 'copy length %d exceeds secret buffer length %d';
+  SSliceOutOfRange = 'secret buffer slice is out of range';
 
 { TSecretBuffer }
 
@@ -141,6 +155,16 @@ begin
   Result := TSecretBuffer.Create(ALen);
 end;
 
+class function TSecretBuffer.FromString(const AValue: string): ISecretBuffer;
+var
+  LLen: Int32;
+begin
+  LLen := System.Length(AValue) * SizeOf(Char);
+  Result := TSecretBuffer.Create(LLen);
+  if LLen > 0 then
+    Move(AValue[1], Result.DataPtr^, LLen);
+end;
+
 class function TSecretBuffer.Concat(const APrefix: TBytes;
   const ASecret: ISecretBuffer): ISecretBuffer;
 var
@@ -158,6 +182,39 @@ begin
     Move(APrefix[0], LDst^, LPrefixLen);
   if LSecretLen > 0 then
     Move(ASecret.DataPtr^, (LDst + LPrefixLen)^, LSecretLen);
+end;
+
+class function TSecretBuffer.Slice(const ASource: ISecretBuffer;
+  AOffset, ALength: Int32): ISecretBuffer;
+begin
+  if (ASource = nil) or (AOffset < 0) or (ALength < 0) or
+    (AOffset + ALength > ASource.Len) then
+    raise EArgumentTlsLibException.CreateRes(@SSliceOutOfRange);
+  Result := TSecretBuffer.Create(ALength);
+  if ALength > 0 then
+    Move((ASource.DataPtr + AOffset)^, Result.DataPtr^, ALength);
+end;
+
+class function TSecretBuffer.Join(const AFirst,
+  ASecond: ISecretBuffer): ISecretBuffer;
+var
+  LFirstLen, LSecondLen: Int32;
+  LDst: PByte;
+begin
+  if AFirst <> nil then
+    LFirstLen := AFirst.Len
+  else
+    LFirstLen := 0;
+  if ASecond <> nil then
+    LSecondLen := ASecond.Len
+  else
+    LSecondLen := 0;
+  Result := TSecretBuffer.Create(LFirstLen + LSecondLen);
+  LDst := Result.DataPtr;
+  if LFirstLen > 0 then
+    Move(AFirst.DataPtr^, LDst^, LFirstLen);
+  if LSecondLen > 0 then
+    Move(ASecond.DataPtr^, (LDst + LFirstLen)^, LSecondLen);
 end;
 
 end.

@@ -25,6 +25,7 @@ uses
   TlpNegotiationTypes,
   TlpICryptoProvider,
   TlpINamedGroup,
+  TlpIKeyExchangePrivateKey,
   TlpISecretBuffer,
   TlpSecretBuffer,
   TlpSecureMemory,
@@ -68,14 +69,14 @@ const
   // FIPS 203 ML-KEM-768 fixed sizes, shared by both hybrids
   MlKem768EncapsulationKeyBytes = 1184;
   MlKem768CiphertextBytes = 1088;
-  // 2-byte length prefix framing the classical private in the stored (off-wire) private key
-  HybridPrivPrefixBytes = 2;
 
 resourcestring
   SInvalidPeerShare = 'invalid peer key share for group %s';
   SUnknownCurve = 'unknown named-group curve "%s"';
-  SHybridPrivateTooLong = 'the classical private key is too long to frame (%d bytes)';
-  SMalformedHybridPrivate = 'the stored hybrid private key is malformed';
+  SHybridKeyNotExportable =
+    'a hybrid key-exchange key has no single raw scalar to export';
+  SForeignHybridKey =
+    'the hybrid key-exchange private key was not produced by this group';
 
 type
   // wraps a key agreement (Diffie-Hellman) as a KEM-shaped group: the ciphertext
@@ -93,10 +94,10 @@ type
     function Name: string;
     function Kind: TNamedGroupKind;
     function Composition: TNamedGroupComposition;
-    procedure GenerateKeyPair(out APriv: ISecretBuffer; out APubShare: TBytes);
+    procedure GenerateKeyPair(out APriv: IKeyExchangePrivateKey; out APubShare: TBytes);
     procedure Encapsulate(const APeerPub: TBytes; out ACiphertext: TBytes;
       out ASharedSecret: ISecretBuffer);
-    procedure Decapsulate(const APriv: ISecretBuffer; const ACiphertext: TBytes;
+    procedure Decapsulate(const APriv: IKeyExchangePrivateKey; const ACiphertext: TBytes;
       out ASharedSecret: ISecretBuffer);
     function ValidatePeerShare(const AShare: TBytes): Boolean;
   end;
@@ -115,16 +116,40 @@ type
     function Name: string;
     function Kind: TNamedGroupKind;
     function Composition: TNamedGroupComposition;
-    procedure GenerateKeyPair(out APriv: ISecretBuffer; out APubShare: TBytes);
+    procedure GenerateKeyPair(out APriv: IKeyExchangePrivateKey; out APubShare: TBytes);
     procedure Encapsulate(const APeerPub: TBytes; out ACiphertext: TBytes;
       out ASharedSecret: ISecretBuffer);
-    procedure Decapsulate(const APriv: ISecretBuffer; const ACiphertext: TBytes;
+    procedure Decapsulate(const APriv: IKeyExchangePrivateKey; const ACiphertext: TBytes;
       out ASharedSecret: ISecretBuffer);
     function ValidatePeerShare(const AShare: TBytes): Boolean;
   end;
 
   // which of a hybrid's two legs is written first on the wire (RFC 10024 fixes it per group)
   THybridLegOrder = (KemFirst, ClassicalFirst);
+
+  // the provider-internal face of a hybrid private key: its two leg handles, so Decapsulate
+  // reaches each leg's own parsed key. Kept off IKeyExchangePrivateKey so a foreign key is rejected.
+  IHybridKeyExchangeKey = interface(IInterface)
+    ['{9D4C1E7A-6F35-4B82-A1D0-3E8B2C5F70A9}']
+    function Classical: IKeyExchangePrivateKey;
+    function Kem: IKeyExchangePrivateKey;
+  end;
+
+  // a hybrid private key holding its classical and KEM leg handles; not exportable (it has no
+  // single raw scalar). Its Usage follows the classical leg (both legs are minted together).
+  THybridPrivateKey = class(TInterfacedObject, IKeyExchangePrivateKey,
+    IHybridKeyExchangeKey)
+  strict private
+  var
+    FClassical: IKeyExchangePrivateKey;
+    FKem: IKeyExchangePrivateKey;
+  public
+    constructor Create(const AClassical, AKem: IKeyExchangePrivateKey);
+    function Usage: TKeyAgreementUsage;
+    function ExportRaw: ISecretBuffer;
+    function Classical: IKeyExchangePrivateKey;
+    function Kem: IKeyExchangePrivateKey;
+  end;
 
   // combinator over a classical (DH-as-KEM) leg and a KEM leg (RFC 10024 PQ/T hybrid). The wire
   // layout is data: the fixed leg sizes and the leg order. That one order governs the client
@@ -141,15 +166,11 @@ type
     FKemEncapsKeyBytes: Int32;
     FKemCiphertextBytes: Int32;
     FOrder: THybridLegOrder;
-    // the only two places FOrder is consulted
+    // the places FOrder is consulted: the wire share/ciphertext, and the shared secret
     function Join(const AClassical, AKem: TBytes): TBytes;
+    function JoinSecrets(const AClassical, AKem: ISecretBuffer): ISecretBuffer;
     procedure Split(const ABytes: TBytes; AClassicalLen, AKemLen: Int32;
       out AClassical, AKem: TBytes);
-    // frame the two provider-opaque leg privates into one buffer and split them back; the one
-    // place the stored-private layout lives, kept off TBytes so no secret temporary is left unwiped
-    class function PackPrivate(const AClassical, AKem: ISecretBuffer): ISecretBuffer; static;
-    class procedure UnpackPrivate(const APriv: ISecretBuffer;
-      out AClassical, AKem: ISecretBuffer); static;
   public
     constructor Create(const AClassical, AKem: INamedGroup; ACode: UInt16;
       const AName: string; AClassicalShareBytes, AKemEncapsKeyBytes,
@@ -158,10 +179,10 @@ type
     function Name: string;
     function Kind: TNamedGroupKind;
     function Composition: TNamedGroupComposition;
-    procedure GenerateKeyPair(out APriv: ISecretBuffer; out APubShare: TBytes);
+    procedure GenerateKeyPair(out APriv: IKeyExchangePrivateKey; out APubShare: TBytes);
     procedure Encapsulate(const APeerPub: TBytes; out ACiphertext: TBytes;
       out ASharedSecret: ISecretBuffer);
-    procedure Decapsulate(const APriv: ISecretBuffer; const ACiphertext: TBytes;
+    procedure Decapsulate(const APriv: IKeyExchangePrivateKey; const ACiphertext: TBytes;
       out ASharedSecret: ISecretBuffer);
     function ValidatePeerShare(const AShare: TBytes): Boolean;
   end;
@@ -205,7 +226,7 @@ begin
   Result := FComposition;
 end;
 
-procedure TKeyAgreementGroup.GenerateKeyPair(out APriv: ISecretBuffer;
+procedure TKeyAgreementGroup.GenerateKeyPair(out APriv: IKeyExchangePrivateKey;
   out APubShare: TBytes);
 begin
   FAgreement.GenerateKeyPair(APriv, APubShare);
@@ -214,23 +235,23 @@ end;
 procedure TKeyAgreementGroup.Encapsulate(const APeerPub: TBytes;
   out ACiphertext: TBytes; out ASharedSecret: ISecretBuffer);
 var
-  LEphPriv: ISecretBuffer;
+  LEphPriv: IKeyExchangePrivateKey;
 begin
   if not ValidatePeerShare(APeerPub) then
     raise EPeerInputTlsLibException.CreateResFmt(@SInvalidPeerShare, [Name]);
   // a fresh ephemeral pair; the ciphertext is its public value
   FAgreement.GenerateKeyPair(LEphPriv, ACiphertext);
-  ASharedSecret := FAgreement.Agree(LEphPriv, APeerPub, TKeyAgreementUsage.Ephemeral);
+  ASharedSecret := FAgreement.Agree(LEphPriv, APeerPub);
 end;
 
-procedure TKeyAgreementGroup.Decapsulate(const APriv: ISecretBuffer;
+procedure TKeyAgreementGroup.Decapsulate(const APriv: IKeyExchangePrivateKey;
   const ACiphertext: TBytes; out ASharedSecret: ISecretBuffer);
 begin
   // the ciphertext is the peer's ephemeral public value; validate it before the
   // agreement, symmetric with Encapsulate
   if not ValidatePeerShare(ACiphertext) then
     raise EPeerInputTlsLibException.CreateResFmt(@SInvalidPeerShare, [Name]);
-  ASharedSecret := FAgreement.Agree(APriv, ACiphertext, TKeyAgreementUsage.Ephemeral);
+  ASharedSecret := FAgreement.Agree(APriv, ACiphertext);
 end;
 
 function TKeyAgreementGroup.ValidatePeerShare(const AShare: TBytes): Boolean;
@@ -269,7 +290,8 @@ begin
   Result := FComposition;
 end;
 
-procedure TKemGroup.GenerateKeyPair(out APriv: ISecretBuffer; out APubShare: TBytes);
+procedure TKemGroup.GenerateKeyPair(out APriv: IKeyExchangePrivateKey;
+  out APubShare: TBytes);
 begin
   FKem.GenerateKeyPair(APriv, APubShare);
 end;
@@ -282,8 +304,8 @@ begin
   FKem.Encapsulate(APeerPub, ACiphertext, ASharedSecret);
 end;
 
-procedure TKemGroup.Decapsulate(const APriv: ISecretBuffer; const ACiphertext: TBytes;
-  out ASharedSecret: ISecretBuffer);
+procedure TKemGroup.Decapsulate(const APriv: IKeyExchangePrivateKey;
+  const ACiphertext: TBytes; out ASharedSecret: ISecretBuffer);
 begin
   FKem.Decapsulate(APriv, ACiphertext, ASharedSecret);
 end;
@@ -318,6 +340,16 @@ begin
     Result := TArrayUtilities.Concat(AKem, AClassical)
   else
     Result := TArrayUtilities.Concat(AClassical, AKem);
+end;
+
+function THybridGroup.JoinSecrets(const AClassical,
+  AKem: ISecretBuffer): ISecretBuffer;
+begin
+  // the concatenated shared secret follows the same leg order as the wire share (RFC 10024)
+  if FOrder = THybridLegOrder.KemFirst then
+    Result := TSecretBuffer.Join(AKem, AClassical)
+  else
+    Result := TSecretBuffer.Join(AClassical, AKem);
 end;
 
 procedure THybridGroup.Split(const ABytes: TBytes; AClassicalLen, AKemLen: Int32;
@@ -355,61 +387,56 @@ begin
   Result := FComposition;
 end;
 
-class function THybridGroup.PackPrivate(const AClassical,
-  AKem: ISecretBuffer): ISecretBuffer;
-var
-  LDst: PByte;
+{ THybridPrivateKey }
+
+constructor THybridPrivateKey.Create(const AClassical,
+  AKem: IKeyExchangePrivateKey);
 begin
-  // off-wire: [uint16 classical private length][classical private][KEM private]. The prefix lets
-  // UnpackPrivate split exactly whatever each provider stores - a raw scalar or a backend key blob
-  if AClassical.Len > High(UInt16) then
-    raise EArgumentTlsLibException.CreateResFmt(@SHybridPrivateTooLong, [AClassical.Len]);
-  Result := TSecretBuffer.Allocate(HybridPrivPrefixBytes + AClassical.Len + AKem.Len);
-  LDst := Result.DataPtr;
-  TBinaryPrimitives.WriteUInt16BigEndian(LDst, 0, UInt16(AClassical.Len));
-  if AClassical.Len > 0 then
-    Move(AClassical.DataPtr^, LDst[HybridPrivPrefixBytes], AClassical.Len);
-  if AKem.Len > 0 then
-    Move(AKem.DataPtr^, LDst[HybridPrivPrefixBytes + AClassical.Len], AKem.Len);
+  inherited Create;
+  FClassical := AClassical;
+  FKem := AKem;
 end;
 
-class procedure THybridGroup.UnpackPrivate(const APriv: ISecretBuffer;
-  out AClassical, AKem: ISecretBuffer);
-var
-  LSrc: PByte;
-  LClassicalLen, LKemLen: Int32;
+function THybridPrivateKey.Usage: TKeyAgreementUsage;
 begin
-  if APriv.Len < HybridPrivPrefixBytes then
-    raise EArgumentTlsLibException.CreateRes(@SMalformedHybridPrivate);
-  LSrc := APriv.DataPtr;
-  LClassicalLen := TBinaryPrimitives.ReadUInt16BigEndian(LSrc, 0);
-  if HybridPrivPrefixBytes + LClassicalLen > APriv.Len then
-    raise EArgumentTlsLibException.CreateRes(@SMalformedHybridPrivate);
-  LKemLen := APriv.Len - HybridPrivPrefixBytes - LClassicalLen;
-  AClassical := TSecretBuffer.Allocate(LClassicalLen);
-  if LClassicalLen > 0 then
-    AClassical.CopyFrom(@LSrc[HybridPrivPrefixBytes], LClassicalLen);
-  AKem := TSecretBuffer.Allocate(LKemLen);
-  if LKemLen > 0 then
-    AKem.CopyFrom(@LSrc[HybridPrivPrefixBytes + LClassicalLen], LKemLen);
+  // both legs are minted together, so the classical leg's posture stands for the pair
+  Result := FClassical.Usage;
 end;
 
-procedure THybridGroup.GenerateKeyPair(out APriv: ISecretBuffer;
+function THybridPrivateKey.ExportRaw: ISecretBuffer;
+begin
+  raise ENotSupportedTlsLibException.CreateRes(@SHybridKeyNotExportable);
+end;
+
+function THybridPrivateKey.Classical: IKeyExchangePrivateKey;
+begin
+  Result := FClassical;
+end;
+
+function THybridPrivateKey.Kem: IKeyExchangePrivateKey;
+begin
+  Result := FKem;
+end;
+
+{ THybridGroup continued }
+
+procedure THybridGroup.GenerateKeyPair(out APriv: IKeyExchangePrivateKey;
   out APubShare: TBytes);
 var
-  LCPriv, LKPriv: ISecretBuffer;
+  LCPriv, LKPriv: IKeyExchangePrivateKey;
   LCPub, LKPub: TBytes;
 begin
   FClassical.GenerateKeyPair(LCPriv, LCPub);
   FKem.GenerateKeyPair(LKPriv, LKPub);
   APubShare := Join(LCPub, LKPub);
-  APriv := PackPrivate(LCPriv, LKPriv);
+  // hold the two leg handles rather than framing their private bytes into one buffer
+  APriv := THybridPrivateKey.Create(LCPriv, LKPriv);
 end;
 
 procedure THybridGroup.Encapsulate(const APeerPub: TBytes;
   out ACiphertext: TBytes; out ASharedSecret: ISecretBuffer);
 var
-  LCPub, LKPub, LCCt, LKCt, LCSsBytes, LKSsBytes, LSsBytes: TBytes;
+  LCPub, LKPub, LCCt, LKCt: TBytes;
   LCSs, LKSs: ISecretBuffer;
 begin
   if not ValidatePeerShare(APeerPub) then
@@ -418,41 +445,26 @@ begin
   FClassical.Encapsulate(LCPub, LCCt, LCSs);
   FKem.Encapsulate(LKPub, LKCt, LKSs);
   ACiphertext := Join(LCCt, LKCt);
-  LCSsBytes := LCSs.ToBytes;
-  LKSsBytes := LKSs.ToBytes;
-  LSsBytes := Join(LCSsBytes, LKSsBytes);
-  try
-    ASharedSecret := TSecretBuffer.From(LSsBytes);
-  finally
-    TSecureMemory.WipeBytes(LSsBytes);
-    TSecureMemory.WipeBytes(LCSsBytes);
-    TSecureMemory.WipeBytes(LKSsBytes);
-  end;
+  // concatenate the two leg secrets without materializing either in a non-wiped intermediate
+  ASharedSecret := JoinSecrets(LCSs, LKSs);
 end;
 
-procedure THybridGroup.Decapsulate(const APriv: ISecretBuffer;
+procedure THybridGroup.Decapsulate(const APriv: IKeyExchangePrivateKey;
   const ACiphertext: TBytes; out ASharedSecret: ISecretBuffer);
 var
-  LCCt, LKCt, LCSsBytes, LKSsBytes, LSsBytes: TBytes;
-  LCPriv, LKPriv, LCSs, LKSs: ISecretBuffer;
+  LHybrid: IHybridKeyExchangeKey;
+  LCCt, LKCt: TBytes;
+  LCSs, LKSs: ISecretBuffer;
 begin
   // reject a short/long ciphertext before the fixed-offset slices reach the backend
   if System.Length(ACiphertext) <> FClassicalShareBytes + FKemCiphertextBytes then
     raise EPeerInputTlsLibException.CreateResFmt(@SInvalidPeerShare, [Name]);
-  UnpackPrivate(APriv, LCPriv, LKPriv);
+  if not Supports(APriv, IHybridKeyExchangeKey, LHybrid) then
+    raise EArgumentTlsLibException.CreateRes(@SForeignHybridKey);
   Split(ACiphertext, FClassicalShareBytes, FKemCiphertextBytes, LCCt, LKCt);
-  FClassical.Decapsulate(LCPriv, LCCt, LCSs);
-  FKem.Decapsulate(LKPriv, LKCt, LKSs);
-  LCSsBytes := LCSs.ToBytes;
-  LKSsBytes := LKSs.ToBytes;
-  LSsBytes := Join(LCSsBytes, LKSsBytes);
-  try
-    ASharedSecret := TSecretBuffer.From(LSsBytes);
-  finally
-    TSecureMemory.WipeBytes(LSsBytes);
-    TSecureMemory.WipeBytes(LCSsBytes);
-    TSecureMemory.WipeBytes(LKSsBytes);
-  end;
+  FClassical.Decapsulate(LHybrid.Classical, LCCt, LCSs);
+  FKem.Decapsulate(LHybrid.Kem, LKCt, LKSs);
+  ASharedSecret := JoinSecrets(LCSs, LKSs);
 end;
 
 function THybridGroup.ValidatePeerShare(const AShare: TBytes): Boolean;

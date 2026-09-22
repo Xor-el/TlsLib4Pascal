@@ -21,6 +21,7 @@ uses
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpISecretBuffer,
+  TlpSecretBuffer,
   TlpSecureMemory;
 
 type
@@ -39,7 +40,7 @@ type
   public
     constructor Create(const APrimitives: ICryptoPrimitives; AHash: THashAlgorithm);
     function Compute(const ASecret: ISecretBuffer; const ALabel: string;
-      const ASeed: TBytes; ALength: Int32): TBytes;
+      const ASeed: TBytes; ALength: Int32): ISecretBuffer;
   end;
 
 implementation
@@ -55,10 +56,11 @@ begin
 end;
 
 function TTls12PrfComposition.Compute(const ASecret: ISecretBuffer;
-  const ALabel: string; const ASeed: TBytes; ALength: Int32): TBytes;
+  const ALabel: string; const ASeed: TBytes; ALength: Int32): ISecretBuffer;
 var
   LSeed, LA, LBlock: TBytes;
   LPos, LCopy: Int32;
+  LOut: PByte;
 
   function HmacOf(const AData: TBytes): TBytes;
   var
@@ -71,8 +73,10 @@ var
   end;
 
 begin
-  Result := nil;
-  SetLength(Result, ALength);
+  // the PRF output is key material (master secret, key block), so it lands in a wiped buffer
+  // rather than a bare byte array the caller must scrub
+  Result := TSecretBuffer.Allocate(ALength);
+  LOut := Result.DataPtr;
   LSeed := TArrayUtilities.Concat(TEncoding.ASCII.GetBytes(ALabel), ASeed);
   LA := LSeed; // A(0) = seed
   try
@@ -85,7 +89,7 @@ begin
         LCopy := System.Length(LBlock);
         if LCopy > ALength - LPos then
           LCopy := ALength - LPos;
-        Move(LBlock[0], Result[LPos], LCopy);
+        Move(LBlock[0], (LOut + LPos)^, LCopy);
         Inc(LPos, LCopy);
       finally
         TSecureMemory.WipeBytes(LBlock);

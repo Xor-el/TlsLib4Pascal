@@ -27,6 +27,7 @@ uses
   TlpICryptoProvider,
   TlpIPkixProvider,
   TlpINamedGroup,
+  TlpIKeyExchangePrivateKey,
   TlpIKeySchedule,
   TlpTls12KeySchedule,
   TlpITranscriptHash,
@@ -153,7 +154,7 @@ type
     FServerRandom: TBytes;
     FGroupCode: UInt16;
     FSelectedGroup: INamedGroup;
-    FEcdhePrivate: ISecretBuffer;
+    FEcdhePrivate: IKeyExchangePrivateKey;
     FEcdhePublic: TBytes;
     FUseExtendedMasterSecret: Boolean;
     FEchoRenegotiationInfo: Boolean;

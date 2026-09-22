@@ -27,6 +27,7 @@ uses
   TlpDer,
   TlpSystemCryptoTypes,
   TlpICryptoProvider,
+  TlpIKeyExchangePrivateKey,
   TlpICryptoBackendReport,
   TlpISigningKey,
   TlpTlsCredential,
@@ -160,6 +161,10 @@ resourcestring
   SHkdfExpandTooLong = 'HKDF-Expand output length %d exceeds 255 * HashLen (%d)';
   SInvalidScalarSize = 'private scalar size %d does not match the curve field size %d';
   SSchemeNotCapable = 'the signing key cannot sign with the requested signature scheme';
+  SForeignCngKeyExchangeKey =
+    'the key-exchange private key was not produced by this Windows CNG provider';
+  SCngKeyExchangeKeyNotExportable =
+    'this key-exchange key has no raw scalar to export (a KEM key)';
 
 type
   // bcrypt.dll entry points, resolved at runtime (no static import, so an absent DLL or
@@ -416,6 +421,32 @@ type
     function BcryptApi: TCngApi;
   end;
 
+  // The provider-internal face of a CNG key-exchange key: the re-importable backend material
+  // (an ECCPRIVATE blob, an X25519 scalar, or an ML-KEM private blob), which each primitive
+  // re-imports per operation (no shared live handle, so agreements stay thread-safe without a
+  // lock). Kept off IKeyExchangePrivateKey so a foreign key handed to Agree/Decapsulate is
+  // rejected.
+  IWindowsCngKeyExchangeKey = interface(IInterface)
+    ['{7A3E9C1F-4D82-4B60-A5E7-2F8C6D0B93A4}']
+    function Material: ISecretBuffer;
+  end;
+
+  // One CNG key-exchange key class for all three CNG primitives: the fixed Usage, the raw
+  // scalar (for ExportRaw; nil for a KEM key), and the backend material re-imported per op.
+  TWindowsCngKeyExchangeKey = class(TInterfacedObject, IKeyExchangePrivateKey,
+    IWindowsCngKeyExchangeKey)
+  strict private
+  var
+    FUsage: TKeyAgreementUsage;
+    FScalar: ISecretBuffer;
+    FMaterial: ISecretBuffer;
+  public
+    constructor Create(AUsage: TKeyAgreementUsage; const AScalar, AMaterial: ISecretBuffer);
+    function Usage: TKeyAgreementUsage;
+    function ExportRaw: ISecretBuffer;
+    function Material: ISecretBuffer;
+  end;
+
   // Shared state and blob export for the CNG asymmetric primitives (ECDH, X25519, ML-KEM):
   // the resolved API table by value, the borrowed algorithm handle, and the owning context
   // that keeps that handle alive.
@@ -451,13 +482,13 @@ type
     constructor Create(const AApi: TCngApi; AAlg: Pointer; const ACurve: TCngCurve;
       const AKeeper: IWindowsCng);
     function Name: string;
-    procedure GenerateKeyPair(out APrivateKey: ISecretBuffer; out APublicKey: TBytes);
-    function Agree(const APrivateKey: ISecretBuffer;
-      const APeerPublicKey: TBytes; AUsage: TKeyAgreementUsage): ISecretBuffer;
+    procedure GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
+      out APublicKey: TBytes);
+    function Agree(const APrivateKey: IKeyExchangePrivateKey;
+      const APeerPublicKey: TBytes): ISecretBuffer;
     function ValidatePublicKey(const APublicKey: TBytes): Boolean;
     function ImportPrivateKey(const ARawPrivateKey: ISecretBuffer;
-      out APublicKey: TBytes): ISecretBuffer;
-    function ExportPrivateKey(const APrivateKey: ISecretBuffer): ISecretBuffer;
+      AUsage: TKeyAgreementUsage; out APublicKey: TBytes): IKeyExchangePrivateKey;
   end;
 
   // X25519 (RFC 7748) key agreement via CNG's generic curve25519 ECDH. Keys are the raw
@@ -472,13 +503,13 @@ type
     function DeriveSecret(ASecret: Pointer): TBytes;
   public
     function Name: string;
-    procedure GenerateKeyPair(out APrivateKey: ISecretBuffer; out APublicKey: TBytes);
-    function Agree(const APrivateKey: ISecretBuffer;
-      const APeerPublicKey: TBytes; AUsage: TKeyAgreementUsage): ISecretBuffer;
+    procedure GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
+      out APublicKey: TBytes);
+    function Agree(const APrivateKey: IKeyExchangePrivateKey;
+      const APeerPublicKey: TBytes): ISecretBuffer;
     function ValidatePublicKey(const APublicKey: TBytes): Boolean;
     function ImportPrivateKey(const ARawPrivateKey: ISecretBuffer;
-      out APublicKey: TBytes): ISecretBuffer;
-    function ExportPrivateKey(const APrivateKey: ISecretBuffer): ISecretBuffer;
+      AUsage: TKeyAgreementUsage; out APublicKey: TBytes): IKeyExchangePrivateKey;
   end;
 
   // ML-KEM-768 (FIPS 203) key encapsulation via CNG (Win11 24H2+). Keys and ciphertext
@@ -493,11 +524,12 @@ type
     function ImportPrivate(const APrivateBlob: TBytes): Pointer;
   public
     function Name: string;
-    procedure GenerateKeyPair(out APrivateKey: ISecretBuffer; out APublicKey: TBytes);
+    procedure GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
+      out APublicKey: TBytes);
     procedure Encapsulate(const APeerPublicKey: TBytes; out ACiphertext: TBytes;
       out ASharedSecret: ISecretBuffer);
-    procedure Decapsulate(const APrivateKey: ISecretBuffer; const ACiphertext: TBytes;
-      out ASharedSecret: ISecretBuffer);
+    procedure Decapsulate(const APrivateKey: IKeyExchangePrivateKey;
+      const ACiphertext: TBytes; out ASharedSecret: ISecretBuffer);
     function ValidatePublicKey(const APublicKey: TBytes): Boolean;
   end;
 
@@ -578,8 +610,7 @@ type
   public
     constructor Create(const ACng: IWindowsCng; AAlgorithm: THashAlgorithm;
       AMacSize: Int32);
-    function Extract(const ASalt: TBytes;
-      const AIkm: ISecretBuffer): ISecretBuffer;
+    function Extract(const ASalt, AIkm: ISecretBuffer): ISecretBuffer;
     function Expand(const APrk: ISecretBuffer; const AInfo: TBytes;
       ALength: Int32): ISecretBuffer;
   end;
@@ -715,7 +746,7 @@ type
     /// ECDSA) and reports the schemes it can sign with; False when the key is not one this
     /// facet serves natively (the caller then delegates to the portable facet). A non-empty
     /// APassword decrypts an encrypted PKCS#8 (EncryptedPrivateKeyInfo) in the same call.</summary>
-    function TryImportKey(const APkcs8: TBytes; const APassword: string;
+    function TryImportKey(const APkcs8: TBytes; const APassword: ISecretBuffer;
       out AKey: NativeUInt; out ASchemes: TArray<TSignatureScheme>): Boolean;
     function SignData(AKey: NativeUInt; AScheme: TSignatureScheme;
       const AData: TBytes): TBytes;
@@ -733,7 +764,7 @@ type
     procedure FreeVerifyKey(AKeyHandle: Pointer);
     /// <summary>Imports a PKCS#12 blob and adopts its private key as a native CNG-backed
     /// signing key; False when it cannot (the caller then keeps the portable key).</summary>
-    function TryImportPkcs12Key(const APfx: TBytes; const APassword: string;
+    function TryImportPkcs12Key(const APfx: TBytes; const APassword: ISecretBuffer;
       out AKey: ISigningKey): Boolean;
     /// <summary>Releases a PKCS#12-acquired key: the key handle (when caller-owned), its
     /// certificate context, and the in-memory store.</summary>
@@ -854,6 +885,11 @@ type
     // wraps a PKCS#1 (RSAPrivateKey) or SEC1 (ECPrivateKey) DER into a PKCS#8 the KSP
     // imports; a PKCS#8 (plain or encrypted) or unrecognized blob passes through unchanged
     class function WrapPkcs8IfNeeded(const ADer: TBytes): TBytes; static;
+    // the passphrase widened to an owned, NUL-terminated UTF-16 buffer the caller wipes; empty
+    // for nil or a zero-length passphrase. Under FPC the secret holds AnsiChar code units, widened
+    // with the system codepage (as the old WideString(AnsiString) did); under Delphi it is already
+    // UTF-16. No AnsiString/WideString temp lingers with the passphrase.
+    class function WidePassword(const APassword: ISecretBuffer): TArray<WideChar>; static;
     function AlgName(AKey: NativeUInt): string;
     function KeySchemes(AKey: NativeUInt;
       out ASchemes: TArray<TSignatureScheme>): Boolean;
@@ -870,7 +906,7 @@ type
     class function IsNativeScheme(AScheme: TSignatureScheme): Boolean; static;
     constructor Create(const ACng: IWindowsCng);
     destructor Destroy; override;
-    function TryImportKey(const APkcs8: TBytes; const APassword: string;
+    function TryImportKey(const APkcs8: TBytes; const APassword: ISecretBuffer;
       out AKey: NativeUInt; out ASchemes: TArray<TSignatureScheme>): Boolean;
     function SignData(AKey: NativeUInt; AScheme: TSignatureScheme;
       const AData: TBytes): TBytes;
@@ -880,7 +916,7 @@ type
     function VerifyData(AKeyHandle: Pointer; AScheme: TSignatureScheme;
       const AData, ASignature: TBytes): Boolean;
     procedure FreeVerifyKey(AKeyHandle: Pointer);
-    function TryImportPkcs12Key(const APfx: TBytes; const APassword: string;
+    function TryImportPkcs12Key(const APfx: TBytes; const APassword: ISecretBuffer;
       out AKey: ISigningKey): Boolean;
     procedure FreePfxKey(AStore, ACert: Pointer; AHandle: NativeUInt;
       ACallerFree: Boolean);
@@ -900,16 +936,16 @@ type
     class function SchemeName(AScheme: TSignatureScheme): string; static;
     // decodes a PEM PKCS#8 block to DER and imports it natively; the decoded bytes are the
     // plain or still-encrypted PKCS#8 the KSP accepts
-    function TryImportPemNative(const AData: TBytes; const APassword: string;
+    function TryImportPemNative(const AData: TBytes; const APassword: ISecretBuffer;
       out AKey: ISigningKey): Boolean;
   public
     constructor Create(const AInner: ISigningCrypto;
       const ANCrypt: IWindowsNCrypt);
     function ImportSigningKey(const AData: TBytes): ISigningKey; overload;
     function ImportSigningKey(const AData: TBytes;
-      const APassword: string): ISigningKey; overload;
+      const APassword: ISecretBuffer): ISigningKey; overload;
     function ImportPkcs12(const AData: TBytes;
-      const APassword: string): TTlsCredential;
+      const APassword: ISecretBuffer): TTlsCredential;
     function CreateSignatureSigner(AScheme: TSignatureScheme;
       const AKey: ISigningKey): ISignatureSigner;
     function CreateSignatureVerifier(AScheme: TSignatureScheme;
@@ -957,6 +993,34 @@ end;
 class function TModuleApi.Proc(AModule: THandle; const AName: AnsiString): Pointer;
 begin
   Result := GetProcAddress(AModule, PAnsiChar(AName));
+end;
+
+{ TWindowsCngKeyExchangeKey }
+
+constructor TWindowsCngKeyExchangeKey.Create(AUsage: TKeyAgreementUsage;
+  const AScalar, AMaterial: ISecretBuffer);
+begin
+  inherited Create;
+  FUsage := AUsage;
+  FScalar := AScalar;
+  FMaterial := AMaterial;
+end;
+
+function TWindowsCngKeyExchangeKey.Usage: TKeyAgreementUsage;
+begin
+  Result := FUsage;
+end;
+
+function TWindowsCngKeyExchangeKey.ExportRaw: ISecretBuffer;
+begin
+  if FScalar = nil then
+    raise ENotSupportedTlsLibException.CreateRes(@SCngKeyExchangeKeyNotExportable);
+  Result := FScalar;
+end;
+
+function TWindowsCngKeyExchangeKey.Material: ISecretBuffer;
+begin
+  Result := FMaterial;
 end;
 
 { TWindowsCngKeyPrimitive }
@@ -1191,19 +1255,18 @@ begin
     raise ESystemCryptoBackendTlsLibException.CreateRes(@SCngUnavailable);
 end;
 
-function TWindowsCngHkdf.Extract(const ASalt: TBytes;
-  const AIkm: ISecretBuffer): ISecretBuffer;
+function TWindowsCngHkdf.Extract(const ASalt, AIkm: ISecretBuffer): ISecretBuffer;
 var
-  LSalt, LIkm, LPrk: TBytes;
-  LSaltBuf: ISecretBuffer;
+  LIkm, LPrk: TBytes;
   LMac: IHmac;
 begin
-  LSalt := ASalt;
-  if System.Length(LSalt) = 0 then
-    SetLength(LSalt, FMacSize); // an empty salt is HashLen zero bytes
   LMac := NewMac;
-  LSaltBuf := TSecretBuffer.From(LSalt);
-  LMac.Init(LSaltBuf);
+  // the salt is secret material used directly as the HMAC key; a nil or empty salt is HashLen
+  // zeros (an allocated secret is zero-filled), so no bare byte copy of the salt is made here
+  if (ASalt <> nil) and (ASalt.Len > 0) then
+    LMac.Init(ASalt)
+  else
+    LMac.Init(TSecretBuffer.Allocate(FMacSize));
   LIkm := AIkm.ToBytes;
   try
     LMac.Update(LIkm, 0, System.Length(LIkm));
@@ -1516,11 +1579,11 @@ begin
   end;
 end;
 
-procedure TWindowsCngKeyAgreement.GenerateKeyPair(out APrivateKey: ISecretBuffer;
+procedure TWindowsCngKeyAgreement.GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
   out APublicKey: TBytes);
 var
   LKey: Pointer;
-  LPublicBlob, LPrivateBlob: TBytes;
+  LPublicBlob, LPrivateBlob, LScalar: TBytes;
 begin
   LKey := nil;
   TCngError.Check(FApi.GenerateKeyPair(FAlg, LKey, FCurve.KeyBits, 0));
@@ -1531,12 +1594,18 @@ begin
     SetLength(APublicKey, 1 + 2 * FCurve.FieldSize);
     APublicKey[0] := UncompressedPointPrefix;
     Move(LPublicBlob[ECC_BLOB_HEADER_SIZE], APublicKey[1], 2 * FCurve.FieldSize);
-    // the private blob (header + X + Y + d) is the opaque round-trip material Agree
-    // re-imports; it carries the secret scalar, so it is held wipeably
+    // the private blob (header + X + Y + d) is the opaque round-trip material Agree re-imports;
+    // it and the extracted raw scalar d (the neutral currency) carry the secret, held wipeably
     LPrivateBlob := ExportBlob(LKey, BLOB_ECCPRIVATE);
+    LScalar := nil;
+    SetLength(LScalar, FCurve.FieldSize);
     try
-      APrivateKey := TSecretBuffer.From(LPrivateBlob);
+      Move(LPrivateBlob[ECC_BLOB_HEADER_SIZE + 2 * FCurve.FieldSize], LScalar[0],
+        FCurve.FieldSize);
+      APrivateKey := TWindowsCngKeyExchangeKey.Create(TKeyAgreementUsage.Ephemeral,
+        TSecretBuffer.From(LScalar), TSecretBuffer.From(LPrivateBlob));
     finally
+      TSecureMemory.WipeBytes(LScalar);
       TSecureMemory.WipeBytes(LPrivateBlob);
     end;
   finally
@@ -1544,19 +1613,23 @@ begin
   end;
 end;
 
-function TWindowsCngKeyAgreement.Agree(const APrivateKey: ISecretBuffer;
-  const APeerPublicKey: TBytes; AUsage: TKeyAgreementUsage): ISecretBuffer;
+function TWindowsCngKeyAgreement.Agree(const APrivateKey: IKeyExchangePrivateKey;
+  const APeerPublicKey: TBytes): ISecretBuffer;
 var
+  LKeyHandle: IWindowsCngKeyExchangeKey;
   LPrivateBlob, LSecretBytes: TBytes;
   LPrivKey, LPeerKey, LSecret: Pointer;
 begin
-  // The backend exposes no scalar-blinding control; its scalar multiplication is
-  // constant-time by its own contract, so AUsage has no effect here.
+  // The backend exposes no scalar-blinding control; its scalar multiplication is constant-time
+  // by its own contract, and the material is re-imported per call (no shared handle), so the
+  // key's Usage has no effect here.
+  if not Supports(APrivateKey, IWindowsCngKeyExchangeKey, LKeyHandle) then
+    raise EArgumentTlsLibException.CreateRes(@SForeignCngKeyExchangeKey);
   LPrivKey := nil;
   LPeerKey := nil;
   LSecret := nil;
   LSecretBytes := nil;
-  LPrivateBlob := APrivateKey.ToBytes;
+  LPrivateBlob := LKeyHandle.Material.ToBytes;
   try
     TCngError.Check(FApi.ImportKeyPair(FAlg, nil, PWideChar(BLOB_ECCPRIVATE),
       LPrivKey, PByte(LPrivateBlob), System.Length(LPrivateBlob), 0));
@@ -1618,7 +1691,7 @@ begin
 end;
 
 function TWindowsCngKeyAgreement.ImportPrivateKey(const ARawPrivateKey: ISecretBuffer;
-  out APublicKey: TBytes): ISecretBuffer;
+  AUsage: TKeyAgreementUsage; out APublicKey: TBytes): IKeyExchangePrivateKey;
 var
   LScalar, LScalarBlob, LFullPrivate, LPublicBlob: TBytes;
   LKey: Pointer;
@@ -1640,11 +1713,12 @@ begin
       SetLength(APublicKey, 1 + 2 * FCurve.FieldSize);
       APublicKey[0] := UncompressedPointPrefix;
       Move(LPublicBlob[ECC_BLOB_HEADER_SIZE], APublicKey[1], 2 * FCurve.FieldSize);
-      // private key handed back = the full ECCPRIVATE blob (X,Y now populated), the
-      // representation Agree re-imports; held wipeably as it carries the scalar
+      // the key's material is the full ECCPRIVATE blob (X,Y now populated) that Agree re-imports;
+      // the raw scalar d is retained as the neutral currency for ExportRaw
       LFullPrivate := ExportBlob(LKey, BLOB_ECCPRIVATE);
       try
-        Result := TSecretBuffer.From(LFullPrivate);
+        Result := TWindowsCngKeyExchangeKey.Create(AUsage, TSecretBuffer.From(LScalar),
+          TSecretBuffer.From(LFullPrivate));
       finally
         TSecureMemory.WipeBytes(LFullPrivate);
       end;
@@ -1654,27 +1728,6 @@ begin
   finally
     TSecureMemory.WipeBytes(LScalar);
     TSecureMemory.WipeBytes(LScalarBlob);
-  end;
-end;
-
-function TWindowsCngKeyAgreement.ExportPrivateKey(
-  const APrivateKey: ISecretBuffer): ISecretBuffer;
-var
-  LBlob, LScalar: TBytes;
-begin
-  // extract d (the trailing field-width big-endian bytes) from the ECCPRIVATE blob
-  LBlob := APrivateKey.ToBytes;
-  LScalar := nil;
-  try
-    if System.Length(LBlob) <> ECC_BLOB_HEADER_SIZE + 3 * FCurve.FieldSize then
-      raise EArgumentTlsLibException.CreateResFmt(@SInvalidScalarSize,
-        [System.Length(LBlob), ECC_BLOB_HEADER_SIZE + 3 * FCurve.FieldSize]);
-    SetLength(LScalar, FCurve.FieldSize);
-    Move(LBlob[ECC_BLOB_HEADER_SIZE + 2 * FCurve.FieldSize], LScalar[0], FCurve.FieldSize);
-    Result := TSecretBuffer.From(LScalar);
-  finally
-    TSecureMemory.WipeBytes(LScalar);
-    TSecureMemory.WipeBytes(LBlob);
   end;
 end;
 
@@ -1741,11 +1794,12 @@ begin
   end;
 end;
 
-procedure TWindowsCngX25519.GenerateKeyPair(out APrivateKey: ISecretBuffer;
+procedure TWindowsCngX25519.GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
   out APublicKey: TBytes);
 var
   LKey: Pointer;
   LPublicBlob, LPrivateBlob, LScalar: TBytes;
+  LScalarBuf: ISecretBuffer;
 begin
   LKey := nil;
   TCngError.Check(FApi.GenerateKeyPair(FAlg, LKey, 255, 0));
@@ -1756,15 +1810,17 @@ begin
     APublicKey := nil;
     SetLength(APublicKey, X25519_KEY_SIZE);
     Move(LPublicBlob[ECC_BLOB_HEADER_SIZE], APublicKey[0], X25519_KEY_SIZE);
-    // the private key is the raw 32-byte scalar d (blob layout: header + X + Y + d), the
-    // neutral currency Agree re-imports; held wipeably
+    // the raw 32-byte scalar d (blob layout: header + X + Y + d) is both the neutral currency
+    // and the material Agree re-imports; held wipeably
     LPrivateBlob := ExportBlob(LKey, BLOB_ECCPRIVATE);
     LScalar := nil;
     SetLength(LScalar, X25519_KEY_SIZE);
     try
       Move(LPrivateBlob[ECC_BLOB_HEADER_SIZE + 2 * X25519_KEY_SIZE], LScalar[0],
         X25519_KEY_SIZE);
-      APrivateKey := TSecretBuffer.From(LScalar);
+      LScalarBuf := TSecretBuffer.From(LScalar);
+      APrivateKey := TWindowsCngKeyExchangeKey.Create(TKeyAgreementUsage.Ephemeral,
+        LScalarBuf, LScalarBuf);
     finally
       TSecureMemory.WipeBytes(LScalar);
       TSecureMemory.WipeBytes(LPrivateBlob);
@@ -1774,17 +1830,20 @@ begin
   end;
 end;
 
-function TWindowsCngX25519.Agree(const APrivateKey: ISecretBuffer;
-  const APeerPublicKey: TBytes; AUsage: TKeyAgreementUsage): ISecretBuffer;
+function TWindowsCngX25519.Agree(const APrivateKey: IKeyExchangePrivateKey;
+  const APeerPublicKey: TBytes): ISecretBuffer;
 var
+  LKeyHandle: IWindowsCngKeyExchangeKey;
   LScalar, LPrivateBlob, LPeerBlob, LSecretBytes: TBytes;
   LPrivKey, LPeerKey, LSecret: Pointer;
 begin
-  // X25519's ladder is constant-time regardless of scalar reuse, so AUsage has no
+  // X25519's ladder is constant-time regardless of scalar reuse, so the key's Usage has no
   // effect here.
+  if not Supports(APrivateKey, IWindowsCngKeyExchangeKey, LKeyHandle) then
+    raise EArgumentTlsLibException.CreateRes(@SForeignCngKeyExchangeKey);
   if System.Length(APeerPublicKey) <> X25519_KEY_SIZE then
     raise EPeerInputTlsLibException.CreateRes(@SInvalidPeerPoint);
-  LScalar := APrivateKey.ToBytes;
+  LScalar := LKeyHandle.Material.ToBytes;
   if System.Length(LScalar) <> X25519_KEY_SIZE then
     raise EPeerInputTlsLibException.CreateRes(@SInvalidPeerPoint);
   LPrivKey := nil;
@@ -1833,32 +1892,27 @@ begin
 end;
 
 function TWindowsCngX25519.ImportPrivateKey(const ARawPrivateKey: ISecretBuffer;
-  out APublicKey: TBytes): ISecretBuffer;
+  AUsage: TKeyAgreementUsage; out APublicKey: TBytes): IKeyExchangePrivateKey;
 var
   LScalar, LBasepoint: TBytes;
+  LScalarBuf: ISecretBuffer;
 begin
   LScalar := ARawPrivateKey.ToBytes;
   try
     if System.Length(LScalar) <> X25519_KEY_SIZE then
       raise EArgumentTlsLibException.CreateResFmt(@SInvalidScalarSize,
         [System.Length(LScalar), X25519_KEY_SIZE]);
-    // the public key is X25519(scalar, base point)
+    // the raw scalar is both the neutral currency and the re-imported material
+    LScalarBuf := TSecretBuffer.From(LScalar);
+    Result := TWindowsCngKeyExchangeKey.Create(AUsage, LScalarBuf, LScalarBuf);
+    // the public key is X25519(scalar, base point); derive it through the key just built
     LBasepoint := nil;
     SetLength(LBasepoint, X25519_KEY_SIZE);
     LBasepoint[0] := 9; // RFC 7748 base point u = 9
-    APublicKey := Agree(ARawPrivateKey, LBasepoint, TKeyAgreementUsage.Ephemeral).ToBytes;
-    // the neutral currency is the raw scalar itself (matches GenerateKeyPair / Agree)
-    Result := TSecretBuffer.From(LScalar);
+    APublicKey := Agree(Result, LBasepoint).ToBytes;
   finally
     TSecureMemory.WipeBytes(LScalar);
   end;
-end;
-
-function TWindowsCngX25519.ExportPrivateKey(
-  const APrivateKey: ISecretBuffer): ISecretBuffer;
-begin
-  // native X25519's private key is already the raw scalar
-  Result := APrivateKey;
 end;
 
 { TWindowsCngKem }
@@ -1917,7 +1971,7 @@ begin
     PByte(APrivateBlob), System.Length(APrivateBlob), 0));
 end;
 
-procedure TWindowsCngKem.GenerateKeyPair(out APrivateKey: ISecretBuffer;
+procedure TWindowsCngKem.GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
   out APublicKey: TBytes);
 var
   LKey: Pointer;
@@ -1932,10 +1986,12 @@ begin
     TCngError.Check(FApi.FinalizeKeyPair(LKey, 0));
     LPublicBlob := ExportBlob(LKey, BLOB_MLKEM_PUBLIC);
     APublicKey := ExtractPublicKey(LPublicBlob);
-    // the decapsulation blob carries the secret key; held wipeably and re-imported per op
+    // the decapsulation blob is the material re-imported per op; a KEM key has no raw scalar,
+    // so it is not exportable (nil scalar)
     LPrivateBlob := ExportBlob(LKey, BLOB_MLKEM_PRIVATE);
     try
-      APrivateKey := TSecretBuffer.From(LPrivateBlob);
+      APrivateKey := TWindowsCngKeyExchangeKey.Create(TKeyAgreementUsage.Ephemeral, nil,
+        TSecretBuffer.From(LPrivateBlob));
     finally
       TSecureMemory.WipeBytes(LPrivateBlob);
     end;
@@ -1971,14 +2027,17 @@ begin
   end;
 end;
 
-procedure TWindowsCngKem.Decapsulate(const APrivateKey: ISecretBuffer;
+procedure TWindowsCngKem.Decapsulate(const APrivateKey: IKeyExchangePrivateKey;
   const ACiphertext: TBytes; out ASharedSecret: ISecretBuffer);
 var
+  LKeyHandle: IWindowsCngKeyExchangeKey;
   LPrivateBlob, LSecret: TBytes;
   LPrivKey: Pointer;
   LSecretLen: ULONG;
 begin
-  LPrivateBlob := APrivateKey.ToBytes;
+  if not Supports(APrivateKey, IWindowsCngKeyExchangeKey, LKeyHandle) then
+    raise EArgumentTlsLibException.CreateRes(@SForeignCngKeyExchangeKey);
+  LPrivateBlob := LKeyHandle.Material.ToBytes;
   LSecret := nil;
   try
     LPrivKey := ImportPrivate(LPrivateBlob);
@@ -3430,11 +3489,41 @@ begin
   Result := System.Length(ASchemes) > 0;
 end;
 
-function TWindowsNCrypt.TryImportKey(const APkcs8: TBytes; const APassword: string;
+class function TWindowsNCrypt.WidePassword(
+  const APassword: ISecretBuffer): TArray<WideChar>;
+{$IFDEF FPC}
+var
+  LWideLen: Integer;
+  LCodePage: UINT;
+{$ENDIF FPC}
+begin
+  Result := nil;
+  if (APassword = nil) or (APassword.Len = 0) then
+    Exit;
+{$IFDEF FPC}
+  // widen with the RTL's own default system codepage - the exact conversion the prior
+  // WideString(AnsiString) did (a UTF8_RTL / LazUtils app sets this to CP_UTF8), not the OS
+  // ANSI codepage, so a non-ASCII passphrase is not silently re-encoded
+  LCodePage := DefaultSystemCodePage;
+  LWideLen := MultiByteToWideChar(LCodePage, 0, PAnsiChar(APassword.DataPtr),
+    APassword.Len, nil, 0);
+  SetLength(Result, LWideLen + 1); // + NUL terminator
+  if LWideLen > 0 then
+    MultiByteToWideChar(LCodePage, 0, PAnsiChar(APassword.DataPtr), APassword.Len,
+      PWideChar(Result), LWideLen);
+  Result[LWideLen] := #0;
+{$ELSE}
+  SetLength(Result, (APassword.Len div SizeOf(WideChar)) + 1); // + NUL terminator
+  System.Move(APassword.DataPtr^, Result[0], APassword.Len);
+  Result[System.Length(Result) - 1] := #0;
+{$ENDIF FPC}
+end;
+
+function TWindowsNCrypt.TryImportKey(const APkcs8: TBytes; const APassword: ISecretBuffer;
   out AKey: NativeUInt; out ASchemes: TArray<TSignatureScheme>): Boolean;
 var
   LKey: NativeUInt;
-  LPwd: WideString;
+  LPwd: TArray<WideChar>;
   LBuf: TNCryptBuffer;
   LDesc: TNCryptBufferDesc;
   LParam: Pointer;
@@ -3446,26 +3535,31 @@ begin
   // a raw PKCS#1 / SEC1 key is wrapped into the PKCS#8 the KSP imports; a PKCS#8 (plain or
   // encrypted, as for a non-empty password) passes through unchanged
   LDer := WrapPkcs8IfNeeded(APkcs8);
-  // a non-empty password imports an encrypted PKCS#8: the KSP decrypts it from the
+  // a non-empty passphrase imports an encrypted PKCS#8: the KSP decrypts it from the
   // NCRYPTBUFFER_PKCS_SECRET buffer. LPwd must outlive the ImportKey call (it does - it is
-  // this frame's local, pointed at by the buffer)
+  // this frame's local, pointed at by the buffer) and is wiped in the finally
   LParam := nil;
-  if APassword <> '' then
-  begin
-    LPwd := WideString(APassword);
-    LBuf.cbBuffer := (ULONG(System.Length(LPwd)) + 1) * SizeOf(WideChar);
-    LBuf.BufferType := NCRYPTBUFFER_PKCS_SECRET;
-    LBuf.pvBuffer := PWideChar(LPwd);
-    LDesc.ulVersion := NCRYPTBUFFER_VERSION;
-    LDesc.cBuffers := 1;
-    LDesc.pBuffers := @LBuf;
-    LParam := @LDesc;
+  LPwd := WidePassword(APassword);
+  try
+    if System.Length(LPwd) > 0 then
+    begin
+      LBuf.cbBuffer := ULONG(System.Length(LPwd)) * SizeOf(WideChar); // includes NUL
+      LBuf.BufferType := NCRYPTBUFFER_PKCS_SECRET;
+      LBuf.pvBuffer := @LPwd[0];
+      LDesc.ulVersion := NCRYPTBUFFER_VERSION;
+      LDesc.cBuffers := 1;
+      LDesc.pBuffers := @LBuf;
+      LParam := @LDesc;
+    end;
+    // the KSP parses the PKCS#8 PrivateKeyInfo; a non-PKCS#8 / unsupported-PBE / unsupported key
+    // (or a wrong password) simply fails to import and the caller delegates to the portable facet
+    if FApi.ImportKey(FProvider, 0, PWideChar(BLOB_PKCS8_PRIVATE), LParam, LKey,
+      PByte(LDer), System.Length(LDer), NCRYPT_SILENT_FLAG) <> STATUS_SUCCESS then
+      Exit(False);
+  finally
+    if System.Length(LPwd) > 0 then
+      FillChar(LPwd[0], System.Length(LPwd) * SizeOf(WideChar), 0);
   end;
-  // the KSP parses the PKCS#8 PrivateKeyInfo; a non-PKCS#8 / unsupported-PBE / unsupported key
-  // (or a wrong password) simply fails to import and the caller delegates to the portable facet
-  if FApi.ImportKey(FProvider, 0, PWideChar(BLOB_PKCS8_PRIVATE), LParam, LKey,
-    PByte(LDer), System.Length(LDer), NCRYPT_SILENT_FLAG) <> STATUS_SUCCESS then
-    Exit(False);
   if KeySchemes(LKey, ASchemes) then
   begin
     AKey := LKey;
@@ -3658,10 +3752,12 @@ begin
 end;
 
 function TWindowsNCrypt.TryImportPkcs12Key(const APfx: TBytes;
-  const APassword: string; out AKey: ISigningKey): Boolean;
+  const APassword: ISecretBuffer; out AKey: ISigningKey): Boolean;
 var
   LBlob: TCryptDataBlob;
-  LPassword: WideString;
+  LPassword: TArray<WideChar>;
+  LPasswordPtr: PWideChar;
+  LEmptyPassword: WideChar;
   LStore, LCert: Pointer;
   LKey: NativeUInt;
   LSize: DWORD;
@@ -3672,10 +3768,20 @@ begin
     Exit(False);
   LBlob.cbData := System.Length(APfx);
   LBlob.pbData := PByte(APfx);
-  LPassword := WideString(APassword);
+  // an empty/absent passphrase is L"" (a pointer to a single NUL) - exactly what the prior empty
+  // WideString gave, and distinct from NULL, which PFXImportCertStore may treat differently from
+  // an empty password (RFC 7292); a real one is the owned wide buffer, wiped once import returns
+  LPassword := WidePassword(APassword);
+  LEmptyPassword := #0;
+  if System.Length(LPassword) > 0 then
+    LPasswordPtr := @LPassword[0]
+  else
+    LPasswordPtr := @LEmptyPassword;
   // keep the key CNG-backed (PKCS12_ALWAYS_CNG_KSP) and off disk (PKCS12_NO_PERSIST_KEY)
-  LStore := FCryptApi.PFXImportCertStore(@LBlob, PWideChar(LPassword),
+  LStore := FCryptApi.PFXImportCertStore(@LBlob, LPasswordPtr,
     PKCS12_NO_PERSIST_KEY or PKCS12_ALWAYS_CNG_KSP);
+  if System.Length(LPassword) > 0 then
+    FillChar(LPassword[0], System.Length(LPassword) * SizeOf(WideChar), 0);
   if LStore = nil then
     Exit(False);
   // the portable import already guaranteed exactly one key entry, so the first cert with a
@@ -3728,7 +3834,7 @@ begin
 end;
 
 function TWindowsSigningCrypto.TryImportPemNative(const AData: TBytes;
-  const APassword: string; out AKey: ISigningKey): Boolean;
+  const APassword: ISecretBuffer; out AKey: ISigningKey): Boolean;
 var
   LBlocks: TArray<TPemBlock>;
   LI: Int32;
@@ -3752,7 +3858,7 @@ begin
     else if (LBlocks[LI].PemType = 'PRIVATE KEY') or
       (LBlocks[LI].PemType = 'RSA PRIVATE KEY') or
       (LBlocks[LI].PemType = 'EC PRIVATE KEY') then
-      LImported := FNCrypt.TryImportKey(LBlocks[LI].Content, '', LKey, LSchemes)
+      LImported := FNCrypt.TryImportKey(LBlocks[LI].Content, nil, LKey, LSchemes)
     else
       LImported := False;
     if LImported then
@@ -3775,10 +3881,10 @@ begin
   // decoded first; a PKCS#1/SEC1 or Ed25519 key delegates to the portable facet
   if TPem.IsArmored(AData) then
   begin
-    if not TryImportPemNative(AData, '', Result) then
+    if not TryImportPemNative(AData, nil, Result) then
       Result := FInner.ImportSigningKey(AData);
   end
-  else if FNCrypt.TryImportKey(AData, '', LKey, LSchemes) then
+  else if FNCrypt.TryImportKey(AData, nil, LKey, LSchemes) then
   begin
     LOwner := TNCryptKeyOwner.Create(FNCrypt, LKey);
     Result := TWindowsSigningKey.Create(LOwner, LSchemes);
@@ -3788,7 +3894,7 @@ begin
 end;
 
 function TWindowsSigningCrypto.ImportSigningKey(const AData: TBytes;
-  const APassword: string): ISigningKey;
+  const APassword: ISecretBuffer): ISigningKey;
 var
   LKey: NativeUInt;
   LSchemes: TArray<TSignatureScheme>;
@@ -3813,7 +3919,7 @@ begin
 end;
 
 function TWindowsSigningCrypto.ImportPkcs12(const AData: TBytes;
-  const APassword: string): TTlsCredential;
+  const APassword: ISecretBuffer): TTlsCredential;
 var
   LNativeKey: ISigningKey;
 begin

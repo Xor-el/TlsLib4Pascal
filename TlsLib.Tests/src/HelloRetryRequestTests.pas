@@ -30,6 +30,7 @@ uses
   TlpTlsAlert,
   TlpTlsVersion,
   TlpISecretBuffer,
+  TlpIKeyExchangePrivateKey,
   TlpSecretBuffer,
   TlpNamedGroups,
   TlpNegotiationTypes,
@@ -519,7 +520,7 @@ procedure TTestHelloRetryRequest.TestServerRejectsRetryClientHelloThatChangesSui
 var
   LServer: IHandshakeMachine;
   LHrr, LCookie, LCh2, LShare: TBytes;
-  LPriv: ISecretBuffer;
+  LPriv: IKeyExchangePrivateKey;
   LAlert: TTlsAlertDescription;
 begin
   // a valid P-256 share, so the retry reaches suite negotiation rather than aborting on the share:

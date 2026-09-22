@@ -18,6 +18,7 @@ interface
 uses
   SysUtils,
   TlpCryptoDomainTypes,
+  TlpIKeyExchangePrivateKey,
   TlpISecretBuffer;
 
 type
@@ -47,9 +48,9 @@ type
     function Composition: TNamedGroupComposition;
 
     /// <summary>
-    /// Produces a fresh key pair: the private key and the public share to send.
+    /// Produces a fresh key pair: the private key handle and the public share to send.
     /// </summary>
-    procedure GenerateKeyPair(out APriv: ISecretBuffer; out APubShare: TBytes);
+    procedure GenerateKeyPair(out APriv: IKeyExchangePrivateKey; out APubShare: TBytes);
 
     /// <summary>
     /// Against a peer's public share, produces the ciphertext to send back and
@@ -62,7 +63,7 @@ type
     /// From the private key and the peer's ciphertext, recovers the shared
     /// secret.
     /// </summary>
-    procedure Decapsulate(const APriv: ISecretBuffer; const ACiphertext: TBytes;
+    procedure Decapsulate(const APriv: IKeyExchangePrivateKey; const ACiphertext: TBytes;
       out ASharedSecret: ISecretBuffer);
 
     /// <summary>Whether a peer's public share is well-formed and safe to use.</summary>

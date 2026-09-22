@@ -37,6 +37,7 @@ uses
   TlpTrustPolicy,
   TlpCertificateStrengthPolicy,
   TlpTlsCredential,
+  TlpSecretBuffer,
   TlpITlsCredentialResolver,
   TlpCredentialResolvers,
   TlpEndpointIdentity,
@@ -1868,7 +1869,8 @@ begin
   GuardMutable;
   // a whole fresh record, so nothing (e.g. a staple) bleeds in from a prior credential
   LCredential.CertificateChain := FPkix.Certificates.LoadChain(ACertificateChainData);
-  LCredential.PrivateKey := FCrypto.Signing.ImportSigningKey(APrivateKeyData, APassword);
+  LCredential.PrivateKey := FCrypto.Signing.ImportSigningKey(APrivateKeyData,
+    TSecretBuffer.FromString(APassword));
   FCredential := LCredential;
   FHasCredential := True;
   Result := Self;
@@ -1878,7 +1880,7 @@ function TTlsConfigBuilder.WithCredentialPkcs12(const AData: TBytes;
   const APassword: string): TTlsConfigBuilder;
 begin
   GuardMutable;
-  FCredential := FCrypto.Signing.ImportPkcs12(AData, APassword);
+  FCredential := FCrypto.Signing.ImportPkcs12(AData, TSecretBuffer.FromString(APassword));
   FHasCredential := True;
   Result := Self;
 end;
@@ -1914,7 +1916,8 @@ var
 begin
   GuardMutable;
   LCredential.CertificateChain := FPkix.Certificates.LoadChain(ACertificateChainData);
-  LCredential.PrivateKey := FCrypto.Signing.ImportSigningKey(APrivateKeyData, APassword);
+  LCredential.PrivateKey := FCrypto.Signing.ImportSigningKey(APrivateKeyData,
+    TSecretBuffer.FromString(APassword));
   Result := WithSniCredential(AHost, LCredential);
 end;
 

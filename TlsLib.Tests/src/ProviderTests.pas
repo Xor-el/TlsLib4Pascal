@@ -166,7 +166,7 @@ begin
   LVec := LoadVectorFields('Crypto/Hkdf/HkdfSha256.txt');
   try
     LHkdf := Crypto.Primitives.CreateHkdf(THashAlgorithm.SHA_256);
-    LPrk := LHkdf.Extract(DecodeHex(LVec.Values['salt']),
+    LPrk := LHkdf.Extract(TSecretBuffer.From(DecodeHex(LVec.Values['salt'])),
       TSecretBuffer.From(DecodeHex(LVec.Values['ikm'])));
     CheckEqualBytes('HKDF-Extract PRK', DecodeHex(LVec.Values['prk']),
       SecretBytes(LPrk));

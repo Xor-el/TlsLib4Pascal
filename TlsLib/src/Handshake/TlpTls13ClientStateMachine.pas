@@ -27,6 +27,7 @@ uses
   TlpICryptoProvider,
   TlpIPkixProvider,
   TlpINamedGroup,
+  TlpIKeyExchangePrivateKey,
   TlpIKeySchedule,
   TlpTls13KeySchedule,
   TlpITranscriptHash,
@@ -181,7 +182,7 @@ type
     FParams: TClientHandshakeParams;
     // ITls13ClientReplay: a supplied ClientHello emitted verbatim, empty otherwise
     FVerbatimClientHello: TBytes;
-    FEphemeralPrivate: ISecretBuffer;
+    FEphemeralPrivate: IKeyExchangePrivateKey;
     FEphemeralPublic: TBytes;
     FCurrentGroup: INamedGroup;
     FCurrentGroupCode: UInt16;

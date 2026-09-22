@@ -53,8 +53,7 @@ type
     FClientSalt: ISecretBuffer;
     FServerSalt: ISecretBuffer;
     function Prf(const ASecret: ISecretBuffer; const ALabel: string;
-      const ASeed: TBytes; ALength: Int32): TBytes;
-    function SecretSlice(const ABlock: TBytes; AOffset, ALength: Int32): ISecretBuffer;
+      const ASeed: TBytes; ALength: Int32): ISecretBuffer;
     procedure DeriveMaster(const ALabel: string; const ASeed: TBytes);
     procedure GuardMaster;
   public
@@ -118,22 +117,9 @@ begin
 end;
 
 function TTls12KeySchedule.Prf(const ASecret: ISecretBuffer; const ALabel: string;
-  const ASeed: TBytes; ALength: Int32): TBytes;
+  const ASeed: TBytes; ALength: Int32): ISecretBuffer;
 begin
   Result := FPrf.Compute(ASecret, ALabel, ASeed, ALength);
-end;
-
-function TTls12KeySchedule.SecretSlice(const ABlock: TBytes;
-  AOffset, ALength: Int32): ISecretBuffer;
-var
-  LSlice: TBytes;
-begin
-  LSlice := System.Copy(ABlock, AOffset, ALength);
-  try
-    Result := TSecretBuffer.From(LSlice);
-  finally
-    TSecureMemory.WipeBytes(LSlice);
-  end;
 end;
 
 procedure TTls12KeySchedule.GuardMaster;
@@ -149,17 +135,10 @@ begin
 end;
 
 procedure TTls12KeySchedule.DeriveMaster(const ALabel: string; const ASeed: TBytes);
-var
-  LMaster: TBytes;
 begin
-  LMaster := Prf(FPreMaster, ALabel, ASeed, Tls12MasterSecretLength);
-  try
-    FMasterSecret := TSecretBuffer.From(LMaster);
-    // the pre-master secret is consumed by this one PRF; release it
-    FPreMaster := nil;
-  finally
-    TSecureMemory.WipeBytes(LMaster);
-  end;
+  FMasterSecret := Prf(FPreMaster, ALabel, ASeed, Tls12MasterSecretLength);
+  // the pre-master secret is consumed by this one PRF; release it
+  FPreMaster := nil;
 end;
 
 procedure TTls12KeySchedule.DeriveMasterSecret;
@@ -175,21 +154,17 @@ end;
 
 procedure TTls12KeySchedule.DeriveKeyBlock;
 var
-  LBlock: TBytes;
+  LBlock: ISecretBuffer;
 begin
   GuardMaster;
   // AEAD suites have no MAC keys: client_key || server_key || client_salt || server_salt
   LBlock := Prf(FMasterSecret, 'key expansion',
     TArrayUtilities.Concat(FServerRandom, FClientRandom),
     2 * (FKeyLength + FSaltLength));
-  try
-    FClientKey := SecretSlice(LBlock, 0, FKeyLength);
-    FServerKey := SecretSlice(LBlock, FKeyLength, FKeyLength);
-    FClientSalt := SecretSlice(LBlock, 2 * FKeyLength, FSaltLength);
-    FServerSalt := SecretSlice(LBlock, 2 * FKeyLength + FSaltLength, FSaltLength);
-  finally
-    TSecureMemory.WipeBytes(LBlock);
-  end;
+  FClientKey := TSecretBuffer.Slice(LBlock, 0, FKeyLength);
+  FServerKey := TSecretBuffer.Slice(LBlock, FKeyLength, FKeyLength);
+  FClientSalt := TSecretBuffer.Slice(LBlock, 2 * FKeyLength, FSaltLength);
+  FServerSalt := TSecretBuffer.Slice(LBlock, 2 * FKeyLength + FSaltLength, FSaltLength);
 end;
 
 procedure TTls12KeySchedule.SetPreMasterSecret(const APreMasterSecret: ISecretBuffer);
@@ -234,7 +209,8 @@ begin
     LLabel := 'client finished'
   else
     LLabel := 'server finished';
-  Result := Prf(FMasterSecret, LLabel, ATranscriptHash, Tls12VerifyDataLength);
+  // verify_data is a public wire value (RFC 5246 7.4.9)
+  Result := Prf(FMasterSecret, LLabel, ATranscriptHash, Tls12VerifyDataLength).ToBytes;
 end;
 
 function TTls12KeySchedule.VerifyFinished(ADirection: TTlsDirection;
@@ -270,7 +246,8 @@ begin
     LSeed := TArrayUtilities.Concat(LSeed,
       TArrayUtilities.Concat(LContextLen, AContext));
   end;
-  Result := Prf(FMasterSecret, ALabel, LSeed, ALength);
+  // RFC 5705 exported keying material is returned to the caller as public output
+  Result := Prf(FMasterSecret, ALabel, LSeed, ALength).ToBytes;
 end;
 
 procedure TTls12KeySchedule.ForgetHandshakeSecrets;
