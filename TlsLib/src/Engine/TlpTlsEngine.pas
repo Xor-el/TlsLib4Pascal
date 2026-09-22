@@ -925,8 +925,7 @@ end;
 function TTlsEngine.ConnectionInfo: TTlsConnectionInfo;
 begin
   Result := FInfo;
-  // the one defensive copy the retry_configs reader has always made, so a caller cannot
-  // mutate the engine's held bytes through the returned snapshot
+  // copy retry_configs so a caller re-offering it cannot mutate the engine's held bytes
   Result.EchRetryConfigs := System.Copy(FInfo.EchRetryConfigs);
 end;
 
