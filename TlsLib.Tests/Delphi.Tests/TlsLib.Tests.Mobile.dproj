@@ -429,6 +429,7 @@
         <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsConnectionInfo.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsStreamPump.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsStream.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsAdapterCore.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Trust\TlpIHttpFetcher.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Trust\TlpLiveRevocation.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\CertCompression\TlpICertificateCompression.pas"/>
@@ -559,6 +560,7 @@
         <DCCReference Include="..\src\PresetTests.pas"/>
         <DCCReference Include="..\src\ExtensionCodecTests.pas"/>
         <DCCReference Include="..\src\NegotiationTests.pas"/>
+        <DCCReference Include="..\src\AdapterCoreTests.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

@@ -13,8 +13,10 @@
 /// The mORMot integration adapter: drives TlsLib4Pascal's managed TLS engine behind
 /// mORMot's own INetTls "swap-your-SSL" seam. An existing mORMot app gets our managed
 /// TLS by pointing the global NewNetTls factory at NewTlsLib4PascalTls - no fork, no
-/// recompile of mORMot. This unit is the only place our types and mORMot's types meet;
-/// the core library references nothing here.
+/// recompile of mORMot. This unit is the only place our types and mORMot's types meet:
+/// it maps mORMot's TNetTlsContext (plus the process-wide setters) onto the host-neutral
+/// adapter core (config composition, timed transport, session drive) and supplies the
+/// mORMot socket glue.
 /// </summary>
 unit TlsLibMormotTls;
 
@@ -32,30 +34,18 @@ uses
   mormot.core.base,
   mormot.core.unicode,
   TlpTlsAlert,
-  TlpTlsVersion,
   TlpEchConfig,
   TlpICryptoProvider,
-  TlpDefaultCryptoProvider,
   TlpIPkixProvider,
-  TlpDefaultPkixProvider,
-  TlpICertificateTrust,
-  TlpCertificateVerifier,
   TlpTrustPolicy,
-  TlpTlsCredential,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
-  TlpTlsPresets,
   TlpITlsEngine,
   TlpTlsEngineFactory,
   TlpITlsConfigMemo,
   TlpTlsConfigMemo,
-  TlpTlsSignatureBuilder,
-  TlpISession,
-  TlpInMemorySessionCache,
-  TlpITlsTransport,
-  TlpTlsStreamPump,
   TlpTlsLibExceptions,
-  TlpTlsStream,
+  TlpTlsAdapterCore,
   TlpSystemTrustFacade;
 
 /// <summary>Sets a process-wide augment-only verify callback the adapter threads into every
@@ -79,75 +69,71 @@ procedure SetTlsLibMormotVerdictResolver(const AResolver: TCertificateVerdictRes
 procedure SetTlsLibMormotServerVerdictResolver(
   const AResolver: TCertificateVerdictResolver; ADeadlineMs: Cardinal);
 /// <summary>Sets a process-wide, fully-built client config that REPLACES the context-driven build:
-/// when set, every client handshake uses it as-is (the TNetTlsContext trust/cert fields are ignored).
-/// The verdict resolver still applies, but only if this config armed the deferral
-/// (WithLiveRevocationVerdict/WithAsyncCertificateVerdict) - else the handshake never parks. The
-/// escape hatch to the full builder API - cipher order, groups, resumption, ALPN. nil clears it.</summary>
+/// when set, every client handshake uses it as-is, and a TNetTlsContext that also carries cert/trust
+/// fields is not allowed alongside it (the adapter raises). The verdict resolver still applies, but
+/// only if this config armed the deferral (WithLiveRevocationVerdict/WithAsyncCertificateVerdict) -
+/// else the handshake never parks. The escape hatch to the full builder API - cipher order, groups,
+/// resumption, ALPN. nil clears it.</summary>
 procedure SetTlsLibMormotClientConfig(const AConfig: ITlsClientConfig);
 /// <summary>Sets a process-wide, fully-built server config that REPLACES the context-driven build
-/// (the server-side counterpart of SetTlsLibMormotClientConfig). nil clears it.</summary>
+/// (the server-side counterpart of SetTlsLibMormotClientConfig; same conflict rule). nil clears it.</summary>
 procedure SetTlsLibMormotServerConfig(const AConfig: ITlsServerConfig);
 /// <summary>Sets a process-wide crypto provider for the context-driven build (hashing, RNG, cert
 /// parsing). nil (the default) uses the shared default; set it to inject a custom backend (HSM,
-/// FIPS, a test mock). A process-wide config-in (SetTlsLibMormot{Client,Server}Config) carries its
-/// own provider and takes precedence; this only governs the context-driven path.</summary>
+/// FIPS, a test mock). Not allowed alongside a process-wide config-in
+/// (SetTlsLibMormot{Client,Server}Config), which carries its own provider; this only governs the
+/// context-driven path.</summary>
 procedure SetTlsLibMormotCrypto(const ACryptoProvider: ICryptoProvider);
 /// <summary>Sets a process-wide PKIX provider for the context-driven build (certificate parsing,
 /// path validation, revocation). nil (the default) uses the shared default; set it to inject a
-/// custom backend. A process-wide config-in carries its own PKIX provider and takes precedence;
-/// this only governs the context-driven path.</summary>
+/// custom backend. Not allowed alongside a process-wide config-in, which carries its own PKIX
+/// provider; this only governs the context-driven path.</summary>
 procedure SetTlsLibMormotPkix(const APkix: IPkixProvider);
 /// <summary>Enables/disables TLS session resumption for the context-driven build (a server issues
 /// tickets; a client caches and reuses them), so a reconnect skips the asymmetric handshake.
 /// Forward-secret (TLS 1.3 psk_dhe_ke); 0-RTT is never enabled. Default True.</summary>
 procedure SetTlsLibMormotSessionResumption(AEnabled: Boolean);
+/// <summary>Sets the process-wide read timeout (ms) bounding every handshake, so a peer that
+/// connects but sends no data cannot park the connection's thread. Deliberately NOT an app-read
+/// deadline. 0 (the default) uses the 30 s library default; a positive value overrides it.</summary>
+procedure SetTlsLibMormotHandshakeTimeout(AMs: Int32);
 /// <summary>Clears the process-wide build-once config caches so the next handshake rebuilds from
 /// current inputs. Call after rotating a certificate/key to purge the retired credential (a cached
 /// config holds its private key alive). Call only with no TLS traffic in flight.</summary>
 procedure FlushTlsLibMormotConfigCache;
 
 type
-  /// <summary>An ITlsTransport over a mORMot TNetSocket: raw ciphertext moves through the
-  /// socket's blocking Recv/Send. nrClosed is an orderly EOF (0); nrRetry is retried.</summary>
-  TMormotSocketTransport = class sealed(TInterfacedObject, ITlsTransport)
+  /// <summary>An ITlsTransport over a mORMot TNetSocket: raw ciphertext moves through the socket's
+  /// blocking Recv/Send, and the handshake-phase read cap comes from the shared timed-transport
+  /// base. nrClosed is an orderly EOF (0); nrRetry is retried.</summary>
+  TMormotSocketTransport = class sealed(TTlsTimedTransportBase)
   strict private
   var
     FSocket: TNetSocket;
-    FReadTimeoutMs: Int32; // > 0 bounds a read (the handshake phase); 0 = block (app data)
+  strict protected
+    function WaitReadable(AMs: Int32): Boolean; override;
+    function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
+    function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
   public
     constructor Create(ASocket: TNetSocket);
-    /// <summary>Bounds each Read to AMs ms (0 = block); the Read uses WaitFor, not SO_RCVTIMEO
-    /// (which Recv maps to nrRetry, spinning the read loop).</summary>
-    procedure SetReadTimeout(AMs: Int32);
-    function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
-    procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
   end;
 
   /// <summary>
   /// TlsLib4Pascal's implementation of mORMot's INetTls. AfterConnection runs the client
   /// handshake; AfterAccept runs the server handshake; Send / Receive / ReceivePending move
-  /// application data. It maps the input fields of TNetTlsContext onto our immutable config
-  /// (cert/key, trust, client-auth, and the loud IgnoreCertificateErrors escape hatch).
+  /// application data. It maps the input fields of TNetTlsContext onto the host-neutral adapter
+  /// core (cert/key, trust, client-auth, and the loud IgnoreCertificateErrors escape hatch).
   /// </summary>
   TTlsLibNetTls = class sealed(TInterfacedObject, INetTls)
   strict private
   var
-    FStream: TTlsStream;
-    FTransport: ITlsTransport;
-    FEngine: ITlsEngine;
-    FServerName: string;
-    class function LoadFile(const APath: RawUtf8): TBytes; static;
-    /// <summary>Whether the context names any cert/trust field a process-wide config would replace.</summary>
-    class function ContextCarriesTrustOrCredential(
-      const AContext: TNetTlsContext): Boolean; static;
-    /// <summary>The injected process-wide provider, or the shared default when none is set.</summary>
-    class function EffectiveCrypto: ICryptoProvider; static;
-    /// <summary>The injected process-wide PKIX provider, or the shared default when none is set.</summary>
-    class function EffectivePkix: IPkixProvider; static;
-    class function BuildClientConfig(const AContext: TNetTlsContext): ITlsClientConfig; static;
-    class function BuildServerConfig(const AContext: TNetTlsContext): ITlsServerConfig; static;
-    class function ClientSignature(const AContext: TNetTlsContext): string; static;
-    class function ServerSignature(const AContext: TNetTlsContext): string; static;
+    FSession: TTlsAdapterSession;
+    /// <summary>The host-neutral snapshot the adapter core composes into a TLS configuration for
+    /// the given role: the process-wide setters overlaid with this connection's TNetTlsContext.
+    /// A client always composes its peer trust from the context; a server does so only when it
+    /// requests a client certificate.</summary>
+    class function Snapshot(const AContext: TNetTlsContext;
+      AIsClient: Boolean): TTlsAdapterOptions; static;
     class function BuildClientEngine(var AContext: TNetTlsContext;
       const AHost: string): ITlsEngine; static;
     class function BuildServerEngine(const AContext: TNetTlsContext): ITlsEngine; static;
@@ -192,13 +178,12 @@ procedure RegisterTlsLib4PascalTls;
 implementation
 
 resourcestring
-  SNoCredential = 'the mORMot TLS context supplies no server certificate/key';
   SCARawUnsupported = 'the mORMot TLS context supplies CACertificatesRaw (in-memory OpenSSL ' +
     'X509 handles); TlsLib4Pascal is OpenSSL-free and cannot consume them - pass the CA chain ' +
     'as a PEM/DER file via CACertificatesFile, or use TSystemTrust for the OS anchors';
-  SConfigAndContextConflict = 'a process-wide config installed via %s is used together with a ' +
-    'TNetTlsContext that carries cert/trust fields; use either the process-wide config or the ' +
-    'context fields, not both';
+  SMormotReceiveFailed = 'mORMot socket receive failed (nr=%d)';
+  SMormotSendFailed = 'mORMot socket send failed (nr=%d)';
+  SMormotTrustSourceHint = 'CACertificatesFile or CASystemStores';
 
 var
   // process-wide neutral hooks the per-connection adapter threads into each client handshake
@@ -222,6 +207,8 @@ var
   GPkix: IPkixProvider;
   // whether the context-driven build enables session resumption (default True, set in init)
   GSessionResumption: Boolean;
+  // the read timeout (ms) bounding every handshake; 0 uses the library default
+  GHandshakeTimeoutMs: Int32;
 
 procedure SetTlsLibMormotVerifyCallback(
   const ACallback: TTlsCertificateVerifyCallback);
@@ -268,6 +255,11 @@ begin
   GSessionResumption := AEnabled;
 end;
 
+procedure SetTlsLibMormotHandshakeTimeout(AMs: Int32);
+begin
+  GHandshakeTimeoutMs := AMs;
+end;
+
 procedure FlushTlsLibMormotConfigCache;
 begin
   GServerConfigMemo.Clear;
@@ -282,351 +274,176 @@ begin
   FSocket := ASocket;
 end;
 
-procedure TMormotSocketTransport.SetReadTimeout(AMs: Int32);
+function TMormotSocketTransport.WaitReadable(AMs: Int32): Boolean;
 begin
-  FReadTimeoutMs := AMs;
+  // WaitFor readiness, not SO_RCVTIMEO: mORMot's Recv maps a receive timeout to nrRetry, which
+  // would spin the read loop instead of surfacing the elapsed cap
+  Result := neRead in FSocket.WaitFor(AMs, [neRead]);
 end;
 
-function TMormotSocketTransport.Read(var ABuffer: TBytes; AOffset,
+function TMormotSocketTransport.ReceiveRaw(var ABuffer: TBytes; AOffset,
   AMaxLength: Int32): Int32;
 var
   LLen: Integer;
   LRes: TNetResult;
 begin
   repeat
-    // bounded during the handshake; distinct from a peer close (nrClosed / 0 below)
-    if (FReadTimeoutMs > 0) and
-      (not (neRead in FSocket.WaitFor(FReadTimeoutMs, [neRead]))) then
-      raise ETlsHandshakeTimeout.Create(
-        Format('the peer sent no handshake data within %d ms', [FReadTimeoutMs]));
     LLen := AMaxLength;
     LRes := FSocket.Recv(@ABuffer[AOffset], LLen);
     case LRes of
       nrOK:
+        // a zero-length OK read means the peer closed
         if LLen > 0 then
           Exit(LLen)
         else
-          Exit(0); // a zero-length OK read means the peer closed
+          Exit(0);
       nrClosed:
         Exit(0);
       nrRetry:
-        ; // a blocking socket rarely reports this; loop and read again
+        ; // a blocking socket rarely reports this; read again
     else
-      raise ETlsStreamError.Create(
-        Format('mORMot socket receive failed (nr=%d)', [Ord(LRes)]));
+      raise ETlsStreamError.Create(Format(SMormotReceiveFailed, [Ord(LRes)]));
     end;
   until False;
 end;
 
-procedure TMormotSocketTransport.Write(const ABuffer: TBytes; AOffset,
-  ALength: Int32);
+function TMormotSocketTransport.SendRaw(const ABuffer: TBytes; AOffset,
+  ALength: Int32): Int32;
 var
-  LOff, LRemain, LLen: Integer;
+  LLen: Integer;
   LRes: TNetResult;
 begin
-  LOff := AOffset;
-  LRemain := ALength;
-  while LRemain > 0 do
-  begin
-    LLen := LRemain;
-    LRes := FSocket.Send(@ABuffer[LOff], LLen);
+  repeat
+    LLen := ALength;
+    LRes := FSocket.Send(@ABuffer[AOffset], LLen);
     case LRes of
       nrOK:
-        begin
-          Inc(LOff, LLen);
-          Dec(LRemain, LLen);
-        end;
+        Exit(LLen);
       nrRetry:
         ; // loop and send the remainder
     else
-      raise ETlsStreamError.Create(
-        Format('mORMot socket send failed (nr=%d)', [Ord(LRes)]));
+      raise ETlsStreamError.Create(Format(SMormotSendFailed, [Ord(LRes)]));
     end;
-  end;
+  until False;
 end;
 
 { TTlsLibNetTls }
 
 destructor TTlsLibNetTls.Destroy;
 begin
-  // close_notify before the stream goes away, so a strict peer reads a clean shutdown rather
-  // than a truncation (RFC 8446 6.1). Half-close, idempotent, and a no-op when the handshake
-  // never finished. The INetTls seam has no explicit close hook, but mORMot's TCrtSocket.Close
-  // releases this interface (running us here) BEFORE it closes the socket, so FSocket is still
-  // open and the alert goes out. Best-effort: a write to a peer that already RST the connection
-  // is expected and ignored.
-  if FStream <> nil then
-    try
-      FStream.CloseNotify;
-    except
-    end;
-  FStream.Free;
+  // close_notify before the session goes away, so a strict peer reads a clean shutdown rather than
+  // a truncation (RFC 8446 6.1). The INetTls seam has no explicit close hook, but mORMot's
+  // TCrtSocket.Close releases this interface (running us here) BEFORE it closes the socket, so the
+  // socket is still open and the alert goes out. Best-effort: a write to a peer that already RST
+  // the connection is expected and ignored.
+  if FSession <> nil then
+    FSession.CloseNotifyQuietly;
+  FSession.Free;
+  FSession := nil;
   inherited Destroy;
 end;
 
-class function TTlsLibNetTls.LoadFile(const APath: RawUtf8): TBytes;
+class function TTlsLibNetTls.Snapshot(const AContext: TNetTlsContext;
+  AIsClient: Boolean): TTlsAdapterOptions;
 var
-  LStream: TFileStream;
+  LWantTrust: Boolean;
 begin
-  Result := nil;
-  LStream := TFileStream.Create(Utf8ToString(APath), fmOpenRead or fmShareDenyWrite);
-  try
-    SetLength(Result, LStream.Size);
-    if LStream.Size > 0 then
-      LStream.ReadBuffer(Result[0], LStream.Size);
-  finally
-    LStream.Free;
-  end;
-end;
-
-class function TTlsLibNetTls.ContextCarriesTrustOrCredential(
-  const AContext: TNetTlsContext): Boolean;
-begin
-  Result := (AContext.CertificateFile <> '') or (AContext.PrivateKeyFile <> '') or
-    (AContext.CACertificatesFile <> '') or (AContext.CASystemStores <> []) or
-    (AContext.CACertificatesRaw <> nil);
-end;
-
-class function TTlsLibNetTls.EffectiveCrypto: ICryptoProvider;
-begin
-  if GCrypto <> nil then
-    Result := GCrypto
-  else
-    Result := TDefaultCryptoProvider.Shared;
-end;
-
-class function TTlsLibNetTls.EffectivePkix: IPkixProvider;
-begin
-  if GPkix <> nil then
-    Result := GPkix
-  else
-    Result := TDefaultPkixProvider.Shared;
-end;
-
-class function TTlsLibNetTls.BuildClientConfig(
-  const AContext: TNetTlsContext): ITlsClientConfig;
-var
-  LCrypto: ICryptoProvider;
-  LPkix: IPkixProvider;
-  LClient: ITlsClientConfigBuilder;
-  LHasTrust: Boolean;
-begin
-  LCrypto := EffectiveCrypto;
-  LPkix := EffectivePkix;
-  LClient := TTlsPresets.Compatible(LCrypto, LPkix).Client;
-  LHasTrust := False;
-  // trust: a CASystemStores set that names an anchor-bearing store (the ROOT and/or CA store -
-  // exactly what our OS harvester collects) routes to the OS trust store (Windows crypt32 /
-  // macOS SecTrust / Unix bundle). scsMY (personal identity) and scsSpc (code-signing) are not
-  // server-auth anchors, so they alone must not turn this on. CACertificatesFile adds a CA
-  // bundle; the two sources union - either counts.
-  if (scsRoot in AContext.CASystemStores) or
-    (scsCA in AContext.CASystemStores) then
+  Result := TTlsAdapterOptions.Default;
+  Result.Crypto := GCrypto;
+  Result.Pkix := GPkix;
+  Result.Certificate := TTlsAdapterBlobSource.FromFile(Utf8ToString(AContext.CertificateFile));
+  Result.PrivateKey := TTlsAdapterBlobSource.FromFile(Utf8ToString(AContext.PrivateKeyFile));
+  Result.KeyPassword := Utf8ToString(AContext.PrivatePassword);
+  // trust sources: a client always composes them from the context; a server does so only when it
+  // requests a client certificate, so a server without client auth names no source and requests
+  // none. scsRoot/scsCA are the anchor-bearing OS stores our harvester collects (scsMY personal
+  // identity and scsSpc code-signing are not server-auth anchors and must not turn system trust
+  // on). A CACertificatesFile bundle and the OS store union - either counts. UseSystemTrust reaches
+  // the OS store through the host-neutral installer seam, so the core never depends on the
+  // system-trust package.
+  LWantTrust := AIsClient or AContext.ClientCertificateAuthentication;
+  if LWantTrust then
   begin
-    TSystemTrust.WithSystemTrust(LClient, LPkix);
-    LHasTrust := True;
-  end;
-  if AContext.CACertificatesFile <> '' then
-  begin
-    LClient.WithTrustAnchors(LoadFile(AContext.CACertificatesFile));
-    LHasTrust := True;
-  end;
-  // the loud escape hatch: mORMot's IgnoreCertificateErrors maps only onto our
-  // dangerous InsecureSkipVerify - never a silent full bypass
-  if AContext.IgnoreCertificateErrors then
-  begin
-    LClient.WithDangerousInsecureSkipVerify(True);
-    // a client build still requires a trust source; an empty store suffices when the
-    // pipeline is being skipped anyway
-    if not LHasTrust then
-      LClient.WithTrustStore(TTrustAnchorStore.Create(nil) as ITrustAnchorStore);
-  end;
-  // a client certificate for mutual TLS, when the context carries a cert+key file pair
-  if AContext.CertificateFile <> '' then
-    LClient.WithCredential(LoadFile(AContext.CertificateFile),
-      LoadFile(AContext.PrivateKeyFile), Utf8ToString(AContext.PrivatePassword));
-  // the process-wide neutral augment hook, and an out-of-band verdict resolver that parks
-  // the handshake for a decision (live revocation etc.)
-  if Assigned(GVerifyCallback) then
-    LClient.WithCertificateVerifyCallback(GVerifyCallback);
-  if Assigned(GVerdictResolver) then
-    LClient.WithLiveRevocationVerdict(GVerdictDeadlineMs);
-  if GSessionResumption then
-  begin
-    LClient.WithResumption(True);
-    LClient.WithSessionCache(TInMemorySessionCache.Create as ISessionCache);
-  end
-  else
-    LClient.WithResumption(False);
-  Result := LClient.Build;
-end;
-
-class function TTlsLibNetTls.BuildServerConfig(
-  const AContext: TNetTlsContext): ITlsServerConfig;
-var
-  LCrypto: ICryptoProvider;
-  LPkix: IPkixProvider;
-  LServer: ITlsServerConfigBuilder;
-begin
-  LCrypto := EffectiveCrypto;
-  LPkix := EffectivePkix;
-  LServer := TTlsPresets.Compatible(LCrypto, LPkix).Server;
-  if AContext.CertificateFile <> '' then
-    LServer.WithCredential(LoadFile(AContext.CertificateFile),
-      LoadFile(AContext.PrivateKeyFile), Utf8ToString(AContext.PrivatePassword))
-  else
-    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SNoCredential);
-  // mutual TLS: request and verify the client certificate against the CA bundle
-  if AContext.ClientCertificateAuthentication then
-  begin
-    LServer.WithPeerAuth(TClientAuthMode.Required);
-    // same anchor-store semantics as the client: only ROOT/CA trigger the OS harvest. NOTE this
-    // validates CLIENT certificates against the OS public web-PKI roots - a very broad trust
-    // surface that is rarely what an mTLS server wants (client certs normally chain to a private
-    // CA supplied via CACertificatesFile). We map mORMot's config faithfully; the caller opted in.
-    if (scsRoot in AContext.CASystemStores) or
-      (scsCA in AContext.CASystemStores) then
-      TSystemTrust.WithSystemTrust(LServer, LPkix);
     if AContext.CACertificatesFile <> '' then
-      LServer.WithTrustAnchors(LoadFile(AContext.CACertificatesFile));
-    // arm the async client-certificate verdict park so the server-role resolver runs server-side
-    // (live client-cert revocation); without this the stream's resolver is never invoked
-    if Assigned(GServerVerdictResolver) then
-      LServer.WithLiveRevocationVerdict(GServerVerdictDeadlineMs);
+    begin
+      SetLength(Result.TrustAnchors, 1);
+      Result.TrustAnchors[0] :=
+        TTlsAdapterBlobSource.FromFile(Utf8ToString(AContext.CACertificatesFile));
+    end;
+    if (scsRoot in AContext.CASystemStores) or (scsCA in AContext.CASystemStores) then
+      Result.SystemTrust := TSystemTrustInstaller.Create as ISystemTrustInstaller;
   end;
-  if GSessionResumption then
+  // a client maps IgnoreCertificateErrors onto the loud InsecureSkipVerify (never a silent bypass);
+  // a server always verifies a requested client certificate, so its verify posture stays on
+  if AIsClient then
   begin
-    LServer.WithResumption(True);
-    LServer.WithDefaultSessionTicketKeys;
+    Result.VerifyPeer := not AContext.IgnoreCertificateErrors;
+    Result.InsecureSkipVerify := AContext.IgnoreCertificateErrors;
   end
   else
-    LServer.WithResumption(False);
-  Result := LServer.Build;
-end;
-
-class function TTlsLibNetTls.ClientSignature(const AContext: TNetTlsContext): string;
-var
-  LSig: TTlsSignatureBuilder;
-  LCrypto: ICryptoProvider;
-begin
-  LCrypto := EffectiveCrypto;
-  LSig := TTlsSignatureBuilder.Create(LCrypto);
-  LSig.AddPointer('crypto', LCrypto);
-  LSig.AddPointer('pkix', EffectivePkix);
-  LSig.AddFlag('resume', GSessionResumption);
-  LSig.AddFile('cert', Utf8ToString(AContext.CertificateFile));
-  LSig.AddFile('key', Utf8ToString(AContext.PrivateKeyFile));
-  LSig.AddSecret('keypw', Utf8ToString(AContext.PrivatePassword));
-  LSig.AddFile('ca', Utf8ToString(AContext.CACertificatesFile));
-  LSig.AddFlag('scsRoot', scsRoot in AContext.CASystemStores);
-  LSig.AddFlag('scsCA', scsCA in AContext.CASystemStores);
-  LSig.AddFlag('ignoreErrors', AContext.IgnoreCertificateErrors);
-  LSig.AddMethod('verifyCb', TMethod(GVerifyCallback));
-  LSig.AddFlag('asyncVerdict', Assigned(GVerdictResolver));
-  LSig.AddCardinal('deadline', GVerdictDeadlineMs);
-  Result := LSig.Value;
-end;
-
-class function TTlsLibNetTls.ServerSignature(const AContext: TNetTlsContext): string;
-var
-  LSig: TTlsSignatureBuilder;
-  LCrypto: ICryptoProvider;
-begin
-  LCrypto := EffectiveCrypto;
-  LSig := TTlsSignatureBuilder.Create(LCrypto);
-  LSig.AddPointer('crypto', LCrypto);
-  LSig.AddPointer('pkix', EffectivePkix);
-  LSig.AddFlag('resume', GSessionResumption);
-  LSig.AddFile('cert', Utf8ToString(AContext.CertificateFile));
-  LSig.AddFile('key', Utf8ToString(AContext.PrivateKeyFile));
-  LSig.AddSecret('keypw', Utf8ToString(AContext.PrivatePassword));
-  LSig.AddFlag('clientAuth', AContext.ClientCertificateAuthentication);
-  LSig.AddFile('ca', Utf8ToString(AContext.CACertificatesFile));
-  LSig.AddFlag('scsRoot', scsRoot in AContext.CASystemStores);
-  LSig.AddFlag('scsCA', scsCA in AContext.CASystemStores);
-  LSig.AddFlag('asyncVerdict', Assigned(GServerVerdictResolver));
-  LSig.AddCardinal('deadline', GServerVerdictDeadlineMs);
-  Result := LSig.Value;
+  begin
+    Result.VerifyPeer := True;
+    Result.InsecureSkipVerify := False;
+    Result.ClientAuthRequested := AContext.ClientCertificateAuthentication;
+  end;
+  // CheckHostName and ClientAuth keep the composable defaults (True / Required); mORMot exposes no
+  // knob for either, and offers no ALPN surface
+  Result.VerifyCallback := GVerifyCallback;
+  Result.ClientVerdictResolver := GVerdictResolver;
+  Result.ClientVerdictDeadlineMs := GVerdictDeadlineMs;
+  Result.ServerVerdictResolver := GServerVerdictResolver;
+  Result.ServerVerdictDeadlineMs := GServerVerdictDeadlineMs;
+  Result.SessionResumption := GSessionResumption;
+  Result.HandshakeTimeoutMs := GHandshakeTimeoutMs;
+  Result.ClientConfig := GClientConfig;
+  Result.ServerConfig := GServerConfig;
+  Result.TrustSourceHint := SMormotTrustSourceHint;
 end;
 
 class function TTlsLibNetTls.BuildClientEngine(var AContext: TNetTlsContext;
   const AHost: string): ITlsEngine;
 var
-  LCfg: ITlsClientConfig;
-  LSig: string;
+  LConfig: ITlsClientConfig;
 begin
-  // a process-wide fully-built config REPLACES the context-driven build outright; a context that
-  // also carries cert/trust fields fails loud rather than dropping them silently (the verify
-  // callback and verdict resolver are runtime hooks and still apply)
-  if GClientConfig <> nil then
-  begin
-    if ContextCarriesTrustOrCredential(AContext) then
-      raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
-        Format(SConfigAndContextConflict, ['SetTlsLibMormotClientConfig']));
-    AContext.Enabled := True;
-    Exit(TTlsEngineFactory.CreateClientEngine(GClientConfig, AHost));
-  end;
-  // CACertificatesRaw carries live OpenSSL X509 handles we cannot consume; reject before the memo
-  // (it is per-context, never part of the build signature)
+  // CACertificatesRaw carries live OpenSSL X509 handles we cannot consume; reject before composing
+  // (it is never part of the build signature)
   if AContext.CACertificatesRaw <> nil then
     raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SCARawUnsupported);
-  LSig := ClientSignature(AContext);
-  if not GClientConfigMemo.TryGet(LSig, LCfg) then
-    LCfg := GClientConfigMemo.StoreOrAdopt(LSig, BuildClientConfig(AContext));
+  // a process-wide config supplied via SetTlsLibMormotClientConfig REPLACES the context-driven build
+  // outright; the composer's conflict guard fails loud when the context also carries cert/trust
+  // fields, rather than dropping them silently
+  LConfig := TTlsAdapterConfigComposer.ResolveClientConfig(Snapshot(AContext, True),
+    GClientConfigMemo, 'SetTlsLibMormotClientConfig');
   AContext.Enabled := True;
-  Result := TTlsEngineFactory.CreateClientEngine(LCfg, AHost);
+  Result := TTlsEngineFactory.CreateClientEngine(LConfig, AHost);
 end;
 
 class function TTlsLibNetTls.BuildServerEngine(
   const AContext: TNetTlsContext): ITlsEngine;
-var
-  LCfg: ITlsServerConfig;
-  LSig: string;
 begin
-  // a context that also carries cert/trust fields fails loud rather than being dropped silently
-  if GServerConfig <> nil then
-  begin
-    if ContextCarriesTrustOrCredential(AContext) then
-      raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
-        Format(SConfigAndContextConflict, ['SetTlsLibMormotServerConfig']));
-    Exit(TTlsEngineFactory.CreateServerEngine(GServerConfig));
-  end;
   if AContext.CACertificatesRaw <> nil then
     raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SCARawUnsupported);
-  LSig := ServerSignature(AContext);
-  if not GServerConfigMemo.TryGet(LSig, LCfg) then
-    LCfg := GServerConfigMemo.StoreOrAdopt(LSig, BuildServerConfig(AContext));
-  Result := TTlsEngineFactory.CreateServerEngine(LCfg);
+  Result := TTlsEngineFactory.CreateServerEngine(
+    TTlsAdapterConfigComposer.ResolveServerConfig(Snapshot(AContext, False),
+    GServerConfigMemo, 'SetTlsLibMormotServerConfig'));
 end;
 
 procedure TTlsLibNetTls.DriveHandshake(ASocket: TNetSocket;
   const AEngine: ITlsEngine; AIsClient: Boolean; const AHost: string);
-const
-  DefaultHandshakeReadTimeoutMs = 30000; // no readable user timeout at the INetTls seam
 var
-  LTransport: TMormotSocketTransport;
+  LResolver: TCertificateVerdictResolver;
 begin
-  FEngine := AEngine;
-  FServerName := AHost;
-  LTransport := TMormotSocketTransport.Create(ASocket);
-  // bound the handshake read (the transport uses WaitFor - see SetReadTimeout)
-  LTransport.SetReadTimeout(DefaultHandshakeReadTimeoutMs);
-  FTransport := LTransport as ITlsTransport;
-  FStream := TTlsStream.Create(FTransport, FEngine, AIsClient, AHost);
   // attach the role-correct resolver: a client parks on the server's chain, a server (client auth)
-  // on the mTLS client's chain - the two bind different EKUs
+  // on the mTLS client's chain - the two bind different EKUs, so one resolver cannot serve both
   if AIsClient then
-  begin
-    if Assigned(GVerdictResolver) then
-      FStream.SetCertificateVerdictResolver(GVerdictResolver);
-  end
-  else if Assigned(GServerVerdictResolver) then
-    FStream.SetCertificateVerdictResolver(GServerVerdictResolver);
-  try
-    FStream.Handshake;
-  finally
-    LTransport.SetReadTimeout(0); // handshake done: application reads block normally
-  end;
+    LResolver := GVerdictResolver
+  else
+    LResolver := GServerVerdictResolver;
+  // bound the handshake read by the process-wide timeout (0 = the library default); the session
+  // arms and clears the cap, even when the handshake raised, so a later app read is not left bounded
+  FSession := TTlsAdapterSession.Create(AEngine,
+    TMormotSocketTransport.Create(ASocket), AIsClient, AHost, LResolver);
+  FSession.Handshake(GHandshakeTimeoutMs);
 end;
 
 procedure TTlsLibNetTls.AfterConnection(Socket: TNetSocket;
@@ -665,48 +482,43 @@ begin
 end;
 
 function TTlsLibNetTls.GetCipherName: RawUtf8;
-var
-  LVersion: TTlsVersion;
 begin
   // we do not surface the raw suite name; report the negotiated protocol version, which is
   // what mORMot logs the cipher for
-  LVersion := FEngine.NegotiatedVersion;
-  if LVersion.WireValue = TlsWireVersionTls13 then
-    Result := 'TLSv1.3'
-  else if LVersion.WireValue = TlsWireVersionTls12 then
-    Result := 'TLSv1.2'
+  if FSession <> nil then
+    Result := StringToUtf8(FSession.VersionName)
   else
     Result := '';
 end;
 
 function TTlsLibNetTls.NegotiatedGroup: UInt16;
 begin
-  if FEngine <> nil then
-    Result := FEngine.NegotiatedGroup
+  if FSession <> nil then
+    Result := FSession.NegotiatedGroup
   else
     Result := 0;
 end;
 
 function TTlsLibNetTls.PeerServerName: string;
 begin
-  if FEngine <> nil then
-    Result := FEngine.PeerServerName
+  if FSession <> nil then
+    Result := FSession.PeerServerName
   else
     Result := '';
 end;
 
 function TTlsLibNetTls.EchStatus: TEchStatus;
 begin
-  if FEngine <> nil then
-    Result := FEngine.EchStatus
+  if FSession <> nil then
+    Result := FSession.EchStatus
   else
     Result := TEchStatus.NotOffered;
 end;
 
 function TTlsLibNetTls.Resumed: Boolean;
 begin
-  if FEngine <> nil then
-    Result := FEngine.IsResumed
+  if FSession <> nil then
+    Result := FSession.Resumed
   else
     Result := False;
 end;
@@ -719,16 +531,16 @@ end;
 
 function TTlsLibNetTls.GetRawCert(SignHashName: PRawUtf8): RawByteString;
 var
-  LChain: TArray<TBytes>;
+  LLeaf: TBytes;
 begin
   // the peer leaf certificate DER (mORMot uses it for certificate pinning / peer info). We do
   // not surface the signature-hash name, so TLS channel binding that requires it stays inert.
   Result := '';
-  if FEngine = nil then
+  if FSession = nil then
     Exit;
-  LChain := FEngine.PeerCertificates;
-  if (System.Length(LChain) > 0) and (System.Length(LChain[0]) > 0) then
-    SetString(Result, PAnsiChar(@LChain[0][0]), System.Length(LChain[0]));
+  LLeaf := FSession.PeerLeaf;
+  if System.Length(LLeaf) > 0 then
+    SetString(Result, PAnsiChar(@LLeaf[0]), System.Length(LLeaf));
 end;
 
 function TTlsLibNetTls.Receive(Buffer: pointer; var Length: integer): TNetResult;
@@ -736,7 +548,7 @@ var
   LGot: Integer;
 begin
   try
-    LGot := FStream.Read(Buffer^, Length);
+    LGot := FSession.Read(Buffer^, Length);
     Length := LGot;
     if LGot > 0 then
       Result := nrOK
@@ -751,13 +563,13 @@ end;
 
 function TTlsLibNetTls.ReceivePending: integer;
 begin
-  Result := FStream.PendingReadBytes;
+  Result := FSession.PendingReadBytes;
 end;
 
 function TTlsLibNetTls.Send(Buffer: pointer; var Length: integer): TNetResult;
 begin
   try
-    FStream.Write(Buffer^, Length);
+    FSession.Write(Buffer^, Length);
     Result := nrOK;
   except
     Length := 0;

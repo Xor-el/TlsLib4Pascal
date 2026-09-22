@@ -69,6 +69,21 @@ type
       ADeadlineMs: Cardinal): ITlsClientConfigBuilder; overload; static;
   end;
 
+  /// <summary>
+  /// The one implementation of the host-neutral system-trust seam: it installs OS trust into a
+  /// builder for the role the builder serves by forwarding to TSystemTrust.WithSystemTrust, so a
+  /// host-neutral config composer adds the OS store without depending on this package. The server
+  /// role authenticates client certificates and never roots them at the public OS store - the
+  /// forwarded call raises where only a delegate exists.
+  /// </summary>
+  TSystemTrustInstaller = class sealed(TInterfacedObject, ISystemTrustInstaller)
+  public
+    procedure InstallClientTrust(const ABuilder: ITlsClientConfigBuilder;
+      const APkix: IPkixProvider);
+    procedure InstallClientAuthTrust(const ABuilder: ITlsServerConfigBuilder;
+      const APkix: IPkixProvider);
+  end;
+
 implementation
 
 { TSystemTrust }
@@ -147,6 +162,22 @@ begin
       raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoServerDelegateNoAnchors);
   ABuilder.WithTrustStore(LStore);
   Result := ABuilder;
+end;
+
+{ TSystemTrustInstaller }
+
+procedure TSystemTrustInstaller.InstallClientTrust(
+  const ABuilder: ITlsClientConfigBuilder; const APkix: IPkixProvider);
+begin
+  TSystemTrust.WithSystemTrust(ABuilder, APkix);
+end;
+
+procedure TSystemTrustInstaller.InstallClientAuthTrust(
+  const ABuilder: ITlsServerConfigBuilder; const APkix: IPkixProvider);
+begin
+  // the server overload roots client-certificate trust at OS-enumerable anchors and raises where
+  // only a delegate exists (never authenticating clients against the public web-PKI store)
+  TSystemTrust.WithSystemTrust(ABuilder, APkix);
 end;
 
 end.

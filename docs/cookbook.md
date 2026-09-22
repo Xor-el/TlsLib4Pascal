@@ -211,7 +211,9 @@ LServer := TInetServer.Create('0.0.0.0', 443);
 LServer.OnCreateClientSocketHandler := MakeHandler;   // TInetServer's event (fcl-net's own), not the adapter's
 ```
 
-Each adapter maps its host's trust/verify/ALPN options onto the library. See the package READMEs:
+Each adapter maps its host's trust/verify/ALPN options onto the library, and each exposes a
+handshake-read timeout (`HandshakeTimeoutMs`, or `SetTlsLibMormotHandshakeTimeout` for mORMot;
+`0` = 30 s default) so a stalled peer can't pin the connecting thread. See the package READMEs:
 [mORMot](../TlsLib.Adapters/mORMot/README.md) · [Indy](../TlsLib.Adapters/Indy/README.md) ·
 [Synapse](../TlsLib.Adapters/Synapse/README.md) · [fcl-net](../TlsLib.Adapters/FclNet/README.md).
 
