@@ -1,0 +1,23 @@
+TlsLib.Trust.System/src/TlpAndroidSystemTrust.pas
+  s_09d3c46d1a9b1f::t_a41e51e74d5bc7 31
+  s_09d3c46d1a9b1f::t_211e534fc1e0d0 866,868,870-873,876-877,881-886,889-893,896-897,899-904,907-909
+  s_09d3c46d1a9b1f::t_3b8576b60c794a 36-48,50,52-56
+TlsLib.Trust.System/src/TlpOSSystemTrust.pas
+  s_09d3c46d1a9b1f::t_a9259502f13c7a 128-130,132
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f1e1f075d8b2b432097545cbb57e987e27421a9a",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
