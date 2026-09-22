@@ -20,6 +20,7 @@ uses
   TlpINamedGroup,
   TlpINegotiation,
   TlpNegotiationTypes,
+  TlpIPkixProvider,
   TlpICertificateTrust,
   TlpICertificateVerifierSource,
   TlpICertificateCompression,
@@ -56,6 +57,24 @@ type
     function Client: ITlsClientConfigBuilder;
     /// <summary>The server-endpoint builder, seeded with the preset's defaults.</summary>
     function Server: ITlsServerConfigBuilder;
+  end;
+
+  /// <summary>
+  /// Installs the OS system-trust source into a config builder for the role the builder serves:
+  /// the anchors the platform can enumerate, or the OS delegate where it cannot. A server
+  /// installer authenticates client certificates and never roots them at the public OS store (it
+  /// raises where only a delegate exists). Lets a host-neutral composer add system trust without
+  /// depending on the system-trust package.
+  /// </summary>
+  ISystemTrustInstaller = interface(IInterface)
+    ['{3F778A08-62D4-417B-9C4B-62467B114B46}']
+    /// <summary>Installs OS server-certificate trust into a client builder.</summary>
+    procedure InstallClientTrust(const ABuilder: ITlsClientConfigBuilder;
+      const APkix: IPkixProvider);
+    /// <summary>Installs OS client-certificate (mTLS) trust into a server builder; raises where
+    /// the platform exposes only a delegate.</summary>
+    procedure InstallClientAuthTrust(const ABuilder: ITlsServerConfigBuilder;
+      const APkix: IPkixProvider);
   end;
 
   /// <summary>

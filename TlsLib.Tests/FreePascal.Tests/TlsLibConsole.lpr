@@ -80,7 +80,8 @@ uses
   PresetTests,
   ExtensionVectorTests,
   ExtensionCodecTests,
-  NegotiationTests
+  NegotiationTests,
+  AdapterCoreTests
 ;
 
 type

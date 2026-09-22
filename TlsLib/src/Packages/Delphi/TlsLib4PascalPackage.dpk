@@ -168,6 +168,7 @@ contains
   TlpTlsConnectionInfo in '..\..\Engine\TlpTlsConnectionInfo.pas',
   TlpTlsStreamPump in '..\..\Engine\TlpTlsStreamPump.pas',
   TlpTlsStream in '..\..\Engine\TlpTlsStream.pas',
+  TlpTlsAdapterCore in '..\..\Engine\TlpTlsAdapterCore.pas',
   TlpIHttpFetcher in '..\..\Interfaces\Trust\TlpIHttpFetcher.pas',
   TlpLiveRevocation in '..\..\Trust\TlpLiveRevocation.pas';
 

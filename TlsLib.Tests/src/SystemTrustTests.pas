@@ -68,6 +68,10 @@ uses
   TlpSystemTrustBase,
   TlpIPlatformChainEngine,
   TlpOSDelegateVerifier,
+  TlpSystemTrustFacade,
+  TlpITlsConfigBuilder,
+  TlpITlsConfig,
+  TlpTlsPresets,
   MockPlatformChainEngine,
   TlsLibTestBase;
 
@@ -102,6 +106,15 @@ type
     procedure TestSnapshotSurvivesSourceFileDeletion;
     procedure TestFactoryAnchorStoreMatchesSupports;
     procedure TestFactoryServerVerifierSourceMatchesSupports;
+  end;
+
+  /// <summary>Portable suite (always runs): the host-neutral system-trust installer that bridges
+  /// TSystemTrust.WithSystemTrust into the shared adapter-core seam - the client role installs OS
+  /// server trust, and the server role mirrors the facade's client-authentication refusal.</summary>
+  TTestSystemTrustInstaller = class(TTlsLibAlgorithmTestCase)
+  published
+    procedure TestClientInstallComposesLikeFacade;
+    procedure TestServerInstallMirrorsFacadeRefusal;
   end;
 
   /// <summary>Portable suite (always runs): the shared OS-delegate post-checks
@@ -1860,16 +1873,64 @@ end;
 
 {$IFEND}
 
+{ TTestSystemTrustInstaller }
+
+procedure TTestSystemTrustInstaller.TestClientInstallComposesLikeFacade;
+var
+  LInstaller: ISystemTrustInstaller;
+  LViaFacade, LViaInstaller: ITlsClientConfig;
+  LFacadeBuilder, LInstallerBuilder: ITlsClientConfigBuilder;
+begin
+  // both paths install the OS server-trust source; the installer simply forwards to the facade
+  LInstaller := TSystemTrustInstaller.Create;
+  LFacadeBuilder := TTlsPresets.Compatible(Crypto, Pkix).Client;
+  TSystemTrust.WithSystemTrust(LFacadeBuilder, Pkix);
+  LViaFacade := LFacadeBuilder.Build;
+  LInstallerBuilder := TTlsPresets.Compatible(Crypto, Pkix).Client;
+  LInstaller.InstallClientTrust(LInstallerBuilder, Pkix);
+  LViaInstaller := LInstallerBuilder.Build;
+  CheckNotNull(LViaFacade, 'the facade installs a usable client trust source');
+  CheckNotNull(LViaInstaller, 'the installer installs a usable client trust source');
+end;
+
+procedure TTestSystemTrustInstaller.TestServerInstallMirrorsFacadeRefusal;
+var
+  LInstaller: ISystemTrustInstaller;
+  LFacadeRaised, LInstallerRaised: Boolean;
+begin
+  // the server role never roots client-cert trust at the public OS store: it installs OS-enumerable
+  // anchors where it can and raises where only a delegate exists - the installer mirrors that exactly
+  LInstaller := TSystemTrustInstaller.Create;
+  LFacadeRaised := False;
+  try
+    TSystemTrust.WithSystemTrust(TTlsPresets.Compatible(Crypto, Pkix).Server, Pkix);
+  except
+    on E: ESystemTrustUnsupportedTlsLibException do
+      LFacadeRaised := True;
+  end;
+  LInstallerRaised := False;
+  try
+    LInstaller.InstallClientAuthTrust(TTlsPresets.Compatible(Crypto, Pkix).Server, Pkix);
+  except
+    on E: ESystemTrustUnsupportedTlsLibException do
+      LInstallerRaised := True;
+  end;
+  CheckEquals(LFacadeRaised, LInstallerRaised,
+    'the server installer raises exactly where the facade does');
+end;
+
 initialization
 
 {$IFDEF FPC}
   RegisterTest(TTestSystemTrustFixtures);
   RegisterTest(TTestDelegatePostChecks);
   RegisterTest(TTestOSDelegateTemplate);
+  RegisterTest(TTestSystemTrustInstaller);
 {$ELSE}
   RegisterTest(TTestSystemTrustFixtures.Suite);
   RegisterTest(TTestDelegatePostChecks.Suite);
   RegisterTest(TTestOSDelegateTemplate.Suite);
+  RegisterTest(TTestSystemTrustInstaller.Suite);
 {$ENDIF FPC}
 
 {$IFDEF TLSLIB_MSWINDOWS}

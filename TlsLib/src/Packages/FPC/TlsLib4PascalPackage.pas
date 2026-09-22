@@ -48,8 +48,8 @@ uses
   TlpTls12PrfComposition, TlpChainAlgorithmPolicy, 
   TlpCertificateStrengthPolicy, TlpPkixDomainTypes, TlpIPkixProvider, 
   TlpDefaultPkixProvider, TlpExtensionVector, TlpEchRegistryExtension, 
-  TlpHandshakeStage, TlpServerOfferSelection, TlpPeerAuthentication, 
-  TlpIKeyExchangePrivateKey;
+  TlpHandshakeStage, TlpServerOfferSelection, TlpPeerAuthentication,
+  TlpIKeyExchangePrivateKey, TlpTlsAdapterCore;
 
 implementation
 

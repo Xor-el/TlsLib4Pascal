@@ -331,6 +331,10 @@
         <Filename Value="..\src\MockPlatformChainEngine.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit73>
+      <Unit74>
+        <Filename Value="..\src\AdapterCoreTests.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit74>
     </Units>
   </ProjectOptions>
   <CompilerOptions>
