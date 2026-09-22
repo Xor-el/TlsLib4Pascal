@@ -1,0 +1,50 @@
+TlsLib.Tests/src/Tls13KeyScheduleTests.pas
+  s_09d3c46d1a9b1f::t_83690c64c2445b 443-444,449,452-453,457-458
+  s_09d3c46d1a9b1f::t_ecb46cf735cc80 34
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_09d3c46d1a9b1f::t_94664618af8e75 412
+TlsLib/src/Handshake/TlpServerOfferSelection.pas
+  s_09d3c46d1a9b1f::t_dab23d4077d365 1-125
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
+  s_09d3c46d1a9b1f::t_9b5f869e5bf732 564-567
+  s_09d3c46d1a9b1f::t_7b37495db6b407 31
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_09d3c46d1a9b1f::t_7b3732537f87a8 89
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_7478c0c31ba1f2 643-647
+  s_09d3c46d1a9b1f::t_d08858d40b68f0 58
+  s_09d3c46d1a9b1f::t_c29a9be04b6c89 698-699
+  s_09d3c46d1a9b1f::t_3c2410d8e06b79 1557
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.pas
+  s_09d3c46d1a9b1f::t_50c7caa4abe332 50-51
+TlsLib/src/Packages/Delphi/TlsLib4PascalPackage.dpk
+  s_09d3c46d1a9b1f::t_620ba739adf616 88
+TlsLib/src/Handshake/TlpTlsCredential.pas
+  s_09d3c46d1a9b1f::t_c7fe7d9df6f7dc 46-49
+  s_09d3c46d1a9b1f::t_60165304bd6de3 88-95
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_830b2089f19853 468-469
+  s_09d3c46d1a9b1f::t_ed65d27ef75d59 543
+  s_09d3c46d1a9b1f::t_0ede8ac059bad6 491-492
+  s_09d3c46d1a9b1f::t_6d74685737356c 45
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dproj
+  s_09d3c46d1a9b1f::t_e778122aa34519 192
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_09d3c46d1a9b1f::t_3f54c9aea1c36c 69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "61a72629bb1ab84b591776f13b9eddc04d074b53",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
