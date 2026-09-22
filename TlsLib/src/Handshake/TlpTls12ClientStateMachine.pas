@@ -284,10 +284,8 @@ resourcestring
   SEmptyCertificate = 'the server sent an empty certificate list';
   SNoCertificateVerifier = 'no certificate verifier configured (fail-closed)';
   SUntrustedCertificate = 'the server certificate chain was not trusted';
-  SUnofferedScheme = 'the ServerKeyExchange uses a signature scheme that was not offered';
   SUnofferedAlpn = 'the server selected an ALPN protocol that was not offered';
   SBadServerKeyExchangeCurve = 'the ServerKeyExchange named a group that was not offered';
-  SBadServerKeyExchangeSig = 'the ServerKeyExchange signature did not verify';
   SBadServerFinished = 'the server Finished did not verify';
   SResumedSuiteMismatch =
     'the resumed ServerHello selected a suite other than the cached session''s';

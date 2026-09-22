@@ -434,10 +434,6 @@ resourcestring
     'supported_groups and key_share must both be present or both absent';
   SNoSignatureAlgorithms = 'the client offered no signature_algorithms';
   SNoCompatibleScheme = 'the server credential cannot satisfy the client signature_algorithms';
-  SNoPskOrCertificate = 'no offered pre_shared_key matched and the server has no certificate';
-  SNoCredentialForServerName = 'no server certificate is configured for the requested SNI host';
-  SNoDefaultCredential = 'the client sent no server_name and no default certificate is configured';
-  SCredentialNoSigningKey = 'the selected server credential has no signing key';
   SBadClientFinished = 'the client Finished did not verify';
   SBadPskBinder = 'the pre_shared_key binder did not validate';
   SPskBinderCountMismatch = 'the pre_shared_key offers unequal identity and binder counts';
@@ -450,11 +446,6 @@ resourcestring
   SUnsolicitedClientCertExtension =
     'the client certificate carries an extension that was not requested';
   SUntrustedClientCertificate = 'the client certificate chain was not trusted';
-  SBadClientCertVerify = 'the client CertificateVerify did not verify';
-  SUnrequestedClientCertVerifyScheme =
-    'the client CertificateVerify uses a signature scheme the CertificateRequest did not offer';
-  SLegacyPkcs1InClientCertVerify = 'the client CertificateVerify uses a legacy rsa_pkcs1 ' +
-    'scheme, which is certificate-only in TLS 1.3';
   SNoCookieAuthority = 'no cookie secret configured for a HelloRetryRequest';
   SMissingCookie = 'the second ClientHello carried no cookie';
   SBadCookie = 'the HelloRetryRequest cookie did not verify';
@@ -462,7 +453,6 @@ resourcestring
   SNoRetryKeyShare = 'the second ClientHello sent no key_share for the requested group';
   SRetrySuiteChanged =
     'the retry ClientHello does not keep the cipher suite the HelloRetryRequest selected';
-  SNoAlpnOverlap = 'no overlap between the client and server ALPN protocols';
   SBadRecordSizeLimit = 'the peer record_size_limit is below the 64-byte minimum';
   SNonEmptyEndOfEarlyData = 'the EndOfEarlyData message must be empty';
   SEchInnerRandomChanged = 'the ClientHelloInner random changed across the HelloRetryRequest';

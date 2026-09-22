@@ -456,10 +456,6 @@ resourcestring
   SEmptyCertificate = 'the server sent an empty certificate list';
   SUnsolicitedCertExtension =
     'the server certificate carries an extension that was not requested';
-  SUnofferedScheme = 'the CertificateVerify uses a signature scheme that was not offered';
-  SLegacyPkcs1InTls13 = 'the CertificateVerify uses a legacy rsa_pkcs1 scheme, which is ' +
-    'certificate-only in TLS 1.3';
-  SBadCertificateVerify = 'the CertificateVerify signature did not verify';
   SNoCertificateVerifier = 'no certificate verifier configured (fail-closed)';
   SEchExtensionUnregistered = 'the extension registry has no encrypted_client_hello ' +
     'handler, so an ECH ClientHello cannot be built (fail-closed)';

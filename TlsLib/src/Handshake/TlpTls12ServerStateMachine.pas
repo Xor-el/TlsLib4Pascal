@@ -277,9 +277,6 @@ resourcestring
   SNoTls12Offered = 'the client offered no protocol version this server supports';
   SNoCompatibleSuite =
     'no mutually supported TLS 1.2 ECDHE suite the credential can authenticate';
-  SNoServerCertificate = 'the server has no certificate for a full TLS 1.2 handshake';
-  SCredentialNoSigningKey = 'the selected server credential has no signing key';
-  SNoCredentialForServerName = 'no server certificate is configured for the requested SNI host';
   SNoSignatureAlgorithms = 'the client offered no signature_algorithms';
   SGroupNotOffered = 'the client did not offer the server''s ECDHE group';
   SGroupNotEcdhe = 'the configured 1.2 group is not an ECDHE group';
@@ -290,10 +287,6 @@ resourcestring
   SUntrustedClientCertificate = 'the client certificate chain was not trusted';
   SResumedEmsDowngrade =
     'a session established with extended_master_secret cannot resume without it (RFC 7627 5.3)';
-  SBadClientCertVerify = 'the client CertificateVerify did not verify';
-  SUnrequestedClientCertVerifyScheme =
-    'the client CertificateVerify uses a signature scheme the CertificateRequest did not offer';
-  SAlpnRejected = 'the server rejects the offered application protocols (RFC 7301)';
 
 const
   SessionIdLength = Int32(32);
