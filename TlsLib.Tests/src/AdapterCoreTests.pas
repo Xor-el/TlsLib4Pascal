@@ -49,8 +49,6 @@ uses
 type
   TTestAdapterCore = class(TTlsLibAlgorithmTestCase)
   strict private
-    // of-object callbacks used as options fields (an anonymous function cannot bind to an
-    // "of object" type, so these are real methods)
     function StubVerifyCallback(const AChain: TArray<TBytes>;
       const AHostName: string): Boolean;
     function StubResolver(const ACtx: TCertificateVerdictContext;
@@ -160,7 +158,7 @@ type
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
   public
     constructor Create(const AInbound: TBytes; AReadable: Boolean);
-    function ArmedTimeout: Int32;   // exposes the strict-protected cap for the S12 assertion
+    function ArmedTimeout: Int32;
     property Outbound: TBytes read FOutbound;
     property ReceiveNegative: Boolean read FReceiveNegative write FReceiveNegative;
     property MaxSend: Int32 read FMaxSend write FMaxSend;
@@ -846,8 +844,6 @@ var
   LMemo: ITlsClientConfigMemo;
   LRaised: Boolean;
 begin
-  // the maintainer decision: a config-in alongside a VerifyCallback fails loud (fail-loud, not the
-  // legacy silent drop)
   LOpts := TTlsAdapterOptions.Default;
   LOpts.VerifyCallback := StubVerifyCallback;
   LOpts.ClientConfig := TTlsAdapterConfigComposer.BuildClientConfig(ClientOptsWithStore);

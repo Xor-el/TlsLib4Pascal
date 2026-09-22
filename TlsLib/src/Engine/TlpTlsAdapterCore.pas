@@ -303,7 +303,6 @@ end;
 class procedure TTlsAdapterConfigComposer.Sign(var ASig: TTlsSignatureBuilder;
   const AName: string; const ASource: TTlsAdapterBlobSource);
 begin
-  // inline bytes are signed by digest; a file by its path + stat (a rotated file rebuilds)
   if System.Length(ASource.Data) > 0 then
     ASig.AddBytesDigest(AName, ASource.Data)
   else
