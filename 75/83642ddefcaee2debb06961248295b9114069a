@@ -1,0 +1,57 @@
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_09d3c46d1a9b1f::t_5795cd8222a2a2 581
+  s_09d3c46d1a9b1f::t_d28652ec6b09cc 1193,1195,1199-1204
+TlsLib/src/Crypto/TlpTls12PrfComposition.pas
+  s_09d3c46d1a9b1f::t_79c89c110ae43a 59,63,76-79,92
+  s_09d3c46d1a9b1f::t_0d221e8f6a8e5c 24
+  s_09d3c46d1a9b1f::t_11915aea2e7944 43
+TlsLib/src/Interfaces/Crypto/Providers/TlpICryptoProvider.pas
+  s_09d3c46d1a9b1f::t_32a06c9da709a9 79-82
+  s_09d3c46d1a9b1f::t_752fb687fe4c8a 97
+TlsLib/src/KeySchedule/TlpTls13KeySchedule.pas
+  s_09d3c46d1a9b1f::t_85cc8c7dd7844e 192,199-207
+  s_09d3c46d1a9b1f::t_c94c4113679648 212,219-220
+TlsLib/src/Security/TlpSecretBuffer.pas
+  s_09d3c46d1a9b1f::t_14753b6d877f90 55-58
+  s_09d3c46d1a9b1f::t_328c23b9ea8fd6 66
+  s_09d3c46d1a9b1f::t_54f50f9a85cddd 168-178
+TlsLib.Tests/src/Tls13KeyScheduleTests.pas
+  s_09d3c46d1a9b1f::t_a3f985a3c2b7c1 141,146
+TlsLib.Tests/src/Tls12KeyScheduleTests.pas
+  s_09d3c46d1a9b1f::t_1edbf8b8023df8 85
+TlsLib/src/KeySchedule/TlpTls12KeySchedule.pas
+  s_09d3c46d1a9b1f::t_41f74db969e1ee 157,164-167
+  s_09d3c46d1a9b1f::t_178a317c3f8554 212-213
+  s_09d3c46d1a9b1f::t_1debd01841578b 56
+  s_09d3c46d1a9b1f::t_6d6a97321222b8 139-141
+  s_09d3c46d1a9b1f::t_897e5cb1bdcc2d 120
+  s_09d3c46d1a9b1f::t_98d007f390beda 249-250
+TlsLib.Tests/src/ProviderTests.pas
+  s_09d3c46d1a9b1f::t_42a322ea25bb37 169
+TlsLib/src/Crypto/TlpHpkeComposition.pas
+  s_09d3c46d1a9b1f::t_ed4dca0f294d31 439-442
+  s_09d3c46d1a9b1f::t_e7dbdd31aa64c1 425
+  s_09d3c46d1a9b1f::t_7e302e7868e9f0 356-357
+  s_09d3c46d1a9b1f::t_0d5eaa09875868 92-93
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_09d3c46d1a9b1f::t_b0bcb2c4acd0eb 277
+  s_09d3c46d1a9b1f::t_4fb9bed31250dd 655,661-666,668-669,671-677,679,682
+TlsLib.Tests/src/HkdfLabelTests.pas
+  s_09d3c46d1a9b1f::t_c78546178a25fe 176
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7583642ddefcaee2debb06961248295b9114069a",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
