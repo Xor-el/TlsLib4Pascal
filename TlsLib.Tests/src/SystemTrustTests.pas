@@ -144,7 +144,7 @@ type
 
   /// <summary>Platform-neutral tests for the OS delegate template over a fake platform engine: the
   /// request shaping, the strength/revocation/identity tail, the source-construction guards and the
-  /// live-resolver dispatch, pinned on every CI leg before any platform is cut over.</summary>
+  /// live-resolver dispatch.</summary>
   TTestOSDelegateTemplate = class(TTlsLibAlgorithmTestCase)
   strict private
     FPkix: IPkixProvider;
