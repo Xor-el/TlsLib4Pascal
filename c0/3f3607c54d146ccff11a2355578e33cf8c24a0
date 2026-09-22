@@ -1,0 +1,21 @@
+TlsLib/src/Engine/TlpTlsAdapterCore.pas
+  s_09d3c46d1a9b1f::t_a72547f86e6da6 13
+TlsLib.Tests/src/AdapterCoreTests.pas
+  s_09d3c46d1a9b1f::t_91ebfd5332e295 988
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c03f3607c54d146ccff11a2355578e33cf8c24a0",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
