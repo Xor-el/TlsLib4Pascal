@@ -1422,6 +1422,10 @@ begin
   CheckFalse(Verify(OwnAnchor, TRevocationPosture.Hard,
     TSystemClock.Create as ITlsClock, LAlert),
     'Hard posture rejects a chain whose revocation status is indeterminate');
+  // the OS engine reports the indeterminate outcome over its built path, so the shared pipeline
+  // renders the precise revocation alert rather than a generic failure
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificateStatusResponse), Ord(LAlert),
+    'the indeterminate rejection alert is bad_certificate_status_response');
 end;
 
 procedure TTestWindowsClientDelegate.TestSoftPostureAcceptsUnrevocableChain;
@@ -1648,9 +1652,20 @@ function TTestAppleClientDelegate.VerifyPolicy(const AAnchors: TArray<TBytes>;
 var
   LVerifier: IClientCertificateVerifier;
   LVerified: TVerifiedChain;
+  LPolicy: TOSDelegatePolicy;
 begin
-  LVerifier := TAppleClientDelegateVerifier.Create(FPkix, AAnchors, APosture,
-    TSystemTrustFetch.CacheOnly, AClock, AStrength, AAdvertised) as IClientCertificateVerifier;
+  LPolicy := Default(TOSDelegatePolicy);
+  LPolicy.Pkix := FPkix;
+  LPolicy.Clock := AClock;
+  LPolicy.Posture := APosture;
+  LPolicy.Fetch := TSystemTrustFetch.CacheOnly;
+  LPolicy.Deferral := TVerdictDeferral.None;
+  LPolicy.StrengthPolicy := AStrength;
+  LPolicy.AdvertisedSchemes := AAdvertised;
+  LPolicy.Anchors := AAnchors;
+  LPolicy.DeadlineMs := 0;
+  LVerifier := TOSDelegateClientVerifier.Create(
+    TAppleChainEngine.Create as IPlatformChainEngine, LPolicy) as IClientCertificateVerifier;
   Result := LVerifier.VerifyClientCertificate(Leaf, LVerified, AAlert);
 end;
 
@@ -1706,6 +1721,10 @@ begin
   CheckFalse(Verify(OwnAnchor, TRevocationPosture.Hard,
     TSystemClock.Create as ITlsClock, LAlert),
     'Hard posture rejects a chain whose revocation status is indeterminate');
+  // the OS engine reports the indeterminate outcome over its built path, so the shared pipeline
+  // renders the precise revocation alert rather than a generic failure
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificateStatusResponse), Ord(LAlert),
+    'the indeterminate rejection alert is bad_certificate_status_response');
 end;
 
 procedure TTestAppleClientDelegate.TestSoftPostureAcceptsUnrevocableChain;

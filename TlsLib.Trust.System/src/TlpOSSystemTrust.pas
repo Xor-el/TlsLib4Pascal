@@ -122,8 +122,11 @@ begin
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
   AEngine := TWindowsChainEngine.Create as IPlatformChainEngine;
   Result := True;
+{$ELSEIF DEFINED(TLSLIB_IOS) OR DEFINED(TLSLIB_MACOS)}
+  AEngine := TAppleChainEngine.Create as IPlatformChainEngine;
+  Result := True;
 {$ELSE}
-  // Apple and Android expose an engine too; those arms are wired as each platform is ported.
+  // Android exposes an engine too; that arm is wired when Android is ported.
   AEngine := nil;
   Result := False;
 {$IFEND}
@@ -188,9 +191,7 @@ begin
   // fetch on an engine without live fetch at construction, matching the per-platform refusal timing)
   if TryChainEngine(LEngine) then
     Exit(TOSVerifierSource.Create(LEngine, AFetch) as IServerCertificateVerifierSource);
-{$IF DEFINED(TLSLIB_IOS) OR DEFINED(TLSLIB_MACOS)}
-  Result := TAppleServerVerifierSource.Create(AFetch) as IServerCertificateVerifierSource;
-{$ELSEIF DEFINED(TLSLIB_ANDROID)}
+{$IF DEFINED(TLSLIB_ANDROID)}
   // Android's platform TrustManager owns revocation and has no network-revocation knob; only
   // cache-only (the staple post-check) is honoured here
   if AFetch = TSystemTrustFetch.Live then
@@ -221,14 +222,7 @@ begin
     LPolicy.DeadlineMs := AConfig.AsyncCertificateVerdict.DeadlineMs;
     Exit(TOSDelegateLiveResolver.Create(LEngine, TPeerRole.Server, LPolicy, AFallback));
   end;
-{$IF DEFINED(TLSLIB_IOS) OR DEFINED(TLSLIB_MACOS)}
-  // Apple has no per-evaluation revocation timeout, so the park deadline is not threaded here
-  Result := TAppleLiveRevocationResolver.Create(AConfig.Pkix,
-    AConfig.RevocationPosture, AConfig.Clock, AConfig.CertificateStrengthPolicy,
-    TTlsEngineFactory.SchemeCodes(AConfig.SignatureSchemes), AFallback);
-{$ELSE}
   raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoLiveRevocation);
-{$IFEND}
 end;
 
 class function TOSSystemTrust.LiveRevocationResolver(const AConfig: ITlsClientConfig)
@@ -261,14 +255,7 @@ begin
     LPolicy.DeadlineMs := AConfig.AsyncCertificateVerdict.DeadlineMs;
     Exit(TOSDelegateLiveResolver.Create(LEngine, TPeerRole.Client, LPolicy, AFallback));
   end;
-{$IF DEFINED(TLSLIB_IOS) OR DEFINED(TLSLIB_MACOS)}
-  // Apple has no per-evaluation revocation timeout, so the park deadline is not threaded here
-  Result := TAppleClientLiveRevocationResolver.Create(AConfig.Pkix, LAnchors,
-    AConfig.RevocationPosture, AConfig.Clock, AConfig.CertificateStrengthPolicy,
-    TTlsEngineFactory.SchemeCodes(AConfig.SignatureSchemes), AFallback);
-{$ELSE}
   raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoLiveRevocation);
-{$IFEND}
 end;
 
 class function TOSSystemTrust.LiveRevocationResolver(const AConfig: ITlsServerConfig)
@@ -284,9 +271,7 @@ var
 begin
   if TryChainEngine(LEngine) then
     Exit(TOSVerifierSource.Create(LEngine, AFetch) as IClientCertificateVerifierSource);
-{$IF DEFINED(TLSLIB_IOS) OR DEFINED(TLSLIB_MACOS)}
-  Result := TAppleClientVerifierSource.Create(AFetch) as IClientCertificateVerifierSource;
-{$ELSEIF DEFINED(TLSLIB_ANDROID)}
+{$IF DEFINED(TLSLIB_ANDROID)}
   // Android's platform TrustManager owns revocation and has no network-revocation knob; only
   // cache-only client verification is honoured here
   if AFetch = TSystemTrustFetch.Live then

@@ -37,6 +37,8 @@ uses
   TlpServerName,
   TlpTrustPolicy,
   TlpCertificateStrengthPolicy,
+  TlpIPlatformChainEngine,
+  TlpOSDelegateVerifier,
 {$ENDIF TLSLIB_MACOS}
   TlpTlsAlert,
   TlpAppleSystemTrust,
@@ -91,6 +93,7 @@ var
   LVerifier: IServerCertificateVerifier;
   LAlert: TTlsAlertDescription;
   LVerified: TVerifiedChain;
+  LPolicy: TOSDelegatePolicy;
 begin
   // Best-effort: our test root is not in the macOS system store, so SecTrust rejects
   // the chain as untrusted (unknown_ca). We assert only that it IS rejected - a granular
@@ -106,9 +109,18 @@ begin
   end;
   // the untrusted root makes SecTrust reject before the policy runs; a real provider + default
   // policy keep the construction valid regardless
-  LVerifier := TAppleDelegateVerifier.Create(TDefaultPkixProvider.Create as IPkixProvider,
-    TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, nil,
-    TCertificateStrengthPolicy.Defaults, nil) as IServerCertificateVerifier;
+  LPolicy := Default(TOSDelegatePolicy);
+  LPolicy.Pkix := TDefaultPkixProvider.Create as IPkixProvider;
+  LPolicy.Clock := nil;
+  LPolicy.Posture := TRevocationPosture.Soft;
+  LPolicy.Fetch := TSystemTrustFetch.CacheOnly;
+  LPolicy.Deferral := TVerdictDeferral.None;
+  LPolicy.StrengthPolicy := TCertificateStrengthPolicy.Defaults;
+  LPolicy.AdvertisedSchemes := nil;
+  LPolicy.Anchors := nil;
+  LPolicy.DeadlineMs := 0;
+  LVerifier := TOSDelegateServerVerifier.Create(
+    TAppleChainEngine.Create as IPlatformChainEngine, LPolicy) as IServerCertificateVerifier;
   LAlert := TTlsAlertDescription.InternalError;
   CheckFalse(LVerifier.VerifyServerCertificate(LChain, TServerName.DnsName('localhost'), nil,
     LVerified, LAlert),
