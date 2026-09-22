@@ -31,6 +31,7 @@ uses
   TlpSecretBuffer,
   TlpICryptoProvider,
   TlpCryptoDomainTypes,
+  TlpTlsVersion,
   TlpIRecordProtection,
   TlpRecordProtection,
   TlpHkdfLabel,
@@ -439,22 +440,22 @@ begin
   LSpecB.Hash := THashAlgorithm.SHA_256;
 
   // no specs imports nothing
-  CheckEquals(0, System.Length(TExternalPskImporter.ImportAll(Crypto, nil, $0304)),
-    'ImportAll over no specs yields no offers');
+  CheckEquals(0, System.Length(TExternalPskImporter.ImportAll(Crypto, nil,
+    TlsWireVersionTls13)), 'ImportAll over no specs yields no offers');
 
   // each spec is imported once per supported hash (SHA-256 then SHA-384), specs in order,
   // so ImportAll's four entries match the individual Import calls one-for-one
   LAll := TExternalPskImporter.ImportAll(Crypto,
-    TArray<TExternalPsk>.Create(LSpecA, LSpecB), $0304);
+    TArray<TExternalPsk>.Create(LSpecA, LSpecB), TlsWireVersionTls13);
   CheckEquals(4, System.Length(LAll), 'two specs times two hashes is four offers');
   CheckEqualBytes('offer 0 is spec A under SHA-256',
-    TExternalPskImporter.Import(Crypto, LSpecA, $0304, THashAlgorithm.SHA_256).Identity,
-    LAll[0].Identity);
+    TExternalPskImporter.Import(Crypto, LSpecA, TlsWireVersionTls13,
+    THashAlgorithm.SHA_256).Identity, LAll[0].Identity);
   CheckEquals(Ord(THashAlgorithm.SHA_384), Ord(LAll[1].Hash),
     'offer 1 is spec A under SHA-384');
   CheckEqualBytes('offer 2 is spec B under SHA-256',
-    TExternalPskImporter.Import(Crypto, LSpecB, $0304, THashAlgorithm.SHA_256).Identity,
-    LAll[2].Identity);
+    TExternalPskImporter.Import(Crypto, LSpecB, TlsWireVersionTls13,
+    THashAlgorithm.SHA_256).Identity, LAll[2].Identity);
   CheckEquals(Ord(THashAlgorithm.SHA_384), Ord(LAll[3].Hash),
     'offer 3 is spec B under SHA-384');
 end;

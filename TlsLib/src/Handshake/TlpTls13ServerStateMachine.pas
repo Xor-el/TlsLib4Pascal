@@ -55,6 +55,7 @@ uses
   TlpICertificateTrust,
   TlpTlsCredential,
   TlpITlsCredentialResolver,
+  TlpServerOfferSelection,
   TlpIEch,
   TlpEchConfig,
   TlpEchExtension,
@@ -291,9 +292,6 @@ type
     /// computed over message_hash(AInnerCh1Hash) then the HRR with that payload zeroed.</summary>
     procedure StampHrrEchConfirmation(var AHrrBytes: TBytes;
       const AInnerCh1Hash: TBytes);
-    /// <summary>Selects the ALPN protocol from the client's offer, or aborts with
-    /// no_application_protocol when the server is configured but nothing overlaps.</summary>
-    function SelectAlpn(const AClientOffered: TArray<string>): string;
     /// <summary>Appends the SelectAlpn and SetRecordSizeLimit effects for the flight.</summary>
     procedure AppendNegotiatedInfoEffects(var AEffects: TArray<THandshakeEffect>);
     function ProcessClientHello(const AMessage: TTlsHandshakeMessage)
@@ -397,9 +395,6 @@ type
     /// <summary>Serializes the EncryptedExtensions from a typed empty extension list.</summary>
     function BuildEncryptedExtensions: TBytes;
     /// <summary>Frames the Certificate message from the credential's chain.</summary>
-    /// <summary>The configured stapled OCSP response (the callback takes precedence over
-    /// the static blob); empty when the server is not stapling.</summary>
-    function ResolveOcspStaple: TBytes;
     function BuildCertificate: TBytes;
     /// <summary>Frames a CertificateRequest advertising the accepted signature schemes.</summary>
     function BuildCertificateRequest: TBytes;
@@ -573,28 +568,6 @@ begin
   Result := Int32(LBudget);
 end;
 
-function TTls13ServerStateMachine.SelectAlpn(
-  const AClientOffered: TArray<string>): string;
-var
-  LPref, LOffered: string;
-begin
-  Result := '';
-  // reject mode: any client ALPN offer is refused with no_application_protocol (RFC 7301 3.2)
-  if FParams.AlpnRejectAll and (System.Length(AClientOffered) > 0) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.NoApplicationProtocol, @SNoAlpnOverlap);
-  // no selection when the server is not configured for ALPN or the client did not offer it
-  if (System.Length(FParams.AlpnProtocols) = 0) or (System.Length(AClientOffered) = 0) then
-    Exit;
-  for LPref in FParams.AlpnProtocols do
-    for LOffered in AClientOffered do
-      if LPref = LOffered then
-        Exit(LPref);
-  // configured, offered, but nothing overlaps (RFC 7301 3.2)
-  raise EFatalAlertTlsLibException.CreateRes(
-    TTlsAlertDescription.NoApplicationProtocol, @SNoAlpnOverlap);
-end;
-
 procedure TTls13ServerStateMachine.AppendNegotiatedInfoEffects(
   var AEffects: TArray<THandshakeEffect>);
 begin
@@ -615,7 +588,6 @@ procedure TTls13ServerStateMachine.NegotiateFrom(
   out ASelectedGroup: UInt16);
 var
   LSuiteCode, LGroupCode: UInt16;
-  LClientHelloInfo: TTlsClientHelloInfo;
 begin
   FCodec.ConsumeBlock(AContext, TTlsExtensionContextKind.ClientHello,
     AClientHello.Extensions);
@@ -668,35 +640,11 @@ begin
 
   if not FPskAccepted then
   begin
-    // no PSK matched: fall back to the server certificate. A PSK-only server (external PSKs
-    // configured, no certificate) has nothing to fall back on, so an unmatched offer is a
-    // handshake failure (RFC 8446 4.2.11 / e.g. no common PSK)
-    // select the server certificate for this handshake from the client's SNI (virtual hosting);
-    // a PSK-only server (nil resolver) has nothing to fall back on
-    if FParams.CredentialResolver = nil then
-      raise EFatalAlertTlsLibException.CreateRes(
-        TTlsAlertDescription.HandshakeFailure, @SNoPskOrCertificate);
-    LClientHelloInfo.ServerName := FRequestedServerName;
-    LClientHelloInfo.SignatureSchemes := AContext.SignatureSchemes;
-    LClientHelloInfo.AlpnProtocols := AContext.AlpnProtocols;
-    LClientHelloInfo.CipherSuites := AClientHello.CipherSuites;
-    LClientHelloInfo.SupportedGroups := AContext.SupportedGroups;
-    LClientHelloInfo.ProtocolVersion := TTlsVersion.Tls13;
-    if not FParams.CredentialResolver.TryResolve(LClientHelloInfo, FResolvedCredential) then
-    begin
-      // no certificate for the requested host: unrecognized_name when the client named one,
-      // else handshake_failure (RFC 6066 3)
-      if FRequestedServerName <> '' then
-        raise EFatalAlertTlsLibException.CreateRes(
-          TTlsAlertDescription.UnrecognizedName, @SNoCredentialForServerName);
-      // the resolver had certificates but no default for a no-SNI client: no name to be
-      // "unrecognized", so handshake_failure (RFC 8446 6.2)
-      raise EFatalAlertTlsLibException.CreateRes(
-        TTlsAlertDescription.HandshakeFailure, @SNoDefaultCredential);
-    end;
-    if not Assigned(FResolvedCredential.PrivateKey) then
-      raise EFatalAlertTlsLibException.CreateRes(
-        TTlsAlertDescription.HandshakeFailure, @SCredentialNoSigningKey);
+    // no PSK matched: fall back to the server certificate for this handshake, selected from the
+    // client's SNI (virtual hosting). A PSK-only server (external PSKs configured, no certificate)
+    // has nothing to fall back on, so an unmatched offer is a handshake failure (RFC 8446 4.2.11)
+    FResolvedCredential := TServerOfferSelection.ResolveCredential(
+      FParams.CredentialResolver, AContext, AClientHello.CipherSuites, TTlsVersion.Tls13);
     // certificate-based auth requires the client to offer signature_algorithms
     // (RFC 8446 4.4.2.2 / 4.4.3); the CertificateVerify scheme is then the first of the
     // credential's key-compatible schemes the client also offered
@@ -747,7 +695,8 @@ begin
 
   // ALPN + record_size_limit are negotiated from the same ClientHello extensions and
   // echoed later in EncryptedExtensions
-  FSelectedAlpn := SelectAlpn(AContext.AlpnProtocols);
+  FSelectedAlpn := TServerOfferSelection.SelectAlpn(FParams.AlpnProtocols,
+    AContext.AlpnProtocols, FParams.AlpnRejectAll);
   // 0-RTT is bound to the ticket's ALPN (RFC 8446 4.2.11): a resumed handshake that negotiates
   // a different protocol than the ticket carried must reject early data (the session still
   // resumes). Only applies to an accepted resumption ticket.
@@ -1584,14 +1533,6 @@ begin
     THandshakeMessages.EncodeEncryptedExtensions(LBlock));
 end;
 
-function TTls13ServerStateMachine.ResolveOcspStaple: TBytes;
-begin
-  if Assigned(FResolvedCredential.OcspStapleCallback) then
-    Result := FResolvedCredential.OcspStapleCallback
-  else
-    Result := FResolvedCredential.OcspStaple;
-end;
-
 function TTls13ServerStateMachine.BuildCertificate: TBytes;
 var
   LCert: TTlsCertificate;
@@ -1613,7 +1554,7 @@ begin
   // and a staple is configured (RFC 8446 4.4.2.1)
   if FStatusRequestOffered and (System.Length(LCert.Entries) > 0) then
   begin
-    LStaple := ResolveOcspStaple;
+    LStaple := FResolvedCredential.CurrentOcspStaple;
     if System.Length(LStaple) > 0 then
       LCert.Entries[0].Extensions :=
         THandshakeMessages.EncodeLeafStapleExtensions(LStaple);

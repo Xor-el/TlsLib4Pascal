@@ -86,6 +86,7 @@ uses
   TlpHandshakeMessages in '..\..\TlsLib\src\Handshake\TlpHandshakeMessages.pas',
   TlpHandshakeEffect in '..\..\TlsLib\src\Handshake\TlpHandshakeEffect.pas',
   TlpHandshakeStage in '..\..\TlsLib\src\Handshake\TlpHandshakeStage.pas',
+  TlpServerOfferSelection in '..\..\TlsLib\src\Handshake\TlpServerOfferSelection.pas',
   TlpIHandshakeMachine in '..\..\TlsLib\src\Interfaces\Handshake\TlpIHandshakeMachine.pas',
   TlpHandshakeChannel in '..\..\TlsLib\src\Handshake\TlpHandshakeChannel.pas',
   TlpHandshakeDriver in '..\..\TlsLib\src\Handshake\TlpHandshakeDriver.pas',

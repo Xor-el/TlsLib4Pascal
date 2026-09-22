@@ -47,8 +47,8 @@ uses
   TlpICertificateVerifierSource, TlpCertificateVerifierSource, 
   TlpTls12PrfComposition, TlpChainAlgorithmPolicy, 
   TlpCertificateStrengthPolicy, TlpPkixDomainTypes, TlpIPkixProvider, 
-  TlpDefaultPkixProvider, TlpExtensionVector, TlpEchRegistryExtension,
-  TlpHandshakeStage;
+  TlpDefaultPkixProvider, TlpExtensionVector, TlpEchRegistryExtension, 
+  TlpHandshakeStage, TlpServerOfferSelection;
 
 implementation
 

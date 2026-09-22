@@ -42,6 +42,7 @@ uses
   TlpICertificateTrust,
   TlpTlsCredential,
   TlpITlsCredentialResolver,
+  TlpServerOfferSelection,
   TlpISession,
   TlpIClock,
   TlpSession,
@@ -251,14 +252,7 @@ type
     function BuildStoredSession(const ASessionId: TBytes): IResumableSession;
     function BuildServerHello: TBytes;
     procedure StampServerRandom;
-    /// <summary>Selects the application protocol from the client's ALPN offer: the first server
-    /// preference the client also offered, empty when ALPN was not offered/configured, or an
-    /// abort with no_application_protocol on reject-mode or no overlap (RFC 7301).</summary>
-    function SelectAlpn(const AClientOffered: TArray<string>): string;
     function BuildCertificate: TBytes;
-    /// <summary>The configured stapled OCSP response (the callback takes precedence over
-    /// the static blob); empty when the server is not stapling.</summary>
-    function ResolveOcspStaple: TBytes;
     function BuildCertificateRequest: TBytes;
     function BuildServerKeyExchange: TBytes;
     function SignServerParams(const AParams: TBytes): TBytes;
@@ -446,7 +440,6 @@ function TTls12ServerStateMachine.ProcessClientHello(
 var
   LHello: TTlsClientHello;
   LContext: TExtensionContext;
-  LClientHelloInfo: TTlsClientHelloInfo;
   LServerHello, LCertificate, LCertificateStatus, LServerKeyExchange, LCertRequest,
     LServerHelloDone, LStaple: TBytes;
 begin
@@ -472,7 +465,8 @@ begin
         TTlsAlertDescription.ProtocolVersion, @SNoTls12Offered);
 
     // select (or reject) the application protocol from the client's ALPN offer (RFC 7301)
-    FSelectedAlpn := SelectAlpn(LContext.AlpnProtocols);
+    FSelectedAlpn := TServerOfferSelection.SelectAlpn(FParams.AlpnProtocols,
+      LContext.AlpnProtocols, FParams.AlpnRejectAll);
 
     // echo renegotiation_info if the client signalled secure renegotiation by either the
     // extension or the TLS_EMPTY_RENEGOTIATION_INFO_SCSV cipher suite (RFC 5746 3.4/3.6)
@@ -494,28 +488,8 @@ begin
     begin
       // select the server certificate for this handshake from the client's SNI (virtual hosting),
       // before suite/scheme negotiation which depends on the selected leaf's key
-      if FParams.CredentialResolver = nil then
-        raise EFatalAlertTlsLibException.CreateRes(
-          TTlsAlertDescription.HandshakeFailure, @SNoServerCertificate);
-      LClientHelloInfo.ServerName := FRequestedServerName;
-      LClientHelloInfo.SignatureSchemes := LContext.SignatureSchemes;
-      LClientHelloInfo.AlpnProtocols := LContext.AlpnProtocols;
-      LClientHelloInfo.CipherSuites := LHello.CipherSuites;
-      LClientHelloInfo.SupportedGroups := LContext.SupportedGroups;
-      LClientHelloInfo.ProtocolVersion := TTlsVersion.Tls12;
-      if not FParams.CredentialResolver.TryResolve(LClientHelloInfo, FResolvedCredential) then
-      begin
-        if FRequestedServerName <> '' then
-          raise EFatalAlertTlsLibException.CreateRes(
-            TTlsAlertDescription.UnrecognizedName, @SNoCredentialForServerName);
-        raise EFatalAlertTlsLibException.CreateRes(
-          TTlsAlertDescription.HandshakeFailure, @SNoServerCertificate);
-      end;
-      // a resolved credential with no signing key cannot complete certificate auth; reject it
-      // as a handshake_failure rather than dereferencing a nil key during scheme selection
-      if not Assigned(FResolvedCredential.PrivateKey) then
-        raise EFatalAlertTlsLibException.CreateRes(
-          TTlsAlertDescription.HandshakeFailure, @SCredentialNoSigningKey);
+      FResolvedCredential := TServerOfferSelection.ResolveCredential(
+        FParams.CredentialResolver, LContext, LHello.CipherSuites, TTlsVersion.Tls12);
       // select the ECDHE group: the first server-preferred group the client also
       // advertised in supported_groups (RFC 8422 5.1). Unknown/non-ECDHE offered
       // codes are simply not chosen, so a client mixing bogus curves still succeeds.
@@ -566,7 +540,7 @@ begin
   // staple when the client offered status_request and a staple is configured; the
   // ServerHello echoes an empty status_request and a CertificateStatus follows the
   // Certificate (RFC 6066 8)
-  LStaple := ResolveOcspStaple;
+  LStaple := FResolvedCredential.CurrentOcspStaple;
   FWillStaple := FStatusRequestOffered and (System.Length(LStaple) > 0);
 
   LServerHello := BuildServerHello;
@@ -607,28 +581,6 @@ begin
       THandshakeEffects.SendHandshake(LCertRequest));
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.SendHandshake(LServerHelloDone));
-end;
-
-function TTls12ServerStateMachine.SelectAlpn(
-  const AClientOffered: TArray<string>): string;
-var
-  LPref, LOffered: string;
-begin
-  Result := '';
-  // reject mode: any client ALPN offer is refused with no_application_protocol (RFC 7301 3.2)
-  if FParams.AlpnRejectAll and (System.Length(AClientOffered) > 0) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.NoApplicationProtocol, @SAlpnRejected);
-  // no selection when the server is not configured for ALPN or the client did not offer it
-  if (System.Length(FParams.AlpnProtocols) = 0) or (System.Length(AClientOffered) = 0) then
-    Exit;
-  for LPref in FParams.AlpnProtocols do
-    for LOffered in AClientOffered do
-      if LPref = LOffered then
-        Exit(LPref);
-  // configured, offered, but nothing overlaps (RFC 7301 3.2)
-  raise EFatalAlertTlsLibException.CreateRes(
-    TTlsAlertDescription.NoApplicationProtocol, @SAlpnRejected);
 end;
 
 procedure TTls12ServerStateMachine.StampServerRandom;
@@ -681,14 +633,6 @@ function TTls12ServerStateMachine.BuildCertificate: TBytes;
 begin
   Result := THandshakeFraming.Frame(TTlsHandshakeType.Certificate,
     THandshakeMessages.EncodeCertificate12(FResolvedCredential.CertificateChain));
-end;
-
-function TTls12ServerStateMachine.ResolveOcspStaple: TBytes;
-begin
-  if Assigned(FResolvedCredential.OcspStapleCallback) then
-    Result := FResolvedCredential.OcspStapleCallback
-  else
-    Result := FResolvedCredential.OcspStaple;
 end;
 
 function TTls12ServerStateMachine.BuildCertificateRequest: TBytes;
