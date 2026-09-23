@@ -1,0 +1,31 @@
+.github/workflows/ci/interop/trust/gen-trust-ca.sh
+  s_09d3c46d1a9b1f::t_1c5a0cf933a4b7 200
+  s_09d3c46d1a9b1f::t_a61f0917f69f38 204-239
+  s_09d3c46d1a9b1f::t_f0fa8a1d2f49ec 39-40
+  s_09d3c46d1a9b1f::t_af5068fce9494a 41
+  s_09d3c46d1a9b1f::t_357839e0608232 50
+  s_09d3c46d1a9b1f::t_a745a12cae23e4 168-169,172
+  s_09d3c46d1a9b1f::t_6a2125ce0e0ef4 189-190
+.github/workflows/ci/interop/trust/run-trust.sh
+  s_09d3c46d1a9b1f::t_97ed525ac61dc6 51-59
+  s_09d3c46d1a9b1f::t_d58cbf1aef9235 120-132
+  s_09d3c46d1a9b1f::t_ee32deba4da863 65
+  s_09d3c46d1a9b1f::t_1406834ef5abf1 102
+  s_09d3c46d1a9b1f::t_64f161042f7c2c 264-289
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3413cb6975013ca99a2f8d7c1417ee23b18fe378",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
