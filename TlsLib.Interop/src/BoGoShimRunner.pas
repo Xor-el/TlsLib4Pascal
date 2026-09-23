@@ -38,6 +38,7 @@ uses
   TlpIEch,
   TlpTlsConnectionInfo,
   TlpITlsEngine,
+  TlpHandshakeMessages,
   InteropSocket,
   InteropEngine,
   InteropCredentials,
@@ -1330,7 +1331,7 @@ begin
   // KeyUpdates the peer sends are absorbed by the engine during the echo loop below
   if AConfig.KeyUpdate then
   begin
-    LEngine.RequestKeyUpdate(False);
+    LEngine.RequestKeyUpdate(TKeyUpdateRequest.UpdateNotRequested);
     TInteropPump.Flush(LEngine, ASocket);
   end;
 

@@ -18,6 +18,7 @@ interface
 uses
   SysUtils,
   TlpTlsAlert,
+  TlpHandshakeMessages,
   TlpHandshakeMessage,
   TlpHandshakeStage,
   TlpIHandshakeChannel,
@@ -72,7 +73,7 @@ type
     procedure ResolveCertificateVerdict(AAccept: Boolean;
       AAlert: TTlsAlertDescription = TTlsAlertDescription.BadCertificate);
     /// <summary>Applies the machine's post-handshake KeyUpdate effects (RFC 8446 4.6.3).</summary>
-    procedure RequestKeyUpdate(ARequestPeerUpdate: Boolean);
+    procedure RequestKeyUpdate(ARequest: TKeyUpdateRequest);
     /// <summary>Applies any pending coalesced KeyUpdate response (before an app write).</summary>
     procedure FlushPendingKeyUpdate;
     /// <summary>Notes that application data arrived: genuine traffic resets the consecutive
@@ -152,9 +153,9 @@ begin
   FDriver.ApplyAll(FMachine.Start);
 end;
 
-procedure THandshakeConductor.RequestKeyUpdate(ARequestPeerUpdate: Boolean);
+procedure THandshakeConductor.RequestKeyUpdate(ARequest: TKeyUpdateRequest);
 begin
-  FDriver.ApplyAll(FMachine.RequestKeyUpdate(ARequestPeerUpdate));
+  FDriver.ApplyAll(FMachine.RequestKeyUpdate(ARequest));
 end;
 
 function THandshakeConductor.ExportKeyingMaterial(const ALabel: string;

@@ -25,6 +25,7 @@ uses
   TlpITlsExtension,
   TlpExtensionBlockCodec,
   TlpHandshakeStage,
+  TlpHandshakeMessages,
   TlpHandshakeMessage,
   TlpHandshakeEffect,
   TlpIHandshakeMachine;
@@ -77,7 +78,7 @@ type
       : TArray<THandshakeEffect>;
     /// <summary>No post-handshake KeyUpdate by default (TLS 1.2 and pre-established); the
     /// TLS 1.3 base overrides these.</summary>
-    function RequestKeyUpdate(ARequestPeerUpdate: Boolean)
+    function RequestKeyUpdate(ARequest: TKeyUpdateRequest)
       : TArray<THandshakeEffect>; virtual;
     function TakePendingKeyUpdate: TArray<THandshakeEffect>; virtual;
     /// <summary>Resumes a message-less verdict park: clears the park stage (back to Handshaking)
@@ -151,7 +152,7 @@ begin
 end;
 
 function THandshakeMachineBase.RequestKeyUpdate(
-  ARequestPeerUpdate: Boolean): TArray<THandshakeEffect>;
+  ARequest: TKeyUpdateRequest): TArray<THandshakeEffect>;
 begin
   Result := nil;
 end;

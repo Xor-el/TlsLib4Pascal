@@ -20,7 +20,8 @@ uses
   TlpTlsAlert,
   TlpTlsAlertProtocol,
   TlpTlsError,
-  TlpTlsConnectionInfo;
+  TlpTlsConnectionInfo,
+  TlpHandshakeMessages;
 
 type
   /// <summary>
@@ -113,12 +114,12 @@ type
     function WriteEarlyData(const AData: TBytes; AOffset, ALength: Int32): Int32;
     /// <summary>
     /// Initiates a post-handshake TLS 1.3 KeyUpdate (RFC 8446 4.6.3): rekeys the write
-    /// epoch and sends a KeyUpdate. When ARequestPeerUpdate is True the peer is asked to
+    /// epoch and sends a KeyUpdate. When ARequest is UpdateRequested the peer is asked to
     /// rekey and send its own KeyUpdate back. A no-op before the handshake completes, on a
     /// TLS 1.2 connection, once terminal or after our own close_notify, and (like Write) after
     /// an inbound close_notify only under TLS 1.2 - a 1.3 write half stays open and rekeyable.
     /// </summary>
-    procedure RequestKeyUpdate(ARequestPeerUpdate: Boolean);
+    procedure RequestKeyUpdate(ARequest: TKeyUpdateRequest);
     /// <summary>Sends a close_notify (clean shutdown).</summary>
     procedure SendClose;
     /// <summary>Sends a fatal alert and makes the engine terminal.</summary>

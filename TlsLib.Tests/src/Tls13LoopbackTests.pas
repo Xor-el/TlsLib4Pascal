@@ -1770,7 +1770,7 @@ begin
   CheckEqualBytes('the client can still write after the inbound close_notify', LMsg,
     ReadAllApp(LServer));
   // a KeyUpdate on the still-open write half is permitted and writes continue under it
-  LClient.RequestKeyUpdate(False);
+  LClient.RequestKeyUpdate(TKeyUpdateRequest.UpdateNotRequested);
   Pump(LClient, LServer);
   LClient.Write(LMsg, 0, System.Length(LMsg));
   Pump(LClient, LServer);
