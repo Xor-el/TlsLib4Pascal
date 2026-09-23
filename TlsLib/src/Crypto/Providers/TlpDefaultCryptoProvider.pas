@@ -181,8 +181,7 @@ type
 
   /// <summary>
   /// The fluent <see cref="ICryptoProviderBuilder" />: accumulates facet overrides
-  /// and composes through <see cref="TDefaultCryptoProvider.Create" /> (zero
-  /// duplication - all composition logic stays in that one constructor).
+  /// and composes through <see cref="TDefaultCryptoProvider.Create" />.
   /// </summary>
   TCryptoProviderBuilder = class(TInterfacedObject, ICryptoProviderBuilder)
   strict private
@@ -1081,7 +1080,7 @@ begin
     LBlindBits := TECCurveConstants.SCALAR_BLIND_FULL
   else
     LBlindBits := TECCurveConstants.SCALAR_BLIND_DETERMINISTIC;
-  LAgreement := TEphemeralECDHAgreement.Create(APriv, LBlindBits);
+  LAgreement := TEphemeralECDHAgreement.Create(APriv, FRandom, LBlindBits);
   LZ := TBigIntegerUtilities.AsUnsignedByteArray(FFieldSize, LAgreement.CalculateAgreement(APeer));
   try
     Result := TSecretBuffer.From(LZ);
@@ -1164,12 +1163,23 @@ function TNistEcAgreement.ImportPrivateKey(const ARawPrivateKey: ISecretBuffer;
 var
   LScalar: TBytes;
   LD: TBigInteger;
+  LFactory: IECCTMultiplierFactory;
+  LMul: IECMultiplier;
+  LQ: IECPoint;
 begin
   LScalar := ARawPrivateKey.ToBytes;
   try
     // d validated in [1, n-1]; the public value is the SEC1 uncompressed encoding of [d]G
     LD := ScalarFromBytes(LScalar);
-    APublicKey := FDomain.G.Multiply(LD).Normalize.GetEncoded(False);
+    // derive [d]G through the injected RNG so the blind is provider-owned
+    if Supports(FDomain.Curve, IECCTMultiplierFactory, LFactory) then
+    begin
+      LMul := LFactory.CreateCTMultiplier(FRandom, TECCurveConstants.SCALAR_BLIND_FULL);
+      LQ := LMul.Multiply(FDomain.G, LD);
+    end
+    else
+      LQ := FDomain.G.Multiply(LD);
+    APublicKey := LQ.Normalize.GetEncoded(False);
     // parse the EC key parameter once here so a later Agree reuses it; keep the raw scalar
     Result := TKeyExchangePrivateKey.Create(AUsage, TSecretBuffer.From(LScalar),
       TECPrivateKeyParameters.Create(LD, FDomain), True);
