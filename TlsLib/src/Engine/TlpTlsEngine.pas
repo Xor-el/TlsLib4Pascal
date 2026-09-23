@@ -31,6 +31,7 @@ uses
   TlpRecordLayer,
   TlpTlsConnectionInfo,
   TlpITlsEngine,
+  TlpHandshakeMessages,
   TlpTlsEngineEvents,
   TlpIHandshakeChannel,
   TlpHandshakeChannel,
@@ -112,7 +113,7 @@ type
     function ProcessInput(const AWire: TBytes; AOffset, ALength: Int32): TTlsOutcome;
     procedure Write(const AData: TBytes; AOffset, ALength: Int32);
     function WriteEarlyData(const AData: TBytes; AOffset, ALength: Int32): Int32;
-    procedure RequestKeyUpdate(ARequestPeerUpdate: Boolean);
+    procedure RequestKeyUpdate(ARequest: TKeyUpdateRequest);
     procedure SendClose;
     procedure SendAlert(ADescription: TTlsAlertDescription);
     procedure StartHandshake;
@@ -664,7 +665,7 @@ begin
       Break;
     if FHandshakeComplete then
       try
-        FConductor.RequestKeyUpdate(False);
+        FConductor.RequestKeyUpdate(TKeyUpdateRequest.UpdateNotRequested);
       except
         on E: Exception do
         begin
@@ -706,7 +707,7 @@ begin
   Inc(FEarlyDataSent, Result);
 end;
 
-procedure TTlsEngine.RequestKeyUpdate(ARequestPeerUpdate: Boolean);
+procedure TTlsEngine.RequestKeyUpdate(ARequest: TKeyUpdateRequest);
 begin
   // post-handshake only, over an established connection with a live handshake machine
   // (TLS 1.2 machines make this a no-op); the KeyUpdate is protected and queued outbound. An
@@ -716,7 +717,7 @@ begin
   // a failure to build the KeyUpdate is fatal: abort with its alert rather than let the
   // exception escape the engine
   try
-    FConductor.RequestKeyUpdate(ARequestPeerUpdate);
+    FConductor.RequestKeyUpdate(ARequest);
   except
     on E: Exception do
     begin

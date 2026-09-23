@@ -23,6 +23,7 @@ uses
   TlpTlsLibExceptions,
   TlpNegotiationTypes,
   TlpIKeySchedule,
+  TlpHandshakeMessages,
   TlpHandshakeMessage,
   TlpHandshakeEffect,
   TlpHandshakeStage,
@@ -51,14 +52,14 @@ type
     /// installs the fresh keys on the matching record side.</summary>
     function RekeyEffect(ADirection: TTlsDirection;
       ASide: TRecordSide): THandshakeEffect;
-    function BuildKeyUpdate(ARequestPeerUpdate: Boolean): TBytes;
+    function BuildKeyUpdate(ARequest: TKeyUpdateRequest): TBytes;
     /// <summary>Handles an inbound post-handshake KeyUpdate: rekeys the read epoch, and on
     /// update_requested marks a single response pending (coalescing repeats). Call from the
     /// Connected route.</summary>
     function HandleInboundKeyUpdate(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>;
   public
-    function RequestKeyUpdate(ARequestPeerUpdate: Boolean)
+    function RequestKeyUpdate(ARequest: TKeyUpdateRequest)
       : TArray<THandshakeEffect>; override;
     /// <summary>If a response to a peer update_requested is pending, emits it (one
     /// KeyUpdate + a write rekey) and clears the flag; the engine flushes this just before
@@ -70,10 +71,6 @@ type
   end;
 
 implementation
-
-const
-  KeyUpdateNotRequested = Byte(0);
-  KeyUpdateRequested = Byte(1);
 
 resourcestring
   SBadKeyUpdate = 'malformed KeyUpdate (request_update must be a single 0 or 1 byte)';
@@ -88,19 +85,13 @@ begin
     ADirection), ASide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13);
 end;
 
-function TTls13HandshakeBase.BuildKeyUpdate(ARequestPeerUpdate: Boolean): TBytes;
-var
-  LFlag: Byte;
+function TTls13HandshakeBase.BuildKeyUpdate(ARequest: TKeyUpdateRequest): TBytes;
 begin
-  if ARequestPeerUpdate then
-    LFlag := KeyUpdateRequested
-  else
-    LFlag := KeyUpdateNotRequested;
-  Result := THandshakeFraming.Frame(TTlsHandshakeType.KeyUpdate, TBytes.Create(LFlag));
+  Result := THandshakeFraming.Frame(TTlsHandshakeType.KeyUpdate, TBytes.Create(ARequest.ToByte));
 end;
 
 function TTls13HandshakeBase.RequestKeyUpdate(
-  ARequestPeerUpdate: Boolean): TArray<THandshakeEffect>;
+  ARequest: TKeyUpdateRequest): TArray<THandshakeEffect>;
 var
   LMessage: TBytes;
 begin
@@ -110,7 +101,7 @@ begin
   if Stage <> THandshakeStage.Connected then
     Exit;
   // the KeyUpdate goes out under the current write keys; the write epoch rekeys after it
-  LMessage := BuildKeyUpdate(ARequestPeerUpdate);
+  LMessage := BuildKeyUpdate(ARequest);
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.SendHandshake(LMessage),
     RekeyEffect(WriteDirection, TRecordSide.WriteSide));
@@ -119,12 +110,11 @@ end;
 function TTls13HandshakeBase.HandleInboundKeyUpdate(
   const AMessage: TTlsHandshakeMessage): TArray<THandshakeEffect>;
 var
-  LPeerRequested: Boolean;
+  LRequest: TKeyUpdateRequest;
 begin
-  if (System.Length(AMessage.Body) <> 1) or (AMessage.Body[0] > KeyUpdateRequested) then
+  if (System.Length(AMessage.Body) <> 1) or not TKeyUpdateRequest.TryFromByte(AMessage.Body[0], LRequest) then
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.DecodeError,
       @SBadKeyUpdate);
-  LPeerRequested := AMessage.Body[0] = KeyUpdateRequested;
 
   // the peer advanced its send keys; rekey our read epoch so later records decrypt
   Result := TArray<THandshakeEffect>.Create(
@@ -132,7 +122,7 @@ begin
 
   // update_requested: mark one response pending (repeats coalesce to a single response,
   // flushed just before our next application write - RFC 8446 4.6.3)
-  if LPeerRequested then
+  if LRequest = TKeyUpdateRequest.UpdateRequested then
     FKeyUpdateResponsePending := True;
 
   TArrayUtilities.Append<THandshakeEffect>(Result,
@@ -148,7 +138,7 @@ begin
   // the responding KeyUpdate (never update_requested, so no loop) goes out under the
   // current write keys; the write epoch rekeys after it
   Result := TArray<THandshakeEffect>.Create(
-    THandshakeEffects.SendHandshake(BuildKeyUpdate(False)),
+    THandshakeEffects.SendHandshake(BuildKeyUpdate(TKeyUpdateRequest.UpdateNotRequested)),
     RekeyEffect(WriteDirection, TRecordSide.WriteSide));
 end;
 

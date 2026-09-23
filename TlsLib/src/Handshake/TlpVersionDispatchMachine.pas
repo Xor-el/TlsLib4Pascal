@@ -66,7 +66,7 @@ type
     function ProcessMessage(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>;
     /// <summary>Forwards a post-handshake KeyUpdate request to the resolved sub-machine.</summary>
-    function RequestKeyUpdate(ARequestPeerUpdate: Boolean): TArray<THandshakeEffect>;
+    function RequestKeyUpdate(ARequest: TKeyUpdateRequest): TArray<THandshakeEffect>;
     function TakePendingKeyUpdate: TArray<THandshakeEffect>;
     /// <summary>Forwards a resume-after-verdict continuation to the resolved sub-machine.</summary>
     function ResumeAfterVerdict: TArray<THandshakeEffect>;
@@ -172,11 +172,11 @@ begin
 end;
 
 function TVersionDispatchMachineBase.RequestKeyUpdate(
-  ARequestPeerUpdate: Boolean): TArray<THandshakeEffect>;
+  ARequest: TKeyUpdateRequest): TArray<THandshakeEffect>;
 begin
   // only meaningful once a version was resolved (post-handshake)
   if FInner <> nil then
-    Result := FInner.RequestKeyUpdate(ARequestPeerUpdate)
+    Result := FInner.RequestKeyUpdate(ARequest)
   else
     Result := nil;
 end;

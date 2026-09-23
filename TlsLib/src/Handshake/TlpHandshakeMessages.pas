@@ -26,6 +26,17 @@ uses
   TlpWireWriter;
 
 type
+  /// <summary>RFC 8446 4.6.3 KeyUpdateRequest: whether the peer is asked to update its own
+  /// keys in response (update_requested) or not (update_not_requested).</summary>
+  TKeyUpdateRequest = (UpdateNotRequested, UpdateRequested);
+
+  TKeyUpdateRequestHelper = record helper for TKeyUpdateRequest
+    /// <summary>The wire byte (RFC 8446 4.6.3): 0 = update_not_requested, 1 = update_requested.</summary>
+    function ToByte: Byte;
+    /// <summary>Decodes the wire byte; False (a decode error) for any value other than 0 or 1.</summary>
+    class function TryFromByte(AByte: Byte; out AValue: TKeyUpdateRequest): Boolean; static;
+  end;
+
   /// <summary>A ClientHello. The extension block is kept as its raw wire vector
   /// (2-byte length + entries) so the extension layer owns its own parsing.</summary>
   TTlsClientHello = record
@@ -263,6 +274,21 @@ resourcestring
     '(RFC 5246 7.4.4 requires at least one)';
   SEmptyDistinguishedName12 = 'a CertificateRequest certificate_authorities entry is a ' +
     'zero-length DistinguishedName (RFC 5246 7.4.4)';
+
+{ TKeyUpdateRequestHelper }
+
+function TKeyUpdateRequestHelper.ToByte: Byte;
+begin
+  Result := Byte(Ord(Self));
+end;
+
+class function TKeyUpdateRequestHelper.TryFromByte(AByte: Byte;
+  out AValue: TKeyUpdateRequest): Boolean;
+begin
+  Result := AByte <= Byte(Ord(TKeyUpdateRequest.UpdateRequested));
+  if Result then
+    AValue := TKeyUpdateRequest(AByte);
+end;
 
 { THandshakeMessages }
 

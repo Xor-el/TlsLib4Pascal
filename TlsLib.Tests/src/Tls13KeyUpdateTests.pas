@@ -35,6 +35,7 @@ uses
   TlpNegotiationTypes,
   TlpCipherSuiteRegistry,
   TlpITlsEngine,
+  TlpHandshakeMessages,
   TlsLibTestBase;
 
 type
@@ -275,7 +276,7 @@ var
 begin
   Handshake(LClient, LServer);
   // a plain KeyUpdate: the server rekeys its read epoch and does not respond
-  LClient.RequestKeyUpdate(False);
+  LClient.RequestKeyUpdate(TKeyUpdateRequest.UpdateNotRequested);
   Exchange(LClient, LServer);
   CheckEquals(1, CountKeyUpdateEvents(LServer), 'the server saw one KeyUpdate');
   CheckEquals(0, CountKeyUpdateEvents(LClient),
@@ -292,7 +293,7 @@ begin
   Handshake(LClient, LServer);
   // update_requested: the server rekeys read now and owes one coalesced response, which it
   // flushes just before its next application write (RFC 8446 4.6.3)
-  LClient.RequestKeyUpdate(True);
+  LClient.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
   Exchange(LClient, LServer);
   CheckEquals(1, CountKeyUpdateEvents(LServer), 'the server saw one KeyUpdate');
   CheckFalse(LClient.IsTerminal, 'the client did not fail');
@@ -309,7 +310,7 @@ var
 begin
   Handshake(LClient, LServer);
   // the server initiates; the client rekeys its read epoch
-  LServer.RequestKeyUpdate(False);
+  LServer.RequestKeyUpdate(TKeyUpdateRequest.UpdateNotRequested);
   Exchange(LServer, LClient);
   CheckEquals(1, CountKeyUpdateEvents(LClient), 'the client saw the server KeyUpdate');
   CheckFalse(LClient.IsTerminal, 'the client did not fail');
@@ -327,7 +328,7 @@ begin
   Handshake(LClient, LServer);
   for LI := 0 to 39 do
   begin
-    LClient.RequestKeyUpdate(True);
+    LClient.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
     Exchange(LClient, LServer);
     CheckFalse(LClient.IsTerminal, 'the client stayed healthy across repeated updates');
     CheckFalse(LServer.IsTerminal, 'the server stayed healthy across repeated updates');
@@ -348,7 +349,7 @@ begin
   Handshake(LClient, LServer);
   for LI := 0 to 40 do
   begin
-    LServer.RequestKeyUpdate(False);
+    LServer.RequestKeyUpdate(TKeyUpdateRequest.UpdateNotRequested);
     Pump(LServer, LClient);
   end;
   CheckTrue(LClient.IsTerminal, 'the client refuses a consecutive KeyUpdate flood');
@@ -395,7 +396,7 @@ begin
   CheckEquals(48, System.Length(LBefore), 'the server exported keying material');
   // a KeyUpdate rotates the application traffic secrets; the exporter secret is fixed (RFC 8446
   // 7.5), so the exported value must not change
-  LClient.RequestKeyUpdate(True);
+  LClient.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
   Exchange(LClient, LServer);
   LAfter := LServer.ExportKeyingMaterial('EXPORTER-test', LCtx, True, 48);
   CheckEqualBytes('the exported keying material is unchanged after a KeyUpdate',

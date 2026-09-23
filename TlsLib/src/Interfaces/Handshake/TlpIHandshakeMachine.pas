@@ -21,6 +21,7 @@ uses
   TlpTlsVersion,
   TlpITlsEngine,
   TlpHandshakeStage,
+  TlpHandshakeMessages,
   TlpHandshakeMessage,
   TlpHandshakeEffect,
   TlpIRecordProtection;
@@ -49,7 +50,7 @@ type
     /// <summary>Initiates a post-handshake KeyUpdate (TLS 1.3 only), returning the effects
     /// the driver applies. A no-op (empty) for machines/versions without KeyUpdate or when
     /// the connection is not yet established.</summary>
-    function RequestKeyUpdate(ARequestPeerUpdate: Boolean): TArray<THandshakeEffect>;
+    function RequestKeyUpdate(ARequest: TKeyUpdateRequest): TArray<THandshakeEffect>;
     /// <summary>Emits the one coalesced response owed to a peer update_requested, if any;
     /// the engine flushes it just before the next application write. Empty when none is
     /// pending or the machine/version has no KeyUpdate.</summary>
