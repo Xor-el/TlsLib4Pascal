@@ -99,8 +99,7 @@ type
     /// <summary>Whether to sprinkle GREASE (RFC 8701) codepoints across the offers.</summary>
     Grease: Boolean;
     /// <summary>Whether the client offers the status_request (OCSP stapling) extension
-    /// (RFC 6066). Off by default: the client requests a staple only when configured to,
-    /// so an unsolicited server staple is rejected.</summary>
+    /// (RFC 6066). Off by default, so an unsolicited server staple is rejected.</summary>
     RequestOcspStapling: Boolean;
     /// <summary>When set, the ClientHello also offers TLS 1.2 (supported_versions gains
     /// 1.2 and extended_master_secret is offered) so one hello serves a dual-version

@@ -117,7 +117,7 @@ type
     /// original authentication; Reverify re-runs CertificateVerifier against the stored chain.</summary>
     ResumeVerification: TResumeVerification;
     /// <summary>The clock read to stamp a cached 1.2 session's issue time (RFC 5077). A required
-    /// input, like Provider: the engine factory supplies one from the config, and a direct sans-IO
+    /// input, like Crypto: the engine factory supplies one from the config, and a direct sans-IO
     /// caller must set it.</summary>
     Clock: ITlsClock;
     /// <summary>The cache key for this server; ServerName is used when empty.</summary>
