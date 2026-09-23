@@ -340,25 +340,26 @@ type
     class function UnixMillisToCFAbsoluteTime(AMillisUtc: UInt64): Double; static;
   private
     class procedure ResolveDynamicImports; static;
-    /// <summary>The shared SecTrust SERVER evaluation: builds the SSL trust (with a revocation
-    /// policy when AAddRevocation, network per ANetworkAllowed, RequirePositiveResponse per
-    /// ARequirePositive), pins the verify date, consumes the staple, and reports the result as a
-    /// tri-state in AResult (Outcome plus, on Good, the OS-built path and the OS anchor as the
-    /// policy-exempt certificate). Returns True with a tri-state outcome; False with AAlert on a
-    /// definitive non-revocation trust failure. The posture, the strength policy and the identity
-    /// post-checks are the owning delegate's.</summary>
+    /// <summary>The shared SecTrust SERVER evaluation: builds the SSL trust (adding a revocation
+    /// policy unless ARevocation is None, network per ANetworkAllowed, RequirePositiveResponse when
+    /// ARevocation is RequirePositive), pins the verify date, consumes the staple, and reports the
+    /// result as a tri-state in AResult (Outcome plus, on Good, the OS-built path and the OS anchor
+    /// as the policy-exempt certificate). Returns True with a tri-state outcome; False with AAlert
+    /// on a definitive non-revocation trust failure. The posture, the strength policy and the
+    /// identity post-checks are the owning delegate's.</summary>
     class function EvaluateTrust(const AChain: TArray<TBytes>;
       const AHostName: string; const AOcspStaple: TBytes; ANetworkAllowed: Boolean;
-      AAddRevocation, ARequirePositive: Boolean; const AClock: ITlsClock;
+      ARevocation: TPlatformRevocationCheck; const AClock: ITlsClock;
       out AResult: TPlatformChainResult;
       out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>The shared SecTrust CLIENT-certificate evaluation: an anchors-only SecTrust built
     /// over AAnchors alone (never the OS/public roots) with the client SSL policy, the revocation
-    /// policy (network per ANetworkAllowed, RequirePositiveResponse per ARequirePositive), and the
-    /// injected clock (a client certificate is never stapled). Zero usable anchors reject before the
-    /// trust. Reports the tri-state in AResult exactly like EvaluateTrust.</summary>
+    /// policy (added unless ARevocation is None, network per ANetworkAllowed, RequirePositiveResponse
+    /// when ARevocation is RequirePositive), and the injected clock (a client certificate is never
+    /// stapled). Zero usable anchors reject before the trust. Reports the tri-state in AResult
+    /// exactly like EvaluateTrust.</summary>
     class function EvaluateClientTrust(const AChain, AAnchors: TArray<TBytes>;
-      ANetworkAllowed, AAddRevocation, ARequirePositive: Boolean; const AClock: ITlsClock;
+      ANetworkAllowed: Boolean; ARevocation: TPlatformRevocationCheck; const AClock: ITlsClock;
       out AResult: TPlatformChainResult;
       out AAlert: TTlsAlertDescription): Boolean; static;
 {$IFDEF TLSLIB_MACOS}
@@ -652,7 +653,7 @@ end;
 
 class function TAppleTrustApi.EvaluateTrust(const AChain: TArray<TBytes>;
   const AHostName: string; const AOcspStaple: TBytes; ANetworkAllowed: Boolean;
-  AAddRevocation, ARequirePositive: Boolean; const AClock: ITlsClock;
+  ARevocation: TPlatformRevocationCheck; const AClock: ITlsClock;
   out AResult: TPlatformChainResult;
   out AAlert: TTlsAlertDescription): Boolean;
 var
@@ -670,7 +671,12 @@ var
   LStatus: OSStatus;
   LError: CFErrorRef;
   LPath: TArray<TBytes>;
+  LAddRevocation, LRequirePositive: Boolean;
 begin
+  // None asks for no revocation policy; BestEffort adds the any-method policy; RequirePositive
+  // additionally demands a positive response
+  LAddRevocation := ARevocation <> TPlatformRevocationCheck.None;
+  LRequirePositive := ARevocation = TPlatformRevocationCheck.RequirePositive;
   Result := False;
   AResult := Default(TPlatformChainResult);
   AResult.Outcome := TLiveRevocationOutcome.Indeterminate;
@@ -715,13 +721,13 @@ begin
     // the SSL policy, plus a revocation policy when revocation is in play
     LPolicyRefs[0] := LSslPolicy;
     LPolicyCount := 1;
-    if AAddRevocation then
+    if LAddRevocation then
     begin
       if not System.Assigned(FSecPolicyCreateRevocation) then
       begin
         // a required positive response cannot be honored without the revocation policy - fail
         // closed; a best-effort check proceeds under the default behavior
-        if ARequirePositive then
+        if LRequirePositive then
         begin
           AAlert := TTlsAlertDescription.InternalError;
           Exit;
@@ -733,7 +739,7 @@ begin
         // cache-only inline keeps the check off the network; the live re-check drops this
         if not ANetworkAllowed then
           LFlags := LFlags or KSecRevocationNetworkAccessDisabled;
-        if ARequirePositive then
+        if LRequirePositive then
           LFlags := LFlags or KSecRevocationRequirePositiveResponse;
         LRevPolicy := FSecPolicyCreateRevocation(LFlags);
         if LRevPolicy = nil then
@@ -878,7 +884,7 @@ begin
 end;
 
 class function TAppleTrustApi.EvaluateClientTrust(const AChain, AAnchors: TArray<TBytes>;
-  ANetworkAllowed, AAddRevocation, ARequirePositive: Boolean; const AClock: ITlsClock;
+  ANetworkAllowed: Boolean; ARevocation: TPlatformRevocationCheck; const AClock: ITlsClock;
   out AResult: TPlatformChainResult;
   out AAlert: TTlsAlertDescription): Boolean;
 var
@@ -893,7 +899,12 @@ var
   LStatus: OSStatus;
   LError: CFErrorRef;
   LPath: TArray<TBytes>;
+  LAddRevocation, LRequirePositive: Boolean;
 begin
+  // None asks for no revocation policy; BestEffort adds the any-method policy; RequirePositive
+  // additionally demands a positive response
+  LAddRevocation := ARevocation <> TPlatformRevocationCheck.None;
+  LRequirePositive := ARevocation = TPlatformRevocationCheck.RequirePositive;
   Result := False;
   AResult := Default(TPlatformChainResult);
   AResult.Outcome := TLiveRevocationOutcome.Indeterminate;
@@ -953,13 +964,13 @@ begin
 
     LPolicyRefs[0] := LSslPolicy;
     LPolicyCount := 1;
-    if AAddRevocation then
+    if LAddRevocation then
     begin
       if not System.Assigned(FSecPolicyCreateRevocation) then
       begin
         // a required positive response cannot be honored without the revocation policy - fail
         // closed; a best-effort check proceeds under the default behavior
-        if ARequirePositive then
+        if LRequirePositive then
         begin
           AAlert := TTlsAlertDescription.InternalError;
           Exit;
@@ -971,7 +982,7 @@ begin
         // cache-only inline keeps the check off the network; the live re-check drops this
         if not ANetworkAllowed then
           LFlags := LFlags or KSecRevocationNetworkAccessDisabled;
-        if ARequirePositive then
+        if LRequirePositive then
           LFlags := LFlags or KSecRevocationRequirePositiveResponse;
         LRevPolicy := FSecPolicyCreateRevocation(LFlags);
         if LRevPolicy = nil then
@@ -1317,12 +1328,9 @@ function TAppleChainEngine.EvaluateServer(const ARequest: TPlatformChainRequest;
   out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean;
 begin
   // the OS name check only ever sees a DNS host (empty for an IP literal); an IP is matched in the
-  // library by the delegate. None asks for no revocation policy; BestEffort adds the any-method
-  // revocation policy; RequirePositive additionally demands a positive response
+  // library by the delegate
   Result := TAppleTrustApi.EvaluateTrust(ARequest.Chain, ARequest.ServerName.AsDns,
-    ARequest.OcspStaple, ARequest.NetworkAllowed,
-    ARequest.Revocation <> TPlatformRevocationCheck.None,
-    ARequest.Revocation = TPlatformRevocationCheck.RequirePositive,
+    ARequest.OcspStaple, ARequest.NetworkAllowed, ARequest.Revocation,
     ARequest.Clock, AResult, AAlert);
 end;
 
@@ -1332,8 +1340,7 @@ begin
   // anchors-only over the configured client-CA anchors (never the OS/public roots); a client
   // certificate carries no host identity and is never stapled
   Result := TAppleTrustApi.EvaluateClientTrust(ARequest.Chain, ARequest.Anchors,
-    ARequest.NetworkAllowed, ARequest.Revocation <> TPlatformRevocationCheck.None,
-    ARequest.Revocation = TPlatformRevocationCheck.RequirePositive,
+    ARequest.NetworkAllowed, ARequest.Revocation,
     ARequest.Clock, AResult, AAlert);
 end;
 

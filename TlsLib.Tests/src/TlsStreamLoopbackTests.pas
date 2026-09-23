@@ -291,7 +291,7 @@ function TTestTlsStreamLoopback.AsyncClientConfig: ITlsClientConfig;
 begin
   Result := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithTrustAnchors(TrustRoot)
-    .WithAsyncCertificateVerdict(True, 0).Build;
+    .WithAsyncCertificateVerdict(0).Build;
 end;
 
 function TTestTlsStreamLoopback.SpkiSha256(const ACertDer: TBytes): TBytes;

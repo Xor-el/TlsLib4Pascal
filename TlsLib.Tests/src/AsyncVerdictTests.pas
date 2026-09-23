@@ -169,7 +169,7 @@ var
 begin
   LClient := TTlsPresets.Compatible(Crypto, Pkix).Client.WithTrustAnchors(TrustRoot);
   if AAsync then
-    LClient.WithAsyncCertificateVerdict(True, ADeadlineMs);
+    LClient.WithAsyncCertificateVerdict(ADeadlineMs);
   Result := LClient.Build;
 end;
 
@@ -204,7 +204,7 @@ begin
     .WithTrustAnchors(TrustRoot)
     .WithPeerAuth(TClientAuthMode.Required);
   if AAsync then
-    LServer.WithAsyncCertificateVerdict(True, 0);
+    LServer.WithAsyncCertificateVerdict(0);
   Result := LServer.Build;
 end;
 
@@ -246,7 +246,7 @@ begin
     .WithOcspStaplingRequest(True)
     .WithRevocation(TRevocationPosture.Hard);
   if AHostDecision then
-    LClient.WithAsyncCertificateVerdict(True, 0)
+    LClient.WithAsyncCertificateVerdict(0)
   else
     LClient.WithLiveRevocationVerdict(0);
   AServer := StapledServer(AStaple);
@@ -575,18 +575,18 @@ begin
   CheckTrue(LServer.AwaitingCertificateVerdict,
     'the server should park awaiting the client-certificate verdict');
 
-  CheckEquals(0, System.Length(LServer.ExportKeyingMaterial('EXPORTER-test', nil, False, 32)),
+  CheckEquals(0, System.Length(LServer.ExportKeyingMaterial('EXPORTER-test', 32)),
     'the server withholds the half-RTT exporter while parked on the client-cert verdict');
 
   LServer.SetCertificateVerdict(True);
-  CheckEquals(32, System.Length(LServer.ExportKeyingMaterial('EXPORTER-test', nil, False, 32)),
+  CheckEquals(32, System.Length(LServer.ExportKeyingMaterial('EXPORTER-test', 32)),
     'the exporter is available again once the verdict clears the park, not only at Connected');
 
   DriveToCompletion(LClient, LServer);
   CheckFalse(LServer.IsHandshaking, 'the server handshake must complete');
   CheckEqualBytes('client and server export the same keying material after completion',
-    LClient.ExportKeyingMaterial('EXPORTER-test', nil, False, 32),
-    LServer.ExportKeyingMaterial('EXPORTER-test', nil, False, 32));
+    LClient.ExportKeyingMaterial('EXPORTER-test', 32),
+    LServer.ExportKeyingMaterial('EXPORTER-test', 32));
 end;
 
 procedure TTestAsyncVerdict.TestServerParkEventCarriesValidatedPath;

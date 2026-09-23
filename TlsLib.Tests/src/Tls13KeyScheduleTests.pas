@@ -270,8 +270,8 @@ var
 begin
   LSched := NewSchedule;
   LSched.DeriveEpochSecrets(TTlsEpoch.Application, Bytes('hash_ch_sf'));
-  LFirst := LSched.ExportKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), True, 32);
-  LSecond := LSched.ExportKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), True, 32);
+  LFirst := LSched.ExportKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), 32);
+  LSecond := LSched.ExportKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), 32);
   CheckEquals(32, System.Length(LFirst), 'requested length honored');
   CheckEqualBytes('exporter is deterministic', LFirst, LSecond);
 end;
@@ -472,14 +472,14 @@ begin
   LSched.DeriveEpochSecrets(TTlsEpoch.Application, Bytes('hash_ch_sf'));
   LApKeyBefore := ToBytes(LSched.TrafficKeys(TTlsEpoch.Application,
     TTlsDirection.ClientWrite).Key);
-  LExportBefore := LSched.ExportKeyingMaterial('EXPORTER-x', Bytes('ctx'), True, 32);
+  LExportBefore := LSched.ExportKeyingMaterial('EXPORTER-x', Bytes('ctx'), 32);
 
   LSched.DeriveResumptionMasterSecret(Bytes('hash_ch_cf'));
   LSched.ForgetHandshakeSecrets;
 
   LApKeyAfter := ToBytes(LSched.TrafficKeys(TTlsEpoch.Application,
     TTlsDirection.ClientWrite).Key);
-  LExportAfter := LSched.ExportKeyingMaterial('EXPORTER-x', Bytes('ctx'), True, 32);
+  LExportAfter := LSched.ExportKeyingMaterial('EXPORTER-x', Bytes('ctx'), 32);
   CheckEqualBytes('application key unchanged after forget', LApKeyBefore, LApKeyAfter);
   CheckEqualBytes('exporter unchanged after forget', LExportBefore, LExportAfter);
   CheckTrue(LSched.HasExporterSecret, 'exporter secret retained after forget');

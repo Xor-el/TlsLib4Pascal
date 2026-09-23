@@ -238,7 +238,7 @@ type
     function WithDangerousInsecureSkipVerify(AEnabled: Boolean): TTlsConfigBuilder;
     function WithCertificateVerifyCallback(
       const ACallback: TTlsCertificateVerifyCallback): TTlsConfigBuilder;
-    function WithAsyncCertificateVerdict(AEnabled: Boolean;
+    function WithAsyncCertificateVerdict(
       ADeadlineMs: Cardinal): TTlsConfigBuilder;
     function WithLiveRevocationVerdict(ADeadlineMs: Cardinal): TTlsConfigBuilder;
     function WithResumption(AEnabled: Boolean): TTlsConfigBuilder;
@@ -503,7 +503,7 @@ type
       AEnabled: Boolean): ITlsClientConfigBuilder;
     function WithCertificateVerifyCallback(
       const ACallback: TTlsCertificateVerifyCallback): ITlsClientConfigBuilder;
-    function WithAsyncCertificateVerdict(AEnabled: Boolean;
+    function WithAsyncCertificateVerdict(
       ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
     function WithLiveRevocationVerdict(
       ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
@@ -575,7 +575,7 @@ type
       AEnabled: Boolean): ITlsServerConfigBuilder;
     function WithCertificateVerifyCallback(
       const ACallback: TTlsCertificateVerifyCallback): ITlsServerConfigBuilder;
-    function WithAsyncCertificateVerdict(AEnabled: Boolean;
+    function WithAsyncCertificateVerdict(
       ADeadlineMs: Cardinal): ITlsServerConfigBuilder;
     function WithLiveRevocationVerdict(
       ADeadlineMs: Cardinal): ITlsServerConfigBuilder;
@@ -1077,10 +1077,10 @@ begin
   Result := Self;
 end;
 
-function TTlsClientConfigBuilder.WithAsyncCertificateVerdict(AEnabled: Boolean;
+function TTlsClientConfigBuilder.WithAsyncCertificateVerdict(
   ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
 begin
-  FOwner.WithAsyncCertificateVerdict(AEnabled, ADeadlineMs);
+  FOwner.WithAsyncCertificateVerdict(ADeadlineMs);
   Result := Self;
 end;
 
@@ -1375,10 +1375,10 @@ begin
   Result := Self;
 end;
 
-function TTlsServerConfigBuilder.WithAsyncCertificateVerdict(AEnabled: Boolean;
+function TTlsServerConfigBuilder.WithAsyncCertificateVerdict(
   ADeadlineMs: Cardinal): ITlsServerConfigBuilder;
 begin
-  FOwner.WithAsyncCertificateVerdict(AEnabled, ADeadlineMs);
+  FOwner.WithAsyncCertificateVerdict(ADeadlineMs);
   Result := Self;
 end;
 
@@ -2242,15 +2242,12 @@ begin
   Result := Self;
 end;
 
-function TTlsConfigBuilder.WithAsyncCertificateVerdict(AEnabled: Boolean;
+function TTlsConfigBuilder.WithAsyncCertificateVerdict(
   ADeadlineMs: Cardinal): TTlsConfigBuilder;
 begin
   GuardMutable;
   // last call wins across the two verdict-deferral setters
-  if AEnabled then
-    FAsyncVerdict.Deferral := TVerdictDeferral.HostDecision
-  else
-    FAsyncVerdict.Deferral := TVerdictDeferral.None;
+  FAsyncVerdict.Deferral := TVerdictDeferral.HostDecision;
   FAsyncVerdict.DeadlineMs := ADeadlineMs;
   Result := Self;
 end;

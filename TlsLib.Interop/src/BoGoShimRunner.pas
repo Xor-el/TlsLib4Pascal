@@ -324,7 +324,10 @@ begin
   if FHasCaptured then
     Exit;
   try
-    LBytes := AEngine.ExportKeyingMaterial(FLabel, FContext, FUseContext, FLength);
+    if FUseContext then
+      LBytes := AEngine.ExportKeyingMaterial(FLabel, FContext, FLength)
+    else
+      LBytes := AEngine.ExportKeyingMaterial(FLabel, FLength);
   except
     // a rejected label (the TLS 1.3 empty-label policy difference) - stay uncaptured; the
     // outcome is decided post-handshake, matching the non-probe path
@@ -1321,9 +1324,11 @@ begin
       end;
       LExported := LExportProbe.Captured;
     end
-    else
+    else if AConfig.UseExportContext then
       LExported := LEngine.ExportKeyingMaterial(LExportLabel, LExportContext,
-        AConfig.UseExportContext, LExportLen);
+        LExportLen)
+    else
+      LExported := LEngine.ExportKeyingMaterial(LExportLabel, LExportLen);
     TInteropPump.WriteAppData(LEngine, ASocket, LExported);
   end;
 

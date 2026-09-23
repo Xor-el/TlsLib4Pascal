@@ -61,10 +61,16 @@ type
     /// initial-certificate park (the buffered server flight drives that) and for every
     /// machine/version that does not park at a message-less point.</summary>
     function ResumeAfterVerdict: TArray<THandshakeEffect>;
-    /// <summary>Exported keying material over the established secrets (RFC 8446 7.5 / RFC
-    /// 5705). Empty unless CanExportKeyingMaterial (the exporter secret has been derived).</summary>
+    /// <summary>Exported keying material over the established secrets with no context value (RFC
+    /// 8446 7.5 / RFC 5705). Empty unless CanExportKeyingMaterial (the exporter secret has been
+    /// derived).</summary>
+    function ExportKeyingMaterial(const ALabel: string;
+      ALength: Int32): TBytes; overload;
+    /// <summary>Exported keying material over the established secrets bound to AContext (empty
+    /// allowed, distinct from no context; RFC 8446 7.5 / RFC 5705). Empty unless
+    /// CanExportKeyingMaterial (the exporter secret has been derived).</summary>
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
-      AUseContext: Boolean; ALength: Int32): TBytes;
+      ALength: Int32): TBytes; overload;
     /// <summary>Whether the exporter secret is available: for a TLS 1.3 server that is true in
     /// half-RTT (after it sent its Finished), before the peer's Finished (RFC 8446 7.5); TLS 1.2
     /// stays gated on completion. Never available while the machine is parked on an out-of-band
