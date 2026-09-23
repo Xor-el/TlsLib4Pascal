@@ -75,14 +75,15 @@ type
     // early data (over-budget bytes are not held - the caller resends them, see WriteEarlyData)
     FEarlyDataLimit: Int32;
     FEarlyDataSent: Int32;
-    // the negotiated facts surfaced to callers as one snapshot: version, ALPN, server name,
-    // peer OCSP staple, peer chain, requested CAs, cipher suite, named group, resumption, and
-    // the ECH outcome (on a client reject, the server's retry_configs, whether this handshake
-    // was itself a retry, and whether this endpoint aborted with ech_required)
+    // the negotiated facts, surfaced to callers as one snapshot by ConnectionInfo
     FInfo: TTlsConnectionInfo;
     // async peer-certificate verdict: whether the handshake is parked awaiting a verdict. Any
     // time budget belongs to the resolver, not the engine (the engine owns no timer)
     FAwaitingVerdict: Boolean;
+    // set while draining inbound records: a synchronous handshake callback (verify callback,
+    // verdict resolver, session store) is re-entering the single-threaded engine if it calls
+    // ProcessInput/ReadAppData/SetCertificateVerdict while this is set, so those fail loud
+    FDraining: Boolean;
     FLastError: TTlsError;
     procedure Enqueue(const AEvent: ITlsEvent);
     function IsTls13: Boolean;
@@ -104,10 +105,7 @@ type
       const ACryptoProvider: ICryptoProvider);
     destructor Destroy; override;
 
-    /// <summary>
-    /// Returns a wired engine as an ITlsEngine, side-stepping the leak of passing a
-    /// bare instance straight into an interface parameter.
-    /// </summary>
+    /// <summary>Builds a wired engine and returns it as an ITlsEngine.</summary>
     class function CreateConfigured(const AInitialMachine: IHandshakeMachine;
       const ACryptoProvider: ICryptoProvider): ITlsEngine; static;
 
@@ -181,6 +179,9 @@ resourcestring
   SWarningAlertInTls13 = 'a warning alert other than user_canceled is not permitted in TLS 1.3';
   STooManyWarningAlerts = 'the peer sent too many warning-level alerts';
   SBogusAlertLevel = 'the alert carries a level that is neither warning nor fatal';
+  SReentrantEngineCall =
+    'the engine was re-entered from within a handshake callback; it is single-threaded and a ' +
+    'callback must not call back into it';
   SLocalFatalAlert = 'a fatal alert was sent';
   SInboundBacklogFull =
     'the framed inbound backlog is full; pull/read before feeding more input (honor WantsRead)';
@@ -558,12 +559,17 @@ begin
   // close_notify coalesced ahead of app-data): the trailing record stays framed, undecrypted.
   // Also stop once the app-read buffer is full: unread plaintext applies backpressure (the
   // record stays framed, WantsRead reports False) instead of growing the buffer without bound.
-  while (not (FTerminal or FClosed)) and (AppReadAvailable < FMaxAppReadBuffer) and
-    FRecordLayer.NextIncoming(LFragment) do
-  begin
-    RouteFragment(LFragment);
-    if FAwaitingVerdict then
-      Break;
+  FDraining := True;
+  try
+    while (not (FTerminal or FClosed)) and (AppReadAvailable < FMaxAppReadBuffer) and
+      FRecordLayer.NextIncoming(LFragment) do
+    begin
+      RouteFragment(LFragment);
+      if FAwaitingVerdict then
+        Break;
+    end;
+  finally
+    FDraining := False;
   end;
 end;
 
@@ -585,6 +591,8 @@ end;
 function TTlsEngine.ProcessInput(const AWire: TBytes; AOffset,
   ALength: Int32): TTlsOutcome;
 begin
+  if FDraining then
+    raise EInvalidOperationTlsLibException.CreateRes(@SReentrantEngineCall);
   if FTerminal then
     Exit(TTlsOutcome.Fatal);
   // after an inbound close_notify the peer's write side is closed: discard anything it keeps
@@ -600,7 +608,6 @@ begin
     try
       FRecordLayer.ProcessInput(AWire, AOffset, ALength);
       DrainRecordLayer;
-      // a driven handshake may have written a response flight into the record layer
     except
       on E: Exception do
         Exit(Fail(E));
@@ -767,6 +774,8 @@ end;
 procedure TTlsEngine.SetCertificateVerdict(AAccept: Boolean;
   AAlert: TTlsAlertDescription);
 begin
+  if FDraining then
+    raise EInvalidOperationTlsLibException.CreateRes(@SReentrantEngineCall);
   // a no-op unless the handshake is actually parked on a verdict (idempotent, safe to call)
   if not FAwaitingVerdict then
     Exit;
@@ -801,6 +810,8 @@ function TTlsEngine.ReadAppData(var ADest: TBytes; ADestOffset,
 var
   LCapacity, LWant, LDest, LInChunk, LTake: Int32;
 begin
+  if FDraining then
+    raise EInvalidOperationTlsLibException.CreateRes(@SReentrantEngineCall);
   LCapacity := System.Length(ADest) - ADestOffset;
   if (ADestOffset < 0) or (LCapacity <= 0) or (AMaxLength <= 0) then
     Exit(0);
