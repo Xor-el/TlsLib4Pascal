@@ -62,7 +62,7 @@ THUMB=""  # set after the CA exists
 
 cleanup() {
   if [ -n "$OCSP_PID" ]; then kill "$OCSP_PID" >/dev/null 2>&1 || true; fi
-  if [ -n "$CRL_PID" ]; then kill "$CRL_PID" >/dev/null 2>&1 || true; fi
+  if [ -n "$CRL_PID" ]; then kill "$CRL_PID" >/dev/null 2>&1 || true; wait "$CRL_PID" 2>/dev/null || true; fi
   if [ "$INSTALLED" = 1 ]; then uninstall_root || true; fi
   rm -rf "$TMP"
 }
@@ -123,7 +123,9 @@ done
 # rather than skipping, so a broken server can never make the cell vacuously pass.
 PYBIN="$(command -v python3 || command -v python || true)"
 if [ -n "$PYBIN" ]; then
-  ( cd "$CA/www" && "$PYBIN" -m http.server "$CRL_PORT" --bind 127.0.0.1 ) >/dev/null 2>&1 &
+  # --directory (not cd in a subshell): keep python's CWD off "www" so cleanup can rm it on Windows,
+  # and so $! is python itself, not a wrapper subshell that would orphan python on kill.
+  "$PYBIN" -m http.server "$CRL_PORT" --bind 127.0.0.1 --directory "$CA/www" >/dev/null 2>&1 &
   CRL_PID=$!
   for _ in $(seq 1 50); do
     if curl -fsS -o /dev/null "$CRL_URL" 2>/dev/null; then CRL_READY=1; break; fi
