@@ -1,0 +1,33 @@
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_3d095c0d0b91a1 140-142,1645
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_09d3c46d1a9b1f::t_12d3ff9c7d1a30 154-156,1973,2171
+TlsLib/src/Handshake/TlpPeerAuthentication.pas
+  s_09d3c46d1a9b1f::t_671e57ce43fd50 117-118,120-121
+  s_09d3c46d1a9b1f::t_de696c3830a133 60-62,64
+TlsLib/src/Handshake/TlpTls12ClientStateMachine.pas
+  s_09d3c46d1a9b1f::t_16d0ecfc346a57 125-127,556,1009-1010
+TlsLib/src/Engine/TlpTlsEngineFactory.pas
+  s_09d3c46d1a9b1f::t_d753214b50635e 354,514
+  s_09d3c46d1a9b1f::t_f31eeac1c9f651 228
+  s_09d3c46d1a9b1f::t_80a7b2ab4c1c47 415
+  s_09d3c46d1a9b1f::t_83d4c9412d36e9 317,488
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_48da919cb7c702 108-110,726
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b2eff3694d7ba527391db651c1e069723c5cbe7c",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": null
+    }
+  }
+}
