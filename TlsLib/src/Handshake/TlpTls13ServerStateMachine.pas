@@ -655,7 +655,7 @@ begin
   // asks for a key_share via HelloRetryRequest when the chosen group has none, even if the
   // client already sent a usable key_share for a less-preferred group. A client that omits
   // X25519 but offers secp256r1 (mandatory to implement, RFC 8446 9.1) negotiates secp256r1
-  // rather than failing. With no OfferedGroups the single fixed Group is used.
+  // rather than failing.
   if System.Length(FParams.OfferedGroups) > 0 then
   begin
     ASelectedGroup := 0;

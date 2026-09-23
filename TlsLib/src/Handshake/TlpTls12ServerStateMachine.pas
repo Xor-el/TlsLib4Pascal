@@ -124,7 +124,7 @@ type
     /// <summary>The lifetime advertised for issued sessions and tickets, in seconds.</summary>
     TicketLifetimeSeconds: UInt32;
     /// <summary>The clock read for a cached session's issue time and freshness (RFC 5077). A
-    /// required input, like Provider: the engine factory supplies one from the config, and a
+    /// required input, like Crypto: the engine factory supplies one from the config, and a
     /// direct sans-IO caller must set it.</summary>
     Clock: ITlsClock;
   end;
