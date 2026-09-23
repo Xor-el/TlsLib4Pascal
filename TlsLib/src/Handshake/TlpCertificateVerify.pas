@@ -27,6 +27,10 @@ uses
   TlpIPkixProvider;
 
 type
+  /// <summary>Which side's CertificateVerify context string the signed content carries: the
+  /// server's or the client's (RFC 8446 4.4.3).</summary>
+  TCertificateVerifySide = (Server, Client);
+
   /// <summary>
   /// Builds the CertificateVerify to-be-signed content (RFC 8446 4.4.3): 64 octets
   /// of 0x20, the role context string, a 0x00 separator, then the transcript hash
@@ -41,8 +45,8 @@ type
   strict private
     class function EcdsaSchemeNamedGroup(const AScheme: TSignatureScheme): UInt16; static;
   public
-    /// <summary>The signed content for AServerSide's CertificateVerify over ATranscriptHash.</summary>
-    class function SignatureContent(AServerSide: Boolean;
+    /// <summary>The signed content for ASide's CertificateVerify over ATranscriptHash.</summary>
+    class function SignatureContent(ASide: TCertificateVerifySide;
       const ATranscriptHash: TBytes): TBytes; static;
     /// <summary>Enforces the peer leaf's signing policy before verifying a handshake
     /// signature (a CertificateVerify, or a 1.2 ServerKeyExchange): the leaf must permit
@@ -120,13 +124,13 @@ begin
     raise EDecodeErrorTlsLibException.CreateRes(@SUnparseableLeafCertificate);
 end;
 
-class function TCertificateVerify.SignatureContent(AServerSide: Boolean;
+class function TCertificateVerify.SignatureContent(ASide: TCertificateVerifySide;
   const ATranscriptHash: TBytes): TBytes;
 var
   LContext: TBytes;
   LPos: Int32;
 begin
-  if AServerSide then
+  if ASide = TCertificateVerifySide.Server then
     LContext := TEncoding.ASCII.GetBytes(ServerContext)
   else
     LContext := TEncoding.ASCII.GetBytes(ClientContext);

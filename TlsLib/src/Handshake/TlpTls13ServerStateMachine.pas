@@ -1661,7 +1661,8 @@ begin
   LScheme := TPeerAuthentication.RequirePeerScheme(FParams.ClientAuthSignatureSchemes,
     LCertVerify.Algorithm, TTlsVersion.Tls13, FParsedClientLeaf);
   // the client signs the transcript through its Certificate, client-side context string
-  LContent := TCertificateVerify.SignatureContent(False, FTranscript.CurrentHash);
+  LContent := TCertificateVerify.SignatureContent(TCertificateVerifySide.Client,
+    FTranscript.CurrentHash);
   TPeerAuthentication.VerifyPeerSignature(FParams.Crypto, FParsedClientLeaf, LScheme,
     LContent, LCertVerify.Signature);
   FTranscript.Update(AMessage.Raw);
@@ -1675,7 +1676,8 @@ var
   LContent: TBytes;
   LVerify: TTlsCertificateVerify;
 begin
-  LContent := TCertificateVerify.SignatureContent(True, ATranscriptHash);
+  LContent := TCertificateVerify.SignatureContent(TCertificateVerifySide.Server,
+    ATranscriptHash);
   LSigner := FParams.Crypto.Signing.CreateSignatureSigner(
     FSelectedSignatureScheme, FResolvedCredential.PrivateKey);
   LSigner.Update(LContent, 0, System.Length(LContent));

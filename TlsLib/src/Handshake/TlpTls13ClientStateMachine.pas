@@ -2013,7 +2013,8 @@ begin
   LScheme := TPeerAuthentication.RequirePeerScheme(FParams.OfferedSchemes,
     LCertVerify.Algorithm, TTlsVersion.Tls13, FParsedServerLeaf);
   // the signature is over the transcript through the Certificate (this message not yet folded in)
-  LContent := TCertificateVerify.SignatureContent(True, FTranscript.CurrentHash);
+  LContent := TCertificateVerify.SignatureContent(TCertificateVerifySide.Server,
+    FTranscript.CurrentHash);
   TPeerAuthentication.VerifyPeerSignature(FParams.Crypto, FParsedServerLeaf, LScheme,
     LContent, LCertVerify.Signature);
 end;
@@ -2104,7 +2105,8 @@ begin
   if not LHasScheme then
     Exit;
   // the CertificateVerify signs the transcript through the client Certificate
-  LContent := TCertificateVerify.SignatureContent(False, FTranscript.CurrentHash);
+  LContent := TCertificateVerify.SignatureContent(TCertificateVerifySide.Client,
+    FTranscript.CurrentHash);
   LSigner := FParams.Crypto.Signing.CreateSignatureSigner(LScheme,
     FParams.ClientCredential.PrivateKey);
   LSigner.Update(LContent, 0, System.Length(LContent));
