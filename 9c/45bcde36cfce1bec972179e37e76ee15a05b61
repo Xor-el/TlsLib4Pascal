@@ -1,0 +1,61 @@
+TlsLib.Tests/src/AsyncVerdictTests.pas
+  s_09d3c46d1a9b1f::t_39fd8e81575aad 433-434
+TlsLib/src/Engine/TlpTlsEngine.pas
+  s_09d3c46d1a9b1f::t_dd08a6c2b9123f 197-198
+TlsLib/src/Security/TlpSecretBuffer.pas
+  s_09d3c46d1a9b1f::t_f7c52b0388e4c5 26-29
+TlsLib/src/Engine/TlpTlsConnectionInfo.pas
+  s_09d3c46d1a9b1f::t_b8b29be41256b1 35
+TlsLib.Trust.System/src/TlpSystemTrustExceptions.pas
+  s_09d3c46d1a9b1f::t_b9dd31520c0073 24-25
+TlsLib/src/Handshake/TlpTls13HandshakeBase.pas
+  s_09d3c46d1a9b1f::t_ec091d70d6ad8c 44
+TlsLib.Tests/src/LiveRevocationTests.pas
+  s_09d3c46d1a9b1f::t_66a18b6e1038fe 493
+TlsLib/src/Engine/TlpTlsStream.pas
+  s_09d3c46d1a9b1f::t_433c572e363877 30
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_09d3c46d1a9b1f::t_ca5ebcac1c5a47 651-655,805,3041
+  s_09d3c46d1a9b1f::t_c6fc4aae7929ee 724-725
+TlsLib.Adapters/Indy/Adapter/TlsLibIndyTls.pas
+  s_09d3c46d1a9b1f::t_6d7616af6f48be 162-163
+TlsLib.Tests/src/EngineSkeletonTests.pas
+  s_09d3c46d1a9b1f::t_5056b4bb06c867 109-110
+TlsLib.Tests/src/HandshakeDriverTests.pas
+  s_09d3c46d1a9b1f::t_eb681d6897d85a 266
+TlsLib/src/Handshake/TlpHandshakeConductor.pas
+  s_09d3c46d1a9b1f::t_8a3c695daa99f5 199
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_5784c87b8efdf8 346-347
+TlsLib/src/Trust/TlpLiveRevocation.pas
+  s_09d3c46d1a9b1f::t_2d47384aa33944 86
+TlsLib/src/Interfaces/Security/TlpISecretBuffer.pas
+  s_09d3c46d1a9b1f::t_a2de8b5d0dce95 23-24
+TlsLib.Benchmark/src/Core/TlsLibHandshakePeer.pas
+  s_09d3c46d1a9b1f::t_c96746f20f6d5e 104
+TlsLib/src/Interfaces/Engine/TlpITlsTransport.pas
+  s_09d3c46d1a9b1f::t_1417f3bcb9773d 23
+  s_09d3c46d1a9b1f::t_c633973c8e56f1 28
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_09d3c46d1a9b1f::t_00fbe9510c096d 147-149,162,501,508,1746
+TlsLib/src/Engine/TlpTlsLib.pas
+  s_09d3c46d1a9b1f::t_d1ab96cd167d9c 30
+TlsLib/src/Handshake/TlpHandshakeDriver.pas
+  s_09d3c46d1a9b1f::t_dae9ce5fac2b24 35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9c45bcde36cfce1bec972179e37e76ee15a05b61",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": null
+    }
+  }
+}
