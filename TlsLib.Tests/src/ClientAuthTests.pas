@@ -38,6 +38,7 @@ uses
   TlpTlsEngine,
   TlpIHandshakeMachine,
   TlpICertificateTrust,
+  TlpTrustTypes,
   TlpCertificateVerify,
   TlpTlsAlert,
   TlpTlsLibExceptions,

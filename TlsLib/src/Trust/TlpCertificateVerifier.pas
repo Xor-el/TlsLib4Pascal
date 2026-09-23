@@ -32,6 +32,7 @@ uses
   TlpCertificateStrengthPolicy,
   TlpDateTimeUtilities,
   TlpIClock,
+  TlpTrustTypes,
   TlpICertificateTrust;
 
 type

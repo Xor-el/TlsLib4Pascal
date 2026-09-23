@@ -99,6 +99,7 @@ contains
   TlpCertificateCompression in '..\..\CertCompression\TlpCertificateCompression.pas',
   TlpCertificateLimits in '..\..\Trust\TlpCertificateLimits.pas',
   TlpCertificateStrengthPolicy in '..\..\Trust\TlpCertificateStrengthPolicy.pas',
+  TlpTrustTypes in '..\..\Trust\TlpTrustTypes.pas',
   TlpTrustPolicy in '..\..\Trust\TlpTrustPolicy.pas',
   TlpICertificateCompression in '..\..\Interfaces\CertCompression\TlpICertificateCompression.pas',
   TlpICertificateCompressionCache in '..\..\Interfaces\CertCompression\TlpICertificateCompressionCache.pas',

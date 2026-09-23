@@ -33,6 +33,7 @@ uses
   TlpTlsLibExceptions,
   TlpTlsAlert,
   TlpICertificateTrust,
+  TlpTrustTypes,
   TlpICertificateVerifierSource,
   TlpTrustPolicy,
   TlpServerName,

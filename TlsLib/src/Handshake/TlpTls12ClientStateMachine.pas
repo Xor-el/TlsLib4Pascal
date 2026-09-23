@@ -43,6 +43,7 @@ uses
   TlpCertificateVerify,
   TlpPeerAuthentication,
   TlpICertificateTrust,
+  TlpTrustTypes,
   TlpServerName,
   TlpISigningKey,
   TlpTlsCredential,

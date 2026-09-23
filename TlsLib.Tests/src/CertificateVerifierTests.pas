@@ -30,6 +30,7 @@ uses
 {$ENDIF FPC}
   TlpTlsAlert,
   TlpICertificateTrust,
+  TlpTrustTypes,
   TlpServerName,
   TlpCertificateVerifier,
   TlpCertificateLimits,

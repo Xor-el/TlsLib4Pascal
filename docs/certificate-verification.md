@@ -129,7 +129,7 @@ Bypasses the built-in pipeline: PKIX, revocation, and host-name. Any configured 
 but the peer must still present a pinned key. For tests and pinned development peers only.
 
 ```pascal
-uses TlpICertificateTrust, TlpCertificateVerifier;   // TTrustAnchorStore
+uses TlpICertificateTrust, TlpTrustTypes, TlpCertificateVerifier;   // TTrustAnchorStore
 
 LConfig := TTlsPresets.Compatible(P).Client
   .WithDangerousInsecureSkipVerify(True)

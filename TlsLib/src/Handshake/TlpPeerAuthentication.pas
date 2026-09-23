@@ -25,7 +25,7 @@ uses
   TlpNegotiationTypes,
   TlpICryptoProvider,
   TlpIPkixProvider,
-  TlpICertificateTrust,
+  TlpTrustTypes,
   TlpCertificateVerify;
 
 type

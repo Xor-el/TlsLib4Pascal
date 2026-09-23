@@ -34,6 +34,7 @@ uses
   TlpISigningKey,
   TlpTlsCredential,
   TlpICertificateTrust,
+  TlpTrustTypes,
   TlpServerName,
   TlpCertificateVerifier,
   TlpTlsAlert,

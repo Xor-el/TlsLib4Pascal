@@ -54,6 +54,7 @@ uses
   TlpCertificateVerify,
   TlpPeerAuthentication,
   TlpICertificateTrust,
+  TlpTrustTypes,
   TlpTlsCredential,
   TlpITlsCredentialResolver,
   TlpServerOfferSelection,

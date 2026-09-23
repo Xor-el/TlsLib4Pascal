@@ -27,6 +27,7 @@ uses
   TlpChainAlgorithmPolicy,
   TlpCertificateVerifier,
   TlpICertificateTrust,
+  TlpTrustTypes,
   TlpICertificateVerifierSource,
   TlpSystemTrustBase,
   TlpSystemTrustExceptions,

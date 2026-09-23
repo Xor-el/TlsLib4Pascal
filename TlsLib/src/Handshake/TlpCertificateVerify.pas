@@ -23,6 +23,7 @@ uses
   TlpPkixDomainTypes,
   TlpNegotiationTypes,
   TlpICertificateTrust,
+  TlpTrustTypes,
   TlpIPkixProvider;
 
 type
