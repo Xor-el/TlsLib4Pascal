@@ -1,0 +1,47 @@
+docs/cookbook.md
+  s_09d3c46d1a9b1f::t_6e2391e2ffb317 367-369
+TlsLib/src/Trust/TlpTrustPolicy.pas
+  s_09d3c46d1a9b1f::t_60f799caeec0d3 284-289
+  s_09d3c46d1a9b1f::t_269def8935f831 65-69
+TlsLib/src/Handshake/TlpTlsCredential.pas
+  s_09d3c46d1a9b1f::t_a7ff7d99e1dd83 63-64
+TlsLib.Trust.System/src/TlpSystemTrustBase.pas
+  s_09d3c46d1a9b1f::t_a1824135283e30 245-246
+TlsLib.Tests/src/ConfigResumptionTests.pas
+  s_09d3c46d1a9b1f::t_af449ac31cf46d 146-156
+  s_09d3c46d1a9b1f::t_578f12db8a1a13 35,326-327
+  s_09d3c46d1a9b1f::t_5cae71bffa7b60 57-58
+  s_09d3c46d1a9b1f::t_ea988502b12314 1138-1139
+  s_09d3c46d1a9b1f::t_14d07862ab72bc 187,192,197-325
+  s_09d3c46d1a9b1f::t_5b1b55c34dff51 54,59-67,70-85
+  s_09d3c46d1a9b1f::t_ca5e44c47f71de 1085-1137,1140-1310,1313-1314
+  s_09d3c46d1a9b1f::t_b42c11f3615c47 68-69
+  s_09d3c46d1a9b1f::t_48f159fd481983 1311-1312
+docs/certificate-verification.md
+  s_09d3c46d1a9b1f::t_685bb7fc689c91 297-300
+TlsLib/src/Engine/TlpTlsEngineFactory.pas
+  s_09d3c46d1a9b1f::t_f301de0d39acd7 78-81
+  s_09d3c46d1a9b1f::t_5738b005b2f5a1 208-216
+  s_09d3c46d1a9b1f::t_d76ff61abe52cb 270,272
+  s_09d3c46d1a9b1f::t_6eb59b04173e30 364
+  s_09d3c46d1a9b1f::t_bb36a93afef653 227
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_ce56f0ea96d97b 230-233
+  s_09d3c46d1a9b1f::t_fd4908ea4662d6 140-142
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3162d4f958f9a740d9e4aff260b698a6902f9027",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
