@@ -57,11 +57,11 @@ type
     class procedure VerifyPeerSignature(const ACryptoProvider: ICryptoProvider;
       var ALeaf: IInspectedCertificate; const AScheme: TSignatureScheme;
       const AContent, ASignature: TBytes); static;
-    /// <summary>Whether an accepted peer chain should park for an out-of-band host verdict rather
-    /// than continue inline: only when async verdicts are enabled, and not when the park is purely
-    /// a live-revocation deferral that the verifier already settled inline. Applied identically by
+    /// <summary>Whether an accepted peer chain should park for an out-of-band verdict rather than
+    /// continue inline: only when a verdict is deferred, and not when the park is purely a
+    /// live-revocation deferral that the verifier already settled inline. Applied identically by
     /// both roles and versions once the built-in pipeline has accepted the chain.</summary>
-    class function ShouldPark(AAsyncVerdict, ALiveRevocationDeferral: Boolean;
+    class function ShouldPark(ADeferral: TVerdictDeferral;
       AOutcome: TVerificationOutcome): Boolean; static;
   end;
 
@@ -114,10 +114,11 @@ begin
       TTlsAlertDescription.DecryptError, @SPeerHandshakeSignatureInvalid);
 end;
 
-class function TPeerAuthentication.ShouldPark(AAsyncVerdict,
-  ALiveRevocationDeferral: Boolean; AOutcome: TVerificationOutcome): Boolean;
+class function TPeerAuthentication.ShouldPark(ADeferral: TVerdictDeferral;
+  AOutcome: TVerificationOutcome): Boolean;
 begin
-  Result := AAsyncVerdict and not (ALiveRevocationDeferral and
+  Result := (ADeferral <> TVerdictDeferral.None) and
+    not ((ADeferral = TVerdictDeferral.LiveRevocation) and
     (AOutcome = TVerificationOutcome.RevocationSettledInline));
 end;
 

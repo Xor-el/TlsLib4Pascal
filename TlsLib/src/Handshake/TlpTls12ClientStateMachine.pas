@@ -122,13 +122,9 @@ type
     Clock: ITlsClock;
     /// <summary>The cache key for this server; ServerName is used when empty.</summary>
     ServerIdentity: string;
-    /// <summary>When set, after the built-in trust pipeline accepts the server chain the
-    /// machine parks the handshake for an out-of-band verdict (the deferred-verdict seam)
-    /// rather than continuing inline. Augment-only and fail-closed. OFF by default.</summary>
-    AsyncVerdict: Boolean;
-    // whether the async verdict is a live-revocation deferral (vs a host-decision park): a
-    // live-revocation park is skipped when the verifier settled revocation inline
-    LiveRevocationDeferral: Boolean;
+    /// <summary>How a peer-certificate verdict is deferred out-of-band (see TVerdictDeferral):
+    /// augment-only and fail-closed, None by default.</summary>
+    Deferral: TVerdictDeferral;
   end;
 
   /// <summary>
@@ -557,8 +553,7 @@ begin
   // Carry both the presented chain and the validated path (issuer at index 1), so a live resolver
   // authenticates against the PKIX issuer, never a guess. The rest of the flight stays buffered
   // until SetCertificateVerdict resumes it
-  if TPeerAuthentication.ShouldPark(FParams.AsyncVerdict,
-    FParams.LiveRevocationDeferral, LVerified.Outcome) then
+  if TPeerAuthentication.ShouldPark(FParams.Deferral, LVerified.Outcome) then
     TArrayUtilities.Append<THandshakeEffect>(Result,
       ParkForVerdict(FCertChain, LVerified.Path,
       FParams.ExpectedServerName.ToString, FReceivedOcspStaple));
@@ -1011,7 +1006,8 @@ begin
   // out-of-band verdict resolves - live revocation decides before we commit our Finished. The
   // transcript is untouched between here and the resume, so the verify_data is identical either way.
   // A resumption carries no staple, so the verifier never settles revocation inline; the park stands.
-  if (FParams.ResumeVerification = TResumeVerification.Reverify) and FParams.AsyncVerdict then
+  if (FParams.ResumeVerification = TResumeVerification.Reverify) and
+    (FParams.Deferral <> TVerdictDeferral.None) then
   begin
     FPhase := TPhase.WaitResumeVerdict;
     TArrayUtilities.Append<THandshakeEffect>(Result,

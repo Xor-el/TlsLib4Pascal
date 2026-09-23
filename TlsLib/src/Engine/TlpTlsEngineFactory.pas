@@ -225,7 +225,7 @@ var
   LTrustContext, LResumeContext: TServerTrustContext;
   LServerName: TServerName;
   LDeferral: TVerdictDeferral;
-  LOffers13, LOffers12, LAsyncVerdict, LOffersResumption: Boolean;
+  LOffers13, LOffers12, LOffersResumption: Boolean;
   LMachine: IHandshakeMachine;
 begin
   LOffers13 := Offers(AConfig, TlsWireVersionTls13);
@@ -233,7 +233,6 @@ begin
   // a verdict-deferral mode parks the handshake after the pipeline accepts the server chain; any
   // time budget belongs to the resolver built from the config, not the engine
   LDeferral := AConfig.AsyncCertificateVerdict.Deferral;
-  LAsyncVerdict := LDeferral <> TVerdictDeferral.None;
   // the two client machines must share one client random and session id so a 1.2
   // hand-off keeps the ServerKeyExchange/master-secret binding of the sent ClientHello
   LClientRandom := AConfig.Crypto.Primitives.GetRandom.GenerateBytes(32);
@@ -315,8 +314,7 @@ begin
   L13.ServerIdentity := LServerName.ToString;
   L13.CertificateVerifier := LVerifier;
   L13.ResumeCertificateVerifier := LResumeVerifier;
-  L13.AsyncVerdict := LAsyncVerdict;
-  L13.LiveRevocationDeferral := LDeferral = TVerdictDeferral.LiveRevocation;
+  L13.Deferral := LDeferral;
   // Encrypted Client Hello policy (RFC 9849), nil when not offered
   L13.EchPolicy := AConfig.EncryptedClientHello;
   L13.ExpectedServerName := LServerName;
@@ -353,8 +351,7 @@ begin
   L12.RequestOcspStapling := AConfig.RequestOcspStapling;
   L12.CertificateVerifier := LVerifier;
   L12.ResumeCertificateVerifier := LResumeVerifier;
-  L12.AsyncVerdict := LAsyncVerdict;
-  L12.LiveRevocationDeferral := LDeferral = TVerdictDeferral.LiveRevocation;
+  L12.Deferral := LDeferral;
   L12.ExpectedServerName := LServerName;
   L12.ClientCredential := AConfig.Credential;
 
@@ -415,7 +412,7 @@ var
   LClientContext: TClientTrustContext;
   LClientVerifier: IClientCertificateVerifier;
   LDeferral: TVerdictDeferral;
-  LOffers13, LOffers12, LAsyncVerdict: Boolean;
+  LOffers13, LOffers12: Boolean;
   LMachine: IHandshakeMachine;
   LGroupCode: UInt16;
 begin
@@ -427,7 +424,6 @@ begin
   LDeferral := AConfig.AsyncCertificateVerdict.Deferral;
   if AConfig.ClientAuth = TClientAuthMode.None then
     LDeferral := TVerdictDeferral.None;
-  LAsyncVerdict := LDeferral <> TVerdictDeferral.None;
 
   // one client-certificate verifier from the source (built-in, injected, or the OS client
   // delegate over the client-CA anchors), shared by both version machines; built only for mTLS
@@ -489,8 +485,7 @@ begin
   L13.ClientAuthSignatureSchemes := SchemeCodes(AConfig.SignatureSchemes);
   L13.ClientCertificateAuthorities := AConfig.ClientCertificateAuthorities;
   L13.ClientCertificateVerifier := LClientVerifier;
-  L13.AsyncVerdict := LAsyncVerdict;
-  L13.LiveRevocationDeferral := LDeferral = TVerdictDeferral.LiveRevocation;
+  L13.Deferral := LDeferral;
 
   L12 := Default(TServer12HandshakeParams);
   L12.Crypto := AConfig.Crypto;
@@ -516,8 +511,7 @@ begin
   L12.ClientAuth := AConfig.ClientAuth;
   L12.ClientAuthSignatureSchemes := SchemeCodes(AConfig.SignatureSchemes);
   L12.ClientCertificateVerifier := LClientVerifier;
-  L12.AsyncVerdict := LAsyncVerdict;
-  L12.LiveRevocationDeferral := LDeferral = TVerdictDeferral.LiveRevocation;
+  L12.Deferral := LDeferral;
 
   // resumption (RFC 8446 4.6.1 / RFC 5077): both version machines share the session
   // store/STEK; each stores and accepts only its own version's sessions. 0-RTT is 1.3-only,

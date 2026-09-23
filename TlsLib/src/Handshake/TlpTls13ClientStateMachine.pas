@@ -151,13 +151,9 @@ type
     /// <summary>When set (with a resumption PSK whose ticket permits it), the client
     /// offers 0-RTT early data and installs the early write epoch. OFF by default.</summary>
     EarlyDataEnabled: Boolean;
-    /// <summary>When set, after the built-in trust pipeline accepts the server chain the
-    /// machine parks the handshake for an out-of-band verdict (the deferred-verdict seam)
-    /// rather than continuing inline. Augment-only and fail-closed. OFF by default.</summary>
-    AsyncVerdict: Boolean;
-    // whether the async verdict is a live-revocation deferral (vs a host-decision park): a
-    // live-revocation park is skipped when the verifier settled revocation inline
-    LiveRevocationDeferral: Boolean;
+    /// <summary>How a peer-certificate verdict is deferred out-of-band (see TVerdictDeferral):
+    /// augment-only and fail-closed, None by default.</summary>
+    Deferral: TVerdictDeferral;
     /// <summary>The Encrypted Client Hello policy (RFC 9849), or nil when ECH is not
     /// offered. When present the client builds the inner/outer ClientHello, seals the
     /// inner, and detects accept/reject from the ServerHello.</summary>
@@ -1974,8 +1970,7 @@ begin
   // Carry both the presented chain and the validated path (issuer at index 1), so a live resolver
   // authenticates against the PKIX issuer, never a guess. The rest of the flight stays buffered
   // until SetCertificateVerdict resumes it.
-  if TPeerAuthentication.ShouldPark(FParams.AsyncVerdict,
-    FParams.LiveRevocationDeferral, LVerified.Outcome) then
+  if TPeerAuthentication.ShouldPark(FParams.Deferral, LVerified.Outcome) then
     TArrayUtilities.Append<THandshakeEffect>(Result,
       ParkForVerdict(FCertificateChain, LVerified.Path,
       FParams.ExpectedServerName.ToString, FReceivedOcspStaple));
@@ -2173,7 +2168,7 @@ begin
   // verdict resolves - live revocation decides before we commit our Finished. No buffered peer
   // message drives completion here, so the continuation comes from ResumeAfterVerdict. A resumption
   // carries no staple, so the verifier never settles revocation inline here; the park is not skipped.
-  if LReverify and FParams.AsyncVerdict then
+  if LReverify and (FParams.Deferral <> TVerdictDeferral.None) then
   begin
     FPhase := TPhase.WaitResumeVerdict;
     TArrayUtilities.Append<THandshakeEffect>(Result,
