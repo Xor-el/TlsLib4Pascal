@@ -43,8 +43,8 @@ type
     FCodec: IExtensionBlockCodec;
     function NewContext: TExtensionContext;
     procedure CheckU16(const AName: string; const AExpected, AActual: TArray<UInt16>);
-    function ConsumeRaisesUnsupported(AKind: TTlsExtensionContextKind;
-      const ABlock: TBytes; AOfferedType: Int32): Boolean;
+    function ConsumeAlertCode(AKind: TTlsExtensionContextKind;
+      const ABlock: TBytes; AOfferedType: Int32): Int32;
     function ConsumeRaisesDecodeError(AKind: TTlsExtensionContextKind;
       const ABlock: TBytes): Boolean;
   protected
@@ -55,7 +55,7 @@ type
     procedure TestServerHelloSelectionsRoundTrip;
     procedure TestEncryptedExtensionsAlpnRoundTrip;
     procedure TestDuplicateExtensionIsIllegalParameter;
-    procedure TestWrongContextIsUnsupportedExtension;
+    procedure TestWrongContextIsIllegalParameter;
     procedure TestUnsolicitedServerExtensionAborts;
     procedure TestUnknownExtensionSkippedAndGreaseTolerated;
     procedure TestOmittedExtensionsBlockToleratedAsEmpty;
@@ -75,8 +75,8 @@ type
     procedure TestEarlyDataMaxSizeInNewSessionTicketRoundTrip;
     procedure TestPreSharedKeyIsLastClientHelloExtension;
     procedure TestEchRecognizedInClientHello;
-    procedure TestEchInServerHelloIsUnsupportedExtension;
-    procedure TestEchInCertificateIsUnsupportedExtension;
+    procedure TestEchInServerHelloIsIllegalParameter;
+    procedure TestEchInCertificateIsIllegalParameter;
     procedure TestHrrEchNotEightBytesIsDecodeError;
     procedure TestEchOffersBeforePreSharedKey;
     procedure TestEchIsLastWithoutPreSharedKey;
@@ -113,13 +113,13 @@ begin
     CheckEquals(AExpected[LI], AActual[LI], AName + ' element');
 end;
 
-function TTestExtensionCodec.ConsumeRaisesUnsupported(
+function TTestExtensionCodec.ConsumeAlertCode(
   AKind: TTlsExtensionContextKind; const ABlock: TBytes;
-  AOfferedType: Int32): Boolean;
+  AOfferedType: Int32): Int32;
 var
   LCtx: TExtensionContext;
 begin
-  Result := False;
+  Result := -1;
   LCtx := NewContext;
   try
     if AOfferedType >= 0 then
@@ -128,7 +128,7 @@ begin
       FCodec.ConsumeBlock(LCtx, AKind, ABlock);
     except
       on E: EFatalAlertTlsLibException do
-        Result := True;
+        Result := Integer(E.AlertDescription);
     end;
   finally
     LCtx.Free;
@@ -361,21 +361,25 @@ begin
     'an empty ALPN protocol list is a decode_error');
 end;
 
-procedure TTestExtensionCodec.TestWrongContextIsUnsupportedExtension;
+procedure TTestExtensionCodec.TestWrongContextIsIllegalParameter;
 begin
   // supported_versions (allowed in CH/SH/HRR) appearing in EncryptedExtensions,
-  // offered so it clears the unsolicited check and reaches the context check
-  CheckTrue(ConsumeRaisesUnsupported(TTlsExtensionContextKind.EncryptedExtensions,
+  // offered so it clears the unsolicited check and reaches the context check: a recognized
+  // extension in a message it is not specified for is illegal_parameter (RFC 8446 4.2)
+  CheckEquals(Integer(TTlsAlertDescription.IllegalParameter),
+    ConsumeAlertCode(TTlsExtensionContextKind.EncryptedExtensions,
     DecodeHex('0006002b00020304'), $002B),
-    'an extension in the wrong message is unsupported_extension');
+    'a recognized extension in the wrong message is illegal_parameter');
 end;
 
 procedure TTestExtensionCodec.TestUnsolicitedServerExtensionAborts;
 begin
-  // a ServerHello supported_versions the client never offered
-  CheckTrue(ConsumeRaisesUnsupported(TTlsExtensionContextKind.ServerHello,
+  // a ServerHello supported_versions the client never offered: an unsolicited response
+  // extension is unsupported_extension, distinct from the wrong-context case (RFC 8446 4.2)
+  CheckEquals(Integer(TTlsAlertDescription.UnsupportedExtension),
+    ConsumeAlertCode(TTlsExtensionContextKind.ServerHello,
     DecodeHex('0006002b00020304'), -1),
-    'an unsolicited response extension aborts');
+    'an unsolicited response extension is unsupported_extension');
 end;
 
 procedure TTestExtensionCodec.TestUnknownExtensionSkippedAndGreaseTolerated;
@@ -608,21 +612,24 @@ begin
   end;
 end;
 
-procedure TTestExtensionCodec.TestEchInServerHelloIsUnsupportedExtension;
+procedure TTestExtensionCodec.TestEchInServerHelloIsIllegalParameter;
 begin
   // an empty encrypted_client_hello in a ServerHello, offered so it clears the unsolicited
-  // check and reaches the context check (ech is valid only in CH / HRR / EE)
-  CheckTrue(ConsumeRaisesUnsupported(TTlsExtensionContextKind.ServerHello,
+  // check and reaches the context check (ech is valid only in CH / HRR / EE): a recognized
+  // extension in a message it is not specified for is illegal_parameter (RFC 8446 4.2)
+  CheckEquals(Integer(TTlsAlertDescription.IllegalParameter),
+    ConsumeAlertCode(TTlsExtensionContextKind.ServerHello,
     DecodeHex('0004fe0d0000'), Int32(TExtensionTypes.EncryptedClientHello)),
-    'an encrypted_client_hello in a ServerHello is unsupported_extension');
+    'an encrypted_client_hello in a ServerHello is illegal_parameter');
 end;
 
-procedure TTestExtensionCodec.TestEchInCertificateIsUnsupportedExtension;
+procedure TTestExtensionCodec.TestEchInCertificateIsIllegalParameter;
 begin
   // an empty encrypted_client_hello in a Certificate, offered so the context check is reached
-  CheckTrue(ConsumeRaisesUnsupported(TTlsExtensionContextKind.Certificate,
+  CheckEquals(Integer(TTlsAlertDescription.IllegalParameter),
+    ConsumeAlertCode(TTlsExtensionContextKind.Certificate,
     DecodeHex('0004fe0d0000'), Int32(TExtensionTypes.EncryptedClientHello)),
-    'an encrypted_client_hello in a Certificate is unsupported_extension');
+    'an encrypted_client_hello in a Certificate is illegal_parameter');
 end;
 
 procedure TTestExtensionCodec.TestHrrEchNotEightBytesIsDecodeError;

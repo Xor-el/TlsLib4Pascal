@@ -487,6 +487,8 @@ resourcestring
   SEchNoUsableConfig = 'the configured ECHConfigList has no usable config (unsupported HPKE ' +
     'suite, invalid public key, or a mandatory unknown extension) and ECH GREASE is not ' +
     'enabled; enable GREASE to connect without ECH';
+  SCertReqMissingSigAlgs = 'CertificateRequest must contain signature_algorithms (RFC 8446 4.3.2)';
+  SGreaseInEncryptedExtensions = 'server echoed a GREASE extension type';
 
 const
   PskDheKeMode = Byte(1); // psk_key_exchange_modes: psk_dhe_ke
@@ -1642,9 +1644,18 @@ var
   LContext: TExtensionContext;
   LServerAcceptedEarly, LHasEch: Boolean;
   LEchData: TBytes;
+  LEeVector: TExtensionVector;
+  LExtType: UInt16;
 begin
   Result := nil;
   FTranscript.Update(AMessage.Raw);
+  // a GREASE extension type here is a decoy the client only spliced in and never expects
+  // echoed back; receiving one is fatal (RFC 8701 4)
+  LEeVector := TExtensionVector.Parse(AMessage.Body);
+  for LExtType in LEeVector.Types do
+    if TGrease.IsGrease(LExtType) then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.IllegalParameter, @SGreaseInEncryptedExtensions);
   LContext := TExtensionContext.Create;
   try
     // a response extension the client did not offer is fatal (RFC 8446 4.2)
@@ -2024,6 +2035,7 @@ procedure TTls13ClientStateMachine.ProcessCertificateRequest(
 var
   LRequest: TTlsCertificateRequest13;
   LContext: TExtensionContext;
+  LExtensions: TExtensionVector;
 begin
   // one CertificateRequest per handshake; post-handshake authentication is not offered, so a
   // second one has no legal slot (RFC 8446 4.3.2, 4.6.2)
@@ -2037,10 +2049,13 @@ begin
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.DecodeError, @SRequestContextNotEmpty);
   FRequestContext := LRequest.RequestContext;
+  // a CertificateRequest MUST carry signature_algorithms; its absence is fatal (RFC 8446 4.3.2)
+  LExtensions := TExtensionVector.Parse(LRequest.Extensions);
+  if not LExtensions.Contains(TExtensionTypes.SignatureAlgorithms) then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.MissingExtension, @SCertReqMissingSigAlgs);
   LContext := TExtensionContext.Create;
   try
-    // signature_algorithms is expected inside a CertificateRequest (RFC 8446 4.3.2)
-    LContext.MarkOffered(TExtensionTypes.SignatureAlgorithms);
     FCodec.ConsumeBlock(LContext, TTlsExtensionContextKind.CertificateRequest,
       LRequest.Extensions);
     FClientAuthSchemes := LContext.SignatureSchemes;

@@ -41,6 +41,7 @@ uses
   TlpHandshakeMessage,
   TlpHandshakeMessages,
   TlpExtensionContext,
+  TlpExtensionVector,
   TlpITlsExtension,
   TlpExtensionBlockCodec,
   TlpTlsLibExceptions,
@@ -90,7 +91,10 @@ type
     function FailAlertOf(const AEffects: TArray<THandshakeEffect>;
       out AAlert: TTlsAlertDescription): Boolean;
     function BuildEncryptedExtensionsWithAlpn(const AProtocol: string): TBytes;
+    function BuildEncryptedExtensionsWithExtension(AType: UInt16): TBytes;
+    function GreaseExtensionTypeOf(const AClientHelloFramed: TBytes): UInt16;
     function NewGreasingClient: ITlsEngine;
+    function NewGreasingClientMachine: IHandshakeMachine;
     function ServerHelloFrom(const AWire: TBytes): TTlsServerHello;
     function DriveClientToWaitCertificate(
       out AServerFlight: TArray<TBytes>): IHandshakeMachine;
@@ -117,6 +121,7 @@ type
     procedure TestEcPointFormatsWithoutUncompressedRejected;
     procedure TestAlpnServerHelloSelectionRoundTrip;
     procedure TestAlpnServerHelloEmptyProtocolRejected;
+    procedure TestClientRejectsGreaseExtensionInEncryptedExtensions;
   end;
 
 implementation
@@ -531,6 +536,58 @@ begin
   finally
     LContext.Free;
   end;
+end;
+
+function TTestExtensionNegotiation.BuildEncryptedExtensionsWithExtension(
+  AType: UInt16): TBytes;
+var
+  LVector: TExtensionVector;
+begin
+  // an EncryptedExtensions whose extensions vector carries a single extension of AType (empty
+  // data), used to plant an extension type the codec would otherwise skip
+  LVector := TExtensionVector.Empty;
+  LVector.Append(TExtensionEntry.Create(AType, nil));
+  Result := THandshakeFraming.Frame(TTlsHandshakeType.EncryptedExtensions,
+    THandshakeMessages.EncodeEncryptedExtensions(LVector.Encode));
+end;
+
+function TTestExtensionNegotiation.GreaseExtensionTypeOf(
+  const AClientHelloFramed: TBytes): UInt16;
+var
+  LHello: TTlsClientHello;
+  LVector: TExtensionVector;
+  LType: UInt16;
+begin
+  Result := 0;
+  LHello := THandshakeMessages.DecodeClientHello(MsgFrom(AClientHelloFramed).Body);
+  LVector := TExtensionVector.Parse(LHello.Extensions);
+  for LType in LVector.Types do
+    if TGrease.IsGrease(LType) then
+      Exit(LType);
+end;
+
+function TTestExtensionNegotiation.NewGreasingClientMachine: IHandshakeMachine;
+var
+  LParams: TClientHandshakeParams;
+begin
+  LParams := Default(TClientHandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Crypto := Crypto;
+  LParams.Inspector := Pkix.Certificates;
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
+  LParams.GroupCode := TNamedGroupCatalog.X25519;
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
+  LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+  LParams.Grease := True;
+  LParams.ClientRandom := DecodeHex(StringOfChar('1', 64));
+  LParams.LegacySessionId := DecodeHex(StringOfChar('3', 64));
+  LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
+    True) as IServerCertificateVerifier;
+  LParams.ExpectedServerName := TServerName.DnsName('localhost');
+  Result := TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine;
 end;
 
 procedure TTestExtensionNegotiation.TestClientRejectsUnofferedAlpnEcho;
@@ -1008,6 +1065,30 @@ begin
   finally
     LDst.Free;
   end;
+end;
+
+procedure TTestExtensionNegotiation.TestClientRejectsGreaseExtensionInEncryptedExtensions;
+var
+  LClient, LServer: IHandshakeMachine;
+  LClientHello, LServerHello, LEncryptedExtensions: TBytes;
+  LGreaseType: UInt16;
+  LAlert: TTlsAlertDescription;
+begin
+  // a client that splices a GREASE extension into its ClientHello must reject a server that
+  // echoes that GREASE type back in EncryptedExtensions (RFC 8701 4)
+  LClient := NewGreasingClientMachine;
+  LServer := NewServerMachine(nil);
+  LClientHello := FirstSendHandshake(LClient.Start);
+  LGreaseType := GreaseExtensionTypeOf(LClientHello);
+  CheckTrue(TGrease.IsGrease(LGreaseType),
+    'the greasing ClientHello carries a GREASE extension type');
+  LServerHello := FirstSendHandshake(LServer.ProcessMessage(MsgFrom(LClientHello)));
+  LClient.ProcessMessage(MsgFrom(LServerHello)); // installs handshake keys; awaits EncryptedExtensions
+  LEncryptedExtensions := BuildEncryptedExtensionsWithExtension(LGreaseType);
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(MsgFrom(LEncryptedExtensions)), LAlert),
+    'a GREASE extension type echoed in EncryptedExtensions aborts');
+  CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
+    'a GREASE extension in EncryptedExtensions is illegal_parameter');
 end;
 
 initialization

@@ -37,6 +37,9 @@ uses
   TlpITlsEngine,
   TlpTlsEngine,
   TlpIHandshakeMachine,
+  TlpHandshakeEffect,
+  TlpHandshakeMessage,
+  TlpHandshakeMessages,
   TlpICertificateTrust,
   TlpTrustTypes,
   TlpCertificateVerify,
@@ -61,6 +64,13 @@ type
     function PeerVerifier: TCertificateVerifier;
     function New13Client(AWithCredential: Boolean): ITlsEngine;
     function New13Server(AMode: TClientAuthMode): ITlsEngine;
+    function New13ClientMachine(AWithCredential: Boolean): IHandshakeMachine;
+    function New13ServerMachine(AMode: TClientAuthMode): IHandshakeMachine;
+    function MsgFrom(const AFramed: TBytes): TTlsHandshakeMessage;
+    function FirstSendHandshake(const AEffects: TArray<THandshakeEffect>): TBytes;
+    function AllSendHandshake(const AEffects: TArray<THandshakeEffect>): TArray<TBytes>;
+    function FailAlertOf(const AEffects: TArray<THandshakeEffect>;
+      out AAlert: TTlsAlertDescription): Boolean;
     function New12Client(AWithCredential: Boolean): ITlsEngine;
     function New12Server(AMode: TClientAuthMode): ITlsEngine;
     function Drain(const AEngine: ITlsEngine): TBytes;
@@ -84,6 +94,7 @@ type
     procedure TestTls13NilClientVerifierWithCertAborts;
     procedure TestTls12ServerRejectsUnrequestedClientCertVerifyScheme;
     procedure TestTls12ClientRejectsSecondCertificateRequest;
+    procedure TestTls13CertificateRequestWithoutSignatureAlgorithmsAborts;
   end;
 
 implementation
@@ -177,6 +188,107 @@ begin
   LParams.ClientCertificateVerifier := PeerVerifier;
   Result := TTlsEngine.CreateConfigured(
     TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
+end;
+
+function TTestClientAuth.New13ClientMachine(
+  AWithCredential: Boolean): IHandshakeMachine;
+var
+  LParams: TClientHandshakeParams;
+begin
+  LParams := Default(TClientHandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Crypto := Crypto;
+  LParams.Inspector := Pkix.Certificates;
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
+  LParams.GroupCode := TNamedGroupCatalog.X25519;
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
+  LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+  LParams.ClientRandom := Filled($11, 32);
+  LParams.LegacySessionId := Filled($33, 32);
+  LParams.CertificateVerifier := PeerVerifier;
+  LParams.ExpectedServerName := TServerName.DnsName('localhost');
+  if AWithCredential then
+    LParams.ClientCredential := Credential;
+  Result := TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine;
+end;
+
+function TTestClientAuth.New13ServerMachine(
+  AMode: TClientAuthMode): IHandshakeMachine;
+var
+  LParams: TServerHandshakeParams;
+begin
+  LParams := Default(TServerHandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Crypto := Crypto;
+  LParams.Inspector := Pkix.Certificates;
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
+  LParams.ServerRandom := Filled($22, 32);
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(Credential);
+  LParams.ClientAuth := AMode;
+  LParams.ClientAuthSignatureSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+  LParams.ClientCertificateVerifier := PeerVerifier;
+  Result := TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine;
+end;
+
+function TTestClientAuth.MsgFrom(const AFramed: TBytes): TTlsHandshakeMessage;
+var
+  LReader: THandshakeMessageReader;
+begin
+  LReader := THandshakeMessageReader.Create;
+  try
+    LReader.Append(AFramed, 0, System.Length(AFramed));
+    LReader.NextMessage(Result);
+  finally
+    LReader.Free;
+  end;
+end;
+
+function TTestClientAuth.FirstSendHandshake(
+  const AEffects: TArray<THandshakeEffect>): TBytes;
+var
+  LEffect: THandshakeEffect;
+begin
+  Result := nil;
+  for LEffect in AEffects do
+    if LEffect.Kind = THandshakeEffectKind.SendHandshake then
+      Exit(LEffect.Bytes);
+end;
+
+function TTestClientAuth.AllSendHandshake(
+  const AEffects: TArray<THandshakeEffect>): TArray<TBytes>;
+var
+  LEffect: THandshakeEffect;
+  LCount: Int32;
+begin
+  Result := nil;
+  LCount := 0;
+  for LEffect in AEffects do
+    if LEffect.Kind = THandshakeEffectKind.SendHandshake then
+    begin
+      SetLength(Result, LCount + 1);
+      Result[LCount] := LEffect.Bytes;
+      Inc(LCount);
+    end;
+end;
+
+function TTestClientAuth.FailAlertOf(const AEffects: TArray<THandshakeEffect>;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LEffect: THandshakeEffect;
+begin
+  Result := False;
+  AAlert := TTlsAlertDescription.CloseNotify;
+  for LEffect in AEffects do
+    if LEffect.Kind = THandshakeEffectKind.Fail then
+    begin
+      AAlert := LEffect.Alert;
+      Exit(True);
+    end;
 end;
 
 function TTestClientAuth.New12Client(AWithCredential: Boolean): ITlsEngine;
@@ -507,6 +619,31 @@ begin
   CheckEquals(Int64(Ord(TTlsAlertDescription.UnexpectedMessage)),
     Int64(Ord(LClient.LastError.Alert.Description)),
     'a second CertificateRequest is unexpected_message');
+end;
+
+procedure TTestClientAuth.TestTls13CertificateRequestWithoutSignatureAlgorithmsAborts;
+var
+  LClient, LServer: IHandshakeMachine;
+  LFlight: TArray<TBytes>;
+  LReq: TTlsCertificateRequest13;
+  LCertReq: TBytes;
+  LAlert: TTlsAlertDescription;
+begin
+  // a TLS 1.3 CertificateRequest MUST carry signature_algorithms (RFC 8446 4.3.2); drive the
+  // client to WaitCertificate, then feed a CertificateRequest whose extensions omit it
+  LClient := New13ClientMachine(True);
+  LServer := New13ServerMachine(TClientAuthMode.Required);
+  LFlight := AllSendHandshake(LServer.ProcessMessage(MsgFrom(FirstSendHandshake(LClient.Start))));
+  LClient.ProcessMessage(MsgFrom(LFlight[0])); // ServerHello
+  LClient.ProcessMessage(MsgFrom(LFlight[1])); // EncryptedExtensions
+  LReq.RequestContext := nil;
+  LReq.Extensions := TBytes.Create($00, $00); // a present-but-empty extensions vector
+  LCertReq := THandshakeFraming.Frame(TTlsHandshakeType.CertificateRequest,
+    THandshakeMessages.EncodeCertificateRequest13(LReq));
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(MsgFrom(LCertReq)), LAlert),
+    'a CertificateRequest without signature_algorithms aborts');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.MissingExtension)), Int64(Ord(LAlert)),
+    'the abort is missing_extension');
 end;
 
 initialization

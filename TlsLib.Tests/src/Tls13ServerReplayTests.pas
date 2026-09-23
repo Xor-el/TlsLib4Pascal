@@ -119,6 +119,7 @@ type
     procedure TestBadClientFinishedFailsClosed;
     procedure TestServerSigSchemeIncompatibleRejected;
     procedure TestServerSigSchemeMissingRejected;
+    procedure TestNonPskWithoutSupportedGroupsRejected;
     procedure TestServerNegotiatesRsaPssSchemeFromCredentialSet;
   end;
 
@@ -458,6 +459,52 @@ begin
     'a missing signature_algorithms aborts the handshake');
   CheckTrue(LAlert = TTlsAlertDescription.MissingExtension,
     'a missing signature_algorithms is missing_extension');
+end;
+
+procedure TTestTls13ServerReplay.TestNonPskWithoutSupportedGroupsRejected;
+var
+  LCodec: IExtensionBlockCodec;
+  LContext: TExtensionContext;
+  LHello: TTlsClientHello;
+  LFramed: TBytes;
+  LReader: THandshakeMessageReader;
+  LMessage: TTlsHandshakeMessage;
+  LAlert: TTlsAlertDescription;
+begin
+  // a non-PSK ClientHello that omits both supported_groups and key_share: the present/absent XOR
+  // passes (both absent), so without the RFC 8446 9.2 guard it would fail later at group selection
+  // with handshake_failure instead of missing_extension. signature_algorithms is present so the
+  // only defect is the missing supported_groups.
+  LCodec := TExtensionBlockCodec.Create(TCoreExtensions.CreateDefaultRegistry)
+    as IExtensionBlockCodec;
+  LContext := TExtensionContext.Create;
+  try
+    LContext.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls13);
+    LContext.SignatureSchemes :=
+      TArray<UInt16>.Create(TSignatureSchemes.RsaPssRsaeSha256);
+    LHello.Random := nil;
+    SetLength(LHello.Random, 32);
+    LHello.LegacySessionId := nil;
+    LHello.CipherSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
+    LHello.Extensions := LCodec.ProduceBlock(LContext,
+      TTlsExtensionContextKind.ClientHello);
+  finally
+    LContext.Free;
+  end;
+  LFramed := THandshakeFraming.Frame(TTlsHandshakeType.ClientHello,
+    THandshakeMessages.EncodeClientHello(LHello));
+  LReader := THandshakeMessageReader.Create;
+  try
+    LReader.Append(LFramed, 0, System.Length(LFramed));
+    LReader.NextMessage(LMessage);
+  finally
+    LReader.Free;
+  end;
+
+  CheckTrue(ClientHelloAlert(LMessage, LAlert),
+    'a non-PSK ClientHello without supported_groups aborts the handshake');
+  CheckTrue(LAlert = TTlsAlertDescription.MissingExtension,
+    'a non-PSK ClientHello without supported_groups is missing_extension');
 end;
 
 procedure TTestTls13ServerReplay.ArrangeMultiSchemeRsa;

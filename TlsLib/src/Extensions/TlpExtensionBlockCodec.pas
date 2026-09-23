@@ -38,7 +38,7 @@ type
   /// Owns all extension-block wire framing and the cross-extension rules of RFC 8446
   /// 4.2: the outer extensions vector, duplicate detection (decode_error), the
   /// unknown-extension skip (which also tolerates GREASE), per-message context
-  /// enforcement (wrong context -> unsupported_extension), and the response-only
+  /// enforcement (wrong context -> illegal_parameter), and the response-only
   /// rule that an extension the ClientHello did not offer is fatal
   /// (unsupported_extension). Individual extensions never see these concerns.
   /// </summary>
@@ -167,9 +167,11 @@ begin
 
     if FRegistry.TryGet(LType, LExt) then
     begin
+      // a recognized extension in a message it is not specified for is illegal_parameter,
+      // distinct from the unsolicited-response case above (RFC 8446 4.2)
       if not (AKind in LExt.ValidContexts) then
         raise EFatalAlertTlsLibException.CreateRes(
-          TTlsAlertDescription.UnsupportedExtension, @SWrongContextExtension);
+          TTlsAlertDescription.IllegalParameter, @SWrongContextExtension);
       LExt.Consume(AContext, LEntry.Data);
     end;
   end;
