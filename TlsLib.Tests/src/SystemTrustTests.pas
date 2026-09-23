@@ -11,19 +11,16 @@
 
 /// <summary>Tests for the optional TlsLib.Trust.System package, in two layers:
 ///
-/// 1. A portable fixture suite (always runs on every target). TFileSystemRootSource is portable
-///    and takes an explicit (env, files, dirs) form, so its harvest/resolution logic is exercised
-///    on any host by injecting throwaway fixture paths - no real /etc/ssl/certs needed - plus a
-///    check that the TOSSystemTrust factory reports a sane capability for the build's platform.
+/// 1. A portable fixture suite that runs on every target: TFileSystemRootSource takes an explicit
+///    (env, files, dirs) form, so its harvest/resolution logic runs on any host with throwaway
+///    fixture paths, alongside a check that the TOSSystemTrust factory reports a sane capability
+///    for the build's platform.
 ///
-/// 2. A real-OS-store contract, written once against ITrustAnchorStore in an abstract base
-///    (TSystemTrustAnchorContractTestBase) and instantiated per platform by a thin subclass that
-///    supplies the concrete harvester. Each subclass is compile-time guarded to its OS
-///    (TLSLIB_MSWINDOWS / TLSLIB_MACOS / TLSLIB_LINUX|BSD|SOLARIS) and registered only there, so it
-///    only ever runs on a target that actually owns that store - mirroring the CryptoLib
-///    hardware-engine test idiom. A machine with no populated store (e.g. a bare container with no
-///    ca-certificates) is tolerated: only the platforms whose OS always ships roots
-///    (Windows / macOS) treat an empty harvest as a failure.</summary>
+/// 2. A real-OS-store contract written once against ITrustAnchorStore
+///    (TSystemTrustAnchorContractTestBase) and subclassed per platform to supply the concrete
+///    harvester. Each subclass is compile-time guarded to its OS (TLSLIB_MSWINDOWS / TLSLIB_MACOS /
+///    TLSLIB_LINUX|BSD|SOLARIS) and registered only there. An empty store is tolerated except on
+///    Windows / macOS, which always ship roots and so treat an empty harvest as a failure.</summary>
 unit SystemTrustTests;
 
 {$I ..\..\TlsLib\src\Include\TlsLib.inc}
