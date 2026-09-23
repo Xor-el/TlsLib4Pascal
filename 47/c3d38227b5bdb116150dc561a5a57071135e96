@@ -1,0 +1,23 @@
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_09d3c46d1a9b1f::t_130005df8e429b 1083
+  s_09d3c46d1a9b1f::t_2876dd96f0e0a3 1166-1168,1174-1182
+  s_09d3c46d1a9b1f::t_309eefffee915e 184
+TlsLib/src/Pkix/Providers/TlpDefaultPkixProvider.pas
+  s_09d3c46d1a9b1f::t_1bae6d25bce749 243
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "47c3d38227b5bdb116150dc561a5a57071135e96",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
