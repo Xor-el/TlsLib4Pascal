@@ -1,0 +1,29 @@
+TlsLib/src/Record/TlpRecordLayer.pas
+  s_09d3c46d1a9b1f::t_d6bc28a626fc77 576-580
+  s_09d3c46d1a9b1f::t_42e28ed462ad84 557-558
+  s_09d3c46d1a9b1f::t_3487feefaca44f 479-482
+  s_09d3c46d1a9b1f::t_1a28baeb99ec65 461-463
+  s_09d3c46d1a9b1f::t_b2934121a2c67a 524-527
+  s_09d3c46d1a9b1f::t_bf653ec1d93800 565-569
+TlsLib/src/Engine/TlpTlsConnectionInfo.pas
+  s_09d3c46d1a9b1f::t_08b11783002132 25-30,33,35,37-38,40,42-43
+  s_09d3c46d1a9b1f::t_626963fa139eee 53,55,57,59
+TlsLib/src/Engine/TlpTlsStreamPump.pas
+  s_09d3c46d1a9b1f::t_bd9e3988768de0 39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "27fde53cc4d823d8d8b3c4023c3b6e6046c61c5c",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": null
+    }
+  }
+}
