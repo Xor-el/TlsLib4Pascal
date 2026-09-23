@@ -48,11 +48,21 @@ while [ "$DEAD_PORT" = "$OCSP_PORT" ] || (echo >"/dev/tcp/127.0.0.1/$DEAD_PORT")
   DEAD_PORT=$(( 40000 + (RANDOM % 20000) ))  # in use (connect succeeded): pick another
 done
 DEAD_URL="http://127.0.0.1:$DEAD_PORT"
+# a third loopback port for the CRL server (the Windows-only CRL-source cell). Free and distinct from
+# the OCSP and DEAD ports; the CDP is baked into the leaf at gen time, so it must be fixed before gen.
+CRL_PORT=$(( 10000 + (RANDOM % 10000) ))
+while [ "$CRL_PORT" = "$OCSP_PORT" ] || [ "$CRL_PORT" = "$DEAD_PORT" ] || (echo >"/dev/tcp/127.0.0.1/$CRL_PORT") 2>/dev/null; do
+  CRL_PORT=$(( 10000 + (RANDOM % 10000) ))  # in use or clashes: pick another
+done
+CRL_URL="http://127.0.0.1:$CRL_PORT/root.crl"
+CRL_PID=""
+CRL_READY=0
 
 THUMB=""  # set after the CA exists
 
 cleanup() {
   if [ -n "$OCSP_PID" ]; then kill "$OCSP_PID" >/dev/null 2>&1 || true; fi
+  if [ -n "$CRL_PID" ]; then kill "$CRL_PID" >/dev/null 2>&1 || true; wait "$CRL_PID" 2>/dev/null || true; fi
   if [ "$INSTALLED" = 1 ]; then uninstall_root || true; fi
   rm -rf "$TMP"
 }
@@ -89,7 +99,7 @@ if [ "$OSNAME" = "Darwin" ] && command -v brew >/dev/null 2>&1; then
   BREW_SSL="$(brew --prefix openssl@3 2>/dev/null || true)"
   [ -n "$BREW_SSL" ] && [ -x "$BREW_SSL/bin/openssl" ] && OPENSSL="$BREW_SSL/bin/openssl"
 fi
-OPENSSL="$OPENSSL" bash "$HERE/gen-trust-ca.sh" "$CA" "$RUNID" "$OCSP_URL" "$DEAD_URL"
+OPENSSL="$OPENSSL" bash "$HERE/gen-trust-ca.sh" "$CA" "$RUNID" "$OCSP_URL" "$DEAD_URL" "$CRL_URL"
 THUMB="$("$OPENSSL" x509 -in "$CA/root.pem" -noout -fingerprint -sha1 | sed 's/.*=//; s/://g')"
 # a loopback OCSP responder for the live cells: serves the live index (accept leaves Valid, revoked
 # leaves Revoked) signed by the root-delegated OCSPSigning responder both crypt32 and trustd accept.
@@ -107,6 +117,21 @@ for _ in $(seq 1 50); do
     -cert "$CA/live_leaf.pem" -url "$OCSP_URL" >/dev/null 2>&1; then break; fi
   sleep 0.2
 done
+# a loopback HTTP server for the root-signed CRL (the Windows-only CRL-source cell). Serves ONLY the
+# CRL from a dedicated dir (never the CA dir with its keys). Threaded server tolerates raw probes;
+# curl-probe until it answers. A missing python leaves CRL_READY=0 - the Windows cell then FAILS
+# rather than skipping, so a broken server can never make the cell vacuously pass.
+PYBIN="$(command -v python3 || command -v python || true)"
+if [ -n "$PYBIN" ]; then
+  # --directory (not cd in a subshell): keep python's CWD off "www" so cleanup can rm it on Windows,
+  # and so $! is python itself, not a wrapper subshell that would orphan python on kill.
+  "$PYBIN" -m http.server "$CRL_PORT" --bind 127.0.0.1 --directory "$CA/www" >/dev/null 2>&1 &
+  CRL_PID=$!
+  for _ in $(seq 1 50); do
+    if curl -fsS -o /dev/null "$CRL_URL" 2>/dev/null; then CRL_READY=1; break; fi
+    sleep 0.2
+  done
+fi
 # a verify time past the 30-day leaf notAfter, to prove the injected clock reaches validation
 FUTURE_MS=$(( ($(date +%s) + 60*86400) * 1000 ))
 
@@ -238,6 +263,32 @@ if [ "$HAS_DELEGATE" = 1 ]; then
     cell "[12] delegate live revoked -> certificate_revoked" --trust-mode os-delegate \
       --revocation-fetch live --tls-version 12 --server-cert "$CA/live_revoked_leaf_fullchain.pem" \
       --server-key "$CA/live_revoked_leaf.key" --posture hard --expect reject:44
+    # an RSA-2048 revoked leaf over the same live path: the OS engine renders Revoked from the fetched
+    # OCSP before any key-type-dependent check, so an RSA leaf must still surface 44 (not divert to the
+    # library key-strength alert). Both engines are algorithm-agnostic on revocation, so it runs on both.
+    cell "delegate live revoked RSA leaf -> certificate_revoked" --trust-mode os-delegate \
+      --revocation-fetch live --server-cert "$CA/live_revoked_leaf_rsa_fullchain.pem" \
+      --server-key "$CA/live_revoked_leaf_rsa.key" --posture hard --expect reject:44
+    cell "[12] delegate live revoked RSA leaf -> certificate_revoked" --trust-mode os-delegate \
+      --revocation-fetch live --tls-version 12 --server-cert "$CA/live_revoked_leaf_rsa_fullchain.pem" \
+      --server-key "$CA/live_revoked_leaf_rsa.key" --posture hard --expect reject:44
+    # revocation sourced from a CRL, not OCSP (Windows only). The leaf has no OCSP AIA and a reachable
+    # CDP; crypt32 fetches the root-signed CRL and renders Revoked -> certificate_revoked(44). trustd
+    # does not fetch CRLs for TLS eval (the no-AIA leaf would be Indeterminate -> Hard -> 113), so the
+    # CRL source axis is Windows-exclusive. No --now-ms: a fixed future time would push past the CRL's
+    # 7-day nextUpdate and force an offline refetch.
+    case "$OSNAME" in
+      MINGW*|MSYS*|CYGWIN*|Windows*)
+        if [ "$CRL_READY" = 1 ]; then
+          cell "delegate CRL revoked -> certificate_revoked" --trust-mode os-delegate \
+            --revocation-fetch live --server-cert "$CA/crl_revoked_leaf_fullchain.pem" \
+            --server-key "$CA/crl_revoked_leaf.key" --posture hard --expect reject:44
+        else
+          echo "  FAIL  delegate CRL revoked -> CRL server never started (python missing?)"
+          FAILURES=$((FAILURES+1))
+        fi ;;
+      *) echo "  (skipped CRL-source cell: $OSNAME trustd does not fetch CRLs for TLS)" ;;
+    esac
     # effective-Soft must not let a revocation-unknown outcome mask a real error: a Soft cache-only
     # delegate cell with a hostname mismatch still rejects
     cell "delegate soft name-mismatch -> reject" --trust-mode os-delegate \
