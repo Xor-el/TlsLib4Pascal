@@ -1,0 +1,53 @@
+.github/workflows/ci/interop/bogo-shim-config.json
+  s_09d3c46d1a9b1f::t_39b6c8cd44603a 145-146
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_09d3c46d1a9b1f::t_d13cbcf6ec1400 490-491
+  s_09d3c46d1a9b1f::t_bc5022d53c414c 2052-2056
+  s_09d3c46d1a9b1f::t_a2317f0306298b 1647-1648,1652-1658
+  s_09d3c46d1a9b1f::t_33f296edc76e98 2038
+TlsLib.Tests/src/ExtensionNegotiationTests.pas
+  s_09d3c46d1a9b1f::t_ab4e46ca41f082 541-592
+  s_09d3c46d1a9b1f::t_d590299ca9556c 124
+  s_09d3c46d1a9b1f::t_1ed2f0df0c14b0 44
+  s_09d3c46d1a9b1f::t_d3f8ee9e5b15bb 1070-1093
+  s_09d3c46d1a9b1f::t_b226c0c1120279 94-95,97
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_69cf1d3d254dfa 432-433
+  s_09d3c46d1a9b1f::t_1ab8e32a4a9af6 616-617
+  s_09d3c46d1a9b1f::t_1660dad677d2b5 615,618-622
+TlsLib/src/Extensions/TlpExtensionBlockCodec.pas
+  s_09d3c46d1a9b1f::t_d8c930a50218de 41
+  s_09d3c46d1a9b1f::t_1430288253df57 170-171,174
+TlsLib.Tests/src/Tls13ServerReplayTests.pas
+  s_09d3c46d1a9b1f::t_26ba5c79817fb8 464-509
+  s_09d3c46d1a9b1f::t_16cf10ca179980 122
+TlsLib.Tests/src/ClientAuthTests.pas
+  s_09d3c46d1a9b1f::t_43225adca722ec 97
+  s_09d3c46d1a9b1f::t_5be83ccbec9047 624-648
+  s_09d3c46d1a9b1f::t_209ccecb8de491 40-42
+  s_09d3c46d1a9b1f::t_4d076db99d666a 193-293
+  s_09d3c46d1a9b1f::t_0aafe2e277f587 67-73
+TlsLib.Tests/src/ExtensionCodecTests.pas
+  s_09d3c46d1a9b1f::t_4f6ba51948a151 615,618-621,623,626,629-630,632
+  s_09d3c46d1a9b1f::t_69c8b94347ed0f 78-79
+  s_09d3c46d1a9b1f::t_cb8dbc978bd0c8 46-47
+  s_09d3c46d1a9b1f::t_c61b6905ace65a 364,367-370,372,377-380,382
+  s_09d3c46d1a9b1f::t_2e4ff8bf423c50 58
+  s_09d3c46d1a9b1f::t_cb86e2e4d37faf 116,118,122,131
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "795883cd7ec2f35a5fa57c43560794d872379346",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
