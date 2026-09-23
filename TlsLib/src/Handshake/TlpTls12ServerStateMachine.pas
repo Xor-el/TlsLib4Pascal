@@ -105,13 +105,9 @@ type
     /// <summary>Trusts (or rejects) the client certificate chain; required whenever
     /// ClientAuth is not None.</summary>
     ClientCertificateVerifier: IClientCertificateVerifier;
-    /// <summary>When set, after the built-in pipeline accepts the client chain the machine
-    /// parks the handshake for an out-of-band verdict (the deferred-verdict seam) rather than
-    /// continuing inline. Augment-only and fail-closed. OFF by default.</summary>
-    AsyncVerdict: Boolean;
-    // whether the async verdict is a live-revocation deferral (vs a host-decision park): a
-    // live-revocation park is skipped when the verifier settled revocation inline
-    LiveRevocationDeferral: Boolean;
+    /// <summary>How a peer-certificate verdict is deferred out-of-band (see TVerdictDeferral):
+    /// augment-only and fail-closed, None by default.</summary>
+    Deferral: TVerdictDeferral;
     /// <summary>The stateful store backing TLS 1.2 session-id resumption (RFC 5246 7.3):
     /// on a full handshake the server echoes a fresh session id and stores the session
     /// under it, then resumes on a later ClientHello that offers it. nil disables the
@@ -727,8 +723,7 @@ begin
     // decision. Carry both the presented chain and the validated path (issuer at index 1), so a
     // live resolver authenticates against the PKIX issuer, never a guess. The buffered
     // ClientKeyExchange/CertificateVerify/Finished resume on accept.
-    if TPeerAuthentication.ShouldPark(FParams.AsyncVerdict,
-      FParams.LiveRevocationDeferral, LVerified.Outcome) then
+    if TPeerAuthentication.ShouldPark(FParams.Deferral, LVerified.Outcome) then
       TArrayUtilities.Append<THandshakeEffect>(Result,
         ParkForVerdict(FClientCertChain, LVerified.Path, '', nil));
   end;
