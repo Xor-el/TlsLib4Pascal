@@ -240,8 +240,7 @@ type
 
   /// <summary>
   /// The fluent <see cref="IPkixProviderBuilder" />: accumulates facet overrides
-  /// and composes through <see cref="TDefaultPkixProvider.Create" /> (zero
-  /// duplication - all composition logic stays in that one constructor).
+  /// and composes through <see cref="TDefaultPkixProvider.Create" />.
   /// </summary>
   TPkixProviderBuilder = class(TInterfacedObject, IPkixProviderBuilder)
   strict private

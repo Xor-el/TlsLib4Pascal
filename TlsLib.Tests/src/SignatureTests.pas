@@ -417,7 +417,6 @@ begin
 
   LTampered := System.Copy(LSig);
   SetLength(LTampered, System.Length(LTampered) + 1); // a trailing byte after the DER SEQUENCE
-  LRejected := False;
   try
     LRejected := not VerifyEcdsa(LCrypto, LTampered, LMessage);
   except
