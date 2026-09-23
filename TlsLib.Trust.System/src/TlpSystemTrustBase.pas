@@ -242,8 +242,8 @@ end;
 class function TDelegatePostChecks.HardNeedsLiveRevocation(
   APosture: TRevocationPosture; ADeferral: TVerdictDeferral): Boolean;
 begin
-  Result := (APosture = TRevocationPosture.Hard) and
-    (ADeferral <> TVerdictDeferral.LiveRevocation);
+  Result := TRevocationDecision.HardNeedsLiveRevocation(APosture,
+    ADeferral = TVerdictDeferral.LiveRevocation);
 end;
 
 class function TDelegatePostChecks.LiveNeedsLiveRevocation(

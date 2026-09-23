@@ -364,7 +364,9 @@ end;
 
 Resumption is `psk_dhe_ke` (forward-secret) and single-use by default. Give the **client** a session
 cache; the **server** resumes out of the box via stateless tickets, or upgrade it to a stateful,
-truly-single-use store.
+truly-single-use store. A `Hard`-revocation client using `WithResumeVerification(Reverify)` without
+`WithLiveRevocationVerdict` offers no resumption (a resume carries no staple to re-check) and does a
+full handshake instead — see [certificate-verification.md](certificate-verification.md).
 
 ```pascal
 uses TlpInMemorySessionCache, TlpInMemorySessionStore, TlpSessionTicketKeys, TlpISession;
