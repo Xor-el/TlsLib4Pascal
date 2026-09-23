@@ -53,6 +53,23 @@ uses
   TlpITlsConfigBuilder;
 
 type
+  /// <summary>The endpoint-neutral settings a preset decides before the endpoint is chosen. A nil
+  /// registry or an empty list leaves that setting unseeded (Build refuses a builder with no offered
+  /// version); the three scalars are always applied.</summary>
+  TTlsConfigSeed = record
+    CipherSuites: ICipherSuiteRegistry;
+    SignatureSchemes: ISignatureSchemeRegistry;
+    NamedGroups: INamedGroupRegistry;
+    SupportedVersions: TArray<UInt16>;
+    PreferredGroups: TArray<UInt16>;
+    CertificateChainLimits: TCertificateChainLimits;
+    RequestOcspStapling: Boolean;
+    Resumption: Boolean;
+    /// <summary>The builder's own values for these settings: no registries or lists, default chain
+    /// limits, no staple request, resumption on.</summary>
+    class function Default: TTlsConfigSeed; static;
+  end;
+
   /// <summary>
   /// Accumulates the settings for one connection and freezes them into an immutable
   /// config. The endpoint is chosen up front through Client/Server; version-specific
@@ -162,11 +179,10 @@ type
     /// its host, so a swapped cert/host mapping is caught up front, not per handshake.</summary>
     procedure ValidateSniEntryCoversHost(const AHost: string;
       const ACredential: TTlsCredential);
-  public
     constructor Create(const ACryptoProvider: ICryptoProvider;
-      const APkixProvider: IPkixProvider);
-
-    // the single-source-of-truth mutators (endpoint views, facets and presets call these)
+      const APkixProvider: IPkixProvider; const ASeed: TTlsConfigSeed);
+  private
+    // the single-source-of-truth mutators; reached only by the endpoint views, facets and presets
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): TTlsConfigBuilder;
     function WithSignatureSchemes(const ARegistry: ISignatureSchemeRegistry): TTlsConfigBuilder;
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): TTlsConfigBuilder;
@@ -257,14 +273,20 @@ type
     function Server13: ITls13ServerConfigFacet;
     function Server12: ITls12ServerConfigFacet;
 
-    // ITlsConfigBuilder
-    function Client: ITlsClientConfigBuilder;
-    function Server: ITlsServerConfigBuilder;
-
     /// <summary>Freezes and returns the client config; raises without a trust source.</summary>
     function BuildClient: ITlsClientConfig;
     /// <summary>Freezes and returns the server config; raises without a credential.</summary>
     function BuildServer: ITlsServerConfig;
+  public
+    /// <summary>A still-mutable endpoint chooser seeded with ASeed; the caller narrows to Client
+    /// or Server. The presets build theirs from this.</summary>
+    class function CreateSeeded(const ACryptoProvider: ICryptoProvider;
+      const APkixProvider: IPkixProvider;
+      const ASeed: TTlsConfigSeed): ITlsConfigBuilder; static;
+
+    // ITlsConfigBuilder
+    function Client: ITlsClientConfigBuilder;
+    function Server: ITlsServerConfigBuilder;
   end;
 
 implementation
@@ -1602,8 +1624,27 @@ end;
 
 { TTlsConfigBuilder }
 
+class function TTlsConfigSeed.Default: TTlsConfigSeed;
+begin
+  Result.CipherSuites := nil;
+  Result.SignatureSchemes := nil;
+  Result.NamedGroups := nil;
+  Result.SupportedVersions := nil;
+  Result.PreferredGroups := nil;
+  Result.CertificateChainLimits := TCertificateChainLimits.Defaults;
+  Result.RequestOcspStapling := False;
+  Result.Resumption := True;
+end;
+
+class function TTlsConfigBuilder.CreateSeeded(const ACryptoProvider: ICryptoProvider;
+  const APkixProvider: IPkixProvider;
+  const ASeed: TTlsConfigSeed): ITlsConfigBuilder;
+begin
+  Result := TTlsConfigBuilder.Create(ACryptoProvider, APkixProvider, ASeed);
+end;
+
 constructor TTlsConfigBuilder.Create(const ACryptoProvider: ICryptoProvider;
-  const APkixProvider: IPkixProvider);
+  const APkixProvider: IPkixProvider; const ASeed: TTlsConfigSeed);
 begin
   inherited Create;
   if ACryptoProvider = nil then
@@ -1651,6 +1692,21 @@ begin
   FClient12 := TTls12ClientConfigFacet.Create(Self);
   FServer13 := TTls13ServerConfigFacet.Create(Self);
   FServer12 := TTls12ServerConfigFacet.Create(Self);
+  // apply the seed through the same mutators the presets call, so every Build-time validation
+  // runs: registries only when supplied, lists only when non-empty, the scalars always
+  if ASeed.CipherSuites <> nil then
+    WithCipherSuites(ASeed.CipherSuites);
+  if ASeed.SignatureSchemes <> nil then
+    WithSignatureSchemes(ASeed.SignatureSchemes);
+  if ASeed.NamedGroups <> nil then
+    WithNamedGroups(ASeed.NamedGroups);
+  if System.Length(ASeed.SupportedVersions) > 0 then
+    WithSupportedVersions(ASeed.SupportedVersions);
+  if System.Length(ASeed.PreferredGroups) > 0 then
+    WithPreferredGroups(ASeed.PreferredGroups);
+  WithCertificateChainLimits(ASeed.CertificateChainLimits);
+  WithOcspStaplingRequest(ASeed.RequestOcspStapling);
+  WithResumption(ASeed.Resumption);
 end;
 
 procedure TTlsConfigBuilder.GuardMutable;

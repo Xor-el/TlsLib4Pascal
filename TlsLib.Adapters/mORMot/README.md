@@ -39,7 +39,8 @@ silently weaken the connection): `DisableTls13`, `AllowDeprecatedTls`, `ClientAl
 
 **PKCS#12 (`.pfx`)**: mORMot passes cert/key as separate files, so map those to `WithCredential`.
 To load a `.pfx` blob instead, build the credential yourself with the provider's
-`WithCredentialPkcs12(pfxBytes, password)` and drive `TTlsConfigBuilder` directly.
+`WithCredentialPkcs12(pfxBytes, password)` and drive the config builder
+(`TTlsPresets.…(provider, pkix).Server`) directly.
 
 ## Trust is ours (`dangerous` mapping)
 

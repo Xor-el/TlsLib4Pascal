@@ -54,8 +54,9 @@ source** (used to verify the *peer*), never part of what you send; putting inter
 leaves the presented chain incomplete, forcing clients to fetch the missing CA.
 
 **PKCS#12 (`.pfx`)**: Synapse also exposes `PFX`/`PFXfile`. To use a `.pfx`, build the credential
-with the provider's `WithCredentialPkcs12(pfxBytes, password)` and drive `TTlsConfigBuilder`
-directly; the `CertificateFile`/`PrivateKeyFile` path here covers PEM/DER pairs.
+with the provider's `WithCredentialPkcs12(pfxBytes, password)` and drive the config builder
+(`TTlsPresets.…(provider, pkix).Server`) directly; the `CertificateFile`/`PrivateKeyFile` path
+here covers PEM/DER pairs.
 
 ## Trust is ours (`dangerous` mapping)
 

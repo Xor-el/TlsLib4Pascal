@@ -31,7 +31,8 @@ type
   /// Compatible preset into a frozen client or server config. Build the config once and pass it
   /// to TTlsEngineFactory per connection: the config owns the session-ticket key, so a fresh
   /// config per connection would silently disable resumption. There is deliberately no Provider
-  /// accessor: to use a different backend, drive TTlsConfigBuilder yourself with your own provider.
+  /// accessor: to use a different backend, start from a TTlsPresets profile (or
+  /// TTlsConfigBuilder.CreateSeeded) with your own provider.
   /// </summary>
   TTlsLib = class sealed(TObject)
   public
