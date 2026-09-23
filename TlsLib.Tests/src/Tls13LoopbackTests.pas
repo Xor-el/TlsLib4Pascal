@@ -998,6 +998,7 @@ var
   LClientList, LServerList: TBytes;
   LClientSk, LServerSk: ISecretBuffer;
   LClientInfo: TTlsConnectionInfo;
+  LReturnedRetry: TBytes;
   LIterations: Int32;
 begin
   // the client offers config_id $AA (public_name localhost); the server's store holds a
@@ -1025,6 +1026,13 @@ begin
   CheckEqualBytes('the client surfaced the server retry_configs', LServerList,
     LClientInfo.EchRetryConfigs);
   CheckFalse(LClientInfo.EchIsRetryAttempt, 'this handshake was not itself a retry');
+  // the getter hands back a defensive copy: mutating the returned retry_configs must not reach
+  // the engine's held bytes, so a re-read still yields the server's list unchanged
+  LReturnedRetry := LClient.ConnectionInfo.EchRetryConfigs;
+  if System.Length(LReturnedRetry) > 0 then
+    LReturnedRetry[0] := LReturnedRetry[0] xor $FF;
+  CheckEqualBytes('mutating the returned retry_configs does not change a re-read', LServerList,
+    LClient.ConnectionInfo.EchRetryConfigs);
 end;
 
 function TTestTls13Loopback.OcspField(const AName: string): TBytes;

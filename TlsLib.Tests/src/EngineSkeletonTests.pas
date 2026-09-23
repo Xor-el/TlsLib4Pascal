@@ -28,6 +28,9 @@ uses
   TlpTlsAlert,
   TlpTlsLibExceptions,
   TlpTlsContentType,
+  TlpTlsVersion,
+  TlpEchConfig,
+  TlpTlsConnectionInfo,
   TlpRecordLayer,
   TlpICertificateTrust,
   TlpCertificateVerifier,
@@ -50,6 +53,7 @@ type
     procedure TestCleartextApplicationDataBeforeKeysIsFatal;
     procedure TestReceivedCloseNotify;
     procedure TestReceivedFatalAlertIsTerminal;
+    procedure TestConnectionInfoZeroStateBeforeHandshake;
   end;
 
 implementation
@@ -213,6 +217,27 @@ begin
     Ord(LEngine.LastError.Alert.Description), 'last error reflects the peer alert');
 end;
 
+procedure TTestEngineSkeleton.TestConnectionInfoZeroStateBeforeHandshake;
+var
+  LEngine: ITlsEngine;
+  LInfo: TTlsConnectionInfo;
+begin
+  // before StartHandshake nothing is negotiated: ConnectionInfo reads back the zero snapshot
+  LEngine := NewEngine;
+  LInfo := LEngine.ConnectionInfo;
+  CheckEquals(0, LInfo.NegotiatedVersion.WireValue, 'no version negotiated yet');
+  CheckTrue(LInfo.EchStatus = TEchStatus.NotOffered, 'ECH not offered yet');
+  CheckFalse(LInfo.Resumed, 'not a resumed handshake');
+  CheckEquals(0, LInfo.CipherSuite, 'no cipher suite negotiated');
+  CheckEquals(0, LInfo.NamedGroup, 'no named group negotiated');
+  CheckEquals('', LInfo.AlpnProtocol, 'no ALPN protocol selected');
+  CheckEquals('', LInfo.ServerName, 'no server name recorded');
+  CheckEquals(0, System.Length(LInfo.PeerCertificates), 'no peer certificates');
+  CheckEquals(0, System.Length(LInfo.RequestedCertificateAuthorities),
+    'no requested certificate authorities');
+  CheckEquals(0, System.Length(LInfo.PeerOcspStaple), 'no peer OCSP staple');
+  CheckEquals(0, System.Length(LInfo.EchRetryConfigs), 'no ECH retry configs');
+end;
 
 initialization
 

@@ -28,6 +28,7 @@ uses
 {$ENDIF FPC}
   TlpTlsLibExceptions,
   TlpTlsVersion,
+  TlpArrayUtilities,
   TlpICryptoProvider,
   TlpICertificateTrust,
   TlpCertificateVerifier,
@@ -133,6 +134,8 @@ type
     // a 1.3 server whose registry holds none of its preferred groups is refused at creation, not
     // left to fault on the first ClientHello
     procedure TestServerWithEmptyGroupIntersectionFailsFast;
+    // the accessors relocated onto the role configs read their builder defaults
+    procedure TestRoleConfigDefaultsForMovedAccessors;
   end;
 
 implementation
@@ -789,7 +792,7 @@ var
 begin
   // a chooser seeded with the shared defaults, narrowed to the client view with a trust source
   LOwner := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
-  FBuilders := FBuilders + [LOwner];
+  TArrayUtilities.Append<ITlsConfigBuilder>(FBuilders, LOwner);
   Result := LOwner.Client.WithTrustStore(ClientTrust);
 end;
 
@@ -798,7 +801,7 @@ var
   LOwner: ITlsConfigBuilder;
 begin
   LOwner := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
-  FBuilders := FBuilders + [LOwner];
+  TArrayUtilities.Append<ITlsConfigBuilder>(FBuilders, LOwner);
   Result := LOwner.Server.WithCredential(ServerCredential);
 end;
 
@@ -1165,6 +1168,24 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a server with an empty registry-vs-preference intersection is refused');
+end;
+
+procedure TTestConfigBuilder.TestRoleConfigDefaultsForMovedAccessors;
+var
+  LClient: ITlsClientConfig;
+  LServer: ITlsServerConfig;
+begin
+  // the server-name / cipher-order / ALPN-reject knobs live only on the server config now, and
+  // GREASE only on the client config; each surfaces its builder default off the role config
+  LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithTrustStore(ClientTrust).Build;
+  LServer := TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential).Build;
+  CheckTrue(LServer.ServerNameAcknowledgement, 'a server acknowledges SNI by default');
+  CheckEquals(Ord(TServerCipherPreference.ServerOrder), Ord(LServer.CipherSuitePreference),
+    'a server imposes its own cipher order by default');
+  CheckFalse(LServer.AlpnRejectAll, 'a server does not reject ALPN unconditionally by default');
+  CheckTrue(LClient.Grease, 'a client greases by default');
 end;
 
 initialization
