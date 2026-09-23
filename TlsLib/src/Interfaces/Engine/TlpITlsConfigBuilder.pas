@@ -93,7 +93,7 @@ type
     function WithPreferredGroups(const AGroups: TArray<UInt16>): ITlsClientConfigBuilder;
     function WithAlpnProtocols(const AProtocols: TArray<string>): ITlsClientConfigBuilder;
     /// <summary>Whether the client sends GREASE values (RFC 8701). Optional per the RFC;
-    /// default True. Pass False to omit GREASE (e.g. for deterministic wire output).</summary>
+    /// default True.</summary>
     function WithGrease(AEnable: Boolean): ITlsClientConfigBuilder;
     function WithTrustStore(const AStore: ITrustAnchorStore): ITlsClientConfigBuilder;
     /// <summary>Trust anchors from a PEM block (one certificate or a bundle) or a single
@@ -149,16 +149,14 @@ type
     /// PEM bundle (one or more certificates) or a single DER certificate; call more than once to
     /// add several DER certificates. They are never trusted on their own and never bypass
     /// validation - a path must still reach a configured trust anchor, and a complete chain the
-    /// server sends is still validated exactly as presented. Calls accumulate. Use this when a
-    /// server you must reach ships a partial chain; the well-behaved fix is to have the server
-    /// send its full chain. This is NOT a substitute for a trust anchor: if validation fails with
-    /// unknown_ca even when the server sends a complete chain, the client is missing the ROOT, not
-    /// an intermediate - configure the root with WithTrustAnchors (or opt into OS system trust)
-    /// instead, since an intermediate can never terminate a path. Public-CA intermediates rotate,
-    /// so a pinned intermediate can go stale - bundle the currently valid set (e.g. a CA's current
-    /// and next issuing certificates) and refresh it with your trust configuration. The library
-    /// never fetches (sans-IO); an application that wants AIA behaviour can resolve the issuer URL
-    /// out of band and feed the result here.</summary>
+    /// server sends is still validated exactly as presented. Calls accumulate. This is NOT a
+    /// substitute for a trust anchor: if validation fails with unknown_ca even when the server
+    /// sends a complete chain, the client is missing the ROOT, not an intermediate - configure the
+    /// root with WithTrustAnchors (or opt into OS system trust) instead, since an intermediate can
+    /// never terminate a path. Public-CA intermediates rotate, so a pinned intermediate can go
+    /// stale - bundle the currently valid set and refresh it with your trust configuration. The
+    /// library never fetches (sans-IO); an application that wants AIA behaviour can resolve the
+    /// issuer URL out of band and feed the result here.</summary>
     function WithIntermediateCertificates(const AData: TBytes): ITlsClientConfigBuilder;
     /// <summary>DANGEROUS: stop checking that the server certificate matches the connected
     /// host (RFC 6125). The chain is still validated to a trust anchor, but ANY trusted
@@ -253,7 +251,7 @@ type
     function WithCertificateCompressors(
       const ACompressors: TArray<ICertificateCompressor>): ITls13ClientConfigFacet;
     /// <summary>Whether the client offers 0-RTT early data when a cached ticket authorizes
-    /// it (TLS 1.3, RFC 8446 4.2.10). Off by default; an explicit opt-in.</summary>
+    /// it (TLS 1.3, RFC 8446 4.2.10). Off by default.</summary>
     function WithEarlyData(AEnabled: Boolean): ITls13ClientConfigFacet;
     /// <summary>
     /// Offers Encrypted Client Hello (RFC 9849) with the application-supplied
@@ -272,7 +270,7 @@ type
     function WithEncryptedClientHelloRetry(
       const AEchConfigList: TBytes): ITls13ClientConfigFacet;
     /// <summary>Whether to send a GREASE ECH (RFC 9849 sec. 6.2) when no usable config is
-    /// available. Off by default, matching the ecosystem; an explicit opt-in.</summary>
+    /// available. Off by default.</summary>
     function WithEchGrease(AEnabled: Boolean): ITls13ClientConfigFacet;
     function Tls12: ITls12ClientConfigFacet;
     function Build: ITlsClientConfig;

@@ -106,8 +106,8 @@ const
   // extension nor a trust-purpose property: it is then valid for all uses (not disabled)
   CRYPT_E_NOT_FOUND = DWORD($80092004);
 
-  // the configured client-CA anchors are the only trusted roots for the client-auth chain engine
-  // (RFC-agnostic H3 fix); the CA flag lets a non-self-signed anchor still root a path
+  // the configured client-CA anchors are the only trusted roots for the client-auth chain engine;
+  // the CA flag lets a non-self-signed anchor still root a path
   CERT_CHAIN_EXCLUSIVE_ENABLE_CA_FLAG = $00000001;
 
   // CertVerifyCertificateChainPolicy dwError values worth mapping precisely.

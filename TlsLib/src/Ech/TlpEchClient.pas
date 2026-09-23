@@ -86,7 +86,7 @@ type
 
     /// <summary>
     /// Builds the EncodedClientHelloInner from the inner ClientHello body AInnerBody and
-    /// the ClientHelloOuter extension entries AOuterEntries: empties legacy_session_id,
+    /// the ClientHelloOuter extensions AOuter: empties legacy_session_id,
     /// replaces the longest contiguous run of compressible extensions that also appear
     /// verbatim in the outer with one ech_outer_extensions block, and appends padding.
     /// </summary>

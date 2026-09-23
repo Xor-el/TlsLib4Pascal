@@ -460,7 +460,7 @@ procedure TTlsLibNetTls.AfterBind(Socket: TNetSocket;
   var Context: TNetTlsContext; const ServerAddress: RawUtf8);
 begin
   // we build a fresh engine per accepted connection from the bound context, so there is
-  // no shared server state to set up here (unlike an OpenSSL SSL_CTX)
+  // no shared server state to set up here
   Context.Enabled := True;
 end;
 
@@ -525,7 +525,7 @@ end;
 
 function TTlsLibNetTls.GetRawTls: pointer;
 begin
-  // there is no underlying PSSL/OpenSSL handle: TlsLib4Pascal is a managed engine
+  // there is no native SSL handle to expose: TlsLib4Pascal is a managed engine
   Result := nil;
 end;
 

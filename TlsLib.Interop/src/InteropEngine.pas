@@ -154,7 +154,7 @@ type
 
   /// <summary>
   /// Builds a wired ITlsEngine from the harness options over the default
-  /// CryptoLib-backed provider, reusing the Compatible preset and the engine
+  /// crypto provider, reusing the Compatible preset and the engine
   /// factory so the shim exercises the exact public composition an integrator uses.
   /// </summary>
   TInteropEngine = class sealed(TObject)
@@ -171,7 +171,7 @@ type
     class function SignatureSchemesFromCodes(
       const ACodes: TArray<UInt16>): ISignatureSchemeRegistry; static;
   public
-    /// <summary>The default CryptoLib-backed crypto provider.</summary>
+    /// <summary>The default crypto provider.</summary>
     class function DefaultCrypto: ICryptoProvider; static;
     /// <summary>The default PKIX provider (certificate inspection, path validation,
     /// revocation), mirroring DefaultCrypto for the crypto facets.</summary>

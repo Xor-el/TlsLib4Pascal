@@ -404,7 +404,7 @@ var
   LNonce, LAad: TBytes;
   LRaised: Boolean;
 begin
-  // the reused live cipher lets CL4P's encrypt-side guard catch a forced
+  // the reused live cipher lets the provider's encrypt-side guard catch a forced
   // (key, nonce) repeat - a net the old create-per-record adapter never had
   LAead := Crypto.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM);
   LAead.Init(TSecretBuffer.From(DecodeHex('000102030405060708090a0b0c0d0e0f')));

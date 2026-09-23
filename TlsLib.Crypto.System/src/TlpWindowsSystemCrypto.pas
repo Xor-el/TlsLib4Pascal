@@ -950,8 +950,8 @@ type
 
   // The backend map for the composed Windows provider. It answers, per algorithm and
   // facet, whether the operation runs on CNG or the portable library - computed once
-  // from the construction-time probes. Today only NIST-curve ECDH is native; every other
-  // entry is Portable until its facet lands, and each facet phase fills in its entries.
+  // from the construction-time probes. An entry with no native backend on this host
+  // reads as Portable.
   TWindowsBackendReport = class(TInterfacedObject, ICryptoBackendReport)
   strict private
   var

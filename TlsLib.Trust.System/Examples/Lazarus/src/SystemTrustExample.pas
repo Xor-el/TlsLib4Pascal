@@ -168,11 +168,11 @@ var
   LOptIn, LSupplier: Integer;
 begin
   // leg A: the zero-ceremony opt-in default (recommended for "just trust the OS")
-  LOptIn := RunOnce({AUseOptIn=}True, 'opt-in default');
+  LOptIn := RunOnce(True, 'opt-in default');
   if LOptIn = 2 then
     Exit(2); // network unreachable - SKIP the whole demo
   // leg B: the per-connection OnGetSocketHandler supplier (general path)
-  LSupplier := RunOnce({AUseOptIn=}False, 'per-connection hook');
+  LSupplier := RunOnce(False, 'per-connection hook');
   if LSupplier = 2 then
     Exit(2);
   if (LOptIn = 0) and (LSupplier = 0) then

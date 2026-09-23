@@ -177,11 +177,11 @@ begin
   // point mORMot's NewNetTls factory at our INetTls, so the client socket carries our TLS
   RegisterTlsLib4PascalTls;
   // leg A: pinned-root trust (the bundled ISRG PEM)
-  LPinned := RunOnce({AUseSystemTrust=}False, 'pinned-root');
+  LPinned := RunOnce(False, 'pinned-root');
   if LPinned = 2 then
     Exit(2); // network unreachable - SKIP the whole demo
   // leg B: OS system-trust, no pinned file
-  LSystem := RunOnce({AUseSystemTrust=}True, 'system-trust');
+  LSystem := RunOnce(True, 'system-trust');
   if LSystem = 2 then
     Exit(2);
   if (LPinned = 0) and (LSystem = 0) then

@@ -29,9 +29,9 @@ type
   /// <summary>
   /// The revocation-checking posture for the stapled OCSP response (RFC 6960),
   /// consumed in-band from the handshake - no network. The posture governs only how an
-  /// unknown/indeterminate outcome is treated; a definitive, authenticated Revoked in
-  /// hand is always honored (the certificate is rejected) under every posture. Soft (the
-  /// default) accepts a missing or indeterminate staple; Hard rejects anything short of a
+  /// unknown/indeterminate outcome is treated; a definitive, authenticated Revoked is
+  /// always rejected under every posture. Soft (the default) accepts a missing or
+  /// indeterminate staple; Hard rejects anything short of a
   /// current Good staple (bad_certificate_status_response); Off does not require a stapled
   /// OCSP response (a missing or indeterminate staple is accepted), but still rejects a
   /// definitive Revoked. Must-staple (RFC 7633) is enforced at the TLS layer independently of
@@ -109,7 +109,7 @@ type
 
   /// <summary>
   /// The asynchronous certificate-verdict setting. When Deferral is not None, the engine runs
-  /// its built-in trust pipeline synchronously (as always) and, only if that pipeline accepts
+  /// its built-in trust pipeline synchronously and, only if that pipeline accepts
   /// the peer chain, parks the handshake so a host or a live-revocation resolver can decide
   /// out-of-band and resume with SetCertificateVerdict. This is augment-only: the verdict can
   /// only additionally reject, never resurrect a chain the pipeline already rejected. The park
@@ -163,13 +163,12 @@ type
   /// <summary>
   /// The trust parameters the engine gathers once from the frozen config and hands a
   /// verifier source to build the server-certificate verifier for a connection. The clock
-  /// and posture are carried here so a source constructs its verifier with them injected
-  /// (the built-in and the OS-native delegate alike), rather than receiving a pre-built
-  /// verifier that could not see the connection's clock or revocation posture. SPKI pinning
-  /// is applied by a decorator over the source output, so no pins appear here. The factory
-  /// builds one verifier per occasion (an initial-handshake verifier and, for reverify-on-
-  /// resume, a second Occasion=Resumption verifier), so must-staple binds only where a
-  /// Certificate is actually on the wire.
+  /// and posture are carried here so a source injects them when it constructs its verifier
+  /// (the built-in and the OS-native delegate alike). SPKI pinning is applied by a decorator
+  /// over the source output, so no pins appear here. The factory builds one verifier per
+  /// occasion (an initial-handshake verifier and, for reverify-on-resume, a second
+  /// Occasion=Resumption verifier), so must-staple binds only where a Certificate is
+  /// actually on the wire.
   /// </summary>
   TServerTrustContext = record
     Pkix: IPkixProvider;

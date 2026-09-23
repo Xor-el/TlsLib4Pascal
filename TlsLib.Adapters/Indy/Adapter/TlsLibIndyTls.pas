@@ -249,8 +249,7 @@ type
     function Resumed: Boolean;
     /// <summary>Clears the process-wide client config cache (shared by all handlers), so the next
     /// connect rebuilds from current SSLOptions; this also drops the cached sessions those configs
-    /// owned. Call after rotating the client credential to purge the retired key. Class-wide because
-    /// the cache it clears is, so it reads honestly at the call site.</summary>
+    /// owned. Call after rotating the client credential to purge the retired key.</summary>
     class procedure FlushConfigCache;
   published
     property SSLOptions: TTlsLibSSLOptions read FOptions;
@@ -418,9 +417,9 @@ begin
   FOptions := TTlsLibSSLOptions.Create;
   FHandshakeLock := TCriticalSection.Create;
   // Indy's base defaults PassThrough to True (connect plaintext, upgrade later). We default it to
-  // False so assigning this handler to a raw client means "do TLS on connect" without extra setup -
-  // the ergonomic common case. Callers that want plaintext override it: TIdHTTP sets it True for
-  // http:// (False for https://), and STARTTLS clients set it True until they upgrade.
+  // False so assigning this handler to a raw client means "do TLS on connect" without extra setup.
+  // Callers that want plaintext override it: TIdHTTP sets it True for http:// (False for https://),
+  // and STARTTLS clients set it True until they upgrade.
   fPassThrough := False;
 end;
 
@@ -518,7 +517,7 @@ begin
     LEngine := BuildEngine(not IsPeer);
     // pick the role-correct resolver: a client (not IsPeer) parks on the server's chain, a
     // server on the mTLS client's chain - the two bind different EKUs, so one resolver cannot
-    // serve both. The session never guesses the role.
+    // serve both
     if not IsPeer then
       LResolver := FOptions.VerdictResolver
     else
@@ -556,7 +555,7 @@ begin
   // Indy may drop keep-alive and reconnect between requests; discard any prior TLS session so
   // this new socket handshakes fresh rather than encrypting with the closed session's keys
   ResetTlsSession;
-  // Honour the caller's PassThrough exactly like the stock OpenSSL IOHandler: PassThrough=False
+  // Honour the caller's PassThrough exactly like the stock SSL IOHandler: PassThrough=False
   // means TLS is wanted on connect (an https:// request); PassThrough=True means stay plaintext -
   // a plain http:// connection, or a STARTTLS upgrade deferred until SetPassThrough turns it off.
   LWantsTls := not PassThrough;

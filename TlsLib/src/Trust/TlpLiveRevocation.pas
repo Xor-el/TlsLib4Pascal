@@ -30,11 +30,10 @@ type
   TLiveRevocationMethod = (Ocsp, Crl, OcspThenCrl);
 
   /// <summary>
-  /// The driver-edge live revocation check that turns the async certificate-verdict seam
-  /// into working network revocation: given an accepted peer chain it fetches
-  /// OCSP (RFC 6960) and/or CRL (RFC 5280) status through the injected IHttpFetcher and
-  /// returns a fail-closed verdict. It performs no IO itself - the fetcher owns every socket
-  /// - so it stays sans-IO and is fully testable with a fake fetcher.
+  /// The driver-edge live revocation check for the async certificate-verdict seam: given an
+  /// accepted peer chain it fetches OCSP (RFC 6960) and/or CRL (RFC 5280) status through the
+  /// injected IHttpFetcher and returns a fail-closed verdict. It performs no IO itself; the
+  /// fetcher owns every socket.
   ///
   /// Fail-closed matrix (augment-only: it can only additionally reject a chain the built-in
   /// pipeline already accepted, never resurrect one):

@@ -170,8 +170,8 @@ type
     class destructor Destroy;
     /// <summary>A process-wide, lazily-created all-defaults provider: the fallback when no
     /// provider is injected, and the hasher for memo signatures. One CSPRNG seed for the
-    /// process, shared (the provider is a stateless service factory). It reflects no overrides -
-    /// it is the all-defaults singleton.</summary>
+    /// process, shared (the provider is a stateless service factory). It reflects no
+    /// overrides.</summary>
     class function Shared: ICryptoProvider; static;
 
     function Primitives: ICryptoPrimitives;

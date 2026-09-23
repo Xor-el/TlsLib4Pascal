@@ -963,7 +963,7 @@ begin
       Result.Credential := TInteropCredentials.ServerCredentialFromPem(
         ACryptoProvider, APkix, AConfig.CertFile, AConfig.KeyFile);
       // honor BoGo -signing-prefs: pin the CertificateVerify scheme to the requested
-      // ones (like rustls' FixedSignatureSchemeSigningKey); empty is a no-op
+      // ones; empty is a no-op
       Result.Credential.PrivateKey := Result.Credential.PrivateKey.WithPreferredSchemes(
         TInteropCredentials.SchemesFromCodes(AConfig.SigningPrefs));
     end;
