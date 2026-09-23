@@ -1,0 +1,21 @@
+.github/workflows/comment-lint.yml
+  s_09d3c46d1a9b1f::t_36a28f76946565 1-23
+.github/workflows/ci/lint/comment-lint.sh
+  s_09d3c46d1a9b1f::t_8097814b53180f 1-55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "692469de8f395cd16b031a37e628a6c2ef0afbf1",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
