@@ -1,0 +1,210 @@
+tier3-sweep-plan.md
+  s_09d3c46d1a9b1f::t_75dc7507f36e27 8-11
+  s_09d3c46d1a9b1f::t_300eec65c0cec5 12
+  s_09d3c46d1a9b1f::t_5ddaf189ccfcbc 1-7,13-101
+TlsLib.Interop/FreePascal.Interop/bin/bogo-boundary/audit.json
+  s_09d3c46d1a9b1f::t_c942e12c2e2240 1-6,8-1323
+  s_09d3c46d1a9b1f::t_1ba087a466e044 7
+TlsLib.Tests/src/ExtensionNegotiationTests.pas
+  s_09d3c46d1a9b1f::t_b226c0c1120279 94-95,97
+  s_09d3c46d1a9b1f::t_ab4e46ca41f082 541-592
+  s_09d3c46d1a9b1f::t_d3f8ee9e5b15bb 1070-1093
+  s_09d3c46d1a9b1f::t_1ed2f0df0c14b0 44
+  s_09d3c46d1a9b1f::t_d590299ca9556c 124
+os-delegate-stage-d-plan.md
+  s_09d3c46d1a9b1f::t_02e035612273f0 1-93
+TlsLib.Tests/src/Tls13ServerReplayTests.pas
+  s_09d3c46d1a9b1f::t_16cf10ca179980 122
+  s_09d3c46d1a9b1f::t_26ba5c79817fb8 464-509
+TlsLib.Tests/src/ClientAuthTests.pas
+  s_09d3c46d1a9b1f::t_4d076db99d666a 193-293
+  s_09d3c46d1a9b1f::t_209ccecb8de491 40-42
+  s_09d3c46d1a9b1f::t_5be83ccbec9047 624-648
+  s_09d3c46d1a9b1f::t_43225adca722ec 97
+  s_09d3c46d1a9b1f::t_0aafe2e277f587 67-73
+TlsLib.Tests/src/ExtensionCodecTests.pas
+  s_09d3c46d1a9b1f::t_cb8dbc978bd0c8 46-47
+  s_09d3c46d1a9b1f::t_cb86e2e4d37faf 116,118,122,131
+  s_09d3c46d1a9b1f::t_c61b6905ace65a 364,367-370,372,377-380,382
+  s_09d3c46d1a9b1f::t_2e4ff8bf423c50 58
+  s_09d3c46d1a9b1f::t_4f6ba51948a151 615,618-621,623,626,629-630,632
+  s_09d3c46d1a9b1f::t_69c8b94347ed0f 78-79
+TlsLib.Interop/FreePascal.Interop/bin/bogo-boundary/gate.json
+  s_09d3c46d1a9b1f::t_c942e12c2e2240 1-6,9-12215
+  s_09d3c46d1a9b1f::t_82ee2747c76744 7-8
+deep-audit-findings.md
+  s_09d3c46d1a9b1f::t_60f10adba13ea5 310
+  s_09d3c46d1a9b1f::t_1529bf86425218 315
+  s_09d3c46d1a9b1f::t_a7cca433653e19 307-309
+  s_09d3c46d1a9b1f::t_8d1f7cb493fe11 311-314
+  s_09d3c46d1a9b1f::t_916e6f7397afd1 316-317
+  s_09d3c46d1a9b1f::t_fb313b489f14ef 1-306
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.mes
+  s_09d3c46d1a9b1f::t_e1b845ec0b768a 1-163
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_1ab8e32a4a9af6 616-617
+  s_09d3c46d1a9b1f::t_1660dad677d2b5 615,618-622
+  s_09d3c46d1a9b1f::t_69cf1d3d254dfa 432-433
+TlsLib/src/Extensions/TlpExtensionBlockCodec.pas
+  s_09d3c46d1a9b1f::t_1430288253df57 170-171,174
+  s_09d3c46d1a9b1f::t_d8c930a50218de 41
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_09d3c46d1a9b1f::t_d13cbcf6ec1400 490-491
+  s_09d3c46d1a9b1f::t_bc5022d53c414c 2052-2056
+  s_09d3c46d1a9b1f::t_a2317f0306298b 1647-1648,1652-1658
+  s_09d3c46d1a9b1f::t_33f296edc76e98 2038
+.github/workflows/ci/interop/bogo-shim-config.json
+  s_09d3c46d1a9b1f::t_39b6c8cd44603a 145-146
+TlsLib.Interop/FreePascal.Interop/bin/bogo-boundary/coverage-boundary.txt
+  s_09d3c46d1a9b1f::t_c942e12c2e2240 1-3,6,8-9,11-17,19
+  s_09d3c46d1a9b1f::t_2f026f1d93968a 4-5
+  s_09d3c46d1a9b1f::t_9c86a3b29830db 7
+  s_09d3c46d1a9b1f::t_5f61ad45238f64 10
+  s_09d3c46d1a9b1f::t_2cb777e74771c5 18
+packagefiles.xml
+  s_09d3c46d1a9b1f::t_952ffc97fcf908 1-345
+rfc-conformance-batch-plan.md
+  s_09d3c46d1a9b1f::t_946498009730a3 1-64
+xc3-extension-vector-plan.md
+  s_f4daafffaa05cc::t_b6e37337843437 1-317
+xc4-xc7-crypto-seam-plan.md
+  s_09d3c46d1a9b1f::t_ea48405dfe7b1b 1-113
+xc5-os-delegate-plan.md
+  s_09d3c46d1a9b1f::t_4cda1606e51b79 1-869
+TlsLib.Fips/f0-gcm-iv-factcheck.md
+  s_09d3c46d1a9b1f::t_ad29caf1830758 1-96
+TlsLib.Fips/fips-audit-fable.md
+  s_09d3c46d1a9b1f::t_f9014d14bf803c 1-143
+TlsLib.Fips/fips-plan.md
+  s_09d3c46d1a9b1f::t_c54b51fd660932 1-389
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dproj
+  s_51920dc4f3f826::t_eb9eaec461715b 1-380
+TlsLib.Tests/Delphi.Tests/dunit.ini
+  s_09d3c46d1a9b1f::t_3dc599743a697d 1-138
+TlsLib.Trust.System/Examples/Delphi/SystemTrustDemo.deployproj
+  s_a34b0bea4df6fb::t_886536817cfccf 1-376
+TlsLib.Trust.System/apple-android-trust-hardening-plan.md
+  s_09d3c46d1a9b1f::t_701f0820450dd6 1-334
+deep-audit-scope.md
+  s_09d3c46d1a9b1f::t_90136377ddf246 1-51
+ech-recipient-blinding-plan.md
+  s_09d3c46d1a9b1f::t_63f8e7601999e0 1-85
+engine-e-series-plan.md
+  s_09d3c46d1a9b1f::t_4cf8663488111f 1-33
+engine-robustness-fixes-plan.md
+  s_09d3c46d1a9b1f::t_2c4bb18ee04577 1-161
+engine-robustness-status.md
+  s_09d3c46d1a9b1f::t_a199655e222953 1-59
+hard-reverify-resume-fallback-plan.md
+  s_f8a4dde5610936::t_6fe76d4d3a72fe 1-406
+interface-guid-collision-plan.md
+  s_09d3c46d1a9b1f::t_293d583761895f 1-92
+lean-comment-sweep-plan.md
+  s_09d3c46d1a9b1f::t_ce209a3f569a8b 1-633
+os-delegate-revoked-interop-plan.md
+  s_a00f5b512b1aad::t_f28d9ca25b3b94 1-318
+trust-bypass-fixes-plan.md
+  s_09d3c46d1a9b1f::t_f25e79a21ab78d 1-257
+trust-t-series-plan.md
+  s_09d3c46d1a9b1f::t_21baa67bb39534 1-70
+trust-types-unit-plan.md
+  s_e6ab8be606800e::t_cad65b7a50b606 1-410
+xc1-med4-med5-plan.md
+  s_658c91ec3b0617::t_04d69dae694e82 1-352
+xc2-pkix-split-plan.md
+  s_09d3c46d1a9b1f::t_68f2d81fc0d707 1-389
+xc6-adapter-core-plan.md
+  s_dc13d4b39564c8::t_f2d16ccfe1c1c7 1-818
+xc8-handshake-helpers-plan.md
+  s_09d3c46d1a9b1f::t_4af0ae8830faf9 1-65
+xc9-slim-engine-plan.md
+  s_770bd71749a3bb::t_4dc17f6e742aab 1-665
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "46032e5db685322b1bbbc890750e2ca847367718",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_51920dc4f3f826": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a6e3ac44d712b1e1d",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_658c91ec3b0617": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a75ef93e3c778ee58",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_770bd71749a3bb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a7b5d4450459e9a6a",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_a00f5b512b1aad": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-aa7b9bcb5e78f8b1c",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_a34b0bea4df6fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a83fcd8dbf2c7e122",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_dc13d4b39564c8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a56a7164d3aa2b02e",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_e6ab8be606800e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-aae83ad66a62dc8d0",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_f4daafffaa05cc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9ebe278a-5417-4d6f-9437-b33cf82ce0b4",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_f8a4dde5610936": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-ab8aa78a494e02b19",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
