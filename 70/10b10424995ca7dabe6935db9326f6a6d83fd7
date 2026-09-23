@@ -1,0 +1,29 @@
+TlsLib/src/Handshake/TlpHandshakeEffect.pas
+  s_09d3c46d1a9b1f::t_52742c2943b550 43
+  s_09d3c46d1a9b1f::t_4c04093ca7622e 48
+  s_37a338322ffcf4::t_402e694143903f 32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7010b10424995ca7dabe6935db9326f6a6d83fd7",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_37a338322ffcf4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a961c8f3833edf917",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
