@@ -1,0 +1,86 @@
+TlsLib/src/Engine/TlpTlsEngineFactory.pas
+  s_09d3c46d1a9b1f::t_4455368c6618ab 28
+TlsLib/src/Handshake/TlpTls12ClientStateMachine.pas
+  s_09d3c46d1a9b1f::t_35428b44b8d59c 46
+TlsLib/src/Interfaces/Trust/TlpICertificateTrust.pas
+  s_09d3c46d1a9b1f::t_698413a473c978 21
+TlsLib/src/Trust/TlpCertificateVerifier.pas
+  s_09d3c46d1a9b1f::t_fba6f08f4adfae 35
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_09d3c46d1a9b1f::t_5d136a99ffb938 55
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_09d3c46d1a9b1f::t_3041a187c05fd6 34
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_537fb9661dcb4f 45
+TlsLib.Tests/src/TrustCompositionTests.pas
+  s_09d3c46d1a9b1f::t_f7cc9a5439ade9 36
+TlsLib.Tests/src/ConfigResumptionTests.pas
+  s_09d3c46d1a9b1f::t_2387073bc4aaee 32
+TlsLib/src/Handshake/TlpPeerAuthentication.pas
+  s_09d3c46d1a9b1f::t_04fad248978007 28
+TlsLib.Tests/src/Tls13ClientReplayTests.pas
+  s_09d3c46d1a9b1f::t_ea531f3c26b1db 54
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  s_09d3c46d1a9b1f::t_53c46158650986 33
+TlsLib.Tests/src/AppleAlertMapTests.pas
+  s_09d3c46d1a9b1f::t_df3e6dce923675 37
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_a47cc7eeab2bf6 30
+TlsLib.Tests/src/Pkcs12ImportTests.pas
+  s_09d3c46d1a9b1f::t_9b4b0bfe216519 37
+docs/certificate-verification.md
+  s_09d3c46d1a9b1f::t_0747e668ab4081 132
+TlsLib.Tests/src/OcspStaplingTests.pas
+  s_09d3c46d1a9b1f::t_d009225c650db6 37
+TlsLib.Tests/src/TlsConnectionTests.pas
+  s_09d3c46d1a9b1f::t_a368bc6a2f02d8 36
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
+  s_09d3c46d1a9b1f::t_ea1953dae4919c 576-579
+  s_09d3c46d1a9b1f::t_c5d7f558fad5d1 31
+TlsLib/src/Packages/Delphi/TlsLib4PascalPackage.dpk
+  s_09d3c46d1a9b1f::t_678ce90ad612a7 102
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_09d3c46d1a9b1f::t_6ddb6e01779133 103
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_09d3c46d1a9b1f::t_3935601d171db5 83
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_09d3c46d1a9b1f::t_ece360b735a5ba 426
+TlsLib/src/Trust/TlpTrustTypes.pas
+  s_09d3c46d1a9b1f::t_a580ef51c62630 1-74
+TlsLib/src/Trust/TlpTrustPolicy.pas
+  s_09d3c46d1a9b1f::t_2a143455eddc6d 23
+TlsLib.Tests/src/ClientAuthTests.pas
+  s_09d3c46d1a9b1f::t_53e7bd21a8c524 41
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.pas
+  s_09d3c46d1a9b1f::t_dfbd0f63d80b55 52
+TlsLib.Tests/src/ResourceLimitTests.pas
+  s_09d3c46d1a9b1f::t_11171ab2763b52 44
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_09d3c46d1a9b1f::t_9ba7dcb6cd087c 42
+TlsLib/src/Handshake/TlpCertificateVerify.pas
+  s_09d3c46d1a9b1f::t_58e7fb7af4db03 26
+TlsLib.Trust.System/src/TlpSystemTrustBase.pas
+  s_09d3c46d1a9b1f::t_a05f6d47ed927b 29
+TlsLib.Trust.System/src/TlpOSDelegateVerifier.pas
+  s_09d3c46d1a9b1f::t_434a96046961e3 30
+TlsLib.Interop/src/InteropEngine.pas
+  s_09d3c46d1a9b1f::t_fc2e28fe8eee26 35
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_d92298e534b556 57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f8dac57a1ffbd8176c1a4f2dc588a3b12df443a9",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
