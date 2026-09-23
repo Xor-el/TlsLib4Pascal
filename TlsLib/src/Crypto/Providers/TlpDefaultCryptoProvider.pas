@@ -144,10 +144,9 @@ type
   end;
 
   /// <summary>
-  /// The default <see cref="ICryptoProvider" />, backed by CryptoLib4Pascal. A thin
-  /// composition root: it holds one instance of each facet and its accessors return
-  /// them. <see cref="Create" /> is the single composition point; the five facet
-  /// implementations are private to this unit.
+  /// The default <see cref="ICryptoProvider" />. A thin composition root: it holds one
+  /// instance of each facet and its accessors return them. <see cref="Create" /> is the
+  /// single composition point; the five facet implementations are private to this unit.
   /// </summary>
   TDefaultCryptoProvider = class(TInterfacedObject, ICryptoProvider)
   strict private
@@ -160,7 +159,7 @@ type
     FHpke: IHpkeCrypto;
   public
     /// <summary>The single composition point. Resolves the effective RNG first (a supplied
-    /// AOverrides.Random bridged to the CryptoLib CSPRNG, else a fresh one) and threads that
+    /// AOverrides.Random bridged to the CSPRNG, else a fresh one) and threads that
     /// one instance into the default Primitives and Signing it builds; each nil facet override
     /// is defaulted, each supplied facet is held as-is. A Random override governs only the
     /// default facets, not a supplied Primitives.</summary>
@@ -499,14 +498,14 @@ type
       const AKeyParam: IAsymmetricKeyParameter): ISigningKey; static;
   end;
 
-  // Resolves a hash algorithm to its CryptoLib digest. A stateless leaf shared by
+  // Resolves a hash algorithm to its digest. A stateless leaf shared by
   // the primitives and the path validator's anchor-key hash.
   TDigestResolver = class sealed(TObject)
   public
     class function Resolve(AAlgorithm: THashAlgorithm): IDigest; static;
   end;
 
-  // Bridges a facet IRandom into the CryptoLib IRandomGenerator a TSecureRandom
+  // Bridges a facet IRandom into the random generator a TSecureRandom
   // draws from, so a supplied entropy source governs the default facets' key
   // generation. Seed material is ignored - the source is already a CSPRNG.
   TRandomGeneratorBridge = class(TInterfacedObject, IRandomGenerator)
@@ -1744,7 +1743,7 @@ end;
 class function TSigningCrypto.SignerMechanismForScheme(
   AScheme: TSignatureScheme): string;
 begin
-  // map a TLS 1.3 signature scheme to a CryptoLib signer mechanism. The named
+  // map a TLS 1.3 signature scheme to a signer mechanism. The named
   // RSA-PSS mechanisms carry the right hash, MGF1 digest, and salt length (= the
   // hash size), matching the rsa_pss_rsae_* profile; the bare "PSSwithRSA" would
   // wrongly default to SHA-1. ECDSA resolves to DER-encoded signatures.

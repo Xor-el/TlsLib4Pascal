@@ -32,7 +32,7 @@ type
   /// Applies the pure state machine's effects to the real world: it frames and
   /// sends handshake messages (and the middlebox CCS) through the channel, turns
   /// an epoch's derived traffic keys into installed record protection (via the
-  /// factory into the P1 record layer), and reports events, completion, cert
+  /// factory into the record layer), and reports events, completion, cert
   /// verdicts, and failures to the sink. The state machine has already resolved
   /// which traffic secret each install uses; the driver only frames, builds, and
   /// installs.

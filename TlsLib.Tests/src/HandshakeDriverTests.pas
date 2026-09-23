@@ -263,7 +263,7 @@ begin
 
     // install the READ side (from the client's handshake traffic secret) through the
     // driver into a standalone record layer - the engine no longer exposes an
-    // installer seam that a caller could take a counted reference to
+    // installer seam to callers
     LDriver := THandshakeDriver.Create(
       THandshakeChannel.Create(LLayer) as IHandshakeChannel,
       TRecordLayerInstaller.Create(LLayer) as IRecordEpochInstaller, Crypto,

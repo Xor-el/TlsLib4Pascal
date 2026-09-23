@@ -83,7 +83,7 @@ type
     /// <summary>The fail-closed accept/reject verdict for the chain: Revoked rejects always,
     /// Good accepts, Indeterminate follows the posture.</summary>
     function CheckChain(const AChain: TArray<TBytes>): Boolean;
-    /// <summary>Signature-compatible with the Tier-2 stream verdict resolver (the host name is
+    /// <summary>Signature-compatible with the stream verdict resolver (the host name is
     /// not used for revocation): assign it to TTlsStream.SetCertificateVerdictResolver to run
     /// live revocation as the out-of-band verdict for a parked handshake. On reject, ARejectAlert
     /// is certificate_revoked for a definitive Revoked and bad_certificate_status_response for a

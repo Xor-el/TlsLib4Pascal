@@ -20,9 +20,8 @@ uses
 
 type
   /// <summary>
-  /// A refcounted handle to a heap-stable region holding key material. Callers
-  /// hold this interface, never the concrete class, so the last release
-  /// deterministically wipes the backing memory.
+  /// A handle to a heap-stable region holding key material. The backing memory is
+  /// wiped when the buffer is released.
   /// </summary>
   ISecretBuffer = interface(IInterface)
     ['{7DF4D709-8445-4227-AE82-EC9B9C930B72}']

@@ -27,7 +27,7 @@ uses
 
 type
   /// <summary>
-  /// The one-call entry point. It wires the shared default CryptoLib provider and the
+  /// The one-call entry point. It wires the shared default crypto provider and the
   /// Compatible preset into a frozen client or server config. Build the config once and pass it
   /// to TTlsEngineFactory per connection: the config owns the session-ticket key, so a fresh
   /// config per connection would silently disable resumption. There is deliberately no Provider
