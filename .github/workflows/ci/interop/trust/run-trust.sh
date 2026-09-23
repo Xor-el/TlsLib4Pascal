@@ -11,11 +11,12 @@
 #                 discriminator (a leaked root cannot make it pass); the post-uninstall reject
 #                 proves cleanup. The root's CN carries a per-run id so it never collides.
 #
-# The server-cert delegate reject cells whose alert comes from the OS map assert only that the
-# handshake aborts (a fatal alert, not a hang or EOF); tightening them to the exact OsStatusToAlert
-# code is a follow-up once a CI run shows the real mapping per OS. The library post-check cells (a
-# stapled Revoked under Off, and an IP-literal against a DNS-only leaf) DO assert the exact alert,
-# since it is produced by the library, not the OS.
+# The server-cert delegate reject cells whose alert is a per-OS status-map code (hostname, EKU,
+# expired) assert only that the handshake aborts with a fatal alert, not the exact code: the two OS
+# engines render those differently and pinning them per OS is out of scope here. The revocation cells
+# DO assert the exact certificate_revoked(44) - both OS engines render a definitive Revoked
+# identically - as do the library post-check cells (a stapled Revoked under Off, an IP-literal
+# against a DNS-only leaf), whose alert the library itself produces.
 #
 #   * server verifies client (mTLS live) - our SERVER verifies the peer CLIENT certificate live
 #                 through the OS delegate (an in-process client presenter offers the cert). It roots
@@ -189,9 +190,13 @@ if [ "$HAS_DELEGATE" = 1 ]; then
     cell "delegate accept (2-tier, good/Hard)" --trust-mode os-delegate \
       --server-cert "$CA/direct_fullchain.pem" --server-key "$CA/direct_leaf.key" \
       --staple "$CA/ocsp_good_direct.der" --posture hard --expect accept
-    cell "delegate revoked staple -> reject" --trust-mode os-delegate \
+    # under Soft the OS engine revocation-checks cache-only and consumes the stapled Revoked as cached
+    # revocation, so the engine itself renders Revoked -> certificate_revoked(44). An 80 here would
+    # mean the engine returned Revoked with an empty path (the crypt32 CRYPT_E_REVOKED vs CERT_E_REVOKED
+    # mapping is the one that bit us before), so pin the exact alert.
+    cell "delegate revoked staple (Soft) -> certificate_revoked" --trust-mode os-delegate \
       --server-cert "$CA/leaf_fullchain.pem" --server-key "$CA/leaf.key" \
-      --staple "$CA/ocsp_revoked.der" --posture soft --expect reject
+      --staple "$CA/ocsp_revoked.der" --posture soft --expect reject:44
     # a definitive stapled Revoked wins under EVERY posture, Off included: the OS engine skips
     # revocation under Off, so this reject comes solely from the library post-check - hence exact 44
     cell "delegate revoked staple under Off -> certificate_revoked" --trust-mode os-delegate \
@@ -224,6 +229,14 @@ if [ "$HAS_DELEGATE" = 1 ]; then
       --server-key "$CA/live_leaf.key" --posture hard --expect accept
     cell "delegate live revoked -> certificate_revoked" --trust-mode os-delegate \
       --revocation-fetch live --server-cert "$CA/live_revoked_leaf_fullchain.pem" \
+      --server-key "$CA/live_revoked_leaf.key" --posture hard --expect reject:44
+    # the same live accept/revoked pair over TLS 1.2: the 1.2 client cert-verdict park is a separate
+    # code path from the 1.3 one and is otherwise unexercised on the client side
+    cell "[12] delegate live accept (2-tier, good/Hard)" --trust-mode os-delegate \
+      --revocation-fetch live --tls-version 12 --server-cert "$CA/live_leaf_fullchain.pem" \
+      --server-key "$CA/live_leaf.key" --posture hard --expect accept
+    cell "[12] delegate live revoked -> certificate_revoked" --trust-mode os-delegate \
+      --revocation-fetch live --tls-version 12 --server-cert "$CA/live_revoked_leaf_fullchain.pem" \
       --server-key "$CA/live_revoked_leaf.key" --posture hard --expect reject:44
     # effective-Soft must not let a revocation-unknown outcome mask a real error: a Soft cache-only
     # delegate cell with a hostname mismatch still rejects
