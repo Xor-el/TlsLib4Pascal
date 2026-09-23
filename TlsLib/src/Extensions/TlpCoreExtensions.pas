@@ -83,13 +83,17 @@ type
     procedure Consume(const AContext: TExtensionContext; const AExtensionData: TBytes);
   end;
 
+  /// <summary>Which signature-scheme extension to build: the handshake signature_algorithms or
+  /// the certificate signature_algorithms_cert (RFC 8446 4.2.3).</summary>
+  TSignatureAlgorithmsVariant = (Handshake, Certificate);
+
   /// <summary>signature_algorithms / signature_algorithms_cert (RFC 8446 4.2.3).</summary>
   TSignatureAlgorithmsExtension = class sealed(TInterfacedObject, ITlsExtension)
   strict private
   var
     FIsCertVariant: Boolean;
   public
-    constructor Create(AIsCertVariant: Boolean);
+    constructor Create(AVariant: TSignatureAlgorithmsVariant);
     function ExtensionType: UInt16;
     function ValidContexts: TTlsExtensionContexts;
     function Produce(const AContext: TExtensionContext; out ABody: TBytes): Boolean;
@@ -353,10 +357,10 @@ end;
 
 { TSignatureAlgorithmsExtension }
 
-constructor TSignatureAlgorithmsExtension.Create(AIsCertVariant: Boolean);
+constructor TSignatureAlgorithmsExtension.Create(AVariant: TSignatureAlgorithmsVariant);
 begin
   inherited Create;
-  FIsCertVariant := AIsCertVariant;
+  FIsCertVariant := AVariant = TSignatureAlgorithmsVariant.Certificate;
 end;
 
 function TSignatureAlgorithmsExtension.ExtensionType: UInt16;
@@ -1031,8 +1035,10 @@ begin
   Result.Add(TRenegotiationInfoExtension.Create as ITlsExtension);
   Result.Add(TSupportedGroupsExtension.Create as ITlsExtension);
   Result.Add(TEcPointFormatsExtension.Create as ITlsExtension);
-  Result.Add(TSignatureAlgorithmsExtension.Create(False) as ITlsExtension);
-  Result.Add(TSignatureAlgorithmsExtension.Create(True) as ITlsExtension);
+  Result.Add(TSignatureAlgorithmsExtension.Create(TSignatureAlgorithmsVariant.Handshake)
+    as ITlsExtension);
+  Result.Add(TSignatureAlgorithmsExtension.Create(TSignatureAlgorithmsVariant.Certificate)
+    as ITlsExtension);
   Result.Add(TCertificateAuthoritiesExtension.Create as ITlsExtension);
   Result.Add(TAlpnExtension.Create as ITlsExtension);
   Result.Add(TStatusRequestExtension.Create as ITlsExtension);

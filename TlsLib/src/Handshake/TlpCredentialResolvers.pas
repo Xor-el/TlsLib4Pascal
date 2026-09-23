@@ -46,8 +46,11 @@ type
     FDefault: TTlsCredential;
     FHasDefault: Boolean;
   public
+    constructor Create(const AEntries: TArray<TSniCredentialEntry>); overload;
+    /// <summary>ADefault is returned when a client's SNI matches no entry (the WithCredential
+    /// single credential); the no-default overload refuses such a client.</summary>
     constructor Create(const AEntries: TArray<TSniCredentialEntry>;
-      AHasDefault: Boolean; const ADefault: TTlsCredential);
+      const ADefault: TTlsCredential); overload;
     /// <summary>A resolver that returns ACredential for every handshake, ignoring the SNI - the
     /// single-certificate server, and the one-line adapter for a direct sans-IO caller that holds
     /// a credential rather than a resolver.</summary>
@@ -68,22 +71,18 @@ implementation
 class function TSniCredentialResolver.ForCredential(
   const ACredential: TTlsCredential): ITlsServerCredentialResolver;
 begin
-  Result := TSniCredentialResolver.Create(nil, True, ACredential)
+  Result := TSniCredentialResolver.Create(nil, ACredential)
     as ITlsServerCredentialResolver;
 end;
 
 class function TSniCredentialResolver.ForEntries(
   const AEntries: TArray<TSniCredentialEntry>): ITlsServerCredentialResolver;
-var
-  LNoDefault: TTlsCredential;
 begin
-  LNoDefault := Default(TTlsCredential);
-  Result := TSniCredentialResolver.Create(AEntries, False, LNoDefault)
+  Result := TSniCredentialResolver.Create(AEntries)
     as ITlsServerCredentialResolver;
 end;
 
-constructor TSniCredentialResolver.Create(const AEntries: TArray<TSniCredentialEntry>;
-  AHasDefault: Boolean; const ADefault: TTlsCredential);
+constructor TSniCredentialResolver.Create(const AEntries: TArray<TSniCredentialEntry>);
 var
   LI: Integer;
 begin
@@ -92,7 +91,13 @@ begin
   // host_names are case-insensitive (RFC 6066 / DNS); normalise once so lookup can compare raw
   for LI := 0 to System.High(FEntries) do
     FEntries[LI].Host := LowerCase(FEntries[LI].Host);
-  FHasDefault := AHasDefault;
+end;
+
+constructor TSniCredentialResolver.Create(const AEntries: TArray<TSniCredentialEntry>;
+  const ADefault: TTlsCredential);
+begin
+  Create(AEntries);
+  FHasDefault := True;
   FDefault := ADefault;
 end;
 
