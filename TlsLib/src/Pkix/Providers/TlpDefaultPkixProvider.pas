@@ -208,10 +208,9 @@ type
   end;
 
   /// <summary>
-  /// The default <see cref="IPkixProvider" />, backed by CryptoLib4Pascal. A thin
-  /// composition root: it holds one instance of each facet and its accessors return
-  /// them. <see cref="Create" /> is the single composition point; the facet
-  /// implementations are private to this unit.
+  /// The default <see cref="IPkixProvider" />. A thin composition root: it holds one
+  /// instance of each facet and its accessors return them. <see cref="Create" /> is the
+  /// single composition point; the facet implementations are private to this unit.
   /// </summary>
   TDefaultPkixProvider = class(TInterfacedObject, IPkixProvider)
   strict private

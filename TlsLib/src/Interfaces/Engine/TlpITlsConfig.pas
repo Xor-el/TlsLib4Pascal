@@ -144,7 +144,7 @@ type
     /// original authentication; Reverify re-runs the certificate verifier against the stored chain.</summary>
     function ResumeVerification: TResumeVerification;
     /// <summary>Whether the client offers TLS 1.3 early data (0-RTT) when a cached ticket
-    /// authorizes it. Off by default; a separate, explicit opt-in.</summary>
+    /// authorizes it. Off by default.</summary>
     function EarlyData: Boolean;
     /// <summary>Whether a client that configured external PSKs requires the server to select
     /// one: when True (the default), a ServerHello that omits pre_shared_key is fatal rather

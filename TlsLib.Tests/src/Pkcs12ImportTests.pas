@@ -46,7 +46,7 @@ type
   /// + a usable ISigningKey) independent of the store's PBE profile, the chain is leaf-first
   /// with any CA present and validates through the certificate-verifier path, and a wrong
   /// password or malformed blob fails closed with a typed TlsLib exception - never a raw
-  /// CryptoLib exception or a partial credential.</summary>
+  /// backend exception or a partial credential.</summary>
   TTestPkcs12Import = class(TTlsLibAlgorithmTestCase)
   private
     FV: TStringList;

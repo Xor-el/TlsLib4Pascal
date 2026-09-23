@@ -479,7 +479,7 @@ begin
     else
       LEngine := BuildServerEngine;
     // attach the role-correct resolver: a client parks on the server's chain, a server (client
-    // auth) on the mTLS client's chain - the two bind different EKUs. The session never guesses.
+    // auth) on the mTLS client's chain - the two bind different EKUs
     if AIsClient then
       LResolver := FVerdictResolver
     else

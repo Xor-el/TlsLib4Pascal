@@ -230,11 +230,11 @@ var
   LPinned, LSystem: Integer;
 begin
   // leg A: pinned-root trust (the bundled ISRG PEM), via AfterSocketHandlerCreate
-  LPinned := RunOnce({AUseSystemTrust=}False, 'pinned-root');
+  LPinned := RunOnce(False, 'pinned-root');
   if LPinned = 2 then
     Exit(2); // network unreachable - SKIP the whole demo
   // leg B: OS system-trust, no pinned file, via OnGetSocketHandler
-  LSystem := RunOnce({AUseSystemTrust=}True, 'system-trust');
+  LSystem := RunOnce(True, 'system-trust');
   if LSystem = 2 then
     Exit(2);
   if (LPinned = 0) and (LSystem = 0) then

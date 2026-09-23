@@ -191,7 +191,7 @@ var
   LSubject, LIssuer, LCommonName, LSerialHex: string;
 begin
   // the neutral peer-identity accessor an adapter's native verify hook (Synapse GetPeer*)
-  // reads, so no adapter touches a CryptoLib type
+  // reads, so no adapter touches a crypto-backend type
   CheckTrue(Pkix.Certificates.PeerInfo(LeafCert, LSubject, LIssuer, LCommonName,
     LSerialHex), 'peer info is extracted from the leaf');
   CheckEquals('localhost', LCommonName, 'the leaf common name is localhost');

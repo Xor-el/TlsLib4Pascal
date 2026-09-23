@@ -165,11 +165,10 @@ type
     /// server's chain against the OS store; on a server with VerifyCert it trusts an mTLS client's
     /// chain against the OS store too - a very broad surface, since client certificates normally
     /// chain to a private CA (prefer CertCAFile there). Alone it verifies against the OS store;
-    /// combined with a CertCAFile bundle it UNIONS the two (the "public web PKI + private CA"
-    /// case). Synapse exposes no such switch, so it lives here; cast Sock.SSL to TSSLTlsLib to set
-    /// it. System trust is never implicit - when VerifyCert is on you must name a source (this or
-    /// CertCAFile) or the build fails closed. Per-connection (never a process-wide global), so it
-    /// composes and stays thread-safe.</summary>
+    /// combined with a CertCAFile bundle it UNIONS the two. Synapse exposes no such switch, so it
+    /// lives here; cast Sock.SSL to TSSLTlsLib to set it. System trust is never implicit - when
+    /// VerifyCert is on you must name a source (this or CertCAFile) or the build fails closed.
+    /// Per-connection, never a process-wide global, so it composes and stays thread-safe.</summary>
     property UseSystemTrust: Boolean read FUseSystemTrust write FUseSystemTrust;
     /// <summary>A fully-built client config that REPLACES the property-driven build: when set, the
     /// cert/trust properties (CertCAFile, CertificateFile, UseSystemTrust) are not allowed alongside
@@ -391,7 +390,7 @@ begin
     else
       LEngine := BuildServerEngine;
     // attach the role-correct resolver: a client parks on the server's chain, a server (client
-    // auth) on the mTLS client's chain - the two bind different EKUs. The session never guesses.
+    // auth) on the mTLS client's chain - the two bind different EKUs
     if AIsClient then
       LResolver := GVerdictResolver
     else
@@ -465,8 +464,8 @@ end;
 
 function TSSLTlsLib.SendBuffer(Buffer: TMemory; Len: Integer): Integer;
 begin
-  // TCustomSSL is error-code based (like ssl_openssl): clear the error, and convert a fatal
-  // engine/transport failure into a <=0 count + FLastError rather than letting it propagate
+  // TCustomSSL is error-code based: clear the error, and convert a fatal engine/transport
+  // failure into a <=0 count + FLastError rather than letting it propagate
   FLastError := 0;
   FLastErrorDesc := '';
   try
@@ -477,7 +476,7 @@ begin
     begin
       FLastError := 1;
       FLastErrorDesc := E.Message;
-      Result := -1; // Synapse treats <=0 as failure, mirroring ssl_openssl
+      Result := -1; // Synapse treats <=0 as failure
     end;
   end;
 end;
@@ -487,7 +486,7 @@ begin
   FLastError := 0;
   FLastErrorDesc := '';
   try
-    // a clean close_notify surfaces as 0 (no error), matching ssl_openssl's ZERO_RETURN path
+    // a clean close_notify surfaces as 0 (no error)
     Result := FConnection.Read(PByte(Buffer)^, Len);
   except
     on E: Exception do

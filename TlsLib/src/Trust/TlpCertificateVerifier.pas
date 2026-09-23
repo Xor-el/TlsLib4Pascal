@@ -443,15 +443,14 @@ begin
   end;
 
   // indeterminate outcome (no staple / unauthorized / unknown / stale):
-  //  - a must-staple leaf still requires a current Good staple, even under Soft/Off, and even
-  //    when a live resolver exists - a leaf that demands stapling is not satisfied by a live
-  //    fetch (RFC 7633). Always reject.
-  //  - else, only when the verdict is deferred to a live-revocation resolver (the live OCSP/CRL
-  //    fetch at the park), DEFER to it: accept here so the handshake reaches the park, where the
-  //    resolver renders the posture's verdict over a live fetch. This is what makes a Hard posture
-  //    reachable for a peer that carries no staple (e.g. a client certificate, never stapled). A
-  //    host-decision park is augment-only: it does not defer the revocation gate, so the posture
-  //    still decides inline exactly as with no deferral.
+  //  - a must-staple leaf still requires a current Good staple even under Soft/Off, and even
+  //    when a live resolver exists (a live fetch does not satisfy a leaf that demands stapling,
+  //    RFC 7633): always reject.
+  //  - else, when the verdict is deferred to a live-revocation resolver (the live OCSP/CRL fetch
+  //    at the park), accept here so the handshake reaches the park and the resolver renders the
+  //    posture's verdict. This makes a Hard posture reachable for a staple-less peer (e.g. a
+  //    client certificate, never stapled). A host-decision park does not defer the revocation
+  //    gate: the posture still decides inline, as with no deferral.
   //  - else, decide inline by the posture: only Hard rejects.
   if LMustStaple then
   begin

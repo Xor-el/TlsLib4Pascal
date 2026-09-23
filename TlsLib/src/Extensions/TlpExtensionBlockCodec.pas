@@ -91,7 +91,7 @@ begin
   // NewSessionTicket is server-originated post-handshake; and a CertificateRequest carries
   // the server's own constraints (signature_algorithms, certificate_authorities, oid_filters
   // per RFC 8446 4.3.2), which are not gated by client offers - only by each extension's
-  // ValidContexts. None of those three is bound by the offered rule.
+  // ValidContexts.
   Result := (AKind <> TTlsExtensionContextKind.ClientHello) and
     (AKind <> TTlsExtensionContextKind.NewSessionTicket) and
     (AKind <> TTlsExtensionContextKind.CertificateRequest);

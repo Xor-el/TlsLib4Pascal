@@ -107,7 +107,7 @@ var
   LInstaller: IRecordEpochInstaller;
 begin
   // the engine must not surface an installer reference to callers; the handshake bridge
-  // keeps the engine and driver from holding each other
+  // links the engine and driver without either owning the other
   LEngine := NewEngine;
   CheckFalse(Supports(LEngine, IRecordEpochInstaller, LInstaller),
     'the engine does not expose IRecordEpochInstaller');

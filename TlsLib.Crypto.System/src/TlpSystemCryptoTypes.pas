@@ -22,7 +22,7 @@ type
   /// the OS module versus the portable library - graceful fallback is never silent.
   /// </summary>
   TCryptoBackend = (
-    /// <summary>The portable (CryptoLib-backed) implementation.</summary>
+    /// <summary>The portable implementation.</summary>
     Portable,
     /// <summary>The OS/system module (e.g. Windows CNG).</summary>
     System,
@@ -41,7 +41,7 @@ type
     /// <summary>The module lacks this algorithm on this host/version.</summary>
     NotPresent,
     /// <summary>The provider has no native implementation for it (a forwarded facet, or a
-    /// facet/algorithm not yet natively backed).</summary>
+    /// facet/algorithm with no native backing).</summary>
     NoNativeImpl);
 
   /// <summary>The six provider facets, for whole-facet backend reporting.</summary>
