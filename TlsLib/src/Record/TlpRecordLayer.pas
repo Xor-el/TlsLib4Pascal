@@ -458,11 +458,9 @@ begin
       TTlsContentType.Alert:
       begin
         // an application_data record before the handshake completes is unexpected (RFC 8446 5.1
-        // / RFC 5246), whether empty or not: cleartext before any read epoch, or - the case the
-        // plaintext flag alone missed - under a real epoch installed mid-handshake (TLS 1.2 keys
-        // at the peer ChangeCipherSpec, so before its Finished). The one exception is accepted
-        // 0-RTT, where early data legitimately precedes completion under the early-data epoch;
-        // the 0-RTT reject skip window drops its own records and is likewise excluded.
+        // / RFC 5246), whether empty or not - including under a real epoch installed mid-handshake
+        // (TLS 1.2 keys at the peer's ChangeCipherSpec, before its Finished). Accepted 0-RTT early
+        // data and the 0-RTT reject skip window are the exceptions, excluded by the guard below.
         if FStrictApplicationData and
           (AFragment.ContentType = TTlsContentType.ApplicationData) and
           (not FHandshakeComplete) and (not FEarlyReadAccepted) and
@@ -478,11 +476,10 @@ begin
           // an empty fragment carries no data to hand up; only its cadence is bounded
           Exit(False);
         end;
-        // a warning alert is a non-empty control record but advances neither the handshake
-        // nor application data, so it must not clear the empty-record cadence: an empty-record
-        // flood stays bounded even when a peer intersperses warning alerts to reset the count.
-        // Only a non-empty handshake or application_data record is genuine progress. (A fatal
-        // alert terminates the connection, so its effect on this counter is moot.)
+        // a warning alert is a non-empty control record but advances neither the handshake nor
+        // application data, so it must not clear the empty-record cadence: else a peer interspersing
+        // warning alerts could reset the counter and evade the flood bound. Only a non-empty
+        // handshake or application_data record is genuine progress.
         if AFragment.ContentType <> TTlsContentType.Alert then
           FConsecutiveEmptyRecords := 0;
         Result := True;
@@ -524,11 +521,10 @@ begin
         raise EFatalAlertTlsLibException.CreateRes(
           TTlsAlertDescription.UnexpectedMessage, @SUnexpectedContentType);
       // a plaintext change_cipher_spec is queued like any record and judged at pull time, not
-      // dropped here: its legality (middlebox-compatibility drop while the handshake runs, but a
-      // fatal unexpected_message once complete - RFC 8446 5 / D.4) depends on whether the peer's
-      // Finished has been processed, which only happens at the pull side. Dropping it eagerly
-      // here would clear a change_cipher_spec coalesced with the peer's final flight before that
-      // Finished flips the handshake-complete state.
+      // dropped here: its legality (middlebox drop while the handshake runs, fatal
+      // unexpected_message once complete - RFC 8446 5 / D.4) turns on whether the peer's Finished
+      // has been processed, which happens only at the pull side. Dropping it eagerly would clear a
+      // CCS coalesced with the peer's final flight before that Finished flips handshake-complete.
       FFramed.Enqueue(System.Copy(FInbound, LPos, LRecordLength));
       Inc(FFramedBytes, LRecordLength);
       Inc(LPos, LRecordLength);
@@ -558,33 +554,30 @@ begin
       Dec(FFramedBytes, System.Length(LRecord));
       // a plaintext change_cipher_spec (never encrypted, so its outer type is authoritative):
       // dropped as middlebox compatibility while the handshake runs, but a fatal
-      // unexpected_message once it is complete (RFC 8446 5 / D.4). Judged here at pull time, so a
-      // change_cipher_spec coalesced with the peer's final flight is decided after that flight's
-      // Finished has been processed (which set the handshake complete), not eagerly at framing.
+      // unexpected_message once complete (RFC 8446 5 / D.4). Judged here at pull time so a CCS
+      // coalesced with the peer's final flight is decided after that flight's Finished, not at framing.
       if (System.Length(LRecord) > 0) and (LRecord[0] = OuterChangeCipherSpec) then
       begin
         HandleChangeCipherSpec(LRecord, TRecordLimits.HeaderLength,
           System.Length(LRecord) - TRecordLimits.HeaderLength);
         Continue; // classified: promoted (1.2), dropped (1.3), or raised (out of window)
       end;
-      // TLS 1.2 read-cipher switch: while a read epoch is armed, the only peer records expected
-      // are the plaintext change_cipher_spec that promotes it (handled above) and a plaintext
-      // alert (an abort the peer sends before its own CCS). A plaintext handshake record here -
-      // a Finished, or a fragment of one, sent before the CCS - is illegal (RFC 5246 7.4.9): the
-      // Finished is the first message under the new cipher spec. (application_data while the
-      // handshake is incomplete is already rejected by StrictApplicationData.)
+      // TLS 1.2 read-cipher switch: while a read epoch is armed, the only peer records expected are
+      // the plaintext change_cipher_spec that promotes it (handled above) and a plaintext alert (an
+      // abort before the peer's own CCS). A plaintext handshake record here - a Finished or a
+      // fragment of one before the CCS - is illegal (RFC 5246 7.4.9): the Finished is the first
+      // message under the new cipher spec.
       if (FPendingReadProtection <> nil) and (System.Length(LRecord) > 0) and
         (LRecord[0] = OuterHandshake) then
         raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.UnexpectedMessage,
           @SHandshakeBeforeChangeCipherSpec);
       if FEarlyDataSkipRemaining > 0 then
       begin
-        // 0-RTT reject / HelloRetryRequest: drop the client's early-data records (bounded),
-        // and stop skipping as soon as a genuine handshake record arrives. Early data appears
-        // two ways depending on the read epoch active when it is skipped: encrypted under keys
-        // the server discarded (a bad_record_mac from the deprotect) after the server flight, or
-        // an application_data record decoded under the null/plaintext epoch while waiting for a
-        // second ClientHello. Both are dropped; a decoded handshake record ends the skip.
+        // 0-RTT reject / HelloRetryRequest: drop the client's early-data records (bounded), stopping
+        // as soon as a genuine handshake record arrives. Early data appears two ways: encrypted under
+        // keys the server discarded (a bad_record_mac from the deprotect) after the server flight, or
+        // an application_data record under the null/plaintext epoch while awaiting a second
+        // ClientHello. Both are dropped; a decoded handshake record ends the skip.
         try
           if TryDecodeFramed(LRecord, AFragment) then
           begin
