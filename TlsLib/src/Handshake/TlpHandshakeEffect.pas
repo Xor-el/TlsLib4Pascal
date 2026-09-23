@@ -29,7 +29,7 @@ type
 
   /// <summary>The kind of a handshake effect (an instruction for the driver).</summary>
   THandshakeEffectKind = (
-    SendHandshake,        // frame and send a handshake message
+    SendHandshake,
     SendChangeCipherSpec, // emit the middlebox-compatibility dummy CCS
     InstallKeys,          // install an epoch's record protection on one side
     NegotiatedVersion,    // surface the negotiated protocol version to the record layer
@@ -40,12 +40,12 @@ type
     SetEarlyDataLimit,    // cap outbound 0-RTT at the ticket's max_early_data
     RevertWriteToPlaintext, // drop the early-data write epoch back to plaintext (0-RTT + HRR)
     SetEarlyReadEpoch,    // open/close the accepted-0-RTT early-data read window (server)
-    RaiseEvent,           // raise an engine event
+    RaiseEvent,
     AwaitCertificateVerdict, // park the handshake for an out-of-band peer-certificate verdict
-    PeerCertificateChain, // surface the validated peer chain for connection info
+    PeerCertificateChain, // surface the presented peer chain and validated path for connection info
     RequestedCertificateAuthorities, // surface a CertificateRequest's certificate_authorities
     ConnectionParams,     // surface the negotiated suite/group/resumed for connection info
-    HandshakeEstablished, // the handshake completed
+    HandshakeEstablished,
     EchAccepted,          // ECH was accepted: record the status for connection info
     EchGreased,           // ECH was greased (client): record the status for connection info
     EchBackend,           // ECH split-mode backend (server): record the status for connection info
