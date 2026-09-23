@@ -1942,7 +1942,7 @@ begin
   LEntries[0].Credential := LExact;
   LEntries[1].Host := '*.wild.example';
   LEntries[1].Credential := LWildcard;
-  LResolver := TSniCredentialResolver.Create(LEntries, True, LDefault);
+  LResolver := TSniCredentialResolver.Create(LEntries, LDefault);
 
   CheckTrue(ResolveFor('host.example.com', LGot), 'exact host resolves');
   CheckEqualBytes('exact host -> its credential', LeafOf(LExact), LeafOf(LGot));

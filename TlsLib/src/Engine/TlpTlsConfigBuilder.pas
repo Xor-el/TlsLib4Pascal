@@ -2033,8 +2033,12 @@ begin
       FSniCredentialEntries[LI].Credential);
   end;
   // the single credential (WithCredential), if any, is the no-SNI / no-match default
-  Result := TSniCredentialResolver.Create(FSniCredentialEntries, FHasCredential, FCredential)
-    as ITlsServerCredentialResolver;
+  if FHasCredential then
+    Result := TSniCredentialResolver.Create(FSniCredentialEntries, FCredential)
+      as ITlsServerCredentialResolver
+  else
+    Result := TSniCredentialResolver.Create(FSniCredentialEntries)
+      as ITlsServerCredentialResolver;
 end;
 
 function TTlsConfigBuilder.ComposeServerVerifierSource: IServerCertificateVerifierSource;
