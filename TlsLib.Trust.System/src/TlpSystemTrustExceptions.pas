@@ -21,8 +21,8 @@ uses
 type
   /// <summary>
   /// The requested system-trust operation cannot be honored on this platform:
-  /// harvesting roots where no enumeration API exists (iOS), or delegating to an
-  /// OS verifier where none exists (Linux/BSD/Solaris, and Android for now).
+  /// harvesting roots where no enumeration API exists (iOS, Android), or delegating to an
+  /// OS verifier where none exists (Linux/BSD/Solaris).
   /// Raised when a caller forces a mode the target cannot satisfy.
   /// </summary>
   ESystemTrustUnsupportedTlsLibException = class(EBaseTlsLibException);

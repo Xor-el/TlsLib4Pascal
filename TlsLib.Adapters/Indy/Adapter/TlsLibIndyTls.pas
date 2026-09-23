@@ -159,8 +159,8 @@ type
     /// <summary>Whether the peer certificate is verified (a server verifies a requested
     /// client certificate). Default True.</summary>
     property VerifyPeer: Boolean read FVerifyPeer write FVerifyPeer;
-    /// <summary>DANGEROUS: accept the peer chain with no PKIX/host/pinning checks. Maps onto
-    /// our loud InsecureSkipVerify; test-only.</summary>
+    /// <summary>DANGEROUS: accept the peer chain with no PKIX/host/pinning checks. For tests and
+    /// pinned/self-signed development peers only - never production.</summary>
     property InsecureSkipVerify: Boolean read FInsecureSkipVerify write FInsecureSkipVerify;
     /// <summary>Opt into the OS system-trust anchors (Windows crypt32 / macOS SecTrust / Unix
     /// bundle). Unions with RootCertFile and any CustomTrustStore. System trust is never implicit:

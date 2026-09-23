@@ -41,7 +41,7 @@ type
     FSchedule: ITls13KeySchedule;
     /// <summary>Whether a peer update_requested is awaiting our single coalesced response,
     /// flushed just before our next application write (RFC 8446 4.6.3): any number of
-    /// requests collapses to one response, which also bounds a KeyUpdate flood (18.6).</summary>
+    /// requests collapses to one response, which also bounds a KeyUpdate flood.</summary>
     FKeyUpdateResponsePending: Boolean;
     /// <summary>This endpoint's own write (send) traffic direction.</summary>
     function WriteDirection: TTlsDirection; virtual; abstract;

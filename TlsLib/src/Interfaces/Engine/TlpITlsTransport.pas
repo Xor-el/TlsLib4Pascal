@@ -20,12 +20,12 @@ uses
 
 type
   /// <summary>
-  /// The minimal blocking raw-byte conduit the Tier-2 stream pump drives the sans-IO
+  /// The minimal blocking raw-byte conduit the stream pump drives the sans-IO
   /// engine over: it moves ciphertext (and the handshake flights) to and from the peer.
   /// A generic Read + Write transport - each host integration adapts its own socket to this
   /// seam, and the pump stays transport-agnostic.
   /// Blocking: Read waits for at least one byte; there is no non-blocking / poll variant on
-  /// this phase's surface.
+  /// this seam.
   /// </summary>
   ITlsTransport = interface(IInterface)
     ['{1B7E9C42-3D06-4A58-9F21-6C0E5B4D82A7}']

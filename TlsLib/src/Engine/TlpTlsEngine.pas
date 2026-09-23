@@ -194,10 +194,8 @@ resourcestring
 
 type
   /// <summary>
-  /// A non-refcounting adapter that lets the handshake driver install epochs and
-  /// report outcomes back to the engine. The engine (through its conductor) owns
-  /// this bridge, so it holds the engine by a raw reference - taking a counted
-  /// interface reference here would be an ownership cycle that leaks the engine.
+  /// Lets the handshake driver install epochs and report outcomes back to the engine, which
+  /// owns this bridge and is held by a raw reference.
   /// </summary>
   TEngineHandshakeBridge = class sealed(TInterfacedObject, IRecordEpochInstaller,
     IHandshakeSink, IHandshakeVersionSink, IHandshakeVerdictSink,

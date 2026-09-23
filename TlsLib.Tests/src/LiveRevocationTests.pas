@@ -490,7 +490,7 @@ var
   LAlert: TTlsAlertDescription;
   LCtx: TCertificateVerdictContext;
 begin
-  // the checker plugs into the Tier-2 verdict resolver seam: a live Revoked -> reject, and it
+  // the checker plugs into the verdict resolver seam: a live Revoked -> reject, and it
   // must abort with certificate_revoked, not the generic bad_certificate
   LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetPost(True, OcspRevoked);

@@ -101,7 +101,7 @@ begin
     LCertGroup := LCertCurve;
 
   // hold the builder in an interface local while configuring: the facets keep only a raw
-  // back-reference, so a captured owner is what refcounts and frees it after Build
+  // back-reference, so the local is what owns and frees it after Build
   LClientBuilder := TTlsPresets.Compatible(ACryptoProvider, APkix);
   LClient := LClientBuilder.Client;
   LClient.WithSupportedVersions(TArray<UInt16>.Create(AWireVersion));

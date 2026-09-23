@@ -343,8 +343,8 @@ type
     class function BindersVectorLength(const ABinders: TArray<TBytes>): Int32; static;
     /// <summary>Whether the client's obfuscated_ticket_age is fresh enough to accept 0-RTT: the
     /// de-obfuscated reported age must be within 60s of the server-measured elapsed time in
-    /// either direction (RFC 8446 8.2; matches rustls MAX_FRESHNESS_SKEW_MS and BoringSSL's
-    /// ticket_age_skew window). A larger skew declines 0-RTT while the session still resumes.</summary>
+    /// either direction (RFC 8446 8.2). A larger skew declines 0-RTT while the session still
+    /// resumes.</summary>
     class function EarlyDataAgeFresh(AObfuscatedAgeMillis, ATicketAgeAdd: UInt32;
       AIssuedAtMillis, ANowMillis: UInt64): Boolean; static;
     /// <summary>Whether pre_shared_key is the last extension in a ClientHello extension block

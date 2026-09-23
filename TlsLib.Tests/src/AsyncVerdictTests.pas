@@ -430,7 +430,8 @@ begin
   // resuming a parked verdict drains the buffered flight (CertificateVerify, Finished) and any
   // record behind it. A malformed/undecryptable record there raises inside the machine; the
   // engine must catch it, abort with the alert and stay non-terminal-free (terminal), NOT let the
-  // exception escape SetCertificateVerdict with no alert on the wire (regression guard for BL-7).
+  // exception escape SetCertificateVerdict with no alert on the wire: a handshake exception must
+  // surface a fatal alert and leave the engine terminal.
   LClient := NewClient(ClientConfig(True, 0), 'localhost', LServer);
   LClient.StartHandshake;
   DriveUntilParkOrSettled(LClient, LServer);

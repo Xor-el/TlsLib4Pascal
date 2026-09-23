@@ -27,7 +27,7 @@ uses
 
 type
   /// <summary>
-  /// The Tier-2 convenience stream: a TStream over an ITlsTransport and a ready ITlsEngine
+  /// The convenience stream: a TStream over an ITlsTransport and a ready ITlsEngine
   /// (built by the caller from a frozen config). It handshakes on first IO (or explicitly),
   /// then Read/Write move application plaintext while the engine and the pump handle the
   /// record layer beneath. It is neutral - no host-library type appears here - so every

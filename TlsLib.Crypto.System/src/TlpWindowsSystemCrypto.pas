@@ -648,11 +648,11 @@ type
   end;
 
   // Owns the dynamically loaded bcrypt module and the CNG algorithm-provider handles,
-  // opened once and shared across the short-lived primitives it vends. Each vended object
-  // keeps the context alive by reference, so a borrowed handle never outlives it. An
-  // algorithm CNG cannot open is left unavailable and falls back per-algorithm to the
-  // portable facet; construction raises only when bcrypt itself is absent, so the composer
-  // then falls back wholesale.
+  // opened once and shared across the short-lived primitives it vends: each vended primitive
+  // holds the context, so a borrowed algorithm handle never outlives it. An algorithm CNG
+  // cannot open is left unavailable and falls back per-algorithm to the portable facet;
+  // construction raises only when bcrypt itself is absent, so the composer then falls back
+  // wholesale.
   TWindowsCng = class(TInterfacedObject, IWindowsCng)
   strict private
   var
@@ -721,8 +721,8 @@ type
     function CreateKem(AAlgorithm: TKemAlgorithm): IKem; override;
   end;
 
-  // Refcounted owner of one ephemeral NCrypt key handle, freed when the last sharer (the
-  // signing key and any preference-narrowed copy) releases it.
+  // Owns one ephemeral NCrypt key handle shared by a signing key and its
+  // preference-narrowed copies.
   INCryptKeyOwner = interface(IInterface)
     ['{8F1B3D42-0A5C-4977-B6E1-9C2D4E7A8B31}']
     function Handle: NativeUInt;
@@ -802,7 +802,7 @@ type
   end;
 
   // A native (NCrypt-backed) signing key: an opaque ISigningKey plus the private marker.
-  // It shares the refcounted key-handle owner with any preference-narrowed copy.
+  // It shares the key-handle owner with any preference-narrowed copy.
   TWindowsSigningKey = class(TInterfacedObject, ISigningKey, IWindowsSigningKey)
   strict private
   var
@@ -3038,7 +3038,7 @@ begin
         Break;
       end;
   SetLength(LNarrowed, LCount);
-  // the narrowed copy shares the same refcounted key handle
+  // the narrowed copy shares the same key handle
   Result := TWindowsSigningKey.Create(FOwner, LNarrowed);
 end;
 

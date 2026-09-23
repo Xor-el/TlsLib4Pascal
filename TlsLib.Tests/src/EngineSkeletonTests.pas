@@ -106,8 +106,8 @@ var
   LEngine: ITlsEngine;
   LInstaller: IRecordEpochInstaller;
 begin
-  // the engine must not surface a counted installer reference: that would re-enable
-  // the engine<->driver refcount cycle the handshake bridge exists to break
+  // the engine must not surface an installer reference to callers; the handshake bridge
+  // keeps the engine and driver from holding each other
   LEngine := NewEngine;
   CheckFalse(Supports(LEngine, IRecordEpochInstaller, LInstaller),
     'the engine does not expose IRecordEpochInstaller');

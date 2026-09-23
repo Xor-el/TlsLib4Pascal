@@ -23,10 +23,10 @@ uses
 
 type
   /// <summary>
-  /// The default <see cref="ISecretBuffer" />: a refcounted class over a raw,
-  /// heap-stable buffer. The destructor wipes the region before freeing it, so
-  /// the secret is zeroized once, when the last reference releases. Construct
-  /// through <see cref="From" /> / <see cref="Allocate" /> and hold the interface.
+  /// The default <see cref="ISecretBuffer" />: a class over a raw, heap-stable
+  /// buffer. The destructor wipes the region before freeing it, so the secret is
+  /// zeroized on release. Construct through <see cref="From" /> /
+  /// <see cref="Allocate" /> and hold the interface.
   /// </summary>
   TSecretBuffer = class sealed(TInterfacedObject, ISecretBuffer)
   strict private

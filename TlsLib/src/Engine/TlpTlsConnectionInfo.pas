@@ -32,7 +32,7 @@ type
   /// the negotiated cipher suite and named group (IANA codes; the group is 0 for a
   /// non-(EC)DHE key exchange), whether the handshake was resumed, and the Encrypted Client
   /// Hello outcome (RFC 9849: NotOffered, Greased, Accepted, Rejected, or Backend) with its
-  /// reject details. ServerName has two readers: through a Tier-2 stream it is the client's
+  /// reject details. ServerName has two readers: through a stream it is the client's
   /// construction host (IP literals included; the stream overlays it), read straight off the
   /// engine it is the SNI host_name the handshake carried (empty when none was sent). It is a
   /// snapshot after the handshake; reading it before the handshake completes yields the zero
