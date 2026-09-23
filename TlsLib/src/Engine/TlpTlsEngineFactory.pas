@@ -25,6 +25,7 @@ uses
   TlpINamedGroup,
   TlpINegotiation,
   TlpICertificateTrust,
+  TlpTrustTypes,
   TlpICertificateCompression,
   TlpNegotiationTypes,
   TlpNegotiationPolicy,

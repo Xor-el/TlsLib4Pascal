@@ -27,6 +27,7 @@ uses
   TlpINegotiation,
   TlpNegotiationTypes,
   TlpICertificateTrust,
+  TlpTrustTypes,
   TlpICertificateVerifierSource,
   TlpCertificateVerifier,
   TlpCertificateVerifierSource,

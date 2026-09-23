@@ -33,6 +33,7 @@ uses
   TlpDefaultCryptoProvider,
   TlpDefaultPkixProvider,
   TlpICertificateTrust,
+  TlpTrustTypes,
   TlpCertificateVerifier,
   TlpServerName,
   TlpTrustPolicy,

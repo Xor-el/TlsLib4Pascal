@@ -20,6 +20,7 @@ uses
   TlpTlsAlert,
   TlpIPkixProvider,
   TlpIClock,
+  TlpTrustTypes,
   TlpICertificateTrust,
   TlpCertificateLimits,
   TlpCertificateStrengthPolicy;
@@ -96,27 +97,6 @@ type
     class operator Initialize({$IFDEF FPC}var{$ELSE}out{$ENDIF}
       AOptions: TDangerousTrust);
   end;
-
-  /// <summary>
-  /// How a peer-certificate verdict is deferred out-of-band. None (the default) decides the
-  /// verdict entirely inline. HostDecision parks the handshake after the built-in pipeline
-  /// accepts the chain and raises a CertificateReceived event so a host decides out-of-band
-  /// (e.g. an operator prompt); it is augment-only and does not change how an indeterminate
-  /// stapled revocation outcome is decided (the posture still decides that inline).
-  /// LiveRevocation additionally defers an indeterminate stapled outcome to the resolver at
-  /// the park, so a live OCSP/CRL fetch renders the posture's verdict - the only way a Hard
-  /// posture is reachable for a peer that carries no staple (e.g. a client certificate). Under
-  /// LiveRevocation the park is skipped when the verifier already settled revocation inline (a
-  /// current, authenticated Good staple), so the resolver sees only peers whose revocation is still
-  /// undecided; a host that must observe every accepted peer (an audit hook, extra policy) uses
-  /// HostDecision, which always parks.
-  /// </summary>
-  TVerdictDeferral = (None, HostDecision, LiveRevocation);
-
-  /// <summary>Whether a certificate is being verified on the initial handshake (a Certificate
-  /// flight is on the wire) or on a resumption (no Certificate; the stored chain is
-  /// re-checked). Must-staple is enforced only on the initial handshake.</summary>
-  TVerificationOccasion = (InitialHandshake, Resumption);
 
   /// <summary>Whose certificate a parked verdict concerns. Server: we are the client and the chain
   /// is the server's, matched against HostName. Client: we are the server and the chain is an mTLS

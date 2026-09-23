@@ -51,6 +51,7 @@ uses
   TlpHandshakeEffect,
   TlpHandshakeDriver,
   TlpICertificateTrust,
+  TlpTrustTypes,
   TlpServerName,
   TlpTls13ClientStateMachine,
   MockSink,

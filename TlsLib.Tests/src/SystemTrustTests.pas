@@ -39,6 +39,7 @@ uses
   TlpIPkixProvider,
   TlpDefaultPkixProvider,
   TlpICertificateTrust,
+  TlpTrustTypes,
   TlpICertificateVerifierSource,
   TlpTrustPolicy,
   TlpServerName,

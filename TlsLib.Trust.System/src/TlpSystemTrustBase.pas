@@ -26,6 +26,7 @@ uses
   TlpTrustPolicy,
   TlpIPkixProvider,
   TlpICertificateTrust,
+  TlpTrustTypes,
   TlpCertificateVerifier,
   TlpSystemTrustExceptions;
 

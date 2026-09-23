@@ -31,6 +31,7 @@ uses
   TlpArrayUtilities,
   TlpICryptoProvider,
   TlpICertificateTrust,
+  TlpTrustTypes,
   TlpCertificateVerifier,
   TlpNegotiationTypes,
   TlpCipherSuiteRegistry,

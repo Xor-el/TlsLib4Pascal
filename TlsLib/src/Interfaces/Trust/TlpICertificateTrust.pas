@@ -18,32 +18,10 @@ interface
 uses
   SysUtils,
   TlpServerName,
+  TlpTrustTypes,
   TlpTlsAlert;
 
 type
-  /// <summary>How the built-in pipeline reached acceptance, as it bears on a live-revocation park.
-  /// Trusted (the default) is the safe case: if a live-revocation park is configured, run it.
-  /// RevocationSettledInline means the verifier reached a definitive, authenticated revocation
-  /// verdict inline (e.g. a current Good staple), so a configured live-revocation park would be
-  /// redundant and the caller may skip it. Only a verifier that can settle revocation inline sets
-  /// RevocationSettledInline; a delegate whose live check happens at the park always returns Trusted,
-  /// so the park still runs. This never affects a host-decision park, which is a separate policy.</summary>
-  TVerificationOutcome = (Trusted, RevocationSettledInline);
-
-  /// <summary>The proof a certificate verifier returns on acceptance: the leaf-first path it
-  /// validated (Path, with the leaf's issuer at index 1 where the validator can name it; the leaf
-  /// alone under InsecureSkipVerify) and how acceptance was reached (Outcome). A verifier fills this
-  /// only when it returns True; on rejection the caller reads the alert, not this record. A
-  /// key-pinning check matches against Path, never the presented chain (RFC 7469 6).</summary>
-  TVerifiedChain = record
-    Path: TArray<TBytes>;
-    Outcome: TVerificationOutcome;
-    // zero the unmanaged Outcome to the safe default so a verifier that writes only Path (this is a
-    // public seam) can never leave the park-skip driven by a garbage enum on an out parameter
-    class operator Initialize({$IFDEF FPC}var{$ELSE}out{$ENDIF}
-      AVerified: TVerifiedChain);
-  end;
-
   /// <summary>
   /// The set of trusted root certificates (DER), kept behind an interface so the
   /// PKIX backend's certificate types never reach the public surface.
@@ -90,11 +68,5 @@ type
   end;
 
 implementation
-
-class operator TVerifiedChain.Initialize({$IFDEF FPC}var{$ELSE}out{$ENDIF}
-  AVerified: TVerifiedChain);
-begin
-  AVerified.Outcome := TVerificationOutcome.Trusted;
-end;
 
 end.

@@ -32,6 +32,7 @@ uses
   TlpSignatureSchemeRegistry,
   TlpICertificateTrust,
   TlpTrustPolicy,
+  TlpTrustTypes,
   TlpServerName,
   TlpTlsAlert,
   TlpTlsCredential,
