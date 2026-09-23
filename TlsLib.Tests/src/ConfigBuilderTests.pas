@@ -69,7 +69,7 @@ type
       out APrivateKey: ISecretBuffer): TBytes;
     function BuildClientConfig(const ACryptoProvider: ICryptoProvider): ITlsClientConfig;
     function BuildServerConfig(const ACryptoProvider: ICryptoProvider): ITlsServerConfig;
-    function SeededDefaults: TTlsConfigSeed;
+    function DefaultProfile: TTlsConfigProfile;
     function NewClientBuilder: ITlsClientConfigBuilder;
     function NewServerBuilder: ITlsServerConfigBuilder;
     function Drain(const AEngine: ITlsEngine): TBytes;
@@ -170,7 +170,7 @@ var
   LBuilder: ITlsConfigBuilder;
 begin
   // assemble a client config straight from the raw builder with the given provider
-  LBuilder := TTlsConfigBuilder.CreateSeeded(ACryptoProvider, Pkix, TTlsConfigSeed.Default);
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(ACryptoProvider, Pkix, TTlsConfigProfile.Default);
   Result := LBuilder.Client
     .WithCipherSuites(TCipherSuiteRegistry.CreateDefault(ACryptoProvider))
     .WithSignatureSchemes(TSignatureSchemeRegistry.CreateDefault)
@@ -186,7 +186,7 @@ function TTestConfigBuilder.BuildServerConfig(
 var
   LBuilder: ITlsConfigBuilder;
 begin
-  LBuilder := TTlsConfigBuilder.CreateSeeded(ACryptoProvider, Pkix, TTlsConfigSeed.Default);
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(ACryptoProvider, Pkix, TTlsConfigProfile.Default);
   Result := LBuilder.Server
     .WithCipherSuites(TCipherSuiteRegistry.CreateDefault(ACryptoProvider))
     .WithSignatureSchemes(TSignatureSchemeRegistry.CreateDefault)
@@ -232,7 +232,7 @@ begin
   // offers a full (GREASE-bearing) extension set, so this also covers ECH acceptance with
   // GREASE in the inner ClientHello.
   LConfigList := BuildEchConfigList($D4, 'cover.example', LSk);
-  LClientBuilder := TTlsConfigBuilder.CreateSeeded(Crypto, Pkix, TTlsConfigSeed.Default);
+  LClientBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LClientConfig := LClientBuilder.Client
     .WithCipherSuites(TCipherSuiteRegistry.CreateDefault(Crypto))
     .WithSignatureSchemes(TSignatureSchemeRegistry.CreateDefault)
@@ -241,7 +241,7 @@ begin
     .WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519))
     .WithTrustStore(ClientTrust)
     .Tls13.WithEncryptedClientHello(LConfigList).Build;
-  LServerBuilder := TTlsConfigBuilder.CreateSeeded(Crypto, Pkix, TTlsConfigSeed.Default);
+  LServerBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LServerConfig := LServerBuilder.Server
     .WithCipherSuites(TCipherSuiteRegistry.CreateDefault(Crypto))
     .WithSignatureSchemes(TSignatureSchemeRegistry.CreateDefault)
@@ -317,7 +317,7 @@ var
   LRaised: Boolean;
   LNone: TArray<UInt16>;
 begin
-  LBuilder := TTlsConfigBuilder.CreateSeeded(Crypto, Pkix, TTlsConfigSeed.Default);
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LNone := nil;
   LRaised := False;
   try
@@ -334,7 +334,7 @@ var
   LBuilder: ITlsConfigBuilder;
   LRaised: Boolean;
 begin
-  LBuilder := TTlsConfigBuilder.CreateSeeded(Crypto, Pkix, TTlsConfigSeed.Default);
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LRaised := False;
   try
     // TLS 1.0 is not a version the engine can build
@@ -351,7 +351,7 @@ var
   LBuilder: ITlsConfigBuilder;
   LRaised: Boolean;
 begin
-  LBuilder := TTlsConfigBuilder.CreateSeeded(Crypto, Pkix, TTlsConfigSeed.Default);
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LRaised := False;
   try
     LBuilder.Client.WithSupportedVersions(
@@ -370,7 +370,7 @@ var
   LMsg: string;
 begin
   // a builder that never called WithSupportedVersions cannot build a machine
-  LBuilder := TTlsConfigBuilder.CreateSeeded(Crypto, Pkix, TTlsConfigSeed.Default);
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LRaised := False;
   LMsg := '';
   try
@@ -757,7 +757,7 @@ begin
   LCustom.MaxChainLength := 25;
   LCustom.MaxCertificateLength := 1 shl 17;
   LCustom.MaxTotalChainLength := 1 shl 20;
-  LBuilder := TTlsConfigBuilder.CreateSeeded(Crypto, Pkix, TTlsConfigSeed.Default);
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LConfig := LBuilder.Client
     .WithCipherSuites(TCipherSuiteRegistry.CreateDefault(Crypto))
     .WithSignatureSchemes(TSignatureSchemeRegistry.CreateDefault)
@@ -773,9 +773,9 @@ begin
   CheckEquals(1 shl 20, LFrozen.MaxTotalChainLength, 'the tuned total chain length');
 end;
 
-function TTestConfigBuilder.SeededDefaults: TTlsConfigSeed;
+function TTestConfigBuilder.DefaultProfile: TTlsConfigProfile;
 begin
-  Result := TTlsConfigSeed.Default;
+  Result := TTlsConfigProfile.Default;
   Result.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   Result.SignatureSchemes := TSignatureSchemeRegistry.CreateDefault;
   Result.NamedGroups := TNamedGroups.CreateDefaultRegistry(Crypto);
@@ -788,7 +788,7 @@ var
   LOwner: ITlsConfigBuilder;
 begin
   // a chooser seeded with the shared defaults, narrowed to the client view with a trust source
-  LOwner := TTlsConfigBuilder.CreateSeeded(Crypto, Pkix, SeededDefaults);
+  LOwner := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
   FBuilders := FBuilders + [LOwner];
   Result := LOwner.Client.WithTrustStore(ClientTrust);
 end;
@@ -797,7 +797,7 @@ function TTestConfigBuilder.NewServerBuilder: ITlsServerConfigBuilder;
 var
   LOwner: ITlsConfigBuilder;
 begin
-  LOwner := TTlsConfigBuilder.CreateSeeded(Crypto, Pkix, SeededDefaults);
+  LOwner := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
   FBuilders := FBuilders + [LOwner];
   Result := LOwner.Server.WithCredential(ServerCredential);
 end;
@@ -870,7 +870,7 @@ var
 begin
   // configuring a TLS 1.2-only setting on a config that does not offer TLS 1.2 must be
   // refused at build rather than silently ignored - the setting could never apply
-  LBuilder := TTlsConfigBuilder.CreateSeeded(Crypto, Pkix, TTlsConfigSeed.Default);
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LRaised := False;
   try
     LBuilder.Server
@@ -901,7 +901,7 @@ var
   LConfig: ITlsClientConfig;
   LBuilder: ITlsConfigBuilder;
 begin
-  LBuilder := TTlsConfigBuilder.CreateSeeded(Crypto, Pkix, TTlsConfigSeed.Default);
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LConfig := LBuilder.Client
     .WithCipherSuites(TCipherSuiteRegistry.CreateDefault(Crypto))
     .WithSignatureSchemes(TSignatureSchemeRegistry.CreateDefault)
@@ -926,7 +926,7 @@ var
 begin
   LPin := DecodeHex(
     '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff');
-  LBuilder := TTlsConfigBuilder.CreateSeeded(Crypto, Pkix, TTlsConfigSeed.Default);
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LConfig := LBuilder.Client
     .WithCipherSuites(TCipherSuiteRegistry.CreateDefault(Crypto))
     .WithSignatureSchemes(TSignatureSchemeRegistry.CreateDefault)
@@ -952,7 +952,7 @@ begin
   LStaple := TBytes.Create($30, $03, $0A, $01, $00);
   LCredential := ServerCredential;
   LCredential.OcspStaple := LStaple;
-  LBuilder := TTlsConfigBuilder.CreateSeeded(Crypto, Pkix, TTlsConfigSeed.Default);
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LConfig := LBuilder.Server
     .WithCipherSuites(TCipherSuiteRegistry.CreateDefault(Crypto))
     .WithSignatureSchemes(TSignatureSchemeRegistry.CreateDefault)
@@ -975,7 +975,7 @@ begin
   // WithCredential(record) must not bleed through (last call wins)
   LStapled := ServerCredential;
   LStapled.OcspStaple := TBytes.Create($30, $03, $0A, $01, $00);
-  LBuilder := TTlsConfigBuilder.CreateSeeded(Crypto, Pkix, TTlsConfigSeed.Default);
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LConfig := LBuilder.Server
     .WithCipherSuites(TCipherSuiteRegistry.CreateDefault(Crypto))
     .WithSignatureSchemes(TSignatureSchemeRegistry.CreateDefault)
@@ -1060,7 +1060,7 @@ var
 begin
   // SNI-keyed server credential selection is server-only; building a client from a builder that
   // carries it is a configuration error, not a silent drop
-  LBuilder := TTlsConfigBuilder.CreateSeeded(Crypto, Pkix, TTlsConfigSeed.Default);
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LBuilder.Server.WithSniCredential('localhost', ServerCredential);
   // a trust store makes an otherwise-valid client, so the only thing that can fail Build is the
   // server-only SNI credential guard (not a missing trust source)
@@ -1082,7 +1082,7 @@ var
 begin
   // a public-suffix wildcard (*.com) can never match a host at runtime, so it is rejected as an
   // SNI pattern at configuration - the same rule name verification enforces
-  LBuilder := TTlsConfigBuilder.CreateSeeded(Crypto, Pkix, TTlsConfigSeed.Default);
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LBuilder.Server.WithSniCredential('*.com', ServerCredential);
   LRaised := False;
   try

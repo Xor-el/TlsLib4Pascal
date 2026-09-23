@@ -32,7 +32,7 @@ type
   /// to TTlsEngineFactory per connection: the config owns the session-ticket key, so a fresh
   /// config per connection would silently disable resumption. There is deliberately no Provider
   /// accessor: to use a different backend, start from a TTlsPresets profile (or
-  /// TTlsConfigBuilder.CreateSeeded) with your own provider.
+  /// TTlsConfigBuilder.CreateFromProfile) with your own provider.
   /// </summary>
   TTlsLib = class sealed(TObject)
   public
