@@ -233,6 +233,7 @@ begin
   CheckEquals('', LInfo.AlpnProtocol, 'no ALPN protocol selected');
   CheckEquals('', LInfo.ServerName, 'no server name recorded');
   CheckEquals(0, System.Length(LInfo.PeerCertificates), 'no peer certificates');
+  CheckEquals(0, System.Length(LInfo.ValidatedPath), 'no validated path yet');
   CheckEquals(0, System.Length(LInfo.RequestedCertificateAuthorities),
     'no requested certificate authorities');
   CheckEquals(0, System.Length(LInfo.PeerOcspStaple), 'no peer OCSP staple');

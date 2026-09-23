@@ -70,8 +70,8 @@ type
     Outbound: Int32;             // SetRecordSizeLimit (raw outbound record_size_limit)
     Inbound: Int32;              // SetRecordSizeLimit (raw inbound record_size_limit)
     Event: TTlsEventKind;        // RaiseEvent
-    Chain: TArray<TBytes>;       // AwaitCertificateVerdict / PeerCertificateChain (peer chain, leaf first)
-    ValidatedPath: TArray<TBytes>; // AwaitCertificateVerdict (the pipeline-validated path; issuer at [1])
+    Chain: TArray<TBytes>;       // AwaitCertificateVerdict / PeerCertificateChain (peer chain as presented, leaf first)
+    ValidatedPath: TArray<TBytes>; // AwaitCertificateVerdict / PeerCertificateChain (the pipeline-validated path; issuer at [1]; empty when none was validated)
     CipherSuite: UInt16;         // ConnectionParams (the negotiated cipher suite code)
     NamedGroup: UInt16;          // ConnectionParams (0 when none / non-(EC)DHE)
     Resumed: Boolean;            // ConnectionParams (resumed); EchRejected (was a retry)
@@ -109,12 +109,11 @@ type
     /// pipeline has already accepted the chain. The staple rides the record's Bytes slot.</summary>
     class function AwaitCertificateVerdict(const AChain, AValidatedPath: TArray<TBytes>;
       const AHostName: string; const AStaple: TBytes): THandshakeEffect; static;
-    /// <summary>Surfaces the peer certificate chain (leaf first, DER) for read-only connection
-    /// info; carries no verdict and never blocks the handshake. On an initial handshake this is
-    /// the validated path (with the recovered issuer/anchor); a server re-emits it on a resumption
-    /// as the chain presented when the session was established (re-checked, not re-assembled).</summary>
+    /// <summary>Surfaces the peer certificate chain as presented (leaf first, DER) and the path the
+    /// built-in pipeline validated for read-only connection info; carries no verdict and never blocks
+    /// the handshake. AValidatedPath is empty on a resumption that re-ran no verification.</summary>
     class function PeerCertificateChain(
-      const AChain: TArray<TBytes>): THandshakeEffect; static;
+      const AChain, AValidatedPath: TArray<TBytes>): THandshakeEffect; static;
     /// <summary>Surfaces the DER-encoded DistinguishedName certificate_authorities a peer
     /// named in its CertificateRequest (RFC 8446 4.2.4 / RFC 5246 7.4.4), for read-only
     /// connection info; never blocks the handshake.</summary>
@@ -260,11 +259,12 @@ begin
 end;
 
 class function THandshakeEffects.PeerCertificateChain(
-  const AChain: TArray<TBytes>): THandshakeEffect;
+  const AChain, AValidatedPath: TArray<TBytes>): THandshakeEffect;
 begin
   Result := Default(THandshakeEffect);
   Result.Kind := THandshakeEffectKind.PeerCertificateChain;
   Result.Chain := AChain;
+  Result.ValidatedPath := AValidatedPath;
 end;
 
 class function THandshakeEffects.RequestedCertificateAuthorities(

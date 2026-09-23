@@ -33,6 +33,7 @@ uses
   TlpITlsConfigBuilder,
   TlpTlsPresets,
   TlpTrustPolicy,
+  TlpTlsConnectionInfo,
   TlpITlsEngine,
   TlpTlsEngineFactory,
   TlsLibTestBase;
@@ -108,6 +109,9 @@ type
     // a server that requests client auth but sets no verdict deferral must decide the client chain
     // inline and complete - it must never park (the park is armed only by a verdict-deferral setting)
     procedure TestServerClientAuthWithoutDeferralDoesNotPark;
+    // the connection snapshot keeps the presented chain and the validated path apart: an inline mutual
+    // handshake surfaces the client's leaf-only presented chain and the longer pipeline-built path
+    procedure TestConnectionInfoSeparatesPresentedChainFromValidatedPath;
     procedure TestServerRejectFailsClosedWithBadCertificate;
     procedure TestRejectWithRevokedAlertReachesPeer;
     procedure TestServerRejectWithRevokedAlertReachesPeer;
@@ -673,6 +677,32 @@ begin
   CheckFalse(LServer.IsHandshaking, 'the server handshake completes inline');
   CheckFalse(LClient.IsHandshaking, 'the client handshake completes inline');
   CheckFalse(LServer.IsTerminal, 'the inline mutual handshake succeeds');
+end;
+
+procedure TTestAsyncVerdict.TestConnectionInfoSeparatesPresentedChainFromValidatedPath;
+var
+  LClient, LServer: ITlsEngine;
+  LInfo: TTlsConnectionInfo;
+begin
+  // an inline mutual handshake (no async park): the client presents a leaf-only credential, but the
+  // server's pipeline assembles the issuer, so the presented chain and the validated path differ
+  LClient := NewMtls(False, LServer);
+  LClient.StartHandshake;
+  DriveToCompletion(LClient, LServer);
+  CheckFalse(LServer.IsHandshaking, 'the server handshake completes inline');
+  CheckFalse(LServer.IsTerminal, 'the inline mutual handshake succeeds');
+
+  LInfo := LServer.ConnectionInfo;
+  CheckEquals(1, System.Length(LInfo.PeerCertificates),
+    'the presented client chain is the leaf-only credential');
+  CheckTrue(AreEqual(LeafCert, LInfo.PeerCertificates[0]),
+    'the presented chain leaf is the client leaf');
+  CheckTrue(System.Length(LInfo.ValidatedPath) >= 2,
+    'the validated path assembles the issuer beyond the presented leaf');
+  CheckTrue(AreEqual(LeafCert, LInfo.ValidatedPath[0]),
+    'the validated path leaf is the client leaf');
+  CheckTrue(AreEqual(TrustRoot, LInfo.ValidatedPath[System.High(LInfo.ValidatedPath)]),
+    'the validated path terminates at the configured trust anchor');
 end;
 
 procedure TTestAsyncVerdict.TestServerRejectFailsClosedWithBadCertificate;

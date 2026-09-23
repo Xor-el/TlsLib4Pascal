@@ -1961,10 +1961,10 @@ begin
   // the on-the-wire message (compressed, when compressed) is what feeds the transcript
   FTranscript.Update(ATranscriptRaw);
   FPhase := TPhase.WaitCertificateVerify;
-  // surface the validated path (leaf first, with the recovered issuer/anchor) for connection info
-  // (read-only; both inline and async paths), not the raw presented chain
+  // surface the presented chain and the validated path for connection info (read-only; both the
+  // inline and async paths)
   Result := TArray<THandshakeEffect>.Create(
-    THandshakeEffects.PeerCertificateChain(LVerified.Path));
+    THandshakeEffects.PeerCertificateChain(FCertificateChain, LVerified.Path));
   // surface any accepted staple so an integration can inspect it
   if System.Length(FReceivedOcspStaple) > 0 then
     TArrayUtilities.Append<THandshakeEffect>(Result,
@@ -2157,6 +2157,16 @@ begin
   LHashAfterFinished := FTranscript.CurrentHash;
   FSchedule.DeriveEpochSecrets(TTlsEpoch.Application, LHashAfterFinished);
 
+  // a resumed handshake carries no Certificate: surface the server chain the ticket stored, with the
+  // re-verified path when ResumeVerification re-ran the pipeline (empty otherwise). Before any park,
+  // so connection info reads it while parked - the ordering a full handshake already has. Only a
+  // resumption PSK carries a chain; an accepted external PSK did not authenticate by this stored one.
+  Result := nil;
+  if FPskAccepted and (FAcceptedPsk.BinderKind = TPskBinderKind.Resumption) and
+    (System.Length(FResumptionPeerCertificates) > 0) then
+    TArrayUtilities.Append<THandshakeEffect>(Result,
+      THandshakeEffects.PeerCertificateChain(FResumptionPeerCertificates, FResumeValidatedPath));
+
   // reverify-on-resume + async verdict: the inline reverify above accepted (under a live posture
   // it defers), so park now and withhold the client's closing flight until the out-of-band
   // verdict resolves - live revocation decides before we commit our Finished. No buffered peer
@@ -2165,12 +2175,13 @@ begin
   if LReverify and FParams.AsyncVerdict then
   begin
     FPhase := TPhase.WaitResumeVerdict;
-    Exit(TArray<THandshakeEffect>.Create(
+    TArrayUtilities.Append<THandshakeEffect>(Result,
       ParkForVerdict(FResumptionPeerCertificates, FResumeValidatedPath,
-      FParams.ExpectedServerName.ToString, nil)));
+      FParams.ExpectedServerName.ToString, nil));
+    Exit;
   end;
 
-  Result := BuildClientFinishedFlight;
+  Result := TArrayUtilities.Concat<THandshakeEffect>(Result, BuildClientFinishedFlight);
 end;
 
 function TTls13ClientStateMachine.BuildClientFinishedFlight: TArray<THandshakeEffect>;

@@ -318,11 +318,18 @@ begin
   try
     LClient.Handshake;
     CheckTrue(LClient.IsHandshakeComplete, 'the client completed the handshake');
-    // connection info surfaces the validated peer chain (backlog #3 enrichment)
-    CheckTrue(System.Length(LClient.ConnectionInfo.PeerCertificates) >= 1,
-      'connection info carries the validated server chain');
+    // the presented server chain is what the peer put on the wire: a leaf-only credential
+    CheckEquals(1, System.Length(LClient.ConnectionInfo.PeerCertificates),
+      'connection info carries the presented server chain');
     CheckEqualBytes('the leaf is the first chain entry', LeafCert,
       LClient.ConnectionInfo.PeerCertificates[0]);
+    // the validated path is what the pipeline built here: leaf, assembled issuer, up to the anchor
+    CheckTrue(System.Length(LClient.ConnectionInfo.ValidatedPath) >= 2,
+      'the validated path assembles the issuer beyond the presented leaf');
+    CheckEqualBytes('the validated path leaf is the server leaf', LeafCert,
+      LClient.ConnectionInfo.ValidatedPath[0]);
+    CheckEqualBytes('the validated path terminates at the trust anchor', TrustRoot,
+      LClient.ConnectionInfo.ValidatedPath[System.High(LClient.ConnectionInfo.ValidatedPath)]);
 
     LPing := DecodeHex(PingHex);
     LClient.Write(LPing[0], System.Length(LPing));

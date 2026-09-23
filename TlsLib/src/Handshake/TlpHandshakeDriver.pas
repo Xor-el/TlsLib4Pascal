@@ -150,7 +150,7 @@ begin
           AEffect.Text, AEffect.Bytes);
     THandshakeEffectKind.PeerCertificateChain:
       if FConnectionInfoSink <> nil then
-        FConnectionInfoSink.OnPeerCertificateChain(AEffect.Chain);
+        FConnectionInfoSink.OnPeerCertificateChain(AEffect.Chain, AEffect.ValidatedPath);
     THandshakeEffectKind.RequestedCertificateAuthorities:
       if FConnectionInfoSink <> nil then
         FConnectionInfoSink.OnRequestedCertificateAuthorities(AEffect.Chain);

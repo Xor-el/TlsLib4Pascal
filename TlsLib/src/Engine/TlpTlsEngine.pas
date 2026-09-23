@@ -152,7 +152,7 @@ type
     procedure OnOcspStapleReceived(const AStaple: TBytes);
     procedure OnCertificateVerdictNeeded(const AChain, AValidatedPath: TArray<TBytes>;
       const AHostName: string; const AStaple: TBytes);
-    procedure OnPeerCertificateChain(const AChain: TArray<TBytes>);
+    procedure OnPeerCertificateChain(const AChain, AValidatedPath: TArray<TBytes>);
     procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>);
     procedure OnConnectionParams(ACipherSuite, ANamedGroup: UInt16; AResumed: Boolean;
       const AServerName: string);
@@ -221,7 +221,7 @@ type
     procedure OnOcspStapleReceived(const AStaple: TBytes);
     procedure OnCertificateVerdictNeeded(const AChain, AValidatedPath: TArray<TBytes>;
       const AHostName: string; const AStaple: TBytes);
-    procedure OnPeerCertificateChain(const AChain: TArray<TBytes>);
+    procedure OnPeerCertificateChain(const AChain, AValidatedPath: TArray<TBytes>);
     procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>);
     procedure OnConnectionParams(ACipherSuite, ANamedGroup: UInt16; AResumed: Boolean;
       const AServerName: string);
@@ -315,9 +315,9 @@ begin
 end;
 
 procedure TEngineHandshakeBridge.OnPeerCertificateChain(
-  const AChain: TArray<TBytes>);
+  const AChain, AValidatedPath: TArray<TBytes>);
 begin
-  FEngine.OnPeerCertificateChain(AChain);
+  FEngine.OnPeerCertificateChain(AChain, AValidatedPath);
 end;
 
 procedure TEngineHandshakeBridge.OnRequestedCertificateAuthorities(
@@ -1027,9 +1027,10 @@ begin
   FInfo.PeerOcspStaple := AStaple;
 end;
 
-procedure TTlsEngine.OnPeerCertificateChain(const AChain: TArray<TBytes>);
+procedure TTlsEngine.OnPeerCertificateChain(const AChain, AValidatedPath: TArray<TBytes>);
 begin
   FInfo.PeerCertificates := AChain;
+  FInfo.ValidatedPath := AValidatedPath;
 end;
 
 procedure TTlsEngine.OnRequestedCertificateAuthorities(

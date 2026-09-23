@@ -120,6 +120,7 @@ type
     procedure TestResumptionSameScopeResumes;
     procedure TestMutualAuthTicketReissueCarriesChain;
     procedure TestTicketIssuedUnderDifferentSniFallsBackToFullHandshake;
+    procedure TestExternalPskAcceptedDoesNotSurfaceCachedResumptionChain;
   end;
 
 implementation
@@ -334,6 +335,8 @@ var
   LCache: ISessionCache;
   LStore: ISessionStore;
   LClient, LServer: ITlsEngine;
+  LInfo: TTlsConnectionInfo;
+  LServerCred: TTlsCredential;
 begin
   LCache := TInMemorySessionCache.Create;
   LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
@@ -348,6 +351,11 @@ begin
   CheckFalse(LServer.ConnectionInfo.Resumed, 'the initial server handshake is not resumed');
   CheckEquals(1, LCache.Count, 'the client cached the issued ticket');
   CheckEquals(1, LStore.Count, 'the server stored the resumable session');
+  // on the full handshake the presented server chain and the pipeline-built path demonstrably differ:
+  // a leaf-only credential is presented, but the validated path assembles the anchor beyond it
+  LInfo := LClient.ConnectionInfo;
+  CheckTrue(System.Length(LInfo.ValidatedPath) > System.Length(LInfo.PeerCertificates),
+    'the validated path is longer than the presented server chain on a full handshake');
 
   // second connection: the server has NO credential, so it can only complete by
   // accepting the PSK (a full handshake would need a certificate)
@@ -361,6 +369,16 @@ begin
   CheckTrue(LClient.ConnectionInfo.Resumed, 'the resuming client reports a resumed handshake');
   CheckTrue(LServer.ConnectionInfo.Resumed, 'the resuming server reports a resumed handshake');
   CheckEquals(0, LStore.Count, 'the ticket was consumed (single-use)');
+  // the credential-less server proves the chain came from the ticket: the resumed client surfaces the
+  // stored server chain, and with no re-verification it validates no path here
+  LServerCred := ServerCredential;
+  LInfo := LClient.ConnectionInfo;
+  CheckEquals(1, System.Length(LInfo.PeerCertificates),
+    'the resumed client surfaces the stored server chain from the ticket');
+  CheckEqualBytes('the surfaced server leaf is the server credential leaf',
+    LServerCred.CertificateChain[0], LInfo.PeerCertificates[0]);
+  CheckEquals(0, System.Length(LInfo.ValidatedPath),
+    'a non-reverify resumption validates no path on the client');
   CheckAppDataFlows(LClient, LServer);
 end;
 
@@ -847,7 +865,8 @@ var
   LClientCred: TTlsCredential;
   LClientRoot: TBytes;
   LV: TStringList;
-  LServerInfo: TTlsConnectionInfo;
+  LServerInfo, LClientInfo: TTlsConnectionInfo;
+  LServerCred: TTlsCredential;
 
   function BuildMtlsClient: ITlsEngine;
   var
@@ -944,6 +963,19 @@ begin
     'the resumed connection surfaces the client chain the ticket carried');
   CheckEqualBytes('the surfaced client leaf matches the one presented at full handshake',
     LClientCred.CertificateChain[0], LServerInfo.PeerCertificates[0]);
+  // no client re-verification runs on the resume, so the server validated no path here
+  CheckEquals(0, System.Length(LServerInfo.ValidatedPath),
+    'a non-reverify resumption validates no path on the server');
+  // the resuming client twin: the stored server chain surfaces as the presented chain, and with no
+  // re-verification the client validates no path either
+  LServerCred := ServerCredential;
+  LClientInfo := LClient.ConnectionInfo;
+  CheckEquals(1, System.Length(LClientInfo.PeerCertificates),
+    'the resumed client surfaces the stored leaf-only server chain');
+  CheckEqualBytes('the surfaced server leaf is the server credential leaf',
+    LServerCred.CertificateChain[0], LClientInfo.PeerCertificates[0]);
+  CheckEquals(0, System.Length(LClientInfo.ValidatedPath),
+    'a non-reverify resumption validates no path on the client');
   CheckAppDataFlows(LClient, LServer);
 end;
 
@@ -1045,12 +1077,16 @@ begin
   CheckFalse(LServer.IsTerminal, 'the fallback full handshake did not fail');
   LServerInfo := LServer.ConnectionInfo;
   CheckFalse(LServerInfo.Resumed, 'a Required server declined the identity-less ticket');
-  // the full handshake surfaces the VALIDATED client path (leaf first, with the assembled issuer),
-  // so its leaf is the client's certificate even though the path is longer than the presented one
+  // the full handshake surfaces the presented client chain (the leaf-only credential) and, apart from
+  // it, the validated path the pipeline built (leaf first, with the assembled issuer)
   CheckTrue(System.Length(LServerInfo.PeerCertificates) > 0,
     'the full handshake verified and surfaced the client certificate');
   CheckEqualBytes('the surfaced leaf is the client credential leaf',
     LClientCred.CertificateChain[0], LServerInfo.PeerCertificates[0]);
+  CheckTrue(System.Length(LServerInfo.ValidatedPath) >= 2,
+    'the validated path assembles the issuer beyond the presented leaf');
+  CheckEqualBytes('the validated path leaf is the client credential leaf',
+    LClientCred.CertificateChain[0], LServerInfo.ValidatedPath[0]);
   CheckAppDataFlows(LClient, LServer);
 end;
 
@@ -1272,6 +1308,110 @@ begin
   CheckFalse(LServer.IsHandshaking, 'the guarded handshake completed');
   CheckFalse(LServer.IsTerminal, 'the guarded handshake did not fail');
   CheckFalse(LServer.ConnectionInfo.Resumed, 'a ticket issued under a different host does not resume');
+end;
+
+procedure TTestTls13Resumption.TestExternalPskAcceptedDoesNotSurfaceCachedResumptionChain;
+var
+  LStekA, LStekB: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LPsk: TExternalPsk;
+  LPsks: TArray<TExternalPsk>;
+  LInfo: TTlsConnectionInfo;
+
+  function BuildPskClient: ITlsEngine;
+  var
+    LParams: TClientHandshakeParams;
+  begin
+    LParams := Default(TClientHandshakeParams);
+    LParams.Clock := TSystemClock.Create;
+    LParams.Crypto := Crypto;
+    LParams.Inspector := Pkix.Certificates;
+    LParams.Group := TNamedGroups.CreateX25519(Crypto);
+    LParams.GroupCode := TNamedGroupCatalog.X25519;
+    LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
+    LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+    LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
+    LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+    LParams.ClientRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
+    LParams.LegacySessionId := Filled($33, 32);
+    LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
+      TSystemClock.Create as ITlsClock,
+      TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
+      as ITrustAnchorStore, True) as IServerCertificateVerifier;
+    LParams.ExpectedServerName := TServerName.DnsName(ServerHost);
+    LParams.ServerName := ServerHost;
+    LParams.SessionCache := LCache;
+    // offered alongside the cached resumption ticket: the client presents both in one ClientHello
+    LParams.ExternalPsks := LPsks;
+    Result := TTlsEngine.CreateConfigured(
+      TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
+  end;
+
+  function BuildPskStekServer(const AStek: ISessionTicketKeyManager): ITlsEngine;
+  var
+    LParams: TServerHandshakeParams;
+  begin
+    LParams := Default(TServerHandshakeParams);
+    LParams.Clock := TSystemClock.Create;
+    LParams.Crypto := Crypto;
+    LParams.Inspector := Pkix.Certificates;
+    LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+    LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
+    LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+    LParams.Group := TNamedGroups.CreateX25519(Crypto);
+    LParams.ServerRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
+    // no credential: completing without a certificate proves the peer authenticated via the PSK
+    LParams.SessionTicketKeys := AStek;
+    LParams.IssueTicketCount := 0;
+    LParams.TicketLifetimeSeconds := 7200;
+    LParams.ExternalPsks := LPsks;
+    Result := TTlsEngine.CreateConfigured(
+      TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
+  end;
+
+begin
+  // a cache hit loads the stored server chain for a possible reverify-on-resume, but if the server
+  // then accepts an external PSK (not the resumption ticket) that chain never authenticated this
+  // connection and must not be surfaced on the connection info.
+  LStekA := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LStekB := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LPsk.Identity := DecodeHex('6578742d70736b'); // "ext-psk"
+  LPsk.Secret := TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32));
+  LPsk.Context := nil;
+  LPsk.Hash := THashAlgorithm.SHA_256;
+  LPsks := TArray<TExternalPsk>.Create(LPsk);
+
+  // first connection: a full handshake to a cert-authenticating server. It authenticates by the
+  // certificate, so the cached ticket carries the verified server chain.
+  LClient := NewClient(LCache);
+  LServer := NewStekServer(LStekA, 1, 7200, True);
+  DriveHandshake(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking, 'the initial handshake completed');
+  CheckFalse(LClient.ConnectionInfo.Resumed, 'the initial handshake is a full handshake');
+  CheckEquals(1, LCache.Count, 'the client cached the ticket carrying the server chain');
+
+  // second connection: the client offers BOTH the cached ticket and the external PSK. The resuming
+  // server holds a DIFFERENT STEK, so it cannot open the ticket, but it shares the external PSK, so
+  // it accepts that instead. The credential-less server completing proves the external PSK was
+  // accepted (no certificate path available).
+  LClient := BuildPskClient;
+  LServer := BuildPskStekServer(LStekB);
+  DriveHandshake(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking, 'the second handshake completed');
+  CheckFalse(LClient.IsTerminal, 'the second handshake did not fail');
+  CheckFalse(LServer.IsHandshaking, 'the credential-less server completed via the external PSK');
+  CheckFalse(LServer.IsTerminal, 'the external-PSK server did not fail');
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'the client negotiated a PSK');
+  // the accepted PSK is external, so the cached resumption chain did not authenticate this
+  // connection and must not leak onto the connection info
+  LInfo := LClient.ConnectionInfo;
+  CheckEquals(0, System.Length(LInfo.PeerCertificates),
+    'an accepted external PSK does not surface the cached resumption chain');
+  CheckEquals(0, System.Length(LInfo.ValidatedPath),
+    'an accepted external PSK validates no path');
+  CheckAppDataFlows(LClient, LServer);
 end;
 
 initialization
