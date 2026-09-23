@@ -137,7 +137,9 @@ type
     /// <summary>The stapled-OCSP revocation posture (RFC 6960): Soft (default) accepts a
     /// missing or indeterminate staple, Hard requires a current Good one, Off skips the
     /// check. Must-staple (RFC 7633) is enforced only for an initial-handshake server
-    /// certificate the client requested a staple for (WithOcspStaplingRequest).</summary>
+    /// certificate the client requested a staple for (WithOcspStaplingRequest). Under Hard with
+    /// WithResumeVerification(Reverify) and no WithLiveRevocationVerdict, the client declines
+    /// resumption and does a full handshake (a resume carries no staple to check).</summary>
     function WithRevocation(APosture: TRevocationPosture): ITlsClientConfigBuilder;
     /// <summary>SPKI-SHA256 public-key pins: when set, some certificate in the server chain
     /// must match one pin. Augments PKIX validation; never a bypass. Empty disables it.</summary>
@@ -225,7 +227,10 @@ type
     /// <summary>How the client verifies a resumed server: ReuseOriginal (the default) reuses the
     /// original handshake's authentication (RFC 8446 2.2); Reverify re-runs the certificate
     /// verifier against the stored peer chain, for a stricter posture that re-checks a resumed
-    /// server against current trust, at the cost of the verification work on every resume.</summary>
+    /// server against current trust, at the cost of the verification work on every resume. Under
+    /// WithRevocation(Hard) without WithLiveRevocationVerdict a reverified resume could never obtain
+    /// revocation status (a resume carries no staple), so the client offers no resumption and does a
+    /// full handshake instead.</summary>
     function WithResumeVerification(AMode: TResumeVerification): ITlsClientConfigBuilder;
     /// <summary>The TLS 1.3-only settings.</summary>
     function Tls13: ITls13ClientConfigFacet;

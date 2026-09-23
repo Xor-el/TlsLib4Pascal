@@ -32,6 +32,7 @@ uses
   TlpCertificateVerifier,
   TlpServerName,
   TlpTlsAlert,
+  TlpTrustPolicy,
   TlpTlsCredential,
   TlpISession,
   TlpInMemorySessionCache,
@@ -50,8 +51,38 @@ type
     ServerHost = 'localhost';
   var
     FCerts: TStringList;
+    FOcsp: TStringList;
     function ServerCredential: TTlsCredential;
     function ClientTrust: ITrustAnchorStore;
+    /// <summary>One field of the OCSP-stapling fixture (root/issuer/leaf certs, leaf key and the
+    /// Good OCSP response).</summary>
+    function OcspField(const AName: string): TBytes;
+    /// <summary>The stapling server credential: leaf + issuer with a current Good OCSP response
+    /// sealed on it, so a staple-requesting client completes a full handshake under a Hard posture.</summary>
+    function StaplingCredential: TTlsCredential;
+    /// <summary>A TLS 1.3 stapling server that issues AIssueTickets resumable tickets.</summary>
+    function NewStaplingServer13(const AStore: ISessionStore;
+      AIssueTickets: Int32): ITlsEngine;
+    /// <summary>A TLS 1.2 stapling server that resumes by default.</summary>
+    function NewStaplingServer12(const AStore: ISessionStore): ITlsEngine;
+    /// <summary>A permissive (default Soft) TLS 1.3 client that trusts the stapling root and seeds
+    /// the cache.</summary>
+    function NewStaplingSeedClient13(const ACache: ISessionCache;
+      const AScope: TBytes): ITlsEngine;
+    /// <summary>The TLS 1.2 seed client twin.</summary>
+    function NewStaplingSeedClient12(const ACache: ISessionCache;
+      const AScope: TBytes): ITlsEngine;
+    /// <summary>A Hard + Reverify TLS 1.3 client with the given verdict deferral: LiveRevocation
+    /// still offers resumption, None / HostDecision are withheld by the engine factory.</summary>
+    function NewHardReverifyClient13(const ACache: ISessionCache;
+      const AScope: TBytes; ADeferral: TVerdictDeferral): ITlsEngine;
+    /// <summary>The TLS 1.2 Hard + Reverify client twin.</summary>
+    function NewHardReverifyClient12(const ACache: ISessionCache;
+      const AScope: TBytes; ADeferral: TVerdictDeferral): ITlsEngine;
+    /// <summary>A Hard + ReuseOriginal TLS 1.3 client: it never re-verifies on resume, so the
+    /// gate leaves resumption offered.</summary>
+    function NewHardReuseOriginalClient13(const ACache: ISessionCache;
+      const AScope: TBytes): ITlsEngine;
     /// <summary>A TLS 1.3 client engine built through the public config surface. A non-empty
     /// AScope opts the config into sharing sessions with configs given the same scope.</summary>
     function NewClient13(const ACache: ISessionCache; AResumption: Boolean;
@@ -112,6 +143,17 @@ type
     procedure TestTls12ReverifyOnResumeAsyncParkAcceptsCompletes;
     procedure TestTls12ReverifyOnResumeAsyncParkRejectAborts;
     procedure TestTls12ReverifyOnResumeExporterWithheld;
+    // invariants that must not move: a resume that CAN obtain a fresh revocation verdict, or that
+    // never re-verifies, still resumes exactly as before (guards against widening the gate)
+    procedure TestHardReverifyWithLiveVerdictStillResumes;
+    procedure TestTls12HardReverifyWithLiveVerdictStillResumes;
+    procedure TestHardReuseOriginalStillResumes;
+    procedure TestSoftReverifyWithoutLiveVerdictStillResumes;
+    // the fallback: a Hard + Reverify client with no live-revocation channel withholds the
+    // resumption offer and performs a full handshake (which can staple) instead of aborting it
+    procedure TestHardReverifyWithoutLiveVerdictFallsBackToFullHandshake;
+    procedure TestHardReverifyHostDecisionFallsBackToFullHandshake;
+    procedure TestTls12HardReverifyWithoutLiveVerdictFallsBackToFullHandshake;
   end;
 
 implementation
@@ -142,12 +184,145 @@ procedure TTestConfigResumption.SetUp;
 begin
   inherited SetUp;
   FCerts := LoadVectorFields('Certs/EcP256Chain.txt');
+  FOcsp := LoadVectorFields('Certs/OcspStapling.txt');
 end;
 
 procedure TTestConfigResumption.TearDown;
 begin
+  FOcsp.Free;
   FCerts.Free;
   inherited TearDown;
+end;
+
+function TTestConfigResumption.OcspField(const AName: string): TBytes;
+begin
+  Result := DecodeHex(FOcsp.Values[AName]);
+end;
+
+function TTestConfigResumption.StaplingCredential: TTlsCredential;
+begin
+  // leaf + issuer, with a current Good OCSP response sealed on the credential so the server
+  // sends a CertificateStatus when the client requests one
+  Result.CertificateChain := TArray<TBytes>.Create(OcspField('leaf_cert'),
+    OcspField('issuer_cert'));
+  Result.PrivateKey := Crypto.Signing.ImportSigningKey(OcspField('leaf_key'));
+  Result.OcspStaple := OcspField('ocsp_good');
+end;
+
+function TTestConfigResumption.NewStaplingServer13(const AStore: ISessionStore;
+  AIssueTickets: Int32): ITlsEngine;
+var
+  LConfig: ITlsServerConfig;
+begin
+  LConfig := TTlsPresets.Hardened(Crypto, Pkix).Server
+    .WithCredential(StaplingCredential)
+    .WithResumption(True)
+    .WithSessionStore(AStore)
+    .WithTicketCount(AIssueTickets)
+    .Build;
+  Result := TTlsEngineFactory.CreateServerEngine(LConfig);
+end;
+
+function TTestConfigResumption.NewStaplingServer12(
+  const AStore: ISessionStore): ITlsEngine;
+var
+  LConfig: ITlsServerConfig;
+begin
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
+    .WithCredential(StaplingCredential)
+    .WithSessionStore(AStore)
+    .Build;
+  Result := TTlsEngineFactory.CreateServerEngine(LConfig);
+end;
+
+function TTestConfigResumption.NewStaplingSeedClient13(const ACache: ISessionCache;
+  const AScope: TBytes): ITlsEngine;
+var
+  LConfig: ITlsClientConfig;
+begin
+  // permissive: trusts the stapling root and completes a full handshake, caching the ticket the
+  // strict client draws from; the host check is disabled to isolate the resumption behaviour
+  LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
+    .WithTrustAnchors(OcspField('root_cert'))
+    .WithDangerousDisableServerNameCheck
+    .WithResumption(True)
+    .WithSessionCache(ACache, AScope)
+    .Build;
+  Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
+end;
+
+function TTestConfigResumption.NewStaplingSeedClient12(const ACache: ISessionCache;
+  const AScope: TBytes): ITlsEngine;
+var
+  LConfig: ITlsClientConfig;
+begin
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
+    .WithTrustAnchors(OcspField('root_cert'))
+    .WithDangerousDisableServerNameCheck
+    .WithResumption(True)
+    .WithSessionCache(ACache, AScope)
+    .Build;
+  Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
+end;
+
+function TTestConfigResumption.NewHardReverifyClient13(const ACache: ISessionCache;
+  const AScope: TBytes; ADeferral: TVerdictDeferral): ITlsEngine;
+var
+  LClient: ITlsClientConfigBuilder;
+begin
+  LClient := TTlsPresets.Hardened(Crypto, Pkix).Client
+    .WithTrustAnchors(OcspField('root_cert'))
+    .WithDangerousDisableServerNameCheck
+    .WithOcspStaplingRequest(True)
+    .WithRevocation(TRevocationPosture.Hard)
+    .WithResumeVerification(TResumeVerification.Reverify)
+    .WithResumption(True)
+    .WithSessionCache(ACache, AScope);
+  if ADeferral = TVerdictDeferral.LiveRevocation then
+    LClient.WithLiveRevocationVerdict(0)
+  else if ADeferral = TVerdictDeferral.HostDecision then
+    LClient.WithAsyncCertificateVerdict(True, 0);
+  Result := TTlsEngineFactory.CreateClientEngine(LClient.Build, ServerHost);
+end;
+
+function TTestConfigResumption.NewHardReverifyClient12(const ACache: ISessionCache;
+  const AScope: TBytes; ADeferral: TVerdictDeferral): ITlsEngine;
+var
+  LClient: ITlsClientConfigBuilder;
+begin
+  LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
+    .WithTrustAnchors(OcspField('root_cert'))
+    .WithDangerousDisableServerNameCheck
+    .WithOcspStaplingRequest(True)
+    .WithRevocation(TRevocationPosture.Hard)
+    .WithResumeVerification(TResumeVerification.Reverify)
+    .WithResumption(True)
+    .WithSessionCache(ACache, AScope);
+  if ADeferral = TVerdictDeferral.LiveRevocation then
+    LClient.WithLiveRevocationVerdict(0)
+  else if ADeferral = TVerdictDeferral.HostDecision then
+    LClient.WithAsyncCertificateVerdict(True, 0);
+  Result := TTlsEngineFactory.CreateClientEngine(LClient.Build, ServerHost);
+end;
+
+function TTestConfigResumption.NewHardReuseOriginalClient13(
+  const ACache: ISessionCache; const AScope: TBytes): ITlsEngine;
+var
+  LConfig: ITlsClientConfig;
+begin
+  // Hard posture but the default ReuseOriginal (no re-verify on resume), so the gate never fires
+  LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
+    .WithTrustAnchors(OcspField('root_cert'))
+    .WithDangerousDisableServerNameCheck
+    .WithOcspStaplingRequest(True)
+    .WithRevocation(TRevocationPosture.Hard)
+    .WithResumption(True)
+    .WithSessionCache(ACache, AScope)
+    .Build;
+  Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
 end;
 
 function TTestConfigResumption.ServerCredential: TTlsCredential;
@@ -905,6 +1080,236 @@ begin
   CheckTrue(LClient.IsHandshaking, 'the parked 1.2 handshake has not completed without a verdict');
   CheckEquals(0, System.Length(LClient.ExportKeyingMaterial('EXPORTER-test',
     DecodeHex('00010203'), True, 32)), 'no export while parked on the reverify verdict');
+end;
+
+procedure TTestConfigResumption.TestHardReverifyWithLiveVerdictStillResumes;
+var
+  LCache: ISessionCache;
+  LScope: TBytes;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+  LBefore: Int32;
+begin
+  // a live-revocation deferral gives the reverified resume a fresh channel, so a Hard client with
+  // WithLiveRevocationVerdict still resumes: the resume re-checks inline (accepts) then parks for
+  // the live verdict, which the accepted resolution clears. Guards the gate from widening to
+  // posture alone.
+  LCache := TInMemorySessionCache.Create;
+  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+
+  LClient := NewStaplingSeedClient13(LCache, LScope);
+  LServer := NewStaplingServer13(LStore, 1);
+  PumpToCompletion(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking, 'the seed full handshake completed');
+  CheckTrue(LCache.Count >= 1, 'the seed client cached a session');
+
+  LBefore := LCache.Count;
+  LClient := NewHardReverifyClient13(LCache, LScope, TVerdictDeferral.LiveRevocation);
+  LServer := NewStaplingServer13(LStore, 0);
+  PumpToCompletionResolving(LClient, LServer, True, TTlsAlertDescription.BadCertificate);
+  CheckEquals(LBefore - 1, LCache.Count, 'the client drew the cached session to resume it');
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'Hard + Reverify + LiveRevocation still resumes');
+  CheckFalse(LClient.IsHandshaking, 'the resumed handshake completed after the accepted park');
+  CheckFalse(LClient.IsTerminal, 'an accepted live verdict did not abort');
+end;
+
+procedure TTestConfigResumption.TestTls12HardReverifyWithLiveVerdictStillResumes;
+var
+  LCache: ISessionCache;
+  LScope: TBytes;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+begin
+  // the TLS 1.2 twin: a Hard + Reverify + LiveRevocation client resumes the abbreviated handshake,
+  // re-checks inline, parks for the live verdict, and completes on the accepted resolution
+  LCache := TInMemorySessionCache.Create;
+  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+
+  LClient := NewStaplingSeedClient12(LCache, LScope);
+  LServer := NewStaplingServer12(LStore);
+  PumpToCompletion(LClient, LServer);
+  CheckEquals(1, LCache.Count, 'the seed 1.2 client cached a session');
+
+  LClient := NewHardReverifyClient12(LCache, LScope, TVerdictDeferral.LiveRevocation);
+  LServer := NewStaplingServer12(LStore);
+  PumpToCompletionResolving(LClient, LServer, True, TTlsAlertDescription.BadCertificate);
+  // the abbreviated resume completes, so the server re-issues a ticket the client re-caches;
+  // ConnectionInfo.Resumed (not the cache count) is the resume tell here
+  CheckTrue(LClient.ConnectionInfo.Resumed,
+    '1.2 Hard + Reverify + LiveRevocation still resumes');
+  CheckFalse(LClient.IsHandshaking, 'the resumed 1.2 handshake completed after the accepted park');
+  CheckFalse(LClient.IsTerminal, 'an accepted live verdict did not abort');
+end;
+
+procedure TTestConfigResumption.TestHardReuseOriginalStillResumes;
+var
+  LCache: ISessionCache;
+  LScope: TBytes;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+  LBefore: Int32;
+begin
+  // ReuseOriginal never re-verifies on resume (a resumption sends no certificate), so a Hard
+  // posture has nothing to satisfy: the gate is on Reverify only, and this still resumes
+  LCache := TInMemorySessionCache.Create;
+  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+
+  LClient := NewStaplingSeedClient13(LCache, LScope);
+  LServer := NewStaplingServer13(LStore, 1);
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LCache.Count >= 1, 'the seed client cached a session');
+
+  LBefore := LCache.Count;
+  LClient := NewHardReuseOriginalClient13(LCache, LScope);
+  LServer := NewStaplingServer13(LStore, 0);
+  PumpToCompletion(LClient, LServer);
+  CheckEquals(LBefore - 1, LCache.Count, 'the client drew the cached session to resume it');
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'Hard + ReuseOriginal still resumes');
+  CheckFalse(LClient.IsTerminal, 'the ReuseOriginal resume did not abort');
+end;
+
+procedure TTestConfigResumption.TestSoftReverifyWithoutLiveVerdictStillResumes;
+var
+  LCache: ISessionCache;
+  LScope: TBytes;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+  LConfig: ITlsClientConfig;
+  LBefore: Int32;
+begin
+  // a Soft posture accepts an indeterminate (unstapled) resume inline, so a Soft + Reverify client
+  // with no live deferral still resumes: the gate is Hard-only
+  LCache := TInMemorySessionCache.Create;
+  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+
+  LClient := NewStaplingSeedClient13(LCache, LScope);
+  LServer := NewStaplingServer13(LStore, 1);
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LCache.Count >= 1, 'the seed client cached a session');
+
+  LBefore := LCache.Count;
+  // Soft (the default posture) + Reverify, no live deferral
+  LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
+    .WithTrustAnchors(OcspField('root_cert'))
+    .WithDangerousDisableServerNameCheck
+    .WithResumeVerification(TResumeVerification.Reverify)
+    .WithResumption(True)
+    .WithSessionCache(LCache, LScope)
+    .Build;
+  LClient := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
+  LServer := NewStaplingServer13(LStore, 0);
+  PumpToCompletion(LClient, LServer);
+  CheckEquals(LBefore - 1, LCache.Count, 'the client drew the cached session to resume it');
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'Soft + Reverify (no live verdict) still resumes');
+  CheckFalse(LClient.IsTerminal, 'the Soft reverify resume did not abort');
+end;
+
+procedure TTestConfigResumption.TestHardReverifyWithoutLiveVerdictFallsBackToFullHandshake;
+var
+  LCache: ISessionCache;
+  LScope: TBytes;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+  LBefore: Int32;
+begin
+  // a Hard + Reverify client with no live-revocation channel could never obtain a fresh verdict on
+  // a resume (no staple travels), so the engine withholds the offer: a full handshake runs instead
+  // (the server staples a Good response, satisfying Hard), the cached session is never drawn, and
+  // ConnectionInfo reports no resumption. A second connection behaves identically - no flip-flop.
+  LCache := TInMemorySessionCache.Create;
+  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+
+  LClient := NewStaplingSeedClient13(LCache, LScope);
+  LServer := NewStaplingServer13(LStore, 2);
+  PumpToCompletion(LClient, LServer);
+  LBefore := LCache.Count;
+  CheckTrue(LBefore >= 1, 'the seed client cached a session');
+
+  LClient := NewHardReverifyClient13(LCache, LScope, TVerdictDeferral.None);
+  LServer := NewStaplingServer13(LStore, 0);
+  PumpToCompletion(LClient, LServer);
+  CheckEquals(LBefore, LCache.Count,
+    'the gated client never drew the cached session (no resumption offered)');
+  CheckFalse(LClient.ConnectionInfo.Resumed, 'the gated client ran a full handshake');
+  CheckFalse(LClient.IsHandshaking, 'the full handshake completed');
+  CheckFalse(LClient.IsTerminal, 'the Good staple satisfied Hard on the full handshake');
+  CheckAppDataFlows(LClient, LServer);
+
+  // a second connection with another gated client is still full and still completes
+  LClient := NewHardReverifyClient13(LCache, LScope, TVerdictDeferral.None);
+  LServer := NewStaplingServer13(LStore, 0);
+  PumpToCompletion(LClient, LServer);
+  CheckEquals(LBefore, LCache.Count, 'the second connection also drew nothing');
+  CheckFalse(LClient.ConnectionInfo.Resumed, 'the second connection is also a full handshake');
+  CheckFalse(LClient.IsTerminal, 'the second full handshake completed (no flip-flop)');
+end;
+
+procedure TTestConfigResumption.TestHardReverifyHostDecisionFallsBackToFullHandshake;
+var
+  LCache: ISessionCache;
+  LScope: TBytes;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+  LBefore: Int32;
+begin
+  // HostDecision cannot settle revocation on a resume either, so the offer is withheld: the full
+  // handshake runs its ordinary initial-cert host-decision park, which the accepted verdict clears
+  LCache := TInMemorySessionCache.Create;
+  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+
+  LClient := NewStaplingSeedClient13(LCache, LScope);
+  LServer := NewStaplingServer13(LStore, 2);
+  PumpToCompletion(LClient, LServer);
+  LBefore := LCache.Count;
+  CheckTrue(LBefore >= 1, 'the seed client cached a session');
+
+  LClient := NewHardReverifyClient13(LCache, LScope, TVerdictDeferral.HostDecision);
+  LServer := NewStaplingServer13(LStore, 0);
+  PumpToCompletionResolving(LClient, LServer, True, TTlsAlertDescription.BadCertificate);
+  CheckEquals(LBefore, LCache.Count,
+    'the gated client never drew the cached session (no resumption offered)');
+  CheckFalse(LClient.ConnectionInfo.Resumed, 'the gated client ran a full handshake');
+  CheckFalse(LClient.IsHandshaking, 'the full handshake completed after the host-decision park');
+  CheckFalse(LClient.IsTerminal, 'the accepted host decision did not abort');
+end;
+
+procedure TTestConfigResumption.TestTls12HardReverifyWithoutLiveVerdictFallsBackToFullHandshake;
+var
+  LCache: ISessionCache;
+  LScope: TBytes;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+  LBefore: Int32;
+begin
+  // the TLS 1.2 twin: the gated client withholds the session_ticket offer, so the server flight
+  // carries a full Certificate (the abbreviated-vs-full tell), the cached session is untouched,
+  // and ConnectionInfo reports no resumption
+  LCache := TInMemorySessionCache.Create;
+  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+
+  LClient := NewStaplingSeedClient12(LCache, LScope);
+  LServer := NewStaplingServer12(LStore);
+  PumpToCompletion(LClient, LServer);
+  LBefore := LCache.Count;
+  CheckTrue(LBefore >= 1, 'the seed 1.2 client cached a session');
+
+  LClient := NewHardReverifyClient12(LCache, LScope, TVerdictDeferral.None);
+  LServer := NewStaplingServer12(LStore);
+  CheckTrue(DriveObservingServerCert(LClient, LServer),
+    'the gated 1.2 client ran a full handshake (the server sent a Certificate)');
+  CheckEquals(LBefore, LCache.Count,
+    'the gated 1.2 client never drew the cached session (no resumption offered)');
+  CheckFalse(LClient.ConnectionInfo.Resumed, 'the gated 1.2 client did not resume');
+  CheckFalse(LClient.IsTerminal, 'the Good staple satisfied Hard on the full 1.2 handshake');
+  CheckFalse(LClient.IsHandshaking, 'the gated 1.2 client completed the full handshake');
+  CheckAppDataFlows(LClient, LServer);
 end;
 
 initialization

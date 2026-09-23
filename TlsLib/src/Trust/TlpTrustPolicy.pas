@@ -62,6 +62,11 @@ type
     /// untouched on True.</summary>
     class function Decide(AOutcome: TLiveRevocationOutcome; APosture: TRevocationPosture;
       ADeferToLive: Boolean; out AAlert: TTlsAlertDescription): Boolean; static;
+    /// <summary>True when a Hard posture can only be satisfied by a live-revocation verdict: an
+    /// indeterminate outcome (no staple) is decided inline by posture unless deferred to a live
+    /// check, so an undeferred Hard rejects every staple-less peer.</summary>
+    class function HardNeedsLiveRevocation(APosture: TRevocationPosture;
+      ADeferToLive: Boolean): Boolean; static;
   end;
 
   /// <summary>
@@ -274,6 +279,12 @@ begin
     if not Result then
       AAlert := TTlsAlertDescription.BadCertificateStatusResponse;
   end;
+end;
+
+class function TRevocationDecision.HardNeedsLiveRevocation(APosture: TRevocationPosture;
+  ADeferToLive: Boolean): Boolean;
+begin
+  Result := (APosture = TRevocationPosture.Hard) and (not ADeferToLive);
 end;
 
 end.

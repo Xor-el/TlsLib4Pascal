@@ -294,7 +294,10 @@ requires a current Good staple, and is enforced only for an initial-handshake se
 the client requested a staple for (`WithOcspStaplingRequest`) — never deferred. An app that
 previously paired `WithRevocation(Hard)` with `WithAsyncCertificateVerdict` and a live checker
 should switch to `WithLiveRevocationVerdict` (Build now refuses a Hard client that has neither a
-staple request nor live-revocation deferral).
+staple request nor live-revocation deferral). On resumption this is decisive: a `Hard` client with
+`WithResumeVerification(Reverify)` but no `WithLiveRevocationVerdict` can never obtain revocation
+status for a resumed server (a resume carries no staple), so it offers no resumption and does a full
+handshake instead — the connection still succeeds, it just does not abbreviate.
 
 ### OS-native live revocation (opt-in, Windows + Apple)
 

@@ -75,6 +75,10 @@ type
       const ACodes: TArray<UInt16>): TArray<UInt16>; static;
     class function Offers(const AConfig: ITlsCommonConfig;
       AVersion: UInt16): Boolean; static;
+    /// <summary>Whether a cached session may be offered for resumption: a reverified resume carries
+    /// no staple, so a Hard posture with no live-revocation deferral would reject every resumed
+    /// server. Withholding the offer yields a full handshake, which can staple.</summary>
+    class function OffersResumption(const AConfig: ITlsClientConfig): Boolean; static;
   public
     /// <summary>The advertised signature-scheme codepoints for a config's registry, in order -
     /// the same set the trust context carries, so an out-of-band resolver built from the config
@@ -201,6 +205,15 @@ begin
   Result := TArrayUtilities.Contains<UInt16>(AConfig.SupportedVersions, AVersion);
 end;
 
+class function TTlsEngineFactory.OffersResumption(
+  const AConfig: ITlsClientConfig): Boolean;
+begin
+  Result := AConfig.Resumption and (AConfig.SessionCache <> nil) and not
+    ((AConfig.ResumeVerification = TResumeVerification.Reverify) and
+    TRevocationDecision.HardNeedsLiveRevocation(AConfig.RevocationPosture,
+    AConfig.AsyncCertificateVerdict.Deferral = TVerdictDeferral.LiveRevocation));
+end;
+
 class function TTlsEngineFactory.CreateClientEngine(
   const AConfig: ITlsClientConfig; const AHost: string): ITlsEngine;
 var
@@ -211,7 +224,7 @@ var
   LTrustContext, LResumeContext: TServerTrustContext;
   LServerName: TServerName;
   LDeferral: TVerdictDeferral;
-  LOffers13, LOffers12, LAsyncVerdict: Boolean;
+  LOffers13, LOffers12, LAsyncVerdict, LOffersResumption: Boolean;
   LMachine: IHandshakeMachine;
 begin
   LOffers13 := Offers(AConfig, TlsWireVersionTls13);
@@ -254,8 +267,9 @@ begin
   // reverify-on-resume re-checks the stored chain, which carries no Certificate and no fresh
   // staple: a second verifier built for the Resumption occasion so must-staple never fires on a
   // resume. Built only when a resume can actually reverify (composed with the same pins).
+  LOffersResumption := OffersResumption(AConfig);
   LResumeVerifier := nil;
-  if AConfig.Resumption and (AConfig.SessionCache <> nil) and
+  if LOffersResumption and
     (AConfig.ResumeVerification = TResumeVerification.Reverify) then
   begin
     LResumeContext := LTrustContext;
@@ -347,7 +361,7 @@ begin
   // cached session and offers it. In a dual-version client the 1.3 machine draws (preferring
   // a 1.3 ticket, else offering a cached 1.2 session it hands to the 1.2 machine); either
   // way the 1.2 machine still needs the cache to store completed 1.2 sessions, so wire both.
-  if AConfig.Resumption and (AConfig.SessionCache <> nil) then
+  if LOffersResumption then
   begin
     if LOffers13 then
     begin
