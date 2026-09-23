@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fails when two interfaces share the same IID GUID. A duplicate interface GUID makes
-# Supports / QueryInterface resolve to the wrong interface (the latent landmine BL-6
-# fixed), so this fast CI guard keeps every interface IID globally unique.
+# Supports / QueryInterface resolve to the wrong interface - a real defect this codebase
+# has hit, so this fast CI guard keeps every interface IID globally unique.
 #
 # Scope: every *.pas in the repo (an IID must be unique everywhere - a test interface
 # colliding with a production one is just as broken), minus the editor __history backups.
