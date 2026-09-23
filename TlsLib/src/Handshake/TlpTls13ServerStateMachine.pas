@@ -429,6 +429,8 @@ resourcestring
   SGroupNotResolvable = 'the selected named group is not in the group registry';
   SGroupsKeyShareMismatch =
     'supported_groups and key_share must both be present or both absent';
+  SMissingSupportedGroups =
+    'a non-PSK ClientHello must offer supported_groups (RFC 8446 9.2)';
   SNoSignatureAlgorithms = 'the client offered no signature_algorithms';
   SNoCompatibleScheme = 'the server credential cannot satisfy the client signature_algorithms';
   SBadClientFinished = 'the client Finished did not verify';
@@ -609,6 +611,14 @@ begin
     AContext.WasOffered(TExtensionTypes.KeyShare) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.MissingExtension, @SGroupsKeyShareMismatch);
+
+  // a ClientHello without a pre_shared_key offer MUST carry supported_groups (RFC 8446 9.2);
+  // omitting it together with key_share (so the XOR above passes) is missing_extension, not a
+  // later group-selection handshake_failure
+  if (System.Length(AContext.OfferedPskIdentities) = 0) and
+    not AContext.WasOffered(TExtensionTypes.SupportedGroups) then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.MissingExtension, @SMissingSupportedGroups);
 
   // capture the client's SNI host_name up front (RFC 6066 3): it drives the certificate
   // selection on the non-PSK path below and guards resumption against a host mismatch, both of
