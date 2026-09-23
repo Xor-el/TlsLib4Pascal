@@ -36,8 +36,7 @@ type
 
   /// <summary>
   /// Drives a sans-IO ITlsEngine over a blocking ITlsTransport: flush outbound,
-  /// read inbound, repeat. It is the loopback-test pump with an ITlsTransport in place
-  /// of the peer engine; the deferred certificate verdict resolves inline here (the
+  /// read inbound, repeat. The deferred certificate verdict resolves inline here (the
   /// engine's trust pipeline runs synchronously while ProcessInput drives the handshake).
   /// A fatal outcome raises ETlsStreamError; a transport EOF mid-handshake raises
   /// ETlsTransportTruncated.
