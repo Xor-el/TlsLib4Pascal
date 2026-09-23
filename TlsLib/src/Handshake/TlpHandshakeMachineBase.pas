@@ -86,8 +86,10 @@ type
     /// supply the continuation by overriding ContinueAfterVerdict.</summary>
     function ResumeAfterVerdict: TArray<THandshakeEffect>;
     /// <summary>No exporter until a machine derives its secrets; concrete versions override.</summary>
+    function ExportKeyingMaterial(const ALabel: string;
+      ALength: Int32): TBytes; overload; virtual;
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
-      AUseContext: Boolean; ALength: Int32): TBytes; virtual;
+      ALength: Int32): TBytes; overload; virtual;
     /// <summary>No exporter available by default; concrete versions override.</summary>
     function CanExportKeyingMaterial: Boolean; virtual;
   end;
@@ -170,7 +172,13 @@ begin
 end;
 
 function THandshakeMachineBase.ExportKeyingMaterial(const ALabel: string;
-  const AContext: TBytes; AUseContext: Boolean; ALength: Int32): TBytes;
+  ALength: Int32): TBytes;
+begin
+  Result := nil;
+end;
+
+function THandshakeMachineBase.ExportKeyingMaterial(const ALabel: string;
+  const AContext: TBytes; ALength: Int32): TBytes;
 begin
   Result := nil;
 end;

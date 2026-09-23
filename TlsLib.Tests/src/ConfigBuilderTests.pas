@@ -619,7 +619,7 @@ begin
       .WithPeerAuth(TClientAuthMode.Required)
       .WithTrustStore(ClientTrust)
       .WithRevocation(TRevocationPosture.Hard)
-      .WithAsyncCertificateVerdict(True, 0)
+      .WithAsyncCertificateVerdict(0)
       .Build;
   except
     on EInvalidOperationTlsLibException do
@@ -650,7 +650,7 @@ begin
     TTlsPresets.Compatible(Crypto, Pkix).Client
       .WithTrustStore(ClientTrust)
       .WithRevocation(TRevocationPosture.Hard)
-      .WithAsyncCertificateVerdict(True, 0)
+      .WithAsyncCertificateVerdict(0)
       .Build;
   except
     on EInvalidOperationTlsLibException do
@@ -681,7 +681,7 @@ var
 begin
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithTrustStore(ClientTrust)
-    .WithAsyncCertificateVerdict(True, 0)
+    .WithAsyncCertificateVerdict(0)
     .Build;
   CheckEquals(Ord(TVerdictDeferral.HostDecision),
     Ord(LConfig.AsyncCertificateVerdict.Deferral),

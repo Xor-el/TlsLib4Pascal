@@ -71,8 +71,10 @@ type
     /// <summary>Forwards a resume-after-verdict continuation to the resolved sub-machine.</summary>
     function ResumeAfterVerdict: TArray<THandshakeEffect>;
     /// <summary>Forwards an exporter request to the resolved sub-machine.</summary>
+    function ExportKeyingMaterial(const ALabel: string;
+      ALength: Int32): TBytes; overload;
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
-      AUseContext: Boolean; ALength: Int32): TBytes;
+      ALength: Int32): TBytes; overload;
     function CanExportKeyingMaterial: Boolean;
   end;
 
@@ -198,11 +200,20 @@ begin
 end;
 
 function TVersionDispatchMachineBase.ExportKeyingMaterial(const ALabel: string;
-  const AContext: TBytes; AUseContext: Boolean; ALength: Int32): TBytes;
+  ALength: Int32): TBytes;
 begin
   // only meaningful once a version was resolved and its secrets derived
   if FInner <> nil then
-    Result := FInner.ExportKeyingMaterial(ALabel, AContext, AUseContext, ALength)
+    Result := FInner.ExportKeyingMaterial(ALabel, ALength)
+  else
+    Result := nil;
+end;
+
+function TVersionDispatchMachineBase.ExportKeyingMaterial(const ALabel: string;
+  const AContext: TBytes; ALength: Int32): TBytes;
+begin
+  if FInner <> nil then
+    Result := FInner.ExportKeyingMaterial(ALabel, AContext, ALength)
   else
     Result := nil;
 end;

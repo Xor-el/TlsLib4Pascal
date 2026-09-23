@@ -29,15 +29,18 @@ type
   /// <summary>
   /// The process command-line arguments, read so that raw bytes survive. The BoGo
   /// runner passes some flag values as length-prefixed wire octets (e.g. an ALPN list
-  /// <c>#3'foo'#3'bar'</c>), whose control-byte prefixes FPC's ParamStr drops on Windows
-  /// (it routes the command line through a text codepage). On Windows this reads the raw
-  /// UTF-16 command line via CommandLineToArgvW and maps each code unit straight to a
-  /// byte; elsewhere it defers to ParamStr. Indexing matches ParamStr: 0 is the program.
+  /// <c>#3'foo'#3'bar'</c>). Both compilers' ParamStr split the command line at every byte
+  /// <= #32, so an unquoted length-prefix octet splits the value it belongs to. On Windows
+  /// this instead reads the raw UTF-16 command line via CommandLineToArgvW (which splits
+  /// only at space/tab, matching how the runner quoted it) and maps each code unit straight
+  /// to a byte; elsewhere it defers to ParamStr. Indexing matches ParamStr: 0 is the
+  /// program.
   /// </summary>
   TInteropArgs = class sealed(TObject)
   strict private
     class var FArgs: TArray<string>;
     class var FLoaded: Boolean;
+    class procedure LoadFromParamStr; static;
     class procedure EnsureLoaded; static;
   public
     /// <summary>The argument count, excluding the program name (like ParamCount).</summary>
@@ -76,11 +79,8 @@ type
 implementation
 
 {$IFDEF MSWINDOWS}
-type
-  PPWideChar = ^PWideChar;
-
-// pulled in directly (not via the Windows unit, whose GetEnvironmentVariable overload
-// would shadow the SysUtils one this unit relies on)
+// declared here rather than via the Windows/ShellAPI units: the two RTLs disagree on the
+// CommandLineToArgvW and LocalFree signatures, so one local declaration serves both
 function GetCommandLineW: PWideChar; stdcall;
   external 'kernel32' name 'GetCommandLineW';
 function CommandLineToArgvW(ALine: PWideChar; var ANumArgs: Integer): PPWideChar; stdcall;
@@ -91,10 +91,20 @@ function LocalFree(AMem: Pointer): Pointer; stdcall;
 
 { TInteropArgs }
 
+class procedure TInteropArgs.LoadFromParamStr;
+var
+  LI: Integer;
+begin
+  SetLength(FArgs, ParamCount + 1);
+  for LI := 0 to ParamCount do
+    FArgs[LI] := ParamStr(LI);
+  FLoaded := True;
+end;
+
 class procedure TInteropArgs.EnsureLoaded;
 {$IFDEF MSWINDOWS}
 var
-  LArgv: PPWideChar;
+  LArgv, LNext: PPWideChar;
   LArgc, LI, LJ: Integer;
   LWide: PWideChar;
   LArg: string;
@@ -102,49 +112,43 @@ begin
   if FLoaded then
     Exit;
   // read the raw UTF-16 command line and split it with the same rules the runner's Go
-  // exec quoted it under (CommandLineToArgvW), then map each code unit to a single byte -
-  // the length-prefix octets the ALPN/QUIC wire flags carry survive intact, whereas the
-  // codepage ParamStr routes through would drop them
+  // exec quoted it under (CommandLineToArgvW, splitting only at space/tab), then map each
+  // code unit to a single byte - the length-prefix octets the ALPN/QUIC wire flags carry
+  // survive intact, whereas ParamStr would split the value at every byte <= #32
   LArgv := CommandLineToArgvW(GetCommandLineW, LArgc);
   if LArgv = nil then
   begin
-    SetLength(FArgs, ParamCount + 1);
-    for LI := 0 to ParamCount do
-      FArgs[LI] := ParamStr(LI);
-    FLoaded := True;
+    LoadFromParamStr;
     Exit;
   end;
   try
     SetLength(FArgs, LArgc);
+    LNext := LArgv;
     for LI := 0 to LArgc - 1 do
     begin
-      LWide := PPWideChar(PByte(LArgv) + LI * SizeOf(PWideChar))^;
+      LWide := LNext^;
+      Inc(LNext);
       LArg := '';
       LJ := 0;
       while LWide[LJ] <> #0 do
       begin
         // low byte only: the wire values are ASCII plus control-byte prefixes (< 0x100)
-        LArg := LArg + Char(Byte(Word(LWide[LJ]) and $FF));
+        LArg := LArg + Char(Ord(LWide[LJ]) and $FF);
         Inc(LJ);
       end;
       FArgs[LI] := LArg;
     end;
   finally
-    LocalFree(Pointer(LArgv));
+    LocalFree(LArgv);
   end;
   FLoaded := True;
 end;
 {$ELSE MSWINDOWS}
-var
-  LI: Integer;
 begin
   if FLoaded then
     Exit;
   // POSIX argv is already raw bytes; ParamStr preserves them
-  SetLength(FArgs, ParamCount + 1);
-  for LI := 0 to ParamCount do
-    FArgs[LI] := ParamStr(LI);
-  FLoaded := True;
+  LoadFromParamStr;
 end;
 {$ENDIF MSWINDOWS}
 

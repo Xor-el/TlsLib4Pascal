@@ -68,6 +68,8 @@ type
     function EpochSecret(AEpoch: TTlsEpoch; ADirection: TTlsDirection): ISecretBuffer;
     function ExpandKey(const ASecret: ISecretBuffer; const ALabel: string;
       ALength: Int32): ISecretBuffer;
+    function DoExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
+      AUseContext: Boolean; ALength: Int32): TBytes;
     class function EchConfirmation(const AHkdf: IHkdf; const ALabel: string;
       const AInnerRandom, ATranscriptHash: TBytes): TBytes; static;
   public
@@ -101,8 +103,10 @@ type
       const ATranscriptHash: TBytes): TBytes;
     function VerifyFinished(ADirection: TTlsDirection;
       const ATranscriptHash, APeerVerifyData: TBytes): Boolean;
+    function ExportKeyingMaterial(const ALabel: string;
+      ALength: Int32): TBytes; overload;
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
-      AUseContext: Boolean; ALength: Int32): TBytes;
+      ALength: Int32): TBytes; overload;
 
     // ITls13KeySchedule
     procedure SetPsk(const APsk: ISecretBuffer);
@@ -392,6 +396,18 @@ begin
 end;
 
 function TTls13KeySchedule.ExportKeyingMaterial(const ALabel: string;
+  ALength: Int32): TBytes;
+begin
+  Result := DoExportKeyingMaterial(ALabel, nil, False, ALength);
+end;
+
+function TTls13KeySchedule.ExportKeyingMaterial(const ALabel: string;
+  const AContext: TBytes; ALength: Int32): TBytes;
+begin
+  Result := DoExportKeyingMaterial(ALabel, AContext, True, ALength);
+end;
+
+function TTls13KeySchedule.DoExportKeyingMaterial(const ALabel: string;
   const AContext: TBytes; AUseContext: Boolean; ALength: Int32): TBytes;
 var
   LDerived: ISecretBuffer;

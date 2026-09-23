@@ -181,9 +181,10 @@ type
     /// CertificateReceived event for an out-of-band decision, resumed with the engine's
     /// SetCertificateVerdict. Augment-only and fail-closed; it does not change how an
     /// indeterminate stapled revocation outcome is decided (the posture still decides that
-    /// inline). ADeadlineMs is the resolver's time budget (the engine owns no timer); 0 imposes no
-    /// budget. Off by default. The last of this and WithLiveRevocationVerdict wins.</summary>
-    function WithAsyncCertificateVerdict(AEnabled: Boolean;
+    /// inline). Calling this arms the park unconditionally; it is off unless called. ADeadlineMs is
+    /// the resolver's time budget (the engine owns no timer); 0 imposes no budget. The last of this
+    /// and WithLiveRevocationVerdict wins.</summary>
+    function WithAsyncCertificateVerdict(
       ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
     /// <summary>Defers an indeterminate stapled revocation outcome to a live OCSP/CRL resolver at
     /// the park (rather than deciding it inline by the posture), so a Hard posture is reachable for
@@ -403,10 +404,11 @@ type
     /// server that requests client authentication: after the built-in pipeline accepts the client
     /// chain the handshake parks for an out-of-band decision, resumed with the engine's
     /// SetCertificateVerdict. Augment-only and fail-closed; it does not change how an indeterminate
-    /// revocation outcome is decided (the posture still decides that inline). ADeadlineMs is the
-    /// resolver's fetch budget (the engine and stream drivers enforce no timer). Off by default.
-    /// The last of this and WithLiveRevocationVerdict wins.</summary>
-    function WithAsyncCertificateVerdict(AEnabled: Boolean;
+    /// revocation outcome is decided (the posture still decides that inline). Calling this arms the
+    /// park unconditionally; it is off unless called. ADeadlineMs is the resolver's fetch budget
+    /// (the engine and stream drivers enforce no timer). The last of this and
+    /// WithLiveRevocationVerdict wins.</summary>
+    function WithAsyncCertificateVerdict(
       ADeadlineMs: Cardinal): ITlsServerConfigBuilder;
     /// <summary>Defers an indeterminate client-certificate revocation outcome to a live OCSP/CRL
     /// resolver at the park (rather than deciding it inline by the posture). A client certificate is

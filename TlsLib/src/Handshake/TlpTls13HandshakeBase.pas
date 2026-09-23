@@ -65,8 +65,10 @@ type
     /// KeyUpdate + a write rekey) and clears the flag; the engine flushes this just before
     /// the next application write, so exactly one response precedes our next data.</summary>
     function TakePendingKeyUpdate: TArray<THandshakeEffect>; override;
+    function ExportKeyingMaterial(const ALabel: string;
+      ALength: Int32): TBytes; overload; override;
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
-      AUseContext: Boolean; ALength: Int32): TBytes; override;
+      ALength: Int32): TBytes; overload; override;
     function CanExportKeyingMaterial: Boolean; override;
   end;
 
@@ -154,13 +156,22 @@ begin
 end;
 
 function TTls13HandshakeBase.ExportKeyingMaterial(const ALabel: string;
-  const AContext: TBytes; AUseContext: Boolean; ALength: Int32): TBytes;
+  ALength: Int32): TBytes;
 begin
   // query and operation agree: nothing to export until the secret is available (and not withheld)
   Result := nil;
   if not CanExportKeyingMaterial then
     Exit;
-  Result := FSchedule.ExportKeyingMaterial(ALabel, AContext, AUseContext, ALength);
+  Result := FSchedule.ExportKeyingMaterial(ALabel, ALength);
+end;
+
+function TTls13HandshakeBase.ExportKeyingMaterial(const ALabel: string;
+  const AContext: TBytes; ALength: Int32): TBytes;
+begin
+  Result := nil;
+  if not CanExportKeyingMaterial then
+    Exit;
+  Result := FSchedule.ExportKeyingMaterial(ALabel, AContext, ALength);
 end;
 
 end.

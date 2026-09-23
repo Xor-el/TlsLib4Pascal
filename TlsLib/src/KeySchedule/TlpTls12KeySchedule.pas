@@ -56,6 +56,8 @@ type
       const ASeed: TBytes; ALength: Int32): ISecretBuffer;
     procedure DeriveMaster(const ALabel: string; const ASeed: TBytes);
     procedure GuardMaster;
+    function DoExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
+      AUseContext: Boolean; ALength: Int32): TBytes;
   public
     /// <summary>AHash is the PRF hash; AKeyLength the AEAD key size; AAead selects the
     /// implicit-nonce length from the key_block - a 4-byte salt for AES-GCM (RFC 5288) or
@@ -69,8 +71,10 @@ type
       const ATranscriptHash: TBytes): TBytes;
     function VerifyFinished(ADirection: TTlsDirection;
       const ATranscriptHash, APeerVerifyData: TBytes): Boolean;
+    function ExportKeyingMaterial(const ALabel: string;
+      ALength: Int32): TBytes; overload;
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
-      AUseContext: Boolean; ALength: Int32): TBytes;
+      ALength: Int32): TBytes; overload;
 
     // ITls12KeySchedule
     procedure SetPreMasterSecret(const APreMasterSecret: ISecretBuffer);
@@ -227,6 +231,18 @@ begin
 end;
 
 function TTls12KeySchedule.ExportKeyingMaterial(const ALabel: string;
+  ALength: Int32): TBytes;
+begin
+  Result := DoExportKeyingMaterial(ALabel, nil, False, ALength);
+end;
+
+function TTls12KeySchedule.ExportKeyingMaterial(const ALabel: string;
+  const AContext: TBytes; ALength: Int32): TBytes;
+begin
+  Result := DoExportKeyingMaterial(ALabel, AContext, True, ALength);
+end;
+
+function TTls12KeySchedule.DoExportKeyingMaterial(const ALabel: string;
   const AContext: TBytes; AUseContext: Boolean; ALength: Int32): TBytes;
 var
   LSeed, LContextLen: TBytes;

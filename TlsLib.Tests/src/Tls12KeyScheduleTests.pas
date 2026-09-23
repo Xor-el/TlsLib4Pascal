@@ -159,8 +159,8 @@ var
 begin
   LSched := NewSchedule;
   LSched.DeriveMasterSecret;
-  LFirst := LSched.ExportKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), True, 32);
-  LSecond := LSched.ExportKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), True, 32);
+  LFirst := LSched.ExportKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), 32);
+  LSecond := LSched.ExportKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), 32);
   CheckEquals(32, System.Length(LFirst), 'requested length honored');
   CheckEqualBytes('exporter is deterministic', LFirst, LSecond);
 end;
@@ -176,11 +176,11 @@ begin
   LSched := NewSchedule;
   LSched.DeriveMasterSecret;
   LSched.DeriveKeyBlock;
-  LExportBefore := LSched.ExportKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), True, 32);
+  LExportBefore := LSched.ExportKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), 32);
 
   LSched.ForgetHandshakeSecrets;
 
-  LExportAfter := LSched.ExportKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), True, 32);
+  LExportAfter := LSched.ExportKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), 32);
   CheckEqualBytes('exporter unchanged after forget', LExportBefore, LExportAfter);
   CheckTrue(LSched.MasterSecret <> nil, 'master secret retained after forget');
 

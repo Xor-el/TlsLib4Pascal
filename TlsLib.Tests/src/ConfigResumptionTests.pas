@@ -285,7 +285,7 @@ begin
   if ADeferral = TVerdictDeferral.LiveRevocation then
     LClient.WithLiveRevocationVerdict(0)
   else if ADeferral = TVerdictDeferral.HostDecision then
-    LClient.WithAsyncCertificateVerdict(True, 0);
+    LClient.WithAsyncCertificateVerdict(0);
   Result := TTlsEngineFactory.CreateClientEngine(LClient.Build, ServerHost);
 end;
 
@@ -306,7 +306,7 @@ begin
   if ADeferral = TVerdictDeferral.LiveRevocation then
     LClient.WithLiveRevocationVerdict(0)
   else if ADeferral = TVerdictDeferral.HostDecision then
-    LClient.WithAsyncCertificateVerdict(True, 0);
+    LClient.WithAsyncCertificateVerdict(0);
   Result := TTlsEngineFactory.CreateClientEngine(LClient.Build, ServerHost);
 end;
 
@@ -391,7 +391,7 @@ begin
     .WithTrustStore(ClientTrust)
     .WithResumption(True)
     .WithResumeVerification(TResumeVerification.Reverify)
-    .WithAsyncCertificateVerdict(True, 0)
+    .WithAsyncCertificateVerdict(0)
     .WithSessionCache(ACache, AScope)
     .Build;
   Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
@@ -436,7 +436,7 @@ begin
     .WithTrustStore(ClientTrust)
     .WithResumption(True)
     .WithResumeVerification(TResumeVerification.Reverify)
-    .WithAsyncCertificateVerdict(True, 0)
+    .WithAsyncCertificateVerdict(0)
     .WithSessionCache(ACache, AScope)
     .Build;
   Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
@@ -969,7 +969,7 @@ begin
   // the exporter is withheld while parked, even though the secret is derived - no keying
   // material is exported over an unverified resumed identity
   CheckEquals(0, System.Length(LClient.ExportKeyingMaterial('EXPORTER-test',
-    DecodeHex('00010203'), True, 32)), 'no export while parked on the reverify verdict');
+    DecodeHex('00010203'), 32)), 'no export while parked on the reverify verdict');
 
   // accept and complete; the exporter is then available
   LClient.SetCertificateVerdict(True, TTlsAlertDescription.BadCertificate);
@@ -982,7 +982,7 @@ begin
   end;
   CheckFalse(LClient.IsHandshaking, 'the handshake completed after the accepted verdict');
   CheckEquals(32, System.Length(LClient.ExportKeyingMaterial('EXPORTER-test',
-    DecodeHex('00010203'), True, 32)), 'the exporter is available after the peer is accepted');
+    DecodeHex('00010203'), 32)), 'the exporter is available after the peer is accepted');
   // once accepted, the Reverify resume has also validated a path here
   LInfo := LClient.ConnectionInfo;
   CheckTrue(System.Length(LInfo.ValidatedPath) >= 2,
@@ -1133,7 +1133,7 @@ begin
   CheckEqualBytes('the presented chain leaf is the server leaf',
     DecodeHex(FCerts.Values['leaf_cert']), LInfo.PeerCertificates[0]);
   CheckEquals(0, System.Length(LClient.ExportKeyingMaterial('EXPORTER-test',
-    DecodeHex('00010203'), True, 32)), 'no export while parked on the reverify verdict');
+    DecodeHex('00010203'), 32)), 'no export while parked on the reverify verdict');
 end;
 
 procedure TTestConfigResumption.TestHardReverifyWithLiveVerdictStillResumes;

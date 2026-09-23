@@ -64,12 +64,15 @@ type
     /// <summary>Constant-time check of a peer's verify_data against the expected.</summary>
     function VerifyFinished(ADirection: TTlsDirection;
       const ATranscriptHash, APeerVerifyData: TBytes): Boolean;
-    /// <summary>Exported keying material (RFC 8446 7.5 / RFC 5705). AUseContext
-    /// distinguishes a supplied (possibly empty) context from no context at all: in TLS 1.2
-    /// an empty-but-present context contributes a zero-length block to the seed while no
-    /// context contributes nothing, which produce different output (RFC 5705 4).</summary>
+    /// <summary>Exported keying material with no context value (RFC 8446 7.5 / RFC 5705).</summary>
+    function ExportKeyingMaterial(const ALabel: string;
+      ALength: Int32): TBytes; overload;
+    /// <summary>Exported keying material bound to AContext (RFC 8446 7.5 / RFC 5705). A supplied
+    /// context, empty or not, is distinct from no context at all: in TLS 1.2 an empty-but-present
+    /// context contributes a zero-length block to the seed while no context contributes nothing,
+    /// which produce different output (RFC 5705 4).</summary>
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
-      AUseContext: Boolean; ALength: Int32): TBytes;
+      ALength: Int32): TBytes; overload;
     /// <summary>Releases every stage input and intermediate secret the completed handshake no
     /// longer needs, so a later heap disclosure cannot recover the key tree. Keeps only what the
     /// live connection still uses: the TLS 1.3 application traffic secrets (for KeyUpdate), the

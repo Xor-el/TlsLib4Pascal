@@ -182,15 +182,19 @@ type
     function WriteClosed: Boolean;
     /// <summary>The structured error after a Fatal outcome.</summary>
     function LastError: TTlsError;
-    /// <summary>Exported keying material derived from the connection's exporter secret
-    /// (RFC 8446 7.5 / RFC 5705). AUseContext distinguishes a supplied (possibly empty)
-    /// context from no context at all. Available once the exporter secret is derived: for a
+    /// <summary>Exported keying material derived from the connection's exporter secret with no
+    /// context value (RFC 8446 7.5 / RFC 5705). Available once the exporter secret is derived: for a
     /// TLS 1.3 server that is half-RTT (after it sent its Finished) - the value binds the
     /// transcript through the server Finished and so precedes client authentication under
     /// mutual TLS; TLS 1.2 is available only after the handshake completes. Empty before then
     /// (and on a failed connection).</summary>
+    function ExportKeyingMaterial(const ALabel: string;
+      ALength: Int32): TBytes; overload;
+    /// <summary>Exported keying material derived from the connection's exporter secret and bound to
+    /// AContext (RFC 8446 7.5 / RFC 5705). A supplied context, empty or not, is distinct from no
+    /// context at all. Availability matches the no-context overload.</summary>
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
-      AUseContext: Boolean; ALength: Int32): TBytes;
+      ALength: Int32): TBytes; overload;
   end;
 
   /// <summary>

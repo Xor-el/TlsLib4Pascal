@@ -82,8 +82,10 @@ type
     procedure NoteApplicationData;
     /// <summary>Exported keying material from the active machine's secrets (RFC 8446 7.5 /
     /// RFC 5705).</summary>
+    function ExportKeyingMaterial(const ALabel: string;
+      ALength: Int32): TBytes; overload;
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
-      AUseContext: Boolean; ALength: Int32): TBytes;
+      ALength: Int32): TBytes; overload;
     /// <summary>Whether the active machine's exporter secret is available (half-RTT for a
     /// TLS 1.3 server).</summary>
     function CanExportKeyingMaterial: Boolean;
@@ -159,9 +161,15 @@ begin
 end;
 
 function THandshakeConductor.ExportKeyingMaterial(const ALabel: string;
-  const AContext: TBytes; AUseContext: Boolean; ALength: Int32): TBytes;
+  ALength: Int32): TBytes;
 begin
-  Result := FMachine.ExportKeyingMaterial(ALabel, AContext, AUseContext, ALength);
+  Result := FMachine.ExportKeyingMaterial(ALabel, ALength);
+end;
+
+function THandshakeConductor.ExportKeyingMaterial(const ALabel: string;
+  const AContext: TBytes; ALength: Int32): TBytes;
+begin
+  Result := FMachine.ExportKeyingMaterial(ALabel, AContext, ALength);
 end;
 
 function THandshakeConductor.CanExportKeyingMaterial: Boolean;

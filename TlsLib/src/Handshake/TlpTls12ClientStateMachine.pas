@@ -259,8 +259,10 @@ type
     destructor Destroy; override;
     function Initiates: Boolean; override;
     function Start: TArray<THandshakeEffect>; override;
+    function ExportKeyingMaterial(const ALabel: string;
+      ALength: Int32): TBytes; overload; override;
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
-      AUseContext: Boolean; ALength: Int32): TBytes; override;
+      ALength: Int32): TBytes; overload; override;
     function CanExportKeyingMaterial: Boolean; override;
   end;
 
@@ -1150,13 +1152,22 @@ begin
 end;
 
 function TTls12ClientStateMachine.ExportKeyingMaterial(const ALabel: string;
-  const AContext: TBytes; AUseContext: Boolean; ALength: Int32): TBytes;
+  ALength: Int32): TBytes;
 begin
   // TLS 1.2 stays gated on completion (no False Start), so query and operation agree
   Result := nil;
   if Stage <> THandshakeStage.Connected then
     Exit;
-  Result := FSchedule.ExportKeyingMaterial(ALabel, AContext, AUseContext, ALength);
+  Result := FSchedule.ExportKeyingMaterial(ALabel, ALength);
+end;
+
+function TTls12ClientStateMachine.ExportKeyingMaterial(const ALabel: string;
+  const AContext: TBytes; ALength: Int32): TBytes;
+begin
+  Result := nil;
+  if Stage <> THandshakeStage.Connected then
+    Exit;
+  Result := FSchedule.ExportKeyingMaterial(ALabel, AContext, ALength);
 end;
 
 function TTls12ClientStateMachine.CanExportKeyingMaterial: Boolean;

@@ -351,7 +351,7 @@ begin
   // now in half-RTT (its Finished sent, the client Finished not yet processed)
   FSm.ProcessMessage(Msg('client_hello'));
   CheckTrue(FSm.CanExportKeyingMaterial, 'the exporter is available in half-RTT');
-  LExport := FSm.ExportKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), True, 32);
+  LExport := FSm.ExportKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), 32);
   CheckEquals(32, System.Length(LExport),
     'the machine exports keying material in half-RTT');
   FSm.ProcessMessage(Msg('client_finished'));

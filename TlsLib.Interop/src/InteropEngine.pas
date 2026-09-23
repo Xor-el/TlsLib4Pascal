@@ -357,7 +357,7 @@ begin
     // async verdict (-async): park after the pipeline accepts and let the driver resolve the
     // verdict out-of-band. Otherwise -verify-fail installs an augment hook that rejects inline.
     if AOptions.AsyncVerify then
-      LClient.WithAsyncCertificateVerdict(True, 0)
+      LClient.WithAsyncCertificateVerdict(0)
     else if AOptions.VerifyFail then
       LClient.WithCertificateVerifyCallback(GRejecter.Reject);
     // a mutual-TLS client presents its own credential when the server requests one
@@ -435,7 +435,7 @@ begin
       // async verdict (-async) parks after the pipeline accepts the client chain; otherwise
       // -verify-fail rejects it inline through the augment hook
       if AOptions.AsyncVerify then
-        LServer.WithAsyncCertificateVerdict(True, 0)
+        LServer.WithAsyncCertificateVerdict(0)
       else if AOptions.VerifyFail then
         LServer.WithCertificateVerifyCallback(GRejecter.Reject);
     end;
