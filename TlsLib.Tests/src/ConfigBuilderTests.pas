@@ -28,6 +28,7 @@ uses
 {$ENDIF FPC}
   TlpTlsLibExceptions,
   TlpTlsVersion,
+  TlpArrayUtilities,
   TlpICryptoProvider,
   TlpICertificateTrust,
   TlpCertificateVerifier,
@@ -46,6 +47,7 @@ uses
   TlpCryptoDomainTypes,
   TlpEchConfig,
   TlpInMemoryEchKeyStore,
+  TlpTlsConnectionInfo,
   TlpITlsEngine,
   TlpITlsConfigBuilder,
   TlpTlsPresets,
@@ -59,14 +61,18 @@ type
   TTestConfigBuilder = class(TTlsLibAlgorithmTestCase)
   private
     FCerts: TStringList;
+    // the endpoint views hold a raw back-reference to their owner, so a helper that hands back a
+    // view keeps the owning builder alive here for the test's duration
+    FBuilders: TArray<ITlsConfigBuilder>;
     function ServerCredential: TTlsCredential;
     function ClientTrust: ITrustAnchorStore;
     function BuildEchConfigList(AConfigId: Byte; const APublicName: string;
       out APrivateKey: ISecretBuffer): TBytes;
     function BuildClientConfig(const ACryptoProvider: ICryptoProvider): ITlsClientConfig;
     function BuildServerConfig(const ACryptoProvider: ICryptoProvider): ITlsServerConfig;
-    function NewClientBuilder: ITlsConfigBuilder;
-    function NewServerBuilder: ITlsConfigBuilder;
+    function DefaultProfile: TTlsConfigProfile;
+    function NewClientBuilder: ITlsClientConfigBuilder;
+    function NewServerBuilder: ITlsServerConfigBuilder;
     function Drain(const AEngine: ITlsEngine): TBytes;
     procedure Feed(const AEngine: ITlsEngine; const AWire: TBytes);
     procedure RunHandshake(const AClient, AServer: ITlsEngine);
@@ -97,7 +103,6 @@ type
     procedure TestClientBuilderChainBuildsClient;
     procedure TestServerBuilderChainBuildsServer;
     procedure TestVersionFacetForUnofferedVersionIsRefused;
-    procedure TestEndpointViewBackReferenceDoesNotCountOwner;
     procedure TestDefaultRevocationPostureIsSoft;
     procedure TestWithRevocationSetsHardPosture;
     // server-side Hard client-certificate revocation: satisfiable only by a live resolver, so
@@ -129,6 +134,8 @@ type
     // a 1.3 server whose registry holds none of its preferred groups is refused at creation, not
     // left to fault on the first ClientHello
     procedure TestServerWithEmptyGroupIntersectionFailsFast;
+    // the accessors relocated onto the role configs read their builder defaults
+    procedure TestRoleConfigDefaultsForMovedAccessors;
   end;
 
 implementation
@@ -143,6 +150,7 @@ end;
 
 procedure TTestConfigBuilder.TearDown;
 begin
+  FBuilders := nil;
   FCerts.Free;
   inherited TearDown;
 end;
@@ -165,7 +173,7 @@ var
   LBuilder: ITlsConfigBuilder;
 begin
   // assemble a client config straight from the raw builder with the given provider
-  LBuilder := TTlsConfigBuilder.Create(ACryptoProvider, Pkix);
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(ACryptoProvider, Pkix, TTlsConfigProfile.Default);
   Result := LBuilder.Client
     .WithCipherSuites(TCipherSuiteRegistry.CreateDefault(ACryptoProvider))
     .WithSignatureSchemes(TSignatureSchemeRegistry.CreateDefault)
@@ -181,7 +189,7 @@ function TTestConfigBuilder.BuildServerConfig(
 var
   LBuilder: ITlsConfigBuilder;
 begin
-  LBuilder := TTlsConfigBuilder.Create(ACryptoProvider, Pkix);
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(ACryptoProvider, Pkix, TTlsConfigProfile.Default);
   Result := LBuilder.Server
     .WithCipherSuites(TCipherSuiteRegistry.CreateDefault(ACryptoProvider))
     .WithSignatureSchemes(TSignatureSchemeRegistry.CreateDefault)
@@ -227,7 +235,7 @@ begin
   // offers a full (GREASE-bearing) extension set, so this also covers ECH acceptance with
   // GREASE in the inner ClientHello.
   LConfigList := BuildEchConfigList($D4, 'cover.example', LSk);
-  LClientBuilder := TTlsConfigBuilder.Create(Crypto, Pkix);
+  LClientBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LClientConfig := LClientBuilder.Client
     .WithCipherSuites(TCipherSuiteRegistry.CreateDefault(Crypto))
     .WithSignatureSchemes(TSignatureSchemeRegistry.CreateDefault)
@@ -236,7 +244,7 @@ begin
     .WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519))
     .WithTrustStore(ClientTrust)
     .Tls13.WithEncryptedClientHello(LConfigList).Build;
-  LServerBuilder := TTlsConfigBuilder.Create(Crypto, Pkix);
+  LServerBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LServerConfig := LServerBuilder.Server
     .WithCipherSuites(TCipherSuiteRegistry.CreateDefault(Crypto))
     .WithSignatureSchemes(TSignatureSchemeRegistry.CreateDefault)
@@ -260,7 +268,7 @@ begin
   CheckFalse(LServer.IsHandshaking, 'the ECH server completed the handshake');
   CheckFalse(LClient.IsTerminal, 'the ECH client did not abort');
   CheckFalse(LServer.IsTerminal, 'the ECH server did not abort');
-  CheckTrue(LClient.EchStatus = TEchStatus.Accepted,
+  CheckTrue(LClient.ConnectionInfo.EchStatus = TEchStatus.Accepted,
     'the builder-configured connection surfaced ECH Accepted');
   LMsg := DecodeHex('6563682d6f6b'); // "ech-ok"
   LClient.Write(LMsg, 0, System.Length(LMsg));
@@ -276,7 +284,7 @@ begin
   // an empty ECHConfigList with GREASE off would send the true SNI in the clear: reject at Build
   LRaised := False;
   try
-    NewClientBuilder.Client.Tls13.WithEncryptedClientHello(nil).Build;
+    NewClientBuilder.Tls13.WithEncryptedClientHello(nil).Build;
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
@@ -289,7 +297,7 @@ var
   LConfig: ITlsClientConfig;
 begin
   // GREASE with no config list is the explicit GREASE-only mode; it builds
-  LConfig := NewClientBuilder.Client.Tls13.WithEchGrease(True).Build;
+  LConfig := NewClientBuilder.Tls13.WithEchGrease(True).Build;
   CheckTrue(LConfig.EncryptedClientHello <> nil, 'GREASE-only ECH is configured');
   CheckTrue(LConfig.EncryptedClientHello.GreaseEnabled, 'the policy is GREASE-enabled');
   CheckEquals(0, System.Length(LConfig.EncryptedClientHello.Configs),
@@ -302,7 +310,7 @@ var
 begin
   // WithEchGrease(False) with no config list does not configure ECH (it is a no-op, not a
   // fail-closed empty policy), so a caller passing a runtime flag is not surprised by a raise
-  LConfig := NewClientBuilder.Client.Tls13.WithEchGrease(False).Build;
+  LConfig := NewClientBuilder.Tls13.WithEchGrease(False).Build;
   CheckTrue(LConfig.EncryptedClientHello = nil, 'no ECH policy is configured');
 end;
 
@@ -312,7 +320,7 @@ var
   LRaised: Boolean;
   LNone: TArray<UInt16>;
 begin
-  LBuilder := TTlsConfigBuilder.Create(Crypto, Pkix);
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LNone := nil;
   LRaised := False;
   try
@@ -329,7 +337,7 @@ var
   LBuilder: ITlsConfigBuilder;
   LRaised: Boolean;
 begin
-  LBuilder := TTlsConfigBuilder.Create(Crypto, Pkix);
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LRaised := False;
   try
     // TLS 1.0 is not a version the engine can build
@@ -346,7 +354,7 @@ var
   LBuilder: ITlsConfigBuilder;
   LRaised: Boolean;
 begin
-  LBuilder := TTlsConfigBuilder.Create(Crypto, Pkix);
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LRaised := False;
   try
     LBuilder.Client.WithSupportedVersions(
@@ -365,7 +373,7 @@ var
   LMsg: string;
 begin
   // a builder that never called WithSupportedVersions cannot build a machine
-  LBuilder := TTlsConfigBuilder.Create(Crypto, Pkix);
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LRaised := False;
   LMsg := '';
   try
@@ -752,7 +760,7 @@ begin
   LCustom.MaxChainLength := 25;
   LCustom.MaxCertificateLength := 1 shl 17;
   LCustom.MaxTotalChainLength := 1 shl 20;
-  LBuilder := TTlsConfigBuilder.Create(Crypto, Pkix);
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LConfig := LBuilder.Client
     .WithCipherSuites(TCipherSuiteRegistry.CreateDefault(Crypto))
     .WithSignatureSchemes(TSignatureSchemeRegistry.CreateDefault)
@@ -768,33 +776,33 @@ begin
   CheckEquals(1 shl 20, LFrozen.MaxTotalChainLength, 'the tuned total chain length');
 end;
 
-function TTestConfigBuilder.NewClientBuilder: ITlsConfigBuilder;
-var
-  LBuilder: TTlsConfigBuilder;
+function TTestConfigBuilder.DefaultProfile: TTlsConfigProfile;
 begin
-  // common-configured on the shared owner; the caller narrows via .Client
-  LBuilder := TTlsConfigBuilder.Create(Crypto, Pkix);
-  LBuilder.WithCipherSuites(TCipherSuiteRegistry.CreateDefault(Crypto));
-  LBuilder.WithSignatureSchemes(TSignatureSchemeRegistry.CreateDefault);
-  LBuilder.WithNamedGroups(TNamedGroups.CreateDefaultRegistry(Crypto));
-  LBuilder.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13));
-  LBuilder.WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519));
-  LBuilder.WithTrustStore(ClientTrust);
-  Result := LBuilder;
+  Result := TTlsConfigProfile.Default;
+  Result.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
+  Result.SignatureSchemes := TSignatureSchemeRegistry.CreateDefault;
+  Result.NamedGroups := TNamedGroups.CreateDefaultRegistry(Crypto);
+  Result.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls13);
+  Result.PreferredGroups := TArray<UInt16>.Create(TNamedGroupCatalog.X25519);
 end;
 
-function TTestConfigBuilder.NewServerBuilder: ITlsConfigBuilder;
+function TTestConfigBuilder.NewClientBuilder: ITlsClientConfigBuilder;
 var
-  LBuilder: TTlsConfigBuilder;
+  LOwner: ITlsConfigBuilder;
 begin
-  LBuilder := TTlsConfigBuilder.Create(Crypto, Pkix);
-  LBuilder.WithCipherSuites(TCipherSuiteRegistry.CreateDefault(Crypto));
-  LBuilder.WithSignatureSchemes(TSignatureSchemeRegistry.CreateDefault);
-  LBuilder.WithNamedGroups(TNamedGroups.CreateDefaultRegistry(Crypto));
-  LBuilder.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13));
-  LBuilder.WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519));
-  LBuilder.WithCredential(ServerCredential);
-  Result := LBuilder;
+  // a chooser seeded with the shared defaults, narrowed to the client view with a trust source
+  LOwner := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
+  TArrayUtilities.Append<ITlsConfigBuilder>(FBuilders, LOwner);
+  Result := LOwner.Client.WithTrustStore(ClientTrust);
+end;
+
+function TTestConfigBuilder.NewServerBuilder: ITlsServerConfigBuilder;
+var
+  LOwner: ITlsConfigBuilder;
+begin
+  LOwner := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
+  TArrayUtilities.Append<ITlsConfigBuilder>(FBuilders, LOwner);
+  Result := LOwner.Server.WithCredential(ServerCredential);
 end;
 
 procedure TTestConfigBuilder.TestTls13CompressorOverrideLandsInFrozenConfig;
@@ -812,7 +820,7 @@ begin
 
   LEmptyComp := nil;
   LEmptyDecomp := nil;
-  LConfig := NewClientBuilder.Client.Tls13
+  LConfig := NewClientBuilder.Tls13
     .WithCertificateCompressors(LEmptyComp)
     .WithCertificateDecompressors(LEmptyDecomp)
     .Build;
@@ -827,7 +835,7 @@ var
   LConfig: ITlsClientConfig;
 begin
   // the client builder chained into the .Tls13 facet, built off the facet
-  LConfig := NewClientBuilder.Client.Tls13
+  LConfig := NewClientBuilder.Tls13
     .WithCertificateCompressors(TZlibCertificateCompression.DefaultCompressors)
     .WithCertificateDecompressors(TZlibCertificateCompression.DefaultDecompressors)
     .Build;
@@ -843,7 +851,7 @@ var
   LConfig: ITlsServerConfig;
 begin
   // both versions offered, then cross from the .Tls13 facet into .Tls12 and build
-  LConfig := NewServerBuilder.Server
+  LConfig := NewServerBuilder
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13,
     TlsWireVersionTls12))
     .Tls13
@@ -865,7 +873,7 @@ var
 begin
   // configuring a TLS 1.2-only setting on a config that does not offer TLS 1.2 must be
   // refused at build rather than silently ignored - the setting could never apply
-  LBuilder := TTlsConfigBuilder.Create(Crypto, Pkix);
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LRaised := False;
   try
     LBuilder.Server
@@ -884,19 +892,6 @@ begin
   CheckTrue(LRaised, 'a version facet for an unoffered version is refused at build');
 end;
 
-procedure TTestConfigBuilder.TestEndpointViewBackReferenceDoesNotCountOwner;
-var
-  LRaw: TTlsConfigBuilder;
-  LBuilder: ITlsConfigBuilder;
-begin
-  LRaw := TTlsConfigBuilder.Create(Crypto, Pkix);
-  LBuilder := LRaw;
-  CheckEquals(1, LRaw.RefCount, 'one reference holds the builder');
-  CheckEquals(1, LRaw.RefCount,
-    'the endpoint-view back-reference does not count the builder');
-  LBuilder := nil;
-end;
-
 procedure TTestConfigBuilder.TestDefaultRevocationPostureIsSoft;
 begin
   CheckEquals(Ord(TRevocationPosture.Soft),
@@ -909,7 +904,7 @@ var
   LConfig: ITlsClientConfig;
   LBuilder: ITlsConfigBuilder;
 begin
-  LBuilder := TTlsConfigBuilder.Create(Crypto, Pkix);
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LConfig := LBuilder.Client
     .WithCipherSuites(TCipherSuiteRegistry.CreateDefault(Crypto))
     .WithSignatureSchemes(TSignatureSchemeRegistry.CreateDefault)
@@ -934,7 +929,7 @@ var
 begin
   LPin := DecodeHex(
     '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff');
-  LBuilder := TTlsConfigBuilder.Create(Crypto, Pkix);
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LConfig := LBuilder.Client
     .WithCipherSuites(TCipherSuiteRegistry.CreateDefault(Crypto))
     .WithSignatureSchemes(TSignatureSchemeRegistry.CreateDefault)
@@ -960,7 +955,7 @@ begin
   LStaple := TBytes.Create($30, $03, $0A, $01, $00);
   LCredential := ServerCredential;
   LCredential.OcspStaple := LStaple;
-  LBuilder := TTlsConfigBuilder.Create(Crypto, Pkix);
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LConfig := LBuilder.Server
     .WithCipherSuites(TCipherSuiteRegistry.CreateDefault(Crypto))
     .WithSignatureSchemes(TSignatureSchemeRegistry.CreateDefault)
@@ -983,7 +978,7 @@ begin
   // WithCredential(record) must not bleed through (last call wins)
   LStapled := ServerCredential;
   LStapled.OcspStaple := TBytes.Create($30, $03, $0A, $01, $00);
-  LBuilder := TTlsConfigBuilder.Create(Crypto, Pkix);
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LConfig := LBuilder.Server
     .WithCipherSuites(TCipherSuiteRegistry.CreateDefault(Crypto))
     .WithSignatureSchemes(TSignatureSchemeRegistry.CreateDefault)
@@ -1068,7 +1063,7 @@ var
 begin
   // SNI-keyed server credential selection is server-only; building a client from a builder that
   // carries it is a configuration error, not a silent drop
-  LBuilder := TTlsConfigBuilder.Create(Crypto, Pkix);
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LBuilder.Server.WithSniCredential('localhost', ServerCredential);
   // a trust store makes an otherwise-valid client, so the only thing that can fail Build is the
   // server-only SNI credential guard (not a missing trust source)
@@ -1090,7 +1085,7 @@ var
 begin
   // a public-suffix wildcard (*.com) can never match a host at runtime, so it is rejected as an
   // SNI pattern at configuration - the same rule name verification enforces
-  LBuilder := TTlsConfigBuilder.Create(Crypto, Pkix);
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LBuilder.Server.WithSniCredential('*.com', ServerCredential);
   LRaised := False;
   try
@@ -1105,6 +1100,7 @@ end;
 procedure TTestConfigBuilder.TestClassicalRegistryOverPresetNegotiatesClassical;
 var
   LClient, LServer: ITlsEngine;
+  LClientInfo, LServerInfo: TTlsConnectionInfo;
 begin
   // Hardened prefers X25519MLKEM768 first; installing the classical-only registry prunes it.
   // Before the registry became authoritative this raised at engine creation (preferred group not
@@ -1120,9 +1116,11 @@ begin
   CheckFalse(LClient.IsHandshaking, 'the handshake completed');
   CheckFalse(LClient.IsTerminal, 'the client did not fail');
   CheckFalse(LServer.IsTerminal, 'the server did not fail');
-  CheckEquals(Integer(TNamedGroupCatalog.X25519), Integer(LClient.NegotiatedGroup),
+  LClientInfo := LClient.ConnectionInfo;
+  LServerInfo := LServer.ConnectionInfo;
+  CheckEquals(Integer(TNamedGroupCatalog.X25519), Integer(LClientInfo.NamedGroup),
     'negotiated classical X25519, not the pruned post-quantum hybrid');
-  CheckEquals(Integer(LClient.NegotiatedGroup), Integer(LServer.NegotiatedGroup),
+  CheckEquals(Integer(LClientInfo.NamedGroup), Integer(LServerInfo.NamedGroup),
     'client and server agree on the negotiated group');
 end;
 
@@ -1144,7 +1142,7 @@ begin
   CheckFalse(LClient.IsHandshaking, 'the handshake completed');
   CheckFalse(LClient.IsTerminal, 'the client did not fail (no retry into a pruned group)');
   CheckFalse(LServer.IsTerminal, 'the server did not fail');
-  CheckEquals(Integer(TNamedGroupCatalog.X25519), Integer(LClient.NegotiatedGroup),
+  CheckEquals(Integer(TNamedGroupCatalog.X25519), Integer(LClient.ConnectionInfo.NamedGroup),
     'negotiated classical X25519 though the server prefers the hybrid');
 end;
 
@@ -1170,6 +1168,24 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a server with an empty registry-vs-preference intersection is refused');
+end;
+
+procedure TTestConfigBuilder.TestRoleConfigDefaultsForMovedAccessors;
+var
+  LClient: ITlsClientConfig;
+  LServer: ITlsServerConfig;
+begin
+  // the server-name / cipher-order / ALPN-reject knobs live only on the server config now, and
+  // GREASE only on the client config; each surfaces its builder default off the role config
+  LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithTrustStore(ClientTrust).Build;
+  LServer := TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential).Build;
+  CheckTrue(LServer.ServerNameAcknowledgement, 'a server acknowledges SNI by default');
+  CheckEquals(Ord(TServerCipherPreference.ServerOrder), Ord(LServer.CipherSuitePreference),
+    'a server imposes its own cipher order by default');
+  CheckFalse(LServer.AlpnRejectAll, 'a server does not reject ALPN unconditionally by default');
+  CheckTrue(LClient.Grease, 'a client greases by default');
 end;
 
 initialization

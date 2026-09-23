@@ -37,18 +37,14 @@ uses
   TlpIKeySchedule,
   TlpTls13KeySchedule,
   TlpTls12KeySchedule,
-  TlpITlsEngine,
-  TlpTlsEngine,
+  TlpRecordLayer,
   TlsLibTestBase;
 
 type
   TTestScheduleInstall = class(TTlsLibAlgorithmTestCase)
-  private
-    function NextKind(const AEngine: ITlsEngine; out AEvent: ITlsEvent): Boolean;
-    function ReadAllApp(const AEngine: ITlsEngine): TBytes;
   published
-    procedure TestTls13InstalledScheduleDecryptsRfc8448RecordThroughEngine;
-    procedure TestTls12InstalledScheduleRoundTripsThroughEngine;
+    procedure TestTls13InstalledScheduleDecryptsRfc8448RecordThroughRecordLayer;
+    procedure TestTls12InstalledScheduleRoundTripsThroughRecordLayer;
     procedure TestUnsupportedVersionRejected;
   end;
 
@@ -62,44 +58,21 @@ const
 
 { TTestScheduleInstall }
 
-function TTestScheduleInstall.NextKind(const AEngine: ITlsEngine;
-  out AEvent: ITlsEvent): Boolean;
-begin
-  Result := AEngine.NextEvent(AEvent);
-end;
-
-function TTestScheduleInstall.ReadAllApp(const AEngine: ITlsEngine): TBytes;
-var
-  LChunk: TBytes;
-  LN: Int32;
-begin
-  Result := nil;
-  repeat
-    LChunk := nil;
-    SetLength(LChunk, 4096);
-    LN := AEngine.ReadAppData(LChunk, 0, 4096);
-    if LN > 0 then
-      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LN));
-  until LN <= 0;
-end;
-
-procedure TTestScheduleInstall.TestTls13InstalledScheduleDecryptsRfc8448RecordThroughEngine;
+procedure TTestScheduleInstall.TestTls13InstalledScheduleDecryptsRfc8448RecordThroughRecordLayer;
 var
   LSched: ITls13KeySchedule;
   LKeys: ITrafficKeys;
   LProt: IRecordProtection;
-  LEngineObj: TTlsEngine;
-  LEngine: ITlsEngine;
+  LLayer: TRecordLayer;
   LVec, LRec: TStringList;
   LRecord: TBytes;
-  LEvent: ITlsEvent;
-  LHsEvent: IHandshakeDataEvent;
+  LFragment: TTlsRecordFragment;
 begin
   LVec := LoadVectorFields('Rfc8448/Tls13KeySchedule.txt');
   LRec := LoadVectorFields('Rfc8448/Tls13RecordFinished.txt');
   try
     // derive the RFC 8448 client handshake epoch and route its keys through the
-    // install-path factory into the engine's read side
+    // install-path factory into the record layer's read side
     LSched := TTls13KeySchedule.Create(Crypto, THashAlgorithm.SHA_256, 16);
     LSched.SetSharedSecret(TSecretBuffer.From(DecodeHex(LVec.Values['shared_secret'])));
     LSched.DeriveEpochSecrets(TTlsEpoch.Handshake, DecodeHex(LVec.Values['hash_ch_sh']));
@@ -107,43 +80,36 @@ begin
     LProt := TRecordProtectionFactory.Build(TTlsVersion.Tls13, LKeys,
       Crypto.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
 
-    LEngineObj := TTlsEngine.Create;
-    LEngine := LEngineObj;
-    // the engine no longer exposes an installer interface; the concrete install
-    // method the handshake bridge uses is called directly here
-    LEngineObj.InstallReadProtection(LProt);
-    CheckTrue(NextKind(LEngine, LEvent), 'install queues an event');
-    CheckEquals(Ord(TTlsEventKind.KeysInstalled), Ord(LEvent.Kind),
-      'keys-installed event on install');
-
-    LRecord := DecodeHex(LRec.Values['record']);
-    CheckEquals(Ord(TTlsOutcome.Advanced),
-      Ord(LEngine.ProcessInput(LRecord, 0, System.Length(LRecord))),
-      'the record advances the engine');
-    CheckTrue(NextKind(LEngine, LEvent), 'a fragment surfaces');
-    CheckEquals(Ord(TTlsEventKind.HandshakeFragment), Ord(LEvent.Kind),
-      'the decrypted record is a handshake fragment');
-    CheckTrue(Supports(LEvent, IHandshakeDataEvent, LHsEvent), 'carries the fragment');
-    CheckEqualBytes('the engine decrypts the RFC 8448 Finished',
-      DecodeHex(LRec.Values['plaintext']), LHsEvent.Data);
+    LLayer := TRecordLayer.Create;
+    try
+      LLayer.SetReadProtection(LProt);
+      LRecord := DecodeHex(LRec.Values['record']);
+      LLayer.ProcessInput(LRecord, 0, System.Length(LRecord));
+      CheckTrue(LLayer.NextIncoming(LFragment), 'the framed record decrypts');
+      CheckEquals(Ord(TTlsContentType.Handshake), Ord(LFragment.ContentType),
+        'the decrypted record is a handshake fragment');
+      CheckEqualBytes('the record layer decrypts the RFC 8448 Finished',
+        DecodeHex(LRec.Values['plaintext']), LFragment.Data);
+    finally
+      LLayer.Free;
+    end;
   finally
     LVec.Free;
     LRec.Free;
   end;
 end;
 
-procedure TTestScheduleInstall.TestTls12InstalledScheduleRoundTripsThroughEngine;
+procedure TTestScheduleInstall.TestTls12InstalledScheduleRoundTripsThroughRecordLayer;
 var
   LSched: ITls12KeySchedule;
   LKeys: ITrafficKeys;
   LSender, LReceiver: IRecordProtection;
-  LEngineObj: TTlsEngine;
-  LEngine: ITlsEngine;
+  LLayer: TRecordLayer;
   LPlain, LWire: TBytes;
-  LEvent: ITlsEvent;
+  LFragment: TTlsRecordFragment;
 begin
-  // derive the TLS 1.2 application keys, install the read side through the factory,
-  // and confirm a record the same keys produced surfaces as application data
+  // derive the TLS 1.2 application keys, install the read side, and confirm a record
+  // the same keys produced surfaces as application data
   LSched := TTls12KeySchedule.Create(Crypto, THashAlgorithm.SHA_256, 16,
     TAeadAlgorithm.AES_128_GCM);
   LSched.SetPreMasterSecret(TSecretBuffer.From(DecodeHex(Tls12PreMasterHex)));
@@ -157,18 +123,21 @@ begin
   LReceiver := TRecordProtectionFactory.Build(TTlsVersion.Tls12, LKeys,
     Crypto.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
 
-  LEngineObj := TTlsEngine.Create;
-  LEngine := LEngineObj;
-  LEngineObj.InstallReadProtection(LReceiver);
-  CheckTrue(NextKind(LEngine, LEvent), 'install queues an event');
-  CheckEquals(Ord(TTlsEventKind.KeysInstalled), Ord(LEvent.Kind), 'keys-installed');
-
-  LPlain := DecodeHex('746c7320312e32206170702064617461'); // "tls 1.2 app data"
-  LWire := LSender.Protect(TTlsContentType.ApplicationData, LPlain, 0,
-    System.Length(LPlain));
-  CheckEquals(Ord(TTlsOutcome.Advanced),
-    Ord(LEngine.ProcessInput(LWire, 0, System.Length(LWire))), 'advanced');
-  CheckEqualBytes('the engine decrypts the TLS 1.2 record', LPlain, ReadAllApp(LEngine));
+  LLayer := TRecordLayer.Create;
+  try
+    LLayer.SetReadProtection(LReceiver);
+    LPlain := DecodeHex('746c7320312e32206170702064617461'); // "tls 1.2 app data"
+    LWire := LSender.Protect(TTlsContentType.ApplicationData, LPlain, 0,
+      System.Length(LPlain));
+    LLayer.ProcessInput(LWire, 0, System.Length(LWire));
+    CheckTrue(LLayer.NextIncoming(LFragment), 'the framed record decrypts');
+    CheckEquals(Ord(TTlsContentType.ApplicationData), Ord(LFragment.ContentType),
+      'the decrypted record is application data');
+    CheckEqualBytes('the record layer decrypts the TLS 1.2 record', LPlain,
+      LFragment.Data);
+  finally
+    LLayer.Free;
+  end;
 end;
 
 procedure TTestScheduleInstall.TestUnsupportedVersionRejected;

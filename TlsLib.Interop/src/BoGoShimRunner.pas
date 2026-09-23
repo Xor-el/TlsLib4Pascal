@@ -36,6 +36,7 @@ uses
   TlpEchConfig,
   TlpInMemoryEchKeyStore,
   TlpIEch,
+  TlpTlsConnectionInfo,
   TlpITlsEngine,
   InteropSocket,
   InteropEngine,
@@ -1156,6 +1157,7 @@ var
   LExportProbe: TExportProbe;
   LProbe: IHandshakeProbe;
   LSeenCas: TArray<TBytes>;
+  LInfo: TTlsConnectionInfo;
   LCaIdx, LRep, LRepeat, LAccepted: Int32;
 begin
   LOptions := BuildOptions(ACryptoProvider, APkix, AConfig, AIsResume);
@@ -1246,11 +1248,13 @@ begin
     Exit(ShimExitFail);
   end;
 
+  LInfo := LEngine.ConnectionInfo;
+
   // Encrypted Client Hello acceptance (RFC 9849): when the runner expects ECH to be accepted
   // on this connection, the negotiation must have run on the inner ClientHello. A per-connection
   // -on-initial / -on-resume override wins over the base -expect-ech-accept.
   if EchAcceptExpected(AConfig, AIsResume) and
-    (LEngine.EchStatus <> TEchStatus.Accepted) then
+    (LInfo.EchStatus <> TEchStatus.Accepted) then
   begin
     Writeln(ErrOutput, 'ECH was expected to be accepted but was not');
     Exit(ShimExitFail);
@@ -1266,7 +1270,7 @@ begin
     Exit(ShimExitFail);
   end;
   if (AConfig.ExpectAlpn <> '') and
-    (LEngine.NegotiatedAlpnProtocol <> AConfig.ExpectAlpn) then
+    (LInfo.AlpnProtocol <> AConfig.ExpectAlpn) then
   begin
     Writeln(ErrOutput, 'negotiated ALPN did not match the expected protocol');
     Exit(ShimExitFail);
@@ -1276,7 +1280,7 @@ begin
   // is no re-authentication), so it is only asserted on the full handshake - our client
   // does not cache and re-surface a prior staple across resumption.
   if AConfig.HasExpectOcsp and (not AIsResume) and
-    (not TInteropUtils.BytesEqual(LEngine.PeerOcspStaple, AConfig.ExpectOcspResponse)) then
+    (not TInteropUtils.BytesEqual(LInfo.PeerOcspStaple, AConfig.ExpectOcspResponse)) then
   begin
     Writeln(ErrOutput, 'the stapled OCSP response did not match the expected one');
     Exit(ShimExitFail);
@@ -1285,7 +1289,7 @@ begin
   // CertificateRequest (RFC 8446 4.2.4 / RFC 5246 7.4.4), in the same order
   if AConfig.ExpectClientCaListSet then
   begin
-    LSeenCas := LEngine.RequestedCertificateAuthorities;
+    LSeenCas := LInfo.RequestedCertificateAuthorities;
     if System.Length(LSeenCas) <> System.Length(AConfig.ExpectClientCaList) then
     begin
       Writeln(ErrOutput, 'the requested certificate_authorities count did not match');
@@ -1307,7 +1311,7 @@ begin
   // fails loudly rather than falling back. A client, or a TLS 1.2 server, exports post-handshake.
   if LExportLen > 0 then
   begin
-    if LHalfRttExport and (LEngine.NegotiatedVersion.WireValue = WireVersionTls13) then
+    if LHalfRttExport and (LInfo.NegotiatedVersion.WireValue = WireVersionTls13) then
     begin
       if not LExportProbe.HasCaptured then
       begin

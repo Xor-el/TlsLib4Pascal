@@ -740,8 +740,8 @@ begin
   Handshake(LClient, LServer);
   CheckFalse(LClient.IsTerminal, 'the client completed');
   CheckFalse(LServer.IsTerminal, 'the server completed');
-  CheckEquals('http/1.1', LServer.NegotiatedAlpnProtocol, 'server surfaces the selection');
-  CheckEquals('http/1.1', LClient.NegotiatedAlpnProtocol, 'client surfaces the selection');
+  CheckEquals('http/1.1', LServer.ConnectionInfo.AlpnProtocol, 'server surfaces the selection');
+  CheckEquals('http/1.1', LClient.ConnectionInfo.AlpnProtocol, 'client surfaces the selection');
 end;
 
 procedure TTestExtensionNegotiation.TestAlpnNoOverlapAborts;
@@ -766,8 +766,8 @@ begin
   Handshake(LClient, LServer);
   CheckFalse(LClient.IsTerminal, 'the handshake is unaffected by absent ALPN');
   CheckFalse(LServer.IsTerminal, 'the handshake is unaffected by absent ALPN');
-  CheckEquals('', LClient.NegotiatedAlpnProtocol, 'no ALPN negotiated');
-  CheckEquals('', LServer.NegotiatedAlpnProtocol, 'no ALPN negotiated');
+  CheckEquals('', LClient.ConnectionInfo.AlpnProtocol, 'no ALPN negotiated');
+  CheckEquals('', LServer.ConnectionInfo.AlpnProtocol, 'no ALPN negotiated');
 end;
 
 procedure TTestExtensionNegotiation.TestRecordSizeLimitCapsOutboundRecords;

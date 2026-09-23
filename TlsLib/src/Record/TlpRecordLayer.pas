@@ -161,7 +161,11 @@ type
     procedure SetWriteSequenceNumber(AValue: UInt64);
     procedure SetReadSequenceNumber(AValue: UInt64);
     /// <summary>Removes and returns all pending outbound wire bytes.</summary>
-    function TakeOutgoing: TBytes;
+    function TakeOutgoing: TBytes; overload;
+    /// <summary>Copies up to the destination's capacity of pending outbound bytes into ADest at
+    /// ADestOffset, retaining the rest for the next take; returns the count copied (0 when nothing
+    /// is pending or the destination has no room).</summary>
+    function TakeOutgoing(var ADest: TBytes; ADestOffset: Int32): Int32; overload;
     /// <summary>Pending outbound byte count.</summary>
     function PendingOutgoing: Int32;
 
@@ -715,6 +719,23 @@ function TRecordLayer.TakeOutgoing: TBytes;
 begin
   Result := FOutbound;
   FOutbound := nil;
+end;
+
+function TRecordLayer.TakeOutgoing(var ADest: TBytes; ADestOffset: Int32): Int32;
+var
+  LCapacity: Int32;
+begin
+  LCapacity := System.Length(ADest) - ADestOffset;
+  if (ADestOffset < 0) or (LCapacity <= 0) then
+    Exit(0);
+  Result := System.Length(FOutbound);
+  if Result > LCapacity then
+    Result := LCapacity;
+  if Result > 0 then
+  begin
+    Move(FOutbound[0], ADest[ADestOffset], Result);
+    FOutbound := System.Copy(FOutbound, Result, System.Length(FOutbound) - Result);
+  end;
 end;
 
 function TRecordLayer.PendingOutgoing: Int32;

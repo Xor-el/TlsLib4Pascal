@@ -74,6 +74,8 @@ type
     procedure TestUnknownContentTypeRejected;
     procedure TestPartialHeaderDoesNotOverRead;
     procedure TestTerminalAfterFatal;
+    procedure TestTakeOutgoingIntoBufferRetainsRemainder;
+    procedure TestTakeOutgoingIntoBufferGuardsBadOffset;
   end;
 
 implementation
@@ -803,6 +805,69 @@ begin
     CheckTrue(LRaised, 'the record layer is terminal after a fatal');
   finally
     LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestTakeOutgoingIntoBufferRetainsRemainder;
+var
+  LLayer, LExpectLayer: TRecordLayer;
+  LPayload, LExpected, LChunk, LGot: TBytes;
+  LN1, LN2: Int32;
+begin
+  LLayer := TRecordLayer.Create;
+  LExpectLayer := TRecordLayer.Create;
+  try
+    LPayload := DecodeHex('01020304050607'); // 7 content bytes -> a 12-byte plaintext record
+    // an identically framed second layer yields the full-take bytes the chunks must reproduce
+    LExpectLayer.Write(TTlsContentType.Handshake, LPayload, 0, System.Length(LPayload));
+    LExpected := LExpectLayer.TakeOutgoing;
+
+    LLayer.Write(TTlsContentType.Handshake, LPayload, 0, System.Length(LPayload));
+    // take into a fixed 8-byte buffer twice: the first take fills it to capacity, the second
+    // drains the retained remainder
+    LChunk := nil;
+    SetLength(LChunk, 8);
+    LN1 := LLayer.TakeOutgoing(LChunk, 0);
+    CheckEquals(8, LN1, 'the first take fills the buffer to capacity');
+    LGot := System.Copy(LChunk, 0, LN1);
+    LN2 := LLayer.TakeOutgoing(LChunk, 0);
+    CheckEquals(System.Length(LExpected) - 8, LN2,
+      'the second take returns the retained remainder');
+    LGot := ConcatBytes(LGot, System.Copy(LChunk, 0, LN2));
+    CheckEqualBytes('the two chunks reproduce the full-take bytes', LExpected, LGot);
+    CheckEquals(0, LLayer.PendingOutgoing, 'nothing is left pending after both takes');
+  finally
+    LLayer.Free;
+    LExpectLayer.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestTakeOutgoingIntoBufferGuardsBadOffset;
+var
+  LLayer, LExpectLayer: TRecordLayer;
+  LPayload, LExpected, LDest: TBytes;
+begin
+  LLayer := TRecordLayer.Create;
+  LExpectLayer := TRecordLayer.Create;
+  try
+    LPayload := DecodeHex('01020304050607');
+    LExpectLayer.Write(TTlsContentType.Handshake, LPayload, 0, System.Length(LPayload));
+    LExpected := LExpectLayer.TakeOutgoing;
+
+    LLayer.Write(TTlsContentType.Handshake, LPayload, 0, System.Length(LPayload));
+    LDest := nil;
+    SetLength(LDest, 16);
+    // a negative destination offset copies nothing
+    CheckEquals(0, LLayer.TakeOutgoing(LDest, -1), 'a negative offset takes nothing');
+    // a zero-capacity destination (offset at its end) likewise copies nothing
+    CheckEquals(0, LLayer.TakeOutgoing(LDest, System.Length(LDest)),
+      'a zero-capacity destination takes nothing');
+    // neither guarded take consumed anything: a normal take still returns the pending bytes whole
+    CheckEqualBytes('the guarded takes left the pending bytes intact', LExpected,
+      LLayer.TakeOutgoing);
+  finally
+    LLayer.Free;
+    LExpectLayer.Free;
   end;
 end;
 

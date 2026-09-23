@@ -29,8 +29,8 @@ uses
   TlpICryptoProvider,
   TlpIRecordProtection,
   TlpRecordLayer,
+  TlpTlsConnectionInfo,
   TlpITlsEngine,
-  TlpITlsEventSink,
   TlpTlsEngineEvents,
   TlpIHandshakeChannel,
   TlpHandshakeChannel,
@@ -41,20 +41,18 @@ uses
 
 type
   /// <summary>
-  /// The default sans-IO engine: a shell that plumbs the record layer and the
-  /// alert protocol, with no handshake logic yet. It buffers inbound assembly, the
-  /// outbound queue, decrypted application data, and the event queue, all as TBytes
-  /// with explicit offset/length. Single-threaded: the caller serializes access.
+  /// The default sans-IO engine over a record layer, the alert protocol, and a
+  /// driven handshake. It buffers inbound assembly, the outbound queue, decrypted
+  /// application data, and the event queue, all as TBytes with explicit
+  /// offset/length. Single-threaded: the caller serializes access.
   /// </summary>
-  TTlsEngine = class sealed(TInterfacedObject, ITlsEngine, ITlsEventSource,
+  TTlsEngine = class sealed(TInterfacedObject, ITlsEngine,
     IEngineRecordSequenceControl)
   strict private
   var
     FRecordLayer: TRecordLayer;
     FEvents: TQueue<ITlsEvent>;
-    FSink: ITlsEventSink;
     FConductor: THandshakeConductor;
-    FOutbound: TBytes;
     // decrypted application data waiting for the caller, as a queue of record-sized
     // chunks: FAppChunkHead/FAppBytePos is the read cursor, FAppAvail the unread total
     FAppChunks: TArray<TBytes>;
@@ -77,32 +75,17 @@ type
     // early data (over-budget bytes are not held - the caller resends them, see WriteEarlyData)
     FEarlyDataLimit: Int32;
     FEarlyDataSent: Int32;
-    FNegotiatedAlpn: string;
-    FNegotiatedVersion: TTlsVersion;
-    FPeerOcspStaple: TBytes;
-    FPeerCertificates: TArray<TBytes>;
-    FRequestedCertificateAuthorities: TArray<TBytes>;
-    FNegotiatedCipherSuite: UInt16;
-    FNegotiatedGroup: UInt16;
-    FPeerServerName: string;
-    FIsResumed: Boolean;
-    // ECH outcome surfaced to callers: the status, and on a reject the retry_configs the
-    // server advertised plus whether this handshake was itself a retry (RFC 9849 sec. 6.1.6)
-    FEchStatus: TEchStatus;
-    FEchRetryConfigs: TBytes;
-    FEchIsRetryAttempt: Boolean;
-    // set only when a client aborts with ech_required over a rejected ECH offer, so a server's
-    // benign Rejected status (a completed GREASE handshake) is never read as an ECH abort
-    FEchRejectAborted: Boolean;
+    // the negotiated facts, surfaced to callers as one snapshot by ConnectionInfo
+    FInfo: TTlsConnectionInfo;
     // async peer-certificate verdict: whether the handshake is parked awaiting a verdict. Any
     // time budget belongs to the resolver, not the engine (the engine owns no timer)
     FAwaitingVerdict: Boolean;
-    // guards against re-entering the record-layer drain (a read-triggered resume must not run
-    // while a drain is already in progress, e.g. from a sink callback)
+    // set while draining inbound records: a synchronous handshake callback (verify callback,
+    // verdict resolver, session store) is re-entering the single-threaded engine if it calls
+    // ProcessInput/ReadAppData/SetCertificateVerdict while this is set, so those fail loud
     FDraining: Boolean;
     FLastError: TTlsError;
     procedure Enqueue(const AEvent: ITlsEvent);
-    procedure PullOutbound;
     function IsTls13: Boolean;
     procedure QueueAlertRecord(const AAlert: TTlsAlert);
     procedure AppendAppData(const AData: TBytes);
@@ -112,25 +95,19 @@ type
     procedure DrainRecordLayer;
     function Fail(const AException: Exception): TTlsOutcome;
   public
-    constructor Create;
+    /// <summary>
+    /// Builds the engine and wires its handshake in one step: a channel over the
+    /// record layer and a driver that installs epochs and reports outcomes back here,
+    /// held as the conductor. The initial machine selects the role (a client or server
+    /// graph) and whether the engine initiates the first flight.
+    /// </summary>
+    constructor Create(const AInitialMachine: IHandshakeMachine;
+      const ACryptoProvider: ICryptoProvider);
     destructor Destroy; override;
 
-    /// <summary>
-    /// Creates an engine and wires its handshake in one exception-safe step, returning
-    /// it as an ITlsEngine, so callers do not repeat the create-then-configure sequence
-    /// and ConfigureHandshake stays off the public ITlsEngine surface.
-    /// </summary>
+    /// <summary>Builds a wired engine and returns it as an ITlsEngine.</summary>
     class function CreateConfigured(const AInitialMachine: IHandshakeMachine;
       const ACryptoProvider: ICryptoProvider): ITlsEngine; static;
-
-    /// <summary>
-    /// Wires the handshake: builds the channel over this engine's record layer and a
-    /// driver that installs epochs and reports outcomes back here, then holds the
-    /// resulting conductor. The initial state selects the role (a client or server
-    /// graph). Call once, before StartHandshake.
-    /// </summary>
-    procedure ConfigureHandshake(const AInitialMachine: IHandshakeMachine;
-      const ACryptoProvider: ICryptoProvider);
 
     function ProcessInput(const AWire: TBytes; AOffset, ALength: Int32): TTlsOutcome;
     procedure Write(const AData: TBytes; AOffset, ALength: Int32);
@@ -153,27 +130,14 @@ type
     function IsInboundClosed: Boolean;
     function WriteClosed: Boolean;
     function LastError: TTlsError;
+    function ConnectionInfo: TTlsConnectionInfo;
     // IEngineRecordSequenceControl
     procedure SetWriteSequenceNumber(AValue: UInt64);
     procedure SetReadSequenceNumber(AValue: UInt64);
-    function NegotiatedVersion: TTlsVersion;
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       AUseContext: Boolean; ALength: Int32): TBytes;
-    function NegotiatedAlpnProtocol: string;
-    function PeerOcspStaple: TBytes;
-    function PeerCertificates: TArray<TBytes>;
-    function RequestedCertificateAuthorities: TArray<TBytes>;
-    function NegotiatedCipherSuite: UInt16;
-    function NegotiatedGroup: UInt16;
-    function PeerServerName: string;
-    function IsResumed: Boolean;
-    function EchStatus: TEchStatus;
-    function EchRetryConfigs: TBytes;
-    function EchIsRetryAttempt: Boolean;
-    function EchRejectAborted: Boolean;
-
-    // installer + sink operations the handshake bridge forwards to (the engine no
-    // longer implements those interfaces directly - see the bridge below)
+  private
+    // reached only by the handshake bridge below
     procedure InstallReadProtection(const AProtection: IRecordProtection);
     procedure InstallWriteProtection(const AProtection: IRecordProtection);
     procedure ArmReadProtectionOnChangeCipherSpec(const AProtection: IRecordProtection);
@@ -200,8 +164,6 @@ type
     procedure OnEchBackend;
     procedure OnEchServerRejected;
     procedure OnEchRejected(const ARetryConfigs: TBytes; AIsRetryAttempt: Boolean);
-    // ITlsEventSource
-    procedure SetEventSink(const ASink: ITlsEventSink);
   end;
 
 implementation
@@ -213,12 +175,13 @@ const
   MaxWarningAlerts = Int32(4);
 
 resourcestring
-  SHandshakeNotConfigured = 'no handshake was configured on this engine';
-  SHandshakeAlreadyConfigured = 'a handshake was already configured on this engine';
   SPeerFatalAlert = 'the peer sent a fatal alert';
   SWarningAlertInTls13 = 'a warning alert other than user_canceled is not permitted in TLS 1.3';
   STooManyWarningAlerts = 'the peer sent too many warning-level alerts';
   SBogusAlertLevel = 'the alert carries a level that is neither warning nor fatal';
+  SReentrantEngineCall =
+    'the engine was re-entered from within a handshake callback; it is single-threaded and a ' +
+    'callback must not call back into it';
   SLocalFatalAlert = 'a fatal alert was sent';
   SInboundBacklogFull =
     'the framed inbound backlog is full; pull/read before feeding more input (honor WantsRead)';
@@ -412,12 +375,16 @@ end;
 
 { TTlsEngine }
 
-constructor TTlsEngine.Create;
+constructor TTlsEngine.Create(const AInitialMachine: IHandshakeMachine;
+  const ACryptoProvider: ICryptoProvider);
+var
+  LChannel: IHandshakeChannel;
+  LBridge: TEngineHandshakeBridge;
+  LDriver: THandshakeDriver;
 begin
   inherited Create;
   FRecordLayer := TRecordLayer.Create;
   FEvents := TQueue<ITlsEvent>.Create;
-  FConductor := nil;
   FMaxAppReadBuffer := DefaultMaxAppReadBuffer;
   FAppChunkHead := 0;
   FAppBytePos := 0;
@@ -428,17 +395,22 @@ begin
   FHandshakeComplete := False;
   FWarningAlertCount := 0;
   FAwaitingVerdict := False;
-  FNegotiatedCipherSuite := 0;
-  FNegotiatedGroup := 0;
-  FPeerServerName := '';
-  FIsResumed := False;
-  FEchStatus := TEchStatus.NotOffered;
-  FEchIsRetryAttempt := False;
-  FEchRejectAborted := False;
-  FNegotiatedAlpn := '';
+  FInfo.EchStatus := TEchStatus.NotOffered;
   // a zero wire code until an epoch's keys name the negotiated version
-  FNegotiatedVersion := TTlsVersion.Create(0);
+  FInfo.NegotiatedVersion := TTlsVersion.Create(0);
   FLastError := TTlsError.CreateFatal(TTlsAlertDescription.InternalError, '');
+  // a cleartext application_data record (before any read epoch key) is unexpected on a
+  // real handshake (RFC 8446 5.1)
+  FRecordLayer.StrictApplicationData := True;
+  // a client stamps its initial ClientHello record with legacy_record_version 0x0301 for
+  // backward compatibility before the negotiated version is known (RFC 8446 5.1)
+  if AInitialMachine.Initiates then
+    FRecordLayer.UseClientInitialRecordVersion;
+  LChannel := THandshakeChannel.Create(FRecordLayer) as IHandshakeChannel;
+  LBridge := TEngineHandshakeBridge.Create(Self);
+  LDriver := THandshakeDriver.Create(LChannel, LBridge as IRecordEpochInstaller,
+    ACryptoProvider, LBridge as IHandshakeSink);
+  FConductor := THandshakeConductor.Create(LChannel, LDriver, AInitialMachine);
 end;
 
 destructor TTlsEngine.Destroy;
@@ -454,47 +426,13 @@ end;
 class function TTlsEngine.CreateConfigured(
   const AInitialMachine: IHandshakeMachine;
   const ACryptoProvider: ICryptoProvider): ITlsEngine;
-var
-  LEngine: TTlsEngine;
 begin
-  LEngine := TTlsEngine.Create;
-  Result := LEngine; // assign the interface result before the fallible ConfigureHandshake
-  LEngine.ConfigureHandshake(AInitialMachine, ACryptoProvider);
-end;
-
-procedure TTlsEngine.ConfigureHandshake(const AInitialMachine: IHandshakeMachine;
-  const ACryptoProvider: ICryptoProvider);
-var
-  LChannel: IHandshakeChannel;
-  LBridge: TEngineHandshakeBridge;
-  LDriver: THandshakeDriver;
-begin
-  if FConductor <> nil then
-    raise EInvalidOperationTlsLibException.CreateRes(@SHandshakeAlreadyConfigured);
-  // a real handshake enforces the TLS record-phase rules: a cleartext application_data record
-  // (before any read epoch key) is unexpected (RFC 8446 5.1)
-  FRecordLayer.StrictApplicationData := True;
-  // a client stamps its initial ClientHello record with legacy_record_version 0x0301 for
-  // backward compatibility before the negotiated version is known (RFC 8446 5.1)
-  if AInitialMachine.Initiates then
-    FRecordLayer.UseClientInitialRecordVersion;
-  LChannel := THandshakeChannel.Create(FRecordLayer) as IHandshakeChannel;
-  LBridge := TEngineHandshakeBridge.Create(Self);
-  LDriver := THandshakeDriver.Create(LChannel, LBridge as IRecordEpochInstaller,
-    ACryptoProvider, LBridge as IHandshakeSink);
-  FConductor := THandshakeConductor.Create(LChannel, LDriver, AInitialMachine);
+  Result := TTlsEngine.Create(AInitialMachine, ACryptoProvider);
 end;
 
 procedure TTlsEngine.Enqueue(const AEvent: ITlsEvent);
 begin
   FEvents.Enqueue(AEvent);
-  if FSink <> nil then
-    FSink.OnEvent(AEvent);
-end;
-
-procedure TTlsEngine.PullOutbound;
-begin
-  FOutbound := TArrayUtilities.Concat(FOutbound, FRecordLayer.TakeOutgoing);
 end;
 
 procedure TTlsEngine.QueueAlertRecord(const AAlert: TTlsAlert);
@@ -503,7 +441,6 @@ var
 begin
   LBytes := TTlsAlertProtocol.Encode(AAlert);
   FRecordLayer.Write(TTlsContentType.Alert, LBytes, 0, System.Length(LBytes));
-  PullOutbound;
 end;
 
 procedure TTlsEngine.AppendAppData(const AData: TBytes);
@@ -549,7 +486,7 @@ begin
   // flood is refused. close_notify is handled above regardless of level.
   if LReceived.LevelByte = TTlsAlertLevel.Warning.ToByte then
   begin
-    if (FNegotiatedVersion.WireValue = TlsWireVersionTls13) and
+    if (FInfo.NegotiatedVersion.WireValue = TlsWireVersionTls13) and
       not (LReceived.HasKnownDescription and
       (LReceived.Description = TTlsAlertDescription.UserCanceled)) then
       raise EFatalAlertTlsLibException.CreateRes(
@@ -586,24 +523,19 @@ begin
         // a handshake message that spans records MUST NOT have another record type interleaved
         // between its fragments (RFC 8446 5.1); an application_data record arriving while one is
         // partially buffered is that violation
-        if (FConductor <> nil) and FConductor.HasBufferedHandshake then
+        if FConductor.HasBufferedHandshake then
         begin
           OnHandshakeFailed(TTlsAlertDescription.UnexpectedMessage);
           Exit;
         end;
         // genuine traffic resets the peer's post-handshake message flood counter
-        if FConductor <> nil then
-          FConductor.NoteApplicationData;
+        FConductor.NoteApplicationData;
         AppendAppData(AFragment.Data);
         Enqueue(TTlsEvents.MakeAppData);
       end;
     TTlsContentType.Handshake:
-      // a configured handshake consumes the fragment and drives its state machine;
-      // otherwise it surfaces as an event for a caller-supplied handshake layer
-      if FConductor <> nil then
-        FConductor.DeliverHandshake(AFragment.Data, 0, System.Length(AFragment.Data))
-      else
-        Enqueue(TTlsEvents.MakeHandshakeFragment(AFragment.Data));
+      // the handshake consumes the fragment and drives its state machine
+      FConductor.DeliverHandshake(AFragment.Data, 0, System.Length(AFragment.Data));
     TTlsContentType.Alert:
       HandleIncomingAlert(AFragment.Data);
     // change_cipher_spec is consumed (classified) in the record layer; nothing else reaches here
@@ -623,12 +555,12 @@ begin
   // resolves and SetCertificateVerdict resumes the drain in the correct epoch order.
   if FAwaitingVerdict then
     Exit;
+  // stop pulling the moment the connection becomes terminal/closed (e.g. a fatal alert or
+  // close_notify coalesced ahead of app-data): the trailing record stays framed, undecrypted.
+  // Also stop once the app-read buffer is full: unread plaintext applies backpressure (the
+  // record stays framed, WantsRead reports False) instead of growing the buffer without bound.
   FDraining := True;
   try
-    // stop pulling the moment the connection becomes terminal/closed (e.g. a fatal alert or
-    // close_notify coalesced ahead of app-data): the trailing record stays framed, undecrypted.
-    // Also stop once the app-read buffer is full: unread plaintext applies backpressure (the
-    // record stays framed, WantsRead reports False) instead of growing the buffer without bound.
     while (not (FTerminal or FClosed)) and (AppReadAvailable < FMaxAppReadBuffer) and
       FRecordLayer.NextIncoming(LFragment) do
     begin
@@ -659,6 +591,8 @@ end;
 function TTlsEngine.ProcessInput(const AWire: TBytes; AOffset,
   ALength: Int32): TTlsOutcome;
 begin
+  if FDraining then
+    raise EInvalidOperationTlsLibException.CreateRes(@SReentrantEngineCall);
   if FTerminal then
     Exit(TTlsOutcome.Fatal);
   // after an inbound close_notify the peer's write side is closed: discard anything it keeps
@@ -674,8 +608,6 @@ begin
     try
       FRecordLayer.ProcessInput(AWire, AOffset, ALength);
       DrainRecordLayer;
-      // a driven handshake may have written a response flight into the record layer
-      PullOutbound;
     except
       on E: Exception do
         Exit(Fail(E));
@@ -683,7 +615,7 @@ begin
   end;
   if FTerminal then // a received fatal alert or a handshake failure
     Exit(TTlsOutcome.Fatal);
-  if (AppReadAvailable > 0) or (FEvents.Count > 0) or (System.Length(FOutbound) > 0) then
+  if (AppReadAvailable > 0) or (FEvents.Count > 0) or (FRecordLayer.PendingOutgoing > 0) then
     Result := TTlsOutcome.Advanced
   else
     Result := TTlsOutcome.NeedMoreInput;
@@ -691,7 +623,7 @@ end;
 
 function TTlsEngine.IsTls13: Boolean;
 begin
-  Result := FNegotiatedVersion.WireValue = TlsWireVersionTls13;
+  Result := FInfo.NegotiatedVersion.WireValue = TlsWireVersionTls13;
 end;
 
 procedure TTlsEngine.Write(const AData: TBytes; AOffset, ALength: Int32);
@@ -709,14 +641,13 @@ begin
   // (RFC 8446 4.6.3); flushing here coalesces repeats into one response before the write.
   // A failure to build/flush it is fatal - abort with its alert and do NOT queue the app
   // plaintext behind that alert (the record layer's Write is not blocked by a failed read side).
-  if (FConductor <> nil) and FHandshakeComplete then
+  if FHandshakeComplete then
     try
       FConductor.FlushPendingKeyUpdate;
     except
       on E: Exception do
       begin
         Fail(E);
-        PullOutbound;
         Exit;
       end;
     end;
@@ -733,14 +664,13 @@ begin
     Dec(LRemaining, LWritten);
     if LRemaining <= 0 then
       Break;
-    if (FConductor <> nil) and FHandshakeComplete then
+    if FHandshakeComplete then
       try
         FConductor.RequestKeyUpdate(False);
       except
         on E: Exception do
         begin
           Fail(E);
-          PullOutbound;
           Exit;
         end;
       end;
@@ -749,11 +679,9 @@ begin
     if FRecordLayer.WriteNeedsKeyUpdate then
     begin
       SendClose;
-      PullOutbound;
       raise ERecordLimitTlsLibException.CreateRes(@SRecordLimitNoRekey);
     end;
   until False;
-  PullOutbound;
 end;
 
 function TTlsEngine.WriteEarlyData(const AData: TBytes; AOffset, ALength: Int32): Int32;
@@ -778,7 +706,6 @@ begin
   // (it pauses at the AEAD limit); the caller resends any remainder as 1-RTT after the handshake
   Result := FRecordLayer.Write(TTlsContentType.ApplicationData, AData, AOffset, LAccept);
   Inc(FEarlyDataSent, Result);
-  PullOutbound;
 end;
 
 procedure TTlsEngine.RequestKeyUpdate(ARequestPeerUpdate: Boolean);
@@ -786,8 +713,7 @@ begin
   // post-handshake only, over an established connection with a live handshake machine
   // (TLS 1.2 machines make this a no-op); the KeyUpdate is protected and queued outbound. An
   // inbound close_notify does not stop 1.3 writes, so it must not stop rekeying them either.
-  if FTerminal or FSentClose or (FClosed and not IsTls13) or (not FHandshakeComplete) or
-    (FConductor = nil) then
+  if FTerminal or FSentClose or (FClosed and not IsTls13) or (not FHandshakeComplete) then
     Exit;
   // a failure to build the KeyUpdate is fatal: abort with its alert rather than let the
   // exception escape the engine
@@ -797,11 +723,9 @@ begin
     on E: Exception do
     begin
       Fail(E);
-      PullOutbound;
       Exit;
     end;
   end;
-  PullOutbound;
 end;
 
 function TTlsEngine.ExportKeyingMaterial(const ALabel: string;
@@ -811,7 +735,7 @@ begin
   // half-RTT (after it sent its Finished), before the peer's Finished (RFC 8446 7.5); TLS 1.2
   // stays gated on completion. Withheld while parked on an out-of-band peer-certificate verdict,
   // and a failed (terminal) connection exports nothing.
-  if (FConductor = nil) or FTerminal or (not FConductor.CanExportKeyingMaterial) then
+  if FTerminal or (not FConductor.CanExportKeyingMaterial) then
     Exit(nil);
   Result := FConductor.ExportKeyingMaterial(ALabel, AContext, AUseContext, ALength);
 end;
@@ -835,10 +759,6 @@ end;
 
 procedure TTlsEngine.StartHandshake;
 begin
-  // a nil conductor is API misuse (no handshake configured), not a peer failure: raise, do not
-  // turn it into a wire alert
-  if FConductor = nil then
-    raise ENotSupportedTlsLibException.CreateRes(@SHandshakeNotConfigured);
   // an in-band start failure (ECH/PSK/crypto setup) aborts with its alert rather than escaping
   try
     FConductor.Start;
@@ -846,16 +766,16 @@ begin
     on E: Exception do
     begin
       Fail(E);
-      PullOutbound;
       Exit;
     end;
   end;
-  PullOutbound;
 end;
 
 procedure TTlsEngine.SetCertificateVerdict(AAccept: Boolean;
   AAlert: TTlsAlertDescription);
 begin
+  if FDraining then
+    raise EInvalidOperationTlsLibException.CreateRes(@SReentrantEngineCall);
   // a no-op unless the handshake is actually parked on a verdict (idempotent, safe to call)
   if not FAwaitingVerdict then
     Exit;
@@ -875,29 +795,14 @@ begin
     on E: Exception do
     begin
       Fail(E);
-      PullOutbound;
       Exit;
     end;
   end;
-  PullOutbound;
 end;
 
 function TTlsEngine.TakeOutgoing(var ADest: TBytes; ADestOffset: Int32): Int32;
-var
-  LCapacity: Int32;
 begin
-  PullOutbound;
-  LCapacity := System.Length(ADest) - ADestOffset;
-  if (ADestOffset < 0) or (LCapacity <= 0) then
-    Exit(0);
-  Result := System.Length(FOutbound);
-  if Result > LCapacity then
-    Result := LCapacity;
-  if Result > 0 then
-  begin
-    Move(FOutbound[0], ADest[ADestOffset], Result);
-    FOutbound := System.Copy(FOutbound, Result, System.Length(FOutbound) - Result);
-  end;
+  Result := FRecordLayer.TakeOutgoing(ADest, ADestOffset);
 end;
 
 function TTlsEngine.ReadAppData(var ADest: TBytes; ADestOffset,
@@ -905,6 +810,8 @@ function TTlsEngine.ReadAppData(var ADest: TBytes; ADestOffset,
 var
   LCapacity, LWant, LDest, LInChunk, LTake: Int32;
 begin
+  if FDraining then
+    raise EInvalidOperationTlsLibException.CreateRes(@SReentrantEngineCall);
   LCapacity := System.Length(ADest) - ADestOffset;
   if (ADestOffset < 0) or (LCapacity <= 0) or (AMaxLength <= 0) then
     Exit(0);
@@ -944,9 +851,9 @@ begin
   end;
   // reading down the buffer relieves backpressure: resume the drain so records held back at the
   // app-read cap (a raw embedder that fed a large buffer) surface, and a KeyUpdate/alert produced
-  // while pulling reaches the wire (PullOutbound). Not while parked, not re-entrantly (a sink's
-  // OnEvent could call ReadAppData mid-drain), and never turning a pull failure into an escape.
-  if (not FAwaitingVerdict) and (not FDraining) and (not FTerminal) and (not FClosed) and
+  // while pulling reaches the record layer's outbound queue. Not while parked, and never turning a
+  // pull failure into an escape.
+  if (not FAwaitingVerdict) and (not FTerminal) and (not FClosed) and
     (FAppAvail < FMaxAppReadBuffer) then
   begin
     try
@@ -955,7 +862,6 @@ begin
       on E: Exception do
         Fail(E);
     end;
-    PullOutbound;
   end;
 end;
 
@@ -982,7 +888,7 @@ end;
 
 function TTlsEngine.WantsWrite: Boolean;
 begin
-  Result := System.Length(FOutbound) > 0;
+  Result := FRecordLayer.PendingOutgoing > 0;
 end;
 
 function TTlsEngine.IsHandshaking: Boolean;
@@ -1027,69 +933,11 @@ begin
   Result := FLastError;
 end;
 
-function TTlsEngine.NegotiatedVersion: TTlsVersion;
+function TTlsEngine.ConnectionInfo: TTlsConnectionInfo;
 begin
-  Result := FNegotiatedVersion;
-end;
-
-function TTlsEngine.NegotiatedAlpnProtocol: string;
-begin
-  Result := FNegotiatedAlpn;
-end;
-
-function TTlsEngine.PeerOcspStaple: TBytes;
-begin
-  Result := FPeerOcspStaple;
-end;
-
-function TTlsEngine.PeerCertificates: TArray<TBytes>;
-begin
-  Result := FPeerCertificates;
-end;
-
-function TTlsEngine.RequestedCertificateAuthorities: TArray<TBytes>;
-begin
-  Result := FRequestedCertificateAuthorities;
-end;
-
-function TTlsEngine.NegotiatedCipherSuite: UInt16;
-begin
-  Result := FNegotiatedCipherSuite;
-end;
-
-function TTlsEngine.NegotiatedGroup: UInt16;
-begin
-  Result := FNegotiatedGroup;
-end;
-
-function TTlsEngine.PeerServerName: string;
-begin
-  Result := FPeerServerName;
-end;
-
-function TTlsEngine.IsResumed: Boolean;
-begin
-  Result := FIsResumed;
-end;
-
-function TTlsEngine.EchStatus: TEchStatus;
-begin
-  Result := FEchStatus;
-end;
-
-function TTlsEngine.EchRetryConfigs: TBytes;
-begin
-  Result := System.Copy(FEchRetryConfigs);
-end;
-
-function TTlsEngine.EchIsRetryAttempt: Boolean;
-begin
-  Result := FEchIsRetryAttempt;
-end;
-
-function TTlsEngine.EchRejectAborted: Boolean;
-begin
-  Result := FEchRejectAborted;
+  Result := FInfo;
+  // copy retry_configs so a caller re-offering it cannot mutate the engine's held bytes
+  Result.EchRetryConfigs := System.Copy(FInfo.EchRetryConfigs);
 end;
 
 procedure TTlsEngine.InstallReadProtection(const AProtection: IRecordProtection);
@@ -1163,12 +1011,12 @@ end;
 
 procedure TTlsEngine.OnAlpnSelected(const AProtocol: string);
 begin
-  FNegotiatedAlpn := AProtocol;
+  FInfo.AlpnProtocol := AProtocol;
 end;
 
 procedure TTlsEngine.OnVersionNegotiated(const AVersion: TTlsVersion);
 begin
-  FNegotiatedVersion := AVersion;
+  FInfo.NegotiatedVersion := AVersion;
   // the record layer needs the version to classify an incoming change_cipher_spec (drop under
   // 1.3 vs reject out of window) before the next record after the peer's hello is pulled
   FRecordLayer.SetNegotiatedVersion(AVersion);
@@ -1176,27 +1024,27 @@ end;
 
 procedure TTlsEngine.OnOcspStapleReceived(const AStaple: TBytes);
 begin
-  FPeerOcspStaple := AStaple;
+  FInfo.PeerOcspStaple := AStaple;
 end;
 
 procedure TTlsEngine.OnPeerCertificateChain(const AChain: TArray<TBytes>);
 begin
-  FPeerCertificates := AChain;
+  FInfo.PeerCertificates := AChain;
 end;
 
 procedure TTlsEngine.OnRequestedCertificateAuthorities(
   const AAuthorities: TArray<TBytes>);
 begin
-  FRequestedCertificateAuthorities := AAuthorities;
+  FInfo.RequestedCertificateAuthorities := AAuthorities;
 end;
 
 procedure TTlsEngine.OnConnectionParams(ACipherSuite, ANamedGroup: UInt16;
   AResumed: Boolean; const AServerName: string);
 begin
-  FNegotiatedCipherSuite := ACipherSuite;
-  FNegotiatedGroup := ANamedGroup;
-  FPeerServerName := AServerName;
-  FIsResumed := AResumed;
+  FInfo.CipherSuite := ACipherSuite;
+  FInfo.NamedGroup := ANamedGroup;
+  FInfo.ServerName := AServerName;
+  FInfo.Resumed := AResumed;
 end;
 
 procedure TTlsEngine.OnCertificateVerdictNeeded(const AChain,
@@ -1239,23 +1087,23 @@ end;
 
 procedure TTlsEngine.OnEchAccepted;
 begin
-  FEchStatus := TEchStatus.Accepted;
+  FInfo.EchStatus := TEchStatus.Accepted;
 end;
 
 procedure TTlsEngine.OnEchGreased;
 begin
-  FEchStatus := TEchStatus.Greased;
+  FInfo.EchStatus := TEchStatus.Greased;
 end;
 
 procedure TTlsEngine.OnEchBackend;
 begin
-  FEchStatus := TEchStatus.Backend;
+  FInfo.EchStatus := TEchStatus.Backend;
 end;
 
 procedure TTlsEngine.OnEchServerRejected;
 begin
   // the server rejected ECH and completed to the public_name; record it, do not abort
-  FEchStatus := TEchStatus.Rejected;
+  FInfo.EchStatus := TEchStatus.Rejected;
 end;
 
 procedure TTlsEngine.OnEchRejected(const ARetryConfigs: TBytes;
@@ -1263,16 +1111,11 @@ procedure TTlsEngine.OnEchRejected(const ARetryConfigs: TBytes;
 begin
   // the client completed its flight to the public_name; surface the reject (retry_configs
   // and the retry flag) then abort with ech_required - never a plaintext fall-back
-  FEchStatus := TEchStatus.Rejected;
-  FEchRetryConfigs := ARetryConfigs;
-  FEchIsRetryAttempt := AIsRetryAttempt;
-  FEchRejectAborted := True;
+  FInfo.EchStatus := TEchStatus.Rejected;
+  FInfo.EchRetryConfigs := ARetryConfigs;
+  FInfo.EchIsRetryAttempt := AIsRetryAttempt;
+  FInfo.EchRejectAborted := True;
   OnHandshakeFailed(TTlsAlertDescription.EchRequired);
-end;
-
-procedure TTlsEngine.SetEventSink(const ASink: ITlsEventSink);
-begin
-  FSink := ASink;
 end;
 
 end.

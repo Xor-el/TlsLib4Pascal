@@ -19,7 +19,7 @@ interface
 
 uses
   TlpIRecordProtection,
-  TlpITlsEngine,
+  TlpIHandshakeMachine,
   TlpRecordLayer;
 
 type

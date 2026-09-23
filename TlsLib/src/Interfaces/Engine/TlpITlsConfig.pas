@@ -61,11 +61,6 @@ type
     /// <summary>The certificate-compression algorithms this endpoint can decompress,
     /// advertised in compress_certificate; empty omits the extension.</summary>
     function CertificateDecompressors: TArray<ICertificateDecompressor>;
-    /// <summary>The optional cross-connection cache memoizing the server's compressed
-    /// Certificate (RFC 8879), so a stable certificate is deflated once rather than every
-    /// handshake. Shared across the connections built from this config; nil (the default)
-    /// compresses each time.</summary>
-    function CertificateCompressionCache: ICertificateCompressionCache;
     /// <summary>This endpoint's own credential: the server certificate, or (mutual TLS)
     /// the client certificate. Empty when the endpoint presents none.</summary>
     function Credential: TTlsCredential;
@@ -96,23 +91,6 @@ type
     /// <summary>Whether TLS 1.2 requires extended_master_secret (RFC 7627); when False,
     /// a peer that does not offer it falls back to the plain master secret.</summary>
     function RequireExtendedMasterSecret: Boolean;
-    /// <summary>Whether a server that received a server_name (SNI) echoes the empty
-    /// server_name acknowledgement (RFC 6066 3); default True.</summary>
-    function ServerNameAcknowledgement: Boolean;
-    /// <summary>How the server resolves the cipher suite: ServerOrder (default) imposes the
-    /// server's own preference; ClientOrder honors the client's offered order. Server-only; a
-    /// client config ignores it.</summary>
-    function CipherSuitePreference: TServerCipherPreference;
-    /// <summary>Whether a server rejects ALPN unconditionally: on any client ALPN offer it
-    /// aborts with no_application_protocol (RFC 7301) rather than selecting or declining;
-    /// default False.</summary>
-    function AlpnRejectAll: Boolean;
-    /// <summary>The DER-encoded DistinguishedName issuers a server names in its CertificateRequest
-    /// certificate_authorities (RFC 8446 4.2.4 / RFC 5246 7.4.4); empty names none.</summary>
-    function ClientCertificateAuthorities: TArray<TBytes>;
-    /// <summary>Whether a client sprinkles GREASE values (RFC 8701) across its offers to keep
-    /// peers tolerant of unknown values. Optional per the RFC; default True.</summary>
-    function Grease: Boolean;
     /// <summary>The dangerous escape hatches for the peer-certificate decision: an
     /// InsecureSkipVerify that bypasses the built-in trust pipeline, and an augment-only
     /// VerifyCallback that can only additionally reject. Both default off.</summary>
@@ -143,6 +121,9 @@ type
   /// <summary>A frozen client endpoint config: a trust source is mandatory.</summary>
   ITlsClientConfig = interface(ITlsCommonConfig)
     ['{2E9C6A14-5D73-4F80-B1A8-6C3E0D5B94F7}']
+    /// <summary>Whether a client sprinkles GREASE values (RFC 8701) across its offers to keep
+    /// peers tolerant of unknown values. Optional per the RFC; default True.</summary>
+    function Grease: Boolean;
     /// <summary>Whether the server certificate must match the connected host (RFC 6125).</summary>
     function CheckServerName: Boolean;
     /// <summary>The source the engine builds the peer server-certificate verifier from, per
@@ -178,6 +159,24 @@ type
   /// <summary>A frozen server endpoint config: a certificate credential is mandatory.</summary>
   ITlsServerConfig = interface(ITlsCommonConfig)
     ['{9A4E1C28-6D50-4B63-8F17-2E6C0A5F84D3}']
+    /// <summary>The optional cross-connection cache memoizing the server's compressed
+    /// Certificate (RFC 8879), so a stable certificate is deflated once rather than every
+    /// handshake. Shared across the connections built from this config; nil (the default)
+    /// compresses each time.</summary>
+    function CertificateCompressionCache: ICertificateCompressionCache;
+    /// <summary>Whether a server that received a server_name (SNI) echoes the empty
+    /// server_name acknowledgement (RFC 6066 3); default True.</summary>
+    function ServerNameAcknowledgement: Boolean;
+    /// <summary>How the server resolves the cipher suite: ServerOrder (default) imposes the
+    /// server's own preference; ClientOrder honors the client's offered order.</summary>
+    function CipherSuitePreference: TServerCipherPreference;
+    /// <summary>Whether a server rejects ALPN unconditionally: on any client ALPN offer it
+    /// aborts with no_application_protocol (RFC 7301) rather than selecting or declining;
+    /// default False.</summary>
+    function AlpnRejectAll: Boolean;
+    /// <summary>The DER-encoded DistinguishedName issuers a server names in its CertificateRequest
+    /// certificate_authorities (RFC 8446 4.2.4 / RFC 5246 7.4.4); empty names none.</summary>
+    function ClientCertificateAuthorities: TArray<TBytes>;
     /// <summary>Whether the server requests a client certificate and how strictly
     /// (RFC 8446 4.3.2 / RFC 5246 7.4.4).</summary>
     function ClientAuth: TClientAuthMode;

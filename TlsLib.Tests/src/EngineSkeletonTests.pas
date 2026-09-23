@@ -28,86 +28,47 @@ uses
   TlpTlsAlert,
   TlpTlsLibExceptions,
   TlpTlsContentType,
-  TlpSecretBuffer,
-  TlpICryptoProvider,
-  TlpCryptoDomainTypes,
-  TlpIRecordProtection,
-  TlpRecordProtection,
+  TlpTlsVersion,
+  TlpEchConfig,
+  TlpTlsConnectionInfo,
   TlpRecordLayer,
+  TlpICertificateTrust,
+  TlpCertificateVerifier,
+  TlpTlsPresets,
+  TlpTlsEngineFactory,
   TlpITlsEngine,
-  TlpITlsEventSink,
-  TlpTlsEngine,
+  TlpIHandshakeMachine,
   TlsLibTestBase;
 
 type
-  IRecordingSink = interface(ITlsEventSink)
-    ['{1A2B3C4D-5E6F-4071-8192-A3B4C5D6E7F8}']
-    function EventCount: Int32;
-    function LastKind: TTlsEventKind;
-  end;
-
-  TRecordingSink = class(TInterfacedObject, ITlsEventSink, IRecordingSink)
-  strict private
-  var
-    FCount: Int32;
-    FLastKind: TTlsEventKind;
-  public
-    procedure OnEvent(const AEvent: ITlsEvent);
-    function EventCount: Int32;
-    function LastKind: TTlsEventKind;
-  end;
-
   TTestEngineSkeleton = class(TTlsLibAlgorithmTestCase)
   private
     function NewEngine: ITlsEngine;
-    function MakeTls13(const AKey, AIv: TBytes): IRecordProtection;
     function TakeAll(const AEngine: ITlsEngine): TBytes;
-    function ReadAllApp(const AEngine: ITlsEngine): TBytes;
     function PeerRecord(AContentType: TTlsContentType; const AData: TBytes): TBytes;
   published
-    procedure TestNullPlumbingRoundTrip;
     procedure TestEngineDoesNotExposeInstallerSeam;
-    procedure TestProtectedRoundTripAfterInstallKeys;
     procedure TestFatalPreQueuesAlertAndTerminal;
     procedure TestWantsReadWantsWriteReflectState;
-    procedure TestEventQueueOrdering;
-    procedure TestStartHandshakeRaisesNotSupported;
+    procedure TestCleartextApplicationDataBeforeKeysIsFatal;
     procedure TestReceivedCloseNotify;
     procedure TestReceivedFatalAlertIsTerminal;
-    procedure TestPushSinkDeliversEvents;
+    procedure TestConnectionInfoZeroStateBeforeHandshake;
   end;
 
 implementation
-
-{ TRecordingSink }
-
-procedure TRecordingSink.OnEvent(const AEvent: ITlsEvent);
-begin
-  Inc(FCount);
-  FLastKind := AEvent.Kind;
-end;
-
-function TRecordingSink.EventCount: Int32;
-begin
-  Result := FCount;
-end;
-
-function TRecordingSink.LastKind: TTlsEventKind;
-begin
-  Result := FLastKind;
-end;
 
 { TTestEngineSkeleton }
 
 function TTestEngineSkeleton.NewEngine: ITlsEngine;
 begin
-  Result := TTlsEngine.Create;
-end;
-
-function TTestEngineSkeleton.MakeTls13(const AKey, AIv: TBytes): IRecordProtection;
-begin
-  Result := TTls13RecordProtection.Create(TSecretBuffer.From(AKey),
-    TSecretBuffer.From(AIv), Crypto.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
+  // a client engine before StartHandshake: it frames records and processes plaintext
+  // alerts without needing a live peer. An empty anchor store satisfies the builder's
+  // trust check for a handshake that is never completed here.
+  Result := TTlsEngineFactory.CreateClientEngine(
+    TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithTrustStore(TTrustAnchorStore.Create(nil) as ITrustAnchorStore)
+    .Build, 'localhost');
 end;
 
 function TTestEngineSkeleton.TakeAll(const AEngine: ITlsEngine): TBytes;
@@ -120,21 +81,6 @@ begin
     LChunk := nil;
     SetLength(LChunk, 4096);
     LN := AEngine.TakeOutgoing(LChunk, 0);
-    if LN > 0 then
-      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LN));
-  until LN <= 0;
-end;
-
-function TTestEngineSkeleton.ReadAllApp(const AEngine: ITlsEngine): TBytes;
-var
-  LChunk: TBytes;
-  LN: Int32;
-begin
-  Result := nil;
-  repeat
-    LChunk := nil;
-    SetLength(LChunk, 4096);
-    LN := AEngine.ReadAppData(LChunk, 0, 4096);
     if LN > 0 then
       Result := ConcatBytes(Result, System.Copy(LChunk, 0, LN));
   until LN <= 0;
@@ -155,22 +101,6 @@ begin
   end;
 end;
 
-procedure TTestEngineSkeleton.TestNullPlumbingRoundTrip;
-var
-  LEngine: ITlsEngine;
-  LData, LWire: TBytes;
-  LEvent: ITlsEvent;
-begin
-  LEngine := NewEngine;
-  LData := DecodeHex('48656c6c6f2c20706c756d62696e6721'); // "Hello, plumbing!"
-  LWire := PeerRecord(TTlsContentType.ApplicationData, LData);
-  CheckEquals(Ord(TTlsOutcome.Advanced),
-    Ord(LEngine.ProcessInput(LWire, 0, System.Length(LWire))), 'advanced');
-  CheckTrue(LEngine.NextEvent(LEvent), 'an event is queued');
-  CheckEquals(Ord(TTlsEventKind.AppData), Ord(LEvent.Kind), 'app-data event');
-  CheckEqualBytes('app data surfaces', LData, ReadAllApp(LEngine));
-end;
-
 procedure TTestEngineSkeleton.TestEngineDoesNotExposeInstallerSeam;
 var
   LEngine: ITlsEngine;
@@ -181,37 +111,6 @@ begin
   LEngine := NewEngine;
   CheckFalse(Supports(LEngine, IRecordEpochInstaller, LInstaller),
     'the engine does not expose IRecordEpochInstaller');
-end;
-
-procedure TTestEngineSkeleton.TestProtectedRoundTripAfterInstallKeys;
-var
-  LClientObj, LServerObj: TTlsEngine;
-  LClient, LServer: ITlsEngine;
-  LKey, LIv, LData, LWire: TBytes;
-begin
-  LKey := DecodeHex('000102030405060708090a0b0c0d0e0f');
-  LIv := DecodeHex('101112131415161718191a1b');
-  // the engine no longer exposes an installer interface; the concrete install
-  // methods the handshake bridge uses are called directly here
-  LClientObj := TTlsEngine.Create;
-  LClient := LClientObj;
-  LServerObj := TTlsEngine.Create;
-  LServer := LServerObj;
-  LClientObj.InstallWriteProtection(MakeTls13(LKey, LIv));
-  LServerObj.InstallReadProtection(MakeTls13(LKey, LIv));
-
-  // installing an epoch does not by itself establish the handshake: only the
-  // state machine's completion signal does (see the loopback tests)
-  CheckTrue(LClient.IsHandshaking, 'a raw epoch install does not establish the handshake');
-
-  LData := DecodeHex('746f70207365637265742064617461'); // "top secret data"
-  LClient.Write(LData, 0, System.Length(LData));
-  LWire := TakeAll(LClient);
-  // a protected record is longer than plaintext by inner type (1) + tag (16)
-  CheckEquals(5 + System.Length(LData) + 1 + 16, System.Length(LWire),
-    'record carries AEAD overhead');
-  LServer.ProcessInput(LWire, 0, System.Length(LWire));
-  CheckEqualBytes('server decrypts the app data', LData, ReadAllApp(LServer));
 end;
 
 procedure TTestEngineSkeleton.TestFatalPreQueuesAlertAndTerminal;
@@ -225,8 +124,9 @@ begin
   LOutcome := LEngine.ProcessInput(DecodeHex('170303FFFF'), 0, 5);
   CheckEquals(Ord(TTlsOutcome.Fatal), Ord(LOutcome), 'fatal outcome');
   CheckTrue(LEngine.IsTerminal, 'engine is terminal');
-  // the record_overflow alert (fatal=2, 22) is pre-queued as a plaintext record
-  CheckEqualBytes('alert record pre-queued', DecodeHex('15030300020216'),
+  // the record_overflow alert (fatal=2, 22) is pre-queued as a plaintext record; a client's
+  // first outbound record carries legacy_record_version 0x0301 (RFC 8446 5.1)
+  CheckEqualBytes('alert record pre-queued', DecodeHex('15030100020216'),
     TakeAll(LEngine));
   CheckEquals(Ord(TTlsAlertDescription.RecordOverflow),
     Ord(LEngine.LastError.Alert.Description), 'last error is record_overflow');
@@ -251,56 +151,27 @@ begin
   LEngine := NewEngine;
   CheckTrue(LEngine.WantsRead, 'a fresh engine wants input');
   CheckFalse(LEngine.WantsWrite, 'nothing to write yet');
-  LEngine.Write(DecodeHex('cafebabe'), 0, 4);
-  CheckTrue(LEngine.WantsWrite, 'a write queues outbound bytes');
+  LEngine.StartHandshake;
+  CheckTrue(LEngine.WantsWrite, 'starting the handshake queues the ClientHello');
   TakeAll(LEngine);
   CheckFalse(LEngine.WantsWrite, 'draining clears the outbound queue');
 end;
 
-procedure TTestEngineSkeleton.TestEventQueueOrdering;
+procedure TTestEngineSkeleton.TestCleartextApplicationDataBeforeKeysIsFatal;
 var
   LEngine: ITlsEngine;
-  LSender: TRecordLayer;
-  LWire, LHs, LApp: TBytes;
-  LEvent: ITlsEvent;
-  LHsEvent: IHandshakeDataEvent;
+  LWire: TBytes;
 begin
+  // a cleartext application_data record before any read epoch key is unexpected on a real
+  // handshake (RFC 8446 5.1): the engine fails with unexpected_message
   LEngine := NewEngine;
-  LHs := DecodeHex('0a0b0c');
-  LApp := DecodeHex('d0d0');
-  LSender := TRecordLayer.Create;
-  try
-    LSender.Write(TTlsContentType.Handshake, LHs, 0, System.Length(LHs));
-    LSender.Write(TTlsContentType.ApplicationData, LApp, 0, System.Length(LApp));
-    LWire := LSender.TakeOutgoing;
-  finally
-    LSender.Free;
-  end;
-  LEngine.ProcessInput(LWire, 0, System.Length(LWire));
-  // handshake fragment first, then app-data - the arrival order
-  CheckTrue(LEngine.NextEvent(LEvent), 'first event');
-  CheckEquals(Ord(TTlsEventKind.HandshakeFragment), Ord(LEvent.Kind), 'handshake first');
-  CheckTrue(Supports(LEvent, IHandshakeDataEvent, LHsEvent), 'carries fragment data');
-  CheckEqualBytes('handshake fragment bytes', LHs, LHsEvent.Data);
-  CheckTrue(LEngine.NextEvent(LEvent), 'second event');
-  CheckEquals(Ord(TTlsEventKind.AppData), Ord(LEvent.Kind), 'app-data second');
-  CheckFalse(LEngine.NextEvent(LEvent), 'queue drained in order');
-end;
-
-procedure TTestEngineSkeleton.TestStartHandshakeRaisesNotSupported;
-var
-  LEngine: ITlsEngine;
-  LRaised: Boolean;
-begin
-  LEngine := NewEngine;
-  LRaised := False;
-  try
-    LEngine.StartHandshake;
-  except
-    on E: ENotSupportedTlsLibException do
-      LRaised := True;
-  end;
-  CheckTrue(LRaised, 'the handshake intent is cleanly stubbed');
+  LWire := PeerRecord(TTlsContentType.ApplicationData, DecodeHex('deadbeef'));
+  CheckEquals(Ord(TTlsOutcome.Fatal),
+    Ord(LEngine.ProcessInput(LWire, 0, System.Length(LWire))),
+    'cleartext application data before keys is fatal');
+  CheckTrue(LEngine.IsTerminal, 'the engine is terminal');
+  CheckEquals(Ord(TTlsAlertDescription.UnexpectedMessage),
+    Ord(LEngine.LastError.Alert.Description), 'last error is unexpected_message');
 end;
 
 procedure TTestEngineSkeleton.TestReceivedCloseNotify;
@@ -346,21 +217,26 @@ begin
     Ord(LEngine.LastError.Alert.Description), 'last error reflects the peer alert');
 end;
 
-procedure TTestEngineSkeleton.TestPushSinkDeliversEvents;
+procedure TTestEngineSkeleton.TestConnectionInfoZeroStateBeforeHandshake;
 var
   LEngine: ITlsEngine;
-  LSource: ITlsEventSource;
-  LSink: IRecordingSink;
-  LWire: TBytes;
+  LInfo: TTlsConnectionInfo;
 begin
+  // before StartHandshake nothing is negotiated: ConnectionInfo reads back the zero snapshot
   LEngine := NewEngine;
-  LSink := TRecordingSink.Create;
-  CheckTrue(Supports(LEngine, ITlsEventSource, LSource), 'engine is an event source');
-  LSource.SetEventSink(LSink);
-  LWire := PeerRecord(TTlsContentType.ApplicationData, DecodeHex('01020304'));
-  LEngine.ProcessInput(LWire, 0, System.Length(LWire));
-  CheckTrue(LSink.EventCount >= 1, 'the sink is notified');
-  CheckEquals(Ord(TTlsEventKind.AppData), Ord(LSink.LastKind), 'app-data pushed');
+  LInfo := LEngine.ConnectionInfo;
+  CheckEquals(0, LInfo.NegotiatedVersion.WireValue, 'no version negotiated yet');
+  CheckTrue(LInfo.EchStatus = TEchStatus.NotOffered, 'ECH not offered yet');
+  CheckFalse(LInfo.Resumed, 'not a resumed handshake');
+  CheckEquals(0, LInfo.CipherSuite, 'no cipher suite negotiated');
+  CheckEquals(0, LInfo.NamedGroup, 'no named group negotiated');
+  CheckEquals('', LInfo.AlpnProtocol, 'no ALPN protocol selected');
+  CheckEquals('', LInfo.ServerName, 'no server name recorded');
+  CheckEquals(0, System.Length(LInfo.PeerCertificates), 'no peer certificates');
+  CheckEquals(0, System.Length(LInfo.RequestedCertificateAuthorities),
+    'no requested certificate authorities');
+  CheckEquals(0, System.Length(LInfo.PeerOcspStaple), 'no peer OCSP staple');
+  CheckEquals(0, System.Length(LInfo.EchRetryConfigs), 'no ECH retry configs');
 end;
 
 initialization

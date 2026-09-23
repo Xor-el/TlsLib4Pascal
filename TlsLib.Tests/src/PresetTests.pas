@@ -49,6 +49,7 @@ type
     procedure TestHardenedAndStrictRequestOcspStapling;
     procedure TestCompatibleDoesNotRequestStapling;
     procedure TestStrictWithHardRevocationBuilds;
+    procedure TestStrictDisablesResumption;
   end;
 
 implementation
@@ -160,6 +161,13 @@ begin
     .Build;
   CheckEquals(Ord(TRevocationPosture.Hard), Ord(LConfig.RevocationPosture),
     'Strict builds with Hard revocation on the staple it already requests');
+end;
+
+procedure TTestPreset.TestStrictDisablesResumption;
+begin
+  // the strictest preset defaults resumption off (a caller may still re-enable it)
+  CheckFalse(ClientOf(TTlsPresets.Strict(Crypto, Pkix)).Resumption,
+    'Strict disables session resumption by default');
 end;
 
 initialization

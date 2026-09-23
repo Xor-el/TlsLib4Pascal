@@ -54,8 +54,9 @@ there leaves the presented chain incomplete, forcing clients to fetch the missin
 where fetching is blocked).
 
 **PKCS#12 (`.pfx`)**: map a `.pfx` by building the credential with the provider's
-`WithCredentialPkcs12(pfxBytes, password)` and driving `TTlsConfigBuilder` directly (the
-file-based `SSLOptions` cover PEM/DER cert+key pairs).
+`WithCredentialPkcs12(pfxBytes, password)` and driving the config builder
+(`TTlsPresets.…(provider, pkix).Server`) directly (the file-based `SSLOptions` cover PEM/DER
+cert+key pairs).
 
 ## Trust is ours (`dangerous` mapping)
 

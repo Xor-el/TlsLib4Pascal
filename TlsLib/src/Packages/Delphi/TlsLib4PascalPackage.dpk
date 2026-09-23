@@ -70,7 +70,6 @@ contains
   TlpTlsAlertProtocol in '..\..\Common\TlpTlsAlertProtocol.pas',
   TlpAlertMapping in '..\..\Common\TlpAlertMapping.pas',
   TlpITlsEngine in '..\..\Interfaces\Engine\TlpITlsEngine.pas',
-  TlpITlsEventSink in '..\..\Interfaces\Engine\TlpITlsEventSink.pas',
   TlpTlsEngineEvents in '..\..\Engine\TlpTlsEngineEvents.pas',
   TlpTlsEngine in '..\..\Engine\TlpTlsEngine.pas',
   TlpHkdfLabel in '..\..\KeySchedule\TlpHkdfLabel.pas',

@@ -25,7 +25,11 @@ uses
   TlpNamedGroups,
   TlpCertificateLimits,
   TlpITlsConfigBuilder,
-  TlpTlsConfigBuilder;
+  TlpTlsConfigBuilder,
+  TlpTlsLibExceptions;
+
+resourcestring
+  SNilCryptoProvider = 'a crypto provider is required (pass a provider, not nil)';
 
 type
   /// <summary>
@@ -40,8 +44,7 @@ type
   /// </summary>
   TTlsPresets = class sealed(TObject)
   strict private
-    class function Base(const ACryptoProvider: ICryptoProvider;
-      const APkixProvider: IPkixProvider): TTlsConfigBuilder; static;
+    class function Base(const ACryptoProvider: ICryptoProvider): TTlsConfigProfile; static;
   public
     class function Compatible(const ACryptoProvider: ICryptoProvider;
       const APkixProvider: IPkixProvider): ITlsConfigBuilder; static;
@@ -55,80 +58,81 @@ implementation
 
 { TTlsPresets }
 
-class function TTlsPresets.Base(const ACryptoProvider: ICryptoProvider;
-  const APkixProvider: IPkixProvider): TTlsConfigBuilder;
+class function TTlsPresets.Base(const ACryptoProvider: ICryptoProvider): TTlsConfigProfile;
 begin
-  // the presets seed the shared defaults through the concrete builder, then hand back
-  // the endpoint selector; the caller narrows to .Client or .Server
-  Result := TTlsConfigBuilder.Create(ACryptoProvider, APkixProvider);
-  Result.WithCipherSuites(TCipherSuiteRegistry.CreateDefault(ACryptoProvider));
-  Result.WithSignatureSchemes(TSignatureSchemeRegistry.CreateDefault);
-  Result.WithNamedGroups(TNamedGroups.CreateDefaultRegistry(ACryptoProvider));
-  Result.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13));
+  if ACryptoProvider = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilCryptoProvider);
+  // the presets decide the shared, endpoint-neutral defaults as data, then hand a chooser
+  // seeded with them back to the caller, who narrows to .Client or .Server
+  Result := TTlsConfigProfile.Default;
+  Result.CipherSuites := TCipherSuiteRegistry.CreateDefault(ACryptoProvider);
+  Result.SignatureSchemes := TSignatureSchemeRegistry.CreateDefault;
+  Result.NamedGroups := TNamedGroups.CreateDefaultRegistry(ACryptoProvider);
+  Result.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls13);
 end;
 
 class function TTlsPresets.Compatible(const ACryptoProvider: ICryptoProvider;
   const APkixProvider: IPkixProvider): ITlsConfigBuilder;
 var
-  LBuilder: TTlsConfigBuilder;
+  LProfile: TTlsConfigProfile;
 begin
-  LBuilder := Base(ACryptoProvider, APkixProvider);
+  LProfile := Base(ACryptoProvider);
   // the broad default offers TLS 1.3 and the hardened TLS 1.2 suites over one registry
-  LBuilder.WithCipherSuites(TCipherSuiteRegistry.CreateDualVersion(ACryptoProvider));
-  LBuilder.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13,
-    TlsWireVersionTls12));
+  LProfile.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(ACryptoProvider);
+  LProfile.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls13,
+    TlsWireVersionTls12);
   // X25519 first, then the hybrid and the NIST curves (the hybrid is 1.3-only)
-  LBuilder.WithPreferredGroups(TArray<UInt16>.Create(
+  LProfile.PreferredGroups := TArray<UInt16>.Create(
     TNamedGroupCatalog.X25519, TNamedGroupCatalog.X25519MlKem768,
     TNamedGroupCatalog.SecP256r1MlKem768, TNamedGroupCatalog.Secp256r1,
-    TNamedGroupCatalog.Secp384r1, TNamedGroupCatalog.Secp521r1));
-  Result := LBuilder;
+    TNamedGroupCatalog.Secp384r1, TNamedGroupCatalog.Secp521r1);
+  Result := TTlsConfigBuilder.CreateFromProfile(ACryptoProvider, APkixProvider, LProfile);
 end;
 
 class function TTlsPresets.Hardened(const ACryptoProvider: ICryptoProvider;
   const APkixProvider: IPkixProvider): ITlsConfigBuilder;
 var
-  LBuilder: TTlsConfigBuilder;
+  LProfile: TTlsConfigProfile;
 begin
-  LBuilder := Base(ACryptoProvider, APkixProvider);
+  LProfile := Base(ACryptoProvider);
   // the post-quantum hybrid is preferred, then classical X25519 and P-256
-  LBuilder.WithPreferredGroups(TArray<UInt16>.Create(
+  LProfile.PreferredGroups := TArray<UInt16>.Create(
     TNamedGroupCatalog.X25519MlKem768, TNamedGroupCatalog.SecP256r1MlKem768,
-    TNamedGroupCatalog.X25519, TNamedGroupCatalog.Secp256r1));
+    TNamedGroupCatalog.X25519, TNamedGroupCatalog.Secp256r1);
   // request an OCSP staple so the revocation pipeline has status to act on and any must-staple
   // is enforceable; the posture stays soft-fail, so this never breaks a server that does not staple
-  LBuilder.WithOcspStaplingRequest(True);
+  LProfile.RequestOcspStapling := True;
   // the certificate strength floors and signature schemes stay at the web-PKI-compatible defaults:
   // the RSA floor covers public CAs, and PKCS#1-v1.5 codepoints are certificate-only in TLS 1.3
   // (RFC 8446 4.2.3), while the handshake CertificateVerify is already PSS-only by construction, so
   // there is nothing to tighten without refusing the servers a hardened client must still reach
-  Result := LBuilder;
+  Result := TTlsConfigBuilder.CreateFromProfile(ACryptoProvider, APkixProvider, LProfile);
 end;
 
 class function TTlsPresets.Strict(const ACryptoProvider: ICryptoProvider;
   const APkixProvider: IPkixProvider): ITlsConfigBuilder;
 var
-  LBuilder: TTlsConfigBuilder;
+  LProfile: TTlsConfigProfile;
   LLimits: TCertificateChainLimits;
 begin
-  LBuilder := Base(ACryptoProvider, APkixProvider);
+  LProfile := Base(ACryptoProvider);
   // a fixed allowlist: only X25519 and the post-quantum hybrid
-  LBuilder.WithPreferredGroups(TArray<UInt16>.Create(
-    TNamedGroupCatalog.X25519MlKem768, TNamedGroupCatalog.X25519));
+  LProfile.PreferredGroups := TArray<UInt16>.Create(
+    TNamedGroupCatalog.X25519MlKem768, TNamedGroupCatalog.X25519);
   // a hardened profile expects a short chain of compact certificates
   LLimits.MaxChainLength := 5;
   LLimits.MaxCertificateLength := 1 shl 15;
   LLimits.MaxTotalChainLength := 1 shl 16;
-  LBuilder.WithCertificateChainLimits(LLimits);
+  LProfile.CertificateChainLimits := LLimits;
   // the strictest posture defaults resumption off; a caller may re-enable it with no guard
-  LBuilder.WithResumption(False);
+  LProfile.Resumption := False;
   // request an OCSP staple so a caller can opt into WithRevocation(Hard) without every handshake
   // failing for a missing staple; the posture stays soft-fail (hard-fail OCSP breaks connectivity
   // to the many servers that do not staple), and strength floors stay web-PKI-compatible as in
   // Hardened. Public-key pinning is operator-supplied (WithCertificatePinning): a preset cannot
   // know a deployment's pins.
-  LBuilder.WithOcspStaplingRequest(True);
-  Result := LBuilder;
+  LProfile.RequestOcspStapling := True;
+  Result := TTlsConfigBuilder.CreateFromProfile(ACryptoProvider, APkixProvider, LProfile);
 end;
 
 end.

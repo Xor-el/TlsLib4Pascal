@@ -53,6 +53,23 @@ uses
   TlpITlsConfigBuilder;
 
 type
+  /// <summary>The endpoint-neutral settings a preset decides before the endpoint is chosen. A nil
+  /// registry or an empty list leaves that setting unset (Build refuses a builder with no offered
+  /// version); the three scalars are always applied.</summary>
+  TTlsConfigProfile = record
+    CipherSuites: ICipherSuiteRegistry;
+    SignatureSchemes: ISignatureSchemeRegistry;
+    NamedGroups: INamedGroupRegistry;
+    SupportedVersions: TArray<UInt16>;
+    PreferredGroups: TArray<UInt16>;
+    CertificateChainLimits: TCertificateChainLimits;
+    RequestOcspStapling: Boolean;
+    Resumption: Boolean;
+    /// <summary>The builder's own values for these settings: no registries or lists, default chain
+    /// limits, no staple request, resumption on.</summary>
+    class function Default: TTlsConfigProfile; static;
+  end;
+
   /// <summary>
   /// Accumulates the settings for one connection and freezes them into an immutable
   /// config. The endpoint is chosen up front through Client/Server; version-specific
@@ -131,12 +148,6 @@ type
     // version that is not offered (defaults are seeded directly, not through a facet)
     FTls13Configured: Boolean;
     FTls12Configured: Boolean;
-    FClient: ITlsClientConfigBuilder;
-    FServer: ITlsServerConfigBuilder;
-    FClient13: ITls13ClientConfigFacet;
-    FClient12: ITls12ClientConfigFacet;
-    FServer13: ITls13ServerConfigFacet;
-    FServer12: ITls12ServerConfigFacet;
     procedure GuardMutable;
     /// <summary>Refuses a version facet that was configured for a version not offered.</summary>
     procedure ValidateVersionScoping;
@@ -162,11 +173,10 @@ type
     /// its host, so a swapped cert/host mapping is caught up front, not per handshake.</summary>
     procedure ValidateSniEntryCoversHost(const AHost: string;
       const ACredential: TTlsCredential);
-  public
     constructor Create(const ACryptoProvider: ICryptoProvider;
-      const APkixProvider: IPkixProvider);
-
-    // the single-source-of-truth mutators (endpoint views, facets and presets call these)
+      const APkixProvider: IPkixProvider; const AProfile: TTlsConfigProfile);
+  private
+    // the single-source-of-truth mutators; reached only by the endpoint views and facets
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): TTlsConfigBuilder;
     function WithSignatureSchemes(const ARegistry: ISignatureSchemeRegistry): TTlsConfigBuilder;
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): TTlsConfigBuilder;
@@ -257,14 +267,20 @@ type
     function Server13: ITls13ServerConfigFacet;
     function Server12: ITls12ServerConfigFacet;
 
-    // ITlsConfigBuilder
-    function Client: ITlsClientConfigBuilder;
-    function Server: ITlsServerConfigBuilder;
-
     /// <summary>Freezes and returns the client config; raises without a trust source.</summary>
     function BuildClient: ITlsClientConfig;
     /// <summary>Freezes and returns the server config; raises without a credential.</summary>
     function BuildServer: ITlsServerConfig;
+  public
+    /// <summary>A still-mutable endpoint chooser built from AProfile; the caller narrows to Client
+    /// or Server. The presets build theirs from this.</summary>
+    class function CreateFromProfile(const ACryptoProvider: ICryptoProvider;
+      const APkixProvider: IPkixProvider;
+      const AProfile: TTlsConfigProfile): ITlsConfigBuilder; static;
+
+    // ITlsConfigBuilder
+    function Client: ITlsClientConfigBuilder;
+    function Server: ITlsServerConfigBuilder;
   end;
 
 implementation
@@ -327,7 +343,6 @@ type
     FAlpnProtocols: TArray<string>;
     FCertificateCompressors: TArray<ICertificateCompressor>;
     FCertificateDecompressors: TArray<ICertificateDecompressor>;
-    FCertificateCompressionCache: ICertificateCompressionCache;
     FCredential: TTlsCredential;
     FTrustStore: ITrustAnchorStore;
     FChainLimits: TCertificateChainLimits;
@@ -338,11 +353,6 @@ type
     FDangerousTrust: TDangerousTrust;
     FAsyncVerdict: TAsyncCertificateVerdict;
     FRequireExtendedMasterSecret: Boolean;
-    FServerNameAck: Boolean;
-    FCipherPreference: TServerCipherPreference;
-    FAlpnRejectAll: Boolean;
-    FClientCertificateAuthorities: TArray<TBytes>;
-    FGrease: Boolean;
     FResumption: Boolean;
     FExternalPsks: TArray<TExternalPsk>;
     FClock: ITlsClock;
@@ -357,7 +367,6 @@ type
     function AlpnProtocols: TArray<string>;
     function CertificateCompressors: TArray<ICertificateCompressor>;
     function CertificateDecompressors: TArray<ICertificateDecompressor>;
-    function CertificateCompressionCache: ICertificateCompressionCache;
     function Credential: TTlsCredential;
     function TrustStore: ITrustAnchorStore;
     function CertificateChainLimits: TCertificateChainLimits;
@@ -368,11 +377,6 @@ type
     function DangerousTrust: TDangerousTrust;
     function AsyncCertificateVerdict: TAsyncCertificateVerdict;
     function RequireExtendedMasterSecret: Boolean;
-    function ServerNameAcknowledgement: Boolean;
-    function CipherSuitePreference: TServerCipherPreference;
-    function AlpnRejectAll: Boolean;
-    function ClientCertificateAuthorities: TArray<TBytes>;
-    function Grease: Boolean;
     function Resumption: Boolean;
     function ExternalPsks: TArray<TExternalPsk>;
     function Clock: ITlsClock;
@@ -381,6 +385,7 @@ type
   TFrozenClientConfig = class sealed(TFrozenCommonConfig, ITlsClientConfig)
   private
   var
+    FGrease: Boolean;
     FCheckServerName: Boolean;
     FServerVerifierSource: IServerCertificateVerifierSource;
     FRequestOcspStapling: Boolean;
@@ -391,6 +396,7 @@ type
     FExternalPskRequired: Boolean;
     FEchPolicy: IEchClientPolicy;
   public
+    function Grease: Boolean;
     function CheckServerName: Boolean;
     function ServerVerifierSource: IServerCertificateVerifierSource;
     function RequestOcspStapling: Boolean;
@@ -405,6 +411,11 @@ type
   TFrozenServerConfig = class sealed(TFrozenCommonConfig, ITlsServerConfig)
   private
   var
+    FCertificateCompressionCache: ICertificateCompressionCache;
+    FServerNameAck: Boolean;
+    FCipherPreference: TServerCipherPreference;
+    FAlpnRejectAll: Boolean;
+    FClientCertificateAuthorities: TArray<TBytes>;
     FClientAuth: TClientAuthMode;
     FClientVerifierSource: IClientCertificateVerifierSource;
     FSessionStore: ISessionStore;
@@ -418,6 +429,11 @@ type
     FEchKeyStore: IEchServerKeyStore;
     FEchTrialDecrypt: Boolean;
   public
+    function CertificateCompressionCache: ICertificateCompressionCache;
+    function ServerNameAcknowledgement: Boolean;
+    function CipherSuitePreference: TServerCipherPreference;
+    function AlpnRejectAll: Boolean;
+    function ClientCertificateAuthorities: TArray<TBytes>;
     function ClientAuth: TClientAuthMode;
     function ClientVerifierSource: IClientCertificateVerifierSource;
     function SessionStore: ISessionStore;
@@ -432,13 +448,14 @@ type
     function EchTrialDecrypt: Boolean;
   end;
 
-  /// <summary>Shared view plumbing: a raw back-reference to the owning builder whose
-  /// mutators the view forwards to. The reference is raw so the view does not keep the
-  /// builder alive (the builder owns the view).</summary>
+  /// <summary>Shared view plumbing over the owning builder whose mutators the view forwards to.
+  /// FOwner is the builder typed concretely for its same-unit private mutators; FOwnerRef is the
+  /// interface reference to the same builder.</summary>
   TTlsConfigViewBase = class(TInterfacedObject)
   strict protected
   var
     FOwner: TTlsConfigBuilder;
+    FOwnerRef: ITlsConfigBuilder;
   public
     constructor Create(const AOwner: TTlsConfigBuilder);
   end;
@@ -674,13 +691,6 @@ begin
   Result := System.Copy(FCertificateDecompressors);
 end;
 
-function TFrozenCommonConfig.CertificateCompressionCache: ICertificateCompressionCache;
-begin
-  // the shared instance, not a copy: every connection from this config memoizes into the
-  // same cache - that cross-connection sharing is the whole point of this seam
-  Result := FCertificateCompressionCache;
-end;
-
 function TFrozenCommonConfig.Credential: TTlsCredential;
 begin
   Result := FCredential;
@@ -739,31 +749,6 @@ begin
   Result := FRequireExtendedMasterSecret;
 end;
 
-function TFrozenCommonConfig.ServerNameAcknowledgement: Boolean;
-begin
-  Result := FServerNameAck;
-end;
-
-function TFrozenCommonConfig.CipherSuitePreference: TServerCipherPreference;
-begin
-  Result := FCipherPreference;
-end;
-
-function TFrozenCommonConfig.AlpnRejectAll: Boolean;
-begin
-  Result := FAlpnRejectAll;
-end;
-
-function TFrozenCommonConfig.ClientCertificateAuthorities: TArray<TBytes>;
-begin
-  Result := FClientCertificateAuthorities;
-end;
-
-function TFrozenCommonConfig.Grease: Boolean;
-begin
-  Result := FGrease;
-end;
-
 function TFrozenCommonConfig.Resumption: Boolean;
 begin
   Result := FResumption;
@@ -780,6 +765,11 @@ begin
 end;
 
 { TFrozenClientConfig }
+
+function TFrozenClientConfig.Grease: Boolean;
+begin
+  Result := FGrease;
+end;
 
 function TFrozenClientConfig.CheckServerName: Boolean;
 begin
@@ -827,6 +817,33 @@ begin
 end;
 
 { TFrozenServerConfig }
+
+function TFrozenServerConfig.CertificateCompressionCache: ICertificateCompressionCache;
+begin
+  // the shared instance, not a copy: every connection from this config memoizes into the
+  // same cache - that cross-connection sharing is the whole point of this seam
+  Result := FCertificateCompressionCache;
+end;
+
+function TFrozenServerConfig.ServerNameAcknowledgement: Boolean;
+begin
+  Result := FServerNameAck;
+end;
+
+function TFrozenServerConfig.CipherSuitePreference: TServerCipherPreference;
+begin
+  Result := FCipherPreference;
+end;
+
+function TFrozenServerConfig.AlpnRejectAll: Boolean;
+begin
+  Result := FAlpnRejectAll;
+end;
+
+function TFrozenServerConfig.ClientCertificateAuthorities: TArray<TBytes>;
+begin
+  Result := FClientCertificateAuthorities;
+end;
 
 function TFrozenServerConfig.ClientAuth: TClientAuthMode;
 begin
@@ -894,6 +911,7 @@ constructor TTlsConfigViewBase.Create(const AOwner: TTlsConfigBuilder);
 begin
   inherited Create;
   FOwner := AOwner;
+  FOwnerRef := AOwner;
 end;
 
 { TTlsClientConfigBuilder }
@@ -1602,8 +1620,27 @@ end;
 
 { TTlsConfigBuilder }
 
+class function TTlsConfigProfile.Default: TTlsConfigProfile;
+begin
+  Result.CipherSuites := nil;
+  Result.SignatureSchemes := nil;
+  Result.NamedGroups := nil;
+  Result.SupportedVersions := nil;
+  Result.PreferredGroups := nil;
+  Result.CertificateChainLimits := TCertificateChainLimits.Defaults;
+  Result.RequestOcspStapling := False;
+  Result.Resumption := True;
+end;
+
+class function TTlsConfigBuilder.CreateFromProfile(const ACryptoProvider: ICryptoProvider;
+  const APkixProvider: IPkixProvider;
+  const AProfile: TTlsConfigProfile): ITlsConfigBuilder;
+begin
+  Result := TTlsConfigBuilder.Create(ACryptoProvider, APkixProvider, AProfile);
+end;
+
 constructor TTlsConfigBuilder.Create(const ACryptoProvider: ICryptoProvider;
-  const APkixProvider: IPkixProvider);
+  const APkixProvider: IPkixProvider; const AProfile: TTlsConfigProfile);
 begin
   inherited Create;
   if ACryptoProvider = nil then
@@ -1645,12 +1682,21 @@ begin
   FTicketCount := DefaultTicketCount;
   // the endpoint reads the real system clock unless a caller injects one via WithClock
   FClock := TSystemClock.Create;
-  FClient := TTlsClientConfigBuilder.Create(Self);
-  FServer := TTlsServerConfigBuilder.Create(Self);
-  FClient13 := TTls13ClientConfigFacet.Create(Self);
-  FClient12 := TTls12ClientConfigFacet.Create(Self);
-  FServer13 := TTls13ServerConfigFacet.Create(Self);
-  FServer12 := TTls12ServerConfigFacet.Create(Self);
+  // apply the profile through the same mutators the presets call, so every Build-time validation
+  // runs: registries only when supplied, lists only when non-empty, the scalars always
+  if AProfile.CipherSuites <> nil then
+    WithCipherSuites(AProfile.CipherSuites);
+  if AProfile.SignatureSchemes <> nil then
+    WithSignatureSchemes(AProfile.SignatureSchemes);
+  if AProfile.NamedGroups <> nil then
+    WithNamedGroups(AProfile.NamedGroups);
+  if System.Length(AProfile.SupportedVersions) > 0 then
+    WithSupportedVersions(AProfile.SupportedVersions);
+  if System.Length(AProfile.PreferredGroups) > 0 then
+    WithPreferredGroups(AProfile.PreferredGroups);
+  WithCertificateChainLimits(AProfile.CertificateChainLimits);
+  WithOcspStaplingRequest(AProfile.RequestOcspStapling);
+  WithResumption(AProfile.Resumption);
 end;
 
 procedure TTlsConfigBuilder.GuardMutable;
@@ -2365,32 +2411,32 @@ end;
 
 function TTlsConfigBuilder.Client13: ITls13ClientConfigFacet;
 begin
-  Result := FClient13;
+  Result := TTls13ClientConfigFacet.Create(Self);
 end;
 
 function TTlsConfigBuilder.Client12: ITls12ClientConfigFacet;
 begin
-  Result := FClient12;
+  Result := TTls12ClientConfigFacet.Create(Self);
 end;
 
 function TTlsConfigBuilder.Server13: ITls13ServerConfigFacet;
 begin
-  Result := FServer13;
+  Result := TTls13ServerConfigFacet.Create(Self);
 end;
 
 function TTlsConfigBuilder.Server12: ITls12ServerConfigFacet;
 begin
-  Result := FServer12;
+  Result := TTls12ServerConfigFacet.Create(Self);
 end;
 
 function TTlsConfigBuilder.Client: ITlsClientConfigBuilder;
 begin
-  Result := FClient;
+  Result := TTlsClientConfigBuilder.Create(Self);
 end;
 
 function TTlsConfigBuilder.Server: ITlsServerConfigBuilder;
 begin
-  Result := FServer;
+  Result := TTlsServerConfigBuilder.Create(Self);
 end;
 
 function TTlsConfigBuilder.BuildClient: ITlsClientConfig;
@@ -2436,8 +2482,6 @@ begin
   LConfig.FAlpnProtocols := FAlpnProtocols;
   LConfig.FCertificateCompressors := FCertificateCompressors;
   LConfig.FCertificateDecompressors := FCertificateDecompressors;
-  // the shared instance carries over uncopied: connections share one cache (server path)
-  LConfig.FCertificateCompressionCache := FCertificateCompressionCache;
   LConfig.FCredential := FCredential;
   LConfig.FTrustStore := ComposeTrustStore;
   LConfig.FChainLimits := FChainLimits;
@@ -2448,10 +2492,6 @@ begin
   LConfig.FDangerousTrust := FDangerousTrust;
   LConfig.FAsyncVerdict := FAsyncVerdict;
   LConfig.FRequireExtendedMasterSecret := FRequireExtendedMasterSecret;
-  LConfig.FServerNameAck := FServerNameAck;
-  LConfig.FCipherPreference := FCipherPreference;
-  LConfig.FAlpnRejectAll := FAlpnRejectAll;
-  LConfig.FClientCertificateAuthorities := FClientCertificateAuthorities;
   LConfig.FGrease := FGrease;
   LConfig.FResumption := FResumption;
   LConfig.FExternalPsks := FExternalPsks;
@@ -2531,7 +2571,6 @@ begin
   LConfig.FCipherPreference := FCipherPreference;
   LConfig.FAlpnRejectAll := FAlpnRejectAll;
   LConfig.FClientCertificateAuthorities := FClientCertificateAuthorities;
-  LConfig.FGrease := FGrease;
   LConfig.FResumption := FResumption;
   LConfig.FExternalPsks := FExternalPsks;
   LConfig.FClock := FClock;

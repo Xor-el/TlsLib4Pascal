@@ -350,10 +350,10 @@ mock-clock testable — inject a fixed clock with `WithClock` to test acceptance
 or just-expired leaf, or to validate against a trusted time on a device with no reliable RTC:
 
 ```pascal
-config := TTlsConfigBuilder.CreateClient
-  .WithTrustedCertificate(caDer)
+config := TTlsPresets.Compatible(Crypto, Pkix).Client
+  .WithTrustAnchors(caDer)
   .WithClock(myFixedClock)   // drives cert validity, PKIX, and revocation freshness
-  .BuildClient;
+  .Build;
 ```
 
 The default is the real system clock (`TSystemClock`), so this only matters when you override it.

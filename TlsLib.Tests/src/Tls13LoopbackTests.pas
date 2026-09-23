@@ -36,6 +36,7 @@ uses
   TlpNegotiationPolicy,
   TlpCipherSuiteRegistry,
   TlpCoreExtensions,
+  TlpTlsConnectionInfo,
   TlpITlsEngine,
   TlpTlsEngine,
   TlpIHandshakeMachine,
@@ -627,7 +628,7 @@ begin
   CheckFalse(LClient.IsTerminal, 'the ECH-HRR client did not fail');
   CheckFalse(LServer.IsTerminal, 'the ECH-HRR server did not fail');
   CheckFalse(LClient.IsHandshaking, 'the ECH-HRR client completed');
-  CheckTrue(LClient.EchStatus = TEchStatus.Accepted, 'ECH accepted across the HRR');
+  CheckTrue(LClient.ConnectionInfo.EchStatus = TEchStatus.Accepted, 'ECH accepted across the HRR');
   LMsg := DecodeHex('6563682d687272'); // "ech-hrr"
   LClient.Write(LMsg, 0, System.Length(LMsg));
   Pump(LClient, LServer);
@@ -659,7 +660,7 @@ begin
     Pump(LServer, LClient);
     Inc(LIterations);
   end;
-  CheckTrue(LClient.EchStatus = TEchStatus.Rejected,
+  CheckTrue(LClient.ConnectionInfo.EchStatus = TEchStatus.Rejected,
     'the client saw an ECH reject across the HRR');
   CheckTrue(LClient.LastError.Alert.Description = TTlsAlertDescription.EchRequired,
     'the client aborted with ech_required after completing to public_name');
@@ -670,6 +671,7 @@ var
   LCache: ISessionCache;
   LStore: ISessionStore;
   LClient, LServer: ITlsEngine;
+  LClientInfo, LServerInfo: TTlsConnectionInfo;
   LIterations: Int32;
 begin
   // PSK resumption + ECH + HelloRetryRequest together: the resuming client carries the real
@@ -690,8 +692,9 @@ begin
     Pump(LServer, LClient);
     Inc(LIterations);
   end;
-  CheckTrue(LClient.EchStatus = TEchStatus.Accepted, 'ECH accepted on the first HRR handshake');
-  CheckFalse(LClient.IsResumed, 'the first handshake is not resumed');
+  LClientInfo := LClient.ConnectionInfo;
+  CheckTrue(LClientInfo.EchStatus = TEchStatus.Accepted, 'ECH accepted on the first HRR handshake');
+  CheckFalse(LClientInfo.Resumed, 'the first handshake is not resumed');
   CheckEquals(1, LCache.Count, 'the client cached the issued ticket');
 
   // second ECH connection: resumes (real inner PSK, GREASE outer PSK) and is retried again, so
@@ -708,10 +711,12 @@ begin
   end;
   CheckFalse(LClient.IsTerminal, 'the resuming ECH-HRR client did not fail');
   CheckFalse(LServer.IsTerminal, 'the resuming ECH-HRR server did not fail');
-  CheckTrue(LClient.EchStatus = TEchStatus.Accepted,
+  LClientInfo := LClient.ConnectionInfo;
+  LServerInfo := LServer.ConnectionInfo;
+  CheckTrue(LClientInfo.EchStatus = TEchStatus.Accepted,
     'ECH accepted on the resumed HRR handshake');
-  CheckTrue(LClient.IsResumed, 'the ECH client resumed across the HRR via the inner PSK');
-  CheckTrue(LServer.IsResumed, 'the ECH server resumed across the HRR');
+  CheckTrue(LClientInfo.Resumed, 'the ECH client resumed across the HRR via the inner PSK');
+  CheckTrue(LServerInfo.Resumed, 'the ECH server resumed across the HRR');
 end;
 
 function TTestTls13Loopback.OuterPskExtData(const AFlight: TBytes): TBytes;
@@ -814,6 +819,7 @@ var
   LCache: ISessionCache;
   LStore: ISessionStore;
   LClient, LServer: ITlsEngine;
+  LClientInfo, LServerInfo: TTlsConnectionInfo;
   LIterations: Int32;
 begin
   LCache := TInMemorySessionCache.Create;
@@ -830,8 +836,9 @@ begin
     Pump(LServer, LClient);
     Inc(LIterations);
   end;
-  CheckTrue(LClient.EchStatus = TEchStatus.Accepted, 'ECH accepted on the first handshake');
-  CheckFalse(LClient.IsResumed, 'the first handshake is not resumed');
+  LClientInfo := LClient.ConnectionInfo;
+  CheckTrue(LClientInfo.EchStatus = TEchStatus.Accepted, 'ECH accepted on the first handshake');
+  CheckFalse(LClientInfo.Resumed, 'the first handshake is not resumed');
   CheckEquals(1, LCache.Count, 'the client cached the issued ticket');
 
   // second ECH connection: the real PSK rides the inner ClientHello (a GREASE PSK the
@@ -848,9 +855,11 @@ begin
   end;
   CheckFalse(LClient.IsTerminal, 'the resuming ECH client did not fail');
   CheckFalse(LServer.IsTerminal, 'the resuming ECH server did not fail');
-  CheckTrue(LClient.EchStatus = TEchStatus.Accepted, 'ECH accepted on the resumed handshake');
-  CheckTrue(LClient.IsResumed, 'the ECH client resumed via the inner pre_shared_key');
-  CheckTrue(LServer.IsResumed, 'the ECH server resumed');
+  LClientInfo := LClient.ConnectionInfo;
+  LServerInfo := LServer.ConnectionInfo;
+  CheckTrue(LClientInfo.EchStatus = TEchStatus.Accepted, 'ECH accepted on the resumed handshake');
+  CheckTrue(LClientInfo.Resumed, 'the ECH client resumed via the inner pre_shared_key');
+  CheckTrue(LServerInfo.Resumed, 'the ECH server resumed');
 end;
 
 procedure TTestTls13Loopback.TestEchResumeThenRejectLoopback;
@@ -895,7 +904,7 @@ begin
     Pump(LServer, LClient);
     Inc(LIterations);
   end;
-  CheckTrue(LClient.EchStatus = TEchStatus.Rejected,
+  CheckTrue(LClient.ConnectionInfo.EchStatus = TEchStatus.Rejected,
     'the resuming client saw an ECH reject (the outer GREASE PSK was ignored)');
   CheckTrue(LClient.LastError.Alert.Description = TTlsAlertDescription.EchRequired,
     'the resuming client aborted with ech_required');
@@ -907,6 +916,7 @@ var
   LStore: ISessionStore;
   LAnti: IAntiReplayStrategy;
   LClient, LServer: ITlsEngine;
+  LClientInfo: TTlsConnectionInfo;
   LIterations: Int32;
   LEarly: TBytes;
 begin
@@ -943,8 +953,9 @@ begin
   end;
   CheckFalse(LClient.IsTerminal, 'the 0-RTT ECH client did not fail');
   CheckFalse(LServer.IsTerminal, 'the 0-RTT ECH server did not fail');
-  CheckTrue(LClient.EchStatus = TEchStatus.Accepted, 'ECH accepted on the 0-RTT handshake');
-  CheckTrue(LClient.IsResumed, 'the 0-RTT ECH client resumed');
+  LClientInfo := LClient.ConnectionInfo;
+  CheckTrue(LClientInfo.EchStatus = TEchStatus.Accepted, 'ECH accepted on the 0-RTT handshake');
+  CheckTrue(LClientInfo.Resumed, 'the 0-RTT ECH client resumed');
   CheckEqualBytes('the server received the early data as 0-RTT over ECH', LEarly,
     ReadAllApp(LServer));
 end;
@@ -972,8 +983,8 @@ begin
   CheckFalse(LServer.IsHandshaking, 'the server completed the ECH handshake');
   CheckFalse(LClient.IsTerminal, 'the client did not fail');
   CheckFalse(LServer.IsTerminal, 'the server did not fail');
-  CheckTrue(LClient.EchStatus = TEchStatus.Accepted, 'the client surfaced ECH Accepted');
-  CheckTrue(LServer.EchStatus = TEchStatus.Accepted, 'the server surfaced ECH Accepted');
+  CheckTrue(LClient.ConnectionInfo.EchStatus = TEchStatus.Accepted, 'the client surfaced ECH Accepted');
+  CheckTrue(LServer.ConnectionInfo.EchStatus = TEchStatus.Accepted, 'the server surfaced ECH Accepted');
   LMsg := DecodeHex('6563682d6f6b'); // "ech-ok"
   LClient.Write(LMsg, 0, System.Length(LMsg));
   Pump(LClient, LServer);
@@ -986,6 +997,8 @@ var
   LClient, LServer: ITlsEngine;
   LClientList, LServerList: TBytes;
   LClientSk, LServerSk: ISecretBuffer;
+  LClientInfo: TTlsConnectionInfo;
+  LReturnedRetry: TBytes;
   LIterations: Int32;
 begin
   // the client offers config_id $AA (public_name localhost); the server's store holds a
@@ -1006,12 +1019,20 @@ begin
     Inc(LIterations);
   end;
   CheckTrue(LClient.IsTerminal, 'the client aborted the rejected ECH handshake');
-  CheckTrue(LClient.EchStatus = TEchStatus.Rejected, 'the client recorded an ECH reject');
+  LClientInfo := LClient.ConnectionInfo;
+  CheckTrue(LClientInfo.EchStatus = TEchStatus.Rejected, 'the client recorded an ECH reject');
   CheckTrue(LClient.LastError.Alert.Description = TTlsAlertDescription.EchRequired,
     'the client aborted with ech_required');
   CheckEqualBytes('the client surfaced the server retry_configs', LServerList,
-    LClient.EchRetryConfigs);
-  CheckFalse(LClient.EchIsRetryAttempt, 'this handshake was not itself a retry');
+    LClientInfo.EchRetryConfigs);
+  CheckFalse(LClientInfo.EchIsRetryAttempt, 'this handshake was not itself a retry');
+  // the getter hands back a defensive copy: mutating the returned retry_configs must not reach
+  // the engine's held bytes, so a re-read still yields the server's list unchanged
+  LReturnedRetry := LClient.ConnectionInfo.EchRetryConfigs;
+  if System.Length(LReturnedRetry) > 0 then
+    LReturnedRetry[0] := LReturnedRetry[0] xor $FF;
+  CheckEqualBytes('mutating the returned retry_configs does not change a re-read', LServerList,
+    LClient.ConnectionInfo.EchRetryConfigs);
 end;
 
 function TTestTls13Loopback.OcspField(const AName: string): TBytes;
@@ -1529,9 +1550,9 @@ begin
   CheckFalse(LServer.IsTerminal, 'the server did not fail');
   CheckEquals(0, LHrr, 'a direct hybrid handshake needs no HelloRetryRequest');
   CheckEquals(Integer(TNamedGroupCatalog.X25519MlKem768),
-    Integer(LClient.NegotiatedGroup), 'the client negotiated X25519MLKEM768');
+    Integer(LClient.ConnectionInfo.NamedGroup), 'the client negotiated X25519MLKEM768');
   CheckEquals(Integer(TNamedGroupCatalog.X25519MlKem768),
-    Integer(LServer.NegotiatedGroup), 'the server negotiated X25519MLKEM768');
+    Integer(LServer.ConnectionInfo.NamedGroup), 'the server negotiated X25519MLKEM768');
 
   LFromClient := DecodeHex('68656c6c6f2066726f6d2074686520636c69656e74');
   LClient.Write(LFromClient, 0, System.Length(LFromClient));
@@ -1566,9 +1587,9 @@ begin
   CheckFalse(LServer.IsTerminal, 'the server did not fail');
   CheckEquals(1, LHrr, 'exactly one HelloRetryRequest drove the client onto the hybrid');
   CheckEquals(Integer(TNamedGroupCatalog.X25519MlKem768),
-    Integer(LClient.NegotiatedGroup), 'the client negotiated X25519MLKEM768 after the retry');
+    Integer(LClient.ConnectionInfo.NamedGroup), 'the client negotiated X25519MLKEM768 after the retry');
   CheckEquals(Integer(TNamedGroupCatalog.X25519MlKem768),
-    Integer(LServer.NegotiatedGroup), 'the server negotiated X25519MLKEM768 after the retry');
+    Integer(LServer.ConnectionInfo.NamedGroup), 'the server negotiated X25519MLKEM768 after the retry');
 
   LFromClient := DecodeHex('68656c6c6f2066726f6d2074686520636c69656e74');
   LClient.Write(LFromClient, 0, System.Length(LFromClient));
