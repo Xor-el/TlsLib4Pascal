@@ -355,7 +355,8 @@ begin
   // LInfo.AlpnProtocol                   negotiated ALPN, or ''
   // LInfo.ServerName                     SNI the peer sent (server side)
   // LInfo.Resumed                        True if this was a resumption
-  // LInfo.PeerCertificates               validated peer chain, leaf first (TArray<TBytes>)
+  // LInfo.PeerCertificates               peer chain as presented, leaf first (on a resume: the chain stored with the session)
+  // LInfo.ValidatedPath                  path PKIX validated on this connection, leaf..anchor; empty on a resume unless re-verified
   // LInfo.PeerOcspStaple                 the stapled OCSP response, if any
 end;
 ```

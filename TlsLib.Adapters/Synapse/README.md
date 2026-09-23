@@ -73,7 +73,8 @@ which inspects the peer through the standard `TCustomSSL` accessors — `GetPeer
 `GetPeerIssuer`, `GetPeerName`, `GetPeerFingerprint` (SHA-256 of the leaf, lowercase hex),
 `GetPeerSerialNo` — and returns `False` to reject (fail-closed with `bad_certificate`). It is
 **augment-only**: it can add a reject rule on top of our verdict, never rescue a chain the
-pipeline already rejected. (Unlike Indy's and mORMot's native hooks, `OnVerifyCert`'s signature —
+pipeline already rejected. The hook also runs on a resumed connection now (against the leaf stored
+with the session), so an `OnVerifyCert` with side effects will see it fire on resumes too. (Unlike Indy's and mORMot's native hooks, `OnVerifyCert`'s signature —
 `function(Sender: TObject): Boolean` — carries no OpenSSL type, so bridging it forces no coupling.)
 
 **Neutral hooks (no drop to Tier-2).** For an app's own augment rule, or an out-of-band verdict

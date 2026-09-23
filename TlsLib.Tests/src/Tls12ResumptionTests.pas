@@ -483,6 +483,8 @@ var
   LCache: ISessionCache;
   LStore: ISessionStore;
   LClient, LServer: ITlsEngine;
+  LInfo: TTlsConnectionInfo;
+  LServerCred: TTlsCredential;
 begin
   // a store (no STEK) drives session-id resumption (RFC 5246 7.3)
   LCache := TInMemorySessionCache.Create;
@@ -506,6 +508,16 @@ begin
   CheckFalse(LServer.IsHandshaking, 'the resuming server completed');
   CheckFalse(LClient.IsTerminal, 'the resuming client did not fail');
   CheckFalse(LServer.IsTerminal, 'the resuming server did not fail');
+  // the resumed client surfaces the stored server chain and, with no re-verification, validates no path
+  LServerCred := ServerCredential;
+  LInfo := LClient.ConnectionInfo;
+  CheckTrue(LInfo.Resumed, 'the client reports a resumed handshake');
+  CheckEquals(1, System.Length(LInfo.PeerCertificates),
+    'the resumed client surfaces the stored server chain');
+  CheckEqualBytes('the surfaced server leaf is the server credential leaf',
+    LServerCred.CertificateChain[0], LInfo.PeerCertificates[0]);
+  CheckEquals(0, System.Length(LInfo.ValidatedPath),
+    'a non-reverify resumption validates no path on the client');
   CheckAppDataFlows(LClient, LServer);
 end;
 
@@ -514,6 +526,8 @@ var
   LStek: ISessionTicketKeyManager;
   LCache: ISessionCache;
   LClient, LServer: ITlsEngine;
+  LInfo: TTlsConnectionInfo;
+  LServerCred: TTlsCredential;
 begin
   // a STEK (no store) drives stateless RFC 5077 ticket resumption
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
@@ -533,6 +547,16 @@ begin
   CheckFalse(LServer.IsTerminal, 'the ticket resume did not fail');
   // a fresh ticket is issued on the abbreviated handshake so the session stays resumable
   CheckEquals(1, LCache.Count, 'the client re-cached a renewed ticket');
+  // the resumed client surfaces the stored server chain and, with no re-verification, validates no path
+  LServerCred := ServerCredential;
+  LInfo := LClient.ConnectionInfo;
+  CheckTrue(LInfo.Resumed, 'the client reports a resumed handshake');
+  CheckEquals(1, System.Length(LInfo.PeerCertificates),
+    'the resumed client surfaces the stored server chain');
+  CheckEqualBytes('the surfaced server leaf is the server credential leaf',
+    LServerCred.CertificateChain[0], LInfo.PeerCertificates[0]);
+  CheckEquals(0, System.Length(LInfo.ValidatedPath),
+    'a non-reverify resumption validates no path on the client');
   CheckAppDataFlows(LClient, LServer);
 end;
 
@@ -905,6 +929,8 @@ var
   LCache: ISessionCache;
   LStek: ISessionTicketKeyManager;
   LClient, LServer: ITlsEngine;
+  LInfo: TTlsConnectionInfo;
+  LServerCred: TTlsCredential;
 begin
   LCache := TInMemorySessionCache.Create;
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
@@ -927,6 +953,17 @@ begin
     'the resumed dual-version handshake is abbreviated (no server Certificate)');
   CheckFalse(LClient.IsHandshaking, 'the resumed dual-version handshake completed');
   CheckFalse(LServer.IsTerminal, 'the resumed handshake did not fail');
+  // through the 1.3->1.2 hand-off the resumed client surfaces the stored server chain and, with no
+  // re-verification, validates no path
+  LServerCred := ServerCredential;
+  LInfo := LClient.ConnectionInfo;
+  CheckTrue(LInfo.Resumed, 'the client reports a resumed handshake');
+  CheckEquals(1, System.Length(LInfo.PeerCertificates),
+    'the resumed client surfaces the stored server chain');
+  CheckEqualBytes('the surfaced server leaf is the server credential leaf',
+    LServerCred.CertificateChain[0], LInfo.PeerCertificates[0]);
+  CheckEquals(0, System.Length(LInfo.ValidatedPath),
+    'a non-reverify resumption validates no path on the client');
   CheckAppDataFlows(LClient, LServer);
 end;
 

@@ -124,13 +124,13 @@ type
 
   /// <summary>
   /// An optional companion the driver reaches with Supports on the sink to report read-only
-  /// connection-info the negotiation resolved (currently the validated peer certificate
-  /// chain). Kept off IHandshakeSink so existing sinks and their test doubles need not
-  /// implement it; only the engine bridge does, surfacing it on ITlsEngine.ConnectionInfo.
+  /// connection-info the negotiation resolved (currently the peer certificate chain as presented
+  /// and the path the pipeline validated). Kept off IHandshakeSink so existing sinks and their test
+  /// doubles need not implement it; only the engine bridge does, surfacing it on ITlsEngine.ConnectionInfo.
   /// </summary>
   IHandshakeConnectionInfoSink = interface(IInterface)
     ['{2B8D5F14-9C60-4A73-B1E8-4F0A7C6D3B95}']
-    procedure OnPeerCertificateChain(const AChain: TArray<TBytes>);
+    procedure OnPeerCertificateChain(const AChain, AValidatedPath: TArray<TBytes>);
     /// <summary>Reports the DER DistinguishedName certificate_authorities a peer named in its
     /// CertificateRequest (RFC 8446 4.2.4 / RFC 5246 7.4.4) - surfaced read-only on ITlsEngine.ConnectionInfo.</summary>
     procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>);

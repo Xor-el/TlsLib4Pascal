@@ -41,6 +41,7 @@ uses
   TlpITlsConfigBuilder,
   TlpTlsPresets,
   TlpTlsEngineFactory,
+  TlpTlsConnectionInfo,
   TlpITlsEngine,
   TlsLibTestBase;
 
@@ -883,6 +884,7 @@ var
   LScope: TBytes;
   LServerConfig: ITlsServerConfig;
   LClient, LServer: ITlsEngine;
+  LInfo: TTlsConnectionInfo;
 begin
   // a permissive client caches a resumable session (shared scope so the resuming config draws it)
   LCache := TInMemorySessionCache.Create;
@@ -904,6 +906,19 @@ begin
   CheckTrue(LClient.ConnectionInfo.Resumed, 'the async reverify-on-resume handshake resumed');
   CheckFalse(LClient.IsHandshaking, 'the resumed handshake completed after the accepted park');
   CheckFalse(LClient.IsTerminal, 'an accepted verdict did not abort');
+  // a Reverify resume re-runs PKIX here, so the presented stored chain and the validated path both surface
+  LInfo := LClient.ConnectionInfo;
+  CheckEquals(1, System.Length(LInfo.PeerCertificates),
+    'the presented chain is the stored leaf-only credential');
+  CheckEqualBytes('the presented chain leaf is the server leaf',
+    DecodeHex(FCerts.Values['leaf_cert']), LInfo.PeerCertificates[0]);
+  CheckTrue(System.Length(LInfo.ValidatedPath) >= 2,
+    'the Reverify resume validated a path beyond the presented leaf');
+  CheckEqualBytes('the validated path leaf is the server leaf',
+    DecodeHex(FCerts.Values['leaf_cert']), LInfo.ValidatedPath[0]);
+  CheckEqualBytes('the validated path terminates at the trust root',
+    DecodeHex(FCerts.Values['root_cert']),
+    LInfo.ValidatedPath[System.High(LInfo.ValidatedPath)]);
 end;
 
 procedure TTestConfigResumption.TestExporterWithheldDuringReverifyPark;
@@ -913,6 +928,7 @@ var
   LServerConfig: ITlsServerConfig;
   LClient, LServer: ITlsEngine;
   LIterations, LBefore: Int32;
+  LInfo: TTlsConnectionInfo;
 begin
   // cache a resumable session (shared scope so the resuming config draws it)
   LCache := TInMemorySessionCache.Create;
@@ -942,6 +958,13 @@ begin
   // it drew the cached session (single-use Take) to reach this park, proving a resumption not a
   // full handshake (which would also park under an async verdict)
   CheckEquals(LBefore - 1, LCache.Count, 'the client drew the cached session to resume it');
+  // the presented chain is already surfaced before the park (it is emitted with the verified chain,
+  // ahead of the verdict), even though the resumed identity is not yet accepted
+  LInfo := LClient.ConnectionInfo;
+  CheckEquals(1, System.Length(LInfo.PeerCertificates),
+    'the presented chain is populated before the park clears');
+  CheckEqualBytes('the presented chain leaf is the server leaf',
+    DecodeHex(FCerts.Values['leaf_cert']), LInfo.PeerCertificates[0]);
   // the exporter is withheld while parked, even though the secret is derived - no keying
   // material is exported over an unverified resumed identity
   CheckEquals(0, System.Length(LClient.ExportKeyingMaterial('EXPORTER-test',
@@ -959,6 +982,15 @@ begin
   CheckFalse(LClient.IsHandshaking, 'the handshake completed after the accepted verdict');
   CheckEquals(32, System.Length(LClient.ExportKeyingMaterial('EXPORTER-test',
     DecodeHex('00010203'), True, 32)), 'the exporter is available after the peer is accepted');
+  // once accepted, the Reverify resume has also validated a path here
+  LInfo := LClient.ConnectionInfo;
+  CheckTrue(System.Length(LInfo.ValidatedPath) >= 2,
+    'the Reverify resume validated a path beyond the presented leaf');
+  CheckEqualBytes('the validated path leaf is the server leaf',
+    DecodeHex(FCerts.Values['leaf_cert']), LInfo.ValidatedPath[0]);
+  CheckEqualBytes('the validated path terminates at the trust root',
+    DecodeHex(FCerts.Values['root_cert']),
+    LInfo.ValidatedPath[System.High(LInfo.ValidatedPath)]);
 end;
 
 procedure TTestConfigResumption.TestReverifyOnResumeAsyncParkRejectAborts;
@@ -996,6 +1028,7 @@ var
   LScope: TBytes;
   LStore: ISessionStore;
   LClient, LServer: ITlsEngine;
+  LInfo: TTlsConnectionInfo;
 begin
   // a permissive 1.2 client caches a resumable session (shared scope so the resuming config draws it)
   LCache := TInMemorySessionCache.Create;
@@ -1016,6 +1049,19 @@ begin
   CheckTrue(LClient.ConnectionInfo.Resumed, 'the async reverify-on-resume 1.2 handshake resumed');
   CheckFalse(LClient.IsHandshaking, 'the resumed handshake completed after the accepted park');
   CheckFalse(LClient.IsTerminal, 'an accepted verdict did not abort');
+  // a Reverify resume re-runs PKIX here, so the presented stored chain and the validated path both surface
+  LInfo := LClient.ConnectionInfo;
+  CheckEquals(1, System.Length(LInfo.PeerCertificates),
+    'the presented chain is the stored leaf-only credential');
+  CheckEqualBytes('the presented chain leaf is the server leaf',
+    DecodeHex(FCerts.Values['leaf_cert']), LInfo.PeerCertificates[0]);
+  CheckTrue(System.Length(LInfo.ValidatedPath) >= 2,
+    'the Reverify resume validated a path beyond the presented leaf');
+  CheckEqualBytes('the validated path leaf is the server leaf',
+    DecodeHex(FCerts.Values['leaf_cert']), LInfo.ValidatedPath[0]);
+  CheckEqualBytes('the validated path terminates at the trust root',
+    DecodeHex(FCerts.Values['root_cert']),
+    LInfo.ValidatedPath[System.High(LInfo.ValidatedPath)]);
 end;
 
 procedure TTestConfigResumption.TestTls12ReverifyOnResumeAsyncParkRejectAborts;
@@ -1053,6 +1099,7 @@ var
   LStore: ISessionStore;
   LClient, LServer: ITlsEngine;
   LIterations: Int32;
+  LInfo: TTlsConnectionInfo;
 begin
   LCache := TInMemorySessionCache.Create;
   LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
@@ -1078,6 +1125,12 @@ begin
   // it drew the one cached session (single-use Take) to reach this park, proving a resumption
   CheckEquals(0, LCache.Count, 'the client drew the cached 1.2 session to resume it');
   CheckTrue(LClient.IsHandshaking, 'the parked 1.2 handshake has not completed without a verdict');
+  // the presented chain is already surfaced before the park clears, ahead of the verdict
+  LInfo := LClient.ConnectionInfo;
+  CheckEquals(1, System.Length(LInfo.PeerCertificates),
+    'the presented chain is populated before the park clears');
+  CheckEqualBytes('the presented chain leaf is the server leaf',
+    DecodeHex(FCerts.Values['leaf_cert']), LInfo.PeerCertificates[0]);
   CheckEquals(0, System.Length(LClient.ExportKeyingMaterial('EXPORTER-test',
     DecodeHex('00010203'), True, 32)), 'no export while parked on the reverify verdict');
 end;
@@ -1169,6 +1222,9 @@ begin
   CheckEquals(LBefore - 1, LCache.Count, 'the client drew the cached session to resume it');
   CheckTrue(LClient.ConnectionInfo.Resumed, 'Hard + ReuseOriginal still resumes');
   CheckFalse(LClient.IsTerminal, 'the ReuseOriginal resume did not abort');
+  // ReuseOriginal re-verifies nothing here, so no path was validated on this connection
+  CheckEquals(0, System.Length(LClient.ConnectionInfo.ValidatedPath),
+    'a ReuseOriginal resume validates no path on the client');
 end;
 
 procedure TTestConfigResumption.TestSoftReverifyWithoutLiveVerdictStillResumes;
@@ -1179,6 +1235,7 @@ var
   LClient, LServer: ITlsEngine;
   LConfig: ITlsClientConfig;
   LBefore: Int32;
+  LInfo: TTlsConnectionInfo;
 begin
   // a Soft posture accepts an indeterminate (unstapled) resume inline, so a Soft + Reverify client
   // with no live deferral still resumes: the gate is Hard-only
@@ -1206,6 +1263,18 @@ begin
   CheckEquals(LBefore - 1, LCache.Count, 'the client drew the cached session to resume it');
   CheckTrue(LClient.ConnectionInfo.Resumed, 'Soft + Reverify (no live verdict) still resumes');
   CheckFalse(LClient.IsTerminal, 'the Soft reverify resume did not abort');
+  // a Reverify resume re-runs PKIX here, so the presented stored chain and the validated path both surface
+  LInfo := LClient.ConnectionInfo;
+  CheckEquals(2, System.Length(LInfo.PeerCertificates),
+    'the presented chain is the stored leaf + issuer credential');
+  CheckEqualBytes('the presented chain leaf is the stapling leaf',
+    OcspField('leaf_cert'), LInfo.PeerCertificates[0]);
+  CheckTrue(System.Length(LInfo.ValidatedPath) >= System.Length(LInfo.PeerCertificates),
+    'the Reverify resume validated a path at least as long as the presented chain');
+  CheckEqualBytes('the validated path leaf is the stapling leaf',
+    OcspField('leaf_cert'), LInfo.ValidatedPath[0]);
+  CheckEqualBytes('the validated path terminates at the stapling root',
+    OcspField('root_cert'), LInfo.ValidatedPath[System.High(LInfo.ValidatedPath)]);
 end;
 
 procedure TTestConfigResumption.TestHardReverifyWithoutLiveVerdictFallsBackToFullHandshake;

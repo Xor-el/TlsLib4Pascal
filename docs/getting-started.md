@@ -167,6 +167,8 @@ begin
   WriteLn('group   : ', IntToHex(LInfo.NamedGroup, 4));                   // $001D X25519 (default); $11EC is the X25519MLKEM768 PQ hybrid
   WriteLn('alpn    : ', LInfo.AlpnProtocol);
   WriteLn('resumed : ', BoolToStr(LInfo.Resumed, True));
+  WriteLn('presented / validated : ', System.Length(LInfo.PeerCertificates), ' / ',
+    System.Length(LInfo.ValidatedPath));  // validated is empty on a non-reverified resume
 end;
 ```
 

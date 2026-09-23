@@ -80,7 +80,8 @@ relaxation, the `dangerous` escape hatches, and an ASP.NET Core mapping — see
 
 - `GetRawTls` returns `nil`: TlsLib4Pascal is a managed engine with no `PSSL`/OpenSSL handle to
   hand back. `GetRawCert` returns the peer leaf DER (for mORMot's cert pinning / peer info), but
-  not the signature-hash name, so TLS channel binding that needs it stays inert.
+  not the signature-hash name, so TLS channel binding that needs it stays inert. On a resumed
+  connection it returns the leaf stored with the session (previously it was empty on a resume).
 - Blocking seam only (the standard mORMot `TCrtSocket` path). Async frameworks
   (`mormot.net.async`) drive the raw Tier-1 engine off `WantsRead`/`WantsWrite` instead.
 

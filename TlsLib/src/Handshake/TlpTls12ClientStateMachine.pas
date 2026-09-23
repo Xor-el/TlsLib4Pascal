@@ -549,10 +549,9 @@ begin
   if not FParams.CertificateVerifier.VerifyServerCertificate(FCertChain,
     FParams.ExpectedServerName, FReceivedOcspStaple, LVerified, LAlert) then
     raise EFatalAlertTlsLibException.CreateRes(LAlert, @SUntrustedCertificate);
-  // surface the validated path (leaf first, with the recovered issuer/anchor) for connection info
-  // (read-only), not the raw presented chain
+  // surface the presented chain and the validated path for connection info (read-only)
   Result := TArray<THandshakeEffect>.Create(
-    THandshakeEffects.PeerCertificateChain(LVerified.Path));
+    THandshakeEffects.PeerCertificateChain(FCertChain, LVerified.Path));
   // async verdict: the pipeline accepted the chain; park for the host's out-of-band decision.
   // Carry both the presented chain and the validated path (issuer at index 1), so a live resolver
   // authenticates against the PKIX issuer, never a guess. The rest of the flight stays buffered
@@ -997,6 +996,15 @@ begin
       @SBadServerFinished);
   FTranscript.Update(AMessage.Raw);
 
+  // an abbreviated handshake carries no Certificate: surface the server chain the session stored,
+  // with the re-verified path when ResumeVerification re-ran the pipeline (empty otherwise). Before
+  // any park, so connection info reads it while parked - the ordering a full handshake already has.
+  Result := nil;
+  if (FResumptionOffer <> nil) and (System.Length(FResumptionOffer.PeerCertificates) > 0) then
+    TArrayUtilities.Append<THandshakeEffect>(Result,
+      THandshakeEffects.PeerCertificateChain(FResumptionOffer.PeerCertificates,
+      FResumeValidatedPath));
+
   // reverify-on-resume + async verdict: the inline reverify at the ServerHello accepted (under a
   // live posture it defers), so park now and withhold the client's closing flight until the
   // out-of-band verdict resolves - live revocation decides before we commit our Finished. The
@@ -1005,12 +1013,13 @@ begin
   if (FParams.ResumeVerification = TResumeVerification.Reverify) and FParams.AsyncVerdict then
   begin
     FPhase := TPhase.WaitResumeVerdict;
-    Exit(TArray<THandshakeEffect>.Create(
+    TArrayUtilities.Append<THandshakeEffect>(Result,
       ParkForVerdict(FResumptionOffer.PeerCertificates,
-      FResumeValidatedPath, FParams.ExpectedServerName.ToString, nil)));
+      FResumeValidatedPath, FParams.ExpectedServerName.ToString, nil));
+    Exit;
   end;
 
-  Result := BuildAbbreviatedClientFlight;
+  Result := TArrayUtilities.Concat<THandshakeEffect>(Result, BuildAbbreviatedClientFlight);
 end;
 
 function TTls12ClientStateMachine.BuildAbbreviatedClientFlight

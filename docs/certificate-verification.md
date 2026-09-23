@@ -71,7 +71,9 @@ Pinning **augments** PKIX — it never replaces it, so the chain must *also* val
 anchor, including an issuer recovered from a configured intermediate — per RFC 7469. An attacker
 therefore cannot satisfy a pin by appending the genuine certificate to a chain that validated by a
 different path. Under `WithDangerousInsecureSkipVerify`, where no path is built, only the leaf is
-pinnable.)
+pinnable.) After the handshake this same validated path is readable as
+`ConnectionInfo.ValidatedPath`, alongside the chain the peer actually presented in
+`ConnectionInfo.PeerCertificates`.
 
 ```pascal
 uses TlpCryptoAlgorithms, TlpICryptoProvider;
@@ -298,6 +300,10 @@ staple request nor live-revocation deferral). On resumption this is decisive: a 
 `WithResumeVerification(Reverify)` but no `WithLiveRevocationVerdict` can never obtain revocation
 status for a resumed server (a resume carries no staple), so it offers no resumption and does a full
 handshake instead — the connection still succeeds, it just does not abbreviate.
+On a resumption that does abbreviate, `ConnectionInfo.ValidatedPath` is populated only when the
+client re-verified the stored chain (`WithResumeVerification(Reverify)`); under `ReuseOriginal` it is
+empty, since no path was built on this connection, while `ConnectionInfo.PeerCertificates` still
+carries the chain stored with the session.
 
 ### OS-native live revocation (opt-in, Windows + Apple)
 

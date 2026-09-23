@@ -719,10 +719,9 @@ begin
     if not TCertificateVerify.VerifyClientChain(FParams.ClientCertificateVerifier,
       FClientCertChain, LVerified, LAlert) then
       raise EFatalAlertTlsLibException.CreateRes(LAlert, @SUntrustedClientCertificate);
-    // surface the validated client path (leaf first, with the recovered issuer/anchor) for
-    // connection info (read-only), not the raw presented chain
+    // surface the presented client chain and the validated path for connection info (read-only)
     Result := TArray<THandshakeEffect>.Create(
-      THandshakeEffects.PeerCertificateChain(LVerified.Path));
+      THandshakeEffects.PeerCertificateChain(FClientCertChain, LVerified.Path));
     // async verdict: the pipeline accepted the client chain; park for the host's out-of-band
     // decision. Carry both the presented chain and the validated path (issuer at index 1), so a
     // live resolver authenticates against the PKIX issuer, never a guess. The buffered
@@ -936,7 +935,7 @@ begin
   // (mutual-TLS resumption); empty on a non-mTLS session
   if System.Length(FResumedSession.PeerCertificates) > 0 then
     TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.PeerCertificateChain(FResumedSession.PeerCertificates));
+      THandshakeEffects.PeerCertificateChain(FResumedSession.PeerCertificates, nil));
   if FIssueNewTicket then
   begin
     LNst := BuildNewSessionTicketMessage;
