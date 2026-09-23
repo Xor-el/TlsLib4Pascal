@@ -1,0 +1,23 @@
+name: GUID Lint
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+    branches:
+      - master
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: guid-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guid-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Lint interface IIDs for duplicates
+        run: bash .github/workflows/ci/lint/guid-lint.sh
