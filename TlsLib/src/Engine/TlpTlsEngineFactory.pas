@@ -305,6 +305,7 @@ begin
   // the config guarantees a non-nil clock (system clock by default); it backs a resumption
   // PSK's obfuscated_ticket_age and ticket-lifetime expiry
   L13.Clock := AConfig.Clock;
+  L13.KeyLog := AConfig.KeyLog;
   L13.ClientRandom := LClientRandom;
   L13.LegacySessionId := LSessionId;
   // SNI carries the DNS name only (empty for an IP literal, RFC 6066 3, or no host)
@@ -330,6 +331,7 @@ begin
   if LOffers12 then
     L12.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   L12.Clock := AConfig.Clock;
+  L12.KeyLog := AConfig.KeyLog;
   L12.OfferedSuites := SuiteCodes(AConfig.CipherSuites);
   // TLS 1.2 key exchange is ECDHE-only: a 1.2 supported_groups carries no KEM/hybrid group,
   // so a client that reaches the 1.2 path (never offering 1.3) does not advertise one
@@ -448,6 +450,7 @@ begin
   L13.Crypto := AConfig.Crypto;
   L13.Inspector := AConfig.Pkix.Certificates;
   L13.Clock := AConfig.Clock;
+  L13.KeyLog := AConfig.KeyLog;
   L13.Policy := TNegotiationPolicy.Create(AConfig.Crypto, AConfig.CipherSuites,
     AConfig.NamedGroups, AConfig.SignatureSchemes, AConfig.PreferredGroups,
     AConfig.SupportedVersions, AConfig.CipherSuitePreference);
@@ -491,6 +494,7 @@ begin
   L12.Crypto := AConfig.Crypto;
   L12.Inspector := AConfig.Pkix.Certificates;
   L12.Clock := AConfig.Clock;
+  L12.KeyLog := AConfig.KeyLog;
   L12.CipherSuites := AConfig.CipherSuites;
   if LOffers12 then
     L12.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;

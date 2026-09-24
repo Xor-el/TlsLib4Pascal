@@ -13,16 +13,16 @@ uses
   TlpWireWriter, TlpICryptoProvider, TlpDefaultCryptoProvider, TlpINamedGroup, 
   TlpNamedGroups, TlpTlsContentType, TlpTlsVersion, TlpRecordHeader, 
   TlpArrayUtilities, TlpIRecordProtection, TlpRecordProtection, 
-  TlpRecordLayer, TlpTlsAlertProtocol, TlpITlsEngine, 
-  TlpTlsEngineEvents, TlpTlsEngine, TlpHkdfLabel, TlpIKeySchedule, 
-  TlpTrafficKeys, TlpTls13KeySchedule, TlpTls12KeySchedule, 
-  TlpRecordProtectionFactory, TlpITranscriptHash, TlpIHandshakeChannel, 
-  TlpHandshakeMessage, TlpTranscriptHash, TlpHandshakeMessages, 
-  TlpExtensionContext, TlpITlsExtension, TlpExtensionBlockCodec, 
-  TlpCoreExtensions, TlpNegotiationTypes, TlpINegotiation, 
-  TlpCipherSuiteRegistry, TlpSignatureSchemeRegistry, TlpNegotiationPolicy, 
-  TlpHandshakeEffect, TlpIHandshakeMachine, TlpHandshakeChannel, 
-  TlpHandshakeDriver, TlpTls13ClientStateMachine, TlpTls13ServerStateMachine, 
+  TlpRecordLayer, TlpTlsAlertProtocol, TlpITlsEngine, TlpTlsEngineEvents, 
+  TlpTlsEngine, TlpHkdfLabel, TlpIKeySchedule, TlpTrafficKeys, 
+  TlpTls13KeySchedule, TlpTls12KeySchedule, TlpRecordProtectionFactory, 
+  TlpITranscriptHash, TlpIHandshakeChannel, TlpHandshakeMessage, 
+  TlpTranscriptHash, TlpHandshakeMessages, TlpExtensionContext, 
+  TlpITlsExtension, TlpExtensionBlockCodec, TlpCoreExtensions, 
+  TlpNegotiationTypes, TlpINegotiation, TlpCipherSuiteRegistry, 
+  TlpSignatureSchemeRegistry, TlpNegotiationPolicy, TlpHandshakeEffect, 
+  TlpIHandshakeMachine, TlpHandshakeChannel, TlpHandshakeDriver, 
+  TlpTls13ClientStateMachine, TlpTls13ServerStateMachine, 
   TlpHandshakeConductor, TlpCertificateVerify, TlpICertificateTrust, 
   TlpEndpointIdentity, TlpCertificateVerifier, TlpTlsCredential, 
   TlpITlsConfig, TlpTlsConfigBuilder, TlpTlsPresets, TlpTlsLib, 
@@ -48,8 +48,9 @@ uses
   TlpTls12PrfComposition, TlpChainAlgorithmPolicy, 
   TlpCertificateStrengthPolicy, TlpPkixDomainTypes, TlpIPkixProvider, 
   TlpDefaultPkixProvider, TlpExtensionVector, TlpEchRegistryExtension, 
-  TlpHandshakeStage, TlpServerOfferSelection, TlpPeerAuthentication,
-  TlpIKeyExchangePrivateKey, TlpTlsConnection, TlpTrustTypes;
+  TlpHandshakeStage, TlpServerOfferSelection, TlpPeerAuthentication, 
+  TlpIKeyExchangePrivateKey, TlpTlsConnection, TlpTrustTypes, TlpIKeyLog, 
+  TlpKeyLog;
 
 implementation
 

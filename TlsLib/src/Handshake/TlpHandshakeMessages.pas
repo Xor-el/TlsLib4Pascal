@@ -23,7 +23,9 @@ uses
   TlpWireReader,
   TlpWireVectorMarker,
   TlpIWireWriter,
-  TlpWireWriter;
+  TlpWireWriter,
+  TlpCoreExtensions,
+  TlpExtensionVector;
 
 type
   /// <summary>RFC 8446 4.6.3 KeyUpdateRequest: whether the peer is asked to update its own
@@ -255,10 +257,6 @@ const
   MaxTicketLifetimeSeconds = UInt32(604800);
 
 implementation
-
-uses
-  TlpCoreExtensions,
-  TlpExtensionVector;
 
 resourcestring
   SNoNullCompression =

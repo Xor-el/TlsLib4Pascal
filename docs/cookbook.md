@@ -536,7 +536,24 @@ LConfig := TTlsPresets.Compatible(P).Client
 
 // relax ONLY the host-name check (chain still fully validated)
 .WithDangerousDisableServerNameCheck
+
+// log every connection secret so Wireshark can decrypt a capture (SSLKEYLOGFILE, RFC 9850).
+// Debugging only — this writes your keys to disk. Keyed by the (inner, under ECH) ClientHello.random.
+uses TlpKeyLog;
+procedure TMyApp.OnKeyLog(const ALabel: string; const AClientRandom, ASecret: TBytes);
+begin
+  FKeyLogFile.WriteLine(TNssKeyLogFormat.Line(ALabel, AClientRandom, ASecret));
+end;
+// ...
+.WithDangerousKeyLog(TCallbackKeyLog.Create(Self.OnKeyLog))
 ```
+
+Point Wireshark at the file via *Preferences → Protocols → TLS → (Pre)-Master-Secret log filename*.
+
+When ECH is accepted the secrets are keyed by the *inner* ClientHello.random, but the log does not
+emit the `ECH_SECRET`/`ECH_CONFIG` lines (keyed by the outer random) a decryptor would need to recover
+that inner random, so an ECH-accepted capture is not decryptable from this log alone — the same
+limitation other stacks have today.
 
 An *augment-only* verify callback (`WithCertificateVerifyCallback`) can add extra rejections on top
 of normal validation but can never accept a chain the pipeline rejected — that, and how this differs

@@ -17,6 +17,7 @@ interface
 
 uses
   SysUtils,
+  TlpIKeyLog,
   TlpISecretBuffer;
 
 type
@@ -81,6 +82,10 @@ type
     /// - on TLS 1.3 after DeriveResumptionMasterSecret. Idempotent; a schedule that has forgotten
     /// its handshake secrets rejects any further derivation.</summary>
     procedure ForgetHandshakeSecrets;
+    /// <summary>Installs the key-log sink and the ClientHello.random every reported secret is keyed
+    /// by (the inner ClientHello's when ECH was accepted); nil disables reporting. Secrets derived
+    /// after this call are reported to the sink as they are derived (RFC 9850).</summary>
+    procedure SetKeyLog(const AKeyLog: IKeyLog; const AClientRandom: TBytes);
   end;
 
   /// <summary>

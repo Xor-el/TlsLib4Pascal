@@ -46,6 +46,7 @@ uses
   TlpISession,
   TlpIClock,
   TlpClock,
+  TlpIKeyLog,
   TlpSession,
   TlpSessionTicketKeys,
   TlpIEch,
@@ -130,6 +131,7 @@ type
     FSessionScope: TBytes;
     FResumeVerification: TResumeVerification;
     FClock: ITlsClock;
+    FKeyLog: IKeyLog;
     FClientEarlyData: Boolean;
     FSessionStore: ISessionStore;
     FSessionTicketKeys: ISessionTicketKeyManager;
@@ -250,6 +252,7 @@ type
       const AScope: TBytes): TTlsConfigBuilder; overload;
     function WithResumeVerification(AMode: TResumeVerification): TTlsConfigBuilder;
     function WithClock(const AClock: ITlsClock): TTlsConfigBuilder;
+    function WithDangerousKeyLog(const AKeyLog: IKeyLog): TTlsConfigBuilder;
     function WithSessionStore(const AStore: ISessionStore): TTlsConfigBuilder;
     function WithSessionTicketKeys(const AKeys: ISessionTicketKeyManager): TTlsConfigBuilder;
     function WithResumptionScope(const AScope: TBytes): TTlsConfigBuilder;
@@ -359,6 +362,7 @@ type
     FResumption: Boolean;
     FExternalPsks: TArray<TExternalPsk>;
     FClock: ITlsClock;
+    FKeyLog: IKeyLog;
   public
     function Crypto: ICryptoProvider;
     function Pkix: IPkixProvider;
@@ -383,6 +387,7 @@ type
     function Resumption: Boolean;
     function ExternalPsks: TArray<TExternalPsk>;
     function Clock: ITlsClock;
+    function KeyLog: IKeyLog;
   end;
 
   TFrozenClientConfig = class sealed(TFrozenCommonConfig, ITlsClientConfig)
@@ -514,6 +519,7 @@ type
       const AScope: TBytes): ITlsClientConfigBuilder; overload;
     function WithResumeVerification(AMode: TResumeVerification): ITlsClientConfigBuilder;
     function WithClock(const AClock: ITlsClock): ITlsClientConfigBuilder;
+    function WithDangerousKeyLog(const AKeyLog: IKeyLog): ITlsClientConfigBuilder;
     function WithExternalPreSharedKeys(
       const APsks: TArray<TExternalPsk>): ITlsClientConfigBuilder;
     function WithExternalPskRequired(AEnabled: Boolean): ITlsClientConfigBuilder;
@@ -588,6 +594,7 @@ type
     function WithResumptionScope(const AScope: TBytes): ITlsServerConfigBuilder;
     function WithDefaultSessionTicketKeys: ITlsServerConfigBuilder;
     function WithClock(const AClock: ITlsClock): ITlsServerConfigBuilder;
+    function WithDangerousKeyLog(const AKeyLog: IKeyLog): ITlsServerConfigBuilder;
     function WithTicketLifetime(ASeconds: UInt32): ITlsServerConfigBuilder;
     function WithTicketCount(ACount: Int32): ITlsServerConfigBuilder;
     function WithResumption(AEnabled: Boolean): ITlsServerConfigBuilder;
@@ -765,6 +772,11 @@ end;
 function TFrozenCommonConfig.Clock: ITlsClock;
 begin
   Result := FClock;
+end;
+
+function TFrozenCommonConfig.KeyLog: IKeyLog;
+begin
+  Result := FKeyLog;
 end;
 
 { TFrozenClientConfig }
@@ -1128,6 +1140,13 @@ begin
   Result := Self;
 end;
 
+function TTlsClientConfigBuilder.WithDangerousKeyLog(
+  const AKeyLog: IKeyLog): ITlsClientConfigBuilder;
+begin
+  FOwner.WithDangerousKeyLog(AKeyLog);
+  Result := Self;
+end;
+
 function TTlsClientConfigBuilder.WithExternalPreSharedKeys(
   const APsks: TArray<TExternalPsk>): ITlsClientConfigBuilder;
 begin
@@ -1429,6 +1448,13 @@ function TTlsServerConfigBuilder.WithClock(
   const AClock: ITlsClock): ITlsServerConfigBuilder;
 begin
   FOwner.WithClock(AClock);
+  Result := Self;
+end;
+
+function TTlsServerConfigBuilder.WithDangerousKeyLog(
+  const AKeyLog: IKeyLog): ITlsServerConfigBuilder;
+begin
+  FOwner.WithDangerousKeyLog(AKeyLog);
   Result := Self;
 end;
 
@@ -2304,6 +2330,14 @@ begin
   Result := Self;
 end;
 
+function TTlsConfigBuilder.WithDangerousKeyLog(
+  const AKeyLog: IKeyLog): TTlsConfigBuilder;
+begin
+  GuardMutable;
+  FKeyLog := AKeyLog;
+  Result := Self;
+end;
+
 function TTlsConfigBuilder.WithExternalPreSharedKeys(
   const APsks: TArray<TExternalPsk>): TTlsConfigBuilder;
 begin
@@ -2516,6 +2550,7 @@ begin
     LConfig.FSessionScope := FCrypto.Primitives.GetRandom.GenerateBytes(SessionScopeLength);
   LConfig.FResumeVerification := FResumeVerification;
   LConfig.FClock := FClock;
+  LConfig.FKeyLog := FKeyLog;
   LConfig.FEarlyData := FClientEarlyData;
   LConfig.FExternalPskRequired := FExternalPskRequired;
   LConfig.FEchPolicy := LEchPolicy;
@@ -2580,6 +2615,7 @@ begin
   LConfig.FResumption := FResumption;
   LConfig.FExternalPsks := FExternalPsks;
   LConfig.FClock := FClock;
+  LConfig.FKeyLog := FKeyLog;
   LConfig.FClientAuth := FClientAuth;
   LConfig.FClientVerifierSource := ComposeClientVerifierSource;
   LConfig.FSessionStore := FSessionStore;

@@ -24,6 +24,8 @@ uses
   TlpSecretBuffer,
   TlpICryptoProvider,
   TlpIKeySchedule,
+  TlpIKeyLog,
+  TlpKeyLog,
   TlpTrafficKeys,
   TlpTlsLibExceptions,
   TlpSecureMemory;
@@ -50,6 +52,8 @@ type
     FServerKey: ISecretBuffer;
     FClientSalt: ISecretBuffer;
     FServerSalt: ISecretBuffer;
+    FKeyLog: IKeyLog;
+    FKeyLogRandom: TBytes;
     function Prf(const ASecret: ISecretBuffer; const ALabel: string;
       const ASeed: TBytes; ALength: Int32): ISecretBuffer;
     procedure DeriveMaster(const ALabel: string; const ASeed: TBytes);
@@ -84,6 +88,7 @@ type
     procedure DeriveKeyBlock;
     function MasterSecret: ISecretBuffer;
     procedure ForgetHandshakeSecrets;
+    procedure SetKeyLog(const AKeyLog: IKeyLog; const AClientRandom: TBytes);
   end;
 
 implementation
@@ -131,6 +136,15 @@ begin
     raise EInvalidOperationTlsLibException.CreateRes(@SMasterNotDerived);
 end;
 
+procedure TTls12KeySchedule.SetKeyLog(const AKeyLog: IKeyLog;
+  const AClientRandom: TBytes);
+begin
+  // the log random is held apart from the PRF seed (FClientRandom) so installing or
+  // clearing a sink can never disturb key derivation
+  FKeyLog := AKeyLog;
+  FKeyLogRandom := System.Copy(AClientRandom);
+end;
+
 class procedure TTls12KeySchedule.GuardExportArgs(const ALabel: string;
   ALength: Int32);
 var
@@ -172,8 +186,21 @@ end;
 procedure TTls12KeySchedule.DeriveKeyBlock;
 var
   LBlock: ISecretBuffer;
+  LMasterBytes: TBytes;
 begin
   GuardMaster;
+  // every handshake (full or abbreviated) reaches here once with the randoms set, so this is the
+  // single point to report the master secret to the key log - a deliberate secret exposure copied
+  // and wiped only when a sink is present (RFC 9850, CLIENT_RANDOM)
+  if FKeyLog <> nil then
+  begin
+    LMasterBytes := FMasterSecret.ToBytes;
+    try
+      FKeyLog.Log(KeyLogLabelClientRandom, FKeyLogRandom, LMasterBytes);
+    finally
+      TSecureMemory.WipeBytes(LMasterBytes);
+    end;
+  end;
   // AEAD suites have no MAC keys: client_key || server_key || client_salt || server_salt
   LBlock := Prf(FMasterSecret, 'key expansion',
     TArrayUtilities.Concat(FServerRandom, FClientRandom),
@@ -290,6 +317,8 @@ begin
   FServerKey := nil;
   FClientSalt := nil;
   FServerSalt := nil;
+  FKeyLog := nil;
+  FKeyLogRandom := nil;
 end;
 
 end.

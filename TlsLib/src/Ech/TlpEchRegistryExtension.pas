@@ -18,7 +18,8 @@ interface
 uses
   SysUtils,
   TlpExtensionContext,
-  TlpITlsExtension;
+  TlpITlsExtension,
+  TlpEchExtension;
 
 type
   /// <summary>
@@ -42,8 +43,7 @@ type
 implementation
 
 uses
-  TlpCoreExtensions,
-  TlpEchExtension;
+  TlpCoreExtensions;
 
 { TEncryptedClientHelloExtension }
 

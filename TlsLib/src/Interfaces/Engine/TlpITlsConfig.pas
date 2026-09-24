@@ -33,6 +33,7 @@ uses
   TlpITlsCredentialResolver,
   TlpISession,
   TlpIClock,
+  TlpIKeyLog,
   TlpIEch,
   TlpSession;
 
@@ -116,6 +117,8 @@ type
     /// and certificate/OCSP freshness (RFC 8446 4.2.11 / 4.6.1). Never nil: the builder defaults
     /// it to the system clock.</summary>
     function Clock: ITlsClock;
+    /// <summary>The dangerous key-log sink; nil (the default) reports nothing.</summary>
+    function KeyLog: IKeyLog;
   end;
 
   /// <summary>A frozen client endpoint config: a trust source is mandatory.</summary>

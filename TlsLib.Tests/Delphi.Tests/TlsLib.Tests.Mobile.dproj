@@ -382,6 +382,8 @@
         <DCCReference Include="..\..\TlsLib\src\Common\TlpDateTimeUtilities.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Common\TlpIClock.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Common\TlpClock.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Common\TlpIKeyLog.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Common\TlpKeyLog.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Session\TlpSessionTicketStrategy.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Common\TlpCodeKeyedRegistry.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Common\TlpBitOperations.pas"/>
@@ -496,6 +498,7 @@
         <DCCReference Include="..\src\ChainAlgorithmPolicyTests.pas"/>
         <DCCReference Include="..\src\MockRandom.pas"/>
         <DCCReference Include="..\src\MockClock.pas"/>
+        <DCCReference Include="..\src\MockKeyLog.pas"/>
         <DCCReference Include="..\src\MockPlatformChainEngine.pas"/>
         <DCCReference Include="..\src\MockCryptoProvider.pas"/>
         <DCCReference Include="..\src\MockHttpFetcher.pas"/>
@@ -511,6 +514,7 @@
         <DCCReference Include="..\src\EngineSkeletonTests.pas"/>
         <DCCReference Include="..\src\HkdfLabelTests.pas"/>
         <DCCReference Include="..\src\Tls13KeyScheduleTests.pas"/>
+        <DCCReference Include="..\src\KeyLogTests.pas"/>
         <DCCReference Include="..\src\Tls12KeyScheduleTests.pas"/>
         <DCCReference Include="..\src\ScheduleInstallTests.pas"/>
         <DCCReference Include="..\src\HandshakeMessageTests.pas"/>
