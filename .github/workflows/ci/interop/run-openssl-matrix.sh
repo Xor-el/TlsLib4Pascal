@@ -108,6 +108,40 @@ else
 fi
 wait || true
 
+# --- Cell 2a: our client  ->  openssl s_server with an Ed25519 server cert ---
+echo "=== cell 2a: our client  ->  openssl s_server (Ed25519 cert) ==="
+MSYS2_ARG_CONV_EXCL='/CN=' "$OPENSSL" req -x509 -newkey ed25519 -nodes \
+  -keyout "$TMP/ed25519_key.pem" -out "$TMP/ed25519_cert.pem" -days 2 \
+  -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost" 2>/dev/null
+P2A=14520
+"$OPENSSL" s_server -cert "$TMP/ed25519_cert.pem" -key "$TMP/ed25519_key.pem" -tls1_3 \
+  -accept $P2A -rev -naccept 1 > "$TMP/s2a.log" 2>&1 &
+for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/s2a.log" && break; sleep 0.1; done
+if "$DRIVER" --role client --port $P2A --host localhost --ca "$TMP/ed25519_cert.pem" \
+     --message "hello-cell-2a" --data-dir "$DATA_DIR"; then
+  echo "  PASS: Ed25519 server cert + CertificateVerify verified + app-data"
+else
+  echo "  FAIL: cell 2a"; cat "$TMP/s2a.log"; FAILURES=$((FAILURES+1))
+fi
+wait || true
+
+# --- Cell 2b: our client  ->  openssl s_server with an Ed448 server cert ---
+echo "=== cell 2b: our client  ->  openssl s_server (Ed448 cert) ==="
+MSYS2_ARG_CONV_EXCL='/CN=' "$OPENSSL" req -x509 -newkey ed448 -nodes \
+  -keyout "$TMP/ed448_key.pem" -out "$TMP/ed448_cert.pem" -days 2 \
+  -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost" 2>/dev/null
+P2B=14521
+"$OPENSSL" s_server -cert "$TMP/ed448_cert.pem" -key "$TMP/ed448_key.pem" -tls1_3 \
+  -accept $P2B -rev -naccept 1 > "$TMP/s2b.log" 2>&1 &
+for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/s2b.log" && break; sleep 0.1; done
+if "$DRIVER" --role client --port $P2B --host localhost --ca "$TMP/ed448_cert.pem" \
+     --message "hello-cell-2b" --data-dir "$DATA_DIR"; then
+  echo "  PASS: Ed448 server cert + CertificateVerify verified + app-data"
+else
+  echo "  FAIL: cell 2b"; cat "$TMP/s2b.log"; FAILURES=$((FAILURES+1))
+fi
+wait || true
+
 # --- Cell 3: our server  <-  openssl s_client over TLS 1.2 (hardened ECDHE+AEAD) ---
 echo "=== cell 3: our server  <-  openssl s_client (TLS 1.2) ==="
 P3=14503
