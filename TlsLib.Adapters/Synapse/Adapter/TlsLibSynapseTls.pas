@@ -21,9 +21,7 @@
 /// </summary>
 unit TlsLibSynapseTls;
 
-{$IFDEF FPC}
-{$MODE DELPHI}
-{$ENDIF FPC}
+{$I ..\..\..\TlsLib\src\Include\TlsLib.inc}
 
 interface
 
@@ -53,7 +51,8 @@ uses
 /// <summary>Sets a process-wide augment-only verify callback the plugin threads into every
 /// client handshake (it runs after the built-in pipeline and can only additionally reject).
 /// nil clears it. The Synapse plugin is created per socket by SSLImplementation, so its
-/// neutral (non-TCustomSSL) hooks are configured through these unit-level setters.</summary>
+/// neutral (non-TCustomSSL) hooks are configured through these unit-level setters. Set them
+/// at startup, before any socket handshakes; the setters are not synchronized.</summary>
 procedure SetTlsLibSynapseVerifyCallback(const ACallback: TTlsCertificateVerifyCallback);
 /// <summary>Sets a process-wide out-of-band verdict resolver for the CLIENT role (e.g. live
 /// OCSP/CRL over the SERVER's chain): when set, every client handshake parks after the pipeline
@@ -516,6 +515,8 @@ end;
 
 function TSSLTlsLib.GetCipherName: string;
 begin
+  // no suite name is surfaced here; this reports the negotiated protocol version
+  // (NegotiatedCipherSuite carries the code)
   Result := GetSSLVersion;
 end;
 
@@ -600,8 +601,9 @@ var
   LLeaf, LDigest: TBytes;
   LHash: IHash;
 begin
-  // the SHA-256 fingerprint of the leaf DER, lowercase hex (a fingerprint is a hash; the
-  // exact digest is adapter convention)
+  // the SHA-256 fingerprint of the leaf DER, lowercase hex; a fingerprint is a hash and the
+  // exact digest is an adapter convention - the stock synapse ssl_openssl plugin returns raw
+  // MD5 digest bytes, so fingerprints do not compare across plugins
   Result := '';
   LLeaf := PeerLeaf;
   if (FCrypto = nil) or (System.Length(LLeaf) = 0) then

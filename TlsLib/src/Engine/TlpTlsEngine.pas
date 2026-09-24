@@ -947,7 +947,8 @@ end;
 function TTlsEngine.ConnectionInfo: TTlsConnectionInfo;
 begin
   Result := FInfo;
-  // copy retry_configs so a caller re-offering it cannot mutate the engine's held bytes
+  // copy retry_configs so a caller re-offering it cannot mutate the engine's held bytes; the
+  // certificate, path, CA and staple arrays are shared read-only views, not copies
   Result.EchRetryConfigs := System.Copy(FInfo.EchRetryConfigs);
 end;
 

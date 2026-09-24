@@ -18,9 +18,7 @@ unit TlpSocketHttpFetcher;
   status, a timeout, or an empty body is reported as a False result with no body, never a
   raised exception. }
 
-{$IFDEF FPC}
-{$MODE DELPHI}
-{$ENDIF FPC}
+{$I ..\TlsLib\src\Include\TlsLib.inc}
 
 interface
 

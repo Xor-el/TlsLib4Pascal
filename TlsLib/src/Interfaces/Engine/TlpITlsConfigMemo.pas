@@ -11,9 +11,7 @@
 
 unit TlpITlsConfigMemo;
 
-{$IFDEF FPC}
-{$MODE DELPHI}
-{$ENDIF FPC}
+{$I ..\..\Include\TlsLib.inc}
 
 interface
 

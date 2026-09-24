@@ -432,13 +432,7 @@ begin
     if Assigned(AOptions.ServerVerdictResolver) then
       LServer.WithLiveRevocationVerdict(AOptions.ServerVerdictDeadlineMs);
   end;
-  if AOptions.SessionResumption then
-  begin
-    LServer.WithResumption(True);
-    LServer.WithDefaultSessionTicketKeys;
-  end
-  else
-    LServer.WithResumption(False);
+  LServer.WithResumption(AOptions.SessionResumption);
   Result := LServer.Build;
 end;
 
