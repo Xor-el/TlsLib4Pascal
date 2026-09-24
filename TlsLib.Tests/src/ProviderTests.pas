@@ -52,6 +52,7 @@ type
     procedure TestHashCloneIsIndependent;
     procedure TestHmacSha256Kat;
     procedure TestHkdfSha256Rfc5869;
+    procedure TestHkdfExpandRejectsOverCapAndNegative;
     procedure TestAesGcmKat;
     procedure TestAes256GcmKat;
     procedure TestAesGcmRoundTrip;
@@ -177,6 +178,42 @@ begin
   finally
     LVec.Free;
   end;
+end;
+
+procedure TTestCryptoProvider.TestHkdfExpandRejectsOverCapAndNegative;
+const
+  CHashLen = 32;
+var
+  LHkdf: IHkdf;
+  LPrk, LOkm: ISecretBuffer;
+  LInfo: TBytes;
+  LRaised: Boolean;
+begin
+  LHkdf := Crypto.Primitives.CreateHkdf(THashAlgorithm.SHA_256);
+  LPrk := LHkdf.Extract(TSecretBuffer.From(DecodeHex('000102030405060708090a0b0c0d0e0f')),
+    TSecretBuffer.From(DecodeHex('0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b')));
+  LInfo := DecodeHex('f0f1f2f3f4f5f6f7f8f9');
+
+  LRaised := False;
+  try
+    LHkdf.Expand(LPrk, LInfo, 255 * CHashLen + 1);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'Expand beyond 255 * HashLen must raise EArgumentTlsLibException');
+
+  LRaised := False;
+  try
+    LHkdf.Expand(LPrk, LInfo, -1);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'Expand with a negative length must raise EArgumentTlsLibException');
+
+  LOkm := LHkdf.Expand(LPrk, LInfo, 255 * CHashLen);
+  CheckEquals(255 * CHashLen, LOkm.Len, 'Expand at the exact cap must succeed');
 end;
 
 procedure TTestCryptoProvider.TestAesGcmKat;

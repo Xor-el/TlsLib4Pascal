@@ -452,7 +452,7 @@ type
     function WithClock(const AClock: ITlsClock): ITlsServerConfigBuilder;
     /// <summary>The lifetime advertised for issued sessions and tickets, in seconds.</summary>
     function WithTicketLifetime(ASeconds: UInt32): ITlsServerConfigBuilder;
-    /// <summary>How many TLS 1.3 NewSessionTickets to issue per handshake.</summary>
+    /// <summary>How many TLS 1.3 NewSessionTickets to issue per handshake, 0..8 (0 issues none).</summary>
     function WithTicketCount(ACount: Int32): ITlsServerConfigBuilder;
     /// <summary>Whether session resumption is engaged; defaults to the preset's posture.</summary>
     function WithResumption(AEnabled: Boolean): ITlsServerConfigBuilder;

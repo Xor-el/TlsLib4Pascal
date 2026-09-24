@@ -56,6 +56,7 @@ type
       const ASeed: TBytes; ALength: Int32): ISecretBuffer;
     procedure DeriveMaster(const ALabel: string; const ASeed: TBytes);
     procedure GuardMaster;
+    class procedure GuardExportArgs(const ALabel: string; ALength: Int32); static;
     function DoExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       AUseContext: Boolean; ALength: Int32): TBytes;
   public
@@ -101,6 +102,8 @@ resourcestring
   SNoSuchEpoch = 'the TLS 1.2 schedule has only an application-data epoch';
   SMasterNotDerived = 'the master secret has not been derived';
   SKeyBlockNotDerived = 'the key block is unavailable (not derived, or released after the handshake)';
+  SExportLengthNotPositive = 'the exported keying material length must be positive';
+  SExportLabelNotAscii = 'the exporter label must be ASCII';
 
 { TTls12KeySchedule }
 
@@ -130,6 +133,20 @@ procedure TTls12KeySchedule.GuardMaster;
 begin
   if FMasterSecret = nil then
     raise EInvalidOperationTlsLibException.CreateRes(@SMasterNotDerived);
+end;
+
+class procedure TTls12KeySchedule.GuardExportArgs(const ALabel: string;
+  ALength: Int32);
+var
+  LI: Int32;
+begin
+  // RFC 5705 exporters need a positive length; a zero-length export is caller misuse. An empty
+  // label is legal, but a non-ASCII one would be silently mangled by the ASCII encoding, so reject it
+  if ALength <= 0 then
+    raise EArgumentTlsLibException.CreateRes(@SExportLengthNotPositive);
+  for LI := 1 to System.Length(ALabel) do
+    if Ord(ALabel[LI]) > 127 then
+      raise EArgumentTlsLibException.CreateRes(@SExportLabelNotAscii);
 end;
 
 procedure TTls12KeySchedule.SetRandoms(const AClientRandom, AServerRandom: TBytes);
@@ -248,6 +265,7 @@ var
   LSeed, LContextLen: TBytes;
 begin
   Result := nil;
+  GuardExportArgs(ALabel, ALength);
   GuardMaster;
   LSeed := TArrayUtilities.Concat(FClientRandom, FServerRandom);
   // a supplied context contributes a 2-byte length + the context bytes to the seed, even

@@ -225,6 +225,8 @@ resourcestring
     'the PKCS#12 blob holds more than one private-key entry; it is ambiguous for a ' +
     'single credential — split it or import the intended identity explicitly';
   SPkcs12NoChain = 'the PKCS#12 private-key entry has no certificate chain';
+  SHkdfExpandTooLong = 'HKDF-Expand output length %d exceeds 255 * HashLen (%d)';
+  SHkdfExpandNegative = 'HKDF-Expand output length must not be negative';
 
 type
   TAeadKind = (AesGcm, ChaChaPoly);
@@ -725,7 +727,14 @@ var
   LGen: IHkdfBytesGenerator;
   LParams: IHkdfParameters;
   LPrkBytes, LOkm: TBytes;
+  LHashLen: Int32;
 begin
+  // RFC 5869: L must not exceed 255 * HashLen
+  LHashLen := FExtractMac.GetMacSize;
+  if ALength < 0 then
+    raise EArgumentTlsLibException.CreateRes(@SHkdfExpandNegative);
+  if ALength > 255 * LHashLen then
+    raise EArgumentTlsLibException.CreateResFmt(@SHkdfExpandTooLong, [ALength, 255 * LHashLen]);
   LGen := FExpandGen;
   LPrkBytes := APrk.ToBytes;
   try

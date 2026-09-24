@@ -123,6 +123,9 @@ type
     procedure TestTicketLifetimeAtCapIsAccepted;
     procedure TestResumptionScopeAboveCapIsRejected;
     procedure TestResumptionScopeAtCapIsAccepted;
+    procedure TestTicketCountAboveCapIsRejected;
+    procedure TestTicketCountNegativeIsRejected;
+    procedure TestTicketCountAtCapIsAccepted;
     procedure TestClientRejectsServerSniCredential;
     procedure TestServerRejectsPublicSuffixSniWildcard;
     // a restricted (classical-only) registry composes with a preset whose preferred order still
@@ -1055,6 +1058,50 @@ begin
     .Build;
   CheckEqualBytes('the boundary resumption scope (32 bytes) round-trips', LScope,
     LConfig.ResumptionScope);
+end;
+
+procedure TTestConfigBuilder.TestTicketCountAboveCapIsRejected;
+var
+  LServer: ITlsServerConfigBuilder;
+  LRaised: Boolean;
+begin
+  LServer := TTlsPresets.Compatible(Crypto, Pkix).Server;
+  LRaised := False;
+  try
+    LServer.WithTicketCount(9); // one over the cap
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a ticket count above 8 is rejected');
+end;
+
+procedure TTestConfigBuilder.TestTicketCountNegativeIsRejected;
+var
+  LServer: ITlsServerConfigBuilder;
+  LRaised: Boolean;
+begin
+  LServer := TTlsPresets.Compatible(Crypto, Pkix).Server;
+  LRaised := False;
+  try
+    LServer.WithTicketCount(-1);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a negative ticket count is rejected');
+end;
+
+procedure TTestConfigBuilder.TestTicketCountAtCapIsAccepted;
+var
+  LConfig: ITlsServerConfig;
+begin
+  // the boundary value is legal; only a strictly-greater count is refused
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential)
+    .WithTicketCount(8)
+    .Build;
+  CheckEquals(8, LConfig.TicketCount, 'the boundary ticket count (8) round-trips');
 end;
 
 procedure TTestConfigBuilder.TestClientRejectsServerSniCredential;
