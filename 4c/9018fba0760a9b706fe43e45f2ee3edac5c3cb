@@ -1,0 +1,52 @@
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_09d3c46d1a9b1f::t_b14882408af068 1454-1455
+  s_09d3c46d1a9b1f::t_1909b80edacbab 1434
+TlsLib/src/Negotiation/TlpSignatureSchemeRegistry.pas
+  s_09d3c46d1a9b1f::t_fdb799c582e8ba 68
+  s_09d3c46d1a9b1f::t_ff988aa86bca46 59
+TlsLib.Tests/src/SignatureTests.pas
+  s_09d3c46d1a9b1f::t_63598061182381 201-214
+  s_09d3c46d1a9b1f::t_5b14e2f1ca4dc8 62-63
+TlsLib.Tests/src/CredentialImportTests.pas
+  s_09d3c46d1a9b1f::t_14416e498647bd 63
+  s_09d3c46d1a9b1f::t_c819f1e7b88367 184-191
+  s_09d3c46d1a9b1f::t_4750b83117b0e3 209-211
+TlsLib.Tests/src/Tls12LoopbackTests.pas
+  s_09d3c46d1a9b1f::t_6b619b2c94d1cc 199-268
+  s_09d3c46d1a9b1f::t_22a87f33a7d074 830-858
+  s_09d3c46d1a9b1f::t_f42c28c6807a6b 62-64
+  s_09d3c46d1a9b1f::t_08a3c231351a28 90
+TlsLib.Tests/Data/Certs/ImportKeys.txt
+  s_09d3c46d1a9b1f::t_5927e4de5ab4be 47-51
+  s_09d3c46d1a9b1f::t_d200631d0ef7fa 46
+TlsLib.Tests/src/NegotiationTests.pas
+  s_09d3c46d1a9b1f::t_4671b8e91158ed 409-417
+  s_09d3c46d1a9b1f::t_4926643d483f51 68
+TlsLib.Tests/src/Tls13LoopbackTests.pas
+  s_09d3c46d1a9b1f::t_3c1803fd906aab 78-81
+  s_09d3c46d1a9b1f::t_6abb68cb5d35d7 2032-2060
+  s_09d3c46d1a9b1f::t_d9ecf97d0e0d11 155
+  s_09d3c46d1a9b1f::t_3f40135cf5b74c 233-291
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_2b70e5893785b1 330,334-335
+TlsLib.Tests/Data/Certs/Ed448Chain.txt
+  s_09d3c46d1a9b1f::t_5927e4de5ab4be 1-6
+TlsLib.Tests/Data/Certs/SignatureKeys.txt
+  s_09d3c46d1a9b1f::t_5927e4de5ab4be 10-12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4c9018fba0760a9b706fe43e45f2ee3edac5c3cb",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
