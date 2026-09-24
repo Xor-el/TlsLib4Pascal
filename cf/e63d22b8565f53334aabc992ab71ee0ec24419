@@ -1,0 +1,26 @@
+TlsLib.Tests/src/TlsStreamLoopbackTests.pas
+  s_09d3c46d1a9b1f::t_9e9d18baef0590 23
+  s_09d3c46d1a9b1f::t_f913ab2b1103af 167
+  s_09d3c46d1a9b1f::t_a24b6223c6318e 207-243
+  s_09d3c46d1a9b1f::t_4d8891a453ad59 51-52
+  s_09d3c46d1a9b1f::t_fce7eff3219d59 178-194
+  s_09d3c46d1a9b1f::t_345d86b31dde42 135
+  s_09d3c46d1a9b1f::t_de25e3575b5129 672-731
+  s_09d3c46d1a9b1f::t_bf5f6bd45818cf 65,75-94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "cfe63d22b8565f53334aabc992ab71ee0ec24419",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
