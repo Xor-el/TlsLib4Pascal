@@ -46,6 +46,7 @@ uses
   TlpTlsConfigMemo,
   TlpTlsLibExceptions,
   TlpTlsConnection,
+  TlpNegotiationTypes,
   TlpSystemTrustFacade;
 
 /// <summary>Sets a process-wide augment-only verify callback the plugin threads into every
@@ -515,9 +516,8 @@ end;
 
 function TSSLTlsLib.GetCipherName: string;
 begin
-  // no suite name is surfaced here; this reports the negotiated protocol version
-  // (NegotiatedCipherSuite carries the code)
-  Result := GetSSLVersion;
+  // the negotiated suite's IANA name; the protocol version is reported by GetSSLVersion
+  Result := TCipherSuiteCatalog.Name(NegotiatedCipherSuite);
 end;
 
 function TSSLTlsLib.NegotiatedCipherSuite: UInt16;

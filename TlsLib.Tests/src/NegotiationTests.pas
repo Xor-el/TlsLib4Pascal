@@ -64,6 +64,7 @@ type
     procedure TestDualVersionRegistryKeepsTls13SuitesDecoupled;
     procedure TestTls12GroupSelectionExcludesHybrid;
     procedure TestTls12CipherSelectionExcludesTls13Suite;
+    procedure TestCipherSuiteCatalogNames;
   end;
 
 implementation
@@ -389,6 +390,19 @@ begin
   CheckTrue(LCiphers.TryGet(LSelected, LSuite) and
     (LSuite.Protocol = TSuiteProtocol.Tls12),
     'a 1.2 handshake selects a hardened TLS 1.2 suite');
+end;
+
+procedure TTestNegotiation.TestCipherSuiteCatalogNames;
+begin
+  CheckEquals('TLS_AES_128_GCM_SHA256',
+    TCipherSuiteCatalog.Name(TCipherSuites13.Aes128GcmSha256), '1.3 AES-128');
+  CheckEquals('TLS_CHACHA20_POLY1305_SHA256',
+    TCipherSuiteCatalog.Name(TCipherSuites13.ChaCha20Poly1305Sha256), '1.3 ChaCha20');
+  CheckEquals('TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384',
+    TCipherSuiteCatalog.Name(TCipherSuites12.EcdheRsaAes256GcmSha384), '1.2 ECDHE-RSA AES-256');
+  CheckEquals('', TCipherSuiteCatalog.Name(0), 'nothing negotiated is empty');
+  CheckEquals('0x5600', TCipherSuiteCatalog.Name($5600),
+    'a suite outside the catalog falls back to its hex codepoint');
 end;
 
 initialization
