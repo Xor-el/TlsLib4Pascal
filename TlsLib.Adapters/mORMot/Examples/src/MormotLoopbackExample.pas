@@ -219,7 +219,7 @@ begin
       raise Exception.Create('server: ' + GServerError);
 
     LOk := (LLen = System.Length(LPing)) and CompareMem(@LEcho[0], @LPing[0], LLen)
-      and (LTls.GetCipherName = 'TLSv1.3');
+      and (Pos('TLSv1.3', LTls.GetCipherName) > 0);
     if LOk then
     begin
       Writeln('mORMot loopback PASS: handshake + echo over ', LTls.GetCipherName);

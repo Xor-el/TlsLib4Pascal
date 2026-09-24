@@ -27,7 +27,7 @@ assigns `NewNetTls`; if you prefer, assign it yourself: `NewNetTls := NewTlsLib4
 | `CertificateFile` + `PrivateKeyFile` + `PrivatePassword` | `WithCredential` (server cert/key, or client mTLS) |
 | `ClientCertificateAuthentication`        | `WithPeerAuth(Required)` + client-chain trust            |
 | `IgnoreCertificateErrors`                | **`dangerous` `WithDangerousInsecureSkipVerify`** (see below) |
-| `CipherName` (out)                       | filled with the negotiated version (`TLSv1.3`/`TLSv1.2`) |
+| `CipherName` (out)                       | filled with the negotiated suite and version (`TLS_AES_128_GCM_SHA256 TLSv1.3`) |
 
 **Certificate chain**: `CertificateFile` is the chain the server *presents* — put your leaf **followed
 by any intermediates** in one PEM file so clients build a complete chain. `CACertificatesFile` is a

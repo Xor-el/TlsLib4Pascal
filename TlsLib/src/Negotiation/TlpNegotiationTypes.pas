@@ -47,6 +47,14 @@ type
     EcdheRsaChaCha20Poly1305Sha256 = UInt16($CCA8);
   end;
 
+  /// <summary>The IANA registered name of a negotiated cipher-suite codepoint, for display and
+  /// logging. Empty for 0 (nothing negotiated yet); the bare hex codepoint for a suite this
+  /// library never offers.</summary>
+  TCipherSuiteCatalog = class sealed(TObject)
+  public
+    class function Name(ACode: UInt16): string; static;
+  end;
+
   /// <summary>Signature-scheme wire codepoints (RFC 8446 4.2.3). Wire vocabulary only;
   /// whether a scheme may sign a given version's handshake is decided by
   /// <see cref="TSignatureScheme.IsValidForHandshake" />.</summary>
@@ -145,6 +153,36 @@ const
     $C2, $A2, $11, $16, $7A, $BB, $8C, $5E, $07, $9E, $09, $E2, $C8, $A8, $33, $9C);
 
 implementation
+
+{ TCipherSuiteCatalog }
+
+class function TCipherSuiteCatalog.Name(ACode: UInt16): string;
+begin
+  case ACode of
+    0:
+      Result := '';
+    TCipherSuites13.Aes128GcmSha256:
+      Result := 'TLS_AES_128_GCM_SHA256';
+    TCipherSuites13.Aes256GcmSha384:
+      Result := 'TLS_AES_256_GCM_SHA384';
+    TCipherSuites13.ChaCha20Poly1305Sha256:
+      Result := 'TLS_CHACHA20_POLY1305_SHA256';
+    TCipherSuites12.EcdheEcdsaAes128GcmSha256:
+      Result := 'TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256';
+    TCipherSuites12.EcdheEcdsaAes256GcmSha384:
+      Result := 'TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384';
+    TCipherSuites12.EcdheEcdsaChaCha20Poly1305Sha256:
+      Result := 'TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256';
+    TCipherSuites12.EcdheRsaAes128GcmSha256:
+      Result := 'TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256';
+    TCipherSuites12.EcdheRsaAes256GcmSha384:
+      Result := 'TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384';
+    TCipherSuites12.EcdheRsaChaCha20Poly1305Sha256:
+      Result := 'TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256';
+  else
+    Result := Format('0x%.4X', [ACode]);
+  end;
+end;
 
 { TNamedGroupCatalog }
 

@@ -44,6 +44,7 @@ uses
   TlpTlsConfigMemo,
   TlpTlsLibExceptions,
   TlpTlsConnection,
+  TlpNegotiationTypes,
   TlpSystemTrustFacade;
 
 /// <summary>Sets a process-wide augment-only verify callback the adapter threads into every
@@ -481,13 +482,19 @@ begin
 end;
 
 function TTlsLibNetTls.GetCipherName: RawUtf8;
+var
+  LSuite: string;
 begin
-  // we do not surface the raw suite name; report the negotiated protocol version, which is
-  // what mORMot logs the cipher for
-  if FConnection <> nil then
+  Result := '';
+  if FConnection = nil then
+    Exit;
+  // mORMot logs this as the cipher description; mirror its own backends, which pair the
+  // suite name with the protocol version
+  LSuite := TCipherSuiteCatalog.Name(FConnection.NegotiatedCipherSuite);
+  if LSuite = '' then
     Result := StringToUtf8(FConnection.VersionName)
   else
-    Result := '';
+    Result := StringToUtf8(LSuite + ' ' + FConnection.VersionName);
 end;
 
 function TTlsLibNetTls.NegotiatedGroup: UInt16;

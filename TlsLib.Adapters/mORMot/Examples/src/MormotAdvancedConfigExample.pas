@@ -249,7 +249,7 @@ begin
         raise Exception.Create('server: ' + GServerError);
 
       LOk := (LLen = System.Length(LPing)) and CompareMem(@LEcho[0], @LPing[0], LLen)
-        and (LTls.GetCipherName = 'TLSv1.2');
+        and (Pos('TLSv1.2', LTls.GetCipherName) > 0);
       if LOk then
       begin
         Writeln('mORMot advanced-config PASS: injected config pinned TLS 1.2 + ordered ciphers, echo ok');
