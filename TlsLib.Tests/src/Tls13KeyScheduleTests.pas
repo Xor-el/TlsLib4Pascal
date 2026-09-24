@@ -65,6 +65,7 @@ type
     procedure TestDerivedKeysDecryptRfc8448Record;
     procedure TestKeyUpdateAdvancesTheKey;
     procedure TestExporterIsDeterministic;
+    procedure TestExporterRejectsBadArgs;
     procedure TestBinderKeyResumptionVsExternalDiffer;
     procedure TestBinderRoundTripConstantTime;
     procedure TestPskDheKeAgreesOnBothSides;
@@ -274,6 +275,31 @@ begin
   LSecond := LSched.ExportKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), 32);
   CheckEquals(32, System.Length(LFirst), 'requested length honored');
   CheckEqualBytes('exporter is deterministic', LFirst, LSecond);
+end;
+
+procedure TTestTls13KeySchedule.TestExporterRejectsBadArgs;
+var
+  LSched: ITls13KeySchedule;
+
+  function Raises(const ALabel: string; ALength: Int32): Boolean;
+  begin
+    Result := False;
+    try
+      LSched.ExportKeyingMaterial(ALabel, ALength);
+    except
+      on EArgumentTlsLibException do
+        Result := True;
+    end;
+  end;
+
+begin
+  LSched := NewSchedule;
+  LSched.DeriveEpochSecrets(TTlsEpoch.Application, Bytes('hash_ch_sf'));
+  CheckTrue(Raises('EXPORTER-test', 0), 'a zero length is rejected');
+  CheckTrue(Raises('EXPORTER-test', -1), 'a negative length is rejected');
+  CheckTrue(Raises(#$00E9 + 'label', 32), 'a non-ASCII label is rejected');
+  // the label is wrapped as "tls13 " + label, whose 7-byte floor rejects an empty label
+  CheckTrue(Raises('', 32), 'an empty label is rejected for TLS 1.3');
 end;
 
 procedure TTestTls13KeySchedule.TestBinderKeyResumptionVsExternalDiffer;

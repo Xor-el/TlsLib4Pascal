@@ -48,6 +48,7 @@ type
     procedure TestExtendedMasterSecretChangesTheMaster;
     procedure TestVerifyDataComputeAndReject;
     procedure TestExporterIsDeterministic;
+    procedure TestExporterRejectsBadArgs;
     procedure TestForgetKeepsMasterForExporterAndReleasesKeyBlock;
   end;
 
@@ -163,6 +164,32 @@ begin
   LSecond := LSched.ExportKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), 32);
   CheckEquals(32, System.Length(LFirst), 'requested length honored');
   CheckEqualBytes('exporter is deterministic', LFirst, LSecond);
+end;
+
+procedure TTestTls12KeySchedule.TestExporterRejectsBadArgs;
+var
+  LSched: ITls12KeySchedule;
+
+  function Raises(const ALabel: string; ALength: Int32): Boolean;
+  begin
+    Result := False;
+    try
+      LSched.ExportKeyingMaterial(ALabel, ALength);
+    except
+      on EArgumentTlsLibException do
+        Result := True;
+    end;
+  end;
+
+begin
+  LSched := NewSchedule;
+  LSched.DeriveMasterSecret;
+  CheckTrue(Raises('EXPORTER-test', 0), 'a zero length is rejected');
+  CheckTrue(Raises('EXPORTER-test', -1), 'a negative length is rejected');
+  CheckTrue(Raises(#$00E9 + 'label', 32), 'a non-ASCII label is rejected');
+  // RFC 5705 imposes no minimum label length, so an empty label is accepted
+  CheckEquals(32, System.Length(LSched.ExportKeyingMaterial('', 32)),
+    'an empty label is accepted for TLS 1.2');
 end;
 
 procedure TTestTls12KeySchedule.TestForgetKeepsMasterForExporterAndReleasesKeyBlock;

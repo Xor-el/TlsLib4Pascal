@@ -322,10 +322,12 @@ resourcestring
   STicketLifetimeTooLong = 'the session-ticket lifetime must not exceed 604800 seconds ' +
     '(7 days), the maximum a server may advertise (RFC 8446 4.6.1)';
   SResumptionScopeTooLong = 'the resumption scope must not exceed 32 bytes';
+  STicketCountOutOfRange = 'the session-ticket count must be between 0 and 8 per handshake';
 
 const
   DefaultTicketLifetimeSeconds = UInt32(7200);
   DefaultTicketCount = Int32(2);
+  MaxTicketCount = Int32(8);
   SessionScopeLength = Int32(16);
   MaxResumptionScopeLength = Int32(32);
 
@@ -2365,6 +2367,8 @@ end;
 function TTlsConfigBuilder.WithTicketCount(ACount: Int32): TTlsConfigBuilder;
 begin
   GuardMutable;
+  if (ACount < 0) or (ACount > MaxTicketCount) then
+    raise EArgumentTlsLibException.CreateRes(@STicketCountOutOfRange);
   FTicketCount := ACount;
   Result := Self;
 end;

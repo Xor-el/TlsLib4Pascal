@@ -81,7 +81,8 @@ type
     /// zeros. The salt is secret material (a derived-secret in the TLS 1.3 schedule), so it is
     /// passed as a wiped buffer rather than a bare byte array the caller must scrub.</summary>
     function Extract(const ASalt, AIkm: ISecretBuffer): ISecretBuffer;
-    /// <summary>OKM = HKDF-Expand(PRK, info, ALength).</summary>
+    /// <summary>OKM = HKDF-Expand(PRK, info, ALength). ALength is 0..255*HashLen; outside
+    /// that range raises EArgumentTlsLibException.</summary>
     function Expand(const APrk: ISecretBuffer; const AInfo: TBytes;
       ALength: Int32): ISecretBuffer;
   end;

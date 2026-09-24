@@ -70,6 +70,7 @@ type
       ALength: Int32): ISecretBuffer;
     function DoExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       AUseContext: Boolean; ALength: Int32): TBytes;
+    class procedure GuardExportArgs(const ALabel: string; ALength: Int32); static;
     class function EchConfirmation(const AHkdf: IHkdf; const ALabel: string;
       const AInnerRandom, ATranscriptHash: TBytes): TBytes; static;
   public
@@ -137,6 +138,8 @@ resourcestring
   SResumptionMasterNotDerived = 'the resumption master secret has not been derived';
   SForgetBeforeApplication =
     'the application epoch must be derived before releasing the handshake secrets';
+  SExportLengthNotPositive = 'the exported keying material length must be positive';
+  SExportLabelNotAscii = 'the exporter label must be ASCII';
 
 { TTls13KeySchedule }
 
@@ -407,6 +410,20 @@ begin
   Result := DoExportKeyingMaterial(ALabel, AContext, True, ALength);
 end;
 
+class procedure TTls13KeySchedule.GuardExportArgs(const ALabel: string;
+  ALength: Int32);
+var
+  LI: Int32;
+begin
+  // RFC 8446 7.5 exporters need a positive length; a zero-length export is caller misuse. A
+  // non-ASCII label would be mangled by the label encoding, so reject it
+  if ALength <= 0 then
+    raise EArgumentTlsLibException.CreateRes(@SExportLengthNotPositive);
+  for LI := 1 to System.Length(ALabel) do
+    if Ord(ALabel[LI]) > 127 then
+      raise EArgumentTlsLibException.CreateRes(@SExportLabelNotAscii);
+end;
+
 function TTls13KeySchedule.DoExportKeyingMaterial(const ALabel: string;
   const AContext: TBytes; AUseContext: Boolean; ALength: Int32): TBytes;
 var
@@ -414,6 +431,7 @@ var
   LContextHash: TBytes;
 begin
   Result := nil;
+  GuardExportArgs(ALabel, ALength);
   if FExporterMaster = nil then
     raise EInvalidOperationTlsLibException.CreateRes(@SEpochNotDerived);
   // TLS 1.3 always hashes a context value; no context is exactly an empty context, so the

@@ -159,6 +159,7 @@ resourcestring
   SInvalidKeySize = 'AEAD key size %d does not match the required %d bytes';
   SInvalidNonceSize = 'AEAD nonce size %d does not match the required %d bytes';
   SHkdfExpandTooLong = 'HKDF-Expand output length %d exceeds 255 * HashLen (%d)';
+  SHkdfExpandNegative = 'HKDF-Expand output length must not be negative';
   SInvalidScalarSize = 'private scalar size %d does not match the curve field size %d';
   SSchemeNotCapable = 'the signing key cannot sign with the requested signature scheme';
   SForeignCngKeyExchangeKey =
@@ -1285,6 +1286,8 @@ var
   LCounter: Byte;
 begin
   // RFC 5869: L must not exceed 255 * HashLen, else the block counter would wrap
+  if ALength < 0 then
+    raise EArgumentTlsLibException.CreateRes(@SHkdfExpandNegative);
   if ALength > 255 * FMacSize then
     raise EArgumentTlsLibException.CreateResFmt(@SHkdfExpandTooLong,
       [ALength, 255 * FMacSize]);
