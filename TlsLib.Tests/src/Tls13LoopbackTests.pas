@@ -151,6 +151,7 @@ type
     procedure TestUnexpectedMessageAbortsWithUnexpectedMessage;
     procedure TestMiddleboxChangeCipherSpec;
     procedure TestWriteAfterInboundCloseNotifyHalfCloses;
+    procedure TestCoalescedFinalDataAndCloseNotifyBothSurface;
     procedure TestStapledGoodOcspCompletesUnderHardPosture;
     procedure TestMissingStapleAbortsUnderHardPosture;
     procedure TestSniSelectsHostCredentialAmongMany;
@@ -1916,6 +1917,40 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a write after our own close_notify raises');
+end;
+
+procedure TTestTls13Loopback.TestCoalescedFinalDataAndCloseNotifyBothSurface;
+var
+  LClient, LServer: ITlsEngine;
+  LI: Int32;
+  LMsg, LWire: TBytes;
+begin
+  LClient := NewClient;
+  LServer := NewServer;
+  LClient.StartHandshake;
+  LI := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LI < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LI);
+  end;
+  CheckFalse(LClient.IsHandshaking, 'the handshake completed');
+
+  // the server sends a final application message and immediately closes, so the
+  // application_data record and the close_notify alert are queued together and reach the client
+  // coalesced in one feed. Both must surface: the data is not lost behind the close, and the
+  // close is not swallowed behind the data (the coalesced-close hang).
+  LMsg := DecodeHex('6c6173742d6d657373616765'); // "last-message"
+  LServer.Write(LMsg, 0, System.Length(LMsg));
+  LServer.SendClose;
+  LWire := Drain(LServer);
+  FeedCoalesced(LClient, LWire);
+
+  CheckEqualBytes('the coalesced final message is delivered', LMsg, ReadAllApp(LClient));
+  CheckTrue(LClient.IsInboundClosed,
+    'the close_notify coalesced with the final data is observed, not swallowed');
+  CheckFalse(LClient.IsTerminal, 'a clean coalesced close is not a fatal termination');
 end;
 
 procedure TTestTls13Loopback.TestStapledGoodOcspCompletesUnderHardPosture;
