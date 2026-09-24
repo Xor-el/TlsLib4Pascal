@@ -48,6 +48,7 @@ uses
   TlpServerOfferSelection,
   TlpISession,
   TlpIClock,
+  TlpIKeyLog,
   TlpSession,
   TlpSessionTicketStrategy,
   TlpHandshakeEffect,
@@ -127,6 +128,8 @@ type
     /// required input, like Crypto: the engine factory supplies one from the config, and a
     /// direct sans-IO caller must set it.</summary>
     Clock: ITlsClock;
+    /// <summary>The dangerous key-log sink; nil reports nothing.</summary>
+    KeyLog: IKeyLog;
   end;
 
   /// <summary>
@@ -674,6 +677,7 @@ begin
   FSchedule := TTls12KeySchedule.Create(FParams.Crypto,
     FSelectedSuite.Common.Hash, FSelectedSuite.Common.KeyLength, FSelectedSuite.Common.Aead);
   FSchedule.SetRandoms(FClientRandom, FServerRandom);
+  FSchedule.SetKeyLog(FParams.KeyLog, FClientRandom);
   FSchedule.SetPreMasterSecret(APreMaster);
   if FUseExtendedMasterSecret then
     FSchedule.DeriveExtendedMasterSecret(ASessionHash)
@@ -924,6 +928,7 @@ begin
   FSchedule := TTls12KeySchedule.Create(FParams.Crypto,
     FSelectedSuite.Common.Hash, FSelectedSuite.Common.KeyLength, FSelectedSuite.Common.Aead);
   FSchedule.SetRandoms(FClientRandom, FServerRandom);
+  FSchedule.SetKeyLog(FParams.KeyLog, FClientRandom);
   FSchedule.SetMasterSecret(FResumedSession.MasterSecret);
   FSchedule.DeriveKeyBlock;
 

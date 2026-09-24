@@ -37,6 +37,7 @@ uses
   TlpNegotiationPolicy,
   TlpISession,
   TlpIClock,
+  TlpIKeyLog,
   TlpSession,
   TlpExternalPskImporter,
   TlpSessionTicketStrategy,
@@ -166,6 +167,8 @@ type
     /// <summary>The clock read for ticket issue time and 0-RTT freshness (RFC 8446 4.6.1). The
     /// factory supplies one from the config; the constructor defaults it to the system clock.</summary>
     Clock: ITlsClock;
+    /// <summary>The dangerous key-log sink; nil reports nothing.</summary>
+    KeyLog: IKeyLog;
   end;
 
   /// <summary>
@@ -1341,6 +1344,9 @@ begin
 
   FSchedule := TTls13KeySchedule.Create(FParams.Crypto, FSelectedSuite.Common.Hash,
     FSelectedSuite.Common.KeyLength);
+  // the key log keys every line by the ClientHello.random - the inner one here when ECH was
+  // accepted, since AClientHello is the decrypted inner in that case (RFC 9850)
+  FSchedule.SetKeyLog(FParams.KeyLog, AClientHello.Random);
   // psk_dhe_ke: the resumption PSK seeds the early secret, the fresh ECDHE the handshake
   if FPskAccepted then
   begin

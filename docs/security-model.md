@@ -68,6 +68,12 @@ opt into deliberately. Custom verification **augments** — a `WithCertificateVe
 rides the same augment-only rule and is fail-closed on timeout. See
 [certificate-verification.md](certificate-verification.md) and [system-trust.md](system-trust.md).
 
+`WithDangerousKeyLog` is the one deliberate exception to invariant 7 (secret hygiene): it hands a
+sink each connection secret in the SSLKEYLOGFILE format (RFC 9850) so a capture can be decrypted. The
+core passes a transient copy it wipes on return; whatever the sink keeps is the host's exposure. It is
+off by default, no preset enables it, and every line is keyed by the ClientHello.random (the inner
+one when ECH was accepted). For debugging only — never production.
+
 ## Cryptographic posture
 
 - **AEAD-only, forward-secret.** No CBC-HMAC, RC4, 3DES, static-RSA/DH, or TLS-level compression —

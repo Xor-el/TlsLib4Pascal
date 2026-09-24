@@ -58,6 +58,7 @@ uses
   TlpTlsCredential,
   TlpISession,
   TlpIClock,
+  TlpIKeyLog,
   TlpSession,
   TlpExternalPskImporter,
   TlpIEch,
@@ -135,6 +136,8 @@ type
     /// expiry (RFC 8446 4.2.11 / 4.6.1). The factory always supplies one (system clock by
     /// default); a nil value falls back to the real clock at the call site.</summary>
     Clock: ITlsClock;
+    /// <summary>The dangerous key-log sink; nil reports nothing.</summary>
+    KeyLog: IKeyLog;
     /// <summary>The out-of-band external PSKs (RFC 9258) to import and offer, in preference
     /// order (each imported for every supported KDF hash), alongside any cached resumption
     /// session. Empty leaves external PSK off.</summary>
@@ -1385,6 +1388,11 @@ begin
     FSchedule := TTls13KeySchedule.Create(FParams.Crypto, LPskSuite.Common.Hash,
       LPskSuite.Common.KeyLength);
     FSchedule.SetPsk(FPskOffers[0].Key);
+    // key the log by the same random the early transcript uses: the inner ClientHello's under ECH
+    if FEchActive then
+      FSchedule.SetKeyLog(FParams.KeyLog, FInnerRandom)
+    else
+      FSchedule.SetKeyLog(FParams.KeyLog, FParams.ClientRandom);
     if FEchActive then
       FSchedule.DeriveEpochSecrets(TTlsEpoch.EarlyData, FInnerTranscript.CurrentHash)
     else
@@ -1610,6 +1618,9 @@ begin
     if FPskAccepted then
       FSchedule.SetPsk(FAcceptedPsk.Key);
   end;
+  // report every full-handshake secret; FParams.ClientRandom is the inner ClientHello's when ECH
+  // was accepted (switched at accept), the outer's otherwise (RFC 9850)
+  FSchedule.SetKeyLog(FParams.KeyLog, FParams.ClientRandom);
   FSchedule.SetSharedSecret(LShared);
   FSchedule.DeriveEpochSecrets(TTlsEpoch.Handshake, FTranscript.CurrentHash);
 

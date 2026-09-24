@@ -49,6 +49,7 @@ uses
   TlpTlsCredential,
   TlpISession,
   TlpIClock,
+  TlpIKeyLog,
   TlpSession,
   TlpITlsEngine,
   TlpHandshakeEffect,
@@ -120,6 +121,8 @@ type
     /// input, like Crypto: the engine factory supplies one from the config, and a direct sans-IO
     /// caller must set it.</summary>
     Clock: ITlsClock;
+    /// <summary>The dangerous key-log sink; nil reports nothing.</summary>
+    KeyLog: IKeyLog;
     /// <summary>The cache key for this server; ServerName is used when empty.</summary>
     ServerIdentity: string;
     /// <summary>How a peer-certificate verdict is deferred out-of-band (see TVerdictDeferral):
@@ -659,6 +662,7 @@ begin
   FSchedule := TTls12KeySchedule.Create(FParams.Crypto,
     FSelectedSuite.Common.Hash, FSelectedSuite.Common.KeyLength, FSelectedSuite.Common.Aead);
   FSchedule.SetRandoms(FParams.ClientRandom, FServerRandom);
+  FSchedule.SetKeyLog(FParams.KeyLog, FParams.ClientRandom);
   FSchedule.SetPreMasterSecret(APreMaster);
   if FUseExtendedMasterSecret then
     FSchedule.DeriveExtendedMasterSecret(ASessionHash)
@@ -938,6 +942,7 @@ begin
   FSchedule := TTls12KeySchedule.Create(FParams.Crypto,
     FSelectedSuite.Common.Hash, FSelectedSuite.Common.KeyLength, FSelectedSuite.Common.Aead);
   FSchedule.SetRandoms(FParams.ClientRandom, FServerRandom);
+  FSchedule.SetKeyLog(FParams.KeyLog, FParams.ClientRandom);
   FSchedule.SetMasterSecret(FResumptionOffer.MasterSecret);
   FSchedule.DeriveKeyBlock;
 

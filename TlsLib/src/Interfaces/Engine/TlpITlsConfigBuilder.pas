@@ -32,6 +32,7 @@ uses
   TlpITlsCredentialResolver,
   TlpISession,
   TlpIClock,
+  TlpIKeyLog,
   TlpIEch,
   TlpSession,
   TlpITlsConfig;
@@ -171,6 +172,10 @@ type
     /// PKIX, revocation, host-name, or pinning checks. For tests and pinned/self-signed
     /// development peers only - never production. Off by default.</summary>
     function WithDangerousInsecureSkipVerify(AEnabled: Boolean): ITlsClientConfigBuilder;
+    /// <summary>DANGEROUS: hands every secret of every connection built from this config to
+    /// AKeyLog in the SSLKEYLOGFILE format (RFC 9850), so a packet capture can be decrypted.
+    /// For debugging only - never production. nil (the default) clears it.</summary>
+    function WithDangerousKeyLog(const AKeyLog: IKeyLog): ITlsClientConfigBuilder;
     /// <summary>An augment-only peer-certificate hook that runs after the built-in pipeline
     /// and can only additionally reject (never loosen it). Bridges a host framework's own
     /// verify callback.</summary>
@@ -396,6 +401,10 @@ type
     /// <summary>DANGEROUS: when enabled, a requested client certificate chain is accepted
     /// without PKIX, revocation, or pinning checks. For tests only - never production.</summary>
     function WithDangerousInsecureSkipVerify(AEnabled: Boolean): ITlsServerConfigBuilder;
+    /// <summary>DANGEROUS: hands every secret of every connection built from this config to
+    /// AKeyLog in the SSLKEYLOGFILE format (RFC 9850), so a packet capture can be decrypted.
+    /// For debugging only - never production. nil (the default) clears it.</summary>
+    function WithDangerousKeyLog(const AKeyLog: IKeyLog): ITlsServerConfigBuilder;
     /// <summary>An augment-only client-certificate hook that runs after the built-in pipeline
     /// and can only additionally reject (never loosen it).</summary>
     function WithCertificateVerifyCallback(

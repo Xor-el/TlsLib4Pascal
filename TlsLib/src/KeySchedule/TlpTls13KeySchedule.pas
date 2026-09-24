@@ -22,6 +22,8 @@ uses
   TlpSecretBuffer,
   TlpICryptoProvider,
   TlpIKeySchedule,
+  TlpIKeyLog,
+  TlpKeyLog,
   TlpTrafficKeys,
   TlpHkdfLabel,
   TlpTlsLibExceptions,
@@ -59,6 +61,9 @@ type
     FExporterMaster: ISecretBuffer;
     FResumptionMaster: ISecretBuffer;
     FHandshakeSecretsReleased: Boolean;
+    FKeyLog: IKeyLog;
+    FClientRandom: TBytes;
+    procedure LogSecret(const ALabel: string; const ASecret: ISecretBuffer);
     function ZeroSecret: ISecretBuffer;
     function HashOf(const AData: TBytes): TBytes;
     procedure EnsureEarlySecret;
@@ -116,6 +121,7 @@ type
     function FinishedKey(ADirection: TTlsDirection): ISecretBuffer;
     procedure AdvanceKeyUpdate(ADirection: TTlsDirection);
     procedure ForgetHandshakeSecrets;
+    procedure SetKeyLog(const AKeyLog: IKeyLog; const AClientRandom: TBytes);
     function HasExporterSecret: Boolean;
     procedure DeriveResumptionMasterSecret(const ATranscriptHash: TBytes);
     function ResumptionMasterSecret: ISecretBuffer;
@@ -160,6 +166,29 @@ begin
   LHash := ACryptoProvider.Primitives.CreateHash(AHash);
   FHashLength := LHash.HashSize;
   FHashEmpty := LHash.DoFinal; // hash of the empty input
+end;
+
+procedure TTls13KeySchedule.LogSecret(const ALabel: string;
+  const ASecret: ISecretBuffer);
+var
+  LCopy: TBytes;
+begin
+  if (FKeyLog = nil) or (ASecret = nil) then
+    Exit;
+  // the log is a deliberate secret exposure; read a copy only when a sink is present and wipe it
+  LCopy := ASecret.ToBytes;
+  try
+    FKeyLog.Log(ALabel, FClientRandom, LCopy);
+  finally
+    TSecureMemory.WipeBytes(LCopy);
+  end;
+end;
+
+procedure TTls13KeySchedule.SetKeyLog(const AKeyLog: IKeyLog;
+  const AClientRandom: TBytes);
+begin
+  FKeyLog := AKeyLog;
+  FClientRandom := System.Copy(AClientRandom);
 end;
 
 function TTls13KeySchedule.ZeroSecret: ISecretBuffer;
@@ -314,6 +343,7 @@ begin
         EnsureEarlySecret;
         FClientEarlyTraffic := THkdfLabel.DeriveSecret(FHkdf, FEarlySecret,
           'c e traffic', ATranscriptHash);
+        LogSecret(KeyLogLabelClientEarlyTraffic, FClientEarlyTraffic);
       end;
     TTlsEpoch.Handshake:
       begin
@@ -322,6 +352,8 @@ begin
           'c hs traffic', ATranscriptHash);
         FServerHsTraffic := THkdfLabel.DeriveSecret(FHkdf, FHandshakeSecret,
           's hs traffic', ATranscriptHash);
+        LogSecret(KeyLogLabelClientHandshakeTraffic, FClientHsTraffic);
+        LogSecret(KeyLogLabelServerHandshakeTraffic, FServerHsTraffic);
       end;
     TTlsEpoch.Application:
       begin
@@ -332,6 +364,9 @@ begin
           's ap traffic', ATranscriptHash);
         FExporterMaster := THkdfLabel.DeriveSecret(FHkdf, FMasterSecret,
           'exp master', ATranscriptHash);
+        LogSecret(KeyLogLabelClientTraffic0, FClientApTraffic);
+        LogSecret(KeyLogLabelServerTraffic0, FServerApTraffic);
+        LogSecret(KeyLogLabelExporter, FExporterMaster);
       end;
   end;
 end;
@@ -455,6 +490,8 @@ begin
   FClientEarlyTraffic := nil;
   FClientHsTraffic := nil;
   FServerHsTraffic := nil;
+  FKeyLog := nil;
+  FClientRandom := nil;
   FHandshakeSecretsReleased := True;
 end;
 

@@ -163,6 +163,8 @@ contains
   TlpDateTimeUtilities in '..\..\Common\TlpDateTimeUtilities.pas',
   TlpIClock in '..\..\Interfaces\Common\TlpIClock.pas',
   TlpClock in '..\..\Common\TlpClock.pas',
+  TlpIKeyLog in '..\..\Interfaces\Common\TlpIKeyLog.pas',
+  TlpKeyLog in '..\..\Common\TlpKeyLog.pas',
   TlpSessionTicketStrategy in '..\..\Session\TlpSessionTicketStrategy.pas',
   TlpITlsTransport in '..\..\Interfaces\Engine\TlpITlsTransport.pas',
   TlpTlsConnectionInfo in '..\..\Engine\TlpTlsConnectionInfo.pas',

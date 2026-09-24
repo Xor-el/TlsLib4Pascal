@@ -339,6 +339,14 @@
         <Filename Value="..\src\SpyRevocationProvider.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit75>
+      <Unit76>
+        <Filename Value="..\src\MockKeyLog.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit76>
+      <Unit77>
+        <Filename Value="..\src\KeyLogTests.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit77>
     </Units>
   </ProjectOptions>
   <CompilerOptions>
