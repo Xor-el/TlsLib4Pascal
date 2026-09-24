@@ -98,8 +98,9 @@ type
     // --- application -> engine ---
     /// <summary>Queues application data to be protected and sent. Raises
     /// EInvalidOperationTlsLibException if the connection is terminal, our close_notify was
-    /// already sent, or (TLS 1.2 only) an inbound close_notify closed it - check WriteClosed
-    /// first. Under TLS 1.3 an inbound close_notify leaves the write side open (RFC 8446 6.1).</summary>
+    /// already sent, (TLS 1.2 only) an inbound close_notify closed it - check WriteClosed first -
+    /// or no write epoch key is installed yet (drive the handshake first; 0-RTT is WriteEarlyData).
+    /// Under TLS 1.3 an inbound close_notify leaves the write side open (RFC 8446 6.1).</summary>
     procedure Write(const AData: TBytes; AOffset, ALength: Int32);
     /// <summary>
     /// Queues 0-RTT early application data (RFC 8446 2.3) and returns the number of bytes

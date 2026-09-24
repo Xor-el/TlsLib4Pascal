@@ -126,6 +126,9 @@ type
     procedure TestTicketCountAboveCapIsRejected;
     procedure TestTicketCountNegativeIsRejected;
     procedure TestTicketCountAtCapIsAccepted;
+    // RFC 8446 8: a server authorizing 0-RTT gets one anti-replay register per config (shared
+    // across connections), so a replay across connections is detectable without WithAntiReplay
+    procedure TestServerEarlyDataMintsSharedAntiReplayDefault;
     procedure TestClientRejectsServerSniCredential;
     procedure TestServerRejectsPublicSuffixSniWildcard;
     // a restricted (classical-only) registry composes with a preset whose preferred order still
@@ -1102,6 +1105,23 @@ begin
     .WithTicketCount(8)
     .Build;
   CheckEquals(8, LConfig.TicketCount, 'the boundary ticket count (8) round-trips');
+end;
+
+procedure TTestConfigBuilder.TestServerEarlyDataMintsSharedAntiReplayDefault;
+var
+  LNoEarly, LWithEarly: ITlsServerConfig;
+begin
+  LNoEarly := TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential)
+    .Build;
+  CheckFalse(Assigned(LNoEarly.AntiReplay),
+    'a server without 0-RTT mints no anti-replay register');
+  LWithEarly := TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential)
+    .Tls13.WithEarlyData(16384)
+    .Build;
+  CheckTrue(Assigned(LWithEarly.AntiReplay),
+    'a server authorizing 0-RTT mints a default anti-replay register at Build');
 end;
 
 procedure TTestConfigBuilder.TestClientRejectsServerSniCredential;

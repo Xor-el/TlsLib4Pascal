@@ -164,6 +164,9 @@ type
     /// <summary>True when the write epoch has reached its AEAD rekey threshold, so further
     /// application-data writes seal nothing until a KeyUpdate rekeys the write side.</summary>
     function WriteNeedsKeyUpdate: Boolean;
+    /// <summary>True while the write side is on the initial (or reverted) plaintext epoch, so
+    /// application data written now would go out unencrypted.</summary>
+    property WriteIsPlaintext: Boolean read FWriteIsPlaintext;
     /// <summary>Forces the write / read epoch's record sequence counter forward (no-op when the
     /// protection exposes no IRecordSequenceControl), so the usage-limit rekey path can be
     /// exercised without sealing 2^24 records. The read side is set in step with the write side to

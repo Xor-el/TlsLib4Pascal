@@ -52,6 +52,7 @@ type
     procedure TestFatalPreQueuesAlertAndTerminal;
     procedure TestWantsReadWantsWriteReflectState;
     procedure TestCleartextApplicationDataBeforeKeysIsFatal;
+    procedure TestWriteBeforeWriteEpochIsRefused;
     procedure TestReceivedCloseNotify;
     procedure TestReceivedFatalAlertIsTerminal;
     procedure TestReceivedUnknownFatalAlertIsPeerOrigin;
@@ -180,6 +181,24 @@ begin
     Ord(LEngine.LastError.Alert.Description), 'last error is unexpected_message');
   CheckEquals(Ord(TTlsErrorOrigin.Local), Ord(LEngine.LastError.Origin),
     'a failure we detected is our own');
+end;
+
+procedure TTestEngineSkeleton.TestWriteBeforeWriteEpochIsRefused;
+var
+  LEngine: ITlsEngine;
+  LRaised: Boolean;
+begin
+  // no write epoch key is installed before the handshake; a Write would otherwise frame
+  // application data in the clear, so the engine refuses it (RFC 8446 2)
+  LEngine := NewEngine;
+  LRaised := False;
+  try
+    LEngine.Write(DecodeHex('deadbeef'), 0, 4);
+  except
+    on EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'application data before a write epoch is refused, not sent in the clear');
 end;
 
 procedure TTestEngineSkeleton.TestReceivedCloseNotify;
