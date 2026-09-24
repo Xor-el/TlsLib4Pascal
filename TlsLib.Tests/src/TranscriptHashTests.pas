@@ -51,8 +51,8 @@ type
     procedure TestCloneBranchesIndependently;
     procedure TestCurrentHashDoesNotConsume;
     procedure TestDeferredCurrentHashRaises;
-    procedure TestReplaceWithMessageHashMatchesRfc8448Section5;
-    procedure TestSeedWithMessageHashEqualsReplace;
+    procedure TestSeedWithMessageHashMatchesRfc8448Section5;
+    procedure TestSeedWithMessageHashDiscardsPriorState;
   end;
 
 implementation
@@ -195,7 +195,7 @@ begin
   CheckTrue(LRaised, 'a deferred transcript has no hash to snapshot');
 end;
 
-procedure TTestTranscriptHash.TestReplaceWithMessageHashMatchesRfc8448Section5;
+procedure TTestTranscriptHash.TestSeedWithMessageHashMatchesRfc8448Section5;
 var
   LHrr: TStringList;
   LTranscript: ITranscriptHash;
@@ -213,23 +213,20 @@ begin
   LCh1Hash := RawSha256(LCh1);
   LExpected := RawSha256(MessageHashWrapper(LCh1Hash));
 
-  // feed CH1 into a deferred transcript, then apply the message_hash replacement
   LTranscript := TTranscriptHash.Create;
-  LTranscript.Update(LCh1);
-  LTranscript.Activate(Sha256);
-  LTranscript.ReplaceWithMessageHash(Sha256);
+  LTranscript.SeedWithMessageHash(Sha256, LCh1Hash);
   CheckEqualBytes('transcript after message_hash = SHA256(254 || len || Hash(CH1))',
     LExpected, LTranscript.CurrentHash);
 end;
 
-procedure TTestTranscriptHash.TestSeedWithMessageHashEqualsReplace;
+procedure TTestTranscriptHash.TestSeedWithMessageHashDiscardsPriorState;
 var
   LHrr: TStringList;
-  LReplace, LSeed: ITranscriptHash;
+  LFed, LFresh: ITranscriptHash;
   LCh1, LCh1Hash: TBytes;
 begin
-  // seeding from a known Hash(CH1) (the stateless-cookie rebuild path) must produce the
-  // same transcript as replacing an in-hand CH1
+  // seeding an already-fed/active transcript must discard its prior state, landing on
+  // the same digest as seeding a transcript that was never fed at all
   LHrr := LoadVectorFields('Rfc8448/HelloRetryRequest.txt');
   try
     LCh1 := DecodeHex(LHrr.Values['client_hello_1']);
@@ -238,16 +235,15 @@ begin
   end;
   LCh1Hash := RawSha256(LCh1);
 
-  LReplace := TTranscriptHash.Create;
-  LReplace.Update(LCh1);
-  LReplace.Activate(Sha256);
-  LReplace.ReplaceWithMessageHash(Sha256);
+  LFed := TTranscriptHash.Create;
+  LFed.Update(LCh1);
+  LFed.Activate(Sha256);
+  LFed.SeedWithMessageHash(Sha256, LCh1Hash);
 
-  LSeed := TTranscriptHash.Create;
-  LSeed.SeedWithMessageHash(Sha256, LCh1Hash);
+  LFresh := TTranscriptHash.Create;
+  LFresh.SeedWithMessageHash(Sha256, LCh1Hash);
 
-  CheckEqualBytes('seed-from-hash matches replace-in-hand', LReplace.CurrentHash,
-    LSeed.CurrentHash);
+  CheckEqualBytes('seeding discards prior state', LFresh.CurrentHash, LFed.CurrentHash);
 end;
 
 initialization

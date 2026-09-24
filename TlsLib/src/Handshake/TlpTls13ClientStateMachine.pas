@@ -964,12 +964,10 @@ begin
       FInnerTranscript.Activate(FParams.Crypto.Primitives.CreateHash(AHash));
   end;
   // the accept confirmation is over the inner transcript through a ServerHello whose
-  // last 8 random bytes are zeroed (RFC 9849 sec. 7.2); the random sits at offset 6 of
-  // the framed handshake message (4-byte header + 2-byte legacy_version), so bytes 24..32
-  // of it are 30..38 of the message
+  // confirmation bytes of the random are zeroed (RFC 9849 sec. 7.2)
   LModifiedSh := System.Copy(AMessage.Raw);
-  for LI := 0 to 7 do
-    LModifiedSh[30 + LI] := 0;
+  for LI := 0 to TEchExtension.ConfirmationLength - 1 do
+    LModifiedSh[TEchExtension.FramedServerHelloConfirmationOffset + LI] := 0;
   LInnerClone := FInnerTranscript.Clone;
   LInnerClone.Update(LModifiedSh);
   LConfHash := LInnerClone.CurrentHash;
@@ -1039,7 +1037,7 @@ begin
   LVector := TExtensionVector.ParseFrom(LReader);
   if LVector.TryFind(TExtensionTypes.EncryptedClientHello, LEntry) then
   begin
-    if System.Length(LEntry.Data) <> 8 then
+    if System.Length(LEntry.Data) <> TEchExtension.ConfirmationLength then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.DecodeError, @SEchBadHrrConfirmation);
     // DataOffset is absolute in ARaw: the 8-byte HelloRetryRequest ECH confirmation payload
@@ -1066,10 +1064,10 @@ begin
   LHasEch := LocateHrrEchConfirmation(LHrrZeroed, LEchOffset);
   if LHasEch then
   begin
-    LActual := System.Copy(LHrrZeroed, LEchOffset, 8);
-    // transcript_hrr_ech_conf = message_hash(Hash(innerCH1)) then the HRR with that 8-byte
-    // payload zeroed (RFC 9849 sec. 7.2.1)
-    for LI := 0 to 7 do
+    LActual := System.Copy(LHrrZeroed, LEchOffset, TEchExtension.ConfirmationLength);
+    // transcript_hrr_ech_conf = message_hash(Hash(innerCH1)) then the HRR with that
+    // confirmation payload zeroed (RFC 9849 sec. 7.2.1)
+    for LI := 0 to TEchExtension.ConfirmationLength - 1 do
       LHrrZeroed[LEchOffset + LI] := 0;
     LInnerCh1Hash := HashUnder(LHash, FSentInnerRaw);
     LConf := TTranscriptHash.Create;

@@ -39,9 +39,7 @@ type
     ITls12KeySchedule)
   strict private
   var
-    FCrypto: ICryptoProvider;
     FPrf: ITls12Prf;
-    FHash: THashAlgorithm;
     FKeyLength: Int32;
     FSaltLength: Int32;
     FPreMaster: ISecretBuffer;
@@ -111,9 +109,7 @@ constructor TTls12KeySchedule.Create(const ACryptoProvider: ICryptoProvider;
   AHash: THashAlgorithm; AKeyLength: Int32; AAead: TAeadAlgorithm);
 begin
   inherited Create;
-  FCrypto := ACryptoProvider;
   FPrf := ACryptoProvider.Primitives.CreateTls12Prf(AHash);
-  FHash := AHash;
   FKeyLength := AKeyLength;
   // ChaCha20-Poly1305 draws a full 12-byte write IV from the key_block (RFC 7905); AES-GCM
   // draws only the 4-byte implicit salt, the 8-byte explicit nonce riding each record

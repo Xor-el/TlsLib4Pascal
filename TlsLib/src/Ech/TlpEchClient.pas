@@ -123,8 +123,6 @@ resourcestring
 
 const
   ServerHelloRandomLength = Int32(32);
-  ConfirmationOffset = Int32(24);
-  ConfirmationLength = Int32(8);
 
 { TEchClientPolicy }
 
@@ -323,9 +321,9 @@ begin
     Exit(False);
   LComputed := TTls13KeySchedule.EchAcceptConfirmation(AHkdf, AInnerRandom,
     ATranscriptEchConf);
-  SetLength(LReceived, ConfirmationLength);
-  for LI := 0 to ConfirmationLength - 1 do
-    LReceived[LI] := AServerRandom[ConfirmationOffset + LI];
+  SetLength(LReceived, TEchExtension.ConfirmationLength);
+  for LI := 0 to TEchExtension.ConfirmationLength - 1 do
+    LReceived[LI] := AServerRandom[TEchExtension.ServerHelloRandomConfirmationOffset + LI];
   Result := TSecureMemory.ConstantTimeAreEqual(LComputed, LReceived);
 end;
 

@@ -1143,7 +1143,7 @@ begin
     if System.Length(AEchInnerCh1Hash) > 0 then
     begin
       LZeroConf := nil;
-      SetLength(LZeroConf, 8);
+      SetLength(LZeroConf, TEchExtension.ConfirmationLength);
       LContext.EchExtensionData := TEchExtension.EncodeHrrConfirmation(LZeroConf);
     end;
     LHello.Random := THelloRetryRequest.SentinelRandom;
@@ -1175,7 +1175,8 @@ begin
   LConf := TTls13KeySchedule.EchHrrAcceptConfirmation(
     FParams.Crypto.Primitives.CreateHkdf(FSelectedSuite.Common.Hash),
     FEchInnerRandom, LClone.CurrentHash);
-  Move(LConf[0], AHrrBytes[System.Length(AHrrBytes) - 8], 8);
+  Move(LConf[0], AHrrBytes[System.Length(AHrrBytes) - TEchExtension.ConfirmationLength],
+    TEchExtension.ConfirmationLength);
 end;
 
 function TTls13ServerStateMachine.ProcessSecondClientHello(
@@ -1300,18 +1301,18 @@ var
   LClone: ITranscriptHash;
   LI: Int32;
 begin
-  // transcript_ech_conf is over (inner ClientHello .. this ServerHello) with the last 8
-  // ServerHello.random bytes zeroed; the confirmation then overwrites those same bytes.
-  // The random is at offset 6 of the framed message, so bytes 24..32 are 30..38.
+  // transcript_ech_conf is over (inner ClientHello .. this ServerHello) with the confirmation
+  // bytes of ServerHello.random zeroed; the confirmation then overwrites those same bytes.
   LZeroed := System.Copy(AServerHelloBytes);
-  for LI := 0 to 7 do
-    LZeroed[30 + LI] := 0;
+  for LI := 0 to TEchExtension.ConfirmationLength - 1 do
+    LZeroed[TEchExtension.FramedServerHelloConfirmationOffset + LI] := 0;
   LClone := FTranscript.Clone;
   LClone.Update(LZeroed);
   LConf := TTls13KeySchedule.EchAcceptConfirmation(
     FParams.Crypto.Primitives.CreateHkdf(FSelectedSuite.Common.Hash),
     FEchInnerRandom, LClone.CurrentHash);
-  Move(LConf[0], AServerHelloBytes[30], 8);
+  Move(LConf[0], AServerHelloBytes[TEchExtension.FramedServerHelloConfirmationOffset],
+    TEchExtension.ConfirmationLength);
 end;
 
 function TTls13ServerStateMachine.EmitServerFlight(

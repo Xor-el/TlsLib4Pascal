@@ -59,6 +59,11 @@ type
   public const
     /// <summary>The fixed accept-confirmation length (RFC 9849 sec. 7.2).</summary>
     ConfirmationLength = Int32(8);
+    /// <summary>The confirmation's offset inside ServerHello.random (its last 8 bytes).</summary>
+    ServerHelloRandomConfirmationOffset = Int32(24);
+    /// <summary>The confirmation's offset in the framed ServerHello (the 4-byte handshake
+    /// header and 2-byte legacy_version precede the 32-byte random).</summary>
+    FramedServerHelloConfirmationOffset = Int32(30);
   public
     /// <summary>The ClientHelloOuter encrypted_client_hello body.</summary>
     class function EncodeOuter(const AOuter: TEchOuterClientHello): TBytes; static;
@@ -83,8 +88,6 @@ type
     /// retry_configs, which is exactly an ECHConfigList (RFC 9849 sec. 5).
     /// </summary>
     class function EncodeRetryConfigs(const AConfigListBytes: TBytes): TBytes; static;
-    /// <summary>Parses a retry_configs body (an ECHConfigList).</summary>
-    class function DecodeRetryConfigs(const AData: TBytes): TArray<TEchConfig>; static;
 
     /// <summary>The HelloRetryRequest encrypted_client_hello body: an 8-byte
     /// confirmation (RFC 9849 sec. 5). Raises if AConfirmation is not 8 bytes.</summary>
@@ -225,12 +228,6 @@ class function TEchExtension.EncodeRetryConfigs(
 begin
   // the EncryptedExtensions ech body IS an ECHConfigList (RFC 9849 sec. 5)
   Result := System.Copy(AConfigListBytes);
-end;
-
-class function TEchExtension.DecodeRetryConfigs(
-  const AData: TBytes): TArray<TEchConfig>;
-begin
-  Result := TEchConfigList.Parse(AData);
 end;
 
 class function TEchExtension.EncodeHrrConfirmation(

@@ -129,6 +129,9 @@ type
 
 implementation
 
+uses
+  TlpEchExtension;
+
 const
   Tls13IvLength = Int32(12);
 
@@ -264,8 +267,6 @@ end;
 
 class function TTls13KeySchedule.EchConfirmation(const AHkdf: IHkdf;
   const ALabel: string; const AInnerRandom, ATranscriptHash: TBytes): TBytes;
-const
-  ConfirmationLength = Int32(8);
 var
   LPrk: ISecretBuffer;
 begin
@@ -273,7 +274,7 @@ begin
   // random as IKM (the random is public; the seam types IKM as a secret)
   LPrk := AHkdf.Extract(nil, TSecretBuffer.From(AInnerRandom));
   Result := THkdfLabel.HkdfExpandLabel(AHkdf, LPrk, ALabel, ATranscriptHash,
-    ConfirmationLength).ToBytes;
+    TEchExtension.ConfirmationLength).ToBytes;
 end;
 
 class function TTls13KeySchedule.EchAcceptConfirmation(const AHkdf: IHkdf;
