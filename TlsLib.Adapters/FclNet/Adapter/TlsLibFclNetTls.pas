@@ -20,9 +20,7 @@
 /// </summary>
 unit TlsLibFclNetTls;
 
-{$IFDEF FPC}
-{$MODE DELPHI}
-{$ENDIF FPC}
+{$I ..\..\..\TlsLib\src\Include\TlsLib.inc}
 
 interface
 

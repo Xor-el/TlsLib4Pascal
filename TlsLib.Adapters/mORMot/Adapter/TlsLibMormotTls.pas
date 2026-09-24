@@ -20,9 +20,7 @@
 /// </summary>
 unit TlsLibMormotTls;
 
-{$IFDEF FPC}
-{$MODE DELPHI}
-{$ENDIF FPC}
+{$I ..\..\..\TlsLib\src\Include\TlsLib.inc}
 
 interface
 
@@ -51,7 +49,8 @@ uses
 /// <summary>Sets a process-wide augment-only verify callback the adapter threads into every
 /// client handshake (it runs after the built-in pipeline and can only additionally reject).
 /// mORMot builds an INetTls per connection through a global factory, so the adapter's neutral
-/// hooks are configured with these unit-level setters. nil clears it.</summary>
+/// hooks are configured with these unit-level setters. Set them at startup, before any
+/// connection; the setters are not synchronized. nil clears it.</summary>
 procedure SetTlsLibMormotVerifyCallback(const ACallback: TTlsCertificateVerifyCallback);
 /// <summary>Sets a process-wide out-of-band verdict resolver for the CLIENT role (e.g. live
 /// OCSP/CRL over the SERVER's chain): when set, every client handshake parks after the pipeline

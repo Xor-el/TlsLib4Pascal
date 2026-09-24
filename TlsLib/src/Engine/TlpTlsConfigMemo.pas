@@ -20,9 +20,7 @@
 /// </summary>
 unit TlpTlsConfigMemo;
 
-{$IFDEF FPC}
-{$MODE DELPHI}
-{$ENDIF FPC}
+{$I ..\Include\TlsLib.inc}
 
 interface
 

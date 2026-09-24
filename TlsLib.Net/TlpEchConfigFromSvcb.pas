@@ -11,10 +11,7 @@
 
 unit TlpEchConfigFromSvcb;
 
-{$IFDEF FPC}
-{$MODE DELPHI}
-{$H+}
-{$ENDIF}
+{$I ..\TlsLib\src\Include\TlsLib.inc}
 
 interface
 
