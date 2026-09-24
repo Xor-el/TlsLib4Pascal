@@ -1,0 +1,48 @@
+TlsLib.Adapters/Synapse/Examples/src/SynapseWedgeDemoExample.pas
+  s_09d3c46d1a9b1f::t_f78d2d71e45296 1-360
+TlsLib.Adapters/FclNet/Examples/Lazarus/FclNetWedgeDemo.lpi
+  s_09d3c46d1a9b1f::t_0e076ddcaa941c 1-51
+TlsLib.Adapters/Synapse/Examples/Lazarus/SynapseWedgeDemo.lpr
+  s_09d3c46d1a9b1f::t_6c729bbfd73dde 1-16
+TlsLib.Adapters/Synapse/Examples/Delphi/SynapseWedgeDemo.dpr
+  s_09d3c46d1a9b1f::t_703e5c2b75dd5f 1-12
+TlsLib.Adapters/Synapse/Examples/Lazarus/SynapseWedgeDemo.lpi
+  s_09d3c46d1a9b1f::t_cb5292eb113d48 1-51
+TlsLib.Adapters/Indy/Examples/Lazarus/IndyWedgeDemo.lpr
+  s_09d3c46d1a9b1f::t_7cce86e5c33256 1-16
+TlsLib.Adapters/Indy/Examples/src/IndyWedgeDemoExample.pas
+  s_09d3c46d1a9b1f::t_3dc2a6768ab1b7 1-44,46-327
+  s_09d3c46d1a9b1f::t_e721008ddff2e1 45
+TlsLib.Adapters/FclNet/Examples/Lazarus/FclNetWedgeDemo.lpr
+  s_09d3c46d1a9b1f::t_93ae7b0c12a4f4 1-16
+TlsLib.Adapters/Indy/Examples/Delphi/IndyWedgeDemo.dpr
+  s_09d3c46d1a9b1f::t_5dc40040ba1713 1-12
+TlsLib.Adapters/Indy/Examples/Lazarus/IndyWedgeDemo.lpi
+  s_09d3c46d1a9b1f::t_26b6765b303a51 1-51
+TlsLib.Adapters/FclNet/Examples/src/FclNetWedgeDemoExample.pas
+  s_09d3c46d1a9b1f::t_e0801e9783b2b6 1-393
+TlsLib.Adapters/mORMot/Examples/src/MormotWedgeDemoExample.pas
+  s_09d3c46d1a9b1f::t_5f7a36ad9deb0e 1-374
+TlsLib.Adapters/mORMot/Examples/Delphi/MormotWedgeDemo.dpr
+  s_09d3c46d1a9b1f::t_1222142aa9d2c2 1-12
+TlsLib.Adapters/mORMot/Examples/Lazarus/MormotWedgeDemo.lpr
+  s_09d3c46d1a9b1f::t_308798ff1a89dd 1-16
+TlsLib.Adapters/mORMot/Examples/Lazarus/MormotWedgeDemo.lpi
+  s_09d3c46d1a9b1f::t_cf5c166265aa97 1-51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7384c2cd45aae39771bd4cf5fb7c3159f655ca8d",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
