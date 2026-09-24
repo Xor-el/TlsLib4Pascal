@@ -26,6 +26,7 @@ uses
   TlpKeyLog,
   TlpTrafficKeys,
   TlpHkdfLabel,
+  TlpEchExtension,
   TlpTlsLibExceptions,
   TlpSecureMemory;
 
@@ -134,9 +135,6 @@ type
   end;
 
 implementation
-
-uses
-  TlpEchExtension;
 
 const
   Tls13IvLength = Int32(12);
