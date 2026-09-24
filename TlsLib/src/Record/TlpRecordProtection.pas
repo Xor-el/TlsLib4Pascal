@@ -17,6 +17,7 @@ interface
 
 uses
   SysUtils,
+  TlpAeadUtilities,
   TlpArrayUtilities,
   TlpBinaryPrimitives,
   TlpISecretBuffer,
@@ -350,7 +351,7 @@ begin
   LAad := SerializeHeader(LHeader);
   LNonce := DeriveNonce(FIv, FSeq);
   try
-    LCipher := FAead.Seal(LNonce, LAad, LInner);
+    LCipher := TAeadUtilities.Seal(FAead, LNonce, LAad, LInner);
     Result := TArrayUtilities.Concat(LAad, LCipher);
     Inc(FSeq);
   finally
@@ -378,7 +379,7 @@ begin
   LBody := LReader.ReadBytes(LHeader.Length);
   LNonce := DeriveNonce(FIv, FSeq);
   try
-    LInner := FAead.Open(LNonce, LAad, LBody);
+    LInner := TAeadUtilities.Open(FAead, LNonce, LAad, LBody);
   finally
     TSecureMemory.WipeBytes(LNonce);
   end;
@@ -479,7 +480,8 @@ begin
     // ChaCha20-Poly1305 (RFC 7905): the 12-byte write IV XORed with the sequence number
     LNonce := DeriveNonce(FSalt, FSeq);
   try
-    LCipher := FAead.Seal(LNonce, LAad, System.Copy(APlaintext, AOffset, ALength));
+    LCipher := TAeadUtilities.Seal(FAead, LNonce, LAad,
+      System.Copy(APlaintext, AOffset, ALength));
   finally
     TSecureMemory.WipeBytes(LNonce);
   end;
@@ -530,7 +532,7 @@ begin
   LPlaintextLen := System.Length(LCipher) - FAead.TagSize;
   LAad := BuildAad(LHeader.ContentTypeByte, LHeader.Version, LPlaintextLen);
   try
-    Result := FAead.Open(LNonce, LAad, LCipher);
+    Result := TAeadUtilities.Open(FAead, LNonce, LAad, LCipher);
   finally
     TSecureMemory.WipeBytes(LNonce);
   end;

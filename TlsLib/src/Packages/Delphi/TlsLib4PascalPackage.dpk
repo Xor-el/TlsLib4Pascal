@@ -115,6 +115,7 @@ contains
   TlpChainAlgorithmPolicy in '..\..\Trust\TlpChainAlgorithmPolicy.pas',
   TlpServerName in '..\..\Trust\TlpServerName.pas',
   TlpHpkeComposition in '..\..\Crypto\TlpHpkeComposition.pas',
+  TlpAeadUtilities in '..\..\Crypto\TlpAeadUtilities.pas',
   TlpTls12PrfComposition in '..\..\Crypto\TlpTls12PrfComposition.pas',
   TlpDer in '..\..\Crypto\TlpDer.pas',
   TlpEndpointIdentity in '..\..\Trust\TlpEndpointIdentity.pas',

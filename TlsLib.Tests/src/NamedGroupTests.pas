@@ -254,7 +254,7 @@ var
   LCrypto: ICryptoProvider;
 begin
   // the OS-native overlay: both hybrids compose over its primitives (P-256/X25519 + ML-KEM-768),
-  // native where CNG serves them and portable otherwise, so the round-trip holds on every host
+  // native where the overlay serves them and portable otherwise, so the round-trip holds on every host
   LCrypto := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider);
   CheckAgreement(TNamedGroups.CreateX25519MlKem768(LCrypto), 64);
   CheckAgreement(TNamedGroups.CreateSecP256r1MlKem768(LCrypto), 64);

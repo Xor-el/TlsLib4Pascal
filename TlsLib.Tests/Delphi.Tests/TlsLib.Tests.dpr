@@ -45,6 +45,7 @@ uses
   TlpISigningKey in '..\..\TlsLib\src\Interfaces\Crypto\TlpISigningKey.pas',
   TlpIKeyExchangePrivateKey in '..\..\TlsLib\src\Interfaces\Crypto\TlpIKeyExchangePrivateKey.pas',
   TlpHpkeComposition in '..\..\TlsLib\src\Crypto\TlpHpkeComposition.pas',
+  TlpAeadUtilities in '..\..\TlsLib\src\Crypto\TlpAeadUtilities.pas',
   TlpTls12PrfComposition in '..\..\TlsLib\src\Crypto\TlpTls12PrfComposition.pas',
   TlpDer in '..\..\TlsLib\src\Crypto\TlpDer.pas',
   TlpDefaultCryptoProvider in '..\..\TlsLib\src\Crypto\Providers\TlpDefaultCryptoProvider.pas',
