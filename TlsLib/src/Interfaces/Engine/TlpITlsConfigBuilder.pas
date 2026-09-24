@@ -486,10 +486,12 @@ type
     function WithCertificateCompressionCache(
       const ACache: ICertificateCompressionCache): ITls13ServerConfigFacet;
     /// <summary>The 0-RTT early-data byte budget the server authorizes (TLS 1.3, RFC 8446
-    /// 4.2.10); 0 disables early data. Accepting early data also needs WithAntiReplay.</summary>
+    /// 4.2.10); 0 disables early data. A default anti-replay register is provided when none is
+    /// set (see WithAntiReplay); resumption must be enabled for 0-RTT.</summary>
     function WithEarlyData(AMaxBytes: UInt32): ITls13ServerConfigFacet;
     /// <summary>The anti-replay register guarding accepted early data; when a positive
-    /// early-data budget is set without one, a default in-memory register is used.</summary>
+    /// early-data budget is set without one, a default in-memory register is used (one per config,
+    /// shared across connections).</summary>
     function WithAntiReplay(const AStrategy: IAntiReplayStrategy): ITls13ServerConfigFacet;
     /// <summary>Enables Encrypted Client Hello: the key store the server decrypts offers with
     /// and advertises as retry_configs (RFC 9849), swapped to rotate keys. Build one from a

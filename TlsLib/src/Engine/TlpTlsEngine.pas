@@ -191,6 +191,9 @@ resourcestring
   SWriteAfterClose =
     'Write after the write side was closed (close_notify sent, or received under TLS 1.2) ' +
     'or the connection failed';
+  SWriteBeforeWriteEpoch =
+    'Write before a write epoch key is installed would send application data in the clear; ' +
+    'drive the handshake first (0-RTT uses WriteEarlyData)';
   SRecordLimitNoRekey =
     'the write epoch reached its AEAD record limit and could not be rekeyed; ' +
     'the connection was closed';
@@ -639,6 +642,11 @@ begin
   // half-close, which we do not offer for 1.2).
   if FTerminal or FSentClose or (FClosed and not IsTls13) then
     raise EInvalidOperationTlsLibException.CreateRes(@SWriteAfterClose);
+  // refuse application data while the write side is on the plaintext epoch - before the first
+  // write keys, or after a 0-RTT-rejecting HRR reverts to plaintext - so it is never sent in the
+  // clear (0-RTT is WriteEarlyData)
+  if FRecordLayer.WriteIsPlaintext then
+    raise EInvalidOperationTlsLibException.CreateRes(@SWriteBeforeWriteEpoch);
   // a KeyUpdate owed to a peer update_requested must precede our next application data
   // (RFC 8446 4.6.3); flushing here coalesces repeats into one response before the write.
   // A failure to build/flush it is fatal - abort with its alert and do NOT queue the app
@@ -934,8 +942,9 @@ end;
 
 function TTlsEngine.WriteClosed: Boolean;
 begin
-  // mirrors the guard in Write: a Write in this state raises. An inbound close_notify closes the
-  // write side only under TLS 1.2; under TLS 1.3 the write half stays open (RFC 8446 6.1).
+  // the write-closed subset of Write's guards (Write also refuses before a write epoch is
+  // installed). An inbound close_notify closes the write side only under TLS 1.2; under TLS 1.3
+  // the write half stays open (RFC 8446 6.1).
   Result := FTerminal or FSentClose or (FClosed and not IsTls13);
 end;
 

@@ -35,7 +35,6 @@ uses
   TlpTrustPolicy,
   TlpTlsCredential,
   TlpISession,
-  TlpAntiReplay,
   TlpCoreExtensions,
   TlpIHandshakeMachine,
   TlpTls13ClientStateMachine,
@@ -529,10 +528,6 @@ begin
     L13.TicketLifetimeSeconds := AConfig.TicketLifetimeSeconds;
     L13.MaxEarlyData := AConfig.MaxEarlyData;
     L13.AntiReplay := AConfig.AntiReplay;
-    // a server authorizing early data needs an anti-replay register; default one when the
-    // budget is positive but none was supplied (RFC 8446 8)
-    if (L13.MaxEarlyData > 0) and (L13.AntiReplay = nil) then
-      L13.AntiReplay := TStrikeRegisterAntiReplay.Create as IAntiReplayStrategy;
     L12.SessionStore := AConfig.SessionStore;
     L12.SessionTicketKeys := AConfig.SessionTicketKeys;
     L12.ResumptionScope := AConfig.ResumptionScope;

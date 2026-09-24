@@ -49,6 +49,7 @@ uses
   TlpIKeyLog,
   TlpSession,
   TlpSessionTicketKeys,
+  TlpAntiReplay,
   TlpIEch,
   TlpEchClient,
   TlpITlsConfig,
@@ -2631,7 +2632,12 @@ begin
   else if FWantDefaultSessionTicketKeys or (FResumption and (FSessionStore = nil)) then
     LConfig.FSessionTicketKeys := TStekTicketKeyManager.CreateDefault(FCrypto, FClock,
       FTicketLifetimeSeconds);
-  LConfig.FAntiReplay := FAntiReplay;
+  // one register per config, shared across every connection so a replayed 0-RTT offer is
+  // detected across connections (RFC 8446 8)
+  if FAntiReplay <> nil then
+    LConfig.FAntiReplay := FAntiReplay
+  else if (FMaxEarlyData > 0) and FResumption then
+    LConfig.FAntiReplay := TStrikeRegisterAntiReplay.Create as IAntiReplayStrategy;
   LConfig.FTicketLifetimeSeconds := FTicketLifetimeSeconds;
   LConfig.FTicketCount := FTicketCount;
   LConfig.FMaxEarlyData := FMaxEarlyData;
