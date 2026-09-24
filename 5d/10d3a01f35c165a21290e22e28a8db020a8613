@@ -1,0 +1,48 @@
+TlsLib/src/Trust/TlpLiveRevocation.pas
+  s_09d3c46d1a9b1f::t_cc9a812a022637 242-243,245-247,255-260
+  s_09d3c46d1a9b1f::t_d13c28607b032e 181-182
+  s_09d3c46d1a9b1f::t_a0b31740303c7d 54-57
+  s_09d3c46d1a9b1f::t_291e6c96fe2456 50-53
+  s_09d3c46d1a9b1f::t_7a9ba5451a35c3 145-146
+TlsLib.Net/TlpSocketHttpFetcher.pas
+  s_09d3c46d1a9b1f::t_c7160968607a18 47
+  s_09d3c46d1a9b1f::t_bb046987c9fe57 45-46,48-54,64,79,85-86,88,120,128-129,149-150,154,156-159,161-164,166,168-172,178-179,182,185,187-190,192-203,207-209,214,218,228-232,235,240,243-253
+  s_09d3c46d1a9b1f::t_010ab1e8c68137 219,222-223,225-227
+  s_09d3c46d1a9b1f::t_9c169aabc28afb 65,67-68,74-77,80-84,87,89-103,112-119,121-127
+  s_09d3c46d1a9b1f::t_ae667b3f3edcc0 66
+  s_09d3c46d1a9b1f::t_39c075f242622a 69-73,78
+  s_09d3c46d1a9b1f::t_61468b196fd77e 104-105,107-111
+  s_09d3c46d1a9b1f::t_1824872a29e6d4 106
+  s_09d3c46d1a9b1f::t_a57cde845bb9b6 213
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_09d3c46d1a9b1f::t_53f1c248a9e8b6 180
+TlsLib.Tests/src/LiveRevocationTests.pas
+  s_09d3c46d1a9b1f::t_768ba271ec79d6 83
+  s_09d3c46d1a9b1f::t_259d856db246b1 466-514
+  s_09d3c46d1a9b1f::t_7c6df9842503e6 36,39
+  s_09d3c46d1a9b1f::t_acf84f73d4e3f5 340-342,347-348,353-358,362-363,369-384
+  s_09d3c46d1a9b1f::t_db4690ca1c4452 79
+  s_09d3c46d1a9b1f::t_2b928603628886 337-339,343-346,349-352,359-361,364-368,385-387
+TlsLib.Net/Examples/src/RealPeerRevocationProbeExample.pas
+  s_09d3c46d1a9b1f::t_d67c18bda85147 34
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_09d3c46d1a9b1f::t_2d2411c2450a39 160
+TlsLib.Tests/src/SpyRevocationProvider.pas
+  s_09d3c46d1a9b1f::t_fdbd1668e9c232 1-132
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5d10d3a01f35c165a21290e22e28a8db020a8613",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
