@@ -65,6 +65,7 @@ type
     procedure TestTls12GroupSelectionExcludesHybrid;
     procedure TestTls12CipherSelectionExcludesTls13Suite;
     procedure TestCipherSuiteCatalogNames;
+    procedure TestDefaultRegistryOffersEdDsa;
   end;
 
 implementation
@@ -403,6 +404,15 @@ begin
   CheckEquals('', TCipherSuiteCatalog.Name(0), 'nothing negotiated is empty');
   CheckEquals('0x5600', TCipherSuiteCatalog.Name($5600),
     'a suite outside the catalog falls back to its hex codepoint');
+end;
+
+procedure TTestNegotiation.TestDefaultRegistryOffersEdDsa;
+var
+  LReg: ISignatureSchemeRegistry;
+begin
+  LReg := TSignatureSchemeRegistry.CreateDefault;
+  CheckTrue(LReg.Contains(TSignatureSchemes.Ed25519), 'the default registry offers ed25519');
+  CheckTrue(LReg.Contains(TSignatureSchemes.Ed448), 'the default registry offers ed448');
 end;
 
 initialization

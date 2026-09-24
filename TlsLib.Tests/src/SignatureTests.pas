@@ -59,6 +59,8 @@ type
   published
     procedure TestEd25519SignVerifyRoundTrip;
     procedure TestEd25519TamperedSignatureFails;
+    procedure TestEd448SignVerifyRoundTrip;
+    procedure TestEd448TamperedSignatureFails;
     procedure TestEcdsaP256SignVerifyRoundTrip;
     procedure TestEcdsaP256TamperedSignatureFails;
     procedure TestRsaPssVerifiesRfc8448CertificateVerify;
@@ -194,6 +196,20 @@ begin
   CheckTrue(TamperedVerifyFails(TSignatureScheme.ED25519, DecodeHex(FKeys.Values['ed25519_key']),
     DecodeHex(FKeys.Values['ed25519_pub'])),
     'a tampered Ed25519 signature fails to verify');
+end;
+
+procedure TTestSignature.TestEd448SignVerifyRoundTrip;
+begin
+  CheckTrue(SignThenVerify(TSignatureScheme.ED448, DecodeHex(FKeys.Values['ed448_key']),
+    DecodeHex(FKeys.Values['ed448_pub'])),
+    'an Ed448 signature verifies against its public key');
+end;
+
+procedure TTestSignature.TestEd448TamperedSignatureFails;
+begin
+  CheckTrue(TamperedVerifyFails(TSignatureScheme.ED448, DecodeHex(FKeys.Values['ed448_key']),
+    DecodeHex(FKeys.Values['ed448_pub'])),
+    'a tampered Ed448 signature fails to verify');
 end;
 
 procedure TTestSignature.TestEcdsaP256SignVerifyRoundTrip;
