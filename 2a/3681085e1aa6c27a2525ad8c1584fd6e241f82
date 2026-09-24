@@ -1,0 +1,35 @@
+TlsLib.Adapters/mORMot/README.md
+  s_09d3c46d1a9b1f::t_2741e88db4437d 30
+TlsLib.Tests/src/NegotiationTests.pas
+  s_09d3c46d1a9b1f::t_f8910210918507 395-407
+  s_09d3c46d1a9b1f::t_2d7c22a09adc32 67
+TlsLib/src/Negotiation/TlpNegotiationTypes.pas
+  s_09d3c46d1a9b1f::t_38de66fe0ac879 157-186
+  s_09d3c46d1a9b1f::t_7eb5995e4b6778 50-57
+TlsLib.Adapters/mORMot/Adapter/TlsLibMormotTls.pas
+  s_09d3c46d1a9b1f::t_2ae1dd81de8e19 47
+  s_09d3c46d1a9b1f::t_a4fc6cf401722f 485-486,488-494,497
+TlsLib.Adapters/Synapse/Adapter/TlsLibSynapseTls.pas
+  s_09d3c46d1a9b1f::t_08f62998f01dc3 519-520
+  s_09d3c46d1a9b1f::t_be8fb8fed3ec0c 49
+TlsLib.Adapters/mORMot/Examples/src/MormotAdvancedConfigExample.pas
+  s_09d3c46d1a9b1f::t_315b993408212e 252
+TlsLib.Adapters/mORMot/Examples/src/MormotLoopbackExample.pas
+  s_09d3c46d1a9b1f::t_b2562c920e8842 222
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2a3681085e1aa6c27a2525ad8c1584fd6e241f82",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
