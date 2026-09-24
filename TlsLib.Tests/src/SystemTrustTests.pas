@@ -61,6 +61,7 @@ uses
 {$ENDIF TLSLIB_MACOS}
 {$IF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_BSD) OR DEFINED(TLSLIB_SOLARIS)}
   TlpUnixSystemTrust,
+  TlpPosixPrivilege,
 {$IFEND}
   TlpOSSystemTrust,
   TlpSystemTrustBase,
@@ -322,14 +323,19 @@ type
 {$IF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_BSD) OR DEFINED(TLSLIB_SOLARIS)}
 
   /// <summary>Desktop/server Unix (real /etc/ssl/certs et al.) instantiation. Registered only on
-  /// the filesystem-harvest targets; a bare box with no ca-certificates is tolerated (skips).
-  /// Android also harvests from the filesystem but is a mobile target with its own store path and
-  /// a JNI-delegate future, so it is not grouped here.</summary>
+  /// the filesystem-harvest targets; a bare box with no ca-certificates is tolerated (skips).</summary>
   TTestUnixSystemTrust = class(TSystemTrustAnchorContractTestBase)
   strict protected
     function CreateAnchorStore: ITrustAnchorStore; override;
     function PlatformName: string; override;
     function RequiresPopulatedStore: Boolean; override;
+  end;
+
+  /// <summary>An ordinary (non-setuid) process must probe as not-elevated - which also
+  /// confirms the runtime identity lookup resolves, since it fails closed to elevated.</summary>
+  TTestPosixPrivilege = class(TTlsLibAlgorithmTestCase)
+  published
+    procedure TestUnprivilegedProcessIsNotElevated;
   end;
 
 {$IFEND}
@@ -1869,6 +1875,14 @@ begin
   Result := False; // a minimal box may ship no ca-certificates - tolerate an empty harvest
 end;
 
+{ TTestPosixPrivilege }
+
+procedure TTestPosixPrivilege.TestUnprivilegedProcessIsNotElevated;
+begin
+  CheckFalse(TPosixPrivilege.IsElevated,
+    'the unprivileged test process must probe as not elevated');
+end;
+
 {$IFEND}
 
 { TTestSystemTrustInstaller }
@@ -1954,8 +1968,10 @@ initialization
 {$IF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_BSD) OR DEFINED(TLSLIB_SOLARIS)}
 {$IFDEF FPC}
   RegisterTest(TTestUnixSystemTrust);
+  RegisterTest(TTestPosixPrivilege);
 {$ELSE}
   RegisterTest(TTestUnixSystemTrust.Suite);
+  RegisterTest(TTestPosixPrivilege.Suite);
 {$ENDIF FPC}
 {$IFEND}
 

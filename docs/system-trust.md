@@ -27,9 +27,14 @@ platform that can enumerate its store, that is the default:
 |---|---|---|
 | **Windows** | `ROOT` store (server-auth-capable roots only), minus `Disallowed` | `crypt32` enumeration → our validator |
 | **macOS** | System + admin + user trust settings (SSL-scoped; a user "Never Trust" in any domain excludes) | `Security.framework` → our validator |
-| **Unix/Linux** | `/etc/ssl/certs` (and distro variants; honours `SSL_CERT_FILE` / `SSL_CERT_DIR`) | filesystem harvest → our validator |
+| **Unix/Linux** | `/etc/ssl/certs` (and distro variants; honours `SSL_CERT_FILE` / `SSL_CERT_DIR`, ignored under elevated privilege) | filesystem harvest → our validator |
 | **iOS** | *(no enumeration API)* | delegates the verdict to `SecTrust` |
 | **Android** | *(harvest banned — stale/partial)* | delegates the verdict to the platform `X509TrustManager` (Delphi: zero-config; FPC: one `TlsLibAndroidInitTrust` call) |
+
+The Unix `SSL_CERT_FILE` / `SSL_CERT_DIR` overrides are dropped when the process runs with elevated
+privileges (setuid/setgid, or the kernel's secure-execution flag), falling back to the built-in CA
+table — an attacker who controls a privileged process's environment cannot redirect trust to their
+own CA.
 
 iOS and Android are the two exceptions — both **delegate-only**. Apple exposes no API to *list* the
 trusted roots, so there we delegate the whole verdict to `SecTrust`. On Android the on-disk root set is
