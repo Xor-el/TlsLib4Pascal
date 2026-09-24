@@ -79,6 +79,10 @@ type
     function NewServerEd448: ITlsEngine;
     function TestRootCertificateEd448: TBytes;
     function ServerCredentialEd448: TTlsCredential;
+    function NewClientEd25519: ITlsEngine;
+    function NewServerEd25519: ITlsEngine;
+    function TestRootCertificateEd25519: TBytes;
+    function ServerCredentialEd25519: TTlsCredential;
     function NewServer: ITlsEngine;
     function NewServerWithResolver(
       const AResolver: ITlsServerCredentialResolver): ITlsEngine;
@@ -153,6 +157,7 @@ type
     procedure TestUnknownSniWithoutDefaultAbortsUnrecognizedName;
     procedure TestSniResolverMatchingMatrix;
     procedure TestEd448ServerCredentialHandshake;
+    procedure TestEd25519ServerCredentialHandshake;
   end;
 
 implementation
@@ -287,6 +292,64 @@ function TTestTls13Loopback.NewServerEd448: ITlsEngine;
 begin
   Result := NewServerWithResolver(
     TSniCredentialResolver.ForCredential(ServerCredentialEd448));
+end;
+
+function TTestTls13Loopback.TestRootCertificateEd25519: TBytes;
+var
+  LCerts: TStringList;
+begin
+  LCerts := LoadVectorFields('Certs/Ed25519Chain.txt');
+  try
+    Result := DecodeHex(LCerts.Values['root_cert']);
+  finally
+    LCerts.Free;
+  end;
+end;
+
+function TTestTls13Loopback.ServerCredentialEd25519: TTlsCredential;
+var
+  LCerts: TStringList;
+begin
+  LCerts := LoadVectorFields('Certs/Ed25519Chain.txt');
+  try
+    Result.CertificateChain := TArray<TBytes>.Create(
+      DecodeHex(LCerts.Values['leaf_cert']));
+    Result.PrivateKey := Crypto.Signing.ImportSigningKey(
+      DecodeHex(LCerts.Values['leaf_key']));
+  finally
+    LCerts.Free;
+  end;
+end;
+
+function TTestTls13Loopback.NewClientEd25519: ITlsEngine;
+var
+  LParams: TClientHandshakeParams;
+begin
+  LParams := Default(TClientHandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Crypto := Crypto;
+  LParams.Inspector := Pkix.Certificates;
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
+  LParams.GroupCode := TNamedGroupCatalog.X25519;
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
+  LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.Ed25519);
+  LParams.ClientRandom := Filled($11, 32);
+  LParams.LegacySessionId := Filled($33, 32);
+  LParams.ExpectedServerName := TServerName.DnsName('localhost');
+  LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
+    TSystemClock.Create as ITlsClock,
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificateEd25519))
+    as ITrustAnchorStore, True) as IServerCertificateVerifier;
+  Result := TTlsEngine.CreateConfigured(
+    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
+end;
+
+function TTestTls13Loopback.NewServerEd25519: ITlsEngine;
+begin
+  Result := NewServerWithResolver(
+    TSniCredentialResolver.ForCredential(ServerCredentialEd25519));
 end;
 
 function TTestTls13Loopback.WrongNameCredential: TTlsCredential;
@@ -2055,6 +2118,33 @@ begin
   LClient.Write(LMsg, 0, System.Length(LMsg));
   Pump(LClient, LServer);
   CheckEqualBytes('app data flows over the Ed448-authenticated channel', LMsg,
+    ReadAllApp(LServer));
+end;
+
+procedure TTestTls13Loopback.TestEd25519ServerCredentialHandshake;
+var
+  LClient, LServer: ITlsEngine;
+  LIterations: Int32;
+  LMsg: TBytes;
+begin
+  LClient := NewClientEd25519;
+  LServer := NewServerEd25519;
+  LClient.StartHandshake;
+  LIterations := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LIterations);
+  end;
+  CheckFalse(LClient.IsHandshaking, 'the client completed the Ed25519 handshake');
+  CheckFalse(LServer.IsHandshaking, 'the server completed the Ed25519 handshake');
+  CheckFalse(LClient.IsTerminal, 'the client did not fail');
+  CheckFalse(LServer.IsTerminal, 'the server did not fail');
+  LMsg := DecodeHex('65643235353139'); // "ed25519"
+  LClient.Write(LMsg, 0, System.Length(LMsg));
+  Pump(LClient, LServer);
+  CheckEqualBytes('app data flows over the Ed25519-authenticated channel', LMsg,
     ReadAllApp(LServer));
 end;
 

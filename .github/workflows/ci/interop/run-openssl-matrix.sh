@@ -44,7 +44,7 @@ trap 'rm -rf "$TMP"; kill $(jobs -p) 2>/dev/null || true' EXIT
 echo "openssl: $($OPENSSL version)"
 echo "driver:  $DRIVER"
 FAILURES=0
-TOTAL=8
+TOTAL=10
 
 # capability probe: X25519MLKEM768 needs openssl >= 3.5. Older builds skip the hybrid
 # H-cells with a logged count - never a silent pass, never a hard fail on an old runner.

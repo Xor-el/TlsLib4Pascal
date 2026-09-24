@@ -31,7 +31,7 @@ type
     constructor Create;
 
     /// <summary>
-    /// The default scheme set in preference order (ECDSA, RSA-PSS, EdDSA). Provider
+    /// The default scheme set in preference order (ECDSA, EdDSA, RSA-PSS, RSA-PKCS1). Provider
     /// capability is confirmed when the signers are wired (the signer sub-seam), so
     /// the default set is the full modern list here.
     /// </summary>
