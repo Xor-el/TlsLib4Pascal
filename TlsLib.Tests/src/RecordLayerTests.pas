@@ -57,6 +57,13 @@ type
     procedure TestReassemblyCapTripsFatally;
     procedure TestFramedBacklogBoundAndDiscard;
     procedure TestEmptyRecordFloodCapped;
+    procedure TestEmptyHandshakeRecordRejected;
+    procedure TestEmptyAlertRecordRejected;
+    procedure TestEmptyChangeCipherSpecRejected;
+    procedure TestEmptyApplicationDataStillAccepted;
+    procedure TestProtectedEmptyHandshakeRejected;
+    procedure TestWriteRefusesEmptyControlRecord;
+    procedure TestWriteRefusesProtectedChangeCipherSpec;
     procedure TestRecordSizeLimitRejectsOversizeInbound;
     procedure TestRecordSizeLimitCountsInnerPlaintextNotContent;
     procedure TestRecordSizeLimitInnerPlaintextBoundary;
@@ -373,6 +380,144 @@ begin
     CheckTrue(LRaised, 'a flood of empty records is capped');
   finally
     LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestEmptyHandshakeRecordRejected;
+var
+  LRecv: TRecordLayer;
+begin
+  LRecv := TRecordLayer.Create;
+  try
+    // RFC 8446 5.4 / RFC 5246 6.2.1: a zero-length handshake record is unexpected_message
+    CheckTrue(ExpectFatal(LRecv, DecodeHex('1603030000'),
+      TTlsAlertDescription.UnexpectedMessage), 'an empty handshake record is rejected');
+  finally
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestEmptyAlertRecordRejected;
+var
+  LRecv: TRecordLayer;
+begin
+  LRecv := TRecordLayer.Create;
+  try
+    CheckTrue(ExpectFatal(LRecv, DecodeHex('1503030000'),
+      TTlsAlertDescription.UnexpectedMessage), 'an empty alert record is rejected');
+  finally
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestEmptyChangeCipherSpecRejected;
+var
+  LRecv: TRecordLayer;
+begin
+  LRecv := TRecordLayer.Create;
+  try
+    LRecv.SetNegotiatedVersion(TTlsVersion.Tls13);
+    // a change_cipher_spec body must be a single 0x01; a zero-length one is unexpected_message
+    CheckTrue(ExpectFatal(LRecv, DecodeHex('1403030000'),
+      TTlsAlertDescription.UnexpectedMessage), 'an empty change_cipher_spec is rejected');
+  finally
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestEmptyApplicationDataStillAccepted;
+var
+  LRecv: TRecordLayer;
+  LFrag: TTlsRecordFragment;
+begin
+  LRecv := TRecordLayer.Create;
+  try
+    // an empty application_data record is legal (RFC 8446 5.4); it delivers nothing
+    LRecv.ProcessInput(DecodeHex('1703030000'), 0, 5);
+    CheckFalse(DrainOne(LRecv, LFrag),
+      'an empty application_data record is accepted and delivers nothing');
+  finally
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestProtectedEmptyHandshakeRejected;
+var
+  LRecv: TRecordLayer;
+  LKey, LIv, LWire: TBytes;
+begin
+  LRecv := TRecordLayer.Create;
+  try
+    LKey := DecodeHex('000102030405060708090a0b0c0d0e0f');
+    LIv := DecodeHex('000102030405060708090a0b');
+    // a protected record whose decrypted inner content is empty and inner type is handshake is
+    // forbidden (RFC 8446 5.4) - the reject must run after decrypt, on the TLSInnerPlaintext
+    LWire := MakeTls13(LKey, LIv).Protect(TTlsContentType.Handshake, nil, 0, 0);
+    LRecv.SetReadProtection(MakeTls13(LKey, LIv));
+    CheckTrue(ExpectFatal(LRecv, LWire, TTlsAlertDescription.UnexpectedMessage),
+      'a protected empty handshake record is rejected after decrypt');
+  finally
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestWriteRefusesEmptyControlRecord;
+var
+  LSend: TRecordLayer;
+
+  function EmptyWriteRaises(AType: TTlsContentType): Boolean;
+  begin
+    Result := False;
+    try
+      LSend.Write(AType, nil, 0, 0);
+    except
+      on E: EArgumentTlsLibException do
+        Result := True;
+    end;
+  end;
+
+begin
+  LSend := TRecordLayer.Create;
+  try
+    CheckTrue(EmptyWriteRaises(TTlsContentType.Handshake), 'empty handshake write refused');
+    CheckTrue(EmptyWriteRaises(TTlsContentType.Alert), 'empty alert write refused');
+    CheckTrue(EmptyWriteRaises(TTlsContentType.ChangeCipherSpec), 'empty CCS write refused');
+    // an empty application_data record is still emitted
+    LSend.Write(TTlsContentType.ApplicationData, nil, 0, 0);
+    CheckEqualBytes('an empty application_data record is emitted',
+      DecodeHex('1703030000'), LSend.TakeOutgoing);
+  finally
+    LSend.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestWriteRefusesProtectedChangeCipherSpec;
+var
+  LSend: TRecordLayer;
+  LCcs: TBytes;
+  LRaised: Boolean;
+begin
+  LSend := TRecordLayer.Create;
+  try
+    LCcs := DecodeHex('01');
+    LSend.SetWriteProtection(MakeTls13(
+      DecodeHex('000102030405060708090a0b0c0d0e0f'),
+      DecodeHex('000102030405060708090a0b')));
+    LRaised := False;
+    try
+      LSend.Write(TTlsContentType.ChangeCipherSpec, LCcs, 0, 1);
+    except
+      on E: EInvalidOperationTlsLibException do
+        LRaised := True;
+    end;
+    CheckTrue(LRaised, 'a change_cipher_spec under a protected write epoch is refused');
+    // reverting to plaintext allows the legacy CCS again
+    LSend.RevertWriteToPlaintext;
+    LSend.Write(TTlsContentType.ChangeCipherSpec, LCcs, 0, 1);
+    CheckEqualBytes('a plaintext CCS is emitted after reverting',
+      DecodeHex('140303000101'), LSend.TakeOutgoing);
+  finally
+    LSend.Free;
   end;
 end;
 

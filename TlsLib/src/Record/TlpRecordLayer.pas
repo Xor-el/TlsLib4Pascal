@@ -62,6 +62,10 @@ type
     /// record decoded while the read side is still plaintext is never valid (0-RTT early data
     /// is encrypted under the early keys, later traffic under the application keys).</summary>
     FReadIsPlaintext: Boolean;
+    /// <summary>True while the write side is on an unprotected epoch (the initial one, or after a
+    /// revert to plaintext): a change_cipher_spec is only ever sent then, so emitting one once
+    /// write protection is armed is a caller error (RFC 8446 5 / RFC 5246 7.1).</summary>
+    FWriteIsPlaintext: Boolean;
     /// <summary>When set (by the engine for a real handshake), a cleartext application_data
     /// record is rejected as unexpected. Off by default so the record layer stays a plain
     /// framing component for its own unit tests, which feed plaintext application_data.</summary>
@@ -251,6 +255,7 @@ resourcestring
   SWriteSliceOutOfRange = 'the write offset/length is outside the source buffer';
   SHandshakeBeforeChangeCipherSpec = 'a handshake record arrived before the peer''s change_cipher_spec';
   SReadEpochAlreadyArmed = 'a read epoch is already armed for the next change_cipher_spec';
+  SEmptyControlRecord = 'a zero-length handshake, alert, or change_cipher_spec record is not allowed';
 
 { TRecordLayer }
 
@@ -260,6 +265,7 @@ begin
   FReadProtection := TNullRecordProtection.Create;
   FWriteProtection := TNullRecordProtection.Create;
   FReadIsPlaintext := True;
+  FWriteIsPlaintext := True;
   FFramed := TQueue<TBytes>.Create;
   FFramedBytes := 0;
   FMaxCiphertextLength := TRecordLimits.MaxCipherTextTls13;
@@ -321,6 +327,7 @@ end;
 procedure TRecordLayer.SetWriteProtection(const AProtection: IRecordProtection);
 begin
   FWriteProtection := AProtection;
+  FWriteIsPlaintext := False;
 end;
 
 procedure TRecordLayer.RevertWriteToPlaintext;
@@ -329,6 +336,7 @@ begin
   // offered 0-RTT installed the early-data write keys, but a HelloRetryRequest rejects the
   // early data, so its second ClientHello onward goes out in the clear (RFC 8446 4.2.10)
   FWriteProtection := TNullRecordProtection.Create;
+  FWriteIsPlaintext := True;
 end;
 
 procedure TRecordLayer.UseClientInitialRecordVersion;
@@ -339,6 +347,7 @@ begin
   LNull := TNullRecordProtection.Create;
   LNull.SetInitialLegacyVersion(TTlsVersion.LegacyRecordInitial);
   FWriteProtection := LNull;
+  FWriteIsPlaintext := True;
 end;
 
 procedure TRecordLayer.SetRecordSizeLimit(AOutboundLimit, AInboundLimit: Int32);
@@ -469,6 +478,11 @@ begin
             TTlsAlertDescription.UnexpectedMessage, @SUnexpectedApplicationData);
         if System.Length(AFragment.Data) = 0 then
         begin
+          // a zero-length handshake or alert record is forbidden; only an empty application_data
+          // record is legal, and only its cadence is bounded (RFC 8446 5.4 / RFC 5246 6.2.1)
+          if AFragment.ContentType <> TTlsContentType.ApplicationData then
+            raise EFatalAlertTlsLibException.CreateRes(
+              TTlsAlertDescription.UnexpectedMessage, @SEmptyControlRecord);
           Inc(FConsecutiveEmptyRecords);
           if FConsecutiveEmptyRecords > FMaxConsecutiveEmptyRecords then
             raise EFatalAlertTlsLibException.CreateRes(
@@ -628,6 +642,10 @@ begin
   if (AOffset < 0) or (ALength < 0) or
     (Int64(AOffset) + ALength > System.Length(AData)) then
     raise EArgumentTlsLibException.CreateRes(@SWriteSliceOutOfRange);
+  // a change_cipher_spec is only ever sent under the initial plaintext epoch (RFC 8446 5 /
+  // RFC 5246 7.1); emitting one once write protection is armed would be a caller error
+  if (AContentType = TTlsContentType.ChangeCipherSpec) and (not FWriteIsPlaintext) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SProtectedChangeCipherSpec);
   // only application data pauses at the rekey threshold (see the interface doc); a control
   // record always seals so the KeyUpdate/alert that resolves the limit is never withheld, with
   // the hard usage guard in Protect as the backstop.
@@ -648,9 +666,12 @@ begin
   // otherwise divide by zero / loop forever below); at least one content byte per record
   if LPlainCap < 1 then
     LPlainCap := 1;
-  // an empty write emits one empty record (Protect advances the sequence exactly once per record)
+  // only application_data may be empty; a zero-length handshake/alert record is forbidden
+  // (RFC 8446 5.4 / RFC 5246 6.2.1). Protect advances the sequence exactly once per record
   if ALength <= 0 then
   begin
+    if not LIsAppData then
+      raise EArgumentTlsLibException.CreateRes(@SEmptyControlRecord);
     AppendOutgoing(FWriteProtection.Protect(AContentType, AData, LOffset, 0));
     Exit(0);
   end;
