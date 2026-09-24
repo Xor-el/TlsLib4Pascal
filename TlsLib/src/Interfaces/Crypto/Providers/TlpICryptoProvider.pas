@@ -45,15 +45,11 @@ type
   /// </summary>
   IHash = interface(IInterface)
     ['{FAF552F4-DEBA-4AA1-A3EE-C58E291FDAAB}']
-    function AlgorithmName: string;
     /// <summary>Digest output size in bytes.</summary>
     function HashSize: Int32;
-    /// <summary>Internal block size in bytes.</summary>
-    function BlockSize: Int32;
     procedure Update(const AData: TBytes; AOffset, ALength: Int32);
     /// <summary>Finalizes and returns the digest; resets for reuse.</summary>
     function DoFinal: TBytes;
-    procedure Reset;
     /// <summary>An independent copy at the current state.</summary>
     function Clone: IHash;
   end;
@@ -61,13 +57,11 @@ type
   /// <summary>Keyed MAC (HMAC).</summary>
   IHmac = interface(IInterface)
     ['{E1A30A8D-B6A1-4F79-B12C-46B68BFB3C3B}']
-    function AlgorithmName: string;
     /// <summary>MAC output size in bytes.</summary>
     function MacSize: Int32;
     procedure Init(const AKey: ISecretBuffer);
     procedure Update(const AData: TBytes; AOffset, ALength: Int32);
     function DoFinal: TBytes;
-    procedure Reset;
   end;
 
   /// <summary>
@@ -106,17 +100,14 @@ type
   /// </summary>
   IAead = interface(IInterface)
     ['{0A207715-F01E-4C2D-AD4D-AEC6C0EC32D9}']
-    function AlgorithmName: string;
     /// <summary>The usage-limit family the record layer derives its rekey bound from.</summary>
     function UsageCategory: TAeadUsageCategory;
     /// <summary>Required key length in bytes.</summary>
     function KeySize: Int32;
     /// <summary>Required nonce length in bytes.</summary>
     function NonceSize: Int32;
-    /// <summary>Authentication tag length in bytes.</summary>
+    /// <summary>Authentication tag length in bytes (also the bytes sealing adds).</summary>
     function TagSize: Int32;
-    /// <summary>Bytes added by sealing (the tag length).</summary>
-    function Overhead: Int32;
     procedure Init(const AKey: ISecretBuffer);
     /// <summary>Encrypts and authenticates; returns ciphertext followed by the tag.</summary>
     function Seal(const ANonce, AAad, APlaintext: TBytes): TBytes;
@@ -203,7 +194,6 @@ type
   /// </summary>
   ISignatureSigner = interface(IInterface)
     ['{9B1CAFD9-7162-4B3A-8615-6DD9AC6C0A7E}']
-    function AlgorithmName: string;
     procedure Update(const AData: TBytes; AOffset, ALength: Int32);
     function Sign: TBytes;
   end;
@@ -214,7 +204,6 @@ type
   /// </summary>
   ISignatureVerifier = interface(IInterface)
     ['{AE23AEDF-7BCD-42A3-A5A9-2D49868D4FDC}']
-    function AlgorithmName: string;
     procedure Update(const AData: TBytes; AOffset, ALength: Int32);
     function Verify(const ASignature: TBytes): Boolean;
   end;
