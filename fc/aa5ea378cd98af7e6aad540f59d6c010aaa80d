@@ -1,0 +1,21 @@
+TlsLib.Tests/src/SessionStoreTests.pas
+  s_09d3c46d1a9b1f::t_8940173e63a463 176,183
+TlsLib/src/Session/TlpInMemorySessionCache.pas
+  s_09d3c46d1a9b1f::t_d7141c2bcdc630 47-48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "fcaa5ea378cd98af7e6aad540f59d6c010aaa80d",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
