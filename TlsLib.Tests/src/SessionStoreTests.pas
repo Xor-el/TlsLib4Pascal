@@ -53,6 +53,7 @@ type
     procedure TestCacheBoundedEviction;
     procedure TestCachePrefersTls13OverTls12;
     procedure TestKxHintRoundTripsAndIsKeyed;
+    procedure TestKxHintBounded;
     procedure TestStorePutTakeSingleUse;
     procedure TestStorePutWithId;
     procedure TestStoreBoundedEviction;
@@ -250,6 +251,27 @@ begin
     'the hint round-trips');
   CheckEquals(0, LCache.KxHint('host:443', 'other.example'),
     'the hint is keyed by server and SNI');
+end;
+
+procedure TTestSessionStore.TestKxHintBounded;
+var
+  LCache: ISessionCache;
+  LI: Int32;
+begin
+  LCache := TInMemorySessionCache.Create(2);
+  for LI := 0 to 4 do
+    LCache.SetKxHint('host:443', 'h' + IntToStr(LI) + '.example',
+      TNamedGroupCatalog.X25519);
+  CheckEquals(0, LCache.KxHint('host:443', 'h0.example'),
+    'the oldest hints are evicted past the cap');
+  CheckEquals(TNamedGroupCatalog.X25519, LCache.KxHint('host:443', 'h4.example'),
+    'the newest hint survives');
+  // an in-place update must not re-insert and evict a live hint
+  LCache.SetKxHint('host:443', 'h3.example', TNamedGroupCatalog.Secp256r1);
+  CheckEquals(TNamedGroupCatalog.Secp256r1, LCache.KxHint('host:443', 'h3.example'),
+    'updating a hint keeps its value');
+  CheckEquals(TNamedGroupCatalog.X25519, LCache.KxHint('host:443', 'h4.example'),
+    'and does not evict another live hint');
 end;
 
 procedure TTestSessionStore.TestStorePutTakeSingleUse;

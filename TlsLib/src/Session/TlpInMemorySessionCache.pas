@@ -39,6 +39,7 @@ type
   var
     FEntries: TList<TEntry>;
     FKxHints: TDictionary<string, UInt16>;
+    FKxHintOrder: TList<string>;
     FCapacity: Int32;
     FLock: TCriticalSection;
     class function KeyFor(const AServerIdentity, AServerName: string): string; static;
@@ -74,6 +75,7 @@ begin
     FCapacity := DefaultSessionCacheCapacity;
   FEntries := TList<TEntry>.Create;
   FKxHints := TDictionary<string, UInt16>.Create;
+  FKxHintOrder := TList<string>.Create;
   FLock := TCriticalSection.Create;
 end;
 
@@ -85,6 +87,7 @@ begin
     FEntries.Free;
   end;
   FKxHints.Free;
+  FKxHintOrder.Free;
   FLock.Free;
   inherited Destroy;
 end;
@@ -150,10 +153,24 @@ end;
 
 procedure TInMemorySessionCache.SetKxHint(const AServerIdentity,
   AServerName: string; AGroup: UInt16);
+var
+  LKey: string;
 begin
+  LKey := KeyFor(AServerIdentity, AServerName);
   FLock.Enter;
   try
-    FKxHints.AddOrSetValue(KeyFor(AServerIdentity, AServerName), AGroup);
+    if FKxHints.ContainsKey(LKey) then
+      FKxHints[LKey] := AGroup
+    else
+    begin
+      FKxHints.Add(LKey, AGroup);
+      FKxHintOrder.Add(LKey);
+      while FKxHintOrder.Count > FCapacity do
+      begin
+        FKxHints.Remove(FKxHintOrder[0]);
+        FKxHintOrder.Delete(0);
+      end;
+    end;
   finally
     FLock.Leave;
   end;
@@ -177,6 +194,7 @@ begin
   try
     FEntries.Clear;
     FKxHints.Clear;
+    FKxHintOrder.Clear;
   finally
     FLock.Leave;
   end;
