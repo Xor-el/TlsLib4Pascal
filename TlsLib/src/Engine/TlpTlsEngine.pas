@@ -506,10 +506,11 @@ begin
   Enqueue(TTlsEvents.MakePeerAlert(LReceived));
   FTerminal := True;
   if LReceived.HasKnownDescription then
-    FLastError := TTlsError.CreateFatal(LReceived.Description, SPeerFatalAlert)
+    FLastError := TTlsError.CreateFatal(LReceived.Description, SPeerFatalAlert,
+      TTlsErrorOrigin.Peer)
   else
     FLastError := TTlsError.CreateFatal(TTlsAlertDescription.InternalError,
-      SPeerFatalAlert);
+      SPeerFatalAlert, TTlsErrorOrigin.Peer);
 end;
 
 procedure TTlsEngine.RouteFragment(const AFragment: TTlsRecordFragment);
@@ -763,7 +764,8 @@ begin
     Exit;
   QueueAlertRecord(TTlsAlert.CreateFatal(ADescription));
   FTerminal := True;
-  FLastError := TTlsError.CreateFatal(ADescription, SLocalFatalAlert);
+  FLastError := TTlsError.CreateFatal(ADescription, SLocalFatalAlert,
+    TTlsErrorOrigin.Local);
 end;
 
 procedure TTlsEngine.StartHandshake;
@@ -1081,7 +1083,8 @@ procedure TTlsEngine.OnHandshakeFailed(AAlert: TTlsAlertDescription);
 begin
   if FTerminal then
     Exit;
-  FLastError := TTlsError.CreateFatal(AAlert, SLocalFatalAlert);
+  FLastError := TTlsError.CreateFatal(AAlert, SLocalFatalAlert,
+    TTlsErrorOrigin.Local);
   QueueAlertRecord(TTlsAlert.CreateFatal(AAlert));
   FTerminal := True;
 end;

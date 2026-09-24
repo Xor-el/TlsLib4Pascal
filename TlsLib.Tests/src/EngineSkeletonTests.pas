@@ -26,6 +26,7 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpTlsAlert,
+  TlpTlsError,
   TlpTlsLibExceptions,
   TlpTlsContentType,
   TlpTlsVersion,
@@ -53,6 +54,9 @@ type
     procedure TestCleartextApplicationDataBeforeKeysIsFatal;
     procedure TestReceivedCloseNotify;
     procedure TestReceivedFatalAlertIsTerminal;
+    procedure TestReceivedUnknownFatalAlertIsPeerOrigin;
+    procedure TestLastErrorOriginIsUnknownBeforeAnyFailure;
+    procedure TestSendAlertMarksLocalOrigin;
     procedure TestConnectionInfoZeroStateBeforeHandshake;
   end;
 
@@ -130,6 +134,8 @@ begin
     TakeAll(LEngine));
   CheckEquals(Ord(TTlsAlertDescription.RecordOverflow),
     Ord(LEngine.LastError.Alert.Description), 'last error is record_overflow');
+  CheckEquals(Ord(TTlsErrorOrigin.Local), Ord(LEngine.LastError.Origin),
+    'a failure we detected is our own');
   // further input is refused with Fatal, and a write after a fatal is API misuse (raises)
   CheckEquals(Ord(TTlsOutcome.Fatal),
     Ord(LEngine.ProcessInput(DecodeHex('1703030000'), 0, 5)), 'still fatal');
@@ -172,6 +178,8 @@ begin
   CheckTrue(LEngine.IsTerminal, 'the engine is terminal');
   CheckEquals(Ord(TTlsAlertDescription.UnexpectedMessage),
     Ord(LEngine.LastError.Alert.Description), 'last error is unexpected_message');
+  CheckEquals(Ord(TTlsErrorOrigin.Local), Ord(LEngine.LastError.Origin),
+    'a failure we detected is our own');
 end;
 
 procedure TTestEngineSkeleton.TestReceivedCloseNotify;
@@ -215,6 +223,42 @@ begin
   CheckEquals($28, LAlert.Alert.DescriptionByte, 'handshake_failure code');
   CheckEquals(Ord(TTlsAlertDescription.HandshakeFailure),
     Ord(LEngine.LastError.Alert.Description), 'last error reflects the peer alert');
+  CheckEquals(Ord(TTlsErrorOrigin.Peer), Ord(LEngine.LastError.Origin),
+    'a received fatal alert is the peer''s');
+end;
+
+procedure TTestEngineSkeleton.TestReceivedUnknownFatalAlertIsPeerOrigin;
+var
+  LEngine: ITlsEngine;
+begin
+  LEngine := NewEngine;
+  // a fatal alert with an unregistered description byte (level 2, description 0xFF)
+  CheckEquals(Ord(TTlsOutcome.Fatal),
+    Ord(LEngine.ProcessInput(PeerRecord(TTlsContentType.Alert,
+    DecodeHex('02FF')), 0, 7)), 'received fatal alert -> Fatal');
+  CheckTrue(LEngine.IsTerminal, 'terminal');
+  CheckEquals(Ord(TTlsErrorOrigin.Peer), Ord(LEngine.LastError.Origin),
+    'an unknown-description peer fatal is still the peer''s');
+end;
+
+procedure TTestEngineSkeleton.TestLastErrorOriginIsUnknownBeforeAnyFailure;
+var
+  LEngine: ITlsEngine;
+begin
+  LEngine := NewEngine;
+  CheckEquals(Ord(TTlsErrorOrigin.Unknown), Ord(LEngine.LastError.Origin),
+    'no failure recorded yet');
+end;
+
+procedure TTestEngineSkeleton.TestSendAlertMarksLocalOrigin;
+var
+  LEngine: ITlsEngine;
+begin
+  LEngine := NewEngine;
+  LEngine.SendAlert(TTlsAlertDescription.HandshakeFailure);
+  CheckTrue(LEngine.IsTerminal, 'sending a fatal alert is terminal');
+  CheckEquals(Ord(TTlsErrorOrigin.Local), Ord(LEngine.LastError.Origin),
+    'an alert we send is our own');
 end;
 
 procedure TTestEngineSkeleton.TestConnectionInfoZeroStateBeforeHandshake;
