@@ -1,0 +1,19 @@
+.github/workflows/ci/interop/run-openssl-matrix.sh
+  s_09d3c46d1a9b1f::t_d27804d0e822b2 111-144
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "36b39d99a20227f1261c74c10337ee1ff14cffae",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
