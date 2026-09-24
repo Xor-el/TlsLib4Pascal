@@ -25,7 +25,7 @@ package TlsLib.Crypto.System;
 {$IMAGEBASE $400000}
 {$DEFINE RELEASE}
 {$ENDIF IMPLICITBUILDING}
-{$DESCRIPTION 'Optional OS-native crypto acceleration facets for TlsLib4Pascal'}
+{$DESCRIPTION 'Optional OS-native crypto facets for TlsLib4Pascal'}
 {$RUNONLY}
 {$IMPLICITBUILD ON}
 

@@ -18,7 +18,7 @@
         </Optimizations>
       </CodeGeneration>
     </CompilerOptions>
-    <Description Value="Optional OS-native crypto acceleration facets for TlsLib4Pascal"/>
+    <Description Value="Optional OS-native crypto facets for TlsLib4Pascal"/>
     <License Value="MIT License"/>
     <Version Major="1" Minor="1"/>
     <Files Count="7">
