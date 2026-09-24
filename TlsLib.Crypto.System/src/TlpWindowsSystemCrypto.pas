@@ -597,9 +597,8 @@ type
     procedure Reset;
   end;
 
-  // RFC 5869 HKDF composed over the CNG HMAC (Extract = HMAC(salt, IKM); Expand = the HMAC
-  // T-loop). The secret passes through CNG but the construction is portable, so this facet
-  // reports as backend Composed.
+  // RFC 5869 HKDF over CNG: Extract via HMAC; Expand via the CNG HKDF provider when available, else
+  // the HMAC T-loop. Reports as backend Composed.
   TWindowsCngHkdf = class(TInterfacedObject, IHkdf)
   strict private
   var
@@ -2786,7 +2785,7 @@ end;
 function TWindowsBackendReport.HkdfBackend(
   AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
 begin
-  // HKDF is assembled over the CNG HMAC: the secret passes through CNG, the loop is portable
+  // HKDF over CNG (HMAC Extract; native or HMAC-loop Expand), reported as Composed
   if FCng.HmacAvailable(AAlgorithm) then
     Result := Ent(TCryptoBackend.Composed, TCryptoBackendReason.NotFallback)
   else

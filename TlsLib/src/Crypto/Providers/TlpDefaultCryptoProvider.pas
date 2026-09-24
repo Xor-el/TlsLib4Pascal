@@ -858,7 +858,10 @@ begin
     // clear the pending flag only after the mode accepted and retained the key, so a throw
     // mid-init leaves the next record to re-supply it rather than pass nil to an unkeyed mode
     if LUsedKey then
+    begin
       FKeyPending := False;
+      FKey := nil;
+    end;
     Result := LOut;
   finally
     TSecureMemory.WipeBytes(LKey);
