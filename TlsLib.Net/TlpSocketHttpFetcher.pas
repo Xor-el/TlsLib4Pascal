@@ -42,6 +42,16 @@ type
   TSocketHttpFetcher = class sealed(TInterfacedObject, IHttpFetcher)
   strict private
     class function ReadStreamBytes(const AStream: TStream): TBytes; static;
+    /// <summary>Runs AMethod against AUrl, attaching ABody (nil for GET) tagged AContentType,
+    /// writing the response body into ASink and returning the HTTP status. Exceptions (incl. the
+    /// size-cap overflow) propagate to Fetch, which turns them into the fail-closed False result.</summary>
+    class function Execute(const AMethod, AUrl, AContentType: string;
+      const ABody: TStream; ATimeoutMs: Cardinal; const ASink: TStream): Integer; static;
+    /// <summary>The whole fail-closed contract, shared by both RTLs: request-stream lifetime,
+    /// bounded response sink, the try/except that swallows every error, the 2xx gate, and the
+    /// bytes-out.</summary>
+    class function Fetch(const AMethod, AUrl, AContentType: string; const ABody: TBytes;
+      ATimeoutMs: Cardinal; out AResponse: TBytes): Boolean; static;
   public
     function Get(const AUrl: string; ATimeoutMs: Cardinal;
       out AResponse: TBytes): Boolean;
@@ -50,6 +60,72 @@ type
   end;
 
 implementation
+
+type
+  // a memory-backed sink that refuses to buffer past the cap; the overflowing Write raises, and
+  // Fetch's except turns that into the fail-closed False the contract already promises
+  TBoundedMemoryStream = class(TStream)
+  strict private
+  const
+    // a coarse outer bound on any single revocation download: the fetcher URL is peer-chosen (AIA /
+    // CDP), so an unbounded body would let a hostile responder exhaust memory. The revocation checker
+    // applies its own tighter per-artifact caps on top; this only stops the download growing unbounded.
+    MaxResponseBytes = Int64(32 * 1024 * 1024);
+  var
+    FInner: TMemoryStream;
+  protected
+    function GetSize: Int64; override;
+    procedure SetSize(const ANewSize: Int64); override;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    function Read(var ABuffer; ACount: LongInt): LongInt; override;
+    function Write(const ABuffer; ACount: LongInt): LongInt; override;
+    function Seek(const AOffset: Int64; AOrigin: TSeekOrigin): Int64; override;
+  end;
+
+constructor TBoundedMemoryStream.Create;
+begin
+  inherited Create;
+  FInner := TMemoryStream.Create;
+end;
+
+destructor TBoundedMemoryStream.Destroy;
+begin
+  FInner.Free;
+  inherited Destroy;
+end;
+
+function TBoundedMemoryStream.GetSize: Int64;
+begin
+  Result := FInner.Size;
+end;
+
+procedure TBoundedMemoryStream.SetSize(const ANewSize: Int64);
+begin
+  // hold the cap on a resize too, so nothing can preallocate a buffer past it around the Write guard
+  if ANewSize > MaxResponseBytes then
+    raise EWriteError.Create('revocation response exceeds the size cap');
+  FInner.Size := ANewSize;
+end;
+
+function TBoundedMemoryStream.Read(var ABuffer; ACount: LongInt): LongInt;
+begin
+  Result := FInner.Read(ABuffer, ACount);
+end;
+
+function TBoundedMemoryStream.Write(const ABuffer; ACount: LongInt): LongInt;
+begin
+  if (FInner.Position + ACount) > MaxResponseBytes then
+    raise EWriteError.Create('revocation response exceeds the size cap');
+  Result := FInner.Write(ABuffer, ACount);
+end;
+
+function TBoundedMemoryStream.Seek(const AOffset: Int64;
+  AOrigin: TSeekOrigin): Int64;
+begin
+  Result := FInner.Seek(AOffset, AOrigin);
+end;
 
 { TSocketHttpFetcher }
 
@@ -70,155 +146,110 @@ end;
 
 {$IFDEF FPC}
 
-function TSocketHttpFetcher.Get(const AUrl: string; ATimeoutMs: Cardinal;
-  out AResponse: TBytes): Boolean;
+class function TSocketHttpFetcher.Execute(const AMethod, AUrl, AContentType: string;
+  const ABody: TStream; ATimeoutMs: Cardinal; const ASink: TStream): Integer;
 var
   LClient: TFPHTTPClient;
-  LResponse: TMemoryStream;
 begin
-  Result := False;
-  AResponse := nil;
-  LResponse := TMemoryStream.Create;
+  LClient := TFPHTTPClient.Create(nil);
   try
-    LClient := TFPHTTPClient.Create(nil);
-    try
-      if ATimeoutMs > 0 then
-      begin
-        LClient.ConnectTimeout := ATimeoutMs;
-        LClient.IOTimeout := ATimeoutMs;
-      end;
-      LClient.Get(AUrl, LResponse);
-      if (LClient.ResponseStatusCode >= 200) and (LClient.ResponseStatusCode < 300)
-      then
-      begin
-        AResponse := ReadStreamBytes(LResponse);
-        Result := System.Length(AResponse) > 0;
-      end;
-    finally
-      LClient.Free;
+    if ATimeoutMs > 0 then
+    begin
+      LClient.ConnectTimeout := ATimeoutMs;
+      LClient.IOTimeout := ATimeoutMs;
     end;
-  except
-    // fail-closed: any transport/HTTP error is a failed fetch, never a raise
-    Result := False;
-    AResponse := nil;
-  end;
-  LResponse.Free;
-end;
-
-function TSocketHttpFetcher.Post(const AUrl, AContentType: string;
-  const ABody: TBytes; ATimeoutMs: Cardinal; out AResponse: TBytes): Boolean;
-var
-  LClient: TFPHTTPClient;
-  LRequest, LResponse: TMemoryStream;
-begin
-  Result := False;
-  AResponse := nil;
-  LRequest := TMemoryStream.Create;
-  LResponse := TMemoryStream.Create;
-  try
-    if System.Length(ABody) > 0 then
-      LRequest.WriteBuffer(ABody[0], System.Length(ABody));
-    LRequest.Position := 0;
-    LClient := TFPHTTPClient.Create(nil);
-    try
-      if ATimeoutMs > 0 then
-      begin
-        LClient.ConnectTimeout := ATimeoutMs;
-        LClient.IOTimeout := ATimeoutMs;
-      end;
+    // the responder URL is peer-chosen; do not chase redirects it hands us
+    LClient.AllowRedirect := False;
+    if ABody <> nil then
+    begin
       LClient.AddHeader('Content-Type', AContentType);
-      LClient.RequestBody := LRequest;
-      LClient.Post(AUrl, LResponse);
-      if (LClient.ResponseStatusCode >= 200) and (LClient.ResponseStatusCode < 300)
-      then
-      begin
-        AResponse := ReadStreamBytes(LResponse);
-        Result := System.Length(AResponse) > 0;
-      end;
-    finally
-      LClient.Free;
+      LClient.RequestBody := ABody;
     end;
-  except
-    Result := False;
-    AResponse := nil;
+    // [] accepts any status without raising, so the 2xx gate lives once in Fetch
+    LClient.HTTPMethod(AMethod, AUrl, ASink, []);
+    Result := LClient.ResponseStatusCode;
+  finally
+    LClient.Free;
   end;
-  LRequest.Free;
-  LResponse.Free;
 end;
 
 {$ELSE}
 
-function TSocketHttpFetcher.Get(const AUrl: string; ATimeoutMs: Cardinal;
-  out AResponse: TBytes): Boolean;
+class function TSocketHttpFetcher.Execute(const AMethod, AUrl, AContentType: string;
+  const ABody: TStream; ATimeoutMs: Cardinal; const ASink: TStream): Integer;
 var
   LClient: THTTPClient;
+  LRequest: IHTTPRequest;
   LResponse: IHTTPResponse;
 begin
-  Result := False;
-  AResponse := nil;
+  LClient := THTTPClient.Create;
   try
-    LClient := THTTPClient.Create;
-    try
-      if ATimeoutMs > 0 then
-      begin
-        LClient.ConnectionTimeout := ATimeoutMs;
-        LClient.ResponseTimeout := ATimeoutMs;
-      end;
-      LResponse := LClient.Get(AUrl);
-      if (LResponse.StatusCode >= 200) and (LResponse.StatusCode < 300) then
-      begin
-        AResponse := ReadStreamBytes(LResponse.ContentStream);
-        Result := System.Length(AResponse) > 0;
-      end;
-    finally
-      LClient.Free;
+    if ATimeoutMs > 0 then
+    begin
+      LClient.ConnectionTimeout := ATimeoutMs;
+      LClient.ResponseTimeout := ATimeoutMs;
     end;
-  except
-    Result := False;
-    AResponse := nil;
+    // the responder URL is peer-chosen; do not chase redirects it hands us
+    LClient.HandleRedirects := False;
+    LRequest := LClient.GetRequest(AMethod, AUrl);
+    if ABody <> nil then
+    begin
+      LRequest.SetHeaderValue('Content-Type', AContentType);
+      LRequest.SourceStream := ABody;
+    end;
+    LResponse := LClient.Execute(LRequest, ASink, nil);
+    Result := LResponse.StatusCode;
+  finally
+    LClient.Free;
   end;
 end;
 
-function TSocketHttpFetcher.Post(const AUrl, AContentType: string;
+{$ENDIF FPC}
+
+class function TSocketHttpFetcher.Fetch(const AMethod, AUrl, AContentType: string;
   const ABody: TBytes; ATimeoutMs: Cardinal; out AResponse: TBytes): Boolean;
 var
-  LClient: THTTPClient;
-  LResponse: IHTTPResponse;
   LRequest: TMemoryStream;
-  LHeaders: TNetHeaders;
+  LSink: TStream;
+  LStatus: Integer;
 begin
   Result := False;
   AResponse := nil;
-  LRequest := TMemoryStream.Create;
+  LRequest := nil;
+  LSink := nil;
   try
     if System.Length(ABody) > 0 then
+    begin
+      LRequest := TMemoryStream.Create;
       LRequest.WriteBuffer(ABody[0], System.Length(ABody));
-    LRequest.Position := 0;
-    LClient := THTTPClient.Create;
-    try
-      if ATimeoutMs > 0 then
-      begin
-        LClient.ConnectionTimeout := ATimeoutMs;
-        LClient.ResponseTimeout := ATimeoutMs;
-      end;
-      SetLength(LHeaders, 1);
-      LHeaders[0] := TNetHeader.Create('Content-Type', AContentType);
-      LResponse := LClient.Post(AUrl, LRequest, nil, LHeaders);
-      if (LResponse.StatusCode >= 200) and (LResponse.StatusCode < 300) then
-      begin
-        AResponse := ReadStreamBytes(LResponse.ContentStream);
-        Result := System.Length(AResponse) > 0;
-      end;
-    finally
-      LClient.Free;
+      LRequest.Position := 0;
+    end;
+    LSink := TBoundedMemoryStream.Create;
+    LStatus := Execute(AMethod, AUrl, AContentType, LRequest, ATimeoutMs, LSink);
+    if (LStatus >= 200) and (LStatus < 300) then
+    begin
+      AResponse := ReadStreamBytes(LSink);
+      Result := System.Length(AResponse) > 0;
     end;
   except
+    // fail-closed: any transport/HTTP error, or the size-cap overflow, is a failed fetch
     Result := False;
     AResponse := nil;
   end;
   LRequest.Free;
+  LSink.Free;
 end;
 
-{$ENDIF FPC}
+function TSocketHttpFetcher.Get(const AUrl: string; ATimeoutMs: Cardinal;
+  out AResponse: TBytes): Boolean;
+begin
+  Result := Fetch('GET', AUrl, '', nil, ATimeoutMs, AResponse);
+end;
+
+function TSocketHttpFetcher.Post(const AUrl, AContentType: string;
+  const ABody: TBytes; ATimeoutMs: Cardinal; out AResponse: TBytes): Boolean;
+begin
+  Result := Fetch('POST', AUrl, AContentType, ABody, ATimeoutMs, AResponse);
+end;
 
 end.

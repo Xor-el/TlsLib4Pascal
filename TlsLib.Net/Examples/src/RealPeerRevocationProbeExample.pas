@@ -31,6 +31,7 @@ interface
 uses
   SysUtils,
   Classes,
+  TlpTrustPolicy,
   TlpLiveRevocation;
 
 type
@@ -58,7 +59,6 @@ uses
   TlpClock,
   TlpIPkixProvider,
   TlpDefaultPkixProvider,
-  TlpTrustPolicy,
   TlpIHttpFetcher,
   TlpSocketHttpFetcher;
 

@@ -33,8 +33,10 @@ uses
 {$ENDIF FPC}
   TlpTlsAlert,
   TlpIHttpFetcher,
+  TlpIPkixProvider,
   TlpTrustPolicy,
   TlpLiveRevocation,
+  SpyRevocationProvider,
   TlsLibTestBase;
 
 type
@@ -74,9 +76,11 @@ type
     procedure TestLiveOcspRevokedRejectsUnderEveryPosture;
     procedure TestLiveOcspUnreachableIsPostureGated;
     procedure TestLiveOcspMalformedIsIndeterminate;
+    procedure TestLiveOcspOversizeIsIndeterminate;
     // checker fail-closed matrix (CRL)
     procedure TestLiveCrlRevokedRejects;
     procedure TestLiveCrlGoodAccepts;
+    procedure TestLiveCrlOversizeIsIndeterminate;
     procedure TestLiveCrlStaleIsIndeterminate;
     procedure TestOffPosturePerformsNoFetch;
     // edges
@@ -330,6 +334,57 @@ begin
   end;
 end;
 
+procedure TTestLiveRevocation.TestLiveOcspOversizeIsIndeterminate;
+var
+  LFetcher: TMockHttpFetcher;
+  LSpy: TSpyPkixProvider;
+  LSpyPkix: IPkixProvider;
+  LSoft, LHard, LSized: TLiveRevocationChecker;
+  LOversize: TBytes;
+begin
+  // a responder body past the size cap is a DoS vector (the responder URL comes from the peer's
+  // own certificate), not a valid response: it is treated as indeterminate, never parsed, and
+  // posture-gated - Soft accepts, Hard rejects. The spy proves the cap short-circuits BEFORE the
+  // parser (a garbage body would be rejected by the parser too, so the outcome alone is not enough)
+  System.SetLength(LOversize, (64 * 1024) + 1);
+  System.FillChar(LOversize[0], System.Length(LOversize), $30);
+  LFetcher := TMockHttpFetcher.Create;
+  LFetcher.SetPost(True, LOversize);
+  LSpy := TSpyPkixProvider.Create(Pkix);
+  LSpyPkix := LSpy;
+  LSoft := TLiveRevocationChecker.Create(LSpyPkix, TSystemClock.Create as ITlsClock,
+    LFetcher as IHttpFetcher, TRevocationPosture.Soft, TLiveRevocationMethod.Ocsp, 0);
+  LHard := TLiveRevocationChecker.Create(LSpyPkix, TSystemClock.Create as ITlsClock,
+    LFetcher as IHttpFetcher, TRevocationPosture.Hard, TLiveRevocationMethod.Ocsp, 0);
+  try
+    CheckTrue(LSoft.Evaluate(Chain) = TLiveRevocationOutcome.Indeterminate,
+      'an oversize OCSP body is indeterminate');
+    CheckEquals(0, LSpy.OcspParseCount,
+      'the cap rejected the oversize body before the OCSP parser was reached');
+    CheckTrue(LSoft.CheckChain(Chain), 'Soft soft-fails an oversize responder body');
+    CheckFalse(LHard.CheckChain(Chain), 'Hard rejects an oversize responder body');
+  finally
+    LSoft.Free;
+    LHard.Free;
+  end;
+
+  // control: an in-cap body DOES reach the parser through the same spy, so the 0 above is a real
+  // short-circuit, not a spy that never counts
+  LFetcher := TMockHttpFetcher.Create;
+  LFetcher.SetPost(True, OcspGood);
+  LSpy := TSpyPkixProvider.Create(Pkix);
+  LSpyPkix := LSpy;
+  LSized := TLiveRevocationChecker.Create(LSpyPkix, TSystemClock.Create as ITlsClock,
+    LFetcher as IHttpFetcher, TRevocationPosture.Hard, TLiveRevocationMethod.Ocsp, 0);
+  try
+    CheckTrue(LSized.Evaluate(Chain) = TLiveRevocationOutcome.Good,
+      'an in-cap Good response parses to Good');
+    CheckEquals(1, LSpy.OcspParseCount, 'an in-cap body reaches the OCSP parser exactly once');
+  finally
+    LSized.Free;
+  end;
+end;
+
 procedure TTestLiveRevocation.TestLiveOcspUnreachableIsPostureGated;
 var
   LFetcher: TMockHttpFetcher;
@@ -405,6 +460,55 @@ begin
     CheckTrue(LHard.CheckChain(Chain), 'a clean CRL accepts');
   finally
     LHard.Free;
+  end;
+end;
+
+procedure TTestLiveRevocation.TestLiveCrlOversizeIsIndeterminate;
+var
+  LFetcher: TMockHttpFetcher;
+  LSpy: TSpyPkixProvider;
+  LSpyPkix: IPkixProvider;
+  LSoft, LHard, LSized: TLiveRevocationChecker;
+  LOversize: TBytes;
+begin
+  // symmetric with the OCSP cap: a CRL past the size cap (the CDP URL is peer-chosen too) is a DoS
+  // vector, treated as indeterminate and posture-gated, and the spy proves the parser is never
+  // reached. The cap is 32 MiB, so build one byte past it
+  System.SetLength(LOversize, (32 * 1024 * 1024) + 1);
+  System.FillChar(LOversize[0], System.Length(LOversize), $30);
+  LFetcher := TMockHttpFetcher.Create;
+  LFetcher.SetGet(True, LOversize);
+  LSpy := TSpyPkixProvider.Create(Pkix);
+  LSpyPkix := LSpy;
+  LSoft := TLiveRevocationChecker.Create(LSpyPkix, TSystemClock.Create as ITlsClock,
+    LFetcher as IHttpFetcher, TRevocationPosture.Soft, TLiveRevocationMethod.Crl, 0);
+  LHard := TLiveRevocationChecker.Create(LSpyPkix, TSystemClock.Create as ITlsClock,
+    LFetcher as IHttpFetcher, TRevocationPosture.Hard, TLiveRevocationMethod.Crl, 0);
+  try
+    CheckTrue(LSoft.Evaluate(Chain) = TLiveRevocationOutcome.Indeterminate,
+      'an oversize CRL is indeterminate');
+    CheckEquals(0, LSpy.CrlParseCount,
+      'the cap rejected the oversize CRL before the CRL parser was reached');
+    CheckTrue(LSoft.CheckChain(Chain), 'Soft soft-fails an oversize CRL');
+    CheckFalse(LHard.CheckChain(Chain), 'Hard rejects an oversize CRL');
+  finally
+    LSoft.Free;
+    LHard.Free;
+  end;
+
+  // control: an in-cap CRL DOES reach the parser through the same spy
+  LFetcher := TMockHttpFetcher.Create;
+  LFetcher.SetGet(True, CrlGood);
+  LSpy := TSpyPkixProvider.Create(Pkix);
+  LSpyPkix := LSpy;
+  LSized := TLiveRevocationChecker.Create(LSpyPkix, TSystemClock.Create as ITlsClock,
+    LFetcher as IHttpFetcher, TRevocationPosture.Hard, TLiveRevocationMethod.Crl, 0);
+  try
+    CheckTrue(LSized.Evaluate(Chain) = TLiveRevocationOutcome.Good,
+      'an in-cap clean CRL parses to Good');
+    CheckEquals(1, LSpy.CrlParseCount, 'an in-cap CRL reaches the CRL parser exactly once');
+  finally
+    LSized.Free;
   end;
 end;
 
