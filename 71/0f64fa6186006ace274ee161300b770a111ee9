@@ -1,0 +1,43 @@
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_09d3c46d1a9b1f::t_bfbfc4566eca87 23
+TlsLib/src/Engine/TlpTlsSignatureBuilder.pas
+  s_09d3c46d1a9b1f::t_4162043b475bbb 21
+TlsLib/src/Interfaces/Engine/TlpITlsConfigMemo.pas
+  s_09d3c46d1a9b1f::t_ae53c1f497681a 14
+TlsLib/src/Engine/TlpTlsEngine.pas
+  s_09d3c46d1a9b1f::t_62197b992d4291 950-951
+TlsLib.Adapters/Indy/Adapter/TlsLibIndyTls.pas
+  s_09d3c46d1a9b1f::t_33c2c4d95bda9a 23
+TlsLib/src/Engine/TlpTlsConnection.pas
+  s_09d3c46d1a9b1f::t_5784d03f2111f3 435
+TlsLib.Net/TlpSocketHttpFetcher.pas
+  s_09d3c46d1a9b1f::t_398718a6e2d29e 21
+TlsLib.Net/TlpEchConfigFromSvcb.pas
+  s_09d3c46d1a9b1f::t_685b76f332bbdb 14
+TlsLib/src/Engine/TlpTlsConfigMemo.pas
+  s_09d3c46d1a9b1f::t_66631f739baa15 23
+TlsLib.Adapters/Synapse/Adapter/TlsLibSynapseTls.pas
+  s_09d3c46d1a9b1f::t_a9d94c23577bad 24
+  s_09d3c46d1a9b1f::t_0f2946d3016e82 54-55
+  s_09d3c46d1a9b1f::t_506dd3ba0319aa 518-519
+  s_09d3c46d1a9b1f::t_e8b401dca7204c 604-606
+TlsLib.Adapters/mORMot/Adapter/TlsLibMormotTls.pas
+  s_09d3c46d1a9b1f::t_c36b60b32d6d8b 23
+  s_09d3c46d1a9b1f::t_cbbb1ecf7085e7 52-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "710f64fa6186006ace274ee161300b770a111ee9",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
