@@ -327,11 +327,12 @@ class function TTls12ServerStateMachine.SchemeMatchesAuth(
 begin
   case AAuth of
     TAuthMethod.Ecdsa:
-      // an ECDHE_ECDSA suite accepts an ECDSA or an EdDSA (Ed25519) credential: RFC 8422
+      // an ECDHE_ECDSA suite accepts an ECDSA or an EdDSA (Ed25519/Ed448) credential: RFC 8422
       // 5.1 requires the certificate to hold an "ECDSA- or EdDSA-capable public key"
       Result := AScheme in [TSignatureScheme.ECDSA_SECP256R1_SHA256,
         TSignatureScheme.ECDSA_SECP384R1_SHA384,
-        TSignatureScheme.ECDSA_SECP521R1_SHA512, TSignatureScheme.ED25519];
+        TSignatureScheme.ECDSA_SECP521R1_SHA512, TSignatureScheme.ED25519,
+        TSignatureScheme.ED448];
     TAuthMethod.Rsa:
       // an ECDHE_RSA suite signs the ServerKeyExchange with an rsaEncryption key: TLS 1.2
       // accepts RSA-PSS and the legacy RSASSA-PKCS1-v1_5 schemes (RFC 5246 / RFC 8446 4.2.3)

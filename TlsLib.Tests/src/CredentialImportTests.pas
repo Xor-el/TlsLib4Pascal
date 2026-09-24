@@ -60,6 +60,7 @@ type
     procedure TestEcP256ImportsEveryFormat;
     procedure TestEcP384AndP521Import;
     procedure TestEd25519Imports;
+    procedure TestEd448Imports;
     procedure TestEncryptedKeysImportWithPassword;
     procedure TestLoadCertificateChainFromPemBundle;
     procedure TestLoadSingleDerCertificate;
@@ -180,6 +181,14 @@ begin
     ['ed25519_pkcs8_der', 'ed25519_pkcs8_pem']);
 end;
 
+procedure TTestCredentialImport.TestEd448Imports;
+begin
+  // Ed448 exists only as PKCS#8; the imported key must advertise exactly ed448
+  CheckFormats(TSignatureScheme.ED448, 'ed448_pub',
+    [TSignatureScheme.ED448],
+    ['ed448_pkcs8_der', 'ed448_pkcs8_pem']);
+end;
+
 procedure TTestCredentialImport.TestEncryptedKeysImportWithPassword;
 var
   LKey: ISigningKey;
@@ -197,6 +206,9 @@ begin
   LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['ed25519_enc_der']), TSecretBuffer.FromString(SPassword));
   CheckTrue(RoundTrips(TSignatureScheme.ED25519, LKey, 'ed25519_pub'),
     'encrypted Ed25519 PKCS#8 (DER) imports and signs');
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['ed448_enc_der']), TSecretBuffer.FromString(SPassword));
+  CheckTrue(RoundTrips(TSignatureScheme.ED448, LKey, 'ed448_pub'),
+    'encrypted Ed448 PKCS#8 (DER) imports and signs');
 end;
 
 procedure TTestCredentialImport.TestLoadCertificateChainFromPemBundle;

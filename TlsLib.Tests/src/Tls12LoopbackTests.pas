@@ -59,6 +59,9 @@ type
     function ServerCredential: TTlsCredential;
     function NewClient(ASuite: UInt16; AOfferEms: Boolean): ITlsEngine;
     function NewServer(ARequireEms: Boolean): ITlsEngine;
+    function ServerCredentialEd448: TTlsCredential;
+    function NewClientEd448: ITlsEngine;
+    function NewServerEd448: ITlsEngine;
     function Drain(const AEngine: ITlsEngine): TBytes;
     procedure Feed(const AEngine: ITlsEngine; const AWire: TBytes);
     procedure Pump(const ASrc, ADst: ITlsEngine);
@@ -84,6 +87,7 @@ type
     function DeliverFlight(const ADst: IHandshakeMachine;
       const AMsgs: TArray<TBytes>): TArray<THandshakeEffect>;
   published
+    procedure TestEcdheEd448CredentialHandshake;
     procedure TestEcdheEcdsaAesGcmWithExtendedMasterSecret;
     procedure TestEcdheEcdsaChaCha20WithExtendedMasterSecret;
     procedure TestWriteAfterInboundCloseNotifyClosesWrite;
@@ -190,6 +194,76 @@ begin
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
   LParams.RequireExtendedMasterSecret := ARequireEms;
   Result := TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine;
+end;
+
+function TTestTls12Loopback.ServerCredentialEd448: TTlsCredential;
+var
+  LCerts: TStringList;
+begin
+  LCerts := LoadVectorFields('Certs/Ed448Chain.txt');
+  try
+    Result.CertificateChain := TArray<TBytes>.Create(
+      DecodeHex(LCerts.Values['leaf_cert']));
+    Result.PrivateKey := Crypto.Signing.ImportSigningKey(
+      DecodeHex(LCerts.Values['leaf_key']));
+  finally
+    LCerts.Free;
+  end;
+end;
+
+function TTestTls12Loopback.NewClientEd448: ITlsEngine;
+var
+  LParams: TClient12HandshakeParams;
+  LCerts: TStringList;
+  LRoot: TBytes;
+begin
+  LCerts := LoadVectorFields('Certs/Ed448Chain.txt');
+  try
+    LRoot := DecodeHex(LCerts.Values['root_cert']);
+  finally
+    LCerts.Free;
+  end;
+  LParams := Default(TClient12HandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Crypto := Crypto;
+  LParams.Inspector := Pkix.Certificates;
+  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  // an ECDHE_ECDSA suite carries an Ed448 credential (RFC 8422 5.1: an EdDSA-capable key)
+  LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites12.EcdheEcdsaAes128GcmSha256);
+  LParams.OfferedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
+    TNamedGroupCatalog.Secp256r1);
+  LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.Ed448);
+  LParams.OfferedVersions := TArray<UInt16>.Create(TlsWireVersionTls12);
+  LParams.ClientRandom := Filled($11, 32);
+  LParams.LegacySessionId := nil;
+  LParams.OfferExtendedMasterSecret := True;
+  LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
+    TSystemClock.Create as ITlsClock,
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(LRoot)) as ITrustAnchorStore, True)
+    as IServerCertificateVerifier;
+  LParams.ExpectedServerName := TServerName.DnsName('localhost');
+  Result := TTlsEngine.CreateConfigured(
+    TTls12ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
+end;
+
+function TTestTls12Loopback.NewServerEd448: ITlsEngine;
+var
+  LParams: TServer12HandshakeParams;
+begin
+  LParams := Default(TServer12HandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Crypto := Crypto;
+  LParams.Inspector := Pkix.Certificates;
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
+  LParams.ServerRandom := Filled($22, 32);
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredentialEd448);
+  LParams.RequireExtendedMasterSecret := False;
+  Result := TTlsEngine.CreateConfigured(
+    TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls12Loopback.OcspField(const AName: string): TBytes;
@@ -751,6 +825,35 @@ begin
 
   CheckTrue(LClient.IsTerminal,
     'the client aborted the handshake for a missing staple under hard-fail');
+end;
+
+procedure TTestTls12Loopback.TestEcdheEd448CredentialHandshake;
+var
+  LClient, LServer: ITlsEngine;
+  LIterations: Int32;
+  LMsg: TBytes;
+begin
+  LClient := NewClientEd448;
+  LServer := NewServerEd448;
+  LClient.StartHandshake;
+  LIterations := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LIterations);
+  end;
+  // the 1.2 server selected the ECDHE_ECDSA suite for its Ed448 credential (the auth-method
+  // allowlist admits EdDSA), signed the ServerKeyExchange with ed448, and the client verified it
+  CheckFalse(LClient.IsHandshaking, 'the client completed the 1.2 Ed448 handshake');
+  CheckFalse(LServer.IsHandshaking, 'the server completed the 1.2 Ed448 handshake');
+  CheckFalse(LClient.IsTerminal, 'the client did not fail');
+  CheckFalse(LServer.IsTerminal, 'the server did not fail');
+  LMsg := DecodeHex('656434343820312e32'); // "ed448 1.2"
+  LClient.Write(LMsg, 0, System.Length(LMsg));
+  Pump(LClient, LServer);
+  CheckEqualBytes('app data flows over the 1.2 Ed448-authenticated channel', LMsg,
+    ReadAllApp(LServer));
 end;
 
 initialization

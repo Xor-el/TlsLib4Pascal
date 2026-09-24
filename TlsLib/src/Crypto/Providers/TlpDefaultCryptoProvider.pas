@@ -1431,7 +1431,7 @@ end;
 
 // Derives the schemes a key can sign with from its PrivateKeyInfo AlgorithmIdentifier:
 // RSA -> the three rsa_pss_rsae_* variants; a named EC curve -> its matching ECDSA
-// scheme; Ed25519 -> ed25519. Raises on any unsupported algorithm.
+// scheme; an EdDSA key -> ed25519/ed448. Raises on any unsupported algorithm.
 class function TCredentialImport.SchemesForKeyInfo(
   const AInfo: IPrivateKeyInfo): TArray<TSignatureScheme>;
 var
@@ -1451,6 +1451,8 @@ begin
       TSignatureScheme.RSA_PKCS1_SHA512));
   if LOid.Equals(TEdECObjectIdentifiers.IdEd25519) then
     Exit(TArray<TSignatureScheme>.Create(TSignatureScheme.ED25519));
+  if LOid.Equals(TEdECObjectIdentifiers.IdEd448) then
+    Exit(TArray<TSignatureScheme>.Create(TSignatureScheme.ED448));
   if LOid.Equals(TX9ObjectIdentifiers.IdECPublicKey) and (LAlg.Parameters <> nil) and
     Supports(LAlg.Parameters.ToAsn1Object, IDerObjectIdentifier, LCurve) then
   begin
