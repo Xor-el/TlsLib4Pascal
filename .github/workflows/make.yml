@@ -107,6 +107,22 @@ jobs:
           INPUT_TARGETS: ${{ github.event.inputs.enabled_targets }}
         run: bash .github/workflows/ci/resolve-targets.sh
 
+  # Fast source linters, gated between target resolution and the build matrix so a
+  # lint failure blocks the whole run before any expensive leg starts. Two separate
+  # scripts (kept apart for clarity) under one job; the second runs even if the first
+  # fails, so both linters' findings surface in a single pass.
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - uses: actions/checkout@v7
+      - name: GUID lint (duplicate interface IIDs)
+        run: bash .github/workflows/ci/lint/guid-lint.sh
+      - name: Comment lint (production comments)
+        if: ${{ !cancelled() }}
+        run: bash .github/workflows/ci/lint/comment-lint.sh
+
   # Native targets are standalone jobs (one per target) rather than a single
   # matrix job, so each can carry its own env overrides and so a single-target
   # workflow_dispatch cleanly skips the rest. Like the QEMU/VM jobs below, they
@@ -117,7 +133,7 @@ jobs:
     name: "Native: Linux x86_64"
     runs-on: ${{ fromJSON(needs.setup.outputs.target_map)['linux-x64'].runner }}
     timeout-minutes: 120
-    needs: setup
+    needs: [setup, lint]
     if: contains(format(',{0},', needs.setup.outputs.enabled_targets), ',linux-x64,')
     steps:
       - name: Checkout
@@ -152,7 +168,7 @@ jobs:
     name: "Native: Linux AArch64"
     runs-on: ${{ fromJSON(needs.setup.outputs.target_map)['linux-arm64'].runner }}
     timeout-minutes: 120
-    needs: setup
+    needs: [setup, lint]
     if: contains(format(',{0},', needs.setup.outputs.enabled_targets), ',linux-arm64,')
     steps:
       - name: Checkout
@@ -188,7 +204,7 @@ jobs:
     name: "Native: Linux x86_64 (FORCE_SCALAR)"
     runs-on: ${{ fromJSON(needs.setup.outputs.target_map)['linux-x64-scalar'].runner }}
     timeout-minutes: 120
-    needs: setup
+    needs: [setup, lint]
     if: contains(format(',{0},', needs.setup.outputs.enabled_targets), ',linux-x64-scalar,')
     steps:
       - name: Checkout
@@ -208,7 +224,7 @@ jobs:
     name: "Native: Linux AArch64 (FORCE_SCALAR)"
     runs-on: ${{ fromJSON(needs.setup.outputs.target_map)['linux-arm64-scalar'].runner }}
     timeout-minutes: 120
-    needs: setup
+    needs: [setup, lint]
     if: contains(format(',{0},', needs.setup.outputs.enabled_targets), ',linux-arm64-scalar,')
     steps:
       - name: Checkout
@@ -228,7 +244,7 @@ jobs:
     name: "Native: Windows x86_64"
     runs-on: ${{ fromJSON(needs.setup.outputs.target_map)['windows-x64'].runner }}
     timeout-minutes: 120
-    needs: setup
+    needs: [setup, lint]
     if: contains(format(',{0},', needs.setup.outputs.enabled_targets), ',windows-x64,')
     steps:
       - name: Checkout
@@ -264,7 +280,7 @@ jobs:
     name: "Native: macOS AArch64 (Apple Silicon)"
     runs-on: ${{ fromJSON(needs.setup.outputs.target_map)['macos-arm64'].runner }}
     timeout-minutes: 120
-    needs: setup
+    needs: [setup, lint]
     if: contains(format(',{0},', needs.setup.outputs.enabled_targets), ',macos-arm64,')
     steps:
       - name: Checkout
@@ -297,7 +313,7 @@ jobs:
     name: "Native: macOS x86_64 (Intel)"
     runs-on: ${{ fromJSON(needs.setup.outputs.target_map)['macos-x64'].runner }}
     timeout-minutes: 120
-    needs: setup
+    needs: [setup, lint]
     if: contains(format(',{0},', needs.setup.outputs.enabled_targets), ',macos-x64,')
     steps:
       - name: Checkout
@@ -327,7 +343,7 @@ jobs:
     name: "QEMU: Linux ARMv7"
     runs-on: ${{ fromJSON(needs.setup.outputs.target_map)['linux-arm32'].runner }}
     timeout-minutes: 120
-    needs: setup
+    needs: [setup, lint]
     if: contains(format(',{0},', needs.setup.outputs.enabled_targets), ',linux-arm32,')
     steps:
       - name: Checkout
@@ -357,7 +373,7 @@ jobs:
     name: "QEMU: Linux PowerPC64 BE"
     runs-on: ${{ fromJSON(needs.setup.outputs.target_map)['linux-powerpc64-be'].runner }}
     timeout-minutes: 180
-    needs: setup
+    needs: [setup, lint]
     if: contains(format(',{0},', needs.setup.outputs.enabled_targets), ',linux-powerpc64-be,')
     steps:
       - name: Checkout
@@ -383,7 +399,7 @@ jobs:
     name: "VM: FreeBSD x86_64"
     runs-on: ${{ fromJSON(needs.setup.outputs.target_map)['freebsd'].runner }}
     timeout-minutes: 120
-    needs: setup
+    needs: [setup, lint]
     if: contains(format(',{0},', needs.setup.outputs.enabled_targets), ',freebsd,')
     steps:
       - name: Checkout
@@ -408,7 +424,7 @@ jobs:
     name: "VM: NetBSD x86_64"
     runs-on: ${{ fromJSON(needs.setup.outputs.target_map)['netbsd'].runner }}
     timeout-minutes: 120
-    needs: setup
+    needs: [setup, lint]
     if: contains(format(',{0},', needs.setup.outputs.enabled_targets), ',netbsd,')
     steps:
       - name: Checkout
@@ -430,7 +446,7 @@ jobs:
     name: "VM: DragonFlyBSD x86_64"
     runs-on: ${{ fromJSON(needs.setup.outputs.target_map)['dragonflybsd'].runner }}
     timeout-minutes: 120
-    needs: setup
+    needs: [setup, lint]
     if: contains(format(',{0},', needs.setup.outputs.enabled_targets), ',dragonflybsd,')
     steps:
       - name: Checkout
@@ -454,7 +470,7 @@ jobs:
     name: "VM: Solaris x86_64"
     runs-on: ${{ fromJSON(needs.setup.outputs.target_map)['solaris'].runner }}
     timeout-minutes: 120
-    needs: setup
+    needs: [setup, lint]
     if: contains(format(',{0},', needs.setup.outputs.enabled_targets), ',solaris,')
     steps:
       - name: Checkout
