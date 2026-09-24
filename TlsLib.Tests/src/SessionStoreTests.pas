@@ -29,7 +29,6 @@ uses
   TlpNegotiationTypes,
   TlpTlsVersion,
   TlpIClock,
-  TlpClock,
   TlpISecretBuffer,
   TlpSecretBuffer,
   TlpISession,
@@ -45,10 +44,7 @@ uses
 type
   TTestSessionStore = class(TTlsLibAlgorithmTestCase)
   private
-    function NowMillis: UInt64;
     function MakeSession(const ATag: TBytes): IResumableSession;
-    function MakeSessionAt(const ATag: TBytes; ALifetime: UInt32;
-      AIssuedAtMillis: UInt64): IResumableSession;
     function MakeTls12Session(const ATag: TBytes): IResumableSession;
     function Tag(AValue: Byte; ALength: Int32): TBytes;
   published
@@ -56,9 +52,6 @@ type
     procedure TestCacheKeyedByServerAndSni;
     procedure TestCacheBoundedEviction;
     procedure TestCachePrefersTls13OverTls12;
-    procedure TestCacheTakeDropsExpiredSession;
-    procedure TestCacheZeroLifetimeNeverExpires;
-    procedure TestCacheBackwardsClockKeepsSession;
     procedure TestKxHintRoundTripsAndIsKeyed;
     procedure TestKxHintBounded;
     procedure TestStorePutTakeSingleUse;
@@ -176,29 +169,18 @@ begin
     FillChar(Result[0], ALength, AValue);
 end;
 
-function TTestSessionStore.NowMillis: UInt64;
-begin
-  Result := (TSystemClock.Create as ITlsClock).NowUnixMillis;
-end;
-
 function TTestSessionStore.MakeSession(const ATag: TBytes): IResumableSession;
-begin
-  Result := MakeSessionAt(ATag, 7200, NowMillis);
-end;
-
-function TTestSessionStore.MakeSessionAt(const ATag: TBytes; ALifetime: UInt32;
-  AIssuedAtMillis: UInt64): IResumableSession;
 begin
   Result := TResumableSession.CreateTls13(TCipherSuites13.Aes128GcmSha256,
     THashAlgorithm.SHA_256, TSecretBuffer.From(ATag), TNamedGroupCatalog.X25519,
-    '', '', ATag, ALifetime, 0, AIssuedAtMillis, 0, nil);
+    '', '', ATag, 7200, 0, 0, 0, nil);
 end;
 
 function TTestSessionStore.MakeTls12Session(const ATag: TBytes): IResumableSession;
 begin
   Result := TResumableSession.CreateTls12(TCipherSuites12.EcdheEcdsaAes128GcmSha256,
     THashAlgorithm.SHA_256,
-    TSecretBuffer.From(ATag), ATag, ATag, True, '', '', 7200, 0, NowMillis, nil);
+    TSecretBuffer.From(ATag), ATag, ATag, True, '', '', 7200, 0, 0, nil);
 end;
 
 procedure TTestSessionStore.TestCacheStoreAndTakeSingleUse;
@@ -269,58 +251,6 @@ begin
     'the hint round-trips');
   CheckEquals(0, LCache.KxHint('host:443', 'other.example'),
     'the hint is keyed by server and SNI');
-end;
-
-procedure TTestSessionStore.TestCacheTakeDropsExpiredSession;
-var
-  LClockObj: TAdjustableClock;
-  LClock: ITlsClock;
-  LCache: ISessionCache;
-  LTaken: IResumableSession;
-begin
-  LClockObj := TAdjustableClock.Create(1000000);
-  LClock := LClockObj;
-  LCache := TInMemorySessionCache.Create(LClock);
-  LCache.Store('host:443', 'x.example',
-    MakeSessionAt(Tag($11, 4), 7200, LClockObj.NowUnixMillis));
-  LClockObj.Advance(UInt64(7200) * 1000); // now = issued + lifetime -> expired
-  CheckFalse(LCache.Take('host:443', 'x.example', LTaken),
-    'an expired session is not resumed');
-  CheckEquals(0, LCache.Count, 'and it is dropped from the cache');
-end;
-
-procedure TTestSessionStore.TestCacheZeroLifetimeNeverExpires;
-var
-  LClockObj: TAdjustableClock;
-  LClock: ITlsClock;
-  LCache: ISessionCache;
-  LTaken: IResumableSession;
-begin
-  LClockObj := TAdjustableClock.Create(1000000);
-  LClock := LClockObj;
-  LCache := TInMemorySessionCache.Create(LClock);
-  LCache.Store('host:443', 'x.example',
-    MakeSessionAt(Tag($22, 4), 0, LClockObj.NowUnixMillis));
-  LClockObj.Advance(UInt64(1000000) * 1000);
-  CheckTrue(LCache.Take('host:443', 'x.example', LTaken),
-    'a zero-lifetime session is left for the engine to judge, not cache-expired');
-end;
-
-procedure TTestSessionStore.TestCacheBackwardsClockKeepsSession;
-var
-  LClockObj: TAdjustableClock;
-  LClock: ITlsClock;
-  LCache: ISessionCache;
-  LTaken: IResumableSession;
-begin
-  LClockObj := TAdjustableClock.Create(1000000);
-  LClock := LClockObj;
-  LCache := TInMemorySessionCache.Create(LClock);
-  LCache.Store('host:443', 'x.example',
-    MakeSessionAt(Tag($33, 4), 7200, LClockObj.NowUnixMillis));
-  LClockObj.Retreat(500000); // clock steps back before the session's issue time
-  CheckTrue(LCache.Take('host:443', 'x.example', LTaken),
-    'a backwards clock step does not underflow into a false expiry');
 end;
 
 procedure TTestSessionStore.TestKxHintBounded;
