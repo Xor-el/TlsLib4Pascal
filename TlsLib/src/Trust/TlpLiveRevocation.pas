@@ -47,6 +47,14 @@ type
   strict private
   const
     OcspRequestContentType = 'application/ocsp-request';
+    // bound a live revocation body: the responder URL comes from the peer's own certificate
+    // (AIA / CDP), so a hostile or compromised one could return an unbounded body; an oversize
+    // one is treated as Indeterminate rather than parsed
+    MaxOcspResponseBytes = Int32(64 * 1024);
+    // real public CRLs reach ~16 MB for the busiest CAs, so keep generous headroom while still
+    // bounding memory - a cap that rejects a legitimate large CRL would disable revocation exactly
+    // where it matters most (Soft) or falsely reject the peer (Hard)
+    MaxCrlBytes = Int32(32 * 1024 * 1024);
   var
     FPkix: IPkixProvider;
     FClock: ITlsClock;
@@ -134,6 +142,8 @@ begin
   if not FFetcher.Post(AResponderUrl, OcspRequestContentType, LRequest, FTimeoutMs,
     LResponse) then
     Exit;
+  if System.Length(LResponse) > MaxOcspResponseBytes then
+    Exit;
   // reuse the in-band parser: it authenticates the response (issuer- or delegated-signed)
   // and binds the CertID to this leaf; a malformed/unauthorized response is indeterminate.
   // the responder-validity date comes from the injected clock, like the window below
@@ -167,6 +177,8 @@ begin
   if (ACrlUrl = '') or (FFetcher = nil) then
     Exit;
   if not FFetcher.Get(ACrlUrl, FTimeoutMs, LCrl) then
+    Exit;
+  if System.Length(LCrl) > MaxCrlBytes then
     Exit;
   // an unparseable, issuer-unverifiable or out-of-window CRL is indeterminate, never trusted;
   // the validity window is judged at the injected clock, not the wall clock
@@ -227,41 +239,25 @@ begin
 end;
 
 function TLiveRevocationChecker.CheckChain(const AChain: TArray<TBytes>): Boolean;
+var
+  LAlert: TTlsAlertDescription;
 begin
-  case Evaluate(AChain) of
-    TLiveRevocationOutcome.Revoked:
-      Result := False; // a definitive revocation always rejects
-    TLiveRevocationOutcome.Good:
-      Result := True;
-  else
-    // indeterminate: soft-fail accepts (Soft/Off), hard-fail rejects (Hard)
-    Result := FPosture <> TRevocationPosture.Hard;
-  end;
+  // the shared fail-closed table (Revoked rejects, Good accepts, Indeterminate per posture);
+  // this path carries no alert, so it is discarded
+  Result := TRevocationDecision.Decide(Evaluate(AChain), FPosture, False, LAlert);
 end;
 
 function TLiveRevocationChecker.ResolveVerdict(
   const ACtx: TCertificateVerdictContext;
   out ARejectAlert: TTlsAlertDescription): Boolean;
 begin
-  // a definitive Revoked aborts with certificate_revoked always; an indeterminate hard-fail
-  // aborts with bad_certificate_status_response (the same alert a hard stapled-OCSP fail sends)
-  ARejectAlert := TTlsAlertDescription.BadCertificate;
   // authenticate against the validated path (issuer at index 1) when the pipeline produced one,
-  // so the leaf's issuer comes from PKIX, not a re-guess over configured candidates
-  case Evaluate(ACtx.RevocationPath) of
-    TLiveRevocationOutcome.Revoked:
-      begin
-        ARejectAlert := TTlsAlertDescription.CertificateRevoked;
-        Result := False;
-      end;
-    TLiveRevocationOutcome.Good:
-      Result := True;
-  else
-    // indeterminate: soft-fail accepts (Soft/Off), hard-fail rejects
-    Result := FPosture <> TRevocationPosture.Hard;
-    if not Result then
-      ARejectAlert := TTlsAlertDescription.BadCertificateStatusResponse;
-  end;
+  // so the leaf's issuer comes from PKIX, not a re-guess over configured candidates. The shared
+  // table sets certificate_revoked on a definitive Revoked and bad_certificate_status_response on
+  // a hard-fail indeterminate; the accept paths leave the pre-set default (unused).
+  ARejectAlert := TTlsAlertDescription.BadCertificate;
+  Result := TRevocationDecision.Decide(
+    Evaluate(ACtx.RevocationPath), FPosture, False, ARejectAlert);
 end;
 
 end.

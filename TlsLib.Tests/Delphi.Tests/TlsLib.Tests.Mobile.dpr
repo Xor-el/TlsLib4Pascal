@@ -157,6 +157,7 @@ uses
   MockPlatformChainEngine in '..\src\MockPlatformChainEngine.pas',
   MockCryptoProvider in '..\src\MockCryptoProvider.pas',
   MockHttpFetcher in '..\src\MockHttpFetcher.pas',
+  SpyRevocationProvider in '..\src\SpyRevocationProvider.pas',
   MockSink in '..\src\MockSink.pas',
   MockRecordInstaller in '..\src\MockRecordInstaller.pas',
   MockTransport in '..\src\MockTransport.pas',
