@@ -20,6 +20,7 @@ interface
 uses
   SysUtils,
   Classes,
+  SyncObjs,
 {$IFDEF FPC}
   fpcunit,
   testregistry,
@@ -47,7 +48,8 @@ type
   /// <summary>What the loopback server thread does after its handshake.</summary>
   TServerBehavior = (
     EchoThenClose,     // echo one client message, then a clean close_notify
-    TruncateAfterHandshake); // drop the transport with no close_notify (truncation)
+    TruncateAfterHandshake, // drop the transport with no close_notify (truncation)
+    BulkEcho); // echo a fixed byte count back (heavy throughput), then a clean close_notify
 
   /// <summary>Runs the server side of a loopback on its own thread so the client (main
   /// thread) can block on a real duplex. Captures the negotiated info and any error.</summary>
@@ -60,6 +62,7 @@ type
     FError: string;
     FNegotiatedVersion: UInt16;
     FAlpn: string;
+    FBulkBytes: Int32;
   protected
     procedure Execute; override;
   public
@@ -69,6 +72,26 @@ type
     property Error: string read FError;
     property NegotiatedVersion: UInt16 read FNegotiatedVersion;
     property Alpn: string read FAlpn;
+    // total bytes a BulkEcho server echoes back before closing
+    property BulkBytes: Int32 read FBulkBytes write FBulkBytes;
+  end;
+
+  /// <summary>Force-closes both loopback pipes after a deadline so a pump that wedges fails as
+  /// a surfaced EOF rather than hanging the run. Disarmed once the exchange completes.</summary>
+  TWedgeWatchdog = class(TThread)
+  strict private
+  var
+    FPipeA, FPipeB: TMemoryPipe;
+    FDeadlineMs: UInt32;
+    FDone: TEvent;
+    FFired: Boolean;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(const APipeA, APipeB: TMemoryPipe; ADeadlineMs: UInt32);
+    destructor Destroy; override;
+    procedure Disarm; // the exchange finished in time; stop before the deadline
+    property Fired: Boolean read FFired;
   end;
 
   TTestTlsStreamLoopback = class(TTlsLibAlgorithmTestCase)
@@ -109,6 +132,7 @@ type
     procedure TestPinnedSelfSignedChainStillFullyVerified;
     procedure TestAsyncVerdictResolverAcceptCompletesOverPump;
     procedure TestAsyncVerdictResolverRejectFailsClosedOverPump;
+    procedure TestBulkThroughputRoundTripDoesNotWedge;
   end;
 
 implementation
@@ -140,7 +164,7 @@ end;
 procedure TServerRunner.Execute;
 var
   LChunk: TBytes;
-  LGot: Int32;
+  LGot, LEchoed: Int32;
 begin
   try
     FStream.Handshake;
@@ -149,6 +173,23 @@ begin
     if FBehavior = TServerBehavior.TruncateAfterHandshake then
     begin
       FTransport.CloseWrite; // drop the write side with no close_notify
+      Exit;
+    end;
+    if FBehavior = TServerBehavior.BulkEcho then
+    begin
+      // echo exactly FBulkBytes back, reading in small chunks so the outbound side keeps
+      // re-filling and draining under sustained load, then close cleanly
+      SetLength(LChunk, 4096);
+      LEchoed := 0;
+      while LEchoed < FBulkBytes do
+      begin
+        LGot := FStream.Read(LChunk[0], System.Length(LChunk));
+        if LGot <= 0 then
+          Break; // peer closed early
+        FStream.Write(LChunk[0], LGot);
+        Inc(LEchoed, LGot);
+      end;
+      FStream.CloseNotify;
       Exit;
     end;
     // echo one client message back, then shut down cleanly
@@ -161,6 +202,43 @@ begin
     on E: Exception do
       FError := E.ClassName + ': ' + E.Message;
   end;
+end;
+
+{ TWedgeWatchdog }
+
+constructor TWedgeWatchdog.Create(const APipeA, APipeB: TMemoryPipe;
+  ADeadlineMs: UInt32);
+begin
+  inherited Create(True);
+  FPipeA := APipeA;
+  FPipeB := APipeB;
+  FDeadlineMs := ADeadlineMs;
+  FDone := TEvent.Create(nil, True, False, '');
+  FFired := False;
+  FreeOnTerminate := False;
+end;
+
+destructor TWedgeWatchdog.Destroy;
+begin
+  inherited Destroy;
+  FDone.Free;
+end;
+
+procedure TWedgeWatchdog.Execute;
+begin
+  // wait for the exchange to disarm us; if the deadline passes first the pump has wedged,
+  // so close both pipes to unblock its reads and let the test surface the failure
+  if FDone.WaitFor(FDeadlineMs) = wrTimeout then
+  begin
+    FFired := True;
+    FPipeA.Close;
+    FPipeB.Close;
+  end;
+end;
+
+procedure TWedgeWatchdog.Disarm;
+begin
+  FDone.SetEvent;
 end;
 
 { TTestTlsStreamLoopback }
@@ -586,6 +664,66 @@ begin
     CheckTrue(LFailed, 'a rejected async verdict fails the handshake closed over the pump');
     LServer.WaitFor;
   finally
+    LServer.Free;
+    LClient.Free;
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.TestBulkThroughputRoundTripDoesNotWedge;
+const
+  // several megabytes: one Write queues many records into the outbound buffer, and the pump
+  // then drains them in TransportChunk-sized takes - the path the cursor buffer governs. Both
+  // directions are exercised (the client's Write and the server's echo).
+  BULK = 4 * 1024 * 1024;
+var
+  LC2S, LS2C: TMemoryPipe;
+  LClientTransport, LServerTransport: TMemoryTransport;
+  LClient, LServerStream: TTlsStream;
+  LServer: TServerRunner;
+  LWatch: TWedgeWatchdog;
+  LTx, LRx: TBytes;
+  LTotal, LGot, I: Int32;
+begin
+  SetLength(LTx, BULK);
+  for I := 0 to BULK - 1 do
+    LTx[I] := Byte(I + (I shr 8)); // a position-dependent pattern so any misorder/truncation shows
+
+  LC2S := TMemoryPipe.Create;
+  LS2C := TMemoryPipe.Create;
+  LClientTransport := TMemoryTransport.Create(LS2C, LC2S);
+  LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
+  LClient := NewClientStream(LClientTransport as ITlsTransport, ClientConfig(True, nil));
+  LServerStream := NewServerStream(LServerTransport as ITlsTransport);
+  LServer := TServerRunner.Create(LServerStream, LServerTransport, TServerBehavior.BulkEcho);
+  LServer.BulkBytes := BULK;
+  // a wedge would block a pump read forever; the watchdog closes both pipes after the deadline
+  // so the read returns EOF and the test fails loudly instead of hanging the run
+  LWatch := TWedgeWatchdog.Create(LC2S, LS2C, 60000);
+  LWatch.Start;
+  LServer.Start;
+  try
+    LClient.Handshake;
+    LClient.Write(LTx[0], BULK); // one large write -> the whole payload queues before the drain
+    SetLength(LRx, BULK);
+    LTotal := 0;
+    while LTotal < BULK do
+    begin
+      LGot := LClient.Read(LRx[LTotal], BULK - LTotal);
+      if LGot <= 0 then
+        Break;
+      Inc(LTotal, LGot);
+    end;
+    LWatch.Disarm;
+    CheckFalse(LWatch.Fired, 'the exchange completed without tripping the wedge watchdog');
+    CheckEquals(BULK, LTotal, 'the full payload round-tripped');
+    CheckEqualBytes('the echoed stream matches byte-for-byte', LTx, LRx);
+    LClient.CloseNotify;
+    LServer.WaitFor;
+    CheckEquals('', LServer.Error, 'the server side ran without error');
+  finally
+    LWatch.Disarm; // on any failure path too, so the watchdog thread can exit
+    LWatch.WaitFor;
+    LWatch.Free;
     LServer.Free;
     LClient.Free;
   end;
