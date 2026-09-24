@@ -31,6 +31,7 @@ uses
   TlpTlsVersion,
   TlpSecretBuffer,
   TlpICryptoProvider,
+  TlpAeadUtilities,
   TlpCryptoDomainTypes,
   TlpIRecordProtection,
   TlpRecordProtection,
@@ -587,7 +588,7 @@ begin
   LHeader[2] := $03;
   LHeader[3] := Byte(LCipherLen shr 8);
   LHeader[4] := Byte(LCipherLen and $FF);
-  LCipher := LAead.Seal(LIv, LHeader, LInner); // seq 0 => nonce = IV
+  LCipher := TAeadUtilities.Seal(LAead, LIv, LHeader, LInner); // seq 0 => nonce = IV
   SetLength(LRecord, System.Length(LHeader) + System.Length(LCipher));
   System.Move(LHeader[0], LRecord[0], System.Length(LHeader));
   System.Move(LCipher[0], LRecord[System.Length(LHeader)], System.Length(LCipher));

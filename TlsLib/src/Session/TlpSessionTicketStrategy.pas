@@ -17,6 +17,7 @@ interface
 
 uses
   SysUtils,
+  TlpAeadUtilities,
   TlpTlsVersion,
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
@@ -315,7 +316,7 @@ begin
   try
     LAead.Init(LKey);
     // the key name is authenticated as associated data (it is not secret)
-    LCipher := LAead.Seal(LNonce, LKeyName, LPlain);
+    LCipher := TAeadUtilities.Seal(LAead, LNonce, LKeyName, LPlain);
   except
     // a custom manager that hands over an unusable key must not fault the handshake; decline to seal
     TSecureMemory.WipeBytes(LPlain);
@@ -355,7 +356,7 @@ begin
     // Init can reject a key a custom manager cannot bind (e.g. a wrong-length one); keep it inside
     // the guard so that, like an authentication failure, it falls back to a full handshake
     LAead.Init(LKey);
-    LPlain := LAead.Open(LNonce, LKeyName, LCipher);
+    LPlain := TAeadUtilities.Open(LAead, LNonce, LKeyName, LCipher);
   except
     Exit;
   end;

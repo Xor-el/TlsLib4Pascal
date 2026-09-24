@@ -31,6 +31,9 @@ uses
   TlpISecretBuffer,
   TlpSecretBuffer,
   TlpICryptoProvider,
+  TlpAeadUtilities,
+  TlpDefaultCryptoProvider,
+  TlpOSCryptoProvider,
   TlpCryptoDomainTypes,
   TlsLibTestBase;
 
@@ -46,6 +49,11 @@ type
     // and that a fresh opener round-trips every record.
     procedure CheckAeadReuseParity(AAlgorithm: TAeadAlgorithm;
       AKeySize, AMinLength: Int32);
+    // the in-place AEAD span behaviours, run against whichever provider is passed so the
+    // same guarantees are asserted for the portable adapter and the OS-native overlay
+    procedure DoAeadInPlaceRoundTrip(const AProvider: ICryptoProvider);
+    procedure DoAeadOpenTamperWipes(const AProvider: ICryptoProvider);
+    procedure DoAeadSpanGuards(const AProvider: ICryptoProvider);
   published
     procedure TestSha256Kat;
     procedure TestSha384Kat;
@@ -58,6 +66,10 @@ type
     procedure TestAesGcmRoundTrip;
     procedure TestChaCha20Poly1305Kat;
     procedure TestAeadOpenAuthFailureRaisesBadRecordMac;
+    procedure TestAeadInPlaceRoundTripMatchesAllocating;
+    procedure TestAeadInPlaceOpenTamperWipesDestination;
+    procedure TestAeadSpanGuardsRejectBadOffsetsAndOverlap;
+    procedure TestAeadInPlaceNativeProvider;
     procedure TestAeadReuseParityAes128Gcm;
     procedure TestAeadReuseParityAes256Gcm;
     procedure TestAeadReuseParityChaCha20Poly1305;
@@ -230,10 +242,10 @@ begin
     LAad := DecodeHex(LVec.Values['aad']);
     LExpected := ConcatBytes(DecodeHex(LVec.Values['ciphertext']),
       DecodeHex(LVec.Values['tag']));
-    LSealed := LAead.Seal(LNonce, LAad, DecodeHex(LVec.Values['plaintext']));
+    LSealed := TAeadUtilities.Seal(LAead, LNonce, LAad, DecodeHex(LVec.Values['plaintext']));
     CheckEqualBytes('AES-128-GCM seal', LExpected, LSealed);
     CheckEqualBytes('AES-128-GCM open', DecodeHex(LVec.Values['plaintext']),
-      LAead.Open(LNonce, LAad, LSealed));
+      TAeadUtilities.Open(LAead, LNonce, LAad, LSealed));
   finally
     LVec.Free;
   end;
@@ -254,10 +266,10 @@ begin
     LAad := DecodeHex(LVec.Values['aad']);
     LExpected := ConcatBytes(DecodeHex(LVec.Values['ciphertext']),
       DecodeHex(LVec.Values['tag']));
-    LSealed := LAead.Seal(LNonce, LAad, DecodeHex(LVec.Values['plaintext']));
+    LSealed := TAeadUtilities.Seal(LAead, LNonce, LAad, DecodeHex(LVec.Values['plaintext']));
     CheckEqualBytes('AES-256-GCM seal', LExpected, LSealed);
     CheckEqualBytes('AES-256-GCM open', DecodeHex(LVec.Values['plaintext']),
-      LAead.Open(LNonce, LAad, LSealed));
+      TAeadUtilities.Open(LAead, LNonce, LAad, LSealed));
   finally
     LVec.Free;
   end;
@@ -273,10 +285,10 @@ begin
   LNonce := DecodeHex('101112131415161718191a1b');
   LAad := DecodeHex('cafe');
   LPlain := DecodeHex('48656c6c6f2c20544c5321'); // "Hello, TLS!"
-  LSealed := LAead.Seal(LNonce, LAad, LPlain);
+  LSealed := TAeadUtilities.Seal(LAead, LNonce, LAad, LPlain);
   CheckEquals(System.Length(LPlain) + LAead.TagSize, System.Length(LSealed),
     'sealed length = plaintext + tag');
-  CheckEqualBytes('AES-GCM round-trip', LPlain, LAead.Open(LNonce, LAad, LSealed));
+  CheckEqualBytes('AES-GCM round-trip', LPlain, TAeadUtilities.Open(LAead, LNonce, LAad, LSealed));
 end;
 
 procedure TTestCryptoProvider.TestChaCha20Poly1305Kat;
@@ -293,10 +305,10 @@ begin
     LAad := DecodeHex(LVec.Values['aad']);
     LExpected := ConcatBytes(DecodeHex(LVec.Values['ciphertext']),
       DecodeHex(LVec.Values['tag']));
-    LSealed := LAead.Seal(LNonce, LAad, DecodeHex(LVec.Values['plaintext']));
+    LSealed := TAeadUtilities.Seal(LAead, LNonce, LAad, DecodeHex(LVec.Values['plaintext']));
     CheckEqualBytes('ChaCha20-Poly1305 seal', LExpected, LSealed);
     CheckEqualBytes('ChaCha20-Poly1305 open', DecodeHex(LVec.Values['plaintext']),
-      LAead.Open(LNonce, LAad, LSealed));
+      TAeadUtilities.Open(LAead, LNonce, LAad, LSealed));
   finally
     LVec.Free;
   end;
@@ -312,17 +324,213 @@ begin
   LAead.Init(TSecretBuffer.From(DecodeHex('000102030405060708090a0b0c0d0e0f')));
   LNonce := DecodeHex('101112131415161718191a1b');
   LAad := DecodeHex('');
-  LSealed := LAead.Seal(LNonce, LAad, DecodeHex('deadbeef'));
+  LSealed := TAeadUtilities.Seal(LAead, LNonce, LAad, DecodeHex('deadbeef'));
   // corrupt the last (tag) byte
   LSealed[System.Length(LSealed) - 1] := Byte(LSealed[System.Length(LSealed) - 1] xor $01);
   LRaised := False;
   try
-    LAead.Open(LNonce, LAad, LSealed);
+    TAeadUtilities.Open(LAead, LNonce, LAad, LSealed);
   except
     on E: EFatalAlertTlsLibException do
       LRaised := Ord(E.AlertDescription) = Ord(TTlsAlertDescription.BadRecordMac);
   end;
   CheckTrue(LRaised, 'auth failure must raise bad_record_mac');
+end;
+
+// (algorithm, key size) for each AEAD suite, so the span tests can loop all three
+type
+  TAeadSuiteSpec = record
+    Algorithm: TAeadAlgorithm;
+    KeySize: Int32;
+    Name: string;
+  end;
+
+const
+  AeadSuiteSpecs: array [0 .. 2] of TAeadSuiteSpec = (
+    (Algorithm: TAeadAlgorithm.AES_128_GCM; KeySize: 16; Name: 'AES-128-GCM'),
+    (Algorithm: TAeadAlgorithm.AES_256_GCM; KeySize: 32; Name: 'AES-256-GCM'),
+    (Algorithm: TAeadAlgorithm.CHACHA20_POLY1305; KeySize: 32; Name: 'ChaCha20-Poly1305'));
+  AeadSpanSizes: array [0 .. 5] of Int32 = (0, 1, 16, 17, 255, 1400);
+
+procedure TTestCryptoProvider.DoAeadInPlaceRoundTrip(const AProvider: ICryptoProvider);
+const
+  OFF = 5; // seal at a non-zero offset, as the record layer will
+var
+  LSi, LZi, LLen, LSealed, LOpened: Int32;
+  LKey, LNonce, LAad, LPlain, LRef, LBuf: TBytes;
+  LEnc, LDec, LRefAead: IAead;
+begin
+  for LSi := System.Low(AeadSuiteSpecs) to System.High(AeadSuiteSpecs) do
+    for LZi := System.Low(AeadSpanSizes) to System.High(AeadSpanSizes) do
+    begin
+      LLen := AeadSpanSizes[LZi];
+      LKey := PatternBytes(AeadSuiteSpecs[LSi].KeySize, LSi + 1);
+      LNonce := PatternBytes(12, LSi + 2);
+      LAad := PatternBytes(5, LSi + 3);
+      LPlain := PatternBytes(LLen, LSi + 4);
+      // allocating reference sealed bytes
+      LRefAead := AProvider.Primitives.CreateAead(AeadSuiteSpecs[LSi].Algorithm);
+      LRefAead.Init(TSecretBuffer.From(LKey));
+      LRef := TAeadUtilities.Seal(LRefAead, LNonce, LAad, LPlain);
+      // seal in place into a buffer at OFF, aliasing src = dest
+      LBuf := nil;
+      SetLength(LBuf, OFF + LLen + 16);
+      if LLen > 0 then
+        System.Move(LPlain[0], LBuf[OFF], LLen);
+      LEnc := AProvider.Primitives.CreateAead(AeadSuiteSpecs[LSi].Algorithm);
+      LEnc.Init(TSecretBuffer.From(LKey));
+      LSealed := LEnc.Seal(LNonce, LAad, LBuf, OFF, LLen, LBuf, OFF);
+      CheckEquals(LLen + 16, LSealed, AeadSuiteSpecs[LSi].Name + ': sealed length');
+      CheckEqualBytes(AeadSuiteSpecs[LSi].Name + ': in-place seal matches allocating',
+        LRef, System.Copy(LBuf, OFF, LSealed));
+      // open in place, aliasing src = dest, and recover the plaintext
+      LDec := AProvider.Primitives.CreateAead(AeadSuiteSpecs[LSi].Algorithm);
+      LDec.Init(TSecretBuffer.From(LKey));
+      LOpened := LDec.Open(LNonce, LAad, LBuf, OFF, LSealed, LBuf, OFF);
+      CheckEquals(LLen, LOpened, AeadSuiteSpecs[LSi].Name + ': opened length');
+      CheckEqualBytes(AeadSuiteSpecs[LSi].Name + ': in-place open round-trips',
+        LPlain, System.Copy(LBuf, OFF, LOpened));
+    end;
+end;
+
+procedure TTestCryptoProvider.DoAeadOpenTamperWipes(const AProvider: ICryptoProvider);
+const
+  OFF = 3;
+var
+  LSi, LI, LSealed: Int32;
+  LKey, LNonce, LAad, LPlain, LBuf: TBytes;
+  LEnc, LDec: IAead;
+  LRaised, LWiped: Boolean;
+begin
+  // the wipe-on-auth-failure path differs per cipher mode, so assert it for every suite
+  for LSi := System.Low(AeadSuiteSpecs) to System.High(AeadSuiteSpecs) do
+  begin
+    LKey := PatternBytes(AeadSuiteSpecs[LSi].KeySize, LSi + 7);
+    LNonce := PatternBytes(12, LSi + 8);
+    LAad := PatternBytes(5, LSi + 9);
+    LPlain := PatternBytes(64, LSi + 10);
+    LBuf := nil;
+    SetLength(LBuf, OFF + 64 + 16);
+    System.Move(LPlain[0], LBuf[OFF], 64);
+    LEnc := AProvider.Primitives.CreateAead(AeadSuiteSpecs[LSi].Algorithm);
+    LEnc.Init(TSecretBuffer.From(LKey));
+    LSealed := LEnc.Seal(LNonce, LAad, LBuf, OFF, 64, LBuf, OFF);
+    LBuf[OFF + LSealed - 1] := Byte(LBuf[OFF + LSealed - 1] xor $01); // corrupt the tag
+    LDec := AProvider.Primitives.CreateAead(AeadSuiteSpecs[LSi].Algorithm);
+    LDec.Init(TSecretBuffer.From(LKey));
+    LRaised := False;
+    try
+      LDec.Open(LNonce, LAad, LBuf, OFF, LSealed, LBuf, OFF);
+    except
+      on E: EFatalAlertTlsLibException do
+        LRaised := Ord(E.AlertDescription) = Ord(TTlsAlertDescription.BadRecordMac);
+    end;
+    CheckTrue(LRaised, AeadSuiteSpecs[LSi].Name + ': a tampered tag raises bad_record_mac');
+    LWiped := True;
+    for LI := OFF to OFF + 64 - 1 do
+      if LBuf[LI] <> 0 then
+        LWiped := False;
+    CheckTrue(LWiped, AeadSuiteSpecs[LSi].Name +
+      ': no unverified plaintext is left in the destination after a failed open');
+  end;
+end;
+
+procedure TTestCryptoProvider.DoAeadSpanGuards(const AProvider: ICryptoProvider);
+  function SealRaises(const AAead: IAead; const ANonce, AAad, ASrc: TBytes;
+    ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Boolean;
+  begin
+    Result := False;
+    try
+      AAead.Seal(ANonce, AAad, ASrc, ASrcOff, ALen, ADest, ADestOff);
+    except
+      on E: EArgumentTlsLibException do
+        Result := True;
+    end;
+  end;
+  function OpenRaisesArg(const AAead: IAead; const ANonce, AAad, ASrc: TBytes;
+    ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Boolean;
+  begin
+    Result := False;
+    try
+      AAead.Open(ANonce, AAad, ASrc, ASrcOff, ALen, ADest, ADestOff);
+    except
+      on E: EArgumentTlsLibException do
+        Result := True;
+    end;
+  end;
+var
+  LKey, LNonce, LAad, LSrc, LDest, LCt, LOut: TBytes;
+  LAead, LSealer: IAead;
+  LSealed: Int32;
+  LRaised: Boolean;
+begin
+  LKey := PatternBytes(16, 1);
+  LNonce := PatternBytes(12, 2);
+  LAad := PatternBytes(5, 3);
+  LSrc := PatternBytes(32, 4);
+  LDest := nil;
+  SetLength(LDest, 32 + 16);
+  LAead := AProvider.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM);
+  LAead.Init(TSecretBuffer.From(LKey));
+  // Seal guards (validated before any keyed work, so one instance serves them all)
+  CheckTrue(SealRaises(LAead, LNonce, LAad, LSrc, -1, 32, LDest, 0),
+    'seal: a negative source offset is rejected');
+  CheckTrue(SealRaises(LAead, LNonce, LAad, LSrc, 0, 40, LDest, 0),
+    'seal: a length past the source end is rejected');
+  CheckTrue(SealRaises(LAead, LNonce, LAad, LSrc, 0, 32, LDest, 8),
+    'seal: a destination too small for ciphertext + tag is rejected');
+  // same array, different offsets: only an exact alias is allowed
+  CheckTrue(SealRaises(LAead, LNonce, LAad, LSrc, 0, 8, LSrc, 4),
+    'seal: a partial overlap (same array, unequal offset) is rejected');
+  // Open guards: produce one valid sealed buffer, then probe the Open-side checks
+  LSealer := AProvider.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM);
+  LSealer.Init(TSecretBuffer.From(LKey));
+  LCt := TAeadUtilities.Seal(LSealer, LNonce, LAad, LSrc); // 32 + 16 = 48 bytes
+  LOut := nil;
+  SetLength(LOut, 32);
+  CheckTrue(OpenRaisesArg(LAead, LNonce, LAad, LCt, -1, 48, LOut, 0),
+    'open: a negative source offset is rejected');
+  CheckTrue(OpenRaisesArg(LAead, LNonce, LAad, LCt, 0, 60, LOut, 0),
+    'open: a length past the source end is rejected');
+  CheckTrue(OpenRaisesArg(LAead, LNonce, LAad, LCt, 0, 48, LOut, 20),
+    'open: a destination too small for the plaintext is rejected');
+  // a length below the tag size cannot authenticate: bad_record_mac, not an argument error
+  LRaised := False;
+  try
+    LAead.Open(LNonce, LAad, LCt, 0, 8, LOut, 0);
+  except
+    on E: EFatalAlertTlsLibException do
+      LRaised := Ord(E.AlertDescription) = Ord(TTlsAlertDescription.BadRecordMac);
+  end;
+  CheckTrue(LRaised, 'open: a length shorter than the tag raises bad_record_mac');
+end;
+
+procedure TTestCryptoProvider.TestAeadInPlaceRoundTripMatchesAllocating;
+begin
+  DoAeadInPlaceRoundTrip(Crypto);
+end;
+
+procedure TTestCryptoProvider.TestAeadInPlaceOpenTamperWipesDestination;
+begin
+  DoAeadOpenTamperWipes(Crypto);
+end;
+
+procedure TTestCryptoProvider.TestAeadSpanGuardsRejectBadOffsetsAndOverlap;
+begin
+  DoAeadSpanGuards(Crypto);
+end;
+
+procedure TTestCryptoProvider.TestAeadInPlaceNativeProvider;
+var
+  LProvider: ICryptoProvider;
+begin
+  // the OS-native overlay has its own span implementation; hold it to the same round-trip,
+  // tamper-wipe and guard contract. Where no native overlay applies it falls back to the
+  // portable adapter, so this stays a valid, if then redundant, run everywhere.
+  LProvider := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider);
+  DoAeadInPlaceRoundTrip(LProvider);
+  DoAeadOpenTamperWipes(LProvider);
+  DoAeadSpanGuards(LProvider);
 end;
 
 function TTestCryptoProvider.PatternBytes(ALength, ASeed: Int32): TBytes;
@@ -381,14 +589,14 @@ begin
     // reference: a fresh adapter per record reproduces the old create-per-record path
     LFresh := Crypto.Primitives.CreateAead(AAlgorithm);
     LFresh.Init(LKey);
-    LViaFresh := LFresh.Seal(LNonce, LAad, LPlain);
-    LViaReused := LReused.Seal(LNonce, LAad, LPlain);
+    LViaFresh := TAeadUtilities.Seal(LFresh, LNonce, LAad, LPlain);
+    LViaReused := TAeadUtilities.Seal(LReused, LNonce, LAad, LPlain);
     CheckEqualBytes('reused seal == fresh seal', LViaFresh, LViaReused);
     // a fresh opener must round-trip the reused adapter's output
     LOpener := Crypto.Primitives.CreateAead(AAlgorithm);
     LOpener.Init(LKey);
     CheckEqualBytes('open round-trips reused seal', LPlain,
-      LOpener.Open(LNonce, LAad, LViaReused));
+      TAeadUtilities.Open(LOpener, LNonce, LAad, LViaReused));
   end;
 end;
 
@@ -428,9 +636,9 @@ begin
       LPlain := PatternBytes(1 + (LRecord mod 200), LRecord + LEpoch);
       LAad := PatternBytes(5, LRecord);
       LNonce := CounterNonce(LSender.NonceSize, LRecord);
-      LSealed := LSender.Seal(LNonce, LAad, LPlain);
+      LSealed := TAeadUtilities.Seal(LSender, LNonce, LAad, LPlain);
       CheckEqualBytes('long-connection record round-trips', LPlain,
-        LReceiver.Open(LNonce, LAad, LSealed));
+        TAeadUtilities.Open(LReceiver, LNonce, LAad, LSealed));
     end;
   end;
 end;
@@ -447,10 +655,10 @@ begin
   LAead.Init(TSecretBuffer.From(DecodeHex('000102030405060708090a0b0c0d0e0f')));
   LNonce := DecodeHex('101112131415161718191a1b');
   LAad := nil;
-  LAead.Seal(LNonce, LAad, DecodeHex('deadbeef'));
+  TAeadUtilities.Seal(LAead, LNonce, LAad, DecodeHex('deadbeef'));
   LRaised := False;
   try
-    LAead.Seal(LNonce, LAad, DecodeHex('cafebabe'));
+    TAeadUtilities.Seal(LAead, LNonce, LAad, DecodeHex('cafebabe'));
   except
     on E: Exception do
       LRaised := True;

@@ -17,6 +17,7 @@ interface
 
 uses
   SysUtils,
+  TlpAeadUtilities,
   TlpArrayUtilities,
   TlpCryptoDomainTypes,
   TlpDer,
@@ -206,7 +207,7 @@ end;
 
 function THpkeContext.Seal(const AAad, APlaintext: TBytes): TBytes;
 begin
-  Result := FAead.Seal(ComputeNonce, AAad, APlaintext);
+  Result := TAeadUtilities.Seal(FAead, ComputeNonce, AAad, APlaintext);
   AdvanceSequence; // advance only after a successful seal
 end;
 
@@ -215,7 +216,7 @@ begin
   // FAead.Open raises on authentication failure without advancing, so a rejected
   // ciphertext never desynchronises the sequence
   try
-    Result := FAead.Open(ComputeNonce, AAad, ACiphertext);
+    Result := TAeadUtilities.Open(FAead, ComputeNonce, AAad, ACiphertext);
   except
     on E: EBaseTlsLibException do
       raise EHpkeOpenTlsLibException.CreateRes(@SHpkeMalformedEnc);

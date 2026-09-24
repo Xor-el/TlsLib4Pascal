@@ -155,6 +155,8 @@ resourcestring
   SCngBackendError = 'a Windows CNG operation failed (status 0x%.8x)';
   SCngUnavailable = 'Windows CNG is not available on this host';
   SAeadAuthFailed = 'AEAD authentication failed';
+  SAeadSpanOutOfRange = 'the AEAD source/destination span is out of range';
+  SAeadBadOverlap = 'the AEAD source and destination may only alias at the same offset';
   SInvalidKeySize = 'AEAD key size %d does not match the required %d bytes';
   SInvalidNonceSize = 'AEAD nonce size %d does not match the required %d bytes';
   SHkdfExpandTooLong = 'HKDF-Expand output length %d exceeds 255 * HashLen (%d)';
@@ -632,8 +634,10 @@ type
     function NonceSize: Int32;
     function TagSize: Int32;
     procedure Init(const AKey: ISecretBuffer);
-    function Seal(const ANonce, AAad, APlaintext: TBytes): TBytes;
-    function Open(const ANonce, AAad, ACiphertext: TBytes): TBytes;
+    function Seal(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
+      const ADest: TBytes; ADestOff: Int32): Int32;
+    function Open(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
+      const ADest: TBytes; ADestOff: Int32): Int32;
   end;
 
   // Owns the dynamically loaded bcrypt module and the CNG algorithm-provider handles,
@@ -1380,27 +1384,28 @@ begin
   end;
 end;
 
-function TWindowsCngAead.Seal(const ANonce, AAad, APlaintext: TBytes): TBytes;
+function TWindowsCngAead.Seal(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
+  const ADest: TBytes; ADestOff: Int32): Int32;
 var
   LInfo: TBCryptAuthCipherModeInfo;
-  LTag: TBytes;
-  LPtLen: Int32;
   LCbResult: ULONG;
   LIn, LOut: PByte;
 begin
   if System.Length(ANonce) <> FNonceSize then
     raise EArgumentTlsLibException.CreateResFmt(@SInvalidNonceSize,
       [System.Length(ANonce), FNonceSize]);
-  LPtLen := System.Length(APlaintext);
-  LTag := nil;
-  SetLength(LTag, FTagSize);
-  Result := nil;
-  SetLength(Result, LPtLen + FTagSize);
-  InitAuthInfo(LInfo, ANonce, AAad, PByte(LTag));
-  if LPtLen > 0 then
+  if (ASrcOff < 0) or (ALen < 0) or (Int64(ASrcOff) + ALen > System.Length(ASrc)) or
+    (ADestOff < 0) or (Int64(ADestOff) + ALen + FTagSize > System.Length(ADest)) then
+    raise EArgumentTlsLibException.CreateRes(@SAeadSpanOutOfRange);
+  if (PByte(ASrc) = PByte(ADest)) and (ASrcOff <> ADestOff) then
+    raise EArgumentTlsLibException.CreateRes(@SAeadBadOverlap);
+  // the tag goes straight after the ciphertext; BCryptEncrypt permits in = out, so an exact-alias
+  // in-place seal is just a pointer choice
+  InitAuthInfo(LInfo, ANonce, AAad, @ADest[ADestOff + ALen]);
+  if ALen > 0 then
   begin
-    LIn := PByte(APlaintext);
-    LOut := PByte(Result);
+    LIn := @ASrc[ASrcOff];
+    LOut := @ADest[ADestOff];
   end
   else
   begin
@@ -1408,12 +1413,13 @@ begin
     LOut := nil;
   end;
   LCbResult := 0;
-  TCngError.Check(FApi.Encrypt(FKeyHandle, LIn, LPtLen, @LInfo, nil, 0, LOut,
-    LPtLen, LCbResult, 0));
-  System.Move(LTag[0], Result[LPtLen], FTagSize);
+  TCngError.Check(FApi.Encrypt(FKeyHandle, LIn, ALen, @LInfo, nil, 0, LOut,
+    ALen, LCbResult, 0));
+  Result := ALen + FTagSize;
 end;
 
-function TWindowsCngAead.Open(const ANonce, AAad, ACiphertext: TBytes): TBytes;
+function TWindowsCngAead.Open(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
+  const ADest: TBytes; ADestOff: Int32): Int32;
 var
   LInfo: TBCryptAuthCipherModeInfo;
   LCtLen: Int32;
@@ -1424,18 +1430,22 @@ begin
   if System.Length(ANonce) <> FNonceSize then
     raise EArgumentTlsLibException.CreateResFmt(@SInvalidNonceSize,
       [System.Length(ANonce), FNonceSize]);
-  if System.Length(ACiphertext) < FTagSize then
+  if ALen < FTagSize then
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.BadRecordMac,
       @SAeadAuthFailed);
-  LCtLen := System.Length(ACiphertext) - FTagSize;
-  Result := nil;
-  SetLength(Result, LCtLen);
-  // the received tag is the trailing FTagSize bytes of the input
-  InitAuthInfo(LInfo, ANonce, AAad, @ACiphertext[LCtLen]);
+  LCtLen := ALen - FTagSize;
+  if (ASrcOff < 0) or (Int64(ASrcOff) + ALen > System.Length(ASrc)) or
+    (ADestOff < 0) or (Int64(ADestOff) + LCtLen > System.Length(ADest)) then
+    raise EArgumentTlsLibException.CreateRes(@SAeadSpanOutOfRange);
+  if (PByte(ASrc) = PByte(ADest)) and (ASrcOff <> ADestOff) then
+    raise EArgumentTlsLibException.CreateRes(@SAeadBadOverlap);
+  // the received tag is the trailing FTagSize bytes of the input; under exact aliasing it lies
+  // beyond the plaintext output span, so it is not overwritten before CNG reads it
+  InitAuthInfo(LInfo, ANonce, AAad, @ASrc[ASrcOff + LCtLen]);
   if LCtLen > 0 then
   begin
-    LIn := PByte(ACiphertext);
-    LOut := PByte(Result);
+    LIn := @ASrc[ASrcOff];
+    LOut := @ADest[ADestOff];
   end
   else
   begin
@@ -1446,9 +1456,16 @@ begin
   LStatus := FApi.Decrypt(FKeyHandle, LIn, LCtLen, @LInfo, nil, 0, LOut, LCtLen,
     LCbResult, 0);
   if LStatus = STATUS_AUTH_TAG_MISMATCH then
+  begin
+    // CNG does not promise to wipe the output on a tag mismatch; do it ourselves so no
+    // unverified plaintext is left for the caller
+    if LCtLen > 0 then
+      TSecureMemory.Wipe(@ADest[ADestOff], LCtLen);
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.BadRecordMac,
       @SAeadAuthFailed);
+  end;
   TCngError.Check(LStatus);
+  Result := LCtLen;
 end;
 
 { TWindowsCngKeyAgreement }

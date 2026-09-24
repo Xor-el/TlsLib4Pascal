@@ -99,7 +99,7 @@ type
   /// authentication failure.
   /// </summary>
   IAead = interface(IInterface)
-    ['{0A207715-F01E-4C2D-AD4D-AEC6C0EC32D9}']
+    ['{7C4E1B92-3A6D-4F58-9E21-0D5A8C3B7F14}']
     /// <summary>The usage-limit family the record layer derives its rekey bound from.</summary>
     function UsageCategory: TAeadUsageCategory;
     /// <summary>Required key length in bytes.</summary>
@@ -109,10 +109,18 @@ type
     /// <summary>Authentication tag length in bytes (also the bytes sealing adds).</summary>
     function TagSize: Int32;
     procedure Init(const AKey: ISecretBuffer);
-    /// <summary>Encrypts and authenticates; returns ciphertext followed by the tag.</summary>
-    function Seal(const ANonce, AAad, APlaintext: TBytes): TBytes;
-    /// <summary>Authenticates and decrypts ciphertext||tag; raises on auth failure.</summary>
-    function Open(const ANonce, AAad, ACiphertext: TBytes): TBytes;
+    /// <summary>Encrypts and authenticates ASrc[ASrcOff .. ASrcOff+ALen), writing ciphertext
+    /// followed by the tag (ALen + TagSize bytes) at ADest[ADestOff]. ADest may be the same array
+    /// as ASrc with ADestOff = ASrcOff (exact in-place); any other overlap is rejected. The caller
+    /// sizes ADest for ALen + TagSize at ADestOff. Returns the bytes written.</summary>
+    function Seal(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
+      const ADest: TBytes; ADestOff: Int32): Int32;
+    /// <summary>Authenticates and decrypts ciphertext||tag at ASrc[ASrcOff .. ASrcOff+ALen),
+    /// writing the plaintext (ALen - TagSize bytes) at ADest[ADestOff]; same aliasing rule. Raises
+    /// a fatal bad_record_mac on authentication failure, leaving no unverified plaintext in ADest.
+    /// Returns the plaintext length.</summary>
+    function Open(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
+      const ADest: TBytes; ADestOff: Int32): Int32;
   end;
 
   /// <summary>

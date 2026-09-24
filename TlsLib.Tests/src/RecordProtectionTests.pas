@@ -32,6 +32,7 @@ uses
   TlpTlsVersion,
   TlpSecretBuffer,
   TlpICryptoProvider,
+  TlpAeadUtilities,
   TlpCryptoDomainTypes,
   TlpIRecordProtection,
   TlpRecordProtection,
@@ -374,7 +375,7 @@ begin
     end;
     LAeadRef := Crypto.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM);
     LAeadRef.Init(TSecretBuffer.From(LKey));
-    LCipher := LAeadRef.Seal(LGcmNonce, LAad, LPlain);
+    LCipher := TAeadUtilities.Seal(LAeadRef, LGcmNonce, LAad, LPlain);
     LBody := ConcatBytes(LExplicitNonce, LCipher);
     LHeaderWriter := TWireWriter.Create;
     try
@@ -436,7 +437,7 @@ begin
   end;
   LAeadRef := Crypto.Primitives.CreateAead(TAeadAlgorithm.CHACHA20_POLY1305);
   LAeadRef.Init(TSecretBuffer.From(LKey));
-  LCipher := LAeadRef.Seal(LNonce, LAad, LPlain);
+  LCipher := TAeadUtilities.Seal(LAeadRef, LNonce, LAad, LPlain);
   // no explicit nonce: the record body is exactly the ciphertext
   LBody := LCipher;
   LHeaderWriter := TWireWriter.Create;

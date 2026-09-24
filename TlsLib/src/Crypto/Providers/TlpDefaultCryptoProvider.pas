@@ -202,6 +202,8 @@ resourcestring
   SInvalidKeySize = 'AEAD key size %d does not match the required %d bytes';
   SInvalidNonceSize = 'AEAD nonce size %d does not match the required %d bytes';
   SAeadAuthFailed = 'AEAD authentication failed';
+  SAeadSpanOutOfRange = 'the AEAD source/destination span is out of range';
+  SAeadBadOverlap = 'the AEAD source and destination may only alias at the same offset';
   SDegenerateSharedSecret = 'the peer key produced a degenerate all-zero shared secret';
   SInvalidPeerPoint = 'the peer public point is not a valid curve point';
   SInvalidCiphertext = 'the peer ciphertext could not be decapsulated';
@@ -289,7 +291,8 @@ type
     FPacket: IAeadPacketCipher;
     FKeyPending: Boolean;
     function NewPacketCipher: IAeadPacketCipher;
-    function Process(AForEncryption: Boolean; const ANonce, AAad, AInput: TBytes): TBytes;
+    function ProcessInto(AForEncryption: Boolean; const ANonce, AAad, ASrc: TBytes;
+      ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32;
   public
     constructor Create(AKind: TAeadKind; AKeySize, ANonceSize, ATagSize: Int32;
       AHasHardwareAes: Boolean);
@@ -299,8 +302,10 @@ type
     function NonceSize: Int32;
     function TagSize: Int32;
     procedure Init(const AKey: ISecretBuffer);
-    function Seal(const ANonce, AAad, APlaintext: TBytes): TBytes;
-    function Open(const ANonce, AAad, ACiphertext: TBytes): TBytes;
+    function Seal(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
+      const ADest: TBytes; ADestOff: Int32): Int32;
+    function Open(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
+      const ADest: TBytes; ADestOff: Int32): Int32;
   end;
 
   // The provider-internal face of a minted key-exchange key: the raw scalar (nil for a KEM key,
@@ -789,16 +794,28 @@ begin
   FKeyPending := True;
 end;
 
-function TAeadAdapter.Process(AForEncryption: Boolean;
-  const ANonce, AAad, AInput: TBytes): TBytes;
+function TAeadAdapter.ProcessInto(AForEncryption: Boolean;
+  const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32; const ADest: TBytes;
+  ADestOff: Int32): Int32;
 var
-  LKey, LOut: TBytes;
+  LKey: TBytes;
   LUsedKey: Boolean;
-  LLen: Int32;
+  LOutLen: Int32;
 begin
   if System.Length(ANonce) <> FNonceSize then
     raise EArgumentTlsLibException.CreateResFmt(@SInvalidNonceSize,
       [System.Length(ANonce), FNonceSize]);
+  if AForEncryption then
+    LOutLen := ALen + FTagSize
+  else
+    LOutLen := ALen - FTagSize;
+  if (ASrcOff < 0) or (ALen < 0) or (Int64(ASrcOff) + ALen > System.Length(ASrc)) or
+    (ADestOff < 0) or (LOutLen < 0) or (Int64(ADestOff) + LOutLen > System.Length(ADest)) then
+    raise EArgumentTlsLibException.CreateRes(@SAeadSpanOutOfRange);
+  // in-place is only supported as an exact alias (same array, same offset); any other overlap
+  // would let the cipher read bytes it has already overwritten
+  if (PByte(ASrc) = PByte(ADest)) and (ASrcOff <> ADestOff) then
+    raise EArgumentTlsLibException.CreateRes(@SAeadBadOverlap);
   // one packet-cipher instance per adapter, and the driver installs an adapter for one
   // direction only (read or write); the connection is already single-threaded (unsynchronized
   // FSeq), so reusing the mode across records is safe (the mode is not thread-safe)
@@ -811,11 +828,8 @@ begin
   else
     LKey := nil;
   try
-    LOut := nil;
-    SetLength(LOut, FPacket.GetOutputSize(AForEncryption, System.Length(AInput), FTagSize * 8));
-    LLen := FPacket.ProcessPacket(AForEncryption, LKey, ANonce, AAad, AInput, 0,
-      System.Length(AInput), LOut, 0, FTagSize * 8);
-    SetLength(LOut, LLen);
+    Result := FPacket.ProcessPacket(AForEncryption, LKey, ANonce, AAad, ASrc, ASrcOff,
+      ALen, ADest, ADestOff, FTagSize * 8);
     // clear the pending flag only after the mode accepted and retained the key, so a throw
     // mid-init leaves the next record to re-supply it rather than pass nil to an unkeyed mode
     if LUsedKey then
@@ -823,21 +837,26 @@ begin
       FKeyPending := False;
       FKey := nil;
     end;
-    Result := LOut;
   finally
     TSecureMemory.WipeBytes(LKey);
   end;
 end;
 
-function TAeadAdapter.Seal(const ANonce, AAad, APlaintext: TBytes): TBytes;
+function TAeadAdapter.Seal(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
+  const ADest: TBytes; ADestOff: Int32): Int32;
 begin
-  Result := Process(True, ANonce, AAad, APlaintext);
+  Result := ProcessInto(True, ANonce, AAad, ASrc, ASrcOff, ALen, ADest, ADestOff);
 end;
 
-function TAeadAdapter.Open(const ANonce, AAad, ACiphertext: TBytes): TBytes;
+function TAeadAdapter.Open(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
+  const ADest: TBytes; ADestOff: Int32): Int32;
 begin
+  // a record too short to hold the tag cannot authenticate: a bad_record_mac, not an argument error
+  if ALen < FTagSize then
+    raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.BadRecordMac,
+      @SAeadAuthFailed);
   try
-    Result := Process(False, ANonce, AAad, ACiphertext);
+    Result := ProcessInto(False, ANonce, AAad, ASrc, ASrcOff, ALen, ADest, ADestOff);
   except
     on E: EInvalidCipherTextCryptoLibException do
       raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.BadRecordMac,
