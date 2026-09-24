@@ -274,8 +274,8 @@ begin
   LAad := DecodeHex('cafe');
   LPlain := DecodeHex('48656c6c6f2c20544c5321'); // "Hello, TLS!"
   LSealed := LAead.Seal(LNonce, LAad, LPlain);
-  CheckEquals(System.Length(LPlain) + LAead.Overhead, System.Length(LSealed),
-    'sealed length = plaintext + overhead');
+  CheckEquals(System.Length(LPlain) + LAead.TagSize, System.Length(LSealed),
+    'sealed length = plaintext + tag');
   CheckEqualBytes('AES-GCM round-trip', LPlain, LAead.Open(LNonce, LAad, LSealed));
 end;
 

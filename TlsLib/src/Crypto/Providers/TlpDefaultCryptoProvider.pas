@@ -247,12 +247,9 @@ type
     FDigest: IDigest;
   public
     constructor Create(const ADigest: IDigest);
-    function AlgorithmName: string;
     function HashSize: Int32;
-    function BlockSize: Int32;
     procedure Update(const AData: TBytes; AOffset, ALength: Int32);
     function DoFinal: TBytes;
-    procedure Reset;
     function Clone: IHash;
   end;
 
@@ -262,12 +259,10 @@ type
     FMac: IMac;
   public
     constructor Create(const ADigest: IDigest);
-    function AlgorithmName: string;
     function MacSize: Int32;
     procedure Init(const AKey: ISecretBuffer);
     procedure Update(const AData: TBytes; AOffset, ALength: Int32);
     function DoFinal: TBytes;
-    procedure Reset;
   end;
 
   THkdfAdapter = class(TInterfacedObject, IHkdf)
@@ -288,7 +283,6 @@ type
   strict private
   var
     FKind: TAeadKind;
-    FAlgorithmName: string;
     FKeySize, FNonceSize, FTagSize: Int32;
     FHasHardwareAes: Boolean;
     FKey: ISecretBuffer;
@@ -297,15 +291,13 @@ type
     function NewPacketCipher: IAeadPacketCipher;
     function Process(AForEncryption: Boolean; const ANonce, AAad, AInput: TBytes): TBytes;
   public
-    constructor Create(AKind: TAeadKind; const AAlgorithmName: string;
-      AKeySize, ANonceSize, ATagSize: Int32; AHasHardwareAes: Boolean);
+    constructor Create(AKind: TAeadKind; AKeySize, ANonceSize, ATagSize: Int32;
+      AHasHardwareAes: Boolean);
     destructor Destroy; override;
-    function AlgorithmName: string;
     function UsageCategory: TAeadUsageCategory;
     function KeySize: Int32;
     function NonceSize: Int32;
     function TagSize: Int32;
-    function Overhead: Int32;
     procedure Init(const AKey: ISecretBuffer);
     function Seal(const ANonce, AAad, APlaintext: TBytes): TBytes;
     function Open(const ANonce, AAad, ACiphertext: TBytes): TBytes;
@@ -411,10 +403,8 @@ type
   strict private
   var
     FSigner: ISigner;
-    FScheme: string;
   public
-    constructor Create(const ASigner: ISigner; const AScheme: string);
-    function AlgorithmName: string;
+    constructor Create(const ASigner: ISigner);
     procedure Update(const AData: TBytes; AOffset, ALength: Int32);
     function Sign: TBytes;
   end;
@@ -423,10 +413,8 @@ type
   strict private
   var
     FSigner: ISigner;
-    FScheme: string;
   public
-    constructor Create(const ASigner: ISigner; const AScheme: string);
-    function AlgorithmName: string;
+    constructor Create(const ASigner: ISigner);
     procedure Update(const AData: TBytes; AOffset, ALength: Int32);
     function Verify(const ASignature: TBytes): Boolean;
   end;
@@ -595,19 +583,9 @@ begin
   FDigest := ADigest;
 end;
 
-function THashAdapter.AlgorithmName: string;
-begin
-  Result := FDigest.AlgorithmName;
-end;
-
 function THashAdapter.HashSize: Int32;
 begin
   Result := FDigest.GetDigestSize;
-end;
-
-function THashAdapter.BlockSize: Int32;
-begin
-  Result := FDigest.GetByteLength;
 end;
 
 procedure THashAdapter.Update(const AData: TBytes; AOffset, ALength: Int32);
@@ -618,11 +596,6 @@ end;
 function THashAdapter.DoFinal: TBytes;
 begin
   Result := FDigest.DoFinal;
-end;
-
-procedure THashAdapter.Reset;
-begin
-  FDigest.Reset;
 end;
 
 function THashAdapter.Clone: IHash;
@@ -636,11 +609,6 @@ constructor THmacAdapter.Create(const ADigest: IDigest);
 begin
   inherited Create;
   FMac := THMac.Create(ADigest);
-end;
-
-function THmacAdapter.AlgorithmName: string;
-begin
-  Result := FMac.AlgorithmName;
 end;
 
 function THmacAdapter.MacSize: Int32;
@@ -668,11 +636,6 @@ end;
 function THmacAdapter.DoFinal: TBytes;
 begin
   Result := FMac.DoFinal;
-end;
-
-procedure THmacAdapter.Reset;
-begin
-  FMac.Reset;
 end;
 
 { THkdfAdapter }
@@ -756,12 +719,11 @@ end;
 
 { TAeadAdapter }
 
-constructor TAeadAdapter.Create(AKind: TAeadKind; const AAlgorithmName: string;
-  AKeySize, ANonceSize, ATagSize: Int32; AHasHardwareAes: Boolean);
+constructor TAeadAdapter.Create(AKind: TAeadKind; AKeySize, ANonceSize, ATagSize: Int32;
+  AHasHardwareAes: Boolean);
 begin
   inherited Create;
   FKind := AKind;
-  FAlgorithmName := AAlgorithmName;
   FKeySize := AKeySize;
   FNonceSize := ANonceSize;
   FTagSize := ATagSize;
@@ -773,11 +735,6 @@ begin
   // releasing the retained packet cipher lets its mode wipe round-key/subkey/GHASH state
   FPacket := nil;
   inherited Destroy;
-end;
-
-function TAeadAdapter.AlgorithmName: string;
-begin
-  Result := FAlgorithmName;
 end;
 
 function TAeadAdapter.UsageCategory: TAeadUsageCategory;
@@ -799,11 +756,6 @@ begin
 end;
 
 function TAeadAdapter.TagSize: Int32;
-begin
-  Result := FTagSize;
-end;
-
-function TAeadAdapter.Overhead: Int32;
 begin
   Result := FTagSize;
 end;
@@ -1298,17 +1250,10 @@ end;
 
 { TSignatureSignerAdapter }
 
-constructor TSignatureSignerAdapter.Create(const ASigner: ISigner;
-  const AScheme: string);
+constructor TSignatureSignerAdapter.Create(const ASigner: ISigner);
 begin
   inherited Create;
   FSigner := ASigner;
-  FScheme := AScheme;
-end;
-
-function TSignatureSignerAdapter.AlgorithmName: string;
-begin
-  Result := FScheme;
 end;
 
 procedure TSignatureSignerAdapter.Update(const AData: TBytes; AOffset, ALength: Int32);
@@ -1323,17 +1268,10 @@ end;
 
 { TSignatureVerifierAdapter }
 
-constructor TSignatureVerifierAdapter.Create(const ASigner: ISigner;
-  const AScheme: string);
+constructor TSignatureVerifierAdapter.Create(const ASigner: ISigner);
 begin
   inherited Create;
   FSigner := ASigner;
-  FScheme := AScheme;
-end;
-
-function TSignatureVerifierAdapter.AlgorithmName: string;
-begin
-  Result := FScheme;
 end;
 
 procedure TSignatureVerifierAdapter.Update(const AData: TBytes; AOffset, ALength: Int32);
@@ -1844,14 +1782,11 @@ function TCryptoPrimitives.CreateAead(AAlgorithm: TAeadAlgorithm): IAead;
 begin
   case AAlgorithm of
     TAeadAlgorithm.AES_128_GCM:
-      Result := TAeadAdapter.Create(TAeadKind.AesGcm,
-        TEnumUtilities.GetName<TAeadAlgorithm>(AAlgorithm), 16, 12, 16, FHasHardwareAes);
+      Result := TAeadAdapter.Create(TAeadKind.AesGcm, 16, 12, 16, FHasHardwareAes);
     TAeadAlgorithm.AES_256_GCM:
-      Result := TAeadAdapter.Create(TAeadKind.AesGcm,
-        TEnumUtilities.GetName<TAeadAlgorithm>(AAlgorithm), 32, 12, 16, FHasHardwareAes);
+      Result := TAeadAdapter.Create(TAeadKind.AesGcm, 32, 12, 16, FHasHardwareAes);
     TAeadAlgorithm.CHACHA20_POLY1305:
-      Result := TAeadAdapter.Create(TAeadKind.ChaChaPoly,
-        TEnumUtilities.GetName<TAeadAlgorithm>(AAlgorithm), 32, 12, 16, FHasHardwareAes);
+      Result := TAeadAdapter.Create(TAeadKind.ChaChaPoly, 32, 12, 16, FHasHardwareAes);
   else
     raise ENotSupportedTlsLibException.CreateResFmt(@SUnhandledAlgorithm,
       [Ord(AAlgorithm)]);
@@ -1904,8 +1839,7 @@ begin
   LKey := LProviderKey.KeyParameter;
   try
     Result := TSignatureSignerAdapter.Create(
-      TSignerUtilities.InitSigner(SignerMechanismForScheme(AScheme), True, LKey, FRandom),
-      TEnumUtilities.GetName<TSignatureScheme>(AScheme));
+      TSignerUtilities.InitSigner(SignerMechanismForScheme(AScheme), True, LKey, FRandom));
   except
     // a backend rejection here is a key/scheme problem our own config produced; keep a typed
     // exception at the seam rather than letting a raw backend exception cross it
@@ -1944,8 +1878,7 @@ begin
     on E: ECryptoLibException do
       raise EArgumentTlsLibException.CreateRes(@SKeyUnusableForScheme);
   end;
-  Result := TSignatureVerifierAdapter.Create(LSigner,
-    TEnumUtilities.GetName<TSignatureScheme>(AScheme));
+  Result := TSignatureVerifierAdapter.Create(LSigner);
 end;
 
 function TSigningCrypto.ImportPkcs12(const AData: TBytes;

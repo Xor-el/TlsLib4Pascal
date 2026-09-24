@@ -20,7 +20,6 @@ interface
 uses
   Windows,
   SysUtils,
-  TlpEnumUtilities,
   TlpArrayUtilities,
   TlpCryptoDomainTypes,
   TlpPem,
@@ -555,47 +554,40 @@ type
   var
     FApi: TCngApi;
     FAlg: Pointer;
-    FName: string;
-    FHashSize, FBlockSize: Int32;
+    FHashSize: Int32;
     FKeeper: IWindowsCng;
     FHash: Pointer;
     procedure Fresh;
   public
-    constructor Create(const AApi: TCngApi; AAlg: Pointer; const AName: string;
-      AHashSize, ABlockSize: Int32; const AKeeper: IWindowsCng);
+    constructor Create(const AApi: TCngApi; AAlg: Pointer;
+      AHashSize: Int32; const AKeeper: IWindowsCng);
     destructor Destroy; override;
-    function AlgorithmName: string;
     function HashSize: Int32;
-    function BlockSize: Int32;
     procedure Update(const AData: TBytes; AOffset, ALength: Int32);
     function DoFinal: TBytes;
-    procedure Reset;
     function Clone: IHash;
   end;
 
   // A CNG HMAC (keyed SHA-2). The HMAC-flagged algorithm-provider handle is borrowed from
-  // the context; the key is retained so Reset and DoFinal can re-key for reuse.
+  // the context; the key is retained so DoFinal can re-key for reuse.
   TWindowsCngHmac = class(TInterfacedObject, IHmac)
   strict private
   var
     FApi: TCngApi;
     FAlg: Pointer;
-    FName: string;
     FMacSize: Int32;
     FKeeper: IWindowsCng;
     FKey: TBytes;
     FHash: Pointer;
     procedure Fresh;
   public
-    constructor Create(const AApi: TCngApi; AAlg: Pointer; const AName: string;
+    constructor Create(const AApi: TCngApi; AAlg: Pointer;
       AMacSize: Int32; const AKeeper: IWindowsCng);
     destructor Destroy; override;
-    function AlgorithmName: string;
     function MacSize: Int32;
     procedure Init(const AKey: ISecretBuffer);
     procedure Update(const AData: TBytes; AOffset, ALength: Int32);
     function DoFinal: TBytes;
-    procedure Reset;
   end;
 
   // RFC 5869 HKDF over CNG: Extract via HMAC; Expand via the CNG HKDF provider when available, else
@@ -625,7 +617,6 @@ type
     FApi: TCngApi;
     FAlg: Pointer;
     FCategory: TAeadUsageCategory;
-    FName: string;
     FKeySize, FNonceSize, FTagSize: Int32;
     FKeeper: IWindowsCng;
     FKeyHandle: Pointer;
@@ -633,15 +624,13 @@ type
       const ANonce, AAad: TBytes; ATag: PByte);
   public
     constructor Create(const AApi: TCngApi; AAlg: Pointer;
-      ACategory: TAeadUsageCategory; const AName: string;
+      ACategory: TAeadUsageCategory;
       AKeySize, ANonceSize, ATagSize: Int32; const AKeeper: IWindowsCng);
     destructor Destroy; override;
-    function AlgorithmName: string;
     function UsageCategory: TAeadUsageCategory;
     function KeySize: Int32;
     function NonceSize: Int32;
     function TagSize: Int32;
-    function Overhead: Int32;
     procedure Init(const AKey: ISecretBuffer);
     function Seal(const ANonce, AAad, APlaintext: TBytes): TBytes;
     function Open(const ANonce, AAad, ACiphertext: TBytes): TBytes;
@@ -833,11 +822,9 @@ type
     FKeeper: IWindowsNCrypt;
     FOwner: INCryptKeyOwner; // pins the key handle for our lifetime
     FScheme: TSignatureScheme;
-    FSchemeName: string;
   public
     constructor Create(const AKeeper: IWindowsNCrypt; const AOwner: INCryptKeyOwner;
-      AScheme: TSignatureScheme; const ASchemeName: string);
-    function AlgorithmName: string;
+      AScheme: TSignatureScheme);
     function Sign: TBytes;
   end;
 
@@ -849,12 +836,10 @@ type
     FKeeper: IWindowsNCrypt;
     FKeyHandle: Pointer;
     FScheme: TSignatureScheme;
-    FSchemeName: string;
   public
     constructor Create(const AKeeper: IWindowsNCrypt; AKeyHandle: Pointer;
-      AScheme: TSignatureScheme; const ASchemeName: string);
+      AScheme: TSignatureScheme);
     destructor Destroy; override;
-    function AlgorithmName: string;
     function Verify(const ASignature: TBytes): Boolean;
   end;
 
@@ -929,7 +914,6 @@ type
   var
     FInner: ISigningCrypto;
     FNCrypt: IWindowsNCrypt;
-    class function SchemeName(AScheme: TSignatureScheme): string; static;
     // decodes a PEM PKCS#8 block to DER and imports it natively; the decoded bytes are the
     // plain or still-encrypted PKCS#8 the KSP accepts
     function TryImportPemNative(const AData: TBytes; const APassword: ISecretBuffer;
@@ -1084,14 +1068,12 @@ end;
 { TWindowsCngHash }
 
 constructor TWindowsCngHash.Create(const AApi: TCngApi; AAlg: Pointer;
-  const AName: string; AHashSize, ABlockSize: Int32; const AKeeper: IWindowsCng);
+  AHashSize: Int32; const AKeeper: IWindowsCng);
 begin
   inherited Create;
   FApi := AApi;
   FAlg := AAlg;
-  FName := AName;
   FHashSize := AHashSize;
-  FBlockSize := ABlockSize;
   FKeeper := AKeeper;
   Fresh;
 end;
@@ -1110,19 +1092,9 @@ begin
   inherited Destroy;
 end;
 
-function TWindowsCngHash.AlgorithmName: string;
-begin
-  Result := FName;
-end;
-
 function TWindowsCngHash.HashSize: Int32;
 begin
   Result := FHashSize;
-end;
-
-function TWindowsCngHash.BlockSize: Int32;
-begin
-  Result := FBlockSize;
 end;
 
 procedure TWindowsCngHash.Update(const AData: TBytes; AOffset, ALength: Int32);
@@ -1141,12 +1113,6 @@ begin
   Fresh;
 end;
 
-procedure TWindowsCngHash.Reset;
-begin
-  FApi.DestroyHash(FHash);
-  Fresh;
-end;
-
 function TWindowsCngHash.Clone: IHash;
 var
   LDup: Pointer;
@@ -1154,7 +1120,7 @@ var
 begin
   LDup := nil;
   TCngError.Check(FApi.DuplicateHash(FHash, LDup, nil, 0, 0));
-  LClone := TWindowsCngHash.Create(FApi, FAlg, FName, FHashSize, FBlockSize, FKeeper);
+  LClone := TWindowsCngHash.Create(FApi, FAlg, FHashSize, FKeeper);
   // discard the fresh handle the constructor made; adopt the duplicated current-state one
   FApi.DestroyHash(LClone.FHash);
   LClone.FHash := LDup;
@@ -1164,12 +1130,11 @@ end;
 { TWindowsCngHmac }
 
 constructor TWindowsCngHmac.Create(const AApi: TCngApi; AAlg: Pointer;
-  const AName: string; AMacSize: Int32; const AKeeper: IWindowsCng);
+  AMacSize: Int32; const AKeeper: IWindowsCng);
 begin
   inherited Create;
   FApi := AApi;
   FAlg := AAlg;
-  FName := AName;
   FMacSize := AMacSize;
   FKeeper := AKeeper;
 end;
@@ -1188,11 +1153,6 @@ begin
     FApi.DestroyHash(FHash);
   TSecureMemory.WipeBytes(FKey);
   inherited Destroy;
-end;
-
-function TWindowsCngHmac.AlgorithmName: string;
-begin
-  Result := FName;
 end;
 
 function TWindowsCngHmac.MacSize: Int32;
@@ -1224,12 +1184,6 @@ begin
   SetLength(Result, FMacSize);
   TCngError.Check(FApi.FinishHash(FHash, PByte(Result), FMacSize, 0));
   // re-key a fresh handle so the instance is reusable with the same key
-  FApi.DestroyHash(FHash);
-  Fresh;
-end;
-
-procedure TWindowsCngHmac.Reset;
-begin
   FApi.DestroyHash(FHash);
   Fresh;
 end;
@@ -1347,14 +1301,13 @@ end;
 { TWindowsCngAead }
 
 constructor TWindowsCngAead.Create(const AApi: TCngApi; AAlg: Pointer;
-  ACategory: TAeadUsageCategory; const AName: string;
+  ACategory: TAeadUsageCategory;
   AKeySize, ANonceSize, ATagSize: Int32; const AKeeper: IWindowsCng);
 begin
   inherited Create;
   FApi := AApi;
   FAlg := AAlg;
   FCategory := ACategory;
-  FName := AName;
   FKeySize := AKeySize;
   FNonceSize := ANonceSize;
   FTagSize := ATagSize;
@@ -1366,11 +1319,6 @@ begin
   if FKeyHandle <> nil then
     FApi.DestroyKey(FKeyHandle);
   inherited Destroy;
-end;
-
-function TWindowsCngAead.AlgorithmName: string;
-begin
-  Result := FName;
 end;
 
 function TWindowsCngAead.UsageCategory: TAeadUsageCategory;
@@ -1389,11 +1337,6 @@ begin
 end;
 
 function TWindowsCngAead.TagSize: Int32;
-begin
-  Result := FTagSize;
-end;
-
-function TWindowsCngAead.Overhead: Int32;
 begin
   Result := FTagSize;
 end;
@@ -2361,43 +2304,34 @@ function TWindowsCng.TryCreateHash(AAlgorithm: THashAlgorithm;
   out AHash: IHash): Boolean;
 var
   LAlg: Pointer;
-  LName: string;
-  LHashSize, LBlockSize: Int32;
+  LHashSize: Int32;
 begin
   case AAlgorithm of
     THashAlgorithm.SHA_256:
       begin
         LAlg := FHashSha256;
-        LName := 'SHA-256';
         LHashSize := 32;
-        LBlockSize := 64;
       end;
     THashAlgorithm.SHA_384:
       begin
         LAlg := FHashSha384;
-        LName := 'SHA-384';
         LHashSize := 48;
-        LBlockSize := 128;
       end;
     THashAlgorithm.SHA_512:
       begin
         LAlg := FHashSha512;
-        LName := 'SHA-512';
         LHashSize := 64;
-        LBlockSize := 128;
       end;
   else
     LAlg := nil;
-    LName := '';
     LHashSize := 0;
-    LBlockSize := 0;
   end;
   if LAlg = nil then
   begin
     AHash := nil;
     Exit(False);
   end;
-  AHash := TWindowsCngHash.Create(FApi, LAlg, LName, LHashSize, LBlockSize,
+  AHash := TWindowsCngHash.Create(FApi, LAlg, LHashSize,
     Self as IWindowsCng);
   Result := True;
 end;
@@ -2420,31 +2354,26 @@ function TWindowsCng.TryCreateHmac(AAlgorithm: THashAlgorithm;
   out AHmac: IHmac): Boolean;
 var
   LAlg: Pointer;
-  LName: string;
   LMacSize: Int32;
 begin
   case AAlgorithm of
     THashAlgorithm.SHA_256:
       begin
         LAlg := FHmacSha256;
-        LName := 'HMAC-SHA-256';
         LMacSize := 32;
       end;
     THashAlgorithm.SHA_384:
       begin
         LAlg := FHmacSha384;
-        LName := 'HMAC-SHA-384';
         LMacSize := 48;
       end;
     THashAlgorithm.SHA_512:
       begin
         LAlg := FHmacSha512;
-        LName := 'HMAC-SHA-512';
         LMacSize := 64;
       end;
   else
     LAlg := nil;
-    LName := '';
     LMacSize := 0;
   end;
   if LAlg = nil then
@@ -2452,7 +2381,7 @@ begin
     AHmac := nil;
     Exit(False);
   end;
-  AHmac := TWindowsCngHmac.Create(FApi, LAlg, LName, LMacSize, Self as IWindowsCng);
+  AHmac := TWindowsCngHmac.Create(FApi, LAlg, LMacSize, Self as IWindowsCng);
   Result := True;
 end;
 
@@ -2583,7 +2512,6 @@ function TWindowsCng.TryCreateAead(AAlgorithm: TAeadAlgorithm;
 var
   LAlg: Pointer;
   LCategory: TAeadUsageCategory;
-  LName: string;
   LKeySize: Int32;
 begin
   case AAlgorithm of
@@ -2591,27 +2519,23 @@ begin
       begin
         LAlg := FAesGcm;
         LCategory := TAeadUsageCategory.AesGcm;
-        LName := 'AES-128-GCM';
         LKeySize := 16;
       end;
     TAeadAlgorithm.AES_256_GCM:
       begin
         LAlg := FAesGcm;
         LCategory := TAeadUsageCategory.AesGcm;
-        LName := 'AES-256-GCM';
         LKeySize := 32;
       end;
     TAeadAlgorithm.CHACHA20_POLY1305:
       begin
         LAlg := FChaCha;
         LCategory := TAeadUsageCategory.ChaCha20;
-        LName := 'ChaCha20-Poly1305';
         LKeySize := 32;
       end;
   else
     LAlg := nil;
     LCategory := TAeadUsageCategory.AesGcm;
-    LName := '';
     LKeySize := 0;
   end;
   if LAlg = nil then
@@ -2619,7 +2543,7 @@ begin
     AAead := nil;
     Exit(False);
   end;
-  AAead := TWindowsCngAead.Create(FApi, LAlg, LCategory, LName, LKeySize, 12, 16,
+  AAead := TWindowsCngAead.Create(FApi, LAlg, LCategory, LKeySize, 12, 16,
     Self as IWindowsCng);
   Result := True;
 end;
@@ -3066,19 +2990,12 @@ end;
 { TWindowsSignatureSigner }
 
 constructor TWindowsSignatureSigner.Create(const AKeeper: IWindowsNCrypt;
-  const AOwner: INCryptKeyOwner; AScheme: TSignatureScheme;
-  const ASchemeName: string);
+  const AOwner: INCryptKeyOwner; AScheme: TSignatureScheme);
 begin
   inherited Create;
   FKeeper := AKeeper;
   FOwner := AOwner;
   FScheme := AScheme;
-  FSchemeName := ASchemeName;
-end;
-
-function TWindowsSignatureSigner.AlgorithmName: string;
-begin
-  Result := FSchemeName;
 end;
 
 function TWindowsSignatureSigner.Sign: TBytes;
@@ -3089,24 +3006,18 @@ end;
 { TWindowsSignatureVerifier }
 
 constructor TWindowsSignatureVerifier.Create(const AKeeper: IWindowsNCrypt;
-  AKeyHandle: Pointer; AScheme: TSignatureScheme; const ASchemeName: string);
+  AKeyHandle: Pointer; AScheme: TSignatureScheme);
 begin
   inherited Create;
   FKeeper := AKeeper;
   FKeyHandle := AKeyHandle;
   FScheme := AScheme;
-  FSchemeName := ASchemeName;
 end;
 
 destructor TWindowsSignatureVerifier.Destroy;
 begin
   FKeeper.FreeVerifyKey(FKeyHandle);
   inherited Destroy;
-end;
-
-function TWindowsSignatureVerifier.AlgorithmName: string;
-begin
-  Result := FSchemeName;
 end;
 
 function TWindowsSignatureVerifier.Verify(const ASignature: TBytes): Boolean;
@@ -3815,11 +3726,6 @@ begin
   FNCrypt := ANCrypt;
 end;
 
-class function TWindowsSigningCrypto.SchemeName(AScheme: TSignatureScheme): string;
-begin
-  Result := TEnumUtilities.GetName<TSignatureScheme>(AScheme);
-end;
-
 function TWindowsSigningCrypto.TryImportPemNative(const AData: TBytes;
   const APassword: ISecretBuffer; out AKey: ISigningKey): Boolean;
 var
@@ -3931,7 +3837,7 @@ begin
     if not (TArrayUtilities.Contains<TSignatureScheme>(AKey.CapableSchemes, AScheme)) then
       raise EArgumentTlsLibException.CreateRes(@SSchemeNotCapable);
     Result := TWindowsSignatureSigner.Create(FNCrypt, LNative.SigningKeyOwner,
-      AScheme, SchemeName(AScheme));
+      AScheme);
   end
   else
     Result := FInner.CreateSignatureSigner(AScheme, AKey);
@@ -3946,8 +3852,7 @@ begin
   // key crypt32 cannot decode falls back to the portable verifier (which owns the error)
   if TWindowsNCrypt.IsNativeScheme(AScheme) and FNCrypt.CanVerify and
     FNCrypt.TryImportSpki(APublicKeyDer, LKeyHandle) then
-    Result := TWindowsSignatureVerifier.Create(FNCrypt, LKeyHandle, AScheme,
-      SchemeName(AScheme))
+    Result := TWindowsSignatureVerifier.Create(FNCrypt, LKeyHandle, AScheme)
   else
     Result := FInner.CreateSignatureVerifier(AScheme, APublicKeyDer);
 end;
