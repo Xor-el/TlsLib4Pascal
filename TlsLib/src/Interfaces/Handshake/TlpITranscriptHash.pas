@@ -46,16 +46,9 @@ type
     function IsActive: Boolean;
 
     /// <summary>
-    /// On a HelloRetryRequest, replaces ClientHello1 in the transcript with the
-    /// synthetic message_hash message (RFC 8446 4.4.1): snapshots the digest so far
-    /// (Hash(ClientHello1)), restarts from AFreshHash, and feeds
-    /// Handshake(message_hash, Hash(ClientHello1)). Requires an active hash.
-    /// </summary>
-    procedure ReplaceWithMessageHash(const AFreshHash: IHash);
-    /// <summary>
-    /// Seeds the transcript with the synthetic message_hash message from a known
-    /// Hash(ClientHello1) (RFC 8446 4.4.1), for rebuilding the transcript from a
-    /// stateless HelloRetryRequest cookie without the original ClientHello1.
+    /// Restarts the transcript from AFreshHash, seeded with the synthetic
+    /// Handshake(message_hash, ACh1Hash) that replaces ClientHello1 after a
+    /// HelloRetryRequest (RFC 8446 4.4.1). Discards any prior state or deferred buffer.
     /// </summary>
     procedure SeedWithMessageHash(const AFreshHash: IHash; const ACh1Hash: TBytes);
 
