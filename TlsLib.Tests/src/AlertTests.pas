@@ -38,6 +38,7 @@ type
     procedure TestUnknownByteRejected;
     procedure TestCreateFatalHelper;
     procedure TestErrorCreateFatal;
+    procedure TestErrorCarriesOrigin;
   end;
 
 implementation
@@ -105,6 +106,20 @@ begin
   CheckEquals(Ord(TTlsAlertDescription.HandshakeFailure),
     Ord(LError.Alert.Description), 'description');
   CheckEquals('handshake failed', LError.Message, 'message');
+  CheckEquals(Ord(TTlsErrorOrigin.Unknown), Ord(LError.Origin),
+    'origin defaults to unknown');
+end;
+
+procedure TTestAlert.TestErrorCarriesOrigin;
+var
+  LFatal, LPlain: TTlsError;
+begin
+  LFatal := TTlsError.CreateFatal(TTlsAlertDescription.HandshakeFailure,
+    'peer alert', TTlsErrorOrigin.Peer);
+  CheckEquals(Ord(TTlsErrorOrigin.Peer), Ord(LFatal.Origin), 'CreateFatal keeps the origin');
+  LPlain := TTlsError.Create(TTlsAlert.CreateFatal(TTlsAlertDescription.CloseNotify),
+    'local', TTlsErrorOrigin.Local);
+  CheckEquals(Ord(TTlsErrorOrigin.Local), Ord(LPlain.Origin), 'Create keeps the origin');
 end;
 
 initialization

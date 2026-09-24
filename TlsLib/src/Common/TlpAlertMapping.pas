@@ -64,9 +64,11 @@ begin
   // our own exceptions carry a resourcestring message (no secret material); an
   // unrecognized exception is reduced to a generic message so nothing leaks
   if AException is EBaseTlsLibException then
-    Result := TTlsError.Create(AlertFor(AException), AException.Message)
+    Result := TTlsError.Create(AlertFor(AException), AException.Message,
+      TTlsErrorOrigin.Local)
   else
-    Result := TTlsError.Create(AlertFor(AException), SInternalError);
+    Result := TTlsError.Create(AlertFor(AException), SInternalError,
+      TTlsErrorOrigin.Local);
 end;
 
 end.

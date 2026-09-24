@@ -21,6 +21,7 @@ uses
   SysUtils,
   TlpTlsAlert,
   TlpTlsAlertProtocol,
+  TlpTlsError,
   TlpTrustPolicy,
   TlpITlsEngine,
   InteropSocket,
@@ -70,6 +71,7 @@ type
   strict private
     class function ResultOf(AStatus: TInteropStatus;
       const ADetail: string): TInteropResult; static;
+    class function FromLastError(const AEngine: ITlsEngine): TInteropResult; static;
     class function DrainEvents(const AEngine: ITlsEngine;
       var AResult: TInteropResult;
       out ACertEvent: ICertificateReceivedEvent): Boolean; static;
@@ -128,6 +130,20 @@ begin
   Result := Default(TInteropResult);
   Result.Status := AStatus;
   Result.Detail := ADetail;
+end;
+
+class function TInteropPump.FromLastError(const AEngine: ITlsEngine): TInteropResult;
+var
+  LError: TTlsError;
+begin
+  LError := AEngine.LastError;
+  // a received fatal alert makes the engine terminal too; report whose alert it was
+  if LError.Origin = TTlsErrorOrigin.Peer then
+    Result := ResultOf(TInteropStatus.PeerAlert, LError.Message)
+  else
+    Result := ResultOf(TInteropStatus.LocalAlert, LError.Message);
+  Result.HasAlert := True;
+  Result.Alert := LError.Alert.Description;
 end;
 
 class procedure TInteropPump.Flush(const AEngine: ITlsEngine;
@@ -275,14 +291,6 @@ var
   LGot: Int32;
   LOutcome: TTlsOutcome;
   LCertEvent: ICertificateReceivedEvent;
-
-  function ReportFatal: TInteropResult;
-  begin
-    Result := ResultOf(TInteropStatus.LocalAlert, AEngine.LastError.Message);
-    Result.HasAlert := True;
-    Result.Alert := AEngine.LastError.Alert.Description;
-  end;
-
 begin
   LBuf := nil;
   SetLength(LBuf, TransportChunk);
@@ -313,7 +321,7 @@ begin
     if AEngine.IsHandshaking and DrainEvents(AEngine, Result, LCertEvent) then
       Exit;
     if LOutcome = TTlsOutcome.Fatal then
-      Exit(ReportFatal);
+      Exit(FromLastError(AEngine));
     // an async verdict parks the handshake after the pipeline accepts the peer chain; resolve
     // it out-of-band so the flight can complete (a reject makes the engine terminal). Resolving
     // before the next Recv is required - a parked engine sends nothing, so the peer sends nothing
@@ -323,7 +331,7 @@ begin
       LCertEvent := nil;
       Flush(AEngine, ASocket);
       if AEngine.IsTerminal then
-        Exit(ReportFatal);
+        Exit(FromLastError(AEngine));
     end;
   end;
   Result := ResultOf(TInteropStatus.Ok, 'handshake complete');
@@ -358,9 +366,7 @@ begin
     // send the queued alert to the peer before reporting (as DriveHandshake does); the
     // engine has framed the alert record but the shim must flush it, else the peer sees EOF
     Flush(AEngine, ASocket);
-    Result := ResultOf(TInteropStatus.LocalAlert, AEngine.LastError.Message);
-    Result.HasAlert := True;
-    Result.Alert := AEngine.LastError.Alert.Description;
+    Result := FromLastError(AEngine);
     Exit;
   end;
   // a non-fatal input can still queue outbound - e.g. a warning no_renegotiation in response to
