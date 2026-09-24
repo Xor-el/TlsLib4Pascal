@@ -1,0 +1,33 @@
+TlsLib.Tests/src/Tls13LoopbackTests.pas
+  s_09d3c46d1a9b1f::t_1ae44eaeed6db7 297-354
+  s_09d3c46d1a9b1f::t_9f750066403d44 2124-2150
+  s_09d3c46d1a9b1f::t_cde66825a15e2d 82-85
+  s_09d3c46d1a9b1f::t_90556ff1ffb866 160
+TlsLib.Tests/Data/Certs/Ed25519Chain.txt
+  s_09d3c46d1a9b1f::t_ab88b651096fe8 1-6
+TlsLib.Tests/src/Tls12LoopbackTests.pas
+  s_09d3c46d1a9b1f::t_47a4e677c3eaa6 273-341
+  s_09d3c46d1a9b1f::t_62ec7a7d2a77bb 94
+  s_09d3c46d1a9b1f::t_fe90480c2bd687 932-958
+  s_09d3c46d1a9b1f::t_d5e8cc6bf6013c 65-67
+.github/workflows/ci/interop/run-openssl-matrix.sh
+  s_09d3c46d1a9b1f::t_0a3a018a832cb1 47
+TlsLib/src/Negotiation/TlpSignatureSchemeRegistry.pas
+  s_09d3c46d1a9b1f::t_6a1634fec04877 34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1d8df4627c8c70af0ad4c535d5571f0006481e07",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
