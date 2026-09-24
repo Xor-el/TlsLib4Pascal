@@ -19,7 +19,8 @@ uses
   SysUtils,
   Classes,
   TlpIPkixProvider,
-  TlpICertificateTrust;
+  TlpICertificateTrust,
+  TlpCertificateVerifier;
 
 type
   /// <summary>
@@ -42,9 +43,6 @@ type
   end;
 
 implementation
-
-uses
-  TlpCertificateVerifier;
 
 { TBundleTrust }
 
