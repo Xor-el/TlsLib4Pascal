@@ -15,10 +15,13 @@ unit TlpUnixSystemTrust;
 
 interface
 
+{$IF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_BSD) OR DEFINED(TLSLIB_SOLARIS)}
+
 uses
   SysUtils,
   TlpIPkixProvider,
-  TlpFileSystemTrust;
+  TlpFileSystemTrust,
+  TlpPosixPrivilege;
 
 type
   /// <summary>
@@ -32,12 +35,16 @@ type
   strict protected
     function SourceName: string; override;
   public
-    /// <summary>Uses the process SSL_CERT_FILE / SSL_CERT_DIR environment and the
-    /// built-in path table.</summary>
+    /// <summary>Uses the process SSL_CERT_FILE / SSL_CERT_DIR environment - ignored when the
+    /// process runs with elevated privileges - and the built-in path table.</summary>
     constructor Create(const APkix: IPkixProvider); overload;
   end;
 
+{$IFEND}
+
 implementation
+
+{$IF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_BSD) OR DEFINED(TLSLIB_SOLARIS)}
 
 type
   /// <summary>
@@ -89,17 +96,28 @@ end;
 { TUnixRootSource }
 
 constructor TUnixRootSource.Create(const APkix: IPkixProvider);
+var
+  LEnvFile, LEnvDir: string;
 begin
-  inherited Create(APkix,
-    GetEnvironmentVariable(TUnixTrustPaths.EnvFileVar),
-    GetEnvironmentVariable(TUnixTrustPaths.EnvDirVar),
-    TUnixTrustPaths.CandidateFiles,
-    TUnixTrustPaths.CandidateDirs);
+  LEnvFile := GetEnvironmentVariable(TUnixTrustPaths.EnvFileVar);
+  LEnvDir := GetEnvironmentVariable(TUnixTrustPaths.EnvDirVar);
+  // an attacker who controls the environment of a setuid/setgid process could point
+  // SSL_CERT_* at a CA they own; drop the override under elevated privilege and fall
+  // back to the built-in table
+  if TPosixPrivilege.IsElevated then
+  begin
+    LEnvFile := '';
+    LEnvDir := '';
+  end;
+  inherited Create(APkix, LEnvFile, LEnvDir,
+    TUnixTrustPaths.CandidateFiles, TUnixTrustPaths.CandidateDirs);
 end;
 
 function TUnixRootSource.SourceName: string;
 begin
   Result := 'Unix';
 end;
+
+{$IFEND}
 
 end.

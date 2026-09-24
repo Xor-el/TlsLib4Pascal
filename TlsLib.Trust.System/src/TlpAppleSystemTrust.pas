@@ -15,8 +15,9 @@ unit TlpAppleSystemTrust;
 
 interface
 
-uses
 {$IF DEFINED(TLSLIB_MACOS) OR DEFINED(TLSLIB_IOS)}
+
+uses
 {$IFDEF FPC}
 {$LINKFRAMEWORK CoreFoundation}
 {$LINKFRAMEWORK Security}
@@ -26,7 +27,6 @@ uses
   TlpIClock,
   TlpSystemTrustBase,
   TlpIPlatformChainEngine,
-{$IFEND}
   Generics.Collections,
   SysUtils,
   TlpTlsAlert;
@@ -40,8 +40,6 @@ type
   public
     class function OsStatusToAlert(AStatus: Int32): TTlsAlertDescription; static;
   end;
-
-{$IF DEFINED(TLSLIB_MACOS) OR DEFINED(TLSLIB_IOS)}
 
 {$IFDEF TLSLIB_MACOS}
 type
@@ -82,6 +80,8 @@ type
 
 implementation
 
+{$IF DEFINED(TLSLIB_MACOS) OR DEFINED(TLSLIB_IOS)}
+
 const
   // errSec OSStatus values (SecBase.h) whose meaning we surface as a granular alert.
   ErrSecCertificateExpired = -67818;
@@ -91,33 +91,6 @@ const
   ErrSecIncompleteCertRevocationCheck = -67635;
   ErrSecInvalidExtendedKeyUsage = -67609;
   ErrSecHostNameMismatch = -67602;
-
-{ TAppleAlertMap }
-
-class function TAppleAlertMap.OsStatusToAlert(
-  AStatus: Int32): TTlsAlertDescription;
-begin
-  case AStatus of
-    ErrSecCertificateExpired, ErrSecCertificateNotValidYet:
-      Result := TTlsAlertDescription.CertificateExpired;
-    ErrSecCertificateRevoked:
-      Result := TTlsAlertDescription.CertificateRevoked;
-    ErrSecIncompleteCertRevocationCheck:
-      // an indeterminate revocation under a Hard posture: report it as such
-      Result := TTlsAlertDescription.BadCertificateStatusResponse;
-    ErrSecInvalidExtendedKeyUsage:
-      Result := TTlsAlertDescription.UnsupportedCertificate;
-    ErrSecHostNameMismatch:
-      Result := TTlsAlertDescription.BadCertificate;
-  else
-    // errSecNotTrusted (-67843), errSecTrustSettingDeny (-67654),
-    // errSecCreateChainFailed (-25318) and any other status collapse to the safe
-    // untrusted-root default - never soften a rejection into success.
-    Result := TTlsAlertDescription.UnknownCa;
-  end;
-end;
-
-{$IF DEFINED(TLSLIB_MACOS) OR DEFINED(TLSLIB_IOS)}
 
 const
   KCFStringEncodingUTF8 = $08000100;
@@ -369,6 +342,31 @@ type
     class function CopyTrustSettingsCertificates: TArray<TBytes>; static;
 {$ENDIF}
   end;
+
+{ TAppleAlertMap }
+
+class function TAppleAlertMap.OsStatusToAlert(
+  AStatus: Int32): TTlsAlertDescription;
+begin
+  case AStatus of
+    ErrSecCertificateExpired, ErrSecCertificateNotValidYet:
+      Result := TTlsAlertDescription.CertificateExpired;
+    ErrSecCertificateRevoked:
+      Result := TTlsAlertDescription.CertificateRevoked;
+    ErrSecIncompleteCertRevocationCheck:
+      // an indeterminate revocation under a Hard posture: report it as such
+      Result := TTlsAlertDescription.BadCertificateStatusResponse;
+    ErrSecInvalidExtendedKeyUsage:
+      Result := TTlsAlertDescription.UnsupportedCertificate;
+    ErrSecHostNameMismatch:
+      Result := TTlsAlertDescription.BadCertificate;
+  else
+    // errSecNotTrusted (-67843), errSecTrustSettingDeny (-67654),
+    // errSecCreateChainFailed (-25318) and any other status collapse to the safe
+    // untrusted-root default - never soften a rejection into success.
+    Result := TTlsAlertDescription.UnknownCa;
+  end;
+end;
 
 { TAppleTrustApi }
 
