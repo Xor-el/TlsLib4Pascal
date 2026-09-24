@@ -1,0 +1,52 @@
+TlsLib.Tests/src/Tls13KeyScheduleTests.pas
+  s_09d3c46d1a9b1f::t_eedf9ecce21d35 280-304
+  s_09d3c46d1a9b1f::t_524e3fb74ae43b 68
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_09d3c46d1a9b1f::t_38cc9e7d3cf172 730,732-737
+  s_09d3c46d1a9b1f::t_60aa47c1ab8077 228-229
+TlsLib.Tests/src/ProviderTests.pas
+  s_09d3c46d1a9b1f::t_bab0dc2acaf016 55
+  s_09d3c46d1a9b1f::t_17cf5a60d8fe6f 183-218
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_09d3c46d1a9b1f::t_e1a98aef411ae5 126-128
+  s_09d3c46d1a9b1f::t_7f4d039ad3cbf6 1063-1106
+TlsLib/src/KeySchedule/TlpTls13KeySchedule.pas
+  s_09d3c46d1a9b1f::t_adf8294f4c892d 434
+  s_09d3c46d1a9b1f::t_9166ee8df20ed4 73
+  s_09d3c46d1a9b1f::t_4d0f3cb5848b81 141-142
+  s_09d3c46d1a9b1f::t_a061970a74660e 413-426
+TlsLib/src/Interfaces/Crypto/Providers/TlpICryptoProvider.pas
+  s_09d3c46d1a9b1f::t_336ec4034a567a 84-85
+TlsLib/src/KeySchedule/TlpTls12KeySchedule.pas
+  s_09d3c46d1a9b1f::t_46e91b647ffc3c 138-151
+  s_09d3c46d1a9b1f::t_beeb3ca49857ab 268
+  s_09d3c46d1a9b1f::t_b040120bbbff97 59
+  s_09d3c46d1a9b1f::t_5d4f9db0d42fca 105-106
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_09d3c46d1a9b1f::t_9909375a53fac4 1289-1290
+  s_09d3c46d1a9b1f::t_795c79181e37b5 162
+TlsLib.Tests/src/Tls12KeyScheduleTests.pas
+  s_09d3c46d1a9b1f::t_c079c6621cd935 169-194
+  s_09d3c46d1a9b1f::t_ae45ba8cf7c207 51
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_875243b64f454e 455
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_3f3af99dc8b925 325,330
+  s_09d3c46d1a9b1f::t_0cdf3557342a74 2370-2371
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "63b9d4adab298b0269a08f6ec28d38c9c8fa90a4",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
