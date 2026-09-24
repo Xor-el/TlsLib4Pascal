@@ -76,7 +76,11 @@ type
     /// that window an application_data record before the handshake completes is unexpected.</summary>
     FEarlyReadAccepted: Boolean;
     FInbound: TBytes;
+    // live (un-taken) outbound bytes are [FOutHead, FOutTail) within the capacity buffer, so
+    // append and take never shift it down (which would be quadratic on a chunk-drained bulk write)
     FOutbound: TBytes;
+    FOutHead: Int32;
+    FOutTail: Int32;
     FFramed: TQueue<TBytes>;
     // running total of the bytes held in FFramed, so the caller can bound the framed backlog
     // (records the peer sent faster than they are pulled) without walking the queue
@@ -106,6 +110,8 @@ type
     function TryDecodeFramed(const ARecord: TBytes;
       out AFragment: TTlsRecordFragment): Boolean;
     procedure AppendOutgoing(const ARecord: TBytes);
+    // once drained, rewind the cursors and release the buffer if it grew past the retain cap
+    procedure ResetOutboundIfDrained;
   public
     constructor Create;
     destructor Destroy; override;
@@ -234,6 +240,11 @@ const
   // plaintext app-read buffer, which is a different bound on decrypted data.
   DefaultMaxFramedBacklog = Int32(8) *
     (TRecordLimits.HeaderLength + TRecordLimits.MaxCipherTextTls13);
+  OutboundMinCapacity = Int32(4096);
+  // a buffer grown past this (a one-off bulk write) is released on full drain, not retained;
+  // four max-size records covers a common transport chunk and a full flight without regrow churn
+  OutboundRetainCapacity = Int32(4) *
+    (TRecordLimits.HeaderLength + TRecordLimits.MaxCipherTextTls13);
   OuterApplicationData = Byte(23); // TLSCiphertext outer content type
   OuterChangeCipherSpec = Byte(20); // the legacy change_cipher_spec outer content type
   OuterHandshake = Byte(22); // the handshake outer content type
@@ -268,6 +279,8 @@ begin
   FWriteIsPlaintext := True;
   FFramed := TQueue<TBytes>.Create;
   FFramedBytes := 0;
+  FOutHead := 0;
+  FOutTail := 0;
   FMaxCiphertextLength := TRecordLimits.MaxCipherTextTls13;
   FMaxInboundBuffer := TRecordLimits.HeaderLength + TRecordLimits.MaxCipherTextTls13;
   FMaxFramedBacklog := DefaultMaxFramedBacklog;
@@ -693,14 +706,47 @@ end;
 
 procedure TRecordLayer.AppendOutgoing(const ARecord: TBytes);
 var
-  LBase, LLen: Int32;
+  LLen, LLive, LNeed, LCap: Int32;
 begin
   LLen := System.Length(ARecord);
   if LLen <= 0 then
     Exit;
-  LBase := System.Length(FOutbound);
-  SetLength(FOutbound, LBase + LLen);
-  System.Move(ARecord[0], FOutbound[LBase], LLen);
+  if FOutTail + LLen > System.Length(FOutbound) then
+  begin
+    // reclaim the drained prefix before growing; runs only when the record would not fit
+    if FOutHead > 0 then
+    begin
+      LLive := FOutTail - FOutHead;
+      if LLive > 0 then
+        System.Move(FOutbound[FOutHead], FOutbound[0], LLive);
+      FOutHead := 0;
+      FOutTail := LLive;
+    end;
+    LNeed := FOutTail + LLen;
+    if LNeed > System.Length(FOutbound) then
+    begin
+      LCap := System.Length(FOutbound);
+      if LCap < OutboundMinCapacity then
+        LCap := OutboundMinCapacity;
+      if LCap <= High(Int32) div 2 then
+        LCap := LCap * 2;
+      if LCap < LNeed then
+        LCap := LNeed;
+      SetLength(FOutbound, LCap);
+    end;
+  end;
+  System.Move(ARecord[0], FOutbound[FOutTail], LLen);
+  Inc(FOutTail, LLen);
+end;
+
+procedure TRecordLayer.ResetOutboundIfDrained;
+begin
+  if FOutHead <> FOutTail then
+    Exit;
+  FOutHead := 0;
+  FOutTail := 0;
+  if System.Length(FOutbound) > OutboundRetainCapacity then
+    FOutbound := nil;
 end;
 
 function TRecordLayer.WriteNeedsKeyUpdate: Boolean;
@@ -730,9 +776,16 @@ begin
 end;
 
 function TRecordLayer.TakeOutgoing: TBytes;
+var
+  LPending: Int32;
 begin
-  Result := FOutbound;
-  FOutbound := nil;
+  LPending := FOutTail - FOutHead;
+  if LPending <= 0 then
+    Exit(nil);
+  // a copy, not the capacity buffer itself, which the next append would then copy-on-write
+  Result := System.Copy(FOutbound, FOutHead, LPending);
+  FOutHead := FOutTail;
+  ResetOutboundIfDrained;
 end;
 
 function TRecordLayer.TakeOutgoing(var ADest: TBytes; ADestOffset: Int32): Int32;
@@ -742,19 +795,20 @@ begin
   LCapacity := System.Length(ADest) - ADestOffset;
   if (ADestOffset < 0) or (LCapacity <= 0) then
     Exit(0);
-  Result := System.Length(FOutbound);
+  Result := FOutTail - FOutHead;
   if Result > LCapacity then
     Result := LCapacity;
   if Result > 0 then
   begin
-    Move(FOutbound[0], ADest[ADestOffset], Result);
-    FOutbound := System.Copy(FOutbound, Result, System.Length(FOutbound) - Result);
+    Move(FOutbound[FOutHead], ADest[ADestOffset], Result);
+    Inc(FOutHead, Result);
+    ResetOutboundIfDrained;
   end;
 end;
 
 function TRecordLayer.PendingOutgoing: Int32;
 begin
-  Result := System.Length(FOutbound);
+  Result := FOutTail - FOutHead;
 end;
 
 end.

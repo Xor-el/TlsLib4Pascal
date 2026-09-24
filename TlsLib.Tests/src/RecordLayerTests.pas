@@ -46,6 +46,7 @@ type
       out AFragment: TTlsRecordFragment): Boolean;
     function ExpectFatal(const ALayer: TRecordLayer; const AWire: TBytes;
       ADescription: TTlsAlertDescription): Boolean;
+    class function MakePayload(ALen: Int32; ASeed: Byte): TBytes; static;
   published
     procedure TestPlaintextRecordRoundTrip;
     procedure TestRecordSpanningMultipleFeeds;
@@ -83,6 +84,10 @@ type
     procedure TestTerminalAfterFatal;
     procedure TestTakeOutgoingIntoBufferRetainsRemainder;
     procedure TestTakeOutgoingIntoBufferGuardsBadOffset;
+    procedure TestTakeOutgoingInterleavedAppendDrainPreservesOrder;
+    procedure TestTakeOutgoingAppendAfterPartialDrainCompacts;
+    procedure TestTakeOutgoingReleasesAndRegrowsAfterLargeWrite;
+    procedure TestOutgoingRandomInterleaveMatchesReferenceQueue;
   end;
 
 implementation
@@ -1013,6 +1018,186 @@ begin
   finally
     LLayer.Free;
     LExpectLayer.Free;
+  end;
+end;
+
+class function TTestRecordLayer.MakePayload(ALen: Int32; ASeed: Byte): TBytes;
+var
+  I: Int32;
+begin
+  Result := nil;
+  SetLength(Result, ALen);
+  for I := 0 to ALen - 1 do
+    Result[I] := Byte(ASeed + I);
+end;
+
+procedure TTestRecordLayer.TestTakeOutgoingInterleavedAppendDrainPreservesOrder;
+var
+  LLayer, LTwin: TRecordLayer;
+  LA, LB, LExpected, LChunk, LOut: TBytes;
+  LGot: Int32;
+begin
+  LLayer := TRecordLayer.Create;
+  LTwin := TRecordLayer.Create;
+  try
+    LA := MakePayload(7, $10);
+    LB := MakePayload(20, $80);
+    // the twin frames the same two writes back-to-back; its whole-take is the byte-exact
+    // wire the interleaved append/drain below must reproduce in order
+    LTwin.Write(TTlsContentType.Handshake, LA, 0, System.Length(LA));
+    LTwin.Write(TTlsContentType.Handshake, LB, 0, System.Length(LB));
+    LExpected := LTwin.TakeOutgoing;
+
+    LLayer.Write(TTlsContentType.Handshake, LA, 0, System.Length(LA));
+    // take part of A's record (leaves the head cursor mid-buffer), then append B behind it
+    LChunk := nil;
+    SetLength(LChunk, 8);
+    LGot := LLayer.TakeOutgoing(LChunk, 0);
+    LOut := System.Copy(LChunk, 0, LGot);
+    LLayer.Write(TTlsContentType.Handshake, LB, 0, System.Length(LB));
+    // drain the rest in 8-byte takes
+    repeat
+      LGot := LLayer.TakeOutgoing(LChunk, 0);
+      if LGot > 0 then
+        LOut := ConcatBytes(LOut, System.Copy(LChunk, 0, LGot));
+    until LGot = 0;
+    CheckEqualBytes('interleaved append/drain reproduces the contiguous wire', LExpected, LOut);
+    CheckEquals(0, LLayer.PendingOutgoing, 'nothing pending after a full drain');
+  finally
+    LLayer.Free;
+    LTwin.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestTakeOutgoingAppendAfterPartialDrainCompacts;
+var
+  LLayer, LTwin: TRecordLayer;
+  LRec, LExpected, LChunk, LOut: TBytes;
+  LGot, I: Int32;
+begin
+  LLayer := TRecordLayer.Create;
+  LTwin := TRecordLayer.Create;
+  try
+    // a full-size plaintext record per write; three of them exceed the initial capacity, so
+    // an append lands with the head cursor advanced -> the compaction-before-grow path
+    LRec := MakePayload(16384, $21);
+    for I := 0 to 2 do
+      LTwin.Write(TTlsContentType.ApplicationData, LRec, 0, System.Length(LRec));
+    LExpected := LTwin.TakeOutgoing;
+
+    LLayer.Write(TTlsContentType.ApplicationData, LRec, 0, System.Length(LRec));
+    LChunk := nil;
+    SetLength(LChunk, 4096);
+    LGot := LLayer.TakeOutgoing(LChunk, 0); // partial drain -> head cursor > 0
+    LOut := System.Copy(LChunk, 0, LGot);
+    // two more full records: the first append compacts the drained prefix then grows
+    LLayer.Write(TTlsContentType.ApplicationData, LRec, 0, System.Length(LRec));
+    LLayer.Write(TTlsContentType.ApplicationData, LRec, 0, System.Length(LRec));
+    SetLength(LChunk, 16384);
+    repeat
+      LGot := LLayer.TakeOutgoing(LChunk, 0);
+      if LGot > 0 then
+        LOut := ConcatBytes(LOut, System.Copy(LChunk, 0, LGot));
+    until LGot = 0;
+    CheckEqualBytes('compaction-before-grow keeps the wire byte-exact', LExpected, LOut);
+    CheckEquals(0, LLayer.PendingOutgoing, 'nothing pending after a full drain');
+  finally
+    LLayer.Free;
+    LTwin.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestTakeOutgoingReleasesAndRegrowsAfterLargeWrite;
+var
+  LLayer, LTwin: TRecordLayer;
+  LBig, LSmall, LExpectedSmall, LChunk, LOut: TBytes;
+  LGot, I: Int32;
+begin
+  LLayer := TRecordLayer.Create;
+  LTwin := TRecordLayer.Create;
+  try
+    // six full records blow the buffer well past the retain cap; a full drain must release it
+    LBig := MakePayload(16384, $05);
+    for I := 0 to 5 do
+      LLayer.Write(TTlsContentType.ApplicationData, LBig, 0, System.Length(LBig));
+    LChunk := nil;
+    SetLength(LChunk, 16384);
+    repeat
+      LGot := LLayer.TakeOutgoing(LChunk, 0);
+    until LGot = 0;
+    CheckEquals(0, LLayer.PendingOutgoing, 'the large write fully drained');
+
+    // after the release, a fresh small write must regrow correctly and stay byte-exact
+    LSmall := MakePayload(9, $C0);
+    LTwin.Write(TTlsContentType.Handshake, LSmall, 0, System.Length(LSmall));
+    LExpectedSmall := LTwin.TakeOutgoing;
+    LLayer.Write(TTlsContentType.Handshake, LSmall, 0, System.Length(LSmall));
+    LOut := LLayer.TakeOutgoing;
+    CheckEqualBytes('the buffer regrows correctly after a release', LExpectedSmall, LOut);
+  finally
+    LLayer.Free;
+    LTwin.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestOutgoingRandomInterleaveMatchesReferenceQueue;
+var
+  LLayer, LScratch: TRecordLayer;
+  LRef, LOut, LPayload, LChunk, LWritten: TBytes;
+  LOp, LLen, LCap, LGot, I: Int32;
+begin
+  LLayer := TRecordLayer.Create;
+  LScratch := TRecordLayer.Create;
+  try
+    RandSeed := 20240924;
+    LRef := nil;
+    LOut := nil;
+    for I := 0 to 299 do
+    begin
+      LOp := Random(3);
+      if LOp = 0 then
+      begin
+        // write a random-size record to the layer; the scratch layer yields its framed bytes
+        // so the reference wire grows by exactly what was queued
+        LLen := 1 + Random(40000);
+        LPayload := MakePayload(LLen, Byte(I));
+        LScratch.Write(TTlsContentType.ApplicationData, LPayload, 0, LLen);
+        LWritten := LScratch.TakeOutgoing;
+        LRef := ConcatBytes(LRef, LWritten);
+        LLayer.Write(TTlsContentType.ApplicationData, LPayload, 0, LLen);
+      end
+      else if LOp = 1 then
+      begin
+        // partial take into a random-capacity buffer
+        LCap := 1 + Random(20000);
+        LChunk := nil;
+        SetLength(LChunk, LCap);
+        LGot := LLayer.TakeOutgoing(LChunk, 0);
+        if LGot > 0 then
+          LOut := ConcatBytes(LOut, System.Copy(LChunk, 0, LGot));
+      end
+      else
+      begin
+        // occasional whole-take
+        LWritten := LLayer.TakeOutgoing;
+        if System.Length(LWritten) > 0 then
+          LOut := ConcatBytes(LOut, LWritten);
+      end;
+    end;
+    // drain whatever remains
+    LChunk := nil;
+    SetLength(LChunk, 16384);
+    repeat
+      LGot := LLayer.TakeOutgoing(LChunk, 0);
+      if LGot > 0 then
+        LOut := ConcatBytes(LOut, System.Copy(LChunk, 0, LGot));
+    until LGot = 0;
+    CheckEquals(System.Length(LRef), System.Length(LOut),
+      'every queued byte came back out');
+    CheckEqualBytes('random interleave preserves the exact outbound stream', LRef, LOut);
+  finally
+    LLayer.Free;
+    LScratch.Free;
   end;
 end;
 
