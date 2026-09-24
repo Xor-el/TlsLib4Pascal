@@ -341,6 +341,10 @@
         <Filename Value="..\src\TlsConnectionTests.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit74>
+      <Unit75>
+        <Filename Value="..\src\SpyRevocationProvider.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit75>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

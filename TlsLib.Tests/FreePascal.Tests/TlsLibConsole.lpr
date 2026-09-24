@@ -11,6 +11,7 @@ uses
   MockClock,
   MockCryptoProvider,
   MockHttpFetcher,
+  SpyRevocationProvider,
   MockSink,
   MockRecordInstaller,
   MockTransport,
