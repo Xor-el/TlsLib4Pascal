@@ -1,0 +1,35 @@
+TlsLib.Interop/src/InteropEngine.pas
+  s_09d3c46d1a9b1f::t_63713783c7dfa7 456-457
+  s_09d3c46d1a9b1f::t_8506880a424a89 111-113
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_09d3c46d1a9b1f::t_6f22ad52a9da13 35
+  s_09d3c46d1a9b1f::t_1b1697a01ccae1 113-115
+  s_09d3c46d1a9b1f::t_4e38ea3f5c7bc7 33
+  s_09d3c46d1a9b1f::t_31f793c2dfda84 741-753,755-770,772-790
+  s_09d3c46d1a9b1f::t_91cedceb667143 754,771
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_7286a59a2fa4c3 304-306
+  s_09d3c46d1a9b1f::t_21965c611f042b 2630-2639
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_79b4298bbd9485 445-447,451-453
+TlsLib.Interop/src/BoGoShimRunner.pas
+  s_09d3c46d1a9b1f::t_f9788874061b90 198
+  s_09d3c46d1a9b1f::t_5411c06458b7c8 1439-1441
+  s_09d3c46d1a9b1f::t_807a3a93828e8f 1012
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "baef74abef941eecfdb8bf67a9909f3bdd0c944d",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
