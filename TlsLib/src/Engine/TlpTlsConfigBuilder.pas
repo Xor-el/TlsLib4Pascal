@@ -869,8 +869,14 @@ begin
 end;
 
 function TFrozenServerConfig.ClientCertificateAuthorities: TArray<TBytes>;
+var
+  LI: Int32;
 begin
-  Result := FClientCertificateAuthorities;
+  // deep-copy out so a caller cannot mutate or wipe the frozen config's array (matches the other
+  // frozen array accessors, e.g. CertificatePins)
+  System.SetLength(Result, System.Length(FClientCertificateAuthorities));
+  for LI := 0 to System.High(FClientCertificateAuthorities) do
+    Result[LI] := System.Copy(FClientCertificateAuthorities[LI]);
 end;
 
 function TFrozenServerConfig.ClientAuth: TClientAuthMode;
@@ -1903,6 +1909,8 @@ begin
   GuardMutable;
   // unlike a server source (OS roots, exclusive of anchors), a client source consumes the
   // configured client-CA anchors as its exclusive trust root, so it is not counted against them
+  // (FVerifierCount). ValidateTrustComposition still counts it toward the one-verifier rule via
+  // FClientVerifierSource, so it cannot silently override an instance verifier.
   if ASource <> nil then
     FClientVerifierSource := ASource;
   Result := Self;
@@ -1921,8 +1929,17 @@ begin
 end;
 
 procedure TTlsConfigBuilder.ValidateTrustComposition;
+var
+  LCustomVerifiers: Int32;
 begin
-  if FVerifierCount > 1 then
+  // every custom verifier counts toward the one-verifier rule. FVerifierCount already tallies the
+  // server instance/source and the client instance; a client verifier source is not in it (it is
+  // excluded from the anchor-conflict tally below, as it consumes the client-CA anchors as its
+  // root) but MUST still count here, so a source cannot silently override an instance verifier.
+  LCustomVerifiers := FVerifierCount;
+  if FClientVerifierSource <> nil then
+    Inc(LCustomVerifiers);
+  if LCustomVerifiers > 1 then
     raise EInvalidOperationTlsLibException.CreateRes(@SDualVerifier);
   if (FVerifierCount = 1) and (System.Length(FAnchorStores) > 0) then
     raise EInvalidOperationTlsLibException.CreateRes(@SVerifierAnchorConflict);
@@ -2228,9 +2245,14 @@ end;
 
 function TTlsConfigBuilder.WithClientCertificateAuthorities(
   const AAuthorities: TArray<TBytes>): TTlsConfigBuilder;
+var
+  LI: Int32;
 begin
   GuardMutable;
-  FClientCertificateAuthorities := AAuthorities;
+  // deep-copy so a caller that later mutates or wipes its array cannot reach into the frozen config
+  System.SetLength(FClientCertificateAuthorities, System.Length(AAuthorities));
+  for LI := 0 to System.High(AAuthorities) do
+    FClientCertificateAuthorities[LI] := System.Copy(AAuthorities[LI]);
   Result := Self;
 end;
 
@@ -2273,9 +2295,14 @@ end;
 
 function TTlsConfigBuilder.WithCertificatePinning(
   const APins: TArray<TBytes>): TTlsConfigBuilder;
+var
+  LI: Int32;
 begin
   GuardMutable;
-  FCertificatePins := APins;
+  // deep-copy so a caller that later mutates or wipes its array cannot reach into the frozen config
+  System.SetLength(FCertificatePins, System.Length(APins));
+  for LI := 0 to System.High(APins) do
+    FCertificatePins[LI] := System.Copy(APins[LI]);
   Result := Self;
 end;
 
@@ -2381,7 +2408,9 @@ function TTlsConfigBuilder.WithExternalPreSharedKeys(
   const APsks: TArray<TExternalPsk>): TTlsConfigBuilder;
 begin
   GuardMutable;
-  FExternalPsks := APsks;
+  // copy so a caller mutating its array after Build cannot alter the frozen config (matches the
+  // frozen ExternalPsks accessor); the PSK secrets are ISecretBuffer, shared by reference
+  FExternalPsks := System.Copy(APsks);
   Result := Self;
 end;
 

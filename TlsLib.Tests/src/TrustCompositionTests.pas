@@ -56,6 +56,7 @@ type
     procedure TestCertificateVerifierLandsInFrozenConfig;
     procedure TestVerifierCombinedWithAnchorSourceIsRejected;
     procedure TestTwoVerifiersAreRejected;
+    procedure TestClientVerifierInstanceAndSourceRejected;
   end;
 
 implementation
@@ -80,6 +81,39 @@ begin
   AVerified.Outcome := TVerificationOutcome.Trusted;
   AAlert := TTlsAlertDescription.CertificateUnknown;
   Result := True;
+end;
+
+type
+  // a client-certificate verifier instance and a source that mints one, to exercise the
+  // dual-verifier guard for the client role (SF-AN)
+  TStubClientCertificateVerifier = class(TInterfacedObject, IClientCertificateVerifier)
+  public
+    function VerifyClientCertificate(const AChain: TArray<TBytes>;
+      out AVerified: TVerifiedChain;
+      out AAlert: TTlsAlertDescription): Boolean;
+  end;
+
+  TStubClientCertificateVerifierSource = class(TInterfacedObject,
+    IClientCertificateVerifierSource)
+  public
+    function CreateClientVerifier(const AContext: TClientTrustContext)
+      : IClientCertificateVerifier;
+  end;
+
+function TStubClientCertificateVerifier.VerifyClientCertificate(
+  const AChain: TArray<TBytes>; out AVerified: TVerifiedChain;
+  out AAlert: TTlsAlertDescription): Boolean;
+begin
+  AVerified.Path := AChain;
+  AVerified.Outcome := TVerificationOutcome.Trusted;
+  AAlert := TTlsAlertDescription.CertificateUnknown;
+  Result := True;
+end;
+
+function TStubClientCertificateVerifierSource.CreateClientVerifier(
+  const AContext: TClientTrustContext): IClientCertificateVerifier;
+begin
+  Result := TStubClientCertificateVerifier.Create as IClientCertificateVerifier;
 end;
 
 { TTestTrustComposition }
@@ -169,6 +203,28 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'setting two whole-verifiers is refused at Build');
+end;
+
+procedure TTestTrustComposition.TestClientVerifierInstanceAndSourceRejected;
+var
+  LRaised: Boolean;
+begin
+  // a client-verifier instance plus a client-verifier source is the dual-verifier conflict for the
+  // client role: the source must not silently override the instance, so Build refuses it (SF-AN)
+  LRaised := False;
+  try
+    TTlsPresets.Compatible(Crypto, Pkix).Server
+      .WithCertificateVerifier(
+        TStubClientCertificateVerifier.Create as IClientCertificateVerifier)
+      .WithCertificateVerifierSource(
+        TStubClientCertificateVerifierSource.Create as IClientCertificateVerifierSource)
+      .Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised,
+    'a client-verifier instance combined with a client-verifier source is refused at Build');
 end;
 
 initialization

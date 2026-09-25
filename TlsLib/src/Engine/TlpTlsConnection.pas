@@ -457,7 +457,9 @@ begin
   LSig.AddFlag('verifyPeer', AOptions.VerifyPeer);
   LSig.AddFlag('skipVerify', AOptions.InsecureSkipVerify);
   LSig.AddFlag('checkHost', AOptions.CheckHostName);
-  LSig.AddFlag('systemTrust', AOptions.SystemTrust <> nil);
+  // by installer identity, not a bare present/absent flag: two installers that install different
+  // roots must not collapse to the same memo signature and reuse each other's frozen config
+  LSig.AddPointer('systemTrust', AOptions.SystemTrust);
   LSig.AddPointer('customVerifier', AOptions.ServerCertificateVerifier);
   LSig.AddPointer('customStore', AOptions.CustomTrustStore);
   for LI := 0 to System.High(AOptions.AlpnProtocols) do
@@ -486,7 +488,8 @@ begin
   for LI := 0 to System.High(AOptions.TrustAnchors) do
     Sign(LSig, 'anchor', AOptions.TrustAnchors[LI]);
   LSig.AddFlag('verifyPeer', AOptions.VerifyPeer);
-  LSig.AddFlag('systemTrust', AOptions.SystemTrust <> nil);
+  // by installer identity, not a bare present/absent flag (see the client signature)
+  LSig.AddPointer('systemTrust', AOptions.SystemTrust);
   LSig.AddPointer('customVerifier', AOptions.ClientCertificateVerifier);
   LSig.AddPointer('customStore', AOptions.CustomTrustStore);
   LSig.AddCardinal('clientAuth', Cardinal(Ord(AOptions.ClientAuth)));
