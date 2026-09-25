@@ -64,6 +64,7 @@ uses
   ClpX509CrlParser,
   ClpIX509CrlParser,
   ClpIX509Crl,
+  ClpIX509CrlEntry,
   ClpCryptoLibTypes,
   ClpNullable,
   ClpValueHelper,
@@ -177,6 +178,21 @@ type
       AIssuerCert: IX509Certificate;
       const AIssuerPublicKey: IAsymmetricKeyParameter;
       AValidityDate: TDateTime): Boolean; static;
+    /// <summary>
+    /// Whether an issuer-signed CRL is authoritative for ALeaf (RFC 5280 6.3.3 / 5.2): a
+    /// CRL of the wrong scope (other issuer, wrong shard, CA-only, partial reasons, indirect,
+    /// delta, or carrying an unrecognized critical extension) says nothing about the leaf.
+    /// </summary>
+    class function CrlScopeCovers(const ALeaf, AIssuer: IX509Certificate;
+      const ACrl: IX509Crl): Boolean; static;
+    class function IdpNameMatchesLeafDistributionPoint(
+      const AIdpName: IDistributionPointName; const ALeaf: IX509Certificate): Boolean; static;
+    /// <summary>
+    /// Reads a CRL entry's reason (RFC 5280 5.3.1); False when the entry carries a critical
+    /// entry extension that cannot be processed, so the CRL is not authoritative.
+    /// </summary>
+    class function CrlEntryRevokes(const AEntry: IX509CrlEntry;
+      out ARevoked: Boolean): Boolean; static;
   public
     function ValidateOcspStaple(const ALeafCert, AIssuerCert,
       AOcspResponseDer: TBytes; const AValidationTimeUtc: TDateTime;
@@ -1016,6 +1032,10 @@ begin
     LPoints := LCdp.GetDistributionPoints;
     for LI := 0 to System.High(LPoints) do
     begin
+      // a point naming a separate cRLIssuer yields an indirect CRL, which the scope check
+      // never accepts (RFC 5280 6.3.3 (b)(1)), so fetching it would be wasted
+      if LPoints[LI].GetCrlIssuer <> nil then
+        Continue;
       LDpn := LPoints[LI].GetDistributionPointName;
       if (LDpn = nil) or (LDpn.GetType <> TDistributionPointName.FullName) then
         Continue;
@@ -1035,6 +1055,135 @@ begin
   end;
 end;
 
+class function TRevocationChecker.IdpNameMatchesLeafDistributionPoint(
+  const AIdpName: IDistributionPointName; const ALeaf: IX509Certificate): Boolean;
+var
+  LGns: IGeneralNames;
+  LIdpNames, LDpNames: TCryptoLibGenericArray<IGeneralName>;
+  LExt: IAsn1OctetString;
+  LCdp: ICrlDistPoint;
+  LPoints: TCryptoLibGenericArray<IDistributionPoint>;
+  LDpn: IDistributionPointName;
+  LI, LJ, LK: Int32;
+begin
+  Result := False;
+  if not Supports(AIdpName.GetName, IGeneralNames, LGns) then
+    Exit;
+  LIdpNames := LGns.GetNames;
+  LExt := ALeaf.GetExtensionValue(TX509Extensions.CrlDistributionPoints);
+  if LExt = nil then
+    Exit;
+  LCdp := TCrlDistPoint.GetInstance(LExt.GetOctets);
+  if LCdp = nil then
+    Exit;
+  LPoints := LCdp.GetDistributionPoints;
+  for LI := 0 to System.High(LPoints) do
+  begin
+    // RFC 5280 6.3.3 (b)(1): a point that names a separate cRLIssuer or covers only some
+    // reasons does not designate this issuer's complete CRL
+    if (LPoints[LI].GetCrlIssuer <> nil) or (LPoints[LI].GetReasons <> nil) then
+      Continue;
+    LDpn := LPoints[LI].GetDistributionPointName;
+    if (LDpn = nil) or (LDpn.GetType <> TDistributionPointName.FullName) then
+      Continue;
+    if not Supports(LDpn.GetName, IGeneralNames, LGns) then
+      Continue;
+    LDpNames := LGns.GetNames;
+    for LJ := 0 to System.High(LIdpNames) do
+      for LK := 0 to System.High(LDpNames) do
+        if TArrayUtilities.AreEqual(LIdpNames[LJ].GetEncoded,
+          LDpNames[LK].GetEncoded) then
+          Exit(True);
+  end;
+end;
+
+class function TRevocationChecker.CrlScopeCovers(const ALeaf,
+  AIssuer: IX509Certificate; const ACrl: IX509Crl): Boolean;
+const
+  // RFC 5280 4.2.1.3 keyUsage bit order: cRLSign is bit 6
+  CrlSignBit = 6;
+var
+  LKeyUsage: TCryptoLibBooleanArray;
+  LCritical: TCryptoLibStringArray;
+  LExt: IAsn1OctetString;
+  LIdp: IIssuingDistributionPoint;
+  LDpn: IDistributionPointName;
+  LLeafIsCa: Boolean;
+  LI: Int32;
+begin
+  Result := False;
+  // RFC 5280 6.3.3 (b): a CRL not issued by the certificate's issuer says nothing about it
+  if not ACrl.IssuerDN.Equivalent(ALeaf.IssuerDN, True) then
+    Exit;
+  // RFC 5280 6.3.3 (f): when the issuer restricts its key usage it must permit cRLSign; a
+  // bit past the encoded length is an omitted trailing zero, i.e. not asserted
+  LKeyUsage := AIssuer.GetKeyUsage;
+  if (LKeyUsage <> nil) and
+    ((CrlSignBit > System.High(LKeyUsage)) or (not LKeyUsage[CrlSignBit])) then
+    Exit;
+  // RFC 5280 5.2: a critical extension this check cannot process makes the CRL unusable
+  LCritical := ACrl.GetCriticalExtensionOids;
+  for LI := 0 to System.High(LCritical) do
+    if (LCritical[LI] <> TX509Extensions.IssuingDistributionPoint.ID) and
+      (LCritical[LI] <> TX509Extensions.AuthorityKeyIdentifier.ID) then
+      Exit;
+  // RFC 5280 5.2.4: a delta CRL is never complete on its own
+  if ACrl.GetExtensionValue(TX509Extensions.DeltaCrlIndicator) <> nil then
+    Exit;
+  LExt := ACrl.GetExtensionValue(TX509Extensions.IssuingDistributionPoint);
+  if LExt = nil then
+    Exit(True);
+  LIdp := TIssuingDistributionPoint.GetInstance(LExt.GetOctets);
+  if LIdp = nil then
+    Exit;
+  // RFC 5280 6.3.3 (b)(2): an indirect, attribute-certificate or partial-reasons CRL is
+  // not the complete CRL for this leaf
+  if LIdp.IsIndirectCrl or LIdp.OnlyContainsAttributeCerts or
+    (LIdp.OnlySomeReasons <> nil) then
+    Exit;
+  LLeafIsCa := ALeaf.GetBasicConstraints >= 0;
+  if LIdp.OnlyContainsCACerts and (not LLeafIsCa) then
+    Exit;
+  if LIdp.OnlyContainsUserCerts and LLeafIsCa then
+    Exit;
+  LDpn := LIdp.DistributionPoint;
+  // no distribution point: the CRL covers the issuer's whole scope
+  if LDpn = nil then
+    Exit(True);
+  // RFC 5280 6.3.3 (b)(2)(i): the IDP must name a point the leaf's own CRL distribution
+  // points designate; a relative name cannot be matched against a leaf full name
+  if LDpn.GetType <> TDistributionPointName.FullName then
+    Exit;
+  Result := IdpNameMatchesLeafDistributionPoint(LDpn, ALeaf);
+end;
+
+class function TRevocationChecker.CrlEntryRevokes(const AEntry: IX509CrlEntry;
+  out ARevoked: Boolean): Boolean;
+var
+  LExts: IX509Extensions;
+  LReason: IAsn1OctetString;
+  LEnum: IDerEnumerated;
+begin
+  Result := False;
+  ARevoked := False;
+  LExts := AEntry.CrlEntry.Extensions;
+  // RFC 5280 5.3: no critical entry extension is processed here, so any makes the entry
+  // (and thus the CRL) unusable for this leaf
+  if (LExts <> nil) and (System.Length(LExts.GetCriticalExtensionOids) > 0) then
+    Exit;
+  ARevoked := True;
+  LReason := AEntry.GetExtensionValue(TX509Extensions.ReasonCode);
+  if LReason <> nil then
+  begin
+    LEnum := TDerEnumerated.GetInstance(LReason.GetOctets);
+    // RFC 5280 5.3.1: removeFromCRL lifts a certificateHold; every other reason, including
+    // certificateHold itself and an absent reason, is a revocation
+    if (LEnum <> nil) and LEnum.HasValue(TCrlReason.RemoveFromCrl) then
+      ARevoked := False;
+  end;
+  Result := True;
+end;
+
 function TRevocationChecker.CheckCrlRevocation(const ALeafCert, AIssuerCert,
   ACrlDer: TBytes; const AValidationTimeUtc: TDateTime; out ARevoked: Boolean;
   out AThisUpdate, ANextUpdate: TDateTime): Boolean;
@@ -1043,6 +1192,7 @@ var
   LLeaf, LIssuer: IX509Certificate;
   LCrlParser: IX509CrlParser;
   LCrl: IX509Crl;
+  LEntry: IX509CrlEntry;
   LNowMs: Int64;
 begin
   Result := False;
@@ -1063,6 +1213,10 @@ begin
     // the CRL must be signed by the leaf's issuer to be authoritative
     if not LCrl.IsSignatureValid(LIssuer.GetPublicKey) then
       Exit;
+    // a validly signed CRL of the wrong scope (another shard, CA-only, indirect, delta...) is
+    // not authoritative: a substituted one would otherwise read as a silent Good
+    if not CrlScopeCovers(LLeaf, LIssuer, LCrl) then
+      Exit;
     AThisUpdate := LCrl.ThisUpdate;
     if LCrl.NextUpdate.HasValue then
       ANextUpdate := LCrl.NextUpdate.Value;
@@ -1076,7 +1230,11 @@ begin
     if LCrl.NextUpdate.HasValue and
       (LNowMs >= TDateTimeUtilities.DateTimeToUnixMs(ANextUpdate)) then
       Exit;
-    ARevoked := LCrl.GetRevokedCertificate(LLeaf.SerialNumber) <> nil;
+    LEntry := LCrl.GetRevokedCertificate(LLeaf.SerialNumber);
+    if LEntry = nil then
+      ARevoked := False
+    else if not CrlEntryRevokes(LEntry, ARevoked) then
+      Exit;
     Result := True;
   except
     // an unparseable or unverifiable CRL is indeterminate, never a raise

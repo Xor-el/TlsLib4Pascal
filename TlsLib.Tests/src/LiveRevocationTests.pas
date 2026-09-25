@@ -93,6 +93,38 @@ type
     procedure TestLiveGoodWithoutNextUpdateBeyondMaxAgeIsIndeterminate;
   end;
 
+  /// <summary>
+  /// CRL scope enforcement (RFC 5280 6.3.3 / 5.2): a validly issuer-signed CRL is authoritative
+  /// for the leaf only when its scope covers it. A wrong-shard, CA-only, partial-reasons,
+  /// indirect, delta, relative-name or unknown-critical CRL is Indeterminate (never a silent
+  /// Good, so a substituted legitimate CRL cannot hide a revocation), and an entry's reason
+  /// decides: removeFromCRL is not a revocation, certificateHold is.
+  /// </summary>
+  TTestCrlScope = class(TTlsLibAlgorithmTestCase)
+  strict private
+    function Field(const AName: string): TBytes;
+    function Chain: TArray<TBytes>;
+    function NowUtc: TDateTime;
+    /// <summary>Classifies a CRL as 'Revoked', 'Good' or 'Indeterminate' through the provider primitive.</summary>
+    function Classify(const ACrlField: string): string;
+    procedure CheckClassified(const ACrlField, AExpected, AWhy: string);
+    function NewChecker(const ACrl: TBytes; APosture: TRevocationPosture): TLiveRevocationChecker;
+  published
+    procedure TestInScopeCrlsAreAuthoritative;
+    procedure TestWrongShardCrlIsIndeterminate;
+    procedure TestOnlyContainsCaCertsCrlIsIndeterminateForLeaf;
+    procedure TestOnlyContainsUserCertsCrlCoversLeaf;
+    procedure TestOnlySomeReasonsCrlIsIndeterminate;
+    procedure TestIndirectCrlIsIndeterminate;
+    procedure TestUnknownCriticalExtensionIsIndeterminate;
+    procedure TestDeltaCrlIsIndeterminate;
+    procedure TestRelativeNameIdpIsIndeterminate;
+    procedure TestRemoveFromCrlEntryIsNotRevoked;
+    procedure TestCertificateHoldEntryIsRevoked;
+    procedure TestLiveWrongShardCrlIsPostureGated;
+    procedure TestLiveInScopeCrlRevokesAndAccepts;
+  end;
+
   /// <summary>The one revocation-decision table every verifier and resolver applies (RFC 6960):
   /// a definitive Revoked rejects under every posture (certificate_revoked), a Good accepts, and an
   /// indeterminate outcome follows the effective posture - Hard rejects (bad_certificate_status_response)
@@ -699,6 +731,174 @@ begin
   end;
 end;
 
+{ TTestCrlScope }
+
+function TTestCrlScope.Field(const AName: string): TBytes;
+var
+  LV: TStringList;
+begin
+  LV := LoadVectorFields('Certs/CrlScope.txt');
+  try
+    Result := DecodeHex(LV.Values[AName]);
+  finally
+    LV.Free;
+  end;
+end;
+
+function TTestCrlScope.Chain: TArray<TBytes>;
+begin
+  Result := TArray<TBytes>.Create(Field('leaf_cert'), Field('ca_cert'));
+end;
+
+function TTestCrlScope.NowUtc: TDateTime;
+begin
+  Result := TDateTimeUtilities.UnixMsToDateTime(TDateTimeUtilities.CurrentUnixMs);
+end;
+
+function TTestCrlScope.Classify(const ACrlField: string): string;
+var
+  LRevoked: Boolean;
+  LThisUpdate, LNextUpdate: TDateTime;
+begin
+  if not Pkix.Revocation.CheckCrlRevocation(Field('leaf_cert'), Field('ca_cert'),
+    Field(ACrlField), NowUtc, LRevoked, LThisUpdate, LNextUpdate) then
+    Result := 'Indeterminate'
+  else if LRevoked then
+    Result := 'Revoked'
+  else
+    Result := 'Good';
+end;
+
+procedure TTestCrlScope.CheckClassified(const ACrlField, AExpected, AWhy: string);
+begin
+  CheckEquals(AExpected, Classify(ACrlField), ACrlField + ': ' + AWhy);
+end;
+
+function TTestCrlScope.NewChecker(const ACrl: TBytes;
+  APosture: TRevocationPosture): TLiveRevocationChecker;
+var
+  LFetcher: TMockHttpFetcher;
+begin
+  LFetcher := TMockHttpFetcher.Create;
+  LFetcher.SetGet(True, ACrl);
+  Result := TLiveRevocationChecker.Create(Pkix, TSystemClock.Create as ITlsClock,
+    LFetcher as IHttpFetcher, APosture, TLiveRevocationMethod.Crl, 0);
+end;
+
+procedure TTestCrlScope.TestInScopeCrlsAreAuthoritative;
+begin
+  // the leaf's own shard (IDP fullName == leaf CDP) and a whole-scope CRL (no IDP) are
+  // authoritative both ways: they detect the revocation and they clear the leaf
+  CheckClassified('crl_shard1_revoked', 'Revoked', 'the leaf shard lists the serial');
+  CheckClassified('crl_shard1_clean', 'Good', 'the leaf shard does not list the serial');
+  CheckClassified('crl_noidp_revoked', 'Revoked', 'a whole-scope CRL lists the serial');
+  CheckClassified('crl_noidp_clean', 'Good', 'a whole-scope CRL does not list the serial');
+end;
+
+procedure TTestCrlScope.TestWrongShardCrlIsIndeterminate;
+begin
+  // validly signed, in window, empty - but its IDP names a shard the leaf does not point to,
+  // so it says nothing about the leaf (RFC 5280 6.3.3 (b)(2)(i)); before scope enforcement
+  // this read as a silent Good under every posture
+  CheckClassified('crl_shard2_clean', 'Indeterminate',
+    'a CRL scoped to another shard is not authoritative for the leaf');
+end;
+
+procedure TTestCrlScope.TestOnlyContainsCaCertsCrlIsIndeterminateForLeaf;
+begin
+  CheckClassified('crl_onlyca', 'Indeterminate',
+    'an onlyContainsCACerts CRL does not cover an end-entity leaf');
+end;
+
+procedure TTestCrlScope.TestOnlyContainsUserCertsCrlCoversLeaf;
+begin
+  // the scope flag matches the leaf kind and the fullName matches its CDP: authoritative
+  CheckClassified('crl_onlyuser', 'Good',
+    'an onlyContainsUserCerts CRL on the leaf shard covers the end-entity leaf');
+end;
+
+procedure TTestCrlScope.TestOnlySomeReasonsCrlIsIndeterminate;
+begin
+  CheckClassified('crl_somereasons', 'Indeterminate',
+    'a CRL covering only some reasons is not the complete CRL');
+end;
+
+procedure TTestCrlScope.TestIndirectCrlIsIndeterminate;
+begin
+  CheckClassified('crl_indirect', 'Indeterminate',
+    'an indirect CRL is not processed');
+end;
+
+procedure TTestCrlScope.TestUnknownCriticalExtensionIsIndeterminate;
+begin
+  CheckClassified('crl_unknown_critical', 'Indeterminate',
+    'a CRL with an unrecognized critical extension is unusable (RFC 5280 5.2)');
+end;
+
+procedure TTestCrlScope.TestDeltaCrlIsIndeterminate;
+begin
+  CheckClassified('crl_delta', 'Indeterminate',
+    'a delta CRL is never authoritative on its own');
+end;
+
+procedure TTestCrlScope.TestRelativeNameIdpIsIndeterminate;
+begin
+  CheckClassified('crl_relative_dp', 'Indeterminate',
+    'an IDP nameRelativeToCRLIssuer cannot be matched against the leaf full-name CDP');
+end;
+
+procedure TTestCrlScope.TestRemoveFromCrlEntryIsNotRevoked;
+begin
+  // RFC 5280 5.3.1: removeFromCRL lifts a hold; the entry does not revoke the leaf
+  CheckClassified('crl_removefromcrl', 'Good',
+    'an entry with reason removeFromCRL is not a revocation');
+end;
+
+procedure TTestCrlScope.TestCertificateHoldEntryIsRevoked;
+begin
+  CheckClassified('crl_hold', 'Revoked', 'certificateHold is a revocation');
+end;
+
+procedure TTestCrlScope.TestLiveWrongShardCrlIsPostureGated;
+var
+  LSoft, LHard: TLiveRevocationChecker;
+begin
+  // end-to-end: the fetcher returns the legitimately-signed wrong-shard CRL for the leaf's
+  // CDP URL. The outcome is Indeterminate, so Hard rejects and Soft accepts - Hard rejects
+  // ONLY because the wrong-scope CRL is non-authoritative (a clean in-scope CRL accepts
+  // under Hard in TestLiveInScopeCrlRevokesAndAccepts)
+  LSoft := NewChecker(Field('crl_shard2_clean'), TRevocationPosture.Soft);
+  LHard := NewChecker(Field('crl_shard2_clean'), TRevocationPosture.Hard);
+  try
+    CheckTrue(LHard.Evaluate(Chain) = TLiveRevocationOutcome.Indeterminate,
+      'a live wrong-shard CRL yields Indeterminate, never a silent Good');
+    CheckFalse(LHard.CheckChain(Chain), 'Hard rejects the wrong-shard CRL');
+    CheckTrue(LSoft.CheckChain(Chain), 'Soft accepts the indeterminate outcome');
+  finally
+    LSoft.Free;
+    LHard.Free;
+  end;
+end;
+
+procedure TTestCrlScope.TestLiveInScopeCrlRevokesAndAccepts;
+var
+  LRevoked, LClean: TLiveRevocationChecker;
+begin
+  LRevoked := NewChecker(Field('crl_shard1_revoked'), TRevocationPosture.Soft);
+  LClean := NewChecker(Field('crl_shard1_clean'), TRevocationPosture.Hard);
+  try
+    CheckTrue(LRevoked.Evaluate(Chain) = TLiveRevocationOutcome.Revoked,
+      'the leaf shard CRL listing the serial yields Revoked');
+    CheckFalse(LRevoked.CheckChain(Chain), 'a shard revocation rejects even under Soft');
+    CheckTrue(LClean.Evaluate(Chain) = TLiveRevocationOutcome.Good,
+      'the clean leaf shard CRL yields Good');
+    CheckTrue(LClean.CheckChain(Chain), 'a clean in-scope CRL accepts under Hard');
+  finally
+    LRevoked.Free;
+    LClean.Free;
+  end;
+end;
+
 { TTestRevocationDecision }
 
 procedure TTestRevocationDecision.TestOcspFreshness;
@@ -791,9 +991,11 @@ initialization
 
 {$IFDEF FPC}
   RegisterTest(TTestLiveRevocation);
+  RegisterTest(TTestCrlScope);
   RegisterTest(TTestRevocationDecision);
 {$ELSE}
   RegisterTest(TTestLiveRevocation.Suite);
+  RegisterTest(TTestCrlScope.Suite);
   RegisterTest(TTestRevocationDecision.Suite);
 {$ENDIF FPC}
 
