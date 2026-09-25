@@ -1,0 +1,29 @@
+TlsLib.Tests/src/NegotiationTests.pas
+  s_09d3c46d1a9b1f::t_17aec3a19d7e0e 69
+  s_09d3c46d1a9b1f::t_c454a69820a9e2 462-483
+TlsLib/src/Engine/TlpTlsEngineFactory.pas
+  s_09d3c46d1a9b1f::t_75149b247bfb61 498-500
+TlsLib/src/Negotiation/TlpNegotiationTypes.pas
+  s_09d3c46d1a9b1f::t_78aeaca2f8758e 26
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_335c84985b3d7e 321
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_cb2a6d6858ccc5 65-67
+  s_09d3c46d1a9b1f::t_384224ce23b841 359,362-372
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5588a97316f33f5dac66cbdd10c2bc7a33315668",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
