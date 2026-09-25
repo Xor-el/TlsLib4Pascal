@@ -1048,7 +1048,12 @@ begin
     if (AConfig.TrustCert <> '') and AConfig.VerifyPeer then
       Result.Trust := TInteropCredentials.TrustFromPem(APkix, AConfig.TrustCert)
     else if (System.Length(AConfig.ExternalPsks) = 0) or AConfig.VerifyPeer then
-      Result.AcceptAnyPeerCert := True;
+      Result.AcceptAnyPeerCert := True
+    else
+      // a PSK-only client with no certificate trust offers TLS 1.3 only: external PSK is
+      // 1.3-only (RFC 9258), and a 1.2 server would drop such a client onto a certificate path
+      // it has no trust to verify, so that shape is refused at build
+      Result.SupportedVersions := TArray<UInt16>.Create(WireVersionTls13);
     // per-connection ALPN advertisement overrides the fixed -advertise-alpn on the matching
     // connection (the client 0-RTT ALPN-preference-change test offers different protocols)
     if AIsResume and AConfig.OnResumeAdvertiseAlpnSet then
