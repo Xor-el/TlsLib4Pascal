@@ -1,0 +1,23 @@
+TlsLib/src/Pkix/Providers/TlpDefaultPkixProvider.pas
+  s_09d3c46d1a9b1f::t_323095d00ba998 494-495,503-520,526,546,706-708,712-713,770-771
+TlsLib/src/Trust/TlpTrustPolicy.pas
+  s_09d3c46d1a9b1f::t_2c9d9f8f896018 47-51
+TlsLib/src/Trust/TlpTrustTypes.pas
+  s_09d3c46d1a9b1f::t_dee749a8033190 48-49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5b56f6fb15c07438887e3c89be56eeab0c0912ac",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
