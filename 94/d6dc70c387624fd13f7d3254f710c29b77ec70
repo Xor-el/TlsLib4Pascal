@@ -1,0 +1,58 @@
+TlsLib.Tests/src/MockRecordInstaller.pas
+  s_09d3c46d1a9b1f::t_ce9719492880a6 40
+  s_09d3c46d1a9b1f::t_d967979afacb8a 76,78
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_8a094d609df871 1402-1403,1405
+  s_09d3c46d1a9b1f::t_093dfd6abed0b2 1724
+  s_09d3c46d1a9b1f::t_7619832818f68a 187-190
+  s_09d3c46d1a9b1f::t_9a55218ac300cb 853-855,861
+TlsLib.Tests/src/Tls13ResumptionTests.pas
+  s_09d3c46d1a9b1f::t_6bd25a4c8fc9b3 117-119
+  s_09d3c46d1a9b1f::t_4f889fb98725b3 882-951,953-980,982-984
+  s_09d3c46d1a9b1f::t_bb93dc94e8b17d 952
+  s_09d3c46d1a9b1f::t_5a224a07604fcf 981
+  s_09d3c46d1a9b1f::t_e9e39ef7c6a29b 89-90,92-93
+  s_09d3c46d1a9b1f::t_02a2d67a3dfff2 132-177
+  s_09d3c46d1a9b1f::t_c1013cbb5cfc84 370,372,376-377,381
+TlsLib/src/Handshake/TlpHandshakeEffect.pas
+  s_09d3c46d1a9b1f::t_2eae00c155547b 236-237,242
+  s_09d3c46d1a9b1f::t_cce423f0ebcfe3 101-104
+TlsLib/src/Interfaces/Handshake/TlpIHandshakeMachine.pas
+  s_09d3c46d1a9b1f::t_f6662d3298a1be 241-243,245
+TlsLib.Tests/src/RecordLayerTests.pas
+  s_09d3c46d1a9b1f::t_06a9ba5b69ab19 72-73
+  s_09d3c46d1a9b1f::t_c336c18c9e7d67 656-732
+TlsLib/src/Handshake/TlpHandshakeDriver.pas
+  s_09d3c46d1a9b1f::t_94e195c504989d 142
+TlsLib/src/Engine/TlpTlsEngine.pas
+  s_09d3c46d1a9b1f::t_d73686347cb986 151,221
+  s_09d3c46d1a9b1f::t_02b39fb30cd296 289,291
+  s_09d3c46d1a9b1f::t_d3deabfcfd0500 1013,1015
+TlsLib/src/Handshake/TlpTls13HandshakeBase.pas
+  s_09d3c46d1a9b1f::t_584573ebf5fa05 56-57
+  s_09d3c46d1a9b1f::t_7055c326d34b53 97-106
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_09d3c46d1a9b1f::t_a7d7697ad03be2 1409
+TlsLib/src/Record/TlpRecordLayer.pas
+  s_09d3c46d1a9b1f::t_971f59f066f2d4 266
+  s_09d3c46d1a9b1f::t_3584c1b219adc6 78-80
+  s_09d3c46d1a9b1f::t_28488abb5bab5c 228-230
+  s_09d3c46d1a9b1f::t_88251b2f0ef16b 464,469-472
+  s_09d3c46d1a9b1f::t_2a3989a749c056 504-514
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "94d6dc70c387624fd13f7d3254f710c29b77ec70",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
