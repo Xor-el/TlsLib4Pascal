@@ -92,6 +92,9 @@ type
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): ITlsClientConfigBuilder;
     function WithSupportedVersions(const AVersions: TArray<UInt16>): ITlsClientConfigBuilder;
     function WithPreferredGroups(const AGroups: TArray<UInt16>): ITlsClientConfigBuilder;
+    /// <summary>The application protocols offered in preference order; an empty list offers no
+    /// ALPN. Each name is a non-empty ASCII string of at most 255 bytes and is listed once;
+    /// anything else is rejected here (RFC 7301 3.1).</summary>
     function WithAlpnProtocols(const AProtocols: TArray<string>): ITlsClientConfigBuilder;
     /// <summary>Whether the client sends GREASE values (RFC 8701). Optional per the RFC;
     /// default True.</summary>
@@ -305,6 +308,9 @@ type
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): ITlsServerConfigBuilder;
     function WithSupportedVersions(const AVersions: TArray<UInt16>): ITlsServerConfigBuilder;
     function WithPreferredGroups(const AGroups: TArray<UInt16>): ITlsServerConfigBuilder;
+    /// <summary>The application protocols the server selects from, in preference order; an empty
+    /// list offers no ALPN. Each name is a non-empty ASCII string of at most 255 bytes and is
+    /// listed once; anything else is rejected here (RFC 7301 3.1).</summary>
     function WithAlpnProtocols(const AProtocols: TArray<string>): ITlsServerConfigBuilder;
     /// <summary>Whether the server echoes an empty server_name acknowledgement (RFC 6066 3)
     /// when the client offered a host_name. Default True; pass False to omit it.</summary>
