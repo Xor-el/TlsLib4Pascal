@@ -30,7 +30,9 @@ uses
   TlpTlsVersion,
   TlpArrayUtilities,
   TlpSecretBuffer,
+  TlpISession,
   TlpSession,
+  TlpSessionTicketKeys,
   TlpICryptoProvider,
   TlpICertificateTrust,
   TlpTrustTypes,
@@ -108,6 +110,9 @@ type
     procedure TestPskOnlyTls13ClientBuilds;
     procedure TestServerConfigRequiresCredential;
     procedure TestServerClientAuthRequiresTrustStore;
+    procedure TestMtlsServerWithSuppliedTicketKeysRequiresScope;
+    procedure TestMtlsServerWithSuppliedKeysAndScopeBuilds;
+    procedure TestMtlsServerWithDefaultTicketKeysBuildsWithoutScope;
     procedure TestFacadeDrivesLoopback;
     procedure TestCustomProviderThreadedThroughRawBuilder;
     procedure TestDefaultCertificateChainLimitsAreConservative;
@@ -731,6 +736,56 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a client-auth server without a trust source is refused');
+end;
+
+procedure TTestConfigBuilder.TestMtlsServerWithSuppliedTicketKeysRequiresScope;
+var
+  LRaised: Boolean;
+begin
+  // a supplied ticket-key manager can be shared across configurations; on a client-auth server
+  // that would let a ticket minted under another config's client-CA trust resume here, so a scope
+  // is required to partition the tickets
+  LRaised := False;
+  try
+    TTlsPresets.Compatible(Crypto, Pkix).Server
+      .WithCredential(ServerCredential)
+      .WithPeerAuth(TClientAuthMode.Required)
+      .WithTrustStore(ClientTrust)
+      .WithSessionTicketKeys(TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager)
+      .Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a client-auth server with supplied ticket keys and no scope is refused');
+end;
+
+procedure TTestConfigBuilder.TestMtlsServerWithSuppliedKeysAndScopeBuilds;
+var
+  LConfig: ITlsServerConfig;
+begin
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential)
+    .WithPeerAuth(TClientAuthMode.Required)
+    .WithTrustStore(ClientTrust)
+    .WithSessionTicketKeys(TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager)
+    .WithResumptionScope(TBytes.Create($73, $63, $6F, $70, $65))
+    .Build;
+  CheckTrue(LConfig <> nil, 'a client-auth server with supplied keys and an explicit scope builds');
+end;
+
+procedure TTestConfigBuilder.TestMtlsServerWithDefaultTicketKeysBuildsWithoutScope;
+var
+  LConfig: ITlsServerConfig;
+begin
+  // the per-config default STEK is never shared, so an mTLS server that supplies neither a store
+  // nor a key manager needs no scope
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential)
+    .WithPeerAuth(TClientAuthMode.Required)
+    .WithTrustStore(ClientTrust)
+    .Build;
+  CheckTrue(LConfig <> nil, 'an mTLS server on the default STEK builds without a scope');
 end;
 
 procedure TTestConfigBuilder.TestServerHardClientRevocationWithoutResolverIsRefused;

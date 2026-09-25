@@ -442,11 +442,15 @@ type
     /// <summary>The stateful session store backing session-id resumption and stateful
     /// tickets; providing one engages server resumption (subject to WithResumption). A store or
     /// ticket-key manager shared across configurations lets them resume each other's sessions;
-    /// use WithResumptionScope to partition configurations that do not trust identically.</summary>
+    /// use WithResumptionScope to partition configurations that do not trust identically. A
+    /// configuration requesting client authentication must set a scope when it supplies a store
+    /// (refused at Build otherwise).</summary>
     function WithSessionStore(const AStore: ISessionStore): ITlsServerConfigBuilder;
     /// <summary>The session-ticket encryption keys for stateless (STEK) tickets. A manager shared
     /// across configurations (e.g. a fleet key) lets them resume each other's tickets; use
-    /// WithResumptionScope to partition configurations that do not trust identically.</summary>
+    /// WithResumptionScope to partition configurations that do not trust identically. A
+    /// configuration requesting client authentication must set a scope when it supplies a manager
+    /// (refused at Build otherwise).</summary>
     function WithSessionTicketKeys(const AKeys: ISessionTicketKeyManager): ITlsServerConfigBuilder;
     /// <summary>An opaque scope (at most 32 bytes) sealed into every ticket/session this
     /// configuration issues and required to match on resumption. When a ticket key or session

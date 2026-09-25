@@ -195,6 +195,7 @@ type
     /// across the resume loop so a later connection resumes an earlier one.</summary>
     SessionCache: ISessionCache;
     SessionScope: TBytes;
+    ResumptionScope: TBytes;
     SessionTicketKeys: ISessionTicketKeyManager;
     SessionStore: ISessionStore;
     /// <summary>-resumption-delay: seconds the runner advances its (and the shim's) clock
@@ -1008,6 +1009,7 @@ begin
     begin
       Result.SessionTicketKeys := AConfig.SessionTicketKeys;
       Result.SessionStore := AConfig.SessionStore;
+      Result.ResumptionScope := AConfig.ResumptionScope;
     end;
     // a 0-RTT budget on the initial connection (always) or on the resumption only
     // (-on-resume-enable-early-data): the latter mints the initial ticket without early-data
@@ -1434,6 +1436,9 @@ begin
           as ISessionTicketKeyManager;
       LConfig.SessionStore := TInMemorySessionStore.Create(LCrypto.Primitives.GetRandom)
         as ISessionStore;
+      // one scope for the whole resume loop: a supplied store/STEK on a client-auth server must
+      // partition its tickets (the builder refuses it otherwise); the shim is one server identity
+      LConfig.ResumptionScope := LCrypto.Primitives.GetRandom.GenerateBytes(16);
     end;
   end
   else

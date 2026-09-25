@@ -301,6 +301,9 @@ resourcestring
     '1.3 only (external PSKs are TLS 1.3-only); use a 1.3-only preset or WithSupportedVersions([TLS 1.3])';
   SNoCredential = 'a server configuration requires a certificate credential';
   SNoClientAuthTrustStore = 'client authentication requires a trust source for the client certificate chain';
+  SMtlsSharedResumptionNeedsScope = 'client authentication with a supplied session store or ' +
+    'ticket-key manager requires WithResumptionScope: a key or store may be shared across ' +
+    'configurations, and a resumed handshake reuses the stored client identity unverified';
   SSniCertMissing = 'the SNI credential for host "%s" has no certificate chain';
   SSniCertMismatch = 'the certificate mapped to SNI host "%s" does not cover it: its ' +
     'SubjectAltName dNSName entries do not match the host';
@@ -2624,6 +2627,16 @@ begin
     (FRevocationPosture = TRevocationPosture.Hard) and
     (FAsyncVerdict.Deferral <> TVerdictDeferral.LiveRevocation) then
     raise EInvalidOperationTlsLibException.CreateRes(@SHardServerRevocationUnusable);
+  // a ticket-key manager or session store is the one thing an operator can share across
+  // configurations, and a resumed handshake reuses the original client authentication without
+  // re-verifying it (RFC 8446 2.2): an mTLS configuration that supplies one must partition its
+  // tickets with an explicit scope, or a ticket minted under another configuration's client-CA
+  // trust would resume here as an authenticated identity. The per-config default STEK is exempt
+  // (it is never shared), so the common case builds unchanged.
+  if FResumption and (FClientAuth <> TClientAuthMode.None) and
+    ((FSessionTicketKeys <> nil) or (FSessionStore <> nil)) and
+    (System.Length(FResumptionScope) = 0) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SMtlsSharedResumptionNeedsScope);
   ValidateVersionScoping;
   LConfig := TFrozenServerConfig.Create;
   LConfig.FCrypto := FCrypto;
