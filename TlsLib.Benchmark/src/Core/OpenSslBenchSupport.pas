@@ -38,7 +38,9 @@ type
     class function Available: Boolean; static;
     /// <summary>The loaded OpenSSL version string (empty when unavailable).</summary>
     class function VersionString: string; static;
-    /// <summary>A client SSL_CTX with the version and (optional) cipher list / groups pinned.</summary>
+    /// <summary>A client SSL_CTX with the version and (optional) cipher list / groups pinned.
+    /// For TLS 1.3 the cipher string is a TLSv1.3 ciphersuites list (TLS_AES_128_GCM_SHA256 ...),
+    /// which OpenSSL configures separately from the 1.2 cipher list.</summary>
     class function NewClientCtx(AWireVersion: UInt16;
       const ACipherList, AGroups: string): PSSL_CTX; static;
     /// <summary>A server SSL_CTX as NewClientCtx plus the loaded EC leaf credential.</summary>
@@ -50,12 +52,64 @@ type
 
 implementation
 
+uses
+  mormot.core.os;
+
 const
   // OpenSSL's SSL_CTRL_SET_GROUPS_LIST (ssl.h); mORMot exposes no typed groups setter, so
   // the supported-groups list is pinned through the generic ctrl to match the TlsLib peer
   SSL_CTRL_SET_GROUPS_LIST = 92;
   // OpenSSL_version() selector for the human-readable version string (OPENSSL_VERSION)
   OPENSSL_VERSION_STRING = 0;
+
+type
+  TSslCtxSetCipherSuites = function(ACtx: PSSL_CTX; AStr: PUtf8Char): Int32; cdecl;
+
+var
+  GSetCipherSuites: TSslCtxSetCipherSuites = nil;
+
+// the binding exposes no SSL_CTX_set_ciphersuites, so resolve it from whichever libssl it
+// already loaded (the library names it tries, newest first)
+function SetCipherSuites: TSslCtxSetCipherSuites;
+const
+  CLibraries: array [0 .. 2] of TFileName = (LIB_SSL4, LIB_SSL3, LIB_SSL1);
+var
+  LIdx: Int32;
+  LLib: TLibHandle;
+begin
+  if not Assigned(GSetCipherSuites) then
+    for LIdx := System.Low(CLibraries) to System.High(CLibraries) do
+    begin
+      LLib := LibraryOpen(CLibraries[LIdx]);
+      if LLib = 0 then
+        Continue;
+      GSetCipherSuites := TSslCtxSetCipherSuites(LibraryResolve(LLib, 'SSL_CTX_set_ciphersuites'));
+      if Assigned(GSetCipherSuites) then
+        Break;
+      LibraryClose(LLib);
+    end;
+  if not Assigned(GSetCipherSuites) then
+    raise ETlsBenchmarkError.Create('OpenSSL SSL_CTX_set_ciphersuites could not be resolved');
+  Result := GSetCipherSuites;
+end;
+
+procedure PinCiphers(ACtx: PSSL_CTX; AWireVersion: UInt16; const ACipherList: string);
+var
+  LSetSuites: TSslCtxSetCipherSuites;
+  LList: RawUtf8;
+begin
+  if ACipherList = '' then
+    Exit;
+  LList := RawUtf8(ACipherList);
+  if AWireVersion = TLS1_3_VERSION then
+  begin
+    LSetSuites := SetCipherSuites;
+    if LSetSuites(ACtx, PUtf8Char(LList)) <= 0 then
+      raise ETlsBenchmarkError.CreateFmt('OpenSSL rejected the ciphersuites "%s"', [ACipherList]);
+  end
+  else if SSL_CTX_set_cipher_list(ACtx, PUtf8Char(LList)) <= 0 then
+    raise ETlsBenchmarkError.CreateFmt('OpenSSL rejected the cipher list "%s"', [ACipherList]);
+end;
 
 class function TOpenSslBench.Available: Boolean;
 begin
@@ -98,8 +152,7 @@ begin
   SSL_CTX_set_min_proto_version(Result, AWireVersion);
   SSL_CTX_set_max_proto_version(Result, AWireVersion);
   PinGroups(Result, AGroups);
-  if ACipherList <> '' then
-    SSL_CTX_set_cipher_list(Result, PUtf8Char(RawUtf8(ACipherList)));
+  PinCiphers(Result, AWireVersion, ACipherList);
 end;
 
 class function TOpenSslBench.NewServerCtx(const ACredential: TTlsBenchmarkCredential;
@@ -116,8 +169,7 @@ begin
   SSL_CTX_set_min_proto_version(Result, AWireVersion);
   SSL_CTX_set_max_proto_version(Result, AWireVersion);
   PinGroups(Result, AGroups);
-  if ACipherList <> '' then
-    SSL_CTX_set_cipher_list(Result, PUtf8Char(RawUtf8(ACipherList)));
+  PinCiphers(Result, AWireVersion, ACipherList);
 
   LPem := DerBytesToPem(ACredential.LeafCertDer, pemCertificate);
   LBio := BIO_new(BIO_s_mem());
