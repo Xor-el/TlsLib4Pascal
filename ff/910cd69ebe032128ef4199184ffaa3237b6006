@@ -1,0 +1,31 @@
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  s_09d3c46d1a9b1f::t_63ac1d33d2bb08 442,447-451,454-456
+  s_09d3c46d1a9b1f::t_b6f0cfa09d0805 519,524-528,531-533
+  s_09d3c46d1a9b1f::t_4e7596e0e28c06 221-234
+  s_09d3c46d1a9b1f::t_e9851a462029da 106
+  s_09d3c46d1a9b1f::t_d2cc2db7d42c1f 99
+  s_09d3c46d1a9b1f::t_c6ac7c4913d93d 77
+TlsLib/src/Pkix/Providers/TlpDefaultPkixProvider.pas
+  s_09d3c46d1a9b1f::t_59871b824154e2 621,627,629
+  s_09d3c46d1a9b1f::t_495df13d96c8f6 687-690,701-704,712-713,726-733,736,739-741,743-745
+TlsLib/src/Trust/TlpCertificateVerifier.pas
+  s_09d3c46d1a9b1f::t_773b9d065bd6c3 87-88
+TlsLib/src/Interfaces/Pkix/Providers/TlpIPkixProvider.pas
+  s_09d3c46d1a9b1f::t_46b6b9d8f83e20 164-167
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ff910cd69ebe032128ef4199184ffaa3237b6006",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
