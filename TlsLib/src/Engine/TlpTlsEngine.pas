@@ -128,6 +128,7 @@ type
     function IsHandshaking: Boolean;
     function AwaitingCertificateVerdict: Boolean;
     function IsTerminal: Boolean;
+    function IsClosed: Boolean;
     function IsInboundClosed: Boolean;
     function WriteClosed: Boolean;
     function LastError: TTlsError;
@@ -516,15 +517,11 @@ begin
   if not LReceived.IsFatalLevel then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SBogusAlertLevel);
-  // a fatal alert is terminal
+  // a fatal alert is terminal; carry the peer's raw description byte so a code we do not map
+  // (e.g. no_certificate, or a future one) is reported honestly rather than as our internal_error
   Enqueue(TTlsEvents.MakePeerAlert(LReceived));
   FTerminal := True;
-  if LReceived.HasKnownDescription then
-    FLastError := TTlsError.CreateFatal(LReceived.Description, SPeerFatalAlert,
-      TTlsErrorOrigin.Peer)
-  else
-    FLastError := TTlsError.CreateFatal(TTlsAlertDescription.InternalError,
-      SPeerFatalAlert, TTlsErrorOrigin.Peer);
+  FLastError := TTlsError.CreatePeerFatal(LReceived.DescriptionByte, SPeerFatalAlert);
 end;
 
 procedure TTlsEngine.RouteFragment(const AFragment: TTlsRecordFragment);
@@ -943,6 +940,12 @@ end;
 function TTlsEngine.IsTerminal: Boolean;
 begin
   Result := FTerminal;
+end;
+
+function TTlsEngine.IsClosed: Boolean;
+begin
+  // finished for reading: failed, or the peer's inbound close_notify arrived
+  Result := FTerminal or FClosed;
 end;
 
 function TTlsEngine.IsInboundClosed: Boolean;

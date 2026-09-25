@@ -172,8 +172,16 @@ type
     /// False when async certificate verdicts are disabled (the verdict resolves inline).
     /// </summary>
     function AwaitingCertificateVerdict: Boolean;
-    /// <summary>Whether the engine has failed or closed and accepts no more work.</summary>
+    /// <summary>Whether the engine has FAILED (a fatal alert was sent or received) and accepts no
+    /// more work. This is failure only - it is NOT set by a clean close_notify (under TLS 1.3 an
+    /// inbound close_notify half-closes: the write side stays open). To end a read loop use IsClosed
+    /// (failed or peer-closed); to detect a clean inbound shutdown use IsInboundClosed.</summary>
     function IsTerminal: Boolean;
+    /// <summary>Whether the engine is finished for reading: it has failed OR the peer sent
+    /// close_notify. The single, honest loop condition for a raw embedder - once True no further
+    /// application data will ever be read, so a `while not IsClosed do Pump` loop terminates (a
+    /// loop keyed on IsTerminal alone would spin forever after a clean close).</summary>
+    function IsClosed: Boolean;
     /// <summary>Whether the peer sent close_notify: a clean inbound shutdown. Unlike the
     /// one-shot Closed event, this is a persistent, idempotent query - it stays True once
     /// the close arrives, even after the event has been drained (a close_notify can coalesce
