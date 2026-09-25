@@ -220,18 +220,24 @@ type
       out AUrl: string): Boolean;
     /// <summary>
     /// Reads the certificate's CRL Distribution Points extension (RFC 5280 4.2.1.13) and
-    /// returns the full-name http/https URLs. Returns False (empty) when absent or carrying
-    /// no URI distribution point; never raises.
+    /// returns the full-name http/https URLs of the points the issuer serves itself (a point
+    /// naming a separate cRLIssuer is skipped: its indirect CRL is never authoritative here).
+    /// Returns False (empty) when absent or carrying no such URI; never raises.
     /// </summary>
     function TryGetCrlDistributionPoints(const ACert: TBytes;
       out AUrls: TArray<string>): Boolean;
     /// <summary>
     /// Checks the leaf against a fetched DER CRL (RFC 5280): confirms the CRL is signed by the
-    /// issuer, enforces its thisUpdate/nextUpdate freshness window at AValidationTimeUtc (so the
-    /// caller's injected clock drives it, not the wall clock), then reports whether the leaf
-    /// serial appears in the revoked list. Returns True when the CRL parsed, verified and is
-    /// current (ARevoked then meaningful); False on a malformed, unverifiable or out-of-window
-    /// CRL (indeterminate). AThisUpdate/ANextUpdate report the window (ANextUpdate 0 when absent).
+    /// issuer, that its scope covers the leaf (RFC 5280 6.3.3 / 5.2: same issuer name, issuer
+    /// key permits cRLSign, no unrecognized critical extension, not a delta or indirect CRL,
+    /// and any issuingDistributionPoint covers the leaf's certificate kind, all reasons and one
+    /// of its own distribution points), enforces its thisUpdate/nextUpdate freshness window at
+    /// AValidationTimeUtc (so the caller's injected clock drives it, not the wall clock), then
+    /// reports whether the leaf serial is listed with a revoking reason (removeFromCRL is not
+    /// one; certificateHold is). Returns True when the CRL parsed, verified, is in scope and is
+    /// current (ARevoked then meaningful); False on a malformed, unverifiable, wrong-scope or
+    /// out-of-window CRL (indeterminate: a validly signed CRL of the wrong scope says nothing
+    /// about the leaf). AThisUpdate/ANextUpdate report the window (ANextUpdate 0 when absent).
     /// Never raises.
     /// </summary>
     function CheckCrlRevocation(const ALeafCert, AIssuerCert, ACrlDer: TBytes;
