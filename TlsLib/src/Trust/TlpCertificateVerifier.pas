@@ -39,7 +39,9 @@ type
   /// <summary>The stapled OCSP outcome the trust decision acts on (RFC 6960): a current
   /// Good response, a definitive Revoked, or an indeterminate outcome (absent,
   /// unauthorized, unknown, or outside its validity window).</summary>
-  TStapleVerdict = (GoodFresh, Revoked, Indeterminate);
+  // GoodUnbounded: a Good response with no nextUpdate, recent enough to accept inline but never
+  // to settle revocation (a live check, when configured, must still run)
+  TStapleVerdict = (GoodFresh, GoodUnbounded, Revoked, Indeterminate);
 
   /// <summary>A default in-memory trust store over a fixed set of root CA DERs.</summary>
   TTrustAnchorStore = class sealed(TInterfacedObject, ITrustAnchorStore)
@@ -351,7 +353,7 @@ class function TCertificateVerifier.StapleVerdict(const APkix: IPkixProvider;
 var
   LStatus: TOcspStatus;
   LThisUpdate, LNextUpdate: TDateTime;
-  LNowMs: Int64;
+  LNowMs, LNextMs: Int64;
 begin
   Result := TStapleVerdict.Indeterminate;
   // a public entry point: without a provider or a clock no verdict can be rendered
@@ -371,12 +373,18 @@ begin
   end;
   if LStatus = TOcspStatus.Good then
   begin
-    // accept a Good response only inside its own validity window
     LNowMs := Int64(AClock.NowUnixMillis);
-    if (LNowMs >= TDateTimeUtilities.DateTimeToUnixMs(LThisUpdate)) and
-      ((LNextUpdate = 0) or
-      (LNowMs < TDateTimeUtilities.DateTimeToUnixMs(LNextUpdate))) then
-      Result := TStapleVerdict.GoodFresh;
+    if LNextUpdate = 0 then
+      LNextMs := 0 // no nextUpdate carried
+    else
+      LNextMs := TDateTimeUtilities.DateTimeToUnixMs(LNextUpdate);
+    case TRevocationDecision.OcspFreshness(LNowMs,
+      TDateTimeUtilities.DateTimeToUnixMs(LThisUpdate), LNextMs) of
+      TOcspFreshness.Fresh:
+        Result := TStapleVerdict.GoodFresh;
+      TOcspFreshness.Unbounded:
+        Result := TStapleVerdict.GoodUnbounded;
+    end;
   end;
   // an Unknown status, or a Good one outside its window, stays Indeterminate
 end;
@@ -438,6 +446,14 @@ begin
     // a current, authenticated Good settles revocation inline: a configured live-revocation park
     // would only re-fetch what the staple already answered, so the caller may skip it
     ASettled := True;
+    Result := True;
+    Exit;
+  end;
+
+  if LVerdict = TStapleVerdict.GoodUnbounded then
+  begin
+    // without nextUpdate the responder promises newer information at any time (RFC 6960 4.2.2.1),
+    // so this Good satisfies the inline gate but does not stand in for a configured live check
     Result := True;
     Exit;
   end;

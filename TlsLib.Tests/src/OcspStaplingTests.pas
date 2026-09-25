@@ -21,6 +21,7 @@ uses
   TlpIClock,
   TlpClock,
   TlpDateTimeUtilities,
+  MockClock,
   SysUtils,
   Classes,
 {$IFDEF FPC}
@@ -50,7 +51,16 @@ type
   TTestOcspStapling = class(TTlsLibAlgorithmTestCase)
   private
     FVec: TStringList;
+    // a CA-signed Good response with no nextUpdate (and one with, for contrast)
+    FNoNext: TStringList;
     function V(const AName: string): TBytes;
+    function N(const AName: string): TBytes;
+    function NoNextChain: TArray<TBytes>;
+    // the response's thisUpdate in Unix ms, read back from the parsed vector so the clock the
+    // tests pin is derived from the data rather than hard-coded
+    function NoNextThisUpdateMs(const AResponse: TBytes): Int64;
+    function NoNextVerifierFor(APosture: TRevocationPosture; ADeferral: TVerdictDeferral;
+      AClockMs: Int64): IServerCertificateVerifier;
     function Chain: TArray<TBytes>;
     function ChainFor(const ALeafName: string): TArray<TBytes>;
     function VerifierFor(APosture: TRevocationPosture;
@@ -130,6 +140,13 @@ type
     // issuer must be available to the staple step (not just the bare leaf)
     procedure TestLeafOnlyGoodStapleHardCompletesViaConfiguredIssuer;
     procedure TestLeafOnlyPinOnConfiguredIssuerMatchesOverValidatedPath;
+    // a Good response without nextUpdate (RFC 6960 4.2.2.1: newer information is available at
+    // any time) is accepted inline only within a bounded age, and never settles revocation - a
+    // configured live park still runs. One with nextUpdate is Fresh inside its window and settles.
+    procedure TestStapleVerdictWithoutNextUpdateIsGoodUnbounded;
+    procedure TestGoodStapleWithoutNextUpdateAcceptsButDoesNotSettle;
+    procedure TestGoodStapleWithNextUpdateSettles;
+    procedure TestGoodStapleWithoutNextUpdateBeyondMaxAgeIsIndeterminate;
   end;
 
 implementation
@@ -140,17 +157,53 @@ procedure TTestOcspStapling.SetUp;
 begin
   inherited SetUp;
   FVec := LoadVectorFields('Certs/OcspStapling.txt');
+  FNoNext := LoadVectorFields('Certs/OcspNoNextUpdate.txt');
 end;
 
 procedure TTestOcspStapling.TearDown;
 begin
   FVec.Free;
+  FNoNext.Free;
   inherited TearDown;
 end;
 
 function TTestOcspStapling.V(const AName: string): TBytes;
 begin
   Result := DecodeHex(FVec.Values[AName]);
+end;
+
+function TTestOcspStapling.N(const AName: string): TBytes;
+begin
+  Result := DecodeHex(FNoNext.Values[AName]);
+end;
+
+function TTestOcspStapling.NoNextChain: TArray<TBytes>;
+begin
+  Result := TArray<TBytes>.Create(N('leaf_cert'), N('ca_cert'));
+end;
+
+function TTestOcspStapling.NoNextThisUpdateMs(const AResponse: TBytes): Int64;
+var
+  LStatus: TOcspStatus;
+  LThis, LNext: TDateTime;
+begin
+  CheckTrue(Pkix.Revocation.ValidateOcspStaple(N('leaf_cert'), N('ca_cert'), AResponse,
+    TDateTimeUtilities.ToUniversalTime(Now), LStatus, LThis, LNext),
+    'the CA-signed response about the leaf is authoritative');
+  CheckEquals(Ord(TOcspStatus.Good), Ord(LStatus), 'the status is Good');
+  Result := TDateTimeUtilities.DateTimeToUnixMs(LThis);
+end;
+
+function TTestOcspStapling.NoNextVerifierFor(APosture: TRevocationPosture;
+  ADeferral: TVerdictDeferral; AClockMs: Int64): IServerCertificateVerifier;
+var
+  LNoDangerous: TDangerousTrust;
+begin
+  LNoDangerous := Default(TDangerousTrust);
+  Result := TCertificateVerifier.Create(Pkix, TMockClock.Create(UInt64(AClockMs)) as ITlsClock,
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(N('ca_cert'))) as ITrustAnchorStore, False,
+    TCertificateChainLimits.Defaults, APosture, LNoDangerous, ADeferral, nil, True,
+    TVerificationOccasion.InitialHandshake) as IServerCertificateVerifier;
 end;
 
 function TTestOcspStapling.Chain: TArray<TBytes>;
@@ -750,6 +803,84 @@ begin
     'a leaf pin does not match a genuine leaf appended behind an attacker leaf under skip-verify');
   CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
     'the alert is bad_certificate');
+end;
+
+procedure TTestOcspStapling.TestStapleVerdictWithoutNextUpdateIsGoodUnbounded;
+var
+  LStatus: TOcspStatus;
+  LThis, LNext: TDateTime;
+  LThisMs: Int64;
+begin
+  // the vector really carries no nextUpdate (the provider reports it as 0)
+  CheckTrue(Pkix.Revocation.ValidateOcspStaple(N('leaf_cert'), N('ca_cert'),
+    N('ocsp_good_nonext'), TDateTimeUtilities.ToUniversalTime(Now), LStatus, LThis, LNext),
+    'the no-nextUpdate response is authoritative');
+  CheckTrue(LNext = 0, 'the response carries no nextUpdate');
+  LThisMs := TDateTimeUtilities.DateTimeToUnixMs(LThis);
+  CheckEquals(Ord(TStapleVerdict.GoodUnbounded),
+    Ord(TCertificateVerifier.StapleVerdict(Pkix,
+    TMockClock.Create(UInt64(LThisMs + 3600 * 1000)) as ITlsClock, NoNextChain,
+    N('ocsp_good_nonext'))), 'a recent Good without nextUpdate is GoodUnbounded, never GoodFresh');
+  CheckEquals(Ord(TStapleVerdict.Indeterminate),
+    Ord(TCertificateVerifier.StapleVerdict(Pkix,
+    TMockClock.Create(UInt64(LThisMs + TRevocationDecision.OcspUnboundedMaxAgeMs + 1))
+    as ITlsClock, NoNextChain, N('ocsp_good_nonext'))),
+    'past the max age a Good without nextUpdate is Indeterminate');
+  CheckEquals(Ord(TStapleVerdict.GoodFresh),
+    Ord(TCertificateVerifier.StapleVerdict(Pkix,
+    TMockClock.Create(UInt64(LThisMs + 3600 * 1000)) as ITlsClock, NoNextChain,
+    N('ocsp_good_withnext'))), 'the same response with nextUpdate is GoodFresh inside its window');
+end;
+
+procedure TTestOcspStapling.TestGoodStapleWithoutNextUpdateAcceptsButDoesNotSettle;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  // Hard + live revocation, one hour after thisUpdate: the staple satisfies the inline gate, but
+  // the outcome stays Trusted so the configured live park still runs - a replayed old Good must
+  // not stand in for the live check that would report a later revocation
+  CheckTrue(NoNextVerifierFor(TRevocationPosture.Hard, TVerdictDeferral.LiveRevocation,
+    NoNextThisUpdateMs(N('ocsp_good_nonext')) + 3600 * 1000).VerifyServerCertificate(
+    NoNextChain, TServerName.DnsName(''), N('ocsp_good_nonext'), LVerified, LAlert),
+    'a recent Good staple without nextUpdate is accepted under Hard + live revocation');
+  CheckEquals(Ord(TVerificationOutcome.Trusted), Ord(LVerified.Outcome),
+    'a Good staple without nextUpdate does not settle revocation inline');
+end;
+
+procedure TTestOcspStapling.TestGoodStapleWithNextUpdateSettles;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  // the contrast: the same responder's Good WITH nextUpdate is Fresh and settles inline
+  CheckTrue(NoNextVerifierFor(TRevocationPosture.Hard, TVerdictDeferral.LiveRevocation,
+    NoNextThisUpdateMs(N('ocsp_good_withnext')) + 3600 * 1000).VerifyServerCertificate(
+    NoNextChain, TServerName.DnsName(''), N('ocsp_good_withnext'), LVerified, LAlert),
+    'a Good staple with nextUpdate is accepted under Hard + live revocation');
+  CheckEquals(Ord(TVerificationOutcome.RevocationSettledInline), Ord(LVerified.Outcome),
+    'a Good staple inside its nextUpdate window settles revocation inline');
+end;
+
+procedure TTestOcspStapling.TestGoodStapleWithoutNextUpdateBeyondMaxAgeIsIndeterminate;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+  LClockMs: Int64;
+begin
+  // eight days after thisUpdate the no-nextUpdate Good is past the max age: Indeterminate, which
+  // Hard rejects and Soft accepts
+  LClockMs := NoNextThisUpdateMs(N('ocsp_good_nonext')) + Int64(8) * 24 * 3600 * 1000;
+  CheckFalse(NoNextVerifierFor(TRevocationPosture.Hard, TVerdictDeferral.None, LClockMs)
+    .VerifyServerCertificate(NoNextChain, TServerName.DnsName(''), N('ocsp_good_nonext'),
+    LVerified, LAlert), 'Hard rejects a Good without nextUpdate that is past the max age');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificateStatusResponse), Ord(LAlert),
+    'the alert is bad_certificate_status_response');
+  CheckTrue(NoNextVerifierFor(TRevocationPosture.Soft, TVerdictDeferral.None, LClockMs)
+    .VerifyServerCertificate(NoNextChain, TServerName.DnsName(''), N('ocsp_good_nonext'),
+    LVerified, LAlert), 'Soft accepts the indeterminate outcome');
+  CheckEquals(Ord(TVerificationOutcome.Trusted), Ord(LVerified.Outcome),
+    'an indeterminate outcome never settles');
 end;
 
 initialization

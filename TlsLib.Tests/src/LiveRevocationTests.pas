@@ -32,6 +32,7 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpTlsAlert,
+  TlpPkixDomainTypes,
   TlpIHttpFetcher,
   TlpIPkixProvider,
   TlpTrustPolicy,
@@ -86,6 +87,10 @@ type
     // edges
     procedure TestChainWithoutIssuerIsIndeterminate;
     procedure TestResolveVerdictRejectsRevoked;
+    // a live Good without nextUpdate (RFC 6960 4.2.2.1) is accepted within the max age and
+    // Indeterminate beyond it; a live check never settles inline, so no park is skipped by it
+    procedure TestLiveGoodWithoutNextUpdateWithinMaxAgeIsGood;
+    procedure TestLiveGoodWithoutNextUpdateBeyondMaxAgeIsIndeterminate;
   end;
 
   /// <summary>The one revocation-decision table every verifier and resolver applies (RFC 6960):
@@ -96,6 +101,8 @@ type
   published
     procedure TestDecideTruthTable;
     procedure TestEffectivePosture;
+    // the one OCSP window classification the staple and live paths share
+    procedure TestOcspFreshness;
   end;
 
 implementation
@@ -614,7 +621,114 @@ begin
   end;
 end;
 
+procedure TTestLiveRevocation.TestLiveGoodWithoutNextUpdateWithinMaxAgeIsGood;
+var
+  LV: TStringList;
+  LLeaf, LCa, LResponse: TBytes;
+  LStatus: TOcspStatus;
+  LThis, LNext: TDateTime;
+  LFetcher: TMockHttpFetcher;
+  LChecker: TLiveRevocationChecker;
+begin
+  LV := LoadVectorFields('Certs/OcspNoNextUpdate.txt');
+  try
+    LLeaf := DecodeHex(LV.Values['leaf_cert']);
+    LCa := DecodeHex(LV.Values['ca_cert']);
+    LResponse := DecodeHex(LV.Values['ocsp_good_nonext']);
+  finally
+    LV.Free;
+  end;
+  // derive the clock from the response's own thisUpdate so the vector stays durable
+  CheckTrue(Pkix.Revocation.ValidateOcspStaple(LLeaf, LCa, LResponse,
+    TDateTimeUtilities.ToUniversalTime(Now), LStatus, LThis, LNext),
+    'the CA-signed response is authoritative');
+  CheckTrue(LNext = 0, 'the response carries no nextUpdate');
+  LFetcher := TMockHttpFetcher.Create;
+  LFetcher.SetPost(True, LResponse);
+  LChecker := TLiveRevocationChecker.Create(Pkix,
+    TMockClock.Create(UInt64(TDateTimeUtilities.DateTimeToUnixMs(LThis) + 3600 * 1000))
+    as ITlsClock, LFetcher as IHttpFetcher, TRevocationPosture.Hard,
+    TLiveRevocationMethod.Ocsp, 0);
+  try
+    CheckTrue(LChecker.Evaluate(TArray<TBytes>.Create(LLeaf, LCa)) =
+      TLiveRevocationOutcome.Good,
+      'a live Good without nextUpdate, one hour old, yields Good');
+    CheckTrue(LChecker.CheckChain(TArray<TBytes>.Create(LLeaf, LCa)),
+      'a recent live Good accepts under Hard');
+  finally
+    LChecker.Free;
+  end;
+end;
+
+procedure TTestLiveRevocation.TestLiveGoodWithoutNextUpdateBeyondMaxAgeIsIndeterminate;
+var
+  LV: TStringList;
+  LLeaf, LCa, LResponse: TBytes;
+  LStatus: TOcspStatus;
+  LThis, LNext: TDateTime;
+  LFetcher: TMockHttpFetcher;
+  LChecker: TLiveRevocationChecker;
+begin
+  LV := LoadVectorFields('Certs/OcspNoNextUpdate.txt');
+  try
+    LLeaf := DecodeHex(LV.Values['leaf_cert']);
+    LCa := DecodeHex(LV.Values['ca_cert']);
+    LResponse := DecodeHex(LV.Values['ocsp_good_nonext']);
+  finally
+    LV.Free;
+  end;
+  CheckTrue(Pkix.Revocation.ValidateOcspStaple(LLeaf, LCa, LResponse,
+    TDateTimeUtilities.ToUniversalTime(Now), LStatus, LThis, LNext),
+    'the CA-signed response is authoritative');
+  // one millisecond past the max age: a responder that promised newer information at any time
+  // has not been asked for it, so a replayed old Good is not a Good
+  LFetcher := TMockHttpFetcher.Create;
+  LFetcher.SetPost(True, LResponse);
+  LChecker := TLiveRevocationChecker.Create(Pkix,
+    TMockClock.Create(UInt64(TDateTimeUtilities.DateTimeToUnixMs(LThis) +
+    TRevocationDecision.OcspUnboundedMaxAgeMs + 1)) as ITlsClock, LFetcher as IHttpFetcher,
+    TRevocationPosture.Hard, TLiveRevocationMethod.Ocsp, 0);
+  try
+    CheckTrue(LChecker.Evaluate(TArray<TBytes>.Create(LLeaf, LCa)) =
+      TLiveRevocationOutcome.Indeterminate,
+      'a live Good without nextUpdate past the max age is Indeterminate');
+    CheckFalse(LChecker.CheckChain(TArray<TBytes>.Create(LLeaf, LCa)),
+      'Hard rejects the indeterminate outcome');
+  finally
+    LChecker.Free;
+  end;
+end;
+
 { TTestRevocationDecision }
+
+procedure TTestRevocationDecision.TestOcspFreshness;
+const
+  ThisMs = Int64(1700000000000);
+  MaxAge = TRevocationDecision.OcspUnboundedMaxAgeMs;
+begin
+  // a response is never fresh before its thisUpdate, with or without nextUpdate
+  CheckEquals(Ord(TOcspFreshness.Stale),
+    Ord(TRevocationDecision.OcspFreshness(ThisMs - 1, ThisMs, 0)), 'not yet valid, unbounded');
+  CheckEquals(Ord(TOcspFreshness.Stale),
+    Ord(TRevocationDecision.OcspFreshness(ThisMs - 1, ThisMs, ThisMs + MaxAge)),
+    'not yet valid, bounded');
+  // with nextUpdate the window is [thisUpdate, nextUpdate)
+  CheckEquals(Ord(TOcspFreshness.Fresh),
+    Ord(TRevocationDecision.OcspFreshness(ThisMs, ThisMs, ThisMs + 1)), 'at thisUpdate');
+  CheckEquals(Ord(TOcspFreshness.Fresh),
+    Ord(TRevocationDecision.OcspFreshness(ThisMs + 2 * MaxAge, ThisMs, ThisMs + 3 * MaxAge)),
+    'inside a window longer than the unbounded max age is still Fresh');
+  CheckEquals(Ord(TOcspFreshness.Stale),
+    Ord(TRevocationDecision.OcspFreshness(ThisMs + 1, ThisMs, ThisMs + 1)), 'at nextUpdate');
+  // without nextUpdate the response is Unbounded up to and including the max age, then Stale
+  CheckEquals(Ord(TOcspFreshness.Unbounded),
+    Ord(TRevocationDecision.OcspFreshness(ThisMs, ThisMs, 0)), 'unbounded at thisUpdate');
+  CheckEquals(Ord(TOcspFreshness.Unbounded),
+    Ord(TRevocationDecision.OcspFreshness(ThisMs + MaxAge, ThisMs, 0)), 'unbounded at max age');
+  CheckEquals(Ord(TOcspFreshness.Stale),
+    Ord(TRevocationDecision.OcspFreshness(ThisMs + MaxAge + 1, ThisMs, 0)),
+    'stale one past the max age');
+end;
 
 procedure TTestRevocationDecision.TestDecideTruthTable;
 var

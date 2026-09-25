@@ -44,6 +44,11 @@ type
   /// or Indeterminate when no authoritative status was obtained (missing/expired/unreachable).</summary>
   TLiveRevocationOutcome = (Good, Revoked, Indeterminate);
 
+  /// <summary>How current a Good OCSP response is: Fresh (within its nextUpdate window),
+  /// Unbounded (no nextUpdate but recent enough to accept inline, never to settle revocation -
+  /// RFC 6960 4.2.2.1 says newer information is then always available), or Stale.</summary>
+  TOcspFreshness = (Fresh, Unbounded, Stale);
+
   /// <summary>
   /// The one revocation-decision table every verifier and resolver applies: a definitive Revoked
   /// rejects under every posture (certificate_revoked); a Good accepts; an Indeterminate accepts
@@ -54,6 +59,13 @@ type
   /// </summary>
   TRevocationDecision = class sealed(TObject)
   public
+    /// <summary>A Good response without nextUpdate is accepted inline only if its thisUpdate is
+    /// within this age; beyond it the response is Stale.</summary>
+    const OcspUnboundedMaxAgeMs = Int64(7) * 24 * 60 * 60 * 1000;
+    /// <summary>Classifies a Good OCSP response by its window. All times are Unix milliseconds;
+    /// ANextUpdateMs = 0 means the response carried no nextUpdate.</summary>
+    class function OcspFreshness(ANowMs, AThisUpdateMs,
+      ANextUpdateMs: Int64): TOcspFreshness; static;
     /// <summary>The posture an inline evaluation runs at: Hard becomes Soft while the indeterminate
     /// case is deferred to a live check; otherwise the configured posture.</summary>
     class function EffectivePosture(APosture: TRevocationPosture;
@@ -229,6 +241,24 @@ begin
 end;
 
 { TRevocationDecision }
+
+class function TRevocationDecision.OcspFreshness(ANowMs, AThisUpdateMs,
+  ANextUpdateMs: Int64): TOcspFreshness;
+begin
+  if ANowMs < AThisUpdateMs then
+    Result := TOcspFreshness.Stale // not yet valid
+  else if ANextUpdateMs <> 0 then
+  begin
+    if ANowMs < ANextUpdateMs then
+      Result := TOcspFreshness.Fresh
+    else
+      Result := TOcspFreshness.Stale;
+  end
+  else if (ANowMs - AThisUpdateMs) <= OcspUnboundedMaxAgeMs then
+    Result := TOcspFreshness.Unbounded
+  else
+    Result := TOcspFreshness.Stale;
+end;
 
 class function TRevocationDecision.EffectivePosture(APosture: TRevocationPosture;
   ADeferToLive: Boolean): TRevocationPosture;

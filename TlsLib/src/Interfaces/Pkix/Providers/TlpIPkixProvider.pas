@@ -164,10 +164,11 @@ type
     /// chain (e.g. a leaf-only server); empty validates the chain exactly as received.
     /// They never anchor a path and never bypass validation. The chain is first validated
     /// exactly as presented; the intermediates are consulted only if that strict pass fails.
-    /// AEffectiveChain returns the validated leaf-first chain - the assembled path when one was
-    /// built, otherwise AChain - so the caller's staple and pin checks see the real issuer. It is
-    /// a var parameter so a caller may pre-seed it with AChain as a fallback; an implementation
-    /// that returns normally must set it. AKeyPurpose selects the extendedKeyUsage the
+    /// AEffectiveChain returns the validated path in issuer order (leaf at [0], its issuer at [1],
+    /// ...), ending at the configured trust anchor exactly once - never the peer's presented order -
+    /// so the caller's staple and pin checks key off the real issuer. It is a var parameter so a
+    /// caller may pre-seed it with AChain as a fallback; an implementation that returns normally
+    /// must set it. AKeyPurpose selects the extendedKeyUsage the
     /// path must carry (server vs client role); a certificate on the path (leaf or
     /// intermediate, never the anchor) that carries an EKU extension lacking the purpose
     /// is rejected with unsupported_certificate, while one with no EKU is unrestricted.

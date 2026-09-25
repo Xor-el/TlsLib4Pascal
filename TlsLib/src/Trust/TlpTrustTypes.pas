@@ -43,8 +43,10 @@ type
   /// <summary>How the built-in pipeline reached acceptance, as it bears on a live-revocation park.
   /// Trusted (the default) is the safe case: if a live-revocation park is configured, run it.
   /// RevocationSettledInline means the verifier reached a definitive, authenticated revocation
-  /// verdict inline (e.g. a current Good staple), so a configured live-revocation park would be
-  /// redundant and the caller may skip it. Only a verifier that can settle revocation inline sets
+  /// verdict inline (e.g. a current Good staple carrying nextUpdate), so a configured
+  /// live-revocation park would be redundant and the caller may skip it. A Good staple without
+  /// nextUpdate is accepted inline but never settles - the park still runs (RFC 6960 4.2.2.1).
+  /// Only a verifier that can settle revocation inline sets
   /// RevocationSettledInline; a delegate whose live check happens at the park always returns Trusted,
   /// so the park still runs. This never affects a host-decision park, which is a separate policy.</summary>
   TVerificationOutcome = (Trusted, RevocationSettledInline);

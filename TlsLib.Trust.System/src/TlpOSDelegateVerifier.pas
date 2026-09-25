@@ -214,7 +214,7 @@ begin
   if LClock = nil then
     LClock := TSystemClock.Create as ITlsClock;
   case TCertificateVerifier.StapleVerdict(FPolicy.Pkix, LClock, APath, AStaple) of
-    TStapleVerdict.GoodFresh:
+    TStapleVerdict.GoodFresh, TStapleVerdict.GoodUnbounded:
       Result := TLiveRevocationOutcome.Good;
     TStapleVerdict.Revoked:
       Result := TLiveRevocationOutcome.Revoked;

@@ -131,7 +131,7 @@ var
   LRequest, LResponse: TBytes;
   LStatus: TOcspStatus;
   LThisUpdate, LNextUpdate: TDateTime;
-  LNowMs: Int64;
+  LNowMs, LNextMs: Int64;
 begin
   Result := TLiveRevocationOutcome.Indeterminate;
   if (AResponderUrl = '') or (FFetcher = nil) then
@@ -156,11 +156,16 @@ begin
       Result := TLiveRevocationOutcome.Revoked;
     TOcspStatus.Good:
       begin
-        // honor the response validity window; a Good outside it is indeterminate
+        // honor the response validity window; a Good outside it is indeterminate. A live check
+        // never settles inline, so a no-nextUpdate Good within the max age is accepted too
         LNowMs := Int64(FClock.NowUnixMillis);
-        if (LNowMs >= TDateTimeUtilities.DateTimeToUnixMs(LThisUpdate)) and
-          ((LNextUpdate = 0) or
-          (LNowMs < TDateTimeUtilities.DateTimeToUnixMs(LNextUpdate))) then
+        if LNextUpdate = 0 then
+          LNextMs := 0
+        else
+          LNextMs := TDateTimeUtilities.DateTimeToUnixMs(LNextUpdate);
+        if TRevocationDecision.OcspFreshness(LNowMs,
+          TDateTimeUtilities.DateTimeToUnixMs(LThisUpdate), LNextMs) in
+          [TOcspFreshness.Fresh, TOcspFreshness.Unbounded] then
           Result := TLiveRevocationOutcome.Good;
       end;
   end;
