@@ -130,9 +130,18 @@ type
   ETlsTransportTruncated = class(ETlsStreamError);
 
   /// <summary>
+  /// The host socket's receive timeout elapsed during an application read with the peer
+  /// sending nothing. Retryable: the connection is intact and nothing was lost, so a host
+  /// reports it as its own "try again" verdict - never as a truncation or a fatal error.
+  /// </summary>
+  ETlsReadTimeout = class(ETlsStreamError);
+
+  /// <summary>
   /// The adapter's handshake read timeout elapsed with the peer sending nothing - a silent
   /// or dead connection reaped. Distinct from ETlsTransportTruncated (a peer close): this is
-  /// "we timed out", that is "the client closed". Also benign on a server.
+  /// "we timed out", that is "the client closed". Also benign on a server. NOT retryable: the
+  /// handshake cannot be resumed on the same stream, so it is a sibling of ETlsReadTimeout, not
+  /// a kind of it.
   /// </summary>
   ETlsHandshakeTimeout = class(ETlsStreamError);
 

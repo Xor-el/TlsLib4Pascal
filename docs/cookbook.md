@@ -270,7 +270,9 @@ or timers. You pump bytes; it transduces. The contract (unit `TlpITlsEngine`):
 - feed ciphertext in with `ProcessInput(wire, offset, len)`
 - drain ciphertext to send with `TakeOutgoing(dest, destOffset)`
 - push/pull application data with `Write(...)` / `ReadAppData(...)`
-- check `WantsWrite` / `IsHandshaking`, and service `NextEvent`
+- check `WantsWrite` / `IsHandshaking`, and service `NextEvent` every cycle — application data is
+  not an event (poll `PendingAppData` / `ReadAppData`); past 64 undrained events the informational
+  kinds are dropped, while `PeerAlert`, `Closed` and `CertificateReceived` never are
 
 ```pascal
 uses TlpTlsEngineFactory, TlpITlsEngine;

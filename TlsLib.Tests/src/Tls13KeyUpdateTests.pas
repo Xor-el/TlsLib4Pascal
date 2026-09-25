@@ -66,6 +66,7 @@ type
     procedure TestServerInitiatedKeyUpdate;
     procedure TestRepeatedKeyUpdatesStayInSync;
     procedure TestConsecutiveKeyUpdateFloodIsRefused;
+    procedure TestUndrainedEventQueueIsBounded;
     procedure TestWriteAtUsageLimitRekeysAutomatically;
     procedure TestServerExportsKeyingMaterialInHalfRtt;
     procedure TestExportKeyingMaterialSurvivesKeyUpdate;
@@ -209,7 +210,7 @@ begin
   end;
   CheckFalse(AClient.IsHandshaking, 'the client completed the handshake');
   CheckFalse(AServer.IsHandshaking, 'the server completed the handshake');
-  // clear the handshake-phase events (KeysInstalled, SessionTicketReceived, ...)
+  // clear the handshake-phase events (SessionTicketReceived, ...)
   CountKeyUpdateEvents(AClient);
   CountKeyUpdateEvents(AServer);
 end;
@@ -353,6 +354,35 @@ begin
     Pump(LServer, LClient);
   end;
   CheckTrue(LClient.IsTerminal, 'the client refuses a consecutive KeyUpdate flood');
+end;
+
+procedure TTestTls13KeyUpdate.TestUndrainedEventQueueIsBounded;
+const
+  MAX_QUEUED_EVENTS = 64;
+  ROUNDS = MAX_QUEUED_EVENTS + 16;
+var
+  LClient, LServer: ITlsEngine;
+  LFromClient: TBytes;
+  LI: Int32;
+begin
+  // a host that never services NextEvent must not grow the queue without bound: past the cap
+  // the informational KeyUpdateReceived events are dropped and the connection stays healthy.
+  // Application data flows between the updates so the exchange is never mistaken for a flood.
+  Handshake(LClient, LServer);
+  LFromClient := DecodeHex('68656c6c6f2066726f6d2074686520636c69656e74');
+  for LI := 1 to ROUNDS do
+  begin
+    LClient.RequestKeyUpdate(TKeyUpdateRequest.UpdateNotRequested);
+    Exchange(LClient, LServer);
+    LClient.Write(LFromClient, 0, System.Length(LFromClient));
+    Pump(LClient, LServer);
+    CheckEqualBytes('the server reads the data under the current keys', LFromClient,
+      ReadAllApp(LServer));
+  end;
+  CheckFalse(LClient.IsTerminal, 'the client stayed healthy across the undrained rounds');
+  CheckFalse(LServer.IsTerminal, 'the server stayed healthy across the undrained rounds');
+  CheckEquals(MAX_QUEUED_EVENTS, CountKeyUpdateEvents(LServer),
+    'the undrained queue kept exactly the cap of KeyUpdate events and dropped the rest');
 end;
 
 procedure TTestTls13KeyUpdate.TestServerExportsKeyingMaterialInHalfRtt;

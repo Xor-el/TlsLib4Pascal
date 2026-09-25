@@ -105,7 +105,9 @@ procedure FlushTlsLibMormotConfigCache;
 type
   /// <summary>An ITlsTransport over a mORMot TNetSocket: raw ciphertext moves through the socket's
   /// blocking Recv/Send, and the handshake-phase read cap comes from the shared timed-transport
-  /// base. nrClosed is an orderly EOF (0); nrRetry is retried.</summary>
+  /// base. nrClosed is an orderly EOF (0). nrRetry under the handshake cap is read again (the base
+  /// already bounded the wait); with no cap it is the socket's own receive timeout on an idle peer
+  /// and surfaces as the retryable ETlsReadTimeout. A send that stays blocked is bounded too.</summary>
   TMormotSocketTransport = class sealed(TTlsTimedTransportBase)
   strict private
   var
@@ -177,12 +179,19 @@ procedure RegisterTlsLib4PascalTls;
 
 implementation
 
+const
+  // how long a blocked send waits for the peer to drain its receive window before the
+  // connection is given up as dead; a peer that reads at all drains far sooner
+  SendWaitMs = Int32(30000);
+
 resourcestring
   SCARawUnsupported = 'the mORMot TLS context supplies CACertificatesRaw (in-memory OpenSSL ' +
     'X509 handles); TlsLib4Pascal is OpenSSL-free and cannot consume them - pass the CA chain ' +
     'as a PEM/DER file via CACertificatesFile, or use TSystemTrust for the OS anchors';
   SMormotReceiveFailed = 'mORMot socket receive failed (nr=%d)';
+  SMormotReceiveTimedOut = 'the socket receive timeout elapsed with no data from the peer';
   SMormotSendFailed = 'mORMot socket send failed (nr=%d)';
+  SMormotSendTimedOut = 'the peer stopped reading: the socket stayed unwritable past the send bound';
   SMormotTrustSourceHint = 'CACertificatesFile or CASystemStores';
 
 var
@@ -300,7 +309,11 @@ begin
       nrClosed:
         Exit(0);
       nrRetry:
-        ; // a blocking socket rarely reports this; read again
+        // under the handshake cap the base already bounded the wait, so read again; with no cap
+        // this is the socket's receive timeout on an idle peer, which the host retries - spinning
+        // here would hide it, and treating it as EOF would misreport a truncation
+        if ReadTimeoutMs = 0 then
+          raise ETlsReadTimeout.Create(SMormotReceiveTimedOut);
     else
       raise ETlsStreamError.Create(Format(SMormotReceiveFailed, [Ord(LRes)]));
     end;
@@ -320,7 +333,10 @@ begin
       nrOK:
         Exit(LLen);
       nrRetry:
-        ; // loop and send the remainder
+        // the send buffer is full because the peer stopped reading: wait for writability with a
+        // bound so a dead peer surfaces instead of an unbounded retry loop
+        if not (neWrite in FSocket.WaitFor(SendWaitMs, [neWrite])) then
+          raise ETlsStreamError.Create(SMormotSendTimedOut);
     else
       raise ETlsStreamError.Create(Format(SMormotSendFailed, [Ord(LRes)]));
     end;
@@ -562,8 +578,18 @@ begin
       // a zero-length read is a clean close_notify EOF (truncation raises)
       Result := nrClosed;
   except
-    Length := 0;
-    Result := nrFatalError;
+    on ETlsReadTimeout do
+    begin
+      // the socket's receive timeout on an idle peer: the connection is intact, so it is the
+      // host's own retry verdict, not a failure
+      Length := 0;
+      Result := nrRetry;
+    end;
+    on Exception do
+    begin
+      Length := 0;
+      Result := nrFatalError;
+    end;
   end;
 end;
 

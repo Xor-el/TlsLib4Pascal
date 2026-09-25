@@ -82,6 +82,10 @@ relaxation, the `dangerous` escape hatches, and an ASP.NET Core mapping — see
   hand back. `GetRawCert` returns the peer leaf DER (for mORMot's cert pinning / peer info), but
   not the signature-hash name, so TLS channel binding that needs it stays inert. On a resumed
   connection it returns the leaf stored with the session (previously it was empty on a resume).
+- Application reads honour the socket's own `ReceiveTimeout`: an idle peer surfaces from `Receive`
+  as `nrRetry` with the connection intact (never a fatal error or a truncation), exactly as mORMot's
+  plain sockets report it. A send that stays blocked because the peer stopped reading is bounded
+  (30 s) and then fails rather than retrying forever.
 - Blocking seam only (the standard mORMot `TCrtSocket` path). Async frameworks
   (`mormot.net.async`) drive the raw Tier-1 engine off `WantsRead`/`WantsWrite` instead.
 
