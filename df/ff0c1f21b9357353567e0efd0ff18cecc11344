@@ -1,0 +1,29 @@
+TlsLib/src/Record/TlpRecordLayer.pas
+  s_09d3c46d1a9b1f::t_e686ba167f1e58 80-82,84-85
+  s_09d3c46d1a9b1f::t_51d2f6a9b4b893 285
+  s_09d3c46d1a9b1f::t_668975bed37553 579-581,583-584
+  s_09d3c46d1a9b1f::t_e8209accad6e43 603-605
+  s_09d3c46d1a9b1f::t_12a18ee3850137 755
+  s_09d3c46d1a9b1f::t_6000cda4d07400 751-754,756-794
+  s_09d3c46d1a9b1f::t_9b3ebad21502e8 573-577
+  s_09d3c46d1a9b1f::t_39d4f4ad69d330 262-264
+  s_09d3c46d1a9b1f::t_20ed811773197e 301-302
+  s_09d3c46d1a9b1f::t_f7d81b5640af96 459,467-468
+  s_09d3c46d1a9b1f::t_43240b0be4b007 119-122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "dfff0c1f21b9357353567e0efd0ff18cecc11344",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
