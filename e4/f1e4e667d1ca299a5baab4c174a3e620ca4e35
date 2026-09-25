@@ -1,0 +1,32 @@
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_3f5869ef03cfc0 318-321
+  s_09d3c46d1a9b1f::t_8a476cf6dc94f0 1813-1814,1817-1832
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_09d3c46d1a9b1f::t_7d32af7f18e0d4 92-97
+  s_09d3c46d1a9b1f::t_45c5e36e3648f8 382-476
+TlsLib.Tests/src/EchToolingTests.pas
+  s_09d3c46d1a9b1f::t_8902ce2aa2b765 192-254
+  s_09d3c46d1a9b1f::t_77cfdd9727062a 60-63
+TlsLib.Tools/EchKeyGen/src/TlpEchKeyGen.pas
+  s_09d3c46d1a9b1f::t_5a57714aa2bd18 29
+  s_09d3c46d1a9b1f::t_3de3fb43fe0f9d 274
+  s_09d3c46d1a9b1f::t_194ef905f144b7 75-76
+  s_09d3c46d1a9b1f::t_bfe6a419a39f2b 117-121
+  s_09d3c46d1a9b1f::t_b9ddee52b1915c 143-146
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e4f1e4e667d1ca299a5baab4c174a3e620ca4e35",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
