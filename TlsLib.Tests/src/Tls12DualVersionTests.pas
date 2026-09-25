@@ -101,6 +101,9 @@ type
     procedure TestScsvFromLowerClientAborts;
     procedure TestScsvFromCurrentClientDoesNotAbort;
     procedure TestScsvToLegacyOnlyServerDoesNotAbort;
+    procedure TestScsvWithGreaseVersionStillDetectsFallback;
+    procedure TestScsvWithGreaseAndCurrentVersionDoesNotAbort;
+    procedure TestGreaseOnlySupportedVersionsRejected;
     procedure TestServerRejectsSupportedVersionsWithoutCommonVersion;
     procedure TestTls13OnlyDispatcherRejectsTls12OnlyOffer;
     procedure TestTls12OnlyServerRejectsTls13OnlyOffer;
@@ -619,6 +622,49 @@ begin
     TArray<UInt16>.Create(TlsFallbackScsv, TCipherSuites12.EcdheEcdsaAes128GcmSha256),
     DecodeHex('0000')))),
     'SCSV to a 1.2-only server is not a fallback');
+end;
+
+procedure TTestTls12DualVersion.TestScsvWithGreaseVersionStillDetectsFallback;
+var
+  LServer: IHandshakeMachine;
+begin
+  // a GREASE codepoint (RFC 8701 3.1) in supported_versions is not an offered version: a
+  // client that lists [GREASE, 1.2] and carries SCSV against a 1.3-capable server still
+  // fell back spuriously (RFC 7507). Extensions = supported_versions [0x0A0A, 0x0303]
+  LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
+    TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12)) as IHandshakeMachine;
+  CheckTrue(HasInappropriateFallback(LServer.ProcessMessage(MakeClientHello(
+    TArray<UInt16>.Create(TlsFallbackScsv, TCipherSuites12.EcdheEcdsaAes128GcmSha256),
+    DecodeHex('0009002B0005040A0A0303')))),
+    'SCSV with a GREASE-padded 1.2-only offer is still an inappropriate_fallback');
+end;
+
+procedure TTestTls12DualVersion.TestScsvWithGreaseAndCurrentVersionDoesNotAbort;
+var
+  LServer: IHandshakeMachine;
+begin
+  // the GREASE value must not disturb a genuine 1.3 offer either: [GREASE, 1.3, 1.2] + SCSV
+  // is a current client, not a fallback. Extensions = supported_versions [0x0A0A, 1.3, 1.2]
+  LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
+    TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12)) as IHandshakeMachine;
+  CheckFalse(HasInappropriateFallback(LServer.ProcessMessage(MakeClientHello(
+    TArray<UInt16>.Create(TlsFallbackScsv, TCipherSuites13.Aes128GcmSha256),
+    DecodeHex('000B002B0007060A0A03040303')))),
+    'SCSV with a GREASE-padded current offer is not a fallback');
+end;
+
+procedure TTestTls12DualVersion.TestGreaseOnlySupportedVersionsRejected;
+var
+  LServer: IHandshakeMachine;
+begin
+  // a supported_versions that lists only a GREASE codepoint offers no version at all:
+  // protocol_version (RFC 8446 4.2.1)
+  LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
+    TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12)) as IHandshakeMachine;
+  CheckTrue(HasFailAlert(LServer.ProcessMessage(MakeClientHello(
+    TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256),
+    DecodeHex('0007002B0003020A0A'))), TTlsAlertDescription.ProtocolVersion),
+    'a GREASE-only supported_versions aborts protocol_version');
 end;
 
 procedure TTestTls12DualVersion.TestClientEngineWithoutHostFailsClosed;

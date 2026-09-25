@@ -95,6 +95,7 @@ type
     procedure TestTls12ServerRejectsUnrequestedClientCertVerifyScheme;
     procedure TestTls12ClientRejectsSecondCertificateRequest;
     procedure TestTls13CertificateRequestWithoutSignatureAlgorithmsAborts;
+    procedure TestTls13ServerRejectsNonEmptyClientCertificateContext;
   end;
 
 implementation
@@ -644,6 +645,41 @@ begin
     'a CertificateRequest without signature_algorithms aborts');
   CheckEquals(Int64(Ord(TTlsAlertDescription.MissingExtension)), Int64(Ord(LAlert)),
     'the abort is missing_extension');
+end;
+
+procedure TTestClientAuth.TestTls13ServerRejectsNonEmptyClientCertificateContext;
+var
+  LClient, LServer: IHandshakeMachine;
+  LServerFlight, LClientFlight: TArray<TBytes>;
+  LEffects: TArray<THandshakeEffect>;
+  LCert: TTlsCertificate;
+  LCertMsg: TBytes;
+  LAlert: TTlsAlertDescription;
+  LI: Int32;
+begin
+  // drive the client through the server's whole first flight so it answers with its real
+  // Certificate, then re-encode that Certificate with a one-byte certificate_request_context:
+  // the context echoes the (empty) CertificateRequest context in the main handshake
+  // (RFC 8446 4.4.2), so the server must abort with decode_error
+  LClient := New13ClientMachine(True);
+  LServer := New13ServerMachine(TClientAuthMode.Required);
+  LServerFlight := AllSendHandshake(LServer.ProcessMessage(MsgFrom(
+    FirstSendHandshake(LClient.Start))));
+  LEffects := nil;
+  for LI := 0 to High(LServerFlight) do
+    LEffects := LClient.ProcessMessage(MsgFrom(LServerFlight[LI]));
+  LClientFlight := AllSendHandshake(LEffects);
+  CheckTrue(System.Length(LClientFlight) > 0, 'the client answered the server flight');
+  CheckTrue(MsgFrom(LClientFlight[0]).TypeByte = Byte(Ord(TTlsHandshakeType.Certificate)),
+    'the client flight starts with its Certificate');
+  LCert := THandshakeMessages.DecodeCertificate(MsgFrom(LClientFlight[0]).Body);
+  LCert.RequestContext := TBytes.Create($01);
+  LCertMsg := THandshakeFraming.Frame(TTlsHandshakeType.Certificate,
+    THandshakeMessages.EncodeCertificate(LCert));
+  CheckTrue(FailAlertOf(LServer.ProcessMessage(MsgFrom(LCertMsg)), LAlert),
+    'a non-empty client certificate_request_context aborts');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.DecodeError)), Int64(Ord(LAlert)),
+    'the abort is decode_error');
 end;
 
 initialization

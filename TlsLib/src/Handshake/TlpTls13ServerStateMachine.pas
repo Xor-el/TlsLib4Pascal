@@ -449,6 +449,8 @@ resourcestring
   SPskWithoutKeyExchangeModes =
     'pre_shared_key was offered without psk_key_exchange_modes';
   SClientCertificateRequired = 'client authentication is required but none was sent';
+  SClientCertContextNotEmpty =
+    'the client Certificate carried a non-empty certificate_request_context in the handshake';
   SUnsolicitedClientCertExtension =
     'the client certificate carries an extension that was not requested';
   SUntrustedClientCertificate = 'the client certificate chain was not trusted';
@@ -552,7 +554,8 @@ begin
   // record_size_limit we advertised (less the inner content-type byte), else the 2^14 ceiling.
   // A smaller cap means more records, hence more per-record overhead to allow (RFC 8449 4).
   LContentCap := TRecordLimits.MaxPlaintext;
-  if (FParams.RecordSizeLimit > 0) and (FParams.RecordSizeLimit - 1 < LContentCap) then
+  if (FPeerRecordSizeLimit > 0) and (FParams.RecordSizeLimit > 0) and
+    (FParams.RecordSizeLimit - 1 < LContentCap) then
     LContentCap := FParams.RecordSizeLimit - 1;
   if LContentCap < 1 then
     LContentCap := 1;
@@ -572,8 +575,9 @@ begin
     TArrayUtilities.Append<THandshakeEffect>(AEffects,
       THandshakeEffects.SelectAlpn(FSelectedAlpn));
   // pass the raw negotiated record_size_limit values (RFC 8449 TLSInnerPlaintext caps);
-  // the record layer accounts for the inner content-type byte. 0 means not negotiated.
-  if (FPeerRecordSizeLimit > 0) or (FParams.RecordSizeLimit > 0) then
+  // the record layer accounts for the inner content-type byte. 0 means not negotiated;
+  // the server-side limit only takes effect when the client offered the extension.
+  if FPeerRecordSizeLimit > 0 then
     TArrayUtilities.Append<THandshakeEffect>(AEffects,
       THandshakeEffects.SetRecordSizeLimit(FPeerRecordSizeLimit,
       FParams.RecordSizeLimit));
@@ -586,6 +590,8 @@ procedure TTls13ServerStateMachine.NegotiateFrom(
 var
   LSuiteCode, LGroupCode: UInt16;
 begin
+  // re-derived per ClientHello so a retry that drops the offer drops the response too
+  FPeerRecordSizeLimit := 0;
   FCodec.ConsumeBlock(AContext, TTlsExtensionContextKind.ClientHello,
     AClientHello.Extensions);
   ValidatePskBinderCount(AContext);
@@ -1522,7 +1528,9 @@ begin
   LContext := TExtensionContext.Create;
   try
     LContext.SelectedAlpn := FSelectedAlpn;
-    LContext.RecordSizeLimit := FParams.RecordSizeLimit;
+    // only answered when the client offered it (RFC 8446 4.2 / RFC 8449 4)
+    if FPeerRecordSizeLimit > 0 then
+      LContext.RecordSizeLimit := FParams.RecordSizeLimit;
     // no acknowledgement in a resumed/PSK session (RFC 6066 3): the server SHALL NOT include
     // server_name in the EncryptedExtensions of a resumed session
     LContext.ServerNameAck := FClientSentServerName and
@@ -1621,6 +1629,11 @@ var
 begin
   Result := nil;
   LCert := THandshakeMessages.DecodeCertificate(AMessage.Body);
+  // the client echoes the CertificateRequest context, which is empty in the main
+  // handshake (RFC 8446 4.4.2)
+  if System.Length(LCert.RequestContext) <> 0 then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.DecodeError, @SClientCertContextNotEmpty);
   FTranscript.Update(AMessage.Raw);
 
   FClientCertChain := nil;

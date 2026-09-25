@@ -76,6 +76,8 @@ type
     function NewClientMachineWith(const AAlpn: TArray<string>;
       const ADecompressors: TArray<ICertificateDecompressor>): IHandshakeMachine;
     function NewServerMachine(const AAlpn: TArray<string>): IHandshakeMachine;
+    function NewServerMachineLimited(const AAlpn: TArray<string>;
+      ARecordSizeLimit: Int32): IHandshakeMachine;
     function NewServerMachineWith(const AChain: TArray<TBytes>;
       const ACompressors: TArray<ICertificateCompressor>): IHandshakeMachine;
     function CredentialWithChain(const AChain: TArray<TBytes>): TTlsCredential;
@@ -107,6 +109,9 @@ type
     procedure TestClientRejectsUnofferedAlpnEcho;
     procedure TestRecordSizeLimitCapsOutboundRecords;
     procedure TestServerRejectsRecordSizeLimitBelowMinimum;
+    procedure TestServerLimitWithoutClientOfferStillCompletes;
+    procedure TestClientAppliesNoInboundLimitWhenServerOmitsIt;
+    procedure TestServerOmitsUnofferedRecordSizeLimit;
     procedure TestGreaseValueClassification;
     procedure TestClientGreaseToleratedAndNeverSelected;
     procedure TestUnknownHandshakeTypeUnexpected;
@@ -114,6 +119,7 @@ type
     procedure TestClientAcceptsCompressedCertificate;
     procedure TestClientRejectsCompressedCertificateBomb;
     procedure TestClientRejectsUnadvertisedCompressionAlgorithm;
+    procedure TestClientRejectsNonEmptyCertificateRequestContext;
     procedure TestServerEmitsCompressedCertificate;
     procedure TestServerSkipsCompressionWhenNotSmaller;
     procedure TestCertificateCompressionIsInjectable;
@@ -376,10 +382,17 @@ end;
 
 function TTestExtensionNegotiation.NewServerMachine(
   const AAlpn: TArray<string>): IHandshakeMachine;
+begin
+  Result := NewServerMachineLimited(AAlpn, 0);
+end;
+
+function TTestExtensionNegotiation.NewServerMachineLimited(
+  const AAlpn: TArray<string>; ARecordSizeLimit: Int32): IHandshakeMachine;
 var
   LParams: TServerHandshakeParams;
 begin
   LParams := Default(TServerHandshakeParams);
+  LParams.RecordSizeLimit := ARecordSizeLimit;
   LParams.Clock := TSystemClock.Create;
   LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
@@ -727,6 +740,27 @@ begin
     'an unadvertised compression algorithm is bad_certificate');
 end;
 
+procedure TTestExtensionNegotiation.TestClientRejectsNonEmptyCertificateRequestContext;
+var
+  LClient: IHandshakeMachine;
+  LFlight: TArray<TBytes>;
+  LCert: TTlsCertificate;
+  LCertMsg: TBytes;
+  LAlert: TTlsAlertDescription;
+begin
+  // the server's real Certificate re-encoded with a one-byte certificate_request_context;
+  // the context SHALL be empty in the main handshake (RFC 8446 4.4.2)
+  LClient := DriveClientToWaitCertificate(LFlight);
+  LCert := THandshakeMessages.DecodeCertificate(MsgFrom(LFlight[2]).Body);
+  LCert.RequestContext := TBytes.Create($01);
+  LCertMsg := THandshakeFraming.Frame(TTlsHandshakeType.Certificate,
+    THandshakeMessages.EncodeCertificate(LCert));
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(MsgFrom(LCertMsg)), LAlert),
+    'a non-empty certificate_request_context aborts');
+  CheckTrue(LAlert = TTlsAlertDescription.DecodeError,
+    'a non-empty certificate_request_context is decode_error');
+end;
+
 procedure TTestExtensionNegotiation.TestServerEmitsCompressedCertificate;
 var
   LCertMsg: TTlsHandshakeMessage;
@@ -855,6 +889,32 @@ begin
   CheckEqualBytes('the server reassembles the fragmented payload', LPayload, LReceived);
 end;
 
+procedure TTestExtensionNegotiation.TestClientAppliesNoInboundLimitWhenServerOmitsIt;
+var
+  LClient, LServer: ITlsEngine;
+  LPayload, LWire, LReceived: TBytes;
+  LI: Int32;
+begin
+  // the client offered a record_size_limit but the server did not agree to it; when the extension
+  // is not negotiated it binds neither side (RFC 8449 4), so the client must accept a server
+  // record larger than its own advertised limit rather than aborting record_overflow
+  LClient := NewClient(nil, 512);
+  LServer := NewServer(nil, 0);
+  Handshake(LClient, LServer);
+  CheckFalse(LClient.IsTerminal or LServer.IsTerminal, 'the handshake completed');
+
+  LPayload := nil;
+  SetLength(LPayload, 2000); // well over the client's un-negotiated 512-byte limit
+  for LI := 0 to System.Length(LPayload) - 1 do
+    LPayload[LI] := Byte(LI and $FF);
+  LServer.Write(LPayload, 0, System.Length(LPayload));
+  LWire := Drain(LServer);
+  Feed(LClient, LWire);
+  LReceived := ReadAllApp(LClient);
+  CheckFalse(LClient.IsTerminal, 'the client accepted the oversize server record');
+  CheckEqualBytes('the client received the full payload', LPayload, LReceived);
+end;
+
 procedure TTestExtensionNegotiation.TestServerRejectsRecordSizeLimitBelowMinimum;
 var
   LClient, LServer: ITlsEngine;
@@ -866,6 +926,45 @@ begin
   CheckTrue(LServer.IsTerminal, 'the server rejects a below-minimum record_size_limit');
   CheckEquals(Ord(TTlsAlertDescription.IllegalParameter),
     Ord(LServer.LastError.Alert.Description), 'it is illegal_parameter');
+end;
+
+procedure TTestExtensionNegotiation.TestServerLimitWithoutClientOfferStillCompletes;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // a server configured with a record_size_limit against a client that never offered one:
+  // the server may not respond to an extension the client did not send (RFC 8446 4.2 /
+  // RFC 8449 4), so the handshake completes without it
+  LClient := NewClient(nil, 0);
+  LServer := NewServer(nil, 512);
+  Handshake(LClient, LServer);
+  CheckFalse(LClient.IsTerminal, 'the client did not abort on an unsolicited extension');
+  CheckFalse(LServer.IsTerminal, 'the server completed');
+  CheckFalse(LClient.IsHandshaking or LServer.IsHandshaking,
+    'the handshake completed without a record_size_limit');
+end;
+
+procedure TTestExtensionNegotiation.TestServerOmitsUnofferedRecordSizeLimit;
+var
+  LClient, LServer: IHandshakeMachine;
+  LEffects: TArray<THandshakeEffect>;
+  LEffect: THandshakeEffect;
+  LFlight: TArray<TBytes>;
+  LVector: TExtensionVector;
+begin
+  // machine level: with no client offer the EncryptedExtensions carries no record_size_limit
+  // and the server applies no limit to its record layer
+  LClient := NewClientMachine(nil);
+  LServer := NewServerMachineLimited(nil, 512);
+  LEffects := LServer.ProcessMessage(MsgFrom(FirstSendHandshake(LClient.Start)));
+  LFlight := AllSendHandshake(LEffects);
+  LVector := TExtensionVector.Parse(
+    THandshakeMessages.DecodeEncryptedExtensions(MsgFrom(LFlight[1]).Body));
+  CheckFalse(LVector.Contains(TExtensionTypes.RecordSizeLimit),
+    'EncryptedExtensions omits an unoffered record_size_limit');
+  for LEffect in LEffects do
+    CheckFalse(LEffect.Kind = THandshakeEffectKind.SetRecordSizeLimit,
+      'no SetRecordSizeLimit effect without a client offer');
 end;
 
 function TTestExtensionNegotiation.NewGreasingClient: ITlsEngine;

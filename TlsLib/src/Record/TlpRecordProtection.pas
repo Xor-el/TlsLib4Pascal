@@ -165,6 +165,7 @@ resourcestring
   SUsageLimitReached = 'the AEAD record usage limit was reached before a key update could be sent';
   SEmptyInnerPlaintext = 'decrypted record carries no content type';
   SInnerPlaintextTooLong = 'the TLSInnerPlaintext exceeds the 2^14+1 limit';
+  SPlaintextTooLong = 'the record plaintext exceeds the 2^14 limit';
   SUnknownContentType = 'record carries an unrecognized content type';
   SRecordTooShort = 'record body is shorter than the AEAD overhead';
   SRecordLengthMismatch = 'record length does not match its header';
@@ -535,6 +536,15 @@ begin
     Result := TAeadUtilities.Open(FAead, LNonce, LAad, LCipher);
   finally
     TSecureMemory.WipeBytes(LNonce);
+  end;
+  // checked after a successful open so a forged oversize record stays a bad_record_mac;
+  // the plaintext itself may not exceed 2^14 (RFC 5246 6.2.1)
+  if System.Length(Result) > TRecordLimits.MaxPlaintext then
+  begin
+    TSecureMemory.WipeBytes(Result);
+    Result := nil;
+    raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.RecordOverflow,
+      @SPlaintextTooLong);
   end;
   Inc(FSeq);
 end;

@@ -91,9 +91,9 @@ type
     FServerHighestVersion: UInt16;
     FParams13: TServerHandshakeParams;
     FParams12: TServer12HandshakeParams;
-    /// <summary>The numerically greatest wire version in the set (newer TLS versions are
-    /// higher values), or 0 when the set is empty.</summary>
-    class function HighestVersion(const AVersions: TArray<UInt16>): UInt16; static;
+    /// <summary>The numerically greatest known TLS wire version (0x0301..0x0304) in the set,
+    /// or 0 when none is present; GREASE and unknown codepoints are not versions.</summary>
+    class function HighestKnownVersion(const AVersions: TArray<UInt16>): UInt16; static;
   strict protected
     function Dispatch(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>; override;
@@ -264,14 +264,17 @@ end;
 
 { TServerVersionDispatchMachine }
 
-class function TServerVersionDispatchMachine.HighestVersion(
+class function TServerVersionDispatchMachine.HighestKnownVersion(
   const AVersions: TArray<UInt16>): UInt16;
 var
   LVersion: UInt16;
 begin
+  // a GREASE or otherwise unknown supported_versions entry is ignored (RFC 8701 3.1 /
+  // RFC 8446 4.2.1); counting it as an offer would mask a spurious fallback (RFC 7507)
   Result := 0;
   for LVersion in AVersions do
-    if LVersion > Result then
+    if (LVersion >= TlsWireVersionTls10) and (LVersion <= TlsWireVersionTls13) and
+      (LVersion > Result) then
       Result := LVersion;
 end;
 
@@ -287,7 +290,7 @@ begin
     TlsWireVersionTls13);
   FServerSupportsTls12 := TArrayUtilities.Contains<UInt16>(ASupportedVersions,
     TlsWireVersionTls12);
-  FServerHighestVersion := HighestVersion(ASupportedVersions);
+  FServerHighestVersion := HighestKnownVersion(ASupportedVersions);
 end;
 
 function TServerVersionDispatchMachine.Start: TArray<THandshakeEffect>;
@@ -326,8 +329,10 @@ begin
     if System.Length(LClientVersions) = 0 then
       LClientHighest := TlsWireVersionTls12
     else
-      LClientHighest := HighestVersion(LClientVersions);
-    if FServerHighestVersion > LClientHighest then
+      LClientHighest := HighestKnownVersion(LClientVersions);
+    // a list with no known version is not a fallback signal; let the version floor report it as
+    // protocol_version rather than inappropriate_fallback
+    if (LClientHighest <> 0) and (FServerHighestVersion > LClientHighest) then
       Exit(TArray<THandshakeEffect>.Create(
         THandshakeEffects.Fail(TTlsAlertDescription.InappropriateFallback)));
   end;
@@ -338,7 +343,7 @@ begin
   if System.Length(LClientVersions) = 0 then
     LClientHighest := LHello.LegacyVersion
   else
-    LClientHighest := HighestVersion(LClientVersions);
+    LClientHighest := HighestKnownVersion(LClientVersions);
   if LClientHighest < TlsWireVersionTls12 then
     Exit(TArray<THandshakeEffect>.Create(
       THandshakeEffects.Fail(TTlsAlertDescription.ProtocolVersion)));

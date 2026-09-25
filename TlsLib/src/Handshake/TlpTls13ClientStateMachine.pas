@@ -454,6 +454,8 @@ resourcestring
   SUnofferedGroup = 'the server selected a key share group that was not offered';
   SBadServerFinished = 'the server Finished did not verify';
   SEmptyCertificate = 'the server sent an empty certificate list';
+  SServerCertContextNotEmpty =
+    'the server Certificate carried a non-empty certificate_request_context in the handshake';
   SUnsolicitedCertExtension =
     'the server certificate carries an extension that was not requested';
   SNoCertificateVerifier = 'no certificate verifier configured (fail-closed)';
@@ -1685,11 +1687,14 @@ begin
         THandshakeEffects.SelectAlpn(LContext.SelectedAlpn));
     end;
 
-    // apply the negotiated record_size_limit (RFC 8449) as raw TLSInnerPlaintext caps;
-    // the record layer accounts for the inner content-type byte
-    if (LContext.RecordSizeLimit > 0) or (FParams.RecordSizeLimit > 0) then
+    // apply record_size_limit (RFC 8449) only when it was negotiated - the server echoed it,
+    // which the extension codec permits only because we offered it. When the server omits it the
+    // limit is not in force in either direction (RFC 8449 4), so a caller-configured limit must
+    // not cap the server's records. Caps are raw TLSInnerPlaintext; the record layer accounts for
+    // the inner content-type byte.
+    if LContext.RecordSizeLimit > 0 then
     begin
-      if (LContext.RecordSizeLimit > 0) and (LContext.RecordSizeLimit < 64) then
+      if LContext.RecordSizeLimit < 64 then
         raise EFatalAlertTlsLibException.CreateRes(
           TTlsAlertDescription.IllegalParameter, @SBadRecordSizeLimit);
       TArrayUtilities.Append<THandshakeEffect>(Result,
@@ -1934,6 +1939,10 @@ var
   LVerified: TVerifiedChain;
 begin
   LCert := THandshakeMessages.DecodeCertificate(ACertificateBody);
+  // the server Certificate context is empty in the main handshake (RFC 8446 4.4.2)
+  if System.Length(LCert.RequestContext) <> 0 then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.DecodeError, @SServerCertContextNotEmpty);
   if System.Length(LCert.Entries) = 0 then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.DecodeError, @SEmptyCertificate);
