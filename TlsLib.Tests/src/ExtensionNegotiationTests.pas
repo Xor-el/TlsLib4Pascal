@@ -114,6 +114,7 @@ type
     procedure TestClientAcceptsCompressedCertificate;
     procedure TestClientRejectsCompressedCertificateBomb;
     procedure TestClientRejectsUnadvertisedCompressionAlgorithm;
+    procedure TestClientRejectsNonEmptyCertificateRequestContext;
     procedure TestServerEmitsCompressedCertificate;
     procedure TestServerSkipsCompressionWhenNotSmaller;
     procedure TestCertificateCompressionIsInjectable;
@@ -725,6 +726,27 @@ begin
     'an unadvertised compression algorithm aborts');
   CheckTrue(LAlert = TTlsAlertDescription.BadCertificate,
     'an unadvertised compression algorithm is bad_certificate');
+end;
+
+procedure TTestExtensionNegotiation.TestClientRejectsNonEmptyCertificateRequestContext;
+var
+  LClient: IHandshakeMachine;
+  LFlight: TArray<TBytes>;
+  LCert: TTlsCertificate;
+  LCertMsg: TBytes;
+  LAlert: TTlsAlertDescription;
+begin
+  // the server's real Certificate re-encoded with a one-byte certificate_request_context;
+  // the context SHALL be empty in the main handshake (RFC 8446 4.4.2)
+  LClient := DriveClientToWaitCertificate(LFlight);
+  LCert := THandshakeMessages.DecodeCertificate(MsgFrom(LFlight[2]).Body);
+  LCert.RequestContext := TBytes.Create($01);
+  LCertMsg := THandshakeFraming.Frame(TTlsHandshakeType.Certificate,
+    THandshakeMessages.EncodeCertificate(LCert));
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(MsgFrom(LCertMsg)), LAlert),
+    'a non-empty certificate_request_context aborts');
+  CheckTrue(LAlert = TTlsAlertDescription.DecodeError,
+    'a non-empty certificate_request_context is decode_error');
 end;
 
 procedure TTestExtensionNegotiation.TestServerEmitsCompressedCertificate;

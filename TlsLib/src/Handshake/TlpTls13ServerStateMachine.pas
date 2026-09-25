@@ -449,6 +449,8 @@ resourcestring
   SPskWithoutKeyExchangeModes =
     'pre_shared_key was offered without psk_key_exchange_modes';
   SClientCertificateRequired = 'client authentication is required but none was sent';
+  SClientCertContextNotEmpty =
+    'the client Certificate carried a non-empty certificate_request_context in the handshake';
   SUnsolicitedClientCertExtension =
     'the client certificate carries an extension that was not requested';
   SUntrustedClientCertificate = 'the client certificate chain was not trusted';
@@ -1621,6 +1623,11 @@ var
 begin
   Result := nil;
   LCert := THandshakeMessages.DecodeCertificate(AMessage.Body);
+  // the client echoes the CertificateRequest context, which is empty in the main
+  // handshake (RFC 8446 4.4.2)
+  if System.Length(LCert.RequestContext) <> 0 then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.DecodeError, @SClientCertContextNotEmpty);
   FTranscript.Update(AMessage.Raw);
 
   FClientCertChain := nil;

@@ -454,6 +454,8 @@ resourcestring
   SUnofferedGroup = 'the server selected a key share group that was not offered';
   SBadServerFinished = 'the server Finished did not verify';
   SEmptyCertificate = 'the server sent an empty certificate list';
+  SServerCertContextNotEmpty =
+    'the server Certificate carried a non-empty certificate_request_context in the handshake';
   SUnsolicitedCertExtension =
     'the server certificate carries an extension that was not requested';
   SNoCertificateVerifier = 'no certificate verifier configured (fail-closed)';
@@ -1934,6 +1936,10 @@ var
   LVerified: TVerifiedChain;
 begin
   LCert := THandshakeMessages.DecodeCertificate(ACertificateBody);
+  // the server Certificate context is empty in the main handshake (RFC 8446 4.4.2)
+  if System.Length(LCert.RequestContext) <> 0 then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.DecodeError, @SServerCertContextNotEmpty);
   if System.Length(LCert.Entries) = 0 then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.DecodeError, @SEmptyCertificate);
