@@ -54,7 +54,10 @@ type
       AKind: TTlsExtensionContextKind): TBytes;
     /// <summary>Parses an extensions vector for AKind, applying the 4.2 rules.</summary>
     procedure ConsumeBlock(const AContext: TExtensionContext;
-      AKind: TTlsExtensionContextKind; const ABlock: TBytes);
+      AKind: TTlsExtensionContextKind; const ABlock: TBytes); overload;
+    /// <summary>Applies the 4.2 rules to an already-parsed vector (see the interface).</summary>
+    procedure ConsumeBlock(const AContext: TExtensionContext;
+      AKind: TTlsExtensionContextKind; const AVector: TExtensionVector); overload;
   end;
 
 implementation
@@ -125,12 +128,6 @@ end;
 
 procedure TExtensionBlockCodec.ConsumeBlock(const AContext: TExtensionContext;
   AKind: TTlsExtensionContextKind; const ABlock: TBytes);
-var
-  LVector: TExtensionVector;
-  LEntry: TExtensionEntry;
-  LType: UInt16;
-  LExt: ITlsExtension;
-  LI: Int32;
 begin
   AContext.MessageContext := AKind;
   // an omitted extensions field (no bytes at all, distinct from a present-but-empty
@@ -148,15 +145,25 @@ begin
   // (illegal_parameter), bounds the count (decode_error) and forbids trailing bytes
   // (decode_error) - before any semantic rule below, so a duplicated type, even an
   // unoffered/bogus one, is reported as the duplicate it is rather than as unsolicited
-  LVector := TExtensionVector.Parse(ABlock);
+  ConsumeBlock(AContext, AKind, TExtensionVector.Parse(ABlock));
+end;
 
+procedure TExtensionBlockCodec.ConsumeBlock(const AContext: TExtensionContext;
+  AKind: TTlsExtensionContextKind; const AVector: TExtensionVector);
+var
+  LEntry: TExtensionEntry;
+  LType: UInt16;
+  LExt: ITlsExtension;
+  LI: Int32;
+begin
+  AContext.MessageContext := AKind;
   // semantic pass: record which types an inbound ClientHello carried (symmetric with the
   // produce path, so the server can enforce presence rules such as RFC 8446 9.2's mutually-
   // required extensions), reject a response extension the ClientHello never offered, and
   // dispatch each known type to its handler (an unknown type, incl. GREASE, is skipped)
-  for LI := 0 to LVector.Count - 1 do
+  for LI := 0 to AVector.Count - 1 do
   begin
-    LEntry := LVector.Entries[LI];
+    LEntry := AVector.Entries[LI];
     LType := LEntry.ExtensionType;
     if AKind = TTlsExtensionContextKind.ClientHello then
       AContext.MarkOffered(LType);
