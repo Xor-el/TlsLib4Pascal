@@ -1,0 +1,40 @@
+TlsLib/src/Trust/TlpLiveRevocation.pas
+  s_09d3c46d1a9b1f::t_1a87cebc75bfa7 134
+  s_09d3c46d1a9b1f::t_2a4bea6dea1350 159-160,162-168
+TlsLib/src/Pkix/Providers/TlpDefaultPkixProvider.pas
+  s_09d3c46d1a9b1f::t_c139941d0d58d8 683-693
+  s_09d3c46d1a9b1f::t_d45346d372c4f2 593
+  s_09d3c46d1a9b1f::t_3be0773b3d65ad 746-747,749-750
+  s_09d3c46d1a9b1f::t_5e01bea40ba559 491-495,497-499,502-507,509,511-530
+  s_09d3c46d1a9b1f::t_0cbb7f35b15f98 537-538,556
+TlsLib/src/Trust/TlpTrustPolicy.pas
+  s_09d3c46d1a9b1f::t_fa779ce1aa8ce6 55-59,62-68
+  s_09d3c46d1a9b1f::t_042f2926ec7168 245-262
+TlsLib/src/Trust/TlpCertificateVerifier.pas
+  s_09d3c46d1a9b1f::t_01202192a0351a 377-387
+  s_09d3c46d1a9b1f::t_14d6705c855e9a 356
+  s_09d3c46d1a9b1f::t_2033b890fbc756 453-460
+  s_09d3c46d1a9b1f::t_d39d14eaa2b10e 42-44
+TlsLib.Trust.System/src/TlpOSDelegateVerifier.pas
+  s_09d3c46d1a9b1f::t_8a77d5e452605c 217
+TlsLib/src/Interfaces/Pkix/Providers/TlpIPkixProvider.pas
+  s_09d3c46d1a9b1f::t_d23b949a8e07bf 167-171
+TlsLib/src/Trust/TlpTrustTypes.pas
+  s_09d3c46d1a9b1f::t_17d706e7ed8e8c 46-48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1295bcf068b0ba4283cacc04a6c7dbfe6d4d00ae",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
