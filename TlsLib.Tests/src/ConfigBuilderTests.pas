@@ -89,6 +89,12 @@ type
     procedure TestEmptySupportedVersionsIsRefused;
     procedure TestNonNegotiableVersionIsRefused;
     procedure TestDuplicateVersionIsRefused;
+    procedure TestAlpnEmptyNameIsRefused;
+    procedure TestAlpnNonAsciiNameIsRefused;
+    procedure TestAlpnOverlongNameIsRefused;
+    procedure TestAlpnDuplicateNameIsRefused;
+    procedure TestAlpnEmptyListMeansNoAlpn;
+    procedure TestAlpnSetterCopiesCallerArray;
     procedure TestRawBuilderWithoutVersionsIsRefusedAtBuild;
     procedure TestBuilderRejectsMutationAfterBuild;
     procedure TestSecondBuildIsRejected;
@@ -371,6 +377,101 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a duplicate version is refused');
+end;
+
+procedure TTestConfigBuilder.TestAlpnEmptyNameIsRefused;
+var
+  LBuilder: ITlsConfigBuilder;
+  LRaised: Boolean;
+begin
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
+  LRaised := False;
+  try
+    LBuilder.Client.WithAlpnProtocols(TArray<string>.Create('h2', ''));
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an empty ALPN protocol name is refused');
+end;
+
+procedure TTestConfigBuilder.TestAlpnNonAsciiNameIsRefused;
+var
+  LBuilder: ITlsConfigBuilder;
+  LRaised: Boolean;
+begin
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
+  LRaised := False;
+  try
+    LBuilder.Client.WithAlpnProtocols(TArray<string>.Create('h2' + #$00E9));
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a non-ASCII ALPN protocol name is refused');
+end;
+
+procedure TTestConfigBuilder.TestAlpnOverlongNameIsRefused;
+var
+  LBuilder: ITlsConfigBuilder;
+  LRaised, LAtCapRaised: Boolean;
+begin
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
+  LRaised := False;
+  try
+    LBuilder.Client.WithAlpnProtocols(TArray<string>.Create(StringOfChar('a', 256)));
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a 256-byte ALPN protocol name is refused');
+  // the 255-byte boundary is legal
+  LAtCapRaised := False;
+  try
+    NewClientBuilder.WithAlpnProtocols(TArray<string>.Create(StringOfChar('a', 255)));
+  except
+    on E: EArgumentTlsLibException do
+      LAtCapRaised := True;
+  end;
+  CheckFalse(LAtCapRaised, 'a 255-byte ALPN protocol name is accepted');
+end;
+
+procedure TTestConfigBuilder.TestAlpnDuplicateNameIsRefused;
+var
+  LBuilder: ITlsConfigBuilder;
+  LRaised: Boolean;
+begin
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
+  LRaised := False;
+  try
+    LBuilder.Client.WithAlpnProtocols(TArray<string>.Create('h2', 'http/1.1', 'h2'));
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a duplicate ALPN protocol name is refused');
+end;
+
+procedure TTestConfigBuilder.TestAlpnEmptyListMeansNoAlpn;
+var
+  LConfig: ITlsClientConfig;
+  LNone: TArray<string>;
+begin
+  LNone := nil;
+  LConfig := NewClientBuilder.WithAlpnProtocols(LNone).Build;
+  CheckEquals(0, System.Length(LConfig.AlpnProtocols), 'an empty list configures no ALPN');
+end;
+
+procedure TTestConfigBuilder.TestAlpnSetterCopiesCallerArray;
+var
+  LConfig: ITlsClientConfig;
+  LList: TArray<string>;
+begin
+  LList := TArray<string>.Create('h2');
+  LConfig := NewClientBuilder.WithAlpnProtocols(LList).Build;
+  LList[0] := 'x'; // mutating the caller's array must not reach the built config
+  CheckEquals(1, System.Length(LConfig.AlpnProtocols), 'the ALPN list is preserved');
+  CheckEquals('h2', LConfig.AlpnProtocols[0], 'the ALPN list is a snapshot of the caller array');
 end;
 
 procedure TTestConfigBuilder.TestRawBuilderWithoutVersionsIsRefusedAtBuild;

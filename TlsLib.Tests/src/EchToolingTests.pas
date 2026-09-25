@@ -57,6 +57,10 @@ type
     procedure TestKeyGenKeyPairSealsAndOpens;
     procedure TestKeyGenDnsLineNamesOrigin;
     procedure TestKeyGenRejectsInvalidOrigin;
+    procedure TestKeyGenRejectsUnsupportedKem;
+    procedure TestKeyGenRejectsExportOnlyAead;
+    procedure TestKeyGenRejectsUnknownKdf;
+    procedure TestKeyGenAllKemsPemRoundTripThroughStore;
     procedure TestSvcbExtractsEchConfigList;
     procedure TestSvcbAliasModeHasNoEch;
     procedure TestSvcbWithoutEchParamReturnsFalse;
@@ -183,6 +187,77 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'an invalid origin host name is rejected');
+end;
+
+procedure TTestEchTooling.TestKeyGenRejectsUnsupportedKem;
+var
+  LRaised: Boolean;
+begin
+  // x448 is a valid HPKE codepoint but the provider does not build it; the tool must refuse it
+  // up front, not publish a config no server could serve
+  LRaised := False;
+  try
+    TEchKeyGenerator.Generate(Crypto, 'public.example', 'secret.example', 1,
+      THpkeKem.DHKEM_X448_HKDF_SHA512, THpkeKdf.HKDF_SHA512, THpkeAead.AES_256_GCM, 0);
+  except
+    on E: EArgumentException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an unsupported KEM is rejected');
+end;
+
+procedure TTestEchTooling.TestKeyGenRejectsExportOnlyAead;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    TEchKeyGenerator.Generate(Crypto, 'public.example', 'secret.example', 1,
+      THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256, THpkeAead.EXPORT_ONLY, 0);
+  except
+    on E: EArgumentException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an export-only AEAD is rejected');
+end;
+
+procedure TTestEchTooling.TestKeyGenRejectsUnknownKdf;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    TEchKeyGenerator.Generate(Crypto, 'public.example', 'secret.example', 1,
+      THpkeKem.DHKEM_X25519_HKDF_SHA256, UInt16($7777), THpkeAead.AES_128_GCM, 0);
+  except
+    on E: EArgumentException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an unknown KDF is rejected');
+end;
+
+procedure TTestEchTooling.TestKeyGenAllKemsPemRoundTripThroughStore;
+var
+  LGen: TEchKeyGenResult;
+  LStore: IEchServerKeyStore;
+  LEntries: TArray<TEchKeyEntry>;
+  LKems: TArray<UInt16>;
+  LI: Int32;
+begin
+  // every supported KEM's PEM must load back through the server key store: X25519 and the three EC
+  // curves exercise distinct PKCS#8 encodings (the EC path pads the scalar), so cover all four
+  LKems := TArray<UInt16>.Create(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+    THpkeKem.DHKEM_P256_HKDF_SHA256, THpkeKem.DHKEM_P384_HKDF_SHA384,
+    THpkeKem.DHKEM_P521_HKDF_SHA512);
+  for LI := 0 to System.High(LKems) do
+  begin
+    LGen := TEchKeyGenerator.Generate(Crypto, 'public.example', 'secret.example', 9,
+      LKems[LI], THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM, 0);
+    LStore := TInMemoryEchKeyStore.FromPem(LGen.Pem, Crypto);
+    LEntries := LStore.Entries;
+    CheckEquals(1, System.Length(LEntries), 'the store parsed one ECH config');
+    CheckEquals(LKems[LI], LEntries[0].Config.KemId, 'the KEM round-tripped');
+  end;
 end;
 
 procedure TTestEchTooling.TestSvcbExtractsEchConfigList;
