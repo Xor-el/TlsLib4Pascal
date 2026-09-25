@@ -50,7 +50,8 @@ uses
   TlpDefaultPkixProvider, TlpExtensionVector, TlpEchRegistryExtension, 
   TlpHandshakeStage, TlpServerOfferSelection, TlpPeerAuthentication, 
   TlpIKeyExchangePrivateKey, TlpTlsConnection, TlpTrustTypes, TlpIKeyLog, 
-  TlpKeyLog, TlpAeadUtilities, TlpClientSessionPolicy;
+  TlpKeyLog, TlpAeadUtilities, TlpClientSessionPolicy, 
+  TlpIEchClientOrchestrator, TlpEchClientOrchestrator;
 
 implementation
 
