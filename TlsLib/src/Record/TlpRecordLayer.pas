@@ -195,8 +195,7 @@ type
     property StrictApplicationData: Boolean read FStrictApplicationData
       write FStrictApplicationData;
     /// <summary>The record_overflow ceiling applied to an inbound record's length.</summary>
-    property MaxCiphertextLength: Int32 read FMaxCiphertextLength
-      write FMaxCiphertextLength;
+    property MaxCiphertextLength: Int32 read FMaxCiphertextLength;
     /// <summary>The hard cap on buffered partial-record bytes (anti-DoS).</summary>
     property MaxInboundBuffer: Int32 read FMaxInboundBuffer write FMaxInboundBuffer;
     /// <summary>The cap on the total framed-but-not-yet-pulled backlog (complete records the peer

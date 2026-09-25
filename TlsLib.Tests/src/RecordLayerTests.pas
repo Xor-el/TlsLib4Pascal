@@ -43,6 +43,7 @@ type
   TTestRecordLayer = class(TTlsLibAlgorithmTestCase)
   private
     function MakeTls13(const AKey, AIv: TBytes): IRecordProtection;
+    function MakeTls12(const AKey, ASalt: TBytes): IRecordProtection;
     function DrainOne(const ALayer: TRecordLayer;
       out AFragment: TTlsRecordFragment): Boolean;
     function ExpectFatal(const ALayer: TRecordLayer; const AWire: TBytes;
@@ -75,6 +76,7 @@ type
     procedure TestChangeCipherSpecDropped;
     procedure TestChangeCipherSpecBeforeHelloRejected;
     procedure TestTls12UnarmedChangeCipherSpecRejected;
+    procedure TestTls12OversizePlaintextRecordIsRecordOverflow;
     procedure TestChangeCipherSpecFloodCapped;
     procedure TestChangeCipherSpecAfterHandshakeRejected;
     procedure TestMalformedChangeCipherSpecRejected;
@@ -101,6 +103,12 @@ function TTestRecordLayer.MakeTls13(const AKey, AIv: TBytes): IRecordProtection;
 begin
   Result := TTls13RecordProtection.Create(TSecretBuffer.From(AKey),
     TSecretBuffer.From(AIv), Crypto.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
+end;
+
+function TTestRecordLayer.MakeTls12(const AKey, ASalt: TBytes): IRecordProtection;
+begin
+  Result := TTls12RecordProtection.Create(TSecretBuffer.From(AKey),
+    TSecretBuffer.From(ASalt), Crypto.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
 end;
 
 function TTestRecordLayer.DrainOne(const ALayer: TRecordLayer;
@@ -806,6 +814,29 @@ begin
     CheckTrue(ExpectFatal(LRecv, DecodeHex('140303000101'),
       TTlsAlertDescription.UnexpectedMessage),
       'an unarmed TLS 1.2 change_cipher_spec is unexpected_message');
+  finally
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestTls12OversizePlaintextRecordIsRecordOverflow;
+var
+  LRecv: TRecordLayer;
+  LKey, LSalt, LPlain, LWire: TBytes;
+begin
+  LRecv := TRecordLayer.Create;
+  try
+    LKey := DecodeHex('000102030405060708090a0b0c0d0e0f');
+    LSalt := DecodeHex('cafebabe');
+    // a validly protected TLS 1.2 record whose plaintext is one byte over 2^14 passes the
+    // framing ceiling and must be refused at decrypt time (RFC 5246 6.2.1)
+    LPlain := MakePayload(TRecordLimits.MaxPlaintext + 1, $5A);
+    LWire := MakeTls12(LKey, LSalt).Protect(TTlsContentType.ApplicationData, LPlain, 0,
+      System.Length(LPlain));
+    LRecv.SetNegotiatedVersion(TTlsVersion.Tls12);
+    LRecv.SetReadProtection(MakeTls12(LKey, LSalt));
+    CheckTrue(ExpectFatal(LRecv, LWire, TTlsAlertDescription.RecordOverflow),
+      'an oversize TLS 1.2 plaintext is record_overflow');
   finally
     LRecv.Free;
   end;

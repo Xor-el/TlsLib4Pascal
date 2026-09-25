@@ -36,6 +36,7 @@ uses
   TlpCryptoDomainTypes,
   TlpIRecordProtection,
   TlpRecordProtection,
+  TlpRecordHeader,
   TlpWireWriter,
   TlsLibTestBase;
 
@@ -61,6 +62,8 @@ type
     procedure TestTls12Aes128GcmRecord;
     procedure TestTls12ChaCha20RecordRfc7905;
     procedure TestTls12TamperedRaisesBadRecordMac;
+    procedure TestTls12OversizePlaintextRaisesRecordOverflow;
+    procedure TestTls12MaxPlaintextRoundTrips;
   end;
 
 implementation
@@ -488,6 +491,68 @@ begin
       LRaised := Ord(E.AlertDescription) = Ord(TTlsAlertDescription.BadRecordMac);
   end;
   CheckTrue(LRaised, 'tampered 1.2 record must raise bad_record_mac');
+end;
+
+procedure TTestRecordProtection.TestTls12OversizePlaintextRaisesRecordOverflow;
+const
+  CAlgorithms: array[0..1] of TAeadAlgorithm =
+    (TAeadAlgorithm.AES_128_GCM, TAeadAlgorithm.CHACHA20_POLY1305);
+var
+  LKey, LSalt, LPlain, LRecord: TBytes;
+  LProt: IRecordProtection;
+  LType: TTlsContentType;
+  LRaised: Boolean;
+  LI: Int32;
+begin
+  // RFC 5246 6.2.1: the plaintext may not exceed 2^14; a validly protected record whose
+  // decrypted body is one byte over is record_overflow (the framing ceiling admits it)
+  LKey := DecodeHex('000102030405060708090a0b0c0d0e0f');
+  LSalt := DecodeHex('cafebabe');
+  SetLength(LPlain, TRecordLimits.MaxPlaintext + 1);
+  for LI := 0 to System.Length(LPlain) - 1 do
+    LPlain[LI] := Byte(LI and $FF);
+  for LI := Low(CAlgorithms) to High(CAlgorithms) do
+  begin
+    if CAlgorithms[LI] = TAeadAlgorithm.CHACHA20_POLY1305 then
+    begin
+      LKey := DecodeHex('000102030405060708090a0b0c0d0e0f'
+        + '101112131415161718191a1b1c1d1e1f');
+      LSalt := DecodeHex('202122232425262728292a2b');
+    end;
+    LProt := MakeTls12(LKey, LSalt, CAlgorithms[LI]);
+    LRecord := LProt.Protect(TTlsContentType.ApplicationData, LPlain, 0,
+      System.Length(LPlain));
+    LProt := MakeTls12(LKey, LSalt, CAlgorithms[LI]);
+    LRaised := False;
+    try
+      LProt.Unprotect(LRecord, 0, System.Length(LRecord), LType);
+    except
+      on E: EFatalAlertTlsLibException do
+        LRaised := Ord(E.AlertDescription) = Ord(TTlsAlertDescription.RecordOverflow);
+    end;
+    CheckTrue(LRaised, 'oversize 1.2 plaintext must raise record_overflow (' +
+      IntToStr(LI) + ')');
+  end;
+end;
+
+procedure TTestRecordProtection.TestTls12MaxPlaintextRoundTrips;
+var
+  LKey, LSalt, LPlain, LRecord, LRecovered: TBytes;
+  LProt: IRecordProtection;
+  LType: TTlsContentType;
+  LI: Int32;
+begin
+  LKey := DecodeHex('000102030405060708090a0b0c0d0e0f');
+  LSalt := DecodeHex('cafebabe');
+  SetLength(LPlain, TRecordLimits.MaxPlaintext);
+  for LI := 0 to System.Length(LPlain) - 1 do
+    LPlain[LI] := Byte(LI and $FF);
+  LProt := MakeTls12(LKey, LSalt, TAeadAlgorithm.AES_128_GCM);
+  LRecord := LProt.Protect(TTlsContentType.ApplicationData, LPlain, 0,
+    System.Length(LPlain));
+  LProt := MakeTls12(LKey, LSalt, TAeadAlgorithm.AES_128_GCM);
+  LRecovered := LProt.Unprotect(LRecord, 0, System.Length(LRecord), LType);
+  CheckEqualBytes('exactly 2^14 plaintext round-trips', LPlain, LRecovered);
 end;
 
 initialization
