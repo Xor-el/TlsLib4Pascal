@@ -316,7 +316,7 @@ resourcestring
     'TLS 1.2 (0x0303) are supported';
   SDuplicateVersion = 'a protocol version may be offered only once';
   SAlpnProtocolEmpty = 'an ALPN protocol name must not be empty (RFC 7301 3.1)';
-  SAlpnProtocolNotAscii = 'an ALPN protocol name must be ASCII (RFC 7301 3.1)';
+  SAlpnProtocolNotAscii = 'an ALPN protocol name must be ASCII; it is sent as its ASCII bytes';
   SAlpnProtocolTooLong = 'an ALPN protocol name must not exceed 255 bytes (RFC 7301 3.1)';
   SAlpnProtocolDuplicate = 'the ALPN protocol "%s" is offered more than once';
   SHardRevocationUnusable = 'a Hard revocation posture rejects a peer whose certificate has no ' +
@@ -1814,8 +1814,9 @@ var
   LI, LJ, LK: Int32;
 begin
   GuardMutable;
-  // an empty list offers no ALPN; otherwise each name is one ProtocolName<1..2^8-1> of ASCII bytes,
-  // offered once, so we never send a list a peer - or our own decoder - would refuse (RFC 7301 3.1)
+  // an empty list offers no ALPN; otherwise each name is one ProtocolName<1..2^8-1>, offered once
+  // (RFC 7301 3.1), and ASCII because the name is sent as its ASCII bytes - so we never offer a name
+  // the wire encoding would mangle, nor a list our own decoder would refuse
   for LI := 0 to System.High(AProtocols) do
   begin
     if AProtocols[LI] = '' then
