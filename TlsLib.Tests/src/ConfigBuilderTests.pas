@@ -29,6 +29,8 @@ uses
   TlpTlsLibExceptions,
   TlpTlsVersion,
   TlpArrayUtilities,
+  TlpSecretBuffer,
+  TlpSession,
   TlpICryptoProvider,
   TlpICertificateTrust,
   TlpTrustTypes,
@@ -74,6 +76,7 @@ type
     function DefaultProfile: TTlsConfigProfile;
     function NewClientBuilder: ITlsClientConfigBuilder;
     function NewServerBuilder: ITlsServerConfigBuilder;
+    function MakePskSpec: TExternalPsk;
     function Drain(const AEngine: ITlsEngine): TBytes;
     procedure Feed(const AEngine: ITlsEngine; const AWire: TBytes);
     procedure RunHandshake(const AClient, AServer: ITlsEngine);
@@ -100,6 +103,9 @@ type
     procedure TestSecondBuildIsRejected;
     procedure TestReturnedPinsArrayCannotMutateConfig;
     procedure TestClientConfigRequiresTrustStore;
+    procedure TestPskOnlyClientOfferingTls12IsRefused;
+    procedure TestPskOnlyClientWithPskOptionalIsRefused;
+    procedure TestPskOnlyTls13ClientBuilds;
     procedure TestServerConfigRequiresCredential;
     procedure TestServerClientAuthRequiresTrustStore;
     procedure TestFacadeDrivesLoopback;
@@ -632,6 +638,62 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a client config without a trust source is refused');
+end;
+
+function TTestConfigBuilder.MakePskSpec: TExternalPsk;
+begin
+  Result.Identity := TBytes.Create($61, $62);
+  Result.Secret := TSecretBuffer.From(TBytes.Create($00, $11, $22, $33, $44, $55, $66, $77,
+    $88, $99, $AA, $BB, $CC, $DD, $EE, $FF));
+  Result.Context := nil;
+  Result.Hash := THashAlgorithm.SHA_256;
+end;
+
+procedure TTestConfigBuilder.TestPskOnlyClientOfferingTls12IsRefused;
+var
+  LBuilder: ITlsConfigBuilder;
+  LRaised: Boolean;
+begin
+  // a PSK-only client (no trust source) that still offers TLS 1.2 could be selected onto the
+  // certificate path with nothing to verify against - refused at Build
+  LBuilder := TTlsPresets.Compatible(Crypto, Pkix);
+  LRaised := False;
+  try
+    LBuilder.Client.WithExternalPreSharedKeys(TArray<TExternalPsk>.Create(MakePskSpec)).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a PSK-only client offering TLS 1.2 is refused');
+end;
+
+procedure TTestConfigBuilder.TestPskOnlyClientWithPskOptionalIsRefused;
+var
+  LBuilder: ITlsConfigBuilder;
+  LRaised: Boolean;
+begin
+  // PSK optional + no trust source means a non-PSK ServerHello falls through to the certificate
+  // path with nothing to verify - refused at Build
+  LBuilder := TTlsPresets.Hardened(Crypto, Pkix);
+  LRaised := False;
+  try
+    LBuilder.Client.WithExternalPreSharedKeys(TArray<TExternalPsk>.Create(MakePskSpec))
+      .WithExternalPskRequired(False).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a PSK-optional client without a trust source is refused');
+end;
+
+procedure TTestConfigBuilder.TestPskOnlyTls13ClientBuilds;
+var
+  LConfig: ITlsClientConfig;
+begin
+  // a required-PSK, TLS 1.3-only client with no trust source is the legitimate PSK-only case
+  LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
+    .WithExternalPreSharedKeys(TArray<TExternalPsk>.Create(MakePskSpec)).Build;
+  CheckTrue(LConfig <> nil, 'a required-PSK TLS 1.3-only client builds without a trust source');
 end;
 
 procedure TTestConfigBuilder.TestServerConfigRequiresCredential;

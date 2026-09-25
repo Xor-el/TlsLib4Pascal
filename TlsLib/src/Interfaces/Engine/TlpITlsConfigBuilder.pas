@@ -226,8 +226,9 @@ type
       const APsks: TArray<TExternalPsk>): ITlsClientConfigBuilder;
     /// <summary>Whether configured external PSKs are required (default True): a non-PSK
     /// ServerHello is fatal rather than a fall-through to certificate authentication. Set
-    /// False to let the client accept a certificate handshake as well. No effect without
-    /// configured external PSKs.</summary>
+    /// False to let the client accept a certificate handshake as well - which then needs a
+    /// trust source, so a PSK-only client (no trust) with False is refused at Build. No effect
+    /// without configured external PSKs.</summary>
     function WithExternalPskRequired(AEnabled: Boolean): ITlsClientConfigBuilder;
     /// <summary>Whether session resumption is engaged; defaults to the preset's posture.</summary>
     function WithResumption(AEnabled: Boolean): ITlsClientConfigBuilder;

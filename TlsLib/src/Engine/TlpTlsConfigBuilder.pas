@@ -295,6 +295,10 @@ resourcestring
   SNilPkixProvider = 'a PKIX provider is required (pass a provider, not nil)';
   SBuilderFrozen = 'the configuration has been built and can no longer be changed';
   SNoTrustStore = 'a client configuration requires a trust source (no silent-insecure)';
+  SPskOnlyClientNeedsPskRequired = 'a client with external PSKs and no trust source cannot fall ' +
+    'back to certificate authentication; keep WithExternalPskRequired(True) or add a trust source';
+  SPskOnlyClientNeedsTls13Only = 'a client with external PSKs and no trust source must offer TLS ' +
+    '1.3 only (external PSKs are TLS 1.3-only); use a 1.3-only preset or WithSupportedVersions([TLS 1.3])';
   SNoCredential = 'a server configuration requires a certificate credential';
   SNoClientAuthTrustStore = 'client authentication requires a trust source for the client certificate chain';
   SSniCertMissing = 'the SNI credential for host "%s" has no certificate chain';
@@ -2520,6 +2524,19 @@ begin
   if (System.Length(FAnchorStores) = 0) and (FServerCertVerifier = nil) and
     (FServerVerifierSource = nil) and (System.Length(FExternalPsks) = 0) then
     raise EInvalidOperationTlsLibException.CreateRes(@SNoTrustStore);
+  // a PSK-only client (external PSKs, no trust source) can verify no certificate, so it must
+  // never be steered onto the certificate path: the PSK has to be required (a non-PSK ServerHello
+  // is then fatal) and only TLS 1.3 may be offered - a 1.2 selection would reach the certificate
+  // path with nothing to verify against (RFC 9258 external PSKs are TLS 1.3-only)
+  if (System.Length(FAnchorStores) = 0) and (FServerCertVerifier = nil) and
+    (FServerVerifierSource = nil) then
+  begin
+    if not FExternalPskRequired then
+      raise EInvalidOperationTlsLibException.CreateRes(@SPskOnlyClientNeedsPskRequired);
+    if (System.Length(FSupportedVersions) <> 1) or
+      (FSupportedVersions[0] <> TlsWireVersionTls13) then
+      raise EInvalidOperationTlsLibException.CreateRes(@SPskOnlyClientNeedsTls13Only);
+  end;
   // a Hard revocation posture rejects a peer whose certificate carries no stapled OCSP response
   // (missing staple -> Indeterminate -> reject), so it silently always-rejects unless the client
   // obtains revocation status some way: by requesting a staple, or by a live OCSP/CRL verdict
