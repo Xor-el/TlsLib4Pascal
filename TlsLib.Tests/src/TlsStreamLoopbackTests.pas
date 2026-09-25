@@ -135,6 +135,7 @@ type
     procedure TestBulkWriteIsSealedInBoundedSlices;
     procedure TestPostHandshakeFatalAlertReachesPeer;
     procedure TestRecordLimitCloseNotifyReachesPeerOverPump;
+    procedure TestApplicationReadTimeoutIsRetryableNotTruncation;
     procedure TestNegotiatedVersionAndAlpnSurfaced;
     procedure TestTruncationWithoutCloseNotifyIsSurfaced;
     procedure TestUntrustedChainFailsThroughOurPipeline;
@@ -632,6 +633,55 @@ begin
     LWatch.Disarm;
     LWatch.WaitFor;
     LWatch.Free;
+    LServer.Free;
+    LClient.Free;
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.TestApplicationReadTimeoutIsRetryableNotTruncation;
+var
+  LC2S, LS2C: TMemoryPipe;
+  LInner, LServerTransport: TMemoryTransport;
+  LTimeout: TTimeoutOnceTransport;
+  LClient, LServerStream: TTlsStream;
+  LServer: TServerRunner;
+  LPing, LEcho: TBytes;
+  LGot: Int32;
+  LTimedOut: Boolean;
+begin
+  LC2S := TMemoryPipe.Create;
+  LS2C := TMemoryPipe.Create;
+  LInner := TMemoryTransport.Create(LS2C, LC2S);
+  LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
+  LTimeout := TTimeoutOnceTransport.Create(LInner as ITlsTransport);
+  LClient := NewClientStream(LTimeout as ITlsTransport, ClientConfig(False, nil));
+  LServerStream := NewServerStream(LServerTransport as ITlsTransport);
+  LServer := TServerRunner.Create(LServerStream, LServerTransport,
+    TServerBehavior.EchoThenClose);
+  LServer.Start;
+  try
+    LClient.Handshake;
+    LPing := DecodeHex(PingHex);
+    LClient.Write(LPing[0], System.Length(LPing));
+    // the host socket's receive timeout fires on the first application read: it surfaces as the
+    // retryable timeout and leaves the stream intact, so the retry reads the echo
+    LTimeout.Arm;
+    SetLength(LEcho, 4096);
+    LTimedOut := False;
+    try
+      LClient.Read(LEcho[0], System.Length(LEcho));
+    except
+      on E: ETlsReadTimeout do
+        LTimedOut := True;
+    end;
+    CheckTrue(LTimedOut, 'an application read timeout raises ETlsReadTimeout');
+    CheckFalse(LClient.TransportTruncated, 'a read timeout is not a truncation');
+    LGot := LClient.Read(LEcho[0], System.Length(LEcho));
+    CheckEqualBytes('the retried read returns the echo', LPing, System.Copy(LEcho, 0, LGot));
+    LClient.CloseNotify;
+    LServer.WaitFor;
+    CheckEquals('', LServer.Error, 'the server side ran without error');
+  finally
     LServer.Free;
     LClient.Free;
   end;

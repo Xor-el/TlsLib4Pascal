@@ -158,8 +158,9 @@ type
     /// reports the elapsed cap from ReceiveRaw.</summary>
     function WaitReadable(AMs: Int32): Boolean; virtual;
     /// <summary>One blocking receive: the count, 0 on an orderly close, a negative value for a host
-    /// error the caller treats as end of stream; raises ETlsHandshakeTimeout itself only for a host
-    /// whose receive timeout fired (see ReadTimeoutMs).</summary>
+    /// error the caller treats as end of stream. A host whose socket bounds its own receives raises
+    /// the elapsed cap itself: ETlsHandshakeTimeout while ReadTimeoutMs is armed, else the retryable
+    /// ETlsReadTimeout (an idle application read is never end of stream).</summary>
     function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; virtual; abstract;
     /// <summary>One send of up to ALength bytes; returns the count sent (> 0) or raises.</summary>
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; virtual; abstract;

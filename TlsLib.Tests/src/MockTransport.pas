@@ -20,6 +20,7 @@ interface
 uses
   SysUtils,
   SyncObjs,
+  TlpTlsLibExceptions,
   TlpITlsEngine,
   TlpITlsTransport;
 
@@ -78,7 +79,25 @@ type
     property PeakPending: Int32 read FPeakPending;
   end;
 
+  /// <summary>A transport decorator that models a host socket's receive timeout: once armed, the
+  /// next Read raises ETlsReadTimeout (nothing consumed) and every later Read forwards to the
+  /// inner transport as usual.</summary>
+  TTimeoutOnceTransport = class sealed(TInterfacedObject, ITlsTransport)
+  strict private
+  var
+    FInner: ITlsTransport;
+    FArmed: Boolean;
+  public
+    constructor Create(const AInner: ITlsTransport);
+    function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
+    procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
+    procedure Arm;
+  end;
+
 implementation
+
+resourcestring
+  SMockReceiveTimedOut = 'the mock socket receive timeout elapsed';
 
 { TMemoryPipe }
 
@@ -236,6 +255,36 @@ procedure TPeakProbeTransport.Arm;
 begin
   FArmed := True;
   FPeakPending := 0;
+end;
+
+{ TTimeoutOnceTransport }
+
+constructor TTimeoutOnceTransport.Create(const AInner: ITlsTransport);
+begin
+  inherited Create;
+  FInner := AInner;
+  FArmed := False;
+end;
+
+function TTimeoutOnceTransport.Read(var ABuffer: TBytes; AOffset,
+  AMaxLength: Int32): Int32;
+begin
+  if FArmed then
+  begin
+    FArmed := False;
+    raise ETlsReadTimeout.CreateRes(@SMockReceiveTimedOut);
+  end;
+  Result := FInner.Read(ABuffer, AOffset, AMaxLength);
+end;
+
+procedure TTimeoutOnceTransport.Write(const ABuffer: TBytes; AOffset, ALength: Int32);
+begin
+  FInner.Write(ABuffer, AOffset, ALength);
+end;
+
+procedure TTimeoutOnceTransport.Arm;
+begin
+  FArmed := True;
 end;
 
 end.

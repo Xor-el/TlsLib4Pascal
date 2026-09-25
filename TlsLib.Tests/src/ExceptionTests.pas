@@ -42,6 +42,7 @@ type
     procedure TestFatalAlertCarriesDescription;
     procedure TestDecodeErrorMapsToDecodeError;
     procedure TestHierarchy;
+    procedure TestReadTimeoutHierarchy;
   end;
 
 implementation
@@ -146,6 +147,26 @@ begin
     'EFatalAlert is-a EBase');
   CheckTrue(EArgumentTlsLibException.InheritsFrom(EBaseTlsLibException),
     'EArgument is-a EBase');
+end;
+
+procedure TTestExceptions.TestReadTimeoutHierarchy;
+var
+  LTimeout: ETlsReadTimeout;
+begin
+  // a handshake timeout is a read timeout by kind, so a host's generic timeout handling catches
+  // both phases; neither is a truncation, and neither carries a TLS alert
+  CheckTrue(ETlsHandshakeTimeout.InheritsFrom(ETlsReadTimeout),
+    'ETlsHandshakeTimeout is-a ETlsReadTimeout');
+  CheckTrue(ETlsReadTimeout.InheritsFrom(ETlsStreamError),
+    'ETlsReadTimeout is-a ETlsStreamError');
+  CheckFalse(ETlsReadTimeout.InheritsFrom(ETlsTransportTruncated),
+    'a read timeout is not a truncation');
+  LTimeout := ETlsReadTimeout.Create('idle');
+  try
+    CheckFalse(LTimeout.HasAlert, 'a read timeout carries no alert');
+  finally
+    LTimeout.Free;
+  end;
 end;
 
 initialization

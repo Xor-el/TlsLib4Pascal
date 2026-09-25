@@ -53,7 +53,9 @@ type
   /// the Sockets unit's fpRecv/fpSend on Socket.Handle, bypassing the SSL-aware handler methods
   /// (which carry decrypted application data and would otherwise recurse). fcl-net has no readiness
   /// wait, so the handshake read cap is enforced by SO_RCVTIMEO on the handle (set through
-  /// Socket.IOTimeout by the handler); this transport only classifies the resulting recv errno.</summary>
+  /// Socket.IOTimeout by the handler); this transport only classifies the resulting recv errno: an
+  /// expiry under the handshake cap is ETlsHandshakeTimeout, one on an application read (the
+  /// caller's own Socket.IOTimeout) is the retryable ETlsReadTimeout, never end of stream.</summary>
   TFclNetSocketTransport = class sealed(TTlsTimedTransportBase)
   strict private
   var
@@ -269,19 +271,21 @@ procedure FlushTlsLibFclNetConfigCache;
 implementation
 
 const
-{$IFDEF UNIX}
+{$IF DEFINED(UNIX) AND NOT DEFINED(DARWIN)}
   // MSG_NOSIGNAL suppresses SIGPIPE when writing to a peer whose read end has
-  // closed; Windows has neither SIGPIPE nor MSG_NOSIGNAL, so the flag is 0 there
+  // closed; Windows has neither SIGPIPE nor MSG_NOSIGNAL, and Darwin has no MSG_NOSIGNAL
+  // (its equivalent is a per-socket option), so the flag is 0 on both
   TRANSPORT_FLAGS = MSG_NOSIGNAL;
 {$ELSE}
   TRANSPORT_FLAGS = 0;
-{$ENDIF}
+{$IFEND}
   // Windows SO_RCVTIMEO expiry code; a literal so the Unix build needs no winsock symbol
   WSAETIMEDOUT_CODE = 10060;
 
 resourcestring
   SFclNetSendNoProgress = 'fcl-net socket send returned no progress';
   SFclNetHandshakeReadTimedOut = 'the peer sent no handshake data within %d ms';
+  SFclNetReceiveTimedOut = 'the socket receive timeout elapsed with no data from the peer';
   SPeerVerifyRejected = 'the OnVerifyCertificate handler rejected the peer certificate';
   SNoSelfSignedCerts = 'TlsLib4Pascal does not generate self-signed certificates; supply ' +
     'CertificateData.Certificate and CertificateData.PrivateKey';
@@ -312,13 +316,17 @@ begin
   Result := fpRecv(FHandle, @ABuffer[AOffset], AMaxLength, TRANSPORT_FLAGS);
   if Result >= 0 then
     Exit; // > 0 bytes, or 0 for an orderly close (the pump reports a truncated handshake)
-  // Result < 0: while the handshake read cap is armed a receive-timeout errno is our SO_RCVTIMEO
-  // firing on a silent peer; any other error surfaces as end-of-stream (the pump raises a
-  // truncated handshake) rather than a misreported timeout
+  // Result < 0: a receive-timeout errno is SO_RCVTIMEO firing on a silent peer - our handshake cap
+  // while it is armed, else the caller's own application-read timeout, which is retryable and
+  // must not be misreported as a truncation; any other error surfaces as end-of-stream
   LErr := SocketError;
-  if (ReadTimeoutMs > 0) and ((LErr = EsockEWOULDBLOCK) or (LErr = WSAETIMEDOUT_CODE)) then
-    raise ETlsHandshakeTimeout.Create(
-      Format(SFclNetHandshakeReadTimedOut, [ReadTimeoutMs]));
+  if (LErr = EsockEWOULDBLOCK) or (LErr = WSAETIMEDOUT_CODE) then
+  begin
+    if ReadTimeoutMs > 0 then
+      raise ETlsHandshakeTimeout.Create(
+        Format(SFclNetHandshakeReadTimedOut, [ReadTimeoutMs]));
+    raise ETlsReadTimeout.Create(SFclNetReceiveTimedOut);
+  end;
   Result := 0;
 end;
 
