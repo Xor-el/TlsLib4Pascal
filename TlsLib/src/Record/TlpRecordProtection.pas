@@ -17,8 +17,6 @@ interface
 
 uses
   SysUtils,
-  TlpAeadUtilities,
-  TlpArrayUtilities,
   TlpBinaryPrimitives,
   TlpISecretBuffer,
   TlpICryptoProvider,
@@ -30,8 +28,6 @@ uses
   TlpTlsVersion,
   TlpRecordHeader,
   TlpWireReader,
-  TlpIWireWriter,
-  TlpWireWriter,
   TlpSecureMemory;
 
 type
@@ -47,8 +43,10 @@ type
     FSeq: UInt64;
     FRecordLimit: UInt64;
     class function AeadUsageLimit(const AAead: IAead): UInt64; static;
-    class function UInt64ToBigEndian8(AValue: UInt64): TBytes; static;
-    function SerializeHeader(const AHeader: TTlsRecordHeader): TBytes;
+    /// <summary>DeriveNonce into a caller-owned buffer of the IV's length, so the per-record
+    /// nonce needs no allocation.</summary>
+    class procedure DeriveNonceInto(const AIv: TBytes; ASeq: UInt64;
+      const ADest: TBytes); static;
     procedure GuardSequenceNotExhausted;
     procedure GuardUsageLimitNotReached;
   public
@@ -103,6 +101,10 @@ type
   var
     FAead: IAead;
     FIv: TBytes;
+    // per-record scratch reused across records (the header AAD and the derived nonce), so a
+    // record costs one allocation: its own buffer
+    FAad: TBytes;
+    FNonce: TBytes;
   public
     /// <summary>Installs the epoch: AKey is the AEAD key, AIv the 12-byte write IV.</summary>
     constructor Create(const AKey, AIv: ISecretBuffer; const AAead: IAead);
@@ -127,6 +129,8 @@ type
   strict private
   const
     ExplicitNonceLength = Int32(8);
+    // seq(8) || type(1) || version(2) || plaintext_length(2) (RFC 5246 6.2.3.3)
+    AadLength = Int32(13);
   var
     FAead: IAead;
     /// <summary>The implicit nonce material from the key_block: a 4-byte salt for AES-GCM,
@@ -135,8 +139,11 @@ type
     /// <summary>True for AES-GCM (RFC 5288 explicit-nonce framing); False for
     /// ChaCha20-Poly1305 (RFC 7905 implicit XOR nonce, no explicit nonce).</summary>
     FUsesExplicitNonce: Boolean;
-    function BuildAad(AContentTypeByte: Byte; const AVersion: TTlsVersion;
-      APlaintextLength: Int32): TBytes;
+    // per-record scratch reused across records, see TTls13RecordProtection
+    FAad: TBytes;
+    FNonce: TBytes;
+    procedure BuildAadInto(AContentTypeByte: Byte; AVersionWire: UInt16;
+      APlaintextLength: Int32);
   public
     /// <summary>Installs the epoch: AKey is the AEAD key, ASalt the 4-byte implicit nonce.</summary>
     constructor Create(const AKey, ASalt: ISecretBuffer; const AAead: IAead);
@@ -184,32 +191,23 @@ begin
   end;
 end;
 
-class function TRecordProtectionBase.UInt64ToBigEndian8(AValue: UInt64): TBytes;
-begin
-  Result := nil;
-  SetLength(Result, 8);
-  TBinaryPrimitives.WriteUInt64BigEndian(Result, 0, AValue);
-end;
-
-function TRecordProtectionBase.SerializeHeader(const AHeader: TTlsRecordHeader): TBytes;
-var
-  LWriter: IWireWriter;
-begin
-  Result := nil;
-  LWriter := TWireWriter.Create;
-  AHeader.Serialize(LWriter);
-  Result := LWriter.ToBytes;
-end;
-
-class function TRecordProtectionBase.DeriveNonce(const AIv: TBytes; ASeq: UInt64): TBytes;
+class procedure TRecordProtectionBase.DeriveNonceInto(const AIv: TBytes; ASeq: UInt64;
+  const ADest: TBytes);
 var
   LI, LLast: Int32;
 begin
   // right-align the 8-byte big-endian sequence into the write IV and XOR
-  Result := System.Copy(AIv);
-  LLast := System.Length(Result) - 1;
+  Move(AIv[0], ADest[0], System.Length(AIv));
+  LLast := System.Length(AIv) - 1;
   for LI := 0 to 7 do
-    Result[LLast - LI] := Result[LLast - LI] xor Byte(ASeq shr (8 * LI));
+    ADest[LLast - LI] := ADest[LLast - LI] xor Byte(ASeq shr (8 * LI));
+end;
+
+class function TRecordProtectionBase.DeriveNonce(const AIv: TBytes; ASeq: UInt64): TBytes;
+begin
+  Result := nil;
+  SetLength(Result, System.Length(AIv));
+  DeriveNonceInto(AIv, ASeq, Result);
 end;
 
 procedure TRecordProtectionBase.GuardSequenceNotExhausted;
@@ -270,7 +268,6 @@ function TNullRecordProtection.Protect(AContentType: TTlsContentType;
   const APlaintext: TBytes; AOffset, ALength: Int32): TBytes;
 var
   LHeader: TTlsRecordHeader;
-  LWriter: IWireWriter;
   LVersion: TTlsVersion;
 begin
   Result := nil;
@@ -284,10 +281,10 @@ begin
   else
     LVersion := TTlsVersion.Tls12;
   LHeader := TTlsRecordHeader.Create(AContentType, LVersion, ALength);
-  LWriter := TWireWriter.Create;
-  LHeader.Serialize(LWriter);
-  LWriter.WriteBytes(APlaintext, AOffset, ALength);
-  Result := LWriter.ToBytes;
+  SetLength(Result, TRecordLimits.HeaderLength + ALength);
+  LHeader.WriteTo(Result, 0);
+  if ALength > 0 then
+    Move(APlaintext[AOffset], Result[TRecordLimits.HeaderLength], ALength);
 end;
 
 function TNullRecordProtection.Unprotect(const ARecord: TBytes;
@@ -323,41 +320,50 @@ begin
   FIv := AIv.ToBytes;
   FSeq := 0;
   FRecordLimit := AeadUsageLimit(AAead);
+  FAad := nil;
+  SetLength(FAad, TRecordLimits.HeaderLength);
+  FNonce := nil;
+  SetLength(FNonce, System.Length(FIv));
 end;
 
 destructor TTls13RecordProtection.Destroy;
 begin
   TSecureMemory.WipeBytes(FIv);
+  // the nonce is the IV under a public XOR, so it goes with the IV
+  TSecureMemory.WipeBytes(FNonce);
   inherited Destroy;
 end;
 
 function TTls13RecordProtection.Protect(AContentType: TTlsContentType;
   const APlaintext: TBytes; AOffset, ALength: Int32): TBytes;
 var
-  LInner, LNonce, LAad, LCipher: TBytes;
   LHeader: TTlsRecordHeader;
+  LInnerLength: Int32;
 begin
   Result := nil;
   GuardSequenceNotExhausted;
   GuardUsageLimitNotReached;
-  // inner plaintext = content || real content type (no padding in this slice)
-  LInner := nil;
-  SetLength(LInner, ALength + 1);
-  if ALength > 0 then
-    Move(APlaintext[AOffset], LInner[0], ALength);
-  LInner[ALength] := AContentType.ToByte;
+  // the record is built in its own wire buffer: header, then the inner plaintext (content ||
+  // real content type, no padding) sealed in place so ciphertext and tag land where they ship
+  LInnerLength := ALength + 1;
   // AAD = the record header, opaque_type = application_data, ciphertext length
   LHeader := TTlsRecordHeader.Create(TTlsContentType.ApplicationData,
-    TTlsVersion.Tls12, ALength + 1 + FAead.TagSize);
-  LAad := SerializeHeader(LHeader);
-  LNonce := DeriveNonce(FIv, FSeq);
+    TTlsVersion.Tls12, LInnerLength + FAead.TagSize);
+  LHeader.WriteTo(FAad, 0);
+  SetLength(Result, TRecordLimits.HeaderLength + LInnerLength + FAead.TagSize);
+  Move(FAad[0], Result[0], TRecordLimits.HeaderLength);
+  if ALength > 0 then
+    Move(APlaintext[AOffset], Result[TRecordLimits.HeaderLength], ALength);
+  Result[TRecordLimits.HeaderLength + ALength] := AContentType.ToByte;
+  DeriveNonceInto(FIv, FSeq, FNonce);
   try
-    LCipher := TAeadUtilities.Seal(FAead, LNonce, LAad, LInner);
-    Result := TArrayUtilities.Concat(LAad, LCipher);
+    FAead.Seal(FNonce, FAad, Result, TRecordLimits.HeaderLength, LInnerLength,
+      Result, TRecordLimits.HeaderLength);
     Inc(FSeq);
-  finally
-    TSecureMemory.WipeBytes(LInner);
-    TSecureMemory.WipeBytes(LNonce);
+  except
+    // until the seal overwrites it, the buffer still holds the plaintext
+    TSecureMemory.WipeBytes(Result);
+    raise;
   end;
 end;
 
@@ -366,8 +372,8 @@ function TTls13RecordProtection.Unprotect(const ARecord: TBytes;
 var
   LReader: TWireReader;
   LHeader: TTlsRecordHeader;
-  LAad, LNonce, LBody, LInner: TBytes;
-  LI: Int32;
+  LInner: TBytes;
+  LInnerLength, LI: Int32;
 begin
   Result := nil;
   GuardSequenceNotExhausted;
@@ -376,14 +382,17 @@ begin
   if ALength <> TRecordLimits.HeaderLength + LHeader.Length then
     raise EDecodeErrorTlsLibException.CreateRes(@SRecordLengthMismatch);
   // AAD is the received 5-byte header exactly as it arrived
-  LAad := System.Copy(ARecord, AOffset, TRecordLimits.HeaderLength);
-  LBody := LReader.ReadBytes(LHeader.Length);
-  LNonce := DeriveNonce(FIv, FSeq);
-  try
-    LInner := TAeadUtilities.Open(FAead, LNonce, LAad, LBody);
-  finally
-    TSecureMemory.WipeBytes(LNonce);
-  end;
+  Move(ARecord[AOffset], FAad[0], TRecordLimits.HeaderLength);
+  // a body shorter than the tag cannot authenticate; Open surfaces it as bad_record_mac
+  LInnerLength := LHeader.Length - FAead.TagSize;
+  if LInnerLength < 0 then
+    LInnerLength := 0;
+  LInner := nil;
+  SetLength(LInner, LInnerLength);
+  DeriveNonceInto(FIv, FSeq, FNonce);
+  // opened straight out of the record body, so the plaintext is materialized once
+  FAead.Open(FNonce, FAad, ARecord, AOffset + TRecordLimits.HeaderLength, LHeader.Length,
+    LInner, 0);
   try
     // the outer opaque_type check comes AFTER a successful decrypt: a record that fails its
     // AEAD (e.g. a plaintext record arriving where encryption is expected) is a bad_record_mac,
@@ -407,9 +416,13 @@ begin
     if not TTlsContentType.TryFromByte(LInner[LI], AContentType) then
       raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.UnexpectedMessage,
         @SUnknownContentType);
-    Result := System.Copy(LInner, 0, LI);
+    // the content is handed up in the buffer it was opened into, trimmed of type and padding
+    SetLength(LInner, LI);
+    Result := LInner;
+    LInner := nil;
     Inc(FSeq);
   finally
+    // still held only when a check above failed
     TSecureMemory.WipeBytes(LInner);
   end;
 end;
@@ -439,61 +452,73 @@ begin
   // AES-GCM frames an explicit nonce (RFC 5288); ChaCha20-Poly1305 derives the nonce by
   // XORing the sequence number into the write IV, with none on the wire (RFC 7905)
   FUsesExplicitNonce := AAead.UsageCategory = TAeadUsageCategory.AesGcm;
+  FAad := nil;
+  SetLength(FAad, AadLength);
+  FNonce := nil;
+  if FUsesExplicitNonce then
+    SetLength(FNonce, System.Length(FSalt) + ExplicitNonceLength)
+  else
+    SetLength(FNonce, System.Length(FSalt));
 end;
 
 destructor TTls12RecordProtection.Destroy;
 begin
   TSecureMemory.WipeBytes(FSalt);
+  // the nonce carries the salt / IV, so it goes with it
+  TSecureMemory.WipeBytes(FNonce);
   inherited Destroy;
 end;
 
-function TTls12RecordProtection.BuildAad(AContentTypeByte: Byte;
-  const AVersion: TTlsVersion; APlaintextLength: Int32): TBytes;
-var
-  LWriter: IWireWriter;
+procedure TTls12RecordProtection.BuildAadInto(AContentTypeByte: Byte;
+  AVersionWire: UInt16; APlaintextLength: Int32);
 begin
-  Result := nil;
-  LWriter := TWireWriter.Create;
-  LWriter.WriteBytes(UInt64ToBigEndian8(FSeq));
-  LWriter.WriteUInt8(AContentTypeByte);
-  LWriter.WriteUInt16(AVersion.WireValue);
-  LWriter.WriteUInt16(UInt16(APlaintextLength));
-  Result := LWriter.ToBytes;
+  TBinaryPrimitives.WriteUInt64BigEndian(FAad, 0, FSeq);
+  FAad[8] := AContentTypeByte;
+  TBinaryPrimitives.WriteUInt16BigEndian(FAad, 9, AVersionWire);
+  TBinaryPrimitives.WriteUInt16BigEndian(FAad, 11, UInt16(APlaintextLength));
 end;
 
 function TTls12RecordProtection.Protect(AContentType: TTlsContentType;
   const APlaintext: TBytes; AOffset, ALength: Int32): TBytes;
 var
-  LExplicitNonce, LNonce, LAad, LCipher, LBody: TBytes;
   LHeader: TTlsRecordHeader;
+  LPrefix, LBodyOffset: Int32;
 begin
   Result := nil;
   GuardSequenceNotExhausted;
   GuardUsageLimitNotReached;
-  LAad := BuildAad(AContentType.ToByte, TTlsVersion.Tls12, ALength);
+  BuildAadInto(AContentType.ToByte, TlsWireVersionTls12, ALength);
   if FUsesExplicitNonce then
   begin
-    // AES-GCM (RFC 5288): salt || explicit nonce, the explicit nonce prefixes the record
-    LExplicitNonce := UInt64ToBigEndian8(FSeq);
-    LNonce := TArrayUtilities.Concat(FSalt, LExplicitNonce);
+    // AES-GCM (RFC 5288): salt || explicit nonce, the explicit nonce prefixes the record body
+    LPrefix := ExplicitNonceLength;
+    Move(FSalt[0], FNonce[0], System.Length(FSalt));
+    TBinaryPrimitives.WriteUInt64BigEndian(FNonce, System.Length(FSalt), FSeq);
   end
   else
+  begin
     // ChaCha20-Poly1305 (RFC 7905): the 12-byte write IV XORed with the sequence number
-    LNonce := DeriveNonce(FSalt, FSeq);
-  try
-    LCipher := TAeadUtilities.Seal(FAead, LNonce, LAad,
-      System.Copy(APlaintext, AOffset, ALength));
-  finally
-    TSecureMemory.WipeBytes(LNonce);
+    LPrefix := 0;
+    DeriveNonceInto(FSalt, FSeq, FNonce);
   end;
-  if FUsesExplicitNonce then
-    LBody := TArrayUtilities.Concat(LExplicitNonce, LCipher)
-  else
-    LBody := LCipher;
+  // the record is built in its own wire buffer and the plaintext sealed in place
   LHeader := TTlsRecordHeader.Create(AContentType, TTlsVersion.Tls12,
-    System.Length(LBody));
-  Result := TArrayUtilities.Concat(SerializeHeader(LHeader), LBody);
-  Inc(FSeq);
+    LPrefix + ALength + FAead.TagSize);
+  SetLength(Result, TRecordLimits.HeaderLength + LPrefix + ALength + FAead.TagSize);
+  LHeader.WriteTo(Result, 0);
+  if LPrefix > 0 then
+    TBinaryPrimitives.WriteUInt64BigEndian(Result, TRecordLimits.HeaderLength, FSeq);
+  LBodyOffset := TRecordLimits.HeaderLength + LPrefix;
+  if ALength > 0 then
+    Move(APlaintext[AOffset], Result[LBodyOffset], ALength);
+  try
+    FAead.Seal(FNonce, FAad, Result, LBodyOffset, ALength, Result, LBodyOffset);
+    Inc(FSeq);
+  except
+    // until the seal overwrites it, the buffer still holds the plaintext
+    TSecureMemory.WipeBytes(Result);
+    raise;
+  end;
 end;
 
 function TTls12RecordProtection.Unprotect(const ARecord: TBytes;
@@ -501,8 +526,8 @@ function TTls12RecordProtection.Unprotect(const ARecord: TBytes;
 var
   LReader: TWireReader;
   LHeader: TTlsRecordHeader;
-  LExplicitNonce, LNonce, LAad, LCipher: TBytes;
-  LPlaintextLen: Int32;
+  LVersion: TTlsVersion;
+  LCipherOffset, LCipherLength, LPlaintextLength: Int32;
 begin
   Result := nil;
   GuardSequenceNotExhausted;
@@ -513,30 +538,31 @@ begin
   if not LHeader.TryContentType(AContentType) then
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.UnexpectedMessage,
       @SUnknownContentType);
+  LCipherOffset := AOffset + TRecordLimits.HeaderLength;
+  LCipherLength := LHeader.Length;
   if FUsesExplicitNonce then
   begin
-    // AES-GCM (RFC 5288): read the explicit nonce prefix, salt || explicit is the nonce
+    // AES-GCM (RFC 5288): the explicit nonce prefixes the body, salt || explicit is the nonce
     if LHeader.Length < ExplicitNonceLength + FAead.TagSize then
       raise EDecodeErrorTlsLibException.CreateRes(@SRecordTooShort);
-    LExplicitNonce := LReader.ReadBytes(ExplicitNonceLength);
-    LCipher := LReader.ReadBytes(LHeader.Length - ExplicitNonceLength);
-    LNonce := TArrayUtilities.Concat(FSalt, LExplicitNonce);
+    Move(FSalt[0], FNonce[0], System.Length(FSalt));
+    Move(ARecord[LCipherOffset], FNonce[System.Length(FSalt)], ExplicitNonceLength);
+    Inc(LCipherOffset, ExplicitNonceLength);
+    Dec(LCipherLength, ExplicitNonceLength);
   end
   else
   begin
     // ChaCha20-Poly1305 (RFC 7905): no explicit nonce; the whole body is the ciphertext
     if LHeader.Length < FAead.TagSize then
       raise EDecodeErrorTlsLibException.CreateRes(@SRecordTooShort);
-    LCipher := LReader.ReadBytes(LHeader.Length);
-    LNonce := DeriveNonce(FSalt, FSeq);
+    DeriveNonceInto(FSalt, FSeq, FNonce);
   end;
-  LPlaintextLen := System.Length(LCipher) - FAead.TagSize;
-  LAad := BuildAad(LHeader.ContentTypeByte, LHeader.Version, LPlaintextLen);
-  try
-    Result := TAeadUtilities.Open(FAead, LNonce, LAad, LCipher);
-  finally
-    TSecureMemory.WipeBytes(LNonce);
-  end;
+  LPlaintextLength := LCipherLength - FAead.TagSize;
+  LVersion := LHeader.Version;
+  BuildAadInto(LHeader.ContentTypeByte, LVersion.WireValue, LPlaintextLength);
+  SetLength(Result, LPlaintextLength);
+  // opened straight out of the record body, so the plaintext is materialized once
+  FAead.Open(FNonce, FAad, ARecord, LCipherOffset, LCipherLength, Result, 0);
   // checked after a successful open so a forged oversize record stays a bad_record_mac;
   // the plaintext itself may not exceed 2^14 (RFC 5246 6.2.1)
   if System.Length(Result) > TRecordLimits.MaxPlaintext then
