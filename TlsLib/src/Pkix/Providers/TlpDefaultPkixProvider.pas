@@ -1175,11 +1175,17 @@ begin
   LReason := AEntry.GetExtensionValue(TX509Extensions.ReasonCode);
   if LReason <> nil then
   begin
-    LEnum := TDerEnumerated.GetInstance(LReason.GetOctets);
-    // RFC 5280 5.3.1: removeFromCRL lifts a certificateHold; every other reason, including
-    // certificateHold itself and an absent reason, is a revocation
-    if (LEnum <> nil) and LEnum.HasValue(TCrlReason.RemoveFromCrl) then
-      ARevoked := False;
+    try
+      LEnum := TDerEnumerated.GetInstance(LReason.GetOctets);
+      // RFC 5280 5.3.1: removeFromCRL lifts a certificateHold; every other reason, including
+      // certificateHold itself and an absent reason, is a revocation
+      if (LEnum <> nil) and LEnum.HasValue(TCrlReason.RemoveFromCrl) then
+        ARevoked := False;
+    except
+      // a malformed reasonCode does not un-list a listed entry: it stays revoked
+      on E: ECryptoLibException do
+        ARevoked := True;
+    end;
   end;
   Result := True;
 end;
