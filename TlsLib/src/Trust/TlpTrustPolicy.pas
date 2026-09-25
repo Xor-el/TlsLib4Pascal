@@ -44,6 +44,11 @@ type
   /// or Indeterminate when no authoritative status was obtained (missing/expired/unreachable).</summary>
   TLiveRevocationOutcome = (Good, Revoked, Indeterminate);
 
+  /// <summary>How current a Good OCSP response is: Fresh (within its nextUpdate window),
+  /// Unbounded (no nextUpdate but recent enough to accept inline, never to settle revocation -
+  /// RFC 6960 4.2.2.1 says newer information is then always available), or Stale.</summary>
+  TOcspFreshness = (Fresh, Unbounded, Stale);
+
   /// <summary>
   /// The one revocation-decision table every verifier and resolver applies: a definitive Revoked
   /// rejects under every posture (certificate_revoked); a Good accepts; an Indeterminate accepts
@@ -52,11 +57,6 @@ type
   /// at an effective posture of Soft, so the handshake reaches the park where the live result is
   /// decided at the configured posture.
   /// </summary>
-  /// <summary>How current a Good OCSP response is: Fresh (within its nextUpdate window),
-  /// Unbounded (no nextUpdate but recent enough to accept inline, never to settle revocation -
-  /// RFC 6960 4.2.2.1 says newer information is then always available), or Stale.</summary>
-  TOcspFreshness = (Fresh, Unbounded, Stale);
-
   TRevocationDecision = class sealed(TObject)
   public
     /// <summary>A Good response without nextUpdate is accepted inline only if its thisUpdate is

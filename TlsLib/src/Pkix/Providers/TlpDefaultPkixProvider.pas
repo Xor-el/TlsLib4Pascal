@@ -491,7 +491,8 @@ procedure TCertificatePathValidator.ValidateCertificatePath(const AChain,
   // the anchor is identified the way the path validator identifies it - by subject name and
   // public key, not by exact encoding - so a re-encoded or re-issued same-key root the peer
   // presents is recognised as the anchor (RFC 5280 6.1.1(d): anchor information is input, not a
-  // validated path edge) instead of being policed as an ordinary path certificate.
+  // validated path edge) and is exempt from the TLS-layer algorithm/EKU policy rather than policed
+  // as an ordinary path certificate.
   function SameAnchorIdentity(const ACert, AAnchor: IX509Certificate): Boolean;
   begin
     Result := (AAnchor <> nil) and ACert.SubjectDN.Equivalent(AAnchor.SubjectDN, True) and
@@ -499,12 +500,30 @@ procedure TCertificatePathValidator.ValidateCertificatePath(const AChain,
       AAnchor.GetSubjectPublicKeyInfo.GetDerEncoded);
   end;
 
+  // the configured DER of the resolved anchor: the exact stored bytes, not a re-encoding, so the
+  // downstream chain-algorithm policy (which exempts the anchor by exact bytes) recognises it even
+  // when the stored root is not canonical DER
+  function ResolvedAnchorDer(const AAnchor: IX509Certificate;
+    const AParsedAnchors: TArray<ITrustAnchor>): TBytes;
+  var
+    LJ: Int32;
+  begin
+    Result := nil;
+    if AAnchor = nil then
+      Exit;
+    for LJ := 0 to High(AParsedAnchors) do
+      if TArrayUtilities.AreEqual(AParsedAnchors[LJ].TrustedCert.GetEncoded,
+        AAnchor.GetEncoded) then
+        Exit(ATrustAnchors[LJ]);
+    Result := AAnchor.GetEncoded; // resolved anchor not among the stored set: fall back to its DER
+  end;
+
   // build the effective chain leaf-first from the validated path, ending at the trust anchor the
   // validator resolved. Any copy of that anchor the peer included (possibly re-encoded) is dropped
   // and replaced by the configured DER, so the chain ends at the configured anchor exactly once -
   // what a key-pin over the validated path and an OS delegate both expect.
   procedure EmitPath(const APath: TArray<IX509Certificate>;
-    const AAnchorCert: IX509Certificate);
+    const AAnchorCert: IX509Certificate; const AAnchorDer: TBytes);
   var
     LI, LN: Int32;
   begin
@@ -524,7 +543,7 @@ procedure TCertificatePathValidator.ValidateCertificatePath(const AChain,
     if (AAnchorCert <> nil) and
       not ((LN = 1) and SameAnchorIdentity(APath[0], AAnchorCert)) then
     begin
-      AEffectiveChain[LN] := AAnchorCert.GetEncoded;
+      AEffectiveChain[LN] := AAnchorDer;
       Inc(LN);
     end;
     SetLength(AEffectiveChain, LN);
@@ -684,13 +703,14 @@ begin
     // and pin checks key off the real issuer at [1], not the peer's presented order
     LOrdered := LPath.Certificates;
     // the validated end-entity must be the leaf the peer presented (index 0): a path whose sorted
-    // end-entity is a different presented certificate is not a validation of this leaf
-    if (System.Length(LOrdered) = 0) or
-      not TArrayUtilities.AreEqual(LOrdered[0].GetEncoded, AChain[0]) then
+    // end-entity is a different presented certificate is not a validation of this leaf. The sorter
+    // reorders the same certificate instances, so identity (not encoding) is the exact test.
+    if (System.Length(LOrdered) = 0) or (LOrdered[0] <> LCerts[0]) then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.UnknownCa, @SUntrustedChain);
     EnforcePurpose(LOrdered, LValidatorResult.TrustAnchor.TrustedCert);
-    EmitPath(LOrdered, LValidatorResult.TrustAnchor.TrustedCert);
+    EmitPath(LOrdered, LValidatorResult.TrustAnchor.TrustedCert,
+      ResolvedAnchorDer(LValidatorResult.TrustAnchor.TrustedCert, LAnchors));
     Exit;
   end;
 
@@ -747,7 +767,8 @@ begin
   // which EmitPath appends
   LBuilt := LBuildResult.CertPath.Certificates;
   EnforcePurpose(LBuilt, LBuildResult.TrustAnchor.TrustedCert);
-  EmitPath(LBuilt, LBuildResult.TrustAnchor.TrustedCert);
+  EmitPath(LBuilt, LBuildResult.TrustAnchor.TrustedCert,
+    ResolvedAnchorDer(LBuildResult.TrustAnchor.TrustedCert, LAnchors));
 end;
 
 class function TRevocationChecker.OcspDelegatedResponder(const AResponderCert,

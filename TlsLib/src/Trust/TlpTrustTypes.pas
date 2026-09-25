@@ -45,7 +45,8 @@ type
   /// RevocationSettledInline means the verifier reached a definitive, authenticated revocation
   /// verdict inline (e.g. a current Good staple carrying nextUpdate), so a configured
   /// live-revocation park would be redundant and the caller may skip it. A Good staple without
-  /// nextUpdate is accepted inline but never settles - the park still runs (RFC 6960 4.2.2.1). Only a verifier that can settle revocation inline sets
+  /// nextUpdate is accepted inline but never settles - the park still runs (RFC 6960 4.2.2.1).
+  /// Only a verifier that can settle revocation inline sets
   /// RevocationSettledInline; a delegate whose live check happens at the park always returns Trusted,
   /// so the park still runs. This never affects a host-decision park, which is a separate policy.</summary>
   TVerificationOutcome = (Trusted, RevocationSettledInline);
