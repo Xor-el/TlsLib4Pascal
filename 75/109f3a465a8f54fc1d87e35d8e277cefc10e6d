@@ -1,0 +1,34 @@
+TlsLib.Benchmark/src/Core/TlsRecordThroughputBenchmark.pas
+  s_09d3c46d1a9b1f::t_cf47f995f17d7e 26-35,43,52,57,73-75,79-81,85-94,102-105,107,123-130,140-141,144,147-148,150-151,153-163,174,183-184,196-203,205,212-231,234-236,240-241,243-247,249-277
+TlsLib.Benchmark/Lazarus/TlsLib.BenchmarkConsole.lpr
+  s_09d3c46d1a9b1f::t_b40324e8c98a32 9,23-25,28-34,39-48
+TlsLib.Benchmark/src/Core/OpenSslThroughputPeer.pas
+  s_09d3c46d1a9b1f::t_9bfadd72db8fe3 28-33,43-44,47-48,66-67,94,99-100,126-132,149-174,189
+TlsLib.Benchmark/src/Core/BenchAllocCounter.pas
+  s_09d3c46d1a9b1f::t_4b1f0a4f4626b4 1-91
+TlsLib.Benchmark/src/Core/OpenSslBenchSupport.pas
+  s_09d3c46d1a9b1f::t_95199ba87cbef7 41-43,113
+  s_09d3c46d1a9b1f::t_527306b0773fd9 86
+  s_09d3c46d1a9b1f::t_04c7d5b7f606c1 97-99,103,106-107,110
+  s_09d3c46d1a9b1f::t_caf803e505170d 55-57,65-85,87-96,100-102,104-105,108-109,111-112
+  s_09d3c46d1a9b1f::t_15adca372192a7 172
+  s_09d3c46d1a9b1f::t_48838ac7dcff50 155
+TlsLib.Benchmark/src/Core/TlsLibThroughputPeer.pas
+  s_09d3c46d1a9b1f::t_43a697460a19e4 38-44,54,57,59,63-64,67-68,107,119,128,138-139,148,152-153,191-217,235
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "75109f3a465a8f54fc1d87e35d8e277cefc10e6d",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
