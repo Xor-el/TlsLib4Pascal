@@ -1,0 +1,37 @@
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_09d3c46d1a9b1f::t_827d84b8f9566e 30-32
+  s_09d3c46d1a9b1f::t_f5b3ea4d3b6862 278-279
+  s_09d3c46d1a9b1f::t_e3b08422a8f814 318-326
+  s_09d3c46d1a9b1f::t_7981be5231d9fc 346-353
+TlsLib.Tests/src/ExceptionTests.pas
+  s_09d3c46d1a9b1f::t_fc7f8801aa9b2c 156-161
+TlsLib/src/Engine/TlpTlsStream.pas
+  s_09d3c46d1a9b1f::t_151609306afeb5 202-208
+TlsLib/src/Engine/TlpTlsEngine.pas
+  s_09d3c46d1a9b1f::t_b0f28a8f00907b 681-692
+TlsLib/src/Interfaces/Engine/TlpITlsEngine.pas
+  s_09d3c46d1a9b1f::t_0d2be325cb6650 103
+  s_09d3c46d1a9b1f::t_b3e18ffe3cd4d3 152-155
+TlsLib/src/Common/TlpTlsLibExceptions.pas
+  s_09d3c46d1a9b1f::t_09290004ae4e9a 142-144,146
+TlsLib/src/Engine/TlpTlsStreamPump.pas
+  s_09d3c46d1a9b1f::t_f97ef6f1b5c6ec 295-296
+  s_09d3c46d1a9b1f::t_2600665a7c9e97 339-344
+  s_09d3c46d1a9b1f::t_20301d1475540b 384-385
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "557589cb6988acf5f0b7c30c3f1ff9275a7d7e7e",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
