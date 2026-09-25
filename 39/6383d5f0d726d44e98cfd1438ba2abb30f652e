@@ -1,0 +1,27 @@
+TlsLib.Tests/src/ClientSessionPolicyTests.pas
+  s_09d3c46d1a9b1f::t_beb13b8b061958 56
+TlsLib.Benchmark/src/Core/OpenSslBenchSupport.pas
+  s_09d3c46d1a9b1f::t_a2030ff08377de 23
+TlsLib.Benchmark/src/Core/TlsRecordThroughputBenchmark.pas
+  s_09d3c46d1a9b1f::t_07f8db107a4b4d 34
+  s_09d3c46d1a9b1f::t_37ab80a1d52c22 105
+  s_09d3c46d1a9b1f::t_ec00fa11fab645 223
+  s_09d3c46d1a9b1f::t_45a00a42b059b4 239,247
+  s_09d3c46d1a9b1f::t_b0373beef2cb7b 131,140
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "396383d5f0d726d44e98cfd1438ba2abb30f652e",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
