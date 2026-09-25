@@ -18,7 +18,6 @@ interface
 uses
   SysUtils,
   TlpArrayUtilities,
-  TlpDataEncoding,
   TlpSecureMemory,
   TlpTlsAlert,
   TlpTlsVersion,
@@ -47,6 +46,7 @@ uses
   TlpGrease,
   TlpHandshakeMessage,
   TlpHandshakeMessages,
+  TlpClientSessionPolicy,
   TlpCertificateCompression,
   TlpICertificateCompression,
   TlpCertificateVerify,
@@ -560,15 +560,8 @@ end;
 
 procedure TTls13ClientStateMachine.RememberOffered(
   const AFramedClientHello: TBytes);
-var
-  LHello: TTlsClientHello;
-  LVector: TExtensionVector;
 begin
-  // strip the 4-byte handshake header (type + uint24 length) to reach the body
-  LHello := THandshakeMessages.DecodeClientHello(System.Copy(AFramedClientHello, 4,
-    System.Length(AFramedClientHello) - 4));
-  LVector := TExtensionVector.Parse(LHello.Extensions);
-  FOfferedExtensions := LVector.Types;
+  FOfferedExtensions := TClientSessionPolicy.OfferedExtensionTypes(AFramedClientHello);
 end;
 
 procedure TTls13ClientStateMachine.ApplyOffered(const AContext: TExtensionContext);
@@ -1096,14 +1089,8 @@ end;
 
 function TTls13ClientStateMachine.CacheServerIdentity: string;
 begin
-  if FParams.ServerIdentity <> '' then
-    Result := FParams.ServerIdentity
-  else
-    Result := FParams.ServerName;
-  // fold the configuration scope into the key so a cache shared with another configuration does not
-  // resume across the two (the separator is a control char that cannot occur in a server identity)
-  if System.Length(FParams.SessionScope) > 0 then
-    Result := Result + #31 + TDataEncoding.HexEncode(FParams.SessionScope);
+  Result := TClientSessionPolicy.CacheIdentity(FParams.ServerIdentity,
+    FParams.ServerName, FParams.SessionScope);
 end;
 
 function TTls13ClientStateMachine.NowUnixMillis: UInt64;
@@ -1223,9 +1210,7 @@ begin
   // than seven days regardless of what the server advertised (RFC 8446 4.6.1)
   if LNst.TicketLifetime = 0 then
     Exit;
-  LLifetime := LNst.TicketLifetime;
-  if LLifetime > MaxTicketLifetimeSeconds then
-    LLifetime := MaxTicketLifetimeSeconds;
+  LLifetime := TClientSessionPolicy.ClampTicketLifetime(LNst.TicketLifetime);
   LPsk := FSchedule.ResumptionPsk(LNst.TicketNonce);
   // carry the verified server chain so an opt-in ReverifyOnResume can re-check it on resume. On a
   // resumed connection no Certificate was sent, so the ticket inherits the resumed session's chain
@@ -1254,7 +1239,6 @@ var
   LPskSuite: TTlsCipherSuite;
   LHint: UInt16;
   LHintGroup: INamedGroup;
-  LCappedLifetime: UInt32;
 begin
   // key-exchange hint: lead the key_share with the group the server last selected for this
   // server, to avoid a HelloRetryRequest. Only an offered, resolvable group is honored. Under
@@ -1286,15 +1270,7 @@ begin
   begin
     if LCached.Version.WireValue = TlsWireVersionTls13 then
     begin
-      // a ticket past its lifetime is not offered (RFC 8446 4.6.1): the client drops the
-      // expired PSK and does a full handshake rather than offer one the server will reject.
-      // A zero lifetime means discard immediately, and the seven-day ceiling is enforced here
-      // too so a ticket cached out-of-band cannot outlive the RFC bound.
-      LCappedLifetime := LCached.TicketLifetime;
-      if LCappedLifetime > MaxTicketLifetimeSeconds then
-        LCappedLifetime := MaxTicketLifetimeSeconds;
-      if (LCached.TicketLifetime > 0) and ((NowUnixMillis - LCached.IssuedAtMillis) <=
-        (UInt64(LCappedLifetime) * 1000)) then
+      if TClientSessionPolicy.IsOfferableTls13(LCached, NowUnixMillis) then
       begin
         FPskOffers := TArray<IPreSharedKey>.Create(LCached.AsPreSharedKey);
         // kept so ReverifyOnResume can re-check the server we resume against current trust
@@ -1303,13 +1279,7 @@ begin
     end
     else if FParams.AlsoOfferTls12 then
     begin
-      // a 1.2 ticket past its hinted lifetime is dropped (RFC 5077 3.3); a hint of 0 is
-      // unspecified and still offered; the seven-day ceiling bounds an out-of-band session
-      LCappedLifetime := LCached.TicketLifetime;
-      if LCappedLifetime > MaxTicketLifetimeSeconds then
-        LCappedLifetime := MaxTicketLifetimeSeconds;
-      if (LCached.TicketLifetime = 0) or ((NowUnixMillis - LCached.IssuedAtMillis) <=
-        (UInt64(LCappedLifetime) * 1000)) then
+      if TClientSessionPolicy.IsOfferableTls12(LCached, NowUnixMillis) then
       begin
         FTls12ResumptionSession := LCached;
         if System.Length(LCached.SessionId) > 0 then
@@ -1442,27 +1412,11 @@ begin
 end;
 
 procedure TTls13ClientStateMachine.ReverifyResumedServer;
-var
-  LVerifier: IServerCertificateVerifier;
-  LAlert: TTlsAlertDescription;
-  LVerified: TVerifiedChain;
 begin
-  // prefer the resumption-occasion verifier (no must-staple on a chain with no Certificate);
-  // fall back to the primary for a direct caller that wired only one
-  LVerifier := FParams.ResumeCertificateVerifier;
-  if LVerifier = nil then
-    LVerifier := FParams.CertificateVerifier;
-  if LVerifier = nil then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.InternalError, @SNoCertificateVerifier);
-  // a resumed handshake carries no fresh OCSP staple; re-check the stored chain against current
-  // trust. An empty stored chain cannot be re-verified, so it fails closed
-  LAlert := TTlsAlertDescription.BadCertificate;
-  if (System.Length(FResumptionPeerCertificates) = 0) or
-    not LVerifier.VerifyServerCertificate(FResumptionPeerCertificates,
-    FParams.ExpectedServerName, nil, LVerified, LAlert) then
-    raise EFatalAlertTlsLibException.CreateRes(LAlert, @SUntrustedCertificate);
-  FResumeValidatedPath := LVerified.Path;
+  // on a resumed connection no Certificate was sent, so re-check the stored chain
+  TClientSessionPolicy.ReverifyResumedServer(FParams.CertificateVerifier,
+    FParams.ResumeCertificateVerifier, FResumptionPeerCertificates,
+    FParams.ExpectedServerName, FResumeValidatedPath);
 end;
 
 function TTls13ClientStateMachine.ProcessServerHello(
