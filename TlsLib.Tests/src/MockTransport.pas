@@ -20,6 +20,7 @@ interface
 uses
   SysUtils,
   SyncObjs,
+  TlpITlsEngine,
   TlpITlsTransport;
 
 type
@@ -55,6 +56,26 @@ type
     function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
     procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
     procedure CloseWrite;
+  end;
+
+  /// <summary>A transport decorator that measures how much ciphertext the engine had queued when
+  /// a write reached the transport: while armed, each Write drains the rest of the engine's
+  /// outbound itself (forwarding all of it to the inner transport) and keeps the largest
+  /// written-plus-drained total. A bulk write sealed whole shows as one peak of the whole
+  /// payload; a sliced one as at most a slice.</summary>
+  TPeakProbeTransport = class sealed(TInterfacedObject, ITlsTransport)
+  strict private
+  var
+    FInner: ITlsTransport;
+    FEngine: ITlsEngine;
+    FArmed: Boolean;
+    FPeakPending: Int32;
+  public
+    constructor Create(const AInner: ITlsTransport; const AEngine: ITlsEngine);
+    function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
+    procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
+    procedure Arm;
+    property PeakPending: Int32 read FPeakPending;
   end;
 
 implementation
@@ -168,6 +189,53 @@ end;
 procedure TMemoryTransport.CloseWrite;
 begin
   FWrite.Close;
+end;
+
+{ TPeakProbeTransport }
+
+constructor TPeakProbeTransport.Create(const AInner: ITlsTransport;
+  const AEngine: ITlsEngine);
+begin
+  inherited Create;
+  FInner := AInner;
+  FEngine := AEngine;
+  FArmed := False;
+  FPeakPending := 0;
+end;
+
+function TPeakProbeTransport.Read(var ABuffer: TBytes; AOffset,
+  AMaxLength: Int32): Int32;
+begin
+  Result := FInner.Read(ABuffer, AOffset, AMaxLength);
+end;
+
+procedure TPeakProbeTransport.Write(const ABuffer: TBytes; AOffset, ALength: Int32);
+var
+  LBuf: TBytes;
+  LGot, LTotal: Int32;
+begin
+  FInner.Write(ABuffer, AOffset, ALength);
+  if not FArmed then
+    Exit;
+  // what the engine still holds after this write is what was sealed ahead of it
+  LTotal := ALength;
+  SetLength(LBuf, 65536);
+  repeat
+    LGot := FEngine.TakeOutgoing(LBuf, 0);
+    if LGot > 0 then
+    begin
+      FInner.Write(LBuf, 0, LGot);
+      Inc(LTotal, LGot);
+    end;
+  until LGot = 0;
+  if LTotal > FPeakPending then
+    FPeakPending := LTotal;
+end;
+
+procedure TPeakProbeTransport.Arm;
+begin
+  FArmed := True;
+  FPeakPending := 0;
 end;
 
 end.

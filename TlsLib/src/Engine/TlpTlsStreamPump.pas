@@ -42,13 +42,26 @@ type
   /// ETlsTransportTruncated.
   /// </summary>
   TTlsStreamPump = class sealed(TObject)
-  strict private
+  public
   const
     // one TLS record's plaintext never exceeds 2^14; a 16 KiB transport read comfortably
     // holds a framed record and lets the record layer reassemble across reads
     TransportChunk = Int32(16384);
+    // the most plaintext WriteApp seals before draining to the transport: four max-size
+    // records, the record layer's retained outbound capacity, so a chunked bulk write never
+    // regrows the outbound buffer and holds at most one slice of ciphertext at a time
+    WriteChunk = Int32(4 * 16384);
   strict private
     class procedure RaiseIfFatal(const AEngine: ITlsEngine); static;
+    /// <summary>Flushes best-effort: a transport failure here is swallowed because the caller is
+    /// already surfacing a TLS-level error that a transport error must not mask.</summary>
+    class procedure FlushQuietly(const AEngine: ITlsEngine;
+      const ATransport: ITlsTransport); static;
+    /// <summary>Flushes, then raises if the engine is terminal. The flush comes first so the
+    /// fatal alert a failed ProcessInput/Write queued reaches the peer before the error surfaces
+    /// here (the peer then reads an alert, not a truncation); once terminal it is best-effort.</summary>
+    class procedure FlushThenRaiseIfFatal(const AEngine: ITlsEngine;
+      const ATransport: ITlsTransport); static;
     /// <summary>Reports a terminal event (peer alert / close_notify) as an out flag and
     /// captures any CertificateReceived event (async verdict); returns True when the peer
     /// closed cleanly, raising on a peer fatal alert.</summary>
@@ -85,7 +98,10 @@ type
     class function ReadApp(const AEngine: ITlsEngine;
       const ATransport: ITlsTransport; var ADest: TBytes; AMaxLength: Int32;
       out AStatus: TTlsReadStatus): Int32; static;
-    /// <summary>Encrypts and sends application data.</summary>
+    /// <summary>Encrypts and sends application data, sealing and draining at most WriteChunk
+    /// bytes per iteration so a bulk write never holds its whole ciphertext in memory. At the
+    /// AEAD usage limit with no rekey available the engine's close_notify is still sent before
+    /// ERecordLimitTlsLibException propagates.</summary>
     class procedure WriteApp(const AEngine: ITlsEngine;
       const ATransport: ITlsTransport; const AData: TBytes;
       AOffset, ALength: Int32); static;
@@ -126,6 +142,10 @@ var
   LBuf: TBytes;
   LGot: Int32;
 begin
+  // this runs on every read cycle too; do not allocate the transport buffer when there is
+  // nothing to send
+  if not AEngine.WantsWrite then
+    Exit;
   LBuf := nil;
   SetLength(LBuf, TransportChunk);
   repeat
@@ -133,6 +153,26 @@ begin
     if LGot > 0 then
       ATransport.Write(LBuf, 0, LGot);
   until LGot = 0;
+end;
+
+class procedure TTlsStreamPump.FlushQuietly(const AEngine: ITlsEngine;
+  const ATransport: ITlsTransport);
+begin
+  try
+    Flush(AEngine, ATransport);
+  except
+    // best effort: the TLS-level error being surfaced takes precedence
+  end;
+end;
+
+class procedure TTlsStreamPump.FlushThenRaiseIfFatal(const AEngine: ITlsEngine;
+  const ATransport: ITlsTransport);
+begin
+  if AEngine.IsTerminal then
+    FlushQuietly(AEngine, ATransport)
+  else
+    Flush(AEngine, ATransport);
+  RaiseIfFatal(AEngine);
 end;
 
 class function TTlsStreamPump.DrainEvents(const AEngine: ITlsEngine;
@@ -193,8 +233,8 @@ begin
     LAccept := AResolveVerdict(LCtx, LAlert);
   end;
   AEngine.SetCertificateVerdict(LAccept, LAlert);
-  Flush(AEngine, ATransport); // send the resumed flight, or the abort alert
-  RaiseIfFatal(AEngine);      // a rejected verdict made the engine terminal
+  // send the resumed flight, or the abort alert of a rejected verdict, then surface the abort
+  FlushThenRaiseIfFatal(AEngine, ATransport);
 end;
 
 class procedure TTlsStreamPump.DriveHandshake(const AEngine: ITlsEngine;
@@ -248,8 +288,7 @@ begin
         Format('%s (after %d handshake bytes from the peer)', [STruncatedHandshake, LTotal]));
     Inc(LTotal, LGot);
     AEngine.ProcessInput(LBuf, 0, LGot);
-    Flush(AEngine, ATransport);
-    RaiseIfFatal(AEngine);
+    FlushThenRaiseIfFatal(AEngine, ATransport);
     if DrainEvents(AEngine, LPeerClosed, LCertEvent) then
       RaiseIfFatal(AEngine); // a close during the handshake leaves it unfinished/terminal
   end;
@@ -295,7 +334,7 @@ begin
       Exit(0);
     end;
     AEngine.ProcessInput(LBuf, 0, LGot);
-    RaiseIfFatal(AEngine);
+    FlushThenRaiseIfFatal(AEngine, ATransport);
     Result := AEngine.ReadAppData(ADest, 0, AMaxLength);
     if Result > 0 then
     begin
@@ -314,14 +353,37 @@ end;
 
 class procedure TTlsStreamPump.WriteApp(const AEngine: ITlsEngine;
   const ATransport: ITlsTransport; const AData: TBytes; AOffset, ALength: Int32);
+var
+  LOffset, LRemaining, LChunk: Int32;
 begin
   // the engine's Write raises once the write side is closed; pre-check so the stream reports a
   // clear error rather than the raw engine exception (and never counts the bytes as sent)
   if AEngine.WriteClosed then
     raise EInvalidOperationTlsLibException.CreateRes(@SWriteAfterClose);
-  AEngine.Write(AData, AOffset, ALength);
-  RaiseIfFatal(AEngine);
-  Flush(AEngine, ATransport);
+  LOffset := AOffset;
+  LRemaining := ALength;
+  // the engine seals whatever it is handed in full, so a bulk write sealed whole would hold the
+  // entire ciphertext before the first send: seal and drain one bounded slice at a time
+  while LRemaining > 0 do
+  begin
+    LChunk := LRemaining;
+    if LChunk > WriteChunk then
+      LChunk := WriteChunk;
+    try
+      AEngine.Write(AData, LOffset, LChunk);
+    except
+      on ERecordLimitTlsLibException do
+      begin
+        // the engine queued close_notify at the AEAD usage limit; it must reach the peer so the
+        // peer reads a clean close rather than a truncation
+        FlushQuietly(AEngine, ATransport);
+        raise;
+      end;
+    end;
+    FlushThenRaiseIfFatal(AEngine, ATransport);
+    Inc(LOffset, LChunk);
+    Dec(LRemaining, LChunk);
+  end;
 end;
 
 class procedure TTlsStreamPump.Close(const AEngine: ITlsEngine;

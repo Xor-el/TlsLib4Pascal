@@ -47,6 +47,7 @@ type
     FWriteClosed: Boolean;
     FTruncated: Boolean;
     FReadChunk: TBytes;
+    FWriteChunk: TBytes;
     FVerdictResolver: TCertificateVerdictResolver;
     procedure EnsureHandshake;
   public
@@ -192,15 +193,25 @@ end;
 
 function TTlsStream.Write(const ABuffer; ACount: Longint): Longint;
 var
-  LData: TBytes;
+  LOffset, LChunk: Int32;
 begin
   if ACount <= 0 then
     Exit(0);
   EnsureHandshake;
-  LData := nil;
-  SetLength(LData, ACount);
-  Move(ABuffer, LData[0], ACount);
-  TTlsStreamPump.WriteApp(FEngine, FTransport, LData, 0, ACount);
+  // copy one bounded slice at a time rather than the whole buffer: a bulk write costs one
+  // reused slice of transient memory, never a second copy of the payload
+  if System.Length(FWriteChunk) < TTlsStreamPump.WriteChunk then
+    SetLength(FWriteChunk, TTlsStreamPump.WriteChunk);
+  LOffset := 0;
+  while LOffset < ACount do
+  begin
+    LChunk := ACount - LOffset;
+    if LChunk > TTlsStreamPump.WriteChunk then
+      LChunk := TTlsStreamPump.WriteChunk;
+    Move(PByte(@ABuffer)[LOffset], FWriteChunk[0], LChunk);
+    TTlsStreamPump.WriteApp(FEngine, FTransport, FWriteChunk, 0, LChunk);
+    Inc(LOffset, LChunk);
+  end;
   Result := ACount;
 end;
 

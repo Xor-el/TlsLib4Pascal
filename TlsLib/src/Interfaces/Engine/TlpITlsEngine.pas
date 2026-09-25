@@ -100,7 +100,10 @@ type
     /// EInvalidOperationTlsLibException if the connection is terminal, our close_notify was
     /// already sent, (TLS 1.2 only) an inbound close_notify closed it - check WriteClosed first -
     /// or no write epoch key is installed yet (drive the handshake first; 0-RTT is WriteEarlyData).
-    /// Under TLS 1.3 an inbound close_notify leaves the write side open (RFC 8446 6.1).</summary>
+    /// Under TLS 1.3 an inbound close_notify leaves the write side open (RFC 8446 6.1).
+    /// ALength is sealed in full into the outbound queue; a raw embedder bounds transient memory
+    /// on a bulk write by writing in slices and draining TakeOutgoing between them, as the
+    /// stream pump does.</summary>
     procedure Write(const AData: TBytes; AOffset, ALength: Int32);
     /// <summary>
     /// Queues 0-RTT early application data (RFC 8446 2.3) and returns the number of bytes
