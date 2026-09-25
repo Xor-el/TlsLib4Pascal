@@ -20,6 +20,7 @@ interface
 uses
   SysUtils,
   mormot.core.base,
+  mormot.core.os,
   mormot.crypt.secure,
   mormot.lib.openssl11,
   TlsBenchmarkData;
@@ -51,9 +52,6 @@ type
   end;
 
 implementation
-
-uses
-  mormot.core.os;
 
 const
   // OpenSSL's SSL_CTRL_SET_GROUPS_LIST (ssl.h); mORMot exposes no typed groups setter, so

@@ -46,6 +46,7 @@ uses
   TlpTlsCredential,
   TlpITlsCredentialResolver,
   TlpServerOfferSelection,
+  TlpClientSessionPolicy,
   TlpISession,
   TlpIClock,
   TlpIKeyLog,
@@ -866,9 +867,7 @@ end;
 function TTls12ServerStateMachine.EmittedTicketLifetime: UInt32;
 begin
   // a server MUST NOT advertise or honour a lifetime above the RFC 8446 4.6.1 ceiling
-  Result := FParams.TicketLifetimeSeconds;
-  if Result > MaxTicketLifetimeSeconds then
-    Result := MaxTicketLifetimeSeconds;
+  Result := TClientSessionPolicy.ClampTicketLifetime(FParams.TicketLifetimeSeconds);
 end;
 
 function TTls12ServerStateMachine.BuildStoredSession(

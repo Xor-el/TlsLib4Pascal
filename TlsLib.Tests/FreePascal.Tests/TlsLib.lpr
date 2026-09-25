@@ -49,6 +49,7 @@ uses
   CertificateCompressionCacheTests,
   DataEncodingTests,
   MockSessionStores,
+  ClientSessionPolicyTests,
   Tls13ResumptionTests,
   Tls13LoopbackTests,
   Tls12LoopbackTests,

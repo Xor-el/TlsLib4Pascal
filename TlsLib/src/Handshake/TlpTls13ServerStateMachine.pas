@@ -59,6 +59,7 @@ uses
   TlpTlsCredential,
   TlpITlsCredentialResolver,
   TlpServerOfferSelection,
+  TlpClientSessionPolicy,
   TlpIEch,
   TlpEchConfig,
   TlpEchExtension,
@@ -1797,9 +1798,7 @@ begin
     Exit;
   // a server MUST NOT advertise a lifetime above the RFC 8446 4.6.1 ceiling, and MUST NOT honour
   // a resumption beyond it either, so clamp the value the session stores and the ticket carries
-  LLifetime := FParams.TicketLifetimeSeconds;
-  if LLifetime > MaxTicketLifetimeSeconds then
-    LLifetime := MaxTicketLifetimeSeconds;
+  LLifetime := TClientSessionPolicy.ClampTicketLifetime(FParams.TicketLifetimeSeconds);
   for LI := 0 to FParams.IssueTicketCount - 1 do
   begin
     LNonce := FParams.Crypto.Primitives.GetRandom.GenerateBytes(TicketNonceLength);

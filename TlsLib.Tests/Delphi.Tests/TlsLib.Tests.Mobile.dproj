@@ -413,6 +413,7 @@
         <DCCReference Include="..\..\TlsLib\src\Handshake\TlpHandshakeEffect.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Handshake\TlpHandshakeStage.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Handshake\TlpServerOfferSelection.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Handshake\TlpClientSessionPolicy.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Handshake\TlpPeerAuthentication.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Handshake\TlpIHandshakeMachine.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Handshake\TlpHandshakeChannel.pas"/>
@@ -531,6 +532,7 @@
         <DCCReference Include="..\src\CertificateCompressionCacheTests.pas"/>
         <DCCReference Include="..\src\DataEncodingTests.pas"/>
         <DCCReference Include="..\src\MockSessionStores.pas"/>
+        <DCCReference Include="..\src\ClientSessionPolicyTests.pas"/>
         <DCCReference Include="..\src\Tls13ResumptionTests.pas"/>
         <DCCReference Include="..\src\Tls12ResumptionTests.pas"/>
         <DCCReference Include="..\src\ConfigResumptionTests.pas"/>

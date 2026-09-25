@@ -19,7 +19,6 @@ uses
   SysUtils,
   Classes,
   TlpArrayUtilities,
-  TlpDataEncoding,
   TlpTlsAlert,
   TlpTlsVersion,
   TlpTlsLibExceptions,
@@ -35,11 +34,11 @@ uses
   TlpINegotiation,
   TlpNegotiationPolicy,
   TlpWireReader,
-  TlpExtensionVector,
   TlpExtensionContext,
   TlpITlsExtension,
   TlpHandshakeMessage,
   TlpHandshakeMessages,
+  TlpClientSessionPolicy,
   TlpCertificateVerify,
   TlpPeerAuthentication,
   TlpICertificateTrust,
@@ -324,15 +323,8 @@ end;
 
 procedure TTls12ClientStateMachine.RememberOffered(
   const AFramedClientHello: TBytes);
-var
-  LHello: TTlsClientHello;
-  LVector: TExtensionVector;
 begin
-  // strip the 4-byte handshake header to reach the body
-  LHello := THandshakeMessages.DecodeClientHello(System.Copy(AFramedClientHello, 4,
-    System.Length(AFramedClientHello) - 4));
-  LVector := TExtensionVector.Parse(LHello.Extensions);
-  FOfferedExtensions := LVector.Types;
+  FOfferedExtensions := TClientSessionPolicy.OfferedExtensionTypes(AFramedClientHello);
 end;
 
 procedure TTls12ClientStateMachine.ApplyOffered(const AContext: TExtensionContext);
@@ -396,14 +388,8 @@ end;
 
 function TTls12ClientStateMachine.CacheServerIdentity: string;
 begin
-  if FParams.ServerIdentity <> '' then
-    Result := FParams.ServerIdentity
-  else
-    Result := FParams.ServerName;
-  // fold the configuration scope into the key so a cache shared with another configuration does not
-  // resume across the two (the separator is a control char that cannot occur in a server identity)
-  if System.Length(FParams.SessionScope) > 0 then
-    Result := Result + #31 + TDataEncoding.HexEncode(FParams.SessionScope);
+  Result := TClientSessionPolicy.CacheIdentity(FParams.ServerIdentity,
+    FParams.ServerName, FParams.SessionScope);
 end;
 
 function TTls12ClientStateMachine.Initiates: Boolean;
@@ -415,7 +401,6 @@ function TTls12ClientStateMachine.Start: TArray<THandshakeEffect>;
 var
   LClientHello: TBytes;
   LCached: IResumableSession;
-  LCappedLifetime: UInt32;
 begin
   FPhase := TPhase.WaitServerHello;
   // a version-dispatching parent may have already sent a unified ClientHello: seed the
@@ -439,12 +424,7 @@ begin
     FParams.SessionCache.Take(CacheServerIdentity, FParams.ServerName, LCached) and
     (LCached.Version.WireValue = TlsWireVersionTls12) then
   begin
-    LCappedLifetime := LCached.TicketLifetime;
-    if LCappedLifetime > MaxTicketLifetimeSeconds then
-      LCappedLifetime := MaxTicketLifetimeSeconds;
-    if (LCached.TicketLifetime = 0) or
-      ((FParams.Clock.NowUnixMillis - LCached.IssuedAtMillis) <=
-      (UInt64(LCappedLifetime) * 1000)) then
+    if TClientSessionPolicy.IsOfferableTls12(LCached, FParams.Clock.NowUnixMillis) then
       FResumptionOffer := LCached;
   end;
   LClientHello := BuildClientHello;
@@ -850,9 +830,7 @@ begin
     Exit;
   // a seven-day retention cap (local policy) bounds a stored ticket; a lifetime_hint of 0 is
   // left unspecified per RFC 5077 3.3 rather than discarded
-  LLifetime := FReceivedTicketLifetime;
-  if LLifetime > MaxTicketLifetimeSeconds then
-    LLifetime := MaxTicketLifetimeSeconds;
+  LLifetime := TClientSessionPolicy.ClampTicketLifetime(FReceivedTicketLifetime);
   // carry the verified server chain so an opt-in ReverifyOnResume can re-check it on resume. On an
   // abbreviated handshake no Certificate was sent, so the session inherits the resumed chain
   LPeerChain := FCertChain;
@@ -898,25 +876,17 @@ end;
 
 procedure TTls12ClientStateMachine.ReverifyResumedServer;
 var
-  LVerifier: IServerCertificateVerifier;
-  LAlert: TTlsAlertDescription;
-  LVerified: TVerifiedChain;
+  LChain: TArray<TBytes>;
 begin
-  // prefer the resumption-occasion verifier (no must-staple on a chain with no Certificate);
-  // fall back to the primary for a direct caller that wired only one
-  LVerifier := FParams.ResumeCertificateVerifier;
-  if LVerifier = nil then
-    LVerifier := FParams.CertificateVerifier;
-  if LVerifier = nil then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.InternalError, @SNoCertificateVerifier);
-  // an empty stored chain cannot be re-verified, so it fails closed
-  LAlert := TTlsAlertDescription.BadCertificate;
-  if (FResumptionOffer = nil) or (System.Length(FResumptionOffer.PeerCertificates) = 0) or
-    not LVerifier.VerifyServerCertificate(
-    FResumptionOffer.PeerCertificates, FParams.ExpectedServerName, nil, LVerified, LAlert) then
-    raise EFatalAlertTlsLibException.CreateRes(LAlert, @SUntrustedCertificate);
-  FResumeValidatedPath := LVerified.Path;
+  // an abbreviated handshake sent no Certificate, so re-check the stored chain (a missing offer
+  // leaves an empty chain that fails closed)
+  if FResumptionOffer <> nil then
+    LChain := FResumptionOffer.PeerCertificates
+  else
+    LChain := nil;
+  TClientSessionPolicy.ReverifyResumedServer(FParams.CertificateVerifier,
+    FParams.ResumeCertificateVerifier, LChain, FParams.ExpectedServerName,
+    FResumeValidatedPath);
 end;
 
 function TTls12ClientStateMachine.BeginAbbreviatedHandshake(
