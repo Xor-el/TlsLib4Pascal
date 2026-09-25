@@ -84,8 +84,8 @@ type
     FCheckHostName: Boolean;
     FChainLimits: TCertificateChainLimits;
     FRevocationPosture: TRevocationPosture;
-    /// <summary>Untrusted intermediates that seed PKIX path building when the peer sends an
-    /// incomplete chain; empty validates the chain exactly as received.</summary>
+    /// <summary>Untrusted intermediates that pool with the peer's certificates to seed PKIX path
+    /// building; empty builds the path only from what the peer sent.</summary>
     FIntermediates: TArray<TBytes>;
     FDangerous: TDangerousTrust;
     /// <summary>How a verdict is deferred out-of-band. Only LiveRevocation defers an indeterminate
@@ -496,6 +496,14 @@ begin
   AAlert := TTlsAlertDescription.BadCertificate;
   if System.Length(AChain) = 0 then
     Exit;
+  // no configured anchor set means there is no basis to trust any certificate: surface the
+  // precise alert rather than dereference a nil store (a PSK-only client is refused at Build,
+  // so this is the belt-and-braces backstop)
+  if FTrustStore = nil then
+  begin
+    AAlert := TTlsAlertDescription.UnknownCa;
+    Exit;
+  end;
 
   // resource caps before any PKIX work: an over-long chain or oversize certificate is
   // rejected up front (anti-DoS) rather than handed to the path builder

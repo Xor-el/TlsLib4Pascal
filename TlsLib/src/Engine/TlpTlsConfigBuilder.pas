@@ -295,8 +295,15 @@ resourcestring
   SNilPkixProvider = 'a PKIX provider is required (pass a provider, not nil)';
   SBuilderFrozen = 'the configuration has been built and can no longer be changed';
   SNoTrustStore = 'a client configuration requires a trust source (no silent-insecure)';
+  SPskOnlyClientNeedsPskRequired = 'a client with external PSKs and no trust source cannot fall ' +
+    'back to certificate authentication; keep WithExternalPskRequired(True) or add a trust source';
+  SPskOnlyClientNeedsTls13Only = 'a client with external PSKs and no trust source must offer TLS ' +
+    '1.3 only (external PSKs are TLS 1.3-only); use a 1.3-only preset or WithSupportedVersions([TLS 1.3])';
   SNoCredential = 'a server configuration requires a certificate credential';
   SNoClientAuthTrustStore = 'client authentication requires a trust source for the client certificate chain';
+  SMtlsSharedResumptionNeedsScope = 'client authentication with a supplied session store or ' +
+    'ticket-key manager requires WithResumptionScope: a key or store may be shared across ' +
+    'configurations, and a resumed handshake reuses the stored client identity unverified';
   SSniCertMissing = 'the SNI credential for host "%s" has no certificate chain';
   SSniCertMismatch = 'the certificate mapped to SNI host "%s" does not cover it: its ' +
     'SubjectAltName dNSName entries do not match the host';
@@ -2520,6 +2527,19 @@ begin
   if (System.Length(FAnchorStores) = 0) and (FServerCertVerifier = nil) and
     (FServerVerifierSource = nil) and (System.Length(FExternalPsks) = 0) then
     raise EInvalidOperationTlsLibException.CreateRes(@SNoTrustStore);
+  // a PSK-only client (external PSKs, no trust source) can verify no certificate, so it must
+  // never be steered onto the certificate path: the PSK has to be required (a non-PSK ServerHello
+  // is then fatal) and only TLS 1.3 may be offered - a 1.2 selection would reach the certificate
+  // path with nothing to verify against (RFC 9258 external PSKs are TLS 1.3-only)
+  if (System.Length(FAnchorStores) = 0) and (FServerCertVerifier = nil) and
+    (FServerVerifierSource = nil) then
+  begin
+    if not FExternalPskRequired then
+      raise EInvalidOperationTlsLibException.CreateRes(@SPskOnlyClientNeedsPskRequired);
+    if (System.Length(FSupportedVersions) <> 1) or
+      (FSupportedVersions[0] <> TlsWireVersionTls13) then
+      raise EInvalidOperationTlsLibException.CreateRes(@SPskOnlyClientNeedsTls13Only);
+  end;
   // a Hard revocation posture rejects a peer whose certificate carries no stapled OCSP response
   // (missing staple -> Indeterminate -> reject), so it silently always-rejects unless the client
   // obtains revocation status some way: by requesting a staple, or by a live OCSP/CRL verdict
@@ -2607,6 +2627,16 @@ begin
     (FRevocationPosture = TRevocationPosture.Hard) and
     (FAsyncVerdict.Deferral <> TVerdictDeferral.LiveRevocation) then
     raise EInvalidOperationTlsLibException.CreateRes(@SHardServerRevocationUnusable);
+  // a ticket-key manager or session store is the one thing an operator can share across
+  // configurations, and a resumed handshake reuses the original client authentication without
+  // re-verifying it (RFC 8446 2.2): an mTLS configuration that supplies one must partition its
+  // tickets with an explicit scope, or a ticket minted under another configuration's client-CA
+  // trust would resume here as an authenticated identity. The per-config default STEK is exempt
+  // (it is never shared), so the common case builds unchanged.
+  if FResumption and (FClientAuth <> TClientAuthMode.None) and
+    ((FSessionTicketKeys <> nil) or (FSessionStore <> nil)) and
+    (System.Length(FResumptionScope) = 0) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SMtlsSharedResumptionNeedsScope);
   ValidateVersionScoping;
   LConfig := TFrozenServerConfig.Create;
   LConfig.FCrypto := FCrypto;

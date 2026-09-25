@@ -161,9 +161,10 @@ type
     /// AValidationTimeUtc, so the caller's injected clock drives the whole time-based
     /// trust decision from one source. AIntermediates are extra untrusted DER
     /// certificates seeded into path building for a peer that sends an incomplete
-    /// chain (e.g. a leaf-only server); empty validates the chain exactly as received.
-    /// They never anchor a path and never bypass validation. The chain is first validated
-    /// exactly as presented; the intermediates are consulted only if that strict pass fails.
+    /// chain (e.g. a leaf-only server); empty builds the path only from what the peer sent.
+    /// They never anchor a path and never bypass validation. The presented certificates and the
+    /// intermediates form one pool from which a path is built from the leaf up to an anchor, so
+    /// extraneous, misordered or expired-but-unused certificates are left out (RFC 8446 4.4.2).
     /// AEffectiveChain returns the validated path in issuer order (leaf at [0], its issuer at [1],
     /// ...), ending at the configured trust anchor exactly once - never the peer's presented order -
     /// so the caller's staple and pin checks key off the real issuer. It is a var parameter so a

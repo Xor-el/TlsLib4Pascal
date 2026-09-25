@@ -195,6 +195,7 @@ type
     /// across the resume loop so a later connection resumes an earlier one.</summary>
     SessionCache: ISessionCache;
     SessionScope: TBytes;
+    ResumptionScope: TBytes;
     SessionTicketKeys: ISessionTicketKeyManager;
     SessionStore: ISessionStore;
     /// <summary>-resumption-delay: seconds the runner advances its (and the shim's) clock
@@ -1008,6 +1009,7 @@ begin
     begin
       Result.SessionTicketKeys := AConfig.SessionTicketKeys;
       Result.SessionStore := AConfig.SessionStore;
+      Result.ResumptionScope := AConfig.ResumptionScope;
     end;
     // a 0-RTT budget on the initial connection (always) or on the resumption only
     // (-on-resume-enable-early-data): the latter mints the initial ticket without early-data
@@ -1046,7 +1048,12 @@ begin
     if (AConfig.TrustCert <> '') and AConfig.VerifyPeer then
       Result.Trust := TInteropCredentials.TrustFromPem(APkix, AConfig.TrustCert)
     else if (System.Length(AConfig.ExternalPsks) = 0) or AConfig.VerifyPeer then
-      Result.AcceptAnyPeerCert := True;
+      Result.AcceptAnyPeerCert := True
+    else
+      // a PSK-only client with no certificate trust offers TLS 1.3 only: external PSK is
+      // 1.3-only (RFC 9258), and a 1.2 server would drop such a client onto a certificate path
+      // it has no trust to verify, so that shape is refused at build
+      Result.SupportedVersions := TArray<UInt16>.Create(WireVersionTls13);
     // per-connection ALPN advertisement overrides the fixed -advertise-alpn on the matching
     // connection (the client 0-RTT ALPN-preference-change test offers different protocols)
     if AIsResume and AConfig.OnResumeAdvertiseAlpnSet then
@@ -1434,6 +1441,9 @@ begin
           as ISessionTicketKeyManager;
       LConfig.SessionStore := TInMemorySessionStore.Create(LCrypto.Primitives.GetRandom)
         as ISessionStore;
+      // one scope for the whole resume loop: a supplied store/STEK on a client-auth server must
+      // partition its tickets (the builder refuses it otherwise); the shim is one server identity
+      LConfig.ResumptionScope := LCrypto.Primitives.GetRandom.GenerateBytes(16);
     end;
   end
   else

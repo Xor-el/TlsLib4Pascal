@@ -108,6 +108,9 @@ type
     /// it by -resumption-delay to drive deterministic ticket timing.</summary>
     Clock: ITlsClock;
     SessionStore: ISessionStore;
+    /// <summary>The server-side resumption scope, partitioning tickets when a supplied store or
+    /// ticket-key manager is used under client authentication; empty leaves it unset.</summary>
+    ResumptionScope: TBytes;
     /// <summary>The server-side stateless ticket keys, shared across a resume-count loop;
     /// nil disables server ticket issuance/acceptance.</summary>
     SessionTicketKeys: ISessionTicketKeyManager;
@@ -450,6 +453,8 @@ begin
       LServer.WithSessionTicketKeys(AOptions.SessionTicketKeys);
     if AOptions.SessionStore <> nil then
       LServer.WithSessionStore(AOptions.SessionStore);
+    if System.Length(AOptions.ResumptionScope) > 0 then
+      LServer.WithResumptionScope(AOptions.ResumptionScope);
     // the injected clock drives the server's ticket-issue time and the 0-RTT ticket-age
     // freshness window (RFC 8446 8.2), advanced between connections by -resumption-delay
     if AOptions.Clock <> nil then
