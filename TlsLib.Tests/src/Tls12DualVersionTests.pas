@@ -35,7 +35,6 @@ uses
   TlpNegotiationTypes,
   TlpNegotiationPolicy,
   TlpCipherSuiteRegistry,
-  TlpSignatureSchemeRegistry,
   TlpCoreExtensions,
   TlpHandshakeMessage,
   TlpHandshakeMessages,
@@ -224,7 +223,6 @@ begin
   Result.Policy := TNegotiationPolicy.Create(Crypto,
     TCipherSuiteRegistry.CreateDualVersion(Crypto),
     TNamedGroups.CreateDefaultRegistry(Crypto),
-    TSignatureSchemeRegistry.CreateDefault,
     TArray<UInt16>.Create(TNamedGroupCatalog.X25519),
     TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12), TServerCipherPreference.ServerOrder);
   Result.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);

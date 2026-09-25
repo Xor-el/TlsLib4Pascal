@@ -29,7 +29,9 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpCryptoDomainTypes,
+  TlpICryptoProvider,
   TlpTlsAlert,
+  TlpTlsVersion,
   TlpNamedGroups,
   TlpNegotiationTypes,
   TlpNegotiationPolicy,
@@ -55,6 +57,7 @@ uses
   TlpAntiReplay,
   TlpTls13ClientStateMachine,
   TlpTls13ServerStateMachine,
+  MockCryptoProvider,
   MockSessionStores,
   TlsLibTestBase;
 
@@ -125,6 +128,7 @@ type
     procedure TestMutualAuthTicketReissueCarriesChain;
     procedure TestTicketIssuedUnderDifferentSniFallsBackToFullHandshake;
     procedure TestExternalPskAcceptedDoesNotSurfaceCachedResumptionChain;
+    procedure TestExternalPskSuiteSelectionHonorsClientOrder;
   end;
 
 implementation
@@ -1568,6 +1572,99 @@ begin
   CheckEquals(0, System.Length(LInfo.ValidatedPath),
     'an accepted external PSK validates no path');
   CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestTls13Resumption.TestExternalPskSuiteSelectionHonorsClientOrder;
+var
+  LHwAes: ICryptoProvider;
+  LPsk: TExternalPsk;
+  LPsks: TArray<TExternalPsk>;
+
+  function BuildPskClient: ITlsEngine;
+  var
+    LParams: TClientHandshakeParams;
+  begin
+    LParams := Default(TClientHandshakeParams);
+    LParams.Clock := TSystemClock.Create;
+    LParams.Crypto := Crypto;
+    LParams.Inspector := Pkix.Certificates;
+    LParams.Group := TNamedGroups.CreateX25519(Crypto);
+    LParams.GroupCode := TNamedGroupCatalog.X25519;
+    LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
+    LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+    // the client's preference: a SHA-384 suite first (never usable with a SHA-256 PSK), then
+    // ChaCha ahead of AES-128 - the opposite of a hardware-AES server's own order
+    LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes256GcmSha384,
+      TCipherSuites13.ChaCha20Poly1305Sha256, TCipherSuites13.Aes128GcmSha256);
+    LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+    LParams.ClientRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
+    LParams.LegacySessionId := Filled($44, 32);
+    LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
+      TSystemClock.Create as ITlsClock,
+      TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
+      as ITrustAnchorStore, True) as IServerCertificateVerifier;
+    LParams.ExpectedServerName := TServerName.DnsName(ServerHost);
+    LParams.ServerName := ServerHost;
+    LParams.ExternalPsks := LPsks;
+    Result := TTlsEngine.CreateConfigured(
+      TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
+  end;
+
+  function BuildPskServer(APreference: TServerCipherPreference): ITlsEngine;
+  var
+    LParams: TServerHandshakeParams;
+  begin
+    LParams := Default(TServerHandshakeParams);
+    LParams.Clock := TSystemClock.Create;
+    LParams.Crypto := Crypto;
+    LParams.Inspector := Pkix.Certificates;
+    LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
+    LParams.Policy := TNegotiationPolicy.Create(LHwAes, LParams.CipherSuites,
+      TNamedGroups.CreateDefaultRegistry(Crypto),
+      TArray<UInt16>.Create(TNamedGroupCatalog.X25519),
+      TArray<UInt16>.Create(TlsWireVersionTls13), APreference);
+    LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+    LParams.Group := TNamedGroups.CreateX25519(Crypto);
+    LParams.ServerRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
+    // no credential: completing proves the external PSK was accepted
+    LParams.SessionTicketKeys := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+    LParams.IssueTicketCount := 0;
+    LParams.TicketLifetimeSeconds := 7200;
+    LParams.ExternalPsks := LPsks;
+    Result := TTlsEngine.CreateConfigured(
+      TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
+  end;
+
+  procedure CheckNegotiated(APreference: TServerCipherPreference; AExpected: UInt16;
+    const AMessage: string);
+  var
+    LClient, LServer: ITlsEngine;
+  begin
+    LClient := BuildPskClient;
+    LServer := BuildPskServer(APreference);
+    DriveHandshake(LClient, LServer);
+    CheckFalse(LServer.IsHandshaking, AMessage + ': the credential-less server completed');
+    CheckFalse(LServer.IsTerminal, AMessage + ': the handshake did not fail');
+    CheckTrue(LClient.ConnectionInfo.Resumed, AMessage + ': the client negotiated the PSK');
+    CheckEquals(AExpected, LServer.ConnectionInfo.CipherSuite, AMessage);
+    CheckEquals(AExpected, LClient.ConnectionInfo.CipherSuite, AMessage + ' (client view)');
+    CheckAppDataFlows(LClient, LServer);
+  end;
+
+begin
+  // the external-PSK suite pick goes through the same policy as the certificate path, so
+  // WithCipherSuitePreference(ClientOrder) governs it too. A hardware-AES server's own order
+  // is AES-128, AES-256, ChaCha; the client prefers ChaCha among the SHA-256 suites.
+  LHwAes := TFixedAesProvider.Create(Crypto, True);
+  LPsk.Identity := DecodeHex('6578742d70736b'); // "ext-psk"
+  LPsk.Secret := TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32));
+  LPsk.Context := nil;
+  LPsk.Hash := THashAlgorithm.SHA_256;
+  LPsks := TArray<TExternalPsk>.Create(LPsk);
+  CheckNegotiated(TServerCipherPreference.ServerOrder, TCipherSuites13.Aes128GcmSha256,
+    'server order: AES-128-GCM despite the client''s ChaCha preference');
+  CheckNegotiated(TServerCipherPreference.ClientOrder, TCipherSuites13.ChaCha20Poly1305Sha256,
+    'client order: the client''s first SHA-256 suite (ChaCha) wins on the PSK path');
 end;
 
 initialization
