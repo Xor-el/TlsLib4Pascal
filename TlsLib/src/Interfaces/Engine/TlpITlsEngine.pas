@@ -33,10 +33,8 @@ type
 
   /// <summary>The kind of a queued engine event.</summary>
   TTlsEventKind = (
-    AppData,            // application data is available via ReadAppData
     PeerAlert,          // the peer sent an alert
     Closed,             // a close_notify was received (clean shutdown)
-    KeysInstalled,      // a record-protection epoch was installed
     SessionTicketReceived, // a resumption ticket arrived and was cached (RFC 8446 4.6.1)
     EarlyDataAccepted,  // the server accepted the client's 0-RTT early data
     EarlyDataRejected,  // the server rejected 0-RTT; the accepted early data is discarded (not replayed)
@@ -100,7 +98,9 @@ type
     /// EInvalidOperationTlsLibException if the connection is terminal, our close_notify was
     /// already sent, (TLS 1.2 only) an inbound close_notify closed it - check WriteClosed first -
     /// or no write epoch key is installed yet (drive the handshake first; 0-RTT is WriteEarlyData).
-    /// Under TLS 1.3 an inbound close_notify leaves the write side open (RFC 8446 6.1).</summary>
+    /// Under TLS 1.3 an inbound close_notify leaves the write side open (RFC 8446 6.1).
+    /// ALength is sealed in full into the outbound queue; a raw embedder bounds transient memory
+    /// on a bulk write by writing in slices and draining TakeOutgoing between them.</summary>
     procedure Write(const AData: TBytes; AOffset, ALength: Int32);
     /// <summary>
     /// Queues 0-RTT early application data (RFC 8446 2.3) and returns the number of bytes
@@ -148,7 +148,11 @@ type
     /// <summary>The number of decrypted application bytes already buffered and waiting to be
     /// read; 0 when the caller must read the transport for more.</summary>
     function PendingAppData: Int32;
-    /// <summary>Dequeues the next event; False when the queue is empty.</summary>
+    /// <summary>Dequeues the next event; False when the queue is empty. Drain it every cycle:
+    /// past a bounded backlog of undrained events the informational kinds (SessionTicketReceived,
+    /// EarlyData*, KeyUpdateReceived) are dropped, so a caller that never drains cannot grow the
+    /// queue without bound; PeerAlert, Closed and CertificateReceived are never dropped. Application
+    /// data is not an event - it is signalled by PendingAppData and read with ReadAppData.</summary>
     function NextEvent(out AEvent: ITlsEvent): Boolean;
 
     // --- status ---

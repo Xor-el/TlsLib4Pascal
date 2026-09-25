@@ -33,9 +33,14 @@ uses
   TlpICryptoProvider,
   TlpTrustPolicy,
   TlpTlsConnectionInfo,
+  TlpRecordHeader,
+  TlpINegotiation,
+  TlpNegotiationTypes,
+  TlpCipherSuiteRegistry,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpTlsPresets,
+  TlpITlsEngine,
   TlpTlsEngineFactory,
   TlpITlsTransport,
   TlpTlsStreamPump,
@@ -122,8 +127,15 @@ type
     function SpkiSha256(const ACertDer: TBytes): TBytes;
     /// <summary>A client config with the async peer-certificate verdict enabled.</summary>
     function AsyncClientConfig: ITlsClientConfig;
+    /// <summary>A TLS 1.2-only client pinned to the AES-GCM suites, whose AEAD usage limit is a
+    /// fixed record count (ChaCha20 is bounded only by the sequence space and never hits it).</summary>
+    function Tls12AesGcmClientConfig: ITlsClientConfig;
   published
     procedure TestClientServerLoopbackExchangesAppDataAndClosesCleanly;
+    procedure TestBulkWriteIsSealedInBoundedSlices;
+    procedure TestPostHandshakeFatalAlertReachesPeer;
+    procedure TestRecordLimitCloseNotifyReachesPeerOverPump;
+    procedure TestApplicationReadTimeoutIsRetryableNotTruncation;
     procedure TestNegotiatedVersionAndAlpnSurfaced;
     procedure TestTruncationWithoutCloseNotifyIsSurfaced;
     procedure TestUntrustedChainFailsThroughOurPipeline;
@@ -200,7 +212,12 @@ begin
     FStream.CloseNotify;
   except
     on E: Exception do
+    begin
       FError := E.ClassName + ': ' + E.Message;
+      // a server that failed has nothing more to send: release a client blocked on its read so
+      // the failure surfaces there (as whatever the server flushed first) rather than a hang
+      FTransport.CloseWrite;
+    end;
   end;
 end;
 
@@ -372,6 +389,19 @@ begin
     .WithAsyncCertificateVerdict(0).Build;
 end;
 
+function TTestTlsStreamLoopback.Tls12AesGcmClientConfig: ITlsClientConfig;
+var
+  LSuites: ICipherSuiteRegistry;
+begin
+  LSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
+  LSuites.Prune(TCipherSuites12.EcdheEcdsaChaCha20Poly1305Sha256);
+  LSuites.Prune(TCipherSuites12.EcdheRsaChaCha20Poly1305Sha256);
+  Result := TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithTrustAnchors(TrustRoot)
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
+    .WithCipherSuites(LSuites).Build;
+end;
+
 function TTestTlsStreamLoopback.SpkiSha256(const ACertDer: TBytes): TBytes;
 var
   LHash: IHash;
@@ -423,6 +453,232 @@ begin
     CheckEquals(0, LGot, 'the client reads EOF after the server close_notify');
     CheckFalse(LClient.TransportTruncated, 'a clean close_notify is not a truncation');
 
+    LServer.WaitFor;
+    CheckEquals('', LServer.Error, 'the server side ran without error');
+  finally
+    LServer.Free;
+    LClient.Free;
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.TestBulkWriteIsSealedInBoundedSlices;
+const
+  BULK = 512 * 1024;
+  // the largest ciphertext one slice can queue: the slice plus each of its four records' framing
+  // and AEAD expansion
+  PEAK_BOUND = TTlsStreamPump.WriteChunk + 4 * (TRecordLimits.HeaderLength +
+    TRecordLimits.MaxCipherTextTls13 - TRecordLimits.MaxPlaintext);
+var
+  LC2S, LS2C: TMemoryPipe;
+  LInner, LServerTransport: TMemoryTransport;
+  LProbe: TPeakProbeTransport;
+  LEngine: ITlsEngine;
+  LClient, LServerStream: TTlsStream;
+  LServer: TServerRunner;
+  LTx, LRx: TBytes;
+  LTotal, LGot, I: Int32;
+begin
+  SetLength(LTx, BULK);
+  for I := 0 to BULK - 1 do
+    LTx[I] := Byte(I + (I shr 8));
+  LC2S := TMemoryPipe.Create;
+  LS2C := TMemoryPipe.Create;
+  LInner := TMemoryTransport.Create(LS2C, LC2S);
+  LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
+  LEngine := TTlsEngineFactory.CreateClientEngine(ClientConfig(True, nil), 'localhost');
+  // the probe sits between the pump and the pipe and sees exactly what the engine had queued
+  // at each transport write
+  LProbe := TPeakProbeTransport.Create(LInner as ITlsTransport, LEngine);
+  LClient := TTlsStream.Create(LProbe as ITlsTransport, LEngine, True, 'localhost');
+  LServerStream := NewServerStream(LServerTransport as ITlsTransport);
+  LServer := TServerRunner.Create(LServerStream, LServerTransport, TServerBehavior.BulkEcho);
+  LServer.BulkBytes := BULK;
+  LServer.Start;
+  try
+    LClient.Handshake;
+    LProbe.Arm;
+    LClient.Write(LTx[0], BULK);
+    // a bulk write is sealed and drained a slice at a time, never queued whole
+    CheckTrue(LProbe.PeakPending <= PEAK_BOUND,
+      Format('at most one slice of ciphertext is queued ahead of a send (peak %d, bound %d)',
+      [LProbe.PeakPending, PEAK_BOUND]));
+    SetLength(LRx, BULK);
+    LTotal := 0;
+    while LTotal < BULK do
+    begin
+      LGot := LClient.Read(LRx[LTotal], BULK - LTotal);
+      if LGot <= 0 then
+        Break;
+      Inc(LTotal, LGot);
+    end;
+    CheckEquals(BULK, LTotal, 'the full payload round-tripped');
+    CheckEqualBytes('the sliced write reaches the peer intact and in order', LTx, LRx);
+    LClient.CloseNotify;
+    LServer.WaitFor;
+    CheckEquals('', LServer.Error, 'the server side ran without error');
+  finally
+    LServer.Free;
+    LClient.Free;
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.TestPostHandshakeFatalAlertReachesPeer;
+var
+  LClient: TTlsStream;
+  LServer: TServerRunner;
+  LTransport: TMemoryTransport;
+  LGarbage, LBuf: TBytes;
+  LAlerted, LTruncated: Boolean;
+  LAlert: TTlsAlertDescription;
+begin
+  RunLoopback(ClientConfig(False, nil), TServerBehavior.EchoThenClose, LClient,
+    LServer, LTransport);
+  try
+    LClient.Handshake;
+    // an application_data record that cannot authenticate: the server's read fails fatally and
+    // queues bad_record_mac, which must be flushed to us before the server's error surfaces
+    LGarbage := DecodeHex('170303001000112233445566778899aabbccddeeff');
+    LTransport.Write(LGarbage, 0, System.Length(LGarbage));
+    SetLength(LBuf, 4096);
+    LAlerted := False;
+    LTruncated := False;
+    LAlert := TTlsAlertDescription.CloseNotify;
+    try
+      LClient.Read(LBuf[0], System.Length(LBuf));
+    except
+      on E: ETlsTransportTruncated do
+        LTruncated := True;
+      on E: ETlsStreamError do
+      begin
+        LAlerted := E.HasAlert;
+        if E.HasAlert then
+          LAlert := E.Alert;
+      end;
+    end;
+    CheckFalse(LTruncated, 'the peer''s fatal alert arrives before its transport goes away');
+    CheckTrue(LAlerted, 'the client read surfaces the peer''s fatal alert');
+    CheckEquals(Ord(TTlsAlertDescription.BadRecordMac), Ord(LAlert),
+      'the alert is the bad_record_mac the server queued');
+    LServer.WaitFor;
+    CheckTrue(LServer.Error <> '', 'the server side failed on the bad record');
+  finally
+    LServer.Free;
+    LClient.Free;
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.TestRecordLimitCloseNotifyReachesPeerOverPump;
+const
+  // the AES-GCM usage limit the engine enforces: 2^24.5 records (RFC 8446 5.5)
+  AES_GCM_RECORD_LIMIT = UInt64(23726566);
+var
+  LC2S, LS2C: TMemoryPipe;
+  LClientTransport, LServerTransport: TMemoryTransport;
+  LClientEngine, LServerEngine: ITlsEngine;
+  LClientSeq, LServerSeq: IEngineRecordSequenceControl;
+  LClient, LServerStream: TTlsStream;
+  LServer: TServerRunner;
+  LWatch: TWedgeWatchdog;
+  LByte: TBytes;
+  LRaised: Boolean;
+begin
+  LC2S := TMemoryPipe.Create;
+  LS2C := TMemoryPipe.Create;
+  LClientTransport := TMemoryTransport.Create(LS2C, LC2S);
+  LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
+  LClientEngine := TTlsEngineFactory.CreateClientEngine(Tls12AesGcmClientConfig, 'localhost');
+  LServerEngine := TTlsEngineFactory.CreateServerEngine(ServerConfig);
+  LClient := TTlsStream.Create(LClientTransport as ITlsTransport, LClientEngine, True,
+    'localhost');
+  LServerStream := TTlsStream.Create(LServerTransport as ITlsTransport, LServerEngine, False,
+    '');
+  LServer := TServerRunner.Create(LServerStream, LServerTransport,
+    TServerBehavior.EchoThenClose);
+  // a close_notify that never reaches the server leaves it blocked in its read forever; the
+  // watchdog turns that into a surfaced EOF (a server error) instead of a hung run
+  LWatch := TWedgeWatchdog.Create(LC2S, LS2C, 60000);
+  LWatch.Start;
+  LServer.Start;
+  try
+    LClient.Handshake;
+    CheckEquals(Integer(TlsWireVersionTls12),
+      Integer(LClient.ConnectionInfo.NegotiatedVersion.WireValue),
+      'the client negotiated TLS 1.2, which has no KeyUpdate to rekey with');
+    CheckTrue(Supports(LClientEngine, IEngineRecordSequenceControl, LClientSeq),
+      'client sequence control present');
+    CheckTrue(Supports(LServerEngine, IEngineRecordSequenceControl, LServerSeq),
+      'server sequence control present');
+    // park both epochs at the last legal sequence: the next application write cannot rekey, so
+    // the engine seals a close_notify there and refuses. The server thread is blocked in its
+    // transport read once the client's handshake completes, so moving its read counter here
+    // races nothing.
+    LClientSeq.SetWriteSequenceNumber(AES_GCM_RECORD_LIMIT - 1);
+    LServerSeq.SetReadSequenceNumber(AES_GCM_RECORD_LIMIT - 1);
+    LByte := DecodeHex('00');
+    LRaised := False;
+    try
+      LClient.Write(LByte[0], 1);
+    except
+      on ERecordLimitTlsLibException do
+        LRaised := True;
+    end;
+    CheckTrue(LRaised, 'a write at the usage limit raises ERecordLimitTlsLibException');
+    // the server reads the close_notify the engine queued at the limit as a clean EOF and
+    // closes cleanly itself; a truncation would be an error on its side
+    LServer.WaitFor;
+    LWatch.Disarm;
+    CheckFalse(LWatch.Fired, 'the server was not left blocked on its read');
+    CheckEquals('', LServer.Error, 'the server saw a clean close_notify, not a truncation');
+  finally
+    LWatch.Disarm;
+    LWatch.WaitFor;
+    LWatch.Free;
+    LServer.Free;
+    LClient.Free;
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.TestApplicationReadTimeoutIsRetryableNotTruncation;
+var
+  LC2S, LS2C: TMemoryPipe;
+  LInner, LServerTransport: TMemoryTransport;
+  LTimeout: TTimeoutOnceTransport;
+  LClient, LServerStream: TTlsStream;
+  LServer: TServerRunner;
+  LPing, LEcho: TBytes;
+  LGot: Int32;
+  LTimedOut: Boolean;
+begin
+  LC2S := TMemoryPipe.Create;
+  LS2C := TMemoryPipe.Create;
+  LInner := TMemoryTransport.Create(LS2C, LC2S);
+  LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
+  LTimeout := TTimeoutOnceTransport.Create(LInner as ITlsTransport);
+  LClient := NewClientStream(LTimeout as ITlsTransport, ClientConfig(False, nil));
+  LServerStream := NewServerStream(LServerTransport as ITlsTransport);
+  LServer := TServerRunner.Create(LServerStream, LServerTransport,
+    TServerBehavior.EchoThenClose);
+  LServer.Start;
+  try
+    LClient.Handshake;
+    LPing := DecodeHex(PingHex);
+    LClient.Write(LPing[0], System.Length(LPing));
+    // the host socket's receive timeout fires on the first application read: it surfaces as the
+    // retryable timeout and leaves the stream intact, so the retry reads the echo
+    LTimeout.Arm;
+    SetLength(LEcho, 4096);
+    LTimedOut := False;
+    try
+      LClient.Read(LEcho[0], System.Length(LEcho));
+    except
+      on E: ETlsReadTimeout do
+        LTimedOut := True;
+    end;
+    CheckTrue(LTimedOut, 'an application read timeout raises ETlsReadTimeout');
+    CheckFalse(LClient.TransportTruncated, 'a read timeout is not a truncation');
+    LGot := LClient.Read(LEcho[0], System.Length(LEcho));
+    CheckEqualBytes('the retried read returns the echo', LPing, System.Copy(LEcho, 0, LGot));
+    LClient.CloseNotify;
     LServer.WaitFor;
     CheckEquals('', LServer.Error, 'the server side ran without error');
   finally

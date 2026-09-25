@@ -42,6 +42,7 @@ type
     procedure TestFatalAlertCarriesDescription;
     procedure TestDecodeErrorMapsToDecodeError;
     procedure TestHierarchy;
+    procedure TestReadTimeoutHierarchy;
   end;
 
 implementation
@@ -146,6 +147,28 @@ begin
     'EFatalAlert is-a EBase');
   CheckTrue(EArgumentTlsLibException.InheritsFrom(EBaseTlsLibException),
     'EArgument is-a EBase');
+end;
+
+procedure TTestExceptions.TestReadTimeoutHierarchy;
+var
+  LTimeout: ETlsReadTimeout;
+begin
+  // both timeouts are stream errors and neither is a truncation, but they are siblings: only a
+  // read timeout is retryable, so a handshake timeout must NOT be caught as one
+  CheckTrue(ETlsHandshakeTimeout.InheritsFrom(ETlsStreamError),
+    'ETlsHandshakeTimeout is-a ETlsStreamError');
+  CheckFalse(ETlsHandshakeTimeout.InheritsFrom(ETlsReadTimeout),
+    'a handshake timeout is not a retryable read timeout');
+  CheckTrue(ETlsReadTimeout.InheritsFrom(ETlsStreamError),
+    'ETlsReadTimeout is-a ETlsStreamError');
+  CheckFalse(ETlsReadTimeout.InheritsFrom(ETlsTransportTruncated),
+    'a read timeout is not a truncation');
+  LTimeout := ETlsReadTimeout.Create('idle');
+  try
+    CheckFalse(LTimeout.HasAlert, 'a read timeout carries no alert');
+  finally
+    LTimeout.Free;
+  end;
 end;
 
 initialization

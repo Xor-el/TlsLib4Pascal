@@ -143,11 +143,14 @@ begin
     THandshakeEffectKind.RaiseEvent:
       FSink.OnHandshakeEvent(AEffect.Event);
     THandshakeEffectKind.AwaitCertificateVerdict:
-      // a sink that does not handle async verdicts never sees this effect, because the
-      // machine emits it only when async verdicts were enabled through the config
+      // the machine emits this only when async verdicts were enabled through the config; a
+      // sink that cannot carry the park would leave the handshake parked with nothing able to
+      // resume it, so it fails closed instead of wedging
       if FVerdictSink <> nil then
         FVerdictSink.OnCertificateVerdictNeeded(AEffect.Chain, AEffect.ValidatedPath,
-          AEffect.Text, AEffect.Bytes);
+          AEffect.Text, AEffect.Bytes)
+      else
+        FSink.OnHandshakeFailed(TTlsAlertDescription.InternalError);
     THandshakeEffectKind.PeerCertificateChain:
       if FConnectionInfoSink <> nil then
         FConnectionInfoSink.OnPeerCertificateChain(AEffect.Chain, AEffect.ValidatedPath);

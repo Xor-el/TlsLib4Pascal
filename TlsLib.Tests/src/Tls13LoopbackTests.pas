@@ -142,6 +142,7 @@ type
     procedure TestEchResumeThenRejectLoopback;
     procedure TestEchRejectLoopback;
     procedure TestClientServerLoopbackReachesApplicationData;
+    procedure TestApplicationRecordsQueueNoEvents;
     procedure TestHelloRetryRequestRoundTrip;
     procedure TestHybridDirectHandshakeNegotiates4588;
     procedure TestHybridHrrHandshakeNegotiates4588;
@@ -1615,6 +1616,36 @@ begin
   Pump(LServer, LClient);
   CheckEqualBytes('the client decrypts the server application data', LFromServer,
     ReadAllApp(LClient));
+end;
+
+procedure TTestTls13Loopback.TestApplicationRecordsQueueNoEvents;
+var
+  LClient, LServer: ITlsEngine;
+  LEvent: ITlsEvent;
+  LIterations, LI: Int32;
+  LFromClient: TBytes;
+begin
+  LClient := NewClient;
+  LServer := NewServer;
+  LClient.StartHandshake;
+  LIterations := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LIterations);
+  end;
+  CheckFalse(LClient.IsHandshaking or LServer.IsHandshaking, 'the handshake completed');
+  while LServer.NextEvent(LEvent) do ; // clear the handshake-phase events
+  // application data is signalled by PendingAppData, not by an event per record: a stream of
+  // records must leave the event queue empty
+  LFromClient := DecodeHex('68656c6c6f2066726f6d2074686520636c69656e74');
+  for LI := 1 to 3 do
+    LClient.Write(LFromClient, 0, System.Length(LFromClient));
+  Pump(LClient, LServer);
+  CheckEquals(3 * System.Length(LFromClient), LServer.PendingAppData,
+    'the three records are buffered for the caller');
+  CheckFalse(LServer.NextEvent(LEvent), 'application records queue no events');
 end;
 
 procedure TTestTls13Loopback.TestHelloRetryRequestRoundTrip;
