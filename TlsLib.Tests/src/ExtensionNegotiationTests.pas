@@ -110,6 +110,7 @@ type
     procedure TestRecordSizeLimitCapsOutboundRecords;
     procedure TestServerRejectsRecordSizeLimitBelowMinimum;
     procedure TestServerLimitWithoutClientOfferStillCompletes;
+    procedure TestClientAppliesNoInboundLimitWhenServerOmitsIt;
     procedure TestServerOmitsUnofferedRecordSizeLimit;
     procedure TestGreaseValueClassification;
     procedure TestClientGreaseToleratedAndNeverSelected;
@@ -886,6 +887,32 @@ begin
   Feed(LServer, LWire);
   LReceived := ReadAllApp(LServer);
   CheckEqualBytes('the server reassembles the fragmented payload', LPayload, LReceived);
+end;
+
+procedure TTestExtensionNegotiation.TestClientAppliesNoInboundLimitWhenServerOmitsIt;
+var
+  LClient, LServer: ITlsEngine;
+  LPayload, LWire, LReceived: TBytes;
+  LI: Int32;
+begin
+  // the client offered a record_size_limit but the server did not agree to it; when the extension
+  // is not negotiated it binds neither side (RFC 8449 4), so the client must accept a server
+  // record larger than its own advertised limit rather than aborting record_overflow
+  LClient := NewClient(nil, 512);
+  LServer := NewServer(nil, 0);
+  Handshake(LClient, LServer);
+  CheckFalse(LClient.IsTerminal or LServer.IsTerminal, 'the handshake completed');
+
+  LPayload := nil;
+  SetLength(LPayload, 2000); // well over the client's un-negotiated 512-byte limit
+  for LI := 0 to System.Length(LPayload) - 1 do
+    LPayload[LI] := Byte(LI and $FF);
+  LServer.Write(LPayload, 0, System.Length(LPayload));
+  LWire := Drain(LServer);
+  Feed(LClient, LWire);
+  LReceived := ReadAllApp(LClient);
+  CheckFalse(LClient.IsTerminal, 'the client accepted the oversize server record');
+  CheckEqualBytes('the client received the full payload', LPayload, LReceived);
 end;
 
 procedure TTestExtensionNegotiation.TestServerRejectsRecordSizeLimitBelowMinimum;

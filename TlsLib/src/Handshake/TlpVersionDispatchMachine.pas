@@ -330,7 +330,9 @@ begin
       LClientHighest := TlsWireVersionTls12
     else
       LClientHighest := HighestKnownVersion(LClientVersions);
-    if FServerHighestVersion > LClientHighest then
+    // a list with no known version is not a fallback signal; let the version floor report it as
+    // protocol_version rather than inappropriate_fallback
+    if (LClientHighest <> 0) and (FServerHighestVersion > LClientHighest) then
       Exit(TArray<THandshakeEffect>.Create(
         THandshakeEffects.Fail(TTlsAlertDescription.InappropriateFallback)));
   end;
