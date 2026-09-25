@@ -1,0 +1,41 @@
+TlsLib.Tests/src/TrustCompositionTests.pas
+  s_09d3c46d1a9b1f::t_e7c7bbb961d46f 217
+  s_09d3c46d1a9b1f::t_a559eb83890128 208-216,218-229
+  s_09d3c46d1a9b1f::t_23206475e1671f 86-118
+  s_09d3c46d1a9b1f::t_e3b513357414de 59
+TlsLib/src/Engine/TlpTlsEngine.pas
+  s_09d3c46d1a9b1f::t_338a169f06ecbc 520-521,524
+  s_09d3c46d1a9b1f::t_e052179daea659 945-950
+  s_09d3c46d1a9b1f::t_3d55b4da1228c3 131
+TlsLib/src/Engine/TlpTlsConnection.pas
+  s_09d3c46d1a9b1f::t_3a1bfb80d8ae61 491-492
+  s_09d3c46d1a9b1f::t_359d32941c8583 460-462
+TlsLib/src/Interfaces/Engine/TlpITlsEngine.pas
+  s_09d3c46d1a9b1f::t_d5f891ea8f92fe 175-178,180-184
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_731bbd6d1425c6 1932-1933,1935-1942
+  s_09d3c46d1a9b1f::t_40f82ebb7d8fc0 2411-2413
+  s_09d3c46d1a9b1f::t_9095a6167c7717 872-873,875-879
+  s_09d3c46d1a9b1f::t_36ea67b4960cea 2248-2249,2252-2255
+  s_09d3c46d1a9b1f::t_e479ccd870e05a 1912-1913
+  s_09d3c46d1a9b1f::t_f1459930063009 2298-2299,2302-2305
+TlsLib/src/Common/TlpTlsError.pas
+  s_09d3c46d1a9b1f::t_eeb22b426181bc 68,77-89
+  s_09d3c46d1a9b1f::t_d6114faf6938da 36,44-49,53-55,90-91
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "524d4d22405c56e85b17c341650c7caa7c920926",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
