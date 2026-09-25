@@ -283,6 +283,7 @@ resourcestring
   SProtectedChangeCipherSpec = 'a protected (encrypted) change_cipher_spec record is not allowed';
   SWriteSliceOutOfRange = 'the write offset/length is outside the source buffer';
   SInputSliceOutOfRange = 'the input offset/length is outside the wire buffer';
+  SBufferGrowthOverflow = 'the buffered byte count would exceed the addressable range';
   SHandshakeBeforeChangeCipherSpec = 'a handshake record arrived before the peer''s change_cipher_spec';
   SReadEpochAlreadyArmed = 'a read epoch is already armed for the next change_cipher_spec';
   SEmptyControlRecord = 'a zero-length handshake, alert, or change_cipher_spec record is not allowed';
@@ -754,6 +755,10 @@ var
 begin
   if ALength <= 0 then
     Exit;
+  // guard the Int32 index arithmetic below: a feed whose end would pass the addressable range
+  // must fail loud, not wrap negative and skip the grow (which would overrun the Move target)
+  if Int64(FInTail) + ALength > High(Int32) then
+    raise EArgumentTlsLibException.CreateRes(@SBufferGrowthOverflow);
   if FInTail + ALength > System.Length(FInbound) then
   begin
     // reclaim the framed prefix before growing; runs only when the feed would not fit
@@ -799,6 +804,9 @@ begin
   LLen := System.Length(ARecord);
   if LLen <= 0 then
     Exit;
+  // guard the Int32 index arithmetic below against wrapping negative on a pathologically large total
+  if Int64(FOutTail) + LLen > High(Int32) then
+    raise EArgumentTlsLibException.CreateRes(@SBufferGrowthOverflow);
   if FOutTail + LLen > System.Length(FOutbound) then
   begin
     // reclaim the drained prefix before growing; runs only when the record would not fit
