@@ -740,21 +740,13 @@ begin
 end;
 
 function TFrozenCommonConfig.CertificatePins: TArray<TBytes>;
-var
-  LI: Int32;
 begin
-  SetLength(Result, System.Length(FCertificatePins));
-  for LI := 0 to System.High(FCertificatePins) do
-    Result[LI] := System.Copy(FCertificatePins[LI]);
+  Result := TArrayUtilities.DeepCopy<Byte>(FCertificatePins);
 end;
 
 function TFrozenCommonConfig.IntermediateCertificates: TArray<TBytes>;
-var
-  LI: Int32;
 begin
-  SetLength(Result, System.Length(FIntermediateCertificates));
-  for LI := 0 to System.High(FIntermediateCertificates) do
-    Result[LI] := System.Copy(FIntermediateCertificates[LI]);
+  Result := TArrayUtilities.DeepCopy<Byte>(FIntermediateCertificates);
 end;
 
 function TFrozenCommonConfig.DangerousTrust: TDangerousTrust;
@@ -869,14 +861,8 @@ begin
 end;
 
 function TFrozenServerConfig.ClientCertificateAuthorities: TArray<TBytes>;
-var
-  LI: Int32;
 begin
-  // deep-copy out so a caller cannot mutate or wipe the frozen config's array (matches the other
-  // frozen array accessors, e.g. CertificatePins)
-  System.SetLength(Result, System.Length(FClientCertificateAuthorities));
-  for LI := 0 to System.High(FClientCertificateAuthorities) do
-    Result[LI] := System.Copy(FClientCertificateAuthorities[LI]);
+  Result := TArrayUtilities.DeepCopy<Byte>(FClientCertificateAuthorities);
 end;
 
 function TFrozenServerConfig.ClientAuth: TClientAuthMode;
@@ -2245,14 +2231,9 @@ end;
 
 function TTlsConfigBuilder.WithClientCertificateAuthorities(
   const AAuthorities: TArray<TBytes>): TTlsConfigBuilder;
-var
-  LI: Int32;
 begin
   GuardMutable;
-  // deep-copy so a caller that later mutates or wipes its array cannot reach into the frozen config
-  System.SetLength(FClientCertificateAuthorities, System.Length(AAuthorities));
-  for LI := 0 to System.High(AAuthorities) do
-    FClientCertificateAuthorities[LI] := System.Copy(AAuthorities[LI]);
+  FClientCertificateAuthorities := TArrayUtilities.DeepCopy<Byte>(AAuthorities);
   Result := Self;
 end;
 
@@ -2295,14 +2276,9 @@ end;
 
 function TTlsConfigBuilder.WithCertificatePinning(
   const APins: TArray<TBytes>): TTlsConfigBuilder;
-var
-  LI: Int32;
 begin
   GuardMutable;
-  // deep-copy so a caller that later mutates or wipes its array cannot reach into the frozen config
-  System.SetLength(FCertificatePins, System.Length(APins));
-  for LI := 0 to System.High(APins) do
-    FCertificatePins[LI] := System.Copy(APins[LI]);
+  FCertificatePins := TArrayUtilities.DeepCopy<Byte>(APins);
   Result := Self;
 end;
 

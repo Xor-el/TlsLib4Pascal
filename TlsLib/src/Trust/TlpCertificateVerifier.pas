@@ -223,15 +223,8 @@ begin
 end;
 
 function TTrustAnchorStore.RootCertificates: TArray<TBytes>;
-var
-  LI: Int32;
 begin
-  // a deep defensive copy: System.Copy alone shares the inner TBytes, so copy each
-  // entry too - a caller cannot mutate the frozen trust store's certificates
-  Result := nil;
-  SetLength(Result, System.Length(FRoots));
-  for LI := 0 to System.High(FRoots) do
-    Result[LI] := System.Copy(FRoots[LI]);
+  Result := TArrayUtilities.DeepCopy<Byte>(FRoots);
 end;
 
 { TUnionTrustAnchorStore }

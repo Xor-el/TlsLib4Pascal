@@ -17,6 +17,7 @@ interface
 
 uses
   SysUtils,
+  TlpArrayUtilities,
   TlpTlsAlertProtocol,
   TlpITlsEngine;
 
@@ -61,7 +62,6 @@ type
     FValidatedPath: TArray<TBytes>;
     FHostName: string;
     FOcspStaple: TBytes;
-    class function DeepCopy(const AChain: TArray<TBytes>): TArray<TBytes>; static;
   public
     constructor Create(const AChain, AValidatedPath: TArray<TBytes>;
       const AHostName: string; const AStaple: TBytes);
@@ -105,23 +105,12 @@ end;
 
 { TCertificateReceivedEvent }
 
-class function TCertificateReceivedEvent.DeepCopy(
-  const AChain: TArray<TBytes>): TArray<TBytes>;
-var
-  LI: Int32;
-begin
-  Result := nil;
-  SetLength(Result, System.Length(AChain));
-  for LI := 0 to System.High(AChain) do
-    Result[LI] := System.Copy(AChain[LI]);
-end;
-
 constructor TCertificateReceivedEvent.Create(const AChain,
   AValidatedPath: TArray<TBytes>; const AHostName: string; const AStaple: TBytes);
 begin
   inherited Create;
-  FChain := DeepCopy(AChain);
-  FValidatedPath := DeepCopy(AValidatedPath);
+  FChain := TArrayUtilities.DeepCopy<Byte>(AChain);
+  FValidatedPath := TArrayUtilities.DeepCopy<Byte>(AValidatedPath);
   FHostName := AHostName;
   FOcspStaple := System.Copy(AStaple);
 end;
@@ -133,12 +122,12 @@ end;
 
 function TCertificateReceivedEvent.Chain: TArray<TBytes>;
 begin
-  Result := DeepCopy(FChain);
+  Result := TArrayUtilities.DeepCopy<Byte>(FChain);
 end;
 
 function TCertificateReceivedEvent.ValidatedPath: TArray<TBytes>;
 begin
-  Result := DeepCopy(FValidatedPath);
+  Result := TArrayUtilities.DeepCopy<Byte>(FValidatedPath);
 end;
 
 function TCertificateReceivedEvent.HostName: string;

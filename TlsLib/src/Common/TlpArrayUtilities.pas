@@ -43,6 +43,10 @@ type
     class procedure Append<T>(var AItems: TArray<T>; const AValue: T); static;
     /// <summary>A fresh array holding every element of AA followed by AB.</summary>
     class function Concat<T>(const AA, AB: TArray<T>): TArray<T>; overload; static;
+    /// <summary>A deep copy of an array of arrays: a new outer array whose every inner array is
+    /// itself copied, so the result shares no storage with A (unlike a shallow System.Copy, which
+    /// copies only the outer array and leaves the inner arrays aliased).</summary>
+    class function DeepCopy<T>(const A: TArray<TArray<T>>): TArray<TArray<T>>; static;
     /// <summary>Removes every element whose key equals AKey, compacting in place.</summary>
     class procedure RemoveKey<T, TKey>(var AItems: TArray<T>;
       const AKeyOf: TKeyOf<T, TKey>; const AKey: TKey); static;
@@ -112,6 +116,17 @@ begin
     Result[LI] := AA[LI];
   for LI := 0 to LLenB - 1 do
     Result[LLenA + LI] := AB[LI];
+end;
+
+class function TArrayUtilities.DeepCopy<T>(
+  const A: TArray<TArray<T>>): TArray<TArray<T>>;
+var
+  LI: Int32;
+begin
+  Result := nil;
+  SetLength(Result, System.Length(A));
+  for LI := 0 to System.High(A) do
+    Result[LI] := System.Copy(A[LI]);
 end;
 
 class procedure TArrayUtilities.RemoveKey<T, TKey>(var AItems: TArray<T>;
