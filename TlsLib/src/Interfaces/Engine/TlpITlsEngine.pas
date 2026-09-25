@@ -100,8 +100,7 @@ type
     /// or no write epoch key is installed yet (drive the handshake first; 0-RTT is WriteEarlyData).
     /// Under TLS 1.3 an inbound close_notify leaves the write side open (RFC 8446 6.1).
     /// ALength is sealed in full into the outbound queue; a raw embedder bounds transient memory
-    /// on a bulk write by writing in slices and draining TakeOutgoing between them, as the
-    /// stream pump does.</summary>
+    /// on a bulk write by writing in slices and draining TakeOutgoing between them.</summary>
     procedure Write(const AData: TBytes; AOffset, ALength: Int32);
     /// <summary>
     /// Queues 0-RTT early application data (RFC 8446 2.3) and returns the number of bytes
@@ -150,10 +149,10 @@ type
     /// read; 0 when the caller must read the transport for more.</summary>
     function PendingAppData: Int32;
     /// <summary>Dequeues the next event; False when the queue is empty. Drain it every cycle:
-    /// beyond 64 undrained events the informational kinds (SessionTicketReceived, EarlyData*,
-    /// KeyUpdateReceived) are dropped, so a caller that never drains cannot grow the queue without
-    /// bound; PeerAlert, Closed and CertificateReceived are never dropped. Application data is not
-    /// an event - it is signalled by PendingAppData and read with ReadAppData.</summary>
+    /// past a bounded backlog of undrained events the informational kinds (SessionTicketReceived,
+    /// EarlyData*, KeyUpdateReceived) are dropped, so a caller that never drains cannot grow the
+    /// queue without bound; PeerAlert, Closed and CertificateReceived are never dropped. Application
+    /// data is not an event - it is signalled by PendingAppData and read with ReadAppData.</summary>
     function NextEvent(out AEvent: ITlsEvent): Boolean;
 
     // --- status ---

@@ -199,9 +199,13 @@ begin
     Exit(0);
   EnsureHandshake;
   // copy one bounded slice at a time rather than the whole buffer: a bulk write costs one
-  // reused slice of transient memory, never a second copy of the payload
-  if System.Length(FWriteChunk) < TTlsStreamPump.WriteChunk then
-    SetLength(FWriteChunk, TTlsStreamPump.WriteChunk);
+  // reused slice of transient memory, never a second copy of the payload. Grow the slice on
+  // demand and cap it, so a stream that only ever writes small messages never holds 64 KiB
+  LChunk := ACount;
+  if LChunk > TTlsStreamPump.WriteChunk then
+    LChunk := TTlsStreamPump.WriteChunk;
+  if System.Length(FWriteChunk) < LChunk then
+    SetLength(FWriteChunk, LChunk);
   LOffset := 0;
   while LOffset < ACount do
   begin

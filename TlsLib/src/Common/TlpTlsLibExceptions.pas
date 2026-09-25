@@ -139,10 +139,11 @@ type
   /// <summary>
   /// The adapter's handshake read timeout elapsed with the peer sending nothing - a silent
   /// or dead connection reaped. Distinct from ETlsTransportTruncated (a peer close): this is
-  /// "we timed out", that is "the client closed". Also benign on a server. A read timeout by
-  /// kind, so a host's generic timeout handling catches both phases.
+  /// "we timed out", that is "the client closed". Also benign on a server. NOT retryable: the
+  /// handshake cannot be resumed on the same stream, so it is a sibling of ETlsReadTimeout, not
+  /// a kind of it.
   /// </summary>
-  ETlsHandshakeTimeout = class(ETlsReadTimeout);
+  ETlsHandshakeTimeout = class(ETlsStreamError);
 
 implementation
 

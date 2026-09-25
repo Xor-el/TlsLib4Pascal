@@ -153,10 +153,12 @@ procedure TTestExceptions.TestReadTimeoutHierarchy;
 var
   LTimeout: ETlsReadTimeout;
 begin
-  // a handshake timeout is a read timeout by kind, so a host's generic timeout handling catches
-  // both phases; neither is a truncation, and neither carries a TLS alert
-  CheckTrue(ETlsHandshakeTimeout.InheritsFrom(ETlsReadTimeout),
-    'ETlsHandshakeTimeout is-a ETlsReadTimeout');
+  // both timeouts are stream errors and neither is a truncation, but they are siblings: only a
+  // read timeout is retryable, so a handshake timeout must NOT be caught as one
+  CheckTrue(ETlsHandshakeTimeout.InheritsFrom(ETlsStreamError),
+    'ETlsHandshakeTimeout is-a ETlsStreamError');
+  CheckFalse(ETlsHandshakeTimeout.InheritsFrom(ETlsReadTimeout),
+    'a handshake timeout is not a retryable read timeout');
   CheckTrue(ETlsReadTimeout.InheritsFrom(ETlsStreamError),
     'ETlsReadTimeout is-a ETlsStreamError');
   CheckFalse(ETlsReadTimeout.InheritsFrom(ETlsTransportTruncated),

@@ -292,6 +292,8 @@ begin
     if DrainEvents(AEngine, LPeerClosed, LCertEvent) then
       RaiseIfFatal(AEngine); // a close during the handshake leaves it unfinished/terminal
   end;
+  // StartHandshake itself can fail the engine (never entering the loop); surface that alert
+  RaiseIfFatal(AEngine);
 end;
 
 class function TTlsStreamPump.ReadApp(const AEngine: ITlsEngine;
@@ -334,7 +336,12 @@ begin
       Exit(0);
     end;
     AEngine.ProcessInput(LBuf, 0, LGot);
-    FlushThenRaiseIfFatal(AEngine, ATransport);
+    // only a fatal alert must reach the peer on the read path; healthy outbound (a KeyUpdate
+    // reply, a warning) is left for the next write, so a reader does not write to the transport
+    // and race a concurrent writer on the outbound queue
+    if AEngine.IsTerminal then
+      FlushQuietly(AEngine, ATransport);
+    RaiseIfFatal(AEngine);
     Result := AEngine.ReadAppData(ADest, 0, AMaxLength);
     if Result > 0 then
     begin
@@ -374,8 +381,8 @@ begin
     except
       on ERecordLimitTlsLibException do
       begin
-        // the engine queued close_notify at the AEAD usage limit; it must reach the peer so the
-        // peer reads a clean close rather than a truncation
+        // the engine queued close_notify at the AEAD usage limit; deliver it (any slices sealed
+        // before the limit are already on the wire) before surfacing the refusal to the caller
         FlushQuietly(AEngine, ATransport);
         raise;
       end;

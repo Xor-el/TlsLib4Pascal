@@ -678,8 +678,18 @@ begin
   // resume; TLS 1.2 has no KeyUpdate, so a write epoch that cannot be rekeyed closes the
   // connection rather than exceed the AEAD safety bound.
   repeat
-    LWritten := FRecordLayer.Write(TTlsContentType.ApplicationData, AData, LOffset,
-      LRemaining);
+    // a seal failure (an AEAD nonce-reuse guard, a provider fault) must fail the engine closed
+    // rather than escape with the connection non-terminal and half-written
+    try
+      LWritten := FRecordLayer.Write(TTlsContentType.ApplicationData, AData, LOffset,
+        LRemaining);
+    except
+      on E: Exception do
+      begin
+        Fail(E);
+        raise;
+      end;
+    end;
     Inc(LOffset, LWritten);
     Dec(LRemaining, LWritten);
     if LRemaining <= 0 then
