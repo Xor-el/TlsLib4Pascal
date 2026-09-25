@@ -1782,6 +1782,7 @@ begin
     TSignatureScheme.ECDSA_SECP521R1_SHA512:
       AHash := THashAlgorithm.SHA_512;
   else
+    AHash := THashAlgorithm.SHA_256; // unused when Result is False; keeps the out param assigned
     Result := False;
   end;
 end;

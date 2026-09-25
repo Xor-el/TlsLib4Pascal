@@ -1404,7 +1404,7 @@ begin
   if (PByte(ASrc) = PByte(ADest)) and (ASrcOff <> ADestOff) then
     raise EArgumentTlsLibException.CreateRes(@SAeadBadOverlap);
   // a repeated (key, nonce) under GCM or ChaCha20-Poly1305 gives away the authentication key
-  // (RFC 5116 3.2); CNG does not check, so hold the encrypt side to the same guard the
+  // (RFC 5116 3.1); CNG does not check, so hold the encrypt side to the same guard the
   // portable adapter has
   if (FLastNonce <> nil) and TArrayUtilities.AreEqual(ANonce, FLastNonce) then
     raise EArgumentTlsLibException.CreateRes(@SAeadNonceReused);
