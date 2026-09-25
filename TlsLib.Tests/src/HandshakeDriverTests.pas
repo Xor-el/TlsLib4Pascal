@@ -298,14 +298,14 @@ begin
   LDriver := THandshakeDriver.Create(THandshakeChannel.Create(LLayer) as IHandshakeChannel, nil,
     Crypto, LSinkRef);
   try
-    LDriver.Apply(THandshakeEffects.RaiseEvent(TTlsEventKind.KeysInstalled));
+    LDriver.Apply(THandshakeEffects.RaiseEvent(TTlsEventKind.SessionTicketReceived));
     LDriver.Apply(THandshakeEffects.HandshakeEstablished);
     LDriver.Apply(THandshakeEffects.SendWarningAlert(TTlsAlertDescription.NoRenegotiation));
     LDriver.Apply(THandshakeEffects.Fail(TTlsAlertDescription.DecodeError));
     LDriver.Apply(THandshakeEffects.SendChangeCipherSpec);
 
     CheckEquals(1, LSink.EventCount, 'one event raised');
-    CheckEquals(Ord(TTlsEventKind.KeysInstalled), Ord(LSink.LastEvent), 'the event');
+    CheckEquals(Ord(TTlsEventKind.SessionTicketReceived), Ord(LSink.LastEvent), 'the event');
     CheckTrue(LSink.Established, 'handshake established');
     CheckTrue(LSink.Warned, 'warning alert reported');
     CheckEquals(Ord(TTlsAlertDescription.NoRenegotiation), Ord(LSink.WarnedAlert),

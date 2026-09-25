@@ -25,9 +25,7 @@ type
   TTlsEvents = class sealed(TObject)
   public
     class function MakeSimple(AKind: TTlsEventKind): ITlsEvent; static;
-    class function MakeAppData: ITlsEvent; static;
     class function MakeClosed: ITlsEvent; static;
-    class function MakeKeysInstalled: ITlsEvent; static;
     class function MakePeerAlert(const AAlert: TReceivedAlert): ITlsEvent; static;
     class function MakeCertificateReceived(const AChain, AValidatedPath: TArray<TBytes>;
       const AHostName: string; const AStaple: TBytes): ITlsEvent; static;
@@ -160,19 +158,9 @@ begin
   Result := TSimpleEvent.Create(AKind);
 end;
 
-class function TTlsEvents.MakeAppData: ITlsEvent;
-begin
-  Result := TSimpleEvent.Create(TTlsEventKind.AppData);
-end;
-
 class function TTlsEvents.MakeClosed: ITlsEvent;
 begin
   Result := TSimpleEvent.Create(TTlsEventKind.Closed);
-end;
-
-class function TTlsEvents.MakeKeysInstalled: ITlsEvent;
-begin
-  Result := TSimpleEvent.Create(TTlsEventKind.KeysInstalled);
 end;
 
 class function TTlsEvents.MakePeerAlert(const AAlert: TReceivedAlert): ITlsEvent;

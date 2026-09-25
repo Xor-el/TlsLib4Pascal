@@ -176,6 +176,10 @@ const
   // the number of warning-level alerts tolerated before a flood is refused; the next one
   // aborts the connection (RFC 8446 6 leaves the level advisory, but a flood is a DoS)
   MaxWarningAlerts = Int32(4);
+  // the most undrained events kept before the informational kinds are dropped: room for a
+  // full handshake's worth plus a long run of post-handshake notices, while a caller that never
+  // drains cannot grow the queue without bound
+  MaxQueuedEvents = Int32(64);
 
 resourcestring
   SPeerFatalAlert = 'the peer sent a fatal alert';
@@ -436,6 +440,13 @@ end;
 
 procedure TTlsEngine.Enqueue(const AEvent: ITlsEvent);
 begin
+  // a caller that never drains must not grow the queue without bound: past the cap the
+  // informational kinds are dropped, while the terminal ones and a parked verdict (which the
+  // handshake cannot resume without) are always kept
+  if (FEvents.Count >= MaxQueuedEvents) and
+    not (AEvent.Kind in [TTlsEventKind.PeerAlert, TTlsEventKind.Closed,
+    TTlsEventKind.CertificateReceived]) then
+    Exit;
   FEvents.Enqueue(AEvent);
 end;
 
@@ -536,7 +547,6 @@ begin
         // genuine traffic resets the peer's post-handshake message flood counter
         FConductor.NoteApplicationData;
         AppendAppData(AFragment.Data);
-        Enqueue(TTlsEvents.MakeAppData);
       end;
     TTlsContentType.Handshake:
       // the handshake consumes the fragment and drives its state machine
@@ -964,17 +974,15 @@ end;
 procedure TTlsEngine.InstallReadProtection(const AProtection: IRecordProtection);
 begin
   FRecordLayer.SetReadProtection(AProtection);
-  Enqueue(TTlsEvents.MakeKeysInstalled);
 end;
 
 procedure TTlsEngine.ArmReadProtectionOnChangeCipherSpec(
   const AProtection: IRecordProtection);
 begin
   // the TLS 1.2 read epoch activates on the peer's change_cipher_spec, not here; the keys are
-  // derived and owned from now, so the keys-installed event fires at arm time (matching the
-  // immediate install) and the read epoch itself flips when the record layer consumes the CCS
+  // derived and owned from now, and the read epoch itself flips when the record layer
+  // consumes the CCS
   FRecordLayer.ArmReadProtectionOnChangeCipherSpec(AProtection);
-  Enqueue(TTlsEvents.MakeKeysInstalled);
 end;
 
 procedure TTlsEngine.InstallWriteProtection(const AProtection: IRecordProtection);
@@ -984,7 +992,6 @@ begin
   // the state machine through OnHandshakeEstablished.
   FRecordLayer.SetWriteProtection(AProtection);
   FWriteProtectionInstalled := True; // 0-RTT: the early-data write window can open
-  Enqueue(TTlsEvents.MakeKeysInstalled);
 end;
 
 procedure TTlsEngine.RevertWriteToPlaintext;

@@ -33,10 +33,8 @@ type
 
   /// <summary>The kind of a queued engine event.</summary>
   TTlsEventKind = (
-    AppData,            // application data is available via ReadAppData
     PeerAlert,          // the peer sent an alert
     Closed,             // a close_notify was received (clean shutdown)
-    KeysInstalled,      // a record-protection epoch was installed
     SessionTicketReceived, // a resumption ticket arrived and was cached (RFC 8446 4.6.1)
     EarlyDataAccepted,  // the server accepted the client's 0-RTT early data
     EarlyDataRejected,  // the server rejected 0-RTT; the accepted early data is discarded (not replayed)
@@ -151,7 +149,11 @@ type
     /// <summary>The number of decrypted application bytes already buffered and waiting to be
     /// read; 0 when the caller must read the transport for more.</summary>
     function PendingAppData: Int32;
-    /// <summary>Dequeues the next event; False when the queue is empty.</summary>
+    /// <summary>Dequeues the next event; False when the queue is empty. Drain it every cycle:
+    /// beyond 64 undrained events the informational kinds (SessionTicketReceived, EarlyData*,
+    /// KeyUpdateReceived) are dropped, so a caller that never drains cannot grow the queue without
+    /// bound; PeerAlert, Closed and CertificateReceived are never dropped. Application data is not
+    /// an event - it is signalled by PendingAppData and read with ReadAppData.</summary>
     function NextEvent(out AEvent: ITlsEvent): Boolean;
 
     // --- status ---
