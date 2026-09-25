@@ -17,6 +17,7 @@ interface
 
 uses
   SysUtils,
+  TlpArrayUtilities,
   TlpTlsVersion,
   TlpCryptoDomainTypes,
   TlpIKeySchedule,
@@ -102,7 +103,6 @@ type
     FExtendedMasterSecret: Boolean;
     FPeerCertificates: TArray<TBytes>;
     FResumptionScope: TBytes;
-    class function CopyChain(const AChain: TArray<TBytes>): TArray<TBytes>; static;
   public
     function Version: TTlsVersion;
     function CipherSuite: UInt16;
@@ -228,17 +228,6 @@ end;
 
 { TResumableSession }
 
-class function TResumableSession.CopyChain(
-  const AChain: TArray<TBytes>): TArray<TBytes>;
-var
-  LI: Int32;
-begin
-  Result := nil;
-  SetLength(Result, System.Length(AChain));
-  for LI := 0 to System.Length(AChain) - 1 do
-    Result[LI] := System.Copy(AChain[LI], 0, System.Length(AChain[LI]));
-end;
-
 class function TResumableSession.CreateTls13(ACipherSuite: UInt16;
   AHash: THashAlgorithm; const AResumptionSecret: ISecretBuffer;
   ANamedGroup: UInt16; const AAlpn, AServerName: string; const ATicketIdentity: TBytes;
@@ -262,7 +251,7 @@ begin
   LSession.FTicketAgeAdd := ATicketAgeAdd;
   LSession.FIssuedAtMillis := AIssuedAtMillis;
   LSession.FMaxEarlyData := AMaxEarlyData;
-  LSession.FPeerCertificates := CopyChain(APeerCertificates);
+  LSession.FPeerCertificates := TArrayUtilities.DeepCopy<Byte>(APeerCertificates);
   LSession.FResumptionScope := System.Copy(AResumptionScope);
   Result := LSession;
 end;
@@ -290,7 +279,7 @@ begin
   LSession.FTicketLifetime := ATicketLifetime;
   LSession.FTicketAgeAdd := ATicketAgeAdd;
   LSession.FIssuedAtMillis := AIssuedAtMillis;
-  LSession.FPeerCertificates := CopyChain(APeerCertificates);
+  LSession.FPeerCertificates := TArrayUtilities.DeepCopy<Byte>(APeerCertificates);
   LSession.FResumptionScope := System.Copy(AResumptionScope);
   Result := LSession;
 end;
@@ -380,7 +369,7 @@ end;
 
 function TResumableSession.PeerCertificates: TArray<TBytes>;
 begin
-  Result := CopyChain(FPeerCertificates);
+  Result := TArrayUtilities.DeepCopy<Byte>(FPeerCertificates);
 end;
 
 function TResumableSession.ResumptionScope: TBytes;
