@@ -1,0 +1,23 @@
+TlsLib/src/Record/TlpRecordHeader.pas
+  s_09d3c46d1a9b1f::t_0dcf75a1c6a0b8 70-71
+  s_09d3c46d1a9b1f::t_7acdb622314170 130-136
+  s_09d3c46d1a9b1f::t_a06f7fa076c944 19-20
+TlsLib/src/Record/TlpRecordProtection.pas
+  s_09d3c46d1a9b1f::t_0581ebe0e07c41 46-49,104-107,132-133,142-146,194-195,197,199-203,208-210,284-287,323-326,332-333,341,346-348,351-358,360-361,363-366,375-376,385-395,419-422,425,455-461,467-468,472-473,475-478,485,490,493-496,499,501-502,504,506-521,529-530,541-542,545,548-551,558,560-565
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d2801c459ec6d73fd3a8628033b5906723a7a52c",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
