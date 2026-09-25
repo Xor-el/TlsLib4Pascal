@@ -23,7 +23,7 @@ type
   /// <summary>How a server resolves the cipher suite when more than one is mutually supported:
   /// ServerOrder (the default) imposes the server's own preference order; ClientOrder honors the
   /// client's offered order, selecting the client's most-preferred mutually supported suite.
-  /// Currently governs TLS 1.3 handshakes; a TLS 1.2 handshake always uses server order.</summary>
+  /// Governs both TLS 1.3 and TLS 1.2 handshakes identically.</summary>
   TServerCipherPreference = (ServerOrder, ClientOrder);
 
   /// <summary>TLS 1.3 cipher-suite wire codepoints (RFC 8446 B.4).</summary>

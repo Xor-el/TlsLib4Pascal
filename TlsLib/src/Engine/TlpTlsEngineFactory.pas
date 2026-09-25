@@ -495,6 +495,9 @@ begin
   L12.Clock := AConfig.Clock;
   L12.KeyLog := AConfig.KeyLog;
   L12.CipherSuites := AConfig.CipherSuites;
+  // the same negotiation policy as the 1.3 server, so WithCipherSuitePreference applies to a
+  // 1.2 handshake identically (version-agnostic server/client order)
+  L12.Policy := L13.Policy;
   if LOffers12 then
     L12.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   // TLS 1.2 needs a classical ECDHE group (KEM/hybrid are 1.3-only); the server picks

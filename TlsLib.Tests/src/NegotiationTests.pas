@@ -66,6 +66,7 @@ type
     procedure TestDualVersionRegistryKeepsTls13SuitesDecoupled;
     procedure TestTls12GroupSelectionExcludesHybrid;
     procedure TestTls12CipherSelectionExcludesTls13Suite;
+    procedure TestTls12CipherSelectionHonorsClientOrder;
     procedure TestCipherSuiteCatalogNames;
     procedure TestDefaultRegistryOffersEdDsa;
   end;
@@ -456,6 +457,28 @@ begin
   CheckTrue(LCiphers.TryGet(LSelected, LSuite) and
     (LSuite.Protocol = TSuiteProtocol.Tls12),
     'a 1.2 handshake selects a hardened TLS 1.2 suite');
+end;
+
+procedure TTestNegotiation.TestTls12CipherSelectionHonorsClientOrder;
+var
+  LCrypto: ICryptoProvider;
+  LPolicy: INegotiationPolicy;
+begin
+  // the same policy governs 1.2 as 1.3: with hardware AES the server order prefers AES-128, but
+  // under ClientOrder a 1.2 client that lists AES-256 first gets AES-256 (SF-AR-2 - the knob is
+  // version-agnostic, which is what the 1.2 server now routes through)
+  LCrypto := TFixedAesProvider.Create(Crypto, True);
+  LPolicy := TNegotiationPolicy.Create(LCrypto,
+    TCipherSuiteRegistry.CreateDualVersion(LCrypto),
+    TNamedGroups.CreateDefaultRegistry(LCrypto),
+    TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1),
+    TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12),
+    TServerCipherPreference.ClientOrder);
+  CheckEquals(TCipherSuites12.EcdheEcdsaAes256GcmSha384,
+    LPolicy.SelectCipherSuite(TArray<UInt16>.Create(
+    TCipherSuites12.EcdheEcdsaAes256GcmSha384, TCipherSuites12.EcdheEcdsaAes128GcmSha256),
+    TlsWireVersionTls12),
+    'a 1.2 handshake honors ClientOrder: the client''s AES-256 preference wins over AES-128');
 end;
 
 procedure TTestNegotiation.TestCipherSuiteCatalogNames;
