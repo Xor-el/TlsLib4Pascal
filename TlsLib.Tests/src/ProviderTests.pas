@@ -54,6 +54,7 @@ type
     procedure DoAeadInPlaceRoundTrip(const AProvider: ICryptoProvider);
     procedure DoAeadOpenTamperWipes(const AProvider: ICryptoProvider);
     procedure DoAeadSpanGuards(const AProvider: ICryptoProvider);
+    procedure DoAeadNonceReuseRejected(const AProvider: ICryptoProvider);
   published
     procedure TestSha256Kat;
     procedure TestSha384Kat;
@@ -75,6 +76,7 @@ type
     procedure TestAeadReuseParityChaCha20Poly1305;
     procedure TestAeadLongConnectionRoundTrip;
     procedure TestAeadNonceReuseRejected;
+    procedure TestAeadNonceReuseRejectedNativeProvider;
     procedure TestRandomDistinctNonZero;
     procedure TestHasHardwareAesReturnsBoolean;
   end;
@@ -643,15 +645,15 @@ begin
   end;
 end;
 
-procedure TTestCryptoProvider.TestAeadNonceReuseRejected;
+procedure TTestCryptoProvider.DoAeadNonceReuseRejected(const AProvider: ICryptoProvider);
 var
   LAead: IAead;
-  LNonce, LAad: TBytes;
+  LNonce, LOtherNonce, LAad: TBytes;
   LRaised: Boolean;
 begin
   // the reused live cipher lets the provider's encrypt-side guard catch a forced
   // (key, nonce) repeat - a net the old create-per-record adapter never had
-  LAead := Crypto.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM);
+  LAead := AProvider.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM);
   LAead.Init(TSecretBuffer.From(DecodeHex('000102030405060708090a0b0c0d0e0f')));
   LNonce := DecodeHex('101112131415161718191a1b');
   LAad := nil;
@@ -664,6 +666,29 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'reusing a (key, nonce) for seal must be rejected');
+  // no false positive: a different nonce under the same key still seals
+  LOtherNonce := DecodeHex('101112131415161718191a1c');
+  CheckEquals(4 + LAead.TagSize,
+    System.Length(TAeadUtilities.Seal(LAead, LOtherNonce, LAad, DecodeHex('cafebabe'))),
+    'a fresh nonce under the same key seals');
+  // the guard tracks the current key: re-keying opens a fresh nonce space
+  LAead.Init(TSecretBuffer.From(DecodeHex('0f0e0d0c0b0a09080706050403020100')));
+  CheckEquals(4 + LAead.TagSize,
+    System.Length(TAeadUtilities.Seal(LAead, LOtherNonce, LAad, DecodeHex('cafebabe'))),
+    'the last nonce is forgotten on re-Init');
+end;
+
+procedure TTestCryptoProvider.TestAeadNonceReuseRejected;
+begin
+  DoAeadNonceReuseRejected(Crypto);
+end;
+
+procedure TTestCryptoProvider.TestAeadNonceReuseRejectedNativeProvider;
+begin
+  // the OS-native overlay owns its own Seal; hold it to the same encrypt-side guard (where
+  // no overlay applies this is a second run against the portable adapter)
+  DoAeadNonceReuseRejected(
+    TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider));
 end;
 
 procedure TTestCryptoProvider.TestRandomDistinctNonZero;

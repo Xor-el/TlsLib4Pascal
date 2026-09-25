@@ -70,6 +70,11 @@ uses
   ClpIKemDecapsulator,
   ClpISigner,
   ClpSignerUtilities,
+  ClpIDsa,
+  ClpIDsaKCalculator,
+  ClpHMacDsaKCalculator,
+  ClpECDsaSigner,
+  ClpDsaDigestSigner,
   ClpIAsymmetricKeyParameter,
   ClpPublicKeyFactory,
   ClpPrivateKeyFactory,
@@ -541,6 +546,12 @@ type
   var
     FRandom: ISecureRandom;
     class function SignerMechanismForScheme(AScheme: TSignatureScheme): string; static;
+    /// <summary>True for the three ECDSA schemes, with the scheme's hash.</summary>
+    class function EcdsaHashForScheme(AScheme: TSignatureScheme;
+      out AHash: THashAlgorithm): Boolean; static;
+    /// <summary>An ECDSA signer whose per-signature nonce is derived from the key and the
+    /// message hash (RFC 6979), so a weak or repeated RNG draw cannot leak the key.</summary>
+    class function CreateDeterministicEcdsaSigner(AHash: THashAlgorithm): ISigner; static;
     /// <summary>Classifies a parsed public key into its TLS key family; False for a key kind the
     /// provider does not model (e.g. X25519/DH/DSA), which the verifier factory then rejects since
     /// no catalogued signature scheme can be verified with such a key.</summary>
@@ -1759,6 +1770,34 @@ begin
   end;
 end;
 
+class function TSigningCrypto.EcdsaHashForScheme(AScheme: TSignatureScheme;
+  out AHash: THashAlgorithm): Boolean;
+begin
+  Result := True;
+  case AScheme of
+    TSignatureScheme.ECDSA_SECP256R1_SHA256:
+      AHash := THashAlgorithm.SHA_256;
+    TSignatureScheme.ECDSA_SECP384R1_SHA384:
+      AHash := THashAlgorithm.SHA_384;
+    TSignatureScheme.ECDSA_SECP521R1_SHA512:
+      AHash := THashAlgorithm.SHA_512;
+  else
+    Result := False;
+  end;
+end;
+
+class function TSigningCrypto.CreateDeterministicEcdsaSigner(
+  AHash: THashAlgorithm): ISigner;
+var
+  LKCalculator: IDsaKCalculator;
+  LDsa: IDsa;
+begin
+  // two digest instances: one drives the nonce derivation, the other hashes the message
+  LKCalculator := THMacDsaKCalculator.Create(TDigestResolver.Resolve(AHash));
+  LDsa := TECDsaSigner.Create(LKCalculator);
+  Result := TDsaDigestSigner.Create(LDsa, TDigestResolver.Resolve(AHash));
+end;
+
 function TDefaultCryptoProvider.Primitives: ICryptoPrimitives;
 begin
   Result := FPrimitives;
@@ -1846,6 +1885,8 @@ function TSigningCrypto.CreateSignatureSigner(AScheme: TSignatureScheme;
 var
   LProviderKey: IProviderSigningKey;
   LKey: IAsymmetricKeyParameter;
+  LHash: THashAlgorithm;
+  LSigner: ISigner;
 begin
   if not Supports(AKey, IProviderSigningKey, LProviderKey) then
     raise EArgumentTlsLibException.CreateRes(@SForeignSigningKey);
@@ -1855,12 +1896,19 @@ begin
   if not (TArrayUtilities.Contains<TSignatureScheme>(AKey.CapableSchemes, AScheme)) then
     raise EArgumentTlsLibException.CreateRes(@SSchemeNotCapable);
   // the key was parsed and validated once at import; reuse it rather than re-parsing and
-  // re-validating it on every sign - InitSigner still makes a fresh per-call signer for
-  // the digest state, so concurrent handshakes stay independent
+  // re-validating it on every sign - each call still makes a fresh signer for the digest
+  // state, so concurrent handshakes stay independent
   LKey := LProviderKey.KeyParameter;
   try
-    Result := TSignatureSignerAdapter.Create(
-      TSignerUtilities.InitSigner(SignerMechanismForScheme(AScheme), True, LKey, FRandom));
+    if EcdsaHashForScheme(AScheme, LHash) then
+    begin
+      LSigner := CreateDeterministicEcdsaSigner(LHash);
+      LSigner.Init(True, LKey);
+    end
+    else
+      LSigner := TSignerUtilities.InitSigner(SignerMechanismForScheme(AScheme), True, LKey,
+        FRandom);
+    Result := TSignatureSignerAdapter.Create(LSigner);
   except
     // a backend rejection here is a key/scheme problem our own config produced; keep a typed
     // exception at the seam rather than letting a raw backend exception cross it
