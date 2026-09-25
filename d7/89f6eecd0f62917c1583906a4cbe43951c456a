@@ -1,0 +1,29 @@
+TlsLib/src/Negotiation/TlpNegotiationPolicy.pas
+  s_09d3c46d1a9b1f::t_87974102210b8d 30,34-39,61-62,65-66,70-71,77
+  s_09d3c46d1a9b1f::t_62674b279c26a6 189-190,195,199,201-203,207,210,212-240
+TlsLib.Tests/src/NegotiationTests.pas
+  s_09d3c46d1a9b1f::t_63b7f1264b8a68 189-190
+  s_09d3c46d1a9b1f::t_1ebb99879721fa 58-60,252,280
+  s_09d3c46d1a9b1f::t_67a26d534bd8f9 235,238-239
+  s_09d3c46d1a9b1f::t_047048eeb8284b 213,215,217,219-234,236-237,240-251,253-279,281-289
+TlsLib/src/Interfaces/Negotiation/TlpINegotiation.pas
+  s_09d3c46d1a9b1f::t_6773757a77b476 48-53,56,58-64,67-71
+TlsLib/src/Engine/TlpTlsEngineFactory.pas
+  s_09d3c46d1a9b1f::t_e32ff7d6e1964d 454-455
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d789f6eecd0f62917c1583906a4cbe43951c456a",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
