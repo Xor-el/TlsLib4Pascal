@@ -318,7 +318,7 @@ type
     /// <summary>How the server resolves the cipher suite when more than one is mutually supported.
     /// TServerCipherPreference.ServerOrder (the default) imposes the server's own preference;
     /// TServerCipherPreference.ClientOrder selects the client's most-preferred suite instead.
-    /// Currently applies to TLS 1.3; a TLS 1.2 handshake always uses server order.</summary>
+    /// Applies to both TLS 1.3 and TLS 1.2 (default ServerOrder).</summary>
     function WithCipherSuitePreference(APreference: TServerCipherPreference): ITlsServerConfigBuilder;
     /// <summary>Reject ALPN unconditionally: on any client ALPN offer the server aborts with
     /// no_application_protocol (RFC 7301 3.2) instead of selecting or declining. Default False.</summary>

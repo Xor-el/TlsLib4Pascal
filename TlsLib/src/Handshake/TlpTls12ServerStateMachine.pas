@@ -62,6 +62,9 @@ type
     Crypto: ICryptoProvider;
     Inspector: ICertificateInspector;
     CipherSuites: ICipherSuiteRegistry;
+    /// <summary>The suite-selection authority, shared with the 1.3 server so the configured
+    /// cipher preference (server order, or client order) governs a 1.2 handshake identically.</summary>
+    Policy: INegotiationPolicy;
     ExtensionRegistry: IExtensionRegistry;
     /// <summary>The server's ECDHE groups in preference order; the first that the client
     /// listed in supported_groups (and resolves to an ECDHE group) is selected, tolerating
@@ -353,13 +356,20 @@ var
   LCode: UInt16;
   LSuite: TTlsCipherSuite;
   LScheme: TSignatureScheme;
+  LCandidates: TArray<UInt16>;
 begin
   Result := False;
-  // server preference is the shared hardware-AES-aware order; a 1.2 suite is eligible only
-  // if the client offered it and the credential can sign the suite's auth with a scheme the
-  // client also offered
-  for LCode in TNegotiationPolicy.SuitePreferenceOrder(FParams.Crypto,
-    FParams.CipherSuites, TSuiteProtocol.Tls12) do
+  // the mutually supported 1.2 suites in the configured preference order: the negotiation policy
+  // when the engine wired one (so WithCipherSuitePreference - server or client order - governs 1.2
+  // exactly as 1.3), else the static server order for a raw sans-IO caller that supplied no policy
+  if FParams.Policy <> nil then
+    LCandidates := FParams.Policy.CandidateSuites(AClientSuites, TlsWireVersionTls12)
+  else
+    LCandidates := TNegotiationPolicy.SuitePreferenceOrder(FParams.Crypto,
+      FParams.CipherSuites, TSuiteProtocol.Tls12);
+  // a candidate is eligible only if the client offered it and the credential can sign its auth
+  // with a scheme the client also offered
+  for LCode in LCandidates do
   begin
     if not FParams.CipherSuites.TryGet(LCode, LSuite) then
       Continue;
