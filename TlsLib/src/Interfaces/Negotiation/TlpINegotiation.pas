@@ -45,23 +45,34 @@ type
   end;
 
   /// <summary>
-  /// Pure negotiation: given the client's offered lists, choose the version, cipher
-  /// suite, group, and signature scheme, or raise the correct fatal alert. The
-  /// server selects; the client uses the same policy to confirm the server chose
-  /// only from what was offered. No state, no side effects.
+  /// The server's pure negotiation authority: given the client's offered lists,
+  /// choose the version, cipher suite, and group, or raise the correct fatal alert.
+  /// Every server-side suite pick (certificate and PSK paths alike) goes through
+  /// this policy, so the configured cipher preference applies uniformly. The
+  /// signature scheme is not chosen here: a server signs with the first of its
+  /// credential's capable schemes the client offered. No state, no side effects.
   /// </summary>
   INegotiationPolicy = interface(IInterface)
-    ['{2D8F5A16-4C93-4E70-B1A8-6D0E2C7F85B4}']
+    ['{A3F1C7D8-5E24-4B69-8D07-2C9E6F4B1A35}']
     function SelectVersion(const AClientVersions: TArray<UInt16>): UInt16;
-    /// <summary>Chooses a cipher suite among those registered for ANegotiatedVersion,
-    /// so a dual-version registry never offers a 1.2 suite on a 1.3 handshake.</summary>
+    /// <summary>The mutually supported suites registered for ANegotiatedVersion, in the
+    /// configured preference order (the server's order, or the client's order filtered
+    /// to what the server supports). Empty when nothing is shared. A dual-version
+    /// registry never yields a 1.2 suite for a 1.3 handshake.</summary>
+    function CandidateSuites(const AClientSuites: TArray<UInt16>;
+      ANegotiatedVersion: UInt16): TArray<UInt16>;
+    /// <summary>The first candidate suite, or handshake_failure when none is shared.</summary>
     function SelectCipherSuite(const AClientSuites: TArray<UInt16>;
       ANegotiatedVersion: UInt16): UInt16;
+    /// <summary>The first candidate suite whose hash is AHash (a PSK binds the suite hash,
+    /// RFC 8446 4.2.11); False when none qualifies so the caller can fall through to
+    /// another PSK or to certificate authentication.</summary>
+    function TrySelectCipherSuiteWithHash(const AClientSuites: TArray<UInt16>;
+      ANegotiatedVersion: UInt16; AHash: THashAlgorithm; out ASuite: UInt16): Boolean;
     /// <summary>Chooses a named group; for TLS 1.2 only classical ECDHE groups are
     /// eligible (KEM and hybrid groups are 1.3-only).</summary>
     function SelectGroup(const AClientGroups: TArray<UInt16>;
       ANegotiatedVersion: UInt16): UInt16;
-    function SelectSignatureScheme(const AClientSchemes: TArray<UInt16>): UInt16;
   end;
 
 implementation

@@ -451,8 +451,8 @@ begin
   L13.Clock := AConfig.Clock;
   L13.KeyLog := AConfig.KeyLog;
   L13.Policy := TNegotiationPolicy.Create(AConfig.Crypto, AConfig.CipherSuites,
-    AConfig.NamedGroups, AConfig.SignatureSchemes, AConfig.PreferredGroups,
-    AConfig.SupportedVersions, AConfig.CipherSuitePreference);
+    AConfig.NamedGroups, AConfig.PreferredGroups, AConfig.SupportedVersions,
+    AConfig.CipherSuitePreference);
   L13.CipherSuites := AConfig.CipherSuites;
   // build the extension registry only for a version whose machine is created below
   if LOffers13 then
