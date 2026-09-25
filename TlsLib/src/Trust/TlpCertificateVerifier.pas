@@ -498,10 +498,10 @@ begin
     Exit;
   end;
 
-  // resource caps before any PKIX work: an over-long chain or oversize certificate is
-  // rejected up front (anti-DoS) rather than handed to the path builder
-  if System.Length(AChain) > FChainLimits.MaxChainLength then
-    Exit;
+  // resource caps before any PKIX work: an oversize certificate or an over-total chain is
+  // rejected up front (anti-DoS) rather than handed to the path builder. The handshake
+  // Certificate decoder is the authoritative gate (it bounds every verifier, including OS
+  // delegates); this backstop covers a standalone verifier used off the handshake path.
   LTotal := 0;
   for LI := 0 to System.High(AChain) do
   begin

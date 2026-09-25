@@ -85,6 +85,7 @@ type
   var
     FBuffer: TBytes;
     FMaxMessageLength: Int32;
+    FMaxCertificateMessageLength: Int32;
     FMaxTotalLength: Int32;
   public
     constructor Create;
@@ -101,6 +102,12 @@ type
 
     /// <summary>The largest handshake message body accepted (default 2^16).</summary>
     property MaxMessageLength: Int32 read FMaxMessageLength write FMaxMessageLength;
+    /// <summary>The largest Certificate-message body accepted, so a caller's configured chain
+    /// budget bounds the uncompressed Certificate the same way the compressed path is bounded.
+    /// Applies only to the Certificate handshake type; every other message keeps MaxMessageLength.
+    /// Defaults to MaxMessageLength.</summary>
+    property MaxCertificateMessageLength: Int32 read FMaxCertificateMessageLength
+      write FMaxCertificateMessageLength;
     /// <summary>The hard cap on un-consumed reassembly bytes (anti-DoS, default 2^17).</summary>
     property MaxTotalLength: Int32 read FMaxTotalLength write FMaxTotalLength;
   end;
@@ -193,6 +200,7 @@ begin
   inherited Create;
   FBuffer := nil;
   FMaxMessageLength := DefaultMaxHandshakeMessageLength;
+  FMaxCertificateMessageLength := DefaultMaxHandshakeMessageLength;
   FMaxTotalLength := DefaultMaxHandshakeReassembly;
 end;
 
@@ -213,7 +221,7 @@ function THandshakeMessageReader.NextMessage(
 var
   LReader: TWireReader;
   LTypeByte: Byte;
-  LBodyLength, LTotal: Int32;
+  LBodyLength, LCap, LTotal: Int32;
 begin
   Result := False;
   if System.Length(FBuffer) < HandshakeHeaderLength then
@@ -221,9 +229,15 @@ begin
   LReader := TWireReader.Create(FBuffer);
   LTypeByte := LReader.ReadUInt8;
   LBodyLength := Int32(LReader.ReadUInt24);
-  if LBodyLength > FMaxMessageLength then
+  // the Certificate message carries the peer chain, so it is bounded by the configured chain
+  // budget; every other message keeps the tighter default cap
+  if LTypeByte = TTlsHandshakeType.Certificate.ToByte then
+    LCap := FMaxCertificateMessageLength
+  else
+    LCap := FMaxMessageLength;
+  if LBodyLength > LCap then
     raise EDecodeErrorTlsLibException.CreateResFmt(@SHandshakeMessageTooLong,
-      [LBodyLength, FMaxMessageLength]);
+      [LBodyLength, LCap]);
   if LReader.Remaining < LBodyLength then
     Exit; // the body spans fragments not yet received
   AMessage.TypeByte := LTypeByte;

@@ -339,6 +339,9 @@ resourcestring
     '(7 days), the maximum a server may advertise (RFC 8446 4.6.1)';
   SResumptionScopeTooLong = 'the resumption scope must not exceed 32 bytes';
   STicketCountOutOfRange = 'the session-ticket count must be between 0 and 8 per handshake';
+  SInvalidChainLimits = 'the certificate-chain limits must be positive, with ' +
+    'MaxCertificateLength no larger than MaxTotalChainLength, which must not exceed the ' +
+    '16 MiB handshake-message ceiling';
 
 const
   DefaultTicketLifetimeSeconds = UInt32(7200);
@@ -1935,6 +1938,13 @@ function TTlsConfigBuilder.WithCertificateChainLimits(
   const ALimits: TCertificateChainLimits): TTlsConfigBuilder;
 begin
   GuardMutable;
+  // a byte budget, not a trust input, but a broken one (non-positive, per-cert above the whole
+  // message, or a total past the 24-bit handshake-message ceiling that would wrap the derived
+  // reassembly cap) is a misconfiguration, refused at build time
+  if (ALimits.MaxCertificateLength <= 0) or (ALimits.MaxTotalChainLength <= 0) or
+    (ALimits.MaxCertificateLength > ALimits.MaxTotalChainLength) or
+    (ALimits.MaxTotalChainLength > $FFFFFF) then
+    raise EArgumentTlsLibException.CreateRes(@SInvalidChainLimits);
   FChainLimits := ALimits;
   Result := Self;
 end;

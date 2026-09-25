@@ -52,6 +52,7 @@ uses
   TlpCertificateVerify,
   TlpPeerAuthentication,
   TlpICertificateTrust,
+  TlpCertificateLimits,
   TlpTrustTypes,
   TlpServerName,
   TlpISigningKey,
@@ -109,6 +110,9 @@ type
     ClientRandom: TBytes;
     LegacySessionId: TBytes;
     ServerName: string;
+    /// <summary>The peer-chain resource caps enforced at the Certificate decode boundary
+    /// (before any verifier) and used to bound the inbound Certificate message.</summary>
+    CertificateChainLimits: TCertificateChainLimits;
     /// <summary>Decides whether the server's certificate chain is trusted. Required:
     /// with none configured the handshake fails closed.</summary>
     CertificateVerifier: IServerCertificateVerifier;
@@ -1506,11 +1510,13 @@ begin
     TExtensionTypes.CompressCertificate)) then
     Exit(Unexpected);
   LCompressed := THandshakeMessages.DecodeCompressedCertificate(AMessage.Body);
-  // decompression runs through the injected decompressors under one bomb defense
-  // (declared-length ceiling, ratio guard, exact-length match)
+  // decompression runs through the injected decompressors under one bomb defense (ratio guard,
+  // exact-length match); the ceiling is the configured message budget, so the decompressed chain
+  // is bounded by the same cap as the uncompressed path before it reaches any verifier
   LCertificateBody := TCertificateCompression.Decompress(
     FParams.CertificateDecompressors, LCompressed.Algorithm,
-    LCompressed.Compressed, LCompressed.UncompressedLength);
+    LCompressed.Compressed, LCompressed.UncompressedLength,
+    FParams.CertificateChainLimits.MaxTotalChainLength);
   Result := HandleCertificate(LCertificateBody, AMessage.Raw);
 end;
 

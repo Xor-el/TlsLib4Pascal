@@ -76,6 +76,7 @@ type
     function BuildClientConfig(const ACryptoProvider: ICryptoProvider): ITlsClientConfig;
     function BuildServerConfig(const ACryptoProvider: ICryptoProvider): ITlsServerConfig;
     function DefaultProfile: TTlsConfigProfile;
+    function ChainLimitsAccepted(AMaxCert, AMaxTotal: Int32): Boolean;
     function NewClientBuilder: ITlsClientConfigBuilder;
     function NewServerBuilder: ITlsServerConfigBuilder;
     function MakePskSpec: TExternalPsk;
@@ -117,6 +118,7 @@ type
     procedure TestCustomProviderThreadedThroughRawBuilder;
     procedure TestDefaultCertificateChainLimitsAreConservative;
     procedure TestCertificateChainLimitsAreConfigurable;
+    procedure TestInvalidCertificateChainLimitsRejected;
     procedure TestTls13CompressorOverrideLandsInFrozenConfig;
     procedure TestClientBuilderChainBuildsClient;
     procedure TestServerBuilderChainBuildsServer;
@@ -970,9 +972,8 @@ begin
   // an untuned client config carries the conservative web-PKI defaults
   LConfig := BuildClientConfig(Crypto);
   LLimits := LConfig.CertificateChainLimits;
-  CheckEquals(10, LLimits.MaxChainLength, 'default max chain length');
   CheckEquals(1 shl 16, LLimits.MaxCertificateLength, 'default max certificate length');
-  CheckEquals(1 shl 18, LLimits.MaxTotalChainLength, 'default max total chain length');
+  CheckEquals(1 shl 16, LLimits.MaxTotalChainLength, 'default max certificate message length');
 end;
 
 procedure TTestConfigBuilder.TestCertificateChainLimitsAreConfigurable;
@@ -982,7 +983,6 @@ var
   LCustom, LFrozen: TCertificateChainLimits;
 begin
   // a caller can tune the caps; the frozen config carries the tuned values
-  LCustom.MaxChainLength := 25;
   LCustom.MaxCertificateLength := 1 shl 17;
   LCustom.MaxTotalChainLength := 1 shl 20;
   LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
@@ -996,9 +996,38 @@ begin
     .WithCertificateChainLimits(LCustom)
     .Build;
   LFrozen := LConfig.CertificateChainLimits;
-  CheckEquals(25, LFrozen.MaxChainLength, 'the tuned chain length is frozen in');
   CheckEquals(1 shl 17, LFrozen.MaxCertificateLength, 'the tuned certificate length');
   CheckEquals(1 shl 20, LFrozen.MaxTotalChainLength, 'the tuned total chain length');
+end;
+
+function TTestConfigBuilder.ChainLimitsAccepted(AMaxCert,
+  AMaxTotal: Int32): Boolean;
+var
+  LLimits: TCertificateChainLimits;
+  LBuilder: ITlsConfigBuilder;
+begin
+  LLimits.MaxCertificateLength := AMaxCert;
+  LLimits.MaxTotalChainLength := AMaxTotal;
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
+  Result := True;
+  try
+    LBuilder.Client.WithCertificateChainLimits(LLimits);
+  except
+    on E: EArgumentTlsLibException do
+      Result := False;
+  end;
+end;
+
+procedure TTestConfigBuilder.TestInvalidCertificateChainLimitsRejected;
+begin
+  // a byte budget is validated at build time: broken limits are a misconfiguration
+  CheckTrue(ChainLimitsAccepted(1 shl 15, 1 shl 16), 'valid limits are accepted');
+  CheckFalse(ChainLimitsAccepted(0, 1 shl 16), 'a non-positive per-certificate cap is rejected');
+  CheckFalse(ChainLimitsAccepted(1 shl 15, 0), 'a non-positive message cap is rejected');
+  CheckFalse(ChainLimitsAccepted(1 shl 17, 1 shl 16),
+    'a per-certificate cap above the message cap is rejected');
+  CheckFalse(ChainLimitsAccepted($1000000, $1000000),
+    'a message cap past the 16 MiB handshake ceiling is rejected');
 end;
 
 function TTestConfigBuilder.DefaultProfile: TTlsConfigProfile;

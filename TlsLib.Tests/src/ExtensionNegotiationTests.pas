@@ -51,6 +51,7 @@ uses
   TlpZlibCertificateCompression,
   TlpICertificateTrust,
   TlpServerName,
+  TlpCertificateLimits,
   TlpCertificateVerifier,
   TlpTlsCredential,
   TlpCredentialResolvers,
@@ -376,6 +377,7 @@ begin
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
     True) as IServerCertificateVerifier;
   LParams.CertificateDecompressors := ADecompressors;
+  LParams.CertificateChainLimits := TCertificateChainLimits.Defaults;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
   Result := TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine;
 end;
