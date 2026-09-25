@@ -62,6 +62,7 @@ type
     procedure TestChannelReassemblesInbound;
     procedure TestDriverInstallKeysDecryptsRfc8448Record;
     procedure TestDriverReportsOutcomesToSink;
+    procedure TestDriverFailsClosedOnUndeliverableVerdictPark;
     procedure TestDriverArmsTls12ReadInstallButInstallsTls13Immediately;
     procedure TestDriverWriteInstallIsImmediate;
   end;
@@ -314,6 +315,32 @@ begin
     CheckEquals(Ord(TTlsAlertDescription.DecodeError), Ord(LSink.FailedAlert), 'alert');
     // the CCS effect reached the record layer
     CheckEqualBytes('CCS emitted', DecodeHex('140303000101'), TakeOutgoing(LLayer));
+  finally
+    LDriver.Free;
+    LLayer.Free;
+  end;
+end;
+
+procedure TTestHandshakeDriver.TestDriverFailsClosedOnUndeliverableVerdictPark;
+var
+  LLayer: TRecordLayer;
+  LDriver: THandshakeDriver;
+  LSink: TMockHandshakeSink;
+  LSinkRef: IHandshakeSink;
+begin
+  // the mock sink carries no verdict handling: a park it cannot deliver would wedge the
+  // handshake forever, so the driver must fail it closed instead
+  LLayer := TRecordLayer.Create;
+  LSink := TMockHandshakeSink.Create;
+  LSinkRef := LSink;
+  LDriver := THandshakeDriver.Create(THandshakeChannel.Create(LLayer) as IHandshakeChannel, nil,
+    Crypto, LSinkRef);
+  try
+    LDriver.Apply(THandshakeEffects.AwaitCertificateVerdict(
+      TArray<TBytes>.Create(DecodeHex('3003020100')), nil, 'localhost', nil));
+    CheckTrue(LSink.Failed, 'an undeliverable verdict park fails the handshake');
+    CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LSink.FailedAlert),
+      'the failure is internal_error: our side could not carry the park');
   finally
     LDriver.Free;
     LLayer.Free;
