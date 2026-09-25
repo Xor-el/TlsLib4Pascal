@@ -43,6 +43,7 @@ uses
   TlpCryptoDomainTypes in '..\..\TlsLib\src\Crypto\TlpCryptoDomainTypes.pas',
   TlpICryptoProvider in '..\..\TlsLib\src\Interfaces\Crypto\Providers\TlpICryptoProvider.pas',
   TlpISigningKey in '..\..\TlsLib\src\Interfaces\Crypto\TlpISigningKey.pas',
+  TlpImportedCredential in '..\..\TlsLib\src\Crypto\TlpImportedCredential.pas',
   TlpIKeyExchangePrivateKey in '..\..\TlsLib\src\Interfaces\Crypto\TlpIKeyExchangePrivateKey.pas',
   TlpHpkeComposition in '..\..\TlsLib\src\Crypto\TlpHpkeComposition.pas',
   TlpAeadUtilities in '..\..\TlsLib\src\Crypto\TlpAeadUtilities.pas',

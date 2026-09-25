@@ -366,6 +366,7 @@
         <DCCReference Include="..\..\TlsLib\src\Crypto\TlpCryptoDomainTypes.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Crypto\Providers\TlpICryptoProvider.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Crypto\TlpISigningKey.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Crypto\TlpImportedCredential.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Crypto\TlpIKeyExchangePrivateKey.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Crypto\TlpHpkeComposition.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Crypto\TlpAeadUtilities.pas"/>

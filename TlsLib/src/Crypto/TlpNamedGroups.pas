@@ -159,7 +159,6 @@ type
     FClassical: INamedGroup;
     FKem: INamedGroup;
     FCode: UInt16;
-    FName: string;
     FClassicalShareBytes: Int32;
     FKemEncapsKeyBytes: Int32;
     FKemCiphertextBytes: Int32;
@@ -171,7 +170,7 @@ type
       out AClassical, AKem: TBytes);
   public
     constructor Create(const AClassical, AKem: INamedGroup; ACode: UInt16;
-      const AName: string; AClassicalShareBytes, AKemEncapsKeyBytes,
+      AClassicalShareBytes, AKemEncapsKeyBytes,
       AKemCiphertextBytes: Int32; AOrder: THybridLegOrder);
     function Code: UInt16;
     function Name: string;
@@ -211,7 +210,8 @@ end;
 
 function TKeyAgreementGroup.Name: string;
 begin
-  Result := FAgreement.Name;
+  // authoritative from the codepoint, not the backend handle (whose spelling varies by provider)
+  Result := TNamedGroupCatalog.Name(FCode);
 end;
 
 function TKeyAgreementGroup.Kind: TNamedGroupKind;
@@ -275,7 +275,9 @@ end;
 
 function TKemGroup.Name: string;
 begin
-  Result := FKem.Name;
+  // authoritative from the codepoint, not the backend handle (the two providers disagreed:
+  // 'ML_KEM_768' vs 'ML-KEM-768')
+  Result := TNamedGroupCatalog.Name(FCode);
 end;
 
 function TKemGroup.Kind: TNamedGroupKind;
@@ -316,7 +318,7 @@ end;
 { THybridGroup }
 
 constructor THybridGroup.Create(const AClassical, AKem: INamedGroup; ACode: UInt16;
-  const AName: string; AClassicalShareBytes, AKemEncapsKeyBytes,
+  AClassicalShareBytes, AKemEncapsKeyBytes,
   AKemCiphertextBytes: Int32; AOrder: THybridLegOrder);
 begin
   inherited Create;
@@ -325,7 +327,6 @@ begin
   FComposition := TNamedGroupComposition.From(AClassical.Composition.KeyAgreement,
     AKem.Composition.Kem);
   FCode := ACode;
-  FName := AName;
   FClassicalShareBytes := AClassicalShareBytes;
   FKemEncapsKeyBytes := AKemEncapsKeyBytes;
   FKemCiphertextBytes := AKemCiphertextBytes;
@@ -372,7 +373,7 @@ end;
 
 function THybridGroup.Name: string;
 begin
-  Result := FName;
+  Result := TNamedGroupCatalog.Name(FCode);
 end;
 
 function THybridGroup.Kind: TNamedGroupKind;
@@ -519,14 +520,14 @@ end;
 class function TNamedGroups.CreateX25519MlKem768(const ACryptoProvider: ICryptoProvider): INamedGroup;
 begin
   Result := THybridGroup.Create(CreateX25519(ACryptoProvider), CreateMlKem768(ACryptoProvider),
-    TNamedGroupCatalog.X25519MlKem768, 'X25519MLKEM768', X25519KeyBytes,
+    TNamedGroupCatalog.X25519MlKem768, X25519KeyBytes,
     MlKem768EncapsulationKeyBytes, MlKem768CiphertextBytes, THybridLegOrder.KemFirst);
 end;
 
 class function TNamedGroups.CreateSecP256r1MlKem768(const ACryptoProvider: ICryptoProvider): INamedGroup;
 begin
   Result := THybridGroup.Create(CreateNistEcdh(ACryptoProvider, 'secp256r1'),
-    CreateMlKem768(ACryptoProvider), TNamedGroupCatalog.SecP256r1MlKem768, 'SecP256r1MLKEM768',
+    CreateMlKem768(ACryptoProvider), TNamedGroupCatalog.SecP256r1MlKem768,
     SecP256r1ShareBytes, MlKem768EncapsulationKeyBytes, MlKem768CiphertextBytes,
     THybridLegOrder.ClassicalFirst);
 end;

@@ -38,6 +38,7 @@ uses
   TlpTrustPolicy,
   TlpCertificateStrengthPolicy,
   TlpTlsCredential,
+  TlpImportedCredential,
   TlpSecretBuffer,
   TlpITlsCredentialResolver,
   TlpCredentialResolvers,
@@ -1983,9 +1984,17 @@ end;
 
 function TTlsConfigBuilder.WithCredentialPkcs12(const AData: TBytes;
   const APassword: string): TTlsConfigBuilder;
+var
+  LImported: TImportedCredential;
 begin
   GuardMutable;
-  FCredential := FCrypto.Signing.ImportPkcs12(AData, TSecretBuffer.FromString(APassword));
+  // the provider returns a crypto-level identity (chain + key); lift it into the full credential
+  // (OCSP stapling is a server-config concern the import does not carry)
+  LImported := FCrypto.Signing.ImportPkcs12(AData, TSecretBuffer.FromString(APassword));
+  FCredential.CertificateChain := LImported.CertificateChain;
+  FCredential.PrivateKey := LImported.PrivateKey;
+  FCredential.OcspStaple := nil;
+  FCredential.OcspStapleCallback := nil;
   FHasCredential := True;
   Result := Self;
 end;
