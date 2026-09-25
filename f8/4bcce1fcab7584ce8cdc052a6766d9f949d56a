@@ -1,0 +1,67 @@
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
+  s_09d3c46d1a9b1f::t_bbba1aece281fc 31
+  s_09d3c46d1a9b1f::t_43eab65fc9515b 604-607
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_09d3c46d1a9b1f::t_b15e722dc3e193 369
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_09d3c46d1a9b1f::t_12bf2b01371cba 1576-1577,1580
+  s_09d3c46d1a9b1f::t_c0a032c0b59fec 561
+  s_09d3c46d1a9b1f::t_75aa215baf55d3 487-488
+  s_09d3c46d1a9b1f::t_e98695faea7ef1 443-445
+  s_09d3c46d1a9b1f::t_ff96778e66afea 1340
+  s_09d3c46d1a9b1f::t_f475f31fa676d2 1934
+  s_09d3c46d1a9b1f::t_df4ff4cfe3af83 1583-1585
+  s_09d3c46d1a9b1f::t_94cb59d3d15742 1987
+  s_09d3c46d1a9b1f::t_d62496af5400eb 1364,1374
+  s_09d3c46d1a9b1f::t_e3331410d41607 457
+  s_09d3c46d1a9b1f::t_ddffb71b817fc6 124
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_09d3c46d1a9b1f::t_af64cbf646e4e9 32
+  s_09d3c46d1a9b1f::t_1b4007e42cf17c 934
+  s_09d3c46d1a9b1f::t_ab20b4e4d36082 3843
+TlsLib/src/Crypto/TlpNamedGroups.pas
+  s_09d3c46d1a9b1f::t_7f9660d44e7ba4 321
+  s_09d3c46d1a9b1f::t_7d3dd7fc2d4839 376
+  s_09d3c46d1a9b1f::t_e4d29b64f84863 523
+  s_09d3c46d1a9b1f::t_22d555501f89eb 530
+  s_09d3c46d1a9b1f::t_8219b76cf0f5f0 213-214
+  s_09d3c46d1a9b1f::t_54bd3d2ade6fc9 173
+  s_09d3c46d1a9b1f::t_bb89742c664131 278-280
+TlsLib.Tests/src/Pkcs12ImportTests.pas
+  s_09d3c46d1a9b1f::t_cd27f43a8d2e58 35,45,57,97,118,131,144,168,183,202,220
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_09d3c46d1a9b1f::t_15922c147c0393 46
+TlsLib/src/Interfaces/Crypto/Providers/TlpICryptoProvider.pas
+  s_09d3c46d1a9b1f::t_e06d82fa29a4d0 245-249,255
+  s_09d3c46d1a9b1f::t_f6e83765c079e3 23
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_09d3c46d1a9b1f::t_127ff8a6c27dd7 26
+TlsLib/src/Crypto/TlpImportedCredential.pas
+  s_09d3c46d1a9b1f::t_588f551f85a15b 1-34
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_7a8aec62cc2ed7 1987-1988,1991-1997
+  s_09d3c46d1a9b1f::t_661301b3bf2e50 41
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.pas
+  s_09d3c46d1a9b1f::t_4cba3683cbb2f6 54
+TlsLib/src/Packages/Delphi/TlsLib4PascalPackage.dpk
+  s_09d3c46d1a9b1f::t_e73b8216425778 54
+TlsLib/src/Negotiation/TlpNegotiationTypes.pas
+  s_09d3c46d1a9b1f::t_6df2cb3ae50bca 138-141
+  s_09d3c46d1a9b1f::t_47e107b938b9f7 219-241
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f84bcce1fcab7584ce8cdc052a6766d9f949d56a",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
