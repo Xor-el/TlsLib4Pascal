@@ -35,6 +35,10 @@ type
   /// </summary>
   TEchStatus = (NotOffered, Greased, Accepted, Rejected, Backend);
 
+  /// <summary>How a ClientHelloOuter carrying ECH is built: the first flight, an accepting
+  /// HelloRetryRequest retry (re-seal at seq=1), or a rejecting one (echo CH1's ech verbatim).</summary>
+  TEchChMode = (Initial, RetryAccept, RetryReject);
+
   /// <summary>
   /// One HPKE symmetric cipher suite advertised by an ECHConfig (RFC 9849 sec. 4):
   /// the (kdf_id, aead_id) pair. The KEM is carried once at the config level, so this

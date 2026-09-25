@@ -63,8 +63,8 @@ uses
   TlpExternalPskImporter,
   TlpIEch,
   TlpEchConfig,
-  TlpEchExtension,
-  TlpEchClient,
+  TlpIEchClientOrchestrator,
+  TlpEchClientOrchestrator,
   TlpITlsEngine,
   TlpHandshakeEffect,
   TlpIHandshakeMachine,
@@ -174,9 +174,6 @@ type
   type
     TPhase = (Initial, WaitServerHello, WaitEncryptedExtensions, WaitCertificate,
       WaitCertificateVerify, WaitServerFinished, WaitResumeVerdict, Connected);
-    // how a ClientHelloOuter carrying ECH is built: the first flight, an accepting
-    // HelloRetryRequest retry (re-seal at seq=1), or a rejecting one (echo CH1's ech verbatim)
-    TEchChMode = (Initial, RetryAccept, RetryReject);
   var
     FParams: TClientHandshakeParams;
     // ITls13ClientReplay: a supplied ClientHello emitted verbatim, empty otherwise
@@ -259,37 +256,11 @@ type
     FPreActivatedHash: THashAlgorithm;
     /// <summary>The ALPN protocol negotiated in EncryptedExtensions, stored on a ticket.</summary>
     FNegotiatedAlpn: string;
-    /// <summary>Encrypted Client Hello per-connection state (RFC 9849), live only when
-    /// FParams.EchPolicy selected a usable config. FEch holds the sealer/enc; the inner
-    /// transcript is kept in parallel with the outer FTranscript until the ServerHello
-    /// accept confirmation decides which one the handshake continues on.</summary>
-    FEch: IEchClientHandshake;
-    FEchStatus: TEchStatus;
-    FEchActive: Boolean;
-    // ECH GREASE (RFC 9849 sec. 6.2): when no config is usable but GREASE is enabled, a
-    // decoy encrypted_client_hello is offered so an observer cannot tell ECH users apart. The
-    // extension bytes are generated once and re-sent verbatim across a HelloRetryRequest.
-    FEchGrease: Boolean;
-    FGreaseEchExt: TBytes;
-    // across a HelloRetryRequest under ECH: whether the HRR's ech accept confirmation matched,
-    // so the ServerHello confirmation must agree (RFC 9849 sec. 5) and CH2 was built as accept
-    FEchHrrAccepted: Boolean;
-    FEchHrrDecided: Boolean;
-    FInnerRandom: TBytes;
-    FInnerTranscript: ITranscriptHash;
-    FSentInnerRaw: TBytes;
-    // the first ClientHelloOuter's encrypted_client_hello extension body, re-sent verbatim on
-    // a rejecting HelloRetryRequest (RFC 9849 sec. 6.1.5): the server ignored it, so CH2 echoes it
-    FSentOuterEchExt: TBytes;
-    // the first ClientHelloOuter's GREASE pre_shared_key identities and obfuscated ticket ages,
-    // reused verbatim on a retry so CH2's outer matches CH1's (RFC 8446 4.1.2) - a real offer's age
-    // moves only by the retry round-trip (4.2.11.1), so a fresh age would stand out. Only the
-    // binders are regenerated per hello, as a real client recomputes those over the new transcript
-    FGreasePskIdentities: TArray<TBytes>;
-    FGreasePskAges: TArray<TBytes>;
-    FSelectedEchConfig: TEchConfig;
-    FSelectedEchSuite: IHpkeSuite;
-    FEchRetryConfigs: TBytes;
+    /// <summary>Encrypted Client Hello (RFC 9849): owns the per-connection ECH mechanics and
+    /// state (the sealer, inner random/transcript, GREASE-PSK decoys, accept/reject verdict) and
+    /// builds the outer / decides accept from data the machine feeds it. Always assigned;
+    /// inactive when ECH is not offered.</summary>
+    FEchOrch: IEchClientOrchestrator;
     FPhase: TPhase;
     /// <summary>Records the extension types the sent ClientHello carried, so a server
     /// response extension the client did not offer is rejected (RFC 8446 4.2).</summary>
@@ -298,45 +269,6 @@ type
     procedure ApplyOffered(const AContext: TExtensionContext);
     function BuildClientHello(const ARandom: TBytes;
       const AEchBody: TBytes): TBytes;
-    /// <summary>Builds a decoy (GREASE) encrypted_client_hello extension_data (RFC 9849 sec.
-    /// 6.2): a random config_id, a supported HPKE suite, a freshly generated KEM encapsulation,
-    /// and a random payload of a plausible length. Generated once and re-sent verbatim.</summary>
-    function BuildGreaseEch: TBytes;
-    /// <summary>Builds the ClientHelloOuter for Encrypted Client Hello (RFC 9849): builds
-    /// the inner, seals it, and returns the outer to send; captures the framed inner in
-    /// FSentInnerRaw for the inner transcript. On an accepting HelloRetryRequest the CH1 HPKE
-    /// context is reused with an empty enc, re-sealing at seq=1; on a rejecting one the CH1
-    /// outer ech extension is echoed verbatim (the server ignored it).</summary>
-    function BuildEchClientHello(AMode: TEchChMode): TBytes;
-    /// <summary>The GREASE pre_shared_key extension_data for the ClientHelloOuter: one identity
-    /// and binder per real offer, matching their lengths but filled with random content, so the
-    /// outer resembles an ordinary resumption ClientHello (RFC 9849 sec. 6.1.2).</summary>
-    procedure MintGreasePskIdentities;
-    function BuildGreasePskData: TBytes;
-    /// <summary>On the ServerHello, activates both transcripts on the negotiated hash and
-    /// decides ECH accept vs reject from the accept confirmation (RFC 9849 sec. 7.2),
-    /// switching the active transcript to the inner on accept, and to the public_name
-    /// identity on reject. Feeds the ServerHello into the surviving transcript.</summary>
-    procedure EchDecideServerHello(const AMessage: TTlsHandshakeMessage;
-      const AServerRandom: TBytes; AHash: THashAlgorithm);
-    /// <summary>On a HelloRetryRequest under ECH: decides accept/reject from the HRR's ech
-    /// accept confirmation (over message_hash(Hash(innerCH1)) then the HRR with its 8-byte ech
-    /// payload zeroed), and rebases the inner transcript to message_hash(Hash(innerCH1)), HRR.</summary>
-    procedure EchDecideHelloRetryRequest(const AHello: TTlsServerHello;
-      const AMessage: TTlsHandshakeMessage);
-    /// <summary>Locates the encrypted_client_hello extension in a raw HelloRetryRequest,
-    /// returning the absolute offset of its payload in ARaw. The RFC fixes the payload to 8
-    /// bytes but not the extension's position, so it is found by parsing, not assumed last; a
-    /// present-but-not-8-byte ech is a decode_error (RFC 9849 sec. 6.1.4).</summary>
-    function LocateHrrEchConfirmation(const ARaw: TBytes;
-      out AOffset: Int32): Boolean;
-    /// <summary>Whether the server's EncryptedExtensions (AEeBody is its message body) carries
-    /// an encrypted_client_hello extension, returning its body (the retry_configs) in AData.
-    /// Used to capture retry_configs on reject and to reject an unsolicited one on accept.</summary>
-    function FindEchInEncryptedExtensions(const AEeBody: TBytes;
-      out AData: TBytes): Boolean;
-    /// <summary>The server_name extension data (RFC 6066 ServerNameList) for AHost.</summary>
-    class function EchServerNameData(const AHost: string): TBytes; static;
     /// <summary>The (server identity, SNI) key this client caches resumable sessions under.</summary>
     function CacheServerIdentity: string;
     /// <summary>The current time in Unix milliseconds from the injected clock, falling back to
@@ -459,8 +391,6 @@ resourcestring
   SUnsolicitedCertExtension =
     'the server certificate carries an extension that was not requested';
   SNoCertificateVerifier = 'no certificate verifier configured (fail-closed)';
-  SEchExtensionUnregistered = 'the extension registry has no encrypted_client_hello ' +
-    'handler, so an ECH ClientHello cannot be built (fail-closed)';
   SVerbatimHelloWithEchOrCache = 'a verbatim replay ClientHello is incompatible with ECH ' +
     'or a session cache (both rewrite the ClientHello)';
   SUntrustedCertificate = 'the server certificate chain was not trusted';
@@ -486,12 +416,6 @@ resourcestring
   SPskHashMismatch = 'the selected cipher suite hash does not match the accepted pre_shared_key hash';
   SPskRequiredNotSelected = 'the server did not select a pre_shared_key and no certificate trust is configured';
   SEchRejectPsk = 'a rejected-ECH ServerHello selected the outer pre_shared_key';
-  SEchAcceptRetryConfigs = 'the server sent retry_configs after accepting ECH';
-  SEchHrrConfirmationMismatch = 'the ServerHello ECH decision disagrees with the HelloRetryRequest';
-  SEchBadHrrConfirmation = 'the HelloRetryRequest ech extension is not the 8-byte confirmation';
-  SEchNoUsableConfig = 'the configured ECHConfigList has no usable config (unsupported HPKE ' +
-    'suite, invalid public key, or a mandatory unknown extension) and ECH GREASE is not ' +
-    'enabled; enable GREASE to connect without ECH';
   SCertReqMissingSigAlgs = 'CertificateRequest must contain signature_algorithms (RFC 8446 4.3.2)';
   SGreaseInEncryptedExtensions = 'server echoed a GREASE extension type';
 
@@ -510,38 +434,10 @@ begin
   FGreaseSeed := -1;
   FHrrChangedGroup := False;
   FPhase := TPhase.Initial;
-  FEchStatus := TEchStatus.NotOffered;
-  // select a usable ECH config up front; with none usable but GREASE enabled, offer a decoy
-  // ech instead (RFC 9849 sec. 6.2), generated once so a HelloRetryRequest re-sends it verbatim.
-  // a preset verbatim ClientHello is mutually exclusive with ECH - enforced in
-  // SetVerbatimClientHello - so ECH selection runs purely off the policy here
-  if AParams.EchPolicy <> nil then
-  begin
-    if TEchConfigList.TrySelect(AParams.EchPolicy.Configs, AParams.Crypto,
-      FSelectedEchConfig, FSelectedEchSuite) then
-    begin
-      FEchActive := True;
-      FInnerRandom := AParams.Crypto.Primitives.GetRandom.GenerateBytes(32);
-      FEch := TEchClientHandshake.Create(AParams.Crypto, FSelectedEchConfig,
-        FSelectedEchSuite);
-    end
-    else if AParams.EchPolicy.GreaseEnabled then
-    begin
-      // GREASE needs at least one HPKE suite to imitate; a provider that instantiates none simply
-      // sends no decoy rather than failing the handshake
-      FGreaseEchExt := BuildGreaseEch;
-      if System.Length(FGreaseEchExt) > 0 then
-      begin
-        FEchGrease := True;
-        FEchStatus := TEchStatus.Greased;
-      end;
-    end
-    else
-      // ECH was requested but no config is usable and GREASE is off: fail closed rather than
-      // silently send the true SNI in the clear, defeating the ECH the caller asked for. A
-      // caller that would rather connect without ECH enables GREASE to opt into that
-      raise EArgumentTlsLibException.CreateRes(@SEchNoUsableConfig);
-  end;
+  // the ECH orchestrator resolves the posture once (usable config / GREASE / fail-closed) and
+  // owns the per-connection ECH mechanics; a preset verbatim ClientHello is mutually exclusive
+  // with ECH (enforced in SetVerbatimClientHello), so selection runs purely off the policy here
+  FEchOrch := TEchClientOrchestrator.Create(AParams.Crypto, AParams.EchPolicy);
 end;
 
 destructor TTls13ClientStateMachine.Destroy;
@@ -588,7 +484,7 @@ begin
     // Encrypted Client Hello requires TLS 1.3: the ClientHelloInner MUST NOT offer a version
     // below 1.3 (RFC 9849 sec. 6.1), and the outer mirrors the inner's version offer, so an
     // ECH client is 1.3-only regardless of a 1.2 offer in the configuration
-    if FParams.AlsoOfferTls12 and not FEchActive then
+    if FParams.AlsoOfferTls12 and not FEchOrch.Active then
     begin
       // one unified ClientHello: the 1.3 key_share coexists with a 1.2 offer, and a
       // 1.2 server ignores the 1.3-only extensions and negotiates from legacy fields
@@ -668,7 +564,7 @@ begin
     // legacy fields.
     // the 1.2 session_ticket offer is also a TLS-1.2-only extension the ClientHelloInner MUST
     // omit (RFC 9849 sec. 6.1), so an ECH client never offers it
-    if FParams.AlsoOfferTls12 and (FParams.SessionCache <> nil) and not FEchActive then
+    if FParams.AlsoOfferTls12 and (FParams.SessionCache <> nil) and not FEchOrch.Active then
     begin
       LContext.SessionTicketOffered := True;
       if FTls12ResumptionSession <> nil then
@@ -722,369 +618,6 @@ begin
   finally
     LContext.Free;
   end;
-end;
-
-class function TTls13ClientStateMachine.EchServerNameData(
-  const AHost: string): TBytes;
-var
-  LWriter: IWireWriter;
-  LList, LName: TWireVectorMarker;
-  LI: Int32;
-begin
-  LWriter := TWireWriter.Create;
-  LList := LWriter.OpenVector(2);
-  LWriter.WriteUInt8(0); // host_name
-  LName := LWriter.OpenVector(2);
-  for LI := 1 to System.Length(AHost) do
-    LWriter.WriteUInt8(Byte(Ord(AHost[LI])));
-  LWriter.CloseVector(LName);
-  LWriter.CloseVector(LList);
-  Result := LWriter.ToBytes;
-end;
-
-function TTls13ClientStateMachine.BuildGreaseEch: TBytes;
-const
-  GreaseKem = THpkeKem.DHKEM_X25519_HKDF_SHA256;
-var
-  LOuter: TEchOuterClientHello;
-  LRandom: IRandom;
-  LEnc, LSel: TBytes;
-  LSuites: TArray<THpkeSuiteId>;
-  LSuite: THpkeSuiteId;
-  LPayloadLength: Int32;
-begin
-  LRandom := FParams.Crypto.Primitives.GetRandom;
-  // enc is a real KEM encapsulation against a throwaway recipient (not a bare public key), so the
-  // decoy is a valid encapsulation for any KEM, not only a DH one where the two happen to coincide
-  LEnc := FParams.Crypto.Hpke.RandomEncapsulation(GreaseKem);
-  if System.Length(LEnc) = 0 then
-    Exit(nil);
-  // draw the suite from the ones the provider actually supports (RFC 9849 sec. 6.2), so a fixed
-  // value cannot fingerprint the decoy as GREASE and a newly-supported algorithm is picked up
-  // automatically - the provider is the single source of the HPKE vocabulary
-  LSuites := FParams.Crypto.Hpke.SupportedSuites(GreaseKem);
-  if System.Length(LSuites) = 0 then
-    Exit(nil);
-  LSel := LRandom.GenerateBytes(2);
-  LSuite := LSuites[LSel[0] mod System.Length(LSuites)];
-  // a sealed ClientHelloInner is padded to a multiple of 32 bytes and then carries a 16-byte
-  // AEAD tag; mirror that shape with a per-connection random length so the decoy has no fixed size
-  LPayloadLength := (4 + (LSel[1] mod 5)) * 32 + 16;
-  LOuter := Default(TEchOuterClientHello);
-  LOuter.CipherSuite.KdfId := LSuite.Kdf;
-  LOuter.CipherSuite.AeadId := LSuite.Aead;
-  LOuter.ConfigId := LRandom.GenerateBytes(1)[0];
-  LOuter.Enc := LEnc;
-  LOuter.Payload := LRandom.GenerateBytes(LPayloadLength);
-  Result := TEchExtension.EncodeOuter(LOuter);
-end;
-
-function TTls13ClientStateMachine.BuildEchClientHello(AMode: TEchChMode): TBytes;
-var
-  LInnerFramed, LInnerBody, LOuterBody, LEnc, LEncodedInner, LPayload: TBytes;
-  LMsg: TTlsClientHello;
-  LEntries, LOuterEntries: TExtensionVector;
-  LEchIdx, LPayloadLen: Int32;
-  LOuterEch: TEchOuterClientHello;
-begin
-  // 1. the inner ClientHello: real SNI, its own random, the real pre_shared_key when resuming,
-  // and the inner-type ech marker - which the registry places before pre_shared_key (RFC 8446
-  // 4.2.11 keeps the PSK last). Parse its entries for the outer derivation below.
-  LInnerFramed := BuildClientHello(FInnerRandom, TEchExtension.EncodeInner);
-  LInnerBody := System.Copy(LInnerFramed, 4, System.Length(LInnerFramed) - 4);
-  LMsg := THandshakeMessages.DecodeClientHello(LInnerBody);
-  LEntries := TExtensionVector.Parse(LMsg.Extensions);
-
-  // 2. patch the real PSK binder over the inner ClientHello (its transcript is empty on the
-  // first flight, so it MACs Hash(inner-prefix)); the encoded inner then carries that binder
-  if System.Length(FPskOffers) > 0 then
-  begin
-    PatchBinder(LInnerFramed, FInnerTranscript);
-    LInnerBody := System.Copy(LInnerFramed, 4, System.Length(LInnerFramed) - 4);
-  end;
-  FSentInnerRaw := LInnerFramed;
-
-  // 3. the outer entries: shared extensions stay byte-identical (so they compress), server_name
-  // becomes the public_name, the marker becomes the outer ech extension, and the real
-  // pre_shared_key becomes a same-shape GREASE offer (RFC 9849 sec. 6.1.2)
-  LOuterEntries := LEntries;
-  if LOuterEntries.Contains(TExtensionTypes.ServerName) then
-    LOuterEntries.SetData(LOuterEntries.IndexOf(TExtensionTypes.ServerName),
-      EchServerNameData(FSelectedEchConfig.PublicName));
-  if LOuterEntries.Contains(TExtensionTypes.PreSharedKey) then
-  begin
-    // a retry keeps CH1's GREASE PSK identities and ages (RFC 8446 4.1.2), minted on the first
-    // flight; the binders are regenerated each hello so a decoy's CH2 does not carry CH1's binders
-    // verbatim the way a real one never would
-    if AMode = TEchChMode.Initial then
-      MintGreasePskIdentities;
-    LOuterEntries.SetData(LOuterEntries.IndexOf(TExtensionTypes.PreSharedKey),
-      BuildGreasePskData);
-  end;
-  // the ClientHelloOuter always presents the public_name (RFC 9849 sec. 6.1), even when the
-  // inner offers no server_name; prepend it so the outer is a well-formed public handshake
-  if not LOuterEntries.Contains(TExtensionTypes.ServerName) then
-    LOuterEntries.InsertAt(0, TExtensionEntry.Create(TExtensionTypes.ServerName,
-      EchServerNameData(FSelectedEchConfig.PublicName)));
-  LEchIdx := LOuterEntries.IndexOf(TExtensionTypes.EncryptedClientHello);
-  // the inner was built with the ech marker via the registry, so it must be present here; its
-  // absence means the injected extension registry omits encrypted_client_hello - a build-time
-  // misconfiguration, not a wire condition. Fail closed rather than write past the vector.
-  if LEchIdx < 0 then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.InternalError, @SEchExtensionUnregistered);
-
-  // a rejecting HelloRetryRequest: the server ignored our ech, so CH2's outer ech extension is
-  // an exact copy of CH1's (RFC 9849 sec. 6.1.5); the rest of the outer carries the retry's new
-  // key_share and cookie, but the ech payload is never re-sealed
-  if AMode = TEchChMode.RetryReject then
-  begin
-    LOuterEntries.SetData(LEchIdx, FSentOuterEchExt);
-    LMsg.Random := FParams.ClientRandom;
-    LMsg.LegacySessionId := FParams.LegacySessionId;
-    LMsg.Extensions := LOuterEntries.Encode;
-    Result := THandshakeFraming.Frame(TTlsHandshakeType.ClientHello,
-      THandshakeMessages.EncodeClientHello(LMsg));
-    Exit;
-  end;
-
-  // 3. set up the sealer (fresh enc), or on an accepting HelloRetryRequest reuse the CH1 context
-  // with an empty enc and re-seal at seq=1 (RFC 9849 sec. 6.1.5). Then build the encoded inner
-  // (compression compares against the outer; the differing ech and server_name never compress)
-  if AMode = TEchChMode.RetryAccept then
-    LEnc := nil
-  else
-    LEnc := FEch.SetupSeal;
-  LOuterEch := Default(TEchOuterClientHello);
-  LOuterEch.CipherSuite.KdfId := FSelectedEchSuite.Kdf;
-  LOuterEch.CipherSuite.AeadId := FSelectedEchSuite.Aead;
-  LOuterEch.ConfigId := FSelectedEchConfig.ConfigId;
-  LOuterEch.Enc := LEnc;
-  LOuterEntries.SetData(LEchIdx, TEchExtension.EncodeOuter(LOuterEch));
-  LEncodedInner := FEch.BuildEncodedInner(LInnerBody, LOuterEntries);
-
-  // 4. size the payload (plaintext + AEAD tag), place a zero placeholder, and serialize the
-  // ClientHelloOuterAAD (RFC 9849 sec. 5.2): the outer body with the ech payload zeroed
-  LPayloadLen := System.Length(LEncodedInner) + FSelectedEchSuite.AeadTagLength;
-  System.SetLength(LOuterEch.Payload, LPayloadLen);
-  LOuterEntries.SetData(LEchIdx, TEchExtension.EncodeOuter(LOuterEch));
-  LMsg.Random := FParams.ClientRandom;
-  LMsg.LegacySessionId := FParams.LegacySessionId;
-  LMsg.Extensions := LOuterEntries.Encode;
-  LOuterBody := THandshakeMessages.EncodeClientHello(LMsg);
-
-  // 5. seal, then patch the real payload into the outer ech extension
-  LPayload := FEch.Seal(LOuterBody, LEncodedInner);
-  LOuterEch.Payload := LPayload;
-  LOuterEntries.SetData(LEchIdx, TEchExtension.EncodeOuter(LOuterEch));
-  // keep the outer ech extension so a rejecting HelloRetryRequest can echo it verbatim
-  FSentOuterEchExt := LOuterEntries.Entries[LEchIdx].Data;
-  LMsg.Extensions := LOuterEntries.Encode;
-  Result := THandshakeFraming.Frame(TTlsHandshakeType.ClientHello,
-    THandshakeMessages.EncodeClientHello(LMsg));
-end;
-
-procedure TTls13ClientStateMachine.MintGreasePskIdentities;
-var
-  LRandom: IRandom;
-  LI: Int32;
-begin
-  LRandom := FParams.Crypto.Primitives.GetRandom;
-  SetLength(FGreasePskIdentities, System.Length(FPskOffers));
-  SetLength(FGreasePskAges, System.Length(FPskOffers));
-  for LI := 0 to System.High(FPskOffers) do
-  begin
-    FGreasePskIdentities[LI] :=
-      LRandom.GenerateBytes(System.Length(FPskOffers[LI].Identity));
-    FGreasePskAges[LI] := LRandom.GenerateBytes(4); // retry-stable obfuscated_ticket_age
-  end;
-end;
-
-function TTls13ClientStateMachine.BuildGreasePskData: TBytes;
-var
-  LWriter: IWireWriter;
-  LIds, LBinders, LId, LBinder: TWireVectorMarker;
-  LI: Int32;
-  LRandom: IRandom;
-begin
-  // the identities and obfuscated ticket ages are the minted, retry-stable values (a real offer
-  // re-sends both across a retry); only the binders are drawn fresh here, as a real client
-  // recomputes them over the new transcript
-  LRandom := FParams.Crypto.Primitives.GetRandom;
-  LWriter := TWireWriter.Create;
-  LIds := LWriter.OpenVector(2);
-  for LI := 0 to System.High(FPskOffers) do
-  begin
-    LId := LWriter.OpenVector(2);
-    LWriter.WriteBytes(FGreasePskIdentities[LI]);
-    LWriter.CloseVector(LId);
-    LWriter.WriteBytes(FGreasePskAges[LI]);
-  end;
-  LWriter.CloseVector(LIds);
-  LBinders := LWriter.OpenVector(2);
-  for LI := 0 to System.High(FPskOffers) do
-  begin
-    LBinder := LWriter.OpenVector(1);
-    LWriter.WriteBytes(LRandom.GenerateBytes(
-      FParams.Crypto.Primitives.CreateHash(FPskOffers[LI].Hash).HashSize));
-    LWriter.CloseVector(LBinder);
-  end;
-  LWriter.CloseVector(LBinders);
-  Result := LWriter.ToBytes;
-end;
-
-procedure TTls13ClientStateMachine.EchDecideServerHello(
-  const AMessage: TTlsHandshakeMessage; const AServerRandom: TBytes;
-  AHash: THashAlgorithm);
-var
-  LModifiedSh, LConfHash: TBytes;
-  LInnerClone: ITranscriptHash;
-  LI: Int32;
-  LMatched: Boolean;
-begin
-  // when a single pre-activated PSK fixed a hash the server then declined for a different one,
-  // rebuild BOTH transcripts from the raw sent hellos under the selected hash (RFC 8446 4.4.1),
-  // so the accept confirmation and the key schedule use the right PRF; otherwise activate
-  if FTranscriptPreActivated and (FPreActivatedHash <> AHash) then
-  begin
-    FTranscript := TTranscriptHash.Create(
-      FParams.Crypto.Primitives.CreateHash(AHash));
-    FTranscript.Update(FSentClientHelloRaw);
-    FInnerTranscript := TTranscriptHash.Create(
-      FParams.Crypto.Primitives.CreateHash(AHash));
-    FInnerTranscript.Update(FSentInnerRaw);
-  end
-  else
-  begin
-    if not FTranscript.IsActive then
-      FTranscript.Activate(FParams.Crypto.Primitives.CreateHash(AHash));
-    if not FInnerTranscript.IsActive then
-      FInnerTranscript.Activate(FParams.Crypto.Primitives.CreateHash(AHash));
-  end;
-  // the accept confirmation is over the inner transcript through a ServerHello whose
-  // confirmation bytes of the random are zeroed (RFC 9849 sec. 7.2)
-  LModifiedSh := System.Copy(AMessage.Raw);
-  for LI := 0 to TEchExtension.ConfirmationLength - 1 do
-    LModifiedSh[TEchExtension.FramedServerHelloConfirmationOffset + LI] := 0;
-  LInnerClone := FInnerTranscript.Clone;
-  LInnerClone.Update(LModifiedSh);
-  LConfHash := LInnerClone.CurrentHash;
-  LMatched := TEchClientHandshake.AcceptConfirmationMatches(
-    FParams.Crypto.Primitives.CreateHkdf(AHash), FInnerRandom, LConfHash,
-    AServerRandom);
-  // if a HelloRetryRequest already decided ECH accept/reject, the ServerHello MUST agree
-  // (RFC 9849 sec. 5): a divergence is illegal_parameter
-  if FEchHrrDecided and (LMatched <> FEchHrrAccepted) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.IllegalParameter, @SEchHrrConfirmationMismatch);
-  if LMatched then
-  begin
-    // accepted: the handshake continues on the inner ClientHello and its random
-    FEchStatus := TEchStatus.Accepted;
-    FInnerTranscript.Update(AMessage.Raw);
-    FTranscript := FInnerTranscript;
-    FParams.ClientRandom := FInnerRandom;
-  end
-  else
-  begin
-    // rejected: the handshake is genuinely to public_name, so the certificate is verified
-    // against it; the outer transcript continues, and the connection is later aborted with
-    // ech_required (never a plaintext fall-back)
-    FEchStatus := TEchStatus.Rejected;
-    FParams.ExpectedServerName := TServerName.DnsName(FSelectedEchConfig.PublicName);
-    FTranscript.Update(AMessage.Raw);
-    // the server answered the ClientHelloOuter, so subsequent response extensions are
-    // checked against what the outer offered (not the inner) - e.g. a public_name server
-    // may acknowledge server_name the inner never carried. After a HelloRetryRequest the retry
-    // path already recorded CH2's outer (FSentClientHelloRaw is still CH1 for the transcript)
-    if not FEchHrrDecided then
-      RememberOffered(FSentClientHelloRaw);
-  end;
-end;
-
-function TTls13ClientStateMachine.FindEchInEncryptedExtensions(
-  const AEeBody: TBytes; out AData: TBytes): Boolean;
-var
-  LVector: TExtensionVector;
-  LEntry: TExtensionEntry;
-begin
-  AData := nil;
-  LVector := TExtensionVector.Parse(AEeBody);
-  Result := LVector.TryFind(TExtensionTypes.EncryptedClientHello, LEntry);
-  if Result then
-    AData := LEntry.Data;
-end;
-
-function TTls13ClientStateMachine.LocateHrrEchConfirmation(const ARaw: TBytes;
-  out AOffset: Int32): Boolean;
-var
-  LReader, LSid: TWireReader;
-  LVector: TExtensionVector;
-  LEntry: TExtensionEntry;
-begin
-  Result := False;
-  AOffset := 0;
-  LReader := TWireReader.Create(ARaw);
-  LReader.Skip(4);  // handshake header (type + 3-byte length)
-  LReader.Skip(2);  // legacy_version
-  LReader.Skip(32); // random
-  LSid := LReader.OpenVector(1); // legacy_session_id_echo
-  LSid.Skip(LSid.Remaining);
-  LReader.Skip(2);  // cipher_suite
-  LReader.Skip(1);  // legacy_compression_method
-  LVector := TExtensionVector.ParseFrom(LReader);
-  if LVector.TryFind(TExtensionTypes.EncryptedClientHello, LEntry) then
-  begin
-    if System.Length(LEntry.Data) <> TEchExtension.ConfirmationLength then
-      raise EFatalAlertTlsLibException.CreateRes(
-        TTlsAlertDescription.DecodeError, @SEchBadHrrConfirmation);
-    // DataOffset is absolute in ARaw: the 8-byte HelloRetryRequest ECH confirmation payload
-    AOffset := LEntry.DataOffset;
-    Result := True;
-  end;
-end;
-
-procedure TTls13ClientStateMachine.EchDecideHelloRetryRequest(
-  const AHello: TTlsServerHello; const AMessage: TTlsHandshakeMessage);
-var
-  LInnerCh1Hash, LHrrZeroed, LExpected, LActual: TBytes;
-  LConf: ITranscriptHash;
-  LHash: THashAlgorithm;
-  LEchOffset, LI: Int32;
-  LHasEch: Boolean;
-begin
-  LHash := FSelectedSuite.Common.Hash;
-  FEchHrrDecided := True;
-  // the HRR carries the accept confirmation as its 8-byte encrypted_client_hello payload; its
-  // absence means the server did not accept ECH on CH1. The extension's position is not fixed
-  // by the RFC, so it is found by parsing rather than assumed to be the last 8 bytes.
-  LHrrZeroed := System.Copy(AMessage.Raw);
-  LHasEch := LocateHrrEchConfirmation(LHrrZeroed, LEchOffset);
-  if LHasEch then
-  begin
-    LActual := System.Copy(LHrrZeroed, LEchOffset, TEchExtension.ConfirmationLength);
-    // transcript_hrr_ech_conf = message_hash(Hash(innerCH1)) then the HRR with that
-    // confirmation payload zeroed (RFC 9849 sec. 7.2.1)
-    for LI := 0 to TEchExtension.ConfirmationLength - 1 do
-      LHrrZeroed[LEchOffset + LI] := 0;
-    LInnerCh1Hash := HashUnder(LHash, FSentInnerRaw);
-    LConf := TTranscriptHash.Create;
-    LConf.SeedWithMessageHash(FParams.Crypto.Primitives.CreateHash(LHash), LInnerCh1Hash);
-    LConf.Update(LHrrZeroed);
-    LExpected := TTls13KeySchedule.EchHrrAcceptConfirmation(
-      FParams.Crypto.Primitives.CreateHkdf(LHash), FInnerRandom, LConf.CurrentHash);
-    FEchHrrAccepted := TSecureMemory.ConstantTimeAreEqual(LExpected, LActual);
-  end
-  else
-  begin
-    FEchHrrAccepted := False;
-    LInnerCh1Hash := HashUnder(LHash, FSentInnerRaw);
-  end;
-
-  // rebase the inner transcript to message_hash(Hash(innerCH1)), then the HRR (as received)
-  FInnerTranscript.SeedWithMessageHash(
-    FParams.Crypto.Primitives.CreateHash(LHash), LInnerCh1Hash);
-  FInnerTranscript.Update(AMessage.Raw);
 end;
 
 function TTls13ClientStateMachine.CacheServerIdentity: string;
@@ -1149,32 +682,21 @@ end;
 procedure TTls13ClientStateMachine.PruneOffersToHash(AHash: THashAlgorithm);
 var
   LKept: TArray<IPreSharedKey>;
-  LKeptGreaseIds, LKeptGreaseAges: TArray<TBytes>;
+  LKeptIdx: TArray<Int32>;
   LI: Int32;
-  LHasGreaseIds: Boolean;
 begin
   LKept := nil;
-  LKeptGreaseIds := nil;
-  LKeptGreaseAges := nil;
-  // the minted GREASE PSK identities and ages (outer decoy) are index-aligned with FPskOffers; prune
-  // them together so a surviving offer keeps across the HRR the outer identity and age it carried on CH1
-  LHasGreaseIds := System.Length(FGreasePskIdentities) = System.Length(FPskOffers);
+  LKeptIdx := nil;
   for LI := 0 to System.High(FPskOffers) do
     if FPskOffers[LI].Hash = AHash then
     begin
       TArrayUtilities.Append<IPreSharedKey>(LKept, FPskOffers[LI]);
-      if LHasGreaseIds then
-      begin
-        TArrayUtilities.Append<TBytes>(LKeptGreaseIds, FGreasePskIdentities[LI]);
-        TArrayUtilities.Append<TBytes>(LKeptGreaseAges, FGreasePskAges[LI]);
-      end;
+      TArrayUtilities.Append<Int32>(LKeptIdx, LI);
     end;
   FPskOffers := LKept;
-  if LHasGreaseIds then
-  begin
-    FGreasePskIdentities := LKeptGreaseIds;
-    FGreasePskAges := LKeptGreaseAges;
-  end;
+  // keep the ECH outer's GREASE-PSK decoys index-aligned with the pruned offers (they are minted
+  // per offer on CH1, so a surviving offer keeps across the HRR the identity and age it carried)
+  FEchOrch.KeepPskDecoys(LKeptIdx);
 end;
 
 function TTls13ClientStateMachine.CacheNewSessionTicket(
@@ -1202,7 +724,7 @@ begin
   end;
   // a rejected ECH handshake authenticated only the public_name, so its tickets MUST be ignored
   // (RFC 9849 sec. 6.1.7); a reject is already terminal, so this guards against a future refactor
-  if FEchStatus = TEchStatus.Rejected then
+  if FEchOrch.Status = TEchStatus.Rejected then
     Exit;
   if FParams.SessionCache = nil then
     Exit;
@@ -1234,7 +756,7 @@ end;
 
 function TTls13ClientStateMachine.Start: TArray<THandshakeEffect>;
 var
-  LClientHello: TBytes;
+  LClientHello, LInner: TBytes;
   LCached: IResumableSession;
   LPskSuite: TTlsCipherSuite;
   LHint: UInt16;
@@ -1246,7 +768,7 @@ begin
   // prior negotiations, an avoidable cross-connection correlation signal, so ECH connections
   // always lead with the configured preference.
   if (FParams.SessionCache <> nil) and (FParams.GroupRegistry <> nil) and
-    (not FEchActive) then
+    (not FEchOrch.Active) then
   begin
     LHint := FParams.SessionCache.KxHint(CacheServerIdentity, FParams.ServerName);
     if (LHint <> 0) and (LHint <> FCurrentGroupCode) and
@@ -1315,28 +837,31 @@ begin
   // the inner transcript must exist before the inner ClientHello is built, so its PSK binder
   // MACs the inner history; a single offered PSK fixes the hash, so pre-activate it too (0-RTT
   // early keys derive from it before the ServerHello selects the suite)
-  if FEchActive then
-  begin
-    FInnerTranscript := TTranscriptHash.Create;
-    if FTranscriptPreActivated then
-      FInnerTranscript.Activate(
-        FParams.Crypto.Primitives.CreateHash(FPreActivatedHash));
-  end;
+  if FEchOrch.Active then
+    FEchOrch.PrepareInnerTranscript(FTranscriptPreActivated, FPreActivatedHash);
   if System.Length(FVerbatimClientHello) > 0 then
     LClientHello := FVerbatimClientHello
-  else if FEchActive then
-    LClientHello := BuildEchClientHello(TEchChMode.Initial)
+  else if FEchOrch.Active then
+  begin
+    // build and binder-patch the inner ClientHello here (the machine owns the builder and the
+    // real PSK offers), then let the orchestrator seal it into the ClientHelloOuter
+    LInner := BuildClientHello(FEchOrch.InnerRandom, FEchOrch.InnerEchExt);
+    if System.Length(FPskOffers) > 0 then
+      PatchBinder(LInner, FEchOrch.InnerTranscript);
+    LClientHello := FEchOrch.BuildClientHelloOuter(TEchChMode.Initial, LInner,
+      FParams.ClientRandom, FParams.LegacySessionId, FPskOffers);
+  end
   else
-    // a plain or GREASE ClientHello: FGreaseEchExt is nil unless a decoy was built
-    LClientHello := BuildClientHello(FParams.ClientRandom, FGreaseEchExt);
-  if FEchActive then
+    // a plain or GREASE ClientHello: GreaseEchExt is nil unless a decoy was built
+    LClientHello := BuildClientHello(FParams.ClientRandom, FEchOrch.GreaseEchExt);
+  if FEchOrch.Active then
   begin
     // the outer is on the wire; the inner is the logical ClientHello once accepted, so
     // both transcripts are kept until the ServerHello confirmation decides between them
-    RememberOffered(FSentInnerRaw);
+    RememberOffered(FEchOrch.SentInnerRaw);
     FSentClientHelloRaw := LClientHello;
     FTranscript.Update(LClientHello);
-    FInnerTranscript.Update(FSentInnerRaw);
+    FEchOrch.InnerTranscript.Update(FEchOrch.SentInnerRaw);
   end
   else
   begin
@@ -1361,12 +886,12 @@ begin
       LPskSuite.Common.KeyLength);
     FSchedule.SetPsk(FPskOffers[0].Key);
     // key the log by the same random the early transcript uses: the inner ClientHello's under ECH
-    if FEchActive then
-      FSchedule.SetKeyLog(FParams.KeyLog, FInnerRandom)
+    if FEchOrch.Active then
+      FSchedule.SetKeyLog(FParams.KeyLog, FEchOrch.InnerRandom)
     else
       FSchedule.SetKeyLog(FParams.KeyLog, FParams.ClientRandom);
-    if FEchActive then
-      FSchedule.DeriveEpochSecrets(TTlsEpoch.EarlyData, FInnerTranscript.CurrentHash)
+    if FEchOrch.Active then
+      FSchedule.DeriveEpochSecrets(TTlsEpoch.EarlyData, FEchOrch.InnerTranscript.CurrentHash)
     else
       FSchedule.DeriveEpochSecrets(TTlsEpoch.EarlyData, FTranscript.CurrentHash);
     // the plaintext CCS precedes the early keys
@@ -1482,17 +1007,36 @@ begin
   // the transcript under its hash; when the server rejects that PSK and selects a suite with
   // a different hash (a 0-RTT reject that changes the PRF), rebuild the transcript from the
   // raw first ClientHello under the newly selected hash so the derivations match the peer.
-  if FEchActive then
-    EchDecideServerHello(AMessage, LHello.Random, FSelectedSuite.Common.Hash)
-  else
+  // activate the (outer) transcript under the now-known hash unless a retry already did, else
+  // rebuild it when a 0-RTT PSK reject changed the PRF (RFC 8446 4.4.1)
+  if not FTranscript.IsActive then
+    FTranscript.Activate(FParams.Crypto.Primitives.CreateHash(FSelectedSuite.Common.Hash))
+  else if FTranscriptPreActivated and
+    (FPreActivatedHash <> FSelectedSuite.Common.Hash) then
+    RebuildTranscriptUnderSelectedHash;
+  if FEchOrch.Active then
   begin
-    if not FTranscript.IsActive then
-      FTranscript.Activate(FParams.Crypto.Primitives.CreateHash(FSelectedSuite.Common.Hash))
-    else if FTranscriptPreActivated and
-      (FPreActivatedHash <> FSelectedSuite.Common.Hash) then
-      RebuildTranscriptUnderSelectedHash;
-    FTranscript.Update(AMessage.Raw);
+    // ECH decides accept vs reject from the ServerHello confirmation. On accept the inner
+    // ClientHello is the logical one, so the handshake continues on the inner transcript and
+    // inner random; on reject it continues to public_name on the outer transcript. The verdict
+    // is computed here; the machine applies the state change (all mutation stays in the machine).
+    if FEchOrch.DecideServerHello(AMessage.Raw, LHello.Random, FSelectedSuite.Common.Hash,
+      FTranscriptPreActivated and (FPreActivatedHash <> FSelectedSuite.Common.Hash)) then
+    begin
+      FTranscript := FEchOrch.InnerTranscript;
+      FParams.ClientRandom := FEchOrch.InnerRandom;
+    end
+    else
+    begin
+      FParams.ExpectedServerName := TServerName.DnsName(FEchOrch.PublicName);
+      // the server answered the ClientHelloOuter, so response extensions are checked against the
+      // outer's offers; after a HelloRetryRequest the retry path already recorded CH2's outer
+      if not FEchOrch.HrrDecided then
+        RememberOffered(FSentClientHelloRaw);
+    end;
   end;
+  // append the ServerHello to the surviving transcript (the inner on accept, the outer otherwise)
+  FTranscript.Update(AMessage.Raw);
 
   LContext := TExtensionContext.Create;
   try
@@ -1538,12 +1082,12 @@ begin
     // the exception: it authenticates the public_name by certificate (RFC 9849 sec. 6.1.6) and
     // completes to that name before aborting ech_required, so the PSK requirement does not apply
     if (not FPskAccepted) and FParams.RequirePsk and
-      (FEchStatus <> TEchStatus.Rejected) then
+      (FEchOrch.Status <> TEchStatus.Rejected) then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.MissingExtension, @SPskRequiredNotSelected);
     // a rejected-ECH handshake runs over the outer ClientHello, whose pre_shared_key is only a
     // GREASE decoy the client-facing server MUST NOT select (RFC 9849 sec. 6.1.6)
-    if (FEchStatus = TEchStatus.Rejected) and LContext.PskSelected then
+    if (FEchOrch.Status = TEchStatus.Rejected) and LContext.PskSelected then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SEchRejectPsk);
   finally
@@ -1553,7 +1097,7 @@ begin
   // remember the group the server accepted (our key_share, no HelloRetryRequest needed),
   // so the next initial ClientHello to this server leads with it. Not on an ECH reject: that
   // group is the public_name server's choice, not the real server's, so it is no hint for it
-  if (FParams.SessionCache <> nil) and (FEchStatus <> TEchStatus.Rejected) then
+  if (FParams.SessionCache <> nil) and (FEchOrch.Status <> TEchStatus.Rejected) then
     FParams.SessionCache.SetKxHint(CacheServerIdentity, FParams.ServerName,
       FCurrentGroupCode);
 
@@ -1607,8 +1151,7 @@ function TTls13ClientStateMachine.ProcessEncryptedExtensions(
   const AMessage: TTlsHandshakeMessage): TArray<THandshakeEffect>;
 var
   LContext: TExtensionContext;
-  LServerAcceptedEarly, LHasEch: Boolean;
-  LEchData: TBytes;
+  LServerAcceptedEarly: Boolean;
   LEeVector: TExtensionVector;
   LExtType: UInt16;
 begin
@@ -1658,30 +1201,9 @@ begin
   finally
     LContext.Free;
   end;
-  // an encrypted_client_hello in EncryptedExtensions carries retry_configs, valid only in
-  // response to the outer ClientHello (a reject). On accept the server processed the inner, so
-  // it is an unsolicited extension - unsupported_extension (RFC 9849 sec. 5). On reject, capture
-  // the retry_configs unless this handshake was itself a retry (the one-retry cap, sec. 6.1.6).
-  LHasEch := FindEchInEncryptedExtensions(AMessage.Body, LEchData);
-  if FEchStatus = TEchStatus.Accepted then
-  begin
-    if LHasEch then
-      raise EFatalAlertTlsLibException.CreateRes(
-        TTlsAlertDescription.UnsupportedExtension, @SEchAcceptRetryConfigs);
-  end
-  else if LHasEch and (FEchStatus = TEchStatus.Rejected) then
-  begin
-    // the retry_configs MUST be a syntactically valid ECHConfigList (RFC 9849 sec. 6.1.6); a
-    // malformed one is a decode_error. They are surfaced only on a first attempt - a retry
-    // ignores any new configs (the one-retry cap, sec. 6.1.6) but still validates them.
-    TEchConfigList.Parse(LEchData);
-    if (FParams.EchPolicy <> nil) and (not FParams.EchPolicy.IsRetryAttempt) then
-      FEchRetryConfigs := LEchData;
-  end
-  else if LHasEch and (FEchStatus = TEchStatus.Greased) then
-    // GREASE ignores the retry_configs value (RFC 9849 sec. 6.2), but the extension must still
-    // be a well-formed ECHConfigList; a malformed one is a decode_error (Parse raises it)
-    TEchConfigList.Parse(LEchData);
+  // the EncryptedExtensions ech rule (retry_configs on reject, unsolicited on accept, validated
+  // and ignored under GREASE) lives in the orchestrator
+  FEchOrch.NoteEncryptedExtensions(AMessage.Body);
   // 0-RTT resolution (only when we offered it and the PSK was accepted): the write side
   // stays on the early keys here. On accept, EndOfEarlyData and the write switch happen
   // after the server Finished (transcript order); on reject we switch off early now and
@@ -1729,11 +1251,10 @@ function TTls13ClientStateMachine.HandleHelloRetryRequest(
 var
   LContext: TExtensionContext;
   LNewGroup: INamedGroup;
-  LClientHello2: TBytes;
+  LClientHello2, LInner2: TBytes;
   LOffered: TArray<UInt16>;
   LCh1Hash: IHash;
   LEarlyDataWasOffered: Boolean;
-  LEchDummyOffset: Int32;
 begin
   // at most one HelloRetryRequest per handshake (RFC 8446 4.1.4)
   if FRetried then
@@ -1776,12 +1297,12 @@ begin
   FTranscriptPreActivated := False;
   // under ECH, decide accept/reject from the HRR's ech confirmation and rebase the inner
   // transcript before building the second ClientHello
-  if FEchActive then
-    EchDecideHelloRetryRequest(AHello, AMessage)
-  else if FEchGrease then
+  if FEchOrch.Active then
+    FEchOrch.DecideHelloRetryRequest(AHello, AMessage, FSelectedSuite.Common.Hash)
+  else if FEchOrch.Grease then
     // a GREASE client does not act on the HRR ech, but it MUST still validate it
     // syntactically - a present-but-not-8-byte ech is a decode_error (RFC 9849 sec. 6.2.1)
-    LocateHrrEchConfirmation(AMessage.Raw, LEchDummyOffset);
+    FEchOrch.NoteHelloRetryRequestGrease(AMessage.Raw);
 
   LContext := TExtensionContext.Create;
   try
@@ -1830,29 +1351,39 @@ begin
   LEarlyDataWasOffered := FEarlyDataOffered;
   FEarlyDataOffered := False;
 
-  if FEchActive and FEchHrrAccepted then
+  if FEchOrch.Active and FEchOrch.HrrAccepted then
   begin
-    // ECH was accepted on CH1: re-seal a fresh inner CH2 (new key_share) at seq=1 with an empty
-    // enc, and feed both transcripts (outer + inner) their second ClientHello
-    LClientHello2 := BuildEchClientHello(TEchChMode.RetryAccept);
-    RememberOffered(FSentInnerRaw);
+    // ECH was accepted on CH1: build a fresh inner CH2 (new key_share), patch its binder over the
+    // rebased inner transcript, then re-seal at seq=1 with an empty enc; feed both transcripts
+    // (outer + inner) their second ClientHello
+    LInner2 := BuildClientHello(FEchOrch.InnerRandom, FEchOrch.InnerEchExt);
+    if System.Length(FPskOffers) > 0 then
+      PatchBinder(LInner2, FEchOrch.InnerTranscript);
+    LClientHello2 := FEchOrch.BuildClientHelloOuter(TEchChMode.RetryAccept, LInner2,
+      FParams.ClientRandom, FParams.LegacySessionId, FPskOffers);
+    RememberOffered(FEchOrch.SentInnerRaw);
     FTranscript.Update(LClientHello2);
-    FInnerTranscript.Update(FSentInnerRaw);
+    FEchOrch.InnerTranscript.Update(FEchOrch.SentInnerRaw);
   end
-  else if FEchActive then
+  else if FEchOrch.Active then
   begin
     // ECH was not accepted on CH1: the handshake continues on the outer to public_name, so CH2
     // is a ClientHelloOuter (public_name SNI, GREASE PSK, retry key_share) whose ech extension
-    // is CH1's echoed verbatim. Only the outer transcript advances.
-    LClientHello2 := BuildEchClientHello(TEchChMode.RetryReject);
+    // is CH1's echoed verbatim. The inner is still built (it shapes the outer's extensions).
+    // Only the outer transcript advances.
+    LInner2 := BuildClientHello(FEchOrch.InnerRandom, FEchOrch.InnerEchExt);
+    if System.Length(FPskOffers) > 0 then
+      PatchBinder(LInner2, FEchOrch.InnerTranscript);
+    LClientHello2 := FEchOrch.BuildClientHelloOuter(TEchChMode.RetryReject, LInner2,
+      FParams.ClientRandom, FParams.LegacySessionId, FPskOffers);
     RememberOffered(LClientHello2);
     FTranscript.Update(LClientHello2);
   end
   else
   begin
-    // a GREASE decoy is re-sent verbatim on the retry (RFC 9849 sec. 6.2); FGreaseEchExt is nil
+    // a GREASE decoy is re-sent verbatim on the retry (RFC 9849 sec. 6.2); GreaseEchExt is nil
     // on a plain handshake
-    LClientHello2 := BuildClientHello(FParams.ClientRandom, FGreaseEchExt);
+    LClientHello2 := BuildClientHello(FParams.ClientRandom, FEchOrch.GreaseEchExt);
     // recompute the binder over the retry transcript (message_hash(CH1), HRR, this
     // ClientHello up to the binders): the first flight's binder does not vouch for it
     if System.Length(FPskOffers) > 0 then
@@ -2056,7 +1587,7 @@ begin
   // NOT present its certificate there (RFC 9849 sec. 6.1.6): it declines with an empty one.
   LHasScheme := False;
   if (System.Length(FParams.ClientCredential.CertificateChain) > 0) and
-    (FEchStatus <> TEchStatus.Rejected) then
+    (FEchOrch.Status <> TEchStatus.Rejected) then
   begin
     for LScheme in FParams.ClientCredential.PrivateKey.CapableSchemes do
       if LScheme.IsValidForHandshake(TTlsVersion.Tls13) and
@@ -2207,7 +1738,7 @@ begin
   // ECH reject: the flight to the public_name is complete (cert verified against it, our
   // Finished built); send that Finished, then abort with ech_required and surface the
   // retry_configs (RFC 9849 sec. 6.1.6) - no ticket caching, no plaintext fall-back
-  if FEchStatus = TEchStatus.Rejected then
+  if FEchOrch.Status = TEchStatus.Rejected then
   begin
     FPhase := TPhase.Connected;
     TArrayUtilities.Append<THandshakeEffect>(Result,
@@ -2220,7 +1751,7 @@ begin
       TTlsDirection.ClientWrite), TRecordSide.WriteSide, FSelectedSuite.Common.Aead,
       TTlsVersion.Tls13));
     TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.EchRejected(FEchRetryConfigs, FParams.EchPolicy.IsRetryAttempt));
+      THandshakeEffects.EchRejected(FEchOrch.RetryConfigs, FParams.EchPolicy.IsRetryAttempt));
     Exit(Result);
   end;
 
@@ -2245,10 +1776,10 @@ begin
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.RequestedCertificateAuthorities(
       FRequestedCertificateAuthorities));
-  if FEchStatus = TEchStatus.Accepted then
+  if FEchOrch.Status = TEchStatus.Accepted then
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.EchAccepted)
-  else if FEchStatus = TEchStatus.Greased then
+  else if FEchOrch.Status = TEchStatus.Greased then
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.EchGreased);
   TArrayUtilities.Append<THandshakeEffect>(Result,
