@@ -124,14 +124,11 @@ begin
     // at capacity, evict the oldest entries to admit the new one. Under a flood of unique
     // values this can drop a still-live entry, which could then be replayed within its
     // window - the inherent limit of a bounded strike register that RFC 8446 8 permits.
-    // The fail-closed branch below (reject when still full) is the safety backstop.
     while (FByKey.Count >= FCapacity) and (FOrder.Count > 0) do
     begin
       LEvict := FOrder.Dequeue;
       FByKey.Remove(LEvict);
     end;
-    if FByKey.Count >= FCapacity then
-      Exit; // cannot admit; reject conservatively
     FByKey.AddOrSetValue(LKey, AExpiryMillis);
     FOrder.Enqueue(LKey);
     Result := True;

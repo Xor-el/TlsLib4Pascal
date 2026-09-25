@@ -148,7 +148,7 @@ type
     procedure SetRecordSizeLimit(AOutboundLimit, AInboundLimit: Int32);
     procedure SetEarlyDataSkip(AMaxBytes: Int32);
     procedure SetEarlyDataLimit(AMaxBytes: Int32);
-    procedure SetEarlyReadEpoch(AActive: Boolean);
+    procedure SetEarlyReadEpoch(AActive: Boolean; AMaxBytes: Int32);
     procedure OnHandshakeEvent(AEvent: TTlsEventKind);
     procedure OnAlpnSelected(const AProtocol: string);
     procedure OnVersionNegotiated(const AVersion: TTlsVersion);
@@ -218,7 +218,7 @@ type
     procedure SetRecordSizeLimit(AOutboundLimit, AInboundLimit: Int32);
     procedure SetEarlyDataSkip(AMaxBytes: Int32);
     procedure SetEarlyDataLimit(AMaxBytes: Int32);
-    procedure SetEarlyReadEpoch(AActive: Boolean);
+    procedure SetEarlyReadEpoch(AActive: Boolean; AMaxBytes: Int32);
     procedure OnHandshakeEvent(AEvent: TTlsEventKind);
     procedure OnAlpnSelected(const AProtocol: string);
     procedure OnVersionNegotiated(const AVersion: TTlsVersion);
@@ -286,9 +286,9 @@ begin
   FEngine.SetEarlyDataLimit(AMaxBytes);
 end;
 
-procedure TEngineHandshakeBridge.SetEarlyReadEpoch(AActive: Boolean);
+procedure TEngineHandshakeBridge.SetEarlyReadEpoch(AActive: Boolean; AMaxBytes: Int32);
 begin
-  FEngine.SetEarlyReadEpoch(AActive);
+  FEngine.SetEarlyReadEpoch(AActive, AMaxBytes);
 end;
 
 procedure TEngineHandshakeBridge.OnHandshakeEvent(AEvent: TTlsEventKind);
@@ -1010,9 +1010,9 @@ begin
   FEarlyDataLimit := AMaxBytes;
 end;
 
-procedure TTlsEngine.SetEarlyReadEpoch(AActive: Boolean);
+procedure TTlsEngine.SetEarlyReadEpoch(AActive: Boolean; AMaxBytes: Int32);
 begin
-  FRecordLayer.SetEarlyReadAccepted(AActive);
+  FRecordLayer.SetEarlyReadAccepted(AActive, AMaxBytes);
 end;
 
 procedure TTlsEngine.OnHandshakeEvent(AEvent: TTlsEventKind);

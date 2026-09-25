@@ -238,9 +238,11 @@ type
     /// <summary>
     /// Opens (AActive) or closes the accepted-0-RTT early-data read window (RFC 8446 4.2.10):
     /// while open, an application_data record legitimately precedes the handshake completion.
-    /// A server opens it on installing the early read keys and closes it at EndOfEarlyData.
+    /// A server opens it on installing the early read keys, with the ticket's
+    /// max_early_data_size as AMaxBytes (early data beyond it is fatal, RFC 8446 4.6.1), and
+    /// closes it at EndOfEarlyData.
     /// </summary>
-    procedure SetEarlyReadEpoch(AActive: Boolean);
+    procedure SetEarlyReadEpoch(AActive: Boolean; AMaxBytes: Int32);
   end;
 
 implementation

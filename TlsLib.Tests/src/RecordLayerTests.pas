@@ -69,6 +69,8 @@ type
     procedure TestRecordSizeLimitRejectsOversizeInbound;
     procedure TestRecordSizeLimitCountsInnerPlaintextNotContent;
     procedure TestRecordSizeLimitInnerPlaintextBoundary;
+    procedure TestAcceptedEarlyDataBoundedAtBudget;
+    procedure TestAcceptedEarlyDataExactBudgetThenNormalFlow;
     procedure TestWritePausesAppDataAtRekeyThreshold;
     procedure TestChangeCipherSpecDropped;
     procedure TestChangeCipherSpecBeforeHelloRejected;
@@ -645,6 +647,83 @@ begin
         LRaised := Ord(E.AlertDescription) = Ord(TTlsAlertDescription.RecordOverflow);
     end;
     CheckTrue(LRaised, 'the inner-plaintext-over-limit record is record_overflow');
+  finally
+    LSend.Free;
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestAcceptedEarlyDataBoundedAtBudget;
+var
+  LSend, LRecv: TRecordLayer;
+  LFrag: TTlsRecordFragment;
+  LKey, LIv, LA, LB, LFirst, LSecond: TBytes;
+begin
+  LSend := TRecordLayer.Create;
+  LRecv := TRecordLayer.Create;
+  try
+    LKey := DecodeHex('000102030405060708090a0b0c0d0e0f');
+    LIv := DecodeHex('101112131415161718191a1b');
+    LSend.SetWriteProtection(MakeTls13(LKey, LIv));
+    LRecv.SetReadProtection(MakeTls13(LKey, LIv));
+    LRecv.StrictApplicationData := True;
+    // the accepted 0-RTT window admits at most the ticket's max_early_data_size (8 here)
+    LRecv.SetEarlyReadAccepted(True, 8);
+    LA := DecodeHex('48656c6c6f'); // "Hello"
+    LB := DecodeHex('576f726c64'); // "World"
+    LSend.Write(TTlsContentType.ApplicationData, LA, 0, 5);
+    LFirst := LSend.TakeOutgoing;
+    LSend.Write(TTlsContentType.ApplicationData, LB, 0, 5);
+    LSecond := LSend.TakeOutgoing;
+    LRecv.ProcessInput(LFirst, 0, System.Length(LFirst));
+    CheckTrue(DrainOne(LRecv, LFrag), 'early data within the budget surfaces');
+    CheckEqualBytes('the first early record is delivered', LA, LFrag.Data);
+    // 5 + 5 exceeds the 8-byte budget: the server MUST terminate with unexpected_message
+    // (RFC 8446 4.6.1)
+    CheckTrue(ExpectFatal(LRecv, LSecond, TTlsAlertDescription.UnexpectedMessage),
+      'accepted early data beyond max_early_data_size is unexpected_message');
+  finally
+    LSend.Free;
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestAcceptedEarlyDataExactBudgetThenNormalFlow;
+var
+  LSend, LRecv: TRecordLayer;
+  LFrag: TTlsRecordFragment;
+  LKey, LIv, LA, LB, LC, LWire: TBytes;
+begin
+  LSend := TRecordLayer.Create;
+  LRecv := TRecordLayer.Create;
+  try
+    LKey := DecodeHex('000102030405060708090a0b0c0d0e0f');
+    LIv := DecodeHex('101112131415161718191a1b');
+    LSend.SetWriteProtection(MakeTls13(LKey, LIv));
+    LRecv.SetReadProtection(MakeTls13(LKey, LIv));
+    LRecv.StrictApplicationData := True;
+    LRecv.SetEarlyReadAccepted(True, 8);
+    LA := DecodeHex('48656c6c6f'); // "Hello" (5)
+    LB := DecodeHex('212121');     // "!!!" (3)
+    // 5 + 3 exactly fills the budget: both surface
+    LSend.Write(TTlsContentType.ApplicationData, LA, 0, 5);
+    LSend.Write(TTlsContentType.ApplicationData, LB, 0, 3);
+    LWire := LSend.TakeOutgoing;
+    LRecv.ProcessInput(LWire, 0, System.Length(LWire));
+    CheckTrue(DrainOne(LRecv, LFrag), 'first early record within the budget');
+    CheckEqualBytes('first early plaintext', LA, LFrag.Data);
+    CheckTrue(DrainOne(LRecv, LFrag), 'second early record exactly fills the budget');
+    CheckEqualBytes('second early plaintext', LB, LFrag.Data);
+    // the window closes at EndOfEarlyData and the handshake completes; ordinary application
+    // data then flows uncounted
+    LRecv.SetEarlyReadAccepted(False, 0);
+    LRecv.SetHandshakeComplete;
+    LC := DecodeHex('576f726c64'); // "World"
+    LSend.Write(TTlsContentType.ApplicationData, LC, 0, 5);
+    LWire := LSend.TakeOutgoing;
+    LRecv.ProcessInput(LWire, 0, System.Length(LWire));
+    CheckTrue(DrainOne(LRecv, LFrag), 'application data flows after the early window closes');
+    CheckEqualBytes('post-early plaintext', LC, LFrag.Data);
   finally
     LSend.Free;
     LRecv.Free;

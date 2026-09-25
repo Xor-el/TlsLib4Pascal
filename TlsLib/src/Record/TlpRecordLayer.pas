@@ -75,6 +75,9 @@ type
     /// Set when the server installs the early read keys and cleared at EndOfEarlyData; outside
     /// that window an application_data record before the handshake completes is unexpected.</summary>
     FEarlyReadAccepted: Boolean;
+    /// <summary>How much more accepted early data the ticket's max_early_data_size allows
+    /// (RFC 8446 4.6.1); 0 outside the accepted window.</summary>
+    FEarlyReadRemaining: Int32;
     FInbound: TBytes;
     // live (un-taken) outbound bytes are [FOutHead, FOutTail) within the capacity buffer, so
     // append and take never shift it down (which would be quadratic on a chunk-drained bulk write)
@@ -222,8 +225,9 @@ type
     procedure SetEarlyDataSkip(AMaxBytes: Int32);
     /// <summary>Opens (server accepts 0-RTT, on installing the early read keys) or closes (at
     /// EndOfEarlyData) the accepted-early-data read window, during which an application_data
-    /// record legitimately precedes the handshake completion (RFC 8446 4.2.10).</summary>
-    procedure SetEarlyReadAccepted(AActive: Boolean);
+    /// record legitimately precedes the handshake completion (RFC 8446 4.2.10). AMaxBytes is
+    /// the ticket's max_early_data_size: accepted early data beyond it is fatal.</summary>
+    procedure SetEarlyReadAccepted(AActive: Boolean; AMaxBytes: Int32);
 
     /// <summary>Marks the handshake complete, after which a change_cipher_spec is no
     /// longer in its legal window and is rejected (RFC 8446 D.4).</summary>
@@ -259,6 +263,7 @@ resourcestring
   SUnexpectedContentType = 'unexpected record content type';
   SEmptyRecordFlood = 'too many consecutive empty records';
   STooMuchSkippedEarlyData = 'the peer sent more skipped early data than the bound allows';
+  STooMuchEarlyData = 'the peer sent more early data than the ticket''s max_early_data_size allows';
   SUnexpectedApplicationData = 'an application_data record arrived before any read epoch keys';
   SRecordSizeLimitExceeded = 'inbound record plaintext exceeds the negotiated record_size_limit';
   SChangeCipherSpecFlood = 'too many change_cipher_spec records';
@@ -456,11 +461,15 @@ begin
     FEarlyDataSkipRemaining := 0;
 end;
 
-procedure TRecordLayer.SetEarlyReadAccepted(AActive: Boolean);
+procedure TRecordLayer.SetEarlyReadAccepted(AActive: Boolean; AMaxBytes: Int32);
 begin
   // a server that accepts 0-RTT reads early data (application_data) before the handshake
   // completes; this marks that window open (on the early read keys) and closed (EndOfEarlyData)
   FEarlyReadAccepted := AActive;
+  if AActive and (AMaxBytes > 0) then
+    FEarlyReadRemaining := AMaxBytes
+  else
+    FEarlyReadRemaining := 0;
 end;
 
 function TRecordLayer.TryDecodeFramed(const ARecord: TBytes;
@@ -492,6 +501,17 @@ begin
           (FEarlyDataSkipRemaining = 0) then
           raise EFatalAlertTlsLibException.CreateRes(
             TTlsAlertDescription.UnexpectedMessage, @SUnexpectedApplicationData);
+        // the server MUST NOT accept more 0-RTT than the ticket's max_early_data_size and
+        // terminates with unexpected_message past it (RFC 8446 4.6.1); the limit counts the
+        // early-data payload, not the record's type byte or padding
+        if FEarlyReadAccepted and
+          (AFragment.ContentType = TTlsContentType.ApplicationData) then
+        begin
+          if System.Length(AFragment.Data) > FEarlyReadRemaining then
+            raise EFatalAlertTlsLibException.CreateRes(
+              TTlsAlertDescription.UnexpectedMessage, @STooMuchEarlyData);
+          Dec(FEarlyReadRemaining, System.Length(AFragment.Data));
+        end;
         if System.Length(AFragment.Data) = 0 then
         begin
           // a zero-length handshake or alert record is forbidden; only an empty application_data

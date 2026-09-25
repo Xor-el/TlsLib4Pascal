@@ -98,9 +98,10 @@ type
     class function RevertWriteToPlaintext: THandshakeEffect; static;
     /// <summary>Opens (AActive) or closes the accepted-0-RTT early-data read window on the record
     /// layer: while open, an application_data record legitimately precedes the handshake
-    /// completion (RFC 8446 4.2.10). A server emits it on accepting early data and at
-    /// EndOfEarlyData.</summary>
-    class function SetEarlyReadEpoch(AActive: Boolean): THandshakeEffect; static;
+    /// completion (RFC 8446 4.2.10). A server emits it on accepting early data, with the
+    /// ticket's max_early_data_size as AMaxBytes (RFC 8446 4.6.1), and at EndOfEarlyData.</summary>
+    class function SetEarlyReadEpoch(AActive: Boolean;
+      AMaxBytes: Int32 = 0): THandshakeEffect; static;
     class function RaiseEvent(AEvent: TTlsEventKind): THandshakeEffect; static;
     /// <summary>Parks the handshake for an out-of-band peer-certificate verdict: the driver
     /// surfaces AChain (as presented), AValidatedPath (the pipeline-validated path, leaf first with
@@ -232,11 +233,13 @@ begin
   Result.Kind := THandshakeEffectKind.RevertWriteToPlaintext;
 end;
 
-class function THandshakeEffects.SetEarlyReadEpoch(AActive: Boolean): THandshakeEffect;
+class function THandshakeEffects.SetEarlyReadEpoch(AActive: Boolean;
+  AMaxBytes: Int32): THandshakeEffect;
 begin
   Result := Default(THandshakeEffect);
   Result.Kind := THandshakeEffectKind.SetEarlyReadEpoch;
   Result.Resumed := AActive; // the early-data read window is open (True) or closed (False)
+  Result.Inbound := AMaxBytes; // the accepted early-data byte budget from the ticket
 end;
 
 class function THandshakeEffects.RaiseEvent(AEvent: TTlsEventKind): THandshakeEffect;

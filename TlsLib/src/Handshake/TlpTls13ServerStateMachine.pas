@@ -184,6 +184,10 @@ type
   /// </summary>
   TTls13ServerStateMachine = class sealed(TTls13HandshakeBase, ITls13ServerReplay)
   strict private
+  const
+    /// <summary>The tolerated skew between the client-reported and the server-measured ticket
+    /// age for a 0-RTT offer (RFC 8446 8.2); also sizes the anti-replay hold.</summary>
+    MaxFreshnessSkewMillis = UInt32(60) * 1000;
   type
     TPhase = (Initial, WaitSecondClientHello, WaitClientCertificate,
       WaitClientCertVerify, WaitEndOfEarlyData, WaitClientFinished, Connected);
@@ -727,8 +731,6 @@ end;
 
 class function TTls13ServerStateMachine.EarlyDataAgeFresh(AObfuscatedAgeMillis,
   ATicketAgeAdd: UInt32; AIssuedAtMillis, ANowMillis: UInt64): Boolean;
-const
-  MaxFreshnessSkewMillis = UInt32(60) * 1000;
 var
   LClientAgeMs, LServerAgeMs, LSkewMs: UInt32;
   LElapsedMs: UInt64;
@@ -848,13 +850,15 @@ begin
   AContext.SelectedPskIdentity := 0;
   // accept 0-RTT only when configured, the ticket authorized it, the reported ticket age is
   // fresh (bounded clock skew, RFC 8446 8.2), and the binder is not a replay - the binder
-  // uniquely identifies this early-data attempt (RFC 8446 8)
+  // uniquely identifies this early-data attempt (RFC 8446 8). A replay only passes the
+  // freshness check within ~2x the skew of the original, so a strike held longer than that
+  // just fills the register (RFC 8446 8.3)
   FEarlyDataAccepted := FEarlyDataOfferedByClient and (FParams.MaxEarlyData > 0) and
     (LSession.MaxEarlyData > 0) and
     EarlyDataAgeFresh(AContext.OfferedPskAges[0], LSession.TicketAgeAdd,
     LSession.IssuedAtMillis, LNowMs) and (FParams.AntiReplay <> nil) and
     FParams.AntiReplay.CheckAndRecord(AContext.OfferedPskBinders[0], LNowMs,
-    LNowMs + UInt64(LSession.TicketLifetime) * 1000);
+    LNowMs + UInt64(2 * MaxFreshnessSkewMillis));
   Result := True;
 end;
 
@@ -1395,9 +1399,10 @@ begin
       TTlsDirection.ClientWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead,
       TTlsVersion.Tls13));
     // the read side is on the early-data epoch: application_data (the client's 0-RTT data)
-    // legitimately precedes the handshake completion until EndOfEarlyData (RFC 8446 4.2.10)
+    // legitimately precedes the handshake completion until EndOfEarlyData (RFC 8446 4.2.10),
+    // bounded by the max_early_data_size of the ticket that authorized it (RFC 8446 4.6.1)
     TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.SetEarlyReadEpoch(True));
+      THandshakeEffects.SetEarlyReadEpoch(True, EarlyDataBudget(FResumedMaxEarlyData)));
   end
   else
   begin
@@ -1716,7 +1721,7 @@ begin
   // the early-data read window is over: the client's remaining flight (its Finished) is under
   // the handshake keys, and further application_data before that Finished is unexpected
   Result := TArray<THandshakeEffect>.Create(
-    THandshakeEffects.SetEarlyReadEpoch(False),
+    THandshakeEffects.SetEarlyReadEpoch(False, 0),
     THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Handshake,
     TTlsDirection.ClientWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead,
     TTlsVersion.Tls13));

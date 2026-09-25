@@ -139,7 +139,7 @@ begin
     THandshakeEffectKind.RevertWriteToPlaintext:
       FInstaller.RevertWriteToPlaintext;
     THandshakeEffectKind.SetEarlyReadEpoch:
-      FInstaller.SetEarlyReadEpoch(AEffect.Resumed);
+      FInstaller.SetEarlyReadEpoch(AEffect.Resumed, AEffect.Inbound);
     THandshakeEffectKind.RaiseEvent:
       FSink.OnHandshakeEvent(AEffect.Event);
     THandshakeEffectKind.AwaitCertificateVerdict:
