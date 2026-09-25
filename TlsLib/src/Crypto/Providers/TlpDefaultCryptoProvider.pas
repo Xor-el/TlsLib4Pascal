@@ -121,7 +121,7 @@ uses
   TlpICryptoProvider,
   TlpISigningKey,
   TlpIKeyExchangePrivateKey,
-  TlpTlsCredential,
+  TlpImportedCredential,
   TlpISecretBuffer,
   TlpSecretBuffer,
   TlpTls12PrfComposition,
@@ -440,29 +440,24 @@ type
     function GetPassword: TArray<Char>;
   end;
 
-  // The provider-internal face of an imported signing key: it hands back the parsed
-  // key parameter (parsed and validated once at import, reused for every sign) plus the
-  // canonical PKCS#8 bytes. Kept off ISigningKey so no key material appears on the
-  // public surface.
+  // The provider-internal face of an imported signing key: it hands back the parsed key
+  // parameter, parsed and validated once at import and reused for every sign. Kept off
+  // ISigningKey so no key handle appears on the public surface.
   IProviderSigningKey = interface(IInterface)
     ['{6A7F0E2C-1B94-4D8A-9F3C-2E5B7C8D1A64}']
-    function PrivateKeyInfo: ISecretBuffer;
     function KeyParameter: IAsymmetricKeyParameter;
   end;
 
   TSigningKey = class(TInterfacedObject, ISigningKey, IProviderSigningKey)
   strict private
   var
-    FPrivateKeyInfo: ISecretBuffer;
     FKeyParameter: IAsymmetricKeyParameter;
     FCapableSchemes: TArray<TSignatureScheme>;
   public
-    constructor Create(const APrivateKeyInfo: ISecretBuffer;
-      const AKeyParameter: IAsymmetricKeyParameter;
+    constructor Create(const AKeyParameter: IAsymmetricKeyParameter;
       const ACapableSchemes: TArray<TSignatureScheme>);
     function CapableSchemes: TArray<TSignatureScheme>;
     function WithPreferredSchemes(const ASchemes: TArray<TSignatureScheme>): ISigningKey;
-    function PrivateKeyInfo: ISecretBuffer;
     function KeyParameter: IAsymmetricKeyParameter;
   end;
 
@@ -489,8 +484,8 @@ type
     class procedure WipePasswordChars(var APassword: TArray<Char>); static;
     class function ImportKey(const AData: TBytes;
       const APassword: ISecretBuffer): ISigningKey; static;
-    /// <summary>The one signing-key construction path: normalizes a parsed private-key
-    /// parameter to canonical PKCS#8 (held wipeably), derives its schemes, and wraps it.
+    /// <summary>The one signing-key construction path: derives the schemes a parsed private-key
+    /// parameter can sign with and wraps it (the signing key holds only the parsed parameter).
     /// Both raw-key and PKCS#12 import funnel through here. Raises ENotSupported for a key
     /// algorithm this library cannot sign with.</summary>
     class function SigningKeyFromParam(
@@ -563,7 +558,7 @@ type
     function ImportSigningKey(const AData: TBytes;
       const APassword: ISecretBuffer): ISigningKey; overload;
     function ImportPkcs12(const AData: TBytes;
-      const APassword: ISecretBuffer): TTlsCredential;
+      const APassword: ISecretBuffer): TImportedCredential;
     function CreateSignatureSigner(AScheme: TSignatureScheme;
       const AKey: ISigningKey): ISignatureSigner;
     function CreateSignatureVerifier(AScheme: TSignatureScheme;
@@ -1342,12 +1337,10 @@ end;
 
 { TSigningKey }
 
-constructor TSigningKey.Create(const APrivateKeyInfo: ISecretBuffer;
-  const AKeyParameter: IAsymmetricKeyParameter;
+constructor TSigningKey.Create(const AKeyParameter: IAsymmetricKeyParameter;
   const ACapableSchemes: TArray<TSignatureScheme>);
 begin
   inherited Create;
-  FPrivateKeyInfo := APrivateKeyInfo;
   FKeyParameter := AKeyParameter;
   FCapableSchemes := ACapableSchemes;
 end;
@@ -1368,7 +1361,7 @@ begin
     Exit(Self);
   LNarrowed := nil;
   // keep the requested schemes this key can actually sign, in the requested order;
-  // the new handle shares the same parsed key and canonical bytes
+  // the new handle shares the same parsed key
   for LPref in ASchemes do
     for LCapable in FCapableSchemes do
       if LPref = LCapable then
@@ -1378,12 +1371,7 @@ begin
         LNarrowed[LN] := LPref;
         Break;
       end;
-  Result := TSigningKey.Create(FPrivateKeyInfo, FKeyParameter, LNarrowed);
-end;
-
-function TSigningKey.PrivateKeyInfo: ISecretBuffer;
-begin
-  Result := FPrivateKeyInfo;
+  Result := TSigningKey.Create(FKeyParameter, LNarrowed);
 end;
 
 function TSigningKey.KeyParameter: IAsymmetricKeyParameter;
@@ -1581,29 +1569,20 @@ class function TCredentialImport.SigningKeyFromParam(
   const AKeyParam: IAsymmetricKeyParameter): ISigningKey;
 var
   LInfo: IPrivateKeyInfo;
-  LPkcs8: TBytes;
   LSchemes: TArray<TSignatureScheme>;
-  LBuffer: ISecretBuffer;
 begin
   if (AKeyParam = nil) or (not AKeyParam.IsPrivate) then
     raise EArgumentTlsLibException.CreateRes(@SMalformedPrivateKey);
+  // capability comes straight off the parsed key info; the signing key holds only the parsed
+  // key parameter (reused for every sign) - the PKCS#8 bytes are not retained
   LInfo := TPrivateKeyInfoFactory.CreatePrivateKeyInfo(AKeyParam);
-  // capability comes straight off the parsed key info; hold the parsed key (reused for
-  // every sign) plus canonical PKCS#8 (the wipeable export form)
   LSchemes := SchemesForKeyInfo(LInfo);
-  LPkcs8 := LInfo.GetDerEncoded;
-  try
-    LBuffer := TSecretBuffer.From(LPkcs8);
-  finally
-    TSecureMemory.WipeBytes(LPkcs8);
-  end;
-  Result := TSigningKey.Create(LBuffer, AKeyParam, LSchemes);
+  Result := TSigningKey.Create(AKeyParam, LSchemes);
 end;
 
-// Imports a signing key in any supported encoding: normalizes it to canonical
-// PKCS#8 (held wipeably) and derives the schemes it can sign with. Any backend
-// parse failure is reclassified as a typed library exception, so no Clp*/ASN.1
-// exception escapes the provider.
+// Imports a signing key in any supported encoding: parses it to a key parameter and
+// derives the schemes it can sign with. Any backend parse failure is reclassified as a
+// typed library exception, so no Clp*/ASN.1 exception escapes the provider.
 class function TCredentialImport.ImportKey(const AData: TBytes;
   const APassword: ISecretBuffer): ISigningKey;
 var
@@ -1952,7 +1931,7 @@ begin
 end;
 
 function TSigningCrypto.ImportPkcs12(const AData: TBytes;
-  const APassword: ISecretBuffer): TTlsCredential;
+  const APassword: ISecretBuffer): TImportedCredential;
 var
   LStore: IPkcs12Store;
   LStoreBuilder: IPkcs12StoreBuilder;
@@ -2005,7 +1984,7 @@ begin
       for LI := 0 to System.High(LChainEntries) do
         LChain[LI] := LChainEntries[LI].Certificate.GetEncoded;
 
-      // the single signing-key path shared with ImportSigningKey; wipes the PKCS#8
+      // the single signing-key path shared with ImportSigningKey
       Result.PrivateKey := TCredentialImport.SigningKeyFromParam(
         LStore.GetKey(LKeyAlias).Key);
       Result.CertificateChain := LChain;

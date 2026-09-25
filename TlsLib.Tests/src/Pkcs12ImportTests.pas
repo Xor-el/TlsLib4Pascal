@@ -32,7 +32,7 @@ uses
   TlpSecretBuffer,
   TlpCryptoDomainTypes,
   TlpISigningKey,
-  TlpTlsCredential,
+  TlpImportedCredential,
   TlpICertificateTrust,
   TlpTrustTypes,
   TlpServerName,
@@ -42,7 +42,7 @@ uses
   TlsLibTestBase;
 
 type
-  /// <summary>Covers ImportPkcs12: a .pfx round-trips into a complete TTlsCredential (chain
+  /// <summary>Covers ImportPkcs12: a .pfx round-trips into a complete TImportedCredential (chain
   /// + a usable ISigningKey) independent of the store's PBE profile, the chain is leaf-first
   /// with any CA present and validates through the certificate-verifier path, and a wrong
   /// password or malformed blob fails closed with a typed TlsLib exception - never a raw
@@ -54,7 +54,7 @@ type
     function Blob(const AField: string): TBytes;
     // Signs a fixed probe with the credential's key (its first capable scheme) and verifies
     // it against the leaf certificate's SubjectPublicKeyInfo. True when the key pairs the leaf.
-    function KeyPairsLeaf(const ACredential: TTlsCredential): Boolean;
+    function KeyPairsLeaf(const ACredential: TImportedCredential): Boolean;
   protected
     procedure SetUp; override;
     procedure TearDown; override;
@@ -94,7 +94,7 @@ begin
   Result := DecodeHex(FV.Values[AField]);
 end;
 
-function TTestPkcs12Import.KeyPairsLeaf(const ACredential: TTlsCredential): Boolean;
+function TTestPkcs12Import.KeyPairsLeaf(const ACredential: TImportedCredential): Boolean;
 var
   LScheme: TSignatureScheme;
   LSigner: ISignatureSigner;
@@ -115,7 +115,7 @@ end;
 
 procedure TTestPkcs12Import.TestRsaPfxImportsToCredential;
 var
-  LCredential: TTlsCredential;
+  LCredential: TImportedCredential;
 begin
   LCredential := Crypto.Signing.ImportPkcs12(Blob('rsa_pfx'), TSecretBuffer.FromString(SPassword));
   CheckEquals(1, System.Length(LCredential.CertificateChain),
@@ -128,7 +128,7 @@ end;
 
 procedure TTestPkcs12Import.TestEcPfxImportsToCredential;
 var
-  LCredential: TTlsCredential;
+  LCredential: TImportedCredential;
 begin
   LCredential := Crypto.Signing.ImportPkcs12(Blob('ec_pfx'), TSecretBuffer.FromString(SPassword));
   CheckEquals(1, System.Length(LCredential.CertificateChain),
@@ -141,7 +141,7 @@ end;
 
 procedure TTestPkcs12Import.TestChainPfxIsLeafFirstAndVerifies;
 var
-  LCredential: TTlsCredential;
+  LCredential: TImportedCredential;
   LVerifier: IServerCertificateVerifier;
   LAlert: TTlsAlertDescription;
   LVerified: TVerifiedChain;
@@ -165,7 +165,7 @@ end;
 
 procedure TTestPkcs12Import.TestAlternateAlgorithmProfileImports;
 var
-  LCredential: TTlsCredential;
+  LCredential: TImportedCredential;
 begin
   // the same RSA leaf stored under a different PBE profile (PBES2 AES-128-CBC bags + a
   // SHA-1 integrity MAC, versus rsa_pfx's AES-256-CBC + SHA-256) imports the same way:
@@ -180,7 +180,7 @@ end;
 procedure TTestPkcs12Import.TestMultiKeyPfxFailsClosed;
 var
   LRaised: Boolean;
-  LCredential: TTlsCredential;
+  LCredential: TImportedCredential;
 begin
   // a store with more than one private-key entry is ambiguous for a single credential;
   // alias order is not stable, so it must be rejected rather than binding an arbitrary one
@@ -199,7 +199,7 @@ end;
 procedure TTestPkcs12Import.TestWrongPasswordFailsClosed;
 var
   LRaised: Boolean;
-  LCredential: TTlsCredential;
+  LCredential: TImportedCredential;
 begin
   LRaised := False;
   try
@@ -217,7 +217,7 @@ end;
 procedure TTestPkcs12Import.TestMalformedBlobFailsClosed;
 var
   LRaised: Boolean;
-  LCredential: TTlsCredential;
+  LCredential: TImportedCredential;
 begin
   LRaised := False;
   try

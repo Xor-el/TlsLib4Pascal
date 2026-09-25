@@ -29,7 +29,7 @@ uses
   TlpIKeyExchangePrivateKey,
   TlpICryptoBackendReport,
   TlpISigningKey,
-  TlpTlsCredential,
+  TlpImportedCredential,
   TlpISecretBuffer,
   TlpSecretBuffer,
   TlpSecureMemory,
@@ -931,7 +931,7 @@ type
     function ImportSigningKey(const AData: TBytes;
       const APassword: ISecretBuffer): ISigningKey; overload;
     function ImportPkcs12(const AData: TBytes;
-      const APassword: ISecretBuffer): TTlsCredential;
+      const APassword: ISecretBuffer): TImportedCredential;
     function CreateSignatureSigner(AScheme: TSignatureScheme;
       const AKey: ISigningKey): ISignatureSigner;
     function CreateSignatureVerifier(AScheme: TSignatureScheme;
@@ -3840,7 +3840,7 @@ begin
 end;
 
 function TWindowsSigningCrypto.ImportPkcs12(const AData: TBytes;
-  const APassword: ISecretBuffer): TTlsCredential;
+  const APassword: ISecretBuffer): TImportedCredential;
 var
   LNativeKey: ISigningKey;
 begin

@@ -135,6 +135,10 @@ type
     X25519MlKem768 = UInt16($11EC);
   public
     class function TryCode(const AName: string; out ACode: UInt16): Boolean; static;
+    /// <summary>The canonical provider group name for a codepoint (the spelling TryCode maps
+    /// back), so a group's name is authoritative here rather than taken from a backend handle
+    /// (whose spelling can differ between providers). The bare hex codepoint for an unknown code.</summary>
+    class function Name(ACode: UInt16): string; static;
   end;
 
 const
@@ -209,6 +213,29 @@ begin
   begin
     ACode := 0;
     Result := False;
+  end;
+end;
+
+class function TNamedGroupCatalog.Name(ACode: UInt16): string;
+begin
+  // the canonical spelling for each code (the exact string TryCode maps back)
+  case ACode of
+    X25519:
+      Result := 'X25519';
+    Secp256r1:
+      Result := 'secp256r1';
+    Secp384r1:
+      Result := 'secp384r1';
+    Secp521r1:
+      Result := 'secp521r1';
+    MlKem768:
+      Result := 'ML-KEM-768';
+    SecP256r1MlKem768:
+      Result := 'SecP256r1MLKEM768';
+    X25519MlKem768:
+      Result := 'X25519MLKEM768';
+  else
+    Result := Format('0x%.4X', [ACode]);
   end;
 end;
 

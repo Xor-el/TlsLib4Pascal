@@ -20,7 +20,7 @@ uses
   TlpCryptoDomainTypes,
   TlpISigningKey,
   TlpIKeyExchangePrivateKey,
-  TlpTlsCredential,
+  TlpImportedCredential,
   TlpISecretBuffer;
 
 type
@@ -242,17 +242,17 @@ type
     function ImportSigningKey(const AData: TBytes;
       const APassword: ISecretBuffer): ISigningKey; overload;
     /// <summary>
-    /// Imports a PKCS#12 (.pfx/.p12) blob decrypted with APassword into a complete
-    /// credential: the leaf and any intermediates as the chain (leaf first, DER) and an
-    /// ISigningKey composed from the enclosed private key. The store must hold exactly one
-    /// private-key entry - a multi-identity store is ambiguous and rejected. Fails closed:
-    /// a wrong password, bad MAC, malformed store, or an ambiguous/absent key raises
+    /// Imports a PKCS#12 (.pfx/.p12) blob decrypted with APassword into a crypto-level identity:
+    /// the leaf and any intermediates as the chain (leaf first, DER) and an ISigningKey composed
+    /// from the enclosed private key (the builder lifts it into a full TTlsCredential). The store
+    /// must hold exactly one private-key entry - a multi-identity store is ambiguous and rejected.
+    /// Fails closed: a wrong password, bad MAC, malformed store, or an ambiguous/absent key raises
     /// EArgumentTlsLibException and no partial credential is returned; an unsupported key
     /// algorithm raises ENotSupportedTlsLibException. The passphrase is a wiped buffer of host
     /// code units: nil means no passphrase, a zero-length buffer means an empty passphrase.
     /// </summary>
     function ImportPkcs12(const AData: TBytes;
-      const APassword: ISecretBuffer): TTlsCredential;
+      const APassword: ISecretBuffer): TImportedCredential;
     /// <summary>A signer for AScheme over the imported signing key AKey. Raises
     /// EArgumentTlsLibException when AScheme is not among the key's CapableSchemes or the key
     /// cannot produce it; never lets a raw backend exception cross the seam.</summary>
