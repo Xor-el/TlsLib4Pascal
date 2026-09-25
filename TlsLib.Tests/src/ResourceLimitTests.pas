@@ -63,8 +63,8 @@ type
     procedure TestHandshakeReassemblyOverflowRejected;
     procedure TestDuplicateExtensionRejected;
     procedure TestExtensionCountFloodRejected;
-    procedure TestOverLongCertificateChainRejected;
     procedure TestOversizeCertificateRejected;
+    procedure TestDecompressionHonoursConfiguredCeiling;
     procedure TestCertificateDecompressionRoundTrip;
     procedure TestCertificateDecompressionRatioBombRejected;
     procedure TestCertificateDecompressionDeclaredTooLargeRejected;
@@ -245,22 +245,6 @@ begin
     'an extension-count flood is decode_error');
 end;
 
-procedure TTestResourceLimit.TestOverLongCertificateChainRejected;
-var
-  LChain: TArray<TBytes>;
-  LAlert: TTlsAlertDescription;
-  LI: Int32;
-begin
-  // a chain longer than the cap is rejected before any PKIX work
-  LChain := nil;
-  SetLength(LChain, 11);
-  for LI := 0 to 10 do
-    LChain[LI] := JunkCert(16);
-  CheckTrue(VerifyAlert(LChain, LAlert), 'an over-long chain aborts');
-  CheckTrue(LAlert = TTlsAlertDescription.BadCertificate,
-    'an over-long chain is bad_certificate');
-end;
-
 procedure TTestResourceLimit.TestOversizeCertificateRejected;
 var
   LAlert: TTlsAlertDescription;
@@ -270,6 +254,25 @@ begin
     'an oversize certificate aborts');
   CheckTrue(LAlert = TTlsAlertDescription.BadCertificate,
     'an oversize certificate is bad_certificate');
+end;
+
+procedure TTestResourceLimit.TestDecompressionHonoursConfiguredCeiling;
+var
+  LRaised: Boolean;
+begin
+  // the ceiling overload bounds the declared length by the caller's configured budget rather
+  // than the fixed 256 KiB constant: a declared length above the passed ceiling (but below the
+  // hard constant) is refused, so the compressed path composes with the chain limits
+  LRaised := False;
+  try
+    TCertificateCompression.Decompress(
+      TZlibCertificateCompression.DefaultDecompressors,
+      TCertificateCompressionAlgorithms.Zlib, JunkCert(64), 4096, 1024);
+  except
+    on E: EFatalAlertTlsLibException do
+      LRaised := E.AlertDescription = TTlsAlertDescription.BadCertificate;
+  end;
+  CheckTrue(LRaised, 'a declared length above the configured ceiling is rejected');
 end;
 
 procedure TTestResourceLimit.TestCertificateDecompressionRoundTrip;

@@ -78,13 +78,22 @@ type
       const ACompressor: ICertificateCompressor; const ABody: TBytes): TBytes; static;
     /// <summary>
     /// Decompresses ACompressed under AAlgorithm using ADecompressors, bounded to
-    /// ADeclaredLength. Raises a bad_certificate fatal alert on an unsupported
-    /// algorithm, a declared length outside its bounds, a ratio that reeks of a bomb,
-    /// or an output whose length does not match the declared length.
+    /// ADeclaredLength against the hard MaxDecompressedLength ceiling. Raises a
+    /// bad_certificate fatal alert on an unsupported algorithm, a declared length
+    /// outside its bounds, a ratio that reeks of a bomb, or an output whose length
+    /// does not match the declared length.
     /// </summary>
     class function Decompress(
       const ADecompressors: TArray<ICertificateDecompressor>; AAlgorithm: UInt16;
-      const ACompressed: TBytes; ADeclaredLength: Int32): TBytes; static;
+      const ACompressed: TBytes; ADeclaredLength: Int32): TBytes; overload; static;
+    /// <summary>As above, but with an explicit AMaxLength ceiling so the caller's
+    /// configured budget (the certificate-chain limits) bounds the decompressed body
+    /// rather than the fixed MaxDecompressedLength - the compressed and uncompressed
+    /// paths then honour the same cap.</summary>
+    class function Decompress(
+      const ADecompressors: TArray<ICertificateDecompressor>; AAlgorithm: UInt16;
+      const ACompressed: TBytes; ADeclaredLength, AMaxLength: Int32): TBytes;
+      overload; static;
   end;
 
 implementation
@@ -155,11 +164,19 @@ end;
 class function TCertificateCompression.Decompress(
   const ADecompressors: TArray<ICertificateDecompressor>; AAlgorithm: UInt16;
   const ACompressed: TBytes; ADeclaredLength: Int32): TBytes;
+begin
+  Result := Decompress(ADecompressors, AAlgorithm, ACompressed, ADeclaredLength,
+    MaxDecompressedLength);
+end;
+
+class function TCertificateCompression.Decompress(
+  const ADecompressors: TArray<ICertificateDecompressor>; AAlgorithm: UInt16;
+  const ACompressed: TBytes; ADeclaredLength, AMaxLength: Int32): TBytes;
 var
   LDecompressor, LFound: ICertificateDecompressor;
 begin
   Result := nil;
-  if (ADeclaredLength <= 0) or (ADeclaredLength > MaxDecompressedLength) then
+  if (ADeclaredLength <= 0) or (ADeclaredLength > AMaxLength) then
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.BadCertificate,
       @SBadDeclaredLength);
   // reject an obvious bomb before allocating: a huge declared expansion over the

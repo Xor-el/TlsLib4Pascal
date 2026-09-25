@@ -313,6 +313,7 @@ begin
   // destination on its own cache key even though an IP is never sent as SNI
   L13.ServerIdentity := LServerName.ToString;
   L13.CertificateVerifier := LVerifier;
+  L13.CertificateChainLimits := AConfig.CertificateChainLimits;
   L13.ResumeCertificateVerifier := LResumeVerifier;
   L13.Deferral := LDeferral;
   // Encrypted Client Hello policy (RFC 9849), nil when not offered
@@ -401,7 +402,9 @@ begin
   else
     LMachine := TTls12ClientStateMachine.Create(L12);
 
-  Result := TTlsEngine.CreateConfigured(LMachine, AConfig.Crypto);
+  // a client always receives the server's Certificate, so bound its reassembler by the chain budget
+  Result := TTlsEngine.CreateConfigured(LMachine, AConfig.Crypto,
+    AConfig.CertificateChainLimits.MaxTotalChainLength);
 end;
 
 class function TTlsEngineFactory.CreateServerEngine(
@@ -557,7 +560,13 @@ begin
   else
     LMachine := TTls12ServerStateMachine.Create(L12);
 
-  Result := TTlsEngine.CreateConfigured(LMachine, AConfig.Crypto);
+  // a server receives a peer Certificate only when it requests client authentication; otherwise it
+  // never reassembles one, so the reassembler keeps the tighter default cap
+  if AConfig.ClientAuth <> TClientAuthMode.None then
+    Result := TTlsEngine.CreateConfigured(LMachine, AConfig.Crypto,
+      AConfig.CertificateChainLimits.MaxTotalChainLength)
+  else
+    Result := TTlsEngine.CreateConfigured(LMachine, AConfig.Crypto);
 end;
 
 end.

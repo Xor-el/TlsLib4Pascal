@@ -31,6 +31,7 @@ uses
   TlpRecordLayer,
   TlpTlsConnectionInfo,
   TlpITlsEngine,
+  TlpHandshakeMessage,
   TlpHandshakeMessages,
   TlpTlsEngineEvents,
   TlpIHandshakeChannel,
@@ -103,12 +104,22 @@ type
     /// graph) and whether the engine initiates the first flight.
     /// </summary>
     constructor Create(const AInitialMachine: IHandshakeMachine;
-      const ACryptoProvider: ICryptoProvider);
+      const ACryptoProvider: ICryptoProvider); overload;
+    /// <summary>As above, bounding the inbound Certificate message to AMaxCertificateMessageLength
+    /// (the config's certificate-chain budget) so the uncompressed peer chain is capped in step
+    /// with the compressed path and the decode-boundary chain-cap gate.</summary>
+    constructor Create(const AInitialMachine: IHandshakeMachine;
+      const ACryptoProvider: ICryptoProvider;
+      AMaxCertificateMessageLength: Int32); overload;
     destructor Destroy; override;
 
     /// <summary>Builds a wired engine and returns it as an ITlsEngine.</summary>
     class function CreateConfigured(const AInitialMachine: IHandshakeMachine;
-      const ACryptoProvider: ICryptoProvider): ITlsEngine; static;
+      const ACryptoProvider: ICryptoProvider): ITlsEngine; overload; static;
+    /// <summary>As above, with the config's Certificate-message cap threaded to the reassembler.</summary>
+    class function CreateConfigured(const AInitialMachine: IHandshakeMachine;
+      const ACryptoProvider: ICryptoProvider;
+      AMaxCertificateMessageLength: Int32): ITlsEngine; overload; static;
 
     function ProcessInput(const AWire: TBytes; AOffset, ALength: Int32): TTlsOutcome;
     procedure Write(const AData: TBytes; AOffset, ALength: Int32);
@@ -386,6 +397,12 @@ end;
 
 constructor TTlsEngine.Create(const AInitialMachine: IHandshakeMachine;
   const ACryptoProvider: ICryptoProvider);
+begin
+  Create(AInitialMachine, ACryptoProvider, DefaultMaxHandshakeMessageLength);
+end;
+
+constructor TTlsEngine.Create(const AInitialMachine: IHandshakeMachine;
+  const ACryptoProvider: ICryptoProvider; AMaxCertificateMessageLength: Int32);
 var
   LChannel: IHandshakeChannel;
   LBridge: TEngineHandshakeBridge;
@@ -415,7 +432,8 @@ begin
   // backward compatibility before the negotiated version is known (RFC 8446 5.1)
   if AInitialMachine.Initiates then
     FRecordLayer.UseClientInitialRecordVersion;
-  LChannel := THandshakeChannel.Create(FRecordLayer) as IHandshakeChannel;
+  LChannel := THandshakeChannel.Create(FRecordLayer, AMaxCertificateMessageLength)
+    as IHandshakeChannel;
   LBridge := TEngineHandshakeBridge.Create(Self);
   LDriver := THandshakeDriver.Create(LChannel, LBridge as IRecordEpochInstaller,
     ACryptoProvider, LBridge as IHandshakeSink);
@@ -437,6 +455,15 @@ class function TTlsEngine.CreateConfigured(
   const ACryptoProvider: ICryptoProvider): ITlsEngine;
 begin
   Result := TTlsEngine.Create(AInitialMachine, ACryptoProvider);
+end;
+
+class function TTlsEngine.CreateConfigured(
+  const AInitialMachine: IHandshakeMachine;
+  const ACryptoProvider: ICryptoProvider;
+  AMaxCertificateMessageLength: Int32): ITlsEngine;
+begin
+  Result := TTlsEngine.Create(AInitialMachine, ACryptoProvider,
+    AMaxCertificateMessageLength);
 end;
 
 procedure TTlsEngine.Enqueue(const AEvent: ITlsEvent);

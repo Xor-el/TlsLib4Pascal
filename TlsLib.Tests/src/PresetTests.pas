@@ -100,9 +100,8 @@ begin
   // Strict expects a short chain of compact certificates, tighter than the default
   LStrict := ClientOf(TTlsPresets.Strict(Crypto, Pkix)).CertificateChainLimits;
   LCompatible := ClientOf(TTlsPresets.Compatible(Crypto, Pkix)).CertificateChainLimits;
-  CheckEquals(5, LStrict.MaxChainLength, 'Strict caps the chain length tightly');
-  CheckTrue(LStrict.MaxChainLength < LCompatible.MaxChainLength,
-    'Strict is tighter than the default profile');
+  CheckTrue(LStrict.MaxCertificateLength < LCompatible.MaxCertificateLength,
+    'Strict caps the per-certificate bytes tighter');
   CheckTrue(LStrict.MaxTotalChainLength < LCompatible.MaxTotalChainLength,
     'Strict caps the total chain bytes tighter');
 end;

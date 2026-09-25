@@ -173,6 +173,8 @@ begin
   LReader := THandshakeMessageReader.Create;
   try
     LReader.MaxMessageLength := 8;
+    // the Certificate type is bounded by its own cap (see MaxCertificateMessageLength)
+    LReader.MaxCertificateMessageLength := 8;
     // a Certificate header declaring a 100-byte body against an 8-byte cap
     LReader.Append(DecodeHex('0b000064'), 0, 4);
     LRaised := False;

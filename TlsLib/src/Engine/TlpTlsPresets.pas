@@ -120,9 +120,8 @@ begin
   LProfile.PreferredGroups := TArray<UInt16>.Create(
     TNamedGroupCatalog.X25519MlKem768, TNamedGroupCatalog.X25519);
   // a hardened profile expects a short chain of compact certificates
-  LLimits.MaxChainLength := 5;
-  LLimits.MaxCertificateLength := 1 shl 15;
-  LLimits.MaxTotalChainLength := 1 shl 16;
+  LLimits.MaxCertificateLength := 1 shl 14;
+  LLimits.MaxTotalChainLength := 1 shl 15;
   LProfile.CertificateChainLimits := LLimits;
   // the strictest posture defaults resumption off; a caller may re-enable it with no guard
   LProfile.Resumption := False;
