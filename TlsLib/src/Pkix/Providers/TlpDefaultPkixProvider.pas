@@ -618,20 +618,15 @@ const
   // the builder only reconstructs an INCOMPLETE chain, which is inherently shallow (a real
   // hierarchy is a leaf plus at most a few intermediates). Capping the built path's length
   // keeps a hostile peer that pads its chain with many like-named certificates from driving
-  // the depth-first search into an expensive fan-out. A legitimately deeper chain sent in
-  // full is unaffected: the strict literal pass below has no such cap and accepts it there.
+  // the depth-first search into an expensive fan-out; depth 4 over a small pool is the real bound
   MaxBuiltPathLength = 4;
 var
   LParser: IX509CertificateParser;
   LCerts, LPool, LInter: TArray<IX509Certificate>;
   LAnchors: TArray<ITrustAnchor>;
-  LBuilt, LOrdered: TArray<IX509Certificate>;
+  LBuilt: TArray<IX509Certificate>;
   LAnchorKey: TBytes;
-  LHit, LLiteralValidated: Boolean;
-  LParams: IPkixParameters;
-  LPath: IPkixCertPath;
-  LValidator: IPkixCertPathValidator;
-  LValidatorResult: IPkixCertPathValidatorResult;
+  LHit: Boolean;
   LTarget: IX509CertStoreSelector;
   LBuilderParams: IPkixBuilderParameters;
   LPoolStore: IStore<IX509Certificate>;
@@ -653,13 +648,6 @@ begin
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.BadCertificate, @SBadCertificate);
   end;
-
-  // an out-of-window certificate is a distinct, well-known failure; the window is
-  // judged at the injected validation time so a mock clock drives it
-  for LI := 0 to High(LCerts) do
-    if not LCerts[LI].IsValid(AValidationTimeUtc) then
-      raise EFatalAlertTlsLibException.CreateRes(
-        TTlsAlertDescription.CertificateExpired, @SCertificateExpired);
 
   if System.Length(ATrustAnchors) = 0 then
     raise EFatalAlertTlsLibException.CreateRes(
@@ -696,49 +684,10 @@ begin
     end;
   end;
 
-  // strict pass first: validate the chain the peer presented (a leaf-first path; the validator
-  // normalises ordering). A well-formed chain of any depth is accepted here, unchanged, and
-  // never reaches the path builder below - so configuring intermediates never relaxes validation
-  // for a peer that already sends a complete chain.
-  try
-    LParams := TPkixParameters.Create(LAnchors);
-    LParams.SetIsRevocationEnabled(False);
-    // pin the PKIX path date to the same source as the notBefore/notAfter check
-    LParams.SetDate(AValidationTimeUtc);
-    LPath := TPkixCertPath.Create(LCerts);
-    LValidator := TPkixCertPathValidator.Create;
-    LValidatorResult := LValidator.Validate(LPath, LParams);
-    LLiteralValidated := True;
-  except
-    on E: ECryptoLibException do
-      LLiteralValidated := False; // fall through to path building if intermediates are configured
-  end;
-  if LLiteralValidated then
-  begin
-    // the validator normalises ordering; take its issuer-ordered path so the downstream staple
-    // and pin checks key off the real issuer at [1], not the peer's presented order
-    LOrdered := LPath.Certificates;
-    // the validated end-entity must be the leaf the peer presented (index 0): a path whose sorted
-    // end-entity is a different presented certificate is not a validation of this leaf. The sorter
-    // reorders the same certificate instances, so identity (not encoding) is the exact test.
-    if (System.Length(LOrdered) = 0) or (LOrdered[0] <> LCerts[0]) then
-      raise EFatalAlertTlsLibException.CreateRes(
-        TTlsAlertDescription.UnknownCa, @SUntrustedChain);
-    EnforcePurpose(LOrdered, LValidatorResult.TrustAnchor.TrustedCert);
-    EmitPath(LOrdered, LValidatorResult.TrustAnchor.TrustedCert,
-      ResolvedAnchorDer(LValidatorResult.TrustAnchor.TrustedCert, LAnchors));
-    Exit;
-  end;
-
-  // the chain did not validate as received. With no configured intermediates that is the
-  // final verdict: the peer did not chain to a trusted anchor.
-  if System.Length(AIntermediates) = 0 then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.UnknownCa, @SUntrustedChain);
-
-  // fall back to path building: the peer may have sent an incomplete chain, so pool its
-  // certificates with the configured intermediates and let the builder assemble an ordered
-  // path from the leaf up to a trusted anchor - the sans-IO stand-in for AIA fetching.
+  // parse any configured intermediates; they pool with the presented certificates so an
+  // incomplete chain can still be completed to an anchor (the sans-IO stand-in for AIA fetching).
+  // An out-of-window intermediate is left for the builder's path-time check, not pre-rejected:
+  // a bundle may carry an unused stale entry that an otherwise-buildable path never touches.
   try
     SetLength(LInter, System.Length(AIntermediates));
     for LI := 0 to High(AIntermediates) do
@@ -749,11 +698,10 @@ begin
         TTlsAlertDescription.UnknownCa, @SUntrustedChain);
   end;
 
-  // note: an out-of-window configured intermediate is left for the builder's own path-time
-  // validity check (SetDate) to reject as part of a path that will not build (unknown_ca). We
-  // do NOT pre-reject every configured intermediate on expiry: a bundle may carry an unused
-  // stale entry, and failing an otherwise-buildable connection on it would be worse than the
-  // slightly less precise alert.
+  // one pool, one path: the presented certificates and the configured intermediates seed a
+  // leaf-up build to a trusted anchor, so extraneous, misordered, expired-but-unused or
+  // already-trusted extra certificates are simply left out of the built path rather than failing
+  // an otherwise valid chain (RFC 8446 4.4.2 tolerates extraneous certificates and arbitrary order)
   SetLength(LPool, System.Length(LCerts) + System.Length(LInter));
   for LI := 0 to High(LCerts) do
     LPool[LI] := LCerts[LI];
@@ -761,7 +709,8 @@ begin
     LPool[System.Length(LCerts) + LI] := LInter[LI];
 
   try
-    // the target of the build is the leaf as the peer presented it
+    // the build targets the leaf the peer presented (index 0); the DFS is depth-capped so a
+    // hostile pool of like-named fillers cannot fan it out
     LTarget := TX509CertStoreSelector.Create;
     LTarget.SetCertificate(LCerts[0]);
     LBuilderParams := TPkixBuilderParameters.Create(LAnchors, LTarget);
@@ -774,14 +723,26 @@ begin
     LBuildResult := LBuilder.Build(LBuilderParams);
   except
     on E: ECryptoLibException do
+    begin
+      // the leaf is on every candidate path, so its own window decides expiry; an expired
+      // certificate higher up is reported as expiry when no path built without it (the
+      // transitional-chain case), otherwise nothing chained to a trusted anchor
+      for LI := 0 to High(LCerts) do
+        if not LCerts[LI].IsValid(AValidationTimeUtc) then
+          raise EFatalAlertTlsLibException.CreateRes(
+            TTlsAlertDescription.CertificateExpired, @SCertificateExpired);
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.UnknownCa, @SUntrustedChain);
+    end;
   end;
 
-  // hand back the assembled path (leaf-first) so the downstream staple and pin checks see the
-  // real issuer the peer omitted, not just the bare leaf; a built PKIX path excludes the anchor,
-  // which EmitPath appends
+  // the assembled path is leaf-first and excludes the anchor (EmitPath appends it), and must
+  // start at the presented leaf - a path rooted at some other presented certificate is not a
+  // validation of this peer's leaf
   LBuilt := LBuildResult.CertPath.Certificates;
+  if (System.Length(LBuilt) = 0) or (LBuilt[0] <> LCerts[0]) then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.UnknownCa, @SUntrustedChain);
   EnforcePurpose(LBuilt, LBuildResult.TrustAnchor.TrustedCert);
   EmitPath(LBuilt, LBuildResult.TrustAnchor.TrustedCert,
     ResolvedAnchorDer(LBuildResult.TrustAnchor.TrustedCert, LAnchors));

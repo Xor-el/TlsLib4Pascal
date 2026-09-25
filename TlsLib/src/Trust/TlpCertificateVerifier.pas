@@ -84,8 +84,8 @@ type
     FCheckHostName: Boolean;
     FChainLimits: TCertificateChainLimits;
     FRevocationPosture: TRevocationPosture;
-    /// <summary>Untrusted intermediates that seed PKIX path building when the peer sends an
-    /// incomplete chain; empty validates the chain exactly as received.</summary>
+    /// <summary>Untrusted intermediates that pool with the peer's certificates to seed PKIX path
+    /// building; empty builds the path only from what the peer sent.</summary>
     FIntermediates: TArray<TBytes>;
     FDangerous: TDangerousTrust;
     /// <summary>How a verdict is deferred out-of-band. Only LiveRevocation defers an indeterminate

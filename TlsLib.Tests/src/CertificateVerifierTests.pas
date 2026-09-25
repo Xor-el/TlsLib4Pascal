@@ -74,6 +74,7 @@ type
   published
     procedure TestValidChainTrusted;
     procedure TestExpiredRejectedAsCertificateExpired;
+    procedure TestExpiredExtraneousCertificateIgnored;
     procedure TestUntrustedRootRejectedAsUnknownCa;
     procedure TestHostNameMismatchRejectedAsBadCertificate;
     procedure TestEmptyChainRejected;
@@ -95,14 +96,14 @@ type
     // the real issuer at [1]
     procedure TestMisorderedChainValidatedPathIsIssuerOrdered;
     procedure TestMisorderedChainRevokedStapleAborts;
-    procedure TestForeignEndEntityChainRejected;
+    procedure TestReorderedChainBuildsFromPresentedFirstCert;
     // the trust anchor is identified by subject + key, not exact encoding (RFC 5280 6.1.1(d)):
     // a peer-sent re-issued copy of the configured root collapses onto the configured DER and
     // is exempt from path policy; a same-subject different-key root is not the anchor
     procedure TestPeerReissuedRootAcceptedAndCollapsed;
     procedure TestPeerSha1ReissuedRootExemptFromChainPolicy;
     procedure TestSha1SelfSignedRootNotConfiguredRejected;
-    procedure TestSameSubjectDifferentKeyRootRejected;
+    procedure TestSameSubjectDifferentKeyRootIgnoredForConfiguredAnchor;
   end;
 
 implementation
@@ -215,6 +216,20 @@ begin
     'an expired certificate is rejected');
   CheckEquals(Ord(TTlsAlertDescription.CertificateExpired), Ord(LAlert),
     'the alert is certificate_expired');
+end;
+
+procedure TTestCertificateVerifier.TestExpiredExtraneousCertificateIgnored;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  // an expired certificate the peer includes but that is not on the built path to the anchor is
+  // ignored as extraneous rather than failing the whole chain (RFC 8446 4.4.2); the leaf chains
+  // to the trusted root on its own, so the extra expired certificate never enters the path
+  CheckTrue(VerifierFor(Cert('root_cert'), False).VerifyServerCertificate(
+    TArray<TBytes>.Create(Cert('leaf_cert'), Cert('expired_cert')),
+    TServerName.DnsName(''), nil, LVerified, LAlert),
+    'an expired extraneous certificate is ignored, not rejected as expired');
 end;
 
 procedure TTestCertificateVerifier.TestUntrustedRootRejectedAsUnknownCa;
@@ -424,19 +439,21 @@ begin
     'the alert is certificate_revoked');
 end;
 
-procedure TTestCertificateVerifier.TestForeignEndEntityChainRejected;
+procedure TTestCertificateVerifier.TestReorderedChainBuildsFromPresentedFirstCert;
 var
   LAlert: TTlsAlertDescription;
   LVerified: TVerifiedChain;
 begin
-  // [issuer, leaf, root] sorts to a valid path whose end-entity is the leaf, but the peer's
-  // presented certificate is the issuer: validating some other presented certificate is not a
-  // validation of the peer's own
-  CheckFalse(VerifierFor(Chain3('root_cert'), False).VerifyServerCertificate(
+  // the build targets the peer's first presented certificate (index 0), whatever order the rest
+  // arrive in: given [issuer, leaf, root] the path is built from the issuer up to the anchor and
+  // the extra leaf is ignored. Binding the handshake to that certificate's key is CertificateVerify's
+  // job downstream, not the path builder's - so this validates and path[0] is the presented cert
+  CheckTrue(VerifierFor(Chain3('root_cert'), False).VerifyServerCertificate(
     TArray<TBytes>.Create(Chain3('issuer_cert'), Chain3('leaf_cert'), Chain3('root_cert')),
     TServerName.DnsName(''), nil, LVerified, LAlert),
-    'a chain whose validated end-entity is not the presented leaf is rejected');
-  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'the alert is unknown_ca');
+    'a chain builds from the first presented certificate to the anchor');
+  CheckEqualBytes('path[0] is the presented first certificate', Chain3('issuer_cert'),
+    LVerified.Path[0]);
 end;
 
 procedure TTestCertificateVerifier.TestPeerReissuedRootAcceptedAndCollapsed;
@@ -499,18 +516,21 @@ begin
   CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'the alert is unknown_ca');
 end;
 
-procedure TTestCertificateVerifier.TestSameSubjectDifferentKeyRootRejected;
+procedure TTestCertificateVerifier.TestSameSubjectDifferentKeyRootIgnoredForConfiguredAnchor;
 var
   LAlert: TTlsAlertDescription;
   LVerified: TVerifiedChain;
 begin
-  // a root with the anchor's subject but another key: its signature does not verify under the
-  // anchor key, so it is neither the anchor nor a path to it
-  CheckFalse(VerifierFor(Reissued('root_cert'), False).VerifyServerCertificate(
+  // the peer appends a root with the anchor's subject but a DIFFERENT key: it verifies under no
+  // configured anchor key, so it can never be the trust anchor. The leaf still chains to the
+  // CONFIGURED anchor through the issuer, the look-alike is ignored as extraneous, and the
+  // validated path ends at the configured anchor - never at the look-alike
+  CheckTrue(VerifierFor(Reissued('root_cert'), False).VerifyServerCertificate(
     TArray<TBytes>.Create(Reissued('leaf_cert'), Reissued('issuer_cert'),
     Reissued('root_lookalike_cert')), TServerName.DnsName(''), nil, LVerified, LAlert),
-    'a same-subject different-key root is not the configured anchor');
-  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'the alert is unknown_ca');
+    'the leaf chains to the configured anchor with a same-subject different-key root ignored');
+  CheckEqualBytes('the validated path ends at the configured anchor, not the look-alike',
+    Reissued('root_cert'), LVerified.Path[System.High(LVerified.Path)]);
 end;
 
 initialization
