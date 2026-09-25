@@ -64,6 +64,11 @@ type
     class procedure SerializeChain(const AWriter: IWireWriter;
       const AChain: TArray<TBytes>); static;
     class function DeserializeChain(var AReader: TWireReader): TArray<TBytes>; static;
+    /// <summary>A stable, enum-order-independent wire code for the PRF hash, so a fleet build that
+    /// reorders THashAlgorithm cannot silently reinterpret a peer's ticket; an unknown code fails
+    /// the deserialize (a graceful full handshake), never a mis-derived key.</summary>
+    class function HashToCode(AHash: THashAlgorithm): Byte; static;
+    class function TryCodeToHash(ACode: Byte; out AHash: THashAlgorithm): Boolean; static;
   public
     constructor Create(const ACryptoProvider: ICryptoProvider;
       const AKeys: ISessionTicketKeyManager);
@@ -88,7 +93,10 @@ const
   // bumped when the ticket layout changes; an older ticket fails the version check on Open and
   // simply draws a full handshake. 2 added the SNI host_name (virtual-hosting guard); 3 added the
   // peer certificate chain (so a resumed mTLS connection can surface the client's identity)
-  TicketFormatVersion = Byte(4);
+  // v5: the PRF hash is persisted as a stable code (HashToCode) rather than Ord(THashAlgorithm),
+  // so a fleet enum reorder no longer misreads it; older-format tickets fail cleanly to a full
+  // handshake on the version check
+  TicketFormatVersion = Byte(5);
   TicketNonceLength = Int32(12); // AES-256-GCM nonce
   // the serialized session carries the peer chain the client volunteered; cap it so an oversized
   // chain does not bloat the ticket and the resumed ClientHello that re-presents it. Past the cap
@@ -124,6 +132,39 @@ begin
   FKeys := AKeys;
 end;
 
+class function TStekTicketStrategy.HashToCode(AHash: THashAlgorithm): Byte;
+begin
+  // fixed codes bound to the named value, not the ordinal, so a reorder of THashAlgorithm keeps
+  // the wire meaning stable across a mixed fleet
+  case AHash of
+    THashAlgorithm.SHA_256:
+      Result := 1;
+    THashAlgorithm.SHA_384:
+      Result := 2;
+    THashAlgorithm.SHA_512:
+      Result := 3;
+  else
+    Result := 0; // never serialized: the library's suites only use the three above
+  end;
+end;
+
+class function TStekTicketStrategy.TryCodeToHash(ACode: Byte;
+  out AHash: THashAlgorithm): Boolean;
+begin
+  Result := True;
+  case ACode of
+    1:
+      AHash := THashAlgorithm.SHA_256;
+    2:
+      AHash := THashAlgorithm.SHA_384;
+    3:
+      AHash := THashAlgorithm.SHA_512;
+  else
+    AHash := THashAlgorithm.SHA_256;
+    Result := False;
+  end;
+end;
+
 class function TStekTicketStrategy.SerializeSession(
   const ASession: IResumableSession): TBytes;
 var
@@ -137,7 +178,7 @@ begin
   LWriter.WriteUInt8(TicketFormatVersion);
   LWriter.WriteUInt16(ASession.Version.WireValue);
   LWriter.WriteUInt16(ASession.CipherSuite);
-  LWriter.WriteUInt8(Byte(Ord(ASession.Hash)));
+  LWriter.WriteUInt8(HashToCode(ASession.Hash));
   LWriter.WriteUInt16(ASession.NamedGroup);
   LWriter.WriteUInt32(ASession.TicketLifetime);
   LWriter.WriteUInt32(ASession.TicketAgeAdd);
@@ -245,9 +286,8 @@ begin
   LVersion := LReader.ReadUInt16;
   LSuite := LReader.ReadUInt16;
   LHashByte := LReader.ReadUInt8;
-  if LHashByte > Byte(Ord(High(THashAlgorithm))) then
+  if not TryCodeToHash(LHashByte, LHash) then
     Exit;
-  LHash := THashAlgorithm(LHashByte);
   LGroup := LReader.ReadUInt16;
   LLifetime := LReader.ReadUInt32;
   LAgeAdd := LReader.ReadUInt32;
