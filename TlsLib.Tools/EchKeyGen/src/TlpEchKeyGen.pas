@@ -26,6 +26,7 @@ uses
   TlpPem,
   TlpICryptoProvider,
   TlpDefaultCryptoProvider,
+  TlpInMemoryEchKeyStore,
   TlpDataEncoding,
   // this is a standalone tool, not part of the library, so it may reach CryptoLib
   // directly (like RootGen): the KEM produces the key pair and PKCS#8 encoding the
@@ -71,7 +72,8 @@ type
     /// HPKE suite (AKem, AKdf, AAead) with the operator-chosen config id AConfigId and
     /// the padding hint AMaximumNameLength. ACryptoProvider frames the PEM (RFC 7468) so the
     /// output matches what the server store reads. The DNS line is published at AOrigin
-    /// (the name clients connect to). Raises for an unsupported KEM or an invalid name.
+    /// (the name clients connect to). Raises for an HPKE suite the provider cannot instantiate,
+    /// an invalid name, or a PEM that does not load back through the server key store.
     /// </summary>
     class function Generate(const ACryptoProvider: ICryptoProvider;
       const APublicName, AOrigin: string; AConfigId: Byte; AKem, AKdf, AAead: UInt16;
@@ -112,6 +114,11 @@ begin
     LOrigin := System.Copy(LOrigin, 1, System.Length(LOrigin) - 1);
   if not TEchConfig.IsValidPublicName(TEncoding.ASCII.GetBytes(LOrigin)) then
     raise EArgumentException.Create('the origin is not a valid LDH host name');
+  // the tool's suite vocabulary is the provider's: a config the library could neither serve nor
+  // offer (an unknown KEM, an export-only AEAD) must fail here, not at server start-up after the
+  // DNS record is already published
+  if ACryptoProvider.Hpke.Suite(AKem, AKdf, AAead) = nil then
+    raise EArgumentException.Create('the HPKE suite is not one this provider can serve');
   LKem := TDhKem.Create(THpkeKemId(AKem)) as IHpkeKem;
   LPair := LKem.GeneratePrivateKey();
   LPublicKey := LKem.SerializePublicKey(LPair.&Public);
@@ -133,6 +140,10 @@ begin
   LBlocks[1].Content := Result.EchConfigList;
   Result.Pem := TPem.WriteBlocks(LBlocks);
 
+  // load the PEM back through the server key store before it is handed out: the PKCS#8 encoding,
+  // the config and the key pair must round-trip exactly as a server will read them
+  TInMemoryEchKeyStore.FromPem(Result.Pem, ACryptoProvider);
+
   // an HTTPS record in ServiceMode (priority 1) with the ECHConfigList in the "ech"
   // SvcParam, base64 as the presentation format expects. It is published at the origin the
   // client connects to; the public_name lives only inside the ECHConfig, as the outer SNI.
@@ -146,8 +157,6 @@ begin
   Result := True;
   if AName = 'x25519' then
     AKem := THpkeKem.DHKEM_X25519_HKDF_SHA256
-  else if AName = 'x448' then
-    AKem := THpkeKem.DHKEM_X448_HKDF_SHA512
   else if AName = 'p256' then
     AKem := THpkeKem.DHKEM_P256_HKDF_SHA256
   else if AName = 'p384' then
@@ -262,7 +271,7 @@ begin
   begin
     WriteLn('usage: EchKeyGen -public_name <name> -origin <name> -out <file.pem> ' +
       '[-suite kem,kdf,aead] [-max_name_len N] [-config_id N]');
-    WriteLn('  kem:  x25519 | x448 | p256 | p384 | p521');
+    WriteLn('  kem:  x25519 | p256 | p384 | p521');
     WriteLn('  kdf:  hkdf-sha256 | hkdf-sha384 | hkdf-sha512');
     WriteLn('  aead: aes-128-gcm | aes-256-gcm | chacha20-poly1305');
     Exit(1);

@@ -315,6 +315,10 @@ resourcestring
   SUnsupportedVersion = 'protocol version 0x%.4x is not negotiable; only TLS 1.3 (0x0304) and ' +
     'TLS 1.2 (0x0303) are supported';
   SDuplicateVersion = 'a protocol version may be offered only once';
+  SAlpnProtocolEmpty = 'an ALPN protocol name must not be empty (RFC 7301 3.1)';
+  SAlpnProtocolNotAscii = 'an ALPN protocol name must be ASCII (RFC 7301 3.1)';
+  SAlpnProtocolTooLong = 'an ALPN protocol name must not exceed 255 bytes (RFC 7301 3.1)';
+  SAlpnProtocolDuplicate = 'the ALPN protocol "%s" is offered more than once';
   SHardRevocationUnusable = 'a Hard revocation posture rejects a peer whose certificate has no ' +
     'stapled OCSP response, so it always-rejects unless the client obtains revocation status: ' +
     'call WithOcspStaplingRequest(True) to request a staple, or configure a live OCSP/CRL verdict ' +
@@ -1806,9 +1810,26 @@ end;
 
 function TTlsConfigBuilder.WithAlpnProtocols(
   const AProtocols: TArray<string>): TTlsConfigBuilder;
+var
+  LI, LJ, LK: Int32;
 begin
   GuardMutable;
-  FAlpnProtocols := AProtocols;
+  // an empty list offers no ALPN; otherwise each name is one ProtocolName<1..2^8-1> of ASCII bytes,
+  // offered once, so we never send a list a peer - or our own decoder - would refuse (RFC 7301 3.1)
+  for LI := 0 to System.High(AProtocols) do
+  begin
+    if AProtocols[LI] = '' then
+      raise EArgumentTlsLibException.CreateRes(@SAlpnProtocolEmpty);
+    for LK := 1 to System.Length(AProtocols[LI]) do
+      if Ord(AProtocols[LI][LK]) > 127 then
+        raise EArgumentTlsLibException.CreateRes(@SAlpnProtocolNotAscii);
+    if System.Length(AProtocols[LI]) > 255 then
+      raise EArgumentTlsLibException.CreateRes(@SAlpnProtocolTooLong);
+    for LJ := LI + 1 to System.High(AProtocols) do
+      if AProtocols[LJ] = AProtocols[LI] then
+        raise EArgumentTlsLibException.CreateResFmt(@SAlpnProtocolDuplicate, [AProtocols[LI]]);
+  end;
+  FAlpnProtocols := System.Copy(AProtocols);
   Result := Self;
 end;
 
