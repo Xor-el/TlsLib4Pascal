@@ -53,7 +53,7 @@ type
     // given types in order, each with a single filler byte
     function MakeFramedHello(const ATypes: array of UInt16): TBytes;
     // asserts ReverifyResumedServer over the given inputs raised a fatal alert of the expected
-    // description (no anonymous methods: FPC 3.2.2 does not support them)
+    // description
     procedure CheckReverifyRaises(const APrimary,
       AResume: IServerCertificateVerifier; const AChain: TArray<TBytes>;
       AExpected: TTlsAlertDescription; const AName: string);

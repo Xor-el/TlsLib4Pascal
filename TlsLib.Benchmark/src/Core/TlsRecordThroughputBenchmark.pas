@@ -31,8 +31,7 @@ type
   /// both sides; the connection is handshaked once, then a fixed payload is chunked into
   /// records of each size, sealed on the client and opened on the server - the record
   /// layer's steady-state cost, and how a smaller record spreads the per-record header +
-  /// AEAD tag over less data. Alongside the rate, the TlsLib cells report heap requests
-  /// and bytes requested per record, the fixed per-record cost the rate alone hides.
+  /// AEAD tag over less data.
   ///
   /// Caveat by design: throughput is dominated by the AEAD, which TlsLib delegates to
   /// CryptoLib, so this is an end-to-end figure (the framing overhead TlsLib adds is a
@@ -54,7 +53,6 @@ uses
   TlpIPkixProvider,
   TlpDefaultCryptoProvider,
   TlpDefaultPkixProvider,
-  BenchAllocCounter,
   TlsBenchmarkData,
   TlsLibThroughputPeer,
   OpenSslThroughputPeer;
@@ -104,7 +102,7 @@ var
   LFeeds: array [0 .. 1] of TThroughputFeed;
   LIdx, LVi, LFi, LSi, LShown: Int32;
   LRowName: string;
-  LTlsMbps, LOslMbps, LHeapPerRec, LKbPerRec: Double;
+  LTlsMbps, LOslMbps: Double;
 
   procedure Note(const AMessage: string);
   begin
@@ -120,14 +118,6 @@ var
       Result := 'ERROR';
   end;
 
-  function PerRecord(AValue: Double; const AUnit: string): String;
-  begin
-    if AValue >= 0.0 then
-      Result := FormatFloat('#,##0.0', AValue, TBenchmarkReport.FloatFormat) + AUnit
-    else
-      Result := 'ERROR';
-  end;
-
   // exact record-size label (unlike FormatBufferSize, an MTU-sized 1400 stays "1400 B")
   function RecordSizeLabel(ASize: Int32): String;
   begin
@@ -138,29 +128,17 @@ var
   end;
 
   function MeasureTls(const ASuite: TThroughputSuite; ARecordSize, AFeedSlice: Int32;
-    const AName: string; out AHeapPerRec, AKbPerRec: Double): Double;
+    const AName: string): Double;
   var
     LPeer: TTlsLibThroughputPeer;
-    LRequests, LBytes: Int64;
   begin
     Result := -1.0;
-    AHeapPerRec := -1.0;
-    AKbPerRec := -1.0;
     try
       LPeer := TTlsLibThroughputPeer.Create(LCrypto, LPkix, LCredential, ASuite.Wire,
         ASuite.TlsCode, ARecordSize, BENCH_TP_PAYLOAD, AFeedSlice);
       try
-        // one warm pass, then one counted pass: the heap figures are a per-record fixed
-        // cost, taken outside the timed window so the counting shim never slows it
+        // one warm pass before the timed one
         LPeer.SendOnce;
-        TBenchAllocCounter.Start;
-        try
-          LPeer.SendOnce;
-        finally
-          TBenchAllocCounter.Stop(LRequests, LBytes);
-        end;
-        AHeapPerRec := LRequests / LPeer.RecordsPerPass;
-        AKbPerRec := LBytes / LPeer.RecordsPerPass / 1024.0;
         Result := TBenchmarkTiming.MeasureThroughputMbPerSec(LPeer.SendOnce, LPeer.PayloadBytes);
       finally
         LPeer.Free;
@@ -231,8 +209,6 @@ begin
   ALogProc('TLS record throughput - ECDHE-ECDSA over X25519, EC P-256 certificate, ' +
     TBenchmarkFormat.FormatBufferSize(BENCH_TP_PAYLOAD) + ' payloads, peer verification off');
   ALogProc('one connection handshaked once, then application data is sealed + opened each pass');
-  ALogProc('heap/rec = TlsLib heap requests (GetMem/AllocMem/ReAllocMem) per record, seal+deliver+open; ' +
-    'KB/rec = bytes requested per record');
   ALogProc('TlsLib hardware AES: ' + IfThen(LCrypto.Primitives.HasHardwareAes, 'yes', 'no'));
   if not LOpenSslAvailable then
     ALogProc('OpenSSL not loaded - reporting TlsLib only');
@@ -244,7 +220,7 @@ begin
       ALogProc(LVersions[LVi].Name + ' - ' + LFeeds[LFi].Name);
       ALogProc(TBenchmarkReport.BuildSeparator(Result));
       ALogProc(TBenchmarkReport.BuildHeaderRow('AEAD suite',
-        ['TlsLib', 'OpenSSL', 'TlsLib/OpenSSL', 'TlsLib heap/rec', 'TlsLib KB/rec'],
+        ['TlsLib', 'OpenSSL', 'TlsLib/OpenSSL'],
         BENCH_TP_VALUE_COL_WIDTH));
       ALogProc(TBenchmarkReport.BuildSeparator(Result));
 
@@ -260,7 +236,7 @@ begin
         begin
           LRowName := LSuites[LIdx].Name + ' @ ' + RecordSizeLabel(BENCH_TP_RECORD_SIZES[LSi]);
           LTlsMbps := MeasureTls(LSuites[LIdx], BENCH_TP_RECORD_SIZES[LSi], LFeeds[LFi].Slice,
-            LVersions[LVi].Name + ' ' + LRowName, LHeapPerRec, LKbPerRec);
+            LVersions[LVi].Name + ' ' + LRowName);
           LOslMbps := MeasureOssl(LSuites[LIdx], BENCH_TP_RECORD_SIZES[LSi], LFeeds[LFi].Slice,
             LVersions[LVi].Name + ' ' + LRowName);
 
@@ -268,9 +244,7 @@ begin
             [Mbps(LTlsMbps),
              IfThen(LOpenSslAvailable, Mbps(LOslMbps), 'N/A'),
              IfThen((LTlsMbps > 0.0) and (LOslMbps > 0.0),
-               FormatFloat('0.00', LTlsMbps / LOslMbps, TBenchmarkReport.FloatFormat) + 'x', 'N/A'),
-             PerRecord(LHeapPerRec, ''),
-             PerRecord(LKbPerRec, ' KB')],
+               FormatFloat('0.00', LTlsMbps / LOslMbps, TBenchmarkReport.FloatFormat) + 'x', 'N/A')],
             BENCH_TP_VALUE_COL_WIDTH));
         end;
       end;
