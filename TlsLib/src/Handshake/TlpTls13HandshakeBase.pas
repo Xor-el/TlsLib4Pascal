@@ -53,6 +53,8 @@ type
     function RekeyEffect(ADirection: TTlsDirection;
       ASide: TRecordSide): THandshakeEffect;
     function BuildKeyUpdate(ARequest: TKeyUpdateRequest): TBytes;
+    /// <summary>The engine's 0-RTT byte budget for a ticket's max_early_data_size.</summary>
+    class function EarlyDataBudget(AMaxEarlyData: UInt32): Int32; static;
     /// <summary>Handles an inbound post-handshake KeyUpdate: rekeys the read epoch, and on
     /// update_requested marks a single response pending (coalescing repeats). Call from the
     /// Connected route.</summary>
@@ -90,6 +92,16 @@ end;
 function TTls13HandshakeBase.BuildKeyUpdate(ARequest: TKeyUpdateRequest): TBytes;
 begin
   Result := THandshakeFraming.Frame(TTlsHandshakeType.KeyUpdate, TBytes.Create(ARequest.ToByte));
+end;
+
+class function TTls13HandshakeBase.EarlyDataBudget(AMaxEarlyData: UInt32): Int32;
+begin
+  // max_early_data_size is a uint32 on the wire (0xFFFFFFFF is commonly "unbounded") while
+  // the engine budgets in Int32: a plain cast would go negative and silently close the window
+  if AMaxEarlyData > UInt32(High(Int32)) then
+    Result := High(Int32)
+  else
+    Result := Int32(AMaxEarlyData);
 end;
 
 function TTls13HandshakeBase.RequestKeyUpdate(

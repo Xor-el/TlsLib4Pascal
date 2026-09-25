@@ -1406,7 +1406,7 @@ begin
     // bound the outbound 0-RTT at the ticket's max_early_data; over-budget writes are
     // deferred by the engine to 1-RTT (RFC 8446 4.2.10)
     TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.SetEarlyDataLimit(Int32(FPskOffers[0].MaxEarlyData)));
+      THandshakeEffects.SetEarlyDataLimit(EarlyDataBudget(FPskOffers[0].MaxEarlyData)));
   end;
 end;
 

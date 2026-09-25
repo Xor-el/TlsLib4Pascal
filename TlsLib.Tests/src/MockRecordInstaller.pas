@@ -37,7 +37,7 @@ type
     procedure SetRecordSizeLimit(AOutboundLimit, AInboundLimit: Int32);
     procedure SetEarlyDataSkip(AMaxBytes: Int32);
     procedure SetEarlyDataLimit(AMaxBytes: Int32);
-    procedure SetEarlyReadEpoch(AActive: Boolean);
+    procedure SetEarlyReadEpoch(AActive: Boolean; AMaxBytes: Int32);
   end;
 
 implementation
@@ -73,9 +73,9 @@ begin
   FLayer.RevertWriteToPlaintext;
 end;
 
-procedure TRecordLayerInstaller.SetEarlyReadEpoch(AActive: Boolean);
+procedure TRecordLayerInstaller.SetEarlyReadEpoch(AActive: Boolean; AMaxBytes: Int32);
 begin
-  FLayer.SetEarlyReadAccepted(AActive);
+  FLayer.SetEarlyReadAccepted(AActive, AMaxBytes);
 end;
 
 procedure TRecordLayerInstaller.SetRecordSizeLimit(AOutboundLimit,

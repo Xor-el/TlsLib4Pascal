@@ -86,10 +86,11 @@ type
     procedure DriveHandshake(const AClient, AServer: ITlsEngine);
     function ReadAllApp(const AEngine: ITlsEngine): TBytes;
     procedure CheckAppDataFlows(const AClient, AServer: ITlsEngine);
-    function MakeSession(const AIdentity: TBytes;
-      const ASecret: ISecretBuffer; ALifetime: UInt32): IResumableSession;
+    function MakeSession(const AIdentity: TBytes; const ASecret: ISecretBuffer;
+      ALifetime: UInt32; AMaxEarlyData: UInt32 = 0): IResumableSession;
     function MakeSessionForHost(const AIdentity: TBytes; const ASecret: ISecretBuffer;
-      ALifetime: UInt32; const AHost: string): IResumableSession;
+      ALifetime: UInt32; const AHost: string;
+      AMaxEarlyData: UInt32 = 0): IResumableSession;
     // shared mTLS-resumption scaffolding parameterized by the resumption scope
     function LoadClientAuthCredential(out ARootCert: TBytes): TTlsCredential;
     function BuildMtlsClientEngine(const ACache: ISessionCache;
@@ -113,6 +114,9 @@ type
     procedure TestZeroRttRejectAboveFixedBudgetIsSkipped;
     procedure TestZeroRttForeignTicketKeepsFixedSkipBudget;
     procedure TestZeroRttReplayCaughtByStrikeRegister;
+    procedure TestZeroRttOverTicketBudgetIsFatal;
+    procedure TestZeroRttUnboundedTicketBudgetStillSends;
+    procedure TestZeroRttAntiReplayHoldIsTwiceFreshnessSkew;
     procedure TestEarlyDataOffByDefault;
     procedure TestMutualAuthResumptionCompletes;
     procedure TestMutualAuthRequiredDeclinesForeignTicket;
@@ -124,6 +128,52 @@ type
   end;
 
 implementation
+
+type
+  /// <summary>Wraps the strike register and records the (now, expiry) pair of the last
+  /// CheckAndRecord, so a test can observe the hold the server asks for.</summary>
+  TRecordingAntiReplay = class(TInterfacedObject, IAntiReplayStrategy)
+  strict private
+    FInner: IAntiReplayStrategy;
+    FCalls: Int32;
+    FLastNow, FLastExpiry: UInt64;
+  public
+    constructor Create;
+    function CheckAndRecord(const AUniqueValue: TBytes;
+      ANowMillis, AExpiryMillis: UInt64): Boolean;
+    procedure Clear;
+    function Count: Int32;
+    property Calls: Int32 read FCalls;
+    property LastNow: UInt64 read FLastNow;
+    property LastExpiry: UInt64 read FLastExpiry;
+  end;
+
+{ TRecordingAntiReplay }
+
+constructor TRecordingAntiReplay.Create;
+begin
+  inherited Create;
+  FInner := TStrikeRegisterAntiReplay.Create;
+end;
+
+function TRecordingAntiReplay.CheckAndRecord(const AUniqueValue: TBytes;
+  ANowMillis, AExpiryMillis: UInt64): Boolean;
+begin
+  Inc(FCalls);
+  FLastNow := ANowMillis;
+  FLastExpiry := AExpiryMillis;
+  Result := FInner.CheckAndRecord(AUniqueValue, ANowMillis, AExpiryMillis);
+end;
+
+procedure TRecordingAntiReplay.Clear;
+begin
+  FInner.Clear;
+end;
+
+function TRecordingAntiReplay.Count: Int32;
+begin
+  Result := FInner.Count;
+end;
 
 { TTestTls13Resumption }
 
@@ -317,17 +367,18 @@ begin
 end;
 
 function TTestTls13Resumption.MakeSession(const AIdentity: TBytes;
-  const ASecret: ISecretBuffer; ALifetime: UInt32): IResumableSession;
+  const ASecret: ISecretBuffer; ALifetime: UInt32; AMaxEarlyData: UInt32): IResumableSession;
 begin
-  Result := MakeSessionForHost(AIdentity, ASecret, ALifetime, ServerHost);
+  Result := MakeSessionForHost(AIdentity, ASecret, ALifetime, ServerHost, AMaxEarlyData);
 end;
 
 function TTestTls13Resumption.MakeSessionForHost(const AIdentity: TBytes;
-  const ASecret: ISecretBuffer; ALifetime: UInt32; const AHost: string): IResumableSession;
+  const ASecret: ISecretBuffer; ALifetime: UInt32; const AHost: string;
+  AMaxEarlyData: UInt32): IResumableSession;
 begin
   Result := TResumableSession.CreateTls13(TCipherSuites13.Aes128GcmSha256,
     THashAlgorithm.SHA_256, ASecret, TNamedGroupCatalog.X25519, '', AHost, AIdentity,
-    ALifetime, 0, UInt64(TDateTimeUtilities.CurrentUnixMs), 0, nil);
+    ALifetime, 0, UInt64(TDateTimeUtilities.CurrentUnixMs), AMaxEarlyData, nil);
 end;
 
 procedure TTestTls13Resumption.TestResumptionCompletesPskDheKe;
@@ -826,6 +877,111 @@ begin
   Feed(LServerB, LFlight);
   CheckEquals(0, System.Length(ReadAllApp(LServerB)),
     'a replayed 0-RTT flight is caught by the strike register and skipped');
+end;
+
+procedure TTestTls13Resumption.TestZeroRttOverTicketBudgetIsFatal;
+var
+  LAnti: IAntiReplayStrategy;
+  LCache: ISessionCache;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+  LIdentity, LEarly: TBytes;
+  LSecret: ISecretBuffer;
+begin
+  LAnti := TStrikeRegisterAntiReplay.Create;
+  LIdentity := Crypto.Primitives.GetRandom.GenerateBytes(32);
+  LSecret := TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32));
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  // the client believes the ticket authorizes 4096 bytes; the server's record of that same
+  // ticket authorizes only 1024, so the server's accepted window is the smaller budget
+  LCache.Store(ServerHost, ServerHost, MakeSession(LIdentity, LSecret, 7200, 4096));
+  LStore.PutWithId(LIdentity, MakeSession(LIdentity, LSecret, 7200, 1024));
+
+  LClient := NewClient(LCache, True);
+  LServer := BuildServer(nil, LStore, 0, 7200, False, 16384, LAnti);
+  LEarly := Filled($5a, 4096);
+  LClient.StartHandshake;
+  CheckEquals(4096, LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly)),
+    'the client sends up to its cached max_early_data');
+  PumpToCompletion(LClient, LServer);
+  // more accepted early data than the ticket's max_early_data_size MUST terminate the
+  // connection with unexpected_message (RFC 8446 4.6.1)
+  CheckTrue(LServer.IsTerminal, 'accepted 0-RTT beyond the ticket budget is fatal');
+  CheckTrue(LServer.LastError.Alert.Description = TTlsAlertDescription.UnexpectedMessage,
+    'the server sent unexpected_message');
+  CheckTrue(System.Length(ReadAllApp(LServer)) <= 1024,
+    'no more than the ticket budget of early data was delivered');
+end;
+
+procedure TTestTls13Resumption.TestZeroRttUnboundedTicketBudgetStillSends;
+var
+  LAnti: IAntiReplayStrategy;
+  LCache: ISessionCache;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+  LIdentity, LEarly: TBytes;
+  LSecret: ISecretBuffer;
+begin
+  LAnti := TStrikeRegisterAntiReplay.Create;
+  LIdentity := Crypto.Primitives.GetRandom.GenerateBytes(32);
+  LSecret := TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32));
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  // 0xFFFFFFFF is the conventional "unbounded" max_early_data_size: it must neither truncate
+  // the client's budget to nothing nor break the server's accepted window
+  LCache.Store(ServerHost, ServerHost, MakeSession(LIdentity, LSecret, 7200, $FFFFFFFF));
+  LStore.PutWithId(LIdentity, MakeSession(LIdentity, LSecret, 7200, $FFFFFFFF));
+
+  LClient := NewClient(LCache, True);
+  LServer := BuildServer(nil, LStore, 0, 7200, False, 16384, LAnti);
+  LEarly := DecodeHex('30525454206561726c792064617461'); // "0RTT early data"
+  LClient.StartHandshake;
+  CheckEquals(System.Length(LEarly),
+    LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly)),
+    'an unbounded ticket budget still lets the client send early data');
+  PumpToCompletion(LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'no failure on 0-RTT under an unbounded ticket budget');
+  CheckFalse(LServer.IsHandshaking, 'the credential-less server completed via 0-RTT');
+  CheckEqualBytes('the early data was delivered', LEarly, ReadAllApp(LServer));
+end;
+
+procedure TTestTls13Resumption.TestZeroRttAntiReplayHoldIsTwiceFreshnessSkew;
+const
+  // a replay only passes the 60 s freshness check within ~2x that skew of the original
+  // twice the 60 s freshness skew, plus 1 ms so the strike outlives the last instant a
+  // max-skew replay can still pass the freshness check
+  ExpectedHoldMillis = Int64(2 * 60 * 1000) + 1;
+var
+  LRecorder: TRecordingAntiReplay;
+  LAnti: IAntiReplayStrategy;
+  LCache: ISessionCache;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+  LIdentity, LEarly: TBytes;
+  LSecret: ISecretBuffer;
+begin
+  LRecorder := TRecordingAntiReplay.Create;
+  LAnti := LRecorder;
+  LIdentity := Crypto.Primitives.GetRandom.GenerateBytes(32);
+  LSecret := TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32));
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  // a one-day ticket lifetime: the strike hold must not scale with it
+  LCache.Store(ServerHost, ServerHost, MakeSession(LIdentity, LSecret, 86400, 16384));
+  LStore.PutWithId(LIdentity, MakeSession(LIdentity, LSecret, 86400, 16384));
+
+  LClient := NewClient(LCache, True);
+  LServer := BuildServer(nil, LStore, 0, 86400, False, 16384, LAnti);
+  LEarly := DecodeHex('30525454206561726c792064617461'); // "0RTT early data"
+  LClient.StartHandshake;
+  LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly));
+  PumpToCompletion(LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'the 0-RTT resumption succeeded');
+  CheckEqualBytes('the early data was delivered', LEarly, ReadAllApp(LServer));
+  CheckEquals(1, LRecorder.Calls, 'the binder was recorded once');
+  CheckEquals(ExpectedHoldMillis, Int64(LRecorder.LastExpiry - LRecorder.LastNow),
+    'the strike is held for twice the freshness skew, not the ticket lifetime');
 end;
 
 procedure TTestTls13Resumption.TestEarlyDataOffByDefault;
