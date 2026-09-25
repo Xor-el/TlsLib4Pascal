@@ -159,6 +159,7 @@ resourcestring
   SAeadBadOverlap = 'the AEAD source and destination may only alias at the same offset';
   SInvalidKeySize = 'AEAD key size %d does not match the required %d bytes';
   SInvalidNonceSize = 'AEAD nonce size %d does not match the required %d bytes';
+  SAeadNonceReused = 'the AEAD nonce was already used under this key';
   SHkdfExpandTooLong = 'HKDF-Expand output length %d exceeds 255 * HashLen (%d)';
   SHkdfExpandNegative = 'HKDF-Expand output length must not be negative';
   SInvalidScalarSize = 'private scalar size %d does not match the curve field size %d';
@@ -622,6 +623,7 @@ type
     FKeySize, FNonceSize, FTagSize: Int32;
     FKeeper: IWindowsCng;
     FKeyHandle: Pointer;
+    FLastNonce: TBytes;
     procedure InitAuthInfo(out AInfo: TBCryptAuthCipherModeInfo;
       const ANonce, AAad: TBytes; ATag: PByte);
   public
@@ -1374,6 +1376,8 @@ begin
     FApi.DestroyKey(FKeyHandle);
     FKeyHandle := nil;
   end;
+  // a fresh key opens a fresh nonce space
+  FLastNonce := nil;
   LKey := AKey.ToBytes;
   try
     // nil key-object buffer: CNG allocates and frees it with the key handle (Win7+)
@@ -1399,6 +1403,11 @@ begin
     raise EArgumentTlsLibException.CreateRes(@SAeadSpanOutOfRange);
   if (PByte(ASrc) = PByte(ADest)) and (ASrcOff <> ADestOff) then
     raise EArgumentTlsLibException.CreateRes(@SAeadBadOverlap);
+  // a repeated (key, nonce) under GCM or ChaCha20-Poly1305 gives away the authentication key
+  // (RFC 5116 3.1); CNG does not check, so hold the encrypt side to the same guard the
+  // portable adapter has
+  if (FLastNonce <> nil) and TArrayUtilities.AreEqual(ANonce, FLastNonce) then
+    raise EArgumentTlsLibException.CreateRes(@SAeadNonceReused);
   // the tag goes straight after the ciphertext; BCryptEncrypt permits in = out, so an exact-alias
   // in-place seal is just a pointer choice
   InitAuthInfo(LInfo, ANonce, AAad, @ADest[ADestOff + ALen]);
@@ -1415,6 +1424,8 @@ begin
   LCbResult := 0;
   TCngError.Check(FApi.Encrypt(FKeyHandle, LIn, ALen, @LInfo, nil, 0, LOut,
     ALen, LCbResult, 0));
+  // a copy: callers reuse one nonce buffer across records
+  FLastNonce := System.Copy(ANonce);
   Result := ALen + FTagSize;
 end;
 

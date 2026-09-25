@@ -63,6 +63,7 @@ type
     procedure TestEd448TamperedSignatureFails;
     procedure TestEcdsaP256SignVerifyRoundTrip;
     procedure TestEcdsaP256TamperedSignatureFails;
+    procedure TestEcdsaP256DeterministicNoncesRfc6979;
     procedure TestRsaPssVerifiesRfc8448CertificateVerify;
     procedure TestRsaPssRejectsWrongTranscript;
     procedure TestSignatureSchemeCodesMatchCatalog;
@@ -224,6 +225,53 @@ begin
   CheckTrue(TamperedVerifyFails(TSignatureScheme.ECDSA_SECP256R1_SHA256,
     DecodeHex(FKeys.Values['ecdsa_key']), DecodeHex(FKeys.Values['ecdsa_pub'])),
     'a tampered ECDSA P-256 signature fails to verify');
+end;
+
+procedure TTestSignature.TestEcdsaP256DeterministicNoncesRfc6979;
+const
+  // RFC 6979 A.2.5: the P-256 private key x and public point U as PKCS#8 / SPKI
+  Rfc6979P256Pkcs8 = '3041020100301306072a8648ce3d020106082a8648ce3d030107042730250201010420' +
+    'c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721';
+  Rfc6979P256Spki = '3059301306072a8648ce3d020106082a8648ce3d030107034200' +
+    '0460fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb6' +
+    '7903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299';
+  // the SHA-256 (r, s) pairs for the messages "sample" and "test", DER-encoded
+  SampleSignature = '3046022100efd48b2aacb6a8fd1140dd9cd45e81d69d2c877b56aaf991c34d0ea84eaf3716' +
+    '022100f7cb1c942d657c41d436c7a1b6e29f65f3e900dbb9aff4064dc4ab2f843acda8';
+  TestSignature = '3045022100f1abb023518351cd71d881567b1ea663ed3efcf6c5132b354f28d3b0b7d38367' +
+    '0220019f4113742a2b14bd25926b49c649155f267e60d3814b4c0cc84250e46f0083';
+
+  function SignWith(const AKey: ISigningKey; const AMessage: TBytes): TBytes;
+  var
+    LSigner: ISignatureSigner;
+  begin
+    LSigner := Crypto.Signing.CreateSignatureSigner(TSignatureScheme.ECDSA_SECP256R1_SHA256,
+      AKey);
+    LSigner.Update(AMessage, 0, System.Length(AMessage));
+    Result := LSigner.Sign;
+  end;
+
+var
+  LKey: ISigningKey;
+  LSample, LTest, LSignature: TBytes;
+  LVerifier: ISignatureVerifier;
+begin
+  // a random nonce would make each signature differ; matching the RFC's answers proves the
+  // portable signer derives k from the key and message
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(Rfc6979P256Pkcs8));
+  LSample := DecodeHex('73616d706c65'); // "sample"
+  LTest := DecodeHex('74657374'); // "test"
+  LSignature := SignWith(LKey, LSample);
+  CheckEqualBytes('RFC 6979 A.2.5 P-256/SHA-256 "sample"', DecodeHex(SampleSignature),
+    LSignature);
+  CheckEqualBytes('RFC 6979 A.2.5 P-256/SHA-256 "test"', DecodeHex(TestSignature),
+    SignWith(LKey, LTest));
+  CheckEqualBytes('signing the same message again is byte-identical', LSignature,
+    SignWith(LKey, LSample));
+  LVerifier := Crypto.Signing.CreateSignatureVerifier(TSignatureScheme.ECDSA_SECP256R1_SHA256,
+    DecodeHex(Rfc6979P256Spki));
+  LVerifier.Update(LSample, 0, System.Length(LSample));
+  CheckTrue(LVerifier.Verify(LSignature), 'the deterministic signature is an ordinary ECDSA signature');
 end;
 
 procedure TTestSignature.TestRsaPssVerifiesRfc8448CertificateVerify;
