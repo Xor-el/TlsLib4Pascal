@@ -488,42 +488,54 @@ procedure TCertificatePathValidator.ValidateCertificatePath(const AChain,
   ATrustAnchors, AIntermediates: TArray<TBytes>; const AValidationTimeUtc: TDateTime;
   AKeyPurpose: TCertKeyPurpose; var AEffectiveChain: TArray<TBytes>);
 
-  function IsAnchor(const ACert: IX509Certificate): Boolean;
-  var
-    LDer: TBytes;
-    LJ: Int32;
+  // the anchor is identified the way the path validator identifies it - by subject name and
+  // public key, not by exact encoding - so a re-encoded or re-issued same-key root the peer
+  // presents is recognised as the anchor (RFC 5280 6.1.1(d): anchor information is input, not a
+  // validated path edge) instead of being policed as an ordinary path certificate.
+  function SameAnchorIdentity(const ACert, AAnchor: IX509Certificate): Boolean;
   begin
-    Result := False;
-    LDer := ACert.GetEncoded;
-    for LJ := 0 to High(ATrustAnchors) do
-      if TArrayUtilities.AreEqual(LDer, ATrustAnchors[LJ]) then
-        Exit(True);
+    Result := (AAnchor <> nil) and ACert.SubjectDN.Equivalent(AAnchor.SubjectDN, True) and
+      TArrayUtilities.AreEqual(ACert.GetSubjectPublicKeyInfo.GetDerEncoded,
+      AAnchor.GetSubjectPublicKeyInfo.GetDerEncoded);
   end;
 
-  // append the trust anchor the validator resolved to the effective path, so the leaf-first
-  // chain the caller sees ends at the anchor (a key-pin over the validated path can then pin
-  // the root, matching what an OS delegate reports). A no-op when the anchor is unknown or the
-  // path already ends in it (the peer sent the root, or the builder included it).
-  procedure AppendAnchor(const AAnchorCert: IX509Certificate);
+  // build the effective chain leaf-first from the validated path, ending at the trust anchor the
+  // validator resolved. Any copy of that anchor the peer included (possibly re-encoded) is dropped
+  // and replaced by the configured DER, so the chain ends at the configured anchor exactly once -
+  // what a key-pin over the validated path and an OS delegate both expect.
+  procedure EmitPath(const APath: TArray<IX509Certificate>;
+    const AAnchorCert: IX509Certificate);
   var
-    LAnchorDer: TBytes;
-    LLen: Int32;
+    LI, LN: Int32;
   begin
-    if AAnchorCert = nil then
-      Exit;
-    LAnchorDer := AAnchorCert.GetEncoded;
-    LLen := System.Length(AEffectiveChain);
-    if (LLen > 0) and TArrayUtilities.AreEqual(AEffectiveChain[LLen - 1], LAnchorDer) then
-      Exit;
-    SetLength(AEffectiveChain, LLen + 1);
-    AEffectiveChain[LLen] := LAnchorDer;
+    AEffectiveChain := nil;
+    SetLength(AEffectiveChain, System.Length(APath) + 1);
+    LN := 0;
+    for LI := 0 to High(APath) do
+    begin
+      // keep the leaf always; drop an anchor-identical copy the peer placed above it
+      if (LI > 0) and SameAnchorIdentity(APath[LI], AAnchorCert) then
+        Continue;
+      AEffectiveChain[LN] := APath[LI].GetEncoded;
+      Inc(LN);
+    end;
+    // append the configured anchor, unless the path is a directly-trusted (pinned) leaf that is
+    // itself the anchor
+    if (AAnchorCert <> nil) and
+      not ((LN = 1) and SameAnchorIdentity(APath[0], AAnchorCert)) then
+    begin
+      AEffectiveChain[LN] := AAnchorCert.GetEncoded;
+      Inc(LN);
+    end;
+    SetLength(AEffectiveChain, LN);
   end;
 
   // RFC 5280 4.2.1.12 extendedKeyUsage, enforced over the validated path (leaf + every
   // intermediate, never the trust anchor): a certificate carrying an EKU extension must
   // include the role's purpose; one with no EKU extension is unrestricted. anyExtendedKeyUsage
   // is not accepted as a substitute, and a present-but-empty EKU is rejected.
-  procedure EnforcePurpose(const APath: TArray<IX509Certificate>);
+  procedure EnforcePurpose(const APath: TArray<IX509Certificate>;
+    const AAnchorCert: IX509Certificate);
   var
     LRequired: IDerObjectIdentifier;
     LI, LJ: Int32;
@@ -541,7 +553,7 @@ procedure TCertificatePathValidator.ValidateCertificatePath(const AChain,
       // a trust anchor is trusted by configuration, not by its own extensions, so its EKU is
       // not processed - but the end-entity at index 0 always is, even when it is itself the
       // pinned anchor (a directly-trusted leaf must still carry the required TLS role)
-      if (LI > 0) and IsAnchor(LCert) then
+      if (LI > 0) and SameAnchorIdentity(LCert, AAnchorCert) then
         Continue;
       if LCert.GetExtensionValue(TX509Extensions.ExtendedKeyUsage) = nil then
         Continue; // no EKU extension -> unrestricted
@@ -578,7 +590,7 @@ var
   LParser: IX509CertificateParser;
   LCerts, LPool, LInter: TArray<IX509Certificate>;
   LAnchors: TArray<ITrustAnchor>;
-  LBuilt: TArray<IX509Certificate>;
+  LBuilt, LOrdered: TArray<IX509Certificate>;
   LAnchorKey: TBytes;
   LHit, LLiteralValidated: Boolean;
   LParams: IPkixParameters;
@@ -668,9 +680,17 @@ begin
   end;
   if LLiteralValidated then
   begin
-    EnforcePurpose(LCerts);
-    // the peer's chain validated as-is; append the resolved anchor unless the peer sent it
-    AppendAnchor(LValidatorResult.TrustAnchor.TrustedCert);
+    // the validator normalises ordering; take its issuer-ordered path so the downstream staple
+    // and pin checks key off the real issuer at [1], not the peer's presented order
+    LOrdered := LPath.Certificates;
+    // the validated end-entity must be the leaf the peer presented (index 0): a path whose sorted
+    // end-entity is a different presented certificate is not a validation of this leaf
+    if (System.Length(LOrdered) = 0) or
+      not TArrayUtilities.AreEqual(LOrdered[0].GetEncoded, AChain[0]) then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.UnknownCa, @SUntrustedChain);
+    EnforcePurpose(LOrdered, LValidatorResult.TrustAnchor.TrustedCert);
+    EmitPath(LOrdered, LValidatorResult.TrustAnchor.TrustedCert);
     Exit;
   end;
 
@@ -723,14 +743,11 @@ begin
   end;
 
   // hand back the assembled path (leaf-first) so the downstream staple and pin checks see the
-  // real issuer the peer omitted, not just the bare leaf
+  // real issuer the peer omitted, not just the bare leaf; a built PKIX path excludes the anchor,
+  // which EmitPath appends
   LBuilt := LBuildResult.CertPath.Certificates;
-  EnforcePurpose(LBuilt);
-  SetLength(AEffectiveChain, System.Length(LBuilt));
-  for LI := 0 to High(LBuilt) do
-    AEffectiveChain[LI] := LBuilt[LI].GetEncoded;
-  // a built PKIX path excludes the anchor; append it so the effective chain ends at the root
-  AppendAnchor(LBuildResult.TrustAnchor.TrustedCert);
+  EnforcePurpose(LBuilt, LBuildResult.TrustAnchor.TrustedCert);
+  EmitPath(LBuilt, LBuildResult.TrustAnchor.TrustedCert);
 end;
 
 class function TRevocationChecker.OcspDelegatedResponder(const AResponderCert,
