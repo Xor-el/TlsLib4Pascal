@@ -18,7 +18,6 @@ interface
 uses
   SysUtils,
   Generics.Collections,
-  TlpArrayUtilities,
   TlpIRecordProtection,
   TlpRecordProtection,
   TlpTlsAlert,
@@ -78,7 +77,12 @@ type
     /// <summary>How much more accepted early data the ticket's max_early_data_size allows
     /// (RFC 8446 4.6.1); 0 outside the accepted window.</summary>
     FEarlyReadRemaining: Int32;
+    // un-framed inbound bytes (a trailing partial record) are [FInHead, FInTail) within the
+    // capacity buffer: each feed is one Move in and records are framed by scanning in place, so a
+    // record delivered in small transport reads is not re-copied once per read
     FInbound: TBytes;
+    FInHead: Int32;
+    FInTail: Int32;
     // live (un-taken) outbound bytes are [FOutHead, FOutTail) within the capacity buffer, so
     // append and take never shift it down (which would be quadratic on a chunk-drained bulk write)
     FOutbound: TBytes;
@@ -112,6 +116,10 @@ type
       ABodyLength: Int32);
     function TryDecodeFramed(const ARecord: TBytes;
       out AFragment: TTlsRecordFragment): Boolean;
+    procedure AppendInbound(const AWire: TBytes; AOffset, ALength: Int32);
+    // once every buffered byte is framed, rewind the cursors and release the buffer if it grew
+    // past the retain cap
+    procedure ResetInboundIfDrained;
     procedure AppendOutgoing(const ARecord: TBytes);
     // once drained, rewind the cursors and release the buffer if it grew past the retain cap
     procedure ResetOutboundIfDrained;
@@ -251,6 +259,9 @@ const
   // four max-size records covers a common transport chunk and a full flight without regrow churn
   OutboundRetainCapacity = Int32(4) *
     (TRecordLimits.HeaderLength + TRecordLimits.MaxCipherTextTls13);
+  InboundMinCapacity = Int32(4096);
+  // same retain rule inbound: a one-off oversize feed is released once fully framed
+  InboundRetainCapacity = OutboundRetainCapacity;
   OuterApplicationData = Byte(23); // TLSCiphertext outer content type
   OuterChangeCipherSpec = Byte(20); // the legacy change_cipher_spec outer content type
   OuterHandshake = Byte(22); // the handshake outer content type
@@ -271,6 +282,8 @@ resourcestring
   SSequenceRewindRejected = 'the record sequence counter may only be advanced, never rewound';
   SProtectedChangeCipherSpec = 'a protected (encrypted) change_cipher_spec record is not allowed';
   SWriteSliceOutOfRange = 'the write offset/length is outside the source buffer';
+  SInputSliceOutOfRange = 'the input offset/length is outside the wire buffer';
+  SBufferGrowthOverflow = 'the buffered byte count would exceed the addressable range';
   SHandshakeBeforeChangeCipherSpec = 'a handshake record arrived before the peer''s change_cipher_spec';
   SReadEpochAlreadyArmed = 'a read epoch is already armed for the next change_cipher_spec';
   SEmptyControlRecord = 'a zero-length handshake, alert, or change_cipher_spec record is not allowed';
@@ -286,6 +299,8 @@ begin
   FWriteIsPlaintext := True;
   FFramed := TQueue<TBytes>.Create;
   FFramedBytes := 0;
+  FInHead := 0;
+  FInTail := 0;
   FOutHead := 0;
   FOutTail := 0;
   FMaxCiphertextLength := TRecordLimits.MaxCipherTextTls13;
@@ -442,7 +457,7 @@ end;
 
 function TRecordLayer.InboundBacklogFull: Boolean;
 begin
-  Result := (FFramedBytes + System.Length(FInbound)) >= FMaxFramedBacklog;
+  Result := (FFramedBytes + (FInTail - FInHead)) >= FMaxFramedBacklog;
 end;
 
 procedure TRecordLayer.DiscardInbound;
@@ -450,6 +465,8 @@ begin
   FFramed.Clear;
   FFramedBytes := 0;
   FInbound := nil;
+  FInHead := 0;
+  FInTail := 0;
 end;
 
 procedure TRecordLayer.SetEarlyDataSkip(AMaxBytes: Int32);
@@ -554,15 +571,20 @@ var
   LPos, LAvailable, LRecordLength, LResidual: Int32;
 begin
   GuardUsable;
+  // an out-of-range slice is a caller error, not a peer fault: reject it before the failure
+  // gate below rather than silently truncating a feed the caller believes was consumed
+  if (AOffset < 0) or (ALength < 0) or
+    (Int64(AOffset) + ALength > System.Length(AWire)) then
+    raise EArgumentTlsLibException.CreateRes(@SInputSliceOutOfRange);
   try
-    FInbound := TArrayUtilities.Concat(FInbound, System.Copy(AWire, AOffset, ALength));
-    LPos := 0;
-    while (System.Length(FInbound) - LPos) >= TRecordLimits.HeaderLength do
+    AppendInbound(AWire, AOffset, ALength);
+    LPos := FInHead;
+    while (FInTail - LPos) >= TRecordLimits.HeaderLength do
     begin
-      LReader := TWireReader.Create(FInbound, LPos, System.Length(FInbound) - LPos);
+      LAvailable := FInTail - LPos;
+      LReader := TWireReader.Create(FInbound, LPos, LAvailable);
       LHeader := TTlsRecordHeader.Parse(LReader, FMaxCiphertextLength);
       LRecordLength := TRecordLimits.HeaderLength + LHeader.Length;
-      LAvailable := System.Length(FInbound) - LPos;
       if LAvailable < LRecordLength then
         Break; // the record spans into bytes not yet received
       // structural framing only; decryption is deferred to the pull side
@@ -579,8 +601,9 @@ begin
       Inc(LPos, LRecordLength);
     end;
     // keep the trailing partial record; bound how much may sit un-framed
-    LResidual := System.Length(FInbound) - LPos;
-    FInbound := System.Copy(FInbound, LPos, LResidual);
+    FInHead := LPos;
+    LResidual := FInTail - FInHead;
+    ResetInboundIfDrained;
     if LResidual > FMaxInboundBuffer then
       raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.RecordOverflow,
         @SReassemblyOverflow);
@@ -726,6 +749,54 @@ begin
   end;
 end;
 
+procedure TRecordLayer.AppendInbound(const AWire: TBytes; AOffset, ALength: Int32);
+var
+  LLive, LNeed, LCap: Int32;
+begin
+  if ALength <= 0 then
+    Exit;
+  // guard the Int32 index arithmetic below: a feed whose end would pass the addressable range
+  // must fail loud, not wrap negative and skip the grow (which would overrun the Move target)
+  if Int64(FInTail) + ALength > High(Int32) then
+    raise EArgumentTlsLibException.CreateRes(@SBufferGrowthOverflow);
+  if FInTail + ALength > System.Length(FInbound) then
+  begin
+    // reclaim the framed prefix before growing; runs only when the feed would not fit
+    if FInHead > 0 then
+    begin
+      LLive := FInTail - FInHead;
+      if LLive > 0 then
+        System.Move(FInbound[FInHead], FInbound[0], LLive);
+      FInHead := 0;
+      FInTail := LLive;
+    end;
+    LNeed := FInTail + ALength;
+    if LNeed > System.Length(FInbound) then
+    begin
+      LCap := System.Length(FInbound);
+      if LCap < InboundMinCapacity then
+        LCap := InboundMinCapacity;
+      if LCap <= High(Int32) div 2 then
+        LCap := LCap * 2;
+      if LCap < LNeed then
+        LCap := LNeed;
+      SetLength(FInbound, LCap);
+    end;
+  end;
+  System.Move(AWire[AOffset], FInbound[FInTail], ALength);
+  Inc(FInTail, ALength);
+end;
+
+procedure TRecordLayer.ResetInboundIfDrained;
+begin
+  if FInHead <> FInTail then
+    Exit;
+  FInHead := 0;
+  FInTail := 0;
+  if System.Length(FInbound) > InboundRetainCapacity then
+    FInbound := nil;
+end;
+
 procedure TRecordLayer.AppendOutgoing(const ARecord: TBytes);
 var
   LLen, LLive, LNeed, LCap: Int32;
@@ -733,6 +804,9 @@ begin
   LLen := System.Length(ARecord);
   if LLen <= 0 then
     Exit;
+  // guard the Int32 index arithmetic below against wrapping negative on a pathologically large total
+  if Int64(FOutTail) + LLen > High(Int32) then
+    raise EArgumentTlsLibException.CreateRes(@SBufferGrowthOverflow);
   if FOutTail + LLen > System.Length(FOutbound) then
   begin
     // reclaim the drained prefix before growing; runs only when the record would not fit

@@ -16,6 +16,8 @@ unit TlpRecordHeader;
 interface
 
 uses
+  SysUtils,
+  TlpBinaryPrimitives,
   TlpTlsAlert,
   TlpTlsLibExceptions,
   TlpTlsContentType,
@@ -65,6 +67,8 @@ type
       AMaxCiphertextLength: Int32): TTlsRecordHeader; static;
     /// <summary>Writes the 5 header bytes through the wire writer.</summary>
     procedure Serialize(const AWriter: IWireWriter);
+    /// <summary>Writes the 5 header bytes at ABuf[AOffset]; the caller sizes ABuf.</summary>
+    procedure WriteTo(const ABuf: TBytes; AOffset: Int32);
     /// <summary>Maps the content-type byte to a known type; False if unknown.</summary>
     function TryContentType(out AContentType: TTlsContentType): Boolean;
 
@@ -121,6 +125,13 @@ begin
   AWriter.WriteUInt8(FContentTypeByte);
   AWriter.WriteUInt16(FVersion.WireValue);
   AWriter.WriteUInt16(UInt16(FLength));
+end;
+
+procedure TTlsRecordHeader.WriteTo(const ABuf: TBytes; AOffset: Int32);
+begin
+  ABuf[AOffset] := FContentTypeByte;
+  TBinaryPrimitives.WriteUInt16BigEndian(ABuf, AOffset + 1, FVersion.WireValue);
+  TBinaryPrimitives.WriteUInt16BigEndian(ABuf, AOffset + 3, UInt16(FLength));
 end;
 
 function TTlsRecordHeader.TryContentType(out AContentType: TTlsContentType): Boolean;

@@ -25,10 +25,12 @@ uses
 
 type
   /// <summary>
-  /// The OpenSSL side of the record-throughput benchmark. One TLS 1.2 connection is
-  /// established up front (a single AEAD cipher pinned) over a pair of memory BIOs, then
-  /// each SendOnce SSL_writes a fixed payload on the client and SSL_reads it on the server
-  /// - the OpenSSL record layer's steady-state seal+open cost, mirroring the TlsLib peer.
+  /// The OpenSSL side of the record-throughput benchmark. One connection of the requested
+  /// version (TLS 1.2 or 1.3) is established up front (a single AEAD cipher pinned) over a
+  /// pair of memory BIOs, then each SendOnce SSL_writes a fixed payload on the client and
+  /// SSL_reads it on the server - the OpenSSL record layer's steady-state seal+open cost,
+  /// mirroring the TlsLib peer. AFeedSlice > 0 hands the sealed bytes to the server BIO in
+  /// slices of that size, the same delivery pattern the TlsLib peer's sliced mode uses.
   /// </summary>
   TOpenSslThroughputPeer = class sealed(TObject)
   strict private
@@ -38,10 +40,12 @@ type
     FClientWrite, FServerRead: PBIO;
     FPayload, FRecv, FScratch: TBytes;
     FRecordSize: Int32;
+    FFeedSlice: Int32;
+    procedure Deliver;
   public
     class function IsAvailable: Boolean; static;
-    constructor Create(const ACredential: TTlsBenchmarkCredential;
-      const ACipher, AGroups: string; ARecordSize, APayloadBytes: Int32);
+    constructor Create(const ACredential: TTlsBenchmarkCredential; AWireVersion: UInt16;
+      const ACipher, AGroups: string; ARecordSize, APayloadBytes, AFeedSlice: Int32);
     destructor Destroy; override;
     /// <summary>Seal + deliver + open one payload over the established connection.</summary>
     procedure SendOnce;
@@ -59,7 +63,8 @@ begin
 end;
 
 constructor TOpenSslThroughputPeer.Create(const ACredential: TTlsBenchmarkCredential;
-  const ACipher, AGroups: string; ARecordSize, APayloadBytes: Int32);
+  AWireVersion: UInt16; const ACipher, AGroups: string;
+  ARecordSize, APayloadBytes, AFeedSlice: Int32);
 var
   LClientRead, LServerWrite: PBIO;
   LRounds, LRet, LErr: Int32;
@@ -86,12 +91,13 @@ begin
   if not TOpenSslBench.Available then
     raise ETlsBenchmarkError.Create('OpenSSL libraries are not available');
   FRecordSize := ARecordSize;
+  FFeedSlice := AFeedSlice;
   SetLength(FScratch, CScratchBuffer);
   SetLength(FRecv, CScratchBuffer);
   SetLength(FPayload, APayloadBytes);
 
-  FClientCtx := TOpenSslBench.NewClientCtx(TLS1_2_VERSION, ACipher, AGroups);
-  FServerCtx := TOpenSslBench.NewServerCtx(ACredential, TLS1_2_VERSION, ACipher, AGroups);
+  FClientCtx := TOpenSslBench.NewClientCtx(AWireVersion, ACipher, AGroups);
+  FServerCtx := TOpenSslBench.NewServerCtx(ACredential, AWireVersion, ACipher, AGroups);
 
   FClient := SSL_new(FClientCtx);
   FServer := SSL_new(FServerCtx);
@@ -117,6 +123,13 @@ begin
 
   if not (LClientDone and LServerDone) then
     raise ETlsBenchmarkError.Create('OpenSSL throughput handshake did not complete');
+
+  // a TLS 1.3 server queues its NewSessionTicket flight behind the handshake; consume it
+  // now so no measured pass carries post-handshake traffic
+  TOpenSslBench.DrainBio(LServerWrite, LClientRead, FScratch);
+  repeat
+    LRet := SSL_read(FClient, @FRecv[0], System.Length(FRecv));
+  until LRet <= 0;
 end;
 
 destructor TOpenSslThroughputPeer.Destroy;
@@ -133,6 +146,32 @@ begin
   inherited Destroy;
 end;
 
+procedure TOpenSslThroughputPeer.Deliver;
+var
+  LGot, LOffset, LSlice: Int32;
+begin
+  if FFeedSlice <= 0 then
+  begin
+    TOpenSslBench.DrainBio(FClientWrite, FServerRead, FScratch);
+    Exit;
+  end;
+  // the sliced delivery mirrors the TlsLib peer; a memory BIO simply concatenates the
+  // slices, so this column is the reference for a record layer that a small-read
+  // transport does not disturb
+  repeat
+    LGot := BIO_read(FClientWrite, @FScratch[0], System.Length(FScratch));
+    LOffset := 0;
+    while LOffset < LGot do
+    begin
+      LSlice := LGot - LOffset;
+      if LSlice > FFeedSlice then
+        LSlice := FFeedSlice;
+      BIO_write(FServerRead, @FScratch[LOffset], LSlice);
+      Inc(LOffset, LSlice);
+    end;
+  until LGot <= 0;
+end;
+
 procedure TOpenSslThroughputPeer.SendOnce;
 var
   LOffset, LChunk, LGot: Int32;
@@ -147,7 +186,7 @@ begin
       LChunk := FRecordSize;
     SSL_write(FClient, @FPayload[LOffset], LChunk);
     Inc(LOffset, LChunk);
-    TOpenSslBench.DrainBio(FClientWrite, FServerRead, FScratch);
+    Deliver;
   end;
   // open (decrypt) every delivered record; SSL_read drains until WANT_READ (<= 0)
   repeat
