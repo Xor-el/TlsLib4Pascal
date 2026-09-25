@@ -101,7 +101,7 @@ type
     /// completion (RFC 8446 4.2.10). A server emits it on accepting early data, with the
     /// ticket's max_early_data_size as AMaxBytes (RFC 8446 4.6.1), and at EndOfEarlyData.</summary>
     class function SetEarlyReadEpoch(AActive: Boolean;
-      AMaxBytes: Int32 = 0): THandshakeEffect; static;
+      AMaxBytes: Int32): THandshakeEffect; static;
     class function RaiseEvent(AEvent: TTlsEventKind): THandshakeEffect; static;
     /// <summary>Parks the handshake for an out-of-band peer-certificate verdict: the driver
     /// surfaces AChain (as presented), AValidatedPath (the pipeline-validated path, leaf first with

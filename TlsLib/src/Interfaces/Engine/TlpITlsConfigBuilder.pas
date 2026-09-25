@@ -487,7 +487,9 @@ type
       const ACache: ICertificateCompressionCache): ITls13ServerConfigFacet;
     /// <summary>The 0-RTT early-data byte budget the server authorizes (TLS 1.3, RFC 8446
     /// 4.2.10); 0 disables early data. A default anti-replay register is provided when none is
-    /// set (see WithAntiReplay); resumption must be enabled for 0-RTT.</summary>
+    /// set (see WithAntiReplay); resumption must be enabled for 0-RTT. Accepted early data is
+    /// bounded by the value carried in the resumed ticket (what the client was told), so lowering
+    /// this later does not retroactively shrink already-issued tickets - rotate the ticket keys.</summary>
     function WithEarlyData(AMaxBytes: UInt32): ITls13ServerConfigFacet;
     /// <summary>The anti-replay register guarding accepted early data; when a positive
     /// early-data budget is set without one, a default in-memory register is used (one per config,

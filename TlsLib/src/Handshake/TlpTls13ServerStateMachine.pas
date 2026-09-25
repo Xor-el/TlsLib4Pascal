@@ -858,7 +858,7 @@ begin
     EarlyDataAgeFresh(AContext.OfferedPskAges[0], LSession.TicketAgeAdd,
     LSession.IssuedAtMillis, LNowMs) and (FParams.AntiReplay <> nil) and
     FParams.AntiReplay.CheckAndRecord(AContext.OfferedPskBinders[0], LNowMs,
-    LNowMs + UInt64(2 * MaxFreshnessSkewMillis));
+    LNowMs + UInt64(2 * MaxFreshnessSkewMillis) + 1);
   Result := True;
 end;
 

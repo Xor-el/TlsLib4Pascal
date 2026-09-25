@@ -949,7 +949,9 @@ end;
 procedure TTestTls13Resumption.TestZeroRttAntiReplayHoldIsTwiceFreshnessSkew;
 const
   // a replay only passes the 60 s freshness check within ~2x that skew of the original
-  ExpectedHoldMillis = Int64(2 * 60 * 1000);
+  // twice the 60 s freshness skew, plus 1 ms so the strike outlives the last instant a
+  // max-skew replay can still pass the freshness check
+  ExpectedHoldMillis = Int64(2 * 60 * 1000) + 1;
 var
   LRecorder: TRecordingAntiReplay;
   LAnti: IAntiReplayStrategy;
