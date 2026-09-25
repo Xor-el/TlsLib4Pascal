@@ -17,7 +17,8 @@ interface
 
 uses
   SysUtils,
-  TlpExtensionContext;
+  TlpExtensionContext,
+  TlpExtensionVector;
 
 type
   /// <summary>
@@ -65,7 +66,11 @@ type
       AKind: TTlsExtensionContextKind): TBytes;
     /// <summary>Parses an extensions vector for AKind, applying the 4.2 rules.</summary>
     procedure ConsumeBlock(const AContext: TExtensionContext;
-      AKind: TTlsExtensionContextKind; const ABlock: TBytes);
+      AKind: TTlsExtensionContextKind; const ABlock: TBytes); overload;
+    /// <summary>Applies the 4.2 rules to an already-parsed vector, so a caller that has
+    /// parsed the block for another purpose need not walk it again.</summary>
+    procedure ConsumeBlock(const AContext: TExtensionContext;
+      AKind: TTlsExtensionContextKind; const AVector: TExtensionVector); overload;
   end;
 
 implementation

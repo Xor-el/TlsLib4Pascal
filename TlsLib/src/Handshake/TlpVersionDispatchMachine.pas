@@ -49,13 +49,17 @@ type
     /// sub-machine's effects for that message.</summary>
     function Dispatch(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>; reintroduce; virtual; abstract;
+    /// <summary>The one structural parse of a ClientHello's extension block: Empty for an absent
+    /// field (a legacy 1.2-only shape), otherwise the fully-validated vector. Both readers below
+    /// take this vector, so the outer block is walked once per dispatch.</summary>
+    class function ParseExtensions(const AExtensions: TBytes): TExtensionVector; static;
     /// <summary>Reads the versions listed in a ClientHello's supported_versions
     /// extension (empty when the extension is absent - a legacy 1.2-only client).</summary>
-    class function ClientHelloVersions(const AExtensions: TBytes): TArray<UInt16>; static;
+    class function ClientHelloVersions(const AVector: TExtensionVector): TArray<UInt16>; static;
     /// <summary>Whether the ClientHello carries an encrypted_client_hello extension (RFC
     /// 9849): such a client is doing ECH and is TLS 1.3, even when a minimal ClientHelloOuter
     /// omits supported_versions.</summary>
-    class function HasEncryptedClientHello(const AExtensions: TBytes): Boolean; static;
+    class function HasEncryptedClientHello(const AVector: TExtensionVector): Boolean; static;
   public
     /// <summary>A responder (server dispatcher) by default; the client dispatcher overrides.</summary>
     function Initiates: Boolean; virtual;
@@ -223,22 +227,28 @@ begin
   Result := (FInner <> nil) and FInner.CanExportKeyingMaterial;
 end;
 
+class function TVersionDispatchMachineBase.ParseExtensions(
+  const AExtensions: TBytes): TExtensionVector;
+begin
+  // an absent extensions field is a legacy ClientHello shape: the empty vector, never parsed
+  // (TExtensionVector.Parse treats an empty field as decode_error). A present field is parsed in
+  // full here - a duplicate type, an over-cap count or trailing bytes are rejected with their
+  // structural alert before the version is chosen, rather than slipping through a tolerant
+  // pre-scan to fail later during the message's own extension pass
+  if System.Length(AExtensions) = 0 then
+    Result := TExtensionVector.Empty
+  else
+    Result := TExtensionVector.Parse(AExtensions);
+end;
+
 class function TVersionDispatchMachineBase.ClientHelloVersions(
-  const AExtensions: TBytes): TArray<UInt16>;
+  const AVector: TExtensionVector): TArray<UInt16>;
 var
-  LVector: TExtensionVector;
   LEntry: TExtensionEntry;
   LReader, LVers: TWireReader;
 begin
   Result := nil;
-  // an absent extensions field is a legacy ClientHello shape: no supported_versions to read.
-  // a present field is parsed in full here - a duplicate type, an over-cap count or trailing
-  // bytes are rejected with their structural alert before the version is chosen, rather than
-  // slipping through this tolerant pre-scan to fail later during the message's own extension pass
-  if System.Length(AExtensions) = 0 then
-    Exit;
-  LVector := TExtensionVector.Parse(AExtensions);
-  if LVector.TryFind(TExtensionTypes.SupportedVersions, LEntry) then
+  if AVector.TryFind(TExtensionTypes.SupportedVersions, LEntry) then
   begin
     // ClientHello supported_versions: a 1-byte-length list of uint16 versions
     LReader := TWireReader.Create(LEntry.Data);
@@ -249,17 +259,9 @@ begin
 end;
 
 class function TVersionDispatchMachineBase.HasEncryptedClientHello(
-  const AExtensions: TBytes): Boolean;
-var
-  LVector: TExtensionVector;
+  const AVector: TExtensionVector): Boolean;
 begin
-  Result := False;
-  // an absent extensions field is a legacy ClientHello shape: no extensions to find. a present
-  // field is parsed in full (see ClientHelloVersions) before the ECH question is answered
-  if System.Length(AExtensions) = 0 then
-    Exit;
-  LVector := TExtensionVector.Parse(AExtensions);
-  Result := LVector.Contains(TExtensionTypes.EncryptedClientHello);
+  Result := AVector.Contains(TExtensionTypes.EncryptedClientHello);
 end;
 
 { TServerVersionDispatchMachine }
@@ -303,20 +305,24 @@ function TServerVersionDispatchMachine.Dispatch(
   const AMessage: TTlsHandshakeMessage): TArray<THandshakeEffect>;
 var
   LHello: TTlsClientHello;
+  LExtensions: TExtensionVector;
   LClientVersions: TArray<UInt16>;
   LClientSupportsTls13: Boolean;
   LClientOffers12: Boolean;
   LClientHighest: UInt16;
 begin
   LHello := THandshakeMessages.DecodeClientHello(AMessage.Body);
-  LClientVersions := ClientHelloVersions(LHello.Extensions);
+  // parse the outer extension block once; both the supported_versions read and the ech-presence
+  // check below take this vector rather than re-walking the unauthenticated block
+  LExtensions := ParseExtensions(LHello.Extensions);
+  LClientVersions := ClientHelloVersions(LExtensions);
   // an Encrypted Client Hello whose minimal ClientHelloOuter omits supported_versions is still
   // a TLS 1.3 client (RFC 9849 sec. 7: the version comes from the decrypted inner) - route it
   // to the 1.3 machine. An ech alongside an explicit version list does NOT override that list,
   // so a legacy client GREASE-ing ech while offering only 1.2 still negotiates 1.2.
   LClientSupportsTls13 := (TArrayUtilities.Contains<UInt16>(LClientVersions,
     TlsWireVersionTls13)) or ((System.Length(LClientVersions) = 0) and
-    HasEncryptedClientHello(LHello.Extensions));
+    HasEncryptedClientHello(LExtensions));
 
   // RFC 7507 TLS_FALLBACK_SCSV: a client that retried at a lower version signals it in
   // cipher_suites. The client's highest version is its supported_versions (a 1.3 client

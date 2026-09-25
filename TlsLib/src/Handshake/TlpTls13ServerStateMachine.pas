@@ -289,10 +289,15 @@ type
     /// ServerHello (RFC 9849 sec. 7.2), computed over the inner transcript through this
     /// ServerHello with those 8 bytes zeroed.</summary>
     procedure StampEchAcceptConfirmation(var AServerHelloBytes: TBytes);
-    /// <summary>Whether the ClientHello carries an inner-type encrypted_client_hello (the
-    /// backend role, RFC 9849 sec. 7.1). Raises decode_error on a malformed ech extension
-    /// (a non-empty inner body or an unknown type).</summary>
-    class function DetectBackendEch(const AClientHello: TTlsClientHello): Boolean; static;
+    /// <summary>The one structural parse of a ClientHello's extension block: Empty for an absent
+    /// field (a legacy <=TLS 1.2 shape), otherwise the fully-validated vector. Threaded down so the
+    /// unauthenticated block is walked once per ClientHello (outer, and again for an ECH inner).</summary>
+    class function ParseClientHelloExtensions(
+      const AClientHello: TTlsClientHello): TExtensionVector; static;
+    /// <summary>Whether the ClientHello extensions carry an inner-type encrypted_client_hello
+    /// (the backend role, RFC 9849 sec. 7.1). Raises decode_error on a malformed ech extension
+    /// (a non-empty inner body or an unknown type). Reads the already-parsed vector.</summary>
+    class function DetectBackendEch(const AVector: TExtensionVector): Boolean; static;
     /// <summary>Stamps the HelloRetryRequest ech accept confirmation (RFC 9849 sec. 7.2.1):
     /// its 8-byte value is the LAST 8 bytes of AHrrBytes (the ech extension is spliced last),
     /// computed over message_hash(AInnerCh1Hash) then the HRR with that payload zeroed.</summary>
@@ -311,7 +316,8 @@ type
     /// skips the certificate-auth path).</summary>
     procedure NegotiateFrom(const AClientHello: TTlsClientHello;
       const AContext: TExtensionContext; const ARawClientHello: TBytes;
-      AAllowResumption: Boolean; out ASelectedGroup: UInt16);
+      const AExtensions: TExtensionVector; AAllowResumption: Boolean;
+      out ASelectedGroup: UInt16);
     /// <summary>
     /// Attempts to accept a resumption PSK from the ClientHello: looks up the first
     /// offered identity in the store (single-use), checks it is unexpired, and verifies
@@ -352,9 +358,6 @@ type
     /// resumes.</summary>
     class function EarlyDataAgeFresh(AObfuscatedAgeMillis, ATicketAgeAdd: UInt32;
       AIssuedAtMillis, ANowMillis: UInt64): Boolean; static;
-    /// <summary>Whether pre_shared_key is the last extension in a ClientHello extension block
-    /// (RFC 8446 4.2.11); True when no pre_shared_key is present.</summary>
-    class function PreSharedKeyIsLast(const AExtensions: TBytes): Boolean; static;
     /// <summary>The first credential scheme (preference order) the client also offered;
     /// False when the credential's key can satisfy none of the client's schemes.</summary>
     function SelectSignatureScheme(const AClientSchemes: TArray<UInt16>;
@@ -586,20 +589,21 @@ end;
 
 procedure TTls13ServerStateMachine.NegotiateFrom(
   const AClientHello: TTlsClientHello; const AContext: TExtensionContext;
-  const ARawClientHello: TBytes; AAllowResumption: Boolean;
-  out ASelectedGroup: UInt16);
+  const ARawClientHello: TBytes; const AExtensions: TExtensionVector;
+  AAllowResumption: Boolean; out ASelectedGroup: UInt16);
 var
   LSuiteCode, LGroupCode: UInt16;
 begin
   // re-derived per ClientHello so a retry that drops the offer drops the response too
   FPeerRecordSizeLimit := 0;
-  FCodec.ConsumeBlock(AContext, TTlsExtensionContextKind.ClientHello,
-    AClientHello.Extensions);
+  // AExtensions is the caller's single parse of this ClientHello's extension block, reused for
+  // the structural consume and the pre_shared_key-last check below (RFC 8446 4.2)
+  FCodec.ConsumeBlock(AContext, TTlsExtensionContextKind.ClientHello, AExtensions);
   ValidatePskBinderCount(AContext);
   // pre_shared_key MUST be the last ClientHello extension (RFC 8446 4.2.11) so the binder
   // covers a well-defined prefix; a present-but-not-last offer is illegal_parameter
   if (System.Length(AContext.OfferedPskIdentities) > 0) and
-    not PreSharedKeyIsLast(AClientHello.Extensions) then
+    not AExtensions.IsLast(TExtensionTypes.PreSharedKey) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SPreSharedKeyNotLast);
   // a pre_shared_key offer without psk_key_exchange_modes leaves the server no way to know which
@@ -759,17 +763,6 @@ begin
   else
     LSkewMs := LClientAgeMs - LServerAgeMs;
   Result := LSkewMs <= MaxFreshnessSkewMillis;
-end;
-
-class function TTls13ServerStateMachine.PreSharedKeyIsLast(
-  const AExtensions: TBytes): Boolean;
-var
-  LVector: TExtensionVector;
-begin
-  // Called only when a pre_shared_key was offered, so "last is pre_shared_key" is the required
-  // condition (RFC 8446 4.2.11: pre_shared_key must be the final ClientHello extension)
-  LVector := TExtensionVector.Parse(AExtensions);
-  Result := LVector.IsLast(TExtensionTypes.PreSharedKey);
 end;
 
 function TTls13ServerStateMachine.TryAcceptResumption(
@@ -1034,17 +1027,22 @@ var
   LContext: TExtensionContext;
   LSelectedGroup: UInt16;
   LClientShare, LEchRaw: TBytes;
+  LExtensions: TExtensionVector;
 begin
   LEchRaw := AMessage.Raw;
   LClientHello := THandshakeMessages.DecodeClientHello(
     System.Copy(AMessage.Raw, 4, System.Length(AMessage.Raw) - 4));
+  // parse the (outer) extension block once and thread it down: the ech detection, the structural
+  // consume and the pre_shared_key-last check all read this one vector rather than re-walking the
+  // unauthenticated block. An absent field is a legacy shape - Empty, never parsed.
+  LExtensions := ParseClientHelloExtensions(LClientHello);
   // Encrypted Client Hello (RFC 9849 sec. 7.1). An inner-type ech is a decrypted
   // ClientHelloInner: it is legitimate only at a split-mode backend (no ECH keys), which
   // confirms it in the ServerHello. A client-facing or shared-mode server (it holds ECH keys)
   // must never receive it directly and aborts illegal_parameter. With ECH keys and an outer,
   // trial-decrypt - accept drives negotiation off the reconstructed inner, reject continues to
   // the public_name and advertises retry_configs in EncryptedExtensions.
-  if DetectBackendEch(LClientHello) then
+  if DetectBackendEch(LExtensions) then
   begin
     if FParams.EchKeyStore <> nil then
       raise EFatalAlertTlsLibException.CreateRes(
@@ -1063,13 +1061,15 @@ begin
       FEchInnerRandom := FEch.InnerRandom;
       LClientHello := THandshakeMessages.DecodeClientHello(
         System.Copy(LEchRaw, 4, System.Length(LEchRaw) - 4));
+      // the reconstructed inner is a distinct extension block - parse it once for negotiation
+      LExtensions := ParseClientHelloExtensions(LClientHello);
     end
     else if FEchStatus = TEchStatus.Rejected then
       FEchRetryConfigs := FParams.EchKeyStore.RetryConfigs;
   end;
   LContext := TExtensionContext.Create;
   try
-    NegotiateFrom(LClientHello, LContext, LEchRaw, True, LSelectedGroup);
+    NegotiateFrom(LClientHello, LContext, LEchRaw, LExtensions, True, LSelectedGroup);
     LClientShare := KeyShareFor(LContext, LSelectedGroup);
     if System.Length(LClientShare) = 0 then
       // the client listed our group but sent no share for it: ask for one
@@ -1199,6 +1199,7 @@ var
   LSelectedGroup, LCookieGroup, LPinnedSuite: UInt16;
   LCh1Hash, LClientShare, LHrr, LCh2Raw, LEchHrrHash: TBytes;
   LEchAccepted: Boolean;
+  LExtensions: TExtensionVector;
 begin
   // when ECH was accepted on CH1, the retry outer reuses the CH1 HPKE context at seq=1
   // (RFC 9849 sec. 6.1.5); the reconstructed inner CH2 is the logical ClientHello2
@@ -1221,6 +1222,8 @@ begin
     LCh2Raw := AMessage.Raw;
   LClientHello := THandshakeMessages.DecodeClientHello(
     System.Copy(LCh2Raw, 4, System.Length(LCh2Raw) - 4));
+  // one parse of the retry ClientHello's extension block, reused across the consume and PSK-last
+  LExtensions := ParseClientHelloExtensions(LClientHello);
   LContext := TExtensionContext.Create;
   try
     // the HelloRetryRequest named the suite selected from CH1, and the retry transcript is rebuilt
@@ -1231,7 +1234,7 @@ begin
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SRetrySuiteChanged);
     // resumption is not attempted on the retry ClientHello (kept to the first flight)
-    NegotiateFrom(LClientHello, LContext, LCh2Raw, False, LSelectedGroup);
+    NegotiateFrom(LClientHello, LContext, LCh2Raw, LExtensions, False, LSelectedGroup);
     // the server must still negotiate that same suite (guards a reordered CH2 under client-preference)
     if FSelectedSuite.Common.Code <> LPinnedSuite then
       raise EFatalAlertTlsLibException.CreateRes(
@@ -1283,21 +1286,30 @@ begin
   end;
 end;
 
+class function TTls13ServerStateMachine.ParseClientHelloExtensions(
+  const AClientHello: TTlsClientHello): TExtensionVector;
+begin
+  // an absent extensions field is a legacy (<=TLS 1.2) ClientHello shape: the empty vector, never
+  // parsed (TExtensionVector.Parse treats an empty field as decode_error, not the empty vector).
+  // A present field is fully validated here - the single structural walk of this block.
+  if System.Length(AClientHello.Extensions) = 0 then
+    Result := TExtensionVector.Empty
+  else
+    Result := TExtensionVector.Parse(AClientHello.Extensions);
+end;
+
 class function TTls13ServerStateMachine.DetectBackendEch(
-  const AClientHello: TTlsClientHello): Boolean;
+  const AVector: TExtensionVector): Boolean;
 var
-  LVector: TExtensionVector;
   LEntry: TExtensionEntry;
   LType: TEchClientHelloType;
   LOuter: TEchOuterClientHello;
 begin
+  // an empty vector is a legacy (<=TLS 1.2) ClientHello shape (the caller passes Empty when the
+  // extensions field is absent); TryFind then misses and this is False, leaving version
+  // negotiation to reject it with protocol_version rather than failing here as a decode_error
   Result := False;
-  // an absent extensions field is a legacy (<=TLS 1.2) ClientHello shape; leave it to version
-  // negotiation to reject with protocol_version rather than fail here as a decode_error
-  if System.Length(AClientHello.Extensions) = 0 then
-    Exit;
-  LVector := TExtensionVector.Parse(AClientHello.Extensions);
-  if LVector.TryFind(TExtensionTypes.EncryptedClientHello, LEntry) then
+  if AVector.TryFind(TExtensionTypes.EncryptedClientHello, LEntry) then
   begin
     // Decode validates the wire shape: an out-of-range type is illegal_parameter, a malformed
     // body a decode_error - the boundary maps either to the alert
