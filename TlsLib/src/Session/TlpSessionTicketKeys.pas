@@ -74,7 +74,8 @@ type
     /// the advertised ticket lifetime, so a ticket stays openable for its whole lifetime and a key
     /// older than twice the lifetime cannot back any live ticket. Honors whatever provider and clock
     /// the caller injected, with no tie to any concrete default provider. Tickets are scoped to this
-    /// manager's lifetime; share a STEK across servers/a fleet with InstallKey.</summary>
+    /// manager's lifetime; to share a STEK across servers/a fleet build the manager with CreateFleet
+    /// (which mints no local key) and InstallKey.</summary>
     class function CreateDefault(const ACryptoProvider: ICryptoProvider;
       const AClock: ITlsClock; ALifetimeSeconds: UInt32): ISessionTicketKeyManager; static;
     /// <summary>A manager with a fresh current key and an AWindowSize decrypt window (a default
@@ -88,6 +89,14 @@ type
     constructor Create(const ARandom: IRandom; AWindowSize: Int32;
       const AClock: ITlsClock; ARotateIntervalSeconds: UInt32;
       AMaxSealsPerKey: UInt32 = 0); overload;
+    /// <summary>A manager for a shared-key fleet: it mints NO key of its own, so nothing is sealed
+    /// under a key the fleet cannot open and no local key lingers in the decrypt window. It seals
+    /// nothing (CurrentKey is False) until InstallKey supplies the shared STEK, and never mints,
+    /// auto-rotates or time-retires - the fleet owns the whole lifecycle. The parameterless form
+    /// uses the default decrypt window; AWindowSize bounds how many installed keys stay accepted for
+    /// decrypt (a default applies when 0 or less).</summary>
+    constructor CreateFleet; overload;
+    constructor CreateFleet(AWindowSize: Int32); overload;
     destructor Destroy; override;
 
     function CurrentKey(out AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
@@ -100,7 +109,8 @@ type
     /// fixed lengths (KeyNameLength / an AES-256 key) or this raises. Installing hands the ring's
     /// whole lifecycle to the caller: the manager thereafter neither mints, auto-rotates, nor
     /// time-retires keys - the fleet coordinates rotation and pushes old keys out of the window by
-    /// installing newer ones.</summary>
+    /// installing newer ones. For a pure fleet manager build it with CreateFleet, which mints no
+    /// local key to be sealed under (or to linger) before the first InstallKey.</summary>
     procedure InstallKey(const AName: TBytes; const AKey: ISecretBuffer);
   end;
 
@@ -172,6 +182,26 @@ begin
   FKeys := TList<TStekKey>.Create;
   FLock := TCriticalSection.Create;
   Rotate; // start with one fresh current key (which also schedules the first timed rotation)
+end;
+
+constructor TStekTicketKeyManager.CreateFleet;
+begin
+  CreateFleet(0);
+end;
+
+constructor TStekTicketKeyManager.CreateFleet(AWindowSize: Int32);
+begin
+  inherited Create;
+  if AWindowSize > 0 then
+    FWindow := AWindowSize
+  else
+    FWindow := DefaultDecryptWindow;
+  FMaxSealsPerKey := MaxSealsPerKeyDefault;
+  FKeys := TList<TStekKey>.Create;
+  FLock := TCriticalSection.Create;
+  // fleet-managed from the outset: mint nothing (no FRandom, no initial Rotate), so no ticket is
+  // sealed under a key the fleet cannot open and no local key lingers; InstallKey supplies the STEK
+  FKeysInstalled := True;
 end;
 
 destructor TStekTicketKeyManager.Destroy;
@@ -273,6 +303,10 @@ var
   LEntry: TStekKey;
   LRaw: TBytes;
 begin
+  // a fleet manager (CreateFleet) has no RNG and mints nothing; a stray Rotate is a no-op rather
+  // than a nil deref - the fleet drives key changes through InstallKey
+  if FRandom = nil then
+    Exit;
   LEntry.Name := FRandom.GenerateBytes(StekKeyNameLength);
   // wrap the fresh key material in the secret buffer (which copies it), then wipe the
   // transient plaintext TBytes so the raw key does not linger on the heap

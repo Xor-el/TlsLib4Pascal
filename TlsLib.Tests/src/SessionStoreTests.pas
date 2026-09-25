@@ -62,6 +62,7 @@ type
     procedure TestStekRotationChangesCurrent;
     procedure TestStekWindowRetiresOldKeys;
     procedure TestStekInstallKey;
+    procedure TestStekFleetMintsNothingUntilInstall;
     procedure TestStekAutoRotatesOnInterval;
     procedure TestStekOpenPathRetiresExpiredKey;
     procedure TestStekCurrentKeyRecoversAfterFullExpiry;
@@ -403,6 +404,28 @@ begin
   LStek.CurrentKey(LName, LCurrent);
   CheckTrue(LKey.ConstantTimeAreEqual(LCurrent),
     'an installed key becomes the current key');
+end;
+
+procedure TTestSessionStore.TestStekFleetMintsNothingUntilInstall;
+var
+  LStek: ISessionTicketKeyManager;
+  LConcrete: TStekTicketKeyManager;
+  LName, LCurrentName: TBytes;
+  LKey, LCurrent: ISecretBuffer;
+begin
+  // a fleet manager mints no local key: it seals nothing until the shared STEK is installed, so a
+  // pre-install ticket cannot be sealed under a key the fleet cannot open (SF-AC)
+  LConcrete := TStekTicketKeyManager.CreateFleet;
+  LStek := LConcrete;
+  CheckFalse(LStek.CurrentKey(LCurrentName, LCurrent),
+    'a fleet manager seals nothing before InstallKey');
+  LName := Tag($55, 16);
+  LKey := TSecretBuffer.From(Tag($66, 32));
+  LConcrete.InstallKey(LName, LKey);
+  CheckTrue(LStek.CurrentKey(LCurrentName, LCurrent),
+    'after InstallKey the fleet manager seals under the installed key');
+  CheckTrue(LKey.ConstantTimeAreEqual(LCurrent),
+    'the installed key is the only current key (no local key was minted)');
 end;
 
 procedure TTestSessionStore.TestStekAutoRotatesOnInterval;
