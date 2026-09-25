@@ -888,7 +888,14 @@ begin
   // the same policy as the certificate path, so the configured cipher preference also
   // governs a PSK handshake; a PSK binds the suite hash (RFC 8446 4.2.11)
   Result := FParams.Policy.TrySelectCipherSuiteWithHash(AClientSuites,
-    TlsWireVersionTls13, AHash, LCode) and FParams.CipherSuites.TryGet(LCode, ASuite);
+    TlsWireVersionTls13, AHash, LCode);
+  if not Result then
+    Exit;
+  // a candidate the policy returned must resolve in the registry it was drawn from; a miss is a
+  // wiring fault, so fail as the certificate path does rather than silently decline the PSK
+  if not FParams.CipherSuites.TryGet(LCode, ASuite) then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.InternalError, @SUnknownSelectedSuite);
 end;
 
 function TTls13ServerStateMachine.TryAcceptExternalPsk(

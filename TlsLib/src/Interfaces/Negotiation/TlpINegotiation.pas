@@ -45,12 +45,12 @@ type
   end;
 
   /// <summary>
-  /// The server's pure negotiation authority: given the client's offered lists,
-  /// choose the version, cipher suite, and group, or raise the correct fatal alert.
-  /// Every server-side suite pick (certificate and PSK paths alike) goes through
-  /// this policy, so the configured cipher preference applies uniformly. The
-  /// signature scheme is not chosen here: a server signs with the first of its
-  /// credential's capable schemes the client offered. No state, no side effects.
+  /// The server's pure negotiation authority: given the client's offered lists, choose the
+  /// version and cipher suite (or raise the correct fatal alert). The TLS 1.3 certificate and
+  /// external-PSK suite picks go through this policy, so the configured cipher preference governs
+  /// both; a resumption ticket instead pins its own suite, and the TLS 1.2 server does not yet
+  /// route through here. The signature scheme is not chosen here: a server signs with the first of
+  /// its credential's capable schemes the client offered. No state, no side effects.
   /// </summary>
   INegotiationPolicy = interface(IInterface)
     ['{A3F1C7D8-5E24-4B69-8D07-2C9E6F4B1A35}']
