@@ -330,8 +330,8 @@ type
     /// </summary>
     function TryAcceptExternalPsk(const AClientHello: TTlsClientHello;
       const AContext: TExtensionContext; const ARawClientHello: TBytes): Boolean;
-    /// <summary>The first TLS 1.3 cipher suite (server preference) whose hash is AHash and
-    /// which AClientSuites offered; False when none qualifies.</summary>
+    /// <summary>The policy's first candidate suite whose hash is AHash among what
+    /// AClientSuites offered; False when none qualifies.</summary>
     function SelectSuiteWithHash(const AClientSuites: TArray<UInt16>;
       AHash: THashAlgorithm; out ASuite: TTlsCipherSuite): Boolean;
     /// <summary>The index of AIdentity in AOffered (exact bytes), or -1 when absent.</summary>
@@ -884,20 +884,11 @@ function TTls13ServerStateMachine.SelectSuiteWithHash(
   out ASuite: TTlsCipherSuite): Boolean;
 var
   LCode: UInt16;
-  LSuite: TTlsCipherSuite;
 begin
-  Result := False;
-  // server preference (the shared hardware-AES-aware order), constrained to a 1.3 suite of
-  // the PSK's hash the client also offered
-  for LCode in TNegotiationPolicy.SuitePreferenceOrder(FParams.Crypto,
-    FParams.CipherSuites, TSuiteProtocol.Tls13) do
-    if FParams.CipherSuites.TryGet(LCode, LSuite) and
-      (LSuite.Protocol = TSuiteProtocol.Tls13) and (LSuite.Common.Hash = AHash) and
-      (TArrayUtilities.Contains<UInt16>(AClientSuites, LSuite.Common.Code)) then
-    begin
-      ASuite := LSuite;
-      Exit(True);
-    end;
+  // the same policy as the certificate path, so the configured cipher preference also
+  // governs a PSK handshake; a PSK binds the suite hash (RFC 8446 4.2.11)
+  Result := FParams.Policy.TrySelectCipherSuiteWithHash(AClientSuites,
+    TlsWireVersionTls13, AHash, LCode) and FParams.CipherSuites.TryGet(LCode, ASuite);
 end;
 
 function TTls13ServerStateMachine.TryAcceptExternalPsk(
