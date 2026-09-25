@@ -34,6 +34,8 @@ uses
   TlpServerName,
   TlpCertificateVerifier,
   TlpCertificateLimits,
+  TlpCertificateStrengthPolicy,
+  TlpNegotiationTypes,
   TlpTrustPolicy,
   TlsLibTestBase;
 
@@ -47,11 +49,19 @@ type
     FEku: TStringList;
     // self-signed edge certs pinned as their own anchor, for end-entity EKU enforcement
     FEkuEdge: TStringList;
+    // one root key re-issued under several self-signed certificates (same subject), plus a
+    // same-subject different-key lookalike, for the anchor-identity tests
+    FReissued: TStringList;
     function Cert(const AName: string): TBytes;
     function Chain3(const AName: string): TBytes;
     function EkuCert(const AName: string): TBytes;
     function EkuEdgeCert(const AName: string): TBytes;
+    function Reissued(const AName: string): TBytes;
     function VerifierFor(const ARoot: TBytes; ACheckHostName: Boolean)
+      : IServerCertificateVerifier;
+    // a verifier trusting ARoot with the chain-algorithm policy switched on, as the engine
+    // wires it: only AAdvertised signature schemes are acceptable on the path
+    function PolicyVerifierFor(const ARoot: TBytes; const AAdvertised: TArray<UInt16>)
       : IServerCertificateVerifier;
     // a verifier trusting ARoot and seeded with AIntermediates for path building; host-name
     // checking is off so these tests isolate PKIX path construction
@@ -80,6 +90,19 @@ type
     procedure TestPinnedSelfSignedClientAuthOnlyLeafRejectedAsServer;
     // a present-but-unparsable EKU is a certificate fault, not an internal error
     procedure TestMalformedEkuRejectedAsBadCertificate;
+    // the validated path is issuer-ordered (leaf, its issuer, ..., anchor) whatever order the
+    // peer presented (RFC 8446 4.4.2 tolerates arbitrary ordering), so the staple check keys off
+    // the real issuer at [1]
+    procedure TestMisorderedChainValidatedPathIsIssuerOrdered;
+    procedure TestMisorderedChainRevokedStapleAborts;
+    procedure TestForeignEndEntityChainRejected;
+    // the trust anchor is identified by subject + key, not exact encoding (RFC 5280 6.1.1(d)):
+    // a peer-sent re-issued copy of the configured root collapses onto the configured DER and
+    // is exempt from path policy; a same-subject different-key root is not the anchor
+    procedure TestPeerReissuedRootAcceptedAndCollapsed;
+    procedure TestPeerSha1ReissuedRootExemptFromChainPolicy;
+    procedure TestSha1SelfSignedRootNotConfiguredRejected;
+    procedure TestSameSubjectDifferentKeyRootRejected;
   end;
 
 implementation
@@ -93,6 +116,7 @@ begin
   FChain3 := LoadVectorFields('Certs/OcspStapling.txt');
   FEku := LoadVectorFields('Certs/ClientAuthChain.txt');
   FEkuEdge := LoadVectorFields('Certs/SelfSignedEkuEdge.txt');
+  FReissued := LoadVectorFields('Certs/ReissuedRoot.txt');
 end;
 
 procedure TTestCertificateVerifier.TearDown;
@@ -101,7 +125,24 @@ begin
   FChain3.Free;
   FEku.Free;
   FEkuEdge.Free;
+  FReissued.Free;
   inherited TearDown;
+end;
+
+function TTestCertificateVerifier.Reissued(const AName: string): TBytes;
+begin
+  Result := DecodeHex(FReissued.Values[AName]);
+end;
+
+function TTestCertificateVerifier.PolicyVerifierFor(const ARoot: TBytes;
+  const AAdvertised: TArray<UInt16>): IServerCertificateVerifier;
+var
+  LVerifier: TCertificateVerifier;
+begin
+  LVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(ARoot)) as ITrustAnchorStore, False);
+  Result := LVerifier;
+  LVerifier.SetChainAlgorithmPolicy(TCertificateStrengthPolicy.Defaults, AAdvertised);
 end;
 
 function TTestCertificateVerifier.Cert(const AName: string): TBytes;
@@ -347,6 +388,129 @@ begin
     'a certificate with a malformed EKU extension is rejected');
   CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
     'the alert is bad_certificate');
+end;
+
+procedure TTestCertificateVerifier.TestMisorderedChainValidatedPathIsIssuerOrdered;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  // the peer presents [leaf, root, issuer]; the validated path must come back issuer-ordered,
+  // ending at the configured anchor exactly once - not in the peer's order with the anchor
+  // appended behind it
+  CheckTrue(VerifierFor(Chain3('root_cert'), False).VerifyServerCertificate(
+    TArray<TBytes>.Create(Chain3('leaf_cert'), Chain3('root_cert'), Chain3('issuer_cert')),
+    TServerName.DnsName(''), nil, LVerified, LAlert),
+    'a misordered but complete chain validates');
+  CheckEquals(3, System.Length(LVerified.Path), 'the validated path is leaf, issuer, anchor');
+  CheckEqualBytes('path[0] is the leaf', Chain3('leaf_cert'), LVerified.Path[0]);
+  CheckEqualBytes('path[1] is the leaf issuer', Chain3('issuer_cert'), LVerified.Path[1]);
+  CheckEqualBytes('path[2] is the anchor', Chain3('root_cert'), LVerified.Path[2]);
+end;
+
+procedure TTestCertificateVerifier.TestMisorderedChainRevokedStapleAborts;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  // the staple is authenticated against the validated path's [1]; when that was the peer's
+  // presented order, a reordered chain put the root there, the Revoked staple failed to match
+  // and degraded to Indeterminate, which Soft accepted
+  CheckFalse(VerifierFor(Chain3('root_cert'), False).VerifyServerCertificate(
+    TArray<TBytes>.Create(Chain3('leaf_cert'), Chain3('root_cert'), Chain3('issuer_cert')),
+    TServerName.DnsName(''), Chain3('ocsp_revoked'), LVerified, LAlert),
+    'a revoked staple aborts a misordered chain under Soft');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateRevoked), Ord(LAlert),
+    'the alert is certificate_revoked');
+end;
+
+procedure TTestCertificateVerifier.TestForeignEndEntityChainRejected;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  // [issuer, leaf, root] sorts to a valid path whose end-entity is the leaf, but the peer's
+  // presented certificate is the issuer: validating some other presented certificate is not a
+  // validation of the peer's own
+  CheckFalse(VerifierFor(Chain3('root_cert'), False).VerifyServerCertificate(
+    TArray<TBytes>.Create(Chain3('issuer_cert'), Chain3('leaf_cert'), Chain3('root_cert')),
+    TServerName.DnsName(''), nil, LVerified, LAlert),
+    'a chain whose validated end-entity is not the presented leaf is rejected');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'the alert is unknown_ca');
+end;
+
+procedure TTestCertificateVerifier.TestPeerReissuedRootAcceptedAndCollapsed;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  // the peer ends its chain with a re-issued copy of the configured root (same key and subject,
+  // new serial); the validated path ends at the CONFIGURED anchor, once
+  CheckTrue(VerifierFor(Reissued('root_cert'), False).VerifyServerCertificate(
+    TArray<TBytes>.Create(Reissued('leaf_cert'), Reissued('issuer_cert'),
+    Reissued('root_reissued_cert')), TServerName.DnsName(''), nil, LVerified, LAlert),
+    'a chain ending in a re-issued copy of the configured root is trusted');
+  CheckEquals(3, System.Length(LVerified.Path), 'the peer copy is collapsed onto the anchor');
+  CheckEqualBytes('path[0] is the leaf', Reissued('leaf_cert'), LVerified.Path[0]);
+  CheckEqualBytes('path[1] is the issuer', Reissued('issuer_cert'), LVerified.Path[1]);
+  CheckEqualBytes('path[2] is the configured anchor DER', Reissued('root_cert'),
+    LVerified.Path[2]);
+end;
+
+procedure TTestCertificateVerifier.TestPeerSha1ReissuedRootExemptFromChainPolicy;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+  LChain: TArray<TBytes>;
+begin
+  // the peer copy of the root is self-signed with SHA-1, which the chain-algorithm policy refuses
+  // on any validated edge (RFC 8446 4.4.2) - but the anchor's self-signature is not one, so a
+  // re-issued copy that resolves to the configured anchor is exempt exactly as the configured
+  // DER itself would be
+  LChain := TArray<TBytes>.Create(Reissued('leaf_cert'), Reissued('issuer_cert'),
+    Reissued('root_reissued_sha1_cert'));
+  CheckTrue(PolicyVerifierFor(Reissued('root_cert'),
+    TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256)).VerifyServerCertificate(
+    LChain, TServerName.DnsName(''), nil, LVerified, LAlert),
+    'a SHA-1 self-signed re-issue of the configured root is exempt from the chain policy');
+  CheckEqualBytes('the path still ends at the configured anchor', Reissued('root_cert'),
+    LVerified.Path[System.High(LVerified.Path)]);
+  // control: the policy is live on this verifier - withdraw the scheme the leaf and issuer are
+  // signed with and the same chain is refused
+  CheckFalse(PolicyVerifierFor(Reissued('root_cert'),
+    TArray<UInt16>.Create(TSignatureSchemes.RsaPssRsaeSha256)).VerifyServerCertificate(
+    LChain, TServerName.DnsName(''), nil, LVerified, LAlert),
+    'the chain policy rejects the path when its scheme is not advertised');
+  CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
+    'the alert is unsupported_certificate');
+end;
+
+procedure TTestCertificateVerifier.TestSha1SelfSignedRootNotConfiguredRejected;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  // the exemption is for the RESOLVED anchor, not for anything self-signed: with an unrelated
+  // root configured the same chain reaches no anchor
+  CheckFalse(VerifierFor(Reissued('root2_cert'), False).VerifyServerCertificate(
+    TArray<TBytes>.Create(Reissued('leaf_cert'), Reissued('issuer_cert'),
+    Reissued('root_reissued_sha1_cert')), TServerName.DnsName(''), nil, LVerified, LAlert),
+    'a self-signed root that is not the configured anchor does not anchor the chain');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'the alert is unknown_ca');
+end;
+
+procedure TTestCertificateVerifier.TestSameSubjectDifferentKeyRootRejected;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  // a root with the anchor's subject but another key: its signature does not verify under the
+  // anchor key, so it is neither the anchor nor a path to it
+  CheckFalse(VerifierFor(Reissued('root_cert'), False).VerifyServerCertificate(
+    TArray<TBytes>.Create(Reissued('leaf_cert'), Reissued('issuer_cert'),
+    Reissued('root_lookalike_cert')), TServerName.DnsName(''), nil, LVerified, LAlert),
+    'a same-subject different-key root is not the configured anchor');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'the alert is unknown_ca');
 end;
 
 initialization
