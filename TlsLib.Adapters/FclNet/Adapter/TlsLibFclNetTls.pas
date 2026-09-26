@@ -27,9 +27,6 @@ interface
 uses
   SysUtils,
   Classes,
-{$IFDEF UNIX}
-  BaseUnix,
-{$ENDIF}
   sockets,
   ssockets,
   sslsockets,
@@ -274,12 +271,17 @@ procedure FlushTlsLibFclNetConfigCache;
 implementation
 
 const
-{$IF DEFINED(UNIX) AND NOT DEFINED(DARWIN)}
-  // MSG_NOSIGNAL suppresses SIGPIPE when writing to a peer whose read end has closed; platforms
-  // that do not declare it (Windows, Darwin) use 0 here
-  TRANSPORT_FLAGS = MSG_NOSIGNAL;
+  // suppress SIGPIPE on a send to a half-closed peer: MSG_NOSIGNAL per send where it exists, else
+  // the SO_NOSIGPIPE socket option (Darwin); 0 on a platform that has neither
+{$IF DEFINED(TLSLIB_MACOS) OR DEFINED(TLSLIB_IOS)}
+  SEND_FLAGS = 0;
+  NOSIGPIPE_SOCKOPT = SO_NOSIGPIPE;
+{$ELSEIF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_ANDROID) OR DEFINED(TLSLIB_BSD)}
+  SEND_FLAGS = MSG_NOSIGNAL;
+  NOSIGPIPE_SOCKOPT = 0;
 {$ELSE}
-  TRANSPORT_FLAGS = 0;
+  SEND_FLAGS = 0;
+  NOSIGPIPE_SOCKOPT = 0;
 {$IFEND}
   // Windows SO_RCVTIMEO expiry code; a literal so the Unix build needs no winsock symbol
   WSAETIMEDOUT_CODE = 10060;
@@ -305,9 +307,17 @@ var
 { TFclNetSocketTransport }
 
 constructor TFclNetSocketTransport.Create(AHandle: THandle);
+var
+  LOn: Integer;
 begin
   inherited Create;
   FHandle := AHandle;
+  // Darwin arms the socket against SIGPIPE (it has no per-send MSG_NOSIGNAL)
+  if NOSIGPIPE_SOCKOPT <> 0 then
+  begin
+    LOn := 1;
+    fpsetsockopt(FHandle, SOL_SOCKET, NOSIGPIPE_SOCKOPT, @LOn, SizeOf(LOn));
+  end;
 end;
 
 function TFclNetSocketTransport.ReceiveRaw(var ABuffer: TBytes; AOffset,
@@ -315,15 +325,11 @@ function TFclNetSocketTransport.ReceiveRaw(var ABuffer: TBytes; AOffset,
 var
   LErr: Integer;
 begin
-  // a signal that interrupts a blocking recv is not an error - retry, as the plain fcl-net
-  // handler does; a genuine timeout or close is classified below
+  // a signal that interrupts a blocking recv is not an error - retry, as the plain fcl-net handler
+  // does; a genuine timeout or close is classified below
   repeat
-    Result := fpRecv(FHandle, @ABuffer[AOffset], AMaxLength, TRANSPORT_FLAGS);
-{$IFDEF UNIX}
-  until (Result >= 0) or (SocketError <> ESysEINTR);
-{$ELSE}
-  until True;
-{$ENDIF}
+    Result := fpRecv(FHandle, @ABuffer[AOffset], AMaxLength, 0);
+  until (Result >= 0) or (SocketError <> EsockEINTR);
   if Result >= 0 then
     Exit; // > 0 bytes, or 0 for an orderly close (the pump reports a truncated handshake)
   // Result < 0: a receive-timeout errno is SO_RCVTIMEO firing on a silent peer - our handshake cap
@@ -345,12 +351,8 @@ function TFclNetSocketTransport.SendRaw(const ABuffer: TBytes; AOffset,
 begin
   // retry a signal-interrupted send rather than reporting it as no progress
   repeat
-    Result := fpSend(FHandle, @ABuffer[AOffset], ALength, TRANSPORT_FLAGS);
-{$IFDEF UNIX}
-  until (Result > 0) or (SocketError <> ESysEINTR);
-{$ELSE}
-  until True;
-{$ENDIF}
+    Result := fpSend(FHandle, @ABuffer[AOffset], ALength, SEND_FLAGS);
+  until (Result > 0) or (SocketError <> EsockEINTR);
   if Result <= 0 then
     raise ETlsStreamError.Create(SFclNetSendNoProgress);
 end;
