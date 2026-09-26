@@ -70,6 +70,9 @@ type
     // view keeps the owning builder alive here for the test's duration
     FBuilders: TArray<ITlsConfigBuilder>;
     function ServerCredential: TTlsCredential;
+    // the EcP256 leaf paired with a foreign private key from ImportKeys.txt (never its own key),
+    // so the key does not own the leaf
+    function CredentialWithForeignKey(const AKeyField: string): TTlsCredential;
     function ClientTrust: ITrustAnchorStore;
     function BuildEchConfigList(AConfigId: Byte; const APublicName: string;
       out APrivateKey: ISecretBuffer): TBytes;
@@ -137,6 +140,14 @@ type
     procedure TestWithCertificatePinningLandsInFrozenConfig;
     procedure TestServerWithOcspStapleLandsInFrozenConfig;
     procedure TestFieldwiseCredentialClearsPriorStaple;
+    // the credential key/leaf guard: a private key that does not own CertificateChain[0] (wrong
+    // key, wrong key family, or a mis-ordered chain) is refused at Build, not left to fail as a
+    // rejected CertificateVerify mid-handshake
+    procedure TestServerCredentialWithMismatchedKeyRejected;
+    procedure TestServerCredentialWithWrongKeyFamilyRejected;
+    procedure TestSniCredentialWithMismatchedKeyNamesHost;
+    procedure TestClientCredentialWithMismatchedKeyRejected;
+    procedure TestMatchingCredentialBuildsServer;
     // RFC 8446 4.6.1: a server MUST NOT advertise a ticket lifetime over 604800 seconds
     procedure TestTicketLifetimeAboveCapIsRejected;
     procedure TestTicketLifetimeAtCapIsAccepted;
@@ -191,6 +202,20 @@ function TTestConfigBuilder.ClientTrust: ITrustAnchorStore;
 begin
   Result := TTrustAnchorStore.Create(
     TArray<TBytes>.Create(DecodeHex(FCerts.Values['root_cert']))) as ITrustAnchorStore;
+end;
+
+function TTestConfigBuilder.CredentialWithForeignKey(
+  const AKeyField: string): TTlsCredential;
+var
+  LKeys: TStringList;
+begin
+  Result.CertificateChain := TArray<TBytes>.Create(DecodeHex(FCerts.Values['leaf_cert']));
+  LKeys := LoadVectorFields('Certs/ImportKeys.txt');
+  try
+    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LKeys.Values[AKeyField]));
+  finally
+    LKeys.Free;
+  end;
 end;
 
 function TTestConfigBuilder.BuildClientConfig(
@@ -1245,6 +1270,88 @@ begin
     .Build;
   CheckEquals(0, System.Length(LConfig.Credential.OcspStaple),
     'the field-wise credential cleared the prior staple');
+end;
+
+procedure TTestConfigBuilder.TestServerCredentialWithMismatchedKeyRejected;
+var
+  LBuilder: ITlsConfigBuilder;
+  LRaised: Boolean;
+begin
+  // same key family (EC P-256), different key: the leaf does not belong to the private key
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
+  LRaised := False;
+  try
+    LBuilder.Server.WithCredential(CredentialWithForeignKey('ec256_pkcs8_der')).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a credential whose key does not own its leaf is refused at Build');
+end;
+
+procedure TTestConfigBuilder.TestServerCredentialWithWrongKeyFamilyRejected;
+var
+  LBuilder: ITlsConfigBuilder;
+  LRaised: Boolean;
+begin
+  // an RSA key against an EC leaf: the key-family mismatch surfaces as a wrong-leaf refusal
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
+  LRaised := False;
+  try
+    LBuilder.Server.WithCredential(CredentialWithForeignKey('rsa_pkcs8_der')).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a credential whose key family differs from its leaf is refused at Build');
+end;
+
+procedure TTestConfigBuilder.TestSniCredentialWithMismatchedKeyNamesHost;
+var
+  LBuilder: ITlsConfigBuilder;
+  LMsg: string;
+begin
+  // the leaf covers "localhost" (SAN), so coverage passes and the key/leaf guard is what trips;
+  // the error must name the offending host
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
+  LMsg := '';
+  try
+    LBuilder.Server.WithSniCredential('localhost',
+      CredentialWithForeignKey('ec256_pkcs8_der')).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('localhost', LMsg) > 0,
+    'an inconsistent SNI credential is refused and the error names its host');
+end;
+
+procedure TTestConfigBuilder.TestClientCredentialWithMismatchedKeyRejected;
+var
+  LBuilder: ITlsConfigBuilder;
+  LRaised: Boolean;
+begin
+  // a client-authentication credential is guarded on the client build path too
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
+  LRaised := False;
+  try
+    LBuilder.Client.WithTrustStore(ClientTrust)
+      .WithCredential(CredentialWithForeignKey('ec256_pkcs8_der')).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a client credential whose key does not own its leaf is refused at Build');
+end;
+
+procedure TTestConfigBuilder.TestMatchingCredentialBuildsServer;
+var
+  LConfig: ITlsServerConfig;
+begin
+  // the guard does not false-positive: a genuine leaf+key pair builds
+  LConfig := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile)
+    .Server.WithCredential(ServerCredential).Build;
+  CheckTrue(LConfig <> nil, 'a consistent credential builds');
 end;
 
 procedure TTestConfigBuilder.TestTicketLifetimeAboveCapIsRejected;

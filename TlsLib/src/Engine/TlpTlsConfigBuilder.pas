@@ -23,6 +23,8 @@ uses
   TlpTlsLibExceptions,
   TlpICryptoProvider,
   TlpIPkixProvider,
+  TlpCryptoDomainTypes,
+  TlpPkixDomainTypes,
   TlpINamedGroup,
   TlpINegotiation,
   TlpNegotiationTypes,
@@ -178,6 +180,10 @@ type
     /// its host, so a swapped cert/host mapping is caught up front, not per handshake.</summary>
     procedure ValidateSniEntryCoversHost(const AHost: string;
       const ACredential: TTlsCredential);
+    /// <summary>Fails the build (typed error) when a credential's private key does not own its
+    /// end-entity certificate, or that leaf cannot sign a handshake, so a wrong/mis-ordered
+    /// leaf is caught up front rather than as a rejected CertificateVerify mid-handshake.</summary>
+    procedure ValidateCredentialConsistency(const ACredential: TTlsCredential);
     constructor Create(const ACryptoProvider: ICryptoProvider;
       const APkixProvider: IPkixProvider; const AProfile: TTlsConfigProfile);
   private
@@ -342,6 +348,16 @@ resourcestring
   SInvalidChainLimits = 'the certificate-chain limits must be positive, with ' +
     'MaxCertificateLength no larger than MaxTotalChainLength, which must not exceed the ' +
     '16 MiB handshake-message ceiling';
+  SCredentialKeyLeafMismatch = 'the credential''s private key does not match the public key in ' +
+    'its end-entity certificate (CertificateChain[0]); load a leaf-first chain (from PEM) whose ' +
+    'first certificate pairs with the key';
+  SCredentialLeafCannotSign = 'the credential''s end-entity certificate has a keyUsage extension ' +
+    'that forbids digitalSignature, so it cannot sign a handshake (RFC 5280 4.2.1.3)';
+  SCredentialLeafRsaPssUnsupported = 'the credential''s end-entity certificate carries an ' +
+    'id-RSASSA-PSS public key, which is not supported for signing here; use an rsaEncryption ' +
+    'certificate (RFC 8446 4.2.3)';
+  SCredentialKeyNoSchemes = 'the credential''s private key reports no signature scheme it can sign with';
+  SSniCredentialInvalid = 'the SNI credential for host "%s" is invalid: %s';
 
 const
   DefaultTicketLifetimeSeconds = UInt32(7200);
@@ -2089,6 +2105,58 @@ begin
     raise EInvalidOperationTlsLibException.CreateResFmt(@SSniCertMismatch, [AHost]);
 end;
 
+procedure TTlsConfigBuilder.ValidateCredentialConsistency(
+  const ACredential: TTlsCredential);
+var
+  LLeaf, LSpki, LSignature, LProbe: TBytes;
+  LSchemes: TArray<TSignatureScheme>;
+  LScheme: TSignatureScheme;
+  LSigner: ISignatureSigner;
+  LVerifier: ISignatureVerifier;
+begin
+  // only a fully-formed credential is checkable; a missing chain or key is caught by the
+  // server/SNI/client credential-presence rules, not here
+  if (System.Length(ACredential.CertificateChain) = 0) or
+    (ACredential.PrivateKey = nil) then
+    Exit;
+  // "TlsLib cred chk" || 0x01: a fixed, non-peer-influenced probe (never attacker-chosen), signed
+  // and self-verified in-process and discarded, so it needs no randomness
+  LProbe := TBytes.Create($54, $6C, $73, $4C, $69, $62, $20, $63, $72, $65, $64, $20, $63,
+    $68, $6B, $01);
+  LLeaf := ACredential.CertificateChain[0];
+  // a definite No means the leaf may not sign a CertificateVerify; an absent or unreadable
+  // keyUsage passes (the peer-side signing-policy check is the backstop)
+  if FPkix.Certificates.KeyUsagePermits(LLeaf, TCertKeyUsage.DigitalSignature) = TCertAnswer.No
+  then
+    raise EInvalidOperationTlsLibException.CreateRes(@SCredentialLeafCannotSign);
+  LSchemes := ACredential.PrivateKey.CapableSchemes;
+  if System.Length(LSchemes) = 0 then
+    raise EInvalidOperationTlsLibException.CreateRes(@SCredentialKeyNoSchemes);
+  LScheme := LSchemes[0];
+  // an id-RSASSA-PSS leaf key pairs only with rsa_pss_pss_*, which this library does not offer,
+  // so it is unusable even when the private key matches it - a bare possession probe would pass
+  if LScheme.IsRsaPssRsae and
+    (FPkix.Certificates.KeyIsRsaPss(LLeaf) = TCertAnswer.Yes) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SCredentialLeafRsaPssUnsupported);
+  // proof of possession: sign a fixed probe with the private key and verify it against the
+  // leaf's public key. Format-independent - it also catches a mis-ordered chain whose first
+  // certificate is not the one that pairs with the key
+  LSpki := FPkix.Certificates.PublicKeyInfo(LLeaf);
+  LSigner := FCrypto.Signing.CreateSignatureSigner(LScheme, ACredential.PrivateKey);
+  LSigner.Update(LProbe, 0, System.Length(LProbe));
+  LSignature := LSigner.Sign;
+  try
+    LVerifier := FCrypto.Signing.CreateSignatureVerifier(LScheme, LSpki);
+  except
+    // a key-family mismatch (e.g. an EC key against an RSA leaf) surfaces here as a wrong leaf
+    on EArgumentTlsLibException do
+      raise EInvalidOperationTlsLibException.CreateRes(@SCredentialKeyLeafMismatch);
+  end;
+  LVerifier.Update(LProbe, 0, System.Length(LProbe));
+  if not LVerifier.Verify(LSignature) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SCredentialKeyLeafMismatch);
+end;
+
 function TTlsConfigBuilder.ComposeCredentialResolver: ITlsServerCredentialResolver;
 var
   LI, LJ: Integer;
@@ -2111,11 +2179,22 @@ begin
           [FSniCredentialEntries[LI].Host]);
     ValidateSniEntryCoversHost(FSniCredentialEntries[LI].Host,
       FSniCredentialEntries[LI].Credential);
+    // name the offending host, since a server may carry several SNI credentials
+    try
+      ValidateCredentialConsistency(FSniCredentialEntries[LI].Credential);
+    except
+      on E: EInvalidOperationTlsLibException do
+        raise EInvalidOperationTlsLibException.CreateResFmt(@SSniCredentialInvalid,
+          [FSniCredentialEntries[LI].Host, E.Message]);
+    end;
   end;
   // the single credential (WithCredential), if any, is the no-SNI / no-match default
   if FHasCredential then
+  begin
+    ValidateCredentialConsistency(FCredential);
     Result := TSniCredentialResolver.Create(FSniCredentialEntries, FCredential)
-      as ITlsServerCredentialResolver
+      as ITlsServerCredentialResolver;
+  end
   else
     Result := TSniCredentialResolver.Create(FSniCredentialEntries)
       as ITlsServerCredentialResolver;
@@ -2544,6 +2623,9 @@ begin
   // silently dropping it (the raw builder exposes both facets)
   if (System.Length(FSniCredentialEntries) > 0) or (FCredentialResolver <> nil) then
     raise EInvalidOperationTlsLibException.CreateRes(@SClientSideServerCredential);
+  // a client-authentication credential, if set, must be self-consistent (key owns its leaf)
+  if FHasCredential then
+    ValidateCredentialConsistency(FCredential);
   ValidateTrustComposition;
   // a client authenticates the server by its certificate or by an out-of-band external PSK
   // (RFC 9258); at least one trust source or a configured external PSK is required (no
