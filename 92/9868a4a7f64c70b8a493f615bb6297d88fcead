@@ -1,0 +1,54 @@
+TlsLib.Tests/src/CredentialImportTests.pas
+  s_09d3c46d1a9b1f::t_5fca8b79a5acf0 56-58
+  s_09d3c46d1a9b1f::t_88b907bd7ca975 77-82
+  s_09d3c46d1a9b1f::t_a3549630d77477 32
+  s_09d3c46d1a9b1f::t_e9015b24126a45 382-421
+TlsLib/src/Interfaces/Pkix/Providers/TlpIPkixProvider.pas
+  s_09d3c46d1a9b1f::t_77746f4290c468 80
+  s_09d3c46d1a9b1f::t_06281cc588dd6b 149-157
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_09d3c46d1a9b1f::t_2f44ae9050f8bd 457-464,467,469
+  s_09d3c46d1a9b1f::t_73055a613f3411 103,1357-1358,1404-1405
+  s_09d3c46d1a9b1f::t_e051193cb60c9f 1427-1428
+  s_09d3c46d1a9b1f::t_ba51db95d4c422 1356,1359-1384,1386-1393,1401-1403
+  s_09d3c46d1a9b1f::t_f096ccbbb4b102 1385
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_09d3c46d1a9b1f::t_d80e87b5f95590 3771-3785
+  s_09d3c46d1a9b1f::t_85dc82855ce99f 3865-3866
+  s_09d3c46d1a9b1f::t_373828aba95e37 3694-3695
+  s_09d3c46d1a9b1f::t_1713cb1a175d9d 763,909
+  s_09d3c46d1a9b1f::t_3dd18b59f9a9b6 3881-3883
+  s_09d3c46d1a9b1f::t_e16cd54c534fb2 3008-3009
+  s_09d3c46d1a9b1f::t_50a63cb34ba141 929-933
+  s_09d3c46d1a9b1f::t_e0ba993f0dd426 3746
+  s_09d3c46d1a9b1f::t_8da92f495d79bb 2969,2974,2982-2984
+  s_09d3c46d1a9b1f::t_13e7b2238e8bdd 806,809,811,2985-2986
+  s_09d3c46d1a9b1f::t_ab2f4ad2417416 3817
+  s_09d3c46d1a9b1f::t_3bc885667a7070 3840
+TlsLib/src/Interfaces/Crypto/TlpISigningKey.pas
+  s_09d3c46d1a9b1f::t_6846dfb2c5d4cf 19,25-30,33,38-43
+TlsLib/src/Pkix/Providers/TlpDefaultPkixProvider.pas
+  s_09d3c46d1a9b1f::t_f1658f72c89bc6 1434-1442,1444-1449,1452-1462,1464-1468
+  s_09d3c46d1a9b1f::t_7767b3abede569 41-42
+  s_09d3c46d1a9b1f::t_659d32ec4635fe 130
+  s_09d3c46d1a9b1f::t_2b9669d8eda448 1443,1450-1451,1463
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_3f744022690543 2112,2127-2129,2132-2139
+  s_09d3c46d1a9b1f::t_5b173ccb47de8f 359-360
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "929868a4a7f64c70b8a493f615bb6297d88fcead",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
