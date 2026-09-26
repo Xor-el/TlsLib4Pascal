@@ -38,6 +38,9 @@ uses
   ClpAsn1Objects,
   ClpAsn1Core,
   ClpIRsaParameters,
+  ClpIECParameters,
+  ClpIEd25519Parameters,
+  ClpIEd448Parameters,
   ClpPublicKeyFactory,
   ClpSubjectPublicKeyInfoFactory,
   ClpX509CertificateParser,
@@ -1434,33 +1437,51 @@ end;
 function TCertificateInspector.SamePublicKey(
   const ASpkiA, ASpkiB: TBytes): TCertAnswer;
 
-  // parse an SPKI, then re-encode it through the one canonical encoder: the round-trip
-  // normalises encoding differences (absent RSA NULL params, EC point compression, an
-  // id-RSASSA-PSS vs rsaEncryption algorithm) so equal keys yield byte-identical output
-  function TryCanonical(const ASpki: TBytes; out ACanonical: TBytes): Boolean;
+  // for a key family without a value comparator (X25519/X448, DH, DSA, the PQ families) the
+  // canonical DER encoding is injective, so a byte match is a true key match. Used only as the
+  // tail - never for the signing families, whose structural compare is curve/encoding-agnostic
+  function CanonicalMatch(const AKeyA, AKeyB: IAsymmetricKeyParameter): Boolean;
   var
-    LKey: IAsymmetricKeyParameter;
-    LInfo: ISubjectPublicKeyInfo;
+    LA, LB: TBytes;
   begin
-    ACanonical := nil;
-    try
-      LKey := TPublicKeyFactory.CreateKey(ASpki);
-      if (LKey = nil) or LKey.IsPrivate then
-        Exit(False);
-      LInfo := TSubjectPublicKeyInfoFactory.CreateSubjectPublicKeyInfo(LKey);
-      ACanonical := LInfo.GetDerEncoded;
-    except
-      Exit(False);
-    end;
-    Result := System.Length(ACanonical) > 0;
+    LA := TSubjectPublicKeyInfoFactory.CreateSubjectPublicKeyInfo(AKeyA).GetDerEncoded;
+    LB := TSubjectPublicKeyInfoFactory.CreateSubjectPublicKeyInfo(AKeyB).GetDerEncoded;
+    Result := (System.Length(LA) > 0) and TArrayUtilities.AreEqual(LA, LB);
   end;
 
 var
-  LCanonicalA, LCanonicalB: TBytes;
+  LKeyA, LKeyB: IAsymmetricKeyParameter;
+  LRsaA, LRsaB: IRsaKeyParameters;
+  LEcA, LEcB: IECPublicKeyParameters;
+  LEd25519A, LEd25519B: IEd25519PublicKeyParameters;
+  LEd448A, LEd448B: IEd448PublicKeyParameters;
+  LMatch: Boolean;
 begin
-  if (not TryCanonical(ASpkiA, LCanonicalA)) or (not TryCanonical(ASpkiB, LCanonicalB)) then
+  // the whole parse/compare is fail-closed: any input the backend cannot parse or re-encode
+  // (a family without parameters, an unknown key type in the tail) is Undetermined, never a raise
+  try
+    LKeyA := TPublicKeyFactory.CreateKey(ASpkiA);
+    LKeyB := TPublicKeyFactory.CreateKey(ASpkiB);
+    if (LKeyA = nil) or (LKeyB = nil) then
+      Exit(TCertAnswer.Undetermined);
+    // compare by key value within a family (agnostic to point compression and named-vs-explicit
+    // EC parameters); B outside A's family is a definite mismatch, not Undetermined
+    if Supports(LKeyA, IRsaKeyParameters, LRsaA) then
+      LMatch := Supports(LKeyB, IRsaKeyParameters, LRsaB) and LRsaA.Equals(LRsaB)
+    else if Supports(LKeyA, IECPublicKeyParameters, LEcA) then
+      LMatch := Supports(LKeyB, IECPublicKeyParameters, LEcB) and LEcA.Equals(LEcB)
+    else if Supports(LKeyA, IEd25519PublicKeyParameters, LEd25519A) then
+      LMatch := Supports(LKeyB, IEd25519PublicKeyParameters, LEd25519B) and
+        LEd25519A.Equals(LEd25519B)
+    else if Supports(LKeyA, IEd448PublicKeyParameters, LEd448A) then
+      LMatch := Supports(LKeyB, IEd448PublicKeyParameters, LEd448B) and
+        LEd448A.Equals(LEd448B)
+    else
+      LMatch := CanonicalMatch(LKeyA, LKeyB);
+  except
     Exit(TCertAnswer.Undetermined);
-  if TArrayUtilities.AreEqual(LCanonicalA, LCanonicalB) then
+  end;
+  if LMatch then
     Result := TCertAnswer.Yes
   else
     Result := TCertAnswer.No;

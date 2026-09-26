@@ -80,6 +80,12 @@ type
     // the inspector's value-based public-key comparison: equal keys match, different keys and
     // families do not, malformed input is Undetermined
     procedure TestSamePublicKeyDistinguishesKeys;
+    // the comparison is by key value, not encoding: one EC key written with explicit curve
+    // parameters vs a namedCurve OID still matches (a byte/canonical compare would wrongly reject)
+    procedure TestSamePublicKeyIsEncodingAgnostic;
+    // the canonical-DER tail for families without a value comparator (X25519): equal keys match,
+    // a different family does not
+    procedure TestSamePublicKeyTailFamily;
   end;
 
 implementation
@@ -417,6 +423,27 @@ begin
     'the same family with different keys does not match');
   CheckTrue(Pkix.Certificates.SamePublicKey(TBytes.Create($00, $01, $02), LRsa)
     = TCertAnswer.Undetermined, 'a malformed SubjectPublicKeyInfo is Undetermined');
+end;
+
+procedure TTestCredentialImport.TestSamePublicKeyTailFamily;
+var
+  LX25519, LEd25519: TBytes;
+begin
+  // X25519 has no value comparator, so it exercises the canonical-DER tail: equal keys match,
+  // and a different family (Ed25519) does not
+  LX25519 := DecodeHex(FV.Values['x25519_pub']);
+  LEd25519 := DecodeHex(FV.Values['ed25519_pub']);
+  CheckTrue(Pkix.Certificates.SamePublicKey(LX25519, LX25519) = TCertAnswer.Yes,
+    'an identical tail-family key matches');
+  CheckTrue(Pkix.Certificates.SamePublicKey(LX25519, LEd25519) = TCertAnswer.No,
+    'a tail-family key does not match a different family');
+end;
+
+procedure TTestCredentialImport.TestSamePublicKeyIsEncodingAgnostic;
+begin
+  CheckTrue(Pkix.Certificates.SamePublicKey(DecodeHex(FV.Values['ec256_pub_explicit']),
+    DecodeHex(FV.Values['ec256_pub'])) = TCertAnswer.Yes,
+    'explicit-parameter and namedCurve encodings of one EC key match');
 end;
 
 initialization
