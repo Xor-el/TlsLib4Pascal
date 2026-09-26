@@ -64,6 +64,8 @@ type
     procedure TestEncryptedKeysImportWithPassword;
     procedure TestLoadCertificateChainFromPemBundle;
     procedure TestLoadSingleDerCertificate;
+    procedure TestConcatenatedDerRejected;
+    procedure TestLoadCertificateChainFromPkcs7;
     procedure TestMalformedKeyRaisesTypedException;
     procedure TestUnsupportedAlgorithmRaisesTypedException;
     procedure TestWrongPasswordRaisesTypedException;
@@ -230,6 +232,65 @@ begin
   LChain := Pkix.Certificates.LoadChain(DecodeHex(FV.Values['single_leaf_der']));
   CheckEquals(1, System.Length(LChain), 'a lone DER certificate is a one-element chain');
   CheckEqualBytes('single DER', DecodeHex(FV.Values['single_leaf_der']), LChain[0]);
+end;
+
+procedure TTestCredentialImport.TestConcatenatedDerRejected;
+var
+  LRaised: Boolean;
+  LMsg: string;
+begin
+  // two DER certificates back-to-back are not a standard chain container: LoadChain rejects the
+  // trailing bytes rather than silently dropping all but the first (use PEM for a chain)
+  LRaised := False;
+  LMsg := '';
+  try
+    Pkix.Certificates.LoadChain(
+      DecodeHex(FV.Values['chain_leaf_der'] + FV.Values['chain_root_der']));
+  except
+    on E: EArgumentTlsLibException do
+    begin
+      LRaised := True;
+      LMsg := E.Message;
+    end;
+  end;
+  CheckTrue(LRaised, 'concatenated DER certificates are rejected, not silently truncated');
+  CheckTrue(Pos('after the certificate', LMsg) > 0,
+    'the rejection is the trailing-bytes check, not an unrelated parse failure');
+  // even a single trailing byte after a lone DER certificate is rejected
+  LRaised := False;
+  try
+    Pkix.Certificates.LoadChain(DecodeHex(FV.Values['single_leaf_der'] + '00'));
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a single trailing byte after a DER certificate is rejected');
+end;
+
+procedure TTestCredentialImport.TestLoadCertificateChainFromPkcs7;
+var
+  LChain: TArray<TBytes>;
+  LLeafHex, LRootHex: string;
+  LHasLeaf, LHasRoot: Boolean;
+  LI: Int32;
+begin
+  // a PKCS#7 / CMS DER bundle (RFC 5652) yields every certificate it carries; the order follows
+  // the container's SET, so assert membership rather than position
+  LChain := Pkix.Certificates.LoadChain(DecodeHex(FV.Values['chain_p7b_der']));
+  CheckEquals(2, System.Length(LChain), 'the PKCS#7 bundle yields two certificates');
+  LLeafHex := EncodeHex(DecodeHex(FV.Values['chain_leaf_der']));
+  LRootHex := EncodeHex(DecodeHex(FV.Values['chain_root_der']));
+  LHasLeaf := False;
+  LHasRoot := False;
+  for LI := 0 to System.High(LChain) do
+  begin
+    if EncodeHex(LChain[LI]) = LLeafHex then
+      LHasLeaf := True;
+    if EncodeHex(LChain[LI]) = LRootHex then
+      LHasRoot := True;
+  end;
+  CheckTrue(LHasLeaf, 'the PKCS#7 bundle includes the leaf certificate');
+  CheckTrue(LHasRoot, 'the PKCS#7 bundle includes the root certificate');
 end;
 
 procedure TTestCredentialImport.TestMalformedKeyRaisesTypedException;

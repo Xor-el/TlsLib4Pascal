@@ -278,6 +278,8 @@ resourcestring
   SWrongCertificatePurpose = 'a certificate in the chain has an extended key usage that excludes the required TLS role';
   SMalformedCertificate = 'a certificate could not be parsed as PEM or DER';
   SNoCertificatesFound = 'no certificates were found in the input';
+  STrailingCertificateData = 'the DER input has bytes after the certificate (concatenated ' +
+    'DER or trailing data); use PEM or PKCS#7 to load a certificate chain';
 
 function TCertificateInspector.LoadChain(
   const AData: TBytes): TArray<TBytes>;
@@ -288,9 +290,49 @@ var
   LCert: IX509Certificate;
   LParser: IX509CertificateParser;
   LChain: TList<TBytes>;
+  LDerLen, LHeaderLen: Int32;
+
+  // the leading DER TLV's total declared length (tag + length + content) and, via AHeaderLen, the
+  // offset where its content (the first child) starts; both -1 on a truncated/indefinite/oversize header
+  function DerElementLength(const A: TBytes; out AHeaderLen: Int32): Int32;
+  var
+    LOctets, LI: Int32;
+    LContent: Int64;
+  begin
+    Result := -1;
+    AHeaderLen := -1;
+    if System.Length(A) < 2 then
+      Exit;
+    if (A[1] and $80) = 0 then
+    begin
+      AHeaderLen := 2;
+      Result := 2 + A[1];
+    end
+    else
+    begin
+      LOctets := A[1] and $7F;
+      if LOctets = 0 then
+      begin
+        // indefinite length (BER): content starts after the 2-byte header, total unknown
+        AHeaderLen := 2;
+        Exit;
+      end;
+      if (LOctets > 4) or (2 + LOctets > System.Length(A)) then
+        Exit;
+      LContent := 0;
+      for LI := 0 to LOctets - 1 do
+        LContent := (LContent shl 8) or A[2 + LI]; // Int64: 4 octets cannot overflow
+      // a first element longer than the whole buffer is malformed/truncated, not "trailing bytes"
+      if LContent > System.Length(A) then
+        Exit;
+      AHeaderLen := 2 + LOctets;
+      Result := AHeaderLen + Int32(LContent);
+    end;
+  end;
+
 begin
-  // PEM may carry a whole chain/bundle (leaf first); DER is a single certificate.
-  // Either way the result is the ordered list of raw DER certificates.
+  // PEM may carry a whole chain/bundle (leaf first); DER is a single certificate or a PKCS#7
+  // bundle. Either way the result is the ordered list of raw DER certificates.
   Result := nil;
   try
     if TPem.IsArmored(AData) then
@@ -323,8 +365,34 @@ begin
     else
     begin
       LParser := TX509CertificateParser.Create;
-      Result := TArray<TBytes>.Create(
-        LParser.ReadCertificate(AData).GetEncoded);
+      LDerLen := DerElementLength(AData, LHeaderLen);
+      // bytes after the leading top-level element (a Certificate or a PKCS#7 ContentInfo) are a
+      // non-standard concatenated-DER bundle or garbage - reject rather than silently drop them
+      if (LDerLen > 0) and (LDerLen < System.Length(AData)) then
+        raise EArgumentTlsLibException.CreateRes(@STrailingCertificateData);
+      // a PKCS#7 / CMS ContentInfo (RFC 5652) is the standard DER certificate bundle: its first
+      // inner element is an OID (0x06) where a bare Certificate's is a SEQUENCE (0x30). Load every
+      // certificate from the bag; a bare certificate loads as the single element it is.
+      if (LHeaderLen > 0) and (LHeaderLen < System.Length(AData)) and
+        (AData[LHeaderLen] = $06) then
+      begin
+        LChain := TList<TBytes>.Create;
+        try
+          for LCert in LParser.ReadCertificates(AData) do
+            LChain.Add(LCert.GetEncoded);
+          Result := LChain.ToArray;
+        finally
+          LChain.Free;
+        end;
+      end
+      else
+      begin
+        LCert := LParser.ReadCertificate(AData);
+        // empty / not a DER certificate parses to nil
+        if LCert = nil then
+          raise EArgumentTlsLibException.CreateRes(@SNoCertificatesFound);
+        Result := TArray<TBytes>.Create(LCert.GetEncoded);
+      end;
     end;
   except
     on E: ECryptoLibException do
