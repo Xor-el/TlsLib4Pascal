@@ -78,10 +78,11 @@ type
     CipherSuites: ICipherSuiteRegistry;
     ExtensionRegistry: IExtensionRegistry;
     /// <summary>The (EC)DHE groups this server supports, in preference order (RFC 8446
-    /// 4.2.7). The server selects the first that the client offered - preferring one the
-    /// client already key-shared to avoid a HelloRetryRequest. secp256r1 is mandatory to
-    /// implement (RFC 8446 9.1), so a server offers several groups, not a single one. When
-    /// empty, the single Group below is used instead (resolved via GroupRegistry).</summary>
+    /// 4.2.7). The server selects the first of these the client offered in supported_groups; if
+    /// the client sent no key_share for it, the server sends a HelloRetryRequest (RFC 8446 4.1.1).
+    /// secp256r1 is mandatory to implement (RFC 8446 9.1), so a server offers several groups, not
+    /// a single one. When empty, the single Group below is used instead (resolved via
+    /// GroupRegistry).</summary>
     OfferedGroups: TArray<UInt16>;
     /// <summary>Resolves a selected group code (from OfferedGroups) to its INamedGroup for
     /// key agreement; required whenever OfferedGroups is set.</summary>
