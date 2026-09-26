@@ -292,8 +292,10 @@ var
   LChain: TList<TBytes>;
   LDerLen, LHeaderLen: Int32;
 
-  // the leading DER TLV's total declared length (tag + length + content) and, via AHeaderLen, the
-  // offset where its content (the first child) starts; both -1 on a truncated/indefinite/oversize header
+  // for a leading DER SEQUENCE (a Certificate or a PKCS#7 ContentInfo), its total declared length
+  // (tag + length + content) and, via AHeaderLen, the offset where its content (the first child)
+  // starts; both -1 for a non-SEQUENCE, indefinite, or oversize header (total also -1 for an
+  // indefinite length, where AHeaderLen is still 2)
   function DerElementLength(const A: TBytes; out AHeaderLen: Int32): Int32;
   var
     LOctets, LI: Int32;
@@ -301,7 +303,7 @@ var
   begin
     Result := -1;
     AHeaderLen := -1;
-    if System.Length(A) < 2 then
+    if (System.Length(A) < 2) or (A[0] <> $30) then
       Exit;
     if (A[1] and $80) = 0 then
     begin
@@ -366,8 +368,9 @@ begin
     begin
       LParser := TX509CertificateParser.Create;
       LDerLen := DerElementLength(AData, LHeaderLen);
-      // bytes after the leading top-level element (a Certificate or a PKCS#7 ContentInfo) are a
-      // non-standard concatenated-DER bundle or garbage - reject rather than silently drop them
+      // bytes after the leading definite-length element (a Certificate or a PKCS#7 ContentInfo) are
+      // a non-standard concatenated-DER bundle or garbage - reject rather than silently drop them
+      // (an indefinite-length BER container has no declared length here and is bounded by the parser)
       if (LDerLen > 0) and (LDerLen < System.Length(AData)) then
         raise EArgumentTlsLibException.CreateRes(@STrailingCertificateData);
       // a PKCS#7 / CMS ContentInfo (RFC 5652) is the standard DER certificate bundle: its first

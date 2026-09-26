@@ -87,11 +87,13 @@ type
     /// </summary>
     function Parse(const ADer: TBytes): IInspectedCertificate;
     /// <summary>
-    /// Decodes certificates from AData - a PEM block (a single certificate or a whole
-    /// leaf-first chain/bundle), a single DER certificate, or a PKCS#7 / CMS DER bundle
-    /// (RFC 5652) - into their ordered raw DER encodings. A bare DER certificate with
-    /// trailing bytes (a non-standard concatenated bundle) is rejected. Serves both
-    /// credential chains and trust anchors. Raises EArgumentTlsLibException if nothing parses.
+    /// Decodes certificates from AData into their raw DER encodings. AData is a PEM block (a single
+    /// certificate or a whole leaf-first chain/bundle), a single DER certificate, or a PKCS#7 / CMS
+    /// DER bundle (RFC 5652). PEM preserves the given order (leaf first); a PKCS#7 bundle yields the
+    /// container's SET order, which is NOT necessarily leaf-first, so it suits trust anchors /
+    /// intermediates - load a leaf-first credential chain from PEM. A bare DER certificate with
+    /// trailing bytes (a non-standard concatenated bundle) is rejected. Raises
+    /// EArgumentTlsLibException if nothing parses.
     /// </summary>
     function LoadChain(const AData: TBytes): TArray<TBytes>;
     /// <summary>
