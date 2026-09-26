@@ -43,11 +43,18 @@ type
     FConfigs: TArray<TEchConfig>;
     FGrease: Boolean;
     FIsRetry: Boolean;
+    FUsable: Boolean;
+    FSelectedConfig: TEchConfig;
+    FSelectedSuite: IHpkeSuite;
   public
-    constructor Create(const AConfigListBytes: TBytes; AGrease, AIsRetry: Boolean);
+    constructor Create(const ACrypto: ICryptoProvider; const AConfigListBytes: TBytes;
+      AGrease, AIsRetry: Boolean);
     function Configs: TArray<TEchConfig>;
     function GreaseEnabled: Boolean;
     function IsRetryAttempt: Boolean;
+    function Usable: Boolean;
+    function SelectedConfig: TEchConfig;
+    function SelectedSuite: IHpkeSuite;
   end;
 
   /// <summary>
@@ -120,14 +127,16 @@ implementation
 resourcestring
   SEchEmptyConfigNoGrease = 'an empty ECHConfigList with ECH GREASE disabled would send the ' +
     'true SNI in the clear; supply a config list or enable GREASE';
+  SEchNoUsableConfig = 'the configured ECHConfigList has no usable config (unsupported HPKE ' +
+    'suite or KEM) and ECH GREASE is disabled';
 
 const
   ServerHelloRandomLength = Int32(32);
 
 { TEchClientPolicy }
 
-constructor TEchClientPolicy.Create(const AConfigListBytes: TBytes;
-  AGrease, AIsRetry: Boolean);
+constructor TEchClientPolicy.Create(const ACrypto: ICryptoProvider;
+  const AConfigListBytes: TBytes; AGrease, AIsRetry: Boolean);
 begin
   inherited Create;
   // a malformed list is a typed decode error at configuration time; an empty list is only
@@ -138,6 +147,11 @@ begin
     raise EArgumentTlsLibException.CreateRes(@SEchEmptyConfigNoGrease);
   FGrease := AGrease;
   FIsRetry := AIsRetry;
+  // resolve the (config, suite) once here so every connection reuses it (no per-handshake KEM
+  // probe) and an unusable config fails at Build, not at connect
+  FUsable := TEchConfigList.TrySelect(FConfigs, ACrypto, FSelectedConfig, FSelectedSuite);
+  if (not FUsable) and (not FGrease) then
+    raise EArgumentTlsLibException.CreateRes(@SEchNoUsableConfig);
 end;
 
 function TEchClientPolicy.Configs: TArray<TEchConfig>;
@@ -153,6 +167,21 @@ end;
 function TEchClientPolicy.IsRetryAttempt: Boolean;
 begin
   Result := FIsRetry;
+end;
+
+function TEchClientPolicy.Usable: Boolean;
+begin
+  Result := FUsable;
+end;
+
+function TEchClientPolicy.SelectedConfig: TEchConfig;
+begin
+  Result := FSelectedConfig;
+end;
+
+function TEchClientPolicy.SelectedSuite: IHpkeSuite;
+begin
+  Result := FSelectedSuite;
 end;
 
 { TEchClientHandshake }

@@ -363,6 +363,9 @@ begin
       // normal trial-decrypt miss (Suite() already probes, so this is defence in depth), not a fault
       on E: ENotSupportedTlsLibException do
         LOpened := False;
+      // a key/config inconsistency is a miss, never a fault keyed by the attacker's config_id
+      on E: EArgumentTlsLibException do
+        LOpened := False;
     end;
     if LOpened then
     begin

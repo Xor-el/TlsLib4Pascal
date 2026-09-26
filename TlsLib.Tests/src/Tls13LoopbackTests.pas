@@ -457,7 +457,7 @@ begin
     TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
     as ITrustAnchorStore, True) as IServerCertificateVerifier;
-  LParams.EchPolicy := TEchClientPolicy.Create(AConfigList, False, False)
+  LParams.EchPolicy := TEchClientPolicy.Create(Crypto, AConfigList, False, False)
     as IEchClientPolicy;
   LParams.SessionCache := ACache;
   Result := TTlsEngine.CreateConfigured(
@@ -569,7 +569,7 @@ begin
     TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
     as ITrustAnchorStore, True) as IServerCertificateVerifier;
-  LParams.EchPolicy := TEchClientPolicy.Create(EchConfigListBytes, False, False)
+  LParams.EchPolicy := TEchClientPolicy.Create(Crypto, EchConfigListBytes, False, False)
     as IEchClientPolicy;
   Result := TTlsEngine.CreateConfigured(
     TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
@@ -638,7 +638,7 @@ begin
     TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
     as ITrustAnchorStore, True) as IServerCertificateVerifier;
-  LParams.EchPolicy := TEchClientPolicy.Create(AConfigList, False, False)
+  LParams.EchPolicy := TEchClientPolicy.Create(Crypto, AConfigList, False, False)
     as IEchClientPolicy;
   Result := TTlsEngine.CreateConfigured(
     TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
@@ -691,7 +691,7 @@ begin
     TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
     as ITrustAnchorStore, True) as IServerCertificateVerifier;
-  LParams.EchPolicy := TEchClientPolicy.Create(EchConfigListBytes, False, False)
+  LParams.EchPolicy := TEchClientPolicy.Create(Crypto, EchConfigListBytes, False, False)
     as IEchClientPolicy;
   LParams.SessionCache := ACache;
   LParams.EarlyDataEnabled := AEarlyData;

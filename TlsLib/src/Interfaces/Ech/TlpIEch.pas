@@ -18,6 +18,7 @@ interface
 uses
   SysUtils,
   TlpISecretBuffer,
+  TlpICryptoProvider,
   TlpExtensionVector,
   TlpEchConfig;
 
@@ -38,6 +39,13 @@ type
     /// <summary>Whether this handshake already follows an earlier ECH reject; a further
     /// reject then does not chain another retry.</summary>
     function IsRetryAttempt: Boolean;
+    /// <summary>Whether a usable (config, HPKE suite) was resolved once at Build; when False the
+    /// client offers GREASE (if enabled) or the config fails at Build.</summary>
+    function Usable: Boolean;
+    /// <summary>The config resolved at Build (valid only when Usable).</summary>
+    function SelectedConfig: TEchConfig;
+    /// <summary>The HPKE suite resolved at Build (valid only when Usable).</summary>
+    function SelectedSuite: IHpkeSuite;
   end;
 
   /// <summary>

@@ -2576,7 +2576,7 @@ begin
   // malformed list, or an empty one with GREASE off) raises here without leaking the config
   LEchPolicy := nil;
   if FEchConfigured then
-    LEchPolicy := TEchClientPolicy.Create(FEchConfigList, FEchGrease, FEchIsRetry)
+    LEchPolicy := TEchClientPolicy.Create(FCrypto, FEchConfigList, FEchGrease, FEchIsRetry)
       as IEchClientPolicy;
   LConfig := TFrozenClientConfig.Create;
   LConfig.FCrypto := FCrypto;
