@@ -38,6 +38,8 @@ uses
   ClpAsn1Objects,
   ClpAsn1Core,
   ClpIRsaParameters,
+  ClpPublicKeyFactory,
+  ClpSubjectPublicKeyInfoFactory,
   ClpX509CertificateParser,
   ClpIX509CertificateParser,
   ClpIX509Certificate,
@@ -125,6 +127,7 @@ type
     function KeyIsRsaPss(const ACertificateDer: TBytes): TCertAnswer;
     function KeyKind(const ACertificateDer: TBytes;
       out AKind: TSignatureKeyKind; out AEcNamedGroup: UInt16): Boolean;
+    function SamePublicKey(const ASpkiA, ASpkiB: TBytes): TCertAnswer;
   end;
 
   // ICertificatePathValidator - RFC 5280 path validation. The trust-anchor ring is a
@@ -1426,6 +1429,41 @@ begin
     AEcNamedGroup := 0;
     Result := False;
   end;
+end;
+
+function TCertificateInspector.SamePublicKey(
+  const ASpkiA, ASpkiB: TBytes): TCertAnswer;
+
+  // parse an SPKI, then re-encode it through the one canonical encoder: the round-trip
+  // normalises encoding differences (absent RSA NULL params, EC point compression, an
+  // id-RSASSA-PSS vs rsaEncryption algorithm) so equal keys yield byte-identical output
+  function TryCanonical(const ASpki: TBytes; out ACanonical: TBytes): Boolean;
+  var
+    LKey: IAsymmetricKeyParameter;
+    LInfo: ISubjectPublicKeyInfo;
+  begin
+    ACanonical := nil;
+    try
+      LKey := TPublicKeyFactory.CreateKey(ASpki);
+      if (LKey = nil) or LKey.IsPrivate then
+        Exit(False);
+      LInfo := TSubjectPublicKeyInfoFactory.CreateSubjectPublicKeyInfo(LKey);
+      ACanonical := LInfo.GetDerEncoded;
+    except
+      Exit(False);
+    end;
+    Result := System.Length(ACanonical) > 0;
+  end;
+
+var
+  LCanonicalA, LCanonicalB: TBytes;
+begin
+  if (not TryCanonical(ASpkiA, LCanonicalA)) or (not TryCanonical(ASpkiB, LCanonicalB)) then
+    Exit(TCertAnswer.Undetermined);
+  if TArrayUtilities.AreEqual(LCanonicalA, LCanonicalB) then
+    Result := TCertAnswer.Yes
+  else
+    Result := TCertAnswer.No;
 end;
 
 function TInspectedCertificate.KeyUsagePermits(AUsage: TCertKeyUsage): TCertAnswer;

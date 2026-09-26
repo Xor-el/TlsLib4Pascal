@@ -29,6 +29,7 @@ uses
   TlpICryptoProvider,
   TlpSecretBuffer,
   TlpCryptoDomainTypes,
+  TlpPkixDomainTypes,
   TlpISigningKey,
   TlpTlsLibExceptions,
   TlsLibTestBase;
@@ -52,6 +53,9 @@ type
     // verifying round-trip for each; proves format-independence.
     procedure CheckFormats(AScheme: TSignatureScheme; const APubField: string;
       const AExpected: array of TSignatureScheme; const AFields: array of string);
+    // Asserts the public key derived from the private vector APrivField equals the known-good
+    // public vector APubField by value (via the inspector's SamePublicKey).
+    procedure CheckDerivedPublicKey(const APrivField, APubField: string);
   protected
     procedure SetUp; override;
     procedure TearDown; override;
@@ -70,6 +74,12 @@ type
     procedure TestUnsupportedAlgorithmRaisesTypedException;
     procedure TestWrongPasswordRaisesTypedException;
     procedure TestWithPreferredSchemesNarrowsReordersAndFilters;
+    // the imported key exposes its public half as a SubjectPublicKeyInfo, and it is the public
+    // key of that private key (matches the known-good public vector by value)
+    procedure TestPublicKeyInfoMatchesPublicVector;
+    // the inspector's value-based public-key comparison: equal keys match, different keys and
+    // families do not, malformed input is Undetermined
+    procedure TestSamePublicKeyDistinguishesKeys;
   end;
 
 implementation
@@ -367,6 +377,46 @@ begin
     [TSignatureScheme.RSA_PSS_RSAE_SHA256, TSignatureScheme.RSA_PSS_RSAE_SHA384,
      TSignatureScheme.RSA_PSS_RSAE_SHA512, TSignatureScheme.RSA_PKCS1_SHA256,
      TSignatureScheme.RSA_PKCS1_SHA384, TSignatureScheme.RSA_PKCS1_SHA512]);
+end;
+
+procedure TTestCredentialImport.CheckDerivedPublicKey(
+  const APrivField, APubField: string);
+var
+  LKey: ISigningKey;
+begin
+  LKey := Import(APrivField);
+  CheckTrue(System.Length(LKey.PublicKeyInfo) > 0,
+    APrivField + ': PublicKeyInfo is exported');
+  CheckTrue(Pkix.Certificates.SamePublicKey(LKey.PublicKeyInfo,
+    DecodeHex(FV.Values[APubField])) = TCertAnswer.Yes,
+    APrivField + ': derived public key matches its public vector');
+end;
+
+procedure TTestCredentialImport.TestPublicKeyInfoMatchesPublicVector;
+begin
+  CheckDerivedPublicKey('rsa_pkcs8_der', 'rsa_pub');
+  CheckDerivedPublicKey('ec256_pkcs8_der', 'ec256_pub');
+  CheckDerivedPublicKey('ec384_pkcs8_der', 'ec384_pub');
+  CheckDerivedPublicKey('ec521_pkcs8_der', 'ec521_pub');
+  CheckDerivedPublicKey('ed25519_pkcs8_der', 'ed25519_pub');
+  CheckDerivedPublicKey('ed448_pkcs8_der', 'ed448_pub');
+end;
+
+procedure TTestCredentialImport.TestSamePublicKeyDistinguishesKeys;
+var
+  LRsa, LEc256, LEc384: TBytes;
+begin
+  LRsa := DecodeHex(FV.Values['rsa_pub']);
+  LEc256 := DecodeHex(FV.Values['ec256_pub']);
+  LEc384 := DecodeHex(FV.Values['ec384_pub']);
+  CheckTrue(Pkix.Certificates.SamePublicKey(LRsa, LRsa) = TCertAnswer.Yes,
+    'an identical key value matches');
+  CheckTrue(Pkix.Certificates.SamePublicKey(LRsa, LEc256) = TCertAnswer.No,
+    'different key families do not match');
+  CheckTrue(Pkix.Certificates.SamePublicKey(LEc256, LEc384) = TCertAnswer.No,
+    'the same family with different keys does not match');
+  CheckTrue(Pkix.Certificates.SamePublicKey(TBytes.Create($00, $01, $02), LRsa)
+    = TCertAnswer.Undetermined, 'a malformed SubjectPublicKeyInfo is Undetermined');
 end;
 
 initialization
