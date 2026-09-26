@@ -1,0 +1,61 @@
+TlsLib/src/Ech/TlpEchServer.pas
+  s_09d3c46d1a9b1f::t_7252465d17d8c9 366
+  s_09d3c46d1a9b1f::t_dfd024bbf3125e 367-368
+TlsLib.Tests/src/Tls13LoopbackTests.pas
+  s_09d3c46d1a9b1f::t_5a721a0bb0ebf4 572,694
+  s_09d3c46d1a9b1f::t_d81dfef4d57ff8 460,641
+TlsLib/src/Ech/TlpInMemoryEchKeyStore.pas
+  s_09d3c46d1a9b1f::t_43fb75a927d6fe 111
+  s_09d3c46d1a9b1f::t_a125575f6c6105 210
+  s_09d3c46d1a9b1f::t_865927e9e51702 252
+  s_09d3c46d1a9b1f::t_a968f754674700 106,112-114
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_f9e69c5fe4490e 474
+  s_09d3c46d1a9b1f::t_b23f1e2623ad68 1181,1183-1184,1192-1196
+  s_09d3c46d1a9b1f::t_ebd9a8f9c7dba3 301-303
+TlsLib/src/Ech/TlpEchClientOrchestrator.pas
+  s_09d3c46d1a9b1f::t_3f15458fc42146 210
+  s_09d3c46d1a9b1f::t_cc2197d1f817df 209
+  s_09d3c46d1a9b1f::t_b166263ef6c8ce 146-148,151,153-154
+  s_09d3c46d1a9b1f::t_6c247ab32be687 220
+  s_09d3c46d1a9b1f::t_d1d5ca14b468e3 547
+  s_09d3c46d1a9b1f::t_0e0cbfbf534be4 221
+TlsLib/src/Interfaces/Ech/TlpIEch.pas
+  s_09d3c46d1a9b1f::t_c80bb1b704a770 21
+  s_09d3c46d1a9b1f::t_e450f492cb1c1e 42-48
+TlsLib/src/Ech/TlpEchClient.pas
+  s_09d3c46d1a9b1f::t_f4510e14233fd6 138-139,150-154,172-184
+  s_09d3c46d1a9b1f::t_0244c721289a61 46-48,50-51,55-57
+  s_09d3c46d1a9b1f::t_d03966f3a18997 130-131,185-186
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_aefa9cbc55d9af 2579
+TlsLib/src/Ech/TlpEchExtension.pas
+  s_09d3c46d1a9b1f::t_dd0901d785ca9a 254-283
+  s_09d3c46d1a9b1f::t_452396e1a19c8c 25
+  s_09d3c46d1a9b1f::t_db42382b78e4e5 99-103
+TlsLib.Tests/src/EchClientEngineTests.pas
+  s_09d3c46d1a9b1f::t_02e0503f4aa282 305
+  s_09d3c46d1a9b1f::t_b6df8024311861 120
+TlsLib.Tests/Data/Crypto/Hpke.txt
+  s_09d3c46d1a9b1f::t_d36c9421d32410 25-45
+TlsLib.Tests/src/HpkeProviderTests.pas
+  s_09d3c46d1a9b1f::t_6e493f5dbb87b4 53
+  s_09d3c46d1a9b1f::t_8e63f9db81b5bc 60-65
+  s_09d3c46d1a9b1f::t_8644f4440d1ac6 158-196
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0991ced4330be337382315eb4a538114781de118",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
