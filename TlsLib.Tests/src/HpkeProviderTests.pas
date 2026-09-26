@@ -50,12 +50,19 @@ type
     function P256Suite: IHpkeSuite;
     function OpenRaised(const AOpener: IHpkeOpener;
       const AAad, ACiphertext: TBytes): Boolean;
+    procedure CheckKat(const ASuite: IHpkeSuite; const APrefix: string);
   protected
     procedure SetUp; override;
     procedure TearDown; override;
   published
     procedure TestBaseModeKatOpenSeq0;
     procedure TestBaseModeKatOpenSeq1AdvancesSequence;
+    // RFC 9180 Appendix A.3/A.4/A.5/A.6 opener KATs: P-256 and P-521 KEMs across HKDF-SHA256/512
+    // and AES-128/256-GCM / ChaCha20-Poly1305, so a wrong curve/hash/AEAD constant fails locally
+    procedure TestBaseModeKatA3P256Sha256Aes128;
+    procedure TestBaseModeKatA4P256Sha512Aes128;
+    procedure TestBaseModeKatA5P256Sha256ChaCha20;
+    procedure TestBaseModeKatA6P521Sha512Aes256;
     procedure TestFreshOpenerCannotOpenSeq1Ciphertext;
     procedure TestFailedOpenDoesNotAdvanceSequence;
     procedure TestSealOpenRoundTrip;
@@ -146,6 +153,45 @@ begin
     LOpener.Open(V('base_aad0'), V('base_ct0')));
   CheckEqualBytes('seq 1 plaintext', V('base_pt'),
     LOpener.Open(V('base_aad1'), V('base_ct1')));
+end;
+
+procedure TTestHpkeProvider.CheckKat(const ASuite: IHpkeSuite;
+  const APrefix: string);
+var
+  LOpener: IHpkeOpener;
+begin
+  // open the seq=0 KAT ciphertext and check it yields the RFC 9180 plaintext (shared across the
+  // appendix vectors); a wrong KEM/KDF/AEAD constant derives a different key and fails here
+  CheckTrue(ASuite <> nil, APrefix + ': suite is supported');
+  LOpener := Crypto.Hpke.ImportRecipientKey(ASuite.Kem,
+    TSecretBuffer.From(V(APrefix + '_skRm')))
+    .SetupOpener(ASuite, V(APrefix + '_enc'), V(APrefix + '_info'));
+  CheckEqualBytes(APrefix + ': seq 0 plaintext', V('base_pt'),
+    LOpener.Open(V(APrefix + '_aad0'), V(APrefix + '_ct0')));
+end;
+
+procedure TTestHpkeProvider.TestBaseModeKatA3P256Sha256Aes128;
+begin
+  CheckKat(Crypto.Hpke.Suite(THpkeKem.DHKEM_P256_HKDF_SHA256,
+    THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM), 'a3');
+end;
+
+procedure TTestHpkeProvider.TestBaseModeKatA4P256Sha512Aes128;
+begin
+  CheckKat(Crypto.Hpke.Suite(THpkeKem.DHKEM_P256_HKDF_SHA256,
+    THpkeKdf.HKDF_SHA512, THpkeAead.AES_128_GCM), 'a4');
+end;
+
+procedure TTestHpkeProvider.TestBaseModeKatA5P256Sha256ChaCha20;
+begin
+  CheckKat(Crypto.Hpke.Suite(THpkeKem.DHKEM_P256_HKDF_SHA256,
+    THpkeKdf.HKDF_SHA256, THpkeAead.CHACHA20_POLY1305), 'a5');
+end;
+
+procedure TTestHpkeProvider.TestBaseModeKatA6P521Sha512Aes256;
+begin
+  CheckKat(Crypto.Hpke.Suite(THpkeKem.DHKEM_P521_HKDF_SHA512,
+    THpkeKdf.HKDF_SHA512, THpkeAead.AES_256_GCM), 'a6');
 end;
 
 procedure TTestHpkeProvider.TestFreshOpenerCannotOpenSeq1Ciphertext;

@@ -26,7 +26,6 @@ uses
   TlpTls13KeySchedule,
   TlpITranscriptHash,
   TlpTranscriptHash,
-  TlpWireReader,
   TlpIWireWriter,
   TlpWireWriter,
   TlpWireVectorMarker,
@@ -130,7 +129,6 @@ resourcestring
   SEchExtensionUnregistered = 'the extension registry has no encrypted_client_hello ' +
     'handler, so an ECH ClientHello cannot be built (fail-closed)';
   SEchHrrConfirmationMismatch = 'the ServerHello ECH decision disagrees with the HelloRetryRequest';
-  SEchBadHrrConfirmation = 'the HelloRetryRequest ech extension is not the 8-byte confirmation';
   SEchAcceptRetryConfigs = 'the server sent retry_configs after accepting ECH';
   SEchNoUsableConfig = 'the configured ECHConfigList has no usable config (unsupported HPKE ' +
     'suite, invalid public key, or a mandatory unknown extension) and ECH GREASE is not ' +
@@ -145,12 +143,15 @@ begin
   FCrypto := ACrypto;
   FPolicy := APolicy;
   FStatus := TEchStatus.NotOffered;
-  // select a usable ECH config up front; with none usable but GREASE enabled, offer a decoy
-  // ech instead (RFC 9849 sec. 6.2), generated once so a HelloRetryRequest re-sends it verbatim
+  // the policy resolved the (config, suite) once at Build; with none usable but GREASE enabled,
+  // offer a decoy ech instead (RFC 9849 sec. 6.2), generated once so a HelloRetryRequest re-sends
+  // it verbatim
   if APolicy = nil then
     Exit;
-  if TEchConfigList.TrySelect(APolicy.Configs, ACrypto, FSelectedConfig, FSelectedSuite) then
+  if APolicy.Usable then
   begin
+    FSelectedConfig := APolicy.SelectedConfig;
+    FSelectedSuite := APolicy.SelectedSuite;
     FActive := True;
     FInnerRandom := ACrypto.Primitives.GetRandom.GenerateBytes(32);
     FEch := TEchClientHandshake.Create(ACrypto, FSelectedConfig, FSelectedSuite);
@@ -205,7 +206,8 @@ end;
 
 function TEchClientOrchestrator.InnerRandom: TBytes;
 begin
-  Result := FInnerRandom;
+  // a copy: the caller keeps this past the orchestrator's in-place wipe of its inner buffers
+  Result := System.Copy(FInnerRandom);
 end;
 
 function TEchClientOrchestrator.InnerTranscript: ITranscriptHash;
@@ -215,7 +217,8 @@ end;
 
 function TEchClientOrchestrator.SentInnerRaw: TBytes;
 begin
-  Result := FSentInnerRaw;
+  // a copy: the caller records this past the orchestrator's in-place wipe of the sent inner
+  Result := System.Copy(FSentInnerRaw);
 end;
 
 function TEchClientOrchestrator.GreaseEchExt: TBytes;
@@ -540,31 +543,8 @@ end;
 
 function TEchClientOrchestrator.LocateHrrEchConfirmation(const ARaw: TBytes;
   out AOffset: Int32): Boolean;
-var
-  LReader, LSid: TWireReader;
-  LVector: TExtensionVector;
-  LEntry: TExtensionEntry;
 begin
-  Result := False;
-  AOffset := 0;
-  LReader := TWireReader.Create(ARaw);
-  LReader.Skip(4);  // handshake header (type + 3-byte length)
-  LReader.Skip(2);  // legacy_version
-  LReader.Skip(32); // random
-  LSid := LReader.OpenVector(1); // legacy_session_id_echo
-  LSid.Skip(LSid.Remaining);
-  LReader.Skip(2);  // cipher_suite
-  LReader.Skip(1);  // legacy_compression_method
-  LVector := TExtensionVector.ParseFrom(LReader);
-  if LVector.TryFind(TExtensionTypes.EncryptedClientHello, LEntry) then
-  begin
-    if System.Length(LEntry.Data) <> TEchExtension.ConfirmationLength then
-      raise EFatalAlertTlsLibException.CreateRes(
-        TTlsAlertDescription.DecodeError, @SEchBadHrrConfirmation);
-    // DataOffset is absolute in ARaw: the 8-byte HelloRetryRequest ECH confirmation payload
-    AOffset := LEntry.DataOffset;
-    Result := True;
-  end;
+  Result := TEchExtension.LocateHrrConfirmation(ARaw, AOffset);
 end;
 
 procedure TEchClientOrchestrator.DecideHelloRetryRequest(

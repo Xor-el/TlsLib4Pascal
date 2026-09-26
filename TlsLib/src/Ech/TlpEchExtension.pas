@@ -22,6 +22,7 @@ uses
   TlpIWireWriter,
   TlpWireWriter,
   TlpWireVectorMarker,
+  TlpExtensionVector,
   TlpEchConfig,
   TlpTlsLibExceptions;
 
@@ -95,6 +96,11 @@ type
     /// <summary>The 8-byte confirmation from a HelloRetryRequest ech body. Raises a
     /// decode_error if the body is not exactly 8 bytes.</summary>
     class function DecodeHrrConfirmation(const AData: TBytes): TBytes; static;
+    /// <summary>The absolute offset of the HelloRetryRequest ech confirmation in AFramedHrr, found
+    /// by parsing (the ech extension's position is not fixed); False when the HRR carries no ech.
+    /// Raises decode_error on a wrong-length ech.</summary>
+    class function LocateHrrConfirmation(const AFramedHrr: TBytes;
+      out AOffset: Int32): Boolean; static;
   end;
 
 implementation
@@ -243,6 +249,36 @@ begin
   if System.Length(AData) <> ConfirmationLength then
     raise EDecodeErrorTlsLibException.CreateRes(@SBadConfirmationLength);
   Result := System.Copy(AData);
+end;
+
+class function TEchExtension.LocateHrrConfirmation(const AFramedHrr: TBytes;
+  out AOffset: Int32): Boolean;
+const
+  EchExtensionType = UInt16($FE0D); // encrypted_client_hello (RFC 9849 sec. 5)
+var
+  LReader, LSid: TWireReader;
+  LVector: TExtensionVector;
+  LEntry: TExtensionEntry;
+begin
+  Result := False;
+  AOffset := 0;
+  LReader := TWireReader.Create(AFramedHrr);
+  LReader.Skip(4);  // handshake header (type + 3-byte length)
+  LReader.Skip(2);  // legacy_version
+  LReader.Skip(32); // random
+  LSid := LReader.OpenVector(1); // legacy_session_id_echo
+  LSid.Skip(LSid.Remaining);
+  LReader.Skip(2);  // cipher_suite
+  LReader.Skip(1);  // legacy_compression_method
+  LVector := TExtensionVector.ParseFrom(LReader);
+  if LVector.TryFind(EchExtensionType, LEntry) then
+  begin
+    if System.Length(LEntry.Data) <> ConfirmationLength then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.DecodeError, @SBadConfirmationLength);
+    AOffset := LEntry.DataOffset; // absolute in AFramedHrr
+    Result := True;
+  end;
 end;
 
 end.

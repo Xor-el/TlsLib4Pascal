@@ -103,10 +103,15 @@ begin
   // share one gate: a nil key would fault mid-handshake, a foreign version or empty raw config
   // would silently reject every ECH offer
   for LI := 0 to System.High(AEntries) do
+  begin
     if (AEntries[LI].RecipientKey = nil) or
       (AEntries[LI].Config.Version <> TEchConfig.SupportedVersion) or
       (System.Length(AEntries[LI].Config.Raw) = 0) then
       raise EArgumentTlsLibException.CreateRes(@SEchEntryInvalid);
+    // the key must match its config, or it would fault mid-handshake keyed by config_id
+    if not KeyMatchesConfig(AEntries[LI].RecipientKey, AEntries[LI].Config) then
+      raise EArgumentTlsLibException.CreateRes(@SEchKeyMismatch);
+  end;
   FEntries := System.Copy(AEntries);
   // the store is immutable, so the retry_configs list is fixed for its lifetime: encode once
   FRetryConfigs := ComputeRetryConfigs(FEntries);
@@ -202,10 +207,7 @@ begin
         raise EArgumentTlsLibException.CreateRes(@SEchNoUsableSuite);
       LRecipient := ACryptoProvider.Hpke.ImportRecipientKey(LConfigs[LI].KemId,
         ACryptoProvider.Hpke.ImportPrivateKey(LConfigs[LI].KemId, LPkcs8));
-      // fail at load if the PEM pairs a private key with a config whose public key it does not
-      // match - otherwise every ECH handshake would silently reject with no diagnosable cause
-      if not KeyMatchesConfig(LRecipient, LConfigs[LI]) then
-        raise EArgumentTlsLibException.CreateRes(@SEchKeyMismatch);
+      // key/config match is enforced in the ctor
       Result[LCount] := Entry(LConfigs[LI], LRecipient, AIsRetry);
       Inc(LCount);
     end;
@@ -247,10 +249,7 @@ begin
     if not LConfigs[LI].TrySelectSuite(ACryptoProvider, LSuite) then
       raise EArgumentTlsLibException.CreateRes(@SEchNoUsableSuite);
     LRecipient := ACryptoProvider.Hpke.ImportRecipientKey(LConfigs[LI].KemId, APrivateKey);
-    // reject a private key that does not match the config's public key - the same undiagnosable
-    // silent-reject the PEM path guards against
-    if not KeyMatchesConfig(LRecipient, LConfigs[LI]) then
-      raise EArgumentTlsLibException.CreateRes(@SEchKeyMismatch);
+    // key/config match is enforced in the ctor
     LEntries[LCount] := Entry(LConfigs[LI], LRecipient, True);
     Inc(LCount);
   end;

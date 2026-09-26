@@ -298,9 +298,9 @@ type
     /// (the backend role, RFC 9849 sec. 7.1). Raises decode_error on a malformed ech extension
     /// (a non-empty inner body or an unknown type). Reads the already-parsed vector.</summary>
     class function DetectBackendEch(const AVector: TExtensionVector): Boolean; static;
-    /// <summary>Stamps the HelloRetryRequest ech accept confirmation (RFC 9849 sec. 7.2.1):
-    /// its 8-byte value is the LAST 8 bytes of AHrrBytes (the ech extension is spliced last),
-    /// computed over message_hash(AInnerCh1Hash) then the HRR with that payload zeroed.</summary>
+    /// <summary>Stamps the HelloRetryRequest ech accept confirmation (RFC 9849 sec. 7.2.1) into the
+    /// ech extension's payload (located by parsing, not assumed last), computed over
+    /// message_hash(AInnerCh1Hash) then the HRR with that payload zeroed.</summary>
     procedure StampHrrEchConfirmation(var AHrrBytes: TBytes;
       const AInnerCh1Hash: TBytes);
     /// <summary>Appends the SelectAlpn and SetRecordSizeLimit effects for the flight.</summary>
@@ -471,6 +471,7 @@ resourcestring
   SEchAcceptedWithoutHandshake = 'ECH is marked accepted but the handshake state is gone';
   SEchInnerAtClientFacing = 'an inner-type Encrypted Client Hello reached a server that ' +
     'holds ECH keys; it must arrive only at a split-mode backend';
+  SEchHrrConfirmationMissing = 'the HelloRetryRequest ech confirmation placeholder is absent';
 
 const
   PskDheKeMode = Byte(1);       // psk_key_exchange_modes: psk_dhe_ke
@@ -1177,9 +1178,10 @@ procedure TTls13ServerStateMachine.StampHrrEchConfirmation(
 var
   LClone: ITranscriptHash;
   LConf: TBytes;
+  LOffset: Int32;
 begin
-  // the ech extension was spliced last, so its 8-byte payload is the tail of AHrrBytes; it is
-  // still zero here, so hashing AHrrBytes hashes the HRR with the payload zeroed
+  // the confirmation payload is still zero here, so hashing AHrrBytes hashes the HRR with the
+  // payload zeroed regardless of where the ech extension sits
   LClone := TTranscriptHash.Create;
   LClone.SeedWithMessageHash(
     FParams.Crypto.Primitives.CreateHash(FSelectedSuite.Common.Hash), AInnerCh1Hash);
@@ -1187,8 +1189,11 @@ begin
   LConf := TTls13KeySchedule.EchHrrAcceptConfirmation(
     FParams.Crypto.Primitives.CreateHkdf(FSelectedSuite.Common.Hash),
     FEchInnerRandom, LClone.CurrentHash);
-  Move(LConf[0], AHrrBytes[System.Length(AHrrBytes) - TEchExtension.ConfirmationLength],
-    TEchExtension.ConfirmationLength);
+  // find the ech payload by parsing, not by assuming it is last (the registry may order it anywhere)
+  if not TEchExtension.LocateHrrConfirmation(AHrrBytes, LOffset) then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.InternalError, @SEchHrrConfirmationMissing);
+  Move(LConf[0], AHrrBytes[LOffset], TEchExtension.ConfirmationLength);
 end;
 
 function TTls13ServerStateMachine.ProcessSecondClientHello(

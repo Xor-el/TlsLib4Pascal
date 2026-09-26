@@ -117,7 +117,7 @@ begin
     '3333333333333333333333333333333333333333333333333333333333333333');
   Result.ServerName := RealSni;
   Result.ExpectedServerName := TServerName.DnsName(RealSni);
-  Result.EchPolicy := TEchClientPolicy.Create(AEchConfigList, False, False)
+  Result.EchPolicy := TEchClientPolicy.Create(Crypto, AEchConfigList, False, False)
     as IEchClientPolicy;
 end;
 
@@ -302,7 +302,7 @@ begin
   // configuration time rather than fall back to cleartext
   LRaised := False;
   try
-    TEchClientPolicy.Create(nil, False, False);
+    TEchClientPolicy.Create(Crypto, nil, False, False);
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
