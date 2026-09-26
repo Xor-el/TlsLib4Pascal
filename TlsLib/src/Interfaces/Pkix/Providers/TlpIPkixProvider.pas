@@ -77,7 +77,7 @@ type
   /// extractor methods (PublicKeyInfo, DnsNames, IpAddresses) raise on malformed input.
   /// </summary>
   ICertificateInspector = interface(IInterface)
-    ['{243AB9CD-2900-4A04-B952-FEC3CD105B05}']
+    ['{7E1D9B4C-58A2-4F63-9D0E-3C6B21A7F5E8}']
     /// <summary>
     /// Decodes ADer once into a handle that answers the per-certificate queries from
     /// that single decode. Raises when ADer does not decode to a certificate (empty or
@@ -146,6 +146,16 @@ type
     /// </summary>
     function KeyKind(const ACertificateDer: TBytes;
       out AKind: TSignatureKeyKind; out AEcNamedGroup: UInt16): Boolean;
+    /// <summary>
+    /// Whether two DER SubjectPublicKeyInfo encodings denote the same public key. Compared by key
+    /// value, not by bytes, so equal keys that differ only in encoding still match - an absent RSA
+    /// NULL parameter, a compressed vs uncompressed EC point (RFC 5480 2.2), named vs explicit EC
+    /// curve parameters, or an id-RSASSA-PSS vs rsaEncryption algorithm over the same RSA key.
+    /// RSA/EC/EdDSA keys are compared structurally; any other family falls back to a canonical-DER
+    /// comparison. Yes when the key values match, No when they differ (including different key
+    /// families), Undetermined when either input cannot be parsed as a public key.
+    /// </summary>
+    function SamePublicKey(const ASpkiA, ASpkiB: TBytes): TCertAnswer;
   end;
 
   /// <summary>

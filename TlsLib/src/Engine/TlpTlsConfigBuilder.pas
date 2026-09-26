@@ -356,7 +356,8 @@ resourcestring
   SCredentialLeafRsaPssUnsupported = 'the credential''s end-entity certificate carries an ' +
     'id-RSASSA-PSS public key, which is not supported for signing here; use an rsaEncryption ' +
     'certificate (RFC 8446 4.2.3)';
-  SCredentialKeyNoSchemes = 'the credential''s private key reports no signature scheme it can sign with';
+  SCredentialKeyNotExportable = 'the credential''s private key cannot export its public key, so it ' +
+    'cannot be matched to its certificate; supply a credential whose key exposes a public key';
   SSniCredentialInvalid = 'the SNI credential for host "%s" is invalid: %s';
 
 const
@@ -2108,52 +2109,34 @@ end;
 procedure TTlsConfigBuilder.ValidateCredentialConsistency(
   const ACredential: TTlsCredential);
 var
-  LLeaf, LSpki, LSignature, LProbe: TBytes;
+  LLeaf, LKeyPublicKeyInfo: TBytes;
   LSchemes: TArray<TSignatureScheme>;
-  LScheme: TSignatureScheme;
-  LSigner: ISignatureSigner;
-  LVerifier: ISignatureVerifier;
 begin
   // only a fully-formed credential is checkable; a missing chain or key is caught by the
   // server/SNI/client credential-presence rules, not here
   if (System.Length(ACredential.CertificateChain) = 0) or
     (ACredential.PrivateKey = nil) then
     Exit;
-  // "TlsLib cred chk" || 0x01: a fixed, non-peer-influenced probe (never attacker-chosen), signed
-  // and self-verified in-process and discarded, so it needs no randomness
-  LProbe := TBytes.Create($54, $6C, $73, $4C, $69, $62, $20, $63, $72, $65, $64, $20, $63,
-    $68, $6B, $01);
   LLeaf := ACredential.CertificateChain[0];
   // a definite No means the leaf may not sign a CertificateVerify; an absent or unreadable
   // keyUsage passes (the peer-side signing-policy check is the backstop)
   if FPkix.Certificates.KeyUsagePermits(LLeaf, TCertKeyUsage.DigitalSignature) = TCertAnswer.No
   then
     raise EInvalidOperationTlsLibException.CreateRes(@SCredentialLeafCannotSign);
-  LSchemes := ACredential.PrivateKey.CapableSchemes;
-  if System.Length(LSchemes) = 0 then
-    raise EInvalidOperationTlsLibException.CreateRes(@SCredentialKeyNoSchemes);
-  LScheme := LSchemes[0];
   // an id-RSASSA-PSS leaf key pairs only with rsa_pss_pss_*, which this library does not offer,
-  // so it is unusable even when the private key matches it - a bare possession probe would pass
-  if LScheme.IsRsaPssRsae and
+  // so it is unusable even when the private key matches it (the key-value match below would pass)
+  LSchemes := ACredential.PrivateKey.CapableSchemes;
+  if (System.Length(LSchemes) > 0) and LSchemes[0].IsRsaPssRsae and
     (FPkix.Certificates.KeyIsRsaPss(LLeaf) = TCertAnswer.Yes) then
     raise EInvalidOperationTlsLibException.CreateRes(@SCredentialLeafRsaPssUnsupported);
-  // proof of possession: sign a fixed probe with the private key and verify it against the
-  // leaf's public key. Format-independent - it also catches a mis-ordered chain whose first
-  // certificate is not the one that pairs with the key
-  LSpki := FPkix.Certificates.PublicKeyInfo(LLeaf);
-  LSigner := FCrypto.Signing.CreateSignatureSigner(LScheme, ACredential.PrivateKey);
-  LSigner.Update(LProbe, 0, System.Length(LProbe));
-  LSignature := LSigner.Sign;
-  try
-    LVerifier := FCrypto.Signing.CreateSignatureVerifier(LScheme, LSpki);
-  except
-    // a key-family mismatch (e.g. an EC key against an RSA leaf) surfaces here as a wrong leaf
-    on EArgumentTlsLibException do
-      raise EInvalidOperationTlsLibException.CreateRes(@SCredentialKeyLeafMismatch);
-  end;
-  LVerifier.Update(LProbe, 0, System.Length(LProbe));
-  if not LVerifier.Verify(LSignature) then
+  // the private key must own the leaf: match the key's public half against the leaf's, with no
+  // signing operation. A key that cannot export its public half fails closed. The value compare
+  // also catches a mis-ordered chain whose first certificate is not the one that pairs with the key
+  LKeyPublicKeyInfo := ACredential.PrivateKey.PublicKeyInfo;
+  if System.Length(LKeyPublicKeyInfo) = 0 then
+    raise EInvalidOperationTlsLibException.CreateRes(@SCredentialKeyNotExportable);
+  if FPkix.Certificates.SamePublicKey(FPkix.Certificates.PublicKeyInfo(LLeaf),
+    LKeyPublicKeyInfo) <> TCertAnswer.Yes then
     raise EInvalidOperationTlsLibException.CreateRes(@SCredentialKeyLeafMismatch);
 end;
 

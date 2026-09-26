@@ -100,6 +100,7 @@ uses
   ClpIRsaParameters,
   ClpIEd25519Parameters,
   ClpIEd448Parameters,
+  ClpSubjectPublicKeyInfoFactory,
   ClpIX509CertificateEntry,
   ClpIAsymmetricKeyEntry,
   ClpIPkcs12Store,
@@ -453,10 +454,19 @@ type
   var
     FKeyParameter: IAsymmetricKeyParameter;
     FCapableSchemes: TArray<TSignatureScheme>;
+    FPublicKeyInfo: TBytes;
+    // the public SubjectPublicKeyInfo derived from the private parameter (nil if the family
+    // is not one we can derive); computed once at import and shared with narrowed copies
+    class function DerivePublicKeyInfo(
+      const AKeyParameter: IAsymmetricKeyParameter): TBytes; static;
+    constructor Create(const AKeyParameter: IAsymmetricKeyParameter;
+      const ACapableSchemes: TArray<TSignatureScheme>;
+      const APublicKeyInfo: TBytes); overload;
   public
     constructor Create(const AKeyParameter: IAsymmetricKeyParameter;
-      const ACapableSchemes: TArray<TSignatureScheme>);
+      const ACapableSchemes: TArray<TSignatureScheme>); overload;
     function CapableSchemes: TArray<TSignatureScheme>;
+    function PublicKeyInfo: TBytes;
     function WithPreferredSchemes(const ASchemes: TArray<TSignatureScheme>): ISigningKey;
     function KeyParameter: IAsymmetricKeyParameter;
   end;
@@ -1343,11 +1353,54 @@ begin
   inherited Create;
   FKeyParameter := AKeyParameter;
   FCapableSchemes := ACapableSchemes;
+  FPublicKeyInfo := DerivePublicKeyInfo(AKeyParameter);
+end;
+
+constructor TSigningKey.Create(const AKeyParameter: IAsymmetricKeyParameter;
+  const ACapableSchemes: TArray<TSignatureScheme>; const APublicKeyInfo: TBytes);
+begin
+  inherited Create;
+  FKeyParameter := AKeyParameter;
+  FCapableSchemes := ACapableSchemes;
+  FPublicKeyInfo := APublicKeyInfo;
+end;
+
+class function TSigningKey.DerivePublicKeyInfo(
+  const AKeyParameter: IAsymmetricKeyParameter): TBytes;
+var
+  LRsa: IRsaPrivateCrtKeyParameters;
+  LEc: IECPrivateKeyParameters;
+  LEd25519: IEd25519PrivateKeyParameters;
+  LEd448: IEd448PrivateKeyParameters;
+  LPublic: IAsymmetricKeyParameter;
+  LInfo: ISubjectPublicKeyInfo;
+begin
+  Result := nil;
+  if AKeyParameter = nil then
+    Exit;
+  if Supports(AKeyParameter, IRsaPrivateCrtKeyParameters, LRsa) then
+    LPublic := TRsaKeyParameters.Create(False, LRsa.Modulus, LRsa.PublicExponent)
+      as IAsymmetricKeyParameter
+  else if Supports(AKeyParameter, IECPrivateKeyParameters, LEc) then
+    LPublic := TECKeyPairGenerator.GetCorrespondingPublicKey(LEc) as IAsymmetricKeyParameter
+  else if Supports(AKeyParameter, IEd25519PrivateKeyParameters, LEd25519) then
+    LPublic := LEd25519.GeneratePublicKey as IAsymmetricKeyParameter
+  else if Supports(AKeyParameter, IEd448PrivateKeyParameters, LEd448) then
+    LPublic := LEd448.GeneratePublicKey as IAsymmetricKeyParameter
+  else
+    Exit;
+  LInfo := TSubjectPublicKeyInfoFactory.CreateSubjectPublicKeyInfo(LPublic);
+  Result := LInfo.GetDerEncoded;
 end;
 
 function TSigningKey.CapableSchemes: TArray<TSignatureScheme>;
 begin
   Result := FCapableSchemes;
+end;
+
+function TSigningKey.PublicKeyInfo: TBytes;
+begin
+  Result := System.Copy(FPublicKeyInfo);
 end;
 
 function TSigningKey.WithPreferredSchemes(
@@ -1371,7 +1424,8 @@ begin
         LNarrowed[LN] := LPref;
         Break;
       end;
-  Result := TSigningKey.Create(FKeyParameter, LNarrowed);
+  // the narrowed handle shares the same parsed key and its already-derived public key
+  Result := TSigningKey.Create(FKeyParameter, LNarrowed, FPublicKeyInfo);
 end;
 
 function TSigningKey.KeyParameter: IAsymmetricKeyParameter;
