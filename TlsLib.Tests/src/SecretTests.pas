@@ -40,8 +40,6 @@ type
     procedure TestFromHoldsBytes;
     procedure TestToBytesCopiesSecret;
     procedure TestAllocateIsZeroed;
-    procedure TestCopyFromRoundTrip;
-    procedure TestCopyFromTooLongRaises;
     procedure TestNegativeAllocateRaises;
     procedure TestEmptyBuffer;
     procedure TestWipePrimitiveZeroes;
@@ -102,35 +100,6 @@ begin
   CheckEqualBytes('Allocate zero-filled', LZeros, ReadBack(LSecret));
 end;
 
-procedure TTestSecretBuffer.TestCopyFromRoundTrip;
-var
-  LIn: TBytes;
-  LSecret: ISecretBuffer;
-begin
-  LIn := DecodeHex('DEADBEEF');
-  LSecret := TSecretBuffer.Allocate(System.Length(LIn));
-  LSecret.CopyFrom(@LIn[0], System.Length(LIn));
-  CheckEqualBytes('CopyFrom round-trip', LIn, ReadBack(LSecret));
-end;
-
-procedure TTestSecretBuffer.TestCopyFromTooLongRaises;
-var
-  LIn: TBytes;
-  LSecret: ISecretBuffer;
-  LRaised: Boolean;
-begin
-  LIn := DecodeHex('DEADBEEF');
-  LSecret := TSecretBuffer.Allocate(2);
-  LRaised := False;
-  try
-    LSecret.CopyFrom(@LIn[0], System.Length(LIn));
-  except
-    on E: EArgumentTlsLibException do
-      LRaised := True;
-  end;
-  CheckTrue(LRaised, 'CopyFrom over-length must raise EArgumentTlsLibException');
-end;
-
 procedure TTestSecretBuffer.TestNegativeAllocateRaises;
 var
   LRaised: Boolean;
@@ -150,14 +119,10 @@ end;
 procedure TTestSecretBuffer.TestEmptyBuffer;
 var
   LSecret: ISecretBuffer;
-  LByte: Byte;
 begin
   LSecret := TSecretBuffer.From(nil);
   CheckEquals(0, LSecret.Len, 'empty Len');
   CheckTrue(LSecret.DataPtr = nil, 'empty DataPtr must be nil');
-  LByte := 0;
-  // a zero-length copy is a no-op and must not raise
-  LSecret.CopyFrom(@LByte, 0);
 end;
 
 procedure TTestSecretBuffer.TestWipePrimitiveZeroes;

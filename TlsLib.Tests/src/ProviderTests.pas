@@ -31,7 +31,9 @@ uses
   TlpISecretBuffer,
   TlpSecretBuffer,
   TlpICryptoProvider,
+  TlpIKeyExchangePrivateKey,
   TlpAeadUtilities,
+  TlpDer,
   TlpDefaultCryptoProvider,
   TlpOSCryptoProvider,
   TlpCryptoDomainTypes,
@@ -55,6 +57,10 @@ type
     procedure DoAeadOpenTamperWipes(const AProvider: ICryptoProvider);
     procedure DoAeadSpanGuards(const AProvider: ICryptoProvider);
     procedure DoAeadNonceReuseRejected(const AProvider: ICryptoProvider);
+    // a key handle from one primitive must never agree under another (the same-width foreign
+    // scalar that once nil-cast to an AV)
+    procedure DoAgreeRejectsForeignKeyHandle(const AProvider: ICryptoProvider);
+    procedure DoAeadSealWithoutInitRaisesTyped(const AProvider: ICryptoProvider);
   published
     procedure TestSha256Kat;
     procedure TestSha384Kat;
@@ -79,6 +85,10 @@ type
     procedure TestAeadNonceReuseRejectedNativeProvider;
     procedure TestRandomDistinctNonZero;
     procedure TestHasHardwareAesReturnsBoolean;
+    procedure TestAgreeRejectsForeignKeyHandle;
+    procedure TestDerReadTlvRejectsOverflowAndNonMinimalLengths;
+    procedure TestAeadSealWithoutInitRaisesTyped;
+    procedure TestAeadSealWithoutInitRaisesTypedNativeProvider;
   end;
 
 implementation
@@ -662,7 +672,7 @@ begin
   try
     TAeadUtilities.Seal(LAead, LNonce, LAad, DecodeHex('cafebabe'));
   except
-    on E: Exception do
+    on E: EArgumentTlsLibException do
       LRaised := True;
   end;
   CheckTrue(LRaised, 'reusing a (key, nonce) for seal must be rejected');
@@ -711,6 +721,95 @@ begin
   // the contract is only that it returns a Boolean without throwing
   LValue := Crypto.Primitives.HasHardwareAes;
   CheckTrue((LValue = True) or (LValue = False), 'HasHardwareAes is a Boolean');
+end;
+
+procedure TTestCryptoProvider.DoAgreeRejectsForeignKeyHandle(
+  const AProvider: ICryptoProvider);
+var
+  LX, LP: IKeyAgreement;
+  LXPriv, LPPriv: IKeyExchangePrivateKey;
+  LXPub, LPPub: TBytes;
+  LRaised: Boolean;
+begin
+  LX := AProvider.Primitives.CreateKeyAgreement(TKeyAgreementAlgorithm.X25519);
+  LX.GenerateKeyPair(LXPriv, LXPub);
+  LP := AProvider.Primitives.CreateKeyAgreement(TKeyAgreementAlgorithm.SECP256R1);
+  LP.GenerateKeyPair(LPPriv, LPPub);
+  // a same-width foreign scalar must be refused, not agreed under the wrong domain (once an AV)
+  LRaised := False;
+  try
+    LP.Agree(LXPriv, LPPub);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a P-256 agreement must reject an X25519 key handle');
+  LRaised := False;
+  try
+    LX.Agree(LPPriv, LXPub);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an X25519 agreement must reject a P-256 key handle');
+end;
+
+procedure TTestCryptoProvider.TestAgreeRejectsForeignKeyHandle;
+begin
+  DoAgreeRejectsForeignKeyHandle(Crypto);
+end;
+
+procedure TTestCryptoProvider.DoAeadSealWithoutInitRaisesTyped(
+  const AProvider: ICryptoProvider);
+var
+  LAead: IAead;
+  LNonce, LDest: TBytes;
+  LRaised: Boolean;
+begin
+  // Seal before Init has no key: a typed state error, never a nil key passed to the mode
+  LAead := AProvider.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM);
+  LNonce := DecodeHex('101112131415161718191a1b');
+  LDest := nil;
+  SetLength(LDest, 4 + LAead.TagSize);
+  LRaised := False;
+  try
+    LAead.Seal(LNonce, nil, DecodeHex('deadbeef'), 0, 4, LDest, 0);
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'sealing before Init raises a typed state error');
+end;
+
+procedure TTestCryptoProvider.TestAeadSealWithoutInitRaisesTyped;
+begin
+  DoAeadSealWithoutInitRaisesTyped(Crypto);
+end;
+
+procedure TTestCryptoProvider.TestAeadSealWithoutInitRaisesTypedNativeProvider;
+begin
+  DoAeadSealWithoutInitRaisesTyped(
+    TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider));
+end;
+
+procedure TTestCryptoProvider.TestDerReadTlvRejectsOverflowAndNonMinimalLengths;
+var
+  LTag: Byte;
+  LContentOff, LContentLen, LNext: Int32;
+begin
+  // tag 0x04, then a 4-byte length 0x7FFFFFFF whose content end would overflow Int32: rejected
+  CheckFalse(TDer.ReadTlv(DecodeHex('04847FFFFFFF'), 0, LTag, LContentOff, LContentLen, LNext),
+    'an overflowing 4-byte length is rejected');
+  // tag 0x04, long form 0x81 0x05: a length under 0x80 must use the short form (non-minimal)
+  CheckFalse(TDer.ReadTlv(DecodeHex('048105'), 0, LTag, LContentOff, LContentLen, LNext),
+    'a length under 0x80 in long form is non-minimal');
+  // tag 0x04, long form 0x82 0x00 0x05: a multi-byte length with a leading zero byte is non-minimal
+  CheckFalse(TDer.ReadTlv(DecodeHex('04820005'), 0, LTag, LContentOff, LContentLen, LNext),
+    'a multi-byte length with a leading zero byte is non-minimal');
+  // a well-formed short-form TLV still parses
+  CheckTrue(TDer.ReadTlv(DecodeHex('0403AABBCC'), 0, LTag, LContentOff, LContentLen, LNext),
+    'a short-form TLV parses');
+  CheckEquals(3, LContentLen, 'short-form content length');
 end;
 
 initialization

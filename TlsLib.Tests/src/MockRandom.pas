@@ -33,7 +33,7 @@ type
     function NextByte: Byte;
   public
     constructor Create(ASeed: UInt64);
-    procedure NextBytes(var ABuffer: TBytes);
+    procedure NextBytes(const ABuffer: TBytes);
     function GenerateBytes(ALength: Int32): TBytes;
   end;
 
@@ -58,7 +58,7 @@ begin
   Result := Byte(FState);
 end;
 
-procedure TMockRandom.NextBytes(var ABuffer: TBytes);
+procedure TMockRandom.NextBytes(const ABuffer: TBytes);
 var
   LI: Int32;
 begin

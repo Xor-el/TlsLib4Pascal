@@ -73,6 +73,7 @@ type
     procedure TestMalformedKeyRaisesTypedException;
     procedure TestUnsupportedAlgorithmRaisesTypedException;
     procedure TestWrongPasswordRaisesTypedException;
+    procedure TestEncryptedKeyWithoutPasswordReportsPasswordRequired;
     procedure TestWithPreferredSchemesNarrowsReordersAndFilters;
     // the imported key exposes its public half as a SubjectPublicKeyInfo, and it is the public
     // key of that private key (matches the known-good public vector by value)
@@ -351,6 +352,29 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a wrong decryption password raises EArgumentTlsLibException');
+end;
+
+procedure TTestCredentialImport.TestEncryptedKeyWithoutPasswordReportsPasswordRequired;
+
+  procedure CheckReportsPasswordRequired(const AField: string);
+  var
+    LMsg: string;
+  begin
+    LMsg := '';
+    try
+      Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values[AField]));
+    except
+      on E: EArgumentTlsLibException do
+        LMsg := E.Message;
+    end;
+    CheckTrue(Pos('password', LMsg) > 0,
+      AField + ': an encrypted key without a password names the missing password; got: ' + LMsg);
+  end;
+
+begin
+  // an encrypted key imported with no password is a distinct, actionable error, not "malformed"
+  CheckReportsPasswordRequired('rsa_enc_der');
+  CheckReportsPasswordRequired('rsa_enc_pem');
 end;
 
 procedure TTestCredentialImport.TestWithPreferredSchemesNarrowsReordersAndFilters;

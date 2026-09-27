@@ -50,14 +50,15 @@ implementation
 class function TDer.ReadTlv(const ADer: TBytes; AOffset: Int32; out ATag: Byte;
   out AContentOffset, AContentLen, ANext: Int32): Boolean;
 var
-  LLen, LN, LI: Int32;
+  LLen: Int64;
+  LN, LI: Int32;
 begin
   Result := False;
   ATag := 0;
   AContentOffset := 0;
   AContentLen := 0;
   ANext := 0;
-  if (AOffset < 0) or (AOffset + 2 > System.Length(ADer)) then
+  if (AOffset < 0) or (Int64(AOffset) + 2 > System.Length(ADer)) then
     Exit;
   ATag := ADer[AOffset];
   LLen := ADer[AOffset + 1];
@@ -65,17 +66,24 @@ begin
     AContentOffset := AOffset + 2
   else
   begin
-    LN := LLen and $7F;
-    if (LN = 0) or (LN > 4) or (AOffset + 2 + LN > System.Length(ADer)) then
+    LN := Int32(LLen) and $7F;
+    if (LN = 0) or (LN > 4) or (Int64(AOffset) + 2 + LN > System.Length(ADer)) then
       Exit;
+    // accumulate in Int64 so a 4-byte length cannot wrap
     LLen := 0;
     for LI := 0 to LN - 1 do
       LLen := (LLen shl 8) or ADer[AOffset + 2 + LI];
+    // reject a non-minimal long form (DER)
+    if ((LN = 1) and (LLen < $80)) or ((LN >= 2) and (ADer[AOffset + 2] = 0)) then
+      Exit;
     AContentOffset := AOffset + 2 + LN;
   end;
-  AContentLen := LLen;
+  // a length whose content end would overflow Int32 is rejected, not wrapped into a passing range
+  if (LLen < 0) or (LLen > Int64(High(Int32)) - AContentOffset) then
+    Exit;
+  AContentLen := Int32(LLen);
   ANext := AContentOffset + AContentLen;
-  Result := (AContentLen >= 0) and (ANext <= System.Length(ADer));
+  Result := ANext <= System.Length(ADer);
 end;
 
 class function TDer.OidMatches(const ADer: TBytes; AOffset, ALen: Int32;

@@ -40,7 +40,6 @@ type
 
     function Len: Int32;
     function DataPtr: PByte;
-    procedure CopyFrom(ASrc: PByte; ALen: Int32);
     function ToBytes: TBytes;
     function ConstantTimeAreEqual(const AOther: ISecretBuffer): Boolean;
 
@@ -69,7 +68,6 @@ implementation
 
 resourcestring
   SNegativeLength = 'secret buffer length cannot be negative';
-  SCopyLengthExceedsBuffer = 'copy length %d exceeds secret buffer length %d';
   SSliceOutOfRange = 'secret buffer slice is out of range';
 
 { TSecretBuffer }
@@ -110,15 +108,6 @@ begin
   Result := FPtr;
 end;
 
-procedure TSecretBuffer.CopyFrom(ASrc: PByte; ALen: Int32);
-begin
-  if (ALen < 0) or (ALen > FLen) then
-    raise EArgumentTlsLibException.CreateResFmt(@SCopyLengthExceedsBuffer,
-      [ALen, FLen]);
-  if ALen > 0 then
-    Move(ASrc^, FPtr^, ALen);
-end;
-
 function TSecretBuffer.ToBytes: TBytes;
 begin
   Result := nil;
@@ -141,11 +130,14 @@ end;
 class function TSecretBuffer.From(const ABytes: TBytes): ISecretBuffer;
 var
   LLen: Int32;
+  LBuf: TSecretBuffer;
 begin
   LLen := System.Length(ABytes);
-  Result := TSecretBuffer.Create(LLen);
+  LBuf := TSecretBuffer.Create(LLen);
+  // write via the class-typed local: the interface exposes no write path
+  Result := LBuf;
   if LLen > 0 then
-    Result.CopyFrom(@ABytes[0], LLen);
+    Move(ABytes[0], LBuf.FPtr^, LLen);
 end;
 
 class function TSecretBuffer.Allocate(ALen: Int32): ISecretBuffer;
