@@ -66,8 +66,8 @@ type
     /// the client certificate. Empty when the endpoint presents none.</summary>
     function Credential: TTlsCredential;
     /// <summary>Trusts the peer certificate chain (the server chain for a client, or the
-    /// client chain when a server requests one). Required for a client; required for a
-    /// server only when it requests client authentication.</summary>
+    /// client chain when a server requests one). nil for a PSK-only or skip-verify client, or a
+    /// whole-verifier configuration; otherwise the composed anchor roots.</summary>
     function TrustStore: ITrustAnchorStore;
     /// <summary>The certificate-chain resource caps applied before PKIX validation.</summary>
     function CertificateChainLimits: TCertificateChainLimits;

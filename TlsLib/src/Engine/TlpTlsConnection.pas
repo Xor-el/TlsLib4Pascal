@@ -35,7 +35,6 @@ uses
   TlpIPkixProvider,
   TlpDefaultPkixProvider,
   TlpICertificateTrust,
-  TlpCertificateVerifier,
   TlpTrustPolicy,
   TlpTlsCredential,
   TlpITlsConfig,
@@ -364,14 +363,12 @@ begin
     AOptions.SystemTrust.InstallClientTrust(LClient, LPkix);
   if AOptions.CustomTrustStore <> nil then
     LClient.WithTrustStore(AOptions.CustomTrustStore);
-  if not HasClientTrustSource(AOptions) then
-  begin
-    if AOptions.VerifyPeer and (not AOptions.InsecureSkipVerify) then
-      raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
-        Format(SNoClientTrust, [AOptions.TrustSourceHint]));
-    // skipping verification still needs a source to satisfy the builder
-    LClient.WithTrustStore(TTrustAnchorStore.Create(nil) as ITrustAnchorStore);
-  end;
+  // no trust source composed: demand an explicit decision - real trust, or the loud skip toggle
+  // below (which is itself the trust decision, so no placeholder store is needed to build)
+  if (not HasClientTrustSource(AOptions)) and AOptions.VerifyPeer and
+    (not AOptions.InsecureSkipVerify) then
+    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
+      Format(SNoClientTrust, [AOptions.TrustSourceHint]));
   if AOptions.InsecureSkipVerify or (not AOptions.VerifyPeer) then
     LClient.WithDangerousInsecureSkipVerify(True);
   if not AOptions.CheckHostName then

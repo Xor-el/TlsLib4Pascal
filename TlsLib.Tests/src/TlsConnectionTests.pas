@@ -83,6 +83,7 @@ type
     procedure TestClientSystemTrustInstallerCalledForClientRole;
     procedure TestClientVerifierComposesAndBuilds;
     procedure TestClientVerifierWithAnchorConflictPropagates;
+    procedure TestClientEmptyCustomStoreFailsClosed;
     procedure TestClientRaisingInstallerPropagates;
     // composer - server shape
     procedure TestServerNoCredentialRaises;
@@ -121,17 +122,18 @@ type
 implementation
 
 type
-  // records which role method the composer invoked, and with which pkix; installs an (empty) store
+  // records which role method the composer invoked, and with which pkix; installs a real root store
   // so the surrounding build still succeeds. Optionally raises to prove propagation.
   TFakeSystemTrustInstaller = class(TInterfacedObject, ISystemTrustInstaller)
   strict private
     FRaise: Boolean;
+    FStore: ITrustAnchorStore;
   public
     ClientRoleCalled: Boolean;
     ServerRoleCalled: Boolean;
     ClientPkix: IPkixProvider;
     ServerPkix: IPkixProvider;
-    constructor Create(ARaise: Boolean);
+    constructor Create(ARaise: Boolean; const AStore: ITrustAnchorStore);
     procedure InstallClientTrust(const ABuilder: ITlsClientConfigBuilder;
       const APkix: IPkixProvider);
     procedure InstallClientAuthTrust(const ABuilder: ITlsServerConfigBuilder;
@@ -170,10 +172,12 @@ type
 
 { TFakeSystemTrustInstaller }
 
-constructor TFakeSystemTrustInstaller.Create(ARaise: Boolean);
+constructor TFakeSystemTrustInstaller.Create(ARaise: Boolean;
+  const AStore: ITrustAnchorStore);
 begin
   inherited Create;
   FRaise := ARaise;
+  FStore := AStore;
 end;
 
 procedure TFakeSystemTrustInstaller.InstallClientTrust(
@@ -183,7 +187,7 @@ begin
     raise EInvalidOperationTlsLibException.Create('installer refused');
   ClientRoleCalled := True;
   ClientPkix := APkix;
-  ABuilder.WithTrustStore(TTrustAnchorStore.Create(nil) as ITrustAnchorStore);
+  ABuilder.WithTrustStore(FStore);
 end;
 
 procedure TFakeSystemTrustInstaller.InstallClientAuthTrust(
@@ -193,7 +197,7 @@ begin
     raise EInvalidOperationTlsLibException.Create('installer refused');
   ServerRoleCalled := True;
   ServerPkix := APkix;
-  ABuilder.WithTrustStore(TTrustAnchorStore.Create(nil) as ITrustAnchorStore);
+  ABuilder.WithTrustStore(FStore);
 end;
 
 { TFakeServerVerifier }
@@ -321,7 +325,7 @@ begin
   Result := TTlsOptions.Default;
   Result.Crypto := Crypto;
   Result.Pkix := Pkix;
-  Result.CustomTrustStore := TTrustAnchorStore.Create(nil) as ITrustAnchorStore;
+  Result.CustomTrustStore := EcP256RootStore;
   Result.TrustSourceHint := 'a trust anchor bundle, system trust, or a custom store';
 end;
 
@@ -360,7 +364,7 @@ var
   LConfig: ITlsClientConfig;
 begin
   LOpts := TTlsOptions.Default;
-  LOpts.CustomTrustStore := TTrustAnchorStore.Create(nil) as ITrustAnchorStore;
+  LOpts.CustomTrustStore := EcP256RootStore;
   LConfig := TTlsConfigComposer.BuildClientConfig(LOpts);
   CheckTrue(LConfig.Crypto = TDefaultCryptoProvider.Shared,
     'nil crypto falls back to the shared default');
@@ -407,7 +411,7 @@ begin
   LOpts.InsecureSkipVerify := True;
   LConfig := TTlsConfigComposer.BuildClientConfig(LOpts);
   CheckTrue(LConfig.DangerousTrust.InsecureSkipVerify, 'the loud skip flag is set');
-  CheckNotNull(LConfig.TrustStore, 'skipping still supplies a store to satisfy the builder');
+  CheckNull(LConfig.TrustStore, 'skipping composes no anchor store; nothing would consult it');
 end;
 
 procedure TTestTlsConnection.TestClientVerifyPeerOffSetsSkipFlag;
@@ -505,7 +509,7 @@ var
   LFake: TFakeSystemTrustInstaller;
   LInst: ISystemTrustInstaller;
 begin
-  LFake := TFakeSystemTrustInstaller.Create(False);
+  LFake := TFakeSystemTrustInstaller.Create(False, EcP256RootStore);
   LInst := LFake;
   LOpts := TTlsOptions.Default;
   LOpts.Pkix := Pkix;
@@ -535,7 +539,7 @@ var
 begin
   LOpts := TTlsOptions.Default;
   LOpts.ServerCertificateVerifier := TFakeServerVerifier.Create as IServerCertificateVerifier;
-  LOpts.CustomTrustStore := TTrustAnchorStore.Create(nil) as ITrustAnchorStore;
+  LOpts.CustomTrustStore := EcP256RootStore;
   LRaised := False;
   try
     TTlsConfigComposer.BuildClientConfig(LOpts);
@@ -546,13 +550,32 @@ begin
   CheckTrue(LRaised, 'a verifier plus an anchor source is the builder''s typed conflict');
 end;
 
+procedure TTestTlsConnection.TestClientEmptyCustomStoreFailsClosed;
+var
+  LOpts: TTlsOptions;
+  LRaised: Boolean;
+begin
+  // a host-supplied custom store that is empty passes the composer's own source check (non-nil) but
+  // must be refused by the builder's roots gate rather than silently verifying against nothing
+  LOpts := TTlsOptions.Default;
+  LOpts.CustomTrustStore := TTrustAnchorStore.Create(nil) as ITrustAnchorStore;
+  LRaised := False;
+  try
+    TTlsConfigComposer.BuildClientConfig(LOpts);
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an empty custom trust store fails closed at Build');
+end;
+
 procedure TTestTlsConnection.TestClientRaisingInstallerPropagates;
 var
   LOpts: TTlsOptions;
   LInst: ISystemTrustInstaller;
   LRaised: Boolean;
 begin
-  LInst := TFakeSystemTrustInstaller.Create(True);
+  LInst := TFakeSystemTrustInstaller.Create(True, EcP256RootStore);
   LOpts := TTlsOptions.Default;
   LOpts.Pkix := Pkix;
   LOpts.SystemTrust := LInst;
@@ -659,7 +682,7 @@ var
   LFake: TFakeSystemTrustInstaller;
   LInst: ISystemTrustInstaller;
 begin
-  LFake := TFakeSystemTrustInstaller.Create(False);
+  LFake := TFakeSystemTrustInstaller.Create(False, EcP256RootStore);
   LInst := LFake;
   LOpts := ServerOptsWithCredential;
   LOpts.SystemTrust := LInst;
@@ -838,7 +861,8 @@ begin
   ExpectConflict(LOpts, 'an injected crypto provider');
 
   LOpts := TTlsOptions.Default;
-  LOpts.SystemTrust := TFakeSystemTrustInstaller.Create(False) as ISystemTrustInstaller;
+  LOpts.SystemTrust := TFakeSystemTrustInstaller.Create(False, EcP256RootStore)
+    as ISystemTrustInstaller;
   ExpectConflict(LOpts, 'system trust');
 end;
 

@@ -114,6 +114,16 @@ type
     procedure TestPskOnlyTls13ClientBuilds;
     procedure TestServerConfigRequiresCredential;
     procedure TestServerClientAuthRequiresTrustStore;
+    // an empty trust store is not a trust source: it must be refused (with a distinct message),
+    // an explicit skip-verify builds without one, and the union with a real root still builds
+    procedure TestClientEmptyTrustStoreIsRefused;
+    procedure TestClientUnionOfEmptyStoresIsRefused;
+    procedure TestClientEmptyStoreUnionedWithRealRootBuilds;
+    procedure TestClientInsecureSkipVerifyBuildsWithoutTrustStore;
+    procedure TestClientInsecureSkipVerifyWithEmptyStoreBuilds;
+    procedure TestPskClientWithEmptyStoreIsSteeredAsPskOnly;
+    procedure TestServerClientAuthEmptyTrustStoreIsRefused;
+    procedure TestServerClientAuthInsecureSkipVerifyBuildsWithoutTrustStore;
     procedure TestMtlsServerWithSuppliedTicketKeysRequiresScope;
     procedure TestMtlsServerWithSuppliedKeysAndScopeBuilds;
     procedure TestMtlsServerWithDefaultTicketKeysBuildsWithoutScope;
@@ -763,6 +773,129 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a client-auth server without a trust source is refused');
+end;
+
+procedure TTestConfigBuilder.TestClientEmptyTrustStoreIsRefused;
+var
+  LMsg: string;
+begin
+  // a store object is not a trust source; a store with no roots would "verify" against nothing
+  LMsg := '';
+  try
+    TTlsPresets.Compatible(Crypto, Pkix).Client
+      .WithTrustStore(TTrustAnchorStore.Create(nil) as ITrustAnchorStore).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('no root certificates', LMsg) > 0,
+    'an empty trust store is refused as not-a-source; got: ' + LMsg);
+end;
+
+procedure TTestConfigBuilder.TestClientUnionOfEmptyStoresIsRefused;
+var
+  LUnion: ITrustAnchorStore;
+  LMsg: string;
+begin
+  // a single union store whose children are all empty still yields zero roots: refused, not hidden
+  LUnion := TUnionTrustAnchorStore.Create(TArray<ITrustAnchorStore>.Create(
+    TTrustAnchorStore.Create(nil) as ITrustAnchorStore,
+    TTrustAnchorStore.Create(nil) as ITrustAnchorStore)) as ITrustAnchorStore;
+  LMsg := '';
+  try
+    TTlsPresets.Compatible(Crypto, Pkix).Client.WithTrustStore(LUnion).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('no root certificates', LMsg) > 0,
+    'a union of empty stores has no roots and is refused; got: ' + LMsg);
+end;
+
+procedure TTestConfigBuilder.TestClientEmptyStoreUnionedWithRealRootBuilds;
+var
+  LConfig: ITlsClientConfig;
+begin
+  // an empty store adds no roots, but a real root alongside it still satisfies the gate
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithTrustStore(TTrustAnchorStore.Create(nil) as ITrustAnchorStore)
+    .WithTrustStore(ClientTrust).Build;
+  CheckEquals(1, System.Length(LConfig.TrustStore.RootCertificates),
+    'the union carries the one real root; the empty store contributes none');
+end;
+
+procedure TTestConfigBuilder.TestClientInsecureSkipVerifyBuildsWithoutTrustStore;
+var
+  LConfig: ITlsClientConfig;
+begin
+  // Compatible offers 1.3+1.2 and no PSK, so this also proves PSK-only steering does not misfire
+  // for a skip-verify client (its certificate path exists and deliberately verifies nothing)
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithDangerousInsecureSkipVerify(True).Build;
+  CheckTrue(LConfig.DangerousTrust.InsecureSkipVerify, 'the loud skip flag is set');
+  CheckNull(LConfig.TrustStore, 'skip-verify composes no anchor store');
+end;
+
+procedure TTestConfigBuilder.TestClientInsecureSkipVerifyWithEmptyStoreBuilds;
+var
+  LConfig: ITlsClientConfig;
+begin
+  // an empty store alongside explicit skip-verify is tolerated: the store is inert (never consulted)
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithDangerousInsecureSkipVerify(True)
+    .WithTrustStore(TTrustAnchorStore.Create(nil) as ITrustAnchorStore).Build;
+  CheckTrue(LConfig.DangerousTrust.InsecureSkipVerify,
+    'skip-verify with an empty store still builds');
+end;
+
+procedure TTestConfigBuilder.TestPskClientWithEmptyStoreIsSteeredAsPskOnly;
+var
+  LRaised: Boolean;
+begin
+  // the N17 hole: an empty store previously counted as a source, so a PSK-optional/1.2 client was
+  // NOT steered onto the PSK-only path and could reach the certificate path with nothing to verify.
+  // With roots (not store count) it is treated as PSK-only and refused (Compatible offers 1.2)
+  LRaised := False;
+  try
+    TTlsPresets.Compatible(Crypto, Pkix).Client
+      .WithExternalPreSharedKeys(TArray<TExternalPsk>.Create(MakePskSpec))
+      .WithTrustStore(TTrustAnchorStore.Create(nil) as ITrustAnchorStore).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a PSK client whose only "trust" is an empty store is steered PSK-only');
+end;
+
+procedure TTestConfigBuilder.TestServerClientAuthEmptyTrustStoreIsRefused;
+var
+  LMsg: string;
+begin
+  LMsg := '';
+  try
+    TTlsPresets.Compatible(Crypto, Pkix).Server
+      .WithCredential(ServerCredential)
+      .WithPeerAuth(TClientAuthMode.Required)
+      .WithTrustStore(TTrustAnchorStore.Create(nil) as ITrustAnchorStore).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('no root certificates', LMsg) > 0,
+    'a client-auth server with an empty trust store is refused; got: ' + LMsg);
+end;
+
+procedure TTestConfigBuilder.TestServerClientAuthInsecureSkipVerifyBuildsWithoutTrustStore;
+var
+  LConfig: ITlsServerConfig;
+begin
+  // explicit skip-verify satisfies the client-auth trust-source requirement on its own
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential)
+    .WithPeerAuth(TClientAuthMode.Required)
+    .WithDangerousInsecureSkipVerify(True).Build;
+  CheckTrue(LConfig.DangerousTrust.InsecureSkipVerify,
+    'a client-auth server with skip-verify builds without a trust store');
 end;
 
 procedure TTestConfigBuilder.TestMtlsServerWithSuppliedTicketKeysRequiresScope;

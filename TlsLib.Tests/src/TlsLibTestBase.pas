@@ -33,6 +33,8 @@ uses
   TlpDefaultCryptoProvider,
   TlpIPkixProvider,
   TlpDefaultPkixProvider,
+  TlpICertificateTrust,
+  TlpCertificateVerifier,
   TlsLibTestResourceLoader;
 
 type
@@ -83,6 +85,10 @@ type
     function LoadResourceString(const ARelativePath: string): string;
     // Loads a "name=hexvalue" vector file; read fields via Result.Values['name'].
     function LoadVectorFields(const ARelativePath: string): TStringList;
+    // The EcP256Chain self-signed root (Certs/EcP256Chain.txt: root_cert), for config-only tests
+    // that need a real trust source present but never verify a chain.
+    function EcP256RootCertificate: TBytes;
+    function EcP256RootStore: ITrustAnchorStore;
   end;
 
 implementation
@@ -219,6 +225,24 @@ begin
     Result.Free;
     raise;
   end;
+end;
+
+function TTlsLibAlgorithmTestCase.EcP256RootCertificate: TBytes;
+var
+  LFields: TStringList;
+begin
+  LFields := LoadVectorFields('Certs/EcP256Chain.txt');
+  try
+    Result := DecodeHex(LFields.Values['root_cert']);
+  finally
+    LFields.Free;
+  end;
+end;
+
+function TTlsLibAlgorithmTestCase.EcP256RootStore: ITrustAnchorStore;
+begin
+  Result := TTrustAnchorStore.Create(
+    TArray<TBytes>.Create(EcP256RootCertificate)) as ITrustAnchorStore;
 end;
 
 end.

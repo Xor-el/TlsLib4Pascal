@@ -36,8 +36,6 @@ uses
   TlpTls13KeySchedule,
   TlpTls12KeySchedule,
   TlpNegotiationTypes,
-  TlpICertificateTrust,
-  TlpCertificateVerifier,
   TlpTlsPresets,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
@@ -172,10 +170,9 @@ var
   LConfig: ITlsClientConfig;
 begin
   LMock := TMockKeyLog.Create as IKeyLog;
-  // a client build requires a trust source even under skip-verify; the empty store is never consulted
+  // skip-verify is itself the explicit trust decision; no store is needed to build
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithDangerousInsecureSkipVerify(True)
-    .WithTrustStore(TTrustAnchorStore.Create(nil) as ITrustAnchorStore)
     .WithDangerousKeyLog(LMock).Build;
   CheckTrue(LConfig.KeyLog = LMock, 'the config carries the injected sink');
 end;
@@ -185,8 +182,7 @@ var
   LConfig: ITlsClientConfig;
 begin
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithDangerousInsecureSkipVerify(True)
-    .WithTrustStore(TTrustAnchorStore.Create(nil) as ITrustAnchorStore).Build;
+    .WithDangerousInsecureSkipVerify(True).Build;
   CheckTrue(LConfig.KeyLog = nil, 'the key log is off by default');
 end;
 
