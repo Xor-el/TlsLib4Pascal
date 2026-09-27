@@ -564,6 +564,7 @@
         <DCCReference Include="..\src\ConfigBuilderTests.pas"/>
         <DCCReference Include="..\src\TrustCompositionTests.pas"/>
         <DCCReference Include="..\src\SystemTrustTests.pas"/>
+        <DCCReference Include="..\src\WindowsSystemCryptoTests.pas"/>
         <DCCReference Include="..\src\AppleAlertMapTests.pas"/>
         <DCCReference Include="..\src\RootGenKeyingTests.pas"/>
         <DCCReference Include="..\src\EchToolingTests.pas"/>

@@ -79,6 +79,7 @@ uses
   ConfigBuilderTests,
   TrustCompositionTests,
   SystemTrustTests,
+  WindowsSystemCryptoTests,
   AppleAlertMapTests,
   RootGenKeyingTests,
   EchToolingTests,

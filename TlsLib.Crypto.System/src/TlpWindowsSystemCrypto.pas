@@ -110,6 +110,7 @@ const
   CRYPT32_DLL = 'crypt32.dll';
   X509_ASN_ENCODING = DWORD($00000001);
   CRYPT_DECODE_ALLOC_FLAG = DWORD($00008000);
+  CRYPT_ENCODE_ALLOC_FLAG = DWORD($00008000);
   X509_PUBLIC_KEY_INFO_STRUCT = PAnsiChar(8); // WinCrypt lpszStructType ordinal
   BCRYPT_PAD_PKCS1 = ULONG($00000002);
   BCRYPT_PAD_PSS = ULONG($00000008);
@@ -336,6 +337,15 @@ type
   TCryptImportPublicKeyInfoEx2 = function(dwCertEncodingType: DWORD; pInfo: Pointer;
     dwFlags: DWORD; pvAuxInfo: Pointer; out phKey: Pointer): BOOL; stdcall;
 
+  // crypt32.dll: the reverse of import - exports the public key behind a CNG key handle as a
+  // decoded CERT_PUBLIC_KEY_INFO, then encodes that to canonical X.509 SubjectPublicKeyInfo DER.
+  TCryptExportPublicKeyInfoEx = function(hCryptProvOrNCryptKey: NativeUInt;
+    dwKeySpec, dwCertEncodingType: DWORD; pszPublicKeyObjId: PAnsiChar; dwFlags: DWORD;
+    pvAuxInfo: Pointer; pInfo: Pointer; var pcbInfo: DWORD): BOOL; stdcall;
+  TCryptEncodeObjectEx = function(dwCertEncodingType: DWORD; lpszStructType: PAnsiChar;
+    pvStructInfo: Pointer; dwFlags: DWORD; pEncodePara: Pointer; pvEncoded: Pointer;
+    var pcbEncoded: DWORD): BOOL; stdcall;
+
   TCryptDataBlob = record
     cbData: DWORD;
     pbData: PByte;
@@ -356,6 +366,8 @@ type
   TCrypt32Api = record
     DecodeObjectEx: TCryptDecodeObjectEx;
     ImportPublicKeyInfoEx2: TCryptImportPublicKeyInfoEx2;
+    ExportPublicKeyInfoEx: TCryptExportPublicKeyInfoEx;
+    EncodeObjectEx: TCryptEncodeObjectEx;
     PFXImportCertStore: TPFXImportCertStore;
     CertFindCertificateInStore: TCertFindCertificateInStore;
     GetCertContextProperty: TCertGetCertificateContextProperty;
@@ -738,11 +750,22 @@ type
   IWindowsNCrypt = interface(IInterface)
     ['{5D7A2E90-3C41-4B6F-8E2A-1F9C0B4D6A72}']
     /// <summary>Imports a PKCS#8 key the KSP can serve for signing (RSA or NIST-curve
-    /// ECDSA) and reports the schemes it can sign with; False when the key is not one this
-    /// facet serves natively (the caller then delegates to the portable facet). A non-empty
-    /// APassword decrypts an encrypted PKCS#8 (EncryptedPrivateKeyInfo) in the same call.</summary>
+    /// ECDSA), reports the schemes it can sign with, and exports the public key from the
+    /// imported handle as canonical X.509 SubjectPublicKeyInfo DER; False when the key is not
+    /// one this facet serves natively or its public key cannot be exported (the caller then
+    /// delegates to the portable facet). A non-empty APassword decrypts an encrypted PKCS#8
+    /// (EncryptedPrivateKeyInfo) in the same call.</summary>
     function TryImportKey(const APkcs8: TBytes; const APassword: ISecretBuffer;
-      out AKey: NativeUInt; out ASchemes: TArray<TSignatureScheme>): Boolean;
+      out AKey: NativeUInt; out ASchemes: TArray<TSignatureScheme>;
+      out APublicKeyInfo: TBytes): Boolean;
+    /// <summary>Exports the public key behind a CNG key handle as canonical X.509
+    /// SubjectPublicKeyInfo DER (byte-identical to the portable encoder); False when crypt32
+    /// export is unavailable or the OS refuses. The exported key is the one the handle signs
+    /// with, so the credential leaf guard matches the key that signs.</summary>
+    function TryExportPublicKeyInfo(AKey: NativeUInt; out ASpki: TBytes): Boolean;
+    /// <summary>Whether public-key export is usable on this host; a native signing key can be
+    /// minted only when it is, so the backend report is honest about native signing.</summary>
+    function CanExportPublicKey: Boolean;
     function SignData(AKey: NativeUInt; AScheme: TSignatureScheme;
       const AData: TBytes): TBytes;
     procedure FreeKey(AKey: NativeUInt);
@@ -758,9 +781,10 @@ type
       const AData, ASignature: TBytes): Boolean;
     procedure FreeVerifyKey(AKeyHandle: Pointer);
     /// <summary>Imports a PKCS#12 blob and adopts its private key as a native CNG-backed
-    /// signing key; False when it cannot (the caller then keeps the portable key).</summary>
+    /// signing key, exporting its public key from the handle; False when it cannot (the caller
+    /// then keeps the portable key).</summary>
     function TryImportPkcs12Key(const APfx: TBytes; const APassword: ISecretBuffer;
-      const APublicKeyInfo: TBytes; out AKey: ISigningKey): Boolean;
+      out AKey: ISigningKey): Boolean;
     /// <summary>Releases a PKCS#12-acquired key: the key handle (when caller-owned), its
     /// certificate context, and the in-memory store.</summary>
     procedure FreePfxKey(AStore, ACert: Pointer; AHandle: NativeUInt;
@@ -796,8 +820,9 @@ type
     function Handle: NativeUInt;
   end;
 
-  // A native (NCrypt-backed) signing key: an opaque ISigningKey plus the private marker.
-  // It shares the key-handle owner with any preference-narrowed copy.
+  // A native (NCrypt-backed) signing key: an opaque ISigningKey plus the private marker. Its
+  // PublicKeyInfo is exported from the signing handle. It shares the key-handle owner with any
+  // preference-narrowed copy.
   TWindowsSigningKey = class(TInterfacedObject, ISigningKey, IWindowsSigningKey)
   strict private
   var
@@ -863,7 +888,12 @@ type
     FCng: IWindowsCng;
     FVerifyReady: Boolean;
     FPfxReady: Boolean;
+    FExportReady: Boolean;
     class function LoadApi(out AModule: THandle; out AApi: TNCryptApi): Boolean; static;
+    // PFXImportCertStore honours PKCS12_NO_PERSIST_KEY only on Win8+/Server 2012+; on an older
+    // host the flag is ignored and the key is persisted to the user's container, so native
+    // PKCS#12 adoption is skipped there (the portable key stays)
+    class function NoPersistKeySupported: Boolean; static;
     class function HashAlgForScheme(AScheme: TSignatureScheme): THashAlgorithm; static;
     class function HashIdForScheme(AScheme: TSignatureScheme): WideString; static;
     class function HashLenForScheme(AScheme: TSignatureScheme): ULONG; static;
@@ -896,7 +926,10 @@ type
     constructor Create(const ACng: IWindowsCng);
     destructor Destroy; override;
     function TryImportKey(const APkcs8: TBytes; const APassword: ISecretBuffer;
-      out AKey: NativeUInt; out ASchemes: TArray<TSignatureScheme>): Boolean;
+      out AKey: NativeUInt; out ASchemes: TArray<TSignatureScheme>;
+      out APublicKeyInfo: TBytes): Boolean;
+    function TryExportPublicKeyInfo(AKey: NativeUInt; out ASpki: TBytes): Boolean;
+    function CanExportPublicKey: Boolean;
     function SignData(AKey: NativeUInt; AScheme: TSignatureScheme;
       const AData: TBytes): TBytes;
     procedure FreeKey(AKey: NativeUInt);
@@ -906,7 +939,7 @@ type
       const AData, ASignature: TBytes): Boolean;
     procedure FreeVerifyKey(AKeyHandle: Pointer);
     function TryImportPkcs12Key(const APfx: TBytes; const APassword: ISecretBuffer;
-      const APublicKeyInfo: TBytes; out AKey: ISigningKey): Boolean;
+      out AKey: ISigningKey): Boolean;
     procedure FreePfxKey(AStore, ACert: Pointer; AHandle: NativeUInt;
       ACallerFree: Boolean);
   end;
@@ -926,11 +959,6 @@ type
     // plain or still-encrypted PKCS#8 the KSP accepts
     function TryImportPemNative(const AData: TBytes; const APassword: ISecretBuffer;
       out AKey: ISigningKey): Boolean;
-    // the native NCrypt handle does not expose a public key, so derive the SubjectPublicKeyInfo
-    // from the same key bytes through the portable facet (public data; no signing); nil if it
-    // cannot be parsed there, which fails the credential closed at Build
-    function NativePublicKeyInfo(const AKeyData: TBytes;
-      const APassword: ISecretBuffer): TBytes;
   public
     constructor Create(const AInner: ISigningCrypto;
       const ANCrypt: IWindowsNCrypt);
@@ -3370,6 +3398,10 @@ begin
       TModuleApi.Proc(FCrypt32, 'CryptDecodeObjectEx'));
     FCryptApi.ImportPublicKeyInfoEx2 := TCryptImportPublicKeyInfoEx2(
       TModuleApi.Proc(FCrypt32, 'CryptImportPublicKeyInfoEx2'));
+    FCryptApi.ExportPublicKeyInfoEx := TCryptExportPublicKeyInfoEx(
+      TModuleApi.Proc(FCrypt32, 'CryptExportPublicKeyInfoEx'));
+    FCryptApi.EncodeObjectEx := TCryptEncodeObjectEx(
+      TModuleApi.Proc(FCrypt32, 'CryptEncodeObjectEx'));
     FCryptApi.PFXImportCertStore := TPFXImportCertStore(
       TModuleApi.Proc(FCrypt32, 'PFXImportCertStore'));
     FCryptApi.CertFindCertificateInStore := TCertFindCertificateInStore(
@@ -3390,6 +3422,11 @@ begin
     System.Assigned(FCryptApi.GetCertContextProperty) and
     System.Assigned(FCryptApi.FreeCertificateContext) and
     System.Assigned(FCryptApi.CloseStore);
+  // public-key export is an independent capability (crypt32 export + encode); a native key is
+  // only minted when its public key can be exported from the handle
+  FExportReady := (FCrypt32 <> 0) and
+    System.Assigned(FCryptApi.ExportPublicKeyInfoEx) and
+    System.Assigned(FCryptApi.EncodeObjectEx);
 end;
 
 destructor TWindowsNCrypt.Destroy;
@@ -3459,7 +3496,8 @@ begin
 end;
 
 function TWindowsNCrypt.TryImportKey(const APkcs8: TBytes; const APassword: ISecretBuffer;
-  out AKey: NativeUInt; out ASchemes: TArray<TSignatureScheme>): Boolean;
+  out AKey: NativeUInt; out ASchemes: TArray<TSignatureScheme>;
+  out APublicKeyInfo: TBytes): Boolean;
 var
   LKey: NativeUInt;
   LPwd: TArray<WideChar>;
@@ -3470,6 +3508,7 @@ var
 begin
   AKey := 0;
   ASchemes := nil;
+  APublicKeyInfo := nil;
   LKey := 0;
   // a raw PKCS#1 / SEC1 key is wrapped into the PKCS#8 the KSP imports; a PKCS#8 (plain or
   // encrypted, as for a non-empty password) passes through unchanged
@@ -3499,13 +3538,17 @@ begin
     if System.Length(LPwd) > 0 then
       FillChar(LPwd[0], System.Length(LPwd) * SizeOf(WideChar), 0);
   end;
-  if KeySchemes(LKey, ASchemes) then
+  // the key must sign natively AND its public key must export from the handle; if either
+  // fails the caller falls back to the portable facet (which owns the key end to end)
+  if KeySchemes(LKey, ASchemes) and TryExportPublicKeyInfo(LKey, APublicKeyInfo) then
   begin
     AKey := LKey;
     Result := True;
   end
   else
   begin
+    ASchemes := nil;
+    APublicKeyInfo := nil;
     FApi.FreeObject(LKey);
     Result := False;
   end;
@@ -3626,6 +3669,58 @@ begin
   end;
 end;
 
+function TWindowsNCrypt.TryExportPublicKeyInfo(AKey: NativeUInt;
+  out ASpki: TBytes): Boolean;
+var
+  LInfoSize, LEncodedSize: DWORD;
+  LInfo: TBytes;
+  LEncoded: PByte;
+begin
+  ASpki := nil;
+  if (not FExportReady) or (AKey = 0) then
+    Exit(False);
+  // crypt32 derives the algorithm OID (rsaEncryption / id-ecPublicKey + curve) from the key,
+  // so no per-family branching is needed
+  LInfoSize := 0;
+  if (not FCryptApi.ExportPublicKeyInfoEx(AKey, 0, X509_ASN_ENCODING, nil, 0, nil, nil,
+    LInfoSize)) or (LInfoSize = 0) then
+    Exit(False);
+  SetLength(LInfo, LInfoSize);
+  if not FCryptApi.ExportPublicKeyInfoEx(AKey, 0, X509_ASN_ENCODING, nil, 0, nil,
+    PByte(LInfo), LInfoSize) then
+    Exit(False);
+  // canonical X.509 SubjectPublicKeyInfo DER, byte-for-byte what the portable SPKI encoder
+  // produces
+  LEncoded := nil;
+  LEncodedSize := 0;
+  if not FCryptApi.EncodeObjectEx(X509_ASN_ENCODING, X509_PUBLIC_KEY_INFO_STRUCT,
+    PByte(LInfo), CRYPT_ENCODE_ALLOC_FLAG, nil, @LEncoded, LEncodedSize) then
+    Exit(False);
+  try
+    // a success with no output is a failure: never mint a native key with a nil SPKI
+    if (LEncoded = nil) or (LEncodedSize = 0) then
+      Exit(False);
+    SetLength(ASpki, LEncodedSize);
+    System.Move(LEncoded^, ASpki[0], LEncodedSize);
+    Result := True;
+  finally
+    LocalFree(HLOCAL(LEncoded));
+  end;
+end;
+
+function TWindowsNCrypt.CanExportPublicKey: Boolean;
+begin
+  Result := FExportReady;
+end;
+
+class function TWindowsNCrypt.NoPersistKeySupported: Boolean;
+begin
+  // Win8 (6.2) or later; the version globals cap modern builds at 6.2 without a compatibility
+  // manifest, which is exactly this threshold, so an uncapped read is unnecessary
+  Result := (Win32MajorVersion > 6) or
+    ((Win32MajorVersion = 6) and (Win32MinorVersion >= 2));
+end;
+
 function TWindowsNCrypt.VerifyHash(AKeyHandle: Pointer; AScheme: TSignatureScheme;
   const ADigest, ASignature: TBytes): Boolean;
 var
@@ -3691,8 +3786,7 @@ begin
 end;
 
 function TWindowsNCrypt.TryImportPkcs12Key(const APfx: TBytes;
-  const APassword: ISecretBuffer; const APublicKeyInfo: TBytes;
-  out AKey: ISigningKey): Boolean;
+  const APassword: ISecretBuffer; out AKey: ISigningKey): Boolean;
 var
   LBlob: TCryptDataBlob;
   LPassword: TArray<WideChar>;
@@ -3702,9 +3796,13 @@ var
   LKey: NativeUInt;
   LSize: DWORD;
   LSchemes: TArray<TSignatureScheme>;
+  LSpki: TBytes;
 begin
   AKey := nil;
   if not FPfxReady then
+    Exit(False);
+  // a host that would persist the key to disk stays on the portable key
+  if not NoPersistKeySupported then
     Exit(False);
   LBlob.cbData := System.Length(APfx);
   LBlob.pbData := PByte(APfx);
@@ -3735,15 +3833,17 @@ begin
   end;
   LKey := 0;
   LSize := SizeOf(LKey);
+  // the public key is exported from the adopted handle, so the leaf guard matches the signing key
   if (not FCryptApi.GetCertContextProperty(LCert, CERT_NCRYPT_KEY_HANDLE_PROP_ID,
-    @LKey, LSize)) or (LKey = 0) or (not KeySchemes(LKey, LSchemes)) then
+    @LKey, LSize)) or (LKey = 0) or (not KeySchemes(LKey, LSchemes)) or
+    (not TryExportPublicKeyInfo(LKey, LSpki)) then
   begin
     FreePfxKey(LStore, LCert, 0, False);
     Exit(False);
   end;
   // the handle is owned by the cert context / store, freed when the owner closes them
   AKey := TWindowsSigningKey.Create(TPfxKeyOwner.Create(Self as IWindowsNCrypt,
-    LStore, LCert, LKey, False) as INCryptKeyOwner, LSchemes, APublicKeyInfo);
+    LStore, LCert, LKey, False) as INCryptKeyOwner, LSchemes, LSpki);
   Result := True;
 end;
 
@@ -3768,21 +3868,6 @@ begin
   FNCrypt := ANCrypt;
 end;
 
-function TWindowsSigningCrypto.NativePublicKeyInfo(const AKeyData: TBytes;
-  const APassword: ISecretBuffer): TBytes;
-begin
-  Result := nil;
-  try
-    if APassword <> nil then
-      Result := FInner.ImportSigningKey(AKeyData, APassword).PublicKeyInfo
-    else
-      Result := FInner.ImportSigningKey(AKeyData).PublicKeyInfo;
-  except
-    // the portable facet could not parse the same bytes; leave nil so Build fails closed
-    Result := nil;
-  end;
-end;
-
 function TWindowsSigningCrypto.TryImportPemNative(const AData: TBytes;
   const APassword: ISecretBuffer; out AKey: ISigningKey): Boolean;
 var
@@ -3790,6 +3875,7 @@ var
   LI: Int32;
   LKey: NativeUInt;
   LSchemes: TArray<TSignatureScheme>;
+  LSpki: TBytes;
   LImported: Boolean;
 begin
   AKey := nil;
@@ -3804,17 +3890,18 @@ begin
     // encrypted PKCS#8 needs the password; plain PKCS#8 and the raw PKCS#1/SEC1 forms
     // ("RSA/EC PRIVATE KEY", wrapped to PKCS#8 inside TryImportKey) import unkeyed
     if LBlocks[LI].PemType = 'ENCRYPTED PRIVATE KEY' then
-      LImported := FNCrypt.TryImportKey(LBlocks[LI].Content, APassword, LKey, LSchemes)
+      LImported := FNCrypt.TryImportKey(LBlocks[LI].Content, APassword, LKey, LSchemes,
+        LSpki)
     else if (LBlocks[LI].PemType = 'PRIVATE KEY') or
       (LBlocks[LI].PemType = 'RSA PRIVATE KEY') or
       (LBlocks[LI].PemType = 'EC PRIVATE KEY') then
-      LImported := FNCrypt.TryImportKey(LBlocks[LI].Content, nil, LKey, LSchemes)
+      LImported := FNCrypt.TryImportKey(LBlocks[LI].Content, nil, LKey, LSchemes, LSpki)
     else
       LImported := False;
     if LImported then
     begin
       AKey := TWindowsSigningKey.Create(TNCryptKeyOwner.Create(FNCrypt, LKey)
-        as INCryptKeyOwner, LSchemes, NativePublicKeyInfo(AData, APassword));
+        as INCryptKeyOwner, LSchemes, LSpki);
       Exit(True);
     end;
   end;
@@ -3825,6 +3912,7 @@ function TWindowsSigningCrypto.ImportSigningKey(const AData: TBytes): ISigningKe
 var
   LKey: NativeUInt;
   LSchemes: TArray<TSignatureScheme>;
+  LSpki: TBytes;
   LOwner: INCryptKeyOwner;
 begin
   // native path is a PKCS#8 key (RSA or NIST-curve ECDSA) - DER imported directly, PEM
@@ -3834,10 +3922,10 @@ begin
     if not TryImportPemNative(AData, nil, Result) then
       Result := FInner.ImportSigningKey(AData);
   end
-  else if FNCrypt.TryImportKey(AData, nil, LKey, LSchemes) then
+  else if FNCrypt.TryImportKey(AData, nil, LKey, LSchemes, LSpki) then
   begin
     LOwner := TNCryptKeyOwner.Create(FNCrypt, LKey);
-    Result := TWindowsSigningKey.Create(LOwner, LSchemes, NativePublicKeyInfo(AData, nil));
+    Result := TWindowsSigningKey.Create(LOwner, LSchemes, LSpki);
   end
   else
     Result := FInner.ImportSigningKey(AData);
@@ -3848,6 +3936,7 @@ function TWindowsSigningCrypto.ImportSigningKey(const AData: TBytes;
 var
   LKey: NativeUInt;
   LSchemes: TArray<TSignatureScheme>;
+  LSpki: TBytes;
   LOwner: INCryptKeyOwner;
 begin
   // native path is an encrypted PKCS#8 (EncryptedPrivateKeyInfo) the KSP decrypts and imports
@@ -3859,11 +3948,10 @@ begin
     if not TryImportPemNative(AData, APassword, Result) then
       Result := FInner.ImportSigningKey(AData, APassword);
   end
-  else if FNCrypt.TryImportKey(AData, APassword, LKey, LSchemes) then
+  else if FNCrypt.TryImportKey(AData, APassword, LKey, LSchemes, LSpki) then
   begin
     LOwner := TNCryptKeyOwner.Create(FNCrypt, LKey);
-    Result := TWindowsSigningKey.Create(LOwner, LSchemes,
-      NativePublicKeyInfo(AData, APassword));
+    Result := TWindowsSigningKey.Create(LOwner, LSchemes, LSpki);
   end
   else
     Result := FInner.ImportSigningKey(AData, APassword);
@@ -3874,13 +3962,13 @@ function TWindowsSigningCrypto.ImportPkcs12(const AData: TBytes;
 var
   LNativeKey: ISigningKey;
 begin
-  // the portable facet owns the parse: the certificate chain, the single-key-entry rule,
-  // and all fail-closed error handling. We then adopt the same key as a native CNG-backed
-  // signing key so the identity signs on OS crypto; on any failure the portable key stays.
+  // the parsed credential (which cert is the leaf, chain order, store-ambiguity and password
+  // rules, typed errors) is a decision that must mean the same thing on every platform, so the
+  // portable facet DECIDES it; the native facet only supplies the signing backend for the SAME
+  // key, whose public key it exports from its own handle. The double parse is the Build-time
+  // price of platform-invariant parsing; on any native failure the portable key stays.
   Result := FInner.ImportPkcs12(AData, APassword);
-  // reuse the portable key's public key for the native handle, which cannot export its own
-  if FNCrypt.TryImportPkcs12Key(AData, APassword, Result.PrivateKey.PublicKeyInfo,
-    LNativeKey) then
+  if FNCrypt.TryImportPkcs12Key(AData, APassword, LNativeKey) then
     Result.PrivateKey := LNativeKey;
 end;
 
@@ -3926,6 +4014,7 @@ var
   LNCrypt: IWindowsNCrypt;
   LPrimitives: ICryptoPrimitives;
   LSigning: ISigningCrypto;
+  LSigningNative: Boolean;
   LReport: ICryptoBackendReport;
 begin
   try
@@ -3939,14 +4028,18 @@ begin
   // signing is a separate capability (ncrypt.dll + the KSP); if it is unavailable the
   // Signing facet stays portable while the native primitives above still apply
   LSigning := nil;
+  LSigningNative := False;
   try
     LNCrypt := TWindowsNCrypt.Create(LCng);
     LSigning := TWindowsSigningCrypto.Create(ABase.Signing, LNCrypt);
+    // a native key requires public-key export; without it every import falls back, so the
+    // report must not claim native signing (verification may still be native)
+    LSigningNative := LNCrypt.CanExportPublicKey;
   except
     on ESystemCryptoUnsupportedTlsLibException do
       LSigning := nil;
   end;
-  LReport := TWindowsBackendReport.Create(LCng, LSigning <> nil);
+  LReport := TWindowsBackendReport.Create(LCng, LSigningNative);
   Result := TOverlayCryptoProvider.Create(ABase, LPrimitives, LSigning, LReport);
 end;
 

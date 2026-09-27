@@ -243,6 +243,7 @@ uses
   ConfigBuilderTests in '..\src\ConfigBuilderTests.pas',
   TrustCompositionTests in '..\src\TrustCompositionTests.pas',
   SystemTrustTests in '..\src\SystemTrustTests.pas',
+  WindowsSystemCryptoTests in '..\src\WindowsSystemCryptoTests.pas',
   AppleAlertMapTests in '..\src\AppleAlertMapTests.pas',
   RootGenKeyingTests in '..\src\RootGenKeyingTests.pas',
   EchToolingTests in '..\src\EchToolingTests.pas',
