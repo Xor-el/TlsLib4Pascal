@@ -176,7 +176,7 @@ type
     /// development peers only - never production. Off by default. Satisfies the Build-time
     /// trust-source requirement on its own; no anchor store is needed (one supplied is kept
     /// but not consulted).</summary>
-    function WithDangerousInsecureSkipVerify(AEnabled: Boolean): ITlsClientConfigBuilder;
+    function WithDangerousInsecureSkipVerify: ITlsClientConfigBuilder;
     /// <summary>DANGEROUS: hands every secret of every connection built from this config to
     /// AKeyLog in the SSLKEYLOGFILE format (RFC 9850), so a packet capture can be decrypted.
     /// For debugging only - never production. nil (the default) clears it.</summary>
@@ -415,7 +415,7 @@ type
     /// without PKIX, revocation, or pinning checks. For tests only - never production. Satisfies
     /// the Build-time client-auth trust-source requirement on its own; no anchor store is needed
     /// (one supplied is kept but not consulted).</summary>
-    function WithDangerousInsecureSkipVerify(AEnabled: Boolean): ITlsServerConfigBuilder;
+    function WithDangerousInsecureSkipVerify: ITlsServerConfigBuilder;
     /// <summary>DANGEROUS: hands every secret of every connection built from this config to
     /// AKeyLog in the SSLKEYLOGFILE format (RFC 9850), so a packet capture can be decrypted.
     /// For debugging only - never production. nil (the default) clears it.</summary>

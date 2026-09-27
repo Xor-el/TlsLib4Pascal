@@ -874,7 +874,7 @@ begin
   // Compatible offers 1.3+1.2 and no PSK, so this also proves PSK-only steering does not misfire
   // for a skip-verify client (its certificate path exists and deliberately verifies nothing)
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithDangerousInsecureSkipVerify(True).Build;
+    .WithDangerousInsecureSkipVerify.Build;
   CheckTrue(LConfig.DangerousTrust.InsecureSkipVerify, 'the loud skip flag is set');
   CheckNull(LConfig.TrustStore, 'skip-verify composes no anchor store');
 end;
@@ -885,7 +885,7 @@ var
 begin
   // an empty store alongside explicit skip-verify is tolerated: the store is inert (never consulted)
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithDangerousInsecureSkipVerify(True)
+    .WithDangerousInsecureSkipVerify
     .WithTrustStore(TTrustAnchorStore.Create(nil) as ITrustAnchorStore).Build;
   CheckTrue(LConfig.DangerousTrust.InsecureSkipVerify,
     'skip-verify with an empty store still builds');
@@ -935,7 +935,7 @@ begin
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(ServerCredential)
     .WithPeerAuth(TClientAuthMode.Required)
-    .WithDangerousInsecureSkipVerify(True).Build;
+    .WithDangerousInsecureSkipVerify.Build;
   CheckTrue(LConfig.DangerousTrust.InsecureSkipVerify,
     'a client-auth server with skip-verify builds without a trust store');
 end;
@@ -1037,7 +1037,7 @@ begin
     .WithPeerAuth(TClientAuthMode.Required)
     .WithCertificateVerifierSource(
       TAcceptAllClientVerifierSource.Create as IClientCertificateVerifierSource)
-    .WithDangerousInsecureSkipVerify(True).Build;
+    .WithDangerousInsecureSkipVerify.Build;
   CheckTrue(LConfig.DangerousTrust.InsecureSkipVerify,
     'a client verifier source under skip-verify builds');
 end;

@@ -370,7 +370,7 @@ begin
     raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
       Format(SNoClientTrust, [AOptions.TrustSourceHint]));
   if AOptions.InsecureSkipVerify or (not AOptions.VerifyPeer) then
-    LClient.WithDangerousInsecureSkipVerify(True);
+    LClient.WithDangerousInsecureSkipVerify;
   if not AOptions.CheckHostName then
     LClient.WithDangerousDisableServerNameCheck;
   if System.Length(AOptions.AlpnProtocols) > 0 then

@@ -132,7 +132,7 @@ but the peer must still present a pinned key. For tests and pinned development p
 LConfig := TTlsPresets.Compatible(P).Client
   // skip-verify is itself the explicit trust decision, so Build() needs no trust source; a store
   // supplied with no roots is refused whenever verification is on (no silent-insecure).
-  .WithDangerousInsecureSkipVerify(True)
+  .WithDangerousInsecureSkipVerify
   .Build;
 ```
 
@@ -199,8 +199,8 @@ object could be freed while still in use.
 
 | ASP.NET Core / `HttpClientHandler` | TlsLib4Pascal |
 |---|---|
-| `DangerousAcceptAnyServerCertificateValidator` | `WithDangerousInsecureSkipVerify(True)` |
-| `ServerCertificateCustomValidationCallback = (_,_,_,_) => true` (accept-all) | `WithDangerousInsecureSkipVerify(True)` |
+| `DangerousAcceptAnyServerCertificateValidator` | `WithDangerousInsecureSkipVerify` |
+| `ServerCertificateCustomValidationCallback = (_,_,_,_) => true` (accept-all) | `WithDangerousInsecureSkipVerify` |
 | `ServerCertificateCustomValidationCallback` with real logic (replace validation) | `WithCertificateVerifier(myVerifier)` |
 | A callback that only *tightens* (extra rejections on top of normal validation) | `WithCertificateVerifyCallback(rule)` alone |
 | Trusting a specific CA instead of the system store | `WithTrustAnchors(caPemOrDer)` |

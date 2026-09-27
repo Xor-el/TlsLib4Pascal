@@ -172,7 +172,7 @@ begin
   LMock := TMockKeyLog.Create as IKeyLog;
   // skip-verify is itself the explicit trust decision; no store is needed to build
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithDangerousInsecureSkipVerify(True)
+    .WithDangerousInsecureSkipVerify
     .WithDangerousKeyLog(LMock).Build;
   CheckTrue(LConfig.KeyLog = LMock, 'the config carries the injected sink');
 end;
@@ -182,7 +182,7 @@ var
   LConfig: ITlsClientConfig;
 begin
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithDangerousInsecureSkipVerify(True).Build;
+    .WithDangerousInsecureSkipVerify.Build;
   CheckTrue(LConfig.KeyLog = nil, 'the key log is off by default');
 end;
 
