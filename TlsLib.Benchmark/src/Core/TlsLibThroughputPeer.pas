@@ -119,7 +119,7 @@ begin
   LClient.WithSupportedVersions(TArray<UInt16>.Create(AWireVersion));
   LClient.WithPreferredGroups(LGroups);
   LClient.WithCipherSuites(SingleSuiteRegistry(ACryptoProvider, ASuiteCode));
-  LClient.WithDangerousInsecureSkipVerify(True);
+  LClient.WithDangerousInsecureSkipVerify;
   LClient.WithTrustAnchors(ACredential.RootCertDer);
   AClientConfig := LClient.Build;
 

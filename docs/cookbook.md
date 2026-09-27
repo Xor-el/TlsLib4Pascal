@@ -533,7 +533,7 @@ builder makes you type more than one thing. **Never ship these.**
 // skip-verify is the explicit trust decision, so Build needs no trust store; an empty store is
 // refused whenever verification is on.
 LConfig := TTlsPresets.Compatible(P).Client
-  .WithDangerousInsecureSkipVerify(True)
+  .WithDangerousInsecureSkipVerify
   .Build;
 
 // relax ONLY the host-name check (chain still fully validated)

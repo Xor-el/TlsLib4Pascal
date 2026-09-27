@@ -249,7 +249,7 @@ type
     function WithRevocation(APosture: TRevocationPosture): TTlsConfigBuilder;
     function WithCertificatePinning(const APins: TArray<TBytes>): TTlsConfigBuilder;
     function WithIntermediateCertificates(const AData: TBytes): TTlsConfigBuilder;
-    function WithDangerousInsecureSkipVerify(AEnabled: Boolean): TTlsConfigBuilder;
+    function WithDangerousInsecureSkipVerify: TTlsConfigBuilder;
     function WithCertificateVerifyCallback(
       const ACallback: TTlsCertificateVerifyCallback): TTlsConfigBuilder;
     function WithAsyncCertificateVerdict(
@@ -549,8 +549,7 @@ type
       const AData: TBytes): ITlsClientConfigBuilder;
     function WithDangerousDisableServerNameCheck: ITlsClientConfigBuilder;
     function WithOcspStaplingRequest(AEnabled: Boolean): ITlsClientConfigBuilder;
-    function WithDangerousInsecureSkipVerify(
-      AEnabled: Boolean): ITlsClientConfigBuilder;
+    function WithDangerousInsecureSkipVerify: ITlsClientConfigBuilder;
     function WithCertificateVerifyCallback(
       const ACallback: TTlsCertificateVerifyCallback): ITlsClientConfigBuilder;
     function WithAsyncCertificateVerdict(
@@ -622,8 +621,7 @@ type
       const APins: TArray<TBytes>): ITlsServerConfigBuilder;
     function WithIntermediateCertificates(
       const AData: TBytes): ITlsServerConfigBuilder;
-    function WithDangerousInsecureSkipVerify(
-      AEnabled: Boolean): ITlsServerConfigBuilder;
+    function WithDangerousInsecureSkipVerify: ITlsServerConfigBuilder;
     function WithCertificateVerifyCallback(
       const ACallback: TTlsCertificateVerifyCallback): ITlsServerConfigBuilder;
     function WithAsyncCertificateVerdict(
@@ -1119,10 +1117,9 @@ begin
   Result := Self;
 end;
 
-function TTlsClientConfigBuilder.WithDangerousInsecureSkipVerify(
-  AEnabled: Boolean): ITlsClientConfigBuilder;
+function TTlsClientConfigBuilder.WithDangerousInsecureSkipVerify: ITlsClientConfigBuilder;
 begin
-  FOwner.WithDangerousInsecureSkipVerify(AEnabled);
+  FOwner.WithDangerousInsecureSkipVerify;
   Result := Self;
 end;
 
@@ -1417,10 +1414,9 @@ begin
   Result := Self;
 end;
 
-function TTlsServerConfigBuilder.WithDangerousInsecureSkipVerify(
-  AEnabled: Boolean): ITlsServerConfigBuilder;
+function TTlsServerConfigBuilder.WithDangerousInsecureSkipVerify: ITlsServerConfigBuilder;
 begin
-  FOwner.WithDangerousInsecureSkipVerify(AEnabled);
+  FOwner.WithDangerousInsecureSkipVerify;
   Result := Self;
 end;
 
@@ -2393,11 +2389,10 @@ begin
   Result := Self;
 end;
 
-function TTlsConfigBuilder.WithDangerousInsecureSkipVerify(
-  AEnabled: Boolean): TTlsConfigBuilder;
+function TTlsConfigBuilder.WithDangerousInsecureSkipVerify: TTlsConfigBuilder;
 begin
   GuardMutable;
-  FDangerousTrust.InsecureSkipVerify := AEnabled;
+  FDangerousTrust.InsecureSkipVerify := True;
   Result := Self;
 end;
 

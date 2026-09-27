@@ -106,7 +106,7 @@ begin
   LClient := LClientBuilder.Client;
   LClient.WithSupportedVersions(TArray<UInt16>.Create(AWireVersion));
   LClient.WithPreferredGroups(OfferedGroups(AGroupCode, LCertGroup));
-  LClient.WithDangerousInsecureSkipVerify(True);
+  LClient.WithDangerousInsecureSkipVerify;
   LClient.WithTrustAnchors(ACredential.RootCertDer); // a trust source is still required by Build
   FClientConfig := LClient.Build;
 

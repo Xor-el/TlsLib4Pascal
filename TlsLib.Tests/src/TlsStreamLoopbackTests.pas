@@ -304,7 +304,7 @@ begin
   LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithAlpnProtocols(TArray<string>.Create('h2', 'http/1.1'));
   if AInsecureSkipVerify then
-    LClient.WithDangerousInsecureSkipVerify(True)
+    LClient.WithDangerousInsecureSkipVerify
       .WithTrustAnchors(TrustRoot) // a trust source is still required by build
   else
     LClient.WithTrustAnchors(TrustRoot);
@@ -792,7 +792,7 @@ begin
   // the same otherwise-untrusted anchor, but InsecureSkipVerify bypasses the pipeline so
   // the handshake completes (test-only; never production)
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithDangerousInsecureSkipVerify(True)
+    .WithDangerousInsecureSkipVerify
     .WithTrustAnchors(LeafCert).Build;
   RunLoopback(LConfig, TServerBehavior.EchoThenClose, LClient, LServer, LTransport);
   try
