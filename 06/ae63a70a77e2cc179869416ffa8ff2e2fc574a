@@ -1,0 +1,71 @@
+docs/cookbook.md
+  s_09d3c46d1a9b1f::t_03ba974eb30394 533-534
+TlsLib.Tests/src/TrustCompositionTests.pas
+  s_09d3c46d1a9b1f::t_d2c9d06c1c1d82 58-60
+  s_09d3c46d1a9b1f::t_0c44b51c46f677 193-212
+TlsLib.Tests/src/TlsConnectionTests.pas
+  s_09d3c46d1a9b1f::t_ab62c18be1579e 86
+  s_09d3c46d1a9b1f::t_a6ddf176f36c14 125,130,136
+  s_09d3c46d1a9b1f::t_7a6d4a498f16bc 553-571
+  s_09d3c46d1a9b1f::t_41cd48424f593e 414
+  s_09d3c46d1a9b1f::t_59e66ccc44e907 578
+  s_09d3c46d1a9b1f::t_5607477aa1fadb 864-865
+  s_09d3c46d1a9b1f::t_0584c02989295a 542
+  s_09d3c46d1a9b1f::t_e8e5723ffd7743 175-176,180,190,200
+  s_09d3c46d1a9b1f::t_7a5941b73d9d2c 512,685
+  s_09d3c46d1a9b1f::t_b217bffaa7cb32 328
+  s_09d3c46d1a9b1f::t_7f4e92f9af8a90 367
+TlsLib/src/Interfaces/Engine/TlpITlsConfig.pas
+  s_09d3c46d1a9b1f::t_3264e82322e16e 69-70
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_09d3c46d1a9b1f::t_f78e40e46fbcd0 117-119,121-126
+  s_09d3c46d1a9b1f::t_c18c1138f3d814 120
+  s_09d3c46d1a9b1f::t_ce2cff649b50e9 778-794,815-900
+  s_09d3c46d1a9b1f::t_7eb717f9631e4a 795-814
+TlsLib.Tests/src/EngineSkeletonTests.pas
+  s_09d3c46d1a9b1f::t_0c47bef68c7578 69,73
+docs/certificate-verification.md
+  s_09d3c46d1a9b1f::t_0fe59688817ef5 218
+  s_09d3c46d1a9b1f::t_983412a3bfbd18 133-134
+TlsLib.Tests/src/TlsLibTestBase.pas
+  s_09d3c46d1a9b1f::t_f16b8076e41b05 36-37
+  s_09d3c46d1a9b1f::t_b8b585bbee3016 230-247
+  s_09d3c46d1a9b1f::t_085bf1b991c08d 88-91
+TlsLib.Tests/src/KeyLogTests.pas
+  s_09d3c46d1a9b1f::t_35dafee32379e3 185
+  s_09d3c46d1a9b1f::t_11a826176cb335 173
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_8ba3ebe87727d8 2734-2743,2745
+  s_09d3c46d1a9b1f::t_b3afcef5437feb 165-167
+  s_09d3c46d1a9b1f::t_74cc894a29b018 2651-2653
+  s_09d3c46d1a9b1f::t_49a59a8d0cb299 1968-1969
+  s_09d3c46d1a9b1f::t_7183571ec35126 309-310
+  s_09d3c46d1a9b1f::t_514f377a876684 1931-1942
+  s_09d3c46d1a9b1f::t_fe7bce94285279 2622
+  s_09d3c46d1a9b1f::t_4b4937f33f9d5e 2634-2645,2647
+  s_09d3c46d1a9b1f::t_22f35e1dfcff44 161-163
+TlsLib.Tests/src/PresetTests.pas
+  s_09d3c46d1a9b1f::t_ab4e36b2897f4e 60-61
+  s_09d3c46d1a9b1f::t_d7c7b2c39a7333 155
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_d3326dca9b7dd7 176-178
+  s_09d3c46d1a9b1f::t_33d7f264310710 412-414
+TlsLib/src/Engine/TlpTlsConnection.pas
+  s_09d3c46d1a9b1f::t_5338ee591a5f11 366-371
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "06ae63a70a77e2cc179869416ffa8ff2e2fc574a",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
