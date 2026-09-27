@@ -69,6 +69,7 @@ type
     procedure TestCertificateDecompressionRatioBombRejected;
     procedure TestCertificateDecompressionDeclaredTooLargeRejected;
     procedure TestCertificateDecompressionLengthMismatchRejected;
+    procedure TestCertificateDecompressionTrailingBytesRejected;
     procedure TestCertificateDecompressionUnsupportedAlgorithmRejected;
   end;
 
@@ -350,6 +351,33 @@ begin
       LRaised := E.AlertDescription = TTlsAlertDescription.BadCertificate;
   end;
   CheckTrue(LRaised, 'a declared/produced length mismatch is rejected');
+end;
+
+procedure TTestResourceLimit.TestCertificateDecompressionTrailingBytesRejected;
+var
+  LOriginal, LCompressed, LWithTrailer: TBytes;
+  LI: Int32;
+  LRaised: Boolean;
+begin
+  // a CompressedCertificate body is exactly one zlib stream; a byte appended after it is
+  // malformed and must be rejected, not silently ignored
+  LOriginal := nil;
+  SetLength(LOriginal, 5000);
+  for LI := 0 to System.Length(LOriginal) - 1 do
+    LOriginal[LI] := Byte((LI * 7) and $FF);
+  LCompressed := ZlibCompress(LOriginal);
+  LWithTrailer := System.Copy(LCompressed);
+  SetLength(LWithTrailer, System.Length(LWithTrailer) + 1);
+  LWithTrailer[System.Length(LWithTrailer) - 1] := $2A;
+  LRaised := False;
+  try
+    SeamDecompress(TCertificateCompressionAlgorithms.Zlib, LWithTrailer,
+      System.Length(LOriginal));
+  except
+    on E: EFatalAlertTlsLibException do
+      LRaised := E.AlertDescription = TTlsAlertDescription.BadCertificate;
+  end;
+  CheckTrue(LRaised, 'a byte after the zlib stream is rejected');
 end;
 
 procedure TTestResourceLimit.TestCertificateDecompressionUnsupportedAlgorithmRejected;
