@@ -1,0 +1,65 @@
+TlsLib/src/Handshake/TlpTls12ClientStateMachine.pas
+  s_09d3c46d1a9b1f::t_0bad1301283048 1150
+TlsLib/src/Session/TlpSessionTicketStrategy.pas
+  s_09d3c46d1a9b1f::t_5a4ea108981f07 21
+  s_09d3c46d1a9b1f::t_101000daf90280 405-406,412-418
+  s_09d3c46d1a9b1f::t_0a35d5af893ec5 363-367
+TlsLib/src/Handshake/TlpTls13HandshakeBase.pas
+  s_09d3c46d1a9b1f::t_669941bfdef6c4 166
+TlsLib/src/Session/TlpInMemorySessionStore.pas
+  s_09d3c46d1a9b1f::t_051436e0b55f0a 90
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_d6ebe37a3d5124 795-798
+  s_09d3c46d1a9b1f::t_9d5b2826dc8230 782
+  s_09d3c46d1a9b1f::t_bcc61fca1d3fb0 1790-1792
+  s_09d3c46d1a9b1f::t_66658d766e1ce6 793-794,799-863
+  s_09d3c46d1a9b1f::t_34f49496437b23 773-775
+TlsLib.Tests/src/Tls13KeyScheduleTests.pas
+  s_09d3c46d1a9b1f::t_27b24ce7d2ef8f 605-646
+  s_09d3c46d1a9b1f::t_0354e08b51ff54 80-81
+  s_09d3c46d1a9b1f::t_c0298fa83a6bbd 513
+TlsLib/src/Common/TlpKeyLog.pas
+  s_09d3c46d1a9b1f::t_a21138fc1beae4 30-33
+TlsLib/src/Session/TlpInMemorySessionCache.pas
+  s_09d3c46d1a9b1f::t_840aa92bbc8551 84
+TlsLib/src/KeySchedule/TlpTls13KeySchedule.pas
+  s_09d3c46d1a9b1f::t_55001c126af3e4 128-129
+  s_09d3c46d1a9b1f::t_257f8906ffb06a 67-68
+  s_09d3c46d1a9b1f::t_def68b1245d8aa 331-333,341-342
+  s_09d3c46d1a9b1f::t_27ba89f955202c 148-150,524-525
+  s_09d3c46d1a9b1f::t_ed7c3a35bcf4a1 441-446,448,450-453
+  s_09d3c46d1a9b1f::t_c69de86d62e769 515,521-523
+TlsLib/src/Interfaces/KeySchedule/TlpIKeySchedule.pas
+  s_09d3c46d1a9b1f::t_c066d8c6df8724 56
+  s_09d3c46d1a9b1f::t_698ff32387a384 89-92
+  s_09d3c46d1a9b1f::t_ab89e09f7eb6bc 102
+  s_09d3c46d1a9b1f::t_63be33e67e66d9 117-119
+TlsLib/src/KeySchedule/TlpTls12KeySchedule.pas
+  s_09d3c46d1a9b1f::t_058be2606292f2 174-176
+  s_09d3c46d1a9b1f::t_316116e09e0920 111-113
+  s_09d3c46d1a9b1f::t_d3fb0623f937b6 152-157
+  s_09d3c46d1a9b1f::t_51dd060914552c 229-230,236-237
+  s_09d3c46d1a9b1f::t_4c210bae5b2caa 92
+  s_09d3c46d1a9b1f::t_74d5858796be3c 316-317
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_a39d2c13296c9e 1132
+TlsLib/src/KeySchedule/TlpHkdfLabel.pas
+  s_09d3c46d1a9b1f::t_4b544b3c3444e4 74-76
+  s_09d3c46d1a9b1f::t_49166351cd3753 62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0398c23af5b21d045cc4bbd5762ac958d5535de0",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
