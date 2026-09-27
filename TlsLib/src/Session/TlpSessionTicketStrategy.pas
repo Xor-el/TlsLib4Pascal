@@ -18,6 +18,7 @@ interface
 uses
   SysUtils,
   TlpAeadUtilities,
+  TlpTlsLibExceptions,
   TlpTlsVersion,
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
@@ -359,8 +360,11 @@ begin
     LCipher := TAeadUtilities.Seal(LAead, LNonce, LKeyName, LPlain);
   except
     // a custom manager that hands over an unusable key must not fault the handshake; decline to seal
-    TSecureMemory.WipeBytes(LPlain);
-    Exit;
+    on E: EBaseTlsLibException do
+    begin
+      TSecureMemory.WipeBytes(LPlain);
+      Exit;
+    end;
   end;
   TSecureMemory.WipeBytes(LPlain);
   SetLength(Result, System.Length(LKeyName) + System.Length(LNonce) +
@@ -398,16 +402,20 @@ begin
     LAead.Init(LKey);
     LPlain := TAeadUtilities.Open(LAead, LNonce, LKeyName, LCipher);
   except
-    Exit;
+    on E: EBaseTlsLibException do
+      Exit;
   end;
   try
     try
       Result := DeserializeSession(LPlain, ASession);
     except
-      // belt to the version check's braces: an authenticated body that still fails to parse
-      // (a future layout change, a truncated ticket) is unusable, never fatal -> full handshake
-      ASession := nil;
-      Result := False;
+      // an authenticated body that still fails to parse (a layout change, a truncated ticket)
+      // is unusable, never fatal -> full handshake
+      on E: EBaseTlsLibException do
+      begin
+        ASession := nil;
+        Result := False;
+      end;
     end;
   finally
     TSecureMemory.WipeBytes(LPlain);

@@ -64,6 +64,8 @@ type
     FHandshakeSecretsReleased: Boolean;
     FKeyLog: IKeyLog;
     FClientRandom: TBytes;
+    FClientTrafficGeneration: Int32;
+    FServerTrafficGeneration: Int32;
     procedure LogSecret(const ALabel: string; const ASecret: ISecretBuffer);
     function ZeroSecret: ISecretBuffer;
     function HashOf(const AData: TBytes): TBytes;
@@ -123,7 +125,8 @@ type
     procedure AdvanceKeyUpdate(ADirection: TTlsDirection);
     procedure ForgetHandshakeSecrets;
     procedure SetKeyLog(const AKeyLog: IKeyLog; const AClientRandom: TBytes);
-    function HasExporterSecret: Boolean;
+    function CanExport: Boolean;
+    procedure ForgetResumptionMasterSecret;
     procedure DeriveResumptionMasterSecret(const ATranscriptHash: TBytes);
     function ResumptionMasterSecret: ISecretBuffer;
     function ResumptionPsk(const ATicketNonce: TBytes): ISecretBuffer;
@@ -142,6 +145,9 @@ const
 resourcestring
   SEpochNotDerived = 'the requested epoch secrets have not been derived';
   SHandshakeSecretsReleased = 'the handshake secrets have been released';
+  SPskAfterEarlySecret = 'the pre-shared key must be set before the early secret is derived';
+  SSharedSecretAfterHandshake =
+    'the shared secret must be set before the handshake secret is derived';
   SResumptionMasterNotDerived = 'the resumption master secret has not been derived';
   SForgetBeforeApplication =
     'the application epoch must be derived before releasing the handshake secrets';
@@ -322,6 +328,9 @@ procedure TTls13KeySchedule.SetPsk(const APsk: ISecretBuffer);
 begin
   if FHandshakeSecretsReleased then
     raise EInvalidOperationTlsLibException.CreateRes(@SHandshakeSecretsReleased);
+  // setting the PSK after the early secret is derived would silently not take effect
+  if FEarlySecret <> nil then
+    raise EInvalidOperationTlsLibException.CreateRes(@SPskAfterEarlySecret);
   FPsk := APsk;
 end;
 
@@ -329,6 +338,8 @@ procedure TTls13KeySchedule.SetSharedSecret(const ASharedSecret: ISecretBuffer);
 begin
   if FHandshakeSecretsReleased then
     raise EInvalidOperationTlsLibException.CreateRes(@SHandshakeSecretsReleased);
+  if FHandshakeSecret <> nil then
+    raise EInvalidOperationTlsLibException.CreateRes(@SSharedSecretAfterHandshake);
   FSharedSecret := ASharedSecret;
 end;
 
@@ -427,9 +438,19 @@ begin
   if LOld = nil then
     raise EInvalidOperationTlsLibException.CreateRes(@SEpochNotDerived);
   if ADirection = TTlsDirection.ClientWrite then
-    FClientApTraffic := ExpandKey(LOld, 'traffic upd', FHashLength)
+  begin
+    FClientApTraffic := ExpandKey(LOld, 'traffic upd', FHashLength);
+    Inc(FClientTrafficGeneration);
+    LogSecret(KeyLogLabelClientTrafficPrefix + IntToStr(FClientTrafficGeneration),
+      FClientApTraffic);
+  end
   else
+  begin
     FServerApTraffic := ExpandKey(LOld, 'traffic upd', FHashLength);
+    Inc(FServerTrafficGeneration);
+    LogSecret(KeyLogLabelServerTrafficPrefix + IntToStr(FServerTrafficGeneration),
+      FServerApTraffic);
+  end;
 end;
 
 function TTls13KeySchedule.ExportKeyingMaterial(const ALabel: string;
@@ -488,15 +509,18 @@ begin
   FClientEarlyTraffic := nil;
   FClientHsTraffic := nil;
   FServerHsTraffic := nil;
-  FKeyLog := nil;
-  FClientRandom := nil;
   FHandshakeSecretsReleased := True;
 end;
 
-function TTls13KeySchedule.HasExporterSecret: Boolean;
+function TTls13KeySchedule.CanExport: Boolean;
 begin
   // set when the Application epoch secrets are derived (a KeyUpdate never touches it)
   Result := FExporterMaster <> nil;
+end;
+
+procedure TTls13KeySchedule.ForgetResumptionMasterSecret;
+begin
+  FResumptionMaster := nil;
 end;
 
 procedure TTls13KeySchedule.DeriveResumptionMasterSecret(

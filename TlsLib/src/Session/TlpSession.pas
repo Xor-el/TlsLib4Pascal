@@ -177,7 +177,6 @@ end;
 
 function TPreSharedKey.Identity: TBytes;
 begin
-  Result := nil;
   Result := System.Copy(FIdentity, 0, System.Length(FIdentity));
 end;
 
@@ -321,7 +320,6 @@ end;
 
 function TResumableSession.TicketIdentity: TBytes;
 begin
-  Result := nil;
   Result := System.Copy(FTicketIdentity, 0, System.Length(FTicketIdentity));
 end;
 
@@ -352,13 +350,11 @@ end;
 
 function TResumableSession.SessionId: TBytes;
 begin
-  Result := nil;
   Result := System.Copy(FSessionId, 0, System.Length(FSessionId));
 end;
 
 function TResumableSession.SessionTicket: TBytes;
 begin
-  Result := nil;
   Result := System.Copy(FSessionTicket, 0, System.Length(FSessionTicket));
 end;
 

@@ -77,6 +77,8 @@ type
     procedure TestForgetReleasesHandshakeStages;
     procedure TestForgetBeforeApplicationEpochRaises;
     procedure TestResumptionPskSurvivesForget;
+    procedure TestForgetResumptionMasterMakesResumptionPskRaise;
+    procedure TestLateStageInputRaises;
   end;
 
 implementation
@@ -508,7 +510,7 @@ begin
   LExportAfter := LSched.ExportKeyingMaterial('EXPORTER-x', Bytes('ctx'), 32);
   CheckEqualBytes('application key unchanged after forget', LApKeyBefore, LApKeyAfter);
   CheckEqualBytes('exporter unchanged after forget', LExportBefore, LExportAfter);
-  CheckTrue(LSched.HasExporterSecret, 'exporter secret retained after forget');
+  CheckTrue(LSched.CanExport, 'exporter secret retained after forget');
   LSched.AdvanceKeyUpdate(TTlsDirection.ClientWrite);
   CheckFalse(AreEqual(LApKeyAfter, ToBytes(LSched.TrafficKeys(TTlsEpoch.Application,
     TTlsDirection.ClientWrite).Key)), 'KeyUpdate still advances the application key after forget');
@@ -598,6 +600,57 @@ begin
   CheckEqualBytes('resumption PSK survives forget',
     ToBytes(LReference.ResumptionPsk(Bytes('nonce'))),
     ToBytes(LKept.ResumptionPsk(Bytes('nonce'))));
+end;
+
+procedure TTestTls13KeySchedule.TestForgetResumptionMasterMakesResumptionPskRaise;
+var
+  LSched: ITls13KeySchedule;
+  LRaised: Boolean;
+begin
+  // a server releases the resumption master once its tickets are minted; ResumptionPsk then raises,
+  // while export and traffic keys stay available
+  LSched := NewSchedule;
+  LSched.DeriveEpochSecrets(TTlsEpoch.Application, Bytes('hash_ch_sf'));
+  LSched.DeriveResumptionMasterSecret(Bytes('hash_ch_cf'));
+  CheckTrue(LSched.ResumptionPsk(Bytes('nonce')) <> nil, 'resumption PSK before forget');
+  LSched.ForgetResumptionMasterSecret;
+  LRaised := False;
+  try
+    LSched.ResumptionPsk(Bytes('nonce'));
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'ResumptionPsk raises after the resumption master is forgotten');
+  CheckTrue(LSched.CanExport, 'export still available after forgetting the resumption master');
+end;
+
+procedure TTestTls13KeySchedule.TestLateStageInputRaises;
+var
+  LSched: ITls13KeySchedule;
+  LRaised: Boolean;
+begin
+  // a stage input set after the secret it feeds is derived would silently not take effect: raise
+  LSched := TTls13KeySchedule.Create(Crypto, THashAlgorithm.SHA_256, 16);
+  LSched.SetSharedSecret(TSecretBuffer.From(Bytes('shared_secret')));
+  LSched.DeriveEpochSecrets(TTlsEpoch.Handshake, Bytes('hash_ch_sh'));
+  LRaised := False;
+  try
+    LSched.SetSharedSecret(TSecretBuffer.From(Bytes('again')));
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'SetSharedSecret after the handshake secret is derived raises');
+  // the early secret is derived by now, so a late SetPsk must also raise
+  LRaised := False;
+  try
+    LSched.SetPsk(TSecretBuffer.From(Bytes('psk')));
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'SetPsk after the early secret is derived raises');
 end;
 
 initialization

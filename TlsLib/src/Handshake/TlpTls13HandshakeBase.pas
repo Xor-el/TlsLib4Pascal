@@ -163,7 +163,7 @@ begin
   // out-of-band peer-certificate verdict: neither side exports over a peer identity still being
   // decided (the client during its reverify-on-resume park; the server while an async
   // client-certificate verdict is open). Export resumes the moment the verdict clears the park.
-  Result := (FSchedule <> nil) and FSchedule.HasExporterSecret and
+  Result := (FSchedule <> nil) and FSchedule.CanExport and
     (Stage <> THandshakeStage.ParkedForVerdict);
 end;
 

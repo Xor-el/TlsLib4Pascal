@@ -53,7 +53,7 @@ type
   /// knowing the negotiated version; the inputs and derivation are version-specific.
   /// </summary>
   IKeySchedule = interface(IInterface)
-    ['{2F8D5A16-9C43-4E70-B1A8-6D0E2C7F84B5}']
+    ['{7BF31957-5674-4D58-8A14-CE83BB7F497D}']
     /// <summary>
     /// The (key, iv) for an already-derived epoch and direction. Every version has
     /// an Application epoch; a schedule rejects an epoch it never derives.
@@ -86,6 +86,10 @@ type
     /// by (the inner ClientHello's when ECH was accepted); nil disables reporting. Secrets derived
     /// after this call are reported to the sink as they are derived (RFC 9850).</summary>
     procedure SetKeyLog(const AKeyLog: IKeyLog; const AClientRandom: TBytes);
+    /// <summary>Whether exported keying material is available: TLS 1.3 once the Application epoch
+    /// is derived (incl. a server's half-RTT, before the peer Finished); TLS 1.2 once the master
+    /// secret exists (the machine still gates 1.2 export on handshake completion).</summary>
+    function CanExport: Boolean;
   end;
 
   /// <summary>
@@ -95,7 +99,7 @@ type
   /// derives; a driver installs the results into the record layer.
   /// </summary>
   ITls13KeySchedule = interface(IKeySchedule)
-    ['{7C3A9E12-4F85-4B60-A1D9-2E6C0B5F84A7}']
+    ['{E928FD62-BB73-4208-8B7E-90ADFBF31600}']
     /// <summary>Sets the pre-shared key (omit for a 0-PSK handshake).</summary>
     procedure SetPsk(const APsk: ISecretBuffer);
     /// <summary>Sets the (EC)DHE shared secret.</summary>
@@ -110,10 +114,9 @@ type
     function FinishedKey(ADirection: TTlsDirection): ISecretBuffer;
     /// <summary>Advances the application traffic secret one generation (KeyUpdate).</summary>
     procedure AdvanceKeyUpdate(ADirection: TTlsDirection);
-    /// <summary>Whether the exporter_master_secret has been derived (RFC 8446 7.5): true once
-    /// the Application epoch secrets are derived - for a server that is half-RTT (after it has
-    /// sent its Finished), before the peer's Finished.</summary>
-    function HasExporterSecret: Boolean;
+    /// <summary>Releases the resumption master secret once a server has minted its tickets;
+    /// ResumptionPsk then raises. A client keeps it (tickets arrive later).</summary>
+    procedure ForgetResumptionMasterSecret;
     /// <summary>Derives and caches the resumption master secret from the ClientHello..client
     /// Finished transcript hash. Call once at handshake completion, before ForgetHandshakeSecrets
     /// (it is the one stage that outlives the released handshake secrets, since a NewSessionTicket
@@ -153,7 +156,7 @@ type
   /// through the base IKeySchedule surface.
   /// </summary>
   ITls12KeySchedule = interface(IKeySchedule)
-    ['{3D8B1F60-5A24-4C93-8E17-9B0A6D2F45C8}']
+    ['{67991EBE-FDB6-47A9-9962-1A5835DE33F5}']
     /// <summary>Sets the pre-master secret (the (EC)DHE shared secret for ECDHE suites).</summary>
     procedure SetPreMasterSecret(const APreMasterSecret: ISecretBuffer);
     /// <summary>Installs a stored master secret directly, for an abbreviated (resumption)

@@ -27,8 +27,10 @@ const
   KeyLogLabelClientEarlyTraffic = 'CLIENT_EARLY_TRAFFIC_SECRET';
   KeyLogLabelClientHandshakeTraffic = 'CLIENT_HANDSHAKE_TRAFFIC_SECRET';
   KeyLogLabelServerHandshakeTraffic = 'SERVER_HANDSHAKE_TRAFFIC_SECRET';
-  KeyLogLabelClientTraffic0 = 'CLIENT_TRAFFIC_SECRET_0';
-  KeyLogLabelServerTraffic0 = 'SERVER_TRAFFIC_SECRET_0';
+  KeyLogLabelClientTrafficPrefix = 'CLIENT_TRAFFIC_SECRET_';
+  KeyLogLabelServerTrafficPrefix = 'SERVER_TRAFFIC_SECRET_';
+  KeyLogLabelClientTraffic0 = KeyLogLabelClientTrafficPrefix + '0';
+  KeyLogLabelServerTraffic0 = KeyLogLabelServerTrafficPrefix + '0';
   KeyLogLabelExporter = 'EXPORTER_SECRET';
 
 type
