@@ -1,0 +1,77 @@
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_09d3c46d1a9b1f::t_1100ad01afd379 226
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpi
+  s_09d3c46d1a9b1f::t_fba35d180befc3 354-357
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_09d3c46d1a9b1f::t_c6ac622186b891 113,3806
+  s_09d3c46d1a9b1f::t_9956b4f41d4d36 3672-3681,3684,3687-3691,3694-3699,3703,3705-3708,3714-3723
+  s_09d3c46d1a9b1f::t_6fdfeb09a87f16 3939,3951,3954
+  s_09d3c46d1a9b1f::t_94744fca346716 3878,3893-3894,3898,3904
+  s_09d3c46d1a9b1f::t_ba3f48d2457379 4017
+  s_09d3c46d1a9b1f::t_41db38ad8a193b 929-931,942
+  s_09d3c46d1a9b1f::t_fd5dd10d3af0e9 764,766-768
+  s_09d3c46d1a9b1f::t_e244cf5c2fa32d 3425-3429
+  s_09d3c46d1a9b1f::t_8ed65de8fd3a47 823
+  s_09d3c46d1a9b1f::t_23c1c08d2822ef 824-825
+  s_09d3c46d1a9b1f::t_b0a7190157dfcb 3804
+  s_09d3c46d1a9b1f::t_ca03056ca33116 932
+  s_09d3c46d1a9b1f::t_6394a147d4ddcf 3789,3799,3805
+  s_09d3c46d1a9b1f::t_cf8a8e249535ca 3836
+  s_09d3c46d1a9b1f::t_fc6bb4186a4b03 3838-3839,3846
+  s_09d3c46d1a9b1f::t_745fa63fb3abea 3965-3969,3971
+  s_09d3c46d1a9b1f::t_98e8f382641421 3682-3683,3685-3686,3692-3693,3700-3702,3704,3709-3713
+  s_09d3c46d1a9b1f::t_2a5de522803f00 891,893-896
+  s_09d3c46d1a9b1f::t_a9b968d53a0c7a 340-348
+  s_09d3c46d1a9b1f::t_051ff83e6a0602 753-757,759-763,765
+  s_09d3c46d1a9b1f::t_2254a947bda2bc 784-785,787
+  s_09d3c46d1a9b1f::t_087bf13ce83cea 3401-3404
+  s_09d3c46d1a9b1f::t_0b0d283f1af026 3541-3543,3550-3551
+  s_09d3c46d1a9b1f::t_911dabde65495b 4031,4035-4037,4042
+  s_09d3c46d1a9b1f::t_128fcbde502fcf 369-370
+  s_09d3c46d1a9b1f::t_14a4f5c55d9442 3915,3925,3928
+  s_09d3c46d1a9b1f::t_2828e1d02afd7c 3499-3500,3511
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_09d3c46d1a9b1f::t_af380dc109ffe3 246
+TlsLib.Tests/FreePascal.Tests/TlsLib.Tests.lpi
+  s_09d3c46d1a9b1f::t_84dfc4f4932c88 360-363
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_09d3c46d1a9b1f::t_1280c0c7643560 567
+TlsLib.Tests/src/WindowsSystemCryptoTests.pas
+  s_09d3c46d1a9b1f::t_1e5f4ae30b9163 381,408-436
+  s_09d3c46d1a9b1f::t_35ecd2192ebe81 396,401,403-407
+  s_09d3c46d1a9b1f::t_6ffc4248b6cfa9 296-305,311,313,316-327
+  s_09d3c46d1a9b1f::t_ef1f2a9dd8d815 100-103
+  s_09d3c46d1a9b1f::t_93c7f7c39156be 395,398
+  s_09d3c46d1a9b1f::t_475c312d7f474c 45-50
+  s_09d3c46d1a9b1f::t_6ba55342e04adf 378
+  s_09d3c46d1a9b1f::t_437df44d6c43e1 255,258-269,271,277,279,281-282,285-290
+  s_09d3c46d1a9b1f::t_fa7bc52b0650be 385-393
+  s_09d3c46d1a9b1f::t_34d30fa398cf48 339
+  s_09d3c46d1a9b1f::t_a4c50d338ef7ca 194,201-230
+  s_09d3c46d1a9b1f::t_7bd29a75eda977 1-14,17-44,51-70,80-99,104-193,195-200,231-254,256-257,270,272-276,278,280,283-284,291-295,306-310,312,314-315,328-338,340-377,380,382-384,394,397,399-400,402,437-449
+  s_09d3c46d1a9b1f::t_363d0c498c67c9 71-79
+  s_09d3c46d1a9b1f::t_f8ee58042871e0 15-16
+  s_09d3c46d1a9b1f::t_3eee82973349e3 379
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpr
+  s_09d3c46d1a9b1f::t_f5d63e6d65eb7e 80
+.github/workflows/make.yml
+  s_09d3c46d1a9b1f::t_3f0e73d0ab6ab1 260-262
+TlsLib.Tests/FreePascal.Tests/TlsLib.lpr
+  s_09d3c46d1a9b1f::t_c5559b7453e34f 82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ddea99910349a690dd2e4535930f317477ec40e1",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
