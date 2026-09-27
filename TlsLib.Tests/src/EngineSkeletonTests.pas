@@ -33,8 +33,6 @@ uses
   TlpEchConfig,
   TlpTlsConnectionInfo,
   TlpRecordLayer,
-  TlpICertificateTrust,
-  TlpCertificateVerifier,
   TlpTlsPresets,
   TlpTlsEngineFactory,
   TlpITlsEngine,
@@ -68,11 +66,11 @@ implementation
 function TTestEngineSkeleton.NewEngine: ITlsEngine;
 begin
   // a client engine before StartHandshake: it frames records and processes plaintext
-  // alerts without needing a live peer. An empty anchor store satisfies the builder's
+  // alerts without needing a live peer. A real single-root store satisfies the builder's
   // trust check for a handshake that is never completed here.
   Result := TTlsEngineFactory.CreateClientEngine(
     TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithTrustStore(TTrustAnchorStore.Create(nil) as ITrustAnchorStore)
+    .WithTrustStore(EcP256RootStore)
     .Build, 'localhost');
 end;
 

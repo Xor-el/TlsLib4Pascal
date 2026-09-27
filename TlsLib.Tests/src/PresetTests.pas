@@ -26,8 +26,6 @@ uses
 {$ENDIF FPC}
   TlpTlsVersion,
   TlpNegotiationTypes,
-  TlpICertificateTrust,
-  TlpCertificateVerifier,
   TlpCertificateLimits,
   TlpTrustPolicy,
   TlpITlsConfig,
@@ -59,9 +57,8 @@ implementation
 function TTestPreset.ClientOf(
   const ABuilder: ITlsConfigBuilder): ITlsClientConfig;
 begin
-  // any non-nil trust source lets the client build so its invariants can be read
-  Result := ABuilder.Client.WithTrustStore(
-    TTrustAnchorStore.Create(nil) as ITrustAnchorStore).Build;
+  // a real single-root store lets the client build so its invariants can be read
+  Result := ABuilder.Client.WithTrustStore(EcP256RootStore).Build;
 end;
 
 procedure TTestPreset.TestHardenedPrefersPqHybridGroup;
@@ -155,7 +152,7 @@ begin
   // Strict already requests a staple, so raising the posture to Hard is satisfiable without a
   // staple request of the caller's own - Build does not fail fast as always-rejecting
   LConfig := TTlsPresets.Strict(Crypto, Pkix).Client
-    .WithTrustStore(TTrustAnchorStore.Create(nil) as ITrustAnchorStore)
+    .WithTrustStore(EcP256RootStore)
     .WithRevocation(TRevocationPosture.Hard)
     .Build;
   CheckEquals(Ord(TRevocationPosture.Hard), Ord(LConfig.RevocationPosture),

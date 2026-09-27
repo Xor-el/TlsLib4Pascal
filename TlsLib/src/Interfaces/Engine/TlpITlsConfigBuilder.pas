@@ -173,7 +173,9 @@ type
     function WithOcspStaplingRequest(AEnabled: Boolean): ITlsClientConfigBuilder;
     /// <summary>DANGEROUS: when enabled, the server certificate chain is accepted without
     /// PKIX, revocation, host-name, or pinning checks. For tests and pinned/self-signed
-    /// development peers only - never production. Off by default.</summary>
+    /// development peers only - never production. Off by default. Satisfies the Build-time
+    /// trust-source requirement on its own; no anchor store is needed (one supplied is kept
+    /// but not consulted).</summary>
     function WithDangerousInsecureSkipVerify(AEnabled: Boolean): ITlsClientConfigBuilder;
     /// <summary>DANGEROUS: hands every secret of every connection built from this config to
     /// AKeyLog in the SSLKEYLOGFILE format (RFC 9850), so a packet capture can be decrypted.
@@ -407,7 +409,9 @@ type
     /// valid set and refresh it with your trust configuration.</summary>
     function WithIntermediateCertificates(const AData: TBytes): ITlsServerConfigBuilder;
     /// <summary>DANGEROUS: when enabled, a requested client certificate chain is accepted
-    /// without PKIX, revocation, or pinning checks. For tests only - never production.</summary>
+    /// without PKIX, revocation, or pinning checks. For tests only - never production. Satisfies
+    /// the Build-time client-auth trust-source requirement on its own; no anchor store is needed
+    /// (one supplied is kept but not consulted).</summary>
     function WithDangerousInsecureSkipVerify(AEnabled: Boolean): ITlsServerConfigBuilder;
     /// <summary>DANGEROUS: hands every secret of every connection built from this config to
     /// AKeyLog in the SSLKEYLOGFILE format (RFC 9850), so a packet capture can be decrypted.

@@ -129,13 +129,10 @@ Bypasses the built-in pipeline: PKIX, revocation, and host-name. Any configured 
 but the peer must still present a pinned key. For tests and pinned development peers only.
 
 ```pascal
-uses TlpICertificateTrust, TlpTrustTypes, TlpCertificateVerifier;   // TTrustAnchorStore
-
 LConfig := TTlsPresets.Compatible(P).Client
+  // skip-verify is itself the explicit trust decision, so Build() needs no trust source; a store
+  // supplied with no roots is refused whenever verification is on (no silent-insecure).
   .WithDangerousInsecureSkipVerify(True)
-  // Build() still REQUIRES a trust source (no silent-insecure). Pass an empty store — it is
-  // never consulted because verification is skipped. You had to type two things to do this.
-  .WithTrustStore(TTrustAnchorStore.Create(nil) as ITrustAnchorStore)
   .Build;
 ```
 
@@ -218,8 +215,7 @@ further, never accept-all. (See §4b.)
 ## 6. Through the integration adapters
 
 The [mORMot / Indy / Synapse adapters](../TlsLib.Adapters) map their host's "ignore certificate
-errors" flag onto `InsecureSkipVerify` for you (and supply the required empty trust store
-internally), so the accept-any case is a one-liner:
+errors" flag onto `InsecureSkipVerify` for you, so the accept-any case is a one-liner:
 
 ```pascal
 // mORMot   (TNetTlsContext)

@@ -55,6 +55,9 @@ type
     procedure TestTwoAnchorStoresUnionIntoComposedStore;
     procedure TestCertificateVerifierLandsInFrozenConfig;
     procedure TestVerifierCombinedWithAnchorSourceIsRejected;
+    // an empty store is still an anchor *source* for the exclusivity count (that rule runs before
+    // the roots-based trust gate), so verifier + empty store is the exclusivity conflict, not empty-store
+    procedure TestVerifierWithEmptyStoreStillConflicts;
     procedure TestTwoVerifiersAreRejected;
     procedure TestClientVerifierInstanceAndSourceRejected;
   end;
@@ -185,6 +188,26 @@ begin
   end;
   CheckTrue(LRaised,
     'a whole-verifier combined with an anchor source is refused at Build');
+end;
+
+procedure TTestTrustComposition.TestVerifierWithEmptyStoreStillConflicts;
+var
+  LMsg: string;
+begin
+  // the exclusivity rule counts a store as a source (empty or not) and runs before the roots gate,
+  // so this raises the verifier conflict, not the empty-store message
+  LMsg := '';
+  try
+    TTlsPresets.Compatible(Crypto, Pkix).Client
+      .WithCertificateVerifier(TStubCertificateVerifier.Create as IServerCertificateVerifier)
+      .WithTrustStore(TTrustAnchorStore.Create(nil) as ITrustAnchorStore)
+      .Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('exclusive', LMsg) > 0,
+    'a verifier plus an empty store is the exclusivity conflict; got: ' + LMsg);
 end;
 
 procedure TTestTrustComposition.TestTwoVerifiersAreRejected;

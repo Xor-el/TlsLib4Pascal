@@ -158,9 +158,13 @@ type
     procedure GuardMutable;
     /// <summary>Refuses a version facet that was configured for a version not offered.</summary>
     procedure ValidateVersionScoping;
-    /// <summary>Composes the accumulated anchor sources into one store: nil for none, the
-    /// single store for one, else a union. nil when a whole-verifier is used instead.</summary>
+    /// <summary>Composes the accumulated anchor sources into one store: nil for none (a PSK-only
+    /// or skip-verify client), the single store for one, else a union. nil when a whole-verifier
+    /// is used instead.</summary>
     function ComposeTrustStore: ITrustAnchorStore;
+    /// <summary>True when at least one accumulated anchor store yields a root certificate. A store
+    /// object is not a trust source; only its roots are (an empty store can trust nothing).</summary>
+    function HasAnchorRoots: Boolean;
     /// <summary>Enforces the trust-composition rule at build: a whole-verifier is exclusive
     /// of any anchor source and of a second verifier (typed error).</summary>
     procedure ValidateTrustComposition;
@@ -302,6 +306,8 @@ resourcestring
   SNilPkixProvider = 'a PKIX provider is required (pass a provider, not nil)';
   SBuilderFrozen = 'the configuration has been built and can no longer be changed';
   SNoTrustStore = 'a client configuration requires a trust source (no silent-insecure)';
+  SEmptyTrustStore = 'a trust store was supplied but contains no root certificates; a store ' +
+    'with no anchors is not a trust source (no silent-insecure)';
   SPskOnlyClientNeedsPskRequired = 'a client with external PSKs and no trust source cannot fall ' +
     'back to certificate authentication; keep WithExternalPskRequired(True) or add a trust source';
   SPskOnlyClientNeedsTls13Only = 'a client with external PSKs and no trust source must offer TLS ' +
@@ -1922,6 +1928,18 @@ begin
   Result := Self;
 end;
 
+function TTlsConfigBuilder.HasAnchorRoots: Boolean;
+var
+  LI: Int32;
+begin
+  // fail closed: a nil entry or a store with no roots counts as no source
+  for LI := 0 to System.High(FAnchorStores) do
+    if (FAnchorStores[LI] <> nil) and
+      (System.Length(FAnchorStores[LI].RootCertificates) > 0) then
+      Exit(True);
+  Result := False;
+end;
+
 function TTlsConfigBuilder.ComposeTrustStore: ITrustAnchorStore;
 begin
   case System.Length(FAnchorStores) of
@@ -1947,6 +1965,8 @@ begin
     Inc(LCustomVerifiers);
   if LCustomVerifiers > 1 then
     raise EInvalidOperationTlsLibException.CreateRes(@SDualVerifier);
+  // a COUNT, not a roots check: an empty store is still an anchor *source* that conflicts with a
+  // whole-verifier's exclusivity (the roots-based trust gate at Build is a separate concern)
   if (FVerifierCount = 1) and (System.Length(FAnchorStores) > 0) then
     raise EInvalidOperationTlsLibException.CreateRes(@SVerifierAnchorConflict);
 end;
@@ -2599,6 +2619,7 @@ function TTlsConfigBuilder.BuildClient: ITlsClientConfig;
 var
   LConfig: TFrozenClientConfig;
   LEchPolicy: IEchClientPolicy;
+  LHasTrust: Boolean;
 begin
   // a builder is single-use
   GuardMutable;
@@ -2610,18 +2631,26 @@ begin
   if FHasCredential then
     ValidateCredentialConsistency(FCredential);
   ValidateTrustComposition;
-  // a client authenticates the server by its certificate or by an out-of-band external PSK
-  // (RFC 9258); at least one trust source or a configured external PSK is required (no
-  // silent-insecure). A PSK-only client verifies no certificate.
-  if (System.Length(FAnchorStores) = 0) and (FServerCertVerifier = nil) and
-    (FServerVerifierSource = nil) and (System.Length(FExternalPsks) = 0) then
+  // a client authenticates the server by its certificate (anchor ROOTS, a whole-verifier, or a
+  // verifier source), by an out-of-band external PSK (RFC 9258), or by explicitly skipping
+  // verification (the loud dangerous toggle); at least one is required (no silent-insecure). A
+  // store with no roots is not a source - it would "verify" against nothing.
+  LHasTrust := HasAnchorRoots or (FServerCertVerifier <> nil) or
+    (FServerVerifierSource <> nil);
+  if (not LHasTrust) and (System.Length(FExternalPsks) = 0) and
+    (not FDangerousTrust.InsecureSkipVerify) then
+  begin
+    // a supplied-but-empty store is a distinct misconfiguration (trust believed present but absent)
+    if System.Length(FAnchorStores) > 0 then
+      raise EInvalidOperationTlsLibException.CreateRes(@SEmptyTrustStore);
     raise EInvalidOperationTlsLibException.CreateRes(@SNoTrustStore);
+  end;
   // a PSK-only client (external PSKs, no trust source) can verify no certificate, so it must
   // never be steered onto the certificate path: the PSK has to be required (a non-PSK ServerHello
   // is then fatal) and only TLS 1.3 may be offered - a 1.2 selection would reach the certificate
-  // path with nothing to verify against (RFC 9258 external PSKs are TLS 1.3-only)
-  if (System.Length(FAnchorStores) = 0) and (FServerCertVerifier = nil) and
-    (FServerVerifierSource = nil) then
+  // path with nothing to verify against (RFC 9258 external PSKs are TLS 1.3-only). A skip-verify
+  // client is not PSK-only: its certificate path exists and deliberately verifies nothing.
+  if (not LHasTrust) and (not FDangerousTrust.InsecureSkipVerify) then
   begin
     if not FExternalPskRequired then
       raise EInvalidOperationTlsLibException.CreateRes(@SPskOnlyClientNeedsPskRequired);
@@ -2702,12 +2731,18 @@ begin
     (FCredentialResolver = nil) and (System.Length(FExternalPsks) = 0) then
     raise EInvalidOperationTlsLibException.CreateRes(@SNoCredential);
   ValidateTrustComposition;
-  // client authentication verifies the peer chain against a trust source; without one the
-  // server would only fail closed at handshake time, so reject it at build (fail fast)
-  if (FClientAuth <> TClientAuthMode.None) and
-    (System.Length(FAnchorStores) = 0) and (FClientCertVerifier = nil) and
-    (FClientVerifierSource = nil) then
+  // client authentication verifies the peer chain against a trust source (anchor ROOTS, a
+  // whole-verifier, or a verifier source) unless verification is explicitly skipped; without one
+  // the server would only fail closed at handshake time, so reject it at build (fail fast)
+  if (FClientAuth <> TClientAuthMode.None) and (not HasAnchorRoots) and
+    (FClientCertVerifier = nil) and (FClientVerifierSource = nil) and
+    (not FDangerousTrust.InsecureSkipVerify) then
+  begin
+    // a supplied-but-empty store is a distinct misconfiguration (trust believed present but absent)
+    if System.Length(FAnchorStores) > 0 then
+      raise EInvalidOperationTlsLibException.CreateRes(@SEmptyTrustStore);
     raise EInvalidOperationTlsLibException.CreateRes(@SNoClientAuthTrustStore);
+  end;
   // a Hard revocation posture on the client certificate rejects a client whose cert carries no
   // definite non-revoked status. A client cannot staple, so the only status source is a live
   // OCSP/CRL verdict resolver; without one, Hard would reject every client. Fail fast at Build
