@@ -1147,7 +1147,7 @@ end;
 
 function TTls12ClientStateMachine.CanExportKeyingMaterial: Boolean;
 begin
-  Result := Stage = THandshakeStage.Connected;
+  Result := (Stage = THandshakeStage.Connected) and (FSchedule <> nil) and FSchedule.CanExport;
 end;
 
 end.

@@ -81,11 +81,7 @@ end;
 
 destructor TInMemorySessionCache.Destroy;
 begin
-  if FEntries <> nil then
-  begin
-    FEntries.Clear;
-    FEntries.Free;
-  end;
+  FEntries.Free;
   FKxHints.Free;
   FKxHintOrder.Free;
   FLock.Free;

@@ -59,6 +59,7 @@ const
 resourcestring
   SLabelLength = 'HKDF-Expand-Label label length %d is outside the 7..255 range';
   SContextLength = 'HKDF-Expand-Label context length %d exceeds 255';
+  SExpandLength = 'HKDF-Expand-Label output length %d is outside the 1..65535 range';
 
 { THkdfLabel }
 
@@ -70,6 +71,9 @@ begin
   // HkdfLabel (RFC 8446 7.1): uint16 length || opaque label<7..255> = "tls13 " + ALabel
   // || opaque context<0..255>.
   Result := nil;
+  // the length is written as a uint16; reject a value that would silently truncate
+  if (ALength <= 0) or (ALength > High(UInt16)) then
+    raise EArgumentTlsLibException.CreateResFmt(@SExpandLength, [ALength]);
   LPrefixLen := System.Length(Tls13LabelPrefix);
   LLabelLen := System.Length(ALabel);
   LFullLabelLen := LPrefixLen + LLabelLen;

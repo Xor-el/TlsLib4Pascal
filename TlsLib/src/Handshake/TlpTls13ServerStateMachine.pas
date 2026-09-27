@@ -770,12 +770,16 @@ end;
 function TTls13ServerStateMachine.TryAcceptResumption(
   const AClientHello: TTlsClientHello; const AContext: TExtensionContext;
   const ARawClientHello: TBytes): Boolean;
+const
+  // bound the ticket-open work per ClientHello; a client rarely offers more than a couple
+  MaxTriedResumptionIdentities = 8;
 var
   LSession: IResumableSession;
   LSuite: TTlsCipherSuite;
   LTemp: ITls13KeySchedule;
   LTruncated: TBytes;
   LNowMs: UInt64;
+  LI, LMax: Int32;
 begin
   Result := False;
   FPskAccepted := False;
@@ -786,82 +790,77 @@ begin
   // require psk_dhe_ke (forward secrecy); psk_ke alone is never accepted here
   if not (TArrayUtilities.Contains<Byte>(AContext.PskModes, PskDheKeMode)) then
     Exit;
-  // open the ticket (a store handle is consumed here; a STEK ticket is decrypted)
-  if not FTicketStrategy.Open(AContext.OfferedPskIdentities[0], LSession) then
-    Exit;
-  if not LSession.Version.Equals(TTlsVersion.Tls13) then
-    Exit;
-  // remember what this authenticated ticket authorized as early data, so a rejected 0-RTT skip is
-  // bounded by the client's actual authorization even when the ticket is then declined (SNI/suite/
-  // expiry/mTLS) or 0-RTT is refused (e.g. a retry), all of which still skip the client's records
-  FResumedMaxEarlyData := LSession.MaxEarlyData;
-  // a ticket issued under one SNI host must not resume as another (virtual-hosting guard): a
-  // host mismatch falls through to a full handshake under the name the client now requests
-  if not SameText(LSession.ServerName, FRequestedServerName) then
-    Exit;
-  // resumption-scope guard: a ticket minted under a different scope belongs to a configuration
-  // that may not share this one's client-auth trust, so decline it to a full handshake rather than
-  // reuse its stored identity
-  if not TArrayUtilities.AreEqual(LSession.ResumptionScope, FParams.ResumptionScope) then
-    Exit;
-  // the client must still offer the PSK's suite (RFC 8446 4.2.11)
-  if not (TArrayUtilities.Contains<UInt16>(AClientHello.CipherSuites,
-    LSession.CipherSuite)) then
-    Exit;
-  if not FParams.CipherSuites.TryGet(LSession.CipherSuite, LSuite) then
-    Exit;
-  // freshness: reject a ticket at or past its lifetime (a 0-second lifetime is expired)
-  LNowMs := FParams.Clock.NowUnixMillis;
-  if LNowMs >= LSession.IssuedAtMillis + UInt64(LSession.TicketLifetime) * 1000 then
-    Exit;
-  // mutual-TLS resumption gate. A resumed handshake never re-runs client auth (RFC 8446 4.3.2
-  // forbids a CertificateRequest in a PSK handshake), so the ticket must already carry the client
-  // identity: a Required server offered a ticket with no stored identity (e.g. a foreign ticket
-  // minted by a non-mTLS config sharing this STEK) falls through to a full handshake that requests
-  // it. Verification (sync or async) is otherwise NOT repeated on resume - the original
-  // handshake's authentication is reused (RFC 8446 2.2).
-  if (FParams.ClientAuth = TClientAuthMode.Required) and
-    (System.Length(LSession.PeerCertificates) = 0) then
-    Exit;
-  // the binder MACs the ClientHello up to (excluding) the binders vector
-  FSelectedSuite := LSuite; // so HashOf uses the PSK's hash
-  LTruncated := System.Copy(ARawClientHello, 0,
-    System.Length(ARawClientHello) - BindersVectorLength(AContext.OfferedPskBinders));
-  LTemp := TTls13KeySchedule.Create(FParams.Crypto, LSuite.Common.Hash,
-    LSuite.Common.KeyLength);
-  LTemp.SetPsk(LSession.ResumptionSecret);
-  // a present binder that does not validate against a successfully opened ticket is fatal
-  // (RFC 8446 4.2.11.2). The earlier declines above - no ticket strategy, no offered
-  // identities/binders, an Open failure (unknown/undecryptable/expired/rotated-out key),
-  // a version or offered-suite mismatch - legitimately fall through to a full handshake;
-  // only a decrypted ticket carrying a bad binder value aborts.
-  if not LTemp.VerifyBinder(TPskBinderKind.Resumption, HashOf(LTruncated),
-    AContext.OfferedPskBinders[0]) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.DecryptError, @SBadPskBinder);
-  FPskAccepted := True;
-  FPskBinderKind := TPskBinderKind.Resumption;
-  FSelectedPskIdentity := 0;
-  FAcceptedPskIdentity := AContext.OfferedPskIdentities[0];
-  FPskSecret := LSession.ResumptionSecret;
-  FResumedPeerCertificates := LSession.PeerCertificates;
-  // 0-RTT is bound to the ticket's ALPN: it is only accepted below when the resumed handshake
-  // negotiates the same protocol (checked once ALPN is selected)
-  FAcceptedSessionAlpn := LSession.Alpn;
-  AContext.PskSelected := True;
-  AContext.SelectedPskIdentity := 0;
-  // accept 0-RTT only when configured, the ticket authorized it, the reported ticket age is
-  // fresh (bounded clock skew, RFC 8446 8.2), and the binder is not a replay - the binder
-  // uniquely identifies this early-data attempt (RFC 8446 8). A replay only passes the
-  // freshness check within ~2x the skew of the original, so a strike held longer than that
-  // just fills the register (RFC 8446 8.3)
-  FEarlyDataAccepted := FEarlyDataOfferedByClient and (FParams.MaxEarlyData > 0) and
-    (LSession.MaxEarlyData > 0) and
-    EarlyDataAgeFresh(AContext.OfferedPskAges[0], LSession.TicketAgeAdd,
-    LSession.IssuedAtMillis, LNowMs) and (FParams.AntiReplay <> nil) and
-    FParams.AntiReplay.CheckAndRecord(AContext.OfferedPskBinders[0], LNowMs,
-    LNowMs + UInt64(2 * MaxFreshnessSkewMillis) + 1);
-  Result := True;
+  // try each offered identity in turn: a decline (SNI/scope/suite/expiry/mTLS or an Open failure)
+  // falls to the next, so a client holding several tickets can still resume (RFC 8446 4.2.11)
+  LMax := System.High(AContext.OfferedPskIdentities);
+  if LMax > MaxTriedResumptionIdentities - 1 then
+    LMax := MaxTriedResumptionIdentities - 1;
+  for LI := 0 to LMax do
+  begin
+    // open the ticket (a store handle is consumed here; a STEK ticket is decrypted)
+    if not FTicketStrategy.Open(AContext.OfferedPskIdentities[LI], LSession) then
+      Continue;
+    if not LSession.Version.Equals(TTlsVersion.Tls13) then
+      Continue;
+    // 0-RTT rides identity 0 only (RFC 8446 4.2.10); its authorization bounds the skip budget even
+    // when identity 0 is then declined or 0-RTT is refused, all of which still skip the records
+    if LI = 0 then
+      FResumedMaxEarlyData := LSession.MaxEarlyData;
+    // a ticket issued under one SNI host must not resume as another (virtual-hosting guard)
+    if not SameText(LSession.ServerName, FRequestedServerName) then
+      Continue;
+    // a ticket minted under a different resumption scope may not share this config's client-auth
+    // trust, so decline it rather than reuse its stored identity
+    if not TArrayUtilities.AreEqual(LSession.ResumptionScope, FParams.ResumptionScope) then
+      Continue;
+    // the client must still offer the PSK's suite (RFC 8446 4.2.11)
+    if not (TArrayUtilities.Contains<UInt16>(AClientHello.CipherSuites,
+      LSession.CipherSuite)) then
+      Continue;
+    if not FParams.CipherSuites.TryGet(LSession.CipherSuite, LSuite) then
+      Continue;
+    // freshness: reject a ticket at or past its lifetime (a 0-second lifetime is expired)
+    LNowMs := FParams.Clock.NowUnixMillis;
+    if LNowMs >= LSession.IssuedAtMillis + UInt64(LSession.TicketLifetime) * 1000 then
+      Continue;
+    // mutual-TLS resumption gate: a resumed handshake never re-runs client auth (RFC 8446 4.3.2),
+    // so a Required server needs the identity already stored in the ticket, else a full handshake
+    if (FParams.ClientAuth = TClientAuthMode.Required) and
+      (System.Length(LSession.PeerCertificates) = 0) then
+      Continue;
+    // this identity is the selection; a present binder that does not validate is fatal
+    // (RFC 8446 4.2.11.2) - only a decrypted-but-bad-binder ticket aborts, never a decline above
+    FSelectedSuite := LSuite; // so HashOf uses the PSK's hash
+    LTruncated := System.Copy(ARawClientHello, 0,
+      System.Length(ARawClientHello) - BindersVectorLength(AContext.OfferedPskBinders));
+    LTemp := TTls13KeySchedule.Create(FParams.Crypto, LSuite.Common.Hash,
+      LSuite.Common.KeyLength);
+    LTemp.SetPsk(LSession.ResumptionSecret);
+    if not LTemp.VerifyBinder(TPskBinderKind.Resumption, HashOf(LTruncated),
+      AContext.OfferedPskBinders[LI]) then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.DecryptError, @SBadPskBinder);
+    FPskAccepted := True;
+    FPskBinderKind := TPskBinderKind.Resumption;
+    FSelectedPskIdentity := UInt16(LI);
+    FAcceptedPskIdentity := AContext.OfferedPskIdentities[LI];
+    FPskSecret := LSession.ResumptionSecret;
+    FResumedPeerCertificates := LSession.PeerCertificates;
+    // 0-RTT is bound to the ticket's ALPN: accepted below only when the resumed handshake
+    // negotiates the same protocol (checked once ALPN is selected)
+    FAcceptedSessionAlpn := LSession.Alpn;
+    AContext.PskSelected := True;
+    AContext.SelectedPskIdentity := UInt16(LI);
+    // accept 0-RTT only for identity 0 (RFC 8446 4.2.10), when configured, the ticket authorized
+    // it, the reported age is fresh (RFC 8446 8.2), and the binder is not a replay (RFC 8446 8/8.3)
+    FEarlyDataAccepted := (LI = 0) and FEarlyDataOfferedByClient and
+      (FParams.MaxEarlyData > 0) and (LSession.MaxEarlyData > 0) and
+      EarlyDataAgeFresh(AContext.OfferedPskAges[LI], LSession.TicketAgeAdd,
+      LSession.IssuedAtMillis, LNowMs) and (FParams.AntiReplay <> nil) and
+      FParams.AntiReplay.CheckAndRecord(AContext.OfferedPskBinders[LI], LNowMs,
+      LNowMs + UInt64(2 * MaxFreshnessSkewMillis) + 1);
+    Exit(True);
+  end;
 end;
 
 class function TTls13ServerStateMachine.IndexOfOfferedIdentity(
@@ -1788,8 +1787,9 @@ begin
     THandshakeEffects.HandshakeEstablished);
   // issue resumption tickets under the freshly-installed application write keys
   EmitNewSessionTickets(Result);
-  // tickets are minted; release the handshake-stage secrets (the connection keeps its application
-  // traffic secrets, exporter, and the resumption master derived above)
+  // tickets are minted; the server no longer needs the resumption master, then release the
+  // handshake-stage secrets (the connection keeps its application traffic secrets and exporter)
+  FSchedule.ForgetResumptionMasterSecret;
   FSchedule.ForgetHandshakeSecrets;
 end;
 

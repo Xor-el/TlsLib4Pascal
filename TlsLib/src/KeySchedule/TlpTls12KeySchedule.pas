@@ -89,6 +89,7 @@ type
     function MasterSecret: ISecretBuffer;
     procedure ForgetHandshakeSecrets;
     procedure SetKeyLog(const AKeyLog: IKeyLog; const AClientRandom: TBytes);
+    function CanExport: Boolean;
   end;
 
 implementation
@@ -107,6 +108,9 @@ resourcestring
   SKeyBlockNotDerived = 'the key block is unavailable (not derived, or released after the handshake)';
   SExportLengthNotPositive = 'the exported keying material length must be positive';
   SExportLabelNotAscii = 'the exporter label must be ASCII';
+  SMasterAlreadyDerived = 'the pre-master/master secret must be set before the master secret is derived';
+  SRandomsAfterKeyBlock = 'the client and server randoms must be set before the key block is derived';
+  SExportContextTooLong = 'the TLS 1.2 exporter context must not exceed 65535 bytes';
 
 { TTls12KeySchedule }
 
@@ -145,6 +149,12 @@ begin
   FKeyLogRandom := System.Copy(AClientRandom);
 end;
 
+function TTls12KeySchedule.CanExport: Boolean;
+begin
+  // the master secret is the RFC 5705 exporter secret; the machine still gates on completion
+  Result := FMasterSecret <> nil;
+end;
+
 class procedure TTls12KeySchedule.GuardExportArgs(const ALabel: string;
   ALength: Int32);
 var
@@ -161,6 +171,9 @@ end;
 
 procedure TTls12KeySchedule.SetRandoms(const AClientRandom, AServerRandom: TBytes);
 begin
+  // the randoms seed the key block; changing them after it is derived would desync the two
+  if FClientKey <> nil then
+    raise EInvalidOperationTlsLibException.CreateRes(@SRandomsAfterKeyBlock);
   FClientRandom := System.Copy(AClientRandom);
   FServerRandom := System.Copy(AServerRandom);
 end;
@@ -213,11 +226,15 @@ end;
 
 procedure TTls12KeySchedule.SetPreMasterSecret(const APreMasterSecret: ISecretBuffer);
 begin
+  if FMasterSecret <> nil then
+    raise EInvalidOperationTlsLibException.CreateRes(@SMasterAlreadyDerived);
   FPreMaster := APreMasterSecret;
 end;
 
 procedure TTls12KeySchedule.SetMasterSecret(const AMasterSecret: ISecretBuffer);
 begin
+  if FMasterSecret <> nil then
+    raise EInvalidOperationTlsLibException.CreateRes(@SMasterAlreadyDerived);
   // an abbreviated handshake reuses the stored master secret verbatim; DeriveKeyBlock
   // then re-expands the key_block under the fresh client and server randoms
   FMasterSecret := AMasterSecret;
@@ -296,6 +313,8 @@ begin
   // so the two cases must stay distinct (RFC 5705 4)
   if AUseContext then
   begin
+    if System.Length(AContext) > High(UInt16) then
+      raise EArgumentTlsLibException.CreateRes(@SExportContextTooLong);
     LContextLen := nil;
     SetLength(LContextLen, 2);
     TBinaryPrimitives.WriteUInt16BigEndian(LContextLen, 0,
