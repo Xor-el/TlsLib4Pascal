@@ -134,22 +134,6 @@ uses
 
 type
   /// <summary>
-  /// A recipe for composing a provider: each nil field takes the default, each
-  /// non-nil field replaces that one facet (and <c>Random</c> replaces the entropy
-  /// source threaded into the default Primitives and Signing). Composing coherent
-  /// facets is the composer's responsibility: any supplied facet or <c>IRandom</c>
-  /// must be thread-safe (stateless or internally synchronized), since it slots into
-  /// a provider whose accessors promise thread-safety and whose RNG is reached
-  /// concurrently from Primitives and Signing.
-  /// </summary>
-  TCryptoProviderOverrides = record
-    Random: IRandom;
-    Primitives: ICryptoPrimitives;
-    Signing: ISigningCrypto;
-    Hpke: IHpkeCrypto;
-  end;
-
-  /// <summary>
   /// The default <see cref="ICryptoProvider" />. A thin composition root: it holds one
   /// instance of each facet and its accessors return them. <see cref="Create" /> is the
   /// single composition point; the five facet implementations are private to this unit.
@@ -163,13 +147,13 @@ type
     FPrimitives: ICryptoPrimitives;
     FSigning: ISigningCrypto;
     FHpke: IHpkeCrypto;
+  private
+    /// <summary>The single composition point (reached by the builder). ARandom is bridged to a
+    /// CSPRNG (else a fresh one) and threaded into the default Primitives/Signing; each nil facet
+    /// is defaulted, each supplied one held as-is. A supplied facet or IRandom must be thread-safe.</summary>
+    constructor Create(const ARandom: IRandom; const APrimitives: ICryptoPrimitives;
+      const ASigning: ISigningCrypto; const AHpke: IHpkeCrypto); overload;
   public
-    /// <summary>The single composition point. Resolves the effective RNG first (a supplied
-    /// AOverrides.Random bridged to the CSPRNG, else a fresh one) and threads that
-    /// one instance into the default Primitives and Signing it builds; each nil facet override
-    /// is defaulted, each supplied facet is held as-is. A Random override governs only the
-    /// default facets, not a supplied Primitives.</summary>
-    constructor Create(const AOverrides: TCryptoProviderOverrides); overload;
     /// <summary>An all-defaults provider (no overrides).</summary>
     constructor Create; overload;
     class constructor Create;
@@ -192,7 +176,10 @@ type
   TCryptoProviderBuilder = class(TInterfacedObject, ICryptoProviderBuilder)
   strict private
   var
-    FOverrides: TCryptoProviderOverrides;
+    FRandom: IRandom;
+    FPrimitives: ICryptoPrimitives;
+    FSigning: ISigningCrypto;
+    FHpke: IHpkeCrypto;
   public
     function WithRandom(const ARandom: IRandom): ICryptoProviderBuilder;
     function WithPrimitives(const APrimitives: ICryptoPrimitives): ICryptoProviderBuilder;
@@ -210,10 +197,15 @@ resourcestring
   SAeadAuthFailed = 'AEAD authentication failed';
   SAeadSpanOutOfRange = 'the AEAD source/destination span is out of range';
   SAeadBadOverlap = 'the AEAD source and destination may only alias at the same offset';
+  SAeadNotKeyed = 'the AEAD cipher has no key; call Init before Seal or Open';
+  SAeadSealRejected = 'the AEAD Seal was rejected (nonce reuse or an invalid parameter)';
   SDegenerateSharedSecret = 'the peer key produced a degenerate all-zero shared secret';
   SInvalidPeerPoint = 'the peer public point is not a valid curve point';
   SInvalidCiphertext = 'the peer ciphertext could not be decapsulated';
+  SInvalidKemPublicKey = 'the peer KEM public key could not be parsed';
   SMalformedPrivateKey = 'the private key could not be parsed in any supported encoding';
+  SPrivateKeyPasswordRequired =
+    'the private key is encrypted; a password is required to import it';
   SUnsupportedKeyAlgorithm = 'the private key uses an algorithm this library cannot sign with';
   SForeignSigningKey = 'the signing key was not produced by this provider';
   SMalformedPublicKey = 'the public key could not be parsed as a SubjectPublicKeyInfo';
@@ -246,7 +238,7 @@ type
     FRandom: ISecureRandom;
   public
     constructor Create(const ARandom: ISecureRandom);
-    procedure NextBytes(var ABuffer: TBytes);
+    procedure NextBytes(const ABuffer: TBytes);
     function GenerateBytes(ALength: Int32): TBytes;
   end;
 
@@ -315,19 +307,17 @@ type
       const ADest: TBytes; ADestOff: Int32): Int32;
   end;
 
-  // The provider-internal face of a minted key-exchange key: the raw scalar (nil for a KEM key,
-  // whose ExportRaw is unsupported) and the parsed backend parameter (the EC private key, or the
-  // ML-KEM decapsulation key), so an agreement reuses the one parse done at mint. Kept off
+  // The provider-internal face of a minted key-exchange key: the parsed backend parameter (the EC,
+  // X25519, or ML-KEM key), so an agreement reuses the one parse done at mint. Kept off
   // IKeyExchangePrivateKey so a foreign key handed to Agree/Decapsulate is rejected, not misused.
   IProviderKeyExchangeKey = interface(IInterface)
     ['{2F5A9C3D-8B14-4E6A-9F02-7C1D5B8E3A46}']
-    function Scalar: ISecretBuffer;
     function KeyParameter: IAsymmetricKeyParameter;
   end;
 
   // One key-exchange key class for all three default-backend primitives: it carries the fixed
-  // Usage, the raw scalar (for ExportRaw and the scalar-based X25519 agreement), and the parsed
-  // parameter (NIST EC private key / ML-KEM decapsulation key). A KEM key is not exportable.
+  // Usage, the raw scalar (for ExportRaw), and the parsed parameter (EC / X25519 / ML-KEM key).
+  // A KEM key is not exportable.
   TKeyExchangePrivateKey = class(TInterfacedObject, IKeyExchangePrivateKey,
     IProviderKeyExchangeKey)
   strict private
@@ -342,7 +332,6 @@ type
     destructor Destroy; override;
     function Usage: TKeyAgreementUsage;
     function ExportRaw: ISecretBuffer;
-    function Scalar: ISecretBuffer;
     function KeyParameter: IAsymmetricKeyParameter;
   end;
 
@@ -587,7 +576,7 @@ begin
   FRandom := ARandom;
 end;
 
-procedure TRandomAdapter.NextBytes(var ABuffer: TBytes);
+procedure TRandomAdapter.NextBytes(const ABuffer: TBytes);
 begin
   FRandom.NextBytes(ABuffer);
 end;
@@ -836,6 +825,9 @@ begin
   // would let the cipher read bytes it has already overwritten
   if (PByte(ASrc) = PByte(ADest)) and (ASrcOff <> ADestOff) then
     raise EArgumentTlsLibException.CreateRes(@SAeadBadOverlap);
+  // no key was ever supplied (Init not called): fail loud rather than pass nil to an unkeyed mode
+  if (FPacket = nil) and (not FKeyPending) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SAeadNotKeyed);
   // one packet-cipher instance per adapter, and the driver installs an adapter for one
   // direction only (read or write); the connection is already single-threaded (unsynchronized
   // FSeq), so reusing the mode across records is safe (the mode is not thread-safe)
@@ -865,7 +857,13 @@ end;
 function TAeadAdapter.Seal(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
   const ADest: TBytes; ADestOff: Int32): Int32;
 begin
-  Result := ProcessInto(True, ANonce, AAad, ASrc, ASrcOff, ALen, ADest, ADestOff);
+  try
+    Result := ProcessInto(True, ANonce, AAad, ASrc, ASrcOff, ALen, ADest, ADestOff);
+  except
+    // map the mode's nonce-reuse throw to a typed error
+    on E: ECryptoLibException do
+      raise EArgumentTlsLibException.CreateRes(@SAeadSealRejected);
+  end;
 end;
 
 function TAeadAdapter.Open(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
@@ -916,10 +914,6 @@ begin
   Result := FScalar;
 end;
 
-function TKeyExchangePrivateKey.Scalar: ISecretBuffer;
-begin
-  Result := FScalar;
-end;
 
 function TKeyExchangePrivateKey.KeyParameter: IAsymmetricKeyParameter;
 begin
@@ -949,8 +943,9 @@ begin
   APublicKey := LX25519.GeneratePublicKey.GetEncoded;
   LPrivBytes := LX25519.GetEncoded;
   try
+    // carry the parsed parameter so Agree need not re-parse the scalar
     APrivateKey := TKeyExchangePrivateKey.Create(TKeyAgreementUsage.Ephemeral,
-      TSecretBuffer.From(LPrivBytes), nil, True);
+      TSecretBuffer.From(LPrivBytes), LX25519, True);
   finally
     TSecureMemory.WipeBytes(LPrivBytes);
   end;
@@ -961,36 +956,33 @@ function TX25519Agreement.Agree(const APrivateKey: IKeyExchangePrivateKey;
 var
   LKey: IProviderKeyExchangeKey;
   LPriv: IX25519PrivateKeyParameters;
-  LPrivBytes, LSecret: TBytes;
+  LSecret: TBytes;
 begin
   // X25519's ladder is constant-time regardless of scalar reuse, so the key's Usage has no
   // effect here.
   if not Supports(APrivateKey, IProviderKeyExchangeKey, LKey) then
     raise EArgumentTlsLibException.CreateRes(@SForeignKeyExchangeKey);
-  LPrivBytes := LKey.Scalar.ToBytes;
+  // the handle is provider-typed but not primitive-typed: an EC or KEM handle must not agree here
+  if not Supports(LKey.KeyParameter, IX25519PrivateKeyParameters, LPriv) then
+    raise EArgumentTlsLibException.CreateRes(@SForeignKeyExchangeKey);
+  LSecret := nil;
+  SetLength(LSecret, TX25519PublicKeyParameters.KeySize);
   try
-    LPriv := TX25519PrivateKeyParameters.Create(LPrivBytes);
-    LSecret := nil;
-    SetLength(LSecret, TX25519PublicKeyParameters.KeySize);
     try
-      try
-        LPriv.GenerateSecret(TX25519PublicKeyParameters.Create(APeerPublicKey)
-          as IX25519PublicKeyParameters, LSecret, 0);
-      except
-        // a small-order peer key yields an all-zero shared secret; the backend
-        // rejects it - surface it as our own error so no backend exception escapes
-        on E: EInvalidOperationCryptoLibException do
-          raise EPeerInputTlsLibException.CreateRes(@SDegenerateSharedSecret);
-      end;
-      // defense in depth: never hand back a degenerate (contributory) secret
-      if TSecureMemory.ConstantTimeIsAllZero(LSecret) then
+      LPriv.GenerateSecret(TX25519PublicKeyParameters.Create(APeerPublicKey)
+        as IX25519PublicKeyParameters, LSecret, 0);
+    except
+      // a small-order peer key yields an all-zero shared secret; the backend
+      // rejects it - surface it as our own error so no backend exception escapes
+      on E: EInvalidOperationCryptoLibException do
         raise EPeerInputTlsLibException.CreateRes(@SDegenerateSharedSecret);
-      Result := TSecretBuffer.From(LSecret);
-    finally
-      TSecureMemory.WipeBytes(LSecret);
     end;
+    // defense in depth: never hand back a degenerate (contributory) secret
+    if TSecureMemory.ConstantTimeIsAllZero(LSecret) then
+      raise EPeerInputTlsLibException.CreateRes(@SDegenerateSharedSecret);
+    Result := TSecretBuffer.From(LSecret);
   finally
-    TSecureMemory.WipeBytes(LPrivBytes);
+    TSecureMemory.WipeBytes(LSecret);
   end;
 end;
 
@@ -1016,9 +1008,9 @@ begin
         [System.Length(LPrivBytes), Int32(TX25519PrivateKeyParameters.KeySize)]);
     LPriv := TX25519PrivateKeyParameters.Create(LPrivBytes);
     APublicKey := LPriv.GeneratePublicKey.GetEncoded;
-    // the raw scalar is the neutral currency; keep it for ExportRaw and the agreement
+    // carry the parsed parameter so Agree need not re-parse the scalar
     Result := TKeyExchangePrivateKey.Create(AUsage, TSecretBuffer.From(LPrivBytes),
-      nil, True);
+      LPriv, True);
   finally
     TSecureMemory.WipeBytes(LPrivBytes);
   end;
@@ -1131,13 +1123,11 @@ var
 begin
   if not Supports(APrivateKey, IProviderKeyExchangeKey, LKey) then
     raise EArgumentTlsLibException.CreateRes(@SForeignKeyExchangeKey);
-  // a key from a different primitive (a KEM has no scalar; X25519 or a different curve has a
-  // different scalar width) is rejected rather than agreed under the wrong domain - the length
-  // gate the pre-handle Agree applied when it re-parsed the scalar
-  if (LKey.Scalar = nil) or (LKey.Scalar.Len <> FFieldSize) then
+  // a same-width foreign scalar must not agree under this curve's domain
+  if not Supports(LKey.KeyParameter, IECPrivateKeyParameters, LPrivParams) or
+    not LPrivParams.Parameters.Equals(FDomain) then
     raise EArgumentTlsLibException.CreateRes(@SForeignKeyExchangeKey);
-  // reuse the EC key parameter parsed at mint; the key's Usage drives the blinding posture
-  LPrivParams := LKey.KeyParameter as IECPrivateKeyParameters;
+  // the key's Usage drives the blinding posture
   Result := AgreeParams(LPrivParams, WrapPeer(APeerPublicKey), APrivateKey.Usage);
 end;
 
@@ -1230,7 +1220,13 @@ var
   LSecret: TBytes;
 begin
   LEnc := TMlKemEncapsulator.Create(FParams);
-  LEnc.Init(TMlKemPublicKeyParameters.FromEncoding(FParams, APeerPublicKey));
+  try
+    LEnc.Init(TMlKemPublicKeyParameters.FromEncoding(FParams, APeerPublicKey));
+  except
+    // a malformed peer KEM public key must not leak a backend exception
+    on E: ECryptoLibException do
+      raise EPeerInputTlsLibException.CreateRes(@SInvalidKemPublicKey);
+  end;
   ACiphertext := nil;
   SetLength(ACiphertext, LEnc.GetEncapsulationLength);
   LSecret := nil;
@@ -1249,14 +1245,17 @@ procedure TKemAdapter.Decapsulate(const APrivateKey: IKeyExchangePrivateKey;
 var
   LKey: IProviderKeyExchangeKey;
   LDec: IKemDecapsulator;
+  LPriv: IMlKemPrivateKeyParameters;
   LSecret: TBytes;
 begin
   if not Supports(APrivateKey, IProviderKeyExchangeKey, LKey) then
     raise EArgumentTlsLibException.CreateRes(@SForeignKeyExchangeKey);
+  // the handle is provider-typed but not primitive-typed: an EC/X25519 handle must not decapsulate
+  if not Supports(LKey.KeyParameter, IMlKemPrivateKeyParameters, LPriv) then
+    raise EArgumentTlsLibException.CreateRes(@SForeignKeyExchangeKey);
   try
     LDec := TMlKemDecapsulator.Create(FParams);
-    // reuse the decapsulation key parsed at mint
-    LDec.Init(LKey.KeyParameter as IMlKemPrivateKeyParameters);
+    LDec.Init(LPriv);
     LSecret := nil;
     SetLength(LSecret, LDec.GetSecretLength);
     try
@@ -1320,12 +1319,12 @@ end;
 
 function TSignatureVerifierAdapter.Verify(const ASignature: TBytes): Boolean;
 begin
-  // fail-closed: a structurally invalid signature is a failed verification, never
-  // an escaping exception
+  // fail-closed: any error on a malformed signature (a range/convert error from the ASN.1/bignum
+  // layer, not only a backend exception) is a failed verification, never an escaping exception
   try
     Result := FSigner.VerifySignature(ASignature);
   except
-    on E: ECryptoLibException do
+    on E: Exception do
       Result := False;
   end;
 end;
@@ -1560,8 +1559,17 @@ var
   LValue: TValue;
   LPair: IAsymmetricCipherKeyPair;
   LParam: IAsymmetricKeyParameter;
+  LPem: string;
 begin
   Result := nil;
+  // report an encrypted PEM imported without a password as password-required, not malformed
+  if APassword = nil then
+  begin
+    LPem := TEncoding.ASCII.GetString(AData);
+    if (System.Pos('BEGIN ENCRYPTED PRIVATE KEY', LPem) > 0) or
+      (System.Pos('Proc-Type: 4,ENCRYPTED', LPem) > 0) then
+      raise EArgumentTlsLibException.CreateRes(@SPrivateKeyPasswordRequired);
+  end;
   LStream := TBytesStream.Create(AData);
   try
     if APassword <> nil then
@@ -1603,7 +1611,7 @@ begin
     TDerKeyShape.EncryptedPkcs8:
       begin
         if APassword = nil then
-          raise EArgumentTlsLibException.CreateRes(@SMalformedPrivateKey);
+          raise EArgumentTlsLibException.CreateRes(@SPrivateKeyPasswordRequired);
         LPass := PasswordChars(APassword);
         try
           Result := TPrivateKeyFactory.DecryptKey(LPass, AData);
@@ -1670,7 +1678,9 @@ end;
 
 { TDefaultCryptoProvider }
 
-constructor TDefaultCryptoProvider.Create(const AOverrides: TCryptoProviderOverrides);
+constructor TDefaultCryptoProvider.Create(const ARandom: IRandom;
+  const APrimitives: ICryptoPrimitives; const ASigning: ISigningCrypto;
+  const AHpke: IHpkeCrypto);
 var
   LRandom: ISecureRandom;
 begin
@@ -1678,35 +1688,32 @@ begin
   // resolve the effective entropy source first, then thread that ONE instance into the
   // default Primitives and Signing this ctor builds; a supplied Random governs only the
   // facets built here, never a supplied Primitives override
-  if AOverrides.Random <> nil then
-    LRandom := TSecureRandom.Create(TRandomGeneratorBridge.Create(AOverrides.Random)
+  if ARandom <> nil then
+    LRandom := TSecureRandom.Create(TRandomGeneratorBridge.Create(ARandom)
       as IRandomGenerator)
   else
     LRandom := TSecureRandom.Create;
 
-  if AOverrides.Primitives <> nil then
-    FPrimitives := AOverrides.Primitives
+  if APrimitives <> nil then
+    FPrimitives := APrimitives
   else
     FPrimitives := TCryptoPrimitives.Create(LRandom,
       TAesUtilities.IsHardwareAccelerated()) as ICryptoPrimitives;
 
-  if AOverrides.Signing <> nil then
-    FSigning := AOverrides.Signing
+  if ASigning <> nil then
+    FSigning := ASigning
   else
     FSigning := TSigningCrypto.Create(LRandom) as ISigningCrypto;
 
-  if AOverrides.Hpke <> nil then
-    FHpke := AOverrides.Hpke
+  if AHpke <> nil then
+    FHpke := AHpke
   else
     FHpke := THpkeComposition.Create(FPrimitives) as IHpkeCrypto;
 end;
 
 constructor TDefaultCryptoProvider.Create;
-var
-  LOverrides: TCryptoProviderOverrides;
 begin
-  LOverrides := Default(TCryptoProviderOverrides);
-  Create(LOverrides);
+  Create(nil, nil, nil, nil);
 end;
 
 { TDigestResolver }
@@ -2171,34 +2178,34 @@ end;
 function TCryptoProviderBuilder.WithRandom(
   const ARandom: IRandom): ICryptoProviderBuilder;
 begin
-  FOverrides.Random := ARandom;
+  FRandom := ARandom;
   Result := Self;
 end;
 
 function TCryptoProviderBuilder.WithPrimitives(
   const APrimitives: ICryptoPrimitives): ICryptoProviderBuilder;
 begin
-  FOverrides.Primitives := APrimitives;
+  FPrimitives := APrimitives;
   Result := Self;
 end;
 
 function TCryptoProviderBuilder.WithSigning(
   const ASigning: ISigningCrypto): ICryptoProviderBuilder;
 begin
-  FOverrides.Signing := ASigning;
+  FSigning := ASigning;
   Result := Self;
 end;
 
 function TCryptoProviderBuilder.WithHpke(
   const AHpke: IHpkeCrypto): ICryptoProviderBuilder;
 begin
-  FOverrides.Hpke := AHpke;
+  FHpke := AHpke;
   Result := Self;
 end;
 
 function TCryptoProviderBuilder.Build: ICryptoProvider;
 begin
-  Result := TDefaultCryptoProvider.Create(FOverrides) as ICryptoProvider;
+  Result := TDefaultCryptoProvider.Create(FRandom, FPrimitives, FSigning, FHpke) as ICryptoProvider;
 end;
 
 end.

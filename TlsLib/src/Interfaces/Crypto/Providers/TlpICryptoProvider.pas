@@ -32,9 +32,9 @@ type
   /// weak or zero fallback.
   /// </summary>
   IRandom = interface(IInterface)
-    ['{08659DB4-A63B-4FDB-AA8C-0810BB8D8BDC}']
+    ['{8D682F1C-50FC-41DA-9749-B0A68D4DE5D5}']
     /// <summary>Fills the whole of ABuffer with random bytes.</summary>
-    procedure NextBytes(var ABuffer: TBytes);
+    procedure NextBytes(const ABuffer: TBytes);
     /// <summary>Returns ALength fresh random bytes.</summary>
     function GenerateBytes(ALength: Int32): TBytes;
   end;

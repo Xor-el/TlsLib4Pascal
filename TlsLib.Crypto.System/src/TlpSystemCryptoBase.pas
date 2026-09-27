@@ -56,8 +56,7 @@ type
 
   /// <summary>
   /// An <see cref="ICryptoProvider" /> that overlays a substituted Primitives and/or
-  /// Signing facet on a base provider and forwards the certificate, path-validation,
-  /// revocation and PEM facets to the base unchanged - so a native overlay preserves the
+  /// Signing facet on a base provider - so a native overlay preserves the
   /// base's identity and its same-reference-every-call contract. HPKE is the exception:
   /// being a pure composition of primitives, it is rebuilt here over the overlay's own
   /// primitives so its KEM/KDF/AEAD ride the native seam. A nil override takes that facet

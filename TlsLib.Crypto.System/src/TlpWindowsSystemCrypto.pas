@@ -158,6 +158,8 @@ resourcestring
   SAeadAuthFailed = 'AEAD authentication failed';
   SAeadSpanOutOfRange = 'the AEAD source/destination span is out of range';
   SAeadBadOverlap = 'the AEAD source and destination may only alias at the same offset';
+  SAeadNotKeyed = 'the AEAD cipher has no key; call Init before Seal or Open';
+  SUpdateSpanOutOfRange = 'the Update source span is out of range';
   SInvalidKeySize = 'AEAD key size %d does not match the required %d bytes';
   SInvalidNonceSize = 'AEAD nonce size %d does not match the required %d bytes';
   SAeadNonceReused = 'the AEAD nonce was already used under this key';
@@ -557,7 +559,7 @@ type
     FKeeper: IWindowsCng;
   public
     constructor Create(const AApi: TCngApi; const AKeeper: IWindowsCng);
-    procedure NextBytes(var ABuffer: TBytes);
+    procedure NextBytes(const ABuffer: TBytes);
     function GenerateBytes(ALength: Int32): TBytes;
   end;
 
@@ -1091,7 +1093,7 @@ begin
   FKeeper := AKeeper;
 end;
 
-procedure TWindowsCngRandom.NextBytes(var ABuffer: TBytes);
+procedure TWindowsCngRandom.NextBytes(const ABuffer: TBytes);
 begin
   if System.Length(ABuffer) > 0 then
     TCngError.Check(FApi.GenRandom(nil, PByte(ABuffer), System.Length(ABuffer),
@@ -1140,6 +1142,8 @@ end;
 
 procedure TWindowsCngHash.Update(const AData: TBytes; AOffset, ALength: Int32);
 begin
+  if (AOffset < 0) or (ALength < 0) or (Int64(AOffset) + ALength > System.Length(AData)) then
+    raise EArgumentTlsLibException.CreateRes(@SUpdateSpanOutOfRange);
   if ALength > 0 then
     TCngError.Check(FApi.HashData(FHash, @AData[AOffset], ALength, 0));
 end;
@@ -1215,6 +1219,8 @@ end;
 
 procedure TWindowsCngHmac.Update(const AData: TBytes; AOffset, ALength: Int32);
 begin
+  if (AOffset < 0) or (ALength < 0) or (Int64(AOffset) + ALength > System.Length(AData)) then
+    raise EArgumentTlsLibException.CreateRes(@SUpdateSpanOutOfRange);
   if ALength > 0 then
     TCngError.Check(FApi.HashData(FHash, @AData[AOffset], ALength, 0));
 end;
@@ -1430,6 +1436,8 @@ var
   LCbResult: ULONG;
   LIn, LOut: PByte;
 begin
+  if FKeyHandle = nil then
+    raise EInvalidOperationTlsLibException.CreateRes(@SAeadNotKeyed);
   if System.Length(ANonce) <> FNonceSize then
     raise EArgumentTlsLibException.CreateResFmt(@SInvalidNonceSize,
       [System.Length(ANonce), FNonceSize]);
@@ -1473,6 +1481,8 @@ var
   LStatus: Integer;
   LIn, LOut: PByte;
 begin
+  if FKeyHandle = nil then
+    raise EInvalidOperationTlsLibException.CreateRes(@SAeadNotKeyed);
   if System.Length(ANonce) <> FNonceSize then
     raise EArgumentTlsLibException.CreateResFmt(@SInvalidNonceSize,
       [System.Length(ANonce), FNonceSize]);
@@ -1501,16 +1511,16 @@ begin
   LCbResult := 0;
   LStatus := FApi.Decrypt(FKeyHandle, LIn, LCtLen, @LInfo, nil, 0, LOut, LCtLen,
     LCbResult, 0);
-  if LStatus = STATUS_AUTH_TAG_MISMATCH then
+  // never leave unverified or partial plaintext for the caller on any failure or short write
+  if (LStatus <> STATUS_SUCCESS) or (LCbResult <> ULONG(LCtLen)) then
   begin
-    // CNG does not promise to wipe the output on a tag mismatch; do it ourselves so no
-    // unverified plaintext is left for the caller
     if LCtLen > 0 then
       TSecureMemory.Wipe(@ADest[ADestOff], LCtLen);
+    if LStatus <> STATUS_AUTH_TAG_MISMATCH then
+      TCngError.Check(LStatus);
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.BadRecordMac,
       @SAeadAuthFailed);
   end;
-  TCngError.Check(LStatus);
   Result := LCtLen;
 end;
 
@@ -1848,15 +1858,18 @@ begin
   if System.Length(APeerPublicKey) <> X25519_KEY_SIZE then
     raise EPeerInputTlsLibException.CreateRes(@SInvalidPeerPoint);
   LScalar := LKeyHandle.Material.ToBytes;
-  if System.Length(LScalar) <> X25519_KEY_SIZE then
-    raise EPeerInputTlsLibException.CreateRes(@SInvalidPeerPoint);
   LPrivKey := nil;
   LPeerKey := nil;
   LSecret := nil;
   LSecretBytes := nil;
-  LPrivateBlob := PrivateBlob(LScalar);
-  LPeerBlob := PeerBlob(APeerPublicKey);
+  LPrivateBlob := nil;
+  LPeerBlob := nil;
   try
+    // a wrong-width private scalar is a foreign key handle, not a bad peer point
+    if System.Length(LScalar) <> X25519_KEY_SIZE then
+      raise EArgumentTlsLibException.CreateRes(@SForeignCngKeyExchangeKey);
+    LPrivateBlob := PrivateBlob(LScalar);
+    LPeerBlob := PeerBlob(APeerPublicKey);
     TCngError.Check(FApi.ImportKeyPair(FAlg, nil, PWideChar(BLOB_ECCPRIVATE), LPrivKey,
       PByte(LPrivateBlob), System.Length(LPrivateBlob), 0));
     try
@@ -2854,8 +2867,8 @@ end;
 function TWindowsBackendReport.FacetBackend(
   AFacet: TCryptoFacet): TCryptoBackendEntry;
 begin
-  // Hpke composes over this overlay's native primitives, so it is Composed; the other higher
-  // facets forward to the portable base.
+  // Hpke composes over this overlay's native primitives, so it is Composed; Primitives and
+  // Signing forward to the portable base.
   if AFacet = TCryptoFacet.Hpke then
     Result := Ent(TCryptoBackend.Composed, TCryptoBackendReason.NotFallback)
   else
@@ -3049,6 +3062,8 @@ procedure TWindowsSignatureBuffer.Update(const AData: TBytes;
 var
   LOld: Int32;
 begin
+  if (AOffset < 0) or (ALength < 0) or (Int64(AOffset) + ALength > System.Length(AData)) then
+    raise EArgumentTlsLibException.CreateRes(@SUpdateSpanOutOfRange);
   if ALength <= 0 then
     Exit;
   LOld := System.Length(FBuffer);

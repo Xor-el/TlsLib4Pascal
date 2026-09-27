@@ -76,6 +76,7 @@ type
     procedure AdvanceSequence;
   public
     constructor Create(const AAead: IAead; const ABaseNonce: TBytes);
+    destructor Destroy; override;
     function Seal(const AAad, APlaintext: TBytes): TBytes;
     function Open(const AAad, ACiphertext: TBytes): TBytes;
   end;
@@ -182,6 +183,14 @@ begin
   FSeq := 0;
 end;
 
+destructor THpkeContext.Destroy;
+begin
+  // the base nonce is secret-derived; wipe it on release
+  TSecureMemory.WipeBytes(FBaseNonce);
+  FAead := nil;
+  inherited Destroy;
+end;
+
 function THpkeContext.ComputeNonce: TBytes;
 var
   LNn, LI: Int32;
@@ -199,27 +208,41 @@ end;
 procedure THpkeContext.AdvanceSequence;
 begin
   // Nn is 12 for every HPKE AEAD, so the RFC 9180 limit (2^96-1) is beyond UInt64; guard the
-  // UInt64 wrap instead so a run never silently reuses a nonce
+  // UInt64 wrap so a run never silently reuses a nonce
   if FSeq = High(UInt64) then
-    raise EHpkeOpenTlsLibException.CreateRes(@SHpkeMessageLimit);
+    raise EInvalidOperationTlsLibException.CreateRes(@SHpkeMessageLimit);
   Inc(FSeq);
 end;
 
 function THpkeContext.Seal(const AAad, APlaintext: TBytes): TBytes;
+var
+  LNonce: TBytes;
 begin
-  Result := TAeadUtilities.Seal(FAead, ComputeNonce, AAad, APlaintext);
+  LNonce := ComputeNonce;
+  try
+    Result := TAeadUtilities.Seal(FAead, LNonce, AAad, APlaintext);
+  finally
+    TSecureMemory.WipeBytes(LNonce);
+  end;
   AdvanceSequence; // advance only after a successful seal
 end;
 
 function THpkeContext.Open(const AAad, ACiphertext: TBytes): TBytes;
+var
+  LNonce: TBytes;
 begin
   // FAead.Open raises on authentication failure without advancing, so a rejected
   // ciphertext never desynchronises the sequence
+  LNonce := ComputeNonce;
   try
-    Result := TAeadUtilities.Open(FAead, ComputeNonce, AAad, ACiphertext);
-  except
-    on E: EBaseTlsLibException do
-      raise EHpkeOpenTlsLibException.CreateRes(@SHpkeMalformedEnc);
+    try
+      Result := TAeadUtilities.Open(FAead, LNonce, AAad, ACiphertext);
+    except
+      on E: EBaseTlsLibException do
+        raise EHpkeOpenTlsLibException.CreateRes(@SHpkeMalformedEnc);
+    end;
+  finally
+    TSecureMemory.WipeBytes(LNonce);
   end;
   AdvanceSequence;
 end;
@@ -764,15 +787,14 @@ end;
 
 function THpkeComposition.RandomEncapsulation(AKem: UInt16): TBytes;
 var
-  LSharedSecret, LPriv: ISecretBuffer;
-  LPub: TBytes;
+  LPriv: ISecretBuffer;
 begin
   Result := nil;
   if not THpkeCore.IsKnownKem(AKem) then
     Exit;
-  // encapsulate against a throwaway recipient and hand back the KEM encapsulation
-  GenerateKeyPair(AKem, LPub, LPriv);
-  THpkeCore.Encap(FPrimitives, AKem, LPub, LSharedSecret, Result);
+  // every known KEM is a DH-KEM, whose enc is the serialized ephemeral public key (RFC 9180 4.1),
+  // so a fresh public key is a valid enc
+  GenerateKeyPair(AKem, Result, LPriv);
 end;
 
 end.

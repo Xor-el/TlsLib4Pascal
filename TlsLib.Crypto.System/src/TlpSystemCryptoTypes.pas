@@ -44,8 +44,8 @@ type
     /// facet/algorithm with no native backing).</summary>
     NoNativeImpl);
 
-  /// <summary>The six provider facets, for whole-facet backend reporting.</summary>
-  TCryptoFacet = (Primitives, Signing, Certificates, PathValidation, Revocation, Hpke);
+  /// <summary>The provider facets, for whole-facet backend reporting.</summary>
+  TCryptoFacet = (Primitives, Signing, Hpke);
 
   /// <summary>One backend answer: which implementation serves the operation, and - when
   /// it is a portable fallback - why.</summary>

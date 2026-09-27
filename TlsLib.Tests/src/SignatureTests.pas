@@ -72,6 +72,7 @@ type
     procedure TestVerifierAllowsEcdsaCurveHashDecoupling;
     procedure TestVerifierRejectsMalformedSpki;
     procedure TestVerifierRejectsUnclassifiableKey;
+    procedure TestVerifyMalformedSignatureShapesNeverRaise;
     procedure TestSignerRejectsSchemeOutsideCapableSchemes;
     procedure TestLeafPolicyRejectsSchemeFamilyMismatch;
     // the overlay ECDSA verifier accepts a valid signature and rejects a non-DER encoding
@@ -132,6 +133,38 @@ begin
   LVerifier := Crypto.Signing.CreateSignatureVerifier(AScheme, APubDer);
   LVerifier.Update(LMessage, 0, System.Length(LMessage));
   Result := not LVerifier.Verify(LSignature);
+end;
+
+procedure TTestSignature.TestVerifyMalformedSignatureShapesNeverRaise;
+
+  procedure CheckNeverRaises(AScheme: TSignatureScheme; const APubDer: TBytes);
+  const
+    LMsgHex = '54686520717569636b2062726f776e20666f78';
+  var
+    LVerifier: ISignatureVerifier;
+    LMsg: TBytes;
+    LShapes: array [0 .. 3] of TBytes;
+    LI: Int32;
+  begin
+    LMsg := DecodeHex(LMsgHex);
+    LShapes[0] := nil;
+    LShapes[1] := DecodeHex('00');
+    LShapes[2] := DecodeHex('deadbeefdeadbeefdeadbeef');
+    LShapes[3] := DecodeHex('3081'); // truncated DER SEQUENCE header
+    for LI := 0 to System.High(LShapes) do
+    begin
+      LVerifier := Crypto.Signing.CreateSignatureVerifier(AScheme, APubDer);
+      LVerifier.Update(LMsg, 0, System.Length(LMsg));
+      CheckFalse(LVerifier.Verify(LShapes[LI]),
+        'a malformed signature verifies False without raising');
+    end;
+  end;
+
+begin
+  // fail-closed: an ASN.1/bignum error on a malformed signature is a failed verification, not a raise
+  CheckNeverRaises(TSignatureScheme.ECDSA_SECP256R1_SHA256,
+    DecodeHex(FKeys.Values['ecdsa_pub']));
+  CheckNeverRaises(TSignatureScheme.ED25519, DecodeHex(FKeys.Values['ed25519_pub']));
 end;
 
 function TTestSignature.HashOf(const ANames: array of string): TBytes;

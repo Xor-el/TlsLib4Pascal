@@ -44,9 +44,8 @@ type
     /// key of a native scheme can still sign portable when its import fell back (unusual key
     /// parameters, PKCS#12); this is the honest per-key answer.</summary>
     function SigningKeyBackend(const AKey: ISigningKey): TCryptoBackendEntry;
-    /// <summary>The backend of a whole facet. Certificates/PathValidation/Revocation/Hpke
-    /// are whole (Portable when the provider forwards them); Primitives and Signing are mixed,
-    /// so use the per-algorithm queries for their detail.</summary>
+    /// <summary>The backend of a whole facet. Hpke is whole (Portable when the provider forwards
+    /// it); Primitives and Signing are mixed, so use the per-algorithm queries for their detail.</summary>
     function FacetBackend(AFacet: TCryptoFacet): TCryptoBackendEntry;
     /// <summary>A one-line human summary for startup logging (what runs native, what fell back).</summary>
     function Describe: string;

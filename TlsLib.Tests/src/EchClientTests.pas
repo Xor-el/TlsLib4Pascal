@@ -351,15 +351,32 @@ begin
 end;
 
 procedure TTestEchClient.TestGreaseEncapsulationIsValid;
+type
+  TKemCase = record
+    Kem: UInt16;
+    Size: Int32;
+    Name: string;
+  end;
+const
+  LCases: array [0 .. 3] of TKemCase = (
+    (Kem: THpkeKem.DHKEM_P256_HKDF_SHA256; Size: 65; Name: 'P-256'),
+    (Kem: THpkeKem.DHKEM_P384_HKDF_SHA384; Size: 97; Name: 'P-384'),
+    (Kem: THpkeKem.DHKEM_P521_HKDF_SHA512; Size: 133; Name: 'P-521'),
+    (Kem: THpkeKem.DHKEM_X25519_HKDF_SHA256; Size: 32; Name: 'X25519'));
 var
   LEnc: TBytes;
+  LI: Int32;
 begin
-  // a GREASE ech carries a real KEM encapsulation as its enc (RFC 9849 sec. 6.2): for X25519 that
-  // is a 32-byte value the KEM accepts, not merely a bare generated public key
-  LEnc := Crypto.Hpke.RandomEncapsulation(THpkeKem.DHKEM_X25519_HKDF_SHA256);
-  CheckEquals(32, System.Length(LEnc), 'an X25519 encapsulation is 32 bytes');
-  CheckTrue(Crypto.Hpke.ValidatePublicKey(THpkeKem.DHKEM_X25519_HKDF_SHA256, LEnc),
-    'the GREASE encapsulation is a well-formed KEM value');
+  // a GREASE ech's enc is a well-formed KEM value (RFC 9849 sec. 6.2): a serialized ephemeral
+  // public key of the DH-KEM's Npk
+  for LI := 0 to System.High(LCases) do
+  begin
+    LEnc := Crypto.Hpke.RandomEncapsulation(LCases[LI].Kem);
+    CheckEquals(LCases[LI].Size, System.Length(LEnc),
+      LCases[LI].Name + ': encapsulation size is Npk');
+    CheckTrue(Crypto.Hpke.ValidatePublicKey(LCases[LI].Kem, LEnc),
+      LCases[LI].Name + ': a well-formed KEM value');
+  end;
 end;
 
 initialization
