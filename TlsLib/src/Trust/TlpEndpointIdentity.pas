@@ -125,6 +125,11 @@ begin
   // a wildcard label is the entire "*" and nothing else
   if AAllowWildcard and (ALabel = '*') then
     Exit(True);
+  // RFC 1035: a label is at most 63 octets and may not begin or end with a hyphen
+  if System.Length(ALabel) > 63 then
+    Exit;
+  if (ALabel[1] = '-') or (ALabel[System.Length(ALabel)] = '-') then
+    Exit;
   for LI := 1 to System.Length(ALabel) do
   begin
     LCh := ALabel[LI];
@@ -144,6 +149,9 @@ var
 begin
   Result := False;
   if AName = '' then
+    Exit;
+  // RFC 1035: the whole name is at most 253 presentation octets
+  if System.Length(AName) > 253 then
     Exit;
   LFirstLabel := True;
   LStart := 1;

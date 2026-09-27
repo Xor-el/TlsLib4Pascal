@@ -517,16 +517,15 @@ end;
 
 procedure TTestDelegatePostChecks.TestHardNeedsLiveRevocation;
 begin
-  CheckTrue(TDelegatePostChecks.HardNeedsLiveRevocation(TRevocationPosture.Hard,
-    TVerdictDeferral.None), 'Hard with no deferral needs live revocation');
-  CheckTrue(TDelegatePostChecks.HardNeedsLiveRevocation(TRevocationPosture.Hard,
-    TVerdictDeferral.HostDecision), 'Hard with a host-decision park still needs live revocation');
-  CheckFalse(TDelegatePostChecks.HardNeedsLiveRevocation(TRevocationPosture.Hard,
-    TVerdictDeferral.LiveRevocation), 'Hard with live revocation is satisfied');
-  CheckFalse(TDelegatePostChecks.HardNeedsLiveRevocation(TRevocationPosture.Soft,
-    TVerdictDeferral.None), 'Soft never needs live revocation');
-  CheckFalse(TDelegatePostChecks.HardNeedsLiveRevocation(TRevocationPosture.Off,
-    TVerdictDeferral.None), 'Off never needs live revocation');
+  // the delegate gate is the shared predicate: Hard is satisfied only when the live-revocation park runs
+  CheckTrue(TRevocationDecision.HardNeedsLiveRevocation(TRevocationPosture.Hard, False),
+    'Hard without the live-revocation park needs live revocation');
+  CheckFalse(TRevocationDecision.HardNeedsLiveRevocation(TRevocationPosture.Hard, True),
+    'Hard with the live-revocation park is satisfied');
+  CheckFalse(TRevocationDecision.HardNeedsLiveRevocation(TRevocationPosture.Soft, False),
+    'Soft never needs live revocation');
+  CheckFalse(TRevocationDecision.HardNeedsLiveRevocation(TRevocationPosture.Off, False),
+    'Off never needs live revocation');
 end;
 
 procedure TTestDelegatePostChecks.TestLiveNeedsLiveRevocation;
@@ -671,6 +670,8 @@ begin
     TSignatureSchemes.RsaPssRsaeSha256, TSignatureSchemes.RsaPssRsaeSha384,
     TSignatureSchemes.RsaPssRsaeSha512, TSignatureSchemes.RsaPkcs1Sha256,
     TSignatureSchemes.RsaPkcs1Sha384, TSignatureSchemes.RsaPkcs1Sha512);
+  // these are server-cert templates: the host is matched, as a stock client config does
+  Result.CheckHostName := True;
   Result.Anchors := AAnchors;
 end;
 

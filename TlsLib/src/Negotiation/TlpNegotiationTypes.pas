@@ -69,6 +69,11 @@ type
     RsaPssRsaeSha512 = UInt16($0806);
     Ed25519 = UInt16($0807);
     Ed448 = UInt16($0808);
+    // the id-RSASSA-PSS (RFC 4055) counterparts: a certificate whose issuer key is a
+    // PSS-restricted key is signed with these, not the rsae schemes
+    RsaPssPssSha256 = UInt16($0809);
+    RsaPssPssSha384 = UInt16($080A);
+    RsaPssPssSha512 = UInt16($080B);
     // legacy (RFC 8446 4.2.3): in TLS 1.3 valid only in signature_algorithms_cert,
     // never a CertificateVerify; still a TLS 1.2 handshake signature (RFC 5246 7.4.1.4.1)
     RsaPkcs1Sha256 = UInt16($0401);

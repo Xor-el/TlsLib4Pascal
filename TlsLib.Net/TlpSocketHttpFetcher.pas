@@ -49,12 +49,12 @@ type
     /// bounded response sink, the try/except that swallows every error, the 2xx gate, and the
     /// bytes-out.</summary>
     class function Fetch(const AMethod, AUrl, AContentType: string; const ABody: TBytes;
-      ATimeoutMs: Cardinal; out AResponse: TBytes): Boolean; static;
+      ATimeoutMs: Cardinal; AMaxBytes: Int32; out AResponse: TBytes): Boolean; static;
   public
-    function Get(const AUrl: string; ATimeoutMs: Cardinal;
+    function Get(const AUrl: string; ATimeoutMs: Cardinal; AMaxBytes: Int32;
       out AResponse: TBytes): Boolean;
     function Post(const AUrl, AContentType: string; const ABody: TBytes;
-      ATimeoutMs: Cardinal; out AResponse: TBytes): Boolean;
+      ATimeoutMs: Cardinal; AMaxBytes: Int32; out AResponse: TBytes): Boolean;
   end;
 
 implementation
@@ -71,21 +71,27 @@ type
     MaxResponseBytes = Int64(32 * 1024 * 1024);
   var
     FInner: TMemoryStream;
+    FCap: Int64;
   protected
     function GetSize: Int64; override;
     procedure SetSize(const ANewSize: Int64); override;
   public
-    constructor Create;
+    constructor Create(AMaxBytes: Int64);
     destructor Destroy; override;
     function Read(var ABuffer; ACount: LongInt): LongInt; override;
     function Write(const ABuffer; ACount: LongInt): LongInt; override;
     function Seek(const AOffset: Int64; AOrigin: TSeekOrigin): Int64; override;
   end;
 
-constructor TBoundedMemoryStream.Create;
+constructor TBoundedMemoryStream.Create(AMaxBytes: Int64);
 begin
   inherited Create;
   FInner := TMemoryStream.Create;
+  // honour the caller's bound, but never above the coarse outer limit
+  if (AMaxBytes > 0) and (AMaxBytes < MaxResponseBytes) then
+    FCap := AMaxBytes
+  else
+    FCap := MaxResponseBytes;
 end;
 
 destructor TBoundedMemoryStream.Destroy;
@@ -102,7 +108,7 @@ end;
 procedure TBoundedMemoryStream.SetSize(const ANewSize: Int64);
 begin
   // hold the cap on a resize too, so nothing can preallocate a buffer past it around the Write guard
-  if ANewSize > MaxResponseBytes then
+  if ANewSize > FCap then
     raise EWriteError.Create('revocation response exceeds the size cap');
   FInner.Size := ANewSize;
 end;
@@ -114,7 +120,7 @@ end;
 
 function TBoundedMemoryStream.Write(const ABuffer; ACount: LongInt): LongInt;
 begin
-  if (FInner.Position + ACount) > MaxResponseBytes then
+  if (FInner.Position + ACount) > FCap then
     raise EWriteError.Create('revocation response exceeds the size cap');
   Result := FInner.Write(ABuffer, ACount);
 end;
@@ -205,7 +211,7 @@ end;
 {$ENDIF FPC}
 
 class function TSocketHttpFetcher.Fetch(const AMethod, AUrl, AContentType: string;
-  const ABody: TBytes; ATimeoutMs: Cardinal; out AResponse: TBytes): Boolean;
+  const ABody: TBytes; ATimeoutMs: Cardinal; AMaxBytes: Int32; out AResponse: TBytes): Boolean;
 var
   LRequest: TMemoryStream;
   LSink: TStream;
@@ -222,7 +228,7 @@ begin
       LRequest.WriteBuffer(ABody[0], System.Length(ABody));
       LRequest.Position := 0;
     end;
-    LSink := TBoundedMemoryStream.Create;
+    LSink := TBoundedMemoryStream.Create(AMaxBytes);
     LStatus := Execute(AMethod, AUrl, AContentType, LRequest, ATimeoutMs, LSink);
     if (LStatus >= 200) and (LStatus < 300) then
     begin
@@ -239,15 +245,16 @@ begin
 end;
 
 function TSocketHttpFetcher.Get(const AUrl: string; ATimeoutMs: Cardinal;
-  out AResponse: TBytes): Boolean;
+  AMaxBytes: Int32; out AResponse: TBytes): Boolean;
 begin
-  Result := Fetch('GET', AUrl, '', nil, ATimeoutMs, AResponse);
+  Result := Fetch('GET', AUrl, '', nil, ATimeoutMs, AMaxBytes, AResponse);
 end;
 
 function TSocketHttpFetcher.Post(const AUrl, AContentType: string;
-  const ABody: TBytes; ATimeoutMs: Cardinal; out AResponse: TBytes): Boolean;
+  const ABody: TBytes; ATimeoutMs: Cardinal; AMaxBytes: Int32;
+  out AResponse: TBytes): Boolean;
 begin
-  Result := Fetch('POST', AUrl, AContentType, ABody, ATimeoutMs, AResponse);
+  Result := Fetch('POST', AUrl, AContentType, ABody, ATimeoutMs, AMaxBytes, AResponse);
 end;
 
 end.

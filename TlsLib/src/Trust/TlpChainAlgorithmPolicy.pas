@@ -39,11 +39,13 @@ type
   strict private
     class function IsAnchor(const ADer: TBytes; const ARoots: TArray<TBytes>): Boolean; static;
     class function RequiredScheme(AFamily: TCertSignatureFamily;
-      AHash: TCertSignatureHash; APssCanonical: Boolean): UInt16; static;
+      AHash: TCertSignatureHash; APssCanonical: Boolean;
+      AIssuerKeyIsPss: Boolean): UInt16; static;
     class function KeyMeetsPolicy(const AFacts: TCertKeyFacts;
       const APolicy: TCertificateStrengthPolicy): Boolean; static;
     class function CheckCertificate(const AInspector: ICertificateInspector;
-      const ADer: TBytes; const APolicy: TCertificateStrengthPolicy;
+      const ADer: TBytes; AIssuerKeyIsPss: Boolean;
+      const APolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>; out AAlert: TTlsAlertDescription): Boolean; static;
   public
     class function Check(const AInspector: ICertificateInspector;
@@ -68,7 +70,8 @@ begin
 end;
 
 class function TChainAlgorithmPolicy.RequiredScheme(AFamily: TCertSignatureFamily;
-  AHash: TCertSignatureHash; APssCanonical: Boolean): UInt16;
+  AHash: TCertSignatureHash; APssCanonical: Boolean;
+  AIssuerKeyIsPss: Boolean): UInt16;
 begin
   Result := 0; // 0 = no advertised scheme can satisfy this signature
   case AFamily of
@@ -82,16 +85,27 @@ begin
           Result := TSignatureSchemes.RsaPkcs1Sha512;
       end;
     TCertSignatureFamily.RsaPss:
-      // a non-canonical PSS (wrong MGF/salt, or absent params defaulting to SHA-1) has no match
+      // a non-canonical PSS (wrong MGF/salt, or absent params defaulting to SHA-1) has no match;
+      // a PSS-restricted issuer key signs with rsa_pss_pss_*, an rsaEncryption issuer with rsae
       if APssCanonical then
-        case AHash of
-          TCertSignatureHash.Sha256:
-            Result := TSignatureSchemes.RsaPssRsaeSha256;
-          TCertSignatureHash.Sha384:
-            Result := TSignatureSchemes.RsaPssRsaeSha384;
-          TCertSignatureHash.Sha512:
-            Result := TSignatureSchemes.RsaPssRsaeSha512;
-        end;
+        if AIssuerKeyIsPss then
+          case AHash of
+            TCertSignatureHash.Sha256:
+              Result := TSignatureSchemes.RsaPssPssSha256;
+            TCertSignatureHash.Sha384:
+              Result := TSignatureSchemes.RsaPssPssSha384;
+            TCertSignatureHash.Sha512:
+              Result := TSignatureSchemes.RsaPssPssSha512;
+          end
+        else
+          case AHash of
+            TCertSignatureHash.Sha256:
+              Result := TSignatureSchemes.RsaPssRsaeSha256;
+            TCertSignatureHash.Sha384:
+              Result := TSignatureSchemes.RsaPssRsaeSha384;
+            TCertSignatureHash.Sha512:
+              Result := TSignatureSchemes.RsaPssRsaeSha512;
+          end;
     TCertSignatureFamily.Ecdsa:
       // curve-agnostic: an ECDSA chain signature is keyed on its hash, not the issuer curve
       case AHash of
@@ -132,8 +146,8 @@ end;
 
 class function TChainAlgorithmPolicy.CheckCertificate(
   const AInspector: ICertificateInspector; const ADer: TBytes;
-  const APolicy: TCertificateStrengthPolicy; const AAdvertised: TArray<UInt16>;
-  out AAlert: TTlsAlertDescription): Boolean;
+  AIssuerKeyIsPss: Boolean; const APolicy: TCertificateStrengthPolicy;
+  const AAdvertised: TArray<UInt16>; out AAlert: TTlsAlertDescription): Boolean;
 var
   LCert: IInspectedCertificate;
   LSig: TCertSignatureFacts;
@@ -157,7 +171,7 @@ begin
     AAlert := TTlsAlertDescription.BadCertificate;
     Exit(False);
   end;
-  LRequired := RequiredScheme(LSig.Family, LSig.Hash, LSig.PssCanonical);
+  LRequired := RequiredScheme(LSig.Family, LSig.Hash, LSig.PssCanonical, AIssuerKeyIsPss);
   if (LRequired = 0) or not (TArrayUtilities.Contains<UInt16>(AAdvertised, LRequired)) then
   begin
     AAlert := TTlsAlertDescription.UnsupportedCertificate;
@@ -182,6 +196,7 @@ class function TChainAlgorithmPolicy.Check(const AInspector: ICertificateInspect
   const AAdvertised: TArray<UInt16>; out AAlert: TTlsAlertDescription): Boolean;
 var
   LI: Int32;
+  LIssuerKeyIsPss: Boolean;
 begin
   Result := True;
   AAlert := TTlsAlertDescription.BadCertificate;
@@ -190,7 +205,12 @@ begin
     // a configured trust anchor is not a validated edge (RFC 8446 4.2.3); the leaf never is
     if (LI > 0) and IsAnchor(AChain[LI], ARoots) then
       Continue;
-    if not CheckCertificate(AInspector, AChain[LI], APolicy, AAdvertised, AAlert) then
+    // the signature on this certificate was made by its issuer (the next element); a PSS-restricted
+    // issuer key means a rsa_pss_pss_* signature. A missing issuer resolves conservatively to False.
+    LIssuerKeyIsPss := (LI + 1 < System.Length(AChain)) and
+      (AInspector.KeyIsRsaPss(AChain[LI + 1]) = TCertAnswer.Yes);
+    if not CheckCertificate(AInspector, AChain[LI], LIssuerKeyIsPss, APolicy,
+      AAdvertised, AAlert) then
       Exit(False);
   end;
 end;

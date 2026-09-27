@@ -60,6 +60,9 @@ type
     function Chain: TArray<TBytes>;
     function NewChecker(const AFetcher: IHttpFetcher; APosture: TRevocationPosture;
       AMethod: TLiveRevocationMethod): TLiveRevocationChecker;
+    // the checker's accept/reject verdict for a server-presented chain, via the resolver seam
+    function Accepts(const AChecker: TLiveRevocationChecker;
+      const AChain: TArray<TBytes>): Boolean;
     function NowUtc: TDateTime;
   published
     // provider primitives
@@ -87,6 +90,7 @@ type
     // edges
     procedure TestChainWithoutIssuerIsIndeterminate;
     procedure TestResolveVerdictRejectsRevoked;
+    procedure TestFetchBodyCapsArePassed;
     // a live Good without nextUpdate (RFC 6960 4.2.2.1) is accepted within the max age and
     // Indeterminate beyond it; a live check never settles inline, so no park is skipped by it
     procedure TestLiveGoodWithoutNextUpdateWithinMaxAgeIsGood;
@@ -109,6 +113,9 @@ type
     function Classify(const ACrlField: string): string;
     procedure CheckClassified(const ACrlField, AExpected, AWhy: string);
     function NewChecker(const ACrl: TBytes; APosture: TRevocationPosture): TLiveRevocationChecker;
+    // the checker's accept/reject verdict for a server-presented chain, via the resolver seam
+    function Accepts(const AChecker: TLiveRevocationChecker;
+      const AChain: TArray<TBytes>): Boolean;
   published
     procedure TestInScopeCrlsAreAuthoritative;
     procedure TestWrongShardCrlIsIndeterminate;
@@ -199,6 +206,18 @@ function TTestLiveRevocation.NewChecker(const AFetcher: IHttpFetcher;
 begin
   Result := TLiveRevocationChecker.Create(Pkix, TSystemClock.Create as ITlsClock,
     AFetcher, APosture, AMethod, 0);
+end;
+
+function TTestLiveRevocation.Accepts(const AChecker: TLiveRevocationChecker;
+  const AChain: TArray<TBytes>): Boolean;
+var
+  LCtx: TCertificateVerdictContext;
+  LAlert: TTlsAlertDescription;
+begin
+  LCtx := Default(TCertificateVerdictContext);
+  LCtx.PeerRole := TPeerRole.Server;
+  LCtx.Chain := AChain;
+  Result := AChecker.ResolveVerdict(LCtx, LAlert);
 end;
 
 procedure TTestLiveRevocation.TestOcspResponderUrlExtracted;
@@ -309,7 +328,7 @@ begin
     TMockClock.Create(UInt64(LMidMs)) as ITlsClock, LFetcher as IHttpFetcher,
     TRevocationPosture.Hard, TLiveRevocationMethod.Crl, 0);
   try
-    CheckTrue(LChecker.CheckChain(Chain),
+    CheckTrue(Accepts(LChecker, Chain),
       'under a clock inside the CRL window the stale CRL is authoritative and accepts');
   finally
     LChecker.Free;
@@ -342,9 +361,39 @@ begin
   try
     CheckTrue(LChecker.Evaluate(Chain) = TLiveRevocationOutcome.Good,
       'a fresh Good OCSP response yields Good');
-    CheckTrue(LChecker.CheckChain(Chain), 'a Good live status accepts, even under Hard');
+    CheckTrue(Accepts(LChecker, Chain), 'a Good live status accepts, even under Hard');
     CheckEquals('http://ocsp.tlslib.test/', LFetcher.LastPostUrl,
       'the checker POSTed to the AIA responder URL');
+  finally
+    LChecker.Free;
+  end;
+end;
+
+procedure TTestLiveRevocation.TestFetchBodyCapsArePassed;
+var
+  LFetcher: TMockHttpFetcher;
+  LChecker: TLiveRevocationChecker;
+begin
+  // the checker bounds each peer-chosen download so a hostile responder cannot make the fetcher
+  // buffer an unbounded body: 64 KiB for an OCSP response, 32 MiB for a CRL
+  LFetcher := TMockHttpFetcher.Create;
+  LFetcher.SetPost(True, OcspGood);
+  LChecker := NewChecker(LFetcher as IHttpFetcher, TRevocationPosture.Hard,
+    TLiveRevocationMethod.Ocsp);
+  try
+    LChecker.Evaluate(Chain);
+    CheckEquals(64 * 1024, LFetcher.LastMaxBytes, 'the OCSP POST is bounded at 64 KiB');
+  finally
+    LChecker.Free;
+  end;
+
+  LFetcher := TMockHttpFetcher.Create;
+  LFetcher.SetGet(True, CrlGood);
+  LChecker := NewChecker(LFetcher as IHttpFetcher, TRevocationPosture.Hard,
+    TLiveRevocationMethod.Crl);
+  try
+    LChecker.Evaluate(Chain);
+    CheckEquals(32 * 1024 * 1024, LFetcher.LastMaxBytes, 'the CRL GET is bounded at 32 MiB');
   finally
     LChecker.Free;
   end;
@@ -365,8 +414,8 @@ begin
     CheckTrue(LSoft.Evaluate(Chain) = TLiveRevocationOutcome.Revoked,
       'a Revoked OCSP response yields Revoked');
     // a definitive live revocation aborts regardless of posture (fail-closed, exit gate)
-    CheckFalse(LSoft.CheckChain(Chain), 'Revoked rejects even under Soft');
-    CheckFalse(LHard.CheckChain(Chain), 'Revoked rejects under Hard');
+    CheckFalse(Accepts(LSoft, Chain), 'Revoked rejects even under Soft');
+    CheckFalse(Accepts(LHard, Chain), 'Revoked rejects under Hard');
   finally
     LSoft.Free;
     LHard.Free;
@@ -400,8 +449,8 @@ begin
       'an oversize OCSP body is indeterminate');
     CheckEquals(0, LSpy.OcspParseCount,
       'the cap rejected the oversize body before the OCSP parser was reached');
-    CheckTrue(LSoft.CheckChain(Chain), 'Soft soft-fails an oversize responder body');
-    CheckFalse(LHard.CheckChain(Chain), 'Hard rejects an oversize responder body');
+    CheckTrue(Accepts(LSoft, Chain), 'Soft soft-fails an oversize responder body');
+    CheckFalse(Accepts(LHard, Chain), 'Hard rejects an oversize responder body');
   finally
     LSoft.Free;
     LHard.Free;
@@ -438,8 +487,8 @@ begin
   try
     CheckTrue(LSoft.Evaluate(Chain) = TLiveRevocationOutcome.Indeterminate,
       'an unreachable responder is indeterminate');
-    CheckTrue(LSoft.CheckChain(Chain), 'Soft soft-fails an unreachable responder');
-    CheckFalse(LHard.CheckChain(Chain), 'Hard rejects an unreachable responder');
+    CheckTrue(Accepts(LSoft, Chain), 'Soft soft-fails an unreachable responder');
+    CheckFalse(Accepts(LHard, Chain), 'Hard rejects an unreachable responder');
   finally
     LSoft.Free;
     LHard.Free;
@@ -458,7 +507,7 @@ begin
   try
     CheckTrue(LHard.Evaluate(Chain) = TLiveRevocationOutcome.Indeterminate,
       'a malformed response is indeterminate, never trusted');
-    CheckFalse(LHard.CheckChain(Chain), 'Hard rejects a malformed response');
+    CheckFalse(Accepts(LHard, Chain), 'Hard rejects a malformed response');
   finally
     LHard.Free;
   end;
@@ -476,7 +525,7 @@ begin
   try
     CheckTrue(LSoft.Evaluate(Chain) = TLiveRevocationOutcome.Revoked,
       'a CRL listing the leaf yields Revoked');
-    CheckFalse(LSoft.CheckChain(Chain), 'a CRL revocation rejects even under Soft');
+    CheckFalse(Accepts(LSoft, Chain), 'a CRL revocation rejects even under Soft');
     CheckEquals('http://crl.tlslib.test/ca.crl', LFetcher.LastGetUrl,
       'the checker GET the CRL distribution point');
   finally
@@ -496,7 +545,7 @@ begin
   try
     CheckTrue(LHard.Evaluate(Chain) = TLiveRevocationOutcome.Good,
       'a CRL not listing the leaf yields Good');
-    CheckTrue(LHard.CheckChain(Chain), 'a clean CRL accepts');
+    CheckTrue(Accepts(LHard, Chain), 'a clean CRL accepts');
   finally
     LHard.Free;
   end;
@@ -528,8 +577,8 @@ begin
       'an oversize CRL is indeterminate');
     CheckEquals(0, LSpy.CrlParseCount,
       'the cap rejected the oversize CRL before the CRL parser was reached');
-    CheckTrue(LSoft.CheckChain(Chain), 'Soft soft-fails an oversize CRL');
-    CheckFalse(LHard.CheckChain(Chain), 'Hard rejects an oversize CRL');
+    CheckTrue(Accepts(LSoft, Chain), 'Soft soft-fails an oversize CRL');
+    CheckFalse(Accepts(LHard, Chain), 'Hard rejects an oversize CRL');
   finally
     LSoft.Free;
     LHard.Free;
@@ -574,7 +623,7 @@ begin
   try
     CheckTrue(LChecker.Evaluate(Chain) = TLiveRevocationOutcome.Indeterminate,
       'a stale CRL yields Indeterminate, never a silent Good');
-    CheckFalse(LChecker.CheckChain(Chain),
+    CheckFalse(Accepts(LChecker, Chain),
       'Hard posture rejects the indeterminate stale-CRL outcome');
   finally
     LChecker.Free;
@@ -597,7 +646,7 @@ begin
   try
     CheckTrue(LChecker.Evaluate(Chain) = TLiveRevocationOutcome.Indeterminate,
       'Off yields Indeterminate without consulting any responder');
-    CheckTrue(LChecker.CheckChain(Chain), 'Off accepts the indeterminate outcome (soft)');
+    CheckTrue(Accepts(LChecker, Chain), 'Off accepts the indeterminate outcome (soft)');
     CheckEquals(0, LFetcher.PostCount, 'Off performs no OCSP POST');
     CheckEquals(0, LFetcher.GetCount, 'Off performs no CRL GET');
   finally
@@ -619,7 +668,7 @@ begin
     CheckTrue(LHard.Evaluate(TArray<TBytes>.Create(LeafCert)) =
       TLiveRevocationOutcome.Indeterminate,
       'a chain without an issuer is indeterminate');
-    CheckFalse(LHard.CheckChain(TArray<TBytes>.Create(LeafCert)),
+    CheckFalse(Accepts(LHard, TArray<TBytes>.Create(LeafCert)),
       'Hard rejects an unauthenticatable chain');
   finally
     LHard.Free;
@@ -685,7 +734,7 @@ begin
     CheckTrue(LChecker.Evaluate(TArray<TBytes>.Create(LLeaf, LCa)) =
       TLiveRevocationOutcome.Good,
       'a live Good without nextUpdate, one hour old, yields Good');
-    CheckTrue(LChecker.CheckChain(TArray<TBytes>.Create(LLeaf, LCa)),
+    CheckTrue(Accepts(LChecker, TArray<TBytes>.Create(LLeaf, LCa)),
       'a recent live Good accepts under Hard');
   finally
     LChecker.Free;
@@ -724,7 +773,7 @@ begin
     CheckTrue(LChecker.Evaluate(TArray<TBytes>.Create(LLeaf, LCa)) =
       TLiveRevocationOutcome.Indeterminate,
       'a live Good without nextUpdate past the max age is Indeterminate');
-    CheckFalse(LChecker.CheckChain(TArray<TBytes>.Create(LLeaf, LCa)),
+    CheckFalse(Accepts(LChecker, TArray<TBytes>.Create(LLeaf, LCa)),
       'Hard rejects the indeterminate outcome');
   finally
     LChecker.Free;
@@ -783,6 +832,18 @@ begin
   LFetcher.SetGet(True, ACrl);
   Result := TLiveRevocationChecker.Create(Pkix, TSystemClock.Create as ITlsClock,
     LFetcher as IHttpFetcher, APosture, TLiveRevocationMethod.Crl, 0);
+end;
+
+function TTestCrlScope.Accepts(const AChecker: TLiveRevocationChecker;
+  const AChain: TArray<TBytes>): Boolean;
+var
+  LCtx: TCertificateVerdictContext;
+  LAlert: TTlsAlertDescription;
+begin
+  LCtx := Default(TCertificateVerdictContext);
+  LCtx.PeerRole := TPeerRole.Server;
+  LCtx.Chain := AChain;
+  Result := AChecker.ResolveVerdict(LCtx, LAlert);
 end;
 
 procedure TTestCrlScope.TestInScopeCrlsAreAuthoritative;
@@ -872,8 +933,8 @@ begin
   try
     CheckTrue(LHard.Evaluate(Chain) = TLiveRevocationOutcome.Indeterminate,
       'a live wrong-shard CRL yields Indeterminate, never a silent Good');
-    CheckFalse(LHard.CheckChain(Chain), 'Hard rejects the wrong-shard CRL');
-    CheckTrue(LSoft.CheckChain(Chain), 'Soft accepts the indeterminate outcome');
+    CheckFalse(Accepts(LHard, Chain), 'Hard rejects the wrong-shard CRL');
+    CheckTrue(Accepts(LSoft, Chain), 'Soft accepts the indeterminate outcome');
   finally
     LSoft.Free;
     LHard.Free;
@@ -889,10 +950,10 @@ begin
   try
     CheckTrue(LRevoked.Evaluate(Chain) = TLiveRevocationOutcome.Revoked,
       'the leaf shard CRL listing the serial yields Revoked');
-    CheckFalse(LRevoked.CheckChain(Chain), 'a shard revocation rejects even under Soft');
+    CheckFalse(Accepts(LRevoked, Chain), 'a shard revocation rejects even under Soft');
     CheckTrue(LClean.Evaluate(Chain) = TLiveRevocationOutcome.Good,
       'the clean leaf shard CRL yields Good');
-    CheckTrue(LClean.CheckChain(Chain), 'a clean in-scope CRL accepts under Hard');
+    CheckTrue(Accepts(LClean, Chain), 'a clean in-scope CRL accepts under Hard');
   finally
     LRevoked.Free;
     LClean.Free;

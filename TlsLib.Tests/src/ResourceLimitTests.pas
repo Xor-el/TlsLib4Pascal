@@ -270,7 +270,7 @@ begin
       TCertificateCompressionAlgorithms.Zlib, JunkCert(64), 4096, 1024);
   except
     on E: EFatalAlertTlsLibException do
-      LRaised := E.AlertDescription = TTlsAlertDescription.BadCertificate;
+      LRaised := E.AlertDescription = TTlsAlertDescription.IllegalParameter;
   end;
   CheckTrue(LRaised, 'a declared length above the configured ceiling is rejected');
 end;
@@ -307,9 +307,9 @@ begin
     SeamDecompress(TCertificateCompressionAlgorithms.Zlib, LCompressed, 60000);
   except
     on E: EFatalAlertTlsLibException do
-      LRaised := E.AlertDescription = TTlsAlertDescription.BadCertificate;
+      LRaised := E.AlertDescription = TTlsAlertDescription.IllegalParameter;
   end;
-  CheckTrue(LRaised, 'a decompression bomb is rejected as bad_certificate');
+  CheckTrue(LRaised, 'a decompression bomb is rejected as illegal_parameter');
 end;
 
 procedure TTestResourceLimit.TestCertificateDecompressionDeclaredTooLargeRejected;
@@ -323,7 +323,7 @@ begin
       JunkCert(64), (1 shl 18) + 1);
   except
     on E: EFatalAlertTlsLibException do
-      LRaised := E.AlertDescription = TTlsAlertDescription.BadCertificate;
+      LRaised := E.AlertDescription = TTlsAlertDescription.IllegalParameter;
   end;
   CheckTrue(LRaised, 'an over-large declared length is rejected');
 end;
@@ -331,14 +331,20 @@ end;
 procedure TTestResourceLimit.TestCertificateDecompressionLengthMismatchRejected;
 var
   LOriginal, LCompressed: TBytes;
+  LI: Int32;
   LRaised: Boolean;
 begin
-  // the produced length must equal the declared length exactly
-  LOriginal := JunkCert(3000);
+  // the produced length must equal the declared length exactly. Use a moderately-compressible
+  // payload and declare one byte over the true size so the ratio guard is not tripped first: only
+  // the produced/declared mismatch fires, which is bad_certificate (not a malformed wire field)
+  LOriginal := nil;
+  SetLength(LOriginal, 5000);
+  for LI := 0 to System.Length(LOriginal) - 1 do
+    LOriginal[LI] := Byte((LI * 7) and $FF);
   LCompressed := ZlibCompress(LOriginal);
   LRaised := False;
   try
-    SeamDecompress(TCertificateCompressionAlgorithms.Zlib, LCompressed, 3200);
+    SeamDecompress(TCertificateCompressionAlgorithms.Zlib, LCompressed, 5001);
   except
     on E: EFatalAlertTlsLibException do
       LRaised := E.AlertDescription = TTlsAlertDescription.BadCertificate;
@@ -356,7 +362,7 @@ begin
     SeamDecompress(2, JunkCert(64), 100);
   except
     on E: EFatalAlertTlsLibException do
-      LRaised := E.AlertDescription = TTlsAlertDescription.BadCertificate;
+      LRaised := E.AlertDescription = TTlsAlertDescription.IllegalParameter;
   end;
   CheckTrue(LRaised, 'an unsupported compression algorithm is rejected');
 end;

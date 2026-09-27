@@ -37,7 +37,8 @@ uses
 type
   /// <summary>The connection-scoped policy an OS delegate applies around its platform engine. Built
   /// from the trust context by the source; Anchors is the exclusive client-CA root (client role
-  /// only).</summary>
+  /// only); CheckHostName mirrors the client config so a delegate honours a disabled name check the
+  /// same way the built-in verifier does (server role only; a client cert has no name to match).</summary>
   TOSDelegatePolicy = record
     Pkix: IPkixProvider;
     Clock: ITlsClock;
@@ -47,6 +48,7 @@ type
     StrengthPolicy: TCertificateStrengthPolicy;
     AdvertisedSchemes: TArray<UInt16>;
     Anchors: TArray<TBytes>;
+    CheckHostName: Boolean;
     DeadlineMs: Cardinal;
     class function FromServerContext(const AContext: TServerTrustContext;
       AFetch: TSystemTrustFetch): TOSDelegatePolicy; static;
@@ -149,6 +151,7 @@ begin
   Result.Deferral := AContext.Deferral;
   Result.StrengthPolicy := AContext.StrengthPolicy;
   Result.AdvertisedSchemes := AContext.AdvertisedSignatureSchemes;
+  Result.CheckHostName := AContext.CheckHostName;
   // the server path trusts the OS roots, so no exclusive anchor set
   Result.Anchors := nil;
   Result.DeadlineMs := 0;
@@ -165,6 +168,8 @@ begin
   Result.Deferral := AContext.Deferral;
   Result.StrengthPolicy := AContext.StrengthPolicy;
   Result.AdvertisedSchemes := AContext.AdvertisedSignatureSchemes;
+  // a client certificate carries no server name to match
+  Result.CheckHostName := False;
   // a client certificate is authenticated only against the configured client-CA anchors
   if AContext.TrustStore <> nil then
     Result.Anchors := AContext.TrustStore.RootCertificates
@@ -229,7 +234,13 @@ begin
   Result := Default(TPlatformChainRequest);
   Result.Chain := AChain;
   Result.Anchors := FPolicy.Anchors;
-  Result.ServerName := AServerName;
+  // with the name check off, withhold the host from an engine that matches it internally so it does
+  // not reject a name mismatch the built-in verifier would have skipped (Complete skips the re-check)
+  if (not FPolicy.CheckHostName) and
+    (TPlatformChainCapability.DnsIdentity in FEngine.Capabilities) then
+    Result.ServerName := Default(TServerName)
+  else
+    Result.ServerName := AServerName;
   Result.OcspStaple := AStaple;
   Result.Revocation := RevocationCheck;
   Result.NetworkAllowed := False;
@@ -274,14 +285,16 @@ begin
   else if not TRevocationDecision.Decide(LStaple, FPolicy.Posture, DeferToLive, AAlert) then
     Exit(False);
   // identity: an engine that matched the DNS host leaves only an IP literal to re-check; one that
-  // checked no host has the full identity matched here (an empty client-role name fires neither)
-  if TPlatformChainCapability.DnsIdentity in Engine.Capabilities then
-  begin
-    if TDelegatePostChecks.RejectIpMismatch(AServerName, FPolicy.Pkix, AResult.Path, AAlert) then
+  // checked no host has the full identity matched here (an empty client-role name fires neither).
+  // With the name check off there is nothing to match, as with the built-in verifier
+  if FPolicy.CheckHostName then
+    if TPlatformChainCapability.DnsIdentity in Engine.Capabilities then
+    begin
+      if TDelegatePostChecks.RejectIpMismatch(AServerName, FPolicy.Pkix, AResult.Path, AAlert) then
+        Exit(False);
+    end
+    else if TDelegatePostChecks.RejectNameMismatch(AServerName, FPolicy.Pkix, AResult.Path, AAlert) then
       Exit(False);
-  end
-  else if TDelegatePostChecks.RejectNameMismatch(AServerName, FPolicy.Pkix, AResult.Path, AAlert) then
-    Exit(False);
   AVerified.Path := AResult.Path;
   AVerified.Outcome := TVerificationOutcome.Trusted;
   Result := True;
@@ -350,7 +363,8 @@ begin
   // an engine that renders no cached revocation outcome cannot satisfy a Hard client posture without
   // the live-revocation verdict (a client certificate is never stapled)
   if not (TPlatformChainCapability.CachedRevocation in FEngine.Capabilities) and
-    TDelegatePostChecks.HardNeedsLiveRevocation(AContext.RevocationPosture, AContext.Deferral) then
+    TRevocationDecision.HardNeedsLiveRevocation(AContext.RevocationPosture,
+    AContext.Deferral = TVerdictDeferral.LiveRevocation) then
     raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SHardNeedsLiveRevocationVerdict);
   Result := TOSDelegateClientVerifier.Create(FEngine,
     TOSDelegatePolicy.FromClientContext(AContext, FFetch)) as IClientCertificateVerifier;
@@ -385,8 +399,10 @@ begin
   LRequest.NetworkAllowed := True;
   LRequest.Clock := FPolicy.Clock;
   LRequest.DeadlineMs := FPolicy.DeadlineMs;
-  // the base already stripped an IP literal via OsHostName, so a non-empty host is a DNS name
-  if AHostName <> '' then
+  // the base already stripped an IP literal via OsHostName, so a non-empty host is a DNS name;
+  // withhold it from a name-matching engine when the name check is off, as BuildRequest does
+  if (AHostName <> '') and (FPolicy.CheckHostName or
+    not (TPlatformChainCapability.DnsIdentity in FEngine.Capabilities)) then
     LRequest.ServerName := TServerName.DnsName(AHostName)
   else
     LRequest.ServerName := Default(TServerName);

@@ -41,8 +41,10 @@ type
   private
     FEc: TStringList;
     FRsa: TStringList;
+    FPss: TStringList;
     function EcCert(const AName: string): TBytes;
     function RsaCert(const AName: string): TBytes;
+    function PssCert(const AName: string): TBytes;
     // the default advertised signature schemes (what a stock config offers)
     function Advertised: TArray<UInt16>;
   protected
@@ -57,6 +59,8 @@ type
     procedure TestRejectsRsaBelowFloor;
     procedure TestRejectsUnadvertisedScheme;
     procedure TestRejectsDisallowedCurve;
+    procedure TestAcceptsRsaPssPssIssuerWhenAdvertised;
+    procedure TestRejectsRsaPssPssIssuerWhenOnlyRsaeAdvertised;
   end;
 
 implementation
@@ -68,12 +72,14 @@ begin
   inherited SetUp;
   FEc := LoadVectorFields('Certs/EcP256Chain.txt');
   FRsa := LoadVectorFields('Certs/Rsa2048Chain.txt');
+  FPss := LoadVectorFields('Certs/KeyUsagePss.txt');
 end;
 
 procedure TTestChainAlgorithmPolicy.TearDown;
 begin
   FEc.Free;
   FRsa.Free;
+  FPss.Free;
   inherited TearDown;
 end;
 
@@ -85,6 +91,11 @@ end;
 function TTestChainAlgorithmPolicy.RsaCert(const AName: string): TBytes;
 begin
   Result := DecodeHex(FRsa.Values[AName]);
+end;
+
+function TTestChainAlgorithmPolicy.PssCert(const AName: string): TBytes;
+begin
+  Result := DecodeHex(FPss.Values[AName]);
 end;
 
 function TTestChainAlgorithmPolicy.Advertised: TArray<UInt16>;
@@ -197,6 +208,38 @@ begin
     'a P-256 leaf is rejected when the allowlist admits only P-384');
   CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
     'a disallowed curve is unsupported_certificate');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestAcceptsRsaPssPssIssuerWhenAdvertised;
+var
+  LAlert: TTlsAlertDescription;
+  LPss: TBytes;
+begin
+  // the self-signed id-RSASSA-PSS cert stands in for both leaf and issuer: its PSS-restricted
+  // issuer key means the leaf's signature is rsa_pss_pss_sha256, which here is advertised. The
+  // issuer copy at index 1 is the configured anchor, so only the leaf is checked.
+  LPss := PssCert('rsapss_cert');
+  CheckTrue(TChainAlgorithmPolicy.Check(Pkix.Certificates,
+    TArray<TBytes>.Create(LPss, LPss), TArray<TBytes>.Create(LPss),
+    TCertificateStrengthPolicy.Defaults,
+    TArray<UInt16>.Create(TSignatureSchemes.RsaPssPssSha256), LAlert),
+    'a PSS-restricted issuer with rsa_pss_pss_sha256 advertised is accepted');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestRejectsRsaPssPssIssuerWhenOnlyRsaeAdvertised;
+var
+  LAlert: TTlsAlertDescription;
+  LPss: TBytes;
+begin
+  // the default offer carries rsa_pss_rsae_* but not rsa_pss_pss_*: an id-RSASSA-PSS issuer
+  // requires the pss_pss scheme, so the chain is refused rather than matched against rsae
+  LPss := PssCert('rsapss_cert');
+  CheckFalse(TChainAlgorithmPolicy.Check(Pkix.Certificates,
+    TArray<TBytes>.Create(LPss, LPss), TArray<TBytes>.Create(LPss),
+    TCertificateStrengthPolicy.Defaults, Advertised, LAlert),
+    'a PSS-restricted issuer is rejected when only rsa_pss_rsae_* is advertised');
+  CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
+    'an unmatched pss_pss requirement is unsupported_certificate');
 end;
 
 initialization

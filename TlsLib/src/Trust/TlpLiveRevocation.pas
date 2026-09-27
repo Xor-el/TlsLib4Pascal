@@ -87,9 +87,6 @@ type
     /// candidates if any qualify; failing that the outcome is Indeterminate (nothing authenticates a
     /// revocation).</summary>
     function Evaluate(const AChain: TArray<TBytes>): TLiveRevocationOutcome;
-    /// <summary>The fail-closed accept/reject verdict for the chain: Revoked rejects always,
-    /// Good accepts, Indeterminate follows the posture.</summary>
-    function CheckChain(const AChain: TArray<TBytes>): Boolean;
     /// <summary>Signature-compatible with the stream verdict resolver (the host name is
     /// not used for revocation): assign it to TTlsStream.SetCertificateVerdictResolver to run
     /// live revocation as the out-of-band verdict for a parked handshake. On reject, ARejectAlert
@@ -140,7 +137,7 @@ begin
     Exit;
   // unreachable / non-2xx / empty body -> indeterminate (never a silent pass)
   if not FFetcher.Post(AResponderUrl, OcspRequestContentType, LRequest, FTimeoutMs,
-    LResponse) then
+    MaxOcspResponseBytes, LResponse) then
     Exit;
   if System.Length(LResponse) > MaxOcspResponseBytes then
     Exit;
@@ -181,7 +178,7 @@ begin
   Result := TLiveRevocationOutcome.Indeterminate;
   if (ACrlUrl = '') or (FFetcher = nil) then
     Exit;
-  if not FFetcher.Get(ACrlUrl, FTimeoutMs, LCrl) then
+  if not FFetcher.Get(ACrlUrl, FTimeoutMs, MaxCrlBytes, LCrl) then
     Exit;
   if System.Length(LCrl) > MaxCrlBytes then
     Exit;
@@ -207,7 +204,7 @@ var
 begin
   Result := TLiveRevocationOutcome.Indeterminate;
   // Off suppresses the live fetch entirely (its network + privacy cost): no OCSP POST
-  // and no CRL GET. The outcome is Indeterminate, which CheckChain accepts under Off (soft); a
+  // and no CRL GET. The outcome is Indeterminate, which the posture accepts under Off (soft); a
   // stapled Revoked is still honored upstream by the built-in pipeline before the park.
   if FPosture = TRevocationPosture.Off then
     Exit;
@@ -241,15 +238,6 @@ begin
       end;
 
   Result := TLiveRevocationOutcome.Indeterminate;
-end;
-
-function TLiveRevocationChecker.CheckChain(const AChain: TArray<TBytes>): Boolean;
-var
-  LAlert: TTlsAlertDescription;
-begin
-  // the shared fail-closed table (Revoked rejects, Good accepts, Indeterminate per posture);
-  // this path carries no alert, so it is discarded
-  Result := TRevocationDecision.Decide(Evaluate(AChain), FPosture, False, LAlert);
 end;
 
 function TLiveRevocationChecker.ResolveVerdict(
