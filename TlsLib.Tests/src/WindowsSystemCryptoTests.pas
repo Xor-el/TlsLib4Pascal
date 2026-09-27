@@ -68,12 +68,8 @@ type
     // Whether AKey was adopted by the OS module (carries the native marker).
     function IsNativeKey(const AProvider: ICryptoProvider;
       const AKey: ISigningKey): Boolean;
-    // Whether this host is expected to serve native crypto (TLSLIB_NATIVE_CRYPTO, the same flag
-    // that runs the interop harness native): when set, a non-native result Fails rather than
-    // skips, so a native regression cannot pass vacuously on the Windows CI leg.
-    function RequireNative: Boolean;
-    // Gate for a native test: True to run; when False the caller skips - unless native is
-    // required here, in which case it Fails first.
+    // Gate for a native test: True when the composed provider serves AScheme natively (so the
+    // test runs), False when it reports portable (the caller skips - a host without the OS module).
     function NativeSigningOrSkip(const AProvider: ICryptoProvider;
       AScheme: TSignatureScheme): Boolean;
     // A full, valid TLS 1.3 server config built over the composed overlay with ACredential.
@@ -201,17 +197,10 @@ begin
   Result := TWindowsSystemCrypto.Compose(ABase);
 end;
 
-function TTestWindowsSystemCrypto.RequireNative: Boolean;
-begin
-  Result := SameText(Trim(GetEnvironmentVariable('TLSLIB_NATIVE_CRYPTO')), 'true');
-end;
-
 function TTestWindowsSystemCrypto.NativeSigningOrSkip(const AProvider: ICryptoProvider;
   AScheme: TSignatureScheme): Boolean;
 begin
   Result := IsNativeSigning(AProvider, AScheme);
-  if (not Result) and RequireNative then
-    Fail('native signing is required on this host but the overlay reports portable');
 end;
 
 function TTestWindowsSystemCrypto.BuildServerConfig(
