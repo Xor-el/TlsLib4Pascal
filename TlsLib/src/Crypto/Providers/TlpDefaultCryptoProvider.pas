@@ -1320,8 +1320,8 @@ end;
 
 function TSignatureVerifierAdapter.Verify(const ASignature: TBytes): Boolean;
 begin
-  // fail-closed: any error from the ASN.1/bignum layer (a range or convert error on a malformed
-  // signature, not only a CryptoLib exception) is a failed verification, never an escaping exception
+  // fail-closed: any error on a malformed signature (a range/convert error from the ASN.1/bignum
+  // layer, not only a backend exception) is a failed verification, never an escaping exception
   try
     Result := FSigner.VerifySignature(ASignature);
   except
