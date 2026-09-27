@@ -156,7 +156,7 @@ type
   /// through the base IKeySchedule surface.
   /// </summary>
   ITls12KeySchedule = interface(IKeySchedule)
-    ['{3D8B1F60-5A24-4C93-8E17-9B0A6D2F45C8}']
+    ['{67991EBE-FDB6-47A9-9962-1A5835DE33F5}']
     /// <summary>Sets the pre-master secret (the (EC)DHE shared secret for ECDHE suites).</summary>
     procedure SetPreMasterSecret(const APreMasterSecret: ISecretBuffer);
     /// <summary>Installs a stored master secret directly, for an abbreviated (resumption)

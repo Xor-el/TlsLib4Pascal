@@ -171,8 +171,9 @@ end;
 
 procedure TTls12KeySchedule.SetRandoms(const AClientRandom, AServerRandom: TBytes);
 begin
-  // the randoms seed the key block; changing them after it is derived would desync the two
-  if FClientKey <> nil then
+  // the randoms seed both the master secret and the key block; changing them after the master is
+  // derived would desync the two
+  if FMasterSecret <> nil then
     raise EInvalidOperationTlsLibException.CreateRes(@SRandomsAfterKeyBlock);
   FClientRandom := System.Copy(AClientRandom);
   FServerRandom := System.Copy(AServerRandom);

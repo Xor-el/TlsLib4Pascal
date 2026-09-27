@@ -150,6 +150,24 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'too-long context rejected');
+
+  // the output length is written as a uint16: 0 and >65535 are rejected, not truncated
+  LRaised := False;
+  try
+    THkdfLabel.BuildHkdfLabel('key', nil, 0);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'zero output length rejected');
+  LRaised := False;
+  try
+    THkdfLabel.BuildHkdfLabel('key', nil, 65536);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'over-uint16 output length rejected');
 end;
 
 procedure TTestHkdfLabel.TestSystemHkdfMatchesRfc5869A1;

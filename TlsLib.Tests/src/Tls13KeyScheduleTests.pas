@@ -642,6 +642,15 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'SetSharedSecret after the handshake secret is derived raises');
+  // the early secret is derived by now, so a late SetPsk must also raise
+  LRaised := False;
+  try
+    LSched.SetPsk(TSecretBuffer.From(Bytes('psk')));
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'SetPsk after the early secret is derived raises');
 end;
 
 initialization
