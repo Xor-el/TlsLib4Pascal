@@ -119,7 +119,6 @@ uses
   TlpBinaryPrimitives,
   TlpArrayUtilities,
   TlpEnumUtilities,
-  TlpAsymmetricKeyEquality,
   TlpICryptoProvider,
   TlpISigningKey,
   TlpIKeyExchangePrivateKey,
@@ -2017,7 +2016,7 @@ var
     // a certificate whose key the backend cannot parse is not this key's leaf; skip it rather
     // than fail the whole import (another bag may still pair the key)
     try
-      Result := TAsymmetricKeyEquality.PublicKeysEqual(LPub, AEntry.Certificate.GetPublicKey);
+      Result := LPub.Equals(AEntry.Certificate.GetPublicKey);
     except
       Result := False;
     end;

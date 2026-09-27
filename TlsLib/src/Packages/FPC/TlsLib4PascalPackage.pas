@@ -51,8 +51,7 @@ uses
   TlpHandshakeStage, TlpServerOfferSelection, TlpPeerAuthentication, 
   TlpIKeyExchangePrivateKey, TlpTlsConnection, TlpTrustTypes, TlpIKeyLog, 
   TlpKeyLog, TlpAeadUtilities, TlpClientSessionPolicy, 
-  TlpIEchClientOrchestrator, TlpEchClientOrchestrator, TlpImportedCredential, 
-  TlpAsymmetricKeyEquality;
+  TlpIEchClientOrchestrator, TlpEchClientOrchestrator, TlpImportedCredential;
 
 implementation
 

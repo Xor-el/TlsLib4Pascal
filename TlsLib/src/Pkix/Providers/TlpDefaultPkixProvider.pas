@@ -79,7 +79,6 @@ uses
   TlpPem,
   TlpBinaryPrimitives,
   TlpArrayUtilities,
-  TlpAsymmetricKeyEquality,
   TlpIPkixProvider,
   TlpPkixDomainTypes,
   TlpTlsAlert,
@@ -1448,7 +1447,7 @@ begin
     LKeyB := TPublicKeyFactory.CreateKey(ASpkiB);
     if (LKeyA = nil) or (LKeyB = nil) then
       Exit(TCertAnswer.Undetermined);
-    LMatch := TAsymmetricKeyEquality.PublicKeysEqual(LKeyA, LKeyB);
+    LMatch := LKeyA.Equals(LKeyB);
   except
     Exit(TCertAnswer.Undetermined);
   end;
