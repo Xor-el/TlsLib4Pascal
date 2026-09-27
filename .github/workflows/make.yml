@@ -257,9 +257,10 @@ jobs:
         env:
           FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['windows-x64'].fpc_target }}
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['windows-x64'].fpc_tarball_target }}
-          # Windows always ships CNG + the software KSP, so native crypto must be served here;
-          # make the overlay tests fail (not skip) if the composed provider reports portable
-          TLSLIB_REQUIRE_NATIVE_CRYPTO: '1'
+          # Windows always ships CNG + the software KSP, so native crypto is served here; the same
+          # flag that runs the interop harness against native crypto also makes the overlay unit
+          # tests fail (not skip) if the composed provider reports portable
+          TLSLIB_NATIVE_CRYPTO: ${{ env.MAKE_INTEROP_NATIVE_CRYPTO }}
         run: bash .github/workflows/ci/native-build.sh
 
       # BoGo now runs on Windows too (the shim reads argv via CommandLineToArgvW so the
