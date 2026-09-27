@@ -314,6 +314,10 @@ resourcestring
     '1.3 only (external PSKs are TLS 1.3-only); use a 1.3-only preset or WithSupportedVersions([TLS 1.3])';
   SNoCredential = 'a server configuration requires a certificate credential';
   SNoClientAuthTrustStore = 'client authentication requires a trust source for the client certificate chain';
+  SClientVerifierSourceNeedsAnchors = 'a client-certificate verifier source consumes the ' +
+    'configured client-CA anchors as its exclusive trust root and can trust nothing without them; ' +
+    'add WithTrustAnchors/WithTrustStore yielding at least one root certificate (a verifier that ' +
+    'brings its own roots is installed with WithCertificateVerifier instead)';
   SMtlsSharedResumptionNeedsScope = 'client authentication with a supplied session store or ' +
     'ticket-key manager requires WithResumptionScope: a key or store may be shared across ' +
     'configurations, and a resumed handshake reuses the stored client identity unverified';
@@ -1922,7 +1926,8 @@ begin
   // unlike a server source (OS roots, exclusive of anchors), a client source consumes the
   // configured client-CA anchors as its exclusive trust root, so it is not counted against them
   // (FVerifierCount). ValidateTrustComposition still counts it toward the one-verifier rule via
-  // FClientVerifierSource, so it cannot silently override an instance verifier.
+  // FClientVerifierSource, so it cannot silently override an instance verifier. Because it has
+  // nothing to consume without anchors, Build requires anchor roots alongside it when client auth is on.
   if ASource <> nil then
     FClientVerifierSource := ASource;
   Result := Self;
@@ -2731,13 +2736,17 @@ begin
     (FCredentialResolver = nil) and (System.Length(FExternalPsks) = 0) then
     raise EInvalidOperationTlsLibException.CreateRes(@SNoCredential);
   ValidateTrustComposition;
-  // client authentication verifies the peer chain against a trust source (anchor ROOTS, a
-  // whole-verifier, or a verifier source) unless verification is explicitly skipped; without one
-  // the server would only fail closed at handshake time, so reject it at build (fail fast)
+  // client authentication verifies the peer chain against a trust source: anchor ROOTS, a
+  // whole-verifier, or an explicit skip-verify. A verifier source is NOT a source on its own - it
+  // consumes the client-CA anchors as its exclusive root, so it needs roots too. Without one the
+  // server would only fail closed at handshake time, so reject it at build (fail fast)
   if (FClientAuth <> TClientAuthMode.None) and (not HasAnchorRoots) and
-    (FClientCertVerifier = nil) and (FClientVerifierSource = nil) and
-    (not FDangerousTrust.InsecureSkipVerify) then
+    (FClientCertVerifier = nil) and (not FDangerousTrust.InsecureSkipVerify) then
   begin
+    // a source with no roots to consume: the most specific misconfiguration, named first (whether
+    // the anchor set is absent or supplied-but-empty, the fix is the same - add a root)
+    if FClientVerifierSource <> nil then
+      raise EInvalidOperationTlsLibException.CreateRes(@SClientVerifierSourceNeedsAnchors);
     // a supplied-but-empty store is a distinct misconfiguration (trust believed present but absent)
     if System.Length(FAnchorStores) > 0 then
       raise EInvalidOperationTlsLibException.CreateRes(@SEmptyTrustStore);
