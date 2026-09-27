@@ -33,17 +33,19 @@ type
   /// bounds the whole exchange; 0 leaves the timeout to the implementation.
   /// </summary>
   IHttpFetcher = interface(IInterface)
-    ['{0B7E4A16-5C93-4D28-9F61-3A0C7E5B2D48}']
+    ['{4C1A9F7E-6D30-4B58-8E24-7F5B0A2C9E13}']
     /// <summary>Performs a blocking HTTP GET (used for CRL distribution points). Returns True
     /// with the response body in AResponse on a 2xx with a body; False (AResponse empty) on
-    /// any failure. Never raises.</summary>
-    function Get(const AUrl: string; ATimeoutMs: Cardinal;
+    /// any failure. AMaxBytes bounds the body: a response that would exceed it is a failure and
+    /// the fetcher must stop reading at the bound rather than buffer past it. Never raises.</summary>
+    function Get(const AUrl: string; ATimeoutMs: Cardinal; AMaxBytes: Int32;
       out AResponse: TBytes): Boolean;
     /// <summary>Performs a blocking HTTP POST (used for OCSP requests: AContentType
     /// application/ocsp-request, ABody the DER request). Returns True with the response body
-    /// on a 2xx with a body; False (AResponse empty) on any failure. Never raises.</summary>
+    /// on a 2xx with a body; False (AResponse empty) on any failure. AMaxBytes bounds the body
+    /// as in Get. Never raises.</summary>
     function Post(const AUrl, AContentType: string; const ABody: TBytes;
-      ATimeoutMs: Cardinal; out AResponse: TBytes): Boolean;
+      ATimeoutMs: Cardinal; AMaxBytes: Int32; out AResponse: TBytes): Boolean;
   end;
 
 implementation

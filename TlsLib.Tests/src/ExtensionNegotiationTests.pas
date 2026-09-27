@@ -722,8 +722,8 @@ begin
   LCompMsg := CompressedCertificateOf(TCertificateCompressionAlgorithms.Zlib, 60000, LCompressed);
   CheckTrue(FailAlertOf(LClient.ProcessMessage(MsgFrom(LCompMsg)), LAlert),
     'a compressed-certificate bomb aborts');
-  CheckTrue(LAlert = TTlsAlertDescription.BadCertificate,
-    'a compressed-certificate bomb is bad_certificate');
+  CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
+    'a compressed-certificate bomb is illegal_parameter');
 end;
 
 procedure TTestExtensionNegotiation.TestClientRejectsUnadvertisedCompressionAlgorithm;
@@ -738,8 +738,8 @@ begin
   LCompMsg := CompressedCertificateOf(2, 100, DecodeHex('00010203'));
   CheckTrue(FailAlertOf(LClient.ProcessMessage(MsgFrom(LCompMsg)), LAlert),
     'an unadvertised compression algorithm aborts');
-  CheckTrue(LAlert = TTlsAlertDescription.BadCertificate,
-    'an unadvertised compression algorithm is bad_certificate');
+  CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
+    'an unadvertised compression algorithm is illegal_parameter');
 end;
 
 procedure TTestExtensionNegotiation.TestClientRejectsNonEmptyCertificateRequestContext;

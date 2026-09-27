@@ -219,7 +219,8 @@ implementation
 constructor TTrustAnchorStore.Create(const ARoots: TArray<TBytes>);
 begin
   inherited Create;
-  FRoots := ARoots;
+  // own an immutable snapshot: a caller that mutates its array later must not change our anchors
+  FRoots := TArrayUtilities.DeepCopy<Byte>(ARoots);
 end;
 
 function TTrustAnchorStore.RootCertificates: TArray<TBytes>;

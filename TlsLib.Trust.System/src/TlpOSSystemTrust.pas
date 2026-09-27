@@ -209,6 +209,7 @@ begin
     LPolicy.Fetch := TSystemTrustFetch.Live;
     LPolicy.StrengthPolicy := AConfig.CertificateStrengthPolicy;
     LPolicy.AdvertisedSchemes := TTlsEngineFactory.SchemeCodes(AConfig.SignatureSchemes);
+    LPolicy.CheckHostName := AConfig.CheckServerName;
     // a server certificate is validated against the OS roots, so no exclusive anchor set
     LPolicy.Anchors := nil;
     LPolicy.DeadlineMs := AConfig.AsyncCertificateVerdict.DeadlineMs;
@@ -243,6 +244,8 @@ begin
     LPolicy.Fetch := TSystemTrustFetch.Live;
     LPolicy.StrengthPolicy := AConfig.CertificateStrengthPolicy;
     LPolicy.AdvertisedSchemes := TTlsEngineFactory.SchemeCodes(AConfig.SignatureSchemes);
+    // a client certificate carries no server name to match
+    LPolicy.CheckHostName := False;
     LPolicy.Anchors := LAnchors;
     LPolicy.DeadlineMs := AConfig.AsyncCertificateVerdict.DeadlineMs;
     Exit(TOSDelegateLiveResolver.Create(LEngine, TPeerRole.Client, LPolicy, AFallback));

@@ -32,16 +32,19 @@ type
     FGetBody, FPostBody: TBytes;
     FLastPostUrl, FLastGetUrl: string;
     FGetCount, FPostCount: Int32;
+    FLastMaxBytes: Int32;
   public
     constructor Create;
-    function Get(const AUrl: string; ATimeoutMs: Cardinal;
+    function Get(const AUrl: string; ATimeoutMs: Cardinal; AMaxBytes: Int32;
       out AResponse: TBytes): Boolean;
     function Post(const AUrl, AContentType: string; const ABody: TBytes;
-      ATimeoutMs: Cardinal; out AResponse: TBytes): Boolean;
+      ATimeoutMs: Cardinal; AMaxBytes: Int32; out AResponse: TBytes): Boolean;
     procedure SetPost(AOk: Boolean; const ABody: TBytes);
     procedure SetGet(AOk: Boolean; const ABody: TBytes);
     property LastPostUrl: string read FLastPostUrl;
     property LastGetUrl: string read FLastGetUrl;
+    /// <summary>The AMaxBytes the caller passed on the last Get/Post (proves the checker's cap).</summary>
+    property LastMaxBytes: Int32 read FLastMaxBytes;
     /// <summary>How many times Get/Post were invoked (0 proves no live fetch happened).</summary>
     property GetCount: Int32 read FGetCount;
     property PostCount: Int32 read FPostCount;
@@ -59,10 +62,11 @@ begin
 end;
 
 function TMockHttpFetcher.Get(const AUrl: string; ATimeoutMs: Cardinal;
-  out AResponse: TBytes): Boolean;
+  AMaxBytes: Int32; out AResponse: TBytes): Boolean;
 begin
   Inc(FGetCount);
   FLastGetUrl := AUrl;
+  FLastMaxBytes := AMaxBytes;
   Result := FGetOk;
   if Result then
     AResponse := System.Copy(FGetBody)
@@ -71,10 +75,12 @@ begin
 end;
 
 function TMockHttpFetcher.Post(const AUrl, AContentType: string;
-  const ABody: TBytes; ATimeoutMs: Cardinal; out AResponse: TBytes): Boolean;
+  const ABody: TBytes; ATimeoutMs: Cardinal; AMaxBytes: Int32;
+  out AResponse: TBytes): Boolean;
 begin
   Inc(FPostCount);
   FLastPostUrl := AUrl;
+  FLastMaxBytes := AMaxBytes;
   Result := FPostOk;
   if Result then
     AResponse := System.Copy(FPostBody)

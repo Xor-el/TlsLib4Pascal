@@ -211,8 +211,8 @@ type
   end;
 
   CERT_TRUST_STATUS = record
-    dwInfoStatus: DWORD;
     dwErrorStatus: DWORD;
+    dwInfoStatus: DWORD;
   end;
 
   PCERT_CHAIN_ELEMENT = ^CERT_CHAIN_ELEMENT;
@@ -633,7 +633,16 @@ begin
   Result := False;
   AResult := Default(TPlatformChainResult);
   if ADwError = 0 then
-    AResult.Outcome := TLiveRevocationOutcome.Good
+  begin
+    // dwError can be 0 while BestEffort's policy flag suppressed a revocation-unknown; consult the
+    // chain's own status so an unreachable/offline responder reports Indeterminate, not a false Good
+    if (AChainCtx <> nil) and
+      ((PCERT_CHAIN_CONTEXT(AChainCtx)^.TrustStatus.dwErrorStatus and
+      (CERT_TRUST_REVOCATION_STATUS_UNKNOWN or CERT_TRUST_IS_OFFLINE_REVOCATION)) <> 0) then
+      AResult.Outcome := TLiveRevocationOutcome.Indeterminate
+    else
+      AResult.Outcome := TLiveRevocationOutcome.Good;
+  end
   else if (ADwError = CERT_E_REVOKED) or (ADwError = CERT_E_REVOKED_ALT) then
     // a definitive revocation from the chain engine
     AResult.Outcome := TLiveRevocationOutcome.Revoked

@@ -176,13 +176,14 @@ var
   LDecompressor, LFound: ICertificateDecompressor;
 begin
   Result := nil;
+  // an out-of-range declared length is a malformed wire field (RFC 8879 4), not a bad certificate
   if (ADeclaredLength <= 0) or (ADeclaredLength > AMaxLength) then
-    raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.BadCertificate,
+    raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.IllegalParameter,
       @SBadDeclaredLength);
   // reject an obvious bomb before allocating: a huge declared expansion over the
   // compressed size cannot be a real certificate chain
   if ADeclaredLength > System.Length(ACompressed) * MaxExpansionRatio then
-    raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.BadCertificate,
+    raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.IllegalParameter,
       @SRatioTooHigh);
   LFound := nil;
   for LDecompressor in ADecompressors do
@@ -191,8 +192,9 @@ begin
       LFound := LDecompressor;
       Break;
     end;
+  // an algorithm the peer did not advertise is illegal_parameter (RFC 8879 4)
   if LFound = nil then
-    raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.BadCertificate,
+    raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.IllegalParameter,
       @SUnsupportedAlgorithm);
   Result := LFound.Decompress(ACompressed, ADeclaredLength);
   if System.Length(Result) <> ADeclaredLength then

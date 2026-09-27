@@ -120,11 +120,6 @@ type
     class function RejectIpMismatch(const AName: TServerName;
       const APkix: IPkixProvider; const AOsPath: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean; static;
-    /// <summary>Whether a Hard posture is unsatisfiable for a cache-only delegate: Hard with no
-    /// live-revocation verdict (a client certificate is never stapled, so a cache-only delegate
-    /// has no revocation status to act on).</summary>
-    class function HardNeedsLiveRevocation(APosture: TRevocationPosture;
-      ADeferral: TVerdictDeferral): Boolean; static;
     /// <summary>Whether a Live fetch source is unusable without the live-revocation verdict (the
     /// live check runs only in the park that verdict arms).</summary>
     class function LiveNeedsLiveRevocation(AFetch: TSystemTrustFetch;
@@ -238,13 +233,6 @@ begin
     APkix.Certificates.IpAddresses(AOsPath[0]));
   if Result then
     AAlert := TTlsAlertDescription.BadCertificate;
-end;
-
-class function TDelegatePostChecks.HardNeedsLiveRevocation(
-  APosture: TRevocationPosture; ADeferral: TVerdictDeferral): Boolean;
-begin
-  Result := TRevocationDecision.HardNeedsLiveRevocation(APosture,
-    ADeferral = TVerdictDeferral.LiveRevocation);
 end;
 
 class function TDelegatePostChecks.LiveNeedsLiveRevocation(

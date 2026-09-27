@@ -47,6 +47,7 @@ type
     procedure TestReferenceHostWildcardRejected;
     procedure TestReferenceHostNonLdhRejected;
     procedure TestReferenceHostUnderscoreAndALabelAccepted;
+    procedure TestLabelLengthAndHyphenLimits;
     procedure TestDnsPatternPredicatesDirect;
     procedure TestFirstOfSeveralNamesMatches;
     procedure TestIpLiteralDoesNotMatchWildcardDns;
@@ -162,6 +163,34 @@ begin
   // underscore is tolerated; a punycode A-label is a normal LDH host
   CheckTrue(TServerName.TryParse('_dmarc.example.com', LName));
   CheckTrue(TServerName.TryParse('xn--nxasmq6b.example.com', LName));
+end;
+
+procedure TTestEndpointIdentity.TestLabelLengthAndHyphenLimits;
+begin
+  // RFC 1035: a label is at most 63 octets
+  CheckTrue(TEndpointIdentity.IsValidReferenceHostName(
+    StringOfChar('a', 63) + '.example.com'), 'a 63-octet label is accepted');
+  CheckFalse(TEndpointIdentity.IsValidReferenceHostName(
+    StringOfChar('a', 64) + '.example.com'), 'a 64-octet label is rejected');
+  // a label may not begin or end with a hyphen; an interior hyphen is fine
+  CheckFalse(TEndpointIdentity.IsValidReferenceHostName('-bad.example.com'),
+    'a leading hyphen is rejected');
+  CheckFalse(TEndpointIdentity.IsValidReferenceHostName('bad-.example.com'),
+    'a trailing hyphen is rejected');
+  CheckTrue(TEndpointIdentity.IsValidReferenceHostName('a-b.example.com'),
+    'an interior hyphen is accepted');
+  // RFC 1035: the whole name is at most 253 octets
+  CheckTrue(TEndpointIdentity.IsValidReferenceHostName(StringOfChar('a', 63) + '.' +
+    StringOfChar('a', 63) + '.' + StringOfChar('a', 63) + '.' + StringOfChar('a', 61)),
+    'a 253-octet name is accepted');
+  CheckFalse(TEndpointIdentity.IsValidReferenceHostName(StringOfChar('a', 63) + '.' +
+    StringOfChar('a', 63) + '.' + StringOfChar('a', 63) + '.' + StringOfChar('a', 63)),
+    'a name over 253 octets is rejected');
+  // the length limits do not touch the wildcard label or the underscore tolerance
+  CheckTrue(TEndpointIdentity.IsValidPresentedDnsName('*.example.com'),
+    'a wildcard label is still valid');
+  CheckTrue(TEndpointIdentity.IsValidReferenceHostName('_dmarc.example.com'),
+    'underscore tolerance is kept');
 end;
 
 procedure TTestEndpointIdentity.TestDnsPatternPredicatesDirect;

@@ -480,6 +480,16 @@ begin
   if LExc = nil then
     Exit;
 
+  // Only a CertificateException is a trust rejection; any other throwable is an evaluator/JNI
+  // failure and must surface as an internal error, not a peer trust failure.
+  LClass := AEnv^^.FindClass(AEnv, 'java/security/cert/CertificateException');
+  if (LClass = nil) or (AEnv^^.IsInstanceOf(AEnv, LExc, LClass) = 0) then
+  begin
+    Result := TTlsAlertDescription.InternalError;
+    ClearPending(AEnv);
+    Exit;
+  end;
+
   // Refine only the two cheaply inspectable cases; every other reason (and the common
   // CertificateException wrapper) stays unknown_ca - a rejection is never softened.
   LClass := AEnv^^.FindClass(AEnv,
