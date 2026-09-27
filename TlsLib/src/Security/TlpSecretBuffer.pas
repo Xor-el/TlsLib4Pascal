@@ -134,7 +134,6 @@ var
 begin
   LLen := System.Length(ABytes);
   LBuf := TSecretBuffer.Create(LLen);
-  // write via the class-typed local: the interface exposes no write path
   Result := LBuf;
   if LLen > 0 then
     Move(ABytes[0], LBuf.FPtr^, LLen);

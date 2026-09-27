@@ -860,7 +860,7 @@ begin
   try
     Result := ProcessInto(True, ANonce, AAad, ASrc, ASrcOff, ALen, ADest, ADestOff);
   except
-    // map the mode's nonce-reuse throw to a typed error; no raw backend exception on the seal path
+    // map the mode's nonce-reuse throw to a typed error
     on E: ECryptoLibException do
       raise EArgumentTlsLibException.CreateRes(@SAeadSealRejected);
   end;
@@ -943,7 +943,7 @@ begin
   APublicKey := LX25519.GeneratePublicKey.GetEncoded;
   LPrivBytes := LX25519.GetEncoded;
   try
-    // carry the parsed parameter so Agree need not re-parse the scalar (Scalar is kept for ExportRaw)
+    // carry the parsed parameter so Agree need not re-parse the scalar
     APrivateKey := TKeyExchangePrivateKey.Create(TKeyAgreementUsage.Ephemeral,
       TSecretBuffer.From(LPrivBytes), LX25519, True);
   finally
@@ -1008,7 +1008,7 @@ begin
         [System.Length(LPrivBytes), Int32(TX25519PrivateKeyParameters.KeySize)]);
     LPriv := TX25519PrivateKeyParameters.Create(LPrivBytes);
     APublicKey := LPriv.GeneratePublicKey.GetEncoded;
-    // keep the raw scalar for ExportRaw, and the parsed parameter so Agree need not re-parse it
+    // carry the parsed parameter so Agree need not re-parse the scalar
     Result := TKeyExchangePrivateKey.Create(AUsage, TSecretBuffer.From(LPrivBytes),
       LPriv, True);
   finally
@@ -1123,8 +1123,7 @@ var
 begin
   if not Supports(APrivateKey, IProviderKeyExchangeKey, LKey) then
     raise EArgumentTlsLibException.CreateRes(@SForeignKeyExchangeKey);
-  // the handle is provider-typed but not primitive-typed: a same-width foreign scalar (another
-  // curve, or a nil-parameter X25519/KEM handle) must not agree under this curve's domain
+  // a same-width foreign scalar must not agree under this curve's domain
   if not Supports(LKey.KeyParameter, IECPrivateKeyParameters, LPrivParams) or
     not LPrivParams.Parameters.Equals(FDomain) then
     raise EArgumentTlsLibException.CreateRes(@SForeignKeyExchangeKey);
@@ -1563,8 +1562,7 @@ var
   LPem: string;
 begin
   Result := nil;
-  // without a password the reader relabels an encrypted PEM as malformed, so give the actionable
-  // error first - anchored on the two forms that denote encryption, not the bare word
+  // report an encrypted PEM imported without a password as password-required, not malformed
   if APassword = nil then
   begin
     LPem := TEncoding.ASCII.GetString(AData);
