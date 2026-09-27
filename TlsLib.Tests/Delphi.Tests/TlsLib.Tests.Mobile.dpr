@@ -30,7 +30,6 @@ uses
   TlpTls12PrfComposition in '..\..\TlsLib\src\Crypto\TlpTls12PrfComposition.pas',
   TlpDer in '..\..\TlsLib\src\Crypto\TlpDer.pas',
   TlpDefaultCryptoProvider in '..\..\TlsLib\src\Crypto\Providers\TlpDefaultCryptoProvider.pas',
-  TlpAsymmetricKeyEquality in '..\..\TlsLib\src\Crypto\Providers\TlpAsymmetricKeyEquality.pas',
   TlpPkixDomainTypes in '..\..\TlsLib\src\Pkix\TlpPkixDomainTypes.pas',
   TlpIPkixProvider in '..\..\TlsLib\src\Interfaces\Pkix\Providers\TlpIPkixProvider.pas',
   TlpDefaultPkixProvider in '..\..\TlsLib\src\Pkix\Providers\TlpDefaultPkixProvider.pas',

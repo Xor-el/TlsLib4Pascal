@@ -54,7 +54,6 @@ contains
   TlpImportedCredential in '..\..\Crypto\TlpImportedCredential.pas',
   TlpIKeyExchangePrivateKey in '..\..\Interfaces\Crypto\TlpIKeyExchangePrivateKey.pas',
   TlpDefaultCryptoProvider in '..\..\Crypto\Providers\TlpDefaultCryptoProvider.pas',
-  TlpAsymmetricKeyEquality in '..\..\Crypto\Providers\TlpAsymmetricKeyEquality.pas',
   TlpPkixDomainTypes in '..\..\Pkix\TlpPkixDomainTypes.pas',
   TlpIPkixProvider in '..\..\Interfaces\Pkix\Providers\TlpIPkixProvider.pas',
   TlpDefaultPkixProvider in '..\..\Pkix\Providers\TlpDefaultPkixProvider.pas',
