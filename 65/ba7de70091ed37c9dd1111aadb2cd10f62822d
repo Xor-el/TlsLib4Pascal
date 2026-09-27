@@ -1,0 +1,62 @@
+TlsLib.Tests/Data/Certs/Pkcs12.txt
+  s_09d3c46d1a9b1f::t_84eaccc6a22b19 25-28
+  s_09d3c46d1a9b1f::t_169952e6814d42 12-13,24
+  s_09d3c46d1a9b1f::t_a47b65e4d1aa6a 10-11,14-17
+TlsLib/src/Pkix/Providers/TlpDefaultPkixProvider.pas
+  s_09d3c46d1a9b1f::t_b390f67d8a40f4 82
+  s_09d3c46d1a9b1f::t_27de166fb25e62 1451
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_09d3c46d1a9b1f::t_96c49f61bcbca9 236-237
+  s_09d3c46d1a9b1f::t_2d0387d989550e 469-470
+  s_09d3c46d1a9b1f::t_3b8f08a33dd7db 1373-1374,1385,1388,1390,1392-1403
+  s_09d3c46d1a9b1f::t_9e2462726eb276 468
+  s_09d3c46d1a9b1f::t_8e2a585c70e7a8 2014-2025
+  s_09d3c46d1a9b1f::t_ac8defa66798c5 122
+  s_09d3c46d1a9b1f::t_5e03c8eee90164 2009-2011,2062-2068,2071-2073,2077-2078,2080,2083-2090,2096
+  s_09d3c46d1a9b1f::t_ac7f9413633b22 2060-2061,2070,2074-2076,2079,2081-2082
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_09d3c46d1a9b1f::t_5834a46508a302 53
+TlsLib/src/Interfaces/Crypto/Providers/TlpICryptoProvider.pas
+  s_09d3c46d1a9b1f::t_cc0b01a7415d0f 251
+  s_09d3c46d1a9b1f::t_0a6ff4cc378477 249-250,252-255
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_09d3c46d1a9b1f::t_9a11bf0f052e52 376
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_09d3c46d1a9b1f::t_3033e3a4c37392 33
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
+  s_09d3c46d1a9b1f::t_3d27bac6f2dafc 608-611
+  s_09d3c46d1a9b1f::t_0818c5bd78e988 31
+TlsLib.Tests/Data/Certs/Pkcs12Forge/forge.py
+  s_09d3c46d1a9b1f::t_05aae70afb1c57 19
+  s_09d3c46d1a9b1f::t_226a47db82254a 16-18
+  s_09d3c46d1a9b1f::t_c5ec8229fd9762 20-22
+  s_09d3c46d1a9b1f::t_409f4eab913c92 1-15,23-110
+TlsLib/src/Packages/Delphi/TlsLib4PascalPackage.dpk
+  s_09d3c46d1a9b1f::t_308e1f6c53f8ba 57
+TlsLib.Tests/src/Pkcs12ImportTests.pas
+  s_09d3c46d1a9b1f::t_e65992d0122631 245-299,303,305-306
+  s_09d3c46d1a9b1f::t_303f13c1a5d1a2 58-60,72-77
+  s_09d3c46d1a9b1f::t_8963a2ff861b5c 300-302,304
+TlsLib/src/Crypto/Providers/TlpAsymmetricKeyEquality.pas
+  s_09d3c46d1a9b1f::t_5aa57fa293bcbc 1-38,42-58,60-65,67,74,77-78,80-82
+  s_09d3c46d1a9b1f::t_f4abc193263203 39-41
+  s_09d3c46d1a9b1f::t_643e5dfab8c809 59,66,68-73,75-76,79
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.pas
+  s_09d3c46d1a9b1f::t_e6f93698b80695 54-55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "65ba7de70091ed37c9dd1111aadb2cd10f62822d",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
