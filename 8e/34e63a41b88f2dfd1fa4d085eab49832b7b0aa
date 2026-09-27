@@ -1,0 +1,23 @@
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_32239d06c81fc9 2741-2742
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_09d3c46d1a9b1f::t_27486b4b95f3ca 137-139
+  s_09d3c46d1a9b1f::t_cd023e1e1dd102 1032-1034,1042-1044
+  s_09d3c46d1a9b1f::t_3b9d865277096e 1045-1064
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8e34e63a41b88f2dfd1fa4d085eab49832b7b0aa",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
