@@ -119,6 +119,7 @@ uses
   TlpBinaryPrimitives,
   TlpArrayUtilities,
   TlpEnumUtilities,
+  TlpAsymmetricKeyEquality,
   TlpICryptoProvider,
   TlpISigningKey,
   TlpIKeyExchangePrivateKey,
@@ -232,7 +233,8 @@ resourcestring
   SPkcs12MultipleKeys =
     'the PKCS#12 blob holds more than one private-key entry; it is ambiguous for a ' +
     'single credential — split it or import the intended identity explicitly';
-  SPkcs12NoChain = 'the PKCS#12 private-key entry has no certificate chain';
+  SPkcs12NoCertForKey =
+    'the PKCS#12 blob holds no certificate for its private key';
   SHkdfExpandTooLong = 'HKDF-Expand output length %d exceeds 255 * HashLen (%d)';
   SHkdfExpandNegative = 'HKDF-Expand output length must not be negative';
 
@@ -463,6 +465,9 @@ type
       const ACapableSchemes: TArray<TSignatureScheme>;
       const APublicKeyInfo: TBytes); overload;
   public
+    // the public half of a private parameter (RSA/EC/Ed families), nil for any other family
+    class function DerivePublicParameter(
+      const AKeyParameter: IAsymmetricKeyParameter): IAsymmetricKeyParameter; static;
     constructor Create(const AKeyParameter: IAsymmetricKeyParameter;
       const ACapableSchemes: TArray<TSignatureScheme>); overload;
     function CapableSchemes: TArray<TSignatureScheme>;
@@ -1365,29 +1370,37 @@ begin
   FPublicKeyInfo := APublicKeyInfo;
 end;
 
-class function TSigningKey.DerivePublicKeyInfo(
-  const AKeyParameter: IAsymmetricKeyParameter): TBytes;
+class function TSigningKey.DerivePublicParameter(
+  const AKeyParameter: IAsymmetricKeyParameter): IAsymmetricKeyParameter;
 var
   LRsa: IRsaPrivateCrtKeyParameters;
   LEc: IECPrivateKeyParameters;
   LEd25519: IEd25519PrivateKeyParameters;
   LEd448: IEd448PrivateKeyParameters;
-  LPublic: IAsymmetricKeyParameter;
-  LInfo: ISubjectPublicKeyInfo;
 begin
   Result := nil;
   if AKeyParameter = nil then
     Exit;
   if Supports(AKeyParameter, IRsaPrivateCrtKeyParameters, LRsa) then
-    LPublic := TRsaKeyParameters.Create(False, LRsa.Modulus, LRsa.PublicExponent)
+    Result := TRsaKeyParameters.Create(False, LRsa.Modulus, LRsa.PublicExponent)
       as IAsymmetricKeyParameter
   else if Supports(AKeyParameter, IECPrivateKeyParameters, LEc) then
-    LPublic := TECKeyPairGenerator.GetCorrespondingPublicKey(LEc) as IAsymmetricKeyParameter
+    Result := TECKeyPairGenerator.GetCorrespondingPublicKey(LEc) as IAsymmetricKeyParameter
   else if Supports(AKeyParameter, IEd25519PrivateKeyParameters, LEd25519) then
-    LPublic := LEd25519.GeneratePublicKey as IAsymmetricKeyParameter
+    Result := LEd25519.GeneratePublicKey as IAsymmetricKeyParameter
   else if Supports(AKeyParameter, IEd448PrivateKeyParameters, LEd448) then
-    LPublic := LEd448.GeneratePublicKey as IAsymmetricKeyParameter
-  else
+    Result := LEd448.GeneratePublicKey as IAsymmetricKeyParameter;
+end;
+
+class function TSigningKey.DerivePublicKeyInfo(
+  const AKeyParameter: IAsymmetricKeyParameter): TBytes;
+var
+  LPublic: IAsymmetricKeyParameter;
+  LInfo: ISubjectPublicKeyInfo;
+begin
+  Result := nil;
+  LPublic := DerivePublicParameter(AKeyParameter);
+  if LPublic = nil then
     Exit;
   LInfo := TSubjectPublicKeyInfoFactory.CreateSubjectPublicKeyInfo(LPublic);
   Result := LInfo.GetDerEncoded;
@@ -1993,9 +2006,23 @@ var
   LPass: TArray<Char>;
   LAliases: TArray<string>;
   LAlias, LKeyAlias: string;
-  LChainEntries: TArray<IX509CertificateEntry>;
+  LKeyParam, LPub: IAsymmetricKeyParameter;
+  LChainEntries, LAllCerts: TArray<IX509CertificateEntry>;
+  LLeaf: IX509CertificateEntry;
   LChain: TArray<TBytes>;
   LI, LKeyCount: Int32;
+
+  function CertPairsKey(const AEntry: IX509CertificateEntry): Boolean;
+  begin
+    // a certificate whose key the backend cannot parse is not this key's leaf; skip it rather
+    // than fail the whole import (another bag may still pair the key)
+    try
+      Result := TAsymmetricKeyEquality.PublicKeysEqual(LPub, AEntry.Certificate.GetPublicKey);
+    except
+      Result := False;
+    end;
+  end;
+
 begin
   // PKCS#12 takes a character-array password (empty = none), wiped in the finally so no
   // key-derivation password lingers
@@ -2030,17 +2057,43 @@ begin
       if LKeyCount > 1 then
         raise EArgumentTlsLibException.CreateRes(@SPkcs12MultipleKeys);
 
-      // the store orders the chain leaf-first (end entity to root)
+      // the leaf is the certificate whose public key pairs the private key; RFC 7292 imposes no
+      // bag order and the key<->cert link (localKeyId) may be absent or wrong
+      LKeyParam := LStore.GetKey(LKeyAlias).Key;
+      LPub := TSigningKey.DerivePublicParameter(LKeyParam);
+      if LPub = nil then
+        raise ENotSupportedTlsLibException.CreateRes(@SUnsupportedKeyAlgorithm);
+
+      LLeaf := nil;
+      // fast path: the store links the key to a leaf-first chain and that leaf pairs the key
       LChainEntries := LStore.GetCertificateChain(LKeyAlias);
-      if System.Length(LChainEntries) = 0 then
-        raise EArgumentTlsLibException.CreateRes(@SPkcs12NoChain);
+      if (System.Length(LChainEntries) > 0) and CertPairsKey(LChainEntries[0]) then
+        LLeaf := LChainEntries[0]
+      else
+      begin
+        // fallback: the link is absent or wrong, so scan every certificate (including bags with no
+        // alias) for the key's own; several certificates sharing the key resolve to the first the
+        // store enumerates (deterministic)
+        LAllCerts := LStore.GetCertificates;
+        for LI := 0 to System.High(LAllCerts) do
+          if CertPairsKey(LAllCerts[LI]) then
+          begin
+            LLeaf := LAllCerts[LI];
+            Break;
+          end;
+        if LLeaf = nil then
+          raise EArgumentTlsLibException.CreateRes(@SPkcs12NoCertForKey);
+        // rebuild the chain leaf-first from the selected leaf (issuer walk), so a CA present in
+        // the store still follows the leaf
+        LChainEntries := LStore.GetCertificateChain(LLeaf);
+      end;
+
       SetLength(LChain, System.Length(LChainEntries));
       for LI := 0 to System.High(LChainEntries) do
         LChain[LI] := LChainEntries[LI].Certificate.GetEncoded;
 
       // the single signing-key path shared with ImportSigningKey
-      Result.PrivateKey := TCredentialImport.SigningKeyFromParam(
-        LStore.GetKey(LKeyAlias).Key);
+      Result.PrivateKey := TCredentialImport.SigningKeyFromParam(LKeyParam);
       Result.CertificateChain := LChain;
     except
       // fail closed: reclassify any backend failure as a typed library exception, leaving

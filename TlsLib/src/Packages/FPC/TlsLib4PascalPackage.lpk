@@ -28,7 +28,7 @@
     <Description Value="Opinionated yet Modular TLS for Modern Object Pascal"/>
     <License Value="MIT License"/>
     <Version Major="1" Minor="1"/>
-    <Files Count="144">
+    <Files Count="145">
       <Item1>
         <Filename Value="..\..\Crypto\TlpCryptoDomainTypes.pas"/>
         <UnitName Value="TlpCryptoDomainTypes"/>
@@ -605,6 +605,10 @@
         <Filename Value="..\..\Crypto\TlpImportedCredential.pas"/>
         <UnitName Value="TlpImportedCredential"/>
       </Item144>
+      <Item145>
+        <Filename Value="..\..\Crypto\Providers\TlpAsymmetricKeyEquality.pas"/>
+        <UnitName Value="TlpAsymmetricKeyEquality"/>
+      </Item145>
     </Files>
     <CompatibilityMode Value="True"/>
     <RequiredPkgs Count="2">

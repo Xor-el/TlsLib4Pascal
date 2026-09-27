@@ -79,6 +79,7 @@ uses
   TlpPem,
   TlpBinaryPrimitives,
   TlpArrayUtilities,
+  TlpAsymmetricKeyEquality,
   TlpIPkixProvider,
   TlpPkixDomainTypes,
   TlpTlsAlert,
@@ -1436,25 +1437,8 @@ end;
 
 function TCertificateInspector.SamePublicKey(
   const ASpkiA, ASpkiB: TBytes): TCertAnswer;
-
-  // for a key family without a value comparator (X25519/X448, DH, DSA, the PQ families) the
-  // canonical DER encoding is injective, so a byte match is a true key match. Used only as the
-  // tail - never for the signing families, whose structural compare is curve/encoding-agnostic
-  function CanonicalMatch(const AKeyA, AKeyB: IAsymmetricKeyParameter): Boolean;
-  var
-    LA, LB: TBytes;
-  begin
-    LA := TSubjectPublicKeyInfoFactory.CreateSubjectPublicKeyInfo(AKeyA).GetDerEncoded;
-    LB := TSubjectPublicKeyInfoFactory.CreateSubjectPublicKeyInfo(AKeyB).GetDerEncoded;
-    Result := (System.Length(LA) > 0) and TArrayUtilities.AreEqual(LA, LB);
-  end;
-
 var
   LKeyA, LKeyB: IAsymmetricKeyParameter;
-  LRsaA, LRsaB: IRsaKeyParameters;
-  LEcA, LEcB: IECPublicKeyParameters;
-  LEd25519A, LEd25519B: IEd25519PublicKeyParameters;
-  LEd448A, LEd448B: IEd448PublicKeyParameters;
   LMatch: Boolean;
 begin
   // the whole parse/compare is fail-closed: any input the backend cannot parse or re-encode
@@ -1464,20 +1448,7 @@ begin
     LKeyB := TPublicKeyFactory.CreateKey(ASpkiB);
     if (LKeyA = nil) or (LKeyB = nil) then
       Exit(TCertAnswer.Undetermined);
-    // compare by key value within a family (agnostic to point compression and named-vs-explicit
-    // EC parameters); B outside A's family is a definite mismatch, not Undetermined
-    if Supports(LKeyA, IRsaKeyParameters, LRsaA) then
-      LMatch := Supports(LKeyB, IRsaKeyParameters, LRsaB) and LRsaA.Equals(LRsaB)
-    else if Supports(LKeyA, IECPublicKeyParameters, LEcA) then
-      LMatch := Supports(LKeyB, IECPublicKeyParameters, LEcB) and LEcA.Equals(LEcB)
-    else if Supports(LKeyA, IEd25519PublicKeyParameters, LEd25519A) then
-      LMatch := Supports(LKeyB, IEd25519PublicKeyParameters, LEd25519B) and
-        LEd25519A.Equals(LEd25519B)
-    else if Supports(LKeyA, IEd448PublicKeyParameters, LEd448A) then
-      LMatch := Supports(LKeyB, IEd448PublicKeyParameters, LEd448B) and
-        LEd448A.Equals(LEd448B)
-    else
-      LMatch := CanonicalMatch(LKeyA, LKeyB);
+    LMatch := TAsymmetricKeyEquality.PublicKeysEqual(LKeyA, LKeyB);
   except
     Exit(TCertAnswer.Undetermined);
   end;
