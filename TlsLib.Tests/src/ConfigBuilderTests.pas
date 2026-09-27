@@ -134,6 +134,9 @@ type
     procedure TestServerClientAuthVerifierSourceWithEmptyStoreAndRealRootBuilds;
     procedure TestServerVerifierSourceWithoutPeerAuthBuildsWithoutAnchors;
     procedure TestServerClientAuthVerifierSourceWithSkipVerifyBuilds;
+    // the exclusivity count runs before the roots gate, so an instance verifier plus a source is the
+    // dual-verifier conflict - never the "source needs anchors" message
+    procedure TestServerClientAuthVerifierSourceWithInstanceIsDualVerifier;
     procedure TestMtlsServerWithSuppliedTicketKeysRequiresScope;
     procedure TestMtlsServerWithSuppliedKeysAndScopeBuilds;
     procedure TestMtlsServerWithDefaultTicketKeysBuildsWithoutScope;
@@ -1026,7 +1029,9 @@ procedure TTestConfigBuilder.TestServerClientAuthVerifierSourceWithSkipVerifyBui
 var
   LConfig: ITlsServerConfig;
 begin
-  // explicit skip-verify is the operator's trust decision, so the source needs no anchors to build
+  // the skip-verify exemption applies uniformly: the gate does not require anchors. Skip-verify is
+  // NOT bypassed into a custom source though - the source still decides at handshake (so with no
+  // anchors an OS source would still reject); this only locks that Build permits the combination
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(ServerCredential)
     .WithPeerAuth(TClientAuthMode.Required)
@@ -1034,7 +1039,29 @@ begin
       TAcceptAllClientVerifierSource.Create as IClientCertificateVerifierSource)
     .WithDangerousInsecureSkipVerify(True).Build;
   CheckTrue(LConfig.DangerousTrust.InsecureSkipVerify,
-    'a client verifier source under skip-verify builds without anchors');
+    'a client verifier source under skip-verify builds');
+end;
+
+procedure TTestConfigBuilder.TestServerClientAuthVerifierSourceWithInstanceIsDualVerifier;
+var
+  LMsg: string;
+begin
+  // both are custom verifiers: the composition count rejects them before the roots gate is reached
+  LMsg := '';
+  try
+    TTlsPresets.Compatible(Crypto, Pkix).Server
+      .WithCredential(ServerCredential)
+      .WithPeerAuth(TClientAuthMode.Required)
+      .WithCertificateVerifier(
+        TAcceptAllClientVerifier.Create as IClientCertificateVerifier)
+      .WithCertificateVerifierSource(
+        TAcceptAllClientVerifierSource.Create as IClientCertificateVerifierSource).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('only one custom', LMsg) > 0,
+    'an instance verifier plus a source is the dual-verifier conflict; got: ' + LMsg);
 end;
 
 procedure TTestConfigBuilder.TestMtlsServerWithSuppliedTicketKeysRequiresScope;

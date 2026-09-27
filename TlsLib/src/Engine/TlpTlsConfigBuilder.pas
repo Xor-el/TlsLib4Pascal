@@ -2738,9 +2738,8 @@ begin
   ValidateTrustComposition;
   // client authentication verifies the peer chain against a trust source: anchor ROOTS, a
   // whole-verifier, or an explicit skip-verify. A verifier source is NOT a source on its own - it
-  // consumes the client-CA anchors as its exclusive root (the OS delegates reject every chain
-  // unknown_ca with none), so it needs roots too. Without one the server would only fail closed at
-  // handshake time, so reject it at build (fail fast)
+  // consumes the client-CA anchors as its exclusive root, so it needs roots too. Without one the
+  // server would only fail closed at handshake time, so reject it at build (fail fast)
   if (FClientAuth <> TClientAuthMode.None) and (not HasAnchorRoots) and
     (FClientCertVerifier = nil) and (not FDangerousTrust.InsecureSkipVerify) then
   begin
