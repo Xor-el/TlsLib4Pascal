@@ -173,7 +173,8 @@ stapled). It is available on **Windows, macOS, iOS and Android**: Windows and Ap
 posture/clock revocation as the server delegate; the Android client delegate is an
 anchors-only KeyStore chain check (no posture/clock — see the Android note below). Note it **consumes**
 the configured anchors (they are its exclusive root), so — unlike a whole verifier — it *composes* with
-`WithTrustAnchors` rather than being exclusive of it. The `AFetch` argument selects cache-only
+`WithTrustAnchors` rather than being exclusive of it; `Build` refuses it when those anchors yield no
+root (it would trust nothing). The `AFetch` argument selects cache-only
 (no socket) or live revocation — see the next section.
 
 #### Live client-certificate revocation (Windows + Apple, opt-in)
@@ -267,7 +268,9 @@ The rule that decides exclusivity is: *a trust source that brings its **own** ro
 your anchors; one that **consumes** your anchors composes with them.* A whole verifier and the OS
 **server** delegate (OS roots) bring their own → exclusive. The OS **client** delegate uses your
 configured client-CA anchors as its exclusive root → it composes with `WithTrustAnchors` (that is why
-the mTLS example above sets both).
+the mTLS example above sets both). Because it has nothing to consume otherwise, `Build` refuses a
+client delegate whose configured anchors yield no root certificate (rather than deferring to an
+`unknown_ca` at handshake).
 
 ## System trust is never implicit
 

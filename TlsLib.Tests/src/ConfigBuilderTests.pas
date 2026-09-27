@@ -35,7 +35,9 @@ uses
   TlpSessionTicketKeys,
   TlpICryptoProvider,
   TlpICertificateTrust,
+  TlpICertificateVerifierSource,
   TlpTrustTypes,
+  TlpTlsAlert,
   TlpCertificateVerifier,
   TlpNegotiationTypes,
   TlpCipherSuiteRegistry,
@@ -124,6 +126,14 @@ type
     procedure TestPskClientWithEmptyStoreIsSteeredAsPskOnly;
     procedure TestServerClientAuthEmptyTrustStoreIsRefused;
     procedure TestServerClientAuthInsecureSkipVerifyBuildsWithoutTrustStore;
+    // a client verifier source consumes the client-CA anchors, so it needs roots at Build: refused
+    // without them (source-specific message), builds with a real root, inert when client auth is off
+    procedure TestServerClientAuthVerifierSourceWithoutAnchorsIsRefused;
+    procedure TestServerClientAuthVerifierSourceWithEmptyStoreIsRefused;
+    procedure TestServerClientAuthVerifierSourceWithAnchorsBuilds;
+    procedure TestServerClientAuthVerifierSourceWithEmptyStoreAndRealRootBuilds;
+    procedure TestServerVerifierSourceWithoutPeerAuthBuildsWithoutAnchors;
+    procedure TestServerClientAuthVerifierSourceWithSkipVerifyBuilds;
     procedure TestMtlsServerWithSuppliedTicketKeysRequiresScope;
     procedure TestMtlsServerWithSuppliedKeysAndScopeBuilds;
     procedure TestMtlsServerWithDefaultTicketKeysBuildsWithoutScope;
@@ -186,6 +196,36 @@ type
   end;
 
 implementation
+
+type
+  // an accept-all client-certificate verifier source, to exercise the Build-time roots gate
+  // without a live handshake
+  TAcceptAllClientVerifier = class(TInterfacedObject, IClientCertificateVerifier)
+  public
+    function VerifyClientCertificate(const AChain: TArray<TBytes>;
+      out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
+  end;
+
+  TAcceptAllClientVerifierSource = class(TInterfacedObject, IClientCertificateVerifierSource)
+  public
+    function CreateClientVerifier(const AContext: TClientTrustContext)
+      : IClientCertificateVerifier;
+  end;
+
+function TAcceptAllClientVerifier.VerifyClientCertificate(const AChain: TArray<TBytes>;
+  out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
+begin
+  AVerified.Path := AChain;
+  AVerified.Outcome := TVerificationOutcome.Trusted;
+  AAlert := TTlsAlertDescription.CertificateUnknown;
+  Result := True;
+end;
+
+function TAcceptAllClientVerifierSource.CreateClientVerifier(
+  const AContext: TClientTrustContext): IClientCertificateVerifier;
+begin
+  Result := TAcceptAllClientVerifier.Create as IClientCertificateVerifier;
+end;
 
 { TTestConfigBuilder }
 
@@ -852,9 +892,8 @@ procedure TTestConfigBuilder.TestPskClientWithEmptyStoreIsSteeredAsPskOnly;
 var
   LRaised: Boolean;
 begin
-  // the N17 hole: an empty store previously counted as a source, so a PSK-optional/1.2 client was
-  // NOT steered onto the PSK-only path and could reach the certificate path with nothing to verify.
-  // With roots (not store count) it is treated as PSK-only and refused (Compatible offers 1.2)
+  // an empty store yields no roots, so a PSK client with no real trust is steered PSK-only and
+  // refused for offering 1.2 - not left to reach the certificate path with nothing to verify
   LRaised := False;
   try
     TTlsPresets.Compatible(Crypto, Pkix).Client
@@ -896,6 +935,106 @@ begin
     .WithDangerousInsecureSkipVerify(True).Build;
   CheckTrue(LConfig.DangerousTrust.InsecureSkipVerify,
     'a client-auth server with skip-verify builds without a trust store');
+end;
+
+procedure TTestConfigBuilder.TestServerClientAuthVerifierSourceWithoutAnchorsIsRefused;
+var
+  LMsg: string;
+begin
+  // a client verifier source has nothing to consume without anchors: refused at Build, not deferred
+  LMsg := '';
+  try
+    TTlsPresets.Compatible(Crypto, Pkix).Server
+      .WithCredential(ServerCredential)
+      .WithPeerAuth(TClientAuthMode.Required)
+      .WithCertificateVerifierSource(
+        TAcceptAllClientVerifierSource.Create as IClientCertificateVerifierSource).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('verifier source', LMsg) > 0,
+    'a client verifier source without anchors is refused with its own message; got: ' + LMsg);
+end;
+
+procedure TTestConfigBuilder.TestServerClientAuthVerifierSourceWithEmptyStoreIsRefused;
+var
+  LMsg: string;
+begin
+  // an empty store gives the source nothing to consume: the source message wins over SEmptyTrustStore
+  LMsg := '';
+  try
+    TTlsPresets.Compatible(Crypto, Pkix).Server
+      .WithCredential(ServerCredential)
+      .WithPeerAuth(TClientAuthMode.Required)
+      .WithCertificateVerifierSource(
+        TAcceptAllClientVerifierSource.Create as IClientCertificateVerifierSource)
+      .WithTrustStore(TTrustAnchorStore.Create(nil) as ITrustAnchorStore).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('verifier source', LMsg) > 0,
+    'a source with an empty store is refused with the source message; got: ' + LMsg);
+end;
+
+procedure TTestConfigBuilder.TestServerClientAuthVerifierSourceWithAnchorsBuilds;
+var
+  LConfig: ITlsServerConfig;
+  LSource: IClientCertificateVerifierSource;
+begin
+  // the composition promise: a source alongside real anchors builds, and the anchors survive
+  LSource := TAcceptAllClientVerifierSource.Create as IClientCertificateVerifierSource;
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential)
+    .WithPeerAuth(TClientAuthMode.Required)
+    .WithCertificateVerifierSource(LSource)
+    .WithTrustStore(ClientTrust).Build;
+  CheckTrue(LConfig.ClientVerifierSource = LSource, 'the custom source is installed');
+  CheckEquals(1, System.Length(LConfig.TrustStore.RootCertificates),
+    'the client-CA anchors survive alongside the source');
+end;
+
+procedure TTestConfigBuilder.TestServerClientAuthVerifierSourceWithEmptyStoreAndRealRootBuilds;
+var
+  LConfig: ITlsServerConfig;
+begin
+  // the gate is roots-based, not store-count: an empty store plus a real root satisfies the source
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential)
+    .WithPeerAuth(TClientAuthMode.Required)
+    .WithCertificateVerifierSource(
+      TAcceptAllClientVerifierSource.Create as IClientCertificateVerifierSource)
+    .WithTrustStore(TTrustAnchorStore.Create(nil) as ITrustAnchorStore)
+    .WithTrustStore(ClientTrust).Build;
+  CheckTrue(LConfig <> nil, 'a source with an empty store unioned with a real root builds');
+end;
+
+procedure TTestConfigBuilder.TestServerVerifierSourceWithoutPeerAuthBuildsWithoutAnchors;
+var
+  LConfig: ITlsServerConfig;
+begin
+  // client auth is off, so the source is inert and no anchors are required (parity with anchors)
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential)
+    .WithCertificateVerifierSource(
+      TAcceptAllClientVerifierSource.Create as IClientCertificateVerifierSource).Build;
+  CheckTrue(LConfig <> nil, 'a client verifier source without client auth builds without anchors');
+end;
+
+procedure TTestConfigBuilder.TestServerClientAuthVerifierSourceWithSkipVerifyBuilds;
+var
+  LConfig: ITlsServerConfig;
+begin
+  // explicit skip-verify is the operator's trust decision, so the source needs no anchors to build
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential)
+    .WithPeerAuth(TClientAuthMode.Required)
+    .WithCertificateVerifierSource(
+      TAcceptAllClientVerifierSource.Create as IClientCertificateVerifierSource)
+    .WithDangerousInsecureSkipVerify(True).Build;
+  CheckTrue(LConfig.DangerousTrust.InsecureSkipVerify,
+    'a client verifier source under skip-verify builds without anchors');
 end;
 
 procedure TTestConfigBuilder.TestMtlsServerWithSuppliedTicketKeysRequiresScope;

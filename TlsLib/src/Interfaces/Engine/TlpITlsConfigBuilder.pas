@@ -343,7 +343,10 @@ type
     /// from the connection's client-trust context (its clock and revocation posture) - so an OS
     /// client delegate (TlsLib.Trust.System) can validate the peer against the configured
     /// client-CA anchors as an exclusive trust root. The source consumes those anchors, so
-    /// (unlike an injected whole-verifier) it composes with WithTrustAnchors/WithTrustStore.</summary>
+    /// (unlike an injected whole-verifier) it composes with WithTrustAnchors/WithTrustStore. With
+    /// WithPeerAuth on, Build requires those anchors to yield at least one root (a source with
+    /// nothing to consume is refused, not deferred to a handshake failure); a verifier that brings
+    /// its own roots belongs in WithCertificateVerifier.</summary>
     function WithCertificateVerifierSource(
       const ASource: IClientCertificateVerifierSource): ITlsServerConfigBuilder;
     function WithCertificateChainLimits(
