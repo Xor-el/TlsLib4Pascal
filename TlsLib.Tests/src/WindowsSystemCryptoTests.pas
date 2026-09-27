@@ -68,8 +68,9 @@ type
     // Whether AKey was adopted by the OS module (carries the native marker).
     function IsNativeKey(const AProvider: ICryptoProvider;
       const AKey: ISigningKey): Boolean;
-    // Whether the Windows legs must serve native crypto (env-gated): when set, a non-native
-    // result Fails rather than skips, so a native regression cannot pass vacuously on CI.
+    // Whether this host is expected to serve native crypto (TLSLIB_NATIVE_CRYPTO, the same flag
+    // that runs the interop harness native): when set, a non-native result Fails rather than
+    // skips, so a native regression cannot pass vacuously on the Windows CI leg.
     function RequireNative: Boolean;
     // Gate for a native test: True to run; when False the caller skips - unless native is
     // required here, in which case it Fails first.
@@ -202,7 +203,7 @@ end;
 
 function TTestWindowsSystemCrypto.RequireNative: Boolean;
 begin
-  Result := Trim(GetEnvironmentVariable('TLSLIB_REQUIRE_NATIVE_CRYPTO')) <> '';
+  Result := SameText(Trim(GetEnvironmentVariable('TLSLIB_NATIVE_CRYPTO')), 'true');
 end;
 
 function TTestWindowsSystemCrypto.NativeSigningOrSkip(const AProvider: ICryptoProvider;

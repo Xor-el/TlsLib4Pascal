@@ -9,8 +9,10 @@
 # multikey_pfx: two private-key entries (rsa-leaf + ec-leaf); ambiguous for one credential.
 # Leaf-selection fixtures (plaintext, no-MAC PFX - password is unused): TlsLib selects the leaf by
 # key match, not by store order or the key<->cert link. They reuse chain_pfx's leaf + CA, so
-# ca_cert_der stays the anchor. Forged from chain_pfx's pieces by Pkcs12Forge/forge.py (beside this
-# file; OpenSSL cannot emit these bag arrangements). All expect chain [leaf, CA] except nomatch.
+# ca_cert_der stays the anchor. Provenance: extract chain_pfx's leaf, CA and (PKCS#8) key with
+# OpenSSL, then reassemble as unencrypted no-MAC PFX SafeBags with the bag order and localKeyId
+# below (asn1crypto) - OpenSSL cannot emit these arrangements. All expect chain [leaf, CA] except
+# nomatch.
 # nolink_cafirst_pfx: no localKeyId anywhere, CA bag first (positional linkage leads with the CA).
 # orphanlink_pfx: the key's localKeyId matches no certificate (the linked lookup finds no leaf).
 # wronglink_pfx: the key's localKeyId points at the CA certificate, not the leaf.
