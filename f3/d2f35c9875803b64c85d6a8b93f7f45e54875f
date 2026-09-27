@@ -1,0 +1,24 @@
+TlsLib.Tests/src/WindowsSystemCryptoTests.pas
+  s_09d3c46d1a9b1f::t_5f9364d6b83999 206
+  s_09d3c46d1a9b1f::t_b527ed9675f4ce 71-73
+TlsLib.Tests/Data/Certs/Pkcs12.txt
+  s_09d3c46d1a9b1f::t_4fb24abf80d63a 12-15
+.github/workflows/make.yml
+  s_09d3c46d1a9b1f::t_5cc42703457001 260-263
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f3d2f35c9875803b64c85d6a8b93f7f45e54875f",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
