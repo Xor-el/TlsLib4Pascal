@@ -1,0 +1,104 @@
+TlsLib.Tests/src/ChainAlgorithmPolicyTests.pas
+  s_09d3c46d1a9b1f::t_90ca87b0534730 96-100
+  s_09d3c46d1a9b1f::t_f1355500bf0e86 75,82
+  s_09d3c46d1a9b1f::t_341f457934efb5 62-63
+  s_09d3c46d1a9b1f::t_aa4c73e006d08e 213-244
+  s_09d3c46d1a9b1f::t_eb21b2225e3525 44,47
+TlsLib/src/Interfaces/Trust/TlpIHttpFetcher.pas
+  s_09d3c46d1a9b1f::t_da4eed7ccadbba 36,39-41,45-46,48
+TlsLib.Net/TlpSocketHttpFetcher.pas
+  s_09d3c46d1a9b1f::t_bafd67c68ee0be 111
+  s_09d3c46d1a9b1f::t_e08da32283117c 52,54,57
+  s_09d3c46d1a9b1f::t_31515b12b6098f 231
+  s_09d3c46d1a9b1f::t_2170a53e3e2007 248,250,254-255,257
+  s_09d3c46d1a9b1f::t_a110fb24cae00b 214
+  s_09d3c46d1a9b1f::t_96948fc4f01db6 86,90-94
+  s_09d3c46d1a9b1f::t_520846bd28f534 74,79
+  s_09d3c46d1a9b1f::t_c60b7672815711 123
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_09d3c46d1a9b1f::t_a6463c99550b14 673-674
+  s_09d3c46d1a9b1f::t_00612752d4b7f2 520-528
+TlsLib.Tests/src/EndpointIdentityTests.pas
+  s_09d3c46d1a9b1f::t_da2c7942d392ae 189
+  s_09d3c46d1a9b1f::t_a4c85911f83e74 50
+  s_09d3c46d1a9b1f::t_bbdfebb59ceb71 168-188,190-195
+TlsLib.Tests/src/LiveRevocationTests.pas
+  s_09d3c46d1a9b1f::t_e63431bec12629 372-401
+  s_09d3c46d1a9b1f::t_5f76607d8b91da 211-222
+  s_09d3c46d1a9b1f::t_756090b4d4a430 417,452,490,528,580,937
+  s_09d3c46d1a9b1f::t_a5339d9674d2fd 956
+  s_09d3c46d1a9b1f::t_f70f04ac63cfb8 63-65
+  s_09d3c46d1a9b1f::t_3708a8819e3023 331,364,626,649
+  s_09d3c46d1a9b1f::t_f8db8ef4f8dd45 837-848
+  s_09d3c46d1a9b1f::t_196eebe63d5325 671
+  s_09d3c46d1a9b1f::t_883b831d774c81 418,453,491,510,548,581,936
+  s_09d3c46d1a9b1f::t_f0ebc81fa0319b 953
+  s_09d3c46d1a9b1f::t_8897725db1a834 93
+  s_09d3c46d1a9b1f::t_ac44a1aa951c20 116-118
+  s_09d3c46d1a9b1f::t_6fa5bd1f9d26a7 737,776
+TlsLib.Tests/src/MockHttpFetcher.pas
+  s_09d3c46d1a9b1f::t_4c487cfe175d29 35,38,41,46-47
+  s_09d3c46d1a9b1f::t_2d83aa63bd6c41 78-79,83
+  s_09d3c46d1a9b1f::t_73240ac799f579 65,69
+TlsLib/src/CertCompression/TlpCertificateCompression.pas
+  s_09d3c46d1a9b1f::t_c6fbacbf0100a6 179,181,186,195,197
+TlsLib.Trust.System/src/TlpOSSystemTrust.pas
+  s_09d3c46d1a9b1f::t_519cdae4d5e01c 247-248
+  s_09d3c46d1a9b1f::t_1e83f0e1f1662b 212
+TlsLib.Trust.System/src/TlpWindowsSystemTrust.pas
+  s_09d3c46d1a9b1f::t_0380f340ae8c35 636-645
+  s_09d3c46d1a9b1f::t_cda830e9874529 215
+TlsLib/src/Trust/TlpLiveRevocation.pas
+  s_09d3c46d1a9b1f::t_a9cb0842197195 207
+  s_09d3c46d1a9b1f::t_9a10280409ec27 140
+  s_09d3c46d1a9b1f::t_a29d2d1aa03eab 181
+TlsLib.Tests/src/ExtensionNegotiationTests.pas
+  s_09d3c46d1a9b1f::t_23e7d4b055ff71 725-726
+  s_09d3c46d1a9b1f::t_fe7f1a9f00db58 741-742
+TlsLib/src/Trust/TlpChainAlgorithmPolicy.pas
+  s_09d3c46d1a9b1f::t_509711cf814741 149-150
+  s_09d3c46d1a9b1f::t_c615cbb9f933f4 73-74,88-89,91-108
+  s_09d3c46d1a9b1f::t_2aea31ab1e4172 199,208-213
+  s_09d3c46d1a9b1f::t_f580cc1f8684e8 42-43,47-48
+  s_09d3c46d1a9b1f::t_de1f9509d80fda 174
+TlsLib/src/Trust/TlpCertificateVerifier.pas
+  s_09d3c46d1a9b1f::t_38ed3b1e845973 222-223
+TlsLib/src/Trust/TlpEndpointIdentity.pas
+  s_09d3c46d1a9b1f::t_3065affde27c1b 128-132
+  s_09d3c46d1a9b1f::t_1692bdab87cf2a 153-155
+TlsLib.Trust.System/src/TlpOSDelegateVerifier.pas
+  s_09d3c46d1a9b1f::t_5b603c767bee0f 288-296
+  s_09d3c46d1a9b1f::t_0bc4be10ad8cf9 366-367
+  s_09d3c46d1a9b1f::t_c7e2c045b3a0b0 154
+  s_09d3c46d1a9b1f::t_119cc50f721ded 51
+  s_09d3c46d1a9b1f::t_0a529c4f727505 171-172
+  s_09d3c46d1a9b1f::t_cfe4d6f5dacc03 237-243
+  s_09d3c46d1a9b1f::t_9c2cd6b5ac6529 40-41
+  s_09d3c46d1a9b1f::t_be2c41f46ba2c9 402-405
+TlsLib.Trust.System/src/TlpAndroidSystemTrust.pas
+  s_09d3c46d1a9b1f::t_21575d71615365 483-492
+TlsLib.Tests/src/ResourceLimitTests.pas
+  s_09d3c46d1a9b1f::t_352e6c094aefd1 365
+  s_09d3c46d1a9b1f::t_f87b634851f773 310,312
+  s_09d3c46d1a9b1f::t_13b348c2fa6097 273
+  s_09d3c46d1a9b1f::t_1c88aba97b6176 326
+  s_09d3c46d1a9b1f::t_74d2b6cd798678 334,337-343,347
+TlsLib/src/Negotiation/TlpNegotiationTypes.pas
+  s_09d3c46d1a9b1f::t_6482403ecfe406 72-76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3a9473e56a1b0c677bada69f6afffc4749fd2934",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
