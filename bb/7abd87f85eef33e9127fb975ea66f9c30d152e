@@ -1,0 +1,23 @@
+TlsLib.Tests/src/ResourceLimitTests.pas
+  s_09d3c46d1a9b1f::t_da55817b7faeb4 72
+  s_09d3c46d1a9b1f::t_f8a5f5cbaa8a23 356-382
+TlsLib/src/CertCompression/TlpZlibCertificateCompression.pas
+  s_09d3c46d1a9b1f::t_74484a6c5a0e17 23
+  s_09d3c46d1a9b1f::t_b8a4096358abc2 115,117,119-121,123-129,131-148,150-152,154-159,161
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "bb7abd87f85eef33e9127fb975ea66f9c30d152e",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
