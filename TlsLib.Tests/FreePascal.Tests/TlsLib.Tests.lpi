@@ -357,6 +357,10 @@
         <Filename Value="..\src\ClientSessionPolicyTests.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit78>
+      <Unit79>
+        <Filename Value="..\src\WindowsSystemCryptoTests.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit79>
     </Units>
   </ProjectOptions>
   <CompilerOptions>
