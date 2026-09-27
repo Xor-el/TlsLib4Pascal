@@ -246,10 +246,13 @@ type
     /// the leaf and any intermediates as the chain (leaf first, DER) and an ISigningKey composed
     /// from the enclosed private key (the builder lifts it into a full TTlsCredential). The store
     /// must hold exactly one private-key entry - a multi-identity store is ambiguous and rejected.
-    /// Fails closed: a wrong password, bad MAC, malformed store, or an ambiguous/absent key raises
-    /// EArgumentTlsLibException and no partial credential is returned; an unsupported key
-    /// algorithm raises ENotSupportedTlsLibException. The passphrase is a wiped buffer of host
-    /// code units: nil means no passphrase, a zero-length buffer means an empty passphrase.
+    /// The leaf is the certificate whose public key pairs the private key (PKCS#12 imposes no
+    /// order and the key/cert link may be absent or wrong); when more than one certificate pairs
+    /// the key, one is selected deterministically. Fails closed: a wrong password, bad MAC, malformed store, or a
+    /// store with no certificate for its key raises EArgumentTlsLibException and no partial
+    /// credential is returned; an unsupported key algorithm raises ENotSupportedTlsLibException.
+    /// The passphrase is a wiped buffer of host code units: nil means no passphrase, a zero-length
+    /// buffer means an empty passphrase.
     /// </summary>
     function ImportPkcs12(const AData: TBytes;
       const APassword: ISecretBuffer): TImportedCredential;

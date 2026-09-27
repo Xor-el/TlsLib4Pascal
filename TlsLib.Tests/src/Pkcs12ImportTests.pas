@@ -55,6 +55,9 @@ type
     // Signs a fixed probe with the credential's key (its first capable scheme) and verifies
     // it against the leaf certificate's SubjectPublicKeyInfo. True when the key pairs the leaf.
     function KeyPairsLeaf(const ACredential: TImportedCredential): Boolean;
+    // Asserts a forged leaf-selection vector imports to [leaf, CA]: the key pairs
+    // CertificateChain[0] and the chain validates to the ca_cert_der anchor.
+    procedure CheckSelectsLeafAndVerifies(const AField: string);
   protected
     procedure SetUp; override;
     procedure TearDown; override;
@@ -66,6 +69,12 @@ type
     procedure TestMultiKeyPfxFailsClosed;
     procedure TestWrongPasswordFailsClosed;
     procedure TestMalformedBlobFailsClosed;
+    // leaf selection by key: the leaf is chosen by matching the private key, not by store
+    // order or the (absent/orphan/wrong) key<->cert link
+    procedure TestNoLinkCaFirstSelectsLeaf;
+    procedure TestOrphanLinkSelectsLeaf;
+    procedure TestWrongLinkSelectsLeaf;
+    procedure TestNoCertForKeyFailsClosed;
   end;
 
 implementation
@@ -231,6 +240,68 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a malformed PKCS#12 blob raises EArgumentTlsLibException');
+end;
+
+procedure TTestPkcs12Import.CheckSelectsLeafAndVerifies(const AField: string);
+var
+  LCredential: TImportedCredential;
+  LVerifier: IServerCertificateVerifier;
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  // the forged stores are plaintext (no encryption, no MAC), so no password is used
+  LCredential := Crypto.Signing.ImportPkcs12(Blob(AField), nil);
+  CheckEquals(2, System.Length(LCredential.CertificateChain),
+    AField + ': the selected chain is leaf + CA');
+  CheckTrue(KeyPairsLeaf(LCredential),
+    AField + ': the private key pairs the selected leaf (CertificateChain[0])');
+  LVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(Blob('ca_cert_der'))), False);
+  LAlert := TTlsAlertDescription.InternalError;
+  CheckTrue(LVerifier.VerifyServerCertificate(LCredential.CertificateChain,
+    TServerName.DnsName(''), nil, LVerified, LAlert),
+    AField + ': the selected chain validates to the test CA');
+end;
+
+procedure TTestPkcs12Import.TestNoLinkCaFirstSelectsLeaf;
+begin
+  // no localKeyId anywhere and the CA bag first: positional linkage leads with the CA, so the
+  // key match must override it and pick the leaf
+  CheckSelectsLeafAndVerifies('nolink_cafirst_pfx');
+end;
+
+procedure TTestPkcs12Import.TestOrphanLinkSelectsLeaf;
+begin
+  // the key's localKeyId matches no certificate: the linked lookup finds nothing, so the scan
+  // must find the leaf by key
+  CheckSelectsLeafAndVerifies('orphanlink_pfx');
+end;
+
+procedure TTestPkcs12Import.TestWrongLinkSelectsLeaf;
+begin
+  // the key's localKeyId points at the CA: the linked leaf is wrong, so the key match must
+  // correct it
+  CheckSelectsLeafAndVerifies('wronglink_pfx');
+end;
+
+procedure TTestPkcs12Import.TestNoCertForKeyFailsClosed;
+var
+  LRaised: Boolean;
+  LCredential: TImportedCredential;
+begin
+  LRaised := False;
+  try
+    // the store holds the key and the CA only - no certificate pairs the key
+    LCredential := Crypto.Signing.ImportPkcs12(Blob('nomatch_pfx'), nil);
+    CheckEquals(0, System.Length(LCredential.CertificateChain),
+      'unreachable: a store with no certificate for its key must not return a credential');
+  except
+    on E: EArgumentTlsLibException do
+      // match the specific message, not just the class: a Load failure (SMalformedPkcs12) is the
+      // same class, so this pins the no-certificate-for-key path
+      LRaised := Pos('no certificate for its private key', E.Message) > 0;
+  end;
+  CheckTrue(LRaised, 'a PKCS#12 store with no certificate for its key raises the no-cert-for-key error');
 end;
 
 initialization
