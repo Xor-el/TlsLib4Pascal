@@ -23,7 +23,7 @@ Fetch the operator's `ECHConfigList` (see [DNS](#4-dns--publishing-and-fetching-
 it to the builder:
 
 ```pascal
-LClient := TTlsPresets.Compatible(Provider).Client;
+LClient := TTlsPresets.Compatible(Crypto, Pkix).Client;
 LClient.Tls13.WithEncryptedClientHello(LEchConfigList); // the bytes from DNS
 LEngine := TTlsEngineFactory.CreateClientEngine(LClient.Build, 'secret.example');
 ```
@@ -92,8 +92,8 @@ A server decrypts ECH with a key store that holds one or more configs and their 
 them from an RFC 9934 PEM (the format `EchKeyGen` and `openssl ech` emit):
 
 ```pascal
-LStore := TInMemoryEchKeyStore.FromPem(LPemBytes, Provider);
-LServer := TTlsPresets.Compatible(Provider).Server;
+LStore := TInMemoryEchKeyStore.FromPem(LPemBytes, Crypto);
+LServer := TTlsPresets.Compatible(Crypto, Pkix).Server;
 LServer.Tls13.WithEchKeyStore(LStore).WithEchTrialDecrypt(True);
 ```
 

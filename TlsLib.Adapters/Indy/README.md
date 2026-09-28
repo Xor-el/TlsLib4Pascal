@@ -53,10 +53,10 @@ a **trust source** (used to verify the *peer*), never part of what you send; put
 there leaves the presented chain incomplete, forcing clients to fetch the missing CA (slow, and it fails
 where fetching is blocked).
 
-**PKCS#12 (`.pfx`)**: map a `.pfx` by building the credential with the provider's
-`WithCredentialPkcs12(pfxBytes, password)` and driving the config builder
-(`TTlsPresets.…(provider, pkix).Server`) directly (the file-based `SSLOptions` cover PEM/DER
-cert+key pairs).
+**PKCS#12 (`.pfx`)**: map a `.pfx` by building the credential with
+`TTlsCredential.LoadPkcs12(crypto, pfxBytes, password)` and passing it to `WithCredential` on a config
+builder you drive directly (`TTlsPresets.…(crypto, pkix).Server`) (the file-based `SSLOptions` cover
+PEM/DER cert+key pairs).
 
 ## Trust is ours (`dangerous` mapping)
 

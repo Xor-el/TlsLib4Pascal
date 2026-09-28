@@ -33,23 +33,28 @@ Add an **optional** package only when you use its feature:
 
 The core references none of these — a build that doesn't use them links none of them.
 
-## 2. The one object everything needs: the provider
+## 2. The objects everything needs: the providers
 
-Every entry point takes an `ICryptoProvider`. The default is a plain constructed instance — there is
-no global singleton to install:
+Every builder entry point takes an `ICryptoProvider` (crypto primitives + CSPRNG) and an
+`IPkixProvider` (certificate parsing + path validation). The defaults are plain constructed instances —
+there is no global singleton to install:
 
 ```pascal
-uses TlpDefaultCryptoProvider, TlpICryptoProvider;
+uses TlpDefaultCryptoProvider, TlpDefaultPkixProvider, TlpICryptoProvider, TlpIPkixProvider;
 
-var P: ICryptoProvider;
+var
+  Crypto: ICryptoProvider;
+  Pkix: IPkixProvider;
 begin
-  P := TDefaultCryptoProvider.Create as ICryptoProvider;
-  // reuse P across as many configs/connections as you like; it holds no per-connection state
+  Crypto := TDefaultCryptoProvider.Create as ICryptoProvider;
+  Pkix := TDefaultPkixProvider.Create as IPkixProvider;
+  // reuse Crypto/Pkix across as many configs/connections as you like; they hold no per-connection state
 end;
 ```
 
 Construction is cheap (a CPU-feature probe plus vtable wiring; the CSPRNG seeds lazily). Build a
-config once, then share it lock-free across many connections.
+config once, then share it lock-free across many connections. (The `TTlsLib` facade in
+[Your first client](#3-your-first-client-fully-verified) constructs the defaults for you.)
 
 ## 3. Your first client (fully verified)
 

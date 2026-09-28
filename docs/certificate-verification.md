@@ -18,8 +18,9 @@ This guide covers, from safest to most dangerous:
 > To verify against the **OS system trust store** (the way a browser does) instead of your own
 > anchors, see [system-trust.md](system-trust.md).
 
-Throughout, `P` is an `ICryptoProvider` (e.g. `TDefaultCryptoProvider.Create as ICryptoProvider`).
-`TTlsPresets.Compatible(P)` returns an `ITlsConfigBuilder`; `.Client` / `.Server` pick the
+Throughout, `Crypto` is an `ICryptoProvider` and `Pkix` an `IPkixProvider` (e.g.
+`TDefaultCryptoProvider.Create as ICryptoProvider` and `TDefaultPkixProvider.Create as IPkixProvider`).
+`TTlsPresets.Compatible(Crypto, Pkix)` returns an `ITlsConfigBuilder`; `.Client` / `.Server` pick the
 endpoint. A built `ITlsClientConfig` becomes an engine via
 `TTlsEngineFactory.CreateClientEngine(cfg, host)`, which you wrap in a Tier-2 `TTlsStream`.
 
@@ -49,7 +50,7 @@ begin
 end;
 
 // WithTrustAnchors accepts a PEM block/bundle OR a single DER certificate
-LConfig := TTlsPresets.Compatible(P).Client
+LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   .WithTrustAnchors(LoadFile('my-ca.pem'))
   .Build;
 ```
@@ -87,9 +88,9 @@ begin
   Result := LHash.DoFinal;
 end;
 
-LConfig := TTlsPresets.Compatible(P).Client
+LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   .WithTrustAnchors(LoadFile('my-ca.pem'))
-  .WithCertificatePinning( TArray<TBytes>.Create(SpkiSha256(P, LoadFile('leaf.der'))) )
+  .WithCertificatePinning( TArray<TBytes>.Create(SpkiSha256(Crypto, LoadFile('leaf.der'))) )
   .Build;
 ```
 
@@ -104,7 +105,7 @@ trusted certificate is accepted regardless of the host it was issued for (a man-
 risk), so it lives under the `dangerous` name and is a pin-only trust posture.
 
 ```pascal
-LConfig := TTlsPresets.Compatible(P).Client
+LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   .WithTrustAnchors(LoadFile('my-ca.pem'))
   .WithDangerousDisableServerNameCheck   // RFC 6125 identity check off; chain still validated
   .Build;
@@ -129,7 +130,7 @@ Bypasses the built-in pipeline: PKIX, revocation, and host-name. Any configured 
 but the peer must still present a pinned key. For tests and pinned development peers only.
 
 ```pascal
-LConfig := TTlsPresets.Compatible(P).Client
+LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   // skip-verify is itself the explicit trust decision, so Build() needs no trust source; a store
   // supplied with no roots is refused whenever verification is on (no silent-insecure).
   .WithDangerousInsecureSkipVerify
@@ -155,7 +156,7 @@ type
   end;
 
 // tighten a normally-verified connection with an extra rule of your own
-LConfig := TTlsPresets.Compatible(P).Client
+LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   .WithTrustAnchors(LoadFile('my-ca.pem'))
   .WithCertificateVerifyCallback(LMyRules.Check)
   .Build;
@@ -177,7 +178,7 @@ type
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
-LConfig := TTlsPresets.Compatible(P).Client
+LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   .WithDangerousCertificateVerifier(TMyServerVerifier.Create as IServerCertificateVerifier)  // sole gate
   .Build;
 ```
@@ -341,7 +342,7 @@ resolver. Attach the resolver on the server's stream exactly as above; a revoked
 then aborts the handshake with `certificate_revoked`. This works with both the **portable**
 `TLiveRevocationChecker` (give it the configured client-CA anchors as issuer candidates, so it can
 recover the issuer of a leaf-only client credential) and the **OS-native** delegate on Windows/Apple
-(`TOSSystemTrust.ClientVerifierSource(P, TSystemTrustFetch.Live)` +
+(`TOSSystemTrust.ClientVerifierSource(TSystemTrustFetch.Live)` +
 `TOSSystemTrust.LiveRevocationResolver(serverConfig)` — see the OS-native subsection above and
 [system-trust.md](system-trust.md)).
 
