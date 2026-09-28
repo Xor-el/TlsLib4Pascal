@@ -27,6 +27,7 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpTlsAlert,
+  TlpTlsStreamPump,
   TlpTlsVersion,
   TlpTlsCredential,
   TlpITlsConfig,
@@ -120,6 +121,9 @@ type
     // revoked verdict aborts with certificate_revoked
     procedure TestServerHardClientRevocationParksThenRevokedTls13;
     procedure TestServerHardClientRevocationParksThenRevokedTls12;
+    procedure TestPumpDrainEventsReportsPeerFatalAlertWithoutRaising;
+    procedure TestPumpDrainEventsReportsCloseNotify;
+    procedure TestPumpResolveVerdictWithoutResolverFailsClosed;
   end;
 
 implementation
@@ -829,6 +833,67 @@ begin
   CheckEquals(Int64(Ord(TTlsAlertDescription.CertificateRevoked)),
     Int64(Ord(LServer.LastError.Alert.Description)),
     'the server emits certificate_revoked');
+end;
+
+procedure TTestAsyncVerdict.TestPumpDrainEventsReportsPeerFatalAlertWithoutRaising;
+var
+  LClient, LServer: ITlsEngine;
+  LAlert: IPeerAlertEvent;
+  LClosed: Boolean;
+  LCert: ICertificateReceivedEvent;
+begin
+  LClient := NewClient(ClientConfig(False, 0), 'localhost', LServer);
+  LClient.StartHandshake;
+  DriveToCompletion(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking, 'the handshake completes');
+  // the server sends a fatal alert; the shared classifier reports it and never raises
+  LServer.SendAlert(TTlsAlertDescription.HandshakeFailure);
+  PumpOneWay(LServer, LClient);
+  CheckTrue(TTlsStreamPump.DrainEvents(LClient, LAlert, LClosed, LCert),
+    'a peer fatal alert is a terminal event');
+  CheckTrue(LAlert <> nil, 'the peer alert is reported, not raised');
+  CheckFalse(LClosed, 'a fatal alert is not a clean close');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.HandshakeFailure)),
+    Int64(Ord(LAlert.Alert.Description)),
+    'the reported alert carries the peer''s description');
+end;
+
+procedure TTestAsyncVerdict.TestPumpDrainEventsReportsCloseNotify;
+var
+  LClient, LServer: ITlsEngine;
+  LAlert: IPeerAlertEvent;
+  LClosed: Boolean;
+  LCert: ICertificateReceivedEvent;
+begin
+  LClient := NewClient(ClientConfig(False, 0), 'localhost', LServer);
+  LClient.StartHandshake;
+  DriveToCompletion(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking, 'the handshake completes');
+  LServer.SendClose;
+  PumpOneWay(LServer, LClient);
+  CheckTrue(TTlsStreamPump.DrainEvents(LClient, LAlert, LClosed, LCert),
+    'a peer close_notify is a terminal event');
+  CheckTrue(LAlert = nil, 'a clean close is not a peer alert');
+  CheckTrue(LClosed, 'the peer close_notify is reported');
+  CheckTrue(LClient.IsInboundClosed, 'the engine records the inbound close');
+end;
+
+procedure TTestAsyncVerdict.TestPumpResolveVerdictWithoutResolverFailsClosed;
+var
+  LClient, LServer: ITlsEngine;
+  LEvent: ICertificateReceivedEvent;
+begin
+  LClient := NewClient(ClientConfig(True, 0), 'localhost', LServer);
+  LClient.StartHandshake;
+  DriveUntilParkOrSettled(LClient, LServer);
+  CheckTrue(TakeCertificateEvent(LClient, LEvent),
+    'the park raised the peer-certificate event');
+  // the client verifies the server's chain: with no resolver the shared verdict fails closed
+  TTlsStreamPump.ResolveVerdict(LClient, LEvent, nil, TPeerRole.Server);
+  CheckTrue(LClient.IsTerminal, 'a nil resolver fails the parked verdict closed');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.CertificateUnknown)),
+    Int64(Ord(LClient.LastError.Alert.Description)),
+    'the fail-closed abort is certificate_unknown');
 end;
 
 initialization
