@@ -1,0 +1,31 @@
+TlsLib/src/Interfaces/Crypto/Providers/TlpICryptoProvider.pas
+  s_09d3c46d1a9b1f::t_2ad3633b8226bc 248-249
+  s_09d3c46d1a9b1f::t_461987bb126f82 247
+TlsLib/src/Crypto/TlpImportedCredential.pas
+  s_09d3c46d1a9b1f::t_69a4e61c1876e6 26
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_520114bc0b66d6 279
+  s_09d3c46d1a9b1f::t_64d4acb4c2b6a6 332-333,341
+  s_09d3c46d1a9b1f::t_0a8c3080b4d7bb 70
+  s_09d3c46d1a9b1f::t_251e9477e62572 109-111
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_c198e64aab75ec 591,593
+  s_09d3c46d1a9b1f::t_8981672f13d2a6 535
+  s_09d3c46d1a9b1f::t_0d86a7b687d7f4 214,216
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8339f0c58adba89591e1aabb0e314769dd4502ef",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
