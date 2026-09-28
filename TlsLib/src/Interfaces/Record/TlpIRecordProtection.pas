@@ -57,17 +57,6 @@ type
     function NeedsKeyUpdate: Boolean;
   end;
 
-  /// <summary>
-  /// Forces a protection's record sequence counter to a chosen value, so the AEAD usage-limit
-  /// and 2^64 wrap invariants can be exercised without sealing that many records. Reached with
-  /// Supports(protection, IRecordSequenceControl, x); kept off IRecordProtection so the counter
-  /// cannot be moved through the contract (the record layer only ever advances it).
-  /// </summary>
-  IRecordSequenceControl = interface(IInterface)
-    ['{9B7A6C41-0E2D-4F53-8AA6-16C0B3D8E2F7}']
-    procedure SetSequenceNumber(AValue: UInt64);
-  end;
-
 implementation
 
 end.

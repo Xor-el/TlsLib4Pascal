@@ -22,8 +22,7 @@ uses
   TlpTlsLibExceptions,
   TlpTlsContentType,
   TlpTlsVersion,
-  TlpWireReader,
-  TlpIWireWriter;
+  TlpWireReader;
 
 type
   /// <summary>The record-layer size ceilings (RFC 8446 5.1/5.2, RFC 5246 6.2.3).</summary>
@@ -65,8 +64,6 @@ type
     /// </summary>
     class function Parse(var AReader: TWireReader;
       AMaxCiphertextLength: Int32): TTlsRecordHeader; static;
-    /// <summary>Writes the 5 header bytes through the wire writer.</summary>
-    procedure Serialize(const AWriter: IWireWriter);
     /// <summary>Writes the 5 header bytes at ABuf[AOffset]; the caller sizes ABuf.</summary>
     procedure WriteTo(const ABuf: TBytes; AOffset: Int32);
     /// <summary>Maps the content-type byte to a known type; False if unknown.</summary>
@@ -118,13 +115,6 @@ begin
   Result.FContentTypeByte := LContentTypeByte;
   Result.FVersion := TTlsVersion.Create(LVersion);
   Result.FLength := LLength;
-end;
-
-procedure TTlsRecordHeader.Serialize(const AWriter: IWireWriter);
-begin
-  AWriter.WriteUInt8(FContentTypeByte);
-  AWriter.WriteUInt16(FVersion.WireValue);
-  AWriter.WriteUInt16(UInt16(FLength));
 end;
 
 procedure TTlsRecordHeader.WriteTo(const ABuf: TBytes; AOffset: Int32);

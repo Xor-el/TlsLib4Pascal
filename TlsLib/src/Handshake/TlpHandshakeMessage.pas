@@ -101,7 +101,7 @@ type
     function HasPartial: Boolean;
 
     /// <summary>The largest handshake message body accepted (default 2^16).</summary>
-    property MaxMessageLength: Int32 read FMaxMessageLength write FMaxMessageLength;
+    property MaxMessageLength: Int32 read FMaxMessageLength;
     /// <summary>The largest Certificate-message body accepted, so a caller's configured chain
     /// budget bounds the uncompressed Certificate the same way the compressed path is bounded.
     /// Applies only to the Certificate handshake type; every other message keeps MaxMessageLength.

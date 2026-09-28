@@ -38,12 +38,29 @@ uses
   TlpRecordProtection,
   TlpRecordHeader,
   TlpWireWriter,
+  MockCryptoProvider,
   TlsLibTestBase;
 
 type
+  // a minimal concrete protection whose sequence counter a test can force, to reach the 2^64
+  // exhaustion guard no capped AEAD can seal up to (the guard is base-owned defence-in-depth)
+  TProbeRecordProtection = class(TRecordProtectionBase)
+  public
+    procedure ForceSequence(AValue: UInt64);
+    function Protect(AContentType: TTlsContentType; const APlaintext: TBytes;
+      AOffset, ALength: Int32): TBytes; override;
+    function Unprotect(const ARecord: TBytes; AOffset, ALength: Int32;
+      out AContentType: TTlsContentType): TBytes; override;
+    function Overhead: Int32; override;
+  end;
+
   TTestRecordProtection = class(TTlsLibAlgorithmTestCase)
   private
     function MakeTls13(const AKey, AIv: TBytes; AAlgorithm: TAeadAlgorithm): IRecordProtection;
+    // as MakeTls13, but the AEAD reports a small usage limit so the rekey / hard-limit path is
+    // reached by sealing a few dozen records
+    function MakeTls13Capped(const AKey, AIv: TBytes; AAlgorithm: TAeadAlgorithm;
+      AUsageLimit: UInt64): IRecordProtection;
     function MakeTls12(const AKey, ASalt: TBytes;
       AAlgorithm: TAeadAlgorithm): IRecordProtection;
     function BigEndian8(AValue: UInt64): TBytes;
@@ -58,6 +75,7 @@ type
     procedure TestNeedsKeyUpdateAtUsageLimit;
     procedure TestAesGcmRoundTripNearUsageLimit;
     procedure TestProtectFailsAtUsageLimit;
+    procedure TestUsageLimitBelowRekeyLeadIsRejected;
     procedure TestNullRecordProtectionFrames;
     procedure TestTls12Aes128GcmRecord;
     procedure TestTls12ChaCha20RecordRfc7905;
@@ -68,6 +86,33 @@ type
 
 implementation
 
+{ TProbeRecordProtection }
+
+procedure TProbeRecordProtection.ForceSequence(AValue: UInt64);
+begin
+  FSeq := AValue;
+end;
+
+function TProbeRecordProtection.Protect(AContentType: TTlsContentType;
+  const APlaintext: TBytes; AOffset, ALength: Int32): TBytes;
+begin
+  GuardSequenceNotExhausted;
+  GuardUsageLimitNotReached;
+  Result := nil;
+end;
+
+function TProbeRecordProtection.Unprotect(const ARecord: TBytes;
+  AOffset, ALength: Int32; out AContentType: TTlsContentType): TBytes;
+begin
+  AContentType := TTlsContentType.ApplicationData;
+  Result := nil;
+end;
+
+function TProbeRecordProtection.Overhead: Int32;
+begin
+  Result := 0;
+end;
+
 { TTestRecordProtection }
 
 function TTestRecordProtection.MakeTls13(const AKey, AIv: TBytes;
@@ -75,6 +120,14 @@ function TTestRecordProtection.MakeTls13(const AKey, AIv: TBytes;
 begin
   Result := TTls13RecordProtection.Create(TSecretBuffer.From(AKey),
     TSecretBuffer.From(AIv), Crypto.Primitives.CreateAead(AAlgorithm));
+end;
+
+function TTestRecordProtection.MakeTls13Capped(const AKey, AIv: TBytes;
+  AAlgorithm: TAeadAlgorithm; AUsageLimit: UInt64): IRecordProtection;
+begin
+  Result := TTls13RecordProtection.Create(TSecretBuffer.From(AKey),
+    TSecretBuffer.From(AIv),
+    TCappedAead.Create(Crypto.Primitives.CreateAead(AAlgorithm), AUsageLimit) as IAead);
 end;
 
 function TTestRecordProtection.MakeTls12(const AKey, ASalt: TBytes;
@@ -247,13 +300,14 @@ end;
 procedure TTestRecordProtection.TestSequenceExhaustionRaises;
 var
   LProt: IRecordProtection;
-  LSeq: IRecordSequenceControl;
+  LProbe: TProbeRecordProtection;
   LRaised: Boolean;
 begin
-  LProt := MakeTls13(DecodeHex('000102030405060708090a0b0c0d0e0f'),
-    DecodeHex('101112131415161718191a1b'), TAeadAlgorithm.AES_128_GCM);
-  CheckTrue(Supports(LProt, IRecordSequenceControl, LSeq), 'sequence control present');
-  LSeq.SetSequenceNumber(High(UInt64));
+  // the 2^64 sequence-exhaustion guard is base-owned defence-in-depth that no real AEAD reaches
+  // by sealing (its usage limit fires first), so force the counter on a probe protection
+  LProbe := TProbeRecordProtection.Create;
+  LProt := LProbe; // own via the interface; refcount frees the instance
+  LProbe.ForceSequence(High(UInt64));
   LRaised := False;
   try
     LProt.Protect(TTlsContentType.ApplicationData, DecodeHex('00'), 0, 1);
@@ -267,35 +321,35 @@ end;
 procedure TTestRecordProtection.TestNeedsKeyUpdateAtUsageLimit;
 var
   LProt: IRecordProtection;
-  LSeq: IRecordSequenceControl;
+  LI: Int32;
 begin
-  // AES-GCM usage limit is ~2^24.5 records
-  LProt := MakeTls13(DecodeHex('000102030405060708090a0b0c0d0e0f'),
-    DecodeHex('101112131415161718191a1b'), TAeadAlgorithm.AES_128_GCM);
-  Supports(LProt, IRecordSequenceControl, LSeq);
-  // NeedsKeyUpdate is the soft threshold: a 16-record lead before the hard limit (23726566),
-  // so a KeyUpdate can still seal under the current epoch
-  LSeq.SetSequenceNumber(UInt64(23726566 - 17));
-  CheckFalse(LProt.NeedsKeyUpdate, 'below the soft rekey threshold: no key update');
-  LSeq.SetSequenceNumber(UInt64(23726566 - 16));
+  // a capped AEAD (usage limit 20, rekey lead 16) makes the soft threshold reachable by sealing:
+  // the 4th record (seq 4 = limit - lead) is the first that flags NeedsKeyUpdate, leaving a lead
+  // in which a KeyUpdate can still seal under the current epoch
+  LProt := MakeTls13Capped(DecodeHex('000102030405060708090a0b0c0d0e0f'),
+    DecodeHex('101112131415161718191a1b'), TAeadAlgorithm.AES_128_GCM, 20);
+  for LI := 1 to 3 do
+  begin
+    LProt.Protect(TTlsContentType.ApplicationData, DecodeHex('00'), 0, 1);
+    CheckFalse(LProt.NeedsKeyUpdate, 'below the soft rekey threshold: no key update');
+  end;
+  LProt.Protect(TTlsContentType.ApplicationData, DecodeHex('00'), 0, 1);
   CheckTrue(LProt.NeedsKeyUpdate, 'at the soft rekey threshold: key update due');
 end;
 
 procedure TTestRecordProtection.TestProtectFailsAtUsageLimit;
 var
   LProt: IRecordProtection;
-  LSeq: IRecordSequenceControl;
+  LI: Int32;
   LRaised: Boolean;
 begin
-  LProt := MakeTls13(DecodeHex('000102030405060708090a0b0c0d0e0f'),
-    DecodeHex('101112131415161718191a1b'), TAeadAlgorithm.AES_128_GCM);
-  CheckTrue(Supports(LProt, IRecordSequenceControl, LSeq), 'sequence control present');
-  // at the soft threshold Protect still seals (so the KeyUpdate/alert that rekeys can go out)
-  LSeq.SetSequenceNumber(UInt64(23726566 - 16));
-  LProt.Protect(TTlsContentType.ApplicationData, DecodeHex('00'), 0, 1);
-  // at the hard limit, with no key update wired, Protect must fail loudly rather than seal a
-  // record past the AEAD safety bound (the sequence itself is not exhausted)
-  LSeq.SetSequenceNumber(UInt64(23726566));
+  // usage limit 20: the first 20 records seal (seq 0..19), the 21st (seq 20 = limit) must fail
+  // loudly rather than seal past the AEAD safety bound - the sequence itself is nowhere near
+  // exhausted, so this is the usage guard, not the exhaustion guard
+  LProt := MakeTls13Capped(DecodeHex('000102030405060708090a0b0c0d0e0f'),
+    DecodeHex('101112131415161718191a1b'), TAeadAlgorithm.AES_128_GCM, 20);
+  for LI := 1 to 20 do
+    LProt.Protect(TTlsContentType.ApplicationData, DecodeHex('00'), 0, 1);
   LRaised := False;
   try
     LProt.Protect(TTlsContentType.ApplicationData, DecodeHex('00'), 0, 1);
@@ -308,26 +362,41 @@ end;
 
 procedure TTestRecordProtection.TestAesGcmRoundTripNearUsageLimit;
 var
-  LSend, LRecv: IRecordProtection;
-  LSeqS, LSeqR: IRecordSequenceControl;
-  LPlain, LRecord, LBack: TBytes;
-  LType: TTlsContentType;
+  LSeal, LOpen: IAead;
+  LKey, LIv, LNonce, LAad, LPlain, LCipher, LBack: TBytes;
 begin
-  // an AES-GCM record sealed at the last sequence before the rekey point (the state a KeyUpdate
-  // is emitted from) must decrypt back to itself - independent of the AES backend (SIMD/scalar)
-  LSend := MakeTls13(DecodeHex('000102030405060708090a0b0c0d0e0f'),
-    DecodeHex('101112131415161718191a1b'), TAeadAlgorithm.AES_128_GCM);
-  LRecv := MakeTls13(DecodeHex('000102030405060708090a0b0c0d0e0f'),
-    DecodeHex('101112131415161718191a1b'), TAeadAlgorithm.AES_128_GCM);
-  CheckTrue(Supports(LSend, IRecordSequenceControl, LSeqS), 'send sequence control present');
-  CheckTrue(Supports(LRecv, IRecordSequenceControl, LSeqR), 'recv sequence control present');
-  LSeqS.SetSequenceNumber(UInt64(23726566 - 1));
-  LSeqR.SetSequenceNumber(UInt64(23726566 - 1));
+  // AES-GCM must seal/open correctly at a high sequence number (the counter state a KeyUpdate is
+  // emitted from), independent of the AES backend (SIMD/scalar). Exercised directly on the AEAD
+  // at the derived nonce, since sealing ~2^24 records through a record epoch is infeasible.
+  LKey := DecodeHex('000102030405060708090a0b0c0d0e0f');
+  LIv := DecodeHex('101112131415161718191a1b');
+  LNonce := TRecordProtectionBase.DeriveNonce(LIv, UInt64(23726566 - 1));
+  LAad := DecodeHex('170303001e'); // a plausible 1.3 application_data record header (length 30)
   LPlain := DecodeHex('7061737420746865206c696d6974');
-  LRecord := LSend.Protect(TTlsContentType.ApplicationData, LPlain, 0,
-    System.Length(LPlain));
-  LBack := LRecv.Unprotect(LRecord, 0, System.Length(LRecord), LType);
+  LSeal := Crypto.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM);
+  LSeal.Init(TSecretBuffer.From(LKey));
+  LCipher := TAeadUtilities.Seal(LSeal, LNonce, LAad, LPlain);
+  LOpen := Crypto.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM);
+  LOpen.Init(TSecretBuffer.From(LKey));
+  LBack := TAeadUtilities.Open(LOpen, LNonce, LAad, LCipher);
   CheckEqualBytes('an AES-GCM record round-trips at a high sequence number', LPlain, LBack);
+end;
+
+procedure TTestRecordProtection.TestUsageLimitBelowRekeyLeadIsRejected;
+var
+  LRaised: Boolean;
+begin
+  // a usage limit at or below the rekey lead is fail-closed: a KeyUpdate could never seal within
+  // the lead, so installing such an epoch must be rejected outright rather than deadlock later
+  LRaised := False;
+  try
+    MakeTls13Capped(DecodeHex('000102030405060708090a0b0c0d0e0f'),
+      DecodeHex('101112131415161718191a1b'), TAeadAlgorithm.AES_128_GCM, 16);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a usage limit at or below the rekey lead must be rejected');
 end;
 
 procedure TTestRecordProtection.TestNullRecordProtectionFrames;

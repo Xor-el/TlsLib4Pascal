@@ -39,9 +39,9 @@ type
   /// opaque transport bytes into demultiplexed plaintext fragments and application
   /// writes into protected records. Framing and decryption are split: ProcessInput
   /// only frames (a record may span several feeds or several records may be
-  /// coalesced in one), enforcing the reassembly limit, while NextIncoming decrypts
-  /// the head framed record lazily under the read epoch installed at pull time and
-  /// classifies a legacy change_cipher_spec there. That split lets a
+  /// coalesced in one), while NextIncoming decrypts the head framed record lazily
+  /// under the read epoch installed at pull time and classifies a legacy
+  /// change_cipher_spec there. That split lets a
   /// coalesced flight change epoch mid-buffer: the plaintext record installs the
   /// next read epoch before the following record is pulled and decrypted under it.
   /// Outbound it fragments to 2^14 and protects through the write epoch. Sans-IO
@@ -96,7 +96,6 @@ type
     // (wire value 0) means unknown - no peer hello processed yet
     FNegotiatedVersion: TTlsVersion;
     FMaxCiphertextLength: Int32;
-    FMaxInboundBuffer: Int32;
     FMaxFramedBacklog: Int32;
     // raw negotiated record_size_limit values (RFC 8449: the full TLSInnerPlaintext
     // length, incl. content type and padding); 0 = not negotiated (no extra cap)
@@ -178,12 +177,6 @@ type
     /// <summary>True while the write side is on the initial (or reverted) plaintext epoch, so
     /// application data written now would go out unencrypted.</summary>
     property WriteIsPlaintext: Boolean read FWriteIsPlaintext;
-    /// <summary>Forces the write / read epoch's record sequence counter forward (no-op when the
-    /// protection exposes no IRecordSequenceControl), so the usage-limit rekey path can be
-    /// exercised without sealing 2^24 records. The read side is set in step with the write side to
-    /// keep the AEAD nonces synchronized across the two endpoints.</summary>
-    procedure SetWriteSequenceNumber(AValue: UInt64);
-    procedure SetReadSequenceNumber(AValue: UInt64);
     /// <summary>Removes and returns all pending outbound wire bytes.</summary>
     function TakeOutgoing: TBytes; overload;
     /// <summary>Copies up to the destination's capacity of pending outbound bytes into ADest at
@@ -204,12 +197,10 @@ type
       write FStrictApplicationData;
     /// <summary>The record_overflow ceiling applied to an inbound record's length.</summary>
     property MaxCiphertextLength: Int32 read FMaxCiphertextLength;
-    /// <summary>The hard cap on buffered partial-record bytes (anti-DoS).</summary>
-    property MaxInboundBuffer: Int32 read FMaxInboundBuffer write FMaxInboundBuffer;
     /// <summary>The cap on the total framed-but-not-yet-pulled backlog (complete records the peer
     /// sent faster than the caller pulls them, e.g. while parked or under read backpressure).
     /// InboundBacklogFull reports it; the caller stops feeding rather than growing without bound.</summary>
-    property MaxFramedBacklog: Int32 read FMaxFramedBacklog write FMaxFramedBacklog;
+    property MaxFramedBacklog: Int32 read FMaxFramedBacklog;
     /// <summary>True once the framed backlog (plus any partial residual) has reached
     /// MaxFramedBacklog: the caller must pull/drain before feeding more transport bytes. This is
     /// flow control (a full read buffer), never a protocol error - it raises no alert.</summary>
@@ -218,11 +209,9 @@ type
     /// once the connection is closed so post-close bytes are not retained.</summary>
     procedure DiscardInbound;
     /// <summary>The cap on consecutive empty records before it is treated as abuse.</summary>
-    property MaxConsecutiveEmptyRecords: Int32 read FMaxConsecutiveEmptyRecords
-      write FMaxConsecutiveEmptyRecords;
+    property MaxConsecutiveEmptyRecords: Int32 read FMaxConsecutiveEmptyRecords;
     /// <summary>The cap on tolerated middlebox change_cipher_spec records (anti-DoS).</summary>
-    property MaxChangeCipherSpec: Int32 read FMaxChangeCipherSpec
-      write FMaxChangeCipherSpec;
+    property MaxChangeCipherSpec: Int32 read FMaxChangeCipherSpec;
 
     /// <summary>
     /// Enters the 0-RTT reject skip mode (RFC 8446 4.2.10): NextIncoming drops
@@ -268,7 +257,6 @@ const
 
 resourcestring
   SRecordLayerFailed = 'the record layer is in a failed state';
-  SReassemblyOverflow = 'buffered partial-record bytes exceed the reassembly cap';
   SBadChangeCipherSpec = 'malformed change_cipher_spec record';
   SUnexpectedContentType = 'unexpected record content type';
   SEmptyRecordFlood = 'too many consecutive empty records';
@@ -279,7 +267,6 @@ resourcestring
   SChangeCipherSpecFlood = 'too many change_cipher_spec records';
   SChangeCipherSpecAfterHandshake = 'change_cipher_spec after the handshake completed';
   SChangeCipherSpecOutOfWindow = 'change_cipher_spec outside its legal window';
-  SSequenceRewindRejected = 'the record sequence counter may only be advanced, never rewound';
   SProtectedChangeCipherSpec = 'a protected (encrypted) change_cipher_spec record is not allowed';
   SWriteSliceOutOfRange = 'the write offset/length is outside the source buffer';
   SInputSliceOutOfRange = 'the input offset/length is outside the wire buffer';
@@ -304,7 +291,6 @@ begin
   FOutHead := 0;
   FOutTail := 0;
   FMaxCiphertextLength := TRecordLimits.MaxCipherTextTls13;
-  FMaxInboundBuffer := TRecordLimits.HeaderLength + TRecordLimits.MaxCipherTextTls13;
   FMaxFramedBacklog := DefaultMaxFramedBacklog;
   FOutboundRecordSizeLimit := 0;
   FInboundRecordSizeLimit := 0;
@@ -568,7 +554,7 @@ procedure TRecordLayer.ProcessInput(const AWire: TBytes; AOffset, ALength: Int32
 var
   LReader: TWireReader;
   LHeader: TTlsRecordHeader;
-  LPos, LAvailable, LRecordLength, LResidual: Int32;
+  LPos, LAvailable, LRecordLength: Int32;
 begin
   GuardUsable;
   // an out-of-range slice is a caller error, not a peer fault: reject it before the failure
@@ -600,13 +586,11 @@ begin
       Inc(FFramedBytes, LRecordLength);
       Inc(LPos, LRecordLength);
     end;
-    // keep the trailing partial record; bound how much may sit un-framed
+    // keep the trailing partial record. It needs no explicit cap: Parse rejects any over-ceiling
+    // record length before its bytes are retained, so the un-framed residual is bounded by one
+    // record (< HeaderLength + MaxCiphertextLength).
     FInHead := LPos;
-    LResidual := FInTail - FInHead;
     ResetInboundIfDrained;
-    if LResidual > FMaxInboundBuffer then
-      raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.RecordOverflow,
-        @SReassemblyOverflow);
   except
     FFailed := True;
     raise;
@@ -848,27 +832,6 @@ end;
 function TRecordLayer.WriteNeedsKeyUpdate: Boolean;
 begin
   Result := FWriteProtection.NeedsKeyUpdate;
-end;
-
-procedure TRecordLayer.SetWriteSequenceNumber(AValue: UInt64);
-var
-  LSeq: IRecordSequenceControl;
-begin
-  // only ever advance the counter: moving it backwards would reuse a nonce
-  if AValue < FWriteProtection.SequenceNumber then
-    raise EArgumentTlsLibException.CreateRes(@SSequenceRewindRejected);
-  if Supports(FWriteProtection, IRecordSequenceControl, LSeq) then
-    LSeq.SetSequenceNumber(AValue);
-end;
-
-procedure TRecordLayer.SetReadSequenceNumber(AValue: UInt64);
-var
-  LSeq: IRecordSequenceControl;
-begin
-  if AValue < FReadProtection.SequenceNumber then
-    raise EArgumentTlsLibException.CreateRes(@SSequenceRewindRejected);
-  if Supports(FReadProtection, IRecordSequenceControl, LSeq) then
-    LSeq.SetSequenceNumber(AValue);
 end;
 
 function TRecordLayer.TakeOutgoing: TBytes;

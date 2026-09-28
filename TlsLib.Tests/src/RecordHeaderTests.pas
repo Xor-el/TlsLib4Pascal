@@ -31,8 +31,6 @@ uses
   TlpTlsVersion,
   TlpRecordHeader,
   TlpWireReader,
-  TlpIWireWriter,
-  TlpWireWriter,
   TlsLibTestBase;
 
 type
@@ -41,7 +39,7 @@ type
     procedure TestContentTypeByteRoundTrip;
     procedure TestUnknownContentTypeByteIsNotGuessed;
     procedure TestVersionCodes;
-    procedure TestHeaderSerializeRoundTrip;
+    procedure TestHeaderWriteToRoundTrip;
     procedure TestUnknownContentTypeSurvivesParse;
     procedure TestOverlongLengthIsRecordOverflow;
     procedure TestTruncatedHeaderIsDecodeError;
@@ -100,18 +98,17 @@ begin
   CheckTrue(LMade.Equals(LTls12), 'equality by code');
 end;
 
-procedure TTestRecordHeader.TestHeaderSerializeRoundTrip;
+procedure TTestRecordHeader.TestHeaderWriteToRoundTrip;
 var
-  LWriter: IWireWriter;
   LBytes: TBytes;
   LReader: TWireReader;
   LHeader: TTlsRecordHeader;
   LType: TTlsContentType;
 begin
   LHeader := TTlsRecordHeader.Create(TTlsContentType.Handshake, TTlsVersion.Tls12, 4);
-  LWriter := TWireWriter.Create;
-  LHeader.Serialize(LWriter);
-  LBytes := LWriter.ToBytes;
+  LBytes := nil;
+  SetLength(LBytes, TRecordLimits.HeaderLength);
+  LHeader.WriteTo(LBytes, 0);
   CheckEqualBytes('serialized header', DecodeHex('1603030004'), LBytes);
 
   LReader := TWireReader.Create(LBytes);

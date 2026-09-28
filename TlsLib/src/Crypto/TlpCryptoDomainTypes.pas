@@ -35,6 +35,12 @@ type
   /// record-count bound, ChaCha20-Poly1305 is bounded only by the record sequence.</summary>
   TAeadUsageCategory = (AesGcm, ChaCha20);
 
+  /// <summary>The default records-per-key usage limit for a category (RFC 8446 5.5): the AES-GCM
+  /// rekey bound (2^24.5), else the 2^64 sequence itself for ChaCha20-Poly1305.</summary>
+  TAeadUsageCategoryHelper = record helper for TAeadUsageCategory
+    function UsageLimit: UInt64;
+  end;
+
   /// <summary>The Diffie-Hellman key-agreement primitives (X25519 and NIST prime curves).</summary>
   TKeyAgreementAlgorithm = (X25519, SECP256R1, SECP384R1, SECP521R1);
 
@@ -190,6 +196,18 @@ implementation
 resourcestring
   SNoSchemeCode = 'signature scheme enum value %d has no wire codepoint';
   SNoSchemeKeyKind = 'signature scheme enum value %d has no mapped key family';
+
+{ TAeadUsageCategoryHelper }
+
+function TAeadUsageCategoryHelper.UsageLimit: UInt64;
+begin
+  // AES-GCM must rekey well before 2^24.5 records (RFC 8446 5.5); ChaCha20-Poly1305 is bounded only
+  // by the 2^64 sequence, so its limit is the counter itself.
+  if Self = TAeadUsageCategory.AesGcm then
+    Result := UInt64(23726566)
+  else
+    Result := High(UInt64);
+end;
 
 { TNamedGroupComposition }
 

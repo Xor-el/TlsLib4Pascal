@@ -297,6 +297,7 @@ type
       AHasHardwareAes: Boolean);
     destructor Destroy; override;
     function UsageCategory: TAeadUsageCategory;
+    function UsageLimit: UInt64;
     function KeySize: Int32;
     function NonceSize: Int32;
     function TagSize: Int32;
@@ -757,6 +758,14 @@ begin
     Result := TAeadUsageCategory.AesGcm
   else
     Result := TAeadUsageCategory.ChaCha20;
+end;
+
+function TAeadAdapter.UsageLimit: UInt64;
+var
+  LCategory: TAeadUsageCategory;
+begin
+  LCategory := UsageCategory;
+  Result := LCategory.UsageLimit;
 end;
 
 function TAeadAdapter.KeySize: Int32;

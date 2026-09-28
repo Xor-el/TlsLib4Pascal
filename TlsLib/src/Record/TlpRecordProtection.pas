@@ -36,13 +36,11 @@ type
   /// 64-bit sequence counter, its usage-limit signal, and the small byte / header
   /// utilities. Protect / Unprotect / Overhead are supplied by the descendants.
   /// </summary>
-  TRecordProtectionBase = class abstract(TInterfacedObject, IRecordProtection,
-    IRecordSequenceControl)
+  TRecordProtectionBase = class abstract(TInterfacedObject, IRecordProtection)
   strict protected
   var
     FSeq: UInt64;
     FRecordLimit: UInt64;
-    class function AeadUsageLimit(const AAead: IAead): UInt64; static;
     /// <summary>DeriveNonce into a caller-owned buffer of the IV's length, so the per-record
     /// nonce needs no allocation.</summary>
     class procedure DeriveNonceInto(const AIv: TBytes; ASeq: UInt64;
@@ -64,7 +62,6 @@ type
     function InnerContentTypeLength: Int32; virtual;
     function SequenceNumber: UInt64;
     function NeedsKeyUpdate: Boolean;
-    procedure SetSequenceNumber(AValue: UInt64);
   end;
 
   /// <summary>
@@ -158,10 +155,6 @@ type
 implementation
 
 const
-  // AES-GCM must rekey well before 2^24.5 records (RFC 8446 5.5); ChaCha20-Poly1305
-  // is bounded only by the 2^64 sequence, so its limit is the counter itself.
-  AesGcmRecordUsageLimit = UInt64(23726566);
-  ChaChaRecordUsageLimit = High(UInt64);
   // NeedsKeyUpdate reports the limit reached this many records early, so the KeyUpdate that
   // rekeys the epoch (and a coalesced response and any alert) still seals under the old key
   // before the hard limit refuses to seal at all.
@@ -169,6 +162,8 @@ const
 
 resourcestring
   SSequenceExhausted = 'record sequence number exhausted; a key update is required';
+  SUsageLimitTooSmall =
+    'the AEAD usage limit is not larger than the rekey lead, so a key update could never be sent';
   SUsageLimitReached = 'the AEAD record usage limit was reached before a key update could be sent';
   SEmptyInnerPlaintext = 'decrypted record carries no content type';
   SInnerPlaintextTooLong = 'the TLSInnerPlaintext exceeds the 2^14+1 limit';
@@ -180,16 +175,6 @@ resourcestring
     'a protected TLS 1.3 record must carry the application_data outer type (RFC 8446 5.2)';
 
 { TRecordProtectionBase }
-
-class function TRecordProtectionBase.AeadUsageLimit(const AAead: IAead): UInt64;
-begin
-  case AAead.UsageCategory of
-    TAeadUsageCategory.AesGcm:
-      Result := AesGcmRecordUsageLimit;
-  else
-    Result := ChaChaRecordUsageLimit;
-  end;
-end;
 
 class procedure TRecordProtectionBase.DeriveNonceInto(const AIv: TBytes; ASeq: UInt64;
   const ADest: TBytes);
@@ -235,11 +220,6 @@ begin
   // soft threshold: reached a lead margin before the hard limit so a key update can still be
   // sealed under the current epoch (RFC 8446 5.5 advises rekeying before the limit)
   Result := (FRecordLimit > RekeyLeadRecords) and (FSeq >= FRecordLimit - RekeyLeadRecords);
-end;
-
-procedure TRecordProtectionBase.SetSequenceNumber(AValue: UInt64);
-begin
-  FSeq := AValue;
 end;
 
 function TRecordProtectionBase.InnerContentTypeLength: Int32;
@@ -315,11 +295,15 @@ constructor TTls13RecordProtection.Create(const AKey, AIv: ISecretBuffer;
   const AAead: IAead);
 begin
   inherited Create;
+  // reject a limit at or below the rekey lead (16 records) before keying the AEAD: a KeyUpdate
+  // could otherwise never seal in time
+  FRecordLimit := AAead.UsageLimit;
+  if FRecordLimit <= RekeyLeadRecords then
+    raise EArgumentTlsLibException.CreateRes(@SUsageLimitTooSmall);
   FAead := AAead;
   FAead.Init(AKey);
   FIv := AIv.ToBytes;
   FSeq := 0;
-  FRecordLimit := AeadUsageLimit(AAead);
   FAad := nil;
   SetLength(FAad, TRecordLimits.HeaderLength);
   FNonce := nil;
@@ -444,11 +428,15 @@ constructor TTls12RecordProtection.Create(const AKey, ASalt: ISecretBuffer;
   const AAead: IAead);
 begin
   inherited Create;
+  // reject a limit at or below the rekey lead (16 records) before keying the AEAD: a KeyUpdate
+  // could otherwise never seal in time
+  FRecordLimit := AAead.UsageLimit;
+  if FRecordLimit <= RekeyLeadRecords then
+    raise EArgumentTlsLibException.CreateRes(@SUsageLimitTooSmall);
   FAead := AAead;
   FAead.Init(AKey);
   FSalt := ASalt.ToBytes;
   FSeq := 0;
-  FRecordLimit := AeadUsageLimit(AAead);
   // AES-GCM frames an explicit nonce (RFC 5288); ChaCha20-Poly1305 derives the nonce by
   // XORing the sequence number into the write IV, with none on the wire (RFC 7905)
   FUsesExplicitNonce := AAead.UsageCategory = TAeadUsageCategory.AesGcm;

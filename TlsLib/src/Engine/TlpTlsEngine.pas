@@ -48,8 +48,7 @@ type
   /// application data, and the event queue, all as TBytes with explicit
   /// offset/length. Single-threaded: the caller serializes access.
   /// </summary>
-  TTlsEngine = class sealed(TInterfacedObject, ITlsEngine,
-    IEngineRecordSequenceControl)
+  TTlsEngine = class sealed(TInterfacedObject, ITlsEngine)
   strict private
   var
     FRecordLayer: TRecordLayer;
@@ -144,9 +143,6 @@ type
     function WriteClosed: Boolean;
     function LastError: TTlsError;
     function ConnectionInfo: TTlsConnectionInfo;
-    // IEngineRecordSequenceControl
-    procedure SetWriteSequenceNumber(AValue: UInt64);
-    procedure SetReadSequenceNumber(AValue: UInt64);
     function ExportKeyingMaterial(const ALabel: string;
       ALength: Int32): TBytes; overload;
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
@@ -978,16 +974,6 @@ end;
 function TTlsEngine.IsInboundClosed: Boolean;
 begin
   Result := FClosed;
-end;
-
-procedure TTlsEngine.SetWriteSequenceNumber(AValue: UInt64);
-begin
-  FRecordLayer.SetWriteSequenceNumber(AValue);
-end;
-
-procedure TTlsEngine.SetReadSequenceNumber(AValue: UInt64);
-begin
-  FRecordLayer.SetReadSequenceNumber(AValue);
 end;
 
 function TTlsEngine.WriteClosed: Boolean;
