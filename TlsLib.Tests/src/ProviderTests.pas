@@ -473,7 +473,6 @@ procedure TTestCryptoProvider.DoAeadSpanGuards(const AProvider: ICryptoProvider)
 var
   LKey, LNonce, LAad, LSrc, LDest, LCt, LOut: TBytes;
   LAead, LSealer: IAead;
-  LSealed: Int32;
   LRaised: Boolean;
 begin
   LKey := PatternBytes(16, 1);
