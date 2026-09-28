@@ -42,6 +42,7 @@ uses
   TlpTlsConnectionInfo,
   TlpITlsEngine,
   TlpTlsEngine,
+  TlpTlsLibExceptions,
   TlpIHandshakeMachine,
   TlpICertificateTrust,
   TlpServerName,
@@ -112,6 +113,7 @@ type
     procedure TestStekInvalidTicketFallsBackToFullHandshake;
     procedure TestStoreUpgradesOverStek;
     procedure TestZeroRttAcceptedDeliversEarlyData;
+    procedure TestWriteInEarlyDataWindowIsRefused;
     procedure TestWriteEarlyDataReturnsAcceptedCount;
     procedure TestZeroRttRejectedIsDiscardedNotReplayed;
     procedure TestZeroRttRejectAboveFixedBudgetIsSkipped;
@@ -708,6 +710,50 @@ begin
   CheckFalse(LServer.IsHandshaking, 'the credential-less server completed via 0-RTT');
   CheckFalse(LServer.IsTerminal, 'no failure on 0-RTT');
   CheckEqualBytes('the server received the early data as 0-RTT', LEarly,
+    ReadAllApp(LServer));
+end;
+
+procedure TTestTls13Resumption.TestWriteInEarlyDataWindowIsRefused;
+var
+  LStek: ISessionTicketKeyManager;
+  LAnti: IAntiReplayStrategy;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LEarly, LData: TBytes;
+  LRaised: Boolean;
+begin
+  // while the write side is on the early-data epoch, a regular Write must be refused: it would
+  // otherwise seal application data under the 0-RTT keys as replayable early data. 0-RTT goes
+  // through WriteEarlyData, not Write (RFC 8446 2 / 4.2.10)
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LAnti := TStrikeRegisterAntiReplay.Create;
+  LCache := TInMemorySessionCache.Create;
+  // first connection issues a 0-RTT-capable ticket
+  LClient := NewClient(LCache, False);
+  LServer := BuildServer(LStek, nil, 1, 7200, True, 16384, LAnti);
+  DriveHandshake(LClient, LServer);
+  // second connection opens the early-data write window
+  LClient := NewClient(LCache, True);
+  LServer := BuildServer(LStek, nil, 0, 7200, False, 16384, LAnti);
+  LEarly := DecodeHex('30525454206561726c792064617461'); // "0RTT early data"
+  LClient.StartHandshake;
+  LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly));
+  LData := DecodeHex('6e6f7065'); // "nope"
+  LRaised := False;
+  try
+    LClient.Write(LData, 0, System.Length(LData));
+  except
+    on EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a plain Write in the early-data window is refused');
+  // complete: the early data still arrives as 0-RTT, and a 1-RTT write then succeeds
+  PumpToCompletion(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking, 'the 0-RTT client completed');
+  CheckEqualBytes('the early data arrived as 0-RTT', LEarly, ReadAllApp(LServer));
+  LClient.Write(LData, 0, System.Length(LData));
+  Pump(LClient, LServer);
+  CheckEqualBytes('a 1-RTT write follows once the application epoch is in force', LData,
     ReadAllApp(LServer));
 end;
 

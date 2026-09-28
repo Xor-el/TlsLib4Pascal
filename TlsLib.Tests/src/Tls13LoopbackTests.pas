@@ -142,6 +142,9 @@ type
     procedure TestEchResumeThenRejectLoopback;
     procedure TestEchRejectLoopback;
     procedure TestClientServerLoopbackReachesApplicationData;
+    procedure TestServerHalfRttWriteIsAccepted;
+    procedure TestWriteUnderHandshakeKeysIsRefused;
+    procedure TestZeroLengthWriteEmitsNothing;
     procedure TestApplicationRecordsQueueNoEvents;
     procedure TestHelloRetryRequestRoundTrip;
     procedure TestHybridDirectHandshakeNegotiates4588;
@@ -1616,6 +1619,101 @@ begin
   Pump(LServer, LClient);
   CheckEqualBytes('the client decrypts the server application data', LFromServer,
     ReadAllApp(LClient));
+end;
+
+procedure TTestTls13Loopback.TestServerHalfRttWriteIsAccepted;
+var
+  LClient, LServer: ITlsEngine;
+  LIterations: Int32;
+  LHalfRtt: TBytes;
+begin
+  // a TLS 1.3 server may write application data from its own Finished onward, before it has
+  // received the client Finished (half-RTT, RFC 8446 2 / 4.4.4). This guards the one legitimate
+  // path the application-write-epoch gate must not refuse.
+  LClient := NewClient;
+  LServer := NewServer;
+  LClient.StartHandshake;
+  // deliver the ClientHello: the server emits ServerHello..Finished and installs its application
+  // write epoch, while it still awaits the client Finished
+  Pump(LClient, LServer);
+  CheckTrue(LServer.IsHandshaking, 'the server has not yet received the client Finished');
+  LHalfRtt := DecodeHex('302e352d525454206461746100'); // "0.5-RTT data\0"
+  // the write is accepted (queued behind the handshake flight), not refused
+  LServer.Write(LHalfRtt, 0, System.Length(LHalfRtt));
+  LIterations := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    Pump(LServer, LClient);
+    Pump(LClient, LServer);
+    Inc(LIterations);
+  end;
+  CheckFalse(LClient.IsHandshaking, 'the client completed the handshake');
+  CheckFalse(LServer.IsHandshaking, 'the server completed the handshake');
+  CheckEqualBytes('the client reads the server half-RTT data', LHalfRtt,
+    ReadAllApp(LClient));
+end;
+
+procedure TTestTls13Loopback.TestWriteUnderHandshakeKeysIsRefused;
+var
+  LClient, LServer: ITlsEngine;
+  LServerFlight, LData: TBytes;
+  LFirstLen: Int32;
+  LRaised: Boolean;
+begin
+  // after the ServerHello the client holds the handshake write epoch, not the application one;
+  // a Write must be refused so application data is never sealed under handshake keys (RFC 8446 2)
+  LClient := NewClient;
+  LServer := NewServer;
+  LClient.StartHandshake;
+  Pump(LClient, LServer); // ClientHello -> server; the server queues its whole flight
+  LServerFlight := Drain(LServer);
+  CheckTrue(System.Length(LServerFlight) > 5, 'the server produced a flight');
+  // feed only the first record (the plaintext ServerHello): it installs the handshake epoch
+  LFirstLen := (LServerFlight[3] shl 8) or LServerFlight[4];
+  LClient.ProcessInput(LServerFlight, 0, 5 + LFirstLen);
+  CheckTrue(LClient.IsHandshaking, 'the client still awaits the rest of the server flight');
+  LData := DecodeHex('6e6f7065'); // "nope"
+  LRaised := False;
+  try
+    LClient.Write(LData, 0, System.Length(LData));
+  except
+    on EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a write on the handshake epoch is refused');
+  // feed the rest of the flight; the client completes and the same write now succeeds
+  Feed(LClient, System.Copy(LServerFlight, 5 + LFirstLen,
+    System.Length(LServerFlight) - (5 + LFirstLen)));
+  CheckFalse(LClient.IsHandshaking, 'the client completed the handshake');
+  Pump(LClient, LServer); // client Finished -> server
+  LClient.Write(LData, 0, System.Length(LData));
+  Pump(LClient, LServer);
+  CheckEqualBytes('the client application data now reaches the server', LData,
+    ReadAllApp(LServer));
+end;
+
+procedure TTestTls13Loopback.TestZeroLengthWriteEmitsNothing;
+var
+  LClient, LServer: ITlsEngine;
+  LIterations: Int32;
+begin
+  // after completion a zero-length application write is a no-op: it must not put an empty
+  // application_data record on the wire (RFC 8446 5.4)
+  LClient := NewClient;
+  LServer := NewServer;
+  LClient.StartHandshake;
+  LIterations := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LIterations);
+  end;
+  CheckFalse(LClient.IsHandshaking, 'the client completed the handshake');
+  Drain(LClient); // clear any residual outbound first
+  LClient.Write(nil, 0, 0);
+  CheckFalse(LClient.WantsWrite, 'a zero-length write queues nothing');
+  CheckEquals(0, System.Length(Drain(LClient)), 'no record reached the wire');
 end;
 
 procedure TTestTls13Loopback.TestApplicationRecordsQueueNoEvents;

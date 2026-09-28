@@ -294,6 +294,12 @@ until not LEngine.IsHandshaking;
 // then LEngine.Write / LEngine.ReadAppData for application data
 ```
 
+`Write` refuses application data until the application write epoch is in force, so it is never sealed
+in the clear, under the handshake keys, or as replayable 0-RTT: a TLS 1.3 server may write from its
+own Finished onward (half-RTT), while a TLS 1.3 client and any TLS 1.2 endpoint must wait for the
+handshake to complete (there is no False-Start; 0-RTT goes through `WriteEarlyData`). A zero-length
+`Write` once a write epoch exists is a no-op.
+
 This is the same engine the stream and every adapter run — it is also the seam where a native/OS TLS
 engine could be substituted wholesale. Most apps should prefer the stream or an adapter.
 

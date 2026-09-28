@@ -121,6 +121,7 @@ type
   protected
     procedure SetUp; override;
     procedure TearDown; override;
+    function TakeAll(const ALayer: TRecordLayer): TBytes;
   published
     procedure TestRfc8448ClientReplayByteExact;
     procedure TestBadCertificateVerifyFailsClosed;
@@ -308,7 +309,7 @@ begin
     TMockHandshakeSink.Create as IHandshakeSink));
 
   FDriver.ApplyAll(FSm.Start);
-  FLayer.TakeOutgoing; // discard the plaintext ClientHello
+  TakeAll(FLayer); // discard the plaintext ClientHello
 end;
 
 procedure TTestTls13ClientReplay.ArrangeThroughCertificate;
@@ -317,9 +318,24 @@ begin
   FDriver.ApplyAll(FSm.ProcessMessage(Msg('server_hello')));
   // the middlebox change_cipher_spec goes out on the ServerHello, before the client's
   // encrypted flight (RFC 8446 D.4); discard it so the flight capture stays byte-exact
-  FLayer.TakeOutgoing;
+  TakeAll(FLayer);
   FDriver.ApplyAll(FSm.ProcessMessage(Msg('encrypted_ext')));
   FDriver.ApplyAll(FSm.ProcessMessage(Msg('certificate')));
+end;
+
+function TTestTls13ClientReplay.TakeAll(const ALayer: TRecordLayer): TBytes;
+var
+  LChunk: TBytes;
+  LN: Int32;
+begin
+  Result := nil;
+  repeat
+    LChunk := nil;
+    SetLength(LChunk, 4096);
+    LN := ALayer.TakeOutgoing(LChunk, 0);
+    if LN > 0 then
+      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LN));
+  until LN <= 0;
 end;
 
 function TTestTls13ClientReplay.BuildServerHello(const ARandom, ASessionIdEcho: TBytes;
@@ -418,7 +434,7 @@ begin
   FDriver.ApplyAll(LEffects);
   // the emitted encrypted client Finished record is byte-exact vs RFC 8448
   CheckEqualBytes('the client emits the RFC 8448 client Finished record byte-exact',
-    DecodeHex(FRec.Values['record']), FLayer.TakeOutgoing);
+    DecodeHex(FRec.Values['record']), TakeAll(FLayer));
 end;
 
 procedure TTestTls13ClientReplay.TestBadServerFinishedFailsClosed;

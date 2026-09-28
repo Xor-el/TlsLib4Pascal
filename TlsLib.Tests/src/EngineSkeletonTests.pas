@@ -51,6 +51,8 @@ type
     procedure TestWantsReadWantsWriteReflectState;
     procedure TestCleartextApplicationDataBeforeKeysIsFatal;
     procedure TestWriteBeforeWriteEpochIsRefused;
+    procedure TestZeroLengthWriteBeforeEpochIsRefused;
+    procedure TestAlertBetweenHandshakeFragmentsIsUnexpected;
     procedure TestReceivedCloseNotify;
     procedure TestReceivedFatalAlertIsTerminal;
     procedure TestReceivedUnknownFatalAlertIsPeerOrigin;
@@ -93,12 +95,21 @@ function TTestEngineSkeleton.PeerRecord(AContentType: TTlsContentType;
   const AData: TBytes): TBytes;
 var
   LLayer: TRecordLayer;
+  LChunk: TBytes;
+  LN: Int32;
 begin
   // frame a plaintext record exactly as a peer's record layer would
   LLayer := TRecordLayer.Create;
   try
     LLayer.Write(AContentType, AData, 0, System.Length(AData));
-    Result := LLayer.TakeOutgoing;
+    Result := nil;
+    repeat
+      LChunk := nil;
+      SetLength(LChunk, 4096);
+      LN := LLayer.TakeOutgoing(LChunk, 0);
+      if LN > 0 then
+        Result := ConcatBytes(Result, System.Copy(LChunk, 0, LN));
+    until LN <= 0;
   finally
     LLayer.Free;
   end;
@@ -197,6 +208,51 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'application data before a write epoch is refused, not sent in the clear');
+end;
+
+procedure TTestEngineSkeleton.TestZeroLengthWriteBeforeEpochIsRefused;
+var
+  LEngine: ITlsEngine;
+  LRaised: Boolean;
+begin
+  // the close/epoch guards run before the zero-length no-op, so even an empty write before a
+  // write epoch is refused rather than silently swallowed
+  LEngine := NewEngine;
+  LRaised := False;
+  try
+    LEngine.Write(nil, 0, 0);
+  except
+    on EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a zero-length write before a write epoch is still refused');
+end;
+
+procedure TTestEngineSkeleton.TestAlertBetweenHandshakeFragmentsIsUnexpected;
+var
+  LEngine: ITlsEngine;
+  LWire: TBytes;
+begin
+  // a handshake message that spans records must not have another record type interleaved
+  // between its fragments (RFC 8446 5.1) - an alert is that violation as much as app data is
+  LEngine := NewEngine;
+  LEngine.StartHandshake;
+  // a ServerHello handshake header claiming a 4-byte body with none present: one partial
+  // handshake message is now buffered
+  LWire := PeerRecord(TTlsContentType.Handshake, DecodeHex('02000004'));
+  LEngine.ProcessInput(LWire, 0, System.Length(LWire));
+  // an alert arriving mid-message is the interleaving violation, not a clean close
+  LWire := PeerRecord(TTlsContentType.Alert, DecodeHex('0100'));
+  CheckEquals(Ord(TTlsOutcome.Fatal),
+    Ord(LEngine.ProcessInput(LWire, 0, System.Length(LWire))),
+    'an alert between handshake fragments is fatal');
+  CheckTrue(LEngine.IsTerminal, 'the engine is terminal');
+  CheckEquals(Ord(TTlsAlertDescription.UnexpectedMessage),
+    Ord(LEngine.LastError.Alert.Description), 'the alert code is unexpected_message');
+  CheckEquals(Ord(TTlsErrorOrigin.Local), Ord(LEngine.LastError.Origin),
+    'a violation we detected is our own');
+  CheckFalse(LEngine.IsInboundClosed,
+    'an interleaved alert is a protocol failure, not a clean close');
 end;
 
 procedure TTestEngineSkeleton.TestReceivedCloseNotify;

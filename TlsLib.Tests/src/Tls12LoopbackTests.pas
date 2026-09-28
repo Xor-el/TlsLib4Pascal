@@ -96,6 +96,7 @@ type
     procedure TestEcdheEd25519CredentialHandshake;
     procedure TestEcdheEcdsaAesGcmWithExtendedMasterSecret;
     procedure TestEcdheEcdsaChaCha20WithExtendedMasterSecret;
+    procedure TestClientWriteBeforeServerFinishedIsRefused;
     procedure TestWriteAfterInboundCloseNotifyClosesWrite;
     procedure TestWriteAtUsageLimitClosesWhenNoRekey;
     procedure TestPlainMasterSecretWhenEmsNotOffered;
@@ -582,6 +583,40 @@ procedure TTestTls12Loopback.TestEcdheEcdsaAesGcmWithExtendedMasterSecret;
 begin
   RunHandshakeAndExchange(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True, False,
     'ECDHE-ECDSA-AES128-GCM + EMS');
+end;
+
+procedure TTestTls12Loopback.TestClientWriteBeforeServerFinishedIsRefused;
+var
+  LClient, LServer: ITlsEngine;
+  LData: TBytes;
+  LRaised: Boolean;
+begin
+  // TLS 1.2 installs the client application write epoch when the client sends its Finished, but
+  // the handshake is not complete until the server Finished verifies. A Write in between must be
+  // refused - the library does not offer False-Start (RFC 7918)
+  LClient := NewClient(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True);
+  LServer := NewServer(True);
+  LClient.StartHandshake;
+  Pump(LClient, LServer); // ClientHello -> server
+  Pump(LServer, LClient); // ServerHello..ServerHelloDone -> client; client queues its Finished flight
+  CheckTrue(LClient.IsHandshaking, 'the client still awaits the server Finished');
+  LData := DecodeHex('6e6f7065'); // "nope"
+  LRaised := False;
+  try
+    LClient.Write(LData, 0, System.Length(LData));
+  except
+    on EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'no TLS 1.2 False-Start: the write is refused before the server Finished');
+  // complete the handshake; the same write then succeeds
+  Pump(LClient, LServer); // client CKE/CCS/Finished -> server; server completes
+  Pump(LServer, LClient); // server CCS/Finished -> client; client completes
+  CheckFalse(LClient.IsHandshaking, 'the client completed the handshake');
+  LClient.Write(LData, 0, System.Length(LData));
+  Pump(LClient, LServer);
+  CheckEqualBytes('the client application data reaches the server', LData,
+    ReadAllApp(LServer));
 end;
 
 procedure TTestTls12Loopback.TestEcdheEcdsaChaCha20WithExtendedMasterSecret;

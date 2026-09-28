@@ -733,7 +733,7 @@ begin
   // flight (ClientKeyExchange, plus CertificateVerify under mutual TLS) is complete
   Result := THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
     TTlsDirection.ClientWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead,
-    TTlsVersion.Tls12);
+    TTlsVersion.Tls12, TTlsEpoch.Application);
 end;
 
 function TTls12ServerStateMachine.ProcessClientCertificate(
@@ -1003,7 +1003,7 @@ begin
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
     TTlsDirection.ServerWrite), TRecordSide.WriteSide, FSelectedSuite.Common.Aead,
-    TTlsVersion.Tls12));
+    TTlsVersion.Tls12, TTlsEpoch.Application));
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.SendHandshake(LServerFinished));
   // the read side (client write keys) awaits the client's encrypted Finished
@@ -1077,7 +1077,7 @@ begin
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
     TTlsDirection.ServerWrite), TRecordSide.WriteSide, FSelectedSuite.Common.Aead,
-    TTlsVersion.Tls12));
+    TTlsVersion.Tls12, TTlsEpoch.Application));
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.SendHandshake(LServerFinished));
   // a full TLS 1.2 handshake is always ECDHE (the only 1.2 key exchange): report FGroupCode

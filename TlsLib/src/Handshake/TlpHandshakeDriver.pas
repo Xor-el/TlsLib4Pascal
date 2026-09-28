@@ -111,7 +111,7 @@ begin
       FInstaller.InstallReadProtection(LProtection);
   end
   else
-    FInstaller.InstallWriteProtection(LProtection);
+    FInstaller.InstallWriteProtection(LProtection, AEffect.Epoch);
 end;
 
 procedure THandshakeDriver.Apply(const AEffect: THandshakeEffect);

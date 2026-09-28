@@ -67,6 +67,7 @@ type
     Side: TRecordSide;           // InstallKeys
     Aead: TAeadAlgorithm;        // InstallKeys (the negotiated suite's AEAD)
     Version: TTlsVersion;        // InstallKeys (which record protection to build) / NegotiatedVersion
+    Epoch: TTlsEpoch;            // InstallKeys (which epoch the keys belong to)
     Text: string;                // SelectAlpn
     Outbound: Int32;             // SetRecordSizeLimit (raw outbound record_size_limit)
     Inbound: Int32;              // SetRecordSizeLimit (raw inbound record_size_limit)
@@ -93,7 +94,8 @@ type
     class function SendHandshake(const ABytes: TBytes): THandshakeEffect; static;
     class function SendChangeCipherSpec: THandshakeEffect; static;
     class function InstallKeys(const AKeys: ITrafficKeys; ASide: TRecordSide;
-      AAead: TAeadAlgorithm; const AVersion: TTlsVersion): THandshakeEffect; static;
+      AAead: TAeadAlgorithm; const AVersion: TTlsVersion;
+      AEpoch: TTlsEpoch): THandshakeEffect; static;
     class function NegotiatedVersion(const AVersion: TTlsVersion): THandshakeEffect; static;
     class function SelectAlpn(const AProtocol: string): THandshakeEffect; static;
     class function PeerOcspStaple(const AStaple: TBytes): THandshakeEffect; static;
@@ -184,7 +186,7 @@ end;
 
 class function THandshakeEffects.InstallKeys(const AKeys: ITrafficKeys;
   ASide: TRecordSide; AAead: TAeadAlgorithm;
-  const AVersion: TTlsVersion): THandshakeEffect;
+  const AVersion: TTlsVersion; AEpoch: TTlsEpoch): THandshakeEffect;
 begin
   Result := Default(THandshakeEffect);
   Result.Kind := THandshakeEffectKind.InstallKeys;
@@ -192,6 +194,7 @@ begin
   Result.Side := ASide;
   Result.Aead := AAead;
   Result.Version := AVersion;
+  Result.Epoch := AEpoch;
 end;
 
 class function THandshakeEffects.NegotiatedVersion(

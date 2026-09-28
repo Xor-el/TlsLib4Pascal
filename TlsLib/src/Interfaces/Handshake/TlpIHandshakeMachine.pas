@@ -24,6 +24,7 @@ uses
   TlpHandshakeMessages,
   TlpHandshakeMessage,
   TlpHandshakeEffect,
+  TlpIKeySchedule,
   TlpIRecordProtection;
 
 type
@@ -202,9 +203,12 @@ type
   /// epochs directly); reach it with Supports(engine, IRecordEpochInstaller, x).
   /// </summary>
   IRecordEpochInstaller = interface(IInterface)
-    ['{4D0F7B36-8E12-4A59-9C63-5A7E1B0D82C4}']
+    ['{246A6265-F4D7-4490-8DB5-8FCB9B2F71A6}']
     procedure InstallReadProtection(const AProtection: IRecordProtection);
-    procedure InstallWriteProtection(const AProtection: IRecordProtection);
+    /// <summary>Installs the write epoch AEpoch's protection. The engine gates application writes
+    /// on the Application epoch, which a TLS 1.3 server reaches at its Finished (half-RTT).</summary>
+    procedure InstallWriteProtection(const AProtection: IRecordProtection;
+      AEpoch: TTlsEpoch);
     /// <summary>
     /// Arms a read epoch to activate on the peer's next change_cipher_spec instead of
     /// immediately (the TLS 1.2 read-cipher switch, RFC 5246 7.1). The active read epoch

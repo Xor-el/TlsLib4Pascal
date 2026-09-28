@@ -174,9 +174,9 @@ contains
   TlpSessionTicketStrategy in '..\..\Session\TlpSessionTicketStrategy.pas',
   TlpITlsTransport in '..\..\Interfaces\Engine\TlpITlsTransport.pas',
   TlpTlsConnectionInfo in '..\..\Engine\TlpTlsConnectionInfo.pas',
-  TlpTlsStreamPump in '..\..\Engine\TlpTlsStreamPump.pas',
-  TlpTlsStream in '..\..\Engine\TlpTlsStream.pas',
-  TlpTlsConnection in '..\..\Engine\TlpTlsConnection.pas',
+  TlpTlsStreamPump in '..\..\Connection\TlpTlsStreamPump.pas',
+  TlpTlsStream in '..\..\Connection\TlpTlsStream.pas',
+  TlpTlsConnection in '..\..\Connection\TlpTlsConnection.pas',
   TlpIHttpFetcher in '..\..\Interfaces\Trust\TlpIHttpFetcher.pas',
   TlpLiveRevocation in '..\..\Trust\TlpLiveRevocation.pas';
 

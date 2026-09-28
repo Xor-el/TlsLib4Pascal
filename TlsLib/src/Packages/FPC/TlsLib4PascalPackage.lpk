@@ -10,7 +10,7 @@
       <PathDelim Value="\"/>
       <SearchPaths>
         <IncludeFiles Value="..\..\Include"/>
-        <OtherUnitFiles Value="..\..\Common;..\..\Interfaces\Common;..\..\Interfaces\Security;..\..\Interfaces\Crypto;..\..\Interfaces\Crypto\Providers;..\..\Interfaces\Codec;..\..\Interfaces\Engine;..\..\Interfaces\Record;..\..\Interfaces\KeySchedule;..\..\Interfaces\Handshake;..\..\Interfaces\Extensions;..\..\Interfaces\Negotiation;..\..\Interfaces\Session;..\..\Security;..\..\Codec;..\..\Crypto;..\..\Crypto\Providers;..\..\Record;..\..\Engine;..\..\KeySchedule;..\..\Handshake;..\..\Extensions;..\..\Negotiation;..\..\Session;..\..\Trust;..\..\Interfaces\Trust;..\..\CertCompression;..\..\Interfaces\CertCompression;..\..\Ech;..\..\Interfaces\Ech;..\..\Pkix;..\..\Pkix\Providers;..\..\Interfaces\Pkix\Providers"/>
+        <OtherUnitFiles Value="..\..\Common;..\..\Interfaces\Common;..\..\Interfaces\Security;..\..\Interfaces\Crypto;..\..\Interfaces\Crypto\Providers;..\..\Interfaces\Codec;..\..\Interfaces\Engine;..\..\Interfaces\Record;..\..\Interfaces\KeySchedule;..\..\Interfaces\Handshake;..\..\Interfaces\Extensions;..\..\Interfaces\Negotiation;..\..\Interfaces\Session;..\..\Security;..\..\Codec;..\..\Crypto;..\..\Crypto\Providers;..\..\Record;..\..\Engine;..\..\Connection;..\..\KeySchedule;..\..\Handshake;..\..\Extensions;..\..\Negotiation;..\..\Session;..\..\Trust;..\..\Interfaces\Trust;..\..\CertCompression;..\..\Interfaces\CertCompression;..\..\Ech;..\..\Interfaces\Ech;..\..\Pkix;..\..\Pkix\Providers;..\..\Interfaces\Pkix\Providers"/>
         <UnitOutputDirectory Value="lib\$(TargetCPU)-$(TargetOS)"/>
       </SearchPaths>
       <CodeGeneration>
@@ -414,11 +414,11 @@
         <UnitName Value="TlpTlsConnectionInfo"/>
       </Item96>
       <Item97>
-        <Filename Value="..\..\Engine\TlpTlsStreamPump.pas"/>
+        <Filename Value="..\..\Connection\TlpTlsStreamPump.pas"/>
         <UnitName Value="TlpTlsStreamPump"/>
       </Item97>
       <Item98>
-        <Filename Value="..\..\Engine\TlpTlsStream.pas"/>
+        <Filename Value="..\..\Connection\TlpTlsStream.pas"/>
         <UnitName Value="TlpTlsStream"/>
       </Item98>
       <Item99>
@@ -570,7 +570,7 @@
         <UnitName Value="TlpIKeyExchangePrivateKey"/>
       </Item135>
       <Item136>
-        <Filename Value="..\..\Engine\TlpTlsConnection.pas"/>
+        <Filename Value="..\..\Connection\TlpTlsConnection.pas"/>
         <UnitName Value="TlpTlsConnection"/>
       </Item136>
       <Item137>

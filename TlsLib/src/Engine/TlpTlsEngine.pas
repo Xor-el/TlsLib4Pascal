@@ -27,6 +27,7 @@ uses
   TlpTlsAlertProtocol,
   TlpAlertMapping,
   TlpICryptoProvider,
+  TlpIKeySchedule,
   TlpIRecordProtection,
   TlpRecordLayer,
   TlpTlsConnectionInfo,
@@ -71,6 +72,10 @@ type
     // 0-RTT: a write protection is installed (early or later) and the early-data window is
     // still open until the outcome is known
     FWriteProtectionInstalled: Boolean;
+    // the Application write epoch is installed: application data may be sealed (a 1.3 server reaches
+    // it at its Finished, half-RTT; a 1.3 client and any 1.2 endpoint at completion). Handshake and
+    // early write epochs must not carry application data (RFC 8446 2 / 4.4.4)
+    FAppWriteEpoch: Boolean;
     FEarlyDataClosed: Boolean;
     // 0-RTT outbound cap: the ticket's max_early_data budget and how much has gone out as
     // early data (over-budget bytes are not held - the caller resends them, see WriteEarlyData)
@@ -78,9 +83,6 @@ type
     FEarlyDataSent: Int32;
     // the negotiated facts, surfaced to callers as one snapshot by ConnectionInfo
     FInfo: TTlsConnectionInfo;
-    // async peer-certificate verdict: whether the handshake is parked awaiting a verdict. Any
-    // time budget belongs to the resolver, not the engine (the engine owns no timer)
-    FAwaitingVerdict: Boolean;
     // set while draining inbound records: a synchronous handshake callback (verify callback,
     // verdict resolver, session store) is re-entering the single-threaded engine if it calls
     // ProcessInput/ReadAppData/SetCertificateVerdict while this is set, so those fail loud
@@ -150,7 +152,8 @@ type
   private
     // reached only by the handshake bridge below
     procedure InstallReadProtection(const AProtection: IRecordProtection);
-    procedure InstallWriteProtection(const AProtection: IRecordProtection);
+    procedure InstallWriteProtection(const AProtection: IRecordProtection;
+      AEpoch: TTlsEpoch);
     procedure ArmReadProtectionOnChangeCipherSpec(const AProtection: IRecordProtection);
     procedure RevertWriteToPlaintext;
     procedure SetRecordSizeLimit(AOutboundLimit, AInboundLimit: Int32);
@@ -204,8 +207,9 @@ resourcestring
     'Write after the write side was closed (close_notify sent, or received under TLS 1.2) ' +
     'or the connection failed';
   SWriteBeforeWriteEpoch =
-    'Write before a write epoch key is installed would send application data in the clear; ' +
-    'drive the handshake first (0-RTT uses WriteEarlyData)';
+    'Write before the application write epoch would send application data in the clear or under ' +
+    'the handshake/early keys; drive the handshake first - a TLS 1.3 server may write from its ' +
+    'Finished onward, a client and any TLS 1.2 endpoint once complete (0-RTT uses WriteEarlyData)';
   SRecordLimitNoRekey =
     'the write epoch reached its AEAD record limit and could not be rekeyed; ' +
     'the connection was closed';
@@ -224,7 +228,8 @@ type
   public
     constructor Create(const AEngine: TTlsEngine);
     procedure InstallReadProtection(const AProtection: IRecordProtection);
-    procedure InstallWriteProtection(const AProtection: IRecordProtection);
+    procedure InstallWriteProtection(const AProtection: IRecordProtection;
+      AEpoch: TTlsEpoch);
     procedure ArmReadProtectionOnChangeCipherSpec(const AProtection: IRecordProtection);
     procedure RevertWriteToPlaintext;
     procedure SetRecordSizeLimit(AOutboundLimit, AInboundLimit: Int32);
@@ -266,9 +271,9 @@ begin
 end;
 
 procedure TEngineHandshakeBridge.InstallWriteProtection(
-  const AProtection: IRecordProtection);
+  const AProtection: IRecordProtection; AEpoch: TTlsEpoch);
 begin
-  FEngine.InstallWriteProtection(AProtection);
+  FEngine.InstallWriteProtection(AProtection, AEpoch);
 end;
 
 procedure TEngineHandshakeBridge.ArmReadProtectionOnChangeCipherSpec(
@@ -415,8 +420,8 @@ begin
   FClosed := False;
   FSentClose := False;
   FHandshakeComplete := False;
+  FAppWriteEpoch := False;
   FWarningAlertCount := 0;
-  FAwaitingVerdict := False;
   FInfo.EchStatus := TEchStatus.NotOffered;
   // a zero wire code until an epoch's keys name the negotiated version
   FInfo.NegotiatedVersion := TTlsVersion.Create(0);
@@ -553,17 +558,19 @@ begin
   // routed: post-close records must not become app-readable nor overwrite FLastError
   if FTerminal or FClosed then
     Exit;
+  // a handshake message that spans records MUST NOT have another record type interleaved
+  // between its fragments (RFC 8446 5.1); an application_data or alert record arriving while one
+  // is partially buffered is that violation (change_cipher_spec is consumed in the record layer
+  // and never reaches here)
+  if (AFragment.ContentType <> TTlsContentType.Handshake) and
+    FConductor.HasBufferedHandshake then
+  begin
+    OnHandshakeFailed(TTlsAlertDescription.UnexpectedMessage);
+    Exit;
+  end;
   case AFragment.ContentType of
     TTlsContentType.ApplicationData:
       begin
-        // a handshake message that spans records MUST NOT have another record type interleaved
-        // between its fragments (RFC 8446 5.1); an application_data record arriving while one is
-        // partially buffered is that violation
-        if FConductor.HasBufferedHandshake then
-        begin
-          OnHandshakeFailed(TTlsAlertDescription.UnexpectedMessage);
-          Exit;
-        end;
         // genuine traffic resets the peer's post-handshake message flood counter
         FConductor.NoteApplicationData;
         AppendAppData(AFragment.Data);
@@ -588,7 +595,7 @@ begin
   // Finished, which installs the application read epoch). Pulling it now would decrypt it
   // under the stale epoch and fail its AEAD. The record stays framed until the verdict
   // resolves and SetCertificateVerdict resumes the drain in the correct epoch order.
-  if FAwaitingVerdict then
+  if FConductor.AwaitingVerdict then
     Exit;
   // stop pulling the moment the connection becomes terminal/closed (e.g. a fatal alert or
   // close_notify coalesced ahead of app-data): the trailing record stays framed, undecrypted.
@@ -600,7 +607,7 @@ begin
       FRecordLayer.NextIncoming(LFragment) do
     begin
       RouteFragment(LFragment);
-      if FAwaitingVerdict then
+      if FConductor.AwaitingVerdict then
         Break;
     end;
   finally
@@ -672,11 +679,18 @@ begin
   // half-close, which we do not offer for 1.2).
   if FTerminal or FSentClose or (FClosed and not IsTls13) then
     raise EInvalidOperationTlsLibException.CreateRes(@SWriteAfterClose);
-  // refuse application data while the write side is on the plaintext epoch - before the first
-  // write keys, or after a 0-RTT-rejecting HRR reverts to plaintext - so it is never sent in the
-  // clear (0-RTT is WriteEarlyData)
-  if FRecordLayer.WriteIsPlaintext then
+  // refuse application data until the Application write epoch is in force, so it is never sealed in
+  // the clear (plaintext / post-HRR-revert epoch), under the handshake keys, or under the early-data
+  // keys as replayable 0-RTT (RFC 8446 2 / 4.4.4). A TLS 1.3 server may write from its Finished
+  // onward (half-RTT); a 1.3 client and any TLS 1.2 endpoint must wait for the handshake to
+  // complete (no False-Start). 0-RTT is sent through WriteEarlyData, not here.
+  if not (FAppWriteEpoch and (IsTls13 or FHandshakeComplete)) then
     raise EInvalidOperationTlsLibException.CreateRes(@SWriteBeforeWriteEpoch);
+  // a zero-length application write is a no-op (after the close/epoch guards): it has nothing to
+  // precede an owed KeyUpdate with, and must not put an empty record on the wire (RFC 8446 5.4 -
+  // an empty application_data record counts toward the peer's consecutive-empty-record bound)
+  if ALength <= 0 then
+    Exit;
   // a KeyUpdate owed to a peer update_requested must precede our next application data
   // (RFC 8446 4.6.3); flushing here coalesces repeats into one response before the write.
   // A failure to build/flush it is fatal - abort with its alert and do NOT queue the app
@@ -763,7 +777,8 @@ begin
   // post-handshake only, over an established connection with a live handshake machine
   // (TLS 1.2 machines make this a no-op); the KeyUpdate is protected and queued outbound. An
   // inbound close_notify does not stop 1.3 writes, so it must not stop rekeying them either.
-  if FTerminal or FSentClose or (FClosed and not IsTls13) or (not FHandshakeComplete) then
+  if FTerminal or FSentClose or (FClosed and not IsTls13) or (not FHandshakeComplete) or
+    (not FAppWriteEpoch) then
     Exit;
   // a failure to build the KeyUpdate is fatal: abort with its alert rather than let the
   // exception escape the engine
@@ -835,10 +850,10 @@ procedure TTlsEngine.SetCertificateVerdict(AAccept: Boolean;
 begin
   if FDraining then
     raise EInvalidOperationTlsLibException.CreateRes(@SReentrantEngineCall);
-  // a no-op unless the handshake is actually parked on a verdict (idempotent, safe to call)
-  if not FAwaitingVerdict then
+  // a no-op unless the handshake is actually parked on a verdict (idempotent, safe to call);
+  // ResolveCertificateVerdict below clears the conductor's park flag
+  if not FConductor.AwaitingVerdict then
     Exit;
-  FAwaitingVerdict := False;
   // reject aborts fail-closed (the conductor emits AAlert, making the engine terminal); accept
   // drains the buffered flight and completes the handshake. A malformed/bad-signature record in
   // that buffered flight is fatal: abort with its alert instead of letting the exception escape
@@ -912,7 +927,7 @@ begin
   // app-read cap (a raw embedder that fed a large buffer) surface, and a KeyUpdate/alert produced
   // while pulling reaches the record layer's outbound queue. Not while parked, and never turning a
   // pull failure into an escape.
-  if (not FAwaitingVerdict) and (not FTerminal) and (not FClosed) and
+  if (not FConductor.AwaitingVerdict) and (not FTerminal) and (not FClosed) and
     (FAppAvail < FMaxAppReadBuffer) then
   begin
     try
@@ -957,7 +972,7 @@ end;
 
 function TTlsEngine.AwaitingCertificateVerdict: Boolean;
 begin
-  Result := FAwaitingVerdict;
+  Result := FConductor.AwaitingVerdict;
 end;
 
 function TTlsEngine.IsTerminal: Boolean;
@@ -978,9 +993,9 @@ end;
 
 function TTlsEngine.WriteClosed: Boolean;
 begin
-  // the write-closed subset of Write's guards (Write also refuses before a write epoch is
-  // installed). An inbound close_notify closes the write side only under TLS 1.2; under TLS 1.3
-  // the write half stays open (RFC 8446 6.1).
+  // the write-closed subset of Write's guards (Write also refuses before the application write
+  // epoch is in force - a transient pre-completion state, not reported here). An inbound
+  // close_notify closes the write side only under TLS 1.2; under TLS 1.3 it stays open (RFC 8446 6.1).
   Result := FTerminal or FSentClose or (FClosed and not IsTls13);
 end;
 
@@ -1011,13 +1026,17 @@ begin
   FRecordLayer.ArmReadProtectionOnChangeCipherSpec(AProtection);
 end;
 
-procedure TTlsEngine.InstallWriteProtection(const AProtection: IRecordProtection);
+procedure TTlsEngine.InstallWriteProtection(const AProtection: IRecordProtection;
+  AEpoch: TTlsEpoch);
 begin
   // installing write keys no longer means the handshake is done: in TLS 1.3 the
   // write side moves to the handshake epoch mid-flight. Completion is signalled by
   // the state machine through OnHandshakeEstablished.
   FRecordLayer.SetWriteProtection(AProtection);
   FWriteProtectionInstalled := True; // 0-RTT: the early-data write window can open
+  // application data may be sealed only once the Application write epoch is installed (a 1.3 server
+  // reaches it at its Finished - half-RTT); handshake/early write epochs must not carry app data
+  FAppWriteEpoch := AEpoch = TTlsEpoch.Application;
 end;
 
 procedure TTlsEngine.RevertWriteToPlaintext;
@@ -1026,6 +1045,7 @@ begin
   // plaintext so the second ClientHello onward goes out in the clear (RFC 8446 4.2.10). No
   // keys-installed event - this is a downgrade of the write epoch, not a new epoch.
   FRecordLayer.RevertWriteToPlaintext;
+  FAppWriteEpoch := False;
 end;
 
 procedure TTlsEngine.SetRecordSizeLimit(AOutboundLimit, AInboundLimit: Int32);
@@ -1105,13 +1125,13 @@ end;
 procedure TTlsEngine.OnCertificateVerdictNeeded(const AChain,
   AValidatedPath: TArray<TBytes>; const AHostName: string; const AStaple: TBytes);
 begin
-  // the built-in pipeline has already accepted this chain; park and surface it so a host can
-  // decide out-of-band (augment-only). The handshake makes no further progress until
+  // the built-in pipeline has already accepted this chain; surface it so a host can decide
+  // out-of-band (augment-only). The conductor owns the park state (it sets AwaitingVerdict once
+  // this flight's effects have been applied); the handshake makes no further progress until
   // SetCertificateVerdict resumes it. The park must not fire after completion.
 {$IFDEF DEBUG}
   System.Assert(not FHandshakeComplete);
 {$ENDIF DEBUG}
-  FAwaitingVerdict := True;
   Enqueue(TTlsEvents.MakeCertificateReceived(AChain, AValidatedPath, AHostName, AStaple));
 end;
 

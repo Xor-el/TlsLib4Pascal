@@ -20,6 +20,7 @@ interface
 uses
   TlpIRecordProtection,
   TlpIHandshakeMachine,
+  TlpIKeySchedule,
   TlpRecordLayer;
 
 type
@@ -31,7 +32,7 @@ type
   public
     constructor Create(const ALayer: TRecordLayer);
     procedure InstallReadProtection(const AProtection: IRecordProtection);
-    procedure InstallWriteProtection(const AProtection: IRecordProtection);
+    procedure InstallWriteProtection(const AProtection: IRecordProtection; AEpoch: TTlsEpoch);
     procedure ArmReadProtectionOnChangeCipherSpec(const AProtection: IRecordProtection);
     procedure RevertWriteToPlaintext;
     procedure SetRecordSizeLimit(AOutboundLimit, AInboundLimit: Int32);
@@ -57,8 +58,9 @@ begin
 end;
 
 procedure TRecordLayerInstaller.InstallWriteProtection(
-  const AProtection: IRecordProtection);
+  const AProtection: IRecordProtection; AEpoch: TTlsEpoch);
 begin
+  // the write epoch is an engine-level write-gate concern; this record-layer seam ignores it
   FLayer.SetWriteProtection(AProtection);
 end;
 

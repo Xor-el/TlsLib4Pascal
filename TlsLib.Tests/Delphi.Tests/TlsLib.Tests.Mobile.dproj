@@ -432,9 +432,9 @@
         <DCCReference Include="..\..\TlsLib\src\Trust\TlpTrustPolicy.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Engine\TlpITlsTransport.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsConnectionInfo.pas"/>
-        <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsStreamPump.pas"/>
-        <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsStream.pas"/>
-        <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsConnection.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Connection\TlpTlsStreamPump.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Connection\TlpTlsStream.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Connection\TlpTlsConnection.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Trust\TlpIHttpFetcher.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Trust\TlpLiveRevocation.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\CertCompression\TlpICertificateCompression.pas"/>

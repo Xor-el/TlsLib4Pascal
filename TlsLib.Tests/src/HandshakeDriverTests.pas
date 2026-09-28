@@ -84,8 +84,18 @@ begin
 end;
 
 function TTestHandshakeDriver.TakeOutgoing(const ALayer: TRecordLayer): TBytes;
+var
+  LChunk: TBytes;
+  LN: Int32;
 begin
-  Result := ALayer.TakeOutgoing;
+  Result := nil;
+  repeat
+    LChunk := nil;
+    SetLength(LChunk, 4096);
+    LN := ALayer.TakeOutgoing(LChunk, 0);
+    if LN > 0 then
+      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LN));
+  until LN <= 0;
 end;
 
 function TTestHandshakeDriver.SampleTrafficKeys: ITrafficKeys;
@@ -126,7 +136,7 @@ begin
   LDriver := DriverOver(LLayer);
   try
     LDriver.Apply(THandshakeEffects.InstallKeys(SampleTrafficKeys, TRecordSide.ReadSide,
-      DefaultSuite.Common.Aead, AVersion));
+      DefaultSuite.Common.Aead, AVersion, TTlsEpoch.Application));
     try
       LLayer.ProcessInput(DecodeHex('160303000401020304'), 0, 9);
       LLayer.NextIncoming(LFrag);
@@ -172,7 +182,7 @@ begin
   LDriver := DriverOver(LLayer);
   try
     LDriver.Apply(THandshakeEffects.InstallKeys(SampleTrafficKeys, TRecordSide.WriteSide,
-      DefaultSuite.Common.Aead, TTlsVersion.Tls13));
+      DefaultSuite.Common.Aead, TTlsVersion.Tls13, TTlsEpoch.Application));
     LLayer.Write(TTlsContentType.ApplicationData, DecodeHex('0102030405'), 0, 5);
     LWire := TakeOutgoing(LLayer);
     // a plaintext framing of 5 bytes would be 10 bytes (5 header + 5 body); an AEAD record is
@@ -271,7 +281,7 @@ begin
       TMockHandshakeSink.Create as IHandshakeSink);
     LDriver.Apply(THandshakeEffects.InstallKeys(LSchedule.TrafficKeys(
       TTlsEpoch.Handshake, TTlsDirection.ClientWrite), TRecordSide.ReadSide,
-      DefaultSuite.Common.Aead, TTlsVersion.Tls13));
+      DefaultSuite.Common.Aead, TTlsVersion.Tls13, TTlsEpoch.Handshake));
 
     LRecord := DecodeHex(LRec.Values['record']);
     LLayer.ProcessInput(LRecord, 0, System.Length(LRecord));
