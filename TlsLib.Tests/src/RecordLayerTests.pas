@@ -60,7 +60,7 @@ type
     procedure TestWriteRejectsOutOfRangeSlice;
     procedure TestProtected13LoopbackTwoRecords;
     procedure TestRecordOverflowOnOverlongLength;
-    procedure TestReassemblyCapTripsFatally;
+    procedure TestPartialRecordResidualBoundedThenSurfaces;
     procedure TestFramedBacklogBoundAndDiscard;
     procedure TestEmptyRecordFloodCapped;
     procedure TestEmptyHandshakeRecordRejected;
@@ -177,22 +177,29 @@ var
   LSend, LRecv: TRecordLayer;
   LFrag: TTlsRecordFragment;
   LPayload, LWire: TBytes;
+  LNeeded, LI: Int32;
 begin
   // the framed backlog (complete records queued but not yet pulled) is bounded so a peer cannot
   // stage unbounded ciphertext while the caller is not pulling (e.g. parked / backpressured)
   LSend := TRecordLayer.Create;
   LRecv := TRecordLayer.Create;
   try
-    LPayload := DecodeHex('01020304050607'); // one small handshake record (~12 wire bytes)
+    // a max-size record, so the default backlog cap is reached in a handful of feeds
+    LPayload := nil;
+    SetLength(LPayload, TRecordLimits.MaxPlaintext);
     LSend.Write(TTlsContentType.Handshake, LPayload, 0, System.Length(LPayload));
     LWire := LSend.TakeOutgoing;
+    // records needed to reach the cap, derived from the (read-only) bound - never hard-coded
+    LNeeded := (LRecv.MaxFramedBacklog + System.Length(LWire) - 1) div System.Length(LWire);
 
-    LRecv.MaxFramedBacklog := 20; // two of these records exceed it
     CheckFalse(LRecv.InboundBacklogFull, 'an empty layer is not backlog-full');
+    for LI := 1 to LNeeded - 1 do
+    begin
+      LRecv.ProcessInput(LWire, 0, System.Length(LWire));
+      CheckFalse(LRecv.InboundBacklogFull, 'framed records below the cap are not backlog-full');
+    end;
     LRecv.ProcessInput(LWire, 0, System.Length(LWire));
-    CheckFalse(LRecv.InboundBacklogFull, 'one framed record is under the cap');
-    LRecv.ProcessInput(LWire, 0, System.Length(LWire));
-    CheckTrue(LRecv.InboundBacklogFull, 'two framed records reach the cap');
+    CheckTrue(LRecv.InboundBacklogFull, 'the framed backlog reaches the cap');
 
     // pulling one record relieves the backlog
     CheckTrue(LRecv.NextIncoming(LFrag), 'a framed record is pulled');
@@ -201,7 +208,7 @@ begin
     // discarding clears everything and resets the counter
     LRecv.DiscardInbound;
     CheckFalse(LRecv.InboundBacklogFull, 'discard clears the backlog');
-    CheckFalse(LRecv.NextIncoming(LFrag), 'discard drops the remaining framed record');
+    CheckFalse(LRecv.NextIncoming(LFrag), 'discard drops the remaining framed records');
   finally
     LSend.Free;
     LRecv.Free;
@@ -362,20 +369,37 @@ begin
   end;
 end;
 
-procedure TTestRecordLayer.TestReassemblyCapTripsFatally;
+procedure TTestRecordLayer.TestPartialRecordResidualBoundedThenSurfaces;
 var
   LRecv: TRecordLayer;
-  LWire: TBytes;
+  LHeaderAndBody, LTail: TBytes;
+  LFrag: TTlsRecordFragment;
 begin
+  // there is no explicit reassembly cap: Parse rejects any over-ceiling record length before its
+  // bytes are retained, so the un-framed residual is bounded by one max-size record. A max-size
+  // record delivered one byte short is held without any spurious overflow, then completes and
+  // surfaces once its final byte arrives.
   LRecv := TRecordLayer.Create;
   try
-    LRecv.MaxInboundBuffer := 64;
-    // header claims 200 body bytes (within the record cap) but only 100 arrive:
-    // 105 buffered bytes exceed the 64-byte reassembly cap
-    LWire := ConcatBytes(DecodeHex('17030300C8'), // length 200
-      System.Copy(DecodeHex(StringOfChar('a', 200)), 0, 100));
-    CheckTrue(ExpectFatal(LRecv, LWire, TTlsAlertDescription.RecordOverflow),
-      'reassembly cap -> record_overflow');
+    // application_data at the ceiling for the (null) plaintext read epoch - MaxPlaintext, since it
+    // has no AEAD expansion (length 16384) - but delivered one body byte short
+    LHeaderAndBody := nil;
+    SetLength(LHeaderAndBody, 5 + (TRecordLimits.MaxPlaintext - 1));
+    LHeaderAndBody[0] := $17;
+    LHeaderAndBody[1] := $03;
+    LHeaderAndBody[2] := $03;
+    LHeaderAndBody[3] := Byte(TRecordLimits.MaxPlaintext shr 8);
+    LHeaderAndBody[4] := Byte(TRecordLimits.MaxPlaintext and $FF);
+    LRecv.ProcessInput(LHeaderAndBody, 0, System.Length(LHeaderAndBody));
+    CheckFalse(LRecv.NextIncoming(LFrag), 'the one-byte-short record is held, not surfaced');
+    // the final byte completes the record; it now surfaces (plaintext application_data is accepted
+    // by default - StrictApplicationData is off for the record layer's own framing tests)
+    LTail := nil;
+    SetLength(LTail, 1);
+    LRecv.ProcessInput(LTail, 0, 1);
+    CheckTrue(LRecv.NextIncoming(LFrag), 'the completed max-size record surfaces');
+    CheckEquals(TRecordLimits.MaxPlaintext, System.Length(LFrag.Data),
+      'the surfaced record carries the full max-size body');
   finally
     LRecv.Free;
   end;
@@ -391,10 +415,10 @@ var
 begin
   LRecv := TRecordLayer.Create;
   try
-    LRecv.MaxConsecutiveEmptyRecords := 3;
     LEmpty := DecodeHex('1703030000'); // application_data, length 0
     LFlood := nil;
-    for LI := 0 to 4 do
+    // one past the cap (the check is strictly-greater), derived from the read-only getter
+    for LI := 0 to LRecv.MaxConsecutiveEmptyRecords do
       LFlood := ConcatBytes(LFlood, LEmpty);
     // framing succeeds; the cap trips on the pull side, where a record's emptiness
     // is known only after it is decrypted under the active read epoch
@@ -866,12 +890,11 @@ begin
   LRecv := TRecordLayer.Create;
   try
     LRecv.SetNegotiatedVersion(TTlsVersion.Tls13);
-    LRecv.MaxChangeCipherSpec := 2;
     LCcs := DecodeHex('140303000101'); // one legal middlebox CCS
     LFlood := nil;
     for LI := 0 to 4 do
       LFlood := ConcatBytes(LFlood, LCcs);
-    // the first two are tolerated and dropped; the third trips the cap
+    // the default cap tolerates two; the third trips it
     CheckTrue(ExpectFatal(LRecv, LFlood, TTlsAlertDescription.UnexpectedMessage),
       'a change_cipher_spec flood is capped');
   finally
