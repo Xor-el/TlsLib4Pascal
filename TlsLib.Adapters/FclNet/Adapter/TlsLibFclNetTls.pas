@@ -484,8 +484,6 @@ end;
 
 function TTlsLibSocketHandler.DriveHandshake(AIsClient: Boolean;
   const AHost: string): Boolean;
-const
-  DefaultHandshakeReadTimeoutMs = 30000; // when neither the property nor Socket.IOTimeout is set
 var
   LEngine: ITlsEngine;
   LResolver: TCertificateVerdictResolver;
@@ -517,8 +515,9 @@ begin
     LEffectiveMs := FHandshakeTimeoutMs;
     if LEffectiveMs <= 0 then
       LEffectiveMs := Socket.IOTimeout;
+    // neither the property nor Socket.IOTimeout is set: share the core connection's one default
     if LEffectiveMs <= 0 then
-      LEffectiveMs := DefaultHandshakeReadTimeoutMs;
+      LEffectiveMs := TTlsConnection.DefaultHandshakeTimeoutMs;
     LPriorTimeoutMs := Socket.IOTimeout;
     Socket.IOTimeout := LEffectiveMs;
     try

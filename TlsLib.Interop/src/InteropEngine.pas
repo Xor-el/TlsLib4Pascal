@@ -461,7 +461,10 @@ begin
     // the harness is driving a non-resumption scenario: opt out of resumption explicitly so the
     // engine issues no NewSessionTicket. The harness is exact about ticket presence and does not
     // lean on the engine's resume-by-default (which mints a STEK when resumption is left on).
-    if (AOptions.SessionTicketKeys = nil) and (AOptions.SessionStore = nil) then
+    // Early data is the exception: it is offered only on a resumed session, so a server authorizing
+    // it keeps resumption on (minting the default STEK) to issue an early-data-capable ticket.
+    if (AOptions.SessionTicketKeys = nil) and (AOptions.SessionStore = nil) and
+      (AOptions.MaxEarlyData = 0) then
       LServer.WithResumption(False);
     if AOptions.SessionTicketKeys <> nil then
       LServer.WithSessionTicketKeys(AOptions.SessionTicketKeys);
