@@ -46,6 +46,7 @@ uses
   TlpITlsConfigMemo,
   TlpTlsConfigMemo,
   TlpTlsLibExceptions,
+  TlpTlsCredential,
   TlpTlsConnection,
   TlpTlsConnectionInfo,
   TlpSystemTrustFacade;
@@ -124,6 +125,7 @@ type
     FSessionResumption: Boolean;
     FLastErrorDesc: string;
     FUseSystemTrust: Boolean;
+    FClientAuth: TClientAuthMode;
     FCheckHostName: Boolean;
     FCustomTrustStore: ITrustAnchorStore;
     FCustomServerCertVerifier: IServerCertificateVerifier;
@@ -182,6 +184,15 @@ type
     /// trust is never implicit: when verifying you must name at least one source or the build fails
     /// closed. Defaults to False.</summary>
     property UseSystemTrust: Boolean read FUseSystemTrust write FUseSystemTrust;
+    /// <summary>Server role: whether to request a client certificate (mutual TLS). None (the
+    /// default) never asks; Requested asks and tolerates a client that sends none; Required asks and
+    /// aborts when none is presented. Orthogonal to CertCA / TrustedCertificate / UseSystemTrust /
+    /// CustomTrustStore - those are the trust a presented chain must reach, and a mode other than
+    /// None needs one of them (the build fails closed). UseSystemTrust as that client-CA means the
+    /// OS/public roots vouch for clients - name a private client-CA for real mTLS. Per handler,
+    /// never a process-wide default: set it in the OnCreateClientSocketHandler hook that builds each
+    /// server-side handler. Ignored on a client connection.</summary>
+    property ClientAuth: TClientAuthMode read FClientAuth write FClientAuth;
     /// <summary>Whether the peer certificate's identity is checked against the host (RFC 6125).
     /// Defaults to True; set False to verify the chain but not the name.</summary>
     property CheckHostName: Boolean read FCheckHostName write FCheckHostName;
@@ -373,6 +384,9 @@ constructor TTlsLibSocketHandler.Create;
 begin
   inherited Create;
   FCheckHostName := True;
+  // client authentication is per-handler and never a process-wide default: an app-wide UseSystemTrust
+  // (below) meant for HTTP clients must not escalate a server into mTLS
+  FClientAuth := TClientAuthMode.None;
   // adopt the process-wide opt-in defaults (off unless the app set them); fcl-net auto-creates the
   // handler for TFPHTTPClient, so this is the only place a global "use the OS store" preference can
   // reach it. A per-connection handler still overrides afterwards.
@@ -443,7 +457,7 @@ begin
   Result.VerifyPeer := VerifyPeerCert;
   Result.InsecureSkipVerify := not VerifyPeerCert;
   Result.CheckHostName := FCheckHostName;
-  // ClientAuth keeps the composable default (Required); fcl-net exposes no mode knob
+  Result.ClientAuth := FClientAuth;
   Result.AlpnProtocols := FAlpnProtocols;
   Result.VerifyCallback := FVerifyCallback;
   Result.ClientVerdictResolver := FVerdictResolver;
@@ -477,9 +491,11 @@ var
 begin
   LOptions := Snapshot;
   // a server never consults VerifyPeerCert (that switch governs a client verifying a server); it
-  // requests and verifies a client certificate whenever a client-trust source is named, so force
-  // the composer's server-side gate on regardless of the client-oriented VerifyPeer value
+  // requests + verifies a client certificate only when ClientAuth is set, so neutralise both
+  // client-oriented verify toggles Snapshot derived from it - their value must not trip the
+  // composer's mode-vs-verify guard
   LOptions.VerifyPeer := True;
+  LOptions.InsecureSkipVerify := False;
   Result := TTlsEngineFactory.CreateServerEngine(
     TTlsConfigComposer.ResolveServerConfig(LOptions, GServerConfigMemo, 'ServerConfig'));
 end;

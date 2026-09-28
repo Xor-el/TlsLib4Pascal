@@ -112,6 +112,7 @@ type
     FPkix: IPkixProvider;
     FUserPkix: IPkixProvider;
     FUseSystemTrust: Boolean;
+    FClientAuth: TClientAuthMode;
     FSessionResumption: Boolean;
     FClientConfig: ITlsClientConfig;
     FServerConfig: ITlsServerConfig;
@@ -172,6 +173,15 @@ type
     /// VerifyCert is on you must name a source (this or CertCAFile) or the build fails closed.
     /// Per-connection, never a process-wide global, so it composes and stays thread-safe.</summary>
     property UseSystemTrust: Boolean read FUseSystemTrust write FUseSystemTrust;
+    /// <summary>Server role: whether to request a client certificate (mutual TLS). None (the
+    /// default) never asks; Requested asks and tolerates a client that sends none; Required asks and
+    /// aborts when none is presented. Orthogonal to CertCAFile / UseSystemTrust - those are the trust
+    /// a presented chain must reach, and a mode other than None needs one of them (the build fails
+    /// closed). VerifyCert must stay on alongside it, and UseSystemTrust as that client-CA means the
+    /// OS/public roots vouch for clients (name a private CertCAFile for real mTLS). Synapse's OpenSSL
+    /// plugin makes VerifyCert alone request a certificate on a server; here that is this explicit
+    /// knob. Cast Sock.SSL to TSSLTlsLib to set it.</summary>
+    property ClientAuth: TClientAuthMode read FClientAuth write FClientAuth;
     /// <summary>A fully-built client config that REPLACES the property-driven build: when set, the
     /// cert/trust properties (CertCAFile, CertificateFile, UseSystemTrust) are not allowed alongside
     /// it (the plugin raises). The verdict resolver still applies, but only if this config armed the
@@ -287,6 +297,7 @@ begin
   // secure by default: Synapse's TCustomSSL defaults VerifyCert to False (no verification); we flip
   // it to True so a dropped-in plugin verifies. Opt OUT with VerifyCert := False for the loud bypass.
   VerifyCert := True;
+  FClientAuth := TClientAuthMode.None;
   FSessionResumption := True;
 end;
 
@@ -331,9 +342,9 @@ begin
   end;
   Result.VerifyPeer := FVerifyCert;
   Result.InsecureSkipVerify := not FVerifyCert;
-  // CheckHostName keeps the composable default (True); Synapse exposes no knob. VerifyCert on a
-  // server requests (does not require) a client certificate, so the client-auth mode is Requested.
-  Result.ClientAuth := TClientAuthMode.Requested;
+  // CheckHostName keeps the composable default (True); Synapse exposes no knob. A server never
+  // requests a client certificate unless ClientAuth is set (VerifyCert alone does not).
+  Result.ClientAuth := FClientAuth;
   Result.VerifyCallback := GVerifyCallback;
   Result.ClientVerdictResolver := GVerdictResolver;
   Result.ClientVerdictDeadlineMs := GVerdictDeadlineMs;

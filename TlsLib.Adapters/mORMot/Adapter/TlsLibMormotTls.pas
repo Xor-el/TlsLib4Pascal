@@ -44,6 +44,7 @@ uses
   TlpITlsConfigMemo,
   TlpTlsConfigMemo,
   TlpTlsLibExceptions,
+  TlpTlsCredential,
   TlpTlsConnection,
   TlpTlsConnectionInfo,
   TlpNegotiationTypes,
@@ -402,10 +403,14 @@ begin
   begin
     Result.VerifyPeer := True;
     Result.InsecureSkipVerify := False;
-    Result.ClientAuthRequested := AContext.ClientCertificateAuthentication;
+    // mORMot's native two-way-TLS flag maps to Required (SSL_VERIFY_FAIL_IF_NO_PEER_CERT); Requested
+    // is reachable through a builder-driven config (SetTlsLibMormotServerConfig)
+    if AContext.ClientCertificateAuthentication then
+      Result.ClientAuth := TClientAuthMode.Required
+    else
+      Result.ClientAuth := TClientAuthMode.None;
   end;
-  // CheckHostName and ClientAuth keep the composable defaults (True / Required); mORMot exposes no
-  // knob for either, and offers no ALPN surface
+  // CheckHostName keeps the composable default (True); mORMot exposes no host-name or ALPN surface
   Result.VerifyCallback := GVerifyCallback;
   Result.ClientVerdictResolver := GVerdictResolver;
   Result.ClientVerdictDeadlineMs := GVerdictDeadlineMs;

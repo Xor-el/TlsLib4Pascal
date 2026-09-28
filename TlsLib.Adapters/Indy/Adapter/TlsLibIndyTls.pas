@@ -48,6 +48,7 @@ uses
   TlpITlsConfigMemo,
   TlpTlsConfigMemo,
   TlpTlsLibExceptions,
+  TlpTlsCredential,
   TlpTlsConnection,
   TlpTlsConnectionInfo,
   TlpSystemTrustFacade;
@@ -58,7 +59,8 @@ type
   /// base carries no trust surface (RootCertFile/VerifyMode live only on its OpenSSL handler),
   /// so this class is ours. Peer trust composes from orthogonal sources - a RootCertFile bundle,
   /// UseSystemTrust for the OS anchors, and/or an injected CustomTrustStore all UNION; a
-  /// custom verifier replaces the pipeline outright. System trust is never implicit.</summary>
+  /// custom verifier replaces the pipeline outright. System trust is never implicit. Client
+  /// authentication is an explicit ClientAuth opt-in (a named client-CA alone never requests one).</summary>
   TTlsLibSSLOptions = class(TPersistent)
   strict private
   var
@@ -68,6 +70,7 @@ type
     FRootCertFile: string;
     FVerifyPeer: Boolean;
     FInsecureSkipVerify: Boolean;
+    FClientAuth: TClientAuthMode;
     FUseSystemTrust: Boolean;
     FCustomTrustStore: ITrustAnchorStore;
     FCustomServerCertVerifier: IServerCertificateVerifier;
@@ -159,9 +162,20 @@ type
     /// form/data-module resource (.dfm on Delphi, .lfm on Lazarus), which is often committed.</summary>
     property KeyPassword: string read FKeyPassword write FKeyPassword stored False;
     property RootCertFile: string read FRootCertFile write FRootCertFile;
-    /// <summary>Whether the peer certificate is verified (a server verifies a requested
-    /// client certificate). Default True.</summary>
+    /// <summary>Whether the peer certificate is verified (client role). Default True. On a server,
+    /// ClientAuth governs client-certificate authentication; VerifyPeer=False (or InsecureSkipVerify)
+    /// together with a ClientAuth other than None fails the build.</summary>
     property VerifyPeer: Boolean read FVerifyPeer write FVerifyPeer;
+    /// <summary>Server role: whether to request a client certificate (mutual TLS). None (the
+    /// default) never asks; Requested asks and tolerates a client that sends none; Required asks and
+    /// aborts the handshake when none is presented. Orthogonal to RootCertFile / UseSystemTrust /
+    /// CustomTrustStore: those are the trust the presented chain must reach, and a mode other than
+    /// None needs at least one of them (the build fails closed). UseSystemTrust as that client-CA
+    /// means the OS/public roots vouch for clients - name a private client-CA for real mTLS. Ignored
+    /// on a client connection. Mirrors Indy's OpenSSL VerifyMode: [] / [sslvrfPeer] /
+    /// [sslvrfPeer, sslvrfFailIfNoPeerCert].</summary>
+    property ClientAuth: TClientAuthMode read FClientAuth write FClientAuth
+      default TClientAuthMode.None;
     /// <summary>DANGEROUS: accept the peer chain with no PKIX/host/pinning checks. For tests and
     /// pinned/self-signed development peers only - never production.</summary>
     property InsecureSkipVerify: Boolean read FInsecureSkipVerify write FInsecureSkipVerify;
@@ -300,6 +314,7 @@ begin
   inherited Create;
   FVerifyPeer := True;
   FInsecureSkipVerify := False;
+  FClientAuth := TClientAuthMode.None;
   FUseSystemTrust := False;
   FSessionResumption := True;
 end;
@@ -317,6 +332,7 @@ begin
     FRootCertFile := LSrc.FRootCertFile;
     FVerifyPeer := LSrc.FVerifyPeer;
     FInsecureSkipVerify := LSrc.FInsecureSkipVerify;
+    FClientAuth := LSrc.FClientAuth;
     FUseSystemTrust := LSrc.FUseSystemTrust;
     FCustomTrustStore := LSrc.FCustomTrustStore;
     FCustomServerCertVerifier := LSrc.FCustomServerCertVerifier;
@@ -360,8 +376,8 @@ begin
   Result.ClientCertificateVerifier := FCustomClientCertVerifier;
   Result.VerifyPeer := FVerifyPeer;
   Result.InsecureSkipVerify := FInsecureSkipVerify;
-  // CheckHostName and ClientAuth keep the composable defaults (True / Required); Indy exposes no
-  // knob for either, and offers no ALPN surface
+  Result.ClientAuth := FClientAuth;
+  // CheckHostName keeps the composable default (True); Indy exposes no host-name or ALPN surface
   Result.VerifyCallback := FVerifyCallback;
   Result.ClientVerdictResolver := FVerdictResolver;
   Result.ClientVerdictDeadlineMs := FVerdictDeadlineMs;

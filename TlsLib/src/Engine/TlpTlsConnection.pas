@@ -85,8 +85,7 @@ type
     VerifyPeer: Boolean;                         // default True
     InsecureSkipVerify: Boolean;                 // default False
     CheckHostName: Boolean;                      // default True
-    ClientAuth: TClientAuthMode;                 // applied when a client-trust source is named
-    ClientAuthRequested: Boolean;                // server: host asked for client auth (no source -> fails loud)
+    ClientAuth: TClientAuthMode;                 // server: None never requests; a mode needs a client-trust source
     AlpnProtocols: TArray<string>;
     VerifyCallback: TTlsCertificateVerifyCallback;
     ClientVerdictResolver: TCertificateVerdictResolver;
@@ -99,8 +98,7 @@ type
     ServerConfig: ITlsServerConfig;              // config-in: replaces the server build
     TrustSourceHint: string;                     // host knob names, spliced into the no-source message
     /// <summary>A value with the composable defaults: VerifyPeer / CheckHostName / SessionResumption
-    /// on, ClientAuth Required. Assign it at snapshot time (no class operator Initialize, to dodge
-    /// the Delphi nested-managed-record leak trap).</summary>
+    /// on, client authentication opt-in (ClientAuth None). Assign it at snapshot time.</summary>
     class function Default: TTlsOptions; static;
   end;
 
@@ -122,8 +120,9 @@ type
     /// ETlsStreamError(internal_error) when verification is on and no trust source is named.</summary>
     class function BuildClientConfig(const AOptions: TTlsOptions): ITlsClientConfig; static;
     /// <summary>The options-driven server config. Raises without a certificate. Requests client
-    /// authentication (at AOptions.ClientAuth) only when a client-trust source is named, and arms the
-    /// live-revocation verdict park for the server-role resolver only then.</summary>
+    /// authentication only when AOptions.ClientAuth is not None, and arms the live-revocation verdict
+    /// park for the server-role resolver only then. A mode without a client-trust source, with peer
+    /// verification off, or a client-cert verifier supplied with mode None, all raise.</summary>
     class function BuildServerConfig(const AOptions: TTlsOptions): ITlsServerConfig; static;
     class function ClientSignature(const AOptions: TTlsOptions): string; static;
     class function ServerSignature(const AOptions: TTlsOptions): string; static;
@@ -235,6 +234,12 @@ resourcestring
   SNoClientAuthSource =
     'client authentication is requested but no client-trust source was named; set %s, or turn ' +
     'client authentication off';
+  SClientAuthWithoutVerify =
+    'client authentication is requested but peer verification is off; turn verification on, or ' +
+    'set client authentication to None';
+  SClientVerifierNeedsClientAuth =
+    'a client-certificate verifier is set but client authentication is None; set a ' +
+    'client-authentication mode, or drop the verifier';
   SNoClientTrust =
     'peer verification is on but no trust source was named; set %s (system trust is never ' +
     'implicit), or turn peer verification off to skip verification';
@@ -274,7 +279,8 @@ begin
   Result.VerifyPeer := True;
   Result.CheckHostName := True;
   Result.SessionResumption := True;
-  Result.ClientAuth := TClientAuthMode.Required;
+  // client authentication is opt-in: a server requests a client certificate only under an explicit mode
+  Result.ClientAuth := TClientAuthMode.None;
 end;
 
 { TTlsConfigComposer }
@@ -415,11 +421,23 @@ var
 begin
   if AOptions.Certificate.IsEmpty then
     raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SNoServerCredential);
-  // a host that explicitly asked for client authentication but named no client-trust source must
-  // fail loud, never fall through to a server that quietly asks for no certificate
-  if AOptions.ClientAuthRequested and (not HasClientAuthTrustSource(AOptions)) then
+  if AOptions.ClientAuth <> TClientAuthMode.None then
+  begin
+    // an explicit client-auth mode with peer verification switched off, or with nothing to verify a
+    // presented chain against, is a contradiction: fail loud, never a server that quietly accepts any
+    // certificate or asks for none. Verification first: an adapter that names its trust only when
+    // verifying (Synapse) then reports the true cause, not a spurious no-source.
+    if (not AOptions.VerifyPeer) or AOptions.InsecureSkipVerify then
+      raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SClientAuthWithoutVerify);
+    if not HasClientAuthTrustSource(AOptions) then
+      raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
+        Format(SNoClientAuthSource, [AOptions.TrustSourceHint]));
+  end
+  else if AOptions.ClientCertificateVerifier <> nil then
+    // a server-role client-certificate verifier can only ever vet a requested client chain: it is
+    // inert without a mode, so its presence with None is a configuration mistake
     raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
-      Format(SNoClientAuthSource, [AOptions.TrustSourceHint]));
+      SClientVerifierNeedsClientAuth);
   LCrypto := EffectiveCrypto(AOptions);
   LPkix := EffectivePkix(AOptions);
   LServer := TTlsPresets.Compatible(LCrypto, LPkix).Server
@@ -427,10 +445,10 @@ begin
     Load(AOptions.Certificate), Load(AOptions.PrivateKey), AOptions.KeyPassword));
   if System.Length(AOptions.AlpnProtocols) > 0 then
     LServer.WithAlpnProtocols(AOptions.AlpnProtocols);
-  // client-cert auth is optional: request + verify only when a client-trust source is named. The
-  // async client-certificate verdict park is armed here (and only here) so the server-role resolver
-  // runs server-side for live client-cert revocation.
-  if AOptions.VerifyPeer and HasClientAuthTrustSource(AOptions) then
+  // request + verify client certificates only under an explicit mode (a named client-CA alone never
+  // triggers it). The async client-certificate verdict park is armed here (and only here) so the
+  // server-role resolver runs server-side for live client-cert revocation.
+  if AOptions.ClientAuth <> TClientAuthMode.None then
   begin
     LServer.WithPeerAuth(AOptions.ClientAuth);
     if AOptions.ClientCertificateVerifier <> nil then
@@ -500,12 +518,13 @@ begin
   for LI := 0 to System.High(AOptions.TrustAnchors) do
     Sign(LSig, 'anchor', AOptions.TrustAnchors[LI]);
   LSig.AddFlag('verifyPeer', AOptions.VerifyPeer);
+  // the server build reads skip-verify under a client-auth mode (the mode-vs-verify guard)
+  LSig.AddFlag('skipVerify', AOptions.InsecureSkipVerify);
   // by installer identity, not a bare present/absent flag (see the client signature)
   LSig.AddPointer('systemTrust', AOptions.SystemTrust);
   LSig.AddPointer('customVerifier', AOptions.ClientCertificateVerifier);
   LSig.AddPointer('customStore', AOptions.CustomTrustStore);
   LSig.AddCardinal('clientAuth', Cardinal(Ord(AOptions.ClientAuth)));
-  LSig.AddFlag('clientAuthRequested', AOptions.ClientAuthRequested);
   for LI := 0 to System.High(AOptions.AlpnProtocols) do
     LSig.AddText('alpn', AOptions.AlpnProtocols[LI]);
   LSig.AddFlag('asyncVerdict', Assigned(AOptions.ServerVerdictResolver));
@@ -529,17 +548,18 @@ begin
     (AOptions.CustomTrustStore <> nil) or (System.Length(AOptions.AlpnProtocols) > 0) or
     (AOptions.Crypto <> nil) or (AOptions.Pkix <> nil);
   // a security toggle always carries a value, so flag only a NON-DEFAULT one the host actively chose
-  // that a supplied config then silently drops. Resumption is read by both role builds. Peer
-  // verification, the skip-verify bypass and the host-name check are client-only reads: the server
-  // build consumes none of them on its own (its peer verification is gated by a client-trust source,
-  // which already conflicts above).
+  // that a supplied config then silently drops. Resumption is read by both role builds. The host-name
+  // check is a client-only read; the server build reads peer verification and the skip-verify bypass
+  // only under a client-auth mode, which already conflicts on its own below. A non-default
+  // client-authentication mode is a server-only security decision the config would replace.
   LConflict := LConflict or (not AOptions.SessionResumption);
   if AIsClient then
     LConflict := LConflict or (AOptions.ServerCertificateVerifier <> nil) or
       Assigned(AOptions.VerifyCallback) or (not AOptions.VerifyPeer) or
       AOptions.InsecureSkipVerify or (not AOptions.CheckHostName)
   else
-    LConflict := LConflict or (AOptions.ClientCertificateVerifier <> nil);
+    LConflict := LConflict or (AOptions.ClientCertificateVerifier <> nil) or
+      (AOptions.ClientAuth <> TClientAuthMode.None);
   if LConflict then
     raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
       Format(SConfigAndOptionsConflict, [APropertyName]));

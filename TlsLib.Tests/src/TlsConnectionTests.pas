@@ -89,12 +89,18 @@ type
     // composer - server shape
     procedure TestServerNoCredentialRaises;
     procedure TestServerCredentialBuilds;
+    procedure TestDefaultOptionsRequestNoClientAuth;
     procedure TestServerNoClientSourceLeavesNoClientAuth;
-    procedure TestServerClientSourceAppliesClientAuthMode;
+    procedure TestServerRequestedModeComposes;
+    procedure TestServerRequiredModeComposes;
+    procedure TestServerAnchorsWithoutModeAreInert;
     procedure TestServerVerdictResolverArmsLiveRevocation;
-    procedure TestServerVerdictResolverNoSourceStaysInline;
-    procedure TestServerVerifyPeerOffLeavesNoClientAuth;
+    procedure TestServerVerdictResolverNoModeStaysInline;
+    procedure TestServerModeWithVerifyPeerOffRaises;
+    procedure TestServerModeWithSkipVerifyRaises;
+    procedure TestServerClientVerifierWithoutModeRaises;
     procedure TestServerSystemTrustInstallerCalledForServerRole;
+    procedure TestServerSystemTrustNotInstalledWithoutMode;
     procedure TestServerResumptionMintsDefaultStek;
     // signatures
     procedure TestSignatureEqualOptionsEqualKeys;
@@ -109,7 +115,7 @@ type
     procedure TestGuardIncludesVerifyCallback;
     procedure TestGuardMessageNamesTheProperty;
     procedure TestGuardIgnoresResolverAndTimeout;
-    procedure TestServerClientAuthRequestedWithoutSourceRaises;
+    procedure TestServerModeWithoutSourceRaises;
     procedure TestServerGuardAllowsClientOnlyOptions;
     procedure TestClientGuardFlagsServerCertVerifier;
     // timed transport
@@ -148,6 +154,13 @@ type
   public
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
+      out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
+  end;
+
+  // a client-certificate verifier the composer only wires; used to prove a mode is required for it
+  TFakeClientVerifier = class(TInterfacedObject, IClientCertificateVerifier)
+  public
+    function VerifyClientCertificate(const AChain: TArray<TBytes>;
       out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
   end;
 
@@ -207,6 +220,13 @@ end;
 
 function TFakeServerVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
   const AServerName: TServerName; const AOcspStaple: TBytes;
+  out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
+begin
+  AAlert := TTlsAlertDescription.BadCertificate;
+  Result := False;
+end;
+
+function TFakeClientVerifier.VerifyClientCertificate(const AChain: TArray<TBytes>;
   out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
 begin
   AAlert := TTlsAlertDescription.BadCertificate;
@@ -609,22 +629,28 @@ begin
   LConfig := TTlsConfigComposer.BuildServerConfig(ServerOptsWithCredential);
   CheckNotNull(LConfig, 'a server config builds from the credential');
   CheckEquals(Ord(TClientAuthMode.None), Ord(LConfig.ClientAuth),
-    'no client-trust source means no client authentication');
+    'the default mode requests no client authentication');
+end;
+
+procedure TTestTlsConnection.TestDefaultOptionsRequestNoClientAuth;
+begin
+  CheckEquals(Ord(TClientAuthMode.None), Ord(TTlsOptions.Default.ClientAuth),
+    'client authentication is opt-in: the default mode is None');
 end;
 
 procedure TTestTlsConnection.TestServerNoClientSourceLeavesNoClientAuth;
 var
   LOpts: TTlsOptions;
 begin
-  // a server resolver set but no client-trust source: the park is not armed
+  // a server resolver set but no mode: no client auth is requested and the park is not armed
   LOpts := ServerOptsWithCredential;
   LOpts.ServerVerdictResolver := StubResolver;
   CheckEquals(Ord(TClientAuthMode.None),
     Ord(TTlsConfigComposer.BuildServerConfig(LOpts).ClientAuth),
-    'a resolver without a client-trust source requests no client auth');
+    'no mode means no client authentication');
 end;
 
-procedure TTestTlsConnection.TestServerClientSourceAppliesClientAuthMode;
+procedure TTestTlsConnection.TestServerRequestedModeComposes;
 var
   LOpts: TTlsOptions;
 begin
@@ -634,7 +660,44 @@ begin
   LOpts.ClientAuth := TClientAuthMode.Requested;
   CheckEquals(Ord(TClientAuthMode.Requested),
     Ord(TTlsConfigComposer.BuildServerConfig(LOpts).ClientAuth),
-    'a client-trust source applies the configured client-auth mode');
+    'a Requested mode with a client-CA composes as Requested');
+end;
+
+procedure TTestTlsConnection.TestServerRequiredModeComposes;
+var
+  LOpts: TTlsOptions;
+begin
+  LOpts := ServerOptsWithCredential;
+  LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
+    TTlsBlobSource.FromBytes(RootAnchor));
+  LOpts.ClientAuth := TClientAuthMode.Required;
+  CheckEquals(Ord(TClientAuthMode.Required),
+    Ord(TTlsConfigComposer.BuildServerConfig(LOpts).ClientAuth),
+    'a Required mode with a client-CA composes as Required');
+end;
+
+procedure TTestTlsConnection.TestServerAnchorsWithoutModeAreInert;
+var
+  LOpts: TTlsOptions;
+  LConfig: ITlsServerConfig;
+begin
+  // named client-CA sources with mode None are inert on the server: they must NOT fail the build (a
+  // shared / process-wide trust setting reaching a server keeps working) and request no client auth
+  LOpts := ServerOptsWithCredential;
+  LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
+    TTlsBlobSource.FromBytes(RootAnchor));
+  LOpts.SystemTrust := TFakeSystemTrustInstaller.Create(False, EcP256RootStore);
+  LOpts.CustomTrustStore := EcP256RootStore;
+  LConfig := TTlsConfigComposer.BuildServerConfig(LOpts);
+  CheckEquals(Ord(TClientAuthMode.None), Ord(LConfig.ClientAuth),
+    'anchors without a mode do not request client authentication');
+
+  // even with verification off (an anchor-bearing server that verifies no peer), mode None builds and
+  // requests no client auth - the verify-off guard fires only under a mode
+  LOpts.VerifyPeer := False;
+  LConfig := TTlsConfigComposer.BuildServerConfig(LOpts);
+  CheckEquals(Ord(TClientAuthMode.None), Ord(LConfig.ClientAuth),
+    'anchors with verification off and no mode still request no client authentication');
 end;
 
 procedure TTestTlsConnection.TestServerVerdictResolverArmsLiveRevocation;
@@ -642,10 +705,11 @@ var
   LOpts: TTlsOptions;
   LConfig: ITlsServerConfig;
 begin
-  // a client-CA source plus a server-role resolver arms the client-cert verdict park
+  // a client-CA source, an explicit mode AND a server-role resolver arm the client-cert verdict park
   LOpts := ServerOptsWithCredential;
   LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
     TTlsBlobSource.FromBytes(RootAnchor));
+  LOpts.ClientAuth := TClientAuthMode.Required;
   LOpts.ServerVerdictResolver := StubResolver;
   LOpts.ServerVerdictDeadlineMs := 777;
   LConfig := TTlsConfigComposer.BuildServerConfig(LOpts);
@@ -655,28 +719,64 @@ begin
   CheckEquals(777, LConfig.AsyncCertificateVerdict.DeadlineMs, 'the server deadline is carried');
 end;
 
-procedure TTestTlsConnection.TestServerVerdictResolverNoSourceStaysInline;
+procedure TTestTlsConnection.TestServerVerdictResolverNoModeStaysInline;
 var
   LOpts: TTlsOptions;
 begin
+  // a client-CA and a resolver but NO mode: it is the mode, not the source, that arms the park
   LOpts := ServerOptsWithCredential;
+  LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
+    TTlsBlobSource.FromBytes(RootAnchor));
   LOpts.ServerVerdictResolver := StubResolver;
   CheckEquals(Ord(TVerdictDeferral.None),
     Ord(TTlsConfigComposer.BuildServerConfig(LOpts).AsyncCertificateVerdict.Deferral),
-    'a server resolver without a client-trust source does not arm the park');
+    'a resolver without a mode does not arm the park');
 end;
 
-procedure TTestTlsConnection.TestServerVerifyPeerOffLeavesNoClientAuth;
+procedure TTestTlsConnection.TestServerModeWithVerifyPeerOffRaises;
 var
   LOpts: TTlsOptions;
+  LMsg: string;
 begin
   LOpts := ServerOptsWithCredential;
   LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
     TTlsBlobSource.FromBytes(RootAnchor));
+  LOpts.ClientAuth := TClientAuthMode.Required;
   LOpts.VerifyPeer := False;
-  CheckEquals(Ord(TClientAuthMode.None),
-    Ord(TTlsConfigComposer.BuildServerConfig(LOpts).ClientAuth),
-    'VerifyPeer off leaves no client authentication even with a source');
+  CheckTrue(RaisesStreamError(LOpts, False, LMsg),
+    'a client-auth mode with peer verification off fails closed');
+  CheckTrue(Pos('verification is off', LMsg) > 0,
+    'the message is the mode-without-verification contradiction');
+end;
+
+procedure TTestTlsConnection.TestServerModeWithSkipVerifyRaises;
+var
+  LOpts: TTlsOptions;
+  LMsg: string;
+begin
+  LOpts := ServerOptsWithCredential;
+  LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
+    TTlsBlobSource.FromBytes(RootAnchor));
+  LOpts.ClientAuth := TClientAuthMode.Required;
+  LOpts.InsecureSkipVerify := True;
+  CheckTrue(RaisesStreamError(LOpts, False, LMsg),
+    'a client-auth mode with the skip-verify bypass fails closed');
+  CheckTrue(Pos('verification is off', LMsg) > 0,
+    'the message is the mode-without-verification contradiction');
+end;
+
+procedure TTestTlsConnection.TestServerClientVerifierWithoutModeRaises;
+var
+  LOpts: TTlsOptions;
+  LMsg: string;
+begin
+  // a server-role client-cert verifier with mode None is inert: fail loud, do not silently drop it
+  LOpts := ServerOptsWithCredential;
+  LOpts.ClientCertificateVerifier := TFakeClientVerifier.Create;
+  CheckTrue(RaisesStreamError(LOpts, False, LMsg),
+    'a client-cert verifier with mode None fails closed');
+  CheckTrue(Pos('client authentication is None', LMsg) > 0,
+    'the message names the missing mode');
 end;
 
 procedure TTestTlsConnection.TestServerSystemTrustInstallerCalledForServerRole;
@@ -689,10 +789,29 @@ begin
   LInst := LFake;
   LOpts := ServerOptsWithCredential;
   LOpts.SystemTrust := LInst;
+  LOpts.ClientAuth := TClientAuthMode.Required;
   TTlsConfigComposer.BuildServerConfig(LOpts);
   CheckTrue(LFake.ServerRoleCalled, 'the installer server-role hook ran');
   CheckFalse(LFake.ClientRoleCalled, 'the client-role hook did not run on a server build');
   CheckTrue(LFake.ServerPkix = Pkix, 'the effective pkix was passed to the installer');
+end;
+
+procedure TTestTlsConnection.TestServerSystemTrustNotInstalledWithoutMode;
+var
+  LOpts: TTlsOptions;
+  LFake: TFakeSystemTrustInstaller;
+  LInst: ISystemTrustInstaller;
+  LConfig: ITlsServerConfig;
+begin
+  // the installer is a client-CA source: with no mode it is inert, the server-role hook is not called
+  LFake := TFakeSystemTrustInstaller.Create(False, EcP256RootStore);
+  LInst := LFake;
+  LOpts := ServerOptsWithCredential;
+  LOpts.SystemTrust := LInst;
+  LConfig := TTlsConfigComposer.BuildServerConfig(LOpts);
+  CheckFalse(LFake.ServerRoleCalled, 'no mode means the installer server-role hook did not run');
+  CheckEquals(Ord(TClientAuthMode.None), Ord(LConfig.ClientAuth),
+    'no mode means no client authentication');
 end;
 
 procedure TTestTlsConnection.TestServerResumptionMintsDefaultStek;
@@ -756,6 +875,14 @@ begin
   LMut.Certificate := TTlsBlobSource.FromBytes(ServerCert);
   CheckFalse(TTlsConfigComposer.ClientSignature(LMut) = LBaseSig,
     'a credential blob changes the key');
+
+  // the server signature discriminates the client-auth mode (a server-only concern)
+  LBase := ServerOptsWithCredential;
+  LBaseSig := TTlsConfigComposer.ServerSignature(LBase);
+  LMut := LBase;
+  LMut.ClientAuth := TClientAuthMode.Required;
+  CheckFalse(TTlsConfigComposer.ServerSignature(LMut) = LBaseSig,
+    'the client-auth mode changes the server key');
 end;
 
 procedure TTestTlsConnection.TestSignatureExcludesResolverAndTimeout;
@@ -913,6 +1040,12 @@ begin
   LOpts.SessionResumption := False;
   CheckTrue(Conflicts(LOpts, True), 'resumption off conflicts with a supplied config (client)');
   CheckTrue(Conflicts(LOpts, False), 'resumption off conflicts with a supplied config (server)');
+
+  // a non-default client-auth mode is a server-only security decision a config would replace
+  LOpts := TTlsOptions.Default;
+  LOpts.ClientAuth := TClientAuthMode.Required;
+  CheckTrue(Conflicts(LOpts, False), 'a client-auth mode conflicts with a supplied config (server)');
+  CheckFalse(Conflicts(LOpts, True), 'a client-auth mode does not conflict on the client');
 end;
 
 procedure TTestTlsConnection.TestGuardIncludesVerifyCallback;
@@ -966,17 +1099,19 @@ begin
   CheckTrue(True, 'a resolver or timeout alone does not conflict');
 end;
 
-procedure TTestTlsConnection.TestServerClientAuthRequestedWithoutSourceRaises;
+procedure TTestTlsConnection.TestServerModeWithoutSourceRaises;
 var
   LOpts: TTlsOptions;
   LMsg: string;
 begin
-  // an explicit request for client authentication with no client-trust source must fail loud, not
-  // fall through to a server that quietly asks for no certificate
+  // an explicit client-auth mode with no client-trust source must fail loud, not fall through to a
+  // server that quietly asks for no certificate
   LOpts := ServerOptsWithCredential;
-  LOpts.ClientAuthRequested := True;
+  LOpts.ClientAuth := TClientAuthMode.Required;
   CheckTrue(RaisesStreamError(LOpts, False, LMsg),
-    'requested client auth without a client-trust source fails closed');
+    'a client-auth mode without a client-trust source fails closed');
+  CheckTrue(Pos('a client-CA bundle', LMsg) > 0,
+    'the message splices the trust-source hint (guard 1, not the verify-off guard)');
 end;
 
 procedure TTestTlsConnection.TestServerGuardAllowsClientOnlyOptions;
