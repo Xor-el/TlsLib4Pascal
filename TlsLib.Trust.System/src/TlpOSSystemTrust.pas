@@ -64,7 +64,10 @@ type
     /// <summary>True if this platform can honor AMode.</summary>
     class function Supports(AMode: TSystemTrustMode): Boolean; static;
     /// <summary>The OS-anchor store for our validator. Raises where the platform cannot
-    /// enumerate OS roots (a delegate-only platform). APkixProvider parses a PEM store.</summary>
+    /// enumerate OS roots (a delegate-only platform). APkixProvider parses a PEM store. The set is
+    /// harvested for server authentication (Windows keeps serverAuth-capable roots, macOS applies the
+    /// SSL policy), so installing it as a server's client-CA is a deliberate, explicit choice that
+    /// authenticates clients against the public PKI - never do it from a shared or process-wide setting.</summary>
     class function AnchorStore(const APkixProvider: IPkixProvider)
       : ITrustAnchorStore; static;
     /// <summary>The OS server-certificate verifier source, built per connection from the trust

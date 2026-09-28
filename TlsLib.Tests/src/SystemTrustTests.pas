@@ -71,6 +71,7 @@ uses
   TlpITlsConfigBuilder,
   TlpISystemTrustInstaller,
   TlpITlsConfig,
+  TlpTlsCredential,
   TlpTlsPresets,
   MockPlatformChainEngine,
   TlsLibTestBase;
@@ -114,7 +115,7 @@ type
   TTestSystemTrustInstaller = class(TTlsLibAlgorithmTestCase)
   published
     procedure TestClientInstallComposesLikeFacade;
-    procedure TestServerInstallMirrorsFacadeRefusal;
+    procedure TestExplicitOsAnchorsAreTheServerEscapeHatch;
   end;
 
   /// <summary>Portable suite (always runs): the shared OS-delegate post-checks
@@ -1907,30 +1908,35 @@ begin
   CheckNotNull(LViaInstaller, 'the installer installs a usable client trust source');
 end;
 
-procedure TTestSystemTrustInstaller.TestServerInstallMirrorsFacadeRefusal;
+procedure TTestSystemTrustInstaller.TestExplicitOsAnchorsAreTheServerEscapeHatch;
 var
-  LInstaller: ISystemTrustInstaller;
-  LFacadeRaised, LInstallerRaised: Boolean;
+  LStore: ITrustAnchorStore;
+  LV: TStringList;
+  LConfig: ITlsServerConfig;
 begin
-  // the server role never roots client-cert trust at the public OS store: it installs OS-enumerable
-  // anchors where it can and raises where only a delegate exists - the installer mirrors that exactly
-  LInstaller := TSystemTrustInstaller.Create;
-  LFacadeRaised := False;
-  try
-    TSystemTrust.WithSystemTrust(TTlsPresets.Compatible(Crypto, Pkix).Server, Pkix);
-  except
-    on E: ESystemTrustUnsupportedTlsLibException do
-      LFacadeRaised := True;
+  // WithSystemTrust has no server overload: the only way OS roots become a server's client-CA is the
+  // caller writing it out explicitly, which stays reachable and composes a Required-mode server
+  if not TOSSystemTrust.Supports(TSystemTrustMode.Anchors) then
+  begin
+    Check(True, 'this platform cannot enumerate OS anchors; the explicit path does not apply');
+    Exit;
   end;
-  LInstallerRaised := False;
+  LStore := TOSSystemTrust.AnchorStore(Pkix);
+  CheckNotNull(LStore, 'the OS anchor store is reachable for the explicit escape hatch');
+  LV := LoadVectorFields('Certs/EcP256Chain.txt');
   try
-    LInstaller.InstallClientAuthTrust(TTlsPresets.Compatible(Crypto, Pkix).Server, Pkix);
-  except
-    on E: ESystemTrustUnsupportedTlsLibException do
-      LInstallerRaised := True;
+    LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
+      .WithCredential(TTlsCredential.Load(Crypto, Pkix,
+      DecodeHex(LV.Values['leaf_cert']), DecodeHex(LV.Values['leaf_key'])))
+      .WithPeerAuth(TClientAuthMode.Required)
+      .WithTrustStore(LStore).Build;
+  finally
+    LV.Free;
   end;
-  CheckEquals(LFacadeRaised, LInstallerRaised,
-    'the server installer raises exactly where the facade does');
+  CheckEquals(Ord(TClientAuthMode.Required), Ord(LConfig.ClientAuth),
+    'the explicit OS-anchor escape hatch composes a Required-mode server');
+  CheckTrue(System.Length(LConfig.TrustStore.RootCertificates) > 0,
+    'the explicitly-named OS anchors are the client-CA');
 end;
 
 initialization

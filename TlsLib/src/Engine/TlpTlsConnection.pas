@@ -78,7 +78,8 @@ type
     PrivateKey: TTlsBlobSource;
     KeyPassword: string;
     TrustAnchors: TArray<TTlsBlobSource>; // each -> WithTrustAnchors (union)
-    SystemTrust: ISystemTrustInstaller;          // non-nil = opt into the OS store (union)
+    // client role: opt into the OS store (union); a server never reads it (system trust is not a client-CA)
+    SystemTrust: ISystemTrustInstaller;
     CustomTrustStore: ITrustAnchorStore;         // WithTrustStore (union)
     ServerCertificateVerifier: IServerCertificateVerifier;   // client role; replaces the pipeline
     ClientCertificateVerifier: IClientCertificateVerifier;   // server role; replaces the pipeline
@@ -96,7 +97,8 @@ type
     HandshakeTimeoutMs: Int32;                   // 0 = the library default (30 000 ms)
     ClientConfig: ITlsClientConfig;              // config-in: replaces the client build
     ServerConfig: ITlsServerConfig;              // config-in: replaces the server build
-    TrustSourceHint: string;                     // host knob names, spliced into the no-source message
+    TrustSourceHint: string;                     // client-role host knob names, spliced into the no-source message
+    ClientAuthSourceHint: string;                // server-role client-CA host knob names, same use
     /// <summary>A value with the composable defaults: VerifyPeer / CheckHostName / SessionResumption
     /// on, client authentication opt-in (ClientAuth None). Assign it at snapshot time.</summary>
     class function Default: TTlsOptions; static;
@@ -121,8 +123,9 @@ type
     class function BuildClientConfig(const AOptions: TTlsOptions): ITlsClientConfig; static;
     /// <summary>The options-driven server config. Raises without a certificate. Requests client
     /// authentication only when AOptions.ClientAuth is not None, and arms the live-revocation verdict
-    /// park for the server-role resolver only then. A mode without a client-trust source, with peer
-    /// verification off, or a client-cert verifier supplied with mode None, all raise.</summary>
+    /// park for the server-role resolver only then. A mode without a client-CA, with peer
+    /// verification off, or a client-cert verifier supplied with mode None, all raise. System trust
+    /// is a client-role source and is not read here (a server's client-CA is always caller-supplied).</summary>
     class function BuildServerConfig(const AOptions: TTlsOptions): ITlsServerConfig; static;
     class function ClientSignature(const AOptions: TTlsOptions): string; static;
     class function ServerSignature(const AOptions: TTlsOptions): string; static;
@@ -232,8 +235,12 @@ resourcestring
   SNoServerCredential =
     'no server certificate/private key was supplied';
   SNoClientAuthSource =
-    'client authentication is requested but no client-trust source was named; set %s, or turn ' +
-    'client authentication off';
+    'client authentication is requested but no client-CA was named; set %s, or turn client ' +
+    'authentication off';
+  SSystemTrustIsNotClientAuthSource =
+    'client authentication is requested but the only trust source named is system trust, which ' +
+    'verifies server certificates and never vouches for clients; name a private client-CA (%s), or ' +
+    'turn client authentication off';
   SClientAuthWithoutVerify =
     'client authentication is requested but peer verification is off; turn verification on, or ' +
     'set client authentication to None';
@@ -353,8 +360,10 @@ end;
 class function TTlsConfigComposer.HasClientAuthTrustSource(
   const AOptions: TTlsOptions): Boolean;
 begin
+  // system trust is a server-CERTIFICATE source, never a client-CA (a server's client-CA is always
+  // caller-supplied) - so it is deliberately not counted here
   Result := (AOptions.ClientCertificateVerifier <> nil) or HasTrustAnchor(AOptions) or
-    (AOptions.SystemTrust <> nil) or (AOptions.CustomTrustStore <> nil);
+    (AOptions.CustomTrustStore <> nil);
 end;
 
 class function TTlsConfigComposer.BuildClientConfig(
@@ -430,8 +439,15 @@ begin
     if (not AOptions.VerifyPeer) or AOptions.InsecureSkipVerify then
       raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SClientAuthWithoutVerify);
     if not HasClientAuthTrustSource(AOptions) then
+    begin
+      // system trust verifies server certificates, so naming it as the only client-CA is the one
+      // misconfiguration worth its own message: the fix is a private CA, not "more" system trust
+      if AOptions.SystemTrust <> nil then
+        raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
+          Format(SSystemTrustIsNotClientAuthSource, [AOptions.ClientAuthSourceHint]));
       raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
-        Format(SNoClientAuthSource, [AOptions.TrustSourceHint]));
+        Format(SNoClientAuthSource, [AOptions.ClientAuthSourceHint]));
+    end;
   end
   else if AOptions.ClientCertificateVerifier <> nil then
     // a server-role client-certificate verifier can only ever vet a requested client chain: it is
@@ -446,8 +462,9 @@ begin
   if System.Length(AOptions.AlpnProtocols) > 0 then
     LServer.WithAlpnProtocols(AOptions.AlpnProtocols);
   // request + verify client certificates only under an explicit mode (a named client-CA alone never
-  // triggers it). The async client-certificate verdict park is armed here (and only here) so the
-  // server-role resolver runs server-side for live client-cert revocation.
+  // triggers it; system trust is a server-cert source and is never a client-CA). The async
+  // client-certificate verdict park is armed here (and only here) so the server-role resolver runs
+  // server-side for live client-cert revocation.
   if AOptions.ClientAuth <> TClientAuthMode.None then
   begin
     LServer.WithPeerAuth(AOptions.ClientAuth);
@@ -456,8 +473,6 @@ begin
     for LI := 0 to System.High(AOptions.TrustAnchors) do
       if not AOptions.TrustAnchors[LI].IsEmpty then
         LServer.WithTrustAnchors(Load(AOptions.TrustAnchors[LI]));
-    if AOptions.SystemTrust <> nil then
-      AOptions.SystemTrust.InstallClientAuthTrust(LServer, LPkix);
     if AOptions.CustomTrustStore <> nil then
       LServer.WithTrustStore(AOptions.CustomTrustStore);
     if Assigned(AOptions.ServerVerdictResolver) then
@@ -520,8 +535,7 @@ begin
   LSig.AddFlag('verifyPeer', AOptions.VerifyPeer);
   // the server build reads skip-verify under a client-auth mode (the mode-vs-verify guard)
   LSig.AddFlag('skipVerify', AOptions.InsecureSkipVerify);
-  // by installer identity, not a bare present/absent flag (see the client signature)
-  LSig.AddPointer('systemTrust', AOptions.SystemTrust);
+  // system trust is a client-role source the server build never reads, so it is not in this key
   LSig.AddPointer('customVerifier', AOptions.ClientCertificateVerifier);
   LSig.AddPointer('customStore', AOptions.CustomTrustStore);
   LSig.AddCardinal('clientAuth', Cardinal(Ord(AOptions.ClientAuth)));
@@ -538,13 +552,13 @@ var
   LConflict: Boolean;
 begin
   // a supplied config owns the frozen build entirely; naming an option the same role's own build
-  // would consume alongside it silently drops it, so fail loud. Credential, trust sources, ALPN and
+  // would consume alongside it silently drops it, so fail loud. Credential, trust anchors, ALPN and
   // providers are read by both roles; the augment callback and the server-cert verifier are client-
-  // only reads and the client-cert verifier a server-only read, so flagging one on the other role
-  // would reject an option that role never consumes. The verdict resolvers and the handshake timeout
-  // are runtime hooks and never conflict.
+  // only reads, the client-cert verifier a server-only read, and system trust a client-only read
+  // (a server never consumes it), so flagging one on the other role would reject an option that role
+  // never consumes. The verdict resolvers and the handshake timeout are runtime hooks and never conflict.
   LConflict := (not AOptions.Certificate.IsEmpty) or (not AOptions.PrivateKey.IsEmpty) or
-    HasTrustAnchor(AOptions) or (AOptions.SystemTrust <> nil) or
+    HasTrustAnchor(AOptions) or
     (AOptions.CustomTrustStore <> nil) or (System.Length(AOptions.AlpnProtocols) > 0) or
     (AOptions.Crypto <> nil) or (AOptions.Pkix <> nil);
   // a security toggle always carries a value, so flag only a NON-DEFAULT one the host actively chose
@@ -555,6 +569,7 @@ begin
   LConflict := LConflict or (not AOptions.SessionResumption);
   if AIsClient then
     LConflict := LConflict or (AOptions.ServerCertificateVerifier <> nil) or
+      (AOptions.SystemTrust <> nil) or
       Assigned(AOptions.VerifyCallback) or (not AOptions.VerifyPeer) or
       AOptions.InsecureSkipVerify or (not AOptions.CheckHostName)
   else

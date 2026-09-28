@@ -175,12 +175,12 @@ type
     property UseSystemTrust: Boolean read FUseSystemTrust write FUseSystemTrust;
     /// <summary>Server role: whether to request a client certificate (mutual TLS). None (the
     /// default) never asks; Requested asks and tolerates a client that sends none; Required asks and
-    /// aborts when none is presented. Orthogonal to CertCAFile / UseSystemTrust - those are the trust
-    /// a presented chain must reach, and a mode other than None needs one of them (the build fails
-    /// closed). VerifyCert must stay on alongside it, and UseSystemTrust as that client-CA means the
-    /// OS/public roots vouch for clients (name a private CertCAFile for real mTLS). Synapse's OpenSSL
-    /// plugin makes VerifyCert alone request a certificate on a server; here that is this explicit
-    /// knob. Cast Sock.SSL to TSSLTlsLib to set it.</summary>
+    /// aborts when none is presented. Orthogonal to the client-CA the presented chain must reach - a
+    /// CertCAFile bundle - and a mode other than None needs it (the build fails closed). VerifyCert
+    /// must stay on alongside it. UseSystemTrust is a server-certificate source (a client verifying a
+    /// server) and is never a client-CA: a mode whose only source is it fails the build. Synapse's
+    /// OpenSSL plugin makes VerifyCert alone request a certificate on a server; here that is this
+    /// explicit knob. Cast Sock.SSL to TSSLTlsLib to set it.</summary>
     property ClientAuth: TClientAuthMode read FClientAuth write FClientAuth;
     /// <summary>A fully-built client config that REPLACES the property-driven build: when set, the
     /// cert/trust properties (CertCAFile, CertificateFile, UseSystemTrust) are not allowed alongside
@@ -219,6 +219,7 @@ resourcestring
   SPeerVerifyRejected = 'the OnVerifyCert handler rejected the peer certificate';
   SSynapseSendNoProgress = 'Synapse socket send returned no progress';
   SSynapseTrustSourceHint = 'a CertCAFile bundle and/or UseSystemTrust';
+  SSynapseClientAuthSourceHint = 'a CertCAFile bundle';
 
 var
   // process-wide neutral hooks the per-socket plugin threads into each client handshake
@@ -355,6 +356,7 @@ begin
   Result.ClientConfig := FClientConfig;
   Result.ServerConfig := FServerConfig;
   Result.TrustSourceHint := SSynapseTrustSourceHint;
+  Result.ClientAuthSourceHint := SSynapseClientAuthSourceHint;
 end;
 
 function TSSLTlsLib.BuildClientEngine: ITlsEngine;

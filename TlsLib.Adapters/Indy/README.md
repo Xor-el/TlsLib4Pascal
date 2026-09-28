@@ -40,7 +40,7 @@ when the protocol says "go secure", set `IO.PassThrough := False` and the handsh
 |-----------------------------------|-----------------------------------------------------------|
 | `RootCertFile`                    | `WithTrustAnchors` (client trust; on a server the client-auth CA, consulted only when `ClientAuth <> None`) |
 | `CertFile` + `KeyFile` + `KeyPassword` | `WithCredential` (server cert/key, or client mTLS)   |
-| `ClientAuth` (server)             | `WithPeerAuth(None / Requested / Required)`; the default `None` never requests a client certificate. Any other mode needs `RootCertFile` / `UseSystemTrust` / `CustomTrustStore` (the client-CA) and `VerifyPeer` on, else the build fails closed |
+| `ClientAuth` (server)             | `WithPeerAuth(None / Requested / Required)`; the default `None` never requests a client certificate. Any other mode needs a private client-CA (`RootCertFile` or a `CustomTrustStore`/custom verifier) and `VerifyPeer` on, else the build fails closed. `UseSystemTrust` is a server-cert source, never a client-CA |
 | `VerifyPeer = False` / `InsecureSkipVerify` | **`dangerous` `WithDangerousInsecureSkipVerify`** |
 | `VerifyCallback`                  | neutral augment-only hook (`WithCertificateVerifyCallback`) |
 | `VerdictResolver` + `VerdictDeadlineMs` | client-role out-of-band verdict (server's chain), e.g. live OCSP/CRL |
@@ -61,9 +61,10 @@ PEM/DER cert+key pairs).
 **Mutual TLS (client certificates)**: a server requests client certificates only when you set
 `SSLOptions.ClientAuth` — `Requested` (ask, tolerate a client that sends none) or `Required` (ask,
 abort when none is presented); the default `None` never asks. Setting a `RootCertFile` alone no longer
-requests client certificates — it is only the CA a presented client chain is verified against. Using
-`UseSystemTrust` as that CA means the OS/public roots vouch for clients, which is rarely what mTLS
-wants; name a private `RootCertFile` instead.
+requests client certificates — it is only the CA a presented client chain is verified against.
+`UseSystemTrust` is a server-certificate source (a client verifying a server) and is **not** a valid
+client-CA: a mode whose only trust source is it fails the build. Name a private `RootCertFile` (or a
+`CustomTrustStore`) for the client-CA instead.
 
 ## Trust is ours (`dangerous` mapping)
 

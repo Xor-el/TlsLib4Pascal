@@ -99,7 +99,8 @@ type
     procedure TestServerModeWithVerifyPeerOffRaises;
     procedure TestServerModeWithSkipVerifyRaises;
     procedure TestServerClientVerifierWithoutModeRaises;
-    procedure TestServerSystemTrustInstallerCalledForServerRole;
+    procedure TestServerSystemTrustInertBesidePrivateClientCa;
+    procedure TestServerSystemTrustOnlySourceFailsLoud;
     procedure TestServerSystemTrustNotInstalledWithoutMode;
     procedure TestServerResumptionMintsDefaultStek;
     // signatures
@@ -139,13 +140,9 @@ type
     FStore: ITrustAnchorStore;
   public
     ClientRoleCalled: Boolean;
-    ServerRoleCalled: Boolean;
     ClientPkix: IPkixProvider;
-    ServerPkix: IPkixProvider;
     constructor Create(ARaise: Boolean; const AStore: ITrustAnchorStore);
     procedure InstallClientTrust(const ABuilder: ITlsClientConfigBuilder;
-      const APkix: IPkixProvider);
-    procedure InstallClientAuthTrust(const ABuilder: ITlsServerConfigBuilder;
       const APkix: IPkixProvider);
   end;
 
@@ -203,16 +200,6 @@ begin
     raise EInvalidOperationTlsLibException.Create('installer refused');
   ClientRoleCalled := True;
   ClientPkix := APkix;
-  ABuilder.WithTrustStore(FStore);
-end;
-
-procedure TFakeSystemTrustInstaller.InstallClientAuthTrust(
-  const ABuilder: ITlsServerConfigBuilder; const APkix: IPkixProvider);
-begin
-  if FRaise then
-    raise EInvalidOperationTlsLibException.Create('installer refused');
-  ServerRoleCalled := True;
-  ServerPkix := APkix;
   ABuilder.WithTrustStore(FStore);
 end;
 
@@ -360,6 +347,7 @@ begin
   Result.Certificate := TTlsBlobSource.FromBytes(ServerCert);
   Result.PrivateKey := TTlsBlobSource.FromBytes(ServerKey);
   Result.TrustSourceHint := 'a client-CA bundle';
+  Result.ClientAuthSourceHint := 'a client-CA bundle';
 end;
 
 function TTestTlsConnection.RaisesStreamError(const AOpts: TTlsOptions;
@@ -539,7 +527,6 @@ begin
   LOpts.SystemTrust := LInst;
   TTlsConfigComposer.BuildClientConfig(LOpts);
   CheckTrue(LFake.ClientRoleCalled, 'the installer client-role hook ran');
-  CheckFalse(LFake.ServerRoleCalled, 'the server-role hook did not run on a client build');
   CheckTrue(LFake.ClientPkix = Pkix, 'the effective pkix was passed to the installer');
 end;
 
@@ -779,21 +766,45 @@ begin
     'the message names the missing mode');
 end;
 
-procedure TTestTlsConnection.TestServerSystemTrustInstallerCalledForServerRole;
+procedure TTestTlsConnection.TestServerSystemTrustInertBesidePrivateClientCa;
 var
   LOpts: TTlsOptions;
   LFake: TFakeSystemTrustInstaller;
   LInst: ISystemTrustInstaller;
+  LConfig: ITlsServerConfig;
 begin
-  LFake := TFakeSystemTrustInstaller.Create(False, EcP256RootStore);
+  // system trust beside a private client-CA under a mode builds, and the client-auth trust is the
+  // private CA ONLY - the OS/public store (a DISTINCT cert here) is never unioned into it
+  LFake := TFakeSystemTrustInstaller.Create(False,
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(ServerCert)) as ITrustAnchorStore);
   LInst := LFake;
   LOpts := ServerOptsWithCredential;
   LOpts.SystemTrust := LInst;
+  LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
+    TTlsBlobSource.FromBytes(RootAnchor));
   LOpts.ClientAuth := TClientAuthMode.Required;
-  TTlsConfigComposer.BuildServerConfig(LOpts);
-  CheckTrue(LFake.ServerRoleCalled, 'the installer server-role hook ran');
-  CheckFalse(LFake.ClientRoleCalled, 'the client-role hook did not run on a server build');
-  CheckTrue(LFake.ServerPkix = Pkix, 'the effective pkix was passed to the installer');
+  LConfig := TTlsConfigComposer.BuildServerConfig(LOpts);
+  CheckFalse(LFake.ClientRoleCalled, 'a server build never touches the system-trust installer');
+  CheckEquals(1, System.Length(LConfig.TrustStore.RootCertificates),
+    'only the private client-CA is trusted; the OS store is not unioned in');
+  CheckEqualBytes('the sole client-CA is the private root', RootAnchor,
+    LConfig.TrustStore.RootCertificates[0]);
+end;
+
+procedure TTestTlsConnection.TestServerSystemTrustOnlySourceFailsLoud;
+var
+  LOpts: TTlsOptions;
+  LMsg: string;
+begin
+  // a mode whose only named source is system trust fails at build with a dedicated message: the fix
+  // is a private client-CA, not "more" system trust
+  LOpts := ServerOptsWithCredential;
+  LOpts.SystemTrust := TFakeSystemTrustInstaller.Create(False, EcP256RootStore);
+  LOpts.ClientAuth := TClientAuthMode.Required;
+  CheckTrue(RaisesStreamError(LOpts, False, LMsg),
+    'system trust as the only client-CA under a mode fails closed');
+  CheckTrue(Pos('system trust', LMsg) > 0, 'the message names system trust as the culprit');
+  CheckTrue(Pos('a client-CA bundle', LMsg) > 0, 'the message splices the client-CA hint');
 end;
 
 procedure TTestTlsConnection.TestServerSystemTrustNotInstalledWithoutMode;
@@ -803,13 +814,13 @@ var
   LInst: ISystemTrustInstaller;
   LConfig: ITlsServerConfig;
 begin
-  // the installer is a client-CA source: with no mode it is inert, the server-role hook is not called
+  // with no mode, system trust on a server is inert and requests no client auth
   LFake := TFakeSystemTrustInstaller.Create(False, EcP256RootStore);
   LInst := LFake;
   LOpts := ServerOptsWithCredential;
   LOpts.SystemTrust := LInst;
   LConfig := TTlsConfigComposer.BuildServerConfig(LOpts);
-  CheckFalse(LFake.ServerRoleCalled, 'no mode means the installer server-role hook did not run');
+  CheckFalse(LFake.ClientRoleCalled, 'a server build never touches the system-trust installer');
   CheckEquals(Ord(TClientAuthMode.None), Ord(LConfig.ClientAuth),
     'no mode means no client authentication');
 end;
@@ -883,6 +894,21 @@ begin
   LMut.ClientAuth := TClientAuthMode.Required;
   CheckFalse(TTlsConfigComposer.ServerSignature(LMut) = LBaseSig,
     'the client-auth mode changes the server key');
+
+  // system trust is a client-only read: it changes the CLIENT key but never the server key (the
+  // server build does not read it, so it must not be in the server memo signature)
+  LMut := LBase;
+  LMut.SystemTrust := TFakeSystemTrustInstaller.Create(False, EcP256RootStore)
+    as ISystemTrustInstaller;
+  CheckTrue(TTlsConfigComposer.ServerSignature(LMut) = LBaseSig,
+    'system trust does not change the server key');
+  LBase := ClientOptsWithStore;
+  LBaseSig := TTlsConfigComposer.ClientSignature(LBase);
+  LMut := LBase;
+  LMut.SystemTrust := TFakeSystemTrustInstaller.Create(False, EcP256RootStore)
+    as ISystemTrustInstaller;
+  CheckFalse(TTlsConfigComposer.ClientSignature(LMut) = LBaseSig,
+    'system trust changes the client key');
 end;
 
 procedure TTestTlsConnection.TestSignatureExcludesResolverAndTimeout;
@@ -1119,11 +1145,13 @@ var
   LOpts: TTlsOptions;
   LRaised: Boolean;
 begin
-  // the augment callback and the server-cert verifier are client-only reads, so they do not conflict
-  // with a supplied server config; a shared option (a certificate) still does
+  // the augment callback, the server-cert verifier and system trust are client-only reads, so they do
+  // not conflict with a supplied server config; a shared option (a certificate) still does
   LOpts := TTlsOptions.Default;
   LOpts.VerifyCallback := StubVerifyCallback;
   LOpts.ServerCertificateVerifier := TFakeServerVerifier.Create as IServerCertificateVerifier;
+  LOpts.SystemTrust := TFakeSystemTrustInstaller.Create(False, EcP256RootStore)
+    as ISystemTrustInstaller;
   LOpts.ServerConfig := TTlsConfigComposer.BuildServerConfig(ServerOptsWithCredential);
   CheckNotNull(TTlsConfigComposer.ResolveServerConfig(LOpts, NewTlsServerConfigMemo,
     'ServerConfig'), 'client-only options do not conflict with a server config-in');

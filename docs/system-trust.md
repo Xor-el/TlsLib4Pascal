@@ -101,19 +101,22 @@ begin
 end;
 ```
 
-There are `ITlsClientConfigBuilder` and `ITlsServerConfigBuilder` overloads (the server one supplies
-the OS anchors used to verify **client** certificates in mutual TLS). An optional third argument,
-`TSystemTrustMode` (`Default` / `Anchors` / `Delegate`), forces harvest-vs-delegate; `Default`
-picks the best available for the platform and is what you want.
+`WithSystemTrust` takes an **`ITlsClientConfigBuilder` only** — system trust is a *server-certificate*
+trust source (a client verifying a server). An optional argument, `TSystemTrustMode`
+(`Default` / `Anchors` / `Delegate`), forces harvest-vs-delegate; `Default` picks the best available
+for the platform and is what you want.
 
-> **`WithSystemTrust` on a server harvests OS roots (Anchors mode) only.** Its `Delegate` mode means
-> "verify the peer against the OS's *own* trusted roots", which is the public web PKI — never what you
-> want for authenticating *clients* (any publicly-issued certificate would be accepted). So the server
-> overload supports **Anchors** mode and raises on `Delegate`. To validate client certificates with the
-> **OS chain engine** against *your* private CA instead, see
-> [OS-engine client-certificate validation](#os-engine-client-certificate-validation-mtls) below — that
-> path treats your configured client-CA anchors as an *exclusive* trust root, so the OS/public roots are
-> never consulted.
+> **An mTLS server's client-CA is never the OS store.** The OS roots are the public web PKI (harvested
+> for *server* authentication), so rooting *client*-certificate trust there would accept any
+> publicly-issued certificate as a valid client. There is no server form of `WithSystemTrust`. Supply
+> the server's client-CA explicitly with `WithTrustAnchors` / `WithTrustStore` (a mode whose only trust
+> source is system trust fails the build). To validate client certificates with the **OS chain engine**
+> against *your* private CA, use
+> [OS-engine client-certificate validation](#os-engine-client-certificate-validation-mtls) below — it
+> treats your configured client-CA anchors as an *exclusive* trust root, so the OS/public roots are
+> never consulted. If you deliberately want the machine store as the client-CA, write it out —
+> `.WithTrustStore(TOSSystemTrust.AnchorStore(Pkix))` — and know it authenticates clients against the
+> public PKI.
 
 Because system anchors are just another anchor source, they **union** with anything else you add —
 so "trust the public web PKI **and** my private CA" is simply:
@@ -157,8 +160,8 @@ notes below.
 ### OS-engine client-certificate validation (mTLS)
 
 An mTLS **server** authenticates the *client's* certificate, and it must do so against **your**
-client-CA — never the public web PKI. So this is deliberately *not* `WithSystemTrust`'s job (its
-`Delegate` would mean the OS roots). Instead, install the OS client delegate explicitly; it builds an
+client-CA — never the public web PKI. So this is deliberately *not* `WithSystemTrust`'s job
+(it has no server form at all). Instead, install the OS client delegate explicitly; it builds an
 **exclusive-root** chain engine over the client-CA anchors you configure, so nothing else can root a
 client path:
 
@@ -265,7 +268,8 @@ behavioural *differences* to weigh when you pick Delegate over the portable pipe
 
 The builder distinguishes two kinds of trust contribution:
 
-- **Anchor sources** — `WithTrustAnchors`, `WithTrustStore`, and `TSystemTrust.WithSystemTrust`.
+- **Anchor sources** — `WithTrustAnchors`, `WithTrustStore`, and `TSystemTrust.WithSystemTrust`
+  (client builder; system trust is server-cert trust, never a server's client-CA).
   These are additive: supply several and they **union** into one root set.
 - **A whole verifier** — `WithDangerousCertificateVerifier` (below). This **replaces** the built-in pipeline
   and is **exclusive**: combining it with any anchor source, or setting two verifiers, is a typed
@@ -343,9 +347,10 @@ Two caveats:
 - **`CACertificatesRaw` is not supported.** It carries live OpenSSL `PX509` handles; TlsLib4Pascal is
   OpenSSL-free, so a context that sets it is rejected with a clear error — pass a PEM/DER file via
   `CACertificatesFile`, or use `CASystemStores`.
-- **On a server doing mTLS**, `CASystemStores` validates *client* certificates against the public
-  web-PKI roots — a very broad surface that is rarely what you want. Prefer a private
-  `CACertificatesFile` for client-certificate authentication.
+- **On a server doing mTLS**, `CASystemStores` is **ignored** — system trust verifies server
+  certificates and is never a server's client-CA. The client-CA is `CACertificatesFile` (or a
+  builder-driven config via `SetTlsLibMormotServerConfig`); a server with client auth on and only
+  `CASystemStores` fails the build.
 
 ### Synapse
 

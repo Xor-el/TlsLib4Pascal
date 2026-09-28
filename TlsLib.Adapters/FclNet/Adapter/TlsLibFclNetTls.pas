@@ -186,10 +186,10 @@ type
     property UseSystemTrust: Boolean read FUseSystemTrust write FUseSystemTrust;
     /// <summary>Server role: whether to request a client certificate (mutual TLS). None (the
     /// default) never asks; Requested asks and tolerates a client that sends none; Required asks and
-    /// aborts when none is presented. Orthogonal to CertCA / TrustedCertificate / UseSystemTrust /
-    /// CustomTrustStore - those are the trust a presented chain must reach, and a mode other than
-    /// None needs one of them (the build fails closed). UseSystemTrust as that client-CA means the
-    /// OS/public roots vouch for clients - name a private client-CA for real mTLS. Per handler,
+    /// aborts when none is presented. Orthogonal to the client-CA the presented chain must reach -
+    /// CertCA / TrustedCertificate or a CustomTrustStore - and a mode other than None needs one (the
+    /// build fails closed). UseSystemTrust is a server-certificate source (a client verifying a
+    /// server) and is never a client-CA: a mode whose only source is it fails the build. Per handler,
     /// never a process-wide default: set it in the OnCreateClientSocketHandler hook that builds each
     /// server-side handler. Ignored on a client connection.</summary>
     property ClientAuth: TClientAuthMode read FClientAuth write FClientAuth;
@@ -310,6 +310,8 @@ resourcestring
     'certificate identity against (RFC 6125); connect through a TInetSocket that carries the ' +
     'host, or set CheckHostName := False to verify the chain only';
   SFclNetTrustSourceHint = 'CertificateData.CertCA / TrustedCertificate, UseSystemTrust, or a ' +
+    'CustomTrustStore/CustomVerifier';
+  SFclNetClientAuthSourceHint = 'CertificateData.CertCA / TrustedCertificate, or a ' +
     'CustomTrustStore/CustomVerifier';
 
 var
@@ -469,6 +471,7 @@ begin
   Result.ClientConfig := FClientConfig;
   Result.ServerConfig := FServerConfig;
   Result.TrustSourceHint := SFclNetTrustSourceHint;
+  Result.ClientAuthSourceHint := SFclNetClientAuthSourceHint;
 end;
 
 function TTlsLibSocketHandler.BuildClientEngine(const AHost: string): ITlsEngine;
