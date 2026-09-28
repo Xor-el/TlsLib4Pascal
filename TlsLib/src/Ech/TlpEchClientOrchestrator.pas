@@ -50,7 +50,7 @@ type
   var
     FCrypto: ICryptoProvider;
     FPolicy: IEchClientPolicy;
-    FEch: IEchClientHandshake;
+    FEch: TEchClientHandshake;
     FStatus: TEchStatus;
     FActive: Boolean;
     FGrease: Boolean;
@@ -70,15 +70,17 @@ type
     procedure MintGreasePskIdentities(const APskOffers: TArray<IPreSharedKey>);
     function BuildGreasePskData(const APskOffers: TArray<IPreSharedKey>): TBytes;
     function LocateHrrEchConfirmation(const ARaw: TBytes; out AOffset: Int32): Boolean;
-    function FindEchInEncryptedExtensions(const AEeBody: TBytes;
-      out AData: TBytes): Boolean;
     function HashUnder(AHash: THashAlgorithm; const AData: TBytes): TBytes;
+    // drop the client ECH secrets once the ServerHello decides: the live sealer (its AEAD key) and
+    // the sent inner (real SNI + binders) are not read again after the verdict
+    procedure ForgetHandshakeSecrets;
     class function ServerNameData(const AHost: string): TBytes; static;
   public
     /// <summary>Resolves the ECH posture once (RFC 9849 sec. 6.2 / 6.1): a usable config makes
     /// the connection ECH-active with a fresh inner random and sealer; else GREASE if enabled;
     /// else fail closed. A nil policy leaves ECH not offered.</summary>
     constructor Create(const ACrypto: ICryptoProvider; const APolicy: IEchClientPolicy);
+    destructor Destroy; override;
     /// <summary>Creates the inner transcript before the inner ClientHello is built (a single
     /// offered PSK pre-activates it so its binder MACs the inner history).</summary>
     procedure PrepareInnerTranscript(APreActivated: Boolean; AHash: THashAlgorithm);
@@ -102,10 +104,11 @@ type
     /// <summary>Under GREASE, validate the HelloRetryRequest ech syntactically without acting on
     /// it: a present-but-not-8-byte ech is a decode_error (RFC 9849 sec. 6.2.1).</summary>
     procedure NoteHelloRetryRequestGrease(const ARaw: TBytes);
-    /// <summary>Applies the EncryptedExtensions ech rule: unsolicited on accept
-    /// (unsupported_extension), retry_configs captured on reject (unless this was a retry),
-    /// validated-and-ignored under GREASE.</summary>
-    procedure NoteEncryptedExtensions(const AEeBody: TBytes);
+    /// <summary>Applies the EncryptedExtensions ech rule from the machine-parsed extension
+    /// (AEchPresent, and AEchData when present): unsolicited on accept (unsupported_extension),
+    /// retry_configs captured on reject (unless this was a retry), validated-and-ignored under
+    /// GREASE.</summary>
+    procedure NoteEncryptedExtensions(AEchPresent: Boolean; const AEchData: TBytes);
     /// <summary>Prunes the GREASE-PSK decoys to the surviving offer indices, keeping them
     /// index-aligned with the machine's pruned pre_shared_key offers across a HelloRetryRequest.</summary>
     procedure KeepPskDecoys(const AKeptIndices: TArray<Int32>);
@@ -174,6 +177,22 @@ begin
     raise EArgumentTlsLibException.CreateRes(@SEchNoUsableConfig);
 end;
 
+destructor TEchClientOrchestrator.Destroy;
+begin
+  // covers the abort-before-ServerHello paths; the normal flow already dropped these at the verdict
+  ForgetHandshakeSecrets;
+  inherited Destroy;
+end;
+
+procedure TEchClientOrchestrator.ForgetHandshakeSecrets;
+begin
+  FreeAndNil(FEch);
+  TSecureMemory.WipeBytes(FSentInnerRaw);
+  FSentOuterEchExt := nil;
+  FGreasePskIdentities := nil;
+  FGreasePskAges := nil;
+end;
+
 function TEchClientOrchestrator.Active: Boolean;
 begin
   Result := FActive;
@@ -206,7 +225,7 @@ end;
 
 function TEchClientOrchestrator.InnerRandom: TBytes;
 begin
-  // a copy: the caller keeps this past the orchestrator's in-place wipe of its inner buffers
+  // a copy of the retained inner random (the machine adopts it on accept); not wiped at the verdict
   Result := System.Copy(FInnerRandom);
 end;
 
@@ -217,7 +236,7 @@ end;
 
 function TEchClientOrchestrator.SentInnerRaw: TBytes;
 begin
-  // a copy: the caller records this past the orchestrator's in-place wipe of the sent inner
+  // a copy: the sent inner is wiped in place once the ServerHello verdict is decided
   Result := System.Copy(FSentInnerRaw);
 end;
 
@@ -445,8 +464,13 @@ begin
   LMsg.Extensions := LOuterEntries.Encode;
   LOuterBody := THandshakeMessages.EncodeClientHello(LMsg);
 
-  // seal, then patch the real payload into the outer ech extension
-  LPayload := FEch.Seal(LOuterBody, LEncodedInner);
+  // seal, then patch the real payload into the outer ech extension; the plaintext inner carries
+  // the real SNI, so wipe it once sealed
+  try
+    LPayload := FEch.Seal(LOuterBody, LEncodedInner);
+  finally
+    TSecureMemory.WipeBytes(LEncodedInner);
+  end;
   LOuterEch.Payload := LPayload;
   LOuterEntries.SetData(LEchIdx, TEchExtension.EncodeOuter(LOuterEch));
   // keep the outer ech extension so a rejecting HelloRetryRequest can echo it verbatim
@@ -495,50 +519,37 @@ begin
     FStatus := TEchStatus.Accepted
   else
     FStatus := TEchStatus.Rejected;
+  // the verdict is set and the inner transcript adopted by the machine; the sealer and the sent
+  // inner (real SNI + binders) are not read again, so drop them now rather than at teardown
+  ForgetHandshakeSecrets;
 end;
 
-function TEchClientOrchestrator.FindEchInEncryptedExtensions(
-  const AEeBody: TBytes; out AData: TBytes): Boolean;
-var
-  LVector: TExtensionVector;
-  LEntry: TExtensionEntry;
-begin
-  AData := nil;
-  LVector := TExtensionVector.Parse(AEeBody);
-  Result := LVector.TryFind(TExtensionTypes.EncryptedClientHello, LEntry);
-  if Result then
-    AData := LEntry.Data;
-end;
-
-procedure TEchClientOrchestrator.NoteEncryptedExtensions(const AEeBody: TBytes);
-var
-  LEchData: TBytes;
-  LHasEch: Boolean;
+procedure TEchClientOrchestrator.NoteEncryptedExtensions(AEchPresent: Boolean;
+  const AEchData: TBytes);
 begin
   // an encrypted_client_hello in EncryptedExtensions carries retry_configs, valid only in
   // response to the outer ClientHello (a reject). On accept the server processed the inner, so
   // it is an unsolicited extension - unsupported_extension (RFC 9849 sec. 5). On reject, capture
   // the retry_configs unless this handshake was itself a retry (the one-retry cap, sec. 6.1.6).
-  LHasEch := FindEchInEncryptedExtensions(AEeBody, LEchData);
   if FStatus = TEchStatus.Accepted then
   begin
-    if LHasEch then
+    if AEchPresent then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.UnsupportedExtension, @SEchAcceptRetryConfigs);
   end
-  else if LHasEch and (FStatus = TEchStatus.Rejected) then
+  else if AEchPresent and (FStatus = TEchStatus.Rejected) then
   begin
     // the retry_configs MUST be a syntactically valid ECHConfigList (RFC 9849 sec. 6.1.6); a
     // malformed one is a decode_error. They are surfaced only on a first attempt - a retry
     // ignores any new configs (the one-retry cap, sec. 6.1.6) but still validates them.
-    TEchConfigList.Parse(LEchData);
+    TEchConfigList.Parse(AEchData);
     if (FPolicy <> nil) and (not FPolicy.IsRetryAttempt) then
-      FRetryConfigs := LEchData;
+      FRetryConfigs := AEchData;
   end
-  else if LHasEch and (FStatus = TEchStatus.Greased) then
+  else if AEchPresent and (FStatus = TEchStatus.Greased) then
     // GREASE ignores the retry_configs value (RFC 9849 sec. 6.2), but the extension must still
     // be a well-formed ECHConfigList; a malformed one is a decode_error (Parse raises it)
-    TEchConfigList.Parse(LEchData);
+    TEchConfigList.Parse(AEchData);
 end;
 
 function TEchClientOrchestrator.LocateHrrEchConfirmation(const ARaw: TBytes;

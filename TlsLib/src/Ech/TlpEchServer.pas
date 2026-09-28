@@ -68,13 +68,14 @@ type
       const AKeyStore: IEchServerKeyStore; ATrialDecryptAll: Boolean);
     destructor Destroy; override;
     /// <summary>
-    /// Processes the framed ClientHelloOuter AOuterFramed. Returns NotOffered (no ech
-    /// extension), Accepted (an ech opened; the reconstructed inner is available), or
-    /// Rejected (an ech present but no key opened it). Raises illegal_parameter on a
-    /// wire inner-type ech, non-zero padding, a missing inner ech marker, or an inner
-    /// that offers TLS 1.2 or below.
+    /// Processes the framed ClientHelloOuter AOuterFramed, reusing the outer the caller already
+    /// decoded (AOuter) and vector-parsed (AOuterEntries). Returns NotOffered (no ech extension),
+    /// Accepted (an ech opened; the reconstructed inner is available), or Rejected (an ech present
+    /// but no key opened it). Raises illegal_parameter on a wire inner-type ech, non-zero padding,
+    /// a missing inner ech marker, or an inner that offers TLS 1.2 or below.
     /// </summary>
-    function ProcessOuter(const AOuterFramed: TBytes): TEchStatus;
+    function ProcessOuter(const AOuterFramed: TBytes; const AOuter: TTlsClientHello;
+      const AOuterEntries: TExtensionVector): TEchStatus;
     /// <summary>
     /// Processes the second ClientHelloOuter after a HelloRetryRequest, reusing the CH1 HPKE
     /// context at seq=1 (RFC 9849 sec. 6.1.5): the retry ech MUST keep the CH1 config_id and
@@ -82,7 +83,6 @@ type
     /// decrypt_error. On success the reconstructed inner CH2 is available in InnerFramed.
     /// </summary>
     function ProcessRetryOuter(const AOuterFramed: TBytes): TEchStatus;
-    property Status: TEchStatus read FStatus;
     function InnerFramed: TBytes;
     function InnerRandom: TBytes;
   end;
@@ -294,12 +294,10 @@ begin
     THandshakeMessages.EncodeClientHello(LInner));
 end;
 
-function TEchServerHandshake.ProcessOuter(
-  const AOuterFramed: TBytes): TEchStatus;
+function TEchServerHandshake.ProcessOuter(const AOuterFramed: TBytes;
+  const AOuter: TTlsClientHello; const AOuterEntries: TExtensionVector): TEchStatus;
 var
   LOuterBody, LAad, LEncoded: TBytes;
-  LOuter: TTlsClientHello;
-  LEntries: TExtensionVector;
   LI, LEchIdx: Int32;
   LType: TEchClientHelloType;
   LOuterEch: TEchOuterClientHello;
@@ -309,31 +307,22 @@ var
   LSuite: IHpkeSuite;
   LOpened: Boolean;
 begin
-  LOuterBody := System.Copy(AOuterFramed, 4, System.Length(AOuterFramed) - 4);
-  LOuter := THandshakeMessages.DecodeClientHello(LOuterBody);
-  // an absent extensions field is a legacy (<=TLS 1.2) ClientHello shape: no ech is offered,
-  // and version negotiation later rejects it - do not decode_error on the missing vector here
-  if System.Length(LOuter.Extensions) = 0 then
-  begin
-    FStatus := TEchStatus.NotOffered;
-    Exit(FStatus);
-  end;
-  // Parse rejects a repeated extension type (illegal_parameter), so a duplicate ech is caught
-  // here, before any trial decryption
-  LEntries := TExtensionVector.Parse(LOuter.Extensions);
-
-  LEchIdx := LEntries.IndexOf(TExtensionTypes.EncryptedClientHello);
+  // the machine already decoded and vector-parsed the outer (its Parse rejects a repeated ech,
+  // illegal_parameter), so reuse that here; an empty vector (a legacy <=TLS 1.2 hello) yields -1
+  LEchIdx := AOuterEntries.IndexOf(TExtensionTypes.EncryptedClientHello);
   if LEchIdx < 0 then
   begin
     FStatus := TEchStatus.NotOffered;
     Exit(FStatus);
   end;
 
-  TEchExtension.Decode(LEntries.Entries[LEchIdx].Data, LType, LOuterEch);
+  TEchExtension.Decode(AOuterEntries.Entries[LEchIdx].Data, LType, LOuterEch);
   if LType = TEchClientHelloType.Inner then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SWireInnerEch);
 
+  // the AAD is the byte-exact outer body with the ech payload zeroed (RFC 9849 sec. 5.2)
+  LOuterBody := System.Copy(AOuterFramed, 4, System.Length(AOuterFramed) - 4);
   LAad := OuterAad(LOuterBody);
   LKeys := FKeyStore.Entries;
   for LI := 0 to System.High(LKeys) do
@@ -370,7 +359,7 @@ begin
     if LOpened then
     begin
       try
-        ReconstructInner(LEncoded, LOuter, LEntries);
+        ReconstructInner(LEncoded, AOuter, AOuterEntries);
         FOpener := LOpener;
         FSuite := LSuite;
         FConfig := LEntry.Config;
@@ -446,12 +435,13 @@ end;
 
 function TEchServerHandshake.InnerFramed: TBytes;
 begin
-  Result := FInnerFramed;
+  // a copy: this handshake wipes its own inner buffer on release, so the caller keeps its own
+  Result := System.Copy(FInnerFramed);
 end;
 
 function TEchServerHandshake.InnerRandom: TBytes;
 begin
-  Result := FInnerRandom;
+  Result := System.Copy(FInnerRandom);
 end;
 
 end.

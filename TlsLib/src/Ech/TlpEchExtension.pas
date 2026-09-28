@@ -84,12 +84,6 @@ type
     /// malformed or empty list.</summary>
     class function DecodeOuterExtensions(const AData: TBytes): TArray<UInt16>; static;
 
-    /// <summary>
-    /// The EncryptedExtensions encrypted_client_hello body on ECH reject: the
-    /// retry_configs, which is exactly an ECHConfigList (RFC 9849 sec. 5).
-    /// </summary>
-    class function EncodeRetryConfigs(const AConfigListBytes: TBytes): TBytes; static;
-
     /// <summary>The HelloRetryRequest encrypted_client_hello body: an 8-byte
     /// confirmation (RFC 9849 sec. 5). Raises if AConfirmation is not 8 bytes.</summary>
     class function EncodeHrrConfirmation(const AConfirmation: TBytes): TBytes; static;
@@ -214,26 +208,19 @@ var
   LReader, LList: TWireReader;
   LCount: Int32;
 begin
-  Result := nil;
   LReader := TWireReader.Create(AData);
   LList := LReader.OpenVector(1);
   LReader.ExpectEnd;
+  // the vector is a run of UInt16 codepoints; size once from its byte length, then fill
+  SetLength(Result, LList.Remaining div 2);
   LCount := 0;
   while not LList.EndReached do
   begin
-    SetLength(Result, LCount + 1);
     Result[LCount] := LList.ReadUInt16;
     Inc(LCount);
   end;
   if LCount = 0 then
     raise EDecodeErrorTlsLibException.CreateRes(@SEmptyOuterExtensions);
-end;
-
-class function TEchExtension.EncodeRetryConfigs(
-  const AConfigListBytes: TBytes): TBytes;
-begin
-  // the EncryptedExtensions ech body IS an ECHConfigList (RFC 9849 sec. 5)
-  Result := System.Copy(AConfigListBytes);
 end;
 
 class function TEchExtension.EncodeHrrConfirmation(

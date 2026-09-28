@@ -390,10 +390,11 @@ begin
 
   // a client offering Encrypted Client Hello is TLS 1.3 only (RFC 9849 sec. 6.1): the outer
   // is 1.3-only on the wire, so it must never accept a server that selects 1.2 - a legacy or
-  // downgrading peer is refused, not silently completed to the public_name. GREASE alone (no
-  // real config) is decorative and does not constrain the version.
+  // downgrading peer is refused, not silently completed to the public_name. A usable config
+  // forces the 1.3-only machine; GREASE alone (no usable config) is decorative and does not
+  // constrain the version.
   if (AConfig.EncryptedClientHello <> nil) and
-    (System.Length(AConfig.EncryptedClientHello.Configs) > 0) then
+    AConfig.EncryptedClientHello.Usable then
     LMachine := TTls13ClientStateMachine.Create(L13)
   else if LOffers13 and LOffers12 then
     LMachine := TClientVersionDispatchMachine.Create(L13, L12)

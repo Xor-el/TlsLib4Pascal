@@ -404,8 +404,8 @@ begin
   LConfig := NewClientBuilder.Tls13.WithEchGrease(True).Build;
   CheckTrue(LConfig.EncryptedClientHello <> nil, 'GREASE-only ECH is configured');
   CheckTrue(LConfig.EncryptedClientHello.GreaseEnabled, 'the policy is GREASE-enabled');
-  CheckEquals(0, System.Length(LConfig.EncryptedClientHello.Configs),
-    'GREASE-only has no config list');
+  CheckFalse(LConfig.EncryptedClientHello.Usable,
+    'GREASE-only resolved no usable config');
 end;
 
 procedure TTestConfigBuilder.TestEchGreaseFalseWithoutConfigIsNoOp;

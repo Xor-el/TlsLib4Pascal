@@ -137,10 +137,6 @@ type
 
 implementation
 
-resourcestring
-  SEchRequiresTls13 = 'Encrypted Client Hello requires TLS 1.3; it cannot be offered by a ' +
-    'version-dispatching client that also offers TLS 1.2';
-
 { TVersionDispatchMachineBase }
 
 function TVersionDispatchMachineBase.Initiates: Boolean;
@@ -393,11 +389,8 @@ var
   L13: TClientHandshakeParams;
 begin
   inherited Create;
-  // a config carrying ECH keys cannot go through the dual-version client: the dispatcher offers
-  // TLS 1.2 in the outer ClientHello, and ECH is defined only for TLS 1.3 (RFC 9849 sec. 6.1).
-  // GREASE-only ECH (an empty config list) stays allowed
-  if (AParams13.EchPolicy <> nil) and (System.Length(AParams13.EchPolicy.Configs) > 0) then
-    raise EArgumentTlsLibException.CreateRes(@SEchRequiresTls13);
+  // the 1.3 machine's ctor rejects a usable ECH config paired with a 1.2 offer (ECH is 1.3-only,
+  // RFC 9849 sec. 6.1); a GREASE-only policy is allowed and rides through unchanged
   L13 := AParams13;
   L13.AlsoOfferTls12 := True;
   FPrimary13Typed := TTls13ClientStateMachine.Create(L13);

@@ -397,6 +397,8 @@ resourcestring
   SNoCertificateVerifier = 'no certificate verifier configured (fail-closed)';
   SVerbatimHelloWithEchOrCache = 'a verbatim replay ClientHello is incompatible with ECH ' +
     'or a session cache (both rewrite the ClientHello)';
+  SEchRequiresTls13 = 'Encrypted Client Hello requires TLS 1.3; it cannot be offered by a ' +
+    'client that also offers TLS 1.2';
   SUntrustedCertificate = 'the server certificate chain was not trusted';
   SUnofferedAlpn = 'the server selected an ALPN protocol that was not offered';
   SEarlyDataSuiteMismatch = 'the server accepted early data under a cipher suite that differs from the resumption ticket';
@@ -442,6 +444,10 @@ begin
   // owns the per-connection ECH mechanics; a preset verbatim ClientHello is mutually exclusive
   // with ECH (enforced in SetVerbatimClientHello), so selection runs purely off the policy here
   FEchOrch := TEchClientOrchestrator.Create(AParams.Crypto, AParams.EchPolicy);
+  // ECH is 1.3-only (RFC 9849 sec. 6.1): a usable config cannot pair with a 1.2 offer. A GREASE-only
+  // posture (Active False) rides through - GREASE ech is permitted in any ClientHello (sec. 6.2)
+  if FParams.AlsoOfferTls12 and FEchOrch.Active then
+    raise EArgumentTlsLibException.CreateRes(@SEchRequiresTls13);
 end;
 
 destructor TTls13ClientStateMachine.Destroy;
@@ -485,10 +491,8 @@ begin
   LSeed := 0; // only meaningful under GREASE
   LContext := TExtensionContext.Create;
   try
-    // Encrypted Client Hello requires TLS 1.3: the ClientHelloInner MUST NOT offer a version
-    // below 1.3 (RFC 9849 sec. 6.1), and the outer mirrors the inner's version offer, so an
-    // ECH client is 1.3-only regardless of a 1.2 offer in the configuration
-    if FParams.AlsoOfferTls12 and not FEchOrch.Active then
+    // a 1.2 offer never coexists with active ECH (the ctor rejects that pairing, RFC 9849 sec. 6.1)
+    if FParams.AlsoOfferTls12 then
     begin
       // one unified ClientHello: the 1.3 key_share coexists with a 1.2 offer, and a
       // 1.2 server ignores the 1.3-only extensions and negotiates from legacy fields
@@ -567,8 +571,8 @@ begin
     // a non-EMS session yet echoes the extension (RFC 7627 5.3). A 1.3 server ignores these
     // legacy fields.
     // the 1.2 session_ticket offer is also a TLS-1.2-only extension the ClientHelloInner MUST
-    // omit (RFC 9849 sec. 6.1), so an ECH client never offers it
-    if FParams.AlsoOfferTls12 and (FParams.SessionCache <> nil) and not FEchOrch.Active then
+    // omit (RFC 9849 sec. 6.1); a 1.2 offer never coexists with active ECH (rejected in the ctor)
+    if FParams.AlsoOfferTls12 and (FParams.SessionCache <> nil) then
     begin
       LContext.SessionTicketOffered := True;
       if FTls12ResumptionSession <> nil then
@@ -1155,7 +1159,8 @@ function TTls13ClientStateMachine.ProcessEncryptedExtensions(
   const AMessage: TTlsHandshakeMessage): TArray<THandshakeEffect>;
 var
   LContext: TExtensionContext;
-  LServerAcceptedEarly: Boolean;
+  LServerAcceptedEarly, LEchPresent: Boolean;
+  LEchData: TBytes;
   LEeVector: TExtensionVector;
   LExtType: UInt16;
 begin
@@ -1175,6 +1180,10 @@ begin
     FCodec.ConsumeBlock(LContext, TTlsExtensionContextKind.EncryptedExtensions,
       THandshakeMessages.DecodeEncryptedExtensions(AMessage.Body));
     LServerAcceptedEarly := LContext.EarlyDataAccepted;
+    // the codec already detected/extracted any ech extension into the context; capture it before
+    // the context is freed so the orchestrator applies the EncryptedExtensions ech rule below
+    LEchPresent := LContext.EchPresent;
+    LEchData := LContext.EchExtensionData;
 
     // the server's ALPN choice must be one this client offered (RFC 7301 3.2)
     if LContext.SelectedAlpn <> '' then
@@ -1207,7 +1216,7 @@ begin
   end;
   // the EncryptedExtensions ech rule (retry_configs on reject, unsolicited on accept, validated
   // and ignored under GREASE) lives in the orchestrator
-  FEchOrch.NoteEncryptedExtensions(AMessage.Body);
+  FEchOrch.NoteEncryptedExtensions(LEchPresent, LEchData);
   // 0-RTT resolution (only when we offered it and the PSK was accepted): the write side
   // stays on the early keys here. On accept, EndOfEarlyData and the write switch happen
   // after the server Finished (transcript order); on reject we switch off early now and

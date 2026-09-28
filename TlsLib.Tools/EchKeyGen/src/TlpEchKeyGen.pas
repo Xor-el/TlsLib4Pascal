@@ -23,6 +23,7 @@ uses
   Classes,
   TlpEchConfig,
   TlpCryptoDomainTypes,
+  TlpSecureMemory,
   TlpPem,
   TlpICryptoProvider,
   TlpDefaultCryptoProvider,
@@ -124,31 +125,38 @@ begin
   LPublicKey := LKem.SerializePublicKey(LPair.&Public);
   LPrivateInfo := TPrivateKeyInfoFactory.CreatePrivateKeyInfo(LPair.&Private);
   LPkcs8 := LPrivateInfo.GetDerEncoded();
+  // the PKCS#8 DER is the raw private key; wipe this and the PEM block that aliases it once the
+  // output PEM is built (Result.Pem is the caller's copy). Result itself is never wiped here.
+  try
+    LSuite.KdfId := AKdf;
+    LSuite.AeadId := AAead;
+    LConfig := TEchConfig.Build(TEchConfig.SupportedVersion, AConfigId, AKem,
+      LPublicKey, TArray<TEchCipherSuite>.Create(LSuite), AMaximumNameLength,
+      LPublicNameBytes, nil);
+    Result.EchConfigList := TEchConfigList.Encode(TArray<TEchConfig>.Create(LConfig));
 
-  LSuite.KdfId := AKdf;
-  LSuite.AeadId := AAead;
-  LConfig := TEchConfig.Build(TEchConfig.SupportedVersion, AConfigId, AKem,
-    LPublicKey, TArray<TEchCipherSuite>.Create(LSuite), AMaximumNameLength,
-    LPublicNameBytes, nil);
-  Result.EchConfigList := TEchConfigList.Encode(TArray<TEchConfig>.Create(LConfig));
+    LBlocks := nil;
+    SetLength(LBlocks, 2);
+    LBlocks[0].PemType := 'PRIVATE KEY';
+    LBlocks[0].Content := LPkcs8;
+    LBlocks[1].PemType := 'ECHCONFIG';
+    LBlocks[1].Content := Result.EchConfigList;
+    Result.Pem := TPem.WriteBlocks(LBlocks);
 
-  LBlocks := nil;
-  SetLength(LBlocks, 2);
-  LBlocks[0].PemType := 'PRIVATE KEY';
-  LBlocks[0].Content := LPkcs8;
-  LBlocks[1].PemType := 'ECHCONFIG';
-  LBlocks[1].Content := Result.EchConfigList;
-  Result.Pem := TPem.WriteBlocks(LBlocks);
+    // load the PEM back through the server key store before it is handed out: the PKCS#8 encoding,
+    // the config and the key pair must round-trip exactly as a server will read them
+    TInMemoryEchKeyStore.FromPem(Result.Pem, ACryptoProvider);
 
-  // load the PEM back through the server key store before it is handed out: the PKCS#8 encoding,
-  // the config and the key pair must round-trip exactly as a server will read them
-  TInMemoryEchKeyStore.FromPem(Result.Pem, ACryptoProvider);
-
-  // an HTTPS record in ServiceMode (priority 1) with the ECHConfigList in the "ech"
-  // SvcParam, base64 as the presentation format expects. It is published at the origin the
-  // client connects to; the public_name lives only inside the ECHConfig, as the outer SNI.
-  Result.DnsLine := LOrigin + '. HTTPS 1 . ech="' +
-    TDataEncoding.Base64Encode(Result.EchConfigList) + '"';
+    // an HTTPS record in ServiceMode (priority 1) with the ECHConfigList in the "ech"
+    // SvcParam, base64 as the presentation format expects. It is published at the origin the
+    // client connects to; the public_name lives only inside the ECHConfig, as the outer SNI.
+    Result.DnsLine := LOrigin + '. HTTPS 1 . ech="' +
+      TDataEncoding.Base64Encode(Result.EchConfigList) + '"';
+  finally
+    TSecureMemory.WipeBytes(LPkcs8);
+    if System.Length(LBlocks) > 0 then
+      TSecureMemory.WipeBytes(LBlocks[0].Content);
+  end;
 end;
 
 class function TEchKeyGenerator.MapKem(const AName: string;
@@ -300,9 +308,14 @@ begin
       LConfigId := LCrypto.Primitives.GetRandom.GenerateBytes(1)[0];
     LResult := Generate(LCrypto, LPublicName, LOrigin, Byte(LConfigId), LKem, LKdf, LAead,
       Byte(LMaxNameLen));
-    WriteFile(LOutPath, LResult.Pem);
-    WriteLn(LResult.DnsLine);
-    Result := 0;
+    try
+      WriteFile(LOutPath, LResult.Pem);
+      WriteLn(LResult.DnsLine);
+      Result := 0;
+    finally
+      // the PEM carries the private key; drop the in-memory copy once written to disk
+      TSecureMemory.WipeBytes(LResult.Pem);
+    end;
   except
     on E: Exception do
     begin
