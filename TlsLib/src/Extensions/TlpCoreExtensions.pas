@@ -366,7 +366,7 @@ procedure TSupportedGroupsExtension.Consume(const AContext: TExtensionContext;
 begin
   AContext.SupportedGroups := TExtensionWire.DecodeUInt16Vector(AExtensionData, 2);
   // NamedGroupList<2..2^16-1>: an empty list is a decode error in a ClientHello (RFC 8446 4.2.7);
-  // a server echo is tolerated and ignored (as rustls/BoringSSL do), so only gate the request
+  // a server echo is tolerated and ignored, so only the request is gated
   if (AContext.MessageContext = TTlsExtensionContextKind.ClientHello) and
     (System.Length(AContext.SupportedGroups) = 0) then
     raise EDecodeErrorTlsLibException.CreateRes(@SEmptySupportedGroups);

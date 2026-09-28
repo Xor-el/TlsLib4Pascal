@@ -474,6 +474,8 @@ resourcestring
   SRetrySuiteChanged =
     'the retry ClientHello does not keep the cipher suite the HelloRetryRequest selected';
   SBadRecordSizeLimit = 'the peer record_size_limit is below the 64-byte minimum';
+  SNonNullCompression13 =
+    'a TLS 1.3 ClientHello must offer only the null legacy_compression_method';
   SNonEmptyEndOfEarlyData = 'the EndOfEarlyData message must be empty';
   SEchInnerRandomChanged = 'the ClientHelloInner random changed across the HelloRetryRequest';
   SEchAcceptedWithoutHandshake = 'ECH is marked accepted but the handshake state is gone';
@@ -629,6 +631,14 @@ begin
 
   // version is confirmed via supported_versions
   FParams.Policy.SelectVersion(AContext.SupportedVersions);
+
+  // legacy_compression_methods must be exactly the null method in TLS 1.3 (RFC 8446 4.1.2),
+  // enforced once 1.3 is selected (a lower version tolerates a longer list; the decode already
+  // rejected a list offering no null method at all). The version dispatcher does this on the mixed
+  // path; a 1.3-only server reaches here directly, and this also covers the second ClientHello.
+  if not THandshakeMessages.IsNullOnlyCompression(AClientHello.CompressionMethods) then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.IllegalParameter, @SNonNullCompression13);
 
   // RFC 8446 9.2: supported_groups and key_share are mutually required - present one without
   // the other and the handshake aborts with missing_extension (an empty key_share list is

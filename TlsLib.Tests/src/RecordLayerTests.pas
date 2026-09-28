@@ -73,6 +73,7 @@ type
     procedure TestRecordSizeLimitRejectsOversizeInbound;
     procedure TestRecordSizeLimitCountsInnerPlaintextNotContent;
     procedure TestRecordSizeLimitInnerPlaintextBoundary;
+    procedure TestRecordSizeLimitExemptsPlaintextRecords;
     procedure TestAcceptedEarlyDataBoundedAtBudget;
     procedure TestAcceptedEarlyDataExactBudgetThenNormalFlow;
     procedure TestWritePausesAppDataAtRekeyThreshold;
@@ -692,6 +693,32 @@ begin
         LRaised := Ord(E.AlertDescription) = Ord(TTlsAlertDescription.RecordOverflow);
     end;
     CheckTrue(LRaised, 'the inner-plaintext-over-limit record is record_overflow');
+  finally
+    LSend.Free;
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestRecordSizeLimitExemptsPlaintextRecords;
+var
+  LSend, LRecv: TRecordLayer;
+  LFrag: TTlsRecordFragment;
+  LPayload, LWire: TBytes;
+begin
+  // RFC 8449 4: only protected records are subject to record_size_limit. A plaintext read epoch
+  // (no read protection installed) must accept a record larger than the negotiated inbound limit.
+  LSend := TRecordLayer.Create;
+  LRecv := TRecordLayer.Create;
+  try
+    LPayload := nil;
+    SetLength(LPayload, 200); // larger than the 64-byte inbound limit set below
+    LSend.Write(TTlsContentType.Handshake, LPayload, 0, System.Length(LPayload));
+    LWire := LSend.TakeOutgoing;
+    LRecv.SetRecordSizeLimit(TRecordLimits.MaxPlaintext, 64);
+    LRecv.ProcessInput(LWire, 0, System.Length(LWire));
+    CheckTrue(LRecv.NextIncoming(LFrag),
+      'an over-limit plaintext record is accepted (unprotected records are exempt)');
+    CheckEquals(200, System.Length(LFrag.Data), 'the full plaintext record surfaces');
   finally
     LSend.Free;
     LRecv.Free;

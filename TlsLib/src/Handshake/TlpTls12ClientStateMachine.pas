@@ -304,6 +304,9 @@ resourcestring
     'the server did not negotiate extended_master_secret and it is required';
   SServerHelloDoneNotEmpty = 'the ServerHelloDone message carries a non-empty body';
   SBadRecordSizeLimit = 'the server record_size_limit is below the 64-byte minimum';
+  SUnsupportedServerVersion = 'the ServerHello legacy_version is not 0x0303';
+  SSupportedVersionsInServerHello =
+    'a TLS 1.2 ServerHello must not carry supported_versions';
 
 { TTls12ClientStateMachine }
 
@@ -455,6 +458,12 @@ begin
   Result := nil;
   LHello := THandshakeMessages.DecodeServerHello(AMessage.Body);
 
+  // a 1.2 ServerHello's legacy_version is exactly 0x0303 (RFC 5246 7.4.1.3 / RFC 8446 4.1.3); the
+  // version dispatcher enforces this on the mixed path, but a 1.2-only client reaches here directly
+  if LHello.LegacyVersion <> TlsWireVersionTls12 then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.ProtocolVersion, @SUnsupportedServerVersion);
+
   if not (TArrayUtilities.Contains<UInt16>(FParams.OfferedSuites, LHello.CipherSuite)) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SUnofferedSuite);
@@ -483,6 +492,12 @@ begin
     ApplyOffered(LContext);
     FCodec.ConsumeBlock(LContext, TTlsExtensionContextKind.ServerHello,
       LHello.Extensions);
+    // a TLS 1.2 ServerHello must not answer with supported_versions (a 1.3-only response
+    // extension, RFC 8446 4.2.1); the dispatcher rejects it on the mixed path, so a 1.2-only
+    // client enforces it here too
+    if LContext.SelectedVersion <> 0 then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.UnsupportedExtension, @SSupportedVersionsInServerHello);
     // a server that echoed the (empty) session_ticket extension will send a NewSessionTicket
     FExpectNewSessionTicket := LContext.SessionTicketOffered;
     // a server that echoed status_request will send a CertificateStatus message
