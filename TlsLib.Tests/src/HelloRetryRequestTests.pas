@@ -330,17 +330,21 @@ end;
 procedure TTestHelloRetryRequest.TestCookieMintVerifyRoundTrip;
 var
   LCookie: THelloRetryCookie;
-  LMinted, LCh1Hash: TBytes;
-  LOutHash: TBytes;
-  LGroup: UInt16;
+  LMinted, LCh1Hash, LOutHash, LSid, LOutSid: TBytes;
+  LSuite, LGroup: UInt16;
 begin
   LCookie := THelloRetryCookie.Create(Crypto, CookieSecret);
   try
     LCh1Hash := DecodeHex(StringOfChar('5', 64)); // a 32-byte stand-in transcript hash
-    LMinted := LCookie.Mint(LCh1Hash, TNamedGroupCatalog.Secp256r1);
-    CheckTrue(LCookie.TryOpen(LMinted, LOutHash, LGroup), 'a minted cookie verifies');
+    LSid := DecodeHex(StringOfChar('a', 8)); // a 4-byte stand-in legacy_session_id
+    LMinted := LCookie.Mint(LCh1Hash, TCipherSuites13.Aes128GcmSha256,
+      TNamedGroupCatalog.Secp256r1, LSid);
+    CheckTrue(LCookie.TryOpen(LMinted, LOutHash, LSuite, LGroup, LOutSid),
+      'a minted cookie verifies');
     CheckEqualBytes('the bound transcript hash round-trips', LCh1Hash, LOutHash);
+    CheckEquals(TCipherSuites13.Aes128GcmSha256, LSuite, 'the bound suite round-trips');
     CheckEquals(TNamedGroupCatalog.Secp256r1, LGroup, 'the bound group round-trips');
+    CheckEqualBytes('the bound session id round-trips', LSid, LOutSid);
   finally
     LCookie.Free;
   end;
@@ -349,17 +353,18 @@ end;
 procedure TTestHelloRetryRequest.TestCookieRejectsTamperedTag;
 var
   LCookie: THelloRetryCookie;
-  LMinted, LOutHash: TBytes;
-  LGroup: UInt16;
+  LMinted, LOutHash, LOutSid: TBytes;
+  LSuite, LGroup: UInt16;
 begin
   LCookie := THelloRetryCookie.Create(Crypto, CookieSecret);
   try
     LMinted := LCookie.Mint(DecodeHex(StringOfChar('5', 64)),
-      TNamedGroupCatalog.Secp256r1);
+      TCipherSuites13.Aes128GcmSha256, TNamedGroupCatalog.Secp256r1,
+      DecodeHex(StringOfChar('a', 8)));
     // flip the last MAC byte
     LMinted[System.Length(LMinted) - 1] :=
       Byte(LMinted[System.Length(LMinted) - 1] xor $01);
-    CheckFalse(LCookie.TryOpen(LMinted, LOutHash, LGroup),
+    CheckFalse(LCookie.TryOpen(LMinted, LOutHash, LSuite, LGroup, LOutSid),
       'a tampered cookie MAC does not verify');
   finally
     LCookie.Free;

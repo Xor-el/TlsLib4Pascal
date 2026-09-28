@@ -467,6 +467,9 @@ resourcestring
   SMissingCookie = 'the second ClientHello carried no cookie';
   SBadCookie = 'the HelloRetryRequest cookie did not verify';
   SCookieGroupMismatch = 'the cookie group does not match the selected group';
+  SCookieSuiteMismatch = 'the cookie cipher suite does not match the selected suite';
+  SRetrySessionIdChanged =
+    'the retry ClientHello changed its legacy_session_id from the first';
   SNoRetryKeyShare = 'the second ClientHello sent no key_share for the requested group';
   SRetrySuiteChanged =
     'the retry ClientHello does not keep the cipher suite the HelloRetryRequest selected';
@@ -1111,9 +1114,10 @@ begin
     if FCookie = nil then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.InternalError, @SNoCookieAuthority);
-    // the cookie binds Hash(ClientHello1) and the requested group under the server
-    // secret, so the second ClientHello can be validated without retained state
-    LCookie := FCookie.Mint(LCh1Hash, ASelectedGroup);
+    // the cookie binds Hash(ClientHello1), the selected suite and group, and CH1's session id
+    // under the server secret, so a second ClientHello that changes any of them is caught at TryOpen
+    LCookie := FCookie.Mint(LCh1Hash, FSelectedSuite.Common.Code, ASelectedGroup,
+      AClientHello.LegacySessionId);
   end;
   if FEchStatus in [TEchStatus.Accepted, TEchStatus.Backend] then
     LHrr := BuildHelloRetryRequest(AClientHello.LegacySessionId, ASelectedGroup,
@@ -1207,8 +1211,8 @@ function TTls13ServerStateMachine.ProcessSecondClientHello(
 var
   LClientHello: TTlsClientHello;
   LContext: TExtensionContext;
-  LSelectedGroup, LCookieGroup, LPinnedSuite: UInt16;
-  LCh1Hash, LClientShare, LHrr, LCh2Raw, LEchHrrHash: TBytes;
+  LSelectedGroup, LCookieGroup, LCookieSuite, LPinnedSuite: UInt16;
+  LCh1Hash, LClientShare, LHrr, LCh2Raw, LEchHrrHash, LCookieSessionId: TBytes;
   LEchAccepted: Boolean;
   LExtensions: TExtensionVector;
 begin
@@ -1251,17 +1255,27 @@ begin
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SRetrySuiteChanged);
 
-    // the retry must echo a cookie that verifies under the server secret (RFC 8446
-    // 4.1.4); the cookie carries Hash(ClientHello1) and the requested group
+    // the retry must echo a cookie that verifies under the server secret (RFC 8446 4.1.4); the
+    // cookie carries Hash(ClientHello1), the selected suite and group, and CH1's session id
     if System.Length(LContext.Cookie) = 0 then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.MissingExtension, @SMissingCookie);
-    if (FCookie = nil) or not FCookie.TryOpen(LContext.Cookie, LCh1Hash, LCookieGroup) then
+    if (FCookie = nil) or not FCookie.TryOpen(LContext.Cookie, LCh1Hash, LCookieSuite,
+      LCookieGroup, LCookieSessionId) then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.DecryptError, @SBadCookie);
+    // a cookie minted for another suite is a replay from a different connection (RFC 8446 4.1.4)
+    if LCookieSuite <> LPinnedSuite then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.IllegalParameter, @SCookieSuiteMismatch);
     if LCookieGroup <> LSelectedGroup then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SCookieGroupMismatch);
+    // the retry ClientHello must be unchanged except for the permitted fields; a changed
+    // legacy_session_id would silently diverge the rebuilt transcript (RFC 8446 4.1.2)
+    if not TArrayUtilities.AreEqual(LCookieSessionId, LClientHello.LegacySessionId) then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.IllegalParameter, @SRetrySessionIdChanged);
 
     // the second ClientHello must now carry the requested share; a still-missing
     // share is a failure, never a second HelloRetryRequest (RFC 8446 4.1.4)
@@ -1282,7 +1296,9 @@ begin
       LEchHrrHash := LCh1Hash
     else
       LEchHrrHash := nil;
-    LHrr := BuildHelloRetryRequest(LClientHello.LegacySessionId, LSelectedGroup,
+    // rebuild the HRR from the cookie's session id (the id echoed in the HRR the client received),
+    // not CH2's, so the reconstructed transcript is byte-identical regardless of CH2's echo
+    LHrr := BuildHelloRetryRequest(LCookieSessionId, LSelectedGroup,
       LContext.Cookie, LEchHrrHash);
     FTranscript.Update(LHrr);
     // a resuming client recomputes its PSK binder over the retry transcript, so re-validate
