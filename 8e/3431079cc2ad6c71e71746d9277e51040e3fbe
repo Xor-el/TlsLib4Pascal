@@ -1,0 +1,68 @@
+TlsLib/src/Engine/TlpTlsConnection.pas
+  s_09d3c46d1a9b1f::t_cf924708c977b6 362,426
+TlsLib.Tests/src/PresetTests.pas
+  s_09d3c46d1a9b1f::t_da7d9c37e9e495 87-88,91
+docs/README.md
+  s_09d3c46d1a9b1f::t_6d3f822e0fc181 53
+docs/system-trust.md
+  s_09d3c46d1a9b1f::t_80805a07515da8 263,284,287,293
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_09d3c46d1a9b1f::t_c6290de5ab650c 35
+  s_09d3c46d1a9b1f::t_05c45295df9052 1080
+  s_09d3c46d1a9b1f::t_7374ab6202250c 1744-1798
+  s_09d3c46d1a9b1f::t_0c562496dabf0b 181-183
+TlsLib.Adapters/FclNet/README.md
+  s_09d3c46d1a9b1f::t_97d54f1330045a 90
+TlsLib.Interop/src/InteropEngine.pas
+  s_09d3c46d1a9b1f::t_5d7ec112fa3d95 360,449
+  s_09d3c46d1a9b1f::t_8aaf78e0ab88bb 397-398
+TlsLib.Tests/src/ConfigResumptionTests.pas
+  s_09d3c46d1a9b1f::t_71863f45f7ff9e 252,267,284,305,325,351,378,395,422,440
+  s_09d3c46d1a9b1f::t_1bc34076e4d08d 742,751,1259
+  s_09d3c46d1a9b1f::t_1c467b50bc522f 362,375
+docs/cookbook.md
+  s_09d3c46d1a9b1f::t_6d3f822e0fc181 99
+  s_09d3c46d1a9b1f::t_97d54f1330045a 147
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_5c6c2a7cf69d89 337-341
+  s_09d3c46d1a9b1f::t_45a4cfe3289bc2 209-218
+  s_09d3c46d1a9b1f::t_c6b5f8b6dee582 350
+  s_09d3c46d1a9b1f::t_09d891e26e9ff6 89
+  s_09d3c46d1a9b1f::t_a0f7e3eafbc410 106-110,115-116
+  s_09d3c46d1a9b1f::t_484fb90581f7cb 308
+TlsLib/src/Engine/TlpTlsPresets.pas
+  s_09d3c46d1a9b1f::t_d82aeba4e0f74a 119-120,122-123
+  s_09d3c46d1a9b1f::t_832be34eb66055 40
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_68ee4f6f1f9a46 263-264
+  s_09d3c46d1a9b1f::t_9d1a026fb97e30 573-574
+  s_09d3c46d1a9b1f::t_8728bb91411f91 601
+  s_09d3c46d1a9b1f::t_88351d6b6430a1 1323
+  s_09d3c46d1a9b1f::t_6c45da8b0f054d 323
+  s_09d3c46d1a9b1f::t_a9d175cd87bc61 1173,1176
+  s_09d3c46d1a9b1f::t_5c18eb8daaa6a7 2470-2471,2476,2480-2481
+  s_09d3c46d1a9b1f::t_d042d277c258af 1049
+  s_09d3c46d1a9b1f::t_dcd74d8b4a906b 539
+docs/certificate-verification.md
+  s_09d3c46d1a9b1f::t_97d54f1330045a 165,181,204
+docs/security-model.md
+  s_09d3c46d1a9b1f::t_97d54f1330045a 67
+TlsLib.Tests/src/TrustCompositionTests.pas
+  s_09d3c46d1a9b1f::t_77083501d4ad92 167,182,202,221-222,240
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8e3431079cc2ad6c71e71746d9277e51040e3fbe",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
