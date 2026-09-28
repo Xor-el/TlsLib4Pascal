@@ -20,6 +20,7 @@ uses
   TlpICertificateTrust,
   TlpICertificateVerifierSource,
   TlpITlsConfigBuilder,
+  TlpISystemTrustInstaller,
   TlpSystemTrustExceptions,
   TlpSystemTrustBase,
   TlpOSSystemTrust;

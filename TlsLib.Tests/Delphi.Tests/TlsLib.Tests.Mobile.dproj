@@ -467,6 +467,7 @@
         <DCCReference Include="..\..\TlsLib\src\Ech\TlpEchRegistryExtension.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Engine\TlpITlsConfig.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Engine\TlpITlsConfigBuilder.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Engine\TlpISystemTrustInstaller.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsConfigBuilder.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsPresets.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsLib.pas"/>

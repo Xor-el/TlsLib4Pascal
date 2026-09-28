@@ -40,6 +40,7 @@ uses
   TlpTlsCredential,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
+  TlpISystemTrustInstaller,
   TlpITlsEngine,
   TlpTlsEngineFactory,
   TlpITlsConfigMemo,

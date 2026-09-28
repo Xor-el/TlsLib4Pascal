@@ -143,6 +143,7 @@ uses
   TlpEchServer in '..\..\TlsLib\src\Ech\TlpEchServer.pas',
   TlpITlsConfig in '..\..\TlsLib\src\Interfaces\Engine\TlpITlsConfig.pas',
   TlpITlsConfigBuilder in '..\..\TlsLib\src\Interfaces\Engine\TlpITlsConfigBuilder.pas',
+  TlpISystemTrustInstaller in '..\..\TlsLib\src\Interfaces\Engine\TlpISystemTrustInstaller.pas',
   TlpTlsConfigBuilder in '..\..\TlsLib\src\Engine\TlpTlsConfigBuilder.pas',
   TlpTlsPresets in '..\..\TlsLib\src\Engine\TlpTlsPresets.pas',
   TlpTlsLib in '..\..\TlsLib\src\Engine\TlpTlsLib.pas',
