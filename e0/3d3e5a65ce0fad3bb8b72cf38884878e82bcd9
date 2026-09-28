@@ -1,0 +1,44 @@
+TlsLib.Adapters/mORMot/Adapter/TlsLibMormotTls.pas
+  s_09d3c46d1a9b1f::t_92a7b2fcf9d021 406-411,413
+  s_09d3c46d1a9b1f::t_950ba6f7c194e0 47
+TlsLib.Tests/src/TlsConnectionTests.pas
+  s_09d3c46d1a9b1f::t_a369e24b1f2b9e 632,635-638,645,650,653,663-674,676-693,708,712,722,726,728-729,733,736,739,744,746-749,752-763,766-779,792,799-814
+  s_09d3c46d1a9b1f::t_d8638f9e182eda 92,94-96,98-101,103,633-634,675,750-751,815-816
+  s_09d3c46d1a9b1f::t_bf1a20b4d34094 694-700
+  s_09d3c46d1a9b1f::t_9079b5ad06624d 229-235
+  s_09d3c46d1a9b1f::t_e2dd892e162f47 1102,1107-1108,1110,1112
+  s_09d3c46d1a9b1f::t_f6855bc93d397d 118
+  s_09d3c46d1a9b1f::t_ec3acc1a963b60 878-885
+  s_09d3c46d1a9b1f::t_2d6cb96a1dcd8c 764-765
+  s_09d3c46d1a9b1f::t_5d5ae723322eff 1043-1048
+  s_09d3c46d1a9b1f::t_dbbc183f028911 160-166
+  s_09d3c46d1a9b1f::t_de5164efc31f12 1113-1114
+TlsLib/src/Engine/TlpTlsConnection.pas
+  s_09d3c46d1a9b1f::t_f763a1923b6730 561-562
+  s_09d3c46d1a9b1f::t_3c786559dc9ebf 101
+  s_09d3c46d1a9b1f::t_ba71d4762eba4b 551-554
+  s_09d3c46d1a9b1f::t_163a9462e18a52 237-242
+  s_09d3c46d1a9b1f::t_6fabc259809e1d 424-425,432-438,440
+  s_09d3c46d1a9b1f::t_a5ab39b7590f8b 88
+  s_09d3c46d1a9b1f::t_95aed6356e4aef 521-522
+  s_09d3c46d1a9b1f::t_0bddcc89a2ba89 448-451
+  s_09d3c46d1a9b1f::t_e1c19a2832fe48 426-431
+  s_09d3c46d1a9b1f::t_8fdc008c42ccf3 123-125
+  s_09d3c46d1a9b1f::t_33c0e63cf0f4e6 282-283
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e03d3e5a65ce0fad3bb8b72cf38884878e82bcd9",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
