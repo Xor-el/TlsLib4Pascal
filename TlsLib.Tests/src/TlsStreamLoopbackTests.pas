@@ -129,9 +129,6 @@ type
     function SpkiSha256(const ACertDer: TBytes): TBytes;
     /// <summary>A client config with the async peer-certificate verdict enabled.</summary>
     function AsyncClientConfig: ITlsClientConfig;
-    /// <summary>A TLS 1.2-only client pinned to the AES-GCM suites, whose AEAD usage limit is a
-    /// fixed record count (ChaCha20 is bounded only by the sequence space and never hits it).</summary>
-    function Tls12AesGcmClientConfig: ITlsClientConfig;
   published
     procedure TestClientServerLoopbackExchangesAppDataAndClosesCleanly;
     procedure TestBulkWriteIsSealedInBoundedSlices;
@@ -391,19 +388,6 @@ begin
   Result := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithTrustAnchors(TrustRoot)
     .WithAsyncCertificateVerdict(0).Build;
-end;
-
-function TTestTlsStreamLoopback.Tls12AesGcmClientConfig: ITlsClientConfig;
-var
-  LSuites: ICipherSuiteRegistry;
-begin
-  LSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
-  LSuites.Prune(TCipherSuites12.EcdheEcdsaChaCha20Poly1305Sha256);
-  LSuites.Prune(TCipherSuites12.EcdheRsaChaCha20Poly1305Sha256);
-  Result := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithTrustAnchors(TrustRoot)
-    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
-    .WithCipherSuites(LSuites).Build;
 end;
 
 function TTestTlsStreamLoopback.SpkiSha256(const ACertDer: TBytes): TBytes;
