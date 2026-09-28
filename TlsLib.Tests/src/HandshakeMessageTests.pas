@@ -42,6 +42,7 @@ type
     procedure TestPartialMessageNeedsMore;
     procedure TestOversizedMessageIsDecodeError;
     procedure TestOversizedNonCertificateMessageIsDecodeError;
+    procedure TestMessageHashIsNotWireDecodable;
   end;
 
 implementation
@@ -213,6 +214,18 @@ begin
   finally
     LReader.Free;
   end;
+end;
+
+procedure TTestHandshakeMessage.TestMessageHashIsNotWireDecodable;
+var
+  LType: TTlsHandshakeType;
+begin
+  // message_hash (254) is a synthetic transcript-only type (RFC 8446 4.4.1); it must never be
+  // decodable from the wire, though its code still encodes for transcript synthesis
+  CheckFalse(TTlsHandshakeType.TryFromByte(254, LType),
+    'message_hash (254) is not wire-decodable');
+  CheckEquals(254, TTlsHandshakeType.MessageHash.ToByte,
+    'message_hash still encodes to 254 for transcript synthesis');
 end;
 
 initialization

@@ -190,17 +190,18 @@ end;
 
 function THandshakeMachineBase.ProcessMessage(
   const AMessage: TTlsHandshakeMessage): TArray<THandshakeEffect>;
+var
+  LEffect: THandshakeEffect;
 begin
   try
     Result := Route(AMessage);
   except
     // an in-band protocol failure surfaces as a Fail effect, not a raised exception
-    on E: EPeerInputTlsLibException do
-      Result := TArray<THandshakeEffect>.Create(
-        THandshakeEffects.Fail(TTlsAlertDescription.IllegalParameter));
-    on E: EFatalAlertTlsLibException do
-      Result := TArray<THandshakeEffect>.Create(
-        THandshakeEffects.Fail(E.AlertDescription));
+    on E: Exception do
+      if THandshakeEffects.TryFromException(E, LEffect) then
+        Result := TArray<THandshakeEffect>.Create(LEffect)
+      else
+        raise;
   end;
 end;
 

@@ -127,6 +127,9 @@ type
     /// <summary>How a peer-certificate verdict is deferred out-of-band (see TVerdictDeferral):
     /// augment-only and fail-closed, None by default.</summary>
     Deferral: TVerdictDeferral;
+    /// <summary>The record_size_limit (RFC 8449) plaintext value to advertise, in [64, 2^14];
+    /// 0 leaves the extension unoffered. A 1.2 server answers in its ServerHello.</summary>
+    RecordSizeLimit: Int32;
   end;
 
   /// <summary>
@@ -160,6 +163,11 @@ type
     /// <summary>Whether the ServerHello echoed status_request, so a CertificateStatus
     /// message (RFC 6066 8) precedes the ServerKeyExchange.</summary>
     FServerWillStaple: Boolean;
+    /// <summary>A message that arrived coalesced with the parked Certificate (the SKE following an
+    /// omitted CertificateStatus): held while the async verdict is pending so the park is not
+    /// advanced, then re-dispatched by ContinueAfterVerdict.</summary>
+    FDeferredMessage: TTlsHandshakeMessage;
+    FHasDeferredMessage: Boolean;
     /// <summary>The stapled OCSP response the CertificateStatus carried; empty when none.
     /// Fed to the trust verdict.</summary>
     FReceivedOcspStaple: TBytes;
@@ -295,6 +303,10 @@ resourcestring
   SNoExtendedMasterSecret =
     'the server did not negotiate extended_master_secret and it is required';
   SServerHelloDoneNotEmpty = 'the ServerHelloDone message carries a non-empty body';
+  SBadRecordSizeLimit = 'the server record_size_limit is below the 64-byte minimum';
+  SUnsupportedServerVersion = 'the ServerHello legacy_version is not 0x0303';
+  SSupportedVersionsInServerHello =
+    'a TLS 1.2 ServerHello must not carry supported_versions';
 
 { TTls12ClientStateMachine }
 
@@ -356,6 +368,8 @@ begin
     // offer to accept a stapled OCSP response (RFC 6066) only when asked; a stapling server
     // answers with an empty ServerHello echo and a CertificateStatus message
     LContext.StatusRequestOffered := FParams.RequestOcspStapling;
+    // record_size_limit (RFC 8449): a 1.2 server answers in its ServerHello; 0 leaves it unoffered
+    LContext.RecordSizeLimit := FParams.RecordSizeLimit;
 
     LHello.Random := FParams.ClientRandom;
     LHello.LegacySessionId := FParams.LegacySessionId;
@@ -444,6 +458,12 @@ begin
   Result := nil;
   LHello := THandshakeMessages.DecodeServerHello(AMessage.Body);
 
+  // a 1.2 ServerHello's legacy_version is exactly 0x0303 (RFC 5246 7.4.1.3 / RFC 8446 4.1.3); the
+  // version dispatcher enforces this on the mixed path, but a 1.2-only client reaches here directly
+  if LHello.LegacyVersion <> TlsWireVersionTls12 then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.ProtocolVersion, @SUnsupportedServerVersion);
+
   if not (TArrayUtilities.Contains<UInt16>(FParams.OfferedSuites, LHello.CipherSuite)) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SUnofferedSuite);
@@ -472,6 +492,12 @@ begin
     ApplyOffered(LContext);
     FCodec.ConsumeBlock(LContext, TTlsExtensionContextKind.ServerHello,
       LHello.Extensions);
+    // a TLS 1.2 ServerHello must not answer with supported_versions (a 1.3-only response
+    // extension, RFC 8446 4.2.1); the dispatcher rejects it on the mixed path, so a 1.2-only
+    // client enforces it here too
+    if LContext.SelectedVersion <> 0 then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.UnsupportedExtension, @SSupportedVersionsInServerHello);
     // a server that echoed the (empty) session_ticket extension will send a NewSessionTicket
     FExpectNewSessionTicket := LContext.SessionTicketOffered;
     // a server that echoed status_request will send a CertificateStatus message
@@ -485,6 +511,17 @@ begin
           TTlsAlertDescription.IllegalParameter, @SUnofferedAlpn);
       TArrayUtilities.Append<THandshakeEffect>(Result,
         THandshakeEffects.SelectAlpn(LContext.SelectedAlpn));
+    end;
+    // record_size_limit (RFC 8449 4): a 1.2 server answers in the ServerHello; a value below 64 is
+    // fatal. Applied before the resumption fork so the abbreviated handshake renegotiates it too.
+    if LContext.RecordSizeLimit > 0 then
+    begin
+      if LContext.RecordSizeLimit < 64 then
+        raise EFatalAlertTlsLibException.CreateRes(
+          TTlsAlertDescription.IllegalParameter, @SBadRecordSizeLimit);
+      TArrayUtilities.Append<THandshakeEffect>(Result,
+        THandshakeEffects.SetRecordSizeLimit(LContext.RecordSizeLimit,
+        FParams.RecordSizeLimit));
     end;
     // the server resumed if it echoed the non-empty session id the ClientHello offered
     if (FResumptionOffer <> nil) and (System.Length(FOfferedSessionId) > 0) and
@@ -1029,9 +1066,19 @@ end;
 
 function TTls12ClientStateMachine.ContinueAfterVerdict: TArray<THandshakeEffect>;
 begin
+  Result := nil;
+  // a message coalesced with the parked Certificate (the SKE after an omitted CertificateStatus)
+  // was deferred so the park was not advanced; dispatch it now via ProcessMessage, so an in-band
+  // protocol failure surfaces as a Fail effect rather than a raised exception
+  if FHasDeferredMessage then
+  begin
+    FHasDeferredMessage := False;
+    Result := ProcessMessage(FDeferredMessage);
+    FDeferredMessage := Default(TTlsHandshakeMessage);
+    Exit;
+  end;
   // only the reverify-on-resume park withholds a continuation; other paths resume by draining
   // the buffered server flight, so there is nothing to emit for them
-  Result := nil;
   if FPhase = TPhase.WaitResumeVerdict then
     Result := BuildAbbreviatedClientFlight;
 end;
@@ -1059,12 +1106,19 @@ begin
         Result := ProcessCertificateStatus(AMessage)
       else
       begin
-        // the server may omit the CertificateStatus even after echoing status_request
-        // (RFC 6066 8); verify the chain with no staple and re-dispatch this message as
-        // the one that follows the (absent) CertificateStatus
+        // the server may omit the CertificateStatus even after echoing status_request (RFC 6066 8);
+        // verify the chain with no staple, then handle the message that followed the (absent)
+        // CertificateStatus. If verification parked for an async verdict, that follow-on message
+        // must wait too - defer it and re-dispatch once the verdict resumes, never advancing a park.
         Result := VerifyServerChain;
         FPhase := TPhase.WaitServerKeyExchange;
-        Result := TArrayUtilities.Concat<THandshakeEffect>(Result, Route(AMessage));
+        if Stage = THandshakeStage.ParkedForVerdict then
+        begin
+          FDeferredMessage := AMessage;
+          FHasDeferredMessage := True;
+        end
+        else
+          Result := TArrayUtilities.Concat<THandshakeEffect>(Result, Route(AMessage));
       end;
     TPhase.WaitServerKeyExchange:
       if LKnown and (LType = TTlsHandshakeType.ServerKeyExchange) then

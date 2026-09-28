@@ -47,6 +47,8 @@ type
       const ABlock: TBytes; AOfferedType: Int32): Int32;
     function ConsumeRaisesDecodeError(AKind: TTlsExtensionContextKind;
       const ABlock: TBytes): Boolean;
+    function ConsumeOfferedRaisesDecodeError(AKind: TTlsExtensionContextKind;
+      const ABlock: TBytes; AOfferedType: Int32): Boolean;
   protected
     procedure SetUp; override;
     procedure TearDown; override;
@@ -80,6 +82,19 @@ type
     procedure TestHrrEchNotEightBytesIsDecodeError;
     procedure TestEchOffersBeforePreSharedKey;
     procedure TestEchIsLastWithoutPreSharedKey;
+    procedure TestEmptySupportedVersionsIsDecodeError;
+    procedure TestEmptySupportedGroupsIsDecodeError;
+    procedure TestEmptyCookieIsDecodeError;
+    procedure TestEmptyCompressCertificateIsDecodeError;
+    procedure TestServerNameAckNonEmptyIsDecodeError;
+    procedure TestSessionTicketNonEmptyEchoIsDecodeError;
+    procedure TestStatusRequestClientHelloOcspRoundTrip;
+    procedure TestStatusRequestEmptyBodyIsDecodeError;
+    procedure TestStatusRequestTrailingDataIsDecodeError;
+    procedure TestStatusRequestUnknownTypeNotOffered;
+    procedure TestRenegotiationInfoNonEmptyIsHandshakeFailure;
+    procedure TestRenegotiationInfoMalformedIsDecodeError;
+    procedure TestRecordSizeLimitAllowedInServerHello;
   end;
 
 implementation
@@ -318,6 +333,27 @@ begin
   Result := False;
   LCtx := NewContext;
   try
+    try
+      FCodec.ConsumeBlock(LCtx, AKind, ABlock);
+    except
+      on E: EDecodeErrorTlsLibException do
+        Result := True;
+    end;
+  finally
+    LCtx.Free;
+  end;
+end;
+
+function TTestExtensionCodec.ConsumeOfferedRaisesDecodeError(
+  AKind: TTlsExtensionContextKind; const ABlock: TBytes;
+  AOfferedType: Int32): Boolean;
+var
+  LCtx: TExtensionContext;
+begin
+  Result := False;
+  LCtx := NewContext;
+  try
+    LCtx.MarkOffered(UInt16(AOfferedType));
     try
       FCodec.ConsumeBlock(LCtx, AKind, ABlock);
     except
@@ -705,6 +741,141 @@ begin
       'ech is the last ClientHello extension when no pre_shared_key follows');
   finally
     LSrc.Free;
+  end;
+end;
+
+procedure TTestExtensionCodec.TestEmptySupportedVersionsIsDecodeError;
+begin
+  // supported_versions with an empty versions<2..254> list (RFC 8446 4.2.1)
+  CheckTrue(ConsumeRaisesDecodeError(TTlsExtensionContextKind.ClientHello,
+    DecodeHex('0005002b000100')),
+    'an empty supported_versions list is a decode_error');
+end;
+
+procedure TTestExtensionCodec.TestEmptySupportedGroupsIsDecodeError;
+begin
+  // supported_groups with an empty NamedGroupList<2..2^16-1> (RFC 8446 4.2.7)
+  CheckTrue(ConsumeRaisesDecodeError(TTlsExtensionContextKind.ClientHello,
+    DecodeHex('0006000a00020000')),
+    'an empty supported_groups list is a decode_error');
+end;
+
+procedure TTestExtensionCodec.TestEmptyCookieIsDecodeError;
+begin
+  // cookie with an empty value<1..2^16-1> (RFC 8446 4.2.2)
+  CheckTrue(ConsumeRaisesDecodeError(TTlsExtensionContextKind.ClientHello,
+    DecodeHex('0006002c00020000')),
+    'an empty cookie is a decode_error');
+end;
+
+procedure TTestExtensionCodec.TestEmptyCompressCertificateIsDecodeError;
+begin
+  // compress_certificate with an empty algorithms<2..2^8-2> (RFC 8879 3)
+  CheckTrue(ConsumeRaisesDecodeError(TTlsExtensionContextKind.ClientHello,
+    DecodeHex('0005001b000100')),
+    'an empty compress_certificate list is a decode_error');
+end;
+
+procedure TTestExtensionCodec.TestServerNameAckNonEmptyIsDecodeError;
+begin
+  // the server's server_name acknowledgement must be empty in both the ServerHello (1.2) and
+  // EncryptedExtensions (1.3); a non-empty body is a decode_error (RFC 6066 3)
+  CheckTrue(ConsumeOfferedRaisesDecodeError(TTlsExtensionContextKind.ServerHello,
+    DecodeHex('00050000000100'), TExtensionTypes.ServerName),
+    'a non-empty server_name ack in a ServerHello is a decode_error');
+  CheckTrue(ConsumeOfferedRaisesDecodeError(TTlsExtensionContextKind.EncryptedExtensions,
+    DecodeHex('00050000000100'), TExtensionTypes.ServerName),
+    'a non-empty server_name ack in EncryptedExtensions is a decode_error');
+end;
+
+procedure TTestExtensionCodec.TestSessionTicketNonEmptyEchoIsDecodeError;
+begin
+  // the server's session_ticket echo announces a forthcoming NewSessionTicket and is empty; a
+  // non-empty body is a decode_error (RFC 5077 3.2)
+  CheckTrue(ConsumeOfferedRaisesDecodeError(TTlsExtensionContextKind.ServerHello,
+    DecodeHex('00050023000100'), TExtensionTypes.SessionTicket),
+    'a non-empty session_ticket echo is a decode_error');
+end;
+
+procedure TTestExtensionCodec.TestStatusRequestClientHelloOcspRoundTrip;
+var
+  LCtx: TExtensionContext;
+begin
+  // a well-formed ocsp CertificateStatusRequest arms the staple (RFC 6066 8)
+  LCtx := NewContext;
+  try
+    FCodec.ConsumeBlock(LCtx, TTlsExtensionContextKind.ClientHello,
+      DecodeHex('0009000500050100000000'));
+    CheckTrue(LCtx.StatusRequestOffered, 'an ocsp status_request arms the staple');
+  finally
+    LCtx.Free;
+  end;
+end;
+
+procedure TTestExtensionCodec.TestStatusRequestEmptyBodyIsDecodeError;
+begin
+  // an empty status_request body underflows on status_type (RFC 6066 8)
+  CheckTrue(ConsumeRaisesDecodeError(TTlsExtensionContextKind.ClientHello,
+    DecodeHex('000400050000')),
+    'an empty status_request body is a decode_error');
+end;
+
+procedure TTestExtensionCodec.TestStatusRequestTrailingDataIsDecodeError;
+begin
+  // trailing bytes after request_extensions are a decode_error (RFC 6066 8)
+  CheckTrue(ConsumeRaisesDecodeError(TTlsExtensionContextKind.ClientHello,
+    DecodeHex('000a000500060100000000ff')),
+    'trailing data in an ocsp status_request is a decode_error');
+end;
+
+procedure TTestExtensionCodec.TestStatusRequestUnknownTypeNotOffered;
+var
+  LCtx: TExtensionContext;
+begin
+  // a non-ocsp status_type is parsed past and leaves the staple unarmed (RFC 6066 8)
+  LCtx := NewContext;
+  try
+    FCodec.ConsumeBlock(LCtx, TTlsExtensionContextKind.ClientHello,
+      DecodeHex('00050005000102'));
+    CheckFalse(LCtx.StatusRequestOffered,
+      'a non-ocsp status_request does not arm the staple');
+  finally
+    LCtx.Free;
+  end;
+end;
+
+procedure TTestExtensionCodec.TestRenegotiationInfoNonEmptyIsHandshakeFailure;
+begin
+  // a non-empty renegotiated_connection on an initial handshake is a fatal handshake_failure
+  // (RFC 5746 3.4); we never renegotiate
+  CheckEquals(Integer(TTlsAlertDescription.HandshakeFailure),
+    ConsumeAlertCode(TTlsExtensionContextKind.ClientHello,
+    DecodeHex('0006ff01000201aa'), -1),
+    'a non-empty renegotiation_info is handshake_failure');
+end;
+
+procedure TTestExtensionCodec.TestRenegotiationInfoMalformedIsDecodeError;
+begin
+  // a renegotiated_connection length that overruns the body is a decode_error (RFC 5746 3.2)
+  CheckTrue(ConsumeRaisesDecodeError(TTlsExtensionContextKind.ClientHello,
+    DecodeHex('0006ff01000205aa')),
+    'a malformed renegotiation_info is a decode_error');
+end;
+
+procedure TTestExtensionCodec.TestRecordSizeLimitAllowedInServerHello;
+var
+  LCtx: TExtensionContext;
+begin
+  // record_size_limit is answered in the ServerHello for TLS 1.2 (RFC 8449 4); an offered echo
+  // there is consumed, not rejected as a wrong-context extension
+  LCtx := NewContext;
+  try
+    LCtx.MarkOffered(TExtensionTypes.RecordSizeLimit);
+    FCodec.ConsumeBlock(LCtx, TTlsExtensionContextKind.ServerHello,
+      DecodeHex('0006001c00020200'));
+    CheckEquals(512, LCtx.RecordSizeLimit, 'a ServerHello record_size_limit is consumed');
+  finally
+    LCtx.Free;
   end;
 end;
 

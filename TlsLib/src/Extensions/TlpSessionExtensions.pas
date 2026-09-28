@@ -88,6 +88,7 @@ uses
 resourcestring
   SEmptyPskModes = 'psk_key_exchange_modes carries no modes';
   SBadEarlyData = 'early_data must be empty in this context';
+  SBadSessionTicketEcho = 'a server session_ticket acknowledgement must carry an empty body (RFC 5077 3.2)';
   SEmptyPskIdentities = 'pre_shared_key carries no identities';
   SEmptyPskBinders = 'pre_shared_key carries no binders';
 
@@ -230,6 +231,11 @@ end;
 procedure TSessionTicketExtension.Consume(const AContext: TExtensionContext;
   const AExtensionData: TBytes);
 begin
+  // a server's ServerHello echo announces a forthcoming NewSessionTicket and is empty; a non-empty
+  // body there is a decode error (RFC 5077 3.2). The ClientHello carries the ticket itself.
+  if (AContext.MessageContext = TTlsExtensionContextKind.ServerHello) and
+    (System.Length(AExtensionData) <> 0) then
+    raise EDecodeErrorTlsLibException.CreateRes(@SBadSessionTicketEcho);
   AContext.SessionTicketOffered := True;
   AContext.SessionTicket := System.Copy(AExtensionData, 0,
     System.Length(AExtensionData));

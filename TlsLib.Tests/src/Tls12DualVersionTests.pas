@@ -104,6 +104,8 @@ type
     procedure TestScsvWithGreaseAndCurrentVersionDoesNotAbort;
     procedure TestGreaseOnlySupportedVersionsRejected;
     procedure TestServerRejectsSupportedVersionsWithoutCommonVersion;
+    procedure TestServerWithoutSignatureAlgorithmsIsHandshakeFailure;
+    procedure TestEmptySupportedVersionsAtDispatchIsDecodeError;
     procedure TestTls13OnlyDispatcherRejectsTls12OnlyOffer;
     procedure TestTls12OnlyServerRejectsTls13OnlyOffer;
     procedure TestCompatiblePresetEngineLoopback;
@@ -549,6 +551,38 @@ begin
     TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256),
     DecodeHex('0007002B0003021111'))), TTlsAlertDescription.ProtocolVersion),
     'no common version aborts protocol_version');
+end;
+
+procedure TTestTls12DualVersion.TestServerWithoutSignatureAlgorithmsIsHandshakeFailure;
+var
+  LServer: IHandshakeMachine;
+begin
+  // RFC 5246 7.4.1.4.1 makes omitting signature_algorithms legal in TLS 1.2 (it implies SHA-1);
+  // our hardened server refuses it, and the refusal is handshake_failure (a policy choice), not
+  // the TLS 1.3 missing_extension. Extensions: supported_versions [1.2] + supported_groups
+  // [X25519, secp256r1] (the ECDSA leaf's curve gate), and NO signature_algorithms.
+  LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
+    TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12)) as IHandshakeMachine;
+  CheckTrue(HasFailAlert(LServer.ProcessMessage(MakeClientHello(
+    TArray<UInt16>.Create(TCipherSuites12.EcdheEcdsaAes128GcmSha256),
+    DecodeHex('0011002b0003020303000a00060004001d0017'))),
+    TTlsAlertDescription.HandshakeFailure),
+    'a TLS 1.2 ClientHello without signature_algorithms aborts handshake_failure');
+end;
+
+procedure TTestTls12DualVersion.TestEmptySupportedVersionsAtDispatchIsDecodeError;
+var
+  LServer: IHandshakeMachine;
+begin
+  // the version dispatcher's supported_versions pre-scan rejects an empty list as decode_error
+  // rather than treating it as absent and negotiating legacy (RFC 8446 4.2.1). Extensions =
+  // one supported_versions extension carrying an empty versions list.
+  LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
+    TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12)) as IHandshakeMachine;
+  CheckTrue(HasFailAlert(LServer.ProcessMessage(MakeClientHello(
+    TArray<UInt16>.Create(TCipherSuites12.EcdheEcdsaAes128GcmSha256),
+    DecodeHex('0005002b000100'))), TTlsAlertDescription.DecodeError),
+    'an empty supported_versions list at dispatch is decode_error');
 end;
 
 procedure TTestTls12DualVersion.TestTls13OnlyDispatcherRejectsTls12OnlyOffer;

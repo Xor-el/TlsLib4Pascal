@@ -137,6 +137,9 @@ type
 
 implementation
 
+resourcestring
+  SEmptySupportedVersions = 'supported_versions names no version (RFC 8446 4.2.1 requires at least one)';
+
 { TVersionDispatchMachineBase }
 
 function TVersionDispatchMachineBase.Initiates: Boolean;
@@ -146,6 +149,8 @@ end;
 
 function TVersionDispatchMachineBase.ProcessMessage(
   const AMessage: TTlsHandshakeMessage): TArray<THandshakeEffect>;
+var
+  LEffect: THandshakeEffect;
 begin
   // the inner machine already maps its own in-band failures to Fail effects; only the
   // first-message dispatch (a malformed ClientHello/ServerHello) needs the same mapping
@@ -155,12 +160,11 @@ begin
     try
       Result := Dispatch(AMessage);
     except
-      on E: EPeerInputTlsLibException do
-        Result := TArray<THandshakeEffect>.Create(
-          THandshakeEffects.Fail(TTlsAlertDescription.IllegalParameter));
-      on E: EFatalAlertTlsLibException do
-        Result := TArray<THandshakeEffect>.Create(
-          THandshakeEffects.Fail(E.AlertDescription));
+      on E: Exception do
+        if THandshakeEffects.TryFromException(E, LEffect) then
+          Result := TArray<THandshakeEffect>.Create(LEffect)
+        else
+          raise;
     end;
 end;
 
@@ -246,11 +250,16 @@ begin
   Result := nil;
   if AVector.TryFind(TExtensionTypes.SupportedVersions, LEntry) then
   begin
-    // ClientHello supported_versions: a 1-byte-length list of uint16 versions
+    // ClientHello supported_versions: a 1-byte-length list of uint16 versions; an empty list is a
+    // decode error here (RFC 8446 4.2.1), the same verdict the codec reaches on the message pass -
+    // so routing never treats a structurally invalid empty list as "absent" and negotiates legacy
     LReader := TWireReader.Create(LEntry.Data);
     LVers := LReader.OpenVector(1);
+    LReader.ExpectEnd;
     while not LVers.EndReached do
       TArrayUtilities.Append<UInt16>(Result, LVers.ReadUInt16);
+    if System.Length(Result) = 0 then
+      raise EDecodeErrorTlsLibException.CreateRes(@SEmptySupportedVersions);
   end;
 end;
 
@@ -396,6 +405,9 @@ begin
   FPrimary13Typed := TTls13ClientStateMachine.Create(L13);
   FPrimary13 := FPrimary13Typed as IHandshakeMachine;
   FParams12 := AParams12;
+  // the unified ClientHello offered record_size_limit from the 1.3 params; the 1.2 hand-off replays
+  // that hello (PresentClientHello), so its own offered limit must match to validate the echo
+  FParams12.RecordSizeLimit := AParams13.RecordSizeLimit;
   FRequirePsk := AParams13.RequirePsk;
 end;
 

@@ -20,6 +20,7 @@ uses
   TlpTlsAlert,
   TlpTlsVersion,
   TlpCryptoDomainTypes,
+  TlpTlsLibExceptions,
   TlpIKeySchedule,
   TlpITlsEngine;
 
@@ -74,9 +75,16 @@ type
     ValidatedPath: TArray<TBytes>; // AwaitCertificateVerdict / PeerCertificateChain (the pipeline-validated path; issuer at [1]; empty when none was validated)
     CipherSuite: UInt16;         // ConnectionParams (the negotiated cipher suite code)
     NamedGroup: UInt16;          // ConnectionParams (0 when none / non-(EC)DHE)
-    Resumed: Boolean;            // ConnectionParams (resumed); EchRejected (was a retry)
+    Resumed: Boolean;            // ConnectionParams (resumed)
     ServerName: string;          // ConnectionParams (the SNI in play; empty when none)
     Alert: TTlsAlertDescription; // Fail
+    Staple: TBytes;              // AwaitCertificateVerdict (the handshake OCSP staple; empty when none)
+    HostName: string;            // AwaitCertificateVerdict (the host to authenticate against)
+    MaxBytes: Int32;             // SkipEarlyData / SetEarlyDataLimit / SetEarlyReadEpoch (a byte budget)
+    Active: Boolean;             // SetEarlyReadEpoch (the early-data read window is open)
+    IsRetry: Boolean;            // EchRejected (this handshake was itself a retry)
+    RetryConfigs: TBytes;        // EchRejected (the server's retry_configs; empty when none)
+    Authorities: TArray<TBytes>; // RequestedCertificateAuthorities (the named DistinguishedNames)
   end;
 
   /// <summary>Builds the handshake effect values.</summary>
@@ -148,6 +156,12 @@ type
     /// server's retry_configs (empty if none) and whether this handshake was itself a retry.</summary>
     class function EchRejected(const ARetryConfigs: TBytes;
       AIsRetryAttempt: Boolean): THandshakeEffect; static;
+    /// <summary>Maps an in-band protocol exception to a Fail effect (EFatalAlert - which covers
+    /// EDecodeError - to its alert; EPeerInput to illegal_parameter); returns False for any other
+    /// exception, which the caller re-raises. The single home for the machines' and the version
+    /// dispatcher's exception-to-Fail mapping.</summary>
+    class function TryFromException(const AError: Exception;
+      out AEffect: THandshakeEffect): Boolean; static;
   end;
 
 implementation
@@ -217,14 +231,14 @@ class function THandshakeEffects.SkipEarlyData(AMaxBytes: Int32): THandshakeEffe
 begin
   Result := Default(THandshakeEffect);
   Result.Kind := THandshakeEffectKind.SkipEarlyData;
-  Result.Inbound := AMaxBytes; // the byte budget for undecryptable early records
+  Result.MaxBytes := AMaxBytes; // the byte budget for undecryptable early records
 end;
 
 class function THandshakeEffects.SetEarlyDataLimit(AMaxBytes: Int32): THandshakeEffect;
 begin
   Result := Default(THandshakeEffect);
   Result.Kind := THandshakeEffectKind.SetEarlyDataLimit;
-  Result.Outbound := AMaxBytes; // the outbound 0-RTT byte budget from the ticket
+  Result.MaxBytes := AMaxBytes; // the outbound 0-RTT byte budget from the ticket
 end;
 
 class function THandshakeEffects.RevertWriteToPlaintext: THandshakeEffect;
@@ -238,8 +252,8 @@ class function THandshakeEffects.SetEarlyReadEpoch(AActive: Boolean;
 begin
   Result := Default(THandshakeEffect);
   Result.Kind := THandshakeEffectKind.SetEarlyReadEpoch;
-  Result.Resumed := AActive; // the early-data read window is open (True) or closed (False)
-  Result.Inbound := AMaxBytes; // the accepted early-data byte budget from the ticket
+  Result.Active := AActive; // the early-data read window is open (True) or closed (False)
+  Result.MaxBytes := AMaxBytes; // the accepted early-data byte budget from the ticket
 end;
 
 class function THandshakeEffects.RaiseEvent(AEvent: TTlsEventKind): THandshakeEffect;
@@ -257,8 +271,8 @@ begin
   Result.Kind := THandshakeEffectKind.AwaitCertificateVerdict;
   Result.Chain := AChain;
   Result.ValidatedPath := AValidatedPath;
-  Result.Text := AHostName;
-  Result.Bytes := AStaple;
+  Result.HostName := AHostName;
+  Result.Staple := AStaple;
 end;
 
 class function THandshakeEffects.PeerCertificateChain(
@@ -275,7 +289,7 @@ class function THandshakeEffects.RequestedCertificateAuthorities(
 begin
   Result := Default(THandshakeEffect);
   Result.Kind := THandshakeEffectKind.RequestedCertificateAuthorities;
-  Result.Chain := AAuthorities;
+  Result.Authorities := AAuthorities;
 end;
 
 class function THandshakeEffects.ConnectionParams(ACipherSuite, ANamedGroup: UInt16;
@@ -340,8 +354,25 @@ class function THandshakeEffects.EchRejected(const ARetryConfigs: TBytes;
 begin
   Result := Default(THandshakeEffect);
   Result.Kind := THandshakeEffectKind.EchRejected;
-  Result.Bytes := ARetryConfigs;
-  Result.Resumed := AIsRetryAttempt;
+  Result.RetryConfigs := ARetryConfigs;
+  Result.IsRetry := AIsRetryAttempt;
+end;
+
+class function THandshakeEffects.TryFromException(const AError: Exception;
+  out AEffect: THandshakeEffect): Boolean;
+begin
+  Result := True;
+  // EPeerInput before EFatalAlert to preserve the original per-site order; EDecodeError is an
+  // EFatalAlert subclass, so it carries its own decode_error through the second branch
+  if AError is EPeerInputTlsLibException then
+    AEffect := Fail(TTlsAlertDescription.IllegalParameter)
+  else if AError is EFatalAlertTlsLibException then
+    AEffect := Fail(EFatalAlertTlsLibException(AError).AlertDescription)
+  else
+  begin
+    AEffect := Default(THandshakeEffect);
+    Result := False;
+  end;
 end;
 
 end.

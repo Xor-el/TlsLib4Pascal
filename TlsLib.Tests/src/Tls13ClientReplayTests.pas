@@ -129,6 +129,7 @@ type
     procedure TestServerHelloBadSessionIdEchoRejected;
     procedure TestServerHelloWrongVersionRejected;
     procedure TestServerHelloUnofferedGroupRejected;
+    procedure TestServerHelloMissingKeyShareRejected;
     procedure TestServerHelloDowngradeSentinelRejected;
     procedure TestPostHandshakeNewSessionTicketTolerated;
   end;
@@ -505,6 +506,20 @@ begin
     'an unoffered key_share group aborts the handshake');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
     'an unoffered key_share group is illegal_parameter');
+end;
+
+procedure TTestTls13ClientReplay.TestServerHelloMissingKeyShareRejected;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // a 1.3 ServerHello with no key_share for the (EC)DHE handshake is missing_extension, not the
+  // wrong-group illegal_parameter (RFC 8446 4.2.8 / 9.2). A nil key exchange omits the extension.
+  CheckTrue(ServerHelloAlert(BuildServerHello(Filled($01, 32), nil,
+    TCipherSuites13.Aes128GcmSha256, TlsWireVersionTls13,
+    TNamedGroupCatalog.X25519, nil), LAlert),
+    'a missing key_share aborts the handshake');
+  CheckTrue(LAlert = TTlsAlertDescription.MissingExtension,
+    'a missing key_share is missing_extension');
 end;
 
 procedure TTestTls13ClientReplay.TestServerHelloDowngradeSentinelRejected;

@@ -81,10 +81,12 @@ type
     procedure TestClientRejectsHelloRetryUnofferedGroup;
     procedure TestClientRejectsHelloRetryWithoutSupportedVersions;
     procedure TestClientRejectsHelloRetrySelectingTls12;
+    procedure TestClientRejectsHelloRetryWithBadLegacyVersion;
     procedure TestServerRejectsSecondClientHelloWithoutCookie;
     procedure TestServerRejectsTamperedCookie;
     procedure TestServerRejectsUnexpectedMessageDuringRetryWait;
     procedure TestServerRejectsRetryClientHelloThatChangesSuite;
+    procedure TestServerRejectsRetryClientHelloThatChangesSessionId;
   end;
 
 implementation
@@ -330,17 +332,21 @@ end;
 procedure TTestHelloRetryRequest.TestCookieMintVerifyRoundTrip;
 var
   LCookie: THelloRetryCookie;
-  LMinted, LCh1Hash: TBytes;
-  LOutHash: TBytes;
-  LGroup: UInt16;
+  LMinted, LCh1Hash, LOutHash, LSid, LOutSid: TBytes;
+  LSuite, LGroup: UInt16;
 begin
   LCookie := THelloRetryCookie.Create(Crypto, CookieSecret);
   try
     LCh1Hash := DecodeHex(StringOfChar('5', 64)); // a 32-byte stand-in transcript hash
-    LMinted := LCookie.Mint(LCh1Hash, TNamedGroupCatalog.Secp256r1);
-    CheckTrue(LCookie.TryOpen(LMinted, LOutHash, LGroup), 'a minted cookie verifies');
+    LSid := DecodeHex(StringOfChar('a', 8)); // a 4-byte stand-in legacy_session_id
+    LMinted := LCookie.Mint(LCh1Hash, TCipherSuites13.Aes128GcmSha256,
+      TNamedGroupCatalog.Secp256r1, LSid);
+    CheckTrue(LCookie.TryOpen(LMinted, LOutHash, LSuite, LGroup, LOutSid),
+      'a minted cookie verifies');
     CheckEqualBytes('the bound transcript hash round-trips', LCh1Hash, LOutHash);
+    CheckEquals(TCipherSuites13.Aes128GcmSha256, LSuite, 'the bound suite round-trips');
     CheckEquals(TNamedGroupCatalog.Secp256r1, LGroup, 'the bound group round-trips');
+    CheckEqualBytes('the bound session id round-trips', LSid, LOutSid);
   finally
     LCookie.Free;
   end;
@@ -349,17 +355,18 @@ end;
 procedure TTestHelloRetryRequest.TestCookieRejectsTamperedTag;
 var
   LCookie: THelloRetryCookie;
-  LMinted, LOutHash: TBytes;
-  LGroup: UInt16;
+  LMinted, LOutHash, LOutSid: TBytes;
+  LSuite, LGroup: UInt16;
 begin
   LCookie := THelloRetryCookie.Create(Crypto, CookieSecret);
   try
     LMinted := LCookie.Mint(DecodeHex(StringOfChar('5', 64)),
-      TNamedGroupCatalog.Secp256r1);
+      TCipherSuites13.Aes128GcmSha256, TNamedGroupCatalog.Secp256r1,
+      DecodeHex(StringOfChar('a', 8)));
     // flip the last MAC byte
     LMinted[System.Length(LMinted) - 1] :=
       Byte(LMinted[System.Length(LMinted) - 1] xor $01);
-    CheckFalse(LCookie.TryOpen(LMinted, LOutHash, LGroup),
+    CheckFalse(LCookie.TryOpen(LMinted, LOutHash, LSuite, LGroup, LOutSid),
       'a tampered cookie MAC does not verify');
   finally
     LCookie.Free;
@@ -414,6 +421,25 @@ begin
     'a second HelloRetryRequest aborts');
   CheckTrue(LAlert = TTlsAlertDescription.UnexpectedMessage,
     'a second HelloRetryRequest is unexpected_message');
+end;
+
+procedure TTestHelloRetryRequest.TestClientRejectsHelloRetryWithBadLegacyVersion;
+var
+  LClient: IHandshakeMachine;
+  LHrr: TBytes;
+  LAlert: TTlsAlertDescription;
+begin
+  LClient := NewRetryClient;
+  // a well-formed HRR for an offered group, then its legacy_version (framed bytes 4..5) patched
+  // from 0x0303 to a bogus value: the client rejects it like any ServerHello (RFC 8446 4.1.3)
+  LHrr := BuildHrr(TNamedGroupCatalog.Secp256r1, TCipherSuites13.Aes128GcmSha256,
+    DecodeHex('a1b2c3'), DecodeHex(StringOfChar('3', 64)));
+  LHrr[4] := $03;
+  LHrr[5] := $05;
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(MsgFrom(LHrr)), LAlert),
+    'a HelloRetryRequest with a bad legacy_version aborts');
+  CheckTrue(LAlert = TTlsAlertDescription.ProtocolVersion,
+    'a bad HRR legacy_version is protocol_version');
 end;
 
 procedure TTestHelloRetryRequest.TestClientRejectsHelloRetryUnofferedGroup;
@@ -549,6 +575,28 @@ begin
     TCipherSuites13.Aes128GcmSha256);
   CheckTrue(System.Length(SendHandshakeOf(LServer.ProcessMessage(MsgFrom(LCh2)))) > 0,
     'a conformant retry that keeps the suite proceeds to a ServerHello');
+end;
+
+procedure TTestHelloRetryRequest.TestServerRejectsRetryClientHelloThatChangesSessionId;
+var
+  LServer: IHandshakeMachine;
+  LHrr, LCookie, LCh2, LShare: TBytes;
+  LPriv: IKeyExchangePrivateKey;
+  LAlert: TTlsAlertDescription;
+begin
+  // the retry ClientHello must resend CH1 unchanged except for the permitted fields; a changed
+  // legacy_session_id is illegal_parameter (RFC 8446 4.1.2). ClientHello1 (the vector) carried an
+  // empty session id, which the cookie binds; CH2 here sends a 32-byte one.
+  TNamedGroups.CreateNistEcdh(Crypto, 'secp256r1').GenerateKeyPair(LPriv, LShare);
+  LServer := NewSecp256r1Server(nil);
+  LHrr := SendHandshakeOf(LServer.ProcessMessage(MsgFrom(Vec('client_hello_1'))))[0];
+  LCookie := CookieFromHrr(LHrr);
+  LCh2 := BuildClientHello2(TNamedGroupCatalog.Secp256r1, LShare, LCookie,
+    DecodeHex(StringOfChar('a', 64)), TCipherSuites13.Aes128GcmSha256);
+  CheckTrue(FailAlertOf(LServer.ProcessMessage(MsgFrom(LCh2)), LAlert),
+    'a retry that changes legacy_session_id aborts');
+  CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
+    'a changed retry session id is illegal_parameter');
 end;
 
 initialization

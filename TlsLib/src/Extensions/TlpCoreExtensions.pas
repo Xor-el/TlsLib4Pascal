@@ -21,6 +21,7 @@ uses
   TlpWireVectorMarker,
   TlpIWireWriter,
   TlpWireWriter,
+  TlpTlsAlert,
   TlpTlsLibExceptions,
   TlpExtensionContext,
   TlpExtensionBlockCodec,
@@ -216,13 +217,19 @@ resourcestring
   SDuplicateKeyShare = 'key_share offers two entries for the same group';
   SEmptyKeyExchange = 'key_share carries a zero-length key_exchange (RFC 8446 4.2.8)';
   SBadExtendedMasterSecret = 'extended_master_secret must carry an empty body';
-  SBadRenegotiationInfo = 'renegotiation_info must be empty on an initial handshake';
   SBadStatusRequestEcho = 'a server status_request response must carry an empty body';
   SNoUncompressedPointFormat = 'ec_point_formats does not offer the uncompressed format';
   SDuplicateCompressionAlg = 'compress_certificate repeats a certificate-compression algorithm';
   SEmptySignatureAlgorithms = 'signature_algorithms names no scheme (RFC 8446 4.2.3 requires at least one)';
   SEmptyCertificateAuthorities = 'certificate_authorities names no authority (RFC 8446 4.2.4 requires at least one)';
   SEmptyDistinguishedName = 'certificate_authorities carries a zero-length DistinguishedName';
+  SEmptySupportedVersions = 'supported_versions names no version (RFC 8446 4.2.1 requires at least one)';
+  SEmptySupportedGroups = 'supported_groups names no group (RFC 8446 4.2.7 requires at least one)';
+  SEmptyCookie = 'cookie carries a zero-length value (RFC 8446 4.2.2)';
+  SEmptyCompressCertificate = 'compress_certificate names no algorithm (RFC 8879 3 requires at least one)';
+  SServerNameAckNotEmpty = 'a server server_name acknowledgement must carry an empty body (RFC 6066 3)';
+  SEmptyResponderId = 'status_request carries a zero-length responder_id (RFC 6066 8)';
+  SRenegotiationInfoNotEmpty = 'renegotiation_info is not empty on an initial handshake (RFC 5746 3.4)';
 
 type
   /// <summary>Unit-private wire helpers shared by the uint16-list extensions.</summary>
@@ -315,7 +322,12 @@ var
   LReader: TWireReader;
 begin
   if AContext.MessageContext = TTlsExtensionContextKind.ClientHello then
-    AContext.SupportedVersions := TExtensionWire.DecodeUInt16Vector(AExtensionData, 1)
+  begin
+    AContext.SupportedVersions := TExtensionWire.DecodeUInt16Vector(AExtensionData, 1);
+    // versions<2..254>: an empty list is a decode error (RFC 8446 4.2.1)
+    if System.Length(AContext.SupportedVersions) = 0 then
+      raise EDecodeErrorTlsLibException.CreateRes(@SEmptySupportedVersions);
+  end
   else
   begin
     LReader := TWireReader.Create(AExtensionData);
@@ -353,6 +365,11 @@ procedure TSupportedGroupsExtension.Consume(const AContext: TExtensionContext;
   const AExtensionData: TBytes);
 begin
   AContext.SupportedGroups := TExtensionWire.DecodeUInt16Vector(AExtensionData, 2);
+  // NamedGroupList<2..2^16-1>: an empty list is a decode error in a ClientHello (RFC 8446 4.2.7);
+  // a server echo is tolerated and ignored, so only the request is gated
+  if (AContext.MessageContext = TTlsExtensionContextKind.ClientHello) and
+    (System.Length(AContext.SupportedGroups) = 0) then
+    raise EDecodeErrorTlsLibException.CreateRes(@SEmptySupportedGroups);
 end;
 
 { TSignatureAlgorithmsExtension }
@@ -565,9 +582,16 @@ var
   LNameType: Byte;
   LHost: TBytes;
 begin
-  // the server's EncryptedExtensions echo is an empty extension - accept and ignore
-  if System.Length(AExtensionData) = 0 then
+  // the server's acknowledgement (ServerHello / EncryptedExtensions) is an empty extension; a
+  // non-empty body there is a decode error (RFC 6066 3). A ClientHello carries the list itself,
+  // and an empty server_name_list<1..2^16-1> falls through to the reader's underflow.
+  if AContext.MessageContext in [TTlsExtensionContextKind.ServerHello,
+    TTlsExtensionContextKind.EncryptedExtensions] then
+  begin
+    if System.Length(AExtensionData) <> 0 then
+      raise EDecodeErrorTlsLibException.CreateRes(@SServerNameAckNotEmpty);
     Exit;
+  end;
   LReader := TWireReader.Create(AExtensionData);
   LList := LReader.OpenVector(2);
   LReader.ExpectEnd;
@@ -769,6 +793,9 @@ end;
 
 procedure TStatusRequestExtension.Consume(const AContext: TExtensionContext;
   const AExtensionData: TBytes);
+var
+  LReader, LList, LId, LExt: TWireReader;
+  LType: Byte;
 begin
   if AContext.MessageContext = TTlsExtensionContextKind.ServerHello then
   begin
@@ -778,8 +805,25 @@ begin
     AContext.StatusRequestResponsePending := True;
     Exit;
   end;
-  // ClientHello: the client accepts a stapled response. The exact request contents
-  // do not constrain the server, so acceptance is the whole signal.
+  // ClientHello CertificateStatusRequest (RFC 6066 8): status_type(1), and for an ocsp(1) request
+  // a responder_id_list<0..2^16-1> (each ResponderID<1..2^16-1>) then request_extensions<0..2^16-1>.
+  // Only an ocsp request arms the staple; for any other status_type the body format is unknown, so
+  // it is left unarmed and the rest ignored. An empty body underflows on status_type (decode error).
+  LReader := TWireReader.Create(AExtensionData);
+  LType := LReader.ReadUInt8;
+  if LType <> 1 then
+    Exit;
+  LList := LReader.OpenVector(2);
+  while not LList.EndReached do
+  begin
+    LId := LList.OpenVector(2);
+    if LId.Remaining = 0 then
+      raise EDecodeErrorTlsLibException.CreateRes(@SEmptyResponderId);
+    LId.Skip(LId.Remaining);
+  end;
+  LExt := LReader.OpenVector(2);
+  LExt.Skip(LExt.Remaining);
+  LReader.ExpectEnd;
   AContext.StatusRequestOffered := True;
 end;
 
@@ -822,6 +866,9 @@ begin
   LCookie := LReader.OpenVector(2);
   LReader.ExpectEnd;
   AContext.Cookie := LCookie.ReadBytes(LCookie.Remaining);
+  // cookie<1..2^16-1>: an empty value is a decode error (RFC 8446 4.2.2)
+  if System.Length(AContext.Cookie) = 0 then
+    raise EDecodeErrorTlsLibException.CreateRes(@SEmptyCookie);
 end;
 
 { TRecordSizeLimitExtension }
@@ -833,7 +880,10 @@ end;
 
 function TRecordSizeLimitExtension.ValidContexts: TTlsExtensionContexts;
 begin
+  // the server's answer rides EncryptedExtensions in TLS 1.3 and the ServerHello in TLS 1.2
+  // (RFC 8449 4); the codec has no version knowledge, so all three contexts are valid here
   Result := [TTlsExtensionContextKind.ClientHello,
+    TTlsExtensionContextKind.ServerHello,
     TTlsExtensionContextKind.EncryptedExtensions];
 end;
 
@@ -891,6 +941,9 @@ var
   LI, LJ: Int32;
 begin
   LAlgorithms := TExtensionWire.DecodeUInt16Vector(AExtensionData, 1);
+  // algorithms<2..2^8-2>: an empty list is a decode error (RFC 8879 3)
+  if System.Length(LAlgorithms) = 0 then
+    raise EDecodeErrorTlsLibException.CreateRes(@SEmptyCompressCertificate);
   // a repeated algorithm makes the advertised list malformed (RFC 8879 3)
   for LI := 0 to High(LAlgorithms) do
     for LJ := LI + 1 to High(LAlgorithms) do
@@ -1018,10 +1071,18 @@ end;
 
 procedure TRenegotiationInfoExtension.Consume(const AContext: TExtensionContext;
   const AExtensionData: TBytes);
+var
+  LReader, LConn: TWireReader;
 begin
-  // the renegotiated_connection must be empty: we never renegotiate (RFC 5746 3.2)
-  if (System.Length(AExtensionData) <> 1) or (AExtensionData[0] <> $00) then
-    raise EDecodeErrorTlsLibException.CreateRes(@SBadRenegotiationInfo);
+  // renegotiated_connection<0..255>: malformed framing is a decode error (the reader raises it); a
+  // non-empty value on an initial handshake is a fatal handshake_failure (RFC 5746 3.4/3.6), since
+  // we never renegotiate
+  LReader := TWireReader.Create(AExtensionData);
+  LConn := LReader.OpenVector(1);
+  LReader.ExpectEnd;
+  if LConn.Remaining <> 0 then
+    raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.HandshakeFailure,
+      @SRenegotiationInfoNotEmpty);
   AContext.RenegotiationInfo := True;
 end;
 

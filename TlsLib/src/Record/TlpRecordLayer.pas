@@ -483,8 +483,9 @@ begin
     AFragment.ContentType);
   // RFC 8449: the record_size_limit caps the whole TLSInnerPlaintext (content + type +
   // padding), so measure it from the wire record - content alone would let padding hide
-  // an over-limit record. Only enforced once the extension has been negotiated.
-  if (FInboundRecordSizeLimit > 0) and
+  // an over-limit record. Only protected records are subject to the limit (RFC 8449 4), and
+  // only once the extension has been negotiated - a plaintext read epoch is exempt.
+  if (not FReadIsPlaintext) and (FInboundRecordSizeLimit > 0) and
     ((System.Length(ARecord) - TRecordLimits.HeaderLength - FReadProtection.Overhead +
     FReadProtection.InnerContentTypeLength) > FInboundRecordSizeLimit) then
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.RecordOverflow,
@@ -698,10 +699,11 @@ begin
   // able to protect and queue an alert record after an inbound processing error
   LOffset := AOffset;
   LRemaining := ALength;
-  // per-record content cap: the 2^14 TLSPlaintext ceiling, further reduced to the
-  // negotiated record_size_limit less this epoch's inner content-type byte (RFC 8449)
+  // per-record content cap: the 2^14 TLSPlaintext ceiling, further reduced to the negotiated
+  // record_size_limit less this epoch's inner content-type byte (RFC 8449). Only protected
+  // records are subject to the limit, so a plaintext write epoch keeps the full ceiling.
   LPlainCap := TRecordLimits.MaxPlaintext;
-  if (FOutboundRecordSizeLimit > 0) and
+  if (not FWriteIsPlaintext) and (FOutboundRecordSizeLimit > 0) and
     ((FOutboundRecordSizeLimit - FWriteProtection.InnerContentTypeLength) < LPlainCap) then
     LPlainCap := FOutboundRecordSizeLimit - FWriteProtection.InnerContentTypeLength;
   // never a non-positive cap (a pathological tiny limit set through the public setter would

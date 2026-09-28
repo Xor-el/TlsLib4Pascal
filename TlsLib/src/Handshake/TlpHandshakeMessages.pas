@@ -264,6 +264,8 @@ resourcestring
   SServerCompressionNotNull =
     'the server selected a non-null legacy_compression_method';
   SSessionIdTooLong = 'legacy_session_id exceeds the 32-byte maximum';
+  SEmptyCipherSuites = 'a ClientHello names no cipher suite (RFC 8446 4.1.2 / RFC 5246 7.4.1.2)';
+  SEmptyCompressionMethods = 'a ClientHello carries no legacy_compression_methods (RFC 8446 4.1.2)';
   SEmptySessionTicket = 'a NewSessionTicket carries an empty ticket';
   SBadCurveType = 'unsupported ECCurveType in ServerKeyExchange (named_curve only)';
   SBadCertificateStatusType = 'a CertificateStatus carries an unsupported status_type';
@@ -393,8 +395,15 @@ begin
   if System.Length(Result.LegacySessionId) > MaxLegacySessionIdLength then
     raise EDecodeErrorTlsLibException.CreateRes(@SSessionIdTooLong);
   Result.CipherSuites := ReadUInt16Vector(LReader);
+  // cipher_suites<2..2^16-2>: an empty list is a decode error (structural), not handshake_failure
+  if System.Length(Result.CipherSuites) = 0 then
+    raise EDecodeErrorTlsLibException.CreateRes(@SEmptyCipherSuites);
   LComp := LReader.OpenVector(1);
   Result.CompressionMethods := LComp.ReadBytes(LComp.Remaining);
+  // legacy_compression_methods<1..2^8-1>: an empty vector is a decode error (structural), before
+  // the null-method value check below
+  if System.Length(Result.CompressionMethods) = 0 then
+    raise EDecodeErrorTlsLibException.CreateRes(@SEmptyCompressionMethods);
   // legacy_compression_methods must offer the null method (both versions); a list without it
   // selects only compression this endpoint will never support. The list is a well-formed byte
   // vector with an unacceptable value, so this is an illegal_parameter, not a decode error
