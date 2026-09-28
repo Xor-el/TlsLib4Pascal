@@ -39,16 +39,16 @@ peer.SSLAcceptConnection;             // handshake
 | `CertificateFile` + `PrivateKeyFile` + `KeyPassword` | `WithCredential` (server cert/key)       |
 | `SNIHost`                                            | SNI + the verified host name             |
 | `VerifyCert` (default **True** here)                 | verify on/off; **False** → **`dangerous` `WithDangerousInsecureSkipVerify`** |
-| `ClientAuth` (extension, **server**) | `WithPeerAuth(None / Requested / Required)`; default `None` never requests a client certificate. Any other mode needs `VerifyCert` on and `CertCAFile` / `UseSystemTrust` (the client-CA), else the build fails closed |
+| `ClientAuth` (extension, **server**) | `WithPeerAuth(None / Requested / Required)`; default `None` never requests a client certificate. Any other mode needs `VerifyCert` on and a private client-CA (`CertCAFile`), else the build fails closed. `UseSystemTrust` is a server-cert source, never a client-CA |
 | `OnVerifyCert` (native hook)                         | augment-only bridge (see below)          |
 | `SSLType`                                            | accepted and ignored (we are TLS 1.2+)   |
 | `HandshakeTimeoutMs`                                 | bounds the handshake read (ms); `0` = 30 s default |
 
 A server never requests a client certificate unless you set `ClientAuth` (cast `Sock.SSL` to
-`TSSLTlsLib`); `CertCAFile` / `UseSystemTrust` are only the client-CA a presented chain is verified
-against. (Synapse's own OpenSSL plugin makes `VerifyCert` alone request one on a server; here that is
-this explicit knob.) Using `UseSystemTrust` as the client-CA means the OS/public roots vouch for
-clients — name a private `CertCAFile` for real mTLS.
+`TSSLTlsLib`); `CertCAFile` is the private client-CA a presented chain is verified against.
+(Synapse's own OpenSSL plugin makes `VerifyCert` alone request one on a server; here that is this
+explicit knob.) `UseSystemTrust` is a server-certificate source (a client verifying a server) and is
+**not** a valid client-CA: a mode whose only source is it fails the build.
 
 **Certificate chain**: `CertificateFile` is the chain the server *presents* — put your leaf **followed
 by any intermediates** in one PEM file so clients build a complete chain. `CertCAFile` is a **trust

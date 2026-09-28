@@ -168,12 +168,12 @@ type
     property VerifyPeer: Boolean read FVerifyPeer write FVerifyPeer;
     /// <summary>Server role: whether to request a client certificate (mutual TLS). None (the
     /// default) never asks; Requested asks and tolerates a client that sends none; Required asks and
-    /// aborts the handshake when none is presented. Orthogonal to RootCertFile / UseSystemTrust /
-    /// CustomTrustStore: those are the trust the presented chain must reach, and a mode other than
-    /// None needs at least one of them (the build fails closed). UseSystemTrust as that client-CA
-    /// means the OS/public roots vouch for clients - name a private client-CA for real mTLS. Ignored
-    /// on a client connection. Mirrors Indy's OpenSSL VerifyMode: [] / [sslvrfPeer] /
-    /// [sslvrfPeer, sslvrfFailIfNoPeerCert].</summary>
+    /// aborts the handshake when none is presented. Orthogonal to the client-CA the presented chain
+    /// must reach - a RootCertFile bundle or a CustomTrustStore/custom verifier - and a mode other
+    /// than None needs one (the build fails closed). UseSystemTrust is a server-certificate source
+    /// (a client verifying a server) and is never a client-CA: a mode whose only source is it fails
+    /// the build. Ignored on a client connection. Mirrors Indy's OpenSSL VerifyMode: [] / [sslvrfPeer]
+    /// / [sslvrfPeer, sslvrfFailIfNoPeerCert].</summary>
     property ClientAuth: TClientAuthMode read FClientAuth write FClientAuth
       default TClientAuthMode.None;
     /// <summary>DANGEROUS: accept the peer chain with no PKIX/host/pinning checks. For tests and
@@ -305,6 +305,8 @@ var
 resourcestring
   SIndyTrustSourceHint =
     'a RootCertFile bundle, UseSystemTrust, or a CustomTrustStore/custom verifier';
+  SIndyClientAuthSourceHint =
+    'a RootCertFile bundle, or a CustomTrustStore/custom verifier';
   SIndySendNoProgress = 'Indy socket send returned no progress';
 
 { TTlsLibSSLOptions }
@@ -388,6 +390,7 @@ begin
   Result.ClientConfig := FClientConfig;
   Result.ServerConfig := FServerConfig;
   Result.TrustSourceHint := SIndyTrustSourceHint;
+  Result.ClientAuthSourceHint := SIndyClientAuthSourceHint;
 end;
 
 { TIndySocketTransport }

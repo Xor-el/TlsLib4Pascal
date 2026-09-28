@@ -196,6 +196,7 @@ resourcestring
   SMormotSendFailed = 'mORMot socket send failed (nr=%d)';
   SMormotSendTimedOut = 'the peer stopped reading: the socket stayed unwritable past the send bound';
   SMormotTrustSourceHint = 'CACertificatesFile or CASystemStores';
+  SMormotClientAuthSourceHint = 'CACertificatesFile';
 
 var
   // process-wide neutral hooks the per-connection adapter threads into each client handshake
@@ -375,11 +376,12 @@ begin
   Result.KeyPassword := Utf8ToString(AContext.PrivatePassword);
   // trust sources: a client always composes them from the context; a server does so only when it
   // requests a client certificate, so a server without client auth names no source and requests
-  // none. scsRoot/scsCA are the anchor-bearing OS stores our harvester collects (scsMY personal
-  // identity and scsSpc code-signing are not server-auth anchors and must not turn system trust
-  // on). A CACertificatesFile bundle and the OS store union - either counts. UseSystemTrust reaches
-  // the OS store through the host-neutral installer seam, so the core never depends on the
-  // system-trust package.
+  // none. The system store is a SERVER-certificate source only: it is the client's server-cert trust
+  // and never a server's client-CA (a server's client-CA is always the CACertificatesFile bundle), so
+  // only a client constructs the installer. scsRoot/scsCA are the anchor-bearing OS stores our
+  // harvester collects (scsMY / scsSpc are not server-auth anchors and must not turn system trust on).
+  // UseSystemTrust reaches the OS store through the host-neutral installer seam, so the core never
+  // depends on the system-trust package.
   LWantTrust := AIsClient or AContext.ClientCertificateAuthentication;
   if LWantTrust then
   begin
@@ -389,7 +391,8 @@ begin
       Result.TrustAnchors[0] :=
         TTlsBlobSource.FromFile(Utf8ToString(AContext.CACertificatesFile));
     end;
-    if (scsRoot in AContext.CASystemStores) or (scsCA in AContext.CASystemStores) then
+    if AIsClient and ((scsRoot in AContext.CASystemStores) or
+      (scsCA in AContext.CASystemStores)) then
       Result.SystemTrust := TSystemTrustInstaller.Create as ISystemTrustInstaller;
   end;
   // a client maps IgnoreCertificateErrors onto the loud InsecureSkipVerify (never a silent bypass);
@@ -421,6 +424,7 @@ begin
   Result.ClientConfig := GClientConfig;
   Result.ServerConfig := GServerConfig;
   Result.TrustSourceHint := SMormotTrustSourceHint;
+  Result.ClientAuthSourceHint := SMormotClientAuthSourceHint;
 end;
 
 class function TTlsLibNetTls.BuildClientEngine(var AContext: TNetTlsContext;

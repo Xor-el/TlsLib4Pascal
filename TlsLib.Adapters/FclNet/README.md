@@ -87,7 +87,7 @@ trust the familiar way. Only what fcl-net lacks is added as extension properties
 | `CertificateData.Certificate` + `.PrivateKey` + `KeyPassword` | `WithCredential` — own cert (server, or mTLS client) |
 | `UseSystemTrust: Boolean`                             | OS system-trust store (crypt32 / SecTrust / Unix)  |
 | `CustomTrustStore: ITrustAnchorStore`                 | `WithTrustStore` (unions with the above)           |
-| `ClientAuth: TClientAuthMode` (**server**)            | `WithPeerAuth(None / Requested / Required)`; default `None` never requests a client certificate. Any other mode needs `CertCA` / `TrustedCertificate` / `UseSystemTrust` / `CustomTrustStore` (the client-CA) |
+| `ClientAuth: TClientAuthMode` (**server**)            | `WithPeerAuth(None / Requested / Required)`; default `None` never requests a client certificate. Any other mode needs a private client-CA (`CertCA` / `TrustedCertificate` / `CustomTrustStore`). `UseSystemTrust` is a server-cert source, never a client-CA |
 | `CustomServerCertificateVerifier` / `CustomClientCertificateVerifier` | `WithDangerousCertificateVerifier` — **replaces** the pipeline (role-typed) |
 | `CheckHostName: Boolean` (default True)               | on by default; off via `WithDangerousDisableServerNameCheck` |
 | `AlpnProtocols: TArray<string>`                       | `WithAlpnProtocols`                                |
@@ -113,8 +113,9 @@ a custom verifier) **refuses to connect** — system trust is never implicit. An
 a custom verifier is exclusive. A server requires `CertificateData.Certificate`/`.PrivateKey`; it
 requests + verifies client certificates only when `ClientAuth` is set (mTLS is an explicit opt-in; a
 named client-CA alone never triggers it). Set `ClientAuth` per server-side handler in the
-`OnCreateClientSocketHandler` hook, never process-wide; using `UseSystemTrust` as the client-CA means
-the OS/public roots vouch for clients, so name a private `CertCA` for real mTLS.
+`OnCreateClientSocketHandler` hook, never process-wide. `UseSystemTrust` is a server-certificate
+source (a client verifying a server) and is **not** a valid client-CA: a mode whose only source is it
+fails the build — name a private `CertCA` (or a `CustomTrustStore`) for the client-CA.
 
 Setting `VerifyPeerCert := False` is the loud, deliberate bypass (no PKIX/host/pinning checks) —
 for tests and pinned dev peers, never production.

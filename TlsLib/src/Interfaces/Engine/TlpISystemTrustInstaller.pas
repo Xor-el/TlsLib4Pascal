@@ -21,20 +21,15 @@ uses
 
 type
   /// <summary>
-  /// Installs the OS system-trust source into a config builder for the role the builder serves:
-  /// the anchors the platform can enumerate, or the OS delegate where it cannot. A server
-  /// installer authenticates client certificates and never roots them at the public OS store (it
-  /// raises where only a delegate exists). Lets a host-neutral composer add system trust without
-  /// depending on the system-trust package.
+  /// Installs the OS system-trust source into a client config builder as the server-certificate
+  /// trust source: the anchors the platform can enumerate, or the OS delegate where it cannot. Lets
+  /// a host-neutral composer add system trust without depending on the system-trust package. System
+  /// trust never vouches for a client certificate: a server's client-CA is always caller-supplied.
   /// </summary>
   ISystemTrustInstaller = interface(IInterface)
-    ['{3F778A08-62D4-417B-9C4B-62467B114B46}']
+    ['{F16C2C50-2E66-43E0-BB40-48A4E18994AD}']
     /// <summary>Installs OS server-certificate trust into a client builder.</summary>
     procedure InstallClientTrust(const ABuilder: ITlsClientConfigBuilder;
-      const APkix: IPkixProvider);
-    /// <summary>Installs OS client-certificate (mTLS) trust into a server builder; raises where
-    /// the platform exposes only a delegate.</summary>
-    procedure InstallClientAuthTrust(const ABuilder: ITlsServerConfigBuilder;
       const APkix: IPkixProvider);
   end;
 

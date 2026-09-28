@@ -25,7 +25,7 @@ assigns `NewNetTls`; if you prefer, assign it yourself: `NewNetTls := NewTlsLib4
 |------------------------------------------|----------------------------------------------------------|
 | `CACertificatesFile`                     | `WithTrustAnchors` (PEM/DER bundle)                       |
 | `CertificateFile` + `PrivateKeyFile` + `PrivatePassword` | `WithCredential` (server cert/key, or client mTLS) |
-| `ClientCertificateAuthentication`        | `WithPeerAuth(Required)` + client-chain trust; `False` (default) never requests a client certificate. `Requested` (ask, tolerate absence) is available through `SetTlsLibMormotServerConfig` with a builder-driven config |
+| `ClientCertificateAuthentication`        | `WithPeerAuth(Required)` + client-chain trust; `False` (default) never requests a client certificate. The client-CA is `CACertificatesFile` (`CASystemStores` is a server-cert source, ignored on a server). `Requested` (ask, tolerate absence) is available through `SetTlsLibMormotServerConfig` with a builder-driven config |
 | `IgnoreCertificateErrors`                | **`dangerous` `WithDangerousInsecureSkipVerify`** (see below) |
 | `CipherName` (out)                       | filled with the negotiated suite and version (`TLS_AES_128_GCM_SHA256 TLSv1.3`) |
 
@@ -46,8 +46,9 @@ builder you drive directly (`TTlsPresets.…(crypto, pkix).Server`).
 
 `IgnoreCertificateErrors` reaches **only** our loud `InsecureSkipVerify` — a full, deliberate
 bypass of PKIX/OCSP/host/pinning for tests and pinned dev peers, **never** production. With it
-off (the default), an untrusted chain fails through our pipeline. System certificate stores
-(`CASystemStores`) are not consulted — supply `CACertificatesFile`.
+off (the default), an untrusted chain fails through our pipeline. `CASystemStores` is the OS
+server-certificate store: a client verifies a server against it, but a server never authenticates
+clients against it — a server's client-CA is `CACertificatesFile`.
 
 mORMot's native peer-verify callbacks (`OnPeerValidate` / `OnEachPeerVerify`) are **not**
 bridged, by design: their signatures hand the app an OpenSSL `PSSL` / `PX509` pointer to
