@@ -139,6 +139,8 @@ type
     procedure TestNegotiatedVersionAndAlpnSurfaced;
     procedure TestTruncationWithoutCloseNotifyIsSurfaced;
     procedure TestUntrustedChainFailsThroughOurPipeline;
+    procedure TestHandshakeFailureIsLatchedOnRetry;
+    procedure TestNonTerminalHandshakeFailureIsLatched;
     procedure TestInsecureSkipVerifyAcceptsUntrustedChain;
     procedure TestVerifyCallbackCanOnlyAdditionallyReject;
     procedure TestPinnedSelfSignedChainStillFullyVerified;
@@ -779,6 +781,90 @@ begin
   finally
     LServer.Free;
     LClient.Free;
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.TestHandshakeFailureIsLatchedOnRetry;
+var
+  LClient: TTlsStream;
+  LServer: TServerRunner;
+  LTransport: TMemoryTransport;
+  LConfig: ITlsClientConfig;
+  LBuf: TBytes;
+  LFirst, LSecond: Boolean;
+begin
+  // a failed handshake is permanent for a stream: a second Read must re-raise the same failure,
+  // never silently re-drive (which would emit a second ClientHello) or read as a truncation
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithTrustAnchors(LeafCert).Build;
+  RunLoopback(LConfig, TServerBehavior.EchoThenClose, LClient, LServer, LTransport);
+  SetLength(LBuf, 16);
+  try
+    LFirst := False;
+    try
+      LClient.Handshake;
+    except
+      on E: ETlsStreamError do
+        LFirst := True;
+    end;
+    CheckTrue(LFirst, 'the untrusted chain fails the handshake');
+    CheckFalse(LClient.IsHandshakeComplete, 'the handshake did not complete');
+    LSecond := False;
+    try
+      LClient.Read(LBuf[0], 16);
+    except
+      on E: ETlsStreamError do
+        LSecond := True;
+    end;
+    CheckTrue(LSecond, 'a read after the failed handshake re-raises rather than retrying');
+    CheckFalse(LClient.TransportTruncated,
+      'the failure is reported as itself, not masked as a truncation');
+    LServer.WaitFor;
+  finally
+    LServer.Free;
+    LClient.Free;
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.TestNonTerminalHandshakeFailureIsLatched;
+var
+  LS2C, LC2S: TMemoryPipe;
+  LTransport: TMemoryTransport;
+  LEngine: ITlsEngine;
+  LClient: TTlsStream;
+  LBuf: TBytes;
+  LFirst, LSecond: Boolean;
+begin
+  // a transport truncation during the handshake (the peer is gone before its flight) fails the
+  // engine WITHOUT making it terminal, so the re-raise takes the latched-exception path rather than
+  // the terminal-alert one; a second call must re-raise the same class, never re-drive.
+  LS2C := TMemoryPipe.Create;
+  LC2S := TMemoryPipe.Create;
+  LS2C.Close; // the client's read for the ServerHello hits EOF at once
+  LTransport := TMemoryTransport.Create(LS2C, LC2S);
+  LEngine := TTlsEngineFactory.CreateClientEngine(ClientConfig(False, nil), 'localhost');
+  LClient := TTlsStream.Create(LTransport as ITlsTransport, LEngine, True, 'localhost');
+  SetLength(LBuf, 16);
+  try
+    LFirst := False;
+    try
+      LClient.Handshake;
+    except
+      on E: ETlsTransportTruncated do
+        LFirst := True;
+    end;
+    CheckTrue(LFirst, 'a pre-flight truncation fails the handshake');
+    LSecond := False;
+    try
+      LClient.Read(LBuf[0], 16);
+    except
+      on E: ETlsTransportTruncated do
+        LSecond := True;
+    end;
+    CheckTrue(LSecond, 'the non-terminal failure is latched and re-raised as the same class');
+    CheckFalse(LClient.IsHandshakeComplete, 'the handshake did not complete');
+  finally
+    LClient.Free; // frees the stream, the transport, and the transport-owned write pipe (LC2S)
+    LS2C.Free;    // the read pipe is not owned by the single transport
   end;
 end;
 

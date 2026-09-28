@@ -43,6 +43,9 @@ type
     FIsClient: Boolean;
     FServerName: string;
     FHandshakeDone: Boolean;
+    FHandshakeFailed: Boolean;
+    FFailureClass: ExceptClass;
+    FFailureMessage: string;
     FReadClosed: Boolean;
     FWriteClosed: Boolean;
     FTruncated: Boolean;
@@ -112,8 +115,28 @@ procedure TTlsStream.EnsureHandshake;
 begin
   if FHandshakeDone then
     Exit;
+  // a failed handshake is permanent for this stream: never re-drive it (a retry would emit a
+  // second ClientHello or block on a dead transport, masking the real cause). Re-raise the
+  // engine's terminal alert if it has one, else the latched original failure. Build a new stream
+  // to retry.
+  if FHandshakeFailed then
+  begin
+    if FEngine.IsTerminal then
+      TTlsStreamPump.RaiseIfFatal(FEngine);
+    raise FFailureClass.Create(FFailureMessage);
+  end;
   // a nil resolver is exactly the inline path; a set one decides a parked async verdict
-  TTlsStreamPump.DriveHandshake(FEngine, FTransport, FIsClient, FVerdictResolver);
+  try
+    TTlsStreamPump.DriveHandshake(FEngine, FTransport, FIsClient, FVerdictResolver);
+  except
+    on E: Exception do
+    begin
+      FHandshakeFailed := True;
+      FFailureClass := ExceptClass(E.ClassType);
+      FFailureMessage := E.Message;
+      raise;
+    end;
+  end;
   FHandshakeDone := True;
 end;
 
@@ -165,16 +188,22 @@ end;
 function TTlsStream.Read(var ABuffer; ACount: Longint): Longint;
 var
   LStatus: TTlsReadStatus;
-  LGot: Int32;
+  LGot, LChunk: Int32;
 begin
   if ACount <= 0 then
     Exit(0);
   EnsureHandshake;
   if FReadClosed then
     Exit(0);
-  if System.Length(FReadChunk) < ACount then
-    SetLength(FReadChunk, ACount);
-  LGot := TTlsStreamPump.ReadApp(FEngine, FTransport, FReadChunk, ACount, LStatus);
+  // one record per cycle: bound the scratch to a single transport chunk rather than the caller's
+  // request, so a huge Read cannot inflate a per-stream buffer. A short read is within the
+  // TStream.Read contract; the caller loops for the rest.
+  LChunk := ACount;
+  if LChunk > TTlsStreamPump.TransportChunk then
+    LChunk := TTlsStreamPump.TransportChunk;
+  if System.Length(FReadChunk) < LChunk then
+    SetLength(FReadChunk, LChunk);
+  LGot := TTlsStreamPump.ReadApp(FEngine, FTransport, FReadChunk, LChunk, LStatus);
   case LStatus of
     TTlsReadStatus.Data:
       Move(FReadChunk[0], ABuffer, LGot);

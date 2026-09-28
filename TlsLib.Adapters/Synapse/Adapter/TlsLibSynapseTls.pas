@@ -264,8 +264,8 @@ end;
 function TSynapseSocketTransport.ReceiveRaw(var ABuffer: TBytes; AOffset,
   AMaxLength: Int32): Int32;
 begin
-  // 0 on an orderly close and a negative error both surface as end-of-stream to the pump (the base
-  // coerces the negative to 0)
+  // 0 is an orderly close (end-of-stream); a negative result is a receive error the base surfaces
+  // as a stream error, never as end-of-stream
   Result := synsock.Recv(FSocket.Socket, @ABuffer[AOffset], AMaxLength, MSG_NOSIGNAL);
 end;
 

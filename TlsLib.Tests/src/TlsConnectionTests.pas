@@ -114,7 +114,8 @@ type
     procedure TestTransportTimesOutWhenSilent;
     procedure TestTransportReturnsDataWhenReadable;
     procedure TestTransportCapZeroDoesNotWait;
-    procedure TestTransportNegativeReceiveIsEof;
+    procedure TestTransportNegativeReceiveRaisesStreamError;
+    procedure TestTransportZeroReceiveIsEof;
     procedure TestTransportWriteCompletesOverPartialSends;
     procedure TestTransportSetReadTimeoutIsObservable;
   end;
@@ -1029,17 +1030,40 @@ begin
   CheckEquals(1, LTimed.Read(LBuf, 0, 8), 'cap 0 does not consult the readiness wait');
 end;
 
-procedure TTestTlsConnection.TestTransportNegativeReceiveIsEof;
+procedure TTestTlsConnection.TestTransportNegativeReceiveRaisesStreamError;
+var
+  LTransport: TTestMemoryTransport;
+  LTimed: ITlsTransport;
+  LBuf: TBytes;
+  LRaised: Boolean;
+begin
+  // a negative host receive is a genuine error (reset/broken pipe), not a peer close; it must
+  // surface as a stream error, never be masked as an orderly end-of-stream
+  LTransport := TTestMemoryTransport.Create(nil, True);
+  LTransport.ReceiveNegative := True;
+  LTimed := LTransport as ITlsTransport;
+  SetLength(LBuf, 8);
+  LRaised := False;
+  try
+    LTimed.Read(LBuf, 0, 8);
+  except
+    on E: ETlsStreamError do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a negative host receive raises a stream error');
+end;
+
+procedure TTestTlsConnection.TestTransportZeroReceiveIsEof;
 var
   LTransport: TTestMemoryTransport;
   LTimed: ITlsTransport;
   LBuf: TBytes;
 begin
+  // a zero-length receive is the orderly close: still reported as end-of-stream, not an error
   LTransport := TTestMemoryTransport.Create(nil, True);
-  LTransport.ReceiveNegative := True;
   LTimed := LTransport as ITlsTransport;
   SetLength(LBuf, 8);
-  CheckEquals(0, LTimed.Read(LBuf, 0, 8), 'a negative host receive is normalized to end-of-stream');
+  CheckEquals(0, LTimed.Read(LBuf, 0, 8), 'a zero host receive is end-of-stream');
 end;
 
 procedure TTestTlsConnection.TestTransportWriteCompletesOverPartialSends;

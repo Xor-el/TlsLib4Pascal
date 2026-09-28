@@ -157,9 +157,10 @@ type
     /// reports the elapsed cap from ReceiveRaw.</summary>
     function WaitReadable(AMs: Int32): Boolean; virtual;
     /// <summary>One blocking receive: the count, 0 on an orderly close, a negative value for a host
-    /// error the caller treats as end of stream. A host whose socket bounds its own receives raises
-    /// the elapsed cap itself: ETlsHandshakeTimeout while ReadTimeoutMs is armed, else the retryable
-    /// ETlsReadTimeout (an idle application read is never end of stream).</summary>
+    /// receive error (which the base surfaces as ETlsStreamError, never as end of stream). A host
+    /// whose socket bounds its own receives raises the elapsed cap itself: ETlsHandshakeTimeout
+    /// while ReadTimeoutMs is armed, else the retryable ETlsReadTimeout (an idle application read
+    /// is never end of stream).</summary>
     function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; virtual; abstract;
     /// <summary>One send of up to ALength bytes; returns the count sent (> 0) or raises.</summary>
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; virtual; abstract;
@@ -212,8 +213,6 @@ type
     function PeerLeaf: TBytes;
     /// <summary>'TLSv1.3' / 'TLSv1.2' / '' - the negotiated version as a display string.</summary>
     function VersionName: string;
-    property Engine: ITlsEngine read FEngine;
-    property Stream: TTlsStream read FStream;
   end;
 
 implementation
@@ -235,6 +234,7 @@ resourcestring
     'the config or the cert/trust options, not both';
   SHandshakeReadTimedOut = 'the peer sent no handshake data within %d ms';
   SSendNoProgress = 'the host transport reported no send progress';
+  STransportReceiveFailed = 'the host transport reported a receive error (%d)';
 
 { TTlsBlobSource }
 
@@ -582,8 +582,10 @@ begin
   if (FReadTimeoutMs > 0) and (not WaitReadable(FReadTimeoutMs)) then
     raise ETlsHandshakeTimeout.Create(Format(SHandshakeReadTimedOut, [FReadTimeoutMs]));
   Result := ReceiveRaw(ABuffer, AOffset, AMaxLength);
+  // a negative return is a genuine receive error (a reset, a broken pipe), never a peer close
+  // (EOF = 0); surface it instead of masking it as a clean end that reads upstream as a truncation
   if Result < 0 then
-    Result := 0;
+    raise ETlsStreamError.Create(Format(STransportReceiveFailed, [Result]));
 end;
 
 procedure TTlsTimedTransportBase.Write(const ABuffer: TBytes; AOffset,
