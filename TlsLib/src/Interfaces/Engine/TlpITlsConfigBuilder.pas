@@ -492,7 +492,7 @@ type
 
   /// <summary>The TLS 1.3-only server settings.</summary>
   ITls13ServerConfigFacet = interface(IInterface)
-    ['{E6C4D3F7-0B85-4012-8D49-3F0B6E8A5C17}']
+    ['{2A9D4E71-6C38-4B05-9F82-7E1C0A5D6B34}']
     function WithCertificateDecompressors(
       const ADecompressors: TArray<ICertificateDecompressor>): ITls13ServerConfigFacet;
     function WithCertificateCompressors(
@@ -521,6 +521,11 @@ type
     /// <summary>Whether the server trial-decrypts an ECH offer against every key when the
     /// config_id does not match (RFC 9849 sec. 7.1); off by default (match by config_id).</summary>
     function WithEchTrialDecrypt(AEnabled: Boolean): ITls13ServerConfigFacet;
+    /// <summary>Deploys this server as a split-mode ECH backend (RFC 9849 sec. 7.2): it accepts an
+    /// inner-type ech forwarded by a client-facing server and confirms it. Off by default, so an
+    /// inner-type ech at a non-backend server aborts with illegal_parameter. Mutually exclusive with
+    /// WithEchKeyStore (a backend holds no ECH keys); combining them is refused at Build.</summary>
+    function WithEchSplitModeBackend: ITls13ServerConfigFacet;
     function Tls12: ITls12ServerConfigFacet;
     function Build: ITlsServerConfig;
   end;
