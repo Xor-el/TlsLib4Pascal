@@ -1,0 +1,60 @@
+TlsLib.Tests/src/MockCryptoProvider.pas
+  s_09d3c46d1a9b1f::t_b46718031c975b 131-186
+  s_09d3c46d1a9b1f::t_914ff35ff46c44 409-545
+  s_09d3c46d1a9b1f::t_b902eea94af041 23,30-34,130
+TlsLib.Tests/src/RecordLayerTests.pas
+  s_09d3c46d1a9b1f::t_c5bcb81d9de2fc 111-120
+  s_09d3c46d1a9b1f::t_85a0d7999a078c 47-48
+  s_09d3c46d1a9b1f::t_a912c8ea1eb92b 40
+  s_09d3c46d1a9b1f::t_ca19f06d35f171 762-765,769-774
+TlsLib/src/Interfaces/Crypto/Providers/TlpICryptoProvider.pas
+  s_09d3c46d1a9b1f::t_8005b844617b64 102-104,106-108
+TlsLib.Tests/src/RecordProtectionTests.pas
+  s_09d3c46d1a9b1f::t_e823de0f6985b4 41,45-56,60-63,131-132,400-401
+  s_09d3c46d1a9b1f::t_12539d1600aa65 303,306-310,324,326-336,343,346-352,365-366,368-374,376-381,385-399
+  s_09d3c46d1a9b1f::t_837f7605b4b7f1 89-115,125-130
+  s_09d3c46d1a9b1f::t_a46b7d5c1caa60 78
+TlsLib.Tests/src/TlsStreamLoopbackTests.pas
+  s_09d3c46d1a9b1f::t_5e18872dc50abd 576-579,589-604,609-610
+  s_09d3c46d1a9b1f::t_f1b62ecc843681 51
+TlsLib/src/Crypto/TlpCryptoDomainTypes.pas
+  s_09d3c46d1a9b1f::t_dd2043cc103281 38-43
+  s_09d3c46d1a9b1f::t_e2567c2be03eef 200-211
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_09d3c46d1a9b1f::t_30e21d05280c4c 649
+  s_09d3c46d1a9b1f::t_3a05fbd51a98a7 1377-1381
+TlsLib/src/Record/TlpRecordProtection.pas
+  s_09d3c46d1a9b1f::t_a7fd4717936ec0 302-305,434-437
+  s_09d3c46d1a9b1f::t_f783e95c6e61bd 39
+  s_09d3c46d1a9b1f::t_1b4784bf887af9 165-166
+TlsLib/src/Engine/TlpTlsEngine.pas
+  s_09d3c46d1a9b1f::t_a1c0eb45d7518a 51
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_09d3c46d1a9b1f::t_7ac7561a649a3f 763-770
+  s_09d3c46d1a9b1f::t_ea564472225e17 300
+TlsLib.Tests/src/Tls13KeyUpdateTests.pas
+  s_09d3c46d1a9b1f::t_bf6215d31f1874 220-221,223,226,234-235,237,239-243,245-246,248-249,264-267,269-280
+  s_09d3c46d1a9b1f::t_58868bc4584ab9 37,40
+  s_09d3c46d1a9b1f::t_03dcb877515794 52
+TlsLib.Tests/src/Tls12LoopbackTests.pas
+  s_09d3c46d1a9b1f::t_aa63062e5728d6 53
+  s_09d3c46d1a9b1f::t_42526853b2ad03 38
+  s_09d3c46d1a9b1f::t_21c2badb588792 509-512,528-529
+  s_09d3c46d1a9b1f::t_dc5f91f266f458 505,513-515
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1da685336f166dc27f1c5ef12fdec3bc9a11287b",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
