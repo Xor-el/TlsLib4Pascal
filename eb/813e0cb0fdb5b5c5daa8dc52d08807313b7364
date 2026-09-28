@@ -1,0 +1,79 @@
+TlsLib.Tests/src/TlsConnectionTests.pas
+  s_09d3c46d1a9b1f::t_605f053c06122d 769,774,776,783-802,804-807,817,823
+  s_09d3c46d1a9b1f::t_08008863d1dbc9 350
+  s_09d3c46d1a9b1f::t_6a7a3b1bf5d68e 777-779
+  s_09d3c46d1a9b1f::t_4bc94e7f97142b 897-911
+  s_09d3c46d1a9b1f::t_0e82952053e921 1148-1149,1153-1154
+  s_09d3c46d1a9b1f::t_ff55551cb5e7a7 102-103
+docs/system-trust.md
+  s_09d3c46d1a9b1f::t_7a06a1935db377 271-272
+  s_09d3c46d1a9b1f::t_d1299f25880db2 163-164
+  s_09d3c46d1a9b1f::t_d9742ca2dbc68b 350-353
+  s_09d3c46d1a9b1f::t_753ceee3ec7dd4 104-119
+TlsLib.Adapters/Synapse/Adapter/TlsLibSynapseTls.pas
+  s_09d3c46d1a9b1f::t_b65b3c35565b61 222
+  s_09d3c46d1a9b1f::t_189664efe4d140 359
+  s_09d3c46d1a9b1f::t_88af773904e9cd 178-183
+TlsLib.Adapters/mORMot/Adapter/TlsLibMormotTls.pas
+  s_09d3c46d1a9b1f::t_17682aa9a85443 427
+  s_09d3c46d1a9b1f::t_7aeb74d7b10196 199
+  s_09d3c46d1a9b1f::t_2085d05e870b4c 379-384,394-395
+TlsLib.Adapters/Synapse/README.md
+  s_09d3c46d1a9b1f::t_d387b16111f4bf 42
+  s_09d3c46d1a9b1f::t_c943bc8e48a79a 48-51
+TlsLib.Adapters/mORMot/README.md
+  s_09d3c46d1a9b1f::t_ec32d7113e42b7 28
+  s_09d3c46d1a9b1f::t_2dfd928e299b9c 49-51
+TlsLib/src/Interfaces/Engine/TlpISystemTrustInstaller.pas
+  s_09d3c46d1a9b1f::t_66a9895a0fbfc1 24-27,30
+TlsLib.Trust.System/src/TlpSystemTrustFacade.pas
+  s_09d3c46d1a9b1f::t_45cee713b8fef1 59-61
+  s_09d3c46d1a9b1f::t_f43cf6620e9f17 29-36
+TlsLib.Adapters/Indy/Adapter/TlsLibIndyTls.pas
+  s_09d3c46d1a9b1f::t_3b46134913fe13 171-176
+  s_09d3c46d1a9b1f::t_0ddc17cdb2ea6b 308-309
+  s_09d3c46d1a9b1f::t_16092f7158074d 393
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_09d3c46d1a9b1f::t_3d054e605ec1e6 1914-1915,1918,1926,1928-1934,1936-1939
+  s_09d3c46d1a9b1f::t_b760128fb937c7 74
+  s_09d3c46d1a9b1f::t_249a29be9afdc4 118
+  s_09d3c46d1a9b1f::t_83c391587e44fc 1911,1913,1917,1919-1922,1924-1925
+TlsLib.Adapters/FclNet/README.md
+  s_09d3c46d1a9b1f::t_039ff51c87a7a2 90
+  s_09d3c46d1a9b1f::t_9de44614c5bd7f 116-118
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_09d3c46d1a9b1f::t_e5db3679f377c1 474
+  s_09d3c46d1a9b1f::t_00a23403417c33 189-192
+  s_09d3c46d1a9b1f::t_feba210dbbc6fe 314-315
+TlsLib.Adapters/Indy/README.md
+  s_09d3c46d1a9b1f::t_753c0056519c0d 43
+  s_09d3c46d1a9b1f::t_38d49313d4a35f 64-67
+TlsLib/src/Engine/TlpTlsConnection.pas
+  s_09d3c46d1a9b1f::t_b5c8e6b57eac46 126-128
+  s_09d3c46d1a9b1f::t_22a7b8c22837c8 538
+  s_09d3c46d1a9b1f::t_32940db2ff9e4a 81-82
+  s_09d3c46d1a9b1f::t_23891cfc7de910 100-101
+  s_09d3c46d1a9b1f::t_3d81a004366a06 363-364,366
+  s_09d3c46d1a9b1f::t_d98fca1b9d4fb7 555,557-559,561,572
+  s_09d3c46d1a9b1f::t_81a3dadabc8e74 465-467
+  s_09d3c46d1a9b1f::t_031cbd5f3f6023 442-447,449-450
+  s_09d3c46d1a9b1f::t_f0751d6d9e0985 238-243
+TlsLib.Trust.System/src/TlpOSSystemTrust.pas
+  s_09d3c46d1a9b1f::t_618626c34b9ee8 67-70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "eb813e0cb0fdb5b5c5daa8dc52d08807313b7364",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
