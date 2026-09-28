@@ -1,0 +1,29 @@
+TlsLib.Adapters/Indy/README.md
+  s_09d3c46d1a9b1f::t_22d8d1c72c5d6a 61-66
+  s_09d3c46d1a9b1f::t_6c07f541fa4b4e 41,43
+  s_09d3c46d1a9b1f::t_64fe35583ac2af 67
+TlsLib.Adapters/FclNet/README.md
+  s_09d3c46d1a9b1f::t_1271e011abda0f 114-117
+  s_09d3c46d1a9b1f::t_bf01e1494cd238 90
+TlsLib.Adapters/Synapse/README.md
+  s_09d3c46d1a9b1f::t_a73e1481beda5f 47-51
+  s_09d3c46d1a9b1f::t_3a3b346a5e0cda 42
+TlsLib.Adapters/mORMot/README.md
+  s_09d3c46d1a9b1f::t_1db8a95dbf6f9c 28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "93026fe19408c0273b622ad7fa392f1b348ca91e",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
