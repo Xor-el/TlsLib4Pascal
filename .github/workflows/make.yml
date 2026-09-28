@@ -70,10 +70,10 @@ env:
   # against a per-run generated CA on every native leg, plus - on Windows/macOS - the OS trust
   # delegate against a throwaway root installed into the machine store. Set false to skip them.
   MAKE_RUN_TRUST: true
-  # When true (default), the native legs compile the fcl-net adapter package + its six examples
-  # against the prebuilt packages and run its four in-process loopback examples (no network; the
-  # real-world example is compile-only, the wedge demo compile-only). fcl-net ships in the FPC
-  # tarball, so this needs no extra deps; the other three adapters need third-party frameworks CI
+  # When true (default), the native legs (Linux, Windows, macOS) compile the fcl-net adapter package
+  # + its six examples against the prebuilt packages and run its four in-process loopback examples (no
+  # network; the real-world example is compile-only, the wedge demo compile-only). fcl-net ships in the
+  # FPC tarball, so this needs no extra deps; the other three adapters need third-party frameworks CI
   # does not install and stay out of scope. Read by that job's fclnet-build.sh step. Set false to skip.
   MAKE_RUN_FCLNET: true
   # When true, the interop harness (self-test, fuzzer, openssl matrix and BoGo) runs against
@@ -328,6 +328,16 @@ jobs:
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['macos-arm64'].fpc_tarball_target }}
         run: bash .github/workflows/ci/native-build.sh
 
+      # FclNet adapter: compile the fcl-net adapter + examples and run its loopbacks (no deps
+      # beyond the FPC tarball). Runs after Build so the packages are already compiled. macOS also
+      # exercises the Darwin SO_NOSIGPIPE send path, which only runs here.
+      - name: FclNet adapter (build + loopback)
+        shell: bash
+        env:
+          FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['macos-arm64'].fpc_target }}
+          MAKE_RUN_FCLNET: ${{ env.MAKE_RUN_FCLNET }}
+        run: bash .github/workflows/ci/adapters/fclnet-build.sh
+
       # Interop harness (self-test + fuzzer + openssl matrix + BoGo hard gate) as on Linux.
       # The openssl matrix runs against Homebrew's openssl@3 (the runner's system openssl is
       # LibreSSL): run-openssl-matrix.sh prefers it and self-skips if it is somehow absent.
@@ -360,6 +370,16 @@ jobs:
           FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['macos-x64'].fpc_target }}
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['macos-x64'].fpc_tarball_target }}
         run: bash .github/workflows/ci/native-build.sh
+
+      # FclNet adapter: compile the fcl-net adapter + examples and run its loopbacks (no deps
+      # beyond the FPC tarball). Runs after Build so the packages are already compiled. macOS also
+      # exercises the Darwin SO_NOSIGPIPE send path, which only runs here.
+      - name: FclNet adapter (build + loopback)
+        shell: bash
+        env:
+          FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['macos-x64'].fpc_target }}
+          MAKE_RUN_FCLNET: ${{ env.MAKE_RUN_FCLNET }}
+        run: bash .github/workflows/ci/adapters/fclnet-build.sh
 
       - name: Interop harness
         uses: ./.github/workflows/ci/interop/interop-harness
