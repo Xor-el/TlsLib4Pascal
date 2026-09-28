@@ -1,0 +1,27 @@
+.github/workflows/make.yml
+  s_09d3c46d1a9b1f::t_807b4d8e314cbd 157-165
+  s_09d3c46d1a9b1f::t_194447791cce75 286-294
+  s_09d3c46d1a9b1f::t_b2c78918c73fbd 73-78
+  s_09d3c46d1a9b1f::t_9eafd6a1b7d6aa 201-209
+.github/workflows/ci/adapters/fclnet-build.sh
+  s_09d3c46d1a9b1f::t_40308c73790f0d 44-45
+  s_09d3c46d1a9b1f::t_94a65a9a190f43 1-43,46-48,53-85,87-110
+  s_09d3c46d1a9b1f::t_11e7901edb0410 86
+  s_09d3c46d1a9b1f::t_6a90c9e22d4733 49-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5c7791648442dd3665c15eb0f99dab8bbf199b18",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": null
+    }
+  }
+}
