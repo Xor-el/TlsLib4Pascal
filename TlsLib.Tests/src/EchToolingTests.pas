@@ -19,9 +19,13 @@ interface
 
 uses
   SysUtils,
+  Classes,
 {$IFDEF FPC}
   fpcunit,
   testregistry,
+  {$IFDEF UNIX}
+  BaseUnix,
+  {$ENDIF}
 {$ELSE}
   TestFramework,
 {$ENDIF FPC}
@@ -53,6 +57,7 @@ type
     function BuildEchConfigFor(out APublicKey: TBytes;
       out APrivateKey: ISecretBuffer): TEchConfig;
   published
+    procedure TestKeyGenWritesPrivateFileOwnerOnly;
     procedure TestKeyGenPemRoundTripsThroughStore;
     procedure TestKeyGenKeyPairSealsAndOpens;
     procedure TestKeyGenDnsLineNamesOrigin;
@@ -105,6 +110,41 @@ begin
     LWriter.WriteBytes(TBytes.Create(2, Ord('h'), Ord('2')));
   end;
   Result := LWriter.ToBytes;
+end;
+
+procedure TTestEchTooling.TestKeyGenWritesPrivateFileOwnerOnly;
+var
+  LPath: string;
+  LData, LReadBack: TBytes;
+  LStream: TFileStream;
+{$IF DEFINED(FPC) AND DEFINED(UNIX)}
+  LInfo: Stat;
+{$IFEND}
+begin
+  LData := TBytes.Create($01, $02, $03, $04, $05);
+  LPath := 'tlslib_echkey_perm_test.pem';
+  try
+    TEchKeyGenerator.WritePrivateFile(LPath, LData);
+    // the bytes land intact
+    LStream := TFileStream.Create(LPath, fmOpenRead);
+    try
+      SetLength(LReadBack, LStream.Size);
+      if LStream.Size > 0 then
+        LStream.ReadBuffer(LReadBack[0], LStream.Size);
+    finally
+      LStream.Free;
+    end;
+    CheckEqualBytes('the key file round-trips', LData, LReadBack);
+{$IF DEFINED(FPC) AND DEFINED(UNIX)}
+    // the private key file is owner-only (0600), set before any bytes were written
+    CheckEquals(0, FpStat(LPath, LInfo), 'stat the key file');
+    CheckEquals($180, Integer(LInfo.st_mode and $1FF),
+      'the key file mode is 0600 (owner read/write only)');
+{$IFEND}
+  finally
+    if FileExists(LPath) then
+      DeleteFile(LPath);
+  end;
 end;
 
 procedure TTestEchTooling.TestKeyGenPemRoundTripsThroughStore;
