@@ -129,8 +129,11 @@ type
     /// <summary>Raises when a fully-built config is supplied together with an option the same role's
     /// options-driven build would consume and the config therefore silently replaces (APropertyName
     /// names the config property in the message). Role-aware: only the client build reads the augment
-    /// callback and the server-cert verifier, only the server build reads the client-cert verifier.
-    /// The verdict resolvers and the handshake timeout are runtime hooks and never conflict.</summary>
+    /// callback, the server-cert verifier, peer verification, the skip-verify bypass and the
+    /// host-name check; only the server build reads the client-cert verifier; resumption is read by
+    /// both. A security toggle conflicts only when set away from its default - a host that both
+    /// changed a toggle and supplied a config that ignores it. The verdict resolvers and the
+    /// handshake timeout are runtime hooks and never conflict.</summary>
     class procedure GuardNoConflict(const AOptions: TTlsOptions;
       AIsClient: Boolean; const APropertyName: string); static;
     /// <summary>The client config for one handshake: the supplied ClientConfig (after the conflict
@@ -231,8 +234,8 @@ resourcestring
     'peer verification is on but no trust source was named; set %s (system trust is never ' +
     'implicit), or turn peer verification off to skip verification';
   SConfigAndOptionsConflict =
-    '%s is set together with cert/trust options that a fully-built config replaces; supply either ' +
-    'the config or the cert/trust options, not both';
+    '%s is set together with cert/trust/ALPN/provider options or a non-default security toggle ' +
+    'that a fully-built config replaces; supply either the config or those options, not both';
   SHandshakeReadTimedOut = 'the peer sent no handshake data within %d ms';
   SSendNoProgress = 'the host transport reported no send progress';
   STransportReceiveFailed = 'the host transport reported a receive error (%d)';
@@ -514,9 +517,16 @@ begin
     HasTrustAnchor(AOptions) or (AOptions.SystemTrust <> nil) or
     (AOptions.CustomTrustStore <> nil) or (System.Length(AOptions.AlpnProtocols) > 0) or
     (AOptions.Crypto <> nil) or (AOptions.Pkix <> nil);
+  // a security toggle always carries a value, so flag only a NON-DEFAULT one the host actively chose
+  // that a supplied config then silently drops. Resumption is read by both role builds. Peer
+  // verification, the skip-verify bypass and the host-name check are client-only reads: the server
+  // build consumes none of them on its own (its peer verification is gated by a client-trust source,
+  // which already conflicts above).
+  LConflict := LConflict or (not AOptions.SessionResumption);
   if AIsClient then
     LConflict := LConflict or (AOptions.ServerCertificateVerifier <> nil) or
-      Assigned(AOptions.VerifyCallback)
+      Assigned(AOptions.VerifyCallback) or (not AOptions.VerifyPeer) or
+      AOptions.InsecureSkipVerify or (not AOptions.CheckHostName)
   else
     LConflict := LConflict or (AOptions.ClientCertificateVerifier <> nil);
   if LConflict then

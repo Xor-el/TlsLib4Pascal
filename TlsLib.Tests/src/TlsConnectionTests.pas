@@ -104,6 +104,7 @@ type
     procedure TestResolveMemoisesBuildOnce;
     procedure TestResolveConfigInReturnedAsIs;
     procedure TestGuardConflictOnEachField;
+    procedure TestGuardConflictOnSecurityToggles;
     procedure TestGuardIncludesVerifyCallback;
     procedure TestGuardMessageNamesTheProperty;
     procedure TestGuardIgnoresResolverAndTimeout;
@@ -865,6 +866,52 @@ begin
   LOpts.SystemTrust := TFakeSystemTrustInstaller.Create(False, EcP256RootStore)
     as ISystemTrustInstaller;
   ExpectConflict(LOpts, 'system trust');
+end;
+
+procedure TTestTlsConnection.TestGuardConflictOnSecurityToggles;
+
+  function Conflicts(const AOpts: TTlsOptions; AIsClient: Boolean): Boolean;
+  begin
+    Result := False;
+    try
+      TTlsConfigComposer.GuardNoConflict(AOpts, AIsClient, 'ClientConfig');
+    except
+      on E: ETlsStreamError do
+        Result := True;
+    end;
+  end;
+
+var
+  LOpts: TTlsOptions;
+begin
+  // a non-default toggle is silently dropped by a supplied config, so it must fail loud; the default
+  // never conflicts (that is the common config-in case)
+  LOpts := TTlsOptions.Default;
+  CheckFalse(Conflicts(LOpts, True), 'all-default toggles do not conflict (client)');
+  CheckFalse(Conflicts(LOpts, False), 'all-default toggles do not conflict (server)');
+
+  // peer verification, the skip-verify bypass and the host-name check are client-only reads; the
+  // server build consumes none of them on its own
+  LOpts := TTlsOptions.Default;
+  LOpts.VerifyPeer := False;
+  CheckTrue(Conflicts(LOpts, True), 'VerifyPeer off conflicts with a supplied config (client)');
+  CheckFalse(Conflicts(LOpts, False), 'VerifyPeer off does not conflict on the server');
+
+  LOpts := TTlsOptions.Default;
+  LOpts.InsecureSkipVerify := True;
+  CheckTrue(Conflicts(LOpts, True), 'skip-verify conflicts with a supplied config (client)');
+  CheckFalse(Conflicts(LOpts, False), 'skip-verify does not conflict on the server');
+
+  LOpts := TTlsOptions.Default;
+  LOpts.CheckHostName := False;
+  CheckTrue(Conflicts(LOpts, True), 'name-check off conflicts with a supplied config (client)');
+  CheckFalse(Conflicts(LOpts, False), 'name-check off does not conflict on the server');
+
+  // resumption is read by both role builds
+  LOpts := TTlsOptions.Default;
+  LOpts.SessionResumption := False;
+  CheckTrue(Conflicts(LOpts, True), 'resumption off conflicts with a supplied config (client)');
+  CheckTrue(Conflicts(LOpts, False), 'resumption off conflicts with a supplied config (server)');
 end;
 
 procedure TTestTlsConnection.TestGuardIncludesVerifyCallback;
