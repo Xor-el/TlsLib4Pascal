@@ -1,0 +1,34 @@
+TlsLib.Tests/src/CredentialImportTests.pas
+  s_09d3c46d1a9b1f::t_753b5e76b48ee4 418-452
+  s_09d3c46d1a9b1f::t_431fac7d681a9d 34
+  s_09d3c46d1a9b1f::t_65ffadddddbd91 79-83
+TlsLib/src/Handshake/TlpTlsCredential.pas
+  s_09d3c46d1a9b1f::t_0cfdab5be54aa3 117-151
+  s_09d3c46d1a9b1f::t_09eff68b4a7177 54-69
+  s_09d3c46d1a9b1f::t_98f8e571a96cfe 21-25
+TlsLib.Tests/src/Pkcs12ImportTests.pas
+  s_09d3c46d1a9b1f::t_dd8623dcf2014d 84-86
+  s_09d3c46d1a9b1f::t_28b1aca3de4c94 82-83
+  s_09d3c46d1a9b1f::t_40107c28c1970f 36-39
+  s_09d3c46d1a9b1f::t_7548c77272d87e 316-354
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_09d3c46d1a9b1f::t_519b02d708d518 167-169
+  s_09d3c46d1a9b1f::t_3e190921d4ec38 1583
+  s_09d3c46d1a9b1f::t_0019f08030e6ad 1576,1582,1594-1595,1598-1610
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e5ce1efa13937e995b14e54b8dda4dbd2624ec25",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
