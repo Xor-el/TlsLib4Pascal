@@ -359,7 +359,7 @@ begin
   // anchors + the OS store + a custom store all UNION. Adding both a verifier and an anchor source
   // is left to fail as the builder's typed conflict. System trust is never implicit.
   if AOptions.ServerCertificateVerifier <> nil then
-    LClient.WithCertificateVerifier(AOptions.ServerCertificateVerifier);
+    LClient.WithDangerousCertificateVerifier(AOptions.ServerCertificateVerifier);
   for LI := 0 to System.High(AOptions.TrustAnchors) do
     if not AOptions.TrustAnchors[LI].IsEmpty then
       LClient.WithTrustAnchors(Load(AOptions.TrustAnchors[LI]));
@@ -423,7 +423,7 @@ begin
   begin
     LServer.WithPeerAuth(AOptions.ClientAuth);
     if AOptions.ClientCertificateVerifier <> nil then
-      LServer.WithCertificateVerifier(AOptions.ClientCertificateVerifier);
+      LServer.WithDangerousCertificateVerifier(AOptions.ClientCertificateVerifier);
     for LI := 0 to System.High(AOptions.TrustAnchors) do
       if not AOptions.TrustAnchors[LI].IsEmpty then
         LServer.WithTrustAnchors(Load(AOptions.TrustAnchors[LI]));

@@ -37,7 +37,7 @@ type
   /// Compatible is the broad default, offering TLS 1.3 and the hardened TLS 1.2 profile
   /// (ECDHE + AEAD + Extended Master Secret); Hardened is TLS 1.3 only with the
   /// post-quantum hybrid group preferred; Strict is TLS 1.3 only over a fixed group
-  /// allowlist (X25519 and the PQ hybrid) with tight certificate limits. The names
+  /// allowlist (the PQ hybrid, X25519 and secp256r1) with tight certificate limits. The names
   /// describe posture rather than an era, so their contents can track evolving best
   /// practice without the labels going stale. Each returns a still-mutable builder to
   /// which the caller adds a trust source or credential.
@@ -116,9 +116,11 @@ var
   LLimits: TCertificateChainLimits;
 begin
   LProfile := Base(ACryptoProvider);
-  // a fixed allowlist: only X25519 and the post-quantum hybrid
+  // a fixed allowlist: the post-quantum hybrid, X25519, and secp256r1 (mandatory to implement,
+  // RFC 8446 9.1), so a Strict endpoint stays interoperable with a conformant peer
   LProfile.PreferredGroups := TArray<UInt16>.Create(
-    TNamedGroupCatalog.X25519MlKem768, TNamedGroupCatalog.X25519);
+    TNamedGroupCatalog.X25519MlKem768, TNamedGroupCatalog.X25519,
+    TNamedGroupCatalog.Secp256r1);
   // a hardened profile expects a short chain of compact certificates
   LLimits.MaxCertificateLength := 1 shl 14;
   LLimits.MaxTotalChainLength := 1 shl 15;

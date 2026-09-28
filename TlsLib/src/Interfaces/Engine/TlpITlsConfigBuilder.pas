@@ -86,7 +86,7 @@ type
   /// source (no silent-insecure).
   /// </summary>
   ITlsClientConfigBuilder = interface(IInterface)
-    ['{FAB3A447-2D3D-4F89-BCC4-58C9A3AD99C2}']
+    ['{EB62CA23-2F28-4C47-8DD4-6B7D394A34A7}']
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): ITlsClientConfigBuilder;
     function WithSignatureSchemes(const ARegistry: ISignatureSchemeRegistry): ITlsClientConfigBuilder;
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): ITlsClientConfigBuilder;
@@ -103,17 +103,17 @@ type
     /// <summary>Trust anchors from a PEM block (one certificate or a bundle) or a single
     /// DER certificate, loaded through the provider.</summary>
     function WithTrustAnchors(const AData: TBytes): ITlsClientConfigBuilder;
-    /// <summary>Injects a whole-verifier that replaces the built-in trust pipeline for the
-    /// server certificate (e.g. an OS delegate). Exclusive: combining it with any anchor
-    /// source (WithTrustStore/WithTrustAnchors), or setting two verifiers, is a typed error
-    /// at Build.</summary>
-    function WithCertificateVerifier(
+    /// <summary>DANGEROUS: injects a whole-verifier that REPLACES the built-in trust pipeline for
+    /// the server certificate (e.g. an OS delegate) - the caller owns every check the pipeline would
+    /// have run. Exclusive: combining it with any anchor source (WithTrustStore/WithTrustAnchors),
+    /// or setting two verifiers, is a typed error at Build.</summary>
+    function WithDangerousCertificateVerifier(
       const AVerifier: IServerCertificateVerifier): ITlsClientConfigBuilder;
     /// <summary>Installs a per-connection source that builds the server-certificate verifier
     /// from the connection's trust context (its clock and revocation posture), rather than a
     /// pre-built instance - so an OS trust delegate (TlsLib.Trust.System) can honor them.
-    /// Same exclusivity as WithCertificateVerifier: not combinable with an anchor source or a
-    /// second verifier.</summary>
+    /// Same exclusivity as WithDangerousCertificateVerifier: not combinable with an anchor source
+    /// or a second verifier.</summary>
     function WithCertificateVerifierSource(
       const ASource: IServerCertificateVerifierSource): ITlsClientConfigBuilder;
     /// <summary>The certificate-chain resource caps applied before PKIX validation.</summary>
@@ -206,16 +206,16 @@ type
     /// ones into; providing one engages client resumption (subject to WithResumption). Sessions
     /// this configuration establishes are scoped to it: a cache instance shared with another
     /// configuration does not resume across the two, so a strict configuration never resumes a
-    /// session a lenient one authenticated. Use the overload with an explicit scope to opt two
-    /// configurations into sharing (asserting they trust identically), or WithResumeVerification
-    /// to re-check a resumed server when trust may differ.</summary>
-    function WithSessionCache(const ACache: ISessionCache): ITlsClientConfigBuilder; overload;
-    /// <summary>As above, but pins the cache scope to AScope so configurations given the same
-    /// scope resume each other's sessions from a shared cache. Caller asserts they trust
-    /// identically. An empty scope behaves like the no-scope overload (a fresh per-configuration
-    /// scope).</summary>
-    function WithSessionCache(const ACache: ISessionCache;
-      const AScope: TBytes): ITlsClientConfigBuilder; overload;
+    /// session a lenient one authenticated. Use WithResumptionScope to opt two configurations into
+    /// sharing (asserting they trust identically), or WithResumeVerification to re-check a resumed
+    /// server when trust may differ.</summary>
+    function WithSessionCache(const ACache: ISessionCache): ITlsClientConfigBuilder;
+    /// <summary>Pins this configuration's cache scope to AScope (an opaque tag of at most 32 bytes)
+    /// so configurations given the same scope resume each other's sessions from a shared cache; the
+    /// caller asserts they trust identically. Empty or unset (the default) mints a fresh
+    /// per-configuration scope, so a shared cache never resumes across configurations. Independent of
+    /// the WithSessionCache call order.</summary>
+    function WithResumptionScope(const AScope: TBytes): ITlsClientConfigBuilder;
     /// <summary>The clock the client reads for a resumption PSK's obfuscated_ticket_age and
     /// ticket-lifetime expiry (RFC 8446 4.2.11 / 4.6.1); nil (the default) uses the system
     /// clock. Injectable primarily so tests can drive a deterministic time.</summary>
@@ -305,7 +305,7 @@ type
   /// certificate credential.
   /// </summary>
   ITlsServerConfigBuilder = interface(IInterface)
-    ['{B4AB75A4-975B-4CA0-8177-9E863866E875}']
+    ['{8026CEB7-52F8-4F06-8E84-515634846EE7}']
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): ITlsServerConfigBuilder;
     function WithSignatureSchemes(const ARegistry: ISignatureSchemeRegistry): ITlsServerConfigBuilder;
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): ITlsServerConfigBuilder;
@@ -334,10 +334,11 @@ type
     function WithTrustStore(const AStore: ITrustAnchorStore): ITlsServerConfigBuilder;
     /// <summary>As WithTrustStore, from a PEM block/bundle or a single DER certificate.</summary>
     function WithTrustAnchors(const AData: TBytes): ITlsServerConfigBuilder;
-    /// <summary>Injects a whole-verifier that replaces the built-in trust pipeline for a
-    /// requested client certificate. Exclusive: combining it with any anchor source, or
-    /// setting two verifiers, is a typed error at Build.</summary>
-    function WithCertificateVerifier(
+    /// <summary>DANGEROUS: injects a whole-verifier that REPLACES the built-in trust pipeline for a
+    /// requested client certificate - the caller owns every check the pipeline would have run.
+    /// Exclusive: combining it with any anchor source, or setting two verifiers, is a typed error
+    /// at Build.</summary>
+    function WithDangerousCertificateVerifier(
       const AVerifier: IClientCertificateVerifier): ITlsServerConfigBuilder;
     /// <summary>Installs a per-connection source that builds the client-certificate verifier
     /// from the connection's client-trust context (its clock and revocation posture) - so an OS
@@ -346,7 +347,7 @@ type
     /// (unlike an injected whole-verifier) it composes with WithTrustAnchors/WithTrustStore. With
     /// WithPeerAuth on, Build requires those anchors to yield at least one root (a source with
     /// nothing to consume is refused, not deferred to a handshake failure); a verifier that brings
-    /// its own roots belongs in WithCertificateVerifier.</summary>
+    /// its own roots belongs in WithDangerousCertificateVerifier.</summary>
     function WithCertificateVerifierSource(
       const ASource: IClientCertificateVerifierSource): ITlsServerConfigBuilder;
     function WithCertificateChainLimits(

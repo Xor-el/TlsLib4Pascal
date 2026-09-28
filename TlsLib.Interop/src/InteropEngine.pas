@@ -357,7 +357,7 @@ begin
     // verify the server chain against the supplied trust anchor, or accept any chain when
     // the test supplies none (the leaf-parse and signature checks still run first)
     if AOptions.AcceptAnyPeerCert and (AOptions.Trust = nil) then
-      LClient.WithCertificateVerifier(
+      LClient.WithDangerousCertificateVerifier(
         TInteropAcceptAnyVerifier.Create as IServerCertificateVerifier)
     else
       LClient.WithTrustStore(AOptions.Trust);
@@ -394,7 +394,8 @@ begin
       // omission a loud harness error rather than an unexplained interop mismatch
       if System.Length(AOptions.SessionScope) = 0 then
         raise Exception.Create('a shared interop session cache requires a shared scope');
-      LClient.WithSessionCache(AOptions.SessionCache, AOptions.SessionScope);
+      LClient.WithSessionCache(AOptions.SessionCache);
+      LClient.WithResumptionScope(AOptions.SessionScope);
     end;
     if AOptions.ReverifyOnResume then
       LClient.WithResumeVerification(TResumeVerification.Reverify);
@@ -445,7 +446,7 @@ begin
     begin
       LServer.WithPeerAuth(AOptions.ClientAuth);
       if AOptions.AcceptAnyPeerCert and (AOptions.Trust = nil) then
-        LServer.WithCertificateVerifier(
+        LServer.WithDangerousCertificateVerifier(
           TInteropAcceptAnyVerifier.Create as IClientCertificateVerifier)
       else
         LServer.WithTrustStore(AOptions.Trust);

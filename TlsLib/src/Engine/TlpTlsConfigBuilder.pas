@@ -260,9 +260,8 @@ type
     function WithExternalPreSharedKeys(
       const APsks: TArray<TExternalPsk>): TTlsConfigBuilder;
     function WithExternalPskRequired(AEnabled: Boolean): TTlsConfigBuilder;
-    function WithSessionCache(const ACache: ISessionCache): TTlsConfigBuilder; overload;
-    function WithSessionCache(const ACache: ISessionCache;
-      const AScope: TBytes): TTlsConfigBuilder; overload;
+    function WithSessionCache(const ACache: ISessionCache): TTlsConfigBuilder;
+    function WithSessionScope(const AScope: TBytes): TTlsConfigBuilder;
     function WithResumeVerification(AMode: TResumeVerification): TTlsConfigBuilder;
     function WithClock(const AClock: ITlsClock): TTlsConfigBuilder;
     function WithDangerousKeyLog(const AKeyLog: IKeyLog): TTlsConfigBuilder;
@@ -321,7 +320,7 @@ resourcestring
   SClientVerifierSourceNeedsAnchors = 'a client-certificate verifier source consumes the ' +
     'configured client-CA anchors as its exclusive trust root and can trust nothing without them; ' +
     'add WithTrustAnchors/WithTrustStore yielding at least one root certificate (a verifier that ' +
-    'brings its own roots is installed with WithCertificateVerifier instead)';
+    'brings its own roots is installed with WithDangerousCertificateVerifier instead)';
   SMtlsSharedResumptionNeedsScope = 'client authentication with a supplied session store or ' +
     'ticket-key manager requires WithResumptionScope: a key or store may be shared across ' +
     'configurations, and a resumed handshake reuses the stored client identity unverified';
@@ -537,7 +536,7 @@ type
     function WithGrease(AEnable: Boolean): ITlsClientConfigBuilder;
     function WithTrustStore(const AStore: ITrustAnchorStore): ITlsClientConfigBuilder;
     function WithTrustAnchors(const AData: TBytes): ITlsClientConfigBuilder;
-    function WithCertificateVerifier(
+    function WithDangerousCertificateVerifier(
       const AVerifier: IServerCertificateVerifier): ITlsClientConfigBuilder;
     function WithCertificateVerifierSource(
       const ASource: IServerCertificateVerifierSource): ITlsClientConfigBuilder;
@@ -571,9 +570,8 @@ type
       ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
     function WithLiveRevocationVerdict(
       ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
-    function WithSessionCache(const ACache: ISessionCache): ITlsClientConfigBuilder; overload;
-    function WithSessionCache(const ACache: ISessionCache;
-      const AScope: TBytes): ITlsClientConfigBuilder; overload;
+    function WithSessionCache(const ACache: ISessionCache): ITlsClientConfigBuilder;
+    function WithResumptionScope(const AScope: TBytes): ITlsClientConfigBuilder;
     function WithResumeVerification(AMode: TResumeVerification): ITlsClientConfigBuilder;
     function WithClock(const AClock: ITlsClock): ITlsClientConfigBuilder;
     function WithDangerousKeyLog(const AKeyLog: IKeyLog): ITlsClientConfigBuilder;
@@ -600,7 +598,7 @@ type
     function WithClientCertificateAuthorities(const AAuthorities: TArray<TBytes>): ITlsServerConfigBuilder;
     function WithTrustStore(const AStore: ITrustAnchorStore): ITlsServerConfigBuilder;
     function WithTrustAnchors(const AData: TBytes): ITlsServerConfigBuilder;
-    function WithCertificateVerifier(
+    function WithDangerousCertificateVerifier(
       const AVerifier: IClientCertificateVerifier): ITlsServerConfigBuilder;
     function WithCertificateVerifierSource(
       const ASource: IClientCertificateVerifierSource): ITlsServerConfigBuilder;
@@ -1048,7 +1046,7 @@ begin
   Result := Self;
 end;
 
-function TTlsClientConfigBuilder.WithCertificateVerifier(
+function TTlsClientConfigBuilder.WithDangerousCertificateVerifier(
   const AVerifier: IServerCertificateVerifier): ITlsClientConfigBuilder;
 begin
   FOwner.WithServerCertificateVerifier(AVerifier);
@@ -1172,10 +1170,10 @@ begin
   Result := Self;
 end;
 
-function TTlsClientConfigBuilder.WithSessionCache(const ACache: ISessionCache;
+function TTlsClientConfigBuilder.WithResumptionScope(
   const AScope: TBytes): ITlsClientConfigBuilder;
 begin
-  FOwner.WithSessionCache(ACache, AScope);
+  FOwner.WithSessionScope(AScope);
   Result := Self;
 end;
 
@@ -1322,7 +1320,7 @@ begin
   Result := Self;
 end;
 
-function TTlsServerConfigBuilder.WithCertificateVerifier(
+function TTlsServerConfigBuilder.WithDangerousCertificateVerifier(
   const AVerifier: IClientCertificateVerifier): ITlsServerConfigBuilder;
 begin
   FOwner.WithClientCertificateVerifier(AVerifier);
@@ -2469,16 +2467,18 @@ function TTlsConfigBuilder.WithSessionCache(
   const ACache: ISessionCache): TTlsConfigBuilder;
 begin
   GuardMutable;
+  // the scope is set independently (WithSessionScope), so this never clears it: the two setters are
+  // order-insensitive and BuildClient mints a fresh scope only when none was pinned
   FSessionCache := ACache;
-  FSessionScope := nil; // a fresh per-configuration scope is minted at BuildClient
   Result := Self;
 end;
 
-function TTlsConfigBuilder.WithSessionCache(const ACache: ISessionCache;
+function TTlsConfigBuilder.WithSessionScope(
   const AScope: TBytes): TTlsConfigBuilder;
 begin
   GuardMutable;
-  FSessionCache := ACache;
+  if System.Length(AScope) > MaxResumptionScopeLength then
+    raise EArgumentTlsLibException.CreateRes(@SResumptionScopeTooLong);
   FSessionScope := System.Copy(AScope);
   Result := Self;
 end;

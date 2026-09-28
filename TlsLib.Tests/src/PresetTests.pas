@@ -84,10 +84,11 @@ var
   LConfig: ITlsClientConfig;
 begin
   LConfig := ClientOf(TTlsPresets.Strict(Crypto, Pkix));
-  CheckEquals(2, System.Length(LConfig.PreferredGroups),
-    'Strict allows exactly two groups');
+  CheckEquals(3, System.Length(LConfig.PreferredGroups),
+    'Strict allows exactly three groups');
   CheckEquals(TNamedGroupCatalog.X25519MlKem768, LConfig.PreferredGroups[0], 'hybrid');
   CheckEquals(TNamedGroupCatalog.X25519, LConfig.PreferredGroups[1], 'X25519');
+  CheckEquals(TNamedGroupCatalog.Secp256r1, LConfig.PreferredGroups[2], 'secp256r1');
 end;
 
 procedure TTestPreset.TestStrictTightensCertificateChainLimits;
