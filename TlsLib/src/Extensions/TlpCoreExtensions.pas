@@ -365,8 +365,10 @@ procedure TSupportedGroupsExtension.Consume(const AContext: TExtensionContext;
   const AExtensionData: TBytes);
 begin
   AContext.SupportedGroups := TExtensionWire.DecodeUInt16Vector(AExtensionData, 2);
-  // NamedGroupList<2..2^16-1>: an empty list is a decode error (RFC 8446 4.2.7)
-  if System.Length(AContext.SupportedGroups) = 0 then
+  // NamedGroupList<2..2^16-1>: an empty list is a decode error in a ClientHello (RFC 8446 4.2.7);
+  // a server echo is tolerated and ignored (as rustls/BoringSSL do), so only gate the request
+  if (AContext.MessageContext = TTlsExtensionContextKind.ClientHello) and
+    (System.Length(AContext.SupportedGroups) = 0) then
     raise EDecodeErrorTlsLibException.CreateRes(@SEmptySupportedGroups);
 end;
 
@@ -805,8 +807,8 @@ begin
   end;
   // ClientHello CertificateStatusRequest (RFC 6066 8): status_type(1), and for an ocsp(1) request
   // a responder_id_list<0..2^16-1> (each ResponderID<1..2^16-1>) then request_extensions<0..2^16-1>.
-  // Only an ocsp request arms the staple; any other status_type is parsed past and left unarmed.
-  // An empty body underflows on status_type, which is a decode error.
+  // Only an ocsp request arms the staple; for any other status_type the body format is unknown, so
+  // it is left unarmed and the rest ignored. An empty body underflows on status_type (decode error).
   LReader := TWireReader.Create(AExtensionData);
   LType := LReader.ReadUInt8;
   if LType <> 1 then
@@ -817,10 +819,10 @@ begin
     LId := LList.OpenVector(2);
     if LId.Remaining = 0 then
       raise EDecodeErrorTlsLibException.CreateRes(@SEmptyResponderId);
-    LId.ReadBytes(LId.Remaining);
+    LId.Skip(LId.Remaining);
   end;
   LExt := LReader.OpenVector(2);
-  LExt.ReadBytes(LExt.Remaining);
+  LExt.Skip(LExt.Remaining);
   LReader.ExpectEnd;
   AContext.StatusRequestOffered := True;
 end;
@@ -878,7 +880,10 @@ end;
 
 function TRecordSizeLimitExtension.ValidContexts: TTlsExtensionContexts;
 begin
+  // the server's answer rides EncryptedExtensions in TLS 1.3 and the ServerHello in TLS 1.2
+  // (RFC 8449 4); the codec has no version knowledge, so all three contexts are valid here
   Result := [TTlsExtensionContextKind.ClientHello,
+    TTlsExtensionContextKind.ServerHello,
     TTlsExtensionContextKind.EncryptedExtensions];
 end;
 

@@ -186,6 +186,11 @@ type
     FEphemeralPublic: TBytes;
     FCurrentGroup: INamedGroup;
     FCurrentGroupCode: UInt16;
+    // the client random and expected server identity actually in force: the outer FParams values,
+    // or the ECH inner random / public_name once ECH is accepted / rejected. FParams stays
+    // immutable (a caller-owned record copy); these carry the post-ECH swap instead.
+    FActiveClientRandom: TBytes;
+    FExpectedName: TServerName;
     FCookie: TBytes;
     FRetried: Boolean;
     /// <summary>The GREASE seed, chosen once for the first ClientHello and reused on a
@@ -384,6 +389,7 @@ resourcestring
   SDowngradeDetected = 'the ServerHello carries a version downgrade sentinel';
   SUnsupportedSelectedVersion = 'the server did not select TLS 1.3';
   SUnofferedGroup = 'the server selected a key share group that was not offered';
+  SMissingServerKeyShare = 'the ServerHello carries no key_share for the (EC)DHE handshake';
   SBadServerFinished = 'the server Finished did not verify';
   SEmptyCertificate = 'the server sent an empty certificate list';
   SServerCertContextNotEmpty =
@@ -432,6 +438,9 @@ begin
   FParams := AParams;
   FCurrentGroup := AParams.Group;
   FCurrentGroupCode := AParams.GroupCode;
+  // start on the outer identity; ECH accept / reject swaps these to the inner random / public_name
+  FActiveClientRandom := AParams.ClientRandom;
+  FExpectedName := AParams.ExpectedServerName;
   FRetried := False;
   FGreaseSeed := -1;
   FHrrChangedGroup := False;
@@ -940,7 +949,7 @@ begin
   // on a resumed connection no Certificate was sent, so re-check the stored chain
   TClientSessionPolicy.ReverifyResumedServer(FParams.CertificateVerifier,
     FParams.ResumeCertificateVerifier, FResumptionPeerCertificates,
-    FParams.ExpectedServerName, FResumeValidatedPath);
+    FExpectedName, FResumeValidatedPath);
 end;
 
 function TTls13ClientStateMachine.ProcessServerHello(
@@ -1023,11 +1032,11 @@ begin
       FTranscriptPreActivated and (FPreActivatedHash <> FSelectedSuite.Common.Hash)) then
     begin
       FTranscript := FEchOrch.InnerTranscript;
-      FParams.ClientRandom := FEchOrch.InnerRandom;
+      FActiveClientRandom := FEchOrch.InnerRandom;
     end
     else
     begin
-      FParams.ExpectedServerName := TServerName.DnsName(FEchOrch.PublicName);
+      FExpectedName := TServerName.DnsName(FEchOrch.PublicName);
       // the server answered the ClientHelloOuter, so response extensions are checked against the
       // outer's offers; after a HelloRetryRequest the retry path already recorded CH2's outer
       if not FEchOrch.HrrDecided then
@@ -1048,6 +1057,13 @@ begin
     // anything else (e.g. ALPN, which belongs in the encrypted EncryptedExtensions) is
     // unsupported_extension (RFC 8446 4.1.3)
     EnforceTls13ServerHelloExtensions(LHello.Extensions);
+
+    // this client only ever offers psk_dhe_ke, so an (EC)DHE key_share is always required; its
+    // absence is missing_extension, distinct from the wrong-group illegal_parameter below
+    // (RFC 8446 4.2.8 / 9.2)
+    if System.Length(LContext.SelectedKeyShare.KeyExchange) = 0 then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.MissingExtension, @SMissingServerKeyShare);
 
     // the selected group must be the one we key-shared (the initial group, or the one
     // a HelloRetryRequest moved us to), checked before decapsulation (RFC 8446 4.2.8)
@@ -1117,9 +1133,9 @@ begin
     if FPskAccepted then
       FSchedule.SetPsk(FAcceptedPsk.Key);
   end;
-  // report every full-handshake secret; FParams.ClientRandom is the inner ClientHello's when ECH
+  // report every full-handshake secret; FActiveClientRandom is the inner ClientHello's when ECH
   // was accepted (switched at accept), the outer's otherwise (RFC 9850)
-  FSchedule.SetKeyLog(FParams.KeyLog, FParams.ClientRandom);
+  FSchedule.SetKeyLog(FParams.KeyLog, FActiveClientRandom);
   FSchedule.SetSharedSecret(LShared);
   FSchedule.DeriveEpochSecrets(TTlsEpoch.Handshake, FTranscript.CurrentHash);
 
@@ -1469,7 +1485,7 @@ begin
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.InternalError, @SNoCertificateVerifier);
   if not FParams.CertificateVerifier.VerifyServerCertificate(FCertificateChain,
-    FParams.ExpectedServerName, FReceivedOcspStaple, LVerified, LAlert) then
+    FExpectedName, FReceivedOcspStaple, LVerified, LAlert) then
     raise EFatalAlertTlsLibException.CreateRes(LAlert, @SUntrustedCertificate);
 
   // the on-the-wire message (compressed, when compressed) is what feeds the transcript
@@ -1490,7 +1506,7 @@ begin
   if TPeerAuthentication.ShouldPark(FParams.Deferral, LVerified.Outcome) then
     TArrayUtilities.Append<THandshakeEffect>(Result,
       ParkForVerdict(FCertificateChain, LVerified.Path,
-      FParams.ExpectedServerName.ToString, FReceivedOcspStaple));
+      FExpectedName.ToString, FReceivedOcspStaple));
 end;
 
 function TTls13ClientStateMachine.ProcessCertificate(
@@ -1698,7 +1714,7 @@ begin
     FPhase := TPhase.WaitResumeVerdict;
     TArrayUtilities.Append<THandshakeEffect>(Result,
       ParkForVerdict(FResumptionPeerCertificates, FResumeValidatedPath,
-      FParams.ExpectedServerName.ToString, nil));
+      FExpectedName.ToString, nil));
     Exit;
   end;
 

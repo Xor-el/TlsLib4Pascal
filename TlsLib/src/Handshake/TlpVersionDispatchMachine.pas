@@ -396,6 +396,9 @@ begin
   FPrimary13Typed := TTls13ClientStateMachine.Create(L13);
   FPrimary13 := FPrimary13Typed as IHandshakeMachine;
   FParams12 := AParams12;
+  // the unified ClientHello offered record_size_limit from the 1.3 params; the 1.2 hand-off replays
+  // that hello (PresentClientHello), so its own offered limit must match to validate the echo
+  FParams12.RecordSizeLimit := AParams13.RecordSizeLimit;
   FRequirePsk := AParams13.RequirePsk;
 end;
 

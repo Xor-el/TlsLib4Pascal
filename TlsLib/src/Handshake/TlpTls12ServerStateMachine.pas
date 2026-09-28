@@ -134,6 +134,9 @@ type
     Clock: ITlsClock;
     /// <summary>The dangerous key-log sink; nil reports nothing.</summary>
     KeyLog: IKeyLog;
+    /// <summary>The record_size_limit (RFC 8449) plaintext value the server advertises in its
+    /// ServerHello, in [64, 2^14], echoed only when the client offered one; 0 disables it.</summary>
+    RecordSizeLimit: Int32;
   end;
 
   /// <summary>
@@ -178,6 +181,9 @@ type
     FClientOfferedSessionTicket: Boolean;
     /// <summary>Whether the client offered status_request (RFC 6066).</summary>
     FStatusRequestOffered: Boolean;
+    /// <summary>The client's offered record_size_limit (RFC 8449); 0 when unoffered. The server
+    /// echoes its own limit only when this is non-zero.</summary>
+    FPeerRecordSizeLimit: Int32;
     /// <summary>Whether the server will staple: the client offered status_request and a
     /// staple is configured. Drives the ServerHello echo and the CertificateStatus message.</summary>
     FWillStaple: Boolean;
@@ -285,6 +291,7 @@ resourcestring
   SNoCompatibleSuite =
     'no mutually supported TLS 1.2 ECDHE suite the credential can authenticate';
   SNoSignatureAlgorithms = 'the client offered no signature_algorithms';
+  SBadRecordSizeLimit = 'the client record_size_limit is below the 64-byte minimum';
   SGroupNotOffered = 'the client did not offer the server''s ECDHE group';
   SGroupNotEcdhe = 'the configured 1.2 group is not an ECDHE group';
   SNoExtendedMasterSecret =
@@ -483,6 +490,15 @@ begin
       (TArrayUtilities.Contains<UInt16>(LHello.CipherSuites, $00FF));
     FClientOfferedSessionTicket := LContext.SessionTicketOffered;
     FStatusRequestOffered := LContext.StatusRequestOffered;
+    // record_size_limit (RFC 8449): remember the client's offer so the ServerHello echoes ours; a
+    // value below 64 is fatal
+    if LContext.RecordSizeLimit > 0 then
+    begin
+      if LContext.RecordSizeLimit < 64 then
+        raise EFatalAlertTlsLibException.CreateRes(
+          TTlsAlertDescription.IllegalParameter, @SBadRecordSizeLimit);
+      FPeerRecordSizeLimit := LContext.RecordSizeLimit;
+    end;
     // a client host_name is acknowledged with an empty server_name in the ServerHello
     // (RFC 6066 3)
     FClientSentServerName := LContext.ServerName <> '';
@@ -581,7 +597,14 @@ begin
   else
     FPhase := TPhase.WaitClientKeyExchange;
   Result := TArray<THandshakeEffect>.Create(
-    THandshakeEffects.SendHandshake(LServerHello),
+    THandshakeEffects.SendHandshake(LServerHello));
+  // once the client offered record_size_limit, cap outbound records to its limit (and the client's
+  // to ours; 0 = no inbound cap) BEFORE the possibly large Certificate is framed. The ServerHello
+  // that announced the limit is itself unrestricted (RFC 8449 4).
+  if FPeerRecordSizeLimit > 0 then
+    TArrayUtilities.Append<THandshakeEffect>(Result,
+      THandshakeEffects.SetRecordSizeLimit(FPeerRecordSizeLimit, FParams.RecordSizeLimit));
+  TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.SendHandshake(LCertificate));
   if FWillStaple then
     TArrayUtilities.Append<THandshakeEffect>(Result,
@@ -622,6 +645,9 @@ begin
     LContext.SessionTicketOffered := FIssueNewTicket;
     // an empty status_request echo announces a forthcoming CertificateStatus (RFC 6066 8)
     LContext.StatusRequestResponsePending := FWillStaple;
+    // record_size_limit is answered only when the client offered one (RFC 8449 4)
+    if FPeerRecordSizeLimit > 0 then
+      LContext.RecordSizeLimit := FParams.RecordSizeLimit;
     LHello.Random := FServerRandom;
     LHello.LegacySessionIdEcho := FSessionId;
     LHello.CipherSuite := FSelectedSuite.Common.Code;
@@ -947,6 +973,11 @@ begin
 
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.SendHandshake(LServerHello));
+  // cap outbound records to the client's limit (and its to ours) right after the ServerHello that
+  // announced it, so the resumed flight's NewSessionTicket / Finished are bounded (RFC 8449 4)
+  if FPeerRecordSizeLimit > 0 then
+    TArrayUtilities.Append<THandshakeEffect>(Result,
+      THandshakeEffects.SetRecordSizeLimit(FPeerRecordSizeLimit, FParams.RecordSizeLimit));
   // a resumed handshake sends no Certificate, so surface the client chain the session carried
   // (mutual-TLS resumption); empty on a non-mTLS session
   if System.Length(FResumedSession.PeerCertificates) > 0 then
