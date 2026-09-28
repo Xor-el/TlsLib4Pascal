@@ -20,6 +20,7 @@ uses
   TlpTlsAlert,
   TlpTlsVersion,
   TlpCryptoDomainTypes,
+  TlpTlsLibExceptions,
   TlpIKeySchedule,
   TlpITlsEngine;
 
@@ -148,6 +149,12 @@ type
     /// server's retry_configs (empty if none) and whether this handshake was itself a retry.</summary>
     class function EchRejected(const ARetryConfigs: TBytes;
       AIsRetryAttempt: Boolean): THandshakeEffect; static;
+    /// <summary>Maps an in-band protocol exception to a Fail effect (EFatalAlert - which covers
+    /// EDecodeError - to its alert; EPeerInput to illegal_parameter); returns False for any other
+    /// exception, which the caller re-raises. The single home for the machines' and the version
+    /// dispatcher's exception-to-Fail mapping.</summary>
+    class function TryFromException(const AError: Exception;
+      out AEffect: THandshakeEffect): Boolean; static;
   end;
 
 implementation
@@ -342,6 +349,23 @@ begin
   Result.Kind := THandshakeEffectKind.EchRejected;
   Result.Bytes := ARetryConfigs;
   Result.Resumed := AIsRetryAttempt;
+end;
+
+class function THandshakeEffects.TryFromException(const AError: Exception;
+  out AEffect: THandshakeEffect): Boolean;
+begin
+  Result := True;
+  // EPeerInput before EFatalAlert to preserve the original per-site order; EDecodeError is an
+  // EFatalAlert subclass, so it carries its own decode_error through the second branch
+  if AError is EPeerInputTlsLibException then
+    AEffect := Fail(TTlsAlertDescription.IllegalParameter)
+  else if AError is EFatalAlertTlsLibException then
+    AEffect := Fail(EFatalAlertTlsLibException(AError).AlertDescription)
+  else
+  begin
+    AEffect := Default(THandshakeEffect);
+    Result := False;
+  end;
 end;
 
 end.

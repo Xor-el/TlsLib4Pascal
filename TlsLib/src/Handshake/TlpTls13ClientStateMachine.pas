@@ -1281,6 +1281,12 @@ begin
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.UnexpectedMessage, @SHelloRetryTwice);
 
+  // like any ServerHello, the HRR's legacy_version must be exactly 0x0303 (RFC 8446 4.1.3); the
+  // real version rides supported_versions, checked next
+  if AHello.LegacyVersion <> TlsWireVersionTls12 then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.ProtocolVersion, @SUnsupportedSelectedVersion);
+
   // a HelloRetryRequest is a TLS 1.3 message, so its supported_versions MUST select TLS 1.3;
   // absent or any other value is a version this client did not agree to (RFC 8446 4.1.4, 4.2.1)
   if THandshakeMessages.ServerHelloSelectedVersion(AHello.Extensions) <> TlsWireVersionTls13 then
