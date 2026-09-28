@@ -169,8 +169,8 @@ begin
       AType := TTlsHandshakeType.KeyUpdate;
     25:
       AType := TTlsHandshakeType.CompressedCertificate;
-    254:
-      AType := TTlsHandshakeType.MessageHash;
+    // message_hash (254) is a synthetic transcript-only type (RFC 8446 4.4.1) that must never
+    // arrive on the wire, so it is intentionally not decodable here
   else
     Result := False;
   end;

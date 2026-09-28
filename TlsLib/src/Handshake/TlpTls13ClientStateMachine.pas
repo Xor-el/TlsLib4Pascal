@@ -359,16 +359,12 @@ type
     function ContinueAfterVerdict: TArray<THandshakeEffect>; override;
   public
     constructor Create(const AParams: TClientHandshakeParams);
-    destructor Destroy; override;
     function Initiates: Boolean; override;
     function Start: TArray<THandshakeEffect>; override;
     /// <summary>The cached TLS 1.2 session this unified ClientHello offered (nil when it
     /// offered none), for a version-dispatching parent to hand to a 1.2 sub-machine when
     /// the server selects 1.2.</summary>
     property Tls12ResumptionSession: IResumableSession read FTls12ResumptionSession;
-    /// <summary>The session id this ClientHello offered for 1.2 resumption, so the 1.2
-    /// sub-machine can match the server's abbreviated echo.</summary>
-    property Tls12OfferedSessionId: TBytes read FTls12OfferedSessionId;
     /// <summary>The legacy_session_id this unified ClientHello actually put on the wire -
     /// the cached 1.2 session id when resuming, otherwise the random TLS 1.3 compatibility-mode
     /// id. A 1.2 sub-machine uses it to detect a server echoing the id, whether that echo is a
@@ -448,11 +444,6 @@ begin
   // posture (Active False) rides through - GREASE ech is permitted in any ClientHello (sec. 6.2)
   if FParams.AlsoOfferTls12 and FEchOrch.Active then
     raise EArgumentTlsLibException.CreateRes(@SEchRequiresTls13);
-end;
-
-destructor TTls13ClientStateMachine.Destroy;
-begin
-  inherited Destroy;
 end;
 
 procedure TTls13ClientStateMachine.SetVerbatimClientHello(const AFramed: TBytes);

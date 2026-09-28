@@ -503,9 +503,12 @@ begin
       // advertised in supported_groups (RFC 8422 5.1). Unknown/non-ECDHE offered
       // codes are simply not chosen, so a client mixing bogus curves still succeeds.
       SelectEcdheGroup(LContext.SupportedGroups);
+      // RFC 5246 7.4.1.4.1 makes omitting signature_algorithms legal in TLS 1.2 (it implies
+      // SHA-1); refusing it is a hardened-posture policy choice, so handshake_failure, not the
+      // TLS 1.3 missing_extension (which is mandatory there)
       if System.Length(LContext.SignatureSchemes) = 0 then
         raise EFatalAlertTlsLibException.CreateRes(
-          TTlsAlertDescription.MissingExtension, @SNoSignatureAlgorithms);
+          TTlsAlertDescription.HandshakeFailure, @SNoSignatureAlgorithms);
       if not SelectSuiteAndScheme(LHello.CipherSuites, LContext.SignatureSchemes,
         EcdsaCredentialCurveOffered(LContext.SupportedGroups),
         FSelectedSuite, FSelectedScheme) then

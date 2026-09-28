@@ -51,6 +51,8 @@ type
     procedure TestTruncatedClientHelloIsDecodeError;
     procedure TestOverlongSessionIdIsDecodeError;
     procedure TestEmptyOrTrailingNewSessionTicketIsDecodeError;
+    procedure TestEmptyCipherSuitesIsDecodeError;
+    procedure TestEmptyCompressionMethodsIsDecodeError;
   end;
 
 implementation
@@ -210,6 +212,47 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a truncated ClientHello is a decode_error, not an over-read');
+end;
+
+procedure TTestHandshakeMessages.TestEmptyCipherSuitesIsDecodeError;
+var
+  LBody: TBytes;
+  LRaised: Boolean;
+begin
+  // a ClientHello with an empty cipher_suites<2..2^16-2> is a decode_error (RFC 8446 4.1.2):
+  // version + 32-byte random + empty session_id + empty cipher_suites + null compression + no exts
+  LBody := DecodeHex('0303' +
+    '0000000000000000000000000000000000000000000000000000000000000000' +
+    '00' + '0000' + '0100' + '0000');
+  LRaised := False;
+  try
+    THandshakeMessages.DecodeClientHello(LBody);
+  except
+    on E: EDecodeErrorTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an empty cipher_suites list is a decode_error');
+end;
+
+procedure TTestHandshakeMessages.TestEmptyCompressionMethodsIsDecodeError;
+var
+  LBody: TBytes;
+  LRaised: Boolean;
+begin
+  // a ClientHello with an empty legacy_compression_methods<1..2^8-1> is a decode_error, distinct
+  // from the null-method-missing illegal_parameter (RFC 8446 4.1.2): one AES-128-GCM suite, then
+  // an empty compression vector
+  LBody := DecodeHex('0303' +
+    '0000000000000000000000000000000000000000000000000000000000000000' +
+    '00' + '00021301' + '00' + '0000');
+  LRaised := False;
+  try
+    THandshakeMessages.DecodeClientHello(LBody);
+  except
+    on E: EDecodeErrorTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an empty legacy_compression_methods vector is a decode_error');
 end;
 
 procedure TTestHandshakeMessages.TestOverlongSessionIdIsDecodeError;
