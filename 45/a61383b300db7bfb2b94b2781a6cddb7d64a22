@@ -1,0 +1,22 @@
+TlsLib.Tests/src/AsyncVerdictTests.pas
+  s_09d3c46d1a9b1f::t_be61ab0f31e9a7 30
+  s_09d3c46d1a9b1f::t_3a5121235f87fe 124-128
+  s_09d3c46d1a9b1f::t_336b83ffc7ef97 840-899
+  s_09d3c46d1a9b1f::t_960fb775266655 900
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "45a61383b300db7bfb2b94b2781a6cddb7d64a22",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
