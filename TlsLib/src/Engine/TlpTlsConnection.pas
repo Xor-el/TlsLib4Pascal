@@ -221,6 +221,10 @@ type
     function PeerLeaf: TBytes;
     /// <summary>'TLSv1.3' / 'TLSv1.2' / '' - the negotiated version as a display string.</summary>
     function VersionName: string;
+    /// <summary>The negotiated-facts snapshot for a possibly-nil connection: the connection's own
+    /// snapshot, or the zero values when AConn is nil (an adapter that has not built one yet). Lets
+    /// a host wrapper read the facts without repeating the nil guard per field.</summary>
+    class function InfoOf(const AConn: TTlsConnection): TTlsConnectionInfo; static;
   end;
 
 implementation
@@ -651,7 +655,16 @@ begin
   if FStream <> nil then
     Result := FStream.ConnectionInfo
   else
-    Result := System.Default(TTlsConnectionInfo);
+    Result := Default(TTlsConnectionInfo);
+end;
+
+class function TTlsConnection.InfoOf(
+  const AConn: TTlsConnection): TTlsConnectionInfo;
+begin
+  if AConn <> nil then
+    Result := AConn.Info
+  else
+    Result := Default(TTlsConnectionInfo);
 end;
 
 procedure TTlsConnection.Handshake(AHandshakeTimeoutMs: Int32);
