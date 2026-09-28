@@ -39,9 +39,9 @@ type
   /// opaque transport bytes into demultiplexed plaintext fragments and application
   /// writes into protected records. Framing and decryption are split: ProcessInput
   /// only frames (a record may span several feeds or several records may be
-  /// coalesced in one), while NextIncoming decrypts
-  /// the head framed record lazily under the read epoch installed at pull time and
-  /// classifies a legacy change_cipher_spec there. That split lets a
+  /// coalesced in one), while NextIncoming decrypts the head framed record lazily
+  /// under the read epoch installed at pull time and classifies a legacy
+  /// change_cipher_spec there. That split lets a
   /// coalesced flight change epoch mid-buffer: the plaintext record installs the
   /// next read epoch before the following record is pulled and decrypted under it.
   /// Outbound it fragments to 2^14 and protects through the write epoch. Sans-IO

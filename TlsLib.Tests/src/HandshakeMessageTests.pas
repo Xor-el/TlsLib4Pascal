@@ -41,6 +41,7 @@ type
     procedure TestCoalescedMessages;
     procedure TestPartialMessageNeedsMore;
     procedure TestOversizedMessageIsDecodeError;
+    procedure TestOversizedNonCertificateMessageIsDecodeError;
   end;
 
 implementation
@@ -184,6 +185,31 @@ begin
         LRaised := True;
     end;
     CheckTrue(LRaised, 'an oversized declared length is a decode_error');
+  finally
+    LReader.Free;
+  end;
+end;
+
+procedure TTestHandshakeMessage.TestOversizedNonCertificateMessageIsDecodeError;
+var
+  LReader: THandshakeMessageReader;
+  LMsg: TTlsHandshakeMessage;
+  LRaised: Boolean;
+begin
+  // a non-Certificate type is bounded by the default MaxMessageLength (2^16); the cap check fires
+  // on the declared length before any body is buffered
+  LReader := THandshakeMessageReader.Create;
+  try
+    // a Finished (type 0x14) header declaring 0x010001 = 65537 bytes, one past the 2^16 cap
+    LReader.Append(DecodeHex('14010001'), 0, 4);
+    LRaised := False;
+    try
+      LReader.NextMessage(LMsg);
+    except
+      on E: EDecodeErrorTlsLibException do
+        LRaised := True;
+    end;
+    CheckTrue(LRaised, 'an oversized non-Certificate message is a decode_error');
   finally
     LReader.Free;
   end;

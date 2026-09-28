@@ -525,8 +525,8 @@ begin
 
   // TLS 1.2 has no KeyUpdate; at the AEAD usage limit the write epoch cannot be rekeyed, so a
   // write closes the connection and refuses rather than exceed the AEAD safety bound (RFC 8446
-  // 5.5 applies the same record limits to the 1.2 AEAD suites). The close_notify still seals at
-  // the last legal sequence.
+  // 5.5 applies the same record limits to the 1.2 AEAD suites). The close_notify still seals
+  // under the current, still-valid epoch.
   LRaised := False;
   try
     LClient.Write(DecodeHex('00'), 0, 1);

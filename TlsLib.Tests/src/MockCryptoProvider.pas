@@ -27,11 +27,6 @@ uses
   TlpDefaultCryptoProvider,
   TlpDefaultPkixProvider;
 
-const
-  // a small records-per-key limit so a test reaches the AEAD usage-limit rekey path organically:
-  // the record layer rekeys a lead (16) before this bound and refuses to seal at it
-  CappedAeadUsageLimit = UInt64(64);
-
 type
   /// <summary>
   /// A test provider that runs the default crypto with a caller-supplied

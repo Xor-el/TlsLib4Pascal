@@ -295,14 +295,15 @@ constructor TTls13RecordProtection.Create(const AKey, AIv: ISecretBuffer;
   const AAead: IAead);
 begin
   inherited Create;
+  // reject a limit at or below the rekey lead (16 records) before keying the AEAD: a KeyUpdate
+  // could otherwise never seal in time
+  FRecordLimit := AAead.UsageLimit;
+  if FRecordLimit <= RekeyLeadRecords then
+    raise EArgumentTlsLibException.CreateRes(@SUsageLimitTooSmall);
   FAead := AAead;
   FAead.Init(AKey);
   FIv := AIv.ToBytes;
   FSeq := 0;
-  // a provider must not report a limit at or below the rekey lead, or a KeyUpdate could never seal
-  if AAead.UsageLimit <= RekeyLeadRecords then
-    raise EArgumentTlsLibException.CreateRes(@SUsageLimitTooSmall);
-  FRecordLimit := AAead.UsageLimit;
   FAad := nil;
   SetLength(FAad, TRecordLimits.HeaderLength);
   FNonce := nil;
@@ -427,14 +428,15 @@ constructor TTls12RecordProtection.Create(const AKey, ASalt: ISecretBuffer;
   const AAead: IAead);
 begin
   inherited Create;
+  // reject a limit at or below the rekey lead (16 records) before keying the AEAD: a KeyUpdate
+  // could otherwise never seal in time
+  FRecordLimit := AAead.UsageLimit;
+  if FRecordLimit <= RekeyLeadRecords then
+    raise EArgumentTlsLibException.CreateRes(@SUsageLimitTooSmall);
   FAead := AAead;
   FAead.Init(AKey);
   FSalt := ASalt.ToBytes;
   FSeq := 0;
-  // a provider must not report a limit at or below the rekey lead, or a KeyUpdate could never seal
-  if AAead.UsageLimit <= RekeyLeadRecords then
-    raise EArgumentTlsLibException.CreateRes(@SUsageLimitTooSmall);
-  FRecordLimit := AAead.UsageLimit;
   // AES-GCM frames an explicit nonce (RFC 5288); ChaCha20-Poly1305 derives the nonce by
   // XORing the sequence number into the write IV, with none on the wire (RFC 7905)
   FUsesExplicitNonce := AAead.UsageCategory = TAeadUsageCategory.AesGcm;

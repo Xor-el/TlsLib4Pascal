@@ -60,7 +60,7 @@ type
     procedure TestWriteRejectsOutOfRangeSlice;
     procedure TestProtected13LoopbackTwoRecords;
     procedure TestRecordOverflowOnOverlongLength;
-    procedure TestPartialRecordResidualBoundedThenSurfaces;
+    procedure TestPartialMaxSizeRecordHeldThenSurfaces;
     procedure TestFramedBacklogBoundAndDiscard;
     procedure TestEmptyRecordFloodCapped;
     procedure TestEmptyHandshakeRecordRejected;
@@ -369,7 +369,7 @@ begin
   end;
 end;
 
-procedure TTestRecordLayer.TestPartialRecordResidualBoundedThenSurfaces;
+procedure TTestRecordLayer.TestPartialMaxSizeRecordHeldThenSurfaces;
 var
   LRecv: TRecordLayer;
   LHeaderAndBody, LTail: TBytes;
