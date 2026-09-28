@@ -1,0 +1,31 @@
+TlsLib.Tests/src/HelloRetryRequestTests.pas
+  s_09d3c46d1a9b1f::t_e2d6c04713beb7 333-334,339-343,345,347,356-357,362-363,367
+TlsLib/src/Handshake/TlpHelloRetryCookie.pas
+  s_09d3c46d1a9b1f::t_9df181f81b76e6 97-101
+  s_09d3c46d1a9b1f::t_804f97a98cbe2e 29-37,43,45-46,54-57,64
+  s_09d3c46d1a9b1f::t_fa795a1dd9a9b0 134-135
+  s_09d3c46d1a9b1f::t_782fe85e85bae0 21
+  s_09d3c46d1a9b1f::t_4b07218b5a4310 89-90,92,95-96,102-103,108,111,115,117-120,127-133,136-139
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_3a3dce683f7960 1299-1301
+  s_09d3c46d1a9b1f::t_8426ffd27e3ae6 1117-1120
+  s_09d3c46d1a9b1f::t_9e59dd4cf58886 1214-1215
+  s_09d3c46d1a9b1f::t_2d97c6a051422e 470-472
+  s_09d3c46d1a9b1f::t_50b79691c0640a 1258-1259,1263-1264,1267-1270,1274-1278
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "424bf72a52195c315368dae1de6dbd24cf916573",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
