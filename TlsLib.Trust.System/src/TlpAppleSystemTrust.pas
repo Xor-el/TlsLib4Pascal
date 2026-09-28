@@ -313,26 +313,21 @@ type
     class function UnixMillisToCFAbsoluteTime(AMillisUtc: UInt64): Double; static;
   private
     class procedure ResolveDynamicImports; static;
-    /// <summary>The shared SecTrust SERVER evaluation: builds the SSL trust (adding a revocation
-    /// policy unless ARevocation is None, network per ANetworkAllowed, RequirePositiveResponse when
-    /// ARevocation is RequirePositive), pins the verify date, consumes the staple, and reports the
-    /// result as a tri-state in AResult (Outcome plus, on Good, the OS-built path and the OS anchor
-    /// as the policy-exempt certificate). Returns True with a tri-state outcome; False with AAlert
-    /// on a definitive non-revocation trust failure. The posture, the strength policy and the
-    /// identity post-checks are the owning delegate's.</summary>
-    class function EvaluateTrust(const AChain: TArray<TBytes>;
-      const AHostName: string; const AOcspStaple: TBytes; ANetworkAllowed: Boolean;
+    /// <summary>The shared SecTrust evaluation: builds the SSL trust (adding a revocation policy
+    /// unless ARevocation is None, network per ANetworkAllowed, RequirePositiveResponse when
+    /// ARevocation is RequirePositive), pins the verify date, and reports the result as a tri-state
+    /// in AResult (Outcome plus, on Good, the OS-built path and the anchor as the policy-exempt
+    /// certificate). Returns True with a tri-state outcome; False with AAlert on a definitive
+    /// non-revocation trust failure. The posture, the strength policy and the identity post-checks
+    /// are the owning delegate's.
+    /// AServer selects the role: the server path binds the host in the SSL policy and consumes the
+    /// handshake staple against the OS/public roots; the client path builds an anchors-only SecTrust
+    /// over AAnchors alone (never the OS roots), takes no host and no staple, and rejects zero usable
+    /// anchors before building any trust.</summary>
+    class function EvaluateWithPolicy(AServer: Boolean;
+      const AChain, AAnchors: TArray<TBytes>; const AHostName: string;
+      const AOcspStaple: TBytes; ANetworkAllowed: Boolean;
       ARevocation: TPlatformRevocationCheck; const AClock: ITlsClock;
-      out AResult: TPlatformChainResult;
-      out AAlert: TTlsAlertDescription): Boolean; static;
-    /// <summary>The shared SecTrust CLIENT-certificate evaluation: an anchors-only SecTrust built
-    /// over AAnchors alone (never the OS/public roots) with the client SSL policy, the revocation
-    /// policy (added unless ARevocation is None, network per ANetworkAllowed, RequirePositiveResponse
-    /// when ARevocation is RequirePositive), and the injected clock (a client certificate is never
-    /// stapled). Zero usable anchors reject before the trust. Reports the tri-state in AResult
-    /// exactly like EvaluateTrust.</summary>
-    class function EvaluateClientTrust(const AChain, AAnchors: TArray<TBytes>;
-      ANetworkAllowed: Boolean; ARevocation: TPlatformRevocationCheck; const AClock: ITlsClock;
       out AResult: TPlatformChainResult;
       out AAlert: TTlsAlertDescription): Boolean; static;
 {$IFDEF TLSLIB_MACOS}
@@ -649,14 +644,15 @@ begin
   Result := (Double(Int64(AMillisUtc)) / Double(1000)) - CFAbsoluteTimeUnixEpochDelta;
 end;
 
-class function TAppleTrustApi.EvaluateTrust(const AChain: TArray<TBytes>;
-  const AHostName: string; const AOcspStaple: TBytes; ANetworkAllowed: Boolean;
+class function TAppleTrustApi.EvaluateWithPolicy(AServer: Boolean;
+  const AChain, AAnchors: TArray<TBytes>; const AHostName: string;
+  const AOcspStaple: TBytes; ANetworkAllowed: Boolean;
   ARevocation: TPlatformRevocationCheck; const AClock: ITlsClock;
   out AResult: TPlatformChainResult;
   out AAlert: TTlsAlertDescription): Boolean;
 var
   LStatusCode: Int32;
-  LCertArray, LPolicyArray: CFArrayRef;
+  LCertArray, LAnchorArray, LPolicyArray: CFArrayRef;
   LSslPolicy, LRevPolicy: SecPolicyRef;
   LTrust: SecTrustRef;
   LHostRef: CFStringRef;
@@ -689,7 +685,27 @@ begin
     Exit;
   end;
 
+  if not AServer then
+  begin
+    // the anchors-only entry points are required for client-auth: without them a client could
+    // validate against the OS/public roots, so fail closed rather than fall back to a weaker check
+    if (not System.Assigned(FSecTrustSetAnchorCertificates)) or
+      (not System.Assigned(FSecTrustSetAnchorCertificatesOnly)) then
+    begin
+      AAlert := TTlsAlertDescription.InternalError;
+      Exit;
+    end;
+    // zero configured client-CA anchors can trust nothing: reject before building any trust so an
+    // empty anchor set can never fall through to the system roots
+    if Length(AAnchors) = 0 then
+    begin
+      AAlert := TTlsAlertDescription.UnknownCa;
+      Exit;
+    end;
+  end;
+
   LCertArray := nil;
+  LAnchorArray := nil;
   LPolicyArray := nil;
   LSslPolicy := nil;
   LRevPolicy := nil;
@@ -702,14 +718,27 @@ begin
     // an unparseable leaf or chain certificate is a bad certificate, not a broken runtime
     if not MakeCertArray(AChain, LCertArray) then
       Exit;
+    if not AServer then
+      // a configured anchor that will not parse is a broken trust configuration, not a bad peer
+      if not MakeCertArray(AAnchors, LAnchorArray) then
+      begin
+        AAlert := TTlsAlertDescription.InternalError;
+        Exit;
+      end;
 
-    if AHostName <> '' then
+    // the server binds the host in the SSL policy; a client certificate carries no host identity
+    if AServer then
     begin
-      LHostUtf8 := UTF8String(AHostName);
-      LHostRef := FCFStringCreateWithCString(nil, PAnsiChar(LHostUtf8),
-        KCFStringEncodingUTF8);
-    end;
-    LSslPolicy := FSecPolicyCreateSSL(True, LHostRef);
+      if AHostName <> '' then
+      begin
+        LHostUtf8 := UTF8String(AHostName);
+        LHostRef := FCFStringCreateWithCString(nil, PAnsiChar(LHostUtf8),
+          KCFStringEncodingUTF8);
+      end;
+      LSslPolicy := FSecPolicyCreateSSL(True, LHostRef);
+    end
+    else
+      LSslPolicy := FSecPolicyCreateSSL(False, nil);
     if LSslPolicy = nil then
     begin
       AAlert := TTlsAlertDescription.InternalError;
@@ -764,6 +793,21 @@ begin
       Exit;
     end;
 
+    // the configured client-CA anchors are the ONLY trusted roots for client-auth
+    if not AServer then
+    begin
+      if FSecTrustSetAnchorCertificates(LTrust, LAnchorArray) <> ErrSecSuccess then
+      begin
+        AAlert := TTlsAlertDescription.InternalError;
+        Exit;
+      end;
+      if FSecTrustSetAnchorCertificatesOnly(LTrust, True) <> ErrSecSuccess then
+      begin
+        AAlert := TTlsAlertDescription.InternalError;
+        Exit;
+      end;
+    end;
+
     // network per the caller: cache-only inline (no socket), enabled for the live re-check
     if FSecTrustSetNetworkFetchAllowed(LTrust, ANetworkAllowed) <> ErrSecSuccess then
     begin
@@ -793,8 +837,8 @@ begin
       end;
     end;
 
-    // the handshake staple is consumed as the cached OCSP response (no responder fetch)
-    if Length(AOcspStaple) > 0 then
+    // the handshake staple is consumed as the cached OCSP response (server only; no responder fetch)
+    if AServer and (Length(AOcspStaple) > 0) then
     begin
       if not System.Assigned(FSecTrustSetOCSPResponse) then
       begin
@@ -816,8 +860,8 @@ begin
 
     if FSecTrustEvaluateWithError(LTrust, @LError) then
     begin
-      // trusted: read the OS-built path (before the finally releases LTrust) and report it with
-      // the OS anchor (the last element) exempt from the strength policy the delegate runs over it
+      // trusted: read the OS-built path (before the finally releases LTrust) and report it with the
+      // anchor (the last element) exempt from the strength policy the delegate runs over it
       if not ReadTrustPath(LTrust, LPath) then
       begin
         AAlert := TTlsAlertDescription.InternalError;
@@ -874,239 +918,10 @@ begin
       FCFRelease(LSslPolicy);
     if LPolicyArray <> nil then
       FCFRelease(LPolicyArray);
-    if LHostRef <> nil then
-      FCFRelease(LHostRef);
-    if LCertArray <> nil then
-      FCFRelease(LCertArray);
-  end;
-end;
-
-class function TAppleTrustApi.EvaluateClientTrust(const AChain, AAnchors: TArray<TBytes>;
-  ANetworkAllowed: Boolean; ARevocation: TPlatformRevocationCheck; const AClock: ITlsClock;
-  out AResult: TPlatformChainResult;
-  out AAlert: TTlsAlertDescription): Boolean;
-var
-  LStatusCode: Int32;
-  LCertArray, LAnchorArray, LPolicyArray: CFArrayRef;
-  LSslPolicy, LRevPolicy: SecPolicyRef;
-  LTrust: SecTrustRef;
-  LDate: CFDateRef;
-  LPolicyRefs: array [0 .. 1] of Pointer;
-  LPolicyCount: Integer;
-  LFlags: NativeUInt;
-  LStatus: OSStatus;
-  LError: CFErrorRef;
-  LPath: TArray<TBytes>;
-  LAddRevocation, LRequirePositive: Boolean;
-begin
-  // None asks for no revocation policy; BestEffort adds the any-method policy; RequirePositive
-  // additionally demands a positive response
-  LAddRevocation := ARevocation <> TPlatformRevocationCheck.None;
-  LRequirePositive := ARevocation = TPlatformRevocationCheck.RequirePositive;
-  Result := False;
-  AResult := Default(TPlatformChainResult);
-  AResult.Outcome := TLiveRevocationOutcome.Indeterminate;
-  AAlert := TTlsAlertDescription.BadCertificate;
-
-  if Length(AChain) = 0 then
-    Exit;
-
-  if not FReady then
-  begin
-    AAlert := TTlsAlertDescription.InternalError;
-    Exit;
-  end;
-
-  // the anchors-only entry points are required for client-auth: without them a client could
-  // validate against the OS/public roots, so fail closed rather than fall back to a weaker check
-  if (not System.Assigned(FSecTrustSetAnchorCertificates)) or
-    (not System.Assigned(FSecTrustSetAnchorCertificatesOnly)) then
-  begin
-    AAlert := TTlsAlertDescription.InternalError;
-    Exit;
-  end;
-
-  // zero configured client-CA anchors can trust nothing: reject before building any trust so an
-  // empty anchor set can never fall through to the system roots
-  if Length(AAnchors) = 0 then
-  begin
-    AAlert := TTlsAlertDescription.UnknownCa;
-    Exit;
-  end;
-
-  LCertArray := nil;
-  LAnchorArray := nil;
-  LPolicyArray := nil;
-  LSslPolicy := nil;
-  LRevPolicy := nil;
-  LTrust := nil;
-  LDate := nil;
-  LError := nil;
-  try
-    if not MakeCertArray(AChain, LCertArray) then
-      Exit;
-    // a configured anchor that will not parse is a broken trust configuration, not a bad peer
-    if not MakeCertArray(AAnchors, LAnchorArray) then
-    begin
-      AAlert := TTlsAlertDescription.InternalError;
-      Exit;
-    end;
-
-    // a client-authentication SSL policy (no host binding)
-    LSslPolicy := FSecPolicyCreateSSL(False, nil);
-    if LSslPolicy = nil then
-    begin
-      AAlert := TTlsAlertDescription.InternalError;
-      Exit;
-    end;
-
-    LPolicyRefs[0] := LSslPolicy;
-    LPolicyCount := 1;
-    if LAddRevocation then
-    begin
-      if not System.Assigned(FSecPolicyCreateRevocation) then
-      begin
-        // a required positive response cannot be honored without the revocation policy - fail
-        // closed; a best-effort check proceeds under the default behavior
-        if LRequirePositive then
-        begin
-          AAlert := TTlsAlertDescription.InternalError;
-          Exit;
-        end;
-      end
-      else
-      begin
-        LFlags := KSecRevocationUseAnyAvailableMethod;
-        // cache-only inline keeps the check off the network; the live re-check drops this
-        if not ANetworkAllowed then
-          LFlags := LFlags or KSecRevocationNetworkAccessDisabled;
-        if LRequirePositive then
-          LFlags := LFlags or KSecRevocationRequirePositiveResponse;
-        LRevPolicy := FSecPolicyCreateRevocation(LFlags);
-        if LRevPolicy = nil then
-        begin
-          AAlert := TTlsAlertDescription.InternalError;
-          Exit;
-        end;
-        LPolicyRefs[1] := LRevPolicy;
-        LPolicyCount := 2;
-      end;
-    end;
-    LPolicyArray := FCFArrayCreate(nil, @LPolicyRefs[0], LPolicyCount,
-      FkCFTypeArrayCallBacks);
-    if LPolicyArray = nil then
-    begin
-      AAlert := TTlsAlertDescription.InternalError;
-      Exit;
-    end;
-
-    LStatus := FSecTrustCreateWithCertificates(LCertArray, LPolicyArray, LTrust);
-    if (LStatus <> ErrSecSuccess) or (LTrust = nil) then
-    begin
-      AAlert := TTlsAlertDescription.BadCertificate;
-      Exit;
-    end;
-
-    // the configured client-CA anchors are the ONLY trusted roots
-    if FSecTrustSetAnchorCertificates(LTrust, LAnchorArray) <> ErrSecSuccess then
-    begin
-      AAlert := TTlsAlertDescription.InternalError;
-      Exit;
-    end;
-    if FSecTrustSetAnchorCertificatesOnly(LTrust, True) <> ErrSecSuccess then
-    begin
-      AAlert := TTlsAlertDescription.InternalError;
-      Exit;
-    end;
-
-    // network per the caller: cache-only inline (no socket), enabled for the live re-check
-    if FSecTrustSetNetworkFetchAllowed(LTrust, ANetworkAllowed) <> ErrSecSuccess then
-    begin
-      AAlert := TTlsAlertDescription.InternalError;
-      Exit;
-    end;
-
-    if AClock <> nil then
-    begin
-      if (not System.Assigned(FSecTrustSetVerifyDate)) or
-        (not System.Assigned(FCFDateCreate)) then
-      begin
-        AAlert := TTlsAlertDescription.InternalError;
-        Exit;
-      end;
-      LDate := FCFDateCreate(nil, UnixMillisToCFAbsoluteTime(AClock.NowUnixMillis));
-      if LDate = nil then
-      begin
-        AAlert := TTlsAlertDescription.InternalError;
-        Exit;
-      end;
-      if FSecTrustSetVerifyDate(LTrust, LDate) <> ErrSecSuccess then
-      begin
-        AAlert := TTlsAlertDescription.InternalError;
-        Exit;
-      end;
-    end;
-
-    if FSecTrustEvaluateWithError(LTrust, @LError) then
-    begin
-      // trusted: read the OS-built path (before the finally releases LTrust) and report it with
-      // the configured client-CA anchor (the last element) exempt from the delegate's strength policy
-      if not ReadTrustPath(LTrust, LPath) then
-      begin
-        AAlert := TTlsAlertDescription.InternalError;
-        Exit;
-      end;
-      AResult.Path := LPath;
-      AResult.PolicyExempt := TArray<TBytes>.Create(LPath[High(LPath)]);
-      AResult.Outcome := TLiveRevocationOutcome.Good;
-      Result := True;
-      Exit;
-    end;
-
-    // Rejected: default to unknown_ca, then refine ONLY from an OSStatus-domain CFError. A revoked
-    // or an incomplete-revocation status is a tri-state outcome the delegate acts on; every other
-    // reason is a definitive trust failure (Result stays False).
-    AAlert := TTlsAlertDescription.UnknownCa;
-    if (LError <> nil) and FCanDecodeError and
-      FCFEqual(FCFErrorGetDomain(LError), FkCFErrorDomainOSStatus) then
-    begin
-      LStatusCode := Int32(FCFErrorGetCode(LError));
-      if (LStatusCode = ErrSecCertificateRevoked) or
-        (LStatusCode = ErrSecIncompleteCertRevocationCheck) then
-      begin
-        // a revocation outcome the delegate decides: report the OS-built path (readable even on a
-        // rejected evaluation) so the shared pipeline renders the precise revocation alert
-        if not ReadTrustPath(LTrust, LPath) then
-        begin
-          AAlert := TTlsAlertDescription.InternalError;
-          Exit;
-        end;
-        AResult.Path := LPath;
-        AResult.PolicyExempt := TArray<TBytes>.Create(LPath[High(LPath)]);
-        if LStatusCode = ErrSecCertificateRevoked then
-          AResult.Outcome := TLiveRevocationOutcome.Revoked
-        else
-          AResult.Outcome := TLiveRevocationOutcome.Indeterminate;
-        Result := True;
-        Exit;
-      end;
-      AAlert := TAppleAlertMap.OsStatusToAlert(LStatusCode);
-    end;
-  finally
-    if LError <> nil then
-      FCFRelease(LError);
-    if LDate <> nil then
-      FCFRelease(LDate);
-    if LTrust <> nil then
-      FCFRelease(LTrust);
-    if LRevPolicy <> nil then
-      FCFRelease(LRevPolicy);
-    if LSslPolicy <> nil then
-      FCFRelease(LSslPolicy);
-    if LPolicyArray <> nil then
-      FCFRelease(LPolicyArray);
     if LAnchorArray <> nil then
       FCFRelease(LAnchorArray);
+    if LHostRef <> nil then
+      FCFRelease(LHostRef);
     if LCertArray <> nil then
       FCFRelease(LCertArray);
   end;
@@ -1327,9 +1142,9 @@ function TAppleChainEngine.EvaluateServer(const ARequest: TPlatformChainRequest;
 begin
   // the OS name check only ever sees a DNS host (empty for an IP literal); an IP is matched in the
   // library by the delegate
-  Result := TAppleTrustApi.EvaluateTrust(ARequest.Chain, ARequest.ServerName.AsDns,
-    ARequest.OcspStaple, ARequest.NetworkAllowed, ARequest.Revocation,
-    ARequest.Clock, AResult, AAlert);
+  Result := TAppleTrustApi.EvaluateWithPolicy(True, ARequest.Chain, nil,
+    ARequest.ServerName.AsDns, ARequest.OcspStaple, ARequest.NetworkAllowed,
+    ARequest.Revocation, ARequest.Clock, AResult, AAlert);
 end;
 
 function TAppleChainEngine.EvaluateClient(const ARequest: TPlatformChainRequest;
@@ -1337,9 +1152,9 @@ function TAppleChainEngine.EvaluateClient(const ARequest: TPlatformChainRequest;
 begin
   // anchors-only over the configured client-CA anchors (never the OS/public roots); a client
   // certificate carries no host identity and is never stapled
-  Result := TAppleTrustApi.EvaluateClientTrust(ARequest.Chain, ARequest.Anchors,
-    ARequest.NetworkAllowed, ARequest.Revocation,
-    ARequest.Clock, AResult, AAlert);
+  Result := TAppleTrustApi.EvaluateWithPolicy(False, ARequest.Chain, ARequest.Anchors,
+    '', nil, ARequest.NetworkAllowed, ARequest.Revocation, ARequest.Clock,
+    AResult, AAlert);
 end;
 
 initialization

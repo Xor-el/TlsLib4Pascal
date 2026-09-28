@@ -356,20 +356,17 @@ type
     /// or empty encoded cert) so the caller fails closed.</summary>
     class function ReadChainPath(AChainCtx: Pointer;
       out APath: TArray<TBytes>): Boolean; static;
-    /// <summary>Runs the OS SSL server-authentication chain evaluation over the OS ROOT store,
-    /// consuming the stapled OCSP response as cached revocation data, at the validation time
-    /// ARequest.Clock supplies (nil = system time). ARequest.Revocation fixes the revocation flags
-    /// and ARequest.NetworkAllowed the cache-only-vs-live mode (live bounds the fetch by
-    /// ARequest.DeadlineMs). Returns True with the tri-state result (path + outcome) when the OS
-    /// built and trusted a path; on a definitive non-revocation failure False with AAlert.</summary>
-    class function EvaluateServer(const ARequest: TPlatformChainRequest;
-      out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean; static;
-    /// <summary>Runs the OS chain evaluation for a peer CLIENT certificate against an exclusive-root
-    /// engine built over ARequest.Anchors alone (never the OS/public roots), with the clientAuth EKU
-    /// and the AUTHTYPE_CLIENT SSL policy (a client certificate is never stapled). Same revocation
-    /// and network handling as the server path. Returns False with internal_error when the
-    /// exclusive-engine entry point is unavailable.</summary>
-    class function EvaluateClient(const ARequest: TPlatformChainRequest;
+    /// <summary>Runs the OS SSL chain evaluation at the validation time ARequest.Clock supplies
+    /// (nil = system time). ARequest.Revocation fixes the revocation flags and ARequest.NetworkAllowed
+    /// the cache-only-vs-live mode (live bounds the fetch by ARequest.DeadlineMs). Returns True with
+    /// the tri-state result (path + outcome) when the OS built and trusted a path; on a definitive
+    /// non-revocation failure False with AAlert.
+    /// AServer selects the role: the server path validates against the OS roots with the serverAuth
+    /// EKU, binds the host and consumes the staple; the client path builds an exclusive-root engine
+    /// over ARequest.Anchors alone (never the OS/public roots) with the clientAuth EKU and no host or
+    /// staple, and returns internal_error when the exclusive-engine entry point is unavailable.</summary>
+    class function EvaluateWithPolicy(AServer: Boolean;
+      const ARequest: TPlatformChainRequest;
       out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean; static;
   end;
 
@@ -668,16 +665,18 @@ begin
   Result := True;
 end;
 
-class function TWindowsTrustApi.EvaluateServer(const ARequest: TPlatformChainRequest;
+class function TWindowsTrustApi.EvaluateWithPolicy(AServer: Boolean;
+  const ARequest: TPlatformChainRequest;
   out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean;
 var
   LLeaf: PCERT_CONTEXT;
-  LStore: HCERTSTORE;
-  LChain: Pointer;
+  LStore, LRootStore, LInterStore, LIntermediates: HCERTSTORE;
+  LEngine, LChain: Pointer;
   LUsageArr: array [0 .. 0] of PAnsiChar;
   LChainPara: CERT_CHAIN_PARA;
   LChainParaEx: CERT_CHAIN_PARA_EX;
   LParaPtr: Pointer;
+  LEngineConfig: CERT_CHAIN_ENGINE_CONFIG;
   LPolicyPara: CERT_CHAIN_POLICY_PARA;
   LSslPara: SSL_EXTRA_CERT_CHAIN_POLICY_PARA;
   LStatus: CERT_CHAIN_POLICY_STATUS;
@@ -696,47 +695,99 @@ begin
   if Length(ARequest.Chain) = 0 then
     Exit;
 
-  if not FReady then
+  if AServer then
+  begin
+    if not FReady then
+    begin
+      AAlert := TTlsAlertDescription.InternalError;
+      Exit;
+    end;
+  end
+  // the exclusive-root engine is required for client-auth: without it a client could validate
+  // against the OS/public roots, so fail closed rather than fall back to a weaker check
+  else if (not FReady) or (not System.Assigned(FCertCreateCertificateChainEngine)) or
+    (not System.Assigned(FCertFreeCertificateChainEngine)) then
   begin
     AAlert := TTlsAlertDescription.InternalError;
     Exit;
   end;
-
-  // the OS name check only ever sees a DNS host (empty for an IP literal); an IP is matched in
-  // the library against iPAddress SANs by the delegate that owns this engine
-  LHost := ARequest.ServerName.AsDns;
 
   LLeaf := FCertCreateCertificateContext(MY_ENCODING_TYPE, PByte(ARequest.Chain[0]),
     Length(ARequest.Chain[0]));
   if LLeaf = nil then
     Exit;
 
-  LStore := FCertOpenStore(CERT_STORE_PROV_MEMORY, MY_ENCODING_TYPE, nil, 0, nil);
+  LStore := nil;
+  LRootStore := nil;
+  LInterStore := nil;
+  LEngine := nil;
   LChain := nil;
+  if AServer then
+    LStore := FCertOpenStore(CERT_STORE_PROV_MEMORY, MY_ENCODING_TYPE, nil, 0, nil)
+  else
+  begin
+    LRootStore := FCertOpenStore(CERT_STORE_PROV_MEMORY, MY_ENCODING_TYPE, nil, 0, nil);
+    LInterStore := FCertOpenStore(CERT_STORE_PROV_MEMORY, MY_ENCODING_TYPE, nil, 0, nil);
+  end;
   try
-    // the staple, attached to the leaf, is read as cached revocation data (no responder fetch)
-    if (Length(ARequest.OcspStaple) > 0) and
-      System.Assigned(FCertSetCertificateContextProperty) then
+    if AServer then
     begin
-      LStapleBlob.cbData := Length(ARequest.OcspStaple);
-      LStapleBlob.pbData := PByte(ARequest.OcspStaple);
-      FCertSetCertificateContextProperty(LLeaf, CERT_OCSP_RESPONSE_PROP_ID, 0,
-        @LStapleBlob);
-    end;
-
-    // Feed the presented intermediates so the engine can build the path without an AIA fetch.
-    if LStore <> nil then
-    begin
-      for LI := 1 to Length(ARequest.Chain) - 1 do
+      // the staple, attached to the leaf, is read as cached revocation data (no responder fetch)
+      if (Length(ARequest.OcspStaple) > 0) and
+        System.Assigned(FCertSetCertificateContextProperty) then
       begin
+        LStapleBlob.cbData := Length(ARequest.OcspStaple);
+        LStapleBlob.pbData := PByte(ARequest.OcspStaple);
+        FCertSetCertificateContextProperty(LLeaf, CERT_OCSP_RESPONSE_PROP_ID, 0,
+          @LStapleBlob);
+      end;
+
+      // Feed the presented intermediates so the engine can build the path without an AIA fetch.
+      if LStore <> nil then
+        for LI := 1 to Length(ARequest.Chain) - 1 do
+          if Length(ARequest.Chain[LI]) > 0 then
+            FCertAddEncodedCertificateToStore(LStore, MY_ENCODING_TYPE,
+              PByte(ARequest.Chain[LI]), Length(ARequest.Chain[LI]),
+              CERT_STORE_ADD_ALWAYS, nil);
+      LIntermediates := LStore;
+    end
+    else
+    begin
+      if (LRootStore = nil) or (LInterStore = nil) then
+      begin
+        AAlert := TTlsAlertDescription.InternalError;
+        Exit;
+      end;
+
+      // the configured client-CA anchors are the ONLY trusted roots
+      for LI := 0 to Length(ARequest.Anchors) - 1 do
+        if Length(ARequest.Anchors[LI]) > 0 then
+          FCertAddEncodedCertificateToStore(LRootStore, MY_ENCODING_TYPE,
+            PByte(ARequest.Anchors[LI]), Length(ARequest.Anchors[LI]),
+            CERT_STORE_ADD_ALWAYS, nil);
+      // the presented intermediates seed path building (no AIA fetch)
+      for LI := 1 to Length(ARequest.Chain) - 1 do
         if Length(ARequest.Chain[LI]) > 0 then
-          FCertAddEncodedCertificateToStore(LStore, MY_ENCODING_TYPE,
+          FCertAddEncodedCertificateToStore(LInterStore, MY_ENCODING_TYPE,
             PByte(ARequest.Chain[LI]), Length(ARequest.Chain[LI]),
             CERT_STORE_ADD_ALWAYS, nil);
+
+      FillChar(LEngineConfig, SizeOf(LEngineConfig), 0);
+      LEngineConfig.cbSize := SizeOf(LEngineConfig);
+      LEngineConfig.hExclusiveRoot := LRootStore;
+      LEngineConfig.dwExclusiveFlags := CERT_CHAIN_EXCLUSIVE_ENABLE_CA_FLAG;
+      if not FCertCreateCertificateChainEngine(LEngineConfig, LEngine) then
+      begin
+        AAlert := TTlsAlertDescription.InternalError;
+        Exit;
       end;
+      LIntermediates := LInterStore;
     end;
 
-    LUsageArr[0] := SZOID_PKIX_KP_SERVER_AUTH;
+    if AServer then
+      LUsageArr[0] := SZOID_PKIX_KP_SERVER_AUTH
+    else
+      LUsageArr[0] := SZOID_PKIX_KP_CLIENT_AUTH;
     // network on: the extended para carries the fetch deadline; cache-only inline keeps the plain
     // para (a different cbSize changes which fields crypt32 reads)
     if ARequest.NetworkAllowed then
@@ -769,7 +820,8 @@ begin
       LTimePtr := @LFileTime;
     end;
 
-    if not FCertGetCertificateChain(nil, LLeaf, LTimePtr, LStore, LParaPtr,
+    // the server uses the default engine (LEngine nil); the client uses its exclusive-root engine
+    if not FCertGetCertificateChain(LEngine, LLeaf, LTimePtr, LIntermediates, LParaPtr,
       LFlags, nil, LChain) then
     begin
       AAlert := TTlsAlertDescription.UnknownCa;
@@ -778,176 +830,26 @@ begin
 
     FillChar(LSslPara, SizeOf(LSslPara), 0);
     LSslPara.cbSize := SizeOf(LSslPara);
-    LSslPara.dwAuthType := AUTHTYPE_SERVER;
     LSslPara.fdwChecks := 0;
-    if LHost <> '' then
+    if AServer then
     begin
-      LServerName := UnicodeString(LHost);
-      LSslPara.pwszServerName := PWideChar(LServerName);
+      LSslPara.dwAuthType := AUTHTYPE_SERVER;
+      // the OS name check only ever sees a DNS host (empty for an IP literal); an IP is matched in
+      // the library against iPAddress SANs by the delegate that owns this engine
+      LHost := ARequest.ServerName.AsDns;
+      if LHost <> '' then
+      begin
+        LServerName := UnicodeString(LHost);
+        LSslPara.pwszServerName := PWideChar(LServerName);
+      end
+      else
+        LSslPara.pwszServerName := nil;
     end
     else
+    begin
+      LSslPara.dwAuthType := AUTHTYPE_CLIENT;
       LSslPara.pwszServerName := nil;
-
-    FillChar(LPolicyPara, SizeOf(LPolicyPara), 0);
-    LPolicyPara.cbSize := SizeOf(LPolicyPara);
-    LPolicyPara.dwFlags := PolicyFlags(ARequest.Revocation);
-    LPolicyPara.pvExtraPolicyPara := @LSslPara;
-
-    FillChar(LStatus, SizeOf(LStatus), 0);
-    LStatus.cbSize := SizeOf(LStatus);
-
-    if not FCertVerifyCertificateChainPolicy(CERT_CHAIN_POLICY_SSL, LChain,
-      LPolicyPara, LStatus) then
-    begin
-      AAlert := TTlsAlertDescription.BadCertificate;
-      Exit;
     end;
-
-    Result := ClassifyPolicyStatus(LStatus.dwError, LChain, AResult, AAlert);
-  finally
-    if LChain <> nil then
-      FCertFreeCertificateChain(LChain);
-    if LStore <> nil then
-      FCertCloseStore(LStore, 0);
-    FCertFreeCertificateContext(LLeaf);
-  end;
-end;
-
-class procedure TWindowsTrustApi.MapPolicyError(ADwError: DWORD;
-  out AAlert: TTlsAlertDescription);
-begin
-  case ADwError of
-    CERT_E_EXPIRED, CERT_E_VALIDITYPERIODNESTING:
-      AAlert := TTlsAlertDescription.CertificateExpired;
-    CERT_E_UNTRUSTEDROOT, CERT_E_UNTRUSTEDCA, CERT_E_CHAINING,
-      TRUST_E_CERT_SIGNATURE:
-      AAlert := TTlsAlertDescription.UnknownCa;
-    CERT_E_WRONG_USAGE:
-      AAlert := TTlsAlertDescription.UnsupportedCertificate;
-  else
-    // CERT_E_CN_NO_MATCH and everything else map to bad_certificate.
-    AAlert := TTlsAlertDescription.BadCertificate;
-  end;
-end;
-
-class function TWindowsTrustApi.EvaluateClient(const ARequest: TPlatformChainRequest;
-  out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean;
-var
-  LLeaf: PCERT_CONTEXT;
-  LRootStore, LInterStore: HCERTSTORE;
-  LEngine, LChain: Pointer;
-  LUsageArr: array [0 .. 0] of PAnsiChar;
-  LChainPara: CERT_CHAIN_PARA;
-  LChainParaEx: CERT_CHAIN_PARA_EX;
-  LParaPtr: Pointer;
-  LEngineConfig: CERT_CHAIN_ENGINE_CONFIG;
-  LPolicyPara: CERT_CHAIN_POLICY_PARA;
-  LSslPara: SSL_EXTRA_CERT_CHAIN_POLICY_PARA;
-  LStatus: CERT_CHAIN_POLICY_STATUS;
-  LFileTime: FILETIME;
-  LTimePtr: Pointer;
-  LFlags: DWORD;
-  LI: Integer;
-begin
-  Result := False;
-  AResult := Default(TPlatformChainResult);
-  AAlert := TTlsAlertDescription.BadCertificate;
-
-  if Length(ARequest.Chain) = 0 then
-    Exit;
-
-  // the exclusive-root engine is required for client-auth: without it a client could validate
-  // against the OS/public roots, so fail closed rather than fall back to a weaker check
-  if (not FReady) or (not System.Assigned(FCertCreateCertificateChainEngine)) or
-    (not System.Assigned(FCertFreeCertificateChainEngine)) then
-  begin
-    AAlert := TTlsAlertDescription.InternalError;
-    Exit;
-  end;
-
-  LLeaf := FCertCreateCertificateContext(MY_ENCODING_TYPE, PByte(ARequest.Chain[0]),
-    Length(ARequest.Chain[0]));
-  if LLeaf = nil then
-    Exit;
-
-  LRootStore := FCertOpenStore(CERT_STORE_PROV_MEMORY, MY_ENCODING_TYPE, nil, 0, nil);
-  LInterStore := FCertOpenStore(CERT_STORE_PROV_MEMORY, MY_ENCODING_TYPE, nil, 0, nil);
-  LEngine := nil;
-  LChain := nil;
-  try
-    if (LRootStore = nil) or (LInterStore = nil) then
-    begin
-      AAlert := TTlsAlertDescription.InternalError;
-      Exit;
-    end;
-
-    // the configured client-CA anchors are the ONLY trusted roots
-    for LI := 0 to Length(ARequest.Anchors) - 1 do
-      if Length(ARequest.Anchors[LI]) > 0 then
-        FCertAddEncodedCertificateToStore(LRootStore, MY_ENCODING_TYPE,
-          PByte(ARequest.Anchors[LI]), Length(ARequest.Anchors[LI]),
-          CERT_STORE_ADD_ALWAYS, nil);
-    // the presented intermediates seed path building (no AIA fetch)
-    for LI := 1 to Length(ARequest.Chain) - 1 do
-      if Length(ARequest.Chain[LI]) > 0 then
-        FCertAddEncodedCertificateToStore(LInterStore, MY_ENCODING_TYPE,
-          PByte(ARequest.Chain[LI]), Length(ARequest.Chain[LI]),
-          CERT_STORE_ADD_ALWAYS, nil);
-
-    FillChar(LEngineConfig, SizeOf(LEngineConfig), 0);
-    LEngineConfig.cbSize := SizeOf(LEngineConfig);
-    LEngineConfig.hExclusiveRoot := LRootStore;
-    LEngineConfig.dwExclusiveFlags := CERT_CHAIN_EXCLUSIVE_ENABLE_CA_FLAG;
-    if not FCertCreateCertificateChainEngine(LEngineConfig, LEngine) then
-    begin
-      AAlert := TTlsAlertDescription.InternalError;
-      Exit;
-    end;
-
-    LUsageArr[0] := SZOID_PKIX_KP_CLIENT_AUTH;
-    // network on: the extended para carries the fetch deadline; cache-only inline keeps the plain
-    // para (a different cbSize changes which fields crypt32 reads)
-    if ARequest.NetworkAllowed then
-    begin
-      FillChar(LChainParaEx, SizeOf(LChainParaEx), 0);
-      LChainParaEx.cbSize := SizeOf(LChainParaEx);
-      LChainParaEx.RequestedUsage.dwType := USAGE_MATCH_TYPE_AND;
-      LChainParaEx.RequestedUsage.Usage.cUsageIdentifier := 1;
-      LChainParaEx.RequestedUsage.Usage.rgpszUsageIdentifier := @LUsageArr[0];
-      LChainParaEx.dwUrlRetrievalTimeout := ARequest.DeadlineMs;
-      LParaPtr := @LChainParaEx;
-    end
-    else
-    begin
-      FillChar(LChainPara, SizeOf(LChainPara), 0);
-      LChainPara.cbSize := SizeOf(LChainPara);
-      LChainPara.RequestedUsage.dwType := USAGE_MATCH_TYPE_AND;
-      LChainPara.RequestedUsage.Usage.cUsageIdentifier := 1;
-      LChainPara.RequestedUsage.Usage.rgpszUsageIdentifier := @LUsageArr[0];
-      LParaPtr := @LChainPara;
-    end;
-
-    LFlags := ChainFlags(ARequest.Revocation, ARequest.NetworkAllowed);
-
-    LTimePtr := nil;
-    if ARequest.Clock <> nil then
-    begin
-      LFileTime := UnixMillisToFileTime(ARequest.Clock.NowUnixMillis);
-      LTimePtr := @LFileTime;
-    end;
-
-    if not FCertGetCertificateChain(LEngine, LLeaf, LTimePtr, LInterStore, LParaPtr,
-      LFlags, nil, LChain) then
-    begin
-      AAlert := TTlsAlertDescription.UnknownCa;
-      Exit;
-    end;
-
-    FillChar(LSslPara, SizeOf(LSslPara), 0);
-    LSslPara.cbSize := SizeOf(LSslPara);
-    LSslPara.dwAuthType := AUTHTYPE_CLIENT;
-    LSslPara.fdwChecks := 0;
-    LSslPara.pwszServerName := nil;
 
     FillChar(LPolicyPara, SizeOf(LPolicyPara), 0);
     LPolicyPara.cbSize := SizeOf(LPolicyPara);
@@ -974,7 +876,26 @@ begin
       FCertCloseStore(LInterStore, 0);
     if LRootStore <> nil then
       FCertCloseStore(LRootStore, 0);
+    if LStore <> nil then
+      FCertCloseStore(LStore, 0);
     FCertFreeCertificateContext(LLeaf);
+  end;
+end;
+
+class procedure TWindowsTrustApi.MapPolicyError(ADwError: DWORD;
+  out AAlert: TTlsAlertDescription);
+begin
+  case ADwError of
+    CERT_E_EXPIRED, CERT_E_VALIDITYPERIODNESTING:
+      AAlert := TTlsAlertDescription.CertificateExpired;
+    CERT_E_UNTRUSTEDROOT, CERT_E_UNTRUSTEDCA, CERT_E_CHAINING,
+      TRUST_E_CERT_SIGNATURE:
+      AAlert := TTlsAlertDescription.UnknownCa;
+    CERT_E_WRONG_USAGE:
+      AAlert := TTlsAlertDescription.UnsupportedCertificate;
+  else
+    // CERT_E_CN_NO_MATCH and everything else map to bad_certificate.
+    AAlert := TTlsAlertDescription.BadCertificate;
   end;
 end;
 
@@ -1015,13 +936,13 @@ end;
 function TWindowsChainEngine.EvaluateServer(const ARequest: TPlatformChainRequest;
   out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean;
 begin
-  Result := TWindowsTrustApi.EvaluateServer(ARequest, AResult, AAlert);
+  Result := TWindowsTrustApi.EvaluateWithPolicy(True, ARequest, AResult, AAlert);
 end;
 
 function TWindowsChainEngine.EvaluateClient(const ARequest: TPlatformChainRequest;
   out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean;
 begin
-  Result := TWindowsTrustApi.EvaluateClient(ARequest, AResult, AAlert);
+  Result := TWindowsTrustApi.EvaluateWithPolicy(False, ARequest, AResult, AAlert);
 end;
 
 initialization
