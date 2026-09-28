@@ -36,7 +36,7 @@ type
   /// the inner transcript and random on accept, or the public_name on reject).
   /// </summary>
   IEchClientOrchestrator = interface(IInterface)
-    ['{6D9A2F14-8C53-4E71-A0B6-2F7C1D5E3A48}']
+    ['{7CD24F66-ACAF-4E05-96C8-2A7912416003}']
     /// <summary>Creates the inner transcript before the inner ClientHello is built (a single
     /// offered PSK pre-activates it so its binder MACs the inner history).</summary>
     procedure PrepareInnerTranscript(APreActivated: Boolean; AHash: THashAlgorithm);
@@ -59,10 +59,11 @@ type
     /// <summary>Under GREASE, validate the HelloRetryRequest ech syntactically without acting on
     /// it: a present-but-not-8-byte ech is a decode_error (RFC 9849 sec. 6.2.1).</summary>
     procedure NoteHelloRetryRequestGrease(const ARaw: TBytes);
-    /// <summary>Applies the EncryptedExtensions ech rule: unsolicited on accept
-    /// (unsupported_extension), retry_configs captured on reject (unless this was a retry),
-    /// validated-and-ignored under GREASE.</summary>
-    procedure NoteEncryptedExtensions(const AEeBody: TBytes);
+    /// <summary>Applies the EncryptedExtensions ech rule from the machine-parsed extension
+    /// (AEchPresent, and AEchData when present): unsolicited on accept (unsupported_extension),
+    /// retry_configs captured on reject (unless this was a retry), validated-and-ignored under
+    /// GREASE.</summary>
+    procedure NoteEncryptedExtensions(AEchPresent: Boolean; const AEchData: TBytes);
     /// <summary>Prunes the GREASE-PSK decoys to the surviving offer indices, keeping them
     /// index-aligned with the machine's pruned pre_shared_key offers across a HelloRetryRequest.</summary>
     procedure KeepPskDecoys(const AKeptIndices: TArray<Int32>);

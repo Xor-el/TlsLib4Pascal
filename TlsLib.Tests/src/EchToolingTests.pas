@@ -68,6 +68,7 @@ type
     procedure TestSvcbRejectsDuplicateKeys;
     procedure TestSvcbRejectsTrailingBytes;
     procedure TestSvcbRejectsEmptyEchValue;
+    procedure TestSvcbTruncatedRdataReturnsFalse;
     procedure TestPemKeyMismatchRejected;
     procedure TestFromConfigKeyMismatchRejected;
     procedure TestStoreWithNoRetryEntriesRejected;
@@ -361,6 +362,23 @@ begin
   LWriter.WriteUInt16(0);  // empty value
   CheckFalse(TEchConfigFromSvcb.TryFromServiceBinding(LWriter.ToBytes, LOut),
     'an empty ech SvcParam value yields no usable config');
+end;
+
+procedure TTestEchTooling.TestSvcbTruncatedRdataReturnsFalse;
+var
+  LWriter: IWireWriter;
+  LOut: TBytes;
+begin
+  // an ech SvcParam whose declared value length runs past the RDATA is a truncated resolver
+  // answer: a plain "no usable ech" (a wire-decode error), never a raised fault
+  LWriter := TWireWriter.Create;
+  LWriter.WriteUInt16(1);
+  LWriter.WriteUInt8(0);
+  LWriter.WriteUInt16(5);  // ech
+  LWriter.WriteUInt16(10); // claims 10 bytes but only 2 follow
+  LWriter.WriteBytes(TBytes.Create($AB, $CD));
+  CheckFalse(TEchConfigFromSvcb.TryFromServiceBinding(LWriter.ToBytes, LOut),
+    'a truncated ech SvcParam value yields no usable config');
 end;
 
 procedure TTestEchTooling.TestPemKeyMismatchRejected;

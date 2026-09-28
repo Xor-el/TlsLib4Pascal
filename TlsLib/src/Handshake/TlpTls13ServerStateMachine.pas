@@ -1055,7 +1055,7 @@ begin
   begin
     FEch := TEchServerHandshake.Create(FParams.Crypto, FParams.EchKeyStore,
       FParams.EchTrialDecrypt);
-    FEchStatus := FEch.ProcessOuter(AMessage.Raw);
+    FEchStatus := FEch.ProcessOuter(AMessage.Raw, LClientHello, LExtensions);
     if FEchStatus = TEchStatus.Accepted then
     begin
       LEchRaw := FEch.InnerFramed;
@@ -1122,9 +1122,10 @@ begin
   FHelloRetrySent := True;
   FEarlyDataAccepted := False;
   FPhase := TPhase.WaitSecondClientHello;
-  // no per-connection state is retained: the transcript is rebuilt from the cookie.
-  // the version leads the flight so the record layer can classify the client's post-hello
-  // change_cipher_spec: a HelloRetryRequest installs no keys, so nothing else fixes it here
+  // the transcript is rebuilt from the stateless cookie; only the ECH state (the opener at seq=1,
+  // status, inner random and retry_configs) persists across the retry - RFC 9849 sec. 7.1.1 needs
+  // the CH1 HPKE context. The version leads the flight so the record layer can classify the client's
+  // post-hello change_cipher_spec: a HelloRetryRequest installs no keys, so nothing else fixes it here
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.NegotiatedVersion(TTlsVersion.Tls13),
     THandshakeEffects.SendHandshake(LHrr),
@@ -1554,10 +1555,10 @@ begin
     // signal 0-RTT acceptance to the client (an empty early_data in EncryptedExtensions)
     LContext.EarlyDataAccepted := FEarlyDataAccepted;
     // on ECH reject the client-facing server advertises retry_configs so the client can refresh
-    // its keys (RFC 9849 sec. 7.1); the registry places the ech extension (payload is an
-    // ECHConfigList) last in the EncryptedExtensions vector
+    // its keys (RFC 9849 sec. 7.1); the ech body IS an ECHConfigList, placed by the registry last
+    // in the EncryptedExtensions vector
     if (FEchStatus = TEchStatus.Rejected) and (System.Length(FEchRetryConfigs) > 0) then
-      LContext.EchExtensionData := TEchExtension.EncodeRetryConfigs(FEchRetryConfigs);
+      LContext.EchExtensionData := FEchRetryConfigs;
     LBlock := FCodec.ProduceBlock(LContext,
       TTlsExtensionContextKind.EncryptedExtensions);
   finally

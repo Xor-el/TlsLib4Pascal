@@ -20,6 +20,7 @@ uses
   TlpISecretBuffer,
   TlpICryptoProvider,
   TlpExtensionVector,
+  TlpHandshakeMessages,
   TlpEchConfig;
 
 type
@@ -30,10 +31,7 @@ type
   /// shared lock-free.
   /// </summary>
   IEchClientPolicy = interface(IInterface)
-    ['{9E1B7A34-5C82-46D0-A1F7-3B6E8C2D4059}']
-    /// <summary>The parsed ECHConfigList (in decreasing order of preference); empty when
-    /// only GREASE is configured.</summary>
-    function Configs: TArray<TEchConfig>;
+    ['{5E379F43-A271-47AA-A1DB-01BC7B86900A}']
     /// <summary>Whether to send a GREASE ECH when no config is usable (RFC 9849 sec. 6.2).</summary>
     function GreaseEnabled: Boolean;
     /// <summary>Whether this handshake already follows an earlier ECH reject; a further
@@ -69,40 +67,25 @@ type
   end;
 
   /// <summary>
-  /// The client side of one connection's Encrypted Client Hello (RFC 9849): seals the
-  /// ClientHelloInner under the selected config and assembles the EncodedClientHelloInner
-  /// with its compressed outer_extensions. One instance per connection; carries the HPKE
-  /// sender context (reused with an empty enc across a HelloRetryRequest).
-  /// </summary>
-  IEchClientHandshake = interface(IInterface)
-    ['{7C3E9A15-4D82-4F60-9B18-2E6C0D5A3F84}']
-    /// <summary>The EncodedClientHelloInner for AInnerBody: the inner extensions replaced by an
-    /// ech_outer_extensions block referencing the outer, padded per RFC 9849 sec. 6.1.3.</summary>
-    function BuildEncodedInner(const AInnerBody: TBytes;
-      const AOuter: TExtensionVector): TBytes;
-    /// <summary>Sets up the HPKE sender against the selected config and returns the enc.</summary>
-    function SetupSeal: TBytes;
-    /// <summary>Seals APlaintext under the ClientHelloOuterAAD AAad at the current sequence.</summary>
-    function Seal(const AAad, APlaintext: TBytes): TBytes;
-  end;
-
-  /// <summary>
   /// The server side of one connection's Encrypted Client Hello (RFC 9849): trial-decrypts the
   /// ClientHelloOuter, reconstructs the ClientHelloInner, and carries the HPKE recipient context
   /// (reused across a HelloRetryRequest). One instance per connection.
   /// </summary>
   IEchServerHandshake = interface(IInterface)
-    ['{2B8D4F60-6A13-4E59-9C82-5D6E0B3A1F47}']
-    /// <summary>Trial-decrypts the ClientHelloOuter AOuterFramed: Accepted (inner reconstructed),
+    ['{5EE8D115-D01C-40CE-A12D-D4D7955C3442}']
+    /// <summary>Trial-decrypts the ClientHelloOuter AOuterFramed, reusing the outer the caller
+    /// already decoded (AOuter) and vector-parsed (AOuterEntries): Accepted (inner reconstructed),
     /// Rejected (serve the public_name), or NotOffered / Backend.</summary>
-    function ProcessOuter(const AOuterFramed: TBytes): TEchStatus;
+    function ProcessOuter(const AOuterFramed: TBytes; const AOuter: TTlsClientHello;
+      const AOuterEntries: TExtensionVector): TEchStatus;
     /// <summary>Decrypts the retry ClientHelloOuter (seq 1, empty enc) after an accepted CH1.
     /// Precondition: the first ClientHelloOuter was accepted (ProcessOuter returned Accepted);
     /// calling it otherwise is a programming error and raises.</summary>
     function ProcessRetryOuter(const AOuterFramed: TBytes): TEchStatus;
-    /// <summary>The reconstructed inner ClientHello, framed as a handshake message.</summary>
+    /// <summary>The reconstructed inner ClientHello, framed as a handshake message; a copy, since
+    /// the handshake wipes its own buffer on release.</summary>
     function InnerFramed: TBytes;
-    /// <summary>The inner ClientHello's random, cross-checked against CH2 under HRR.</summary>
+    /// <summary>The inner ClientHello's random (a copy), cross-checked against CH2 under HRR.</summary>
     function InnerRandom: TBytes;
   end;
 

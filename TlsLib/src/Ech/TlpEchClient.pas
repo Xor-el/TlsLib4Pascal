@@ -40,7 +40,6 @@ type
   TEchClientPolicy = class sealed(TInterfacedObject, IEchClientPolicy)
   strict private
   var
-    FConfigs: TArray<TEchConfig>;
     FGrease: Boolean;
     FIsRetry: Boolean;
     FUsable: Boolean;
@@ -49,7 +48,6 @@ type
   public
     constructor Create(const ACrypto: ICryptoProvider; const AConfigListBytes: TBytes;
       AGrease, AIsRetry: Boolean);
-    function Configs: TArray<TEchConfig>;
     function GreaseEnabled: Boolean;
     function IsRetryAttempt: Boolean;
     function Usable: Boolean;
@@ -64,14 +62,13 @@ type
   /// padding) and drives the HPKE seal against a selected ECHConfig. A per-connection
   /// instance holds the live sealer so a HelloRetryRequest can re-seal at seq=1.
   /// </summary>
-  TEchClientHandshake = class sealed(TInterfacedObject, IEchClientHandshake)
+  TEchClientHandshake = class sealed(TObject)
   strict private
   var
     FCrypto: ICryptoProvider;
     FConfig: TEchConfig;
     FSuite: IHpkeSuite;
     FSealer: IHpkeSealer;
-    FEnc: TBytes;
     class function ServerNameLength(const AEntries: TExtensionVector;
       out AHasServerName: Boolean): Int32; static;
     class function MatchesOuter(const AEntry: TExtensionEntry;
@@ -118,8 +115,6 @@ type
     /// </summary>
     class function AcceptConfirmationMatches(const AHkdf: IHkdf;
       const AInnerRandom, ATranscriptEchConf, AServerRandom: TBytes): Boolean; static;
-
-    property Enc: TBytes read FEnc;
   end;
 
 implementation
@@ -137,26 +132,23 @@ const
 
 constructor TEchClientPolicy.Create(const ACrypto: ICryptoProvider;
   const AConfigListBytes: TBytes; AGrease, AIsRetry: Boolean);
+var
+  LConfigs: TArray<TEchConfig>;
 begin
   inherited Create;
   // a malformed list is a typed decode error at configuration time; an empty list is only
   // meaningful as a GREASE-only policy - without GREASE it would silently send the true SNI
   if System.Length(AConfigListBytes) > 0 then
-    FConfigs := TEchConfigList.Parse(AConfigListBytes)
+    LConfigs := TEchConfigList.Parse(AConfigListBytes)
   else if not AGrease then
     raise EArgumentTlsLibException.CreateRes(@SEchEmptyConfigNoGrease);
   FGrease := AGrease;
   FIsRetry := AIsRetry;
   // resolve the (config, suite) once here so every connection reuses it (no per-handshake KEM
-  // probe) and an unusable config fails at Build, not at connect
-  FUsable := TEchConfigList.TrySelect(FConfigs, ACrypto, FSelectedConfig, FSelectedSuite);
+  // probe) and an unusable config fails at Build, not at connect; the parsed list is not retained
+  FUsable := TEchConfigList.TrySelect(LConfigs, ACrypto, FSelectedConfig, FSelectedSuite);
   if (not FUsable) and (not FGrease) then
     raise EArgumentTlsLibException.CreateRes(@SEchNoUsableConfig);
-end;
-
-function TEchClientPolicy.Configs: TArray<TEchConfig>;
-begin
-  Result := System.Copy(FConfigs);
 end;
 
 function TEchClientPolicy.GreaseEnabled: Boolean;
@@ -302,6 +294,9 @@ var
   LRefTypes: TArray<UInt16>;
   LEncoded: TBytes;
 begin
+  // start from a fresh result so the padded buffer built below is always distinct from the
+  // unpadded plaintext it copies from (which is wiped), independent of the caller's binding
+  Result := nil;
   LInner := THandshakeMessages.DecodeClientHello(AInnerBody);
   LInnerEntries := TExtensionVector.Parse(LInner.Extensions);
 
@@ -325,14 +320,20 @@ begin
   LSniLen := ServerNameLength(LInnerEntries, LHasSni);
   LPad := PaddingLength(System.Length(LEncoded), LSniLen, LHasSni,
     FConfig.MaximumNameLength);
-  Result := LEncoded;
-  SetLength(Result, System.Length(LEncoded) + LPad);
+  // build the padded result in a fresh buffer (SetLength zero-fills the padding tail), then wipe
+  // the unpadded plaintext, which carries the real inner SNI
+  try
+    SetLength(Result, System.Length(LEncoded) + LPad);
+    if System.Length(LEncoded) > 0 then
+      Move(LEncoded[0], Result[0], System.Length(LEncoded));
+  finally
+    TSecureMemory.WipeBytes(LEncoded);
+  end;
 end;
 
 function TEchClientHandshake.SetupSeal: TBytes;
 begin
-  FSuite.SetupSealer(FConfig.PublicKey, FConfig.HpkeInfo, FEnc, FSealer);
-  Result := FEnc;
+  FSuite.SetupSealer(FConfig.PublicKey, FConfig.HpkeInfo, Result, FSealer);
 end;
 
 function TEchClientHandshake.Seal(const AAad, APlaintext: TBytes): TBytes;

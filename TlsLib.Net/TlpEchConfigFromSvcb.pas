@@ -116,12 +116,12 @@ class function TEchConfigFromSvcb.TryFromServiceBinding(const ARdata: TBytes;
   out AEchConfigList: TBytes): Boolean;
 begin
   AEchConfigList := nil;
-  // the RDATA is untrusted resolver output, so a truncated field (an over-read past the
-  // buffer) is a plain "no usable ech", not a fatal error
+  // the RDATA is untrusted resolver output, so a truncated/over-read field is a plain "no usable
+  // ech"; only a wire-decode error is swallowed - a programming fault still propagates
   try
     Result := TryReadEch(ARdata, AEchConfigList);
   except
-    on E: Exception do
+    on E: EDecodeErrorTlsLibException do
     begin
       AEchConfigList := nil;
       Result := False;

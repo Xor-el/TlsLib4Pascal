@@ -64,6 +64,9 @@ type
     FVec: TStringList;
     function BaseParams(const AEchConfigList: TBytes): TClientHandshakeParams;
     function OuterClientHello: TBytes;
+    // decode + vector-parse the framed outer once, then drive ProcessOuter (its new triple)
+    function ProcessOuterFramed(const AEch: IEchServerHandshake;
+      const AFramed: TBytes): TEchStatus;
     function SniHost(const AServerNameData: TBytes): string;
     function Contains(const AHaystack, ANeedle: TBytes): Boolean;
   protected
@@ -75,6 +78,8 @@ type
     procedure TestEmptyConfigListWithoutGreaseFailsClosed;
     procedure TestServerRetryOuterBeforeAcceptFailsLoud;
     procedure TestServerRetryOuterAfterRejectFailsLoud;
+    procedure TestServerProcessOuterEmptyVectorIsNotOffered;
+    procedure TestUsableEchWithTls12OfferRejected;
   end;
 
 implementation
@@ -346,7 +351,7 @@ begin
     THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM, 0);
   LStore := TInMemoryEchKeyStore.FromPem(LGen.Pem, Crypto);
   LEch := TEchServerHandshake.Create(Crypto, LStore, True) as IEchServerHandshake;
-  CheckTrue(LEch.ProcessOuter(OuterClientHello) = TEchStatus.Rejected,
+  CheckTrue(ProcessOuterFramed(LEch, OuterClientHello) = TEchStatus.Rejected,
     'the mismatched store rejects the outer ech');
   LRaised := False;
   try
@@ -356,6 +361,55 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'ProcessRetryOuter after a reject fails loud');
+end;
+
+function TTestEchClientEngine.ProcessOuterFramed(const AEch: IEchServerHandshake;
+  const AFramed: TBytes): TEchStatus;
+var
+  LOuter: TTlsClientHello;
+  LEntries: TExtensionVector;
+begin
+  LOuter := THandshakeMessages.DecodeClientHello(
+    System.Copy(AFramed, 4, System.Length(AFramed) - 4));
+  LEntries := TExtensionVector.Parse(LOuter.Extensions);
+  Result := AEch.ProcessOuter(AFramed, LOuter, LEntries);
+end;
+
+procedure TTestEchClientEngine.TestServerProcessOuterEmptyVectorIsNotOffered;
+var
+  LGen: TEchKeyGenResult;
+  LStore: IEchServerKeyStore;
+  LEch: IEchServerHandshake;
+  LOuter: TTlsClientHello;
+begin
+  // an empty outer extension vector (a legacy <=TLS 1.2 shape) offers no ech: NotOffered, no decrypt
+  LGen := TEchKeyGenerator.Generate(Crypto, 'public.example', 'origin.example', $CC,
+    THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM, 0);
+  LStore := TInMemoryEchKeyStore.FromPem(LGen.Pem, Crypto);
+  LEch := TEchServerHandshake.Create(Crypto, LStore, False) as IEchServerHandshake;
+  LOuter := THandshakeMessages.DecodeClientHello(
+    System.Copy(OuterClientHello, 4, System.Length(OuterClientHello) - 4));
+  CheckTrue(LEch.ProcessOuter(OuterClientHello, LOuter, TExtensionVector.Empty)
+    = TEchStatus.NotOffered, 'an empty extension vector offers no ech');
+end;
+
+procedure TTestEchClientEngine.TestUsableEchWithTls12OfferRejected;
+var
+  LParams: TClientHandshakeParams;
+  LRaised: Boolean;
+begin
+  // the SNI-exposure guard: a usable ECH config can never ride a ClientHello that also offers TLS
+  // 1.2 (ECH is 1.3-only, RFC 9849 sec. 6.1), so the 1.3 machine ctor must refuse the pairing
+  LParams := BaseParams(DecodeHex(FVec.Values['config_list']));
+  LParams.AlsoOfferTls12 := True;
+  LRaised := False;
+  try
+    TTls13ClientStateMachine.Create(LParams).Free;
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a usable ECH config paired with a 1.2 offer is rejected');
 end;
 
 initialization
