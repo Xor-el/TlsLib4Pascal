@@ -77,8 +77,6 @@ type
 
     procedure Append(const AEntry: TExtensionEntry);
     procedure InsertAt(AIndex: Int32; const AEntry: TExtensionEntry);
-    /// <summary>Inserts before the first entry of AAnchorType, or appends when it is absent.</summary>
-    procedure InsertBefore(AAnchorType: UInt16; const AEntry: TExtensionEntry);
     /// <summary>Replaces entry AIndex's data (its type is unchanged; DataOffset resets to -1).</summary>
     procedure SetData(AIndex: Int32; const AData: TBytes);
     /// <summary>Replaces ACount entries from AStart with one entry.</summary>
@@ -252,18 +250,6 @@ begin
   for LI := System.High(FEntries) downto AIndex + 1 do
     FEntries[LI] := FEntries[LI - 1];
   FEntries[AIndex] := AEntry;
-end;
-
-procedure TExtensionVector.InsertBefore(AAnchorType: UInt16;
-  const AEntry: TExtensionEntry);
-var
-  LIndex: Int32;
-begin
-  LIndex := IndexOf(AAnchorType);
-  if LIndex < 0 then
-    Append(AEntry)
-  else
-    InsertAt(LIndex, AEntry);
 end;
 
 procedure TExtensionVector.SetData(AIndex: Int32; const AData: TBytes);

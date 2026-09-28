@@ -50,8 +50,6 @@ type
     procedure TestTryFindAndIndexOf;
     procedure TestTypesInOrder;
     procedure TestIsLast;
-    procedure TestInsertBeforeKeepsPskLast;
-    procedure TestInsertBeforeAbsentAppends;
     procedure TestInsertAtZeroPrepends;
     procedure TestReplaceRangeCollapsesRun;
     procedure TestSetDataResetsOffset;
@@ -239,28 +237,6 @@ begin
   CheckFalse(LVec.IsLast($0001), 'present but not last');
   CheckFalse(LVec.IsLast($FFFF), 'absent');
   CheckFalse(TExtensionVector.Empty.IsLast($0001), 'empty vector');
-end;
-
-procedure TTestExtensionVector.TestInsertBeforeKeepsPskLast;
-var
-  LVec: TExtensionVector;
-begin
-  // pre_shared_key (0x0029) must stay last (RFC 8446 4.2.11)
-  LVec := TExtensionVector.Parse(MakeField(TArray<UInt16>.Create($0001, $0029),
-    TArray<TBytes>.Create(B([]), B([]))));
-  LVec.InsertBefore($0029, TExtensionEntry.Create($FE0D, B([5])));
-  CheckEquals($FE0D, LVec.Types[1], 'inserted before pre_shared_key');
-  CheckTrue(LVec.IsLast($0029), 'pre_shared_key stays last');
-end;
-
-procedure TTestExtensionVector.TestInsertBeforeAbsentAppends;
-var
-  LVec: TExtensionVector;
-begin
-  LVec := TExtensionVector.Parse(MakeField(TArray<UInt16>.Create($0001),
-    TArray<TBytes>.Create(B([]))));
-  LVec.InsertBefore($0029, TExtensionEntry.Create($FE0D, B([5])));
-  CheckTrue(LVec.IsLast($FE0D), 'absent anchor -> appended last');
 end;
 
 procedure TTestExtensionVector.TestInsertAtZeroPrepends;
