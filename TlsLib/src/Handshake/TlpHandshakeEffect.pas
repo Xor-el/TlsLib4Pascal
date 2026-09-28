@@ -75,9 +75,16 @@ type
     ValidatedPath: TArray<TBytes>; // AwaitCertificateVerdict / PeerCertificateChain (the pipeline-validated path; issuer at [1]; empty when none was validated)
     CipherSuite: UInt16;         // ConnectionParams (the negotiated cipher suite code)
     NamedGroup: UInt16;          // ConnectionParams (0 when none / non-(EC)DHE)
-    Resumed: Boolean;            // ConnectionParams (resumed); EchRejected (was a retry)
+    Resumed: Boolean;            // ConnectionParams (resumed)
     ServerName: string;          // ConnectionParams (the SNI in play; empty when none)
     Alert: TTlsAlertDescription; // Fail
+    Staple: TBytes;              // AwaitCertificateVerdict (the handshake OCSP staple; empty when none)
+    HostName: string;            // AwaitCertificateVerdict (the host to authenticate against)
+    MaxBytes: Int32;             // SkipEarlyData / SetEarlyDataLimit / SetEarlyReadEpoch (a byte budget)
+    Active: Boolean;             // SetEarlyReadEpoch (the early-data read window is open)
+    IsRetry: Boolean;            // EchRejected (this handshake was itself a retry)
+    RetryConfigs: TBytes;        // EchRejected (the server's retry_configs; empty when none)
+    Authorities: TArray<TBytes>; // RequestedCertificateAuthorities (the named DistinguishedNames)
   end;
 
   /// <summary>Builds the handshake effect values.</summary>
@@ -224,14 +231,14 @@ class function THandshakeEffects.SkipEarlyData(AMaxBytes: Int32): THandshakeEffe
 begin
   Result := Default(THandshakeEffect);
   Result.Kind := THandshakeEffectKind.SkipEarlyData;
-  Result.Inbound := AMaxBytes; // the byte budget for undecryptable early records
+  Result.MaxBytes := AMaxBytes; // the byte budget for undecryptable early records
 end;
 
 class function THandshakeEffects.SetEarlyDataLimit(AMaxBytes: Int32): THandshakeEffect;
 begin
   Result := Default(THandshakeEffect);
   Result.Kind := THandshakeEffectKind.SetEarlyDataLimit;
-  Result.Outbound := AMaxBytes; // the outbound 0-RTT byte budget from the ticket
+  Result.MaxBytes := AMaxBytes; // the outbound 0-RTT byte budget from the ticket
 end;
 
 class function THandshakeEffects.RevertWriteToPlaintext: THandshakeEffect;
@@ -245,8 +252,8 @@ class function THandshakeEffects.SetEarlyReadEpoch(AActive: Boolean;
 begin
   Result := Default(THandshakeEffect);
   Result.Kind := THandshakeEffectKind.SetEarlyReadEpoch;
-  Result.Resumed := AActive; // the early-data read window is open (True) or closed (False)
-  Result.Inbound := AMaxBytes; // the accepted early-data byte budget from the ticket
+  Result.Active := AActive; // the early-data read window is open (True) or closed (False)
+  Result.MaxBytes := AMaxBytes; // the accepted early-data byte budget from the ticket
 end;
 
 class function THandshakeEffects.RaiseEvent(AEvent: TTlsEventKind): THandshakeEffect;
@@ -264,8 +271,8 @@ begin
   Result.Kind := THandshakeEffectKind.AwaitCertificateVerdict;
   Result.Chain := AChain;
   Result.ValidatedPath := AValidatedPath;
-  Result.Text := AHostName;
-  Result.Bytes := AStaple;
+  Result.HostName := AHostName;
+  Result.Staple := AStaple;
 end;
 
 class function THandshakeEffects.PeerCertificateChain(
@@ -282,7 +289,7 @@ class function THandshakeEffects.RequestedCertificateAuthorities(
 begin
   Result := Default(THandshakeEffect);
   Result.Kind := THandshakeEffectKind.RequestedCertificateAuthorities;
-  Result.Chain := AAuthorities;
+  Result.Authorities := AAuthorities;
 end;
 
 class function THandshakeEffects.ConnectionParams(ACipherSuite, ANamedGroup: UInt16;
@@ -347,8 +354,8 @@ class function THandshakeEffects.EchRejected(const ARetryConfigs: TBytes;
 begin
   Result := Default(THandshakeEffect);
   Result.Kind := THandshakeEffectKind.EchRejected;
-  Result.Bytes := ARetryConfigs;
-  Result.Resumed := AIsRetryAttempt;
+  Result.RetryConfigs := ARetryConfigs;
+  Result.IsRetry := AIsRetryAttempt;
 end;
 
 class function THandshakeEffects.TryFromException(const AError: Exception;

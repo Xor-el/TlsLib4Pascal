@@ -133,13 +133,13 @@ begin
     THandshakeEffectKind.SetRecordSizeLimit:
       FInstaller.SetRecordSizeLimit(AEffect.Outbound, AEffect.Inbound);
     THandshakeEffectKind.SkipEarlyData:
-      FInstaller.SetEarlyDataSkip(AEffect.Inbound);
+      FInstaller.SetEarlyDataSkip(AEffect.MaxBytes);
     THandshakeEffectKind.SetEarlyDataLimit:
-      FInstaller.SetEarlyDataLimit(AEffect.Outbound);
+      FInstaller.SetEarlyDataLimit(AEffect.MaxBytes);
     THandshakeEffectKind.RevertWriteToPlaintext:
       FInstaller.RevertWriteToPlaintext;
     THandshakeEffectKind.SetEarlyReadEpoch:
-      FInstaller.SetEarlyReadEpoch(AEffect.Resumed, AEffect.Inbound);
+      FInstaller.SetEarlyReadEpoch(AEffect.Active, AEffect.MaxBytes);
     THandshakeEffectKind.RaiseEvent:
       FSink.OnHandshakeEvent(AEffect.Event);
     THandshakeEffectKind.AwaitCertificateVerdict:
@@ -148,7 +148,7 @@ begin
       // resume it, so it fails closed instead of wedging
       if FVerdictSink <> nil then
         FVerdictSink.OnCertificateVerdictNeeded(AEffect.Chain, AEffect.ValidatedPath,
-          AEffect.Text, AEffect.Bytes)
+          AEffect.HostName, AEffect.Staple)
       else
         FSink.OnHandshakeFailed(TTlsAlertDescription.InternalError);
     THandshakeEffectKind.PeerCertificateChain:
@@ -156,7 +156,7 @@ begin
         FConnectionInfoSink.OnPeerCertificateChain(AEffect.Chain, AEffect.ValidatedPath);
     THandshakeEffectKind.RequestedCertificateAuthorities:
       if FConnectionInfoSink <> nil then
-        FConnectionInfoSink.OnRequestedCertificateAuthorities(AEffect.Chain);
+        FConnectionInfoSink.OnRequestedCertificateAuthorities(AEffect.Authorities);
     THandshakeEffectKind.ConnectionParams:
       if FConnectionInfoSink <> nil then
         FConnectionInfoSink.OnConnectionParams(AEffect.CipherSuite,
@@ -177,7 +177,7 @@ begin
         FEchStatusSink.OnEchServerRejected;
     THandshakeEffectKind.EchRejected:
       if FEchStatusSink <> nil then
-        FEchStatusSink.OnEchRejected(AEffect.Bytes, AEffect.Resumed)
+        FEchStatusSink.OnEchRejected(AEffect.RetryConfigs, AEffect.IsRetry)
       else
         FSink.OnHandshakeFailed(TTlsAlertDescription.EchRequired);
     THandshakeEffectKind.SendWarningAlert:
