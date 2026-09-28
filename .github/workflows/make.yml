@@ -70,6 +70,12 @@ env:
   # against a per-run generated CA on every native leg, plus - on Windows/macOS - the OS trust
   # delegate against a throwaway root installed into the machine store. Set false to skip them.
   MAKE_RUN_TRUST: true
+  # When true (default), the native legs compile the fcl-net adapter package + its six examples
+  # against the prebuilt packages and run its four in-process loopback examples (no network; the
+  # real-world example is compile-only, the wedge demo compile-only). fcl-net ships in the FPC
+  # tarball, so this needs no extra deps; the other three adapters need third-party frameworks CI
+  # does not install and stay out of scope. Read by that job's fclnet-build.sh step. Set false to skip.
+  MAKE_RUN_FCLNET: true
   # When true, the interop harness (self-test, fuzzer, openssl matrix and BoGo) runs against
   # this platform's OS-native crypto facets overlaid on the portable base (TLSLIB_NATIVE_CRYPTO),
   # instead of the pure-Pascal provider. Only Windows has native facets today, so it is a no-op
@@ -148,6 +154,15 @@ jobs:
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['linux-x64'].fpc_tarball_target }}
         run: bash .github/workflows/ci/native-build.sh
 
+      # FclNet adapter: compile the fcl-net adapter + examples and run its loopbacks (no deps
+      # beyond the FPC tarball). Runs after Build so the packages are already compiled.
+      - name: FclNet adapter (build + loopback)
+        shell: bash
+        env:
+          FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['linux-x64'].fpc_target }}
+          MAKE_RUN_FCLNET: ${{ env.MAKE_RUN_FCLNET }}
+        run: bash .github/workflows/ci/adapters/fclnet-build.sh
+
       # Interop harness (self-test + fuzzer + openssl matrix + the hard-gate BoGo run):
       # provisions Go + the pinned peer and archives the coverage boundary. Shared by every
       # native job via the composite action. Opt out with MAKE_RUN_INTEROP=false, or of BoGo
@@ -182,6 +197,15 @@ jobs:
           FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['linux-arm64'].fpc_target }}
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['linux-arm64'].fpc_tarball_target }}
         run: bash .github/workflows/ci/native-build.sh
+
+      # FclNet adapter: compile the fcl-net adapter + examples and run its loopbacks (no deps
+      # beyond the FPC tarball). Runs after Build so the packages are already compiled.
+      - name: FclNet adapter (build + loopback)
+        shell: bash
+        env:
+          FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['linux-arm64'].fpc_target }}
+          MAKE_RUN_FCLNET: ${{ env.MAKE_RUN_FCLNET }}
+        run: bash .github/workflows/ci/adapters/fclnet-build.sh
 
       # Interop harness on native AArch64 (architecture-generic; the hard-gate BoGo run
       # runs here too when MAKE_RUN_BOGO=true) via the shared composite action.
@@ -258,6 +282,15 @@ jobs:
           FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['windows-x64'].fpc_target }}
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['windows-x64'].fpc_tarball_target }}
         run: bash .github/workflows/ci/native-build.sh
+
+      # FclNet adapter: compile the fcl-net adapter + examples and run its loopbacks (no deps
+      # beyond the FPC tarball). Runs after Build so the packages are already compiled.
+      - name: FclNet adapter (build + loopback)
+        shell: bash
+        env:
+          FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['windows-x64'].fpc_target }}
+          MAKE_RUN_FCLNET: ${{ env.MAKE_RUN_FCLNET }}
+        run: bash .github/workflows/ci/adapters/fclnet-build.sh
 
       # BoGo now runs on Windows too (the shim reads argv via CommandLineToArgvW so the
       # runner's binary flag values survive). Gated on MAKE_RUN_BOGO so the harness is off by
