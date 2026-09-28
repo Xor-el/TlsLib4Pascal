@@ -1,0 +1,24 @@
+docs/cookbook.md
+  s_09d3c46d1a9b1f::t_2868f42a4b7a3a 297-302
+TlsLib/src/Engine/TlpTlsEngine.pas
+  s_09d3c46d1a9b1f::t_95d49180c88c89 562-564
+  s_09d3c46d1a9b1f::t_dd4f38f44d38cc 996-998
+TlsLib/src/Interfaces/Engine/TlpITlsEngine.pas
+  s_09d3c46d1a9b1f::t_a5d202accdd6b6 100-106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6b66337097e98e91027d4fe6f2c354d19b375b8d",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
