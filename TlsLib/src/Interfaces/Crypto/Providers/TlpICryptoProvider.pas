@@ -99,9 +99,13 @@ type
   /// authentication failure.
   /// </summary>
   IAead = interface(IInterface)
-    ['{7C4E1B92-3A6D-4F58-9E21-0D5A8C3B7F14}']
-    /// <summary>The usage-limit family the record layer derives its rekey bound from.</summary>
+    ['{9F5FB86B-C4E6-49C0-BE25-95FA8DB9DAF6}']
+    /// <summary>The AEAD's family (AES-GCM vs ChaCha20-Poly1305): selects the TLS 1.2 nonce framing
+    /// and the default usage limit.</summary>
     function UsageCategory: TAeadUsageCategory;
+    /// <summary>Records that may be sealed under one key: the record layer rekeys a lead before this
+    /// bound and refuses to seal at it (RFC 8446 5.5). Must exceed the rekey lead.</summary>
+    function UsageLimit: UInt64;
     /// <summary>Required key length in bytes.</summary>
     function KeySize: Int32;
     /// <summary>Required nonce length in bytes.</summary>

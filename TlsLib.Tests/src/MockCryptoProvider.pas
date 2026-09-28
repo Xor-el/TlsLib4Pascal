@@ -20,11 +20,17 @@ interface
 uses
   SysUtils,
   TlpCryptoDomainTypes,
+  TlpISecretBuffer,
   TlpICryptoProvider,
   TlpIPkixProvider,
   TlpTlsLibExceptions,
   TlpDefaultCryptoProvider,
   TlpDefaultPkixProvider;
+
+const
+  // a small records-per-key limit so a test reaches the AEAD usage-limit rekey path organically:
+  // the record layer rekeys a lead (16) before this bound and refuses to seal at it
+  CappedAeadUsageLimit = UInt64(64);
 
 type
   /// <summary>
@@ -116,6 +122,63 @@ type
     FComposed: ICryptoProvider;
   public
     constructor Create(const AInner: ICryptoProvider; AMissing: TAeadAlgorithm);
+    function Primitives: ICryptoPrimitives;
+    function Signing: ISigningCrypto;
+    function Hpke: IHpkeCrypto;
+  end;
+
+  /// <summary>
+  /// An <see cref="IAead" /> decorator that forwards every operation to an inner AEAD but reports a
+  /// small <c>UsageLimit</c>, so a test drives the record layer's usage-limit rekey path by writing
+  /// a few dozen records instead of 2^24.
+  /// </summary>
+  TCappedAead = class(TInterfacedObject, IAead)
+  strict private
+  var
+    FInner: IAead;
+    FUsageLimit: UInt64;
+  public
+    constructor Create(const AInner: IAead; AUsageLimit: UInt64);
+    function UsageCategory: TAeadUsageCategory;
+    function UsageLimit: UInt64;
+    function KeySize: Int32;
+    function NonceSize: Int32;
+    function TagSize: Int32;
+    procedure Init(const AKey: ISecretBuffer);
+    function Seal(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
+      const ADest: TBytes; ADestOff: Int32): Int32;
+    function Open(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
+      const ADest: TBytes; ADestOff: Int32): Int32;
+  end;
+
+  /// <summary>An <see cref="ICryptoPrimitives" /> decorator whose <c>CreateAead</c> wraps the inner
+  /// AEAD with a small usage limit; every other primitive forwards.</summary>
+  TCappedAeadPrimitives = class(TInterfacedObject, ICryptoPrimitives)
+  strict private
+  var
+    FInner: ICryptoPrimitives;
+    FUsageLimit: UInt64;
+  public
+    constructor Create(const AInner: ICryptoPrimitives; AUsageLimit: UInt64);
+    function GetRandom: IRandom;
+    function CreateHash(AAlgorithm: THashAlgorithm): IHash;
+    function CreateHmac(AAlgorithm: THashAlgorithm): IHmac;
+    function CreateHkdf(AAlgorithm: THashAlgorithm): IHkdf;
+    function CreateTls12Prf(AAlgorithm: THashAlgorithm): ITls12Prf;
+    function CreateAead(AAlgorithm: TAeadAlgorithm): IAead;
+    function CreateKeyAgreement(AAlgorithm: TKeyAgreementAlgorithm): IKeyAgreement;
+    function CreateKem(AAlgorithm: TKemAlgorithm): IKem;
+    function HasHardwareAes: Boolean;
+  end;
+
+  /// <summary>A test provider whose AEADs carry a small usage limit, so the record-layer rekey /
+  /// usage-limit path is reached by writing a few dozen records rather than 2^24.</summary>
+  TCappedAeadProvider = class(TInterfacedObject, ICryptoProvider)
+  strict private
+  var
+    FComposed: ICryptoProvider;
+  public
+    constructor Create(const AInner: ICryptoProvider; AUsageLimit: UInt64);
     function Primitives: ICryptoPrimitives;
     function Signing: ISigningCrypto;
     function Hpke: IHpkeCrypto;
@@ -339,6 +402,143 @@ begin
 end;
 
 function TMissingAeadProvider.Hpke: IHpkeCrypto;
+begin
+  Result := FComposed.Hpke;
+end;
+
+{ TCappedAead }
+
+constructor TCappedAead.Create(const AInner: IAead; AUsageLimit: UInt64);
+begin
+  inherited Create;
+  FInner := AInner;
+  FUsageLimit := AUsageLimit;
+end;
+
+function TCappedAead.UsageCategory: TAeadUsageCategory;
+begin
+  Result := FInner.UsageCategory;
+end;
+
+function TCappedAead.UsageLimit: UInt64;
+begin
+  Result := FUsageLimit;
+end;
+
+function TCappedAead.KeySize: Int32;
+begin
+  Result := FInner.KeySize;
+end;
+
+function TCappedAead.NonceSize: Int32;
+begin
+  Result := FInner.NonceSize;
+end;
+
+function TCappedAead.TagSize: Int32;
+begin
+  Result := FInner.TagSize;
+end;
+
+procedure TCappedAead.Init(const AKey: ISecretBuffer);
+begin
+  FInner.Init(AKey);
+end;
+
+function TCappedAead.Seal(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
+  const ADest: TBytes; ADestOff: Int32): Int32;
+begin
+  Result := FInner.Seal(ANonce, AAad, ASrc, ASrcOff, ALen, ADest, ADestOff);
+end;
+
+function TCappedAead.Open(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
+  const ADest: TBytes; ADestOff: Int32): Int32;
+begin
+  Result := FInner.Open(ANonce, AAad, ASrc, ASrcOff, ALen, ADest, ADestOff);
+end;
+
+{ TCappedAeadPrimitives }
+
+constructor TCappedAeadPrimitives.Create(const AInner: ICryptoPrimitives;
+  AUsageLimit: UInt64);
+begin
+  inherited Create;
+  FInner := AInner;
+  FUsageLimit := AUsageLimit;
+end;
+
+function TCappedAeadPrimitives.GetRandom: IRandom;
+begin
+  Result := FInner.GetRandom;
+end;
+
+function TCappedAeadPrimitives.CreateHash(AAlgorithm: THashAlgorithm): IHash;
+begin
+  Result := FInner.CreateHash(AAlgorithm);
+end;
+
+function TCappedAeadPrimitives.CreateHmac(AAlgorithm: THashAlgorithm): IHmac;
+begin
+  Result := FInner.CreateHmac(AAlgorithm);
+end;
+
+function TCappedAeadPrimitives.CreateHkdf(AAlgorithm: THashAlgorithm): IHkdf;
+begin
+  Result := FInner.CreateHkdf(AAlgorithm);
+end;
+
+function TCappedAeadPrimitives.CreateTls12Prf(AAlgorithm: THashAlgorithm): ITls12Prf;
+begin
+  Result := FInner.CreateTls12Prf(AAlgorithm);
+end;
+
+function TCappedAeadPrimitives.CreateAead(AAlgorithm: TAeadAlgorithm): IAead;
+begin
+  Result := TCappedAead.Create(FInner.CreateAead(AAlgorithm), FUsageLimit) as IAead;
+end;
+
+function TCappedAeadPrimitives.CreateKeyAgreement(
+  AAlgorithm: TKeyAgreementAlgorithm): IKeyAgreement;
+begin
+  Result := FInner.CreateKeyAgreement(AAlgorithm);
+end;
+
+function TCappedAeadPrimitives.CreateKem(AAlgorithm: TKemAlgorithm): IKem;
+begin
+  Result := FInner.CreateKem(AAlgorithm);
+end;
+
+function TCappedAeadPrimitives.HasHardwareAes: Boolean;
+begin
+  Result := FInner.HasHardwareAes;
+end;
+
+{ TCappedAeadProvider }
+
+constructor TCappedAeadProvider.Create(const AInner: ICryptoProvider;
+  AUsageLimit: UInt64);
+var
+  LBuilder: ICryptoProviderBuilder;
+begin
+  inherited Create;
+  LBuilder := TCryptoProviderBuilder.Create;
+  FComposed := LBuilder
+    .WithPrimitives(TCappedAeadPrimitives.Create(AInner.Primitives, AUsageLimit)
+      as ICryptoPrimitives)
+    .Build;
+end;
+
+function TCappedAeadProvider.Primitives: ICryptoPrimitives;
+begin
+  Result := FComposed.Primitives;
+end;
+
+function TCappedAeadProvider.Signing: ISigningCrypto;
+begin
+  Result := FComposed.Signing;
+end;
+
+function TCappedAeadProvider.Hpke: IHpkeCrypto;
 begin
   Result := FComposed.Hpke;
 end;

@@ -34,8 +34,10 @@ uses
   TlpINegotiation,
   TlpNegotiationTypes,
   TlpCipherSuiteRegistry,
+  TlpICryptoProvider,
   TlpITlsEngine,
   TlpHandshakeMessages,
+  MockCryptoProvider,
   TlsLibTestBase;
 
 type
@@ -47,7 +49,7 @@ type
     FCerts: TStringList;
     function ServerCredential: TTlsCredential;
     function ClientTrust: ITrustAnchorStore;
-    function AesGcmRegistry: ICipherSuiteRegistry;
+    function AesGcmRegistry(const AProvider: ICryptoProvider): ICipherSuiteRegistry;
     function NewClient: ITlsEngine;
     function NewServer: ITlsEngine;
     function Drain(const AEngine: ITlsEngine): TBytes;
@@ -215,12 +217,13 @@ begin
   CountKeyUpdateEvents(AServer);
 end;
 
-function TTestTls13KeyUpdate.AesGcmRegistry: ICipherSuiteRegistry;
+function TTestTls13KeyUpdate.AesGcmRegistry(
+  const AProvider: ICryptoProvider): ICipherSuiteRegistry;
 begin
-  // AES-128-GCM only: its 2^24.5-record limit is the bound the auto-rekey defends. The
+  // AES-128-GCM only: its record-count usage limit is the bound the auto-rekey defends. The
   // CPU-adaptive default prefers ChaCha20 (limited only by the 2^64 sequence, so it never rekeys
   // by count) on a host without hardware AES, which would make the rekey test host-dependent.
-  Result := TCipherSuiteRegistry.CreateDefault(Crypto);
+  Result := TCipherSuiteRegistry.CreateDefault(AProvider);
   Result.Prune(TCipherSuites13.ChaCha20Poly1305Sha256);
   Result.Prune(TCipherSuites13.Aes256GcmSha384);
 end;
@@ -228,16 +231,22 @@ end;
 procedure TTestTls13KeyUpdate.TestWriteAtUsageLimitRekeysAutomatically;
 var
   LClient, LServer: ITlsEngine;
-  LClientSeq, LServerSeq: IEngineRecordSequenceControl;
+  LCapped: ICryptoProvider;
+  LRegistry: ICipherSuiteRegistry;
   LMsg: TBytes;
-  LI: Int32;
+  LI, LUpdates: Int32;
 begin
+  // a capped AEAD (usage limit 32) brings the auto-rekey point within reach of a short write
+  // loop, so the real limit path is exercised without sealing millions of records. Both endpoints
+  // share the cap, so their AEAD nonces advance and rotate in step.
+  LCapped := TCappedAeadProvider.Create(Crypto, 32) as ICryptoProvider;
+  LRegistry := AesGcmRegistry(LCapped);
   LClient := TTlsEngineFactory.CreateClientEngine(
-    TTlsPresets.Hardened(Crypto, Pkix).Client.WithTrustStore(ClientTrust)
-    .WithCipherSuites(AesGcmRegistry).Build, ServerHost);
+    TTlsPresets.Hardened(LCapped, Pkix).Client.WithTrustStore(ClientTrust)
+    .WithCipherSuites(LRegistry).Build, ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(
-    TTlsPresets.Hardened(Crypto, Pkix).Server.WithCredential(ServerCredential)
-    .WithCipherSuites(AesGcmRegistry).Build);
+    TTlsPresets.Hardened(LCapped, Pkix).Server.WithCredential(ServerCredential)
+    .WithCipherSuites(LRegistry).Build);
   LClient.StartHandshake;
   LI := 0;
   while (LClient.IsHandshaking or LServer.IsHandshaking) and (LI < 16) do
@@ -252,22 +261,23 @@ begin
     Integer(LClient.ConnectionInfo.CipherSuite),
     'AES-128-GCM was negotiated so the record limit is deterministic');
 
-  // park both epochs at the LAST legal sequence before the hard AES-GCM limit (23726566): the
-  // next application write must auto-send a KeyUpdate - which itself still seals at this last
-  // sequence - before it can send data (RFC 8446 5.5). The two sides advance in step so the AEAD
-  // nonces stay synchronized.
-  CheckTrue(Supports(LClient, IEngineRecordSequenceControl, LClientSeq), 'client sequence control present');
-  CheckTrue(Supports(LServer, IEngineRecordSequenceControl, LServerSeq), 'server sequence control present');
-  LClientSeq.SetWriteSequenceNumber(UInt64(23726566 - 1));
-  LServerSeq.SetReadSequenceNumber(UInt64(23726566 - 1));
+  // write a run of application records: as the write epoch nears its (capped) usage limit the
+  // client must auto-emit a KeyUpdate ahead of the data (RFC 8446 5.5) and rotate its write
+  // epoch, transparently, with the server decrypting every record across the rotation. Data flows
+  // each round, so the run is never mistaken for a KeyUpdate flood.
   LMsg := DecodeHex('7061737420746865206c696d6974'); // "past the limit"
-  LClient.Write(LMsg, 0, System.Length(LMsg));
-  Pump(LClient, LServer);
-  CheckTrue(CountKeyUpdateEvents(LServer) >= 1,
-    'the server received the client''s automatic KeyUpdate');
-  CheckEqualBytes('the server decrypts the data written across the auto-rekey', LMsg,
-    ReadAllApp(LServer));
-  CheckFalse(LClient.IsTerminal or LServer.IsTerminal, 'neither side failed on the auto-rekey');
+  LUpdates := 0;
+  for LI := 1 to 40 do
+  begin
+    LClient.Write(LMsg, 0, System.Length(LMsg));
+    Pump(LClient, LServer);
+    CheckEqualBytes('the server decrypts each record written across the auto-rekey', LMsg,
+      ReadAllApp(LServer));
+    Inc(LUpdates, CountKeyUpdateEvents(LServer));
+    CheckFalse(LClient.IsTerminal or LServer.IsTerminal,
+      'neither side failed across the auto-rekey run');
+  end;
+  CheckTrue(LUpdates >= 1, 'the client automatically rekeyed at least once at the usage limit');
   CheckAppDataBothWays(LClient, LServer, 'after the automatic rekey');
 end;
 

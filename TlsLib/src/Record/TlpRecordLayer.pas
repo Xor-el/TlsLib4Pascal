@@ -178,12 +178,6 @@ type
     /// <summary>True while the write side is on the initial (or reverted) plaintext epoch, so
     /// application data written now would go out unencrypted.</summary>
     property WriteIsPlaintext: Boolean read FWriteIsPlaintext;
-    /// <summary>Forces the write / read epoch's record sequence counter forward (no-op when the
-    /// protection exposes no IRecordSequenceControl), so the usage-limit rekey path can be
-    /// exercised without sealing 2^24 records. The read side is set in step with the write side to
-    /// keep the AEAD nonces synchronized across the two endpoints.</summary>
-    procedure SetWriteSequenceNumber(AValue: UInt64);
-    procedure SetReadSequenceNumber(AValue: UInt64);
     /// <summary>Removes and returns all pending outbound wire bytes.</summary>
     function TakeOutgoing: TBytes; overload;
     /// <summary>Copies up to the destination's capacity of pending outbound bytes into ADest at
@@ -279,7 +273,6 @@ resourcestring
   SChangeCipherSpecFlood = 'too many change_cipher_spec records';
   SChangeCipherSpecAfterHandshake = 'change_cipher_spec after the handshake completed';
   SChangeCipherSpecOutOfWindow = 'change_cipher_spec outside its legal window';
-  SSequenceRewindRejected = 'the record sequence counter may only be advanced, never rewound';
   SProtectedChangeCipherSpec = 'a protected (encrypted) change_cipher_spec record is not allowed';
   SWriteSliceOutOfRange = 'the write offset/length is outside the source buffer';
   SInputSliceOutOfRange = 'the input offset/length is outside the wire buffer';
@@ -848,27 +841,6 @@ end;
 function TRecordLayer.WriteNeedsKeyUpdate: Boolean;
 begin
   Result := FWriteProtection.NeedsKeyUpdate;
-end;
-
-procedure TRecordLayer.SetWriteSequenceNumber(AValue: UInt64);
-var
-  LSeq: IRecordSequenceControl;
-begin
-  // only ever advance the counter: moving it backwards would reuse a nonce
-  if AValue < FWriteProtection.SequenceNumber then
-    raise EArgumentTlsLibException.CreateRes(@SSequenceRewindRejected);
-  if Supports(FWriteProtection, IRecordSequenceControl, LSeq) then
-    LSeq.SetSequenceNumber(AValue);
-end;
-
-procedure TRecordLayer.SetReadSequenceNumber(AValue: UInt64);
-var
-  LSeq: IRecordSequenceControl;
-begin
-  if AValue < FReadProtection.SequenceNumber then
-    raise EArgumentTlsLibException.CreateRes(@SSequenceRewindRejected);
-  if Supports(FReadProtection, IRecordSequenceControl, LSeq) then
-    LSeq.SetSequenceNumber(AValue);
 end;
 
 function TRecordLayer.TakeOutgoing: TBytes;

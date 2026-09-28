@@ -35,6 +35,7 @@ uses
   TlpNegotiationTypes,
   TlpCipherSuiteRegistry,
   TlpCoreExtensions,
+  TlpICryptoProvider,
   TlpITlsEngine,
   TlpTlsEngine,
   TlpIHandshakeMachine,
@@ -49,6 +50,7 @@ uses
   TlpCredentialResolvers,
   TlpTls12ClientStateMachine,
   TlpTls12ServerStateMachine,
+  MockCryptoProvider,
   TlsLibTestBase;
 
 type
@@ -500,12 +502,17 @@ end;
 procedure TTestTls12Loopback.TestWriteAtUsageLimitClosesWhenNoRekey;
 var
   LClient, LServer: ITlsEngine;
-  LSeq, LServerSeq: IEngineRecordSequenceControl;
+  LCapped: ICryptoProvider;
   LIterations: Int32;
   LRaised: Boolean;
 begin
-  LClient := NewClient(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True);
-  LServer := NewServer(False);
+  // a capped AEAD whose usage limit is one past the rekey lead (17 = lead 16 + 1) puts the write
+  // epoch at its soft threshold on the very first application record (the Finished consumed
+  // sequence 0), so a single write reaches the limit path without sealing millions of records
+  LCapped := TCappedAeadProvider.Create(Crypto, 17) as ICryptoProvider;
+  LClient := TTlsEngine.CreateConfigured(
+    ClientMachine(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True), LCapped);
+  LServer := TTlsEngine.CreateConfigured(ServerMachine(False), LCapped);
   LClient.StartHandshake;
   LIterations := 0;
   while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
@@ -518,12 +525,8 @@ begin
 
   // TLS 1.2 has no KeyUpdate; at the AEAD usage limit the write epoch cannot be rekeyed, so a
   // write closes the connection and refuses rather than exceed the AEAD safety bound (RFC 8446
-  // 5.5 applies the same record limits to the 1.2 AEAD suites)
-  CheckTrue(Supports(LClient, IEngineRecordSequenceControl, LSeq), 'client sequence control present');
-  CheckTrue(Supports(LServer, IEngineRecordSequenceControl, LServerSeq), 'server sequence control present');
-  // the last legal sequence before the hard limit: the close_notify must still seal here
-  LSeq.SetWriteSequenceNumber(UInt64(23726566 - 1));
-  LServerSeq.SetReadSequenceNumber(UInt64(23726566 - 1));
+  // 5.5 applies the same record limits to the 1.2 AEAD suites). The close_notify still seals at
+  // the last legal sequence.
   LRaised := False;
   try
     LClient.Write(DecodeHex('00'), 0, 1);

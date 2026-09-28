@@ -210,18 +210,6 @@ type
       ALength: Int32): TBytes; overload;
   end;
 
-  /// <summary>
-  /// Forces the installed write / read epoch's record sequence counter forward (never backwards,
-  /// so no nonce is reused), so the AEAD usage-limit rekey path can be exercised without sealing
-  /// 2^24 records. Reached with Supports(engine, IEngineRecordSequenceControl, x); kept off
-  /// ITlsEngine so a caller cannot move a live counter through the engine contract.
-  /// </summary>
-  IEngineRecordSequenceControl = interface(IInterface)
-    ['{41BEA370-164C-4143-B248-CC374AE66AD5}']
-    procedure SetWriteSequenceNumber(AValue: UInt64);
-    procedure SetReadSequenceNumber(AValue: UInt64);
-  end;
-
 implementation
 
 end.

@@ -37,12 +37,15 @@ uses
   TlpRecordProtection,
   TlpRecordHeader,
   TlpRecordLayer,
+  MockCryptoProvider,
   TlsLibTestBase;
 
 type
   TTestRecordLayer = class(TTlsLibAlgorithmTestCase)
   private
     function MakeTls13(const AKey, AIv: TBytes): IRecordProtection;
+    function MakeTls13Capped(const AKey, AIv: TBytes;
+      AUsageLimit: UInt64): IRecordProtection;
     function MakeTls12(const AKey, ASalt: TBytes): IRecordProtection;
     function DrainOne(const ALayer: TRecordLayer;
       out AFragment: TTlsRecordFragment): Boolean;
@@ -103,6 +106,16 @@ function TTestRecordLayer.MakeTls13(const AKey, AIv: TBytes): IRecordProtection;
 begin
   Result := TTls13RecordProtection.Create(TSecretBuffer.From(AKey),
     TSecretBuffer.From(AIv), Crypto.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
+end;
+
+function TTestRecordLayer.MakeTls13Capped(const AKey, AIv: TBytes;
+  AUsageLimit: UInt64): IRecordProtection;
+begin
+  // the AEAD reports a small usage limit so the rekey threshold is reached after a few records
+  Result := TTls13RecordProtection.Create(TSecretBuffer.From(AKey),
+    TSecretBuffer.From(AIv),
+    TCappedAead.Create(Crypto.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM),
+    AUsageLimit) as IAead);
 end;
 
 function TTestRecordLayer.MakeTls12(const AKey, ASalt: TBytes): IRecordProtection;
@@ -742,21 +755,23 @@ procedure TTestRecordLayer.TestWritePausesAppDataAtRekeyThreshold;
 var
   LSend: TRecordLayer;
   LProt: IRecordProtection;
-  LSeq: IRecordSequenceControl;
   LData: TBytes;
 begin
   LSend := TRecordLayer.Create;
   try
-    LProt := MakeTls13(DecodeHex('000102030405060708090a0b0c0d0e0f'),
-      DecodeHex('101112131415161718191a1b'));
+    // a capped AEAD whose usage limit is one past the rekey lead (17 = lead 16 + 1) reaches the
+    // rekey threshold after a single sealed record, without parking the sequence
+    LProt := MakeTls13Capped(DecodeHex('000102030405060708090a0b0c0d0e0f'),
+      DecodeHex('101112131415161718191a1b'), 17);
     LSend.SetWriteProtection(LProt);
-    // park the write epoch inside its rekey lead (one below the hard AES-GCM limit 23726566)
-    CheckTrue(Supports(LProt, IRecordSequenceControl, LSeq), 'sequence control present');
-    LSeq.SetSequenceNumber(UInt64(23726566 - 1));
-    CheckTrue(LSend.WriteNeedsKeyUpdate, 'the write epoch reached the rekey threshold');
     LData := nil;
     SetLength(LData, 100);
-    // application data seals nothing while at the threshold, so the engine can rekey first
+    // the first application record seals normally and advances the epoch to its rekey threshold
+    CheckTrue(LSend.Write(TTlsContentType.ApplicationData, LData, 0, 100) > 0,
+      'the first application record seals normally');
+    LSend.TakeOutgoing; // drain it off the wire
+    CheckTrue(LSend.WriteNeedsKeyUpdate, 'the write epoch reached the rekey threshold');
+    // application data now seals nothing while at the threshold, so the engine can rekey first
     CheckEquals(0, LSend.Write(TTlsContentType.ApplicationData, LData, 0, 100),
       'application data pauses at the rekey threshold');
     CheckEquals(0, System.Length(LSend.TakeOutgoing), 'nothing was sealed for the app data');

@@ -646,6 +646,7 @@ type
       AKeySize, ANonceSize, ATagSize: Int32; const AKeeper: IWindowsCng);
     destructor Destroy; override;
     function UsageCategory: TAeadUsageCategory;
+    function UsageLimit: UInt64;
     function KeySize: Int32;
     function NonceSize: Int32;
     function TagSize: Int32;
@@ -1371,6 +1372,11 @@ end;
 function TWindowsCngAead.UsageCategory: TAeadUsageCategory;
 begin
   Result := FCategory;
+end;
+
+function TWindowsCngAead.UsageLimit: UInt64;
+begin
+  Result := FCategory.UsageLimit;
 end;
 
 function TWindowsCngAead.KeySize: Int32;

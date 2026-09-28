@@ -48,6 +48,7 @@ uses
   TlpTlsLibExceptions,
   TlpTlsStream,
   MockTransport,
+  MockCryptoProvider,
   TlsLibTestBase;
 
 type
@@ -571,26 +572,42 @@ begin
 end;
 
 procedure TTestTlsStreamLoopback.TestRecordLimitCloseNotifyReachesPeerOverPump;
-const
-  // the AES-GCM usage limit the engine enforces: 2^24.5 records (RFC 8446 5.5)
-  AES_GCM_RECORD_LIMIT = UInt64(23726566);
 var
+  LCapped: ICryptoProvider;
+  LSuites: ICipherSuiteRegistry;
+  LClientConfig: ITlsClientConfig;
+  LServerConfig: ITlsServerConfig;
   LC2S, LS2C: TMemoryPipe;
   LClientTransport, LServerTransport: TMemoryTransport;
   LClientEngine, LServerEngine: ITlsEngine;
-  LClientSeq, LServerSeq: IEngineRecordSequenceControl;
   LClient, LServerStream: TTlsStream;
   LServer: TServerRunner;
   LWatch: TWedgeWatchdog;
   LByte: TBytes;
   LRaised: Boolean;
 begin
+  // a capped AEAD whose usage limit is one past the rekey lead (17 = lead 16 + 1) puts the write
+  // epoch at its soft threshold on the very first application record (the Finished consumed
+  // sequence 0). TLS 1.2 has no KeyUpdate, so that first write seals a close_notify and refuses,
+  // exercising the limit path over a real stream/transport without sealing millions of records.
+  LCapped := TCappedAeadProvider.Create(Crypto, 17) as ICryptoProvider;
+  LSuites := TCipherSuiteRegistry.CreateDualVersion(LCapped);
+  LSuites.Prune(TCipherSuites12.EcdheEcdsaChaCha20Poly1305Sha256);
+  LSuites.Prune(TCipherSuites12.EcdheRsaChaCha20Poly1305Sha256);
+  LClientConfig := TTlsPresets.Compatible(LCapped, Pkix).Client
+    .WithTrustAnchors(TrustRoot)
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
+    .WithCipherSuites(LSuites).Build;
+  LServerConfig := TTlsPresets.Compatible(LCapped, Pkix).Server
+    .WithAlpnProtocols(TArray<string>.Create('h2', 'http/1.1'))
+    .WithCredential(TTlsCredential.Load(LCapped, Pkix, LeafCert, LeafKey)).Build;
+
   LC2S := TMemoryPipe.Create;
   LS2C := TMemoryPipe.Create;
   LClientTransport := TMemoryTransport.Create(LS2C, LC2S);
   LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
-  LClientEngine := TTlsEngineFactory.CreateClientEngine(Tls12AesGcmClientConfig, 'localhost');
-  LServerEngine := TTlsEngineFactory.CreateServerEngine(ServerConfig);
+  LClientEngine := TTlsEngineFactory.CreateClientEngine(LClientConfig, 'localhost');
+  LServerEngine := TTlsEngineFactory.CreateServerEngine(LServerConfig);
   LClient := TTlsStream.Create(LClientTransport as ITlsTransport, LClientEngine, True,
     'localhost');
   LServerStream := TTlsStream.Create(LServerTransport as ITlsTransport, LServerEngine, False,
@@ -607,16 +624,6 @@ begin
     CheckEquals(Integer(TlsWireVersionTls12),
       Integer(LClient.ConnectionInfo.NegotiatedVersion.WireValue),
       'the client negotiated TLS 1.2, which has no KeyUpdate to rekey with');
-    CheckTrue(Supports(LClientEngine, IEngineRecordSequenceControl, LClientSeq),
-      'client sequence control present');
-    CheckTrue(Supports(LServerEngine, IEngineRecordSequenceControl, LServerSeq),
-      'server sequence control present');
-    // park both epochs at the last legal sequence: the next application write cannot rekey, so
-    // the engine seals a close_notify there and refuses. The server thread is blocked in its
-    // transport read once the client's handshake completes, so moving its read counter here
-    // races nothing.
-    LClientSeq.SetWriteSequenceNumber(AES_GCM_RECORD_LIMIT - 1);
-    LServerSeq.SetReadSequenceNumber(AES_GCM_RECORD_LIMIT - 1);
     LByte := DecodeHex('00');
     LRaised := False;
     try
