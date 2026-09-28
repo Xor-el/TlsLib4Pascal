@@ -1,0 +1,23 @@
+TlsLib/src/Engine/TlpTlsConnection.pas
+  s_09d3c46d1a9b1f::t_1b377704b212fd 237-238
+  s_09d3c46d1a9b1f::t_e405d3b9f906df 132-135
+  s_09d3c46d1a9b1f::t_6ea9391969e5f5 136,520-525,528-529
+TlsLib.Tests/src/TlsConnectionTests.pas
+  s_09d3c46d1a9b1f::t_eff57aae914f46 107,871-916
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e3099df971c28726bac22c1477db1a47188126fa",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": null
+    }
+  }
+}
