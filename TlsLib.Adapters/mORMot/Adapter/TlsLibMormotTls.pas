@@ -45,6 +45,7 @@ uses
   TlpTlsConfigMemo,
   TlpTlsLibExceptions,
   TlpTlsConnection,
+  TlpTlsConnectionInfo,
   TlpNegotiationTypes,
   TlpSystemTrustFacade;
 
@@ -516,34 +517,22 @@ end;
 
 function TTlsLibNetTls.NegotiatedGroup: UInt16;
 begin
-  if FConnection <> nil then
-    Result := FConnection.NegotiatedGroup
-  else
-    Result := 0;
+  Result := TTlsConnection.InfoOf(FConnection).NamedGroup;
 end;
 
 function TTlsLibNetTls.PeerServerName: string;
 begin
-  if FConnection <> nil then
-    Result := FConnection.PeerServerName
-  else
-    Result := '';
+  Result := TTlsConnection.InfoOf(FConnection).ServerName;
 end;
 
 function TTlsLibNetTls.EchStatus: TEchStatus;
 begin
-  if FConnection <> nil then
-    Result := FConnection.EchStatus
-  else
-    Result := TEchStatus.NotOffered;
+  Result := TTlsConnection.InfoOf(FConnection).EchStatus;
 end;
 
 function TTlsLibNetTls.Resumed: Boolean;
 begin
-  if FConnection <> nil then
-    Result := FConnection.Resumed
-  else
-    Result := False;
+  Result := TTlsConnection.InfoOf(FConnection).Resumed;
 end;
 
 function TTlsLibNetTls.GetRawTls: pointer;

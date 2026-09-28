@@ -47,6 +47,7 @@ uses
   TlpTlsConfigMemo,
   TlpTlsLibExceptions,
   TlpTlsConnection,
+  TlpTlsConnectionInfo,
   TlpSystemTrustFacade;
 
 type
@@ -622,50 +623,32 @@ end;
 
 function TTlsLibSocketHandler.NegotiatedVersion: TTlsVersion;
 begin
-  if FConnection <> nil then
-    Result := FConnection.NegotiatedVersion
-  else
-    Result := TTlsVersion.Create(0);
+  Result := TTlsConnection.InfoOf(FConnection).NegotiatedVersion;
 end;
 
 function TTlsLibSocketHandler.NegotiatedCipherSuite: UInt16;
 begin
-  if FConnection <> nil then
-    Result := FConnection.NegotiatedCipherSuite
-  else
-    Result := 0;
+  Result := TTlsConnection.InfoOf(FConnection).CipherSuite;
 end;
 
 function TTlsLibSocketHandler.NegotiatedGroup: UInt16;
 begin
-  if FConnection <> nil then
-    Result := FConnection.NegotiatedGroup
-  else
-    Result := 0;
+  Result := TTlsConnection.InfoOf(FConnection).NamedGroup;
 end;
 
 function TTlsLibSocketHandler.PeerServerName: string;
 begin
-  if FConnection <> nil then
-    Result := FConnection.PeerServerName
-  else
-    Result := '';
+  Result := TTlsConnection.InfoOf(FConnection).ServerName;
 end;
 
 function TTlsLibSocketHandler.EchStatus: TEchStatus;
 begin
-  if FConnection <> nil then
-    Result := FConnection.EchStatus
-  else
-    Result := TEchStatus.NotOffered;
+  Result := TTlsConnection.InfoOf(FConnection).EchStatus;
 end;
 
 function TTlsLibSocketHandler.Resumed: Boolean;
 begin
-  if FConnection <> nil then
-    Result := FConnection.Resumed
-  else
-    Result := False;
+  Result := TTlsConnection.InfoOf(FConnection).Resumed;
 end;
 
 procedure FlushTlsLibFclNetConfigCache;
