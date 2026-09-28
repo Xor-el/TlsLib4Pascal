@@ -1,0 +1,45 @@
+docs/README.md
+  s_09d3c46d1a9b1f::t_4a0c6efda847d0 65
+  s_09d3c46d1a9b1f::t_2737f9ad018d45 56-57,59-61,63-64
+docs/getting-started.md
+  s_09d3c46d1a9b1f::t_b58d0f7cf821d3 36,38-40,43,45-47,49-51,56-57
+docs/certificate-verification.md
+  s_09d3c46d1a9b1f::t_4a0c6efda847d0 23,53,91,108,133,159,181,345
+  s_09d3c46d1a9b1f::t_1de373f97500e5 93
+  s_09d3c46d1a9b1f::t_1e3303cd52dabb 21-22
+docs/system-trust.md
+  s_09d3c46d1a9b1f::t_c7bd49e5df619c 15-16
+  s_09d3c46d1a9b1f::t_00878d12108cec 122
+  s_09d3c46d1a9b1f::t_4a0c6efda847d0 168-170,173,194-196,201,299,377-378
+  s_09d3c46d1a9b1f::t_6449201fe457a9 90-91,93-95,97-99
+docs/ech.md
+  s_09d3c46d1a9b1f::t_35a5995703a627 95-96
+  s_09d3c46d1a9b1f::t_c9655df01ae1aa 26
+docs/cookbook.md
+  s_09d3c46d1a9b1f::t_4a0c6efda847d0 50,63,67-69,72-74,77-78,90,114,142,307-309,325,327-328,382,389-390,392,396,411-412,414,421,467-468,484,494-496,518,538
+  s_09d3c46d1a9b1f::t_858d40d4736aca 138
+  s_09d3c46d1a9b1f::t_d84cc631247478 65
+  s_09d3c46d1a9b1f::t_0ee3556edfe8fd 5-8
+TlsLib.Adapters/Synapse/README.md
+  s_09d3c46d1a9b1f::t_88cd88bf57de7f 57-59
+TlsLib.Adapters/mORMot/README.md
+  s_09d3c46d1a9b1f::t_6f7f13784a265d 41-43
+TlsLib.Adapters/Indy/README.md
+  s_09d3c46d1a9b1f::t_1aa4d2d28c0a0b 56-59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1bd4c3b2fa9dd5fca750bab44e5c09c9286d4437",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
