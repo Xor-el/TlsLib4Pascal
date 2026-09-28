@@ -164,7 +164,9 @@ type
     procedure TestAsyncVerdictMapsToHostDecision;
     procedure TestWithCertificatePinningLandsInFrozenConfig;
     procedure TestServerWithOcspStapleLandsInFrozenConfig;
-    procedure TestFieldwiseCredentialClearsPriorStaple;
+    procedure TestLoadedCredentialReplacesPriorStaple;
+    // a credential built by TTlsCredential.Load passes Build's key<->leaf consistency
+    procedure TestLoadedCredentialBuildsServer;
     // the credential key/leaf guard: a private key that does not own CertificateChain[0] (wrong
     // key, wrong key family, or a mis-ordered chain) is refused at Build, not left to fail as a
     // rejected CertificateVerify mid-handshake
@@ -1571,14 +1573,14 @@ begin
     LConfig.Credential.OcspStaple);
 end;
 
-procedure TTestConfigBuilder.TestFieldwiseCredentialClearsPriorStaple;
+procedure TTestConfigBuilder.TestLoadedCredentialReplacesPriorStaple;
 var
   LConfig: ITlsServerConfig;
   LBuilder: ITlsConfigBuilder;
   LStapled: TTlsCredential;
 begin
-  // a field-wise WithCredential replaces the whole credential: a staple from a prior
-  // WithCredential(record) must not bleed through (last call wins)
+  // a later WithCredential replaces the whole credential (last call wins), and a credential from
+  // TTlsCredential.Load is staple-free - so a prior WithCredential's staple cannot bleed through
   LStapled := ServerCredential;
   LStapled.OcspStaple := TBytes.Create($30, $03, $0A, $01, $00);
   LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
@@ -1589,11 +1591,23 @@ begin
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13))
     .WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519))
     .WithCredential(LStapled)
-    .WithCredential(DecodeHex(FCerts.Values['leaf_cert']),
-    DecodeHex(FCerts.Values['leaf_key']))
+    .WithCredential(TTlsCredential.Load(Crypto, Pkix,
+    DecodeHex(FCerts.Values['leaf_cert']), DecodeHex(FCerts.Values['leaf_key'])))
     .Build;
   CheckEquals(0, System.Length(LConfig.Credential.OcspStaple),
-    'the field-wise credential cleared the prior staple');
+    'the loaded credential cleared the prior staple');
+end;
+
+procedure TTestConfigBuilder.TestLoadedCredentialBuildsServer;
+var
+  LConfig: ITlsServerConfig;
+  LBuilder: ITlsConfigBuilder;
+begin
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
+  LConfig := LBuilder.Server.WithCredential(TTlsCredential.Load(Crypto, Pkix,
+    DecodeHex(FCerts.Values['leaf_cert']), DecodeHex(FCerts.Values['leaf_key']))).Build;
+  CheckEquals(1, System.Length(LConfig.Credential.CertificateChain),
+    'the loaded credential freezes its leaf into the config');
 end;
 
 procedure TTestConfigBuilder.TestServerCredentialWithMismatchedKeyRejected;

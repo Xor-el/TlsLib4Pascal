@@ -18,7 +18,11 @@ interface
 uses
   SysUtils,
   TlpTlsVersion,
-  TlpISigningKey;
+  TlpISigningKey,
+  TlpImportedCredential,
+  TlpSecretBuffer,
+  TlpICryptoProvider,
+  TlpIPkixProvider;
 
 type
   /// <summary>Supplies a server's pre-fetched stapled OCSP response (DER) for its leaf
@@ -47,6 +51,22 @@ type
     /// when a callback is set (it refreshes an expiring staple), else the static OcspStaple;
     /// empty declines stapling.</summary>
     function CurrentOcspStaple: TBytes;
+    /// <summary>A credential from a certificate chain (a PEM block/bundle, a single DER
+    /// certificate or a PKCS#7 bundle, leaf first) and an unencrypted private key (PKCS#8,
+    /// PKCS#1 or SEC1, DER or PEM), each loaded and normalized through the given providers.
+    /// No OCSP staple: set OcspStaple / OcspStapleCallback on the result to staple.</summary>
+    class function Load(const ACrypto: ICryptoProvider; const APkix: IPkixProvider;
+      const ACertificateChainData, APrivateKeyData: TBytes): TTlsCredential;
+      overload; static;
+    /// <summary>As above, decrypting an encrypted private key with APassword.</summary>
+    class function Load(const ACrypto: ICryptoProvider; const APkix: IPkixProvider;
+      const ACertificateChainData, APrivateKeyData: TBytes;
+      const APassword: string): TTlsCredential; overload; static;
+    /// <summary>A credential imported from a PKCS#12 (.pfx/.p12) blob decrypted with APassword:
+    /// leaf + intermediates as the chain and the enclosed private key. Fails closed on a wrong
+    /// password, bad MAC or malformed store (typed exception). No OCSP staple.</summary>
+    class function LoadPkcs12(const ACrypto: ICryptoProvider; const AData: TBytes;
+      const APassword: string): TTlsCredential; static;
   end;
 
   /// <summary>How a server treats client-certificate authentication (RFC 8446 4.3.2 /
@@ -92,6 +112,41 @@ begin
     Result := OcspStapleCallback
   else
     Result := OcspStaple;
+end;
+
+class function TTlsCredential.Load(const ACrypto: ICryptoProvider;
+  const APkix: IPkixProvider; const ACertificateChainData,
+  APrivateKeyData: TBytes): TTlsCredential;
+var
+  LCredential: TTlsCredential;
+begin
+  LCredential.CertificateChain := APkix.Certificates.LoadChain(ACertificateChainData);
+  LCredential.PrivateKey := ACrypto.Signing.ImportSigningKey(APrivateKeyData);
+  Result := LCredential;
+end;
+
+class function TTlsCredential.Load(const ACrypto: ICryptoProvider;
+  const APkix: IPkixProvider; const ACertificateChainData, APrivateKeyData: TBytes;
+  const APassword: string): TTlsCredential;
+var
+  LCredential: TTlsCredential;
+begin
+  LCredential.CertificateChain := APkix.Certificates.LoadChain(ACertificateChainData);
+  LCredential.PrivateKey := ACrypto.Signing.ImportSigningKey(APrivateKeyData,
+    TSecretBuffer.FromString(APassword));
+  Result := LCredential;
+end;
+
+class function TTlsCredential.LoadPkcs12(const ACrypto: ICryptoProvider;
+  const AData: TBytes; const APassword: string): TTlsCredential;
+var
+  LImported: TImportedCredential;
+  LCredential: TTlsCredential;
+begin
+  LImported := ACrypto.Signing.ImportPkcs12(AData, TSecretBuffer.FromString(APassword));
+  LCredential.CertificateChain := LImported.CertificateChain;
+  LCredential.PrivateKey := LImported.PrivateKey;
+  Result := LCredential;
 end;
 
 end.

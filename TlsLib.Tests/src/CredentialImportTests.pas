@@ -31,6 +31,7 @@ uses
   TlpCryptoDomainTypes,
   TlpPkixDomainTypes,
   TlpISigningKey,
+  TlpTlsCredential,
   TlpTlsLibExceptions,
   TlsLibTestBase;
 
@@ -75,6 +76,11 @@ type
     procedure TestWrongPasswordRaisesTypedException;
     procedure TestEncryptedKeyWithoutPasswordReportsPasswordRequired;
     procedure TestWithPreferredSchemesNarrowsReordersAndFilters;
+    // TTlsCredential.Load builds a fresh staple-free credential: the chain matches LoadChain's,
+    // the key imports, and nothing is stapled
+    procedure TestLoadCredentialFromChainAndKey;
+    // the password overload decrypts an encrypted key (it signs), and a wrong password fails typed
+    procedure TestLoadCredentialWithEncryptedKey;
     // the imported key exposes its public half as a SubjectPublicKeyInfo, and it is the public
     // key of that private key (matches the known-good public vector by value)
     procedure TestPublicKeyInfoMatchesPublicVector;
@@ -407,6 +413,41 @@ begin
     [TSignatureScheme.RSA_PSS_RSAE_SHA256, TSignatureScheme.RSA_PSS_RSAE_SHA384,
      TSignatureScheme.RSA_PSS_RSAE_SHA512, TSignatureScheme.RSA_PKCS1_SHA256,
      TSignatureScheme.RSA_PKCS1_SHA384, TSignatureScheme.RSA_PKCS1_SHA512]);
+end;
+
+procedure TTestCredentialImport.TestLoadCredentialFromChainAndKey;
+var
+  LCred: TTlsCredential;
+begin
+  LCred := TTlsCredential.Load(Crypto, Pkix, DecodeHex(FV.Values['chain_pem']),
+    DecodeHex(FV.Values['ec256_pkcs8_der']));
+  CheckEquals(2, System.Length(LCred.CertificateChain),
+    'the loaded chain matches the PEM bundle LoadChain yields');
+  CheckEqualBytes('leaf DER', DecodeHex(FV.Values['chain_leaf_der']),
+    LCred.CertificateChain[0]);
+  CheckNotNull(LCred.PrivateKey, 'the private key imported');
+  CheckEquals(0, System.Length(LCred.OcspStaple), 'a loaded credential carries no staple');
+  CheckFalse(Assigned(LCred.OcspStapleCallback), 'a loaded credential carries no staple callback');
+end;
+
+procedure TTestCredentialImport.TestLoadCredentialWithEncryptedKey;
+var
+  LCred: TTlsCredential;
+  LRaised: Boolean;
+begin
+  LCred := TTlsCredential.Load(Crypto, Pkix, DecodeHex(FV.Values['chain_pem']),
+    DecodeHex(FV.Values['rsa_enc_pem']), SPassword);
+  CheckTrue(RoundTrips(TSignatureScheme.RSA_PSS_RSAE_SHA256, LCred.PrivateKey, 'rsa_pub'),
+    'the decrypted key signs a verifying signature');
+  LRaised := False;
+  try
+    TTlsCredential.Load(Crypto, Pkix, DecodeHex(FV.Values['chain_pem']),
+      DecodeHex(FV.Values['rsa_enc_pem']), 'not-the-password');
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a wrong key password raises EArgumentTlsLibException');
 end;
 
 procedure TTestCredentialImport.CheckDerivedPublicKey(
