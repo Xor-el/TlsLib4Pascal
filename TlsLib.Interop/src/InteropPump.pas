@@ -23,6 +23,7 @@ uses
   TlpTlsAlertProtocol,
   TlpTlsError,
   TlpTrustPolicy,
+  TlpTlsStreamPump,
   TlpITlsEngine,
   InteropSocket,
   InteropUtils;
@@ -75,10 +76,6 @@ type
     class function DrainEvents(const AEngine: ITlsEngine;
       var AResult: TInteropResult;
       out ACertEvent: ICertificateReceivedEvent): Boolean; static;
-    class procedure ResolveVerdict(const AEngine: ITlsEngine;
-      const ASocket: TInteropSocket; AAcceptVerdict: Boolean;
-      const AResolver: TCertificateVerdictResolver;
-      const ACertEvent: ICertificateReceivedEvent; APeerRole: TPeerRole); static;
     class function DriveHandshakeCore(const AEngine: ITlsEngine;
       const ASocket: TInteropSocket; AAcceptVerdict, AHalfRttEcho: Boolean;
       const AResolver: TCertificateVerdictResolver;
@@ -103,8 +100,8 @@ type
     /// <summary>As DriveHandshake, but resolves a parked verdict through AResolver (the peer chain
     /// + host + staple from the park event), so an OS-native live-revocation resolver decides it.
     /// AIsClient sets the parked chain's role (a client verifies the server's chain, a server the
-    /// mTLS client's) so a role-specific resolver evaluates the right trust engine. A nil resolver
-    /// fails the park closed.</summary>
+    /// mTLS client's) so a role-specific resolver evaluates the right trust engine. With no resolver
+    /// the park is accepted (this overload's fixed verdict); pass a resolver to decide it.</summary>
     class function DriveHandshake(const AEngine: ITlsEngine;
       const ASocket: TInteropSocket;
       const AResolver: TCertificateVerdictResolver;
@@ -196,65 +193,21 @@ class function TInteropPump.DrainEvents(const AEngine: ITlsEngine;
   var AResult: TInteropResult;
   out ACertEvent: ICertificateReceivedEvent): Boolean;
 var
-  LEvent: ITlsEvent;
-  LAlertEvent: IPeerAlertEvent;
-  LCertEvent: ICertificateReceivedEvent;
+  LAlert: IPeerAlertEvent;
+  LClosed: Boolean;
 begin
-  // reports the first terminal event (peer alert / close_notify); returns True then. Also
-  // captures a parked-certificate event so a resolver can decide the verdict on the peer chain
-  Result := False;
-  ACertEvent := nil;
-  while AEngine.NextEvent(LEvent) do
+  // classify through the shared core; map its first terminal event to this harness's result
+  // (leaving AResult untouched when nothing terminal drained, which PumpAppData relies on)
+  Result := TTlsStreamPump.DrainEvents(AEngine, LAlert, LClosed, ACertEvent);
+  if LAlert <> nil then
   begin
-    case LEvent.Kind of
-      TTlsEventKind.PeerAlert:
-        if Supports(LEvent, IPeerAlertEvent, LAlertEvent) then
-        begin
-          AResult := ResultOf(TInteropStatus.PeerAlert, 'peer sent a fatal alert');
-          AResult.HasAlert := LAlertEvent.Alert.HasKnownDescription;
-          if AResult.HasAlert then
-            AResult.Alert := LAlertEvent.Alert.Description;
-          Exit(True);
-        end;
-      TTlsEventKind.Closed:
-        begin
-          AResult := ResultOf(TInteropStatus.PeerClosed, 'peer closed');
-          Exit(True);
-        end;
-      TTlsEventKind.CertificateReceived:
-        if Supports(LEvent, ICertificateReceivedEvent, LCertEvent) then
-          ACertEvent := LCertEvent;
-    end;
-  end;
-end;
-
-class procedure TInteropPump.ResolveVerdict(const AEngine: ITlsEngine;
-  const ASocket: TInteropSocket; AAcceptVerdict: Boolean;
-  const AResolver: TCertificateVerdictResolver;
-  const ACertEvent: ICertificateReceivedEvent; APeerRole: TPeerRole);
-var
-  LAccept: Boolean;
-  LAlert: TTlsAlertDescription;
-  LCtx: TCertificateVerdictContext;
-begin
-  if Assigned(AResolver) then
-  begin
-    // fail-closed when the park carried no chain; else the resolver decides on it
-    LAccept := False;
-    LAlert := TTlsAlertDescription.CertificateUnknown;
-    if ACertEvent <> nil then
-    begin
-      LCtx.PeerRole := APeerRole;
-      LCtx.Chain := ACertEvent.Chain;
-      LCtx.ValidatedPath := ACertEvent.ValidatedPath;
-      LCtx.HostName := ACertEvent.HostName;
-      LCtx.OcspStaple := ACertEvent.OcspStaple;
-      LAccept := AResolver(LCtx, LAlert);
-    end;
-    AEngine.SetCertificateVerdict(LAccept, LAlert);
+    AResult := ResultOf(TInteropStatus.PeerAlert, 'peer sent a fatal alert');
+    AResult.HasAlert := LAlert.Alert.HasKnownDescription;
+    if AResult.HasAlert then
+      AResult.Alert := LAlert.Alert.Description;
   end
-  else
-    AEngine.SetCertificateVerdict(AAcceptVerdict);
+  else if LClosed then
+    AResult := ResultOf(TInteropStatus.PeerClosed, 'peer closed');
 end;
 
 class function TInteropPump.DriveHandshake(const AEngine: ITlsEngine;
@@ -327,7 +280,12 @@ begin
     // before the next Recv is required - a parked engine sends nothing, so the peer sends nothing
     if AEngine.AwaitingCertificateVerdict then
     begin
-      ResolveVerdict(AEngine, ASocket, AAcceptVerdict, AResolver, LCertEvent, APeerRole);
+      // a resolver decides on the captured chain (shared fail-closed core); with no resolver the
+      // fixed verdict drives it - a reject still aborts with the engine's default bad_certificate
+      if Assigned(AResolver) then
+        TTlsStreamPump.ResolveVerdict(AEngine, LCertEvent, AResolver, APeerRole)
+      else
+        AEngine.SetCertificateVerdict(AAcceptVerdict);
       LCertEvent := nil;
       Flush(AEngine, ASocket);
       if AEngine.IsTerminal then

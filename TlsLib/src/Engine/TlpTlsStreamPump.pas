@@ -61,19 +61,26 @@ type
     /// here (the peer then reads an alert, not a truncation); once terminal it is best-effort.</summary>
     class procedure FlushThenRaiseIfFatal(const AEngine: ITlsEngine;
       const ATransport: ITlsTransport); static;
-    /// <summary>Reports a terminal event (peer alert / close_notify) as an out flag and
-    /// captures any CertificateReceived event (async verdict); returns True when the peer
-    /// closed cleanly, raising on a peer fatal alert.</summary>
-    class function DrainEvents(const AEngine: ITlsEngine; out APeerClosed: Boolean;
+    /// <summary>DrainEvents for the stream: a peer fatal alert raises ETlsStreamError with its
+    /// description (internal_error for an unmapped code); reports a clean peer close via
+    /// APeerClosed and captures a parked-certificate event, and returns True on a clean close.</summary>
+    class function DrainEventsOrRaise(const AEngine: ITlsEngine; out APeerClosed: Boolean;
       out ACertEvent: ICertificateReceivedEvent): Boolean; static;
-    /// <summary>Resolves a parked peer-certificate verdict via the resolver (or fail-closed
-    /// when none is supplied), then flushes and re-checks for a fatal outcome.</summary>
-    class procedure ResolveVerdict(const AEngine: ITlsEngine;
-      const ATransport: ITlsTransport;
-      const ACertEvent: ICertificateReceivedEvent;
-      const AResolveVerdict: TCertificateVerdictResolver;
-      APeerRole: TPeerRole); static;
   public
+    /// <summary>Drains the engine's event queue: reports a peer fatal alert (APeerAlert, nil when
+    /// none) and a peer close_notify (APeerClosed), and captures a parked-certificate event so a
+    /// resolver can decide the verdict. Never raises; the caller maps a terminal event to its own
+    /// signalling. Returns True when a terminal event was seen.</summary>
+    class function DrainEvents(const AEngine: ITlsEngine; out APeerAlert: IPeerAlertEvent;
+      out APeerClosed: Boolean; out ACertEvent: ICertificateReceivedEvent): Boolean; static;
+    /// <summary>Resolves a parked peer-certificate verdict through AResolveVerdict on the captured
+    /// park event; fail-closed with certificate_unknown when there is no resolver or no captured
+    /// chain (an unspecified acceptability problem, not a corrupt certificate). Sets the verdict on
+    /// the engine only: the caller flushes the resumed flight, or the abort alert of a reject, and
+    /// surfaces a terminal outcome its own way.</summary>
+    class procedure ResolveVerdict(const AEngine: ITlsEngine;
+      const ACertEvent: ICertificateReceivedEvent;
+      const AResolveVerdict: TCertificateVerdictResolver; APeerRole: TPeerRole); static;
     /// <summary>Raises the engine's terminal failure as the precise TLS error (its alert) when it
     /// is in a fatal state; a no-op otherwise. Lets a caller re-surface a latched handshake failure
     /// with the same alert the engine recorded.</summary>
@@ -179,26 +186,26 @@ begin
 end;
 
 class function TTlsStreamPump.DrainEvents(const AEngine: ITlsEngine;
-  out APeerClosed: Boolean; out ACertEvent: ICertificateReceivedEvent): Boolean;
+  out APeerAlert: IPeerAlertEvent; out APeerClosed: Boolean;
+  out ACertEvent: ICertificateReceivedEvent): Boolean;
 var
   LEvent: ITlsEvent;
   LAlertEvent: IPeerAlertEvent;
   LCertEvent: ICertificateReceivedEvent;
 begin
   Result := False;
+  APeerAlert := nil;
   APeerClosed := False;
   ACertEvent := nil;
   while AEngine.NextEvent(LEvent) do
     case LEvent.Kind of
       TTlsEventKind.PeerAlert:
-        if Supports(LEvent, IPeerAlertEvent, LAlertEvent) then
+        // first alert wins; no event is ever queued after a terminal one, so a full drain and a
+        // stop-at-first-terminal dequeue the same set
+        if (APeerAlert = nil) and Supports(LEvent, IPeerAlertEvent, LAlertEvent) then
         begin
-          if LAlertEvent.Alert.HasKnownDescription then
-            raise ETlsStreamError.Create(LAlertEvent.Alert.Description,
-              SPeerFatalAlert)
-          else
-            raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
-              SPeerFatalAlert);
+          APeerAlert := LAlertEvent;
+          Result := True;
         end;
       TTlsEventKind.Closed:
         begin
@@ -212,11 +219,25 @@ begin
     end;
 end;
 
+class function TTlsStreamPump.DrainEventsOrRaise(const AEngine: ITlsEngine;
+  out APeerClosed: Boolean; out ACertEvent: ICertificateReceivedEvent): Boolean;
+var
+  LAlertEvent: IPeerAlertEvent;
+begin
+  DrainEvents(AEngine, LAlertEvent, APeerClosed, ACertEvent);
+  if LAlertEvent <> nil then
+  begin
+    if LAlertEvent.Alert.HasKnownDescription then
+      raise ETlsStreamError.Create(LAlertEvent.Alert.Description, SPeerFatalAlert)
+    else
+      raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SPeerFatalAlert);
+  end;
+  Result := APeerClosed;
+end;
+
 class procedure TTlsStreamPump.ResolveVerdict(const AEngine: ITlsEngine;
-  const ATransport: ITlsTransport;
   const ACertEvent: ICertificateReceivedEvent;
-  const AResolveVerdict: TCertificateVerdictResolver;
-  APeerRole: TPeerRole);
+  const AResolveVerdict: TCertificateVerdictResolver; APeerRole: TPeerRole);
 var
   LAccept: Boolean;
   LAlert: TTlsAlertDescription;
@@ -236,8 +257,6 @@ begin
     LAccept := AResolveVerdict(LCtx, LAlert);
   end;
   AEngine.SetCertificateVerdict(LAccept, LAlert);
-  // send the resumed flight, or the abort alert of a rejected verdict, then surface the abort
-  FlushThenRaiseIfFatal(AEngine, ATransport);
 end;
 
 class procedure TTlsStreamPump.DriveHandshake(const AEngine: ITlsEngine;
@@ -281,7 +300,9 @@ begin
     // that would never return (the peer already sent the rest of its flight)
     if AEngine.AwaitingCertificateVerdict then
     begin
-      ResolveVerdict(AEngine, ATransport, LCertEvent, AResolveVerdict, LPeerRole);
+      ResolveVerdict(AEngine, LCertEvent, AResolveVerdict, LPeerRole);
+      // send the resumed flight, or the abort alert of a rejected verdict, then surface the abort
+      FlushThenRaiseIfFatal(AEngine, ATransport);
       LCertEvent := nil;
       Continue;
     end;
@@ -292,7 +313,7 @@ begin
     Inc(LTotal, LGot);
     AEngine.ProcessInput(LBuf, 0, LGot);
     FlushThenRaiseIfFatal(AEngine, ATransport);
-    if DrainEvents(AEngine, LPeerClosed, LCertEvent) then
+    if DrainEventsOrRaise(AEngine, LPeerClosed, LCertEvent) then
       RaiseIfFatal(AEngine); // a close during the handshake leaves it unfinished/terminal
   end;
   // StartHandshake itself can fail the engine (never entering the loop); surface that alert
@@ -320,7 +341,7 @@ begin
   // close is detected via the engine's persistent flag, not the one-shot Closed event, which
   // the handshake driver may already have drained when a close_notify coalesced with the
   // peer's final flight
-  DrainEvents(AEngine, LPeerClosed, LCertEvent);
+  DrainEventsOrRaise(AEngine, LPeerClosed, LCertEvent);
   if AEngine.IsInboundClosed then
   begin
     AStatus := TTlsReadStatus.CleanEof;
@@ -351,7 +372,7 @@ begin
       AStatus := TTlsReadStatus.Data;
       Exit;
     end;
-    DrainEvents(AEngine, LPeerClosed, LCertEvent);
+    DrainEventsOrRaise(AEngine, LPeerClosed, LCertEvent);
     if AEngine.IsInboundClosed then
     begin
       AStatus := TTlsReadStatus.CleanEof;
