@@ -32,6 +32,7 @@ uses
   TlpSecretBuffer,
   TlpISession,
   TlpSession,
+  TlpInMemorySessionCache,
   TlpSessionTicketKeys,
   TlpICryptoProvider,
   TlpICertificateTrust,
@@ -177,6 +178,9 @@ type
     procedure TestTicketLifetimeAtCapIsAccepted;
     procedure TestResumptionScopeAboveCapIsRejected;
     procedure TestResumptionScopeAtCapIsAccepted;
+    procedure TestClientResumptionScopeAboveCapIsRejected;
+    procedure TestClientResumptionScopeAtCapRoundTrips;
+    procedure TestClientResumptionScopeIsOrderInsensitive;
     procedure TestTicketCountAboveCapIsRejected;
     procedure TestTicketCountNegativeIsRejected;
     procedure TestTicketCountAtCapIsAccepted;
@@ -1073,7 +1077,7 @@ begin
     TTlsPresets.Compatible(Crypto, Pkix).Server
       .WithCredential(ServerCredential)
       .WithPeerAuth(TClientAuthMode.Required)
-      .WithCertificateVerifier(
+      .WithDangerousCertificateVerifier(
         TAcceptAllClientVerifier.Create as IClientCertificateVerifier)
       .WithCertificateVerifierSource(
         TAcceptAllClientVerifierSource.Create as IClientCertificateVerifierSource).Build;
@@ -1735,6 +1739,61 @@ begin
     .Build;
   CheckEqualBytes('the boundary resumption scope (32 bytes) round-trips', LScope,
     LConfig.ResumptionScope);
+end;
+
+procedure TTestConfigBuilder.TestClientResumptionScopeAboveCapIsRejected;
+var
+  LClient: ITlsClientConfigBuilder;
+  LScope: TBytes;
+  LRaised: Boolean;
+begin
+  LClient := TTlsPresets.Compatible(Crypto, Pkix).Client;
+  LScope := nil;
+  SetLength(LScope, 33); // one over the 32-byte cap
+  LRaised := False;
+  try
+    LClient.WithResumptionScope(LScope);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a client resumption scope above 32 bytes is rejected');
+end;
+
+procedure TTestConfigBuilder.TestClientResumptionScopeAtCapRoundTrips;
+var
+  LConfig: ITlsClientConfig;
+  LScope: TBytes;
+begin
+  LScope := nil;
+  SetLength(LScope, 32); // the boundary value is legal
+  FillChar(LScope[0], 32, $5C);
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithTrustStore(ClientTrust)
+    .WithSessionCache(TInMemorySessionCache.Create as ISessionCache)
+    .WithResumptionScope(LScope)
+    .Build;
+  CheckEqualBytes('the boundary client resumption scope (32 bytes) round-trips', LScope,
+    LConfig.SessionScope);
+end;
+
+procedure TTestConfigBuilder.TestClientResumptionScopeIsOrderInsensitive;
+var
+  LConfig: ITlsClientConfig;
+  LScope: TBytes;
+begin
+  LScope := nil;
+  SetLength(LScope, 8);
+  FillChar(LScope[0], 8, $2A);
+  // set the scope BEFORE the cache: the two setters are order-insensitive, so the pinned scope
+  // survives (the cache setter no longer clears it)
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithTrustStore(ClientTrust)
+    .WithResumptionScope(LScope)
+    .WithSessionCache(TInMemorySessionCache.Create as ISessionCache)
+    .Build;
+  CheckEqualBytes('the pinned scope survives a later WithSessionCache', LScope,
+    LConfig.SessionScope);
 end;
 
 procedure TTestConfigBuilder.TestTicketCountAboveCapIsRejected;

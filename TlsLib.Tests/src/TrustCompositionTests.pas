@@ -164,7 +164,7 @@ begin
   // as an instance source that returns it unchanged for every connection
   LStub := TStubCertificateVerifier.Create as IServerCertificateVerifier;
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithCertificateVerifier(LStub)
+    .WithDangerousCertificateVerifier(LStub)
     .Build;
   LContext := Default(TServerTrustContext);
   CheckTrue(LConfig.ServerVerifierSource.CreateServerVerifier(LContext) = LStub,
@@ -179,7 +179,7 @@ begin
   LRaised := False;
   try
     TTlsPresets.Compatible(Crypto, Pkix).Client
-      .WithCertificateVerifier(TStubCertificateVerifier.Create as IServerCertificateVerifier)
+      .WithDangerousCertificateVerifier(TStubCertificateVerifier.Create as IServerCertificateVerifier)
       .WithTrustStore(StoreOf('root_cert'))
       .Build;
   except
@@ -199,7 +199,7 @@ begin
   LMsg := '';
   try
     TTlsPresets.Compatible(Crypto, Pkix).Client
-      .WithCertificateVerifier(TStubCertificateVerifier.Create as IServerCertificateVerifier)
+      .WithDangerousCertificateVerifier(TStubCertificateVerifier.Create as IServerCertificateVerifier)
       .WithTrustStore(TTrustAnchorStore.Create(nil) as ITrustAnchorStore)
       .Build;
   except
@@ -218,8 +218,8 @@ begin
   LRaised := False;
   try
     TTlsPresets.Compatible(Crypto, Pkix).Client
-      .WithCertificateVerifier(TStubCertificateVerifier.Create as IServerCertificateVerifier)
-      .WithCertificateVerifier(TStubCertificateVerifier.Create as IServerCertificateVerifier)
+      .WithDangerousCertificateVerifier(TStubCertificateVerifier.Create as IServerCertificateVerifier)
+      .WithDangerousCertificateVerifier(TStubCertificateVerifier.Create as IServerCertificateVerifier)
       .Build;
   except
     on E: EInvalidOperationTlsLibException do
@@ -237,7 +237,7 @@ begin
   LRaised := False;
   try
     TTlsPresets.Compatible(Crypto, Pkix).Server
-      .WithCertificateVerifier(
+      .WithDangerousCertificateVerifier(
         TStubClientCertificateVerifier.Create as IClientCertificateVerifier)
       .WithCertificateVerifierSource(
         TStubClientCertificateVerifierSource.Create as IClientCertificateVerifierSource)

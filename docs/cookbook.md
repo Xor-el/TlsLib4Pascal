@@ -96,7 +96,7 @@ LConfig := TTlsPresets.Hardened(P).Client     // TLS 1.3 only, PQ-hybrid preferr
 |---|---|---|---|
 | `Compatible` | 1.3 + hardened 1.2 | X25519, X25519MLKEM768, P-256/384/521 | The default; widest interop. |
 | `Hardened` | 1.3 only | X25519MLKEM768 (first), X25519, P-256 | Modern peers; PQ preferred. |
-| `Strict` | 1.3 only | X25519MLKEM768, X25519 | Constant-time group allowlist, tight cert limits, resumption off. |
+| `Strict` | 1.3 only | X25519MLKEM768, X25519, secp256r1 | Fixed group allowlist, tight cert limits, resumption off. |
 
 Re-enabling a safe posture setting on `Strict` (e.g. `WithResumption(True)`) is allowed with no
 guard — `psk_dhe_ke` resumption is forward-secret. Only genuine downgrades live behind the
@@ -144,7 +144,7 @@ The short version — the full treatment is in
 .WithCertificatePinning(TArray<TBytes>.Create(spkiSha256))
 ```
 
-Anchor sources **union**; a whole `WithCertificateVerifier` **replaces** the pipeline and is
+Anchor sources **union**; a whole `WithDangerousCertificateVerifier` **replaces** the pipeline and is
 exclusive. Pinning and the host-name check are covered in
 [the verification guide](certificate-verification.md).
 

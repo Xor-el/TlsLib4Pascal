@@ -162,7 +162,7 @@ LConfig := TTlsPresets.Compatible(P).Client
 ```
 
 To **replace** validation wholesale (your logic is the sole gate — the rustls/.NET model), implement
-the role interface for the peer you verify and install it with `WithCertificateVerifier`. A client
+the role interface for the peer you verify and install it with `WithDangerousCertificateVerifier`. A client
 verifies the *server* certificate, so it implements `IServerCertificateVerifier`; a server verifying
 a *client* certificate (mTLS) implements `IClientCertificateVerifier`. It is a first-class,
 fail-closed seam: it replaces the built-in pipeline and is **exclusive** — it cannot be combined with
@@ -178,7 +178,7 @@ type
   end;
 
 LConfig := TTlsPresets.Compatible(P).Client
-  .WithCertificateVerifier(TMyServerVerifier.Create as IServerCertificateVerifier)  // sole gate
+  .WithDangerousCertificateVerifier(TMyServerVerifier.Create as IServerCertificateVerifier)  // sole gate
   .Build;
 ```
 
@@ -201,7 +201,7 @@ object could be freed while still in use.
 |---|---|
 | `DangerousAcceptAnyServerCertificateValidator` | `WithDangerousInsecureSkipVerify` |
 | `ServerCertificateCustomValidationCallback = (_,_,_,_) => true` (accept-all) | `WithDangerousInsecureSkipVerify` |
-| `ServerCertificateCustomValidationCallback` with real logic (replace validation) | `WithCertificateVerifier(myVerifier)` |
+| `ServerCertificateCustomValidationCallback` with real logic (replace validation) | `WithDangerousCertificateVerifier(myVerifier)` |
 | A callback that only *tightens* (extra rejections on top of normal validation) | `WithCertificateVerifyCallback(rule)` alone |
 | Trusting a specific CA instead of the system store | `WithTrustAnchors(caPemOrDer)` |
 | Ignoring only `SslPolicyErrors.RemoteCertificateNameMismatch` | `WithDangerousDisableServerNameCheck` |

@@ -260,7 +260,7 @@ The builder distinguishes two kinds of trust contribution:
 
 - **Anchor sources** — `WithTrustAnchors`, `WithTrustStore`, and `TSystemTrust.WithSystemTrust`.
   These are additive: supply several and they **union** into one root set.
-- **A whole verifier** — `WithCertificateVerifier` (below). This **replaces** the built-in pipeline
+- **A whole verifier** — `WithDangerousCertificateVerifier` (below). This **replaces** the built-in pipeline
   and is **exclusive**: combining it with any anchor source, or setting two verifiers, is a typed
   error (`EInvalidOperationTlsLibException`) at `Build`.
 
@@ -281,16 +281,16 @@ deliberate: an implicit trust source is exactly the kind of thing that weakens s
 
 ---
 
-## Replacing verification wholesale: `WithCertificateVerifier`
+## Replacing verification wholesale: `WithDangerousCertificateVerifier`
 
 Sometimes you want to substitute the entire verification decision with a ready-made verifier instance,
-or plug in bespoke logic. That is what `WithCertificateVerifier` is for: the client builder takes an
+or plug in bespoke logic. That is what `WithDangerousCertificateVerifier` is for: the client builder takes an
 `IServerCertificateVerifier`, the server builder an `IClientCertificateVerifier`. It **replaces** the
 built-in PKIX pipeline for that config:
 
 ```pascal
 LConfig := TTlsPresets.Compatible(P).Client
-  .WithCertificateVerifier(MyVerifier)   // exclusive: no WithTrustAnchors alongside it
+  .WithDangerousCertificateVerifier(MyVerifier)   // exclusive: no WithTrustAnchors alongside it
   .Build;
 ```
 

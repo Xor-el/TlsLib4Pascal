@@ -249,7 +249,7 @@ begin
     .WithTrustAnchors(OcspField('root_cert'))
     .WithDangerousDisableServerNameCheck
     .WithResumption(True)
-    .WithSessionCache(ACache, AScope)
+    .WithSessionCache(ACache).WithResumptionScope(AScope)
     .Build;
   Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
 end;
@@ -264,7 +264,7 @@ begin
     .WithTrustAnchors(OcspField('root_cert'))
     .WithDangerousDisableServerNameCheck
     .WithResumption(True)
-    .WithSessionCache(ACache, AScope)
+    .WithSessionCache(ACache).WithResumptionScope(AScope)
     .Build;
   Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
 end;
@@ -281,7 +281,7 @@ begin
     .WithRevocation(TRevocationPosture.Hard)
     .WithResumeVerification(TResumeVerification.Reverify)
     .WithResumption(True)
-    .WithSessionCache(ACache, AScope);
+    .WithSessionCache(ACache).WithResumptionScope(AScope);
   if ADeferral = TVerdictDeferral.LiveRevocation then
     LClient.WithLiveRevocationVerdict(0)
   else if ADeferral = TVerdictDeferral.HostDecision then
@@ -302,7 +302,7 @@ begin
     .WithRevocation(TRevocationPosture.Hard)
     .WithResumeVerification(TResumeVerification.Reverify)
     .WithResumption(True)
-    .WithSessionCache(ACache, AScope);
+    .WithSessionCache(ACache).WithResumptionScope(AScope);
   if ADeferral = TVerdictDeferral.LiveRevocation then
     LClient.WithLiveRevocationVerdict(0)
   else if ADeferral = TVerdictDeferral.HostDecision then
@@ -322,7 +322,7 @@ begin
     .WithOcspStaplingRequest(True)
     .WithRevocation(TRevocationPosture.Hard)
     .WithResumption(True)
-    .WithSessionCache(ACache, AScope)
+    .WithSessionCache(ACache).WithResumptionScope(AScope)
     .Build;
   Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
 end;
@@ -348,7 +348,7 @@ begin
   LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
     .WithTrustStore(ClientTrust)
     .WithResumption(AResumption)
-    .WithSessionCache(ACache, AScope)
+    .WithSessionCache(ACache).WithResumptionScope(AScope)
     .Build;
   Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
 end;
@@ -359,7 +359,7 @@ var
   LConfig: ITlsClientConfig;
 begin
   LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
-    .WithCertificateVerifier(TRejectingServerVerifier.Create as IServerCertificateVerifier)
+    .WithDangerousCertificateVerifier(TRejectingServerVerifier.Create as IServerCertificateVerifier)
     .WithResumption(True)
     .WithSessionCache(ACache)
     .Build;
@@ -372,10 +372,10 @@ var
   LConfig: ITlsClientConfig;
 begin
   LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
-    .WithCertificateVerifier(TRejectingServerVerifier.Create as IServerCertificateVerifier)
+    .WithDangerousCertificateVerifier(TRejectingServerVerifier.Create as IServerCertificateVerifier)
     .WithResumption(True)
     .WithResumeVerification(TResumeVerification.Reverify)
-    .WithSessionCache(ACache, AScope)
+    .WithSessionCache(ACache).WithResumptionScope(AScope)
     .Build;
   Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
 end;
@@ -392,7 +392,7 @@ begin
     .WithResumption(True)
     .WithResumeVerification(TResumeVerification.Reverify)
     .WithAsyncCertificateVerdict(0)
-    .WithSessionCache(ACache, AScope)
+    .WithSessionCache(ACache).WithResumptionScope(AScope)
     .Build;
   Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
 end;
@@ -419,7 +419,7 @@ begin
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
     .WithTrustStore(ClientTrust)
-    .WithSessionCache(ACache, AScope)
+    .WithSessionCache(ACache).WithResumptionScope(AScope)
     .Build;
   Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
 end;
@@ -437,7 +437,7 @@ begin
     .WithResumption(True)
     .WithResumeVerification(TResumeVerification.Reverify)
     .WithAsyncCertificateVerdict(0)
-    .WithSessionCache(ACache, AScope)
+    .WithSessionCache(ACache).WithResumptionScope(AScope)
     .Build;
   Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
 end;
@@ -739,7 +739,7 @@ begin
   LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
 
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Strict(Crypto, Pkix).Client
-    .WithResumption(True).WithTrustStore(ClientTrust).WithSessionCache(LCache, LScope).Build,
+    .WithResumption(True).WithTrustStore(ClientTrust).WithSessionCache(LCache).WithResumptionScope(LScope).Build,
     ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Strict(Crypto, Pkix).Server
     .WithResumption(True).WithCredential(ServerCredential).WithSessionStore(LStore)
@@ -748,7 +748,7 @@ begin
   CheckEquals(1, LStore.Count, 're-enabled Strict stored a session');
 
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Strict(Crypto, Pkix).Client
-    .WithResumption(True).WithTrustStore(ClientTrust).WithSessionCache(LCache, LScope).Build,
+    .WithResumption(True).WithTrustStore(ClientTrust).WithSessionCache(LCache).WithResumptionScope(LScope).Build,
     ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Strict(Crypto, Pkix).Server
     .WithResumption(True).WithCredential(ServerCredential).WithSessionStore(LStore)
@@ -1256,7 +1256,7 @@ begin
     .WithDangerousDisableServerNameCheck
     .WithResumeVerification(TResumeVerification.Reverify)
     .WithResumption(True)
-    .WithSessionCache(LCache, LScope)
+    .WithSessionCache(LCache).WithResumptionScope(LScope)
     .Build;
   LClient := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
   LServer := NewStaplingServer13(LStore, 0);

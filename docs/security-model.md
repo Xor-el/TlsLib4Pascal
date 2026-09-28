@@ -64,7 +64,7 @@ The builder requires an explicit trust source, and turning verification off is g
 loudly-named surface (`WithDangerousInsecureSkipVerify`, name-check off, key logging) that you have to
 opt into deliberately. Custom verification **augments** — a `WithCertificateVerifyCallback` can only
 *additionally reject*, never rescue a chain the built-in pipeline failed; only a whole
-`WithCertificateVerifier` replaces the pipeline, and it is exclusive. The async deferred-verdict seam
+`WithDangerousCertificateVerifier` replaces the pipeline, and it is exclusive. The async deferred-verdict seam
 rides the same augment-only rule and is fail-closed on timeout. See
 [certificate-verification.md](certificate-verification.md) and [system-trust.md](system-trust.md).
 

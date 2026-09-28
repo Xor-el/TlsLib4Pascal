@@ -87,7 +87,7 @@ trust the familiar way. Only what fcl-net lacks is added as extension properties
 | `CertificateData.Certificate` + `.PrivateKey` + `KeyPassword` | `WithCredential` — own cert (server, or mTLS client) |
 | `UseSystemTrust: Boolean`                             | OS system-trust store (crypt32 / SecTrust / Unix)  |
 | `CustomTrustStore: ITrustAnchorStore`                 | `WithTrustStore` (unions with the above)           |
-| `CustomServerCertificateVerifier` / `CustomClientCertificateVerifier` | `WithCertificateVerifier` — **replaces** the pipeline (role-typed) |
+| `CustomServerCertificateVerifier` / `CustomClientCertificateVerifier` | `WithDangerousCertificateVerifier` — **replaces** the pipeline (role-typed) |
 | `CheckHostName: Boolean` (default True)               | on by default; off via `WithDangerousDisableServerNameCheck` |
 | `AlpnProtocols: TArray<string>`                       | `WithAlpnProtocols`                                |
 | `VerifyPeerCert` (fcl-net native, default **True** here) | verify on/off; **False** → `dangerous` `WithDangerousInsecureSkipVerify` |
