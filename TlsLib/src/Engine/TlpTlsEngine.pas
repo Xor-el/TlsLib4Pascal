@@ -559,8 +559,9 @@ begin
   if FTerminal or FClosed then
     Exit;
   // a handshake message that spans records MUST NOT have another record type interleaved
-  // between its fragments (RFC 8446 5.1); any non-handshake record - application_data or an
-  // alert - arriving while one is partially buffered is that violation
+  // between its fragments (RFC 8446 5.1); an application_data or alert record arriving while one
+  // is partially buffered is that violation (change_cipher_spec is consumed in the record layer
+  // and never reaches here)
   if (AFragment.ContentType <> TTlsContentType.Handshake) and
     FConductor.HasBufferedHandshake then
   begin
@@ -992,9 +993,9 @@ end;
 
 function TTlsEngine.WriteClosed: Boolean;
 begin
-  // the write-closed subset of Write's guards (Write also refuses before a write epoch is
-  // installed). An inbound close_notify closes the write side only under TLS 1.2; under TLS 1.3
-  // the write half stays open (RFC 8446 6.1).
+  // the write-closed subset of Write's guards (Write also refuses before the application write
+  // epoch is in force - a transient pre-completion state, not reported here). An inbound
+  // close_notify closes the write side only under TLS 1.2; under TLS 1.3 it stays open (RFC 8446 6.1).
   Result := FTerminal or FSentClose or (FClosed and not IsTls13);
 end;
 
