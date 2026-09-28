@@ -87,6 +87,7 @@ trust the familiar way. Only what fcl-net lacks is added as extension properties
 | `CertificateData.Certificate` + `.PrivateKey` + `KeyPassword` | `WithCredential` — own cert (server, or mTLS client) |
 | `UseSystemTrust: Boolean`                             | OS system-trust store (crypt32 / SecTrust / Unix)  |
 | `CustomTrustStore: ITrustAnchorStore`                 | `WithTrustStore` (unions with the above)           |
+| `ClientAuth: TClientAuthMode` (**server**)            | `WithPeerAuth(None / Requested / Required)`; default `None` never requests a client certificate. Any other mode needs `CertCA` / `TrustedCertificate` / `UseSystemTrust` / `CustomTrustStore` (the client-CA) |
 | `CustomServerCertificateVerifier` / `CustomClientCertificateVerifier` | `WithDangerousCertificateVerifier` — **replaces** the pipeline (role-typed) |
 | `CheckHostName: Boolean` (default True)               | on by default; off via `WithDangerousDisableServerNameCheck` |
 | `AlpnProtocols: TArray<string>`                       | `WithAlpnProtocols`                                |
@@ -110,7 +111,10 @@ this adapter's constructor defaults it to **`True`**. Trust is therefore **fail-
 that names **no** trust source (`CertCA`/`TrustedCertificate`, `UseSystemTrust`, `CustomTrustStore`,
 a custom verifier) **refuses to connect** — system trust is never implicit. Anchor sources UNION; a
 a custom verifier is exclusive. A server requires `CertificateData.Certificate`/`.PrivateKey`; it
-requests + verifies client certificates only when a client-trust source is named (mTLS is opt-in).
+requests + verifies client certificates only when `ClientAuth` is set (mTLS is an explicit opt-in; a
+named client-CA alone never triggers it). Set `ClientAuth` per server-side handler in the
+`OnCreateClientSocketHandler` hook, never process-wide; using `UseSystemTrust` as the client-CA means
+the OS/public roots vouch for clients, so name a private `CertCA` for real mTLS.
 
 Setting `VerifyPeerCert := False` is the loud, deliberate bypass (no PKIX/host/pinning checks) —
 for tests and pinned dev peers, never production.

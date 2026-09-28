@@ -38,9 +38,9 @@ when the protocol says "go secure", set `IO.PassThrough := False` and the handsh
 
 | `TTlsLibSSLOptions`                | TlsLib4Pascal                                              |
 |-----------------------------------|-----------------------------------------------------------|
-| `RootCertFile`                    | `WithTrustAnchors` (client trust / server client-auth CA) |
+| `RootCertFile`                    | `WithTrustAnchors` (client trust; on a server the client-auth CA, consulted only when `ClientAuth <> None`) |
 | `CertFile` + `KeyFile` + `KeyPassword` | `WithCredential` (server cert/key, or client mTLS)   |
-| `VerifyPeer` (server)             | `WithPeerAuth(Required)` when a `RootCertFile` is set      |
+| `ClientAuth` (server)             | `WithPeerAuth(None / Requested / Required)`; the default `None` never requests a client certificate. Any other mode needs `RootCertFile` / `UseSystemTrust` / `CustomTrustStore` (the client-CA) and `VerifyPeer` on, else the build fails closed |
 | `VerifyPeer = False` / `InsecureSkipVerify` | **`dangerous` `WithDangerousInsecureSkipVerify`** |
 | `VerifyCallback`                  | neutral augment-only hook (`WithCertificateVerifyCallback`) |
 | `VerdictResolver` + `VerdictDeadlineMs` | client-role out-of-band verdict (server's chain), e.g. live OCSP/CRL |
@@ -57,6 +57,13 @@ where fetching is blocked).
 `TTlsCredential.LoadPkcs12(crypto, pfxBytes, password)` and passing it to `WithCredential` on a config
 builder you drive directly (`TTlsPresets.…(crypto, pkix).Server`) (the file-based `SSLOptions` cover
 PEM/DER cert+key pairs).
+
+**Mutual TLS (client certificates)**: a server requests client certificates only when you set
+`SSLOptions.ClientAuth` — `Requested` (ask, tolerate a client that sends none) or `Required` (ask,
+abort when none is presented); the default `None` never asks. Setting a `RootCertFile` alone no longer
+requests client certificates — it is only the CA a presented client chain is verified against. Using
+`UseSystemTrust` as that CA means the OS/public roots vouch for clients, which is rarely what mTLS
+wants; name a private `RootCertFile` instead.
 
 ## Trust is ours (`dangerous` mapping)
 

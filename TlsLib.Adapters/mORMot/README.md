@@ -25,7 +25,7 @@ assigns `NewNetTls`; if you prefer, assign it yourself: `NewNetTls := NewTlsLib4
 |------------------------------------------|----------------------------------------------------------|
 | `CACertificatesFile`                     | `WithTrustAnchors` (PEM/DER bundle)                       |
 | `CertificateFile` + `PrivateKeyFile` + `PrivatePassword` | `WithCredential` (server cert/key, or client mTLS) |
-| `ClientCertificateAuthentication`        | `WithPeerAuth(Required)` + client-chain trust            |
+| `ClientCertificateAuthentication`        | `WithPeerAuth(Required)` + client-chain trust; `False` (default) never requests a client certificate. `Requested` (ask, tolerate absence) is available through `SetTlsLibMormotServerConfig` with a builder-driven config |
 | `IgnoreCertificateErrors`                | **`dangerous` `WithDangerousInsecureSkipVerify`** (see below) |
 | `CipherName` (out)                       | filled with the negotiated suite and version (`TLS_AES_128_GCM_SHA256 TLSv1.3`) |
 
