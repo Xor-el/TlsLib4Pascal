@@ -178,6 +178,10 @@ type
   /// the handshake). Host-owned; freeing it frees the stream and releases the transport and engine
   /// without sending close_notify (a host calls CloseNotify at its own close hook).</summary>
   TTlsConnection = class sealed(TObject)
+  public const
+    /// <summary>The handshake read-timeout the connection applies when the host passes 0 (30 s).
+    /// Exported so an adapter can share the one default rather than repeat the literal.</summary>
+    DefaultHandshakeTimeoutMs = Int32(30000);
   strict private
   var
     FStream: TTlsStream;
@@ -216,9 +220,6 @@ type
   end;
 
 implementation
-
-const
-  DefaultHandshakeTimeoutMs = Int32(30000); // when the host leaves the handshake timeout 0
 
 resourcestring
   SNoServerCredential =

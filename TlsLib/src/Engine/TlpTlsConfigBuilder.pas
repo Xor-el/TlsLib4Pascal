@@ -358,6 +358,15 @@ resourcestring
   STicketLifetimeTooLong = 'the session-ticket lifetime must not exceed 604800 seconds ' +
     '(7 days), the maximum a server may advertise (RFC 8446 4.6.1)';
   SResumptionScopeTooLong = 'the resumption scope must not exceed 32 bytes';
+  SExternalPskNeedsTls13 = 'external PSKs are TLS 1.3-only (RFC 9258); offering them without TLS ' +
+    '1.3 leaves them unusable, so add TLS 1.3 to the offered versions or remove the external PSKs';
+  SEarlyDataNeedsResumption = '0-RTT early data is sent only on a resumed handshake; enabling it ' +
+    'requires resumption to be on and a session cache to hold the ticket it resumes from';
+  SResumeVerifyNeedsCache = 'resumed-session certificate re-verification is inert unless the ' +
+    'client can resume: turn resumption on and configure WithSessionCache, or leave the default ' +
+    'reuse mode';
+  SServerEarlyDataNeedsResumption = '0-RTT early data is offered only on a resumed session; a ' +
+    'server early-data limit requires resumption to be enabled';
   STicketCountOutOfRange = 'the session-ticket count must be between 0 and 8 per handshake';
   SInvalidChainLimits = 'the certificate-chain limits must be positive, with ' +
     'MaxCertificateLength no larger than MaxTotalChainLength, which must not exceed the ' +
@@ -2691,6 +2700,21 @@ begin
   if (FRevocationPosture = TRevocationPosture.Hard) and (not FRequestOcspStapling) and
     (FAsyncVerdict.Deferral <> TVerdictDeferral.LiveRevocation) then
     raise EInvalidOperationTlsLibException.CreateRes(@SHardRevocationUnusable);
+  // external PSKs are TLS 1.3-only (RFC 9258); a client that offers them without 1.3 could never
+  // use them. The PSK-only path above is stricter (1.3 only); this also catches PSKs alongside trust.
+  if (System.Length(FExternalPsks) > 0) and
+    not (TArrayUtilities.Contains<UInt16>(FSupportedVersions, TlsWireVersionTls13)) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SExternalPskNeedsTls13);
+  // 0-RTT rides a resumed handshake, so it needs resumption on and a cache to hold the ticket it
+  // resumes from; without both the client can never send early data (an external PSK carries no
+  // early-data budget here)
+  if FClientEarlyData and ((not FResumption) or (FSessionCache = nil)) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SEarlyDataNeedsResumption);
+  // re-verifying a resumed peer is inert unless this config can actually resume (resumption on and
+  // a cache to resume from)
+  if (FResumeVerification = TResumeVerification.Reverify) and
+    ((not FResumption) or (FSessionCache = nil)) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SResumeVerifyNeedsCache);
   ValidateVersionScoping;
   // build the ECH policy before allocating the frozen config, so a rejected ECHConfigList (a
   // malformed list, or an empty one with GREASE off) raises here without leaking the config
@@ -2795,6 +2819,9 @@ begin
     ((FSessionTicketKeys <> nil) or (FSessionStore <> nil)) and
     (System.Length(FResumptionScope) = 0) then
     raise EInvalidOperationTlsLibException.CreateRes(@SMtlsSharedResumptionNeedsScope);
+  // 0-RTT early data is offered only on a resumed session; a limit with resumption off is inert
+  if (FMaxEarlyData > 0) and (not FResumption) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SServerEarlyDataNeedsResumption);
   ValidateVersionScoping;
   LConfig := TFrozenServerConfig.Create;
   LConfig.FCrypto := FCrypto;

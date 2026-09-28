@@ -152,7 +152,9 @@ type
   published
     property CertFile: string read FCertFile write FCertFile;
     property KeyFile: string read FKeyFile write FKeyFile;
-    property KeyPassword: string read FKeyPassword write FKeyPassword;
+    /// <summary>The private-key passphrase. Published so it can be set at design time, but never
+    /// streamed to the .dfm (stored False): a secret does not belong in a persisted form resource.</summary>
+    property KeyPassword: string read FKeyPassword write FKeyPassword stored False;
     property RootCertFile: string read FRootCertFile write FRootCertFile;
     /// <summary>Whether the peer certificate is verified (a server verifies a requested
     /// client certificate). Default True.</summary>
