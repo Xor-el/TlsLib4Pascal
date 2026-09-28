@@ -244,8 +244,9 @@ type
     /// <summary>
     /// Imports a PKCS#12 (.pfx/.p12) blob decrypted with APassword into a crypto-level identity:
     /// the leaf and any intermediates as the chain (leaf first, DER) and an ISigningKey composed
-    /// from the enclosed private key (the builder lifts it into a full TTlsCredential). The store
-    /// must hold exactly one private-key entry - a multi-identity store is ambiguous and rejected.
+    /// from the enclosed private key (TTlsCredential.LoadPkcs12 lifts it into a full credential).
+    /// The store must hold exactly one private-key entry - a multi-identity store is ambiguous
+    /// and rejected.
     /// The leaf is the certificate whose public key pairs the private key (PKCS#12 imposes no
     /// order and the key/cert link may be absent or wrong); when more than one certificate pairs
     /// the key, one is selected deterministically. Fails closed: a wrong password, bad MAC, malformed store, or a

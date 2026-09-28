@@ -67,7 +67,7 @@ type
   /// source (no silent-insecure).
   /// </summary>
   ITlsClientConfigBuilder = interface(IInterface)
-    ['{EB62CA23-2F28-4C47-8DD4-6B7D394A34A7}']
+    ['{8B4B9678-BF8A-4A14-89EB-DBDB174E2547}']
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): ITlsClientConfigBuilder;
     function WithSignatureSchemes(const ARegistry: ISignatureSchemeRegistry): ITlsClientConfigBuilder;
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): ITlsClientConfigBuilder;
@@ -106,19 +106,9 @@ type
     function WithMinimumCertificateStrength(
       const APolicy: TCertificateStrengthPolicy): ITlsClientConfigBuilder;
     /// <summary>The client's own credential for mutual TLS, presented when the server
-    /// sends a CertificateRequest the credential can satisfy.</summary>
-    function WithCredential(const ACredential: TTlsCredential): ITlsClientConfigBuilder; overload;
-    /// <summary>A credential from a certificate chain and an unencrypted private key, each
-    /// a PEM block or DER, loaded and normalized through the provider.</summary>
-    function WithCredential(const ACertificateChainData,
-      APrivateKeyData: TBytes): ITlsClientConfigBuilder; overload;
-    /// <summary>As above, decrypting an encrypted private key with APassword.</summary>
-    function WithCredential(const ACertificateChainData, APrivateKeyData: TBytes;
-      const APassword: string): ITlsClientConfigBuilder; overload;
-    /// <summary>A credential imported from a PKCS#12 (.pfx/.p12) blob decrypted with
-    /// APassword: leaf + intermediates as the chain and the enclosed private key.</summary>
-    function WithCredentialPkcs12(const AData: TBytes;
-      const APassword: string): ITlsClientConfigBuilder;
+    /// sends a CertificateRequest the credential can satisfy. Build one with
+    /// TTlsCredential.Load / LoadPkcs12.</summary>
+    function WithCredential(const ACredential: TTlsCredential): ITlsClientConfigBuilder;
     /// <summary>The stapled-OCSP revocation posture (RFC 6960): Soft (default) accepts a
     /// missing or indeterminate staple, Hard requires a current Good one, Off skips the
     /// check. Must-staple (RFC 7633) is enforced only for an initial-handshake server
@@ -286,7 +276,7 @@ type
   /// certificate credential.
   /// </summary>
   ITlsServerConfigBuilder = interface(IInterface)
-    ['{8026CEB7-52F8-4F06-8E84-515634846EE7}']
+    ['{BC6A48F9-3D90-413F-BF40-F35F589F6120}']
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): ITlsServerConfigBuilder;
     function WithSignatureSchemes(const ARegistry: ISignatureSchemeRegistry): ITlsServerConfigBuilder;
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): ITlsServerConfigBuilder;
@@ -339,19 +329,8 @@ type
     function WithMinimumCertificateStrength(
       const APolicy: TCertificateStrengthPolicy): ITlsServerConfigBuilder;
     /// <summary>The server credential the Certificate chain is sent from and whose key
-    /// signs the handshake.</summary>
-    function WithCredential(const ACredential: TTlsCredential): ITlsServerConfigBuilder; overload;
-    /// <summary>A credential from a certificate chain and an unencrypted private key.</summary>
-    function WithCredential(const ACertificateChainData,
-      APrivateKeyData: TBytes): ITlsServerConfigBuilder; overload;
-    /// <summary>As above, decrypting an encrypted private key with APassword.</summary>
-    function WithCredential(const ACertificateChainData, APrivateKeyData: TBytes;
-      const APassword: string): ITlsServerConfigBuilder; overload;
-    /// <summary>A credential imported from a PKCS#12 (.pfx/.p12) blob decrypted with
-    /// APassword: leaf + intermediates as the chain and the enclosed private key. To also
-    /// staple an OCSP response, compose the returned credential and pass WithCredential.</summary>
-    function WithCredentialPkcs12(const AData: TBytes;
-      const APassword: string): ITlsServerConfigBuilder;
+    /// signs the handshake. Build one with TTlsCredential.Load / LoadPkcs12.</summary>
+    function WithCredential(const ACredential: TTlsCredential): ITlsServerConfigBuilder;
     /// <summary>Maps a certificate credential to an SNI host_name for virtual hosting: the
     /// server presents this certificate when the client's SNI matches AHost, which may be an
     /// exact name or a single left-most-label wildcard (*.example.com). Call it once per host.
@@ -359,13 +338,7 @@ type
     /// alongside is the no-SNI / no-match default; without one, an unmatched host is rejected
     /// with unrecognized_name.</summary>
     function WithSniCredential(const AHost: string;
-      const ACredential: TTlsCredential): ITlsServerConfigBuilder; overload;
-    /// <summary>As above, from a certificate chain and an unencrypted private key.</summary>
-    function WithSniCredential(const AHost: string; const ACertificateChainData,
-      APrivateKeyData: TBytes): ITlsServerConfigBuilder; overload;
-    /// <summary>As above, decrypting an encrypted private key with APassword.</summary>
-    function WithSniCredential(const AHost: string; const ACertificateChainData,
-      APrivateKeyData: TBytes; const APassword: string): ITlsServerConfigBuilder; overload;
+      const ACredential: TTlsCredential): ITlsServerConfigBuilder;
     /// <summary>Full custom control over per-handshake certificate selection (e.g. selecting
     /// by client signature-scheme capability as well as SNI). Mutually exclusive with
     /// WithCredential / WithSniCredential.</summary>

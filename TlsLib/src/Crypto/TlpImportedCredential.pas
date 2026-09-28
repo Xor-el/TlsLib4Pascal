@@ -23,7 +23,7 @@ type
   /// <summary>The crypto-level result of importing an identity (e.g. from PKCS#12): the
   /// certificate chain (leaf first, DER) and the leaf's signing key. This is the provider
   /// boundary's own type - it carries no handshake concerns (OCSP stapling, client-auth mode);
-  /// the builder lifts it into a full TTlsCredential.</summary>
+  /// TTlsCredential.LoadPkcs12 lifts it into a full credential.</summary>
   TImportedCredential = record
     CertificateChain: TArray<TBytes>;
     PrivateKey: ISigningKey;
