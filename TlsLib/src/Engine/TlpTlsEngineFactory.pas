@@ -551,6 +551,7 @@ begin
   begin
     L13.EchKeyStore := AConfig.EchKeyStore;
     L13.EchTrialDecrypt := AConfig.EchTrialDecrypt;
+    L13.EchSplitModeBackend := AConfig.EchSplitModeBackend;
   end;
 
   if LOffers13 and LOffers12 then

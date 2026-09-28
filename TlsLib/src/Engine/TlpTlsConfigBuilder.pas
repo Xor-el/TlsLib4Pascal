@@ -151,6 +151,7 @@ type
     FEchConfigured: Boolean;
     FEchKeyStore: IEchServerKeyStore;
     FEchTrialDecrypt: Boolean;
+    FEchSplitModeBackend: Boolean;
     // whether a version's facet was explicitly configured, so a build can refuse a
     // version that is not offered (defaults are seeded directly, not through a facet)
     FTls13Configured: Boolean;
@@ -276,6 +277,7 @@ type
     function WithAntiReplay(const AStrategy: IAntiReplayStrategy): TTlsConfigBuilder;
     function WithEchKeyStore(const AKeyStore: IEchServerKeyStore): TTlsConfigBuilder;
     function WithEchTrialDecrypt(AEnabled: Boolean): TTlsConfigBuilder;
+    function WithEchSplitModeBackend: TTlsConfigBuilder;
 
     // the version facet instances (returned by the endpoint views and cross-accessors)
     function Client13: ITls13ClientConfigFacet;
@@ -305,6 +307,8 @@ resourcestring
   SNilCryptoProvider = 'a crypto provider is required (pass a provider, not nil)';
   SNilPkixProvider = 'a PKIX provider is required (pass a provider, not nil)';
   SBuilderFrozen = 'the configuration has been built and can no longer be changed';
+  SEchBackendWithKeyStore = 'a split-mode ECH backend holds no keys; WithEchSplitModeBackend is ' +
+    'mutually exclusive with WithEchKeyStore';
   SNoTrustStore = 'a client configuration requires a trust source (no silent-insecure)';
   SEmptyTrustStore = 'a trust store was supplied but contains no root certificates; a store ' +
     'with no anchors is not a trust source (no silent-insecure)';
@@ -479,6 +483,7 @@ type
     FMaxEarlyData: UInt32;
     FEchKeyStore: IEchServerKeyStore;
     FEchTrialDecrypt: Boolean;
+    FEchSplitModeBackend: Boolean;
   public
     function CertificateCompressionCache: ICertificateCompressionCache;
     function ServerNameAcknowledgement: Boolean;
@@ -497,6 +502,7 @@ type
     function MaxEarlyData: UInt32;
     function EchKeyStore: IEchServerKeyStore;
     function EchTrialDecrypt: Boolean;
+    function EchSplitModeBackend: Boolean;
   end;
 
   /// <summary>Shared view plumbing over the owning builder whose mutators the view forwards to.
@@ -679,6 +685,7 @@ type
     function WithAntiReplay(const AStrategy: IAntiReplayStrategy): ITls13ServerConfigFacet;
     function WithEchKeyStore(const AKeyStore: IEchServerKeyStore): ITls13ServerConfigFacet;
     function WithEchTrialDecrypt(AEnabled: Boolean): ITls13ServerConfigFacet;
+    function WithEchSplitModeBackend: ITls13ServerConfigFacet;
     function Tls12: ITls12ServerConfigFacet;
     function Build: ITlsServerConfig;
   end;
@@ -951,6 +958,11 @@ end;
 function TFrozenServerConfig.EchTrialDecrypt: Boolean;
 begin
   Result := FEchTrialDecrypt;
+end;
+
+function TFrozenServerConfig.EchSplitModeBackend: Boolean;
+begin
+  Result := FEchSplitModeBackend;
 end;
 
 { TTlsConfigViewBase }
@@ -1646,6 +1658,12 @@ function TTls13ServerConfigFacet.WithEchTrialDecrypt(
   AEnabled: Boolean): ITls13ServerConfigFacet;
 begin
   FOwner.WithEchTrialDecrypt(AEnabled);
+  Result := Self;
+end;
+
+function TTls13ServerConfigFacet.WithEchSplitModeBackend: ITls13ServerConfigFacet;
+begin
+  FOwner.WithEchSplitModeBackend;
   Result := Self;
 end;
 
@@ -2585,6 +2603,14 @@ begin
   Result := Self;
 end;
 
+function TTlsConfigBuilder.WithEchSplitModeBackend: TTlsConfigBuilder;
+begin
+  GuardMutable;
+  FEchSplitModeBackend := True;
+  FTls13Configured := True;
+  Result := Self;
+end;
+
 function TTlsConfigBuilder.Client13: ITls13ClientConfigFacet;
 begin
   Result := TTls13ClientConfigFacet.Create(Self);
@@ -2730,6 +2756,10 @@ begin
   if (not FHasCredential) and (System.Length(FSniCredentialEntries) = 0) and
     (FCredentialResolver = nil) and (System.Length(FExternalPsks) = 0) then
     raise EInvalidOperationTlsLibException.CreateRes(@SNoCredential);
+  // a split-mode backend holds no ECH keys, and a keyed (client-facing / shared-mode) server never
+  // accepts an inner-type ech: the two roles are mutually exclusive (RFC 9849 sec. 7)
+  if FEchSplitModeBackend and (FEchKeyStore <> nil) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SEchBackendWithKeyStore);
   ValidateTrustComposition;
   // client authentication verifies the peer chain against a trust source: anchor ROOTS, a
   // whole-verifier, or an explicit skip-verify. A verifier source is NOT a source on its own - it
@@ -2823,6 +2853,7 @@ begin
   LConfig.FMaxEarlyData := FMaxEarlyData;
   LConfig.FEchKeyStore := FEchKeyStore;
   LConfig.FEchTrialDecrypt := FEchTrialDecrypt;
+  LConfig.FEchSplitModeBackend := FEchSplitModeBackend;
   FFrozen := True;
   Result := LConfig;
 end;

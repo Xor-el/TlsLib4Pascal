@@ -217,6 +217,10 @@ type
     /// <summary>Whether the server trial-decrypts an ECH offer against every key on a config_id
     /// miss (RFC 9849 sec. 7.1).</summary>
     function EchTrialDecrypt: Boolean;
+    /// <summary>Whether the server is deployed as a split-mode ECH backend (RFC 9849 sec. 7.2): it
+    /// accepts an inner-type ech forwarded by a client-facing server. Off by default; an inner-type
+    /// ech at a non-backend server is illegal_parameter.</summary>
+    function EchSplitModeBackend: Boolean;
   end;
 
 implementation

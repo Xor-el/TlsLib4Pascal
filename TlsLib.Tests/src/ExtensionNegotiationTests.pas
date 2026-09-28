@@ -42,6 +42,7 @@ uses
   TlpHandshakeMessages,
   TlpExtensionContext,
   TlpExtensionVector,
+  TlpEchExtension,
   TlpITlsExtension,
   TlpExtensionBlockCodec,
   TlpTlsLibExceptions,
@@ -79,6 +80,10 @@ type
     function NewServerMachine(const AAlpn: TArray<string>): IHandshakeMachine;
     function NewServerMachineLimited(const AAlpn: TArray<string>;
       ARecordSizeLimit: Int32): IHandshakeMachine;
+    // a server machine deployed as a split-mode ECH backend (accepts an inner-type ech)
+    function NewBackendServerMachine: IHandshakeMachine;
+    // a real ClientHello with an inner-type encrypted_client_hello spliced in (a decrypted inner)
+    function InnerEchClientHello: TBytes;
     function NewServerMachineWith(const AChain: TArray<TBytes>;
       const ACompressors: TArray<ICertificateCompressor>): IHandshakeMachine;
     function CredentialWithChain(const AChain: TArray<TBytes>): TTlsCredential;
@@ -129,6 +134,8 @@ type
     procedure TestAlpnServerHelloSelectionRoundTrip;
     procedure TestAlpnServerHelloEmptyProtocolRejected;
     procedure TestClientRejectsGreaseExtensionInEncryptedExtensions;
+    procedure TestServerRejectsInnerEchWithoutBackend;
+    procedure TestServerAcceptsInnerEchWhenBackend;
   end;
 
 implementation
@@ -406,6 +413,43 @@ begin
   LParams.AlpnProtocols := AAlpn;
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
   Result := TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine;
+end;
+
+function TTestExtensionNegotiation.NewBackendServerMachine: IHandshakeMachine;
+var
+  LParams: TServerHandshakeParams;
+begin
+  LParams := Default(TServerHandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Crypto := Crypto;
+  LParams.Inspector := Pkix.Certificates;
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
+  LParams.ServerRandom := DecodeHex(StringOfChar('2', 64));
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
+  LParams.EchSplitModeBackend := True;
+  Result := TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine;
+end;
+
+function TTestExtensionNegotiation.InnerEchClientHello: TBytes;
+var
+  LClientHello, LBody: TBytes;
+  LHello: TTlsClientHello;
+  LEntries: TExtensionVector;
+begin
+  // a real ClientHello with an inner-type ech spliced in front - as a client-facing server would
+  // forward the decrypted inner to a backend
+  LClientHello := FirstSendHandshake(NewClientMachine(nil).Start);
+  LBody := System.Copy(LClientHello, 4, System.Length(LClientHello) - 4);
+  LHello := THandshakeMessages.DecodeClientHello(LBody);
+  LEntries := TExtensionVector.Parse(LHello.Extensions);
+  LEntries.InsertAt(0, TExtensionEntry.Create(
+    TExtensionTypes.EncryptedClientHello, TEchExtension.EncodeInner));
+  LHello.Extensions := LEntries.Encode;
+  Result := THandshakeFraming.Frame(TTlsHandshakeType.ClientHello,
+    THandshakeMessages.EncodeClientHello(LHello));
 end;
 
 function TTestExtensionNegotiation.NewServerMachineWith(
@@ -1190,6 +1234,34 @@ begin
     'a GREASE extension type echoed in EncryptedExtensions aborts');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
     'a GREASE extension in EncryptedExtensions is illegal_parameter');
+end;
+
+procedure TTestExtensionNegotiation.TestServerRejectsInnerEchWithoutBackend;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // an inner-type encrypted_client_hello is a decrypted ClientHelloInner; a plain server (no ECH
+  // keys, not deployed as a split-mode backend) must refuse it with illegal_parameter (RFC 9849
+  // sec. 7), rather than confirm a backend role it was never configured for
+  CheckTrue(FailAlertOf(NewServerMachine(nil).ProcessMessage(
+    MsgFrom(InnerEchClientHello)), LAlert),
+    'an inner-type ech at a non-backend server aborts');
+  CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
+    'an inner-type ech at a non-backend server is illegal_parameter');
+end;
+
+procedure TTestExtensionNegotiation.TestServerAcceptsInnerEchWhenBackend;
+var
+  LEffects: TArray<THandshakeEffect>;
+  LAlert: TTlsAlertDescription;
+begin
+  // a server deployed as a split-mode backend accepts the forwarded inner-type ech and drives the
+  // handshake off it (RFC 9849 sec. 7.2): no abort, a ServerHello is emitted
+  LEffects := NewBackendServerMachine.ProcessMessage(MsgFrom(InnerEchClientHello));
+  CheckFalse(FailAlertOf(LEffects, LAlert),
+    'a backend server does not abort an inner-type ech');
+  CheckTrue(FirstSendHandshake(LEffects) <> nil,
+    'a backend server answers an inner-type ech with a ServerHello');
 end;
 
 initialization

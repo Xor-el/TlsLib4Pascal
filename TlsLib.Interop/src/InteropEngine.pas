@@ -169,6 +169,8 @@ type
       const ACodes: TArray<UInt16>): Boolean; static;
     /// <summary>Returns AVersions without the TLS 1.2 wire version.</summary>
     class function WithoutTls12(const AVersions: TArray<UInt16>): TArray<UInt16>; static;
+    // whether the version list offers TLS 1.3 (an empty list = the preset default, which does)
+    class function Offers13(const AVersions: TArray<UInt16>): Boolean; static;
     /// <summary>An ordered signature-scheme registry built from IANA codepoints (unknown
     /// codepoints are skipped), for the client's -verify-prefs offer.</summary>
     class function SignatureSchemesFromCodes(
@@ -294,6 +296,18 @@ begin
       SetLength(Result, LN + 1);
       Result[LN] := LVersion;
     end;
+end;
+
+class function TInteropEngine.Offers13(const AVersions: TArray<UInt16>): Boolean;
+var
+  LVersion: UInt16;
+begin
+  if System.Length(AVersions) = 0 then
+    Exit(True);
+  for LVersion in AVersions do
+    if LVersion = TlsWireVersionTls13 then
+      Exit(True);
+  Result := False;
 end;
 
 class function TInteropEngine.SignatureSchemesFromCodes(
@@ -467,7 +481,13 @@ begin
     begin
       LServer.Tls13.WithEchKeyStore(AOptions.EchKeyStore);
       LServer.Tls13.WithEchTrialDecrypt(True);
-    end;
+    end
+    // the peer's ECH tests drive a keyless server that must confirm a forwarded inner-type ech
+    // (split-mode backend, RFC 9849 sec. 7.2); opt in so those cases behave as the peer expects.
+    // Only when 1.3 is offered - the backend role is 1.3-only, and forcing it on a 1.2-capped
+    // server would fail the build
+    else if Offers13(LVersions) then
+      LServer.Tls13.WithEchSplitModeBackend;
     Result := TTlsEngineFactory.CreateServerEngine(LServer.Build);
   end;
 end;

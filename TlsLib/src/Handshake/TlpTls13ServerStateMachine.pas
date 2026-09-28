@@ -128,6 +128,10 @@ type
     /// <summary>Whether to trial-decrypt against every key regardless of config_id (the
     /// guarded ignore-config_id mode). Off by default.</summary>
     EchTrialDecrypt: Boolean;
+    /// <summary>Whether this server is deployed as a split-mode ECH backend (RFC 9849 sec. 7.2):
+    /// it accepts an inner-type ech forwarded by a client-facing server and confirms it. Off by
+    /// default, so an inner-type ech at a server not deployed as a backend is illegal_parameter.</summary>
+    EchSplitModeBackend: Boolean;
     /// <summary>Whether the server requests a client certificate (mutual TLS) and how
     /// strictly it is enforced.</summary>
     ClientAuth: TClientAuthMode;
@@ -470,8 +474,8 @@ resourcestring
   SNonEmptyEndOfEarlyData = 'the EndOfEarlyData message must be empty';
   SEchInnerRandomChanged = 'the ClientHelloInner random changed across the HelloRetryRequest';
   SEchAcceptedWithoutHandshake = 'ECH is marked accepted but the handshake state is gone';
-  SEchInnerAtClientFacing = 'an inner-type Encrypted Client Hello reached a server that ' +
-    'holds ECH keys; it must arrive only at a split-mode backend';
+  SEchInnerNotBackend = 'an inner-type Encrypted Client Hello reached a server not deployed as ' +
+    'a split-mode backend (it holds ECH keys, or did not opt into the backend role)';
   SEchHrrConfirmationMissing = 'the HelloRetryRequest ech confirmation placeholder is absent';
 
 const
@@ -1038,16 +1042,17 @@ begin
   // unauthenticated block. An absent field is a legacy shape - Empty, never parsed.
   LExtensions := ParseClientHelloExtensions(LClientHello);
   // Encrypted Client Hello (RFC 9849 sec. 7.1). An inner-type ech is a decrypted
-  // ClientHelloInner: it is legitimate only at a split-mode backend (no ECH keys), which
-  // confirms it in the ServerHello. A client-facing or shared-mode server (it holds ECH keys)
-  // must never receive it directly and aborts illegal_parameter. With ECH keys and an outer,
+  // ClientHelloInner: it is legitimate only at a server explicitly deployed as a split-mode
+  // backend (no ECH keys, opted in), which confirms it in the ServerHello. A client-facing or
+  // shared-mode server (it holds ECH keys), or a server that did not opt into the backend role,
+  // must never accept it directly and aborts illegal_parameter. With ECH keys and an outer,
   // trial-decrypt - accept drives negotiation off the reconstructed inner, reject continues to
   // the public_name and advertises retry_configs in EncryptedExtensions.
   if DetectBackendEch(LExtensions) then
   begin
-    if FParams.EchKeyStore <> nil then
+    if (FParams.EchKeyStore <> nil) or (not FParams.EchSplitModeBackend) then
       raise EFatalAlertTlsLibException.CreateRes(
-        TTlsAlertDescription.IllegalParameter, @SEchInnerAtClientFacing);
+        TTlsAlertDescription.IllegalParameter, @SEchInnerNotBackend);
     FEchStatus := TEchStatus.Backend;
     FEchInnerRandom := LClientHello.Random;
   end

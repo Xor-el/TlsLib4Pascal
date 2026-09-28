@@ -94,6 +94,7 @@ type
     procedure TearDown; override;
   published
     procedure TestEchThroughServerBuilder;
+    procedure TestEchSplitModeBackendWithKeyStoreRejected;
     procedure TestEmptyEchConfigListWithoutGreaseRejectedAtBuild;
     procedure TestEchGreaseOnlyBuildsWithoutConfig;
     procedure TestEchGreaseFalseWithoutConfigIsNoOp;
@@ -320,6 +321,26 @@ begin
     TArray<TEchCipherSuite>.Create(LSuite), 0,
     TEncoding.ASCII.GetBytes(APublicName), nil);
   Result := TEchConfigList.Encode(TArray<TEchConfig>.Create(LConfig));
+end;
+
+procedure TTestConfigBuilder.TestEchSplitModeBackendWithKeyStoreRejected;
+var
+  LSk: ISecretBuffer;
+  LConfigList: TBytes;
+  LRaised: Boolean;
+begin
+  // the split-mode backend role holds no ECH keys; pairing WithEchSplitModeBackend with
+  // WithEchKeyStore is a contradictory deployment and must be refused at Build (RFC 9849 sec. 7)
+  LConfigList := BuildEchConfigList($E1, 'cover.example', LSk);
+  LRaised := False;
+  try
+    NewServerBuilder.Tls13.WithEchSplitModeBackend.WithEchKeyStore(
+      TInMemoryEchKeyStore.FromConfig(LConfigList, LSk, Crypto)).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a split-mode backend combined with an ECH key store is refused');
 end;
 
 procedure TTestConfigBuilder.TestEchThroughServerBuilder;
