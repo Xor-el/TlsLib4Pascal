@@ -39,6 +39,7 @@ uses
   TlpTlsCredential,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
+  TlpISystemTrustInstaller,
   TlpTlsPresets,
   TlpITlsEngine,
   TlpTlsEngineFactory,

@@ -136,6 +136,7 @@ contains
   TlpEchServer in '..\..\Ech\TlpEchServer.pas',
   TlpITlsConfig in '..\..\Interfaces\Engine\TlpITlsConfig.pas',
   TlpITlsConfigBuilder in '..\..\Interfaces\Engine\TlpITlsConfigBuilder.pas',
+  TlpISystemTrustInstaller in '..\..\Interfaces\Engine\TlpISystemTrustInstaller.pas',
   TlpTlsConfigBuilder in '..\..\Engine\TlpTlsConfigBuilder.pas',
   TlpTlsPresets in '..\..\Engine\TlpTlsPresets.pas',
   TlpTlsLib in '..\..\Engine\TlpTlsLib.pas',

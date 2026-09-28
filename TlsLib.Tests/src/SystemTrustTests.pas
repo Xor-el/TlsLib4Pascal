@@ -69,6 +69,7 @@ uses
   TlpOSDelegateVerifier,
   TlpSystemTrustFacade,
   TlpITlsConfigBuilder,
+  TlpISystemTrustInstaller,
   TlpITlsConfig,
   TlpTlsPresets,
   MockPlatformChainEngine,

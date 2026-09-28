@@ -42,6 +42,7 @@ uses
   TlpTrustPolicy,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
+  TlpISystemTrustInstaller,
   TlpITlsEngine,
   TlpTlsEngineFactory,
   TlpITlsConfigMemo,
