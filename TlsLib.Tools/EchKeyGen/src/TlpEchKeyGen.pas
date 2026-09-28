@@ -21,6 +21,15 @@ interface
 uses
   SysUtils,
   Classes,
+{$IFDEF FPC}
+  {$IFDEF UNIX}
+  BaseUnix,
+  {$ENDIF}
+{$ELSE}
+  {$IFDEF POSIX}
+  Posix.SysStat,
+  {$ENDIF}
+{$ENDIF}
   TlpEchConfig,
   TlpCryptoDomainTypes,
   TlpSecureMemory,
@@ -66,7 +75,6 @@ type
     class function MapAead(const AName: string; out AAead: UInt16): Boolean; static;
     class function ParseSuite(const AText: string;
       out AKem, AKdf, AAead: UInt16): Boolean; static;
-    class procedure WriteFile(const APath: string; const AData: TBytes); static;
   public
     /// <summary>
     /// Generates a single-config ECHConfigList for public_name APublicName under the
@@ -85,6 +93,10 @@ type
     /// code (0 on success). Both the Delphi and FPC program wrappers call this.
     /// </summary>
     class function RunConsole: Integer; static;
+    /// <summary>Writes AData to APath, restricting it to the owner (0600) before any bytes land
+    /// on POSIX so the private key is never briefly world-readable; on Windows the file inherits
+    /// the user's ACL. Public so a test can assert the mode.</summary>
+    class procedure WritePrivateFile(const APath: string; const AData: TBytes); static;
   end;
 
 implementation
@@ -213,13 +225,27 @@ begin
     MapKdf(LParts[1], AKdf) and MapAead(LParts[2], AAead);
 end;
 
-class procedure TEchKeyGenerator.WriteFile(const APath: string;
+class procedure TEchKeyGenerator.WritePrivateFile(const APath: string;
   const AData: TBytes);
 var
   LStream: TFileStream;
+{$IF DEFINED(POSIX) AND NOT DEFINED(FPC)}
+  LMarshaller: TMarshaller;
+{$IFEND}
 begin
+  // create empty, then restrict to the owner BEFORE the key bytes are written so there is no
+  // window in which the private key is world-readable; Windows inherits the creating user's ACL
   LStream := TFileStream.Create(APath, fmCreate);
   try
+{$IFDEF FPC}
+  {$IFDEF UNIX}
+    FpChmod(APath, S_IRUSR or S_IWUSR);
+  {$ENDIF}
+{$ELSE}
+  {$IFDEF POSIX}
+    chmod(LMarshaller.AsAnsi(APath).ToPointer, S_IRUSR or S_IWUSR);
+  {$ENDIF}
+{$ENDIF}
     if System.Length(AData) > 0 then
       LStream.WriteBuffer(AData[0], System.Length(AData));
   finally
@@ -309,7 +335,7 @@ begin
     LResult := Generate(LCrypto, LPublicName, LOrigin, Byte(LConfigId), LKem, LKdf, LAead,
       Byte(LMaxNameLen));
     try
-      WriteFile(LOutPath, LResult.Pem);
+      WritePrivateFile(LOutPath, LResult.Pem);
       WriteLn(LResult.DnsLine);
       Result := 0;
     finally
