@@ -1,0 +1,51 @@
+TlsLib.Tests/src/HandshakeMessageTests.pas
+  s_09d3c46d1a9b1f::t_c447c11758f9e7 45
+  s_09d3c46d1a9b1f::t_75807e3549b9b5 219-230
+TlsLib/src/Extensions/TlpCoreExtensions.pas
+  s_09d3c46d1a9b1f::t_df507c456a6f96 24
+  s_09d3c46d1a9b1f::t_e33fc6423def1a 794-796,806-824
+  s_09d3c46d1a9b1f::t_f15d11bb6d88c0 1069-1070,1072-1080
+  s_09d3c46d1a9b1f::t_6c25d333f17498 583-590,592
+  s_09d3c46d1a9b1f::t_3456c21e784f23 368-370
+  s_09d3c46d1a9b1f::t_7957d035996bfc 939-941
+  s_09d3c46d1a9b1f::t_a54ea31cf6a1f4 867-869
+  s_09d3c46d1a9b1f::t_15ed1bbd729b4a 325-330
+  s_09d3c46d1a9b1f::t_6746db26deb884 226-232
+TlsLib/src/Handshake/TlpHandshakeMessages.pas
+  s_09d3c46d1a9b1f::t_96aafba170961d 267-268
+  s_09d3c46d1a9b1f::t_083e45e2a3c3e6 398-400,403-406
+TlsLib/src/Handshake/TlpHandshakeMessage.pas
+  s_09d3c46d1a9b1f::t_c9993215628c5a 172-173
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_8418ebe44e8a63 506-508,511
+TlsLib.Tests/src/HandshakeMessagesTests.pas
+  s_09d3c46d1a9b1f::t_e00021108f3398 217-257
+  s_09d3c46d1a9b1f::t_ad6b01a6f4b316 54-55
+TlsLib.Tests/src/ExtensionCodecTests.pas
+  s_09d3c46d1a9b1f::t_19082635400c77 346-366
+  s_09d3c46d1a9b1f::t_5198c6050b39d5 50-51
+  s_09d3c46d1a9b1f::t_e1ffecb83b910c 85-96
+  s_09d3c46d1a9b1f::t_0d0a30bc870de5 746-863
+TlsLib.Tests/src/Tls12DualVersionTests.pas
+  s_09d3c46d1a9b1f::t_20f753858c4d8a 107
+  s_09d3c46d1a9b1f::t_e825d47ce333ce 555-571
+TlsLib/src/Extensions/TlpSessionExtensions.pas
+  s_09d3c46d1a9b1f::t_61dc5a998bc0a0 91
+  s_09d3c46d1a9b1f::t_6dc47ec3f09fa4 234-238
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b514d388315b8e0cc6633b2a2317327ea20483ba",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
