@@ -86,7 +86,7 @@ function TTls13HandshakeBase.RekeyEffect(ADirection: TTlsDirection;
 begin
   FSchedule.AdvanceKeyUpdate(ADirection);
   Result := THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
-    ADirection), ASide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13);
+    ADirection), ASide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13, TTlsEpoch.Application);
 end;
 
 function TTls13HandshakeBase.BuildKeyUpdate(ARequest: TKeyUpdateRequest): TBytes;

@@ -907,7 +907,7 @@ begin
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.EarlyData,
       TTlsDirection.ClientWrite), TRecordSide.WriteSide, LPskSuite.Common.Aead,
-      TTlsVersion.Tls13));
+      TTlsVersion.Tls13, TTlsEpoch.EarlyData));
     // bound the outbound 0-RTT at the ticket's max_early_data; over-budget writes are
     // deferred by the engine to 1-RTT (RFC 8446 4.2.10)
     TArrayUtilities.Append<THandshakeEffect>(Result,
@@ -1148,14 +1148,14 @@ begin
     THandshakeEffects.NegotiatedVersion(TTlsVersion.Tls13)), MiddleboxCcs);
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Handshake,
-    TTlsDirection.ServerWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13));
+    TTlsDirection.ServerWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13, TTlsEpoch.Handshake));
   // with an accepted 0-RTT offer the write side stays on the early keys until
   // EndOfEarlyData (sent at EncryptedExtensions); otherwise switch write to handshake now
   if FEarlyDataOffered and FPskAccepted then
     Exit;
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Handshake,
-    TTlsDirection.ClientWrite), TRecordSide.WriteSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13));
+    TTlsDirection.ClientWrite), TRecordSide.WriteSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13, TTlsEpoch.Handshake));
   // a PSK-rejected 0-RTT offer means the early data was ignored: the engine replays it
   if FEarlyDataOffered then
     TArrayUtilities.Append<THandshakeEffect>(Result,
@@ -1254,7 +1254,7 @@ begin
       TArrayUtilities.Append<THandshakeEffect>(Result,
         THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Handshake,
         TTlsDirection.ClientWrite), TRecordSide.WriteSide, FSelectedSuite.Common.Aead,
-        TTlsVersion.Tls13));
+        TTlsVersion.Tls13, TTlsEpoch.Handshake));
     end;
   end;
   // on an accepted resumption the server sends no Certificate/CertificateVerify: the
@@ -1743,7 +1743,7 @@ begin
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Handshake,
       TTlsDirection.ClientWrite), TRecordSide.WriteSide, FSelectedSuite.Common.Aead,
-      TTlsVersion.Tls13));
+      TTlsVersion.Tls13, TTlsEpoch.Handshake));
   end;
 
   // mutual TLS: the client Certificate (+ CertificateVerify) precede the client Finished
@@ -1777,7 +1777,7 @@ begin
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
       TTlsDirection.ClientWrite), TRecordSide.WriteSide, FSelectedSuite.Common.Aead,
-      TTlsVersion.Tls13));
+      TTlsVersion.Tls13, TTlsEpoch.Application));
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.EchRejected(FEchOrch.RetryConfigs, FParams.EchPolicy.IsRetryAttempt));
     Exit(Result);
@@ -1792,11 +1792,11 @@ begin
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
     TTlsDirection.ClientWrite), TRecordSide.WriteSide, FSelectedSuite.Common.Aead,
-    TTlsVersion.Tls13));
+    TTlsVersion.Tls13, TTlsEpoch.Application));
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
     TTlsDirection.ServerWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead,
-    TTlsVersion.Tls13));
+    TTlsVersion.Tls13, TTlsEpoch.Application));
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code,
     FCurrentGroupCode, FPskAccepted, FParams.ServerName));

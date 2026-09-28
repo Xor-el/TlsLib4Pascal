@@ -52,6 +52,7 @@ type
     function ExpectFatal(const ALayer: TRecordLayer; const AWire: TBytes;
       ADescription: TTlsAlertDescription): Boolean;
     class function MakePayload(ALen: Int32; ASeed: Byte): TBytes; static;
+    function TakeAll(const ALayer: TRecordLayer): TBytes;
   published
     procedure TestPlaintextRecordRoundTrip;
     procedure TestRecordSpanningMultipleFeeds;
@@ -161,7 +162,7 @@ begin
   try
     LPayload := DecodeHex('01020304050607');
     LSend.Write(TTlsContentType.Handshake, LPayload, 0, System.Length(LPayload));
-    LWire := LSend.TakeOutgoing;
+    LWire := TakeAll(LSend);
     LRecv.ProcessInput(LWire, 0, System.Length(LWire));
     CheckTrue(DrainOne(LRecv, LFrag), 'a fragment is delivered');
     CheckEquals(Ord(TTlsContentType.Handshake), Ord(LFrag.ContentType), 'content type');
@@ -189,7 +190,7 @@ begin
     LPayload := nil;
     SetLength(LPayload, TRecordLimits.MaxPlaintext);
     LSend.Write(TTlsContentType.Handshake, LPayload, 0, System.Length(LPayload));
-    LWire := LSend.TakeOutgoing;
+    LWire := TakeAll(LSend);
     // records needed to reach the cap, derived from the (read-only) bound - never hard-coded
     LNeeded := (LRecv.MaxFramedBacklog + System.Length(LWire) - 1) div System.Length(LWire);
 
@@ -227,7 +228,7 @@ begin
   try
     LPayload := DecodeHex('cafebabedeadbeef1234');
     LSend.Write(TTlsContentType.ApplicationData, LPayload, 0, System.Length(LPayload));
-    LRecord := LSend.TakeOutgoing;
+    LRecord := TakeAll(LSend);
     // feed the single record in three slices; nothing surfaces until complete
     LRecv.ProcessInput(LRecord, 0, 3);
     CheckFalse(DrainOne(LRecv, LFrag), 'incomplete after slice 1');
@@ -256,7 +257,7 @@ begin
     LSend.Write(TTlsContentType.Handshake, LA, 0, System.Length(LA));
     LSend.Write(TTlsContentType.ApplicationData, LB, 0, System.Length(LB));
     // both records arrive coalesced in one buffer
-    LWire := LSend.TakeOutgoing;
+    LWire := TakeAll(LSend);
     LRecv.ProcessInput(LWire, 0, System.Length(LWire));
     CheckTrue(DrainOne(LRecv, LFrag), 'first record');
     CheckEquals(Ord(TTlsContentType.Handshake), Ord(LFrag.ContentType), 'first type');
@@ -287,7 +288,7 @@ begin
     for LI := 0 to System.Length(LPayload) - 1 do
       LPayload[LI] := Byte(LI and $FF);
     LSend.Write(TTlsContentType.ApplicationData, LPayload, 0, System.Length(LPayload));
-    LWire := LSend.TakeOutgoing;
+    LWire := TakeAll(LSend);
     LRecv.ProcessInput(LWire, 0, System.Length(LWire));
     LReassembled := nil;
     CheckTrue(DrainOne(LRecv, LFrag), 'first fragment');
@@ -344,7 +345,7 @@ begin
     LB := DecodeHex('576f726c64'); // "World"
     LSend.Write(TTlsContentType.ApplicationData, LA, 0, 5);
     LSend.Write(TTlsContentType.ApplicationData, LB, 0, 5);
-    LWire := LSend.TakeOutgoing;
+    LWire := TakeAll(LSend);
     LRecv.ProcessInput(LWire, 0, System.Length(LWire));
     CheckTrue(DrainOne(LRecv, LFrag), 'first protected record');
     CheckEqualBytes('first plaintext', LA, LFrag.Data);
@@ -539,7 +540,7 @@ begin
     // an empty application_data record is still emitted
     LSend.Write(TTlsContentType.ApplicationData, nil, 0, 0);
     CheckEqualBytes('an empty application_data record is emitted',
-      DecodeHex('1703030000'), LSend.TakeOutgoing);
+      DecodeHex('1703030000'), TakeAll(LSend));
   finally
     LSend.Free;
   end;
@@ -569,7 +570,7 @@ begin
     LSend.RevertWriteToPlaintext;
     LSend.Write(TTlsContentType.ChangeCipherSpec, LCcs, 0, 1);
     CheckEqualBytes('a plaintext CCS is emitted after reverting',
-      DecodeHex('140303000101'), LSend.TakeOutgoing);
+      DecodeHex('140303000101'), TakeAll(LSend));
   finally
     LSend.Free;
   end;
@@ -594,7 +595,7 @@ begin
     LBig := nil;
     SetLength(LBig, 200);
     LSend.Write(TTlsContentType.ApplicationData, LBig, 0, 200);
-    LWire := LSend.TakeOutgoing;
+    LWire := TakeAll(LSend);
     LRecv.ProcessInput(LWire, 0, System.Length(LWire));
     LRaised := False;
     try
@@ -680,7 +681,7 @@ begin
     SetLength(LData, 64);
     LSend.Write(TTlsContentType.ApplicationData, LData, 0, 63); // inner 64 == limit
     LSend.Write(TTlsContentType.ApplicationData, LData, 0, 64); // inner 65 > limit
-    LWire := LSend.TakeOutgoing;
+    LWire := TakeAll(LSend);
     LRecv.SetRecordSizeLimit(TRecordLimits.MaxPlaintext, 64);
     LRecv.ProcessInput(LWire, 0, System.Length(LWire));
     CheckTrue(DrainOne(LRecv, LFrag), 'the inner-plaintext-at-limit record is accepted');
@@ -713,7 +714,7 @@ begin
     LPayload := nil;
     SetLength(LPayload, 200); // larger than the 64-byte inbound limit set below
     LSend.Write(TTlsContentType.Handshake, LPayload, 0, System.Length(LPayload));
-    LWire := LSend.TakeOutgoing;
+    LWire := TakeAll(LSend);
     LRecv.SetRecordSizeLimit(TRecordLimits.MaxPlaintext, 64);
     LRecv.ProcessInput(LWire, 0, System.Length(LWire));
     CheckTrue(LRecv.NextIncoming(LFrag),
@@ -744,9 +745,9 @@ begin
     LA := DecodeHex('48656c6c6f'); // "Hello"
     LB := DecodeHex('576f726c64'); // "World"
     LSend.Write(TTlsContentType.ApplicationData, LA, 0, 5);
-    LFirst := LSend.TakeOutgoing;
+    LFirst := TakeAll(LSend);
     LSend.Write(TTlsContentType.ApplicationData, LB, 0, 5);
-    LSecond := LSend.TakeOutgoing;
+    LSecond := TakeAll(LSend);
     LRecv.ProcessInput(LFirst, 0, System.Length(LFirst));
     CheckTrue(DrainOne(LRecv, LFrag), 'early data within the budget surfaces');
     CheckEqualBytes('the first early record is delivered', LA, LFrag.Data);
@@ -780,7 +781,7 @@ begin
     // 5 + 3 exactly fills the budget: both surface
     LSend.Write(TTlsContentType.ApplicationData, LA, 0, 5);
     LSend.Write(TTlsContentType.ApplicationData, LB, 0, 3);
-    LWire := LSend.TakeOutgoing;
+    LWire := TakeAll(LSend);
     LRecv.ProcessInput(LWire, 0, System.Length(LWire));
     CheckTrue(DrainOne(LRecv, LFrag), 'first early record within the budget');
     CheckEqualBytes('first early plaintext', LA, LFrag.Data);
@@ -792,7 +793,7 @@ begin
     LRecv.SetHandshakeComplete;
     LC := DecodeHex('576f726c64'); // "World"
     LSend.Write(TTlsContentType.ApplicationData, LC, 0, 5);
-    LWire := LSend.TakeOutgoing;
+    LWire := TakeAll(LSend);
     LRecv.ProcessInput(LWire, 0, System.Length(LWire));
     CheckTrue(DrainOne(LRecv, LFrag), 'application data flows after the early window closes');
     CheckEqualBytes('post-early plaintext', LC, LFrag.Data);
@@ -820,16 +821,16 @@ begin
     // the first application record seals normally and advances the epoch to its rekey threshold
     CheckTrue(LSend.Write(TTlsContentType.ApplicationData, LData, 0, 100) > 0,
       'the first application record seals normally');
-    LSend.TakeOutgoing; // drain it off the wire
+    TakeAll(LSend); // drain it off the wire
     CheckTrue(LSend.WriteNeedsKeyUpdate, 'the write epoch reached the rekey threshold');
     // application data now seals nothing while at the threshold, so the engine can rekey first
     CheckEquals(0, LSend.Write(TTlsContentType.ApplicationData, LData, 0, 100),
       'application data pauses at the rekey threshold');
-    CheckEquals(0, System.Length(LSend.TakeOutgoing), 'nothing was sealed for the app data');
+    CheckEquals(0, System.Length(TakeAll(LSend)), 'nothing was sealed for the app data');
     // a control record (handshake) still seals in full so the KeyUpdate itself can go out
     CheckEquals(4, LSend.Write(TTlsContentType.Handshake, LData, 0, 4),
       'a control record still seals at the threshold');
-    CheckTrue(System.Length(LSend.TakeOutgoing) > 0, 'the control record reached the wire');
+    CheckTrue(System.Length(TakeAll(LSend)) > 0, 'the control record reached the wire');
   finally
     LSend.Free;
   end;
@@ -1002,7 +1003,7 @@ begin
     LPayload := DecodeHex('48656c6c6f'); // "Hello"
     LSend.Write(TTlsContentType.ApplicationData, LPayload, 0, System.Length(LPayload));
     // the peer's CCS immediately precedes its first protected record
-    LWire := ConcatBytes(DecodeHex('140303000101'), LSend.TakeOutgoing);
+    LWire := ConcatBytes(DecodeHex('140303000101'), TakeAll(LSend));
     LRecv.ProcessInput(LWire, 0, System.Length(LWire));
     CheckTrue(DrainOne(LRecv, LFrag), 'the protected record after the CCS decrypts');
     CheckEqualBytes('it decrypts under the promoted epoch', LPayload, LFrag.Data);
@@ -1146,7 +1147,7 @@ begin
     LPayload := DecodeHex('01020304050607'); // 7 content bytes -> a 12-byte plaintext record
     // an identically framed second layer yields the full-take bytes the chunks must reproduce
     LExpectLayer.Write(TTlsContentType.Handshake, LPayload, 0, System.Length(LPayload));
-    LExpected := LExpectLayer.TakeOutgoing;
+    LExpected := TakeAll(LExpectLayer);
 
     LLayer.Write(TTlsContentType.Handshake, LPayload, 0, System.Length(LPayload));
     // take into a fixed 8-byte buffer twice: the first take fills it to capacity, the second
@@ -1178,7 +1179,7 @@ begin
   try
     LPayload := DecodeHex('01020304050607');
     LExpectLayer.Write(TTlsContentType.Handshake, LPayload, 0, System.Length(LPayload));
-    LExpected := LExpectLayer.TakeOutgoing;
+    LExpected := TakeAll(LExpectLayer);
 
     LLayer.Write(TTlsContentType.Handshake, LPayload, 0, System.Length(LPayload));
     LDest := nil;
@@ -1190,11 +1191,26 @@ begin
       'a zero-capacity destination takes nothing');
     // neither guarded take consumed anything: a normal take still returns the pending bytes whole
     CheckEqualBytes('the guarded takes left the pending bytes intact', LExpected,
-      LLayer.TakeOutgoing);
+      TakeAll(LLayer));
   finally
     LLayer.Free;
     LExpectLayer.Free;
   end;
+end;
+
+function TTestRecordLayer.TakeAll(const ALayer: TRecordLayer): TBytes;
+var
+  LChunk: TBytes;
+  LN: Int32;
+begin
+  Result := nil;
+  repeat
+    LChunk := nil;
+    SetLength(LChunk, 4096);
+    LN := ALayer.TakeOutgoing(LChunk, 0);
+    if LN > 0 then
+      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LN));
+  until LN <= 0;
 end;
 
 class function TTestRecordLayer.MakePayload(ALen: Int32; ASeed: Byte): TBytes;
@@ -1222,7 +1238,7 @@ begin
     // wire the interleaved append/drain below must reproduce in order
     LTwin.Write(TTlsContentType.Handshake, LA, 0, System.Length(LA));
     LTwin.Write(TTlsContentType.Handshake, LB, 0, System.Length(LB));
-    LExpected := LTwin.TakeOutgoing;
+    LExpected := TakeAll(LTwin);
 
     LLayer.Write(TTlsContentType.Handshake, LA, 0, System.Length(LA));
     // take part of A's record (leaves the head cursor mid-buffer), then append B behind it
@@ -1259,7 +1275,7 @@ begin
     LRec := MakePayload(16384, $21);
     for I := 0 to 2 do
       LTwin.Write(TTlsContentType.ApplicationData, LRec, 0, System.Length(LRec));
-    LExpected := LTwin.TakeOutgoing;
+    LExpected := TakeAll(LTwin);
 
     LLayer.Write(TTlsContentType.ApplicationData, LRec, 0, System.Length(LRec));
     LChunk := nil;
@@ -1306,9 +1322,9 @@ begin
     // after the release, a fresh small write must regrow correctly and stay byte-exact
     LSmall := MakePayload(9, $C0);
     LTwin.Write(TTlsContentType.Handshake, LSmall, 0, System.Length(LSmall));
-    LExpectedSmall := LTwin.TakeOutgoing;
+    LExpectedSmall := TakeAll(LTwin);
     LLayer.Write(TTlsContentType.Handshake, LSmall, 0, System.Length(LSmall));
-    LOut := LLayer.TakeOutgoing;
+    LOut := TakeAll(LLayer);
     CheckEqualBytes('the buffer regrows correctly after a release', LExpectedSmall, LOut);
   finally
     LLayer.Free;
@@ -1338,7 +1354,7 @@ begin
         LLen := 1 + Random(40000);
         LPayload := MakePayload(LLen, Byte(I));
         LScratch.Write(TTlsContentType.ApplicationData, LPayload, 0, LLen);
-        LWritten := LScratch.TakeOutgoing;
+        LWritten := TakeAll(LScratch);
         LRef := ConcatBytes(LRef, LWritten);
         LLayer.Write(TTlsContentType.ApplicationData, LPayload, 0, LLen);
       end
@@ -1355,7 +1371,7 @@ begin
       else
       begin
         // occasional whole-take
-        LWritten := LLayer.TakeOutgoing;
+        LWritten := TakeAll(LLayer);
         if System.Length(LWritten) > 0 then
           LOut := ConcatBytes(LOut, LWritten);
       end;

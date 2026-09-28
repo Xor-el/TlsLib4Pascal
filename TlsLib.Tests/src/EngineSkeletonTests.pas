@@ -93,12 +93,21 @@ function TTestEngineSkeleton.PeerRecord(AContentType: TTlsContentType;
   const AData: TBytes): TBytes;
 var
   LLayer: TRecordLayer;
+  LChunk: TBytes;
+  LN: Int32;
 begin
   // frame a plaintext record exactly as a peer's record layer would
   LLayer := TRecordLayer.Create;
   try
     LLayer.Write(AContentType, AData, 0, System.Length(AData));
-    Result := LLayer.TakeOutgoing;
+    Result := nil;
+    repeat
+      LChunk := nil;
+      SetLength(LChunk, 4096);
+      LN := LLayer.TakeOutgoing(LChunk, 0);
+      if LN > 0 then
+        Result := ConcatBytes(Result, System.Copy(LChunk, 0, LN));
+    until LN <= 0;
   finally
     LLayer.Free;
   end;

@@ -174,15 +174,10 @@ type
     /// <summary>True when the write epoch has reached its AEAD rekey threshold, so further
     /// application-data writes seal nothing until a KeyUpdate rekeys the write side.</summary>
     function WriteNeedsKeyUpdate: Boolean;
-    /// <summary>True while the write side is on the initial (or reverted) plaintext epoch, so
-    /// application data written now would go out unencrypted.</summary>
-    property WriteIsPlaintext: Boolean read FWriteIsPlaintext;
-    /// <summary>Removes and returns all pending outbound wire bytes.</summary>
-    function TakeOutgoing: TBytes; overload;
     /// <summary>Copies up to the destination's capacity of pending outbound bytes into ADest at
     /// ADestOffset, retaining the rest for the next take; returns the count copied (0 when nothing
     /// is pending or the destination has no room).</summary>
-    function TakeOutgoing(var ADest: TBytes; ADestOffset: Int32): Int32; overload;
+    function TakeOutgoing(var ADest: TBytes; ADestOffset: Int32): Int32;
     /// <summary>Pending outbound byte count.</summary>
     function PendingOutgoing: Int32;
 
@@ -834,19 +829,6 @@ end;
 function TRecordLayer.WriteNeedsKeyUpdate: Boolean;
 begin
   Result := FWriteProtection.NeedsKeyUpdate;
-end;
-
-function TRecordLayer.TakeOutgoing: TBytes;
-var
-  LPending: Int32;
-begin
-  LPending := FOutTail - FOutHead;
-  if LPending <= 0 then
-    Exit(nil);
-  // a copy, not the capacity buffer itself, which the next append would then copy-on-write
-  Result := System.Copy(FOutbound, FOutHead, LPending);
-  FOutHead := FOutTail;
-  ResetOutboundIfDrained;
 end;
 
 function TRecordLayer.TakeOutgoing(var ADest: TBytes; ADestOffset: Int32): Int32;

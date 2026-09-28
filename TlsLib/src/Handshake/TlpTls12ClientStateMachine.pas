@@ -810,7 +810,7 @@ begin
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
     TTlsDirection.ClientWrite), TRecordSide.WriteSide, FSelectedSuite.Common.Aead,
-    TTlsVersion.Tls12));
+    TTlsVersion.Tls12, TTlsEpoch.Application));
 
   // the client Finished is over the transcript through CertificateVerify (or the CKE)
   LVerifyData := FSchedule.ComputeVerifyData(TTlsDirection.ClientWrite,
@@ -830,7 +830,7 @@ begin
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
       TTlsDirection.ServerWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead,
-      TTlsVersion.Tls12));
+      TTlsVersion.Tls12, TTlsEpoch.Application));
     FPhase := TPhase.WaitServerFinished;
   end;
 end;
@@ -850,7 +850,7 @@ begin
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
     TTlsDirection.ServerWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead,
-    TTlsVersion.Tls12));
+    TTlsVersion.Tls12, TTlsEpoch.Application));
 end;
 
 function TTls12ClientStateMachine.CacheCompletedSession: TArray<THandshakeEffect>;
@@ -965,7 +965,7 @@ begin
     Result := TArray<THandshakeEffect>.Create(
       THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
       TTlsDirection.ServerWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead,
-      TTlsVersion.Tls12));
+      TTlsVersion.Tls12, TTlsEpoch.Application));
   end;
 end;
 
@@ -992,7 +992,7 @@ begin
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
     TTlsDirection.ServerWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead,
-    TTlsVersion.Tls12));
+    TTlsVersion.Tls12, TTlsEpoch.Application));
 end;
 
 function TTls12ClientStateMachine.ProcessAbbreviatedServerFinished(
@@ -1050,7 +1050,7 @@ begin
     THandshakeEffects.SendChangeCipherSpec,
     THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
     TTlsDirection.ClientWrite), TRecordSide.WriteSide, FSelectedSuite.Common.Aead,
-    TTlsVersion.Tls12),
+    TTlsVersion.Tls12, TTlsEpoch.Application),
     THandshakeEffects.SendHandshake(LClientFinished));
   // re-cache the resumed session (carrying any freshly issued ticket) for the next resume
   Result := TArrayUtilities.Concat<THandshakeEffect>(Result, CacheCompletedSession);

@@ -1443,7 +1443,7 @@ begin
       THandshakeEffects.SendChangeCipherSpec);
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Handshake,
-    TTlsDirection.ServerWrite), TRecordSide.WriteSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13));
+    TTlsDirection.ServerWrite), TRecordSide.WriteSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13, TTlsEpoch.Handshake));
   // read side: early keys for accepted 0-RTT (handshake read installs after
   // EndOfEarlyData), else the handshake read keys now
   if FEarlyDataAccepted then
@@ -1451,7 +1451,7 @@ begin
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.EarlyData,
       TTlsDirection.ClientWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead,
-      TTlsVersion.Tls13));
+      TTlsVersion.Tls13, TTlsEpoch.EarlyData));
     // the read side is on the early-data epoch: application_data (the client's 0-RTT data)
     // legitimately precedes the handshake completion until EndOfEarlyData (RFC 8446 4.2.10),
     // bounded by the max_early_data_size of the ticket that authorized it (RFC 8446 4.6.1)
@@ -1462,7 +1462,7 @@ begin
   begin
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Handshake,
-      TTlsDirection.ClientWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13));
+      TTlsDirection.ClientWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13, TTlsEpoch.Handshake));
     // the client sent 0-RTT the server is not accepting: skip those undecryptable records.
     // Not after an HRR though - a client must not resend early data past a retry, so any
     // early-data records on the second flight are illegal and must fail (bad record MAC).
@@ -1493,7 +1493,7 @@ begin
   // after its own Finished the server writes with the application keys
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
-    TTlsDirection.ServerWrite), TRecordSide.WriteSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13));
+    TTlsDirection.ServerWrite), TRecordSide.WriteSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13, TTlsEpoch.Application));
 end;
 
 function TTls13ServerStateMachine.BuildServerHello(
@@ -1785,7 +1785,7 @@ begin
     THandshakeEffects.SetEarlyReadEpoch(False, 0),
     THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Handshake,
     TTlsDirection.ClientWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead,
-    TTlsVersion.Tls13));
+    TTlsVersion.Tls13, TTlsEpoch.Handshake));
 end;
 
 function TTls13ServerStateMachine.ProcessClientFinished(
@@ -1804,7 +1804,7 @@ begin
   MarkConnected;
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
-    TTlsDirection.ClientWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13),
+    TTlsDirection.ClientWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13, TTlsEpoch.Application),
     THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code,
     FSelectedGroup.Code, FPskAccepted, FRequestedServerName));
   // record the ECH status before signalling completion, so a sink reading it in the established
