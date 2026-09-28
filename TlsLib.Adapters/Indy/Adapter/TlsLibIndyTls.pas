@@ -153,8 +153,9 @@ type
   published
     property CertFile: string read FCertFile write FCertFile;
     property KeyFile: string read FKeyFile write FKeyFile;
-    /// <summary>The private-key passphrase. Published so it can be set at design time, but never
-    /// streamed to the .dfm (stored False): a secret does not belong in a persisted form resource.</summary>
+    /// <summary>The private-key passphrase. Published so it can be set at design time on the IOHandler
+    /// component, but never streamed (stored False): a secret must not be persisted into the owning
+    /// form/data-module resource (.dfm on Delphi, .lfm on Lazarus), which is often committed.</summary>
     property KeyPassword: string read FKeyPassword write FKeyPassword stored False;
     property RootCertFile: string read FRootCertFile write FRootCertFile;
     /// <summary>Whether the peer certificate is verified (a server verifies a requested
