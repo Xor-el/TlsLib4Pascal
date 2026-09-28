@@ -52,7 +52,6 @@ type
     // regrows the outbound buffer and holds at most one slice of ciphertext at a time
     WriteChunk = Int32(4 * 16384);
   strict private
-    class procedure RaiseIfFatal(const AEngine: ITlsEngine); static;
     /// <summary>Flushes best-effort: a transport failure here is swallowed because the caller is
     /// already surfacing a TLS-level error that a transport error must not mask.</summary>
     class procedure FlushQuietly(const AEngine: ITlsEngine;
@@ -75,6 +74,10 @@ type
       const AResolveVerdict: TCertificateVerdictResolver;
       APeerRole: TPeerRole); static;
   public
+    /// <summary>Raises the engine's terminal failure as the precise TLS error (its alert) when it
+    /// is in a fatal state; a no-op otherwise. Lets a caller re-surface a latched handshake failure
+    /// with the same alert the engine recorded.</summary>
+    class procedure RaiseIfFatal(const AEngine: ITlsEngine); static;
     /// <summary>Sends every pending outbound byte to the transport.</summary>
     class procedure Flush(const AEngine: ITlsEngine;
       const ATransport: ITlsTransport); static;
