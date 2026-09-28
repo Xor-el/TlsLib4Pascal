@@ -48,6 +48,7 @@ uses
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpTlsPresets,
+  TlpTlsCredential,
   TlpIEch,
   TlpInMemoryEchKeyStore,
   TlpEchConfig,
@@ -238,7 +239,8 @@ begin
     THpkeAead.AES_128_GCM, 0);
 
   LServerBuilder := TTlsPresets.Compatible(LCrypto, LPkix).Server
-    .WithCredential(TVec.Bytes('leaf_cert'), TVec.Bytes('leaf_key'), '');
+    .WithCredential(TTlsCredential.Load(LCrypto, LPkix,
+    TVec.Bytes('leaf_cert'), TVec.Bytes('leaf_key')));
   LServerBuilder.Tls13.WithEchKeyStore(
     TInMemoryEchKeyStore.FromPem(LEch.Pem, LCrypto));
   LServerBuilder.Tls13.WithEchTrialDecrypt(True);

@@ -22,6 +22,7 @@ uses
   TlpICryptoProvider,
   TlpIPkixProvider,
   TlpTlsPresets,
+  TlpTlsCredential,
   TlpTlsVersion,
   TlpITlsConfigBuilder,
   TlpITlsConfig,
@@ -128,7 +129,8 @@ begin
   LServer.WithSupportedVersions(TArray<UInt16>.Create(AWireVersion));
   LServer.WithPreferredGroups(LGroups);
   LServer.WithCipherSuites(SingleSuiteRegistry(ACryptoProvider, ASuiteCode));
-  LServer.WithCredential(ACredential.LeafCertDer, ACredential.LeafKeyDer);
+  LServer.WithCredential(TTlsCredential.Load(ACryptoProvider, APkix,
+    ACredential.LeafCertDer, ACredential.LeafKeyDer));
   AServerConfig := LServer.Build;
   Result := True;
 end;

@@ -80,6 +80,7 @@ uses
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpTlsPresets,
+  TlpTlsCredential,
   TlsLibIndyTls;
 
 const
@@ -220,7 +221,9 @@ begin
     TCipherSuites13.Aes128GcmSha256, TCipherSuites13.ChaCha20Poly1305Sha256]));
   LServer.WithCipherSuitePreference(TServerCipherPreference.ServerOrder);
   LServer.WithServerNameAcknowledgement(True);
-  LServer.WithCredential(ACertPem, AKeyPem); // PEM bytes (DER works too, auto-detected)
+  // PEM bytes (DER works too, auto-detected)
+  LServer.WithCredential(TTlsCredential.Load(TDefaultCryptoProvider.Shared,
+    TDefaultPkixProvider.Shared, ACertPem, AKeyPem));
   Result := LServer.Build;
 end;
 
@@ -438,8 +441,10 @@ begin
   LServer := TTlsPresets.Compatible(TDefaultCryptoProvider.Shared, TDefaultPkixProvider.Shared).Server;
   LServer.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13));
   LServer.WithServerNameAcknowledgement(True);
-  LServer.WithSniCredential(SNI_HOST, ALeafPem, AKeyPem);
-  LServer.WithSniCredential(OTHER_HOST, AWrongNamePem, AKeyPem);
+  LServer.WithSniCredential(SNI_HOST, TTlsCredential.Load(TDefaultCryptoProvider.Shared,
+    TDefaultPkixProvider.Shared, ALeafPem, AKeyPem));
+  LServer.WithSniCredential(OTHER_HOST, TTlsCredential.Load(TDefaultCryptoProvider.Shared,
+    TDefaultPkixProvider.Shared, AWrongNamePem, AKeyPem));
   Result := LServer.Build;
 end;
 

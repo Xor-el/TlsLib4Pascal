@@ -81,10 +81,13 @@ end;
 
 class function TTlsLib.NewServerConfig(const ACertificateChainData,
   APrivateKeyData: TBytes): ITlsServerConfig;
+var
+  LCredential: TTlsCredential;
 begin
+  LCredential := TTlsCredential.Load(TDefaultCryptoProvider.Shared,
+    TDefaultPkixProvider.Shared, ACertificateChainData, APrivateKeyData);
   Result := TTlsPresets.Compatible(TDefaultCryptoProvider.Shared,
-    TDefaultPkixProvider.Shared)
-    .Server.WithCredential(ACertificateChainData, APrivateKeyData).Build;
+    TDefaultPkixProvider.Shared).Server.WithCredential(LCredential).Build;
 end;
 
 end.

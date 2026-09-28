@@ -274,7 +274,7 @@ var
   LServer: ITlsServerConfigBuilder;
 begin
   LServer := TTlsPresets.Compatible(Crypto, Pkix).Server
-    .WithCredential(ServerLeaf, ServerKey)
+    .WithCredential(TTlsCredential.Load(Crypto, Pkix, ServerLeaf, ServerKey))
     .WithPeerAuth(TClientAuthMode.Required)
     .WithTrustAnchors(ClientCa) // the private client CA (issues the client leaf)
     .WithRevocation(APosture)
@@ -290,7 +290,8 @@ var
 begin
   LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithTrustAnchors(ServerRoot)
-    .WithCredential(ClientLeaf, ClientKey); // present the client certificate (leaf only)
+    // present the client certificate (leaf only)
+    .WithCredential(TTlsCredential.Load(Crypto, Pkix, ClientLeaf, ClientKey));
   if AForce12 then
     LClient.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12));
   Result := LClient.Build;
