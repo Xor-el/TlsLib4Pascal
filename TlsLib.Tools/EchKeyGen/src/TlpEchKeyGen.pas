@@ -21,15 +21,11 @@ interface
 uses
   SysUtils,
   Classes,
-{$IFDEF FPC}
-  {$IFDEF UNIX}
+{$IF DEFINED(FPC) AND DEFINED(UNIX)}
   BaseUnix,
-  {$ENDIF}
-{$ELSE}
-  {$IFDEF POSIX}
+{$ELSEIF DEFINED(POSIX)}
   Posix.SysStat,
-  {$ENDIF}
-{$ENDIF}
+{$IFEND}
   TlpEchConfig,
   TlpCryptoDomainTypes,
   TlpSecureMemory,
@@ -75,6 +71,7 @@ type
     class function MapAead(const AName: string; out AAead: UInt16): Boolean; static;
     class function ParseSuite(const AText: string;
       out AKem, AKdf, AAead: UInt16): Boolean; static;
+    class procedure RestrictToOwner(const APath: string); static;
   public
     /// <summary>
     /// Generates a single-config ECHConfigList for public_name APublicName under the
@@ -225,27 +222,26 @@ begin
     MapKdf(LParts[1], AKdf) and MapAead(LParts[2], AAead);
 end;
 
+class procedure TEchKeyGenerator.RestrictToOwner(const APath: string);
+begin
+  // POSIX: owner read/write only (0600). Windows: no-op - the file inherits the creating user's ACL.
+{$IF DEFINED(FPC) AND DEFINED(UNIX)}
+  FpChmod(APath, S_IRUSR or S_IWUSR);
+{$ELSEIF DEFINED(POSIX)}
+  chmod(PAnsiChar(AnsiString(APath)), S_IRUSR or S_IWUSR);
+{$IFEND}
+end;
+
 class procedure TEchKeyGenerator.WritePrivateFile(const APath: string;
   const AData: TBytes);
 var
   LStream: TFileStream;
-{$IF DEFINED(POSIX) AND NOT DEFINED(FPC)}
-  LMarshaller: TMarshaller;
-{$IFEND}
 begin
-  // create empty, then restrict to the owner BEFORE the key bytes are written so there is no
-  // window in which the private key is world-readable; Windows inherits the creating user's ACL
+  // create empty, restrict it to the owner, THEN write the key bytes: no window in which the
+  // private key is world-readable
   LStream := TFileStream.Create(APath, fmCreate);
   try
-{$IFDEF FPC}
-  {$IFDEF UNIX}
-    FpChmod(APath, S_IRUSR or S_IWUSR);
-  {$ENDIF}
-{$ELSE}
-  {$IFDEF POSIX}
-    chmod(LMarshaller.AsAnsi(APath).ToPointer, S_IRUSR or S_IWUSR);
-  {$ENDIF}
-{$ENDIF}
+    RestrictToOwner(APath);
     if System.Length(AData) > 0 then
       LStream.WriteBuffer(AData[0], System.Length(AData));
   finally

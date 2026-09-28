@@ -69,6 +69,8 @@ type
     FConfig: TEchConfig;
     FSuite: IHpkeSuite;
     FSealer: IHpkeSealer;
+    FSpent: Boolean; // set once the secrets are forgotten; the seal methods then refuse
+    procedure EnsureNotSpent;
     class function ServerNameLength(const AEntries: TExtensionVector;
       out AHasServerName: Boolean): Int32; static;
     class function MatchesOuter(const AEntry: TExtensionEntry;
@@ -107,6 +109,11 @@ type
     /// current sequence number (RFC 9849 sec. 5.2).</summary>
     function Seal(const AAad, APlaintext: TBytes): TBytes;
 
+    /// <summary>Forgets the handshake secrets once the outcome is decided and no further sealing is
+    /// needed: the HPKE sealer and its key material are released. The object stays valid (freed by
+    /// its owner at teardown) but its seal methods then refuse. Idempotent.</summary>
+    procedure ForgetSecrets;
+
     /// <summary>
     /// Whether the ECH accept confirmation over the inner transcript matches the last 8
     /// bytes of ServerHello.random (RFC 9849 sec. 7.2), compared in constant time.
@@ -124,6 +131,7 @@ resourcestring
     'true SNI in the clear; supply a config list or enable GREASE';
   SEchNoUsableConfig = 'the configured ECHConfigList has no usable config (unsupported HPKE ' +
     'suite or KEM) and ECH GREASE is disabled';
+  SEchHandshakeSpent = 'the ECH handshake secrets were forgotten; no further sealing is possible';
 
 const
   ServerHelloRandomLength = Int32(32);
@@ -185,6 +193,18 @@ begin
   FCrypto := ACryptoProvider;
   FConfig := AConfig;
   FSuite := ASuite;
+end;
+
+procedure TEchClientHandshake.EnsureNotSpent;
+begin
+  if FSpent then
+    raise EInvalidOperationTlsLibException.CreateRes(@SEchHandshakeSpent);
+end;
+
+procedure TEchClientHandshake.ForgetSecrets;
+begin
+  FSealer := nil;
+  FSpent := True;
 end;
 
 class function TEchClientHandshake.PaddingLength(AClientHelloLen,
@@ -294,6 +314,7 @@ var
   LRefTypes: TArray<UInt16>;
   LEncoded: TBytes;
 begin
+  EnsureNotSpent;
   // start from a fresh result so the padded buffer built below is always distinct from the
   // unpadded plaintext it copies from (which is wiped), independent of the caller's binding
   Result := nil;
@@ -320,12 +341,15 @@ begin
   LSniLen := ServerNameLength(LInnerEntries, LHasSni);
   LPad := PaddingLength(System.Length(LEncoded), LSniLen, LHasSni,
     FConfig.MaximumNameLength);
-  // build the padded result in a fresh buffer (SetLength zero-fills the padding tail), then wipe
-  // the unpadded plaintext, which carries the real inner SNI
+  // build the padded result in a fresh buffer: the encoded inner up front, then the padding tail
+  // zeroed (RFC 9849 sec. 6.1.3 padding is zeros). Then wipe the unpadded plaintext, which carries
+  // the real inner SNI.
   try
     SetLength(Result, System.Length(LEncoded) + LPad);
     if System.Length(LEncoded) > 0 then
       Move(LEncoded[0], Result[0], System.Length(LEncoded));
+    if LPad > 0 then
+      System.FillChar(Result[System.Length(LEncoded)], LPad, 0);
   finally
     TSecureMemory.WipeBytes(LEncoded);
   end;
@@ -333,11 +357,13 @@ end;
 
 function TEchClientHandshake.SetupSeal: TBytes;
 begin
+  EnsureNotSpent;
   FSuite.SetupSealer(FConfig.PublicKey, FConfig.HpkeInfo, Result, FSealer);
 end;
 
 function TEchClientHandshake.Seal(const AAad, APlaintext: TBytes): TBytes;
 begin
+  EnsureNotSpent;
   Result := FSealer.Seal(AAad, APlaintext);
 end;
 

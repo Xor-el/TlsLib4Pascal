@@ -23,12 +23,14 @@ uses
 {$IFDEF FPC}
   fpcunit,
   testregistry,
-  {$IFDEF UNIX}
-  BaseUnix,
-  {$ENDIF}
 {$ELSE}
   TestFramework,
 {$ENDIF FPC}
+{$IF DEFINED(FPC) AND DEFINED(UNIX)}
+  BaseUnix,
+{$ELSEIF DEFINED(POSIX)}
+  Posix.SysStat,
+{$IFEND}
   TlpCryptoDomainTypes,
   TlpPem,
   TlpICryptoProvider,
@@ -56,6 +58,9 @@ type
       const AEchConfigList: TBytes): TBytes;
     function BuildEchConfigFor(out APublicKey: TBytes;
       out APrivateKey: ISecretBuffer): TEchConfig;
+    /// <summary>The POSIX st_mode of APath where the platform has one (True); False on Windows,
+    /// where there is no such mode. A stat failure on POSIX fails the test rather than skipping.</summary>
+    function TryPosixMode(const APath: string; out AMode: Integer): Boolean;
   published
     procedure TestKeyGenWritesPrivateFileOwnerOnly;
     procedure TestKeyGenPemRoundTripsThroughStore;
@@ -112,14 +117,35 @@ begin
   Result := LWriter.ToBytes;
 end;
 
+function TTestEchTooling.TryPosixMode(const APath: string;
+  out AMode: Integer): Boolean;
+{$IF DEFINED(FPC) AND DEFINED(UNIX)}
+var
+  LInfo: Stat;
+{$ELSEIF DEFINED(POSIX)}
+var
+  LInfo: _stat;
+{$IFEND}
+begin
+  Result := False;
+  AMode := 0;
+{$IF DEFINED(FPC) AND DEFINED(UNIX)}
+  CheckEquals(0, FpStat(APath, LInfo), 'stat the key file');
+  AMode := Integer(LInfo.st_mode);
+  Result := True;
+{$ELSEIF DEFINED(POSIX)}
+  CheckEquals(0, stat(PAnsiChar(AnsiString(APath)), LInfo), 'stat the key file');
+  AMode := Integer(LInfo.st_mode);
+  Result := True;
+{$IFEND}
+end;
+
 procedure TTestEchTooling.TestKeyGenWritesPrivateFileOwnerOnly;
 var
   LPath: string;
   LData, LReadBack: TBytes;
   LStream: TFileStream;
-{$IF DEFINED(FPC) AND DEFINED(UNIX)}
-  LInfo: Stat;
-{$IFEND}
+  LMode: Integer;
 begin
   LData := TBytes.Create($01, $02, $03, $04, $05);
   LPath := 'tlslib_echkey_perm_test.pem';
@@ -135,12 +161,11 @@ begin
       LStream.Free;
     end;
     CheckEqualBytes('the key file round-trips', LData, LReadBack);
-{$IF DEFINED(FPC) AND DEFINED(UNIX)}
-    // the private key file is owner-only (0600), set before any bytes were written
-    CheckEquals(0, FpStat(LPath, LInfo), 'stat the key file');
-    CheckEquals($180, Integer(LInfo.st_mode and $1FF),
-      'the key file mode is 0600 (owner read/write only)');
-{$IFEND}
+    // where the platform has a POSIX mode, the key file is owner-only (0600), set before any bytes
+    // were written; on Windows there is no such mode and the round-trip above is the whole check
+    if TryPosixMode(LPath, LMode) then
+      CheckEquals($180, LMode and $1FF,
+        'the key file mode is 0600 (owner read/write only)');
   finally
     if FileExists(LPath) then
       DeleteFile(LPath);

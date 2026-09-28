@@ -179,14 +179,19 @@ end;
 
 destructor TEchClientOrchestrator.Destroy;
 begin
-  // covers the abort-before-ServerHello paths; the normal flow already dropped these at the verdict
+  // wipe the secrets (idempotent; the normal flow already did this at the verdict, but this covers
+  // the abort-before-ServerHello paths), then free the handshake exactly once
   ForgetHandshakeSecrets;
+  FreeAndNil(FEch);
   inherited Destroy;
 end;
 
 procedure TEchClientOrchestrator.ForgetHandshakeSecrets;
 begin
-  FreeAndNil(FEch);
+  // forget the secrets in place - the handshake object stays owned and is freed once, at teardown -
+  // so this can run both at the verdict (early hygiene) and from the destructor without a double free
+  if FEch <> nil then
+    FEch.ForgetSecrets;
   TSecureMemory.WipeBytes(FSentInnerRaw);
   FSentOuterEchExt := nil;
   FGreasePskIdentities := nil;

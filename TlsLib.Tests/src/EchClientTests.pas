@@ -42,6 +42,7 @@ uses
   TlpEchOuterExtensions,
   TlpEchClient,
   TlpSecureMemory,
+  TlpTlsLibExceptions,
   TlsLibTestBase;
 
 type
@@ -75,6 +76,7 @@ type
     procedure TestCompressionReferencesSharedExtensions;
     procedure TestAcceptConfirmationMatch;
     procedure TestGreaseEncapsulationIsValid;
+    procedure TestForgetSecretsMakesSealMethodsRefuse;
   end;
 
 implementation
@@ -376,6 +378,54 @@ begin
       LCases[LI].Name + ': encapsulation size is Npk');
     CheckTrue(Crypto.Hpke.ValidatePublicKey(LCases[LI].Kem, LEnc),
       LCases[LI].Name + ': a well-formed KEM value');
+  end;
+end;
+
+procedure TTestEchClient.TestForgetSecretsMakesSealMethodsRefuse;
+var
+  LConfig: TEchConfig;
+  LSuite: IHpkeSuite;
+  LEch: TEchClientHandshake;
+  LRefused: Boolean;
+begin
+  LConfig := SelectConfig(LSuite);
+  LEch := TEchClientHandshake.Create(Crypto, LConfig, LSuite);
+  try
+    LEch.ForgetSecrets;
+    // the object is spent: every seal method refuses (a typed error) rather than resurrecting the
+    // sealer or dereferencing the released one
+    LRefused := False;
+    try
+      LEch.SetupSeal;
+    except
+      on E: EInvalidOperationTlsLibException do
+        LRefused := True;
+    end;
+    CheckTrue(LRefused, 'SetupSeal refuses after ForgetSecrets');
+
+    LRefused := False;
+    try
+      LEch.Seal(nil, nil);
+    except
+      on E: EInvalidOperationTlsLibException do
+        LRefused := True;
+    end;
+    CheckTrue(LRefused, 'Seal refuses after ForgetSecrets');
+
+    LRefused := False;
+    try
+      LEch.BuildEncodedInner(nil, Vec([]));
+    except
+      on E: EInvalidOperationTlsLibException do
+        LRefused := True;
+    end;
+    CheckTrue(LRefused, 'BuildEncodedInner refuses after ForgetSecrets');
+
+    // forgetting again is a harmless no-op (does not raise)
+    LEch.ForgetSecrets;
+    CheckTrue(True, 'ForgetSecrets is idempotent');
+  finally
+    LEch.Free;
   end;
 end;
 
