@@ -1,0 +1,65 @@
+TlsLib.Adapters/mORMot/Examples/src/MormotEchLoopbackExample.pas
+  s_09d3c46d1a9b1f::t_55a35e4717a82e 53
+  s_09d3c46d1a9b1f::t_c71d6cf8641daf 210-211
+TlsLib.Adapters/Indy/Examples/src/IndyEchLoopbackExample.pas
+  s_09d3c46d1a9b1f::t_c1b81a68bab212 53
+  s_09d3c46d1a9b1f::t_1e5852ab42d708 185-186
+TlsLib.Adapters/Synapse/Examples/src/SynapseAdvancedConfigExample.pas
+  s_09d3c46d1a9b1f::t_fef149b7dc018d 157
+  s_09d3c46d1a9b1f::t_5b426c29c6a662 55
+TlsLib.Adapters/FclNet/Examples/src/FclNetAdvancedConfigExample.pas
+  s_09d3c46d1a9b1f::t_65a34d24ae4919 153
+  s_09d3c46d1a9b1f::t_0f2caa10fdb58e 54
+TlsLib.Adapters/Indy/Examples/src/IndyCustomizationExample.pas
+  s_09d3c46d1a9b1f::t_80743abaf66d46 444-447
+  s_09d3c46d1a9b1f::t_0150fd6e018657 83
+  s_09d3c46d1a9b1f::t_7c9ad5a81fdeae 224-226
+TlsLib.Tests/src/AsyncVerdictTests.pas
+  s_09d3c46d1a9b1f::t_81cc9bcadab445 179,195,203,278,284
+TlsLib.Adapters/mORMot/Examples/src/MormotAdvancedConfigExample.pas
+  s_09d3c46d1a9b1f::t_e2840c6b747185 160
+  s_09d3c46d1a9b1f::t_57d405172cb521 58
+TlsLib.Tests/src/TlsStreamLoopbackTests.pas
+  s_09d3c46d1a9b1f::t_a188cfd185ba39 323
+  s_09d3c46d1a9b1f::t_1e59cb029de542 43
+TlsLib/src/Engine/TlpTlsLib.pas
+  s_09d3c46d1a9b1f::t_fc3d49d89df02d 84-85,87-88,90
+TlsLib.Adapters/Indy/Examples/src/IndyAdvancedConfigExample.pas
+  s_09d3c46d1a9b1f::t_af16d4ba4793eb 61
+  s_09d3c46d1a9b1f::t_f479bd82057ab2 144
+TlsLib.Tests/src/ServerSideLiveRevocationTests.pas
+  s_09d3c46d1a9b1f::t_7d6ba4a6551193 293-294
+  s_09d3c46d1a9b1f::t_c5133543abfce0 277
+TlsLib.Adapters/FclNet/Examples/src/FclNetEchLoopbackExample.pas
+  s_09d3c46d1a9b1f::t_b80c7368295ee1 51
+  s_09d3c46d1a9b1f::t_d7526cdcf15c8d 242-243
+TlsLib.Benchmark/src/Core/TlsLibThroughputPeer.pas
+  s_09d3c46d1a9b1f::t_1bddae89093000 132-133
+  s_09d3c46d1a9b1f::t_37eb024fb88c01 25
+TlsLib.Benchmark/src/Core/TlsLibHandshakePeer.pas
+  s_09d3c46d1a9b1f::t_5b9635034b5bb9 25
+  s_09d3c46d1a9b1f::t_6cdc303175fede 118-119
+TlsLib.Adapters/Synapse/Examples/src/SynapseEchLoopbackExample.pas
+  s_09d3c46d1a9b1f::t_33d07eefa6e449 51
+  s_09d3c46d1a9b1f::t_5f24efd9d2741e 207-208
+TlsLib/src/Engine/TlpTlsConnection.pas
+  s_09d3c46d1a9b1f::t_e299663894517e 411,423,425-427
+  s_09d3c46d1a9b1f::t_73b88fb371df95 357,362,364
+  s_09d3c46d1a9b1f::t_0700ade04e72ad 390-391
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "94539e4961f49b32e0b3c7b772e81b5a24b7db41",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
