@@ -1,0 +1,25 @@
+.github/workflows/ci/adapters/fclnet-build.sh
+  s_09d3c46d1a9b1f::t_94a65a9a190f43 1-46,51-108
+  s_09d3c46d1a9b1f::t_6a90c9e22d4733 47-50
+.github/workflows/make.yml
+  s_09d3c46d1a9b1f::t_b2c78918c73fbd 73-78
+  s_09d3c46d1a9b1f::t_807b4d8e314cbd 157-165
+  s_09d3c46d1a9b1f::t_194447791cce75 286-294
+  s_09d3c46d1a9b1f::t_9eafd6a1b7d6aa 201-209
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b9e38d93e3017c6063ce1e430adbaccdea4c4fac",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
