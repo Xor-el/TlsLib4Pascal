@@ -38,9 +38,9 @@ Accepted **and ignored** (documented no-ops — we are TLS 1.2+ and never renego
 silently weaken the connection): `DisableTls13`, `AllowDeprecatedTls`, `ClientAllowUnsafeRenegotation`.
 
 **PKCS#12 (`.pfx`)**: mORMot passes cert/key as separate files, so map those to `WithCredential`.
-To load a `.pfx` blob instead, build the credential yourself with the provider's
-`WithCredentialPkcs12(pfxBytes, password)` and drive the config builder
-(`TTlsPresets.…(provider, pkix).Server`) directly.
+To load a `.pfx` blob instead, build the credential yourself with
+`TTlsCredential.LoadPkcs12(crypto, pfxBytes, password)` and pass it to `WithCredential` on a config
+builder you drive directly (`TTlsPresets.…(crypto, pkix).Server`).
 
 ## Trust is ours (`dangerous` mapping)
 

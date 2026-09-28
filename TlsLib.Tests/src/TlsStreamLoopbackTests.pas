@@ -40,6 +40,7 @@ uses
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpTlsPresets,
+  TlpTlsCredential,
   TlpITlsEngine,
   TlpTlsEngineFactory,
   TlpITlsTransport,
@@ -319,7 +320,7 @@ function TTestTlsStreamLoopback.ServerConfig: ITlsServerConfig;
 begin
   Result := TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithAlpnProtocols(TArray<string>.Create('h2', 'http/1.1'))
-    .WithCredential(LeafCert, LeafKey).Build;
+    .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey)).Build;
 end;
 
 function TTestTlsStreamLoopback.NewClientStream(const ATransport: ITlsTransport;

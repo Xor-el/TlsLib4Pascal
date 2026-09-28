@@ -22,6 +22,7 @@ uses
   TlpICryptoProvider,
   TlpIPkixProvider,
   TlpTlsPresets,
+  TlpTlsCredential,
   TlpITlsConfigBuilder,
   TlpITlsConfig,
   TlpTlsEngineFactory,
@@ -114,7 +115,8 @@ begin
   LServer := LServerBuilder.Server;
   LServer.WithSupportedVersions(TArray<UInt16>.Create(AWireVersion));
   LServer.WithPreferredGroups(OfferedGroups(AGroupCode, LCertGroup)); // AGroupCode first -> negotiated
-  LServer.WithCredential(ACredential.LeafCertDer, ACredential.LeafKeyDer);
+  LServer.WithCredential(TTlsCredential.Load(ACryptoProvider, APkix,
+    ACredential.LeafCertDer, ACredential.LeafKeyDer));
   FServerConfig := LServer.Build;
 end;
 

@@ -2,9 +2,10 @@
 
 **TlsLib4Pascal docs** · [Home](README.md) · [Getting started](getting-started.md) · Cookbook · [Verification](certificate-verification.md) · [System trust](system-trust.md) · [Compression](certificate-compression.md) · [ECH](ech.md) · [Security model](security-model.md)
 
-Task-oriented recipes. Each is self-contained — copy one without reading the rest. Throughout, `P`
-is an `ICryptoProvider` (`TDefaultCryptoProvider.Create as ICryptoProvider`, unit
-`TlpDefaultCryptoProvider`), and `LoadFile` is the small helper from
+Task-oriented recipes. Each is self-contained — copy one without reading the rest. Throughout, `Crypto`
+is an `ICryptoProvider` and `Pkix` an `IPkixProvider` (`TDefaultCryptoProvider.Create as ICryptoProvider`
+and `TDefaultPkixProvider.Create as IPkixProvider`, units `TlpDefaultCryptoProvider` /
+`TlpDefaultPkixProvider`), and `LoadFile` is the small helper from
 [Getting started §3](getting-started.md#3-your-first-client-fully-verified). New to the library?
 Read [Getting started](getting-started.md) first.
 
@@ -46,7 +47,7 @@ recipe below uses this shape:
 ```pascal
 uses TlpTlsPresets, TlpITlsConfigBuilder, TlpITlsConfig;
 
-LConfig := TTlsPresets.Compatible(P).Client
+LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   .WithTrustAnchors(LoadFile('my-ca.pem'))
   .Build;
 ```
@@ -59,22 +60,22 @@ Then turn the config into a connection with a [`TTlsStream`](#drive-tls-over-you
 A server needs a **credential** (chain + private key). Three ways to supply it:
 
 ```pascal
-uses TlpTlsPresets, TlpITlsConfigBuilder, TlpITlsConfig;
+uses TlpTlsPresets, TlpITlsConfigBuilder, TlpITlsConfig, TlpTlsCredential;
 
+// TTlsCredential.Load / LoadPkcs12 take the crypto + pkix providers explicitly
 // (a) separate PEM/DER files — leaf-first chain + unencrypted key
-LConfig := TTlsPresets.Compatible(P).Server
-  .WithCredential(LoadFile('server-chain.pem'), LoadFile('server-key.pem'))
-  .Build;
+LCred := TTlsCredential.Load(Crypto, Pkix,
+  LoadFile('server-chain.pem'), LoadFile('server-key.pem'));
+LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server.WithCredential(LCred).Build;
 
 // (b) an encrypted private key
-LConfig := TTlsPresets.Compatible(P).Server
-  .WithCredential(LoadFile('chain.pem'), LoadFile('key.pem'), 'key-password')
-  .Build;
+LCred := TTlsCredential.Load(Crypto, Pkix,
+  LoadFile('chain.pem'), LoadFile('key.pem'), 'key-password');
+LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server.WithCredential(LCred).Build;
 
 // (c) a PKCS#12 / .pfx bundle (chain + key in one blob)
-LConfig := TTlsPresets.Compatible(P).Server
-  .WithCredentialPkcs12(LoadFile('identity.pfx'), 'pfx-password')
-  .Build;
+LCred := TTlsCredential.LoadPkcs12(Crypto, LoadFile('identity.pfx'), 'pfx-password');
+LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server.WithCredential(LCred).Build;
 ```
 
 Then, per accepted socket, `TTlsEngineFactory.CreateServerEngine(LConfig)` and wrap it in a stream or
@@ -86,7 +87,7 @@ hand it to your adapter. The PKCS#12 importer fails closed on a bad password or 
 Presets are safe **starting points**, not locked profiles — override before `Build`:
 
 ```pascal
-LConfig := TTlsPresets.Hardened(P).Client     // TLS 1.3 only, PQ-hybrid preferred
+LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client     // TLS 1.3 only, PQ-hybrid preferred
   .WithTrustAnchors(caPem)
   .WithAlpnProtocols(TArray<string>.Create('h2', 'http/1.1'))
   .Build;
@@ -110,7 +111,7 @@ refuses classical-only key exchange), restrict the preferred groups:
 ```pascal
 uses TlpNegotiationTypes;   // TNamedGroupCatalog
 
-LConfig := TTlsPresets.Hardened(P).Client
+LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
   .WithTrustAnchors(caPem)
   .WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519MlKem768))
   .Build;
@@ -134,11 +135,11 @@ The short version — the full treatment is in
 
 // the OS root store (needs the TlsLib.Trust.System package)
 //   uses TlpSystemTrustFacade;
-//   TSystemTrust.WithSystemTrust(TTlsPresets.Compatible(P).Client, P) ...
+//   TSystemTrust.WithSystemTrust(TTlsPresets.Compatible(Crypto, Pkix).Client, Pkix) ...
 
 // a fixed offline root bundle (needs TlsLib.Trust.Bundle)
 //   uses TlpBundleTrust;
-.WithTrustStore(TBundleTrust.FromPemFile(P, 'roots.pem'))
+.WithTrustStore(TBundleTrust.FromPemFile(Pkix, 'roots.pem'))
 
 // pin an SPKI-SHA256 on top of normal validation (augments, never replaces)
 .WithCertificatePinning(TArray<TBytes>.Create(spkiSha256))
@@ -303,8 +304,9 @@ Server side — require a client certificate and name the CA(s) you'll accept it
 ```pascal
 uses TlpTlsCredential;   // TClientAuthMode
 
-LServerConfig := TTlsPresets.Compatible(P).Server
-  .WithCredential(LoadFile('server-chain.pem'), LoadFile('server-key.pem'))
+LServerConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
+  .WithCredential(TTlsCredential.Load(Crypto, Pkix,
+    LoadFile('server-chain.pem'), LoadFile('server-key.pem')))
   .WithPeerAuth(TClientAuthMode.Required)                         // None | Requested | Required
   .WithTrustAnchors(LoadFile('client-ca.pem'))                    // the CA you accept clients from
   .Build;
@@ -320,9 +322,10 @@ engine** against this private CA instead of the built-in pipeline, see
 Client side — present your credential:
 
 ```pascal
-LClientConfig := TTlsPresets.Compatible(P).Client
+LClientConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   .WithTrustAnchors(LoadFile('server-ca.pem'))
-  .WithCredential(LoadFile('client-chain.pem'), LoadFile('client-key.pem'))  // or WithCredentialPkcs12
+  .WithCredential(TTlsCredential.Load(Crypto, Pkix,
+    LoadFile('client-chain.pem'), LoadFile('client-key.pem')))  // or TTlsCredential.LoadPkcs12
   .Build;
 ```
 
@@ -376,21 +379,21 @@ uses TlpInMemorySessionCache, TlpInMemorySessionStore, TlpSessionTicketKeys, Tlp
 
 // CLIENT: reuse this config across connections and its cached tickets come with it. Don't share one
 // cache across configs with different trust — a stricter config could resume a looser one and skip its check.
-LClientConfig := TTlsPresets.Compatible(P).Client
+LClientConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   .WithTrustAnchors(caPem)
   .WithResumption(True)
   .WithSessionCache(TInMemorySessionCache.Create as ISessionCache)
   .Build;
 
 // SERVER: stateless STEK tickets (rotating key), the default resumption path
-LServerConfig := TTlsPresets.Compatible(P).Server
-  .WithCredential(chainPem, keyPem)
+LServerConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
+  .WithCredential(TTlsCredential.Load(Crypto, Pkix, chainPem, keyPem))
   .WithResumption(True)
-  .WithSessionTicketKeys(TStekTicketKeyManager.Create(P.GetRandom) as ISessionTicketKeyManager)
+  .WithSessionTicketKeys(TStekTicketKeyManager.Create(Crypto.GetRandom) as ISessionTicketKeyManager)
   .Build;
 
 // SERVER (stronger): add a stateful store to get true single-use tickets + 0-RTT anti-replay
-  .WithSessionStore(TInMemorySessionStore.Create(P.GetRandom) as ISessionStore)
+  .WithSessionStore(TInMemorySessionStore.Create(Crypto.GetRandom) as ISessionStore)
 ```
 
 Both default in-memory implementations are bounded and safe to share across connections/threads.
@@ -405,17 +408,17 @@ strategy:
 uses TlpAntiReplay, TlpISession;
 
 // SERVER: authorize an early-data budget + register replays (needs resumption + a store)
-LServerConfig := TTlsPresets.Compatible(P).Server
-  .WithCredential(chainPem, keyPem)
+LServerConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
+  .WithCredential(TTlsCredential.Load(Crypto, Pkix, chainPem, keyPem))
   .WithResumption(True)
-  .WithSessionStore(TInMemorySessionStore.Create(P.GetRandom) as ISessionStore)
+  .WithSessionStore(TInMemorySessionStore.Create(Crypto.GetRandom) as ISessionStore)
   .Tls13
     .WithEarlyData({MaxBytes=}16384)
     .WithAntiReplay(TStrikeRegisterAntiReplay.Create as IAntiReplayStrategy)
   .Build;
 
 // CLIENT: allow offering early data on a resumed connection
-LClientConfig := TTlsPresets.Compatible(P).Client
+LClientConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   .WithTrustAnchors(caPem)
   .WithResumption(True)
   .WithSessionCache(TInMemorySessionCache.Create as ISessionCache)
@@ -461,8 +464,8 @@ cross-connection cache (server, opt-in, bounded, thread-safe):
 ```pascal
 uses TlpInMemoryCertificateCompressionCache, TlpICertificateCompressionCache;
 
-LServerConfig := TTlsPresets.Compatible(P).Server
-  .WithCredential(chainPem, keyPem)
+LServerConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
+  .WithCredential(TTlsCredential.Load(Crypto, Pkix, chainPem, keyPem))
   .Tls13.WithCertificateCompressionCache(
     TInMemoryCertificateCompressionCache.Create as ICertificateCompressionCache)
   .Build;
@@ -478,7 +481,7 @@ SvcParam of the HTTPS record for the name you connect to) and offer it — the l
 reject never falls back to plaintext:
 
 ```pascal
-LClient := TTlsPresets.Compatible(P).Client;
+LClient := TTlsPresets.Compatible(Crypto, Pkix).Client;
 LClient.Tls13.WithEncryptedClientHello(EchConfigList); // bytes from DNS
 LEngine := TTlsEngineFactory.CreateClientEngine(LClient.Build, 'secret.example');
 // after the handshake: LStream.ConnectionInfo.EchStatus is Accepted / Rejected / ...
@@ -488,9 +491,9 @@ As a **server**, hold the config + private key (an RFC 9934 PEM from `EchKeyGen`
 trial-decrypt:
 
 ```pascal
-LStore := TInMemoryEchKeyStore.FromPem(EchPem, P);
-LServer := TTlsPresets.Compatible(P).Server
-  .WithCredential(chainPem, keyPem);
+LStore := TInMemoryEchKeyStore.FromPem(EchPem, Crypto);
+LServer := TTlsPresets.Compatible(Crypto, Pkix).Server
+  .WithCredential(TTlsCredential.Load(Crypto, Pkix, chainPem, keyPem));
 LServer.Tls13.WithEchKeyStore(LStore).WithEchTrialDecrypt(True);
 ```
 
@@ -512,7 +515,7 @@ begin
   LPsk.Context  := nil;                            // optional binder context
   LPsk.Hash     := THashAlgorithm.SHA_256;         // the PSK's bound hash
 
-  LConfig := TTlsPresets.Compatible(P).Client
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithTrustAnchors(caPem)
     .WithExternalPreSharedKeys(TArray<TExternalPsk>.Create(LPsk))
     // .WithExternalPskRequired(True)   // refuse to proceed without one
@@ -532,7 +535,7 @@ builder makes you type more than one thing. **Never ship these.**
 // accept ANY chain — no PKIX, no revocation, no host-name. Tests / pinned dev peers only.
 // skip-verify is the explicit trust decision, so Build needs no trust store; an empty store is
 // refused whenever verification is on.
-LConfig := TTlsPresets.Compatible(P).Client
+LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   .WithDangerousInsecureSkipVerify
   .Build;
 

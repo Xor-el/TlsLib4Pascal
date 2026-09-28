@@ -176,7 +176,7 @@ end;
 function TTestAsyncVerdict.ServerConfig: ITlsServerConfig;
 begin
   Result := TTlsPresets.Compatible(Crypto, Pkix).Server
-    .WithCredential(LeafCert, LeafKey).Build;
+    .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey)).Build;
 end;
 
 function TTestAsyncVerdict.NewClient(const AConfig: ITlsClientConfig;
@@ -192,7 +192,7 @@ begin
   // requests client authentication (the same vector leaf serves both directions)
   Result := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithTrustAnchors(TrustRoot)
-    .WithCredential(LeafCert, LeafKey).Build;
+    .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey)).Build;
 end;
 
 function TTestAsyncVerdict.MtlsServerConfig(AAsync: Boolean): ITlsServerConfig;
@@ -200,7 +200,7 @@ var
   LServer: ITlsServerConfigBuilder;
 begin
   LServer := TTlsPresets.Compatible(Crypto, Pkix).Server
-    .WithCredential(LeafCert, LeafKey)
+    .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey))
     .WithTrustAnchors(TrustRoot)
     .WithPeerAuth(TClientAuthMode.Required);
   if AAsync then
@@ -275,13 +275,13 @@ begin
   LClient := LClientOwner.Client
     .WithSupportedVersions(LVer)
     .WithTrustAnchors(TrustRoot)
-    .WithCredential(LeafCert, LeafKey);
+    .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey));
   LClientCfg := LClient.Build;
 
   LServerOwner := TTlsPresets.Compatible(Crypto, Pkix);
   LServer := LServerOwner.Server
     .WithSupportedVersions(LVer)
-    .WithCredential(LeafCert, LeafKey)
+    .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey))
     .WithTrustAnchors(TrustRoot)
     .WithPeerAuth(TClientAuthMode.Required)
     .WithRevocation(TRevocationPosture.Hard)

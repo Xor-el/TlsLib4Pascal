@@ -12,7 +12,8 @@ That capability is **opt-in and lives in a separate package** — the core libra
 any OS trust API, so a build that doesn't want it pays nothing (no `crypt32`, no `Security.framework`,
 no filesystem probing linked in). You add the `TlsLib.Trust.System` package only when you want it.
 
-Throughout, `P` is an `ICryptoProvider` (`TDefaultCryptoProvider.Create as ICryptoProvider`).
+Throughout, `Crypto` is an `ICryptoProvider` and `Pkix` an `IPkixProvider`
+(`TDefaultCryptoProvider.Create as ICryptoProvider` and `TDefaultPkixProvider.Create as IPkixProvider`).
 
 ---
 
@@ -86,12 +87,16 @@ Two optional packages support this:
 The `TSystemTrust` facade adds the OS anchors to a config builder and returns it for chaining:
 
 ```pascal
-uses TlpTlsPresets, TlpICryptoProvider, TlpDefaultCryptoProvider, TlpSystemTrustFacade;
+uses TlpTlsPresets, TlpICryptoProvider, TlpIPkixProvider, TlpDefaultCryptoProvider,
+  TlpDefaultPkixProvider, TlpSystemTrustFacade;
 
-var P: ICryptoProvider;
+var
+  Crypto: ICryptoProvider;
+  Pkix: IPkixProvider;
 begin
-  P := TDefaultCryptoProvider.Create as ICryptoProvider;
-  LConfig := TSystemTrust.WithSystemTrust(TTlsPresets.Compatible(P).Client, P).Build;
+  Crypto := TDefaultCryptoProvider.Create as ICryptoProvider;
+  Pkix := TDefaultPkixProvider.Create as IPkixProvider;
+  LConfig := TSystemTrust.WithSystemTrust(TTlsPresets.Compatible(Crypto, Pkix).Client, Pkix).Build;
   // LConfig now verifies against the OS trust store
 end;
 ```
@@ -114,7 +119,7 @@ Because system anchors are just another anchor source, they **union** with anyth
 so "trust the public web PKI **and** my private CA" is simply:
 
 ```pascal
-LConfig := TSystemTrust.WithSystemTrust(TTlsPresets.Compatible(P).Client, P)
+LConfig := TSystemTrust.WithSystemTrust(TTlsPresets.Compatible(Crypto, Pkix).Client, Pkix)
   .WithTrustAnchors(LoadFile('my-private-ca.pem'))   // unions with the OS roots
   .Build;
 ```
@@ -160,11 +165,12 @@ client path:
 ```pascal
 uses TlpOSSystemTrust;   // TOSSystemTrust
 
-LConfig := TTlsPresets.Compatible(P).Server
-  .WithCredential(LoadFile('server-chain.pem'), LoadFile('server-key.pem'))
+LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
+  .WithCredential(TTlsCredential.Load(Crypto, Pkix,
+    LoadFile('server-chain.pem'), LoadFile('server-key.pem')))
   .WithPeerAuth(TClientAuthMode.Required)                       // request + require a client cert
   .WithTrustAnchors(LoadFile('client-ca.pem'))                  // YOUR private client CA
-  .WithCertificateVerifierSource(TOSSystemTrust.ClientVerifierSource(P, TSystemTrustFetch.CacheOnly))
+  .WithCertificateVerifierSource(TOSSystemTrust.ClientVerifierSource(TSystemTrustFetch.CacheOnly))
   .Build;
 ```
 
@@ -185,13 +191,14 @@ async-verdict park, exactly like the server-cert live path — arm the delegate 
 OS-native resolver built from the **server** config:
 
 ```pascal
-LConfig := TTlsPresets.Compatible(P).Server
-  .WithCredential(LoadFile('server-chain.pem'), LoadFile('server-key.pem'))
+LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
+  .WithCredential(TTlsCredential.Load(Crypto, Pkix,
+    LoadFile('server-chain.pem'), LoadFile('server-key.pem')))
   .WithPeerAuth(TClientAuthMode.Required)
   .WithTrustAnchors(LoadFile('client-ca.pem'))
   .WithRevocation(TRevocationPosture.Hard)
   .WithLiveRevocationVerdict(deadlineMs)             // the park the live check runs in (non-zero)
-  .WithCertificateVerifierSource(TOSSystemTrust.ClientVerifierSource(P, TSystemTrustFetch.Live))
+  .WithCertificateVerifierSource(TOSSystemTrust.ClientVerifierSource(TSystemTrustFetch.Live))
   .Build;
 resolver := TOSSystemTrust.LiveRevocationResolver(LConfig);   // reads the client-CA anchors + posture
 serverStream.SetCertificateVerdictResolver(resolver.ResolveVerdict);  // caller owns + frees it
@@ -289,7 +296,7 @@ or plug in bespoke logic. That is what `WithDangerousCertificateVerifier` is for
 built-in PKIX pipeline for that config:
 
 ```pascal
-LConfig := TTlsPresets.Compatible(P).Client
+LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   .WithDangerousCertificateVerifier(MyVerifier)   // exclusive: no WithTrustAnchors alongside it
   .Build;
 ```
@@ -367,8 +374,8 @@ whatever the host trusts — use `TlsLib.Trust.Bundle` instead of (or alongside)
 
 ```pascal
 uses TlpBundleTrust;
-LConfig := TTlsPresets.Compatible(P).Client
-  .WithTrustStore(TBundleTrust.FromPemFile(P, 'roots.pem'))
+LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+  .WithTrustStore(TBundleTrust.FromPemFile(Pkix, 'roots.pem'))
   .Build;
 ```
 

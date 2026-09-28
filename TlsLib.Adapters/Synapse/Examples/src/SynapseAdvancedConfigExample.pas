@@ -52,6 +52,7 @@ uses
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpTlsPresets,
+  TlpTlsCredential,
   TlsLibSynapseTls;
 
 const
@@ -153,7 +154,7 @@ begin
   LServer.WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
     TNamedGroupCatalog.Secp256r1));
   LServer.WithCipherSuites(OrderedSuites(LCrypto));
-  LServer.WithCredential(GLeafDer, GKeyDer);
+  LServer.WithCredential(TTlsCredential.Load(LCrypto, LPkix, GLeafDer, GKeyDer));
   Result := LServer.Build;
 end;
 

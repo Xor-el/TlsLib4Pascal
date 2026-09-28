@@ -40,8 +40,6 @@ uses
   TlpTrustPolicy,
   TlpCertificateStrengthPolicy,
   TlpTlsCredential,
-  TlpImportedCredential,
-  TlpSecretBuffer,
   TlpITlsCredentialResolver,
   TlpCredentialResolvers,
   TlpEndpointIdentity,
@@ -213,19 +211,9 @@ type
       const ALimits: TCertificateChainLimits): TTlsConfigBuilder;
     function WithMinimumCertificateStrength(
       const APolicy: TCertificateStrengthPolicy): TTlsConfigBuilder;
-    function WithCredential(const ACredential: TTlsCredential): TTlsConfigBuilder; overload;
-    function WithCredential(const ACertificateChainData,
-      APrivateKeyData: TBytes): TTlsConfigBuilder; overload;
-    function WithCredential(const ACertificateChainData, APrivateKeyData: TBytes;
-      const APassword: string): TTlsConfigBuilder; overload;
-    function WithCredentialPkcs12(const AData: TBytes;
-      const APassword: string): TTlsConfigBuilder;
+    function WithCredential(const ACredential: TTlsCredential): TTlsConfigBuilder;
     function WithSniCredential(const AHost: string;
-      const ACredential: TTlsCredential): TTlsConfigBuilder; overload;
-    function WithSniCredential(const AHost: string; const ACertificateChainData,
-      APrivateKeyData: TBytes): TTlsConfigBuilder; overload;
-    function WithSniCredential(const AHost: string; const ACertificateChainData,
-      APrivateKeyData: TBytes; const APassword: string): TTlsConfigBuilder; overload;
+      const ACredential: TTlsCredential): TTlsConfigBuilder;
     function WithCredentialResolver(
       const AResolver: ITlsServerCredentialResolver): TTlsConfigBuilder;
     function WithCertificateCompressors(
@@ -544,13 +532,7 @@ type
       const ALimits: TCertificateChainLimits): ITlsClientConfigBuilder;
     function WithMinimumCertificateStrength(
       const APolicy: TCertificateStrengthPolicy): ITlsClientConfigBuilder;
-    function WithCredential(const ACredential: TTlsCredential): ITlsClientConfigBuilder; overload;
-    function WithCredential(const ACertificateChainData,
-      APrivateKeyData: TBytes): ITlsClientConfigBuilder; overload;
-    function WithCredential(const ACertificateChainData, APrivateKeyData: TBytes;
-      const APassword: string): ITlsClientConfigBuilder; overload;
-    function WithCredentialPkcs12(const AData: TBytes;
-      const APassword: string): ITlsClientConfigBuilder;
+    function WithCredential(const ACredential: TTlsCredential): ITlsClientConfigBuilder;
     /// <summary>The certificate revocation posture. Soft (default) accepts an indeterminate
     /// status; Off skips revocation. Hard REQUIRES a definite not-revoked status and rejects a
     /// peer certificate with no stapled OCSP response - so Hard is only usable together with
@@ -606,19 +588,9 @@ type
       const ALimits: TCertificateChainLimits): ITlsServerConfigBuilder;
     function WithMinimumCertificateStrength(
       const APolicy: TCertificateStrengthPolicy): ITlsServerConfigBuilder;
-    function WithCredential(const ACredential: TTlsCredential): ITlsServerConfigBuilder; overload;
-    function WithCredential(const ACertificateChainData,
-      APrivateKeyData: TBytes): ITlsServerConfigBuilder; overload;
-    function WithCredential(const ACertificateChainData, APrivateKeyData: TBytes;
-      const APassword: string): ITlsServerConfigBuilder; overload;
-    function WithCredentialPkcs12(const AData: TBytes;
-      const APassword: string): ITlsServerConfigBuilder;
+    function WithCredential(const ACredential: TTlsCredential): ITlsServerConfigBuilder;
     function WithSniCredential(const AHost: string;
-      const ACredential: TTlsCredential): ITlsServerConfigBuilder; overload;
-    function WithSniCredential(const AHost: string; const ACertificateChainData,
-      APrivateKeyData: TBytes): ITlsServerConfigBuilder; overload;
-    function WithSniCredential(const AHost: string; const ACertificateChainData,
-      APrivateKeyData: TBytes; const APassword: string): ITlsServerConfigBuilder; overload;
+      const ACredential: TTlsCredential): ITlsServerConfigBuilder;
     function WithCredentialResolver(
       const AResolver: ITlsServerCredentialResolver): ITlsServerConfigBuilder;
     function WithPeerAuth(AMode: TClientAuthMode): ITlsServerConfigBuilder;
@@ -1081,27 +1053,6 @@ begin
   Result := Self;
 end;
 
-function TTlsClientConfigBuilder.WithCredential(const ACertificateChainData,
-  APrivateKeyData: TBytes): ITlsClientConfigBuilder;
-begin
-  FOwner.WithCredential(ACertificateChainData, APrivateKeyData);
-  Result := Self;
-end;
-
-function TTlsClientConfigBuilder.WithCredential(const ACertificateChainData,
-  APrivateKeyData: TBytes; const APassword: string): ITlsClientConfigBuilder;
-begin
-  FOwner.WithCredential(ACertificateChainData, APrivateKeyData, APassword);
-  Result := Self;
-end;
-
-function TTlsClientConfigBuilder.WithCredentialPkcs12(const AData: TBytes;
-  const APassword: string): ITlsClientConfigBuilder;
-begin
-  FOwner.WithCredentialPkcs12(AData, APassword);
-  Result := Self;
-end;
-
 function TTlsClientConfigBuilder.WithRevocation(
   APosture: TRevocationPosture): ITlsClientConfigBuilder;
 begin
@@ -1355,46 +1306,10 @@ begin
   Result := Self;
 end;
 
-function TTlsServerConfigBuilder.WithCredential(const ACertificateChainData,
-  APrivateKeyData: TBytes): ITlsServerConfigBuilder;
-begin
-  FOwner.WithCredential(ACertificateChainData, APrivateKeyData);
-  Result := Self;
-end;
-
-function TTlsServerConfigBuilder.WithCredential(const ACertificateChainData,
-  APrivateKeyData: TBytes; const APassword: string): ITlsServerConfigBuilder;
-begin
-  FOwner.WithCredential(ACertificateChainData, APrivateKeyData, APassword);
-  Result := Self;
-end;
-
-function TTlsServerConfigBuilder.WithCredentialPkcs12(const AData: TBytes;
-  const APassword: string): ITlsServerConfigBuilder;
-begin
-  FOwner.WithCredentialPkcs12(AData, APassword);
-  Result := Self;
-end;
-
 function TTlsServerConfigBuilder.WithSniCredential(const AHost: string;
   const ACredential: TTlsCredential): ITlsServerConfigBuilder;
 begin
   FOwner.WithSniCredential(AHost, ACredential);
-  Result := Self;
-end;
-
-function TTlsServerConfigBuilder.WithSniCredential(const AHost: string;
-  const ACertificateChainData, APrivateKeyData: TBytes): ITlsServerConfigBuilder;
-begin
-  FOwner.WithSniCredential(AHost, ACertificateChainData, APrivateKeyData);
-  Result := Self;
-end;
-
-function TTlsServerConfigBuilder.WithSniCredential(const AHost: string;
-  const ACertificateChainData, APrivateKeyData: TBytes;
-  const APassword: string): ITlsServerConfigBuilder;
-begin
-  FOwner.WithSniCredential(AHost, ACertificateChainData, APrivateKeyData, APassword);
   Result := Self;
 end;
 
@@ -2029,52 +1944,6 @@ begin
   Result := Self;
 end;
 
-function TTlsConfigBuilder.WithCredential(const ACertificateChainData,
-  APrivateKeyData: TBytes): TTlsConfigBuilder;
-var
-  LCredential: TTlsCredential;
-begin
-  GuardMutable;
-  // a whole fresh record, so nothing (e.g. a staple) bleeds in from a prior credential
-  LCredential.CertificateChain := FPkix.Certificates.LoadChain(ACertificateChainData);
-  LCredential.PrivateKey := FCrypto.Signing.ImportSigningKey(APrivateKeyData);
-  FCredential := LCredential;
-  FHasCredential := True;
-  Result := Self;
-end;
-
-function TTlsConfigBuilder.WithCredential(const ACertificateChainData,
-  APrivateKeyData: TBytes; const APassword: string): TTlsConfigBuilder;
-var
-  LCredential: TTlsCredential;
-begin
-  GuardMutable;
-  // a whole fresh record, so nothing (e.g. a staple) bleeds in from a prior credential
-  LCredential.CertificateChain := FPkix.Certificates.LoadChain(ACertificateChainData);
-  LCredential.PrivateKey := FCrypto.Signing.ImportSigningKey(APrivateKeyData,
-    TSecretBuffer.FromString(APassword));
-  FCredential := LCredential;
-  FHasCredential := True;
-  Result := Self;
-end;
-
-function TTlsConfigBuilder.WithCredentialPkcs12(const AData: TBytes;
-  const APassword: string): TTlsConfigBuilder;
-var
-  LImported: TImportedCredential;
-begin
-  GuardMutable;
-  // the provider returns a crypto-level identity (chain + key); lift it into the full credential
-  // (OCSP stapling is a server-config concern the import does not carry)
-  LImported := FCrypto.Signing.ImportPkcs12(AData, TSecretBuffer.FromString(APassword));
-  FCredential.CertificateChain := LImported.CertificateChain;
-  FCredential.PrivateKey := LImported.PrivateKey;
-  FCredential.OcspStaple := nil;
-  FCredential.OcspStapleCallback := nil;
-  FHasCredential := True;
-  Result := Self;
-end;
-
 function TTlsConfigBuilder.WithSniCredential(const AHost: string;
   const ACredential: TTlsCredential): TTlsConfigBuilder;
 var
@@ -2085,30 +1954,6 @@ begin
   LEntry.Credential := ACredential;
   TArrayUtilities.Append<TSniCredentialEntry>(FSniCredentialEntries, LEntry);
   Result := Self;
-end;
-
-function TTlsConfigBuilder.WithSniCredential(const AHost: string;
-  const ACertificateChainData, APrivateKeyData: TBytes): TTlsConfigBuilder;
-var
-  LCredential: TTlsCredential;
-begin
-  GuardMutable;
-  LCredential.CertificateChain := FPkix.Certificates.LoadChain(ACertificateChainData);
-  LCredential.PrivateKey := FCrypto.Signing.ImportSigningKey(APrivateKeyData);
-  Result := WithSniCredential(AHost, LCredential);
-end;
-
-function TTlsConfigBuilder.WithSniCredential(const AHost: string;
-  const ACertificateChainData, APrivateKeyData: TBytes;
-  const APassword: string): TTlsConfigBuilder;
-var
-  LCredential: TTlsCredential;
-begin
-  GuardMutable;
-  LCredential.CertificateChain := FPkix.Certificates.LoadChain(ACertificateChainData);
-  LCredential.PrivateKey := FCrypto.Signing.ImportSigningKey(APrivateKeyData,
-    TSecretBuffer.FromString(APassword));
-  Result := WithSniCredential(AHost, LCredential);
 end;
 
 function TTlsConfigBuilder.WithCredentialResolver(

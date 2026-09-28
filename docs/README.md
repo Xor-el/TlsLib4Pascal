@@ -53,12 +53,16 @@ contents track evolving best practice.
 | **Strict** | TLS 1.3 only | **X25519MLKEM768**, X25519, secp256r1 | Locked-down posture: fixed group allowlist, tight certificate limits, resumption off. |
 
 ```pascal
-uses TlpTlsPresets, TlpDefaultCryptoProvider, TlpICryptoProvider;
+uses TlpTlsPresets, TlpDefaultCryptoProvider, TlpDefaultPkixProvider, TlpICryptoProvider,
+  TlpIPkixProvider;
 
-var P: ICryptoProvider;
+var
+  Crypto: ICryptoProvider;
+  Pkix: IPkixProvider;
 begin
-  P := TDefaultCryptoProvider.Create as ICryptoProvider;
-  LConfig := TTlsPresets.Compatible(P).Client.WithTrustAnchors(caPem).Build;
+  Crypto := TDefaultCryptoProvider.Create as ICryptoProvider;
+  Pkix := TDefaultPkixProvider.Create as IPkixProvider;
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithTrustAnchors(caPem).Build;
 end;
 ```
 

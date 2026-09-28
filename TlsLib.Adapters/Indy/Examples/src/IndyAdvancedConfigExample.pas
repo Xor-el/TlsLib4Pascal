@@ -58,6 +58,7 @@ uses
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpTlsPresets,
+  TlpTlsCredential,
   TlsLibIndyTls;
 
 const
@@ -140,7 +141,7 @@ begin
   LServer.WithCipherSuites(OrderedRegistry([TCipherSuites13.Aes128GcmSha256,
     TCipherSuites13.Aes256GcmSha384]));
   LServer.WithCipherSuitePreference(APreference);
-  LServer.WithCredential(GLeafDer, GKeyDer);
+  LServer.WithCredential(TTlsCredential.Load(GProvider, GPkix, GLeafDer, GKeyDer));
   Result := LServer.Build;
 end;
 

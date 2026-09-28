@@ -50,6 +50,7 @@ uses
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpTlsPresets,
+  TlpTlsCredential,
   TlpIEch,
   TlpInMemoryEchKeyStore,
   TlpEchConfig,
@@ -181,7 +182,8 @@ begin
   // server config: the localhost leaf credential plus the ECH key store, trial decryption on so
   // the server matches a client that hid the config id
   LServerBuilder := TTlsPresets.Compatible(LCrypto, LPkix).Server
-    .WithCredential(TVec.Bytes('leaf_cert'), TVec.Bytes('leaf_key'), '');
+    .WithCredential(TTlsCredential.Load(LCrypto, LPkix,
+    TVec.Bytes('leaf_cert'), TVec.Bytes('leaf_key')));
   LServerBuilder.Tls13.WithEchKeyStore(
     TInMemoryEchKeyStore.FromPem(LEch.Pem, LCrypto));
   LServerBuilder.Tls13.WithEchTrialDecrypt(True);

@@ -354,12 +354,14 @@ end;
 class function TTlsConfigComposer.BuildClientConfig(
   const AOptions: TTlsOptions): ITlsClientConfig;
 var
+  LCrypto: ICryptoProvider;
   LPkix: IPkixProvider;
   LClient: ITlsClientConfigBuilder;
   LI: Int32;
 begin
+  LCrypto := EffectiveCrypto(AOptions);
   LPkix := EffectivePkix(AOptions);
-  LClient := TTlsPresets.Compatible(EffectiveCrypto(AOptions), LPkix).Client;
+  LClient := TTlsPresets.Compatible(LCrypto, LPkix).Client;
   // compose peer trust from orthogonal sources: a whole-verifier REPLACES the pipeline, else the
   // anchors + the OS store + a custom store all UNION. Adding both a verifier and an anchor source
   // is left to fail as the builder's typed conflict. System trust is never implicit.
@@ -385,7 +387,8 @@ begin
   if System.Length(AOptions.AlpnProtocols) > 0 then
     LClient.WithAlpnProtocols(AOptions.AlpnProtocols);
   if not AOptions.Certificate.IsEmpty then
-    LClient.WithCredential(Load(AOptions.Certificate), Load(AOptions.PrivateKey), AOptions.KeyPassword);
+    LClient.WithCredential(TTlsCredential.Load(LCrypto, LPkix,
+      Load(AOptions.Certificate), Load(AOptions.PrivateKey), AOptions.KeyPassword));
   // an app's augment-only verify rule, and the live-revocation verdict flag (the resolver itself is
   // a runtime stream hook attached at the session, not part of the frozen config)
   if Assigned(AOptions.VerifyCallback) then
@@ -405,6 +408,7 @@ end;
 class function TTlsConfigComposer.BuildServerConfig(
   const AOptions: TTlsOptions): ITlsServerConfig;
 var
+  LCrypto: ICryptoProvider;
   LPkix: IPkixProvider;
   LServer: ITlsServerConfigBuilder;
   LI: Int32;
@@ -416,9 +420,11 @@ begin
   if AOptions.ClientAuthRequested and (not HasClientAuthTrustSource(AOptions)) then
     raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
       Format(SNoClientAuthSource, [AOptions.TrustSourceHint]));
+  LCrypto := EffectiveCrypto(AOptions);
   LPkix := EffectivePkix(AOptions);
-  LServer := TTlsPresets.Compatible(EffectiveCrypto(AOptions), LPkix).Server
-    .WithCredential(Load(AOptions.Certificate), Load(AOptions.PrivateKey), AOptions.KeyPassword);
+  LServer := TTlsPresets.Compatible(LCrypto, LPkix).Server
+    .WithCredential(TTlsCredential.Load(LCrypto, LPkix,
+    Load(AOptions.Certificate), Load(AOptions.PrivateKey), AOptions.KeyPassword));
   if System.Length(AOptions.AlpnProtocols) > 0 then
     LServer.WithAlpnProtocols(AOptions.AlpnProtocols);
   // client-cert auth is optional: request + verify only when a client-trust source is named. The

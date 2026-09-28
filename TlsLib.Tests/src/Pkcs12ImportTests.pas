@@ -33,6 +33,10 @@ uses
   TlpCryptoDomainTypes,
   TlpISigningKey,
   TlpImportedCredential,
+  TlpTlsCredential,
+  TlpTlsPresets,
+  TlpITlsConfigBuilder,
+  TlpITlsConfig,
   TlpICertificateTrust,
   TlpTrustTypes,
   TlpServerName,
@@ -75,6 +79,11 @@ type
     procedure TestOrphanLinkSelectsLeaf;
     procedure TestWrongLinkSelectsLeaf;
     procedure TestNoCertForKeyFailsClosed;
+    // TTlsCredential.LoadPkcs12 lifts an imported identity into a staple-free credential
+    // (leaf-first chain, the key pairs the leaf); a wrong password fails closed typed
+    procedure TestLoadPkcs12Credential;
+    // a PKCS#12-loaded credential passes Build's key<->leaf consistency and freezes into a config
+    procedure TestLoadedPkcs12CredentialBuildsServer;
   end;
 
 implementation
@@ -302,6 +311,45 @@ begin
       LRaised := Pos('no certificate for its private key', E.Message) > 0;
   end;
   CheckTrue(LRaised, 'a PKCS#12 store with no certificate for its key raises the no-cert-for-key error');
+end;
+
+procedure TTestPkcs12Import.TestLoadPkcs12Credential;
+var
+  LCred: TTlsCredential;
+  LImp: TImportedCredential;
+  LRaised: Boolean;
+begin
+  LCred := TTlsCredential.LoadPkcs12(Crypto, Blob('chain_pfx'), SPassword);
+  CheckEquals(2, System.Length(LCred.CertificateChain),
+    'the loaded PKCS#12 credential is leaf + CA');
+  CheckEquals(0, System.Length(LCred.OcspStaple),
+    'a PKCS#12-loaded credential carries no staple');
+  CheckFalse(Assigned(LCred.OcspStapleCallback),
+    'a PKCS#12-loaded credential carries no staple callback');
+  LImp.CertificateChain := LCred.CertificateChain;
+  LImp.PrivateKey := LCred.PrivateKey;
+  CheckTrue(KeyPairsLeaf(LImp), 'the loaded key pairs the leaf (entry 0)');
+
+  LRaised := False;
+  try
+    TTlsCredential.LoadPkcs12(Crypto, Blob('chain_pfx'), 'not-the-password');
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a wrong PKCS#12 password raises EArgumentTlsLibException');
+end;
+
+procedure TTestPkcs12Import.TestLoadedPkcs12CredentialBuildsServer;
+var
+  LCred: TTlsCredential;
+  LConfig: ITlsServerConfig;
+begin
+  // the forged plaintext store takes no password; an empty passphrase is treated as none
+  LCred := TTlsCredential.LoadPkcs12(Crypto, Blob('nolink_cafirst_pfx'), '');
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server.WithCredential(LCred).Build;
+  CheckEquals(2, System.Length(LConfig.Credential.CertificateChain),
+    'the PKCS#12-loaded credential freezes leaf + CA into the config');
 end;
 
 initialization
