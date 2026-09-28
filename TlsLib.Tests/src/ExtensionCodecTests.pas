@@ -94,6 +94,7 @@ type
     procedure TestStatusRequestUnknownTypeNotOffered;
     procedure TestRenegotiationInfoNonEmptyIsHandshakeFailure;
     procedure TestRenegotiationInfoMalformedIsDecodeError;
+    procedure TestRecordSizeLimitAllowedInServerHello;
   end;
 
 implementation
@@ -859,6 +860,23 @@ begin
   CheckTrue(ConsumeRaisesDecodeError(TTlsExtensionContextKind.ClientHello,
     DecodeHex('0006ff01000205aa')),
     'a malformed renegotiation_info is a decode_error');
+end;
+
+procedure TTestExtensionCodec.TestRecordSizeLimitAllowedInServerHello;
+var
+  LCtx: TExtensionContext;
+begin
+  // record_size_limit is answered in the ServerHello for TLS 1.2 (RFC 8449 4); an offered echo
+  // there is consumed, not rejected as a wrong-context extension
+  LCtx := NewContext;
+  try
+    LCtx.MarkOffered(TExtensionTypes.RecordSizeLimit);
+    FCodec.ConsumeBlock(LCtx, TTlsExtensionContextKind.ServerHello,
+      DecodeHex('0006001c00020200'));
+    CheckEquals(512, LCtx.RecordSizeLimit, 'a ServerHello record_size_limit is consumed');
+  finally
+    LCtx.Free;
+  end;
 end;
 
 initialization
