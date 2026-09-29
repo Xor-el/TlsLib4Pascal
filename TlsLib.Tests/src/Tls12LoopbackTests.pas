@@ -40,6 +40,7 @@ uses
   TlpTlsEngine,
   TlpIHandshakeMachine,
   TlpHandshakeEffect,
+  TlpHandshakeStage,
   TlpHandshakeMessage,
   TlpHandshakeMessages,
   TlpExtensionVector,
@@ -47,6 +48,7 @@ uses
   TlpServerName,
   TlpCertificateVerifier,
   TlpTrustPolicy,
+  TlpTrustTypes,
   TlpTlsCredential,
   TlpCredentialResolvers,
   TlpTls12ClientStateMachine,
@@ -94,8 +96,20 @@ type
       const AMsgs: TArray<TBytes>): TArray<THandshakeEffect>;
     function HasFailAlert(const AEffects: TArray<THandshakeEffect>;
       AAlert: TTlsAlertDescription): Boolean;
+    function HasEffect(const AEffects: TArray<THandshakeEffect>;
+      AKind: THandshakeEffectKind): Boolean;
     function DecodeServerFlightHello(const AFlight: TArray<TBytes>): TTlsServerHello;
+    // splits a server flight into its individual framed handshake messages
+    function AllServerMessages(const AFlight: TArray<TBytes>): TArray<TBytes>;
+    // a bare 1.2 server that echoes status_request and staples, so the client enters
+    // WaitCertificateStatus and its flight carries a CertificateStatus before the ServerKeyExchange
+    function StaplingServerMachine(const AStaple: TBytes): IHandshakeMachine;
+    // a bare 1.2 client that offers status_request and defers its peer-certificate verdict to the
+    // host (HostDecision), so a verified chain parks rather than completing inline
+    function ParkingStaplingClientMachine: IHandshakeMachine;
   published
+    procedure TestParkedClientDefersServerKeyExchangeAfterOmittedCertificateStatus;
+    procedure TestParkedClientDefersAnOutOfOrderMessageUntilResume;
     procedure TestClientRejectsServerHelloLegacyVersionBelowTls12;
     procedure TestClientRejectsSupportedVersionsInTls12ServerHello;
     procedure TestEcdheEd448CredentialHandshake;
@@ -362,27 +376,8 @@ begin
 end;
 
 function TTestTls12Loopback.NewStaplingServer(const AStaple: TBytes): ITlsEngine;
-var
-  LParams: TServer12HandshakeParams;
-  LCred: TTlsCredential;
 begin
-  LParams := Default(TServer12HandshakeParams);
-  LParams.Clock := TSystemClock.Create;
-  LParams.Crypto := Crypto;
-  LParams.Inspector := Pkix.Certificates;
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
-  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  LParams.Group := TNamedGroups.CreateX25519(Crypto);
-  LParams.ServerRandom := Filled($22, 32);
-  // the leaf's issuer travels in the chain so the client can authenticate the staple
-  LCred := Default(TTlsCredential);
-  LCred.CertificateChain := TArray<TBytes>.Create(
-    OcspField('leaf_cert'), OcspField('issuer_cert'));
-  LCred.PrivateKey := Crypto.Signing.ImportSigningKey(OcspField('leaf_key'), nil);
-  LCred.OcspStaple := AStaple;
-  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(LCred);
-  Result := TTlsEngine.CreateConfigured(
-    TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
+  Result := TTlsEngine.CreateConfigured(StaplingServerMachine(AStaple), Crypto);
 end;
 
 function TTestTls12Loopback.NewHardRevocationClient: ITlsEngine;
@@ -855,6 +850,163 @@ begin
   finally
     LReader.Free;
   end;
+end;
+
+function TTestTls12Loopback.HasEffect(const AEffects: TArray<THandshakeEffect>;
+  AKind: THandshakeEffectKind): Boolean;
+var
+  LEffect: THandshakeEffect;
+begin
+  Result := False;
+  for LEffect in AEffects do
+    if LEffect.Kind = AKind then
+      Exit(True);
+end;
+
+function TTestTls12Loopback.AllServerMessages(
+  const AFlight: TArray<TBytes>): TArray<TBytes>;
+var
+  LFramed: TBytes;
+  LReader: THandshakeMessageReader;
+  LMsg: TTlsHandshakeMessage;
+begin
+  Result := nil;
+  for LFramed in AFlight do
+  begin
+    LReader := THandshakeMessageReader.Create;
+    try
+      LReader.Append(LFramed, 0, System.Length(LFramed));
+      while LReader.NextMessage(LMsg) do
+      begin
+        SetLength(Result, System.Length(Result) + 1);
+        Result[System.High(Result)] := LMsg.Raw;
+      end;
+    finally
+      LReader.Free;
+    end;
+  end;
+end;
+
+function TTestTls12Loopback.StaplingServerMachine(
+  const AStaple: TBytes): IHandshakeMachine;
+var
+  LParams: TServer12HandshakeParams;
+  LCred: TTlsCredential;
+begin
+  LParams := Default(TServer12HandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Crypto := Crypto;
+  LParams.Inspector := Pkix.Certificates;
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
+  LParams.ServerRandom := Filled($22, 32);
+  // the leaf's issuer travels in the chain so the client can authenticate the staple
+  LCred := Default(TTlsCredential);
+  LCred.CertificateChain := TArray<TBytes>.Create(
+    OcspField('leaf_cert'), OcspField('issuer_cert'));
+  LCred.PrivateKey := Crypto.Signing.ImportSigningKey(OcspField('leaf_key'), nil);
+  LCred.OcspStaple := AStaple;
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(LCred);
+  Result := TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine;
+end;
+
+function TTestTls12Loopback.ParkingStaplingClientMachine: IHandshakeMachine;
+var
+  LParams: TClient12HandshakeParams;
+begin
+  LParams := Default(TClient12HandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Crypto := Crypto;
+  LParams.Inspector := Pkix.Certificates;
+  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LParams.OfferedSuites := TArray<UInt16>.Create(
+    TCipherSuites12.EcdheEcdsaAes128GcmSha256);
+  LParams.OfferedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
+    TNamedGroupCatalog.Secp256r1);
+  LParams.OfferedSchemes := TArray<UInt16>.Create(
+    TSignatureSchemes.EcdsaSecp256r1Sha256);
+  LParams.OfferedVersions := TArray<UInt16>.Create(TlsWireVersionTls12);
+  LParams.ClientRandom := Filled($11, 32);
+  LParams.LegacySessionId := nil;
+  LParams.OfferExtendedMasterSecret := True;
+  // solicit the staple (so the client waits for a CertificateStatus) and hand the peer-certificate
+  // verdict to the host, so a verified chain parks instead of completing inline
+  LParams.RequestOcspStapling := True;
+  LParams.Deferral := TVerdictDeferral.HostDecision;
+  LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
+    TSystemClock.Create as ITlsClock,
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(OcspField('root_cert')))
+    as ITrustAnchorStore, True) as IServerCertificateVerifier;
+  LParams.ExpectedServerName := TServerName.DnsName('localhost');
+  Result := TTls12ClientStateMachine.Create(LParams) as IHandshakeMachine;
+end;
+
+procedure TTestTls12Loopback.TestParkedClientDefersServerKeyExchangeAfterOmittedCertificateStatus;
+var
+  LClient, LServer: IHandshakeMachine;
+  LMsgs: TArray<TBytes>;
+  LEffects: TArray<THandshakeEffect>;
+begin
+  // the server echoes status_request and staples, so a client that offered status_request waits for a
+  // CertificateStatus. Deliver ServerHello+Certificate, then the ServerKeyExchange while omitting the
+  // CertificateStatus: the client verifies the chain (no staple) and, because the verdict is deferred
+  // to the host, PARKS - and must DEFER the coalesced ServerKeyExchange rather than advance the park
+  LClient := ParkingStaplingClientMachine;
+  LServer := StaplingServerMachine(OcspField('ocsp_good'));
+  LMsgs := AllServerMessages(SendMessages(DeliverFlight(LServer, SendMessages(LClient.Start))));
+  // [ServerHello, Certificate, CertificateStatus, ServerKeyExchange, ServerHelloDone]
+  CheckEquals(5, System.Length(LMsgs), 'the server produced the expected stapled 1.2 flight');
+
+  DeliverFlight(LClient, TArray<TBytes>.Create(LMsgs[0], LMsgs[1]));
+  LEffects := DeliverFlight(LClient, TArray<TBytes>.Create(LMsgs[3]));
+  CheckTrue(LClient.Stage = THandshakeStage.ParkedForVerdict,
+    'the client parks for the host verdict after verifying without a staple');
+  CheckTrue(HasEffect(LEffects, THandshakeEffectKind.AwaitCertificateVerdict),
+    'the park surfaces AwaitCertificateVerdict');
+  CheckTrue(HasEffect(LEffects, THandshakeEffectKind.PeerCertificateChain),
+    'and the peer certificate chain');
+  CheckFalse(HasEffect(LEffects, THandshakeEffectKind.SendHandshake),
+    'the deferred ServerKeyExchange did not advance the parked handshake');
+  CheckFalse(HasEffect(LEffects, THandshakeEffectKind.Fail), 'and did not fail');
+
+  LEffects := LClient.ResumeAfterVerdict;
+  CheckTrue(LClient.Stage = THandshakeStage.Handshaking, 'resuming clears the park');
+  CheckFalse(HasEffect(LEffects, THandshakeEffectKind.Fail),
+    'the deferred ServerKeyExchange re-dispatches cleanly on resume');
+
+  LEffects := DeliverFlight(LClient, TArray<TBytes>.Create(LMsgs[4]));
+  CheckTrue(HasEffect(LEffects, THandshakeEffectKind.SendHandshake),
+    'the client emits its flight once ServerHelloDone arrives, proving the deferred SKE was consumed');
+  CheckFalse(HasEffect(LEffects, THandshakeEffectKind.Fail), 'the handshake proceeds without failing');
+end;
+
+procedure TTestTls12Loopback.TestParkedClientDefersAnOutOfOrderMessageUntilResume;
+var
+  LClient, LServer: IHandshakeMachine;
+  LMsgs: TArray<TBytes>;
+  LEffects: TArray<THandshakeEffect>;
+begin
+  // the deferred message must be acted on ONLY after resume, never in place while parked. Deliver a
+  // ServerHelloDone (out of order for the awaited ServerKeyExchange) as the message following the
+  // omitted CertificateStatus: with the park honoured its protocol error surfaces on resume; a parked
+  // machine that processed it in place would raise the Fail during the park instead
+  LClient := ParkingStaplingClientMachine;
+  LServer := StaplingServerMachine(OcspField('ocsp_good'));
+  LMsgs := AllServerMessages(SendMessages(DeliverFlight(LServer, SendMessages(LClient.Start))));
+  CheckEquals(5, System.Length(LMsgs), 'the server produced the expected stapled 1.2 flight');
+
+  DeliverFlight(LClient, TArray<TBytes>.Create(LMsgs[0], LMsgs[1]));
+  LEffects := DeliverFlight(LClient, TArray<TBytes>.Create(LMsgs[4]));
+  CheckTrue(LClient.Stage = THandshakeStage.ParkedForVerdict, 'the client parks for the host verdict');
+  CheckFalse(HasEffect(LEffects, THandshakeEffectKind.Fail),
+    'the out-of-order message is deferred, not acted on while parked');
+
+  LEffects := LClient.ResumeAfterVerdict;
+  CheckTrue(HasFailAlert(LEffects, TTlsAlertDescription.UnexpectedMessage),
+    'the deferred message''s protocol error surfaces on resume, proving it was not processed in the park');
 end;
 
 procedure TTestTls12Loopback.TestClientRejectsServerHelloLegacyVersionBelowTls12;
