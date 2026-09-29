@@ -209,6 +209,8 @@ type
     procedure TestVerifyCallbackRejectYieldsCertificateUnknown;
     procedure TestVerifyCallbackNotInvokedWhenEngineRejects;
     procedure TestEmptyServerNameFailsClosedWithoutConsultingEngine;
+    procedure TestServerSourceCarriesVerifyCallbackFromContext;
+    procedure TestClientSourceCarriesVerifyCallbackFromContext;
     procedure TestFilterRootsDeDupsAndDropsMalformed;
   end;
 
@@ -1209,6 +1211,76 @@ begin
     LVerified, LAlert), 'an empty name under an enabled check is refused');
   CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'the alert is bad_certificate');
   CheckEquals(0, LFake.ServerCalls, 'the engine was not consulted');
+end;
+
+procedure TTestOSDelegateTemplate.TestServerSourceCarriesVerifyCallbackFromContext;
+var
+  LEngine: IPlatformChainEngine;
+  LSource: IServerCertificateVerifierSource;
+  LContext: TServerTrustContext;
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  // the source copies the context's augment callback into the delegate policy, so a config-wired
+  // reject hook actually runs on the OS-delegate server path (regression guard for the copy)
+  FCallbackInvoked := False;
+  LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation,
+    TPlatformChainCapability.DnsIdentity], True,
+    Result_(TLiveRevocationOutcome.Good, OcspChain), TTlsAlertDescription.BadCertificate);
+  LSource := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly)
+    as IServerCertificateVerifierSource;
+  LContext := Default(TServerTrustContext);
+  LContext.Pkix := FPkix;
+  LContext.Clock := FClock;
+  LContext.CheckHostName := True;
+  LContext.RevocationPosture := TRevocationPosture.Soft;
+  LContext.Deferral := TVerdictDeferral.None;
+  LContext.StrengthPolicy := TCertificateStrengthPolicy.Defaults;
+  LContext.AdvertisedSignatureSchemes := TArray<UInt16>.Create(
+    TSignatureSchemes.EcdsaSecp256r1Sha256, TSignatureSchemes.EcdsaSecp384r1Sha384,
+    TSignatureSchemes.EcdsaSecp521r1Sha512);
+  LContext.Dangerous.VerifyCallback := RejectCallback;
+  LVerifier := LSource.CreateServerVerifier(LContext);
+  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('host.example'), nil,
+    LVerified, LAlert), 'the context callback rejects on the server path');
+  CheckTrue(FCallbackInvoked, 'the context callback ran');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'a custom rejection is certificate_unknown');
+end;
+
+procedure TTestOSDelegateTemplate.TestClientSourceCarriesVerifyCallbackFromContext;
+var
+  LEngine: IPlatformChainEngine;
+  LSource: IClientCertificateVerifierSource;
+  LContext: TClientTrustContext;
+  LVerifier: IClientCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  // the client twin: the source copies the callback into the client-delegate policy, and the hook
+  // sees an empty host (a client certificate carries no name)
+  FCallbackInvoked := False;
+  LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation], True,
+    Result_(TLiveRevocationOutcome.Good, OcspChain), TTlsAlertDescription.BadCertificate);
+  LSource := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly)
+    as IClientCertificateVerifierSource;
+  LContext := Default(TClientTrustContext);
+  LContext.Pkix := FPkix;
+  LContext.Clock := FClock;
+  LContext.RevocationPosture := TRevocationPosture.Soft;
+  LContext.Deferral := TVerdictDeferral.None;
+  LContext.StrengthPolicy := TCertificateStrengthPolicy.Defaults;
+  LContext.AdvertisedSignatureSchemes := TArray<UInt16>.Create(
+    TSignatureSchemes.EcdsaSecp256r1Sha256, TSignatureSchemes.EcdsaSecp384r1Sha384,
+    TSignatureSchemes.EcdsaSecp521r1Sha512);
+  LContext.Dangerous.VerifyCallback := RejectCallback;
+  LVerifier := LSource.CreateClientVerifier(LContext);
+  CheckFalse(LVerifier.VerifyClientCertificate(OcspChain, LVerified, LAlert),
+    'the context callback rejects on the client path');
+  CheckTrue(FCallbackInvoked, 'the context callback ran');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'a custom rejection is certificate_unknown');
 end;
 
 procedure TTestOSDelegateTemplate.TestFilterRootsDeDupsAndDropsMalformed;

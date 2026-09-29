@@ -117,7 +117,9 @@ type
   /// ship in production - it exists for tests and pinned/self-signed development peers.
   /// VerifyCallback is the augment-only hook (it can only additionally reject). When both
   /// are set the callback still runs, so a caller can skip the built-in pipeline yet keep
-  /// a bespoke reject rule.
+  /// a bespoke reject rule. An OS-native trust delegate applies only VerifyCallback: it never
+  /// honours InsecureSkipVerify (it will not bypass the platform engine it was chosen for), so
+  /// the bypass takes effect only with the built-in verifier.
   /// </summary>
   TDangerousTrust = record
     InsecureSkipVerify: Boolean;

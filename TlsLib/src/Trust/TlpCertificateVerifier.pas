@@ -325,7 +325,6 @@ begin
   FChainPolicyEnabled := True;
 end;
 
-
 function TCertificateVerifier.CheckRevocation(const AChain: TArray<TBytes>;
   const AOcspStaple: TBytes; AKeyPurpose: TCertKeyPurpose; out ASettled: Boolean;
   out AAlert: TTlsAlertDescription): Boolean;
