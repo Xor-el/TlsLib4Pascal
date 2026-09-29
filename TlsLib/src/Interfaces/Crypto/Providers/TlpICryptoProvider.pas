@@ -134,8 +134,7 @@ type
   /// provider so a different backend can supply it.
   /// </summary>
   IKeyAgreement = interface(IInterface)
-    ['{FFE70BE6-D33F-4CD4-B6B4-AA381B8863DE}']
-    function Name: string;
+    ['{D3D95685-9395-45A0-806E-F7869452C8E6}']
     /// <summary>A fresh key pair: the private key (an Ephemeral handle) and the public value
     /// to send.</summary>
     procedure GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
@@ -161,8 +160,7 @@ type
   /// so a different backend can supply it; the named-group layer wraps it.
   /// </summary>
   IKem = interface(IInterface)
-    ['{F362C3EF-E378-4C84-A7AB-45777EC1A8CA}']
-    function Name: string;
+    ['{6D6797E6-1ECD-4ED4-B420-6E171CC8D457}']
     /// <summary>A fresh key pair: the private (decapsulation) key handle and the public
     /// (encapsulation) key to send.</summary>
     procedure GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;

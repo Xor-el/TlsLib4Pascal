@@ -343,7 +343,6 @@ type
     FRandom: ISecureRandom;
   public
     constructor Create(const ARandom: ISecureRandom);
-    function Name: string;
     procedure GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
       out APublicKey: TBytes);
     function Agree(const APrivateKey: IKeyExchangePrivateKey;
@@ -357,7 +356,6 @@ type
   TNistEcAgreement = class(TInterfacedObject, IKeyAgreement)
   strict private
   var
-    FName: string;
     FRandom: ISecureRandom;
     FDomain: IECDomainParameters;
     FFieldSize: Int32;
@@ -371,8 +369,7 @@ type
     /// otherwise, rather than letting an out-of-range scalar reduce mod n inside the backend.</summary>
     function ScalarFromBytes(const ARaw: TBytes): TBigInteger;
   public
-    constructor Create(const AName: string; const ARandom: ISecureRandom);
-    function Name: string;
+    constructor Create(const ACurveName: string; const ARandom: ISecureRandom);
     procedure GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
       out APublicKey: TBytes);
     function Agree(const APrivateKey: IKeyExchangePrivateKey;
@@ -385,13 +382,11 @@ type
   TKemAdapter = class(TInterfacedObject, IKem)
   strict private
   var
-    FName: string;
     FParams: IMlKemParameters;
     FRandom: ISecureRandom;
   public
-    constructor Create(const AName: string; const AParams: IMlKemParameters;
+    constructor Create(const AParams: IMlKemParameters;
       const ARandom: ISecureRandom);
-    function Name: string;
     procedure GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
       out APublicKey: TBytes);
     procedure Encapsulate(const APeerPublicKey: TBytes; out ACiphertext: TBytes;
@@ -937,11 +932,6 @@ begin
   FRandom := ARandom;
 end;
 
-function TX25519Agreement.Name: string;
-begin
-  Result := 'X25519';
-end;
-
 procedure TX25519Agreement.GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
   out APublicKey: TBytes);
 var
@@ -1027,19 +1017,13 @@ end;
 
 { TNistEcAgreement }
 
-constructor TNistEcAgreement.Create(const AName: string;
+constructor TNistEcAgreement.Create(const ACurveName: string;
   const ARandom: ISecureRandom);
 begin
   inherited Create;
-  FName := AName;
   FRandom := ARandom;
-  FDomain := TECDomainParameters.FromX9ECParameters(TCustomNamedCurves.GetByName(AName));
+  FDomain := TECDomainParameters.FromX9ECParameters(TCustomNamedCurves.GetByName(ACurveName));
   FFieldSize := FDomain.Curve.FieldElementEncodingLength;
-end;
-
-function TNistEcAgreement.Name: string;
-begin
-  Result := FName;
 end;
 
 procedure TNistEcAgreement.GeneratePair(out APriv: IECPrivateKeyParameters;
@@ -1192,18 +1176,12 @@ end;
 
 { TKemAdapter }
 
-constructor TKemAdapter.Create(const AName: string; const AParams: IMlKemParameters;
+constructor TKemAdapter.Create(const AParams: IMlKemParameters;
   const ARandom: ISecureRandom);
 begin
   inherited Create;
-  FName := AName;
   FParams := AParams;
   FRandom := ARandom;
-end;
-
-function TKemAdapter.Name: string;
-begin
-  Result := FName;
 end;
 
 procedure TKemAdapter.GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
@@ -2169,8 +2147,7 @@ function TCryptoPrimitives.CreateKem(AAlgorithm: TKemAlgorithm): IKem;
 begin
   case AAlgorithm of
     TKemAlgorithm.ML_KEM_768:
-      Result := TKemAdapter.Create(TEnumUtilities.GetName<TKemAlgorithm>(AAlgorithm),
-        TMlKemParameters.MlKem768, FRandom);
+      Result := TKemAdapter.Create(TMlKemParameters.MlKem768, FRandom);
   else
     raise ENotSupportedTlsLibException.CreateResFmt(@SUnhandledAlgorithm,
       [Ord(AAlgorithm)]);

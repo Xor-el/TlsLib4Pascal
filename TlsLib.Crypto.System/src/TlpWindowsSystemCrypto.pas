@@ -390,7 +390,6 @@ type
 
   // a single NIST prime curve as CNG parametrizes it.
   TCngCurve = record
-    Name: string;
     KeyBits: ULONG;
     FieldSize: Int32;
     PubMagic: ULONG;
@@ -498,7 +497,6 @@ type
   public
     constructor Create(const AApi: TCngApi; AAlg: Pointer; const ACurve: TCngCurve;
       const AKeeper: IWindowsCng);
-    function Name: string;
     procedure GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
       out APublicKey: TBytes);
     function Agree(const APrivateKey: IKeyExchangePrivateKey;
@@ -519,7 +517,6 @@ type
     function PrivateBlob(const AScalar: TBytes): TBytes;
     function DeriveSecret(ASecret: Pointer): TBytes;
   public
-    function Name: string;
     procedure GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
       out APublicKey: TBytes);
     function Agree(const APrivateKey: IKeyExchangePrivateKey;
@@ -540,7 +537,6 @@ type
     function ImportPublic(const APeerPublicKey: TBytes): Pointer;
     function ImportPrivate(const APrivateBlob: TBytes): Pointer;
   public
-    function Name: string;
     procedure GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
       out APublicKey: TBytes);
     procedure Encapsulate(const APeerPublicKey: TBytes; out ACiphertext: TBytes;
@@ -1539,11 +1535,6 @@ begin
   FCurve := ACurve;
 end;
 
-function TWindowsCngKeyAgreement.Name: string;
-begin
-  Result := FCurve.Name;
-end;
-
 function TWindowsCngKeyAgreement.IsUncompressed(const APoint: TBytes): Boolean;
 begin
   // an EC key share must use the uncompressed point form: RFC 8446 4.2.8.2 (TLS 1.3)
@@ -1753,11 +1744,6 @@ end;
 
 { TWindowsCngX25519 }
 
-function TWindowsCngX25519.Name: string;
-begin
-  Result := 'X25519';
-end;
-
 function TWindowsCngX25519.PeerBlob(const APeer: TBytes): TBytes;
 begin
   // generic ECDH public blob: { dwMagic; cbKey=32 } then X (the raw 32-byte little-endian
@@ -1939,11 +1925,6 @@ begin
 end;
 
 { TWindowsCngKem }
-
-function TWindowsCngKem.Name: string;
-begin
-  Result := 'ML-KEM-768';
-end;
 
 function TWindowsCngKem.ExtractPublicKey(const ABlob: TBytes): TBytes;
 var
@@ -2153,7 +2134,6 @@ begin
   case AAlgorithm of
     TKeyAgreementAlgorithm.SECP256R1:
       begin
-        Result.Name := 'secp256r1';
         Result.KeyBits := 256;
         Result.FieldSize := 32;
         Result.PubMagic := BCRYPT_ECDH_PUBLIC_P256_MAGIC;
@@ -2161,7 +2141,6 @@ begin
       end;
     TKeyAgreementAlgorithm.SECP384R1:
       begin
-        Result.Name := 'secp384r1';
         Result.KeyBits := 384;
         Result.FieldSize := 48;
         Result.PubMagic := BCRYPT_ECDH_PUBLIC_P384_MAGIC;
@@ -2169,7 +2148,6 @@ begin
       end;
   else
     // SECP521R1
-    Result.Name := 'secp521r1';
     Result.KeyBits := 521;
     Result.FieldSize := 66;
     Result.PubMagic := BCRYPT_ECDH_PUBLIC_P521_MAGIC;
