@@ -1,0 +1,19 @@
+TlsLib.Tests/src/ProviderTests.pas
+  s_09d3c46d1a9b1f::t_3efb0e36d6abd3 172,189-198
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a0ff033406e05314f19cba7aff69e30b4f5d2592",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
