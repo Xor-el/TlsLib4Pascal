@@ -63,11 +63,16 @@ uses
   TlpInMemorySessionCache,
   TlpInMemorySessionStore,
   TlpAntiReplay,
+  TlpIKeyLog,
+  MockKeyLog,
   TlsLibTestBase;
 
 type
   TTestTls13Loopback = class(TTlsLibAlgorithmTestCase)
   private
+    // opt-in NSS key-log sinks: nil by default (helpers skip injection); a test sets them to
+    // observe which ClientHello random the exported secrets are keyed by
+    FClientKeyLog, FServerKeyLog: TMockKeyLog;
     function Filled(AByte: Byte; ACount: Int32): TBytes;
     function TestRootCertificate: TBytes;
     function ServerCredential: TTlsCredential;
@@ -132,6 +137,7 @@ type
     function OuterPskExtData(const AFlight: TBytes): TBytes;
   published
     procedure TestEchAcceptLoopback;
+    procedure TestEchAcceptKeyLogIsKeyedByInnerRandom;
     procedure TestEchHrrAcceptLoopback;
     procedure TestEchRejectHrrLoopback;
     procedure TestEchResumeHrrLoopback;
@@ -462,6 +468,8 @@ begin
   LParams.EchPolicy := TEchClientPolicy.Create(Crypto, AConfigList, False, False)
     as IEchClientPolicy;
   LParams.SessionCache := ACache;
+  if FClientKeyLog <> nil then
+    LParams.KeyLog := FClientKeyLog as IKeyLog;
   Result := TTlsEngine.CreateConfigured(
     TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
@@ -516,6 +524,8 @@ begin
     LVec.Free;
   end;
   LParams.EchKeyStore := TInMemoryEchKeyStore.FromConfig(EchConfigListBytes, LSk, Crypto);
+  if FServerKeyLog <> nil then
+    LParams.KeyLog := FServerKeyLog as IKeyLog;
   Result := TTlsEngine.CreateConfigured(
     TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
@@ -1121,6 +1131,47 @@ begin
   Pump(LClient, LServer);
   CheckEqualBytes('the server decrypts app data over the ECH connection', LMsg,
     ReadAllApp(LServer));
+end;
+
+procedure TTestTls13Loopback.TestEchAcceptKeyLogIsKeyedByInnerRandom;
+var
+  LClient, LServer: ITlsEngine;
+  LIterations, LI: Int32;
+  LInner: TBytes;
+begin
+  // on ECH accept the exported secrets must be logged under the INNER ClientHello random, not the
+  // outer public-name random the wire carries ($11), so a key-log consumer can decrypt the true
+  // (inner) session rather than the decoy. The engines own the sinks through IKeyLog, so the
+  // fields are only cleared here, never freed.
+  FClientKeyLog := TMockKeyLog.Create;
+  FServerKeyLog := TMockKeyLog.Create;
+  try
+    LClient := NewEchClient;
+    LServer := NewEchServer;
+    LClient.StartHandshake;
+    LIterations := 0;
+    while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
+    begin
+      Pump(LClient, LServer);
+      Pump(LServer, LClient);
+      Inc(LIterations);
+    end;
+    CheckTrue(LClient.ConnectionInfo.EchStatus = TEchStatus.Accepted, 'ECH was accepted');
+    CheckTrue(FClientKeyLog.Count > 0, 'the client logged key material');
+    CheckTrue(FServerKeyLog.Count > 0, 'the server logged key material');
+    LInner := FClientKeyLog.Entries[0].ClientRandom;
+    CheckFalse(AreEqual(LInner, Filled($11, 32)),
+      'the key log is not keyed by the outer public-name random');
+    for LI := 0 to FClientKeyLog.Count - 1 do
+      CheckEqualBytes('every client key-log entry is keyed by the inner random',
+        LInner, FClientKeyLog.Entries[LI].ClientRandom);
+    for LI := 0 to FServerKeyLog.Count - 1 do
+      CheckEqualBytes('the server logs under the same inner random',
+        LInner, FServerKeyLog.Entries[LI].ClientRandom);
+  finally
+    FClientKeyLog := nil;
+    FServerKeyLog := nil;
+  end;
 end;
 
 procedure TTestTls13Loopback.TestEchRejectLoopback;
