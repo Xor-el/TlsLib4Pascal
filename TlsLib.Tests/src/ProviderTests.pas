@@ -825,7 +825,7 @@ procedure TTestCryptoProvider.DoAgreeRejectsCompressedPeerPoint(
 var
   LP: IKeyAgreement;
   LPriv: IKeyExchangePrivateKey;
-  LPub, LCompressed: TBytes;
+  LPub, LCompressed, LHybrid: TBytes;
   LI: Int32;
   LRaised: Boolean;
 begin
@@ -845,6 +845,18 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a P-256 agreement must reject a compressed peer point');
+  // a SEC1 hybrid encoding (0x06/0x07 || X || Y) is full 65-byte width, so the length check passes
+  // and only the prefix check stops it; DecodePoint would otherwise accept hybrid
+  LHybrid := System.Copy(LPub);
+  LHybrid[0] := $06 or (LPub[64] and 1);
+  LRaised := False;
+  try
+    LP.Agree(LPriv, LHybrid);
+  except
+    on E: EPeerInputTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a P-256 agreement must reject a hybrid-form peer point');
 end;
 
 procedure TTestCryptoProvider.TestAgreeRejectsCompressedPeerPoint;
