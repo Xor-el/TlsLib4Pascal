@@ -41,6 +41,8 @@ uses
   TlpIHandshakeMachine,
   TlpHandshakeEffect,
   TlpHandshakeMessage,
+  TlpHandshakeMessages,
+  TlpExtensionVector,
   TlpICertificateTrust,
   TlpServerName,
   TlpCertificateVerifier,
@@ -90,7 +92,12 @@ type
     /// it produced, so two bare state machines can be driven without a record layer.</summary>
     function DeliverFlight(const ADst: IHandshakeMachine;
       const AMsgs: TArray<TBytes>): TArray<THandshakeEffect>;
+    function HasFailAlert(const AEffects: TArray<THandshakeEffect>;
+      AAlert: TTlsAlertDescription): Boolean;
+    function DecodeServerFlightHello(const AFlight: TArray<TBytes>): TTlsServerHello;
   published
+    procedure TestClientRejectsServerHelloLegacyVersionBelowTls12;
+    procedure TestClientRejectsSupportedVersionsInTls12ServerHello;
     procedure TestEcdheEd448CredentialHandshake;
     procedure TestEcdheEd25519CredentialHandshake;
     procedure TestEcdheEcdsaAesGcmWithExtendedMasterSecret;
@@ -820,6 +827,79 @@ begin
       LReader.Free;
     end;
   end;
+end;
+
+function TTestTls12Loopback.HasFailAlert(
+  const AEffects: TArray<THandshakeEffect>; AAlert: TTlsAlertDescription): Boolean;
+var
+  LEffect: THandshakeEffect;
+begin
+  Result := False;
+  for LEffect in AEffects do
+    if (LEffect.Kind = THandshakeEffectKind.Fail) and (LEffect.Alert = AAlert) then
+      Result := True;
+end;
+
+function TTestTls12Loopback.DecodeServerFlightHello(
+  const AFlight: TArray<TBytes>): TTlsServerHello;
+var
+  LReader: THandshakeMessageReader;
+  LMsg: TTlsHandshakeMessage;
+begin
+  Result := Default(TTlsServerHello);
+  LReader := THandshakeMessageReader.Create;
+  try
+    LReader.Append(AFlight[0], 0, System.Length(AFlight[0]));
+    if LReader.NextMessage(LMsg) then
+      Result := THandshakeMessages.DecodeServerHello(LMsg.Body);
+  finally
+    LReader.Free;
+  end;
+end;
+
+procedure TTestTls12Loopback.TestClientRejectsServerHelloLegacyVersionBelowTls12;
+var
+  LClient, LServer: IHandshakeMachine;
+  LFlight: TArray<TBytes>;
+  LFramed: TBytes;
+begin
+  // a single-version 1.2 client (built directly, not via the version dispatcher) rejects a
+  // ServerHello whose legacy_version is below TLS 1.2 (RFC 5246 / RFC 8446 4.1.3): protocol_version.
+  // the conformant encoder always writes 0x0303, so patch the low byte of legacy_version directly
+  LClient := ClientMachine(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True);
+  LServer := ServerMachine(False);
+  LFlight := SendMessages(DeliverFlight(LServer, SendMessages(LClient.Start)));
+  CheckTrue(System.Length(LFlight) > 0, 'the server produced a flight');
+  LFramed := THandshakeFraming.Frame(TTlsHandshakeType.ServerHello,
+    THandshakeMessages.EncodeServerHello(DecodeServerFlightHello(LFlight)));
+  LFramed[5] := $02; // 0x0303 -> 0x0302 (TLS 1.1)
+  CheckTrue(HasFailAlert(DeliverFlight(LClient, TArray<TBytes>.Create(LFramed)),
+    TTlsAlertDescription.ProtocolVersion),
+    'a sub-1.2 legacy_version in the ServerHello aborts with protocol_version');
+end;
+
+procedure TTestTls12Loopback.TestClientRejectsSupportedVersionsInTls12ServerHello;
+var
+  LClient, LServer: IHandshakeMachine;
+  LFlight: TArray<TBytes>;
+  LSh: TTlsServerHello;
+  LVec: TExtensionVector;
+begin
+  // a 1.2 ServerHello must not echo supported_versions (that selects 1.3); the single-version 1.2
+  // client rejects the echo of an extension it offered with unsupported_extension
+  LClient := ClientMachine(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True);
+  LServer := ServerMachine(False);
+  LFlight := SendMessages(DeliverFlight(LServer, SendMessages(LClient.Start)));
+  CheckTrue(System.Length(LFlight) > 0, 'the server produced a flight');
+  LSh := DecodeServerFlightHello(LFlight);
+  LVec := TExtensionVector.Parse(LSh.Extensions);
+  // the ServerHello selection form of supported_versions is the single chosen version
+  LVec.Append(TExtensionEntry.Create(TExtensionTypes.SupportedVersions, TBytes.Create($03, $04)));
+  LSh.Extensions := LVec.Encode;
+  CheckTrue(HasFailAlert(DeliverFlight(LClient, TArray<TBytes>.Create(
+    THandshakeFraming.Frame(TTlsHandshakeType.ServerHello,
+    THandshakeMessages.EncodeServerHello(LSh)))), TTlsAlertDescription.UnsupportedExtension),
+    'a supported_versions extension in a 1.2 ServerHello aborts with unsupported_extension');
 end;
 
 procedure TTestTls12Loopback.TestServerRejectsClientFinishedWithWrongVerifyData;

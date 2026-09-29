@@ -58,6 +58,9 @@ uses
   TlpCredentialResolvers,
   TlpTls13ClientStateMachine,
   TlpTls13ServerStateMachine,
+  TlpTls12ClientStateMachine,
+  TlpTls12ServerStateMachine,
+  TlpTlsVersion,
   TlsLibTestBase;
 
 type
@@ -67,6 +70,8 @@ type
     function ServerCredential: TTlsCredential;
     function NewClient(const AAlpn: TArray<string>; ARecordSizeLimit: Int32): ITlsEngine;
     function NewServer(const AAlpn: TArray<string>; ARecordSizeLimit: Int32): ITlsEngine;
+    function NewClient12(ARecordSizeLimit: Int32): ITlsEngine;
+    function NewServer12(ARecordSizeLimit: Int32): ITlsEngine;
     function Drain(const AEngine: ITlsEngine): TBytes;
     procedure Feed(const AEngine: ITlsEngine; const AWire: TBytes);
     procedure Pump(const ASrc, ADst: ITlsEngine);
@@ -118,6 +123,8 @@ type
     procedure TestServerLimitWithoutClientOfferStillCompletes;
     procedure TestClientAppliesNoInboundLimitWhenServerOmitsIt;
     procedure TestServerOmitsUnofferedRecordSizeLimit;
+    procedure TestTls12RecordSizeLimitCapsOutboundRecords;
+    procedure TestServerRejectsNonNullCompressionOnTls13;
     procedure TestGreaseValueClassification;
     procedure TestClientGreaseToleratedAndNeverSelected;
     procedure TestUnknownHandshakeTypeUnexpected;
@@ -271,6 +278,51 @@ begin
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
   Result := TTlsEngine.CreateConfigured(
     TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
+end;
+
+function TTestExtensionNegotiation.NewClient12(ARecordSizeLimit: Int32): ITlsEngine;
+var
+  LParams: TClient12HandshakeParams;
+begin
+  LParams := Default(TClient12HandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Crypto := Crypto;
+  LParams.Inspector := Pkix.Certificates;
+  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites12.EcdheEcdsaAes128GcmSha256);
+  LParams.OfferedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
+    TNamedGroupCatalog.Secp256r1);
+  LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+  LParams.OfferedVersions := TArray<UInt16>.Create(TlsWireVersionTls12);
+  LParams.ClientRandom := DecodeHex(StringOfChar('1', 64));
+  LParams.LegacySessionId := nil;
+  LParams.RecordSizeLimit := ARecordSizeLimit;
+  LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
+    True) as IServerCertificateVerifier;
+  LParams.ExpectedServerName := TServerName.DnsName('localhost');
+  Result := TTlsEngine.CreateConfigured(
+    TTls12ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
+end;
+
+function TTestExtensionNegotiation.NewServer12(ARecordSizeLimit: Int32): ITlsEngine;
+var
+  LParams: TServer12HandshakeParams;
+begin
+  LParams := Default(TServer12HandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Crypto := Crypto;
+  LParams.Inspector := Pkix.Certificates;
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
+  LParams.ServerRandom := DecodeHex(StringOfChar('2', 64));
+  LParams.RecordSizeLimit := ARecordSizeLimit;
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
+  Result := TTlsEngine.CreateConfigured(
+    TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestExtensionNegotiation.Drain(const AEngine: ITlsEngine): TBytes;
@@ -935,6 +987,81 @@ begin
   Feed(LServer, LWire);
   LReceived := ReadAllApp(LServer);
   CheckEqualBytes('the server reassembles the fragmented payload', LPayload, LReceived);
+end;
+
+procedure TTestExtensionNegotiation.TestTls12RecordSizeLimitCapsOutboundRecords;
+var
+  LClient, LServer: ITlsEngine;
+  LPayload, LWire: TBytes;
+  LI: Int32;
+begin
+  // TLS 1.2 counts the plaintext directly (no inner content-type byte), so a 512-byte
+  // record_size_limit caps each fragment at 512; a 2000-byte write fragments on both sides
+  LClient := NewClient12(512);
+  LServer := NewServer12(512);
+  Handshake(LClient, LServer);
+  CheckFalse(LClient.IsTerminal or LServer.IsTerminal, 'the handshake completed');
+
+  LPayload := nil;
+  SetLength(LPayload, 2000);
+  for LI := 0 to System.Length(LPayload) - 1 do
+    LPayload[LI] := Byte(LI and $FF);
+
+  LClient.Write(LPayload, 0, System.Length(LPayload));
+  LWire := Drain(LClient);
+  // 512-byte plaintext cap => ciphertext <= 512 + 8-byte explicit nonce + 16-byte tag = 536
+  CheckTrue(MaxAppRecordLength(LWire) <= 536, 'no client record exceeds the negotiated cap');
+  CheckTrue(AppRecordCount(LWire) > 1, 'the oversize client write fragmented into several records');
+  Feed(LServer, LWire);
+  CheckEqualBytes('the server reassembles the client payload', LPayload, ReadAllApp(LServer));
+
+  // the server's outbound side is capped by the same negotiated limit
+  LServer.Write(LPayload, 0, System.Length(LPayload));
+  LWire := Drain(LServer);
+  CheckTrue(MaxAppRecordLength(LWire) <= 536, 'no server record exceeds the negotiated cap');
+  CheckTrue(AppRecordCount(LWire) > 1, 'the oversize server write fragmented into several records');
+  Feed(LClient, LWire);
+  CheckEqualBytes('the client reassembles the server payload', LPayload, ReadAllApp(LClient));
+end;
+
+procedure TTestExtensionNegotiation.TestServerRejectsNonNullCompressionOnTls13;
+
+  // the conformant encoder always writes a single null method, so grow legacy_compression_methods on
+  // the wire from {null} to {null, 1}: still offers null (decode accepts) but is no longer null-only
+  function WithExtraCompression(const AFramedClientHello: TBytes): TBytes;
+  var
+    LP, LSidLen, LCsLen, LLen: Int32;
+  begin
+    LP := 4 + 2 + 32; // 4-byte handshake header + legacy_version + random
+    LSidLen := AFramedClientHello[LP];
+    LP := LP + 1 + LSidLen; // past legacy_session_id
+    LCsLen := (AFramedClientHello[LP] shl 8) or AFramedClientHello[LP + 1];
+    LP := LP + 2 + LCsLen; // now at the legacy_compression_methods length byte
+    Result := ConcatBytes(ConcatBytes(System.Copy(AFramedClientHello, 0, LP),
+      TBytes.Create(2, 0, 1)),
+      System.Copy(AFramedClientHello, LP + 2, System.Length(AFramedClientHello) - LP - 2));
+    // the message grew by one byte: bump the 3-byte handshake length (framed offsets 1..3)
+    LLen := ((Result[1] shl 16) or (Result[2] shl 8) or Result[3]) + 1;
+    Result[1] := Byte(LLen shr 16);
+    Result[2] := Byte(LLen shr 8);
+    Result[3] := Byte(LLen);
+  end;
+
+var
+  LClientHello: TBytes;
+  LAlert: TTlsAlertDescription;
+begin
+  // a single-version 1.3 server (built directly, not via the version dispatcher) must reject a
+  // ClientHello whose legacy_compression_methods is not exactly null (RFC 8446 4.1.2)
+  LClientHello := FirstSendHandshake(NewClientMachine(nil).Start);
+  CheckTrue(FailAlertOf(NewServerMachine(nil).ProcessMessage(
+    MsgFrom(WithExtraCompression(LClientHello))), LAlert),
+    'non-null legacy_compression_methods aborts');
+  CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
+    'the alert is illegal_parameter');
+  // control: the untampered null-only ClientHello is accepted (the server responds, no abort)
+  CheckFalse(FailAlertOf(NewServerMachine(nil).ProcessMessage(MsgFrom(LClientHello)), LAlert),
+    'null-only legacy_compression_methods is accepted');
 end;
 
 procedure TTestExtensionNegotiation.TestClientAppliesNoInboundLimitWhenServerOmitsIt;
