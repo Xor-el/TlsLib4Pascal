@@ -67,6 +67,7 @@ type
     procedure TestEd25519Imports;
     procedure TestEd448Imports;
     procedure TestEncryptedKeysImportWithPassword;
+    procedure TestEncryptedKeyImportsWithUtf8Passphrase;
     procedure TestLoadCertificateChainFromPemBundle;
     procedure TestLoadSingleDerCertificate;
     procedure TestConcatenatedDerRejected;
@@ -234,6 +235,20 @@ begin
   LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['ed448_enc_der']), TSecretBuffer.FromString(SPassword));
   CheckTrue(RoundTrips(TSignatureScheme.ED448, LKey, 'ed448_pub'),
     'encrypted Ed448 PKCS#8 (DER) imports and signs');
+end;
+
+procedure TTestCredentialImport.TestEncryptedKeyImportsWithUtf8Passphrase;
+var
+  LKey: ISigningKey;
+begin
+  // a PBES2 (PBKDF2/AES-256-CBC) key encrypted under a non-ASCII passphrase must decrypt from the
+  // passphrase's UTF-8 octets (RFC 8018 3); a wrong ANSI/code-page derivation would raise on bad
+  // padding. The passphrase buffer holds the UTF-8 octets of 'passwoerd-euro' with accents (never a
+  // raw non-ASCII source literal - Delphi would read it as ANSI).
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['rsa_enc_utf8_der']),
+    TSecretBuffer.From(DecodeHex('70C3A4737377C3B67264E282AC')));
+  CheckTrue(LKey <> nil,
+    'an encrypted PKCS#8 key with a non-ASCII UTF-8 passphrase imports (decrypts)');
 end;
 
 procedure TTestCredentialImport.TestLoadCertificateChainFromPemBundle;
