@@ -1,0 +1,52 @@
+TlsLib/src/KeySchedule/TlpTls13KeySchedule.pas
+  s_09d3c46d1a9b1f::t_546008b289b127 311-312,314,462-463
+  s_09d3c46d1a9b1f::t_245aa8188dbaaf 82-83
+  s_09d3c46d1a9b1f::t_fd0e9fdc01eef7 427-428,435,437-438,444-461
+  s_09d3c46d1a9b1f::t_cd385c0ecee80e 63
+  s_09d3c46d1a9b1f::t_76af7f908c9de4 101-103
+TlsLib/src/Handshake/TlpTls13HandshakeBase.pas
+  s_09d3c46d1a9b1f::t_0171d1f7b2e146 75-77
+  s_09d3c46d1a9b1f::t_eb5c3b732e67b5 192-207
+TlsLib/src/Handshake/TlpVersionDispatchMachine.pas
+  s_09d3c46d1a9b1f::t_1e1e9f69554a1f 83-85
+  s_09d3c46d1a9b1f::t_144fb78480b3dd 233-246
+TlsLib/src/Common/TlpKeyLog.pas
+  s_09d3c46d1a9b1f::t_1e27ec61e52f29 28
+TlsLib/src/Engine/TlpTlsEngine.pas
+  s_09d3c46d1a9b1f::t_dafc11cdbef597 818-827
+  s_09d3c46d1a9b1f::t_85ab8f188873d4 152-153
+TlsLib/src/Handshake/TlpHandshakeConductor.pas
+  s_09d3c46d1a9b1f::t_0bae74038b0ed0 92-96
+  s_09d3c46d1a9b1f::t_c6f1f3b1623992 185-195
+TlsLib/src/Interfaces/Engine/TlpITlsEngine.pas
+  s_09d3c46d1a9b1f::t_7c09338a0c5ee0 91
+  s_09d3c46d1a9b1f::t_a67079cbfe9bce 214-218
+TlsLib/src/Handshake/TlpHandshakeMachineBase.pas
+  s_09d3c46d1a9b1f::t_d492a576e2a610 95-98
+  s_09d3c46d1a9b1f::t_18264efdfb62cf 195-205
+TlsLib/src/Interfaces/KeySchedule/TlpIKeySchedule.pas
+  s_09d3c46d1a9b1f::t_d55fd710121171 102-109
+TlsLib.Tests/src/Tls13KeyScheduleTests.pas
+  s_09d3c46d1a9b1f::t_22737a68d9b3fc 284-290,293-323
+  s_09d3c46d1a9b1f::t_e4606e336832ab 69-70
+  s_09d3c46d1a9b1f::t_a3822a1e2fcbcb 291-292
+TlsLib/src/Interfaces/Handshake/TlpIHandshakeMachine.pas
+  s_09d3c46d1a9b1f::t_49428919aafc94 39
+  s_09d3c46d1a9b1f::t_6f0d958015d970 81-88
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6aee7d6dd210f001cf6899670d3544ec07299d55",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
