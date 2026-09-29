@@ -1251,7 +1251,8 @@ begin
   LVector.Append(TExtensionEntry.Create(TExtensionTypes.SupportedGroups, nil));
   LVector.Append(TExtensionEntry.Create(TExtensionTypes.EncryptedClientHello, nil));
   LVector.Append(TExtensionEntry.Create(TExtensionTypes.PreSharedKey, nil));
-  LTypes := TExtensionVector.Parse(TGrease.InjectExtension(LVector.Encode, LGrease)).Types;
+  LVector := TExtensionVector.Parse(TGrease.InjectExtension(LVector.Encode, LGrease));
+  LTypes := LVector.Types;
   CheckEquals(5, Length(LTypes), 'the block gained one GREASE extension');
   CheckEquals(Int64(LGrease), Int64(LTypes[2]), 'GREASE lands just before encrypted_client_hello');
   CheckEquals(Int64(TExtensionTypes.EncryptedClientHello), Int64(LTypes[3]), 'ech follows GREASE');
@@ -1262,7 +1263,8 @@ begin
   LVector.Append(TExtensionEntry.Create(TExtensionTypes.ServerName, nil));
   LVector.Append(TExtensionEntry.Create(TExtensionTypes.SupportedGroups, nil));
   LVector.Append(TExtensionEntry.Create(TExtensionTypes.PreSharedKey, nil));
-  LTypes := TExtensionVector.Parse(TGrease.InjectExtension(LVector.Encode, LGrease)).Types;
+  LVector := TExtensionVector.Parse(TGrease.InjectExtension(LVector.Encode, LGrease));
+  LTypes := LVector.Types;
   CheckEquals(Int64(LGrease), Int64(LTypes[2]), 'GREASE lands just before pre_shared_key');
   CheckEquals(Int64(TExtensionTypes.PreSharedKey), Int64(LTypes[3]), 'pre_shared_key stays last');
 
@@ -1270,7 +1272,8 @@ begin
   LVector := TExtensionVector.Empty;
   LVector.Append(TExtensionEntry.Create(TExtensionTypes.ServerName, nil));
   LVector.Append(TExtensionEntry.Create(TExtensionTypes.SupportedGroups, nil));
-  LTypes := TExtensionVector.Parse(TGrease.InjectExtension(LVector.Encode, LGrease)).Types;
+  LVector := TExtensionVector.Parse(TGrease.InjectExtension(LVector.Encode, LGrease));
+  LTypes := LVector.Types;
   CheckEquals(3, Length(LTypes), 'the block gained one GREASE extension');
   CheckEquals(Int64(LGrease), Int64(LTypes[2]), 'GREASE goes last when neither ech nor psk is present');
 end;
@@ -1280,6 +1283,7 @@ var
   LClient: IHandshakeMachine;
   LClientHello: TBytes;
   LHello: TTlsClientHello;
+  LVector: TExtensionVector;
   LTypes: TArray<UInt16>;
   LGreaseIndex, LI: Int32;
 begin
@@ -1288,7 +1292,8 @@ begin
   LClient := NewGreasingClientMachine;
   LClientHello := FirstSendHandshake(LClient.Start);
   LHello := THandshakeMessages.DecodeClientHello(MsgFrom(LClientHello).Body);
-  LTypes := TExtensionVector.Parse(LHello.Extensions).Types;
+  LVector := TExtensionVector.Parse(LHello.Extensions);
+  LTypes := LVector.Types;
   LGreaseIndex := -1;
   for LI := 0 to High(LTypes) do
     if TGrease.IsGrease(LTypes[LI]) then

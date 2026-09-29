@@ -333,7 +333,7 @@ end;
 
 procedure TTestSessionStore.TestCacheExpiredHeadDoesNotShadowLiveTicket;
 const
-  Now = UInt64(1000000000000);
+  NowMs = UInt64(1000000000000);
 var
   LCache: ISessionCache;
   LTaken: IResumableSession;
@@ -341,9 +341,9 @@ begin
   LCache := TInMemorySessionCache.Create;
   // a live 1.3 ticket sits behind a newer-but-expired one; retrieval must drop the stale head
   // and return the live ticket rather than fail resumption
-  LCache.Store('host:443', 'x.example', MakeSession(Tag($AA, 4), 7200, Now - 1000));
-  LCache.Store('host:443', 'x.example', MakeSession(Tag($BB, 4), 100, Now - 200000));
-  CheckTrue(LCache.Take('host:443', 'x.example', Now, LTaken),
+  LCache.Store('host:443', 'x.example', MakeSession(Tag($AA, 4), 7200, NowMs - 1000));
+  LCache.Store('host:443', 'x.example', MakeSession(Tag($BB, 4), 100, NowMs - 200000));
+  CheckTrue(LCache.Take('host:443', 'x.example', NowMs, LTaken),
     'the live ticket behind the expired head resumes');
   CheckEqualBytes('and it is the live one, not the stale head', Tag($AA, 4),
     (LTaken as ITls13ResumableSession).TicketIdentity);
@@ -352,16 +352,16 @@ end;
 
 procedure TTestSessionStore.TestCacheExpiredTls13FallsBackToLiveTls12;
 const
-  Now = UInt64(1000000000000);
+  NowMs = UInt64(1000000000000);
 var
   LCache: ISessionCache;
   LTaken: IResumableSession;
 begin
   LCache := TInMemorySessionCache.Create;
   // the only 1.3 ticket is expired; retrieval drops it and falls back to a live 1.2 ticket
-  LCache.Store('host:443', 'x.example', MakeTls12Session(Tag($12, 4), 7200, Now - 1000));
-  LCache.Store('host:443', 'x.example', MakeSession(Tag($13, 4), 100, Now - 200000));
-  CheckTrue(LCache.Take('host:443', 'x.example', Now, LTaken),
+  LCache.Store('host:443', 'x.example', MakeTls12Session(Tag($12, 4), 7200, NowMs - 1000));
+  LCache.Store('host:443', 'x.example', MakeSession(Tag($13, 4), 100, NowMs - 200000));
+  CheckTrue(LCache.Take('host:443', 'x.example', NowMs, LTaken),
     'the live 1.2 ticket resumes when the 1.3 one has expired');
   CheckEquals(TlsWireVersionTls12, LTaken.Version.WireValue,
     'the returned session is the live 1.2 one');

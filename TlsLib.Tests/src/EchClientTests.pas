@@ -74,6 +74,7 @@ type
     procedure TestSealOpenReconstructRoundTrip;
     procedure TestEncodedInnerHasEmptySessionIdAndZeroPadding;
     procedure TestCompressionReferencesSharedExtensions;
+    procedure TestGreasePlacementDrivesCompression;
     procedure TestAcceptConfirmationMatch;
     procedure TestGreaseEncapsulationIsValid;
     procedure TestForgetSecretsMakesSealMethodsRefuse;
@@ -329,6 +330,73 @@ begin
   CheckTrue(LHasOuterExt, 'an ech_outer_extensions block was produced');
   CheckFalse(LHasInlinedGroups,
     'the shared supported_groups was compressed out, not inlined');
+end;
+
+procedure TTestEchClient.TestGreasePlacementDrivesCompression;
+const
+  GreaseType = UInt16($0A0A); // a GREASE codepoint (RFC 8701): compressible, duplicated in the outer
+var
+  LConfig: TEchConfig;
+  LSuite: IHpkeSuite;
+  LInner, LOuter, LEncEntries: TExtensionVector;
+
+  function Encoded(const AInner, AOuter: TExtensionVector): TExtensionVector;
+  var
+    LH: TEchClientHandshake;
+    LBytes, LPad: TBytes;
+    LParsed: TExtensionVector;
+  begin
+    LH := TEchClientHandshake.Create(Crypto, LConfig, LSuite);
+    try
+      LBytes := LH.BuildEncodedInner(InnerBody(AInner), AOuter);
+    finally
+      LH.Free;
+    end;
+    ParseEncodedInner(LBytes, LParsed, LPad);
+    Result := LParsed;
+  end;
+
+  function Has(const AEntries: TExtensionVector; AType: UInt16): Boolean;
+  var
+    LI: Int32;
+  begin
+    Result := False;
+    for LI := 0 to AEntries.Count - 1 do
+      if AEntries.Entries[LI].ExtensionType = AType then
+        Exit(True);
+  end;
+
+begin
+  LConfig := SelectConfig(LSuite);
+  // contiguous placement (what the GREASE injector now produces): GREASE sits with the other
+  // compressible extensions, so ech_outer_extensions folds it in and it is not left inline
+  LInner := Vec([ServerNameEntry('secret.example.com'),
+    Entry(TExtensionTypes.SupportedGroups, DecodeHex('00020017')),
+    Entry(TExtensionTypes.KeyShare, DecodeHex('0017000401020304')),
+    Entry(GreaseType, nil)]);
+  LOuter := Vec([ServerNameEntry('cover.example'),
+    Entry(TExtensionTypes.SupportedGroups, DecodeHex('00020017')),
+    Entry(TExtensionTypes.KeyShare, DecodeHex('0017000401020304')),
+    Entry(GreaseType, nil)]);
+  LEncEntries := Encoded(LInner, LOuter);
+  CheckTrue(Has(LEncEntries, TExtensionTypes.EchOuterExtensions),
+    'an ech_outer_extensions block was produced');
+  CheckFalse(Has(LEncEntries, GreaseType),
+    'a contiguous GREASE extension is compressed out, not left inline');
+
+  // front placement (the old shape): server_name splits GREASE from the compressible run, so the
+  // block covers only groups+key_share and the empty GREASE extension stays inline - the waste avoided
+  LInner := Vec([Entry(GreaseType, nil), ServerNameEntry('secret.example.com'),
+    Entry(TExtensionTypes.SupportedGroups, DecodeHex('00020017')),
+    Entry(TExtensionTypes.KeyShare, DecodeHex('0017000401020304'))]);
+  LOuter := Vec([Entry(GreaseType, nil), ServerNameEntry('cover.example'),
+    Entry(TExtensionTypes.SupportedGroups, DecodeHex('00020017')),
+    Entry(TExtensionTypes.KeyShare, DecodeHex('0017000401020304'))]);
+  LEncEntries := Encoded(LInner, LOuter);
+  CheckTrue(Has(LEncEntries, TExtensionTypes.EchOuterExtensions),
+    'the groups+key_share run still compresses');
+  CheckTrue(Has(LEncEntries, GreaseType),
+    'a front-placed GREASE extension is left inline, non-contiguous with the run');
 end;
 
 procedure TTestEchClient.TestAcceptConfirmationMatch;
