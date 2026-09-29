@@ -1,0 +1,36 @@
+TlsLib.Tests/src/Tls13LoopbackTests.pas
+  s_09d3c46d1a9b1f::t_3f2732edf58a55 1328-1330
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_cbbae6f82d3c07 80-81,83-85
+  s_09d3c46d1a9b1f::t_14037bef6a7905 600
+  s_09d3c46d1a9b1f::t_d94584cd3caa86 693-697,699-701,704,708-710,712
+TlsLib/src/Engine/TlpTlsEngineFactory.pas
+  s_09d3c46d1a9b1f::t_fd6b9f7bbe4d33 464-466,468-470,472
+  s_09d3c46d1a9b1f::t_9df7716aa3876f 505-506,508-509,511
+TlsLib.Tests/src/Tls12LoopbackTests.pas
+  s_09d3c46d1a9b1f::t_09f5270b7141d1 589-614
+  s_09d3c46d1a9b1f::t_c49a6b985e02e6 100
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_09d3c46d1a9b1f::t_a4702675236c70 294-295
+  s_09d3c46d1a9b1f::t_157d56efbeb563 403,405-412,414-416,418-420,422
+  s_09d3c46d1a9b1f::t_e25f2ed36f3250 69-70,72-74
+TlsLib/src/Interfaces/Negotiation/TlpINegotiation.pas
+  s_09d3c46d1a9b1f::t_e89d0ae3fae055 73-77
+  s_09d3c46d1a9b1f::t_fa67a010d38376 49-54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c9869967b15d6f7629a842d2557fe8d4d11f6090",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
