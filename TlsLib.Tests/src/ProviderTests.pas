@@ -169,7 +169,7 @@ end;
 procedure TTestCryptoProvider.TestHashReuseAcrossDoFinalNativeProvider;
 var
   LProvider: ICryptoProvider;
-  LHash: IHash;
+  LHash, LClone: IHash;
   LMsg, LFirst, LSecond, LFresh: TBytes;
 begin
   // a reusable hash object must digest identically on a second use of the same instance as a fresh
@@ -186,6 +186,16 @@ begin
   LFresh := LHash.DoFinal;
   CheckEqualBytes('the reused hash matches its first digest', LFirst, LSecond);
   CheckEqualBytes('and matches a fresh instance', LFresh, LSecond);
+  // a clone of a reusable hash must itself reset+reuse after its own DoFinal (the duplicated
+  // handle has to carry the reusable attribute)
+  LHash := LProvider.Primitives.CreateHash(THashAlgorithm.SHA_256);
+  LHash.Update(LMsg, 0, System.Length(LMsg));
+  LClone := LHash.Clone;
+  LFirst := LClone.DoFinal;
+  LClone.Update(LMsg, 0, System.Length(LMsg)); // reuse the clone
+  LSecond := LClone.DoFinal;
+  CheckEqualBytes('the reused clone matches its first digest', LFirst, LSecond);
+  CheckEqualBytes('and the reused clone matches a fresh instance', LFresh, LSecond);
 end;
 
 procedure TTestCryptoProvider.TestHmacReuseAcrossDoFinalNativeProvider;
