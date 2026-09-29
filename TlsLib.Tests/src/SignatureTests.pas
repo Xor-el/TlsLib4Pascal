@@ -106,7 +106,7 @@ var
   LMessage, LSignature: TBytes;
 begin
   LMessage := DecodeHex('54686520717569636b2062726f776e20666f78'); // "The quick brown fox"
-  LSigner := Crypto.Signing.CreateSignatureSigner(AScheme, Crypto.Signing.ImportSigningKey(APrivDer));
+  LSigner := Crypto.Signing.CreateSignatureSigner(AScheme, Crypto.Signing.ImportSigningKey(APrivDer, nil));
   LSigner.Update(LMessage, 0, System.Length(LMessage));
   LSignature := LSigner.Sign;
 
@@ -123,7 +123,7 @@ var
   LMessage, LSignature: TBytes;
 begin
   LMessage := DecodeHex('54686520717569636b2062726f776e20666f78');
-  LSigner := Crypto.Signing.CreateSignatureSigner(AScheme, Crypto.Signing.ImportSigningKey(APrivDer));
+  LSigner := Crypto.Signing.CreateSignatureSigner(AScheme, Crypto.Signing.ImportSigningKey(APrivDer, nil));
   LSigner.Update(LMessage, 0, System.Length(LMessage));
   LSignature := LSigner.Sign;
   // flip a signature byte
@@ -291,7 +291,7 @@ var
 begin
   // a random nonce would make each signature differ; matching the RFC's answers proves the
   // portable signer derives k from the key and message
-  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(Rfc6979P256Pkcs8));
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(Rfc6979P256Pkcs8), nil);
   LSample := DecodeHex('73616d706c65'); // "sample"
   LTest := DecodeHex('74657374'); // "test"
   LSignature := SignWith(LKey, LSample);
@@ -443,7 +443,7 @@ var
   LRaised: Boolean;
 begin
   // an EC key cannot sign an rsa_pss_rsae_* scheme; the seam refuses it before the backend
-  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ecdsa_key']));
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ecdsa_key']), nil);
   LRaised := False;
   try
     Crypto.Signing.CreateSignatureSigner(TSignatureScheme.RSA_PSS_RSAE_SHA256, LKey);
@@ -506,7 +506,7 @@ begin
   LMessage := DecodeHex('54686520717569636b2062726f776e20666f78'); // "The quick brown fox"
   LSigner := LCrypto.Signing.CreateSignatureSigner(
     TSignatureScheme.ECDSA_SECP256R1_SHA256,
-    LCrypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ecdsa_key'])));
+    LCrypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ecdsa_key']), nil));
   LSigner.Update(LMessage, 0, System.Length(LMessage));
   LSig := LSigner.Sign;
 
@@ -532,7 +532,7 @@ begin
   // the overlay signer enforces the same CapableSchemes gate as the portable one (native where
   // present, portable fallback otherwise), so this holds on every host
   LCrypto := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider);
-  LKey := LCrypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ecdsa_key']));
+  LKey := LCrypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ecdsa_key']), nil);
   LRaised := False;
   try
     LCrypto.Signing.CreateSignatureSigner(TSignatureScheme.RSA_PSS_RSAE_SHA256, LKey);

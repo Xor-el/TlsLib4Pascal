@@ -134,8 +134,7 @@ type
   /// provider so a different backend can supply it.
   /// </summary>
   IKeyAgreement = interface(IInterface)
-    ['{FFE70BE6-D33F-4CD4-B6B4-AA381B8863DE}']
-    function Name: string;
+    ['{D3D95685-9395-45A0-806E-F7869452C8E6}']
     /// <summary>A fresh key pair: the private key (an Ephemeral handle) and the public value
     /// to send.</summary>
     procedure GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
@@ -161,8 +160,7 @@ type
   /// so a different backend can supply it; the named-group layer wraps it.
   /// </summary>
   IKem = interface(IInterface)
-    ['{F362C3EF-E378-4C84-A7AB-45777EC1A8CA}']
-    function Name: string;
+    ['{6D6797E6-1ECD-4ED4-B420-6E171CC8D457}']
     /// <summary>A fresh key pair: the private (decapsulation) key handle and the public
     /// (encapsulation) key to send.</summary>
     procedure GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
@@ -229,23 +227,18 @@ type
   /// coherence domain.
   /// </summary>
   ISigningCrypto = interface(IInterface)
-    ['{367BAFEA-1828-4B5A-BA87-82CEDB994DD0}']
+    ['{F109F075-4F7D-4FF5-91F4-CCE67C2E080F}']
     /// <summary>
     /// Imports a signing private key in any supported encoding - PKCS#8, PKCS#1
     /// (RSAPrivateKey) or SEC1 (ECPrivateKey), in DER or PEM - into an opaque handle
-    /// that holds it as canonical PKCS#8 and reports the schemes it can sign with.
-    /// Malformed input raises EArgumentTlsLibException; an unsupported key algorithm
-    /// raises ENotSupportedTlsLibException.
-    /// </summary>
-    function ImportSigningKey(const AData: TBytes): ISigningKey; overload;
-    /// <summary>
-    /// As <see cref="ImportSigningKey" />, decrypting an encrypted PKCS#8 key (DER
-    /// EncryptedPrivateKeyInfo or an encrypted PEM key) with APassword. The passphrase is a
-    /// wiped buffer of host code units: nil means no passphrase, a zero-length buffer means an
-    /// empty passphrase.
+    /// that holds it as canonical PKCS#8 and reports the schemes it can sign with. An encrypted
+    /// PKCS#8 key (DER EncryptedPrivateKeyInfo or an encrypted PEM key) is decrypted with APassword,
+    /// a wiped buffer of UTF-8 passphrase octets: nil expects an unencrypted key (an encrypted one
+    /// then raises), a zero-length buffer is an empty passphrase. Malformed input raises
+    /// EArgumentTlsLibException; an unsupported key algorithm raises ENotSupportedTlsLibException.
     /// </summary>
     function ImportSigningKey(const AData: TBytes;
-      const APassword: ISecretBuffer): ISigningKey; overload;
+      const APassword: ISecretBuffer): ISigningKey;
     /// <summary>
     /// Imports a PKCS#12 (.pfx/.p12) blob decrypted with APassword into a crypto-level identity:
     /// the leaf and any intermediates as the chain (leaf first, DER) and an ISigningKey composed
@@ -257,8 +250,8 @@ type
     /// the key, one is selected deterministically. Fails closed: a wrong password, bad MAC, malformed store, or a
     /// store with no certificate for its key raises EArgumentTlsLibException and no partial
     /// credential is returned; an unsupported key algorithm raises ENotSupportedTlsLibException.
-    /// The passphrase is a wiped buffer of host code units: nil means no passphrase, a zero-length
-    /// buffer means an empty passphrase.
+    /// The passphrase is a wiped buffer of UTF-8 passphrase octets: nil means no passphrase, a
+    /// zero-length buffer means an empty passphrase.
     /// </summary>
     function ImportPkcs12(const AData: TBytes;
       const APassword: ISecretBuffer): TImportedCredential;

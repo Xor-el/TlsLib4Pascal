@@ -207,7 +207,7 @@ begin
   // sends a CertificateStatus when the client requests one
   Result.CertificateChain := TArray<TBytes>.Create(OcspField('leaf_cert'),
     OcspField('issuer_cert'));
-  Result.PrivateKey := Crypto.Signing.ImportSigningKey(OcspField('leaf_key'));
+  Result.PrivateKey := Crypto.Signing.ImportSigningKey(OcspField('leaf_key'), nil);
   Result.OcspStaple := OcspField('ocsp_good');
 end;
 
@@ -330,7 +330,7 @@ end;
 function TTestConfigResumption.ServerCredential: TTlsCredential;
 begin
   Result.CertificateChain := TArray<TBytes>.Create(DecodeHex(FCerts.Values['leaf_cert']));
-  Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(FCerts.Values['leaf_key']));
+  Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(FCerts.Values['leaf_key']), nil);
 end;
 
 function TTestConfigResumption.ClientTrust: ITrustAnchorStore;

@@ -27,6 +27,7 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpTlsAlert,
+  TlpEnumUtilities,
   TlpAlertMapping,
   TlpTlsLibExceptions,
   TlpISecretBuffer,
@@ -162,16 +163,18 @@ var
   LPriv, LPriv2, LPeerPriv: IKeyExchangePrivateKey;
   LScalar: ISecretBuffer;
   LPub, LPub2, LPeerPub: TBytes;
+  LName: string;
 begin
+  LName := TEnumUtilities.GetName<TKeyAgreementAlgorithm>(AAlgorithm);
   LKa := Crypto.Primitives.CreateKeyAgreement(AAlgorithm);
   LKa.GenerateKeyPair(LPriv, LPub);
   // export the raw scalar and re-import it; the derived public must match the original
   LScalar := LPriv.ExportRaw;
   LPriv2 := LKa.ImportPrivateKey(LScalar, TKeyAgreementUsage.Ephemeral, LPub2);
-  CheckEqualBytes(LKa.Name + ' import derives the same public', LPub, LPub2);
+  CheckEqualBytes(LName + ' import derives the same public', LPub, LPub2);
   // the re-imported key agrees identically with a peer (functionally the same key)
   LKa.GenerateKeyPair(LPeerPriv, LPeerPub);
-  CheckEqualBytes(LKa.Name + ' re-imported key agrees identically',
+  CheckEqualBytes(LName + ' re-imported key agrees identically',
     SecretBytes(LKa.Agree(LPriv, LPeerPub)),
     SecretBytes(LKa.Agree(LPriv2, LPeerPub)));
 end;
@@ -182,17 +185,19 @@ var
   LKa: IKeyAgreement;
   LPriv, LStaticPriv, LPeerPriv: IKeyExchangePrivateKey;
   LPub, LPubDup, LPeerPub: TBytes;
+  LName: string;
 begin
+  LName := TEnumUtilities.GetName<TKeyAgreementAlgorithm>(AAlgorithm);
   LKa := Crypto.Primitives.CreateKeyAgreement(AAlgorithm);
   // one scalar adopted twice: once Ephemeral (as generated), once Static (posture-on-handle)
   LKa.GenerateKeyPair(LPriv, LPub);
   LStaticPriv := LKa.ImportPrivateKey(LPriv.ExportRaw, TKeyAgreementUsage.Static, LPubDup);
   LKa.GenerateKeyPair(LPeerPriv, LPeerPub);
-  CheckEqualBytes(LKa.Name + ' static usage agrees like ephemeral',
+  CheckEqualBytes(LName + ' static usage agrees like ephemeral',
     SecretBytes(LKa.Agree(LPriv, LPeerPub)),
     SecretBytes(LKa.Agree(LStaticPriv, LPeerPub)));
   // both parties reach the same secret under full blinding (DH is commutative)
-  CheckEqualBytes(LKa.Name + ' static usage is commutative',
+  CheckEqualBytes(LName + ' static usage is commutative',
     SecretBytes(LKa.Agree(LStaticPriv, LPeerPub)),
     SecretBytes(LKa.Agree(LPeerPriv, LPub)));
 end;

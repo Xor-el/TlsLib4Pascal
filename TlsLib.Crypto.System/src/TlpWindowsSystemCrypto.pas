@@ -90,6 +90,9 @@ const
 
   BCRYPT_USE_SYSTEM_PREFERRED_RNG = ULONG($00000002);
   BCRYPT_ALG_HANDLE_HMAC_FLAG = ULONG($00000008);
+  // a hash/HMAC object that can be reused after FinishHash (reset, and re-keyed for an HMAC)
+  // instead of destroyed and recreated per finish; unsupported before Windows 8
+  BCRYPT_HASH_REUSABLE_FLAG = ULONG($00000020);
   // the HKDF info travels in the BCryptKeyDerivation parameter list, not as a key property
   KDF_HKDF_INFO = ULONG($14);
   BCRYPTBUFFER_VERSION = ULONG(0);
@@ -390,7 +393,6 @@ type
 
   // a single NIST prime curve as CNG parametrizes it.
   TCngCurve = record
-    Name: string;
     KeyBits: ULONG;
     FieldSize: Int32;
     PubMagic: ULONG;
@@ -498,7 +500,6 @@ type
   public
     constructor Create(const AApi: TCngApi; AAlg: Pointer; const ACurve: TCngCurve;
       const AKeeper: IWindowsCng);
-    function Name: string;
     procedure GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
       out APublicKey: TBytes);
     function Agree(const APrivateKey: IKeyExchangePrivateKey;
@@ -519,7 +520,6 @@ type
     function PrivateBlob(const AScalar: TBytes): TBytes;
     function DeriveSecret(ASecret: Pointer): TBytes;
   public
-    function Name: string;
     procedure GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
       out APublicKey: TBytes);
     function Agree(const APrivateKey: IKeyExchangePrivateKey;
@@ -540,7 +540,6 @@ type
     function ImportPublic(const APeerPublicKey: TBytes): Pointer;
     function ImportPrivate(const APrivateBlob: TBytes): Pointer;
   public
-    function Name: string;
     procedure GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
       out APublicKey: TBytes);
     procedure Encapsulate(const APeerPublicKey: TBytes; out ACiphertext: TBytes;
@@ -574,10 +573,14 @@ type
     FHashSize: Int32;
     FKeeper: IWindowsCng;
     FHash: Pointer;
+    FReusable: Boolean;
     procedure Fresh;
+    // adopts an already-created hash handle (for Clone), rather than making a fresh one
+    constructor CreateAdopting(const AApi: TCngApi; AAlg: Pointer; AHashSize: Int32;
+      const AKeeper: IWindowsCng; AReusable: Boolean; AHash: Pointer);
   public
     constructor Create(const AApi: TCngApi; AAlg: Pointer;
-      AHashSize: Int32; const AKeeper: IWindowsCng);
+      AHashSize: Int32; const AKeeper: IWindowsCng; AReusable: Boolean);
     destructor Destroy; override;
     function HashSize: Int32;
     procedure Update(const AData: TBytes; AOffset, ALength: Int32);
@@ -596,10 +599,11 @@ type
     FKeeper: IWindowsCng;
     FKey: TBytes;
     FHash: Pointer;
+    FReusable: Boolean;
     procedure Fresh;
   public
     constructor Create(const AApi: TCngApi; AAlg: Pointer;
-      AMacSize: Int32; const AKeeper: IWindowsCng);
+      AMacSize: Int32; const AKeeper: IWindowsCng; AReusable: Boolean);
     destructor Destroy; override;
     function MacSize: Int32;
     procedure Init(const AKey: ISecretBuffer);
@@ -672,6 +676,8 @@ type
     FX25519: Pointer;
     FHashSha256, FHashSha384, FHashSha512: Pointer;
     FHmacSha256, FHmacSha384, FHmacSha512: Pointer;
+    // whether this OS reuses hash/HMAC objects across FinishHash (Win8+); probed once
+    FHashReusable: Boolean;
     FAesGcm, FChaCha: Pointer;
     FMlKem: Pointer;
     FHkdfAlg: Pointer;
@@ -965,9 +971,8 @@ type
   public
     constructor Create(const AInner: ISigningCrypto;
       const ANCrypt: IWindowsNCrypt);
-    function ImportSigningKey(const AData: TBytes): ISigningKey; overload;
     function ImportSigningKey(const AData: TBytes;
-      const APassword: ISecretBuffer): ISigningKey; overload;
+      const APassword: ISecretBuffer): ISigningKey;
     function ImportPkcs12(const AData: TBytes;
       const APassword: ISecretBuffer): TImportedCredential;
     function CreateSignatureSigner(AScheme: TSignatureScheme;
@@ -1112,21 +1117,40 @@ end;
 { TWindowsCngHash }
 
 constructor TWindowsCngHash.Create(const AApi: TCngApi; AAlg: Pointer;
-  AHashSize: Int32; const AKeeper: IWindowsCng);
+  AHashSize: Int32; const AKeeper: IWindowsCng; AReusable: Boolean);
 begin
   inherited Create;
   FApi := AApi;
   FAlg := AAlg;
   FHashSize := AHashSize;
   FKeeper := AKeeper;
+  FReusable := AReusable;
   Fresh;
 end;
 
+constructor TWindowsCngHash.CreateAdopting(const AApi: TCngApi; AAlg: Pointer;
+  AHashSize: Int32; const AKeeper: IWindowsCng; AReusable: Boolean; AHash: Pointer);
+begin
+  inherited Create;
+  FApi := AApi;
+  FAlg := AAlg;
+  FHashSize := AHashSize;
+  FKeeper := AKeeper;
+  FReusable := AReusable;
+  FHash := AHash;
+end;
+
 procedure TWindowsCngHash.Fresh;
+var
+  LFlags: ULONG;
 begin
   FHash := nil;
+  if FReusable then
+    LFlags := BCRYPT_HASH_REUSABLE_FLAG
+  else
+    LFlags := 0;
   // nil hash-object buffer: CNG allocates and frees it with the hash handle (Win7+)
-  TCngError.Check(FApi.CreateHash(FAlg, FHash, nil, 0, nil, 0, 0));
+  TCngError.Check(FApi.CreateHash(FAlg, FHash, nil, 0, nil, 0, LFlags));
 end;
 
 destructor TWindowsCngHash.Destroy;
@@ -1154,43 +1178,57 @@ begin
   Result := nil;
   SetLength(Result, FHashSize);
   TCngError.Check(FApi.FinishHash(FHash, PByte(Result), FHashSize, 0));
-  // finishing finalizes the handle; recreate a fresh one so the instance is reusable
-  FApi.DestroyHash(FHash);
-  Fresh;
+  // a reusable object is reset by FinishHash and ready again; otherwise recreate so the
+  // instance stays reusable
+  if not FReusable then
+  begin
+    FApi.DestroyHash(FHash);
+    Fresh;
+  end;
 end;
 
 function TWindowsCngHash.Clone: IHash;
 var
   LDup: Pointer;
-  LClone: TWindowsCngHash;
 begin
   LDup := nil;
   TCngError.Check(FApi.DuplicateHash(FHash, LDup, nil, 0, 0));
-  LClone := TWindowsCngHash.Create(FApi, FAlg, FHashSize, FKeeper);
-  // discard the fresh handle the constructor made; adopt the duplicated current-state one
-  FApi.DestroyHash(LClone.FHash);
-  LClone.FHash := LDup;
-  Result := LClone;
+  // adopt the duplicated current-state handle directly (it keeps the reusable flag)
+  Result := TWindowsCngHash.CreateAdopting(FApi, FAlg, FHashSize, FKeeper, FReusable, LDup);
 end;
 
 { TWindowsCngHmac }
 
 constructor TWindowsCngHmac.Create(const AApi: TCngApi; AAlg: Pointer;
-  AMacSize: Int32; const AKeeper: IWindowsCng);
+  AMacSize: Int32; const AKeeper: IWindowsCng; AReusable: Boolean);
 begin
   inherited Create;
   FApi := AApi;
   FAlg := AAlg;
   FMacSize := AMacSize;
   FKeeper := AKeeper;
+  FReusable := AReusable;
 end;
 
 procedure TWindowsCngHmac.Fresh;
+var
+  LFlags: ULONG;
 begin
   FHash := nil;
+  if FReusable then
+    LFlags := BCRYPT_HASH_REUSABLE_FLAG
+  else
+    LFlags := 0;
   // the key is embedded in the keyed hash; PByte(FKey) is nil for a zero-length key
   TCngError.Check(FApi.CreateHash(FAlg, FHash, nil, 0, PByte(FKey),
-    System.Length(FKey), 0));
+    System.Length(FKey), LFlags));
+  // a reusable object re-keys itself with this key on every FinishHash, so the retained copy is
+  // no longer needed; keep it only for the recreate path
+  if FReusable then
+  begin
+    TSecureMemory.WipeBytes(FKey);
+    FKey := nil;
+  end;
 end;
 
 destructor TWindowsCngHmac.Destroy;
@@ -1231,9 +1269,13 @@ begin
   Result := nil;
   SetLength(Result, FMacSize);
   TCngError.Check(FApi.FinishHash(FHash, PByte(Result), FMacSize, 0));
-  // re-key a fresh handle so the instance is reusable with the same key
-  FApi.DestroyHash(FHash);
-  Fresh;
+  // a reusable object is reset and re-keyed with the same key by FinishHash; otherwise recreate
+  // it from the retained key so the instance stays reusable
+  if not FReusable then
+  begin
+    FApi.DestroyHash(FHash);
+    Fresh;
+  end;
 end;
 
 { TWindowsCngHkdf }
@@ -1539,11 +1581,6 @@ begin
   FCurve := ACurve;
 end;
 
-function TWindowsCngKeyAgreement.Name: string;
-begin
-  Result := FCurve.Name;
-end;
-
 function TWindowsCngKeyAgreement.IsUncompressed(const APoint: TBytes): Boolean;
 begin
   // an EC key share must use the uncompressed point form: RFC 8446 4.2.8.2 (TLS 1.3)
@@ -1753,11 +1790,6 @@ end;
 
 { TWindowsCngX25519 }
 
-function TWindowsCngX25519.Name: string;
-begin
-  Result := 'X25519';
-end;
-
 function TWindowsCngX25519.PeerBlob(const APeer: TBytes): TBytes;
 begin
   // generic ECDH public blob: { dwMagic; cbKey=32 } then X (the raw 32-byte little-endian
@@ -1939,11 +1971,6 @@ begin
 end;
 
 { TWindowsCngKem }
-
-function TWindowsCngKem.Name: string;
-begin
-  Result := 'ML-KEM-768';
-end;
 
 function TWindowsCngKem.ExtractPublicKey(const ABlob: TBytes): TBytes;
 var
@@ -2153,7 +2180,6 @@ begin
   case AAlgorithm of
     TKeyAgreementAlgorithm.SECP256R1:
       begin
-        Result.Name := 'secp256r1';
         Result.KeyBits := 256;
         Result.FieldSize := 32;
         Result.PubMagic := BCRYPT_ECDH_PUBLIC_P256_MAGIC;
@@ -2161,7 +2187,6 @@ begin
       end;
     TKeyAgreementAlgorithm.SECP384R1:
       begin
-        Result.Name := 'secp384r1';
         Result.KeyBits := 384;
         Result.FieldSize := 48;
         Result.PubMagic := BCRYPT_ECDH_PUBLIC_P384_MAGIC;
@@ -2169,7 +2194,6 @@ begin
       end;
   else
     // SECP521R1
-    Result.Name := 'secp521r1';
     Result.KeyBits := 521;
     Result.FieldSize := 66;
     Result.PubMagic := BCRYPT_ECDH_PUBLIC_P521_MAGIC;
@@ -2230,6 +2254,7 @@ end;
 constructor TWindowsCng.Create;
 var
   LHashCore, LHashClone, LAgree, LAead, LKem: Boolean;
+  LProbeAlg, LProbe: Pointer;
 begin
   inherited Create;
   // only the module load (plus the universal open/close handle calls, checked in LoadApi)
@@ -2265,6 +2290,23 @@ begin
     FHmacSha256 := TryOpenAlg('SHA256', BCRYPT_ALG_HANDLE_HMAC_FLAG);
     FHmacSha384 := TryOpenAlg('SHA384', BCRYPT_ALG_HANDLE_HMAC_FLAG);
     FHmacSha512 := TryOpenAlg('SHA512', BCRYPT_ALG_HANDLE_HMAC_FLAG);
+  end;
+  // probe once whether the OS supports reusable hash objects (Win8+): if so, a finished hash/HMAC
+  // resets for reuse instead of being destroyed and recreated per DoFinal. Any failure (e.g. Win7
+  // rejecting the flag) leaves the recreate path in force.
+  FHashReusable := False;
+  if FHashSha256 <> nil then
+    LProbeAlg := FHashSha256
+  else
+    LProbeAlg := FHmacSha256;
+  if LProbeAlg <> nil then
+  begin
+    LProbe := nil;
+    if FApi.CreateHash(LProbeAlg, LProbe, nil, 0, nil, 0, BCRYPT_HASH_REUSABLE_FLAG) = STATUS_SUCCESS then
+    begin
+      FHashReusable := True;
+      FApi.DestroyHash(LProbe);
+    end;
   end;
   if LAgree then
   begin
@@ -2414,7 +2456,7 @@ begin
     Exit(False);
   end;
   AHash := TWindowsCngHash.Create(FApi, LAlg, LHashSize,
-    Self as IWindowsCng);
+    Self as IWindowsCng, FHashReusable);
   Result := True;
 end;
 
@@ -2463,7 +2505,7 @@ begin
     AHmac := nil;
     Exit(False);
   end;
-  AHmac := TWindowsCngHmac.Create(FApi, LAlg, LMacSize, Self as IWindowsCng);
+  AHmac := TWindowsCngHmac.Create(FApi, LAlg, LMacSize, Self as IWindowsCng, FHashReusable);
   Result := True;
 end;
 
@@ -3927,29 +3969,6 @@ begin
     end;
   end;
   Result := False;
-end;
-
-function TWindowsSigningCrypto.ImportSigningKey(const AData: TBytes): ISigningKey;
-var
-  LKey: NativeUInt;
-  LSchemes: TArray<TSignatureScheme>;
-  LSpki: TBytes;
-  LOwner: INCryptKeyOwner;
-begin
-  // native path is a PKCS#8 key (RSA or NIST-curve ECDSA) - DER imported directly, PEM
-  // decoded first; a PKCS#1/SEC1 or Ed25519 key delegates to the portable facet
-  if TPem.IsArmored(AData) then
-  begin
-    if not TryImportPemNative(AData, nil, Result) then
-      Result := FInner.ImportSigningKey(AData);
-  end
-  else if FNCrypt.TryImportKey(AData, nil, LKey, LSchemes, LSpki) then
-  begin
-    LOwner := TNCryptKeyOwner.Create(FNCrypt, LKey);
-    Result := TWindowsSigningKey.Create(LOwner, LSchemes, LSpki);
-  end
-  else
-    Result := FInner.ImportSigningKey(AData);
 end;
 
 function TWindowsSigningCrypto.ImportSigningKey(const AData: TBytes;

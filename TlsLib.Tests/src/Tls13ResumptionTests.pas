@@ -211,7 +211,7 @@ begin
   try
     Result.CertificateChain := TArray<TBytes>.Create(
       DecodeHex(LCerts.Values['leaf_cert']));
-    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
+    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']), nil);
   finally
     LCerts.Free;
   end;
@@ -1138,7 +1138,7 @@ begin
   try
     LClientRoot := DecodeHex(LV.Values['root_cert']);
     LClientCred.CertificateChain := TArray<TBytes>.Create(DecodeHex(LV.Values['leaf_cert']));
-    LClientCred.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LV.Values['leaf_key']));
+    LClientCred.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LV.Values['leaf_key']), nil);
   finally
     LV.Free;
   end;
@@ -1262,7 +1262,7 @@ begin
   try
     LClientRoot := DecodeHex(LV.Values['root_cert']);
     LClientCred.CertificateChain := TArray<TBytes>.Create(DecodeHex(LV.Values['leaf_cert']));
-    LClientCred.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LV.Values['leaf_key']));
+    LClientCred.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LV.Values['leaf_key']), nil);
   finally
     LV.Free;
   end;
@@ -1305,7 +1305,7 @@ begin
   try
     ARootCert := DecodeHex(LV.Values['root_cert']);
     Result.CertificateChain := TArray<TBytes>.Create(DecodeHex(LV.Values['leaf_cert']));
-    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LV.Values['leaf_key']));
+    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LV.Values['leaf_key']), nil);
   finally
     LV.Free;
   end;

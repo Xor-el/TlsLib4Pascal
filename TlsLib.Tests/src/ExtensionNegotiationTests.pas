@@ -217,7 +217,7 @@ begin
   try
     Result.CertificateChain := TArray<TBytes>.Create(
       DecodeHex(LCerts.Values['leaf_cert']));
-    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
+    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']), nil);
   finally
     LCerts.Free;
   end;

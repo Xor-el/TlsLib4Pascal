@@ -118,7 +118,7 @@ end;
 
 function TTestCredentialImport.Import(const AField: string): ISigningKey;
 begin
-  Result := Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values[AField]));
+  Result := Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values[AField]), nil);
 end;
 
 function TTestCredentialImport.RoundTrips(AScheme: TSignatureScheme;
@@ -322,7 +322,7 @@ var
 begin
   LRaised := False;
   try
-    Crypto.Signing.ImportSigningKey(DecodeHex('deadbeefdeadbeef'));
+    Crypto.Signing.ImportSigningKey(DecodeHex('deadbeefdeadbeef'), nil);
   except
     // a typed library exception, never a raw backend/ASN.1 exception
     on E: EArgumentTlsLibException do
@@ -338,7 +338,7 @@ begin
   LRaised := False;
   try
     // a valid PKCS#8 X25519 key: parseable, but not a signing algorithm
-    Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['x25519_pkcs8_der']));
+    Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['x25519_pkcs8_der']), nil);
   except
     on E: ENotSupportedTlsLibException do
       LRaised := True;
@@ -368,7 +368,7 @@ procedure TTestCredentialImport.TestEncryptedKeyWithoutPasswordReportsPasswordRe
   begin
     LMsg := '';
     try
-      Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values[AField]));
+      Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values[AField]), nil);
     except
       on E: EArgumentTlsLibException do
         LMsg := E.Message;

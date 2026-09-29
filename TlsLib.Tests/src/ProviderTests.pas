@@ -65,6 +65,8 @@ type
     procedure TestSha256Kat;
     procedure TestSha384Kat;
     procedure TestHashCloneIsIndependent;
+    procedure TestHashReuseAcrossDoFinalNativeProvider;
+    procedure TestHmacReuseAcrossDoFinalNativeProvider;
     procedure TestHmacSha256Kat;
     procedure TestHkdfSha256Rfc5869;
     procedure TestHkdfExpandRejectsOverCapAndNegative;
@@ -162,6 +164,64 @@ begin
   LHash.Update(DecodeHex('6263'), 0, 2); // 'bc'
   LClone.Update(DecodeHex('6263'), 0, 2);
   CheckEqualBytes('clone independent', LHash.DoFinal, LClone.DoFinal);
+end;
+
+procedure TTestCryptoProvider.TestHashReuseAcrossDoFinalNativeProvider;
+var
+  LProvider: ICryptoProvider;
+  LHash, LClone: IHash;
+  LMsg, LFirst, LSecond, LFresh: TBytes;
+begin
+  // a reusable hash object must digest identically on a second use of the same instance as a fresh
+  // instance would (N5: the reusable flag resets the object at DoFinal instead of recreating it)
+  LProvider := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider);
+  LMsg := DecodeHex('616263'); // 'abc'
+  LHash := LProvider.Primitives.CreateHash(THashAlgorithm.SHA_256);
+  LHash.Update(LMsg, 0, System.Length(LMsg));
+  LFirst := LHash.DoFinal;
+  LHash.Update(LMsg, 0, System.Length(LMsg)); // reuse the same instance
+  LSecond := LHash.DoFinal;
+  LHash := LProvider.Primitives.CreateHash(THashAlgorithm.SHA_256);
+  LHash.Update(LMsg, 0, System.Length(LMsg));
+  LFresh := LHash.DoFinal;
+  CheckEqualBytes('the reused hash matches its first digest', LFirst, LSecond);
+  CheckEqualBytes('and matches a fresh instance', LFresh, LSecond);
+  // a clone of a reusable hash must itself reset+reuse after its own DoFinal (the duplicated
+  // handle has to carry the reusable attribute)
+  LHash := LProvider.Primitives.CreateHash(THashAlgorithm.SHA_256);
+  LHash.Update(LMsg, 0, System.Length(LMsg));
+  LClone := LHash.Clone;
+  LFirst := LClone.DoFinal;
+  LClone.Update(LMsg, 0, System.Length(LMsg)); // reuse the clone
+  LSecond := LClone.DoFinal;
+  CheckEqualBytes('the reused clone matches its first digest', LFirst, LSecond);
+  CheckEqualBytes('and the reused clone matches a fresh instance', LFresh, LSecond);
+end;
+
+procedure TTestCryptoProvider.TestHmacReuseAcrossDoFinalNativeProvider;
+var
+  LProvider: ICryptoProvider;
+  LHmac: IHmac;
+  LKey: ISecretBuffer;
+  LData, LFirst, LSecond, LFresh: TBytes;
+begin
+  // a reusable HMAC object re-keys with the same key at DoFinal, so a second use of the same
+  // instance must match a fresh instance under the same key (N5)
+  LProvider := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider);
+  LKey := TSecretBuffer.From(DecodeHex('0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b'));
+  LData := DecodeHex('4869205468657265'); // 'Hi There'
+  LHmac := LProvider.Primitives.CreateHmac(THashAlgorithm.SHA_256);
+  LHmac.Init(LKey);
+  LHmac.Update(LData, 0, System.Length(LData));
+  LFirst := LHmac.DoFinal;
+  LHmac.Update(LData, 0, System.Length(LData)); // reuse the same instance, same key
+  LSecond := LHmac.DoFinal;
+  LHmac := LProvider.Primitives.CreateHmac(THashAlgorithm.SHA_256);
+  LHmac.Init(LKey);
+  LHmac.Update(LData, 0, System.Length(LData));
+  LFresh := LHmac.DoFinal;
+  CheckEqualBytes('the reused HMAC matches its first MAC', LFirst, LSecond);
+  CheckEqualBytes('and matches a fresh instance', LFresh, LSecond);
 end;
 
 procedure TTestCryptoProvider.TestHmacSha256Kat;
