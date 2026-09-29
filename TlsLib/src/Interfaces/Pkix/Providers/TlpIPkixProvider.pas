@@ -142,7 +142,8 @@ type
     /// Classifies the certificate leaf key: AKind is the public-key algorithm, and for an
     /// ECDSA key AEcNamedGroup is the named-group code of its curve (secp256r1 = 0x0017,
     /// secp384r1 = 0x0018, secp521r1 = 0x0019), 0 otherwise. Returns False (could not
-    /// determine) on a malformed or unrecognized certificate, leaving AKind = Other.
+    /// determine) on a malformed or unrecognized certificate; on False AKind is unspecified,
+    /// so a caller must branch on the result, not on AKind.
     /// </summary>
     function KeyKind(const ACertificateDer: TBytes;
       out AKind: TSignatureKeyKind; out AEcNamedGroup: UInt16): Boolean;

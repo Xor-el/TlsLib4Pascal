@@ -1039,9 +1039,18 @@ begin
 end;
 
 function TNistEcAgreement.WrapPeer(const APeerPub: TBytes): IECPublicKeyParameters;
+const
+  UncompressedPointPrefix = $04; // SEC1 uncompressed EC point form
 var
   LPoint: IECPoint;
 begin
+  // the peer point must be the SEC1 uncompressed form of the exact field width: RFC 9180 4.1 fixes
+  // the DHKEM public-key length (Npk = 1 + 2*fieldSize) and RFC 8446 4.2.8.2 / RFC 8422 5.1.2 forbid
+  // compressed/hybrid encodings. DecodePoint alone would accept a compressed 0x02/0x03 point, so gate
+  // the form here - this path also serves HPKE Decap, where a short compressed enc would slip through.
+  if (System.Length(APeerPub) <> 1 + 2 * FFieldSize) or
+    (APeerPub[0] <> UncompressedPointPrefix) then
+    raise EPeerInputTlsLibException.CreateRes(@SInvalidPeerPoint);
   try
     LPoint := FDomain.Curve.DecodePoint(APeerPub);
   except

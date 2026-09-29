@@ -146,6 +146,7 @@ type
     procedure TestAsyncVerdictResolverAcceptCompletesOverPump;
     procedure TestAsyncVerdictResolverRejectFailsClosedOverPump;
     procedure TestBulkThroughputRoundTripDoesNotWedge;
+    procedure TestWriteAfterPreHandshakeCloseNotifyRaises;
   end;
 
 implementation
@@ -333,6 +334,39 @@ function TTestTlsStreamLoopback.NewServerStream(
 begin
   Result := TTlsStream.Create(ATransport,
     TTlsEngineFactory.CreateServerEngine(ServerConfig), False, '');
+end;
+
+procedure TTestTlsStreamLoopback.TestWriteAfterPreHandshakeCloseNotifyRaises;
+var
+  LC2S, LS2C: TMemoryPipe;
+  LClientT, LServerT: ITlsTransport;
+  LClient: TTlsStream;
+  LByte: Byte;
+  LRaised: Boolean;
+begin
+  LC2S := TMemoryPipe.Create;
+  LS2C := TMemoryPipe.Create;
+  // both paired transports are held so each frees one pipe exactly once (no peer thread needed:
+  // the guard fires before any handshake or transport I/O)
+  LClientT := TMemoryTransport.Create(LS2C, LC2S) as ITlsTransport;
+  LServerT := TMemoryTransport.Create(LC2S, LS2C) as ITlsTransport;
+  LClient := NewClientStream(LClientT, ClientConfig(False, nil));
+  try
+    LClient.CloseNotify; // before any handshake: latches the write-closed flag, sends nothing
+    LByte := $41;
+    LRaised := False;
+    try
+      LClient.Write(LByte, 1);
+    except
+      on E: EInvalidOperationTlsLibException do
+        LRaised := True;
+    end;
+    CheckTrue(LRaised,
+      'a write after a pre-handshake CloseNotify raises rather than silently handshaking');
+  finally
+    LClient.Free;
+  end;
+  LServerT := nil;
 end;
 
 procedure TTestTlsStreamLoopback.RunLoopback(const AClientConfig: ITlsClientConfig;

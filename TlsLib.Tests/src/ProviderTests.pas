@@ -60,6 +60,7 @@ type
     // a key handle from one primitive must never agree under another (the same-width foreign
     // scalar that once nil-cast to an AV)
     procedure DoAgreeRejectsForeignKeyHandle(const AProvider: ICryptoProvider);
+    procedure DoAgreeRejectsCompressedPeerPoint(const AProvider: ICryptoProvider);
     procedure DoAeadSealWithoutInitRaisesTyped(const AProvider: ICryptoProvider);
   published
     procedure TestSha256Kat;
@@ -88,6 +89,7 @@ type
     procedure TestRandomDistinctNonZero;
     procedure TestHasHardwareAesReturnsBoolean;
     procedure TestAgreeRejectsForeignKeyHandle;
+    procedure TestAgreeRejectsCompressedPeerPoint;
     procedure TestDerReadTlvRejectsOverflowAndNonMinimalLengths;
     procedure TestAeadSealWithoutInitRaisesTyped;
     procedure TestAeadSealWithoutInitRaisesTypedNativeProvider;
@@ -816,6 +818,50 @@ end;
 procedure TTestCryptoProvider.TestAgreeRejectsForeignKeyHandle;
 begin
   DoAgreeRejectsForeignKeyHandle(Crypto);
+end;
+
+procedure TTestCryptoProvider.DoAgreeRejectsCompressedPeerPoint(
+  const AProvider: ICryptoProvider);
+var
+  LP: IKeyAgreement;
+  LPriv: IKeyExchangePrivateKey;
+  LPub, LCompressed, LHybrid: TBytes;
+  LI: Int32;
+  LRaised: Boolean;
+begin
+  LP := AProvider.Primitives.CreateKeyAgreement(TKeyAgreementAlgorithm.SECP256R1);
+  LP.GenerateKeyPair(LPriv, LPub); // SEC1 uncompressed: 0x04 || X(32) || Y(32)
+  // a SEC1 compressed encoding (0x02/0x03 || X, 33 bytes) is forbidden for TLS and HPKE EC points
+  // (RFC 8446 4.2.8.2 / RFC 8422 5.1.2 / RFC 9180 4.1); the agreement must reject it, never decode it
+  SetLength(LCompressed, 1 + 32);
+  LCompressed[0] := $02 or (LPub[64] and 1);
+  for LI := 1 to 32 do
+    LCompressed[LI] := LPub[LI];
+  LRaised := False;
+  try
+    LP.Agree(LPriv, LCompressed);
+  except
+    on E: EPeerInputTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a P-256 agreement must reject a compressed peer point');
+  // a SEC1 hybrid encoding (0x06/0x07 || X || Y) is full 65-byte width, so the length check passes
+  // and only the prefix check stops it; DecodePoint would otherwise accept hybrid
+  LHybrid := System.Copy(LPub);
+  LHybrid[0] := $06 or (LPub[64] and 1);
+  LRaised := False;
+  try
+    LP.Agree(LPriv, LHybrid);
+  except
+    on E: EPeerInputTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a P-256 agreement must reject a hybrid-form peer point');
+end;
+
+procedure TTestCryptoProvider.TestAgreeRejectsCompressedPeerPoint;
+begin
+  DoAgreeRejectsCompressedPeerPoint(Crypto);
 end;
 
 procedure TTestCryptoProvider.DoAeadSealWithoutInitRaisesTyped(
