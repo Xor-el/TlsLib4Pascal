@@ -622,8 +622,8 @@ begin
     if System.Length(AEchBody) > 0 then
       LContext.EchExtensionData := AEchBody;
     LBlock := FCodec.ProduceBlock(LContext, TTlsExtensionContextKind.ClientHello);
-    // GREASE splices one extension at the front of the block, so it precedes pre_shared_key
-    // (which must stay last, RFC 8446 4.2.11) even on a resumption ClientHello
+    // GREASE splices one extension next to encrypted_client_hello (else before pre_shared_key,
+    // which must stay last, RFC 8446 4.2.11), so an ECH inner keeps it in one compressible run
     if FParams.Grease then
       LBlock := TGrease.InjectExtension(LBlock, TGrease.ValueAt(LSeed + 5));
     LHello.Extensions := LBlock;
