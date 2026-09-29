@@ -367,8 +367,6 @@ type
     function WriteDirection: TTlsDirection; override;
     function ReadDirection: TTlsDirection; override;
     function ContinueAfterVerdict: TArray<THandshakeEffect>; override;
-    // the early exporter is withheld once an offered 0-RTT is rejected (the peer derives no early
-    // exporter for this connection), so a rejected offer can no longer export an unbindable value
     function CanExportEarlyKeyingMaterial: Boolean; override;
   public
     constructor Create(const AParams: TClientHandshakeParams);
