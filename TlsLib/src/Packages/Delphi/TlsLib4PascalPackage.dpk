@@ -128,6 +128,7 @@ contains
   TlpCredentialResolvers in '..\..\Handshake\TlpCredentialResolvers.pas',
   TlpEchConfig in '..\..\Ech\TlpEchConfig.pas',
   TlpEchExtension in '..\..\Ech\TlpEchExtension.pas',
+  TlpEchConfirmation in '..\..\Ech\TlpEchConfirmation.pas',
   TlpEchOuterExtensions in '..\..\Ech\TlpEchOuterExtensions.pas',
   TlpIEch in '..\..\Interfaces\Ech\TlpIEch.pas',
   TlpIEchClientOrchestrator in '..\..\Interfaces\Ech\TlpIEchClientOrchestrator.pas',

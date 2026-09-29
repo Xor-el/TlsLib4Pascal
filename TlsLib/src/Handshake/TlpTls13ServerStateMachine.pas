@@ -29,6 +29,7 @@ uses
   TlpINamedGroup,
   TlpIKeySchedule,
   TlpTls13KeySchedule,
+  TlpEchConfirmation,
   TlpITranscriptHash,
   TlpTranscriptHash,
   TlpCryptoDomainTypes,
@@ -1190,7 +1191,7 @@ begin
   LClone.SeedWithMessageHash(
     FParams.Crypto.Primitives.CreateHash(FSelectedSuite.Common.Hash), AInnerCh1Hash);
   LClone.Update(AHrrBytes);
-  LConf := TTls13KeySchedule.EchHrrAcceptConfirmation(
+  LConf := TEchConfirmation.HrrAccept(
     FParams.Crypto.Primitives.CreateHkdf(FSelectedSuite.Common.Hash),
     FEchInnerRandom, LClone.CurrentHash);
   // find the ech payload by parsing, not by assuming it is last (the registry may order it anywhere)
@@ -1353,7 +1354,7 @@ begin
     LZeroed[TEchExtension.FramedServerHelloConfirmationOffset + LI] := 0;
   LClone := FTranscript.Clone;
   LClone.Update(LZeroed);
-  LConf := TTls13KeySchedule.EchAcceptConfirmation(
+  LConf := TEchConfirmation.Accept(
     FParams.Crypto.Primitives.CreateHkdf(FSelectedSuite.Common.Hash),
     FEchInnerRandom, LClone.CurrentHash);
   Move(LConf[0], AServerHelloBytes[TEchExtension.FramedServerHelloConfirmationOffset],

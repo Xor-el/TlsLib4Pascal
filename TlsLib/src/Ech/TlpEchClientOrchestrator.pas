@@ -23,7 +23,7 @@ uses
   TlpTlsLibExceptions,
   TlpICryptoProvider,
   TlpCryptoDomainTypes,
-  TlpTls13KeySchedule,
+  TlpEchConfirmation,
   TlpITranscriptHash,
   TlpTranscriptHash,
   TlpIWireWriter,
@@ -589,7 +589,7 @@ begin
     LConf := TTranscriptHash.Create;
     LConf.SeedWithMessageHash(FCrypto.Primitives.CreateHash(AHash), LInnerCh1Hash);
     LConf.Update(LHrrZeroed);
-    LExpected := TTls13KeySchedule.EchHrrAcceptConfirmation(
+    LExpected := TEchConfirmation.HrrAccept(
       FCrypto.Primitives.CreateHkdf(AHash), FInnerRandom, LConf.CurrentHash);
     FHrrAccepted := TSecureMemory.ConstantTimeAreEqual(LExpected, LActual);
   end

@@ -458,6 +458,7 @@
         <DCCReference Include="..\..\TlsLib\src\Handshake\TlpCredentialResolvers.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Ech\TlpEchConfig.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Ech\TlpEchExtension.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Ech\TlpEchConfirmation.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Ech\TlpEchOuterExtensions.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Ech\TlpIEch.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Ech\TlpIEchClientOrchestrator.pas"/>

@@ -115,6 +115,7 @@ uses
   TlpCredentialResolvers in '..\..\TlsLib\src\Handshake\TlpCredentialResolvers.pas',
   TlpEchConfig in '..\..\TlsLib\src\Ech\TlpEchConfig.pas',
   TlpEchExtension in '..\..\TlsLib\src\Ech\TlpEchExtension.pas',
+  TlpEchConfirmation in '..\..\TlsLib\src\Ech\TlpEchConfirmation.pas',
   TlpEchOuterExtensions in '..\..\TlsLib\src\Ech\TlpEchOuterExtensions.pas',
   TlpIEch in '..\..\TlsLib\src\Interfaces\Ech\TlpIEch.pas',
   TlpIEchClientOrchestrator in '..\..\TlsLib\src\Interfaces\Ech\TlpIEchClientOrchestrator.pas',

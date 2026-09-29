@@ -52,7 +52,7 @@ uses
   TlpIKeyExchangePrivateKey, TlpTlsConnection, TlpTrustTypes, TlpIKeyLog, 
   TlpKeyLog, TlpAeadUtilities, TlpClientSessionPolicy, 
   TlpIEchClientOrchestrator, TlpEchClientOrchestrator, TlpImportedCredential, 
-  TlpISystemTrustInstaller, TlpExporterArgs;
+  TlpISystemTrustInstaller, TlpExporterArgs, TlpEchConfirmation;
 
 implementation
 
