@@ -172,8 +172,8 @@ var
   LHash, LClone: IHash;
   LMsg, LFirst, LSecond, LFresh: TBytes;
 begin
-  // a reusable hash object must digest identically on a second use of the same instance as a fresh
-  // instance would (N5: the reusable flag resets the object at DoFinal instead of recreating it)
+  // a reusable hash object resets itself at DoFinal, so a second use of the same instance must
+  // digest identically to a fresh instance
   LProvider := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider);
   LMsg := DecodeHex('616263'); // 'abc'
   LHash := LProvider.Primitives.CreateHash(THashAlgorithm.SHA_256);
@@ -206,7 +206,7 @@ var
   LData, LFirst, LSecond, LFresh: TBytes;
 begin
   // a reusable HMAC object re-keys with the same key at DoFinal, so a second use of the same
-  // instance must match a fresh instance under the same key (N5)
+  // instance must match a fresh instance under the same key
   LProvider := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider);
   LKey := TSecretBuffer.From(DecodeHex('0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b'));
   LData := DecodeHex('4869205468657265'); // 'Hi There'
