@@ -1,0 +1,63 @@
+TlsLib.Tests/src/Tls13ResumptionTests.pas
+  s_09d3c46d1a9b1f::t_bfc148daefb80d 214,1141,1265,1308
+TlsLib.Tests/src/Tls13KeyUpdateTests.pas
+  s_09d3c46d1a9b1f::t_bfc148daefb80d 88
+TlsLib.Tests/src/Tls13ServerReplayTests.pas
+  s_09d3c46d1a9b1f::t_bfc148daefb80d 303,530
+TlsLib.Tests/src/ClientAuthTests.pas
+  s_09d3c46d1a9b1f::t_bfc148daefb80d 135
+TlsLib.Tests/src/AsyncVerdictTests.pas
+  s_09d3c46d1a9b1f::t_bfc148daefb80d 234
+TlsLib/src/Handshake/TlpTlsCredential.pas
+  s_09d3c46d1a9b1f::t_bfc148daefb80d 124
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_09d3c46d1a9b1f::t_bfc148daefb80d 261,278
+TlsLib.Tests/src/CredentialImportTests.pas
+  s_09d3c46d1a9b1f::t_bfc148daefb80d 121,325,341,371
+TlsLib.Tests/src/Tls13LoopbackTests.pas
+  s_09d3c46d1a9b1f::t_bfc148daefb80d 237,264,323,371,1200
+TlsLib.Interop/src/InteropCredentials.pas
+  s_09d3c46d1a9b1f::t_bfc148daefb80d 88,127,141
+TlsLib.Tests/src/CertificateCompressionCacheTests.pas
+  s_09d3c46d1a9b1f::t_bfc148daefb80d 363
+TlsLib/src/Interfaces/Crypto/Providers/TlpICryptoProvider.pas
+  s_09d3c46d1a9b1f::t_caa9ee3bb7c82f 230,234-238,241
+  s_09d3c46d1a9b1f::t_1c3c55d6e75b36 253-254
+TlsLib.Tests/src/Tls12ResumptionTests.pas
+  s_09d3c46d1a9b1f::t_bfc148daefb80d 156,690
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_09d3c46d1a9b1f::t_10c215b41edc92 965
+TlsLib.Tests/src/Tls12DualVersionTests.pas
+  s_09d3c46d1a9b1f::t_bfc148daefb80d 150,466
+TlsLib.Tests/src/Tls12LoopbackTests.pas
+  s_09d3c46d1a9b1f::t_bfc148daefb80d 148,216,286,375
+TlsLib.Tests/src/WindowsSystemCryptoTests.pas
+  s_09d3c46d1a9b1f::t_bfc148daefb80d 273,302,416
+  s_09d3c46d1a9b1f::t_feeda8bff6ee5f 123
+TlsLib.Tests/src/HelloRetryRequestTests.pas
+  s_09d3c46d1a9b1f::t_bfc148daefb80d 280
+TlsLib.Tests/src/ConfigResumptionTests.pas
+  s_09d3c46d1a9b1f::t_bfc148daefb80d 210,333
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_09d3c46d1a9b1f::t_04b6a4bf8ee581 557
+TlsLib.Tests/src/ExtensionNegotiationTests.pas
+  s_09d3c46d1a9b1f::t_bfc148daefb80d 220
+TlsLib.Tests/src/SignatureTests.pas
+  s_09d3c46d1a9b1f::t_bfc148daefb80d 109,126,294,446,509,535
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c3686cc6262668ff3ee18698df5fd81502ebaf59",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
