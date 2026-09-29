@@ -20,12 +20,10 @@ uses
   TlpTlsAlert,
   TlpIPkixProvider,
   TlpIClock,
-  TlpClock,
   TlpServerName,
   TlpTrustPolicy,
   TlpCertificateStrengthPolicy,
   TlpChainAlgorithmPolicy,
-  TlpCertificateVerifier,
   TlpICertificateTrust,
   TlpTrustTypes,
   TlpICertificateVerifierSource,
@@ -71,8 +69,6 @@ type
     FPolicy: TOSDelegatePolicy;
     function DeferToLive: Boolean;
     function RevocationCheck: TPlatformRevocationCheck;
-    function StapleOutcome(const APath: TArray<TBytes>;
-      const AStaple: TBytes): TLiveRevocationOutcome;
   strict protected
     function BuildRequest(const AChain: TArray<TBytes>; const AServerName: TServerName;
       const AStaple: TBytes): TPlatformChainRequest;
@@ -209,25 +205,6 @@ begin
   end;
 end;
 
-function TOSDelegateVerifierBase.StapleOutcome(const APath: TArray<TBytes>;
-  const AStaple: TBytes): TLiveRevocationOutcome;
-var
-  LClock: ITlsClock;
-begin
-  // a nil clock means system time (as the delegates accept), so a staple is still authenticated
-  LClock := FPolicy.Clock;
-  if LClock = nil then
-    LClock := TSystemClock.Create as ITlsClock;
-  case TCertificateVerifier.StapleVerdict(FPolicy.Pkix, LClock, APath, AStaple) of
-    TStapleVerdict.GoodFresh, TStapleVerdict.GoodUnbounded:
-      Result := TLiveRevocationOutcome.Good;
-    TStapleVerdict.Revoked:
-      Result := TLiveRevocationOutcome.Revoked;
-  else
-    Result := TLiveRevocationOutcome.Indeterminate;
-  end;
-end;
-
 function TOSDelegateVerifierBase.BuildRequest(const AChain: TArray<TBytes>;
   const AServerName: TServerName; const AStaple: TBytes): TPlatformChainRequest;
 begin
@@ -251,8 +228,6 @@ end;
 function TOSDelegateVerifierBase.Complete(const AResult: TPlatformChainResult;
   const AServerName: TServerName; const AStaple: TBytes;
   out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
-var
-  LStaple: TLiveRevocationOutcome;
 begin
   AVerified := Default(TVerifiedChain);
   // without a provider or a built path there is nothing to decide over - fail closed
@@ -273,16 +248,14 @@ begin
     Exit(False);
   // a definitive stapled Revoked overrides under every posture (a staple the engine did not fold in,
   // e.g. under Off); an engine with no revocation outcome of its own decides revocation from it here
-  LStaple := StapleOutcome(AResult.Path, AStaple);
   if TPlatformChainCapability.CachedRevocation in Engine.Capabilities then
   begin
-    if LStaple = TLiveRevocationOutcome.Revoked then
-    begin
-      AAlert := TTlsAlertDescription.CertificateRevoked;
+    if TDelegatePostChecks.RejectStapledRevoked(FPolicy.Pkix, FPolicy.Clock, AResult.Path,
+      AStaple, AAlert) then
       Exit(False);
-    end;
   end
-  else if not TRevocationDecision.Decide(LStaple, FPolicy.Posture, DeferToLive, AAlert) then
+  else if not TRevocationDecision.Decide(TDelegatePostChecks.StapleOutcome(FPolicy.Pkix,
+    FPolicy.Clock, AResult.Path, AStaple), FPolicy.Posture, DeferToLive, AAlert) then
     Exit(False);
   // identity: an engine that matched the DNS host leaves only an IP literal to re-check; one that
   // checked no host has the full identity matched here (an empty client-role name fires neither).

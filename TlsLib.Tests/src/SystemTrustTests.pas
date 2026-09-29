@@ -135,6 +135,7 @@ type
     procedure TearDown; override;
   published
     procedure TestRevokedStapleRejectsOverOsPath;
+    procedure TestStapleOutcomeMapping;
     procedure TestGoodAndAbsentStapleDoNotFire;
     procedure TestStaleStapleIsNotRevoked;
     procedure TestLeafOnlyPathIsNotRevoked;
@@ -387,6 +388,27 @@ begin
     Ocsp('ocsp_revoked'), LAlert), 'a definitive stapled Revoked always rejects');
   CheckEquals(Ord(TTlsAlertDescription.CertificateRevoked), Ord(LAlert),
     'the alert is certificate_revoked');
+end;
+
+procedure TTestDelegatePostChecks.TestStapleOutcomeMapping;
+begin
+  // the one staple-to-outcome mapping RejectStapledRevoked and the delegate both read
+  CheckEquals(Ord(TLiveRevocationOutcome.Good),
+    Ord(TDelegatePostChecks.StapleOutcome(FPkix, FClock, OcspChain, Ocsp('ocsp_good'))),
+    'a current good staple maps to Good');
+  CheckEquals(Ord(TLiveRevocationOutcome.Revoked),
+    Ord(TDelegatePostChecks.StapleOutcome(FPkix, FClock, OcspChain, Ocsp('ocsp_revoked'))),
+    'a definitive revoked staple maps to Revoked');
+  CheckEquals(Ord(TLiveRevocationOutcome.Indeterminate),
+    Ord(TDelegatePostChecks.StapleOutcome(FPkix, FClock, OcspChain, Ocsp('ocsp_stale'))),
+    'a stale staple is indeterminate');
+  CheckEquals(Ord(TLiveRevocationOutcome.Indeterminate),
+    Ord(TDelegatePostChecks.StapleOutcome(FPkix, FClock, OcspChain, nil)),
+    'an absent staple is indeterminate');
+  CheckEquals(Ord(TLiveRevocationOutcome.Indeterminate),
+    Ord(TDelegatePostChecks.StapleOutcome(FPkix, FClock,
+    TArray<TBytes>.Create(Ocsp('leaf_cert')), Ocsp('ocsp_revoked'))),
+    'a leaf-only path cannot render a definitive outcome');
 end;
 
 procedure TTestDelegatePostChecks.TestGoodAndAbsentStapleDoNotFire;
