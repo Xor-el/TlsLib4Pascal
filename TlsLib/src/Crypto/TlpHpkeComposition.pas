@@ -39,6 +39,20 @@ type
   strict private
   var
     FPrimitives: ICryptoPrimitives;
+    // which primitives this provider can actually build, probed once at construction: a known id an
+    // overlay lacks makes Suite return nil (a clean ECH reject, not internal_error), off the hot path
+    FKemOk: array [0 .. 3] of Boolean;  // P-256, P-384, P-521, X25519
+    FHkdfOk: array [0 .. 2] of Boolean; // SHA-256, SHA-384, SHA-512
+    FAeadOk: array [0 .. 2] of Boolean; // AES-128-GCM, AES-256-GCM, ChaCha20-Poly1305
+    class function KaAvailable(const APrimitives: ICryptoPrimitives;
+      AAlgorithm: TKeyAgreementAlgorithm): Boolean; static;
+    class function HkdfAvailable(const APrimitives: ICryptoPrimitives;
+      AHash: THashAlgorithm): Boolean; static;
+    class function AeadAvailable(const APrimitives: ICryptoPrimitives;
+      AAead: TAeadAlgorithm): Boolean; static;
+    class function HashIndex(AHash: THashAlgorithm): Int32; static;
+    class function KemIndex(AKem: UInt16): Int32; static;
+    class function AeadIndex(AAead: UInt16): Int32; static;
   public
     constructor Create(const APrimitives: ICryptoPrimitives);
     function Suite(AKem, AKdf, AAead: UInt16): IHpkeSuite;
@@ -86,7 +100,6 @@ type
   THpkeCore = class sealed(TObject)
   strict private
     class function I2OSP2(AValue: Int32): TBytes; static;
-    class function KemKdfHash(AKem: UInt16): THashAlgorithm; static;
     class function KemNsecret(AKem: UInt16): Int32; static;
     class function KemSuiteId(AKem: UInt16): TBytes; static;
     class function HpkeSuiteId(AKem, AKdf, AAead: UInt16): TBytes; static;
@@ -103,16 +116,12 @@ type
   public
     class function KemKeyAgreement(AKem: UInt16): TKeyAgreementAlgorithm; static;
     class function KemNsk(AKem: UInt16): Int32; static;
+    class function KemKdfHash(AKem: UInt16): THashAlgorithm; static;
     class function KdfHash(AKdf: UInt16): THashAlgorithm; static;
     class function AeadAlgorithm(AAead: UInt16): TAeadAlgorithm; static;
     class function IsKnownKem(AKem: UInt16): Boolean; static;
     class function IsKnownKdf(AKdf: UInt16): Boolean; static;
     class function IsRealAead(AAead: UInt16): Boolean; static;
-    /// <summary>Whether APrimitives can actually instantiate every primitive a suite needs (the
-    /// KEM curve + its KDF hash, the suite KDF hash, and the AEAD). A known id an overlay lacks
-    /// makes Suite return nil, so an ECH offer for it becomes a clean reject, not internal_error.</summary>
-    class function CanCompose(const APrimitives: ICryptoPrimitives;
-      AKem, AKdf, AAead: UInt16): Boolean; static;
     // Encap(pkR) -> (shared_secret, enc); raises (via Agree) on a malformed/degenerate pkR
     class procedure Encap(const APrimitives: ICryptoPrimitives; AKem: UInt16;
       const ARecipientPublicKey: TBytes; out ASharedSecret: ISecretBuffer;
@@ -274,24 +283,6 @@ begin
   // every AEAD except export-only (0xFFFF), which cannot seal/open
   Result := (AAead = THpkeAead.AES_128_GCM) or (AAead = THpkeAead.AES_256_GCM) or
     (AAead = THpkeAead.CHACHA20_POLY1305);
-end;
-
-class function THpkeCore.CanCompose(const APrimitives: ICryptoPrimitives;
-  AKem, AKdf, AAead: UInt16): Boolean;
-begin
-  // instantiate each primitive the suite would use; an overlay that lacks one raises a typed
-  // ENotSupported (a subclass of EBaseTlsLibException), which means "not usable here", not a fault
-  Result := False;
-  try
-    APrimitives.CreateKeyAgreement(KemKeyAgreement(AKem));
-    APrimitives.CreateHkdf(KemKdfHash(AKem));
-    APrimitives.CreateHkdf(KdfHash(AKdf));
-    APrimitives.CreateAead(AeadAlgorithm(AAead));
-    Result := True;
-  except
-    on E: EBaseTlsLibException do
-      Result := False;
-  end;
 end;
 
 class function THpkeCore.KemKeyAgreement(AKem: UInt16): TKeyAgreementAlgorithm;
@@ -688,6 +679,95 @@ constructor THpkeComposition.Create(const APrimitives: ICryptoPrimitives);
 begin
   inherited Create;
   FPrimitives := APrimitives;
+  // probe each primitive once here rather than per Suite() call on the ECH hot path
+  FKemOk[0] := KaAvailable(APrimitives, TKeyAgreementAlgorithm.SECP256R1);
+  FKemOk[1] := KaAvailable(APrimitives, TKeyAgreementAlgorithm.SECP384R1);
+  FKemOk[2] := KaAvailable(APrimitives, TKeyAgreementAlgorithm.SECP521R1);
+  FKemOk[3] := KaAvailable(APrimitives, TKeyAgreementAlgorithm.X25519);
+  FHkdfOk[0] := HkdfAvailable(APrimitives, THashAlgorithm.SHA_256);
+  FHkdfOk[1] := HkdfAvailable(APrimitives, THashAlgorithm.SHA_384);
+  FHkdfOk[2] := HkdfAvailable(APrimitives, THashAlgorithm.SHA_512);
+  FAeadOk[0] := AeadAvailable(APrimitives, TAeadAlgorithm.AES_128_GCM);
+  FAeadOk[1] := AeadAvailable(APrimitives, TAeadAlgorithm.AES_256_GCM);
+  FAeadOk[2] := AeadAvailable(APrimitives, TAeadAlgorithm.CHACHA20_POLY1305);
+end;
+
+class function THpkeComposition.KaAvailable(const APrimitives: ICryptoPrimitives;
+  AAlgorithm: TKeyAgreementAlgorithm): Boolean;
+begin
+  // a backend that lacks the primitive raises a typed ENotSupported ("not usable here", not a fault)
+  Result := False;
+  try
+    APrimitives.CreateKeyAgreement(AAlgorithm);
+    Result := True;
+  except
+    on E: EBaseTlsLibException do
+      Result := False;
+  end;
+end;
+
+class function THpkeComposition.HkdfAvailable(const APrimitives: ICryptoPrimitives;
+  AHash: THashAlgorithm): Boolean;
+begin
+  Result := False;
+  try
+    APrimitives.CreateHkdf(AHash);
+    Result := True;
+  except
+    on E: EBaseTlsLibException do
+      Result := False;
+  end;
+end;
+
+class function THpkeComposition.AeadAvailable(const APrimitives: ICryptoPrimitives;
+  AAead: TAeadAlgorithm): Boolean;
+begin
+  Result := False;
+  try
+    APrimitives.CreateAead(AAead);
+    Result := True;
+  except
+    on E: EBaseTlsLibException do
+      Result := False;
+  end;
+end;
+
+class function THpkeComposition.HashIndex(AHash: THashAlgorithm): Int32;
+begin
+  case AHash of
+    THashAlgorithm.SHA_384:
+      Result := 1;
+    THashAlgorithm.SHA_512:
+      Result := 2;
+  else
+    Result := 0; // SHA-256
+  end;
+end;
+
+class function THpkeComposition.KemIndex(AKem: UInt16): Int32;
+begin
+  case AKem of
+    THpkeKem.DHKEM_P384_HKDF_SHA384:
+      Result := 1;
+    THpkeKem.DHKEM_P521_HKDF_SHA512:
+      Result := 2;
+    THpkeKem.DHKEM_X25519_HKDF_SHA256:
+      Result := 3;
+  else
+    Result := 0; // P-256
+  end;
+end;
+
+class function THpkeComposition.AeadIndex(AAead: UInt16): Int32;
+begin
+  case AAead of
+    THpkeAead.AES_256_GCM:
+      Result := 1;
+    THpkeAead.CHACHA20_POLY1305:
+      Result := 2;
+  else
+    Result := 0; // AES-128-GCM
+  end;
 end;
 
 function THpkeComposition.Suite(AKem, AKdf, AAead: UInt16): IHpkeSuite;
@@ -695,8 +775,9 @@ begin
   // return a suite only when the ids are known AND this provider's primitives can actually build
   // it - otherwise a caller (ECH) would get a non-nil suite whose Encap/SetupOpener then fails
   if THpkeCore.IsKnownKem(AKem) and THpkeCore.IsKnownKdf(AKdf) and
-    THpkeCore.IsRealAead(AAead) and
-    THpkeCore.CanCompose(FPrimitives, AKem, AKdf, AAead) then
+    THpkeCore.IsRealAead(AAead) and FKemOk[KemIndex(AKem)] and
+    FHkdfOk[HashIndex(THpkeCore.KemKdfHash(AKem))] and
+    FHkdfOk[HashIndex(THpkeCore.KdfHash(AKdf))] and FAeadOk[AeadIndex(AAead)] then
     Result := THpkeCompositionSuite.Create(FPrimitives, AKem, AKdf, AAead) as IHpkeSuite
   else
     Result := nil;
