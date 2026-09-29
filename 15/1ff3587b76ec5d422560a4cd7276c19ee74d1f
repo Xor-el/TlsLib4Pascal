@@ -1,0 +1,19 @@
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_992c5d52a49217 2608,2710
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "151ff3587b76ec5d422560a4cd7276c19ee74d1f",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": null
+    }
+  }
+}
