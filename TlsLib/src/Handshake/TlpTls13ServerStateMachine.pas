@@ -777,6 +777,7 @@ const
   MaxTriedResumptionIdentities = 8;
 var
   LSession: IResumableSession;
+  L13: ITls13ResumableSession;
   LSuite: TTlsCipherSuite;
   LTemp: ITls13KeySchedule;
   LTruncated: TBytes;
@@ -804,10 +805,12 @@ begin
       Continue;
     if not LSession.Version.Equals(TTlsVersion.Tls13) then
       Continue;
+    if not Supports(LSession, ITls13ResumableSession, L13) then
+      Continue;
     // 0-RTT rides identity 0 only (RFC 8446 4.2.10); its authorization bounds the skip budget even
     // when identity 0 is then declined or 0-RTT is refused, all of which still skip the records
     if LI = 0 then
-      FResumedMaxEarlyData := LSession.MaxEarlyData;
+      FResumedMaxEarlyData := L13.MaxEarlyData;
     // a ticket issued under one SNI host must not resume as another (virtual-hosting guard)
     if not SameText(LSession.ServerName, FRequestedServerName) then
       Continue;
@@ -837,7 +840,7 @@ begin
       System.Length(ARawClientHello) - BindersVectorLength(AContext.OfferedPskBinders));
     LTemp := TTls13KeySchedule.Create(FParams.Crypto, LSuite.Common.Hash,
       LSuite.Common.KeyLength);
-    LTemp.SetPsk(LSession.ResumptionSecret);
+    LTemp.SetPsk(L13.ResumptionSecret);
     if not LTemp.VerifyBinder(TPskBinderKind.Resumption, HashOf(LTruncated),
       AContext.OfferedPskBinders[LI]) then
       raise EFatalAlertTlsLibException.CreateRes(
@@ -846,7 +849,7 @@ begin
     FPskBinderKind := TPskBinderKind.Resumption;
     FSelectedPskIdentity := UInt16(LI);
     FAcceptedPskIdentity := AContext.OfferedPskIdentities[LI];
-    FPskSecret := LSession.ResumptionSecret;
+    FPskSecret := L13.ResumptionSecret;
     FResumedPeerCertificates := LSession.PeerCertificates;
     // 0-RTT is bound to the ticket's ALPN: accepted below only when the resumed handshake
     // negotiates the same protocol (checked once ALPN is selected)
@@ -856,8 +859,8 @@ begin
     // accept 0-RTT only for identity 0 (RFC 8446 4.2.10), when configured, the ticket authorized
     // it, the reported age is fresh (RFC 8446 8.2), and the binder is not a replay (RFC 8446 8/8.3)
     FEarlyDataAccepted := (LI = 0) and FEarlyDataOfferedByClient and
-      (FParams.MaxEarlyData > 0) and (LSession.MaxEarlyData > 0) and
-      EarlyDataAgeFresh(AContext.OfferedPskAges[LI], LSession.TicketAgeAdd,
+      (FParams.MaxEarlyData > 0) and (L13.MaxEarlyData > 0) and
+      EarlyDataAgeFresh(AContext.OfferedPskAges[LI], L13.TicketAgeAdd,
       LSession.IssuedAtMillis, LNowMs) and (FParams.AntiReplay <> nil) and
       FParams.AntiReplay.CheckAndRecord(AContext.OfferedPskBinders[LI], LNowMs,
       LNowMs + UInt64(2 * MaxFreshnessSkewMillis) + 1);
@@ -1851,8 +1854,8 @@ begin
       LChainForTicket := FClientCertChain
     else
       LChainForTicket := FResumedPeerCertificates;
-    LSession := TResumableSession.CreateTls13(FSelectedSuite.Common.Code,
-      FSelectedSuite.Common.Hash, LPsk, FSelectedGroup.Code, FSelectedAlpn,
+    LSession := TTls13ResumableSession.Create(FSelectedSuite.Common.Code,
+      FSelectedSuite.Common.Hash, LPsk, FSelectedAlpn,
       FRequestedServerName, nil,
       LLifetime, LAgeAdd, FParams.Clock.NowUnixMillis,
       FParams.MaxEarlyData, LChainForTicket, FParams.ResumptionScope);

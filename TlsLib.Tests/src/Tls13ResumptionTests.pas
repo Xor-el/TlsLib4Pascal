@@ -382,9 +382,9 @@ function TTestTls13Resumption.MakeSessionForHost(const AIdentity: TBytes;
   const ASecret: ISecretBuffer; ALifetime: UInt32; const AHost: string;
   AMaxEarlyData: UInt32): IResumableSession;
 begin
-  Result := TResumableSession.CreateTls13(TCipherSuites13.Aes128GcmSha256,
-    THashAlgorithm.SHA_256, ASecret, TNamedGroupCatalog.X25519, '', AHost, AIdentity,
-    ALifetime, 0, UInt64(TDateTimeUtilities.CurrentUnixMs), AMaxEarlyData, nil);
+  Result := TTls13ResumableSession.Create(TCipherSuites13.Aes128GcmSha256,
+    THashAlgorithm.SHA_256, ASecret, '', AHost, AIdentity,
+    ALifetime, 0, UInt64(TDateTimeUtilities.CurrentUnixMs), AMaxEarlyData, nil, nil);
 end;
 
 procedure TTestTls13Resumption.TestResumptionCompletesPskDheKe;

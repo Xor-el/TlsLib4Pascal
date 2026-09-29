@@ -464,9 +464,9 @@ end;
 function TTestTls12Resumption.MakeTicketSession(const ATicket: TBytes;
   AExtendedMasterSecret: Boolean): IResumableSession;
 begin
-  Result := TResumableSession.CreateTls12(TlsSuite, THashAlgorithm.SHA_256,
+  Result := TTls12ResumableSession.Create(TlsSuite, THashAlgorithm.SHA_256,
     TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(48)), nil, ATicket,
-    AExtendedMasterSecret, '', '', 7200, 0, UInt64(TDateTimeUtilities.CurrentUnixMs), nil);
+    AExtendedMasterSecret, '', '', 7200, UInt64(TDateTimeUtilities.CurrentUnixMs), nil, nil);
 end;
 
 function TTestTls12Resumption.MakeStoredSession(const AIdentity: TBytes;
@@ -474,8 +474,8 @@ function TTestTls12Resumption.MakeStoredSession(const AIdentity: TBytes;
 begin
   // a session-id session (RFC 5246 7.3): the id resumes via the store, AHost is the host it was
   // issued under and what the cross-host guard checks
-  Result := TResumableSession.CreateTls12(TlsSuite, THashAlgorithm.SHA_256, ASecret, AIdentity,
-    nil, True, '', AHost, 7200, 0, UInt64(TDateTimeUtilities.CurrentUnixMs), nil);
+  Result := TTls12ResumableSession.Create(TlsSuite, THashAlgorithm.SHA_256, ASecret, AIdentity,
+    nil, True, '', AHost, 7200, UInt64(TDateTimeUtilities.CurrentUnixMs), nil, nil);
 end;
 
 procedure TTestTls12Resumption.TestSessionIdResumeIsAbbreviated;
@@ -630,7 +630,7 @@ begin
   PumpToCompletion(LClient, LServer);
   CheckTrue(LCache1.Take(ServerHost + ':443', ServerHost, LSession),
     'the EMS session was cached');
-  LTicket := LSession.SessionTicket;
+  LTicket := (LSession as ITls12ResumableSession).SessionTicket;
 
   LCache2 := TInMemorySessionCache.Create;
   LCache2.Store(ServerHost + ':443', ServerHost, MakeTicketSession(LTicket, False));
@@ -667,7 +667,7 @@ begin
   PumpToCompletion(LClient, LServer);
   CheckTrue(LCache1.Take(ServerHost + ':443', ServerHost, LSession),
     'the non-EMS session was cached');
-  LTicket := LSession.SessionTicket;
+  LTicket := (LSession as ITls12ResumableSession).SessionTicket;
 
   LCache2 := TInMemorySessionCache.Create;
   LCache2.Store(ServerHost + ':443', ServerHost, MakeTicketSession(LTicket, True));

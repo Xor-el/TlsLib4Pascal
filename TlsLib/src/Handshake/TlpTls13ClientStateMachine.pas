@@ -236,7 +236,7 @@ type
     /// <summary>A cached TLS 1.2 session this dual-version ClientHello offers for 1.2
     /// resumption (nil otherwise), and the session id it put in legacy_session_id so a 1.2
     /// hand-off can match the server's abbreviated echo. A 1.3 server ignores both.</summary>
-    FTls12ResumptionSession: IResumableSession;
+    FTls12ResumptionSession: ITls12ResumableSession;
     FTls12OfferedSessionId: TBytes;
     /// <summary>The legacy_session_id this ClientHello actually sent, which the server must
     /// echo (RFC 8446 4.1.3); normally the middlebox id, but the offered 1.2 session id when
@@ -369,7 +369,7 @@ type
     /// <summary>The cached TLS 1.2 session this unified ClientHello offered (nil when it
     /// offered none), for a version-dispatching parent to hand to a 1.2 sub-machine when
     /// the server selects 1.2.</summary>
-    property Tls12ResumptionSession: IResumableSession read FTls12ResumptionSession;
+    property Tls12ResumptionSession: ITls12ResumableSession read FTls12ResumptionSession;
     /// <summary>The legacy_session_id this unified ClientHello actually put on the wire -
     /// the cached 1.2 session id when resuming, otherwise the random TLS 1.3 compatibility-mode
     /// id. A 1.2 sub-machine uses it to detect a server echoing the id, whether that echo is a
@@ -747,11 +747,11 @@ begin
   LPeerChain := FCertificateChain;
   if (System.Length(LPeerChain) = 0) and FPskAccepted then
     LPeerChain := FResumptionPeerCertificates;
-  LSession := TResumableSession.CreateTls13(FSelectedSuite.Common.Code,
-    FSelectedSuite.Common.Hash, LPsk, FCurrentGroupCode, FNegotiatedAlpn,
+  LSession := TTls13ResumableSession.Create(FSelectedSuite.Common.Code,
+    FSelectedSuite.Common.Hash, LPsk, FNegotiatedAlpn,
     FParams.ServerName, LNst.Ticket,
     LLifetime, LNst.TicketAgeAdd, NowUnixMillis,
-    LMaxEarlyData, LPeerChain);
+    LMaxEarlyData, LPeerChain, nil);
   FParams.SessionCache.Store(CacheServerIdentity, FParams.ServerName, LSession);
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.RaiseEvent(TTlsEventKind.SessionTicketReceived));
@@ -766,6 +766,8 @@ function TTls13ClientStateMachine.Start: TArray<THandshakeEffect>;
 var
   LClientHello, LInner: TBytes;
   LCached: IResumableSession;
+  LOfferedPsk: IPreSharedKey;
+  L12: ITls12ResumableSession;
   LPskSuite: TTlsCipherSuite;
   LHint: UInt16;
   LHintGroup: INamedGroup;
@@ -800,20 +802,22 @@ begin
   begin
     if LCached.Version.WireValue = TlsWireVersionTls13 then
     begin
-      if TClientSessionPolicy.IsOfferableTls13(LCached, NowUnixMillis) then
+      if TClientSessionPolicy.IsOfferableTls13(LCached, NowUnixMillis) and
+        Supports(LCached, IPreSharedKey, LOfferedPsk) then
       begin
-        FPskOffers := TArray<IPreSharedKey>.Create(LCached.AsPreSharedKey);
+        FPskOffers := TArray<IPreSharedKey>.Create(LOfferedPsk);
         // kept so ReverifyOnResume can re-check the server we resume against current trust
         FResumptionPeerCertificates := LCached.PeerCertificates;
       end;
     end
     else if FParams.AlsoOfferTls12 then
     begin
-      if TClientSessionPolicy.IsOfferableTls12(LCached, NowUnixMillis) then
+      if TClientSessionPolicy.IsOfferableTls12(LCached, NowUnixMillis) and
+        Supports(LCached, ITls12ResumableSession, L12) then
       begin
-        FTls12ResumptionSession := LCached;
-        if System.Length(LCached.SessionId) > 0 then
-          FTls12OfferedSessionId := LCached.SessionId
+        FTls12ResumptionSession := L12;
+        if System.Length(L12.SessionId) > 0 then
+          FTls12OfferedSessionId := L12.SessionId
         else
           FTls12OfferedSessionId := FParams.LegacySessionId;
       end;

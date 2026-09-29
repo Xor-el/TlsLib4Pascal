@@ -141,9 +141,9 @@ var
   LSecret: ISecretBuffer;
 begin
   LSecret := TSecretBuffer.From(TBytes.Create(1, 2, 3, 4));
-  Result := TResumableSession.CreateTls13(TCipherSuites13.Aes128GcmSha256,
-    THashAlgorithm.SHA_256, LSecret, TNamedGroupCatalog.X25519, '', '',
-    TBytes.Create($AB), ALifetime, 0, AIssuedAtMillis, 0, nil);
+  Result := TTls13ResumableSession.Create(TCipherSuites13.Aes128GcmSha256,
+    THashAlgorithm.SHA_256, LSecret, '', '',
+    TBytes.Create($AB), ALifetime, 0, AIssuedAtMillis, 0, nil, nil);
 end;
 
 function TTestClientSessionPolicy.MakeFramedHello(

@@ -61,48 +61,29 @@ type
   end;
 
   /// <summary>
-  /// A session a client caches or a server stores for later resumption,
-  /// version-agnostic. A TLS 1.3 session carries the resumption-PSK secret and
-  /// the selected suite / group / ALPN; a TLS 1.2 session carries the master
-  /// secret, the session id and/or ticket, and whether Extended Master Secret was
-  /// in force. Fields for the other version are empty.
+  /// The version-agnostic core of a session a client caches or a server stores for
+  /// later resumption. The version-specific keying material and ticket fields live on
+  /// the <see cref="ITls13ResumableSession" /> / <see cref="ITls12ResumableSession" />
+  /// sub-interfaces; a consumer narrows to the one matching <see cref="Version" />.
   /// </summary>
   IResumableSession = interface(IInterface)
-    ['{7A18C6E4-9D52-4B37-8E60-1F4A2C9B5D08}']
+    ['{F972F274-932F-4220-95C4-FC2B0D122254}']
     /// <summary>The protocol version this session was established under.</summary>
     function Version: TTlsVersion;
     /// <summary>The negotiated cipher suite.</summary>
     function CipherSuite: UInt16;
     /// <summary>The hash bound to the suite.</summary>
     function Hash: THashAlgorithm;
-    /// <summary>The TLS 1.3 resumption PSK (nil for a TLS 1.2 session).</summary>
-    function ResumptionSecret: ISecretBuffer;
-    /// <summary>The TLS 1.3 named group used for the establishing (EC)DHE.</summary>
-    function NamedGroup: UInt16;
     /// <summary>The negotiated ALPN protocol, or the empty string.</summary>
     function Alpn: string;
     /// <summary>The SNI host_name the session was established under (empty when none). A server
     /// binds it into the ticket and refuses a resumption whose ClientHello names a different host,
     /// so a ticket issued for one virtual host cannot resume as another.</summary>
     function ServerName: string;
-    /// <summary>The opaque ticket that identifies this session on resumption.</summary>
-    function TicketIdentity: TBytes;
     /// <summary>The ticket lifetime hint in seconds.</summary>
     function TicketLifetime: UInt32;
-    /// <summary>The ticket_age_add obfuscator.</summary>
-    function TicketAgeAdd: UInt32;
     /// <summary>Wall-clock issue time in milliseconds.</summary>
     function IssuedAtMillis: UInt64;
-    /// <summary>The 0-RTT byte budget the ticket authorized (0 = no early data).</summary>
-    function MaxEarlyData: UInt32;
-    /// <summary>The TLS 1.2 master secret (nil for a TLS 1.3 session).</summary>
-    function MasterSecret: ISecretBuffer;
-    /// <summary>The TLS 1.2 session id (empty when only a ticket is held).</summary>
-    function SessionId: TBytes;
-    /// <summary>The TLS 1.2 RFC 5077 session ticket (empty when only a session id is held).</summary>
-    function SessionTicket: TBytes;
-    /// <summary>Whether Extended Master Secret (RFC 7627) bound the TLS 1.2 session.</summary>
-    function ExtendedMasterSecret: Boolean;
     /// <summary>The peer certificate chain verified when this session was established (leaf-first,
     /// as the peer sent it), empty when the peer presented none. A resumed handshake carries no
     /// Certificate, so the endpoint surfaces this stored chain instead; it is NOT re-verified on
@@ -114,8 +95,39 @@ type
     /// configuration never resumes a session another established under a different scope. Compared
     /// byte-for-byte, never interpreted.</summary>
     function ResumptionScope: TBytes;
-    /// <summary>This session viewed as a TLS 1.3 PSK offer.</summary>
-    function AsPreSharedKey: IPreSharedKey;
+  end;
+
+  /// <summary>
+  /// A TLS 1.3 resumable session: the resumption-PSK secret and the ticket fields a
+  /// client needs to offer it as a pre_shared_key. Project it to an
+  /// <see cref="IPreSharedKey" /> with a plain <c>as</c> cast.
+  /// </summary>
+  ITls13ResumableSession = interface(IResumableSession)
+    ['{9B3DC2B4-29C8-428B-9003-E96F4E1E370A}']
+    /// <summary>The resumption PSK secret.</summary>
+    function ResumptionSecret: ISecretBuffer;
+    /// <summary>The opaque ticket that identifies this session on resumption.</summary>
+    function TicketIdentity: TBytes;
+    /// <summary>The ticket_age_add obfuscator.</summary>
+    function TicketAgeAdd: UInt32;
+    /// <summary>The 0-RTT byte budget the ticket authorized (0 = no early data).</summary>
+    function MaxEarlyData: UInt32;
+  end;
+
+  /// <summary>
+  /// A TLS 1.2 resumable session: the master secret, the session id and/or RFC 5077
+  /// ticket, and whether Extended Master Secret bound it.
+  /// </summary>
+  ITls12ResumableSession = interface(IResumableSession)
+    ['{5F074730-ECB9-42CB-B889-D1901191A873}']
+    /// <summary>The master secret.</summary>
+    function MasterSecret: ISecretBuffer;
+    /// <summary>The session id (empty when only a ticket is held).</summary>
+    function SessionId: TBytes;
+    /// <summary>The RFC 5077 session ticket (empty when only a session id is held).</summary>
+    function SessionTicket: TBytes;
+    /// <summary>Whether Extended Master Secret (RFC 7627) bound the session.</summary>
+    function ExtendedMasterSecret: Boolean;
   end;
 
   /// <summary>
