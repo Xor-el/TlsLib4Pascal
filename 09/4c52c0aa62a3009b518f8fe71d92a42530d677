@@ -1,0 +1,22 @@
+TlsLib.Tests/Data/Certs/ImportKeys.txt
+  s_09d3c46d1a9b1f::t_a9cdcfe7e6840c 55
+TlsLib.Tests/src/CredentialImportTests.pas
+  s_09d3c46d1a9b1f::t_17bc79b8c26600 240-253
+  s_09d3c46d1a9b1f::t_07cc5d316fa691 70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "094c52c0aa62a3009b518f8fe71d92a42530d677",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
