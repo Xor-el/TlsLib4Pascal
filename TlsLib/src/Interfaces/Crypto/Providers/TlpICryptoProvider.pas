@@ -227,23 +227,18 @@ type
   /// coherence domain.
   /// </summary>
   ISigningCrypto = interface(IInterface)
-    ['{367BAFEA-1828-4B5A-BA87-82CEDB994DD0}']
+    ['{F109F075-4F7D-4FF5-91F4-CCE67C2E080F}']
     /// <summary>
     /// Imports a signing private key in any supported encoding - PKCS#8, PKCS#1
     /// (RSAPrivateKey) or SEC1 (ECPrivateKey), in DER or PEM - into an opaque handle
-    /// that holds it as canonical PKCS#8 and reports the schemes it can sign with.
-    /// Malformed input raises EArgumentTlsLibException; an unsupported key algorithm
-    /// raises ENotSupportedTlsLibException.
-    /// </summary>
-    function ImportSigningKey(const AData: TBytes): ISigningKey; overload;
-    /// <summary>
-    /// As <see cref="ImportSigningKey" />, decrypting an encrypted PKCS#8 key (DER
-    /// EncryptedPrivateKeyInfo or an encrypted PEM key) with APassword. The passphrase is a
-    /// wiped buffer of host code units: nil means no passphrase, a zero-length buffer means an
-    /// empty passphrase.
+    /// that holds it as canonical PKCS#8 and reports the schemes it can sign with. An encrypted
+    /// PKCS#8 key (DER EncryptedPrivateKeyInfo or an encrypted PEM key) is decrypted with APassword,
+    /// a wiped buffer of UTF-8 passphrase octets: nil expects an unencrypted key (an encrypted one
+    /// then raises), a zero-length buffer is an empty passphrase. Malformed input raises
+    /// EArgumentTlsLibException; an unsupported key algorithm raises ENotSupportedTlsLibException.
     /// </summary>
     function ImportSigningKey(const AData: TBytes;
-      const APassword: ISecretBuffer): ISigningKey; overload;
+      const APassword: ISecretBuffer): ISigningKey;
     /// <summary>
     /// Imports a PKCS#12 (.pfx/.p12) blob decrypted with APassword into a crypto-level identity:
     /// the leaf and any intermediates as the chain (leaf first, DER) and an ISigningKey composed
@@ -255,8 +250,8 @@ type
     /// the key, one is selected deterministically. Fails closed: a wrong password, bad MAC, malformed store, or a
     /// store with no certificate for its key raises EArgumentTlsLibException and no partial
     /// credential is returned; an unsupported key algorithm raises ENotSupportedTlsLibException.
-    /// The passphrase is a wiped buffer of host code units: nil means no passphrase, a zero-length
-    /// buffer means an empty passphrase.
+    /// The passphrase is a wiped buffer of UTF-8 passphrase octets: nil means no passphrase, a
+    /// zero-length buffer means an empty passphrase.
     /// </summary>
     function ImportPkcs12(const AData: TBytes;
       const APassword: ISecretBuffer): TImportedCredential;

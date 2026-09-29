@@ -121,7 +121,7 @@ var
   LCredential: TTlsCredential;
 begin
   LCredential.CertificateChain := APkix.Certificates.LoadChain(ACertificateChainData);
-  LCredential.PrivateKey := ACrypto.Signing.ImportSigningKey(APrivateKeyData);
+  LCredential.PrivateKey := ACrypto.Signing.ImportSigningKey(APrivateKeyData, nil);
   Result := LCredential;
 end;
 

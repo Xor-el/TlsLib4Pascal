@@ -85,7 +85,7 @@ class function TInteropCredentials.ServerCredential(const ACryptoProvider: ICryp
   const ALeafCertDer, AKeyDer: TBytes): TTlsCredential;
 begin
   Result.CertificateChain := APkix.Certificates.LoadChain(ALeafCertDer);
-  Result.PrivateKey := ACryptoProvider.Signing.ImportSigningKey(AKeyDer);
+  Result.PrivateKey := ACryptoProvider.Signing.ImportSigningKey(AKeyDer, nil);
 end;
 
 class function TInteropCredentials.ServerCredentialFromFieldFile(
@@ -124,7 +124,7 @@ begin
       TInteropUtils.DecodeHex(LFields.Values[ALeafField]),
       TInteropUtils.DecodeHex(LFields.Values['issuer_cert']));
     Result.PrivateKey := ACryptoProvider.Signing.ImportSigningKey(
-      TInteropUtils.DecodeHex(LFields.Values[AKeyField]));
+      TInteropUtils.DecodeHex(LFields.Values[AKeyField]), nil);
   finally
     LFields.Free;
   end;
@@ -138,7 +138,7 @@ begin
   Result.CertificateChain := APkix.Certificates.LoadChain(
     TEncoding.ASCII.GetBytes(TInteropUtils.ReadAllText(ACertFile)));
   Result.PrivateKey := ACryptoProvider.Signing.ImportSigningKey(
-    TEncoding.ASCII.GetBytes(TInteropUtils.ReadAllText(AKeyFile)));
+    TEncoding.ASCII.GetBytes(TInteropUtils.ReadAllText(AKeyFile)), nil);
 end;
 
 class function TInteropCredentials.Trust(const APkix: IPkixProvider;

@@ -234,7 +234,7 @@ begin
   try
     Result.CertificateChain := TArray<TBytes>.Create(
       DecodeHex(LCerts.Values['leaf_cert']));
-    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
+    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']), nil);
   finally
     LCerts.Free;
   end;
@@ -261,7 +261,7 @@ begin
     Result.CertificateChain := TArray<TBytes>.Create(
       DecodeHex(LCerts.Values['leaf_cert']));
     Result.PrivateKey := Crypto.Signing.ImportSigningKey(
-      DecodeHex(LCerts.Values['leaf_key']));
+      DecodeHex(LCerts.Values['leaf_key']), nil);
   finally
     LCerts.Free;
   end;
@@ -320,7 +320,7 @@ begin
     Result.CertificateChain := TArray<TBytes>.Create(
       DecodeHex(LCerts.Values['leaf_cert']));
     Result.PrivateKey := Crypto.Signing.ImportSigningKey(
-      DecodeHex(LCerts.Values['leaf_key']));
+      DecodeHex(LCerts.Values['leaf_key']), nil);
   finally
     LCerts.Free;
   end;
@@ -368,7 +368,7 @@ begin
   try
     Result.CertificateChain := TArray<TBytes>.Create(
       DecodeHex(LCerts.Values['wrongname_cert']));
-    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']));
+    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']), nil);
   finally
     LCerts.Free;
   end;
@@ -1197,7 +1197,7 @@ begin
   LCred := Default(TTlsCredential);
   LCred.CertificateChain := TArray<TBytes>.Create(
     OcspField('leaf_cert'), OcspField('issuer_cert'));
-  LCred.PrivateKey := Crypto.Signing.ImportSigningKey(OcspField('leaf_key'));
+  LCred.PrivateKey := Crypto.Signing.ImportSigningKey(OcspField('leaf_key'), nil);
   LCred.OcspStaple := AStaple;
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(LCred);
 

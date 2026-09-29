@@ -961,9 +961,8 @@ type
   public
     constructor Create(const AInner: ISigningCrypto;
       const ANCrypt: IWindowsNCrypt);
-    function ImportSigningKey(const AData: TBytes): ISigningKey; overload;
     function ImportSigningKey(const AData: TBytes;
-      const APassword: ISecretBuffer): ISigningKey; overload;
+      const APassword: ISecretBuffer): ISigningKey;
     function ImportPkcs12(const AData: TBytes;
       const APassword: ISecretBuffer): TImportedCredential;
     function CreateSignatureSigner(AScheme: TSignatureScheme;
@@ -3905,29 +3904,6 @@ begin
     end;
   end;
   Result := False;
-end;
-
-function TWindowsSigningCrypto.ImportSigningKey(const AData: TBytes): ISigningKey;
-var
-  LKey: NativeUInt;
-  LSchemes: TArray<TSignatureScheme>;
-  LSpki: TBytes;
-  LOwner: INCryptKeyOwner;
-begin
-  // native path is a PKCS#8 key (RSA or NIST-curve ECDSA) - DER imported directly, PEM
-  // decoded first; a PKCS#1/SEC1 or Ed25519 key delegates to the portable facet
-  if TPem.IsArmored(AData) then
-  begin
-    if not TryImportPemNative(AData, nil, Result) then
-      Result := FInner.ImportSigningKey(AData);
-  end
-  else if FNCrypt.TryImportKey(AData, nil, LKey, LSchemes, LSpki) then
-  begin
-    LOwner := TNCryptKeyOwner.Create(FNCrypt, LKey);
-    Result := TWindowsSigningKey.Create(LOwner, LSchemes, LSpki);
-  end
-  else
-    Result := FInner.ImportSigningKey(AData);
 end;
 
 function TWindowsSigningCrypto.ImportSigningKey(const AData: TBytes;

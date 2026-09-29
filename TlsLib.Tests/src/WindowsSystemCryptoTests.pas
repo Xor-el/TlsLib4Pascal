@@ -119,9 +119,8 @@ type
     FReal: ISigningCrypto;
   public
     constructor Create(const AReal: ISigningCrypto);
-    function ImportSigningKey(const AData: TBytes): ISigningKey; overload;
     function ImportSigningKey(const AData: TBytes;
-      const APassword: ISecretBuffer): ISigningKey; overload;
+      const APassword: ISecretBuffer): ISigningKey;
     function ImportPkcs12(const AData: TBytes;
       const APassword: ISecretBuffer): TImportedCredential;
     function CreateSignatureSigner(AScheme: TSignatureScheme;
@@ -139,11 +138,6 @@ constructor TThrowingInnerSigning.Create(const AReal: ISigningCrypto);
 begin
   inherited Create;
   FReal := AReal;
-end;
-
-function TThrowingInnerSigning.ImportSigningKey(const AData: TBytes): ISigningKey;
-begin
-  raise Exception.CreateRes(@SPortableUsed);
 end;
 
 function TThrowingInnerSigning.ImportSigningKey(const AData: TBytes;
@@ -276,7 +270,7 @@ begin
       LKey := LProvider.Signing.ImportSigningKey(DecodeHex(FKeys.Values[LCases[LI].Priv]),
         TSecretBuffer.FromString(SPassword))
     else
-      LKey := LProvider.Signing.ImportSigningKey(DecodeHex(FKeys.Values[LCases[LI].Priv]));
+      LKey := LProvider.Signing.ImportSigningKey(DecodeHex(FKeys.Values[LCases[LI].Priv]), nil);
     CheckEqualBytes(LCases[LI].Priv + ': the native handle exports its canonical SPKI',
       DecodeHex(FKeys.Values[LCases[LI].Pub]), LKey.PublicKeyInfo);
   end;
@@ -305,7 +299,7 @@ begin
   LMessage := DecodeHex(SMessageHex);
   for LI := Low(LCases) to High(LCases) do
   begin
-    LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values[LCases[LI].Priv]));
+    LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values[LCases[LI].Priv]), nil);
     LSigner := Crypto.Signing.CreateSignatureSigner(LCases[LI].Scheme, LKey);
     LSigner.Update(LMessage, 0, System.Length(LMessage));
     LSignature := LSigner.Sign;
@@ -419,7 +413,7 @@ var
 begin
   if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
     Exit;
-  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_pkcs8_der']));
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_pkcs8_der']), nil);
   LNarrowed := LKey.WithPreferredSchemes(
     TArray<TSignatureScheme>.Create(TSignatureScheme.RSA_PSS_RSAE_SHA256));
   CheckEqualBytes('a narrowed copy keeps the exported public key',

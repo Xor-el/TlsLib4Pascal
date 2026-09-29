@@ -231,7 +231,7 @@ begin
   // present the leaf + its issuer, and seal the OCSP staple on the credential so the server sends
   // a CertificateStatus when the client requests one
   LCred.CertificateChain := TArray<TBytes>.Create(OcspVec('leaf_cert'), OcspVec('issuer_cert'));
-  LCred.PrivateKey := Crypto.Signing.ImportSigningKey(OcspVec('leaf_key'));
+  LCred.PrivateKey := Crypto.Signing.ImportSigningKey(OcspVec('leaf_key'), nil);
   LCred.OcspStaple := AStaple;
   Result := TTlsEngineFactory.CreateServerEngine(
     TTlsPresets.Compatible(Crypto, Pkix).Server.WithCredential(LCred).Build);

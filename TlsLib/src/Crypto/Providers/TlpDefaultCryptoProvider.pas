@@ -553,9 +553,8 @@ type
       out AKind: TSignatureKeyKind): Boolean; static;
   public
     constructor Create(const ARandom: ISecureRandom);
-    function ImportSigningKey(const AData: TBytes): ISigningKey; overload;
     function ImportSigningKey(const AData: TBytes;
-      const APassword: ISecretBuffer): ISigningKey; overload;
+      const APassword: ISecretBuffer): ISigningKey;
     function ImportPkcs12(const AData: TBytes;
       const APassword: ISecretBuffer): TImportedCredential;
     function CreateSignatureSigner(AScheme: TSignatureScheme;
@@ -1891,11 +1890,6 @@ begin
     raise ENotSupportedTlsLibException.CreateResFmt(@SUnhandledAlgorithm,
       [Ord(AAlgorithm)]);
   end;
-end;
-
-function TSigningCrypto.ImportSigningKey(const AData: TBytes): ISigningKey;
-begin
-  Result := TCredentialImport.ImportKey(AData, nil);
 end;
 
 function TSigningCrypto.ImportSigningKey(const AData: TBytes;
