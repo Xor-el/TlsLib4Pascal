@@ -66,6 +66,8 @@ type
     procedure TestKeyUpdateAdvancesTheKey;
     procedure TestExporterIsDeterministic;
     procedure TestExporterRejectsBadArgs;
+    procedure TestEarlyExporterDeterministicAndDistinct;
+    procedure TestEarlyExporterRaisesBeforeEarlyEpoch;
     procedure TestBinderKeyResumptionVsExternalDiffer;
     procedure TestBinderRoundTripConstantTime;
     procedure TestPskDheKeAgreesOnBothSides;
@@ -277,6 +279,46 @@ begin
   LSecond := LSched.ExportKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), 32);
   CheckEquals(32, System.Length(LFirst), 'requested length honored');
   CheckEqualBytes('exporter is deterministic', LFirst, LSecond);
+end;
+
+procedure TTestTls13KeySchedule.TestEarlyExporterDeterministicAndDistinct;
+var
+  LSched: ITls13KeySchedule;
+  LEarly, LEarly2, LMain: TBytes;
+begin
+  LSched := NewSchedule;
+  CheckFalse(LSched.CanExportEarly, 'no early exporter before the early epoch is derived');
+  LSched.DeriveEpochSecrets(TTlsEpoch.EarlyData,
+    DecodeHex('000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f'));
+  CheckTrue(LSched.CanExportEarly, 'early exporter available after the early epoch');
+  LEarly := LSched.ExportEarlyKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), 32);
+  LEarly2 := LSched.ExportEarlyKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), 32);
+  CheckEquals(32, System.Length(LEarly), 'requested length honored');
+  CheckEqualBytes('early exporter is deterministic', LEarly, LEarly2);
+  // the early_exporter_master_secret is a different master, so the value differs from the
+  // application exporter for the same label and context
+  LSched.DeriveEpochSecrets(TTlsEpoch.Application, Bytes('hash_ch_sf'));
+  LMain := LSched.ExportKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), 32);
+  CheckFalse(AreEqual(LEarly, LMain),
+    'the early exporter differs from the application exporter');
+end;
+
+procedure TTestTls13KeySchedule.TestEarlyExporterRaisesBeforeEarlyEpoch;
+var
+  LSched: ITls13KeySchedule;
+  LRaised: Boolean;
+begin
+  // a schedule that never took the early epoch (a 1-RTT handshake) cannot early-export
+  LSched := NewSchedule;
+  CheckFalse(LSched.CanExportEarly, 'a 1-RTT schedule cannot early-export');
+  LRaised := False;
+  try
+    LSched.ExportEarlyKeyingMaterial('EXPORTER-test', DecodeHex('00'), 32);
+  except
+    on EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'early-exporting before the early epoch raises');
 end;
 
 procedure TTestTls13KeySchedule.TestExporterRejectsBadArgs;

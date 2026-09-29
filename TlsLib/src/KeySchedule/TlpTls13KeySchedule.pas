@@ -60,6 +60,7 @@ type
     FClientApTraffic: ISecretBuffer;
     FServerApTraffic: ISecretBuffer;
     FExporterMaster: ISecretBuffer;
+    FEarlyExporterMaster: ISecretBuffer;
     FResumptionMaster: ISecretBuffer;
     FHandshakeSecretsReleased: Boolean;
     FKeyLog: IKeyLog;
@@ -78,6 +79,8 @@ type
       ALength: Int32): ISecretBuffer;
     function DoExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       AUseContext: Boolean; ALength: Int32): TBytes;
+    function ExportFrom(const AMaster: ISecretBuffer; const ALabel: string;
+      const AContext: TBytes; ALength: Int32): TBytes;
   public
     /// <summary>AHash is the suite hash; AKeyLength the AEAD key size.</summary>
     constructor Create(const ACryptoProvider: ICryptoProvider; AHash: THashAlgorithm;
@@ -95,6 +98,9 @@ type
       ALength: Int32): TBytes; overload;
 
     // ITls13KeySchedule
+    function CanExportEarly: Boolean;
+    function ExportEarlyKeyingMaterial(const ALabel: string; const AContext: TBytes;
+      ALength: Int32): TBytes;
     procedure SetPsk(const APsk: ISecretBuffer);
     procedure SetSharedSecret(const ASharedSecret: ISecretBuffer);
     procedure DeriveEpochSecrets(AEpoch: TTlsEpoch; const ATranscriptHash: TBytes);
@@ -302,7 +308,10 @@ begin
         EnsureEarlySecret;
         FClientEarlyTraffic := THkdfLabel.DeriveSecret(FHkdf, FEarlySecret,
           'c e traffic', ATranscriptHash);
+        FEarlyExporterMaster := THkdfLabel.DeriveSecret(FHkdf, FEarlySecret,
+          'e exp master', ATranscriptHash);
         LogSecret(KeyLogLabelClientEarlyTraffic, FClientEarlyTraffic);
+        LogSecret(KeyLogLabelEarlyExporter, FEarlyExporterMaster);
       end;
     TTlsEpoch.Handshake:
       begin
@@ -415,22 +424,41 @@ begin
   Result := DoExportKeyingMaterial(ALabel, AContext, True, ALength);
 end;
 
-function TTls13KeySchedule.DoExportKeyingMaterial(const ALabel: string;
-  const AContext: TBytes; AUseContext: Boolean; ALength: Int32): TBytes;
+function TTls13KeySchedule.ExportFrom(const AMaster: ISecretBuffer;
+  const ALabel: string; const AContext: TBytes; ALength: Int32): TBytes;
 var
   LDerived: ISecretBuffer;
   LContextHash: TBytes;
 begin
   Result := nil;
   TExporterArgs.Guard(ALabel, ALength);
-  if FExporterMaster = nil then
+  if AMaster = nil then
     raise EInvalidOperationTlsLibException.CreateRes(@SEpochNotDerived);
-  // TLS 1.3 always hashes a context value; no context is exactly an empty context, so the
-  // AUseContext distinction that matters in TLS 1.2 has no effect here (RFC 8446 7.5)
-  LDerived := THkdfLabel.DeriveSecret(FHkdf, FExporterMaster, ALabel, FHashEmpty);
+  // TLS 1.3 always hashes a context value; no context is exactly an empty context (RFC 8446 7.5)
+  LDerived := THkdfLabel.DeriveSecret(FHkdf, AMaster, ALabel, FHashEmpty);
   LContextHash := HashOf(AContext);
   Result := THkdfLabel.HkdfExpandLabel(FHkdf, LDerived, 'exporter', LContextHash,
     ALength).ToBytes;
+end;
+
+function TTls13KeySchedule.DoExportKeyingMaterial(const ALabel: string;
+  const AContext: TBytes; AUseContext: Boolean; ALength: Int32): TBytes;
+begin
+  // AUseContext has no effect on 1.3 (no context is an empty context); it exists for the base
+  // ExportKeyingMaterial overloads that also serve TLS 1.2
+  Result := ExportFrom(FExporterMaster, ALabel, AContext, ALength);
+end;
+
+function TTls13KeySchedule.ExportEarlyKeyingMaterial(const ALabel: string;
+  const AContext: TBytes; ALength: Int32): TBytes;
+begin
+  Result := ExportFrom(FEarlyExporterMaster, ALabel, AContext, ALength);
+end;
+
+function TTls13KeySchedule.CanExportEarly: Boolean;
+begin
+  // set when the early epoch secrets are derived (a 0-RTT handshake); never on TLS 1.2
+  Result := FEarlyExporterMaster <> nil;
 end;
 
 procedure TTls13KeySchedule.ForgetHandshakeSecrets;

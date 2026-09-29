@@ -149,6 +149,8 @@ type
       ALength: Int32): TBytes; overload;
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       ALength: Int32): TBytes; overload;
+    function ExportEarlyKeyingMaterial(const ALabel: string; const AContext: TBytes;
+      ALength: Int32): TBytes;
   private
     // reached only by the handshake bridge below
     procedure InstallReadProtection(const AProtection: IRecordProtection);
@@ -811,6 +813,16 @@ begin
   if FTerminal or (not FConductor.CanExportKeyingMaterial) then
     Exit(nil);
   Result := FConductor.ExportKeyingMaterial(ALabel, AContext, ALength);
+end;
+
+function TTlsEngine.ExportEarlyKeyingMaterial(const ALabel: string;
+  const AContext: TBytes; ALength: Int32): TBytes;
+begin
+  // TLS 1.3 early exporter: available on a client once it offers 0-RTT and on a server once it
+  // accepts 0-RTT; empty on TLS 1.2 and on a failed connection (RFC 8446 7.5)
+  if FTerminal or (not FConductor.CanExportEarlyKeyingMaterial) then
+    Exit(nil);
+  Result := FConductor.ExportEarlyKeyingMaterial(ALabel, AContext, ALength);
 end;
 
 procedure TTlsEngine.SendClose;

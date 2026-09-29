@@ -99,7 +99,14 @@ type
   /// derives; a driver installs the results into the record layer.
   /// </summary>
   ITls13KeySchedule = interface(IKeySchedule)
-    ['{E928FD62-BB73-4208-8B7E-90ADFBF31600}']
+    ['{1D0C239E-56C2-48CA-8A1E-08907741DB3E}']
+    /// <summary>Whether the early_exporter_master_secret has been derived (the early epoch was
+    /// taken), so ExportEarlyKeyingMaterial is available.</summary>
+    function CanExportEarly: Boolean;
+    /// <summary>Early-data keying material (RFC 8446 7.5) from the early_exporter_master_secret;
+    /// raises EInvalidOperationTlsLibException when the early epoch has not been derived.</summary>
+    function ExportEarlyKeyingMaterial(const ALabel: string; const AContext: TBytes;
+      ALength: Int32): TBytes;
     /// <summary>Sets the pre-shared key (omit for a 0-PSK handshake).</summary>
     procedure SetPsk(const APsk: ISecretBuffer);
     /// <summary>Sets the (EC)DHE shared secret.</summary>

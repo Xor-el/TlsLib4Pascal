@@ -80,6 +80,9 @@ type
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       ALength: Int32): TBytes; overload;
     function CanExportKeyingMaterial: Boolean;
+    function ExportEarlyKeyingMaterial(const ALabel: string; const AContext: TBytes;
+      ALength: Int32): TBytes;
+    function CanExportEarlyKeyingMaterial: Boolean;
   end;
 
   /// <summary>
@@ -225,6 +228,20 @@ end;
 function TVersionDispatchMachineBase.CanExportKeyingMaterial: Boolean;
 begin
   Result := (FInner <> nil) and FInner.CanExportKeyingMaterial;
+end;
+
+function TVersionDispatchMachineBase.ExportEarlyKeyingMaterial(const ALabel: string;
+  const AContext: TBytes; ALength: Int32): TBytes;
+begin
+  if FInner <> nil then
+    Result := FInner.ExportEarlyKeyingMaterial(ALabel, AContext, ALength)
+  else
+    Result := nil;
+end;
+
+function TVersionDispatchMachineBase.CanExportEarlyKeyingMaterial: Boolean;
+begin
+  Result := (FInner <> nil) and FInner.CanExportEarlyKeyingMaterial;
 end;
 
 class function TVersionDispatchMachineBase.ParseExtensions(

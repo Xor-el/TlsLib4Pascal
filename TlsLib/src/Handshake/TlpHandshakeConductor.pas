@@ -89,6 +89,11 @@ type
     /// <summary>Whether the active machine's exporter secret is available (half-RTT for a
     /// TLS 1.3 server).</summary>
     function CanExportKeyingMaterial: Boolean;
+    /// <summary>Early-data (0-RTT) keying material from the active machine (RFC 8446 7.5).</summary>
+    function ExportEarlyKeyingMaterial(const ALabel: string; const AContext: TBytes;
+      ALength: Int32): TBytes;
+    /// <summary>Whether the active machine's early_exporter_master_secret is available.</summary>
+    function CanExportEarlyKeyingMaterial: Boolean;
     /// <summary>Whether a handshake message is partially buffered (spanning records). A
     /// non-handshake record arriving now would interleave with it (RFC 8446 5.1).</summary>
     function HasBufferedHandshake: Boolean;
@@ -175,6 +180,17 @@ end;
 function THandshakeConductor.CanExportKeyingMaterial: Boolean;
 begin
   Result := FMachine.CanExportKeyingMaterial;
+end;
+
+function THandshakeConductor.ExportEarlyKeyingMaterial(const ALabel: string;
+  const AContext: TBytes; ALength: Int32): TBytes;
+begin
+  Result := FMachine.ExportEarlyKeyingMaterial(ALabel, AContext, ALength);
+end;
+
+function THandshakeConductor.CanExportEarlyKeyingMaterial: Boolean;
+begin
+  Result := FMachine.CanExportEarlyKeyingMaterial;
 end;
 
 function THandshakeConductor.HasBufferedHandshake: Boolean;
