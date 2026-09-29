@@ -92,6 +92,10 @@ type
       ALength: Int32): TBytes; overload; virtual;
     /// <summary>No exporter available by default; concrete versions override.</summary>
     function CanExportKeyingMaterial: Boolean; virtual;
+    /// <summary>No early exporter by default (TLS 1.3 with 0-RTT overrides).</summary>
+    function ExportEarlyKeyingMaterial(const ALabel: string; const AContext: TBytes;
+      ALength: Int32): TBytes; virtual;
+    function CanExportEarlyKeyingMaterial: Boolean; virtual;
   end;
 
 implementation
@@ -184,6 +188,17 @@ begin
 end;
 
 function THandshakeMachineBase.CanExportKeyingMaterial: Boolean;
+begin
+  Result := False;
+end;
+
+function THandshakeMachineBase.ExportEarlyKeyingMaterial(const ALabel: string;
+  const AContext: TBytes; ALength: Int32): TBytes;
+begin
+  Result := nil;
+end;
+
+function THandshakeMachineBase.CanExportEarlyKeyingMaterial: Boolean;
 begin
   Result := False;
 end;

@@ -97,12 +97,16 @@ const
   // v5: the PRF hash is persisted as a stable code (HashToCode) rather than Ord(THashAlgorithm),
   // so a fleet enum reorder no longer misreads it; older-format tickets fail cleanly to a full
   // handshake on the version check
-  TicketFormatVersion = Byte(5);
+  // v6: the body is version-partitioned - the common fields, then a 1.3 tail (age_add, max_early,
+  // resumption_secret) or a 1.2 tail (ems, master); the dead named_group and the never-sealed
+  // session_id/session_ticket are gone
+  TicketFormatVersion = Byte(6);
   TicketNonceLength = Int32(12); // AES-256-GCM nonce
   // the serialized session carries the peer chain the client volunteered; cap it so an oversized
   // chain does not bloat the ticket and the resumed ClientHello that re-presents it. Past the cap
   // the server issues no ticket for that connection rather than a chain-reduced one
   MaxSerializedSessionLength = Int32(16384);
+  Tls12MasterSecretLength = Int32(48); // RFC 5246 8.1
 
 { TStoreTicketStrategy }
 
@@ -172,6 +176,8 @@ var
   LWriter: IWireWriter;
   LMarker: TWireVectorMarker;
   LIssued: UInt64;
+  L13: ITls13ResumableSession;
+  L12: ITls12ResumableSession;
   LResumption, LMaster: TBytes;
 begin
   Result := nil;
@@ -180,17 +186,10 @@ begin
   LWriter.WriteUInt16(ASession.Version.WireValue);
   LWriter.WriteUInt16(ASession.CipherSuite);
   LWriter.WriteUInt8(HashToCode(ASession.Hash));
-  LWriter.WriteUInt16(ASession.NamedGroup);
   LWriter.WriteUInt32(ASession.TicketLifetime);
-  LWriter.WriteUInt32(ASession.TicketAgeAdd);
   LIssued := ASession.IssuedAtMillis;
   LWriter.WriteUInt32(UInt32(LIssued shr 32));
   LWriter.WriteUInt32(UInt32(LIssued and $FFFFFFFF));
-  LWriter.WriteUInt32(ASession.MaxEarlyData);
-  if ASession.ExtendedMasterSecret then
-    LWriter.WriteUInt8(1)
-  else
-    LWriter.WriteUInt8(0);
   LMarker := LWriter.OpenVector(2);
   LWriter.WriteBytes(TEncoding.ASCII.GetBytes(ASession.Alpn));
   LWriter.CloseVector(LMarker);
@@ -199,31 +198,38 @@ begin
   LMarker := LWriter.OpenVector(2);
   LWriter.WriteBytes(TEncoding.UTF8.GetBytes(ASession.ServerName));
   LWriter.CloseVector(LMarker);
-  LResumption := nil;
-  if ASession.ResumptionSecret <> nil then
-    LResumption := ASession.ResumptionSecret.ToBytes;
-  LMarker := LWriter.OpenVector(2);
-  LWriter.WriteBytes(LResumption);
-  LWriter.CloseVector(LMarker);
-  TSecureMemory.WipeBytes(LResumption);
-  LMaster := nil;
-  if ASession.MasterSecret <> nil then
-    LMaster := ASession.MasterSecret.ToBytes;
-  LMarker := LWriter.OpenVector(2);
-  LWriter.WriteBytes(LMaster);
-  LWriter.CloseVector(LMarker);
-  TSecureMemory.WipeBytes(LMaster);
-  LMarker := LWriter.OpenVector(1);
-  LWriter.WriteBytes(ASession.SessionId);
-  LWriter.CloseVector(LMarker);
-  LMarker := LWriter.OpenVector(2);
-  LWriter.WriteBytes(ASession.SessionTicket);
-  LWriter.CloseVector(LMarker);
   SerializeChain(LWriter, ASession.PeerCertificates);
   // the opaque resumption scope, so a configuration only reuses a ticket sealed under the same scope
   LMarker := LWriter.OpenVector(1);
   LWriter.WriteBytes(ASession.ResumptionScope);
   LWriter.CloseVector(LMarker);
+  if Supports(ASession, ITls13ResumableSession, L13) then
+  begin
+    LWriter.WriteUInt32(L13.TicketAgeAdd);
+    LWriter.WriteUInt32(L13.MaxEarlyData);
+    LResumption := nil;
+    if L13.ResumptionSecret <> nil then
+      LResumption := L13.ResumptionSecret.ToBytes;
+    LMarker := LWriter.OpenVector(2);
+    LWriter.WriteBytes(LResumption);
+    LWriter.CloseVector(LMarker);
+    TSecureMemory.WipeBytes(LResumption);
+  end
+  else if Supports(ASession, ITls12ResumableSession, L12) then
+  begin
+    if L12.ExtendedMasterSecret then
+      LWriter.WriteUInt8(1)
+    else
+      LWriter.WriteUInt8(0);
+    LMaster := nil;
+    if L12.MasterSecret <> nil then
+      LMaster := L12.MasterSecret.ToBytes;
+    // the master secret is a fixed 48 bytes (RFC 5246 8.1); written raw, checked on open
+    LWriter.WriteBytes(LMaster);
+    TSecureMemory.WipeBytes(LMaster);
+  end
+  else
+    Exit; // neither sub-interface: nothing to seal
   Result := LWriter.ToBytes;
 end;
 
@@ -270,17 +276,19 @@ class function TStekTicketStrategy.DeserializeSession(const AData: TBytes;
   out ASession: IResumableSession): Boolean;
 var
   LReader, LVec: TWireReader;
-  LVersion, LSuite, LGroup: UInt16;
+  LVersion, LSuite: UInt16;
   LHashByte, LEms: Byte;
   LHash: THashAlgorithm;
   LLifetime, LAgeAdd, LMaxEarly, LHi, LLo: UInt32;
   LIssued: UInt64;
   LAlpn, LServerName: string;
-  LResumption, LMaster, LSessionId, LSessionTicket, LScope: TBytes;
+  LResumption, LMaster, LScope: TBytes;
   LPeerChain: TArray<TBytes>;
 begin
   ASession := nil;
   Result := False;
+  LResumption := nil;
+  LMaster := nil;
   LReader := TWireReader.Create(AData);
   if LReader.ReadUInt8 <> TicketFormatVersion then
     Exit;
@@ -289,43 +297,48 @@ begin
   LHashByte := LReader.ReadUInt8;
   if not TryCodeToHash(LHashByte, LHash) then
     Exit;
-  LGroup := LReader.ReadUInt16;
   LLifetime := LReader.ReadUInt32;
-  LAgeAdd := LReader.ReadUInt32;
   LHi := LReader.ReadUInt32;
   LLo := LReader.ReadUInt32;
   LIssued := (UInt64(LHi) shl 32) or UInt64(LLo);
-  LMaxEarly := LReader.ReadUInt32;
-  LEms := LReader.ReadUInt8;
   LVec := LReader.OpenVector(2);
   LAlpn := TEncoding.ASCII.GetString(LVec.ReadBytes(LVec.Remaining));
   LVec := LReader.OpenVector(2);
   LServerName := TEncoding.UTF8.GetString(LVec.ReadBytes(LVec.Remaining));
-  LVec := LReader.OpenVector(2);
-  LResumption := LVec.ReadBytes(LVec.Remaining);
-  LVec := LReader.OpenVector(2);
-  LMaster := LVec.ReadBytes(LVec.Remaining);
-  LVec := LReader.OpenVector(1);
-  LSessionId := LVec.ReadBytes(LVec.Remaining);
-  LVec := LReader.OpenVector(2);
-  LSessionTicket := LVec.ReadBytes(LVec.Remaining);
   LPeerChain := DeserializeChain(LReader);
   LVec := LReader.OpenVector(1);
   LScope := LVec.ReadBytes(LVec.Remaining);
 
   try
-    // an authenticated body with trailing bytes is a format mismatch, not a valid ticket -> full
-    // handshake
-    if LReader.Remaining <> 0 then
-      Exit;
     if LVersion = TlsWireVersionTls13 then
-      ASession := TResumableSession.CreateTls13(LSuite, LHash,
-        TSecretBuffer.From(LResumption), LGroup, LAlpn, LServerName, nil, LLifetime, LAgeAdd,
-        LIssued, LMaxEarly, LPeerChain, LScope)
+    begin
+      LAgeAdd := LReader.ReadUInt32;
+      LMaxEarly := LReader.ReadUInt32;
+      LVec := LReader.OpenVector(2);
+      LResumption := LVec.ReadBytes(LVec.Remaining);
+      // a 1.3 ticket with no resumption secret is unusable
+      if System.Length(LResumption) = 0 then
+        Exit;
+      // an authenticated body with trailing bytes is a format mismatch -> full handshake
+      if LReader.Remaining <> 0 then
+        Exit;
+      ASession := TTls13ResumableSession.Create(LSuite, LHash,
+        TSecretBuffer.From(LResumption), LAlpn, LServerName, nil, LLifetime, LAgeAdd,
+        LIssued, LMaxEarly, LPeerChain, LScope);
+    end
     else if LVersion = TlsWireVersionTls12 then
-      ASession := TResumableSession.CreateTls12(LSuite, LHash,
-        TSecretBuffer.From(LMaster), LSessionId, LSessionTicket, LEms <> 0, LAlpn, LServerName,
-        LLifetime, LAgeAdd, LIssued, LPeerChain, LScope)
+    begin
+      LEms := LReader.ReadUInt8;
+      if LEms > 1 then
+        Exit;
+      // the master secret is the fixed-length tail; anything else is a format mismatch
+      if LReader.Remaining <> Tls12MasterSecretLength then
+        Exit;
+      LMaster := LReader.ReadBytes(Tls12MasterSecretLength);
+      ASession := TTls12ResumableSession.Create(LSuite, LHash,
+        TSecretBuffer.From(LMaster), nil, nil, LEms <> 0, LAlpn, LServerName,
+        LLifetime, LIssued, LPeerChain, LScope);
+    end
     else
       Exit;
   finally
@@ -345,6 +358,9 @@ begin
   if not FKeys.CurrentKey(LKeyName, LKey) then
     Exit;
   LPlain := SerializeSession(ASession);
+  // a session that is neither a 1.3 nor a 1.2 sub-interface serializes to nothing: decline to seal
+  if LPlain = nil then
+    Exit;
   // an oversized peer chain would bloat the ticket and the resumed ClientHello; decline to seal
   // rather than degrade it, and the caller signals the decline in its protocol's terms
   if System.Length(LPlain) > MaxSerializedSessionLength then

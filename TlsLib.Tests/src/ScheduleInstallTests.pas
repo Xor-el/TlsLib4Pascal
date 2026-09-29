@@ -148,7 +148,8 @@ var
 begin
   LSched := TTls13KeySchedule.Create(Crypto, THashAlgorithm.SHA_256, 16);
   LSched.SetSharedSecret(TSecretBuffer.From(DecodeHex('00')));
-  LSched.DeriveEpochSecrets(TTlsEpoch.Handshake, DecodeHex('00'));
+  LSched.DeriveEpochSecrets(TTlsEpoch.Handshake,
+    DecodeHex('000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f'));
   LKeys := LSched.TrafficKeys(TTlsEpoch.Handshake, TTlsDirection.ClientWrite);
   LRaised := False;
   try

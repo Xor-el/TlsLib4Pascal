@@ -94,7 +94,7 @@ type
     /// <summary>On the PresentClientHello (dispatched) path, the cached TLS 1.2 session the
     /// parent's unified ClientHello offered, and the session id it carried. Set together so
     /// this machine resumes via the abbreviated handshake when the server echoes that id.</summary>
-    PresentResumptionSession: IResumableSession;
+    PresentResumptionSession: ITls12ResumableSession;
     PresentOfferedSessionId: TBytes;
     /// <summary>The client's credential for mutual TLS: presented when the server sends
     /// a CertificateRequest and the credential can satisfy it. An empty chain sends an
@@ -176,7 +176,7 @@ type
     /// <summary>The cached session offered for resumption (nil when none), the session id
     /// the ClientHello carried (to detect the server's abbreviated echo), and the server's
     /// echoed id / issued ticket captured for caching on completion.</summary>
-    FResumptionOffer: IResumableSession;
+    FResumptionOffer: ITls12ResumableSession;
     // the validated path the reverify-on-resume check produced, surfaced to an async park so a
     // live resolver authenticates against the PKIX issuer rather than a re-guess
     FResumeValidatedPath: TArray<TBytes>;
@@ -415,6 +415,7 @@ function TTls12ClientStateMachine.Start: TArray<THandshakeEffect>;
 var
   LClientHello: TBytes;
   LCached: IResumableSession;
+  L12: ITls12ResumableSession;
 begin
   FPhase := TPhase.WaitServerHello;
   // a version-dispatching parent may have already sent a unified ClientHello: seed the
@@ -438,8 +439,9 @@ begin
     FParams.SessionCache.Take(CacheServerIdentity, FParams.ServerName, LCached) and
     (LCached.Version.WireValue = TlsWireVersionTls12) then
   begin
-    if TClientSessionPolicy.IsOfferableTls12(LCached, FParams.Clock.NowUnixMillis) then
-      FResumptionOffer := LCached;
+    if TClientSessionPolicy.IsOfferableTls12(LCached, FParams.Clock.NowUnixMillis) and
+      Supports(LCached, ITls12ResumableSession, L12) then
+      FResumptionOffer := L12;
   end;
   LClientHello := BuildClientHello;
   RememberOffered(LClientHello);
@@ -873,11 +875,10 @@ begin
   LPeerChain := FCertChain;
   if (System.Length(LPeerChain) = 0) and (FResumptionOffer <> nil) then
     LPeerChain := FResumptionOffer.PeerCertificates;
-  LSession := TResumableSession.CreateTls12(FSelectedSuite.Common.Code,
+  LSession := TTls12ResumableSession.Create(FSelectedSuite.Common.Code,
     FSelectedSuite.Common.Hash, FSchedule.MasterSecret, FServerSessionId,
     FReceivedTicket, FUseExtendedMasterSecret, '', FParams.ServerName,
-    LLifetime, 0,
-    FParams.Clock.NowUnixMillis, LPeerChain);
+    LLifetime, FParams.Clock.NowUnixMillis, LPeerChain, nil);
   FParams.SessionCache.Store(CacheServerIdentity, FParams.ServerName, LSession);
   if System.Length(FReceivedTicket) > 0 then
     Result := TArray<THandshakeEffect>.Create(

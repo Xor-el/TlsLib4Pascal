@@ -81,67 +81,84 @@ type
       AHash: THashAlgorithm): IPreSharedKey; static;
   end;
 
-  /// <summary>The default <see cref="IResumableSession" />: an immutable value holder.</summary>
-  TResumableSession = class sealed(TInterfacedObject, IResumableSession)
-  strict private
+  /// <summary>The version-agnostic base of the default resumable-session holders: the
+  /// fields common to both protocol versions.</summary>
+  TResumableSessionBase = class abstract(TInterfacedObject, IResumableSession)
+  strict protected
   var
     FVersion: TTlsVersion;
     FCipherSuite: UInt16;
     FHash: THashAlgorithm;
-    FResumptionSecret: ISecretBuffer;
-    FNamedGroup: UInt16;
     FAlpn: string;
     FServerName: string;
-    FTicketIdentity: TBytes;
     FTicketLifetime: UInt32;
-    FTicketAgeAdd: UInt32;
     FIssuedAtMillis: UInt64;
-    FMaxEarlyData: UInt32;
-    FMasterSecret: ISecretBuffer;
-    FSessionId: TBytes;
-    FSessionTicket: TBytes;
-    FExtendedMasterSecret: Boolean;
     FPeerCertificates: TArray<TBytes>;
     FResumptionScope: TBytes;
   public
     function Version: TTlsVersion;
     function CipherSuite: UInt16;
     function Hash: THashAlgorithm;
-    function ResumptionSecret: ISecretBuffer;
-    function NamedGroup: UInt16;
     function Alpn: string;
     function ServerName: string;
-    function TicketIdentity: TBytes;
     function TicketLifetime: UInt32;
-    function TicketAgeAdd: UInt32;
     function IssuedAtMillis: UInt64;
+    function PeerCertificates: TArray<TBytes>;
+    function ResumptionScope: TBytes;
+  end;
+
+  /// <summary>The default <see cref="ITls13ResumableSession" />: an immutable value holder that
+  /// also projects itself as the <see cref="IPreSharedKey" /> a client offers on resumption
+  /// (identity = ticket identity, key = resumption secret, Resumption binder).</summary>
+  TTls13ResumableSession = class sealed(TResumableSessionBase,
+    ITls13ResumableSession, IPreSharedKey)
+  strict private
+  var
+    FResumptionSecret: ISecretBuffer;
+    FTicketIdentity: TBytes;
+    FTicketAgeAdd: UInt32;
+    FMaxEarlyData: UInt32;
+  public
+    /// <summary>APeerCertificates is the peer chain verified at establishment (empty when none).
+    /// AResumptionScope is the opaque server scope sealed into the ticket (empty when none).</summary>
+    constructor Create(ACipherSuite: UInt16; AHash: THashAlgorithm;
+      const AResumptionSecret: ISecretBuffer; const AAlpn, AServerName: string;
+      const ATicketIdentity: TBytes; ATicketLifetime, ATicketAgeAdd: UInt32;
+      AIssuedAtMillis: UInt64; AMaxEarlyData: UInt32;
+      const APeerCertificates: TArray<TBytes>; const AResumptionScope: TBytes);
+
+    function ResumptionSecret: ISecretBuffer;
+    function TicketIdentity: TBytes;
+    function TicketAgeAdd: UInt32;
     function MaxEarlyData: UInt32;
+    // IPreSharedKey (Hash/CipherSuite/Alpn/TicketLifetime/IssuedAtMillis are the base's; MaxEarlyData
+    // and TicketAgeAdd are shared with ITls13ResumableSession) - only the PSK-specific projection here
+    function Identity: TBytes;
+    function Key: ISecretBuffer;
+    function BinderKind: TPskBinderKind;
+  end;
+
+  /// <summary>The default <see cref="ITls12ResumableSession" />: an immutable value holder.</summary>
+  TTls12ResumableSession = class sealed(TResumableSessionBase, ITls12ResumableSession)
+  strict private
+  var
+    FMasterSecret: ISecretBuffer;
+    FSessionId: TBytes;
+    FSessionTicket: TBytes;
+    FExtendedMasterSecret: Boolean;
+  public
+    /// <summary>APeerCertificates is the peer chain verified at establishment (empty when none).
+    /// AResumptionScope is the opaque server scope sealed into the ticket (empty when none).</summary>
+    constructor Create(ACipherSuite: UInt16; AHash: THashAlgorithm;
+      const AMasterSecret: ISecretBuffer; const ASessionId, ASessionTicket: TBytes;
+      AExtendedMasterSecret: Boolean; const AAlpn, AServerName: string;
+      ATicketLifetime: UInt32; AIssuedAtMillis: UInt64;
+      const APeerCertificates: TArray<TBytes>; const AResumptionScope: TBytes);
+
     function MasterSecret: ISecretBuffer;
     function SessionId: TBytes;
     function SessionTicket: TBytes;
     function ExtendedMasterSecret: Boolean;
-    function PeerCertificates: TArray<TBytes>;
-    function ResumptionScope: TBytes;
-    function AsPreSharedKey: IPreSharedKey;
-
-    /// <summary>A TLS 1.3 resumable session (a resumption PSK + its selected parameters).
-    /// APeerCertificates is the peer chain verified at establishment (empty when none).
-    /// AResumptionScope is the opaque server scope sealed into the ticket (empty when none).</summary>
-    class function CreateTls13(ACipherSuite: UInt16; AHash: THashAlgorithm;
-      const AResumptionSecret: ISecretBuffer; ANamedGroup: UInt16;
-      const AAlpn, AServerName: string; const ATicketIdentity: TBytes;
-      ATicketLifetime, ATicketAgeAdd: UInt32; AIssuedAtMillis: UInt64;
-      AMaxEarlyData: UInt32; const APeerCertificates: TArray<TBytes>;
-      const AResumptionScope: TBytes = nil): IResumableSession; static;
-    /// <summary>A TLS 1.2 resumable session (a master secret keyed by session id and/or ticket).
-    /// APeerCertificates is the peer chain verified at establishment (empty when none).
-    /// AResumptionScope is the opaque server scope sealed into the ticket (empty when none).</summary>
-    class function CreateTls12(ACipherSuite: UInt16; AHash: THashAlgorithm;
-      const AMasterSecret: ISecretBuffer; const ASessionId, ASessionTicket: TBytes;
-      AExtendedMasterSecret: Boolean; const AAlpn, AServerName: string;
-      ATicketLifetime, ATicketAgeAdd: UInt32; AIssuedAtMillis: UInt64;
-      const APeerCertificates: TArray<TBytes>;
-      const AResumptionScope: TBytes = nil): IResumableSession; static;
   end;
 
 implementation
@@ -225,164 +242,156 @@ begin
   Result := FIssuedAtMillis;
 end;
 
-{ TResumableSession }
+{ TResumableSessionBase }
 
-class function TResumableSession.CreateTls13(ACipherSuite: UInt16;
-  AHash: THashAlgorithm; const AResumptionSecret: ISecretBuffer;
-  ANamedGroup: UInt16; const AAlpn, AServerName: string; const ATicketIdentity: TBytes;
-  ATicketLifetime, ATicketAgeAdd: UInt32; AIssuedAtMillis: UInt64;
-  AMaxEarlyData: UInt32; const APeerCertificates: TArray<TBytes>;
-  const AResumptionScope: TBytes): IResumableSession;
-var
-  LSession: TResumableSession;
-begin
-  LSession := TResumableSession.Create;
-  LSession.FVersion := TTlsVersion.Tls13;
-  LSession.FCipherSuite := ACipherSuite;
-  LSession.FHash := AHash;
-  LSession.FResumptionSecret := AResumptionSecret;
-  LSession.FNamedGroup := ANamedGroup;
-  LSession.FAlpn := AAlpn;
-  LSession.FServerName := AServerName;
-  LSession.FTicketIdentity := System.Copy(ATicketIdentity, 0,
-    System.Length(ATicketIdentity));
-  LSession.FTicketLifetime := ATicketLifetime;
-  LSession.FTicketAgeAdd := ATicketAgeAdd;
-  LSession.FIssuedAtMillis := AIssuedAtMillis;
-  LSession.FMaxEarlyData := AMaxEarlyData;
-  LSession.FPeerCertificates := TArrayUtilities.DeepCopy<Byte>(APeerCertificates);
-  LSession.FResumptionScope := System.Copy(AResumptionScope);
-  Result := LSession;
-end;
-
-class function TResumableSession.CreateTls12(ACipherSuite: UInt16;
-  AHash: THashAlgorithm; const AMasterSecret: ISecretBuffer;
-  const ASessionId, ASessionTicket: TBytes; AExtendedMasterSecret: Boolean;
-  const AAlpn, AServerName: string; ATicketLifetime, ATicketAgeAdd: UInt32;
-  AIssuedAtMillis: UInt64; const APeerCertificates: TArray<TBytes>;
-  const AResumptionScope: TBytes): IResumableSession;
-var
-  LSession: TResumableSession;
-begin
-  LSession := TResumableSession.Create;
-  LSession.FVersion := TTlsVersion.Tls12;
-  LSession.FCipherSuite := ACipherSuite;
-  LSession.FHash := AHash;
-  LSession.FMasterSecret := AMasterSecret;
-  LSession.FSessionId := System.Copy(ASessionId, 0, System.Length(ASessionId));
-  LSession.FSessionTicket := System.Copy(ASessionTicket, 0,
-    System.Length(ASessionTicket));
-  LSession.FExtendedMasterSecret := AExtendedMasterSecret;
-  LSession.FAlpn := AAlpn;
-  LSession.FServerName := AServerName;
-  LSession.FTicketLifetime := ATicketLifetime;
-  LSession.FTicketAgeAdd := ATicketAgeAdd;
-  LSession.FIssuedAtMillis := AIssuedAtMillis;
-  LSession.FPeerCertificates := TArrayUtilities.DeepCopy<Byte>(APeerCertificates);
-  LSession.FResumptionScope := System.Copy(AResumptionScope);
-  Result := LSession;
-end;
-
-function TResumableSession.Version: TTlsVersion;
+function TResumableSessionBase.Version: TTlsVersion;
 begin
   Result := FVersion;
 end;
 
-function TResumableSession.CipherSuite: UInt16;
+function TResumableSessionBase.CipherSuite: UInt16;
 begin
   Result := FCipherSuite;
 end;
 
-function TResumableSession.Hash: THashAlgorithm;
+function TResumableSessionBase.Hash: THashAlgorithm;
 begin
   Result := FHash;
 end;
 
-function TResumableSession.ResumptionSecret: ISecretBuffer;
-begin
-  Result := FResumptionSecret;
-end;
-
-function TResumableSession.NamedGroup: UInt16;
-begin
-  Result := FNamedGroup;
-end;
-
-function TResumableSession.Alpn: string;
+function TResumableSessionBase.Alpn: string;
 begin
   Result := FAlpn;
 end;
 
-function TResumableSession.ServerName: string;
+function TResumableSessionBase.ServerName: string;
 begin
   Result := FServerName;
 end;
 
-function TResumableSession.TicketIdentity: TBytes;
-begin
-  Result := System.Copy(FTicketIdentity, 0, System.Length(FTicketIdentity));
-end;
-
-function TResumableSession.TicketLifetime: UInt32;
+function TResumableSessionBase.TicketLifetime: UInt32;
 begin
   Result := FTicketLifetime;
 end;
 
-function TResumableSession.TicketAgeAdd: UInt32;
-begin
-  Result := FTicketAgeAdd;
-end;
-
-function TResumableSession.IssuedAtMillis: UInt64;
+function TResumableSessionBase.IssuedAtMillis: UInt64;
 begin
   Result := FIssuedAtMillis;
 end;
 
-function TResumableSession.MaxEarlyData: UInt32;
-begin
-  Result := FMaxEarlyData;
-end;
-
-function TResumableSession.MasterSecret: ISecretBuffer;
-begin
-  Result := FMasterSecret;
-end;
-
-function TResumableSession.SessionId: TBytes;
-begin
-  Result := System.Copy(FSessionId, 0, System.Length(FSessionId));
-end;
-
-function TResumableSession.SessionTicket: TBytes;
-begin
-  Result := System.Copy(FSessionTicket, 0, System.Length(FSessionTicket));
-end;
-
-function TResumableSession.ExtendedMasterSecret: Boolean;
-begin
-  Result := FExtendedMasterSecret;
-end;
-
-function TResumableSession.PeerCertificates: TArray<TBytes>;
+function TResumableSessionBase.PeerCertificates: TArray<TBytes>;
 begin
   Result := TArrayUtilities.DeepCopy<Byte>(FPeerCertificates);
 end;
 
-function TResumableSession.ResumptionScope: TBytes;
+function TResumableSessionBase.ResumptionScope: TBytes;
 begin
   Result := System.Copy(FResumptionScope);
 end;
 
-function TResumableSession.AsPreSharedKey: IPreSharedKey;
+{ TTls13ResumableSession }
+
+constructor TTls13ResumableSession.Create(ACipherSuite: UInt16;
+  AHash: THashAlgorithm; const AResumptionSecret: ISecretBuffer;
+  const AAlpn, AServerName: string; const ATicketIdentity: TBytes;
+  ATicketLifetime, ATicketAgeAdd: UInt32; AIssuedAtMillis: UInt64;
+  AMaxEarlyData: UInt32; const APeerCertificates: TArray<TBytes>;
+  const AResumptionScope: TBytes);
 begin
-  // only a TLS 1.3 session carries a resumption secret; a 1.2 session has none, so it is
-  // never a valid 1.3 PSK offer - callers treat nil as "no 1.3 resumption offer"
-  Result := nil;
-  if not FVersion.Equals(TTlsVersion.Tls13) then
-    Exit;
-  Result := TPreSharedKey.Create(FTicketIdentity, FResumptionSecret, FHash,
-    FCipherSuite, FMaxEarlyData, FAlpn, TPskBinderKind.Resumption, FTicketLifetime,
-    FTicketAgeAdd, FIssuedAtMillis);
+  inherited Create;
+  FVersion := TTlsVersion.Tls13;
+  FCipherSuite := ACipherSuite;
+  FHash := AHash;
+  FResumptionSecret := AResumptionSecret;
+  FAlpn := AAlpn;
+  FServerName := AServerName;
+  FTicketIdentity := System.Copy(ATicketIdentity, 0, System.Length(ATicketIdentity));
+  FTicketLifetime := ATicketLifetime;
+  FTicketAgeAdd := ATicketAgeAdd;
+  FIssuedAtMillis := AIssuedAtMillis;
+  FMaxEarlyData := AMaxEarlyData;
+  FPeerCertificates := TArrayUtilities.DeepCopy<Byte>(APeerCertificates);
+  FResumptionScope := System.Copy(AResumptionScope);
+end;
+
+function TTls13ResumableSession.ResumptionSecret: ISecretBuffer;
+begin
+  Result := FResumptionSecret;
+end;
+
+function TTls13ResumableSession.TicketIdentity: TBytes;
+begin
+  Result := System.Copy(FTicketIdentity, 0, System.Length(FTicketIdentity));
+end;
+
+function TTls13ResumableSession.TicketAgeAdd: UInt32;
+begin
+  Result := FTicketAgeAdd;
+end;
+
+function TTls13ResumableSession.MaxEarlyData: UInt32;
+begin
+  Result := FMaxEarlyData;
+end;
+
+function TTls13ResumableSession.Identity: TBytes;
+begin
+  Result := System.Copy(FTicketIdentity, 0, System.Length(FTicketIdentity));
+end;
+
+function TTls13ResumableSession.Key: ISecretBuffer;
+begin
+  Result := FResumptionSecret;
+end;
+
+function TTls13ResumableSession.BinderKind: TPskBinderKind;
+begin
+  Result := TPskBinderKind.Resumption;
+end;
+
+{ TTls12ResumableSession }
+
+constructor TTls12ResumableSession.Create(ACipherSuite: UInt16;
+  AHash: THashAlgorithm; const AMasterSecret: ISecretBuffer;
+  const ASessionId, ASessionTicket: TBytes; AExtendedMasterSecret: Boolean;
+  const AAlpn, AServerName: string; ATicketLifetime: UInt32;
+  AIssuedAtMillis: UInt64; const APeerCertificates: TArray<TBytes>;
+  const AResumptionScope: TBytes);
+begin
+  inherited Create;
+  FVersion := TTlsVersion.Tls12;
+  FCipherSuite := ACipherSuite;
+  FHash := AHash;
+  FMasterSecret := AMasterSecret;
+  FSessionId := System.Copy(ASessionId, 0, System.Length(ASessionId));
+  FSessionTicket := System.Copy(ASessionTicket, 0, System.Length(ASessionTicket));
+  FExtendedMasterSecret := AExtendedMasterSecret;
+  FAlpn := AAlpn;
+  FServerName := AServerName;
+  FTicketLifetime := ATicketLifetime;
+  FIssuedAtMillis := AIssuedAtMillis;
+  FPeerCertificates := TArrayUtilities.DeepCopy<Byte>(APeerCertificates);
+  FResumptionScope := System.Copy(AResumptionScope);
+end;
+
+function TTls12ResumableSession.MasterSecret: ISecretBuffer;
+begin
+  Result := FMasterSecret;
+end;
+
+function TTls12ResumableSession.SessionId: TBytes;
+begin
+  Result := System.Copy(FSessionId, 0, System.Length(FSessionId));
+end;
+
+function TTls12ResumableSession.SessionTicket: TBytes;
+begin
+  Result := System.Copy(FSessionTicket, 0, System.Length(FSessionTicket));
+end;
+
+function TTls12ResumableSession.ExtendedMasterSecret: Boolean;
+begin
+  Result := FExtendedMasterSecret;
 end;
 
 end.

@@ -27,7 +27,7 @@ uses
   TlpEchExtension,
   TlpEchOuterExtensions,
   TlpIEch,
-  TlpTls13KeySchedule,
+  TlpEchConfirmation,
   TlpArrayUtilities,
   TlpTlsLibExceptions,
   TlpSecureMemory;
@@ -375,7 +375,7 @@ var
 begin
   if System.Length(AServerRandom) <> ServerHelloRandomLength then
     Exit(False);
-  LComputed := TTls13KeySchedule.EchAcceptConfirmation(AHkdf, AInnerRandom,
+  LComputed := TEchConfirmation.Accept(AHkdf, AInnerRandom,
     ATranscriptEchConf);
   SetLength(LReceived, TEchExtension.ConfirmationLength);
   for LI := 0 to TEchExtension.ConfirmationLength - 1 do

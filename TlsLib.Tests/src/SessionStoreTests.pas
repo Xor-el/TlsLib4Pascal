@@ -79,6 +79,9 @@ type
     procedure TestStekRotateDoesNotShortenTimer;
     procedure TestStekBackwardsClockDoesNotExpireOrRaise;
     procedure TestStekOpenWithUnbindableKeyFallsBack;
+    procedure TestStekSealOpenRoundTripTls13;
+    procedure TestStekSealOpenRoundTripTls12;
+    procedure TestStekSealDeclinesBaseOnlySession;
     procedure TestAntiReplayDetectsReplay;
     procedure TestAntiReplayFreshAfterExpiry;
     procedure TestAntiReplayRejectsEmpty;
@@ -160,6 +163,67 @@ begin
   Result := 16;
 end;
 
+type
+  // a session that implements only the version-agnostic base (neither sub-interface), to prove Seal
+  // declines to seal one it cannot classify as 1.3 or 1.2
+  TBaseOnlySession = class sealed(TInterfacedObject, IResumableSession)
+  public
+    function Version: TTlsVersion;
+    function CipherSuite: UInt16;
+    function Hash: THashAlgorithm;
+    function Alpn: string;
+    function ServerName: string;
+    function TicketLifetime: UInt32;
+    function IssuedAtMillis: UInt64;
+    function PeerCertificates: TArray<TBytes>;
+    function ResumptionScope: TBytes;
+  end;
+
+function TBaseOnlySession.Version: TTlsVersion;
+begin
+  Result := TTlsVersion.Tls13;
+end;
+
+function TBaseOnlySession.CipherSuite: UInt16;
+begin
+  Result := 0;
+end;
+
+function TBaseOnlySession.Hash: THashAlgorithm;
+begin
+  Result := THashAlgorithm.SHA_256;
+end;
+
+function TBaseOnlySession.Alpn: string;
+begin
+  Result := '';
+end;
+
+function TBaseOnlySession.ServerName: string;
+begin
+  Result := '';
+end;
+
+function TBaseOnlySession.TicketLifetime: UInt32;
+begin
+  Result := 0;
+end;
+
+function TBaseOnlySession.IssuedAtMillis: UInt64;
+begin
+  Result := 0;
+end;
+
+function TBaseOnlySession.PeerCertificates: TArray<TBytes>;
+begin
+  Result := nil;
+end;
+
+function TBaseOnlySession.ResumptionScope: TBytes;
+begin
+  Result := nil;
+end;
+
 { TTestSessionStore }
 
 function TTestSessionStore.Tag(AValue: Byte; ALength: Int32): TBytes;
@@ -172,16 +236,16 @@ end;
 
 function TTestSessionStore.MakeSession(const ATag: TBytes): IResumableSession;
 begin
-  Result := TResumableSession.CreateTls13(TCipherSuites13.Aes128GcmSha256,
-    THashAlgorithm.SHA_256, TSecretBuffer.From(ATag), TNamedGroupCatalog.X25519,
-    '', '', ATag, 7200, 0, 0, 0, nil);
+  Result := TTls13ResumableSession.Create(TCipherSuites13.Aes128GcmSha256,
+    THashAlgorithm.SHA_256, TSecretBuffer.From(ATag),
+    '', '', ATag, 7200, 0, 0, 0, nil, nil);
 end;
 
 function TTestSessionStore.MakeTls12Session(const ATag: TBytes): IResumableSession;
 begin
-  Result := TResumableSession.CreateTls12(TCipherSuites12.EcdheEcdsaAes128GcmSha256,
+  Result := TTls12ResumableSession.Create(TCipherSuites12.EcdheEcdsaAes128GcmSha256,
     THashAlgorithm.SHA_256,
-    TSecretBuffer.From(ATag), ATag, ATag, True, '', '', 7200, 0, 0, nil);
+    TSecretBuffer.From(ATag), ATag, ATag, True, '', '', 7200, 0, nil, nil);
 end;
 
 procedure TTestSessionStore.TestCacheStoreAndTakeSingleUse;
@@ -193,7 +257,8 @@ begin
   LCache.Store('example.com:443', 'example.com', MakeSession(Tag($11, 4)));
   CheckTrue(LCache.Take('example.com:443', 'example.com', LTaken),
     'a stored session is retrievable');
-  CheckEqualBytes('the same session comes back', Tag($11, 4), LTaken.TicketIdentity);
+  CheckEqualBytes('the same session comes back', Tag($11, 4),
+    (LTaken as ITls13ResumableSession).TicketIdentity);
   CheckFalse(LCache.Take('example.com:443', 'example.com', LTaken),
     'retrieval is single-use');
 end;
@@ -209,7 +274,8 @@ begin
   CheckFalse(LCache.Take('host:443', 'c.example', LTaken),
     'a different SNI does not match');
   CheckTrue(LCache.Take('host:443', 'b.example', LTaken), 'the b.example entry resumes');
-  CheckEqualBytes('and is the right one', Tag($02, 4), LTaken.TicketIdentity);
+  CheckEqualBytes('and is the right one', Tag($02, 4),
+    (LTaken as ITls13ResumableSession).TicketIdentity);
 end;
 
 procedure TTestSessionStore.TestCacheBoundedEviction;
@@ -285,7 +351,8 @@ begin
   LHandle := LStore.Put(MakeSession(Tag($22, 8)));
   CheckTrue(System.Length(LHandle) > 0, 'Put returns an opaque handle');
   CheckTrue(LStore.Take(LHandle, LTaken), 'the handle resolves');
-  CheckEqualBytes('to the stored session', Tag($22, 8), LTaken.TicketIdentity);
+  CheckEqualBytes('to the stored session', Tag($22, 8),
+    (LTaken as ITls13ResumableSession).TicketIdentity);
   CheckFalse(LStore.Take(LHandle, LTaken), 'a stored session is single-use');
 end;
 
@@ -299,7 +366,8 @@ begin
   LId := Tag($33, 32);
   LStore.PutWithId(LId, MakeSession(Tag($44, 4)));
   CheckTrue(LStore.Take(LId, LTaken), 'a caller-chosen id resolves');
-  CheckEqualBytes('to the stored session', Tag($44, 4), LTaken.TicketIdentity);
+  CheckEqualBytes('to the stored session', Tag($44, 4),
+    (LTaken as ITls13ResumableSession).TicketIdentity);
 end;
 
 procedure TTestSessionStore.TestStoreBoundedEviction;
@@ -339,7 +407,7 @@ begin
   begin
     CheckTrue(LStore.Take(LLive[LI], LTaken), 'a live session survives repeated compaction');
     CheckEqualBytes('with its identity intact', Tag(Byte($A0 + LI), 8),
-      LTaken.TicketIdentity);
+      (LTaken as ITls13ResumableSession).TicketIdentity);
   end;
   CheckEquals(0, LStore.Count, 'all sessions were consumed');
 end;
@@ -779,6 +847,86 @@ begin
   end;
   CheckFalse(LRaised, 'opening with an unbindable key does not raise');
   CheckFalse(LOk, 'it falls back to a full handshake');
+end;
+
+procedure TTestSessionStore.TestStekSealOpenRoundTripTls13;
+var
+  LStrategy: ISessionTicketStrategy;
+  LTicket: TBytes;
+  LOriginal, LOpened: IResumableSession;
+  L13: ITls13ResumableSession;
+  L12: ITls12ResumableSession;
+  LChain: TArray<TBytes>;
+begin
+  LStrategy := TStekTicketStrategy.Create(Crypto,
+    TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager);
+  LChain := TArray<TBytes>.Create(Tag($C0, 20));
+  LOriginal := TTls13ResumableSession.Create(TCipherSuites13.Aes128GcmSha256,
+    THashAlgorithm.SHA_256, TSecretBuffer.From(Tag($5E, 32)), 'h2', 'host.example',
+    Tag($AB, 4), 3600, $11223344, 1000, 4096, LChain, Tag($5C, 3));
+  LTicket := LStrategy.Seal(LOriginal);
+  CheckTrue(System.Length(LTicket) > 0, 'a 1.3 session seals to a ticket');
+  CheckTrue(LStrategy.Open(LTicket, LOpened), 'the ticket opens');
+  CheckTrue(Supports(LOpened, ITls13ResumableSession, L13),
+    'the opened session is a 1.3 sub-interface');
+  CheckFalse(Supports(LOpened, ITls12ResumableSession, L12),
+    'a 1.3 session is not a 1.2 sub-interface');
+  CheckEquals(Integer(TCipherSuites13.Aes128GcmSha256), Integer(LOpened.CipherSuite),
+    'the suite round-trips');
+  CheckEquals('h2', LOpened.Alpn, 'the ALPN round-trips');
+  CheckEquals('host.example', LOpened.ServerName, 'the SNI host round-trips');
+  CheckEquals(Integer($11223344), Integer(L13.TicketAgeAdd), 'the age_add round-trips');
+  CheckEquals(Integer(4096), Integer(L13.MaxEarlyData), 'max_early_data round-trips');
+  CheckEqualBytes('the resumption secret round-trips', Tag($5E, 32),
+    L13.ResumptionSecret.ToBytes);
+  CheckEqualBytes('the resumption scope round-trips', Tag($5C, 3),
+    LOpened.ResumptionScope);
+  CheckEquals(1, System.Length(LOpened.PeerCertificates), 'the peer chain round-trips');
+  CheckEqualBytes('the peer leaf round-trips', Tag($C0, 20),
+    LOpened.PeerCertificates[0]);
+end;
+
+procedure TTestSessionStore.TestStekSealOpenRoundTripTls12;
+var
+  LStrategy: ISessionTicketStrategy;
+  LTicket: TBytes;
+  LOpened: IResumableSession;
+  L12: ITls12ResumableSession;
+  L13: ITls13ResumableSession;
+begin
+  LStrategy := TStekTicketStrategy.Create(Crypto,
+    TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager);
+  // the STEK body drops session_id / session_ticket (they are never sealed), so those must open empty
+  LTicket := LStrategy.Seal(TTls12ResumableSession.Create(
+    TCipherSuites12.EcdheEcdsaAes128GcmSha256, THashAlgorithm.SHA_256,
+    TSecretBuffer.From(Tag($4D, 48)), Tag($01, 32), Tag($02, 16), True, '',
+    'legacy.example', 1800, 2000, nil, nil) as IResumableSession);
+  CheckTrue(System.Length(LTicket) > 0, 'a 1.2 session seals to a ticket');
+  CheckTrue(LStrategy.Open(LTicket, LOpened), 'the ticket opens');
+  CheckTrue(Supports(LOpened, ITls12ResumableSession, L12),
+    'the opened session is a 1.2 sub-interface');
+  CheckFalse(Supports(LOpened, ITls13ResumableSession, L13),
+    'a 1.2 session is not a 1.3 sub-interface');
+  CheckEqualBytes('the master secret round-trips', Tag($4D, 48),
+    L12.MasterSecret.ToBytes);
+  CheckTrue(L12.ExtendedMasterSecret, 'the EMS flag round-trips');
+  CheckEquals('legacy.example', LOpened.ServerName, 'the SNI host round-trips');
+  CheckEquals(0, System.Length(L12.SessionId), 'the session id is not carried in a STEK ticket');
+  CheckEquals(0, System.Length(L12.SessionTicket),
+    'the session ticket is not carried in a STEK ticket');
+end;
+
+procedure TTestSessionStore.TestStekSealDeclinesBaseOnlySession;
+var
+  LStrategy: ISessionTicketStrategy;
+  LTicket: TBytes;
+begin
+  // a session that is neither sub-interface cannot be serialized, so Seal declines (empty ticket)
+  LStrategy := TStekTicketStrategy.Create(Crypto,
+    TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager);
+  LTicket := LStrategy.Seal(TBaseOnlySession.Create as IResumableSession);
+  CheckEquals(0, System.Length(LTicket),
+    'a session that is neither a 1.3 nor a 1.2 sub-interface does not seal');
 end;
 
 procedure TTestSessionStore.TestAntiReplayDetectsReplay;

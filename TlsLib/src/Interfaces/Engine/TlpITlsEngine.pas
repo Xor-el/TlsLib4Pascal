@@ -88,7 +88,7 @@ type
   /// Single-threaded: the caller serializes access; there are no internal locks.
   /// </summary>
   ITlsEngine = interface(IInterface)
-    ['{3A8E1C24-5D9B-4F60-A7C8-2B6E0D4F91A5}']
+    ['{16683746-5189-4961-9BDD-E12CB439EC12}']
     // --- network -> engine ---
     /// <summary>Feeds transport bytes; drives the record layer.</summary>
     function ProcessInput(const AWire: TBytes; AOffset, ALength: Int32): TTlsOutcome;
@@ -211,6 +211,12 @@ type
     /// context at all. Availability matches the no-context overload.</summary>
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       ALength: Int32): TBytes; overload;
+    /// <summary>Early-data (0-RTT) keying material (RFC 8446 7.5). TLS 1.3 only: available on a
+    /// client from when it offers 0-RTT until the server rejects it, and on a server once it
+    /// accepts 0-RTT; empty otherwise, once 0-RTT is rejected, on TLS 1.2, and on a failed
+    /// connection.</summary>
+    function ExportEarlyKeyingMaterial(const ALabel: string; const AContext: TBytes;
+      ALength: Int32): TBytes;
   end;
 
 implementation

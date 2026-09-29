@@ -192,7 +192,7 @@ type
     /// <summary>Resumption state: the accepted session and whether it came via a ticket
     /// (rather than a session id).</summary>
     FResuming: Boolean;
-    FResumedSession: IResumableSession;
+    FResumedSession: ITls12ResumableSession;
     FResumedViaTicket: Boolean;
     /// <summary>The client's certificate chain (leaf first) and whether it sent one, for
     /// the client CertificateVerify and the required-auth policy.</summary>
@@ -823,6 +823,7 @@ function TTls12ServerStateMachine.TryAcceptResumption(
   const AHello: TTlsClientHello; const AContext: TExtensionContext): Boolean;
 var
   LSession: IResumableSession;
+  L12: ITls12ResumableSession;
   LViaTicket: Boolean;
   LNowMs: UInt64;
   LSuite: TTlsCipherSuite;
@@ -855,6 +856,8 @@ begin
   // the recovered session must be a live 1.2 session whose suite the client still offers
   if LSession.Version.WireValue <> TlsWireVersionTls12 then
     Exit;
+  if not Supports(LSession, ITls12ResumableSession, L12) then
+    Exit;
   LNowMs := FParams.Clock.NowUnixMillis;
   if LNowMs >= LSession.IssuedAtMillis + UInt64(LSession.TicketLifetime) * 1000 then
     Exit;
@@ -868,14 +871,14 @@ begin
   // RFC 7627 5.3: an EMS session offered again without EMS MUST abort - the omission signals a
   // downgrade (or an attacker stripping the extension) - while a non-EMS session now offered with
   // EMS simply declines to a full handshake
-  if LSession.ExtendedMasterSecret and not AContext.ExtendedMasterSecret then
+  if L12.ExtendedMasterSecret and not AContext.ExtendedMasterSecret then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SResumedEmsDowngrade);
-  if AContext.ExtendedMasterSecret and not LSession.ExtendedMasterSecret then
+  if AContext.ExtendedMasterSecret and not L12.ExtendedMasterSecret then
     Exit;
   // a server that requires EMS must not resume a session established without it; decline to a full
   // handshake, which then enforces the requirement (RFC 7627 5.3)
-  if FParams.RequireExtendedMasterSecret and not LSession.ExtendedMasterSecret then
+  if FParams.RequireExtendedMasterSecret and not L12.ExtendedMasterSecret then
     Exit;
   // mutual-TLS resumption gate (an abbreviated handshake re-runs no client auth): a Required
   // server offered a ticket/session with no stored client identity falls through to a full
@@ -884,10 +887,10 @@ begin
     (System.Length(LSession.PeerCertificates) = 0) then
     Exit;
 
-  FResumedSession := LSession;
+  FResumedSession := L12;
   FResumedViaTicket := LViaTicket;
   FSelectedSuite := LSuite;
-  FUseExtendedMasterSecret := LSession.ExtendedMasterSecret;
+  FUseExtendedMasterSecret := L12.ExtendedMasterSecret;
   FSessionId := System.Copy(AHello.LegacySessionId);
   // renew the ticket on an abbreviated handshake so single-use tickets stay resumable
   FIssueNewTicket := (FTicketStrategy <> nil) and AContext.SessionTicketOffered;
@@ -915,9 +918,9 @@ begin
     LChainForTicket := FResumedSession.PeerCertificates
   else
     LChainForTicket := nil;
-  Result := TResumableSession.CreateTls12(FSelectedSuite.Common.Code,
+  Result := TTls12ResumableSession.Create(FSelectedSuite.Common.Code,
     FSelectedSuite.Common.Hash, FSchedule.MasterSecret, ASessionId, nil,
-    FUseExtendedMasterSecret, '', FRequestedServerName, EmittedTicketLifetime, 0,
+    FUseExtendedMasterSecret, '', FRequestedServerName, EmittedTicketLifetime,
     FParams.Clock.NowUnixMillis, LChainForTicket, FParams.ResumptionScope);
 end;
 

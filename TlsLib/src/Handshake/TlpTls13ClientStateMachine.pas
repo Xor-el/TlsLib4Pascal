@@ -236,7 +236,7 @@ type
     /// <summary>A cached TLS 1.2 session this dual-version ClientHello offers for 1.2
     /// resumption (nil otherwise), and the session id it put in legacy_session_id so a 1.2
     /// hand-off can match the server's abbreviated echo. A 1.3 server ignores both.</summary>
-    FTls12ResumptionSession: IResumableSession;
+    FTls12ResumptionSession: ITls12ResumableSession;
     FTls12OfferedSessionId: TBytes;
     /// <summary>The legacy_session_id this ClientHello actually sent, which the server must
     /// echo (RFC 8446 4.1.3); normally the middlebox id, but the offered 1.2 session id when
@@ -252,6 +252,11 @@ type
     FEarlyDataOffered: Boolean;
     /// <summary>Whether the server accepted the offered early data (EncryptedExtensions).</summary>
     FEarlyDataAccepted: Boolean;
+    /// <summary>Whether an offered 0-RTT was rejected (PSK/suite rejected, EncryptedExtensions
+    /// without early_data, or a HelloRetryRequest). Once rejected the early exporter is withheld:
+    /// the peer never derives the early_exporter_master_secret for this connection, so any value
+    /// the application exported would bind to nothing.</summary>
+    FEarlyDataRejected: Boolean;
     /// <summary>Whether the selected suite matches the resumption PSK's bound suite; 0-RTT
     /// is bound to the ticket's exact suite, so accepted early data under a different one
     /// is illegal (RFC 8446 4.2.10).</summary>
@@ -362,6 +367,7 @@ type
     function WriteDirection: TTlsDirection; override;
     function ReadDirection: TTlsDirection; override;
     function ContinueAfterVerdict: TArray<THandshakeEffect>; override;
+    function CanExportEarlyKeyingMaterial: Boolean; override;
   public
     constructor Create(const AParams: TClientHandshakeParams);
     function Initiates: Boolean; override;
@@ -369,7 +375,7 @@ type
     /// <summary>The cached TLS 1.2 session this unified ClientHello offered (nil when it
     /// offered none), for a version-dispatching parent to hand to a 1.2 sub-machine when
     /// the server selects 1.2.</summary>
-    property Tls12ResumptionSession: IResumableSession read FTls12ResumptionSession;
+    property Tls12ResumptionSession: ITls12ResumableSession read FTls12ResumptionSession;
     /// <summary>The legacy_session_id this unified ClientHello actually put on the wire -
     /// the cached 1.2 session id when resuming, otherwise the random TLS 1.3 compatibility-mode
     /// id. A 1.2 sub-machine uses it to detect a server echoing the id, whether that echo is a
@@ -747,11 +753,11 @@ begin
   LPeerChain := FCertificateChain;
   if (System.Length(LPeerChain) = 0) and FPskAccepted then
     LPeerChain := FResumptionPeerCertificates;
-  LSession := TResumableSession.CreateTls13(FSelectedSuite.Common.Code,
-    FSelectedSuite.Common.Hash, LPsk, FCurrentGroupCode, FNegotiatedAlpn,
+  LSession := TTls13ResumableSession.Create(FSelectedSuite.Common.Code,
+    FSelectedSuite.Common.Hash, LPsk, FNegotiatedAlpn,
     FParams.ServerName, LNst.Ticket,
     LLifetime, LNst.TicketAgeAdd, NowUnixMillis,
-    LMaxEarlyData, LPeerChain);
+    LMaxEarlyData, LPeerChain, nil);
   FParams.SessionCache.Store(CacheServerIdentity, FParams.ServerName, LSession);
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.RaiseEvent(TTlsEventKind.SessionTicketReceived));
@@ -766,6 +772,9 @@ function TTls13ClientStateMachine.Start: TArray<THandshakeEffect>;
 var
   LClientHello, LInner: TBytes;
   LCached: IResumableSession;
+  LOfferedPsk: IPreSharedKey;
+  L13: ITls13ResumableSession;
+  L12: ITls12ResumableSession;
   LPskSuite: TTlsCipherSuite;
   LHint: UInt16;
   LHintGroup: INamedGroup;
@@ -800,20 +809,28 @@ begin
   begin
     if LCached.Version.WireValue = TlsWireVersionTls13 then
     begin
-      if TClientSessionPolicy.IsOfferableTls13(LCached, NowUnixMillis) then
+      if TClientSessionPolicy.IsOfferableTls13(LCached, NowUnixMillis) and
+        Supports(LCached, ITls13ResumableSession, L13) then
       begin
-        FPskOffers := TArray<IPreSharedKey>.Create(LCached.AsPreSharedKey);
+        // the default session projects itself as a PSK; a custom cache may return one that does
+        // not, so build the offer from the documented ITls13ResumableSession surface instead
+        if not Supports(L13, IPreSharedKey, LOfferedPsk) then
+          LOfferedPsk := TPreSharedKey.Create(L13.TicketIdentity, L13.ResumptionSecret,
+            L13.Hash, L13.CipherSuite, L13.MaxEarlyData, L13.Alpn, TPskBinderKind.Resumption,
+            L13.TicketLifetime, L13.TicketAgeAdd, L13.IssuedAtMillis);
+        FPskOffers := TArray<IPreSharedKey>.Create(LOfferedPsk);
         // kept so ReverifyOnResume can re-check the server we resume against current trust
         FResumptionPeerCertificates := LCached.PeerCertificates;
       end;
     end
     else if FParams.AlsoOfferTls12 then
     begin
-      if TClientSessionPolicy.IsOfferableTls12(LCached, NowUnixMillis) then
+      if TClientSessionPolicy.IsOfferableTls12(LCached, NowUnixMillis) and
+        Supports(LCached, ITls12ResumableSession, L12) then
       begin
-        FTls12ResumptionSession := LCached;
-        if System.Length(LCached.SessionId) > 0 then
-          FTls12OfferedSessionId := LCached.SessionId
+        FTls12ResumptionSession := L12;
+        if System.Length(L12.SessionId) > 0 then
+          FTls12OfferedSessionId := L12.SessionId
         else
           FTls12OfferedSessionId := FParams.LegacySessionId;
       end;
@@ -1158,8 +1175,11 @@ begin
     TTlsDirection.ClientWrite), TRecordSide.WriteSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13, TTlsEpoch.Handshake));
   // a PSK-rejected 0-RTT offer means the early data was ignored: the engine replays it
   if FEarlyDataOffered then
+  begin
+    FEarlyDataRejected := True;
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.RaiseEvent(TTlsEventKind.EarlyDataRejected));
+  end;
 end;
 
 function TTls13ClientStateMachine.ProcessEncryptedExtensions(
@@ -1249,6 +1269,7 @@ begin
     end
     else
     begin
+      FEarlyDataRejected := True;
       TArrayUtilities.Append<THandshakeEffect>(Result,
         THandshakeEffects.RaiseEvent(TTlsEventKind.EarlyDataRejected));
       TArrayUtilities.Append<THandshakeEffect>(Result,
@@ -1431,6 +1452,7 @@ begin
   // sent in the clear (the middlebox change_cipher_spec was already emitted with the first flight)
   if LEarlyDataWasOffered then
   begin
+    FEarlyDataRejected := True;
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.RaiseEvent(TTlsEventKind.EarlyDataRejected));
     TArrayUtilities.Append<THandshakeEffect>(Result,
@@ -1821,6 +1843,11 @@ begin
   Result := nil;
   if FPhase = TPhase.WaitResumeVerdict then
     Result := BuildClientFinishedFlight;
+end;
+
+function TTls13ClientStateMachine.CanExportEarlyKeyingMaterial: Boolean;
+begin
+  Result := (inherited CanExportEarlyKeyingMaterial) and not FEarlyDataRejected;
 end;
 
 function TTls13ClientStateMachine.WriteDirection: TTlsDirection;

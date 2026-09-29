@@ -72,6 +72,9 @@ type
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       ALength: Int32): TBytes; overload; override;
     function CanExportKeyingMaterial: Boolean; override;
+    function ExportEarlyKeyingMaterial(const ALabel: string; const AContext: TBytes;
+      ALength: Int32): TBytes; override;
+    function CanExportEarlyKeyingMaterial: Boolean; override;
   end;
 
 implementation
@@ -184,6 +187,22 @@ begin
   if not CanExportKeyingMaterial then
     Exit;
   Result := FSchedule.ExportKeyingMaterial(ALabel, AContext, ALength);
+end;
+
+function TTls13HandshakeBase.CanExportEarlyKeyingMaterial: Boolean;
+begin
+  // the early exporter binds only the ClientHello - no peer identity is pending in it - so unlike
+  // the main exporter it is not gated on the verdict park (RFC 8446 7.5)
+  Result := (FSchedule <> nil) and FSchedule.CanExportEarly;
+end;
+
+function TTls13HandshakeBase.ExportEarlyKeyingMaterial(const ALabel: string;
+  const AContext: TBytes; ALength: Int32): TBytes;
+begin
+  Result := nil;
+  if not CanExportEarlyKeyingMaterial then
+    Exit;
+  Result := FSchedule.ExportEarlyKeyingMaterial(ALabel, AContext, ALength);
 end;
 
 end.

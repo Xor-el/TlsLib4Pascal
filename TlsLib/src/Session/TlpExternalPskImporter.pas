@@ -18,6 +18,7 @@ interface
 uses
   SysUtils,
   TlpCryptoDomainTypes,
+  TlpTlsLibExceptions,
   TlpISecretBuffer,
   TlpICryptoProvider,
   TlpHkdfLabel,
@@ -65,23 +66,29 @@ type
 
 implementation
 
+resourcestring
+  SUnsupportedImporterKdf =
+    'the external PSK importer supports only HKDF-SHA256 and HKDF-SHA384 (RFC 9258)';
+  SEmptyExternalPskIdentity =
+    'the external PSK identity must not be empty (RFC 9258 external_identity<1..2^16-1>)';
+
 const
   KdfHkdfSha256 = UInt16($0001);
   KdfHkdfSha384 = UInt16($0002);
-  KdfHkdfSha512 = UInt16($0003);
   DerivedPskLabel = 'derived psk';
 
 { TExternalPskImporter }
 
 class function TExternalPskImporter.KdfId(AHash: THashAlgorithm): UInt16;
 begin
+  // RFC 9258 10: only HKDF-SHA256 (0x0001) and HKDF-SHA384 (0x0002) are registered KDF ids
   case AHash of
+    THashAlgorithm.SHA_256:
+      Result := KdfHkdfSha256;
     THashAlgorithm.SHA_384:
       Result := KdfHkdfSha384;
-    THashAlgorithm.SHA_512:
-      Result := KdfHkdfSha512;
   else
-    Result := KdfHkdfSha256;
+    raise EArgumentTlsLibException.CreateRes(@SUnsupportedImporterKdf);
   end;
 end;
 
@@ -113,6 +120,9 @@ var
   LEpsk, LIpsk: ISecretBuffer;
   LOutLen: Int32;
 begin
+  // RFC 9258 5.1: external_identity is opaque<1..2^16-1>, so a zero-length identity is invalid
+  if System.Length(ASpec.Identity) = 0 then
+    raise EArgumentTlsLibException.CreateRes(@SEmptyExternalPskIdentity);
   // RFC 9258 5.1: the imported identity binds the external identity, context, target
   // protocol and target KDF, so the same secret under a different context/KDF/protocol
   // yields a distinct wire identity that will not match.

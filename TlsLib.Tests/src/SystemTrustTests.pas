@@ -231,7 +231,7 @@ type
 
   /// <summary>Behavioural tests for the Windows OS client-certificate delegate against a
   /// self-contained private CA (the exclusive trust root is fully controllable, so unlike the
-  /// server delegate these are hermetic). Proves the H3 exclusive-root fix, the injected clock,
+  /// server delegate these are hermetic). Proves the exclusive-root behaviour, the injected clock,
   /// and the revocation posture over crypt32's real chain engine. Windows-only.</summary>
   TTestWindowsClientDelegate = class(TTlsLibAlgorithmTestCase)
   strict private
@@ -1498,7 +1498,7 @@ procedure TTestWindowsClientDelegate.TestRejectsClientChainToForeignAnchor;
 var
   LAlert: TTlsAlertDescription;
 begin
-  // audit H3: the anchors are the ONLY trust root, so a client cert that does not chain to them
+  // the anchors are the ONLY trust root, so a client cert that does not chain to them
   // is rejected - never validated against the OS/public roots
   CheckFalse(Verify(ForeignAnchor, TRevocationPosture.Off,
     TSystemClock.Create as ITlsClock, LAlert),
@@ -1660,7 +1660,7 @@ var
   LCtx: TCertificateVerdictContext;
   LAlert: TTlsAlertDescription;
 begin
-  // the exact A-3 bug direction: a SERVER-chain resolver (server-auth EKU) wired into a server's
+  // the dangerous direction: a SERVER-chain resolver (server-auth EKU) wired into a server's
   // mTLS park would evaluate a CLIENT chain against the wrong EKU and reject every client. The
   // role guard must refuse it - and even under the Off posture, because the misconfiguration is
   // posture-independent (Off would otherwise accept without evaluating, hiding the mistake until a

@@ -66,6 +66,8 @@ type
     procedure TestKeyUpdateAdvancesTheKey;
     procedure TestExporterIsDeterministic;
     procedure TestExporterRejectsBadArgs;
+    procedure TestEarlyExporterDeterministicAndDistinct;
+    procedure TestEarlyExporterRaisesBeforeEarlyEpoch;
     procedure TestBinderKeyResumptionVsExternalDiffer;
     procedure TestBinderRoundTripConstantTime;
     procedure TestPskDheKeAgreesOnBothSides;
@@ -73,6 +75,9 @@ type
     procedure TestPartialTranscriptForBinder;
     procedure TestExternalPskImporterIdentityAndBinder;
     procedure TestExternalPskImporterImportAllOrder;
+    procedure TestImportRejectsEmptyIdentity;
+    procedure TestImportRejectsUnregisteredKdfHash;
+    procedure TestDeriveRejectsWrongLengthTranscript;
     procedure TestForgetKeepsApplicationEpochAndExporter;
     procedure TestForgetReleasesHandshakeStages;
     procedure TestForgetBeforeApplicationEpochRaises;
@@ -279,6 +284,46 @@ begin
   CheckEqualBytes('exporter is deterministic', LFirst, LSecond);
 end;
 
+procedure TTestTls13KeySchedule.TestEarlyExporterDeterministicAndDistinct;
+var
+  LSched: ITls13KeySchedule;
+  LEarly, LEarly2, LMain: TBytes;
+begin
+  LSched := NewSchedule;
+  CheckFalse(LSched.CanExportEarly, 'no early exporter before the early epoch is derived');
+  LSched.DeriveEpochSecrets(TTlsEpoch.EarlyData,
+    DecodeHex('000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f'));
+  CheckTrue(LSched.CanExportEarly, 'early exporter available after the early epoch');
+  LEarly := LSched.ExportEarlyKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), 32);
+  LEarly2 := LSched.ExportEarlyKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), 32);
+  CheckEquals(32, System.Length(LEarly), 'requested length honored');
+  CheckEqualBytes('early exporter is deterministic', LEarly, LEarly2);
+  // the early_exporter_master_secret is a different master, so the value differs from the
+  // application exporter for the same label and context
+  LSched.DeriveEpochSecrets(TTlsEpoch.Application, Bytes('hash_ch_sf'));
+  LMain := LSched.ExportKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), 32);
+  CheckFalse(AreEqual(LEarly, LMain),
+    'the early exporter differs from the application exporter');
+end;
+
+procedure TTestTls13KeySchedule.TestEarlyExporterRaisesBeforeEarlyEpoch;
+var
+  LSched: ITls13KeySchedule;
+  LRaised: Boolean;
+begin
+  // a schedule that never took the early epoch (a 1-RTT handshake) cannot early-export
+  LSched := NewSchedule;
+  CheckFalse(LSched.CanExportEarly, 'a 1-RTT schedule cannot early-export');
+  LRaised := False;
+  try
+    LSched.ExportEarlyKeyingMaterial('EXPORTER-test', DecodeHex('00'), 32);
+  except
+    on EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'early-exporting before the early epoch raises');
+end;
+
 procedure TTestTls13KeySchedule.TestExporterRejectsBadArgs;
 var
   LSched: ITls13KeySchedule;
@@ -302,6 +347,9 @@ begin
   CheckTrue(Raises(#$00E9 + 'label', 32), 'a non-ASCII label is rejected');
   // the label is wrapped as "tls13 " + label, whose 7-byte floor rejects an empty label
   CheckTrue(Raises('', 32), 'an empty label is rejected for TLS 1.3');
+  // RFC 5705 4: an exporter label must not reuse a TLS PRF label
+  CheckTrue(Raises('master secret', 32), 'a reserved PRF label is rejected');
+  CheckTrue(Raises('client finished', 32), 'a reserved finished label is rejected');
 end;
 
 procedure TTestTls13KeySchedule.TestBinderKeyResumptionVsExternalDiffer;
@@ -486,6 +534,64 @@ begin
     THashAlgorithm.SHA_256).Identity, LAll[2].Identity);
   CheckEquals(Ord(THashAlgorithm.SHA_384), Ord(LAll[3].Hash),
     'offer 3 is spec B under SHA-384');
+end;
+
+procedure TTestTls13KeySchedule.TestImportRejectsEmptyIdentity;
+var
+  LSpec: TExternalPsk;
+  LRaised: Boolean;
+begin
+  // RFC 9258 5.1: external_identity is opaque<1..2^16-1>, so an empty identity is invalid
+  LSpec.Identity := nil;
+  LSpec.Secret := TSecretBuffer.From(DecodeHex('00112233445566778899AABBCCDDEEFF'));
+  LSpec.Context := nil;
+  LSpec.Hash := THashAlgorithm.SHA_256;
+  LRaised := False;
+  try
+    TExternalPskImporter.Import(Crypto, LSpec, $0304, THashAlgorithm.SHA_256);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an empty external identity is rejected');
+end;
+
+procedure TTestTls13KeySchedule.TestImportRejectsUnregisteredKdfHash;
+var
+  LSpec: TExternalPsk;
+  LRaised: Boolean;
+begin
+  // RFC 9258 10 registers only HKDF-SHA256 and HKDF-SHA384; a SHA-512 target has no KDF id
+  LSpec.Identity := TBytes.Create($61, $62);
+  LSpec.Secret := TSecretBuffer.From(DecodeHex('00112233445566778899AABBCCDDEEFF'));
+  LSpec.Context := nil;
+  LSpec.Hash := THashAlgorithm.SHA_256;
+  LRaised := False;
+  try
+    TExternalPskImporter.Import(Crypto, LSpec, $0304, THashAlgorithm.SHA_512);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a target hash with no registered KDF id is rejected');
+end;
+
+procedure TTestTls13KeySchedule.TestDeriveRejectsWrongLengthTranscript;
+var
+  LSched: ITls13KeySchedule;
+  LRaised: Boolean;
+begin
+  // Derive-Secret takes its output length from the transcript hash, so a wrong-length one would
+  // mint a wrong-length secret; the schedule rejects it (the hash is SHA-256 = 32 bytes)
+  LSched := NewSchedule;
+  LRaised := False;
+  try
+    LSched.DeriveEpochSecrets(TTlsEpoch.Handshake, DecodeHex('00112233'));
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a transcript hash of the wrong length is rejected');
 end;
 
 procedure TTestTls13KeySchedule.TestForgetKeepsApplicationEpochAndExporter;

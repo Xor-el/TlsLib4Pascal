@@ -36,7 +36,7 @@ type
   /// by raising.
   /// </summary>
   IHandshakeMachine = interface(IInterface)
-    ['{4B9E2C71-6A05-4D38-8F14-3E7C0B5A92D6}']
+    ['{2484D235-4095-45EA-9E8E-006BD3DEED79}']
     /// <summary>Whether this endpoint initiates the handshake (a client sending the first
     /// ClientHello) rather than responding to it (a server). Drives the initial
     /// legacy_record_version (RFC 8446 5.1).</summary>
@@ -78,6 +78,14 @@ type
     /// peer-certificate verdict (Stage = ParkedForVerdict) - neither side exports over a peer
     /// identity still being decided.</summary>
     function CanExportKeyingMaterial: Boolean;
+    /// <summary>Early-data (0-RTT) keying material (RFC 8446 7.5). TLS 1.3 only: available on a
+    /// client from when it offers 0-RTT until the server rejects it, and on a server once it accepts
+    /// 0-RTT; empty otherwise, once 0-RTT is rejected, on TLS 1.2, and on a failed connection.</summary>
+    function ExportEarlyKeyingMaterial(const ALabel: string; const AContext: TBytes;
+      ALength: Int32): TBytes;
+    /// <summary>Whether the early_exporter_master_secret is available (see
+    /// ExportEarlyKeyingMaterial).</summary>
+    function CanExportEarlyKeyingMaterial: Boolean;
   end;
 
   /// <summary>

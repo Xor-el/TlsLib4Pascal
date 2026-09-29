@@ -113,6 +113,9 @@ type
     procedure TestStekInvalidTicketFallsBackToFullHandshake;
     procedure TestStoreUpgradesOverStek;
     procedure TestZeroRttAcceptedDeliversEarlyData;
+    procedure TestZeroRttEarlyExporterMatchesAcrossPeers;
+    procedure TestZeroRttRejectWithholdsClientEarlyExporter;
+    procedure TestZeroRttPskDeclinedWithholdsClientEarlyExporter;
     procedure TestWriteInEarlyDataWindowIsRefused;
     procedure TestWriteEarlyDataReturnsAcceptedCount;
     procedure TestZeroRttRejectedIsDiscardedNotReplayed;
@@ -382,9 +385,9 @@ function TTestTls13Resumption.MakeSessionForHost(const AIdentity: TBytes;
   const ASecret: ISecretBuffer; ALifetime: UInt32; const AHost: string;
   AMaxEarlyData: UInt32): IResumableSession;
 begin
-  Result := TResumableSession.CreateTls13(TCipherSuites13.Aes128GcmSha256,
-    THashAlgorithm.SHA_256, ASecret, TNamedGroupCatalog.X25519, '', AHost, AIdentity,
-    ALifetime, 0, UInt64(TDateTimeUtilities.CurrentUnixMs), AMaxEarlyData, nil);
+  Result := TTls13ResumableSession.Create(TCipherSuites13.Aes128GcmSha256,
+    THashAlgorithm.SHA_256, ASecret, '', AHost, AIdentity,
+    ALifetime, 0, UInt64(TDateTimeUtilities.CurrentUnixMs), AMaxEarlyData, nil, nil);
 end;
 
 procedure TTestTls13Resumption.TestResumptionCompletesPskDheKe;
@@ -711,6 +714,99 @@ begin
   CheckFalse(LServer.IsTerminal, 'no failure on 0-RTT');
   CheckEqualBytes('the server received the early data as 0-RTT', LEarly,
     ReadAllApp(LServer));
+end;
+
+procedure TTestTls13Resumption.TestZeroRttEarlyExporterMatchesAcrossPeers;
+var
+  LStek: ISessionTicketKeyManager;
+  LAnti: IAntiReplayStrategy;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LEarly, LCtx, LClientExp, LServerExp: TBytes;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LAnti := TStrikeRegisterAntiReplay.Create;
+  LCache := TInMemorySessionCache.Create;
+  // issue a 0-RTT-capable ticket, then resume with accepted 0-RTT
+  LClient := NewClient(LCache, False);
+  LServer := BuildServer(LStek, nil, 1, 7200, True, 16384, LAnti);
+  DriveHandshake(LClient, LServer);
+  LClient := NewClient(LCache, True);
+  LServer := BuildServer(LStek, nil, 0, 7200, False, 16384, LAnti);
+  LEarly := DecodeHex('30525454206561726c792064617461'); // "0RTT early data"
+  LClient.StartHandshake;
+  LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly));
+  PumpToCompletion(LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'the 0-RTT resumption completed');
+  // both peers derive the early_exporter_master_secret over the same ClientHello, so an
+  // exported early value agrees end to end (RFC 8446 7.5)
+  LCtx := DecodeHex('00010203');
+  LClientExp := LClient.ExportEarlyKeyingMaterial('EXPORTER-tlslib', LCtx, 32);
+  LServerExp := LServer.ExportEarlyKeyingMaterial('EXPORTER-tlslib', LCtx, 32);
+  CheckEquals(32, System.Length(LClientExp), 'the client exported 32 early bytes');
+  CheckEqualBytes('client and server derive the same early exporter', LClientExp, LServerExp);
+  CheckFalse(AreEqual(LClientExp,
+    LClient.ExportKeyingMaterial('EXPORTER-tlslib', LCtx, 32)),
+    'the early exporter differs from the application exporter');
+end;
+
+procedure TTestTls13Resumption.TestZeroRttRejectWithholdsClientEarlyExporter;
+var
+  LStek: ISessionTicketKeyManager;
+  LAnti: IAntiReplayStrategy;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LEarly: TBytes;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LAnti := TStrikeRegisterAntiReplay.Create;
+  LCache := TInMemorySessionCache.Create;
+  // issue a 0-RTT-capable ticket, then resume but the server rejects early data (MaxEarlyData 0)
+  LClient := NewClient(LCache, False);
+  LServer := BuildServer(LStek, nil, 1, 7200, True, 16384, LAnti);
+  DriveHandshake(LClient, LServer);
+  LClient := NewClient(LCache, True);
+  LServer := BuildServer(LStek, nil, 0, 7200, False, 0, LAnti);
+  LEarly := DecodeHex('7265706c617965642064617461'); // "replayed data"
+  LClient.StartHandshake;
+  LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly));
+  PumpToCompletion(LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'the reject is not fatal');
+  // once 0-RTT is rejected the peer derives no early exporter for this connection, so the client
+  // withholds it rather than hand back a value that binds to nothing
+  CheckEquals(0, System.Length(
+    LClient.ExportEarlyKeyingMaterial('EXPORTER-tlslib', DecodeHex('00'), 32)),
+    'a rejected 0-RTT client withholds the early exporter');
+end;
+
+procedure TTestTls13Resumption.TestZeroRttPskDeclinedWithholdsClientEarlyExporter;
+var
+  LStek, LOtherStek: ISessionTicketKeyManager;
+  LAnti: IAntiReplayStrategy;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LEarly: TBytes;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LOtherStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LAnti := TStrikeRegisterAntiReplay.Create;
+  LCache := TInMemorySessionCache.Create;
+  // issue a 0-RTT-capable ticket, then resume against a server holding a DIFFERENT STEK: it cannot
+  // open the ticket, so the PSK is declined and the handshake falls back to a full one (this is the
+  // PSK-rejected reject path, distinct from the server accepting the PSK but refusing early data)
+  LClient := NewClient(LCache, False);
+  LServer := BuildServer(LStek, nil, 1, 7200, True, 16384, LAnti);
+  DriveHandshake(LClient, LServer);
+  LClient := NewClient(LCache, True);
+  LServer := BuildServer(LOtherStek, nil, 0, 7200, True, 16384, LAnti);
+  LEarly := DecodeHex('7265706c617965642064617461'); // "replayed data"
+  LClient.StartHandshake;
+  LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly));
+  PumpToCompletion(LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'the PSK decline falls back to a full handshake, not fatal');
+  CheckEquals(0, System.Length(
+    LClient.ExportEarlyKeyingMaterial('EXPORTER-tlslib', DecodeHex('00'), 32)),
+    'a client whose PSK was declined withholds the early exporter');
 end;
 
 procedure TTestTls13Resumption.TestWriteInEarlyDataWindowIsRefused;

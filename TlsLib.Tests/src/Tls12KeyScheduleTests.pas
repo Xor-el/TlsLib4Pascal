@@ -187,6 +187,9 @@ begin
   CheckTrue(Raises('EXPORTER-test', 0), 'a zero length is rejected');
   CheckTrue(Raises('EXPORTER-test', -1), 'a negative length is rejected');
   CheckTrue(Raises(#$00E9 + 'label', 32), 'a non-ASCII label is rejected');
+  // RFC 5705 4: an exporter label must not reuse a TLS PRF label
+  CheckTrue(Raises('master secret', 32), 'a reserved PRF label is rejected');
+  CheckTrue(Raises('key expansion', 32), 'a reserved key-expansion label is rejected');
   // RFC 5705 imposes no minimum label length, so an empty label is accepted
   CheckEquals(32, System.Length(LSched.ExportKeyingMaterial('', 32)),
     'an empty label is accepted for TLS 1.2');

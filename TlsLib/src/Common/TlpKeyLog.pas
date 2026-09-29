@@ -25,6 +25,7 @@ const
   // NSS Key Log labels (RFC 9850)
   KeyLogLabelClientRandom = 'CLIENT_RANDOM';
   KeyLogLabelClientEarlyTraffic = 'CLIENT_EARLY_TRAFFIC_SECRET';
+  KeyLogLabelEarlyExporter = 'EARLY_EXPORTER_SECRET';
   KeyLogLabelClientHandshakeTraffic = 'CLIENT_HANDSHAKE_TRAFFIC_SECRET';
   KeyLogLabelServerHandshakeTraffic = 'SERVER_HANDSHAKE_TRAFFIC_SECRET';
   KeyLogLabelClientTrafficPrefix = 'CLIENT_TRAFFIC_SECRET_';
