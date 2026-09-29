@@ -1,0 +1,34 @@
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  s_09d3c46d1a9b1f::t_cfb0a5268de7f4 236-278
+  s_09d3c46d1a9b1f::t_71c4301887fcaf 217,219,222,234-235
+  s_09d3c46d1a9b1f::t_9dd446a48e4d32 87
+TlsLib.Tests/src/Tls13LoopbackTests.pas
+  s_09d3c46d1a9b1f::t_1868d7ac21f1a4 1228,1231
+  s_09d3c46d1a9b1f::t_12cc355e5c5024 1211
+TlsLib.Tests/src/Tls12LoopbackTests.pas
+  s_09d3c46d1a9b1f::t_aa94c4c22e8e38 410,413
+  s_09d3c46d1a9b1f::t_30f84135a11540 385
+TlsLib.Tests/src/OcspStaplingTests.pas
+  s_09d3c46d1a9b1f::t_09bdfec20cf9cd 283,285-287,290
+  s_09d3c46d1a9b1f::t_24a8d96e74f8ab 711,785
+  s_09d3c46d1a9b1f::t_9b99869654dafe 720-721,723,794-795,797
+  s_09d3c46d1a9b1f::t_afd7d20df666cb 220,225-228,231
+  s_09d3c46d1a9b1f::t_baded8aa4a6273 200,202-204,207
+  s_09d3c46d1a9b1f::t_5bc36ad8039bc0 302,305,308
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e399f2bbea57ae1ee9b25b2cf5f72e48e67181f3",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
