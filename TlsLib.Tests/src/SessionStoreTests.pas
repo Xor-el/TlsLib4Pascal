@@ -44,14 +44,22 @@ uses
 type
   TTestSessionStore = class(TTlsLibAlgorithmTestCase)
   private
-    function MakeSession(const ATag: TBytes): IResumableSession;
-    function MakeTls12Session(const ATag: TBytes): IResumableSession;
+    function MakeSession(const ATag: TBytes): IResumableSession; overload;
+    function MakeSession(const ATag: TBytes; ALifetime: UInt32;
+      AIssuedMillis: UInt64): IResumableSession; overload;
+    function MakeTls12Session(const ATag: TBytes): IResumableSession; overload;
+    function MakeTls12Session(const ATag: TBytes; ALifetime: UInt32;
+      AIssuedMillis: UInt64): IResumableSession; overload;
     function Tag(AValue: Byte; ALength: Int32): TBytes;
   published
     procedure TestCacheStoreAndTakeSingleUse;
     procedure TestCacheKeyedByServerAndSni;
     procedure TestCacheBoundedEviction;
     procedure TestCachePrefersTls13OverTls12;
+    procedure TestCacheExpiredHeadDoesNotShadowLiveTicket;
+    procedure TestCacheExpiredTls13FallsBackToLiveTls12;
+    procedure TestCacheTls12ZeroLifetimeNeverExpires;
+    procedure TestCacheExpiryIsInclusiveAtLifetimeBoundary;
     procedure TestKxHintRoundTripsAndIsKeyed;
     procedure TestKxHintBounded;
     procedure TestStorePutTakeSingleUse;
@@ -241,11 +249,27 @@ begin
     '', '', ATag, 7200, 0, 0, 0, nil, nil);
 end;
 
+function TTestSessionStore.MakeSession(const ATag: TBytes; ALifetime: UInt32;
+  AIssuedMillis: UInt64): IResumableSession;
+begin
+  Result := TTls13ResumableSession.Create(TCipherSuites13.Aes128GcmSha256,
+    THashAlgorithm.SHA_256, TSecretBuffer.From(ATag),
+    '', '', ATag, ALifetime, 0, AIssuedMillis, 0, nil, nil);
+end;
+
 function TTestSessionStore.MakeTls12Session(const ATag: TBytes): IResumableSession;
 begin
   Result := TTls12ResumableSession.Create(TCipherSuites12.EcdheEcdsaAes128GcmSha256,
     THashAlgorithm.SHA_256,
     TSecretBuffer.From(ATag), ATag, ATag, True, '', '', 7200, 0, nil, nil);
+end;
+
+function TTestSessionStore.MakeTls12Session(const ATag: TBytes; ALifetime: UInt32;
+  AIssuedMillis: UInt64): IResumableSession;
+begin
+  Result := TTls12ResumableSession.Create(TCipherSuites12.EcdheEcdsaAes128GcmSha256,
+    THashAlgorithm.SHA_256,
+    TSecretBuffer.From(ATag), ATag, ATag, True, '', '', ALifetime, AIssuedMillis, nil, nil);
 end;
 
 procedure TTestSessionStore.TestCacheStoreAndTakeSingleUse;
@@ -255,11 +279,11 @@ var
 begin
   LCache := TInMemorySessionCache.Create;
   LCache.Store('example.com:443', 'example.com', MakeSession(Tag($11, 4)));
-  CheckTrue(LCache.Take('example.com:443', 'example.com', LTaken),
+  CheckTrue(LCache.Take('example.com:443', 'example.com', 0, LTaken),
     'a stored session is retrievable');
   CheckEqualBytes('the same session comes back', Tag($11, 4),
     (LTaken as ITls13ResumableSession).TicketIdentity);
-  CheckFalse(LCache.Take('example.com:443', 'example.com', LTaken),
+  CheckFalse(LCache.Take('example.com:443', 'example.com', 0, LTaken),
     'retrieval is single-use');
 end;
 
@@ -271,9 +295,9 @@ begin
   LCache := TInMemorySessionCache.Create;
   LCache.Store('host:443', 'a.example', MakeSession(Tag($01, 4)));
   LCache.Store('host:443', 'b.example', MakeSession(Tag($02, 4)));
-  CheckFalse(LCache.Take('host:443', 'c.example', LTaken),
+  CheckFalse(LCache.Take('host:443', 'c.example', 0, LTaken),
     'a different SNI does not match');
-  CheckTrue(LCache.Take('host:443', 'b.example', LTaken), 'the b.example entry resumes');
+  CheckTrue(LCache.Take('host:443', 'b.example', 0, LTaken), 'the b.example entry resumes');
   CheckEqualBytes('and is the right one', Tag($02, 4),
     (LTaken as ITls13ResumableSession).TicketIdentity);
 end;
@@ -299,12 +323,81 @@ begin
   // dual-version client resumes at 1.3 rather than downgrading
   LCache.Store('host:443', 'x.example', MakeSession(Tag($13, 4)));
   LCache.Store('host:443', 'x.example', MakeTls12Session(Tag($12, 4)));
-  CheckTrue(LCache.Take('host:443', 'x.example', LTaken), 'a session is retrievable');
+  CheckTrue(LCache.Take('host:443', 'x.example', 0, LTaken), 'a session is retrievable');
   CheckEquals(TlsWireVersionTls13, LTaken.Version.WireValue,
     'the 1.3 session is preferred over the 1.2 one');
-  CheckTrue(LCache.Take('host:443', 'x.example', LTaken), 'the 1.2 session remains');
+  CheckTrue(LCache.Take('host:443', 'x.example', 0, LTaken), 'the 1.2 session remains');
   CheckEquals(TlsWireVersionTls12, LTaken.Version.WireValue,
     'and is returned once the 1.3 one is consumed');
+end;
+
+procedure TTestSessionStore.TestCacheExpiredHeadDoesNotShadowLiveTicket;
+const
+  Now = UInt64(1000000000000);
+var
+  LCache: ISessionCache;
+  LTaken: IResumableSession;
+begin
+  LCache := TInMemorySessionCache.Create;
+  // a live 1.3 ticket sits behind a newer-but-expired one; retrieval must drop the stale head
+  // and return the live ticket rather than fail resumption
+  LCache.Store('host:443', 'x.example', MakeSession(Tag($AA, 4), 7200, Now - 1000));
+  LCache.Store('host:443', 'x.example', MakeSession(Tag($BB, 4), 100, Now - 200000));
+  CheckTrue(LCache.Take('host:443', 'x.example', Now, LTaken),
+    'the live ticket behind the expired head resumes');
+  CheckEqualBytes('and it is the live one, not the stale head', Tag($AA, 4),
+    (LTaken as ITls13ResumableSession).TicketIdentity);
+  CheckEquals(0, LCache.Count, 'both the stale and the taken entry are gone');
+end;
+
+procedure TTestSessionStore.TestCacheExpiredTls13FallsBackToLiveTls12;
+const
+  Now = UInt64(1000000000000);
+var
+  LCache: ISessionCache;
+  LTaken: IResumableSession;
+begin
+  LCache := TInMemorySessionCache.Create;
+  // the only 1.3 ticket is expired; retrieval drops it and falls back to a live 1.2 ticket
+  LCache.Store('host:443', 'x.example', MakeTls12Session(Tag($12, 4), 7200, Now - 1000));
+  LCache.Store('host:443', 'x.example', MakeSession(Tag($13, 4), 100, Now - 200000));
+  CheckTrue(LCache.Take('host:443', 'x.example', Now, LTaken),
+    'the live 1.2 ticket resumes when the 1.3 one has expired');
+  CheckEquals(TlsWireVersionTls12, LTaken.Version.WireValue,
+    'the returned session is the live 1.2 one');
+  CheckEquals(0, LCache.Count, 'the expired 1.3 entry was dropped too');
+end;
+
+procedure TTestSessionStore.TestCacheTls12ZeroLifetimeNeverExpires;
+var
+  LCache: ISessionCache;
+  LTaken: IResumableSession;
+begin
+  LCache := TInMemorySessionCache.Create;
+  // a 1.2 lifetime hint of 0 is unspecified, not expired: the cache leaves the age rule to the
+  // caller's version policy and never drops it, however far the clock has advanced
+  LCache.Store('host:443', 'x.example', MakeTls12Session(Tag($12, 4), 0, 0));
+  CheckTrue(LCache.Take('host:443', 'x.example', UInt64(10000000000000), LTaken),
+    'a zero-lifetime 1.2 session is not aged out by the cache');
+  CheckEquals(TlsWireVersionTls12, LTaken.Version.WireValue, 'and it is the 1.2 session');
+end;
+
+procedure TTestSessionStore.TestCacheExpiryIsInclusiveAtLifetimeBoundary;
+var
+  LCache: ISessionCache;
+  LTaken: IResumableSession;
+begin
+  // an age exactly equal to lifetime is still live; one millisecond past it is expired
+  LCache := TInMemorySessionCache.Create;
+  LCache.Store('host:443', 'x.example', MakeSession(Tag($01, 4), 100, 0));
+  CheckTrue(LCache.Take('host:443', 'x.example', UInt64(100000), LTaken),
+    'a ticket at exactly its lifetime boundary still resumes');
+
+  LCache := TInMemorySessionCache.Create;
+  LCache.Store('host:443', 'x.example', MakeSession(Tag($01, 4), 100, 0));
+  CheckFalse(LCache.Take('host:443', 'x.example', UInt64(100001), LTaken),
+    'a ticket one millisecond past its lifetime is dropped');
+  CheckEquals(0, LCache.Count, 'and the expired entry is evicted, not left behind');
 end;
 
 procedure TTestSessionStore.TestKxHintRoundTripsAndIsKeyed;

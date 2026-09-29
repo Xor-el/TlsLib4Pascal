@@ -436,7 +436,8 @@ begin
   // A ticket past its hinted lifetime is dropped (RFC 5077 3.3); a hint of 0 is unspecified and
   // still offered. When a lifetime is hinted, a seven-day retention cap (local policy) bounds it.
   if (FParams.SessionCache <> nil) and
-    FParams.SessionCache.Take(CacheServerIdentity, FParams.ServerName, LCached) and
+    FParams.SessionCache.Take(CacheServerIdentity, FParams.ServerName,
+    FParams.Clock.NowUnixMillis, LCached) and
     (LCached.Version.WireValue = TlsWireVersionTls12) then
   begin
     if TClientSessionPolicy.IsOfferableTls12(LCached, FParams.Clock.NowUnixMillis) and

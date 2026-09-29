@@ -628,7 +628,8 @@ begin
   LServer := NewServer(nil, LStek, 7200, True);
   LClient.StartHandshake;
   PumpToCompletion(LClient, LServer);
-  CheckTrue(LCache1.Take(ServerHost + ':443', ServerHost, LSession),
+  CheckTrue(LCache1.Take(ServerHost + ':443', ServerHost,
+    (TSystemClock.Create as ITlsClock).NowUnixMillis, LSession),
     'the EMS session was cached');
   LTicket := (LSession as ITls12ResumableSession).SessionTicket;
 
@@ -665,7 +666,8 @@ begin
   LServer := NewServer(nil, LStek, 7200, True);
   LClient.StartHandshake;
   PumpToCompletion(LClient, LServer);
-  CheckTrue(LCache1.Take(ServerHost + ':443', ServerHost, LSession),
+  CheckTrue(LCache1.Take(ServerHost + ':443', ServerHost,
+    (TSystemClock.Create as ITlsClock).NowUnixMillis, LSession),
     'the non-EMS session was cached');
   LTicket := (LSession as ITls12ResumableSession).SessionTicket;
 

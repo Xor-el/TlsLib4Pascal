@@ -805,7 +805,8 @@ begin
   // threaded to a 1.2 sub-machine by the version-dispatching parent.
   // a preset verbatim ClientHello forbids a SessionCache, so no resumption take here
   if (FParams.SessionCache <> nil)
-    and FParams.SessionCache.Take(CacheServerIdentity, FParams.ServerName, LCached) then
+    and FParams.SessionCache.Take(CacheServerIdentity, FParams.ServerName,
+    NowUnixMillis, LCached) then
   begin
     if LCached.Version.WireValue = TlsWireVersionTls13 then
     begin
