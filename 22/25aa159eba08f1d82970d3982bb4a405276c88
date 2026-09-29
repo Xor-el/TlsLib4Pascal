@@ -1,0 +1,31 @@
+TlsLib/src/Interfaces/Pkix/Providers/TlpIPkixProvider.pas
+  s_09d3c46d1a9b1f::t_6ba4e0a1aaaf29 145-146
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_09d3c46d1a9b1f::t_08db1a323ad505 1042-1043,1047-1053
+TlsLib/src/Connection/TlpTlsStream.pas
+  s_09d3c46d1a9b1f::t_8fad3c3761dcbb 97
+  s_09d3c46d1a9b1f::t_18912b1be21673 230-233
+TlsLib.Tests/src/ProviderTests.pas
+  s_09d3c46d1a9b1f::t_8f57136d410413 63
+  s_09d3c46d1a9b1f::t_10207110bb3dad 823-854
+  s_09d3c46d1a9b1f::t_e26aaf61ddf3d1 92
+TlsLib.Tests/src/TlsStreamLoopbackTests.pas
+  s_09d3c46d1a9b1f::t_0ad1acd943f4c2 339-371
+  s_09d3c46d1a9b1f::t_1b168b5d82ac0f 149
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2225aa159eba08f1d82970d3982bb4a405276c88",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
