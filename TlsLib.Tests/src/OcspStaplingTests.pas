@@ -197,13 +197,14 @@ end;
 function TTestOcspStapling.NoNextVerifierFor(APosture: TRevocationPosture;
   ADeferral: TVerdictDeferral; AClockMs: Int64): IServerCertificateVerifier;
 var
-  LNoDangerous: TDangerousTrust;
+  LOptions: TCertificateVerifierOptions;
 begin
-  LNoDangerous := Default(TDangerousTrust);
+  LOptions.RevocationPosture := APosture;
+  LOptions.Deferral := ADeferral;
+  LOptions.StatusRequestOffered := True;
   Result := TCertificateVerifier.Create(Pkix, TMockClock.Create(UInt64(AClockMs)) as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(N('ca_cert'))) as ITrustAnchorStore, False,
-    TCertificateChainLimits.Defaults, APosture, LNoDangerous, ADeferral, nil, True,
-    TVerificationOccasion.InitialHandshake) as IServerCertificateVerifier;
+    LOptions) as IServerCertificateVerifier;
 end;
 
 function TTestOcspStapling.Chain: TArray<TBytes>;
@@ -216,17 +217,18 @@ function TTestOcspStapling.VerifierFor(APosture: TRevocationPosture;
   ADeferral: TVerdictDeferral; AStatusRequestOffered: Boolean;
   AOccasion: TVerificationOccasion): IServerCertificateVerifier;
 var
-  LNoDangerous: TDangerousTrust;
+  LOptions: TCertificateVerifierOptions;
 begin
   // LiveRevocation defers an indeterminate stapled outcome to the out-of-band resolver at the
   // park; AStatusRequestOffered/AOccasion model whether the client asked to staple and whether
   // this is the initial handshake (must-staple binds only there)
-  LNoDangerous := Default(TDangerousTrust);
+  LOptions.RevocationPosture := APosture;
+  LOptions.Deferral := ADeferral;
+  LOptions.StatusRequestOffered := AStatusRequestOffered;
+  LOptions.Occasion := AOccasion;
   Result := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(V('root_cert')))
-    as ITrustAnchorStore, False, TCertificateChainLimits.Defaults, APosture,
-    LNoDangerous, ADeferral, nil, AStatusRequestOffered, AOccasion)
-    as IServerCertificateVerifier;
+    as ITrustAnchorStore, False, LOptions) as IServerCertificateVerifier;
 end;
 
 function TTestOcspStapling.ChainFor(const ALeafName: string): TArray<TBytes>;
@@ -278,14 +280,14 @@ end;
 function TTestOcspStapling.IntermediateVerifierFor(APosture: TRevocationPosture;
   const AIntermediates: TArray<TBytes>; const APins: TArray<TBytes>): IServerCertificateVerifier;
 var
-  LNoDangerous: TDangerousTrust;
+  LOptions: TCertificateVerifierOptions;
 begin
-  LNoDangerous := Default(TDangerousTrust);
+  LOptions.RevocationPosture := APosture;
+  LOptions.Intermediates := AIntermediates;
+  LOptions.StatusRequestOffered := True;
   Result := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(V('root_cert')))
-    as ITrustAnchorStore, False, TCertificateChainLimits.Defaults, APosture,
-    LNoDangerous, TVerdictDeferral.None, AIntermediates, True,
-    TVerificationOccasion.InitialHandshake) as IServerCertificateVerifier;
+    as ITrustAnchorStore, False, LOptions) as IServerCertificateVerifier;
   // pinning composes as a decorator over the built-in verifier, as the engine wires it
   if System.Length(APins) > 0 then
     Result := TPinningVerifier.Create(Result, APins, Crypto, Pkix)
@@ -297,12 +299,13 @@ function TTestOcspStapling.VerifyWithPins(const APins: TArray<TBytes>;
 var
   LVerifier: IServerCertificateVerifier;
   LVerified: TVerifiedChain;
+  LOptions: TCertificateVerifierOptions;
 begin
   // revocation Off isolates the pinning step from the stapled-OCSP step
+  LOptions.RevocationPosture := TRevocationPosture.Off;
   LVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(V('root_cert')))
-    as ITrustAnchorStore, False, TCertificateChainLimits.Defaults,
-    TRevocationPosture.Off) as IServerCertificateVerifier;
+    as ITrustAnchorStore, False, LOptions) as IServerCertificateVerifier;
   LVerifier := TPinningVerifier.Create(LVerifier, APins, Crypto, Pkix)
     as IServerCertificateVerifier;
   Result := LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName(''), nil,
@@ -705,7 +708,7 @@ end;
 
 procedure TTestOcspStapling.TestInsecureSkipVerifyStillEnforcesPins;
 var
-  LDangerous: TDangerousTrust;
+  LOptions: TCertificateVerifierOptions;
   LInner, LVerifier: IServerCertificateVerifier;
   LAlert: TTlsAlertDescription;
   LWrongPin: TBytes;
@@ -714,11 +717,10 @@ begin
   // InsecureSkipVerify bypasses PKIX, but a configured LEAF pin still applies (pin-only trust): a
   // wrong pin rejects even the otherwise-accept-anything inner verifier. Under skip-verify the
   // validated chain is the leaf alone, so only a leaf pin is meaningful.
-  LDangerous := Default(TDangerousTrust);
-  LDangerous.InsecureSkipVerify := True;
+  LOptions.Dangerous.InsecureSkipVerify := True;
+  LOptions.RevocationPosture := TRevocationPosture.Off;
   LInner := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(nil) as ITrustAnchorStore, False,
-    TCertificateChainLimits.Defaults, TRevocationPosture.Off, LDangerous, TVerdictDeferral.None)
+    TTrustAnchorStore.Create(nil) as ITrustAnchorStore, False, LOptions)
     as IServerCertificateVerifier;
   LWrongPin := LeafSpkiPin;
   LWrongPin[0] := LWrongPin[0] xor $FF;
@@ -780,7 +782,7 @@ end;
 
 procedure TTestOcspStapling.TestSkipVerifyLeafPinRejectsPrependedAttackerLeaf;
 var
-  LDangerous: TDangerousTrust;
+  LOptions: TCertificateVerifierOptions;
   LInner, LVerifier: IServerCertificateVerifier;
   LAlert: TTlsAlertDescription;
   LVerified: TVerifiedChain;
@@ -789,11 +791,10 @@ begin
   // InsecureSkipVerify the validated chain is the leaf (index 0, the attacker's) alone, so a pin
   // on the genuine leaf (at index 1) does NOT match - the connection is rejected. Matching over
   // the presented chain would wrongly accept it.
-  LDangerous := Default(TDangerousTrust);
-  LDangerous.InsecureSkipVerify := True;
+  LOptions.Dangerous.InsecureSkipVerify := True;
+  LOptions.RevocationPosture := TRevocationPosture.Off;
   LInner := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(nil) as ITrustAnchorStore, False,
-    TCertificateChainLimits.Defaults, TRevocationPosture.Off, LDangerous, TVerdictDeferral.None)
+    TTrustAnchorStore.Create(nil) as ITrustAnchorStore, False, LOptions)
     as IServerCertificateVerifier;
   LVerifier := TPinningVerifier.Create(LInner, TArray<TBytes>.Create(LeafSpkiPin), Crypto, Pkix)
     as IServerCertificateVerifier;

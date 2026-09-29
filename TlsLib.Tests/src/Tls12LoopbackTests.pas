@@ -382,6 +382,7 @@ end;
 function TTestTls12Loopback.NewHardRevocationClient: ITlsEngine;
 var
   LParams: TClient12HandshakeParams;
+  LOptions: TCertificateVerifierOptions;
 begin
   LParams := Default(TClient12HandshakeParams);
   LParams.Clock := TSystemClock.Create;
@@ -406,10 +407,10 @@ begin
   // delivered here in a CertificateStatus message (RFC 6066 8), so the client offers
   // status_request to solicit the staple
   LParams.RequestOcspStapling := True;
+  LOptions.RevocationPosture := TRevocationPosture.Hard;
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(OcspField('root_cert')))
-    as ITrustAnchorStore, True, TCertificateChainLimits.Defaults,
-    TRevocationPosture.Hard) as IServerCertificateVerifier;
+    as ITrustAnchorStore, True, LOptions) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
   Result := TTlsEngine.CreateConfigured(
     TTls12ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);

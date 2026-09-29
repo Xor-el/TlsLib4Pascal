@@ -1208,6 +1208,7 @@ end;
 function TTestTls13Loopback.NewHardRevocationClient: ITlsEngine;
 var
   LParams: TClientHandshakeParams;
+  LOptions: TCertificateVerifierOptions;
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
@@ -1224,10 +1225,10 @@ begin
   // hard-fail revocation: the leaf must come with a current Good stapled OCSP response, so
   // the client offers status_request to solicit the staple
   LParams.RequestOcspStapling := True;
+  LOptions.RevocationPosture := TRevocationPosture.Hard;
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(OcspField('root_cert')))
-    as ITrustAnchorStore, True, TCertificateChainLimits.Defaults,
-    TRevocationPosture.Hard) as IServerCertificateVerifier;
+    as ITrustAnchorStore, True, LOptions) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
 
   Result := TTlsEngine.CreateConfigured(
