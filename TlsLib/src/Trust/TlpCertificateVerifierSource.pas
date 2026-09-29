@@ -87,11 +87,17 @@ function TBuiltInServerVerifierSource.CreateServerVerifier(
   const AContext: TServerTrustContext): IServerCertificateVerifier;
 var
   LVerifier: TCertificateVerifier;
+  LOptions: TCertificateVerifierOptions;
 begin
+  LOptions.ChainLimits := AContext.ChainLimits;
+  LOptions.RevocationPosture := AContext.RevocationPosture;
+  LOptions.Dangerous := AContext.Dangerous;
+  LOptions.Deferral := AContext.Deferral;
+  LOptions.Intermediates := AContext.Intermediates;
+  LOptions.StatusRequestOffered := AContext.StatusRequestOffered;
+  LOptions.Occasion := AContext.Occasion;
   LVerifier := TCertificateVerifier.Create(AContext.Pkix, AContext.Clock,
-    AContext.TrustStore, AContext.CheckHostName, AContext.ChainLimits,
-    AContext.RevocationPosture, AContext.Dangerous, AContext.Deferral,
-    AContext.Intermediates, AContext.StatusRequestOffered, AContext.Occasion);
+    AContext.TrustStore, AContext.CheckHostName, LOptions);
   LVerifier.SetChainAlgorithmPolicy(AContext.StrengthPolicy,
     AContext.AdvertisedSignatureSchemes);
   Result := LVerifier as IServerCertificateVerifier;
@@ -118,11 +124,17 @@ function TBuiltInClientVerifierSource.CreateClientVerifier(
   const AContext: TClientTrustContext): IClientCertificateVerifier;
 var
   LVerifier: TCertificateVerifier;
+  LOptions: TCertificateVerifierOptions;
 begin
-  // a client certificate carries no host identity, so name checking is always off
+  LOptions.ChainLimits := AContext.ChainLimits;
+  LOptions.RevocationPosture := AContext.RevocationPosture;
+  LOptions.Dangerous := AContext.Dangerous;
+  LOptions.Deferral := AContext.Deferral;
+  LOptions.Intermediates := AContext.Intermediates;
+  // a client certificate carries no host identity, so name checking is always off; status_request
+  // and occasion stay at their defaults - must-staple never binds to a client certificate
   LVerifier := TCertificateVerifier.Create(AContext.Pkix, AContext.Clock,
-    AContext.TrustStore, False, AContext.ChainLimits, AContext.RevocationPosture,
-    AContext.Dangerous, AContext.Deferral, AContext.Intermediates);
+    AContext.TrustStore, False, LOptions);
   LVerifier.SetChainAlgorithmPolicy(AContext.StrengthPolicy,
     AContext.AdvertisedSignatureSchemes);
   Result := LVerifier as IClientCertificateVerifier;

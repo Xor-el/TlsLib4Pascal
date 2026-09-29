@@ -84,6 +84,7 @@ type
     procedure SetUp; override;
     procedure TearDown; override;
   published
+    procedure TestOptionsInitializeMatchesConvenienceDefaults;
     procedure TestValidChainTrusted;
     procedure TestExpiredRejectedAsCertificateExpired;
     procedure TestExpiredExtraneousCertificateIgnored;
@@ -213,13 +214,12 @@ end;
 function TTestCertificateVerifier.IntermediateVerifierFor(const ARoot: TBytes;
   const AIntermediates: TArray<TBytes>): IServerCertificateVerifier;
 var
-  LNoDangerous: TDangerousTrust;
+  LOptions: TCertificateVerifierOptions;
 begin
-  LNoDangerous := Default(TDangerousTrust);
+  LOptions.Intermediates := AIntermediates;
   Result := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(ARoot)) as ITrustAnchorStore,
-    False, TCertificateChainLimits.Defaults, TRevocationPosture.Soft,
-    LNoDangerous, TVerdictDeferral.None, AIntermediates) as IServerCertificateVerifier;
+    False, LOptions) as IServerCertificateVerifier;
 end;
 
 procedure TTestCertificateVerifier.TestValidChainTrusted;
@@ -231,6 +231,52 @@ begin
     TArray<TBytes>.Create(Cert('leaf_cert')), TServerName.DnsName('localhost'), nil,
     LVerified, LAlert),
     'a valid leaf chaining to the trusted root, matching the host, is trusted');
+end;
+
+procedure TTestCertificateVerifier.TestOptionsInitializeMatchesConvenienceDefaults;
+var
+  LOptions: TCertificateVerifierOptions;
+  LStore: ITrustAnchorStore;
+  LConvenience, LFromOptions: IServerCertificateVerifier;
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  // a freshly declared options value must carry exactly the defaults the four-arg convenience
+  // constructor applies, so the four-arg and options construction paths are interchangeable
+  CheckEquals(TCertificateChainLimits.Defaults.MaxCertificateLength,
+    LOptions.ChainLimits.MaxCertificateLength, 'default per-certificate cap');
+  CheckEquals(TCertificateChainLimits.Defaults.MaxTotalChainLength,
+    LOptions.ChainLimits.MaxTotalChainLength, 'default total-chain cap');
+  CheckEquals(Ord(TRevocationPosture.Soft), Ord(LOptions.RevocationPosture),
+    'default revocation posture is Soft');
+  CheckEquals(Ord(TVerdictDeferral.None), Ord(LOptions.Deferral),
+    'default deferral is None');
+  CheckEquals(Ord(TVerificationOccasion.InitialHandshake), Ord(LOptions.Occasion),
+    'default occasion is the initial handshake');
+  CheckEquals(0, System.Length(LOptions.Intermediates), 'no seeded intermediates by default');
+  CheckFalse(LOptions.StatusRequestOffered, 'status_request not offered by default');
+  CheckFalse(LOptions.Dangerous.InsecureSkipVerify, 'no insecure skip-verify by default');
+  CheckFalse(Assigned(LOptions.Dangerous.VerifyCallback), 'no verify callback by default');
+
+  LStore := TTrustAnchorStore.Create(TArray<TBytes>.Create(Cert('root_cert')))
+    as ITrustAnchorStore;
+  LConvenience := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
+    LStore, True) as IServerCertificateVerifier;
+  LFromOptions := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
+    LStore, True, LOptions) as IServerCertificateVerifier;
+
+  CheckTrue(LConvenience.VerifyServerCertificate(TArray<TBytes>.Create(Cert('leaf_cert')),
+    TServerName.DnsName('localhost'), nil, LVerified, LAlert),
+    'the convenience-built verifier accepts a valid chain');
+  CheckTrue(LFromOptions.VerifyServerCertificate(TArray<TBytes>.Create(Cert('leaf_cert')),
+    TServerName.DnsName('localhost'), nil, LVerified, LAlert),
+    'the options-built verifier accepts the same valid chain');
+  CheckFalse(LConvenience.VerifyServerCertificate(TArray<TBytes>.Create(Cert('expired_cert')),
+    TServerName.DnsName('localhost'), nil, LVerified, LAlert),
+    'the convenience-built verifier rejects an expired chain');
+  CheckFalse(LFromOptions.VerifyServerCertificate(TArray<TBytes>.Create(Cert('expired_cert')),
+    TServerName.DnsName('localhost'), nil, LVerified, LAlert),
+    'the options-built verifier rejects the same expired chain');
 end;
 
 procedure TTestCertificateVerifier.TestExpiredRejectedAsCertificateExpired;

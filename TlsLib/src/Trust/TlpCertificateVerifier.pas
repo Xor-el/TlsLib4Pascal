@@ -59,6 +59,35 @@ type
     function RootCertificates: TArray<TBytes>;
   end;
 
+  /// <summary>The optional tuning knobs for a <see cref="TCertificateVerifier" />, beyond the four
+  /// mandatory role inputs (provider, clock, trust store, host-name check). A freshly declared value
+  /// carries the conservative defaults - default chain limits, soft-fail revocation, no dangerous
+  /// escape hatch, no out-of-band deferral, no seeded intermediates, must-staple off - so a caller
+  /// sets only the fields it needs.</summary>
+  TCertificateVerifierOptions = record
+    /// <summary>The certificate-chain resource caps applied before PKIX validation.</summary>
+    ChainLimits: TCertificateChainLimits;
+    /// <summary>The stapled-revocation posture (RFC 6960): Soft (default), Hard, or Off.</summary>
+    RevocationPosture: TRevocationPosture;
+    /// <summary>The dangerous escape hatches: InsecureSkipVerify bypasses the built-in pipeline,
+    /// and a VerifyCallback that can only additionally reject.</summary>
+    Dangerous: TDangerousTrust;
+    /// <summary>How an indeterminate verdict is deferred out-of-band; only LiveRevocation defers a
+    /// stapled outcome to the resolver (the live OCSP/CRL fetch at the park).</summary>
+    Deferral: TVerdictDeferral;
+    /// <summary>Untrusted intermediates seeded into PKIX path building for a peer that sends an
+    /// incomplete chain; they never anchor a path and never bypass validation.</summary>
+    Intermediates: TArray<TBytes>;
+    /// <summary>Whether the client offered status_request: must-staple (RFC 7633 4.3.3) binds only
+    /// when it did.</summary>
+    StatusRequestOffered: Boolean;
+    /// <summary>Whether this is the initial handshake or a resumption; must-staple binds only to an
+    /// initial-handshake server certificate.</summary>
+    Occasion: TVerificationOccasion;
+    class operator Initialize({$IFDEF FPC}var{$ELSE}out{$ENDIF}
+      AOptions: TCertificateVerifierOptions);
+  end;
+
   /// <summary>
   /// The ordered certificate-trust pipeline (RFC 8446 4.4.2 / RFC 5280 / RFC 6125),
   /// fail-closed: the provider validates the chain to a trusted root for the role's
@@ -117,46 +146,17 @@ type
       AKeyPurpose: TCertKeyPurpose; out ASettled: Boolean;
       out AAlert: TTlsAlertDescription): Boolean;
   public
-    /// <summary>A verifier with the conservative default chain limits and soft-fail
-    /// revocation. AClock backs the stapled-OCSP freshness window (RFC 6960).</summary>
+    /// <summary>A verifier with the conservative default options (default chain limits, soft-fail
+    /// revocation, no escape hatch, no deferral, no seeded intermediates, must-staple off). AClock
+    /// backs the stapled-OCSP freshness window (RFC 6960).</summary>
     constructor Create(const APkix: IPkixProvider; const AClock: ITlsClock;
       const ATrustStore: ITrustAnchorStore; ACheckHostName: Boolean); overload;
-    /// <summary>A verifier with caller-tuned chain limits and revocation posture.</summary>
+    /// <summary>A verifier with caller-tuned options beyond the four mandatory role inputs; a
+    /// freshly declared <see cref="TCertificateVerifierOptions" /> carries the conservative
+    /// defaults, so a caller sets only the fields it needs.</summary>
     constructor Create(const APkix: IPkixProvider; const AClock: ITlsClock;
       const ATrustStore: ITrustAnchorStore; ACheckHostName: Boolean;
-      const AChainLimits: TCertificateChainLimits;
-      ARevocationPosture: TRevocationPosture); overload;
-    /// <summary>As above, plus the dangerous escape hatches (InsecureSkipVerify bypasses the
-    /// built-in pipeline, and a VerifyCallback that can only additionally reject) and ADeferral:
-    /// LiveRevocation defers an indeterminate stapled-revocation outcome to the out-of-band verdict
-    /// resolver (live OCSP/CRL); None and HostDecision decide it inline by the posture.</summary>
-    constructor Create(const APkix: IPkixProvider; const AClock: ITlsClock;
-      const ATrustStore: ITrustAnchorStore; ACheckHostName: Boolean;
-      const AChainLimits: TCertificateChainLimits;
-      ARevocationPosture: TRevocationPosture;
-      const ADangerous: TDangerousTrust;
-      ADeferral: TVerdictDeferral); overload;
-    /// <summary>As above, plus AIntermediates: untrusted intermediate certificates seeded into
-    /// PKIX path building for a peer that sends an incomplete chain (e.g. a leaf-only server).
-    /// They never anchor a path and never bypass validation; empty behaves exactly as the
-    /// overload without it.</summary>
-    constructor Create(const APkix: IPkixProvider; const AClock: ITlsClock;
-      const ATrustStore: ITrustAnchorStore; ACheckHostName: Boolean;
-      const AChainLimits: TCertificateChainLimits;
-      ARevocationPosture: TRevocationPosture;
-      const ADangerous: TDangerousTrust; ADeferral: TVerdictDeferral;
-      const AIntermediates: TArray<TBytes>); overload;
-    /// <summary>As above, plus the must-staple gating inputs: AStatusRequestOffered is whether the
-    /// client offered status_request, and AOccasion whether this is the initial handshake or a
-    /// resumption. Must-staple (RFC 7633) is enforced only for an initial-handshake server
-    /// certificate the client asked to have stapled.</summary>
-    constructor Create(const APkix: IPkixProvider; const AClock: ITlsClock;
-      const ATrustStore: ITrustAnchorStore; ACheckHostName: Boolean;
-      const AChainLimits: TCertificateChainLimits;
-      ARevocationPosture: TRevocationPosture;
-      const ADangerous: TDangerousTrust; ADeferral: TVerdictDeferral;
-      const AIntermediates: TArray<TBytes>; AStatusRequestOffered: Boolean;
-      AOccasion: TVerificationOccasion); overload;
+      const AOptions: TCertificateVerifierOptions); overload;
     /// <summary>Turns on the chain-algorithm policy for this verifier: the peer chain must be
     /// signed only with a scheme in AAdvertised (and never MD5/SHA-1) and its keys must meet
     /// APolicy. The engine calls this from the verifier source with the connection's advertised
@@ -245,70 +245,49 @@ begin
     end;
 end;
 
+{ TCertificateVerifierOptions }
+
+class operator TCertificateVerifierOptions.Initialize({$IFDEF FPC}var{$ELSE}out{$ENDIF}
+  AOptions: TCertificateVerifierOptions);
+begin
+  // a freshly declared options value means the conservative defaults, so an omitted knob is safe;
+  // Dangerous self-initialises through its own Initialize operator
+  AOptions.ChainLimits := TCertificateChainLimits.Defaults;
+  AOptions.RevocationPosture := TRevocationPosture.Soft;
+  AOptions.Deferral := TVerdictDeferral.None;
+  AOptions.Intermediates := nil;
+  AOptions.StatusRequestOffered := False;
+  AOptions.Occasion := TVerificationOccasion.InitialHandshake;
+end;
+
 { TCertificateVerifier }
 
 constructor TCertificateVerifier.Create(const APkix: IPkixProvider;
   const AClock: ITlsClock; const ATrustStore: ITrustAnchorStore;
   ACheckHostName: Boolean);
-begin
-  Create(APkix, AClock, ATrustStore, ACheckHostName,
-    TCertificateChainLimits.Defaults, TRevocationPosture.Soft);
-end;
-
-constructor TCertificateVerifier.Create(const APkix: IPkixProvider;
-  const AClock: ITlsClock; const ATrustStore: ITrustAnchorStore;
-  ACheckHostName: Boolean; const AChainLimits: TCertificateChainLimits;
-  ARevocationPosture: TRevocationPosture);
 var
-  LNoDangerous: TDangerousTrust;
+  LOptions: TCertificateVerifierOptions;
 begin
-  LNoDangerous := Default(TDangerousTrust);
-  Create(APkix, AClock, ATrustStore, ACheckHostName, AChainLimits,
-    ARevocationPosture, LNoDangerous, TVerdictDeferral.None);
+  // a freshly declared options value carries the conservative defaults (Initialize)
+  Create(APkix, AClock, ATrustStore, ACheckHostName, LOptions);
 end;
 
 constructor TCertificateVerifier.Create(const APkix: IPkixProvider;
   const AClock: ITlsClock; const ATrustStore: ITrustAnchorStore;
-  ACheckHostName: Boolean; const AChainLimits: TCertificateChainLimits;
-  ARevocationPosture: TRevocationPosture;
-  const ADangerous: TDangerousTrust; ADeferral: TVerdictDeferral);
-begin
-  Create(APkix, AClock, ATrustStore, ACheckHostName, AChainLimits,
-    ARevocationPosture, ADangerous, ADeferral, nil);
-end;
-
-constructor TCertificateVerifier.Create(const APkix: IPkixProvider;
-  const AClock: ITlsClock; const ATrustStore: ITrustAnchorStore;
-  ACheckHostName: Boolean; const AChainLimits: TCertificateChainLimits;
-  ARevocationPosture: TRevocationPosture;
-  const ADangerous: TDangerousTrust; ADeferral: TVerdictDeferral;
-  const AIntermediates: TArray<TBytes>);
-begin
-  Create(APkix, AClock, ATrustStore, ACheckHostName, AChainLimits,
-    ARevocationPosture, ADangerous, ADeferral, AIntermediates, False,
-    TVerificationOccasion.InitialHandshake);
-end;
-
-constructor TCertificateVerifier.Create(const APkix: IPkixProvider;
-  const AClock: ITlsClock; const ATrustStore: ITrustAnchorStore;
-  ACheckHostName: Boolean; const AChainLimits: TCertificateChainLimits;
-  ARevocationPosture: TRevocationPosture;
-  const ADangerous: TDangerousTrust; ADeferral: TVerdictDeferral;
-  const AIntermediates: TArray<TBytes>; AStatusRequestOffered: Boolean;
-  AOccasion: TVerificationOccasion);
+  ACheckHostName: Boolean; const AOptions: TCertificateVerifierOptions);
 begin
   inherited Create;
   FPkix := APkix;
   FClock := AClock;
   FTrustStore := ATrustStore;
   FCheckHostName := ACheckHostName;
-  FChainLimits := AChainLimits;
-  FRevocationPosture := ARevocationPosture;
-  FIntermediates := AIntermediates;
-  FDangerous := ADangerous;
-  FDeferral := ADeferral;
-  FStatusRequestOffered := AStatusRequestOffered;
-  FOccasion := AOccasion;
+  FChainLimits := AOptions.ChainLimits;
+  FRevocationPosture := AOptions.RevocationPosture;
+  FIntermediates := AOptions.Intermediates;
+  FDangerous := AOptions.Dangerous;
+  FDeferral := AOptions.Deferral;
+  FStatusRequestOffered := AOptions.StatusRequestOffered;
+  FOccasion := AOptions.Occasion;
 end;
 
 function TCertificateVerifier.ValidationTimeUtc: TDateTime;
