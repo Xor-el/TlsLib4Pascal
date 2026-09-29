@@ -97,6 +97,7 @@ type
     procedure TestEcdheEcdsaAesGcmWithExtendedMasterSecret;
     procedure TestEcdheEcdsaChaCha20WithExtendedMasterSecret;
     procedure TestClientWriteBeforeServerFinishedIsRefused;
+    procedure TestServerWithoutGroupOrPolicyFailsClosed;
     procedure TestWriteAfterInboundCloseNotifyClosesWrite;
     procedure TestWriteAtUsageLimitClosesWhenNoRekey;
     procedure TestPlainMasterSecretWhenEmsNotOffered;
@@ -583,6 +584,32 @@ procedure TTestTls12Loopback.TestEcdheEcdsaAesGcmWithExtendedMasterSecret;
 begin
   RunHandshakeAndExchange(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True, False,
     'ECDHE-ECDSA-AES128-GCM + EMS');
+end;
+
+procedure TTestTls12Loopback.TestServerWithoutGroupOrPolicyFailsClosed;
+var
+  LClient, LServer: ITlsEngine;
+  LParams: TServer12HandshakeParams;
+begin
+  // a raw sans-IO 1.2 server given neither a pinned Group nor a negotiation policy has no authority
+  // to select an ECDHE group: it fails closed with internal_error rather than dereferencing nil
+  LParams := Default(TServer12HandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Crypto := Crypto;
+  LParams.Inspector := Pkix.Certificates;
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LParams.ServerRandom := Filled($22, 32);
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
+  LServer := TTlsEngine.CreateConfigured(
+    TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
+  LClient := NewClient(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True);
+  LClient.StartHandshake;
+  Pump(LClient, LServer);
+  CheckTrue(LServer.IsTerminal, 'the server fails closed');
+  CheckEquals(Ord(TTlsAlertDescription.InternalError),
+    Ord(LServer.LastError.Alert.Description),
+    'no group authority is internal_error, not a nil dereference');
 end;
 
 procedure TTestTls12Loopback.TestClientWriteBeforeServerFinishedIsRefused;

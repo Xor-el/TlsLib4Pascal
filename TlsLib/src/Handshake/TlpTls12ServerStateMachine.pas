@@ -66,15 +66,12 @@ type
     /// cipher preference (server order, or client order) governs a 1.2 handshake identically.</summary>
     Policy: INegotiationPolicy;
     ExtensionRegistry: IExtensionRegistry;
-    /// <summary>The server's ECDHE groups in preference order; the first that the client
-    /// listed in supported_groups (and resolves to an ECDHE group) is selected, tolerating
-    /// unknown/non-ECDHE codes. Empty falls back to the single Group below.</summary>
-    OfferedGroups: TArray<UInt16>;
-    /// <summary>Resolves a selected group code (from OfferedGroups) to its INamedGroup;
-    /// required whenever OfferedGroups is set.</summary>
+    /// <summary>Resolves the ECDHE group code the negotiation policy selects to its INamedGroup;
+    /// required when Group is nil (the normal factory path).</summary>
     GroupRegistry: INamedGroupRegistry;
-    /// <summary>A single fixed ECDHE group, used only when OfferedGroups is empty (the
-    /// low-level sans-IO entry point); the engine factory always sets OfferedGroups.</summary>
+    /// <summary>Pins a single fixed ECDHE group (the low-level sans-IO entry point; tests). When
+    /// nil the negotiation policy selects by server preference among the client's supported_groups,
+    /// resolved via GroupRegistry.</summary>
     Group: INamedGroup;
     ServerRandom: TBytes;
     /// <summary>Selects the credential (per handshake, from the client's SNI - virtual hosting)
@@ -294,6 +291,8 @@ resourcestring
   SBadRecordSizeLimit = 'the client record_size_limit is below the 64-byte minimum';
   SGroupNotOffered = 'the client did not offer the server''s ECDHE group';
   SGroupNotEcdhe = 'the configured 1.2 group is not an ECDHE group';
+  SGroupNotResolvable = 'the selected ECDHE group has no registered key agreement';
+  SNoGroupAuthority = 'no negotiation policy or pinned group to select an ECDHE group';
   SNoExtendedMasterSecret =
     'the client did not offer extended_master_secret and it is required';
   SBadClientFinished = 'the client Finished did not verify';
@@ -400,35 +399,27 @@ end;
 
 procedure TTls12ServerStateMachine.SelectEcdheGroup(
   const AClientGroups: TArray<UInt16>);
-var
-  LGroupCode: UInt16;
-  LGroup: INamedGroup;
 begin
-  // multi-group path: walk the server's preference order and choose the first group
-  // the client also advertised that resolves to an ECDHE group (1.2 excludes KEM/
-  // hybrid). Unknown or non-ECDHE offered codes are simply skipped.
-  if System.Length(FParams.OfferedGroups) > 0 then
+  if FParams.Group <> nil then
   begin
-    for LGroupCode in FParams.OfferedGroups do
-      if (TArrayUtilities.Contains<UInt16>(AClientGroups, LGroupCode)) and
-        (FParams.GroupRegistry.TryGet(LGroupCode, LGroup)) and
-        (LGroup.Kind = TNamedGroupKind.Ecdhe) then
-      begin
-        FSelectedGroup := LGroup;
-        FGroupCode := LGroupCode;
-        Exit;
-      end;
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.HandshakeFailure, @SGroupNotOffered);
+    // low-level sans-IO fallback: the single fixed group must be ECDHE and offered
+    if FParams.Group.Kind <> TNamedGroupKind.Ecdhe then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.InternalError, @SGroupNotEcdhe);
+    if not (TArrayUtilities.Contains<UInt16>(AClientGroups, FGroupCode)) then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.HandshakeFailure, @SGroupNotOffered);
+    Exit;
   end;
-
-  // low-level sans-IO fallback: the single fixed group must be ECDHE and offered
-  if FParams.Group.Kind <> TNamedGroupKind.Ecdhe then
+  // the negotiation policy selects the ECDHE group by server preference among the client's groups
+  // (1.2 excludes KEM/hybrid); it raises handshake_failure when none is common
+  if FParams.Policy = nil then
     raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.InternalError, @SGroupNotEcdhe);
-  if not (TArrayUtilities.Contains<UInt16>(AClientGroups, FGroupCode)) then
+      TTlsAlertDescription.InternalError, @SNoGroupAuthority);
+  FGroupCode := FParams.Policy.SelectGroup(AClientGroups, TlsWireVersionTls12);
+  if not FParams.GroupRegistry.TryGet(FGroupCode, FSelectedGroup) then
     raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.HandshakeFailure, @SGroupNotOffered);
+      TTlsAlertDescription.InternalError, @SGroupNotResolvable);
 end;
 
 function TTls12ServerStateMachine.EcdsaCredentialCurveOffered(

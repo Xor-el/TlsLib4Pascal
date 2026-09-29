@@ -1325,10 +1325,9 @@ begin
   LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  // the server offers X25519 first, then secp256r1; a client that omits X25519 negotiates
-  // secp256r1 (mandatory to implement, RFC 8446 9.1) without a HelloRetryRequest
-  LParams.OfferedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
-    TNamedGroupCatalog.Secp256r1);
+  // the negotiation policy prefers X25519 (and PQ hybrids) ahead of secp256r1; a client that omits
+  // them and offers only secp256r1 (mandatory to implement, RFC 8446 9.1) still negotiates it,
+  // without a HelloRetryRequest, because it sent that key_share
   LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Crypto);
   LParams.ServerRandom := Filled($22, 32);
   // a cookie secret lets it answer with a HelloRetryRequest if it ever needed to (it must not)

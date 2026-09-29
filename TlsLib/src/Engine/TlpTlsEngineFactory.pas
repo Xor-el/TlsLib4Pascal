@@ -461,17 +461,15 @@ begin
   // build the extension registry only for a version whose machine is created below
   if LOffers13 then
     L13.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  // the server offers all its preferred groups the registry holds and selects one the client
-  // offered (RFC 8446 4.2.8); a group pruned from the registry is never selected, so it cannot fail
-  // to resolve mid-handshake. secp256r1 is mandatory to implement (RFC 8446 9.1), never a single group
-  L13.OfferedGroups := RegisteredGroupCodes(AConfig, AConfig.PreferredGroups);
+  // the negotiation policy (built above from the same PreferredGroups/NamedGroups) selects the
+  // group by server preference among the client's supported_groups (RFC 8446 4.2.8); the state
+  // machine resolves the selected code via GroupRegistry
   L13.GroupRegistry := AConfig.NamedGroups;
-  // require at least one preferred group to be registered when 1.3 is offered: this validates the
-  // registry-vs-preference intersection at creation (an empty offer would leave the 1.3 server
-  // unable to select any group) and seeds Group, the single-group fallback the state machine reads
-  // when OfferedGroups is empty, so neither path can fault on the first ClientHello
+  // validate at creation that at least one preferred group is registered when 1.3 is offered (an
+  // empty registry-vs-preference intersection would leave the policy unable to select any group);
+  // the result is discarded - this is a creation-time guard, not a stored fallback
   if LOffers13 then
-    L13.Group := PreferredGroup(AConfig, LGroupCode);
+    PreferredGroup(AConfig, LGroupCode);
   L13.ServerRandom := LServerRandom;
   L13.AlpnProtocols := AConfig.AlpnProtocols;
   // the server compresses its Certificate with what it holds and the client advertised
@@ -504,13 +502,13 @@ begin
   L12.Policy := L13.Policy;
   if LOffers12 then
     L12.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  // TLS 1.2 needs a classical ECDHE group (KEM/hybrid are 1.3-only); the server picks
-  // the first of these the client also advertised, so OfferedGroups drives selection
-  // and Group is only the low-level single-group fallback
+  // TLS 1.2 needs a classical ECDHE group (KEM/hybrid are 1.3-only); the same policy selects it by
+  // server preference among the client's supported_groups, resolved via GroupRegistry
   L12.GroupRegistry := AConfig.NamedGroups;
-  L12.OfferedGroups := EcdheGroupCodes(AConfig, AConfig.PreferredGroups);
+  // validate at creation that at least one preferred group is a registered classical ECDHE group
+  // when 1.2 is offered; the result is discarded (creation-time guard, not a stored fallback)
   if LOffers12 then
-    L12.Group := PreferredEcdheGroup(AConfig);
+    PreferredEcdheGroup(AConfig);
   L12.ServerRandom := LServerRandom;
   L12.CredentialResolver := AConfig.CredentialResolver;
   L12.RequireExtendedMasterSecret := AConfig.RequireExtendedMasterSecret;
