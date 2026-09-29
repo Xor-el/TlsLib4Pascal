@@ -2600,13 +2600,12 @@ begin
     ((not FResumption) or (FSessionCache = nil)) then
     raise EInvalidOperationTlsLibException.CreateRes(@SResumeVerifyNeedsCache);
   ValidateVersionScoping;
-  // build the ECH policy before allocating the frozen config, so a rejected ECHConfigList (a
-  // malformed list, or an empty one with GREASE off) raises here without leaking the config
   LEchPolicy := nil;
   if FEchConfigured then
     LEchPolicy := TEchClientPolicy.Create(FCrypto, FEchConfigList, FEchGrease, FEchIsRetry)
       as IEchClientPolicy;
   LConfig := TFrozenClientConfig.Create;
+  Result := LConfig;
   LConfig.FCrypto := FCrypto;
   LConfig.FPkix := FPkix;
   LConfig.FCipherSuites := FCipherSuites;
@@ -2651,7 +2650,6 @@ begin
   LConfig.FExternalPskRequired := FExternalPskRequired;
   LConfig.FEchPolicy := LEchPolicy;
   FFrozen := True;
-  Result := LConfig;
 end;
 
 function TTlsConfigBuilder.BuildServer: ITlsServerConfig;
@@ -2709,6 +2707,7 @@ begin
     raise EInvalidOperationTlsLibException.CreateRes(@SServerEarlyDataNeedsResumption);
   ValidateVersionScoping;
   LConfig := TFrozenServerConfig.Create;
+  Result := LConfig;
   LConfig.FCrypto := FCrypto;
   LConfig.FPkix := FPkix;
   LConfig.FCipherSuites := FCipherSuites;
@@ -2768,7 +2767,6 @@ begin
   LConfig.FEchTrialDecrypt := FEchTrialDecrypt;
   LConfig.FEchSplitModeBackend := FEchSplitModeBackend;
   FFrozen := True;
-  Result := LConfig;
 end;
 
 end.
