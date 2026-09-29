@@ -1,0 +1,24 @@
+TlsLib.Tests/src/Tls12LoopbackTests.pas
+  s_09d3c46d1a9b1f::t_fd005ff41939e7 102
+  s_09d3c46d1a9b1f::t_12911042973f62 112
+  s_09d3c46d1a9b1f::t_42075264bb5e8c 986-1011
+  s_09d3c46d1a9b1f::t_733d57775819a3 904
+  s_09d3c46d1a9b1f::t_7972b3c0bea73e 43,51,99-100,103-109,111,380,855-903,905-960,962-985
+  s_09d3c46d1a9b1f::t_02e607a2f350ce 961
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "601fbea675a2880a27168388d3539618fe924269",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": null
+    }
+  }
+}
