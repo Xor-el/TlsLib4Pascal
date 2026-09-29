@@ -17,6 +17,7 @@ interface
 
 uses
   SysUtils,
+  TlpCoreExtensions,
   TlpExtensionVector;
 
 type
@@ -34,8 +35,10 @@ type
     class function ValueAt(AIndex: Int32): UInt16; static;
     /// <summary>A copy of AList with AValue prepended.</summary>
     class function Prepend(const AList: TArray<UInt16>; AValue: UInt16): TArray<UInt16>; static;
-    /// <summary>Splices an empty-bodied GREASE extension (type AType) at the front of
-    /// an already-serialized extensions block (2-byte length prefix + entries).</summary>
+    /// <summary>Splices an empty-bodied GREASE extension (type AType) into an already-serialized
+    /// extensions block (2-byte length prefix + entries), just before encrypted_client_hello (else
+    /// pre_shared_key, else at the end) so it stays in the compressible run of an ECH inner and
+    /// keeps pre_shared_key last (RFC 8446 4.2.11).</summary>
     class function InjectExtension(const ABlock: TBytes; AType: UInt16): TBytes; static;
   end;
 
@@ -72,11 +75,20 @@ class function TGrease.InjectExtension(const ABlock: TBytes;
   AType: UInt16): TBytes;
 var
   LVector: TExtensionVector;
+  LIndex: Int32;
 begin
-  // an empty-bodied GREASE extension at the front of the block; the front is always safe
-  // (pre_shared_key must stay last, RFC 8446 4.2.11)
+  // GREASE is duplicated verbatim into an ECH ClientHelloOuter, so it belongs with the other
+  // compressible extensions - just before encrypted_client_hello - and one ech_outer_extensions
+  // run then covers it. Fall back to before pre_shared_key (which must stay last, RFC 8446
+  // 4.2.11), else the end when neither is present.
   LVector := TExtensionVector.Parse(ABlock);
-  LVector.InsertAt(0, TExtensionEntry.Create(AType, nil));
+  LIndex := LVector.IndexOf(TExtensionTypes.EncryptedClientHello);
+  if LIndex < 0 then
+    LIndex := LVector.IndexOf(TExtensionTypes.PreSharedKey);
+  if LIndex < 0 then
+    LVector.Append(TExtensionEntry.Create(AType, nil))
+  else
+    LVector.InsertAt(LIndex, TExtensionEntry.Create(AType, nil));
   Result := LVector.Encode;
 end;
 

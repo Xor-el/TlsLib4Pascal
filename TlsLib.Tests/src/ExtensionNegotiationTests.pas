@@ -134,6 +134,8 @@ type
     procedure TestAlpnServerHelloSelectionRoundTrip;
     procedure TestAlpnServerHelloEmptyProtocolRejected;
     procedure TestClientRejectsGreaseExtensionInEncryptedExtensions;
+    procedure TestGreaseInjectsBeforeEchThenPskThenEnd;
+    procedure TestGreaseExtensionIsLastInPlainClientHello;
     procedure TestServerRejectsInnerEchWithoutBackend;
     procedure TestServerAcceptsInnerEchWhenBackend;
   end;
@@ -1234,6 +1236,70 @@ begin
     'a GREASE extension type echoed in EncryptedExtensions aborts');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
     'a GREASE extension in EncryptedExtensions is illegal_parameter');
+end;
+
+procedure TTestExtensionNegotiation.TestGreaseInjectsBeforeEchThenPskThenEnd;
+var
+  LVector: TExtensionVector;
+  LGrease: UInt16;
+  LTypes: TArray<UInt16>;
+begin
+  LGrease := TGrease.ValueAt(3);
+  // ech and psk both present: GREASE joins the compressible run just before ech, psk stays last
+  LVector := TExtensionVector.Empty;
+  LVector.Append(TExtensionEntry.Create(TExtensionTypes.ServerName, nil));
+  LVector.Append(TExtensionEntry.Create(TExtensionTypes.SupportedGroups, nil));
+  LVector.Append(TExtensionEntry.Create(TExtensionTypes.EncryptedClientHello, nil));
+  LVector.Append(TExtensionEntry.Create(TExtensionTypes.PreSharedKey, nil));
+  LVector := TExtensionVector.Parse(TGrease.InjectExtension(LVector.Encode, LGrease));
+  LTypes := LVector.Types;
+  CheckEquals(5, Length(LTypes), 'the block gained one GREASE extension');
+  CheckEquals(Int64(LGrease), Int64(LTypes[2]), 'GREASE lands just before encrypted_client_hello');
+  CheckEquals(Int64(TExtensionTypes.EncryptedClientHello), Int64(LTypes[3]), 'ech follows GREASE');
+  CheckEquals(Int64(TExtensionTypes.PreSharedKey), Int64(LTypes[4]), 'pre_shared_key stays last');
+
+  // no ech but psk present: GREASE falls back to just before pre_shared_key
+  LVector := TExtensionVector.Empty;
+  LVector.Append(TExtensionEntry.Create(TExtensionTypes.ServerName, nil));
+  LVector.Append(TExtensionEntry.Create(TExtensionTypes.SupportedGroups, nil));
+  LVector.Append(TExtensionEntry.Create(TExtensionTypes.PreSharedKey, nil));
+  LVector := TExtensionVector.Parse(TGrease.InjectExtension(LVector.Encode, LGrease));
+  LTypes := LVector.Types;
+  CheckEquals(Int64(LGrease), Int64(LTypes[2]), 'GREASE lands just before pre_shared_key');
+  CheckEquals(Int64(TExtensionTypes.PreSharedKey), Int64(LTypes[3]), 'pre_shared_key stays last');
+
+  // neither present: GREASE goes at the very end
+  LVector := TExtensionVector.Empty;
+  LVector.Append(TExtensionEntry.Create(TExtensionTypes.ServerName, nil));
+  LVector.Append(TExtensionEntry.Create(TExtensionTypes.SupportedGroups, nil));
+  LVector := TExtensionVector.Parse(TGrease.InjectExtension(LVector.Encode, LGrease));
+  LTypes := LVector.Types;
+  CheckEquals(3, Length(LTypes), 'the block gained one GREASE extension');
+  CheckEquals(Int64(LGrease), Int64(LTypes[2]), 'GREASE goes last when neither ech nor psk is present');
+end;
+
+procedure TTestExtensionNegotiation.TestGreaseExtensionIsLastInPlainClientHello;
+var
+  LClient: IHandshakeMachine;
+  LClientHello: TBytes;
+  LHello: TTlsClientHello;
+  LVector: TExtensionVector;
+  LTypes: TArray<UInt16>;
+  LGreaseIndex, LI: Int32;
+begin
+  // a plain greasing ClientHello offers no pre_shared_key or ech, so the GREASE extension is
+  // appended at the very end rather than sitting ahead of server_name
+  LClient := NewGreasingClientMachine;
+  LClientHello := FirstSendHandshake(LClient.Start);
+  LHello := THandshakeMessages.DecodeClientHello(MsgFrom(LClientHello).Body);
+  LVector := TExtensionVector.Parse(LHello.Extensions);
+  LTypes := LVector.Types;
+  LGreaseIndex := -1;
+  for LI := 0 to High(LTypes) do
+    if TGrease.IsGrease(LTypes[LI]) then
+      LGreaseIndex := LI;
+  CheckEquals(Length(LTypes) - 1, LGreaseIndex,
+    'GREASE is the last extension in a plain greasing ClientHello');
 end;
 
 procedure TTestExtensionNegotiation.TestServerRejectsInnerEchWithoutBackend;

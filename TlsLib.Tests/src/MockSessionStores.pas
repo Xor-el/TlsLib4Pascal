@@ -39,7 +39,7 @@ type
   public
     procedure Store(const AServerIdentity, AServerName: string;
       const ASession: IResumableSession);
-    function Take(const AServerIdentity, AServerName: string;
+    function Take(const AServerIdentity, AServerName: string; ANowMillis: UInt64;
       out ASession: IResumableSession): Boolean;
     procedure SetKxHint(const AServerIdentity, AServerName: string; AGroup: UInt16);
     function KxHint(const AServerIdentity, AServerName: string): UInt16;
@@ -83,7 +83,7 @@ begin
 end;
 
 function TMockSessionCache.Take(const AServerIdentity, AServerName: string;
-  out ASession: IResumableSession): Boolean;
+  ANowMillis: UInt64; out ASession: IResumableSession): Boolean;
 begin
   ASession := nil;
   Result := FHasEntry and (FKey = AServerIdentity + '|' + AServerName);

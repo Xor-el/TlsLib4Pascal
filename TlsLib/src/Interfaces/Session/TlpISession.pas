@@ -144,13 +144,15 @@ type
   /// keeps their sessions apart.
   /// </summary>
   ISessionCache = interface(IInterface)
-    ['{2E5B9F30-7C41-4A68-9D12-6B0E3F8C4A57}']
+    ['{D5FE33F3-E018-4A9D-9EBD-14BD9B8F080B}']
     /// <summary>Caches a session under (server identity, SNI), evicting to stay bounded.</summary>
     procedure Store(const AServerIdentity, AServerName: string;
       const ASession: IResumableSession);
     /// <summary>Pops one cached session for (server identity, SNI), preferring a TLS 1.3
-    /// session over a TLS 1.2 one; False if none.</summary>
-    function Take(const AServerIdentity, AServerName: string;
+    /// session over a TLS 1.2 one; False if none. A session whose ticket lifetime has already
+    /// elapsed at ANowMillis (Unix ms) is dropped rather than returned, so a stale head never
+    /// shadows a live ticket behind it; a zero lifetime is left to the caller's version rule.</summary>
+    function Take(const AServerIdentity, AServerName: string; ANowMillis: UInt64;
       out ASession: IResumableSession): Boolean;
     /// <summary>Remembers the (EC)DHE group the server selected for this server, so the
     /// next initial ClientHello can key_share it up front and skip a HelloRetryRequest.</summary>

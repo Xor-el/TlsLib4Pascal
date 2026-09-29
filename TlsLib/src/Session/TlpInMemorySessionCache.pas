@@ -43,6 +43,8 @@ type
     FCapacity: Int32;
     FLock: TCriticalSection;
     class function KeyFor(const AServerIdentity, AServerName: string): string; static;
+    class function IsExpired(const ASession: IResumableSession;
+      ANowMillis: UInt64): Boolean; static;
   public
     /// <summary>A cache holding up to ACapacity sessions (default when 0 or less).</summary>
     constructor Create(ACapacity: Int32 = 0);
@@ -50,7 +52,7 @@ type
 
     procedure Store(const AServerIdentity, AServerName: string;
       const ASession: IResumableSession);
-    function Take(const AServerIdentity, AServerName: string;
+    function Take(const AServerIdentity, AServerName: string; ANowMillis: UInt64;
       out ASession: IResumableSession): Boolean;
     procedure SetKxHint(const AServerIdentity, AServerName: string; AGroup: UInt16);
     function KxHint(const AServerIdentity, AServerName: string): UInt16;
@@ -94,6 +96,15 @@ begin
   Result := AServerIdentity + KeySeparator + AServerName;
 end;
 
+class function TInMemorySessionCache.IsExpired(const ASession: IResumableSession;
+  ANowMillis: UInt64): Boolean;
+begin
+  // a zero lifetime is left to the caller's version rule (a 1.2 hint of 0 stays offerable);
+  // a backwards clock underflows the UInt64 subtraction to "expired", matching the offer policy
+  Result := (ASession.TicketLifetime > 0) and
+    ((ANowMillis - ASession.IssuedAtMillis) > (UInt64(ASession.TicketLifetime) * 1000));
+end;
+
 procedure TInMemorySessionCache.Store(const AServerIdentity, AServerName: string;
   const ASession: IResumableSession);
 var
@@ -114,7 +125,7 @@ begin
 end;
 
 function TInMemorySessionCache.Take(const AServerIdentity, AServerName: string;
-  out ASession: IResumableSession): Boolean;
+  ANowMillis: UInt64; out ASession: IResumableSession): Boolean;
 var
   LKey: string;
   LIndex: Int32;
@@ -126,11 +137,18 @@ begin
   try
     // prefer a TLS 1.3 session over a 1.2 one so a dual-version client does not downgrade
     // on resumption; within a version, newest-first so the freshest ticket resumes. Pass 1
-    // scans for the newest 1.3 session, pass 2 falls back to the newest of any version.
+    // scans for the newest 1.3 session, pass 2 falls back to the newest of any version. An
+    // expired entry is dropped as it is passed rather than returned, so a stale head cannot
+    // shadow a live ticket behind it (downto keeps the running index valid after a Delete).
     for LIndex := FEntries.Count - 1 downto 0 do
       if (FEntries[LIndex].Key = LKey) and
         (FEntries[LIndex].Session.Version.WireValue = TlsWireVersionTls13) then
       begin
+        if IsExpired(FEntries[LIndex].Session, ANowMillis) then
+        begin
+          FEntries.Delete(LIndex);
+          Continue;
+        end;
         ASession := FEntries[LIndex].Session;
         FEntries.Delete(LIndex);
         Exit(True);
@@ -138,6 +156,11 @@ begin
     for LIndex := FEntries.Count - 1 downto 0 do
       if FEntries[LIndex].Key = LKey then
       begin
+        if IsExpired(FEntries[LIndex].Session, ANowMillis) then
+        begin
+          FEntries.Delete(LIndex);
+          Continue;
+        end;
         ASession := FEntries[LIndex].Session;
         FEntries.Delete(LIndex);
         Exit(True);

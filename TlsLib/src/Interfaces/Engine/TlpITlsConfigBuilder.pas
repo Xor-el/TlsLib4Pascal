@@ -67,7 +67,7 @@ type
   /// source (no silent-insecure).
   /// </summary>
   ITlsClientConfigBuilder = interface(IInterface)
-    ['{8B4B9678-BF8A-4A14-89EB-DBDB174E2547}']
+    ['{C71D422B-62F3-4D05-B5F9-A1CA5F0CE99C}']
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): ITlsClientConfigBuilder;
     function WithSignatureSchemes(const ARegistry: ISignatureSchemeRegistry): ITlsClientConfigBuilder;
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): ITlsClientConfigBuilder;
@@ -77,6 +77,9 @@ type
     /// ALPN. Each name is a non-empty ASCII string of at most 255 bytes and is listed once;
     /// anything else is rejected here (RFC 7301 3.1).</summary>
     function WithAlpnProtocols(const AProtocols: TArray<string>): ITlsClientConfigBuilder;
+    /// <summary>Offers record_size_limit (RFC 8449): the largest record this client accepts inbound,
+    /// as TLSInnerPlaintext in TLS 1.3. 0 (the default) offers nothing; otherwise 64..16384.</summary>
+    function WithRecordSizeLimit(ALimit: Int32): ITlsClientConfigBuilder;
     /// <summary>Whether the client sends GREASE values (RFC 8701). Optional per the RFC;
     /// default True.</summary>
     function WithGrease(AEnable: Boolean): ITlsClientConfigBuilder;
@@ -276,7 +279,7 @@ type
   /// certificate credential.
   /// </summary>
   ITlsServerConfigBuilder = interface(IInterface)
-    ['{BC6A48F9-3D90-413F-BF40-F35F589F6120}']
+    ['{6D799A9D-DAB4-42B8-82BE-195CE6796A27}']
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): ITlsServerConfigBuilder;
     function WithSignatureSchemes(const ARegistry: ISignatureSchemeRegistry): ITlsServerConfigBuilder;
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): ITlsServerConfigBuilder;
@@ -286,6 +289,9 @@ type
     /// list offers no ALPN. Each name is a non-empty ASCII string of at most 255 bytes and is
     /// listed once; anything else is rejected here (RFC 7301 3.1).</summary>
     function WithAlpnProtocols(const AProtocols: TArray<string>): ITlsServerConfigBuilder;
+    /// <summary>Offers record_size_limit (RFC 8449): the largest record this server accepts inbound,
+    /// as TLSInnerPlaintext in TLS 1.3. 0 (the default) offers nothing; otherwise 64..16384.</summary>
+    function WithRecordSizeLimit(ALimit: Int32): ITlsServerConfigBuilder;
     /// <summary>Whether the server echoes an empty server_name acknowledgement (RFC 6066 3)
     /// when the client offered a host_name. Default True; pass False to omit it.</summary>
     function WithServerNameAcknowledgement(ASend: Boolean): ITlsServerConfigBuilder;
