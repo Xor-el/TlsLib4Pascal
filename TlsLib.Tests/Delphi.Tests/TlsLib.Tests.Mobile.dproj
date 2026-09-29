@@ -466,7 +466,6 @@
         <DCCReference Include="..\..\TlsLib\src\Ech\TlpEchClientOrchestrator.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Ech\TlpInMemoryEchKeyStore.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Ech\TlpEchServer.pas"/>
-        <DCCReference Include="..\..\TlsLib\src\Ech\TlpEchRegistryExtension.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Engine\TlpITlsConfig.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Engine\TlpITlsConfigBuilder.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Engine\TlpISystemTrustInstaller.pas"/>
@@ -478,6 +477,8 @@
         <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsSignatureBuilder.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsEngineFactory.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Extensions\TlpExtensionContext.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Extensions\TlpExtensionVector.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Ech\TlpEchRegistryExtension.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Extensions\TlpITlsExtension.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Extensions\TlpExtensionBlockCodec.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Extensions\TlpCoreExtensions.pas"/>
@@ -564,6 +565,7 @@
         <DCCReference Include="..\src\EchClientEngineTests.pas"/>
         <DCCReference Include="..\src\AsyncVerdictTests.pas"/>
         <DCCReference Include="..\src\LiveRevocationTests.pas"/>
+        <DCCReference Include="..\src\ServerSideLiveRevocationTests.pas"/>
         <DCCReference Include="..\src\ConfigBuilderTests.pas"/>
         <DCCReference Include="..\src\TrustCompositionTests.pas"/>
         <DCCReference Include="..\src\SystemTrustTests.pas"/>
@@ -574,6 +576,7 @@
         <DCCReference Include="..\src\BundleTrustTests.pas"/>
         <DCCReference Include="..\src\PresetTests.pas"/>
         <DCCReference Include="..\src\ExtensionCodecTests.pas"/>
+        <DCCReference Include="..\src\ExtensionVectorTests.pas"/>
         <DCCReference Include="..\src\NegotiationTests.pas"/>
         <DCCReference Include="..\src\TlsConnectionTests.pas"/>
         <BuildConfiguration Include="Base">
