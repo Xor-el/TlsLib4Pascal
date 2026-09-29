@@ -1,0 +1,25 @@
+TlsLib.Tests/src/ExtensionNegotiationTests.pas
+  s_09d3c46d1a9b1f::t_531dd1a8e76611 1254-1255,1266-1267,1275-1276
+  s_09d3c46d1a9b1f::t_6fec254f4bb7be 1286,1295-1296
+TlsLib.Tests/src/EchClientTests.pas
+  s_09d3c46d1a9b1f::t_1092d51f57ca29 77
+  s_09d3c46d1a9b1f::t_8067778879bc7f 335-401
+TlsLib.Tests/src/SessionStoreTests.pas
+  s_09d3c46d1a9b1f::t_712eed88600a98 336,344-346,355,362-364
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8596131e5810c289ba2f897a0a42bf55fb4ed25b",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
