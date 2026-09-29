@@ -1,0 +1,23 @@
+TlsLib.Tests/src/Tls12LoopbackTests.pas
+  s_09d3c46d1a9b1f::t_83692988671429 51
+  s_09d3c46d1a9b1f::t_14e841a5539d24 111
+  s_09d3c46d1a9b1f::t_ead21b6e2d3249 873-1002
+  s_09d3c46d1a9b1f::t_94271aaba08272 99-100,102-109
+  s_09d3c46d1a9b1f::t_c957e6b261222d 43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f0e0104d61bab7b685d2907e5fb26034b88b5e08",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
