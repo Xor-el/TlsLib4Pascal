@@ -1,0 +1,31 @@
+TlsLib.Tests/src/ExtensionNegotiationTests.pas
+  s_09d3c46d1a9b1f::t_f027a0386abb94 283-327
+  s_09d3c46d1a9b1f::t_e9cb18fecc084e 1066
+  s_09d3c46d1a9b1f::t_f1e841e82883ed 992-1026,1065
+  s_09d3c46d1a9b1f::t_9b5193a0ef6cdc 73-74
+  s_09d3c46d1a9b1f::t_1607fa1e1e6c98 126
+  s_09d3c46d1a9b1f::t_8dba6d97e3f6d3 127
+  s_09d3c46d1a9b1f::t_c214478eb08b2b 1027-1028,1032,1034,1048-1057,1059-1061,1064
+  s_09d3c46d1a9b1f::t_4dde61c99906f1 1029-1031,1033,1035-1047,1058,1062-1063
+  s_09d3c46d1a9b1f::t_adeecf1a906b2f 61-63
+TlsLib.Tests/src/Tls12LoopbackTests.pas
+  s_09d3c46d1a9b1f::t_b72ae953b98f0a 44-45,95-97,99-100,832-904
+TlsLib.Tests/src/Tls13LoopbackTests.pas
+  s_09d3c46d1a9b1f::t_9c29403f8d7a1c 66-67,73-75,140,471-472,527-528,1136-1176
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d2849e1e95d653dd1e2408ff89a5d017de379b84",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": null
+    }
+  }
+}
