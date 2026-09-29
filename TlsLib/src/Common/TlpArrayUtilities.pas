@@ -56,9 +56,6 @@ type
     /// <summary>The index of the first element whose key is AKey, or -1.</summary>
     class function IndexOfKey<T, TKey>(const AItems: TArray<T>;
       const AKeyOf: TKeyOf<T, TKey>; const AKey: TKey): Int32; static;
-    /// <summary>Whether any element's key is AKey.</summary>
-    class function ContainsKey<T, TKey>(const AItems: TArray<T>;
-      const AKeyOf: TKeyOf<T, TKey>; const AKey: TKey): Boolean; static;
   end;
 
 implementation
@@ -170,12 +167,6 @@ begin
   for LI := 0 to Length(AItems) - 1 do
     if LComparer.Equals(AKeyOf(AItems[LI]), AKey) then
       Exit(LI);
-end;
-
-class function TArrayUtilities.ContainsKey<T, TKey>(const AItems: TArray<T>;
-  const AKeyOf: TKeyOf<T, TKey>; const AKey: TKey): Boolean;
-begin
-  Result := IndexOfKey<T, TKey>(AItems, AKeyOf, AKey) >= 0;
 end;
 
 class function TArrayUtilities.Concat(const AArrays: array of TBytes): TBytes;

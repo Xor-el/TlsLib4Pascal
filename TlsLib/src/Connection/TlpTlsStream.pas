@@ -94,6 +94,7 @@ implementation
 resourcestring
   SNotSeekable = 'a TLS stream is a sequential conduit and cannot be sought';
   SReadTruncated = 'the transport closed without close_notify (possible truncation)';
+  SWriteAfterClose = 'the stream write side has been closed';
 
 { TTlsStream }
 
@@ -226,6 +227,10 @@ var
 begin
   if ACount <= 0 then
     Exit(0);
+  // a write after CloseNotify must fail rather than silently run the handshake and send: pre-handshake
+  // close only latched the flag, so guard here as the post-handshake engine already does
+  if FWriteClosed then
+    raise EInvalidOperationTlsLibException.CreateRes(@SWriteAfterClose);
   EnsureHandshake;
   // copy one bounded slice at a time rather than the whole buffer: a bulk write costs one
   // reused slice of transient memory, never a second copy of the payload. Grow the slice on
