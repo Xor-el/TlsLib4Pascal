@@ -1,0 +1,22 @@
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  s_09d3c46d1a9b1f::t_687cb3c498c84f 244-245
+  s_09d3c46d1a9b1f::t_1928e3865aa228 259
+TlsLib/src/Trust/TlpCertificateVerifier.pas
+  s_09d3c46d1a9b1f::t_a5d2fc2e366947 253-254
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "754e545d939db84e76d0601ba6ab6aaafc42ab23",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
