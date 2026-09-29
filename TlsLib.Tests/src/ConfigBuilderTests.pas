@@ -108,6 +108,10 @@ type
     procedure TestAlpnDuplicateNameIsRefused;
     procedure TestAlpnEmptyListMeansNoAlpn;
     procedure TestAlpnSetterCopiesCallerArray;
+    procedure TestRecordSizeLimitDefaultsToUnset;
+    procedure TestRecordSizeLimitRoundTrips;
+    procedure TestRecordSizeLimitRejectsOutOfRange;
+    procedure TestRecordSizeLimitCapsRecordsThroughFactory;
     procedure TestPreferredGroupsSetterCopiesCallerArray;
     procedure TestCertificateCompressorsSetterCopiesCallerArray;
     procedure TestCertificateDecompressorsSetterCopiesCallerArray;
@@ -593,6 +597,87 @@ begin
   LList[0] := 'x'; // mutating the caller's array must not reach the built config
   CheckEquals(1, System.Length(LConfig.AlpnProtocols), 'the ALPN list is preserved');
   CheckEquals('h2', LConfig.AlpnProtocols[0], 'the ALPN list is a snapshot of the caller array');
+end;
+
+procedure TTestConfigBuilder.TestRecordSizeLimitDefaultsToUnset;
+begin
+  CheckEquals(0, NewClientBuilder.Build.RecordSizeLimit,
+    'a client offers no record_size_limit by default');
+  CheckEquals(0, NewServerBuilder.Build.RecordSizeLimit,
+    'a server offers no record_size_limit by default');
+end;
+
+procedure TTestConfigBuilder.TestRecordSizeLimitRoundTrips;
+begin
+  CheckEquals(512, NewClientBuilder.WithRecordSizeLimit(512).Build.RecordSizeLimit,
+    'the client record_size_limit reaches the frozen config');
+  CheckEquals(512, NewServerBuilder.WithRecordSizeLimit(512).Build.RecordSizeLimit,
+    'the server record_size_limit reaches the frozen config');
+end;
+
+procedure TTestConfigBuilder.TestRecordSizeLimitRejectsOutOfRange;
+
+  function Refused(ALimit: Int32): Boolean;
+  begin
+    Result := False;
+    try
+      NewClientBuilder.WithRecordSizeLimit(ALimit);
+    except
+      on E: EArgumentTlsLibException do
+        Result := True;
+    end;
+  end;
+
+begin
+  // RFC 8449 4: 64 is the minimum and 16384 the maximum a sender may ever emit; 0 opts out
+  CheckTrue(Refused(63), 'a record_size_limit below 64 is refused');
+  CheckTrue(Refused(16385), 'a record_size_limit above 16384 is refused');
+  CheckFalse(Refused(0), 'a record_size_limit of 0 (opt out) is accepted');
+  CheckFalse(Refused(64), 'the 64-byte minimum is accepted');
+  CheckFalse(Refused(16384), 'the 16384-byte maximum is accepted');
+end;
+
+procedure TTestConfigBuilder.TestRecordSizeLimitCapsRecordsThroughFactory;
+var
+  LClient, LServer: ITlsEngine;
+  LPayload, LWire, LReceived: TBytes;
+  LI, LPos, LLen, LMax, LCount: Int32;
+begin
+  // the builder's record_size_limit must reach the record layer through the factory: both peers
+  // advertise 512, so a 2000-byte write fragments into several records none past the plaintext cap
+  LClient := TTlsEngineFactory.CreateClientEngine(
+    NewClientBuilder.WithRecordSizeLimit(512).Build, 'localhost');
+  LServer := TTlsEngineFactory.CreateServerEngine(
+    NewServerBuilder.WithRecordSizeLimit(512).Build);
+  RunHandshake(LClient, LServer);
+  CheckFalse(LClient.IsTerminal or LServer.IsTerminal, 'the handshake completed');
+
+  LPayload := nil;
+  SetLength(LPayload, 2000);
+  for LI := 0 to System.Length(LPayload) - 1 do
+    LPayload[LI] := Byte(LI and $FF);
+  LClient.Write(LPayload, 0, System.Length(LPayload));
+  LWire := Drain(LClient);
+
+  // walk the TLSCiphertext records (5-byte header + length) the write produced
+  LMax := 0;
+  LCount := 0;
+  LPos := 0;
+  while LPos + 5 <= System.Length(LWire) do
+  begin
+    LLen := (LWire[LPos + 3] shl 8) or LWire[LPos + 4];
+    Inc(LCount);
+    if LLen > LMax then
+      LMax := LLen;
+    Inc(LPos, 5 + LLen);
+  end;
+  // a 512-byte plaintext cap => ciphertext <= 511 content + 1 type + 16 tag = 528
+  CheckTrue(LMax <= 528, 'no record exceeds the negotiated cap when set through the builder');
+  CheckTrue(LCount > 1, 'the oversize write fragmented into several records');
+
+  Feed(LServer, LWire);
+  LReceived := ReadAllApp(LServer);
+  CheckEqualBytes('the server reassembles the fragmented payload', LPayload, LReceived);
 end;
 
 procedure TTestConfigBuilder.TestPreferredGroupsSetterCopiesCallerArray;

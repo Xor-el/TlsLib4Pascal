@@ -95,6 +95,7 @@ type
     FSupportedVersions: TArray<UInt16>;
     FPreferredGroups: TArray<UInt16>;
     FAlpnProtocols: TArray<string>;
+    FRecordSizeLimit: Int32;
     // anchor contributions accumulate (union); a whole-verifier is exclusive of them.
     // Only the endpoint-appropriate slot is ever set (the facet is chosen up front).
     FAnchorStores: TArray<ITrustAnchorStore>;
@@ -197,6 +198,7 @@ type
     function WithSupportedVersions(const AVersions: TArray<UInt16>): TTlsConfigBuilder;
     function WithPreferredGroups(const AGroups: TArray<UInt16>): TTlsConfigBuilder;
     function WithAlpnProtocols(const AProtocols: TArray<string>): TTlsConfigBuilder;
+    function WithRecordSizeLimit(ALimit: Int32): TTlsConfigBuilder;
     function WithTrustStore(const AStore: ITrustAnchorStore): TTlsConfigBuilder;
     function WithTrustAnchors(const AData: TBytes): TTlsConfigBuilder;
     function WithServerCertificateVerifier(
@@ -334,6 +336,7 @@ resourcestring
   SAlpnProtocolNotAscii = 'an ALPN protocol name must be ASCII; it is sent as its ASCII bytes';
   SAlpnProtocolTooLong = 'an ALPN protocol name must not exceed 255 bytes (RFC 7301 3.1)';
   SAlpnProtocolDuplicate = 'the ALPN protocol "%s" is offered more than once';
+  SRecordSizeLimitRange = 'the record_size_limit must be 0 (not offered) or 64..16384 (RFC 8449 4)';
   SHardRevocationUnusable = 'a Hard revocation posture rejects a peer whose certificate has no ' +
     'stapled OCSP response, so it always-rejects unless the client obtains revocation status: ' +
     'call WithOcspStaplingRequest(True) to request a staple, or configure a live OCSP/CRL verdict ' +
@@ -390,6 +393,7 @@ type
     FSupportedVersions: TArray<UInt16>;
     FPreferredGroups: TArray<UInt16>;
     FAlpnProtocols: TArray<string>;
+    FRecordSizeLimit: Int32;
     FCertificateCompressors: TArray<ICertificateCompressor>;
     FCertificateDecompressors: TArray<ICertificateDecompressor>;
     FCredential: TTlsCredential;
@@ -415,6 +419,7 @@ type
     function SupportedVersions: TArray<UInt16>;
     function PreferredGroups: TArray<UInt16>;
     function AlpnProtocols: TArray<string>;
+    function RecordSizeLimit: Int32;
     function CertificateCompressors: TArray<ICertificateCompressor>;
     function CertificateDecompressors: TArray<ICertificateDecompressor>;
     function Credential: TTlsCredential;
@@ -521,6 +526,7 @@ type
     function WithSupportedVersions(const AVersions: TArray<UInt16>): ITlsClientConfigBuilder;
     function WithPreferredGroups(const AGroups: TArray<UInt16>): ITlsClientConfigBuilder;
     function WithAlpnProtocols(const AProtocols: TArray<string>): ITlsClientConfigBuilder;
+    function WithRecordSizeLimit(ALimit: Int32): ITlsClientConfigBuilder;
     function WithGrease(AEnable: Boolean): ITlsClientConfigBuilder;
     function WithTrustStore(const AStore: ITrustAnchorStore): ITlsClientConfigBuilder;
     function WithTrustAnchors(const AData: TBytes): ITlsClientConfigBuilder;
@@ -574,6 +580,7 @@ type
     function WithSupportedVersions(const AVersions: TArray<UInt16>): ITlsServerConfigBuilder;
     function WithPreferredGroups(const AGroups: TArray<UInt16>): ITlsServerConfigBuilder;
     function WithAlpnProtocols(const AProtocols: TArray<string>): ITlsServerConfigBuilder;
+    function WithRecordSizeLimit(ALimit: Int32): ITlsServerConfigBuilder;
     function WithServerNameAcknowledgement(ASend: Boolean): ITlsServerConfigBuilder;
     function WithCipherSuitePreference(APreference: TServerCipherPreference): ITlsServerConfigBuilder;
     function WithAlpnRejection(AReject: Boolean): ITlsServerConfigBuilder;
@@ -716,6 +723,11 @@ end;
 function TFrozenCommonConfig.AlpnProtocols: TArray<string>;
 begin
   Result := System.Copy(FAlpnProtocols);
+end;
+
+function TFrozenCommonConfig.RecordSizeLimit: Int32;
+begin
+  Result := FRecordSizeLimit;
 end;
 
 function TFrozenCommonConfig.CertificateCompressors: TArray<ICertificateCompressor>;
@@ -997,6 +1009,13 @@ begin
   Result := Self;
 end;
 
+function TTlsClientConfigBuilder.WithRecordSizeLimit(
+  ALimit: Int32): ITlsClientConfigBuilder;
+begin
+  FOwner.WithRecordSizeLimit(ALimit);
+  Result := Self;
+end;
+
 function TTlsClientConfigBuilder.WithGrease(
   AEnable: Boolean): ITlsClientConfigBuilder;
 begin
@@ -1226,6 +1245,13 @@ function TTlsServerConfigBuilder.WithAlpnProtocols(
   const AProtocols: TArray<string>): ITlsServerConfigBuilder;
 begin
   FOwner.WithAlpnProtocols(AProtocols);
+  Result := Self;
+end;
+
+function TTlsServerConfigBuilder.WithRecordSizeLimit(
+  ALimit: Int32): ITlsServerConfigBuilder;
+begin
+  FOwner.WithRecordSizeLimit(ALimit);
   Result := Self;
 end;
 
@@ -1798,6 +1824,17 @@ begin
         raise EArgumentTlsLibException.CreateResFmt(@SAlpnProtocolDuplicate, [AProtocols[LI]]);
   end;
   FAlpnProtocols := System.Copy(AProtocols);
+  Result := Self;
+end;
+
+function TTlsConfigBuilder.WithRecordSizeLimit(ALimit: Int32): TTlsConfigBuilder;
+begin
+  GuardMutable;
+  // 0 offers nothing; 16384 is the largest a sender may ever emit, so one bound is legal under
+  // both TLS 1.3 (counted as TLSInnerPlaintext) and 1.2 in a dual-version config (RFC 8449 4)
+  if (ALimit <> 0) and ((ALimit < 64) or (ALimit > 16384)) then
+    raise EArgumentTlsLibException.CreateRes(@SRecordSizeLimitRange);
+  FRecordSizeLimit := ALimit;
   Result := Self;
 end;
 
@@ -2578,6 +2615,7 @@ begin
   LConfig.FSupportedVersions := FSupportedVersions;
   LConfig.FPreferredGroups := FPreferredGroups;
   LConfig.FAlpnProtocols := FAlpnProtocols;
+  LConfig.FRecordSizeLimit := FRecordSizeLimit;
   LConfig.FCertificateCompressors := FCertificateCompressors;
   LConfig.FCertificateDecompressors := FCertificateDecompressors;
   LConfig.FCredential := FCredential;
@@ -2679,6 +2717,7 @@ begin
   LConfig.FSupportedVersions := FSupportedVersions;
   LConfig.FPreferredGroups := FPreferredGroups;
   LConfig.FAlpnProtocols := FAlpnProtocols;
+  LConfig.FRecordSizeLimit := FRecordSizeLimit;
   LConfig.FCertificateCompressors := FCertificateCompressors;
   LConfig.FCertificateDecompressors := FCertificateDecompressors;
   // the shared instance carries over uncopied: connections share one cache (server path)

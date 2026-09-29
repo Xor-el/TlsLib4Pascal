@@ -45,7 +45,7 @@ type
   /// built once, frozen, and reused.
   /// </summary>
   ITlsCommonConfig = interface(IInterface)
-    ['{7C2A9E15-4D83-4B70-A1F6-3E5C0D7B92A8}']
+    ['{42FAFBB3-C1B2-436D-8B33-C5D3585CEF8C}']
     function Crypto: ICryptoProvider;
     /// <summary>The PKIX provider: X.509 inspection, path validation, revocation.</summary>
     function Pkix: IPkixProvider;
@@ -56,6 +56,9 @@ type
     /// <summary>The named-group codes in preference order (the client's key_share order).</summary>
     function PreferredGroups: TArray<UInt16>;
     function AlpnProtocols: TArray<string>;
+    /// <summary>The inbound-record size this endpoint offers under record_size_limit (RFC 8449);
+    /// counted as TLSInnerPlaintext in TLS 1.3. 0 (the default) offers nothing.</summary>
+    function RecordSizeLimit: Int32;
     /// <summary>The certificate-compression algorithms this endpoint compresses a sent
     /// Certificate with (RFC 8879); empty never sends a CompressedCertificate.</summary>
     function CertificateCompressors: TArray<ICertificateCompressor>;

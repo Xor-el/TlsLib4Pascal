@@ -280,6 +280,7 @@ begin
   L13.OfferedSuites := SuiteCodes(AConfig.CipherSuites);
   L13.OfferedSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
   L13.AlpnProtocols := AConfig.AlpnProtocols;
+  L13.RecordSizeLimit := AConfig.RecordSizeLimit;
   // the client advertises what it can decompress (RFC 8879)
   L13.CertificateDecompressors := AConfig.CertificateDecompressors;
   // GREASE is on by default for a client (RFC 8701 keeps peers tolerant); optional per the RFC
@@ -322,6 +323,7 @@ begin
   L12.OfferedGroups := EcdheGroupCodes(AConfig, AConfig.PreferredGroups);
   L12.OfferedSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
   L12.AlpnProtocols := AConfig.AlpnProtocols;
+  L12.RecordSizeLimit := AConfig.RecordSizeLimit;
   L12.OfferedVersions := AConfig.SupportedVersions;
   L12.ClientRandom := LClientRandom;
   // the non-empty legacy_session_id is the TLS 1.3 middlebox-compatibility session id
@@ -456,6 +458,7 @@ begin
     PreferredGroup(AConfig, LGroupCode);
   L13.ServerRandom := LServerRandom;
   L13.AlpnProtocols := AConfig.AlpnProtocols;
+  L13.RecordSizeLimit := AConfig.RecordSizeLimit;
   // the server compresses its Certificate with what it holds and the client advertised
   L13.CertificateCompressors := AConfig.CertificateCompressors;
   // memoize that compression across connections (a stable certificate deflates once)
@@ -500,6 +503,7 @@ begin
   L12.AlpnRejectAll := AConfig.AlpnRejectAll;
   L12.ClientCertificateAuthorities := AConfig.ClientCertificateAuthorities;
   L12.AlpnProtocols := AConfig.AlpnProtocols;
+  L12.RecordSizeLimit := AConfig.RecordSizeLimit;
   L12.ClientAuth := AConfig.ClientAuth;
   L12.ClientAuthSignatureSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
   L12.ClientCertificateVerifier := LClientVerifier;
