@@ -1,0 +1,43 @@
+TlsLib.Tests/src/Tls13LoopbackTests.pas
+  s_09d3c46d1a9b1f::t_988d82ed5c2696 527-528
+  s_09d3c46d1a9b1f::t_0f2ddf3cb5417d 140
+  s_09d3c46d1a9b1f::t_1d742148f7d012 66-67,73-75
+  s_09d3c46d1a9b1f::t_a70a74a450f541 471-472
+  s_09d3c46d1a9b1f::t_a93efe6ced4b08 1144-1145
+  s_09d3c46d1a9b1f::t_c863b594010443 1136-1143,1146-1162,1164-1174
+  s_09d3c46d1a9b1f::t_ddd3ed09a5e1bc 1163
+  s_09d3c46d1a9b1f::t_4c92de280afe1f 1175-1176
+TlsLib.Tests/src/Tls12LoopbackTests.pas
+  s_09d3c46d1a9b1f::t_6c38b49631c18e 99-100
+  s_09d3c46d1a9b1f::t_0b2491e0a51cda 864,867-869,874-878
+  s_09d3c46d1a9b1f::t_5696c652f329af 95-97
+  s_09d3c46d1a9b1f::t_1aaf330fd01a2b 832-863,865-866,870-873,879-904
+  s_09d3c46d1a9b1f::t_968c68501c6826 44-45
+  s_09d3c46d1a9b1f::t_229574f6de318f 905
+TlsLib.Tests/src/ExtensionNegotiationTests.pas
+  s_09d3c46d1a9b1f::t_f027a0386abb94 283-327
+  s_09d3c46d1a9b1f::t_f1e841e82883ed 992-1026,1065
+  s_09d3c46d1a9b1f::t_8dba6d97e3f6d3 127
+  s_09d3c46d1a9b1f::t_4dde61c99906f1 1029-1031,1033,1035-1047,1058,1062-1063
+  s_09d3c46d1a9b1f::t_9b5193a0ef6cdc 73-74
+  s_09d3c46d1a9b1f::t_adeecf1a906b2f 61-63
+  s_09d3c46d1a9b1f::t_1607fa1e1e6c98 126
+  s_09d3c46d1a9b1f::t_c214478eb08b2b 1027-1028,1032,1034,1048-1057,1059-1061,1064
+  s_09d3c46d1a9b1f::t_e9cb18fecc084e 1066
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "aaff591bcf56ec13e45cc5381f53fe4d2c6facc2",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
