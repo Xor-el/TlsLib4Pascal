@@ -241,8 +241,8 @@ var
   LAlert: TTlsAlertDescription;
   LVerified: TVerifiedChain;
 begin
-  // a freshly declared options value must carry exactly the defaults the old convenience
-  // constructor applied, so the four-arg and options construction paths are interchangeable
+  // a freshly declared options value must carry exactly the defaults the four-arg convenience
+  // constructor applies, so the four-arg and options construction paths are interchangeable
   CheckEquals(TCertificateChainLimits.Defaults.MaxCertificateLength,
     LOptions.ChainLimits.MaxCertificateLength, 'default per-certificate cap');
   CheckEquals(TCertificateChainLimits.Defaults.MaxTotalChainLength,
@@ -256,6 +256,7 @@ begin
   CheckEquals(0, System.Length(LOptions.Intermediates), 'no seeded intermediates by default');
   CheckFalse(LOptions.StatusRequestOffered, 'status_request not offered by default');
   CheckFalse(LOptions.Dangerous.InsecureSkipVerify, 'no insecure skip-verify by default');
+  CheckFalse(Assigned(LOptions.Dangerous.VerifyCallback), 'no verify callback by default');
 
   LStore := TTrustAnchorStore.Create(TArray<TBytes>.Create(Cert('root_cert')))
     as ITrustAnchorStore;

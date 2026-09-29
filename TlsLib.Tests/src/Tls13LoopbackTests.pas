@@ -43,7 +43,6 @@ uses
   TlpICertificateTrust,
   TlpServerName,
   TlpCertificateVerifier,
-  TlpCertificateLimits,
   TlpTrustPolicy,
   TlpSecretBuffer,
   TlpTlsCredential,

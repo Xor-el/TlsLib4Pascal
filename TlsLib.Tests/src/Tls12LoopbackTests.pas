@@ -44,7 +44,6 @@ uses
   TlpICertificateTrust,
   TlpServerName,
   TlpCertificateVerifier,
-  TlpCertificateLimits,
   TlpTrustPolicy,
   TlpTlsCredential,
   TlpCredentialResolvers,

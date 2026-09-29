@@ -250,8 +250,8 @@ end;
 class operator TCertificateVerifierOptions.Initialize({$IFDEF FPC}var{$ELSE}out{$ENDIF}
   AOptions: TCertificateVerifierOptions);
 begin
-  // conservative defaults: what the old telescoping constructors applied when a knob was omitted.
-  // Dangerous self-initialises through its own Initialize operator.
+  // a freshly declared options value means the conservative defaults, so an omitted knob is safe;
+  // Dangerous self-initialises through its own Initialize operator
   AOptions.ChainLimits := TCertificateChainLimits.Defaults;
   AOptions.RevocationPosture := TRevocationPosture.Soft;
   AOptions.Deferral := TVerdictDeferral.None;

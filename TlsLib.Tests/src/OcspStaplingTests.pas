@@ -38,7 +38,6 @@ uses
   TlpTrustTypes,
   TlpServerName,
   TlpCertificateVerifier,
-  TlpCertificateLimits,
   TlpTrustPolicy,
   TlsLibTestBase;
 
