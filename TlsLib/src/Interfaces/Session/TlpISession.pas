@@ -191,6 +191,9 @@ type
   /// opening tickets. Each key is tagged by a fixed-length name carried in the
   /// clear at the front of a ticket so the opener can select it. Rotation
   /// promotes a fresh current key and retires the oldest beyond the window.
+  /// Each key must be a 32-byte AES-256-GCM key: that is the fixed AEAD the STEK
+  /// ticket strategy seals under, and a key of any other length is declined at seal/open
+  /// (a wrong key just falls the connection back to a full handshake, never a fault).
   /// </summary>
   ISessionTicketKeyManager = interface(IInterface)
     ['{5F1C8A24-6B39-4D70-9E58-0A2D7C4B6F13}']

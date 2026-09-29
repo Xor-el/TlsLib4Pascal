@@ -859,7 +859,7 @@ var
   LChain: TArray<TBytes>;
 begin
   LStrategy := TStekTicketStrategy.Create(Crypto,
-    TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom));
+    TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager);
   LChain := TArray<TBytes>.Create(Tag($C0, 20));
   LOriginal := TTls13ResumableSession.Create(TCipherSuites13.Aes128GcmSha256,
     THashAlgorithm.SHA_256, TSecretBuffer.From(Tag($5E, 32)), 'h2', 'host.example',
@@ -895,12 +895,12 @@ var
   L13: ITls13ResumableSession;
 begin
   LStrategy := TStekTicketStrategy.Create(Crypto,
-    TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom));
+    TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager);
   // the STEK body drops session_id / session_ticket (they are never sealed), so those must open empty
   LTicket := LStrategy.Seal(TTls12ResumableSession.Create(
     TCipherSuites12.EcdheEcdsaAes128GcmSha256, THashAlgorithm.SHA_256,
     TSecretBuffer.From(Tag($4D, 48)), Tag($01, 32), Tag($02, 16), True, '',
-    'legacy.example', 1800, 2000, nil, nil));
+    'legacy.example', 1800, 2000, nil, nil) as IResumableSession);
   CheckTrue(System.Length(LTicket) > 0, 'a 1.2 session seals to a ticket');
   CheckTrue(LStrategy.Open(LTicket, LOpened), 'the ticket opens');
   CheckTrue(Supports(LOpened, ITls12ResumableSession, L12),
@@ -923,7 +923,7 @@ var
 begin
   // a session that is neither sub-interface cannot be serialized, so Seal declines (empty ticket)
   LStrategy := TStekTicketStrategy.Create(Crypto,
-    TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom));
+    TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager);
   LTicket := LStrategy.Seal(TBaseOnlySession.Create as IResumableSession);
   CheckEquals(0, System.Length(LTicket),
     'a session that is neither a 1.3 nor a 1.2 sub-interface does not seal');

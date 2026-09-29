@@ -32,6 +32,13 @@ implementation
 resourcestring
   SExportLengthNotPositive = 'the exported keying material length must be positive';
   SExportLabelNotAscii = 'the exporter label must be ASCII';
+  SExportLabelReserved = 'the exporter label collides with a reserved TLS PRF label';
+
+const
+  // RFC 5705 4: an exporter label MUST NOT be one the TLS PRF already uses, or the derived value
+  // could coincide with a handshake secret (RFC 5246 + RFC 7627 extended_master_secret)
+  ReservedPrfLabels: array [0 .. 4] of string = ('client finished', 'server finished',
+    'master secret', 'key expansion', 'extended master secret');
 
 { TExporterArgs }
 
@@ -46,6 +53,9 @@ begin
   for LI := 1 to System.Length(ALabel) do
     if Ord(ALabel[LI]) > 127 then
       raise EArgumentTlsLibException.CreateRes(@SExportLabelNotAscii);
+  for LI := System.Low(ReservedPrfLabels) to System.High(ReservedPrfLabels) do
+    if ALabel = ReservedPrfLabels[LI] then
+      raise EArgumentTlsLibException.CreateRes(@SExportLabelReserved);
 end;
 
 end.

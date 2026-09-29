@@ -79,8 +79,8 @@ type
     /// identity still being decided.</summary>
     function CanExportKeyingMaterial: Boolean;
     /// <summary>Early-data (0-RTT) keying material (RFC 8446 7.5). TLS 1.3 only: available on a
-    /// client once it offers 0-RTT and on a server once it accepts 0-RTT; empty otherwise, on TLS
-    /// 1.2, and on a failed connection.</summary>
+    /// client from when it offers 0-RTT until the server rejects it, and on a server once it accepts
+    /// 0-RTT; empty otherwise, once 0-RTT is rejected, on TLS 1.2, and on a failed connection.</summary>
     function ExportEarlyKeyingMaterial(const ALabel: string; const AContext: TBytes;
       ALength: Int32): TBytes;
     /// <summary>Whether the early_exporter_master_secret is available (see

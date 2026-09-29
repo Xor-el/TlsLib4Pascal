@@ -50,6 +50,7 @@ type
     function Rep(AByte: Byte; ALen: Int32): TBytes;
   published
     procedure TestTls13ReportsSecretsInOrderKeyedByRandom;
+    procedure TestTls13ReportsEarlySecretsForZeroRtt;
     procedure TestTls13NoSinkReportsNothing;
     procedure TestTls12ReportsMasterSecretAsClientRandom;
     procedure TestBuilderKeyLogLandsInConfig;
@@ -113,6 +114,35 @@ begin
       LSched.FinishedKey(TTlsDirection.ServerWrite).ToBytes,
       THkdfLabel.HkdfExpandLabel(LHkdf, TSecretBuffer.From(LMock[1].Secret),
       'finished', nil, 32).ToBytes);
+  finally
+    LSched.Free;
+  end;
+end;
+
+procedure TTestKeyLog.TestTls13ReportsEarlySecretsForZeroRtt;
+var
+  LSched: TTls13KeySchedule;
+  LMock: TMockKeyLog;
+  LRandom: TBytes;
+begin
+  // a 0-RTT schedule (a PSK + the early epoch) logs exactly the client early traffic secret and the
+  // early_exporter_master_secret, each keyed by the client random
+  LMock := TMockKeyLog.Create;
+  LRandom := FixedRandom;
+  LSched := TTls13KeySchedule.Create(Crypto, THashAlgorithm.SHA_256, 16);
+  try
+    LSched.SetPsk(TSecretBuffer.From(Rep($CD, 32)));
+    LSched.SetKeyLog(LMock as IKeyLog, LRandom);
+    LSched.DeriveEpochSecrets(TTlsEpoch.EarlyData, Rep($01, 32));
+    CheckEquals(2, LMock.Count, 'two early secrets are reported');
+    CheckEquals(KeyLogLabelClientEarlyTraffic, LMock[0].Lbl, 'the client early traffic secret');
+    CheckEquals(KeyLogLabelEarlyExporter, LMock[1].Lbl, 'the early exporter master secret');
+    CheckEqualBytes('client early traffic keyed by the client random', LRandom,
+      LMock[0].ClientRandom);
+    CheckEqualBytes('early exporter keyed by the client random', LRandom,
+      LMock[1].ClientRandom);
+    CheckFalse(AreEqual(LMock[0].Secret, LMock[1].Secret),
+      'the early traffic and early exporter secrets differ');
   finally
     LSched.Free;
   end;

@@ -29,7 +29,9 @@ type
   /// RFC 9258 6): a resumption ticket uses "res binder", a raw out-of-band external PSK
   /// uses "ext binder", and an RFC 9258 imported external PSK uses "imp binder". The
   /// three labels domain-separate the binder so a key provisioned for one role cannot be
-  /// replayed in another.
+  /// replayed in another. External is the raw "ext binder" label; the library provisions
+  /// every external PSK through the RFC 9258 importer (Imported), so no production path
+  /// selects External - it is kept for label completeness and the domain-separation tests.
   /// </summary>
   TPskBinderKind = (Resumption, External, Imported);
 

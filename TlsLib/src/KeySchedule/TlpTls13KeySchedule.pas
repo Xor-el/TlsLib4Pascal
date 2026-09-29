@@ -134,6 +134,8 @@ resourcestring
   SResumptionMasterNotDerived = 'the resumption master secret has not been derived';
   SForgetBeforeApplication =
     'the application epoch must be derived before releasing the handshake secrets';
+  STranscriptHashLength =
+    'the transcript hash length does not match the schedule hash length';
 
 { TTls13KeySchedule }
 
@@ -279,7 +281,6 @@ begin
   Result := THkdfLabel.HkdfExpandLabel(FHkdf, ASecret, ALabel, nil, ALength);
 end;
 
-
 procedure TTls13KeySchedule.SetPsk(const APsk: ISecretBuffer);
 begin
   if FHandshakeSecretsReleased then
@@ -302,6 +303,10 @@ end;
 procedure TTls13KeySchedule.DeriveEpochSecrets(AEpoch: TTlsEpoch;
   const ATranscriptHash: TBytes);
 begin
+  // Derive-Secret takes the output length from the context; a wrong-length transcript would mint a
+  // wrong-length secret with no error, so reject it here where the expected length is known
+  if System.Length(ATranscriptHash) <> FHashLength then
+    raise EArgumentTlsLibException.CreateRes(@STranscriptHashLength);
   case AEpoch of
     TTlsEpoch.EarlyData:
       begin
@@ -490,6 +495,8 @@ end;
 procedure TTls13KeySchedule.DeriveResumptionMasterSecret(
   const ATranscriptHash: TBytes);
 begin
+  if System.Length(ATranscriptHash) <> FHashLength then
+    raise EArgumentTlsLibException.CreateRes(@STranscriptHashLength);
   EnsureMasterSecret;
   FResumptionMaster := THkdfLabel.DeriveSecret(FHkdf, FMasterSecret, 'res master',
     ATranscriptHash);
