@@ -902,21 +902,8 @@ end;
 { TWindowsRootSource }
 
 function TWindowsRootSource.HarvestRoots: TArray<TBytes>;
-var
-  LRaw: TArray<TBytes>;
-  LI: Integer;
-  LAcc: TSystemRootAccumulator;
 begin
-  Result := nil;
-  LRaw := TWindowsTrustApi.HarvestAnchors;
-  LAcc := TSystemRootAccumulator.Create;
-  try
-    for LI := 0 to Length(LRaw) - 1 do
-      AddUnique(LAcc, LRaw[LI]);
-    Result := LAcc.ToArray;
-  finally
-    LAcc.Free;
-  end;
+  Result := FilterRoots(TWindowsTrustApi.HarvestAnchors);
 end;
 
 function TWindowsRootSource.SourceName: string;

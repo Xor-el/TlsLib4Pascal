@@ -24,10 +24,10 @@ uses
   TlpServerName,
   TlpEndpointIdentity,
   TlpTrustPolicy,
+  TlpCertificateVerifier,
   TlpIPkixProvider,
   TlpICertificateTrust,
   TlpTrustTypes,
-  TlpCertificateVerifier,
   TlpSystemTrustExceptions;
 
 resourcestring
@@ -182,6 +182,10 @@ type
     /// de-dup for hashed-symlink directories.</summary>
     procedure AddUnique(const AAccumulator: TSystemRootAccumulator;
       const ADer: TBytes);
+    /// <summary>Runs a fully-materialised raw DER set through the well-formed + de-dup
+    /// accumulator and returns the filtered anchors; the whole-array harvesters share it
+    /// (a streaming source calls AddUnique directly instead).</summary>
+    function FilterRoots(const ARaw: TArray<TBytes>): TArray<TBytes>;
   public
     constructor Create(const APkix: IPkixProvider);
     /// <summary>Reads the source now. Fail-closed: an empty or unreadable source
@@ -212,7 +216,7 @@ begin
   LClock := AClock;
   if LClock = nil then
     LClock := TSystemClock.Create as ITlsClock;
-  case TCertificateVerifier.StapleVerdict(APkix, LClock, AOsPath, AStaple) of
+  case TOcspStaplePolicy.Verdict(APkix, LClock, AOsPath, AStaple) of
     TStapleVerdict.GoodFresh, TStapleVerdict.GoodUnbounded:
       Result := TLiveRevocationOutcome.Good;
     TStapleVerdict.Revoked:
@@ -339,6 +343,22 @@ begin
   if not FPkix.Certificates.IsWellFormed(ADer) then
     Exit;
   AAccumulator.Add(ADer);
+end;
+
+function TSystemRootSource.FilterRoots(const ARaw: TArray<TBytes>): TArray<TBytes>;
+var
+  LAcc: TSystemRootAccumulator;
+  LI: Integer;
+begin
+  Result := nil;
+  LAcc := TSystemRootAccumulator.Create;
+  try
+    for LI := 0 to Length(ARaw) - 1 do
+      AddUnique(LAcc, ARaw[LI]);
+    Result := LAcc.ToArray;
+  finally
+    LAcc.Free;
+  end;
 end;
 
 function TSystemRootSource.Harvest: TArray<TBytes>;

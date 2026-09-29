@@ -29,6 +29,7 @@ uses
   TlpICertificateCompression,
   TlpNegotiationTypes,
   TlpNegotiationPolicy,
+  TlpSignatureSchemeRegistry,
   TlpCertificateVerifier,
   TlpICertificateVerifierSource,
   TlpServerName,
@@ -80,10 +81,6 @@ type
     /// server. Withholding the offer yields a full handshake, which can staple.</summary>
     class function OffersResumption(const AConfig: ITlsClientConfig): Boolean; static;
   public
-    /// <summary>The advertised signature-scheme codepoints for a config's registry, in order -
-    /// the same set the trust context carries, so an out-of-band resolver built from the config
-    /// runs the chain-algorithm policy over exactly what was advertised on the wire.</summary>
-    class function SchemeCodes(const ARegistry: ISignatureSchemeRegistry): TArray<UInt16>; static;
     /// <summary>A client engine wired from the config, ready for StartHandshake.</summary>
     class function CreateClientEngine(const AConfig: ITlsClientConfig;
       const AHost: string): ITlsEngine; static;
@@ -116,19 +113,6 @@ begin
   SetLength(Result, System.Length(LSuites));
   for LI := 0 to System.High(LSuites) do
     Result[LI] := LSuites[LI].Common.Code;
-end;
-
-class function TTlsEngineFactory.SchemeCodes(
-  const ARegistry: ISignatureSchemeRegistry): TArray<UInt16>;
-var
-  LSchemes: TArray<TSignatureScheme>;
-  LI: Int32;
-begin
-  Result := nil;
-  LSchemes := ARegistry.Items;
-  SetLength(Result, System.Length(LSchemes));
-  for LI := 0 to System.High(LSchemes) do
-    Result[LI] := LSchemes[LI].ToCode;
 end;
 
 class function TTlsEngineFactory.PreferredGroup(const AConfig: ITlsCommonConfig;
@@ -254,7 +238,7 @@ begin
   LTrustContext.Deferral := LDeferral;
   LTrustContext.Intermediates := AConfig.IntermediateCertificates;
   LTrustContext.StrengthPolicy := AConfig.CertificateStrengthPolicy;
-  LTrustContext.AdvertisedSignatureSchemes := SchemeCodes(AConfig.SignatureSchemes);
+  LTrustContext.AdvertisedSignatureSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
   // the initial-handshake verifier: must-staple binds here only when the client offers status_request
   LTrustContext.StatusRequestOffered := AConfig.RequestOcspStapling;
   LTrustContext.Occasion := TVerificationOccasion.InitialHandshake;
@@ -294,7 +278,7 @@ begin
   if LOffers13 then
     L13.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   L13.OfferedSuites := SuiteCodes(AConfig.CipherSuites);
-  L13.OfferedSchemes := SchemeCodes(AConfig.SignatureSchemes);
+  L13.OfferedSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
   L13.AlpnProtocols := AConfig.AlpnProtocols;
   // the client advertises what it can decompress (RFC 8879)
   L13.CertificateDecompressors := AConfig.CertificateDecompressors;
@@ -336,7 +320,7 @@ begin
   // TLS 1.2 key exchange is ECDHE-only: a 1.2 supported_groups carries no KEM/hybrid group,
   // so a client that reaches the 1.2 path (never offering 1.3) does not advertise one
   L12.OfferedGroups := EcdheGroupCodes(AConfig, AConfig.PreferredGroups);
-  L12.OfferedSchemes := SchemeCodes(AConfig.SignatureSchemes);
+  L12.OfferedSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
   L12.AlpnProtocols := AConfig.AlpnProtocols;
   L12.OfferedVersions := AConfig.SupportedVersions;
   L12.ClientRandom := LClientRandom;
@@ -445,7 +429,7 @@ begin
     LClientContext.Deferral := LDeferral;
     LClientContext.Intermediates := AConfig.IntermediateCertificates;
     LClientContext.StrengthPolicy := AConfig.CertificateStrengthPolicy;
-    LClientContext.AdvertisedSignatureSchemes := SchemeCodes(AConfig.SignatureSchemes);
+    LClientContext.AdvertisedSignatureSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
     LClientVerifier := AConfig.ClientVerifierSource.CreateClientVerifier(LClientContext);
   end;
 
@@ -486,7 +470,7 @@ begin
   L13.AlpnRejectAll := AConfig.AlpnRejectAll;
   // mutual TLS: request a client certificate and verify it against the trust store
   L13.ClientAuth := AConfig.ClientAuth;
-  L13.ClientAuthSignatureSchemes := SchemeCodes(AConfig.SignatureSchemes);
+  L13.ClientAuthSignatureSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
   L13.ClientCertificateAuthorities := AConfig.ClientCertificateAuthorities;
   L13.ClientCertificateVerifier := LClientVerifier;
   L13.Deferral := LDeferral;
@@ -517,7 +501,7 @@ begin
   L12.ClientCertificateAuthorities := AConfig.ClientCertificateAuthorities;
   L12.AlpnProtocols := AConfig.AlpnProtocols;
   L12.ClientAuth := AConfig.ClientAuth;
-  L12.ClientAuthSignatureSchemes := SchemeCodes(AConfig.SignatureSchemes);
+  L12.ClientAuthSignatureSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
   L12.ClientCertificateVerifier := LClientVerifier;
   L12.Deferral := LDeferral;
 

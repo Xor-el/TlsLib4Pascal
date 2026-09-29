@@ -38,6 +38,14 @@ type
     class function CreateDefault: ISignatureSchemeRegistry; static;
   end;
 
+  /// <summary>Projects a signature-scheme registry to its wire codepoints in registry (preference)
+  /// order, so a consumer that needs the advertised-scheme list gets it without depending on the
+  /// engine factory (the engine's negotiation contexts, an OS delegate's strength policy).</summary>
+  TSignatureSchemeCodes = class sealed(TObject)
+  public
+    class function FromRegistry(const ARegistry: ISignatureSchemeRegistry): TArray<UInt16>; static;
+  end;
+
 implementation
 
 constructor TSignatureSchemeRegistry.Create;
@@ -49,6 +57,19 @@ class function TSignatureSchemeRegistry.CodeOf(
   const AScheme: TSignatureScheme): UInt16;
 begin
   Result := AScheme.ToCode;
+end;
+
+class function TSignatureSchemeCodes.FromRegistry(
+  const ARegistry: ISignatureSchemeRegistry): TArray<UInt16>;
+var
+  LSchemes: TArray<TSignatureScheme>;
+  LI: Int32;
+begin
+  Result := nil;
+  LSchemes := ARegistry.Items;
+  SetLength(Result, System.Length(LSchemes));
+  for LI := 0 to System.High(LSchemes) do
+    Result[LI] := LSchemes[LI].ToCode;
 end;
 
 class function TSignatureSchemeRegistry.CreateDefault: ISignatureSchemeRegistry;

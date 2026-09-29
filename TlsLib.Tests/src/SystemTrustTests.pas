@@ -157,6 +157,16 @@ type
     procedure TestNameMismatchNilProviderFailsClosed;
   end;
 
+  /// <summary>A probe over the abstract root source that drives its shared FilterRoots helper
+  /// directly, so the well-formed + de-dup filter both harvesters funnel through is tested once.</summary>
+  TFilterRootsProbe = class(TSystemRootSource)
+  strict protected
+    function HarvestRoots: TArray<TBytes>; override;
+    function SourceName: string; override;
+  public
+    function Filter(const ARaw: TArray<TBytes>): TArray<TBytes>;
+  end;
+
   /// <summary>Platform-neutral tests for the OS delegate template over a fake platform engine: the
   /// request shaping, the strength/revocation/identity tail, the source-construction guards and the
   /// live-resolver dispatch.</summary>
@@ -165,12 +175,16 @@ type
     FPkix: IPkixProvider;
     FClock: ITlsClock;
     FOcsp: TStringList;
+    FCallbackInvoked: Boolean;
     function Ocsp(const AName: string): TBytes;
     function OcspChain: TArray<TBytes>;
     function Result_(AOutcome: TLiveRevocationOutcome;
       const APath: TArray<TBytes>): TPlatformChainResult;
     function Policy(APosture: TRevocationPosture; AFetch: TSystemTrustFetch;
       ADeferral: TVerdictDeferral; const AAnchors: TArray<TBytes>): TOSDelegatePolicy;
+    // augment-only reject / accept hooks, recording whether they ran
+    function RejectCallback(const AChain: TArray<TBytes>; const AHostName: string): Boolean;
+    function AcceptCallback(const AChain: TArray<TBytes>; const AHostName: string): Boolean;
   protected
     procedure SetUp; override;
     procedure TearDown; override;
@@ -192,6 +206,10 @@ type
     procedure TestLiveResolverWrongRoleRefused;
     procedure TestClientRoutesByStapleWithoutCachedRevocation;
     procedure TestStapledRevokedRejectsWithoutCachedRevocation;
+    procedure TestVerifyCallbackRejectYieldsCertificateUnknown;
+    procedure TestVerifyCallbackNotInvokedWhenEngineRejects;
+    procedure TestEmptyServerNameFailsClosedWithoutConsultingEngine;
+    procedure TestFilterRootsDeDupsAndDropsMalformed;
   end;
 
   /// <summary>Engine-agnostic contract for a real OS anchor store, written against
@@ -640,6 +658,23 @@ begin
     'the fail-closed alert is bad_certificate');
 end;
 
+{ TFilterRootsProbe }
+
+function TFilterRootsProbe.HarvestRoots: TArray<TBytes>;
+begin
+  Result := nil; // not exercised - the probe drives FilterRoots directly
+end;
+
+function TFilterRootsProbe.SourceName: string;
+begin
+  Result := 'probe';
+end;
+
+function TFilterRootsProbe.Filter(const ARaw: TArray<TBytes>): TArray<TBytes>;
+begin
+  Result := FilterRoots(ARaw);
+end;
+
 { TTestOSDelegateTemplate }
 
 procedure TTestOSDelegateTemplate.SetUp;
@@ -1080,17 +1115,120 @@ var
   LAlert: TTlsAlertDescription;
 begin
   // no CachedRevocation + a definitive stapled Revoked rejects under Off (the staple is the
-  // revocation source here); an empty server name keeps the identity check out of the way
+  // revocation source here); a matching host keeps the identity check satisfied so revocation decides
   LFake := TMockPlatformChainEngine.Create([], True,
     Result_(TLiveRevocationOutcome.Indeterminate, OcspChain), TTlsAlertDescription.BadCertificate);
   LEngine := LFake;
   LVerifier := TOSDelegateServerVerifier.Create(LEngine,
     Policy(TRevocationPosture.Off, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil))
     as IServerCertificateVerifier;
-  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, Default(TServerName), Ocsp('ocsp_revoked'),
-    LVerified, LAlert), 'a stapled Revoked rejects a no-cached-revocation server under Off');
+  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('host.example'),
+    Ocsp('ocsp_revoked'), LVerified, LAlert),
+    'a stapled Revoked rejects a no-cached-revocation server under Off');
   CheckEquals(Ord(TTlsAlertDescription.CertificateRevoked), Ord(LAlert),
     'the alert is certificate_revoked');
+end;
+
+function TTestOSDelegateTemplate.RejectCallback(const AChain: TArray<TBytes>;
+  const AHostName: string): Boolean;
+begin
+  FCallbackInvoked := True;
+  Result := False;
+end;
+
+function TTestOSDelegateTemplate.AcceptCallback(const AChain: TArray<TBytes>;
+  const AHostName: string): Boolean;
+begin
+  FCallbackInvoked := True;
+  Result := True;
+end;
+
+procedure TTestOSDelegateTemplate.TestVerifyCallbackRejectYieldsCertificateUnknown;
+var
+  LEngine: IPlatformChainEngine;
+  LPolicy: TOSDelegatePolicy;
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  // the augment-only reject hook runs after a trusting engine and turns acceptance into a
+  // certificate_unknown rejection with no validated path (built-in verifier parity)
+  FCallbackInvoked := False;
+  LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation,
+    TPlatformChainCapability.DnsIdentity], True,
+    Result_(TLiveRevocationOutcome.Good, OcspChain), TTlsAlertDescription.BadCertificate);
+  LPolicy := Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil);
+  LPolicy.Dangerous.VerifyCallback := RejectCallback;
+  LVerifier := TOSDelegateServerVerifier.Create(LEngine, LPolicy) as IServerCertificateVerifier;
+  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('host.example'), nil,
+    LVerified, LAlert), 'the augment callback rejects an otherwise-trusted chain');
+  CheckTrue(FCallbackInvoked, 'the augment callback ran');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'a custom rejection is certificate_unknown');
+  CheckEquals(0, System.Length(LVerified.Path), 'the validated path is cleared on rejection');
+end;
+
+procedure TTestOSDelegateTemplate.TestVerifyCallbackNotInvokedWhenEngineRejects;
+var
+  LEngine: IPlatformChainEngine;
+  LPolicy: TOSDelegatePolicy;
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  // the hook is augment-only: an engine rejection returns first, so the callback (which could only
+  // reject further) never runs and cannot rescue the chain
+  FCallbackInvoked := False;
+  LEngine := TMockPlatformChainEngine.Create([], False,
+    Result_(TLiveRevocationOutcome.Indeterminate, OcspChain), TTlsAlertDescription.BadCertificate);
+  LPolicy := Policy(TRevocationPosture.Off, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil);
+  LPolicy.Dangerous.VerifyCallback := AcceptCallback;
+  LVerifier := TOSDelegateServerVerifier.Create(LEngine, LPolicy) as IServerCertificateVerifier;
+  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('host.example'), nil,
+    LVerified, LAlert), 'an engine rejection stands');
+  CheckFalse(FCallbackInvoked, 'the augment callback never ran for a rejected chain');
+end;
+
+procedure TTestOSDelegateTemplate.TestEmptyServerNameFailsClosedWithoutConsultingEngine;
+var
+  LFake: TMockPlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  // an empty server name under an enabled name check fails closed before the engine runs, rather
+  // than trusting a chain whose identity was never matched
+  LFake := TMockPlatformChainEngine.Create([], True,
+    Result_(TLiveRevocationOutcome.Good, OcspChain), TTlsAlertDescription.BadCertificate);
+  LEngine := LFake;
+  LVerifier := TOSDelegateServerVerifier.Create(LEngine,
+    Policy(TRevocationPosture.Off, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil))
+    as IServerCertificateVerifier;
+  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, Default(TServerName), nil,
+    LVerified, LAlert), 'an empty name under an enabled check is refused');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'the alert is bad_certificate');
+  CheckEquals(0, LFake.ServerCalls, 'the engine was not consulted');
+end;
+
+procedure TTestOSDelegateTemplate.TestFilterRootsDeDupsAndDropsMalformed;
+var
+  LProbe: TFilterRootsProbe;
+  LValid: TBytes;
+  LResult: TArray<TBytes>;
+begin
+  // the shared filter both native harvesters use keeps one copy of a well-formed anchor and drops a
+  // duplicate and any malformed bytes
+  LValid := OcspChain[0];
+  LProbe := TFilterRootsProbe.Create(FPkix);
+  try
+    LResult := LProbe.Filter(TArray<TBytes>.Create(LValid, System.Copy(LValid),
+      TBytes.Create(1, 2, 3)));
+    CheckEquals(1, System.Length(LResult), 'the duplicate is collapsed and the junk dropped');
+    CheckEqualBytes('the survivor is the well-formed anchor', LValid, LResult[0]);
+  finally
+    LProbe.Free;
+  end;
 end;
 
 { TTestSystemTrustFixtures }

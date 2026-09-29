@@ -40,6 +40,18 @@ uses
   TlsLibTestBase;
 
 type
+  /// <summary>Wraps a trust-anchor store and counts how many times its anchor set is read, to prove
+  /// the verify pipeline fetches it once and shares it across path validation and the chain policy.</summary>
+  TCountingTrustAnchorStore = class(TInterfacedObject, ITrustAnchorStore)
+  strict private
+    FInner: ITrustAnchorStore;
+    FReads: Int32;
+  public
+    constructor Create(const AInner: ITrustAnchorStore);
+    function RootCertificates: TArray<TBytes>;
+    property Reads: Int32 read FReads;
+  end;
+
   TTestCertificateVerifier = class(TTlsLibAlgorithmTestCase)
   private
     FCerts: TStringList;
@@ -104,9 +116,25 @@ type
     procedure TestPeerSha1ReissuedRootExemptFromChainPolicy;
     procedure TestSha1SelfSignedRootNotConfiguredRejected;
     procedure TestSameSubjectDifferentKeyRootIgnoredForConfiguredAnchor;
+    // the anchor set is fetched once per verify and shared by path validation and the chain policy
+    procedure TestAnchorSetReadOncePerVerify;
   end;
 
 implementation
+
+{ TCountingTrustAnchorStore }
+
+constructor TCountingTrustAnchorStore.Create(const AInner: ITrustAnchorStore);
+begin
+  inherited Create;
+  FInner := AInner;
+end;
+
+function TCountingTrustAnchorStore.RootCertificates: TArray<TBytes>;
+begin
+  System.Inc(FReads);
+  Result := FInner.RootCertificates;
+end;
 
 { TTestCertificateVerifier }
 
@@ -500,6 +528,33 @@ begin
     'the chain policy rejects the path when its scheme is not advertised');
   CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
     'the alert is unsupported_certificate');
+end;
+
+procedure TTestCertificateVerifier.TestAnchorSetReadOncePerVerify;
+var
+  LCounting: TCountingTrustAnchorStore;
+  LStore: ITrustAnchorStore;
+  LVerifier: TCertificateVerifier;
+  LServer: IServerCertificateVerifier;
+  LChain: TArray<TBytes>;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  // a valid chain passes both PKIX path validation and the chain-algorithm policy, and each needs
+  // the anchor set; the pipeline fetches it once and shares it, so the store is read exactly once
+  LCounting := TCountingTrustAnchorStore.Create(
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(Reissued('root_cert')))
+    as ITrustAnchorStore);
+  LStore := LCounting;
+  LVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock, LStore, False);
+  LServer := LVerifier;
+  LVerifier.SetChainAlgorithmPolicy(TCertificateStrengthPolicy.Defaults,
+    TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256));
+  LChain := TArray<TBytes>.Create(Reissued('leaf_cert'), Reissued('issuer_cert'),
+    Reissued('root_reissued_sha1_cert'));
+  CheckTrue(LServer.VerifyServerCertificate(LChain, TServerName.DnsName(''), nil,
+    LVerified, LAlert), 'the valid chain is trusted, so both PKIX and the chain policy ran');
+  CheckEquals(1, LCounting.Reads, 'the anchor set was read exactly once per verify');
 end;
 
 procedure TTestCertificateVerifier.TestSha1SelfSignedRootNotConfiguredRejected;

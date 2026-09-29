@@ -36,13 +36,6 @@ uses
   TlpICertificateTrust;
 
 type
-  /// <summary>The stapled OCSP outcome the trust decision acts on (RFC 6960): a current
-  /// Good response, a definitive Revoked, or an indeterminate outcome (absent,
-  /// unauthorized, unknown, or outside its validity window).</summary>
-  // GoodUnbounded: a Good response with no nextUpdate, recent enough to accept inline but never
-  // to settle revocation (a live check, when configured, must still run)
-  TStapleVerdict = (GoodFresh, GoodUnbounded, Revoked, Indeterminate);
-
   /// <summary>A default in-memory trust store over a fixed set of root CA DERs.</summary>
   TTrustAnchorStore = class sealed(TInterfacedObject, ITrustAnchorStore)
   strict private
@@ -124,15 +117,6 @@ type
       AKeyPurpose: TCertKeyPurpose; out ASettled: Boolean;
       out AAlert: TTlsAlertDescription): Boolean;
   public
-    /// <summary>The stapled OCSP verdict for a leaf (RFC 6960), shared by the built-in
-    /// pipeline and an OS delegate that runs its own post-check: a current Good response, a
-    /// definitive Revoked, or an indeterminate outcome (absent, unauthorized, unknown, or
-    /// outside its validity window). A nil provider or clock cannot render a verdict, so it
-    /// returns Indeterminate. AClock supplies both the responder-validity time and the
-    /// freshness window.</summary>
-    class function StapleVerdict(const APkix: IPkixProvider;
-      const AClock: ITlsClock; const AChain: TArray<TBytes>;
-      const AStaple: TBytes): TStapleVerdict; static;
     /// <summary>A verifier with the conservative default chain limits and soft-fail
     /// revocation. AClock backs the stapled-OCSP freshness window (RFC 6960).</summary>
     constructor Create(const APkix: IPkixProvider; const AClock: ITlsClock;
@@ -341,47 +325,6 @@ begin
   FChainPolicyEnabled := True;
 end;
 
-class function TCertificateVerifier.StapleVerdict(const APkix: IPkixProvider;
-  const AClock: ITlsClock; const AChain: TArray<TBytes>;
-  const AStaple: TBytes): TStapleVerdict;
-var
-  LStatus: TOcspStatus;
-  LThisUpdate, LNextUpdate: TDateTime;
-  LNowMs, LNextMs: Int64;
-begin
-  Result := TStapleVerdict.Indeterminate;
-  // a public entry point: without a provider or a clock no verdict can be rendered
-  if (APkix = nil) or (AClock = nil) then
-    Exit;
-  // a staple needs the issuer (the next chain entry) to authenticate it
-  if (System.Length(AStaple) = 0) or (System.Length(AChain) < 2) then
-    Exit;
-  if not APkix.Revocation.ValidateOcspStaple(AChain[0], AChain[1], AStaple,
-    TDateTimeUtilities.UnixMsToDateTime(Int64(AClock.NowUnixMillis)), LStatus,
-    LThisUpdate, LNextUpdate) then
-    Exit;
-  if LStatus = TOcspStatus.Revoked then
-  begin
-    Result := TStapleVerdict.Revoked;
-    Exit;
-  end;
-  if LStatus = TOcspStatus.Good then
-  begin
-    LNowMs := Int64(AClock.NowUnixMillis);
-    if LNextUpdate = 0 then
-      LNextMs := 0 // no nextUpdate carried
-    else
-      LNextMs := TDateTimeUtilities.DateTimeToUnixMs(LNextUpdate);
-    case TRevocationDecision.OcspFreshness(LNowMs,
-      TDateTimeUtilities.DateTimeToUnixMs(LThisUpdate), LNextMs) of
-      TOcspFreshness.Fresh:
-        Result := TStapleVerdict.GoodFresh;
-      TOcspFreshness.Unbounded:
-        Result := TStapleVerdict.GoodUnbounded;
-    end;
-  end;
-  // an Unknown status, or a Good one outside its window, stays Indeterminate
-end;
 
 function TCertificateVerifier.CheckRevocation(const AChain: TArray<TBytes>;
   const AOcspStaple: TBytes; AKeyPurpose: TCertKeyPurpose; out ASettled: Boolean;
@@ -424,7 +367,7 @@ begin
       end;
   end;
 
-  LVerdict := StapleVerdict(FPkix, FClock, AChain, AOcspStaple);
+  LVerdict := TOcspStaplePolicy.Verdict(FPkix, FClock, AChain, AOcspStaple);
 
   if LVerdict = TStapleVerdict.Revoked then
   begin
@@ -482,6 +425,7 @@ var
   // building completed from the configured intermediates, this carries the assembled path
   // (with the recovered issuer), so revocation sees it rather than the bare leaf
   LEffectiveChain: TArray<TBytes>;
+  LRoots: TArray<TBytes>;
   LLeaf: IInspectedCertificate;
 begin
   Result := False;
@@ -498,6 +442,9 @@ begin
     AAlert := TTlsAlertDescription.UnknownCa;
     Exit;
   end;
+  // read the anchor set once: the store hands back a fresh copy per call and the strength policy
+  // hashes it, so path validation and the chain-algorithm check share this one read
+  LRoots := FTrustStore.RootCertificates;
 
   // resource caps before any PKIX work: an oversize certificate or an over-total chain is
   // rejected up front (anti-DoS) rather than handed to the path builder. The handshake
@@ -517,7 +464,7 @@ begin
   // back the chain it actually validated (the assembled path when it completed an incomplete one)
   LEffectiveChain := AChain;
   try
-    FPkix.PathValidation.ValidateCertificatePath(AChain, FTrustStore.RootCertificates,
+    FPkix.PathValidation.ValidateCertificatePath(AChain, LRoots,
       FIntermediates, ValidationTimeUtc, AKeyPurpose, LEffectiveChain);
   except
     on E: EFatalAlertTlsLibException do
@@ -532,7 +479,7 @@ begin
   // floors. Post-PKIX so it sees the assembled path; the anchor exemption keys off the roots.
   if FChainPolicyEnabled and
     (not TChainAlgorithmPolicy.Check(FPkix.Certificates, LEffectiveChain,
-    FTrustStore.RootCertificates, FStrengthPolicy, FAdvertisedSchemes, AAlert)) then
+    LRoots, FStrengthPolicy, FAdvertisedSchemes, AAlert)) then
     Exit;
 
   // revocation via the stapled OCSP response (RFC 6960), in-band only; run over the validated
