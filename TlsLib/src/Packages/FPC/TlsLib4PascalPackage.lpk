@@ -28,7 +28,7 @@
     <Description Value="Opinionated yet Modular TLS for Modern Object Pascal"/>
     <License Value="MIT License"/>
     <Version Major="1" Minor="1"/>
-    <Files Count="145">
+    <Files Count="146">
       <Item1>
         <Filename Value="..\..\Crypto\TlpCryptoDomainTypes.pas"/>
         <UnitName Value="TlpCryptoDomainTypes"/>
@@ -609,6 +609,10 @@
         <Filename Value="..\..\Interfaces\Engine\TlpISystemTrustInstaller.pas"/>
         <UnitName Value="TlpISystemTrustInstaller"/>
       </Item145>
+      <Item146>
+        <Filename Value="..\..\KeySchedule\TlpExporterArgs.pas"/>
+        <UnitName Value="TlpExporterArgs"/>
+      </Item146>
     </Files>
     <CompatibilityMode Value="True"/>
     <RequiredPkgs Count="2">

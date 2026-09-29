@@ -1,0 +1,51 @@
+{ *********************************************************************************** }
+{ *                                 TlsLib Library                                  * }
+{ *                          Author - Ugochukwu Mmaduekwe                           * }
+{ *                  Github Repository <https://github.com/Xor-el>                  * }
+{ *                                                                                 * }
+{ *  Distributed under the MIT software license, see the accompanying file LICENSE  * }
+{ *          or visit http://www.opensource.org/licenses/mit-license.php.           * }
+{ * ******************************************************************************* * }
+
+(* &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&& *)
+
+unit TlpExporterArgs;
+
+{$I ..\Include\TlsLib.inc}
+
+interface
+
+uses
+  SysUtils,
+  TlpTlsLibExceptions;
+
+type
+  /// <summary>Shared argument guard for the RFC 5705 / RFC 8446 keying-material exporters, used by
+  /// both the TLS 1.2 and TLS 1.3 key schedules.</summary>
+  TExporterArgs = class sealed(TObject)
+  public
+    class procedure Guard(const ALabel: string; ALength: Int32); static;
+  end;
+
+implementation
+
+resourcestring
+  SExportLengthNotPositive = 'the exported keying material length must be positive';
+  SExportLabelNotAscii = 'the exporter label must be ASCII';
+
+{ TExporterArgs }
+
+class procedure TExporterArgs.Guard(const ALabel: string; ALength: Int32);
+var
+  LI: Int32;
+begin
+  // RFC 5705 exporters need a positive length; a zero-length export is caller misuse. An empty
+  // label is legal, but a non-ASCII one would be silently mangled by the ASCII encoding, so reject it
+  if ALength <= 0 then
+    raise EArgumentTlsLibException.CreateRes(@SExportLengthNotPositive);
+  for LI := 1 to System.Length(ALabel) do
+    if Ord(ALabel[LI]) > 127 then
+      raise EArgumentTlsLibException.CreateRes(@SExportLabelNotAscii);
+end;
+
+end.

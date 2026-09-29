@@ -74,6 +74,7 @@ contains
   TlpTlsEngineEvents in '..\..\Engine\TlpTlsEngineEvents.pas',
   TlpTlsEngine in '..\..\Engine\TlpTlsEngine.pas',
   TlpHkdfLabel in '..\..\KeySchedule\TlpHkdfLabel.pas',
+  TlpExporterArgs in '..\..\KeySchedule\TlpExporterArgs.pas',
   TlpIKeySchedule in '..\..\Interfaces\KeySchedule\TlpIKeySchedule.pas',
   TlpTrafficKeys in '..\..\KeySchedule\TlpTrafficKeys.pas',
   TlpTls13KeySchedule in '..\..\KeySchedule\TlpTls13KeySchedule.pas',

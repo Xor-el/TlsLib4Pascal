@@ -78,6 +78,7 @@ uses
   TlpTlsEngineEvents in '..\..\TlsLib\src\Engine\TlpTlsEngineEvents.pas',
   TlpTlsEngine in '..\..\TlsLib\src\Engine\TlpTlsEngine.pas',
   TlpHkdfLabel in '..\..\TlsLib\src\KeySchedule\TlpHkdfLabel.pas',
+  TlpExporterArgs in '..\..\TlsLib\src\KeySchedule\TlpExporterArgs.pas',
   TlpIKeySchedule in '..\..\TlsLib\src\Interfaces\KeySchedule\TlpIKeySchedule.pas',
   TlpTrafficKeys in '..\..\TlsLib\src\KeySchedule\TlpTrafficKeys.pas',
   TlpTls13KeySchedule in '..\..\TlsLib\src\KeySchedule\TlpTls13KeySchedule.pas',
