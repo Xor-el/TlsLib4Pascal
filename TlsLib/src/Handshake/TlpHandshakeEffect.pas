@@ -117,7 +117,7 @@ type
     /// surfaces AChain (as presented), AValidatedPath (the pipeline-validated path, leaf first with
     /// the issuer at index 1), AHostName and the handshake OCSP staple (empty when none) to the
     /// host, which resumes with SetCertificateVerdict. Emitted only after the built-in trust
-    /// pipeline has already accepted the chain. The staple rides the record's Bytes slot.</summary>
+    /// pipeline has already accepted the chain.</summary>
     class function AwaitCertificateVerdict(const AChain, AValidatedPath: TArray<TBytes>;
       const AHostName: string; const AStaple: TBytes): THandshakeEffect; static;
     /// <summary>Surfaces the peer certificate chain as presented (leaf first, DER) and the path the
