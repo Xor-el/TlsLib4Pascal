@@ -1,0 +1,62 @@
+TlsLib.Tests/src/ScheduleInstallTests.pas
+  s_09d3c46d1a9b1f::t_1f88889fe1804b 151-152
+TlsLib/src/KeySchedule/TlpTls13KeySchedule.pas
+  s_09d3c46d1a9b1f::t_efc08af73a9dbf 137-138
+  s_09d3c46d1a9b1f::t_0ab0dec8f675b7 306-309
+  s_09d3c46d1a9b1f::t_74fd51da616800 498-499
+TlsLib.Tests/src/Tls12KeyScheduleTests.pas
+  s_09d3c46d1a9b1f::t_c273c452ea9ef2 190-192
+TlsLib/src/Interfaces/Engine/TlpITlsEngine.pas
+  s_09d3c46d1a9b1f::t_df790ca2d0788b 215-217
+TlsLib.Tests/src/KeyLogTests.pas
+  s_09d3c46d1a9b1f::t_a8b7092434417f 122-150
+  s_09d3c46d1a9b1f::t_e5e83f3318a131 53
+TlsLib/src/Interfaces/KeySchedule/TlpIKeySchedule.pas
+  s_09d3c46d1a9b1f::t_5a3f8fa722df07 32-34
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_09d3c46d1a9b1f::t_369fda35e4fce6 370-372
+  s_09d3c46d1a9b1f::t_9cfd25b36deccc 1274
+  s_09d3c46d1a9b1f::t_378e9a5f6d69aa 778
+  s_09d3c46d1a9b1f::t_e2dbfaf89d53e5 1457
+  s_09d3c46d1a9b1f::t_5b5499f448d461 815,817-822
+  s_09d3c46d1a9b1f::t_9ba9fdf0420dca 1850-1854
+  s_09d3c46d1a9b1f::t_617638aa583c92 255-259
+  s_09d3c46d1a9b1f::t_49483c2fa4f654 1180-1181,1184
+TlsLib/src/KeySchedule/TlpExporterArgs.pas
+  s_09d3c46d1a9b1f::t_3cf2c04a454231 35-41,56-58
+TlsLib/src/Interfaces/Session/TlpISession.pas
+  s_09d3c46d1a9b1f::t_c78da9c5f02a3c 194-196
+TlsLib/src/Session/TlpExternalPskImporter.pas
+  s_09d3c46d1a9b1f::t_8244845c92094b 123-125
+  s_09d3c46d1a9b1f::t_2819852823ba21 69-74,84,86-87,91
+  s_09d3c46d1a9b1f::t_3482a2498919a8 21
+TlsLib.Tests/src/Tls13KeyScheduleTests.pas
+  s_09d3c46d1a9b1f::t_ec4c361cd0218b 78-80
+  s_09d3c46d1a9b1f::t_8895ea3446d159 350-352
+  s_09d3c46d1a9b1f::t_1b4103a53554ff 539-596
+TlsLib.Tests/src/SessionStoreTests.pas
+  s_09d3c46d1a9b1f::t_e83e58fa77a18c 926
+  s_09d3c46d1a9b1f::t_823403020ac867 862
+  s_09d3c46d1a9b1f::t_6571250e0e0311 898,903
+TlsLib/src/Interfaces/Handshake/TlpIHandshakeMachine.pas
+  s_09d3c46d1a9b1f::t_45a0f155b99669 82-83
+TlsLib.Tests/src/Tls13ResumptionTests.pas
+  s_09d3c46d1a9b1f::t_2a1126be3afee5 718-780
+  s_09d3c46d1a9b1f::t_3172712f25237d 116-117
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0f5d0c9b7e32b5930a3bf8f47f84a0c148b82d8f",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
