@@ -108,6 +108,9 @@ type
     procedure TestAlpnDuplicateNameIsRefused;
     procedure TestAlpnEmptyListMeansNoAlpn;
     procedure TestAlpnSetterCopiesCallerArray;
+    procedure TestPreferredGroupsSetterCopiesCallerArray;
+    procedure TestCertificateCompressorsSetterCopiesCallerArray;
+    procedure TestCertificateDecompressorsSetterCopiesCallerArray;
     procedure TestRawBuilderWithoutVersionsIsRefusedAtBuild;
     procedure TestBuilderRejectsMutationAfterBuild;
     procedure TestSecondBuildIsRejected;
@@ -590,6 +593,45 @@ begin
   LList[0] := 'x'; // mutating the caller's array must not reach the built config
   CheckEquals(1, System.Length(LConfig.AlpnProtocols), 'the ALPN list is preserved');
   CheckEquals('h2', LConfig.AlpnProtocols[0], 'the ALPN list is a snapshot of the caller array');
+end;
+
+procedure TTestConfigBuilder.TestPreferredGroupsSetterCopiesCallerArray;
+var
+  LConfig: ITlsClientConfig;
+  LList: TArray<UInt16>;
+begin
+  LList := TArray<UInt16>.Create(TNamedGroupCatalog.X25519, TNamedGroupCatalog.Secp256r1);
+  LConfig := NewClientBuilder.WithPreferredGroups(LList).Build;
+  LList[0] := TNamedGroupCatalog.Secp384r1; // mutating the caller's array must not reach the config
+  CheckEquals(2, System.Length(LConfig.PreferredGroups), 'the preferred-group list is preserved');
+  CheckEquals(TNamedGroupCatalog.X25519, LConfig.PreferredGroups[0],
+    'the preferred-group list is a snapshot of the caller array');
+end;
+
+procedure TTestConfigBuilder.TestCertificateCompressorsSetterCopiesCallerArray;
+var
+  LConfig: ITlsClientConfig;
+  LList: TArray<ICertificateCompressor>;
+begin
+  LList := TZlibCertificateCompression.DefaultCompressors;
+  CheckTrue(System.Length(LList) > 0, 'there is at least one default compressor to snapshot');
+  LConfig := NewClientBuilder.Tls13.WithCertificateCompressors(LList).Build;
+  LList[0] := nil; // mutating the caller's array must not reach the config
+  CheckTrue(LConfig.CertificateCompressors[0] <> nil,
+    'the compressor list is a snapshot of the caller array');
+end;
+
+procedure TTestConfigBuilder.TestCertificateDecompressorsSetterCopiesCallerArray;
+var
+  LConfig: ITlsClientConfig;
+  LList: TArray<ICertificateDecompressor>;
+begin
+  LList := TZlibCertificateCompression.DefaultDecompressors;
+  CheckTrue(System.Length(LList) > 0, 'there is at least one default decompressor to snapshot');
+  LConfig := NewClientBuilder.Tls13.WithCertificateDecompressors(LList).Build;
+  LList[0] := nil; // mutating the caller's array must not reach the config
+  CheckTrue(LConfig.CertificateDecompressors[0] <> nil,
+    'the decompressor list is a snapshot of the caller array');
 end;
 
 procedure TTestConfigBuilder.TestRawBuilderWithoutVersionsIsRefusedAtBuild;

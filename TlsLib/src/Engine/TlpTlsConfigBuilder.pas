@@ -1770,7 +1770,8 @@ function TTlsConfigBuilder.WithPreferredGroups(
   const AGroups: TArray<UInt16>): TTlsConfigBuilder;
 begin
   GuardMutable;
-  FPreferredGroups := AGroups;
+  // copy so a caller mutating its array after Build cannot alter the frozen config
+  FPreferredGroups := System.Copy(AGroups);
   Result := Self;
 end;
 
@@ -2102,7 +2103,8 @@ function TTlsConfigBuilder.WithCertificateCompressors(
   const ACompressors: TArray<ICertificateCompressor>): TTlsConfigBuilder;
 begin
   GuardMutable;
-  FCertificateCompressors := ACompressors;
+  // copy so a caller mutating its array after Build cannot alter the frozen config
+  FCertificateCompressors := System.Copy(ACompressors);
   FTls13Configured := True;
   Result := Self;
 end;
@@ -2111,7 +2113,7 @@ function TTlsConfigBuilder.WithCertificateDecompressors(
   const ADecompressors: TArray<ICertificateDecompressor>): TTlsConfigBuilder;
 begin
   GuardMutable;
-  FCertificateDecompressors := ADecompressors;
+  FCertificateDecompressors := System.Copy(ADecompressors);
   FTls13Configured := True;
   Result := Self;
 end;

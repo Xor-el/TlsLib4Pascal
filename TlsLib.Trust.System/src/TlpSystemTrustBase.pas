@@ -113,6 +113,11 @@ type
     class function RejectStapledRevoked(const APkix: IPkixProvider;
       const AClock: ITlsClock; const AOsPath: TArray<TBytes>; const AStaple: TBytes;
       out AAlert: TTlsAlertDescription): Boolean; static;
+    /// <summary>The one mapping from a handshake staple over the OS-validated path to a revocation
+    /// outcome: Good for a fresh/unbounded good response, Revoked for a definitive revocation, else
+    /// Indeterminate. A nil clock means system time (a nil clock would otherwise be indeterminate).</summary>
+    class function StapleOutcome(const APkix: IPkixProvider; const AClock: ITlsClock;
+      const AOsPath: TArray<TBytes>; const AStaple: TBytes): TLiveRevocationOutcome; static;
     /// <summary>True when AName is an IP literal that does not match an iPAddress SAN on the
     /// OS-validated leaf (RFC 6125 forbids matching an IP host against dNSName/wildcards). A DNS or
     /// empty name never fires (the OS did that name check). Fail-closed: a nil provider or empty
@@ -196,10 +201,9 @@ resourcestring
 
 { TDelegatePostChecks }
 
-class function TDelegatePostChecks.RejectStapledRevoked(
-  const APkix: IPkixProvider; const AClock: ITlsClock;
-  const AOsPath: TArray<TBytes>; const AStaple: TBytes;
-  out AAlert: TTlsAlertDescription): Boolean;
+class function TDelegatePostChecks.StapleOutcome(const APkix: IPkixProvider;
+  const AClock: ITlsClock; const AOsPath: TArray<TBytes>;
+  const AStaple: TBytes): TLiveRevocationOutcome;
 var
   LClock: ITlsClock;
 begin
@@ -208,8 +212,22 @@ begin
   LClock := AClock;
   if LClock = nil then
     LClock := TSystemClock.Create as ITlsClock;
-  Result := TCertificateVerifier.StapleVerdict(APkix, LClock, AOsPath, AStaple) =
-    TStapleVerdict.Revoked;
+  case TCertificateVerifier.StapleVerdict(APkix, LClock, AOsPath, AStaple) of
+    TStapleVerdict.GoodFresh, TStapleVerdict.GoodUnbounded:
+      Result := TLiveRevocationOutcome.Good;
+    TStapleVerdict.Revoked:
+      Result := TLiveRevocationOutcome.Revoked;
+  else
+    Result := TLiveRevocationOutcome.Indeterminate;
+  end;
+end;
+
+class function TDelegatePostChecks.RejectStapledRevoked(
+  const APkix: IPkixProvider; const AClock: ITlsClock;
+  const AOsPath: TArray<TBytes>; const AStaple: TBytes;
+  out AAlert: TTlsAlertDescription): Boolean;
+begin
+  Result := StapleOutcome(APkix, AClock, AOsPath, AStaple) = TLiveRevocationOutcome.Revoked;
   if Result then
     AAlert := TTlsAlertDescription.CertificateRevoked;
 end;

@@ -46,11 +46,12 @@ type
 
   /// <summary>
   /// The server's pure negotiation authority: given the client's offered lists, choose the
-  /// version and cipher suite (or raise the correct fatal alert). The TLS 1.3 certificate and
-  /// external-PSK suite picks go through this policy, so the configured cipher preference governs
-  /// both; a resumption ticket instead pins its own suite, and the TLS 1.2 server does not yet
-  /// route through here. The signature scheme is not chosen here: a server signs with the first of
-  /// its credential's capable schemes the client offered. No state, no side effects.
+  /// version, cipher suite and (EC)DHE group (or raise the correct fatal alert). Both the TLS 1.3
+  /// and TLS 1.2 servers route version, suite and group selection through this policy, so the
+  /// configured cipher preference governs both versions; a resumption ticket instead pins its own
+  /// suite, and a low-level sans-IO caller may pin a single group. The signature scheme is not
+  /// chosen here: a server signs with the first of its credential's capable schemes the client
+  /// offered. No state, no side effects.
   /// </summary>
   INegotiationPolicy = interface(IInterface)
     ['{A3F1C7D8-5E24-4B69-8D07-2C9E6F4B1A35}']
@@ -69,8 +70,11 @@ type
     /// another PSK or to certificate authentication.</summary>
     function TrySelectCipherSuiteWithHash(const AClientSuites: TArray<UInt16>;
       ANegotiatedVersion: UInt16; AHash: THashAlgorithm; out ASuite: UInt16): Boolean;
-    /// <summary>Chooses a named group; for TLS 1.2 only classical ECDHE groups are
-    /// eligible (KEM and hybrid groups are 1.3-only).</summary>
+    /// <summary>Chooses a named group by server preference order among the client's
+    /// supported_groups; handshake_failure when none is shared. The client's key shares never steer
+    /// the choice (RFC 8446 4.2.8) - the caller retries with a HelloRetryRequest when the chosen
+    /// group has no share (4.1.1). For TLS 1.2 only classical ECDHE groups are eligible (KEM and
+    /// hybrid groups are 1.3-only).</summary>
     function SelectGroup(const AClientGroups: TArray<UInt16>;
       ANegotiatedVersion: UInt16): UInt16;
   end;

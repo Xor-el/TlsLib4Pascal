@@ -77,18 +77,12 @@ type
     Policy: INegotiationPolicy;
     CipherSuites: ICipherSuiteRegistry;
     ExtensionRegistry: IExtensionRegistry;
-    /// <summary>The (EC)DHE groups this server supports, in preference order (RFC 8446
-    /// 4.2.7). The server selects the first of these the client offered in supported_groups; if
-    /// the client sent no key_share for it, the server sends a HelloRetryRequest (RFC 8446 4.1.1).
-    /// secp256r1 is mandatory to implement (RFC 8446 9.1), so a server offers several groups, not
-    /// a single one. When empty, the single Group below is used instead (resolved via
-    /// GroupRegistry).</summary>
-    OfferedGroups: TArray<UInt16>;
-    /// <summary>Resolves a selected group code (from OfferedGroups) to its INamedGroup for
-    /// key agreement; required whenever OfferedGroups is set.</summary>
+    /// <summary>Resolves the group code the negotiation policy selects to its INamedGroup for key
+    /// agreement; required when Group is nil (the normal factory path).</summary>
     GroupRegistry: INamedGroupRegistry;
-    /// <summary>A single fixed (EC)DHE group, used only when OfferedGroups is empty (the
-    /// low-level sans-IO entry point); the engine factory always sets OfferedGroups.</summary>
+    /// <summary>Pins a single fixed (EC)DHE group (the low-level sans-IO entry point; tests). When
+    /// nil the negotiation policy selects by server preference among the client's supported_groups,
+    /// resolved via GroupRegistry.</summary>
     Group: INamedGroup;
     ServerRandom: TBytes;
     /// <summary>The server's ALPN protocols in preference order. When set and the
@@ -603,7 +597,7 @@ procedure TTls13ServerStateMachine.NegotiateFrom(
   const ARawClientHello: TBytes; const AExtensions: TExtensionVector;
   AAllowResumption: Boolean; out ASelectedGroup: UInt16);
 var
-  LSuiteCode, LGroupCode: UInt16;
+  LSuiteCode: UInt16;
 begin
   // re-derived per ClientHello so a retry that drops the offer drops the response too
   FPeerRecordSizeLimit := 0;
@@ -696,36 +690,26 @@ begin
         TTlsAlertDescription.InternalError, @SUnknownSelectedSuite);
   end;
 
-  // select an (EC)DHE group by the server's own preference order among the groups the client
-  // lists in supported_groups (RFC 8446 4.2.8). The client's key_share offers do NOT change
-  // which group is chosen - they only decide whether a HelloRetryRequest is needed: the caller
-  // asks for a key_share via HelloRetryRequest when the chosen group has none, even if the
-  // client already sent a usable key_share for a less-preferred group. A client that omits
-  // X25519 but offers secp256r1 (mandatory to implement, RFC 8446 9.1) negotiates secp256r1
-  // rather than failing.
-  if System.Length(FParams.OfferedGroups) > 0 then
+  // the client's key_share offers do NOT change which group is chosen - they only decide whether a
+  // HelloRetryRequest is needed: the caller asks for a key_share via HelloRetryRequest when the
+  // chosen group has none, even if the client already sent a usable key_share for a less-preferred
+  // group (RFC 8446 4.2.8 / 4.1.1).
+  if FParams.Group <> nil then
   begin
-    ASelectedGroup := 0;
-    for LGroupCode in FParams.OfferedGroups do
-      if TArrayUtilities.Contains<UInt16>(AContext.SupportedGroups, LGroupCode) then
-      begin
-        ASelectedGroup := LGroupCode;
-        Break;
-      end;
-    if ASelectedGroup = 0 then
-      raise EFatalAlertTlsLibException.CreateRes(
-        TTlsAlertDescription.HandshakeFailure, @SGroupNotOffered);
-    if not FParams.GroupRegistry.TryGet(ASelectedGroup, FSelectedGroup) then
-      raise EFatalAlertTlsLibException.CreateRes(
-        TTlsAlertDescription.InternalError, @SGroupNotResolvable);
-  end
-  else
-  begin
+    // a single fixed group pinned by a low-level sans-IO caller
     ASelectedGroup := FParams.Group.Code;
     if not (TArrayUtilities.Contains<UInt16>(AContext.SupportedGroups, ASelectedGroup)) then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.HandshakeFailure, @SGroupNotOffered);
     FSelectedGroup := FParams.Group;
+  end
+  else
+  begin
+    // the negotiation policy selects by server preference among the client's supported_groups
+    ASelectedGroup := FParams.Policy.SelectGroup(AContext.SupportedGroups, TlsWireVersionTls13);
+    if not FParams.GroupRegistry.TryGet(ASelectedGroup, FSelectedGroup) then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.InternalError, @SGroupNotResolvable);
   end;
 
   // ALPN + record_size_limit are negotiated from the same ClientHello extensions and
