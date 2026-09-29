@@ -47,6 +47,10 @@ type
     AdvertisedSchemes: TArray<UInt16>;
     Anchors: TArray<TBytes>;
     CheckHostName: Boolean;
+    // the augment-only reject hook, carried so a delegate honours it the same way the built-in
+    // verifier does; InsecureSkipVerify is deliberately NOT a delegate bypass (a delegate never
+    // skips the OS engine it was chosen for), only the reject callback is applied
+    Dangerous: TDangerousTrust;
     DeadlineMs: Cardinal;
     class function FromServerContext(const AContext: TServerTrustContext;
       AFetch: TSystemTrustFetch): TOSDelegatePolicy; static;
@@ -76,6 +80,11 @@ type
     function Complete(const AResult: TPlatformChainResult; const AServerName: TServerName;
       const AStaple: TBytes; out AVerified: TVerifiedChain;
       out AAlert: TTlsAlertDescription): Boolean;
+    /// <summary>Runs the configured augment-only reject hook last, over a chain the engine already
+    /// trusted; a rejection clears AVerified and reports certificate_unknown (mirrors the built-in
+    /// verifier). No-op when no callback is configured.</summary>
+    function ApplyDangerous(const AChain: TArray<TBytes>; const AHostName: string;
+      var AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
     property Engine: IPlatformChainEngine read FEngine;
     property Policy: TOSDelegatePolicy read FPolicy;
   public
@@ -148,6 +157,7 @@ begin
   Result.StrengthPolicy := AContext.StrengthPolicy;
   Result.AdvertisedSchemes := AContext.AdvertisedSignatureSchemes;
   Result.CheckHostName := AContext.CheckHostName;
+  Result.Dangerous := AContext.Dangerous;
   // the server path trusts the OS roots, so no exclusive anchor set
   Result.Anchors := nil;
   Result.DeadlineMs := 0;
@@ -164,6 +174,7 @@ begin
   Result.Deferral := AContext.Deferral;
   Result.StrengthPolicy := AContext.StrengthPolicy;
   Result.AdvertisedSchemes := AContext.AdvertisedSignatureSchemes;
+  Result.Dangerous := AContext.Dangerous;
   // a client certificate carries no server name to match
   Result.CheckHostName := False;
   // a client certificate is authenticated only against the configured client-CA anchors
@@ -273,6 +284,23 @@ begin
   Result := True;
 end;
 
+function TOSDelegateVerifierBase.ApplyDangerous(const AChain: TArray<TBytes>;
+  const AHostName: string; var AVerified: TVerifiedChain;
+  out AAlert: TTlsAlertDescription): Boolean;
+begin
+  // augment-only: the hook can only additionally reject a chain the engine trusted, never rescue one
+  // it rejected (a rejection already returned). A custom rejection is an acceptability problem, not a
+  // corrupt certificate, so certificate_unknown (RFC 8446 6.2) - the same verdict the built-in gives
+  Result := True;
+  if Assigned(FPolicy.Dangerous.VerifyCallback) then
+    if not FPolicy.Dangerous.VerifyCallback(AChain, AHostName) then
+    begin
+      AVerified := Default(TVerifiedChain);
+      AAlert := TTlsAlertDescription.CertificateUnknown;
+      Result := False;
+    end;
+end;
+
 { TOSDelegateServerVerifier }
 
 function TOSDelegateServerVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
@@ -283,10 +311,19 @@ var
   LResult: TPlatformChainResult;
 begin
   AVerified := Default(TVerifiedChain);
+  // an empty server name cannot be matched, so fail closed under an enabled name check rather than
+  // let the engine trust a chain whose identity was never checked (built-in parity)
+  if Policy.CheckHostName and AServerName.IsEmpty then
+  begin
+    AAlert := TTlsAlertDescription.BadCertificate;
+    Exit(False);
+  end;
   LRequest := BuildRequest(AChain, AServerName, AOcspStaple);
   if not Engine.EvaluateServer(LRequest, LResult, AAlert) then
     Exit(False);
-  Result := Complete(LResult, AServerName, AOcspStaple, AVerified, AAlert);
+  if not Complete(LResult, AServerName, AOcspStaple, AVerified, AAlert) then
+    Exit(False);
+  Result := ApplyDangerous(AChain, AServerName.ToString, AVerified, AAlert);
 end;
 
 { TOSDelegateClientVerifier }
@@ -303,7 +340,10 @@ begin
   LRequest := BuildRequest(AChain, LNoName, nil);
   if not Engine.EvaluateClient(LRequest, LResult, AAlert) then
     Exit(False);
-  Result := Complete(LResult, LNoName, nil, AVerified, AAlert);
+  if not Complete(LResult, LNoName, nil, AVerified, AAlert) then
+    Exit(False);
+  // a client certificate carries no host, so the augment hook sees an empty name (built-in parity)
+  Result := ApplyDangerous(AChain, '', AVerified, AAlert);
 end;
 
 { TOSVerifierSource }

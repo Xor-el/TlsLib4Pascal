@@ -20,6 +20,8 @@ uses
   TlpTlsAlert,
   TlpIPkixProvider,
   TlpIClock,
+  TlpPkixDomainTypes,
+  TlpDateTimeUtilities,
   TlpTrustTypes,
   TlpICertificateTrust,
   TlpCertificateLimits,
@@ -82,6 +84,21 @@ type
       ADeferToLive: Boolean): Boolean; static;
   end;
 
+  /// <summary>The verdict a stapled OCSP response (RFC 6960) yields, classified for the posture
+  /// decision: a fresh Good, a Good carrying no nextUpdate but still within the unbounded age, a
+  /// definitive Revoked, or Indeterminate (no/unauthenticated staple, an Unknown status, or a
+  /// stale Good).</summary>
+  TStapleVerdict = (GoodFresh, GoodUnbounded, Revoked, Indeterminate);
+
+  /// <summary>Renders the stapled-OCSP verdict in-band and network-free: authenticates the staple
+  /// against the chain's issuer and classifies a Good response by its freshness window. Shared by
+  /// the built-in verifier and the OS delegates so both read a staple the same way.</summary>
+  TOcspStaplePolicy = class sealed(TObject)
+  public
+    class function Verdict(const APkix: IPkixProvider; const AClock: ITlsClock;
+      const AChain: TArray<TBytes>; const AStaple: TBytes): TStapleVerdict; static;
+  end;
+
   /// <summary>
   /// An augment-only peer-certificate check the caller supplies: it runs after the
   /// built-in pipeline (PKIX, revocation, endpoint identity, pinning) has already
@@ -100,7 +117,9 @@ type
   /// ship in production - it exists for tests and pinned/self-signed development peers.
   /// VerifyCallback is the augment-only hook (it can only additionally reject). When both
   /// are set the callback still runs, so a caller can skip the built-in pipeline yet keep
-  /// a bespoke reject rule.
+  /// a bespoke reject rule. An OS-native trust delegate applies only VerifyCallback: it never
+  /// honours InsecureSkipVerify (it will not bypass the platform engine it was chosen for), so
+  /// the bypass takes effect only with the built-in verifier.
   /// </summary>
   TDangerousTrust = record
     InsecureSkipVerify: Boolean;
@@ -294,6 +313,50 @@ class function TRevocationDecision.HardNeedsLiveRevocation(APosture: TRevocation
   ADeferToLive: Boolean): Boolean;
 begin
   Result := (APosture = TRevocationPosture.Hard) and (not ADeferToLive);
+end;
+
+{ TOcspStaplePolicy }
+
+class function TOcspStaplePolicy.Verdict(const APkix: IPkixProvider;
+  const AClock: ITlsClock; const AChain: TArray<TBytes>;
+  const AStaple: TBytes): TStapleVerdict;
+var
+  LStatus: TOcspStatus;
+  LThisUpdate, LNextUpdate: TDateTime;
+  LNowMs, LNextMs: Int64;
+begin
+  Result := TStapleVerdict.Indeterminate;
+  // a public entry point: without a provider or a clock no verdict can be rendered
+  if (APkix = nil) or (AClock = nil) then
+    Exit;
+  // a staple needs the issuer (the next chain entry) to authenticate it
+  if (System.Length(AStaple) = 0) or (System.Length(AChain) < 2) then
+    Exit;
+  if not APkix.Revocation.ValidateOcspStaple(AChain[0], AChain[1], AStaple,
+    TDateTimeUtilities.UnixMsToDateTime(Int64(AClock.NowUnixMillis)), LStatus,
+    LThisUpdate, LNextUpdate) then
+    Exit;
+  if LStatus = TOcspStatus.Revoked then
+  begin
+    Result := TStapleVerdict.Revoked;
+    Exit;
+  end;
+  if LStatus = TOcspStatus.Good then
+  begin
+    LNowMs := Int64(AClock.NowUnixMillis);
+    if LNextUpdate = 0 then
+      LNextMs := 0 // no nextUpdate carried
+    else
+      LNextMs := TDateTimeUtilities.DateTimeToUnixMs(LNextUpdate);
+    case TRevocationDecision.OcspFreshness(LNowMs,
+      TDateTimeUtilities.DateTimeToUnixMs(LThisUpdate), LNextMs) of
+      TOcspFreshness.Fresh:
+        Result := TStapleVerdict.GoodFresh;
+      TOcspFreshness.Unbounded:
+        Result := TStapleVerdict.GoodUnbounded;
+    end;
+  end;
+  // an Unknown status, or a Good one outside its window, stays Indeterminate
 end;
 
 end.

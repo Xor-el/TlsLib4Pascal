@@ -22,7 +22,7 @@ uses
   TlpICertificateVerifierSource,
   TlpITlsConfig,
   TlpTrustPolicy,
-  TlpTlsEngineFactory,
+  TlpSignatureSchemeRegistry,
   TlpSystemTrustBase,
   TlpIPlatformChainEngine,
   TlpOSDelegateVerifier,
@@ -211,7 +211,7 @@ begin
     LPolicy.Posture := AConfig.RevocationPosture;
     LPolicy.Fetch := TSystemTrustFetch.Live;
     LPolicy.StrengthPolicy := AConfig.CertificateStrengthPolicy;
-    LPolicy.AdvertisedSchemes := TTlsEngineFactory.SchemeCodes(AConfig.SignatureSchemes);
+    LPolicy.AdvertisedSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
     LPolicy.CheckHostName := AConfig.CheckServerName;
     // a server certificate is validated against the OS roots, so no exclusive anchor set
     LPolicy.Anchors := nil;
@@ -246,7 +246,7 @@ begin
     LPolicy.Posture := AConfig.RevocationPosture;
     LPolicy.Fetch := TSystemTrustFetch.Live;
     LPolicy.StrengthPolicy := AConfig.CertificateStrengthPolicy;
-    LPolicy.AdvertisedSchemes := TTlsEngineFactory.SchemeCodes(AConfig.SignatureSchemes);
+    LPolicy.AdvertisedSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
     // a client certificate carries no server name to match
     LPolicy.CheckHostName := False;
     LPolicy.Anchors := LAnchors;

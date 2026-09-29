@@ -818,16 +818,16 @@ begin
   CheckTrue(LNext = 0, 'the response carries no nextUpdate');
   LThisMs := TDateTimeUtilities.DateTimeToUnixMs(LThis);
   CheckEquals(Ord(TStapleVerdict.GoodUnbounded),
-    Ord(TCertificateVerifier.StapleVerdict(Pkix,
+    Ord(TOcspStaplePolicy.Verdict(Pkix,
     TMockClock.Create(UInt64(LThisMs + 3600 * 1000)) as ITlsClock, NoNextChain,
     N('ocsp_good_nonext'))), 'a recent Good without nextUpdate is GoodUnbounded, never GoodFresh');
   CheckEquals(Ord(TStapleVerdict.Indeterminate),
-    Ord(TCertificateVerifier.StapleVerdict(Pkix,
+    Ord(TOcspStaplePolicy.Verdict(Pkix,
     TMockClock.Create(UInt64(LThisMs + TRevocationDecision.OcspUnboundedMaxAgeMs + 1))
     as ITlsClock, NoNextChain, N('ocsp_good_nonext'))),
     'past the max age a Good without nextUpdate is Indeterminate');
   CheckEquals(Ord(TStapleVerdict.GoodFresh),
-    Ord(TCertificateVerifier.StapleVerdict(Pkix,
+    Ord(TOcspStaplePolicy.Verdict(Pkix,
     TMockClock.Create(UInt64(LThisMs + 3600 * 1000)) as ITlsClock, NoNextChain,
     N('ocsp_good_withnext'))), 'the same response with nextUpdate is GoodFresh inside its window');
 end;

@@ -37,7 +37,8 @@ type
   /// client is connecting to (a client-side check). Fail-closed: the handshake
   /// proceeds only on an explicit positive verdict. On rejection it returns the
   /// fatal alert the caller must send (unknown_ca / certificate_expired /
-  /// bad_certificate / unsupported_certificate).
+  /// bad_certificate / unsupported_certificate / certificate_revoked /
+  /// bad_certificate_status_response / certificate_unknown).
   /// </summary>
   IServerCertificateVerifier = interface(IInterface)
     ['{2A9E6C14-5D73-4B80-A1F8-6C3E0D5B92A7}']

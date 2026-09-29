@@ -1104,21 +1104,8 @@ end;
 { TAppleRootSource }
 
 function TAppleRootSource.HarvestRoots: TArray<TBytes>;
-var
-  LRaw: TArray<TBytes>;
-  LI: Integer;
-  LAcc: TSystemRootAccumulator;
 begin
-  Result := nil;
-  LRaw := TAppleTrustApi.CopyTrustSettingsCertificates;
-  LAcc := TSystemRootAccumulator.Create;
-  try
-    for LI := 0 to Length(LRaw) - 1 do
-      AddUnique(LAcc, LRaw[LI]);
-    Result := LAcc.ToArray;
-  finally
-    LAcc.Free;
-  end;
+  Result := FilterRoots(TAppleTrustApi.CopyTrustSettingsCertificates);
 end;
 
 function TAppleRootSource.SourceName: string;

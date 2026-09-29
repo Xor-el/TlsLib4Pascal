@@ -33,6 +33,8 @@ uses
   TlpOSCryptoProvider,
   TlpCryptoDomainTypes,
   TlpNegotiationTypes,
+  TlpINegotiation,
+  TlpSignatureSchemeRegistry,
   TlpHandshakeMessages,
   TlpCertificateVerify,
   TlpTlsAlert,
@@ -67,6 +69,7 @@ type
     procedure TestRsaPssVerifiesRfc8448CertificateVerify;
     procedure TestRsaPssRejectsWrongTranscript;
     procedure TestSignatureSchemeCodesMatchCatalog;
+    procedure TestSchemeCodesFromRegistryMatchesRegistryOrder;
     // the provider seam binds the scheme's key family and never leaks a backend exception
     procedure TestVerifierRejectsSchemeKeyFamilyMismatch;
     procedure TestVerifierAllowsEcdsaCurveHashDecoupling;
@@ -361,6 +364,23 @@ begin
     TSignatureScheme.RSA_PKCS1_SHA384.ToCode, 'rsa_pkcs1_sha384');
   CheckEquals(TSignatureSchemes.RsaPkcs1Sha512,
     TSignatureScheme.RSA_PKCS1_SHA512.ToCode, 'rsa_pkcs1_sha512');
+end;
+
+procedure TTestSignature.TestSchemeCodesFromRegistryMatchesRegistryOrder;
+var
+  LRegistry: ISignatureSchemeRegistry;
+  LItems: TArray<TSignatureScheme>;
+  LCodes: TArray<UInt16>;
+  LI: Int32;
+begin
+  // the projection yields one wire code per registered scheme, in registry (preference) order
+  LRegistry := TSignatureSchemeRegistry.CreateDefault;
+  LItems := LRegistry.Items;
+  LCodes := TSignatureSchemeCodes.FromRegistry(LRegistry);
+  CheckEquals(System.Length(LItems), System.Length(LCodes), 'one code per registered scheme');
+  for LI := 0 to System.High(LItems) do
+    CheckEquals(Integer(LItems[LI].ToCode), Integer(LCodes[LI]),
+      'the projection preserves registry order');
 end;
 
 procedure TTestSignature.TestVerifierRejectsSchemeKeyFamilyMismatch;
