@@ -99,6 +99,7 @@ type
     procedure TestRenegotiationInfoNonEmptyIsHandshakeFailure;
     procedure TestRenegotiationInfoMalformedIsDecodeError;
     procedure TestRecordSizeLimitAllowedInServerHello;
+    procedure TestRecordSizeLimitBelowMinimumIsIllegalParameter;
   end;
 
 implementation
@@ -914,6 +915,17 @@ begin
   finally
     LCtx.Free;
   end;
+end;
+
+procedure TTestExtensionCodec.TestRecordSizeLimitBelowMinimumIsIllegalParameter;
+begin
+  // RFC 8449 4: a value below 64 is a fatal illegal_parameter; 0 must not read as "absent"
+  CheckEquals(Integer(TTlsAlertDescription.IllegalParameter),
+    ConsumeAlertCode(TTlsExtensionContextKind.ServerHello, DecodeHex('0006001c00020000'),
+    TExtensionTypes.RecordSizeLimit), 'a zero limit is illegal_parameter');
+  CheckEquals(Integer(TTlsAlertDescription.IllegalParameter),
+    ConsumeAlertCode(TTlsExtensionContextKind.ClientHello, DecodeHex('0006001c0002003f'), -1),
+    'a limit of 63 is illegal_parameter');
 end;
 
 initialization

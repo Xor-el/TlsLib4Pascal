@@ -100,6 +100,7 @@ type
     FLayer: TRecordLayer;
     FDriver: THandshakeDriver;
     FSm: IHandshakeMachine;
+    FDualVersion: Boolean;
     function Msg(const AName: string): TTlsHandshakeMessage;
     function FindSendHandshake(const AEffects: TArray<THandshakeEffect>): TBytes;
     /// <summary>The alert of the first Fail effect in AEffects, or False if none.</summary>
@@ -109,6 +110,9 @@ type
     procedure StartClient;
     procedure ArrangeThroughCertificate;
     procedure ArrangeThroughCertificateVerify;
+    /// <summary>The RFC 8448 Certificate with a second entry carrying AEntryExtensions.</summary>
+    function CertificateWithIntermediateExtensions(
+      const AEntryExtensions: TBytes): TTlsHandshakeMessage;
     /// <summary>Synthesizes a framed ServerHello with the given fields (for hostile-input tests).</summary>
     function BuildServerHello(const ARandom, ASessionIdEcho: TBytes;
       ASuite, ASelectedVersion, AGroup: UInt16;
@@ -127,6 +131,9 @@ type
     procedure TestBadCertificateVerifyFailsClosed;
     procedure TestBadServerFinishedFailsClosed;
     procedure TestServerHelloUnofferedSuiteRejected;
+    procedure TestServerHelloTls12SuiteRejected;
+    procedure TestIntermediateUnsolicitedExtensionRejected;
+    procedure TestIntermediateDuplicateExtensionRejected;
     procedure TestServerHelloBadSessionIdEchoRejected;
     procedure TestServerHelloWrongVersionRejected;
     procedure TestServerHelloUnofferedGroupRejected;
@@ -219,6 +226,7 @@ end;
 procedure TTestTls13ClientReplay.SetUp;
 begin
   inherited SetUp;
+  FDualVersion := False;
   FHs := LoadVectorFields('Rfc8448/HandshakeMessages.txt');
   FSched := LoadVectorFields('Rfc8448/Tls13KeySchedule.txt');
   FRec := LoadVectorFields('Rfc8448/Tls13RecordFinished.txt');
@@ -288,9 +296,19 @@ begin
   LParams.Inspector := Pkix.Certificates;
   LParams.Group := TReplayGroup.Create(DecodeHex(FSched.Values['shared_secret']));
   LParams.GroupCode := TNamedGroupCatalog.X25519;
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
+  if FDualVersion then
+  begin
+    // a dual-version client also offers 1.2 suites, which a 1.3 hello must not select
+    LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
+    LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256,
+      TCipherSuites12.EcdheRsaAes128GcmSha256);
+  end
+  else
+  begin
+    LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
+    LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
+  end;
   // the RFC 8448 server signs its CertificateVerify with rsa_pss_rsae_sha256, so the
   // client must have offered it for the verification to be accepted (the ClientHello
   // is overridden, so this does not affect the byte-exact replay)
@@ -483,6 +501,73 @@ begin
     'an unoffered cipher suite aborts the handshake');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
     'an unoffered cipher suite is illegal_parameter');
+end;
+
+procedure TTestTls13ClientReplay.TestServerHelloTls12SuiteRejected;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // the dual-version client offered the 1.2 suite, but a 1.3 ServerHello may not select it
+  FDualVersion := True;
+  CheckTrue(ServerHelloAlert(BuildServerHello(Filled($01, 32), nil,
+    TCipherSuites12.EcdheRsaAes128GcmSha256, TlsWireVersionTls13,
+    TNamedGroupCatalog.X25519, Filled($02, 32)), LAlert),
+    'a TLS 1.2 suite in a TLS 1.3 ServerHello aborts the handshake');
+  CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
+    'a TLS 1.2 suite in a TLS 1.3 ServerHello is illegal_parameter');
+end;
+
+function TTestTls13ClientReplay.CertificateWithIntermediateExtensions(
+  const AEntryExtensions: TBytes): TTlsHandshakeMessage;
+var
+  LCert: TTlsCertificate;
+  LFramed: TBytes;
+  LReader: THandshakeMessageReader;
+begin
+  LCert := THandshakeMessages.DecodeCertificate(Msg('certificate').Body);
+  SetLength(LCert.Entries, System.Length(LCert.Entries) + 1);
+  LCert.Entries[High(LCert.Entries)].CertData := LCert.Entries[0].CertData;
+  LCert.Entries[High(LCert.Entries)].Extensions := AEntryExtensions;
+  LFramed := THandshakeFraming.Frame(TTlsHandshakeType.Certificate,
+    THandshakeMessages.EncodeCertificate(LCert));
+  LReader := THandshakeMessageReader.Create;
+  try
+    LReader.Append(LFramed, 0, System.Length(LFramed));
+    LReader.NextMessage(Result);
+  finally
+    LReader.Free;
+  end;
+end;
+
+procedure TTestTls13ClientReplay.TestIntermediateUnsolicitedExtensionRejected;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  StartClient;
+  FDriver.ApplyAll(FSm.ProcessMessage(Msg('server_hello')));
+  TakeAll(FLayer);
+  FDriver.ApplyAll(FSm.ProcessMessage(Msg('encrypted_ext')));
+  // an extension type the client never offered on an intermediate entry (RFC 8446 4.4.2)
+  CheckTrue(FailAlertOf(FSm.ProcessMessage(
+    CertificateWithIntermediateExtensions(DecodeHex('0004aaaa0000'))), LAlert),
+    'an unsolicited extension on an intermediate entry aborts');
+  CheckTrue(LAlert = TTlsAlertDescription.UnsupportedExtension,
+    'an unsolicited intermediate-entry extension is unsupported_extension');
+end;
+
+procedure TTestTls13ClientReplay.TestIntermediateDuplicateExtensionRejected;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  StartClient;
+  FDriver.ApplyAll(FSm.ProcessMessage(Msg('server_hello')));
+  TakeAll(FLayer);
+  FDriver.ApplyAll(FSm.ProcessMessage(Msg('encrypted_ext')));
+  CheckTrue(FailAlertOf(FSm.ProcessMessage(
+    CertificateWithIntermediateExtensions(DecodeHex('0008aaaa0000aaaa0000'))), LAlert),
+    'a repeated extension on an intermediate entry aborts');
+  CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
+    'a repeated intermediate-entry extension is illegal_parameter');
 end;
 
 procedure TTestTls13ClientReplay.TestServerHelloBadSessionIdEchoRejected;

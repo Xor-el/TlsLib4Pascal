@@ -1722,11 +1722,12 @@ begin
     FClientCertChain[0]);
 
   // RFC 8446 4.4.2: extensions on a client CertificateEntry must correspond to ones in the
-  // CertificateRequest; we request none, so any leaf extension is unsupported_extension.
-  if System.Length(THandshakeMessages.CertificateEntryExtensionTypes(
-    LCert.Entries[0].Extensions)) > 0 then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.UnsupportedExtension, @SUnsolicitedClientCertExtension);
+  // CertificateRequest; we request none, so an extension on any entry is unsupported_extension.
+  for LI := 0 to High(LCert.Entries) do
+    if System.Length(THandshakeMessages.CertificateEntryExtensionTypes(
+      LCert.Entries[LI].Extensions)) > 0 then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.UnsupportedExtension, @SUnsolicitedClientCertExtension);
 
   // trust the client chain (no hostname identity or OCSP staple applies to a client certificate)
   if not TCertificateVerify.VerifyClientChain(FParams.ClientCertificateVerifier,

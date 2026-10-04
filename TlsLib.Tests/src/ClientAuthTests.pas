@@ -105,6 +105,7 @@ type
     procedure TestTls12ClientRejectsSecondCertificateRequest;
     procedure TestTls13CertificateRequestWithoutSignatureAlgorithmsAborts;
     procedure TestTls13ServerRejectsNonEmptyClientCertificateContext;
+    procedure TestTls13ServerRejectsClientIntermediateExtension;
     procedure TestTls13ClientCertPinMatchCompletes;
     procedure TestTls13ClientCertPinMismatchAborts;
   end;
@@ -739,6 +740,39 @@ begin
     'a non-empty client certificate_request_context aborts');
   CheckEquals(Int64(Ord(TTlsAlertDescription.DecodeError)), Int64(Ord(LAlert)),
     'the abort is decode_error');
+end;
+
+procedure TTestClientAuth.TestTls13ServerRejectsClientIntermediateExtension;
+var
+  LClient, LServer: IHandshakeMachine;
+  LServerFlight, LClientFlight: TArray<TBytes>;
+  LEffects: TArray<THandshakeEffect>;
+  LCert: TTlsCertificate;
+  LCertMsg: TBytes;
+  LAlert: TTlsAlertDescription;
+  LI: Int32;
+begin
+  // the CertificateRequest solicits no certificate-entry extension, so one on a client
+  // intermediate entry is unsupported_extension just like one on the leaf (RFC 8446 4.4.2)
+  LClient := New13ClientMachine(True);
+  LServer := New13ServerMachine(TClientAuthMode.Required);
+  LServerFlight := AllSendHandshake(LServer.ProcessMessage(MsgFrom(
+    FirstSendHandshake(LClient.Start))));
+  LEffects := nil;
+  for LI := 0 to High(LServerFlight) do
+    LEffects := LClient.ProcessMessage(MsgFrom(LServerFlight[LI]));
+  LClientFlight := AllSendHandshake(LEffects);
+  CheckTrue(System.Length(LClientFlight) > 0, 'the client answered the server flight');
+  LCert := THandshakeMessages.DecodeCertificate(MsgFrom(LClientFlight[0]).Body);
+  SetLength(LCert.Entries, System.Length(LCert.Entries) + 1);
+  LCert.Entries[High(LCert.Entries)].CertData := LCert.Entries[0].CertData;
+  LCert.Entries[High(LCert.Entries)].Extensions := DecodeHex('0004aaaa0000');
+  LCertMsg := THandshakeFraming.Frame(TTlsHandshakeType.Certificate,
+    THandshakeMessages.EncodeCertificate(LCert));
+  CheckTrue(FailAlertOf(LServer.ProcessMessage(MsgFrom(LCertMsg)), LAlert),
+    'an extension on a client intermediate entry aborts');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.UnsupportedExtension)), Int64(Ord(LAlert)),
+    'the abort is unsupported_extension');
 end;
 
 procedure TTestClientAuth.TestTls13ClientCertPinMatchCompletes;
