@@ -96,6 +96,9 @@ type
     procedure TestAntiReplayRejectsEmpty;
     procedure TestAntiReplayBounded;
     procedure TestAntiReplayReRecordDoesNotEvictLiveValue;
+    procedure TestAntiReplayDeclinesAtCapacityWithoutEvicting;
+    procedure TestAntiReplayAdmitsAfterExpiryAtCapacity;
+    procedure TestAntiReplayCompactionKeepsLiveEntries;
   end;
 
 implementation
@@ -1094,28 +1097,77 @@ end;
 procedure TTestSessionStore.TestAntiReplayReRecordDoesNotEvictLiveValue;
 var
   LReplay: IAntiReplayStrategy;
-  LGuard, LValue, LHold, LFill1, LFill2: TBytes;
+  LGuard, LValue, LHold, LFill: TBytes;
 begin
   // re-recording a value after it expired, while a live entry recorded between its two records sits
-  // ahead of it, leaves a stale order entry. Under the capacity eviction that follows, the stale
-  // entry must be dropped WITHOUT removing the value's own live entry - otherwise a replay of the
-  // re-recorded value would be accepted inside its window.
+  // ahead of it, leaves a stale order entry; the register at capacity must neither evict the value's
+  // live entry nor admit a further value
   LReplay := TStrikeRegisterAntiReplay.Create(3);
   LGuard := Tag($11, 8);
   LValue := Tag($AA, 8);
   LHold := Tag($33, 8);
-  LFill1 := Tag($44, 8);
-  LFill2 := Tag($55, 8);
+  LFill := Tag($44, 8);
   CheckTrue(LReplay.CheckAndRecord(LGuard, 1000, 100000), 'guard recorded');
   CheckTrue(LReplay.CheckAndRecord(LValue, 1000, 2000), 'value recorded');
   CheckTrue(LReplay.CheckAndRecord(LHold, 1500, 100000), 'a live entry recorded after the value');
-  // at 3000 the value has expired (behind the live guard, so pruning did not reach it); re-record it
   CheckTrue(LReplay.CheckAndRecord(LValue, 3000, 100000), 'value re-recorded after expiry');
-  CheckTrue(LReplay.CheckAndRecord(LFill1, 4000, 100000), 'fill 1');
-  CheckTrue(LReplay.CheckAndRecord(LFill2, 4000, 100000), 'fill 2 (evicts past the stale entry)');
-  // the re-recorded value's stale order entry was dropped, not used to evict its live entry
+  CheckFalse(LReplay.CheckAndRecord(LFill, 4000, 100000), 'a new value at capacity is declined');
   CheckFalse(LReplay.CheckAndRecord(LValue, 4000, 100000),
-    'the re-recorded value survived eviction of its stale order entry and is still a replay');
+    'the re-recorded value is still a replay');
+end;
+
+procedure TTestSessionStore.TestAntiReplayDeclinesAtCapacityWithoutEvicting;
+var
+  LReplay: IAntiReplayStrategy;
+  LVictim: TBytes;
+  LI: Int32;
+begin
+  LReplay := TStrikeRegisterAntiReplay.Create(4);
+  LVictim := Tag($C0, 8);
+  CheckTrue(LReplay.CheckAndRecord(LVictim, 1000, 100000), 'victim recorded');
+  for LI := 0 to 19 do
+    LReplay.CheckAndRecord(Tag(Byte(LI), 8), 1000, 100000);
+  CheckTrue(LReplay.Count <= 4, 'the register never grows past its cap');
+  CheckFalse(LReplay.CheckAndRecord(LVictim, 1001, 100000),
+    'a flood of unique values does not evict the live victim; its replay is declined');
+end;
+
+procedure TTestSessionStore.TestAntiReplayCompactionKeepsLiveEntries;
+var
+  LReplay: IAntiReplayStrategy;
+  LGuard, LValue: TBytes;
+  LNow: UInt64;
+  LI: Int32;
+begin
+  LReplay := TStrikeRegisterAntiReplay.Create(2);
+  LGuard := Tag($01, 8);
+  LValue := Tag($02, 8);
+  CheckTrue(LReplay.CheckAndRecord(LGuard, 1000, 100000), 'guard recorded');
+  CheckTrue(LReplay.CheckAndRecord(LValue, 1000, 2000), 'value recorded');
+  // each re-record after expiry leaves a stale order entry behind the live guard, driving the
+  // queue past twice the capacity so it is compacted
+  for LI := 1 to 8 do
+  begin
+    LNow := 2000 + UInt64(LI) * 1000;
+    CheckTrue(LReplay.CheckAndRecord(LValue, LNow, LNow + 500), 'value re-recorded');
+  end;
+  CheckFalse(LReplay.CheckAndRecord(LValue, 10001, 20000), 'value still a replay');
+  CheckFalse(LReplay.CheckAndRecord(LGuard, 10001, 100000), 'guard still a replay');
+  CheckEquals(2, LReplay.Count, 'count unchanged by compaction');
+  CheckFalse(LReplay.CheckAndRecord(Tag($03, 8), 10001, 20000), 'a new value is declined at capacity');
+  CheckTrue(LReplay.CheckAndRecord(Tag($03, 8), 100001, 200000), 'admitted once the entries expired');
+end;
+
+procedure TTestSessionStore.TestAntiReplayAdmitsAfterExpiryAtCapacity;
+var
+  LReplay: IAntiReplayStrategy;
+  LI: Int32;
+begin
+  LReplay := TStrikeRegisterAntiReplay.Create(3);
+  for LI := 0 to 2 do
+    CheckTrue(LReplay.CheckAndRecord(Tag(Byte(LI), 8), 1000, 2000), 'filled');
+  CheckFalse(LReplay.CheckAndRecord(Tag($50, 8), 1500, 3000), 'declined while full and live');
+  CheckTrue(LReplay.CheckAndRecord(Tag($50, 8), 2500, 4000), 'admitted once the entries expired');
 end;
 
 initialization
