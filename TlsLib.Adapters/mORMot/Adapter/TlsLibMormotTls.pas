@@ -141,6 +141,11 @@ type
     /// requests a client certificate.</summary>
     class function Snapshot(const AContext: TNetTlsContext;
       AIsClient: Boolean): TTlsOptions; static;
+    /// <summary>Refuses a TNetTlsContext input TlsLib4Pascal cannot honour, before any config is
+    /// composed: silently ignoring a peer-verification hook would loosen the host's own trust
+    /// rules, and an in-memory certificate or key would be reported as a missing one.</summary>
+    class procedure RefuseUnsupported(const AContext: TNetTlsContext;
+      AIsClient: Boolean); static;
     class function BuildClientEngine(var AContext: TNetTlsContext;
       const AHost: string): ITlsEngine; static;
     class function BuildServerEngine(const AContext: TNetTlsContext): ITlsEngine; static;
@@ -193,6 +198,23 @@ resourcestring
   SCARawUnsupported = 'the mORMot TLS context supplies CACertificatesRaw (in-memory OpenSSL ' +
     'X509 handles); TlsLib4Pascal is OpenSSL-free and cannot consume them - pass the CA chain ' +
     'as a PEM/DER file via CACertificatesFile, or use TSystemTrust for the OS anchors';
+  SMormotClientHookUnsupported = 'the mORMot TLS context sets %s, which TlsLib4Pascal does not ' +
+    'honour (peer verification is built in): use SetTlsLibMormotVerifyCallback for an additional ' +
+    'reject rule, or supply a built configuration through SetTlsLibMormotClientConfig';
+  SMormotServerHookUnsupported = 'the mORMot TLS context sets %s, which TlsLib4Pascal does not ' +
+    'honour (peer verification is built in): supply a built configuration through ' +
+    'SetTlsLibMormotServerConfig with WithPeerAuth and WithCertificateVerifyCallback to vet client ' +
+    'certificates';
+  SMormotHostNamesUnsupported = 'the mORMot TLS context sets HostNamesCsv, which TlsLib4Pascal does ' +
+    'not honour: it verifies the host it connects to; to accept other names, supply a client ' +
+    'configuration through SetTlsLibMormotClientConfig that disables the name check and match ' +
+    'names in a certificate verify callback';
+  SMormotSniHookUnsupported = 'the mORMot TLS context sets OnAcceptServerName, which TlsLib4Pascal ' +
+    'does not honour: select certificates per host with WithSniCredential in a configuration ' +
+    'supplied through SetTlsLibMormotServerConfig';
+  SMormotInMemoryCredentialUnsupported = 'the mORMot TLS context supplies %s (an in-memory ' +
+    'certificate or key), which TlsLib4Pascal does not read: pass them as PEM/DER files via ' +
+    'CertificateFile and PrivateKeyFile';
   SMormotReceiveFailed = 'mORMot socket receive failed (nr=%d)';
   SMormotReceiveTimedOut = 'the socket receive timeout elapsed with no data from the peer';
   SMormotSendFailed = 'mORMot socket send failed (nr=%d)';
@@ -394,8 +416,10 @@ begin
       Result.TrustAnchors[0] :=
         TTlsBlobSource.FromFile(Utf8ToString(AContext.CACertificatesFile));
     end;
-    if AIsClient and ((scsRoot in AContext.CASystemStores) or
-      (scsCA in AContext.CASystemStores)) then
+    // mORMot's OpenSSL backend uses a CA file exclusively and falls back to the OS stores only when
+    // there is none; mirror that so a host pinning a private CA does not also trust every OS root
+    if AIsClient and (AContext.CACertificatesFile = '') and
+      ((scsRoot in AContext.CASystemStores) or (scsCA in AContext.CASystemStores)) then
       Result.SystemTrust := TSystemTrustInstaller.Shared;
   end;
   // a client maps IgnoreCertificateErrors onto the loud InsecureSkipVerify (never a silent bypass);
@@ -432,15 +456,52 @@ begin
   Result.ClientAuthSourceHint := SMormotClientAuthSourceHint;
 end;
 
+class procedure TTlsLibNetTls.RefuseUnsupported(const AContext: TNetTlsContext;
+  AIsClient: Boolean);
+var
+  LHookText: string;
+begin
+  // the verify-callback route differs by role: a client has a process-wide setter, a server needs a
+  // built configuration
+  if AIsClient then
+    LHookText := SMormotClientHookUnsupported
+  else
+    LHookText := SMormotServerHookUnsupported;
+  // CACertificatesRaw carries live OpenSSL X509 handles we cannot consume
+  if AContext.CACertificatesRaw <> nil then
+    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SCARawUnsupported);
+  // mORMot's OpenSSL backend runs these hooks; ignoring them would admit a peer the host meant to refuse
+  if Assigned(AContext.OnPeerValidate) then
+    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
+      Format(LHookText, ['OnPeerValidate']));
+  if Assigned(AContext.OnEachPeerVerify) then
+    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
+      Format(LHookText, ['OnEachPeerVerify']));
+  if Assigned(AContext.OnAfterPeerValidate) then
+    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
+      Format(LHookText, ['OnAfterPeerValidate']));
+  if AContext.HostNamesCsv <> '' then
+    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SMormotHostNamesUnsupported);
+  if Assigned(AContext.OnAcceptServerName) then
+    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SMormotSniHookUnsupported);
+  if AContext.CertificateBin <> '' then
+    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
+      Format(SMormotInMemoryCredentialUnsupported, ['CertificateBin']));
+  if AContext.CertificateRaw <> nil then
+    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
+      Format(SMormotInMemoryCredentialUnsupported, ['CertificateRaw']));
+  if AContext.PrivateKeyRaw <> nil then
+    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
+      Format(SMormotInMemoryCredentialUnsupported, ['PrivateKeyRaw']));
+end;
+
 class function TTlsLibNetTls.BuildClientEngine(var AContext: TNetTlsContext;
   const AHost: string): ITlsEngine;
 var
   LConfig: ITlsClientConfig;
 begin
-  // CACertificatesRaw carries live OpenSSL X509 handles we cannot consume; reject before composing
-  // (it is never part of the build signature)
-  if AContext.CACertificatesRaw <> nil then
-    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SCARawUnsupported);
+  // reject before composing (none of these inputs is part of the build signature)
+  RefuseUnsupported(AContext, True);
   // a process-wide config supplied via SetTlsLibMormotClientConfig REPLACES the context-driven build
   // outright; the composer's conflict guard fails loud when the context also carries cert/trust
   // fields, rather than dropping them silently
@@ -453,8 +514,7 @@ end;
 class function TTlsLibNetTls.BuildServerEngine(
   const AContext: TNetTlsContext): ITlsEngine;
 begin
-  if AContext.CACertificatesRaw <> nil then
-    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SCARawUnsupported);
+  RefuseUnsupported(AContext, False);
   Result := TTlsEngineFactory.CreateServerEngine(
     TTlsConfigComposer.ResolveServerConfig(Snapshot(AContext, False),
     GServerConfigMemo, 'SetTlsLibMormotServerConfig'));
@@ -492,8 +552,10 @@ end;
 procedure TTlsLibNetTls.AfterBind(Socket: TNetSocket;
   var Context: TNetTlsContext; const ServerAddress: RawUtf8);
 begin
-  // we build a fresh engine per accepted connection from the bound context, so there is
+  // an input we cannot honour fails the server at start-up rather than on its first connection;
+  // otherwise a fresh engine is built per accepted connection from the bound context, so there is
   // no shared server state to set up here
+  RefuseUnsupported(Context, False);
   Context.Enabled := True;
 end;
 

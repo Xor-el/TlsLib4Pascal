@@ -41,6 +41,7 @@ uses
   mormot.core.unicode,
   mormot.net.sock,
   TlpDataEncoding,
+  TlpTlsLibExceptions,
   TlsLibMormotTls;
 
 const
@@ -70,6 +71,134 @@ type
   protected
     procedure Execute; override;
   end;
+
+  // method targets for the peer-verification hooks the adapter must refuse (never invoked)
+  TUnusedHooks = class sealed(TObject)
+  public
+    procedure PeerValidate(Socket: TNetSocket; Context: PNetTlsContext; TLS: pointer);
+    function EachPeerVerify(Socket: TNetSocket; Context: PNetTlsContext; wasok: boolean;
+      TLS, Peer: pointer): boolean;
+    procedure AfterPeerValidate(Socket: TNetSocket; Context: PNetTlsContext; TLS, Peer: pointer);
+    function AcceptServerName(Context: PNetTlsContext; TLS: pointer;
+      ServerName: PUtf8Char): pointer;
+  end;
+
+  // the adapter fails loudly on a TNetTlsContext input it cannot honour, instead of silently
+  // dropping a host's own peer-verification rules
+  TRefusalChecks = class sealed(TObject)
+  strict private
+    class function RefusesNaming(var ACtx: TNetTlsContext; AServer: Boolean;
+      const AField: string): Boolean; static;
+  public
+    class function AllRefused: Boolean; static;
+  end;
+
+procedure TUnusedHooks.PeerValidate(Socket: TNetSocket; Context: PNetTlsContext; TLS: pointer);
+begin
+end;
+
+function TUnusedHooks.EachPeerVerify(Socket: TNetSocket; Context: PNetTlsContext;
+  wasok: boolean; TLS, Peer: pointer): boolean;
+begin
+  Result := True;
+end;
+
+procedure TUnusedHooks.AfterPeerValidate(Socket: TNetSocket; Context: PNetTlsContext;
+  TLS, Peer: pointer);
+begin
+end;
+
+function TUnusedHooks.AcceptServerName(Context: PNetTlsContext; TLS: pointer;
+  ServerName: PUtf8Char): pointer;
+begin
+  Result := nil;
+end;
+
+class function TRefusalChecks.RefusesNaming(var ACtx: TNetTlsContext; AServer: Boolean;
+  const AField: string): Boolean;
+begin
+  // the refusal must name the offending field: a bare "some error" could be an unrelated failure
+  // (a blank client context is refused for lacking trust, a nil socket fails a send)
+  Result := False;
+  try
+    if AServer then
+      NewTlsLib4PascalTls.AfterBind(nil, ACtx, 'localhost')
+    else
+      NewTlsLib4PascalTls.AfterConnection(nil, ACtx, 'localhost');
+  except
+    on E: Exception do
+      Result := Pos(AField, E.Message) > 0;
+  end;
+end;
+
+class function TRefusalChecks.AllRefused: Boolean;
+var
+  LHooks: TUnusedHooks;
+  LCtx: TNetTlsContext;
+  LDummy: Integer;
+begin
+  Result := False;
+  LHooks := TUnusedHooks.Create;
+  try
+    InitNetTlsContext(LCtx);
+    LCtx.OnPeerValidate := LHooks.PeerValidate;
+    if not RefusesNaming(LCtx, False, 'OnPeerValidate') then
+      Exit;
+    InitNetTlsContext(LCtx);
+    LCtx.OnEachPeerVerify := LHooks.EachPeerVerify;
+    if not RefusesNaming(LCtx, False, 'OnEachPeerVerify') then
+      Exit;
+    InitNetTlsContext(LCtx);
+    LCtx.OnAfterPeerValidate := LHooks.AfterPeerValidate;
+    if not RefusesNaming(LCtx, False, 'OnAfterPeerValidate') then
+      Exit;
+    InitNetTlsContext(LCtx);
+    LCtx.HostNamesCsv := 'localhost';
+    if not RefusesNaming(LCtx, False, 'HostNamesCsv') then
+      Exit;
+    InitNetTlsContext(LCtx);
+    LCtx.CertificateBin := 'x';
+    if not RefusesNaming(LCtx, False, 'CertificateBin') then
+      Exit;
+    InitNetTlsContext(LCtx);
+    LCtx.CertificateRaw := @LDummy;
+    if not RefusesNaming(LCtx, False, 'CertificateRaw') then
+      Exit;
+    InitNetTlsContext(LCtx);
+    LCtx.PrivateKeyRaw := @LDummy;
+    if not RefusesNaming(LCtx, False, 'PrivateKeyRaw') then
+      Exit;
+    // a server fails at bind time, before it accepts anything, and is pointed at a built config
+    InitNetTlsContext(LCtx);
+    LCtx.OnEachPeerVerify := LHooks.EachPeerVerify;
+    if not RefusesNaming(LCtx, True, 'OnEachPeerVerify') then
+      Exit;
+    InitNetTlsContext(LCtx);
+    LCtx.OnEachPeerVerify := LHooks.EachPeerVerify;
+    if not RefusesNaming(LCtx, True, 'SetTlsLibMormotServerConfig') then
+      Exit;
+    InitNetTlsContext(LCtx);
+    LCtx.OnAcceptServerName := LHooks.AcceptServerName;
+    if not RefusesNaming(LCtx, True, 'OnAcceptServerName') then
+      Exit;
+    // controls: a blank client context fails for lack of trust and names none of the refused
+    // fields, and a blank server context binds
+    InitNetTlsContext(LCtx);
+    if RefusesNaming(LCtx, False, 'OnPeerValidate') or
+      RefusesNaming(LCtx, False, 'OnEachPeerVerify') or
+      RefusesNaming(LCtx, False, 'HostNamesCsv') then
+      Exit;
+    InitNetTlsContext(LCtx);
+    try
+      NewTlsLib4PascalTls.AfterBind(nil, LCtx, 'localhost');
+    except
+      Exit;
+    end;
+    Result := True;
+  finally
+    LHooks.Free;
+  end;
+end;
 
 class function TVectorLocator.SearchFrom(const AStart: string): string;
 const
@@ -181,7 +310,7 @@ var
   LTls: INetTls;
   LPing, LEcho: TBytes;
   LLen: Integer;
-  LOk: Boolean;
+  LOk, LRefused: Boolean;
 begin
   Result := 1;
   GServerError := '';
@@ -221,13 +350,18 @@ begin
     LOk := (LLen = System.Length(LPing)) and CompareMem(@LEcho[0], @LPing[0], LLen)
       and (Pos('TLSv1.3', LTls.GetCipherName) > 0);
     if LOk then
-    begin
-      Writeln('mORMot loopback PASS: handshake + echo over ', LTls.GetCipherName);
-      Result := 0;
-    end
+      Writeln('mORMot loopback PASS: handshake + echo over ', LTls.GetCipherName)
     else
       Writeln('mORMot loopback FAIL: echo/version mismatch');
     LServer.Free;
+    LRefused := TRefusalChecks.AllRefused;
+    if LRefused then
+      Writeln('mORMot refusal checks PASS: unsupported context inputs fail loudly')
+    else
+      Writeln('mORMot refusal checks FAIL: an unsupported context input was accepted');
+    // success only when both verdicts are in and good
+    if LOk and LRefused then
+      Result := 0;
   except
     on E: Exception do
       Writeln('mORMot loopback FAIL: ', E.ClassName, ': ', E.Message);
