@@ -1,0 +1,71 @@
+docs/system-trust.md
+  s_09d3c46d1a9b1f::t_ec7c88a8af31e5 249-252
+  s_09d3c46d1a9b1f::t_ae31d30985923a 238-241
+  s_09d3c46d1a9b1f::t_ae1ef557b134e7 267-272
+TlsLib.Trust.System/src/TlpSystemTrustBase.pas
+  s_09d3c46d1a9b1f::t_561a671023b2f8 281-335
+  s_09d3c46d1a9b1f::t_13098e911a60fc 102-105
+  s_09d3c46d1a9b1f::t_aaeb16107b0bde 58-60
+  s_09d3c46d1a9b1f::t_b3eb195f377699 136-145
+TlsLib.Trust.System/src/TlpAndroidSystemTrust.pas
+  s_09d3c46d1a9b1f::t_9bc3df0cf4a9db 909-912
+  s_09d3c46d1a9b1f::t_65f1423487eccd 916-917
+TlsLib.Trust.System/src/TlpOSDelegateVerifier.pas
+  s_09d3c46d1a9b1f::t_5bbe6dc197e9b5 187-189
+  s_09d3c46d1a9b1f::t_81a9b1b5c46113 165-167
+  s_09d3c46d1a9b1f::t_d3a603fabfacc2 281-290,292
+  s_09d3c46d1a9b1f::t_dacf62d088224b 71-73
+  s_09d3c46d1a9b1f::t_b63af189a01b0b 50-53
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_09fb21058e5e91 361-363
+TlsLib.Tests/src/ClientAuthTests.pas
+  s_09d3c46d1a9b1f::t_9f5cf525f8f734 108-109
+  s_09d3c46d1a9b1f::t_0f304567899711 160-199,201-207
+  s_09d3c46d1a9b1f::t_3a4c8fa3c179f3 200
+  s_09d3c46d1a9b1f::t_85bb6bf58368a5 744-763,766-775
+  s_09d3c46d1a9b1f::t_299c11b39da1f8 44-46
+  s_09d3c46d1a9b1f::t_eb17a9ed950bdd 68-69,72-75
+  s_09d3c46d1a9b1f::t_a32a4c9572c20b 764-765
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_09d3c46d1a9b1f::t_2fd325364e803b 122
+  s_09d3c46d1a9b1f::t_c1bd21dc1efc0f 867-883
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_09d3c46d1a9b1f::t_76d174bb17d2bf 2283-2284,2287-2291
+  s_09d3c46d1a9b1f::t_ad3f7e69b20c59 364-365
+TlsLib.Tests/src/AsyncVerdictTests.pas
+  s_09d3c46d1a9b1f::t_3168dd72e75196 64-68
+  s_09d3c46d1a9b1f::t_7bb5f5d7780d79 226-246
+  s_09d3c46d1a9b1f::t_796277f710fdd9 120-123
+  s_09d3c46d1a9b1f::t_307e9a44f7262e 33-34
+  s_09d3c46d1a9b1f::t_15466f8cb50040 719-757
+TlsLib/src/Trust/TlpCertificateVerifier.pas
+  s_09d3c46d1a9b1f::t_8c40b588729d34 593-594
+  s_09d3c46d1a9b1f::t_0712da968b3902 177-180
+  s_09d3c46d1a9b1f::t_b361e39c085fa8 595-596,603,609,616,619-620,626-636,652-679,682
+  s_09d3c46d1a9b1f::t_fb317d4c0bfd08 199-221,637-638,680-681
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_09d3c46d1a9b1f::t_0b9db91d86210e 660
+  s_09d3c46d1a9b1f::t_b0431f718e018e 1038-1040
+  s_09d3c46d1a9b1f::t_8de0d0c9f4b5dc 681,715,755,775,797,816,835,857,1222,1260,1284,1340
+  s_09d3c46d1a9b1f::t_a4ed1618bc2814 209-216
+  s_09d3c46d1a9b1f::t_75a55003486fcd 661
+  s_09d3c46d1a9b1f::t_0f8263e717c209 881-1037,1041-1049
+TlsLib/src/Engine/TlpTlsEngineFactory.pas
+  s_09d3c46d1a9b1f::t_9bf0aad37bc1bf 436-440
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "fee189c60c25accc6eed21d2d3300ce0c3601724",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
