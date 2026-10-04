@@ -357,6 +357,12 @@ begin
   LBuf := nil;
   SetLength(LBuf, TransportChunk);
   repeat
+    // a terminal engine takes no more input: reading would block forever with its alert unsent
+    if AEngine.IsTerminal then
+    begin
+      FlushQuietly(AEngine, ATransport);
+      RaiseIfFatal(AEngine);
+    end;
     LGot := ATransport.Read(LBuf, 0, TransportChunk);
     if LGot = 0 then
     begin

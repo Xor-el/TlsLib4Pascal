@@ -132,6 +132,7 @@ type
   published
     procedure TestClientServerLoopbackExchangesAppDataAndClosesCleanly;
     procedure TestBulkWriteIsSealedInBoundedSlices;
+    procedure TestTerminalEngineSurfacesAlertInsteadOfBlockingRead;
     procedure TestPostHandshakeFatalAlertReachesPeer;
     procedure TestRecordLimitCloseNotifyReachesPeerOverPump;
     procedure TestApplicationReadTimeoutIsRetryableNotTruncation;
@@ -573,6 +574,61 @@ begin
     LServer.WaitFor;
     CheckEquals('', LServer.Error, 'the server side ran without error');
   finally
+    LServer.Free;
+    LClient.Free;
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.TestTerminalEngineSurfacesAlertInsteadOfBlockingRead;
+var
+  LC2S, LS2C: TMemoryPipe;
+  LClientTransport: TMemoryTransport;
+  LServerTransport: TMemoryTransport;
+  LEngine: ITlsEngine;
+  LClient: TTlsStream;
+  LServer: TServerRunner;
+  LWatch: TWedgeWatchdog;
+  LBuf: TBytes;
+  LRaised, LTruncated: Boolean;
+begin
+  LC2S := TMemoryPipe.Create;
+  LS2C := TMemoryPipe.Create;
+  LClientTransport := TMemoryTransport.Create(LS2C, LC2S);
+  LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
+  LEngine := TTlsEngineFactory.CreateClientEngine(ClientConfig(False, nil), 'localhost');
+  LClient := TTlsStream.Create(LClientTransport as ITlsTransport, LEngine, True, 'localhost');
+  LServer := TServerRunner.Create(NewServerStream(LServerTransport as ITlsTransport),
+    LServerTransport, TServerBehavior.EchoThenClose);
+  LWatch := TWedgeWatchdog.Create(LC2S, LS2C, 60000);
+  LWatch.Start;
+  LServer.Start;
+  try
+    LClient.Handshake;
+    // a locally sent fatal alert leaves the engine terminal with the alert unflushed; the next
+    // read must send it and raise rather than park on a transport read that never returns
+    LEngine.SendAlert(TTlsAlertDescription.InternalError);
+    SetLength(LBuf, 16);
+    LRaised := False;
+    LTruncated := False;
+    try
+      LClient.Read(LBuf[0], 16);
+    except
+      on E: ETlsTransportTruncated do
+        LTruncated := True;
+      on E: ETlsStreamError do
+        LRaised := E.HasAlert and (E.Alert = TTlsAlertDescription.InternalError);
+    end;
+    CheckFalse(LTruncated, 'the failure is the alert, not a truncation');
+    CheckTrue(LRaised, 'a read on a terminal engine raises its alert');
+    LServer.WaitFor;
+    LWatch.Disarm;
+    CheckFalse(LWatch.Fired, 'the read did not leave both sides blocked');
+    CheckTrue(Pos('ETlsStreamError:', LServer.Error) = 1,
+      'the unflushed alert reached the peer');
+  finally
+    LWatch.Disarm;
+    LWatch.WaitFor;
+    LWatch.Free;
     LServer.Free;
     LClient.Free;
   end;
