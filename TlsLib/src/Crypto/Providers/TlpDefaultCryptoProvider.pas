@@ -2003,8 +2003,8 @@ begin
   end;
   // bind the scheme's key family to the key: an EC key under rsa_pss_rsae_*, or an RSA key under
   // ecdsa_*, and an unclassifiable key, can never verify the scheme (RFC 8446 4.2.3). Return a
-  // fail-closed verifier so the outcome is decrypt_error (native-provider parity), not a raised
-  // error. The curve-vs-scheme bind stays a TLS 1.3 handshake concern (TCertificateVerify).
+  // fail-closed verifier so the outcome is decrypt_error, not a raised error. The curve-vs-scheme
+  // bind stays a TLS 1.3 handshake concern (TCertificateVerify).
   if (not KeyKindOf(LKey, LKind)) or (LKind <> AScheme.KeyKind) then
     Exit(TFailClosedSignatureVerifier.Create as ISignatureVerifier);
   try
