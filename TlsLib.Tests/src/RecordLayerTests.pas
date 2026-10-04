@@ -75,6 +75,8 @@ type
     procedure TestRecordSizeLimitCountsInnerPlaintextNotContent;
     procedure TestRecordSizeLimitInnerPlaintextBoundary;
     procedure TestRecordSizeLimitExemptsPlaintextRecords;
+    procedure TestSkippedPlaintextEarlyDataAcceptsFullSizeRecord;
+    procedure TestDecryptingRecordInSkipWindowIsJudgedStrictly;
     procedure TestAcceptedEarlyDataBoundedAtBudget;
     procedure TestAcceptedEarlyDataExactBudgetThenNormalFlow;
     procedure TestWritePausesAppDataAtRekeyThreshold;
@@ -720,6 +722,64 @@ begin
     CheckTrue(LRecv.NextIncoming(LFrag),
       'an over-limit plaintext record is accepted (unprotected records are exempt)');
     CheckEquals(200, System.Length(LFrag.Data), 'the full plaintext record surfaces');
+  finally
+    LSend.Free;
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestSkippedPlaintextEarlyDataAcceptsFullSizeRecord;
+var
+  LRecv: TRecordLayer;
+  LFrag: TTlsRecordFragment;
+  LWire, LHs: TBytes;
+  LBody: Int32;
+begin
+  LRecv := TRecordLayer.Create;
+  try
+    // HRR + 0-RTT: the client's full-size early-data record (16368 plaintext + 17 AEAD overhead)
+    // arrives under the null epoch and must be dropped, not refused as record_overflow
+    LRecv.SetEarlyDataSkip(1 shl 15);
+    LBody := TRecordLimits.MaxPlaintext + 1;
+    System.SetLength(LWire, TRecordLimits.HeaderLength + LBody);
+    LWire[0] := 23;
+    LWire[1] := 3;
+    LWire[2] := 3;
+    LWire[3] := Byte(LBody shr 8);
+    LWire[4] := Byte(LBody);
+    LRecv.ProcessInput(LWire, 0, System.Length(LWire));
+    CheckFalse(DrainOne(LRecv, LFrag), 'the full-size early-data record is dropped');
+    // a genuine handshake record then ends the skip window and surfaces
+    LHs := DecodeHex('160303000401000000');
+    LRecv.ProcessInput(LHs, 0, System.Length(LHs));
+    CheckTrue(DrainOne(LRecv, LFrag), 'the handshake record after the skip surfaces');
+    CheckTrue(LFrag.ContentType = TTlsContentType.Handshake, 'it is the handshake record');
+  finally
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestDecryptingRecordInSkipWindowIsJudgedStrictly;
+var
+  LSend, LRecv: TRecordLayer;
+  LKey, LIv, LA, LWire: TBytes;
+begin
+  LSend := TRecordLayer.Create;
+  LRecv := TRecordLayer.Create;
+  try
+    LKey := DecodeHex('000102030405060708090a0b0c0d0e0f');
+    LIv := DecodeHex('101112131415161718191a1b');
+    LSend.SetWriteProtection(MakeTls13(LKey, LIv));
+    LRecv.SetReadProtection(MakeTls13(LKey, LIv));
+    LRecv.StrictApplicationData := True;
+    LRecv.SetEarlyDataSkip(64);
+    LA := DecodeHex('48656c6c6f');
+    LSend.Write(TTlsContentType.ApplicationData, LA, 0, 5);
+    LWire := TakeAll(LSend);
+    // a record that decrypts under held keys is not skippable early data; before the handshake
+    // completes the strict path refuses it rather than delivering it
+    CheckTrue(ExpectFatal(LRecv, LWire, TTlsAlertDescription.UnexpectedMessage),
+      'a record that decrypts during the skip window is judged, not dropped');
   finally
     LSend.Free;
     LRecv.Free;

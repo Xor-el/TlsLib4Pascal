@@ -53,6 +53,15 @@ type
     /// flight boundary at which the peer's prior flight must have ended on a record boundary.</summary>
     class function HasFlightBoundary(
       const AEffects: TArray<THandshakeEffect>): Boolean; static;
+    /// <summary>Whether the effects install new read keys - a key change at which no further
+    /// handshake byte may follow in the same record, whether mid-handshake or a later KeyUpdate.</summary>
+    class function HasReadKeyChange(
+      const AEffects: TArray<THandshakeEffect>): Boolean; static;
+    /// <summary>Whether buffered handshake bytes remain past a point where RFC 8446 5.1 requires
+    /// the peer's record to have ended: a read-key change at any time, or a flight boundary or
+    /// completion while still handshaking.</summary>
+    function ExcessAfterBoundary(const AEffects: TArray<THandshakeEffect>;
+      AWasEstablished: Boolean): Boolean;
     /// <summary>Feeds every whole buffered message into the machine, applying its effects,
     /// until the channel drains, a Fail stops it, or the machine parks for a verdict.</summary>
     procedure DrainInbound;
@@ -155,6 +164,25 @@ begin
       Exit(True);
 end;
 
+class function THandshakeConductor.HasReadKeyChange(
+  const AEffects: TArray<THandshakeEffect>): Boolean;
+var
+  LEffect: THandshakeEffect;
+begin
+  Result := False;
+  for LEffect in AEffects do
+    if (LEffect.Kind = THandshakeEffectKind.InstallKeys) and
+      (LEffect.Side = TRecordSide.ReadSide) then
+      Exit(True);
+end;
+
+function THandshakeConductor.ExcessAfterBoundary(
+  const AEffects: TArray<THandshakeEffect>; AWasEstablished: Boolean): Boolean;
+begin
+  Result := FChannel.HasPartialInbound and (HasReadKeyChange(AEffects) or
+    ((not AWasEstablished) and (HasFlightBoundary(AEffects) or IsEstablished)));
+end;
+
 procedure THandshakeConductor.Start;
 begin
   FDriver.ApplyAll(FMachine.Start);
@@ -212,9 +240,8 @@ procedure THandshakeConductor.DrainInbound;
 var
   LMessage: TTlsHandshakeMessage;
   LEffects: TArray<THandshakeEffect>;
-  LFlightBoundary, LWasEstablished: Boolean;
+  LWasEstablished: Boolean;
 begin
-  LFlightBoundary := False;
   LWasEstablished := IsEstablished;
   while FChannel.ReceiveHandshake(LMessage) do
   begin
@@ -236,8 +263,16 @@ begin
     // a Fail makes the connection terminal; do not keep feeding the machine
     if HasFail(LEffects) then
       Exit;
-    if HasFlightBoundary(LEffects) then
-      LFlightBoundary := True;
+    // the peer must not pack the next flight's bytes into the record that ends the current one
+    // (RFC 8446 5.1), so buffered bytes past a read-key change, or past a flight boundary or
+    // completion while handshaking, are excess data. Checked per message so a complete message
+    // behind the boundary is refused too. Post-handshake NewSessionTicket / KeyUpdate may span
+    // records, so only a key change is a boundary once established.
+    if ExcessAfterBoundary(LEffects, LWasEstablished) then
+    begin
+      FDriver.Apply(THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage));
+      Exit;
+    end;
     // a park for an async peer-certificate verdict suspends processing: the rest of the
     // (possibly coalesced) flight stays buffered until the verdict resumes it
     if FMachine.Stage = THandshakeStage.ParkedForVerdict then
@@ -246,16 +281,6 @@ begin
       Break;
     end;
   end;
-  // the peer must not pack the next flight's bytes into the record that ends the current one
-  // (RFC 8446 5.1). Once we complete the handshake, or - while still handshaking - respond
-  // with a new flight or change the read epoch, any handshake bytes still buffered form a
-  // partial message that spans that boundary: excess data. Post-handshake messages
-  // (NewSessionTicket / KeyUpdate) may legitimately span records, so the mid-handshake
-  // boundary check is gated off once established.
-  if FChannel.HasPartialInbound and
-    ((IsEstablished and not LWasEstablished) or
-    (LFlightBoundary and not LWasEstablished)) then
-    FDriver.Apply(THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage));
 end;
 
 procedure THandshakeConductor.DeliverHandshake(const AData: TBytes;
@@ -301,9 +326,7 @@ begin
     Exit;
   // the same flight-boundary excess-data guard DrainInbound applies to a batch: the peer's
   // prior flight (the server Finished) must have ended on a record boundary
-  if FChannel.HasPartialInbound and
-    ((IsEstablished and not LWasEstablished) or
-    (HasFlightBoundary(LEffects) and not LWasEstablished)) then
+  if ExcessAfterBoundary(LEffects, LWasEstablished) then
   begin
     FDriver.Apply(THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage));
     Exit;

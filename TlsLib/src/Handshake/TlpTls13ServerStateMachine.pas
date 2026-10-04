@@ -476,6 +476,8 @@ resourcestring
     'the retry ClientHello must not re-offer early_data (RFC 8446 4.1.2)';
   SSpuriousFallback =
     'the client signalled TLS_FALLBACK_SCSV but the server supports a higher version';
+  SClientDroppedTls13 =
+    'the second ClientHello no longer offers TLS 1.3 (RFC 8446 4.1.2)';
   SNonEmptyEndOfEarlyData = 'the EndOfEarlyData message must be empty';
   SEchInnerRandomChanged = 'the ClientHelloInner random changed across the HelloRetryRequest';
   SEchAcceptedWithoutHandshake = 'ECH is marked accepted but the handshake state is gone';
@@ -646,8 +648,12 @@ begin
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.InappropriateFallback, @SSpuriousFallback);
 
-  // version is confirmed via supported_versions
+  // version is confirmed via supported_versions; a second ClientHello may not drop 1.3 after the
+  // first offered it (RFC 8446 4.1.2)
   FParams.Policy.SelectVersion(AContext.SupportedVersions);
+  if not LClientOffersTls13 then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.ProtocolVersion, @SClientDroppedTls13);
 
   // legacy_compression_methods must be exactly the null method in TLS 1.3 (RFC 8446 4.1.2),
   // enforced once 1.3 is selected (a lower version tolerates a longer list; the decode already
