@@ -45,13 +45,24 @@ type
       const APolicy: TCertificateStrengthPolicy): Boolean; static;
     class function CheckCertificate(const AInspector: ICertificateInspector;
       const ADer: TBytes; AIssuerKeyIsPss: Boolean;
-      const APolicy: TCertificateStrengthPolicy;
+      const APolicy: TCertificateStrengthPolicy; AFilterSchemes: Boolean;
+      const AAdvertised: TArray<UInt16>; out AAlert: TTlsAlertDescription): Boolean; static;
+    class function Walk(const AInspector: ICertificateInspector;
+      const AChain, ARoots: TArray<TBytes>;
+      const APolicy: TCertificateStrengthPolicy; AFilterSchemes: Boolean;
       const AAdvertised: TArray<UInt16>; out AAlert: TTlsAlertDescription): Boolean; static;
   public
     class function Check(const AInspector: ICertificateInspector;
       const AChain, ARoots: TArray<TBytes>;
       const APolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>; out AAlert: TTlsAlertDescription): Boolean; static;
+    /// <summary>
+    /// The always-on floor for a verifier with no advertised-scheme set: the MD5/SHA-1 refusal and
+    /// the default key-strength floors, without the advertised-scheme filter.
+    /// </summary>
+    class function CheckBaseline(const AInspector: ICertificateInspector;
+      const AChain, ARoots: TArray<TBytes>;
+      out AAlert: TTlsAlertDescription): Boolean; static;
   end;
 
 implementation
@@ -147,7 +158,8 @@ end;
 class function TChainAlgorithmPolicy.CheckCertificate(
   const AInspector: ICertificateInspector; const ADer: TBytes;
   AIssuerKeyIsPss: Boolean; const APolicy: TCertificateStrengthPolicy;
-  const AAdvertised: TArray<UInt16>; out AAlert: TTlsAlertDescription): Boolean;
+  AFilterSchemes: Boolean; const AAdvertised: TArray<UInt16>;
+  out AAlert: TTlsAlertDescription): Boolean;
 var
   LCert: IInspectedCertificate;
   LSig: TCertSignatureFacts;
@@ -171,11 +183,14 @@ begin
     AAlert := TTlsAlertDescription.BadCertificate;
     Exit(False);
   end;
-  LRequired := RequiredScheme(LSig.Family, LSig.Hash, LSig.PssCanonical, AIssuerKeyIsPss);
-  if (LRequired = 0) or not (TArrayUtilities.Contains<UInt16>(AAdvertised, LRequired)) then
+  if AFilterSchemes then
   begin
-    AAlert := TTlsAlertDescription.UnsupportedCertificate;
-    Exit(False);
+    LRequired := RequiredScheme(LSig.Family, LSig.Hash, LSig.PssCanonical, AIssuerKeyIsPss);
+    if (LRequired = 0) or not (TArrayUtilities.Contains<UInt16>(AAdvertised, LRequired)) then
+    begin
+      AAlert := TTlsAlertDescription.UnsupportedCertificate;
+      Exit(False);
+    end;
   end;
   if not LCert.KeyFacts(LKey) then
   begin
@@ -194,6 +209,21 @@ class function TChainAlgorithmPolicy.Check(const AInspector: ICertificateInspect
   const AChain, ARoots: TArray<TBytes>;
   const APolicy: TCertificateStrengthPolicy;
   const AAdvertised: TArray<UInt16>; out AAlert: TTlsAlertDescription): Boolean;
+begin
+  Result := Walk(AInspector, AChain, ARoots, APolicy, True, AAdvertised, AAlert);
+end;
+
+class function TChainAlgorithmPolicy.CheckBaseline(const AInspector: ICertificateInspector;
+  const AChain, ARoots: TArray<TBytes>; out AAlert: TTlsAlertDescription): Boolean;
+begin
+  Result := Walk(AInspector, AChain, ARoots, TCertificateStrengthPolicy.Defaults, False,
+    nil, AAlert);
+end;
+
+class function TChainAlgorithmPolicy.Walk(const AInspector: ICertificateInspector;
+  const AChain, ARoots: TArray<TBytes>;
+  const APolicy: TCertificateStrengthPolicy; AFilterSchemes: Boolean;
+  const AAdvertised: TArray<UInt16>; out AAlert: TTlsAlertDescription): Boolean;
 var
   LI: Int32;
   LIssuerKeyIsPss: Boolean;
@@ -210,7 +240,7 @@ begin
     LIssuerKeyIsPss := (LI + 1 < System.Length(AChain)) and
       (AInspector.KeyIsRsaPss(AChain[LI + 1]) = TCertAnswer.Yes);
     if not CheckCertificate(AInspector, AChain[LI], LIssuerKeyIsPss, APolicy,
-      AAdvertised, AAlert) then
+      AFilterSchemes, AAdvertised, AAlert) then
       Exit(False);
   end;
 end;

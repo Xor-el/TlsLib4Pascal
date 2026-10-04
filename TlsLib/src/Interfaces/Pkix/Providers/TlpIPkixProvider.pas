@@ -247,7 +247,8 @@ type
     /// key permits cRLSign, no unrecognized critical extension, not a delta or indirect CRL,
     /// and any issuingDistributionPoint covers the leaf's certificate kind, all reasons and one
     /// of its own distribution points), enforces its thisUpdate/nextUpdate freshness window at
-    /// AValidationTimeUtc (so the caller's injected clock drives it, not the wall clock), then
+    /// AValidationTimeUtc (so the caller's injected clock drives it, not the wall clock; a CRL
+    /// without nextUpdate is current for only 7 days after thisUpdate), then
     /// reports whether the leaf serial is listed with a revoking reason (removeFromCRL is not
     /// one; certificateHold is). Returns True when the CRL parsed, verified, is in scope and is
     /// current (ARevoked then meaningful); False on a malformed, unverifiable, wrong-scope or

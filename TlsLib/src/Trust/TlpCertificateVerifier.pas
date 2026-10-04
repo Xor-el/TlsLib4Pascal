@@ -119,9 +119,10 @@ type
     /// certificate the client actually asked to have stapled (RFC 7633 4.3.3).</summary>
     FStatusRequestOffered: Boolean;
     FOccasion: TVerificationOccasion;
-    /// <summary>The chain-algorithm policy (advertised-scheme filter + key-strength floors),
-    /// applied only when the engine set it via SetChainAlgorithmPolicy; a verifier built through
-    /// the bare constructors (no advertised set to filter against) does not run it.</summary>
+    /// <summary>The advertised-scheme filter and caller-chosen key-strength floors, applied only
+    /// when the engine set them via SetChainAlgorithmPolicy. When unset (the bare constructors
+    /// have no advertised set to filter against) the pipeline still applies the baseline: the
+    /// MD5/SHA-1 refusal and the default key-strength floors.</summary>
     FChainPolicyEnabled: Boolean;
     FStrengthPolicy: TCertificateStrengthPolicy;
     FAdvertisedSchemes: TArray<UInt16>;
@@ -157,10 +158,11 @@ type
     constructor Create(const APkix: IPkixProvider; const AClock: ITlsClock;
       const ATrustStore: ITrustAnchorStore; ACheckHostName: Boolean;
       const AOptions: TCertificateVerifierOptions); overload;
-    /// <summary>Turns on the chain-algorithm policy for this verifier: the peer chain must be
+    /// <summary>Arms the full chain-algorithm policy for this verifier: the peer chain must be
     /// signed only with a scheme in AAdvertised (and never MD5/SHA-1) and its keys must meet
     /// APolicy. The engine calls this from the verifier source with the connection's advertised
-    /// signature schemes; a bare-constructed verifier leaves it off.</summary>
+    /// signature schemes; a bare-constructed verifier gets only the baseline (MD5/SHA-1 refusal
+    /// and the default key-strength floors) with no scheme filter.</summary>
     procedure SetChainAlgorithmPolicy(const APolicy: TCertificateStrengthPolicy;
       const AAdvertised: TArray<UInt16>);
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
@@ -478,9 +480,15 @@ begin
   // chain-algorithm policy over the validated chain: every non-anchor certificate must be
   // signed with an advertised scheme (MD5/SHA-1 refused outright) and meet the key-strength
   // floors. Post-PKIX so it sees the assembled path; the anchor exemption keys off the roots.
-  if FChainPolicyEnabled and
-    (not TChainAlgorithmPolicy.Check(FPkix.Certificates, LEffectiveChain,
-    LRoots, FStrengthPolicy, FAdvertisedSchemes, AAlert)) then
+  // A verifier without an armed policy still gets the weak-hash refusal and default floors.
+  if FChainPolicyEnabled then
+  begin
+    if not TChainAlgorithmPolicy.Check(FPkix.Certificates, LEffectiveChain,
+      LRoots, FStrengthPolicy, FAdvertisedSchemes, AAlert) then
+      Exit;
+  end
+  else if not TChainAlgorithmPolicy.CheckBaseline(FPkix.Certificates, LEffectiveChain,
+    LRoots, AAlert) then
     Exit;
 
   // revocation via the stapled OCSP response (RFC 6960), in-band only; run over the validated

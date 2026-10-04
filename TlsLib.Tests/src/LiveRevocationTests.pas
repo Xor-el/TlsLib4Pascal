@@ -118,6 +118,7 @@ type
       const AChain: TArray<TBytes>): Boolean;
   published
     procedure TestInScopeCrlsAreAuthoritative;
+    procedure TestCrlWithoutNextUpdateIsAgeBounded;
     procedure TestWrongShardCrlIsIndeterminate;
     procedure TestOnlyContainsCaCertsCrlIsIndeterminateForLeaf;
     procedure TestOnlyContainsUserCertsCrlCoversLeaf;
@@ -854,6 +855,23 @@ begin
   CheckClassified('crl_shard1_clean', 'Good', 'the leaf shard does not list the serial');
   CheckClassified('crl_noidp_revoked', 'Revoked', 'a whole-scope CRL lists the serial');
   CheckClassified('crl_noidp_clean', 'Good', 'a whole-scope CRL does not list the serial');
+end;
+
+procedure TTestCrlScope.TestCrlWithoutNextUpdateIsAgeBounded;
+var
+  LRevoked: Boolean;
+  LThisUpdate, LNextUpdate: TDateTime;
+begin
+  // a CRL that omits nextUpdate is current only for a bounded time after thisUpdate (2020-01-01),
+  // so replaying it years later cannot mask a revocation
+  CheckClassified('crl_noidp_nonextupdate', 'Indeterminate', 'years past thisUpdate');
+  CheckTrue(Pkix.Revocation.CheckCrlRevocation(Field('leaf_cert'), Field('ca_cert'),
+    Field('crl_noidp_nonextupdate'), EncodeDate(2020, 1, 3), LRevoked, LThisUpdate,
+    LNextUpdate), 'authoritative shortly after thisUpdate');
+  CheckFalse(LRevoked, 'the leaf is not listed');
+  CheckFalse(Pkix.Revocation.CheckCrlRevocation(Field('leaf_cert'), Field('ca_cert'),
+    Field('crl_noidp_nonextupdate'), EncodeDate(2020, 1, 9), LRevoked, LThisUpdate,
+    LNextUpdate), 'indeterminate once past the age bound');
 end;
 
 procedure TTestCrlScope.TestWrongShardCrlIsIndeterminate;

@@ -1231,6 +1231,9 @@ end;
 function TRevocationChecker.CheckCrlRevocation(const ALeafCert, AIssuerCert,
   ACrlDer: TBytes; const AValidationTimeUtc: TDateTime; out ARevoked: Boolean;
   out AThisUpdate, ANextUpdate: TDateTime): Boolean;
+const
+  // how long after thisUpdate a CRL with no nextUpdate is still treated as current
+  CrlUnboundedMaxAgeMs = Int64(7) * 24 * 60 * 60 * 1000;
 var
   LParser: IX509CertificateParser;
   LLeaf, LIssuer: IX509Certificate;
@@ -1271,9 +1274,13 @@ begin
     LNowMs := TDateTimeUtilities.DateTimeToUnixMs(AValidationTimeUtc);
     if LNowMs < TDateTimeUtilities.DateTimeToUnixMs(AThisUpdate) then
       Exit;
-    if LCrl.NextUpdate.HasValue and
-      (LNowMs >= TDateTimeUtilities.DateTimeToUnixMs(ANextUpdate)) then
-      Exit;
+    if LCrl.NextUpdate.HasValue then
+    begin
+      if LNowMs >= TDateTimeUtilities.DateTimeToUnixMs(ANextUpdate) then
+        Exit;
+    end
+    else if (LNowMs - TDateTimeUtilities.DateTimeToUnixMs(AThisUpdate)) > CrlUnboundedMaxAgeMs then
+      Exit; // nextUpdate is mandatory (RFC 5280 5.1.2.5), so an omitting CRL is only briefly current
     LEntry := LCrl.GetRevokedCertificate(LLeaf.SerialNumber);
     if LEntry = nil then
       ARevoked := False
