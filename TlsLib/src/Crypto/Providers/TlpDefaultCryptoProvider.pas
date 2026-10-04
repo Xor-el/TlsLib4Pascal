@@ -199,6 +199,7 @@ resourcestring
   SAeadBadOverlap = 'the AEAD source and destination may only alias at the same offset';
   SAeadNotKeyed = 'the AEAD cipher has no key; call Init before Seal or Open';
   SAeadSealRejected = 'the AEAD Seal was rejected (nonce reuse or an invalid parameter)';
+  SAeadOpenRejected = 'the AEAD Open failed for a reason other than authentication';
   SDegenerateSharedSecret = 'the peer key produced a degenerate all-zero shared secret';
   SInvalidPeerPoint = 'the peer public point is not a valid curve point';
   SInvalidCiphertext = 'the peer ciphertext could not be decapsulated';
@@ -209,7 +210,6 @@ resourcestring
   SUnsupportedKeyAlgorithm = 'the private key uses an algorithm this library cannot sign with';
   SForeignSigningKey = 'the signing key was not produced by this provider';
   SMalformedPublicKey = 'the public key could not be parsed as a SubjectPublicKeyInfo';
-  SSchemeKeyFamilyMismatch = 'the signature scheme does not match the key algorithm family';
   SSchemeNotCapable = 'the signing key cannot sign with the requested signature scheme';
   SKeyUnusableForScheme = 'the key cannot be used with the requested signature scheme';
   SInvalidScalarSize =
@@ -412,6 +412,14 @@ type
     FSigner: ISigner;
   public
     constructor Create(const ASigner: ISigner);
+    procedure Update(const AData: TBytes; AOffset, ALength: Int32);
+    function Verify(const ASignature: TBytes): Boolean;
+  end;
+
+  /// <summary>A verifier that always reports failure, for a scheme/key-family mismatch that can
+  /// never verify: the caller then aborts decrypt_error rather than seeing a raised error.</summary>
+  TFailClosedSignatureVerifier = class(TInterfacedObject, ISignatureVerifier)
+  public
     procedure Update(const AData: TBytes; AOffset, ALength: Int32);
     function Verify(const ASignature: TBytes): Boolean;
   end;
@@ -882,6 +890,9 @@ begin
     on E: EInvalidCipherTextCryptoLibException do
       raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.BadRecordMac,
         @SAeadAuthFailed);
+    // any other backend fault must not cross the seam raw (a trial-decrypt miss would become a fault)
+    on E: ECryptoLibException do
+      raise EInvalidOperationTlsLibException.CreateRes(@SAeadOpenRejected);
   end;
 end;
 
@@ -1322,6 +1333,17 @@ begin
     on E: Exception do
       Result := False;
   end;
+end;
+
+{ TFailClosedSignatureVerifier }
+
+procedure TFailClosedSignatureVerifier.Update(const AData: TBytes; AOffset, ALength: Int32);
+begin
+end;
+
+function TFailClosedSignatureVerifier.Verify(const ASignature: TBytes): Boolean;
+begin
+  Result := False;
 end;
 
 { TStaticPasswordFinder }
@@ -1972,17 +1994,19 @@ begin
   try
     LKey := TPublicKeyFactory.CreateKey(APublicKeyDer);
   except
-    on E: ECryptoLibException do
+    on E: EBaseTlsLibException do
+      raise;
+    // a malformed SPKI can also surface as a range/convert error from the ASN.1/bignum layer, not
+    // only a backend exception; map every such failure to the typed malformed-key error
+    on E: Exception do
       raise EArgumentTlsLibException.CreateRes(@SMalformedPublicKey);
   end;
   // bind the scheme's key family to the key: an EC key under rsa_pss_rsae_*, or an RSA key under
-  // ecdsa_*, could otherwise reach a backend signer that raises an untyped exception (RFC 8446
-  // 4.2.3). Fail closed on a key family we cannot classify too: every catalogued scheme signs with
-  // one of the four known families, so an unclassifiable key can never verify any scheme, and
-  // letting it reach the backend risks a raw cast exception crossing the seam. The curve-vs-scheme
-  // bind stays a TLS 1.3 handshake concern (TCertificateVerify).
+  // ecdsa_*, and an unclassifiable key, can never verify the scheme (RFC 8446 4.2.3). Return a
+  // fail-closed verifier so the outcome is decrypt_error (native-provider parity), not a raised
+  // error. The curve-vs-scheme bind stays a TLS 1.3 handshake concern (TCertificateVerify).
   if (not KeyKindOf(LKey, LKind)) or (LKind <> AScheme.KeyKind) then
-    raise EArgumentTlsLibException.CreateRes(@SSchemeKeyFamilyMismatch);
+    Exit(TFailClosedSignatureVerifier.Create as ISignatureVerifier);
   try
     LSigner := TSignerUtilities.GetSigner(SignerMechanismForScheme(AScheme));
     LSigner.Init(False, LKey);

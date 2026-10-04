@@ -122,10 +122,11 @@ type
   end;
 
   /// <summary>
-  /// The peer closed the transport (EOF) with the exchange unfinished and without a
-  /// close_notify - a possible truncation attack (RFC 8446 6.1). Distinct from a clean
-  /// close_notify shutdown, which the stream surfaces as an ordinary EOF. On a server this
-  /// is usually benign - a client that walked away mid-handshake - and belongs at info level.
+  /// The peer ended the exchange before the handshake completed - a transport EOF, or a
+  /// close_notify (which is not a clean shutdown until the handshake completes). After the
+  /// handshake, only an EOF without close_notify is a truncation (RFC 8446 6.1); a clean
+  /// close_notify is surfaced as an ordinary EOF. On a server this is usually benign - a peer
+  /// that walked away mid-handshake - and belongs at info level.
   /// </summary>
   ETlsTransportTruncated = class(ETlsStreamError);
 

@@ -205,6 +205,7 @@ resourcestring
   SLocalFatalAlert = 'a fatal alert was sent';
   SInboundBacklogFull =
     'the framed inbound backlog is full; pull/read before feeding more input (honor WantsRead)';
+  SProcessInputSliceOutOfRange = 'the ProcessInput (offset, length) slice is out of range';
   SWriteAfterClose =
     'Write after the write side was closed (close_notify sent, or received under TLS 1.2) ' +
     'or the connection failed';
@@ -637,6 +638,12 @@ function TTlsEngine.ProcessInput(const AWire: TBytes; AOffset,
 begin
   if FDraining then
     raise EInvalidOperationTlsLibException.CreateRes(@SReentrantEngineCall);
+  // an out-of-range slice is caller misuse, not a peer fault: reject it up front rather than let it
+  // reach the failure gate (where a peer-input error, which shares the argument-exception base,
+  // correctly becomes a wire alert). The record layer re-checks this as its own defensive guard.
+  if (AOffset < 0) or (ALength < 0) or
+    (Int64(AOffset) + ALength > System.Length(AWire)) then
+    raise EArgumentTlsLibException.CreateRes(@SProcessInputSliceOutOfRange);
   if FTerminal then
     Exit(TTlsOutcome.Fatal);
   // after an inbound close_notify the peer's write side is closed: discard anything it keeps
@@ -703,8 +710,9 @@ begin
     except
       on E: Exception do
       begin
+        // re-raise so a failed write is reported rather than silently dropped
         Fail(E);
-        Exit;
+        raise;
       end;
     end;
   LOffset := AOffset;
@@ -736,8 +744,9 @@ begin
       except
         on E: Exception do
         begin
+          // re-raise so a mid-write rekey failure is reported rather than silently dropped
           Fail(E);
-          Exit;
+          raise;
         end;
       end;
     // still at the threshold means the epoch could not be rekeyed (TLS 1.2, or pre-completion):

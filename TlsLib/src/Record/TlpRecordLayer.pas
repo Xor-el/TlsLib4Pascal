@@ -596,6 +596,7 @@ end;
 function TRecordLayer.NextIncoming(out AFragment: TTlsRecordFragment): Boolean;
 var
   LRecord: TBytes;
+  LPlaintextLen: Int32;
 begin
   GuardUsable;
   Result := False;
@@ -635,10 +636,13 @@ begin
           begin
             if AFragment.ContentType = TTlsContentType.ApplicationData then
             begin
-              if System.Length(LRecord) > FEarlyDataSkipRemaining then
+              // charge the plaintext length (max_early_data_size is a plaintext budget, RFC 8446
+              // 4.6.1): a plaintext record under the null epoch carries only the record header
+              LPlaintextLen := System.Length(LRecord) - TRecordLimits.HeaderLength;
+              if LPlaintextLen > FEarlyDataSkipRemaining then
                 raise EFatalAlertTlsLibException.CreateRes(
                   TTlsAlertDescription.UnexpectedMessage, @STooMuchSkippedEarlyData);
-              Dec(FEarlyDataSkipRemaining, System.Length(LRecord));
+              Dec(FEarlyDataSkipRemaining, LPlaintextLen);
               Continue; // skip this early-data record
             end;
             FEarlyDataSkipRemaining := 0; // a handshake record: the skip window ends
@@ -648,11 +652,16 @@ begin
         except
           on E: EFatalAlertTlsLibException do
           begin
+            // the record is encrypted under keys the server discarded; charge the record payload
+            // (length less the record header) against the budget, as the accepted path does
+            LPlaintextLen := System.Length(LRecord) - TRecordLimits.HeaderLength;
+            if LPlaintextLen < 0 then
+              LPlaintextLen := 0;
             if (E.AlertDescription = TTlsAlertDescription.BadRecordMac) and
               (System.Length(LRecord) > 0) and (LRecord[0] = OuterApplicationData) and
-              (System.Length(LRecord) <= FEarlyDataSkipRemaining) then
+              (LPlaintextLen <= FEarlyDataSkipRemaining) then
             begin
-              Dec(FEarlyDataSkipRemaining, System.Length(LRecord));
+              Dec(FEarlyDataSkipRemaining, LPlaintextLen);
               Continue; // skip this early-data record the server cannot read
             end;
             raise;

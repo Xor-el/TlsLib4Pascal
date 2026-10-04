@@ -842,10 +842,14 @@ begin
   LN := 0;
   for LI := 0 to System.High(CKdfs) do
     for LJ := 0 to System.High(CAeads) do
-    begin
-      Result[LN] := THpkeSuiteId.Create(AKem, CKdfs[LI], CAeads[LJ]);
-      Inc(LN);
-    end;
+      // advertise only a suite this provider can actually instantiate (Suite honors the capability
+      // probes), so a caller never offers one whose Encap/SetupOpener would then fail
+      if Suite(AKem, CKdfs[LI], CAeads[LJ]) <> nil then
+      begin
+        Result[LN] := THpkeSuiteId.Create(AKem, CKdfs[LI], CAeads[LJ]);
+        Inc(LN);
+      end;
+  SetLength(Result, LN);
 end;
 
 function THpkeComposition.ValidatePublicKey(AKem: UInt16;

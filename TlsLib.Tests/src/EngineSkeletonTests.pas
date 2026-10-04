@@ -52,6 +52,7 @@ type
     procedure TestCleartextApplicationDataBeforeKeysIsFatal;
     procedure TestWriteBeforeWriteEpochIsRefused;
     procedure TestZeroLengthWriteBeforeEpochIsRefused;
+    procedure TestOutOfRangeSliceRaisesWithoutTerminating;
     procedure TestAlertBetweenHandshakeFragmentsIsUnexpected;
     procedure TestReceivedCloseNotify;
     procedure TestReceivedFatalAlertIsTerminal;
@@ -226,6 +227,29 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a zero-length write before a write epoch is still refused');
+end;
+
+procedure TTestEngineSkeleton.TestOutOfRangeSliceRaisesWithoutTerminating;
+var
+  LEngine: ITlsEngine;
+  LWire: TBytes;
+  LRaised: Boolean;
+begin
+  // an out-of-range (AOffset, ALength) is caller misuse, not a peer fault: it raises an API-misuse
+  // exception and must NOT put an internal_error on the wire or make the engine terminal, so the
+  // caller can correct the slice and continue
+  LEngine := NewEngine;
+  LWire := DecodeHex('1703030000');
+  LRaised := False;
+  try
+    LEngine.ProcessInput(LWire, 0, System.Length(LWire) + 100);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an out-of-range slice raises an argument error');
+  CheckFalse(LEngine.IsTerminal, 'a caller slice error does not make the engine terminal');
+  CheckEquals(0, System.Length(TakeAll(LEngine)), 'no alert was put on the wire');
 end;
 
 procedure TTestEngineSkeleton.TestAlertBetweenHandshakeFragmentsIsUnexpected;
