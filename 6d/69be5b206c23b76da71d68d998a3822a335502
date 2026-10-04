@@ -1,0 +1,89 @@
+TlsLib.Tests/src/AppleAlertMapTests.pas
+  s_d27f31cd14035d::t_96e83ce243d8b5 115
+  s_d27f31cd14035d::t_400252a24b723d 40
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_d27f31cd14035d::t_51caf06c8ec380 649
+  s_d27f31cd14035d::t_6532abc1563740 1793
+  s_d27f31cd14035d::t_3bbeee1db0210e 2106
+  s_d27f31cd14035d::t_39676ab3d58475 1318-1345
+  s_d27f31cd14035d::t_7c772c198e8a45 208
+  s_d27f31cd14035d::t_63061ac62ae51d 1036,1083,1108,1364,1400
+  s_d27f31cd14035d::t_c55e569d817119 45
+TlsLib.Trust.System/src/TlpOSSystemTrust.pas
+  s_d27f31cd14035d::t_38406e50fff033 214,250
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  s_d27f31cd14035d::t_2285ff38f4cebf 76
+  s_d27f31cd14035d::t_f3b76168a5abf9 638-648,650,659-660
+  s_d27f31cd14035d::t_b4014edee3a4db 70-72,78-79
+  s_d27f31cd14035d::t_0a8cca4b22f157 136-138,141-143
+  s_d27f31cd14035d::t_985e56ca0fd97c 172
+  s_d27f31cd14035d::t_c9e93a2d98bb64 191-206
+  s_d27f31cd14035d::t_97656b3d9c1d0c 182
+  s_d27f31cd14035d::t_49030925adf7fc 674-675,678-709
+  s_d27f31cd14035d::t_27d7b864db18ac 720-721,723-724
+  s_d27f31cd14035d::t_c47c2fb2e0e963 649,651-658,661-673,676-677,710-719,722,725-765
+  s_d27f31cd14035d::t_227593ba7a0af1 73-75,77
+  s_d27f31cd14035d::t_51df08371208b2 139-140
+  s_d27f31cd14035d::t_64d5978f94d714 32-34
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_d27f31cd14035d::t_c073328408a4a9 1546,1549
+  s_d27f31cd14035d::t_d1edcb667c2601 162,1572,1585-1610
+  s_d27f31cd14035d::t_9b0da1cf5332ea 1563
+TlsLib/src/Trust/TlpCertificateLimits.pas
+  s_d27f31cd14035d::t_5b7115eb9ca2a9 28-30
+  s_d27f31cd14035d::t_26bce2a3a6add3 61-80
+  s_d27f31cd14035d::t_2b09b4727bd447 25
+  s_d27f31cd14035d::t_0da93aaf947fcc 42-46,48-50
+TlsLib.Tests/src/HandshakeMessagesTests.pas
+  s_d27f31cd14035d::t_bd798d783bf368 296-323
+  s_d27f31cd14035d::t_fc46a24698f5c1 53
+TlsLib/src/Engine/TlpTlsPresets.pas
+  s_d27f31cd14035d::t_c53c7b70503d4b 125,128
+TlsLib/src/Pkix/Providers/TlpDefaultPkixProvider.pas
+  s_d27f31cd14035d::t_957d33c750079b 562-573
+  s_d27f31cd14035d::t_8fcca36bb6284d 725,727
+  s_d27f31cd14035d::t_3784c92daa93a6 164-166
+  s_d27f31cd14035d::t_e4bc73e933d137 810-813
+  s_d27f31cd14035d::t_978a52eee56e33 820-822,824-829,831-835
+  s_d27f31cd14035d::t_a8ae4f860bfb35 716-720
+  s_d27f31cd14035d::t_49e8e281de9b59 751-755
+  s_d27f31cd14035d::t_4074626b3fe577 715
+  s_d27f31cd14035d::t_17ada028bbc0b1 777-783
+TlsLib.Tests/src/PresetTests.pas
+  s_d27f31cd14035d::t_36e9a05fb36b3d 105-106
+TlsLib/src/Trust/TlpCertificateVerifier.pas
+  s_d27f31cd14035d::t_d74cec402e2638 451-454
+TlsLib.Trust.System/src/TlpOSDelegateVerifier.pas
+  s_d27f31cd14035d::t_0e191d3bb10738 48
+  s_d27f31cd14035d::t_9eaa8b854b4cdb 186
+  s_d27f31cd14035d::t_2169a6c54f7110 164
+  s_d27f31cd14035d::t_0a4837d2e2554a 330-335
+  s_d27f31cd14035d::t_ef04168861a228 361-365
+  s_d27f31cd14035d::t_9082568d8d36ac 25
+TlsLib/src/Handshake/TlpHandshakeMessages.pas
+  s_d27f31cd14035d::t_86d3ab29faf2d6 550
+  s_d27f31cd14035d::t_1aa1c093e8af25 535-536,544-545,547,549,553-562,751
+  s_d27f31cd14035d::t_a19fd33efe8686 728-729,735-736,738,740,743-750
+  s_d27f31cd14035d::t_4f5625ae02c841 272
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_d27f31cd14035d::t_439ca1354a8f5f 1971-1973,1976-1977
+  s_d27f31cd14035d::t_8a9cd43a272f62 375
+TlsLib.Tests/Data/Certs/PathBuildFlood.txt
+  s_d27f31cd14035d::t_e2392ed0f876d7 1-72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6d69be5b206c23b76da71d68d998a3822a335502",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
