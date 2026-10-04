@@ -1,0 +1,31 @@
+TlsLib.Adapters/mORMot/README.md
+  s_d27f31cd14035d::t_62548a07e0b260 60-66
+  s_d27f31cd14035d::t_3555829facc860 38-45
+TlsLib.Adapters/mORMot/Adapter/TlsLibMormotTls.pas
+  s_d27f31cd14035d::t_b8cd8f0f246bf0 419-422
+  s_d27f31cd14035d::t_ab9b47f1944735 147
+  s_d27f31cd14035d::t_e4f7cfdf2caec1 144-146,148,201-217,459-497,503-504,517,555-556,558
+TlsLib.Adapters/mORMot/Examples/src/MormotLoopbackExample.pas
+  s_d27f31cd14035d::t_c2f6b9132fb3cb 359-361
+  s_d27f31cd14035d::t_f3e567b0a87632 44
+  s_d27f31cd14035d::t_c5622045410138 75-89,92-116
+  s_d27f31cd14035d::t_aa9ecb7b2d65d9 313
+  s_d27f31cd14035d::t_3886540c546b70 353,357-358,362-364
+  s_d27f31cd14035d::t_57bc5b8f72e7df 90-91,117-202
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "532a98be16c8dfe872620f993b6ad08a98f163a1",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
