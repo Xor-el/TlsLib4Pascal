@@ -44,6 +44,7 @@ uses
   TlpITlsConfigMemo,
   TlpTlsConfigMemo,
   TlpITlsTransport,
+  TlpIClock,
   TlpTlsLibExceptions,
   TlpTlsConnection,
   TlsLibTestBase;
@@ -119,6 +120,9 @@ type
     procedure TestServerModeWithoutSourceRaises;
     procedure TestServerGuardAllowsClientOnlyOptions;
     procedure TestClientGuardFlagsServerCertVerifier;
+    procedure TestServerVerifyCallbackForwardedUnderClientAuth;
+    procedure TestServerGuardFlagsVerifyCallback;
+    procedure TestTransportCapIsAnAbsoluteDeadline;
     // timed transport
     procedure TestTransportTimesOutWhenSilent;
     procedure TestTransportReturnsDataWhenReadable;
@@ -171,16 +175,21 @@ type
     FReceiveNegative: Boolean;
     FMaxSend: Int32;
     FOutbound: TBytes;
+    FLastWaitMs: Int32;
   strict protected
     function WaitReadable(AMs: Int32): Boolean; override;
     function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
   public
-    constructor Create(const AInbound: TBytes; AReadable: Boolean);
+    constructor Create(const AInbound: TBytes; AReadable: Boolean); overload;
+    constructor Create(const AInbound: TBytes; AReadable: Boolean;
+      const AClock: ITlsClock); overload;
     function ArmedTimeout: Int32;
     property Outbound: TBytes read FOutbound;
     property ReceiveNegative: Boolean read FReceiveNegative write FReceiveNegative;
     property MaxSend: Int32 read FMaxSend write FMaxSend;
+    /// <summary>The wait budget the last readiness check was given.</summary>
+    property LastWaitMs: Int32 read FLastWaitMs;
   end;
 
 { TFakeSystemTrustInstaller }
@@ -224,7 +233,13 @@ end;
 
 constructor TTestMemoryTransport.Create(const AInbound: TBytes; AReadable: Boolean);
 begin
-  inherited Create;
+  Create(AInbound, AReadable, TAdjustableClock.Create(0) as ITlsClock);
+end;
+
+constructor TTestMemoryTransport.Create(const AInbound: TBytes; AReadable: Boolean;
+  const AClock: ITlsClock);
+begin
+  inherited Create(AClock);
   FInbound := AInbound;
   FInPos := 0;
   FReadable := AReadable;
@@ -238,6 +253,7 @@ end;
 
 function TTestMemoryTransport.WaitReadable(AMs: Int32): Boolean;
 begin
+  FLastWaitMs := AMs;
   Result := FReadable;
 end;
 
@@ -1145,10 +1161,9 @@ var
   LOpts: TTlsOptions;
   LRaised: Boolean;
 begin
-  // the augment callback, the server-cert verifier and system trust are client-only reads, so they do
-  // not conflict with a supplied server config; a shared option (a certificate) still does
+  // the server-cert verifier and system trust are client-only reads, so they do not conflict with a
+  // supplied server config; a shared option (a certificate) still does
   LOpts := TTlsOptions.Default;
-  LOpts.VerifyCallback := StubVerifyCallback;
   LOpts.ServerCertificateVerifier := TFakeServerVerifier.Create as IServerCertificateVerifier;
   LOpts.SystemTrust := TFakeSystemTrustInstaller.Create(False, EcP256RootStore)
     as ISystemTrustInstaller;
@@ -1164,6 +1179,83 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a shared cert/trust option still conflicts with a server config-in');
+end;
+
+procedure TTestTlsConnection.TestServerVerifyCallbackForwardedUnderClientAuth;
+var
+  LOpts, LWithout: TTlsOptions;
+  LConfig: ITlsServerConfig;
+begin
+  // the augment-only hook vets a presented client chain, so an operator's allow-list must run
+  LOpts := ServerOptsWithCredential;
+  LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(TTlsBlobSource.FromBytes(RootAnchor));
+  LOpts.ClientAuth := TClientAuthMode.Required;
+  LOpts.VerifyCallback := StubVerifyCallback;
+  LConfig := TTlsConfigComposer.BuildServerConfig(LOpts);
+  CheckTrue(Assigned(LConfig.DangerousTrust.VerifyCallback),
+    'the verify callback is wired into the server under client auth');
+  LWithout := LOpts;
+  LWithout.VerifyCallback := nil;
+  CheckFalse(TTlsConfigComposer.ServerSignature(LOpts) =
+    TTlsConfigComposer.ServerSignature(LWithout),
+    'the callback is part of the server memo key');
+end;
+
+procedure TTestTlsConnection.TestServerGuardFlagsVerifyCallback;
+var
+  LOpts: TTlsOptions;
+  LRaised: Boolean;
+begin
+  // a supplied server config would silently drop the callback, so it conflicts
+  LOpts := TTlsOptions.Default;
+  LOpts.VerifyCallback := StubVerifyCallback;
+  LOpts.ServerConfig := TTlsConfigComposer.BuildServerConfig(ServerOptsWithCredential);
+  LRaised := False;
+  try
+    TTlsConfigComposer.ResolveServerConfig(LOpts, NewTlsServerConfigMemo, 'ServerConfig');
+  except
+    on E: ETlsStreamError do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a verify callback conflicts with a server config-in');
+end;
+
+procedure TTestTlsConnection.TestTransportCapIsAnAbsoluteDeadline;
+var
+  LTransport: TTestMemoryTransport;
+  LTimed: ITlsTransport;
+  LClockObj: TAdjustableClock;
+  LClock: ITlsClock;
+  LBuf, LInbound: TBytes;
+  LRaised: Boolean;
+begin
+  // every read finds data inside the cap, but the cap is spent over the whole handshake: each read
+  // is given only the time left, and a read past the deadline raises
+  LInbound := nil;
+  SetLength(LInbound, 200);
+  LClockObj := TAdjustableClock.Create(1000);
+  LClock := LClockObj;
+  LTransport := TTestMemoryTransport.Create(LInbound, True, LClock);
+  LTimed := LTransport as ITlsTransport;
+  LTransport.SetReadTimeout(150);
+  SetLength(LBuf, 1);
+  LTimed.Read(LBuf, 0, 1);
+  CheckEquals(150, LTransport.LastWaitMs, 'the first read gets the whole cap');
+  LClockObj.Advance(100);
+  LTimed.Read(LBuf, 0, 1);
+  CheckEquals(50, LTransport.LastWaitMs, 'a later read gets only the time left');
+  LClockObj.Advance(3900); // a clock step far past the deadline
+  LRaised := False;
+  try
+    LTimed.Read(LBuf, 0, 1);
+  except
+    on E: ETlsHandshakeTimeout do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a read past the deadline raises a handshake timeout');
+  LClockObj.Retreat(5000); // a clock step back must not widen the wait past the cap
+  LTimed.Read(LBuf, 0, 1);
+  CheckEquals(150, LTransport.LastWaitMs, 'the wait never exceeds the cap');
 end;
 
 procedure TTestTlsConnection.TestClientGuardFlagsServerCertVerifier;

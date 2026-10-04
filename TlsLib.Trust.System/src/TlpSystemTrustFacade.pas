@@ -16,6 +16,7 @@ unit TlpSystemTrustFacade;
 interface
 
 uses
+  SyncObjs,
   TlpIPkixProvider,
   TlpICertificateTrust,
   TlpICertificateVerifierSource,
@@ -61,7 +62,18 @@ type
   /// config composer adds the OS store without depending on this package.
   /// </summary>
   TSystemTrustInstaller = class sealed(TInterfacedObject, ISystemTrustInstaller)
+  strict private
+  class var
+    FShared: ISystemTrustInstaller;
+    FSharedLock: TCriticalSection;
   public
+    constructor Create; overload;
+    class constructor Create;
+    class destructor Destroy;
+    /// <summary>A process-wide, lazily-created installer. It is stateless, so one instance
+    /// serves every connection and keeps a stable identity for callers that cache by installer.</summary>
+    class function Shared: ISystemTrustInstaller; static;
+
     procedure InstallClientTrust(const ABuilder: ITlsClientConfigBuilder;
       const APkix: IPkixProvider);
   end;
@@ -130,6 +142,34 @@ procedure TSystemTrustInstaller.InstallClientTrust(
   const ABuilder: ITlsClientConfigBuilder; const APkix: IPkixProvider);
 begin
   TSystemTrust.WithSystemTrust(ABuilder, APkix);
+end;
+
+constructor TSystemTrustInstaller.Create;
+begin
+  inherited Create;
+end;
+
+class constructor TSystemTrustInstaller.Create;
+begin
+  FSharedLock := TCriticalSection.Create;
+end;
+
+class destructor TSystemTrustInstaller.Destroy;
+begin
+  FShared := nil;
+  FSharedLock.Free;
+end;
+
+class function TSystemTrustInstaller.Shared: ISystemTrustInstaller;
+begin
+  FSharedLock.Acquire;
+  try
+    if FShared = nil then
+      FShared := TSystemTrustInstaller.Create as ISystemTrustInstaller;
+    Result := FShared;
+  finally
+    FSharedLock.Release;
+  end;
 end;
 
 end.

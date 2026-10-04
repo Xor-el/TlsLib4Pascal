@@ -191,8 +191,8 @@ type
     /// the WithSessionCache call order.</summary>
     function WithResumptionScope(const AScope: TBytes): ITlsClientConfigBuilder;
     /// <summary>The clock the client reads for a resumption PSK's obfuscated_ticket_age and
-    /// ticket-lifetime expiry (RFC 8446 4.2.11 / 4.6.1); nil (the default) uses the system
-    /// clock. Injectable primarily so tests can drive a deterministic time.</summary>
+    /// ticket-lifetime expiry (RFC 8446 4.2.11 / 4.6.1); defaults to the system
+    /// clock, and nil is refused. Injectable primarily so tests can drive a deterministic time.</summary>
     function WithClock(const AClock: ITlsClock): ITlsClientConfigBuilder;
     /// <summary>The out-of-band external pre-shared keys (RFC 9258) the client imports and
     /// offers in the ClientHello (TLS 1.3 only), in preference order. When set, the client
@@ -437,8 +437,8 @@ type
     /// InstallKey (e.g. from a KMS).</summary>
     function WithDefaultSessionTicketKeys: ITlsServerConfigBuilder;
     /// <summary>The clock the server reads for ticket issue time, 0-RTT anti-replay windows and
-    /// certificate/OCSP freshness; nil (the default) uses the system clock. Injectable primarily
-    /// so tests can drive a deterministic time.</summary>
+    /// certificate/OCSP freshness; defaults to the system clock, and nil is refused. Injectable
+    /// primarily so tests can drive a deterministic time.</summary>
     function WithClock(const AClock: ITlsClock): ITlsServerConfigBuilder;
     /// <summary>The lifetime advertised for issued sessions and tickets, in seconds.</summary>
     function WithTicketLifetime(ASeconds: UInt32): ITlsServerConfigBuilder;

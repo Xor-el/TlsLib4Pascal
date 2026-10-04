@@ -168,6 +168,7 @@ type
     /// <summary>Enforces the trust-composition rule at build: a whole-verifier is exclusive
     /// of any anchor source and of a second verifier (typed error).</summary>
     procedure ValidateTrustComposition;
+    procedure ValidateRequiredCollaborators;
     /// <summary>Composes the server credential resolver at build: a custom resolver (exclusive
     /// of the built-in map/credential), else the SNI map plus the single credential as the
     /// default fallback, else nil for a PSK-only server.</summary>
@@ -191,6 +192,14 @@ type
     constructor Create(const ACryptoProvider: ICryptoProvider;
       const APkixProvider: IPkixProvider; const AProfile: TTlsConfigProfile);
   private
+    /// <summary>A credential sharing no mutable byte array (chain, staple) with ACredential, so a
+    /// caller reusing its buffers after Build cannot change what a built config sends or validated.
+    /// The signing key handle is shared by reference.</summary>
+    class function CloneCredential(const ACredential: TTlsCredential): TTlsCredential; static;
+    /// <summary>The PSKs with their identity and context copied (the secret is an immutable
+    /// buffer, shared by reference).</summary>
+    class function CloneExternalPsks(
+      const APsks: TArray<TExternalPsk>): TArray<TExternalPsk>; static;
     // the single-source-of-truth mutators; reached only by the endpoint views and facets
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): TTlsConfigBuilder;
     function WithSignatureSchemes(const ARegistry: ISignatureSchemeRegistry): TTlsConfigBuilder;
@@ -295,6 +304,7 @@ implementation
 resourcestring
   SNilCryptoProvider = 'a crypto provider is required (pass a provider, not nil)';
   SNilPkixProvider = 'a PKIX provider is required (pass a provider, not nil)';
+  SNilClock = 'a clock is required (pass a clock, not nil)';
   SBuilderFrozen = 'the configuration has been built and can no longer be changed';
   SEchBackendWithKeyStore = 'a split-mode ECH backend holds no keys; WithEchSplitModeBackend is ' +
     'mutually exclusive with WithEchKeyStore';
@@ -306,6 +316,8 @@ resourcestring
   SPskOnlyClientNeedsTls13Only = 'a client with external PSKs and no trust source must offer TLS ' +
     '1.3 only (external PSKs are TLS 1.3-only); use a 1.3-only preset or WithSupportedVersions([TLS 1.3])';
   SNoCredential = 'a server configuration requires a certificate credential';
+  SNilNegotiationRegistry = 'the cipher-suite, signature-scheme and named-group registries are required';
+  SNoPreferredGroups = 'at least one preferred key-exchange group is required';
   SNoClientAuthTrustStore = 'client authentication requires a trust source for the client certificate chain';
   SClientVerifierSourceNeedsAnchors = 'a client-certificate verifier source consumes the ' +
     'configured client-CA anchors as its exclusive trust root and can trust nothing without them; ' +
@@ -744,7 +756,7 @@ end;
 
 function TFrozenCommonConfig.Credential: TTlsCredential;
 begin
-  Result := FCredential;
+  Result := TTlsConfigBuilder.CloneCredential(FCredential);
 end;
 
 function TFrozenCommonConfig.TrustStore: ITrustAnchorStore;
@@ -799,7 +811,7 @@ end;
 
 function TFrozenCommonConfig.ExternalPsks: TArray<TExternalPsk>;
 begin
-  Result := System.Copy(FExternalPsks);
+  Result := TTlsConfigBuilder.CloneExternalPsks(FExternalPsks);
 end;
 
 function TFrozenCommonConfig.Clock: ITlsClock;
@@ -1975,11 +1987,32 @@ begin
   Result := Self;
 end;
 
+class function TTlsConfigBuilder.CloneCredential(
+  const ACredential: TTlsCredential): TTlsCredential;
+begin
+  Result := ACredential;
+  Result.CertificateChain := TArrayUtilities.DeepCopy<Byte>(ACredential.CertificateChain);
+  Result.OcspStaple := System.Copy(ACredential.OcspStaple);
+end;
+
+class function TTlsConfigBuilder.CloneExternalPsks(
+  const APsks: TArray<TExternalPsk>): TArray<TExternalPsk>;
+var
+  LI: Int32;
+begin
+  Result := System.Copy(APsks);
+  for LI := 0 to System.High(Result) do
+  begin
+    Result[LI].Identity := System.Copy(APsks[LI].Identity);
+    Result[LI].Context := System.Copy(APsks[LI].Context);
+  end;
+end;
+
 function TTlsConfigBuilder.WithCredential(
   const ACredential: TTlsCredential): TTlsConfigBuilder;
 begin
   GuardMutable;
-  FCredential := ACredential;
+  FCredential := TTlsConfigBuilder.CloneCredential(ACredential);
   FHasCredential := True;
   Result := Self;
 end;
@@ -1991,7 +2024,7 @@ var
 begin
   GuardMutable;
   LEntry.Host := AHost;
-  LEntry.Credential := ACredential;
+  LEntry.Credential := TTlsConfigBuilder.CloneCredential(ACredential);
   TArrayUtilities.Append<TSniCredentialEntry>(FSniCredentialEntries, LEntry);
   Result := Self;
 end;
@@ -2380,6 +2413,8 @@ function TTlsConfigBuilder.WithClock(
   const AClock: ITlsClock): TTlsConfigBuilder;
 begin
   GuardMutable;
+  if AClock = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilClock);
   FClock := AClock;
   Result := Self;
 end;
@@ -2396,9 +2431,9 @@ function TTlsConfigBuilder.WithExternalPreSharedKeys(
   const APsks: TArray<TExternalPsk>): TTlsConfigBuilder;
 begin
   GuardMutable;
-  // copy so a caller mutating its array after Build cannot alter the frozen config (matches the
+  // copy so a caller mutating its arrays after Build cannot alter the frozen config (matches the
   // frozen ExternalPsks accessor); the PSK secrets are ISecretBuffer, shared by reference
-  FExternalPsks := System.Copy(APsks);
+  FExternalPsks := TTlsConfigBuilder.CloneExternalPsks(APsks);
   Result := Self;
 end;
 
@@ -2543,6 +2578,14 @@ begin
   Result := TTlsServerConfigBuilder.Create(Self);
 end;
 
+procedure TTlsConfigBuilder.ValidateRequiredCollaborators;
+begin
+  if (FCipherSuites = nil) or (FSignatureSchemes = nil) or (FNamedGroups = nil) then
+    raise EArgumentTlsLibException.CreateRes(@SNilNegotiationRegistry);
+  if System.Length(FPreferredGroups) = 0 then
+    raise EArgumentTlsLibException.CreateRes(@SNoPreferredGroups);
+end;
+
 function TTlsConfigBuilder.BuildClient: ITlsClientConfig;
 var
   LConfig: TFrozenClientConfig;
@@ -2613,6 +2656,7 @@ begin
   if FEchConfigured then
     LEchPolicy := TEchClientPolicy.Create(FCrypto, FEchConfigList, FEchGrease, FEchIsRetry)
       as IEchClientPolicy;
+  ValidateRequiredCollaborators;
   LConfig := TFrozenClientConfig.Create;
   Result := LConfig;
   LConfig.FCrypto := FCrypto;
@@ -2715,6 +2759,7 @@ begin
   if (FMaxEarlyData > 0) and (not FResumption) then
     raise EInvalidOperationTlsLibException.CreateRes(@SServerEarlyDataNeedsResumption);
   ValidateVersionScoping;
+  ValidateRequiredCollaborators;
   LConfig := TFrozenServerConfig.Create;
   Result := LConfig;
   LConfig.FCrypto := FCrypto;

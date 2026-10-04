@@ -29,6 +29,7 @@ uses
 {$ENDIF FPC}
   TlpArrayUtilities,
   TlpDataEncoding,
+  TlpIClock,
   TlpICryptoProvider,
   TlpDefaultCryptoProvider,
   TlpIPkixProvider,
@@ -91,7 +92,42 @@ type
     function EcP256RootStore: ITrustAnchorStore;
   end;
 
+  /// <summary>A clock a test advances by hand, so time-dependent behaviour (rotation, deadlines)
+  /// is driven deterministically without waiting.</summary>
+  TAdjustableClock = class sealed(TInterfacedObject, ITlsClock)
+  strict private
+    FNowMillis: UInt64;
+  public
+    constructor Create(AStartMillis: UInt64);
+    function NowUnixMillis: UInt64;
+    procedure Advance(AMillis: UInt64);
+    procedure Retreat(AMillis: UInt64);
+  end;
+
 implementation
+
+{ TAdjustableClock }
+
+constructor TAdjustableClock.Create(AStartMillis: UInt64);
+begin
+  inherited Create;
+  FNowMillis := AStartMillis;
+end;
+
+function TAdjustableClock.NowUnixMillis: UInt64;
+begin
+  Result := FNowMillis;
+end;
+
+procedure TAdjustableClock.Advance(AMillis: UInt64);
+begin
+  Inc(FNowMillis, AMillis);
+end;
+
+procedure TAdjustableClock.Retreat(AMillis: UInt64);
+begin
+  Dec(FNowMillis, AMillis);
+end;
 
 { TTlsLibTestCase }
 

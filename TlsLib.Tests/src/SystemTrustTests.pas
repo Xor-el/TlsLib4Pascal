@@ -115,6 +115,7 @@ type
   TTestSystemTrustInstaller = class(TTlsLibAlgorithmTestCase)
   published
     procedure TestClientInstallComposesLikeFacade;
+    procedure TestSharedInstallerIsOneStableInstance;
     procedure TestExplicitOsAnchorsAreTheServerEscapeHatch;
   end;
 
@@ -2233,6 +2234,14 @@ begin
   LViaInstaller := LInstallerBuilder.Build;
   CheckNotNull(LViaFacade, 'the facade installs a usable client trust source');
   CheckNotNull(LViaInstaller, 'the installer installs a usable client trust source');
+end;
+
+procedure TTestSystemTrustInstaller.TestSharedInstallerIsOneStableInstance;
+begin
+  // the adapters' config memo keys the installer by identity, so it must not change per connection
+  CheckTrue(TSystemTrustInstaller.Shared = TSystemTrustInstaller.Shared,
+    'the shared installer is one instance');
+  CheckNotNull(TSystemTrustInstaller.Shared, 'the shared installer exists');
 end;
 
 procedure TTestSystemTrustInstaller.TestExplicitOsAnchorsAreTheServerEscapeHatch;
