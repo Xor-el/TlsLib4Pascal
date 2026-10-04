@@ -116,6 +116,7 @@ type
     procedure TestPeerReissuedRootAcceptedAndCollapsed;
     procedure TestPeerSha1ReissuedRootExemptFromChainPolicy;
     procedure TestSha1SelfSignedRootNotConfiguredRejected;
+    procedure TestBareVerifierRefusesSha1SignedIntermediate;
     procedure TestSameSubjectDifferentKeyRootIgnoredForConfiguredAnchor;
     // the anchor set is fetched once per verify and shared by path validation and the chain policy
     procedure TestAnchorSetReadOncePerVerify;
@@ -574,6 +575,25 @@ begin
     'the chain policy rejects the path when its scheme is not advertised');
   CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
     'the alert is unsupported_certificate');
+end;
+
+procedure TTestCertificateVerifier.TestBareVerifierRefusesSha1SignedIntermediate;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  // a verifier built without an armed chain policy (the whole-verifier instance path) still
+  // refuses a SHA-1-signed chain certificate (RFC 8446 4.4.2)
+  CheckTrue(VerifierFor(Reissued('root_cert'), False).VerifyServerCertificate(
+    TArray<TBytes>.Create(Reissued('leaf_cert'), Reissued('issuer_cert')),
+    TServerName.DnsName(''), nil, LVerified, LAlert),
+    'control: the SHA-256 chain is trusted');
+  CheckFalse(VerifierFor(Reissued('root_cert'), False).VerifyServerCertificate(
+    TArray<TBytes>.Create(Reissued('leaf_cert'), Reissued('issuer_sha1_cert')),
+    TServerName.DnsName(''), nil, LVerified, LAlert),
+    'a SHA-1-signed intermediate is refused without an armed policy');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
+    'the alert is bad_certificate');
 end;
 
 procedure TTestCertificateVerifier.TestAnchorSetReadOncePerVerify;
