@@ -46,6 +46,8 @@ uses
   TlpITlsConfigMemo,
   TlpTlsConfigMemo,
   TlpTlsLibExceptions,
+  TlpIClock,
+  TlpClock,
   TlpTlsConnection,
   TlpTlsConnectionInfo,
   TlpNegotiationTypes,
@@ -92,7 +94,7 @@ type
     function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
   public
-    constructor Create(const ASocket: TTCPBlockSocket);
+    constructor Create(const ASocket: TTCPBlockSocket; const AClock: ITlsClock);
   end;
 
   /// <summary>
@@ -206,7 +208,7 @@ type
     /// them) so a reconnect skips the asymmetric handshake. Forward-secret (TLS 1.3 psk_dhe_ke);
     /// 0-RTT is never enabled. Default True; cast Sock.SSL to TSSLTlsLib to set it False.</summary>
     property SessionResumption: Boolean read FSessionResumption write FSessionResumption;
-    /// <summary>The read timeout (ms) bounding the handshake, so a peer that connects but sends no
+    /// <summary>The time budget (ms) for the whole handshake, so a peer that connects but sends no
     /// data cannot park the connection's thread. Deliberately NOT an app-read deadline. 0 (the
     /// default) uses the 30 s library default; a positive value overrides it. Cast Sock.SSL to
     /// TSSLTlsLib to set it.</summary>
@@ -263,9 +265,10 @@ end;
 
 { TSynapseSocketTransport }
 
-constructor TSynapseSocketTransport.Create(const ASocket: TTCPBlockSocket);
+constructor TSynapseSocketTransport.Create(const ASocket: TTCPBlockSocket;
+  const AClock: ITlsClock);
 begin
-  inherited Create;
+  inherited Create(AClock);
   FSocket := ASocket;
 end;
 
@@ -339,7 +342,7 @@ begin
       Result.TrustAnchors[0] := TTlsBlobSource.FromFile(FCertCAFile);
     end;
     if FUseSystemTrust then
-      Result.SystemTrust := TSystemTrustInstaller.Create as ISystemTrustInstaller;
+      Result.SystemTrust := TSystemTrustInstaller.Shared;
   end;
   Result.VerifyPeer := FVerifyCert;
   Result.InsecureSkipVerify := not FVerifyCert;
@@ -381,6 +384,8 @@ var
   LConfig: ITlsServerConfig;
 begin
   LOptions := Snapshot;
+  // the process-wide callback is a client-handshake hook, so a server never carries it
+  LOptions.VerifyCallback := nil;
   LConfig := TTlsConfigComposer.ResolveServerConfig(LOptions, GServerConfigMemo,
     'ServerConfig');
   FCrypto := LConfig.Crypto;
@@ -411,7 +416,8 @@ begin
     else
       LResolver := GServerVerdictResolver;
     FConnection := TTlsConnection.Create(LEngine,
-      TSynapseSocketTransport.Create(FSocket), AIsClient, AHost, LResolver);
+      TSynapseSocketTransport.Create(FSocket, TSystemClock.Create as ITlsClock),
+      AIsClient, AHost, LResolver);
     // bound the handshake read by HandshakeTimeoutMs; the session arms and clears the cap, even
     // when the handshake raised, so a later app read is not left bounded
     FConnection.Handshake(FHandshakeTimeoutMs);

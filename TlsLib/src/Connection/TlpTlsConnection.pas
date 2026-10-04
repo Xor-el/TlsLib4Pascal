@@ -27,6 +27,7 @@ interface
 uses
   SysUtils,
   Classes,
+  TlpIClock,
   TlpTlsAlert,
   TlpTlsVersion,
   TlpEchConfig,
@@ -150,13 +151,16 @@ type
   end;
 
   /// <summary>An ITlsTransport over a host socket whose reads can be bounded for the handshake phase:
-  /// with a cap armed, a read that sees no data within the cap raises ETlsHandshakeTimeout (a silent
-  /// or dead peer is reaped rather than parking the thread); with the cap cleared reads block, as
-  /// application reads must. A host supplies the readiness wait and the raw receive/send.</summary>
+  /// with a cap armed, the reads that follow share one deadline, and a read past it raises
+  /// ETlsHandshakeTimeout (a silent, dead or trickling peer is reaped rather than parking the
+  /// thread); with the cap cleared reads block, as application reads must. A host supplies the
+  /// readiness wait and the raw receive/send.</summary>
   TTlsTimedTransportBase = class abstract(TInterfacedObject, ITlsTransport)
   strict private
   var
     FReadTimeoutMs: Int32;
+    FDeadlineMs: Int64; // Unix ms the armed cap expires at
+    FClock: ITlsClock;
   strict protected
     /// <summary>True when at least one byte can be read within AMs ms. The default waits nowhere and
     /// returns True, for a host that bounds the socket itself (a receive timeout on the handle) and
@@ -172,7 +176,11 @@ type
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; virtual; abstract;
     property ReadTimeoutMs: Int32 read FReadTimeoutMs;
   public
-    /// <summary>Bounds each Read to AMs ms (0 = block).</summary>
+    /// <summary>AClock measures the handshake deadline (required; nil raises).</summary>
+    constructor Create(const AClock: ITlsClock);
+    /// <summary>Bounds the reads that follow to AMs ms in total, as a deadline from this call
+    /// (0 = block). A host that bounds its own socket (WaitReadable not overridden) can let a
+    /// receive already in progress run one full receive bound past the deadline.</summary>
     procedure SetReadTimeout(AMs: Int32);
     function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
     procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
@@ -232,6 +240,8 @@ type
 implementation
 
 resourcestring
+  SNilTransportClock =
+    'a clock is required (pass a clock, not nil)';
   SNoServerCredential =
     'no server certificate/private key was supplied';
   SNoClientAuthSource =
@@ -253,7 +263,7 @@ resourcestring
   SConfigAndOptionsConflict =
     '%s is set together with cert/trust/ALPN/provider options or a non-default security toggle ' +
     'that a fully-built config replaces; supply either the config or those options, not both';
-  SHandshakeReadTimedOut = 'the peer sent no handshake data within %d ms';
+  SHandshakeReadTimedOut = 'the handshake did not complete within %d ms';
   SSendNoProgress = 'the host transport reported no send progress';
   STransportReceiveFailed = 'the host transport reported a receive error (%d)';
 
@@ -475,6 +485,9 @@ begin
         LServer.WithTrustAnchors(Load(AOptions.TrustAnchors[LI]));
     if AOptions.CustomTrustStore <> nil then
       LServer.WithTrustStore(AOptions.CustomTrustStore);
+    // the augment-only hook vets a presented client chain too, so an operator's allow-list runs
+    if Assigned(AOptions.VerifyCallback) then
+      LServer.WithCertificateVerifyCallback(AOptions.VerifyCallback);
     if Assigned(AOptions.ServerVerdictResolver) then
       LServer.WithLiveRevocationVerdict(AOptions.ServerVerdictDeadlineMs);
   end;
@@ -541,6 +554,7 @@ begin
   LSig.AddCardinal('clientAuth', Cardinal(Ord(AOptions.ClientAuth)));
   for LI := 0 to System.High(AOptions.AlpnProtocols) do
     LSig.AddText('alpn', AOptions.AlpnProtocols[LI]);
+  LSig.AddMethod('verifyCb', TMethod(AOptions.VerifyCallback));
   LSig.AddFlag('asyncVerdict', Assigned(AOptions.ServerVerdictResolver));
   LSig.AddCardinal('deadline', AOptions.ServerVerdictDeadlineMs);
   Result := LSig.Value;
@@ -552,11 +566,12 @@ var
   LConflict: Boolean;
 begin
   // a supplied config owns the frozen build entirely; naming an option the same role's own build
-  // would consume alongside it silently drops it, so fail loud. Credential, trust anchors, ALPN and
-  // providers are read by both roles; the augment callback and the server-cert verifier are client-
-  // only reads, the client-cert verifier a server-only read, and system trust a client-only read
-  // (a server never consumes it), so flagging one on the other role would reject an option that role
-  // never consumes. The verdict resolvers and the handshake timeout are runtime hooks and never conflict.
+  // would consume alongside it silently drops it, so fail loud. Credential, trust anchors, ALPN,
+  // providers and the augment callback are read by both roles (the server reads the callback under
+  // client auth); the server-cert verifier and system trust are client-only reads and the
+  // client-cert verifier a server-only read, so flagging one on the other role would reject an
+  // option that role never consumes. The verdict resolvers and the handshake timeout are runtime
+  // hooks and never conflict.
   LConflict := (not AOptions.Certificate.IsEmpty) or (not AOptions.PrivateKey.IsEmpty) or
     HasTrustAnchor(AOptions) or
     (AOptions.CustomTrustStore <> nil) or (System.Length(AOptions.AlpnProtocols) > 0) or
@@ -574,7 +589,7 @@ begin
       AOptions.InsecureSkipVerify or (not AOptions.CheckHostName)
   else
     LConflict := LConflict or (AOptions.ClientCertificateVerifier <> nil) or
-      (AOptions.ClientAuth <> TClientAuthMode.None);
+      (AOptions.ClientAuth <> TClientAuthMode.None) or Assigned(AOptions.VerifyCallback);
   if LConflict then
     raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
       Format(SConfigAndOptionsConflict, [APropertyName]));
@@ -623,6 +638,16 @@ end;
 procedure TTlsTimedTransportBase.SetReadTimeout(AMs: Int32);
 begin
   FReadTimeoutMs := AMs;
+  if AMs > 0 then
+    FDeadlineMs := Int64(FClock.NowUnixMillis) + AMs;
+end;
+
+constructor TTlsTimedTransportBase.Create(const AClock: ITlsClock);
+begin
+  inherited Create;
+  if AClock = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilTransportClock);
+  FClock := AClock;
 end;
 
 function TTlsTimedTransportBase.WaitReadable(AMs: Int32): Boolean;
@@ -634,10 +659,20 @@ end;
 
 function TTlsTimedTransportBase.Read(var ABuffer: TBytes; AOffset,
   AMaxLength: Int32): Int32;
+var
+  LRemaining: Int64;
 begin
-  // bounded during the handshake; distinct from a peer close (which returns 0 below)
-  if (FReadTimeoutMs > 0) and (not WaitReadable(FReadTimeoutMs)) then
-    raise ETlsHandshakeTimeout.Create(Format(SHandshakeReadTimedOut, [FReadTimeoutMs]));
+  // bounded during the handshake; distinct from a peer close (which returns 0 below). The cap is a
+  // deadline over the whole handshake, so a peer trickling bytes just inside each read is reaped too
+  if FReadTimeoutMs > 0 then
+  begin
+    LRemaining := FDeadlineMs - Int64(FClock.NowUnixMillis);
+    // a wall-clock step back must not grow the wait past the cap
+    if LRemaining > FReadTimeoutMs then
+      LRemaining := FReadTimeoutMs;
+    if (LRemaining <= 0) or (not WaitReadable(Int32(LRemaining))) then
+      raise ETlsHandshakeTimeout.Create(Format(SHandshakeReadTimedOut, [FReadTimeoutMs]));
+  end;
   Result := ReceiveRaw(ABuffer, AOffset, AMaxLength);
   // a negative return is a genuine receive error (a reset, a broken pipe), never a peer close
   // (EOF = 0); surface it instead of masking it as a clean end that reads upstream as a truncation

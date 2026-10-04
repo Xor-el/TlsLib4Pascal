@@ -109,6 +109,10 @@ type
     procedure TestAlpnEmptyListMeansNoAlpn;
     procedure TestAlpnSetterCopiesCallerArray;
     procedure TestRecordSizeLimitDefaultsToUnset;
+    procedure TestExternalPskInnerBytesAreCopied;
+    procedure TestNilClockIsRefused;
+    procedure TestEmptyPreferredGroupsIsRefusedAtBuild;
+    procedure TestNilRegistryIsRefusedAtBuild;
     procedure TestRecordSizeLimitRoundTrips;
     procedure TestRecordSizeLimitRejectsOutOfRange;
     procedure TestRecordSizeLimitCapsRecordsThroughFactory;
@@ -606,6 +610,65 @@ begin
     'a client offers no record_size_limit by default');
   CheckEquals(0, NewServerBuilder.Build.RecordSizeLimit,
     'a server offers no record_size_limit by default');
+end;
+
+procedure TTestConfigBuilder.TestExternalPskInnerBytesAreCopied;
+var
+  LPsks, LOut: TArray<TExternalPsk>;
+  LConfig: ITlsClientConfig;
+begin
+  // the frozen config must not alias the caller's identity/context buffers
+  LPsks := TArray<TExternalPsk>.Create(MakePskSpec);
+  LConfig := NewClientBuilder.WithExternalPreSharedKeys(LPsks).Build;
+  LPsks[0].Identity[0] := $FF;
+  LOut := LConfig.ExternalPsks;
+  CheckEquals($61, LOut[0].Identity[0],
+    'a caller mutating its identity bytes after Build does not change the config');
+  LOut[0].Identity[0] := $EE;
+  LOut := LConfig.ExternalPsks;
+  CheckEquals($61, LOut[0].Identity[0], 'the accessor returns a copy');
+end;
+
+procedure TTestConfigBuilder.TestNilClockIsRefused;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    NewClientBuilder.WithClock(nil);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a nil clock is a typed error, not a silent default');
+end;
+
+procedure TTestConfigBuilder.TestEmptyPreferredGroupsIsRefusedAtBuild;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    NewClientBuilder.WithPreferredGroups(nil).Build;
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an empty preferred-group list is a typed error at Build');
+end;
+
+procedure TTestConfigBuilder.TestNilRegistryIsRefusedAtBuild;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    NewClientBuilder.WithCipherSuites(nil).Build;
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a nil cipher-suite registry is a typed error at Build');
 end;
 
 procedure TTestConfigBuilder.TestRecordSizeLimitRoundTrips;

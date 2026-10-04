@@ -47,6 +47,8 @@ uses
   TlpTlsConfigMemo,
   TlpTlsLibExceptions,
   TlpTlsCredential,
+  TlpIClock,
+  TlpClock,
   TlpTlsConnection,
   TlpTlsConnectionInfo,
   TlpSystemTrustFacade;
@@ -67,7 +69,7 @@ type
     function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
   public
-    constructor Create(AHandle: THandle);
+    constructor Create(AHandle: THandle; const AClock: ITlsClock);
   end;
 
   /// <summary>The benign certificate generator fcl-net's TSSLSocketHandler constructor demands:
@@ -214,7 +216,8 @@ type
     /// first (e.g. ['h2', 'http/1.1']). Empty offers none.</summary>
     property AlpnProtocols: TArray<string> read FAlpnProtocols write FAlpnProtocols;
     /// <summary>An augment-only peer-certificate hook: it runs after the built-in pipeline and can
-    /// only additionally reject (never loosen it).</summary>
+    /// only additionally reject (never loosen it). On a server it vets the client chain, under
+    /// client authentication only (the host name is empty).</summary>
     property VerifyCallback: TTlsCertificateVerifyCallback read FVerifyCallback
       write FVerifyCallback;
     /// <summary>The CLIENT-role verdict resolver: when assigned, a client handshake parks after
@@ -265,9 +268,10 @@ type
     /// 0-RTT is never enabled. Seeded from TlsLibFclNetTrustDefaults.SessionResumption (True); set
     /// False to force a full handshake every connection.</summary>
     property SessionResumption: Boolean read FSessionResumption write FSessionResumption;
-    /// <summary>The read timeout (ms) bounding the handshake, so a peer that connects but sends no
+    /// <summary>The time budget (ms) for the whole handshake, so a peer that connects but sends no
     /// data cannot park the connection's thread. 0 (the default) falls back to Socket.IOTimeout when
-    /// that is set, else the 30 s library default; a positive value overrides both.</summary>
+    /// that is set, else the 30 s library default; a positive value overrides both. fcl-net bounds a
+    /// receive with the socket option, so one receive in progress can run a full cap past the deadline.</summary>
     property HandshakeTimeoutMs: Integer read FHandshakeTimeoutMs write FHandshakeTimeoutMs;
   end;
 
@@ -301,7 +305,7 @@ const
 
 resourcestring
   SFclNetSendNoProgress = 'fcl-net socket send returned no progress';
-  SFclNetHandshakeReadTimedOut = 'the peer sent no handshake data within %d ms';
+  SFclNetHandshakeReadTimedOut = 'the handshake did not complete within %d ms';
   SFclNetReceiveTimedOut = 'the socket receive timeout elapsed with no data from the peer';
   SPeerVerifyRejected = 'the OnVerifyCertificate handler rejected the peer certificate';
   SNoSelfSignedCerts = 'TlsLib4Pascal does not generate self-signed certificates; supply ' +
@@ -321,11 +325,12 @@ var
 
 { TFclNetSocketTransport }
 
-constructor TFclNetSocketTransport.Create(AHandle: THandle);
+constructor TFclNetSocketTransport.Create(AHandle: THandle;
+  const AClock: ITlsClock);
 var
   LOn: Integer;
 begin
-  inherited Create;
+  inherited Create(AClock);
   FHandle := AHandle;
   // Darwin arms the socket against SIGPIPE (it has no per-send MSG_NOSIGNAL)
   if NOSIGPIPE_SOCKOPT <> 0 then
@@ -452,7 +457,7 @@ begin
   // UseSystemTrust opts into the OS store through the host-neutral installer seam, so the core
   // never depends on the system-trust package
   if FUseSystemTrust then
-    Result.SystemTrust := TSystemTrustInstaller.Create as ISystemTrustInstaller;
+    Result.SystemTrust := TSystemTrustInstaller.Shared;
   Result.CustomTrustStore := FCustomTrustStore;
   Result.ServerCertificateVerifier := FCustomServerCertVerifier;
   Result.ClientCertificateVerifier := FCustomClientCertVerifier;
@@ -529,7 +534,8 @@ begin
     else
       LResolver := FServerVerdictResolver;
     FConnection := TTlsConnection.Create(LEngine,
-      TFclNetSocketTransport.Create(Socket.Handle), AIsClient, AHost, LResolver);
+      TFclNetSocketTransport.Create(Socket.Handle, TSystemClock.Create as ITlsClock),
+      AIsClient, AHost, LResolver);
     // fcl-net has no readiness wait, so the handshake read is bounded by SO_RCVTIMEO through
     // Socket.IOTimeout: the property when set, else today's IOTimeout, else the default; restore it
     // after. The session arms and clears its own read cap (used to classify the recv errno).

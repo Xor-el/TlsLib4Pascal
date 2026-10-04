@@ -45,6 +45,8 @@ uses
   TlpTlsConfigMemo,
   TlpTlsLibExceptions,
   TlpTlsCredential,
+  TlpIClock,
+  TlpClock,
   TlpTlsConnection,
   TlpTlsConnectionInfo,
   TlpNegotiationTypes,
@@ -96,7 +98,7 @@ procedure SetTlsLibMormotPkix(const APkix: IPkixProvider);
 /// tickets; a client caches and reuses them), so a reconnect skips the asymmetric handshake.
 /// Forward-secret (TLS 1.3 psk_dhe_ke); 0-RTT is never enabled. Default True.</summary>
 procedure SetTlsLibMormotSessionResumption(AEnabled: Boolean);
-/// <summary>Sets the process-wide read timeout (ms) bounding every handshake, so a peer that
+/// <summary>Sets the process-wide time budget (ms) for every whole handshake, so a peer that
 /// connects but sends no data cannot park the connection's thread. Deliberately NOT an app-read
 /// deadline. 0 (the default) uses the 30 s library default; a positive value overrides it.</summary>
 procedure SetTlsLibMormotHandshakeTimeout(AMs: Int32);
@@ -120,7 +122,7 @@ type
     function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
   public
-    constructor Create(ASocket: TNetSocket);
+    constructor Create(ASocket: TNetSocket; const AClock: ITlsClock);
   end;
 
   /// <summary>
@@ -281,9 +283,10 @@ end;
 
 { TMormotSocketTransport }
 
-constructor TMormotSocketTransport.Create(ASocket: TNetSocket);
+constructor TMormotSocketTransport.Create(ASocket: TNetSocket;
+  const AClock: ITlsClock);
 begin
-  inherited Create;
+  inherited Create(AClock);
   FSocket := ASocket;
 end;
 
@@ -393,7 +396,7 @@ begin
     end;
     if AIsClient and ((scsRoot in AContext.CASystemStores) or
       (scsCA in AContext.CASystemStores)) then
-      Result.SystemTrust := TSystemTrustInstaller.Create as ISystemTrustInstaller;
+      Result.SystemTrust := TSystemTrustInstaller.Shared;
   end;
   // a client maps IgnoreCertificateErrors onto the loud InsecureSkipVerify (never a silent bypass);
   // a server always verifies a requested client certificate, so its verify posture stays on
@@ -414,7 +417,9 @@ begin
       Result.ClientAuth := TClientAuthMode.None;
   end;
   // CheckHostName keeps the composable default (True); mORMot exposes no host-name or ALPN surface
-  Result.VerifyCallback := GVerifyCallback;
+  // the process-wide callback is a client-handshake hook, so a server snapshot does not carry it
+  if AIsClient then
+    Result.VerifyCallback := GVerifyCallback;
   Result.ClientVerdictResolver := GVerdictResolver;
   Result.ClientVerdictDeadlineMs := GVerdictDeadlineMs;
   Result.ServerVerdictResolver := GServerVerdictResolver;
@@ -469,7 +474,8 @@ begin
   // bound the handshake read by the process-wide timeout (0 = the library default); the session
   // arms and clears the cap, even when the handshake raised, so a later app read is not left bounded
   FConnection := TTlsConnection.Create(AEngine,
-    TMormotSocketTransport.Create(ASocket), AIsClient, AHost, LResolver);
+    TMormotSocketTransport.Create(ASocket, TSystemClock.Create as ITlsClock),
+      AIsClient, AHost, LResolver);
   FConnection.Handshake(GHandshakeTimeoutMs);
 end;
 

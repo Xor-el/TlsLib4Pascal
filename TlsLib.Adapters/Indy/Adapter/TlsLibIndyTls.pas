@@ -49,6 +49,8 @@ uses
   TlpTlsConfigMemo,
   TlpTlsLibExceptions,
   TlpTlsCredential,
+  TlpIClock,
+  TlpClock,
   TlpTlsConnection,
   TlpTlsConnectionInfo,
   TlpSystemTrustFacade;
@@ -117,7 +119,8 @@ type
     property Pkix: IPkixProvider read FPkix write FPkix;
     /// <summary>An augment-only peer-certificate hook: it runs after the built-in pipeline and
     /// can only additionally reject (never loosen it). The neutral bridge for an app's own
-    /// verify rule.</summary>
+    /// verify rule. On a server it vets the client chain, under client authentication only (the
+    /// host name is empty).</summary>
     property VerifyCallback: TTlsCertificateVerifyCallback read FVerifyCallback
       write FVerifyCallback;
     /// <summary>The CLIENT-role verdict resolver: when assigned, a client handshake parks after
@@ -189,7 +192,7 @@ type
     /// psk_dhe_ke); 0-RTT is never enabled. Default True; set False to force a full handshake
     /// every connection.</summary>
     property SessionResumption: Boolean read FSessionResumption write FSessionResumption default True;
-    /// <summary>The read timeout (ms) bounding the server/client handshake, so a peer that
+    /// <summary>The time budget (ms) for the whole server/client handshake, so a peer that
     /// connects but sends no data cannot park the connection's thread. Deliberately NOT
     /// IOHandler.ReadTimeout (that is an app-read deadline). 0 (default) uses the 30 s library
     /// default; set a positive value to override.</summary>
@@ -208,7 +211,7 @@ type
     function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
   public
-    constructor Create(ABinding: TIdSocketHandle);
+    constructor Create(ABinding: TIdSocketHandle; const AClock: ITlsClock);
   end;
 
   /// <summary>
@@ -372,7 +375,7 @@ begin
   // UseSystemTrust opts into the OS store through the host-neutral installer seam, so the core
   // never depends on the system-trust package
   if FUseSystemTrust then
-    Result.SystemTrust := TSystemTrustInstaller.Create as ISystemTrustInstaller;
+    Result.SystemTrust := TSystemTrustInstaller.Shared;
   Result.CustomTrustStore := FCustomTrustStore;
   Result.ServerCertificateVerifier := FCustomServerCertVerifier;
   Result.ClientCertificateVerifier := FCustomClientCertVerifier;
@@ -395,9 +398,10 @@ end;
 
 { TIndySocketTransport }
 
-constructor TIndySocketTransport.Create(ABinding: TIdSocketHandle);
+constructor TIndySocketTransport.Create(ABinding: TIdSocketHandle;
+  const AClock: ITlsClock);
 begin
-  inherited Create;
+  inherited Create(AClock);
   FBinding := ABinding;
 end;
 
@@ -544,7 +548,8 @@ begin
       LResolver := FOptions.VerdictResolver
     else
       LResolver := FOptions.ServerVerdictResolver;
-    FConnection := TTlsConnection.Create(LEngine, TIndySocketTransport.Create(Binding),
+    FConnection := TTlsConnection.Create(LEngine,
+      TIndySocketTransport.Create(Binding, TSystemClock.Create as ITlsClock),
       not IsPeer, Host, LResolver);
     // bound the handshake read by the dedicated HandshakeTimeoutMs option, NOT app ReadTimeout
     // (a short app-read deadline would wrongly abort slow-but-valid handshakes); the session
