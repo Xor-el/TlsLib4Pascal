@@ -119,6 +119,7 @@ type
     procedure TestBuilderRejectsMutationAfterBuild;
     procedure TestSecondBuildIsRejected;
     procedure TestReturnedPinsArrayCannotMutateConfig;
+    procedure TestWithCertificatePinningRejectsWrongLengthPin;
     procedure TestClientConfigRequiresTrustStore;
     procedure TestPskOnlyClientOfferingTls12IsRefused;
     procedure TestPskOnlyClientWithPskOptionalIsRefused;
@@ -861,6 +862,23 @@ begin
   LPins[0] := LOther;
   CheckEqualBytes('the frozen config keeps its pin after the returned array is mutated',
     LPin, LConfig.CertificatePins[0]);
+end;
+
+procedure TTestConfigBuilder.TestWithCertificatePinningRejectsWrongLengthPin;
+var
+  LRaised: Boolean;
+begin
+  // a pin that is not a 32-byte SHA-256 SubjectPublicKeyInfo digest can never match; the builder
+  // refuses it rather than let it silently fail every handshake
+  LRaised := False;
+  try
+    TTlsPresets.Compatible(Crypto, Pkix).Client
+      .WithCertificatePinning(TArray<TBytes>.Create(DecodeHex('00112233')));
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a non-32-byte certificate pin is refused at configuration time');
 end;
 
 procedure TTestConfigBuilder.TestClientConfigRequiresTrustStore;

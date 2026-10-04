@@ -358,8 +358,9 @@ type
     /// Soft by default. Must-staple (RFC 7633) never applies to a client certificate (it is
     /// never stapled).</summary>
     function WithRevocation(APosture: TRevocationPosture): ITlsServerConfigBuilder;
-    /// <summary>SPKI-SHA256 pins the requested client chain must match one of; augments
-    /// PKIX, never a bypass. Empty disables it.</summary>
+    /// <summary>SPKI-SHA256 pins, one of which some certificate on the validated client path must
+    /// match; augments PKIX, never a bypass, and applies only when client authentication is
+    /// requested. Each pin must be 32 bytes. Empty disables it.</summary>
     function WithCertificatePinning(const APins: TArray<TBytes>): ITlsServerConfigBuilder;
     /// <summary>Untrusted intermediate certificates that seed PKIX path building for a requested
     /// client certificate whose chain arrives incomplete (leaf-only client certificates are common

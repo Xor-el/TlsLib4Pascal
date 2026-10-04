@@ -174,9 +174,10 @@ type
 
   /// <summary>
   /// SPKI public-key pinning as a decorator over any server-certificate verifier (augments,
-  /// never a bypass): the inner verifier must accept the chain AND some presented certificate's
-  /// SubjectPublicKeyInfo SHA-256 must match a configured pin, else bad_certificate. Composing
-  /// it over the source output pins uniformly over the built-in pipeline and an OS delegate.
+  /// never a bypass): the inner verifier must accept the chain AND some certificate on the
+  /// validated path must carry a SubjectPublicKeyInfo whose SHA-256 matches a configured pin, else
+  /// bad_certificate. Composing it over the source output pins uniformly over the built-in pipeline
+  /// and an OS delegate.
   /// </summary>
   TPinningVerifier = class sealed(TInterfacedObject, IServerCertificateVerifier)
   strict private
@@ -185,13 +186,35 @@ type
     FPins: TArray<TBytes>;
     FCrypto: ICryptoProvider;
     FPkix: IPkixProvider;
-    function PinsMatch(const AChain: TArray<TBytes>): Boolean;
   public
     constructor Create(const AInner: IServerCertificateVerifier;
       const APins: TArray<TBytes>; const ACryptoProvider: ICryptoProvider;
       const APkixProvider: IPkixProvider);
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
+      out AVerified: TVerifiedChain;
+      out AAlert: TTlsAlertDescription): Boolean;
+  end;
+
+  /// <summary>
+  /// The server-side counterpart of <see cref="TPinningVerifier" />: SPKI public-key pinning as a
+  /// decorator over any client-certificate verifier (augments, never a bypass). The inner verifier
+  /// must accept the client chain AND some certificate on the validated path must match a configured
+  /// pin, else bad_certificate. Composing it over the source output pins uniformly over the built-in
+  /// pipeline and an OS client delegate.
+  /// </summary>
+  TClientPinningVerifier = class sealed(TInterfacedObject, IClientCertificateVerifier)
+  strict private
+  var
+    FInner: IClientCertificateVerifier;
+    FPins: TArray<TBytes>;
+    FCrypto: ICryptoProvider;
+    FPkix: IPkixProvider;
+  public
+    constructor Create(const AInner: IClientCertificateVerifier;
+      const APins: TArray<TBytes>; const ACryptoProvider: ICryptoProvider;
+      const APkixProvider: IPkixProvider);
+    function VerifyClientCertificate(const AChain: TArray<TBytes>;
       out AVerified: TVerifiedChain;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
@@ -567,6 +590,39 @@ begin
   Result := True;
 end;
 
+// shared by both pinning decorators: a pin matches when some certificate on the validated path
+// carries a SubjectPublicKeyInfo whose SHA-256 digest is one of the configured pins
+function SpkiPinsMatch(const ACrypto: ICryptoProvider; const APkix: IPkixProvider;
+  const AChain, APins: TArray<TBytes>): Boolean;
+var
+  LHash: IHash;
+  LSpki, LDigest: TBytes;
+  LI, LJ: Int32;
+begin
+  Result := True;
+  if System.Length(APins) = 0 then
+    Exit;
+  // some certificate on the validated path must carry a pinned public key (SPKI-SHA256)
+  for LI := 0 to System.High(AChain) do
+  begin
+    try
+      LSpki := APkix.Certificates.PublicKeyInfo(AChain[LI]);
+    except
+      // defensive: a parse/encode failure yields no SPKI, so the cert cannot match a pin - it
+      // must never turn a pin decision into a raised internal_error
+      on Exception do
+        Continue;
+    end;
+    LHash := ACrypto.Primitives.CreateHash(THashAlgorithm.SHA_256);
+    LHash.Update(LSpki, 0, System.Length(LSpki));
+    LDigest := LHash.DoFinal;
+    for LJ := 0 to System.High(APins) do
+      if TArrayUtilities.AreEqual(LDigest, APins[LJ]) then
+        Exit;
+  end;
+  Result := False;
+end;
+
 { TPinningVerifier }
 
 constructor TPinningVerifier.Create(const AInner: IServerCertificateVerifier;
@@ -578,36 +634,6 @@ begin
   FPins := APins;
   FCrypto := ACryptoProvider;
   FPkix := APkixProvider;
-end;
-
-function TPinningVerifier.PinsMatch(const AChain: TArray<TBytes>): Boolean;
-var
-  LHash: IHash;
-  LSpki, LDigest: TBytes;
-  LI, LJ: Int32;
-begin
-  Result := True;
-  if System.Length(FPins) = 0 then
-    Exit;
-  // some certificate on the validated path must carry a pinned public key (SPKI-SHA256)
-  for LI := 0 to System.High(AChain) do
-  begin
-    try
-      LSpki := FPkix.Certificates.PublicKeyInfo(AChain[LI]);
-    except
-      // defensive: a parse/encode failure yields no SPKI, so the cert cannot match a pin - it
-      // must never turn a pin decision into a raised internal_error
-      on Exception do
-        Continue;
-    end;
-    LHash := FCrypto.Primitives.CreateHash(THashAlgorithm.SHA_256);
-    LHash.Update(LSpki, 0, System.Length(LSpki));
-    LDigest := LHash.DoFinal;
-    for LJ := 0 to System.High(FPins) do
-      if TArrayUtilities.AreEqual(LDigest, FPins[LJ]) then
-        Exit;
-  end;
-  Result := False;
 end;
 
 function TPinningVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
@@ -623,7 +649,37 @@ begin
     AVerified, AAlert);
   if not Result then
     Exit;
-  if not PinsMatch(AVerified.Path) then
+  if not SpkiPinsMatch(FCrypto, FPkix, AVerified.Path, FPins) then
+  begin
+    AVerified := Default(TVerifiedChain);
+    AAlert := TTlsAlertDescription.BadCertificate;
+    Result := False;
+  end;
+end;
+
+{ TClientPinningVerifier }
+
+constructor TClientPinningVerifier.Create(const AInner: IClientCertificateVerifier;
+  const APins: TArray<TBytes>; const ACryptoProvider: ICryptoProvider;
+  const APkixProvider: IPkixProvider);
+begin
+  inherited Create;
+  FInner := AInner;
+  FPins := APins;
+  FCrypto := ACryptoProvider;
+  FPkix := APkixProvider;
+end;
+
+function TClientPinningVerifier.VerifyClientCertificate(const AChain: TArray<TBytes>;
+  out AVerified: TVerifiedChain;
+  out AAlert: TTlsAlertDescription): Boolean;
+begin
+  // the server-side pin check mirrors the client's: it matches the pin against the chain the
+  // inner verifier actually validated (RFC 7469 6), never the presented certificates
+  Result := FInner.VerifyClientCertificate(AChain, AVerified, AAlert);
+  if not Result then
+    Exit;
+  if not SpkiPinsMatch(FCrypto, FPkix, AVerified.Path, FPins) then
   begin
     AVerified := Default(TVerifiedChain);
     AAlert := TTlsAlertDescription.BadCertificate;

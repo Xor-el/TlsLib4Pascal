@@ -55,9 +55,9 @@ type
   /// can re-evaluate with network revocation fetch on (the async park's live check). CachedRevocation:
   /// it renders a revocation outcome of its own from its cache and the handshake staple, so the inline
   /// pass decides Hard from that; an engine without it renders none, and the staple is the only inline
-  /// revocation source. DnsIdentity: it matches a DNS host itself, so the library only re-checks an
-  /// IP-literal identity; an engine without it validates the chain only and the library matches the
-  /// full RFC 6125 identity.</summary>
+  /// revocation source. DnsIdentity: it matches a DNS host itself, so the host is withheld when the
+  /// name check is off; the library matches the SAN identity (SAN-only, RFC 6125) regardless, for
+  /// both DnsIdentity and chain-only engines.</summary>
   TPlatformChainCapability = (LiveFetch, CachedRevocation, DnsIdentity);
   TPlatformChainCapabilities = set of TPlatformChainCapability;
 
@@ -99,9 +99,10 @@ type
   /// The post-checks every OS trust delegate applies once the OS engine has accepted the peer:
   /// they can only reject a peer or refuse a configuration, never turn an OS rejection into an
   /// acceptance. Centralized so the Windows, Apple and Android delegates decide these the same way:
-  /// a definitive stapled Revoked always wins (RFC 6960), an IP-literal identity is matched in the
-  /// library against iPAddress SANs (the OS name logic only ever sees a DNS host), and a cache-only
-  /// delegate cannot satisfy a Hard posture without the live-revocation verdict.
+  /// a definitive stapled Revoked always wins (RFC 6960), the endpoint identity is matched in the
+  /// library against the leaf SANs (SAN-only, so no engine's subject-CN fallback is trusted), RFC 7633
+  /// must-staple + TLS Feature well-formedness are enforced, and a cache-only delegate cannot satisfy a
+  /// Hard posture without the live-revocation verdict.
   /// </summary>
   TDelegatePostChecks = class sealed(TObject)
   public
@@ -118,13 +119,6 @@ type
     /// Indeterminate. A nil clock means system time (a nil clock would otherwise be indeterminate).</summary>
     class function StapleOutcome(const APkix: IPkixProvider; const AClock: ITlsClock;
       const AOsPath: TArray<TBytes>; const AStaple: TBytes): TLiveRevocationOutcome; static;
-    /// <summary>True when AName is an IP literal that does not match an iPAddress SAN on the
-    /// OS-validated leaf (RFC 6125 forbids matching an IP host against dNSName/wildcards). A DNS or
-    /// empty name never fires (the OS did that name check). Fail-closed: a nil provider or empty
-    /// path is a mismatch (internal_error); a genuine mismatch is bad_certificate.</summary>
-    class function RejectIpMismatch(const AName: TServerName;
-      const APkix: IPkixProvider; const AOsPath: TArray<TBytes>;
-      out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>Whether a Live fetch source is unusable without the live-revocation verdict (the
     /// live check runs only in the park that verdict arms).</summary>
     class function LiveNeedsLiveRevocation(AFetch: TSystemTrustFetch;
@@ -139,6 +133,16 @@ type
     class function RejectNameMismatch(const AName: TServerName;
       const APkix: IPkixProvider; const AOsPath: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean; static;
+    /// <summary>True (with a fatal alert) when the server leaf's RFC 7633 TLS Feature extension is
+    /// malformed (bad_certificate - a hard invariant under every posture, role and occasion), or
+    /// when the leaf is must-staple and the client asked to staple on the initial handshake yet no
+    /// current Good staple was presented (bad_certificate_status_response, even under Soft/Off: a
+    /// must-staple leaf demands stapling). The must-staple arm binds only to a server leaf -
+    /// AStatusRequestOffered is never set for a client certificate - but the well-formedness
+    /// invariant applies to both. Fail-closed on a nil provider or empty path.</summary>
+    class function RejectMustStaple(const APkix: IPkixProvider; const AClock: ITlsClock;
+      const AOsPath: TArray<TBytes>; const AStaple: TBytes; AStatusRequestOffered: Boolean;
+      AOccasion: TVerificationOccasion; out AAlert: TTlsAlertDescription): Boolean; static;
   end;
   /// <summary>
   /// Deduplicates harvested roots by exact bytes: a filesystem store walking
@@ -236,27 +240,6 @@ begin
     AAlert := TTlsAlertDescription.CertificateRevoked;
 end;
 
-class function TDelegatePostChecks.RejectIpMismatch(const AName: TServerName;
-  const APkix: IPkixProvider; const AOsPath: TArray<TBytes>;
-  out AAlert: TTlsAlertDescription): Boolean;
-begin
-  // only an IP-literal identity is re-checked here; a DNS host (or an empty name) was matched by
-  // the OS name logic
-  if not AName.IsIp then
-    Exit(False);
-  // fail closed: without a provider to read the SANs, or with no validated leaf, an IP host cannot
-  // be confirmed against an iPAddress SAN
-  if (APkix = nil) or (System.Length(AOsPath) = 0) then
-  begin
-    AAlert := TTlsAlertDescription.InternalError;
-    Exit(True);
-  end;
-  Result := not TEndpointIdentity.Matches(AName, nil,
-    APkix.Certificates.IpAddresses(AOsPath[0]));
-  if Result then
-    AAlert := TTlsAlertDescription.BadCertificate;
-end;
-
 class function TDelegatePostChecks.LiveNeedsLiveRevocation(
   AFetch: TSystemTrustFetch; ADeferral: TVerdictDeferral): Boolean;
 begin
@@ -293,6 +276,61 @@ begin
     APkix.Certificates.IpAddresses(AOsPath[0]));
   if Result then
     AAlert := TTlsAlertDescription.BadCertificate;
+end;
+
+class function TDelegatePostChecks.RejectMustStaple(const APkix: IPkixProvider;
+  const AClock: ITlsClock; const AOsPath: TArray<TBytes>; const AStaple: TBytes;
+  AStatusRequestOffered: Boolean; AOccasion: TVerificationOccasion;
+  out AAlert: TTlsAlertDescription): Boolean;
+const
+  // RFC 7633 TLS Feature id: status_request means the certificate is must-staple
+  MustStapleFeature = UInt16(5);
+var
+  LFeatures: TArray<UInt16>;
+  LClock: ITlsClock;
+  LMustStaple: Boolean;
+  LI: Int32;
+begin
+  if (APkix = nil) or (System.Length(AOsPath) = 0) then
+  begin
+    AAlert := TTlsAlertDescription.InternalError;
+    Exit(True);
+  end;
+  // the RFC 7633 TLS Feature well-formedness is a hard invariant regardless of posture, role or
+  // occasion: a value that is not a SEQUENCE OF INTEGER is fatal (built-in verifier parity)
+  if not APkix.Certificates.TlsFeatures(AOsPath[0], LFeatures) then
+  begin
+    AAlert := TTlsAlertDescription.BadCertificate;
+    Exit(True);
+  end;
+  // must-staple binds only to a server leaf on the initial handshake the client asked to staple
+  // (RFC 7633 4.3.3); AStatusRequestOffered is never set for a client certificate or a resumption
+  if not (AStatusRequestOffered and
+    (AOccasion = TVerificationOccasion.InitialHandshake)) then
+    Exit(False);
+  LMustStaple := False;
+  for LI := 0 to System.High(LFeatures) do
+    if LFeatures[LI] = MustStapleFeature then
+    begin
+      LMustStaple := True;
+      Break;
+    end;
+  if not LMustStaple then
+    Exit(False);
+  // a must-staple leaf demands a current Good staple even under Soft/Off and even when a live
+  // resolver exists: a live fetch does not satisfy a leaf that demands stapling
+  LClock := AClock;
+  if LClock = nil then
+    LClock := TSystemClock.Create as ITlsClock;
+  case TOcspStaplePolicy.Verdict(APkix, LClock, AOsPath, AStaple) of
+    TStapleVerdict.GoodFresh, TStapleVerdict.GoodUnbounded:
+      Result := False;
+  else
+    begin
+      AAlert := TTlsAlertDescription.BadCertificateStatusResponse;
+      Result := True;
+    end;
+  end;
 end;
 
 { TSystemRootAccumulator }

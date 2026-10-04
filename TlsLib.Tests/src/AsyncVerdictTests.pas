@@ -30,6 +30,8 @@ uses
   TlpTlsStreamPump,
   TlpTlsVersion,
   TlpTlsCredential,
+  TlpICryptoProvider,
+  TlpCryptoDomainTypes,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpTlsPresets,
@@ -59,6 +61,11 @@ type
     function ServerConfig: ITlsServerConfig;
     function MtlsClientConfig: ITlsClientConfig;
     function MtlsServerConfig(AAsync: Boolean): ITlsServerConfig;
+    function SpkiSha256(const ACertDer: TBytes): TBytes;
+    // a mutual-TLS server that pins the accepted client chain, built through the real
+    // builder + CreateServerEngine so the test exercises the factory composition, not a hand-wrapped
+    // decorator
+    function MtlsServerConfigPinned(const APins: TArray<TBytes>): ITlsServerConfig;
     function OcspVec(const AName: string): TBytes;
     // a server presenting the OCSP-stapling cert set with AStaple sealed on its credential, and a
     // client that requests a staple and defers revocation (live, or host-decision), so the park is
@@ -110,6 +117,10 @@ type
     // a server that requests client auth but sets no verdict deferral must decide the client chain
     // inline and complete - it must never park (the park is armed only by a verdict-deferral setting)
     procedure TestServerClientAuthWithoutDeferralDoesNotPark;
+    // server-side client-certificate SPKI pinning, end-to-end through CreateServerEngine: a matching
+    // pin completes, a non-matching pin aborts with bad_certificate (the blocker regression)
+    procedure TestMtlsServerClientPinMatchCompletes;
+    procedure TestMtlsServerClientPinMismatchAborts;
     // the connection snapshot keeps the presented chain and the validated path apart: an inline mutual
     // handshake surfaces the client's leaf-only presented chain and the longer pipeline-built path
     procedure TestConnectionInfoSeparatesPresentedChainFromValidatedPath;
@@ -210,6 +221,27 @@ begin
   if AAsync then
     LServer.WithAsyncCertificateVerdict(0);
   Result := LServer.Build;
+end;
+
+function TTestAsyncVerdict.SpkiSha256(const ACertDer: TBytes): TBytes;
+var
+  LHash: IHash;
+  LSpki: TBytes;
+begin
+  LSpki := Pkix.Certificates.PublicKeyInfo(ACertDer);
+  LHash := Crypto.Primitives.CreateHash(THashAlgorithm.SHA_256);
+  LHash.Update(LSpki, 0, System.Length(LSpki));
+  Result := LHash.DoFinal;
+end;
+
+function TTestAsyncVerdict.MtlsServerConfigPinned(
+  const APins: TArray<TBytes>): ITlsServerConfig;
+begin
+  Result := TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey))
+    .WithTrustAnchors(TrustRoot)
+    .WithPeerAuth(TClientAuthMode.Required)
+    .WithCertificatePinning(APins).Build;
 end;
 
 function TTestAsyncVerdict.OcspVec(const AName: string): TBytes;
@@ -682,6 +714,45 @@ begin
   CheckFalse(LServer.IsHandshaking, 'the server handshake completes inline');
   CheckFalse(LClient.IsHandshaking, 'the client handshake completes inline');
   CheckFalse(LServer.IsTerminal, 'the inline mutual handshake succeeds');
+end;
+
+procedure TTestAsyncVerdict.TestMtlsServerClientPinMatchCompletes;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // the server pins the client leaf's SPKI; the presented client chain carries it, so the pinned
+  // mutual handshake completes
+  LClient := TTlsEngineFactory.CreateClientEngine(MtlsClientConfig, 'localhost');
+  LServer := TTlsEngineFactory.CreateServerEngine(
+    MtlsServerConfigPinned(TArray<TBytes>.Create(SpkiSha256(LeafCert))));
+  LClient.StartHandshake;
+  DriveToCompletion(LClient, LServer);
+  CheckFalse(LServer.IsHandshaking or LClient.IsHandshaking,
+    'a matching client-cert pin completes the mutual handshake');
+  CheckFalse(LServer.IsTerminal or LClient.IsTerminal,
+    'a matching client-cert pin: no failure');
+end;
+
+procedure TTestAsyncVerdict.TestMtlsServerClientPinMismatchAborts;
+var
+  LClient, LServer: ITlsEngine;
+  LWrongPin: TBytes;
+begin
+  // the server pins a key the client does not present; it must REJECT the client certificate
+  // (bad_certificate), not silently accept it. This drives the real CreateServerEngine composition,
+  // so it fails if server-side pinning is not wired.
+  LWrongPin := nil;
+  SetLength(LWrongPin, 32);
+  FillChar(LWrongPin[0], 32, $AB);
+  LClient := TTlsEngineFactory.CreateClientEngine(MtlsClientConfig, 'localhost');
+  LServer := TTlsEngineFactory.CreateServerEngine(
+    MtlsServerConfigPinned(TArray<TBytes>.Create(LWrongPin)));
+  LClient.StartHandshake;
+  DriveToCompletion(LClient, LServer);
+  CheckTrue(LServer.IsTerminal, 'a non-matching client-cert pin fails closed');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.BadCertificate)),
+    Int64(Ord(LServer.LastError.Alert.Description)),
+    'a client-cert pin mismatch is bad_certificate');
 end;
 
 procedure TTestAsyncVerdict.TestConnectionInfoSeparatesPresentedChainFromValidatedPath;

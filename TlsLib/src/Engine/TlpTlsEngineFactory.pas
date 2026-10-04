@@ -433,6 +433,11 @@ begin
     LClientContext.StrengthPolicy := AConfig.CertificateStrengthPolicy;
     LClientContext.AdvertisedSignatureSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
     LClientVerifier := AConfig.ClientVerifierSource.CreateClientVerifier(LClientContext);
+    // SPKI pinning composes over the source output, so it pins the presented client chain
+    // uniformly over the built-in pipeline and an OS client delegate (RFC 7469)
+    if System.Length(AConfig.CertificatePins) > 0 then
+      LClientVerifier := TClientPinningVerifier.Create(LClientVerifier,
+        AConfig.CertificatePins, AConfig.Crypto, AConfig.Pkix) as IClientCertificateVerifier;
   end;
 
   L13 := Default(TServerHandshakeParams);

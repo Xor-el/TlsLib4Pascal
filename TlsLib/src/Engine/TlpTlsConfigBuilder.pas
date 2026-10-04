@@ -361,6 +361,8 @@ resourcestring
   SInvalidChainLimits = 'the certificate-chain limits must be positive, with ' +
     'MaxCertificateLength no larger than MaxTotalChainLength, which must not exceed the ' +
     '16 MiB handshake-message ceiling';
+  SInvalidCertificatePin = 'a certificate pin must be a 32-byte SHA-256 SubjectPublicKeyInfo ' +
+    'digest; a wrong-width pin can never match and would silently fail every handshake';
   SCredentialKeyLeafMismatch = 'the credential''s private key does not match the public key in ' +
     'its end-entity certificate (CertificateChain[0]); load a leaf-first chain (from PEM) whose ' +
     'first certificate pairs with the key';
@@ -2278,8 +2280,15 @@ end;
 
 function TTlsConfigBuilder.WithCertificatePinning(
   const APins: TArray<TBytes>): TTlsConfigBuilder;
+var
+  LI: Int32;
 begin
   GuardMutable;
+  // a pin is a SHA-256 SubjectPublicKeyInfo digest (32 bytes); a wrong-width value can never
+  // match, so it is a misconfiguration refused here rather than failing every handshake silently
+  for LI := 0 to System.High(APins) do
+    if System.Length(APins[LI]) <> 32 then
+      raise EArgumentTlsLibException.CreateRes(@SInvalidCertificatePin);
   FCertificatePins := TArrayUtilities.DeepCopy<Byte>(APins);
   Result := Self;
 end;
