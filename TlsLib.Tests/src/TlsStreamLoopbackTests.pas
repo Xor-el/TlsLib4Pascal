@@ -147,6 +147,7 @@ type
     procedure TestAsyncVerdictResolverRejectFailsClosedOverPump;
     procedure TestBulkThroughputRoundTripDoesNotWedge;
     procedure TestWriteAfterPreHandshakeCloseNotifyRaises;
+    procedure TestPeerCloseNotifyDuringHandshakeRaises;
   end;
 
 implementation
@@ -363,6 +364,39 @@ begin
     end;
     CheckTrue(LRaised,
       'a write after a pre-handshake CloseNotify raises rather than silently handshaking');
+  finally
+    LClient.Free;
+  end;
+  LServerT := nil;
+end;
+
+procedure TTestTlsStreamLoopback.TestPeerCloseNotifyDuringHandshakeRaises;
+var
+  LC2S, LS2C: TMemoryPipe;
+  LClientT, LServerT: ITlsTransport;
+  LClient: TTlsStream;
+  LRaised: Boolean;
+begin
+  // the peer sends a plaintext close_notify (15 03 03 00 02 01 00) in place of its ServerHello: the
+  // handshake is abandoned, so Handshake must raise promptly rather than block or misreport, and
+  // not loop back into a read that never returns
+  LC2S := TMemoryPipe.Create;
+  LS2C := TMemoryPipe.Create;
+  LClientT := TMemoryTransport.Create(LS2C, LC2S) as ITlsTransport;
+  LServerT := TMemoryTransport.Create(LC2S, LS2C) as ITlsTransport;
+  // preload the server->client pipe so the client reads the close_notify when it awaits ServerHello
+  LS2C.Write(DecodeHex('15030300020100'), 0, 7);
+  LClient := NewClientStream(LClientT, ClientConfig(False, nil));
+  try
+    LRaised := False;
+    try
+      LClient.Handshake;
+    except
+      on E: ETlsTransportTruncated do
+        LRaised := True;
+    end;
+    CheckTrue(LRaised,
+      'a close_notify received during the handshake aborts rather than blocking or misreporting');
   finally
     LClient.Free;
   end;

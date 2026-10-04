@@ -261,9 +261,10 @@ type
     function CreateSignatureSigner(AScheme: TSignatureScheme;
       const AKey: ISigningKey): ISignatureSigner;
     /// <summary>A verifier for AScheme over the SubjectPublicKeyInfo in APublicKeyDer. Raises
-    /// EArgumentTlsLibException on a malformed SPKI or when the scheme's key family does not
-    /// match the key (e.g. an EC key under rsa_pss_rsae_*); never lets a raw backend exception
-    /// cross the seam.</summary>
+    /// EArgumentTlsLibException on a malformed SPKI; when the scheme's key family does not match
+    /// the key (e.g. an EC key under rsa_pss_rsae_*) returns a verifier that fails closed, so the
+    /// mismatch surfaces as a failed verification. Never lets a raw backend exception cross the
+    /// seam.</summary>
     function CreateSignatureVerifier(AScheme: TSignatureScheme;
       const APublicKeyDer: TBytes): ISignatureVerifier;
   end;

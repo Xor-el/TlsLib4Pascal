@@ -71,10 +71,10 @@ type
     procedure TestSignatureSchemeCodesMatchCatalog;
     procedure TestSchemeCodesFromRegistryMatchesRegistryOrder;
     // the provider seam binds the scheme's key family and never leaks a backend exception
-    procedure TestVerifierRejectsSchemeKeyFamilyMismatch;
+    procedure TestVerifierFailsClosedOnSchemeKeyFamilyMismatch;
     procedure TestVerifierAllowsEcdsaCurveHashDecoupling;
     procedure TestVerifierRejectsMalformedSpki;
-    procedure TestVerifierRejectsUnclassifiableKey;
+    procedure TestVerifierFailsClosedOnUnclassifiableKey;
     procedure TestVerifyMalformedSignatureShapesNeverRaise;
     procedure TestSignerRejectsSchemeOutsideCapableSchemes;
     procedure TestLeafPolicyRejectsSchemeFamilyMismatch;
@@ -383,32 +383,29 @@ begin
       'the projection preserves registry order');
 end;
 
-procedure TTestSignature.TestVerifierRejectsSchemeKeyFamilyMismatch;
+procedure TTestSignature.TestVerifierFailsClosedOnSchemeKeyFamilyMismatch;
 
-  procedure CheckMismatchRaises(AScheme: TSignatureScheme; const APubDer: TBytes;
+  procedure CheckMismatchFailsClosed(AScheme: TSignatureScheme; const APubDer: TBytes;
     const AWhat: string);
   var
-    LRaised: Boolean;
+    LVerifier: ISignatureVerifier;
   begin
-    LRaised := False;
-    try
-      Crypto.Signing.CreateSignatureVerifier(AScheme, APubDer);
-    except
-      on E: EArgumentTlsLibException do
-        LRaised := True;
-    end;
-    CheckTrue(LRaised, AWhat);
+    // a scheme whose key family does not match the SPKI can never verify: the seam returns a
+    // verifier that fails closed (so the outcome is decrypt_error, native-provider parity), never
+    // a raw backend exception and no longer a raised argument error
+    LVerifier := Crypto.Signing.CreateSignatureVerifier(AScheme, APubDer);
+    CheckTrue(LVerifier <> nil, AWhat + ' (a verifier is returned)');
+    LVerifier.Update(TBytes.Create(1, 2, 3), 0, 3);
+    CheckFalse(LVerifier.Verify(TBytes.Create(0, 0, 0, 0)), AWhat + ' (verification fails closed)');
   end;
 
 begin
-  // a scheme whose key family does not match the SPKI must be refused with a typed exception at
-  // the seam, never a raw backend exception
-  CheckMismatchRaises(TSignatureScheme.RSA_PSS_RSAE_SHA256,
-    DecodeHex(FKeys.Values['ecdsa_pub']), 'an EC key under rsa_pss_rsae_* is rejected');
-  CheckMismatchRaises(TSignatureScheme.ECDSA_SECP256R1_SHA256, Rfc8448LeafSpki,
-    'an RSA key under ecdsa_* is rejected');
-  CheckMismatchRaises(TSignatureScheme.ECDSA_SECP256R1_SHA256,
-    DecodeHex(FKeys.Values['ed25519_pub']), 'an Ed25519 key under ecdsa_* is rejected');
+  CheckMismatchFailsClosed(TSignatureScheme.RSA_PSS_RSAE_SHA256,
+    DecodeHex(FKeys.Values['ecdsa_pub']), 'an EC key under rsa_pss_rsae_*');
+  CheckMismatchFailsClosed(TSignatureScheme.ECDSA_SECP256R1_SHA256, Rfc8448LeafSpki,
+    'an RSA key under ecdsa_*');
+  CheckMismatchFailsClosed(TSignatureScheme.ECDSA_SECP256R1_SHA256,
+    DecodeHex(FKeys.Values['ed25519_pub']), 'an Ed25519 key under ecdsa_*');
 end;
 
 procedure TTestSignature.TestVerifierAllowsEcdsaCurveHashDecoupling;
@@ -437,24 +434,21 @@ begin
   CheckTrue(LRaised, 'a malformed SubjectPublicKeyInfo raises a typed exception, not a backend one');
 end;
 
-procedure TTestSignature.TestVerifierRejectsUnclassifiableKey;
+procedure TTestSignature.TestVerifierFailsClosedOnUnclassifiableKey;
 var
   LX25519Spki: TBytes;
-  LRaised: Boolean;
+  LVerifier: ISignatureVerifier;
 begin
   // an X25519 SubjectPublicKeyInfo parses to a valid key that cannot sign ANY TLS scheme; the seam
-  // must reject it with a typed exception, never let a raw backend cast exception cross (a scheme
-  // whose family the provider cannot classify has no usable pairing)
+  // returns a fail-closed verifier (no raw backend cast exception, no raised error), so an
+  // unclassifiable key simply never verifies
   LX25519Spki := DecodeHex('302a300506032b656e032100' +
     '0000000000000000000000000000000000000000000000000000000000000000');
-  LRaised := False;
-  try
-    Crypto.Signing.CreateSignatureVerifier(TSignatureScheme.ED25519, LX25519Spki);
-  except
-    on E: EArgumentTlsLibException do
-      LRaised := True;
-  end;
-  CheckTrue(LRaised, 'an X25519 key (unclassifiable for signing) is rejected at the seam');
+  LVerifier := Crypto.Signing.CreateSignatureVerifier(TSignatureScheme.ED25519, LX25519Spki);
+  CheckTrue(LVerifier <> nil, 'an unclassifiable key still yields a verifier');
+  LVerifier.Update(TBytes.Create(1, 2, 3), 0, 3);
+  CheckFalse(LVerifier.Verify(TBytes.Create(0, 0, 0, 0)),
+    'an X25519 key (unclassifiable for signing) fails closed');
 end;
 
 procedure TTestSignature.TestSignerRejectsSchemeOutsideCapableSchemes;

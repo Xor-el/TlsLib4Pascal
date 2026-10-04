@@ -125,6 +125,7 @@ implementation
 resourcestring
   SPeerFatalAlert = 'the peer sent a fatal alert';
   STruncatedHandshake = 'the transport closed during the handshake without close_notify';
+  SClosedDuringHandshake = 'the peer closed the connection during the handshake';
   SWriteAfterClose = 'a write was attempted after the connection was closed';
 
 { TTlsStreamPump }
@@ -314,7 +315,12 @@ begin
     AEngine.ProcessInput(LBuf, 0, LGot);
     FlushThenRaiseIfFatal(AEngine, ATransport);
     if DrainEventsOrRaise(AEngine, LPeerClosed, LCertEvent) then
-      RaiseIfFatal(AEngine); // a close during the handshake leaves it unfinished/terminal
+    begin
+      RaiseIfFatal(AEngine); // a fatal recorded alongside the close takes precedence
+      // a peer close while still handshaking abandons it: raise rather than loop back into a read
+      if AEngine.IsHandshaking then
+        raise ETlsTransportTruncated.Create(SClosedDuringHandshake);
+    end;
   end;
   // StartHandshake itself can fail the engine (never entering the loop); surface that alert
   RaiseIfFatal(AEngine);
