@@ -471,6 +471,10 @@ resourcestring
   SBadRecordSizeLimit = 'the peer record_size_limit is below the 64-byte minimum';
   SNonNullCompression13 =
     'a TLS 1.3 ClientHello must offer only the null legacy_compression_method';
+  SEarlyDataInSecondClientHello =
+    'the retry ClientHello must not re-offer early_data (RFC 8446 4.1.2)';
+  SSpuriousFallback =
+    'the client signalled TLS_FALLBACK_SCSV but the server supports a higher version';
   SNonEmptyEndOfEarlyData = 'the EndOfEarlyData message must be empty';
   SEchInnerRandomChanged = 'the ClientHelloInner random changed across the HelloRetryRequest';
   SEchAcceptedWithoutHandshake = 'ECH is marked accepted but the handshake state is gone';
@@ -599,6 +603,7 @@ procedure TTls13ServerStateMachine.NegotiateFrom(
   AAllowResumption: Boolean; out ASelectedGroup: UInt16);
 var
   LSuiteCode: UInt16;
+  LHasFallbackScsv, LClientOffersTls13: Boolean;
 begin
   // re-derived per ClientHello so a retry that drops the offer drops the response too
   FPeerRecordSizeLimit := 0;
@@ -623,6 +628,20 @@ begin
   FStatusRequestOffered := AContext.StatusRequestOffered;
   FClientOfferedPskDheKe := TArrayUtilities.Contains<Byte>(AContext.PskModes,
     PskDheKeMode);
+
+  // RFC 7507: a client that fell back to a lower version signals TLS_FALLBACK_SCSV. This is a 1.3
+  // server, so if the client does not offer 1.3 yet signals the fallback, the server could have done
+  // better and the fallback was spurious - inappropriate_fallback (checked before version selection
+  // so it is not masked as protocol_version). The version dispatcher enforces this on the mixed path;
+  // a 1.3-only server reaches here directly. A client that does offer 1.3 is legitimately at this
+  // machine (an ECH-accepted handshake processes the inner ClientHello, which carries 1.3).
+  LHasFallbackScsv := TArrayUtilities.Contains<UInt16>(AClientHello.CipherSuites,
+    TlsFallbackScsv);
+  LClientOffersTls13 := TArrayUtilities.Contains<UInt16>(AContext.SupportedVersions,
+    TlsWireVersionTls13);
+  if LHasFallbackScsv and not LClientOffersTls13 then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.InappropriateFallback, @SSpuriousFallback);
 
   // version is confirmed via supported_versions
   FParams.Policy.SelectVersion(AContext.SupportedVersions);
@@ -910,6 +929,9 @@ var
 begin
   Result := False;
   FPskAccepted := False;
+  // an accepted external PSK is itself the client's authentication: RFC 8446 4.3.2 forbids a
+  // CertificateRequest in a PSK handshake, so a server configured for client auth does not
+  // additionally request a certificate here (client auth runs only on a full handshake).
   if (System.Length(FExternalPsks) = 0) or
     (System.Length(AContext.OfferedPskIdentities) = 0) or
     (System.Length(AContext.OfferedPskBinders) = 0) then
@@ -1252,6 +1274,11 @@ begin
     if FSelectedSuite.Common.Code <> LPinnedSuite then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SRetrySuiteChanged);
+    // the retry ClientHello MUST remove early_data if the first offered it (RFC 8446 4.1.2): 0-RTT
+    // cannot survive a HelloRetryRequest, so a re-offer is a protocol violation
+    if LContext.EarlyDataOffered then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.IllegalParameter, @SEarlyDataInSecondClientHello);
 
     // the retry must echo a cookie that verifies under the server secret (RFC 8446 4.1.4); the
     // cookie carries Hash(ClientHello1), the selected suite and group, and CH1's session id
