@@ -189,6 +189,11 @@ type
     /// <summary>The leaf key family a signature under this scheme must come from (RFC 8446
     /// 4.2.3): ecdsa_* -> Ecdsa, ed25519 -> Ed25519, ed448 -> Ed448, all rsa_* -> Rsa.</summary>
     function KeyKind: TSignatureKeyKind;
+    /// <summary>Drops each rsa_pss_rsae_* scheme whose encoded message cannot fit an RSA
+    /// modulus of AModulusBits (RFC 8017 9.1.1: emLen >= 2*hLen + 2), so a key never offers an
+    /// RSA-PSS scheme it cannot sign. Every other scheme is kept.</summary>
+    class function FitRsaModulus(const ASchemes: TArray<TSignatureScheme>;
+      AModulusBits: Int32): TArray<TSignatureScheme>; static;
   end;
 
 implementation
@@ -351,6 +356,36 @@ begin
   else
     raise ENotSupportedTlsLibException.CreateResFmt(@SNoSchemeKeyKind, [Ord(Self)]);
   end;
+end;
+
+class function TSignatureSchemeHelper.FitRsaModulus(
+  const ASchemes: TArray<TSignatureScheme>; AModulusBits: Int32): TArray<TSignatureScheme>;
+var
+  LScheme: TSignatureScheme;
+  LHashLen, LEmLen, LCount: Int32;
+begin
+  Result := nil;
+  SetLength(Result, System.Length(ASchemes));
+  LCount := 0;
+  LEmLen := (AModulusBits - 1 + 7) div 8;
+  for LScheme in ASchemes do
+  begin
+    case LScheme of
+      TSignatureScheme.RSA_PSS_RSAE_SHA256:
+        LHashLen := 32;
+      TSignatureScheme.RSA_PSS_RSAE_SHA384:
+        LHashLen := 48;
+      TSignatureScheme.RSA_PSS_RSAE_SHA512:
+        LHashLen := 64;
+    else
+      LHashLen := 0;
+    end;
+    if (LHashLen > 0) and (LEmLen < 2 * LHashLen + 2) then
+      Continue;
+    Result[LCount] := LScheme;
+    System.Inc(LCount);
+  end;
+  SetLength(Result, LCount);
 end;
 
 end.

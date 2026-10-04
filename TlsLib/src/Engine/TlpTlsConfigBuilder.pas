@@ -2057,7 +2057,7 @@ begin
   // an id-RSASSA-PSS leaf key pairs only with rsa_pss_pss_*, which this library does not offer,
   // so it is unusable even when the private key matches it (the key-value match below would pass)
   LSchemes := ACredential.PrivateKey.CapableSchemes;
-  if (System.Length(LSchemes) > 0) and LSchemes[0].IsRsaPssRsae and
+  if (System.Length(LSchemes) > 0) and (LSchemes[0].KeyKind = TSignatureKeyKind.Rsa) and
     (FPkix.Certificates.KeyIsRsaPss(LLeaf) = TCertAnswer.Yes) then
     raise EInvalidOperationTlsLibException.CreateRes(@SCredentialLeafRsaPssUnsupported);
   // the private key must own the leaf: match the key's public half against the leaf's, with no

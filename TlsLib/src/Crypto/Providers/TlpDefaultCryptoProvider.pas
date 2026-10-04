@@ -1307,7 +1307,13 @@ end;
 
 function TSignatureSignerAdapter.Sign: TBytes;
 begin
-  Result := FSigner.GenerateSignature;
+  try
+    Result := FSigner.GenerateSignature;
+  except
+    // keep a typed exception at the seam (a modulus too small for the scheme's encoding)
+    on E: ECryptoLibException do
+      raise EInvalidOperationTlsLibException.CreateRes(@SKeyUnusableForScheme);
+  end;
 end;
 
 { TSignatureVerifierAdapter }
@@ -1661,6 +1667,7 @@ class function TCredentialImport.SigningKeyFromParam(
 var
   LInfo: IPrivateKeyInfo;
   LSchemes: TArray<TSignatureScheme>;
+  LRsa: IRsaKeyParameters;
 begin
   if (AKeyParam = nil) or (not AKeyParam.IsPrivate) then
     raise EArgumentTlsLibException.CreateRes(@SMalformedPrivateKey);
@@ -1668,6 +1675,8 @@ begin
   // key parameter (reused for every sign) - the PKCS#8 bytes are not retained
   LInfo := TPrivateKeyInfoFactory.CreatePrivateKeyInfo(AKeyParam);
   LSchemes := SchemesForKeyInfo(LInfo);
+  if Supports(AKeyParam, IRsaKeyParameters, LRsa) then
+    LSchemes := TSignatureScheme.FitRsaModulus(LSchemes, LRsa.Modulus.BitLength);
   Result := TSigningKey.Create(AKeyParam, LSchemes);
 end;
 

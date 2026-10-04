@@ -22,8 +22,10 @@ uses
 type
   /// <summary>
   /// An opaque handle to an imported signing private key. It is produced by the
-  /// provider from any supported encoding and holds the private key material internally,
-  /// wiped on release: no private material and no backend key object cross this surface.
+  /// provider from any supported encoding and holds the private key material internally:
+  /// no private material and no backend key object cross this surface. Raw key bytes and
+  /// OS-owned handles are wiped or freed on release; the portable backend's RSA and EC
+  /// private parameters live in big-number objects that are released, not zeroized.
   /// It reports the signature schemes the key can sign with (in the owner's preferred order;
   /// the scheme used for a CertificateVerify is negotiated per handshake against the peer's
   /// offer) and its public key as a SubjectPublicKeyInfo (public data, so a caller can match

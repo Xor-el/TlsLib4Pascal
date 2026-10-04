@@ -144,6 +144,7 @@ var
   NCRYPT_KSP_NAME: WideString = 'Microsoft Software Key Storage Provider';
   BLOB_PKCS8_PRIVATE: WideString = 'PKCS8_PRIVATEKEY';
   NCRYPT_ALG_NAME_PROP: WideString = 'Algorithm Name';
+  NCRYPT_LENGTH_PROP: WideString = 'Length';
   HASH_ALG_SHA256: WideString = 'SHA256';
   HASH_ALG_SHA384: WideString = 'SHA384';
   HASH_ALG_SHA512: WideString = 'SHA512';
@@ -3520,16 +3521,28 @@ function TWindowsNCrypt.KeySchemes(AKey: NativeUInt;
   out ASchemes: TArray<TSignatureScheme>): Boolean;
 var
   LName: string;
+  LBits, LWritten: ULONG;
 begin
   // the KSP names an imported key by algorithm and (for EC) curve: "RSA", "ECDH_P256" /
   // "ECDSA_P256", etc. An EC key imports as the ECDH_* named algorithm but signs as ECDSA.
   ASchemes := nil;
   LName := AlgName(AKey);
   if LName = 'RSA' then
+  begin
     ASchemes := TArray<TSignatureScheme>.Create(TSignatureScheme.RSA_PSS_RSAE_SHA256,
       TSignatureScheme.RSA_PSS_RSAE_SHA384, TSignatureScheme.RSA_PSS_RSAE_SHA512,
       TSignatureScheme.RSA_PKCS1_SHA256, TSignatureScheme.RSA_PKCS1_SHA384,
-      TSignatureScheme.RSA_PKCS1_SHA512)
+      TSignatureScheme.RSA_PKCS1_SHA512);
+    // a modulus too small for a PSS hash cannot sign it, so it must not offer that scheme
+    LBits := 0;
+    LWritten := 0;
+    // an unreadable size leaves the key unclassified, so the portable provider takes it instead
+    if (FApi.GetProperty(AKey, PWideChar(NCRYPT_LENGTH_PROP), PByte(@LBits), SizeOf(LBits),
+      LWritten, 0) <> STATUS_SUCCESS) or (LBits = 0) then
+      ASchemes := nil
+    else
+      ASchemes := TSignatureScheme.FitRsaModulus(ASchemes, Int32(LBits));
+  end
   else if Pos('P256', LName) > 0 then
     ASchemes := TArray<TSignatureScheme>.Create(TSignatureScheme.ECDSA_SECP256R1_SHA256)
   else if Pos('P384', LName) > 0 then
