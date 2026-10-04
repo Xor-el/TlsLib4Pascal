@@ -1,0 +1,53 @@
+TlsLib.Tests/src/Tls12LoopbackTests.pas
+  s_d27f31cd14035d::t_866bc428d8a438 1215-1228,1230-1235
+  s_d27f31cd14035d::t_d4ffe06882707f 83-84
+  s_d27f31cd14035d::t_0ab784407d1abf 1229
+  s_d27f31cd14035d::t_ab4d04b04b1882 118
+  s_d27f31cd14035d::t_1bd243a252f82c 33
+  s_d27f31cd14035d::t_2330017cd355a0 691-701
+TlsLib/src/Record/TlpRecordLayer.pas
+  s_d27f31cd14035d::t_29ad72aa20a12f 635-644,648-650
+  s_d27f31cd14035d::t_a2ca1d7ca56d47 495,498,632-634
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_d27f31cd14035d::t_c1241379302fe6 651-652,654-656
+  s_d27f31cd14035d::t_379fb46f7c9e8c 479-480
+TlsLib.Tests/src/RecordLayerTests.pas
+  s_d27f31cd14035d::t_b8c850b300d76e 781-782
+  s_d27f31cd14035d::t_ab4d04b04b1882 78
+  s_d27f31cd14035d::t_a41810dd463391 79,762
+  s_d27f31cd14035d::t_df9e6594f45c5a 731-761,763-773,775-778,783-788
+  s_d27f31cd14035d::t_942a7fc3105bfc 774,779-780
+TlsLib.Tests/src/Tls13LoopbackTests.pas
+  s_d27f31cd14035d::t_203ef0c3c418cd 122-123
+  s_d27f31cd14035d::t_64046dba9cc0cc 1587-1597
+  s_d27f31cd14035d::t_733b48e8f22e5a 38
+  s_d27f31cd14035d::t_29b79748e5f72c 33
+  s_d27f31cd14035d::t_0ab784407d1abf 2034,2049-2054
+  s_d27f31cd14035d::t_ab4d04b04b1882 166-167
+  s_d27f31cd14035d::t_b06e570558fd14 32
+  s_d27f31cd14035d::t_5d52dfcf4eb496 2021-2033,2035-2048,2055-2072
+  s_d27f31cd14035d::t_f1552c67d64c0a 121,1327-1332,1340
+TlsLib/src/Handshake/TlpHandshakeConductor.pas
+  s_d27f31cd14035d::t_759f8e9f972206 56-64
+  s_d27f31cd14035d::t_9b7a10aacb5225 266-270
+  s_d27f31cd14035d::t_a5d6b5b01b0139 243
+  s_d27f31cd14035d::t_89f539cd63f775 329
+  s_d27f31cd14035d::t_9c9464c4849915 167-185
+  s_d27f31cd14035d::t_45bf62a2025cea 271-275
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a27645d3e3dd3f9155ae57d2ccc004e55be5c58b",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
