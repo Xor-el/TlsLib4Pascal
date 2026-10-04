@@ -29,8 +29,9 @@ type
   /// The default <see cref="IAntiReplayStrategy" />: a bounded strike register of
   /// recently-seen 0-RTT unique values, each held until its freshness window
   /// lapses. A value seen while still live is a replay and is rejected; the cap
-  /// bounds memory, evicting the oldest live entries first. Guarded by an internal
-  /// lock, so one instance is safe to share across connections/threads.
+  /// bounds memory, and a value arriving at capacity is declined (fail-closed) rather
+  /// than evicting a live entry. Guarded by an internal lock, so one instance is safe
+  /// to share across connections/threads.
   /// </summary>
   TStrikeRegisterAntiReplay = class sealed(TInterfacedObject, IAntiReplayStrategy)
   strict private
@@ -43,6 +44,7 @@ type
     FLock: TCriticalSection;
     class function KeyOf(const AValue: TBytes): string; static;
     procedure PruneExpired(ANowMillis: UInt64);
+    procedure CompactOrder;
   public
     /// <summary>A register holding up to ACapacity live values (default when 0 or less).</summary>
     constructor Create(ACapacity: Int32 = 0);
@@ -107,32 +109,51 @@ begin
   end;
 end;
 
+procedure TStrikeRegisterAntiReplay.CompactOrder;
+var
+  LKept: TQueue<TStrikeEntry>;
+  LEntry: TStrikeEntry;
+  LCurrent: UInt64;
+begin
+  // re-recording leaves stale order entries; keep only each value's current one
+  LKept := TQueue<TStrikeEntry>.Create;
+  try
+    while FOrder.Count > 0 do
+    begin
+      LEntry := FOrder.Dequeue;
+      if FByKey.TryGetValue(LEntry.Key, LCurrent) and (LCurrent = LEntry.Value) then
+        LKept.Enqueue(LEntry);
+    end;
+    while LKept.Count > 0 do
+      FOrder.Enqueue(LKept.Dequeue);
+  finally
+    LKept.Free;
+  end;
+end;
+
 function TStrikeRegisterAntiReplay.CheckAndRecord(const AUniqueValue: TBytes;
   ANowMillis, AExpiryMillis: UInt64): Boolean;
 var
   LKey: string;
-  LExpiry, LCurrent: UInt64;
-  LEvict: TStrikeEntry;
+  LExpiry: UInt64;
 begin
   Result := False;
   if System.Length(AUniqueValue) = 0 then
     Exit; // nothing to bind replay protection to
+  if AExpiryMillis <= ANowMillis then
+    Exit; // an already-lapsed entry protects nothing and would defeat queue compaction
   LKey := KeyOf(AUniqueValue);
   FLock.Enter;
   try
     PruneExpired(ANowMillis);
     if FByKey.TryGetValue(LKey, LExpiry) and (LExpiry > ANowMillis) then
       Exit; // a still-live value: this is a replay
-    // at capacity, evict the oldest LIVE entries to admit the new one. Under a flood of unique
-    // values this can drop a still-live entry, which could then be replayed within its window - the
-    // inherent limit of a bounded strike register that RFC 8446 8 permits. A stale order entry (its
-    // value was re-recorded with a later expiry) is skipped without reducing the count.
-    while (FByKey.Count >= FCapacity) and (FOrder.Count > 0) do
-    begin
-      LEvict := FOrder.Dequeue;
-      if FByKey.TryGetValue(LEvict.Key, LCurrent) and (LCurrent = LEvict.Value) then
-        FByKey.Remove(LEvict.Key);
-    end;
+    // at capacity a new value is declined rather than evicting a live strike: dropping one would let
+    // its captured 0-RTT flight replay inside its window (RFC 8446 8)
+    if (not FByKey.ContainsKey(LKey)) and (FByKey.Count >= FCapacity) then
+      Exit;
+    if FOrder.Count >= 2 * FCapacity then
+      CompactOrder;
     FByKey.AddOrSetValue(LKey, AExpiryMillis);
     FOrder.Enqueue(TStrikeEntry.Create(LKey, AExpiryMillis));
     Result := True;
