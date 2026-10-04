@@ -269,6 +269,7 @@ resourcestring
   SEmptySessionTicket = 'a NewSessionTicket carries an empty ticket';
   SBadCurveType = 'unsupported ECCurveType in ServerKeyExchange (named_curve only)';
   SBadCertificateStatusType = 'a CertificateStatus carries an unsupported status_type';
+  SEmptyCertificateData = 'a certificate list entry carries an empty certificate';
   SEmptyOcspResponse = 'a CertificateStatus carries an empty OCSP response';
   SEmptyCertRequestSigAlgs = 'a CertificateRequest names no supported_signature_algorithms ' +
     '(RFC 5246 7.4.4 requires at least one)';
@@ -531,9 +532,8 @@ end;
 class function THandshakeMessages.DecodeCertificate(
   const ABody: TBytes): TTlsCertificate;
 var
-  LReader, LContext, LList, LCert: TWireReader;
-  LEntry: TTlsCertificateEntry;
-  LCount: Int32;
+  LReader, LContext, LList, LScan, LCert: TWireReader;
+  LCount, LI: Int32;
 begin
   LReader := TWireReader.Create(ABody);
   LContext := LReader.OpenVector(1);
@@ -541,15 +541,24 @@ begin
   Result.Entries := nil;
   LList := LReader.OpenVector(3);
   LReader.ExpectEnd;
+  // count first so the entry array is sized once, not grown a slot at a time
+  LScan := LList;
   LCount := 0;
-  while not LList.EndReached do
+  while not LScan.EndReached do
+  begin
+    LScan.OpenVector(3);
+    LScan.OpenVector(2);
+    Inc(LCount);
+  end;
+  SetLength(Result.Entries, LCount);
+  for LI := 0 to LCount - 1 do
   begin
     LCert := LList.OpenVector(3);
-    LEntry.CertData := LCert.ReadBytes(LCert.Remaining);
-    LEntry.Extensions := ReadVectorRaw(LList, 2);
-    SetLength(Result.Entries, LCount + 1);
-    Result.Entries[LCount] := LEntry;
-    Inc(LCount);
+    // cert_data is <1..2^24-1> (RFC 8446 4.4.2)
+    if LCert.Remaining = 0 then
+      raise EDecodeErrorTlsLibException.CreateRes(@SEmptyCertificateData);
+    Result.Entries[LI].CertData := LCert.ReadBytes(LCert.Remaining);
+    Result.Entries[LI].Extensions := ReadVectorRaw(LList, 2);
   end;
 end;
 
@@ -716,20 +725,29 @@ end;
 class function THandshakeMessages.DecodeCertificate12(
   const ABody: TBytes): TArray<TBytes>;
 var
-  LReader, LList, LCert: TWireReader;
-  LCount: Int32;
+  LReader, LList, LScan, LCert: TWireReader;
+  LCount, LI: Int32;
 begin
   Result := nil;
   LReader := TWireReader.Create(ABody);
   LList := LReader.OpenVector(3);
   LReader.ExpectEnd;
+  // count first so the array is sized once, not grown a slot at a time
+  LScan := LList;
   LCount := 0;
-  while not LList.EndReached do
+  while not LScan.EndReached do
+  begin
+    LScan.OpenVector(3);
+    Inc(LCount);
+  end;
+  SetLength(Result, LCount);
+  for LI := 0 to LCount - 1 do
   begin
     LCert := LList.OpenVector(3);
-    SetLength(Result, LCount + 1);
-    Result[LCount] := LCert.ReadBytes(LCert.Remaining);
-    Inc(LCount);
+    // ASN.1Cert is <1..2^24-1> (RFC 5246 7.4.2)
+    if LCert.Remaining = 0 then
+      raise EDecodeErrorTlsLibException.CreateRes(@SEmptyCertificateData);
+    Result[LI] := LCert.ReadBytes(LCert.Remaining);
   end;
 end;
 

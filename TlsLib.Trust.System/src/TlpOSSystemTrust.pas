@@ -211,6 +211,7 @@ begin
     LPolicy.Posture := AConfig.RevocationPosture;
     LPolicy.Fetch := TSystemTrustFetch.Live;
     LPolicy.StrengthPolicy := AConfig.CertificateStrengthPolicy;
+    LPolicy.ChainLimits := AConfig.CertificateChainLimits;
     LPolicy.AdvertisedSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
     LPolicy.CheckHostName := AConfig.CheckServerName;
     // a server certificate is validated against the OS roots, so no exclusive anchor set
@@ -246,6 +247,7 @@ begin
     LPolicy.Posture := AConfig.RevocationPosture;
     LPolicy.Fetch := TSystemTrustFetch.Live;
     LPolicy.StrengthPolicy := AConfig.CertificateStrengthPolicy;
+    LPolicy.ChainLimits := AConfig.CertificateChainLimits;
     LPolicy.AdvertisedSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
     // a client certificate carries no server name to match
     LPolicy.CheckHostName := False;

@@ -50,6 +50,7 @@ type
     procedure TestFinishedRoundTrip;
     procedure TestTruncatedClientHelloIsDecodeError;
     procedure TestOverlongSessionIdIsDecodeError;
+    procedure TestEmptyCertificateDataIsDecodeError;
     procedure TestEmptyOrTrailingNewSessionTicketIsDecodeError;
     procedure TestEmptyCipherSuitesIsDecodeError;
     procedure TestEmptyCompressionMethodsIsDecodeError;
@@ -290,6 +291,34 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a 33-byte ServerHello legacy_session_id_echo is a decode_error');
+end;
+
+procedure TTestHandshakeMessages.TestEmptyCertificateDataIsDecodeError;
+var
+  LRaised13, LRaised12: Boolean;
+begin
+  // cert_data is <1..2^24-1> in 1.3 (RFC 8446 4.4.2) and ASN.1Cert is <1..2^24-1> in 1.2
+  // (RFC 5246 7.4.2): a zero-length entry is malformed, not an empty certificate to be parsed
+  LRaised13 := False;
+  LRaised12 := False;
+  try
+    // empty context, one entry: cert_data length 0, empty extensions
+    THandshakeMessages.DecodeCertificate(DecodeHex('000000050000000000'));
+  except
+    on E: EDecodeErrorTlsLibException do
+      LRaised13 := True;
+  end;
+  try
+    THandshakeMessages.DecodeCertificate12(DecodeHex('000003000000'));
+  except
+    on E: EDecodeErrorTlsLibException do
+      LRaised12 := True;
+  end;
+  CheckTrue(LRaised13, 'a 1.3 entry with an empty certificate is a decode_error');
+  CheckTrue(LRaised12, 'a 1.2 entry with an empty certificate is a decode_error');
+  // the empty LIST remains valid (a client with no certificate)
+  CheckEquals(0, System.Length(THandshakeMessages.DecodeCertificate(
+    DecodeHex('00000000')).Entries), 'an empty 1.3 list decodes to no entries');
 end;
 
 procedure TTestHandshakeMessages.TestEmptyOrTrailingNewSessionTicketIsDecodeError;

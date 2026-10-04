@@ -159,6 +159,7 @@ type
     procedure TestDefaultCertificateChainLimitsAreConservative;
     procedure TestCertificateChainLimitsAreConfigurable;
     procedure TestInvalidCertificateChainLimitsRejected;
+    procedure TestInvalidChainEntryCapRejected;
     procedure TestTls13CompressorOverrideLandsInFrozenConfig;
     procedure TestClientBuilderChainBuildsClient;
     procedure TestServerBuilderChainBuildsServer;
@@ -1542,8 +1543,10 @@ var
   LCustom, LFrozen: TCertificateChainLimits;
 begin
   // a caller can tune the caps; the frozen config carries the tuned values
+  LCustom := TCertificateChainLimits.Defaults;
   LCustom.MaxCertificateLength := 1 shl 17;
   LCustom.MaxTotalChainLength := 1 shl 20;
+  LCustom.MaxChainCertificates := 32;
   LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LConfig := LBuilder.Client
     .WithCipherSuites(TCipherSuiteRegistry.CreateDefault(Crypto))
@@ -1557,6 +1560,7 @@ begin
   LFrozen := LConfig.CertificateChainLimits;
   CheckEquals(1 shl 17, LFrozen.MaxCertificateLength, 'the tuned certificate length');
   CheckEquals(1 shl 20, LFrozen.MaxTotalChainLength, 'the tuned total chain length');
+  CheckEquals(32, LFrozen.MaxChainCertificates, 'the tuned chain entry count');
 end;
 
 function TTestConfigBuilder.ChainLimitsAccepted(AMaxCert,
@@ -1565,6 +1569,7 @@ var
   LLimits: TCertificateChainLimits;
   LBuilder: ITlsConfigBuilder;
 begin
+  LLimits := TCertificateChainLimits.Defaults;
   LLimits.MaxCertificateLength := AMaxCert;
   LLimits.MaxTotalChainLength := AMaxTotal;
   LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
@@ -1575,6 +1580,32 @@ begin
     on E: EArgumentTlsLibException do
       Result := False;
   end;
+end;
+
+procedure TTestConfigBuilder.TestInvalidChainEntryCapRejected;
+
+  function Accepted(ACap: Int32): Boolean;
+  var
+    LLimits: TCertificateChainLimits;
+  begin
+    LLimits := TCertificateChainLimits.Defaults;
+    LLimits.MaxChainCertificates := ACap;
+    Result := True;
+    try
+      TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default)
+        .Client.WithCertificateChainLimits(LLimits);
+    except
+      on E: EArgumentTlsLibException do
+        Result := False;
+    end;
+  end;
+
+begin
+  CheckTrue(Accepted(16), 'the default entry cap is accepted');
+  CheckTrue(Accepted(1), 'a single-entry cap is accepted');
+  CheckTrue(Accepted(255), 'the largest entry cap is accepted');
+  CheckFalse(Accepted(0), 'a zero entry cap is rejected');
+  CheckFalse(Accepted(256), 'an entry cap above 255 is rejected');
 end;
 
 procedure TTestConfigBuilder.TestInvalidCertificateChainLimitsRejected;

@@ -29,6 +29,9 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpTlsAlert,
+  TlpTlsLibExceptions,
+  TlpPkixDomainTypes,
+  TlpDateTimeUtilities,
   TlpICertificateTrust,
   TlpTrustTypes,
   TlpServerName,
@@ -64,6 +67,16 @@ type
     // one root key re-issued under several self-signed certificates (same subject), plus a
     // same-subject different-key lookalike, for the anchor-identity tests
     FReissued: TStringList;
+    // a leaf issued by name X plus self-issued fillers all named X, for the path-building bound
+    FFlood: TStringList;
+    function Flood(const AName: string): TBytes;
+    // the alert the path validator raises for AChain against AAnchor, and how long it took;
+    // CloseNotify when it raised none (the chain validated)
+    function PathAlert(const AChain: TArray<TBytes>; const AAnchor: TBytes;
+      out AElapsedMs: Int64): TTlsAlertDescription;
+    function RingChain: TArray<TBytes>;
+    // the flood leaf followed by the first ACount fillers
+    function FloodChain(ACount: Int32): TArray<TBytes>;
     function Cert(const AName: string): TBytes;
     function Chain3(const AName: string): TBytes;
     function EkuCert(const AName: string): TBytes;
@@ -120,6 +133,14 @@ type
     procedure TestSameSubjectDifferentKeyRootIgnoredForConfiguredAnchor;
     // the anchor set is fetched once per verify and shared by path validation and the chain policy
     procedure TestAnchorSetReadOncePerVerify;
+    // path building is bounded against a peer-controlled flood of same-named certificates, and a
+    // nil parse result gets the right alert
+    procedure TestSelfIssuedFillerFloodFailsFast;
+    procedure TestRingOfSameNamedCertificatesFailsFast;
+    procedure TestPerSubjectPoolKeepsFirstPresented;
+    procedure TestEmptyOrNonDerEntryIsBadCertificate;
+    procedure TestChainOverEntryCapRefused;
+    procedure TestChainLimitsAdmitsChainCapsEveryDimension;
   end;
 
 implementation
@@ -148,6 +169,7 @@ begin
   FEku := LoadVectorFields('Certs/ClientAuthChain.txt');
   FEkuEdge := LoadVectorFields('Certs/SelfSignedEkuEdge.txt');
   FReissued := LoadVectorFields('Certs/ReissuedRoot.txt');
+  FFlood := LoadVectorFields('Certs/PathBuildFlood.txt');
 end;
 
 procedure TTestCertificateVerifier.TearDown;
@@ -157,12 +179,29 @@ begin
   FEku.Free;
   FEkuEdge.Free;
   FReissued.Free;
+  FFlood.Free;
   inherited TearDown;
 end;
 
 function TTestCertificateVerifier.Reissued(const AName: string): TBytes;
 begin
   Result := DecodeHex(FReissued.Values[AName]);
+end;
+
+function TTestCertificateVerifier.Flood(const AName: string): TBytes;
+begin
+  Result := DecodeHex(FFlood.Values[AName]);
+end;
+
+function TTestCertificateVerifier.FloodChain(ACount: Int32): TArray<TBytes>;
+var
+  LI: Int32;
+begin
+  Result := nil;
+  SetLength(Result, ACount + 1);
+  Result[0] := Flood('leaf');
+  for LI := 0 to ACount - 1 do
+    Result[LI + 1] := Flood(Format('filler_%.2d', [LI]));
 end;
 
 function TTestCertificateVerifier.PolicyVerifierFor(const ARoot: TBytes;
@@ -594,6 +633,134 @@ begin
     'a SHA-1-signed intermediate is refused without an armed policy');
   CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
     'the alert is bad_certificate');
+end;
+
+function TTestCertificateVerifier.RingChain: TArray<TBytes>;
+var
+  LI: Int32;
+begin
+  Result := nil;
+  SetLength(Result, 17);
+  Result[0] := Flood('ring_leaf');
+  for LI := 0 to 15 do
+    Result[LI + 1] := Flood(Format('ring_%.2d', [LI]));
+end;
+
+function TTestCertificateVerifier.PathAlert(const AChain: TArray<TBytes>;
+  const AAnchor: TBytes; out AElapsedMs: Int64): TTlsAlertDescription;
+var
+  LEffective: TArray<TBytes>;
+  LStart: Int64;
+begin
+  Result := TTlsAlertDescription.CloseNotify; // stands for "no alert raised"
+  LEffective := nil;
+  LStart := TDateTimeUtilities.CurrentUnixMs;
+  try
+    Pkix.PathValidation.ValidateCertificatePath(AChain, TArray<TBytes>.Create(AAnchor), nil,
+      TDateTimeUtilities.UnixMsToDateTime(LStart), TCertKeyPurpose.ServerAuth, LEffective);
+  except
+    on E: EFatalAlertTlsLibException do
+      Result := E.AlertDescription;
+  end;
+  AElapsedMs := TDateTimeUtilities.CurrentUnixMs - LStart;
+end;
+
+procedure TTestCertificateVerifier.TestSelfIssuedFillerFloodFailsFast;
+var
+  LElapsed: Int64;
+begin
+  // the builder's depth cap ignores self-issued certificates, so a peer padding its chain with
+  // same-named ones could drive a permutation search; the per-subject pool cap bounds it
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa),
+    Ord(PathAlert(FloodChain(40), Flood('anchor'), LElapsed)),
+    'a chain that reaches no trusted anchor is unknown_ca');
+  CheckTrue(LElapsed < 5000, 'path building gives up promptly (' + IntToStr(LElapsed) + ' ms)');
+end;
+
+procedure TTestCertificateVerifier.TestRingOfSameNamedCertificatesFailsFast;
+var
+  LElapsed: Int64;
+begin
+  // four subjects cross-issuing each other, each with three self-issued twins: every subject is
+  // within a small per-subject count, yet without a tight cap the ring multiplies the permutations
+  // until the builder's whole node budget is spent
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa),
+    Ord(PathAlert(RingChain, Flood('ring_anchor'), LElapsed)),
+    'a ring that reaches no trusted anchor is unknown_ca');
+  CheckTrue(LElapsed < 1500, 'path building gives up promptly (' + IntToStr(LElapsed) + ' ms)');
+end;
+
+procedure TTestCertificateVerifier.TestPerSubjectPoolKeepsFirstPresented;
+var
+  LElapsed: Int64;
+  LLegit, LDecoyFirst: TArray<TBytes>;
+begin
+  // at most two presented certificates per subject name are pooled, first presented first: the real
+  // issuer presented right after the leaf validates, but behind two same-named decoys it is dropped
+  LLegit := TArray<TBytes>.Create(Flood('order_leaf'), Flood('order_real'),
+    Flood('order_decoy_0'), Flood('order_decoy_1'));
+  LDecoyFirst := TArray<TBytes>.Create(Flood('order_leaf'), Flood('order_decoy_0'),
+    Flood('order_decoy_1'), Flood('order_real'));
+  CheckEquals(Ord(TTlsAlertDescription.CloseNotify),
+    Ord(PathAlert(LLegit, Flood('order_anchor'), LElapsed)),
+    'the real issuer presented first builds a path to the anchor');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa),
+    Ord(PathAlert(LDecoyFirst, Flood('order_anchor'), LElapsed)),
+    'the real issuer behind two same-named decoys is not pooled');
+end;
+
+procedure TTestCertificateVerifier.TestEmptyOrNonDerEntryIsBadCertificate;
+var
+  LElapsed: Int64;
+  LChain: TArray<TBytes>;
+begin
+  // the parser answers an empty or non-DER entry with nil rather than raising; that must surface
+  // as bad_certificate, not a nil dereference reported as an internal error
+  LChain := TArray<TBytes>.Create(Flood('leaf'), nil);
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate),
+    Ord(PathAlert(LChain, Flood('anchor'), LElapsed)), 'an empty entry is bad_certificate');
+  LChain := TArray<TBytes>.Create(Flood('leaf'), TBytes.Create($00, $01, $02));
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate),
+    Ord(PathAlert(LChain, Flood('anchor'), LElapsed)), 'a non-DER entry is bad_certificate');
+end;
+
+procedure TTestCertificateVerifier.TestChainOverEntryCapRefused;
+var
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  // 16 is the default cap; the flood leaf plus 16 fillers is 17 entries and is refused before any
+  // PKIX work, whatever the chain would have validated to
+  LVerifier := VerifierFor(Flood('anchor'), False);
+  CheckFalse(LVerifier.VerifyServerCertificate(FloodChain(16), TServerName.DnsName(''), nil,
+    LVerified, LAlert), 'a chain over the entry cap is refused');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
+    'the alert is bad_certificate');
+end;
+
+procedure TTestCertificateVerifier.TestChainLimitsAdmitsChainCapsEveryDimension;
+var
+  LLimits: TCertificateChainLimits;
+  LOne: TBytes;
+  LChain: TArray<TBytes>;
+begin
+  LLimits := TCertificateChainLimits.Defaults;
+  CheckEquals(16, LLimits.MaxChainCertificates, 'the default entry cap');
+  LOne := nil;
+  SetLength(LOne, 100);
+  LChain := TArray<TBytes>.Create(LOne, LOne, LOne);
+  CheckTrue(LLimits.AdmitsChain(LChain), 'a small chain is admitted');
+  LLimits.MaxChainCertificates := 2;
+  CheckFalse(LLimits.AdmitsChain(LChain), 'one entry over the count cap is refused');
+  LLimits.MaxChainCertificates := 3;
+  LLimits.MaxCertificateLength := 99;
+  CheckFalse(LLimits.AdmitsChain(LChain), 'a certificate over the length cap is refused');
+  LLimits.MaxCertificateLength := 100;
+  LLimits.MaxTotalChainLength := 299;
+  CheckFalse(LLimits.AdmitsChain(LChain), 'a chain over the total cap is refused');
+  LLimits.MaxTotalChainLength := 300;
+  CheckTrue(LLimits.AdmitsChain(LChain), 'a chain exactly at every cap is admitted');
 end;
 
 procedure TTestCertificateVerifier.TestAnchorSetReadOncePerVerify;

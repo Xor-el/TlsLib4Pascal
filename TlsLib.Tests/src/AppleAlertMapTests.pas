@@ -37,6 +37,7 @@ uses
   TlpTrustTypes,
   TlpServerName,
   TlpTrustPolicy,
+  TlpCertificateLimits,
   TlpCertificateStrengthPolicy,
   TlpIPlatformChainEngine,
   TlpOSDelegateVerifier,
@@ -111,6 +112,7 @@ begin
   // the untrusted root makes SecTrust reject before the policy runs; a real provider + default
   // policy keep the construction valid regardless
   LPolicy := Default(TOSDelegatePolicy);
+  LPolicy.ChainLimits := TCertificateChainLimits.Defaults;
   LPolicy.Pkix := TDefaultPkixProvider.Create as IPkixProvider;
   LPolicy.Clock := nil;
   LPolicy.Posture := TRevocationPosture.Soft;

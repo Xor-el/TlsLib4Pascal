@@ -42,6 +42,7 @@ uses
   TlpTrustTypes,
   TlpICertificateVerifierSource,
   TlpTrustPolicy,
+  TlpCertificateLimits,
   TlpServerName,
   TlpCertificateStrengthPolicy,
   TlpNegotiationTypes,
@@ -204,6 +205,7 @@ type
     procedure TestVerifyCallbackRejectYieldsCertificateUnknown;
     procedure TestVerifyCallbackNotInvokedWhenEngineRejects;
     procedure TestEmptyServerNameFailsClosedWithoutConsultingEngine;
+    procedure TestOverCapChainRefusedWithoutConsultingEngine;
     procedure TestServerSourceCarriesVerifyCallbackFromContext;
     procedure TestClientSourceCarriesVerifyCallbackFromContext;
     procedure TestFilterRootsDeDupsAndDropsMalformed;
@@ -644,6 +646,7 @@ function TTestOSDelegateTemplate.Policy(APosture: TRevocationPosture;
   const AAnchors: TArray<TBytes>): TOSDelegatePolicy;
 begin
   Result := Default(TOSDelegatePolicy);
+  Result.ChainLimits := TCertificateChainLimits.Defaults;
   Result.Pkix := FPkix;
   Result.Clock := FClock;
   Result.Posture := APosture;
@@ -1030,6 +1033,7 @@ begin
   LSource := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly)
     as IServerCertificateVerifierSource;
   LContext := Default(TServerTrustContext);
+  LContext.ChainLimits := TCertificateChainLimits.Defaults;
   LContext.Pkix := FPkix;
   LContext.Clock := FClock;
   LContext.CheckHostName := True;
@@ -1076,6 +1080,7 @@ begin
     False, Result_(TLiveRevocationOutcome.Good, OcspChain), TTlsAlertDescription.BadCertificate);
   LSource := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.Live) as IServerCertificateVerifierSource;
   LContext := Default(TServerTrustContext);
+  LContext.ChainLimits := TCertificateChainLimits.Defaults;
   LContext.Pkix := FPkix;
   LContext.Deferral := TVerdictDeferral.None;
   LRaised := False;
@@ -1100,6 +1105,7 @@ begin
     Result_(TLiveRevocationOutcome.Good, OcspChain), TTlsAlertDescription.BadCertificate);
   LSource := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly) as IClientCertificateVerifierSource;
   LContext := Default(TClientTrustContext);
+  LContext.ChainLimits := TCertificateChainLimits.Defaults;
   LContext.Pkix := FPkix;
   LContext.RevocationPosture := TRevocationPosture.Hard;
   LContext.Deferral := TVerdictDeferral.None;
@@ -1309,6 +1315,34 @@ begin
   CheckEquals(0, LFake.ServerCalls, 'the engine was not consulted');
 end;
 
+procedure TTestOSDelegateTemplate.TestOverCapChainRefusedWithoutConsultingEngine;
+var
+  LFake: TMockPlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LPolicy: TOSDelegatePolicy;
+  LServer: IServerCertificateVerifier;
+  LClient: IClientCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  // the chain-size caps bind the OS delegates as they bind the built-in verifier: an over-count chain
+  // is refused before the platform engine sees it, in both roles
+  LFake := TMockPlatformChainEngine.Create([], True,
+    Result_(TLiveRevocationOutcome.Good, OcspChain), TTlsAlertDescription.UnknownCa);
+  LEngine := LFake;
+  LPolicy := Policy(TRevocationPosture.Off, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil);
+  LPolicy.ChainLimits.MaxChainCertificates := 1;
+  LServer := TOSDelegateServerVerifier.Create(LEngine, LPolicy) as IServerCertificateVerifier;
+  CheckFalse(LServer.VerifyServerCertificate(OcspChain, TServerName.DnsName('localhost'), nil,
+    LVerified, LAlert), 'an over-count chain is refused for a server certificate');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'the server alert is bad_certificate');
+  LClient := TOSDelegateClientVerifier.Create(LEngine, LPolicy) as IClientCertificateVerifier;
+  CheckFalse(LClient.VerifyClientCertificate(OcspChain, LVerified, LAlert),
+    'an over-count chain is refused for a client certificate');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'the client alert is bad_certificate');
+  CheckEquals(0, LFake.ServerCalls + LFake.ClientCalls, 'the engine was never consulted');
+end;
+
 procedure TTestOSDelegateTemplate.TestServerSourceCarriesVerifyCallbackFromContext;
 var
   LEngine: IPlatformChainEngine;
@@ -1327,6 +1361,7 @@ begin
   LSource := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly)
     as IServerCertificateVerifierSource;
   LContext := Default(TServerTrustContext);
+  LContext.ChainLimits := TCertificateChainLimits.Defaults;
   LContext.Pkix := FPkix;
   LContext.Clock := FClock;
   LContext.CheckHostName := True;
@@ -1362,6 +1397,7 @@ begin
   LSource := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly)
     as IClientCertificateVerifierSource;
   LContext := Default(TClientTrustContext);
+  LContext.ChainLimits := TCertificateChainLimits.Defaults;
   LContext.Pkix := FPkix;
   LContext.Clock := FClock;
   LContext.RevocationPosture := TRevocationPosture.Soft;
@@ -1754,6 +1790,7 @@ function TTestWindowsClientDelegate.MakePolicy(const AAnchors: TArray<TBytes>;
   const AAdvertised: TArray<UInt16>): TOSDelegatePolicy;
 begin
   Result := Default(TOSDelegatePolicy);
+  Result.ChainLimits := TCertificateChainLimits.Defaults;
   Result.Pkix := FPkix;
   Result.Clock := AClock;
   Result.Posture := APosture;
@@ -2066,6 +2103,7 @@ var
   LPolicy: TOSDelegatePolicy;
 begin
   LPolicy := Default(TOSDelegatePolicy);
+  LPolicy.ChainLimits := TCertificateChainLimits.Defaults;
   LPolicy.Pkix := FPkix;
   LPolicy.Clock := AClock;
   LPolicy.Posture := APosture;

@@ -22,6 +22,7 @@ uses
   TlpIClock,
   TlpServerName,
   TlpTrustPolicy,
+  TlpCertificateLimits,
   TlpCertificateStrengthPolicy,
   TlpChainAlgorithmPolicy,
   TlpICertificateTrust,
@@ -44,6 +45,7 @@ type
     Fetch: TSystemTrustFetch;
     Deferral: TVerdictDeferral;
     StrengthPolicy: TCertificateStrengthPolicy;
+    ChainLimits: TCertificateChainLimits;
     AdvertisedSchemes: TArray<UInt16>;
     Anchors: TArray<TBytes>;
     CheckHostName: Boolean;
@@ -159,6 +161,7 @@ begin
   Result.Fetch := AFetch;
   Result.Deferral := AContext.Deferral;
   Result.StrengthPolicy := AContext.StrengthPolicy;
+  Result.ChainLimits := AContext.ChainLimits;
   Result.AdvertisedSchemes := AContext.AdvertisedSignatureSchemes;
   Result.CheckHostName := AContext.CheckHostName;
   Result.Dangerous := AContext.Dangerous;
@@ -180,6 +183,7 @@ begin
   Result.Fetch := AFetch;
   Result.Deferral := AContext.Deferral;
   Result.StrengthPolicy := AContext.StrengthPolicy;
+  Result.ChainLimits := AContext.ChainLimits;
   Result.AdvertisedSchemes := AContext.AdvertisedSignatureSchemes;
   Result.Dangerous := AContext.Dangerous;
   // a client certificate carries no server name to match
@@ -323,6 +327,12 @@ var
   LResult: TPlatformChainResult;
 begin
   AVerified := Default(TVerifiedChain);
+  // resource caps before the OS engine sees the chain, as the built-in verifier does
+  if not Policy.ChainLimits.AdmitsChain(AChain) then
+  begin
+    AAlert := TTlsAlertDescription.BadCertificate;
+    Exit(False);
+  end;
   // an empty server name cannot be matched, so fail closed under an enabled name check rather than
   // let the engine trust a chain whose identity was never checked (built-in parity)
   if Policy.CheckHostName and AServerName.IsEmpty then
@@ -348,6 +358,11 @@ var
   LNoName: TServerName;
 begin
   AVerified := Default(TVerifiedChain);
+  if not Policy.ChainLimits.AdmitsChain(AChain) then
+  begin
+    AAlert := TTlsAlertDescription.BadCertificate;
+    Exit(False);
+  end;
   LNoName := Default(TServerName);
   LRequest := BuildRequest(AChain, LNoName, nil);
   if not Engine.EvaluateClient(LRequest, LResult, AAlert) then
