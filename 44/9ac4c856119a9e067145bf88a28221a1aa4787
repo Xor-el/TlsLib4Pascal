@@ -1,0 +1,29 @@
+TlsLib/src/Session/TlpAntiReplay.pas
+  s_09d3c46d1a9b1f::t_8b22e4b84f3064 42,73,93,116,138
+  s_09d3c46d1a9b1f::t_a5304248f89300 115,127-130,134-135
+  s_09d3c46d1a9b1f::t_7234fb9b812179 26-28
+  s_09d3c46d1a9b1f::t_4f083afe63284a 94,96-97,100-101,104-107
+  s_09d3c46d1a9b1f::t_05c0445fbd0b7f 40-41
+TlsLib.Tests/src/SessionStoreTests.pas
+  s_09d3c46d1a9b1f::t_69eda96df878fc 97
+  s_09d3c46d1a9b1f::t_518ff89a14f295 1071-1095
+TlsLib/src/Session/TlpSessionTicketKeys.pas
+  s_09d3c46d1a9b1f::t_a109d3d2c04852 171
+  s_09d3c46d1a9b1f::t_fb178173e083b3 231-234
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "449ac4c856119a9e067145bf88a28221a1aa4787",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
