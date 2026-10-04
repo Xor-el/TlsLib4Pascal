@@ -168,13 +168,7 @@ begin
     FWindow := DefaultDecryptWindow;
   FClock := AClock;
   FRotateIntervalMillis := UInt64(ARotateIntervalSeconds) * 1000;
-  // window x interval, saturated: an extreme caller-supplied window/interval must not wrap the
-  // product to a small age bound that would expire every key at once (overflow checks are off)
-  if (FRotateIntervalMillis > 0) and
-    (UInt64(FWindow) > High(UInt64) div FRotateIntervalMillis) then
-    FAgeBoundMillis := High(UInt64)
-  else
-    FAgeBoundMillis := UInt64(FWindow) * FRotateIntervalMillis;
+  FAgeBoundMillis := UInt64(FWindow) * FRotateIntervalMillis;
   if AMaxSealsPerKey > 0 then
     FMaxSealsPerKey := AMaxSealsPerKey
   else
@@ -234,8 +228,10 @@ begin
   if FKeysInstalled or (FClock = nil) or (FRotateIntervalMillis = 0) then
     Exit;
   LNow := FClock.NowUnixMillis;
-  // the oldest keys are at the front; compare by addition so a backwards clock step cannot underflow
-  while (FKeys.Count > 0) and (LNow >= FKeys[0].CreatedAt + FAgeBoundMillis) do
+  // the oldest keys are at the front; compare by subtraction (guarded against a backwards clock
+  // step) so a large age bound cannot wrap the sum and prune every key at once
+  while (FKeys.Count > 0) and (LNow >= FKeys[0].CreatedAt) and
+    (LNow - FKeys[0].CreatedAt >= FAgeBoundMillis) do
     FKeys.Delete(0);
 end;
 

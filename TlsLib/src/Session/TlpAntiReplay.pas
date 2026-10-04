@@ -23,6 +23,9 @@ uses
   TlpISession;
 
 type
+  // (value, expiry-ms) pair; named so the nested generic TQueue<...> specialization parses
+  TStrikeEntry = TPair<string, UInt64>;
+
   /// <summary>
   /// The default <see cref="IAntiReplayStrategy" />: a bounded strike register of
   /// recently-seen 0-RTT unique values, each held until its freshness window
@@ -34,7 +37,9 @@ type
   strict private
   var
     FByKey: TDictionary<string, UInt64>; // value -> expiry (ms)
-    FOrder: TQueue<string>;
+    // (value, expiry) in insertion order; the expiry is carried so a re-recorded value's stale
+    // earlier entry is recognized and dropped without evicting its live current entry
+    FOrder: TQueue<TStrikeEntry>;
     FCapacity: Int32;
     FLock: TCriticalSection;
     class function KeyOf(const AValue: TBytes): string; static;
@@ -65,7 +70,7 @@ begin
   else
     FCapacity := DefaultStrikeCapacity;
   FByKey := TDictionary<string, UInt64>.Create;
-  FOrder := TQueue<string>.Create;
+  FOrder := TQueue<TStrikeEntry>.Create;
   FLock := TCriticalSection.Create;
 end;
 
@@ -85,23 +90,21 @@ end;
 
 procedure TStrikeRegisterAntiReplay.PruneExpired(ANowMillis: UInt64);
 var
-  LKey: string;
-  LExpiry: UInt64;
+  LFront: TStrikeEntry;
+  LCurrent: UInt64;
 begin
-  // insertion order tracks expiry order (all entries share one window length),
-  // so expired entries cluster at the front
+  // insertion order tracks expiry order (all entries share one window length), so the earliest
+  // expiry is at the front
   while FOrder.Count > 0 do
   begin
-    LKey := FOrder.Peek;
-    if not FByKey.TryGetValue(LKey, LExpiry) then
-    begin
-      FOrder.Dequeue; // already taken out; drop the stale order entry
-      Continue;
-    end;
-    if LExpiry > ANowMillis then
+    LFront := FOrder.Peek;
+    if LFront.Value > ANowMillis then
       Break; // front is still live
     FOrder.Dequeue;
-    FByKey.Remove(LKey);
+    // remove from the dictionary only when it still holds THIS entry; a later expiry means the value
+    // was re-recorded, so this is a stale order entry to drop without evicting the live current one
+    if FByKey.TryGetValue(LFront.Key, LCurrent) and (LCurrent = LFront.Value) then
+      FByKey.Remove(LFront.Key);
   end;
 end;
 
@@ -109,8 +112,8 @@ function TStrikeRegisterAntiReplay.CheckAndRecord(const AUniqueValue: TBytes;
   ANowMillis, AExpiryMillis: UInt64): Boolean;
 var
   LKey: string;
-  LExpiry: UInt64;
-  LEvict: string;
+  LExpiry, LCurrent: UInt64;
+  LEvict: TStrikeEntry;
 begin
   Result := False;
   if System.Length(AUniqueValue) = 0 then
@@ -121,16 +124,18 @@ begin
     PruneExpired(ANowMillis);
     if FByKey.TryGetValue(LKey, LExpiry) and (LExpiry > ANowMillis) then
       Exit; // a still-live value: this is a replay
-    // at capacity, evict the oldest entries to admit the new one. Under a flood of unique
-    // values this can drop a still-live entry, which could then be replayed within its
-    // window - the inherent limit of a bounded strike register that RFC 8446 8 permits.
+    // at capacity, evict the oldest LIVE entries to admit the new one. Under a flood of unique
+    // values this can drop a still-live entry, which could then be replayed within its window - the
+    // inherent limit of a bounded strike register that RFC 8446 8 permits. A stale order entry (its
+    // value was re-recorded with a later expiry) is skipped without reducing the count.
     while (FByKey.Count >= FCapacity) and (FOrder.Count > 0) do
     begin
       LEvict := FOrder.Dequeue;
-      FByKey.Remove(LEvict);
+      if FByKey.TryGetValue(LEvict.Key, LCurrent) and (LCurrent = LEvict.Value) then
+        FByKey.Remove(LEvict.Key);
     end;
     FByKey.AddOrSetValue(LKey, AExpiryMillis);
-    FOrder.Enqueue(LKey);
+    FOrder.Enqueue(TStrikeEntry.Create(LKey, AExpiryMillis));
     Result := True;
   finally
     FLock.Leave;

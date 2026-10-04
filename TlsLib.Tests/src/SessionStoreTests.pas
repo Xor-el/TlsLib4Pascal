@@ -94,6 +94,7 @@ type
     procedure TestAntiReplayFreshAfterExpiry;
     procedure TestAntiReplayRejectsEmpty;
     procedure TestAntiReplayBounded;
+    procedure TestAntiReplayReRecordBehindLiveEntryStaysSound;
   end;
 
 implementation
@@ -1065,6 +1066,31 @@ begin
   for LI := 0 to 19 do
     LReplay.CheckAndRecord(Tag(Byte(LI), 8), 1000, 100000);
   CheckTrue(LReplay.Count <= 4, 'the strike register never grows past its cap');
+end;
+
+procedure TTestSessionStore.TestAntiReplayReRecordBehindLiveEntryStaysSound;
+var
+  LReplay: IAntiReplayStrategy;
+  LGuard, LValue, LOther: TBytes;
+begin
+  // re-recording a value after it expired while a live entry sits ahead of it (so pruning did not
+  // reach it first) leaves a stale order entry for that value; the register must stay sound - the
+  // re-recorded value is rejected as a replay within its new window, pruning and counting are not
+  // corrupted, and a fresh distinct value is still accepted
+  LReplay := TStrikeRegisterAntiReplay.Create;
+  LGuard := Tag($11, 8);
+  LValue := Tag($AA, 8);
+  LOther := Tag($22, 8);
+  CheckTrue(LReplay.CheckAndRecord(LGuard, 1000, 100000), 'the live guard is recorded');
+  CheckTrue(LReplay.CheckAndRecord(LValue, 1000, 2000), 'the value is recorded');
+  // at 3000 the value has expired but sits behind the still-live guard; re-record it
+  CheckTrue(LReplay.CheckAndRecord(LValue, 3000, 100000), 'the value is re-recorded after expiry');
+  CheckFalse(LReplay.CheckAndRecord(LValue, 4000, 100000),
+    'the re-recorded value is still live and rejected as a replay');
+  CheckFalse(LReplay.CheckAndRecord(LGuard, 4000, 100000), 'the live guard is still a replay');
+  CheckTrue(LReplay.CheckAndRecord(LOther, 4000, 100000),
+    'a fresh distinct value is still accepted');
+  CheckTrue(LReplay.Count <= 3, 'the register count is not inflated by the stale order entry');
 end;
 
 initialization
