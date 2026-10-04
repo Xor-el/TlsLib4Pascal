@@ -28,7 +28,7 @@ type
   /// The default in-memory <see cref="ISessionStore" />: a bounded, stateful
   /// server store. A stored session is addressed by an opaque handle (a fresh
   /// random blob from <see cref="Put" />, or a caller id via
-  /// <see cref="PutWithId" />) and retrieval removes it, enforcing single-use.
+  /// <see cref="PutWithId" />); Take removes it (single-use) and Peek reads it without removing.
   /// When the cap is reached the oldest entry is evicted. Guarded by an internal
   /// lock, so one instance is safe to share across connections/threads.
   /// </summary>
@@ -55,6 +55,7 @@ type
 
     function Put(const ASession: IResumableSession): TBytes;
     procedure PutWithId(const AId: TBytes; const ASession: IResumableSession);
+    function Peek(const AId: TBytes; out ASession: IResumableSession): Boolean;
     function Take(const AId: TBytes; out ASession: IResumableSession): Boolean;
     procedure Remove(const AId: TBytes);
     procedure Clear;
@@ -162,6 +163,18 @@ begin
     // so EvictToCapacity may never fire - bound FOrder by compacting away dead/dup entries
     if FOrder.Count > FCapacity * OrderSlackFactor then
       CompactOrder;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function TInMemorySessionStore.Peek(const AId: TBytes;
+  out ASession: IResumableSession): Boolean;
+begin
+  ASession := nil;
+  FLock.Enter;
+  try
+    Result := FByKey.TryGetValue(KeyOf(AId), ASession);
   finally
     FLock.Leave;
   end;

@@ -38,6 +38,7 @@ uses
   TlpNegotiationTypes,
   TlpCipherSuiteRegistry,
   TlpCoreExtensions,
+  TlpTlsLibExceptions,
   TlpTlsConnectionInfo,
   TlpITlsEngine,
   TlpTlsEngine,
@@ -56,6 +57,7 @@ uses
   TlpTls12ClientStateMachine,
   TlpTls12ServerStateMachine,
   TlpTls13ClientStateMachine,
+  TlpTls13ServerStateMachine,
   TlpVersionDispatchMachine,
   TlsLibTestBase;
 
@@ -113,6 +115,8 @@ type
       AClientAuth: TClientAuthMode; const AClientRoot, AScope: TBytes): ITlsEngine;
   published
     procedure TestSessionIdResumeIsAbbreviated;
+    procedure TestMachinesRequireAClock;
+    procedure TestDispatchersRequireAClock;
     procedure TestTicketResumeIsAbbreviated;
     procedure TestResumePreservesExtendedMasterSecretOn;
     procedure TestResumePreservesExtendedMasterSecretOff;
@@ -1033,6 +1037,71 @@ begin
   CheckTrue(DriveObservingServerCert(LClient, LServer),
     'a session issued under a different host falls back to a full handshake');
   CheckFalse(LServer.ConnectionInfo.Resumed, 'a session issued under a different host does not resume');
+end;
+
+procedure TTestTls12Resumption.TestMachinesRequireAClock;
+var
+  LClient: TClient12HandshakeParams;
+  LServer: TServer12HandshakeParams;
+  LMachine: IHandshakeMachine;
+  LClientRaised, LServerRaised: Boolean;
+begin
+  // the clock stamps sessions and checks their freshness, so it is a required input: a missing one
+  // is a typed error at construction, not an access violation on the first resumption
+  LClient := Default(TClient12HandshakeParams);
+  LClient.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LServer := Default(TServer12HandshakeParams);
+  LServer.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LClientRaised := False;
+  LServerRaised := False;
+  try
+    LMachine := TTls12ClientStateMachine.Create(LClient) as IHandshakeMachine;
+  except
+    on E: EArgumentTlsLibException do
+      LClientRaised := True;
+  end;
+  try
+    LMachine := TTls12ServerStateMachine.Create(LServer) as IHandshakeMachine;
+  except
+    on E: EArgumentTlsLibException do
+      LServerRaised := True;
+  end;
+  CheckTrue(LClientRaised, 'a 1.2 client without a clock is refused');
+  CheckTrue(LServerRaised, 'a 1.2 server without a clock is refused');
+end;
+
+procedure TTestTls12Resumption.TestDispatchersRequireAClock;
+var
+  LClient13: TClientHandshakeParams;
+  LClient12: TClient12HandshakeParams;
+  LServer13: TServerHandshakeParams;
+  LServer12: TServer12HandshakeParams;
+  LMachine: IHandshakeMachine;
+  LClientRaised, LServerRaised: Boolean;
+begin
+  // the dual-version dispatchers build their inner machine later, at the first hello, so a missing
+  // clock is refused at construction rather than surfacing mid-handshake
+  LClient13 := Default(TClientHandshakeParams);
+  LClient12 := Default(TClient12HandshakeParams);
+  LServer13 := Default(TServerHandshakeParams);
+  LServer12 := Default(TServer12HandshakeParams);
+  LClientRaised := False;
+  LServerRaised := False;
+  try
+    LMachine := TClientVersionDispatchMachine.Create(LClient13, LClient12) as IHandshakeMachine;
+  except
+    on E: EArgumentTlsLibException do
+      LClientRaised := True;
+  end;
+  try
+    LMachine := TServerVersionDispatchMachine.Create(LServer13, LServer12,
+      TArray<UInt16>.Create(TlsWireVersionTls13)) as IHandshakeMachine;
+  except
+    on E: EArgumentTlsLibException do
+      LServerRaised := True;
+  end;
+  CheckTrue(LClientRaised, 'a client dispatcher without a clock is refused');
+  CheckTrue(LServerRaised, 'a server dispatcher without a clock is refused');
 end;
 
 initialization

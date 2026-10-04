@@ -168,8 +168,9 @@ type
   /// <summary>
   /// A server-side, bounded, stateful store of resumable sessions. A stored
   /// session is addressed by an opaque handle (the ticket blob or a TLS 1.2
-  /// session id); retrieval is single-use, which is what enforces true one-time
-  /// tickets and backs 0-RTT anti-replay.
+  /// session id). Take is single-use, which is what enforces true one-time tickets and
+  /// backs 0-RTT anti-replay; Peek reads without removing, so a handle that is merely
+  /// named in a ClientHello is not used up before the client proves it holds the secret.
   /// </summary>
   ISessionStore = interface(IInterface)
     ['{9C4A7E18-3D60-4B95-8A27-5E1B0F6C2D49}']
@@ -177,6 +178,8 @@ type
     function Put(const ASession: IResumableSession): TBytes;
     /// <summary>Stores a session under a caller-chosen id (e.g. a TLS 1.2 session id).</summary>
     procedure PutWithId(const AId: TBytes; const ASession: IResumableSession);
+    /// <summary>Returns the session for AId without removing it; False if absent.</summary>
+    function Peek(const AId: TBytes; out ASession: IResumableSession): Boolean;
     /// <summary>Removes and returns the session for AId; False if absent (single-use).</summary>
     function Take(const AId: TBytes; out ASession: IResumableSession): Boolean;
     /// <summary>Removes the session for AId if present.</summary>
@@ -215,14 +218,21 @@ type
   /// session under a rotating key (no server storage); the stateful store strategy keeps
   /// opaque handles into an <see cref="ISessionStore" /> (true single-use). Open returns
   /// False on any parse/verify/lookup failure, so the server falls through to a full
-  /// handshake rather than failing.
+  /// handshake rather than failing. Open only recovers the session: a stateful ticket stays
+  /// usable until Consume, which the server calls once it has committed to resuming from it, so
+  /// an unauthenticated ClientHello that merely names a ticket cannot use it up.
   /// </summary>
   ISessionTicketStrategy = interface(IInterface)
     ['{8B2F4D07-6A19-4C53-9E84-3D5A0C7B62F1}']
     /// <summary>Produces the opaque ticket that identifies ASession on resumption.</summary>
     function Seal(const ASession: IResumableSession): TBytes;
-    /// <summary>Recovers the session ATicket identifies; False on any failure.</summary>
+    /// <summary>Recovers the session ATicket identifies without using it up; False on any
+    /// failure.</summary>
     function Open(const ATicket: TBytes; out ASession: IResumableSession): Boolean;
+    /// <summary>Marks ATicket used. False when it was already used (a stateful ticket is
+    /// single-use, which backs 0-RTT anti-replay), so the caller declines resumption; a stateless
+    /// ticket is always True.</summary>
+    function Consume(const ATicket: TBytes): Boolean;
   end;
 
   /// <summary>

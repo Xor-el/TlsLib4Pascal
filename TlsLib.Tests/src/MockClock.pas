@@ -33,6 +33,10 @@ type
   public
     constructor Create(AUnixMillis: UInt64);
     procedure SetUnixMillis(AValue: UInt64);
+    /// <summary>Moves the clock forward by AMillis.</summary>
+    procedure Advance(AMillis: UInt64);
+    /// <summary>Moves the clock back by AMillis (a wall-clock step back).</summary>
+    procedure Retreat(AMillis: UInt64);
     function NowUnixMillis: UInt64;
   end;
 
@@ -49,6 +53,16 @@ end;
 procedure TMockClock.SetUnixMillis(AValue: UInt64);
 begin
   FUnixMillis := AValue;
+end;
+
+procedure TMockClock.Advance(AMillis: UInt64);
+begin
+  Inc(FUnixMillis, AMillis);
+end;
+
+procedure TMockClock.Retreat(AMillis: UInt64);
+begin
+  Dec(FUnixMillis, AMillis);
 end;
 
 function TMockClock.NowUnixMillis: UInt64;

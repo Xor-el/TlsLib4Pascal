@@ -142,6 +142,7 @@ implementation
 
 resourcestring
   SEmptySupportedVersions = 'supported_versions names no version (RFC 8446 4.2.1 requires at least one)';
+  SClockRequired = 'a clock is required (the handshake reads time for tickets and freshness)';
 
 { TVersionDispatchMachineBase }
 
@@ -308,6 +309,8 @@ constructor TServerVersionDispatchMachine.Create(
   const ASupportedVersions: TArray<UInt16>);
 begin
   inherited Create;
+  if (AParams13.Clock = nil) or (AParams12.Clock = nil) then
+    raise EArgumentTlsLibException.CreateRes(@SClockRequired);
   FParams13 := AParams13;
   FParams12 := AParams12;
   FServerSupportsTls13 := TArrayUtilities.Contains<UInt16>(ASupportedVersions,
@@ -415,6 +418,8 @@ var
   L13: TClientHandshakeParams;
 begin
   inherited Create;
+  if (AParams13.Clock = nil) or (AParams12.Clock = nil) then
+    raise EArgumentTlsLibException.CreateRes(@SClockRequired);
   // the 1.3 machine's ctor rejects a usable ECH config paired with a 1.2 offer (ECH is 1.3-only,
   // RFC 9849 sec. 6.1); a GREASE-only policy is allowed and rides through unchanged
   L13 := AParams13;

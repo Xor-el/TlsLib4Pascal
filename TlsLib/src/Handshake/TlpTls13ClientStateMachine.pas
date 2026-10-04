@@ -137,8 +137,8 @@ type
     /// original authentication; Reverify re-runs CertificateVerifier against the stored chain.</summary>
     ResumeVerification: TResumeVerification;
     /// <summary>The clock read for a resumption PSK's obfuscated_ticket_age and ticket-lifetime
-    /// expiry (RFC 8446 4.2.11 / 4.6.1). The factory always supplies one (system clock by
-    /// default); a nil value falls back to the real clock at the call site.</summary>
+    /// expiry (RFC 8446 4.2.11 / 4.6.1). A required input: the factory supplies one from the
+    /// config, and a direct sans-IO caller must set it.</summary>
     Clock: ITlsClock;
     /// <summary>The dangerous key-log sink; nil reports nothing.</summary>
     KeyLog: IKeyLog;
@@ -389,6 +389,7 @@ type
 implementation
 
 resourcestring
+  SClockRequired = 'a clock is required (the handshake reads time for tickets and freshness)';
   SUnofferedSuite = 'the server selected a cipher suite that was not offered';
   SUnknownSelectedSuite = 'the selected cipher suite is not in the registry';
   SNotTls13Suite = 'the server selected a suite that is not a TLS 1.3 suite';
@@ -441,6 +442,8 @@ const
 constructor TTls13ClientStateMachine.Create(const AParams: TClientHandshakeParams);
 begin
   inherited Create(AParams.ExtensionRegistry);
+  if AParams.Clock = nil then
+    raise EArgumentTlsLibException.CreateRes(@SClockRequired);
   FParams := AParams;
   FCurrentGroup := AParams.Group;
   FCurrentGroupCode := AParams.GroupCode;
@@ -642,7 +645,7 @@ end;
 
 function TTls13ClientStateMachine.NowUnixMillis: UInt64;
 begin
-  // the constructor guarantees a clock, so this never branches on nil
+  // the constructor requires a clock, so this never branches on nil
   Result := FParams.Clock.NowUnixMillis;
 end;
 
