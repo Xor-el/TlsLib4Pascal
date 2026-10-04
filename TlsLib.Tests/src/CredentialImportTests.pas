@@ -76,6 +76,8 @@ type
     procedure TestUnsupportedAlgorithmRaisesTypedException;
     procedure TestWrongPasswordRaisesTypedException;
     procedure TestEncryptedKeyWithoutPasswordReportsPasswordRequired;
+    procedure TestSmallRsaKeyOmitsPssSchemeItCannotSign;
+    procedure TestFitRsaModulusBoundaries;
     procedure TestWithPreferredSchemesNarrowsReordersAndFilters;
     // TTlsCredential.Load builds a fresh staple-free credential: the chain matches LoadChain's,
     // the key imports, and nothing is stapled
@@ -396,6 +398,51 @@ begin
   // an encrypted key imported with no password is a distinct, actionable error, not "malformed"
   CheckReportsPasswordRequired('rsa_enc_der');
   CheckReportsPasswordRequired('rsa_enc_pem');
+end;
+
+procedure TTestCredentialImport.TestSmallRsaKeyOmitsPssSchemeItCannotSign;
+begin
+  // a 1024-bit modulus (emLen 128) fits rsa_pss_rsae_sha256/384 (needs 66/98) but not sha512
+  // (needs 130), so that scheme is not offered
+  CheckSchemes('rsa 1024', Import('rsa1024_pkcs8_der'),
+    [TSignatureScheme.RSA_PSS_RSAE_SHA256, TSignatureScheme.RSA_PSS_RSAE_SHA384,
+     TSignatureScheme.RSA_PKCS1_SHA256, TSignatureScheme.RSA_PKCS1_SHA384,
+     TSignatureScheme.RSA_PKCS1_SHA512]);
+end;
+
+procedure TTestCredentialImport.TestFitRsaModulusBoundaries;
+var
+  LAll: TArray<TSignatureScheme>;
+  function Has(const ASchemes: TArray<TSignatureScheme>; AScheme: TSignatureScheme): Boolean;
+  var
+    LS: TSignatureScheme;
+  begin
+    Result := False;
+    for LS in ASchemes do
+      if LS = AScheme then
+        Exit(True);
+  end;
+begin
+  LAll := TArray<TSignatureScheme>.Create(TSignatureScheme.RSA_PSS_RSAE_SHA256,
+    TSignatureScheme.RSA_PSS_RSAE_SHA384, TSignatureScheme.RSA_PSS_RSAE_SHA512,
+    TSignatureScheme.RSA_PKCS1_SHA256, TSignatureScheme.ED25519);
+  // emLen = ceil((bits-1)/8) must reach 2*hLen+2: 66 / 98 / 130 bytes
+  CheckFalse(Has(TSignatureScheme.FitRsaModulus(LAll, 521), TSignatureScheme.RSA_PSS_RSAE_SHA256),
+    'sha256 needs 522 bits');
+  CheckTrue(Has(TSignatureScheme.FitRsaModulus(LAll, 522), TSignatureScheme.RSA_PSS_RSAE_SHA256),
+    'sha256 fits 522 bits');
+  CheckFalse(Has(TSignatureScheme.FitRsaModulus(LAll, 777), TSignatureScheme.RSA_PSS_RSAE_SHA384),
+    'sha384 needs 778 bits');
+  CheckTrue(Has(TSignatureScheme.FitRsaModulus(LAll, 778), TSignatureScheme.RSA_PSS_RSAE_SHA384),
+    'sha384 fits 778 bits');
+  CheckFalse(Has(TSignatureScheme.FitRsaModulus(LAll, 1033), TSignatureScheme.RSA_PSS_RSAE_SHA512),
+    'sha512 needs 1034 bits');
+  CheckTrue(Has(TSignatureScheme.FitRsaModulus(LAll, 1034), TSignatureScheme.RSA_PSS_RSAE_SHA512),
+    'sha512 fits 1034 bits');
+  CheckTrue(Has(TSignatureScheme.FitRsaModulus(LAll, 512), TSignatureScheme.RSA_PKCS1_SHA256),
+    'non-PSS schemes are kept');
+  CheckTrue(Has(TSignatureScheme.FitRsaModulus(LAll, 512), TSignatureScheme.ED25519),
+    'other families are kept');
 end;
 
 procedure TTestCredentialImport.TestWithPreferredSchemesNarrowsReordersAndFilters;
