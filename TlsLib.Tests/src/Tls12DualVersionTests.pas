@@ -102,6 +102,8 @@ type
     procedure TestScsvToLegacyOnlyServerDoesNotAbort;
     procedure TestScsvWithGreaseVersionStillDetectsFallback;
     procedure TestScsvWithGreaseAndCurrentVersionDoesNotAbort;
+    procedure TestScsvToStandaloneTls13ServerAborts;
+    procedure TestScsvWithTls13OfferToStandaloneServerIsNotFallback;
     procedure TestGreaseOnlySupportedVersionsRejected;
     procedure TestServerRejectsSupportedVersionsWithoutCommonVersion;
     procedure TestServerWithoutSignatureAlgorithmsIsHandshakeFailure;
@@ -625,6 +627,35 @@ begin
     TArray<UInt16>.Create(TlsFallbackScsv, TCipherSuites12.EcdheEcdsaAes128GcmSha256),
     DecodeHex('0000')))),
     'SCSV from a fallen-back client to a 1.3-capable server aborts inappropriate_fallback');
+end;
+
+procedure TTestTls12DualVersion.TestScsvToStandaloneTls13ServerAborts;
+var
+  LServer: IHandshakeMachine;
+begin
+  // the factory builds a single-version 1.3 server directly, bypassing the dispatcher. A client that
+  // fell back to 1.2 (no supported_versions) yet signals TLS_FALLBACK_SCSV must still get
+  // inappropriate_fallback here - the 1.3 server could have done better (RFC 7507)
+  LServer := TTls13ServerStateMachine.Create(Server13Params) as IHandshakeMachine;
+  CheckTrue(HasInappropriateFallback(LServer.ProcessMessage(MakeClientHello(
+    TArray<UInt16>.Create(TlsFallbackScsv, TCipherSuites13.Aes128GcmSha256),
+    DecodeHex('0000')))),
+    'SCSV from a fallen-back client to a standalone 1.3 server aborts inappropriate_fallback');
+end;
+
+procedure TTestTls12DualVersion.TestScsvWithTls13OfferToStandaloneServerIsNotFallback;
+var
+  LServer: IHandshakeMachine;
+begin
+  // a client that offers 1.3 in supported_versions and also carries SCSV is not a spurious fallback
+  // at a standalone 1.3 server (server_max = client_max), so the fallback check must not fire (the
+  // ClientHello still aborts later on its absent supported_groups/key_share - just not with
+  // inappropriate_fallback)
+  LServer := TTls13ServerStateMachine.Create(Server13Params) as IHandshakeMachine;
+  CheckFalse(HasInappropriateFallback(LServer.ProcessMessage(MakeClientHello(
+    TArray<UInt16>.Create(TlsFallbackScsv, TCipherSuites13.Aes128GcmSha256),
+    DecodeHex('0009002B00050403040303')))),
+    'SCSV with a current 1.3 offer is not treated as a fallback at a standalone 1.3 server');
 end;
 
 procedure TTestTls12DualVersion.TestScsvFromCurrentClientDoesNotAbort;

@@ -431,7 +431,6 @@ resourcestring
   SPskRequiredNotSelected = 'the server did not select a pre_shared_key and no certificate trust is configured';
   SEchRejectPsk = 'a rejected-ECH ServerHello selected the outer pre_shared_key';
   SCertReqMissingSigAlgs = 'CertificateRequest must contain signature_algorithms (RFC 8446 4.3.2)';
-  SGreaseInEncryptedExtensions = 'server echoed a GREASE extension type';
 
 const
   PskDheKeMode = Byte(1); // psk_key_exchange_modes: psk_dhe_ke
@@ -1189,18 +1188,9 @@ var
   LContext: TExtensionContext;
   LServerAcceptedEarly, LEchPresent: Boolean;
   LEchData: TBytes;
-  LEeVector: TExtensionVector;
-  LExtType: UInt16;
 begin
   Result := nil;
   FTranscript.Update(AMessage.Raw);
-  // a GREASE extension type here is a decoy the client only spliced in and never expects
-  // echoed back; receiving one is fatal (RFC 8701 4)
-  LEeVector := TExtensionVector.Parse(AMessage.Body);
-  for LExtType in LEeVector.Types do
-    if TGrease.IsGrease(LExtType) then
-      raise EFatalAlertTlsLibException.CreateRes(
-        TTlsAlertDescription.IllegalParameter, @SGreaseInEncryptedExtensions);
   LContext := TExtensionContext.Create;
   try
     // a response extension the client did not offer is fatal (RFC 8446 4.2)

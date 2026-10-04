@@ -65,6 +65,8 @@ implementation
 resourcestring
   SWrongContextExtension = 'an extension appears in a message it is not allowed in';
   SUnsolicitedExtension = 'the peer sent an extension that was not offered';
+  SEchoedGreaseExtension =
+    'a server response echoed a GREASE or otherwise unrecognized extension type';
 
 { TExtensionRegistry }
 
@@ -168,9 +170,20 @@ begin
     if AKind = TTlsExtensionContextKind.ClientHello then
       AContext.MarkOffered(LType);
 
-    if IsResponseContext(AKind) and not AContext.WasOffered(LType) then
-      raise EFatalAlertTlsLibException.CreateRes(
-        TTlsAlertDescription.UnsupportedExtension, @SUnsolicitedExtension);
+    if IsResponseContext(AKind) then
+    begin
+      if not AContext.WasOffered(LType) then
+        raise EFatalAlertTlsLibException.CreateRes(
+          TTlsAlertDescription.UnsupportedExtension, @SUnsolicitedExtension);
+      // a server response must not carry a type this build does not recognize. The only type a
+      // client sends that is absent from the registry is GREASE (RFC 8701), which it splices into
+      // its own ClientHello and so appears "offered"; a server that echoes a GREASE value (or any
+      // unknown type) as if negotiated is fatal illegal_parameter (RFC 8701 4). (A CertificateRequest
+      // is not a response context: RFC 8701 lets a server GREASE it and the client ignores it.)
+      if not FRegistry.TryGet(LType, LExt) then
+        raise EFatalAlertTlsLibException.CreateRes(
+          TTlsAlertDescription.IllegalParameter, @SEchoedGreaseExtension);
+    end;
 
     if FRegistry.TryGet(LType, LExt) then
     begin

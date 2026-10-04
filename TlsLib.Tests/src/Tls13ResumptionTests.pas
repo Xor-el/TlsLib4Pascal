@@ -134,6 +134,7 @@ type
     procedure TestTicketIssuedUnderDifferentSniFallsBackToFullHandshake;
     procedure TestExternalPskAcceptedDoesNotSurfaceCachedResumptionChain;
     procedure TestExternalPskSuiteSelectionHonorsClientOrder;
+    procedure TestExternalPskSatisfiesRequiredClientAuth;
   end;
 
 implementation
@@ -1713,6 +1714,97 @@ begin
     'an accepted external PSK does not surface the cached resumption chain');
   CheckEquals(0, System.Length(LInfo.ValidatedPath),
     'an accepted external PSK validates no path');
+  CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestTls13Resumption.TestExternalPskSatisfiesRequiredClientAuth;
+var
+  LClient, LServer: ITlsEngine;
+  LPsk: TExternalPsk;
+  LPsks: TArray<TExternalPsk>;
+  LClientRoot: TBytes;
+  LServerInfo: TTlsConnectionInfo;
+
+  function BuildPskClientNoCred: ITlsEngine;
+  var
+    LP: TClientHandshakeParams;
+  begin
+    LP := Default(TClientHandshakeParams);
+    LP.Clock := TSystemClock.Create;
+    LP.Crypto := Crypto;
+    LP.Inspector := Pkix.Certificates;
+    LP.Group := TNamedGroups.CreateX25519(Crypto);
+    LP.GroupCode := TNamedGroupCatalog.X25519;
+    LP.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
+    LP.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+    LP.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
+    LP.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+    LP.ClientRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
+    LP.LegacySessionId := Filled($33, 32);
+    LP.CertificateVerifier := TCertificateVerifier.Create(Pkix,
+      TSystemClock.Create as ITlsClock,
+      TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
+      as ITrustAnchorStore, True) as IServerCertificateVerifier;
+    LP.ExpectedServerName := TServerName.DnsName(ServerHost);
+    LP.ServerName := ServerHost;
+    // the client offers the external PSK and holds NO client credential: the PSK is its
+    // authentication, so a conformant server must not demand a certificate it cannot present
+    LP.ExternalPsks := LPsks;
+    Result := TTlsEngine.CreateConfigured(
+      TTls13ClientStateMachine.Create(LP) as IHandshakeMachine, Crypto);
+  end;
+
+  function BuildPskRequireAuthServer: ITlsEngine;
+  var
+    LP: TServerHandshakeParams;
+  begin
+    LP := Default(TServerHandshakeParams);
+    LP.Clock := TSystemClock.Create;
+    LP.Crypto := Crypto;
+    LP.Inspector := Pkix.Certificates;
+    LP.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+    LP.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
+    LP.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+    LP.Group := TNamedGroups.CreateX25519(Crypto);
+    LP.ServerRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
+    LP.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
+    // the server is configured to REQUIRE a client certificate AND holds the same external PSK
+    LP.ClientAuth := TClientAuthMode.Required;
+    LP.ClientAuthSignatureSchemes := TArray<UInt16>.Create(
+      TSignatureSchemes.EcdsaSecp256r1Sha256);
+    LP.ClientCertificateVerifier := TCertificateVerifier.Create(Pkix,
+      TSystemClock.Create as ITlsClock,
+      TTrustAnchorStore.Create(TArray<TBytes>.Create(LClientRoot))
+      as ITrustAnchorStore, False) as IClientCertificateVerifier;
+    LP.ExternalPsks := LPsks;
+    Result := TTlsEngine.CreateConfigured(
+      TTls13ServerStateMachine.Create(LP) as IHandshakeMachine, Crypto);
+  end;
+
+begin
+  // an accepted external PSK is itself the client's authentication: RFC 8446 4.3.2 forbids a
+  // CertificateRequest in a PSK handshake, so a server configured to require a client certificate
+  // must still NOT request one when it negotiates a PSK. The credential-less client completing
+  // proves it.
+  LoadClientAuthCredential(LClientRoot); // only for the server's client-CA anchor
+  LPsk.Identity := DecodeHex('6578742d70736b'); // "ext-psk"
+  LPsk.Secret := TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32));
+  LPsk.Context := nil;
+  LPsk.Hash := THashAlgorithm.SHA_256;
+  LPsks := TArray<TExternalPsk>.Create(LPsk);
+
+  LClient := BuildPskClientNoCred;
+  LServer := BuildPskRequireAuthServer;
+  DriveHandshake(LClient, LServer);
+
+  CheckFalse(LServer.IsHandshaking, 'the PSK handshake completed');
+  CheckFalse(LServer.IsTerminal, 'the server did not fail despite requiring client auth');
+  CheckFalse(LClient.IsTerminal, 'the credential-less client completed via the external PSK');
+  LServerInfo := LServer.ConnectionInfo;
+  // the PSK was accepted and no certificate was requested, so no client certificate was presented
+  CheckTrue(LServerInfo.Resumed, 'the server accepted the external PSK');
+  CheckEquals(0, System.Length(LServerInfo.PeerCertificates),
+    'a PSK handshake requests no client certificate (RFC 8446 4.3.2)');
   CheckAppDataFlows(LClient, LServer);
 end;
 

@@ -64,6 +64,10 @@ type
     procedure TestOmittedEncryptedExtensionsBlockIsDecodeError;
     procedure TestEmptyCertificateAuthoritiesIsDecodeError;
     procedure TestUnknownExtensionInCertificateRequestTolerated;
+    procedure TestGreaseEchoedInServerHelloIsIllegalParameter;
+    procedure TestGreaseEchoedInHelloRetryRequestIsIllegalParameter;
+    procedure TestGreaseEchoedInCertificateIsIllegalParameter;
+    procedure TestGreaseInCertificateRequestTolerated;
     procedure TestServerNameEmptyHostIsDecodeError;
     procedure TestServerNameUnknownTypeIsDecodeError;
     procedure TestAlpnZeroLengthProtocolIsDecodeError;
@@ -323,6 +327,39 @@ begin
   finally
     LCtx.Free;
   end;
+end;
+
+procedure TTestExtensionCodec.TestGreaseEchoedInServerHelloIsIllegalParameter;
+begin
+  // the client splices a GREASE extension into its own ClientHello, so it appears "offered"; a
+  // server that echoes that GREASE type in a response must be rejected (RFC 8701 4). Block: one
+  // empty GREASE (0x0A0A) extension, marked offered so it clears the unsolicited check.
+  CheckEquals(Integer(TTlsAlertDescription.IllegalParameter),
+    ConsumeAlertCode(TTlsExtensionContextKind.ServerHello, DecodeHex('00040A0A0000'), $0A0A),
+    'a GREASE type echoed in a ServerHello is illegal_parameter');
+end;
+
+procedure TTestExtensionCodec.TestGreaseEchoedInHelloRetryRequestIsIllegalParameter;
+begin
+  CheckEquals(Integer(TTlsAlertDescription.IllegalParameter),
+    ConsumeAlertCode(TTlsExtensionContextKind.HelloRetryRequest, DecodeHex('00040A0A0000'), $0A0A),
+    'a GREASE type echoed in a HelloRetryRequest is illegal_parameter');
+end;
+
+procedure TTestExtensionCodec.TestGreaseEchoedInCertificateIsIllegalParameter;
+begin
+  CheckEquals(Integer(TTlsAlertDescription.IllegalParameter),
+    ConsumeAlertCode(TTlsExtensionContextKind.Certificate, DecodeHex('00040A0A0000'), $0A0A),
+    'a GREASE type echoed in a Certificate entry is illegal_parameter');
+end;
+
+procedure TTestExtensionCodec.TestGreaseInCertificateRequestTolerated;
+begin
+  // a CertificateRequest is not a response to client offers: RFC 8701 lets a server GREASE it and
+  // the client MUST ignore the unknown type, so no alert is raised
+  CheckEquals(-1,
+    ConsumeAlertCode(TTlsExtensionContextKind.CertificateRequest, DecodeHex('00040A0A0000'), $0A0A),
+    'a GREASE type in a CertificateRequest is tolerated');
 end;
 
 function TTestExtensionCodec.ConsumeRaisesDecodeError(
