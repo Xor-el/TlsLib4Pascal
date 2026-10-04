@@ -35,7 +35,14 @@ by any intermediates** in one PEM file so clients build a complete chain. `CACer
 there leaves the presented chain incomplete, forcing clients to fetch the missing CA.
 
 Accepted **and ignored** (documented no-ops — we are TLS 1.2+ and never renegotiate; they never
-silently weaken the connection): `DisableTls13`, `AllowDeprecatedTls`, `ClientAllowUnsafeRenegotation`.
+silently weaken the connection): `DisableTls13`, `AllowDeprecatedTls`, `ClientAllowUnsafeRenegotation`,
+`ClientVerifyOnce`, `ReleaseBuffers`, `WithPeerInfo`, `CipherList` (our suites are AEAD-only) and
+`OnPrivatePassword` (set `PrivatePassword`; an encrypted key without it fails loudly at load).
+Of the output fields only `CipherName` (and a server's `LastError`) are filled; `PeerIssuer`,
+`PeerSubject`, `PeerInfo` and `PeerCert` stay empty.
+
+**Trust precedence** follows mORMot's OpenSSL backend: a client uses `CACertificatesFile`
+exclusively when it is set, and the `CASystemStores` OS roots only when it is not.
 
 **PKCS#12 (`.pfx`)**: mORMot passes cert/key as separate files, so map those to `WithCredential`.
 To load a `.pfx` blob instead, build the credential yourself with
@@ -50,10 +57,13 @@ off (the default), an untrusted chain fails through our pipeline. `CASystemStore
 server-certificate store: a client verifies a server against it, but a server never authenticates
 clients against it — a server's client-CA is `CACertificatesFile`.
 
-mORMot's native peer-verify callbacks (`OnPeerValidate` / `OnEachPeerVerify`) are **not**
-bridged, by design: their signatures hand the app an OpenSSL `PSSL` / `PX509` pointer to
-dereference, so honouring them would re-couple the adapter to OpenSSL — the dependency it
-exists to avoid.
+mORMot's native peer-verify callbacks (`OnPeerValidate` / `OnEachPeerVerify` /
+`OnAfterPeerValidate`) are **not** bridged, by design: their signatures hand the app an OpenSSL
+`PSSL` / `PX509` pointer to dereference, so honouring them would re-couple the adapter to OpenSSL —
+the dependency it exists to avoid. Because silently ignoring one would drop a rule the app relies
+on (for example a client-certificate allow-list), a context that sets any of them — or
+`HostNamesCsv`, `OnAcceptServerName`, or an in-memory `CertificateBin` / `CertificateRaw` /
+`PrivateKeyRaw` / `CACertificatesRaw` — **fails loudly**: a client at connect, a server at bind.
 
 Instead, the neutral hooks are process-wide setters (mORMot builds an `INetTls` per connection
 through the global factory, so its hooks are set the same way):
