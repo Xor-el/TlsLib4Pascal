@@ -47,6 +47,10 @@ type
     AdvertisedSchemes: TArray<UInt16>;
     Anchors: TArray<TBytes>;
     CheckHostName: Boolean;
+    // must-staple (RFC 7633 4.3.3) binds only to a server leaf on the initial handshake the client
+    // asked to staple; both are left unset (never-must-staple) for a client certificate
+    StatusRequestOffered: Boolean;
+    Occasion: TVerificationOccasion;
     // the augment-only reject hook, carried so a delegate honours it the same way the built-in
     // verifier does; InsecureSkipVerify is deliberately NOT a delegate bypass (a delegate never
     // skips the OS engine it was chosen for), only the reject callback is applied
@@ -64,9 +68,9 @@ type
   /// key-strength policy, so a chain that is both revoked and weak reports the revocation alert; an
   /// engine that renders none runs strength first and decides revocation from the handshake staple. A
   /// definitive stapled Revoked always wins under every posture, and an indeterminate case defers to the
-  /// async park only when a live fetch will decide it there. Then the identity the platform did not
-  /// match is matched here (an IP literal against iPAddress SANs, or the full RFC 6125 identity for an
-  /// engine that checks no host). Fail-closed throughout.</summary>
+  /// async park only when a live fetch will decide it there. RFC 7633 must-staple is enforced, then the
+  /// leaf SANs are matched here (SAN-only, RFC 6125) for every engine - the platform's own host match is
+  /// never trusted to stand in for it. Fail-closed throughout.</summary>
   TOSDelegateVerifierBase = class abstract(TInterfacedObject)
   strict private
     FEngine: IPlatformChainEngine;
@@ -158,6 +162,9 @@ begin
   Result.AdvertisedSchemes := AContext.AdvertisedSignatureSchemes;
   Result.CheckHostName := AContext.CheckHostName;
   Result.Dangerous := AContext.Dangerous;
+  // carry the must-staple binding inputs so the delegate enforces RFC 7633 as the built-in does
+  Result.StatusRequestOffered := AContext.StatusRequestOffered;
+  Result.Occasion := AContext.Occasion;
   // the server path trusts the OS roots, so no exclusive anchor set
   Result.Anchors := nil;
   Result.DeadlineMs := 0;
@@ -177,6 +184,9 @@ begin
   Result.Dangerous := AContext.Dangerous;
   // a client certificate carries no server name to match
   Result.CheckHostName := False;
+  // a client certificate is never must-staple (the client never asks to staple it)
+  Result.StatusRequestOffered := False;
+  Result.Occasion := TVerificationOccasion.InitialHandshake;
   // a client certificate is authenticated only against the configured client-CA anchors
   if AContext.TrustStore <> nil then
     Result.Anchors := AContext.TrustStore.RootCertificates
@@ -268,16 +278,18 @@ begin
   else if not TRevocationDecision.Decide(TDelegatePostChecks.StapleOutcome(FPolicy.Pkix,
     FPolicy.Clock, AResult.Path, AStaple), FPolicy.Posture, DeferToLive, AAlert) then
     Exit(False);
-  // identity: an engine that matched the DNS host leaves only an IP literal to re-check; one that
-  // checked no host has the full identity matched here (an empty client-role name fires neither).
-  // With the name check off there is nothing to match, as with the built-in verifier
+  // RFC 7633: the TLS Feature well-formedness is a hard invariant for either role; a must-staple
+  // server leaf additionally demands a current Good staple when the client asked to staple on the
+  // initial handshake. No OS engine enforces this, so the library does (built-in verifier parity)
+  if TDelegatePostChecks.RejectMustStaple(FPolicy.Pkix, FPolicy.Clock, AResult.Path, AStaple,
+    FPolicy.StatusRequestOffered, FPolicy.Occasion, AAlert) then
+    Exit(False);
+  // identity: the library matches the leaf's SANs itself (SAN-only, RFC 6125) rather than trust an
+  // engine that may fall back to the deprecated subject CN; the host still reached the engine for
+  // name-constraint checks. An empty name (a client certificate) never fires, and with the name
+  // check off there is nothing to match - built-in verifier parity either way
   if FPolicy.CheckHostName then
-    if TPlatformChainCapability.DnsIdentity in Engine.Capabilities then
-    begin
-      if TDelegatePostChecks.RejectIpMismatch(AServerName, FPolicy.Pkix, AResult.Path, AAlert) then
-        Exit(False);
-    end
-    else if TDelegatePostChecks.RejectNameMismatch(AServerName, FPolicy.Pkix, AResult.Path, AAlert) then
+    if TDelegatePostChecks.RejectNameMismatch(AServerName, FPolicy.Pkix, AResult.Path, AAlert) then
       Exit(False);
   AVerified.Path := AResult.Path;
   AVerified.Outcome := TVerificationOutcome.Trusted;

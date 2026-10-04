@@ -235,8 +235,10 @@ engaged — Windows and Apple can opt into `Live`, which fetches in the async pa
   filter, the MD5/SHA-1 refusal and the key-strength floors apply under Delegate mode too. A
   whole-verifier instance you inject as the trust source is *not* policy-checked (you replaced the
   trust decision wholesale).
-- **RFC 6125 identity** is matched in-library: an IP literal always (the OS name logic only ever sees a
-  DNS host), and the full identity on an engine that checks no host itself (Android).
+- **RFC 6125 identity** is matched in-library on every delegate, SAN-only: the library checks the leaf's
+  dNSName / iPAddress SANs itself rather than trust an engine's own host match, so no platform's
+  deprecated subject-CN fallback is honoured. The host is still handed to a host-matching engine (for OS
+  name-constraint checks) when the name check is on.
 - **Revocation posture** (`Soft`/`Hard`/`Off`) is honoured cache-only. **Hard** needs a fresh *Good*
   (a stapled leaf response, or a cached one on Windows/Apple) — a cold cache, or the intermediate that
   a staple never covers, can make Hard reject a first handshake. A client certificate is never stapled,
@@ -244,7 +246,10 @@ engaged — Windows and Apple can opt into `Live`, which fetches in the async pa
   client-authenticating server without it).
 - **A definitive stapled *Revoked* rejects under every posture, `Off` included** — a library post-check
   honours the staple even where the OS skipped revocation — aborting `certificate_revoked`.
-- **must-staple (RFC 7633)** is enforced by the built-in verifier only; no delegate honours it.
+- **must-staple (RFC 7633)** is enforced by every delegate, as the built-in verifier does: the TLS
+  Feature well-formedness is a hard `bad_certificate` invariant for either role, and a must-staple server
+  leaf the client asked to staple on the initial handshake demands a current *Good* staple
+  (`bad_certificate_status_response`) even under `Soft`/`Off`.
 
 **Per-platform specifics:**
 
@@ -258,6 +263,12 @@ engaged — Windows and Apple can opt into `Live`, which fetches in the async pa
 | **Issuer discovery for Hard** | discovers the issuer itself | discovers it itself | needs the peer to send its issuer (a leaf-only chain is indeterminate → Hard rejects, unless `WithLiveRevocationVerdict` defers it to the park) |
 | **A weak *and* revoked leaf** | `certificate_revoked` (revocation is folded into the OS verdict, before our policy) | `certificate_revoked` | `unsupported_certificate` (the staple is a post-check *after* our strength policy) |
 | **An uncached valid root** | may surface as `unknown_ca` (cache-only disables AuthRoot auto-download) | n/a — the OS ships its root store | n/a — the OS ships its root store |
+
+On Android the **client-certificate** path is a special case: `checkClientTrusted` reports no validated
+path, so the delegate takes the presented leaf alone as the validated path (the rest of the presented
+chain has no guaranteed order). Live-revocation issuer discovery therefore uses the configured client-CA
+candidates rather than a peer-sent intermediate, chain-strength is applied to the leaf, and only a
+leaf-key SPKI pin can match on this path.
 
 None of these differences weaken the trust decision relative to a correctly-configured OS; they are
 behavioural *differences* to weigh when you pick Delegate over the portable pipeline.

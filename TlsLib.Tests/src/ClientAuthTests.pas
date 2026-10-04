@@ -41,6 +41,9 @@ uses
   TlpHandshakeMessage,
   TlpHandshakeMessages,
   TlpICertificateTrust,
+  TlpICryptoProvider,
+  TlpIPkixProvider,
+  TlpCryptoDomainTypes,
   TlpTrustTypes,
   TlpCertificateVerify,
   TlpTlsAlert,
@@ -62,8 +65,14 @@ type
     function RootCert: TBytes;
     function Credential: TTlsCredential;
     function PeerVerifier: TCertificateVerifier;
+    function ClientLeafCert: TBytes;
+    function SpkiSha256(const ACertDer: TBytes): TBytes;
     function New13Client(AWithCredential: Boolean): ITlsEngine;
     function New13Server(AMode: TClientAuthMode): ITlsEngine;
+    // a 1.3 mTLS server whose client-certificate verifier is wrapped in the client-side SPKI
+    // pinning decorator, as the engine factory composes it when server pins are configured
+    function New13ServerPinned(AMode: TClientAuthMode;
+      const APins: TArray<TBytes>): ITlsEngine;
     function New13ClientMachine(AWithCredential: Boolean): IHandshakeMachine;
     function New13ServerMachine(AMode: TClientAuthMode): IHandshakeMachine;
     function MsgFrom(const AFramed: TBytes): TTlsHandshakeMessage;
@@ -96,6 +105,8 @@ type
     procedure TestTls12ClientRejectsSecondCertificateRequest;
     procedure TestTls13CertificateRequestWithoutSignatureAlgorithmsAborts;
     procedure TestTls13ServerRejectsNonEmptyClientCertificateContext;
+    procedure TestTls13ClientCertPinMatchCompletes;
+    procedure TestTls13ClientCertPinMismatchAborts;
   end;
 
 implementation
@@ -144,6 +155,54 @@ begin
   Result := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(RootCert)) as ITrustAnchorStore,
     False);
+end;
+
+function TTestClientAuth.ClientLeafCert: TBytes;
+var
+  LCerts: TStringList;
+begin
+  LCerts := LoadVectorFields('Certs/ClientAuthChain.txt');
+  try
+    Result := DecodeHex(LCerts.Values['leaf_cert']);
+  finally
+    LCerts.Free;
+  end;
+end;
+
+function TTestClientAuth.SpkiSha256(const ACertDer: TBytes): TBytes;
+var
+  LHash: IHash;
+  LSpki: TBytes;
+begin
+  LSpki := Pkix.Certificates.PublicKeyInfo(ACertDer);
+  LHash := Crypto.Primitives.CreateHash(THashAlgorithm.SHA_256);
+  LHash.Update(LSpki, 0, System.Length(LSpki));
+  Result := LHash.DoFinal;
+end;
+
+function TTestClientAuth.New13ServerPinned(AMode: TClientAuthMode;
+  const APins: TArray<TBytes>): ITlsEngine;
+var
+  LParams: TServerHandshakeParams;
+begin
+  LParams := Default(TServerHandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Crypto := Crypto;
+  LParams.Inspector := Pkix.Certificates;
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
+  LParams.ServerRandom := Filled($22, 32);
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(Credential);
+  LParams.ClientAuth := AMode;
+  LParams.ClientAuthSignatureSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+  // wrap the client verifier in the pinning decorator, as the factory does for a server with pins
+  LParams.ClientCertificateVerifier := TClientPinningVerifier.Create(
+    PeerVerifier as IClientCertificateVerifier, APins, Crypto, Pkix)
+    as IClientCertificateVerifier;
+  Result := TTlsEngine.CreateConfigured(
+    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestClientAuth.New13Client(AWithCredential: Boolean): ITlsEngine;
@@ -680,6 +739,38 @@ begin
     'a non-empty client certificate_request_context aborts');
   CheckEquals(Int64(Ord(TTlsAlertDescription.DecodeError)), Int64(Ord(LAlert)),
     'the abort is decode_error');
+end;
+
+procedure TTestClientAuth.TestTls13ClientCertPinMatchCompletes;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // a server that pins the client leaf's SPKI accepts the matching client certificate: the inner
+  // verifier validates the chain and the pin matches, so the mTLS handshake completes
+  LClient := New13Client(True);
+  LServer := New13ServerPinned(TClientAuthMode.Required,
+    TArray<TBytes>.Create(SpkiSha256(ClientLeafCert)));
+  Drive(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking or LServer.IsHandshaking,
+    '1.3 mTLS with a matching client-cert pin completes');
+  CheckFalse(LClient.IsTerminal or LServer.IsTerminal,
+    '1.3 mTLS with a matching client-cert pin: no failure');
+end;
+
+procedure TTestClientAuth.TestTls13ClientCertPinMismatchAborts;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // a server that pins a key the client does not present must REJECT the client certificate
+  // (bad_certificate), not silently accept it: a wrong 32-byte pin can never match the presented leaf
+  LClient := New13Client(True);
+  LServer := New13ServerPinned(TClientAuthMode.Required,
+    TArray<TBytes>.Create(Filled($AB, 32)));
+  Drive(LClient, LServer);
+  CheckTrue(LServer.IsTerminal, '1.3 mTLS with a non-matching client-cert pin fails closed');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.BadCertificate)),
+    Int64(Ord(LServer.LastError.Alert.Description)),
+    'a client-cert pin mismatch is bad_certificate');
 end;
 
 initialization

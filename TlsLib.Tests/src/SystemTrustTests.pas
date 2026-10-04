@@ -141,12 +141,6 @@ type
     procedure TestLeafOnlyPathIsNotRevoked;
     procedure TestNilClockFallsBackToSystemTime;
     procedure TestNilProviderIsNotRevoked;
-    procedure TestIpNameMatchesIpSanLeaf;
-    procedure TestIpNameAgainstDnsOnlyLeafRejects;
-    procedure TestDnsNameIsNotRecheckedHere;
-    procedure TestEmptyNameIsNotRechecked;
-    procedure TestIpNameNilProviderFailsClosed;
-    procedure TestIpNameEmptyPathFailsClosed;
     procedure TestHardNeedsLiveRevocation;
     procedure TestLiveNeedsLiveRevocation;
     procedure TestOsHostNameStripsIpLiterals;
@@ -212,6 +206,14 @@ type
     procedure TestServerSourceCarriesVerifyCallbackFromContext;
     procedure TestClientSourceCarriesVerifyCallbackFromContext;
     procedure TestFilterRootsDeDupsAndDropsMalformed;
+    // RFC 7633 must-staple + TLS Feature well-formedness, now enforced by the OS delegate
+    procedure TestMustStapleLeafWithoutStapleRejects;
+    procedure TestMustStapleLeafWithGoodStapleAccepts;
+    procedure TestMustStapleNotBoundWhenNotOfferedOrOnResumption;
+    procedure TestMalformedTlsFeatureRejectsBothRoles;
+    procedure TestServerSourceEnforcesMustStaple;
+    // S2: a DnsIdentity engine's host match no longer substitutes for the library SAN check
+    procedure TestNameMismatchRejectsWithDnsCapability;
   end;
 
   /// <summary>Engine-agnostic contract for a real OS anchor store, written against
@@ -481,84 +483,6 @@ begin
     Ocsp('ocsp_revoked'), LAlert), 'a nil provider cannot render a Revoked verdict');
 end;
 
-procedure TTestDelegatePostChecks.TestIpNameMatchesIpSanLeaf;
-var
-  LName: TServerName;
-  LAlert: TTlsAlertDescription;
-begin
-  // the IP-SAN leaf carries IP:127.0.0.1, so an IP-literal identity matches and does not fire
-  CheckTrue(TServerName.TryParse('127.0.0.1', LName));
-  CheckFalse(TDelegatePostChecks.RejectIpMismatch(LName, FPkix,
-    TArray<TBytes>.Create(Ec('ipsan_leaf_cert')), LAlert),
-    'an IP literal matching an iPAddress SAN is accepted');
-  CheckTrue(TServerName.TryParse('[::1]', LName));
-  CheckFalse(TDelegatePostChecks.RejectIpMismatch(LName, FPkix,
-    TArray<TBytes>.Create(Ec('ipsan_leaf_cert')), LAlert),
-    'an IPv6 literal matching an iPAddress SAN is accepted');
-end;
-
-procedure TTestDelegatePostChecks.TestIpNameAgainstDnsOnlyLeafRejects;
-var
-  LName: TServerName;
-  LAlert: TTlsAlertDescription;
-begin
-  // the EC leaf has only DNS:localhost, so an IP-literal identity has no iPAddress SAN to match
-  CheckTrue(TServerName.TryParse('127.0.0.1', LName));
-  CheckTrue(TDelegatePostChecks.RejectIpMismatch(LName, FPkix,
-    TArray<TBytes>.Create(Ec('leaf_cert')), LAlert),
-    'an IP literal against a DNS-only leaf is rejected');
-  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
-    'the alert is bad_certificate');
-end;
-
-procedure TTestDelegatePostChecks.TestDnsNameIsNotRecheckedHere;
-var
-  LName: TServerName;
-  LAlert: TTlsAlertDescription;
-begin
-  // a DNS host was matched by the OS name logic; this post-check leaves it alone (a nil provider
-  // would fail closed if it did run)
-  CheckTrue(TServerName.TryParse('localhost', LName));
-  CheckFalse(TDelegatePostChecks.RejectIpMismatch(LName, nil, nil, LAlert),
-    'a DNS host is not re-checked by the IP post-check');
-end;
-
-procedure TTestDelegatePostChecks.TestEmptyNameIsNotRechecked;
-var
-  LName: TServerName;
-  LAlert: TTlsAlertDescription;
-begin
-  LName := Default(TServerName);
-  CheckFalse(TDelegatePostChecks.RejectIpMismatch(LName, nil, nil, LAlert),
-    'an empty name (name-checking off) is not re-checked');
-end;
-
-procedure TTestDelegatePostChecks.TestIpNameNilProviderFailsClosed;
-var
-  LName: TServerName;
-  LAlert: TTlsAlertDescription;
-begin
-  CheckTrue(TServerName.TryParse('127.0.0.1', LName));
-  CheckTrue(TDelegatePostChecks.RejectIpMismatch(LName, nil,
-    TArray<TBytes>.Create(Ec('ipsan_leaf_cert')), LAlert),
-    'an IP literal with no provider to read SANs fails closed');
-  CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LAlert),
-    'the fail-closed alert is internal_error');
-end;
-
-procedure TTestDelegatePostChecks.TestIpNameEmptyPathFailsClosed;
-var
-  LName: TServerName;
-  LAlert: TTlsAlertDescription;
-begin
-  LAlert := TTlsAlertDescription.BadCertificate;
-  CheckTrue(TServerName.TryParse('127.0.0.1', LName));
-  CheckTrue(TDelegatePostChecks.RejectIpMismatch(LName, FPkix, nil, LAlert),
-    'an IP literal with no validated leaf fails closed');
-  CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LAlert),
-    'the fail-closed alert is internal_error');
-end;
-
 procedure TTestDelegatePostChecks.TestHardNeedsLiveRevocation;
 begin
   // the delegate gate is the shared predicate: Hard is satisfied only when the live-revocation park runs
@@ -733,6 +657,8 @@ begin
     TSignatureSchemes.RsaPkcs1Sha384, TSignatureSchemes.RsaPkcs1Sha512);
   // these are server-cert templates: the host is matched, as a stock client config does
   Result.CheckHostName := True;
+  // the delegate matches the leaf SANs itself (SAN-only) even for a DnsIdentity engine, so the
+  // templates use the fixture leaf's real identity (SAN dNSName = localhost)
   Result.Anchors := AAnchors;
 end;
 
@@ -752,7 +678,7 @@ procedure TTestOSDelegateTemplate.TestRequestShapingRevocationLevels;
     LEngine := LFake;
     LVerifier := TOSDelegateServerVerifier.Create(LEngine,
       Policy(APosture, AFetch, ADeferral, nil)) as IServerCertificateVerifier;
-    LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('host.example'), nil,
+    LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('localhost'), nil,
       LVerified, LAlert);
     Result := LFake.Last.Revocation;
   end;
@@ -786,7 +712,7 @@ begin
   LVerifier := TOSDelegateServerVerifier.Create(LEngine,
     Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil))
     as IServerCertificateVerifier;
-  LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('host.example'), nil,
+  LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('localhost'), nil,
     LVerified, LAlert);
   CheckFalse(LFake.Last.NetworkAllowed, 'the inline pass never allows a network fetch');
 end;
@@ -826,7 +752,7 @@ begin
   LVerifier := TOSDelegateServerVerifier.Create(LEngine,
     Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil))
     as IServerCertificateVerifier;
-  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('host.example'), nil,
+  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('localhost'), nil,
     LVerified, LAlert), 'an engine rejection rejects');
   CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'the engine alert passes through');
   CheckEquals(0, System.Length(LVerified.Path), 'a rejection leaves the verified path empty');
@@ -846,7 +772,7 @@ begin
   LVerifier := TOSDelegateServerVerifier.Create(LEngine,
     Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil))
     as IServerCertificateVerifier;
-  CheckTrue(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('host.example'), nil,
+  CheckTrue(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('localhost'), nil,
     LVerified, LAlert), 'a trusted Good path is accepted');
   CheckEquals(2, System.Length(LVerified.Path), 'the built path is returned');
   CheckEquals(Ord(TVerificationOutcome.Trusted), Ord(LVerified.Outcome),
@@ -868,7 +794,7 @@ begin
   LVerifier := TOSDelegateServerVerifier.Create(LEngine,
     Policy(TRevocationPosture.Off, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil))
     as IServerCertificateVerifier;
-  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('host.example'),
+  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('localhost'),
     Ocsp('ocsp_revoked'), LVerified, LAlert), 'a stapled Revoked overrides an engine Good under Off');
   CheckEquals(Ord(TTlsAlertDescription.CertificateRevoked), Ord(LAlert), 'the alert is certificate_revoked');
 end;
@@ -887,7 +813,7 @@ begin
   LVerifier := TOSDelegateServerVerifier.Create(LEngine,
     Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil))
     as IServerCertificateVerifier;
-  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('host.example'), nil,
+  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('localhost'), nil,
     LVerified, LAlert), 'an engine Revoked outcome rejects');
   CheckEquals(Ord(TTlsAlertDescription.CertificateRevoked), Ord(LAlert), 'the alert is certificate_revoked');
 end;
@@ -906,7 +832,7 @@ begin
   LVerifier := TOSDelegateServerVerifier.Create(LEngine,
     Policy(TRevocationPosture.Hard, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil))
     as IServerCertificateVerifier;
-  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('host.example'), nil,
+  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('localhost'), nil,
     LVerified, LAlert), 'Hard rejects an indeterminate cache-only outcome');
   CheckEquals(Ord(TTlsAlertDescription.BadCertificateStatusResponse), Ord(LAlert),
     'the alert is bad_certificate_status_response');
@@ -928,7 +854,7 @@ begin
   LVerifier := TOSDelegateServerVerifier.Create(LEngine,
     Policy(TRevocationPosture.Hard, TSystemTrustFetch.Live, TVerdictDeferral.LiveRevocation, nil))
     as IServerCertificateVerifier;
-  CheckTrue(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('host.example'), nil,
+  CheckTrue(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('localhost'), nil,
     LVerified, LAlert), 'Hard deferred to a live check accepts an indeterminate outcome inline');
 end;
 
@@ -950,6 +876,175 @@ begin
   CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('wrong.example'), nil,
     LVerified, LAlert), 'a wrong host is rejected when the engine matches no identity itself');
   CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'the alert is bad_certificate');
+end;
+
+procedure TTestOSDelegateTemplate.TestNameMismatchRejectsWithDnsCapability;
+var
+  LEngine: IPlatformChainEngine;
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  // a DnsIdentity engine matched the host itself, but the library now matches the SANs too (SAN-only,
+  // no subject-CN fallback), so a wrong host is rejected here rather than trusted - this is the only
+  // test that fails without the S2 change
+  LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation,
+    TPlatformChainCapability.DnsIdentity], True,
+    Result_(TLiveRevocationOutcome.Good, OcspChain), TTlsAlertDescription.BadCertificate);
+  LVerifier := TOSDelegateServerVerifier.Create(LEngine,
+    Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil))
+    as IServerCertificateVerifier;
+  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('wrong.example'), nil,
+    LVerified, LAlert), 'a DnsIdentity engine no longer excuses a SAN mismatch');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'the alert is bad_certificate');
+end;
+
+procedure TTestOSDelegateTemplate.TestMustStapleLeafWithoutStapleRejects;
+var
+  LEngine: IPlatformChainEngine;
+  LPolicy: TOSDelegatePolicy;
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+  LChain: TArray<TBytes>;
+begin
+  // a must-staple leaf whose client asked to staple on the initial handshake, but no staple was
+  // presented, must be rejected even under Soft (RFC 7633 4.3.3) - the delegate enforces it now
+  LChain := TArray<TBytes>.Create(Ocsp('muststaple_leaf_cert'), Ocsp('issuer_cert'));
+  LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation,
+    TPlatformChainCapability.DnsIdentity], True, Result_(TLiveRevocationOutcome.Good, LChain),
+    TTlsAlertDescription.BadCertificate);
+  LPolicy := Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil);
+  LPolicy.StatusRequestOffered := True;
+  LVerifier := TOSDelegateServerVerifier.Create(LEngine, LPolicy) as IServerCertificateVerifier;
+  CheckFalse(LVerifier.VerifyServerCertificate(LChain, TServerName.DnsName('localhost'), nil,
+    LVerified, LAlert), 'a must-staple leaf with no staple is rejected');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificateStatusResponse), Ord(LAlert),
+    'the alert is bad_certificate_status_response');
+end;
+
+procedure TTestOSDelegateTemplate.TestMustStapleLeafWithGoodStapleAccepts;
+var
+  LEngine: IPlatformChainEngine;
+  LPolicy: TOSDelegatePolicy;
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+  LChain: TArray<TBytes>;
+begin
+  // the same must-staple leaf with a current Good staple satisfies the requirement and is accepted
+  LChain := TArray<TBytes>.Create(Ocsp('muststaple_leaf_cert'), Ocsp('issuer_cert'));
+  LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation,
+    TPlatformChainCapability.DnsIdentity], True, Result_(TLiveRevocationOutcome.Good, LChain),
+    TTlsAlertDescription.BadCertificate);
+  LPolicy := Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil);
+  LPolicy.StatusRequestOffered := True;
+  LVerifier := TOSDelegateServerVerifier.Create(LEngine, LPolicy) as IServerCertificateVerifier;
+  CheckTrue(LVerifier.VerifyServerCertificate(LChain, TServerName.DnsName('localhost'),
+    Ocsp('ocsp_muststaple_good'), LVerified, LAlert),
+    'a must-staple leaf with a Good staple is accepted');
+end;
+
+procedure TTestOSDelegateTemplate.TestMustStapleNotBoundWhenNotOfferedOrOnResumption;
+var
+  LEngine: IPlatformChainEngine;
+  LPolicy: TOSDelegatePolicy;
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+  LChain: TArray<TBytes>;
+begin
+  // must-staple binds only when the client offered status_request on the initial handshake: a client
+  // that did not offer it, or a resumption, does not demand a staple from a must-staple leaf
+  LChain := TArray<TBytes>.Create(Ocsp('muststaple_leaf_cert'), Ocsp('issuer_cert'));
+  LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation,
+    TPlatformChainCapability.DnsIdentity], True, Result_(TLiveRevocationOutcome.Good, LChain),
+    TTlsAlertDescription.BadCertificate);
+  LPolicy := Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil);
+  LPolicy.StatusRequestOffered := False;
+  LVerifier := TOSDelegateServerVerifier.Create(LEngine, LPolicy) as IServerCertificateVerifier;
+  CheckTrue(LVerifier.VerifyServerCertificate(LChain, TServerName.DnsName('localhost'), nil,
+    LVerified, LAlert), 'must-staple does not bind when the client did not offer status_request');
+
+  LPolicy := Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil);
+  LPolicy.StatusRequestOffered := True;
+  LPolicy.Occasion := TVerificationOccasion.Resumption;
+  LVerifier := TOSDelegateServerVerifier.Create(LEngine, LPolicy) as IServerCertificateVerifier;
+  CheckTrue(LVerifier.VerifyServerCertificate(LChain, TServerName.DnsName('localhost'), nil,
+    LVerified, LAlert), 'must-staple does not bind on a resumption');
+end;
+
+procedure TTestOSDelegateTemplate.TestMalformedTlsFeatureRejectsBothRoles;
+var
+  LServerEngine, LClientEngine: IPlatformChainEngine;
+  LServerPolicy, LClientPolicy: TOSDelegatePolicy;
+  LServerVerifier: IServerCertificateVerifier;
+  LClientVerifier: IClientCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+  LChain: TArray<TBytes>;
+begin
+  // a malformed TLS Feature extension (value not a SEQUENCE OF INTEGER) is a hard bad_certificate for
+  // either role, regardless of posture or whether status_request was offered
+  LChain := TArray<TBytes>.Create(Ocsp('badfeature_leaf_cert'), Ocsp('issuer_cert'));
+  LServerEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation,
+    TPlatformChainCapability.DnsIdentity], True, Result_(TLiveRevocationOutcome.Good, LChain),
+    TTlsAlertDescription.BadCertificate);
+  LServerPolicy := Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly,
+    TVerdictDeferral.None, nil);
+  LServerVerifier := TOSDelegateServerVerifier.Create(LServerEngine, LServerPolicy)
+    as IServerCertificateVerifier;
+  CheckFalse(LServerVerifier.VerifyServerCertificate(LChain, TServerName.DnsName('localhost'), nil,
+    LVerified, LAlert), 'a malformed TLS Feature rejects on the server path');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'the alert is bad_certificate');
+
+  LClientEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation],
+    True, Result_(TLiveRevocationOutcome.Good, LChain), TTlsAlertDescription.BadCertificate);
+  LClientPolicy := Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly,
+    TVerdictDeferral.None, nil);
+  LClientPolicy.CheckHostName := False;
+  LClientVerifier := TOSDelegateClientVerifier.Create(LClientEngine, LClientPolicy)
+    as IClientCertificateVerifier;
+  CheckFalse(LClientVerifier.VerifyClientCertificate(LChain, LVerified, LAlert),
+    'a malformed TLS Feature rejects on the client path');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'the alert is bad_certificate');
+end;
+
+procedure TTestOSDelegateTemplate.TestServerSourceEnforcesMustStaple;
+var
+  LEngine: IPlatformChainEngine;
+  LSource: IServerCertificateVerifierSource;
+  LContext: TServerTrustContext;
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+  LChain: TArray<TBytes>;
+begin
+  // the source copies StatusRequestOffered + Occasion from the context into the delegate policy, so a
+  // config that offered stapling enforces must-staple on the OS-delegate path (regression guard)
+  LChain := TArray<TBytes>.Create(Ocsp('muststaple_leaf_cert'), Ocsp('issuer_cert'));
+  LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation,
+    TPlatformChainCapability.DnsIdentity], True, Result_(TLiveRevocationOutcome.Good, LChain),
+    TTlsAlertDescription.BadCertificate);
+  LSource := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly)
+    as IServerCertificateVerifierSource;
+  LContext := Default(TServerTrustContext);
+  LContext.Pkix := FPkix;
+  LContext.Clock := FClock;
+  LContext.CheckHostName := True;
+  LContext.RevocationPosture := TRevocationPosture.Soft;
+  LContext.Deferral := TVerdictDeferral.None;
+  LContext.StrengthPolicy := TCertificateStrengthPolicy.Defaults;
+  LContext.AdvertisedSignatureSchemes := TArray<UInt16>.Create(
+    TSignatureSchemes.EcdsaSecp256r1Sha256, TSignatureSchemes.EcdsaSecp384r1Sha384,
+    TSignatureSchemes.EcdsaSecp521r1Sha512);
+  LContext.StatusRequestOffered := True;
+  LContext.Occasion := TVerificationOccasion.InitialHandshake;
+  LVerifier := LSource.CreateServerVerifier(LContext);
+  CheckFalse(LVerifier.VerifyServerCertificate(LChain, TServerName.DnsName('localhost'), nil,
+    LVerified, LAlert), 'the source enforces must-staple from the context');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificateStatusResponse), Ord(LAlert),
+    'the alert is bad_certificate_status_response');
 end;
 
 procedure TTestOSDelegateTemplate.TestSourceRefusesLiveWithoutLiveFetch;
@@ -1124,7 +1219,7 @@ begin
   LVerifier := TOSDelegateServerVerifier.Create(LEngine,
     Policy(TRevocationPosture.Off, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil))
     as IServerCertificateVerifier;
-  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('host.example'),
+  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('localhost'),
     Ocsp('ocsp_revoked'), LVerified, LAlert),
     'a stapled Revoked rejects a no-cached-revocation server under Off');
   CheckEquals(Ord(TTlsAlertDescription.CertificateRevoked), Ord(LAlert),
@@ -1162,7 +1257,7 @@ begin
   LPolicy := Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil);
   LPolicy.Dangerous.VerifyCallback := RejectCallback;
   LVerifier := TOSDelegateServerVerifier.Create(LEngine, LPolicy) as IServerCertificateVerifier;
-  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('host.example'), nil,
+  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('localhost'), nil,
     LVerified, LAlert), 'the augment callback rejects an otherwise-trusted chain');
   CheckTrue(FCallbackInvoked, 'the augment callback ran');
   CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
@@ -1186,7 +1281,7 @@ begin
   LPolicy := Policy(TRevocationPosture.Off, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil);
   LPolicy.Dangerous.VerifyCallback := AcceptCallback;
   LVerifier := TOSDelegateServerVerifier.Create(LEngine, LPolicy) as IServerCertificateVerifier;
-  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('host.example'), nil,
+  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('localhost'), nil,
     LVerified, LAlert), 'an engine rejection stands');
   CheckFalse(FCallbackInvoked, 'the augment callback never ran for a rejected chain');
 end;
@@ -1242,7 +1337,7 @@ begin
     TSignatureSchemes.EcdsaSecp521r1Sha512);
   LContext.Dangerous.VerifyCallback := RejectCallback;
   LVerifier := LSource.CreateServerVerifier(LContext);
-  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('host.example'), nil,
+  CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('localhost'), nil,
     LVerified, LAlert), 'the context callback rejects on the server path');
   CheckTrue(FCallbackInvoked, 'the context callback ran');
   CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),

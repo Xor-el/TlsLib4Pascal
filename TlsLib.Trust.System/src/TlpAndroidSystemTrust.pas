@@ -906,15 +906,15 @@ function TAndroidChainEngine.EvaluateClient(const ARequest: TPlatformChainReques
   out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean;
 begin
   AResult := Default(TPlatformChainResult);
-  // anchors-only over the configured client-CA anchors (never the system roots); checkClientTrusted
-  // reports no path, so the presented chain is the validated one with the configured anchors exempt
-  // (and not appended - the contract permits omitting an unreportable anchor), and it renders no
-  // revocation outcome (a client certificate is never stapled)
+  // anchors-only over the configured client-CA anchors (never the system roots). checkClientTrusted
+  // reports no path and the presented chain is peer-ordered beyond index 0 (RFC 8446 4.4.2 only fixes
+  // the leaf), so only the leaf is a reliable validated path; issuer recovery for revocation comes from
+  // the configured candidates rather than a spoofable chain entry. Never stapled.
   Result := TAndroidTrustApi.EvaluateClient(ARequest.Chain, ARequest.Anchors, AAlert);
   if not Result then
     Exit;
-  AResult.Path := ARequest.Chain;
-  AResult.PolicyExempt := ARequest.Anchors;
+  AResult.Path := TArray<TBytes>.Create(ARequest.Chain[0]);
+  AResult.PolicyExempt := nil;
   AResult.Outcome := TLiveRevocationOutcome.Indeterminate;
 end;
 
