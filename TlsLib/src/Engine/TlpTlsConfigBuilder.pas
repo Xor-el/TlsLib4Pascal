@@ -372,7 +372,7 @@ resourcestring
   STicketCountOutOfRange = 'the session-ticket count must be between 0 and 8 per handshake';
   SInvalidChainLimits = 'the certificate-chain limits must be positive, with ' +
     'MaxCertificateLength no larger than MaxTotalChainLength, which must not exceed the ' +
-    '16 MiB handshake-message ceiling';
+    '16 MiB handshake-message ceiling, and MaxChainCertificates must be between 1 and 255';
   SInvalidCertificatePin = 'a certificate pin must be a 32-byte SHA-256 SubjectPublicKeyInfo ' +
     'digest; a wrong-width pin can never match and would silently fail every handshake';
   SCredentialKeyLeafMismatch = 'the credential''s private key does not match the public key in ' +
@@ -1968,12 +1968,13 @@ function TTlsConfigBuilder.WithCertificateChainLimits(
   const ALimits: TCertificateChainLimits): TTlsConfigBuilder;
 begin
   GuardMutable;
-  // a byte budget, not a trust input, but a broken one (non-positive, per-cert above the whole
-  // message, or a total past the 24-bit handshake-message ceiling that would wrap the derived
-  // reassembly cap) is a misconfiguration, refused at build time
+  // a resource budget, not a trust input, but a broken one (non-positive, per-cert above the whole
+  // message, a total past the 24-bit handshake-message ceiling that would wrap the derived
+  // reassembly cap, or an entry count outside 1..255) is a misconfiguration, refused at build time
   if (ALimits.MaxCertificateLength <= 0) or (ALimits.MaxTotalChainLength <= 0) or
     (ALimits.MaxCertificateLength > ALimits.MaxTotalChainLength) or
-    (ALimits.MaxTotalChainLength > $FFFFFF) then
+    (ALimits.MaxTotalChainLength > $FFFFFF) or
+    (ALimits.MaxChainCertificates < 1) or (ALimits.MaxChainCertificates > 255) then
     raise EArgumentTlsLibException.CreateRes(@SInvalidChainLimits);
   FChainLimits := ALimits;
   Result := Self;

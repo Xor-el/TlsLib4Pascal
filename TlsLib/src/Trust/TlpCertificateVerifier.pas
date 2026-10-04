@@ -423,7 +423,6 @@ function TCertificateVerifier.VerifyPipeline(const AChain: TArray<TBytes>;
   AKeyPurpose: TCertKeyPurpose; out AValidatedChain: TArray<TBytes>;
   out ARevocationSettled: Boolean; out AAlert: TTlsAlertDescription): Boolean;
 var
-  LI, LTotal: Int32;
   // the chain PKIX actually validated: when the peer sent an incomplete chain that path
   // building completed from the configured intermediates, this carries the assembled path
   // (with the recovered issuer), so revocation sees it rather than the bare leaf
@@ -449,19 +448,10 @@ begin
   // hashes it, so path validation and the chain-algorithm check share this one read
   LRoots := FTrustStore.RootCertificates;
 
-  // resource caps before any PKIX work: an oversize certificate or an over-total chain is
-  // rejected up front (anti-DoS) rather than handed to the path builder. The handshake
-  // Certificate decoder is the authoritative gate (it bounds every verifier, including OS
-  // delegates); this backstop covers a standalone verifier used off the handshake path.
-  LTotal := 0;
-  for LI := 0 to System.High(AChain) do
-  begin
-    if System.Length(AChain[LI]) > FChainLimits.MaxCertificateLength then
-      Exit;
-    Inc(LTotal, System.Length(AChain[LI]));
-    if LTotal > FChainLimits.MaxTotalChainLength then
-      Exit;
-  end;
+  // resource caps before any PKIX work: an over-count, oversize or over-total chain is rejected up
+  // front (anti-DoS) rather than handed to the path builder, which explores presented certificates
+  if not FChainLimits.AdmitsChain(AChain) then
+    Exit;
 
   // path validation (validity + PKIX) is the provider's job; it raises the reason, and hands
   // back the chain it actually validated (the assembled path when it completed an incomplete one)

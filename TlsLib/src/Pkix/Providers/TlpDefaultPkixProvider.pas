@@ -161,6 +161,9 @@ type
     FTrustAnchorLock: TCriticalSection;
   strict private
     function TrustAnchorKey(const ATrustAnchors: TArray<TBytes>): TBytes;
+    /// <summary>How many of the first ACount pooled certificates share ACert's subject name.</summary>
+    class function PooledWithSubject(const APool: TArray<IX509Certificate>;
+      ACount: Int32; const ACert: IX509Certificate): Int32; static;
   public
     class constructor Create;
     class destructor Destroy;
@@ -556,6 +559,18 @@ begin
   FTrustAnchorLock.Free;
 end;
 
+class function TCertificatePathValidator.PooledWithSubject(
+  const APool: TArray<IX509Certificate>; ACount: Int32;
+  const ACert: IX509Certificate): Int32;
+var
+  LI: Int32;
+begin
+  Result := 0;
+  for LI := 0 to ACount - 1 do
+    if APool[LI].SubjectDN.Equivalent(ACert.SubjectDN, True) then
+      Inc(Result);
+end;
+
 function TCertificatePathValidator.TrustAnchorKey(
   const ATrustAnchors: TArray<TBytes>): TBytes;
 var
@@ -697,11 +712,19 @@ const
   // keeps a hostile peer that pads its chain with many like-named certificates from driving
   // the depth-first search into an expensive fan-out; depth 4 over a small pool is the real bound
   MaxBuiltPathLength = 4;
+  // the builder's depth cap does not count self-issued certificates, so a peer padding its chain with
+  // same-named ones could still drive a permutation search, and cross-issuing subjects in a ring
+  // multiplies it again. Two presented certificates per subject name (a cross-signed pair, or a
+  // root and its cross-signed twin) keeps the whole search to a few hundred nodes whatever the
+  // chain length; a larger cap lets a ring of subjects reach the builder's whole node budget
+  MaxPooledPerSubject = 2;
 var
   LParser: IX509CertificateParser;
   LCerts, LPool, LInter: TArray<IX509Certificate>;
   LAnchors: TArray<ITrustAnchor>;
+  LAnchorCert: IX509Certificate;
   LBuilt: TArray<IX509Certificate>;
+  LPoolCount: Int32;
   LAnchorKey: TBytes;
   LHit: Boolean;
   LTarget: IX509CertStoreSelector;
@@ -725,6 +748,11 @@ begin
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.BadCertificate, @SBadCertificate);
   end;
+  // the parser answers an empty or non-DER entry with nil instead of raising
+  for LI := 0 to High(LCerts) do
+    if LCerts[LI] = nil then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.BadCertificate, @SBadCertificate);
 
   if System.Length(ATrustAnchors) = 0 then
     raise EFatalAlertTlsLibException.CreateRes(
@@ -746,8 +774,13 @@ begin
     try
       SetLength(LAnchors, System.Length(ATrustAnchors));
       for LI := 0 to High(ATrustAnchors) do
-        LAnchors[LI] := TTrustAnchor.Create(
-          LParser.ReadCertificate(ATrustAnchors[LI]), nil);
+      begin
+        LAnchorCert := LParser.ReadCertificate(ATrustAnchors[LI]);
+        if LAnchorCert = nil then
+          raise EFatalAlertTlsLibException.CreateRes(
+            TTlsAlertDescription.UnknownCa, @SUntrustedChain);
+        LAnchors[LI] := TTrustAnchor.Create(LAnchorCert, nil);
+      end;
     except
       on E: ECryptoLibException do
         raise EFatalAlertTlsLibException.CreateRes(
@@ -774,16 +807,32 @@ begin
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.UnknownCa, @SUntrustedChain);
   end;
+  for LI := 0 to High(LInter) do
+    if LInter[LI] = nil then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.UnknownCa, @SUntrustedChain);
 
   // one pool, one path: the presented certificates and the configured intermediates seed a
   // leaf-up build to a trusted anchor, so extraneous, misordered, expired-but-unused or
   // already-trusted extra certificates are simply left out of the built path rather than failing
   // an otherwise valid chain (RFC 8446 4.4.2 tolerates extraneous certificates and arbitrary order)
   SetLength(LPool, System.Length(LCerts) + System.Length(LInter));
+  LPoolCount := 0;
+  // the leaf always pools; each further presented certificate pools only while its subject name is
+  // under the per-subject cap (the configured intermediates are the operator's own and are not capped)
   for LI := 0 to High(LCerts) do
-    LPool[LI] := LCerts[LI];
+    if (LI = 0) or
+      (PooledWithSubject(LPool, LPoolCount, LCerts[LI]) < MaxPooledPerSubject) then
+    begin
+      LPool[LPoolCount] := LCerts[LI];
+      Inc(LPoolCount);
+    end;
   for LI := 0 to High(LInter) do
-    LPool[System.Length(LCerts) + LI] := LInter[LI];
+  begin
+    LPool[LPoolCount] := LInter[LI];
+    Inc(LPoolCount);
+  end;
+  SetLength(LPool, LPoolCount);
 
   try
     // the build targets the leaf the peer presented (index 0); the DFS is depth-capped so a

@@ -102,6 +102,8 @@ begin
     'Strict caps the per-certificate bytes tighter');
   CheckTrue(LStrict.MaxTotalChainLength < LCompatible.MaxTotalChainLength,
     'Strict caps the total chain bytes tighter');
+  CheckTrue(LStrict.MaxChainCertificates < LCompatible.MaxChainCertificates,
+    'Strict caps the number of chain certificates tighter');
 end;
 
 procedure TTestPreset.TestHardenedAndStrictAreTls13Only;

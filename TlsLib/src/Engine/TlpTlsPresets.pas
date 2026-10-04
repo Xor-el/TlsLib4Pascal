@@ -122,8 +122,10 @@ begin
     TNamedGroupCatalog.X25519MlKem768, TNamedGroupCatalog.X25519,
     TNamedGroupCatalog.Secp256r1);
   // a hardened profile expects a short chain of compact certificates
+  LLimits := TCertificateChainLimits.Defaults;
   LLimits.MaxCertificateLength := 1 shl 14;
   LLimits.MaxTotalChainLength := 1 shl 15;
+  LLimits.MaxChainCertificates := 8;
   LProfile.CertificateChainLimits := LLimits;
   // the strictest posture defaults resumption off; a caller may re-enable it with no guard
   LProfile.Resumption := False;
