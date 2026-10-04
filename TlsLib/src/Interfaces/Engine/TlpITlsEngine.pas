@@ -146,7 +146,9 @@ type
     // --- engine -> caller (drains) ---
     /// <summary>Copies pending outbound bytes into ADest at ADestOffset; returns the count.</summary>
     function TakeOutgoing(var ADest: TBytes; ADestOffset: Int32): Int32;
-    /// <summary>Copies up to AMaxLength decrypted application bytes out; returns the count.</summary>
+    /// <summary>Copies up to AMaxLength decrypted application bytes out; returns the count. It can
+    /// resume a deferred inbound drain, so like ProcessInput it can leave the engine terminal or
+    /// with outbound pending; a raw embedder checks IsTerminal / WantsWrite after it.</summary>
     function ReadAppData(var ADest: TBytes; ADestOffset, AMaxLength: Int32): Int32;
     /// <summary>The number of decrypted application bytes already buffered and waiting to be
     /// read; 0 when the caller must read the transport for more.</summary>
