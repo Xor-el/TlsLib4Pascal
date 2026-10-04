@@ -103,6 +103,7 @@ type
       AClientAuth: TClientAuthMode; const AClientRoot, AScope: TBytes): ITlsEngine;
   published
     procedure TestResumptionCompletesPskDheKe;
+    procedure TestMachinesRequireAClock;
     procedure TestSingleUseTicketReplayRejected;
     procedure TestMismatchedBinderAbortsDecryptError;
     procedure TestExpiredTicketNotAccepted;
@@ -1899,6 +1900,37 @@ begin
     'server order: AES-128-GCM despite the client''s ChaCha preference');
   CheckNegotiated(TServerCipherPreference.ClientOrder, TCipherSuites13.ChaCha20Poly1305Sha256,
     'client order: the client''s first SHA-256 suite (ChaCha) wins on the PSK path');
+end;
+
+procedure TTestTls13Resumption.TestMachinesRequireAClock;
+var
+  LClient: TClientHandshakeParams;
+  LServer: TServerHandshakeParams;
+  LMachine: IHandshakeMachine;
+  LClientRaised, LServerRaised: Boolean;
+begin
+  // the clock stamps tickets and checks their freshness, so it is a required input: a missing one
+  // is a typed error at construction, not an access violation on the first resumption
+  LClient := Default(TClientHandshakeParams);
+  LClient.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LServer := Default(TServerHandshakeParams);
+  LServer.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LClientRaised := False;
+  LServerRaised := False;
+  try
+    LMachine := TTls13ClientStateMachine.Create(LClient) as IHandshakeMachine;
+  except
+    on E: EArgumentTlsLibException do
+      LClientRaised := True;
+  end;
+  try
+    LMachine := TTls13ServerStateMachine.Create(LServer) as IHandshakeMachine;
+  except
+    on E: EArgumentTlsLibException do
+      LServerRaised := True;
+  end;
+  CheckTrue(LClientRaised, 'a 1.3 client without a clock is refused');
+  CheckTrue(LServerRaised, 'a 1.3 server without a clock is refused');
 end;
 
 initialization

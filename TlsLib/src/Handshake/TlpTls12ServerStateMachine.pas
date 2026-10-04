@@ -189,11 +189,9 @@ type
     /// <summary>The application protocol selected from the client's ALPN offer, or empty when
     /// none was offered/configured (RFC 7301); echoed in the ServerHello.</summary>
     FSelectedAlpn: string;
-    /// <summary>Resumption state: the accepted session and whether it came via a ticket
-    /// (rather than a session id).</summary>
+    /// <summary>Resumption state: whether the handshake resumes, and the accepted session.</summary>
     FResuming: Boolean;
     FResumedSession: ITls12ResumableSession;
-    FResumedViaTicket: Boolean;
     /// <summary>The client's certificate chain (leaf first) and whether it sent one, for
     /// the client CertificateVerify and the required-auth policy.</summary>
     FClientCertChain: TArray<TBytes>;
@@ -284,6 +282,7 @@ type
 implementation
 
 resourcestring
+  SClockRequired = 'a clock is required (the handshake reads time for tickets and freshness)';
   SNoTls12Offered = 'the client offered no protocol version this server supports';
   SNoCompatibleSuite =
     'no mutually supported TLS 1.2 ECDHE suite the credential can authenticate';
@@ -309,6 +308,8 @@ const
 constructor TTls12ServerStateMachine.Create(const AParams: TServer12HandshakeParams);
 begin
   inherited Create(AParams.ExtensionRegistry);
+  if AParams.Clock = nil then
+    raise EArgumentTlsLibException.CreateRes(@SClockRequired);
   FParams := AParams;
   FPhase := TPhase.Initial;
   FSelectedGroup := AParams.Group;
@@ -838,7 +839,9 @@ begin
   if (LSession = nil) and (FParams.SessionStore <> nil) and
     (System.Length(AHello.LegacySessionId) > 0) then
   begin
-    if FParams.SessionStore.Take(AHello.LegacySessionId, LSession) then
+    // a session id is reusable (RFC 5246 7.4.1.2) and travels in the clear, so it is looked up
+    // without being removed: a replayed id cannot evict the victim's stored session
+    if FParams.SessionStore.Peek(AHello.LegacySessionId, LSession) then
       LViaTicket := False;
   end;
   if LSession = nil then
@@ -887,8 +890,12 @@ begin
     (System.Length(LSession.PeerCertificates) = 0) then
     Exit;
 
+  // commit the ticket only now that every check passed; a single-use strategy declines one that
+  // another connection already used up
+  if LViaTicket and not FTicketStrategy.Consume(AContext.SessionTicket) then
+    Exit;
+
   FResumedSession := L12;
-  FResumedViaTicket := LViaTicket;
   FSelectedSuite := LSuite;
   FUseExtendedMasterSecret := L12.ExtendedMasterSecret;
   FSessionId := System.Copy(AHello.LegacySessionId);
@@ -1013,11 +1020,6 @@ begin
     FTranscript.CurrentHash, AMessage.Body) then
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.DecryptError,
       @SBadClientFinished);
-  // a session-id resumption consumed the stored session (single-use Take); re-store it so
-  // the session stays resumable until it expires
-  if (not FResumedViaTicket) and (FParams.SessionStore <> nil) and
-    (System.Length(FSessionId) > 0) then
-    FParams.SessionStore.PutWithId(FSessionId, FResumedSession);
   FPhase := TPhase.Connected;
   MarkConnected;
   // an abbreviated resumption performs no fresh key exchange, so there is no negotiated group
@@ -1025,7 +1027,7 @@ begin
     THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code, 0, True,
     FRequestedServerName),
     THandshakeEffects.HandshakeEstablished);
-  // the read keys are installed and the session re-stored; release the handshake-stage material
+  // the read keys are installed; release the handshake-stage material
   FSchedule.ForgetHandshakeSecrets;
 end;
 

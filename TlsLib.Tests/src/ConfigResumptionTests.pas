@@ -36,6 +36,10 @@ uses
   TlpTrustPolicy,
   TlpTlsCredential,
   TlpISession,
+  TlpSession,
+  TlpISecretBuffer,
+  TlpSecretBuffer,
+  MockSessionStores,
   TlpInMemorySessionCache,
   TlpInMemorySessionStore,
   TlpITlsConfig,
@@ -101,6 +105,10 @@ type
     /// <summary>A TLS 1.3 server engine; AIssueTickets tickets, resumption toggle.</summary>
     function NewServer13(const AStore: ISessionStore; AIssueTickets: Int32;
       AResumption: Boolean): ITlsEngine;
+    /// <summary>A resuming TLS 1.3 server that issues no tickets and seals/accepts only under
+    /// AScope, so it declines a ticket another scope issued.</summary>
+    function NewScopedServer13(const AStore: ISessionStore;
+      const AScope: TBytes): ITlsEngine;
     function NewClient12(const ACache: ISessionCache;
       const AScope: TBytes = nil): ITlsEngine;
     /// <summary>A permissive TLS 1.2 client with Reverify + async verdict: the abbreviated
@@ -130,6 +138,10 @@ type
     procedure TearDown; override;
   published
     procedure TestTls13StoreResumptionViaConfig;
+    procedure TestTls13BadBinderReplayDoesNotConsumeStoreTicket;
+    procedure TestTls13DeclinedTicketIsNotConsumed;
+    procedure TestTls13LostCommitRaceFallsBackToFullHandshake;
+    procedure TestTls12SessionIdResumptionKeepsStoredSession;
     procedure TestTls12ResumptionViaConfig;
     procedure TestDefaultServerIssuesTicketsOutOfBox;
     procedure TestResumptionOffServerIssuesNoTicket;
@@ -161,6 +173,46 @@ type
 implementation
 
 type
+  // a client session cache that can hand back a tampered copy of the cached 1.3 session (same
+  // ticket, wrong resumption secret) and later restore the genuine one, to model an attacker who
+  // replays a victim's plaintext ticket identity
+  TTamperingSessionCache = class(TInterfacedObject, ISessionCache)
+  strict private
+    FInner: ISessionCache;
+    FTamper: Boolean;
+    FIdentity, FServerName: string;
+    FOriginal: IResumableSession;
+  public
+    constructor Create(const AInner: ISessionCache);
+    procedure Store(const AServerIdentity, AServerName: string;
+      const ASession: IResumableSession);
+    function Take(const AServerIdentity, AServerName: string; ANowMillis: UInt64;
+      out ASession: IResumableSession): Boolean;
+    procedure SetKxHint(const AServerIdentity, AServerName: string; AGroup: UInt16);
+    function KxHint(const AServerIdentity, AServerName: string): UInt16;
+    procedure Clear;
+    function Count: Int32;
+    /// <summary>Puts the genuine session back into the inner cache.</summary>
+    procedure Restore;
+    property Tamper: Boolean read FTamper write FTamper;
+  end;
+
+  // a session store that removes a session right after it is looked up, standing in for another
+  // connection that commits the same ticket between this connection's lookup and its commit
+  TRacingSessionStore = class(TInterfacedObject, ISessionStore)
+  strict private
+    FInner: ISessionStore;
+  public
+    constructor Create(const AInner: ISessionStore);
+    function Put(const ASession: IResumableSession): TBytes;
+    procedure PutWithId(const AId: TBytes; const ASession: IResumableSession);
+    function Peek(const AId: TBytes; out ASession: IResumableSession): Boolean;
+    function Take(const AId: TBytes; out ASession: IResumableSession): Boolean;
+    procedure Remove(const AId: TBytes);
+    procedure Clear;
+    function Count: Int32;
+  end;
+
   // a whole-verifier that rejects every server chain (stands in for a strict pin / custom verifier)
   TRejectingServerVerifier = class(TInterfacedObject, IServerCertificateVerifier)
   public
@@ -178,6 +230,114 @@ begin
   AVerified := Default(TVerifiedChain);
   AAlert := TTlsAlertDescription.BadCertificate;
   Result := False;
+end;
+
+{ TRacingSessionStore }
+
+constructor TRacingSessionStore.Create(const AInner: ISessionStore);
+begin
+  inherited Create;
+  FInner := AInner;
+end;
+
+function TRacingSessionStore.Put(const ASession: IResumableSession): TBytes;
+begin
+  Result := FInner.Put(ASession);
+end;
+
+procedure TRacingSessionStore.PutWithId(const AId: TBytes; const ASession: IResumableSession);
+begin
+  FInner.PutWithId(AId, ASession);
+end;
+
+function TRacingSessionStore.Peek(const AId: TBytes; out ASession: IResumableSession): Boolean;
+begin
+  Result := FInner.Peek(AId, ASession);
+  if Result then
+    FInner.Remove(AId);
+end;
+
+function TRacingSessionStore.Take(const AId: TBytes; out ASession: IResumableSession): Boolean;
+begin
+  Result := FInner.Take(AId, ASession);
+end;
+
+procedure TRacingSessionStore.Remove(const AId: TBytes);
+begin
+  FInner.Remove(AId);
+end;
+
+procedure TRacingSessionStore.Clear;
+begin
+  FInner.Clear;
+end;
+
+function TRacingSessionStore.Count: Int32;
+begin
+  Result := FInner.Count;
+end;
+
+{ TTamperingSessionCache }
+
+constructor TTamperingSessionCache.Create(const AInner: ISessionCache);
+begin
+  inherited Create;
+  FInner := AInner;
+end;
+
+procedure TTamperingSessionCache.Store(const AServerIdentity, AServerName: string;
+  const ASession: IResumableSession);
+begin
+  FIdentity := AServerIdentity;
+  FServerName := AServerName;
+  FInner.Store(AServerIdentity, AServerName, ASession);
+end;
+
+function TTamperingSessionCache.Take(const AServerIdentity, AServerName: string;
+  ANowMillis: UInt64; out ASession: IResumableSession): Boolean;
+var
+  L13: ITls13ResumableSession;
+  LWrong: TBytes;
+begin
+  Result := FInner.Take(AServerIdentity, AServerName, ANowMillis, ASession);
+  if not (Result and FTamper and Supports(ASession, ITls13ResumableSession, L13)) then
+    Exit;
+  // keep the real session aside and hand back one with the same ticket but a wrong secret, so the
+  // ClientHello names a genuine identity yet carries a binder the server cannot verify
+  FOriginal := ASession;
+  LWrong := nil;
+  SetLength(LWrong, L13.ResumptionSecret.Len);
+  FillChar(LWrong[0], System.Length(LWrong), $5A);
+  ASession := TTls13ResumableSession.Create(ASession.CipherSuite, ASession.Hash,
+    TSecretBuffer.From(LWrong), ASession.Alpn, ASession.ServerName, L13.TicketIdentity,
+    ASession.TicketLifetime, L13.TicketAgeAdd, ASession.IssuedAtMillis, L13.MaxEarlyData,
+    ASession.PeerCertificates, ASession.ResumptionScope);
+end;
+
+procedure TTamperingSessionCache.Restore;
+begin
+  FInner.Store(FIdentity, FServerName, FOriginal);
+end;
+
+procedure TTamperingSessionCache.SetKxHint(const AServerIdentity, AServerName: string;
+  AGroup: UInt16);
+begin
+  FInner.SetKxHint(AServerIdentity, AServerName, AGroup);
+end;
+
+function TTamperingSessionCache.KxHint(const AServerIdentity, AServerName: string): UInt16;
+begin
+  Result := FInner.KxHint(AServerIdentity, AServerName);
+end;
+
+procedure TTamperingSessionCache.Clear;
+begin
+  FInner.Clear;
+end;
+
+function TTamperingSessionCache.Count: Int32;
+begin
+  Result := FInner.Count;
 end;
 
 { TTestConfigResumption }
@@ -411,6 +571,21 @@ begin
   Result := TTlsEngineFactory.CreateServerEngine(LConfig);
 end;
 
+function TTestConfigResumption.NewScopedServer13(const AStore: ISessionStore;
+  const AScope: TBytes): ITlsEngine;
+var
+  LConfig: ITlsServerConfig;
+begin
+  LConfig := TTlsPresets.Hardened(Crypto, Pkix).Server
+    .WithCredential(ServerCredential)
+    .WithResumption(True)
+    .WithSessionStore(AStore)
+    .WithTicketCount(0)
+    .WithResumptionScope(AScope)
+    .Build;
+  Result := TTlsEngineFactory.CreateServerEngine(LConfig);
+end;
+
 function TTestConfigResumption.NewClient12(const ACache: ISessionCache;
   const AScope: TBytes): ITlsEngine;
 var
@@ -624,6 +799,127 @@ begin
   CheckFalse(LServer.IsTerminal, 'the resuming server did not fail');
   CheckEquals(0, LStore.Count, 'the stored session was consumed (resumed via the config)');
   CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestConfigResumption.TestTls13BadBinderReplayDoesNotConsumeStoreTicket;
+var
+  LTamper: TTamperingSessionCache;
+  LCache: ISessionCache;
+  LScope: TBytes;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+begin
+  // a store handle travels in the clear, so anyone who saw a ClientHello can replay its identity.
+  // A binder the server cannot verify is fatal, but it must not use the victim's ticket up
+  LTamper := TTamperingSessionCache.Create(TInMemorySessionCache.Create as ISessionCache);
+  LCache := LTamper;
+  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+
+  LClient := NewClient13(LCache, True, LScope);
+  LServer := NewServer13(LStore, 1, True);
+  PumpToCompletion(LClient, LServer);
+  CheckEquals(1, LStore.Count, 'the server stored the victim''s ticket');
+
+  LTamper.Tamper := True;
+  LClient := NewClient13(LCache, True, LScope);
+  LServer := NewServer13(LStore, 0, True);
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LServer.IsTerminal, 'a binder that does not verify is fatal');
+  CheckEquals(1, LStore.Count, 'the replay did not consume the victim''s ticket');
+
+  LTamper.Tamper := False;
+  LTamper.Restore;
+  LClient := NewClient13(LCache, True, LScope);
+  LServer := NewServer13(LStore, 0, True);
+  PumpToCompletion(LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'the victim still resumes');
+  CheckEquals(0, LStore.Count, 'the genuine resumption used the ticket up (single-use)');
+  CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestConfigResumption.TestTls13DeclinedTicketIsNotConsumed;
+var
+  LCache: ISessionCache;
+  LScope: TBytes;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+begin
+  // a server whose resumption scope differs opens the ticket, then declines it (the scope check
+  // runs after the session is recovered). A decline leaves the stored ticket alone, so only an
+  // actual resumption uses it up
+  LCache := TInMemorySessionCache.Create;
+  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+
+  LClient := NewClient13(LCache, True, LScope);
+  LServer := NewServer13(LStore, 1, True);
+  PumpToCompletion(LClient, LServer);
+  CheckEquals(1, LStore.Count, 'the server stored one ticket');
+
+  LClient := NewClient13(LCache, True, LScope);
+  LServer := NewScopedServer13(LStore, Crypto.Primitives.GetRandom.GenerateBytes(16));
+  PumpToCompletion(LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'the declined connection fell back to a full handshake');
+  CheckFalse(LServer.ConnectionInfo.Resumed, 'the other scope did not resume the ticket');
+  CheckEquals(1, LStore.Count, 'the declined ticket is still in the store');
+end;
+
+procedure TTestConfigResumption.TestTls13LostCommitRaceFallsBackToFullHandshake;
+var
+  LCache: ISessionCache;
+  LScope: TBytes;
+  LInner, LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+begin
+  // two connections can both recover the same stored ticket and both verify its binder; only one
+  // commit wins. The racing store models the winner by removing the ticket right after this
+  // connection recovers it, so this connection's commit loses and must fall back to a full
+  // handshake rather than resume (or fail) on a ticket someone else already used
+  LCache := TInMemorySessionCache.Create;
+  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
+  LInner := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  LStore := TRacingSessionStore.Create(LInner);
+
+  LClient := NewClient13(LCache, True, LScope);
+  LServer := NewServer13(LStore, 1, True);
+  PumpToCompletion(LClient, LServer);
+  CheckEquals(1, LStore.Count, 'the server stored one ticket');
+
+  LClient := NewClient13(LCache, True, LScope);
+  LServer := NewServer13(LStore, 0, True);
+  PumpToCompletion(LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'losing the commit is a decline, not a failure');
+  CheckFalse(LServer.ConnectionInfo.Resumed, 'the ticket was not resumed twice');
+  CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestConfigResumption.TestTls12SessionIdResumptionKeepsStoredSession;
+var
+  LCache: ISessionCache;
+  LScope: TBytes;
+  LStoreImpl: TMockSessionStore;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+begin
+  // a 1.2 session id is reusable and travels in the clear: resumption looks it up without removing
+  // it, so the store is never touched by Take and the session stays resumable
+  LCache := TInMemorySessionCache.Create;
+  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
+  LStoreImpl := TMockSessionStore.Create;
+  LStore := LStoreImpl;
+
+  LClient := NewClient12(LCache, LScope);
+  LServer := NewServer12(LStore);
+  PumpToCompletion(LClient, LServer);
+  CheckEquals(1, LStore.Count, 'the server stored the 1.2 session');
+
+  LClient := NewClient12(LCache, LScope);
+  LServer := NewServer12(LStore);
+  CheckFalse(DriveObservingServerCert(LClient, LServer), 'the second handshake resumed');
+  CheckFalse(LServer.IsTerminal, 'the resumption did not fail');
+  CheckEquals(0, LStoreImpl.TakeCount, 'resumption never removed the stored session');
+  CheckEquals(1, LStore.Count, 'the session is still stored');
 end;
 
 procedure TTestConfigResumption.TestTls12ResumptionViaConfig;

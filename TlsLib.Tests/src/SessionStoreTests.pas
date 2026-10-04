@@ -29,6 +29,7 @@ uses
   TlpNegotiationTypes,
   TlpTlsVersion,
   TlpIClock,
+  MockClock,
   TlpISecretBuffer,
   TlpSecretBuffer,
   TlpISession,
@@ -63,6 +64,9 @@ type
     procedure TestKxHintRoundTripsAndIsKeyed;
     procedure TestKxHintBounded;
     procedure TestStorePutTakeSingleUse;
+    procedure TestStorePeekDoesNotRemove;
+    procedure TestStoreTicketStrategyConsumeIsSingleUse;
+    procedure TestStekTicketStrategyConsumeIsAlwaysTrue;
     procedure TestStorePutWithId;
     procedure TestStoreBoundedEviction;
     procedure TestStoreCompactionPreservesLiveEntriesUnderChurn;
@@ -421,6 +425,52 @@ begin
   CheckFalse(LStore.Take(LHandle, LTaken), 'a stored session is single-use');
 end;
 
+procedure TTestSessionStore.TestStorePeekDoesNotRemove;
+var
+  LStore: ISessionStore;
+  LHandle: TBytes;
+  LSeen, LTaken: IResumableSession;
+begin
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  LHandle := LStore.Put(MakeSession(Tag($22, 8)));
+  CheckTrue(LStore.Peek(LHandle, LSeen), 'a stored handle can be looked at');
+  CheckTrue(LStore.Peek(LHandle, LSeen), 'and again: peeking uses nothing up');
+  CheckEquals(1, LStore.Count, 'the session is still stored');
+  CheckFalse(LStore.Peek(Tag($99, 8), LSeen), 'an unknown handle is absent');
+  CheckTrue(LStore.Take(LHandle, LTaken), 'the session is still takeable');
+  CheckFalse(LStore.Peek(LHandle, LSeen), 'once taken it is gone');
+end;
+
+procedure TTestSessionStore.TestStoreTicketStrategyConsumeIsSingleUse;
+var
+  LStrategy: ISessionTicketStrategy;
+  LTicket: TBytes;
+  LOpened: IResumableSession;
+begin
+  LStrategy := TStoreTicketStrategy.Create(
+    TInMemorySessionStore.Create(Crypto.Primitives.GetRandom) as ISessionStore);
+  LTicket := LStrategy.Seal(MakeSession(Tag($44, 8)));
+  // recovering the session does not use the ticket up: only a committed resumption does
+  CheckTrue(LStrategy.Open(LTicket, LOpened), 'the ticket opens');
+  CheckTrue(LStrategy.Open(LTicket, LOpened), 'and opens again before it is consumed');
+  CheckTrue(LStrategy.Consume(LTicket), 'the first commit wins');
+  CheckFalse(LStrategy.Consume(LTicket), 'a second commit of the same ticket is refused');
+  CheckFalse(LStrategy.Open(LTicket, LOpened), 'a consumed ticket no longer opens');
+end;
+
+procedure TTestSessionStore.TestStekTicketStrategyConsumeIsAlwaysTrue;
+var
+  LStrategy: ISessionTicketStrategy;
+  LTicket: TBytes;
+begin
+  LStrategy := TStekTicketStrategy.Create(Crypto,
+    TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager);
+  LTicket := LStrategy.Seal(MakeSession(Tag($55, 8)));
+  // a stateless ticket holds no server state, so committing it never fails
+  CheckTrue(LStrategy.Consume(LTicket), 'a stateless ticket always commits');
+  CheckTrue(LStrategy.Consume(LTicket), 'and commits again');
+end;
+
 procedure TTestSessionStore.TestStorePutWithId;
 var
   LStore: ISessionStore;
@@ -563,13 +613,13 @@ end;
 
 procedure TTestSessionStore.TestStekAutoRotatesOnInterval;
 var
-  LClockObj: TAdjustableClock;
+  LClockObj: TMockClock;
   LClock: ITlsClock;
   LStek: ISessionTicketKeyManager;
   LName1, LName2, LName3: TBytes;
   LKey, LFound: ISecretBuffer;
 begin
-  LClockObj := TAdjustableClock.Create(1000000);
+  LClockObj := TMockClock.Create(1000000);
   LClock := LClockObj;
   // a 10-second auto-rotation interval driven by the injected clock
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom, 0, LClock, 10);
@@ -586,13 +636,13 @@ end;
 
 procedure TTestSessionStore.TestStekOpenPathRetiresExpiredKey;
 var
-  LClockObj: TAdjustableClock;
+  LClockObj: TMockClock;
   LClock: ITlsClock;
   LStek: ISessionTicketKeyManager;
   LName1: TBytes;
   LKey, LFound: ISecretBuffer;
 begin
-  LClockObj := TAdjustableClock.Create(1000000);
+  LClockObj := TMockClock.Create(1000000);
   LClock := LClockObj;
   // window 2, interval 10 s: a key must open tickets for its whole 2x10 s age and no longer, on the
   // open path alone (no seal traffic in between)
@@ -608,13 +658,13 @@ end;
 
 procedure TTestSessionStore.TestStekCurrentKeyRecoversAfterFullExpiry;
 var
-  LClockObj: TAdjustableClock;
+  LClockObj: TMockClock;
   LClock: ITlsClock;
   LStek: ISessionTicketKeyManager;
   LName1, LName2: TBytes;
   LKey: ISecretBuffer;
 begin
-  LClockObj := TAdjustableClock.Create(1000000);
+  LClockObj := TMockClock.Create(1000000);
   LClock := LClockObj;
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom, 2, LClock, 10);
   LStek.CurrentKey(LName1, LKey);
@@ -628,7 +678,7 @@ end;
 
 procedure TTestSessionStore.TestStekManualManagerNeverExpires;
 var
-  LClockObj: TAdjustableClock;
+  LClockObj: TMockClock;
   LClock: ITlsClock;
   LStek: ISessionTicketKeyManager;
   LName: TBytes;
@@ -639,7 +689,7 @@ begin
   LStek.CurrentKey(LName, LKey);
   CheckTrue(LStek.KeyByName(LName, LFound), 'a clockless manager never retires its key');
   // a clock with a zero interval likewise never expires keys (no interval means no age bound)
-  LClockObj := TAdjustableClock.Create(1000000);
+  LClockObj := TMockClock.Create(1000000);
   LClock := LClockObj;
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom, 2, LClock, 0);
   LStek.CurrentKey(LName, LKey);
@@ -687,13 +737,13 @@ end;
 
 procedure TTestSessionStore.TestStekCreateDefaultRotatesOnLifetime;
 var
-  LClockObj: TAdjustableClock;
+  LClockObj: TMockClock;
   LClock: ITlsClock;
   LStek: ISessionTicketKeyManager;
   LName1, LName2: TBytes;
   LKey, LFound: ISecretBuffer;
 begin
-  LClockObj := TAdjustableClock.Create(1000000);
+  LClockObj := TMockClock.Create(1000000);
   LClock := LClockObj;
   // the default STEK rotates on the advertised ticket lifetime, not a fixed interval
   LStek := TStekTicketKeyManager.CreateDefault(Crypto, LClock, 100);
@@ -710,13 +760,13 @@ end;
 
 procedure TTestSessionStore.TestStekCreateDefaultZeroLifetimeStillRotates;
 var
-  LClockObj: TAdjustableClock;
+  LClockObj: TMockClock;
   LClock: ITlsClock;
   LStek: ISessionTicketKeyManager;
   LName1, LName2: TBytes;
   LKey: ISecretBuffer;
 begin
-  LClockObj := TAdjustableClock.Create(1000000);
+  LClockObj := TMockClock.Create(1000000);
   LClock := LClockObj;
   // an unadvertised (zero) lifetime falls back to a bounded default rather than never rotating
   LStek := TStekTicketKeyManager.CreateDefault(Crypto, LClock, 0);
@@ -798,14 +848,14 @@ end;
 
 procedure TTestSessionStore.TestStekInstallKeyDisablesAutoRotation;
 var
-  LClockObj: TAdjustableClock;
+  LClockObj: TMockClock;
   LClock: ITlsClock;
   LConcrete: TStekTicketKeyManager;
   LStek: ISessionTicketKeyManager;
   LInstalled, LName: TBytes;
   LKey: ISecretBuffer;
 begin
-  LClockObj := TAdjustableClock.Create(1000000);
+  LClockObj := TMockClock.Create(1000000);
   LClock := LClockObj;
   LConcrete := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom, 0, LClock, 10);
   LStek := LConcrete;
@@ -819,14 +869,14 @@ end;
 
 procedure TTestSessionStore.TestStekInstalledKeyDoesNotTimeExpire;
 var
-  LClockObj: TAdjustableClock;
+  LClockObj: TMockClock;
   LClock: ITlsClock;
   LConcrete: TStekTicketKeyManager;
   LStek: ISessionTicketKeyManager;
   LInstalled, LNext, LName: TBytes;
   LKey, LFound: ISecretBuffer;
 begin
-  LClockObj := TAdjustableClock.Create(1000000);
+  LClockObj := TMockClock.Create(1000000);
   LClock := LClockObj;
   LConcrete := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom, 2, LClock, 10);
   LStek := LConcrete;
@@ -847,13 +897,13 @@ end;
 
 procedure TTestSessionStore.TestStekRotateDoesNotShortenTimer;
 var
-  LClockObj: TAdjustableClock;
+  LClockObj: TMockClock;
   LClock: ITlsClock;
   LStek: ISessionTicketKeyManager;
   LNameA, LName: TBytes;
   LKey, LFound: ISecretBuffer;
 begin
-  LClockObj := TAdjustableClock.Create(1000000);
+  LClockObj := TMockClock.Create(1000000);
   LClock := LClockObj;
   // window 2, interval 10 s
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom, 2, LClock, 10);
@@ -868,14 +918,14 @@ end;
 
 procedure TTestSessionStore.TestStekBackwardsClockDoesNotExpireOrRaise;
 var
-  LClockObj: TAdjustableClock;
+  LClockObj: TMockClock;
   LClock: ITlsClock;
   LStek: ISessionTicketKeyManager;
   LNameA, LName: TBytes;
   LKey, LFound: ISecretBuffer;
   LRaised: Boolean;
 begin
-  LClockObj := TAdjustableClock.Create(1000000);
+  LClockObj := TMockClock.Create(1000000);
   LClock := LClockObj;
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom, 2, LClock, 10);
   LStek.CurrentKey(LNameA, LKey);
@@ -894,7 +944,7 @@ end;
 
 procedure TTestSessionStore.TestStekExtremeAgeBoundDoesNotExpireKeys;
 var
-  LClockObj: TAdjustableClock;
+  LClockObj: TMockClock;
   LClock: ITlsClock;
   LStek: ISessionTicketKeyManager;
   LName1, LName2: TBytes;
@@ -903,7 +953,7 @@ begin
   // an extreme window x interval whose product overflows UInt64 must become the "never expire"
   // bound, not wrap to a tiny (here zero) residue that prunes every key on each call and silently
   // disables resumption. Window 2^30 x interval 2^31 s wraps the raw product to 0.
-  LClockObj := TAdjustableClock.Create(1000000);
+  LClockObj := TMockClock.Create(1000000);
   LClock := LClockObj;
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom, 1073741824, LClock,
     UInt32(2147483648));

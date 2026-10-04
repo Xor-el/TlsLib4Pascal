@@ -279,6 +279,7 @@ type
 implementation
 
 resourcestring
+  SClockRequired = 'a clock is required (the handshake reads time for tickets and freshness)';
   SUnofferedSuite = 'the server selected a cipher suite that was not offered';
   SUnknownSelectedSuite = 'the selected cipher suite is not in the registry';
   SCertificateRequestTwice = 'the server sent a second CertificateRequest';
@@ -313,6 +314,8 @@ resourcestring
 constructor TTls12ClientStateMachine.Create(const AParams: TClient12HandshakeParams);
 begin
   inherited Create(AParams.ExtensionRegistry);
+  if AParams.Clock = nil then
+    raise EArgumentTlsLibException.CreateRes(@SClockRequired);
   FParams := AParams;
   FPhase := TPhase.Initial;
   FClientSupportsTls13 := TArrayUtilities.Contains<UInt16>(AParams.OfferedVersions,

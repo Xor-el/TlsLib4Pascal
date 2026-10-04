@@ -45,6 +45,7 @@ uses
   TlpTlsConfigMemo,
   TlpITlsTransport,
   TlpIClock,
+  MockClock,
   TlpTlsLibExceptions,
   TlpTlsConnection,
   TlsLibTestBase;
@@ -233,7 +234,7 @@ end;
 
 constructor TTestMemoryTransport.Create(const AInbound: TBytes; AReadable: Boolean);
 begin
-  Create(AInbound, AReadable, TAdjustableClock.Create(0) as ITlsClock);
+  Create(AInbound, AReadable, TMockClock.Create(0) as ITlsClock);
 end;
 
 constructor TTestMemoryTransport.Create(const AInbound: TBytes; AReadable: Boolean;
@@ -1224,7 +1225,7 @@ procedure TTestTlsConnection.TestTransportCapIsAnAbsoluteDeadline;
 var
   LTransport: TTestMemoryTransport;
   LTimed: ITlsTransport;
-  LClockObj: TAdjustableClock;
+  LClockObj: TMockClock;
   LClock: ITlsClock;
   LBuf, LInbound: TBytes;
   LRaised: Boolean;
@@ -1233,7 +1234,7 @@ begin
   // is given only the time left, and a read past the deadline raises
   LInbound := nil;
   SetLength(LInbound, 200);
-  LClockObj := TAdjustableClock.Create(1000);
+  LClockObj := TMockClock.Create(1000);
   LClock := LClockObj;
   LTransport := TTestMemoryTransport.Create(LInbound, True, LClock);
   LTimed := LTransport as ITlsTransport;

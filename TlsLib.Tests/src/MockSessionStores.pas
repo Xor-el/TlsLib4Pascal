@@ -63,6 +63,7 @@ type
   public
     function Put(const ASession: IResumableSession): TBytes;
     procedure PutWithId(const AId: TBytes; const ASession: IResumableSession);
+    function Peek(const AId: TBytes; out ASession: IResumableSession): Boolean;
     function Take(const AId: TBytes; out ASession: IResumableSession): Boolean;
     procedure Remove(const AId: TBytes);
     procedure Clear;
@@ -160,6 +161,18 @@ procedure TMockSessionStore.PutWithId(const AId: TBytes;
 begin
   TArrayUtilities.Append<TBytes>(FIds, System.Copy(AId, 0, System.Length(AId)));
   TArrayUtilities.Append<IResumableSession>(FSessions, ASession);
+end;
+
+function TMockSessionStore.Peek(const AId: TBytes;
+  out ASession: IResumableSession): Boolean;
+var
+  LIndex: Int32;
+begin
+  ASession := nil;
+  LIndex := IndexOf(AId);
+  Result := LIndex >= 0;
+  if Result then
+    ASession := FSessions[LIndex];
 end;
 
 function TMockSessionStore.Take(const AId: TBytes;

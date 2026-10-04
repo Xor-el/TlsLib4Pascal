@@ -35,7 +35,8 @@ uses
 type
   /// <summary>
   /// The stateful ticket strategy: an opaque handle into an <see cref="ISessionStore" />.
-  /// Seal stores the session and returns its handle; Open removes it (true single-use).
+  /// Seal stores the session and returns its handle; Open recovers it and Consume removes it
+  /// (true single-use, committed only once the server resumes from it).
   /// </summary>
   TStoreTicketStrategy = class sealed(TInterfacedObject, ISessionTicketStrategy)
   strict private
@@ -45,6 +46,7 @@ type
     constructor Create(const AStore: ISessionStore);
     function Seal(const ASession: IResumableSession): TBytes;
     function Open(const ATicket: TBytes; out ASession: IResumableSession): Boolean;
+    function Consume(const ATicket: TBytes): Boolean;
   end;
 
   /// <summary>
@@ -75,6 +77,7 @@ type
       const AKeys: ISessionTicketKeyManager);
     function Seal(const ASession: IResumableSession): TBytes;
     function Open(const ATicket: TBytes; out ASession: IResumableSession): Boolean;
+    function Consume(const ATicket: TBytes): Boolean;
   end;
 
   /// <summary>Selects the server's ticket strategy: a configured store upgrades the
@@ -124,7 +127,15 @@ end;
 function TStoreTicketStrategy.Open(const ATicket: TBytes;
   out ASession: IResumableSession): Boolean;
 begin
-  Result := FStore.Take(ATicket, ASession);
+  Result := FStore.Peek(ATicket, ASession);
+end;
+
+function TStoreTicketStrategy.Consume(const ATicket: TBytes): Boolean;
+var
+  LSession: IResumableSession;
+begin
+  // Take is atomic, so of two connections presenting the same ticket only one commits
+  Result := FStore.Take(ATicket, LSession);
 end;
 
 { TStekTicketStrategy }
@@ -389,6 +400,12 @@ begin
   Move(LNonce[0], Result[System.Length(LKeyName)], System.Length(LNonce));
   Move(LCipher[0], Result[System.Length(LKeyName) + System.Length(LNonce)],
     System.Length(LCipher));
+end;
+
+function TStekTicketStrategy.Consume(const ATicket: TBytes): Boolean;
+begin
+  // a stateless ticket holds no server state to use up
+  Result := True;
 end;
 
 function TStekTicketStrategy.Open(const ATicket: TBytes;

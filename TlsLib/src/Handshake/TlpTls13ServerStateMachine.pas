@@ -166,7 +166,7 @@ type
     /// whenever MaxEarlyData is set (no register means no early data is accepted).</summary>
     AntiReplay: IAntiReplayStrategy;
     /// <summary>The clock read for ticket issue time and 0-RTT freshness (RFC 8446 4.6.1). The
-    /// factory supplies one from the config; the constructor defaults it to the system clock.</summary>
+    /// factory supplies one from the config, and a direct sans-IO caller must set it.</summary>
     Clock: ITlsClock;
     /// <summary>The dangerous key-log sink; nil reports nothing.</summary>
     KeyLog: IKeyLog;
@@ -435,6 +435,7 @@ type
 implementation
 
 resourcestring
+  SClockRequired = 'a clock is required (the handshake reads time for tickets and freshness)';
   SUnknownSelectedSuite = 'the negotiated cipher suite is not in the registry';
   SGroupNotOffered = 'the client offered no (EC)DHE group the server supports';
   SGroupNotResolvable = 'the selected named group is not in the group registry';
@@ -495,6 +496,8 @@ const
 constructor TTls13ServerStateMachine.Create(const AParams: TServerHandshakeParams);
 begin
   inherited Create(AParams.ExtensionRegistry);
+  if AParams.Clock = nil then
+    raise EArgumentTlsLibException.CreateRes(@SClockRequired);
   FParams := AParams;
   FPhase := TPhase.Initial;
   FEchStatus := TEchStatus.NotOffered;
@@ -819,7 +822,8 @@ begin
     LMax := MaxTriedResumptionIdentities - 1;
   for LI := 0 to LMax do
   begin
-    // open the ticket (a store handle is consumed here; a STEK ticket is decrypted)
+    // recover the session without using the ticket up: it is committed only once the binder proves
+    // the client holds the secret, so a replayed identity cannot burn a victim's stored ticket
     if not FTicketStrategy.Open(AContext.OfferedPskIdentities[LI], LSession) then
       Continue;
     if not LSession.Version.Equals(TTlsVersion.Tls13) then
@@ -864,6 +868,9 @@ begin
       AContext.OfferedPskBinders[LI]) then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.DecryptError, @SBadPskBinder);
+    // single-use commit: a ticket another connection already used up is declined
+    if not FTicketStrategy.Consume(AContext.OfferedPskIdentities[LI]) then
+      Continue;
     FPskAccepted := True;
     FPskBinderKind := TPskBinderKind.Resumption;
     FSelectedPskIdentity := UInt16(LI);
