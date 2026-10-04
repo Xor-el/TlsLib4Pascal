@@ -1,0 +1,55 @@
+TlsLib.Tests/src/TlsStreamLoopbackTests.pas
+  s_09d3c46d1a9b1f::t_56bbad8e1f866e 150
+  s_09d3c46d1a9b1f::t_9542cc0cdcc667 373-405
+TlsLib/src/Engine/TlpTlsEngine.pas
+  s_09d3c46d1a9b1f::t_727b443357dbb0 713
+  s_09d3c46d1a9b1f::t_28fd571a9d01e8 749
+  s_09d3c46d1a9b1f::t_03459b26888b2e 208
+  s_09d3c46d1a9b1f::t_1292b58b7a2292 715
+  s_09d3c46d1a9b1f::t_cb7aba951bd3b9 641-646
+  s_09d3c46d1a9b1f::t_a1b1dade6a485d 747
+TlsLib/src/Crypto/TlpHpkeComposition.pas
+  s_09d3c46d1a9b1f::t_993acdaeafb5d8 845-852
+TlsLib/src/Connection/TlpTlsStreamPump.pas
+  s_09d3c46d1a9b1f::t_32a61509f50241 318-319,321-323
+  s_09d3c46d1a9b1f::t_fd17b8f76f239e 320
+  s_09d3c46d1a9b1f::t_76ae9e86ef8b5f 128
+TlsLib/src/Record/TlpRecordLayer.pas
+  s_09d3c46d1a9b1f::t_8a37b33f158120 639-642,645
+  s_09d3c46d1a9b1f::t_92ad356eaa72d0 655-657
+  s_09d3c46d1a9b1f::t_3da8081daf4ead 658-659,662,664
+  s_09d3c46d1a9b1f::t_9630b2370cd440 599
+TlsLib/src/Common/TlpTlsLibExceptions.pas
+  s_09d3c46d1a9b1f::t_ad64c5099bd845 125-129
+TlsLib.Tests/src/SignatureTests.pas
+  s_09d3c46d1a9b1f::t_7be41942bb97e5 74,77
+  s_09d3c46d1a9b1f::t_3799b302269a75 386,388,391,393-399,403-408
+  s_09d3c46d1a9b1f::t_eaf88e9b7a4693 437,440,443-444,447-451
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_09d3c46d1a9b1f::t_02b44a781b7fc0 1338-1348
+  s_09d3c46d1a9b1f::t_faef584c9f44e6 419-426
+  s_09d3c46d1a9b1f::t_27a9655e797e48 893-895
+  s_09d3c46d1a9b1f::t_ba8f5fe2ea9f2b 1997-2001,2005-2007,2009
+  s_09d3c46d1a9b1f::t_a9f730c9c58c90 202
+TlsLib/src/Interfaces/Crypto/Providers/TlpICryptoProvider.pas
+  s_09d3c46d1a9b1f::t_aff94f17aed8d5 264-267
+TlsLib.Tests/src/EngineSkeletonTests.pas
+  s_09d3c46d1a9b1f::t_491caa3957b228 232-254
+  s_09d3c46d1a9b1f::t_2b2fe61670c669 55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1a3eb559c6e86d8bcdf56058d6ff929f3146dc91",
+  "prompts": {},
+  "sessions": {
+    "s_09d3c46d1a9b1f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "753841da-6650-4f22-956f-630e9622811d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
