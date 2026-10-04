@@ -23,14 +23,13 @@ uses
   TlpISession;
 
 type
-  // (value, expiry-ms) pair; named so the nested generic TQueue<...> specialization parses
   TStrikeEntry = TPair<string, UInt64>;
 
   /// <summary>
   /// The default <see cref="IAntiReplayStrategy" />: a bounded strike register of
   /// recently-seen 0-RTT unique values, each held until its freshness window
   /// lapses. A value seen while still live is a replay and is rejected; the cap
-  /// bounds memory, evicting the oldest entries first. Guarded by an internal
+  /// bounds memory, evicting the oldest live entries first. Guarded by an internal
   /// lock, so one instance is safe to share across connections/threads.
   /// </summary>
   TStrikeRegisterAntiReplay = class sealed(TInterfacedObject, IAntiReplayStrategy)

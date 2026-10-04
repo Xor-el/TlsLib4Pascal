@@ -168,7 +168,13 @@ begin
     FWindow := DefaultDecryptWindow;
   FClock := AClock;
   FRotateIntervalMillis := UInt64(ARotateIntervalSeconds) * 1000;
-  FAgeBoundMillis := UInt64(FWindow) * FRotateIntervalMillis;
+  // window x interval; an extreme caller-supplied product that would wrap becomes the "never" bound
+  // (the subtraction compare below can never reach High(UInt64)), rather than a wrapped small residue
+  if (FRotateIntervalMillis > 0) and
+    (UInt64(FWindow) > High(UInt64) div FRotateIntervalMillis) then
+    FAgeBoundMillis := High(UInt64)
+  else
+    FAgeBoundMillis := UInt64(FWindow) * FRotateIntervalMillis;
   if AMaxSealsPerKey > 0 then
     FMaxSealsPerKey := AMaxSealsPerKey
   else

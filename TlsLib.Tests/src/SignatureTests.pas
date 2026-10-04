@@ -391,8 +391,7 @@ procedure TTestSignature.TestVerifierFailsClosedOnSchemeKeyFamilyMismatch;
     LVerifier: ISignatureVerifier;
   begin
     // a scheme whose key family does not match the SPKI can never verify: the seam returns a
-    // verifier that fails closed (so the outcome is decrypt_error, native-provider parity), never
-    // a raw backend exception and no longer a raised argument error
+    // verifier that fails closed (so the outcome is decrypt_error), never a raised argument error
     LVerifier := Crypto.Signing.CreateSignatureVerifier(AScheme, APubDer);
     CheckTrue(LVerifier <> nil, AWhat + ' (a verifier is returned)');
     LVerifier.Update(TBytes.Create(1, 2, 3), 0, 3);

@@ -86,6 +86,7 @@ type
     procedure TestStekInstalledKeyDoesNotTimeExpire;
     procedure TestStekRotateDoesNotShortenTimer;
     procedure TestStekBackwardsClockDoesNotExpireOrRaise;
+    procedure TestStekExtremeAgeBoundDoesNotExpireKeys;
     procedure TestStekOpenWithUnbindableKeyFallsBack;
     procedure TestStekSealOpenRoundTripTls13;
     procedure TestStekSealOpenRoundTripTls12;
@@ -94,7 +95,7 @@ type
     procedure TestAntiReplayFreshAfterExpiry;
     procedure TestAntiReplayRejectsEmpty;
     procedure TestAntiReplayBounded;
-    procedure TestAntiReplayReRecordBehindLiveEntryStaysSound;
+    procedure TestAntiReplayReRecordDoesNotEvictLiveValue;
   end;
 
 implementation
@@ -921,6 +922,28 @@ begin
   CheckFalse(LRaised, 'a backwards clock step does not underflow or raise');
 end;
 
+procedure TTestSessionStore.TestStekExtremeAgeBoundDoesNotExpireKeys;
+var
+  LClockObj: TAdjustableClock;
+  LClock: ITlsClock;
+  LStek: ISessionTicketKeyManager;
+  LName1, LName2: TBytes;
+  LKey, LFound: ISecretBuffer;
+begin
+  // an extreme window x interval whose product overflows UInt64 must become the "never expire"
+  // bound, not wrap to a tiny (here zero) residue that prunes every key on each call and silently
+  // disables resumption. Window 2^30 x interval 2^31 s wraps the raw product to 0.
+  LClockObj := TAdjustableClock.Create(1000000);
+  LClock := LClockObj;
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom, 1073741824, LClock,
+    UInt32(2147483648));
+  CheckTrue(LStek.CurrentKey(LName1, LKey), 'a key is minted');
+  LClockObj.Advance(1000);
+  CheckTrue(LStek.CurrentKey(LName2, LKey), 'the key is still current after time passes');
+  CheckEqualBytes('the extreme age bound did not expire the key', LName1, LName2);
+  CheckTrue(LStek.KeyByName(LName1, LFound), 'the original key is still found by name');
+end;
+
 procedure TTestSessionStore.TestStekOpenWithUnbindableKeyFallsBack;
 var
   LStrategy: ISessionTicketStrategy;
@@ -1068,29 +1091,31 @@ begin
   CheckTrue(LReplay.Count <= 4, 'the strike register never grows past its cap');
 end;
 
-procedure TTestSessionStore.TestAntiReplayReRecordBehindLiveEntryStaysSound;
+procedure TTestSessionStore.TestAntiReplayReRecordDoesNotEvictLiveValue;
 var
   LReplay: IAntiReplayStrategy;
-  LGuard, LValue, LOther: TBytes;
+  LGuard, LValue, LHold, LFill1, LFill2: TBytes;
 begin
-  // re-recording a value after it expired while a live entry sits ahead of it (so pruning did not
-  // reach it first) leaves a stale order entry for that value; the register must stay sound - the
-  // re-recorded value is rejected as a replay within its new window, pruning and counting are not
-  // corrupted, and a fresh distinct value is still accepted
-  LReplay := TStrikeRegisterAntiReplay.Create;
+  // re-recording a value after it expired, while a live entry recorded between its two records sits
+  // ahead of it, leaves a stale order entry. Under the capacity eviction that follows, the stale
+  // entry must be dropped WITHOUT removing the value's own live entry - otherwise a replay of the
+  // re-recorded value would be accepted inside its window.
+  LReplay := TStrikeRegisterAntiReplay.Create(3);
   LGuard := Tag($11, 8);
   LValue := Tag($AA, 8);
-  LOther := Tag($22, 8);
-  CheckTrue(LReplay.CheckAndRecord(LGuard, 1000, 100000), 'the live guard is recorded');
-  CheckTrue(LReplay.CheckAndRecord(LValue, 1000, 2000), 'the value is recorded');
-  // at 3000 the value has expired but sits behind the still-live guard; re-record it
-  CheckTrue(LReplay.CheckAndRecord(LValue, 3000, 100000), 'the value is re-recorded after expiry');
+  LHold := Tag($33, 8);
+  LFill1 := Tag($44, 8);
+  LFill2 := Tag($55, 8);
+  CheckTrue(LReplay.CheckAndRecord(LGuard, 1000, 100000), 'guard recorded');
+  CheckTrue(LReplay.CheckAndRecord(LValue, 1000, 2000), 'value recorded');
+  CheckTrue(LReplay.CheckAndRecord(LHold, 1500, 100000), 'a live entry recorded after the value');
+  // at 3000 the value has expired (behind the live guard, so pruning did not reach it); re-record it
+  CheckTrue(LReplay.CheckAndRecord(LValue, 3000, 100000), 'value re-recorded after expiry');
+  CheckTrue(LReplay.CheckAndRecord(LFill1, 4000, 100000), 'fill 1');
+  CheckTrue(LReplay.CheckAndRecord(LFill2, 4000, 100000), 'fill 2 (evicts past the stale entry)');
+  // the re-recorded value's stale order entry was dropped, not used to evict its live entry
   CheckFalse(LReplay.CheckAndRecord(LValue, 4000, 100000),
-    'the re-recorded value is still live and rejected as a replay');
-  CheckFalse(LReplay.CheckAndRecord(LGuard, 4000, 100000), 'the live guard is still a replay');
-  CheckTrue(LReplay.CheckAndRecord(LOther, 4000, 100000),
-    'a fresh distinct value is still accepted');
-  CheckTrue(LReplay.Count <= 3, 'the register count is not inflated by the stale order entry');
+    'the re-recorded value survived eviction of its stale order entry and is still a replay');
 end;
 
 initialization
