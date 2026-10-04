@@ -391,6 +391,7 @@ implementation
 resourcestring
   SUnofferedSuite = 'the server selected a cipher suite that was not offered';
   SUnknownSelectedSuite = 'the selected cipher suite is not in the registry';
+  SNotTls13Suite = 'the server selected a suite that is not a TLS 1.3 suite';
   SBadSessionIdEcho = 'the server echoed a session id that was not offered';
   SDowngradeDetected = 'the ServerHello carries a version downgrade sentinel';
   SUnsupportedSelectedVersion = 'the server did not select TLS 1.3';
@@ -1021,6 +1022,10 @@ begin
   if not FParams.CipherSuites.TryGet(LHello.CipherSuite, FSelectedSuite) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SUnknownSelectedSuite);
+  // a 1.2 suite in a 1.3 hello is a wrong-version selection (RFC 8446 4.1.3)
+  if FSelectedSuite.Protocol <> TSuiteProtocol.Tls13 then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.IllegalParameter, @SNotTls13Suite);
 
   // legacy_session_id_echo must equal the id offered in the ClientHello (RFC 8446 4.1.3)
   if not TArrayUtilities.AreEqual(LHello.LegacySessionIdEcho, FSentLegacySessionId) then
@@ -1312,6 +1317,9 @@ begin
   if not FParams.CipherSuites.TryGet(AHello.CipherSuite, FSelectedSuite) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SUnknownSelectedSuite);
+  if FSelectedSuite.Protocol <> TSuiteProtocol.Tls13 then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.IllegalParameter, @SNotTls13Suite);
   if not TArrayUtilities.AreEqual(AHello.LegacySessionIdEcho, FSentLegacySessionId) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SBadSessionIdEcho);
@@ -1470,17 +1478,18 @@ begin
   if System.Length(LCert.Entries) = 0 then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.DecodeError, @SEmptyCertificate);
-  // RFC 8446 4.4.2: a leaf CertificateEntry extension must correspond to one offered in the
+  // RFC 8446 4.4.2: every CertificateEntry extension must correspond to one offered in the
   // ClientHello, and only status_request / SCT are defined for a certificate entry; an
-  // unsolicited or unknown extension is unsupported_extension. Intermediate entries' extensions
-  // are allowed but ignored. A repeated type is already illegal_parameter from the extension
-  // parse in CertificateEntryExtensionTypes, so it never reaches this solicitation check.
-  for LExtType in THandshakeMessages.CertificateEntryExtensionTypes(
-    LCert.Entries[0].Extensions) do
-    if not (((LExtType = StatusRequestExtensionCode) or (LExtType = SctExtensionCode)) and
-      (TArrayUtilities.Contains<UInt16>(FOfferedExtensions, LExtType))) then
-      raise EFatalAlertTlsLibException.CreateRes(
-        TTlsAlertDescription.UnsupportedExtension, @SUnsolicitedCertExtension);
+  // unsolicited or unknown extension is unsupported_extension. Only the leaf's values are used;
+  // intermediates' are validated and ignored. A repeated type is already illegal_parameter from
+  // the extension parse in CertificateEntryExtensionTypes, so it never reaches this check.
+  for LI := 0 to High(LCert.Entries) do
+    for LExtType in THandshakeMessages.CertificateEntryExtensionTypes(
+      LCert.Entries[LI].Extensions) do
+      if not (((LExtType = StatusRequestExtensionCode) or (LExtType = SctExtensionCode)) and
+        (TArrayUtilities.Contains<UInt16>(FOfferedExtensions, LExtType))) then
+        raise EFatalAlertTlsLibException.CreateRes(
+          TTlsAlertDescription.UnsupportedExtension, @SUnsolicitedCertExtension);
   // keep the chain (leaf first) for the CertificateVerify and the trust verdict
   FCertificateChain := nil;
   FParsedServerLeaf := nil;

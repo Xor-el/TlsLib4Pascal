@@ -216,6 +216,7 @@ resourcestring
   SEmptyAlpnList = 'ALPN protocol list is empty';
   SDuplicateKeyShare = 'key_share offers two entries for the same group';
   SEmptyKeyExchange = 'key_share carries a zero-length key_exchange (RFC 8446 4.2.8)';
+  SBadRecordSizeLimit = 'record_size_limit is below the 64-byte minimum (RFC 8449 4)';
   SBadExtendedMasterSecret = 'extended_master_secret must carry an empty body';
   SBadStatusRequestEcho = 'a server status_request response must carry an empty body';
   SNoUncompressedPointFormat = 'ec_point_formats does not offer the uncompressed format';
@@ -905,10 +906,16 @@ procedure TRecordSizeLimitExtension.Consume(const AContext: TExtensionContext;
   const AExtensionData: TBytes);
 var
   LReader: TWireReader;
+  LLimit: UInt16;
 begin
   LReader := TWireReader.Create(AExtensionData);
-  AContext.RecordSizeLimit := LReader.ReadUInt16;
+  LLimit := LReader.ReadUInt16;
   LReader.ExpectEnd;
+  // 0 doubles as "absent" in the context, so the sub-64 rule (RFC 8449 4) is enforced here
+  if LLimit < 64 then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.IllegalParameter, @SBadRecordSizeLimit);
+  AContext.RecordSizeLimit := LLimit;
 end;
 
 { TCompressCertificateExtension }

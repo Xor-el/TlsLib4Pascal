@@ -68,7 +68,8 @@ type
       ASessionId: TBytes; ASuite: UInt16 = 0): TBytes;
     function CookieFromHrr(const AHrr: TBytes): TBytes;
     function NewSecp256r1Server(const AVerbatimCookie: TBytes): IHandshakeMachine;
-    function NewRetryClient: IHandshakeMachine;
+    function NewRetryClient: IHandshakeMachine; overload;
+    function NewRetryClient(ADualVersion: Boolean): IHandshakeMachine; overload;
   protected
     procedure SetUp; override;
     procedure TearDown; override;
@@ -78,6 +79,7 @@ type
     procedure TestCookieRejectsTamperedTag;
     procedure TestClientHandlesHelloRetryRequestEmitsSecondClientHello;
     procedure TestClientRejectsSecondHelloRetryRequest;
+    procedure TestClientRejectsHelloRetryWithTls12Suite;
     procedure TestClientRejectsHelloRetryUnofferedGroup;
     procedure TestClientRejectsHelloRetryWithoutSupportedVersions;
     procedure TestClientRejectsHelloRetrySelectingTls12;
@@ -290,6 +292,11 @@ begin
 end;
 
 function TTestHelloRetryRequest.NewRetryClient: IHandshakeMachine;
+begin
+  Result := NewRetryClient(False);
+end;
+
+function TTestHelloRetryRequest.NewRetryClient(ADualVersion: Boolean): IHandshakeMachine;
 var
   LParams: TClientHandshakeParams;
 begin
@@ -303,9 +310,18 @@ begin
   LParams.OfferedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1,
     TNamedGroupCatalog.X25519);
   LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Crypto);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
+  if ADualVersion then
+  begin
+    LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
+    LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256,
+      TCipherSuites12.EcdheRsaAes128GcmSha256);
+  end
+  else
+  begin
+    LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
+    LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
+  end;
   LParams.OfferedSchemes := TArray<UInt16>.Create(
     TSignatureSchemes.EcdsaSecp256r1Sha256);
   LParams.ClientRandom := DecodeHex(StringOfChar('1', 64));
@@ -440,6 +456,22 @@ begin
     'a HelloRetryRequest with a bad legacy_version aborts');
   CheckTrue(LAlert = TTlsAlertDescription.ProtocolVersion,
     'a bad HRR legacy_version is protocol_version');
+end;
+
+procedure TTestHelloRetryRequest.TestClientRejectsHelloRetryWithTls12Suite;
+var
+  LClient: IHandshakeMachine;
+  LHrr: TBytes;
+  LAlert: TTlsAlertDescription;
+begin
+  // a dual-version client offered the 1.2 suite, but a 1.3 HelloRetryRequest may not pin it
+  LClient := NewRetryClient(True);
+  LHrr := BuildHrr(TNamedGroupCatalog.Secp256r1, TCipherSuites12.EcdheRsaAes128GcmSha256,
+    DecodeHex('a1b2c3'), DecodeHex(StringOfChar('3', 64)));
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(MsgFrom(LHrr)), LAlert),
+    'a HelloRetryRequest selecting a TLS 1.2 suite aborts');
+  CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
+    'a TLS 1.2 suite in a HelloRetryRequest is illegal_parameter');
 end;
 
 procedure TTestHelloRetryRequest.TestClientRejectsHelloRetryUnofferedGroup;
