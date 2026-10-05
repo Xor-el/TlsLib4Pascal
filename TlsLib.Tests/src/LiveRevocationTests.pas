@@ -32,6 +32,7 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpTlsAlert,
+  TlpTlsLibExceptions,
   TlpPkixDomainTypes,
   TlpIHttpFetcher,
   TlpIPkixProvider,
@@ -67,7 +68,13 @@ type
     // scripted responders: the spy lists the URLs, the fetcher answers each one and takes time on
     // the mock clock, and the checker runs under a total budget
     procedure Arrange(AMethod: TLiveRevocationMethod; ADeadlineMs: Cardinal;
-      const AOcspUrls, ACrlUrls: TArray<string>);
+      const AOcspUrls, ACrlUrls: TArray<string>); overload;
+    procedure Arrange(AMethod: TLiveRevocationMethod; ADeadlineMs: Cardinal;
+      const AOcspUrls, ACrlUrls: TArray<string>;
+      const AOptions: TLiveRevocationOptions); overload;
+    function OptionsAreRefused(const AOptions: TLiveRevocationOptions): Boolean;
+    /// <summary>How many responders a check asks when the certificate lists AFirst and ASecond.</summary>
+    function ResponderAttempts(const AFirst, ASecond: string): Int32;
     procedure CheckUrls(const AExpected: array of string; const AActual: TArray<string>;
       const AMessage: string);
     procedure CheckTimeouts(const AExpected: array of Cardinal;
@@ -99,6 +106,22 @@ type
     procedure TestBudgetBelowFloorStillAttemptsOnce;
     procedure TestZeroBudgetLeavesTimeoutToFetcher;
     procedure TestClockStepBackDoesNotGiveBackSpentTime;
+    // the responder policy: request built once, URL equivalence, tunable limits
+    procedure TestOcspRequestBuiltOncePerCheck;
+    procedure TestUnbuildableRequestSkipsOcsp;
+    procedure TestDedupIgnoresSchemeAndHostCase;
+    procedure TestDedupDefaultPortAndEmptyPath;
+    procedure TestDedupEquivalenceEdges;
+    procedure TestCrlDedupUsesSameEquivalence;
+    procedure TestDedupHappensBeforeTheCap;
+    procedure TestFreshOptionsCarryDefaults;
+    procedure TestResponderCapIsTunable;
+    procedure TestCrlPointCapIsTunable;
+    procedure TestMinAttemptIsTunable;
+    procedure TestMaxCrlBytesIsTunable;
+    procedure TestInvalidOptionsAreRefused;
+    procedure TestNilInputsAreRefused;
+    procedure TestIssuerCandidatesAreCopied;
     procedure TestCrlUrlsDistinctAndCapped;
     procedure TestCrlDistributionPointsExtracted;
     procedure TestBuildOcspRequestNonEmpty;
@@ -276,6 +299,14 @@ end;
 
 procedure TTestLiveRevocation.Arrange(AMethod: TLiveRevocationMethod; ADeadlineMs: Cardinal;
   const AOcspUrls, ACrlUrls: TArray<string>);
+var
+  LOptions: TLiveRevocationOptions;
+begin
+  Arrange(AMethod, ADeadlineMs, AOcspUrls, ACrlUrls, LOptions);
+end;
+
+procedure TTestLiveRevocation.Arrange(AMethod: TLiveRevocationMethod; ADeadlineMs: Cardinal;
+  const AOcspUrls, ACrlUrls: TArray<string>; const AOptions: TLiveRevocationOptions);
 begin
   FClockRef := nil;
   FFetcherRef := nil;
@@ -292,7 +323,7 @@ begin
   if ACrlUrls <> nil then
     FSpy.OverrideCrlUrls(ACrlUrls);
   FChecker := Own<TLiveRevocationChecker>(TLiveRevocationChecker.Create(FSpyRef, FClockRef,
-    FFetcherRef, TRevocationPosture.Hard, AMethod, ADeadlineMs));
+    FFetcherRef, TRevocationPosture.Hard, AMethod, ADeadlineMs, AOptions));
 end;
 
 procedure TTestLiveRevocation.TestOcspResponderUrlExtracted;
@@ -497,6 +528,326 @@ begin
   FChecker.Evaluate(Chain);
   CheckTimeouts([1000, 500, 1000], FFetcher.PostTimeouts,
     'time already spent is not returned by a clock step back');
+end;
+
+function TTestLiveRevocation.OptionsAreRefused(const AOptions: TLiveRevocationOptions): Boolean;
+var
+  LChecker: TLiveRevocationChecker;
+begin
+  Result := False;
+  try
+    LChecker := TLiveRevocationChecker.Create(Pkix, TSystemClock.Create as ITlsClock,
+      TMockHttpFetcher.Create as IHttpFetcher, TRevocationPosture.Hard,
+      TLiveRevocationMethod.Ocsp, 0, AOptions);
+    LChecker.Free;
+  except
+    on E: EArgumentTlsLibException do
+      Result := True;
+  end;
+end;
+
+procedure TTestLiveRevocation.TestOcspRequestBuiltOncePerCheck;
+begin
+  Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://a.test/',
+    'http://b.test/', 'http://c.test/'), nil);
+  FChecker.Evaluate(Chain);
+  CheckEquals(1, FSpy.BuildRequestCount, 'the request is built once for every responder');
+  CheckEquals(3, FFetcher.PostCount, 'and sent to each');
+  // control: a CRL-only check never needs an OCSP request
+  Arrange(TLiveRevocationMethod.Crl, 0, nil, TArray<string>.Create('http://a.test/1.crl'));
+  FChecker.Evaluate(Chain);
+  CheckEquals(0, FSpy.BuildRequestCount, 'no request is built when OCSP is not consulted');
+end;
+
+procedure TTestLiveRevocation.TestUnbuildableRequestSkipsOcsp;
+begin
+  // a request that cannot be built leaves no OCSP attempt, and the CRL gets the whole budget
+  Arrange(TLiveRevocationMethod.OcspThenCrl, 1000, TArray<string>.Create('http://a.test/',
+    'http://b.test/'), TArray<string>.Create('http://c.test/1.crl'));
+  FSpy.FailOcspRequest;
+  FChecker.Evaluate(Chain);
+  CheckEquals(0, FFetcher.PostCount, 'no responder is asked without a request');
+  CheckEquals(1, FSpy.BuildRequestCount, 'the build was tried once');
+  CheckTimeouts([1000], FFetcher.GetTimeouts, 'the CRL attempt is not charged for the dropped ones');
+  // control: a buildable request asks both responders
+  Arrange(TLiveRevocationMethod.OcspThenCrl, 1000, TArray<string>.Create('http://a.test/',
+    'http://b.test/'), TArray<string>.Create('http://c.test/1.crl'));
+  FChecker.Evaluate(Chain);
+  CheckEquals(2, FFetcher.PostCount, 'control: both responders are asked');
+end;
+
+procedure TTestLiveRevocation.TestDedupIgnoresSchemeAndHostCase;
+var
+  LOptions: TLiveRevocationOptions;
+begin
+  Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://OCSP.A.test/x',
+    'HTTP://ocsp.a.test/x', 'http://b.test/'), nil);
+  FChecker.Evaluate(Chain);
+  CheckUrls(['http://OCSP.A.test/x', 'http://b.test/'], FFetcher.PostUrls,
+    'scheme and host case do not make a second responder, and the first spelling is what is asked');
+  // control: path and query are case-sensitive, so these are all different responders
+  LOptions.MaxOcspResponders := 8;
+  Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://a.test/X',
+    'http://a.test/x', 'http://a.test/?A=1', 'http://a.test/?a=1'), nil, LOptions);
+  FChecker.Evaluate(Chain);
+  CheckEquals(4, FFetcher.PostCount, 'paths and queries differing only in case stay distinct');
+end;
+
+procedure TTestLiveRevocation.TestDedupDefaultPortAndEmptyPath;
+var
+  LOptions: TLiveRevocationOptions;
+begin
+  LOptions.MaxOcspResponders := 8;
+  Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://a.test',
+    'http://a.test:80/', 'HTTP://A.TEST:80'), nil, LOptions);
+  FChecker.Evaluate(Chain);
+  CheckUrls(['http://a.test'], FFetcher.PostUrls,
+    'a default port and an empty path name the same responder');
+  // control: another port, or another scheme, is another responder
+  Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://a.test:8080/',
+    'https://a.test:80/', 'https://a.test/'), nil, LOptions);
+  FChecker.Evaluate(Chain);
+  CheckEquals(3, FFetcher.PostCount, 'a non-default port and a different scheme stay distinct');
+end;
+
+function TTestLiveRevocation.ResponderAttempts(const AFirst, ASecond: string): Int32;
+var
+  LOptions: TLiveRevocationOptions;
+begin
+  LOptions := TLiveRevocationOptions.Defaults;
+  Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create(AFirst, ASecond), nil, LOptions);
+  FChecker.Evaluate(Chain);
+  Result := FFetcher.PostCount;
+end;
+
+procedure TTestLiveRevocation.TestDedupEquivalenceEdges;
+begin
+  // spellings of one responder collapse to a single attempt
+  CheckEquals(1, ResponderAttempts('https://a.test:443/', 'https://a.test/'),
+    'the https default port');
+  CheckEquals(1, ResponderAttempts('http://a.test:/', 'http://a.test/'), 'a bare colon');
+  CheckEquals(1, ResponderAttempts('http://[::1]:80/', 'http://[::1]/'),
+    'an IPv6 host with the default port');
+  CheckEquals(1, ResponderAttempts('http://a.test?x', 'http://a.test/?x'),
+    'a query straight after the authority');
+  // different responders stay two attempts
+  CheckEquals(2, ResponderAttempts('http://User@a.test/', 'http://user@a.test/'),
+    'userinfo is case-sensitive');
+  CheckEquals(2, ResponderAttempts('http://a.test:180/', 'http://a.test/'),
+    'a port that merely ends in 80 is not the default');
+  CheckEquals(2, ResponderAttempts('http://a.test:8080/', 'http://a.test/'),
+    'another port');
+  CheckEquals(2, ResponderAttempts('Foo?u=http://x', 'foo?u=http://x'),
+    'a string that is not a scheme-qualified URL is compared as written');
+end;
+
+procedure TTestLiveRevocation.TestCrlDedupUsesSameEquivalence;
+begin
+  Arrange(TLiveRevocationMethod.Crl, 0, nil, TArray<string>.Create('http://A.test/1.crl',
+    'http://a.test/1.crl'));
+  FChecker.Evaluate(Chain);
+  CheckEquals(1, FFetcher.GetCount, 'CRL points use the same host-case equivalence');
+  // control: a path differing in case is another point
+  Arrange(TLiveRevocationMethod.Crl, 0, nil, TArray<string>.Create('http://a.test/1.CRL',
+    'http://a.test/1.crl'));
+  FChecker.Evaluate(Chain);
+  CheckEquals(2, FFetcher.GetCount, 'a path differing in case is a different distribution point');
+end;
+
+procedure TTestLiveRevocation.TestDedupHappensBeforeTheCap;
+begin
+  // three attempts are allowed: the repeat must not use one of them
+  Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://a.test/', 'HTTP://A.TEST/',
+    'http://b.test/', 'http://c.test/'), nil);
+  FChecker.Evaluate(Chain);
+  CheckUrls(['http://a.test/', 'http://b.test/', 'http://c.test/'], FFetcher.PostUrls,
+    'the repeat is dropped before the cap is applied');
+end;
+
+procedure TTestLiveRevocation.TestFreshOptionsCarryDefaults;
+var
+  LOptions: TLiveRevocationOptions;
+begin
+  CheckEquals(3, LOptions.MaxOcspResponders, 'OCSP responder cap');
+  CheckEquals(3, LOptions.MaxCrlDistributionPoints, 'CRL point cap');
+  CheckEquals(250, Int32(LOptions.MinAttemptMs), 'minimum attempt time');
+  CheckEquals(32 * 1024 * 1024, LOptions.MaxCrlBytes, 'CRL size cap');
+  CheckEquals(0, System.Length(LOptions.IssuerCandidates), 'no issuer candidates');
+  // the explicit form carries the same values
+  LOptions := TLiveRevocationOptions.Defaults;
+  CheckEquals(3, LOptions.MaxOcspResponders, 'Defaults: OCSP responder cap');
+  CheckEquals(3, LOptions.MaxCrlDistributionPoints, 'Defaults: CRL point cap');
+  CheckEquals(250, Int32(LOptions.MinAttemptMs), 'Defaults: minimum attempt time');
+  CheckEquals(32 * 1024 * 1024, LOptions.MaxCrlBytes, 'Defaults: CRL size cap');
+  CheckEquals(0, System.Length(LOptions.IssuerCandidates), 'Defaults: no issuer candidates');
+end;
+
+procedure TTestLiveRevocation.TestResponderCapIsTunable;
+var
+  LOptions: TLiveRevocationOptions;
+  LUrls: TArray<string>;
+begin
+  LUrls := TArray<string>.Create('http://a.test/', 'http://b.test/', 'http://c.test/');
+  LOptions.MaxOcspResponders := 1;
+  Arrange(TLiveRevocationMethod.Ocsp, 0, LUrls, nil, LOptions);
+  FChecker.Evaluate(Chain);
+  CheckEquals(1, FFetcher.PostCount, 'a cap of one asks one responder');
+  Arrange(TLiveRevocationMethod.Ocsp, 0, LUrls, nil);
+  FChecker.Evaluate(Chain);
+  CheckEquals(3, FFetcher.PostCount, 'control: the default asks all three');
+end;
+
+procedure TTestLiveRevocation.TestCrlPointCapIsTunable;
+var
+  LOptions: TLiveRevocationOptions;
+  LUrls: TArray<string>;
+begin
+  LUrls := TArray<string>.Create('http://a.test/1.crl', 'http://b.test/2.crl',
+    'http://c.test/3.crl');
+  LOptions.MaxCrlDistributionPoints := 1;
+  Arrange(TLiveRevocationMethod.Crl, 0, nil, LUrls, LOptions);
+  FChecker.Evaluate(Chain);
+  CheckEquals(1, FFetcher.GetCount, 'a cap of one fetches one distribution point');
+  Arrange(TLiveRevocationMethod.Crl, 0, nil, LUrls);
+  FChecker.Evaluate(Chain);
+  CheckEquals(3, FFetcher.GetCount, 'control: the default fetches all three');
+end;
+
+procedure TTestLiveRevocation.TestMinAttemptIsTunable;
+var
+  LOptions: TLiveRevocationOptions;
+  LUrls: TArray<string>;
+begin
+  LUrls := TArray<string>.Create('http://a.test/', 'http://b.test/', 'http://c.test/');
+  // each attempt burns the 200 ms it is given out of 600
+  LOptions.MinAttemptMs := 100;
+  Arrange(TLiveRevocationMethod.Ocsp, 600, LUrls, nil, LOptions);
+  FFetcher.ScriptPost('http://a.test/', False, nil, 200);
+  FFetcher.ScriptPost('http://b.test/', False, nil, 200);
+  FFetcher.ScriptPost('http://c.test/', False, nil, 200);
+  FChecker.Evaluate(Chain);
+  CheckTimeouts([200, 200, 200], FFetcher.PostTimeouts, 'a lower floor lets all three share the budget');
+  // control: the default floor raises each to 250 and runs out after two
+  Arrange(TLiveRevocationMethod.Ocsp, 600, LUrls, nil);
+  FFetcher.ScriptPost('http://a.test/', False, nil, 200);
+  FFetcher.ScriptPost('http://b.test/', False, nil, 200);
+  FFetcher.ScriptPost('http://c.test/', False, nil, 200);
+  FChecker.Evaluate(Chain);
+  CheckTimeouts([250, 250], FFetcher.PostTimeouts, 'the default floor');
+end;
+
+procedure TTestLiveRevocation.TestMaxCrlBytesIsTunable;
+var
+  LOptions: TLiveRevocationOptions;
+  LBody: TBytes;
+begin
+  LBody := nil;
+  SetLength(LBody, 9000);
+  LOptions.MaxCrlBytes := 8192;
+  Arrange(TLiveRevocationMethod.Crl, 0, nil, TArray<string>.Create('http://a.test/1.crl'),
+    LOptions);
+  FFetcher.ScriptGet('http://a.test/1.crl', True, LBody, 0);
+  CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Indeterminate,
+    'a body over the cap is indeterminate');
+  CheckEquals(8192, FFetcher.LastMaxBytes, 'the cap is what the fetcher is told');
+  CheckEquals(0, FSpy.CrlParseCount, 'and it is never parsed');
+  // control: the default cap lets the same body reach the parser
+  Arrange(TLiveRevocationMethod.Crl, 0, nil, TArray<string>.Create('http://a.test/1.crl'));
+  FFetcher.ScriptGet('http://a.test/1.crl', True, LBody, 0);
+  FChecker.Evaluate(Chain);
+  CheckEquals(1, FSpy.CrlParseCount, 'control: under the default cap it is parsed');
+end;
+
+procedure TTestLiveRevocation.TestInvalidOptionsAreRefused;
+var
+  LOptions: TLiveRevocationOptions;
+begin
+  // each limit one past either bound is refused; each exact bound is accepted
+  LOptions.MaxOcspResponders := 0;
+  CheckTrue(OptionsAreRefused(LOptions), 'zero OCSP responders');
+  LOptions.MaxOcspResponders := 9;
+  CheckTrue(OptionsAreRefused(LOptions), 'nine OCSP responders');
+  LOptions.MaxOcspResponders := 1;
+  CheckFalse(OptionsAreRefused(LOptions), 'one OCSP responder');
+  LOptions.MaxOcspResponders := 8;
+  CheckFalse(OptionsAreRefused(LOptions), 'eight OCSP responders');
+  LOptions := TLiveRevocationOptions.Defaults;
+  LOptions.MaxCrlDistributionPoints := 0;
+  CheckTrue(OptionsAreRefused(LOptions), 'zero CRL points');
+  LOptions.MaxCrlDistributionPoints := 9;
+  CheckTrue(OptionsAreRefused(LOptions), 'nine CRL points');
+  LOptions.MaxCrlDistributionPoints := 8;
+  CheckFalse(OptionsAreRefused(LOptions), 'eight CRL points');
+  LOptions := TLiveRevocationOptions.Defaults;
+  LOptions.MinAttemptMs := 0;
+  CheckTrue(OptionsAreRefused(LOptions), 'a zero floor would leave a fetch unbounded');
+  LOptions.MinAttemptMs := 60001;
+  CheckTrue(OptionsAreRefused(LOptions), 'a floor over a minute');
+  LOptions.MinAttemptMs := 1;
+  CheckFalse(OptionsAreRefused(LOptions), 'a one millisecond floor');
+  LOptions.MinAttemptMs := 60000;
+  CheckFalse(OptionsAreRefused(LOptions), 'a one minute floor');
+  LOptions := TLiveRevocationOptions.Defaults;
+  LOptions.MaxCrlBytes := 4095;
+  CheckTrue(OptionsAreRefused(LOptions), 'a CRL cap under 4 KiB');
+  LOptions.MaxCrlBytes := 256 * 1024 * 1024 + 1;
+  CheckTrue(OptionsAreRefused(LOptions), 'a CRL cap over 256 MiB');
+  LOptions.MaxCrlBytes := 4096;
+  CheckFalse(OptionsAreRefused(LOptions), 'a 4 KiB CRL cap');
+  LOptions.MaxCrlBytes := 256 * 1024 * 1024;
+  CheckFalse(OptionsAreRefused(LOptions), 'a 256 MiB CRL cap');
+end;
+
+procedure TTestLiveRevocation.TestNilInputsAreRefused;
+var
+  LOptions: TLiveRevocationOptions;
+  LChecker: TLiveRevocationChecker;
+  LFetcher: IHttpFetcher;
+  LClock: ITlsClock;
+
+  function Refused(const APkix: IPkixProvider; const AClock: ITlsClock;
+    const AFetcher: IHttpFetcher): Boolean;
+  begin
+    Result := False;
+    try
+      LChecker := TLiveRevocationChecker.Create(APkix, AClock, AFetcher,
+        TRevocationPosture.Hard, TLiveRevocationMethod.Ocsp, 0, LOptions);
+      LChecker.Free;
+    except
+      on E: EArgumentTlsLibException do
+        Result := True;
+    end;
+  end;
+
+begin
+  LFetcher := TMockHttpFetcher.Create as IHttpFetcher;
+  LClock := TSystemClock.Create as ITlsClock;
+  CheckTrue(Refused(nil, LClock, LFetcher), 'a nil provider is refused');
+  CheckTrue(Refused(Pkix, nil, LFetcher), 'a nil clock is refused');
+  CheckTrue(Refused(Pkix, LClock, nil), 'a nil fetcher is refused');
+  CheckFalse(Refused(Pkix, LClock, LFetcher), 'control: all three present is accepted');
+end;
+
+procedure TTestLiveRevocation.TestIssuerCandidatesAreCopied;
+var
+  LOptions: TLiveRevocationOptions;
+begin
+  // the checker owns its candidates: changing the caller's array afterwards must not change which
+  // issuer a leaf-only chain resolves to
+  LOptions.IssuerCandidates := TArray<TBytes>.Create(System.Copy(CaCert));
+  Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://a.test/'), nil, LOptions);
+  FFetcher.ScriptPost('http://a.test/', True, OcspGood, 0);
+  LOptions.IssuerCandidates[0][8] := LOptions.IssuerCandidates[0][8] xor $FF;
+  CheckTrue(FChecker.Evaluate(TArray<TBytes>.Create(LeafCert)) = TLiveRevocationOutcome.Good,
+    'the issuer is still found from the checker''s own copy');
+  // control: the same change made before the checker is built does break issuer recovery, so the
+  // change above would have shown had the checker kept the caller's array
+  LOptions.IssuerCandidates := TArray<TBytes>.Create(System.Copy(CaCert));
+  LOptions.IssuerCandidates[0][8] := LOptions.IssuerCandidates[0][8] xor $FF;
+  Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://a.test/'), nil, LOptions);
+  FFetcher.ScriptPost('http://a.test/', True, OcspGood, 0);
+  CheckTrue(FChecker.Evaluate(TArray<TBytes>.Create(LeafCert)) =
+    TLiveRevocationOutcome.Indeterminate, 'a damaged candidate no longer yields the issuer');
 end;
 
 procedure TTestLiveRevocation.TestCrlUrlsDistinctAndCapped;

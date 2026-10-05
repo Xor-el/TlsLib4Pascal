@@ -278,15 +278,26 @@ stream.SetCertificateVerdictResolver(checker.ResolveVerdict);
 
 The checker tries the responders a certificate lists in order — every OCSP responder URL, then every
 CRL distribution point — and stops at the first definitive answer (a current **Good** or a
-**Revoked**); an unreachable, malformed or stale answer moves on to the next. Repeated URLs are tried
-once, and at most three OCSP responders and three CRL points are tried. `budgetMs` is the **total**
+**Revoked**); an unreachable, malformed or stale answer moves on to the next. URLs that name the same
+responder are tried once: the scheme and host are compared without regard to case, a default port
+(`:80` for http, `:443` for https) or a bare `:` is the same as no port, an empty path is the same
+as `/`, and everything else — userinfo, path and query — is compared exactly. The fetcher is
+handed the first spelling it saw. By
+default at most three OCSP responders and three CRL points are tried. `budgetMs` is the **total**
 time one check may spend fetching across all of those attempts, measured on the injected clock: each
-attempt gets a fair share of what remains (never less than 250 ms, or the whole budget when that is
-smaller), so one dead responder cannot starve the next, and a spent budget ends the check
-indeterminate, which the posture then decides. `0` leaves each fetch's timeout to the fetcher with
-no shared deadline, so give a real budget, no larger than the config's async-verdict deadline.
+attempt gets a fair share of what remains (never less than 250 ms by default, or the whole budget
+when that is smaller), so one dead responder cannot starve the next, and a spent budget ends the
+check indeterminate, which the posture then decides. `0` leaves each fetch's timeout to the fetcher
+with no shared deadline, so give a real budget, no larger than the config's async-verdict deadline.
 Each responder tried learns which certificate is being checked; extra ones are asked only after an
 indeterminate answer, and posture `Off` asks none.
+
+The limits are tunable through `TLiveRevocationOptions` (start from `TLiveRevocationOptions.Defaults`
+and set what you need), passed as the last constructor argument: `MaxOcspResponders` and
+`MaxCrlDistributionPoints` (1 to 8, default 3), `MinAttemptMs` (1 to 60000, default 250; never 0,
+which would leave a fetch unbounded), `MaxCrlBytes` (4 KiB to 256 MiB, default 32 MiB) and
+`IssuerCandidates`. A value outside its range, or a nil provider, clock or fetcher, is refused when
+the checker is created.
 
 A **stapled** OCSP response (validated in the handshake pipeline, before the park) is preferred;
 the live fetch is the fallback for a leaf that carries no staple. When the staple already settles
@@ -359,7 +370,7 @@ to staple, so `Hard` client-certificate revocation is satisfiable **only** by a 
 (there is no stapled fallback); `Build` rejects a `Hard`, client-authenticating server that has no
 resolver. Attach the resolver on the server's stream exactly as above; a revoked client certificate
 then aborts the handshake with `certificate_revoked`. This works with both the **portable**
-`TLiveRevocationChecker` (give it the configured client-CA anchors as issuer candidates, so it can
+`TLiveRevocationChecker` (give it the configured client-CA anchors as `TLiveRevocationOptions.IssuerCandidates`, so it can
 recover the issuer of a leaf-only client credential) and the **OS-native** delegate on Windows/Apple
 (`TOSSystemTrust.ClientVerifierSource(TSystemTrustFetch.Live)` +
 `TOSSystemTrust.LiveRevocationResolver(serverConfig)` — see the OS-native subsection above and
