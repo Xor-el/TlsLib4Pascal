@@ -63,6 +63,7 @@ type
     function TryPosixMode(const APath: string; out AMode: Integer): Boolean;
   published
     procedure TestKeyGenWritesPrivateFileOwnerOnly;
+    procedure TestKeyGenRefusesToOverwriteAnExistingKeyFile;
     procedure TestKeyGenPemRoundTripsThroughStore;
     procedure TestKeyGenKeyPairSealsAndOpens;
     procedure TestKeyGenDnsLineNamesOrigin;
@@ -149,6 +150,9 @@ var
 begin
   LData := TBytes.Create($01, $02, $03, $04, $05);
   LPath := 'tlslib_echkey_perm_test.pem';
+  // a key file is never overwritten on POSIX, so clear any leftover from an aborted run
+  if FileExists(LPath) then
+    DeleteFile(LPath);
   try
     TEchKeyGenerator.WritePrivateFile(LPath, LData);
     // the bytes land intact
@@ -166,6 +170,34 @@ begin
     if TryPosixMode(LPath, LMode) then
       CheckEquals($180, LMode and $1FF,
         'the key file mode is 0600 (owner read/write only)');
+  finally
+    if FileExists(LPath) then
+      DeleteFile(LPath);
+  end;
+end;
+
+procedure TTestEchTooling.TestKeyGenRefusesToOverwriteAnExistingKeyFile;
+var
+  LPath: string;
+  LMode: Integer;
+  LRefused: Boolean;
+begin
+  LPath := 'tlslib_echkey_exists_test.pem';
+  if FileExists(LPath) then
+    DeleteFile(LPath);
+  try
+    TEchKeyGenerator.WritePrivateFile(LPath, TBytes.Create($01));
+    // an exclusive create is a POSIX guarantee; the Windows path keeps its overwrite behaviour
+    if not TryPosixMode(LPath, LMode) then
+      Exit;
+    LRefused := False;
+    try
+      TEchKeyGenerator.WritePrivateFile(LPath, TBytes.Create($02));
+    except
+      on E: EInOutError do
+        LRefused := True;
+    end;
+    CheckTrue(LRefused, 'an existing key file is refused, not overwritten');
   finally
     if FileExists(LPath) then
       DeleteFile(LPath);

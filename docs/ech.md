@@ -120,7 +120,9 @@ EchKeyGen -public_name public.example -origin secret.example -out ech.pem
 `-origin` is the name clients actually connect to (the inner SNI) and is the owner of the HTTPS
 record where the config is published (RFC 9848 §3, RFC 9849 §4). It writes an RFC 9934 PEM (a
 PKCS#8 `PRIVATE KEY` block the server store loads, plus an `ECHCONFIG` block) and prints the DNS
-presentation line, owned by the origin:
+presentation line, owned by the origin. On POSIX the `-out` file must not already exist: it is
+created exclusively with mode 0600 and is never overwritten or written through a symlink. On
+Windows an existing file is overwritten and the file inherits the user's ACL.
 
 ```
 secret.example. HTTPS 1 . ech="AD7+DQA6BwAg..."
