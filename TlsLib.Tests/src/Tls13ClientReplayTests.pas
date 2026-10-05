@@ -19,6 +19,7 @@ interface
 
 uses
   TlpClock,
+  TlpArrayUtilities,
   SysUtils,
   Classes,
 {$IFDEF FPC}
@@ -113,6 +114,8 @@ type
     /// <summary>The RFC 8448 Certificate with a second entry carrying AEntryExtensions.</summary>
     function CertificateWithIntermediateExtensions(
       const AEntryExtensions: TBytes): TTlsHandshakeMessage;
+    /// <summary>The RFC 8448 EncryptedExtensions with an empty early_data extension appended.</summary>
+    function EncryptedExtensionsWithEarlyData: TTlsHandshakeMessage;
     /// <summary>Synthesizes a framed ServerHello with the given fields (for hostile-input tests).</summary>
     function BuildServerHello(const ARandom, ASessionIdEcho: TBytes;
       ASuite, ASelectedVersion, AGroup: UInt16;
@@ -134,6 +137,7 @@ type
     procedure TestServerHelloTls12SuiteRejected;
     procedure TestIntermediateUnsolicitedExtensionRejected;
     procedure TestIntermediateDuplicateExtensionRejected;
+    procedure TestUnsolicitedEarlyDataInEncryptedExtensionsRejected;
     procedure TestServerHelloBadSessionIdEchoRejected;
     procedure TestServerHelloWrongVersionRejected;
     procedure TestServerHelloUnofferedGroupRejected;
@@ -553,6 +557,46 @@ begin
     'an unsolicited extension on an intermediate entry aborts');
   CheckTrue(LAlert = TTlsAlertDescription.UnsupportedExtension,
     'an unsolicited intermediate-entry extension is unsupported_extension');
+end;
+
+function TTestTls13ClientReplay.EncryptedExtensionsWithEarlyData: TTlsHandshakeMessage;
+var
+  LBody, LFramed: TBytes;
+  LLength: Int32;
+  LReader: THandshakeMessageReader;
+begin
+  LBody := System.Copy(Msg('encrypted_ext').Body);
+  // the body is a 16-bit extension-block length then the extensions: grow it by the 4-byte
+  // early_data entry (type 42, empty data)
+  LLength := (Int32(LBody[0]) shl 8) or LBody[1];
+  Inc(LLength, 4);
+  LBody[0] := Byte(LLength shr 8);
+  LBody[1] := Byte(LLength);
+  LBody := TArrayUtilities.Concat(LBody, DecodeHex('002a0000'));
+  LFramed := THandshakeFraming.Frame(TTlsHandshakeType.EncryptedExtensions, LBody);
+  LReader := THandshakeMessageReader.Create;
+  try
+    LReader.Append(LFramed, 0, System.Length(LFramed));
+    LReader.NextMessage(Result);
+  finally
+    LReader.Free;
+  end;
+end;
+
+procedure TTestTls13ClientReplay.TestUnsolicitedEarlyDataInEncryptedExtensionsRejected;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // a full handshake never offered early_data, so one in EncryptedExtensions is an extension the
+  // client did not solicit (RFC 8446 4.2). The branch for 0-RTT offered but the PSK declined is a
+  // separate guard that needs a resumption rig to reach
+  StartClient;
+  FDriver.ApplyAll(FSm.ProcessMessage(Msg('server_hello')));
+  TakeAll(FLayer);
+  CheckTrue(FailAlertOf(FSm.ProcessMessage(EncryptedExtensionsWithEarlyData), LAlert),
+    'early_data in EncryptedExtensions without an accepted PSK aborts');
+  CheckTrue(LAlert = TTlsAlertDescription.UnsupportedExtension,
+    'it is unsupported_extension');
 end;
 
 procedure TTestTls13ClientReplay.TestIntermediateDuplicateExtensionRejected;

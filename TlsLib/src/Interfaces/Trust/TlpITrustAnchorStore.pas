@@ -25,6 +25,8 @@ type
   /// explicitly distrusts. A store is immutable: the same store identity always means the same
   /// content, so a consumer may cache work derived from it by identity. Reloading trust means
   /// building a new store. No root is also distrusted (distrust wins), and a root appears once.
+  /// IsAnchor and IsDistrusted must agree with RootCertificates and DistrustedCertificates: a union
+  /// is rebuilt from those lists, so membership a store answers beyond them is lost in it.
   /// The verifier refuses a distrusted leaf, never builds a path through a distrusted
   /// intermediate, and rejects a validated path that still contains one.
   /// </summary>
