@@ -826,7 +826,6 @@ var
   LCodec: IExtensionBlockCodec;
   LContext: TExtensionContext;
   LHello: TTlsServerHello;
-  LEffect: THandshakeEffect;
   LEffects: TArray<THandshakeEffect>;
   LBasePoint: TBytes;
   LFailed: Boolean;
