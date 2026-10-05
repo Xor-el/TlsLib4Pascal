@@ -80,15 +80,18 @@ type
       const AClock: ITlsClock; ALifetimeSeconds: UInt32): ISessionTicketKeyManager; static;
     /// <summary>A manager with a fresh current key and an AWindowSize decrypt window (a default
     /// applies when 0 or less). Never auto-rotates.</summary>
-    constructor Create(const ARandom: IRandom; AWindowSize: Int32 = 0); overload;
+    constructor Create(const ARandom: IRandom); overload;
+    constructor Create(const ARandom: IRandom; AWindowSize: Int32); overload;
     /// <summary>As above, plus time-based auto-rotation: a fresh current key is promoted once
     /// ARotateIntervalSeconds elapse on AClock (lazily, on the encrypt path - no timers), and a key
     /// is retired once it ages past AWindowSize intervals on either the seal or the open path.
     /// AMaxSealsPerKey caps how many tickets one key may seal before it rotates (a default applies
     /// when 0).</summary>
     constructor Create(const ARandom: IRandom; AWindowSize: Int32;
+      const AClock: ITlsClock; ARotateIntervalSeconds: UInt32); overload;
+    constructor Create(const ARandom: IRandom; AWindowSize: Int32;
       const AClock: ITlsClock; ARotateIntervalSeconds: UInt32;
-      AMaxSealsPerKey: UInt32 = 0); overload;
+      AMaxSealsPerKey: UInt32); overload;
     /// <summary>A manager for a shared-key fleet: it mints NO key of its own, so nothing is sealed
     /// under a key the fleet cannot open and no local key lingers in the decrypt window. It seals
     /// nothing (CurrentKey is False) until InstallKey supplies the shared STEK, and never mints,
@@ -150,10 +153,21 @@ begin
     DefaultStekLifetimeWindow, AClock, LInterval) as ISessionTicketKeyManager;
 end;
 
+constructor TStekTicketKeyManager.Create(const ARandom: IRandom);
+begin
+  Create(ARandom, 0);
+end;
+
 constructor TStekTicketKeyManager.Create(const ARandom: IRandom;
   AWindowSize: Int32);
 begin
   Create(ARandom, AWindowSize, nil, 0);
+end;
+
+constructor TStekTicketKeyManager.Create(const ARandom: IRandom;
+  AWindowSize: Int32; const AClock: ITlsClock; ARotateIntervalSeconds: UInt32);
+begin
+  Create(ARandom, AWindowSize, AClock, ARotateIntervalSeconds, 0);
 end;
 
 constructor TStekTicketKeyManager.Create(const ARandom: IRandom;

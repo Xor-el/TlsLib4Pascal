@@ -50,7 +50,8 @@ type
     procedure CompactOrder;
   public
     /// <summary>A store holding up to ACapacity sessions (default when 0 or less).</summary>
-    constructor Create(const ARandom: IRandom; ACapacity: Int32 = 0);
+    constructor Create(const ARandom: IRandom); overload;
+    constructor Create(const ARandom: IRandom; ACapacity: Int32); overload;
     destructor Destroy; override;
 
     function Put(const ASession: IResumableSession): TBytes;
@@ -72,6 +73,11 @@ const
   OrderSlackFactor = Int32(2);
 
 { TInMemorySessionStore }
+
+constructor TInMemorySessionStore.Create(const ARandom: IRandom);
+begin
+  Create(ARandom, 0);
+end;
 
 constructor TInMemorySessionStore.Create(const ARandom: IRandom; ACapacity: Int32);
 begin

@@ -285,7 +285,7 @@ begin
       if Assigned(AResolver) then
         TTlsStreamPump.ResolveVerdict(AEngine, LCertEvent, AResolver, APeerRole)
       else
-        AEngine.SetCertificateVerdict(AAcceptVerdict);
+        AEngine.SetCertificateVerdict(AAcceptVerdict, TTlsAlertDescription.BadCertificate);
       LCertEvent := nil;
       Flush(AEngine, ASocket);
       if AEngine.IsTerminal then

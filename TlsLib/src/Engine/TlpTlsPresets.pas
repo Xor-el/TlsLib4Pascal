@@ -28,9 +28,6 @@ uses
   TlpTlsConfigBuilder,
   TlpTlsLibExceptions;
 
-resourcestring
-  SNilCryptoProvider = 'a crypto provider is required (pass a provider, not nil)';
-
 type
   /// <summary>
   /// The named security profiles, ordered by how much reach they trade for hardening.

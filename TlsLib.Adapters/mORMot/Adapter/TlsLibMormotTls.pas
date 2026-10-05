@@ -459,40 +459,42 @@ end;
 class procedure TTlsLibNetTls.RefuseUnsupported(const AContext: TNetTlsContext;
   AIsClient: Boolean);
 var
-  LHookText: string;
+  LHookText: PResStringRec;
 begin
   // the verify-callback route differs by role: a client has a process-wide setter, a server needs a
   // built configuration
   if AIsClient then
-    LHookText := SMormotClientHookUnsupported
+    LHookText := @SMormotClientHookUnsupported
   else
-    LHookText := SMormotServerHookUnsupported;
+    LHookText := @SMormotServerHookUnsupported;
   // CACertificatesRaw carries live OpenSSL X509 handles we cannot consume
   if AContext.CACertificatesRaw <> nil then
-    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SCARawUnsupported);
+    raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError, @SCARawUnsupported);
   // mORMot's OpenSSL backend runs these hooks; ignoring them would admit a peer the host meant to refuse
   if Assigned(AContext.OnPeerValidate) then
-    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
-      Format(LHookText, ['OnPeerValidate']));
+    raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+      LHookText, ['OnPeerValidate']);
   if Assigned(AContext.OnEachPeerVerify) then
-    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
-      Format(LHookText, ['OnEachPeerVerify']));
+    raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+      LHookText, ['OnEachPeerVerify']);
   if Assigned(AContext.OnAfterPeerValidate) then
-    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
-      Format(LHookText, ['OnAfterPeerValidate']));
+    raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+      LHookText, ['OnAfterPeerValidate']);
   if AContext.HostNamesCsv <> '' then
-    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SMormotHostNamesUnsupported);
+    raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
+      @SMormotHostNamesUnsupported);
   if Assigned(AContext.OnAcceptServerName) then
-    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SMormotSniHookUnsupported);
+    raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
+      @SMormotSniHookUnsupported);
   if AContext.CertificateBin <> '' then
-    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
-      Format(SMormotInMemoryCredentialUnsupported, ['CertificateBin']));
+    raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+      @SMormotInMemoryCredentialUnsupported, ['CertificateBin']);
   if AContext.CertificateRaw <> nil then
-    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
-      Format(SMormotInMemoryCredentialUnsupported, ['CertificateRaw']));
+    raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+      @SMormotInMemoryCredentialUnsupported, ['CertificateRaw']);
   if AContext.PrivateKeyRaw <> nil then
-    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
-      Format(SMormotInMemoryCredentialUnsupported, ['PrivateKeyRaw']));
+    raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+      @SMormotInMemoryCredentialUnsupported, ['PrivateKeyRaw']);
 end;
 
 class function TTlsLibNetTls.BuildClientEngine(var AContext: TNetTlsContext;
@@ -687,8 +689,8 @@ begin
 end;
 
 initialization
-  GServerConfigMemo := NewTlsServerConfigMemo;
-  GClientConfigMemo := NewTlsClientConfigMemo;
+  GServerConfigMemo := TTlsConfigMemos.NewServer;
+  GClientConfigMemo := TTlsConfigMemos.NewClient;
   GSessionResumption := True;
 
 end.

@@ -413,7 +413,7 @@ begin
   CheckTrue(LClient.IsHandshaking, 'a parked handshake is still in progress');
   CheckFalse(LClient.IsTerminal, 'a parked handshake has not failed');
 
-  LClient.SetCertificateVerdict(True);
+  LClient.SetCertificateVerdict(True, TTlsAlertDescription.BadCertificate);
   DriveToCompletion(LClient, LServer);
 
   CheckFalse(LClient.IsTerminal, 'the accepted handshake must not be terminal');
@@ -454,7 +454,7 @@ begin
   DriveUntilParkOrSettled(LClient, LServer);
   CheckTrue(LClient.AwaitingCertificateVerdict, 'the client should be parked');
 
-  LClient.SetCertificateVerdict(False);
+  LClient.SetCertificateVerdict(False, TTlsAlertDescription.BadCertificate);
 
   CheckTrue(LClient.IsTerminal, 'a rejected verdict aborts the handshake (fail-closed)');
   CheckFalse(LClient.AwaitingCertificateVerdict, 'the verdict has been resolved');
@@ -492,7 +492,7 @@ begin
   LClient.ProcessInput(LBad, 0, System.Length(LBad));
 
   // must not raise out of SetCertificateVerdict
-  LClient.SetCertificateVerdict(True);
+  LClient.SetCertificateVerdict(True, TTlsAlertDescription.BadCertificate);
 
   CheckTrue(LClient.IsTerminal,
     'a bad record behind the resumed flight aborts the engine instead of escaping as an exception');
@@ -532,7 +532,7 @@ begin
   DriveUntilParkOrSettled(LClient, LServer);
   CheckTrue(LClient.AwaitingCertificateVerdict, 'the client should be parked');
 
-  LClient.SetCertificateVerdict(False); // the resolver's timeout action
+  LClient.SetCertificateVerdict(False, TTlsAlertDescription.BadCertificate); // the resolver's timeout action
 
   CheckTrue(LClient.IsTerminal, 'a resolver-timeout reject aborts the handshake (fail-closed)');
   CheckEquals(Int64(Ord(TTlsAlertDescription.BadCertificate)),
@@ -557,7 +557,7 @@ begin
 
   // an accept after the pipeline already rejected is a no-op: the engine is terminal and
   // the handshake can never complete
-  LClient.SetCertificateVerdict(True);
+  LClient.SetCertificateVerdict(True, TTlsAlertDescription.BadCertificate);
   CheckTrue(LClient.IsTerminal, 'accept cannot resurrect a pipeline-rejected chain');
   CheckTrue(LClient.IsHandshaking = False, 'the terminal engine never handshakes again');
 end;
@@ -593,7 +593,7 @@ begin
   CheckFalse(LClient.AwaitingCertificateVerdict,
     'the client resolves its own verdict inline (async is server-only here)');
 
-  LServer.SetCertificateVerdict(True);
+  LServer.SetCertificateVerdict(True, TTlsAlertDescription.BadCertificate);
   DriveToCompletion(LClient, LServer);
 
   CheckFalse(LServer.IsTerminal, 'the accepted server handshake must not be terminal');
@@ -619,7 +619,7 @@ begin
   CheckEquals(0, System.Length(LServer.ExportKeyingMaterial('EXPORTER-test', 32)),
     'the server withholds the half-RTT exporter while parked on the client-cert verdict');
 
-  LServer.SetCertificateVerdict(True);
+  LServer.SetCertificateVerdict(True, TTlsAlertDescription.BadCertificate);
   CheckEquals(32, System.Length(LServer.ExportKeyingMaterial('EXPORTER-test', 32)),
     'the exporter is available again once the verdict clears the park, not only at Connected');
 
@@ -795,7 +795,7 @@ begin
   DriveUntilParkOrSettled(LClient, LServer);
   CheckTrue(LServer.AwaitingCertificateVerdict, 'the server should be parked');
 
-  LServer.SetCertificateVerdict(False);
+  LServer.SetCertificateVerdict(False, TTlsAlertDescription.BadCertificate);
 
   CheckTrue(LServer.IsTerminal,
     'a rejected client-certificate verdict aborts the handshake (fail-closed)');

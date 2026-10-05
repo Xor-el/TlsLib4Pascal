@@ -29,10 +29,15 @@ uses
   TlpITlsConfig,
   TlpITlsConfigMemo;
 
-/// <summary>A new empty server-config memo.</summary>
-function NewTlsServerConfigMemo: ITlsServerConfigMemo;
-/// <summary>A new empty client-config memo.</summary>
-function NewTlsClientConfigMemo: ITlsClientConfigMemo;
+type
+  /// <summary>Creates the config memos.</summary>
+  TTlsConfigMemos = class sealed(TObject)
+  public
+    /// <summary>A new empty server-config memo.</summary>
+    class function NewServer: ITlsServerConfigMemo; static;
+    /// <summary>A new empty client-config memo.</summary>
+    class function NewClient: ITlsClientConfigMemo; static;
+  end;
 
 implementation
 
@@ -62,12 +67,12 @@ type
   TTlsClientConfigMemo = class sealed(TTlsConfigMemo<ITlsClientConfig>, ITlsClientConfigMemo)
   end;
 
-function NewTlsServerConfigMemo: ITlsServerConfigMemo;
+class function TTlsConfigMemos.NewServer: ITlsServerConfigMemo;
 begin
   Result := TTlsServerConfigMemo.Create;
 end;
 
-function NewTlsClientConfigMemo: ITlsClientConfigMemo;
+class function TTlsConfigMemos.NewClient: ITlsClientConfigMemo;
 begin
   Result := TTlsClientConfigMemo.Create;
 end;

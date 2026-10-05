@@ -448,7 +448,8 @@ type
     function WithResumption(AEnabled: Boolean): ITlsServerConfigBuilder;
     function Tls13: ITls13ServerConfigFacet;
     function Tls12: ITls12ServerConfigFacet;
-    /// <summary>Freezes and returns the server config; raises without a credential.</summary>
+    /// <summary>Freezes and returns the server config; raises without a credential, credential
+    /// resolver or external PSK.</summary>
     function Build: ITlsServerConfig;
   end;
 

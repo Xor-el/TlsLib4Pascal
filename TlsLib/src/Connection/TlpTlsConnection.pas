@@ -414,8 +414,8 @@ begin
   // below (which is itself the trust decision, so no placeholder store is needed to build)
   if (not HasClientTrustSource(AOptions)) and AOptions.VerifyPeer and
     (not AOptions.InsecureSkipVerify) then
-    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
-      Format(SNoClientTrust, [AOptions.TrustSourceHint]));
+    raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+      @SNoClientTrust, [AOptions.TrustSourceHint]);
   if AOptions.InsecureSkipVerify or (not AOptions.VerifyPeer) then
     LClient.WithDangerousInsecureSkipVerify;
   if not AOptions.CheckHostName then
@@ -450,7 +450,7 @@ var
   LI: Int32;
 begin
   if AOptions.Certificate.IsEmpty then
-    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SNoServerCredential);
+    raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError, @SNoServerCredential);
   if AOptions.ClientAuth <> TClientAuthMode.None then
   begin
     // an explicit client-auth mode with peer verification switched off, or with nothing to verify a
@@ -458,23 +458,24 @@ begin
     // certificate or asks for none. Verification first: an adapter that names its trust only when
     // verifying (Synapse) then reports the true cause, not a spurious no-source.
     if (not AOptions.VerifyPeer) or AOptions.InsecureSkipVerify then
-      raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SClientAuthWithoutVerify);
+      raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
+        @SClientAuthWithoutVerify);
     if not HasClientAuthTrustSource(AOptions) then
     begin
       // system trust verifies server certificates, so naming it as the only client-CA is the one
       // misconfiguration worth its own message: the fix is a private CA, not "more" system trust
       if AOptions.SystemTrust <> nil then
-        raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
-          Format(SSystemTrustIsNotClientAuthSource, [AOptions.ClientAuthSourceHint]));
-      raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
-        Format(SNoClientAuthSource, [AOptions.ClientAuthSourceHint]));
+        raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+          @SSystemTrustIsNotClientAuthSource, [AOptions.ClientAuthSourceHint]);
+      raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+        @SNoClientAuthSource, [AOptions.ClientAuthSourceHint]);
     end;
   end
   else if AOptions.ClientCertificateVerifier <> nil then
     // a server-role client-certificate verifier can only ever vet a requested client chain: it is
     // inert without a mode, so its presence with None is a configuration mistake
-    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
-      SClientVerifierNeedsClientAuth);
+    raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
+      @SClientVerifierNeedsClientAuth);
   LCrypto := EffectiveCrypto(AOptions);
   LPkix := EffectivePkix(AOptions);
   LServer := TTlsPresets.Compatible(LCrypto, LPkix).Server
@@ -602,8 +603,8 @@ begin
     LConflict := LConflict or (AOptions.ClientCertificateVerifier <> nil) or
       (AOptions.ClientAuth <> TClientAuthMode.None) or Assigned(AOptions.VerifyCallback);
   if LConflict then
-    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
-      Format(SConfigAndOptionsConflict, [APropertyName]));
+    raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+      @SConfigAndOptionsConflict, [APropertyName]);
 end;
 
 class function TTlsConfigComposer.ResolveClientConfig(
@@ -622,8 +623,8 @@ begin
     // would leave it silently unused (live revocation off)
     if Assigned(AOptions.ClientVerdictResolver) and
       (AOptions.ClientConfig.AsyncCertificateVerdict.Deferral = TVerdictDeferral.None) then
-      raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
-        Format(SVerdictResolverWithoutDeferral, [AConfigPropertyName]));
+      raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+        @SVerdictResolverWithoutDeferral, [AConfigPropertyName]);
     Exit(AOptions.ClientConfig);
   end;
   LSig := ClientSignature(AOptions);
@@ -645,8 +646,8 @@ begin
     if Assigned(AOptions.ServerVerdictResolver) and
       (AOptions.ServerConfig.ClientAuth <> TClientAuthMode.None) and
       (AOptions.ServerConfig.AsyncCertificateVerdict.Deferral = TVerdictDeferral.None) then
-      raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
-        Format(SVerdictResolverWithoutDeferral, [AConfigPropertyName]));
+      raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+        @SVerdictResolverWithoutDeferral, [AConfigPropertyName]);
     Exit(AOptions.ServerConfig);
   end;
   LSig := ServerSignature(AOptions);

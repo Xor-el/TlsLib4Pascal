@@ -54,7 +54,8 @@ type
     procedure CompactOrder;
   public
     /// <summary>A register holding up to ACapacity live values (default when 0 or less).</summary>
-    constructor Create(ACapacity: Int32 = 0);
+    constructor Create; overload;
+    constructor Create(ACapacity: Int32); overload;
     destructor Destroy; override;
 
     function CheckAndRecord(const AUniqueValue: TBytes;
@@ -69,6 +70,11 @@ const
   DefaultStrikeCapacity = Int32(65536);
 
 { TStrikeRegisterAntiReplay }
+
+constructor TStrikeRegisterAntiReplay.Create;
+begin
+  Create(0);
+end;
 
 constructor TStrikeRegisterAntiReplay.Create(ACapacity: Int32);
 begin

@@ -45,7 +45,8 @@ type
     procedure CompactOrder;
   public
     /// <summary>A cache holding up to ACapacity entries (default when 0 or less).</summary>
-    constructor Create(ACapacity: Int32 = 0);
+    constructor Create; overload;
+    constructor Create(ACapacity: Int32); overload;
     destructor Destroy; override;
 
     function TryGet(const AKey: TBytes; out ACompressed: TBytes): Boolean;
@@ -63,6 +64,11 @@ const
   OrderSlackFactor = Int32(2);
 
 { TInMemoryCertificateCompressionCache }
+
+constructor TInMemoryCertificateCompressionCache.Create;
+begin
+  Create(0);
+end;
 
 constructor TInMemoryCertificateCompressionCache.Create(ACapacity: Int32);
 begin

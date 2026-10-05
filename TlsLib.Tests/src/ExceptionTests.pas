@@ -39,6 +39,7 @@ type
   published
     procedure TestArgumentExceptionMessage;
     procedure TestCreateResFmt;
+    procedure TestStreamErrorCreateResCarriesAlertAndMessage;
     procedure TestFatalAlertCarriesDescription;
     procedure TestDecodeErrorMapsToDecodeError;
     procedure TestHierarchy;
@@ -86,6 +87,28 @@ begin
       LMessage := E.Message;
   end;
   CheckEquals('boom', LMessage, 'CreateRes message');
+end;
+
+procedure TTestExceptions.TestStreamErrorCreateResCarriesAlertAndMessage;
+var
+  LPlain, LFmt, LNoAlert: ETlsStreamError;
+begin
+  LPlain := ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError, @STestBoom);
+  LFmt := ETlsStreamError.CreateResFmt(TTlsAlertDescription.BadCertificate,
+    @STestValueFmt, [7]);
+  LNoAlert := ETlsStreamError.Create('boom');
+  try
+    CheckEquals('boom', LPlain.Message, 'CreateRes message');
+    CheckTrue(LPlain.HasAlert, 'CreateRes carries an alert');
+    CheckTrue(LPlain.Alert = TTlsAlertDescription.InternalError, 'CreateRes alert');
+    CheckEquals('value 7 out of range', LFmt.Message, 'CreateResFmt message');
+    CheckTrue(LFmt.Alert = TTlsAlertDescription.BadCertificate, 'CreateResFmt alert');
+    CheckFalse(LNoAlert.HasAlert, 'control: the message-only overload carries no alert');
+  finally
+    LNoAlert.Free;
+    LFmt.Free;
+    LPlain.Free;
+  end;
 end;
 
 procedure TTestExceptions.TestCreateResFmt;

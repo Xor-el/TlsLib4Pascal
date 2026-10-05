@@ -522,7 +522,7 @@ begin
   // so its config - and the default STEK minted into it - stay stable across the connections it
   // serves (this is serialized by the handshake lock)
   if FServerMemo = nil then
-    FServerMemo := NewTlsServerConfigMemo;
+    FServerMemo := TTlsConfigMemos.NewServer;
   Result := TTlsEngineFactory.CreateServerEngine(
     TTlsConfigComposer.ResolveServerConfig(LOptions, FServerMemo, 'SSLOptions.ServerConfig'));
 end;
@@ -691,7 +691,7 @@ procedure TTlsLibServerIOHandler.InitComponent;
 begin
   inherited InitComponent;
   FOptions := TTlsLibSSLOptions.Create;
-  FServerMemo := NewTlsServerConfigMemo;
+  FServerMemo := TTlsConfigMemos.NewServer;
 end;
 
 destructor TTlsLibServerIOHandler.Destroy;
@@ -759,7 +759,7 @@ begin
 end;
 
 initialization
-  GClientConfigMemo := NewTlsClientConfigMemo;
+  GClientConfigMemo := TTlsConfigMemos.NewClient;
 
 finalization
   if GClientConfigMemo <> nil then

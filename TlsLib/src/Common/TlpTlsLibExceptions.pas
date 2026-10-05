@@ -116,6 +116,10 @@ type
     /// meaningless. Used for truncation and timeout, which are transport events, not TLS
     /// alerts - stamping a placeholder alert here misreports them as an on-the-wire alert.</summary>
     constructor Create(const AMessage: string); overload;
+    constructor CreateRes(ADescription: TTlsAlertDescription;
+      AResStringRec: PResStringRec); overload;
+    constructor CreateResFmt(ADescription: TTlsAlertDescription;
+      AResStringRec: PResStringRec; const AArgs: array of const); overload;
     /// <summary>The alert that was (or would be) sent; valid only when HasAlert.</summary>
     property Alert: TTlsAlertDescription read FAlert;
     property HasAlert: Boolean read FHasAlert;
@@ -211,6 +215,22 @@ constructor ETlsStreamError.Create(const AMessage: string);
 begin
   inherited Create(AMessage);
   FHasAlert := False;
+end;
+
+constructor ETlsStreamError.CreateRes(ADescription: TTlsAlertDescription;
+  AResStringRec: PResStringRec);
+begin
+  inherited CreateRes(AResStringRec);
+  FAlert := ADescription;
+  FHasAlert := True;
+end;
+
+constructor ETlsStreamError.CreateResFmt(ADescription: TTlsAlertDescription;
+  AResStringRec: PResStringRec; const AArgs: array of const);
+begin
+  inherited CreateResFmt(AResStringRec, AArgs);
+  FAlert := ADescription;
+  FHasAlert := True;
 end;
 
 end.
