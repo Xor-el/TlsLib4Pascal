@@ -44,6 +44,8 @@ uses
   TlpTlsEngine,
   TlpIHandshakeMachine,
   TlpICertificateTrust,
+  TlpITrustAnchorStore,
+  TlpTrustAnchorStore,
   TlpServerName,
   TlpCertificateVerifier,
   TlpTrustPolicy,

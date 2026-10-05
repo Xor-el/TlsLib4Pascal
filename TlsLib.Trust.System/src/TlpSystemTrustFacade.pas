@@ -19,6 +19,7 @@ uses
   SyncObjs,
   TlpIPkixProvider,
   TlpICertificateTrust,
+  TlpITrustAnchorStore,
   TlpICertificateVerifierSource,
   TlpITlsConfigBuilder,
   TlpISystemTrustInstaller,

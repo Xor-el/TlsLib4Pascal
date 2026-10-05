@@ -33,6 +33,8 @@ uses
   TlpTlsLibExceptions,
   TlpTlsAlert,
   TlpICertificateTrust,
+  TlpITrustAnchorStore,
+  TlpTrustAnchorStore,
   TlpTrustTypes,
   TlpICertificateVerifierSource,
   TlpTrustPolicy,
@@ -56,6 +58,9 @@ type
     procedure TestDistrustingStoreDropsDistrustedRootsAndIsImmutable;
     procedure TestUnionCarriesAndAppliesDistrustAcrossStores;
     procedure TestBuildFreezesDistrustWithTheComposedStore;
+    procedure TestUnionCollapsesDuplicatesAndSkipsNilChildren;
+    procedure TestAnchorMatchIsExactDer;
+    procedure TestBuildRefusesAUnionWhoseDistrustRemovesEveryAnchor;
     procedure TestCertificateVerifierLandsInFrozenConfig;
     procedure TestVerifierCombinedWithAnchorSourceIsRejected;
     // an empty store is still an anchor *source* for the exclusivity count (that rule runs before
@@ -160,13 +165,15 @@ end;
 procedure TTestTrustComposition.TestDistrustingStoreDropsDistrustedRootsAndIsImmutable;
 var
   LRoots, LDistrusted: TArray<TBytes>;
-  LStore: IDistrustingTrustAnchorStore;
+  LStore: ITrustAnchorStore;
 begin
   LRoots := TArray<TBytes>.Create(DecodeHex(FCerts.Values['root_cert']),
     DecodeHex(FCerts.Values['leaf_cert']));
   LDistrusted := TArray<TBytes>.Create(DecodeHex(FCerts.Values['leaf_cert']));
-  LStore := TDistrustingTrustAnchorStore.Create(LRoots, LDistrusted);
+  LStore := TTrustAnchorStore.Create(LRoots, LDistrusted);
   CheckEquals(1, System.Length(LStore.RootCertificates), 'a distrusted root is not an anchor');
+  CheckEquals(1, LStore.AnchorCount, 'the count excludes the distrusted root');
+  CheckFalse(LStore.IsAnchor(LDistrusted[0]), 'a distrusted certificate is not an anchor');
   CheckEquals(1, System.Length(LStore.DistrustedCertificates), 'the distrust set is carried');
   CheckTrue(LStore.IsDistrusted(LDistrusted[0]), 'the distrusted certificate matches');
   CheckFalse(LStore.IsDistrusted(LRoots[0]), 'an anchor is not distrusted');
@@ -180,36 +187,82 @@ end;
 procedure TTestTrustComposition.TestUnionCarriesAndAppliesDistrustAcrossStores;
 var
   LUnion: ITrustAnchorStore;
-  LDistrust: IDistrustingTrustAnchorStore;
 begin
   // one store distrusts the leaf; another contributes it as an anchor: distrust wins
-  LUnion := TUnionTrustAnchorStore.Create(TArray<ITrustAnchorStore>.Create(
+  LUnion := TTrustAnchorStore.Union(TArray<ITrustAnchorStore>.Create(
     StoreOf('root_cert'), StoreOf('leaf_cert'),
-    TDistrustingTrustAnchorStore.Create(nil,
+    TTrustAnchorStore.Create(nil,
     TArray<TBytes>.Create(DecodeHex(FCerts.Values['leaf_cert']))) as ITrustAnchorStore));
   CheckEquals(1, System.Length(LUnion.RootCertificates),
     'a root distrusted by any store is not an anchor of the union');
-  CheckTrue(Supports(LUnion, IDistrustingTrustAnchorStore, LDistrust),
-    'the union exposes the distrust set');
-  CheckTrue(LDistrust.IsDistrusted(DecodeHex(FCerts.Values['leaf_cert'])), 'it carries the child distrust');
-  CheckEquals(1, System.Length(LDistrust.DistrustedCertificates), 'the union of the distrust sets');
+  CheckTrue(LUnion.IsDistrusted(DecodeHex(FCerts.Values['leaf_cert'])), 'it carries the child distrust');
+  CheckEquals(1, System.Length(LUnion.DistrustedCertificates), 'the union of the distrust sets');
+end;
+
+procedure TTestTrustComposition.TestUnionCollapsesDuplicatesAndSkipsNilChildren;
+var
+  LUnion, LSingle: ITrustAnchorStore;
+begin
+  LUnion := TTrustAnchorStore.Union(TArray<ITrustAnchorStore>.Create(
+    StoreOf('root_cert'), nil, StoreOf('root_cert'), StoreOf('leaf_cert')));
+  CheckEquals(2, LUnion.AnchorCount, 'a root contributed twice is one anchor');
+  CheckEquals(2, System.Length(LUnion.RootCertificates), 'the copy agrees with the count');
+  // a single remaining child is the union itself: its identity is kept for the provider's cache
+  LSingle := StoreOf('root_cert');
+  CheckTrue(TTrustAnchorStore.Union(TArray<ITrustAnchorStore>.Create(nil, LSingle)) = LSingle,
+    'one live child is returned as it is');
+  CheckEquals(0, TTrustAnchorStore.Union(nil).AnchorCount, 'no child is an empty store');
+end;
+
+procedure TTestTrustComposition.TestAnchorMatchIsExactDer;
+var
+  LRoot, LOther: TBytes;
+  LStore: ITrustAnchorStore;
+begin
+  LRoot := DecodeHex(FCerts.Values['root_cert']);
+  LStore := TTrustAnchorStore.Create(TArray<TBytes>.Create(LRoot));
+  CheckTrue(LStore.IsAnchor(System.Copy(LRoot)), 'a byte-equal copy is the anchor');
+  LOther := System.Copy(LRoot);
+  LOther[High(LOther)] := LOther[High(LOther)] xor $01;
+  CheckFalse(LStore.IsAnchor(LOther), 'a one-bit difference is a different certificate');
+  CheckFalse(LStore.IsAnchor(nil), 'an empty certificate is not an anchor');
 end;
 
 procedure TTestTrustComposition.TestBuildFreezesDistrustWithTheComposedStore;
 var
   LConfig: ITlsClientConfig;
-  LDistrust: IDistrustingTrustAnchorStore;
 begin
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithTrustStore(TDistrustingTrustAnchorStore.Create(
+    .WithTrustStore(TTrustAnchorStore.Create(
     TArray<TBytes>.Create(DecodeHex(FCerts.Values['root_cert'])),
     TArray<TBytes>.Create(DecodeHex(FCerts.Values['leaf_cert']))) as ITrustAnchorStore)
     .WithTrustAnchors(DecodeHex(FCerts.Values['root_cert']))
     .Build;
-  CheckTrue(Supports(LConfig.TrustStore, IDistrustingTrustAnchorStore, LDistrust),
-    'the frozen config keeps the distrust set');
-  CheckTrue(LDistrust.IsDistrusted(DecodeHex(FCerts.Values['leaf_cert'])),
+  CheckTrue(LConfig.TrustStore.IsDistrusted(DecodeHex(FCerts.Values['leaf_cert'])),
     'the distrusted certificate is still distrusted after composition with plain anchors');
+end;
+
+procedure TTestTrustComposition.TestBuildRefusesAUnionWhoseDistrustRemovesEveryAnchor;
+var
+  LRaised: Boolean;
+begin
+  // one store trusts the root, another distrusts it: the composed store has no anchor left, which
+  // fails at Build rather than producing a config that only ever answers unknown_ca
+  LRaised := False;
+  try
+    TTlsPresets.Compatible(Crypto, Pkix).Client
+      .WithTrustStore(StoreOf('root_cert'))
+      .WithTrustStore(TTrustAnchorStore.Create(nil,
+      TArray<TBytes>.Create(DecodeHex(FCerts.Values['root_cert']))) as ITrustAnchorStore)
+      .Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a union with no anchor left is refused');
+  CheckEquals(1, TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithTrustStore(StoreOf('root_cert')).Build.TrustStore.AnchorCount,
+    'control: the root alone builds');
 end;
 
 procedure TTestTrustComposition.TestCertificateVerifierLandsInFrozenConfig;

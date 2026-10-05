@@ -38,6 +38,8 @@ uses
   TlpITlsConfigBuilder,
   TlpITlsConfig,
   TlpICertificateTrust,
+  TlpITrustAnchorStore,
+  TlpTrustAnchorStore,
   TlpTrustTypes,
   TlpServerName,
   TlpCertificateVerifier,

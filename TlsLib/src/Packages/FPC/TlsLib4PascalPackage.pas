@@ -52,7 +52,8 @@ uses
   TlpIKeyExchangePrivateKey, TlpTlsConnection, TlpTrustTypes, TlpIKeyLog, 
   TlpKeyLog, TlpAeadUtilities, TlpClientSessionPolicy, 
   TlpIEchClientOrchestrator, TlpEchClientOrchestrator, TlpImportedCredential, 
-  TlpISystemTrustInstaller, TlpExporterArgs, TlpEchConfirmation;
+  TlpISystemTrustInstaller, TlpExporterArgs, TlpEchConfirmation,
+  TlpITrustAnchorStore, TlpTrustAnchorStore;
 
 implementation
 

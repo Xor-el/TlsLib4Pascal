@@ -23,8 +23,8 @@ uses
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpIPkixProvider,
-  TlpICertificateTrust,
-  TlpCertificateVerifier,
+  TlpITrustAnchorStore,
+  TlpTrustAnchorStore,
   TlpTlsCredential,
   InteropUtils;
 

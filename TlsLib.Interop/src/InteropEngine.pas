@@ -31,6 +31,7 @@ uses
   TlpINegotiation,
   TlpSignatureSchemeRegistry,
   TlpICertificateTrust,
+  TlpITrustAnchorStore,
   TlpTrustPolicy,
   TlpTrustTypes,
   TlpServerName,

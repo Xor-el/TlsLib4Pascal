@@ -95,6 +95,8 @@ uses
   TlpTlsConnection in '..\..\TlsLib\src\Connection\TlpTlsConnection.pas',
   TlpIHttpFetcher in '..\..\TlsLib\src\Interfaces\Trust\TlpIHttpFetcher.pas',
   TlpLiveRevocation in '..\..\TlsLib\src\Trust\TlpLiveRevocation.pas',
+  TlpITrustAnchorStore in '..\..\TlsLib\src\Interfaces\Trust\TlpITrustAnchorStore.pas',
+  TlpTrustAnchorStore in '..\..\TlsLib\src\Trust\TlpTrustAnchorStore.pas',
   TlpICertificateCompression in '..\..\TlsLib\src\Interfaces\CertCompression\TlpICertificateCompression.pas',
   TlpICertificateCompressionCache in '..\..\TlsLib\src\Interfaces\CertCompression\TlpICertificateCompressionCache.pas',
   TlpZlibCertificateCompression in '..\..\TlsLib\src\CertCompression\TlpZlibCertificateCompression.pas',

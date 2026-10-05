@@ -45,6 +45,8 @@ uses
   TlpTlsLibExceptions,
   TlpIHandshakeMachine,
   TlpICertificateTrust,
+  TlpITrustAnchorStore,
+  TlpTrustAnchorStore,
   TlpServerName,
   TlpCertificateVerifier,
   TlpTlsCredential,

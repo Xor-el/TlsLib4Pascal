@@ -24,6 +24,7 @@ uses
   TlpDateTimeUtilities,
   TlpTrustTypes,
   TlpICertificateTrust,
+  TlpITrustAnchorStore,
   TlpCertificateLimits,
   TlpCertificateStrengthPolicy;
 

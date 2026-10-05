@@ -34,6 +34,8 @@ uses
   TlpIPkixProvider,
   TlpDefaultPkixProvider,
   TlpICertificateTrust,
+  TlpITrustAnchorStore,
+  TlpTrustAnchorStore,
   TlpBundleTrust,
   TlsLibTestBase;
 

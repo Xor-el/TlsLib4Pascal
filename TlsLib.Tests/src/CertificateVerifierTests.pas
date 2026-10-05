@@ -33,6 +33,8 @@ uses
   TlpPkixDomainTypes,
   TlpDateTimeUtilities,
   TlpICertificateTrust,
+  TlpITrustAnchorStore,
+  TlpTrustAnchorStore,
   TlpTrustTypes,
   TlpServerName,
   TlpCertificateVerifier,
@@ -43,15 +45,19 @@ uses
   TlsLibTestBase;
 
 type
-  /// <summary>Wraps a trust-anchor store and counts how many times its anchor set is read, to prove
-  /// the verify pipeline fetches it once and shares it across path validation and the chain policy.</summary>
+  /// <summary>Wraps a trust-anchor store and counts how many times its anchor set is copied out, to
+  /// prove the verify pipeline never copies it per verification.</summary>
   TCountingTrustAnchorStore = class(TInterfacedObject, ITrustAnchorStore)
   strict private
     FInner: ITrustAnchorStore;
     FReads: Int32;
   public
     constructor Create(const AInner: ITrustAnchorStore);
+    function AnchorCount: Int32;
     function RootCertificates: TArray<TBytes>;
+    function IsAnchor(const ACertificate: TBytes): Boolean;
+    function DistrustedCertificates: TArray<TBytes>;
+    function IsDistrusted(const ACertificate: TBytes): Boolean;
     property Reads: Int32 read FReads;
   end;
 
@@ -82,6 +88,8 @@ type
     function EkuCert(const AName: string): TBytes;
     function EkuEdgeCert(const AName: string): TBytes;
     function Reissued(const AName: string): TBytes;
+    function CountedVerifies(const AStore: TCountingTrustAnchorStore;
+      ACount: Int32): Boolean;
     function VerifierFor(const ARoot: TBytes; ACheckHostName: Boolean)
       : IServerCertificateVerifier;
     // a verifier trusting ARoot with the chain-algorithm policy switched on, as the engine
@@ -143,7 +151,8 @@ type
     procedure TestBareVerifierRefusesSha1SignedIntermediate;
     procedure TestSameSubjectDifferentKeyRootIgnoredForConfiguredAnchor;
     // the anchor set is fetched once per verify and shared by path validation and the chain policy
-    procedure TestAnchorSetReadOncePerVerify;
+    procedure TestAnchorSetCopiedOnceAcrossVerifies;
+    procedure TestDistinctStoresNeverShareCachedAnchors;
     // path building is bounded against a peer-controlled flood of same-named certificates, and a
     // nil parse result gets the right alert
     procedure TestSelfIssuedFillerFloodFailsFast;
@@ -164,10 +173,30 @@ begin
   FInner := AInner;
 end;
 
+function TCountingTrustAnchorStore.AnchorCount: Int32;
+begin
+  Result := FInner.AnchorCount;
+end;
+
 function TCountingTrustAnchorStore.RootCertificates: TArray<TBytes>;
 begin
   System.Inc(FReads);
   Result := FInner.RootCertificates;
+end;
+
+function TCountingTrustAnchorStore.IsAnchor(const ACertificate: TBytes): Boolean;
+begin
+  Result := FInner.IsAnchor(ACertificate);
+end;
+
+function TCountingTrustAnchorStore.DistrustedCertificates: TArray<TBytes>;
+begin
+  Result := FInner.DistrustedCertificates;
+end;
+
+function TCountingTrustAnchorStore.IsDistrusted(const ACertificate: TBytes): Boolean;
+begin
+  Result := FInner.IsDistrusted(ACertificate);
 end;
 
 { TTestCertificateVerifier }
@@ -280,7 +309,7 @@ var
 begin
   LOptions.Intermediates := AIntermediates;
   Result := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TDistrustingTrustAnchorStore.Create(TArray<TBytes>.Create(ARoot), ADistrusted)
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(ARoot), ADistrusted)
     as ITrustAnchorStore, False, LOptions) as IServerCertificateVerifier;
 end;
 
@@ -799,7 +828,8 @@ begin
   LEffective := nil;
   LStart := TDateTimeUtilities.CurrentUnixMs;
   try
-    Pkix.PathValidation.ValidateCertificatePath(AChain, TArray<TBytes>.Create(AAnchor), nil,
+    Pkix.PathValidation.ValidateCertificatePath(AChain,
+      TTrustAnchorStore.Create(TArray<TBytes>.Create(AAnchor)) as ITrustAnchorStore, nil,
       TDateTimeUtilities.UnixMsToDateTime(LStart), TCertKeyPurpose.ServerAuth, LEffective);
   except
     on E: EFatalAlertTlsLibException do
@@ -906,31 +936,52 @@ begin
   CheckTrue(LLimits.AdmitsChain(LChain), 'a chain exactly at every cap is admitted');
 end;
 
-procedure TTestCertificateVerifier.TestAnchorSetReadOncePerVerify;
+function TTestCertificateVerifier.CountedVerifies(const AStore: TCountingTrustAnchorStore;
+  ACount: Int32): Boolean;
 var
-  LCounting: TCountingTrustAnchorStore;
   LStore: ITrustAnchorStore;
   LVerifier: TCertificateVerifier;
   LServer: IServerCertificateVerifier;
   LChain: TArray<TBytes>;
   LVerified: TVerifiedChain;
   LAlert: TTlsAlertDescription;
+  LI: Int32;
 begin
-  // a valid chain passes both PKIX path validation and the chain-algorithm policy, and each needs
-  // the anchor set; the pipeline fetches it once and shares it, so the store is read exactly once
-  LCounting := TCountingTrustAnchorStore.Create(
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(Reissued('root_cert')))
-    as ITrustAnchorStore);
-  LStore := LCounting;
+  Result := True;
+  LStore := AStore;
   LVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock, LStore, False);
   LServer := LVerifier;
   LVerifier.SetChainAlgorithmPolicy(TCertificateStrengthPolicy.Defaults,
     TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256));
   LChain := TArray<TBytes>.Create(Reissued('leaf_cert'), Reissued('issuer_cert'),
     Reissued('root_reissued_sha1_cert'));
-  CheckTrue(LServer.VerifyServerCertificate(LChain, TServerName.DnsName(''), nil,
-    LVerified, LAlert), 'the valid chain is trusted, so both PKIX and the chain policy ran');
-  CheckEquals(1, LCounting.Reads, 'the anchor set was read exactly once per verify');
+  for LI := 1 to ACount do
+    // a valid chain passes both PKIX path validation and the chain-algorithm policy
+    if not LServer.VerifyServerCertificate(LChain, TServerName.DnsName(''), nil, LVerified,
+      LAlert) then
+      Result := False;
+end;
+
+procedure TTestCertificateVerifier.TestAnchorSetCopiedOnceAcrossVerifies;
+var
+  LFirst, LSecond: TCountingTrustAnchorStore;
+  LFirstRef, LSecondRef: ITrustAnchorStore;
+begin
+  // the store is immutable, so its anchors are copied out once for the provider's cache and never
+  // again per verification, however many verifies share it
+  LFirst := TCountingTrustAnchorStore.Create(
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(Reissued('root_cert')))
+    as ITrustAnchorStore);
+  LFirstRef := LFirst;
+  CheckTrue(CountedVerifies(LFirst, 3), 'the valid chain is trusted on every verify');
+  CheckEquals(1, LFirst.Reads, 'three verifies copy the anchor set once');
+  // control: a fresh store object over the same content is copied once as well, not per verify
+  LSecond := TCountingTrustAnchorStore.Create(
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(Reissued('root_cert')))
+    as ITrustAnchorStore);
+  LSecondRef := LSecond;
+  CheckTrue(CountedVerifies(LSecond, 3), 'the same chain is trusted through the second store');
+  CheckEquals(1, LSecond.Reads, 'a new store object over cached content is copied once');
 end;
 
 procedure TTestCertificateVerifier.TestSha1SelfSignedRootNotConfiguredRejected;
@@ -945,6 +996,26 @@ begin
     Reissued('root_reissued_sha1_cert')), TServerName.DnsName(''), nil, LVerified, LAlert),
     'a self-signed root that is not the configured anchor does not anchor the chain');
   CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'the alert is unknown_ca');
+end;
+
+procedure TTestCertificateVerifier.TestDistinctStoresNeverShareCachedAnchors;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+  LChain: TArray<TBytes>;
+begin
+  // the provider caches parsed anchors across stores: a store must only ever see its own anchors
+  LChain := TArray<TBytes>.Create(Reissued('leaf_cert'), Reissued('issuer_cert'),
+    Reissued('root_reissued_sha1_cert'));
+  CheckTrue(VerifierFor(Reissued('root_cert'), False).VerifyServerCertificate(LChain,
+    TServerName.DnsName(''), nil, LVerified, LAlert), 'control: the trusted root verifies');
+  CheckFalse(VerifierFor(Reissued('root2_cert'), False).VerifyServerCertificate(LChain,
+    TServerName.DnsName(''), nil, LVerified, LAlert),
+    'an unrelated store does not inherit the anchors a previous store cached');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'the alert is unknown_ca');
+  CheckTrue(VerifierFor(Reissued('root_cert'), False).VerifyServerCertificate(LChain,
+    TServerName.DnsName(''), nil, LVerified, LAlert),
+    'a new store object over the first content is trusted again');
 end;
 
 procedure TTestCertificateVerifier.TestSameSubjectDifferentKeyRootIgnoredForConfiguredAnchor;

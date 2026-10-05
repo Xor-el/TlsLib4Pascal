@@ -145,6 +145,9 @@ not only as a root:
 - **Distrust wins across sources:** the union above applies to distrust too, so a root that the OS
   distrusts is not re-admitted by supplying it again through `WithTrustAnchors` or
   `WithTrustStore`.
+- **Immutable stores:** an `ITrustAnchorStore` is a snapshot, and the union of several is built once
+  at `Build`. Verification caches work by store identity, so a custom store must never change after
+  it is handed to a config — build a new store (and a new config) to change trust.
 - **No distrust input:** Unix. **Not applicable:** Android and iOS, which are delegate-only (the
   platform already applies its own distrust).
 - **macOS Deny scope:** a Deny whose scope cannot be read is treated as a Deny, so it can also

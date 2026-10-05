@@ -19,8 +19,8 @@ uses
   SysUtils,
   Classes,
   TlpIPkixProvider,
-  TlpICertificateTrust,
-  TlpCertificateVerifier;
+  TlpITrustAnchorStore,
+  TlpTrustAnchorStore;
 
 type
   /// <summary>

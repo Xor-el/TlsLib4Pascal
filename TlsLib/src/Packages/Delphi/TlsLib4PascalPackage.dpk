@@ -180,6 +180,8 @@ contains
   TlpTlsStream in '..\..\Connection\TlpTlsStream.pas',
   TlpTlsConnection in '..\..\Connection\TlpTlsConnection.pas',
   TlpIHttpFetcher in '..\..\Interfaces\Trust\TlpIHttpFetcher.pas',
-  TlpLiveRevocation in '..\..\Trust\TlpLiveRevocation.pas';
+  TlpLiveRevocation in '..\..\Trust\TlpLiveRevocation.pas',
+  TlpITrustAnchorStore in '..\..\Interfaces\Trust\TlpITrustAnchorStore.pas',
+  TlpTrustAnchorStore in '..\..\Trust\TlpTrustAnchorStore.pas';
 
 end.

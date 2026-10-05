@@ -18,7 +18,8 @@ interface
 uses
   SysUtils,
   TlpCryptoDomainTypes,
-  TlpPkixDomainTypes;
+  TlpPkixDomainTypes,
+  TlpITrustAnchorStore;
 
 type
 
@@ -165,10 +166,12 @@ type
   /// boolean.
   /// </summary>
   ICertificatePathValidator = interface(IInterface)
-    ['{2457CB06-FD52-43D1-BAF4-ADF7D932FCD5}']
+    ['{7F7CB2B2-C167-452E-9166-A01BDBDA5FF1}']
     /// <summary>
-    /// Validates the DER chain (leaf first) to one of the DER trust anchors (RFC
-    /// 5280 path validation; revocation is out of band). Returns normally when the
+    /// Validates the DER chain (leaf first) to one of the store's trust anchors (RFC
+    /// 5280 path validation; revocation is out of band). A nil store or one with no anchors
+    /// raises unknown_ca. The store is immutable, so an implementation may cache work derived
+    /// from it by identity. Returns normally when the
     /// chain is trusted; on failure it raises a fatal-alert exception carrying the
     /// reason (certificate_expired / unknown_ca / bad_certificate). Every validity
     /// check (chain notBefore/notAfter and the PKIX path date) is evaluated at
@@ -188,9 +191,10 @@ type
     /// intermediate, never the anchor) that carries an EKU extension lacking the purpose
     /// is rejected with unsupported_certificate, while one with no EKU is unrestricted.
     /// </summary>
-    procedure ValidateCertificatePath(const AChain, ATrustAnchors,
-      AIntermediates: TArray<TBytes>; const AValidationTimeUtc: TDateTime;
-      AKeyPurpose: TCertKeyPurpose; var AEffectiveChain: TArray<TBytes>);
+    procedure ValidateCertificatePath(const AChain: TArray<TBytes>;
+      const ATrustAnchors: ITrustAnchorStore; const AIntermediates: TArray<TBytes>;
+      const AValidationTimeUtc: TDateTime; AKeyPurpose: TCertKeyPurpose;
+      var AEffectiveChain: TArray<TBytes>);
   end;
 
   /// <summary>
@@ -199,7 +203,7 @@ type
   /// malformed responder degrades to indeterminate rather than a hard failure.
   /// </summary>
   IRevocationChecker = interface(IInterface)
-    ['{B8D6113D-83F1-413C-921C-5D4CE9DCCEEF}']
+    ['{2705234F-EB3D-4A94-8A55-CBC82BD7E6FF}']
     /// <summary>
     /// Verifies a stapled OCSP response (RFC 6960) about the leaf certificate,
     /// in-band only - no network. Confirms the response is signed by the leaf's
@@ -228,11 +232,12 @@ type
       out ARequestDer: TBytes): Boolean;
     /// <summary>
     /// Reads the certificate's Authority Information Access extension (RFC 5280 4.2.2.1) and
-    /// returns the first id-ad-ocsp responder URL (an http/https accessLocation). Returns
-    /// False (no URL) when the extension is absent or carries no OCSP URI; never raises.
+    /// returns every id-ad-ocsp responder URL (an http/https accessLocation) in certificate
+    /// order, duplicates kept: choosing among them is the caller's fetch policy. Returns False
+    /// (empty) when the extension is absent or carries no such URI; never raises.
     /// </summary>
-    function TryGetOcspResponderUrl(const ACert: TBytes;
-      out AUrl: string): Boolean;
+    function TryGetOcspResponderUrls(const ACert: TBytes;
+      out AUrls: TArray<string>): Boolean;
     /// <summary>
     /// Reads the certificate's CRL Distribution Points extension (RFC 5280 4.2.1.13) and
     /// returns the full-name http/https URLs of the points the issuer serves itself (a point

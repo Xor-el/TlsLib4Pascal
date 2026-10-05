@@ -81,6 +81,7 @@ uses
   TlpBinaryPrimitives,
   TlpArrayUtilities,
   TlpIPkixProvider,
+  TlpITrustAnchorStore,
   TlpPkixDomainTypes,
   TlpTlsAlert,
   TlpDateTimeUtilities,
@@ -139,23 +140,33 @@ type
   TCertificatePathValidator = class(TInterfacedObject, ICertificatePathValidator)
   strict private
   type
-    // parsed trust anchors keyed by a digest of the anchor set, so a reused
-    // config does not re-parse its (possibly large) anchor store on every verify
+    // one cached anchor set: the store object it came from (held, so its identity cannot be
+    // reused while cached), the digest of its content, and the parsed anchors with their DERs
+    TTrustAnchorEntry = record
+      Store: ITrustAnchorStore;
+      Digest: TBytes;
+      Ders: TArray<TBytes>;
+      Anchors: TArray<ITrustAnchor>;
+    end;
+    // parsed trust anchors, so a reused config does not re-parse its (possibly large) anchor store
+    // on every verify. A store is immutable, so its identity finds its entry with no hashing; a new
+    // store object over content already parsed is found by digest instead of re-parsed.
     TTrustAnchorRing = record
     strict private
     const
       TrustAnchorCacheSize = Int32(8);
     strict private
-      FKeys: TArray<TBytes>;
-      FSets: TArray<TArray<ITrustAnchor>>;
+      FEntries: TArray<TTrustAnchorEntry>;
       FCount: Int32;
       FNext: Int32;
     public
       class function Init: TTrustAnchorRing; static;
-      function TryGet(const AKey: TBytes;
-        out AAnchors: TArray<ITrustAnchor>): Boolean;
-      procedure Remember(const AKey: TBytes;
-        const AAnchors: TArray<ITrustAnchor>);
+      function TryGetByStore(const AStore: ITrustAnchorStore;
+        out AEntry: TTrustAnchorEntry): Boolean;
+      function TryGetByDigest(const ADigest: TBytes;
+        out AEntry: TTrustAnchorEntry): Boolean;
+      procedure Remember(const AEntry: TTrustAnchorEntry);
+      procedure Rebind(const AEntry: TTrustAnchorEntry);
     end;
   class var
     FTrustAnchors: TTrustAnchorRing;
@@ -168,9 +179,10 @@ type
   public
     class constructor Create;
     class destructor Destroy;
-    procedure ValidateCertificatePath(const AChain, ATrustAnchors,
-      AIntermediates: TArray<TBytes>; const AValidationTimeUtc: TDateTime;
-      AKeyPurpose: TCertKeyPurpose; var AEffectiveChain: TArray<TBytes>);
+    procedure ValidateCertificatePath(const AChain: TArray<TBytes>;
+      const ATrustAnchors: ITrustAnchorStore; const AIntermediates: TArray<TBytes>;
+      const AValidationTimeUtc: TDateTime; AKeyPurpose: TCertKeyPurpose;
+      var AEffectiveChain: TArray<TBytes>);
   end;
 
   // IRevocationChecker - stapled-OCSP verification and the live OCSP/CRL primitives.
@@ -216,8 +228,8 @@ type
       out AThisUpdate, ANextUpdate: TDateTime): Boolean;
     function BuildOcspRequest(const ALeafCert, AIssuerCert: TBytes;
       out ARequestDer: TBytes): Boolean;
-    function TryGetOcspResponderUrl(const ACert: TBytes;
-      out AUrl: string): Boolean;
+    function TryGetOcspResponderUrls(const ACert: TBytes;
+      out AUrls: TArray<string>): Boolean;
     function TryGetCrlDistributionPoints(const ACert: TBytes;
       out AUrls: TArray<string>): Boolean;
     function CheckCrlRevocation(const ALeafCert, AIssuerCert, ACrlDer: TBytes;
@@ -524,32 +536,60 @@ end;
 
 class function TCertificatePathValidator.TTrustAnchorRing.Init: TTrustAnchorRing;
 begin
-  SetLength(Result.FKeys, TrustAnchorCacheSize);
-  SetLength(Result.FSets, TrustAnchorCacheSize);
+  SetLength(Result.FEntries, TrustAnchorCacheSize);
   Result.FCount := 0;
   Result.FNext := 0;
 end;
 
-function TCertificatePathValidator.TTrustAnchorRing.TryGet(const AKey: TBytes;
-  out AAnchors: TArray<ITrustAnchor>): Boolean;
+function TCertificatePathValidator.TTrustAnchorRing.TryGetByStore(
+  const AStore: ITrustAnchorStore; out AEntry: TTrustAnchorEntry): Boolean;
 var
   LI: Int32;
 begin
-  AAnchors := nil;
+  AEntry := Default(TTrustAnchorEntry);
   for LI := 0 to FCount - 1 do
-    if TArrayUtilities.AreEqual(FKeys[LI], AKey) then
+    if FEntries[LI].Store = AStore then
     begin
-      AAnchors := FSets[LI];
+      AEntry := FEntries[LI];
       Exit(True);
     end;
   Result := False;
 end;
 
-procedure TCertificatePathValidator.TTrustAnchorRing.Remember(const AKey: TBytes;
-  const AAnchors: TArray<ITrustAnchor>);
+function TCertificatePathValidator.TTrustAnchorRing.TryGetByDigest(
+  const ADigest: TBytes; out AEntry: TTrustAnchorEntry): Boolean;
+var
+  LI: Int32;
 begin
-  FKeys[FNext] := AKey;
-  FSets[FNext] := AAnchors;
+  AEntry := Default(TTrustAnchorEntry);
+  for LI := 0 to FCount - 1 do
+    if TArrayUtilities.AreEqual(FEntries[LI].Digest, ADigest) then
+    begin
+      AEntry := FEntries[LI];
+      Exit(True);
+    end;
+  Result := False;
+end;
+
+procedure TCertificatePathValidator.TTrustAnchorRing.Rebind(
+  const AEntry: TTrustAnchorEntry);
+var
+  LI: Int32;
+begin
+  for LI := 0 to FCount - 1 do
+    if TArrayUtilities.AreEqual(FEntries[LI].Digest, AEntry.Digest) then
+    begin
+      FEntries[LI].Store := AEntry.Store;
+      Exit;
+    end;
+  // evicted since the lookup
+  Remember(AEntry);
+end;
+
+procedure TCertificatePathValidator.TTrustAnchorRing.Remember(
+  const AEntry: TTrustAnchorEntry);
+begin
+  FEntries[FNext] := AEntry;
   FNext := (FNext + 1) mod TrustAnchorCacheSize;
   if FCount < TrustAnchorCacheSize then
     Inc(FCount);
@@ -599,9 +639,10 @@ begin
   Result := LDigest.DoFinal;
 end;
 
-procedure TCertificatePathValidator.ValidateCertificatePath(const AChain,
-  ATrustAnchors, AIntermediates: TArray<TBytes>; const AValidationTimeUtc: TDateTime;
-  AKeyPurpose: TCertKeyPurpose; var AEffectiveChain: TArray<TBytes>);
+procedure TCertificatePathValidator.ValidateCertificatePath(const AChain: TArray<TBytes>;
+  const ATrustAnchors: ITrustAnchorStore; const AIntermediates: TArray<TBytes>;
+  const AValidationTimeUtc: TDateTime; AKeyPurpose: TCertKeyPurpose;
+  var AEffectiveChain: TArray<TBytes>);
 
   // the anchor is identified the way the path validator identifies it - by subject name and
   // public key, not by exact encoding - so a re-encoded or re-issued same-key root the peer
@@ -619,7 +660,7 @@ procedure TCertificatePathValidator.ValidateCertificatePath(const AChain,
   // downstream chain-algorithm policy (which exempts the anchor by exact bytes) recognises it even
   // when the stored root is not canonical DER
   function ResolvedAnchorDer(const AAnchor: IX509Certificate;
-    const AParsedAnchors: TArray<ITrustAnchor>): TBytes;
+    const AParsedAnchors: TArray<ITrustAnchor>; const ADers: TArray<TBytes>): TBytes;
   var
     LJ: Int32;
   begin
@@ -629,7 +670,7 @@ procedure TCertificatePathValidator.ValidateCertificatePath(const AChain,
     for LJ := 0 to High(AParsedAnchors) do
       if TArrayUtilities.AreEqual(AParsedAnchors[LJ].TrustedCert.GetEncoded,
         AAnchor.GetEncoded) then
-        Exit(ATrustAnchors[LJ]);
+        Exit(ADers[LJ]);
     Result := AAnchor.GetEncoded; // resolved anchor not among the stored set: fall back to its DER
   end;
 
@@ -732,7 +773,7 @@ var
   LAnchorCert: IX509Certificate;
   LBuilt: TArray<IX509Certificate>;
   LPoolCount: Int32;
-  LAnchorKey: TBytes;
+  LEntry, LByDigest: TTrustAnchorEntry;
   LHit: Boolean;
   LTarget: IX509CertStoreSelector;
   LBuilderParams: IPkixBuilderParameters;
@@ -761,32 +802,48 @@ begin
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.BadCertificate, @SBadCertificate);
 
-  if System.Length(ATrustAnchors) = 0 then
+  if (ATrustAnchors = nil) or (ATrustAnchors.AnchorCount = 0) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.UnknownCa, @SUntrustedChain);
 
-  // parsing the anchor store dominates a reused-config verify, so memoise the
-  // parsed anchors keyed by a digest of the anchor set; the parse itself runs
-  // outside the lock so concurrent cold verifies do not serialise on it
-  LAnchorKey := TrustAnchorKey(ATrustAnchors);
+  // parsing the anchor store dominates a reused-config verify, so memoise the parsed anchors. A
+  // store is immutable, so its identity finds them with no hashing; a new store object over
+  // content already parsed is matched by a digest computed here (never taken from the store). The
+  // parse itself runs outside the lock so concurrent cold verifies do not serialise on it.
   FTrustAnchorLock.Acquire;
   try
-    LHit := FTrustAnchors.TryGet(LAnchorKey, LAnchors);
+    LHit := FTrustAnchors.TryGetByStore(ATrustAnchors, LEntry);
   finally
     FTrustAnchorLock.Release;
   end;
 
   if not LHit then
   begin
+    LEntry := Default(TTrustAnchorEntry);
+    LEntry.Store := ATrustAnchors;
+    LEntry.Ders := ATrustAnchors.RootCertificates;
+    LEntry.Digest := TrustAnchorKey(LEntry.Ders);
+    FTrustAnchorLock.Acquire;
     try
-      SetLength(LAnchors, System.Length(ATrustAnchors));
-      for LI := 0 to High(ATrustAnchors) do
+      LHit := FTrustAnchors.TryGetByDigest(LEntry.Digest, LByDigest);
+    finally
+      FTrustAnchorLock.Release;
+    end;
+    if LHit then
+    begin
+      LEntry.Ders := LByDigest.Ders;
+      LEntry.Anchors := LByDigest.Anchors;
+    end
+    else
+    try
+      SetLength(LEntry.Anchors, System.Length(LEntry.Ders));
+      for LI := 0 to High(LEntry.Ders) do
       begin
-        LAnchorCert := LParser.ReadCertificate(ATrustAnchors[LI]);
+        LAnchorCert := LParser.ReadCertificate(LEntry.Ders[LI]);
         if LAnchorCert = nil then
           raise EFatalAlertTlsLibException.CreateRes(
             TTlsAlertDescription.UnknownCa, @SUntrustedChain);
-        LAnchors[LI] := TTrustAnchor.Create(LAnchorCert, nil);
+        LEntry.Anchors[LI] := TTrustAnchor.Create(LAnchorCert, nil);
       end;
     except
       on E: ECryptoLibException do
@@ -795,11 +852,17 @@ begin
     end;
     FTrustAnchorLock.Acquire;
     try
-      FTrustAnchors.Remember(LAnchorKey, LAnchors);
+      // content already cached moves to this store's identity rather than taking another slot, so
+      // rebuilding one config over and over cannot push other configs' anchors out of the ring
+      if LHit then
+        FTrustAnchors.Rebind(LEntry)
+      else
+        FTrustAnchors.Remember(LEntry);
     finally
       FTrustAnchorLock.Release;
     end;
   end;
+  LAnchors := LEntry.Anchors;
 
   // parse any configured intermediates; they pool with the presented certificates so an
   // incomplete chain can still be completed to an anchor (the sans-IO stand-in for AIA fetching).
@@ -878,7 +941,7 @@ begin
       TTlsAlertDescription.UnknownCa, @SUntrustedChain);
   EnforcePurpose(LBuilt, LBuildResult.TrustAnchor.TrustedCert);
   EmitPath(LBuilt, LBuildResult.TrustAnchor.TrustedCert,
-    ResolvedAnchorDer(LBuildResult.TrustAnchor.TrustedCert, LAnchors));
+    ResolvedAnchorDer(LBuildResult.TrustAnchor.TrustedCert, LAnchors, LEntry.Ders));
 end;
 
 class function TRevocationChecker.OcspDelegatedResponder(const AResponderCert,
@@ -1052,8 +1115,8 @@ begin
   end;
 end;
 
-function TRevocationChecker.TryGetOcspResponderUrl(const ACert: TBytes;
-  out AUrl: string): Boolean;
+function TRevocationChecker.TryGetOcspResponderUrls(const ACert: TBytes;
+  out AUrls: TArray<string>): Boolean;
 var
   LParser: IX509CertificateParser;
   LCert: IX509Certificate;
@@ -1065,7 +1128,7 @@ var
   LI: Int32;
 begin
   Result := False;
-  AUrl := '';
+  AUrls := nil;
   if System.Length(ACert) = 0 then
     Exit;
   try
@@ -1087,15 +1150,13 @@ begin
         begin
           // an entry with another scheme is skipped: a later http(s) responder may still serve it
           if IsFetchableUrl(LIa5.GetString) then
-          begin
-            AUrl := LIa5.GetString;
-            Exit(True);
-          end;
+            TArrayUtilities.Append<string>(AUrls, LIa5.GetString);
         end;
       end;
+    Result := System.Length(AUrls) > 0;
   except
     Result := False;
-    AUrl := '';
+    AUrls := nil;
   end;
 end;
 

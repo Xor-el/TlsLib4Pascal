@@ -39,6 +39,8 @@ uses
   TlpHandshakeMessage,
   TlpHandshakeMessages,
   TlpICertificateTrust,
+  TlpITrustAnchorStore,
+  TlpTrustAnchorStore,
   TlpServerName,
   TlpCertificateLimits,
   TlpCertificateVerifier,

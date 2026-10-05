@@ -64,10 +64,42 @@ type
     function Accepts(const AChecker: TLiveRevocationChecker;
       const AChain: TArray<TBytes>): Boolean;
     function NowUtc: TDateTime;
+    // scripted responders: the spy lists the URLs, the fetcher answers each one and takes time on
+    // the mock clock, and the checker runs under a total budget
+    procedure Arrange(AMethod: TLiveRevocationMethod; ADeadlineMs: Cardinal;
+      const AOcspUrls, ACrlUrls: TArray<string>);
+    procedure CheckUrls(const AExpected: array of string; const AActual: TArray<string>;
+      const AMessage: string);
+    procedure CheckTimeouts(const AExpected: array of Cardinal;
+      const AActual: TArray<Cardinal>; const AMessage: string);
+  strict private
+  var
+    FClock: TMockClock;
+    FClockRef: ITlsClock;
+    FFetcher: TMockHttpFetcher;
+    FFetcherRef: IHttpFetcher;
+    FSpy: TSpyPkixProvider;
+    FSpyRef: IPkixProvider;
+    FChecker: TLiveRevocationChecker;
   published
     // provider primitives
     procedure TestOcspResponderUrlExtracted;
+    procedure TestOcspResponderUrlsExtractedInOrder;
     procedure TestOnlyHttpAccessLocationsAreReturned;
+    // every responder, one shared budget
+    procedure TestDeadFirstResponderFallsThroughToSecond;
+    procedure TestRevokedOnSecondResponderRejects;
+    procedure TestConclusiveAnswerStopsIteration;
+    procedure TestDuplicateResponderQueriedOnce;
+    procedure TestResponderCapBoundsAttempts;
+    procedure TestSharedDeadlineStopsFurtherAttempts;
+    procedure TestDeadlineSpansOcspAndCrl;
+    procedure TestPerAttemptTimeoutIsFairShare;
+    procedure TestFloorFrontLoadsAndStops;
+    procedure TestBudgetBelowFloorStillAttemptsOnce;
+    procedure TestZeroBudgetLeavesTimeoutToFetcher;
+    procedure TestClockStepBackDoesNotGiveBackSpentTime;
+    procedure TestCrlUrlsDistinctAndCapped;
     procedure TestCrlDistributionPointsExtracted;
     procedure TestBuildOcspRequestNonEmpty;
     procedure TestCertificatePeerInfoExtracted;
@@ -222,26 +254,272 @@ begin
   Result := AChecker.ResolveVerdict(LCtx, LAlert);
 end;
 
+procedure TTestLiveRevocation.CheckUrls(const AExpected: array of string;
+  const AActual: TArray<string>; const AMessage: string);
+var
+  LI: Int32;
+begin
+  CheckEquals(System.Length(AExpected), System.Length(AActual), AMessage + ' (count)');
+  for LI := 0 to System.High(AExpected) do
+    CheckEquals(AExpected[LI], AActual[LI], AMessage + ' (#' + IntToStr(LI) + ')');
+end;
+
+procedure TTestLiveRevocation.CheckTimeouts(const AExpected: array of Cardinal;
+  const AActual: TArray<Cardinal>; const AMessage: string);
+var
+  LI: Int32;
+begin
+  CheckEquals(System.Length(AExpected), System.Length(AActual), AMessage + ' (count)');
+  for LI := 0 to System.High(AExpected) do
+    CheckEquals(AExpected[LI], AActual[LI], AMessage + ' (#' + IntToStr(LI) + ')');
+end;
+
+procedure TTestLiveRevocation.Arrange(AMethod: TLiveRevocationMethod; ADeadlineMs: Cardinal;
+  const AOcspUrls, ACrlUrls: TArray<string>);
+begin
+  FClockRef := nil;
+  FFetcherRef := nil;
+  FSpyRef := nil;
+  FClock := TMockClock.Create(UInt64(TDateTimeUtilities.CurrentUnixMs));
+  FClockRef := FClock as ITlsClock;
+  FFetcher := TMockHttpFetcher.Create;
+  FFetcherRef := FFetcher as IHttpFetcher;
+  FFetcher.AttachClock(FClock);
+  FSpy := TSpyPkixProvider.Create(Pkix);
+  FSpyRef := FSpy as IPkixProvider;
+  if AOcspUrls <> nil then
+    FSpy.OverrideOcspUrls(AOcspUrls);
+  if ACrlUrls <> nil then
+    FSpy.OverrideCrlUrls(ACrlUrls);
+  FChecker := Own<TLiveRevocationChecker>(TLiveRevocationChecker.Create(FSpyRef, FClockRef,
+    FFetcherRef, TRevocationPosture.Hard, AMethod, ADeadlineMs));
+end;
+
 procedure TTestLiveRevocation.TestOcspResponderUrlExtracted;
 var
-  LUrl: string;
+  LUrls: TArray<string>;
 begin
-  CheckTrue(Pkix.Revocation.TryGetOcspResponderUrl(LeafCert, LUrl),
+  CheckTrue(Pkix.Revocation.TryGetOcspResponderUrls(LeafCert, LUrls),
     'the leaf AIA carries an OCSP responder URL');
-  CheckEquals('http://ocsp.tlslib.test/', LUrl, 'the OCSP URL is extracted verbatim');
+  CheckUrls(['http://ocsp.tlslib.test/'], LUrls, 'the OCSP URL is extracted verbatim');
+end;
+
+procedure TTestLiveRevocation.TestOcspResponderUrlsExtractedInOrder;
+var
+  LUrls: TArray<string>;
+begin
+  // every http(s) responder in certificate order, the ldap entry skipped, the repeat kept (the
+  // checker, not the provider, decides what to fetch)
+  CheckTrue(Pkix.Revocation.TryGetOcspResponderUrls(Field('multi_ocsp_cert'), LUrls),
+    'the certificate lists several responders');
+  CheckUrls(['http://a.test/', 'http://b.test/', 'http://a.test/', 'https://c.test/',
+    'http://d.test/'], LUrls, 'the fetchable responders in order');
+end;
+
+procedure TTestLiveRevocation.TestDeadFirstResponderFallsThroughToSecond;
+var
+  LA, LB: string;
+begin
+  LA := 'http://a.test/';
+  LB := 'http://b.test/';
+  Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create(LA, LB), nil);
+  FFetcher.ScriptPost(LA, False, nil, 0);
+  FFetcher.ScriptPost(LB, True, OcspGood, 0);
+  CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Good,
+    'the live second responder settles it');
+  CheckUrls([LA, LB], FFetcher.PostUrls, 'both responders were asked, in order');
+  // control: with only the dead responder there is nothing to fall through to
+  Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create(LA), nil);
+  FFetcher.ScriptPost(LA, False, nil, 0);
+  CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Indeterminate,
+    'a lone dead responder is indeterminate');
+end;
+
+procedure TTestLiveRevocation.TestRevokedOnSecondResponderRejects;
+var
+  LA, LB: string;
+begin
+  LA := 'http://a.test/';
+  LB := 'http://b.test/';
+  Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create(LA, LB), nil);
+  // the first answers with garbage, which is indeterminate, not an answer
+  FFetcher.ScriptPost(LA, True, TBytes.Create(1, 2, 3), 0);
+  FFetcher.ScriptPost(LB, True, OcspRevoked, 0);
+  CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Revoked,
+    'a revocation from the second responder is found');
+  Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create(LA, LB), nil);
+  FFetcher.ScriptPost(LA, True, TBytes.Create(1, 2, 3), 0);
+  FFetcher.ScriptPost(LB, True, OcspGood, 0);
+  CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Good,
+    'control: the same layout with a good second answer is good');
+end;
+
+procedure TTestLiveRevocation.TestConclusiveAnswerStopsIteration;
+var
+  LA, LB: string;
+begin
+  LA := 'http://a.test/';
+  LB := 'http://b.test/';
+  Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create(LA, LB), nil);
+  FFetcher.ScriptPost(LA, True, OcspGood, 0);
+  FFetcher.ScriptPost(LB, True, OcspRevoked, 0);
+  CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Good, 'the first answer stands');
+  CheckEquals(1, FFetcher.PostCount, 'no further responder is asked after a conclusive answer');
+  // a revocation is just as conclusive: it is never traded for a later good answer
+  Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create(LA, LB), nil);
+  FFetcher.ScriptPost(LA, True, OcspRevoked, 0);
+  FFetcher.ScriptPost(LB, True, OcspGood, 0);
+  CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Revoked, 'a revocation stands');
+  CheckEquals(1, FFetcher.PostCount, 'and stops the search');
+end;
+
+procedure TTestLiveRevocation.TestDuplicateResponderQueriedOnce;
+var
+  LA, LB: string;
+begin
+  LA := 'http://a.test/';
+  LB := 'http://b.test/';
+  Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create(LA, LA, LB), nil);
+  FFetcher.ScriptPost(LA, False, nil, 0);
+  FFetcher.ScriptPost(LB, False, nil, 0);
+  FChecker.Evaluate(Chain);
+  CheckUrls([LA, LB], FFetcher.PostUrls, 'a repeated responder is asked once');
+end;
+
+procedure TTestLiveRevocation.TestResponderCapBoundsAttempts;
+begin
+  Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://a.test/',
+    'http://b.test/', 'http://c.test/', 'http://d.test/', 'http://e.test/'), nil);
+  FChecker.Evaluate(Chain);
+  CheckEquals(3, FFetcher.PostCount, 'at most three responders are asked');
+end;
+
+procedure TTestLiveRevocation.TestSharedDeadlineStopsFurtherAttempts;
+var
+  LA, LB: string;
+begin
+  LA := 'http://a.test/';
+  LB := 'http://b.test/';
+  // the first responder spends the whole budget, so the second is never asked
+  Arrange(TLiveRevocationMethod.Ocsp, 1000, TArray<string>.Create(LA, LB), nil);
+  FFetcher.ScriptPost(LA, False, nil, 1000);
+  FFetcher.ScriptPost(LB, True, OcspGood, 0);
+  CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Indeterminate,
+    'a spent budget ends the check indeterminate');
+  CheckEquals(1, FFetcher.PostCount, 'the second responder is not asked');
+  // control: a fast failure leaves the budget for the second responder
+  Arrange(TLiveRevocationMethod.Ocsp, 1000, TArray<string>.Create(LA, LB), nil);
+  FFetcher.ScriptPost(LA, False, nil, 10);
+  FFetcher.ScriptPost(LB, True, OcspGood, 0);
+  CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Good,
+    'with budget left the second responder answers');
+end;
+
+procedure TTestLiveRevocation.TestDeadlineSpansOcspAndCrl;
+var
+  LA, LC: string;
+begin
+  LA := 'http://a.test/';
+  LC := 'http://c.test/ca.crl';
+  Arrange(TLiveRevocationMethod.OcspThenCrl, 1000, TArray<string>.Create(LA),
+    TArray<string>.Create(LC));
+  FFetcher.ScriptPost(LA, False, nil, 1000);
+  FChecker.Evaluate(Chain);
+  CheckEquals(0, FFetcher.GetCount, 'an OCSP attempt that spent the budget leaves none for the CRL');
+  Arrange(TLiveRevocationMethod.OcspThenCrl, 1000, TArray<string>.Create(LA),
+    TArray<string>.Create(LC));
+  FFetcher.ScriptPost(LA, False, nil, 10);
+  FChecker.Evaluate(Chain);
+  CheckEquals(1, FFetcher.GetCount, 'control: a fast OCSP failure leaves the CRL its turn');
+end;
+
+procedure TTestLiveRevocation.TestPerAttemptTimeoutIsFairShare;
+begin
+  // two OCSP attempts and one CRL share 3000 ms; each failure is instant, so each attempt gets its
+  // share of what is left and the last one gets all of it
+  Arrange(TLiveRevocationMethod.OcspThenCrl, 3000,
+    TArray<string>.Create('http://a.test/', 'http://b.test/'),
+    TArray<string>.Create('http://c.test/ca.crl'));
+  FChecker.Evaluate(Chain);
+  CheckTimeouts([1000, 1500], FFetcher.PostTimeouts, 'the OCSP attempts split the budget');
+  CheckTimeouts([3000], FFetcher.GetTimeouts, 'the CRL attempt gets what is left');
+end;
+
+procedure TTestLiveRevocation.TestFloorFrontLoadsAndStops;
+var
+  LA, LB, LC: string;
+begin
+  LA := 'http://a.test/';
+  LB := 'http://b.test/';
+  LC := 'http://c.test/';
+  // each attempt burns the 250 ms floor it was given, so the third has under a floor left
+  Arrange(TLiveRevocationMethod.Ocsp, 600, TArray<string>.Create(LA, LB, LC), nil);
+  FFetcher.ScriptPost(LA, False, nil, 250);
+  FFetcher.ScriptPost(LB, False, nil, 250);
+  FFetcher.ScriptPost(LC, False, nil, 250);
+  FChecker.Evaluate(Chain);
+  CheckTimeouts([250, 250], FFetcher.PostTimeouts, 'no attempt is given less than the floor');
+end;
+
+procedure TTestLiveRevocation.TestBudgetBelowFloorStillAttemptsOnce;
+begin
+  Arrange(TLiveRevocationMethod.Ocsp, 100, TArray<string>.Create('http://a.test/'), nil);
+  FChecker.Evaluate(Chain);
+  CheckTimeouts([100], FFetcher.PostTimeouts,
+    'a budget below the floor is still spent on one attempt, not turned into no check');
+end;
+
+procedure TTestLiveRevocation.TestZeroBudgetLeavesTimeoutToFetcher;
+var
+  LA, LB, LC: string;
+begin
+  LA := 'http://a.test/';
+  LB := 'http://b.test/';
+  LC := 'http://c.test/';
+  // no budget means no shared deadline: every attempt runs with the fetcher's own timeout, however
+  // long the earlier ones took
+  Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create(LA, LB, LC), nil);
+  FFetcher.ScriptPost(LA, False, nil, 3600000);
+  FFetcher.ScriptPost(LB, False, nil, 3600000);
+  FChecker.Evaluate(Chain);
+  CheckEquals(3, FFetcher.PostCount, 'every capped attempt runs');
+  CheckTimeouts([0, 0, 0], FFetcher.PostTimeouts, 'each is left to the fetcher');
+end;
+
+procedure TTestLiveRevocation.TestClockStepBackDoesNotGiveBackSpentTime;
+begin
+  // the first attempt spends 2000 of 3000 ms, then the clock steps back 5 s: the last attempt must
+  // still be offered only the 1000 ms that is left, not a restored budget
+  Arrange(TLiveRevocationMethod.Ocsp, 3000, TArray<string>.Create('http://a.test/',
+    'http://b.test/', 'http://c.test/'), nil);
+  FFetcher.ScriptPost('http://a.test/', False, nil, 2000);
+  FFetcher.ScriptPost('http://b.test/', False, nil, -5000);
+  FChecker.Evaluate(Chain);
+  CheckTimeouts([1000, 500, 1000], FFetcher.PostTimeouts,
+    'time already spent is not returned by a clock step back');
+end;
+
+procedure TTestLiveRevocation.TestCrlUrlsDistinctAndCapped;
+begin
+  Arrange(TLiveRevocationMethod.Crl, 0, nil, TArray<string>.Create('http://a.test/1.crl',
+    'http://a.test/1.crl', 'http://b.test/2.crl', 'http://c.test/3.crl', 'http://d.test/4.crl',
+    'http://e.test/5.crl'));
+  FChecker.Evaluate(Chain);
+  CheckUrls(['http://a.test/1.crl', 'http://b.test/2.crl', 'http://c.test/3.crl'],
+    FFetcher.GetUrls, 'a repeated distribution point is fetched once and only three are tried');
 end;
 
 procedure TTestLiveRevocation.TestOnlyHttpAccessLocationsAreReturned;
 var
-  LUrl: string;
+  LOcsp: TArray<string>;
   LUrls: TArray<string>;
 begin
   // the access locations come from the peer's certificate, so only http(s) is ever handed to a
   // fetcher: the ldap and file OCSP entries are skipped for the later HTTP one, and the ldap and
   // ftp distribution points are dropped
-  CheckTrue(Pkix.Revocation.TryGetOcspResponderUrl(Field('scheme_cert'), LUrl),
+  CheckTrue(Pkix.Revocation.TryGetOcspResponderUrls(Field('scheme_cert'), LOcsp),
     'the HTTP responder after the other schemes is found');
-  CheckEquals('HTTP://ocsp.good.test/', LUrl, 'the http responder is the one returned');
+  CheckUrls(['HTTP://ocsp.good.test/'], LOcsp, 'the http responder is the one returned');
   CheckTrue(Pkix.Revocation.TryGetCrlDistributionPoints(Field('scheme_cert'), LUrls),
     'the https distribution point is found');
   CheckEquals(1, System.Length(LUrls), 'only the https distribution point survives');

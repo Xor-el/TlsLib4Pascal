@@ -36,6 +36,7 @@ uses
   TlpIPkixProvider,
   TlpDefaultPkixProvider,
   TlpICertificateTrust,
+  TlpITrustAnchorStore,
   TlpTrustPolicy,
   TlpTrustTypes,
   TlpTlsCredential,

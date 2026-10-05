@@ -41,6 +41,8 @@ uses
   TlpHandshakeMessage,
   TlpHandshakeMessages,
   TlpICertificateTrust,
+  TlpITrustAnchorStore,
+  TlpTrustAnchorStore,
   TlpICryptoProvider,
   TlpIPkixProvider,
   TlpCryptoDomainTypes,
