@@ -20,6 +20,7 @@ uses
   TlpDefaultCryptoProvider,
   TlpDefaultPkixProvider,
   TlpICertificateTrust,
+  TlpITrustAnchorStore,
   TlpTlsCredential,
   TlpITlsConfig,
   TlpITlsConfigBuilder,

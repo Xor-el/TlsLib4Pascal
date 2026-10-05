@@ -40,7 +40,7 @@ type
   TRealPeerRevocationProbeExample = class sealed(TObject)
   strict private
     const
-      FetchTimeoutMs = Cardinal(20000);
+      FetchBudgetMs = Cardinal(20000);
     /// <summary>Walks up from the executable directory to find the shared test vector, so the
     /// example runs from any build/output location - no machine-specific path.</summary>
     class function FindVector: string; static;
@@ -133,7 +133,7 @@ begin
     LFetcher := TSocketHttpFetcher.Create;
     // hard-fail posture over the live CRL distribution points
     LChecker := TLiveRevocationChecker.Create(LPkix, TSystemClock.Create as ITlsClock,
-      LFetcher, TRevocationPosture.Hard, TLiveRevocationMethod.Crl, FetchTimeoutMs);
+      LFetcher, TRevocationPosture.Hard, TLiveRevocationMethod.Crl, FetchBudgetMs);
 
     LRevoked := LChecker.Evaluate(LRevokedChain);
     LGood := LChecker.Evaluate(LGoodChain);

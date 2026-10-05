@@ -38,6 +38,8 @@ uses
   TlpInMemorySessionStore,
   TlpICryptoProvider,
   TlpICertificateTrust,
+  TlpITrustAnchorStore,
+  TlpTrustAnchorStore,
   TlpICertificateVerifierSource,
   TlpTrustTypes,
   TlpTlsAlert,
@@ -1145,9 +1147,9 @@ var
   LMsg: string;
 begin
   // a single union store whose children are all empty still yields zero roots: refused, not hidden
-  LUnion := TUnionTrustAnchorStore.Create(TArray<ITrustAnchorStore>.Create(
+  LUnion := TTrustAnchorStore.Union(TArray<ITrustAnchorStore>.Create(
     TTrustAnchorStore.Create(nil) as ITrustAnchorStore,
-    TTrustAnchorStore.Create(nil) as ITrustAnchorStore)) as ITrustAnchorStore;
+    TTrustAnchorStore.Create(nil) as ITrustAnchorStore));
   LMsg := '';
   try
     TTlsPresets.Compatible(Crypto, Pkix).Client.WithTrustStore(LUnion).Build;

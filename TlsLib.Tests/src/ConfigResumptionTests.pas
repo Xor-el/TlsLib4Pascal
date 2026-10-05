@@ -29,6 +29,8 @@ uses
   TlpTlsVersion,
   TlpICryptoProvider,
   TlpICertificateTrust,
+  TlpITrustAnchorStore,
+  TlpTrustAnchorStore,
   TlpTrustTypes,
   TlpCertificateVerifier,
   TlpServerName,

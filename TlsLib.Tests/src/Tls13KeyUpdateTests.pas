@@ -27,6 +27,8 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpICertificateTrust,
+  TlpITrustAnchorStore,
+  TlpTrustAnchorStore,
   TlpCertificateVerifier,
   TlpTlsCredential,
   TlpTlsPresets,

@@ -19,6 +19,7 @@ uses
   SysUtils,
   TlpIPkixProvider,
   TlpICertificateTrust,
+  TlpITrustAnchorStore,
   TlpICertificateVerifierSource,
   TlpITlsConfig,
   TlpTrustPolicy,

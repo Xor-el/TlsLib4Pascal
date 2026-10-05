@@ -21,6 +21,7 @@ uses
   TlpINegotiation,
   TlpNegotiationTypes,
   TlpICertificateTrust,
+  TlpITrustAnchorStore,
   TlpICertificateVerifierSource,
   TlpICertificateCompression,
   TlpICertificateCompressionCache,

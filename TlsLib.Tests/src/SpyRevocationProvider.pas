@@ -38,6 +38,8 @@ type
     FInner: IPkixProvider;
     FOcspParseCount: Integer;
     FCrlParseCount: Integer;
+    FOcspUrlsOverridden, FCrlUrlsOverridden: Boolean;
+    FOcspUrls, FCrlUrls: TArray<string>;
     // IPkixProvider
     function Certificates: ICertificateInspector;
     function PathValidation: ICertificatePathValidator;
@@ -48,7 +50,8 @@ type
       out AThisUpdate, ANextUpdate: TDateTime): Boolean;
     function BuildOcspRequest(const ALeafCert, AIssuerCert: TBytes;
       out ARequestDer: TBytes): Boolean;
-    function TryGetOcspResponderUrl(const ACert: TBytes; out AUrl: string): Boolean;
+    function TryGetOcspResponderUrls(const ACert: TBytes;
+      out AUrls: TArray<string>): Boolean;
     function TryGetCrlDistributionPoints(const ACert: TBytes;
       out AUrls: TArray<string>): Boolean;
     function CheckCrlRevocation(const ALeafCert, AIssuerCert, ACrlDer: TBytes;
@@ -58,6 +61,12 @@ type
       out AIssuerCert: TBytes): Boolean;
   public
     constructor Create(const AInner: IPkixProvider);
+    /// <summary>Makes the provider report AUrls as the certificate's OCSP responders, whatever the
+    /// certificate carries, so a checker test can script the responder list with the fixtures'
+    /// own signed responses (an OCSP response is bound to the certificate, not to the URL).</summary>
+    procedure OverrideOcspUrls(const AUrls: TArray<string>);
+    /// <summary>As OverrideOcspUrls, for the CRL distribution points.</summary>
+    procedure OverrideCrlUrls(const AUrls: TArray<string>);
     property OcspParseCount: Integer read FOcspParseCount;
     property CrlParseCount: Integer read FCrlParseCount;
   end;
@@ -102,15 +111,37 @@ begin
   Result := FInner.Revocation.BuildOcspRequest(ALeafCert, AIssuerCert, ARequestDer);
 end;
 
-function TSpyPkixProvider.TryGetOcspResponderUrl(const ACert: TBytes;
-  out AUrl: string): Boolean;
+procedure TSpyPkixProvider.OverrideOcspUrls(const AUrls: TArray<string>);
 begin
-  Result := FInner.Revocation.TryGetOcspResponderUrl(ACert, AUrl);
+  FOcspUrlsOverridden := True;
+  FOcspUrls := AUrls;
+end;
+
+procedure TSpyPkixProvider.OverrideCrlUrls(const AUrls: TArray<string>);
+begin
+  FCrlUrlsOverridden := True;
+  FCrlUrls := AUrls;
+end;
+
+function TSpyPkixProvider.TryGetOcspResponderUrls(const ACert: TBytes;
+  out AUrls: TArray<string>): Boolean;
+begin
+  if FOcspUrlsOverridden then
+  begin
+    AUrls := System.Copy(FOcspUrls);
+    Exit(System.Length(AUrls) > 0);
+  end;
+  Result := FInner.Revocation.TryGetOcspResponderUrls(ACert, AUrls);
 end;
 
 function TSpyPkixProvider.TryGetCrlDistributionPoints(const ACert: TBytes;
   out AUrls: TArray<string>): Boolean;
 begin
+  if FCrlUrlsOverridden then
+  begin
+    AUrls := System.Copy(FCrlUrls);
+    Exit(System.Length(AUrls) > 0);
+  end;
   Result := FInner.Revocation.TryGetCrlDistributionPoints(ACert, AUrls);
 end;
 

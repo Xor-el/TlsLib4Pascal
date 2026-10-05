@@ -29,6 +29,8 @@ uses
   TlpINegotiation,
   TlpNegotiationTypes,
   TlpICertificateTrust,
+  TlpITrustAnchorStore,
+  TlpTrustAnchorStore,
   TlpTrustTypes,
   TlpICertificateVerifierSource,
   TlpCertificateVerifier,
@@ -102,6 +104,8 @@ type
     // anchor contributions accumulate (union); a whole-verifier is exclusive of them.
     // Only the endpoint-appropriate slot is ever set (the facet is chosen up front).
     FAnchorStores: TArray<ITrustAnchorStore>;
+    // the union of FAnchorStores, built when first needed and dropped when a store is added
+    FComposedTrust: ITrustAnchorStore;
     FServerCertVerifier: IServerCertificateVerifier;
     FServerVerifierSource: IServerCertificateVerifierSource;
     FClientCertVerifier: IClientCertificateVerifier;
@@ -1885,7 +1889,10 @@ begin
   GuardMutable;
   // anchor sources accumulate (union); a nil store is ignored
   if AStore <> nil then
+  begin
     TArrayUtilities.Append<ITrustAnchorStore>(FAnchorStores, AStore);
+    FComposedTrust := nil;
+  end;
   Result := Self;
 end;
 
@@ -1895,6 +1902,7 @@ begin
   TArrayUtilities.Append<ITrustAnchorStore>(FAnchorStores,
     TTrustAnchorStore.Create(FPkix.Certificates.LoadChain(AData))
     as ITrustAnchorStore);
+  FComposedTrust := nil;
   Result := Self;
 end;
 
@@ -1950,26 +1958,21 @@ end;
 
 function TTlsConfigBuilder.HasAnchorRoots: Boolean;
 var
-  LI: Int32;
+  LStore: ITrustAnchorStore;
 begin
-  // fail closed: a nil entry or a store with no roots counts as no source
-  for LI := 0 to System.High(FAnchorStores) do
-    if (FAnchorStores[LI] <> nil) and
-      (System.Length(FAnchorStores[LI].RootCertificates) > 0) then
-      Exit(True);
-  Result := False;
+  // fail closed: no store, or a composed store left with no anchor (a distrusted root is not one),
+  // counts as no source
+  LStore := ComposeTrustStore;
+  Result := (LStore <> nil) and (LStore.AnchorCount > 0);
 end;
 
 function TTlsConfigBuilder.ComposeTrustStore: ITrustAnchorStore;
 begin
-  case System.Length(FAnchorStores) of
-    0:
-      Result := nil;
-    1:
-      Result := FAnchorStores[0];
-  else
-    Result := TUnionTrustAnchorStore.Create(FAnchorStores);
-  end;
+  if System.Length(FAnchorStores) = 0 then
+    Exit(nil);
+  if FComposedTrust = nil then
+    FComposedTrust := TTrustAnchorStore.Union(FAnchorStores);
+  Result := FComposedTrust;
 end;
 
 procedure TTlsConfigBuilder.ValidateTrustComposition;

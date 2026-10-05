@@ -39,6 +39,7 @@ uses
   TlpIPkixProvider,
   TlpDefaultPkixProvider,
   TlpICertificateTrust,
+  TlpITrustAnchorStore,
   TlpTrustTypes,
   TlpICertificateVerifierSource,
   TlpTrustPolicy,
@@ -1459,11 +1460,10 @@ procedure TTestOSDelegateTemplate.TestSnapshotCarriesFilteredDistrustSet;
 var
   LProbe: TFilterRootsProbe;
   LStore: ITrustAnchorStore;
-  LDistrust: IDistrustingTrustAnchorStore;
   LRoot, LDistrusted: TBytes;
 begin
-  // the snapshot is a distrusting store: the distrust set is filtered like the roots (junk and
-  // duplicates dropped) and a root the source also distrusts is not an anchor
+  // the snapshot carries the distrust set, filtered like the roots (junk and duplicates dropped),
+  // and a root the source also distrusts is not an anchor
   LRoot := OcspChain[0];
   LDistrusted := OcspChain[1];
   LProbe := TFilterRootsProbe.Create(FPkix);
@@ -1474,11 +1474,9 @@ begin
   finally
     LProbe.Free;
   end;
-  CheckTrue(Supports(LStore, IDistrustingTrustAnchorStore, LDistrust),
-    'a snapshot carries the distrust set');
-  CheckEquals(1, System.Length(LDistrust.DistrustedCertificates),
+  CheckEquals(1, System.Length(LStore.DistrustedCertificates),
     'the distrust set is de-duplicated and the junk dropped');
-  CheckTrue(LDistrust.IsDistrusted(LDistrusted), 'the distrusted certificate matches');
+  CheckTrue(LStore.IsDistrusted(LDistrusted), 'the distrusted certificate matches');
   CheckEquals(1, System.Length(LStore.RootCertificates),
     'a root the source distrusts is not an anchor');
   CheckEqualBytes('the surviving anchor', LRoot, LStore.RootCertificates[0]);
@@ -1772,16 +1770,15 @@ end;
 procedure TSystemTrustAnchorContractTestBase.TestNoHarvestedRootIsDistrusted;
 var
   LRoots: TArray<TBytes>;
-  LDistrust: IDistrustingTrustAnchorStore;
+  LStore: ITrustAnchorStore;
   LI: Integer;
 begin
   if not HarvestOrSkip(LRoots) then
     Exit;
-  // a snapshot that carries a distrust set never lists a distrusted certificate as an anchor
-  if not Supports(CreateAnchorStore, IDistrustingTrustAnchorStore, LDistrust) then
-    Exit;
+  // a snapshot never lists a distrusted certificate as an anchor
+  LStore := CreateAnchorStore;
   for LI := 0 to System.Length(LRoots) - 1 do
-    CheckFalse(LDistrust.IsDistrusted(LRoots[LI]),
+    CheckFalse(LStore.IsDistrusted(LRoots[LI]),
       Format('%s harvested root %d is also distrusted', [PlatformName, LI]));
 end;
 

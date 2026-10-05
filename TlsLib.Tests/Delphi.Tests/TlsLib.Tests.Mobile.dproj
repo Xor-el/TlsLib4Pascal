@@ -438,6 +438,8 @@
         <DCCReference Include="..\..\TlsLib\src\Connection\TlpTlsConnection.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Trust\TlpIHttpFetcher.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Trust\TlpLiveRevocation.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Trust\TlpITrustAnchorStore.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Trust\TlpTrustAnchorStore.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\CertCompression\TlpICertificateCompression.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\CertCompression\TlpICertificateCompressionCache.pas"/>
         <DCCReference Include="..\..\TlsLib\src\CertCompression\TlpZlibCertificateCompression.pas"/>

@@ -41,6 +41,8 @@ uses
   TlpICertificateCompression,
   TlpZlibCertificateCompression,
   TlpICertificateTrust,
+  TlpITrustAnchorStore,
+  TlpTrustAnchorStore,
   TlpTrustTypes,
   TlpServerName,
   TlpCertificateVerifier,

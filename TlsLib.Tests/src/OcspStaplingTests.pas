@@ -35,6 +35,8 @@ uses
   TlpPkixDomainTypes,
   TlpICryptoProvider,
   TlpICertificateTrust,
+  TlpITrustAnchorStore,
+  TlpTrustAnchorStore,
   TlpTrustTypes,
   TlpServerName,
   TlpCertificateVerifier,

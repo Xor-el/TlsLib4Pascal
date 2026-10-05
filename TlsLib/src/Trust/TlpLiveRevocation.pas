@@ -19,6 +19,7 @@ uses
   SysUtils,
   TlpTlsAlert,
   TlpPkixDomainTypes,
+  TlpArrayUtilities,
   TlpIPkixProvider,
   TlpIClock,
   TlpIHttpFetcher,
@@ -55,32 +56,50 @@ type
     // bounding memory - a cap that rejects a legitimate large CRL would disable revocation exactly
     // where it matters most (Soft) or falsely reject the peer (Hard)
     MaxCrlBytes = Int32(32 * 1024 * 1024);
+    // a certificate rarely carries more than two of either; the cap bounds how many third parties
+    // learn which certificate is being checked, and the work, whatever the peer's certificate lists
+    MaxOcspAttempts = Int32(3);
+    MaxCrlAttempts = Int32(3);
+    // the least a fetch is given, so a nearly spent budget still lets one attempt complete a TLS
+    // exchange instead of failing instantly
+    MinAttemptMs = Int64(250);
   var
     FPkix: IPkixProvider;
     FClock: ITlsClock;
     FFetcher: IHttpFetcher;
     FPosture: TRevocationPosture;
     FMethod: TLiveRevocationMethod;
-    FTimeoutMs: Cardinal;
+    FDeadlineMs: Cardinal;
     FIssuerCandidates: TArray<TBytes>;
-    function EvaluateOcsp(const ALeaf, AIssuer: TBytes;
-      const AResponderUrl: string): TLiveRevocationOutcome;
-    function EvaluateCrl(const ALeaf, AIssuer: TBytes;
-      const ACrlUrl: string): TLiveRevocationOutcome;
+    function EvaluateOcsp(const ALeaf, AIssuer: TBytes; const AResponderUrl: string;
+      ATimeoutMs: Cardinal): TLiveRevocationOutcome;
+    function EvaluateCrl(const ALeaf, AIssuer: TBytes; const ACrlUrl: string;
+      ATimeoutMs: Cardinal): TLiveRevocationOutcome;
+    /// <summary>AUrls without repeats, in order, at most ACap of them.</summary>
+    class function DistinctCapped(const AUrls: TArray<string>;
+      ACap: Int32): TArray<string>; static;
+    /// <summary>The timeout for the next attempt, given when the check began, the latest instant
+    /// seen so far (so a clock stepped back never returns spent time) and how many attempts remain
+    /// to share what is left of the budget; False when the budget is spent.</summary>
+    function NextTimeout(AStartMs: Int64; var ALatestMs: Int64; AAttemptsLeft: Int32;
+      out ATimeoutMs: Cardinal): Boolean;
   public
     /// <summary>Builds a checker over an injected provider and fetcher. APosture governs how
-    /// an indeterminate result is treated (Hard rejects, Soft/Off accept). ATimeoutMs bounds
-    /// each fetch (0 leaves it to the fetcher).</summary>
+    /// an indeterminate result is treated (Hard rejects, Soft/Off accept). ADeadlineMs is the
+    /// total time one check may spend fetching across every OCSP and CRL attempt, measured on
+    /// the injected clock (0 leaves each fetch's timeout to the fetcher, with no shared deadline).
+    /// Each attempt gets a fair share of what remains, so one dead responder cannot starve the
+    /// next; a host should keep it within its async-verdict budget.</summary>
     constructor Create(const APkix: IPkixProvider; const AClock: ITlsClock;
       const AFetcher: IHttpFetcher; APosture: TRevocationPosture;
-      AMethod: TLiveRevocationMethod; ATimeoutMs: Cardinal); overload;
+      AMethod: TLiveRevocationMethod; ADeadlineMs: Cardinal); overload;
     /// <summary>As above, plus a set of candidate issuer certificates (configured trust anchors and
     /// intermediates) used to recover the issuer when a peer presents a leaf-only chain - the normal
     /// mutual-TLS client case, where the issuing CA is a configured anchor rather than sent on the
     /// wire (RFC 8446 4.4.2). Candidates must come from local configuration, never the peer.</summary>
     constructor Create(const APkix: IPkixProvider; const AClock: ITlsClock;
       const AFetcher: IHttpFetcher; APosture: TRevocationPosture;
-      AMethod: TLiveRevocationMethod; ATimeoutMs: Cardinal;
+      AMethod: TLiveRevocationMethod; ADeadlineMs: Cardinal;
       const AIssuerCandidates: TArray<TBytes>); overload;
     /// <summary>The tri-state live outcome for the chain (leaf = AChain[0], issuer =
     /// AChain[1]). When the chain carries no issuer entry the issuer is recovered from the configured
@@ -102,7 +121,7 @@ implementation
 
 constructor TLiveRevocationChecker.Create(const APkix: IPkixProvider;
   const AClock: ITlsClock; const AFetcher: IHttpFetcher; APosture: TRevocationPosture;
-  AMethod: TLiveRevocationMethod; ATimeoutMs: Cardinal);
+  AMethod: TLiveRevocationMethod; ADeadlineMs: Cardinal);
 begin
   inherited Create;
   FPkix := APkix;
@@ -110,20 +129,66 @@ begin
   FFetcher := AFetcher;
   FPosture := APosture;
   FMethod := AMethod;
-  FTimeoutMs := ATimeoutMs;
+  FDeadlineMs := ADeadlineMs;
 end;
 
 constructor TLiveRevocationChecker.Create(const APkix: IPkixProvider;
   const AClock: ITlsClock; const AFetcher: IHttpFetcher; APosture: TRevocationPosture;
-  AMethod: TLiveRevocationMethod; ATimeoutMs: Cardinal;
+  AMethod: TLiveRevocationMethod; ADeadlineMs: Cardinal;
   const AIssuerCandidates: TArray<TBytes>);
 begin
-  Create(APkix, AClock, AFetcher, APosture, AMethod, ATimeoutMs);
+  Create(APkix, AClock, AFetcher, APosture, AMethod, ADeadlineMs);
   FIssuerCandidates := AIssuerCandidates;
 end;
 
+class function TLiveRevocationChecker.DistinctCapped(const AUrls: TArray<string>;
+  ACap: Int32): TArray<string>;
+var
+  LI: Int32;
+begin
+  Result := nil;
+  for LI := 0 to System.High(AUrls) do
+  begin
+    if System.Length(Result) >= ACap then
+      Break;
+    if not (TArrayUtilities.Contains<string>(Result, AUrls[LI])) then
+      TArrayUtilities.Append<string>(Result, AUrls[LI]);
+  end;
+end;
+
+function TLiveRevocationChecker.NextTimeout(AStartMs: Int64; var ALatestMs: Int64;
+  AAttemptsLeft: Int32; out ATimeoutMs: Cardinal): Boolean;
+var
+  LNowMs, LRemaining, LFloor, LShare: Int64;
+begin
+  ATimeoutMs := 0;
+  // no budget: each fetch's own timeout applies and nothing is shared
+  if FDeadlineMs = 0 then
+    Exit(True);
+  // the clock is wall time: elapsed time only ever grows, so a step back cannot give back time
+  // already spent, and a step forward only ends the check early (indeterminate, which the
+  // posture decides)
+  LNowMs := Int64(FClock.NowUnixMillis);
+  if LNowMs < ALatestMs then
+    LNowMs := ALatestMs;
+  ALatestMs := LNowMs;
+  LRemaining := Int64(FDeadlineMs) - (LNowMs - AStartMs);
+  if LRemaining > Int64(FDeadlineMs) then
+    LRemaining := Int64(FDeadlineMs);
+  LFloor := MinAttemptMs;
+  if LFloor > Int64(FDeadlineMs) then
+    LFloor := Int64(FDeadlineMs);
+  if LRemaining < LFloor then
+    Exit(False);
+  LShare := LRemaining div AAttemptsLeft;
+  if LShare < LFloor then
+    LShare := LFloor;
+  ATimeoutMs := Cardinal(LShare);
+  Result := True;
+end;
+
 function TLiveRevocationChecker.EvaluateOcsp(const ALeaf, AIssuer: TBytes;
-  const AResponderUrl: string): TLiveRevocationOutcome;
+  const AResponderUrl: string; ATimeoutMs: Cardinal): TLiveRevocationOutcome;
 var
   LRequest, LResponse: TBytes;
   LStatus: TOcspStatus;
@@ -136,7 +201,7 @@ begin
   if not FPkix.Revocation.BuildOcspRequest(ALeaf, AIssuer, LRequest) then
     Exit;
   // unreachable / non-2xx / empty body -> indeterminate (never a silent pass)
-  if not FFetcher.Post(AResponderUrl, OcspRequestContentType, LRequest, FTimeoutMs,
+  if not FFetcher.Post(AResponderUrl, OcspRequestContentType, LRequest, ATimeoutMs,
     MaxOcspResponseBytes, LResponse) then
     Exit;
   if System.Length(LResponse) > MaxOcspResponseBytes then
@@ -169,7 +234,7 @@ begin
 end;
 
 function TLiveRevocationChecker.EvaluateCrl(const ALeaf, AIssuer: TBytes;
-  const ACrlUrl: string): TLiveRevocationOutcome;
+  const ACrlUrl: string; ATimeoutMs: Cardinal): TLiveRevocationOutcome;
 var
   LCrl: TBytes;
   LRevoked: Boolean;
@@ -178,7 +243,7 @@ begin
   Result := TLiveRevocationOutcome.Indeterminate;
   if (ACrlUrl = '') or (FFetcher = nil) then
     Exit;
-  if not FFetcher.Get(ACrlUrl, FTimeoutMs, MaxCrlBytes, LCrl) then
+  if not FFetcher.Get(ACrlUrl, ATimeoutMs, MaxCrlBytes, LCrl) then
     Exit;
   if System.Length(LCrl) > MaxCrlBytes then
     Exit;
@@ -198,9 +263,10 @@ function TLiveRevocationChecker.Evaluate(
   const AChain: TArray<TBytes>): TLiveRevocationOutcome;
 var
   LLeaf, LIssuer: TBytes;
-  LUrl: string;
-  LUrls: TArray<string>;
-  LI: Int32;
+  LUrls, LOcspUrls, LCrlUrls: TArray<string>;
+  LI, LLeft: Int32;
+  LStartMs, LLatestMs: Int64;
+  LTimeout: Cardinal;
 begin
   Result := TLiveRevocationOutcome.Indeterminate;
   // Off suppresses the live fetch entirely (its network + privacy cost): no OCSP POST
@@ -220,22 +286,38 @@ begin
   else if not FPkix.Revocation.TryFindIssuer(LLeaf, FIssuerCandidates, LIssuer) then
     Exit;
 
+  // the attempts in order: each OCSP responder, then each CRL point, every list de-duplicated and
+  // capped. The first definitive answer settles it; an indeterminate one moves on to the next.
+  LOcspUrls := nil;
+  LCrlUrls := nil;
   if FMethod in [TLiveRevocationMethod.Ocsp, TLiveRevocationMethod.OcspThenCrl] then
-    if FPkix.Revocation.TryGetOcspResponderUrl(LLeaf, LUrl) then
-    begin
-      Result := EvaluateOcsp(LLeaf, LIssuer, LUrl);
-      if Result <> TLiveRevocationOutcome.Indeterminate then
-        Exit; // a definitive Good or Revoked settles it
-    end;
-
+    if FPkix.Revocation.TryGetOcspResponderUrls(LLeaf, LUrls) then
+      LOcspUrls := DistinctCapped(LUrls, MaxOcspAttempts);
   if FMethod in [TLiveRevocationMethod.Crl, TLiveRevocationMethod.OcspThenCrl] then
     if FPkix.Revocation.TryGetCrlDistributionPoints(LLeaf, LUrls) then
-      for LI := 0 to System.High(LUrls) do
-      begin
-        Result := EvaluateCrl(LLeaf, LIssuer, LUrls[LI]);
-        if Result <> TLiveRevocationOutcome.Indeterminate then
-          Exit;
-      end;
+      LCrlUrls := DistinctCapped(LUrls, MaxCrlAttempts);
+
+  LStartMs := Int64(FClock.NowUnixMillis);
+  LLatestMs := LStartMs;
+  LLeft :=System.Length(LOcspUrls) + System.Length(LCrlUrls);
+  for LI := 0 to System.High(LOcspUrls) do
+  begin
+    if not NextTimeout(LStartMs, LLatestMs, LLeft, LTimeout) then
+      Exit(TLiveRevocationOutcome.Indeterminate);
+    Result := EvaluateOcsp(LLeaf, LIssuer, LOcspUrls[LI], LTimeout);
+    if Result <> TLiveRevocationOutcome.Indeterminate then
+      Exit;
+    Dec(LLeft);
+  end;
+  for LI := 0 to System.High(LCrlUrls) do
+  begin
+    if not NextTimeout(LStartMs, LLatestMs, LLeft, LTimeout) then
+      Exit(TLiveRevocationOutcome.Indeterminate);
+    Result := EvaluateCrl(LLeaf, LIssuer, LCrlUrls[LI], LTimeout);
+    if Result <> TLiveRevocationOutcome.Indeterminate then
+      Exit;
+    Dec(LLeft);
+  end;
 
   Result := TLiveRevocationOutcome.Indeterminate;
 end;

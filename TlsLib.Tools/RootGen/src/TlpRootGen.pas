@@ -354,7 +354,7 @@ begin
     AppendLine('');
     AppendLine('uses');
     AppendLine('  TlpIPkixProvider,');
-    AppendLine('  TlpICertificateTrust;');
+    AppendLine('  TlpITrustAnchorStore;');
     AppendLine('');
     AppendLine('type');
     AppendLine('  ' + LClass + ' = class sealed(TObject)');
@@ -367,7 +367,7 @@ begin
     AppendLine('');
     AppendLine('uses');
     AppendLine('  SysUtils,');
-    AppendLine('  TlpCertificateVerifier;');
+    AppendLine('  TlpTrustAnchorStore;');
     AppendLine('');
     AppendLine('const');
     AppendLine('  CPemLines: array [0 .. ' + IntToStr(LTotal - 1) +

@@ -37,6 +37,7 @@ uses
   TlpICryptoProvider,
   TlpIPkixProvider,
   TlpICertificateTrust,
+  TlpITrustAnchorStore,
   TlpTrustPolicy,
   TlpITlsConfig,
   TlpITlsConfigBuilder,

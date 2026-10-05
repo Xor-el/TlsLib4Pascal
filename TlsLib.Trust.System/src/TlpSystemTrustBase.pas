@@ -27,6 +27,8 @@ uses
   TlpCertificateVerifier,
   TlpIPkixProvider,
   TlpICertificateTrust,
+  TlpITrustAnchorStore,
+  TlpTrustAnchorStore,
   TlpTrustTypes,
   TlpSystemTrustExceptions;
 
@@ -422,11 +424,11 @@ begin
   // a failed harvest raises here, before any store is built; the distrust set is read after the
   // roots so a source that collects it while harvesting has it ready, and is filtered the same way
   LRoots := Harvest;
-  Result := TDistrustingTrustAnchorStore.Create(LRoots,
+  Result := TTrustAnchorStore.Create(LRoots,
     FilterRoots(HarvestDistrusted)) as ITrustAnchorStore;
   // a source whose every root is also distrusted would leave no anchor at all: fail closed here
   // rather than hand back a store that only ever answers unknown_ca
-  if System.Length(Result.RootCertificates) = 0 then
+  if Result.AnchorCount = 0 then
     raise ESystemTrustUnavailableTlsLibException.CreateResFmt(@SSystemTrustEmpty,
       [SourceName]);
 end;

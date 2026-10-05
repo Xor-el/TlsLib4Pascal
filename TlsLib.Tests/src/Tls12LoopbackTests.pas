@@ -46,6 +46,8 @@ uses
   TlpHandshakeMessages,
   TlpExtensionVector,
   TlpICertificateTrust,
+  TlpITrustAnchorStore,
+  TlpTrustAnchorStore,
   TlpServerName,
   TlpCertificateVerifier,
   TlpTrustPolicy,

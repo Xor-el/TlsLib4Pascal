@@ -17,7 +17,6 @@ interface
 
 uses
   SysUtils,
-  Generics.Collections,
   TlpTlsAlert,
   TlpTlsLibExceptions,
   TlpArrayUtilities,
@@ -34,57 +33,10 @@ uses
   TlpDateTimeUtilities,
   TlpIClock,
   TlpTrustTypes,
+  TlpITrustAnchorStore,
   TlpICertificateTrust;
 
 type
-  /// <summary>A default in-memory trust store over a fixed set of root CA DERs.</summary>
-  TTrustAnchorStore = class sealed(TInterfacedObject, ITrustAnchorStore)
-  strict private
-  var
-    FRoots: TArray<TBytes>;
-  public
-    constructor Create(const ARoots: TArray<TBytes>);
-    function RootCertificates: TArray<TBytes>;
-  end;
-
-  /// <summary>An immutable anchor store that also carries the certificates its source explicitly
-  /// distrusts (see IDistrustingTrustAnchorStore). Any root that is also distrusted is dropped from
-  /// the anchors, so distrust always wins.</summary>
-  TDistrustingTrustAnchorStore = class sealed(TInterfacedObject, ITrustAnchorStore,
-    IDistrustingTrustAnchorStore)
-  strict private
-  var
-    FRoots: TArray<TBytes>;
-    FDistrusted: TArray<TBytes>;
-    // read-only after Create, so concurrent verifiers may share it
-    FIndex: TDictionary<TBytes, Boolean>;
-  public
-    constructor Create(const ARoots, ADistrusted: TArray<TBytes>);
-    destructor Destroy; override;
-    function RootCertificates: TArray<TBytes>;
-    function DistrustedCertificates: TArray<TBytes>;
-    function IsDistrusted(const ACertificate: TBytes): Boolean;
-  end;
-
-  /// <summary>Unions several anchor sources: RootCertificates is the concatenation of
-  /// every child store's roots, resolved on each call. Used when more than one anchor
-  /// contribution is configured. (A harvested OS store is an immutable snapshot; per-call
-  /// resolution matters only for a caller-supplied store whose own roots vary.) Distrust is the
-  /// union too, and it beats an anchor contributed by any other child: a root one store distrusts
-  /// is not an anchor of the union.</summary>
-  TUnionTrustAnchorStore = class sealed(TInterfacedObject, ITrustAnchorStore,
-    IDistrustingTrustAnchorStore)
-  strict private
-  var
-    FStores: TArray<ITrustAnchorStore>;
-    FHasDistrust: Boolean;
-  public
-    constructor Create(const AStores: TArray<ITrustAnchorStore>);
-    function RootCertificates: TArray<TBytes>;
-    function DistrustedCertificates: TArray<TBytes>;
-    function IsDistrusted(const ACertificate: TBytes): Boolean;
-  end;
-
   /// <summary>The optional tuning knobs for a <see cref="TCertificateVerifier" />, beyond the four
   /// mandatory role inputs (provider, clock, trust store, host-name check). A freshly declared value
   /// carries the conservative defaults - default chain limits, soft-fail revocation, no dangerous
@@ -157,16 +109,20 @@ type
     function ValidationTimeUtc: TDateTime;
     /// <summary>ACerts from index AFirst on, minus any distrusted certificate (the entries before
     /// AFirst are kept as they are); AWithheld is set when one was dropped.</summary>
-    class function WithoutDistrusted(const ADistrust: IDistrustingTrustAnchorStore;
+    class function WithoutDistrusted(const AStore: ITrustAnchorStore;
       const ACerts: TArray<TBytes>; AFirst: Int32;
       var AWithheld: Boolean): TArray<TBytes>; static;
     /// <summary>Whether AChain would validate with nothing set aside: tells a failure caused by a
     /// withheld distrusted certificate from a genuine unknown CA.</summary>
-    function PathValidatesUnfiltered(const AChain, ARoots: TArray<TBytes>;
+    function PathValidatesUnfiltered(const AChain: TArray<TBytes>;
       AKeyPurpose: TCertKeyPurpose): Boolean;
     /// <summary>True when any certificate of ACerts is distrusted.</summary>
-    class function AnyDistrusted(const ADistrust: IDistrustingTrustAnchorStore;
+    class function AnyDistrusted(const AStore: ITrustAnchorStore;
       const ACerts: TArray<TBytes>): Boolean; static;
+    /// <summary>The certificates of APath that are configured anchors: the only ones the
+    /// chain-algorithm policy exempts.</summary>
+    class function AnchorsOnPath(const AStore: ITrustAnchorStore;
+      const APath: TArray<TBytes>): TArray<TBytes>; static;
     /// <summary>The built-in trust pipeline (chain caps, PKIX with the role's EKU, revocation,
     /// endpoint identity, pinning), run unless InsecureSkipVerify bypasses it. ACheckName
     /// enables the RFC 6125 match against AServerName (a server certificate only); AKeyPurpose
@@ -260,148 +216,6 @@ type
   end;
 
 implementation
-
-{ TTrustAnchorStore }
-
-constructor TTrustAnchorStore.Create(const ARoots: TArray<TBytes>);
-begin
-  inherited Create;
-  // own an immutable snapshot: a caller that mutates its array later must not change our anchors
-  FRoots := TArrayUtilities.DeepCopy<Byte>(ARoots);
-end;
-
-function TTrustAnchorStore.RootCertificates: TArray<TBytes>;
-begin
-  Result := TArrayUtilities.DeepCopy<Byte>(FRoots);
-end;
-
-{ TDistrustingTrustAnchorStore }
-
-constructor TDistrustingTrustAnchorStore.Create(const ARoots, ADistrusted: TArray<TBytes>);
-var
-  LI, LCount: Int32;
-  LRoots: TArray<TBytes>;
-begin
-  inherited Create;
-  // own immutable snapshots: a caller that mutates its arrays later must not change our sets
-  FDistrusted := TArrayUtilities.DeepCopy<Byte>(ADistrusted);
-  FIndex := TDictionary<TBytes, Boolean>.Create;
-  for LI := 0 to System.High(FDistrusted) do
-    FIndex.AddOrSetValue(FDistrusted[LI], True);
-  LRoots := TArrayUtilities.DeepCopy<Byte>(ARoots);
-  FRoots := nil;
-  SetLength(FRoots, System.Length(LRoots));
-  LCount := 0;
-  for LI := 0 to System.High(LRoots) do
-    if not FIndex.ContainsKey(LRoots[LI]) then
-    begin
-      FRoots[LCount] := LRoots[LI];
-      Inc(LCount);
-    end;
-  SetLength(FRoots, LCount);
-end;
-
-destructor TDistrustingTrustAnchorStore.Destroy;
-begin
-  FIndex.Free;
-  inherited Destroy;
-end;
-
-function TDistrustingTrustAnchorStore.RootCertificates: TArray<TBytes>;
-begin
-  Result := TArrayUtilities.DeepCopy<Byte>(FRoots);
-end;
-
-function TDistrustingTrustAnchorStore.DistrustedCertificates: TArray<TBytes>;
-begin
-  Result := TArrayUtilities.DeepCopy<Byte>(FDistrusted);
-end;
-
-function TDistrustingTrustAnchorStore.IsDistrusted(const ACertificate: TBytes): Boolean;
-begin
-  Result := FIndex.ContainsKey(ACertificate);
-end;
-
-{ TUnionTrustAnchorStore }
-
-constructor TUnionTrustAnchorStore.Create(const AStores: TArray<ITrustAnchorStore>);
-var
-  LI: Int32;
-  LDistrust: IDistrustingTrustAnchorStore;
-begin
-  inherited Create;
-  // own the list: the builder's array must not be shared with a frozen config
-  FStores := System.Copy(AStores);
-  FHasDistrust := False;
-  for LI := 0 to System.High(FStores) do
-    if Supports(FStores[LI], IDistrustingTrustAnchorStore, LDistrust) then
-      FHasDistrust := True;
-end;
-
-function TUnionTrustAnchorStore.IsDistrusted(const ACertificate: TBytes): Boolean;
-var
-  LI: Int32;
-  LDistrust: IDistrustingTrustAnchorStore;
-begin
-  Result := False;
-  if not FHasDistrust then
-    Exit;
-  for LI := 0 to System.High(FStores) do
-    if Supports(FStores[LI], IDistrustingTrustAnchorStore, LDistrust) and
-      LDistrust.IsDistrusted(ACertificate) then
-      Exit(True);
-end;
-
-function TUnionTrustAnchorStore.DistrustedCertificates: TArray<TBytes>;
-var
-  LI, LJ, LCount: Int32;
-  LDistrust: IDistrustingTrustAnchorStore;
-  LChild: TArray<TBytes>;
-begin
-  Result := nil;
-  if not FHasDistrust then
-    Exit;
-  LCount := 0;
-  for LI := 0 to System.High(FStores) do
-    if Supports(FStores[LI], IDistrustingTrustAnchorStore, LDistrust) then
-    begin
-      LChild := LDistrust.DistrustedCertificates;
-      SetLength(Result, LCount + System.Length(LChild));
-      for LJ := 0 to System.High(LChild) do
-      begin
-        Result[LCount] := LChild[LJ];
-        Inc(LCount);
-      end;
-    end;
-end;
-
-function TUnionTrustAnchorStore.RootCertificates: TArray<TBytes>;
-var
-  LI, LJ, LCount, LTotal: Int32;
-  LChildResults: TArray<TArray<TBytes>>;
-begin
-  SetLength(LChildResults, System.Length(FStores));
-  LTotal := 0;
-  for LI := 0 to System.High(FStores) do
-  begin
-    if FStores[LI] = nil then
-      Continue;
-    LChildResults[LI] := FStores[LI].RootCertificates;
-    Inc(LTotal, System.Length(LChildResults[LI]));
-  end;
-  Result := nil;
-  SetLength(Result, LTotal);
-  LCount := 0;
-  for LI := 0 to System.High(LChildResults) do
-    for LJ := 0 to System.High(LChildResults[LI]) do
-      // distrust from any store beats an anchor from another
-      if not IsDistrusted(LChildResults[LI][LJ]) then
-      begin
-        Result[LCount] := LChildResults[LI][LJ];
-        Inc(LCount);
-      end;
-  SetLength(Result, LCount);
-end;
 
 { TCertificateVerifierOptions }
 
@@ -552,7 +366,7 @@ begin
 end;
 
 class function TCertificateVerifier.WithoutDistrusted(
-  const ADistrust: IDistrustingTrustAnchorStore; const ACerts: TArray<TBytes>;
+  const AStore: ITrustAnchorStore; const ACerts: TArray<TBytes>;
   AFirst: Int32; var AWithheld: Boolean): TArray<TBytes>;
 var
   LI, LCount: Int32;
@@ -561,7 +375,7 @@ begin
   SetLength(Result, System.Length(ACerts));
   LCount := 0;
   for LI := 0 to System.High(ACerts) do
-    if (LI >= AFirst) and ADistrust.IsDistrusted(ACerts[LI]) then
+    if (LI >= AFirst) and AStore.IsDistrusted(ACerts[LI]) then
       AWithheld := True
     else
     begin
@@ -571,7 +385,7 @@ begin
   SetLength(Result, LCount);
 end;
 
-function TCertificateVerifier.PathValidatesUnfiltered(const AChain, ARoots: TArray<TBytes>;
+function TCertificateVerifier.PathValidatesUnfiltered(const AChain: TArray<TBytes>;
   AKeyPurpose: TCertKeyPurpose): Boolean;
 var
   LIgnored: TArray<TBytes>;
@@ -579,7 +393,7 @@ begin
   // classification only: the verdict was already a failure, this just names its cause
   LIgnored := AChain;
   try
-    FPkix.PathValidation.ValidateCertificatePath(AChain, ARoots, FIntermediates,
+    FPkix.PathValidation.ValidateCertificatePath(AChain, FTrustStore, FIntermediates,
       ValidationTimeUtc, AKeyPurpose, LIgnored);
     Result := True;
   except
@@ -589,15 +403,26 @@ begin
 end;
 
 class function TCertificateVerifier.AnyDistrusted(
-  const ADistrust: IDistrustingTrustAnchorStore; const ACerts: TArray<TBytes>): Boolean;
+  const AStore: ITrustAnchorStore; const ACerts: TArray<TBytes>): Boolean;
 var
   LI: Int32;
 begin
   Result := True;
   for LI := 0 to System.High(ACerts) do
-    if ADistrust.IsDistrusted(ACerts[LI]) then
+    if AStore.IsDistrusted(ACerts[LI]) then
       Exit;
   Result := False;
+end;
+
+class function TCertificateVerifier.AnchorsOnPath(const AStore: ITrustAnchorStore;
+  const APath: TArray<TBytes>): TArray<TBytes>;
+var
+  LI: Int32;
+begin
+  Result := nil;
+  for LI := 0 to System.High(APath) do
+    if AStore.IsAnchor(APath[LI]) then
+      TArrayUtilities.Append<TBytes>(Result, APath[LI]);
 end;
 
 function TCertificateVerifier.VerifyPipeline(const AChain: TArray<TBytes>;
@@ -609,9 +434,8 @@ var
   // building completed from the configured intermediates, this carries the assembled path
   // (with the recovered issuer), so revocation sees it rather than the bare leaf
   LEffectiveChain: TArray<TBytes>;
-  LPresented, LIntermediates, LRoots: TArray<TBytes>;
+  LPresented, LIntermediates, LAnchors: TArray<TBytes>;
   LLeaf: IInspectedCertificate;
-  LDistrust: IDistrustingTrustAnchorStore;
   LWithheld: Boolean;
 begin
   Result := False;
@@ -628,10 +452,6 @@ begin
     AAlert := TTlsAlertDescription.UnknownCa;
     Exit;
   end;
-  // read the anchor set once: the store hands back a fresh copy per call and the strength policy
-  // hashes it, so path validation and the chain-algorithm check share this one read
-  LRoots := FTrustStore.RootCertificates;
-
   // resource caps before any PKIX work: an over-count, oversize or over-total chain is rejected up
   // front (anti-DoS) rather than handed to the path builder, which explores presented certificates
   if not FChainLimits.AdmitsChain(AChain) then
@@ -643,19 +463,16 @@ begin
   LPresented := AChain;
   LIntermediates := FIntermediates;
   LWithheld := False;
-  if Supports(FTrustStore, IDistrustingTrustAnchorStore, LDistrust) then
-  begin
-    if LDistrust.IsDistrusted(AChain[0]) then
-      Exit;
-    LPresented := WithoutDistrusted(LDistrust, AChain, 1, LWithheld);
-    LIntermediates := WithoutDistrusted(LDistrust, FIntermediates, 0, LWithheld);
-  end;
+  if FTrustStore.IsDistrusted(AChain[0]) then
+    Exit;
+  LPresented := WithoutDistrusted(FTrustStore, AChain, 1, LWithheld);
+  LIntermediates := WithoutDistrusted(FTrustStore, FIntermediates, 0, LWithheld);
 
   // path validation (validity + PKIX) is the provider's job; it raises the reason, and hands
   // back the chain it actually validated (the assembled path when it completed an incomplete one)
   LEffectiveChain := LPresented;
   try
-    FPkix.PathValidation.ValidateCertificatePath(LPresented, LRoots,
+    FPkix.PathValidation.ValidateCertificatePath(LPresented, FTrustStore,
       LIntermediates, ValidationTimeUtc, AKeyPurpose, LEffectiveChain);
   except
     on E: EFatalAlertTlsLibException do
@@ -664,14 +481,14 @@ begin
       // "no path" with a distrusted certificate withheld is the explicit distrust only if the path
       // would have validated with it; otherwise it is a genuine unknown CA
       if LWithheld and (AAlert = TTlsAlertDescription.UnknownCa) and
-        PathValidatesUnfiltered(AChain, LRoots, AKeyPurpose) then
+        PathValidatesUnfiltered(AChain, AKeyPurpose) then
         AAlert := TTlsAlertDescription.BadCertificate;
       Exit;
     end;
   end;
   // the validated path is re-encoded canonically, so a distrusted certificate sent in another
   // encoding is caught here rather than by the pre-filter
-  if (LDistrust <> nil) and AnyDistrusted(LDistrust, LEffectiveChain) then
+  if AnyDistrusted(FTrustStore, LEffectiveChain) then
   begin
     AAlert := TTlsAlertDescription.BadCertificate;
     Exit;
@@ -679,16 +496,18 @@ begin
 
   // chain-algorithm policy over the validated chain: every non-anchor certificate must be
   // signed with an advertised scheme (MD5/SHA-1 refused outright) and meet the key-strength
-  // floors. Post-PKIX so it sees the assembled path; the anchor exemption keys off the roots.
-  // A verifier without an armed policy still gets the weak-hash refusal and default floors.
+  // floors. Post-PKIX so it sees the assembled path; the anchor exemption keys off the configured
+  // anchors on it. A verifier without an armed policy still gets the weak-hash refusal and
+  // default floors.
+  LAnchors := AnchorsOnPath(FTrustStore, LEffectiveChain);
   if FChainPolicyEnabled then
   begin
     if not TChainAlgorithmPolicy.Check(FPkix.Certificates, LEffectiveChain,
-      LRoots, FStrengthPolicy, FAdvertisedSchemes, AAlert) then
+      LAnchors, FStrengthPolicy, FAdvertisedSchemes, AAlert) then
       Exit;
   end
   else if not TChainAlgorithmPolicy.CheckBaseline(FPkix.Certificates, LEffectiveChain,
-    LRoots, AAlert) then
+    LAnchors, AAlert) then
     Exit;
 
   // revocation via the stapled OCSP response (RFC 6960), in-band only; run over the validated

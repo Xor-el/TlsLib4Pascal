@@ -272,9 +272,21 @@ builder takes no `IHttpFetcher`, by design, so the engine stays network-free. Yo
 // 2. attach the live checker to the stream (the clock drives the deadline; the
 //    fetcher owns every socket):
 checker := TLiveRevocationChecker.Create(provider, clock, fetcher, TRevocationPosture.Hard,
-  TLiveRevocationMethod.OcspThenCrl, timeoutMs);
+  TLiveRevocationMethod.OcspThenCrl, budgetMs);
 stream.SetCertificateVerdictResolver(checker.ResolveVerdict);
 ```
+
+The checker tries the responders a certificate lists in order — every OCSP responder URL, then every
+CRL distribution point — and stops at the first definitive answer (a current **Good** or a
+**Revoked**); an unreachable, malformed or stale answer moves on to the next. Repeated URLs are tried
+once, and at most three OCSP responders and three CRL points are tried. `budgetMs` is the **total**
+time one check may spend fetching across all of those attempts, measured on the injected clock: each
+attempt gets a fair share of what remains (never less than 250 ms, or the whole budget when that is
+smaller), so one dead responder cannot starve the next, and a spent budget ends the check
+indeterminate, which the posture then decides. `0` leaves each fetch's timeout to the fetcher with
+no shared deadline, so give a real budget, no larger than the config's async-verdict deadline.
+Each responder tried learns which certificate is being checked; extra ones are asked only after an
+indeterminate answer, and posture `Off` asks none.
 
 A **stapled** OCSP response (validated in the handshake pipeline, before the park) is preferred;
 the live fetch is the fallback for a leaf that carries no staple. When the staple already settles
