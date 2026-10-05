@@ -273,8 +273,7 @@ begin
     Exit(GetLastError);
   AHandle := THandle(LFd);
 {$ELSE}
-  // CREATE_NEW refuses an existing file; the wide API is explicit because FPC's string is an
-  // AnsiString under this unit's mode
+  // CREATE_NEW refuses an existing file
   LPath := UnicodeString(APath);
   LHandle := CreateFileW(PWideChar(LPath), GENERIC_WRITE, 0, nil, CREATE_NEW,
     FILE_ATTRIBUTE_NORMAL, 0);
