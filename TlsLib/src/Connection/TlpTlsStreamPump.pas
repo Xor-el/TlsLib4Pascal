@@ -118,6 +118,10 @@ type
     /// <summary>Sends close_notify and flushes it.</summary>
     class procedure Close(const AEngine: ITlsEngine;
       const ATransport: ITlsTransport); static;
+    /// <summary>Sends a fatal alert (the engine goes terminal) and flushes it, best effort: used
+    /// when the local host refuses a connection that already completed its handshake.</summary>
+    class procedure Abort(const AEngine: ITlsEngine; const ATransport: ITlsTransport;
+      ADescription: TTlsAlertDescription); static;
   end;
 
 implementation
@@ -255,7 +259,17 @@ begin
     LCtx.ValidatedPath := ACertEvent.ValidatedPath;
     LCtx.HostName := ACertEvent.HostName;
     LCtx.OcspStaple := ACertEvent.OcspStaple;
-    LAccept := AResolveVerdict(LCtx, LAlert);
+    // a resolver that raises must not leave the handshake parked with no verdict: the peer gets an
+    // internal_error and the engine is terminal, so the caller surfaces the failure
+    try
+      LAccept := AResolveVerdict(LCtx, LAlert);
+    except
+      on Exception do
+      begin
+        LAccept := False;
+        LAlert := TTlsAlertDescription.InternalError;
+      end;
+    end;
   end;
   AEngine.SetCertificateVerdict(LAccept, LAlert);
 end;
@@ -397,6 +411,8 @@ class procedure TTlsStreamPump.WriteApp(const AEngine: ITlsEngine;
 var
   LOffset, LRemaining, LChunk: Int32;
 begin
+  // a terminal engine reports the alert it recorded, not a generic closed-write error
+  RaiseIfFatal(AEngine);
   // the engine's Write raises once the write side is closed; pre-check so the stream reports a
   // clear error rather than the raw engine exception (and never counts the bytes as sent)
   if AEngine.WriteClosed then
@@ -413,11 +429,14 @@ begin
     try
       AEngine.Write(AData, LOffset, LChunk);
     except
-      on ERecordLimitTlsLibException do
+      on Exception do
       begin
-        // the engine queued close_notify at the AEAD usage limit; deliver it (any slices sealed
-        // before the limit are already on the wire) before surfacing the refusal to the caller
+        // a failed seal leaves the engine with an alert queued - close_notify at the AEAD usage
+        // limit, or the fatal alert of a seal fault; deliver it (any slices sealed before are
+        // already on the wire) before surfacing the failure to the caller
         FlushQuietly(AEngine, ATransport);
+        if AEngine.IsTerminal then
+          RaiseIfFatal(AEngine);
         raise;
       end;
     end;
@@ -432,6 +451,14 @@ class procedure TTlsStreamPump.Close(const AEngine: ITlsEngine;
 begin
   AEngine.SendClose;
   Flush(AEngine, ATransport);
+end;
+
+class procedure TTlsStreamPump.Abort(const AEngine: ITlsEngine;
+  const ATransport: ITlsTransport; ADescription: TTlsAlertDescription);
+begin
+  AEngine.SendAlert(ADescription);
+  // the connection is already being refused; a dead peer must not mask the reason
+  FlushQuietly(AEngine, ATransport);
 end;
 
 end.

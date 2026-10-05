@@ -126,6 +126,8 @@ type
       out ARejectAlert: TTlsAlertDescription): Boolean;
     function ResolverReject(const ACtx: TCertificateVerdictContext;
       out ARejectAlert: TTlsAlertDescription): Boolean;
+    function ResolverRaises(const ACtx: TCertificateVerdictContext;
+      out ARejectAlert: TTlsAlertDescription): Boolean;
     function SpkiSha256(const ACertDer: TBytes): TBytes;
     /// <summary>A client config with the async peer-certificate verdict enabled.</summary>
     function AsyncClientConfig: ITlsClientConfig;
@@ -146,8 +148,10 @@ type
     procedure TestPinnedSelfSignedChainStillFullyVerified;
     procedure TestAsyncVerdictResolverAcceptCompletesOverPump;
     procedure TestAsyncVerdictResolverRejectFailsClosedOverPump;
+    procedure TestAsyncVerdictResolverThatRaisesFailsClosedWithAnAlert;
     procedure TestBulkThroughputRoundTripDoesNotWedge;
     procedure TestWriteAfterPreHandshakeCloseNotifyRaises;
+    procedure TestWriteAfterPreHandshakeSendAlertRaises;
     procedure TestPeerCloseNotifyDuringHandshakeRaises;
   end;
 
@@ -365,6 +369,39 @@ begin
     end;
     CheckTrue(LRaised,
       'a write after a pre-handshake CloseNotify raises rather than silently handshaking');
+  finally
+    LClient.Free;
+  end;
+  LServerT := nil;
+end;
+
+procedure TTestTlsStreamLoopback.TestWriteAfterPreHandshakeSendAlertRaises;
+var
+  LC2S, LS2C: TMemoryPipe;
+  LClientT, LServerT: ITlsTransport;
+  LClient: TTlsStream;
+  LByte: Byte;
+  LRaised: Boolean;
+begin
+  LC2S := TMemoryPipe.Create;
+  LS2C := TMemoryPipe.Create;
+  LClientT := TMemoryTransport.Create(LS2C, LC2S) as ITlsTransport;
+  LServerT := TMemoryTransport.Create(LC2S, LS2C) as ITlsTransport;
+  LClient := NewClientStream(LClientT, ClientConfig(False, nil));
+  try
+    // before any handshake there is no peer to alert: latch the closed flag and send nothing; a
+    // repeat is a no-op
+    LClient.SendAlert(TTlsAlertDescription.BadCertificate);
+    LClient.SendAlert(TTlsAlertDescription.BadCertificate);
+    LByte := $41;
+    LRaised := False;
+    try
+      LClient.Write(LByte, 1);
+    except
+      on E: EInvalidOperationTlsLibException do
+        LRaised := True;
+    end;
+    CheckTrue(LRaised, 'a write after SendAlert raises rather than silently handshaking');
   finally
     LClient.Free;
   end;
@@ -1120,6 +1157,49 @@ begin
         LFailed := True;
     end;
     CheckTrue(LFailed, 'a rejected async verdict fails the handshake closed over the pump');
+    LServer.WaitFor;
+  finally
+    LServer.Free;
+    LClient.Free;
+  end;
+end;
+
+function TTestTlsStreamLoopback.ResolverRaises(
+  const ACtx: TCertificateVerdictContext;
+  out ARejectAlert: TTlsAlertDescription): Boolean;
+begin
+  ARejectAlert := TTlsAlertDescription.BadCertificate;
+  raise EInvalidOperationTlsLibException.Create('the live check blew up');
+end;
+
+procedure TTestTlsStreamLoopback.TestAsyncVerdictResolverThatRaisesFailsClosedWithAnAlert;
+var
+  LClient: TTlsStream;
+  LServer: TServerRunner;
+  LTransport: TMemoryTransport;
+  LAlert: TTlsAlertDescription;
+  LFailed: Boolean;
+begin
+  // a resolver that raises must not leave the handshake parked with no verdict and no alert: the
+  // peer gets an internal_error and the caller sees that failure
+  RunLoopback(AsyncClientConfig, TServerBehavior.EchoThenClose, LClient, LServer,
+    LTransport);
+  try
+    LClient.SetCertificateVerdictResolver(ResolverRaises);
+    LFailed := False;
+    LAlert := TTlsAlertDescription.CloseNotify;
+    try
+      LClient.Handshake;
+    except
+      on E: ETlsStreamError do
+      begin
+        LFailed := True;
+        if E.HasAlert then
+          LAlert := E.Alert;
+      end;
+    end;
+    CheckTrue(LFailed, 'a raising resolver fails the handshake closed');
+    CheckTrue(LAlert = TTlsAlertDescription.InternalError, 'with internal_error');
     LServer.WaitFor;
   finally
     LServer.Free;

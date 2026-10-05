@@ -354,6 +354,9 @@ resourcestring
   SAlpnProtocolEmpty = 'an ALPN protocol name must not be empty (RFC 7301 3.1)';
   SAlpnProtocolNotAscii = 'an ALPN protocol name must be ASCII; it is sent as its ASCII bytes';
   SAlpnProtocolTooLong = 'an ALPN protocol name must not exceed 255 bytes (RFC 7301 3.1)';
+  SAlpnListTooLong = 'the ALPN protocol list must not exceed 65533 bytes on the wire (RFC 7301 3.1)';
+  SNoRegisteredPreferredGroup = 'none of the preferred key-exchange groups is in the named-group ' +
+    'registry, so no handshake could ever select a group';
   SAlpnProtocolDuplicate = 'the ALPN protocol "%s" is offered more than once';
   SRecordSizeLimitRange = 'the record_size_limit must be 0 (not offered) or 64..16384 (RFC 8449 4)';
   SHardRevocationUnusable = 'a Hard revocation posture rejects a peer whose certificate has no ' +
@@ -1834,9 +1837,10 @@ end;
 function TTlsConfigBuilder.WithAlpnProtocols(
   const AProtocols: TArray<string>): TTlsConfigBuilder;
 var
-  LI, LJ, LK: Int32;
+  LI, LJ, LK, LWireLength: Int32;
 begin
   GuardMutable;
+  LWireLength := 0;
   // an empty list offers no ALPN; otherwise each name is one ProtocolName<1..2^8-1>, offered once
   // (RFC 7301 3.1), and ASCII because the name is sent as its ASCII bytes - so we never offer a name
   // the wire encoding would mangle, nor a list our own decoder would refuse
@@ -1849,6 +1853,11 @@ begin
         raise EArgumentTlsLibException.CreateRes(@SAlpnProtocolNotAscii);
     if System.Length(AProtocols[LI]) > 255 then
       raise EArgumentTlsLibException.CreateRes(@SAlpnProtocolTooLong);
+    // the ProtocolNameList is a uint16-prefixed vector inside the uint16-sized extension body, so
+    // it tops out two bytes short of 65535; each name costs its length byte too
+    Inc(LWireLength, 1 + System.Length(AProtocols[LI]));
+    if LWireLength > 65533 then
+      raise EArgumentTlsLibException.CreateRes(@SAlpnListTooLong);
     for LJ := LI + 1 to System.High(AProtocols) do
       if AProtocols[LJ] = AProtocols[LI] then
         raise EArgumentTlsLibException.CreateResFmt(@SAlpnProtocolDuplicate, [AProtocols[LI]]);
@@ -2615,11 +2624,20 @@ begin
 end;
 
 procedure TTlsConfigBuilder.ValidateRequiredCollaborators;
+var
+  LI: Int32;
 begin
   if (FCipherSuites = nil) or (FSignatureSchemes = nil) or (FNamedGroups = nil) then
     raise EArgumentTlsLibException.CreateRes(@SNilNegotiationRegistry);
   if System.Length(FPreferredGroups) = 0 then
     raise EArgumentTlsLibException.CreateRes(@SNoPreferredGroups);
+  // a preferred group the registry lacks is skipped (the registry is authoritative, so a pruned
+  // registry may keep a wider preference list), but with none registered no group could ever be
+  // selected and every handshake would fail
+  for LI := 0 to System.High(FPreferredGroups) do
+    if FNamedGroups.Contains(FPreferredGroups[LI]) then
+      Exit;
+  raise EArgumentTlsLibException.CreateRes(@SNoRegisteredPreferredGroup);
 end;
 
 function TTlsConfigBuilder.BuildClient: ITlsClientConfig;
@@ -2759,6 +2777,11 @@ begin
     raise EInvalidOperationTlsLibException.CreateRes(@SEchBackendWithKeyStore);
   ValidateTrustComposition;
   ValidateAnchorRoots;
+  // external PSKs are TLS 1.3-only (RFC 9258): a server that accepts them without offering 1.3
+  // could never use one, and would otherwise fail every connection that presents one
+  if (System.Length(FExternalPsks) > 0) and
+    not (TArrayUtilities.Contains<UInt16>(FSupportedVersions, TlsWireVersionTls13)) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SExternalPskNeedsTls13);
   // client authentication verifies the peer chain against a trust source: anchor ROOTS, a
   // whole-verifier, or an explicit skip-verify. A verifier source is NOT a source on its own - it
   // consumes the client-CA anchors as its exclusive root, so it needs roots too. Without one the

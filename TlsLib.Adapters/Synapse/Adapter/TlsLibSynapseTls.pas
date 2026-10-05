@@ -425,7 +425,7 @@ begin
     // False to reject - fail-closed
     if not RunPeerVerifyHook then
     begin
-      FConnection.CloseNotify;
+      FConnection.SendAlert(TTlsAlertDescription.BadCertificate);
       raise ETlsStreamError.Create(TTlsAlertDescription.BadCertificate,
         SPeerVerifyRejected);
     end;

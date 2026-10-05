@@ -27,7 +27,10 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpTlsAlert,
+  TlpTlsLibExceptions,
+  TlpITlsTransport,
   TlpTlsStreamPump,
+  MockTransport,
   TlpTlsVersion,
   TlpTlsCredential,
   TlpICryptoProvider,
@@ -132,6 +135,8 @@ type
     // revoked verdict aborts with certificate_revoked
     procedure TestServerHardClientRevocationParksThenRevokedTls13;
     procedure TestServerHardClientRevocationParksThenRevokedTls12;
+    procedure TestPumpWriteAfterTerminalReportsTheRecordedAlert;
+    procedure TestPumpAbortSendsTheFatalAlertToThePeer;
     procedure TestPumpDrainEventsReportsPeerFatalAlertWithoutRaising;
     procedure TestPumpDrainEventsReportsCloseNotify;
     procedure TestPumpResolveVerdictWithoutResolverFailsClosed;
@@ -904,6 +909,79 @@ begin
   CheckEquals(Int64(Ord(TTlsAlertDescription.CertificateRevoked)),
     Int64(Ord(LServer.LastError.Alert.Description)),
     'the server emits certificate_revoked');
+end;
+
+procedure TTestAsyncVerdict.TestPumpWriteAfterTerminalReportsTheRecordedAlert;
+var
+  LClient, LServer: ITlsEngine;
+  LRead: TMemoryPipe;
+  LTransport: ITlsTransport;
+  LAlert: TTlsAlertDescription;
+  LFailed: Boolean;
+begin
+  LClient := NewClient(ClientConfig(False, 0), 'localhost', LServer);
+  LClient.StartHandshake;
+  DriveToCompletion(LClient, LServer);
+  LRead := TMemoryPipe.Create;
+  try
+    LTransport := TMemoryTransport.Create(LRead, TMemoryPipe.Create);
+    LClient.SendAlert(TTlsAlertDescription.HandshakeFailure);
+    // a write on an engine that already recorded a fatal alert reports that alert, not a generic
+    // closed-write error
+    LFailed := False;
+    LAlert := TTlsAlertDescription.CloseNotify;
+    try
+      TTlsStreamPump.WriteApp(LClient, LTransport, DecodeHex('01'), 0, 1);
+    except
+      on E: ETlsStreamError do
+      begin
+        LFailed := True;
+        if E.HasAlert then
+          LAlert := E.Alert;
+      end;
+    end;
+    CheckTrue(LFailed, 'the write fails');
+    CheckTrue(LAlert = TTlsAlertDescription.HandshakeFailure,
+      'with the alert the engine recorded');
+  finally
+    LTransport := nil;
+    LRead.Free;
+  end;
+end;
+
+procedure TTestAsyncVerdict.TestPumpAbortSendsTheFatalAlertToThePeer;
+var
+  LClient, LServer: ITlsEngine;
+  LRead, LWrite: TMemoryPipe;
+  LTransport: ITlsTransport;
+  LWire: TBytes;
+  LGot: Int32;
+begin
+  LClient := NewClient(ClientConfig(False, 0), 'localhost', LServer);
+  LClient.StartHandshake;
+  DriveToCompletion(LClient, LServer);
+  LRead := TMemoryPipe.Create;
+  LWrite := TMemoryPipe.Create;
+  try
+    LTransport := TMemoryTransport.Create(LRead, LWrite);
+    // a host that refuses the peer once the handshake finished sends bad_certificate, not a clean
+    // close
+    TTlsStreamPump.Abort(LClient, LTransport, TTlsAlertDescription.BadCertificate);
+    CheckTrue(LClient.IsTerminal, 'the engine is terminal');
+    LWire := nil;
+    SetLength(LWire, 4096);
+    // closing first makes a missing flush read as empty instead of blocking the suite
+    LWrite.Close;
+    LGot := LWrite.Read(LWire, 0, System.Length(LWire));
+    CheckTrue(LGot > 0, 'the alert reached the transport');
+    LServer.ProcessInput(LWire, 0, LGot);
+    CheckTrue(LServer.IsTerminal, 'the peer aborts');
+    CheckTrue(LServer.LastError.Alert.Description = TTlsAlertDescription.BadCertificate,
+      'with the bad_certificate it was sent');
+  finally
+    LTransport := nil;
+    LRead.Free;
+  end;
 end;
 
 procedure TTestAsyncVerdict.TestPumpDrainEventsReportsPeerFatalAlertWithoutRaising;

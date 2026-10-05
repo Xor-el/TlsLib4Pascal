@@ -18,6 +18,7 @@ interface
 uses
   SysUtils,
   Classes,
+  TlpTlsAlert,
   TlpTlsLibExceptions,
   TlpTlsConnectionInfo,
   TlpTrustPolicy,
@@ -76,6 +77,10 @@ type
     /// <summary>Sends close_notify to shut the write side down cleanly (RFC 8446 6.1);
     /// idempotent. The transport itself is not closed - the caller owns it.</summary>
     procedure CloseNotify;
+    /// <summary>Refuses the connection with a fatal alert (for example bad_certificate after a
+    /// host hook rejects the peer once the handshake completed) instead of a clean close; the
+    /// write side is closed and the engine terminal. Idempotent.</summary>
+    procedure SendAlert(ADescription: TTlsAlertDescription);
     /// <summary>Whether the peer closed the transport without a close_notify: a possible
     /// truncation. False after a clean close_notify shutdown.</summary>
     function TransportTruncated: Boolean;
@@ -164,6 +169,15 @@ begin
   // already carries the SNI the client requested, as the handshake resolved it
   if FServerName <> '' then
     Result.ServerName := FServerName;
+end;
+
+procedure TTlsStream.SendAlert(ADescription: TTlsAlertDescription);
+begin
+  if FWriteClosed then
+    Exit;
+  FWriteClosed := True;
+  if FHandshakeDone then
+    TTlsStreamPump.Abort(FEngine, FTransport, ADescription);
 end;
 
 procedure TTlsStream.CloseNotify;

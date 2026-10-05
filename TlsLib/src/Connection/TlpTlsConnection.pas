@@ -225,6 +225,9 @@ type
     procedure CloseNotify;
     /// <summary>Sends close_notify, swallowing a write to an already-dead peer.</summary>
     procedure CloseNotifyQuietly;
+    /// <summary>Refuses the connection with a fatal alert (see TTlsStream.SendAlert): the host
+    /// rejected the peer after the handshake completed.</summary>
+    procedure SendAlert(ADescription: TTlsAlertDescription);
     function NegotiatedVersion: TTlsVersion;
     function NegotiatedCipherSuite: UInt16;
     function NegotiatedGroup: UInt16;
@@ -805,6 +808,12 @@ procedure TTlsConnection.CloseNotify;
 begin
   if FStream <> nil then
     FStream.CloseNotify;
+end;
+
+procedure TTlsConnection.SendAlert(ADescription: TTlsAlertDescription);
+begin
+  if FStream <> nil then
+    FStream.SendAlert(ADescription);
 end;
 
 procedure TTlsConnection.CloseNotifyQuietly;
