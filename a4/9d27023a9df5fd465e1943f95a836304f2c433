@@ -1,0 +1,68 @@
+TlsLib.Tests/src/ServerSideLiveRevocationTests.pas
+  s_d27f31cd14035d::t_8c8c17457f0a8c 336-337,340-341,343-344
+TlsLib.Tests/src/LiveRevocationTests.pas
+  s_d27f31cd14035d::t_f4e2fa232ac645 76-77
+  s_d27f31cd14035d::t_9b3612824988ed 109-113,115-124
+  s_d27f31cd14035d::t_886bfa36ffadca 843-850
+  s_d27f31cd14035d::t_4fbbcfeb7666d4 533-612,644-675,683-773,775-780,782-789,791-842,851-852
+  s_d27f31cd14035d::t_15a4dd2b393d0c 114
+  s_d27f31cd14035d::t_b44b479addede4 326
+  s_d27f31cd14035d::t_613af200f6d226 71-75
+  s_d27f31cd14035d::t_88f4e950b32e5a 613-643
+  s_d27f31cd14035d::t_32ec9f3b680131 676-682
+  s_d27f31cd14035d::t_50477da5b35f9e 35
+  s_d27f31cd14035d::t_8a7692d3853df9 302-309
+  s_d27f31cd14035d::t_fd0d7e11a33f9e 774,781,790
+TlsLib.Tests/src/SpyRevocationProvider.pas
+  s_d27f31cd14035d::t_79fc7c79815977 41-42
+  s_d27f31cd14035d::t_35049bdbad6012 71-72,127-128
+  s_d27f31cd14035d::t_eccad93a12d204 73
+  s_d27f31cd14035d::t_bf18cd50003601 115-120,124-126
+TlsLib/src/Interfaces/Trust/TlpIHttpFetcher.pas
+  s_d27f31cd14035d::t_9edd8770e199a6 34-38
+TlsLib/src/Trust/TlpLiveRevocation.pas
+  s_d27f31cd14035d::t_9cb559834d22b5 203
+  s_d27f31cd14035d::t_8039163b7375c5 94-101,110-115,119-125
+  s_d27f31cd14035d::t_40b9a89282b180 166-178,190,199-202,204-208,213-214,216-222,225-228,235,237-240,243-248,250-253,262-263,266-277,279-280,282-283,285-289,296-297,300,305-308,310
+  s_d27f31cd14035d::t_69fd1b7f853ca6 278
+  s_d27f31cd14035d::t_d3f36bfe2fb030 191-194
+  s_d27f31cd14035d::t_d3eb7ce856dff0 195-196
+  s_d27f31cd14035d::t_ecfdb3d29a7a70 65-67
+  s_d27f31cd14035d::t_0ab5082e41cf30 345,348,354,357
+  s_d27f31cd14035d::t_ef2d6b886c92d6 254-261
+  s_d27f31cd14035d::t_244317bea53f52 68-69
+  s_d27f31cd14035d::t_819f3317de113d 418
+  s_d27f31cd14035d::t_f79048b8cfe7f0 465
+  s_d27f31cd14035d::t_95697c857ad9e8 281
+  s_d27f31cd14035d::t_250b035d57beb8 284
+  s_d27f31cd14035d::t_2515e2c8f9d297 143-145,149
+  s_d27f31cd14035d::t_7c0ef9e63815b3 179-189
+  s_d27f31cd14035d::t_75bdc33d8e8c2d 21,209,215
+  s_d27f31cd14035d::t_637e7daa5b0081 333
+  s_d27f31cd14035d::t_262bd435161088 397,399,401
+  s_d27f31cd14035d::t_11fe638da1acf7 448,451-456
+  s_d27f31cd14035d::t_927371f9a74b01 264-265
+  s_d27f31cd14035d::t_ce4316896777b0 236
+  s_d27f31cd14035d::t_bbc42e5b9d1459 34-37,47-64,70-71
+  s_d27f31cd14035d::t_80cdde550c7dbb 38-46
+docs/certificate-verification.md
+  s_d27f31cd14035d::t_cc41eb70f2b29b 281,286,288-291,295-301
+  s_d27f31cd14035d::t_44f0e99664685e 282-285
+  s_d27f31cd14035d::t_7c965da50fce78 373
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a49d27023a9df5fd465e1943f95a836304f2c433",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
