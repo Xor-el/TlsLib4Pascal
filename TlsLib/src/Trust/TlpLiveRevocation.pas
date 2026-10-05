@@ -181,7 +181,6 @@ end;
 
 class function TLiveRevocationOptions.Defaults: TLiveRevocationOptions;
 begin
-  // set explicitly rather than relying on the result being initialised
   Apply(Result);
 end;
 
