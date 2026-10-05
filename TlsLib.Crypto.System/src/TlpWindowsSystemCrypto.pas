@@ -152,6 +152,7 @@ var
   BCRYPT_HKDF_HASH_NAME: WideString = 'HkdfHashAlgorithm';
   BCRYPT_HKDF_PRK_AND_FINALIZE: WideString = 'HkdfPrkAndFinalize';
   BCRYPT_PUBLIC_KEY_LENGTH_PROP: WideString = 'PublicKeyLength';
+  BCRYPT_ALGORITHM_NAME_PROP: WideString = 'AlgorithmName';
 
 resourcestring
   SInvalidPeerPoint = 'the peer public point is not a valid curve point';
@@ -908,6 +909,10 @@ type
     class function HashIdForScheme(AScheme: TSignatureScheme): WideString; static;
     class function HashLenForScheme(AScheme: TSignatureScheme): ULONG; static;
     function KeyFieldSize(AKeyHandle: Pointer): Int32;
+    // whether the imported key's algorithm family (RSA / EC) is the one AScheme signs with;
+    // an unreadable family is a mismatch
+    function KeyFamilyMatchesScheme(AKeyHandle: Pointer;
+      AScheme: TSignatureScheme): Boolean;
     class function IsPssScheme(AScheme: TSignatureScheme): Boolean; static;
     class function IsEcdsaScheme(AScheme: TSignatureScheme): Boolean; static;
     // raw r||s (from CNG) to a DER SEQUENCE{ INTEGER r, INTEGER s } as TLS carries it
@@ -3276,6 +3281,28 @@ begin
   Result := Int32((LBits + 7) div 8);
 end;
 
+function TWindowsNCrypt.KeyFamilyMatchesScheme(AKeyHandle: Pointer;
+  AScheme: TSignatureScheme): Boolean;
+var
+  LName: array[0..63] of WideChar;
+  LWritten: ULONG;
+  LAlg: WideString;
+begin
+  Result := False;
+  LWritten := 0;
+  System.FillChar(LName, SizeOf(LName), 0);
+  if (not System.Assigned(FBcrypt.GetProperty)) or
+    (FBcrypt.GetProperty(AKeyHandle, PWideChar(BCRYPT_ALGORITHM_NAME_PROP),
+    PByte(@LName[0]), SizeOf(LName) - SizeOf(WideChar), LWritten, 0) <> STATUS_SUCCESS) then
+    Exit;
+  LAlg := WideString(PWideChar(@LName[0]));
+  // an EC public key imports as ECDSA_Pnnn (or ECDH_Pnnn); an RSA one as RSA
+  if IsEcdsaScheme(AScheme) then
+    Result := (Copy(LAlg, 1, 5) = 'ECDSA') or (Copy(LAlg, 1, 4) = 'ECDH')
+  else
+    Result := LAlg = 'RSA';
+end;
+
 // Decodes a DER SEQUENCE{ INTEGER r, INTEGER s } to the fixed-width r||s BCrypt verifies.
 // Strictly bounds-checked and fail-closed: any malformed input returns False.
 class function TWindowsNCrypt.TryDerDecodeEcdsa(const ADer: TBytes;
@@ -3808,6 +3835,10 @@ var
   LSig: TBytes;
   LFieldSize: Int32;
 begin
+  // the scheme must belong to the key's family: an EC key under an rsa_pss scheme, or an RSA key
+  // under ecdsa, is a failed verification, never a cross-family accept
+  if not KeyFamilyMatchesScheme(AKeyHandle, AScheme) then
+    Exit(False);
   if IsEcdsaScheme(AScheme) then
   begin
     // BCrypt expects the fixed-width r||s (2x the KEY's field width, from the key not the
