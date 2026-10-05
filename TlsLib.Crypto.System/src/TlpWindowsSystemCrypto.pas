@@ -21,6 +21,7 @@ uses
   Windows,
   SysUtils,
   TlpArrayUtilities,
+  TlpDataEncoding,
   TlpCryptoDomainTypes,
   TlpPem,
   TlpDer,
@@ -171,6 +172,7 @@ resourcestring
   SHkdfExpandTooLong = 'HKDF-Expand output length %d exceeds 255 * HashLen (%d)';
   SHkdfExpandNegative = 'HKDF-Expand output length must not be negative';
   SInvalidScalarSize = 'private scalar size %d does not match the curve field size %d';
+  SScalarOutOfRange = 'the private scalar must be in the range [1, n-1] of the curve order';
   SSchemeNotCapable = 'the signing key cannot sign with the requested signature scheme';
   SForeignCngKeyExchangeKey =
     'the key-exchange private key was not produced by this Windows CNG provider';
@@ -399,6 +401,8 @@ type
     FieldSize: Int32;
     PubMagic: ULONG;
     PrivMagic: ULONG;
+    /// <summary>The group order n, big-endian, FieldSize bytes.</summary>
+    Order: TBytes;
   end;
 
   // whether native ECDH is usable and, if so, the factory for its per-curve agreements.
@@ -497,6 +501,9 @@ type
     function IsUncompressed(const APoint: TBytes): Boolean;
     function PeerPublicBlob(const APoint: TBytes): TBytes;
     function ScalarPrivateBlob(const AScalar: TBytes): TBytes;
+    /// <summary>Whether AScalar (big-endian) is a valid private key: non-zero and below the group
+    /// order n, i.e. in [1, n-1].</summary>
+    function ScalarInRange(const AScalar: TBytes): Boolean;
     function ImportPeer(const APeerPublicKey: TBytes): Pointer;
     function DeriveBigEndianSecret(ASecret: Pointer): TBytes;
   public
@@ -719,10 +726,9 @@ type
   end;
 
   // The Windows-native primitives facet: forwards everything to the portable inner facet
-  // except NIST prime-curve key agreement, which it serves from CNG. X25519 and every
-  // other primitive fall through to the inner facet unchanged (CNG can do X25519 via the
-  // generic ECDH curve-name path, but it is not served here - no speed gain over the
-  // portable X25519, and its RFC 7748 raw-key format is a separate encoding).
+  // except key agreement, which it serves from CNG where the host supports it: the NIST prime
+  // curves and X25519 (its RFC 7748 raw-key format is converted at the CNG boundary). Every other
+  // primitive falls through to the inner facet unchanged.
   TWindowsCryptoPrimitives = class(TForwardingCryptoPrimitives)
   strict private
   var
@@ -1753,6 +1759,23 @@ begin
   Move(AScalar[0], Result[ECC_BLOB_HEADER_SIZE + 2 * FCurve.FieldSize], FCurve.FieldSize);
 end;
 
+function TWindowsCngKeyAgreement.ScalarInRange(const AScalar: TBytes): Boolean;
+var
+  LI: Int32;
+begin
+  if TSecureMemory.ConstantTimeIsAllZero(AScalar) then
+    Exit(False);
+  // big-endian compare against n: the first differing byte decides, and equality is out of range
+  for LI := 0 to System.High(AScalar) do
+  begin
+    if AScalar[LI] < FCurve.Order[LI] then
+      Exit(True);
+    if AScalar[LI] > FCurve.Order[LI] then
+      Exit(False);
+  end;
+  Result := False;
+end;
+
 function TWindowsCngKeyAgreement.ImportPrivateKey(const ARawPrivateKey: ISecretBuffer;
   AUsage: TKeyAgreementUsage; out APublicKey: TBytes): IKeyExchangePrivateKey;
 var
@@ -1766,6 +1789,10 @@ begin
     if System.Length(LScalar) <> FCurve.FieldSize then
       raise EArgumentTlsLibException.CreateResFmt(@SInvalidScalarSize,
         [System.Length(LScalar), FCurve.FieldSize]);
+    // a scalar outside [1, n-1] is not a private key; refuse it here rather than rely on what the
+    // OS import happens to do with it
+    if not ScalarInRange(LScalar) then
+      raise EArgumentTlsLibException.CreateRes(@SScalarOutOfRange);
     LScalarBlob := ScalarPrivateBlob(LScalar);
     TCngError.Check(FApi.ImportKeyPair(FAlg, nil, PWideChar(BLOB_ECCPRIVATE), LKey,
       PByte(LScalarBlob), System.Length(LScalarBlob), 0));
@@ -2190,6 +2217,8 @@ begin
         Result.FieldSize := 32;
         Result.PubMagic := BCRYPT_ECDH_PUBLIC_P256_MAGIC;
         Result.PrivMagic := BCRYPT_ECDH_PRIVATE_P256_MAGIC;
+        Result.Order := TDataEncoding.HexDecode(
+          'FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551');
       end;
     TKeyAgreementAlgorithm.SECP384R1:
       begin
@@ -2197,6 +2226,8 @@ begin
         Result.FieldSize := 48;
         Result.PubMagic := BCRYPT_ECDH_PUBLIC_P384_MAGIC;
         Result.PrivMagic := BCRYPT_ECDH_PRIVATE_P384_MAGIC;
+        Result.Order := TDataEncoding.HexDecode(
+          'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFC7634D81F4372DDF581A0DB248B0A77AECEC196ACCC52973');
       end;
   else
     // SECP521R1
@@ -2204,6 +2235,8 @@ begin
     Result.FieldSize := 66;
     Result.PubMagic := BCRYPT_ECDH_PUBLIC_P521_MAGIC;
     Result.PrivMagic := BCRYPT_ECDH_PRIVATE_P521_MAGIC;
+    Result.Order := TDataEncoding.HexDecode(
+      '01FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFA51868783BF2F966B7FCC0148F709A5D03BB5C9B8899C47AEBB6FB71E91386409');
   end;
 end;
 

@@ -67,6 +67,7 @@ type
   published
     // provider primitives
     procedure TestOcspResponderUrlExtracted;
+    procedure TestOnlyHttpAccessLocationsAreReturned;
     procedure TestCrlDistributionPointsExtracted;
     procedure TestBuildOcspRequestNonEmpty;
     procedure TestCertificatePeerInfoExtracted;
@@ -228,6 +229,23 @@ begin
   CheckTrue(Pkix.Revocation.TryGetOcspResponderUrl(LeafCert, LUrl),
     'the leaf AIA carries an OCSP responder URL');
   CheckEquals('http://ocsp.tlslib.test/', LUrl, 'the OCSP URL is extracted verbatim');
+end;
+
+procedure TTestLiveRevocation.TestOnlyHttpAccessLocationsAreReturned;
+var
+  LUrl: string;
+  LUrls: TArray<string>;
+begin
+  // the access locations come from the peer's certificate, so only http(s) is ever handed to a
+  // fetcher: the ldap and file OCSP entries are skipped for the later HTTP one, and the ldap and
+  // ftp distribution points are dropped
+  CheckTrue(Pkix.Revocation.TryGetOcspResponderUrl(Field('scheme_cert'), LUrl),
+    'the HTTP responder after the other schemes is found');
+  CheckEquals('HTTP://ocsp.good.test/', LUrl, 'the http responder is the one returned');
+  CheckTrue(Pkix.Revocation.TryGetCrlDistributionPoints(Field('scheme_cert'), LUrls),
+    'the https distribution point is found');
+  CheckEquals(1, System.Length(LUrls), 'only the https distribution point survives');
+  CheckEquals('https://crl.good.test/ca.crl', LUrls[0], 'the https URL');
 end;
 
 procedure TTestLiveRevocation.TestCrlDistributionPointsExtracted;

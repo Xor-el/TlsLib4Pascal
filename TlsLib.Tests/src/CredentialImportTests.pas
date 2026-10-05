@@ -425,7 +425,8 @@ var
 begin
   LAll := TArray<TSignatureScheme>.Create(TSignatureScheme.RSA_PSS_RSAE_SHA256,
     TSignatureScheme.RSA_PSS_RSAE_SHA384, TSignatureScheme.RSA_PSS_RSAE_SHA512,
-    TSignatureScheme.RSA_PKCS1_SHA256, TSignatureScheme.ED25519);
+    TSignatureScheme.RSA_PKCS1_SHA256, TSignatureScheme.RSA_PKCS1_SHA384,
+    TSignatureScheme.RSA_PKCS1_SHA512, TSignatureScheme.ED25519);
   // emLen = ceil((bits-1)/8) must reach 2*hLen+2: 66 / 98 / 130 bytes
   CheckFalse(Has(TSignatureScheme.FitRsaModulus(LAll, 521), TSignatureScheme.RSA_PSS_RSAE_SHA256),
     'sha256 needs 522 bits');
@@ -440,7 +441,20 @@ begin
   CheckTrue(Has(TSignatureScheme.FitRsaModulus(LAll, 1034), TSignatureScheme.RSA_PSS_RSAE_SHA512),
     'sha512 fits 1034 bits');
   CheckTrue(Has(TSignatureScheme.FitRsaModulus(LAll, 512), TSignatureScheme.RSA_PKCS1_SHA256),
-    'non-PSS schemes are kept');
+    'pkcs1 sha256 fits 512 bits');
+  // PKCS#1 v1.5 needs the modulus to hold the DigestInfo plus 11 bytes of padding: 62 / 78 / 94 bytes
+  CheckFalse(Has(TSignatureScheme.FitRsaModulus(LAll, 488), TSignatureScheme.RSA_PKCS1_SHA256),
+    'pkcs1 sha256 does not fit 61 bytes');
+  CheckTrue(Has(TSignatureScheme.FitRsaModulus(LAll, 489), TSignatureScheme.RSA_PKCS1_SHA256),
+    'pkcs1 sha256 fits 62 bytes');
+  CheckFalse(Has(TSignatureScheme.FitRsaModulus(LAll, 616), TSignatureScheme.RSA_PKCS1_SHA384),
+    'pkcs1 sha384 does not fit 77 bytes');
+  CheckTrue(Has(TSignatureScheme.FitRsaModulus(LAll, 617), TSignatureScheme.RSA_PKCS1_SHA384),
+    'pkcs1 sha384 fits 78 bytes');
+  CheckFalse(Has(TSignatureScheme.FitRsaModulus(LAll, 744), TSignatureScheme.RSA_PKCS1_SHA512),
+    'pkcs1 sha512 does not fit 93 bytes');
+  CheckTrue(Has(TSignatureScheme.FitRsaModulus(LAll, 745), TSignatureScheme.RSA_PKCS1_SHA512),
+    'pkcs1 sha512 fits 94 bytes');
   CheckTrue(Has(TSignatureScheme.FitRsaModulus(LAll, 512), TSignatureScheme.ED25519),
     'other families are kept');
 end;

@@ -193,6 +193,7 @@ type
     procedure TestServerCredentialWithMismatchedKeyRejected;
     procedure TestServerCredentialWithWrongKeyFamilyRejected;
     procedure TestIncompleteCredentialsAreRefusedAtBuild;
+    procedure TestMalformedTrustAnchorIsRefusedAtBuild;
     procedure TestSniCredentialWithMismatchedKeyNamesHost;
     procedure TestClientCredentialWithMismatchedKeyRejected;
     procedure TestMatchingCredentialBuildsServer;
@@ -2072,6 +2073,27 @@ begin
       LRaised := Pos('leaf certificate', E.Message) > 0;
   end;
   CheckTrue(LRaised, 'a client credential with a key but no chain is refused');
+end;
+
+procedure TTestConfigBuilder.TestMalformedTrustAnchorIsRefusedAtBuild;
+var
+  LBuilder: ITlsConfigBuilder;
+  LRaised: Boolean;
+begin
+  // one junk entry in an otherwise valid store would fail every verification against it
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
+  LRaised := False;
+  try
+    LBuilder.Client.WithTrustStore(TTrustAnchorStore.Create(TArray<TBytes>.Create(
+      DecodeHex(FCerts.Values['root_cert']), TBytes.Create(1, 2, 3))) as ITrustAnchorStore).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := Pos('anchor 1 of trust store 0', E.Message) > 0;
+  end;
+  CheckTrue(LRaised, 'a store with an unparsable root is refused, naming it');
+  // control: the same store without the junk entry builds
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
+  CheckTrue(LBuilder.Client.WithTrustStore(ClientTrust).Build <> nil, 'a valid store builds');
 end;
 
 procedure TTestConfigBuilder.TestSniCredentialWithMismatchedKeyNamesHost;

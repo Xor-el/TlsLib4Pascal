@@ -145,8 +145,15 @@ begin
 end;
 
 class function TSecretBuffer.FromString(const AValue: string): ISecretBuffer;
+var
+  LBytes: TBytes;
 begin
-  Result := TSecretBuffer.From(TEncoding.UTF8.GetBytes(AValue));
+  LBytes := TEncoding.UTF8.GetBytes(AValue);
+  try
+    Result := TSecretBuffer.From(LBytes);
+  finally
+    TSecureMemory.WipeBytes(LBytes);
+  end;
 end;
 
 class function TSecretBuffer.Concat(const APrefix: TBytes;

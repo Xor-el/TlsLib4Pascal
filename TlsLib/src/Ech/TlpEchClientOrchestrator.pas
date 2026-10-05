@@ -395,7 +395,7 @@ var
 begin
   // the inner ClientHello was built and binder-patched by the machine; keep it for the inner
   // transcript and parse its entries to derive the outer (RFC 9849 sec. 6.1)
-  FSentInnerRaw := AInnerFramed;
+  FSentInnerRaw := System.Copy(AInnerFramed);
   LInnerBody := System.Copy(AInnerFramed, 4, System.Length(AInnerFramed) - 4);
   LMsg := THandshakeMessages.DecodeClientHello(LInnerBody);
   LEntries := TExtensionVector.Parse(LMsg.Extensions);
