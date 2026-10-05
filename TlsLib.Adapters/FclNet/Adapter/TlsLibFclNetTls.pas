@@ -354,7 +354,8 @@ begin
     Exit; // > 0 bytes, or 0 for an orderly close (the pump reports a truncated handshake)
   // Result < 0: a receive-timeout errno is SO_RCVTIMEO firing on a silent peer - our handshake cap
   // while it is armed, else the caller's own application-read timeout, which is retryable and
-  // must not be misreported as a truncation; any other error surfaces as end-of-stream
+  // must not be misreported as a truncation; any other error (a reset, a broken pipe) is a
+  // receive failure carrying its errno, not an orderly end of stream
   LErr := SocketError;
   if (LErr = EsockEWOULDBLOCK) or (LErr = WSAETIMEDOUT_CODE) then
   begin
@@ -363,7 +364,10 @@ begin
         Format(SFclNetHandshakeReadTimedOut, [ReadTimeoutMs]));
     raise ETlsReadTimeout.Create(SFclNetReceiveTimedOut);
   end;
-  Result := 0;
+  if LErr > 0 then
+    Result := -LErr
+  else
+    Result := -1;
 end;
 
 function TFclNetSocketTransport.SendRaw(const ABuffer: TBytes; AOffset,
@@ -556,7 +560,7 @@ begin
     // only additionally reject (augment-only, fail-closed)
     if not DoVerifyCert then
     begin
-      FConnection.CloseNotify;
+      FConnection.SendAlert(TTlsAlertDescription.BadCertificate);
       raise ETlsStreamError.Create(TTlsAlertDescription.BadCertificate, SPeerVerifyRejected);
     end;
     SetSSLActive(True);

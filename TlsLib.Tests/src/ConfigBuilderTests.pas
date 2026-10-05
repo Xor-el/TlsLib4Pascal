@@ -113,6 +113,9 @@ type
     procedure TestRecordSizeLimitDefaultsToUnset;
     procedure TestExternalPskInnerBytesAreCopied;
     procedure TestNilClockIsRefused;
+    procedure TestAlpnListBeyondWireLimitIsRefused;
+    procedure TestServerExternalPskNeedsTls13;
+    procedure TestPreferredGroupsWithNoRegisteredGroupIsRefused;
     procedure TestEmptyPreferredGroupsIsRefusedAtBuild;
     procedure TestNilRegistryIsRefusedAtBuild;
     procedure TestRecordSizeLimitRoundTrips;
@@ -647,6 +650,65 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a nil clock is a typed error, not a silent default');
+end;
+
+procedure TTestConfigBuilder.TestAlpnListBeyondWireLimitIsRefused;
+var
+  LNames: TArray<string>;
+  LI: Int32;
+  LRaised: Boolean;
+begin
+  // 255 names of 255 bytes is 65280 wire bytes, and a 252-byte name takes it to exactly 65533, the
+  // most the extension can carry
+  SetLength(LNames, 256);
+  for LI := 0 to 254 do
+    LNames[LI] := Format('%.3d', [LI]) + StringOfChar('a', 252);
+  LNames[255] := '255' + StringOfChar('a', 249);
+  NewClientBuilder.WithAlpnProtocols(LNames).Build;
+  // one byte more no longer fits
+  LNames[255] := '255' + StringOfChar('a', 250);
+  LRaised := False;
+  try
+    NewClientBuilder.WithAlpnProtocols(LNames);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an ALPN list that overflows the 16-bit wire length is refused');
+end;
+
+procedure TTestConfigBuilder.TestServerExternalPskNeedsTls13;
+var
+  LPsks: TArray<TExternalPsk>;
+  LRaised: Boolean;
+begin
+  LPsks := TArray<TExternalPsk>.Create(MakePskSpec);
+  NewServerBuilder.WithExternalPreSharedKeys(LPsks).Build;
+  LRaised := False;
+  try
+    NewServerBuilder.WithExternalPreSharedKeys(LPsks)
+      .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12)).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a TLS 1.2-only server cannot honour external PSKs');
+end;
+
+procedure TTestConfigBuilder.TestPreferredGroupsWithNoRegisteredGroupIsRefused;
+var
+  LRaised: Boolean;
+begin
+  NewClientBuilder.WithPreferredGroups(
+    TArray<UInt16>.Create(TNamedGroupCatalog.X25519)).Build;
+  LRaised := False;
+  try
+    NewClientBuilder.WithPreferredGroups(TArray<UInt16>.Create($FEFE)).Build;
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'preferred groups that are all unregistered are refused at Build');
 end;
 
 procedure TTestConfigBuilder.TestEmptyPreferredGroupsIsRefusedAtBuild;
