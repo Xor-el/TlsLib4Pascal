@@ -41,9 +41,16 @@ type
     // earlier entry is recognized and dropped without evicting its live current entry
     FOrder: TQueue<TStrikeEntry>;
     FCapacity: Int32;
+    /// <summary>A lower bound on the earliest expiry among live values, so a full sweep runs only
+    /// when something may really have lapsed (never with uniform windows, where the queue front
+    /// is always the earliest).</summary>
+    FMinExpiry: UInt64;
     FLock: TCriticalSection;
     class function KeyOf(const AValue: TBytes): string; static;
     procedure PruneExpired(ANowMillis: UInt64);
+    /// <summary>Removes every lapsed value whatever its position in the queue, for registers fed
+    /// differing windows where the queue front is not always the earliest expiry.</summary>
+    procedure PruneAllExpired(ANowMillis: UInt64);
     procedure CompactOrder;
   public
     /// <summary>A register holding up to ACapacity live values (default when 0 or less).</summary>
@@ -72,6 +79,7 @@ begin
     FCapacity := DefaultStrikeCapacity;
   FByKey := TDictionary<string, UInt64>.Create;
   FOrder := TQueue<TStrikeEntry>.Create;
+  FMinExpiry := High(UInt64);
   FLock := TCriticalSection.Create;
 end;
 
@@ -94,8 +102,8 @@ var
   LFront: TStrikeEntry;
   LCurrent: UInt64;
 begin
-  // insertion order tracks expiry order (all entries share one window length), so the earliest
-  // expiry is at the front
+  // insertion order tracks expiry order while entries share one window length (as the engine's do),
+  // so the earliest expiry is at the front; differing windows are swept in full by PruneAllExpired
   while FOrder.Count > 0 do
   begin
     LFront := FOrder.Peek;
@@ -107,6 +115,30 @@ begin
     if FByKey.TryGetValue(LFront.Key, LCurrent) and (LCurrent = LFront.Value) then
       FByKey.Remove(LFront.Key);
   end;
+end;
+
+procedure TStrikeRegisterAntiReplay.PruneAllExpired(ANowMillis: UInt64);
+var
+  LPair: TPair<string, UInt64>;
+  LExpired: TList<string>;
+  LKey: string;
+begin
+  LExpired := TList<string>.Create;
+  try
+    // the survivors' exact earliest expiry becomes the new lower bound
+    FMinExpiry := High(UInt64);
+    for LPair in FByKey do
+      if LPair.Value <= ANowMillis then
+        LExpired.Add(LPair.Key)
+      else if LPair.Value < FMinExpiry then
+        FMinExpiry := LPair.Value;
+    for LKey in LExpired do
+      FByKey.Remove(LKey);
+  finally
+    LExpired.Free;
+  end;
+  // the order queue still names the removed values; keep only current entries
+  CompactOrder;
 end;
 
 procedure TStrikeRegisterAntiReplay.CompactOrder;
@@ -148,14 +180,22 @@ begin
     PruneExpired(ANowMillis);
     if FByKey.TryGetValue(LKey, LExpiry) and (LExpiry > ANowMillis) then
       Exit; // a still-live value: this is a replay
+    // callers may pass differing windows, so the queue front is not always the earliest expiry and
+    // PruneExpired can leave a lapsed entry behind a live one: before declining at capacity, sweep
+    // every entry
+    if (not FByKey.ContainsKey(LKey)) and (FByKey.Count >= FCapacity) and
+      (FMinExpiry <= ANowMillis) then
+      PruneAllExpired(ANowMillis);
     // at capacity a new value is declined rather than evicting a live strike: dropping one would let
     // its captured 0-RTT flight replay inside its window (RFC 8446 8)
     if (not FByKey.ContainsKey(LKey)) and (FByKey.Count >= FCapacity) then
       Exit;
-    if FOrder.Count >= 2 * FCapacity then
+    if Int64(FOrder.Count) >= 2 * Int64(FCapacity) then
       CompactOrder;
     FByKey.AddOrSetValue(LKey, AExpiryMillis);
     FOrder.Enqueue(TStrikeEntry.Create(LKey, AExpiryMillis));
+    if AExpiryMillis < FMinExpiry then
+      FMinExpiry := AExpiryMillis;
     Result := True;
   finally
     FLock.Leave;
@@ -168,6 +208,7 @@ begin
   try
     FByKey.Clear;
     FOrder.Clear;
+    FMinExpiry := High(UInt64);
   finally
     FLock.Leave;
   end;

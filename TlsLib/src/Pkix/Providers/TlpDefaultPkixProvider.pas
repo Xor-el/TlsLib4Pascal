@@ -17,6 +17,7 @@ interface
 
 uses
   SysUtils,
+  StrUtils,
   Classes,
   Rtti,
   SyncObjs,
@@ -196,6 +197,12 @@ type
       const ACrl: IX509Crl): Boolean; static;
     class function IdpNameMatchesLeafDistributionPoint(
       const AIdpName: IDistributionPointName; const ALeaf: IX509Certificate): Boolean; static;
+    /// <summary>
+    /// Whether AUrl is an http or https URL: the only schemes a revocation fetch follows. An
+    /// access location comes from the peer's certificate, so another scheme (file, ldap, ftp)
+    /// is never offered to the caller's fetcher.
+    /// </summary>
+    class function IsFetchableUrl(const AUrl: string): Boolean; static;
     /// <summary>
     /// Reads a CRL entry's reason (RFC 5280 5.3.1); False when the entry carries a critical
     /// entry extension that cannot be processed, so the CRL is not authoritative.
@@ -1078,9 +1085,12 @@ begin
         if (LLoc <> nil) and (LLoc.GetTagNo = TGeneralName.UniformResourceIdentifier) and
           Supports(LLoc.GetName, IDerIA5String, LIa5) then
         begin
-          AUrl := LIa5.GetString;
-          if AUrl <> '' then
+          // an entry with another scheme is skipped: a later http(s) responder may still serve it
+          if IsFetchableUrl(LIa5.GetString) then
+          begin
+            AUrl := LIa5.GetString;
             Exit(True);
+          end;
         end;
       end;
   except
@@ -1132,7 +1142,7 @@ begin
       for LJ := 0 to System.High(LNames) do
         if (LNames[LJ].GetTagNo = TGeneralName.UniformResourceIdentifier) and
           Supports(LNames[LJ].GetName, IDerIA5String, LIa5) and
-          (LIa5.GetString <> '') then
+          IsFetchableUrl(LIa5.GetString) then
           TArrayUtilities.Append<string>(AUrls, LIa5.GetString);
     end;
     Result := System.Length(AUrls) > 0;
@@ -1140,6 +1150,11 @@ begin
     Result := False;
     AUrls := nil;
   end;
+end;
+
+class function TRevocationChecker.IsFetchableUrl(const AUrl: string): Boolean;
+begin
+  Result := StartsText('http://', AUrl) or StartsText('https://', AUrl);
 end;
 
 class function TRevocationChecker.IdpNameMatchesLeafDistributionPoint(

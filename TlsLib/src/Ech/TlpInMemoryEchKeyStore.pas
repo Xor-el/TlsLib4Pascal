@@ -89,6 +89,8 @@ resourcestring
     'could never advertise retry_configs on a reject (RFC 9849 sec. 7.1)';
   SEchEntryInvalid = 'an ECH key store entry has a nil private key, an unsupported config ' +
     'version, or no raw config bytes';
+  SEchEntryUnservable = 'an ECH key store entry holds a config no client could use: it needs a ' +
+    'valid public_name, at least one cipher suite, no mandatory extension and no duplicate extension';
   SEchNoUsableSuite = 'an ECH config offers no HPKE suite this provider can instantiate';
   SEchNoServableConfig = 'the ECHConfigList holds no config of a version this library serves';
 
@@ -108,6 +110,10 @@ begin
       (AEntries[LI].Config.Version <> TEchConfig.SupportedVersion) or
       (System.Length(AEntries[LI].Config.Raw) = 0) then
       raise EArgumentTlsLibException.CreateRes(@SEchEntryInvalid);
+    // a config no client could use (an unusable public_name, no cipher suite, an unsupported
+    // mandatory extension or a duplicated extension) would be advertised and then skipped by all
+    if not AEntries[LI].Config.IsServable then
+      raise EArgumentTlsLibException.CreateRes(@SEchEntryUnservable);
     // the key must match its config, or it would fault mid-handshake keyed by config_id
     if not KeyMatchesConfig(AEntries[LI].RecipientKey, AEntries[LI].Config) then
       raise EArgumentTlsLibException.CreateRes(@SEchKeyMismatch);

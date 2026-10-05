@@ -362,14 +362,17 @@ class function TSignatureSchemeHelper.FitRsaModulus(
   const ASchemes: TArray<TSignatureScheme>; AModulusBits: Int32): TArray<TSignatureScheme>;
 var
   LScheme: TSignatureScheme;
-  LHashLen, LEmLen, LCount: Int32;
+  LHashLen, LEmLen, LModulusBytes, LPkcs1MinBytes, LCount: Int32;
 begin
   Result := nil;
   SetLength(Result, System.Length(ASchemes));
   LCount := 0;
   LEmLen := (AModulusBits - 1 + 7) div 8;
+  LModulusBytes := (AModulusBits + 7) div 8;
   for LScheme in ASchemes do
   begin
+    LHashLen := 0;
+    LPkcs1MinBytes := 0;
     case LScheme of
       TSignatureScheme.RSA_PSS_RSAE_SHA256:
         LHashLen := 32;
@@ -377,10 +380,18 @@ begin
         LHashLen := 48;
       TSignatureScheme.RSA_PSS_RSAE_SHA512:
         LHashLen := 64;
-    else
-      LHashLen := 0;
+      // RSASSA-PKCS1-v1_5 needs k >= tLen + 11 (RFC 8017 9.2), tLen being the 19-byte DigestInfo
+      // prefix plus the digest
+      TSignatureScheme.RSA_PKCS1_SHA256:
+        LPkcs1MinBytes := 19 + 32 + 11;
+      TSignatureScheme.RSA_PKCS1_SHA384:
+        LPkcs1MinBytes := 19 + 48 + 11;
+      TSignatureScheme.RSA_PKCS1_SHA512:
+        LPkcs1MinBytes := 19 + 64 + 11;
     end;
     if (LHashLen > 0) and (LEmLen < 2 * LHashLen + 2) then
+      Continue;
+    if (LPkcs1MinBytes > 0) and (LModulusBytes < LPkcs1MinBytes) then
       Continue;
     Result[LCount] := LScheme;
     System.Inc(LCount);

@@ -168,6 +168,9 @@ type
     /// <summary>Enforces the trust-composition rule at build: a whole-verifier is exclusive
     /// of any anchor source and of a second verifier (typed error).</summary>
     procedure ValidateTrustComposition;
+    /// <summary>Refuses an anchor store holding a certificate that does not parse: one such root
+    /// would otherwise fail every verification against the store, far from its cause.</summary>
+    procedure ValidateAnchorRoots;
     procedure ValidateRequiredCollaborators;
     /// <summary>Composes the server credential resolver at build: a custom resolver (exclusive
     /// of the built-in map/credential), else the SNI map plus the single credential as the
@@ -395,6 +398,8 @@ resourcestring
     'certificate (RFC 8446 4.2.3)';
   SCredentialKeyNotExportable = 'the credential''s private key cannot export its public key, so it ' +
     'cannot be matched to its certificate; supply a credential whose key exposes a public key';
+  SMalformedTrustAnchor = 'anchor %d of trust store %d is not a well-formed certificate; one unparsable root ' +
+    'would fail every verification against the store';
   SSniCredentialInvalid = 'the SNI credential for host "%s" is invalid: %s';
 
 const
@@ -1975,6 +1980,22 @@ begin
     raise EInvalidOperationTlsLibException.CreateRes(@SVerifierAnchorConflict);
 end;
 
+procedure TTlsConfigBuilder.ValidateAnchorRoots;
+var
+  LI, LJ: Int32;
+  LRoots: TArray<TBytes>;
+begin
+  for LI := 0 to System.High(FAnchorStores) do
+  begin
+    if FAnchorStores[LI] = nil then
+      Continue;
+    LRoots := FAnchorStores[LI].RootCertificates;
+    for LJ := 0 to System.High(LRoots) do
+      if not FPkix.Certificates.IsWellFormed(LRoots[LJ]) then
+        raise EInvalidOperationTlsLibException.CreateResFmt(@SMalformedTrustAnchor, [LJ, LI]);
+  end;
+end;
+
 function TTlsConfigBuilder.WithCertificateChainLimits(
   const ALimits: TCertificateChainLimits): TTlsConfigBuilder;
 begin
@@ -2617,6 +2638,7 @@ begin
   if FHasCredential then
     ValidateCredentialConsistency(FCredential);
   ValidateTrustComposition;
+  ValidateAnchorRoots;
   // a client authenticates the server by its certificate (anchor ROOTS, a whole-verifier, or a
   // verifier source), by an out-of-band external PSK (RFC 9258), or by explicitly skipping
   // verification (the loud dangerous toggle); at least one is required (no silent-insecure). A
@@ -2736,6 +2758,7 @@ begin
   if FEchSplitModeBackend and (FEchKeyStore <> nil) then
     raise EInvalidOperationTlsLibException.CreateRes(@SEchBackendWithKeyStore);
   ValidateTrustComposition;
+  ValidateAnchorRoots;
   // client authentication verifies the peer chain against a trust source: anchor ROOTS, a
   // whole-verifier, or an explicit skip-verify. A verifier source is NOT a source on its own - it
   // consumes the client-CA anchors as its exclusive root, so it needs roots too. Without one the

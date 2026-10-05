@@ -83,6 +83,7 @@ type
     procedure TestPemKeyMismatchRejected;
     procedure TestFromConfigKeyMismatchRejected;
     procedure TestStoreWithNoRetryEntriesRejected;
+    procedure TestStoreRejectsConfigNoClientCouldUse;
     procedure TestFromConfigSkipsUnsupportedVersion;
     procedure TestFromConfigAllUnsupportedRejected;
     procedure TestKeyMismatchDetectedPastExportOnlySuite;
@@ -580,6 +581,63 @@ begin
   end;
   CheckTrue(LRaised,
     'a non-empty store with no is_retry entry is rejected (RFC 9849 7.1)');
+end;
+
+procedure TTestEchTooling.TestStoreRejectsConfigNoClientCouldUse;
+var
+  LPub: TBytes;
+  LSk: ISecretBuffer;
+  LSuite: TEchCipherSuite;
+  LEntries: TArray<TEchKeyEntry>;
+  LMandatory, LDupA, LDupB: TEchConfigExtension;
+
+  function Refused(const AConfig: TEchConfig): Boolean;
+  var
+    LStore: IEchServerKeyStore;
+  begin
+    SetLength(LEntries, 1);
+    LEntries[0].Config := AConfig;
+    LEntries[0].RecipientKey := Crypto.Hpke.ImportRecipientKey(
+      THpkeKem.DHKEM_X25519_HKDF_SHA256, LSk);
+    LEntries[0].IsRetry := True;
+    Result := False;
+    try
+      LStore := TInMemoryEchKeyStore.Create(LEntries) as IEchServerKeyStore;
+    except
+      on E: EArgumentTlsLibException do
+        Result := Pos('no client could use', E.Message) > 0;
+    end;
+  end;
+
+begin
+  BuildEchConfigFor(LPub, LSk);
+  LSuite.KdfId := THpkeKdf.HKDF_SHA256;
+  LSuite.AeadId := THpkeAead.AES_128_GCM;
+  LMandatory.ExtType := $8001;
+  LMandatory.Data := nil;
+  LDupA.ExtType := $0042;
+  LDupA.Data := nil;
+  LDupB := LDupA;
+  // each of these is advertised and then skipped by every client
+  CheckTrue(Refused(TEchConfig.Build(TEchConfig.SupportedVersion, 3,
+    THpkeKem.DHKEM_X25519_HKDF_SHA256, LPub, TArray<TEchCipherSuite>.Create(LSuite), 0,
+    TEncoding.ASCII.GetBytes('p.example'), TArray<TEchConfigExtension>.Create(LMandatory))),
+    'a mandatory extension (high bit set) is refused');
+  CheckTrue(Refused(TEchConfig.Build(TEchConfig.SupportedVersion, 3,
+    THpkeKem.DHKEM_X25519_HKDF_SHA256, LPub, TArray<TEchCipherSuite>.Create(LSuite), 0,
+    TEncoding.ASCII.GetBytes('p.example'), TArray<TEchConfigExtension>.Create(LDupA, LDupB))),
+    'a duplicated extension type is refused');
+  CheckTrue(Refused(TEchConfig.Build(TEchConfig.SupportedVersion, 3,
+    THpkeKem.DHKEM_X25519_HKDF_SHA256, LPub, TArray<TEchCipherSuite>.Create(LSuite), 0,
+    TEncoding.ASCII.GetBytes('bad_name.example'), nil)),
+    'an invalid public_name is refused');
+  CheckTrue(Refused(TEchConfig.Build(TEchConfig.SupportedVersion, 3,
+    THpkeKem.DHKEM_X25519_HKDF_SHA256, LPub, nil, 0,
+    TEncoding.ASCII.GetBytes('p.example'), nil)), 'a config with no cipher suite is refused');
+  // control: the same shape without the defect is accepted
+  CheckFalse(Refused(TEchConfig.Build(TEchConfig.SupportedVersion, 3,
+    THpkeKem.DHKEM_X25519_HKDF_SHA256, LPub, TArray<TEchCipherSuite>.Create(LSuite), 0,
+    TEncoding.ASCII.GetBytes('p.example'), nil)), 'a servable config is accepted');
 end;
 
 procedure TTestEchTooling.TestFromConfigSkipsUnsupportedVersion;

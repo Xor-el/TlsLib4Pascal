@@ -88,6 +88,7 @@ type
     // native key verifies under the exported SPKI
     procedure TestExportedPublicKeyVerifiesNativeSignature;
     procedure TestNativeVerifierRejectsCrossFamilyScheme;
+    procedure TestEcdhImportRefusesScalarsOutsideTheGroupOrder;
     // both parsers agree on the key: the natively adopted PKCS#12 key's exported SPKI equals
     // the leaf certificate's SPKI (guards against crypt32 key<->cert association drift)
     procedure TestPkcs12ExportedKeyMatchesLeaf;
@@ -343,6 +344,50 @@ begin
     LRsaKey.PublicKeyInfo);
   LVerifier.Update(LMessage, 0, System.Length(LMessage));
   CheckFalse(LVerifier.Verify(LRsaSignature), 'an RSA key does not verify under an ECDSA scheme');
+end;
+
+procedure TTestWindowsSystemCrypto.TestEcdhImportRefusesScalarsOutsideTheGroupOrder;
+const
+  Orders: array [0 .. 2] of string = (
+    'FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551',
+    'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFC7634D81F4372DDF581A0DB248B0A77AECEC196ACCC52973',
+    '01FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFA51868783BF2F966B7FCC0148F709A5D03BB5C9B8899C47AEBB6FB71E91386409');
+  Algorithms: array [0 .. 2] of TKeyAgreementAlgorithm = (
+    TKeyAgreementAlgorithm.SECP256R1, TKeyAgreementAlgorithm.SECP384R1,
+    TKeyAgreementAlgorithm.SECP521R1);
+var
+  LAgreement: IKeyAgreement;
+  LN, LZero, LBelow: TBytes;
+  LPublic: TBytes;
+  LRaised: Boolean;
+  LI: Int32;
+
+  function Imports(const AScalar: TBytes): Boolean;
+  begin
+    Result := True;
+    try
+      LAgreement.ImportPrivateKey(TSecretBuffer.From(AScalar),
+        TKeyAgreementUsage.Ephemeral, LPublic);
+    except
+      on E: EArgumentTlsLibException do
+        Result := False;
+    end;
+  end;
+
+begin
+  for LI := Low(Orders) to High(Orders) do
+  begin
+    LAgreement := Crypto.Primitives.CreateKeyAgreement(Algorithms[LI]);
+    LN := DecodeHex(Orders[LI]);
+    LZero := nil;
+    SetLength(LZero, System.Length(LN));
+    LBelow := System.Copy(LN);
+    LBelow[High(LBelow)] := Byte(LBelow[High(LBelow)] - 1);
+    LRaised := not Imports(LZero);
+    CheckTrue(LRaised, Format('the zero scalar is refused (curve %d)', [LI]));
+    CheckFalse(Imports(LN), Format('a scalar equal to n is refused (curve %d)', [LI]));
+    CheckTrue(Imports(LBelow), Format('n-1 is a valid private key (curve %d)', [LI]));
+  end;
 end;
 
 procedure TTestWindowsSystemCrypto.TestPkcs12ExportedKeyMatchesLeaf;
