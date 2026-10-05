@@ -87,6 +87,7 @@ type
     // the exported SPKI is the public key of the handle that signs: a signature made by the
     // native key verifies under the exported SPKI
     procedure TestExportedPublicKeyVerifiesNativeSignature;
+    procedure TestNativeVerifierRejectsCrossFamilyScheme;
     // both parsers agree on the key: the natively adopted PKCS#12 key's exported SPKI equals
     // the leaf certificate's SPKI (guards against crypt32 key<->cert association drift)
     procedure TestPkcs12ExportedKeyMatchesLeaf;
@@ -309,6 +310,39 @@ begin
     CheckTrue(LVerifier.Verify(LSignature),
       LCases[LI].Priv + ': a native signature verifies under the exported SPKI');
   end;
+end;
+
+procedure TTestWindowsSystemCrypto.TestNativeVerifierRejectsCrossFamilyScheme;
+var
+  LEcKey, LRsaKey: ISigningKey;
+  LSigner: ISignatureSigner;
+  LVerifier: ISignatureVerifier;
+  LMessage, LEcSignature, LRsaSignature: TBytes;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  LMessage := DecodeHex(SMessageHex);
+  LEcKey := Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ec256_pkcs8_der']), nil);
+  LRsaKey := Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_pkcs8_der']), nil);
+  LSigner := Crypto.Signing.CreateSignatureSigner(TSignatureScheme.ECDSA_SECP256R1_SHA256,
+    LEcKey);
+  LSigner.Update(LMessage, 0, System.Length(LMessage));
+  LEcSignature := LSigner.Sign;
+  LSigner := Crypto.Signing.CreateSignatureSigner(TSignatureScheme.RSA_PSS_RSAE_SHA256,
+    LRsaKey);
+  LSigner.Update(LMessage, 0, System.Length(LMessage));
+  LRsaSignature := LSigner.Sign;
+
+  // an EC key under an RSA scheme and an RSA key under an ECDSA scheme must verify False, not
+  // throw
+  LVerifier := Crypto.Signing.CreateSignatureVerifier(TSignatureScheme.RSA_PSS_RSAE_SHA256,
+    LEcKey.PublicKeyInfo);
+  LVerifier.Update(LMessage, 0, System.Length(LMessage));
+  CheckFalse(LVerifier.Verify(LEcSignature), 'an EC key does not verify under an RSA scheme');
+  LVerifier := Crypto.Signing.CreateSignatureVerifier(TSignatureScheme.ECDSA_SECP256R1_SHA256,
+    LRsaKey.PublicKeyInfo);
+  LVerifier.Update(LMessage, 0, System.Length(LMessage));
+  CheckFalse(LVerifier.Verify(LRsaSignature), 'an RSA key does not verify under an ECDSA scheme');
 end;
 
 procedure TTestWindowsSystemCrypto.TestPkcs12ExportedKeyMatchesLeaf;
