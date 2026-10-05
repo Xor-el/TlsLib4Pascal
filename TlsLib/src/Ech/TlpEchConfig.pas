@@ -81,6 +81,11 @@ type
     /// must pass, independent of cipher-suite selection.</summary>
     function IsStructurallyUsable(const ACryptoProvider: ICryptoProvider): Boolean;
   public
+    /// <summary>Whether a client could ever use this config, judged without a crypto provider:
+    /// the supported version, a valid public_name, at least one cipher suite, no mandatory
+    /// extension (none is understood) and no duplicated extension type. A server publishing a
+    /// config that fails this would have every client skip it.</summary>
+    function IsServable: Boolean;
     /// <summary>Parses one ECHConfig from AReader (advancing past it) and captures its
     /// raw bytes. Raises EDecodeErrorTlsLibException on a malformed structure.</summary>
     class function Parse(var AReader: TWireReader): TEchConfig; static;
@@ -329,31 +334,41 @@ begin
   end;
 end;
 
-function TEchConfig.IsStructurallyUsable(
-  const ACryptoProvider: ICryptoProvider): Boolean;
+function TEchConfig.IsServable: Boolean;
 var
-  LExt: TEchConfigExtension;
-  LOther: TEchConfigExtension;
-  LI, LJ: Int32;
+  LSeen: TArray<Boolean>;
+  LI: Int32;
+  LType: UInt16;
 begin
   Result := False;
   if FVersion <> SupportedVersion then
     Exit;
   if not IsValidPublicName(FPublicName) then
     Exit;
-  // reject an unsupported mandatory extension (high bit set) or a duplicate type
+  if System.Length(FCipherSuites) = 0 then
+    Exit;
+  // reject an unsupported mandatory extension (high bit set) or a duplicate type; a flag per
+  // 16-bit type keeps the duplicate check linear however many extensions a config carries
+  LSeen := nil;
+  SetLength(LSeen, 65536);
   for LI := 0 to System.High(FExtensions) do
   begin
-    LExt := FExtensions[LI];
-    if (LExt.ExtType and MandatoryExtensionBit) <> 0 then
+    LType := FExtensions[LI].ExtType;
+    if (LType and MandatoryExtensionBit) <> 0 then
       Exit;
-    for LJ := LI + 1 to System.High(FExtensions) do
-    begin
-      LOther := FExtensions[LJ];
-      if LOther.ExtType = LExt.ExtType then
-        Exit;
-    end;
+    if LSeen[LType] then
+      Exit;
+    LSeen[LType] := True;
   end;
+  Result := True;
+end;
+
+function TEchConfig.IsStructurallyUsable(
+  const ACryptoProvider: ICryptoProvider): Boolean;
+begin
+  Result := False;
+  if not IsServable then
+    Exit;
   // the public_key must be a well-formed KEM key (a DNS-published config could carry a wrong
   // length or an invalid EC point); an unusable one is skipped, never sealed against
   Result := ACryptoProvider.Hpke.ValidatePublicKey(FKemId, FPublicKey);

@@ -201,6 +201,7 @@ resourcestring
   SAeadSealRejected = 'the AEAD Seal was rejected (nonce reuse or an invalid parameter)';
   SAeadOpenRejected = 'the AEAD Open failed for a reason other than authentication';
   SDegenerateSharedSecret = 'the peer key produced a degenerate all-zero shared secret';
+  SBadX25519PeerKeyLength = 'an X25519 peer public key must be exactly 32 bytes';
   SInvalidPeerPoint = 'the peer public point is not a valid curve point';
   SInvalidCiphertext = 'the peer ciphertext could not be decapsulated';
   SInvalidKemPublicKey = 'the peer KEM public key could not be parsed';
@@ -974,6 +975,10 @@ begin
   // the handle is provider-typed but not primitive-typed: an EC or KEM handle must not agree here
   if not Supports(LKey.KeyParameter, IX25519PrivateKeyParameters, LPriv) then
     raise EArgumentTlsLibException.CreateRes(@SForeignKeyExchangeKey);
+  // a peer key of the wrong length is peer input, not a backend fault: surface it as our own error
+  // before the backend sees it
+  if System.Length(APeerPublicKey) <> TX25519PublicKeyParameters.KeySize then
+    raise EPeerInputTlsLibException.CreateRes(@SBadX25519PeerKeyLength);
   LSecret := nil;
   SetLength(LSecret, TX25519PublicKeyParameters.KeySize);
   try
@@ -1471,6 +1476,8 @@ end;
 
 class function TCredentialImport.PasswordChars(
   const APassword: ISecretBuffer): TArray<Char>;
+var
+  LUtf8: TBytes;
 
   function Utf8ToChars(const AUtf8: TBytes): TArray<Char>;
   begin
@@ -1489,7 +1496,12 @@ begin
   // nil and a zero-length buffer both yield no chars (an empty passphrase)
   if (APassword = nil) or (APassword.Len = 0) then
     Exit;
-  Result := Utf8ToChars(APassword.ToBytes);
+  LUtf8 := APassword.ToBytes;
+  try
+    Result := Utf8ToChars(LUtf8);
+  finally
+    TSecureMemory.WipeBytes(LUtf8);
+  end;
 end;
 
 class procedure TCredentialImport.WipePasswordChars(
@@ -1589,9 +1601,14 @@ begin
   if APassword = nil then
   begin
     LPem := TEncoding.ASCII.GetString(AData);
-    if (System.Pos('BEGIN ENCRYPTED PRIVATE KEY', LPem) > 0) or
-      (System.Pos('Proc-Type: 4,ENCRYPTED', LPem) > 0) then
-      raise EArgumentTlsLibException.CreateRes(@SPrivateKeyPasswordRequired);
+    try
+      if (System.Pos('BEGIN ENCRYPTED PRIVATE KEY', LPem) > 0) or
+        (System.Pos('Proc-Type: 4,ENCRYPTED', LPem) > 0) then
+        raise EArgumentTlsLibException.CreateRes(@SPrivateKeyPasswordRequired);
+    finally
+      // a fresh single-reference string, so it can be overwritten in place
+      TSecureMemory.Wipe(Pointer(LPem), System.Length(LPem) * SizeOf(Char));
+    end;
   end;
   LStream := TBytesStream.Create(AData);
   try

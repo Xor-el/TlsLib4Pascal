@@ -161,7 +161,7 @@ begin
     EvictToCapacity;
     // FOrder gains a (possibly soon-dead) entry per Put; single-use Take keeps FByKey small
     // so EvictToCapacity may never fire - bound FOrder by compacting away dead/dup entries
-    if FOrder.Count > FCapacity * OrderSlackFactor then
+    if Int64(FOrder.Count) > Int64(FCapacity) * OrderSlackFactor then
       CompactOrder;
   finally
     FLock.Leave;

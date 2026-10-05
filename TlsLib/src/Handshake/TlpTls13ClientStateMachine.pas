@@ -881,6 +881,8 @@ begin
       PatchBinder(LInner, FEchOrch.InnerTranscript);
     LClientHello := FEchOrch.BuildClientHelloOuter(TEchChMode.Initial, LInner,
       FParams.ClientRandom, FParams.LegacySessionId, FPskOffers);
+    // the orchestrator keeps its own copy; this one carries the true server name
+    TSecureMemory.WipeBytes(LInner);
   end
   else
     // a plain or GREASE ClientHello: GreaseEchExt is nil unless a decoy was built
@@ -1418,6 +1420,7 @@ begin
       PatchBinder(LInner2, FEchOrch.InnerTranscript);
     LClientHello2 := FEchOrch.BuildClientHelloOuter(TEchChMode.RetryAccept, LInner2,
       FParams.ClientRandom, FParams.LegacySessionId, FPskOffers);
+    TSecureMemory.WipeBytes(LInner2);
     RememberOffered(FEchOrch.SentInnerRaw);
     FTranscript.Update(LClientHello2);
     FEchOrch.InnerTranscript.Update(FEchOrch.SentInnerRaw);
@@ -1433,6 +1436,7 @@ begin
       PatchBinder(LInner2, FEchOrch.InnerTranscript);
     LClientHello2 := FEchOrch.BuildClientHelloOuter(TEchChMode.RetryReject, LInner2,
       FParams.ClientRandom, FParams.LegacySessionId, FPskOffers);
+    TSecureMemory.WipeBytes(LInner2);
     RememberOffered(LClientHello2);
     FTranscript.Update(LClientHello2);
   end

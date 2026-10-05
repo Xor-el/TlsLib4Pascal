@@ -102,6 +102,7 @@ type
     procedure TestAntiReplayReRecordDoesNotEvictLiveValue;
     procedure TestAntiReplayDeclinesAtCapacityWithoutEvicting;
     procedure TestAntiReplayAdmitsAfterExpiryAtCapacity;
+    procedure TestAntiReplayAdmitsAfterAnEarlierExpiryBehindALiveFront;
     procedure TestAntiReplayCompactionKeepsLiveEntries;
   end;
 
@@ -1185,6 +1186,22 @@ begin
     CheckTrue(LReplay.CheckAndRecord(Tag(Byte(LI), 8), 1000, 2000), 'filled');
   CheckFalse(LReplay.CheckAndRecord(Tag($50, 8), 1500, 3000), 'declined while full and live');
   CheckTrue(LReplay.CheckAndRecord(Tag($50, 8), 2500, 4000), 'admitted once the entries expired');
+end;
+
+procedure TTestSessionStore.TestAntiReplayAdmitsAfterAnEarlierExpiryBehindALiveFront;
+var
+  LReplay: IAntiReplayStrategy;
+begin
+  // callers may pass differing windows, so the queue front (a long window) can be live while a later
+  // entry (a short window) has already lapsed: at capacity the lapsed one must not block a new value
+  LReplay := TStrikeRegisterAntiReplay.Create(2);
+  CheckTrue(LReplay.CheckAndRecord(Tag($01, 8), 1000, 100000), 'long window recorded');
+  CheckTrue(LReplay.CheckAndRecord(Tag($02, 8), 1000, 2000), 'short window recorded');
+  CheckFalse(LReplay.CheckAndRecord(Tag($03, 8), 1500, 9000), 'declined while both are live');
+  CheckTrue(LReplay.CheckAndRecord(Tag($03, 8), 2500, 9000),
+    'admitted: the lapsed short-window entry behind the live front is swept');
+  CheckFalse(LReplay.CheckAndRecord(Tag($01, 8), 2600, 100000),
+    'the live long-window value is still a replay');
 end;
 
 initialization

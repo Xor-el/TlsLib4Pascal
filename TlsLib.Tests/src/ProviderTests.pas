@@ -89,6 +89,7 @@ type
     procedure TestRandomDistinctNonZero;
     procedure TestHasHardwareAesReturnsBoolean;
     procedure TestAgreeRejectsForeignKeyHandle;
+    procedure TestX25519AgreeRejectsWrongLengthPeerKeyAsPeerInput;
     procedure TestAgreeRejectsCompressedPeerPoint;
     procedure TestDerReadTlvRejectsOverflowAndNonMinimalLengths;
     procedure TestAeadSealWithoutInitRaisesTyped;
@@ -857,6 +858,36 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a P-256 agreement must reject a hybrid-form peer point');
+end;
+
+procedure TTestCryptoProvider.TestX25519AgreeRejectsWrongLengthPeerKeyAsPeerInput;
+var
+  LX: IKeyAgreement;
+  LPriv: IKeyExchangePrivateKey;
+  LPub, LShort, LLong: TBytes;
+  LRaised: Boolean;
+  LI: Int32;
+begin
+  LX := Crypto.Primitives.CreateKeyAgreement(TKeyAgreementAlgorithm.X25519);
+  LX.GenerateKeyPair(LPriv, LPub);
+  LShort := System.Copy(LPub, 0, System.Length(LPub) - 1);
+  LLong := ConcatBytes(LPub, TBytes.Create(0));
+  // a peer key of the wrong length is peer input (the engine turns it into illegal_parameter), not
+  // a raw backend exception
+  for LI := 0 to 1 do
+  begin
+    LRaised := False;
+    try
+      if LI = 0 then
+        LX.Agree(LPriv, LShort)
+      else
+        LX.Agree(LPriv, LLong);
+    except
+      on E: EPeerInputTlsLibException do
+        LRaised := True;
+    end;
+    CheckTrue(LRaised, 'a wrong-length X25519 peer key is peer input');
+  end;
 end;
 
 procedure TTestCryptoProvider.TestAgreeRejectsCompressedPeerPoint;
