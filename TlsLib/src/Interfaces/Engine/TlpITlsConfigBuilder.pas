@@ -468,13 +468,18 @@ type
       const ACache: ICertificateCompressionCache): ITls13ServerConfigFacet;
     /// <summary>The 0-RTT early-data byte budget the server authorizes (TLS 1.3, RFC 8446
     /// 4.2.10); 0 disables early data. A default anti-replay register is provided when none is
-    /// set (see WithAntiReplay); resumption must be enabled for 0-RTT. Accepted early data is
-    /// bounded by the value carried in the resumed ticket (what the client was told), so lowering
-    /// this later does not retroactively shrink already-issued tickets - rotate the ticket keys.</summary>
+    /// set (see WithAntiReplay); resumption must be enabled for 0-RTT, and the budget must be below
+    /// 1 MiB. With an explicit WithSessionTicketKeys the default per-configuration register
+    /// cannot guard tickets shared across instances, so a session store or WithAntiReplay is
+    /// required. Accepted early data is bounded by the value carried in the resumed ticket (what
+    /// the client was told), so lowering this later does not retroactively shrink already-issued
+    /// tickets - rotate the ticket keys.</summary>
     function WithEarlyData(AMaxBytes: UInt32): ITls13ServerConfigFacet;
     /// <summary>The anti-replay register guarding accepted early data; when a positive
     /// early-data budget is set without one, a default in-memory register is used (one per config,
-    /// shared across connections).</summary>
+    /// shared across connections). That default is not enough for tickets minted under shared
+    /// ticket keys, which need a session store or a strategy shared by every instance; a
+    /// single-instance deployment opts in by passing a register here explicitly.</summary>
     function WithAntiReplay(const AStrategy: IAntiReplayStrategy): ITls13ServerConfigFacet;
     /// <summary>Enables Encrypted Client Hello: the key store the server decrypts offers with
     /// and advertises as retry_configs (RFC 9849), swapped to rotate keys. Build one from a

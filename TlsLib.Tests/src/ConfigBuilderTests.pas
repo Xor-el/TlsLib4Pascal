@@ -34,6 +34,8 @@ uses
   TlpSession,
   TlpInMemorySessionCache,
   TlpSessionTicketKeys,
+  TlpAntiReplay,
+  TlpInMemorySessionStore,
   TlpICryptoProvider,
   TlpICertificateTrust,
   TlpICertificateVerifierSource,
@@ -152,6 +154,8 @@ type
     // dual-verifier conflict - never the "source needs anchors" message
     procedure TestServerClientAuthVerifierSourceWithInstanceIsDualVerifier;
     procedure TestMtlsServerWithSuppliedTicketKeysRequiresScope;
+    procedure TestEarlyDataWithSuppliedTicketKeysNeedsSharedReplayProtection;
+    procedure TestServerEarlyDataBudgetIsCappedAtOneMebibyte;
     procedure TestMtlsServerWithSuppliedKeysAndScopeBuilds;
     procedure TestMtlsServerWithDefaultTicketKeysBuildsWithoutScope;
     procedure TestFacadeDrivesLoopback;
@@ -1321,6 +1325,68 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a client-auth server with supplied ticket keys and no scope is refused');
+end;
+
+procedure TTestConfigBuilder.TestEarlyDataWithSuppliedTicketKeysNeedsSharedReplayProtection;
+var
+  LRaised: Boolean;
+  LConfig: ITlsServerConfig;
+begin
+  // an explicit ticket-key manager can be shared across instances, but the default strike
+  // register is per configuration, so a replay against another instance would be accepted
+  LRaised := False;
+  try
+    TTlsPresets.Compatible(Crypto, Pkix).Server
+      .WithCredential(ServerCredential)
+      .WithSessionTicketKeys(TStekTicketKeyManager.Create(
+        Crypto.Primitives.GetRandom) as ISessionTicketKeyManager)
+      .Tls13.WithEarlyData(16384)
+      .Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := Pos('anti-replay', E.Message) > 0;
+  end;
+  CheckTrue(LRaised, 'early data on supplied ticket keys with no store or anti-replay is refused');
+  // naming the anti-replay strategy explicitly takes responsibility for it
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential)
+    .WithSessionTicketKeys(TStekTicketKeyManager.Create(
+      Crypto.Primitives.GetRandom) as ISessionTicketKeyManager)
+    .Tls13.WithEarlyData(16384)
+    .WithAntiReplay(TStrikeRegisterAntiReplay.Create as IAntiReplayStrategy)
+    .Build;
+  CheckTrue(LConfig <> nil, 'an explicit anti-replay strategy builds');
+  // a session store makes tickets single-use, so it is the other safe shape
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential)
+    .WithSessionTicketKeys(TStekTicketKeyManager.Create(
+      Crypto.Primitives.GetRandom) as ISessionTicketKeyManager)
+    .WithSessionStore(TInMemorySessionStore.Create(
+      Crypto.Primitives.GetRandom) as ISessionStore)
+    .Tls13.WithEarlyData(16384)
+    .Build;
+  CheckTrue(LConfig <> nil, 'a session store makes explicit ticket keys safe for early data');
+end;
+
+procedure TTestConfigBuilder.TestServerEarlyDataBudgetIsCappedAtOneMebibyte;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    TTlsPresets.Compatible(Crypto, Pkix).Server
+      .WithCredential(ServerCredential)
+      .Tls13.WithEarlyData(1 shl 20);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  // a full allowance of exactly 1 MiB would fill the engine's app-read buffer and stall the
+  // handshake before EndOfEarlyData, so the bound is strict
+  CheckTrue(LRaised, 'an early-data budget of 1 MiB or more is refused');
+  CheckTrue(TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential)
+    .Tls13.WithEarlyData((1 shl 20) - 1).Build <> nil, 'just under 1 MiB builds');
 end;
 
 procedure TTestConfigBuilder.TestMtlsServerWithSuppliedKeysAndScopeBuilds;
