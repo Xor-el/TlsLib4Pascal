@@ -689,8 +689,8 @@ begin
 end;
 
 initialization
-  GServerConfigMemo := NewTlsServerConfigMemo;
-  GClientConfigMemo := NewTlsClientConfigMemo;
+  GServerConfigMemo := TTlsConfigMemos.NewServer;
+  GClientConfigMemo := TTlsConfigMemos.NewClient;
   GSessionResumption := True;
 
 end.

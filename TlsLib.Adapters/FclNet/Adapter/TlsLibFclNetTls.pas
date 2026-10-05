@@ -688,8 +688,8 @@ begin
 end;
 
 initialization
-  GServerConfigMemo := NewTlsServerConfigMemo;
-  GClientConfigMemo := NewTlsClientConfigMemo;
+  GServerConfigMemo := TTlsConfigMemos.NewServer;
+  GClientConfigMemo := TTlsConfigMemos.NewClient;
   TlsLibFclNetTrustDefaults.SessionResumption := True;
   TSSLSocketHandler.SetDefaultHandlerClass(TTlsLibSocketHandler);
 

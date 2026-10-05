@@ -637,7 +637,7 @@ end;
 
 initialization
   SSLImplementation := TSSLTlsLib;
-  GServerConfigMemo := NewTlsServerConfigMemo;
-  GClientConfigMemo := NewTlsClientConfigMemo;
+  GServerConfigMemo := TTlsConfigMemos.NewServer;
+  GClientConfigMemo := TTlsConfigMemos.NewClient;
 
 end.

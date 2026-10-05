@@ -745,7 +745,7 @@ var
   LMemo: ITlsClientConfigMemo;
   LRaised: Boolean;
 begin
-  LMemo := NewTlsClientConfigMemo;
+  LMemo := TTlsConfigMemos.NewClient;
   // a supplied config that never parks leaves the resolver unused, so it is refused
   LOpts := TTlsOptions.Default;
   LOpts.ClientConfig := TTlsConfigComposer.BuildClientConfig(ClientOptsWithStore);
@@ -772,7 +772,7 @@ var
   LMemo: ITlsServerConfigMemo;
   LRaised: Boolean;
 begin
-  LMemo := NewTlsServerConfigMemo;
+  LMemo := TTlsConfigMemos.NewServer;
   LBuild := ServerOptsWithCredential;
   LBuild.TrustAnchors := TArray<TTlsBlobSource>.Create(TTlsBlobSource.FromBytes(RootAnchor));
   LBuild.ClientAuth := TClientAuthMode.Required;
@@ -1030,7 +1030,7 @@ var
   LFirst, LSecond: ITlsClientConfig;
 begin
   LOpts := ClientOptsWithStore;
-  LMemo := NewTlsClientConfigMemo;
+  LMemo := TTlsConfigMemos.NewClient;
   LFirst := TTlsConfigComposer.ResolveClientConfig(LOpts, LMemo, 'ClientConfig');
   LSecond := TTlsConfigComposer.ResolveClientConfig(LOpts, LMemo, 'ClientConfig');
   CheckTrue(LFirst = LSecond, 'a memo hit reuses the same config identity');
@@ -1047,7 +1047,7 @@ begin
   // a config-in with no conflicting options is returned verbatim, and the memo stays empty
   LOpts := TTlsOptions.Default;
   LOpts.ClientConfig := LSupplied;
-  LMemo := NewTlsClientConfigMemo;
+  LMemo := TTlsConfigMemos.NewClient;
   LResolved := TTlsConfigComposer.ResolveClientConfig(LOpts, LMemo, 'ClientConfig');
   CheckTrue(LResolved = LSupplied, 'the supplied config is returned as-is');
   CheckFalse(LMemo.TryGet(TTlsConfigComposer.ClientSignature(LOpts), LProbe),
@@ -1064,7 +1064,7 @@ procedure TTestTlsConnection.TestGuardConflictOnEachField;
   begin
     LOpts := AOpts;
     LOpts.ClientConfig := TTlsConfigComposer.BuildClientConfig(ClientOptsWithStore);
-    LMemo := NewTlsClientConfigMemo;
+    LMemo := TTlsConfigMemos.NewClient;
     LRaised := False;
     try
       TTlsConfigComposer.ResolveClientConfig(LOpts, LMemo, 'ClientConfig');
@@ -1162,7 +1162,7 @@ begin
   LOpts := TTlsOptions.Default;
   LOpts.VerifyCallback := StubVerifyCallback;
   LOpts.ClientConfig := TTlsConfigComposer.BuildClientConfig(ClientOptsWithStore);
-  LMemo := NewTlsClientConfigMemo;
+  LMemo := TTlsConfigMemos.NewClient;
   LRaised := False;
   try
     TTlsConfigComposer.ResolveClientConfig(LOpts, LMemo, 'ClientConfig');
@@ -1231,12 +1231,12 @@ begin
   LOpts.SystemTrust := TFakeSystemTrustInstaller.Create(False, EcP256RootStore)
     as ISystemTrustInstaller;
   LOpts.ServerConfig := TTlsConfigComposer.BuildServerConfig(ServerOptsWithCredential);
-  CheckNotNull(TTlsConfigComposer.ResolveServerConfig(LOpts, NewTlsServerConfigMemo,
+  CheckNotNull(TTlsConfigComposer.ResolveServerConfig(LOpts, TTlsConfigMemos.NewServer,
     'ServerConfig'), 'client-only options do not conflict with a server config-in');
   LOpts.Certificate := TTlsBlobSource.FromBytes(ServerCert);
   LRaised := False;
   try
-    TTlsConfigComposer.ResolveServerConfig(LOpts, NewTlsServerConfigMemo, 'ServerConfig');
+    TTlsConfigComposer.ResolveServerConfig(LOpts, TTlsConfigMemos.NewServer, 'ServerConfig');
   except
     on E: ETlsStreamError do
       LRaised := True;
@@ -1275,7 +1275,7 @@ begin
   LOpts.ServerConfig := TTlsConfigComposer.BuildServerConfig(ServerOptsWithCredential);
   LRaised := False;
   try
-    TTlsConfigComposer.ResolveServerConfig(LOpts, NewTlsServerConfigMemo, 'ServerConfig');
+    TTlsConfigComposer.ResolveServerConfig(LOpts, TTlsConfigMemos.NewServer, 'ServerConfig');
   except
     on E: ETlsStreamError do
       LRaised := True;
@@ -1332,7 +1332,7 @@ begin
   LOpts.ClientConfig := TTlsConfigComposer.BuildClientConfig(ClientOptsWithStore);
   LRaised := False;
   try
-    TTlsConfigComposer.ResolveClientConfig(LOpts, NewTlsClientConfigMemo, 'ClientConfig');
+    TTlsConfigComposer.ResolveClientConfig(LOpts, TTlsConfigMemos.NewClient, 'ClientConfig');
   except
     on E: ETlsStreamError do
       LRaised := True;
