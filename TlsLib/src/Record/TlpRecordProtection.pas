@@ -532,7 +532,8 @@ begin
   begin
     // AES-GCM (RFC 5288): the explicit nonce prefixes the body, salt || explicit is the nonce
     if LHeader.Length < ExplicitNonceLength + FAead.TagSize then
-      raise EDecodeErrorTlsLibException.CreateRes(@SRecordTooShort);
+      raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.BadRecordMac,
+        @SRecordTooShort);
     Move(FSalt[0], FNonce[0], System.Length(FSalt));
     Move(ARecord[LCipherOffset], FNonce[System.Length(FSalt)], ExplicitNonceLength);
     Inc(LCipherOffset, ExplicitNonceLength);
@@ -542,7 +543,8 @@ begin
   begin
     // ChaCha20-Poly1305 (RFC 7905): no explicit nonce; the whole body is the ciphertext
     if LHeader.Length < FAead.TagSize then
-      raise EDecodeErrorTlsLibException.CreateRes(@SRecordTooShort);
+      raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.BadRecordMac,
+        @SRecordTooShort);
     DeriveNonceInto(FSalt, FSeq, FNonce);
   end;
   LPlaintextLength := LCipherLength - FAead.TagSize;

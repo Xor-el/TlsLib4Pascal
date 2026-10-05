@@ -138,6 +138,7 @@ type
     procedure TestCertificateCompressionIsInjectable;
     procedure TestEcPointFormatsRoundTrip;
     procedure TestEcPointFormatsWithoutUncompressedRejected;
+    procedure TestStatusRequestInCertificateRequestIsPermittedAndIgnored;
     procedure TestAlpnServerHelloSelectionRoundTrip;
     procedure TestAlpnServerHelloEmptyProtocolRejected;
     procedure TestClientRejectsGreaseExtensionInEncryptedExtensions;
@@ -1286,11 +1287,31 @@ begin
     try
       LExt.Consume(LDst, TBytes.Create($01, $01));
     except
-      on E: EDecodeErrorTlsLibException do
-        LRejected := True;
+      on E: EFatalAlertTlsLibException do
+        LRejected := E.AlertDescription = TTlsAlertDescription.IllegalParameter;
     end;
     CheckTrue(LRejected,
-      'a point-format list without uncompressed is rejected (decode_error)');
+      'a point-format list without uncompressed is rejected (illegal_parameter)');
+  finally
+    LDst.Free;
+  end;
+end;
+
+procedure TTestExtensionNegotiation.TestStatusRequestInCertificateRequestIsPermittedAndIgnored;
+var
+  LExt: ITlsExtension;
+  LDst: TExtensionContext;
+begin
+  // RFC 8446 4.2 lists status_request for CertificateRequest: the server asks for a status of OUR
+  // certificate. It is read and has no effect, since this client never staples.
+  LExt := TStatusRequestExtension.Create as ITlsExtension;
+  CheckTrue(TTlsExtensionContextKind.CertificateRequest in LExt.ValidContexts,
+    'status_request is valid in a CertificateRequest');
+  LDst := TExtensionContext.Create;
+  try
+    LDst.MessageContext := TTlsExtensionContextKind.CertificateRequest;
+    LExt.Consume(LDst, TBytes.Create($01, $00, $00, $00, $00));
+    CheckFalse(LDst.StatusRequestOffered, 'it does not arm a staple request');
   finally
     LDst.Free;
   end;

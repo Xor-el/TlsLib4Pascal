@@ -23,6 +23,8 @@ const
   /// and legacy_version is 0x0303 even in a 1.3 handshake (RFC 8446 5.1).
   /// </summary>
   TlsWireVersionTls10 = UInt16($0301);
+  // not negotiable; names the 1.1-and-below downgrade sentinel (RFC 8446 4.1.3)
+  TlsWireVersionTls11 = UInt16($0302);
   TlsWireVersionTls12 = UInt16($0303);
   TlsWireVersionTls13 = UInt16($0304);
 

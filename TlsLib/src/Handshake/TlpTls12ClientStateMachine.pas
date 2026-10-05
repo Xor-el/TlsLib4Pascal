@@ -35,6 +35,8 @@ uses
   TlpNegotiationPolicy,
   TlpWireReader,
   TlpExtensionContext,
+  TlpExtensionVector,
+  TlpCoreExtensions,
   TlpITlsExtension,
   TlpHandshakeMessage,
   TlpHandshakeMessages,
@@ -308,6 +310,8 @@ resourcestring
   SUnsupportedServerVersion = 'the ServerHello legacy_version is not 0x0303';
   SSupportedVersionsInServerHello =
     'a TLS 1.2 ServerHello must not carry supported_versions';
+  STls13ExtensionInServerHello =
+    'a TLS 1.2 ServerHello must not carry key_share or pre_shared_key';
 
 { TTls12ClientStateMachine }
 
@@ -460,6 +464,7 @@ function TTls12ClientStateMachine.ProcessServerHello(
 var
   LHello: TTlsServerHello;
   LContext: TExtensionContext;
+  LServerExtensions: TExtensionVector;
 begin
   Result := nil;
   LHello := THandshakeMessages.DecodeServerHello(AMessage.Body);
@@ -496,8 +501,19 @@ begin
   LContext := TExtensionContext.Create;
   try
     ApplyOffered(LContext);
-    FCodec.ConsumeBlock(LContext, TTlsExtensionContextKind.ServerHello,
-      LHello.Extensions);
+    // an absent extension block is the empty vector (the codec parses a present one in full)
+    if System.Length(LHello.Extensions) = 0 then
+      LServerExtensions := TExtensionVector.Empty
+    else
+      LServerExtensions := TExtensionVector.Parse(LHello.Extensions);
+    // key_share and pre_shared_key are TLS 1.3 constructs; a 1.2 server answering with either has
+    // sent an extension that has no meaning here (RFC 8446 4.2). The unified hello offered both, so
+    // the codec alone would accept them; judged before the codec acts on them
+    if LServerExtensions.Contains(TExtensionTypes.KeyShare) or
+      LServerExtensions.Contains(TExtensionTypes.PreSharedKey) then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.UnsupportedExtension, @STls13ExtensionInServerHello);
+    FCodec.ConsumeBlock(LContext, TTlsExtensionContextKind.ServerHello, LServerExtensions);
     // a TLS 1.2 ServerHello must not answer with supported_versions (a 1.3-only response
     // extension, RFC 8446 4.2.1); the dispatcher rejects it on the mixed path, so a 1.2-only
     // client enforces it here too

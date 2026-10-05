@@ -86,6 +86,7 @@ type
     procedure TestClientRejectsHelloRetryWithBadLegacyVersion;
     procedure TestServerRejectsSecondClientHelloWithoutCookie;
     procedure TestServerRejectsTamperedCookie;
+    procedure TestServerRejectsCookieMintedForAnotherFirstClientHello;
     procedure TestServerRejectsUnexpectedMessageDuringRetryWait;
     procedure TestServerRejectsRetryClientHelloThatChangesSuite;
     procedure TestServerRejectsRetryClientHelloThatChangesSessionId;
@@ -557,6 +558,36 @@ begin
     'a tampered cookie aborts');
   CheckTrue(LAlert = TTlsAlertDescription.DecryptError,
     'a tampered cookie is decrypt_error');
+end;
+
+procedure TTestHelloRetryRequest.TestServerRejectsCookieMintedForAnotherFirstClientHello;
+var
+  LServerA, LServerB: IHandshakeMachine;
+  LHrr, LCookie, LCh1B, LCh2, LShare: TBytes;
+  LPriv: IKeyExchangePrivateKey;
+  LAlert: TTlsAlertDescription;
+begin
+  // two connections share the cookie secret; B's first ClientHello differs from A's only in its
+  // random. A's cookie is valid under the secret and matches B's suite, group and session id, but
+  // it binds A's first hello, so B must refuse it
+  TNamedGroups.CreateNistEcdh(Crypto, 'secp256r1').GenerateKeyPair(LPriv, LShare);
+  LServerA := NewSecp256r1Server(nil);
+  LHrr := SendHandshakeOf(LServerA.ProcessMessage(MsgFrom(Vec('client_hello_1'))))[0];
+  LCookie := CookieFromHrr(LHrr);
+  LCh2 := BuildClientHello2(TNamedGroupCatalog.Secp256r1, LShare, LCookie, DecodeHex(''),
+    TCipherSuites13.Aes128GcmSha256);
+  // control: the cookie on the connection that minted it proceeds to a ServerHello, so the refusal
+  // below is the first-hello binding and not an earlier suite, group or session-id check
+  CheckTrue(System.Length(SendHandshakeOf(LServerA.ProcessMessage(MsgFrom(LCh2)))) > 0,
+    'the cookie is accepted on the connection that minted it');
+  LCh1B := System.Copy(Vec('client_hello_1'));
+  LCh1B[10] := Byte(LCh1B[10] xor $01); // inside ClientHello.random
+  LServerB := NewSecp256r1Server(nil);
+  LServerB.ProcessMessage(MsgFrom(LCh1B));
+  CheckTrue(FailAlertOf(LServerB.ProcessMessage(MsgFrom(LCh2)), LAlert),
+    'a cookie minted for another first ClientHello aborts');
+  CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
+    'it is illegal_parameter');
 end;
 
 procedure TTestHelloRetryRequest.TestServerRejectsUnexpectedMessageDuringRetryWait;
