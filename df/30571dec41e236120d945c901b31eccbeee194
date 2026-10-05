@@ -1,0 +1,110 @@
+TlsLib/src/Session/TlpInMemorySessionStore.pas
+  s_d27f31cd14035d::t_18d331dd8ab3f1 164
+TlsLib.Tests/src/LiveRevocationTests.pas
+  s_d27f31cd14035d::t_6527c2b68bc74d 70
+  s_d27f31cd14035d::t_bfc0423ec8ec4b 234-250
+TlsLib.Tests/src/CredentialImportTests.pas
+  s_d27f31cd14035d::t_ac699d6132c51c 444-457
+  s_d27f31cd14035d::t_54c257cb51bd83 428-429
+TlsLib/src/Crypto/TlpCryptoDomainTypes.pas
+  s_d27f31cd14035d::t_ea1e829a824133 365,371,374-375,383-390,394-395
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_d27f31cd14035d::t_aa067c7915314b 204
+  s_d27f31cd14035d::t_4f533510d50111 1499-1504
+  s_d27f31cd14035d::t_b1134b5bb38050 1604-1611
+  s_d27f31cd14035d::t_be21cf3001493d 1479-1480
+  s_d27f31cd14035d::t_c40c46e1ac1496 978-981
+TlsLib.Tests/src/EchToolingTests.pas
+  s_d27f31cd14035d::t_0d7f45f08017e3 86
+  s_d27f31cd14035d::t_b8279cf90165e9 586-594,597-604,606-607,609-642
+  s_d27f31cd14035d::t_72248053e4a0fc 595-596,605,608
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_d27f31cd14035d::t_f0020e1b9cec7c 24
+  s_d27f31cd14035d::t_b8af52355393f5 1771,1773
+  s_d27f31cd14035d::t_0f239bcbe66f72 1792-1795
+  s_d27f31cd14035d::t_34068abe7c5e0c 2238-2239
+  s_d27f31cd14035d::t_f327c9b78bc07d 504-506
+  s_d27f31cd14035d::t_c4f9fae625591a 2229-2230
+  s_d27f31cd14035d::t_8cf62624b98cc8 2220-2221
+  s_d27f31cd14035d::t_133266e7de3f93 1766
+  s_d27f31cd14035d::t_4ba144e7dbb565 1764
+  s_d27f31cd14035d::t_cf27f70f7281dd 404-405
+  s_d27f31cd14035d::t_7b84c08fd375b2 175
+  s_d27f31cd14035d::t_d800efdf6cfa45 729-731
+  s_d27f31cd14035d::t_acc15f4f70efdf 1762-1763,1765,1767-1770,1772,1774-1778
+TlsLib/src/Pkix/Providers/TlpDefaultPkixProvider.pas
+  s_d27f31cd14035d::t_7f1e6326fe7417 1145
+  s_d27f31cd14035d::t_c44f030853a8a9 201-206
+  s_d27f31cd14035d::t_9b1c8840edfe87 20
+  s_d27f31cd14035d::t_21e2cb24ac272f 1088-1091,1093
+  s_d27f31cd14035d::t_f667815f8959b5 1157
+  s_d27f31cd14035d::t_0654de512a09f2 1155-1156,1158-1159
+TlsLib.Tests/src/WindowsSystemCryptoTests.pas
+  s_d27f31cd14035d::t_992f1994f6e11b 349-392
+  s_d27f31cd14035d::t_51b51b387c17f4 91
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_d27f31cd14035d::t_e9c2ef359b135f 171-173
+  s_d27f31cd14035d::t_ab9dc181d2e82c 401
+  s_d27f31cd14035d::t_bc24673826dab4 1995
+  s_d27f31cd14035d::t_5c57ab07cfd53e 402
+  s_d27f31cd14035d::t_4034cfa42ecf6c 1983-1994,1996-1998
+  s_d27f31cd14035d::t_36b08343746c53 2761
+  s_d27f31cd14035d::t_b64cad6237cd48 2641
+TlsLib/src/Ech/TlpEchConfig.pas
+  s_d27f31cd14035d::t_75c5585d166d87 84-88,360
+  s_d27f31cd14035d::t_3fcf9a9dbc01da 339
+  s_d27f31cd14035d::t_57b14f96d6571f 337,340-341,348-349,352,356-357,363-371
+  s_d27f31cd14035d::t_af79e47ea86b1f 350-351,353,359,361
+TlsLib/src/Session/TlpAntiReplay.pas
+  s_d27f31cd14035d::t_7d6d9fe0ecd3b6 120-127,130-131,135-143
+  s_d27f31cd14035d::t_87ed1f33e84a00 51-53
+  s_d27f31cd14035d::t_33300a7dfa631d 82
+  s_d27f31cd14035d::t_2184670a0af50b 128-129,132-134
+  s_d27f31cd14035d::t_721f95782fc928 186-187
+  s_d27f31cd14035d::t_048b2838577365 183-185,188,193
+  s_d27f31cd14035d::t_c1714f37852550 44-47
+  s_d27f31cd14035d::t_f75479acf688df 211
+  s_d27f31cd14035d::t_9e21d5b04ffa83 197-198
+  s_d27f31cd14035d::t_698f88db4ea9f1 105-106
+TlsLib.Tests/Data/Certs/LiveRevocation.txt
+  s_d27f31cd14035d::t_e9807050a6ed51 4-8
+  s_d27f31cd14035d::t_46b89507023009 3
+  s_d27f31cd14035d::t_2e657bf3e24465 11
+TlsLib/src/Ech/TlpEchClientOrchestrator.pas
+  s_d27f31cd14035d::t_5ef0b65a65b713 398
+TlsLib.Tests/src/SessionStoreTests.pas
+  s_d27f31cd14035d::t_64315741345a61 105
+  s_d27f31cd14035d::t_3edd8e0f3959e4 1191-1206
+TlsLib/src/Ech/TlpInMemoryEchKeyStore.pas
+  s_d27f31cd14035d::t_5e064988899f1c 92-93
+  s_d27f31cd14035d::t_fc8587f4259f51 113-116
+TlsLib/src/Security/TlpSecretBuffer.pas
+  s_d27f31cd14035d::t_5cc8a2b4f9af2c 148-149,151-156
+TlsLib.Tests/src/ProviderTests.pas
+  s_d27f31cd14035d::t_b41efd560af6b3 863-892
+  s_d27f31cd14035d::t_b48b22b2609688 92
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_d27f31cd14035d::t_6f160b8727e7a0 884-885
+  s_d27f31cd14035d::t_4f47518e0a17fd 1423
+  s_d27f31cd14035d::t_5445a8a940b35a 1439
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_d27f31cd14035d::t_abb43c2112b497 2029
+  s_d27f31cd14035d::t_a6d553379fc1c4 193
+  s_d27f31cd14035d::t_8dac56b8630b89 2016-2028,2030-2036
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "df30571dec41e236120d945c901b31eccbeee194",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
