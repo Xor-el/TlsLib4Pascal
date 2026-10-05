@@ -1,0 +1,42 @@
+.github/workflows/ci/interop/trust/gen-trust-ca.sh
+  s_d27f31cd14035d::t_25bdde2bf5f7c6 102-116
+  s_d27f31cd14035d::t_18fa5af98c7a87 16-21
+  s_d27f31cd14035d::t_70d15ed1d13635 79-80
+  s_d27f31cd14035d::t_76429d8c0d6a9b 91,93
+  s_d27f31cd14035d::t_867dfbab4c846a 117
+.github/workflows/ci/interop/trust/run-trust.sh
+  s_d27f31cd14035d::t_75e310fe98ddb5 355-397
+  s_d27f31cd14035d::t_0757cb3afba3c0 126-127
+  s_d27f31cd14035d::t_d2c6a237b0b757 405-406
+  s_d27f31cd14035d::t_6c19adaf6c76f3 13-19
+  s_d27f31cd14035d::t_755ae8a8eaa59b 145
+  s_d27f31cd14035d::t_718752519769b6 112-115
+  s_d27f31cd14035d::t_c077c094dcce3a 249
+  s_d27f31cd14035d::t_fdfdd21eedbe77 68-76,81
+  s_d27f31cd14035d::t_26c2482667db1d 109-111,116-125,128-129,131-132
+  s_d27f31cd14035d::t_a89d3139311d5d 130
+  s_d27f31cd14035d::t_7fde6655ce6c6a 133
+TlsLib.Interop/src/TrustDelegateInteropRunner.pas
+  s_d27f31cd14035d::t_51dd0925612141 594-595
+  s_d27f31cd14035d::t_de690eb103d935 49-50,52
+  s_d27f31cd14035d::t_cf6378b2fc0301 352-355
+  s_d27f31cd14035d::t_30699d356d08cc 584,587-588
+  s_d27f31cd14035d::t_aa17d46eee11dd 79-81
+  s_d27f31cd14035d::t_1ab7b1e467df4d 622
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cedaf79c6dd18734342d988cfafd1c15c6f68f95",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
