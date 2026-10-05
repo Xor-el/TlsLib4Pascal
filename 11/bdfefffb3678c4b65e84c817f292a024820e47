@@ -1,0 +1,66 @@
+TlsLib.Adapters/FclNet/README.md
+  s_d27f31cd14035d::t_e5406b3341ee19 97
+TlsLib.Adapters/Synapse/README.md
+  s_d27f31cd14035d::t_bd497ecf8931c2 92-93
+TlsLib.Tests/src/Tls13ServerReplayTests.pas
+  s_d27f31cd14035d::t_2647f8b2bd4fe6 301-302,304
+TlsLib/src/Connection/TlpTlsConnection.pas
+  s_d27f31cd14035d::t_864d5eca49fd00 618-623
+  s_d27f31cd14035d::t_07005e39156cbf 145-146
+  s_d27f31cd14035d::t_01bf5bb79a8eba 642-646
+  s_d27f31cd14035d::t_31b7dc907f0a49 40
+  s_d27f31cd14035d::t_fe02887b20484d 195-197
+  s_d27f31cd14035d::t_08255ca39a3bd4 270-273
+TlsLib.Adapters/mORMot/README.md
+  s_d27f31cd14035d::t_006c2e9d696363 84-85
+TlsLib/src/Handshake/TlpServerOfferSelection.pas
+  s_d27f31cd14035d::t_8a7e33be68ad77 67-68
+  s_d27f31cd14035d::t_e893a81b5d80b6 125-128
+  s_d27f31cd14035d::t_232d168bb2674a 48
+TlsLib.Tests/src/HelloRetryRequestTests.pas
+  s_d27f31cd14035d::t_5377f4578b84da 282
+TlsLib.Adapters/Indy/Adapter/TlsLibIndyTls.pas
+  s_d27f31cd14035d::t_96dfadd37a9b05 746,752
+  s_d27f31cd14035d::t_0d16e1e3b1fdcd 537-538
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_d27f31cd14035d::t_818f2d3c8ee26e 2082-2087
+  s_d27f31cd14035d::t_ec6c451ffe0114 319-320
+TlsLib.Tests/src/Tls13LoopbackTests.pas
+  s_d27f31cd14035d::t_9e0dece2f4bb18 166
+  s_d27f31cd14035d::t_f45a7f2e7c6c00 2074-2089
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_d27f31cd14035d::t_ca297d3d446bed 1914,1916
+  s_d27f31cd14035d::t_231474601e0825 1904,1906
+  s_d27f31cd14035d::t_38c5c789b01999 1887-1903,1905,1907-1913,1915,1917-1933,1935-1936,1947-1948
+  s_d27f31cd14035d::t_92f605fc5587a6 1934,1937-1946
+  s_d27f31cd14035d::t_faf9dba152d258 188
+TlsLib/src/Connection/TlpTlsStreamPump.pas
+  s_d27f31cd14035d::t_943edd9584c399 375-377
+  s_d27f31cd14035d::t_395812ff6ee3a3 378
+docs/certificate-verification.md
+  s_d27f31cd14035d::t_88468b6d295b49 255-256,261
+  s_d27f31cd14035d::t_e30ce19a5fbd56 257-260
+TlsLib.Adapters/Indy/README.md
+  s_d27f31cd14035d::t_b7706e1dce808a 103-105
+  s_d27f31cd14035d::t_4c63465f9e8bda 47
+TlsLib.Tests/src/TlsConnectionTests.pas
+  s_d27f31cd14035d::t_eb76e5a994752d 101-102
+  s_d27f31cd14035d::t_82abe2b690fdd1 742-789,795-801
+  s_d27f31cd14035d::t_6693829df6ead2 790-794
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "11bdfefffb3678c4b65e84c817f292a024820e47",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
