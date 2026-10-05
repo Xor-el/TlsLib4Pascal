@@ -33,6 +33,21 @@ type
   end;
 
   /// <summary>
+  /// An anchor store that also carries the certificates its source explicitly distrusts, matched by
+  /// exact DER (a re-issued certificate with the same key is a different certificate). RootCertificates
+  /// never contains one. Optional: the built-in verifier discovers it with Supports and refuses a
+  /// distrusted leaf, never builds a path through a distrusted intermediate, and rejects a validated
+  /// path that still contains one.
+  /// </summary>
+  IDistrustingTrustAnchorStore = interface(ITrustAnchorStore)
+    ['{415DD28E-F553-440F-90C8-44DCAE166FFA}']
+    /// <summary>The distrusted certificates, DER-encoded.</summary>
+    function DistrustedCertificates: TArray<TBytes>;
+    /// <summary>True when ACertificate is byte-for-byte one of the distrusted certificates.</summary>
+    function IsDistrusted(const ACertificate: TBytes): Boolean;
+  end;
+
+  /// <summary>
   /// Decides whether a server's certificate chain is trusted for the name the
   /// client is connecting to (a client-side check). Fail-closed: the handshake
   /// proceeds only on an explicit positive verdict. On rejection it returns the

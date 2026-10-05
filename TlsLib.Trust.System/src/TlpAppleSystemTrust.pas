@@ -46,12 +46,19 @@ type
   /// <summary>
   /// Harvests trusted roots from the macOS keychain trust settings across the
   /// System, Admin and User domains, excluding any certificate whose trust
-  /// setting result is Deny so OS distrust is honored. iOS has no equivalent
+  /// setting result is Deny. Every denied certificate, root or intermediate, is also carried as the
+  /// snapshot's distrust set, so the built-in verifier refuses it anywhere on a path (exact
+  /// certificate match; the OS's built-in blocklist is not exposed here, so use the Delegate mode
+  /// where the full OS policy matters). iOS has no equivalent
   /// enumeration API, so this store is macOS-only. Emits neutral DER.
   /// </summary>
   TAppleRootSource = class sealed(TSystemRootSource)
+  strict private
+  var
+    FDistrusted: TArray<TBytes>;
   strict protected
     function HarvestRoots: TArray<TBytes>; override;
+    function HarvestDistrusted: TArray<TBytes>; override;
     function SourceName: string; override;
   end;
 {$ENDIF}
@@ -292,10 +299,12 @@ type
     /// settings across domains (User -> Admin -> System, the first domain with a matching entry
     /// decides). A certificate enumerated from the System domain with no explicit decision is a
     /// built-in root and stays trusted; a User/Admin certificate needs an explicit SSL grant.</summary>
-    class function AdmitsServerAuth(ACertificate: SecCertificateRef;
-      AOriginDomain: SecTrustSettingsDomain): Boolean; static;
+    class function ResolvedVerdict(ACertificate: SecCertificateRef;
+      AOriginDomain: SecTrustSettingsDomain): Int32; static;
+    /// <summary>Sorts the certificates of ADomain by the resolved verdict: a Trust goes to ARoots,
+    /// a Deny to ADistrusted.</summary>
     class procedure HarvestDomain(ADomain: SecTrustSettingsDomain;
-      const ADest: TList<TBytes>); static;
+      const ARoots, ADistrusted: TList<TBytes>); static;
 {$ENDIF}
     /// <summary>Builds a retaining CFArray of SecCertificateRef from the DERs (element refs
     /// released once the array owns them). False when a DER is unparseable or none are usable;
@@ -332,9 +341,11 @@ type
       out AAlert: TTlsAlertDescription): Boolean; static;
 {$IFDEF TLSLIB_MACOS}
     /// <summary>The raw DER of every keychain-trusted certificate across the
-    /// System, Admin and User domains, honouring per-domain trust settings. Validation and
+    /// System, Admin and User domains, honouring per-domain trust settings, and in ADistrusted the
+    /// certificates (roots or intermediates) a trust setting denies. Validation and
     /// de-duplication are the caller's responsibility.</summary>
-    class function CopyTrustSettingsCertificates: TArray<TBytes>; static;
+    class function CopyTrustSettingsCertificates(
+      out ADistrusted: TArray<TBytes>): TArray<TBytes>; static;
 {$ENDIF}
   end;
 
@@ -1017,39 +1028,45 @@ begin
   end;
 end;
 
-class function TAppleTrustApi.AdmitsServerAuth(ACertificate: SecCertificateRef;
-  AOriginDomain: SecTrustSettingsDomain): Boolean;
-var
-  LVerdict: Int32;
+class function TAppleTrustApi.ResolvedVerdict(ACertificate: SecCertificateRef;
+  AOriginDomain: SecTrustSettingsDomain): Int32;
 begin
-  // without the settings-reading symbols, admit only a built-in System root (an unreadable
+  // without the settings-reading symbols, trust only a built-in System root (an unreadable
   // User/Admin record must not become an anchor)
   if not FSettingsReady then
-    Exit(AOriginDomain = KSecTrustSettingsDomainSystem);
+  begin
+    if AOriginDomain = KSecTrustSettingsDomainSystem then
+      Exit(DomainVerdictTrust);
+    Exit(DomainVerdictNoOpinion);
+  end;
   // User -> Admin -> System: the first domain with a matching entry decides, so a user
   // "Never Trust" (a User-domain Deny) overrides a built-in System root
-  LVerdict := DomainVerdict(ACertificate, KSecTrustSettingsDomainUser);
-  if LVerdict <> DomainVerdictNoOpinion then
-    Exit(LVerdict = DomainVerdictTrust);
-  LVerdict := DomainVerdict(ACertificate, KSecTrustSettingsDomainAdmin);
-  if LVerdict <> DomainVerdictNoOpinion then
-    Exit(LVerdict = DomainVerdictTrust);
-  LVerdict := DomainVerdict(ACertificate, KSecTrustSettingsDomainSystem);
-  if LVerdict <> DomainVerdictNoOpinion then
-    Exit(LVerdict = DomainVerdictTrust);
+  Result := DomainVerdict(ACertificate, KSecTrustSettingsDomainUser);
+  if Result <> DomainVerdictNoOpinion then
+    Exit;
+  Result := DomainVerdict(ACertificate, KSecTrustSettingsDomainAdmin);
+  if Result <> DomainVerdictNoOpinion then
+    Exit;
+  Result := DomainVerdict(ACertificate, KSecTrustSettingsDomainSystem);
+  if Result <> DomainVerdictNoOpinion then
+    Exit;
   // no matching entry anywhere: a built-in System root is trusted by default (the safety net that
   // keeps the OS system roots harvested regardless of their settings shape); a User/Admin cert is not
-  Result := AOriginDomain = KSecTrustSettingsDomainSystem;
+  if AOriginDomain = KSecTrustSettingsDomainSystem then
+    Result := DomainVerdictTrust
+  else
+    Result := DomainVerdictNoOpinion;
 end;
 
 class procedure TAppleTrustApi.HarvestDomain(ADomain: SecTrustSettingsDomain;
-  const ADest: TList<TBytes>);
+  const ARoots, ADistrusted: TList<TBytes>);
 var
   LCerts: CFArrayRef;
   LStatus: OSStatus;
   LI, LCount: CFIndex;
   LCert: SecCertificateRef;
   LDer: TBytes;
+  LVerdict: Int32;
 begin
   LCerts := nil;
   LStatus := FSecTrustSettingsCopyCertificates(ADomain, LCerts);
@@ -1057,47 +1074,57 @@ begin
     Exit;
   try
     LCount := FCFArrayGetCount(LCerts);
-    ADest.Capacity := ADest.Count + LCount;
+    ARoots.Capacity := ARoots.Count + LCount;
     for LI := 0 to LCount - 1 do
     begin
       LCert := FCFArrayGetValueAtIndex(LCerts, LI);
       if LCert = nil then
         Continue;
-      if not AdmitsServerAuth(LCert, ADomain) then
+      LVerdict := ResolvedVerdict(LCert, ADomain);
+      if LVerdict = DomainVerdictNoOpinion then
         Continue;
       LDer := CopyCertificateDer(LCert);
-      if Length(LDer) > 0 then
-        ADest.Add(LDer);
+      if Length(LDer) = 0 then
+        Continue;
+      if LVerdict = DomainVerdictTrust then
+        ARoots.Add(LDer)
+      else if LVerdict = DomainVerdictDeny then
+        ADistrusted.Add(LDer);
     end;
   finally
     FCFRelease(LCerts);
   end;
 end;
 
-class function TAppleTrustApi.CopyTrustSettingsCertificates: TArray<TBytes>;
+class function TAppleTrustApi.CopyTrustSettingsCertificates(
+  out ADistrusted: TArray<TBytes>): TArray<TBytes>;
 var
-  LList: TList<TBytes>;
+  LRoots, LDistrusted: TList<TBytes>;
 begin
   Result := nil;
+  ADistrusted := nil;
   // tier 0: without the enumeration symbols the harvest cannot run; TSystemRootSource.Harvest
   // then raises on the empty result (fail closed)
   if (not FReady) or (not FHarvestReady) then
     Exit;
-  LList := TList<TBytes>.Create;
+  LRoots := TList<TBytes>.Create;
+  LDistrusted := TList<TBytes>.Create;
   try
     // System first so a built-in root is harvested with its origin; a User/Admin "Never Trust"
-    // still excludes it because AdmitsServerAuth consults every domain regardless of origin.
-    HarvestDomain(KSecTrustSettingsDomainSystem, LList);
+    // still excludes it because ResolvedVerdict consults every domain regardless of origin.
+    HarvestDomain(KSecTrustSettingsDomainSystem, LRoots, LDistrusted);
     // Admin/User records contribute (and can override) only when settings are readable; without
     // that the System roots alone are harvested rather than admitting unreadable custom records.
     if FSettingsReady then
     begin
-      HarvestDomain(KSecTrustSettingsDomainAdmin, LList);
-      HarvestDomain(KSecTrustSettingsDomainUser, LList);
+      HarvestDomain(KSecTrustSettingsDomainAdmin, LRoots, LDistrusted);
+      HarvestDomain(KSecTrustSettingsDomainUser, LRoots, LDistrusted);
     end;
-    Result := LList.ToArray;
+    Result := LRoots.ToArray;
+    ADistrusted := LDistrusted.ToArray;
   finally
-    LList.Free;
+    LDistrusted.Free;
+    LRoots.Free;
   end;
 end;
 
@@ -1105,7 +1132,13 @@ end;
 
 function TAppleRootSource.HarvestRoots: TArray<TBytes>;
 begin
-  Result := FilterRoots(TAppleTrustApi.CopyTrustSettingsCertificates);
+  // one enumeration yields both lists, so the roots and the distrust set are one consistent view
+  Result := FilterRoots(TAppleTrustApi.CopyTrustSettingsCertificates(FDistrusted));
+end;
+
+function TAppleRootSource.HarvestDistrusted: TArray<TBytes>;
+begin
+  Result := FDistrusted;
 end;
 
 function TAppleRootSource.SourceName: string;

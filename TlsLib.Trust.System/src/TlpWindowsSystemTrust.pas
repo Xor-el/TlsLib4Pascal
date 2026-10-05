@@ -30,13 +30,21 @@ type
   /// <summary>
   /// Harvests the Windows machine/user trust anchors from the "ROOT" system store,
   /// keeping only roots whose effective trust purpose permits TLS server authentication
-  /// and subtracting any certificate present in the "Disallowed" store so OS distrust is
-  /// honored. The intermediate-cache "CA" store is deliberately not harvested (its entries
-  /// are cached intermediates, not anchors). Emits neutral DER.
+  /// and subtracting any certificate present in the "Disallowed" store. Every Disallowed
+  /// certificate is also carried as the snapshot's distrust set, so the built-in verifier refuses
+  /// it anywhere on a path (an intermediate or a leaf), not only as a root. Matching is by exact
+  /// certificate; a Disallowed entry known only by hash (no certificate in the store) is not
+  /// visible, so use the Delegate mode where the full OS policy matters. The intermediate-cache
+  /// "CA" store is deliberately not harvested (its entries are cached intermediates, not
+  /// anchors). Emits neutral DER.
   /// </summary>
   TWindowsRootSource = class sealed(TSystemRootSource)
+  strict private
+  var
+    FDisallowed: TArray<TBytes>;
   strict protected
     function HarvestRoots: TArray<TBytes>; override;
+    function HarvestDistrusted: TArray<TBytes>; override;
     function SourceName: string; override;
   end;
 
@@ -349,8 +357,9 @@ type
     class function ClassifyPolicyStatus(ADwError: DWORD; AChainCtx: Pointer;
       out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>The raw DER of the ROOT store (server-auth-capable roots only) minus the
-    /// Disallowed store. Validation and de-duplication are the caller's responsibility.</summary>
-    class function HarvestAnchors: TArray<TBytes>; static;
+    /// Disallowed store, and in ADisallowed the Disallowed store's certificates themselves.
+    /// Validation and de-duplication are the caller's responsibility.</summary>
+    class function HarvestAnchors(out ADisallowed: TArray<TBytes>): TArray<TBytes>; static;
     /// <summary>Reads the DER of the end-entity simple chain the OS built (rgpChain[0]): element 0
     /// the leaf, the last element the anchor. False on any malformed field (no chain/element, nil
     /// or empty encoded cert) so the caller fails closed.</summary>
@@ -507,19 +516,21 @@ begin
   end;
 end;
 
-class function TWindowsTrustApi.HarvestAnchors: TArray<TBytes>;
+class function TWindowsTrustApi.HarvestAnchors(out ADisallowed: TArray<TBytes>): TArray<TBytes>;
 var
   LDisallowed, LTrusted: TList<TBytes>;
   LExclude: TDictionary<TBytes, Boolean>;
   LI: Integer;
 begin
   Result := nil;
+  ADisallowed := nil;
   if not FReady then
     Exit;
   LDisallowed := TList<TBytes>.Create;
   try
     // Distrust first, so it can be subtracted from the trusted store.
     CollectStore('Disallowed', nil, LDisallowed, False);
+    ADisallowed := LDisallowed.ToArray;
     LExclude := TDictionary<TBytes, Boolean>.Create;
     try
       for LI := 0 to LDisallowed.Count - 1 do
@@ -903,7 +914,13 @@ end;
 
 function TWindowsRootSource.HarvestRoots: TArray<TBytes>;
 begin
-  Result := FilterRoots(TWindowsTrustApi.HarvestAnchors);
+  // one enumeration yields both lists, so the roots and the distrust set are one consistent view
+  Result := FilterRoots(TWindowsTrustApi.HarvestAnchors(FDisallowed));
+end;
+
+function TWindowsRootSource.HarvestDistrusted: TArray<TBytes>;
+begin
+  Result := FDisallowed;
 end;
 
 function TWindowsRootSource.SourceName: string;

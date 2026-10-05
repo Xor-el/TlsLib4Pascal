@@ -161,8 +161,8 @@ type
 
   /// <summary>
   /// Abstract platform trust-root SOURCE - it reads the OS trust store, it is not
-  /// itself a trust store. Snapshot freezes the harvested roots into an immutable
-  /// TTrustAnchorStore that the verifier consumes, so the anchors a config validates
+  /// itself a trust store. Snapshot freezes the harvested roots, and the certificates the platform
+  /// distrusts, into an immutable anchor store that the verifier consumes, so the anchors a config validates
   /// against are fixed at build time and never change under it; picking up OS changes
   /// means building a new snapshot. A source is a short-lived helper the caller owns
   /// and frees, and nothing is read until Harvest. Fail-closed: an empty or unreadable
@@ -176,6 +176,9 @@ type
     /// <summary>Gather the platform's trusted roots as DER. May return empty; Harvest
     /// turns an empty result into a fail-closed error.</summary>
     function HarvestRoots: TArray<TBytes>; virtual; abstract;
+    /// <summary>The certificates the platform explicitly distrusts (raw DER), read in the same
+    /// Snapshot as HarvestRoots and possibly collected by that read. Default none.</summary>
+    function HarvestDistrusted: TArray<TBytes>; virtual;
     /// <summary>Human-readable source label, used in the fail-closed message.</summary>
     function SourceName: string; virtual; abstract;
     /// <summary>The PKIX provider, for subclasses that must parse (e.g. PEM).</summary>
@@ -407,10 +410,25 @@ begin
       @SSystemTrustEmpty, [SourceName]);
 end;
 
-function TSystemRootSource.Snapshot: ITrustAnchorStore;
+function TSystemRootSource.HarvestDistrusted: TArray<TBytes>;
 begin
-  // a failed harvest raises here, before any store is built
-  Result := TTrustAnchorStore.Create(Harvest) as ITrustAnchorStore;
+  Result := nil;
+end;
+
+function TSystemRootSource.Snapshot: ITrustAnchorStore;
+var
+  LRoots: TArray<TBytes>;
+begin
+  // a failed harvest raises here, before any store is built; the distrust set is read after the
+  // roots so a source that collects it while harvesting has it ready, and is filtered the same way
+  LRoots := Harvest;
+  Result := TDistrustingTrustAnchorStore.Create(LRoots,
+    FilterRoots(HarvestDistrusted)) as ITrustAnchorStore;
+  // a source whose every root is also distrusted would leave no anchor at all: fail closed here
+  // rather than hand back a store that only ever answers unknown_ca
+  if System.Length(Result.RootCertificates) = 0 then
+    raise ESystemTrustUnavailableTlsLibException.CreateResFmt(@SSystemTrustEmpty,
+      [SourceName]);
 end;
 
 end.
