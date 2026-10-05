@@ -81,7 +81,8 @@ The resolvers decide a parked verdict out-of-band — wire `TLiveRevocationCheck
 resolver is role-specific: the client hook evaluates the server's chain (server-auth EKU), the
 server hook an mTLS client's chain (client-auth EKU), so they are separate — pair each with the
 matching `TOSSystemTrust.LiveRevocationResolver` overload (client vs server config). Both are
-fail-closed and never loosen our verdict.
+fail-closed and never loosen our verdict. Beside a config you supply yourself, that config must
+itself defer the verdict (`WithLiveRevocationVerdict`), else the connection is refused.
 
 For the full trust picture — trusting a private CA, public-key pinning, host-name-only
 relaxation, the `dangerous` escape hatches, and an ASP.NET Core mapping — see

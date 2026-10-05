@@ -298,8 +298,10 @@ begin
   // the ServerHello random sits after type(1) length(3) legacy_version(2)
   LParams.ServerRandom := System.Copy(LServerHello, 6, 32);
   // the RFC 8448 server signs with rsa_pss_rsae_sha256, which the RFC client offers;
-  // the CertificateVerify is replayed verbatim, so the key only drives scheme selection
+  // the Certificate and CertificateVerify are replayed verbatim, so the credential only drives
+  // scheme selection
   LCred := Default(TTlsCredential);
+  LCred.CertificateChain := TArray<TBytes>.Create(DecodeHex(FKeys.Values['rsa_cert']));
   LCred.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_key']), nil);
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(LCred);
   FSm := TTls13ServerStateMachine.Create(LParams);

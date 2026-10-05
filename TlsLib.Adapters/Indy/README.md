@@ -44,7 +44,7 @@ when the protocol says "go secure", set `IO.PassThrough := False` and the handsh
 | `VerifyPeer = False` / `InsecureSkipVerify` | **`dangerous` `WithDangerousInsecureSkipVerify`** |
 | `VerifyCallback`                  | neutral augment-only hook (`WithCertificateVerifyCallback`) |
 | `VerdictResolver` + `VerdictDeadlineMs` | client-role out-of-band verdict (server's chain), e.g. live OCSP/CRL |
-| `ServerVerdictResolver` + `ServerVerdictDeadlineMs` | server-role out-of-band verdict (mTLS client's chain) |
+| `ServerVerdictResolver` + `ServerVerdictDeadlineMs` | server-role out-of-band verdict (mTLS client's chain); beside a supplied `ClientConfig` / `ServerConfig` that config must itself defer the verdict, else the connection is refused |
 | `HandshakeTimeoutMs`              | bounds the handshake read (ms); `0` = 30 s default        |
 
 **Certificate chain**: `CertFile` is the chain the server *presents* — put your leaf **followed by any
@@ -100,6 +100,9 @@ relaxation, the `dangerous` escape hatches, and an ASP.NET Core mapping — see
 ## Notes
 
 - Blocking seam only (the standard Indy IOHandler path).
+- A connection is not thread-safe once the handshake is done: do not read and write it from two
+  threads at once (a broadcaster writing while a worker reads must serialize), because a read can
+  flush queued outbound records.
 - `Clone` is implemented, so the handler works with Indy's server IOHandler pooling.
 
 ## Proven

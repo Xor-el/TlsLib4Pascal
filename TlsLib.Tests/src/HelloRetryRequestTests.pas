@@ -279,6 +279,7 @@ begin
   LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
   try
     LCred := Default(TTlsCredential);
+    LCred.CertificateChain := TArray<TBytes>.Create(DecodeHex(LCerts.Values['leaf_cert']));
     LCred.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']), nil);
     LParams.CredentialResolver := TSniCredentialResolver.ForCredential(LCred);
   finally
