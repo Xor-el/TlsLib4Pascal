@@ -64,6 +64,8 @@ type
   published
     procedure TestKeyGenWritesPrivateFileOwnerOnly;
     procedure TestKeyGenRefusesToOverwriteAnExistingKeyFile;
+    procedure TestKeyGenReportsAnUncreatableKeyFile;
+    procedure TestKeyGenWritesAnEmptyPrivateFile;
     procedure TestKeyGenPemRoundTripsThroughStore;
     procedure TestKeyGenKeyPairSealsAndOpens;
     procedure TestKeyGenDnsLineNamesOrigin;
@@ -179,26 +181,86 @@ end;
 
 procedure TTestEchTooling.TestKeyGenRefusesToOverwriteAnExistingKeyFile;
 var
-  LPath: string;
-  LMode: Integer;
+  LPath, LMessage: string;
   LRefused: Boolean;
+  LStream: TFileStream;
+  LByte: Byte;
 begin
   LPath := 'tlslib_echkey_exists_test.pem';
   if FileExists(LPath) then
     DeleteFile(LPath);
   try
     TEchKeyGenerator.WritePrivateFile(LPath, TBytes.Create($01));
-    // an exclusive create is a POSIX guarantee; the Windows path keeps its overwrite behaviour
-    if not TryPosixMode(LPath, LMode) then
-      Exit;
     LRefused := False;
+    LMessage := '';
     try
       TEchKeyGenerator.WritePrivateFile(LPath, TBytes.Create($02));
     except
       on E: EInOutError do
+      begin
         LRefused := True;
+        LMessage := E.Message;
+      end;
     end;
     CheckTrue(LRefused, 'an existing key file is refused, not overwritten');
+    CheckTrue(Pos(LPath, LMessage) > 0, 'the refusal names the file');
+    // the refusal neither removes nor truncates the file it protects
+    LStream := TFileStream.Create(LPath, fmOpenRead);
+    try
+      CheckEquals(1, Int32(LStream.Size), 'the existing key file is untouched');
+      LStream.ReadBuffer(LByte, 1);
+      CheckEquals($01, LByte, 'and still holds its original byte');
+    finally
+      LStream.Free;
+    end;
+  finally
+    if FileExists(LPath) then
+      DeleteFile(LPath);
+  end;
+end;
+
+procedure TTestEchTooling.TestKeyGenReportsAnUncreatableKeyFile;
+var
+  LPath, LMessage: string;
+  LFailed: Boolean;
+begin
+  LPath := 'tlslib_echkey_no_such_dir_test' + PathDelim + 'key.pem';
+  LFailed := False;
+  LMessage := '';
+  try
+    TEchKeyGenerator.WritePrivateFile(LPath, TBytes.Create($01));
+  except
+    on E: EInOutError do
+    begin
+      LFailed := True;
+      LMessage := E.Message;
+    end;
+  end;
+  CheckTrue(LFailed, 'a path that cannot be created is an I/O error');
+  CheckTrue(Pos(LPath, LMessage) > 0, 'the error names the file');
+  CheckFalse(FileExists(LPath), 'and nothing is left behind');
+end;
+
+procedure TTestEchTooling.TestKeyGenWritesAnEmptyPrivateFile;
+var
+  LPath: string;
+  LStream: TFileStream;
+  LMode: Integer;
+begin
+  LPath := 'tlslib_echkey_empty_test.pem';
+  if FileExists(LPath) then
+    DeleteFile(LPath);
+  try
+    TEchKeyGenerator.WritePrivateFile(LPath, nil);
+    CheckTrue(FileExists(LPath), 'an empty key still creates the file');
+    LStream := TFileStream.Create(LPath, fmOpenRead);
+    try
+      CheckEquals(0, Int32(LStream.Size), 'and the file is empty');
+    finally
+      LStream.Free;
+    end;
+    if TryPosixMode(LPath, LMode) then
+      CheckEquals($180, LMode and $1FF, 'the empty file is still owner-only');
   finally
     if FileExists(LPath) then
       DeleteFile(LPath);
