@@ -46,7 +46,10 @@ type
   /// <summary>The one native-trust cell to run, parsed from the command line.</summary>
   TTrustCell = record
     TlsVersion: UInt16;
+    // the OS trust engine decides (os-delegate); Anchors instead feeds the OS root set, and its
+    // distrust set, into our own verifier (os-anchors)
     Delegate: Boolean;
+    Anchors: Boolean;
     Live: Boolean;
     // server-mode (mTLS): our server verifies the peer CLIENT certificate live through the OS
     // delegate, and a client presenter offers the certificate
@@ -73,8 +76,9 @@ type
   /// <summary>
   /// Runs one native-trust cell over a loopback: our server presents a supplied certificate
   /// chain (optionally stapling an OCSP response) and our client verifies it either through the
-  /// portable PKIX verifier (a fixed root file) or through the OS trust delegate against the
-  /// real machine store. The client asserts a clean handshake or an abort with a given alert,
+  /// portable PKIX verifier (a fixed root file), through the OS trust delegate against the
+  /// real machine store, or through our own verifier over the OS root set and its distrust set
+  /// (os-anchors). The client asserts a clean handshake or an abort with a given alert,
   /// with a settable revocation posture, injected clock (expired-at-verify-time) and expected
   /// hostname. The CI runner brackets the delegate accept path with a machine-store install.
   /// </summary>
@@ -345,7 +349,10 @@ begin
   LClient.WithRevocation(ACell.Posture);
   if ACell.UseClock then
     LClient.WithClock(TFixedClock.Create(ACell.NowMs) as ITlsClock);
-  if ACell.Delegate then
+  if ACell.Anchors then
+    // the OS root set and its distrust set, harvested into our own verifier
+    TSystemTrust.WithSystemTrust(LClient, APkix, TSystemTrustMode.Anchors)
+  else if ACell.Delegate then
   begin
     // verify the server certificate through the OS trust engine against the real machine store;
     // live arms the async park the OS-native resolver decides in
@@ -574,13 +581,18 @@ begin
       LCell.TlsVersion := TlsWireVersionTls13;
     LCell.IsServer := SameText(ArgValue('--role', 'client'), 'server');
     LCell.Delegate := SameText(ArgValue('--trust-mode', 'portable'), 'os-delegate');
+    LCell.Anchors := SameText(ArgValue('--trust-mode', 'portable'), 'os-anchors');
     // live OS-native revocation implies the OS delegate (the live re-check runs the OS engine)
     LCell.Live := SameText(ArgValue('--revocation-fetch', 'cache'), 'live');
+    if LCell.Live and LCell.Anchors then
+      raise Exception.Create('os-anchors has no live revocation; use os-delegate');
     if LCell.Live then
       LCell.Delegate := True;
     // the server cell always verifies the peer client cert live through the OS delegate
     if LCell.IsServer then
     begin
+      if LCell.Anchors then
+        raise Exception.Create('--role server verifies through the OS delegate, not os-anchors');
       LCell.Delegate := True;
       LCell.Live := True;
     end;
@@ -607,7 +619,7 @@ begin
         raise Exception.Create(
           '--role server requires --root, --client-cert, --client-key and --client-ca');
     end
-    else if (not LCell.Delegate) and (LCell.RootFile = '') then
+    else if (not LCell.Delegate) and (not LCell.Anchors) and (LCell.RootFile = '') then
       raise Exception.Create('portable trust mode requires --root');
 
     LError := RunCell(LCell);
