@@ -1,0 +1,58 @@
+TlsLib.Tests/Data/Certs/LiveRevocation.txt
+  s_d27f31cd14035d::t_462c8e00def43d 3-8,11
+TlsLib/src/Ech/TlpEchConfig.pas
+  s_d27f31cd14035d::t_462c8e00def43d 84-88,337,339-341,348-353,356-357,359-361,363-371
+TlsLib.Tests/src/EchToolingTests.pas
+  s_d27f31cd14035d::t_462c8e00def43d 86,586-642
+TlsLib/src/Ech/TlpEchClientOrchestrator.pas
+  s_d27f31cd14035d::t_462c8e00def43d 398
+TlsLib/src/Session/TlpInMemorySessionStore.pas
+  s_d27f31cd14035d::t_462c8e00def43d 164
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_d27f31cd14035d::t_462c8e00def43d 196,2078-2098
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_d27f31cd14035d::t_462c8e00def43d 24,175,404-405,504-506,729-731,1762-1778,1792-1795,2220-2221,2229-2230,2238-2239
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_d27f31cd14035d::t_462c8e00def43d 884-885,1423,1439
+TlsLib.Tests/src/LiveRevocationTests.pas
+  s_d27f31cd14035d::t_462c8e00def43d 70,234-250
+TlsLib/src/Crypto/TlpCryptoDomainTypes.pas
+  s_d27f31cd14035d::t_462c8e00def43d 365,371,374-375,383-390,394-395
+TlsLib.Tests/src/ProviderTests.pas
+  s_d27f31cd14035d::t_462c8e00def43d 92,863-892
+TlsLib.Tests/src/CredentialImportTests.pas
+  s_d27f31cd14035d::t_462c8e00def43d 428-429,444-457
+TlsLib.Tests/src/WindowsSystemCryptoTests.pas
+  s_d27f31cd14035d::t_462c8e00def43d 91,349-392
+TlsLib/src/Pkix/Providers/TlpDefaultPkixProvider.pas
+  s_d27f31cd14035d::t_462c8e00def43d 20,201-206,1088-1091,1093,1145,1155-1159
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_d27f31cd14035d::t_462c8e00def43d 171-173,404-405,1992-2007,2659
+  s_d27f31cd14035d::t_c7195c7e16f0dd 2779
+TlsLib/src/Session/TlpAntiReplay.pas
+  s_d27f31cd14035d::t_462c8e00def43d 44-47,51-53,82,105-106,120-143,183-188,193,197-198,211
+TlsLib/src/Ech/TlpInMemoryEchKeyStore.pas
+  s_d27f31cd14035d::t_462c8e00def43d 92-93,113-116
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_d27f31cd14035d::t_462c8e00def43d 204,978-981,1479-1480,1499-1504,1604-1611
+TlsLib.Tests/src/SessionStoreTests.pas
+  s_d27f31cd14035d::t_462c8e00def43d 105,1191-1206
+TlsLib/src/Security/TlpSecretBuffer.pas
+  s_d27f31cd14035d::t_462c8e00def43d 148-149,151-156
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "898ca25cff3170563c6c005392ce23af5d79c706",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
