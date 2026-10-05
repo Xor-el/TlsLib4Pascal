@@ -1,0 +1,63 @@
+TlsLib.Tests/src/TlsStreamLoopbackTests.pas
+  s_d27f31cd14035d::t_1a1f8588e9c9e7 1167-1209
+  s_d27f31cd14035d::t_9ffed172f8d5e5 129-130
+  s_d27f31cd14035d::t_f0e39dba00c8fa 154
+  s_d27f31cd14035d::t_2c16a5f4229ff9 378-410
+  s_d27f31cd14035d::t_3330bfd6275c5c 151
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_d27f31cd14035d::t_f139e8b5ef33f4 655-660,667,670-713
+  s_d27f31cd14035d::t_5e3e8f9ad653a2 661-664,666,668-669
+  s_d27f31cd14035d::t_a229a662d04da8 665
+  s_d27f31cd14035d::t_313428c7b64744 116-118
+TlsLib/src/Connection/TlpTlsStreamPump.pas
+  s_d27f31cd14035d::t_b5415420d07db1 432,434-436
+  s_d27f31cd14035d::t_1b893d68f0ecd9 121-124
+  s_d27f31cd14035d::t_55db2294322f3f 414-415
+  s_d27f31cd14035d::t_09b6f60993c6a6 456-463
+  s_d27f31cd14035d::t_c535e7deee25c4 438-439
+  s_d27f31cd14035d::t_9572ac62b78e7a 262-266,268-272
+  s_d27f31cd14035d::t_f452f0587c9a1c 267
+TlsLib/src/Connection/TlpTlsConnection.pas
+  s_d27f31cd14035d::t_9e9e97c15a60ff 813-818
+  s_d27f31cd14035d::t_f1e33564eff915 228-230
+TlsLib/src/Connection/TlpTlsStream.pas
+  s_d27f31cd14035d::t_3b7f84a859317f 80-83
+  s_d27f31cd14035d::t_f35b49c9203a22 174-182
+  s_d27f31cd14035d::t_7c3108d449743c 21
+TlsLib.Tests/src/AsyncVerdictTests.pas
+  s_d27f31cd14035d::t_71d65d70540344 914-972,975-986
+  s_d27f31cd14035d::t_933f1677bf7074 30-31,33
+  s_d27f31cd14035d::t_36de4d3ec0e954 138-139
+  s_d27f31cd14035d::t_c03254fe4acda3 973-974
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_d27f31cd14035d::t_a8424d293b80a0 354
+  s_d27f31cd14035d::t_62e202b191dda7 2757-2760
+  s_d27f31cd14035d::t_ff1bfd6f5a166f 1851-1852,1854
+  s_d27f31cd14035d::t_d85939100e28ab 2761
+  s_d27f31cd14035d::t_1b11eb35cafb82 1853,1855
+  s_d27f31cd14035d::t_5f049c59466ba1 2606-2607
+  s_d27f31cd14035d::t_7ee06cbfbdff6a 355-356
+  s_d27f31cd14035d::t_a9a7c553b6955e 1835,1838
+  s_d27f31cd14035d::t_bee95bd136035e 2613-2619
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_d27f31cd14035d::t_89bda73777876d 563
+  s_d27f31cd14035d::t_b6f9d8f91af798 357-358,367-370
+TlsLib.Adapters/Synapse/Adapter/TlsLibSynapseTls.pas
+  s_d27f31cd14035d::t_e385d78862f973 428
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d3a19a18320808c751585003ef12b9ed5b4ebf42",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
