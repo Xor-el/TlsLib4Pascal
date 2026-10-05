@@ -53,6 +53,9 @@ type
     procedure TearDown; override;
   published
     procedure TestTwoAnchorStoresUnionIntoComposedStore;
+    procedure TestDistrustingStoreDropsDistrustedRootsAndIsImmutable;
+    procedure TestUnionCarriesAndAppliesDistrustAcrossStores;
+    procedure TestBuildFreezesDistrustWithTheComposedStore;
     procedure TestCertificateVerifierLandsInFrozenConfig;
     procedure TestVerifierCombinedWithAnchorSourceIsRejected;
     // an empty store is still an anchor *source* for the exclusivity count (that rule runs before
@@ -152,6 +155,61 @@ begin
     'both anchor sources union into the composed trust store');
   CheckTrue(LConfig.ServerVerifierSource <> nil,
     'no whole-verifier was set, so the built-in verifier source is installed by default');
+end;
+
+procedure TTestTrustComposition.TestDistrustingStoreDropsDistrustedRootsAndIsImmutable;
+var
+  LRoots, LDistrusted: TArray<TBytes>;
+  LStore: IDistrustingTrustAnchorStore;
+begin
+  LRoots := TArray<TBytes>.Create(DecodeHex(FCerts.Values['root_cert']),
+    DecodeHex(FCerts.Values['leaf_cert']));
+  LDistrusted := TArray<TBytes>.Create(DecodeHex(FCerts.Values['leaf_cert']));
+  LStore := TDistrustingTrustAnchorStore.Create(LRoots, LDistrusted);
+  CheckEquals(1, System.Length(LStore.RootCertificates), 'a distrusted root is not an anchor');
+  CheckEquals(1, System.Length(LStore.DistrustedCertificates), 'the distrust set is carried');
+  CheckTrue(LStore.IsDistrusted(LDistrusted[0]), 'the distrusted certificate matches');
+  CheckFalse(LStore.IsDistrusted(LRoots[0]), 'an anchor is not distrusted');
+  // the store owns its sets: later changes to the inputs or the returned copies do not reach it
+  LDistrusted[0][0] := LDistrusted[0][0] xor $FF;
+  LStore.DistrustedCertificates[0][0] := 0;
+  CheckTrue(LStore.IsDistrusted(DecodeHex(FCerts.Values['leaf_cert'])),
+    'the distrust set is an immutable snapshot');
+end;
+
+procedure TTestTrustComposition.TestUnionCarriesAndAppliesDistrustAcrossStores;
+var
+  LUnion: ITrustAnchorStore;
+  LDistrust: IDistrustingTrustAnchorStore;
+begin
+  // one store distrusts the leaf; another contributes it as an anchor: distrust wins
+  LUnion := TUnionTrustAnchorStore.Create(TArray<ITrustAnchorStore>.Create(
+    StoreOf('root_cert'), StoreOf('leaf_cert'),
+    TDistrustingTrustAnchorStore.Create(nil,
+    TArray<TBytes>.Create(DecodeHex(FCerts.Values['leaf_cert']))) as ITrustAnchorStore));
+  CheckEquals(1, System.Length(LUnion.RootCertificates),
+    'a root distrusted by any store is not an anchor of the union');
+  CheckTrue(Supports(LUnion, IDistrustingTrustAnchorStore, LDistrust),
+    'the union exposes the distrust set');
+  CheckTrue(LDistrust.IsDistrusted(DecodeHex(FCerts.Values['leaf_cert'])), 'it carries the child distrust');
+  CheckEquals(1, System.Length(LDistrust.DistrustedCertificates), 'the union of the distrust sets');
+end;
+
+procedure TTestTrustComposition.TestBuildFreezesDistrustWithTheComposedStore;
+var
+  LConfig: ITlsClientConfig;
+  LDistrust: IDistrustingTrustAnchorStore;
+begin
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithTrustStore(TDistrustingTrustAnchorStore.Create(
+    TArray<TBytes>.Create(DecodeHex(FCerts.Values['root_cert'])),
+    TArray<TBytes>.Create(DecodeHex(FCerts.Values['leaf_cert']))) as ITrustAnchorStore)
+    .WithTrustAnchors(DecodeHex(FCerts.Values['root_cert']))
+    .Build;
+  CheckTrue(Supports(LConfig.TrustStore, IDistrustingTrustAnchorStore, LDistrust),
+    'the frozen config keeps the distrust set');
+  CheckTrue(LDistrust.IsDistrusted(DecodeHex(FCerts.Values['leaf_cert'])),
+    'the distrusted certificate is still distrusted after composition with plain anchors');
 end;
 
 procedure TTestTrustComposition.TestCertificateVerifierLandsInFrozenConfig;

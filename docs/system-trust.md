@@ -26,8 +26,8 @@ platform that can enumerate its store, that is the default:
 
 | Platform | Source | How |
 |---|---|---|
-| **Windows** | `ROOT` store (server-auth-capable roots only), minus `Disallowed` | `crypt32` enumeration → our validator |
-| **macOS** | System + admin + user trust settings (SSL-scoped; a user "Never Trust" in any domain excludes) | `Security.framework` → our validator |
+| **Windows** | `ROOT` store (server-auth-capable roots only), minus `Disallowed`; every `Disallowed` certificate is also refused anywhere on a path | `crypt32` enumeration → our validator |
+| **macOS** | System + admin + user trust settings (SSL-scoped; a user "Never Trust" in any domain excludes); a Deny on any certificate, root or intermediate, is refused anywhere on a path | `Security.framework` → our validator |
 | **Unix/Linux** | `/etc/ssl/certs` (and distro variants; honours `SSL_CERT_FILE` / `SSL_CERT_DIR`, ignored under elevated privilege) | filesystem harvest → our validator |
 | **iOS** | *(no enumeration API)* | delegates the verdict to `SecTrust` |
 | **Android** | *(harvest banned — stale/partial)* | delegates the verdict to the platform `X509TrustManager` (Delphi: zero-config; FPC: one `TlsLibAndroidInitTrust` call) |
@@ -126,6 +126,29 @@ LConfig := TSystemTrust.WithSystemTrust(TTlsPresets.Compatible(Crypto, Pkix).Cli
   .WithTrustAnchors(LoadFile('my-private-ca.pem'))   // unions with the OS roots
   .Build;
 ```
+
+### OS distrust in Anchors mode
+
+An OS-distrusted certificate is refused by the built-in verifier wherever it appears on the path,
+not only as a root:
+
+- **What counts:** the certificates the platform lets us read as distrusted — Windows `Disallowed`
+  and macOS trust settings with a Deny result. They travel with the anchor snapshot.
+- **Exact certificate only:** the match is on the whole certificate. A re-issued certificate with
+  the same key or name is a different certificate and is not caught; a Disallowed entry known only
+  by hash (no certificate in the store) and the OS's built-in blocklists are not visible. Use
+  **Delegate** mode where the full OS policy matters.
+- **Verdict:** a distrusted leaf, or a path that can only run through a distrusted intermediate,
+  fails with `bad_certificate`. If the peer also sent a valid alternative path that avoids the
+  distrusted certificate, that path verifies. A distrusted root is never an anchor: if the peer
+  does not send it, the chain simply has no anchor and fails with `unknown_ca`.
+- **Distrust wins across sources:** the union above applies to distrust too, so a root that the OS
+  distrusts is not re-admitted by supplying it again through `WithTrustAnchors` or
+  `WithTrustStore`.
+- **No distrust input:** Unix. **Not applicable:** Android and iOS, which are delegate-only (the
+  platform already applies its own distrust).
+- **macOS Deny scope:** a Deny whose scope cannot be read is treated as a Deny, so it can also
+  block a certificate that was only denied for another purpose.
 
 ---
 
@@ -256,7 +279,7 @@ engaged — Windows and Apple can opt into `Live`, which fetches in the async pa
 | | Windows (crypt32) | Apple (SecTrust) | Android (`X509TrustManager`) |
 |---|---|---|---|
 | **Revocation mechanism** | chain revocation flags + cache-only URL retrieval, plus the staple | `SecPolicyCreateRevocation`, network fetch disabled | none of its own — the library's staple verdict |
-| **OS distrust inputs** | the **Disallowed** store + CTLs | SecTrust settings | the platform trust store |
+| **OS distrust inputs** | the **Disallowed** store + CTLs (Anchors mode reads the Disallowed certificates only) | SecTrust settings (Anchors mode reads the Deny results only) | the platform trust store |
 | **Alert mapping** | crypt32 codes → a specific alert, else `bad_certificate` | `OSStatus` → a specific alert, else `bad_certificate` | mapped from the `X509TrustManager` exception |
 | **Injected clock** | chain validity + staple freshness | chain validity + staple freshness | staple freshness only — no verify-date seam, so the chain validates at the platform's own time (the one documented Android limitation) |
 | **Host handed to the OS** | the DNS host (an IP literal is stripped) | the DNS host (IP stripped) | the connected host as-is — the network-security-config domain key, not a name check |
@@ -281,7 +304,9 @@ The builder distinguishes two kinds of trust contribution:
 
 - **Anchor sources** — `WithTrustAnchors`, `WithTrustStore`, and `TSystemTrust.WithSystemTrust`
   (client builder; system trust is server-cert trust, never a server's client-CA).
-  These are additive: supply several and they **union** into one root set.
+  These are additive: supply several and they **union** into one root set. Where system trust is
+  a delegate (the `Delegate` mode, and always on iOS and Android) it is a whole verifier, not an anchor source,
+  so it cannot be combined with `WithTrustAnchors` or `WithTrustStore` and `Build` refuses the mix.
 - **A whole verifier** — `WithDangerousCertificateVerifier` (below). This **replaces** the built-in pipeline
   and is **exclusive**: combining it with any anchor source, or setting two verifiers, is a typed
   error (`EInvalidOperationTlsLibException`) at `Build`.

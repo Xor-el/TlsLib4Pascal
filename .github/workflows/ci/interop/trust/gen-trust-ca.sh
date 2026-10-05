@@ -13,7 +13,12 @@
 #   ipleaf.pem/.key          serverAuth leaf, SAN IP:127.0.0.1 (no DNS), serial 0x1005
 #   foreign_root.pem/.key    an unrelated self-signed CA (the untrusted-root negative)
 #   foreign_leaf.pem/.key    serverAuth leaf under foreign_root, SAN localhost
-#   fullchain.pem            leaf + issuer (what a server presents)
+#   distrust_issuer.pem/.key a second root-signed intermediate (the one the distrust cells distrust)
+#   distrust_twin.pem        another certificate for distrust_issuer's key and subject (serial 0x6002)
+#   distrust_leaf.pem/.key   serverAuth leaf under distrust_issuer, serial 0x1006
+#   distrust_leaf_fullchain.pem  distrust_leaf + distrust_issuer
+#   distrust_alt_fullchain.pem   distrust_leaf + distrust_issuer + distrust_twin
+#   leaf_fullchain.pem       leaf + issuer (what a server presents)
 #   muststaple_fullchain.pem muststaple + issuer
 #   wrongeku_fullchain.pem   wrongeku + issuer
 #   foreign_fullchain.pem    foreign_leaf + foreign_root
@@ -71,8 +76,8 @@ EOF
   -sha256 -days 3650 -extfile issuer.ext -out issuer.pem
 
 # --- leaf (serverAuth, SAN localhost, explicit serial for the OCSP index) -----------------
-mk_leaf() { # <name> <serial-hex> <extra-ext-lines> [subjectAltName]
-  local name="$1" serial="$2" extra="$3" san="${4:-DNS:localhost}"
+mk_leaf() { # <name> <serial-hex> <extra-ext-lines> [subjectAltName] [issuer-basename]
+  local name="$1" serial="$2" extra="$3" san="${4:-DNS:localhost}" issuer="${5:-issuer}"
   newkey "$name.key"
   "$OPENSSL" req -new -key "$name.key" -out "$name.csr" -subj "/CN=localhost"
   { cat <<EOF
@@ -83,9 +88,9 @@ authorityInfoAccess=OCSP;URI:http://ocsp.tlslib.invalid/
 crlDistributionPoints=URI:http://crl.tlslib.invalid/issuer.crl
 EOF
     printf '%s\n' "$extra"; } > "$name.ext"
-  "$OPENSSL" x509 -req -in "$name.csr" -CA issuer.pem -CAkey issuer.key \
+  "$OPENSSL" x509 -req -in "$name.csr" -CA "$issuer.pem" -CAkey "$issuer.key" \
     -set_serial "$serial" -sha256 -days 30 -extfile "$name.ext" -out "$name.pem"
-  cat "$name.pem" issuer.pem > "${name}_fullchain.pem"
+  cat "$name.pem" "$issuer.pem" > "${name}_fullchain.pem"
 }
 mk_leaf leaf       0x1001 "extendedKeyUsage=serverAuth"
 # RFC 7633 TLS Feature (OID 1.3.6.1.5.5.7.1.24) = SEQUENCE OF INTEGER { status_request(5) }
@@ -93,6 +98,22 @@ mk_leaf muststaple 0x1002 $'extendedKeyUsage=serverAuth\n1.3.6.1.5.5.7.1.24=DER:
 mk_leaf wrongeku   0x1003 "extendedKeyUsage=clientAuth"
 # an IP-literal leaf (iPAddress SAN, no DNS): the delegate matches an IP host against it in-library
 mk_leaf ipleaf     0x1005 "extendedKeyUsage=serverAuth" "IP:127.0.0.1"
+
+# --- a second intermediate the run-trust.sh distrust cells put in the OS "distrusted" store -----
+# distrust_issuer is root-signed like issuer; distrust_twin is a DIFFERENT certificate for the same
+# issuer (same CSR, so same key and subject, new serial), so distrust_leaf chains through either.
+# distrusting only distrust_issuer therefore leaves a valid alternate path through the twin.
+newkey distrust_issuer.key
+"$OPENSSL" req -new -key distrust_issuer.key -out distrust_issuer.csr \
+  -subj "/CN=TlsLib Distrusted Issuer $RUNID"
+"$OPENSSL" x509 -req -in distrust_issuer.csr -CA root.pem -CAkey root.key -set_serial 0x6001 \
+  -sha256 -days 3650 -extfile issuer.ext -out distrust_issuer.pem
+"$OPENSSL" x509 -req -in distrust_issuer.csr -CA root.pem -CAkey root.key -set_serial 0x6002 \
+  -sha256 -days 3650 -extfile issuer.ext -out distrust_twin.pem
+mk_leaf distrust_leaf 0x1006 "extendedKeyUsage=serverAuth" "DNS:localhost" distrust_issuer
+# the same chain with the twin also presented: a verifier that sets the distrusted issuer aside
+# still has a valid path
+cat distrust_leaf.pem distrust_issuer.pem distrust_twin.pem > distrust_alt_fullchain.pem
 
 # a 2-tier leaf signed DIRECTLY by the root (no intermediate), for the delegate accept/Hard cell:
 # with only the leaf as a non-anchor cert and a good stapled OCSP for it, every non-anchor element

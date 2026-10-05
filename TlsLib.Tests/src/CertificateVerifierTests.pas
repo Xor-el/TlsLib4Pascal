@@ -93,6 +93,10 @@ type
     function IntermediateVerifierFor(const ARoot: TBytes;
       const AIntermediates: TArray<TBytes>): IServerCertificateVerifier;
     function ClientVerifierFor(const ARoot: TBytes): IClientCertificateVerifier;
+    // a verifier trusting ARoot over a store that also distrusts ADistrusted, seeded with
+    // AIntermediates for path building
+    function DistrustVerifierFor(const ARoot: TBytes;
+      const ADistrusted, AIntermediates: TArray<TBytes>): IServerCertificateVerifier;
   protected
     procedure SetUp; override;
     procedure TearDown; override;
@@ -126,6 +130,13 @@ type
     // the trust anchor is identified by subject + key, not exact encoding (RFC 5280 6.1.1(d)):
     // a peer-sent re-issued copy of the configured root collapses onto the configured DER and
     // is exempt from path policy; a same-subject different-key root is not the anchor
+    procedure TestDistrustedIntermediateIsRejectedAsBadCertificate;
+    procedure TestDistrustedLeafIsRejectedAsBadCertificate;
+    procedure TestDistrustedIntermediateIsBypassedByAnAlternatePath;
+    procedure TestDistrustedConfiguredIntermediateIsNotUsedForCompletion;
+    procedure TestUnrelatedDistrustKeepsUnknownCa;
+    procedure TestDistrustMatchIsExactDer;
+    procedure TestReencodedDistrustedIntermediateStillFails;
     procedure TestPeerReissuedRootAcceptedAndCollapsed;
     procedure TestPeerSha1ReissuedRootExemptFromChainPolicy;
     procedure TestSha1SelfSignedRootNotConfiguredRejected;
@@ -260,6 +271,138 @@ begin
   Result := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(ARoot)) as ITrustAnchorStore,
     False, LOptions) as IServerCertificateVerifier;
+end;
+
+function TTestCertificateVerifier.DistrustVerifierFor(const ARoot: TBytes;
+  const ADistrusted, AIntermediates: TArray<TBytes>): IServerCertificateVerifier;
+var
+  LOptions: TCertificateVerifierOptions;
+begin
+  LOptions.Intermediates := AIntermediates;
+  Result := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
+    TDistrustingTrustAnchorStore.Create(TArray<TBytes>.Create(ARoot), ADistrusted)
+    as ITrustAnchorStore, False, LOptions) as IServerCertificateVerifier;
+end;
+
+procedure TTestCertificateVerifier.TestDistrustedIntermediateIsRejectedAsBadCertificate;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+  LChain: TArray<TBytes>;
+begin
+  LChain := TArray<TBytes>.Create(Reissued('leaf_cert'), Reissued('issuer_cert'));
+  CheckTrue(VerifierFor(Reissued('root_cert'), False).VerifyServerCertificate(LChain,
+    TServerName.DnsName(''), nil, LVerified, LAlert), 'control: the chain is trusted');
+  CheckFalse(DistrustVerifierFor(Reissued('root_cert'),
+    TArray<TBytes>.Create(Reissued('issuer_cert')), nil).VerifyServerCertificate(LChain,
+    TServerName.DnsName(''), nil, LVerified, LAlert),
+    'a path through a distrusted intermediate is refused');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
+    'it is an explicit distrust (bad_certificate), not an unknown CA');
+end;
+
+procedure TTestCertificateVerifier.TestDistrustedLeafIsRejectedAsBadCertificate;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  CheckFalse(DistrustVerifierFor(Reissued('root_cert'),
+    TArray<TBytes>.Create(Reissued('leaf_cert')), nil).VerifyServerCertificate(
+    TArray<TBytes>.Create(Reissued('leaf_cert'), Reissued('issuer_cert')),
+    TServerName.DnsName(''), nil, LVerified, LAlert), 'a distrusted leaf is refused');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'bad_certificate');
+end;
+
+procedure TTestCertificateVerifier.TestDistrustedIntermediateIsBypassedByAnAlternatePath;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  // the peer also sent a twin of the distrusted issuer (same key and subject, a different
+  // certificate): the path is built through the twin, so a distrusted cert in the pool does not
+  // sink a chain that has a valid alternative
+  CheckTrue(DistrustVerifierFor(Reissued('root_cert'),
+    TArray<TBytes>.Create(Reissued('issuer_cert')), nil).VerifyServerCertificate(
+    TArray<TBytes>.Create(Reissued('leaf_cert'), Reissued('issuer_cert'),
+    Reissued('issuer_twin_cert')), TServerName.DnsName(''), nil, LVerified, LAlert),
+    'an alternate path avoiding the distrusted certificate is accepted');
+  CheckEqualBytes('the path runs through the twin', Reissued('issuer_twin_cert'),
+    LVerified.Path[1]);
+end;
+
+procedure TTestCertificateVerifier.TestDistrustedConfiguredIntermediateIsNotUsedForCompletion;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+  LLeafOnly: TArray<TBytes>;
+begin
+  LLeafOnly := TArray<TBytes>.Create(Reissued('leaf_cert'));
+  CheckTrue(DistrustVerifierFor(Reissued('root_cert'), nil,
+    TArray<TBytes>.Create(Reissued('issuer_cert'))).VerifyServerCertificate(LLeafOnly,
+    TServerName.DnsName(''), nil, LVerified, LAlert),
+    'control: a configured intermediate completes a leaf-only chain');
+  CheckFalse(DistrustVerifierFor(Reissued('root_cert'),
+    TArray<TBytes>.Create(Reissued('issuer_cert')),
+    TArray<TBytes>.Create(Reissued('issuer_cert'))).VerifyServerCertificate(LLeafOnly,
+    TServerName.DnsName(''), nil, LVerified, LAlert),
+    'a distrusted configured intermediate is not used to complete the path');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'bad_certificate');
+end;
+
+procedure TTestCertificateVerifier.TestUnrelatedDistrustKeepsUnknownCa;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  // a distrusted certificate is withheld from the chain, but the chain fails for an unrelated
+  // reason (a foreign root): the alert stays unknown_ca, not bad_certificate
+  CheckFalse(DistrustVerifierFor(Reissued('root2_cert'),
+    TArray<TBytes>.Create(Reissued('issuer_twin_cert')), nil).VerifyServerCertificate(
+    TArray<TBytes>.Create(Reissued('leaf_cert'), Reissued('issuer_cert'),
+    Reissued('issuer_twin_cert')), TServerName.DnsName(''), nil, LVerified, LAlert),
+    'a chain to an untrusted root is refused');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert),
+    'a genuine unknown CA keeps its alert when an unrelated certificate was withheld');
+end;
+
+procedure TTestCertificateVerifier.TestDistrustMatchIsExactDer;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  // distrusting the twin says nothing about the issuer: the match is on the whole certificate
+  CheckTrue(DistrustVerifierFor(Reissued('root_cert'),
+    TArray<TBytes>.Create(Reissued('issuer_twin_cert')), nil).VerifyServerCertificate(
+    TArray<TBytes>.Create(Reissued('leaf_cert'), Reissued('issuer_cert')),
+    TServerName.DnsName(''), nil, LVerified, LAlert),
+    'an unrelated distrusted certificate leaves the verdict unchanged');
+end;
+
+procedure TTestCertificateVerifier.TestReencodedDistrustedIntermediateStillFails;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+  LIssuer, LReencoded: TBytes;
+  LLen: Int32;
+begin
+  // the same certificate with a non-minimal outer length (30 82 hh ll -> 30 83 00 hh ll): the
+  // outer SEQUENCE is not covered by the signature, so a peer can re-encode a distrusted
+  // certificate; it must not slip past the distrust check
+  LIssuer := Reissued('issuer_cert');
+  CheckEquals($30, LIssuer[0], 'the certificate is a SEQUENCE');
+  CheckEquals($82, LIssuer[1], 'the outer length is the two-byte form');
+  LLen := (LIssuer[2] shl 8) or LIssuer[3];
+  LReencoded := ConcatBytes(DecodeHex('308300'), System.Copy(LIssuer, 2, System.Length(LIssuer) - 2));
+  CheckEquals(System.Length(LIssuer) - 4, LLen, 'the length field covers the body');
+  // control: without the distrust the re-encoded chain verifies, so the refusal below is the
+  // post-check and not a parse failure
+  CheckTrue(DistrustVerifierFor(Reissued('root_cert'), nil, nil).VerifyServerCertificate(
+    TArray<TBytes>.Create(Reissued('leaf_cert'), LReencoded), TServerName.DnsName(''), nil,
+    LVerified, LAlert), 'the re-encoded chain verifies when nothing is distrusted');
+  CheckFalse(DistrustVerifierFor(Reissued('root_cert'),
+    TArray<TBytes>.Create(LIssuer), nil).VerifyServerCertificate(
+    TArray<TBytes>.Create(Reissued('leaf_cert'), LReencoded), TServerName.DnsName(''), nil,
+    LVerified, LAlert), 'a re-encoded distrusted intermediate is still refused');
 end;
 
 procedure TTestCertificateVerifier.TestValidChainTrusted;

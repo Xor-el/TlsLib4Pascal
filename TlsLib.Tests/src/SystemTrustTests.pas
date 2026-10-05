@@ -156,11 +156,18 @@ type
   /// <summary>A probe over the abstract root source that drives its shared FilterRoots helper
   /// directly, so the well-formed + de-dup filter both harvesters funnel through is tested once.</summary>
   TFilterRootsProbe = class(TSystemRootSource)
+  strict private
+  var
+    FRoots: TArray<TBytes>;
+    FDistrusted: TArray<TBytes>;
   strict protected
     function HarvestRoots: TArray<TBytes>; override;
+    function HarvestDistrusted: TArray<TBytes>; override;
     function SourceName: string; override;
   public
     function Filter(const ARaw: TArray<TBytes>): TArray<TBytes>;
+    /// <summary>What a Snapshot of this probe harvests.</summary>
+    procedure Harvests(const ARoots, ADistrusted: TArray<TBytes>);
   end;
 
   /// <summary>Platform-neutral tests for the OS delegate template over a fake platform engine: the
@@ -209,6 +216,7 @@ type
     procedure TestServerSourceCarriesVerifyCallbackFromContext;
     procedure TestClientSourceCarriesVerifyCallbackFromContext;
     procedure TestFilterRootsDeDupsAndDropsMalformed;
+    procedure TestSnapshotCarriesFilteredDistrustSet;
     // RFC 7633 must-staple + TLS Feature well-formedness, now enforced by the OS delegate
     procedure TestMustStapleLeafWithoutStapleRejects;
     procedure TestMustStapleLeafWithGoodStapleAccepts;
@@ -242,11 +250,12 @@ type
     procedure TestHarvestYieldsRoots;
     procedure TestAllHarvestedRootsWellFormed;
     procedure TestHarvestedRootsAreUnique;
+    procedure TestNoHarvestedRootIsDistrusted;
   end;
 
 {$IFDEF TLSLIB_MSWINDOWS}
 
-  /// <summary>Windows (crypt32 ROOT+CA minus Disallowed) instantiation. Registered only on
+  /// <summary>Windows (crypt32 ROOT minus Disallowed) instantiation. Registered only on
   /// TLSLIB_MSWINDOWS.</summary>
   TTestWindowsSystemTrust = class(TSystemTrustAnchorContractTestBase)
   strict protected
@@ -591,7 +600,18 @@ end;
 
 function TFilterRootsProbe.HarvestRoots: TArray<TBytes>;
 begin
-  Result := nil; // not exercised - the probe drives FilterRoots directly
+  Result := FRoots;
+end;
+
+function TFilterRootsProbe.HarvestDistrusted: TArray<TBytes>;
+begin
+  Result := FDistrusted;
+end;
+
+procedure TFilterRootsProbe.Harvests(const ARoots, ADistrusted: TArray<TBytes>);
+begin
+  FRoots := ARoots;
+  FDistrusted := ADistrusted;
 end;
 
 function TFilterRootsProbe.SourceName: string;
@@ -1435,6 +1455,35 @@ begin
   end;
 end;
 
+procedure TTestOSDelegateTemplate.TestSnapshotCarriesFilteredDistrustSet;
+var
+  LProbe: TFilterRootsProbe;
+  LStore: ITrustAnchorStore;
+  LDistrust: IDistrustingTrustAnchorStore;
+  LRoot, LDistrusted: TBytes;
+begin
+  // the snapshot is a distrusting store: the distrust set is filtered like the roots (junk and
+  // duplicates dropped) and a root the source also distrusts is not an anchor
+  LRoot := OcspChain[0];
+  LDistrusted := OcspChain[1];
+  LProbe := TFilterRootsProbe.Create(FPkix);
+  try
+    LProbe.Harvests(TArray<TBytes>.Create(LRoot, LDistrusted),
+      TArray<TBytes>.Create(LDistrusted, System.Copy(LDistrusted), TBytes.Create(1, 2, 3)));
+    LStore := LProbe.Snapshot;
+  finally
+    LProbe.Free;
+  end;
+  CheckTrue(Supports(LStore, IDistrustingTrustAnchorStore, LDistrust),
+    'a snapshot carries the distrust set');
+  CheckEquals(1, System.Length(LDistrust.DistrustedCertificates),
+    'the distrust set is de-duplicated and the junk dropped');
+  CheckTrue(LDistrust.IsDistrusted(LDistrusted), 'the distrusted certificate matches');
+  CheckEquals(1, System.Length(LStore.RootCertificates),
+    'a root the source distrusts is not an anchor');
+  CheckEqualBytes('the surviving anchor', LRoot, LStore.RootCertificates[0]);
+end;
+
 { TTestSystemTrustFixtures }
 
 function TTestSystemTrustFixtures.FileSnapshot(const AEnvFile, AEnvDir: string;
@@ -1718,6 +1767,22 @@ begin
     for LJ := LI + 1 to System.Length(LRoots) - 1 do
       CheckFalse(AreEqual(LRoots[LI], LRoots[LJ]),
         Format('%s harvested roots %d and %d are duplicates', [PlatformName, LI, LJ]));
+end;
+
+procedure TSystemTrustAnchorContractTestBase.TestNoHarvestedRootIsDistrusted;
+var
+  LRoots: TArray<TBytes>;
+  LDistrust: IDistrustingTrustAnchorStore;
+  LI: Integer;
+begin
+  if not HarvestOrSkip(LRoots) then
+    Exit;
+  // a snapshot that carries a distrust set never lists a distrusted certificate as an anchor
+  if not Supports(CreateAnchorStore, IDistrustingTrustAnchorStore, LDistrust) then
+    Exit;
+  for LI := 0 to System.Length(LRoots) - 1 do
+    CheckFalse(LDistrust.IsDistrusted(LRoots[LI]),
+      Format('%s harvested root %d is also distrusted', [PlatformName, LI]));
 end;
 
 {$IFDEF TLSLIB_MSWINDOWS}

@@ -30,7 +30,10 @@ type
   /// One-call OS trust for a client config builder, as the server-certificate trust source.
   /// Default picks the best source this platform offers (harvest OS anchors into our validator
   /// where they can be enumerated, else a delegate); Anchors and Delegate force a source and raise
-  /// a typed error where it cannot be honored. Anchors compose with any other trust contribution; a
+  /// a typed error where it cannot be honored. Anchors also honour OS distrust of an exact
+  /// certificate anywhere on a path (Windows Disallowed, macOS Deny), as far as the platform lets
+  /// it be read; use Delegate where the full OS policy matters. Anchors compose with any other trust
+  /// contribution, and distrust from any contribution wins; a
   /// delegate is exclusive - both enforced at the builder's Build. System trust verifies server
   /// certificates only; an mTLS server's client-CA is never the OS store - supply it with
   /// WithTrustAnchors / WithTrustStore (see TOSSystemTrust.ClientVerifierSource for the OS engine
@@ -42,9 +45,14 @@ type
       AMode: TSystemTrustMode; out AStore: ITrustAnchorStore;
       out ASource: IServerCertificateVerifierSource); static;
   public
+    /// <summary>OS trust in the Default mode (see the class summary).</summary>
     class function WithSystemTrust(const ABuilder: ITlsClientConfigBuilder;
-      const APkixProvider: IPkixProvider;
-      AMode: TSystemTrustMode = TSystemTrustMode.Default)
+      const APkixProvider: IPkixProvider): ITlsClientConfigBuilder; overload; static;
+    /// <summary>OS trust in the given mode. Anchors also honours OS distrust of any certificate
+    /// (an intermediate or a leaf, not only a root) by exact match; Delegate applies the full OS
+    /// policy.</summary>
+    class function WithSystemTrust(const ABuilder: ITlsClientConfigBuilder;
+      const APkixProvider: IPkixProvider; AMode: TSystemTrustMode)
       : ITlsClientConfigBuilder; overload; static;
     /// <summary>OS trust with a revocation fetch mode. This form always uses the OS delegate
     /// (Live is meaningless over harvested anchors), and for Live it also arms the async
@@ -104,6 +112,12 @@ begin
     ASource := TOSSystemTrust.ServerVerifierSource(TSystemTrustFetch.CacheOnly)
   else
     AStore := TOSSystemTrust.AnchorStore(APkixProvider);
+end;
+
+class function TSystemTrust.WithSystemTrust(const ABuilder: ITlsClientConfigBuilder;
+  const APkixProvider: IPkixProvider): ITlsClientConfigBuilder;
+begin
+  Result := WithSystemTrust(ABuilder, APkixProvider, TSystemTrustMode.Default);
 end;
 
 class function TSystemTrust.WithSystemTrust(

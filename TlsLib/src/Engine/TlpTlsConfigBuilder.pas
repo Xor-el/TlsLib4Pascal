@@ -338,7 +338,9 @@ resourcestring
   SSniDuplicateHost = 'the SNI host "%s" is mapped by more than one WithSniCredential entry';
   SSniWildcardMalformed = 'the SNI host "%s" is not a supported wildcard; only a single ' +
     'left-most label wildcard (*.example.com) is allowed';
-  SVerifierAnchorConflict = 'a custom certificate verifier is exclusive; it cannot be combined with any trust anchor source';
+  SVerifierAnchorConflict = 'a custom certificate verifier is exclusive; it cannot be combined with any trust ' +
+    'anchor source (where system trust is a delegate - Delegate mode, and always on iOS and Android - the system ' +
+    'trust itself is such a verifier, so it cannot be combined with WithTrustAnchors or WithTrustStore)';
   SDualVerifier = 'only one custom certificate verifier may be configured';
   STls13NotOffered = 'TLS 1.3 settings were configured but TLS 1.3 is not in the offered versions';
   STls12NotOffered = 'TLS 1.2 settings were configured but TLS 1.2 is not in the offered versions';

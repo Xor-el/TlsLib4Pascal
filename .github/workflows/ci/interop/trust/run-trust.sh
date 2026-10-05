@@ -10,6 +10,13 @@
 #                 uninstall -> reject (after). The pre-install reject proves the store is the
 #                 discriminator (a leaked root cannot make it pass); the post-uninstall reject
 #                 proves cleanup. The root's CN carries a per-run id so it never collides.
+#                 The machine store is only ever mutated on a CI runner (GITHUB_ACTIONS=true) or
+#                 when TLSLIB_TRUST_ALLOW_STORE_MUTATION=1 is set; elsewhere only the reject path runs.
+#   * os-anchors - our own verifier over the OS root set and its distrust set (the same installed
+#                 root). Inside the bracket a second per-run intermediate is marked OS-distrusted
+#                 (Windows Disallowed / macOS Deny): both the delegate and os-anchors must reject a
+#                 path through it (os-anchors with bad_certificate), a non-distrusted intermediate
+#                 and a twin of the distrusted one still verify.
 #
 # The server-cert delegate reject cells whose alert is a per-OS status-map code (hostname, EKU,
 # expired) assert only that the handshake aborts with a fatal alert, not the exact code: the two OS
@@ -58,11 +65,20 @@ CRL_URL="http://127.0.0.1:$CRL_PORT/root.crl"
 CRL_PID=""
 CRL_READY=0
 
-THUMB=""  # set after the CA exists
+THUMB=""   # set after the CA exists
+DTHUMB=""  # the distrusted intermediate's thumbprint, set after the CA exists
+DISTRUSTED=0
+
+# The cells that install into the machine trust store only ever run on a CI runner (or when
+# explicitly forced): a developer machine's store is never mutated by a casual local run.
+ci_store_mutation_allowed() {
+  [ "${GITHUB_ACTIONS:-}" = "true" ] || [ "${TLSLIB_TRUST_ALLOW_STORE_MUTATION:-}" = "1" ]
+}
 
 cleanup() {
   if [ -n "$OCSP_PID" ]; then kill "$OCSP_PID" >/dev/null 2>&1 || true; fi
   if [ -n "$CRL_PID" ]; then kill "$CRL_PID" >/dev/null 2>&1 || true; wait "$CRL_PID" 2>/dev/null || true; fi
+  if [ "$DISTRUSTED" = 1 ]; then uninstall_distrust || true; fi
   if [ "$INSTALLED" = 1 ]; then uninstall_root || true; fi
   rm -rf "$TMP"
 }
@@ -90,6 +106,31 @@ uninstall_root() { # remove the test root so the post-uninstall cell rejects aga
   esac
 }
 
+install_distrust() { # mark the distrusted intermediate as explicitly untrusted by the OS
+  case "$OSNAME" in
+    MINGW*|MSYS*|CYGWIN*|Windows*)
+      # both the machine and the current-user Disallowed store: the OS chain engine reads both, and
+      # the Anchors harvest opens the current-user view
+      certutil -addstore -f Disallowed "$(cygpath -w "$CA/distrust_issuer.pem")" >/dev/null 2>&1 &&
+      certutil -user -addstore -f Disallowed "$(cygpath -w "$CA/distrust_issuer.pem")" >/dev/null 2>&1 ;;
+    Darwin)
+      # no -p: the Deny applies to every policy, as a user "Never Trust" does
+      sudo security add-trusted-cert -d -r deny \
+        -k /Library/Keychains/System.keychain "$CA/distrust_issuer.pem" >/dev/null 2>&1 ;;
+    *) return 1 ;;
+  esac
+}
+uninstall_distrust() {
+  case "$OSNAME" in
+    MINGW*|MSYS*|CYGWIN*|Windows*)
+      certutil -delstore Disallowed "$DTHUMB" >/dev/null 2>&1 || true
+      certutil -user -delstore Disallowed "$DTHUMB" >/dev/null 2>&1 || true ;;
+    Darwin)
+      sudo security delete-certificate -Z "$DTHUMB" \
+        /Library/Keychains/System.keychain >/dev/null 2>&1 || true ;;
+  esac
+}
+
 trap cleanup EXIT
 
 OPENSSL="${OPENSSL:-openssl}"
@@ -101,6 +142,7 @@ if [ "$OSNAME" = "Darwin" ] && command -v brew >/dev/null 2>&1; then
 fi
 OPENSSL="$OPENSSL" bash "$HERE/gen-trust-ca.sh" "$CA" "$RUNID" "$OCSP_URL" "$DEAD_URL" "$CRL_URL"
 THUMB="$("$OPENSSL" x509 -in "$CA/root.pem" -noout -fingerprint -sha1 | sed 's/.*=//; s/://g')"
+DTHUMB="$("$OPENSSL" x509 -in "$CA/distrust_issuer.pem" -noout -fingerprint -sha1 | sed 's/.*=//; s/://g')"
 # a loopback OCSP responder for the live cells: serves the live index (accept leaves Valid, revoked
 # leaves Revoked) signed by the root-delegated OCSPSigning responder both crypt32 and trustd accept.
 # It runs for the whole bracket and is killed by the EXIT trap. The server-verifies-client live cells
@@ -204,7 +246,7 @@ if [ "$HAS_DELEGATE" = 1 ]; then
       --posture hard --expect reject:44
   done
 
-  if install_root; then
+  if ci_store_mutation_allowed && install_root; then
     INSTALLED=1
     echo "  (installed test root $THUMB)"
     # 2-tier chain (root -> leaf, no intermediate) under Hard: the only non-anchor cert is the leaf,
@@ -310,6 +352,49 @@ if [ "$HAS_DELEGATE" = 1 ]; then
       --server-key "$CA/live_leaf.key" --client-cert "$CA/live_client_good.pem" \
       --client-key "$CA/live_client_good.key" --client-ca "$CA/root.pem" \
       --live-client-ca "$CA/foreign_root.pem" --posture hard --expect reject
+    # --- OS distrust of an intermediate (the root is installed, so the OS trusts the whole chain) ---
+    # Anchors mode feeds the OS root set AND its distrust set into our own verifier; the delegate
+    # hands the verdict to the OS engine. Both must refuse a path through the distrusted
+    # intermediate, which the OS itself now rejects. The pre-distrust os-anchors accept proves the
+    # harvest sees the installed root, so the later reject cannot be a vacuous "no anchors".
+    echo "=== OS distrust of an intermediate (os-anchors and os-delegate) ==="
+    cell "anchors baseline (before distrust) -> accept" --trust-mode os-anchors \
+      --server-cert "$CA/distrust_leaf_fullchain.pem" --server-key "$CA/distrust_leaf.key" \
+      --posture soft --expect accept
+    if install_distrust; then
+      DISTRUSTED=1
+      echo "  (distrusted intermediate $DTHUMB)"
+      cell "delegate distrusted intermediate -> reject" --trust-mode os-delegate \
+        --server-cert "$CA/distrust_leaf_fullchain.pem" --server-key "$CA/distrust_leaf.key" \
+        --posture soft --expect reject
+      cell "anchors distrusted intermediate -> bad_certificate" --trust-mode os-anchors \
+        --server-cert "$CA/distrust_leaf_fullchain.pem" --server-key "$CA/distrust_leaf.key" \
+        --posture soft --expect reject:42
+      cell "[12] anchors distrusted intermediate -> bad_certificate" --trust-mode os-anchors \
+        --tls-version 12 --server-cert "$CA/distrust_leaf_fullchain.pem" \
+        --server-key "$CA/distrust_leaf.key" --posture soft --expect reject:42
+      # control: the other intermediate is not distrusted, so a path through it is still trusted
+      cell "anchors undistrusted intermediate (control) -> accept" --trust-mode os-anchors \
+        --server-cert "$CA/leaf_fullchain.pem" --server-key "$CA/leaf.key" \
+        --staple "$CA/ocsp_good.der" --posture soft --expect accept
+      # the peer also sent a twin of the distrusted intermediate (a different certificate for the same
+      # key): our verifier sets the distrusted one aside and builds the path through the twin
+      cell "anchors alternate path around the distrusted intermediate -> accept" \
+        --trust-mode os-anchors --server-cert "$CA/distrust_alt_fullchain.pem" \
+        --server-key "$CA/distrust_leaf.key" --posture soft --expect accept
+      uninstall_distrust
+      DISTRUSTED=0
+      case "$OSNAME" in
+        MINGW*|MSYS*|CYGWIN*|Windows*)
+          cell "anchors after removing the distrust -> accept" --trust-mode os-anchors \
+            --server-cert "$CA/distrust_leaf_fullchain.pem" --server-key "$CA/distrust_leaf.key" \
+            --posture soft --expect accept ;;
+        *) echo "  (skipped post-removal cell: a macOS trust setting needs the SIP-restricted right to remove)" ;;
+      esac
+    else
+      echo "  FAIL  could not install the distrusted intermediate"
+      FAILURES=$((FAILURES+1))
+    fi
     uninstall_root
     INSTALLED=0
     # bracket, after uninstall: cleanup verified - the same chain rejects again
@@ -317,7 +402,8 @@ if [ "$HAS_DELEGATE" = 1 ]; then
       --server-cert "$CA/leaf_fullchain.pem" --server-key "$CA/leaf.key" \
       --staple "$CA/ocsp_good.der" --posture soft --expect reject
   else
-    echo "  SKIPPED: could not install the test root (need privilege); ran the reject path only"
+    echo "  SKIPPED: not a CI runner (set TLSLIB_TRUST_ALLOW_STORE_MUTATION=1 to force) or the test"
+    echo "           root could not be installed (need privilege); ran the reject path only"
   fi
 
   # server-verifies-client with an UNREACHABLE responder: the client leaf's AIA is the dead port, so
