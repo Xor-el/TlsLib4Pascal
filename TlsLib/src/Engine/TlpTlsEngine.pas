@@ -129,8 +129,7 @@ type
     procedure SendClose;
     procedure SendAlert(ADescription: TTlsAlertDescription);
     procedure StartHandshake;
-    procedure SetCertificateVerdict(AAccept: Boolean;
-      AAlert: TTlsAlertDescription = TTlsAlertDescription.BadCertificate);
+    procedure SetCertificateVerdict(AAccept: Boolean; AAlert: TTlsAlertDescription);
     function TakeOutgoing(var ADest: TBytes; ADestOffset: Int32): Int32;
     function ReadAppData(var ADest: TBytes; ADestOffset, AMaxLength: Int32): Int32;
     function PendingAppData: Int32;

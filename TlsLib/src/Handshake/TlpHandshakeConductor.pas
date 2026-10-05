@@ -78,9 +78,9 @@ type
     function AwaitingVerdict: Boolean;
     /// <summary>Resolves a parked peer-certificate verdict: True resumes and drains the
     /// buffered flight (the trust pipeline has already passed); False aborts fail-closed with
-    /// AAlert (default bad_certificate). A no-op when nothing is parked.</summary>
+    /// AAlert. A no-op when nothing is parked.</summary>
     procedure ResolveCertificateVerdict(AAccept: Boolean;
-      AAlert: TTlsAlertDescription = TTlsAlertDescription.BadCertificate);
+      AAlert: TTlsAlertDescription);
     /// <summary>Applies the machine's post-handshake KeyUpdate effects (RFC 8446 4.6.3).</summary>
     procedure RequestKeyUpdate(ARequest: TKeyUpdateRequest);
     /// <summary>Applies any pending coalesced KeyUpdate response (before an app write).</summary>

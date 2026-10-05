@@ -56,6 +56,9 @@ uses
   TlpITlsConfig,
   TlpITlsConfigBuilder;
 
+resourcestring
+  SNilCryptoProvider = 'a crypto provider is required (pass a provider, not nil)';
+
 type
   /// <summary>The endpoint-neutral settings a preset decides before the endpoint is chosen. A nil
   /// registry or an empty list leaves that setting unset (Build refuses a builder with no offered
@@ -288,7 +291,7 @@ type
 
     /// <summary>Freezes and returns the client config; raises without a trust source.</summary>
     function BuildClient: ITlsClientConfig;
-    /// <summary>Freezes and returns the server config; raises without a credential.</summary>
+    /// <summary>Freezes and returns the server config; raises without a credential, credential resolver or external PSK.</summary>
     function BuildServer: ITlsServerConfig;
   public
     /// <summary>A still-mutable endpoint chooser built from AProfile; the caller narrows to Client
@@ -305,7 +308,6 @@ type
 implementation
 
 resourcestring
-  SNilCryptoProvider = 'a crypto provider is required (pass a provider, not nil)';
   SNilPkixProvider = 'a PKIX provider is required (pass a provider, not nil)';
   SNilClock = 'a clock is required (pass a clock, not nil)';
   SBuilderFrozen = 'the configuration has been built and can no longer be changed';
@@ -318,7 +320,7 @@ resourcestring
     'back to certificate authentication; keep WithExternalPskRequired(True) or add a trust source';
   SPskOnlyClientNeedsTls13Only = 'a client with external PSKs and no trust source must offer TLS ' +
     '1.3 only (external PSKs are TLS 1.3-only); use a 1.3-only preset or WithSupportedVersions([TLS 1.3])';
-  SNoCredential = 'a server configuration requires a certificate credential';
+  SNoCredential = 'a server configuration requires a certificate credential or an external PSK';
   SCredentialChainEmpty = 'a credential needs at least its leaf certificate in the chain';
   SCredentialKeyMissing = 'a credential needs a private key to sign the handshake';
   SNilNegotiationRegistry = 'the cipher-suite, signature-scheme and named-group registries are required';

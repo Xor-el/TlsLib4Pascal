@@ -135,13 +135,13 @@ type
     /// Resumes a handshake parked for an async peer-certificate verdict (RFC 8446
     /// deferred-verdict seam). AAccept True continues the handshake; the built-in trust
     /// pipeline has already passed, so this only confirms the augment verdict. AAccept False
-    /// aborts fail-closed with AAlert (default bad_certificate; a live-revocation reject passes
-    /// certificate_revoked, an indeterminate hard-fail bad_certificate_status_response). A no-op
-    /// when no verdict is awaited. Called by the driver on the host's decision or with False when
-    /// a resolver could not decide within its budget (the engine owns no timer).
+    /// aborts fail-closed with AAlert (ignored on accept): typically bad_certificate; a
+    /// live-revocation reject passes certificate_revoked, an indeterminate hard-fail
+    /// bad_certificate_status_response. A no-op when no verdict is awaited. Called by the driver
+    /// on the host's decision or with False when a resolver could not decide within its budget
+    /// (the engine owns no timer).
     /// </summary>
-    procedure SetCertificateVerdict(AAccept: Boolean;
-      AAlert: TTlsAlertDescription = TTlsAlertDescription.BadCertificate);
+    procedure SetCertificateVerdict(AAccept: Boolean; AAlert: TTlsAlertDescription);
 
     // --- engine -> caller (drains) ---
     /// <summary>Copies pending outbound bytes into ADest at ADestOffset; returns the count.</summary>

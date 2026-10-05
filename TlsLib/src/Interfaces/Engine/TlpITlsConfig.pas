@@ -162,7 +162,7 @@ type
     function EncryptedClientHello: IEchClientPolicy;
   end;
 
-  /// <summary>A frozen server endpoint config: a certificate credential is mandatory.</summary>
+  /// <summary>A frozen server endpoint config: it authenticates with a certificate credential or an external PSK.</summary>
   ITlsServerConfig = interface(ITlsCommonConfig)
     ['{9A4E1C28-6D50-4B63-8F17-2E6C0A5F84D3}']
     /// <summary>The optional cross-connection cache memoizing the server's compressed

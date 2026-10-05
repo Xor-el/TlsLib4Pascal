@@ -233,9 +233,9 @@ begin
   if LAlertEvent <> nil then
   begin
     if LAlertEvent.Alert.HasKnownDescription then
-      raise ETlsStreamError.Create(LAlertEvent.Alert.Description, SPeerFatalAlert)
+      raise ETlsStreamError.CreateRes(LAlertEvent.Alert.Description, @SPeerFatalAlert)
     else
-      raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SPeerFatalAlert);
+      raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError, @SPeerFatalAlert);
   end;
   Result := APeerClosed;
 end;

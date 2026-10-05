@@ -693,7 +693,8 @@ type
     FRandomOk: Boolean;
     class function LoadApi(out AModule: THandle; out AApi: TCngApi): Boolean; static;
     class function Curve(AAlgorithm: TKeyAgreementAlgorithm): TCngCurve; static;
-    function TryOpenAlg(const AAlgId: WideString; AFlags: ULONG = 0): Pointer;
+    function TryOpenAlg(const AAlgId: WideString): Pointer; overload;
+    function TryOpenAlg(const AAlgId: WideString; AFlags: ULONG): Pointer; overload;
     function OpenAesGcm: Pointer;
     function OpenX25519: Pointer;
     function ProbeRandom: Boolean;
@@ -2238,6 +2239,11 @@ begin
     Result.Order := TDataEncoding.HexDecode(
       '01FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFA51868783BF2F966B7FCC0148F709A5D03BB5C9B8899C47AEBB6FB71E91386409');
   end;
+end;
+
+function TWindowsCng.TryOpenAlg(const AAlgId: WideString): Pointer;
+begin
+  Result := TryOpenAlg(AAlgId, 0);
 end;
 
 function TWindowsCng.TryOpenAlg(const AAlgId: WideString; AFlags: ULONG): Pointer;

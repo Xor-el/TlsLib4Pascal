@@ -426,8 +426,8 @@ begin
     if not RunPeerVerifyHook then
     begin
       FConnection.SendAlert(TTlsAlertDescription.BadCertificate);
-      raise ETlsStreamError.Create(TTlsAlertDescription.BadCertificate,
-        SPeerVerifyRejected);
+      raise ETlsStreamError.CreateRes(TTlsAlertDescription.BadCertificate,
+        @SPeerVerifyRejected);
     end;
     FSSLEnabled := True;
     Result := True;

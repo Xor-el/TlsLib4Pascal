@@ -798,9 +798,17 @@ begin
   Result := True;
 end;
 
-// shared by both pinning decorators: a pin matches when some certificate on the validated path
-// carries a SubjectPublicKeyInfo whose SHA-256 digest is one of the configured pins
-function SpkiPinsMatch(const ACrypto: ICryptoProvider; const APkix: IPkixProvider;
+type
+  // shared by both pinning decorators
+  TSpkiPins = class sealed(TObject)
+  public
+    class function Match(const ACrypto: ICryptoProvider; const APkix: IPkixProvider;
+      const AChain, APins: TArray<TBytes>): Boolean; static;
+  end;
+
+{ TSpkiPins }
+
+class function TSpkiPins.Match(const ACrypto: ICryptoProvider; const APkix: IPkixProvider;
   const AChain, APins: TArray<TBytes>): Boolean;
 var
   LHash: IHash;
@@ -857,7 +865,7 @@ begin
     AVerified, AAlert);
   if not Result then
     Exit;
-  if not SpkiPinsMatch(FCrypto, FPkix, AVerified.Path, FPins) then
+  if not TSpkiPins.Match(FCrypto, FPkix, AVerified.Path, FPins) then
   begin
     AVerified := Default(TVerifiedChain);
     AAlert := TTlsAlertDescription.BadCertificate;
@@ -887,7 +895,7 @@ begin
   Result := FInner.VerifyClientCertificate(AChain, AVerified, AAlert);
   if not Result then
     Exit;
-  if not SpkiPinsMatch(FCrypto, FPkix, AVerified.Path, FPins) then
+  if not TSpkiPins.Match(FCrypto, FPkix, AVerified.Path, FPins) then
   begin
     AVerified := Default(TVerifiedChain);
     AAlert := TTlsAlertDescription.BadCertificate;

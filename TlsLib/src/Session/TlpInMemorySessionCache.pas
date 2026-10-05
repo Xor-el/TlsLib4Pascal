@@ -47,7 +47,8 @@ type
       ANowMillis: UInt64): Boolean; static;
   public
     /// <summary>A cache holding up to ACapacity sessions (default when 0 or less).</summary>
-    constructor Create(ACapacity: Int32 = 0);
+    constructor Create; overload;
+    constructor Create(ACapacity: Int32); overload;
     destructor Destroy; override;
 
     procedure Store(const AServerIdentity, AServerName: string;
@@ -67,6 +68,11 @@ const
   KeySeparator = Char(#0);
 
 { TInMemorySessionCache }
+
+constructor TInMemorySessionCache.Create;
+begin
+  Create(0);
+end;
 
 constructor TInMemorySessionCache.Create(ACapacity: Int32);
 begin

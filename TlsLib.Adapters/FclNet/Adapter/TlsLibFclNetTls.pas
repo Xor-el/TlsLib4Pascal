@@ -492,7 +492,7 @@ begin
   // rather than silently verifying only the chain (RFC 6125). A per-connection check, not baked
   // into the memoised config, so it never applies to a supplied ClientConfig.
   if FCheckHostName and VerifyPeerCert and (AHost = '') and (FClientConfig = nil) then
-    raise ETlsStreamError.Create(TTlsAlertDescription.InternalError, SNoHostForNameCheck);
+    raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError, @SNoHostForNameCheck);
   Result := TTlsEngineFactory.CreateClientEngine(
     TTlsConfigComposer.ResolveClientConfig(LOptions, GClientConfigMemo, 'ClientConfig'), AHost);
 end;
@@ -561,7 +561,8 @@ begin
     if not DoVerifyCert then
     begin
       FConnection.SendAlert(TTlsAlertDescription.BadCertificate);
-      raise ETlsStreamError.Create(TTlsAlertDescription.BadCertificate, SPeerVerifyRejected);
+      raise ETlsStreamError.CreateRes(TTlsAlertDescription.BadCertificate,
+        @SPeerVerifyRejected);
     end;
     SetSSLActive(True);
     Result := True;
