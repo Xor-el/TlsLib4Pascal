@@ -1,0 +1,35 @@
+TlsLib/src/Engine/TlpTlsConfigMemo.pas
+  s_d27f31cd14035d::t_a945f29d2998a4 32-40
+  s_d27f31cd14035d::t_2aac1367cf477f 70,75
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_d27f31cd14035d::t_2179e8cd258574 691-692
+TlsLib.Adapters/Synapse/Adapter/TlsLibSynapseTls.pas
+  s_d27f31cd14035d::t_e661d05f597bdc 640-641
+TlsLib.Adapters/mORMot/Adapter/TlsLibMormotTls.pas
+  s_d27f31cd14035d::t_65356bc67eb7a1 692-693
+TlsLib.Tests/src/TlsConnectionTests.pas
+  s_d27f31cd14035d::t_0843af8b3a4c63 1335
+  s_d27f31cd14035d::t_51217ef712fe0a 775
+  s_d27f31cd14035d::t_4a2ebed096fe57 1234,1239,1278
+  s_d27f31cd14035d::t_ea3d4ebad4c08f 748,1033,1050,1067,1165
+TlsLib.Adapters/Indy/Adapter/TlsLibIndyTls.pas
+  s_d27f31cd14035d::t_0e6d528b0449b9 694
+  s_d27f31cd14035d::t_9e446667e25b72 762
+  s_d27f31cd14035d::t_3838dcc1a0b12f 525
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2a4e7d79dfd1028e5d2e3c13c5a505df50d2e8ac",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
