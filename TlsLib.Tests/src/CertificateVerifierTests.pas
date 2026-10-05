@@ -153,6 +153,7 @@ type
     // the anchor set is fetched once per verify and shared by path validation and the chain policy
     procedure TestAnchorSetCopiedOnceAcrossVerifies;
     procedure TestDistinctStoresNeverShareCachedAnchors;
+    procedure TestRepeatedStoresOverOneContentDoNotEvictOthers;
     // path building is bounded against a peer-controlled flood of same-named certificates, and a
     // nil parse result gets the right alert
     procedure TestSelfIssuedFillerFloodFailsFast;
@@ -982,6 +983,30 @@ begin
   LSecondRef := LSecond;
   CheckTrue(CountedVerifies(LSecond, 3), 'the same chain is trusted through the second store');
   CheckEquals(1, LSecond.Reads, 'a new store object over cached content is copied once');
+end;
+
+procedure TTestCertificateVerifier.TestRepeatedStoresOverOneContentDoNotEvictOthers;
+var
+  LKept: TCountingTrustAnchorStore;
+  LKeptRef: ITrustAnchorStore;
+  LI: Int32;
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  LKept := TCountingTrustAnchorStore.Create(
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(Reissued('root_cert')))
+    as ITrustAnchorStore);
+  LKeptRef := LKept;
+  CheckTrue(CountedVerifies(LKept, 1), 'the kept store verifies');
+  CheckEquals(1, LKept.Reads, 'and is copied once');
+  // a config rebuilt over and over: each new store object over one other content must reuse a single
+  // cached slot, not take a slot per object and push the kept store's anchors out of the cache
+  for LI := 1 to 12 do
+    VerifierFor(Reissued('root2_cert'), False).VerifyServerCertificate(
+      TArray<TBytes>.Create(Reissued('leaf_cert'), Reissued('issuer_cert'),
+      Reissued('root_reissued_sha1_cert')), TServerName.DnsName(''), nil, LVerified, LAlert);
+  CheckTrue(CountedVerifies(LKept, 1), 'the kept store still verifies');
+  CheckEquals(1, LKept.Reads, 'its anchors were not evicted, so it was not copied again');
 end;
 
 procedure TTestCertificateVerifier.TestSha1SelfSignedRootNotConfiguredRejected;

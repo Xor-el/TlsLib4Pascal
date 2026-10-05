@@ -60,6 +60,12 @@ uses
   TlpAntiReplay,
   TlpTls13ClientStateMachine,
   TlpTls13ServerStateMachine,
+  TlpExtensionContext,
+  TlpITlsExtension,
+  TlpExtensionBlockCodec,
+  TlpHandshakeMessage,
+  TlpHandshakeMessages,
+  TlpHandshakeEffect,
   MockCryptoProvider,
   MockSessionStores,
   TlsLibTestBase;
@@ -72,6 +78,10 @@ type
     function Filled(AByte: Byte; ACount: Int32): TBytes;
     function TestRootCertificate: TBytes;
     function ServerCredential: TTlsCredential;
+    function ClientParams(const ACache: ISessionCache;
+      AEarlyData: Boolean): TClientHandshakeParams;
+    /// <summary>A framed message of AType whose body is ABody, as the client would receive it.</summary>
+    function Framed(AType: TTlsHandshakeType; const ABody: TBytes): TTlsHandshakeMessage;
     function NewClient(const ACache: ISessionCache;
       AEarlyData: Boolean = False): ITlsEngine;
     // AWithCredential False makes the server unable to run a full handshake, so a
@@ -119,6 +129,7 @@ type
     procedure TestZeroRttEarlyExporterMatchesAcrossPeers;
     procedure TestZeroRttRejectWithholdsClientEarlyExporter;
     procedure TestZeroRttPskDeclinedWithholdsClientEarlyExporter;
+    procedure TestEarlyDataInEncryptedExtensionsAfterPskDeclinedIsRejected;
     procedure TestWriteInEarlyDataWindowIsRefused;
     procedure TestWriteEarlyDataReturnsAcceptedCount;
     procedure TestZeroRttRejectedIsDiscardedNotReplayed;
@@ -226,6 +237,14 @@ end;
 
 function TTestTls13Resumption.NewClient(const ACache: ISessionCache;
   AEarlyData: Boolean): ITlsEngine;
+begin
+  Result := TTlsEngine.CreateConfigured(
+    TTls13ClientStateMachine.Create(ClientParams(ACache, AEarlyData)) as IHandshakeMachine,
+    Crypto);
+end;
+
+function TTestTls13Resumption.ClientParams(const ACache: ISessionCache;
+  AEarlyData: Boolean): TClientHandshakeParams;
 var
   LParams: TClientHandshakeParams;
 begin
@@ -248,9 +267,7 @@ begin
   LParams.ServerName := ServerHost;
   LParams.SessionCache := ACache;
   LParams.EarlyDataEnabled := AEarlyData;
-
-  Result := TTlsEngine.CreateConfigured(
-    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
+  Result := LParams;
 end;
 
 function TTestTls13Resumption.BuildServer(const AStek: ISessionTicketKeyManager;
@@ -781,6 +798,118 @@ begin
   CheckEquals(0, System.Length(
     LClient.ExportEarlyKeyingMaterial('EXPORTER-tlslib', DecodeHex('00'), 32)),
     'a rejected 0-RTT client withholds the early exporter');
+end;
+
+function TTestTls13Resumption.Framed(AType: TTlsHandshakeType;
+  const ABody: TBytes): TTlsHandshakeMessage;
+var
+  LFramed: TBytes;
+  LReader: THandshakeMessageReader;
+begin
+  LFramed := THandshakeFraming.Frame(AType, ABody);
+  LReader := THandshakeMessageReader.Create;
+  try
+    LReader.Append(LFramed, 0, System.Length(LFramed));
+    LReader.NextMessage(Result);
+  finally
+    LReader.Free;
+  end;
+end;
+
+procedure TTestTls13Resumption.TestEarlyDataInEncryptedExtensionsAfterPskDeclinedIsRejected;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LMachine: IHandshakeMachine;
+  LSm: TTls13ClientStateMachine;
+  LCodec: IExtensionBlockCodec;
+  LContext: TExtensionContext;
+  LHello: TTlsServerHello;
+  LEffect: THandshakeEffect;
+  LEffects: TArray<THandshakeEffect>;
+  LBasePoint: TBytes;
+  LFailed: Boolean;
+  LAlert: TTlsAlertDescription;
+
+  function FailedWith(const AEffects: TArray<THandshakeEffect>;
+    out AWhich: TTlsAlertDescription): Boolean;
+  var
+    LItem: THandshakeEffect;
+  begin
+    Result := False;
+    AWhich := TTlsAlertDescription.CloseNotify;
+    for LItem in AEffects do
+      if LItem.Kind = THandshakeEffectKind.Fail then
+      begin
+        AWhich := LItem.Alert;
+        Exit(True);
+      end;
+  end;
+
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  // a client that offers a ticket and 0-RTT, fed a ServerHello that selects no PSK (the server
+  // fell back to a full handshake): early_data in EncryptedExtensions is then one the response
+  // cannot carry, although the client did offer it (RFC 8446 4.2.10). A ticket is used once, so
+  // each flow below gets its own, issued through a real handshake.
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, False);
+  LServer := BuildServer(LStek, nil, 1, 7200, True, 16384, TStrikeRegisterAntiReplay.Create);
+  DriveHandshake(LClient, LServer);
+  LSm := TTls13ClientStateMachine.Create(ClientParams(LCache, True));
+  LMachine := LSm as IHandshakeMachine;
+  LMachine.Start;
+  CheckTrue(LSm.EarlyDataOffered, 'the client offered 0-RTT with the ticket');
+  LBasePoint := Filled(0, 32);
+  LBasePoint[0] := 9;
+  LCodec := TExtensionBlockCodec.Create(TCoreExtensions.CreateDefaultRegistry)
+    as IExtensionBlockCodec;
+  LContext := TExtensionContext.Create;
+  try
+    LContext.SelectedVersion := TlsWireVersionTls13;
+    LContext.SelectedKeyShare.Group := TNamedGroupCatalog.X25519;
+    LContext.SelectedKeyShare.KeyExchange := LBasePoint;
+    LHello.Random := Filled($01, 32);
+    LHello.LegacySessionIdEcho := Filled($33, 32);
+    LHello.CipherSuite := TCipherSuites13.Aes128GcmSha256;
+    LHello.Extensions := LCodec.ProduceBlock(LContext, TTlsExtensionContextKind.ServerHello);
+  finally
+    LContext.Free;
+  end;
+  LEffects := LMachine.ProcessMessage(Framed(TTlsHandshakeType.ServerHello,
+    THandshakeMessages.EncodeServerHello(LHello)));
+  CheckFalse(FailedWith(LEffects, LAlert), 'a ServerHello without a PSK is a full handshake');
+  // control: EncryptedExtensions without early_data is accepted
+  LEffects := LMachine.ProcessMessage(Framed(TTlsHandshakeType.EncryptedExtensions,
+    DecodeHex('0000')));
+  CheckFalse(FailedWith(LEffects, LAlert), 'control: plain EncryptedExtensions is accepted');
+
+  // the same flow again on a fresh ticket, this time with early_data in EncryptedExtensions
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, False);
+  LServer := BuildServer(LStek, nil, 1, 7200, True, 16384, TStrikeRegisterAntiReplay.Create);
+  DriveHandshake(LClient, LServer);
+  LSm := TTls13ClientStateMachine.Create(ClientParams(LCache, True));
+  LMachine := LSm as IHandshakeMachine;
+  LMachine.Start;
+  CheckTrue(LSm.EarlyDataOffered, 'the second client offered 0-RTT with its own ticket');
+  LContext := TExtensionContext.Create;
+  try
+    LContext.SelectedVersion := TlsWireVersionTls13;
+    LContext.SelectedKeyShare.Group := TNamedGroupCatalog.X25519;
+    LContext.SelectedKeyShare.KeyExchange := LBasePoint;
+    LHello.Extensions := LCodec.ProduceBlock(LContext, TTlsExtensionContextKind.ServerHello);
+  finally
+    LContext.Free;
+  end;
+  LMachine.ProcessMessage(Framed(TTlsHandshakeType.ServerHello,
+    THandshakeMessages.EncodeServerHello(LHello)));
+  LEffects := LMachine.ProcessMessage(Framed(TTlsHandshakeType.EncryptedExtensions,
+    DecodeHex('0004002a0000')));
+  LFailed := FailedWith(LEffects, LAlert);
+  CheckTrue(LFailed, 'early_data after a declined PSK aborts the handshake');
+  CheckTrue(LAlert = TTlsAlertDescription.UnsupportedExtension, 'with unsupported_extension');
 end;
 
 procedure TTestTls13Resumption.TestZeroRttPskDeclinedWithholdsClientEarlyExporter;
