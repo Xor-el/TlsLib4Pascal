@@ -614,7 +614,6 @@ function TTestLiveRevocation.ResponderAttempts(const AFirst, ASecond: string): I
 var
   LOptions: TLiveRevocationOptions;
 begin
-  LOptions := TLiveRevocationOptions.Defaults;
   Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create(AFirst, ASecond), nil, LOptions);
   FChecker.Evaluate(Chain);
   Result := FFetcher.PostCount;
@@ -673,13 +672,6 @@ begin
   CheckEquals(250, Int32(LOptions.MinAttemptMs), 'minimum attempt time');
   CheckEquals(32 * 1024 * 1024, LOptions.MaxCrlBytes, 'CRL size cap');
   CheckEquals(0, System.Length(LOptions.IssuerCandidates), 'no issuer candidates');
-  // the explicit form carries the same values
-  LOptions := TLiveRevocationOptions.Defaults;
-  CheckEquals(3, LOptions.MaxOcspResponders, 'Defaults: OCSP responder cap');
-  CheckEquals(3, LOptions.MaxCrlDistributionPoints, 'Defaults: CRL point cap');
-  CheckEquals(250, Int32(LOptions.MinAttemptMs), 'Defaults: minimum attempt time');
-  CheckEquals(32 * 1024 * 1024, LOptions.MaxCrlBytes, 'Defaults: CRL size cap');
-  CheckEquals(0, System.Length(LOptions.IssuerCandidates), 'Defaults: no issuer candidates');
 end;
 
 procedure TTestLiveRevocation.TestResponderCapIsTunable;
@@ -762,7 +754,8 @@ procedure TTestLiveRevocation.TestInvalidOptionsAreRefused;
 var
   LOptions: TLiveRevocationOptions;
 begin
-  // each limit one past either bound is refused; each exact bound is accepted
+  // each limit one past either bound is refused; each exact bound is accepted. Every group ends on
+  // a valid value, so the next group starts from a valid record
   LOptions.MaxOcspResponders := 0;
   CheckTrue(OptionsAreRefused(LOptions), 'zero OCSP responders');
   LOptions.MaxOcspResponders := 9;
@@ -771,14 +764,12 @@ begin
   CheckFalse(OptionsAreRefused(LOptions), 'one OCSP responder');
   LOptions.MaxOcspResponders := 8;
   CheckFalse(OptionsAreRefused(LOptions), 'eight OCSP responders');
-  LOptions := TLiveRevocationOptions.Defaults;
   LOptions.MaxCrlDistributionPoints := 0;
   CheckTrue(OptionsAreRefused(LOptions), 'zero CRL points');
   LOptions.MaxCrlDistributionPoints := 9;
   CheckTrue(OptionsAreRefused(LOptions), 'nine CRL points');
   LOptions.MaxCrlDistributionPoints := 8;
   CheckFalse(OptionsAreRefused(LOptions), 'eight CRL points');
-  LOptions := TLiveRevocationOptions.Defaults;
   LOptions.MinAttemptMs := 0;
   CheckTrue(OptionsAreRefused(LOptions), 'a zero floor would leave a fetch unbounded');
   LOptions.MinAttemptMs := 60001;
@@ -787,7 +778,6 @@ begin
   CheckFalse(OptionsAreRefused(LOptions), 'a one millisecond floor');
   LOptions.MinAttemptMs := 60000;
   CheckFalse(OptionsAreRefused(LOptions), 'a one minute floor');
-  LOptions := TLiveRevocationOptions.Defaults;
   LOptions.MaxCrlBytes := 4095;
   CheckTrue(OptionsAreRefused(LOptions), 'a CRL cap under 4 KiB');
   LOptions.MaxCrlBytes := 256 * 1024 * 1024 + 1;

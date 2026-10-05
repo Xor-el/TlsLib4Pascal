@@ -62,11 +62,6 @@ type
     MaxCrlBytes: Int32;
     class operator Initialize({$IFDEF FPC}var{$ELSE}out{$ENDIF}
       AOptions: TLiveRevocationOptions);
-    /// <summary>The defaults, for a caller that wants them explicitly (a declared value already
-    /// carries them).</summary>
-    class function Defaults: TLiveRevocationOptions; static;
-  strict private
-    class procedure Apply(var AOptions: TLiveRevocationOptions); static;
   end;
 
   /// <summary>
@@ -176,16 +171,6 @@ class operator TLiveRevocationOptions.Initialize({$IFDEF FPC}var{$ELSE}out{$ENDI
   AOptions: TLiveRevocationOptions);
 begin
   // a freshly declared options value means the defaults, so an omitted knob is safe
-  Apply(AOptions);
-end;
-
-class function TLiveRevocationOptions.Defaults: TLiveRevocationOptions;
-begin
-  Apply(Result);
-end;
-
-class procedure TLiveRevocationOptions.Apply(var AOptions: TLiveRevocationOptions);
-begin
   AOptions.IssuerCandidates := nil;
   AOptions.MaxOcspResponders := DefaultResponderCap;
   AOptions.MaxCrlDistributionPoints := DefaultResponderCap;

@@ -292,8 +292,8 @@ with no shared deadline, so give a real budget, no larger than the config's asyn
 Each responder tried learns which certificate is being checked; extra ones are asked only after an
 indeterminate answer, and posture `Off` asks none.
 
-The limits are tunable through `TLiveRevocationOptions` (start from `TLiveRevocationOptions.Defaults`
-and set what you need), passed as the last constructor argument: `MaxOcspResponders` and
+The limits are tunable through `TLiveRevocationOptions` (declare one, which already holds the
+defaults, and set what you need), passed as the last constructor argument: `MaxOcspResponders` and
 `MaxCrlDistributionPoints` (1 to 8, default 3), `MinAttemptMs` (1 to 60000, default 250; never 0,
 which would leave a fetch unbounded), `MaxCrlBytes` (4 KiB to 256 MiB, default 32 MiB) and
 `IssuerCandidates`. A value outside its range, or a nil provider, clock or fetcher, is refused when
