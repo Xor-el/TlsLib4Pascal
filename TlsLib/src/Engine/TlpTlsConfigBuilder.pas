@@ -369,6 +369,12 @@ resourcestring
   SResumeVerifyNeedsCache = 'resumed-session certificate re-verification is inert unless the ' +
     'client can resume: turn resumption on and configure WithSessionCache, or leave the default ' +
     'reuse mode';
+  SServerEarlyDataTooLarge = 'the 0-RTT early-data budget must be below 1 MiB (1048576 ' +
+    'bytes): the engine stops draining the handshake once that much application data is buffered';
+  SExplicitStekEarlyDataNeedsAntiReplay = '0-RTT early data with an explicit session-ticket ' +
+    'key manager needs a session store or an anti-replay strategy: the default strike ' +
+    'register is per configuration, so a ticket from a shared key could be replayed against ' +
+    'another instance; set WithSessionStore or WithAntiReplay';
   SServerEarlyDataNeedsResumption = '0-RTT early data is offered only on a resumed session; a ' +
     'server early-data limit requires resumption to be enabled';
   STicketCountOutOfRange = 'the session-ticket count must be between 0 and 8 per handshake';
@@ -395,6 +401,7 @@ const
   MaxTicketCount = Int32(8);
   SessionScopeLength = Int32(16);
   MaxResumptionScopeLength = Int32(32);
+  MaxServerEarlyData = UInt32(1 shl 20);
 
 type
   /// <summary>The immutable common settings, shared by the client and server config.</summary>
@@ -2513,6 +2520,8 @@ end;
 function TTlsConfigBuilder.WithServerEarlyData(AMaxBytes: UInt32): TTlsConfigBuilder;
 begin
   GuardMutable;
+  if AMaxBytes >= MaxServerEarlyData then
+    raise EArgumentTlsLibException.CreateRes(@SServerEarlyDataTooLarge);
   FMaxEarlyData := AMaxBytes;
   FTls13Configured := True;
   Result := Self;
@@ -2762,6 +2771,11 @@ begin
   // 0-RTT early data is offered only on a resumed session; a limit with resumption off is inert
   if (FMaxEarlyData > 0) and (not FResumption) then
     raise EInvalidOperationTlsLibException.CreateRes(@SServerEarlyDataNeedsResumption);
+  // an explicit (shareable) ticket-key manager with only the per-config default strike register
+  // lets a ticket be replayed across instances; a session store makes tickets single-use
+  if (FMaxEarlyData > 0) and (FSessionTicketKeys <> nil) and (FSessionStore = nil) and
+    (FAntiReplay = nil) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SExplicitStekEarlyDataNeedsAntiReplay);
   ValidateVersionScoping;
   ValidateRequiredCollaborators;
   LConfig := TFrozenServerConfig.Create;
