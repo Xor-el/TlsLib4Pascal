@@ -271,6 +271,10 @@ type
     /// never sends 0-RTT, so the server neither accepts nor skips early data on the second
     /// flight: any early-data records there fail to deprotect (RFC 8446 4.2.10).</summary>
     FHelloRetrySent: Boolean;
+    /// <summary>Hash of THIS connection's first ClientHello, recorded when the HelloRetryRequest
+    /// is sent; the retry's cookie must carry the same value, so a valid cookie replayed from
+    /// another connection is refused.</summary>
+    FFirstClientHelloHash: TBytes;
     /// <summary>The ClientHello-only transcript hash, for the early traffic secret.</summary>
     FEarlyTranscriptHash: TBytes;
     /// <summary>Encrypted Client Hello per-connection state (RFC 9849): the trial-decrypt
@@ -463,6 +467,8 @@ resourcestring
   SMissingCookie = 'the second ClientHello carried no cookie';
   SBadCookie = 'the HelloRetryRequest cookie did not verify';
   SCookieGroupMismatch = 'the cookie group does not match the selected group';
+  SCookieFirstHelloMismatch =
+    'the cookie does not bind the first ClientHello of this connection';
   SCookieSuiteMismatch = 'the cookie cipher suite does not match the selected suite';
   SRetrySessionIdChanged =
     'the retry ClientHello changed its legacy_session_id from the first';
@@ -1162,6 +1168,7 @@ begin
   // 0-RTT does not survive a retry: the client must not resend early_data, and the server
   // must not accept or skip it on the second flight (RFC 8446 4.2.10)
   FHelloRetrySent := True;
+  FFirstClientHelloHash := LCh1Hash;
   FEarlyDataAccepted := False;
   FPhase := TPhase.WaitSecondClientHello;
   // the transcript is rebuilt from the stateless cookie; only the ECH state (the opener at seq=1,
@@ -1302,6 +1309,11 @@ begin
       LCookieGroup, LCookieSessionId) then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.DecryptError, @SBadCookie);
+    // the cookie must carry the hash of the ClientHello THIS connection sent first, else it is a
+    // valid cookie replayed from another connection and would seed the transcript with a foreign hash
+    if not TArrayUtilities.AreEqual(FFirstClientHelloHash, LCh1Hash) then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.IllegalParameter, @SCookieFirstHelloMismatch);
     // a cookie minted for another suite is a replay from a different connection (RFC 8446 4.1.4)
     if LCookieSuite <> LPinnedSuite then
       raise EFatalAlertTlsLibException.CreateRes(

@@ -779,7 +779,16 @@ begin
     Exit;
   // the early epoch cannot be rekeyed, so honor how many bytes the record layer actually sealed
   // (it pauses at the AEAD limit); the caller resends any remainder as 1-RTT after the handshake
-  Result := FRecordLayer.Write(TTlsContentType.ApplicationData, AData, AOffset, LAccept);
+  // a seal failure fails the engine closed, as on the 1-RTT write path
+  try
+    Result := FRecordLayer.Write(TTlsContentType.ApplicationData, AData, AOffset, LAccept);
+  except
+    on E: Exception do
+    begin
+      Fail(E);
+      raise;
+    end;
+  end;
   Inc(FEarlyDataSent, Result);
 end;
 

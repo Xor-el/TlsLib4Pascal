@@ -748,8 +748,11 @@ begin
       LHasUncompressed := True;
       Break;
     end;
+  // a well-formed list that omits the format every implementation must support is a bad value, not
+  // a malformed message (RFC 8422 5.1.2)
   if not LHasUncompressed then
-    raise EDecodeErrorTlsLibException.CreateRes(@SNoUncompressedPointFormat);
+    raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.IllegalParameter,
+      @SNoUncompressedPointFormat);
   AContext.EcPointFormatsOffered := True;
 end;
 
@@ -762,10 +765,11 @@ end;
 
 function TStatusRequestExtension.ValidContexts: TTlsExtensionContexts;
 begin
-  // the ClientHello offer and the 1.2 ServerHello echo; the 1.3 staple rides the
-  // Certificate message, never EncryptedExtensions
+  // the ClientHello offer, the 1.2 ServerHello echo and a 1.3 CertificateRequest (RFC 8446 4.2,
+  // where the server asks for a status of the client certificate; read and ignored); the 1.3 staple
+  // rides the Certificate message, never EncryptedExtensions
   Result := [TTlsExtensionContextKind.ClientHello,
-    TTlsExtensionContextKind.ServerHello];
+    TTlsExtensionContextKind.ServerHello, TTlsExtensionContextKind.CertificateRequest];
 end;
 
 function TStatusRequestExtension.Produce(const AContext: TExtensionContext;
@@ -780,6 +784,9 @@ begin
     Result := AContext.StatusRequestResponsePending;
     Exit;
   end;
+  // this endpoint never asks for a status of the peer's certificate in a CertificateRequest
+  if AContext.MessageContext = TTlsExtensionContextKind.CertificateRequest then
+    Exit(False);
   // ClientHello: CertificateStatusRequest = status_type(ocsp) + empty responder_id_list
   // + empty request_extensions (RFC 6066 8)
   Result := AContext.StatusRequestOffered;
@@ -806,6 +813,10 @@ begin
     AContext.StatusRequestResponsePending := True;
     Exit;
   end;
+  // a CertificateRequest's status_request asks for a status of OUR certificate, which this client
+  // never staples; it is permitted and has no effect (RFC 8446 4.2)
+  if AContext.MessageContext = TTlsExtensionContextKind.CertificateRequest then
+    Exit;
   // ClientHello CertificateStatusRequest (RFC 6066 8): status_type(1), and for an ocsp(1) request
   // a responder_id_list<0..2^16-1> (each ResponderID<1..2^16-1>) then request_extensions<0..2^16-1>.
   // Only an ocsp request arms the staple; for any other status_type the body format is unknown, so

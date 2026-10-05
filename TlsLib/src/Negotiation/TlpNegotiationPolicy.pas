@@ -315,8 +315,11 @@ end;
 class function TDowngradeProtection.IsDowngradeAttack(const AServerRandom: TBytes;
   AClientSupportsTls13: Boolean; ANegotiatedVersion: UInt16): Boolean;
 begin
+  // a 1.3-capable client checks for both sentinels whatever lower version was negotiated
+  // (RFC 8446 4.1.3): a server stamps either only when it answers below its own highest version
   Result := AClientSupportsTls13 and (ANegotiatedVersion < TlsWireVersionTls13) and
-    HasSentinel(AServerRandom, ANegotiatedVersion);
+    (HasSentinel(AServerRandom, TlsWireVersionTls12) or
+    HasSentinel(AServerRandom, TlsWireVersionTls11));
 end;
 
 end.

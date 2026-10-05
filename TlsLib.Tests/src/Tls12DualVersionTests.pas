@@ -38,6 +38,7 @@ uses
   TlpCoreExtensions,
   TlpHandshakeMessage,
   TlpHandshakeMessages,
+  TlpExtensionVector,
   TlpHandshakeEffect,
   TlpSecretBuffer,
   TlpTlsConnectionInfo,
@@ -97,6 +98,9 @@ type
     procedure TestDualClientOfferingHybridExcludesItOnTls12;
     procedure TestForcedDowngradeIsDetectedAndAborts;
     procedure TestGarbageFirstRecordAbortsWithoutRaising;
+    procedure TestFirstMessageOfTheWrongTypeIsUnexpectedMessage;
+    procedure TestTls12ServerHelloWithTls13ExtensionIsRefused;
+    procedure TestServerHelloSelectingAnUnofferedVersionIsProtocolVersion;
     procedure TestScsvFromLowerClientAborts;
     procedure TestScsvFromCurrentClientDoesNotAbort;
     procedure TestScsvToLegacyOnlyServerDoesNotAbort;
@@ -494,6 +498,99 @@ begin
   Feed(LServer, DecodeHex('160303000701000003AABBCC'));
   CheckTrue(LServer.IsTerminal, 'a garbage ClientHello aborts the dual-version server');
   CheckFalse(LServer.IsHandshaking, 'the server did not stay handshaking');
+end;
+
+procedure TTestTls12DualVersion.TestFirstMessageOfTheWrongTypeIsUnexpectedMessage;
+var
+  LServer, LClient: ITlsEngine;
+begin
+  // the dispatchers judge the first message's type before decoding its body as a hello, so
+  // another message is unexpected_message, not a decode_error from a body of the wrong shape
+  LServer := NewServerDispatch(TArray<UInt16>.Create(TlsWireVersionTls13,
+    TlsWireVersionTls12));
+  Feed(LServer, DecodeHex('160303000414000000')); // an empty Finished where a ClientHello belongs
+  CheckTrue(LServer.IsTerminal, 'the dual-version server aborts');
+  CheckTrue(LServer.LastError.Alert.Description = TTlsAlertDescription.UnexpectedMessage,
+    'a Finished as the first message is unexpected_message (server dispatcher)');
+
+  LClient := NewDualClient;
+  LClient.StartHandshake;
+  Feed(LClient, DecodeHex('160303000408000000')); // an empty EncryptedExtensions before any hello
+  CheckTrue(LClient.IsTerminal, 'the dual-version client aborts');
+  CheckTrue(LClient.LastError.Alert.Description = TTlsAlertDescription.UnexpectedMessage,
+    'an EncryptedExtensions before the ServerHello is unexpected_message (client dispatcher)');
+end;
+
+procedure TTestTls12DualVersion.TestTls12ServerHelloWithTls13ExtensionIsRefused;
+var
+  LClient: ITlsEngine;
+  LSh: TTlsServerHello;
+  LVec: TExtensionVector;
+  LMsg, LWire: TBytes;
+begin
+  // the unified hello offered key_share, so the codec alone accepts the echo; a 1.2 server that
+  // answers with a TLS 1.3 construct is refused (unsupported_extension) once 1.2 is selected
+  LClient := NewDualClient;
+  LClient.StartHandshake;
+  Drain(LClient);
+  LSh.LegacyVersion := TlsWireVersionTls12;
+  LSh.Random := Filled($22, 32);
+  LSh.LegacySessionIdEcho := nil;
+  LSh.CipherSuite := TCipherSuites12.EcdheEcdsaAes128GcmSha256;
+  LVec := TExtensionVector.Empty;
+  // a well-formed key_share: x25519 and a 32-byte share
+  LVec.Append(TExtensionEntry.Create(TExtensionTypes.KeyShare,
+    ConcatBytes(DecodeHex('001D0020'), Filled($33, 32))));
+  LSh.Extensions := LVec.Encode;
+  LMsg := THandshakeFraming.Frame(TTlsHandshakeType.ServerHello,
+    THandshakeMessages.EncodeServerHello(LSh));
+  LWire := ConcatBytes(DecodeHex('160303'),
+    ConcatBytes(TBytes.Create(Byte(System.Length(LMsg) shr 8), Byte(System.Length(LMsg))), LMsg));
+  Feed(LClient, LWire);
+  CheckTrue(LClient.IsTerminal, 'the dual-version client aborts');
+  CheckEquals(Ord(TTlsAlertDescription.UnsupportedExtension),
+    Ord(LClient.LastError.Alert.Description),
+    'a key_share in a 1.2 ServerHello is unsupported_extension');
+end;
+
+procedure TTestTls12DualVersion.TestServerHelloSelectingAnUnofferedVersionIsProtocolVersion;
+var
+  LClient: ITlsEngine;
+  LSh: TTlsServerHello;
+  LVec: TExtensionVector;
+  LMsg, LWire: TBytes;
+  LVersion: UInt16;
+  LI: Int32;
+begin
+  // a supported_versions selection above 1.3 (a future version or a GREASE value) is a version
+  // this client never offered: protocol_version, not a handshake that silently falls to 1.2
+  for LI := 0 to 1 do
+  begin
+    if LI = 0 then
+      LVersion := $0305
+    else
+      LVersion := $7A7A;
+    LClient := NewDualClient;
+    LClient.StartHandshake;
+    Drain(LClient);
+    LSh.LegacyVersion := TlsWireVersionTls12;
+    LSh.Random := Filled($22, 32);
+    LSh.LegacySessionIdEcho := nil;
+    LSh.CipherSuite := TCipherSuites13.Aes128GcmSha256;
+    LVec := TExtensionVector.Empty;
+    LVec.Append(TExtensionEntry.Create(TExtensionTypes.SupportedVersions,
+      TBytes.Create(Byte(LVersion shr 8), Byte(LVersion))));
+    LSh.Extensions := LVec.Encode;
+    LMsg := THandshakeFraming.Frame(TTlsHandshakeType.ServerHello,
+      THandshakeMessages.EncodeServerHello(LSh));
+    LWire := ConcatBytes(DecodeHex('160303'),
+      ConcatBytes(TBytes.Create(Byte(System.Length(LMsg) shr 8), Byte(System.Length(LMsg))), LMsg));
+    Feed(LClient, LWire);
+    CheckTrue(LClient.IsTerminal, 'the client aborts');
+    CheckEquals(Ord(TTlsAlertDescription.ProtocolVersion),
+      Ord(LClient.LastError.Alert.Description),
+      Format('selecting version %x is protocol_version', [LVersion]));
+  end;
 end;
 
 function TTestTls12DualVersion.MakeClientHello(const ACipherSuites: TArray<UInt16>;

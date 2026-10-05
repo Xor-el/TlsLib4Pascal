@@ -76,6 +76,11 @@ type
     procedure TestRecordSizeLimitInnerPlaintextBoundary;
     procedure TestRecordSizeLimitExemptsPlaintextRecords;
     procedure TestSkippedPlaintextEarlyDataAcceptsFullSizeRecord;
+    procedure TestPlaintextAlertBeforeFirstDecryptIsAcceptedInTls13;
+    procedure TestPlaintextAlertAfterAKeyChangeIsStillRefused;
+    procedure TestPlaintextCloseNotifyIsNeverHonoured;
+    procedure TestPlaintextAlertIsNotAcceptedInTls12;
+    procedure TestShortTls12RecordIsBadRecordMac;
     procedure TestDecryptingRecordInSkipWindowIsJudgedStrictly;
     procedure TestAcceptedEarlyDataBoundedAtBudget;
     procedure TestAcceptedEarlyDataExactBudgetThenNormalFlow;
@@ -754,6 +759,123 @@ begin
     LRecv.ProcessInput(LHs, 0, System.Length(LHs));
     CheckTrue(DrainOne(LRecv, LFrag), 'the handshake record after the skip surfaces');
     CheckTrue(LFrag.ContentType = TTlsContentType.Handshake, 'it is the handshake record');
+  finally
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestPlaintextAlertBeforeFirstDecryptIsAcceptedInTls13;
+var
+  LSend, LRecv: TRecordLayer;
+  LFrag: TTlsRecordFragment;
+  LKey, LIv, LAlert, LA, LWire: TBytes;
+begin
+  LSend := TRecordLayer.Create;
+  LRecv := TRecordLayer.Create;
+  try
+    LKey := DecodeHex('000102030405060708090a0b0c0d0e0f');
+    LIv := DecodeHex('101112131415161718191a1b');
+    LSend.SetWriteProtection(MakeTls13(LKey, LIv));
+    LRecv.SetReadProtection(MakeTls13(LKey, LIv));
+    LRecv.SetNegotiatedVersion(TTlsVersion.Tls13);
+    // a peer that failed before it could switch keys sends handshake_failure in plaintext: it
+    // surfaces as that alert, not as our bad_record_mac (rustls accepts the same shape)
+    LAlert := DecodeHex('1503030002022a');
+    LRecv.ProcessInput(LAlert, 0, System.Length(LAlert));
+    CheckTrue(DrainOne(LRecv, LFrag), 'the plaintext alert surfaces');
+    CheckTrue(LFrag.ContentType = TTlsContentType.Alert, 'it is an alert');
+    CheckEqualBytes('with the peer''s bytes', DecodeHex('022a'), LFrag.Data);
+    // once a record has decrypted under the epoch, plaintext is no longer expected
+    LA := DecodeHex('48656c6c6f');
+    LSend.Write(TTlsContentType.ApplicationData, LA, 0, 5);
+    LWire := TakeAll(LSend);
+    LRecv.ProcessInput(LWire, 0, System.Length(LWire));
+    CheckTrue(DrainOne(LRecv, LFrag), 'a protected record decrypts');
+    CheckTrue(ExpectFatal(LRecv, LAlert, TTlsAlertDescription.BadRecordMac),
+      'a plaintext alert after a decrypt is a bad_record_mac');
+  finally
+    LSend.Free;
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestPlaintextAlertAfterAKeyChangeIsStillRefused;
+var
+  LSend, LRecv: TRecordLayer;
+  LFrag: TTlsRecordFragment;
+  LKey, LIv, LA, LWire: TBytes;
+begin
+  LSend := TRecordLayer.Create;
+  LRecv := TRecordLayer.Create;
+  try
+    LKey := DecodeHex('000102030405060708090a0b0c0d0e0f');
+    LIv := DecodeHex('101112131415161718191a1b');
+    LSend.SetWriteProtection(MakeTls13(LKey, LIv));
+    LRecv.SetReadProtection(MakeTls13(LKey, LIv));
+    LRecv.SetNegotiatedVersion(TTlsVersion.Tls13);
+    LA := DecodeHex('48656c6c6f');
+    LSend.Write(TTlsContentType.ApplicationData, LA, 0, 5);
+    LWire := TakeAll(LSend);
+    LRecv.ProcessInput(LWire, 0, System.Length(LWire));
+    CheckTrue(DrainOne(LRecv, LFrag), 'a protected record decrypts');
+    // a key change (a KeyUpdate, or the switch to application keys) does not reopen the plaintext
+    // window: an injected close_notify must not read as the peer's clean, authenticated close
+    LRecv.SetReadProtection(MakeTls13(DecodeHex('0f0e0d0c0b0a09080706050403020100'), LIv));
+    CheckTrue(ExpectFatal(LRecv, DecodeHex('15030300020100'), TTlsAlertDescription.BadRecordMac),
+      'a plaintext close_notify after a key change is refused');
+  finally
+    LSend.Free;
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestPlaintextCloseNotifyIsNeverHonoured;
+var
+  LRecv: TRecordLayer;
+begin
+  LRecv := TRecordLayer.Create;
+  try
+    LRecv.SetReadProtection(MakeTls13(DecodeHex('000102030405060708090a0b0c0d0e0f'),
+      DecodeHex('101112131415161718191a1b')));
+    LRecv.SetNegotiatedVersion(TTlsVersion.Tls13);
+    // before anything has decrypted only a FATAL plaintext alert is accepted; a warning level
+    // alert (close_notify) is unauthenticated and would forge a truncation (RFC 8446 6.1)
+    CheckTrue(ExpectFatal(LRecv, DecodeHex('15030300020100'), TTlsAlertDescription.BadRecordMac),
+      'a plaintext close_notify is refused');
+  finally
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestPlaintextAlertIsNotAcceptedInTls12;
+var
+  LRecv: TRecordLayer;
+begin
+  LRecv := TRecordLayer.Create;
+  try
+    LRecv.SetReadProtection(MakeTls12(DecodeHex('000102030405060708090a0b0c0d0e0f'),
+      DecodeHex('10111213')));
+    LRecv.SetNegotiatedVersion(TTlsVersion.Tls12);
+    CheckTrue(ExpectFatal(LRecv, DecodeHex('1503030002022a'),
+      TTlsAlertDescription.BadRecordMac),
+      'TLS 1.2 keying changes at the change_cipher_spec, so a plaintext alert here is unprotected');
+  finally
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestShortTls12RecordIsBadRecordMac;
+var
+  LRecv: TRecordLayer;
+begin
+  LRecv := TRecordLayer.Create;
+  try
+    LRecv.SetReadProtection(MakeTls12(DecodeHex('000102030405060708090a0b0c0d0e0f'),
+      DecodeHex('10111213')));
+    // a body shorter than the explicit nonce and tag cannot authenticate: bad_record_mac, as a
+    // TLS 1.3 record of the same shape is
+    CheckTrue(ExpectFatal(LRecv, DecodeHex('170303000400010203'),
+      TTlsAlertDescription.BadRecordMac), 'a record shorter than the AEAD overhead');
   finally
     LRecv.Free;
   end;

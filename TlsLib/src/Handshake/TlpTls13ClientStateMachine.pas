@@ -398,6 +398,8 @@ resourcestring
   SUnsupportedSelectedVersion = 'the server did not select TLS 1.3';
   SUnofferedGroup = 'the server selected a key share group that was not offered';
   SMissingServerKeyShare = 'the ServerHello carries no key_share for the (EC)DHE handshake';
+  SEarlyDataWithoutPsk =
+    'EncryptedExtensions carries early_data but no offered PSK was accepted';
   SBadServerFinished = 'the server Finished did not verify';
   SEmptyCertificate = 'the server sent an empty certificate list';
   SServerCertContextNotEmpty =
@@ -1243,6 +1245,12 @@ begin
   // the EncryptedExtensions ech rule (retry_configs on reject, unsolicited on accept, validated
   // and ignored under GREASE) lives in the orchestrator
   FEchOrch.NoteEncryptedExtensions(LEchPresent, LEchData);
+  // early_data in EncryptedExtensions is meaningful only when we offered 0-RTT and the server
+  // accepted the PSK; sent on a full handshake it is an extension the response cannot carry
+  // (RFC 8446 4.2.10)
+  if LServerAcceptedEarly and not (FEarlyDataOffered and FPskAccepted) then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.UnsupportedExtension, @SEarlyDataWithoutPsk);
   // 0-RTT resolution (only when we offered it and the PSK was accepted): the write side
   // stays on the early keys here. On accept, EndOfEarlyData and the write switch happen
   // after the server Finished (transcript order); on reject we switch off early now and

@@ -61,6 +61,11 @@ type
     /// record decoded while the read side is still plaintext is never valid (0-RTT early data
     /// is encrypted under the early keys, later traffic under the application keys).</summary>
     FReadIsPlaintext: Boolean;
+    /// <summary>Whether any record has ever decrypted on this connection (never reset by a key
+    /// change). Until one has, a TLS 1.3 peer that failed before it could switch keys
+    /// may still send its alert in plaintext; after, a plaintext record is never expected and an
+    /// injected one must not be able to end the connection.</summary>
+    FHasDecrypted: Boolean;
     /// <summary>True while the write side is on an unprotected epoch (the initial one, or after a
     /// revert to plaintext): a change_cipher_spec is only ever sent then, so emitting one once
     /// write protection is armed is a caller error (RFC 8446 5 / RFC 5246 7.1).</summary>
@@ -113,6 +118,8 @@ type
     class function IsKnownRecordType(AByte: Byte): Boolean; static;
     procedure HandleChangeCipherSpec(const ARecord: TBytes; ABodyOffset,
       ABodyLength: Int32);
+    /// <summary>Whether ARecord is a plaintext alert a TLS 1.3 peer sent before switching keys.</summary>
+    function IsPlaintextAlert(const ARecord: TBytes): Boolean;
     function TryDecodeFramed(const ARecord: TBytes;
       out AFragment: TTlsRecordFragment): Boolean;
     procedure AppendInbound(const AWire: TBytes; AOffset, ALength: Int32);
@@ -248,6 +255,9 @@ const
   InboundRetainCapacity = OutboundRetainCapacity;
   OuterApplicationData = Byte(23); // TLSCiphertext outer content type
   OuterChangeCipherSpec = Byte(20); // the legacy change_cipher_spec outer content type
+  OuterAlert = Byte(21); // the alert outer content type
+  // a plaintext alert is two bytes; every protected record carries at least the AEAD tag
+  PlaintextAlertLength = Int32(2);
   OuterHandshake = Byte(22); // the handshake outer content type
 
 resourcestring
@@ -469,6 +479,18 @@ begin
     FEarlyReadRemaining := 0;
 end;
 
+function TRecordLayer.IsPlaintextAlert(const ARecord: TBytes): Boolean;
+begin
+  // only TLS 1.3 needs the heuristic (TLS 1.2 keying changes at the change_cipher_spec), only
+  // until a record has ever decrypted, only a record too short to be protected, and only a fatal
+  // alert: an unauthenticated close_notify or warning must never be honoured (RFC 8446 6.1)
+  Result := FNegotiatedVersion.Equals(TTlsVersion.Tls13) and (not FReadIsPlaintext) and
+    (not FHasDecrypted) and (System.Length(ARecord) > 0) and
+    (ARecord[0] = OuterAlert) and
+    (System.Length(ARecord) - TRecordLimits.HeaderLength = PlaintextAlertLength) and
+    (ARecord[TRecordLimits.HeaderLength] = TTlsAlertLevel.Fatal.ToByte);
+end;
+
 function TRecordLayer.TryDecodeFramed(const ARecord: TBytes;
   out AFragment: TTlsRecordFragment): Boolean;
 begin
@@ -476,6 +498,7 @@ begin
   // epoch between records, so the epoch is resolved here, per record, not at framing
   AFragment.Data := FReadProtection.Unprotect(ARecord, 0, System.Length(ARecord),
     AFragment.ContentType);
+  FHasDecrypted := True;
   // RFC 8449: the record_size_limit caps the whole TLSInnerPlaintext (content + type +
   // padding), so measure it from the wire record - content alone would let padding hide
   // an over-limit record. Only protected records are subject to the limit (RFC 8449 4), and
@@ -623,6 +646,15 @@ begin
         (LRecord[0] = OuterHandshake) then
         raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.UnexpectedMessage,
           @SHandshakeBeforeChangeCipherSpec);
+      // a TLS 1.3 peer that failed before it could switch keys sends its alert in plaintext; it
+      // surfaces as the peer's alert instead of our bad_record_mac. Judged before the early-data
+      // skip, since an alert record is never early data
+      if IsPlaintextAlert(LRecord) then
+      begin
+        AFragment.ContentType := TTlsContentType.Alert;
+        AFragment.Data := System.Copy(LRecord, TRecordLimits.HeaderLength, PlaintextAlertLength);
+        Exit(True);
+      end;
       if FEarlyDataSkipRemaining > 0 then
       begin
         // 0-RTT reject / HelloRetryRequest: drop the client's early-data records (bounded), stopping

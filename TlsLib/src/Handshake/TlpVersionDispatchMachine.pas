@@ -336,6 +336,11 @@ var
   LClientOffers12: Boolean;
   LClientHighest: UInt16;
 begin
+  // the first message must be a ClientHello; judge the type before decoding the body as one, so
+  // another message is unexpected_message rather than a decode_error
+  if AMessage.TypeByte <> TTlsHandshakeType.ClientHello.ToByte then
+    Exit(TArray<THandshakeEffect>.Create(
+      THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage)));
   LHello := THandshakeMessages.DecodeClientHello(AMessage.Body);
   // parse the outer extension block once; both the supported_versions read and the ech-presence
   // check below take this vector rather than re-walking the unauthenticated block
@@ -458,6 +463,11 @@ var
   LHello: TTlsServerHello;
   LSelectedVersion: UInt16;
 begin
+  // the first message must be a ServerHello (a HelloRetryRequest is one); judge the type before
+  // decoding the body as one
+  if AMessage.TypeByte <> TTlsHandshakeType.ServerHello.ToByte then
+    Exit(TArray<THandshakeEffect>.Create(
+      THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage)));
   LHello := THandshakeMessages.DecodeServerHello(AMessage.Body);
   // a HelloRetryRequest is a 1.3 construct; otherwise the negotiated version is the
   // supported_versions selection, or the legacy_version when the extension is absent
@@ -474,9 +484,11 @@ begin
     else if LSelectedVersion < TlsWireVersionTls13 then
       Exit(TArray<THandshakeEffect>.Create(
         THandshakeEffects.Fail(TTlsAlertDescription.UnsupportedExtension)));
-    // a server that selected a version below our floor (TLS 1.2) chose one this client
-    // does not support: protocol_version, not a downstream handshake failure (RFC 8446 4.2.1)
-    if LSelectedVersion < TlsWireVersionTls12 then
+    // a server that selected a version outside what this client supports (below its TLS 1.2 floor,
+    // or above 1.3 - including a GREASE value) chose one it never offered: protocol_version rather
+    // than a misleading downstream alert (RFC 8446 4.2.1 names illegal_parameter for an unoffered
+    // supported_versions value; protocol_version is the widely deployed behaviour and stays)
+    if (LSelectedVersion < TlsWireVersionTls12) or (LSelectedVersion > TlsWireVersionTls13) then
       Exit(TArray<THandshakeEffect>.Create(
         THandshakeEffects.Fail(TTlsAlertDescription.ProtocolVersion)));
   end;
