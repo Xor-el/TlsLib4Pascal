@@ -25,6 +25,9 @@ uses
   BaseUnix,
 {$ELSEIF DEFINED(POSIX)}
   Posix.SysStat,
+  Posix.Fcntl,
+  Posix.Unistd,
+  Posix.Errno,
 {$IFEND}
   TlpEchConfig,
   TlpCryptoDomainTypes,
@@ -71,7 +74,6 @@ type
     class function MapAead(const AName: string; out AAead: UInt16): Boolean; static;
     class function ParseSuite(const AText: string;
       out AKem, AKdf, AAead: UInt16): Boolean; static;
-    class procedure RestrictToOwner(const APath: string); static;
   public
     /// <summary>
     /// Generates a single-config ECHConfigList for public_name APublicName under the
@@ -90,9 +92,11 @@ type
     /// code (0 on success). Both the Delphi and FPC program wrappers call this.
     /// </summary>
     class function RunConsole: Integer; static;
-    /// <summary>Writes AData to APath, restricting it to the owner (0600) before any bytes land
-    /// on POSIX so the private key is never briefly world-readable; on Windows the file inherits
-    /// the user's ACL. Public so a test can assert the mode.</summary>
+    /// <summary>Writes AData to APath. On POSIX the file is created exclusively with mode 0600, so
+    /// an existing file or symlink at APath is refused rather than overwritten or written through,
+    /// a failed write leaves no file behind, and the private key is never world-readable; on
+    /// Windows an existing file is overwritten and the file inherits the user's ACL. Public so a
+    /// test can assert the mode.</summary>
     class procedure WritePrivateFile(const APath: string; const AData: TBytes); static;
   end;
 
@@ -222,32 +226,100 @@ begin
     MapKdf(LParts[1], AKdf) and MapAead(LParts[2], AAead);
 end;
 
-class procedure TEchKeyGenerator.RestrictToOwner(const APath: string);
-begin
-  // POSIX: owner read/write only (0600). Windows: no-op - the file inherits the creating user's ACL.
-{$IF DEFINED(FPC) AND DEFINED(UNIX)}
-  FpChmod(APath, S_IRUSR or S_IWUSR);
-{$ELSEIF DEFINED(POSIX)}
-  chmod(PAnsiChar(AnsiString(APath)), S_IRUSR or S_IWUSR);
-{$IFEND}
-end;
-
 class procedure TEchKeyGenerator.WritePrivateFile(const APath: string;
   const AData: TBytes);
+{$IF DEFINED(FPC) AND DEFINED(UNIX)}
+var
+  LFd, LErr: LongInt;
+  LStream: THandleStream;
+begin
+  // O_CREAT|O_EXCL refuses an existing file and, per POSIX, a symlink at the path (even a dangling
+  // one), and the 0600 mode is set by the create itself, so the key is never briefly readable
+  // by others
+  LFd := FpOpen(APath, O_WRONLY or O_CREAT or O_EXCL, S_IRUSR or S_IWUSR);
+  if LFd < 0 then
+  begin
+    LErr := fpgeterrno;
+    if LErr = ESysEEXIST then
+      raise EInOutError.CreateFmt('the private key file "%s" already exists; it is never ' +
+        'overwritten or written through a symlink', [APath]);
+    raise EInOutError.CreateFmt('cannot create the private key file "%s": %s',
+      [APath, SysErrorMessage(LErr)]);
+  end;
+  // a failed write leaves nothing behind: a partial key file would block every rerun
+  try
+    LStream := THandleStream.Create(LFd);
+    try
+      if System.Length(AData) > 0 then
+        LStream.WriteBuffer(AData[0], System.Length(AData));
+    finally
+      LStream.Free;
+    end;
+  except
+    FpClose(LFd);
+    FpUnlink(APath);
+    raise;
+  end;
+  // close can report a delayed write error
+  if FpClose(LFd) < 0 then
+  begin
+    LErr := fpgeterrno;
+    FpUnlink(APath);
+    raise EInOutError.CreateFmt('cannot write the private key file "%s": %s',
+      [APath, SysErrorMessage(LErr)]);
+  end;
+end;
+{$ELSEIF DEFINED(POSIX)}
+var
+  LFd, LErr: Integer;
+  LStream: THandleStream;
+  LPath: UTF8String;
+begin
+  LPath := UTF8String(APath);
+  LFd := open(PAnsiChar(LPath), O_WRONLY or O_CREAT or O_EXCL, S_IRUSR or S_IWUSR);
+  if LFd < 0 then
+  begin
+    LErr := GetLastError;
+    if LErr = EEXIST then
+      raise EInOutError.CreateFmt('the private key file "%s" already exists; it is never ' +
+        'overwritten or written through a symlink', [APath]);
+    raise EInOutError.CreateFmt('cannot create the private key file "%s": %s',
+      [APath, SysErrorMessage(LErr)]);
+  end;
+  try
+    LStream := THandleStream.Create(LFd);
+    try
+      if System.Length(AData) > 0 then
+        LStream.WriteBuffer(AData[0], System.Length(AData));
+    finally
+      LStream.Free;
+    end;
+  except
+    __close(LFd);
+    unlink(PAnsiChar(LPath));
+    raise;
+  end;
+  if __close(LFd) < 0 then
+  begin
+    LErr := GetLastError;
+    unlink(PAnsiChar(LPath));
+    raise EInOutError.CreateFmt('cannot write the private key file "%s": %s',
+      [APath, SysErrorMessage(LErr)]);
+  end;
+end;
+{$ELSE}
 var
   LStream: TFileStream;
 begin
-  // create empty, restrict it to the owner, THEN write the key bytes: no window in which the
-  // private key is world-readable
   LStream := TFileStream.Create(APath, fmCreate);
   try
-    RestrictToOwner(APath);
     if System.Length(AData) > 0 then
       LStream.WriteBuffer(AData[0], System.Length(AData));
   finally
     LStream.Free;
   end;
 end;
+{$IFEND}
 
 class function TEchKeyGenerator.RunConsole: Integer;
 var
