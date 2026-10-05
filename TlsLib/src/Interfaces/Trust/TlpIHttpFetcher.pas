@@ -31,6 +31,11 @@ type
   /// caller treats a False (or an ambiguous body) per its configured revocation posture,
   /// defaulting to the stricter option - the seam is fail-closed by construction. ATimeoutMs
   /// bounds the whole exchange; 0 leaves the timeout to the implementation.
+  ///
+  /// The URLs come from the peer's own certificate and are passed as written, so the scheme
+  /// may be upper case (RFC 3986 3.1). The fetcher is the place for a host's egress policy - an
+  /// allowlist, a proxy, or rewriting to a mirror - and it must not run TlsLib live revocation
+  /// for its own https fetches, which would recurse.
   /// </summary>
   IHttpFetcher = interface(IInterface)
     ['{4C1A9F7E-6D30-4B58-8E24-7F5B0A2C9E13}']

@@ -38,7 +38,8 @@ type
     FInner: IPkixProvider;
     FOcspParseCount: Integer;
     FCrlParseCount: Integer;
-    FOcspUrlsOverridden, FCrlUrlsOverridden: Boolean;
+    FOcspUrlsOverridden, FCrlUrlsOverridden, FOcspRequestFails: Boolean;
+    FBuildRequestCount: Integer;
     FOcspUrls, FCrlUrls: TArray<string>;
     // IPkixProvider
     function Certificates: ICertificateInspector;
@@ -67,6 +68,9 @@ type
     procedure OverrideOcspUrls(const AUrls: TArray<string>);
     /// <summary>As OverrideOcspUrls, for the CRL distribution points.</summary>
     procedure OverrideCrlUrls(const AUrls: TArray<string>);
+    /// <summary>Makes BuildOcspRequest report that no request could be built.</summary>
+    procedure FailOcspRequest;
+    property BuildRequestCount: Integer read FBuildRequestCount;
     property OcspParseCount: Integer read FOcspParseCount;
     property CrlParseCount: Integer read FCrlParseCount;
   end;
@@ -108,7 +112,18 @@ end;
 function TSpyPkixProvider.BuildOcspRequest(const ALeafCert, AIssuerCert: TBytes;
   out ARequestDer: TBytes): Boolean;
 begin
+  Inc(FBuildRequestCount);
+  if FOcspRequestFails then
+  begin
+    ARequestDer := nil;
+    Exit(False);
+  end;
   Result := FInner.Revocation.BuildOcspRequest(ALeafCert, AIssuerCert, ARequestDer);
+end;
+
+procedure TSpyPkixProvider.FailOcspRequest;
+begin
+  FOcspRequestFails := True;
 end;
 
 procedure TSpyPkixProvider.OverrideOcspUrls(const AUrls: TArray<string>);

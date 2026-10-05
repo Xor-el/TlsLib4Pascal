@@ -333,11 +333,15 @@ end;
 
 function TTestServerSideLiveRevocation.NewChecker(APosture: TRevocationPosture;
   AWithCandidates: Boolean): TLiveRevocationChecker;
+var
+  LOptions: TLiveRevocationOptions;
 begin
   if AWithCandidates then
+  begin
+    LOptions.IssuerCandidates := TArray<TBytes>.Create(ClientCa);
     Result := TLiveRevocationChecker.Create(Pkix, TSystemClock.Create as ITlsClock,
-      FFetcher, APosture, TLiveRevocationMethod.OcspThenCrl, 0,
-      TArray<TBytes>.Create(ClientCa))
+      FFetcher, APosture, TLiveRevocationMethod.OcspThenCrl, 0, LOptions);
+  end
   else
     Result := TLiveRevocationChecker.Create(Pkix, TSystemClock.Create as ITlsClock,
       FFetcher, APosture, TLiveRevocationMethod.OcspThenCrl, 0);
