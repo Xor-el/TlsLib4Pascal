@@ -35,12 +35,15 @@ type
     FOrigin: TTlsErrorOrigin;
     FAlertByte: Byte;
   public
+    class function Create(const AAlert: TTlsAlert; const AMessage: string): TTlsError;
+      overload; static;
     class function Create(const AAlert: TTlsAlert; const AMessage: string;
-      AOrigin: TTlsErrorOrigin = TTlsErrorOrigin.Unknown): TTlsError; static;
+      AOrigin: TTlsErrorOrigin): TTlsError; overload; static;
     /// <summary>A fatal error carrying the given alert description and message.</summary>
     class function CreateFatal(ADescription: TTlsAlertDescription;
-      const AMessage: string;
-      AOrigin: TTlsErrorOrigin = TTlsErrorOrigin.Unknown): TTlsError; static;
+      const AMessage: string): TTlsError; overload; static;
+    class function CreateFatal(ADescription: TTlsAlertDescription;
+      const AMessage: string; AOrigin: TTlsErrorOrigin): TTlsError; overload; static;
     /// <summary>A fatal error for a peer-sent alert, carrying the RAW wire description byte so the
     /// diagnostic stays honest even for a code this library does not map (e.g. no_certificate or a
     /// future code): Alert maps the byte when known, else it is a placeholder internal_error, but
@@ -59,6 +62,12 @@ implementation
 
 { TTlsError }
 
+class function TTlsError.Create(const AAlert: TTlsAlert;
+  const AMessage: string): TTlsError;
+begin
+  Result := TTlsError.Create(AAlert, AMessage, TTlsErrorOrigin.Unknown);
+end;
+
 class function TTlsError.Create(const AAlert: TTlsAlert; const AMessage: string;
   AOrigin: TTlsErrorOrigin): TTlsError;
 begin
@@ -66,6 +75,12 @@ begin
   Result.FMessage := AMessage;
   Result.FOrigin := AOrigin;
   Result.FAlertByte := AAlert.Description.ToByte;
+end;
+
+class function TTlsError.CreateFatal(ADescription: TTlsAlertDescription;
+  const AMessage: string): TTlsError;
+begin
+  Result := TTlsError.CreateFatal(ADescription, AMessage, TTlsErrorOrigin.Unknown);
 end;
 
 class function TTlsError.CreateFatal(ADescription: TTlsAlertDescription;
