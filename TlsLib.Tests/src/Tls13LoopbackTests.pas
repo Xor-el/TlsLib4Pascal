@@ -29,10 +29,13 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpTlsAlert,
+  TlpRecordHeader,
+  TlpTlsVersion,
   TlpTlsLibExceptions,
   TlpICryptoProvider,
   TlpNamedGroups,
   TlpNegotiationTypes,
+  TlpINegotiation,
   TlpNegotiationPolicy,
   TlpCipherSuiteRegistry,
   TlpCoreExtensions,
@@ -115,6 +118,9 @@ type
       const APrivateKey: ISecretBuffer): ITlsEngine;
     function NewHrrClient: ITlsEngine;
     function NewHrrServer: ITlsEngine;
+    function NewHrrServerWithPolicy(const APolicy: INegotiationPolicy): ITlsEngine;
+    // AWire's first record alone, with AExtra appended to its body (the length is rewritten).
+    function FirstRecordWith(const AWire, AExtra: TBytes): TBytes;
     function NewP256OnlyClient: ITlsEngine;
     function NewMultiGroupServer: ITlsEngine;
     function NewHybridClient: ITlsEngine;
@@ -157,6 +163,8 @@ type
     procedure TestMultiGroupServerSelectsClientGroupWithoutHrr;
     procedure TestCoalescedCrossEpochFlightCompletes;
     procedure TestAppDataAcrossRecordsChunkedReads;
+    procedure TestServerHelloPackedWithNextMessageIsExcessData;
+    procedure TestSecondClientHelloDroppingTls13IsProtocolVersion;
     procedure TestUnexpectedMessageAbortsWithUnexpectedMessage;
     procedure TestMiddleboxChangeCipherSpec;
     procedure TestWriteAfterInboundCloseNotifyHalfCloses;
@@ -1316,6 +1324,12 @@ begin
 end;
 
 function TTestTls13Loopback.NewHrrServer: ITlsEngine;
+begin
+  Result := NewHrrServerWithPolicy(TNegotiationPolicy.CreateDefault(Crypto));
+end;
+
+function TTestTls13Loopback.NewHrrServerWithPolicy(
+  const APolicy: INegotiationPolicy): ITlsEngine;
 var
   LParams: TServerHandshakeParams;
 begin
@@ -1323,7 +1337,7 @@ begin
   LParams.Clock := TSystemClock.Create;
   LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LParams.Policy := APolicy;
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   // the server offers only secp256r1; a client that key-shared another group is retried
@@ -1568,6 +1582,17 @@ begin
   Pump(LClient, LServer);
   CheckEqualBytes('the server decrypts application data over the secp256r1 keys',
     LFromClient, ReadAllApp(LServer));
+end;
+
+function TTestTls13Loopback.FirstRecordWith(const AWire, AExtra: TBytes): TBytes;
+var
+  LLen: Int32;
+begin
+  LLen := (AWire[3] shl 8) or AWire[4];
+  Result := ConcatBytes(System.Copy(AWire, 0, TRecordLimits.HeaderLength + LLen), AExtra);
+  Inc(LLen, System.Length(AExtra));
+  Result[3] := Byte(LLen shr 8);
+  Result[4] := Byte(LLen);
 end;
 
 function TTestTls13Loopback.Drain(const AEngine: ITlsEngine): TBytes;
@@ -1991,6 +2016,58 @@ begin
   until LGot = 0;
 
   CheckEqualBytes('one-byte reads reassemble all records in order', LExpected, LGotAll);
+end;
+
+procedure TTestTls13Loopback.TestServerHelloPackedWithNextMessageIsExcessData;
+var
+  LClient, LServer: ITlsEngine;
+  LFlight, LMerged: TBytes;
+  LOutcome: TTlsOutcome;
+begin
+  LClient := NewClient;
+  LServer := NewServer;
+  LClient.StartHandshake;
+  Feed(LServer, Drain(LClient));
+  LFlight := Drain(LServer);
+  // the plaintext ServerHello record also carries an EncryptedExtensions: a handshake message
+  // must not follow a key change in the same record (RFC 8446 5.1)
+  LMerged := FirstRecordWith(LFlight, DecodeHex('08 00 00 02 00 00'));
+  LOutcome := LClient.ProcessInput(LMerged, 0, System.Length(LMerged));
+  CheckEquals(Ord(TTlsOutcome.Fatal), Ord(LOutcome), 'a message packed behind the ServerHello is fatal');
+  CheckTrue(LClient.LastError.Alert.Description = TTlsAlertDescription.UnexpectedMessage,
+    'it aborts with unexpected_message');
+end;
+
+procedure TTestTls13Loopback.TestSecondClientHelloDroppingTls13IsProtocolVersion;
+var
+  LClient, LServer: ITlsEngine;
+  LCh2: TBytes;
+  LI: Int32;
+  LOutcome: TTlsOutcome;
+begin
+  LClient := NewHrrClient;
+  // a server that also speaks 1.2: SelectVersion alone would accept a 1.2-only retry
+  LServer := NewHrrServerWithPolicy(TNegotiationPolicy.Create(Crypto,
+    TCipherSuiteRegistry.CreateDefault(Crypto), TNamedGroups.CreateDefaultRegistry(Crypto),
+    TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1, TNamedGroupCatalog.X25519),
+    TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12),
+    TServerCipherPreference.ServerOrder));
+  LClient.StartHandshake;
+  Feed(LServer, Drain(LClient));
+  Feed(LClient, Drain(LServer));
+  LCh2 := Drain(LClient);
+  // rewrite the supported_versions extension (2b 00 03 02 03 04) so the retry offers 1.2 only
+  LI := 0;
+  while (LI + 6 < System.Length(LCh2)) and not ((LCh2[LI] = $00) and (LCh2[LI + 1] = $2B) and
+    (LCh2[LI + 2] = $00) and (LCh2[LI + 3] = $03) and (LCh2[LI + 4] = $02) and
+    (LCh2[LI + 5] = $03) and (LCh2[LI + 6] = $04)) do
+    Inc(LI);
+  CheckTrue(LI + 6 < System.Length(LCh2), 'the retry ClientHello carries supported_versions');
+  LCh2[LI + 6] := $03;
+  LOutcome := LServer.ProcessInput(LCh2, 0, System.Length(LCh2));
+  CheckEquals(Ord(TTlsOutcome.Fatal), Ord(LOutcome), 'a retry that drops 1.3 is fatal');
+  CheckTrue(LServer.LastError.Alert.Description = TTlsAlertDescription.ProtocolVersion,
+    'it aborts with protocol_version');
 end;
 
 procedure TTestTls13Loopback.TestUnexpectedMessageAbortsWithUnexpectedMessage;

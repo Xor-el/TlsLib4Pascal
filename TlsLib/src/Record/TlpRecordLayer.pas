@@ -492,11 +492,10 @@ begin
         // an application_data record before the handshake completes is unexpected (RFC 8446 5.1
         // / RFC 5246), whether empty or not - including under a real epoch installed mid-handshake
         // (TLS 1.2 keys at the peer's ChangeCipherSpec, before its Finished). Accepted 0-RTT early
-        // data and the 0-RTT reject skip window are the exceptions, excluded by the guard below.
+        // data is the exception, excluded by the guard below.
         if FStrictApplicationData and
           (AFragment.ContentType = TTlsContentType.ApplicationData) and
-          (not FHandshakeComplete) and (not FEarlyReadAccepted) and
-          (FEarlyDataSkipRemaining = 0) then
+          (not FHandshakeComplete) and (not FEarlyReadAccepted) then
           raise EFatalAlertTlsLibException.CreateRes(
             TTlsAlertDescription.UnexpectedMessage, @SUnexpectedApplicationData);
         // the server MUST NOT accept more 0-RTT than the ticket's max_early_data_size and
@@ -630,22 +629,25 @@ begin
         // as soon as a genuine handshake record arrives. Early data appears two ways: encrypted under
         // keys the server discarded (a bad_record_mac from the deprotect) after the server flight, or
         // an application_data record under the null/plaintext epoch while awaiting a second
-        // ClientHello. Both are dropped; a decoded handshake record ends the skip.
+        // ClientHello. Both are dropped against a wire-byte budget; any record that decodes ends the skip.
+        // A plaintext application_data record is dropped without parsing so a full-size early-data
+        // record is not refused as record_overflow.
+        if FReadIsPlaintext and (System.Length(LRecord) > 0) and
+          (LRecord[0] = OuterApplicationData) then
+        begin
+          LPlaintextLen := System.Length(LRecord) - TRecordLimits.HeaderLength;
+          if LPlaintextLen > FEarlyDataSkipRemaining then
+            raise EFatalAlertTlsLibException.CreateRes(
+              TTlsAlertDescription.UnexpectedMessage, @STooMuchSkippedEarlyData);
+          Dec(FEarlyDataSkipRemaining, LPlaintextLen);
+          Continue;
+        end;
         try
           if TryDecodeFramed(LRecord, AFragment) then
           begin
-            if AFragment.ContentType = TTlsContentType.ApplicationData then
-            begin
-              // charge the plaintext length (max_early_data_size is a plaintext budget, RFC 8446
-              // 4.6.1): a plaintext record under the null epoch carries only the record header
-              LPlaintextLen := System.Length(LRecord) - TRecordLimits.HeaderLength;
-              if LPlaintextLen > FEarlyDataSkipRemaining then
-                raise EFatalAlertTlsLibException.CreateRes(
-                  TTlsAlertDescription.UnexpectedMessage, @STooMuchSkippedEarlyData);
-              Dec(FEarlyDataSkipRemaining, LPlaintextLen);
-              Continue; // skip this early-data record
-            end;
-            FEarlyDataSkipRemaining := 0; // a handshake record: the skip window ends
+            // decrypted under keys the server holds: genuine traffic, not early data, so the skip
+            // window ends and the strict path judges the fragment
+            FEarlyDataSkipRemaining := 0;
             Exit(True);
           end;
           FEarlyDataSkipRemaining := 0; // an empty / dropped record: done skipping

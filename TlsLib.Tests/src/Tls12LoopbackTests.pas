@@ -30,6 +30,7 @@ uses
 {$ENDIF FPC}
   TlpTlsVersion,
   TlpTlsAlert,
+  TlpRecordHeader,
   TlpTlsLibExceptions,
   TlpNamedGroups,
   TlpNegotiationTypes,
@@ -79,6 +80,8 @@ type
     /// <summary>Flips the last byte of the first handshake message of AMsgType found in
     /// the plaintext handshake records of AWire (test-only wire mutation).</summary>
     function TamperHandshakeMessage(var AWire: TBytes; AMsgType: Byte): Boolean;
+    // AWire's first record alone, with AExtra appended to its body (the length is rewritten).
+    function FirstRecordWith(const AWire, AExtra: TBytes): TBytes;
     /// <summary>Flips a payload byte of the last record in AWire (the encrypted Finished
     /// on a second flight); returns False when AWire holds no record.</summary>
     function TamperLastRecordPayload(var AWire: TBytes): Boolean;
@@ -112,6 +115,7 @@ type
     procedure TestParkedClientDefersAnOutOfOrderMessageUntilResume;
     procedure TestClientRejectsServerHelloLegacyVersionBelowTls12;
     procedure TestClientRejectsSupportedVersionsInTls12ServerHello;
+    procedure TestPlaintextFinishedPackedWithKeyExchangeIsExcessData;
     procedure TestEcdheEd448CredentialHandshake;
     procedure TestEcdheEd25519CredentialHandshake;
     procedure TestEcdheEcdsaAesGcmWithExtendedMasterSecret;
@@ -684,6 +688,17 @@ begin
   CheckTrue(LServer.IsTerminal, 'the server aborted when required EMS was absent');
 end;
 
+function TTestTls12Loopback.FirstRecordWith(const AWire, AExtra: TBytes): TBytes;
+var
+  LLen: Int32;
+begin
+  LLen := (AWire[3] shl 8) or AWire[4];
+  Result := ConcatBytes(System.Copy(AWire, 0, TRecordLimits.HeaderLength + LLen), AExtra);
+  Inc(LLen, System.Length(AExtra));
+  Result[3] := Byte(LLen shr 8);
+  Result[4] := Byte(LLen);
+end;
+
 function TTestTls12Loopback.TamperHandshakeMessage(var AWire: TBytes;
   AMsgType: Byte): Boolean;
 var
@@ -1195,6 +1210,27 @@ begin
 
   CheckTrue(LClient.IsTerminal,
     'the client aborted the handshake for a missing staple under hard-fail');
+end;
+
+procedure TTestTls12Loopback.TestPlaintextFinishedPackedWithKeyExchangeIsExcessData;
+var
+  LClient, LServer: ITlsEngine;
+  LFlight, LMerged: TBytes;
+  LOutcome: TTlsOutcome;
+begin
+  LClient := NewClient(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True);
+  LServer := NewServer(False);
+  LClient.StartHandshake;
+  Pump(LClient, LServer);
+  Pump(LServer, LClient);
+  LFlight := Drain(LClient);
+  // a plaintext Finished packed behind the ClientKeyExchange would complete the handshake with
+  // the read cipher never switched (RFC 5246 7.4.9: Finished follows the change_cipher_spec)
+  LMerged := FirstRecordWith(LFlight, DecodeHex('14 00 00 0c 000000000000000000000000'));
+  LOutcome := LServer.ProcessInput(LMerged, 0, System.Length(LMerged));
+  CheckEquals(Ord(TTlsOutcome.Fatal), Ord(LOutcome), 'a Finished packed behind the key exchange is fatal');
+  CheckTrue(LServer.LastError.Alert.Description = TTlsAlertDescription.UnexpectedMessage,
+    'it aborts with unexpected_message');
 end;
 
 procedure TTestTls12Loopback.TestEcdheEd448CredentialHandshake;
