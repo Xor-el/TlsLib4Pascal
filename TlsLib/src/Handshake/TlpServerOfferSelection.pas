@@ -45,7 +45,7 @@ type
     /// with handshake_failure when no resolver is configured, unrecognized_name when the client
     /// named a host the resolver has no certificate for (else handshake_failure with no name to
     /// be "unrecognized"), and handshake_failure when the resolved credential carries no signing
-    /// key. The returned credential always has a signing key.</summary>
+    /// key or an empty chain. The returned credential always has both.</summary>
     class function ResolveCredential(const AResolver: ITlsServerCredentialResolver;
       const AContext: TExtensionContext; const ACipherSuites: TArray<UInt16>;
       AVersion: TTlsVersion): TTlsCredential; static;
@@ -64,6 +64,8 @@ resourcestring
     'no default server certificate is configured for a client that sent no SNI';
   SCredentialHasNoSigningKey =
     'the selected server certificate has no signing key';
+  SCredentialHasNoCertificates =
+    'the selected server credential has an empty certificate chain';
 
 { TServerOfferSelection }
 
@@ -120,6 +122,10 @@ begin
   if not Assigned(Result.PrivateKey) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.HandshakeFailure, @SCredentialHasNoSigningKey);
+  // an empty chain would emit an empty certificate_list (RFC 8446 4.4.2)
+  if System.Length(Result.CertificateChain) = 0 then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.HandshakeFailure, @SCredentialHasNoCertificates);
 end;
 
 end.

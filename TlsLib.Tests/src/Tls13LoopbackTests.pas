@@ -163,6 +163,7 @@ type
     procedure TestMultiGroupServerSelectsClientGroupWithoutHrr;
     procedure TestCoalescedCrossEpochFlightCompletes;
     procedure TestAppDataAcrossRecordsChunkedReads;
+    procedure TestResolverReturningEmptyChainFailsHandshake;
     procedure TestServerHelloPackedWithNextMessageIsExcessData;
     procedure TestSecondClientHelloDroppingTls13IsProtocolVersion;
     procedure TestUnexpectedMessageAbortsWithUnexpectedMessage;
@@ -2068,6 +2069,22 @@ begin
   CheckEquals(Ord(TTlsOutcome.Fatal), Ord(LOutcome), 'a retry that drops 1.3 is fatal');
   CheckTrue(LServer.LastError.Alert.Description = TTlsAlertDescription.ProtocolVersion,
     'it aborts with protocol_version');
+end;
+
+procedure TTestTls13Loopback.TestResolverReturningEmptyChainFailsHandshake;
+var
+  LClient, LServer: ITlsEngine;
+  LNoChain: TTlsCredential;
+begin
+  LNoChain := ServerCredential;
+  LNoChain.CertificateChain := nil;
+  LClient := NewClient;
+  LServer := NewServerWithResolver(TSniCredentialResolver.ForCredential(LNoChain));
+  LClient.StartHandshake;
+  Feed(LServer, Drain(LClient));
+  CheckTrue(LServer.IsTerminal, 'a custom resolver handing back no certificate fails the server');
+  CheckTrue(LServer.LastError.Alert.Description = TTlsAlertDescription.HandshakeFailure,
+    'it aborts with handshake_failure rather than emitting an empty certificate_list');
 end;
 
 procedure TTestTls13Loopback.TestUnexpectedMessageAbortsWithUnexpectedMessage;

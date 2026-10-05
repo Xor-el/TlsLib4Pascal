@@ -252,6 +252,13 @@ overload (a client config for the client hook, a server config for the server ho
 resolver handed a chain of the wrong role refuses it with `internal_error` (a local
 misconfiguration) rather than a misleading trust failure.
 
+A resolver only runs when the handshake parks for a verdict. Beside an adapter's own built config
+that is automatic; beside a config you supply yourself (`ClientConfig` / `ServerConfig`) the
+config must already defer the verdict (`WithLiveRevocationVerdict` or `WithAsyncCertificateVerdict`),
+otherwise the resolver would never fire and live revocation would silently be off, so the
+connection is refused instead. A server only parks under a client-authentication mode, so only a
+server config with one needs to defer.
+
 ### Live OCSP/CRL revocation (opt-in)
 
 Live revocation is **off by default** and never happens inside the sans-IO core: the config

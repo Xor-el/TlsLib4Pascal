@@ -94,7 +94,7 @@ trust the familiar way. Only what fcl-net lacks is added as extension properties
 | `VerifyPeerCert` (fcl-net native, default **True** here) | verify on/off; **False** → `dangerous` `WithDangerousInsecureSkipVerify` |
 | `VerifyCallback` | augment-only hook (chain+host → Boolean) |
 | `VerdictResolver` + `VerdictDeadlineMs` | client-role out-of-band verdict (server's chain), e.g. live OCSP/CRL |
-| `ServerVerdictResolver` + `ServerVerdictDeadlineMs` | server-role out-of-band verdict (mTLS client's chain) |
+| `ServerVerdictResolver` + `ServerVerdictDeadlineMs` | server-role out-of-band verdict (mTLS client's chain); beside a supplied `ClientConfig` / `ServerConfig` that config must itself defer the verdict, else the connection is refused |
 | `HandshakeTimeoutMs` | bounds the handshake read (ms); `0` = 30 s default |
 | `Socket.IOTimeout` (fcl-net native) | bounds application reads; an expiry is retryable (`Recv` returns -1 with `LastErrorDesc` set, the connection stays usable), never a truncation |
 | `OnVerifyCertificate` (fcl-net native)                | augment-only reject after our pipeline             |

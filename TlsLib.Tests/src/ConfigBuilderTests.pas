@@ -185,6 +185,7 @@ type
     // rejected CertificateVerify mid-handshake
     procedure TestServerCredentialWithMismatchedKeyRejected;
     procedure TestServerCredentialWithWrongKeyFamilyRejected;
+    procedure TestIncompleteCredentialsAreRefusedAtBuild;
     procedure TestSniCredentialWithMismatchedKeyNamesHost;
     procedure TestClientCredentialWithMismatchedKeyRejected;
     procedure TestMatchingCredentialBuildsServer;
@@ -1881,6 +1882,68 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a credential whose key family differs from its leaf is refused at Build');
+end;
+
+procedure TTestConfigBuilder.TestIncompleteCredentialsAreRefusedAtBuild;
+var
+  LBuilder: ITlsConfigBuilder;
+  LNoChain, LNoKey: TTlsCredential;
+  LRaised: Boolean;
+begin
+  LNoChain := ServerCredential;
+  LNoChain.CertificateChain := nil;
+  LNoKey := ServerCredential;
+  LNoKey.PrivateKey := nil;
+
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
+  LRaised := False;
+  try
+    LBuilder.Server.WithCredential(LNoChain).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := Pos('leaf certificate', E.Message) > 0;
+  end;
+  CheckTrue(LRaised, 'a server credential with an empty chain is refused for its chain');
+
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
+  LRaised := False;
+  try
+    LBuilder.Server.WithCredential(LNoKey).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := Pos('private key', E.Message) > 0;
+  end;
+  CheckTrue(LRaised, 'a server credential without a key is refused for its key');
+
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
+  LRaised := False;
+  try
+    LBuilder.Server.WithSniCredential('localhost', LNoKey).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an SNI-mapped credential without a key is refused');
+
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
+  LRaised := False;
+  try
+    LBuilder.Client.WithTrustStore(ClientTrust).WithCredential(LNoKey).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := Pos('private key', E.Message) > 0;
+  end;
+  CheckTrue(LRaised, 'a client chain without its key is refused');
+
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
+  LRaised := False;
+  try
+    LBuilder.Client.WithTrustStore(ClientTrust).WithCredential(LNoChain).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := Pos('leaf certificate', E.Message) > 0;
+  end;
+  CheckTrue(LRaised, 'a client credential with a key but no chain is refused');
 end;
 
 procedure TTestConfigBuilder.TestSniCredentialWithMismatchedKeyNamesHost;

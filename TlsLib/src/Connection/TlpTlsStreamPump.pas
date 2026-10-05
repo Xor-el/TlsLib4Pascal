@@ -372,12 +372,10 @@ begin
       Exit(0);
     end;
     AEngine.ProcessInput(LBuf, 0, LGot);
-    // only a fatal alert must reach the peer on the read path; healthy outbound (a KeyUpdate
-    // reply, a warning) is left for the next write, so a reader does not write to the transport
-    // and race a concurrent writer on the outbound queue
-    if AEngine.IsTerminal then
-      FlushQuietly(AEngine, ATransport);
-    RaiseIfFatal(AEngine);
+    // what the input provoked (a fatal alert, a no_renegotiation warning) must reach the peer now,
+    // since a read-only caller never writes. The engine and transport are single-threaded: a
+    // connection is not read and written from two threads at once
+    FlushThenRaiseIfFatal(AEngine, ATransport);
     Result := AEngine.ReadAppData(ADest, 0, AMaxLength);
     if Result > 0 then
     begin

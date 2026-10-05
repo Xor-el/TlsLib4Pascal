@@ -89,7 +89,8 @@ SetTlsLibSynapseServerVerdictResolver(resolver, deadlineMs);   // server role: d
 ```
 
 Being process-wide, set these before opening any connection; changing a hook while connections are
-in flight is not supported.
+in flight is not supported. A resolver beside a supplied config must be paired with a config that
+itself defers the verdict (`WithLiveRevocationVerdict`), else the connection is refused.
 
 Wire `TLiveRevocationChecker.ResolveVerdict` (from `TlpLiveRevocation`, over an injected
 `IHttpFetcher`) as the resolver to get live revocation. The resolver is role-specific — the client

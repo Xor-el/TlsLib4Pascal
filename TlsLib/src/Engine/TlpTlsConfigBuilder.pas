@@ -316,6 +316,8 @@ resourcestring
   SPskOnlyClientNeedsTls13Only = 'a client with external PSKs and no trust source must offer TLS ' +
     '1.3 only (external PSKs are TLS 1.3-only); use a 1.3-only preset or WithSupportedVersions([TLS 1.3])';
   SNoCredential = 'a server configuration requires a certificate credential';
+  SCredentialChainEmpty = 'a credential needs at least its leaf certificate in the chain';
+  SCredentialKeyMissing = 'a credential needs a private key to sign the handshake';
   SNilNegotiationRegistry = 'the cipher-suite, signature-scheme and named-group registries are required';
   SNoPreferredGroups = 'at least one preferred key-exchange group is required';
   SNoClientAuthTrustStore = 'client authentication requires a trust source for the client certificate chain';
@@ -2077,11 +2079,12 @@ var
   LLeaf, LKeyPublicKeyInfo: TBytes;
   LSchemes: TArray<TSignatureScheme>;
 begin
-  // only a fully-formed credential is checkable; a missing chain or key is caught by the
-  // server/SNI/client credential-presence rules, not here
-  if (System.Length(ACredential.CertificateChain) = 0) or
-    (ACredential.PrivateKey = nil) then
-    Exit;
+  // an empty chain would emit an empty certificate_list (RFC 8446 4.4.2) and a missing key
+  // cannot sign, so either is refused here rather than failing mid-handshake
+  if System.Length(ACredential.CertificateChain) = 0 then
+    raise EInvalidOperationTlsLibException.CreateRes(@SCredentialChainEmpty);
+  if ACredential.PrivateKey = nil then
+    raise EInvalidOperationTlsLibException.CreateRes(@SCredentialKeyMissing);
   LLeaf := ACredential.CertificateChain[0];
   // a definite No means the leaf may not sign a CertificateVerify; an absent or unreadable
   // keyUsage passes (the peer-side signing-policy check is the backstop)

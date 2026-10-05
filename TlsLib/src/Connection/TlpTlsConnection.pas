@@ -37,6 +37,7 @@ uses
   TlpDefaultPkixProvider,
   TlpICertificateTrust,
   TlpTrustPolicy,
+  TlpTrustTypes,
   TlpTlsCredential,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
@@ -141,7 +142,8 @@ type
     class procedure GuardNoConflict(const AOptions: TTlsOptions;
       AIsClient: Boolean; const APropertyName: string); static;
     /// <summary>The client config for one handshake: the supplied ClientConfig (after the conflict
-    /// guard), else the memoised options-driven build.</summary>
+    /// guard, and refused when a verdict resolver is set but the config never defers), else the
+    /// memoised options-driven build.</summary>
     class function ResolveClientConfig(const AOptions: TTlsOptions;
       const AMemo: ITlsClientConfigMemo;
       const AConfigPropertyName: string): ITlsClientConfig; static;
@@ -190,7 +192,9 @@ type
   /// ready engine, the role-correct parked-verdict resolver, the handshake with its read cap armed
   /// and then cleared, application reads and writes, and the negotiated facts (zero values before
   /// the handshake). Host-owned; freeing it frees the stream and releases the transport and engine
-  /// without sending close_notify (a host calls CloseNotify at its own close hook).</summary>
+  /// without sending close_notify (a host calls CloseNotify at its own close hook). Not thread-safe:
+  /// a connection must not be read and written from two threads at once, so a host that broadcasts
+  /// from another thread serializes its access.</summary>
   TTlsConnection = class sealed(TObject)
   public const
     /// <summary>The handshake read-timeout the connection applies when the host passes 0 (30 s).
@@ -263,6 +267,10 @@ resourcestring
   SConfigAndOptionsConflict =
     '%s is set together with cert/trust/ALPN/provider options or a non-default security toggle ' +
     'that a fully-built config replaces; supply either the config or those options, not both';
+  SVerdictResolverWithoutDeferral =
+    'a verdict resolver is set together with %s, but that config never defers the certificate ' +
+    'verdict, so the resolver would never run; enable WithLiveRevocationVerdict or ' +
+    'WithAsyncCertificateVerdict on the config';
   SHandshakeReadTimedOut = 'the handshake did not complete within %d ms';
   SSendNoProgress = 'the host transport reported no send progress';
   STransportReceiveFailed = 'the host transport reported a receive error (%d)';
@@ -607,6 +615,12 @@ begin
   if AOptions.ClientConfig <> nil then
   begin
     GuardNoConflict(AOptions, True, AConfigPropertyName);
+    // the resolver only runs when the handshake parks for a verdict; a config that never parks
+    // would leave it silently unused (live revocation off)
+    if Assigned(AOptions.ClientVerdictResolver) and
+      (AOptions.ClientConfig.AsyncCertificateVerdict.Deferral = TVerdictDeferral.None) then
+      raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
+        Format(SVerdictResolverWithoutDeferral, [AConfigPropertyName]));
     Exit(AOptions.ClientConfig);
   end;
   LSig := ClientSignature(AOptions);
@@ -625,6 +639,11 @@ begin
   if AOptions.ServerConfig <> nil then
   begin
     GuardNoConflict(AOptions, False, AConfigPropertyName);
+    if Assigned(AOptions.ServerVerdictResolver) and
+      (AOptions.ServerConfig.ClientAuth <> TClientAuthMode.None) and
+      (AOptions.ServerConfig.AsyncCertificateVerdict.Deferral = TVerdictDeferral.None) then
+      raise ETlsStreamError.Create(TTlsAlertDescription.InternalError,
+        Format(SVerdictResolverWithoutDeferral, [AConfigPropertyName]));
     Exit(AOptions.ServerConfig);
   end;
   LSig := ServerSignature(AOptions);

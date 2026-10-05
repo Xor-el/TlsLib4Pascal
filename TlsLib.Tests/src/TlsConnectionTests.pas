@@ -98,6 +98,8 @@ type
     procedure TestServerAnchorsWithoutModeAreInert;
     procedure TestServerVerdictResolverArmsLiveRevocation;
     procedure TestServerVerdictResolverNoModeStaysInline;
+    procedure TestResolverBesideNonDeferringClientConfigIsRefused;
+    procedure TestResolverBesideNonDeferringServerConfigIsRefused;
     procedure TestServerModeWithVerifyPeerOffRaises;
     procedure TestServerModeWithSkipVerifyRaises;
     procedure TestServerClientVerifierWithoutModeRaises;
@@ -735,6 +737,66 @@ begin
   CheckEquals(Ord(TVerdictDeferral.None),
     Ord(TTlsConfigComposer.BuildServerConfig(LOpts).AsyncCertificateVerdict.Deferral),
     'a resolver without a mode does not arm the park');
+end;
+
+procedure TTestTlsConnection.TestResolverBesideNonDeferringClientConfigIsRefused;
+var
+  LBuild, LOpts: TTlsOptions;
+  LMemo: ITlsClientConfigMemo;
+  LRaised: Boolean;
+begin
+  LMemo := NewTlsClientConfigMemo;
+  // a supplied config that never parks leaves the resolver unused, so it is refused
+  LOpts := TTlsOptions.Default;
+  LOpts.ClientConfig := TTlsConfigComposer.BuildClientConfig(ClientOptsWithStore);
+  LOpts.ClientVerdictResolver := StubResolver;
+  LRaised := False;
+  try
+    TTlsConfigComposer.ResolveClientConfig(LOpts, LMemo, 'ClientConfig');
+  except
+    on E: ETlsStreamError do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a resolver beside a config that never defers is refused');
+  // a config that does defer is accepted
+  LBuild := ClientOptsWithStore;
+  LBuild.ClientVerdictResolver := StubResolver;
+  LOpts.ClientConfig := TTlsConfigComposer.BuildClientConfig(LBuild);
+  CheckTrue(TTlsConfigComposer.ResolveClientConfig(LOpts, LMemo, 'ClientConfig') =
+    LOpts.ClientConfig, 'a deferring config keeps its resolver');
+end;
+
+procedure TTestTlsConnection.TestResolverBesideNonDeferringServerConfigIsRefused;
+var
+  LBuild, LOpts: TTlsOptions;
+  LMemo: ITlsServerConfigMemo;
+  LRaised: Boolean;
+begin
+  LMemo := NewTlsServerConfigMemo;
+  LBuild := ServerOptsWithCredential;
+  LBuild.TrustAnchors := TArray<TTlsBlobSource>.Create(TTlsBlobSource.FromBytes(RootAnchor));
+  LBuild.ClientAuth := TClientAuthMode.Required;
+  LOpts := TTlsOptions.Default;
+  LOpts.ServerConfig := TTlsConfigComposer.BuildServerConfig(LBuild);
+  LOpts.ServerVerdictResolver := StubResolver;
+  LRaised := False;
+  try
+    TTlsConfigComposer.ResolveServerConfig(LOpts, LMemo, 'ServerConfig');
+  except
+    on E: ETlsStreamError do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a server resolver beside a client-auth config that never defers is refused');
+  // a client-auth config that does defer keeps its resolver
+  LBuild.ServerVerdictResolver := StubResolver;
+  LOpts.ServerConfig := TTlsConfigComposer.BuildServerConfig(LBuild);
+  CheckTrue(TTlsConfigComposer.ResolveServerConfig(LOpts, LMemo, 'ServerConfig') =
+    LOpts.ServerConfig, 'a deferring client-auth config accepts the resolver');
+  // without client authentication the server never parks, so the resolver is not a conflict
+  LBuild := ServerOptsWithCredential;
+  LOpts.ServerConfig := TTlsConfigComposer.BuildServerConfig(LBuild);
+  CheckTrue(TTlsConfigComposer.ResolveServerConfig(LOpts, LMemo, 'ServerConfig') =
+    LOpts.ServerConfig, 'a no-client-auth server config accepts the runtime hook');
 end;
 
 procedure TTestTlsConnection.TestServerModeWithVerifyPeerOffRaises;
