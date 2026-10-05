@@ -1,0 +1,91 @@
+TlsLib/src/Handshake/TlpHandshakeConductor.pas
+  s_d27f31cd14035d::t_9f3af971cc6648 83
+  s_d27f31cd14035d::t_0f34c0ae63cb1f 81
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_d27f31cd14035d::t_d12af8375649fe 696-697
+  s_d27f31cd14035d::t_c1aa7428c95c37 2244-2248
+TlsLib.Interop/src/InteropPump.pas
+  s_d27f31cd14035d::t_5f65b5cd78d5f3 288
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_d27f31cd14035d::t_70665e6d873133 451-452
+TlsLib.Adapters/Synapse/Adapter/TlsLibSynapseTls.pas
+  s_d27f31cd14035d::t_ed8163e33ef2cf 429-430
+TlsLib/src/Session/TlpSessionTicketKeys.pas
+  s_d27f31cd14035d::t_ceb0033174656f 156-160
+  s_d27f31cd14035d::t_ac753fb434f333 83-84,90,167
+  s_d27f31cd14035d::t_a3c1d45e02f7e9 91,94
+  s_d27f31cd14035d::t_7939abd0a527b6 168-172
+TlsLib/src/Session/TlpAntiReplay.pas
+  s_d27f31cd14035d::t_cdc746ab16c004 74-78
+  s_d27f31cd14035d::t_2a991e665168b1 57-58
+TlsLib/src/Interfaces/Engine/TlpITlsConfig.pas
+  s_d27f31cd14035d::t_42714d871acabb 165
+TlsLib.Tests/src/AsyncVerdictTests.pas
+  s_d27f31cd14035d::t_72a573f2d93587 798
+  s_d27f31cd14035d::t_6c3bb684a88792 457
+  s_d27f31cd14035d::t_2e2b977d5707de 596,622
+  s_d27f31cd14035d::t_efa7b22d838b80 535
+  s_d27f31cd14035d::t_fd8bf63f65464c 416,495,560
+TlsLib/src/Trust/TlpCertificateVerifier.pas
+  s_d27f31cd14035d::t_f2f8944b208aab 868
+  s_d27f31cd14035d::t_f6a08aee256cfb 898
+  s_d27f31cd14035d::t_47d4fe170b1c97 801-811
+TlsLib/src/Session/TlpInMemorySessionStore.pas
+  s_d27f31cd14035d::t_fbfc7fa1f4056a 53-54
+  s_d27f31cd14035d::t_20709067ea288d 77-81
+TlsLib.Tests/src/ExceptionTests.pas
+  s_d27f31cd14035d::t_170e449a7a5f51 92-113
+  s_d27f31cd14035d::t_0ae80e7c33cd8f 42
+TlsLib/src/Connection/TlpTlsStreamPump.pas
+  s_d27f31cd14035d::t_0109d64ca32aa9 236,238
+TlsLib/src/Engine/TlpTlsEngine.pas
+  s_d27f31cd14035d::t_3d36cff64dac24 132
+TlsLib/src/CertCompression/TlpInMemoryCertificateCompressionCache.pas
+  s_d27f31cd14035d::t_397f2c9781e511 68-72
+  s_d27f31cd14035d::t_3f1c4e8fe25e5e 48-49
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_d27f31cd14035d::t_fbfd5d29c351f8 495
+  s_d27f31cd14035d::t_a1625408445247 564-565
+TlsLib/src/Interfaces/Engine/TlpITlsEngine.pas
+  s_d27f31cd14035d::t_e3d65beb89ce05 138-139
+  s_d27f31cd14035d::t_c17f51f3753802 140-142
+  s_d27f31cd14035d::t_8cb4bc502ab01e 144
+TlsLib/src/Session/TlpInMemorySessionCache.pas
+  s_d27f31cd14035d::t_d3ae8e2a63f4a5 50-51
+  s_d27f31cd14035d::t_ed6fea4588adfb 72-76
+TlsLib.Adapters/mORMot/Adapter/TlsLibMormotTls.pas
+  s_d27f31cd14035d::t_ca8624a1a44a4d 472,475-476,478-479,481-482,484-485,487-488,490-491,493-494,496-497
+  s_d27f31cd14035d::t_05d6e00405da7c 462,467,469
+TlsLib/src/Connection/TlpTlsConnection.pas
+  s_d27f31cd14035d::t_9972e2b8b5250c 606-607
+  s_d27f31cd14035d::t_a04517e0bd6ea5 649-650
+  s_d27f31cd14035d::t_b31d1fdbc5fefc 417-418
+  s_d27f31cd14035d::t_64094d0ae20d30 477-478
+  s_d27f31cd14035d::t_99f837aff3e6d0 468-471
+  s_d27f31cd14035d::t_a28785de57f324 453
+  s_d27f31cd14035d::t_efedad814a5204 461-462
+  s_d27f31cd14035d::t_aafca50909c177 626-627
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_d27f31cd14035d::t_bb53223e798d1a 59-61
+  s_d27f31cd14035d::t_705e617e120ebb 294
+  s_d27f31cd14035d::t_415de02ed8c44b 323
+TlsLib/src/Common/TlpTlsLibExceptions.pas
+  s_d27f31cd14035d::t_1668fa57708e0c 119-122
+  s_d27f31cd14035d::t_05042ba2a87f48 220-235
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5bf4ffdb8ca3dc5cf1ccc8853fcb96aa6061cb46",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
