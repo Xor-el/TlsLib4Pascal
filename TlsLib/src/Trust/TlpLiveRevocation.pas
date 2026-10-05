@@ -299,7 +299,7 @@ begin
 
   LStartMs := Int64(FClock.NowUnixMillis);
   LLatestMs := LStartMs;
-  LLeft :=System.Length(LOcspUrls) + System.Length(LCrlUrls);
+  LLeft := System.Length(LOcspUrls) + System.Length(LCrlUrls);
   for LI := 0 to System.High(LOcspUrls) do
   begin
     if not NextTimeout(LStartMs, LLatestMs, LLeft, LTimeout) then
