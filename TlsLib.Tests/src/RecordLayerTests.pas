@@ -77,6 +77,8 @@ type
     procedure TestRecordSizeLimitExemptsPlaintextRecords;
     procedure TestSkippedPlaintextEarlyDataAcceptsFullSizeRecord;
     procedure TestPlaintextAlertBeforeFirstDecryptIsAcceptedInTls13;
+    procedure TestPlaintextFatalLevelCloseNotifyIsRefused;
+    procedure TestPlaintextHelloFlightDoesNotCloseTheAlertWindow;
     procedure TestPlaintextAlertAfterAKeyChangeIsStillRefused;
     procedure TestPlaintextCloseNotifyIsNeverHonoured;
     procedure TestPlaintextAlertIsNotAcceptedInTls12;
@@ -799,6 +801,31 @@ begin
   end;
 end;
 
+procedure TTestRecordLayer.TestPlaintextHelloFlightDoesNotCloseTheAlertWindow;
+var
+  LRecv: TRecordLayer;
+  LFrag: TTlsRecordFragment;
+  LHello, LAlert: TBytes;
+begin
+  LRecv := TRecordLayer.Create;
+  try
+    LRecv.SetNegotiatedVersion(TTlsVersion.Tls13);
+    // the hello flight arrives in plaintext; decoding it is not a decrypt
+    LHello := DecodeHex('1603030004' + '0e000000');
+    LRecv.ProcessInput(LHello, 0, System.Length(LHello));
+    CheckTrue(DrainOne(LRecv, LFrag), 'the plaintext handshake record surfaces');
+    LRecv.SetReadProtection(MakeTls13(DecodeHex('000102030405060708090a0b0c0d0e0f'),
+      DecodeHex('101112131415161718191a1b')));
+    // a peer failing before its first protected record may still alert in plaintext
+    LAlert := DecodeHex('1503030002022a');
+    LRecv.ProcessInput(LAlert, 0, System.Length(LAlert));
+    CheckTrue(DrainOne(LRecv, LFrag), 'the plaintext fatal alert surfaces');
+    CheckTrue(LFrag.ContentType = TTlsContentType.Alert, 'it is an alert');
+  finally
+    LRecv.Free;
+  end;
+end;
+
 procedure TTestRecordLayer.TestPlaintextAlertAfterAKeyChangeIsStillRefused;
 var
   LSend, LRecv: TRecordLayer;
@@ -842,6 +869,23 @@ begin
     // alert (close_notify) is unauthenticated and would forge a truncation (RFC 8446 6.1)
     CheckTrue(ExpectFatal(LRecv, DecodeHex('15030300020100'), TTlsAlertDescription.BadRecordMac),
       'a plaintext close_notify is refused');
+  finally
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestPlaintextFatalLevelCloseNotifyIsRefused;
+var
+  LRecv: TRecordLayer;
+begin
+  LRecv := TRecordLayer.Create;
+  try
+    LRecv.SetReadProtection(MakeTls13(DecodeHex('000102030405060708090a0b0c0d0e0f'),
+      DecodeHex('101112131415161718191a1b')));
+    LRecv.SetNegotiatedVersion(TTlsVersion.Tls13);
+    // close_notify closes at any level, so a fatal-level one must not pass the fatal allowance
+    CheckTrue(ExpectFatal(LRecv, DecodeHex('15030300020200'), TTlsAlertDescription.BadRecordMac),
+      'a plaintext close_notify at fatal level is refused');
   finally
     LRecv.Free;
   end;
@@ -967,8 +1011,10 @@ begin
     LRecv.ProcessInput(LWire, 0, System.Length(LWire));
     CheckTrue(DrainOne(LRecv, LFrag), 'first early record within the budget');
     CheckEqualBytes('first early plaintext', LA, LFrag.Data);
+    CheckTrue(LFrag.Early, 'a record inside the early window is tagged as early data');
     CheckTrue(DrainOne(LRecv, LFrag), 'second early record exactly fills the budget');
     CheckEqualBytes('second early plaintext', LB, LFrag.Data);
+    CheckTrue(LFrag.Early, 'the second early record is tagged too');
     // the window closes at EndOfEarlyData and the handshake completes; ordinary application
     // data then flows uncounted
     LRecv.SetEarlyReadAccepted(False, 0);
@@ -979,6 +1025,7 @@ begin
     LRecv.ProcessInput(LWire, 0, System.Length(LWire));
     CheckTrue(DrainOne(LRecv, LFrag), 'application data flows after the early window closes');
     CheckEqualBytes('post-early plaintext', LC, LFrag.Data);
+    CheckFalse(LFrag.Early, 'application data after the window closes is not early data');
   finally
     LSend.Free;
     LRecv.Free;

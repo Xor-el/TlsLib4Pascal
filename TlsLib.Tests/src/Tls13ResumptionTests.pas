@@ -101,6 +101,7 @@ type
     procedure Pump(const ASrc, ADst: ITlsEngine);
     procedure DriveHandshake(const AClient, AServer: ITlsEngine);
     function ReadAllApp(const AEngine: ITlsEngine): TBytes;
+    function ReadAllEarly(const AEngine: ITlsEngine): TBytes;
     procedure CheckAppDataFlows(const AClient, AServer: ITlsEngine);
     function MakeSession(const AIdentity: TBytes; const ASecret: ISecretBuffer;
       ALifetime: UInt32; AMaxEarlyData: UInt32 = 0): IResumableSession;
@@ -125,6 +126,7 @@ type
     procedure TestStekRetiredKeyNotAccepted;
     procedure TestStekInvalidTicketFallsBackToFullHandshake;
     procedure TestStoreUpgradesOverStek;
+    procedure TestManySmallRecordsQueueByteForByte;
     procedure TestZeroRttAcceptedDeliversEarlyData;
     procedure TestZeroRttEarlyExporterMatchesAcrossPeers;
     procedure TestZeroRttRejectWithholdsClientEarlyExporter;
@@ -364,6 +366,20 @@ procedure TTestTls13Resumption.DriveHandshake(const AClient, AServer: ITlsEngine
 begin
   AClient.StartHandshake;
   PumpToCompletion(AClient, AServer);
+end;
+
+function TTestTls13Resumption.ReadAllEarly(const AEngine: ITlsEngine): TBytes;
+var
+  LChunk: TBytes;
+  LGot: Int32;
+begin
+  Result := nil;
+  SetLength(LChunk, 65536);
+  repeat
+    LGot := AEngine.ReadEarlyData(LChunk, 0, System.Length(LChunk));
+    if LGot > 0 then
+      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LGot));
+  until LGot = 0;
 end;
 
 function TTestTls13Resumption.ReadAllApp(const AEngine: ITlsEngine): TBytes;
@@ -704,6 +720,60 @@ begin
   CheckEquals(0, LStore.Count, 'the store ticket was consumed (single-use), proving the upgrade');
 end;
 
+procedure TTestTls13Resumption.TestManySmallRecordsQueueByteForByte;
+const
+  RecordCount = Int32(9000);
+var
+  LStek: ISessionTicketKeyManager;
+  LAnti: IAntiReplayStrategy;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LOne, LWant, LGot, LStep: TBytes;
+  LIdx, LTaken, LRead: Int32;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LAnti := TStrikeRegisterAntiReplay.Create;
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, False);
+  LServer := BuildServer(LStek, nil, 1, 7200, True, 16384, LAnti);
+  DriveHandshake(LClient, LServer);
+
+  // one-byte records, read back in odd steps so the queue's consumed prefix is reclaimed while
+  // later records are still arriving
+  System.SetLength(LOne, 1);
+  System.SetLength(LWant, RecordCount);
+  System.SetLength(LStep, 7);
+  LGot := nil;
+  for LIdx := 0 to RecordCount - 1 do
+  begin
+    LOne[0] := Byte(LIdx * 7 + 3);
+    LWant[LIdx] := LOne[0];
+    LClient.Write(LOne, 0, 1);
+    if LIdx mod 1000 = 999 then
+    begin
+      Pump(LClient, LServer);
+      // take part of what has arrived, leaving a live remainder behind the consumed prefix
+      LRead := 0;
+      while LRead < 600 do
+      begin
+        LTaken := LServer.ReadAppData(LStep, 0, 7);
+        if LTaken = 0 then
+          Break;
+        LGot := ConcatBytes(LGot, System.Copy(LStep, 0, LTaken));
+        Inc(LRead, LTaken);
+      end;
+    end;
+  end;
+  Pump(LClient, LServer);
+  repeat
+    LTaken := LServer.ReadAppData(LStep, 0, 7);
+    if LTaken > 0 then
+      LGot := ConcatBytes(LGot, System.Copy(LStep, 0, LTaken));
+  until LTaken = 0;
+  CheckEqualBytes('the bytes come back in order', LWant, LGot);
+  CheckEquals(0, LServer.PendingAppData, 'the queue is drained');
+end;
+
 procedure TTestTls13Resumption.TestZeroRttAcceptedDeliversEarlyData;
 var
   LStek: ISessionTicketKeyManager;
@@ -733,8 +803,15 @@ begin
   CheckFalse(LClient.IsHandshaking, 'the 0-RTT client completed');
   CheckFalse(LServer.IsHandshaking, 'the credential-less server completed via 0-RTT');
   CheckFalse(LServer.IsTerminal, 'no failure on 0-RTT');
+  CheckEquals(System.Length(LEarly), LServer.PendingEarlyData,
+    'the early data is buffered apart from the 1-RTT queue');
+  CheckEquals(0, LServer.PendingAppData,
+    'accepted early data is not counted as 1-RTT data');
   CheckEqualBytes('the server received the early data as 0-RTT', LEarly,
-    ReadAllApp(LServer));
+    ReadAllEarly(LServer));
+  CheckEquals(0, System.Length(ReadAllApp(LServer)),
+    'accepted early data is never delivered through the 1-RTT read path');
+  CheckEquals(0, LClient.PendingEarlyData, 'a client never holds early data');
 end;
 
 procedure TTestTls13Resumption.TestZeroRttEarlyExporterMatchesAcrossPeers;
@@ -978,7 +1055,7 @@ begin
   // complete: the early data still arrives as 0-RTT, and a 1-RTT write then succeeds
   PumpToCompletion(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the 0-RTT client completed');
-  CheckEqualBytes('the early data arrived as 0-RTT', LEarly, ReadAllApp(LServer));
+  CheckEqualBytes('the early data arrived as 0-RTT', LEarly, ReadAllEarly(LServer));
   LClient.Write(LData, 0, System.Length(LData));
   Pump(LClient, LServer);
   CheckEqualBytes('a 1-RTT write follows once the application epoch is in force', LData,
@@ -1051,7 +1128,7 @@ begin
   PumpToCompletion(LClient, LServer);
   CheckFalse(LServer.IsHandshaking, 'the resumption completed despite the 0-RTT reject');
   CheckFalse(LServer.IsTerminal, 'the reject is not fatal');
-  CheckEquals(0, System.Length(ReadAllApp(LServer)),
+  CheckEquals(0, System.Length(ReadAllApp(LServer)) + System.Length(ReadAllEarly(LServer)),
     'the rejected early data is discarded, not auto-replayed as 1-RTT');
 end;
 
@@ -1147,13 +1224,13 @@ begin
   // the first server accepts the early data (records the binder in the register)
   Feed(LServerA, LFlight);
   CheckEqualBytes('the first use delivers the early data', LEarly,
-    ReadAllApp(LServerA));
+    ReadAllEarly(LServerA));
 
   // replaying the identical flight to another server sharing the register: the binder is
   // a strike, so 0-RTT is rejected and the early data is skipped, not delivered
   LServerB := BuildServer(LStek, nil, 0, 7200, False, 16384, LAnti);
   Feed(LServerB, LFlight);
-  CheckEquals(0, System.Length(ReadAllApp(LServerB)),
+  CheckEquals(0, System.Length(ReadAllApp(LServerB)) + System.Length(ReadAllEarly(LServerB)),
     'a replayed 0-RTT flight is caught by the strike register and skipped');
 end;
 
@@ -1188,7 +1265,7 @@ begin
   CheckTrue(LServer.IsTerminal, 'accepted 0-RTT beyond the ticket budget is fatal');
   CheckTrue(LServer.LastError.Alert.Description = TTlsAlertDescription.UnexpectedMessage,
     'the server sent unexpected_message');
-  CheckTrue(System.Length(ReadAllApp(LServer)) <= 1024,
+  CheckTrue(System.Length(ReadAllEarly(LServer)) <= 1024,
     'no more than the ticket budget of early data was delivered');
 end;
 
@@ -1221,7 +1298,7 @@ begin
   PumpToCompletion(LClient, LServer);
   CheckFalse(LServer.IsTerminal, 'no failure on 0-RTT under an unbounded ticket budget');
   CheckFalse(LServer.IsHandshaking, 'the credential-less server completed via 0-RTT');
-  CheckEqualBytes('the early data was delivered', LEarly, ReadAllApp(LServer));
+  CheckEqualBytes('the early data was delivered', LEarly, ReadAllEarly(LServer));
 end;
 
 procedure TTestTls13Resumption.TestZeroRttAntiReplayHoldIsTwiceFreshnessSkew;
@@ -1256,7 +1333,7 @@ begin
   LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly));
   PumpToCompletion(LClient, LServer);
   CheckFalse(LServer.IsTerminal, 'the 0-RTT resumption succeeded');
-  CheckEqualBytes('the early data was delivered', LEarly, ReadAllApp(LServer));
+  CheckEqualBytes('the early data was delivered', LEarly, ReadAllEarly(LServer));
   CheckEquals(1, LRecorder.Calls, 'the binder was recorded once');
   CheckEquals(ExpectedHoldMillis, Int64(LRecorder.LastExpiry - LRecorder.LastNow),
     'the strike is held for twice the freshness skew, not the ticket lifetime');

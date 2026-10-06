@@ -32,6 +32,9 @@ type
   TTlsRecordFragment = record
     ContentType: TTlsContentType;
     Data: TBytes;
+    /// <summary>Application data accepted as 0-RTT early data, which is replayable and so is
+    /// kept apart from the 1-RTT stream.</summary>
+    Early: Boolean;
   end;
 
   /// <summary>
@@ -483,12 +486,14 @@ function TRecordLayer.IsPlaintextAlert(const ARecord: TBytes): Boolean;
 begin
   // only TLS 1.3 needs the heuristic (TLS 1.2 keying changes at the change_cipher_spec), only
   // until a record has ever decrypted, only a record too short to be protected, and only a fatal
-  // alert: an unauthenticated close_notify or warning must never be honoured (RFC 8446 6.1)
+  // alert other than close_notify (which closes at any level): an unauthenticated close_notify or
+  // warning must never be honoured (RFC 8446 6.1)
   Result := FNegotiatedVersion.Equals(TTlsVersion.Tls13) and (not FReadIsPlaintext) and
     (not FHasDecrypted) and (System.Length(ARecord) > 0) and
     (ARecord[0] = OuterAlert) and
     (System.Length(ARecord) - TRecordLimits.HeaderLength = PlaintextAlertLength) and
-    (ARecord[TRecordLimits.HeaderLength] = TTlsAlertLevel.Fatal.ToByte);
+    (ARecord[TRecordLimits.HeaderLength] = TTlsAlertLevel.Fatal.ToByte) and
+    (ARecord[TRecordLimits.HeaderLength + 1] <> Byte(Ord(TTlsAlertDescription.CloseNotify)));
 end;
 
 function TRecordLayer.TryDecodeFramed(const ARecord: TBytes;
@@ -498,7 +503,11 @@ begin
   // epoch between records, so the epoch is resolved here, per record, not at framing
   AFragment.Data := FReadProtection.Unprotect(ARecord, 0, System.Length(ARecord),
     AFragment.ContentType);
-  FHasDecrypted := True;
+  // a null-epoch decode (the plaintext hello flight) is not a decrypt: counting it would
+  // close the plaintext-alert allowance before the first protected record
+  if not FReadIsPlaintext then
+    FHasDecrypted := True;
+  AFragment.Early := False;
   // RFC 8449: the record_size_limit caps the whole TLSInnerPlaintext (content + type +
   // padding), so measure it from the wire record - content alone would let padding hide
   // an over-limit record. Only protected records are subject to the limit (RFC 8449 4), and
@@ -531,6 +540,7 @@ begin
             raise EFatalAlertTlsLibException.CreateRes(
               TTlsAlertDescription.UnexpectedMessage, @STooMuchEarlyData);
           Dec(FEarlyReadRemaining, System.Length(AFragment.Data));
+          AFragment.Early := True;
         end;
         if System.Length(AFragment.Data) = 0 then
         begin
@@ -622,6 +632,7 @@ var
 begin
   GuardUsable;
   Result := False;
+  AFragment.Early := False;
   try
     while FFramed.Count > 0 do
     begin

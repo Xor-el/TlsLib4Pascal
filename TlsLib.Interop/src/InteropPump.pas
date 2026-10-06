@@ -166,6 +166,12 @@ begin
   Result := nil;
   LBuf := nil;
   SetLength(LBuf, TransportChunk);
+  // accepted 0-RTT data is read separately and precedes the 1-RTT data on the wire
+  repeat
+    LGot := AEngine.ReadEarlyData(LBuf, 0, TransportChunk);
+    if LGot > 0 then
+      Result := TInteropUtils.Concat(Result, System.Copy(LBuf, 0, LGot));
+  until LGot = 0;
   repeat
     LGot := AEngine.ReadAppData(LBuf, 0, TransportChunk);
     if LGot > 0 then
@@ -264,7 +270,8 @@ begin
       AProbe.Observe(AEngine);
     // a server that accepted 0-RTT echoes the client's early data as 0.5-RTT now (before the
     // next blocking Recv), so the peer receives it and proceeds to send EndOfEarlyData
-    if AHalfRttEcho and AEngine.IsHandshaking and (AEngine.PendingAppData > 0) then
+    if AHalfRttEcho and AEngine.IsHandshaking and
+      ((AEngine.PendingEarlyData > 0) or (AEngine.PendingAppData > 0)) then
       EchoAvailable(AEngine, ASocket);
     // surface a peer close_notify / fatal alert only while the handshake is still in progress;
     // once the completing flight has installed, a close_notify coalesced with it belongs to the

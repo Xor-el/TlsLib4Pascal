@@ -18,7 +18,6 @@ interface
 uses
   SysUtils,
   Generics.Collections,
-  TlpArrayUtilities,
   TlpTlsAlert,
   TlpTlsError,
   TlpTlsVersion,
@@ -51,16 +50,28 @@ type
   /// </summary>
   TTlsEngine = class sealed(TInterfacedObject, ITlsEngine)
   strict private
+  type
+    // decrypted plaintext waiting for the caller: [FHead, FTail) of one buffer, so the byte
+    // count the app-read cap bounds is the real one and appends stay amortised O(1)
+    TPlaintextQueue = record
+    strict private
+      FBuffer: TBytes;
+      FHead: Int32;
+      FTail: Int32;
+    public
+      procedure Append(const AData: TBytes);
+      /// <summary>Moves up to ACount queued bytes into ADest at ADestOffset; the caller has
+      /// already clamped ACount to the queue and the destination.</summary>
+      procedure Take(var ADest: TBytes; ADestOffset, ACount: Int32);
+      function Available: Int32;
+    end;
   var
     FRecordLayer: TRecordLayer;
     FEvents: TQueue<ITlsEvent>;
     FConductor: THandshakeConductor;
-    // decrypted application data waiting for the caller, as a queue of record-sized
-    // chunks: FAppChunkHead/FAppBytePos is the read cursor, FAppAvail the unread total
-    FAppChunks: TArray<TBytes>;
-    FAppChunkHead: Int32;
-    FAppBytePos: Int32;
-    FAppAvail: Int32;
+    FAppQueue: TPlaintextQueue;
+    // accepted 0-RTT application data, kept apart because it is replayable
+    FEarlyQueue: TPlaintextQueue;
     FMaxAppReadBuffer: Int32;
     FTerminal: Boolean;
     FClosed: Boolean;
@@ -133,6 +144,8 @@ type
     function TakeOutgoing(var ADest: TBytes; ADestOffset: Int32): Int32;
     function ReadAppData(var ADest: TBytes; ADestOffset, AMaxLength: Int32): Int32;
     function PendingAppData: Int32;
+    function ReadEarlyData(var ADest: TBytes; ADestOffset, AMaxLength: Int32): Int32;
+    function PendingEarlyData: Int32;
     function NextEvent(out AEvent: ITlsEvent): Boolean;
     function WantsRead: Boolean;
     function WantsWrite: Boolean;
@@ -185,6 +198,8 @@ implementation
 
 const
   DefaultMaxAppReadBuffer = Int32(1 shl 20); // 1 MiB advisory backpressure threshold
+  PlaintextQueueMinCapacity = Int32(4096);
+  PlaintextQueueRetainCapacity = Int32(1 shl 16);
   // the number of warning-level alerts tolerated before a flood is refused; the next one
   // aborts the connection (RFC 8446 6 leaves the level advisory, but a flood is a DoS)
   MaxWarningAlerts = Int32(4);
@@ -415,9 +430,6 @@ begin
   FRecordLayer := TRecordLayer.Create;
   FEvents := TQueue<ITlsEvent>.Create;
   FMaxAppReadBuffer := DefaultMaxAppReadBuffer;
-  FAppChunkHead := 0;
-  FAppBytePos := 0;
-  FAppAvail := 0;
   FTerminal := False;
   FClosed := False;
   FSentClose := False;
@@ -494,24 +506,67 @@ begin
   if System.Length(AData) = 0 then
     Exit;
   // no hard cap here: the read buffer is bounded by backpressure - DrainRecordLayer stops pulling
-  // once FAppAvail reaches FMaxAppReadBuffer, and WantsRead reports False, so a caller that honours
+  // once the queue reaches FMaxAppReadBuffer, and WantsRead reports False, so a caller that honours
   // it stops feeding. A single pulled record may overshoot the soft cap by at most one record.
-  // drop any fully-consumed chunks at the front (bounds the queue; copies only the
-  // few live chunk references, never the payload bytes)
-  if FAppChunkHead > 0 then
-  begin
-    FAppChunks := System.Copy(FAppChunks, FAppChunkHead,
-      System.Length(FAppChunks) - FAppChunkHead);
-    FAppChunkHead := 0;
-  end;
-  // enqueue the record's bytes by reference - no O(n^2) recopy of the buffer
-  TArrayUtilities.Append<TBytes>(FAppChunks, AData);
-  Inc(FAppAvail, System.Length(AData));
+  FAppQueue.Append(AData);
 end;
 
 function TTlsEngine.AppReadAvailable: Int32;
 begin
-  Result := FAppAvail;
+  Result := FAppQueue.Available;
+end;
+
+procedure TTlsEngine.TPlaintextQueue.Append(const AData: TBytes);
+var
+  LLive, LNeed, LCap: Int32;
+begin
+  if System.Length(AData) = 0 then
+    Exit;
+  LLive := FTail - FHead;
+  if Int64(FTail) + System.Length(AData) > System.Length(FBuffer) then
+  begin
+    // reclaim the consumed prefix before growing
+    if FHead > 0 then
+    begin
+      if LLive > 0 then
+        System.Move(FBuffer[FHead], FBuffer[0], LLive);
+      FHead := 0;
+      FTail := LLive;
+    end;
+    LNeed := FTail + System.Length(AData);
+    if LNeed > System.Length(FBuffer) then
+    begin
+      LCap := System.Length(FBuffer);
+      if LCap < PlaintextQueueMinCapacity then
+        LCap := PlaintextQueueMinCapacity;
+      if LCap <= High(Int32) div 2 then
+        LCap := LCap * 2;
+      if LCap < LNeed then
+        LCap := LNeed;
+      System.SetLength(FBuffer, LCap);
+    end;
+  end;
+  System.Move(AData[0], FBuffer[FTail], System.Length(AData));
+  Inc(FTail, System.Length(AData));
+end;
+
+procedure TTlsEngine.TPlaintextQueue.Take(var ADest: TBytes; ADestOffset, ACount: Int32);
+begin
+  System.Move(FBuffer[FHead], ADest[ADestOffset], ACount);
+  Inc(FHead, ACount);
+  if FHead = FTail then
+  begin
+    FHead := 0;
+    FTail := 0;
+    // do not pin a buffer sized for a burst
+    if System.Length(FBuffer) > PlaintextQueueRetainCapacity then
+      FBuffer := nil;
+  end;
+end;
+
+function TTlsEngine.TPlaintextQueue.Available: Int32;
+begin
+  Result := FTail - FHead;
 end;
 
 procedure TTlsEngine.HandleIncomingAlert(const AData: TBytes);
@@ -575,7 +630,10 @@ begin
       begin
         // genuine traffic resets the peer's post-handshake message flood counter
         FConductor.NoteApplicationData;
-        AppendAppData(AFragment.Data);
+        if AFragment.Early then
+          FEarlyQueue.Append(AFragment.Data)
+        else
+          AppendAppData(AFragment.Data);
       end;
     TTlsContentType.Handshake:
       // the handshake consumes the fragment and drives its state machine
@@ -665,7 +723,8 @@ begin
   end;
   if FTerminal then // a received fatal alert or a handshake failure
     Exit(TTlsOutcome.Fatal);
-  if (AppReadAvailable > 0) or (FEvents.Count > 0) or (FRecordLayer.PendingOutgoing > 0) then
+  if (AppReadAvailable > 0) or (FEarlyQueue.Available > 0) or (FEvents.Count > 0) or
+    (FRecordLayer.PendingOutgoing > 0) then
     Result := TTlsOutcome.Advanced
   else
     Result := TTlsOutcome.NeedMoreInput;
@@ -862,6 +921,9 @@ end;
 
 procedure TTlsEngine.StartHandshake;
 begin
+  // an abort already ended the connection; a hello queued behind its alert would be noise
+  if FTerminal then
+    Exit;
   // an in-band start failure (ECH/PSK/crypto setup) aborts with its alert rather than escaping
   try
     FConductor.Start;
@@ -882,6 +944,9 @@ begin
   // a no-op unless the handshake is actually parked on a verdict (idempotent, safe to call);
   // ResolveCertificateVerdict below clears the conductor's park flag
   if not FConductor.AwaitingVerdict then
+    Exit;
+  // a fatal alert already ended the connection; resuming would queue Finished behind it
+  if FTerminal then
     Exit;
   // reject aborts fail-closed (the conductor emits AAlert, making the engine terminal); accept
   // drains the buffered flight and completes the handshake. A malformed/bad-signature record in
@@ -911,14 +976,14 @@ end;
 function TTlsEngine.ReadAppData(var ADest: TBytes; ADestOffset,
   AMaxLength: Int32): Int32;
 var
-  LCapacity, LWant, LDest, LInChunk, LTake: Int32;
+  LCapacity, LWant: Int32;
 begin
   if FDraining then
     raise EInvalidOperationTlsLibException.CreateRes(@SReentrantEngineCall);
   LCapacity := System.Length(ADest) - ADestOffset;
   if (ADestOffset < 0) or (LCapacity <= 0) or (AMaxLength <= 0) then
     Exit(0);
-  LWant := FAppAvail;
+  LWant := FAppQueue.Available;
   if LWant > AMaxLength then
     LWant := AMaxLength;
   if LWant > LCapacity then
@@ -926,38 +991,13 @@ begin
   if LWant <= 0 then
     Exit(0);
   Result := LWant;
-  LDest := ADestOffset;
-  // copy across chunk boundaries, retiring each head chunk as it drains
-  while LWant > 0 do
-  begin
-    LInChunk := System.Length(FAppChunks[FAppChunkHead]) - FAppBytePos;
-    LTake := LWant;
-    if LTake > LInChunk then
-      LTake := LInChunk;
-    Move(FAppChunks[FAppChunkHead][FAppBytePos], ADest[LDest], LTake);
-    Inc(FAppBytePos, LTake);
-    Inc(LDest, LTake);
-    Dec(LWant, LTake);
-    Dec(FAppAvail, LTake);
-    if FAppBytePos >= System.Length(FAppChunks[FAppChunkHead]) then
-    begin
-      FAppChunks[FAppChunkHead] := nil; // release the consumed chunk
-      Inc(FAppChunkHead);
-      FAppBytePos := 0;
-    end;
-  end;
-  if FAppAvail = 0 then // fully drained: reset the queue
-  begin
-    FAppChunks := nil;
-    FAppChunkHead := 0;
-    FAppBytePos := 0;
-  end;
+  FAppQueue.Take(ADest, ADestOffset, LWant);
   // reading down the buffer relieves backpressure: resume the drain so records held back at the
   // app-read cap (a raw embedder that fed a large buffer) surface, and a KeyUpdate/alert produced
   // while pulling reaches the record layer's outbound queue. Not while parked, and never turning a
   // pull failure into an escape.
   if (not FConductor.AwaitingVerdict) and (not FTerminal) and (not FClosed) and
-    (FAppAvail < FMaxAppReadBuffer) then
+    (FAppQueue.Available < FMaxAppReadBuffer) then
   begin
     try
       DrainRecordLayer;
@@ -970,7 +1010,35 @@ end;
 
 function TTlsEngine.PendingAppData: Int32;
 begin
-  Result := FAppAvail;
+  Result := FAppQueue.Available;
+end;
+
+function TTlsEngine.ReadEarlyData(var ADest: TBytes; ADestOffset,
+  AMaxLength: Int32): Int32;
+var
+  LCapacity, LWant: Int32;
+begin
+  if FDraining then
+    raise EInvalidOperationTlsLibException.CreateRes(@SReentrantEngineCall);
+  LCapacity := System.Length(ADest) - ADestOffset;
+  if (ADestOffset < 0) or (LCapacity <= 0) or (AMaxLength <= 0) then
+    Exit(0);
+  LWant := FEarlyQueue.Available;
+  if LWant > AMaxLength then
+    LWant := AMaxLength;
+  if LWant > LCapacity then
+    LWant := LCapacity;
+  if LWant <= 0 then
+    Exit(0);
+  Result := LWant;
+  // no drain to resume: the early queue never counts against the app-read cap, since
+  // max_early_data already bounds it
+  FEarlyQueue.Take(ADest, ADestOffset, LWant);
+end;
+
+function TTlsEngine.PendingEarlyData: Int32;
+begin
+  Result := FEarlyQueue.Available;
 end;
 
 function TTlsEngine.NextEvent(out AEvent: ITlsEvent): Boolean;

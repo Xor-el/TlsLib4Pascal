@@ -648,6 +648,7 @@ begin
   SetLength(LBuf, 4096);
   while AEngine.TakeOutgoing(LBuf, 0) > 0 do ;
   while AEngine.ReadAppData(LBuf, 0, System.Length(LBuf)) > 0 do ;
+  while AEngine.ReadEarlyData(LBuf, 0, System.Length(LBuf)) > 0 do ;
   while AEngine.NextEvent(LEvent) do ;
 end;
 
