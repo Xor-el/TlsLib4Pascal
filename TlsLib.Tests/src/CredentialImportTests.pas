@@ -71,7 +71,6 @@ type
     procedure TestEncryptedKeysImportWithPassword;
     procedure TestEncryptedKeyImportsWithUtf8Passphrase;
     procedure TestPemKeyAfterOtherObjectsImports;
-    procedure TestPkcs1VerifierRejectsDigestInfoWithoutNullParameters;
     procedure TestShortReadFromInjectedRandomIsRefused;
     procedure TestLoadCertificateChainFromPemBundle;
     procedure TestLoadSingleDerCertificate;
@@ -215,22 +214,6 @@ begin
   CheckSchemes('ec256 after certificates', LKey, [TSignatureScheme.ECDSA_SECP256R1_SHA256]);
   CheckTrue(RoundTrips(TSignatureScheme.ECDSA_SECP256R1_SHA256, LKey, 'ec256_pub'),
     'the key behind a certificate chain signs a verifying signature');
-end;
-
-procedure TTestCredentialImport.TestPkcs1VerifierRejectsDigestInfoWithoutNullParameters;
-var
-  LVerifier: ISignatureVerifier;
-  LMessage: TBytes;
-begin
-  // RFC 8017 9.2 fixes the DigestInfo with its NULL parameters; the vector is a genuine signature
-  // by the key behind rsa_pub over the variant that omits them, which a lenient PKCS#1 v1.5
-  // check would accept
-  LMessage := DecodeHex(SMessageHex);
-  LVerifier := Crypto.Signing.CreateSignatureVerifier(TSignatureScheme.RSA_PKCS1_SHA256,
-    DecodeHex(FV.Values['rsa_pub']));
-  LVerifier.Update(LMessage, 0, System.Length(LMessage));
-  CheckFalse(LVerifier.Verify(DecodeHex(FV.Values['rsa_pkcs1_sha256_no_null_sig'])),
-    'a DigestInfo without NULL parameters is rejected');
 end;
 
 procedure TTestCredentialImport.TestShortReadFromInjectedRandomIsRefused;

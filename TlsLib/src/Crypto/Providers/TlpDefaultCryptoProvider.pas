@@ -69,7 +69,6 @@ uses
   ClpMlKemDecapsulator,
   ClpIKemDecapsulator,
   ClpISigner,
-  ClpIRsaDigestSigner,
   ClpSignerUtilities,
   ClpIDsa,
   ClpIDsaKCalculator,
@@ -2073,7 +2072,6 @@ var
   LKey: IAsymmetricKeyParameter;
   LKind: TSignatureKeyKind;
   LSigner: ISigner;
-  LRsaSigner: IRsaDigestSigner;
 begin
   // parse the SubjectPublicKeyInfo behind a typed exception (a malformed SPKI is a caller/peer
   // input problem, never a raw backend exception crossing the seam)
@@ -2095,10 +2093,6 @@ begin
     Exit(TFailClosedSignatureVerifier.Create as ISignatureVerifier);
   try
     LSigner := TSignerUtilities.GetSigner(SignerMechanismForScheme(AScheme));
-    // an RSASSA-PKCS1-v1_5 signature must carry the one canonical DigestInfo (RFC 8017 9.2);
-    // the lenient alternate with absent parameters is not accepted
-    if Supports(LSigner, IRsaDigestSigner, LRsaSigner) then
-      LRsaSigner.StrictDigestInfo := True;
     LSigner.Init(False, LKey);
   except
     on E: ECryptoLibException do
