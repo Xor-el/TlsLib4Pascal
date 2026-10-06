@@ -217,6 +217,11 @@ type
 
 implementation
 
+resourcestring
+  SNilVerifierInput = 'a PKIX provider and clock are required (pass instances, not nil)';
+  SNilPinningInput = 'an inner verifier, a crypto provider and a PKIX provider are required ' +
+    '(pass instances, not nil)';
+
 { TCertificateVerifierOptions }
 
 class operator TCertificateVerifierOptions.Initialize({$IFDEF FPC}var{$ELSE}out{$ENDIF}
@@ -249,6 +254,8 @@ constructor TCertificateVerifier.Create(const APkix: IPkixProvider;
   ACheckHostName: Boolean; const AOptions: TCertificateVerifierOptions);
 begin
   inherited Create;
+  if (APkix = nil) or (AClock = nil) then
+    raise EArgumentTlsLibException.CreateRes(@SNilVerifierInput);
   FPkix := APkix;
   FClock := AClock;
   FTrustStore := ATrustStore;
@@ -665,6 +672,8 @@ constructor TPinningVerifier.Create(const AInner: IServerCertificateVerifier;
   const APkixProvider: IPkixProvider);
 begin
   inherited Create;
+  if (AInner = nil) or (ACryptoProvider = nil) or (APkixProvider = nil) then
+    raise EArgumentTlsLibException.CreateRes(@SNilPinningInput);
   FInner := AInner;
   FPins := APins;
   FCrypto := ACryptoProvider;
@@ -699,6 +708,8 @@ constructor TClientPinningVerifier.Create(const AInner: IClientCertificateVerifi
   const APkixProvider: IPkixProvider);
 begin
   inherited Create;
+  if (AInner = nil) or (ACryptoProvider = nil) or (APkixProvider = nil) then
+    raise EArgumentTlsLibException.CreateRes(@SNilPinningInput);
   FInner := AInner;
   FPins := APins;
   FCrypto := ACryptoProvider;

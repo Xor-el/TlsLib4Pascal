@@ -28,8 +28,8 @@ type
   ///
   /// Both methods are synchronous and MUST NOT raise: a transport error, a non-2xx status,
   /// a timeout, or an empty body is reported as a False result with AResponse empty. The
-  /// caller treats a False (or an ambiguous body) per its configured revocation posture,
-  /// defaulting to the stricter option - the seam is fail-closed by construction. ATimeoutMs
+  /// caller treats a False (or an ambiguous body) per the revocation posture it was built with,
+  /// so a failed fetch is never taken as Good. ATimeoutMs
   /// bounds the whole exchange; 0 leaves the timeout to the implementation.
   ///
   /// The URLs come from the peer's own certificate and are passed as written, so the scheme

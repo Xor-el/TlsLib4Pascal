@@ -113,6 +113,8 @@ type
     procedure TestValidChainTrusted;
     procedure TestExpiredRejectedAsCertificateExpired;
     procedure TestExpiredExtraneousCertificateIgnored;
+    procedure TestUnrelatedExpiredCertificateDoesNotMaskUnknownCa;
+    procedure TestNilCollaboratorsAreRefused;
     procedure TestUntrustedRootRejectedAsUnknownCa;
     procedure TestHostNameMismatchRejectedAsBadCertificate;
     procedure TestEmptyChainRejected;
@@ -120,6 +122,8 @@ type
     procedure TestIncompleteChainWithoutIntermediatesRejected;
     procedure TestIncompleteChainCompletedByIntermediates;
     procedure TestCompleteChainStillTrustedWithIntermediates;
+    // a trust anchor's own nameConstraints bound every path under it (RFC 5280 6.1.1 (d))
+    procedure TestAnchorNameConstraintsAreEnforced;
     // extendedKeyUsage role enforcement (RFC 5280 4.2.1.12, required-if-present)
     procedure TestServerCertWithClientAuthOnlyEkuRejected;
     procedure TestServerCertWithNoEkuAccepted;
@@ -519,6 +523,68 @@ begin
     'an expired extraneous certificate is ignored, not rejected as expired');
 end;
 
+procedure TTestCertificateVerifier.TestUnrelatedExpiredCertificateDoesNotMaskUnknownCa;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  // the valid leaf chains to a root this store does not trust, and the peer also sent an expired
+  // certificate that is nowhere on the leaf's issuer line: the failure is the untrusted issuer,
+  // not an expiry
+  CheckFalse(VerifierFor(Cert('root2_cert'), False).VerifyServerCertificate(
+    TArray<TBytes>.Create(Cert('leaf_cert'), Cert('expired_cert')),
+    TServerName.DnsName(''), nil, LVerified, LAlert),
+    'a chain to an untrusted root is rejected');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert),
+    'an unrelated expired extra does not turn the alert into certificate_expired');
+end;
+
+procedure TTestCertificateVerifier.TestNilCollaboratorsAreRefused;
+var
+  LRaised: Boolean;
+  LVerifier: IServerCertificateVerifier;
+  LStore: ITrustAnchorStore;
+begin
+  LStore := TTrustAnchorStore.Create(TArray<TBytes>.Create(Cert('root_cert')))
+    as ITrustAnchorStore;
+  LRaised := False;
+  try
+    TCertificateVerifier.Create(nil, TSystemClock.Create as ITlsClock, LStore, False);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a nil PKIX provider is refused');
+  LRaised := False;
+  try
+    TCertificateVerifier.Create(Pkix, nil, LStore, False);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a nil clock is refused');
+  LRaised := False;
+  try
+    TPinningVerifier.Create(nil, nil, Crypto, Pkix);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a pinning decorator over no inner verifier is refused');
+  LRaised := False;
+  try
+    TClientPinningVerifier.Create(nil, nil, Crypto, Pkix);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a client pinning decorator over no inner verifier is refused');
+  // a nil trust store stays tolerated (it simply trusts nothing)
+  LVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock, nil, False)
+    as IServerCertificateVerifier;
+  CheckNotNull(LVerifier, 'a nil trust store is still accepted');
+end;
+
 procedure TTestCertificateVerifier.TestUntrustedRootRejectedAsUnknownCa;
 var
   LAlert: TTlsAlertDescription;
@@ -595,6 +661,29 @@ begin
     TArray<TBytes>.Create(Chain3('leaf_cert')), TServerName.DnsName(''), nil,
     LVerified, LAlert),
     'a configured intermediate completes an otherwise incomplete chain');
+end;
+
+procedure TTestCertificateVerifier.TestAnchorNameConstraintsAreEnforced;
+var
+  LVec: TStringList;
+  LRoot: TBytes;
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  LVec := LoadVectorFields('Certs/NameConstrainedRoot.txt');
+  try
+    LRoot := DecodeHex(LVec.Values['root_cert']);
+    // the root permits only corp.example: a leaf inside it chains, a validly signed leaf outside
+    // it does not, so a mis-issued certificate under the root cannot name a foreign host
+    CheckTrue(VerifierFor(LRoot, False).VerifyServerCertificate(
+      TArray<TBytes>.Create(DecodeHex(LVec.Values['in_scope_leaf_cert'])),
+      TServerName.DnsName(''), nil, LVerified, LAlert), 'a leaf within the anchor constraints');
+    CheckFalse(VerifierFor(LRoot, False).VerifyServerCertificate(
+      TArray<TBytes>.Create(DecodeHex(LVec.Values['out_of_scope_leaf_cert'])),
+      TServerName.DnsName(''), nil, LVerified, LAlert), 'a leaf outside the anchor constraints');
+  finally
+    LVec.Free;
+  end;
 end;
 
 procedure TTestCertificateVerifier.TestCompleteChainStillTrustedWithIntermediates;

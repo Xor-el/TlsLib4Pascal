@@ -196,6 +196,8 @@ type
     procedure TestRequestShapingRevocationLevels;
     procedure TestRequestNetworkNotAllowedInline;
     procedure TestClientRequestCarriesAnchors;
+    procedure TestRequestCarriesConfiguredIntermediates;
+    procedure TestPolicyFromContextCarriesIntermediates;
     procedure TestEngineFailurePassesAlertThrough;
     procedure TestAcceptFillsTrustedPath;
     procedure TestStapledRevokedOverridesUnderOff;
@@ -309,6 +311,7 @@ type
     procedure TestLiveEvaluationStaysExclusiveRoot;
     procedure TestWrongRolePeerRefusedWithInternalError;
     procedure TestServerChainResolverRefusesClientParkAtOff;
+    procedure TestConfiguredIntermediateCompletesLeafOnlyClientChain;
   end;
 
 {$ENDIF TLSLIB_MSWINDOWS}
@@ -761,6 +764,50 @@ begin
   CheckTrue(LFake.Last.ServerName.IsEmpty, 'the client path has no server identity');
   CheckEquals(1, LFake.ClientCalls, 'the client engine method ran');
   CheckEquals(0, LFake.ServerCalls, 'the server engine method did not run');
+end;
+
+procedure TTestOSDelegateTemplate.TestRequestCarriesConfiguredIntermediates;
+var
+  LFake: TMockPlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LPolicy: TOSDelegatePolicy;
+  LServer: IServerCertificateVerifier;
+  LClient: IClientCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  LPolicy := Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None,
+    OcspChain);
+  LPolicy.Intermediates := OcspChain;
+  LFake := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation], False,
+    Result_(TLiveRevocationOutcome.Good, OcspChain), TTlsAlertDescription.BadCertificate);
+  LEngine := LFake;
+  LServer := TOSDelegateServerVerifier.Create(LEngine, LPolicy) as IServerCertificateVerifier;
+  LServer.VerifyServerCertificate(OcspChain, TServerName.DnsName('localhost'), nil, LVerified,
+    LAlert);
+  CheckEquals(System.Length(OcspChain), System.Length(LFake.Last.Intermediates),
+    'the server request carries the configured intermediates');
+  LClient := TOSDelegateClientVerifier.Create(LEngine, LPolicy) as IClientCertificateVerifier;
+  LClient.VerifyClientCertificate(OcspChain, LVerified, LAlert);
+  CheckEquals(System.Length(OcspChain), System.Length(LFake.Last.Intermediates),
+    'the client request carries the configured intermediates');
+end;
+
+procedure TTestOSDelegateTemplate.TestPolicyFromContextCarriesIntermediates;
+var
+  LServer: TServerTrustContext;
+  LClient: TClientTrustContext;
+begin
+  LServer := Default(TServerTrustContext);
+  LServer.Intermediates := OcspChain;
+  CheckEquals(System.Length(OcspChain), System.Length(
+    TOSDelegatePolicy.FromServerContext(LServer, TSystemTrustFetch.CacheOnly).Intermediates),
+    'the server policy keeps the configured intermediates');
+  LClient := Default(TClientTrustContext);
+  LClient.Intermediates := OcspChain;
+  CheckEquals(System.Length(OcspChain), System.Length(
+    TOSDelegatePolicy.FromClientContext(LClient, TSystemTrustFetch.CacheOnly).Intermediates),
+    'the client policy keeps the configured intermediates');
 end;
 
 procedure TTestOSDelegateTemplate.TestEngineFailurePassesAlertThrough;
@@ -1888,6 +1935,36 @@ begin
   // strength + the leaf's scheme advertised) so only the property under test drives the verdict
   Result := VerifyPolicy(AAnchors, APosture, AClock,
     TCertificateStrengthPolicy.Defaults, Advertised, AAlert);
+end;
+
+procedure TTestWindowsClientDelegate.TestConfiguredIntermediateCompletesLeafOnlyClientChain;
+var
+  LVec: TStringList;
+  LPolicy: TOSDelegatePolicy;
+  LVerifier: IClientCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+  LLeaf: TArray<TBytes>;
+begin
+  LVec := LoadVectorFields('Certs/IntermediateClientAuthChain.txt');
+  try
+    LLeaf := TArray<TBytes>.Create(DecodeHex(LVec.Values['leaf_cert']));
+    LPolicy := MakePolicy(TArray<TBytes>.Create(DecodeHex(LVec.Values['root_cert'])),
+      TRevocationPosture.Off, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None,
+      TSystemClock.Create as ITlsClock, TCertificateStrengthPolicy.Defaults, Advertised);
+    LVerifier := TOSDelegateClientVerifier.Create(
+      TWindowsChainEngine.Create as IPlatformChainEngine, LPolicy) as IClientCertificateVerifier;
+    CheckFalse(LVerifier.VerifyClientCertificate(LLeaf, LVerified, LAlert),
+      'a leaf-only chain cannot reach the root without the issuer');
+    CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'the alert is unknown_ca');
+    LPolicy.Intermediates := TArray<TBytes>.Create(DecodeHex(LVec.Values['issuer_cert']));
+    LVerifier := TOSDelegateClientVerifier.Create(
+      TWindowsChainEngine.Create as IPlatformChainEngine, LPolicy) as IClientCertificateVerifier;
+    CheckTrue(LVerifier.VerifyClientCertificate(LLeaf, LVerified, LAlert),
+      'the configured issuer completes the path to the exclusive root');
+  finally
+    LVec.Free;
+  end;
 end;
 
 procedure TTestWindowsClientDelegate.TestAcceptsClientChainToConfiguredAnchor;

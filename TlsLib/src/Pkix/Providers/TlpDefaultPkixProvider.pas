@@ -108,6 +108,8 @@ type
     function KeyFacts(out AFacts: TCertKeyFacts): Boolean;
     function SignatureFacts(out AFacts: TCertSignatureFacts): Boolean;
     function PeerInfo(out ASubject, AIssuer, ACommonName, ASerialHex: string): Boolean;
+    class function SignatureFactsOf(const ASignature: IAlgorithmIdentifier;
+      out AFacts: TCertSignatureFacts): Boolean; static;
   end;
 
   // ICertificateInspector - pure, per-certificate, side-effect-free X.509 inspection.
@@ -176,6 +178,11 @@ type
     /// <summary>How many of the first ACount pooled certificates share ACert's subject name.</summary>
     class function PooledWithSubject(const APool: TArray<IX509Certificate>;
       ACount: Int32; const ACert: IX509Certificate): Int32; static;
+    /// <summary>Whether the leaf (APool[0]) or a pooled certificate on its issuer-name line is
+    /// outside its validity window at ADate; a stale certificate off that line is not the reason a
+    /// path failed.</summary>
+    class function ExpiredOnIssuerLine(const APool: TArray<IX509Certificate>;
+      ADate: TDateTime): Boolean; static;
   public
     class constructor Create;
     class destructor Destroy;
@@ -188,6 +195,12 @@ type
   // IRevocationChecker - stapled-OCSP verification and the live OCSP/CRL primitives.
   TRevocationChecker = class(TInterfacedObject, IRevocationChecker)
   strict private
+    /// <summary>
+    /// Whether a revocation artifact signed with ASignature is too weak to authenticate:
+    /// MD5 and SHA-1 (and anything unrecognized) are refused, matching the chain policy.
+    /// </summary>
+    class function SignatureIsWeak(
+      const ASignature: IAlgorithmIdentifier): Boolean; static;
     /// <summary>
     /// Whether AResponse is signed by the certificate issuer itself or by a
     /// responder the issuer delegated to (RFC 6960 sec. 4.2.2.2).
@@ -618,6 +631,35 @@ begin
       Inc(Result);
 end;
 
+class function TCertificatePathValidator.ExpiredOnIssuerLine(
+  const APool: TArray<IX509Certificate>; ADate: TDateTime): Boolean;
+var
+  LCurrent, LNext: IX509Certificate;
+  LStep, LI: Int32;
+begin
+  Result := False;
+  if System.Length(APool) = 0 then
+    Exit;
+  LCurrent := APool[0];
+  // each step moves to a certificate that issued the current one, so the walk is bounded by the pool
+  for LStep := 0 to System.High(APool) do
+  begin
+    if not LCurrent.IsValid(ADate) then
+      Exit(True);
+    LNext := nil;
+    for LI := 0 to System.High(APool) do
+      if (APool[LI] <> LCurrent) and
+        APool[LI].SubjectDN.Equivalent(LCurrent.IssuerDN, True) then
+      begin
+        LNext := APool[LI];
+        Break;
+      end;
+    if LNext = nil then
+      Exit;
+    LCurrent := LNext;
+  end;
+end;
+
 function TCertificatePathValidator.TrustAnchorKey(
   const ATrustAnchors: TArray<TBytes>): TBytes;
 var
@@ -921,12 +963,12 @@ begin
     on E: ECryptoLibException do
     begin
       // the leaf is on every candidate path, so its own window decides expiry; an expired
-      // certificate higher up is reported as expiry when no path built without it (the
-      // transitional-chain case), otherwise nothing chained to a trusted anchor
-      for LI := 0 to High(LCerts) do
-        if not LCerts[LI].IsValid(AValidationTimeUtc) then
-          raise EFatalAlertTlsLibException.CreateRes(
-            TTlsAlertDescription.CertificateExpired, @SCertificateExpired);
+      // certificate on its issuer line is reported as expiry when no path built without it (the
+      // transitional-chain case); a stale extra elsewhere in the pool is not the cause, so it
+      // reads as nothing chaining to a trusted anchor
+      if ExpiredOnIssuerLine(LPool, AValidationTimeUtc) then
+        raise EFatalAlertTlsLibException.CreateRes(
+          TTlsAlertDescription.CertificateExpired, @SCertificateExpired);
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.UnknownCa, @SUntrustedChain);
     end;
@@ -944,6 +986,15 @@ begin
     ResolvedAnchorDer(LBuildResult.TrustAnchor.TrustedCert, LAnchors, LEntry.Ders));
 end;
 
+class function TRevocationChecker.SignatureIsWeak(
+  const ASignature: IAlgorithmIdentifier): Boolean;
+var
+  LFacts: TCertSignatureFacts;
+begin
+  Result := (not TInspectedCertificate.SignatureFactsOf(ASignature, LFacts)) or
+    (LFacts.Hash in [TCertSignatureHash.Md5, TCertSignatureHash.Sha1]);
+end;
+
 class function TRevocationChecker.OcspDelegatedResponder(const AResponderCert,
   AIssuerCert: IX509Certificate; const AIssuerPublicKey: IAsymmetricKeyParameter;
   AValidityDate: TDateTime): Boolean;
@@ -954,6 +1005,8 @@ begin
   Result := False;
   // the delegation only holds if the issuer itself issued the responder certificate
   if not AResponderCert.IssuerDN.Equivalent(AIssuerCert.SubjectDN, True) then
+    Exit;
+  if SignatureIsWeak(AResponderCert.GetSignatureAlgorithm) then
     Exit;
   try
     AResponderCert.CheckValidity(AValidityDate);
@@ -980,6 +1033,8 @@ var
   LI: Int32;
 begin
   Result := False;
+  if SignatureIsWeak(AResponse.SignatureAlgorithm) then
+    Exit;
   try
     if AResponse.Verify(AIssuerPublicKey) then
     begin
@@ -1383,6 +1438,8 @@ begin
     if LCrl = nil then
       Exit;
     // the CRL must be signed by the leaf's issuer to be authoritative
+    if SignatureIsWeak(LCrl.SignatureAlgorithm) then
+      Exit;
     if not LCrl.IsSignatureValid(LIssuer.GetPublicKey) then
       Exit;
     // a validly signed CRL of the wrong scope (another shard, CA-only, indirect, delta...) is
@@ -1731,8 +1788,13 @@ begin
 end;
 
 function TInspectedCertificate.SignatureFacts(out AFacts: TCertSignatureFacts): Boolean;
+begin
+  Result := SignatureFactsOf(FCert.GetSignatureAlgorithm, AFacts);
+end;
+
+class function TInspectedCertificate.SignatureFactsOf(
+  const ASignature: IAlgorithmIdentifier; out AFacts: TCertSignatureFacts): Boolean;
 var
-  LSig: IAlgorithmIdentifier;
   LOid: IDerObjectIdentifier;
 
   function HashOf(const AOid: IDerObjectIdentifier;
@@ -1805,8 +1867,7 @@ begin
   AFacts.Hash := TCertSignatureHash.Sha256;
   AFacts.PssCanonical := False;
   try
-    LSig := FCert.GetSignatureAlgorithm;
-    LOid := LSig.Algorithm;
+    LOid := ASignature.Algorithm;
     Result := True;
     if LOid.Equals(TPkcsObjectIdentifiers.Sha256WithRsaEncryption) then
       AFacts.Hash := TCertSignatureHash.Sha256
@@ -1856,7 +1917,7 @@ begin
       AFacts.Hash := TCertSignatureHash.Implicit;
     end
     else if LOid.Equals(TPkcsObjectIdentifiers.IdRsassaPss) then
-      Result := FillPss(LSig)
+      Result := FillPss(ASignature)
     else
       Result := False;
   except
