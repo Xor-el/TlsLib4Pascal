@@ -636,6 +636,8 @@ begin
     'a port that merely ends in 80 is not the default');
   CheckEquals(2, ResponderAttempts('http://a.test:8080/', 'http://a.test/'),
     'another port');
+  CheckEquals(2, ResponderAttempts('http://a.test:8080/', 'http://a.test:8000/'),
+    'two non-default ports that share a prefix stay distinct');
   CheckEquals(2, ResponderAttempts('Foo?u=http://x', 'foo?u=http://x'),
     'a string that is not a scheme-qualified URL is compared as written');
 end;

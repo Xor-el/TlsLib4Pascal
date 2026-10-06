@@ -262,7 +262,7 @@ begin
   if (LLength > 0) and (LAuthority[LLength] = ':') then
     Delete(LAuthority, LLength, 1)
   else if (LScheme = 'http') and (LLength >= 3) and
-    (Pos(':80', LAuthority) > 0) then
+    (Copy(LAuthority, LLength - 2, 3) = ':80') then
     Delete(LAuthority, LLength - 2, 3)
   else if (LScheme = 'https') and (LLength >= 4) and
     (Copy(LAuthority, LLength - 3, 4) = ':443') then
