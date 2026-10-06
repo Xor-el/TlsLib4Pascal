@@ -61,11 +61,84 @@ type
     procedure TestRejectsDisallowedCurve;
     procedure TestAcceptsRsaPssPssIssuerWhenAdvertised;
     procedure TestRejectsRsaPssPssIssuerWhenOnlyRsaeAdvertised;
+    procedure TestSignatureHashStandings;
+    procedure TestDefaultsAdmitNoDeprecatedHash;
+    procedure TestAdmittedSha1KeepsTheKeyFloors;
+    procedure TestMd5IsRefusedEvenWhenNamedInThePolicy;
   end;
 
 implementation
 
 { TTestChainAlgorithmPolicy }
+
+procedure TTestChainAlgorithmPolicy.TestSignatureHashStandings;
+var
+  LHash: TCertSignatureHash;
+begin
+  // the one table the chain policy and the revocation floor both read
+  for LHash := Low(TCertSignatureHash) to High(TCertSignatureHash) do
+    case LHash of
+      TCertSignatureHash.Md5:
+        CheckEquals(Ord(TCertSignatureHashStanding.Forbidden), Ord(LHash.Standing), 'MD5');
+      TCertSignatureHash.Sha1:
+        CheckEquals(Ord(TCertSignatureHashStanding.Deprecated), Ord(LHash.Standing), 'SHA-1');
+    else
+      CheckEquals(Ord(TCertSignatureHashStanding.Current), Ord(LHash.Standing),
+        'every other hash is current');
+    end;
+end;
+
+procedure TTestChainAlgorithmPolicy.TestDefaultsAdmitNoDeprecatedHash;
+begin
+  CheckTrue(TCertificateStrengthPolicy.Defaults.AllowedDeprecatedHashes = [],
+    'the presets admit no deprecated hash');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestAdmittedSha1KeepsTheKeyFloors;
+var
+  LVec: TStringList;
+  LAlert: TTlsAlertDescription;
+  LPolicy: TCertificateStrengthPolicy;
+  LChain: TArray<TBytes>;
+begin
+  LVec := LoadVectorFields('Certs/LegacyHashChain.txt');
+  try
+    // the SHA-1-signed 2048-bit issuer alone, so the hash and the key are the only things judged
+    LChain := TArray<TBytes>.Create(DecodeHex(LVec.Values['issuer_sha1_cert']));
+    LPolicy := TCertificateStrengthPolicy.Defaults;
+    CheckFalse(TChainAlgorithmPolicy.Check(Pkix.Certificates, LChain, nil, LPolicy,
+      Advertised, LAlert), 'SHA-1 is refused unless named');
+    CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'refusal alert');
+    LPolicy.AllowedDeprecatedHashes := [TCertSignatureHash.Sha1];
+    CheckTrue(TChainAlgorithmPolicy.Check(Pkix.Certificates, LChain, nil, LPolicy,
+      Advertised, LAlert), 'naming SHA-1 admits the certificate');
+    LPolicy.MinRsaModulusBits := 3072;
+    CheckFalse(TChainAlgorithmPolicy.Check(Pkix.Certificates, LChain, nil, LPolicy,
+      Advertised, LAlert), 'admitting SHA-1 does not relax the RSA key floor');
+    CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert), 'key floor alert');
+  finally
+    LVec.Free;
+  end;
+end;
+
+procedure TTestChainAlgorithmPolicy.TestMd5IsRefusedEvenWhenNamedInThePolicy;
+var
+  LVec: TStringList;
+  LAlert: TTlsAlertDescription;
+  LPolicy: TCertificateStrengthPolicy;
+begin
+  LVec := LoadVectorFields('Certs/LegacyHashChain.txt');
+  try
+    LPolicy := TCertificateStrengthPolicy.Defaults;
+    LPolicy.AllowedDeprecatedHashes := [TCertSignatureHash.Md5, TCertSignatureHash.Sha1];
+    CheckFalse(TChainAlgorithmPolicy.Check(Pkix.Certificates,
+      TArray<TBytes>.Create(DecodeHex(LVec.Values['issuer_md5_cert'])), nil, LPolicy, Advertised,
+      LAlert), 'an MD5-signed certificate is refused by the policy itself');
+    CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'alert');
+  finally
+    LVec.Free;
+  end;
+end;
 
 procedure TTestChainAlgorithmPolicy.SetUp;
 begin

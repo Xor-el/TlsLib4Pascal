@@ -56,6 +56,18 @@ type
   /// whose OID names no hash because the algorithm fixes it (unlike the RSA/ECDSA OIDs).</summary>
   TCertSignatureHash = (Md5, Sha1, Sha224, Sha256, Sha384, Sha512, Sha3, Implicit);
 
+  TCertSignatureHashes = set of TCertSignatureHash;
+
+  /// <summary>How a signature hash is regarded for certificate chains: Current is accepted,
+  /// Deprecated is refused unless the policy admits it, Forbidden is never admitted.</summary>
+  TCertSignatureHashStanding = (Current, Deprecated, Forbidden);
+
+  TCertSignatureHashHelper = record helper for TCertSignatureHash
+    /// <summary>The one place a hash's standing is decided: MD5 is a MUST NOT (RFC 8446 4.4.2.4),
+    /// SHA-1 a RECOMMENDED against.</summary>
+    function Standing: TCertSignatureHashStanding;
+  end;
+
   /// <summary>The strength-relevant facts about a certificate's subject public key: the key
   /// family, its size (RSA modulus bits; EC field size in bits; 0 for EdDSA), and the IANA
   /// named-group code of a recognized curve (0 = other or explicit parameters).</summary>
@@ -75,5 +87,19 @@ type
   end;
 
 implementation
+
+{ TCertSignatureHashHelper }
+
+function TCertSignatureHashHelper.Standing: TCertSignatureHashStanding;
+begin
+  case Self of
+    TCertSignatureHash.Md5:
+      Result := TCertSignatureHashStanding.Forbidden;
+    TCertSignatureHash.Sha1:
+      Result := TCertSignatureHashStanding.Deprecated;
+  else
+    Result := TCertSignatureHashStanding.Current;
+  end;
+end;
 
 end.

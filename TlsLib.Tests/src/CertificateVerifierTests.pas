@@ -95,7 +95,9 @@ type
     // a verifier trusting ARoot with the chain-algorithm policy switched on, as the engine
     // wires it: only AAdvertised signature schemes are acceptable on the path
     function PolicyVerifierFor(const ARoot: TBytes; const AAdvertised: TArray<UInt16>)
-      : IServerCertificateVerifier;
+      : IServerCertificateVerifier; overload;
+    function PolicyVerifierFor(const ARoot: TBytes; const AAdvertised: TArray<UInt16>;
+      const APolicy: TCertificateStrengthPolicy): IServerCertificateVerifier; overload;
     // a verifier trusting ARoot and seeded with AIntermediates for path building; host-name
     // checking is off so these tests isolate PKIX path construction
     function IntermediateVerifierFor(const ARoot: TBytes;
@@ -153,6 +155,8 @@ type
     procedure TestPeerSha1ReissuedRootExemptFromChainPolicy;
     procedure TestSha1SelfSignedRootNotConfiguredRejected;
     procedure TestBareVerifierRefusesSha1SignedIntermediate;
+    procedure TestSha1ChainSignatureAdmittedWhenNamedInThePolicy;
+    procedure TestMd5ChainSignatureRefusedEvenWhenAdmitted;
     procedure TestSameSubjectDifferentKeyRootIgnoredForConfiguredAnchor;
     // the anchor set is fetched once per verify and shared by path validation and the chain policy
     procedure TestAnchorSetCopiedOnceAcrossVerifies;
@@ -251,13 +255,20 @@ end;
 
 function TTestCertificateVerifier.PolicyVerifierFor(const ARoot: TBytes;
   const AAdvertised: TArray<UInt16>): IServerCertificateVerifier;
+begin
+  Result := PolicyVerifierFor(ARoot, AAdvertised, TCertificateStrengthPolicy.Defaults);
+end;
+
+function TTestCertificateVerifier.PolicyVerifierFor(const ARoot: TBytes;
+  const AAdvertised: TArray<UInt16>;
+  const APolicy: TCertificateStrengthPolicy): IServerCertificateVerifier;
 var
   LVerifier: TCertificateVerifier;
 begin
   LVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(ARoot)) as ITrustAnchorStore, False);
   Result := LVerifier;
-  LVerifier.SetChainAlgorithmPolicy(TCertificateStrengthPolicy.Defaults, AAdvertised);
+  LVerifier.SetChainAlgorithmPolicy(APolicy, AAdvertised);
 end;
 
 function TTestCertificateVerifier.Cert(const AName: string): TBytes;
@@ -899,6 +910,56 @@ begin
     'a SHA-1-signed intermediate is refused without an armed policy');
   CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
     'the alert is bad_certificate');
+end;
+
+procedure TTestCertificateVerifier.TestSha1ChainSignatureAdmittedWhenNamedInThePolicy;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+  LPolicy: TCertificateStrengthPolicy;
+  LAdvertised: TArray<UInt16>;
+  LChain: TArray<TBytes>;
+begin
+  // only ecdsa_secp256r1_sha256 is advertised: no scheme names a SHA-1 certificate signature, so
+  // an admitted one must not be held to the advertised set
+  LAdvertised := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+  LChain := TArray<TBytes>.Create(Reissued('leaf_cert'), Reissued('issuer_sha1_cert'));
+  CheckFalse(PolicyVerifierFor(Reissued('root_cert'), LAdvertised).VerifyServerCertificate(
+    LChain, TServerName.DnsName(''), nil, LVerified, LAlert),
+    'the default floor refuses a SHA-1-signed intermediate');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'default alert');
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  LPolicy.AllowedDeprecatedHashes := [TCertSignatureHash.Sha1];
+  CheckTrue(PolicyVerifierFor(Reissued('root_cert'), LAdvertised, LPolicy)
+    .VerifyServerCertificate(LChain, TServerName.DnsName(''), nil, LVerified, LAlert),
+    'admitting SHA-1 accepts the SHA-1-signed intermediate');
+end;
+
+procedure TTestCertificateVerifier.TestMd5ChainSignatureRefusedEvenWhenAdmitted;
+var
+  LVec: TStringList;
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+  LPolicy: TCertificateStrengthPolicy;
+begin
+  LVec := LoadVectorFields('Certs/LegacyHashChain.txt');
+  try
+    LPolicy := TCertificateStrengthPolicy.Defaults;
+    LPolicy.AllowedDeprecatedHashes := [TCertSignatureHash.Md5, TCertSignatureHash.Sha1];
+    CheckTrue(PolicyVerifierFor(DecodeHex(LVec.Values['root_cert']),
+      TArray<UInt16>.Create(TSignatureSchemes.RsaPkcs1Sha256), LPolicy)
+      .VerifyServerCertificate(TArray<TBytes>.Create(DecodeHex(LVec.Values['leaf_cert']),
+      DecodeHex(LVec.Values['issuer_sha1_cert'])), TServerName.DnsName(''), nil, LVerified,
+      LAlert), 'control: admitting SHA-1 accepts the SHA-1-signed RSA intermediate');
+    CheckFalse(PolicyVerifierFor(DecodeHex(LVec.Values['root_cert']),
+      TArray<UInt16>.Create(TSignatureSchemes.RsaPkcs1Sha256), LPolicy)
+      .VerifyServerCertificate(TArray<TBytes>.Create(DecodeHex(LVec.Values['leaf_cert']),
+      DecodeHex(LVec.Values['issuer_md5_cert'])), TServerName.DnsName(''), nil, LVerified,
+      LAlert), 'an MD5-signed intermediate is refused even when named in the admitted set');
+    CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'alert');
+  finally
+    LVec.Free;
+  end;
 end;
 
 function TTestCertificateVerifier.RingChain: TArray<TBytes>;

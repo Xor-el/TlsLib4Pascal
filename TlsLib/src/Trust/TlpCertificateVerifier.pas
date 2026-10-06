@@ -502,8 +502,8 @@ begin
   end;
 
   // chain-algorithm policy over the validated chain: every non-anchor certificate must be
-  // signed with an advertised scheme (MD5/SHA-1 refused outright) and meet the key-strength
-  // floors. Post-PKIX so it sees the assembled path; the anchor exemption keys off the configured
+  // signed with an advertised scheme (MD5 refused outright, SHA-1 unless the policy admits it) and
+  // meet the key-strength floors. Post-PKIX so it sees the assembled path; the anchor exemption keys off the configured
   // anchors on it. A verifier without an armed policy still gets the weak-hash refusal and
   // default floors.
   LAnchors := AnchorsOnPath(FTrustStore, LEffectiveChain);
