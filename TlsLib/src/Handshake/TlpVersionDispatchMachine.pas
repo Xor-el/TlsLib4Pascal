@@ -348,11 +348,13 @@ begin
   LClientVersions := ClientHelloVersions(LExtensions);
   // an Encrypted Client Hello whose minimal ClientHelloOuter omits supported_versions is still
   // a TLS 1.3 client (RFC 9849 sec. 7: the version comes from the decrypted inner) - route it
-  // to the 1.3 machine. An ech alongside an explicit version list does NOT override that list,
-  // so a legacy client GREASE-ing ech while offering only 1.2 still negotiates 1.2.
+  // to the 1.3 machine, but only on a server that holds ECH keys: without them nothing could be
+  // decrypted, and a client GREASE-ing ech is not offering it (RFC 9849 sec. 6.2.1). An ech
+  // alongside an explicit version list does NOT override that list, so a legacy client GREASE-ing
+  // ech while offering only 1.2 still negotiates 1.2.
   LClientSupportsTls13 := (TArrayUtilities.Contains<UInt16>(LClientVersions,
     TlsWireVersionTls13)) or ((System.Length(LClientVersions) = 0) and
-    HasEncryptedClientHello(LExtensions));
+    (FParams13.EchKeyStore <> nil) and HasEncryptedClientHello(LExtensions));
 
   // RFC 7507 TLS_FALLBACK_SCSV: a client that retried at a lower version signals it in
   // cipher_suites. The client's highest version is its supported_versions (a 1.3 client

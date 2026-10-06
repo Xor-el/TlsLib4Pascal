@@ -23,6 +23,7 @@ uses
   TlpWireWriter,
   TlpWireVectorMarker,
   TlpExtensionVector,
+  TlpCoreExtensions,
   TlpEchConfig,
   TlpTlsLibExceptions;
 
@@ -240,8 +241,6 @@ end;
 
 class function TEchExtension.LocateHrrConfirmation(const AFramedHrr: TBytes;
   out AOffset: Int32): Boolean;
-const
-  EchExtensionType = UInt16($FE0D); // encrypted_client_hello (RFC 9849 sec. 5)
 var
   LReader, LSid: TWireReader;
   LVector: TExtensionVector;
@@ -258,7 +257,7 @@ begin
   LReader.Skip(2);  // cipher_suite
   LReader.Skip(1);  // legacy_compression_method
   LVector := TExtensionVector.ParseFrom(LReader);
-  if LVector.TryFind(EchExtensionType, LEntry) then
+  if LVector.TryFind(TExtensionTypes.EncryptedClientHello, LEntry) then
   begin
     if System.Length(LEntry.Data) <> ConfirmationLength then
       raise EFatalAlertTlsLibException.CreateRes(

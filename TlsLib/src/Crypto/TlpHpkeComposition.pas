@@ -875,7 +875,8 @@ var
   LPriv: ISecretBuffer;
 begin
   Result := nil;
-  if not THpkeCore.IsKnownKem(AKem) then
+  // a KEM this provider cannot instantiate yields no encapsulation, as Suite yields no suite
+  if (not THpkeCore.IsKnownKem(AKem)) or (not FKemOk[KemIndex(AKem)]) then
     Exit;
   // every known KEM is a DH-KEM, whose enc is the serialized ephemeral public key (RFC 9180 4.1),
   // so a fresh public key is a valid enc

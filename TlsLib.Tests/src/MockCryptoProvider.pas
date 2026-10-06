@@ -97,8 +97,13 @@ type
   var
     FInner: ICryptoPrimitives;
     FMissing: TAeadAlgorithm;
+    FMissingAgreement: TKeyAgreementAlgorithm;
+    FHasMissingAgreement: Boolean;
   public
-    constructor Create(const AInner: ICryptoPrimitives; AMissing: TAeadAlgorithm);
+    constructor Create(const AInner: ICryptoPrimitives; AMissing: TAeadAlgorithm); overload;
+    /// <summary>Models a facet that cannot build one key agreement instead.</summary>
+    constructor Create(const AInner: ICryptoPrimitives;
+      AMissingAgreement: TKeyAgreementAlgorithm); overload;
     function GetRandom: IRandom;
     function CreateHash(AAlgorithm: THashAlgorithm): IHash;
     function CreateHmac(AAlgorithm: THashAlgorithm): IHmac;
@@ -110,13 +115,16 @@ type
     function HasHardwareAes: Boolean;
   end;
 
-  /// <summary>A test provider whose primitives cannot build one configured AEAD.</summary>
+  /// <summary>A test provider whose primitives cannot build one configured AEAD (or one key
+  /// agreement).</summary>
   TMissingAeadProvider = class(TInterfacedObject, ICryptoProvider)
   strict private
   var
     FComposed: ICryptoProvider;
   public
-    constructor Create(const AInner: ICryptoProvider; AMissing: TAeadAlgorithm);
+    constructor Create(const AInner: ICryptoProvider; AMissing: TAeadAlgorithm); overload;
+    constructor Create(const AInner: ICryptoProvider;
+      AMissingAgreement: TKeyAgreementAlgorithm); overload;
     function Primitives: ICryptoPrimitives;
     function Signing: ISigningCrypto;
     function Hpke: IHpkeCrypto;
@@ -200,6 +208,7 @@ implementation
 
 resourcestring
   SMissingAead = 'this primitives facet does not provide the requested AEAD';
+  SMissingAgreement = 'this primitives facet does not provide the requested key agreement';
 
 { TMockCryptoProvider }
 
@@ -321,6 +330,16 @@ begin
   inherited Create;
   FInner := AInner;
   FMissing := AMissing;
+  FHasMissingAgreement := False;
+end;
+
+constructor TMissingAeadPrimitives.Create(const AInner: ICryptoPrimitives;
+  AMissingAgreement: TKeyAgreementAlgorithm);
+begin
+  inherited Create;
+  FInner := AInner;
+  FMissingAgreement := AMissingAgreement;
+  FHasMissingAgreement := True;
 end;
 
 function TMissingAeadPrimitives.GetRandom: IRandom;
@@ -350,7 +369,7 @@ end;
 
 function TMissingAeadPrimitives.CreateAead(AAlgorithm: TAeadAlgorithm): IAead;
 begin
-  if AAlgorithm = FMissing then
+  if (not FHasMissingAgreement) and (AAlgorithm = FMissing) then
     raise ENotSupportedTlsLibException.CreateRes(@SMissingAead);
   Result := FInner.CreateAead(AAlgorithm);
 end;
@@ -358,6 +377,8 @@ end;
 function TMissingAeadPrimitives.CreateKeyAgreement(
   AAlgorithm: TKeyAgreementAlgorithm): IKeyAgreement;
 begin
+  if FHasMissingAgreement and (AAlgorithm = FMissingAgreement) then
+    raise ENotSupportedTlsLibException.CreateRes(@SMissingAgreement);
   Result := FInner.CreateKeyAgreement(AAlgorithm);
 end;
 
@@ -382,6 +403,19 @@ begin
   LBuilder := TCryptoProviderBuilder.Create;
   FComposed := LBuilder
     .WithPrimitives(TMissingAeadPrimitives.Create(AInner.Primitives, AMissing)
+      as ICryptoPrimitives)
+    .Build;
+end;
+
+constructor TMissingAeadProvider.Create(const AInner: ICryptoProvider;
+  AMissingAgreement: TKeyAgreementAlgorithm);
+var
+  LBuilder: ICryptoProviderBuilder;
+begin
+  inherited Create;
+  LBuilder := TCryptoProviderBuilder.Create;
+  FComposed := LBuilder
+    .WithPrimitives(TMissingAeadPrimitives.Create(AInner.Primitives, AMissingAgreement)
       as ICryptoPrimitives)
     .Build;
 end;
