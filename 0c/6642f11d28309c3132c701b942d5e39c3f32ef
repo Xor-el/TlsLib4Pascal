@@ -1,0 +1,61 @@
+TlsLib.Tests/src/MockCryptoProvider.pas
+  s_d27f31cd14035d::t_8c320c442b0b4a 100-101,103-106
+  s_d27f31cd14035d::t_1e4f3f38d6e719 410-422
+  s_d27f31cd14035d::t_cc40451da01bf5 372,380-381
+  s_d27f31cd14035d::t_dc6c879c1fc20e 118-119,125-127
+  s_d27f31cd14035d::t_476435f3e7186b 333-342
+  s_d27f31cd14035d::t_a9b8e4ff8b7d92 211
+TlsLib.Tests/src/EchClientEngineTests.pas
+  s_d27f31cd14035d::t_9ba02df99391b5 39
+  s_d27f31cd14035d::t_3b38caed3b18cb 74-77
+  s_d27f31cd14035d::t_f827489418d8d6 86
+  s_d27f31cd14035d::t_38cba8d337dc7e 315
+  s_d27f31cd14035d::t_78bc3f99e41e46 312-314,316-323,325-326
+  s_d27f31cd14035d::t_248be6559ddd68 324
+  s_d27f31cd14035d::t_d3aea8d2fdd982 49-51
+  s_d27f31cd14035d::t_9961b66b96477d 403-483
+  s_d27f31cd14035d::t_26aaa1b808e24d 87
+TlsLib/src/Ech/TlpEchServer.pas
+  s_d27f31cd14035d::t_9356577d5768d4 412
+  s_d27f31cd14035d::t_b9132af0fdcc02 57-58
+  s_d27f31cd14035d::t_577e6db23fb3c8 366
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_d27f31cd14035d::t_a3e63db41c474e 1282-1283,1285-1287
+  s_d27f31cd14035d::t_b3ce0570f2e601 1284
+TlsLib/src/Ech/TlpEchExtension.pas
+  s_d27f31cd14035d::t_07fbdcc2e4ea38 260
+  s_d27f31cd14035d::t_d9b042b37fe0de 26
+TlsLib.Tests/src/Tls12DualVersionTests.pas
+  s_d27f31cd14035d::t_cc84c20ccd39a3 658-677
+  s_d27f31cd14035d::t_31a12dae22904b 115
+TlsLib.Tests/src/HelloRetryRequestTests.pas
+  s_d27f31cd14035d::t_89f32f17fb44ba 95
+  s_d27f31cd14035d::t_f2f7b1a4eaf33c 40
+  s_d27f31cd14035d::t_df424d3e718c5b 669-688,690-698
+  s_d27f31cd14035d::t_5144eec74cf2e9 689
+  s_d27f31cd14035d::t_e1f17a9457934b 41
+TlsLib/src/Crypto/TlpHpkeComposition.pas
+  s_d27f31cd14035d::t_9fa7e084db3042 878
+  s_d27f31cd14035d::t_4144807bf41edb 879
+TlsLib/src/Handshake/TlpVersionDispatchMachine.pas
+  s_d27f31cd14035d::t_655d70f6abe067 357
+  s_d27f31cd14035d::t_8080e3ab11a9cd 351-354
+TlsLib/src/Interfaces/Crypto/Providers/TlpICryptoProvider.pas
+  s_d27f31cd14035d::t_a17bc43ec4ff72 410-411
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0c6642f11d28309c3132c701b942d5e39c3f32ef",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
