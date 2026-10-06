@@ -1,0 +1,52 @@
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  s_d27f31cd14035d::t_d49fb02e219375 98-100
+  s_d27f31cd14035d::t_0f114f3072a164 966
+  s_d27f31cd14035d::t_cc16ab5acdd204 971
+  s_d27f31cd14035d::t_1c2e1929353194 976
+  s_d27f31cd14035d::t_aff93a6289f438 161
+  s_d27f31cd14035d::t_e71671bc80682c 993
+  s_d27f31cd14035d::t_672bfba86323ba 918-933,935-936,938-939,941-951,953-955,957-965,967-970,972-975,977-992,994-1005
+  s_d27f31cd14035d::t_30b08cffea60bd 159,940
+  s_d27f31cd14035d::t_5828bd023c7d6c 952
+  s_d27f31cd14035d::t_ce9a075a038027 158,917
+  s_d27f31cd14035d::t_f2aac3cc76895a 160,956
+  s_d27f31cd14035d::t_0df1e8e568025f 260-266,273
+  s_d27f31cd14035d::t_5bd8dd6a0b0103 934,937
+TlsLib.Tests/Data/Certs/LegacyHashChain.txt
+  s_d27f31cd14035d::t_e5390772389ade 1-20
+TlsLib/src/Pkix/Providers/TlpDefaultPkixProvider.pas
+  s_d27f31cd14035d::t_3bcc340e6d42ae 997
+TlsLib/src/Trust/TlpChainAlgorithmPolicy.pas
+  s_d27f31cd14035d::t_fe6b68547f3c8d 32-33
+  s_d27f31cd14035d::t_d119b687d595aa 168-169
+  s_d27f31cd14035d::t_26a64ed43ac4aa 182-188,193-194,196
+  s_d27f31cd14035d::t_6dc879170f015c 195
+TlsLib.Tests/src/ChainAlgorithmPolicyTests.pas
+  s_d27f31cd14035d::t_b4c9a02a704976 72-96
+  s_d27f31cd14035d::t_438b8addf087d2 64-65
+TlsLib/src/Trust/TlpCertificateStrengthPolicy.pas
+  s_d27f31cd14035d::t_c00c58d356691e 28-32,39-44,46
+  s_d27f31cd14035d::t_88b7bafe3cc87c 62
+  s_d27f31cd14035d::t_41d48f9554183d 19
+docs/system-trust.md
+  s_d27f31cd14035d::t_1a0ca44fbc9958 262-265
+TlsLib/src/Pkix/TlpPkixDomainTypes.pas
+  s_d27f31cd14035d::t_6ed1ded03ba807 59-70
+  s_d27f31cd14035d::t_55a7898e1e6109 91-104
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "43678e107ed0e53c9bd92de03cf1beedf6746ac3",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
