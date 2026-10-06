@@ -84,11 +84,7 @@ end;
 
 destructor TInMemoryCertificateCompressionCache.Destroy;
 begin
-  if FByKey <> nil then
-  begin
-    FByKey.Clear;
-    FByKey.Free;
-  end;
+  FByKey.Free;
   FOrder.Free;
   FLock.Free;
   inherited Destroy;
