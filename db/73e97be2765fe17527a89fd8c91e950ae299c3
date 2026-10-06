@@ -1,0 +1,49 @@
+TlsLib/src/Extensions/TlpCoreExtensions.pas
+  s_d27f31cd14035d::t_7e4cea082d78e2 611-613,615-616
+  s_d27f31cd14035d::t_9f2ddb6a4c1ac1 614
+  s_d27f31cd14035d::t_f906ef0c5e7908 232
+  s_d27f31cd14035d::t_4a276699ee3b2a 586
+TlsLib.Tests/src/Tls12ResumptionTests.pas
+  s_d27f31cd14035d::t_5d445f28e0014e 486-487,493,496-502,504,507-508,510,515-517,519-523,527,531-532,534-536,541-542,544-548
+  s_d27f31cd14035d::t_4a38678f7ac40f 110-114
+  s_d27f31cd14035d::t_545efb73b4d32d 133-134
+  s_d27f31cd14035d::t_1917ce150267bb 488-492,494-495,503,505-506,509,511-514,518,528-530,533,537-540,543,549-550
+  s_d27f31cd14035d::t_94446241f20e35 132
+  s_d27f31cd14035d::t_2fd50e15333807 524-526
+TlsLib.Tests/src/Tls13ClientReplayTests.pas
+  s_d27f31cd14035d::t_d57706952eb98b 141
+  s_d27f31cd14035d::t_ec7c288f26e5c6 588-619
+  s_d27f31cd14035d::t_95c9de2597b7e8 43
+TlsLib.Tests/src/ExtensionCodecTests.pas
+  s_d27f31cd14035d::t_7358648143bce9 415-426,444-445
+  s_d27f31cd14035d::t_9303d5c56bbb55 73
+  s_d27f31cd14035d::t_7e6888687b6b4b 427-443
+TlsLib/src/Handshake/TlpTls12ClientStateMachine.pas
+  s_d27f31cd14035d::t_3ec295c5c088f3 448-449
+  s_d27f31cd14035d::t_6c9f7b8fe1e684 451
+  s_d27f31cd14035d::t_63c79b1df5f2e8 452
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_d27f31cd14035d::t_62a294471e224b 1084
+  s_d27f31cd14035d::t_ff861a0c59f447 944,949
+  s_d27f31cd14035d::t_71576e70f64ffa 1624
+  s_d27f31cd14035d::t_a79b9c909a166f 1085
+  s_d27f31cd14035d::t_b33a7589e0af6f 981
+  s_d27f31cd14035d::t_d443ec93669f07 323
+  s_d27f31cd14035d::t_bfe79b52a7970c 1081-1083
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "db73e97be2765fe17527a89fd8c91e950ae299c3",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
