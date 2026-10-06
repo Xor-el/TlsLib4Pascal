@@ -1,0 +1,26 @@
+TlsLib/src/Trust/TlpCertificateVerifier.pas
+  s_d27f31cd14035d::t_38555a9fd99f2f 505-506
+TlsLib.Tests/src/ChainAlgorithmPolicyTests.pas
+  s_d27f31cd14035d::t_31804fbed39fdf 95-140
+  s_d27f31cd14035d::t_7bedc8ff2cc25c 66-67
+docs/system-trust.md
+  s_d27f31cd14035d::t_c4ef0eed06bf1a 261-262
+TlsLib/src/Trust/TlpChainAlgorithmPolicy.pas
+  s_d27f31cd14035d::t_4d071af043fb67 33-34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0ef2becf863a0f9d59a16c7ba02495ee689f7655",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
