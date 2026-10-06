@@ -24,6 +24,7 @@ uses
 {$ELSE}
   Androidapi.Jni,
 {$ENDIF}
+  TlpArrayUtilities,
   TlpTrustPolicy,
   TlpPosixDynLib,
   TlpSystemTrustBase,
@@ -891,8 +892,9 @@ begin
   // the host is the network-security-config domain key, NOT a name check (Android's host-aware
   // TrustManager requires a non-null host once per-domain configs exist), so it is passed as-is;
   // the RFC 6125 identity is matched in-library by the delegate
-  Result := TAndroidTrustApi.Evaluate(ARequest.Chain, ARequest.ServerName.ToString,
-    LOsPath, AAlert);
+  Result := TAndroidTrustApi.Evaluate(
+    TArrayUtilities.Concat<TBytes>(ARequest.Chain, ARequest.Intermediates),
+    ARequest.ServerName.ToString, LOsPath, AAlert);
   if not Result then
     Exit;
   // the OS-built path (leaf first, anchor last) is the validated chain, its anchor (last element)
@@ -910,7 +912,9 @@ begin
   // reports no path and the presented chain is peer-ordered beyond index 0 (RFC 8446 4.4.2 only fixes
   // the leaf), so only the leaf is a reliable validated path; issuer recovery for revocation comes from
   // the configured candidates rather than a spoofable chain entry. Never stapled.
-  Result := TAndroidTrustApi.EvaluateClient(ARequest.Chain, ARequest.Anchors, AAlert);
+  Result := TAndroidTrustApi.EvaluateClient(
+    TArrayUtilities.Concat<TBytes>(ARequest.Chain, ARequest.Intermediates),
+    ARequest.Anchors, AAlert);
   if not Result then
     Exit;
   AResult.Path := TArray<TBytes>.Create(ARequest.Chain[0]);

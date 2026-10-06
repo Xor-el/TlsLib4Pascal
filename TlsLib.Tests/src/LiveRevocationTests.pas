@@ -189,6 +189,24 @@ type
     procedure TestLiveInScopeCrlRevokesAndAccepts;
   end;
 
+  /// <summary>
+  /// A CRL, an OCSP response or a delegated responder certificate signed with SHA-1 does not
+  /// authenticate (RFC 8446 4.4.2.4): the outcome is Indeterminate, never Good or Revoked, while
+  /// the same artifacts signed with SHA-256 are authoritative.
+  /// </summary>
+  TTestWeakRevocationSignatures = class(TTlsLibAlgorithmTestCase)
+  strict private
+    function Field(const AName: string): TBytes;
+    function CrlAuthoritative(const ACrlField: string; out ARevoked: Boolean): Boolean;
+    function OcspAuthoritative(const AResponseField: string; out AStatus: TOcspStatus): Boolean;
+  published
+    procedure TestCrlSignedWithSha256IsAuthoritative;
+    procedure TestCrlSignedWithSha1IsNotAuthoritative;
+    procedure TestOcspSignedWithSha256IsAuthoritative;
+    procedure TestOcspSignedWithSha1IsNotAuthoritative;
+    procedure TestDelegatedResponderCertificateSignedWithSha1IsNotAuthoritative;
+  end;
+
   /// <summary>The one revocation-decision table every verifier and resolver applies (RFC 6960):
   /// a definitive Revoked rejects under every posture (certificate_revoked), a Good accepts, and an
   /// indeterminate outcome follows the effective posture - Hard rejects (bad_certificate_status_response)
@@ -1617,6 +1635,86 @@ begin
   end;
 end;
 
+{ TTestWeakRevocationSignatures }
+
+function TTestWeakRevocationSignatures.Field(const AName: string): TBytes;
+var
+  LV: TStringList;
+begin
+  LV := LoadVectorFields('Certs/WeakRevocation.txt');
+  try
+    Result := DecodeHex(LV.Values[AName]);
+  finally
+    LV.Free;
+  end;
+end;
+
+function TTestWeakRevocationSignatures.CrlAuthoritative(const ACrlField: string;
+  out ARevoked: Boolean): Boolean;
+var
+  LThisUpdate, LNextUpdate: TDateTime;
+begin
+  Result := Pkix.Revocation.CheckCrlRevocation(Field('leaf_cert'), Field('ca_cert'),
+    Field(ACrlField), TDateTimeUtilities.ToUniversalTime(Now), ARevoked, LThisUpdate,
+    LNextUpdate);
+end;
+
+function TTestWeakRevocationSignatures.OcspAuthoritative(const AResponseField: string;
+  out AStatus: TOcspStatus): Boolean;
+var
+  LThisUpdate, LNextUpdate: TDateTime;
+begin
+  Result := Pkix.Revocation.ValidateOcspStaple(Field('leaf_cert'), Field('ca_cert'),
+    Field(AResponseField), TDateTimeUtilities.ToUniversalTime(Now), AStatus, LThisUpdate,
+    LNextUpdate);
+end;
+
+procedure TTestWeakRevocationSignatures.TestCrlSignedWithSha256IsAuthoritative;
+var
+  LRevoked: Boolean;
+begin
+  CheckTrue(CrlAuthoritative('crl_clean_sha256', LRevoked), 'clean CRL is authoritative');
+  CheckFalse(LRevoked, 'the leaf is not listed');
+  CheckTrue(CrlAuthoritative('crl_revoked_sha256', LRevoked), 'revoking CRL is authoritative');
+  CheckTrue(LRevoked, 'the leaf is listed');
+end;
+
+procedure TTestWeakRevocationSignatures.TestCrlSignedWithSha1IsNotAuthoritative;
+var
+  LRevoked: Boolean;
+begin
+  CheckFalse(CrlAuthoritative('crl_clean_sha1', LRevoked),
+    'a SHA-1 CRL must not clear the leaf');
+  CheckFalse(CrlAuthoritative('crl_revoked_sha1', LRevoked),
+    'a SHA-1 CRL is not an authenticated revocation either');
+end;
+
+procedure TTestWeakRevocationSignatures.TestOcspSignedWithSha256IsAuthoritative;
+var
+  LStatus: TOcspStatus;
+begin
+  CheckTrue(OcspAuthoritative('ocsp_ca_sha256', LStatus), 'issuer-signed response');
+  CheckEquals(Ord(TOcspStatus.Good), Ord(LStatus), 'issuer-signed status');
+  CheckTrue(OcspAuthoritative('ocsp_delegated_ok', LStatus), 'delegated response');
+  CheckEquals(Ord(TOcspStatus.Good), Ord(LStatus), 'delegated status');
+end;
+
+procedure TTestWeakRevocationSignatures.TestOcspSignedWithSha1IsNotAuthoritative;
+var
+  LStatus: TOcspStatus;
+begin
+  CheckFalse(OcspAuthoritative('ocsp_ca_sha1', LStatus),
+    'a SHA-1 issuer signature does not authenticate the response');
+end;
+
+procedure TTestWeakRevocationSignatures.TestDelegatedResponderCertificateSignedWithSha1IsNotAuthoritative;
+var
+  LStatus: TOcspStatus;
+begin
+  CheckFalse(OcspAuthoritative('ocsp_delegated_sha1cert', LStatus),
+    'a responder certificate the issuer signed with SHA-1 delegates nothing');
+end;
+
 { TTestRevocationDecision }
 
 procedure TTestRevocationDecision.TestOcspFreshness;
@@ -1710,10 +1808,12 @@ initialization
 {$IFDEF FPC}
   RegisterTest(TTestLiveRevocation);
   RegisterTest(TTestCrlScope);
+  RegisterTest(TTestWeakRevocationSignatures);
   RegisterTest(TTestRevocationDecision);
 {$ELSE}
   RegisterTest(TTestLiveRevocation.Suite);
   RegisterTest(TTestCrlScope.Suite);
+  RegisterTest(TTestWeakRevocationSignatures.Suite);
   RegisterTest(TTestRevocationDecision.Suite);
 {$ENDIF FPC}
 

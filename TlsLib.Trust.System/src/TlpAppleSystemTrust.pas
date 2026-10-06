@@ -23,6 +23,7 @@ uses
 {$LINKFRAMEWORK Security}
 {$ENDIF}
   TlpPosixDynLib,
+  TlpArrayUtilities,
   TlpTrustPolicy,
   TlpIClock,
   TlpSystemTrustBase,
@@ -1162,7 +1163,9 @@ function TAppleChainEngine.EvaluateServer(const ARequest: TPlatformChainRequest;
 begin
   // the OS name check only ever sees a DNS host (empty for an IP literal); an IP is matched in the
   // library by the delegate
-  Result := TAppleTrustApi.EvaluateWithPolicy(True, ARequest.Chain, nil,
+  // the configured intermediates ride behind the presented chain as untrusted path candidates
+  Result := TAppleTrustApi.EvaluateWithPolicy(True,
+    TArrayUtilities.Concat<TBytes>(ARequest.Chain, ARequest.Intermediates), nil,
     ARequest.ServerName.AsDns, ARequest.OcspStaple, ARequest.NetworkAllowed,
     ARequest.Revocation, ARequest.Clock, AResult, AAlert);
 end;
@@ -1172,7 +1175,8 @@ function TAppleChainEngine.EvaluateClient(const ARequest: TPlatformChainRequest;
 begin
   // anchors-only over the configured client-CA anchors (never the OS/public roots); a client
   // certificate carries no host identity and is never stapled
-  Result := TAppleTrustApi.EvaluateWithPolicy(False, ARequest.Chain, ARequest.Anchors,
+  Result := TAppleTrustApi.EvaluateWithPolicy(False,
+    TArrayUtilities.Concat<TBytes>(ARequest.Chain, ARequest.Intermediates), ARequest.Anchors,
     '', nil, ARequest.NetworkAllowed, ARequest.Revocation, ARequest.Clock,
     AResult, AAlert);
 end;

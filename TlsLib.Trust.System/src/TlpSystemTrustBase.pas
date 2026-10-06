@@ -71,14 +71,16 @@ type
 
   /// <summary>One platform chain evaluation. Chain is the peer chain (leaf first, DER). Anchors is the
   /// exclusive trust root of a client-certificate evaluation (empty on the server path, where the OS
-  /// roots apply). ServerName is the server-path identity (the engine reads AsDns or ToString as its
-  /// platform requires; empty on the client path). OcspStaple is consumed as cached revocation data
+  /// roots apply). Intermediates are the configured extra certificates, offered to path building as
+  /// untrusted candidates beside the presented chain. ServerName is the server-path identity (the
+  /// engine reads AsDns or ToString as its platform requires; empty on the client path). OcspStaple is consumed as cached revocation data
   /// where the platform can. NetworkAllowed is False inline (no socket) and True only from the
   /// off-engine-thread park. Clock nil means platform time. DeadlineMs bounds a network fetch where the
   /// platform honours one.</summary>
   TPlatformChainRequest = record
     Chain: TArray<TBytes>;
     Anchors: TArray<TBytes>;
+    Intermediates: TArray<TBytes>;
     ServerName: TServerName;
     OcspStaple: TBytes;
     Revocation: TPlatformRevocationCheck;

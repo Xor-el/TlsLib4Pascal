@@ -48,6 +48,7 @@ type
     ChainLimits: TCertificateChainLimits;
     AdvertisedSchemes: TArray<UInt16>;
     Anchors: TArray<TBytes>;
+    Intermediates: TArray<TBytes>;
     CheckHostName: Boolean;
     // must-staple (RFC 7633 4.3.3) binds only to a server leaf on the initial handshake the client
     // asked to staple; both are left unset (never-must-staple) for a client certificate
@@ -165,6 +166,7 @@ begin
   Result.AdvertisedSchemes := AContext.AdvertisedSignatureSchemes;
   Result.CheckHostName := AContext.CheckHostName;
   Result.Dangerous := AContext.Dangerous;
+  Result.Intermediates := AContext.Intermediates;
   // carry the must-staple binding inputs so the delegate enforces RFC 7633 as the built-in does
   Result.StatusRequestOffered := AContext.StatusRequestOffered;
   Result.Occasion := AContext.Occasion;
@@ -186,6 +188,7 @@ begin
   Result.ChainLimits := AContext.ChainLimits;
   Result.AdvertisedSchemes := AContext.AdvertisedSignatureSchemes;
   Result.Dangerous := AContext.Dangerous;
+  Result.Intermediates := AContext.Intermediates;
   // a client certificate carries no server name to match
   Result.CheckHostName := False;
   // a client certificate is never must-staple (the client never asks to staple it)
@@ -236,6 +239,7 @@ begin
   Result := Default(TPlatformChainRequest);
   Result.Chain := AChain;
   Result.Anchors := FPolicy.Anchors;
+  Result.Intermediates := FPolicy.Intermediates;
   // with the name check off, withhold the host from an engine that matches it internally so it does
   // not reject a name mismatch the built-in verifier would have skipped (Complete skips the re-check)
   if (not FPolicy.CheckHostName) and
@@ -328,7 +332,7 @@ var
 begin
   AVerified := Default(TVerifiedChain);
   // resource caps before the OS engine sees the chain, as the built-in verifier does
-  if not Policy.ChainLimits.AdmitsChain(AChain) then
+  if (System.Length(AChain) = 0) or not Policy.ChainLimits.AdmitsChain(AChain) then
   begin
     AAlert := TTlsAlertDescription.BadCertificate;
     Exit(False);
@@ -358,7 +362,7 @@ var
   LNoName: TServerName;
 begin
   AVerified := Default(TVerifiedChain);
-  if not Policy.ChainLimits.AdmitsChain(AChain) then
+  if (System.Length(AChain) = 0) or not Policy.ChainLimits.AdmitsChain(AChain) then
   begin
     AAlert := TTlsAlertDescription.BadCertificate;
     Exit(False);
@@ -434,6 +438,7 @@ begin
   LRequest := Default(TPlatformChainRequest);
   LRequest.Chain := AChain;
   LRequest.Anchors := FPolicy.Anchors;
+  LRequest.Intermediates := FPolicy.Intermediates;
   LRequest.OcspStaple := AStaple;
   LRequest.Revocation := TPlatformRevocationCheck.RequirePositive;
   LRequest.NetworkAllowed := True;

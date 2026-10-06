@@ -795,6 +795,14 @@ begin
       LIntermediates := LInterStore;
     end;
 
+    // the configured intermediates seed path building for a peer that sent an incomplete chain
+    if LIntermediates <> nil then
+      for LI := 0 to Length(ARequest.Intermediates) - 1 do
+        if Length(ARequest.Intermediates[LI]) > 0 then
+          FCertAddEncodedCertificateToStore(LIntermediates, MY_ENCODING_TYPE,
+            PByte(ARequest.Intermediates[LI]), Length(ARequest.Intermediates[LI]),
+            CERT_STORE_ADD_ALWAYS, nil);
+
     if AServer then
       LUsageArr[0] := SZOID_PKIX_KP_SERVER_AUTH
     else

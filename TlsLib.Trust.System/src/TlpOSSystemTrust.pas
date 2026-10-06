@@ -100,7 +100,9 @@ type
     /// chain engine over the configured client-CA anchors (never the OS/public roots). AFetch fixes
     /// the inline behaviour: CacheOnly (no socket) or Live (defer an indeterminate revocation to the
     /// async park). Raises where the platform exposes no OS client-certificate verifier, or where
-    /// Live is asked of a platform without OS-native live revocation.</summary>
+    /// Live is asked of a platform without OS-native live revocation. On Android the OS reports no
+    /// validated path for a client certificate, so the chain-algorithm and key-strength floors apply
+    /// to the leaf alone, not to the presented intermediates.</summary>
     class function ClientVerifierSource(AFetch: TSystemTrustFetch)
       : IClientCertificateVerifierSource; static;
   end;

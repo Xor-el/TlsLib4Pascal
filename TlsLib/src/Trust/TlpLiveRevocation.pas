@@ -76,7 +76,10 @@ type
   ///   * a current Good accepts;
   ///   * indeterminate (no responder URL, unreachable, malformed, unknown, stale, or a chain
   ///     with no issuer to authenticate against) is treated per the posture - Soft/Off accept
-  ///     (soft-fail), Hard rejects. The default when unspecified is the stricter Hard.
+  ///     (soft-fail), Hard rejects. The posture is the one passed at construction.
+  ///
+  /// Only the leaf is checked, against its issuer: an intermediate's own revocation is not
+  /// consulted here (the OS-native live path does check the whole chain).
   /// </summary>
   TLiveRevocationChecker = class sealed(TObject)
   strict private
@@ -142,10 +145,10 @@ type
       const AFetcher: IHttpFetcher; APosture: TRevocationPosture;
       AMethod: TLiveRevocationMethod; ADeadlineMs: Cardinal;
       const AOptions: TLiveRevocationOptions); overload;
-    /// <summary>The tri-state live outcome for the chain (leaf = AChain[0], issuer =
-    /// AChain[1]). When the chain carries no issuer entry the issuer is recovered from the configured
-    /// candidates if any qualify; failing that the outcome is Indeterminate (nothing authenticates a
-    /// revocation).</summary>
+    /// <summary>The tri-state live outcome for the leaf (leaf = AChain[0], issuer =
+    /// AChain[1]); intermediates are not checked. When the chain carries no issuer entry the issuer
+    /// is recovered from the configured candidates if any qualify; failing that the outcome is
+    /// Indeterminate (nothing authenticates a revocation).</summary>
     function Evaluate(const AChain: TArray<TBytes>): TLiveRevocationOutcome;
     /// <summary>Signature-compatible with the stream verdict resolver (the host name is
     /// not used for revocation): assign it to TTlsStream.SetCertificateVerdictResolver to run
