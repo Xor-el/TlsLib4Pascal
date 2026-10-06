@@ -42,9 +42,13 @@ type
     FOrder: TQueue<TStrikeEntry>;
     FCapacity: Int32;
     /// <summary>A lower bound on the earliest expiry among live values, so a full sweep runs only
-    /// when something may really have lapsed (never with uniform windows, where the queue front
-    /// is always the earliest).</summary>
+    /// when something may really have lapsed.</summary>
     FMinExpiry: UInt64;
+    /// <summary>The expiry of the newest queue entry, and whether the queue is still in expiry
+    /// order. While it is, PruneExpired is exact and a full sweep would find nothing, so uniform
+    /// windows never pay for one.</summary>
+    FLastExpiry: UInt64;
+    FSorted: Boolean;
     FLock: TCriticalSection;
     class function KeyOf(const AValue: TBytes): string; static;
     procedure PruneExpired(ANowMillis: UInt64);
@@ -86,6 +90,8 @@ begin
   FByKey := TDictionary<string, UInt64>.Create;
   FOrder := TQueue<TStrikeEntry>.Create;
   FMinExpiry := High(UInt64);
+  FLastExpiry := 0;
+  FSorted := True;
   FLock := TCriticalSection.Create;
 end;
 
@@ -120,6 +126,12 @@ begin
     // was re-recorded, so this is a stale order entry to drop without evicting the live current one
     if FByKey.TryGetValue(LFront.Key, LCurrent) and (LCurrent = LFront.Value) then
       FByKey.Remove(LFront.Key);
+  end;
+  // an emptied queue is trivially in order again
+  if FOrder.Count = 0 then
+  begin
+    FSorted := True;
+    FLastExpiry := 0;
   end;
 end;
 
@@ -162,8 +174,17 @@ begin
       if FByKey.TryGetValue(LEntry.Key, LCurrent) and (LCurrent = LEntry.Value) then
         LKept.Enqueue(LEntry);
     end;
+    // the survivors may be back in expiry order, which lets the next fills skip full sweeps
+    FSorted := True;
+    FLastExpiry := 0;
     while LKept.Count > 0 do
-      FOrder.Enqueue(LKept.Dequeue);
+    begin
+      LEntry := LKept.Dequeue;
+      if LEntry.Value < FLastExpiry then
+        FSorted := False;
+      FLastExpiry := LEntry.Value;
+      FOrder.Enqueue(LEntry);
+    end;
   finally
     LKept.Free;
   end;
@@ -188,9 +209,9 @@ begin
       Exit; // a still-live value: this is a replay
     // callers may pass differing windows, so the queue front is not always the earliest expiry and
     // PruneExpired can leave a lapsed entry behind a live one: before declining at capacity, sweep
-    // every entry
+    // every entry unless the queue is still in expiry order (then nothing lapsed is left)
     if (not FByKey.ContainsKey(LKey)) and (FByKey.Count >= FCapacity) and
-      (FMinExpiry <= ANowMillis) then
+      (not FSorted) and (FMinExpiry <= ANowMillis) then
       PruneAllExpired(ANowMillis);
     // at capacity a new value is declined rather than evicting a live strike: dropping one would let
     // its captured 0-RTT flight replay inside its window (RFC 8446 8)
@@ -200,6 +221,9 @@ begin
       CompactOrder;
     FByKey.AddOrSetValue(LKey, AExpiryMillis);
     FOrder.Enqueue(TStrikeEntry.Create(LKey, AExpiryMillis));
+    if AExpiryMillis < FLastExpiry then
+      FSorted := False;
+    FLastExpiry := AExpiryMillis;
     if AExpiryMillis < FMinExpiry then
       FMinExpiry := AExpiryMillis;
     Result := True;
@@ -215,6 +239,8 @@ begin
     FByKey.Clear;
     FOrder.Clear;
     FMinExpiry := High(UInt64);
+    FLastExpiry := 0;
+    FSorted := True;
   finally
     FLock.Leave;
   end;

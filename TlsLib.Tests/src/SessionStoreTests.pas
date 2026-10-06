@@ -1173,6 +1173,10 @@ begin
   CheckFalse(LReplay.CheckAndRecord(LGuard, 10001, 100000), 'guard still a replay');
   CheckEquals(2, LReplay.Count, 'count unchanged by compaction');
   CheckFalse(LReplay.CheckAndRecord(Tag($03, 8), 10001, 20000), 'a new value is declined at capacity');
+  // the value has lapsed behind the live guard, so compaction left the queue out of expiry order
+  // and the next admission must still sweep it
+  CheckTrue(LReplay.CheckAndRecord(Tag($04, 8), 11000, 20000),
+    'admitted: the lapsed short entry behind the live guard is swept after compaction');
   CheckTrue(LReplay.CheckAndRecord(Tag($03, 8), 100001, 200000), 'admitted once the entries expired');
 end;
 
