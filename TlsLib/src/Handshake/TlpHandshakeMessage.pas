@@ -17,7 +17,6 @@ interface
 
 uses
   SysUtils,
-  TlpArrayUtilities,
   TlpTlsLibExceptions,
   TlpWireReader,
   TlpWireVectorMarker,
@@ -83,7 +82,10 @@ type
   THandshakeMessageReader = class sealed(TObject)
   strict private
   var
+    // un-consumed bytes are [FHead, FTail); keeps small-fragment reassembly linear
     FBuffer: TBytes;
+    FHead: Int32;
+    FTail: Int32;
     FMaxMessageLength: Int32;
     FMaxCertificateMessageLength: Int32;
     FMaxTotalLength: Int32;
@@ -119,11 +121,16 @@ const
 
 implementation
 
+const
+  ReassemblyMinCapacity = Int32(1024);
+  ReassemblyRetainCapacity = Int32(1 shl 16);
+
 resourcestring
   SHandshakeMessageTooLong =
     'handshake message body of %d byte(s) exceeds the %d-byte cap';
   SHandshakeReassemblyOverflow =
     'buffered handshake bytes (%d) exceed the %d-byte reassembly cap';
+  SHandshakeSliceOutOfRange = 'handshake input slice is outside the supplied buffer';
 
 { TTlsHandshakeTypeHelper }
 
@@ -199,6 +206,8 @@ constructor THandshakeMessageReader.Create;
 begin
   inherited Create;
   FBuffer := nil;
+  FHead := 0;
+  FTail := 0;
   FMaxMessageLength := DefaultMaxHandshakeMessageLength;
   FMaxCertificateMessageLength := DefaultMaxHandshakeMessageLength;
   FMaxTotalLength := DefaultMaxHandshakeReassembly;
@@ -206,14 +215,44 @@ end;
 
 procedure THandshakeMessageReader.Append(const AData: TBytes;
   AOffset, ALength: Int32);
+var
+  LLive, LNeed, LCap: Int32;
 begin
   if ALength <= 0 then
     Exit;
-  FBuffer := TArrayUtilities.Concat(FBuffer, System.Copy(AData, AOffset, ALength));
+  // a caller error, not a peer fault: reject rather than read past the slice
+  if (AOffset < 0) or (Int64(AOffset) + ALength > System.Length(AData)) then
+    raise EArgumentTlsLibException.CreateRes(@SHandshakeSliceOutOfRange);
+  LLive := FTail - FHead;
   // bound un-consumed reassembly so a flood of messages cannot grow it without limit
-  if System.Length(FBuffer) > FMaxTotalLength then
+  if Int64(LLive) + ALength > FMaxTotalLength then
     raise EDecodeErrorTlsLibException.CreateResFmt(@SHandshakeReassemblyOverflow,
-      [System.Length(FBuffer), FMaxTotalLength]);
+      [Int64(LLive) + ALength, FMaxTotalLength]);
+  if Int64(FTail) + ALength > System.Length(FBuffer) then
+  begin
+    // reclaim the consumed prefix before growing
+    if FHead > 0 then
+    begin
+      if LLive > 0 then
+        System.Move(FBuffer[FHead], FBuffer[0], LLive);
+      FHead := 0;
+      FTail := LLive;
+    end;
+    LNeed := FTail + ALength;
+    if LNeed > System.Length(FBuffer) then
+    begin
+      LCap := System.Length(FBuffer);
+      if LCap < ReassemblyMinCapacity then
+        LCap := ReassemblyMinCapacity;
+      if LCap <= High(Int32) div 2 then
+        LCap := LCap * 2;
+      if LCap < LNeed then
+        LCap := LNeed;
+      System.SetLength(FBuffer, LCap);
+    end;
+  end;
+  System.Move(AData[AOffset], FBuffer[FTail], ALength);
+  Inc(FTail, ALength);
 end;
 
 function THandshakeMessageReader.NextMessage(
@@ -224,9 +263,9 @@ var
   LBodyLength, LCap, LTotal: Int32;
 begin
   Result := False;
-  if System.Length(FBuffer) < HandshakeHeaderLength then
+  if FTail - FHead < HandshakeHeaderLength then
     Exit; // not even a header yet
-  LReader := TWireReader.Create(FBuffer);
+  LReader := TWireReader.Create(FBuffer, FHead, FTail - FHead);
   LTypeByte := LReader.ReadUInt8;
   LBodyLength := Int32(LReader.ReadUInt24);
   // the Certificate message carries the peer chain, so it is bounded by the configured chain
@@ -243,14 +282,22 @@ begin
   AMessage.TypeByte := LTypeByte;
   AMessage.Body := LReader.ReadBytes(LBodyLength);
   LTotal := HandshakeHeaderLength + LBodyLength;
-  AMessage.Raw := System.Copy(FBuffer, 0, LTotal);
-  FBuffer := System.Copy(FBuffer, LTotal, System.Length(FBuffer) - LTotal);
+  AMessage.Raw := System.Copy(FBuffer, FHead, LTotal);
+  Inc(FHead, LTotal);
+  if FHead = FTail then
+  begin
+    FHead := 0;
+    FTail := 0;
+    // do not pin a buffer sized for one large message
+    if System.Length(FBuffer) > ReassemblyRetainCapacity then
+      FBuffer := nil;
+  end;
   Result := True;
 end;
 
 function THandshakeMessageReader.HasPartial: Boolean;
 begin
-  Result := System.Length(FBuffer) > 0;
+  Result := FTail > FHead;
 end;
 
 end.

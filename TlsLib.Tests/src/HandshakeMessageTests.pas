@@ -34,7 +34,16 @@ type
   TTestHandshakeMessage = class(TTlsLibAlgorithmTestCase)
   private
     function Msg(const AName: string): TBytes;
+    function Framed(AType: TTlsHandshakeType; ABodyLength: Int32; AFill: Byte): TBytes;
+    procedure CheckMessage(const AWhat: string; const AFramed: TBytes;
+      const AMessage: TTlsHandshakeMessage);
   published
+    procedure TestReassemblyCapIgnoresConsumedPrefixOfAPartialTail;
+    procedure TestOutOfRangeSliceIsRejected;
+    procedure TestSmallFragmentsReassembleSeveralMessages;
+    procedure TestGrowthAfterPartialConsumptionKeepsTheTail;
+    procedure TestReassemblyCapCountsOnlyUnconsumedBytes;
+    procedure TestReassemblyCapIsExact;
     procedure TestHandshakeTypeCodec;
     procedure TestFrameRoundTrip;
     procedure TestReassemblyAcrossFragments;
@@ -55,6 +64,186 @@ begin
   if GVectors = nil then
     GVectors := LoadVectorFields('Rfc8448/HandshakeMessages.txt');
   Result := DecodeHex(GVectors.Values[AName]);
+end;
+
+function TTestHandshakeMessage.Framed(AType: TTlsHandshakeType; ABodyLength: Int32;
+  AFill: Byte): TBytes;
+var
+  LBody: TBytes;
+  LIdx: Int32;
+begin
+  System.SetLength(LBody, ABodyLength);
+  for LIdx := 0 to ABodyLength - 1 do
+    LBody[LIdx] := Byte(AFill + LIdx);
+  Result := THandshakeFraming.Frame(AType, LBody);
+end;
+
+procedure TTestHandshakeMessage.CheckMessage(const AWhat: string; const AFramed: TBytes;
+  const AMessage: TTlsHandshakeMessage);
+begin
+  CheckEquals(AFramed[0], AMessage.TypeByte, AWhat + ': type');
+  CheckEqualBytes(AWhat + ': body', System.Copy(AFramed, 4, System.Length(AFramed) - 4),
+    AMessage.Body);
+  CheckEqualBytes(AWhat + ': raw', AFramed, AMessage.Raw);
+end;
+
+procedure TTestHandshakeMessage.TestReassemblyCapIgnoresConsumedPrefixOfAPartialTail;
+var
+  LDone, LPartial, LWire: TBytes;
+  LReader: THandshakeMessageReader;
+  LMsg: TTlsHandshakeMessage;
+begin
+  LDone := Framed(TTlsHandshakeType.Finished, 32, 0); // 36 bytes
+  LPartial := Framed(TTlsHandshakeType.Finished, 32, 5);
+  LWire := ConcatBytes(LDone, System.Copy(LPartial, 0, 20));
+  LReader := THandshakeMessageReader.Create;
+  try
+    LReader.MaxTotalLength := 60;
+    LReader.Append(LWire, 0, System.Length(LWire)); // 56 held
+    CheckTrue(LReader.NextMessage(LMsg), 'the whole message is consumed');
+    // 20 bytes remain live while the consumed 36 still sit before them: 20 + 16 fits the cap,
+    // but counting the consumed prefix (56 + 16) would not
+    LReader.Append(LPartial, 20, 16);
+    CheckTrue(LReader.NextMessage(LMsg), 'the partial tail completes');
+    CheckMessage('completed tail', LPartial, LMsg);
+  finally
+    LReader.Free;
+  end;
+end;
+
+procedure TTestHandshakeMessage.TestOutOfRangeSliceIsRejected;
+var
+  LReader: THandshakeMessageReader;
+  LWire: TBytes;
+  LRaised: Boolean;
+begin
+  LWire := Framed(TTlsHandshakeType.Finished, 4, 0);
+  LReader := THandshakeMessageReader.Create;
+  try
+    LRaised := False;
+    try
+      LReader.Append(LWire, 4, System.Length(LWire));
+    except
+      on EArgumentTlsLibException do
+        LRaised := True;
+    end;
+    CheckTrue(LRaised, 'a slice past the end of the buffer is a caller error');
+    CheckFalse(LReader.HasPartial, 'nothing was buffered');
+  finally
+    LReader.Free;
+  end;
+end;
+
+procedure TTestHandshakeMessage.TestSmallFragmentsReassembleSeveralMessages;
+var
+  LFirst, LSecond, LThird, LWire: TBytes;
+  LReader: THandshakeMessageReader;
+  LMsg: TTlsHandshakeMessage;
+  LPos, LChunk, LSeen: Int32;
+begin
+  LFirst := Framed(TTlsHandshakeType.EncryptedExtensions, 5000, 1);
+  LSecond := Framed(TTlsHandshakeType.Finished, 0, 0);
+  LThird := Framed(TTlsHandshakeType.Certificate, 40000, 9);
+  LWire := ConcatBytes(ConcatBytes(LFirst, LSecond), LThird);
+  LReader := THandshakeMessageReader.Create;
+  try
+    LReader.MaxCertificateMessageLength := 50000;
+    LSeen := 0;
+    LPos := 0;
+    while LPos < System.Length(LWire) do
+    begin
+      LChunk := 7;
+      if LChunk > System.Length(LWire) - LPos then
+        LChunk := System.Length(LWire) - LPos;
+      LReader.Append(LWire, LPos, LChunk);
+      Inc(LPos, LChunk);
+      while LReader.NextMessage(LMsg) do
+      begin
+        case LSeen of
+          0: CheckMessage('first message', LFirst, LMsg);
+          1: CheckMessage('second message', LSecond, LMsg);
+          2: CheckMessage('third message', LThird, LMsg);
+        end;
+        Inc(LSeen);
+      end;
+    end;
+    CheckEquals(3, LSeen, 'all three messages came out');
+    CheckFalse(LReader.HasPartial, 'nothing left over');
+  finally
+    LReader.Free;
+  end;
+end;
+
+procedure TTestHandshakeMessage.TestGrowthAfterPartialConsumptionKeepsTheTail;
+var
+  LFirst, LSecond, LWire: TBytes;
+  LReader: THandshakeMessageReader;
+  LMsg: TTlsHandshakeMessage;
+begin
+  // the first feed holds one whole message and the start of another; the second feed does not
+  // fit behind it, so the consumed prefix is reclaimed while the partial tail is live
+  LFirst := Framed(TTlsHandshakeType.EncryptedExtensions, 700, 3);
+  LSecond := Framed(TTlsHandshakeType.CertificateVerify, 1500, 77);
+  LWire := ConcatBytes(LFirst, LSecond);
+  LReader := THandshakeMessageReader.Create;
+  try
+    LReader.Append(LWire, 0, 1200);
+    CheckTrue(LReader.NextMessage(LMsg), 'the first message is whole');
+    CheckMessage('first message', LFirst, LMsg);
+    CheckFalse(LReader.NextMessage(LMsg), 'the second is still partial');
+    LReader.Append(LWire, 1200, System.Length(LWire) - 1200);
+    CheckTrue(LReader.NextMessage(LMsg), 'the second message completes');
+    CheckMessage('second message survives the reclaim', LSecond, LMsg);
+    CheckFalse(LReader.HasPartial, 'nothing left over');
+  finally
+    LReader.Free;
+  end;
+end;
+
+procedure TTestHandshakeMessage.TestReassemblyCapCountsOnlyUnconsumedBytes;
+var
+  LWire: TBytes;
+  LReader: THandshakeMessageReader;
+  LMsg: TTlsHandshakeMessage;
+  LIdx: Int32;
+begin
+  LWire := Framed(TTlsHandshakeType.Finished, 32, 0);
+  LReader := THandshakeMessageReader.Create;
+  try
+    LReader.MaxTotalLength := 40;
+    // each 36-byte message is consumed before the next arrives, so 36 never accumulates past 40
+    for LIdx := 1 to 5 do
+    begin
+      LReader.Append(LWire, 0, System.Length(LWire));
+      CheckTrue(LReader.NextMessage(LMsg), 'message ' + IntToStr(LIdx));
+    end;
+  finally
+    LReader.Free;
+  end;
+end;
+
+procedure TTestHandshakeMessage.TestReassemblyCapIsExact;
+var
+  LWire: TBytes;
+  LReader: THandshakeMessageReader;
+  LRaised: Boolean;
+begin
+  LWire := Framed(TTlsHandshakeType.Finished, 32, 0);
+  LReader := THandshakeMessageReader.Create;
+  try
+    LReader.MaxTotalLength := 36;
+    LReader.Append(LWire, 0, 36); // exactly at the cap
+    LRaised := False;
+    try
+      LReader.Append(LWire, 0, 1);
+    except
+      on E: EDecodeErrorTlsLibException do
+        LRaised := True;
+    end;
+    CheckTrue(LRaised, 'one byte past the cap is a decode_error');
+  finally
+    LReader.Free;
+  end;
 end;
 
 procedure TTestHandshakeMessage.TestHandshakeTypeCodec;
