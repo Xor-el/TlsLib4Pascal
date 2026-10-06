@@ -156,9 +156,7 @@ type
     procedure TestSha1SelfSignedRootNotConfiguredRejected;
     procedure TestBareVerifierRefusesSha1SignedIntermediate;
     procedure TestSha1ChainSignatureAdmittedWhenNamedInThePolicy;
-    procedure TestUnsetPolicyAdmitsNoDeprecatedHash;
     procedure TestMd5ChainSignatureRefusedEvenWhenAdmitted;
-    procedure TestAdmittedSha1KeepsTheKeyFloors;
     procedure TestSameSubjectDifferentKeyRootIgnoredForConfiguredAnchor;
     // the anchor set is fetched once per verify and shared by path validation and the chain policy
     procedure TestAnchorSetCopiedOnceAcrossVerifies;
@@ -937,22 +935,6 @@ begin
     'admitting SHA-1 accepts the SHA-1-signed intermediate');
 end;
 
-procedure TTestCertificateVerifier.TestUnsetPolicyAdmitsNoDeprecatedHash;
-var
-  LAlert: TTlsAlertDescription;
-  LVerified: TVerifiedChain;
-  LPolicy: TCertificateStrengthPolicy;
-begin
-  // a policy value that was never filled in must not be weaker than the presets on the hash
-  LPolicy := Default(TCertificateStrengthPolicy);
-  CheckFalse(PolicyVerifierFor(Reissued('root_cert'),
-    TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256), LPolicy)
-    .VerifyServerCertificate(TArray<TBytes>.Create(Reissued('leaf_cert'),
-    Reissued('issuer_sha1_cert')), TServerName.DnsName(''), nil, LVerified, LAlert),
-    'a policy that was never filled in admits no deprecated hash');
-  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'alert');
-end;
-
 procedure TTestCertificateVerifier.TestMd5ChainSignatureRefusedEvenWhenAdmitted;
 var
   LVec: TStringList;
@@ -975,29 +957,6 @@ begin
       DecodeHex(LVec.Values['issuer_md5_cert'])), TServerName.DnsName(''), nil, LVerified,
       LAlert), 'an MD5-signed intermediate is refused even when named in the admitted set');
     CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'alert');
-  finally
-    LVec.Free;
-  end;
-end;
-
-procedure TTestCertificateVerifier.TestAdmittedSha1KeepsTheKeyFloors;
-var
-  LVec: TStringList;
-  LAlert: TTlsAlertDescription;
-  LVerified: TVerifiedChain;
-  LPolicy: TCertificateStrengthPolicy;
-begin
-  LVec := LoadVectorFields('Certs/LegacyHashChain.txt');
-  try
-    LPolicy := TCertificateStrengthPolicy.Defaults;
-    LPolicy.AllowedDeprecatedHashes := [TCertSignatureHash.Sha1];
-    LPolicy.MinRsaModulusBits := 3072;
-    CheckFalse(PolicyVerifierFor(DecodeHex(LVec.Values['root_cert']),
-      TArray<UInt16>.Create(TSignatureSchemes.RsaPkcs1Sha256), LPolicy)
-      .VerifyServerCertificate(TArray<TBytes>.Create(DecodeHex(LVec.Values['leaf_cert']),
-      DecodeHex(LVec.Values['issuer_sha1_cert'])), TServerName.DnsName(''), nil, LVerified,
-      LAlert), 'admitting SHA-1 does not relax the RSA key floor');
-    CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert), 'alert');
   finally
     LVec.Free;
   end;

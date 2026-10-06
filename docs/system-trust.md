@@ -258,7 +258,8 @@ verifier, all **cache-only**: no network revocation during the handshake, so the
 engaged — Windows and Apple can opt into `Live`, which fetches in the async park instead):
 
 - **Chain-strength policy** runs over the OS-built path (the OS anchor exempt): the advertised-scheme
-  filter, the MD5/SHA-1 refusal and the key-strength floors apply under Delegate mode too. A
+  filter, the MD5 refusal, the default SHA-1 refusal and the key-strength floors apply under Delegate
+  mode too. A
   private PKI that still has SHA-1 certificates can name `TCertSignatureHash.Sha1` in the policy's
   `AllowedDeprecatedHashes`; that only stops this library refusing it, so a platform engine that
   rejects SHA-1 itself still does. A whole-verifier instance you inject as the trust source is

@@ -30,8 +30,8 @@ type
   /// Enforces the chain-algorithm policy over an already path-validated peer chain: every leaf
   /// and intermediate must be signed with a signature scheme the endpoint advertised (RFC 8446
   /// 4.4.2.2 / RFC 5246 7.4.2), an MD5-signed certificate is refused outright and a SHA-1-signed
-  /// one unless the policy admits it (RFC 8446 4.4.2.4), and each subject key must meet the configured minimum-strength floors. A
-  /// configured trust anchor is exempt (its self-signature is not a validated edge and its key
+  /// one unless the policy admits it (RFC 8446 4.4.2.4), and each subject key must meet the
+  /// configured minimum-strength floors. A configured trust anchor is exempt (its self-signature is not a validated edge and its key
   /// is the operator's trust); the leaf never is. Verdict-only: it decides accept/reject and the
   /// alert, reading facts from the provider's certificate inspector so no ASN.1 is handled here.
   /// </summary>
