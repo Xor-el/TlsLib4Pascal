@@ -37,6 +37,8 @@ uses
   TlpNegotiationPolicy,
   TlpCipherSuiteRegistry,
   TlpCoreExtensions,
+  TlpExtensionVector,
+  TlpEchExtension,
   TlpExtensionContext,
   TlpITlsExtension,
   TlpExtensionBlockCodec,
@@ -90,6 +92,7 @@ type
     procedure TestServerRejectsUnexpectedMessageDuringRetryWait;
     procedure TestServerRejectsRetryClientHelloThatChangesSuite;
     procedure TestServerRejectsRetryClientHelloThatChangesSessionId;
+    procedure TestServerRejectsInnerEchInRetryClientHello;
   end;
 
 implementation
@@ -661,6 +664,36 @@ begin
     'a retry that changes legacy_session_id aborts');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
     'a changed retry session id is illegal_parameter');
+end;
+
+procedure TTestHelloRetryRequest.TestServerRejectsInnerEchInRetryClientHello;
+var
+  LServer: IHandshakeMachine;
+  LHrr, LCookie, LCh2, LShare: TBytes;
+  LPriv: IKeyExchangePrivateKey;
+  LHello: TTlsClientHello;
+  LExtensions: TExtensionVector;
+  LAlert: TTlsAlertDescription;
+begin
+  // an inner-type ech is a decrypted ClientHelloInner, which only a split-mode backend may see
+  // (RFC 9849 sec. 7); the retry ClientHello is held to the same rule as the first
+  TNamedGroups.CreateNistEcdh(Crypto, 'secp256r1').GenerateKeyPair(LPriv, LShare);
+  LServer := NewSecp256r1Server(nil);
+  LHrr := SendHandshakeOf(LServer.ProcessMessage(MsgFrom(Vec('client_hello_1'))))[0];
+  LCookie := CookieFromHrr(LHrr);
+  LCh2 := BuildClientHello2(TNamedGroupCatalog.Secp256r1, LShare, LCookie, nil,
+    TCipherSuites13.Aes128GcmSha256);
+  LHello := THandshakeMessages.DecodeClientHello(System.Copy(LCh2, 4, System.Length(LCh2) - 4));
+  LExtensions := TExtensionVector.Parse(LHello.Extensions);
+  LExtensions.Append(TExtensionEntry.Create(TExtensionTypes.EncryptedClientHello,
+    TEchExtension.EncodeInner));
+  LHello.Extensions := LExtensions.Encode;
+  LCh2 := THandshakeFraming.Frame(TTlsHandshakeType.ClientHello,
+    THandshakeMessages.EncodeClientHello(LHello));
+  CheckTrue(FailAlertOf(LServer.ProcessMessage(MsgFrom(LCh2)), LAlert),
+    'an inner-type ech in the retry ClientHello aborts');
+  CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
+    'it is illegal_parameter');
 end;
 
 initialization

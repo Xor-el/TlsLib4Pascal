@@ -54,7 +54,8 @@ type
     FInnerRandom: TBytes;
     FOpener: IHpkeOpener;
     FSuite: IHpkeSuite;
-    FConfig: TEchConfig;
+    // the config_id CH1 carried on the wire, which trial decryption does not tie to the entry's
+    FWireConfigId: Byte;
     class function ConfigSupports(const AConfig: TEchConfig;
       AKdf, AAead: UInt16): Boolean; static;
     class function LocateOuterEchPayload(const ABody: TBytes;
@@ -362,7 +363,7 @@ begin
         ReconstructInner(LEncoded, AOuter, AOuterEntries);
         FOpener := LOpener;
         FSuite := LSuite;
-        FConfig := LEntry.Config;
+        FWireConfigId := LOuterEch.ConfigId;
         FStatus := TEchStatus.Accepted;
       finally
         // the decrypted inner carries the real SNI and PSK binder - wipe once reframed
@@ -408,7 +409,7 @@ begin
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SWireInnerEch);
   // the retry reuses the CH1 context: config_id and cipher_suite unchanged, enc empty
-  if (LOuterEch.ConfigId <> FConfig.ConfigId) or
+  if (LOuterEch.ConfigId <> FWireConfigId) or
     (LOuterEch.CipherSuite.KdfId <> FSuite.Kdf) or
     (LOuterEch.CipherSuite.AeadId <> FSuite.Aead) or
     (System.Length(LOuterEch.Enc) <> 0) then

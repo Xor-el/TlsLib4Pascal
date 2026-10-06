@@ -112,6 +112,7 @@ type
     procedure TestScsvWithTls13OfferToStandaloneServerIsNotFallback;
     procedure TestGreaseOnlySupportedVersionsRejected;
     procedure TestServerRejectsSupportedVersionsWithoutCommonVersion;
+    procedure TestLegacyEchHelloWithoutKeyStoreStaysOnTls12;
     procedure TestServerWithoutSignatureAlgorithmsIsHandshakeFailure;
     procedure TestEmptySupportedVersionsAtDispatchIsDecodeError;
     procedure TestTls13OnlyDispatcherRejectsTls12OnlyOffer;
@@ -652,6 +653,26 @@ begin
     TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256),
     DecodeHex('0007002B0003021111'))), TTlsAlertDescription.ProtocolVersion),
     'no common version aborts protocol_version');
+end;
+
+procedure TTestTls12DualVersion.TestLegacyEchHelloWithoutKeyStoreStaysOnTls12;
+var
+  LServer: IHandshakeMachine;
+  LEffects: TArray<THandshakeEffect>;
+begin
+  // a hello with no supported_versions that carries an ech extension is only routed to the 1.3
+  // machine when the server holds ECH keys; otherwise it is a 1.2 client GREASE-ing ech, which is
+  // not offering ECH (RFC 9849 sec. 6.2.1). The 1.2 machine's own verdict (no signature_algorithms
+  // is handshake_failure here) proves the routing, where the 1.3 route would say protocol_version
+  LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
+    TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12)) as IHandshakeMachine;
+  LEffects := LServer.ProcessMessage(MakeClientHello(
+    TArray<UInt16>.Create(TCipherSuites12.EcdheEcdsaAes128GcmSha256),
+    DecodeHex('0004FE0D0000')));
+  CheckFalse(HasFailAlert(LEffects, TTlsAlertDescription.ProtocolVersion),
+    'a GREASE ech without keys is not routed to the TLS 1.3 machine');
+  CheckTrue(HasFailAlert(LEffects, TTlsAlertDescription.HandshakeFailure),
+    'the TLS 1.2 machine judged the hello');
 end;
 
 procedure TTestTls12DualVersion.TestServerWithoutSignatureAlgorithmsIsHandshakeFailure;

@@ -1279,6 +1279,12 @@ begin
     System.Copy(LCh2Raw, 4, System.Length(LCh2Raw) - 4));
   // one parse of the retry ClientHello's extension block, reused across the consume and PSK-last
   LExtensions := ParseClientHelloExtensions(LClientHello);
+  // an inner-type ech is held to the same gate as on the first hello: only a split-mode backend may
+  // see one (an accepted outer was already checked in ProcessRetryOuter)
+  if (not LEchAccepted) and DetectBackendEch(LExtensions) and
+    ((FParams.EchKeyStore <> nil) or (not FParams.EchSplitModeBackend)) then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.IllegalParameter, @SEchInnerNotBackend);
   LContext := TExtensionContext.Create;
   try
     // the HelloRetryRequest named the suite selected from CH1, and the retry transcript is rebuilt

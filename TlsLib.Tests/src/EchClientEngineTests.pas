@@ -36,6 +36,7 @@ uses
   TlpCipherSuiteRegistry,
   TlpCoreExtensions,
   TlpWireReader,
+  TlpHandshakeMessage,
   TlpHandshakeMessages,
   TlpHandshakeEffect,
   TlpTls13ClientStateMachine,
@@ -45,6 +46,9 @@ uses
   TlpEchExtension,
   TlpEchOuterExtensions,
   TlpEchClient,
+  TlpEchClientOrchestrator,
+  TlpIEchClientOrchestrator,
+  MockCryptoProvider,
   TlpEchServer,
   TlpInMemoryEchKeyStore,
   TlpEchKeyGen,
@@ -67,6 +71,10 @@ type
     // decode + vector-parse the framed outer once, then drive ProcessOuter (its new triple)
     function ProcessOuterFramed(const AEch: IEchServerHandshake;
       const AFramed: TBytes): TEchStatus;
+    // seals AEncoded into the outer's ech extension with ASealer and returns the framed outer
+    function SealOuter(var AOuter: TTlsClientHello; var AEntries: TExtensionVector;
+      var AEch: TEchOuterClientHello; const ASealer: IHpkeSealer;
+      const AEncoded: TBytes): TBytes;
     function SniHost(const AServerNameData: TBytes): string;
     function Contains(const AHaystack, ANeedle: TBytes): Boolean;
   protected
@@ -75,6 +83,8 @@ type
   published
     procedure TestOuterHidesRealSniAndDecryptsToInner;
     procedure TestUnusableConfigFailsClosed;
+    procedure TestRetryChecksTheWireConfigIdNotTheEntrys;
+    procedure TestGreaseDegradesWhenProviderLacksX25519;
     procedure TestEmptyConfigListWithoutGreaseFailsClosed;
     procedure TestServerRetryOuterBeforeAcceptFailsLoud;
     procedure TestServerRetryOuterAfterRejectFailsLoud;
@@ -299,6 +309,21 @@ begin
   CheckTrue(LRaised, 'an all-unusable ECH config with GREASE off fails closed');
 end;
 
+procedure TTestEchClientEngine.TestGreaseDegradesWhenProviderLacksX25519;
+var
+  LCrypto: ICryptoProvider;
+  LOrchestrator: IEchClientOrchestrator;
+begin
+  // GREASE imitates an X25519 suite; a provider that cannot build X25519 sends no decoy instead of
+  // failing the handshake (the orchestrator's contract)
+  LCrypto := TMissingAeadProvider.Create(Crypto, TKeyAgreementAlgorithm.X25519) as ICryptoProvider;
+  CheckEquals(0, System.Length(LCrypto.Hpke.RandomEncapsulation(
+    THpkeKem.DHKEM_X25519_HKDF_SHA256)), 'no encapsulation without the KEM primitive');
+  LOrchestrator := TEchClientOrchestrator.Create(LCrypto,
+    TEchClientPolicy.Create(LCrypto, nil, True, False) as IEchClientPolicy);
+  CheckFalse(LOrchestrator.Grease, 'no decoy is offered, and nothing raised');
+end;
+
 procedure TTestEchClientEngine.TestEmptyConfigListWithoutGreaseFailsClosed;
 var
   LRaised: Boolean;
@@ -373,6 +398,87 @@ begin
     System.Copy(AFramed, 4, System.Length(AFramed) - 4));
   LEntries := TExtensionVector.Parse(LOuter.Extensions);
   Result := AEch.ProcessOuter(AFramed, LOuter, LEntries);
+end;
+
+function TTestEchClientEngine.SealOuter(var AOuter: TTlsClientHello;
+  var AEntries: TExtensionVector; var AEch: TEchOuterClientHello;
+  const ASealer: IHpkeSealer; const AEncoded: TBytes): TBytes;
+var
+  LIdx: Int32;
+  LAad: TBytes;
+begin
+  LIdx := AEntries.IndexOf(TExtensionTypes.EncryptedClientHello);
+  // the AAD is the outer with the payload zeroed at its final length (RFC 9849 sec. 5.2)
+  AEch.Payload := nil;
+  System.SetLength(AEch.Payload, System.Length(AEncoded) + 16);
+  AEntries.SetData(LIdx, TEchExtension.EncodeOuter(AEch));
+  AOuter.Extensions := AEntries.Encode;
+  LAad := THandshakeMessages.EncodeClientHello(AOuter);
+  AEch.Payload := ASealer.Seal(LAad, AEncoded);
+  AEntries.SetData(LIdx, TEchExtension.EncodeOuter(AEch));
+  AOuter.Extensions := AEntries.Encode;
+  Result := THandshakeFraming.Frame(TTlsHandshakeType.ClientHello,
+    THandshakeMessages.EncodeClientHello(AOuter));
+end;
+
+procedure TTestEchClientEngine.TestRetryChecksTheWireConfigIdNotTheEntrys;
+var
+  LOuterFramed, LOuterBody, LAad, LEncoded, LEnc, LRetryFramed: TBytes;
+  LOuter: TTlsClientHello;
+  LEntries: TExtensionVector;
+  LEch: TExtensionEntry;
+  LType: TEchClientHelloType;
+  LOuterEch: TEchOuterClientHello;
+  LConfig: TEchConfig;
+  LSuite: IHpkeSuite;
+  LSk: ISecretBuffer;
+  LOpener: IHpkeOpener;
+  LSealer: IHpkeSealer;
+  LStore: IEchServerKeyStore;
+  LServer: IEchServerHandshake;
+  LWireId: Byte;
+begin
+  // a client that ignores the config identifiers randomizes config_id on the first hello and must
+  // keep that value on the retry (RFC 9849 sec. 6.1.1, 7.1.1); a trial-decrypting server compares
+  // the retry with what it was sent, not with the id of the key-store entry that opened it
+  LOuterFramed := OuterClientHello;
+  LOuterBody := System.Copy(LOuterFramed, 4, System.Length(LOuterFramed) - 4);
+  LOuter := THandshakeMessages.DecodeClientHello(LOuterBody);
+  LEntries := TExtensionVector.Parse(LOuter.Extensions);
+  CheckTrue(LEntries.TryFind(TExtensionTypes.EncryptedClientHello, LEch), 'outer has an ech extension');
+  TEchExtension.Decode(LEch.Data, LType, LOuterEch);
+  LConfig := TEchConfigList.Parse(DecodeHex(FVec.Values['config_list']))[0];
+  LSuite := Crypto.Hpke.Suite(LConfig.KemId, LOuterEch.CipherSuite.KdfId,
+    LOuterEch.CipherSuite.AeadId);
+  LSk := Crypto.Hpke.ImportPrivateKey(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+    DecodeHex(FVec.Values['config_private_key']));
+
+  // recover the encoded inner the real client sealed
+  FillChar(LOuterEch.Payload[0], System.Length(LOuterEch.Payload), 0);
+  LEntries.SetData(LEntries.IndexOf(TExtensionTypes.EncryptedClientHello),
+    TEchExtension.EncodeOuter(LOuterEch));
+  LOuter.Extensions := LEntries.Encode;
+  LAad := THandshakeMessages.EncodeClientHello(LOuter);
+  TEchExtension.Decode(LEch.Data, LType, LOuterEch);
+  LOpener := Crypto.Hpke.ImportRecipientKey(LSuite.Kem, LSk)
+    .SetupOpener(LSuite, LOuterEch.Enc, LConfig.HpkeInfo);
+  LEncoded := LOpener.Open(LAad, LOuterEch.Payload);
+
+  // reseal it under a wire config_id that is not the entry's
+  LWireId := Byte(LOuterEch.ConfigId xor 1);
+  LOuterEch.ConfigId := LWireId;
+  LSuite.SetupSealer(LConfig.PublicKey, LConfig.HpkeInfo, LEnc, LSealer);
+  LOuterEch.Enc := LEnc;
+  LStore := TInMemoryEchKeyStore.FromConfig(DecodeHex(FVec.Values['config_list']), LSk, Crypto);
+  LServer := TEchServerHandshake.Create(Crypto, LStore, True) as IEchServerHandshake;
+  CheckTrue(ProcessOuterFramed(LServer, SealOuter(LOuter, LEntries, LOuterEch, LSealer, LEncoded)) =
+    TEchStatus.Accepted, 'the trial-decrypting server opens the first hello');
+
+  // the retry keeps the wire id, cipher_suite and an empty enc, sealed at the next sequence number
+  LOuterEch.Enc := nil;
+  LRetryFramed := SealOuter(LOuter, LEntries, LOuterEch, LSealer, LEncoded);
+  CheckTrue(LServer.ProcessRetryOuter(LRetryFramed) = TEchStatus.Accepted,
+    'the retry that keeps the wire config_id is accepted');
 end;
 
 procedure TTestEchClientEngine.TestServerProcessOuterEmptyVectorIsNotOffered;
