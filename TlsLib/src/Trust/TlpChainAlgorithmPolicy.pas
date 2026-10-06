@@ -29,8 +29,8 @@ type
   /// <summary>
   /// Enforces the chain-algorithm policy over an already path-validated peer chain: every leaf
   /// and intermediate must be signed with a signature scheme the endpoint advertised (RFC 8446
-  /// 4.4.2.2 / RFC 5246 7.4.2), an MD5- or SHA-1-signed certificate is refused outright (RFC
-  /// 8446 4.4.2), and each subject key must meet the configured minimum-strength floors. A
+  /// 4.4.2.2 / RFC 5246 7.4.2), an MD5-signed certificate is refused outright and a SHA-1-signed
+  /// one unless the policy admits it (RFC 8446 4.4.2.4), and each subject key must meet the configured minimum-strength floors. A
   /// configured trust anchor is exempt (its self-signature is not a validated edge and its key
   /// is the operator's trust); the leaf never is. Verdict-only: it decides accept/reject and the
   /// alert, reading facts from the provider's certificate inspector so no ASN.1 is handled here.
@@ -165,6 +165,8 @@ var
   LSig: TCertSignatureFacts;
   LKey: TCertKeyFacts;
   LRequired: UInt16;
+  LStanding: TCertSignatureHashStanding;
+  LAdmitted: Boolean;
 begin
   try
     LCert := AInspector.Parse(ADer);
@@ -177,13 +179,21 @@ begin
     AAlert := TTlsAlertDescription.BadCertificate;
     Exit(False);
   end;
-  // RFC 8446 4.4.2: refuse an MD5 (MUST) or SHA-1 (RECOMMENDED) chain signature outright
-  if LSig.Hash in [TCertSignatureHash.Md5, TCertSignatureHash.Sha1] then
+  // RFC 8446 4.4.2.4: a forbidden hash (MD5) is never accepted, a deprecated one (SHA-1) only
+  // when the policy admits it
+  LStanding := LSig.Hash.Standing;
+  LAdmitted := (LStanding = TCertSignatureHashStanding.Deprecated) and
+    (LSig.Hash in APolicy.AllowedDeprecatedHashes);
+  if (LStanding = TCertSignatureHashStanding.Forbidden) or
+    ((LStanding = TCertSignatureHashStanding.Deprecated) and not LAdmitted) then
   begin
     AAlert := TTlsAlertDescription.BadCertificate;
     Exit(False);
   end;
-  if AFilterSchemes then
+  // an admitted hash stands in for an advertised scheme, none of which names a deprecated
+  // certificate signature; a PSS signature must still be canonical
+  if AFilterSchemes and not (LAdmitted and
+    ((LSig.Family <> TCertSignatureFamily.RsaPss) or LSig.PssCanonical)) then
   begin
     LRequired := RequiredScheme(LSig.Family, LSig.Hash, LSig.PssCanonical, AIssuerKeyIsPss);
     if (LRequired = 0) or not (TArrayUtilities.Contains<UInt16>(AAdvertised, LRequired)) then

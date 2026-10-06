@@ -61,11 +61,38 @@ type
     procedure TestRejectsDisallowedCurve;
     procedure TestAcceptsRsaPssPssIssuerWhenAdvertised;
     procedure TestRejectsRsaPssPssIssuerWhenOnlyRsaeAdvertised;
+    procedure TestSignatureHashStandings;
+    procedure TestDefaultsAdmitNoDeprecatedHash;
   end;
 
 implementation
 
 { TTestChainAlgorithmPolicy }
+
+procedure TTestChainAlgorithmPolicy.TestSignatureHashStandings;
+var
+  LHash: TCertSignatureHash;
+begin
+  // the one table the chain policy and the revocation floor both read
+  for LHash := Low(TCertSignatureHash) to High(TCertSignatureHash) do
+    case LHash of
+      TCertSignatureHash.Md5:
+        CheckEquals(Ord(TCertSignatureHashStanding.Forbidden), Ord(LHash.Standing), 'MD5');
+      TCertSignatureHash.Sha1:
+        CheckEquals(Ord(TCertSignatureHashStanding.Deprecated), Ord(LHash.Standing), 'SHA-1');
+    else
+      CheckEquals(Ord(TCertSignatureHashStanding.Current), Ord(LHash.Standing),
+        'every other hash is current');
+    end;
+end;
+
+procedure TTestChainAlgorithmPolicy.TestDefaultsAdmitNoDeprecatedHash;
+begin
+  CheckTrue(TCertificateStrengthPolicy.Defaults.AllowedDeprecatedHashes = [],
+    'the presets admit no deprecated hash');
+  CheckTrue(Default(TCertificateStrengthPolicy).AllowedDeprecatedHashes = [],
+    'neither does a record that was never filled in');
+end;
 
 procedure TTestChainAlgorithmPolicy.SetUp;
 begin

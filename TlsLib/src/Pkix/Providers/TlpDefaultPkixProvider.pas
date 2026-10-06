@@ -994,7 +994,7 @@ var
   LFacts: TCertSignatureFacts;
 begin
   Result := (not TInspectedCertificate.SignatureFactsOf(ASignature, LFacts)) or
-    (LFacts.Hash in [TCertSignatureHash.Md5, TCertSignatureHash.Sha1]);
+    (LFacts.Hash.Standing <> TCertSignatureHashStanding.Current);
 end;
 
 class function TRevocationChecker.OcspDelegatedResponder(const AResponderCert,

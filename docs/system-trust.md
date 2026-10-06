@@ -259,8 +259,10 @@ engaged — Windows and Apple can opt into `Live`, which fetches in the async pa
 
 - **Chain-strength policy** runs over the OS-built path (the OS anchor exempt): the advertised-scheme
   filter, the MD5/SHA-1 refusal and the key-strength floors apply under Delegate mode too. A
-  whole-verifier instance you inject as the trust source is *not* policy-checked (you replaced the
-  trust decision wholesale).
+  private PKI that still has SHA-1 certificates can name `TCertSignatureHash.Sha1` in the policy's
+  `AllowedDeprecatedHashes`; that only stops this library refusing it, so a platform engine that
+  rejects SHA-1 itself still does. A whole-verifier instance you inject as the trust source is
+  *not* policy-checked (you replaced the trust decision wholesale).
 - **RFC 6125 identity** is matched in-library on every delegate, SAN-only: the library checks the leaf's
   dNSName / iPAddress SANs itself rather than trust an engine's own host match, so no platform's
   deprecated subject-CN fallback is honoured. The host is still handed to a host-matching engine (for OS
