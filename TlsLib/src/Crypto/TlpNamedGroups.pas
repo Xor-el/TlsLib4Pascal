@@ -69,6 +69,9 @@ const
   // FIPS 203 ML-KEM-768 fixed sizes, shared by both hybrids
   MlKem768EncapsulationKeyBytes = 1184;
   MlKem768CiphertextBytes = 1088;
+  // the encoded polynomial vector t (3 x 256 coefficients x 12 bits) precedes the 32-byte rho
+  MlKem768VectorEncodingBytes = 1152;
+  MlKemModulus = 3329; // q (FIPS 203 sec. 2.4)
 
 resourcestring
   SInvalidPeerShare = 'invalid peer key share for group %s';
@@ -109,6 +112,9 @@ type
     FComposition: TNamedGroupComposition;
     FKem: IKem;
     FCode: UInt16;
+    // FIPS 203 sec. 7.2: every 12-bit coefficient of the encoded vector is below q, whichever
+    // backend then instantiates the KEM
+    class function IsCanonicalMlKem768Key(const AKey: TBytes): Boolean; static;
   public
     constructor Create(const ACryptoProvider: ICryptoProvider;
       AAlgorithm: TKemAlgorithm; ACode: UInt16);
@@ -312,7 +318,30 @@ end;
 
 function TKemGroup.ValidatePeerShare(const AShare: TBytes): Boolean;
 begin
+  if (FComposition.Kem = TKemAlgorithm.ML_KEM_768) and
+    (not IsCanonicalMlKem768Key(AShare)) then
+    Exit(False);
   Result := FKem.ValidatePublicKey(AShare);
+end;
+
+class function TKemGroup.IsCanonicalMlKem768Key(const AKey: TBytes): Boolean;
+var
+  LIdx, LLow, LHigh: Int32;
+begin
+  Result := False;
+  if System.Length(AKey) <> MlKem768EncapsulationKeyBytes then
+    Exit;
+  // ByteEncode12 packs two 12-bit coefficients into three bytes
+  LIdx := 0;
+  while LIdx < MlKem768VectorEncodingBytes do
+  begin
+    LLow := Int32(AKey[LIdx]) or ((Int32(AKey[LIdx + 1]) and $0F) shl 8);
+    LHigh := (Int32(AKey[LIdx + 1]) shr 4) or (Int32(AKey[LIdx + 2]) shl 4);
+    if (LLow >= MlKemModulus) or (LHigh >= MlKemModulus) then
+      Exit;
+    Inc(LIdx, 3);
+  end;
+  Result := True;
 end;
 
 { THybridGroup }

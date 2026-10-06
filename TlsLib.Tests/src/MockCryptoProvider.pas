@@ -21,6 +21,7 @@ uses
   SysUtils,
   TlpCryptoDomainTypes,
   TlpISecretBuffer,
+  TlpIKeyExchangePrivateKey,
   TlpICryptoProvider,
   TlpIPkixProvider,
   TlpTlsLibExceptions,
@@ -99,11 +100,15 @@ type
     FMissing: TAeadAlgorithm;
     FMissingAgreement: TKeyAgreementAlgorithm;
     FHasMissingAgreement: Boolean;
+    FLenientKem: Boolean;
   public
     constructor Create(const AInner: ICryptoPrimitives; AMissing: TAeadAlgorithm); overload;
     /// <summary>Models a facet that cannot build one key agreement instead.</summary>
     constructor Create(const AInner: ICryptoPrimitives;
       AMissingAgreement: TKeyAgreementAlgorithm); overload;
+    /// <summary>Models a facet whose KEM accepts any right-length encapsulation key, as a backend
+    /// that leaves the coefficient check to a later step would.</summary>
+    constructor CreateLenientKem(const AInner: ICryptoPrimitives);
     function GetRandom: IRandom;
     function CreateHash(AAlgorithm: THashAlgorithm): IHash;
     function CreateHmac(AAlgorithm: THashAlgorithm): IHmac;
@@ -115,8 +120,24 @@ type
     function HasHardwareAes: Boolean;
   end;
 
+  /// <summary>An <see cref="IKem" /> that forwards to an inner KEM but validates only the length
+  /// of an ML-KEM-768 encapsulation key.</summary>
+  TLenientKem = class(TInterfacedObject, IKem)
+  strict private
+  var
+    FInner: IKem;
+  public
+    constructor Create(const AInner: IKem);
+    procedure GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey; out APublicKey: TBytes);
+    procedure Encapsulate(const APeerPublicKey: TBytes; out ACiphertext: TBytes;
+      out ASharedSecret: ISecretBuffer);
+    procedure Decapsulate(const APrivateKey: IKeyExchangePrivateKey;
+      const ACiphertext: TBytes; out ASharedSecret: ISecretBuffer);
+    function ValidatePublicKey(const APublicKey: TBytes): Boolean;
+  end;
+
   /// <summary>A test provider whose primitives cannot build one configured AEAD (or one key
-  /// agreement).</summary>
+  /// agreement), or whose KEM validates only the key length.</summary>
   TMissingAeadProvider = class(TInterfacedObject, ICryptoProvider)
   strict private
   var
@@ -125,6 +146,7 @@ type
     constructor Create(const AInner: ICryptoProvider; AMissing: TAeadAlgorithm); overload;
     constructor Create(const AInner: ICryptoProvider;
       AMissingAgreement: TKeyAgreementAlgorithm); overload;
+    constructor CreateLenientKem(const AInner: ICryptoProvider);
     function Primitives: ICryptoPrimitives;
     function Signing: ISigningCrypto;
     function Hpke: IHpkeCrypto;
@@ -205,6 +227,9 @@ type
   end;
 
 implementation
+
+const
+  MlKem768KeyBytes = Int32(1184); // FIPS 203 sec. 8 table 3
 
 resourcestring
   SMissingAead = 'this primitives facet does not provide the requested AEAD';
@@ -385,6 +410,46 @@ end;
 function TMissingAeadPrimitives.CreateKem(AAlgorithm: TKemAlgorithm): IKem;
 begin
   Result := FInner.CreateKem(AAlgorithm);
+  if FLenientKem then
+    Result := TLenientKem.Create(Result) as IKem;
+end;
+
+constructor TMissingAeadPrimitives.CreateLenientKem(const AInner: ICryptoPrimitives);
+begin
+  inherited Create;
+  FInner := AInner;
+  FLenientKem := True;
+end;
+
+{ TLenientKem }
+
+constructor TLenientKem.Create(const AInner: IKem);
+begin
+  inherited Create;
+  FInner := AInner;
+end;
+
+procedure TLenientKem.GenerateKeyPair(out APrivateKey: IKeyExchangePrivateKey;
+  out APublicKey: TBytes);
+begin
+  FInner.GenerateKeyPair(APrivateKey, APublicKey);
+end;
+
+procedure TLenientKem.Encapsulate(const APeerPublicKey: TBytes; out ACiphertext: TBytes;
+  out ASharedSecret: ISecretBuffer);
+begin
+  FInner.Encapsulate(APeerPublicKey, ACiphertext, ASharedSecret);
+end;
+
+procedure TLenientKem.Decapsulate(const APrivateKey: IKeyExchangePrivateKey;
+  const ACiphertext: TBytes; out ASharedSecret: ISecretBuffer);
+begin
+  FInner.Decapsulate(APrivateKey, ACiphertext, ASharedSecret);
+end;
+
+function TLenientKem.ValidatePublicKey(const APublicKey: TBytes): Boolean;
+begin
+  Result := System.Length(APublicKey) = MlKem768KeyBytes;
 end;
 
 function TMissingAeadPrimitives.HasHardwareAes: Boolean;
@@ -416,6 +481,18 @@ begin
   LBuilder := TCryptoProviderBuilder.Create;
   FComposed := LBuilder
     .WithPrimitives(TMissingAeadPrimitives.Create(AInner.Primitives, AMissingAgreement)
+      as ICryptoPrimitives)
+    .Build;
+end;
+
+constructor TMissingAeadProvider.CreateLenientKem(const AInner: ICryptoProvider);
+var
+  LBuilder: ICryptoProviderBuilder;
+begin
+  inherited Create;
+  LBuilder := TCryptoProviderBuilder.Create;
+  FComposed := LBuilder
+    .WithPrimitives(TMissingAeadPrimitives.CreateLenientKem(AInner.Primitives)
       as ICryptoPrimitives)
     .Build;
 end;
