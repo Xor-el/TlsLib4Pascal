@@ -102,6 +102,7 @@ type
     procedure TestCertificateReceivedEventCarriesLeaf;
     procedure TestRejectFailsClosedWithBadCertificate;
     procedure TestParkedResumeOntoBadRecordFailsClosedNotRaise;
+    procedure TestStartHandshakeAfterAbortQueuesNothingBehindTheAlert;
     procedure TestNoVerdictNeverCompletes;
     procedure TestResolverTimeoutRejectFailsClosed;
     procedure TestAcceptCannotResurrectPipelineRejectedChain;
@@ -500,6 +501,20 @@ begin
     Int64(Ord(LClient.LastError.Alert.Description)),
     'the undecryptable record aborts with bad_record_mac');
   CheckTrue(LClient.WantsWrite, 'the fatal alert is queued for the peer');
+end;
+
+procedure TTestAsyncVerdict.TestStartHandshakeAfterAbortQueuesNothingBehindTheAlert;
+var
+  LClient, LServer: ITlsEngine;
+  LOut: TBytes;
+begin
+  LClient := NewClient(ClientConfig(False, 0), 'localhost', LServer);
+  LClient.SendAlert(TTlsAlertDescription.HandshakeFailure);
+  System.SetLength(LOut, 4096);
+  LClient.TakeOutgoing(LOut, 0);
+  CheckTrue(LClient.IsTerminal, 'the engine is terminal after its fatal alert');
+  LClient.StartHandshake;
+  CheckFalse(LClient.WantsWrite, 'no ClientHello is queued after the alert');
 end;
 
 procedure TTestAsyncVerdict.TestNoVerdictNeverCompletes;

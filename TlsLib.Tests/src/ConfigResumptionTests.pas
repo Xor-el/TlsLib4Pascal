@@ -155,6 +155,7 @@ type
     procedure TestReverifyOnResumeRejectsUntrustedServer;
     procedure TestReverifyOnResumeAsyncParkAcceptsCompletes;
     procedure TestReverifyOnResumeAsyncParkRejectAborts;
+    procedure TestLateVerdictAfterFatalAbortQueuesNothing;
     procedure TestExporterWithheldDuringReverifyPark;
     procedure TestTls12ReverifyOnResumeAsyncParkAcceptsCompletes;
     procedure TestTls12ReverifyOnResumeAsyncParkRejectAborts;
@@ -1218,6 +1219,48 @@ begin
   CheckEqualBytes('the validated path terminates at the trust root',
     DecodeHex(FCerts.Values['root_cert']),
     LInfo.ValidatedPath[System.High(LInfo.ValidatedPath)]);
+end;
+
+procedure TTestConfigResumption.TestLateVerdictAfterFatalAbortQueuesNothing;
+var
+  LCache: ISessionCache;
+  LScope, LBad, LOut: TBytes;
+  LServerConfig: ITlsServerConfig;
+  LClient, LServer: ITlsEngine;
+  LIterations: Int32;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
+  LServerConfig := TTlsPresets.Hardened(Crypto, Pkix).Server
+    .WithCredential(ServerCredential).Build;
+  LClient := NewClient13(LCache, True, LScope);
+  LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
+  PumpToCompletion(LClient, LServer);
+
+  LClient := NewReverifyAsyncClient13(LCache, LScope);
+  LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
+  LClient.StartHandshake;
+  LIterations := 0;
+  while (not LClient.AwaitingCertificateVerdict) and LClient.IsHandshaking and
+    (LIterations < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LIterations);
+  end;
+  CheckTrue(LClient.AwaitingCertificateVerdict, 'the client parked on the reverify verdict');
+
+  // the parked client still owes its closing flight; a fatal abort while parked must win
+  LBad := DecodeHex('ff03030005' + '0102030405');
+  LClient.ProcessInput(LBad, 0, System.Length(LBad));
+  CheckTrue(LClient.IsTerminal, 'the bad record header aborts the engine');
+  System.SetLength(LOut, 4096);
+  LClient.TakeOutgoing(LOut, 0);
+  CheckFalse(LClient.WantsWrite, 'only the fatal alert was queued');
+
+  LClient.SetCertificateVerdict(True, TTlsAlertDescription.BadCertificate);
+  CheckFalse(LClient.WantsWrite, 'a late accept queues no Finished behind the alert');
+  CheckTrue(LClient.IsTerminal, 'the engine stays terminal');
 end;
 
 procedure TTestConfigResumption.TestExporterWithheldDuringReverifyPark;

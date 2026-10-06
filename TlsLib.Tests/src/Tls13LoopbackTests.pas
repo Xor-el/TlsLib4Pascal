@@ -140,6 +140,7 @@ type
     procedure Pump(const ASrc, ADst: ITlsEngine);
     procedure PumpCoalesced(const ASrc, ADst: ITlsEngine);
     function ReadAllApp(const AEngine: ITlsEngine): TBytes;
+    function ReadAllEarly(const AEngine: ITlsEngine): TBytes;
     // the pre_shared_key extension data (identities + binders) from the outer ClientHello in a
     // record-framed client flight, skipping any leading ChangeCipherSpec; nil when there is none
     function OuterPskExtData(const AFlight: TBytes): TBytes;
@@ -1109,7 +1110,7 @@ begin
   CheckTrue(LClientInfo.EchStatus = TEchStatus.Accepted, 'ECH accepted on the 0-RTT handshake');
   CheckTrue(LClientInfo.Resumed, 'the 0-RTT ECH client resumed');
   CheckEqualBytes('the server received the early data as 0-RTT over ECH', LEarly,
-    ReadAllApp(LServer));
+    ReadAllEarly(LServer));
 end;
 
 procedure TTestTls13Loopback.TestEchAcceptLoopback;
@@ -1645,6 +1646,20 @@ end;
 procedure TTestTls13Loopback.PumpCoalesced(const ASrc, ADst: ITlsEngine);
 begin
   FeedCoalesced(ADst, Drain(ASrc));
+end;
+
+function TTestTls13Loopback.ReadAllEarly(const AEngine: ITlsEngine): TBytes;
+var
+  LChunk: TBytes;
+  LGot: Int32;
+begin
+  Result := nil;
+  SetLength(LChunk, 65536);
+  repeat
+    LGot := AEngine.ReadEarlyData(LChunk, 0, System.Length(LChunk));
+    if LGot > 0 then
+      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LGot));
+  until LGot = 0;
 end;
 
 function TTestTls13Loopback.ReadAllApp(const AEngine: ITlsEngine): TBytes;

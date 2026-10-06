@@ -148,11 +148,21 @@ type
     function TakeOutgoing(var ADest: TBytes; ADestOffset: Int32): Int32;
     /// <summary>Copies up to AMaxLength decrypted application bytes out; returns the count. It can
     /// resume a deferred inbound drain, so like ProcessInput it can leave the engine terminal or
-    /// with outbound pending; a raw embedder checks IsTerminal / WantsWrite after it.</summary>
+    /// with outbound pending; a raw embedder checks IsTerminal / WantsWrite after it. It never
+    /// returns 0-RTT early data; see ReadEarlyData.</summary>
     function ReadAppData(var ADest: TBytes; ADestOffset, AMaxLength: Int32): Int32;
-    /// <summary>The number of decrypted application bytes already buffered and waiting to be
-    /// read; 0 when the caller must read the transport for more.</summary>
+    /// <summary>The number of decrypted 1-RTT application bytes already buffered and waiting to be
+    /// read (accepted early data is counted by PendingEarlyData); 0 when the caller must read
+    /// the transport for more.</summary>
     function PendingAppData: Int32;
+    /// <summary>Copies up to AMaxLength bytes of accepted 0-RTT early data (RFC 8446 2.3) out;
+    /// returns the count. Early data is replayable (RFC 8446 8, E.5), so act on it only when the
+    /// request is idempotent. It is never returned by ReadAppData and precedes all 1-RTT data on
+    /// the wire; it stays readable after the handshake completes. Always 0 on a client or when
+    /// 0-RTT was not accepted.</summary>
+    function ReadEarlyData(var ADest: TBytes; ADestOffset, AMaxLength: Int32): Int32;
+    /// <summary>The number of accepted early-data bytes buffered and waiting to be read.</summary>
+    function PendingEarlyData: Int32;
     /// <summary>Dequeues the next event; False when the queue is empty. Drain it every cycle:
     /// past a bounded backlog of undrained events the informational kinds (SessionTicketReceived,
     /// EarlyData*, KeyUpdateReceived) are dropped, so a caller that never drains cannot grow the
@@ -216,7 +226,7 @@ type
     /// <summary>Early-data (0-RTT) keying material (RFC 8446 7.5). TLS 1.3 only: available on a
     /// client from when it offers 0-RTT until the server rejects it, and on a server once it
     /// accepts 0-RTT; empty otherwise, once 0-RTT is rejected, on TLS 1.2, and on a failed
-    /// connection.</summary>
+    /// connection. Material from early data carries the same replay caveat as ReadEarlyData.</summary>
     function ExportEarlyKeyingMaterial(const ALabel: string; const AContext: TBytes;
       ALength: Int32): TBytes;
   end;

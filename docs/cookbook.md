@@ -438,6 +438,12 @@ many bytes it accepted as 0-RTT), and acceptance is reported as an event. Bytes 
 1-RTT after the handshake completes if you need to. Treat 0-RTT as an advanced optimisation — leave it
 off unless you need it and your early request is idempotent.
 
+On the server, accepted early data is **never** returned by `ReadAppData` or a stream `Read`: it is
+replayable, so it is kept apart and read with `ReadEarlyData` (`PendingEarlyData` says how much is
+waiting). It precedes all 1-RTT data and stays readable after the handshake completes. Read both
+queues, and act on early data only when the request is safe to replay. The stream, connection and
+framework adapters never read it, so use 0-RTT on the server only with the sans-IO engine.
+
 ## Set a revocation posture
 
 The posture governs how an **unknown/indeterminate** status is treated; a definitive, authenticated
