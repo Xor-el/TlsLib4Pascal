@@ -543,13 +543,15 @@ procedure TTestCertificateVerifier.TestNilCollaboratorsAreRefused;
 var
   LRaised: Boolean;
   LVerifier: IServerCertificateVerifier;
+  LClient: IClientCertificateVerifier;
   LStore: ITrustAnchorStore;
 begin
   LStore := TTrustAnchorStore.Create(TArray<TBytes>.Create(Cert('root_cert')))
     as ITrustAnchorStore;
   LRaised := False;
   try
-    TCertificateVerifier.Create(nil, TSystemClock.Create as ITlsClock, LStore, False);
+    LVerifier := TCertificateVerifier.Create(nil, TSystemClock.Create as ITlsClock, LStore,
+      False) as IServerCertificateVerifier;
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
@@ -557,7 +559,8 @@ begin
   CheckTrue(LRaised, 'a nil PKIX provider is refused');
   LRaised := False;
   try
-    TCertificateVerifier.Create(Pkix, nil, LStore, False);
+    LVerifier := TCertificateVerifier.Create(Pkix, nil, LStore, False)
+      as IServerCertificateVerifier;
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
@@ -565,7 +568,7 @@ begin
   CheckTrue(LRaised, 'a nil clock is refused');
   LRaised := False;
   try
-    TPinningVerifier.Create(nil, nil, Crypto, Pkix);
+    LVerifier := TPinningVerifier.Create(nil, nil, Crypto, Pkix) as IServerCertificateVerifier;
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
@@ -573,7 +576,8 @@ begin
   CheckTrue(LRaised, 'a pinning decorator over no inner verifier is refused');
   LRaised := False;
   try
-    TClientPinningVerifier.Create(nil, nil, Crypto, Pkix);
+    LClient := TClientPinningVerifier.Create(nil, nil, Crypto, Pkix)
+      as IClientCertificateVerifier;
   except
     on E: EArgumentTlsLibException do
       LRaised := True;

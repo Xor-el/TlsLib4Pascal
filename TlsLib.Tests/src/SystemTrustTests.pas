@@ -198,6 +198,7 @@ type
     procedure TestClientRequestCarriesAnchors;
     procedure TestRequestCarriesConfiguredIntermediates;
     procedure TestPolicyFromContextCarriesIntermediates;
+    procedure TestEmptyChainIsRefusedBeforeTheEngine;
     procedure TestEngineFailurePassesAlertThrough;
     procedure TestAcceptFillsTrustedPath;
     procedure TestStapledRevokedOverridesUnderOff;
@@ -808,6 +809,35 @@ begin
   CheckEquals(System.Length(OcspChain), System.Length(
     TOSDelegatePolicy.FromClientContext(LClient, TSystemTrustFetch.CacheOnly).Intermediates),
     'the client policy keeps the configured intermediates');
+end;
+
+procedure TTestOSDelegateTemplate.TestEmptyChainIsRefusedBeforeTheEngine;
+var
+  LFake: TMockPlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LPolicy: TOSDelegatePolicy;
+  LServer: IServerCertificateVerifier;
+  LClient: IClientCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  // with configured intermediates an empty peer chain must not leave one of them to be judged as
+  // the peer's certificate
+  LPolicy := Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None,
+    OcspChain);
+  LPolicy.Intermediates := OcspChain;
+  LFake := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation], True,
+    Result_(TLiveRevocationOutcome.Good, OcspChain), TTlsAlertDescription.BadCertificate);
+  LEngine := LFake;
+  LServer := TOSDelegateServerVerifier.Create(LEngine, LPolicy) as IServerCertificateVerifier;
+  CheckFalse(LServer.VerifyServerCertificate(nil, TServerName.DnsName('localhost'), nil,
+    LVerified, LAlert), 'the server path refuses an empty chain');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'server alert');
+  LClient := TOSDelegateClientVerifier.Create(LEngine, LPolicy) as IClientCertificateVerifier;
+  CheckFalse(LClient.VerifyClientCertificate(nil, LVerified, LAlert),
+    'the client path refuses an empty chain');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'client alert');
+  CheckEquals(0, LFake.ServerCalls + LFake.ClientCalls, 'the engine never saw the empty chain');
 end;
 
 procedure TTestOSDelegateTemplate.TestEngineFailurePassesAlertThrough;

@@ -332,7 +332,7 @@ var
 begin
   AVerified := Default(TVerifiedChain);
   // resource caps before the OS engine sees the chain, as the built-in verifier does
-  if not Policy.ChainLimits.AdmitsChain(AChain) then
+  if (System.Length(AChain) = 0) or not Policy.ChainLimits.AdmitsChain(AChain) then
   begin
     AAlert := TTlsAlertDescription.BadCertificate;
     Exit(False);
@@ -362,7 +362,7 @@ var
   LNoName: TServerName;
 begin
   AVerified := Default(TVerifiedChain);
-  if not Policy.ChainLimits.AdmitsChain(AChain) then
+  if (System.Length(AChain) = 0) or not Policy.ChainLimits.AdmitsChain(AChain) then
   begin
     AAlert := TTlsAlertDescription.BadCertificate;
     Exit(False);

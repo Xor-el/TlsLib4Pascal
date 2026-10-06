@@ -146,9 +146,9 @@ type
       AMethod: TLiveRevocationMethod; ADeadlineMs: Cardinal;
       const AOptions: TLiveRevocationOptions); overload;
     /// <summary>The tri-state live outcome for the leaf (leaf = AChain[0], issuer =
-    /// AChain[1]); intermediates are not checked. When the chain carries no issuer entry the issuer is recovered from the configured
-    /// candidates if any qualify; failing that the outcome is Indeterminate (nothing authenticates a
-    /// revocation).</summary>
+    /// AChain[1]); intermediates are not checked. When the chain carries no issuer entry the issuer
+    /// is recovered from the configured candidates if any qualify; failing that the outcome is
+    /// Indeterminate (nothing authenticates a revocation).</summary>
     function Evaluate(const AChain: TArray<TBytes>): TLiveRevocationOutcome;
     /// <summary>Signature-compatible with the stream verdict resolver (the host name is
     /// not used for revocation): assign it to TTlsStream.SetCertificateVerdictResolver to run

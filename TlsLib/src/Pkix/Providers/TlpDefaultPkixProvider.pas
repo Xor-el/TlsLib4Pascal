@@ -108,6 +108,8 @@ type
     function KeyFacts(out AFacts: TCertKeyFacts): Boolean;
     function SignatureFacts(out AFacts: TCertSignatureFacts): Boolean;
     function PeerInfo(out ASubject, AIssuer, ACommonName, ASerialHex: string): Boolean;
+  private
+    // read by the revocation checker in this unit, which judges its own signatures the same way
     class function SignatureFactsOf(const ASignature: IAlgorithmIdentifier;
       out AFacts: TCertSignatureFacts): Boolean; static;
   end;
@@ -1437,9 +1439,9 @@ begin
     LCrl := LCrlParser.ReadCrl(ACrlDer);
     if LCrl = nil then
       Exit;
-    // the CRL must be signed by the leaf's issuer to be authoritative
     if SignatureIsWeak(LCrl.SignatureAlgorithm) then
       Exit;
+    // the CRL must be signed by the leaf's issuer to be authoritative
     if not LCrl.IsSignatureValid(LIssuer.GetPublicKey) then
       Exit;
     // a validly signed CRL of the wrong scope (another shard, CA-only, indirect, delta...) is
