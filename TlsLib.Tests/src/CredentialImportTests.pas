@@ -33,6 +33,8 @@ uses
   TlpISigningKey,
   TlpTlsCredential,
   TlpTlsLibExceptions,
+  MockRandom,
+  MockCryptoProvider,
   TlsLibTestBase;
 
 type
@@ -68,6 +70,8 @@ type
     procedure TestEd448Imports;
     procedure TestEncryptedKeysImportWithPassword;
     procedure TestEncryptedKeyImportsWithUtf8Passphrase;
+    procedure TestPemKeyAfterOtherObjectsImports;
+    procedure TestShortReadFromInjectedRandomIsRefused;
     procedure TestLoadCertificateChainFromPemBundle;
     procedure TestLoadSingleDerCertificate;
     procedure TestConcatenatedDerRejected;
@@ -189,6 +193,52 @@ begin
   CheckFormats(TSignatureScheme.ECDSA_SECP256R1_SHA256, 'ec256_pub',
     [TSignatureScheme.ECDSA_SECP256R1_SHA256],
     ['ec256_pkcs8_der', 'ec256_pkcs8_pem', 'ec256_sec1_der', 'ec256_sec1_pem']);
+end;
+
+procedure TTestCredentialImport.TestPemKeyAfterOtherObjectsImports;
+var
+  LKey: ISigningKey;
+begin
+  LKey := Import('ec256_params_key_pem');
+  CheckSchemes('ec256 after EC PARAMETERS', LKey,
+    [TSignatureScheme.ECDSA_SECP256R1_SHA256]);
+  CheckTrue(RoundTrips(TSignatureScheme.ECDSA_SECP256R1_SHA256, LKey, 'ec256_params_key_pub'),
+    'the key behind EC PARAMETERS signs a verifying signature');
+
+  LKey := Import('ec256_dh_params_key_pem');
+  CheckTrue(RoundTrips(TSignatureScheme.ECDSA_SECP256R1_SHA256, LKey, 'ec256_pub'),
+    'an object the reader cannot parse ahead of the key does not fail the import');
+
+  LKey := Crypto.Signing.ImportSigningKey(ConcatBytes(
+    DecodeHex(FV.Values['chain_pem']), DecodeHex(FV.Values['ec256_pkcs8_pem'])), nil);
+  CheckSchemes('ec256 after certificates', LKey, [TSignatureScheme.ECDSA_SECP256R1_SHA256]);
+  CheckTrue(RoundTrips(TSignatureScheme.ECDSA_SECP256R1_SHA256, LKey, 'ec256_pub'),
+    'the key behind a certificate chain signs a verifying signature');
+end;
+
+procedure TTestCredentialImport.TestShortReadFromInjectedRandomIsRefused;
+var
+  LProvider: ICryptoProvider;
+  LKey: ISigningKey;
+  LSigner: ISignatureSigner;
+  LMessage: TBytes;
+  LRaised: Boolean;
+begin
+  // an RSA-PSS signature draws its salt from the injected source; one that returns fewer bytes
+  // than asked must fail the signing, not hand back whatever lay beyond the short buffer
+  LProvider := TMockCryptoProvider.Create(TShortRandom.Create as IRandom) as ICryptoProvider;
+  LKey := LProvider.Signing.ImportSigningKey(DecodeHex(FV.Values['rsa_pkcs8_der']), nil);
+  LSigner := LProvider.Signing.CreateSignatureSigner(TSignatureScheme.RSA_PSS_RSAE_SHA256, LKey);
+  LMessage := DecodeHex(SMessageHex);
+  LSigner.Update(LMessage, 0, System.Length(LMessage));
+  LRaised := False;
+  try
+    LSigner.Sign;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a short read from the random source fails the signature');
 end;
 
 procedure TTestCredentialImport.TestEcP384AndP521Import;

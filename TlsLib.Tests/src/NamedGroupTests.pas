@@ -37,6 +37,7 @@ uses
   TlpICryptoProvider,
   TlpDefaultCryptoProvider,
   TlpOSCryptoProvider,
+  MockCryptoProvider,
   TlpINamedGroup,
   TlpIKeyExchangePrivateKey,
   TlpNamedGroups,
@@ -81,6 +82,7 @@ type
     procedure TestX25519ValidationRejectsWrongLength;
     procedure TestX25519RejectsAllZeroPeerShare;
     procedure TestMlKemValidationRejectsWrongLength;
+    procedure TestMlKemValidationRejectsOutOfRangeCoefficient;
     procedure TestNistDecapsulateRejectsOffCurvePoint;
     procedure TestHybridDecapsulateRejectsShortCiphertext;
     procedure TestRegistry;
@@ -421,6 +423,54 @@ begin
   LGroup.GenerateKeyPair(LPriv, LPub);
   CheckEquals(1184, System.Length(LPub), 'encaps key size');
   CheckTrue(LGroup.ValidatePeerShare(LPub), 'valid encaps key accepted');
+end;
+
+procedure TTestNamedGroups.TestMlKemValidationRejectsOutOfRangeCoefficient;
+var
+  LProviders: array [0 .. 1] of ICryptoProvider;
+  LI: Int32;
+  LGroup: INamedGroup;
+  LKey: TBytes;
+  LPriv: IKeyExchangePrivateKey;
+  LPub: TBytes;
+begin
+  // the key is 1152 bytes of 12-bit coefficients (two per three bytes) then rho; the bound
+  // q = 3329 (FIPS 203 sec. 7.2) is the group's own, so it holds whichever backend sits below -
+  // including one that only checks the length
+  LProviders[0] := Crypto;
+  LProviders[1] := TMissingAeadProvider.CreateLenientKem(Crypto) as ICryptoProvider;
+  for LI := 0 to System.High(LProviders) do
+  begin
+    LGroup := TNamedGroups.CreateMlKem768(LProviders[LI]);
+    LKey := Zeros(1184);
+    CheckTrue(LGroup.ValidatePeerShare(LKey), 'all-zero coefficients are accepted');
+    LKey[1] := $0D; // 0xD00 = 3328 = q - 1
+    CheckTrue(LGroup.ValidatePeerShare(LKey), 'q - 1 is the largest accepted value');
+    LKey[0] := $01; // 0xD01 = 3329 = q
+    CheckFalse(LGroup.ValidatePeerShare(LKey), 'a first coefficient of q is refused');
+    LKey[0] := $00;
+    LKey[1] := $10; // coefficient 1 = (b1 >> 4) | (b2 << 4)
+    LKey[2] := $D0; // 0xD01 = 3329
+    CheckFalse(LGroup.ValidatePeerShare(LKey), 'a second coefficient of q is refused');
+    LKey := Zeros(1184);
+    LKey[1149] := $01;
+    LKey[1150] := $0D;
+    CheckFalse(LGroup.ValidatePeerShare(LKey), 'the last coefficient pair is checked');
+
+    // both hybrids carry the same ML-KEM half, so the bound covers them too
+    LGroup := TNamedGroups.CreateX25519MlKem768(LProviders[LI]);
+    LGroup.GenerateKeyPair(LPriv, LPub);
+    CheckTrue(LGroup.ValidatePeerShare(LPub), 'a generated hybrid share is accepted');
+    LPub[0] := $01;
+    LPub[1] := (LPub[1] and $F0) or $0D; // first ML-KEM coefficient = q
+    CheckFalse(LGroup.ValidatePeerShare(LPub), 'X25519MLKEM768 refuses a coefficient of q');
+    LGroup := TNamedGroups.CreateSecP256r1MlKem768(LProviders[LI]);
+    LGroup.GenerateKeyPair(LPriv, LPub);
+    CheckTrue(LGroup.ValidatePeerShare(LPub), 'a generated SecP256r1 hybrid share is accepted');
+    LPub[65] := $01; // the classical half comes first
+    LPub[66] := (LPub[66] and $F0) or $0D;
+    CheckFalse(LGroup.ValidatePeerShare(LPub), 'SecP256r1MLKEM768 refuses a coefficient of q');
+  end;
 end;
 
 procedure TTestNamedGroups.CheckDecapIllegalParameter(const AGroup: INamedGroup;

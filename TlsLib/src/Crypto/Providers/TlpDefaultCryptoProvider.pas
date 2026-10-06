@@ -82,6 +82,13 @@ uses
   ClpIOpenSslPasswordFinder,
   ClpIOpenSslPemReader,
   ClpOpenSslPemReader,
+  ClpIPemObject,
+  ClpIPemHeader,
+  ClpIPemReader,
+  ClpPemReader,
+  ClpIPemWriter,
+  ClpPemWriter,
+  ClpStringUtilities,
   ClpIPkcsAsn1Objects,
   ClpPkcsAsn1Objects,
   ClpIPkcsRsaAsn1Objects,
@@ -203,6 +210,8 @@ resourcestring
   SDegenerateSharedSecret = 'the peer key produced a degenerate all-zero shared secret';
   SBadX25519PeerKeyLength = 'an X25519 peer public key must be exactly 32 bytes';
   SInvalidPeerPoint = 'the peer public point is not a valid curve point';
+  SRandomSpanOutOfRange = 'the requested random span lies outside the destination buffer';
+  SRandomShortRead = 'the random source returned %d bytes where %d were requested';
   SInvalidCiphertext = 'the peer ciphertext could not be decapsulated';
   SInvalidKemPublicKey = 'the peer KEM public key could not be parsed';
   SMalformedPrivateKey = 'the private key could not be parsed in any supported encoding';
@@ -480,6 +489,9 @@ type
     class function DetectDerKeyShape(const AData: TBytes): TDerKeyShape; static;
     class function SchemesForKeyInfo(const AInfo: IPrivateKeyInfo)
       : TArray<TSignatureScheme>; static;
+    class function FirstPrivateKeyObject(const AData: TBytes): IPemObject; static;
+    class function HasHeader(const AObject: IPemObject; const AName,
+      AValue: string): Boolean; static;
     class function KeyParamFromPem(const AData: TBytes;
       const APassword: ISecretBuffer): IAsymmetricKeyParameter; static;
     class function KeyParamFromDer(const AData: TBytes;
@@ -1584,34 +1596,68 @@ begin
   raise ENotSupportedTlsLibException.CreateRes(@SUnsupportedKeyAlgorithm);
 end;
 
+// The first block of the file whose type names a private key, framed but not parsed (so a
+// certificate or parameters ahead of it are never judged); nil when there is none.
+class function TCredentialImport.FirstPrivateKeyObject(const AData: TBytes): IPemObject;
+var
+  LStream: TBytesStream;
+  LReader: IPemReader;
+begin
+  LStream := TBytesStream.Create(AData);
+  try
+    LReader := TPemReader.Create(LStream) as IPemReader;
+    repeat
+      Result := LReader.ReadPemObject;
+    until (Result = nil) or TStringUtilities.EndsWith(Result.&Type, 'PRIVATE KEY');
+    LReader := nil;
+  finally
+    LStream.Free;
+  end;
+end;
+
+// Whether the block carries an RFC 1421 header AName with the value AValue.
+class function TCredentialImport.HasHeader(const AObject: IPemObject; const AName,
+  AValue: string): Boolean;
+var
+  LHeader: IPemHeader;
+begin
+  Result := False;
+  for LHeader in AObject.Headers do
+    if (LHeader.Name = AName) and (LHeader.Value = AValue) then
+      Exit(True);
+end;
+
 // The private half of the key object the PEM reader returned (a bare key parameter,
 // or the private key of a returned key pair).
 class function TCredentialImport.KeyParamFromPem(const AData: TBytes;
   const APassword: ISecretBuffer): IAsymmetricKeyParameter;
 var
+  LObject: IPemObject;
+  LWriter: IPemWriter;
   LStream: TBytesStream;
   LReader: IOpenSslPemReader;
   LValue: TValue;
   LPair: IAsymmetricCipherKeyPair;
   LParam: IAsymmetricKeyParameter;
-  LPem: string;
+  LWipe: TBytes;
 begin
   Result := nil;
+  // a key file often leads with other objects (EC PARAMETERS, a certificate in a cert+key
+  // bundle): only the first private key is parsed
+  LObject := FirstPrivateKeyObject(AData);
+  if LObject = nil then
+    raise EArgumentTlsLibException.CreateRes(@SMalformedPrivateKey);
   // report an encrypted PEM imported without a password as password-required, not malformed
-  if APassword = nil then
-  begin
-    LPem := TEncoding.ASCII.GetString(AData);
-    try
-      if (System.Pos('BEGIN ENCRYPTED PRIVATE KEY', LPem) > 0) or
-        (System.Pos('Proc-Type: 4,ENCRYPTED', LPem) > 0) then
-        raise EArgumentTlsLibException.CreateRes(@SPrivateKeyPasswordRequired);
-    finally
-      // a fresh single-reference string, so it can be overwritten in place
-      TSecureMemory.Wipe(Pointer(LPem), System.Length(LPem) * SizeOf(Char));
-    end;
-  end;
-  LStream := TBytesStream.Create(AData);
+  if (APassword = nil) and ((LObject.&Type = 'ENCRYPTED PRIVATE KEY') or
+    HasHeader(LObject, 'Proc-Type', '4,ENCRYPTED')) then
+    raise EArgumentTlsLibException.CreateRes(@SPrivateKeyPasswordRequired);
+  // the chosen block alone, headers included, goes back through the reader that decrypts it
+  LStream := TBytesStream.Create;
   try
+    LWriter := TPemWriter.Create(LStream) as IPemWriter;
+    LWriter.WriteObject(LObject);
+    LWriter := nil;
+    LStream.Position := 0;
     if APassword <> nil then
       LReader := TOpenSslPemReader.Create(LStream,
         TStaticPasswordFinder.Create(APassword) as IOpenSslPasswordFinder)
@@ -1629,7 +1675,12 @@ begin
       LReader := nil;
     end;
   finally
+    // the re-framed block holds the key in the clear when it is unencrypted
+    LWipe := LStream.Bytes;
+    TSecureMemory.WipeBytes(LWipe);
     LStream.Free;
+    LWipe := LObject.Content;
+    TSecureMemory.WipeBytes(LWipe);
   end;
 end;
 
@@ -1797,9 +1848,16 @@ var
 begin
   if ALen <= 0 then
     Exit;
+  if (AStart < 0) or (Int64(AStart) + ALen > System.Length(ABytes)) then
+    raise EArgumentTlsLibException.CreateRes(@SRandomSpanOutOfRange);
   // the generated bytes may seed key material downstream; wipe this copy once handed over
   LGen := FRandom.GenerateBytes(ALen);
   try
+    // an injected source that returns fewer bytes than asked must fail, never leave the
+    // remainder as adjacent memory that then serves as key or nonce material
+    if System.Length(LGen) <> ALen then
+      raise EInvalidOperationTlsLibException.CreateResFmt(@SRandomShortRead,
+        [System.Length(LGen), ALen]);
     System.Move(LGen[0], ABytes[AStart], ALen);
   finally
     TSecureMemory.WipeBytes(LGen);

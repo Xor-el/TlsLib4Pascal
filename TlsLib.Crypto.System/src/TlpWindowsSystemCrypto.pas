@@ -2145,8 +2145,8 @@ end;
 
 function TWindowsCngKem.ValidatePublicKey(const APublicKey: TBytes): Boolean;
 begin
-  // the byte-encoded ML-KEM-768 encapsulation key is a fixed length; the modulus-bound
-  // coefficient check is left to CNG on import during Encapsulate
+  // the byte-encoded ML-KEM-768 encapsulation key is a fixed length; the coefficient bound
+  // (FIPS 203 sec. 7.2) is enforced by the named group for every backend
   Result := System.Length(APublicKey) = MLKEM768_PUBLIC_KEY_SIZE;
 end;
 
@@ -4091,7 +4091,11 @@ begin
   // key, whose public key it exports from its own handle. The double parse is the Build-time
   // price of platform-invariant parsing; on any native failure the portable key stays.
   Result := FInner.ImportPkcs12(AData, APassword);
-  if FNCrypt.TryImportPkcs12Key(AData, APassword, LNativeKey) then
+  // adopt the native key only when it is the key the portable parse chose: the OS and the
+  // portable parser can read an odd store differently, and the credential must keep signing
+  // with the key that matches its leaf
+  if FNCrypt.TryImportPkcs12Key(AData, APassword, LNativeKey) and
+    TArrayUtilities.AreEqual(LNativeKey.PublicKeyInfo, Result.PrivateKey.PublicKeyInfo) then
     Result.PrivateKey := LNativeKey;
 end;
 
