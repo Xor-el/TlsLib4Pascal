@@ -70,6 +70,7 @@ type
     procedure TestGreaseInCertificateRequestTolerated;
     procedure TestServerNameEmptyHostIsDecodeError;
     procedure TestServerNameUnknownTypeIsDecodeError;
+    procedure TestServerNameNonPrintableByteIsIllegalParameter;
     procedure TestAlpnZeroLengthProtocolIsDecodeError;
     procedure TestAlpnEmptyListIsDecodeError;
     procedure TestDuplicateKeyShareGroupRejected;
@@ -409,6 +410,37 @@ begin
   CheckTrue(ConsumeRaisesDecodeError(TTlsExtensionContextKind.ClientHello,
     DecodeHex('0009000000050003000000')),
     'an empty server_name host is a decode_error');
+end;
+
+procedure TTestExtensionCodec.TestServerNameNonPrintableByteIsIllegalParameter;
+begin
+  // host_name "a\x80.c" and "a\x00c": bytes outside printable ASCII would collapse to one string
+  // downstream, so they are refused (RFC 6066 3)
+  CheckEquals(Integer(TTlsAlertDescription.IllegalParameter),
+    ConsumeAlertCode(TTlsExtensionContextKind.ClientHello,
+    DecodeHex('000d00000009000700000461802e63'), -1),
+    'a non-ASCII host_name byte is illegal_parameter');
+  CheckEquals(Integer(TTlsAlertDescription.IllegalParameter),
+    ConsumeAlertCode(TTlsExtensionContextKind.ClientHello,
+    DecodeHex('000c0000000800060000036100' + '63'), -1),
+    'a NUL host_name byte is illegal_parameter');
+  // the printable range is 0x21..0x7E: a space and DEL are refused, its two ends are accepted
+  CheckEquals(Integer(TTlsAlertDescription.IllegalParameter),
+    ConsumeAlertCode(TTlsExtensionContextKind.ClientHello,
+    DecodeHex('000c00000008000600000361' + '2063'), -1),
+    'a space host_name byte is illegal_parameter');
+  CheckEquals(Integer(TTlsAlertDescription.IllegalParameter),
+    ConsumeAlertCode(TTlsExtensionContextKind.ClientHello,
+    DecodeHex('000c00000008000600000361' + '7f63'), -1),
+    'a DEL host_name byte is illegal_parameter');
+  CheckEquals(-1,
+    ConsumeAlertCode(TTlsExtensionContextKind.ClientHello,
+    DecodeHex('000c00000008000600000361' + '2163'), -1),
+    'the lowest printable host_name byte is accepted');
+  CheckEquals(-1,
+    ConsumeAlertCode(TTlsExtensionContextKind.ClientHello,
+    DecodeHex('000c00000008000600000361' + '7e63'), -1),
+    'the highest printable host_name byte is accepted');
 end;
 
 procedure TTestExtensionCodec.TestServerNameUnknownTypeIsDecodeError;

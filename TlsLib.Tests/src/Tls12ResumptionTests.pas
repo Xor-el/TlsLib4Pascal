@@ -107,6 +107,11 @@ type
     function DriveObservingServerCert(const AClient, AServer: ITlsEngine): Boolean;
     function MakeTicketSession(const ATicket: TBytes;
       AExtendedMasterSecret: Boolean): IResumableSession;
+    /// <summary>The first ClientHello flight of a client that holds a cached ticket session made
+    /// with (or without) EMS and offers EMS iff AOfferEms.</summary>
+    function CachedSessionHello(AEmsSession, AOfferEms: Boolean;
+      const ATicket: TBytes): TBytes;
+    function Contains(const AHaystack, ANeedle: TBytes): Boolean;
     function MakeStoredSession(const AIdentity: TBytes; const ASecret: ISecretBuffer;
       const AHost: string): IResumableSession;
     // shared mTLS-resumption scaffolding parameterized by the resumption scope
@@ -124,6 +129,9 @@ type
     procedure TestResumePreservesExtendedMasterSecretOff;
     procedure TestEmsSessionOfferedWithoutEmsAborts;
     procedure TestNonEmsSessionOfferedWithEmsFallsBackToFullHandshake;
+    procedure TestNonEmsSessionIsOfferedWithExtendedMasterSecret;
+    procedure TestEmsSessionIsNotOfferedByAClientWithoutEms;
+    procedure TestSessionMatchingTheEmsChoiceIsOffered;
     procedure TestResumptionScopeMismatchDeclinesTicket;
     procedure TestMutualAuthTicketReissueCarriesChain;
     procedure TestDecliningSealStillSendsZeroLengthTicket;
@@ -473,6 +481,71 @@ begin
   Result := TTls12ResumableSession.Create(TlsSuite, THashAlgorithm.SHA_256,
     TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(48)), nil, ATicket,
     AExtendedMasterSecret, '', '', 7200, UInt64(TDateTimeUtilities.CurrentUnixMs), nil, nil);
+end;
+
+function TTestTls12Resumption.CachedSessionHello(AEmsSession, AOfferEms: Boolean;
+  const ATicket: TBytes): TBytes;
+var
+  LCache: ISessionCache;
+  LClient: ITlsEngine;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LCache.Store(ServerHost + ':443', ServerHost, MakeTicketSession(ATicket, AEmsSession));
+  LClient := NewClient(LCache, AOfferEms);
+  LClient.StartHandshake;
+  Result := Drain(LClient);
+end;
+
+function TTestTls12Resumption.Contains(const AHaystack, ANeedle: TBytes): Boolean;
+var
+  LIdx, LOffset: Int32;
+begin
+  Result := False;
+  for LOffset := 0 to System.Length(AHaystack) - System.Length(ANeedle) do
+  begin
+    LIdx := 0;
+    while (LIdx < System.Length(ANeedle)) and
+      (AHaystack[LOffset + LIdx] = ANeedle[LIdx]) do
+      Inc(LIdx);
+    if LIdx = System.Length(ANeedle) then
+      Exit(True);
+  end;
+end;
+
+procedure TTestTls12Resumption.TestNonEmsSessionIsOfferedWithExtendedMasterSecret;
+var
+  LTicket, LFlight: TBytes;
+begin
+  LTicket := DecodeHex('a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5');
+  LFlight := CachedSessionHello(False, True, LTicket);
+  // the abbreviated offer still carries extended_master_secret (RFC 7627 5.3); a server that
+  // supports it then declines the old session and the full handshake that follows has it
+  CheckTrue(Contains(LFlight, LTicket), 'the cached ticket is offered');
+  // the only difference from a hello that does not offer EMS is the empty 4-byte extension
+  CheckEquals(System.Length(CachedSessionHello(False, False, LTicket)) + 4,
+    System.Length(LFlight),
+    'extended_master_secret is offered alongside the non-EMS session');
+end;
+
+procedure TTestTls12Resumption.TestEmsSessionIsNotOfferedByAClientWithoutEms;
+var
+  LTicket: TBytes;
+begin
+  LTicket := DecodeHex('a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5');
+  // a hello without EMS must not present an EMS session (the server would abort it)
+  CheckFalse(Contains(CachedSessionHello(True, False, LTicket), LTicket),
+    'an EMS session is not offered without extended_master_secret');
+end;
+
+procedure TTestTls12Resumption.TestSessionMatchingTheEmsChoiceIsOffered;
+var
+  LTicket: TBytes;
+begin
+  LTicket := DecodeHex('a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5');
+  CheckTrue(Contains(CachedSessionHello(True, True, LTicket), LTicket),
+    'an EMS session is offered by an EMS client');
+  CheckTrue(Contains(CachedSessionHello(False, False, LTicket), LTicket),
+    'a non-EMS session is offered by a non-EMS client');
 end;
 
 function TTestTls12Resumption.MakeStoredSession(const AIdentity: TBytes;

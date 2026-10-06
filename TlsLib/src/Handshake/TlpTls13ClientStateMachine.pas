@@ -320,7 +320,7 @@ type
     /// <summary>Rejects a TLS 1.3 ServerHello that carries any extension other than
     /// supported_versions, key_share or pre_shared_key (RFC 8446 4.1.3).</summary>
     class procedure EnforceTls13ServerHelloExtensions(
-      const AExtensions: TBytes); static;
+      const AVector: TExtensionVector); static;
     /// <summary>Consumes EncryptedExtensions: validates the server's ALPN selection
     /// and applies the negotiated record_size_limit, surfacing both as effects.</summary>
     function ProcessEncryptedExtensions(const AMessage: TTlsHandshakeMessage)
@@ -941,16 +941,12 @@ begin
 end;
 
 class procedure TTls13ClientStateMachine.EnforceTls13ServerHelloExtensions(
-  const AExtensions: TBytes);
+  const AVector: TExtensionVector);
 var
-  LVector: TExtensionVector;
   LTypes: TArray<UInt16>;
   LType: UInt16;
 begin
-  if System.Length(AExtensions) = 0 then
-    Exit;
-  LVector := TExtensionVector.Parse(AExtensions);
-  LTypes := LVector.Types;
+  LTypes := AVector.Types;
   for LType in LTypes do
     if (LType <> TExtensionTypes.SupportedVersions) and
       (LType <> TExtensionTypes.KeyShare) and
@@ -982,6 +978,7 @@ function TTls13ClientStateMachine.ProcessServerHello(
 var
   LHello: TTlsServerHello;
   LContext: TExtensionContext;
+  LExtensions: TExtensionVector;
   LShared: ISecretBuffer;
   LNegotiatedVersion: UInt16;
 begin
@@ -1078,14 +1075,14 @@ begin
   LContext := TExtensionContext.Create;
   try
     ApplyOffered(LContext);
-    FCodec.ConsumeBlock(LContext, TTlsExtensionContextKind.ServerHello,
-      LHello.Extensions);
-
     // the negotiated TLS 1.3 was already confirmed before the cipher suite (above); a
     // TLS 1.3 ServerHello may carry only supported_versions, key_share and pre_shared_key;
     // anything else (e.g. ALPN, which belongs in the encrypted EncryptedExtensions) is
-    // unsupported_extension (RFC 8446 4.1.3)
-    EnforceTls13ServerHelloExtensions(LHello.Extensions);
+    // unsupported_extension (RFC 8446 4.1.3). Checked before the decoders run, so a malformed
+    // forbidden extension is reported as forbidden.
+    LExtensions := TExtensionVector.Parse(LHello.Extensions);
+    EnforceTls13ServerHelloExtensions(LExtensions);
+    FCodec.ConsumeBlock(LContext, TTlsExtensionContextKind.ServerHello, LExtensions);
 
     // this client only ever offers psk_dhe_ke, so an (EC)DHE key_share is always required; its
     // absence is missing_extension, distinct from the wrong-group illegal_parameter below
@@ -1624,8 +1621,7 @@ begin
       TTlsAlertDescription.MissingExtension, @SCertReqMissingSigAlgs);
   LContext := TExtensionContext.Create;
   try
-    FCodec.ConsumeBlock(LContext, TTlsExtensionContextKind.CertificateRequest,
-      LRequest.Extensions);
+    FCodec.ConsumeBlock(LContext, TTlsExtensionContextKind.CertificateRequest, LExtensions);
     FClientAuthSchemes := LContext.SignatureSchemes;
     FRequestedCertificateAuthorities := LContext.CertificateAuthorities;
   finally

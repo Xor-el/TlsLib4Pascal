@@ -40,6 +40,7 @@ uses
   TlpCipherSuiteRegistry,
   TlpCoreExtensions,
   TlpExtensionContext,
+  TlpExtensionVector,
   TlpITlsExtension,
   TlpExtensionBlockCodec,
   TlpRecordLayer,
@@ -137,6 +138,7 @@ type
     procedure TestServerHelloTls12SuiteRejected;
     procedure TestIntermediateUnsolicitedExtensionRejected;
     procedure TestIntermediateDuplicateExtensionRejected;
+    procedure TestMalformedForbiddenServerHelloExtensionIsUnsupported;
     procedure TestUnsolicitedEarlyDataInEncryptedExtensionsRejected;
     procedure TestServerHelloBadSessionIdEchoRejected;
     procedure TestServerHelloWrongVersionRejected;
@@ -581,6 +583,38 @@ begin
   finally
     LReader.Free;
   end;
+end;
+
+procedure TTestTls13ClientReplay.TestMalformedForbiddenServerHelloExtensionIsUnsupported;
+var
+  LSh: TTlsServerHello;
+  LVec: TExtensionVector;
+  LFramed: TBytes;
+  LReader: THandshakeMessageReader;
+  LMsg: TTlsHandshakeMessage;
+  LAlert: TTlsAlertDescription;
+begin
+  // record_size_limit was offered, but it is not allowed in a TLS 1.3 ServerHello (RFC 8446
+  // 4.1.3); with a body too short to decode the allow-list must still answer first, so the alert
+  // names the forbidden extension rather than the decoder's complaint
+  StartClient;
+  LSh := THandshakeMessages.DecodeServerHello(Msg('server_hello').Body);
+  LVec := TExtensionVector.Parse(LSh.Extensions);
+  LVec.Append(TExtensionEntry.Create(TExtensionTypes.RecordSizeLimit, TBytes.Create($00)));
+  LSh.Extensions := LVec.Encode;
+  LFramed := THandshakeFraming.Frame(TTlsHandshakeType.ServerHello,
+    THandshakeMessages.EncodeServerHello(LSh));
+  LReader := THandshakeMessageReader.Create;
+  try
+    LReader.Append(LFramed, 0, System.Length(LFramed));
+    LReader.NextMessage(LMsg);
+  finally
+    LReader.Free;
+  end;
+  CheckTrue(FailAlertOf(FSm.ProcessMessage(LMsg), LAlert),
+    'a forbidden ServerHello extension aborts');
+  CheckTrue(LAlert = TTlsAlertDescription.UnsupportedExtension,
+    'it is unsupported_extension, not the decoder''s error');
 end;
 
 procedure TTestTls13ClientReplay.TestUnsolicitedEarlyDataInEncryptedExtensionsRejected;

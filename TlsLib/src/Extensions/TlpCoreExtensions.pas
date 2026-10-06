@@ -229,6 +229,7 @@ resourcestring
   SEmptyCookie = 'cookie carries a zero-length value (RFC 8446 4.2.2)';
   SEmptyCompressCertificate = 'compress_certificate names no algorithm (RFC 8879 3 requires at least one)';
   SServerNameAckNotEmpty = 'a server server_name acknowledgement must carry an empty body (RFC 6066 3)';
+  SInvalidHostNameByte = 'server_name host_name holds a byte outside printable ASCII (RFC 6066 3)';
   SEmptyResponderId = 'status_request carries a zero-length responder_id (RFC 6066 8)';
   SRenegotiationInfoNotEmpty = 'renegotiation_info is not empty on an initial handshake (RFC 5746 3.4)';
 
@@ -582,6 +583,7 @@ var
   LReader, LList, LName: TWireReader;
   LNameType: Byte;
   LHost: TBytes;
+  LIndex: Int32;
 begin
   // the server's acknowledgement (ServerHello / EncryptedExtensions) is an empty extension; a
   // non-empty body there is a decode error (RFC 6066 3). A ClientHello carries the list itself,
@@ -606,6 +608,12 @@ begin
   LList.ExpectEnd;
   if System.Length(LHost) = 0 then
     raise EDecodeErrorTlsLibException.CreateRes(@SEmptyHostName);
+  // a host_name is an ASCII DNS name (RFC 6066 3); control or non-ASCII bytes would otherwise
+  // collapse to the same string and reach callbacks and logs
+  for LIndex := 0 to System.High(LHost) do
+    if (LHost[LIndex] < $21) or (LHost[LIndex] > $7E) then
+      raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.IllegalParameter,
+        @SInvalidHostNameByte);
   AContext.ServerName := TEncoding.ASCII.GetString(LHost);
 end;
 
