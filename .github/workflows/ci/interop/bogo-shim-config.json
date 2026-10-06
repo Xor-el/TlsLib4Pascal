@@ -132,8 +132,6 @@
     "TLS13-Client-NonminimalTicketFlags": "[out-of-scope] ticket_flags draft not implemented",
     "TLS13-Server-ResumptionAcrossNames": "[out-of-scope] the resumption_across_names ticket-flag (cross-SNI resumption draft) is not emitted; rustls omits it too",
     "Client-RejectJDK11DowngradeRandom": "[out-of-scope] the JDK-11 ServerHello.random downgrade sentinel is a BoringSSL-specific workaround, not an RFC 8446 sentinel",
-    "ExtensionTrailingData-CertificateAuthorities-Server-TLS-TLS13": "[deferred] we do not yet parse the certificate_authorities extension (RFC 8446 4.2.4), so its trailing data is not detected",
-    "RejectEmptyCertificateAuthorities-Server-TLS-TLS13": "[deferred] certificate_authorities not parsed yet",
     "CheckClientCertificateTypes": "[policy-difference] we send an empty Certificate when our leaf type is not in certificate_types (RFC 5246 7.4.6; rustls also sends empty, ignoring certtypes entirely); BoringSSL aborts UNKNOWN_CERTIFICATE_TYPE",
     "Client-InvalidSignature-ML-DSA-*": "[deferred] ML-DSA not offered; exercises nothing our side",
     "*-ML-DSA-*-TLS12": "[deferred] ML-DSA not offered",

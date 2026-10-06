@@ -387,8 +387,6 @@ begin
       if FResumptionOffer <> nil then
       begin
         LContext.SessionTicket := FResumptionOffer.SessionTicket;
-        // align the EMS offer to the cached session so the server may resume (RFC 7627 5.3)
-        LContext.ExtendedMasterSecret := FResumptionOffer.ExtendedMasterSecret;
         if System.Length(FResumptionOffer.SessionId) > 0 then
           FOfferedSessionId := FResumptionOffer.SessionId
         else if System.Length(FResumptionOffer.SessionTicket) > 0 then
@@ -447,8 +445,11 @@ begin
     FParams.Clock.NowUnixMillis, LCached) and
     (LCached.Version.WireValue = TlsWireVersionTls12) then
   begin
+    // a hello that omits extended_master_secret must not present a session made with it: the
+    // server has to abort that resumption (RFC 7627 5.3)
     if TClientSessionPolicy.IsOfferableTls12(LCached, FParams.Clock.NowUnixMillis) and
-      Supports(LCached, ITls12ResumableSession, L12) then
+      Supports(LCached, ITls12ResumableSession, L12) and
+      (FParams.OfferExtendedMasterSecret or (not L12.ExtendedMasterSecret)) then
       FResumptionOffer := L12;
   end;
   LClientHello := BuildClientHello;
