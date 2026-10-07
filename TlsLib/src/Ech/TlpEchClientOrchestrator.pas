@@ -409,8 +409,9 @@ begin
       ServerNameData(FSelectedConfig.PublicName));
   if LOuterEntries.Contains(TExtensionTypes.PreSharedKey) then
   begin
-    // a retry keeps CH1's GREASE PSK identities and ages (RFC 8446 4.1.2), minted on the first
-    // flight; the binders are regenerated each hello so a decoy's CH2 does not carry CH1's binders
+    // a retry keeps CH1's GREASE PSK identities (RFC 8446 4.1.2) and, deliberately, their ages, so
+    // the decoy does not change shape across the retry; they are minted on the first flight, and
+    // the binders are regenerated each hello so a decoy's CH2 does not carry CH1's binders
     // verbatim the way a real one never would
     if AMode = TEchChMode.Initial then
       MintGreasePskIdentities(APskOffers);
@@ -516,7 +517,7 @@ begin
   Result := TEchClientHandshake.AcceptConfirmationMatches(
     FCrypto.Primitives.CreateHkdf(AHash), FInnerRandom, LConfHash, AServerRandom);
   // if a HelloRetryRequest already decided ECH accept/reject, the ServerHello MUST agree
-  // (RFC 9849 sec. 5): a divergence is illegal_parameter
+  // (RFC 9849 sec. 6.1.5): a divergence is illegal_parameter
   if FHrrDecided and (Result <> FHrrAccepted) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SEchHrrConfirmationMismatch);

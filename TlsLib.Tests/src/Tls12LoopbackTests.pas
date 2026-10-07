@@ -191,7 +191,7 @@ begin
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.OfferedSuites := TArray<UInt16>.Create(ASuite);
   // TLS 1.2 supported_groups gates both the ECDHE key-exchange group and the ECDSA leaf's
-  // curve (RFC 8422 5.1), so it lists X25519 and Secp256r1 (the P-256 certificate curve)
+  // curve (RFC 8422 5.3), so it lists X25519 and Secp256r1 (the P-256 certificate curve)
   LParams.OfferedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
     TNamedGroupCatalog.Secp256r1);
   LParams.OfferedSchemes := TArray<UInt16>.Create(
@@ -264,7 +264,7 @@ begin
   LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Crypto);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  // an ECDHE_ECDSA suite carries an Ed448 credential (RFC 8422 5.1: an EdDSA-capable key)
+  // an ECDHE_ECDSA suite carries an Ed448 credential (RFC 8422 2.1 / 5.3: an EdDSA-capable key)
   LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites12.EcdheEcdsaAes128GcmSha256);
   LParams.OfferedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
     TNamedGroupCatalog.Secp256r1);
@@ -401,7 +401,7 @@ begin
   LParams.OfferedSuites := TArray<UInt16>.Create(
     TCipherSuites12.EcdheEcdsaAes128GcmSha256);
   // TLS 1.2 supported_groups gates both the ECDHE key-exchange group and the ECDSA leaf's
-  // curve (RFC 8422 5.1), so it lists X25519 and Secp256r1 (the P-256 certificate curve)
+  // curve (RFC 8422 5.3), so it lists X25519 and Secp256r1 (the P-256 certificate curve)
   LParams.OfferedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
     TNamedGroupCatalog.Secp256r1);
   LParams.OfferedSchemes := TArray<UInt16>.Create(

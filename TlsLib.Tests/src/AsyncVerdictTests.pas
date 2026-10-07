@@ -541,7 +541,7 @@ var
   LClient, LServer: ITlsEngine;
 begin
   // a resolver that cannot decide in time returns a failure; that path is
-  // SetCertificateVerdict(False) - fail-closed (the engine owns no timer)
+  // SetCertificateVerdict(False, <alert>) - fail-closed (the engine owns no timer)
   LClient := NewClient(ClientConfig(True, 1), 'localhost', LServer);
   LClient.StartHandshake;
   DriveUntilParkOrSettled(LClient, LServer);

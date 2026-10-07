@@ -187,7 +187,7 @@ begin
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.OfferedSuites := TArray<UInt16>.Create(TlsSuite);
   // TLS 1.2 supported_groups gates both the ECDHE key-exchange group and the ECDSA leaf's
-  // curve (RFC 8422 5.1), so it lists X25519 and Secp256r1 (the P-256 certificate curve)
+  // curve (RFC 8422 5.3), so it lists X25519 and Secp256r1 (the P-256 certificate curve)
   LParams.OfferedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
     TNamedGroupCatalog.Secp256r1);
   LParams.OfferedSchemes := TArray<UInt16>.Create(
@@ -230,7 +230,7 @@ begin
   L13.GroupCode := TNamedGroupCatalog.X25519;
   // the unified ClientHello carries the 1.3 machine's supported_groups, which for a 1.2
   // fallback with a P-256 ECDSA server certificate must also list Secp256r1 - TLS 1.2
-  // gates the ECDSA leaf's curve on supported_groups (RFC 8422 5.4); the key_share stays
+  // gates the ECDSA leaf's curve on supported_groups (RFC 8422 5.3); the key_share stays
   // X25519-only
   L13.OfferedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
     TNamedGroupCatalog.Secp256r1);

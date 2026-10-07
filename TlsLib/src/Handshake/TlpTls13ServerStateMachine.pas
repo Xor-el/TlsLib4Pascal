@@ -187,7 +187,7 @@ type
   strict private
   const
     /// <summary>The tolerated skew between the client-reported and the server-measured ticket
-    /// age for a 0-RTT offer (RFC 8446 8.2); also sizes the anti-replay hold.</summary>
+    /// age for a 0-RTT offer (RFC 8446 8.3); also sizes the anti-replay hold.</summary>
     MaxFreshnessSkewMillis = UInt32(60) * 1000;
   type
     TPhase = (Initial, WaitSecondClientHello, WaitClientCertificate,
@@ -210,7 +210,7 @@ type
     FCookie: THelloRetryCookie;
     FSelectedAlpn: string;
     /// <summary>The ALPN protocol bound to an accepted resumption ticket; 0-RTT is only
-    /// accepted when the ALPN negotiated on the resumed handshake matches it (RFC 8446 4.2.11).</summary>
+    /// accepted when the ALPN negotiated on the resumed handshake matches it (RFC 8446 4.2.10).</summary>
     FAcceptedSessionAlpn: string;
     FClientSentServerName: Boolean;
     FRequestedServerName: string;
@@ -299,8 +299,9 @@ type
     class function ParseClientHelloExtensions(
       const AClientHello: TTlsClientHello): TExtensionVector; static;
     /// <summary>Whether the ClientHello extensions carry an inner-type encrypted_client_hello
-    /// (the backend role, RFC 9849 sec. 7.1). Raises decode_error on a malformed ech extension
-    /// (a non-empty inner body or an unknown type). Reads the already-parsed vector.</summary>
+    /// (the backend role, RFC 9849 sec. 7.2). Raises illegal_parameter on an unknown type and
+    /// decode_error on a malformed ech extension (a non-empty inner body). Reads the
+    /// already-parsed vector.</summary>
     class function DetectBackendEch(const AVector: TExtensionVector): Boolean; static;
     /// <summary>Stamps the HelloRetryRequest ech accept confirmation (RFC 9849 sec. 7.2.1) into the
     /// ech extension's payload (located by parsing, not assumed last), computed over
@@ -358,7 +359,7 @@ type
     class function BindersVectorLength(const ABinders: TArray<TBytes>): Int32; static;
     /// <summary>Whether the client's obfuscated_ticket_age is fresh enough to accept 0-RTT: the
     /// de-obfuscated reported age must be within 60s of the server-measured elapsed time in
-    /// either direction (RFC 8446 8.2). A larger skew declines 0-RTT while the session still
+    /// either direction (RFC 8446 8.3). A larger skew declines 0-RTT while the session still
     /// resumes.</summary>
     class function EarlyDataAgeFresh(AObfuscatedAgeMillis, ATicketAgeAdd: UInt32;
       AIssuedAtMillis, ANowMillis: UInt64): Boolean; static;
@@ -710,7 +711,7 @@ begin
     FResolvedCredential := TServerOfferSelection.ResolveCredential(
       FParams.CredentialResolver, AContext, AClientHello.CipherSuites, TTlsVersion.Tls13);
     // certificate-based auth requires the client to offer signature_algorithms
-    // (RFC 8446 4.4.2.2 / 4.4.3); the CertificateVerify scheme is then the first of the
+    // (RFC 8446 4.2.3 / 9.2); the CertificateVerify scheme is then the first of the
     // credential's key-compatible schemes the client also offered
     if System.Length(AContext.SignatureSchemes) = 0 then
       raise EFatalAlertTlsLibException.CreateRes(
@@ -751,7 +752,7 @@ begin
   // echoed later in EncryptedExtensions
   FSelectedAlpn := TServerOfferSelection.SelectAlpn(FParams.AlpnProtocols,
     AContext.AlpnProtocols, FParams.AlpnRejectAll);
-  // 0-RTT is bound to the ticket's ALPN (RFC 8446 4.2.11): a resumed handshake that negotiates
+  // 0-RTT is bound to the ticket's ALPN (RFC 8446 4.2.10): a resumed handshake that negotiates
   // a different protocol than the ticket carried must reject early data (the session still
   // resumes). Only applies to an accepted resumption ticket.
   if FEarlyDataAccepted and (FSelectedAlpn <> FAcceptedSessionAlpn) then
@@ -895,7 +896,7 @@ begin
     AContext.PskSelected := True;
     AContext.SelectedPskIdentity := UInt16(LI);
     // accept 0-RTT only for identity 0 (RFC 8446 4.2.10), when configured, the ticket authorized
-    // it, the reported age is fresh (RFC 8446 8.2), and the binder is not a replay (RFC 8446 8/8.3)
+    // it, the reported age is fresh (RFC 8446 8.3), and the binder is not a replay (RFC 8446 8.2)
     FEarlyDataAccepted := (LI = 0) and FEarlyDataOfferedByClient and
       (FParams.MaxEarlyData > 0) and (L13.MaxEarlyData > 0) and
       EarlyDataAgeFresh(AContext.OfferedPskAges[LI], L13.TicketAgeAdd,
@@ -1257,7 +1258,7 @@ var
   LExtensions: TExtensionVector;
 begin
   // when ECH was accepted on CH1, the retry outer reuses the CH1 HPKE context at seq=1
-  // (RFC 9849 sec. 6.1.5); the reconstructed inner CH2 is the logical ClientHello2
+  // (RFC 9849 sec. 7.1.1); the reconstructed inner CH2 is the logical ClientHello2
   // the accept invariant must hold here (the flight that releases FEch runs later); a broken one
   // is an internal fault, not a silent fall-through to the outer ClientHello
   if (FEchStatus = TEchStatus.Accepted) and (FEch = nil) then

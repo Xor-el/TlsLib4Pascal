@@ -235,7 +235,7 @@ end;
 
 procedure TTestEndpointIdentity.TestIpLiteralDoesNotMatchWildcardDns;
 begin
-  // RFC 6125: an IP-literal host must never match a dNSName/wildcard
+  // RFC 9525: an IP-literal host must never match a dNSName/wildcard
   CheckFalse(Matches('127.0.0.1', ['*.0.0.1']));
   CheckFalse(Matches('127.0.0.1', ['127.0.0.1']));
 end;

@@ -124,9 +124,9 @@ type
     procedure TestMustStapleMissingStapleAbortsUnderOff;
     procedure TestMustStapleNonMatchingStapleAborts;
     procedure TestMalformedTlsFeatureAbortsBadCertificate;
-    // RFC 7633 4.3.3: must-staple binds only to an initial-handshake server certificate the client
-    // asked to have stapled - not when unrequested, not on resumption, not for a client certificate;
-    // a MALFORMED TLS Feature stays fatal regardless
+    // RFC 7633 4.3.3: must-staple binds only when the client asked for a staple; by local policy
+    // it also binds only to an initial-handshake server certificate - not on resumption, not for a
+    // client certificate; a MALFORMED TLS Feature stays fatal regardless
     procedure TestMustStapleNotRequestedAcceptsUnderSoft;
     procedure TestMustStapleNotRequestedAcceptsUnderOff;
     procedure TestMustStapleNotEnforcedOnResumption;
@@ -771,7 +771,7 @@ var
   LAlert: TTlsAlertDescription;
   LVerified: TVerifiedChain;
 begin
-  // pinning is over the VALIDATED path (RFC 7469 6): when the peer sends only its leaf, path
+  // pinning is over the VALIDATED path (RFC 7469 2.6): when the peer sends only its leaf, path
   // building recovers the configured issuer into the validated chain, so a pin on that issuer
   // matches even though the peer did not present it. Revocation Off isolates the pinning step.
   CheckTrue(IntermediateVerifierFor(TRevocationPosture.Off,

@@ -486,7 +486,7 @@ begin
   CheckEquals(Ord(THashAlgorithm.SHA_256), Ord(LImp256.Hash), 'SHA-256 import bound hash');
   CheckEquals(Ord(THashAlgorithm.SHA_384), Ord(LImp384.Hash), 'SHA-384 import bound hash');
 
-  // the "imp binder" (RFC 9258 6) over the imported key round-trips between the two sides,
+  // the "imp binder" (RFC 9258 5.2) over the imported key round-trips between the two sides,
   // and is distinct from a resumption ("res binder") over the same key
   LClient := TTls13KeySchedule.Create(Crypto, LImp256.Hash, 16);
   LClient.SetPsk(LImp256.Key);

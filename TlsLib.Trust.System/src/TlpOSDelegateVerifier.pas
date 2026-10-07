@@ -72,7 +72,7 @@ type
   /// engine that renders none runs strength first and decides revocation from the handshake staple. A
   /// definitive stapled Revoked always wins under every posture, and an indeterminate case defers to the
   /// async park only when a live fetch will decide it there. RFC 7633 must-staple is enforced, then the
-  /// leaf SANs are matched here (SAN-only, RFC 6125) for every engine - the platform's own host match is
+  /// leaf SANs are matched here (SAN-only, RFC 9525) for every engine - the platform's own host match is
   /// never trusted to stand in for it. Fail-closed throughout.</summary>
   TOSDelegateVerifierBase = class abstract(TInterfacedObject)
   strict private
@@ -292,7 +292,7 @@ begin
   if TDelegatePostChecks.RejectMustStaple(FPolicy.Pkix, FPolicy.Clock, AResult.Path, AStaple,
     FPolicy.StatusRequestOffered, FPolicy.Occasion, AAlert) then
     Exit(False);
-  // identity: the library matches the leaf's SANs itself (SAN-only, RFC 6125) rather than trust an
+  // identity: the library matches the leaf's SANs itself (SAN-only, RFC 9525) rather than trust an
   // engine that may fall back to the deprecated subject CN; the host still reached the engine for
   // name-constraint checks. An empty name (a client certificate) never fires, and with the name
   // check off there is nothing to match - built-in verifier parity either way

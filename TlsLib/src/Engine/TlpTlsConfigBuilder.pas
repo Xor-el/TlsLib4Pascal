@@ -1721,8 +1721,8 @@ begin
   FCheckServerName := True;
   // the client does not offer status_request unless asked: an unsolicited staple is rejected
   FRequestOcspStapling := False;
-  // soft-fail revocation is the default posture (RFC 6960 stapled OCSP, honoring
-  // must-staple); presets may harden it
+  // soft-fail revocation is the default posture (stapled OCSP, RFC 6066 8 /
+  // RFC 8446 4.4.2.1; must-staple RFC 7633); presets may harden it
   FRevocationPosture := TRevocationPosture.Soft;
   FChainLimits := TCertificateChainLimits.Defaults;
   FStrengthPolicy := TCertificateStrengthPolicy.Defaults;
@@ -2099,13 +2099,13 @@ begin
     raise EInvalidOperationTlsLibException.CreateResFmt(@SSniCertMissing, [AHost]);
   LSans := FPkix.Certificates.DnsNames(ACredential.CertificateChain[0]);
   if Pos('*', AHost) = 0 then
-    // an exact host must be covered by the leaf's dNSName SANs (RFC 6125/9525)
+    // an exact host must be covered by the leaf's dNSName SANs (RFC 9525)
     LOk := TEndpointIdentity.Matches(TServerName.DnsName(AHost), LSans, nil)
   else
   begin
     // only a runtime-matchable pattern is accepted - a single left-most-label wildcard that
     // leaves at least two labels below it (never *.com), the same rule the matcher enforces, so
-    // a registered pattern and name verification can never disagree (RFC 6125 / RFC 9525)
+    // a registered pattern and name verification can never disagree (RFC 9525)
     if not TEndpointIdentity.IsMatchableDnsPattern(AHost) then
       raise EInvalidOperationTlsLibException.CreateResFmt(@SSniWildcardMalformed, [AHost]);
     // a wildcard entry needs the leaf to carry that same wildcard SAN

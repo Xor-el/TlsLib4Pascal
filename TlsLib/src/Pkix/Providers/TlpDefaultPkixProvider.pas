@@ -1299,7 +1299,7 @@ begin
   LPoints := LCdp.GetDistributionPoints;
   for LI := 0 to System.High(LPoints) do
   begin
-    // RFC 5280 6.3.3 (b)(1): a point that names a separate cRLIssuer or covers only some
+    // RFC 5280 6.3.3 (b)(1), (d): a point that names a separate cRLIssuer or covers only some
     // reasons does not designate this issuer's complete CRL
     if (LPoints[LI].GetCrlIssuer <> nil) or (LPoints[LI].GetReasons <> nil) then
       Continue;

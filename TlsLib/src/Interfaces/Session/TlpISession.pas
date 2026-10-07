@@ -47,7 +47,7 @@ type
     function MaxEarlyData: UInt32;
     /// <summary>The ALPN protocol negotiated on the session this PSK resumes (empty when none),
     /// so an accepted 0-RTT offer can enforce that the server keeps the same protocol (RFC 8446
-    /// 4.2.11); external PSKs carry no ALPN.</summary>
+    /// 4.2.10); external PSKs carry no ALPN.</summary>
     function Alpn: string;
     /// <summary>Which binder label the PSK uses: Resumption for a ticket, Imported for an
     /// RFC 9258 external PSK. Also selects whether an obfuscated_ticket_age is offered.</summary>

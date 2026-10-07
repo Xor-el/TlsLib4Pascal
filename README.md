@@ -38,8 +38,8 @@
 - **Post-quantum hybrid KEX by default** -- `X25519MLKEM768` in every preset
 - **AEAD-only, forward-secret** -- no CBC-HMAC, RC4, 3DES, static-RSA/DH, or TLS-level compression; 0-RTT off by default
 - **Secure by default, fail-closed** -- refuses to build an unauthenticated client, and every foot-gun lives behind one loudly-named `dangerous` surface
-- **Complete trust pipeline** -- PKIX path validation, RFC 6125 endpoint identity, public-key pinning, stapled + live OCSP/CRL revocation, and opt-in OS system trust
-- **Resumption, PSK & 0-RTT** -- 1.3 tickets with STEK rotation or a stateful store, 1.2 session IDs + RFC 5077, RFC 9258 external PSKs, anti-replay early data
+- **Complete trust pipeline** -- PKIX path validation, RFC 9525 endpoint identity, public-key pinning, stapled + live OCSP/CRL revocation, and opt-in OS system trust
+- **Resumption, PSK & 0-RTT** -- 1.3 tickets with STEK rotation or a stateful store, 1.2 session IDs + RFC 5077, RFC 9258 imported external PSKs, anti-replay early data
 - **Certificate compression** -- RFC 8879 with a centralized decompression-bomb defense and an optional cross-connection cache
 - **Encrypted Client Hello** -- RFC 9849 ECH hides the SNI: client and server, GREASE, split-mode backend, `EchKeyGen` tool, and a DNS/SVCB config helper
 - **Three ways to integrate** -- a batteries-included `TTlsLib` facade, a `TTlsStream` over a tiny transport interface, and drop-in adapters for mORMot, Indy, Synapse, and fcl-net (all over one sans-IO engine)
@@ -65,10 +65,10 @@
 `TLS_AES_128_GCM_SHA256` | `TLS_AES_256_GCM_SHA384` | `TLS_CHACHA20_POLY1305_SHA256` (+ the hardened ECDHE-ECDSA/RSA 1.2 AEAD suites)
 
 #### Named groups
-`X25519` | `X25519MLKEM768` (PQ hybrid) | `secp256r1` | `secp384r1` | `secp521r1`
+`X25519` | `X25519MLKEM768` and `SecP256r1MLKEM768` (PQ hybrids) | `secp256r1` | `secp384r1` | `secp521r1`
 
 #### Signature schemes
-`ecdsa_secp256r1/384r1/521r1` | `rsa_pss_rsae_sha256/384/512` | `ed25519` | `ed448`
+`ecdsa_secp256r1/384r1/521r1` | `rsa_pss_rsae_sha256/384/512` | `ed25519` | `ed448` | `rsa_pkcs1_sha256/384/512` (TLS 1.2 handshake signatures and pkcs1-signed certificate chains only; never a TLS 1.3 CertificateVerify)
 
 CPU-adaptive AEAD selection (ChaCha20-Poly1305 preferred where hardware AES is absent), server-preference backbone with an equal-preference AEAD group.
 
@@ -77,7 +77,7 @@ CPU-adaptive AEAD selection (ChaCha20-Poly1305 preferred where hardware AES is a
 <details>
 <summary><strong>Post-quantum</strong></summary>
 
-- **PQ hybrid key exchange** -- `X25519MLKEM768` (code point `0x11EC`), native in the KEM-shaped group registry and offered by every preset.
+- **PQ hybrid key exchange** -- `X25519MLKEM768` (code point `0x11EC`) and `SecP256r1MLKEM768` (code point `0x11EB`), native in the KEM-shaped group registry; both are offered by the Compatible and Hardened presets, and Strict offers `X25519MLKEM768`.
 
 </details>
 
@@ -85,7 +85,7 @@ CPU-adaptive AEAD selection (ChaCha20-Poly1305 preferred where hardware AES is a
 <summary><strong>Trust &amp; certificates</strong></summary>
 
 - **PKIX path validation** (PKITS-verified), constrained web-PKI profile by default with the full RFC 5280 machinery on opt-in.
-- **Endpoint identity** -- RFC 6125 host-name / SAN matching (CN matching off by default).
+- **Endpoint identity** -- RFC 9525 host-name / SAN matching (subject alternative names only).
 - **Revocation** -- stapled OCSP, live OCSP/CRL over an injected fetcher, soft/hard/off posture, and RFC 7633 must-staple.
 - **OS system trust** (opt-in) -- Windows / macOS / Linux anchor harvest, iOS / Android verifier delegates.
 - **CA bundles** -- a PEM/DER bundle loader (`TlsLib.Trust.Bundle`).
@@ -99,7 +99,7 @@ CPU-adaptive AEAD selection (ChaCha20-Poly1305 preferred where hardware AES is a
 
 - TLS 1.3 -- forward-secret `psk_dhe_ke`, single-use tickets, stateless STEK rotation auto-upgrading to a stateful store.
 - TLS 1.2 -- session IDs + RFC 5077 tickets.
-- **External PSKs** -- RFC 9258 out-of-band pre-shared keys.
+- **External PSKs** -- out-of-band pre-shared keys, imported per RFC 9258. Both peers must implement the import; a peer that does not import the PSK as RFC 9258 describes will not interoperate.
 - **0-RTT early data** -- off by default, bounded by a pluggable anti-replay strategy when enabled.
 
 </details>
@@ -107,7 +107,7 @@ CPU-adaptive AEAD selection (ChaCha20-Poly1305 preferred where hardware AES is a
 <details>
 <summary><strong>Extensions</strong></summary>
 
-`server_name` (SNI) | `application_layer_protocol_negotiation` (ALPN) | `supported_versions` | `supported_groups` | `key_share` | `signature_algorithms` (+ `_cert`) | `pre_shared_key` + `psk_key_exchange_modes` | `early_data` | `record_size_limit` | `status_request` (OCSP) | `compress_certificate` (RFC 8879) | `cookie` | `extended_master_secret` | `renegotiation_info` | GREASE
+`server_name` (SNI) | `application_layer_protocol_negotiation` (ALPN) | `supported_versions` | `supported_groups` | `key_share` | `signature_algorithms` (+ `_cert`) | `pre_shared_key` + `psk_key_exchange_modes` | `early_data` | `record_size_limit` | `status_request` (OCSP) | `compress_certificate` (RFC 8879) | `certificate_authorities` | `ec_point_formats` | `encrypted_client_hello` (+ `ech_outer_extensions`) | `cookie` | `extended_master_secret` | `renegotiation_info` | GREASE
 
 </details>
 

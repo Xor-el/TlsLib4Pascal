@@ -1091,7 +1091,7 @@ begin
   CheckEquals(1, LCache.Count, 'a 0-RTT-capable ticket was cached over ECH');
 
   // second ECH connection: send 0-RTT early data. The early keys derive from the inner
-  // transcript (RFC 9849 sec. 6.1.4); the server accepts ECH and decrypts the early data.
+  // transcript (RFC 9849 sec. 6.1 / 6.1.5); the server accepts ECH and decrypts the early data.
   LClient := NewEchResumeClient(LCache, True);
   LServer := NewEchResumeServer(LStore, 0, 16384, LAnti);
   LEarly := DecodeHex('6563682d30727474'); // "ech-0rtt"

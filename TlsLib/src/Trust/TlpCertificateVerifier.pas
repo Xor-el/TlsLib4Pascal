@@ -67,7 +67,7 @@ type
   end;
 
   /// <summary>
-  /// The ordered certificate-trust pipeline (RFC 8446 4.4.2 / RFC 5280 / RFC 6125),
+  /// The ordered certificate-trust pipeline (RFC 8446 4.4.2 / RFC 5280 / RFC 9525),
   /// fail-closed: the provider validates the chain to a trusted root for the role's
   /// extendedKeyUsage (certificate_expired / unknown_ca / bad_certificate /
   /// unsupported_certificate), then - for a server certificate - matches the leaf's SANs
@@ -125,7 +125,7 @@ type
       const APath: TArray<TBytes>): TArray<TBytes>; static;
     /// <summary>The built-in trust pipeline (chain caps, PKIX with the role's EKU, revocation,
     /// endpoint identity, pinning), run unless InsecureSkipVerify bypasses it. ACheckName
-    /// enables the RFC 6125 match against AServerName (a server certificate only); AKeyPurpose
+    /// enables the RFC 9525 match against AServerName (a server certificate only); AKeyPurpose
     /// is the extendedKeyUsage the path must carry.</summary>
     function VerifyPipeline(const AChain: TArray<TBytes>;
       const AServerName: TServerName; ACheckName: Boolean; const AOcspStaple: TBytes;
@@ -523,7 +523,7 @@ begin
     AAlert) then
     Exit;
 
-  // endpoint identity (RFC 6125) over the leaf's dNSName / iPAddress SANs (server cert only)
+  // endpoint identity (RFC 9525) over the leaf's dNSName / iPAddress SANs (server cert only)
   if ACheckName then
   begin
     // an empty name cannot verify against anything; the factory fails closed before a
@@ -686,7 +686,7 @@ function TPinningVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
   // pinning augments the inner verdict; it can only additionally reject. It matches the pin
-  // against the chain the inner verifier actually validated (RFC 7469 6), never the presented
+  // against the chain the inner verifier actually validated (RFC 7469 2.6), never the presented
   // certificates, so an attacker cannot append a pinned leaf to a chain that validated by
   // another path.
   Result := FInner.VerifyServerCertificate(AChain, AServerName, AOcspStaple,
@@ -721,7 +721,7 @@ function TClientPinningVerifier.VerifyClientCertificate(const AChain: TArray<TBy
   out AAlert: TTlsAlertDescription): Boolean;
 begin
   // the server-side pin check mirrors the client's: it matches the pin against the chain the
-  // inner verifier actually validated (RFC 7469 6), never the presented certificates
+  // inner verifier actually validated (RFC 7469 2.6), never the presented certificates
   Result := FInner.VerifyClientCertificate(AChain, AVerified, AAlert);
   if not Result then
     Exit;

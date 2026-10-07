@@ -1072,7 +1072,7 @@ const
 var
   LPoint: IECPoint;
 begin
-  // the peer point must be the SEC1 uncompressed form of the exact field width: RFC 9180 4.1 fixes
+  // the peer point must be the SEC1 uncompressed form of the exact field width: RFC 9180 7.1.1 fixes
   // the DHKEM public-key length (Npk = 1 + 2*fieldSize) and RFC 8446 4.2.8.2 / RFC 8422 5.1.2 forbid
   // compressed/hybrid encodings. DecodePoint alone would accept a compressed 0x02/0x03 point, so gate
   // the form here - this path also serves HPKE Decap, where a short compressed enc would slip through.

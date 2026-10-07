@@ -120,7 +120,7 @@ type
     /// and no fresh staple are on the wire, so must-staple never fires. nil falls back to
     /// CertificateVerifier (never looser than it).</summary>
     ResumeCertificateVerifier: IServerCertificateVerifier;
-    /// <summary>The name the server certificate must be valid for (RFC 6125).</summary>
+    /// <summary>The name the server certificate must be valid for (RFC 9525).</summary>
     ExpectedServerName: TServerName;
     /// <summary>The client's credential for mutual TLS: presented when the server sends
     /// a CertificateRequest and the credential can satisfy it. An empty chain sends an
@@ -298,7 +298,7 @@ type
     /// <summary>
     /// Back-patches the real PSK binders into the ClientHello tail: each binder MACs the
     /// message up to (excluding) the binders vector, computed under its own offered PSK and
-    /// that PSK's hash (RFC 8446 4.2.11.2 / RFC 9258 6).
+    /// that PSK's hash (RFC 8446 4.2.11.2 / RFC 9258 5.2).
     /// </summary>
     procedure PatchBinder(var AClientHello: TBytes;
       const ATranscript: ITranscriptHash);
@@ -914,7 +914,7 @@ begin
   begin
     // derive the client_early_traffic keys from the ClientHello transcript and open the
     // early write epoch, after the (plaintext) middlebox CCS. Under ECH the 0-RTT keys derive
-    // from the inner transcript (+ inner random), the logical ClientHello (RFC 9849 sec. 6.1.4)
+    // from the inner transcript (+ inner random), the logical ClientHello (RFC 9849 sec. 6.1.5)
     FSchedule := TTls13KeySchedule.Create(FParams.Crypto, LPskSuite.Common.Hash,
       LPskSuite.Common.KeyLength);
     FSchedule.SetPsk(FPskOffers[0].Key);
@@ -933,8 +933,8 @@ begin
       THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.EarlyData,
       TTlsDirection.ClientWrite), TRecordSide.WriteSide, LPskSuite.Common.Aead,
       TTlsVersion.Tls13, TTlsEpoch.EarlyData));
-    // bound the outbound 0-RTT at the ticket's max_early_data; over-budget writes are
-    // deferred by the engine to 1-RTT (RFC 8446 4.2.10)
+    // bound the outbound 0-RTT at the ticket's max_early_data; bytes beyond the budget are
+    // refused and the caller resends them as 1-RTT (RFC 8446 4.2.10)
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.SetEarlyDataLimit(EarlyDataBudget(FPskOffers[0].MaxEarlyData)));
   end;
@@ -1120,14 +1120,14 @@ begin
     // a PSK-only client requires the server to select one of its PSKs; a ServerHello that
     // falls through to certificate authentication is a fatal missing_extension (RFC 8446
     // 4.2.11), since there is no certificate trust to fall back on. A rejected-ECH handshake is
-    // the exception: it authenticates the public_name by certificate (RFC 9849 sec. 6.1.6) and
+    // the exception: it authenticates the public_name by certificate (RFC 9849 sec. 6.1.7) and
     // completes to that name before aborting ech_required, so the PSK requirement does not apply
     if (not FPskAccepted) and FParams.RequirePsk and
       (FEchOrch.Status <> TEchStatus.Rejected) then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.MissingExtension, @SPskRequiredNotSelected);
     // a rejected-ECH handshake runs over the outer ClientHello, whose pre_shared_key is only a
-    // GREASE decoy the client-facing server MUST NOT select (RFC 9849 sec. 6.1.6)
+    // GREASE decoy the client-facing server MUST NOT select (RFC 9849 sec. 6.1.2)
     if (FEchOrch.Status = TEchStatus.Rejected) and LContext.PskSelected then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SEchRejectPsk);
@@ -1264,8 +1264,8 @@ begin
         raise EFatalAlertTlsLibException.CreateRes(
           TTlsAlertDescription.IllegalParameter, @SEarlyDataSuiteMismatch);
       // 0-RTT is likewise bound to the resumed session's ALPN: when the server accepts early
-      // data it MUST negotiate the same ALPN protocol as that session (RFC 8446 4.2.11); a
-      // changed (or dropped) protocol is illegal (ALPN_MISMATCH_ON_EARLY_DATA)
+      // data it MUST negotiate the same ALPN protocol as that session (RFC 8446 4.2.10); a
+      // changed (or dropped) protocol is illegal
       if FNegotiatedAlpn <> FAcceptedPsk.Alpn then
         raise EFatalAlertTlsLibException.CreateRes(
           TTlsAlertDescription.IllegalParameter, @SEarlyDataAlpnMismatch);
@@ -1645,7 +1645,7 @@ begin
   // choose a credential scheme the server accepts; with no credential at all the client
   // legitimately declines with an empty Certificate. On an ECH reject the handshake is with
   // the client-facing server on the public_name, not the intended server, so the client MUST
-  // NOT present its certificate there (RFC 9849 sec. 6.1.6): it declines with an empty one.
+  // NOT present its certificate there (RFC 9849 sec. 6.1.7): it declines with an empty one.
   LHasScheme := False;
   if (System.Length(FParams.ClientCredential.CertificateChain) > 0) and
     (FEchOrch.Status <> TEchStatus.Rejected) then

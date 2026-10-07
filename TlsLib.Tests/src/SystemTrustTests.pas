@@ -556,7 +556,7 @@ var
   LName: TServerName;
   LAlert: TTlsAlertDescription;
 begin
-  // full RFC 6125 identity here also matches an iPAddress SAN
+  // full RFC 9525 identity here also matches an iPAddress SAN
   CheckTrue(TServerName.TryParse('127.0.0.1', LName));
   CheckFalse(TDelegatePostChecks.RejectNameMismatch(LName, FPkix,
     TArray<TBytes>.Create(Ec('ipsan_leaf_cert')), LAlert),
@@ -1011,7 +1011,8 @@ var
   LChain: TArray<TBytes>;
 begin
   // a must-staple leaf whose client asked to staple on the initial handshake, but no staple was
-  // presented, must be rejected even under Soft (RFC 7633 4.3.3) - the delegate enforces it now
+  // presented, must be rejected even under Soft (RFC 7633 4.3.3 for the client-asked rule; the
+  // initial-handshake and server-certificate scoping is library policy) - the delegate enforces it now
   LChain := TArray<TBytes>.Create(Ocsp('muststaple_leaf_cert'), Ocsp('issuer_cert'));
   LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation,
     TPlatformChainCapability.DnsIdentity], True, Result_(TLiveRevocationOutcome.Good, LChain),

@@ -508,7 +508,7 @@ begin
   // issue+consume far more tickets than capacity to drive the store's internal ordering
   // structure past its compaction threshold many times (FIX: single-use consumption keeps
   // the live count tiny, so ordinary eviction rarely fires and the order structure must be
-  // compacted instead of accumulating one dead entry per ticket, RFC 8446 18.6).
+  // compacted instead of accumulating one dead entry per ticket).
   // Compaction must preserve still-live entries and single-use semantics.
   LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom, 8);
   for LI := 0 to 4 do

@@ -67,7 +67,7 @@ end;
 If the JavaVM cannot be resolved (only reachable on FPC when the call is omitted), every `Verify` fails
 closed (rejects, `internal_error`) and logs guidance to logcat. The OS engine validates the chain, but
 Android's `X509TrustManager` does **not** verify the host (that is `HostnameVerifier`'s job), so the
-delegate enforces RFC 6125 hostname identity with the library's own matcher after the OS trust check —
+delegate enforces RFC 9525 hostname identity with the library's own matcher after the OS trust check —
 a valid-chain certificate for the wrong host is rejected. As with iOS, an empty host name skips both the
 hostname check and the per-domain NSC/pin lookup (the OS falls back to plain
 `X509TrustManager.checkServerTrusted`), and that same host-less path is what the client-certificate
@@ -264,7 +264,7 @@ engaged — Windows and Apple can opt into `Live`, which fetches in the async pa
   `AllowedDeprecatedHashes`; that only stops this library refusing it, so a platform engine that
   rejects SHA-1 itself still does. A whole-verifier instance you inject as the trust source is
   *not* policy-checked (you replaced the trust decision wholesale).
-- **RFC 6125 identity** is matched in-library on every delegate, SAN-only: the library checks the leaf's
+- **RFC 9525 identity** is matched in-library on every delegate, SAN-only: the library checks the leaf's
   dNSName / iPAddress SANs itself rather than trust an engine's own host match, so no platform's
   deprecated subject-CN fallback is honoured. The host is still handed to a host-matching engine (for OS
   name-constraint checks) when the name check is on.

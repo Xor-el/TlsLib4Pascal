@@ -52,7 +52,7 @@ type
   TCertSignatureFamily = (RsaPkcs1, RsaPss, Ecdsa, Ed25519, Ed448);
 
   /// <summary>The hash a certificate signature uses. Md5/Sha1 are representable so the
-  /// RFC 8446 4.4.2 MD5 MUST (and the SHA-1 rejection) can be expressed; Implicit is EdDSA,
+  /// RFC 8446 4.4.2.4 MD5 MUST (and the SHA-1 rejection) can be expressed; Implicit is EdDSA,
   /// whose OID names no hash because the algorithm fixes it (unlike the RSA/ECDSA OIDs).</summary>
   TCertSignatureHash = (Md5, Sha1, Sha224, Sha256, Sha384, Sha512, Sha3, Implicit);
 

@@ -132,8 +132,8 @@ type
     /// send until the ClientHello.</summary>
     procedure StartHandshake;
     /// <summary>
-    /// Resumes a handshake parked for an async peer-certificate verdict (RFC 8446
-    /// deferred-verdict seam). AAccept True continues the handshake; the built-in trust
+    /// Resumes a handshake parked for an async peer-certificate verdict.
+    /// AAccept True continues the handshake; the built-in trust
     /// pipeline has already passed, so this only confirms the augment verdict. AAccept False
     /// aborts fail-closed with AAlert (ignored on accept): typically bad_certificate; a
     /// live-revocation reject passes certificate_revoked, an indeterminate hard-fail

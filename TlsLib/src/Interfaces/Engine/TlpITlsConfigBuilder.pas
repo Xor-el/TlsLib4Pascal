@@ -138,7 +138,7 @@ type
     /// issuer URL out of band and feed the result here.</summary>
     function WithIntermediateCertificates(const AData: TBytes): ITlsClientConfigBuilder;
     /// <summary>DANGEROUS: stop checking that the server certificate matches the connected
-    /// host (RFC 6125). The chain is still validated to a trust anchor, but ANY trusted
+    /// host (RFC 9525). The chain is still validated to a trust anchor, but ANY trusted
     /// certificate is then accepted regardless of the host it was issued for - a
     /// man-in-the-middle risk. Name checking is on by default; only a deliberate pin-only
     /// trust model should disable it.</summary>

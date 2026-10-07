@@ -60,14 +60,15 @@ type
     /// <summary>The raw ECHConfigList a client uses as its ECH configuration.</summary>
     EchConfigList: TBytes;
     /// <summary>The DNS presentation line publishing the ECHConfigList in the origin's HTTPS
-    /// record "ech" SvcParam (the name clients connect to, RFC 9848 sec. 3).</summary>
+    /// record "ech" SvcParam (the name clients connect to, RFC 9460 2.3 / 9; the "ech" key,
+    /// RFC 9848 sec. 3).</summary>
     DnsLine: string;
   end;
 
   /// <summary>
   /// Generates an Encrypted Client Hello key pair and the artifacts an operator needs:
   /// the RFC 9934 PEM for the server, the ECHConfigList for the client, and the DNS
-  /// line to publish (RFC 9849). A standalone tool, so it reaches HPKE key generation
+  /// line to publish (RFC 9848). A standalone tool, so it reaches HPKE key generation
   /// and PKCS#8 encoding through CryptoLib directly; the byte formats it emits are the
   /// ones the library's ECH server store and client policy consume.
   /// </summary>

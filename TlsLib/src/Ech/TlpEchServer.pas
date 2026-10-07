@@ -79,7 +79,7 @@ type
       const AOuterEntries: TExtensionVector): TEchStatus;
     /// <summary>
     /// Processes the second ClientHelloOuter after a HelloRetryRequest, reusing the CH1 HPKE
-    /// context at seq=1 (RFC 9849 sec. 6.1.5): the retry ech MUST keep the CH1 config_id and
+    /// context at seq=1 (RFC 9849 sec. 7.1.1): the retry ech MUST keep the CH1 config_id and
     /// cipher_suite and carry an empty enc (else illegal_parameter); a re-open failure is
     /// decrypt_error. On success the reconstructed inner CH2 is available in InnerFramed.
     /// </summary>
@@ -241,7 +241,7 @@ begin
       TTlsAlertDescription.IllegalParameter, @SInnerSessionIdNotEmpty);
   LSuites := LReader.OpenVector(2);
   // each cipher suite is a 2-byte value, so Remaining div 2 is the exact count: preallocate
-  // once and trim rather than growing per entry (linear-time parsing, RFC 9849 sec. 10.12.4)
+  // once and trim rather than growing per entry, so reconstruction stays linear-time
   SetLength(LInner.CipherSuites, LSuites.Remaining div 2);
   LI := 0;
   while not LSuites.EndReached do
@@ -393,14 +393,14 @@ begin
     raise EInvalidOperationTlsLibException.CreateRes(@SEchRetryWithoutAccept);
   LOuterBody := System.Copy(AOuterFramed, 4, System.Length(AOuterFramed) - 4);
   LOuter := THandshakeMessages.DecodeClientHello(LOuterBody);
-  // CH1 was accepted, so CH2 MUST re-offer the outer ech (RFC 9849 sec. 6.1.5); an absent
+  // CH1 was accepted, so CH2 MUST re-offer the outer ech (RFC 9849 sec. 7.1.1); an absent
   // extensions field carries none - missing_extension, not a decode_error on the vector
   if System.Length(LOuter.Extensions) = 0 then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.MissingExtension, @SEchRetryMismatch);
   LEntries := TExtensionVector.Parse(LOuter.Extensions);
   LEchIdx := LEntries.IndexOf(TExtensionTypes.EncryptedClientHello);
-  // CH1 was accepted, so CH2 MUST re-offer the outer ech (RFC 9849 sec. 6.1.5)
+  // CH1 was accepted, so CH2 MUST re-offer the outer ech (RFC 9849 sec. 7.1.1)
   if LEchIdx < 0 then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.MissingExtension, @SEchRetryMismatch);

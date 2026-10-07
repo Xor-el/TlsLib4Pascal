@@ -660,8 +660,9 @@ begin
     Expect(LCOfs, $30, LCOfs, LCLen, LNext);
     Expect(LCOfs, $02, LOidOfs, LOidLen, LNext);     // version
     Expect(LNext, $04, LCOfs, LCLen, LNext);         // privateKey OCTET STRING
-    // RFC 5915 allows a scalar with leading zeros stripped (never wider than the field); reject a
-    // missing or oversized scalar, then left-pad to the fixed field width
+    // RFC 5915 3 fixes the scalar at ceiling(log2(n)/8) octets; some encoders strip leading zeros,
+    // so accept a shorter one (never wider), reject a missing or oversized scalar, and left-pad to
+    // the field width
     if (LCLen = 0) or (LCLen > THpkeCore.KemNsk(AKem)) then
       Fail;
     LScalar := LeftPad(System.Copy(APkcs8Der, LCOfs, LCLen), THpkeCore.KemNsk(AKem));

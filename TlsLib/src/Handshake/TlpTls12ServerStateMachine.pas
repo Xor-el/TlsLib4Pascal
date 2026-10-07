@@ -215,7 +215,7 @@ type
     procedure SelectEcdheGroup(const AClientGroups: TArray<UInt16>);
     /// <summary>Whether an ECDSA-authenticated suite may be selected: true unless the
     /// leaf credential is ECDSA and its curve is absent from the client's supported_groups
-    /// (RFC 8422 5.4 / RFC 4492 5.5). A non-ECDSA leaf is unconstrained here.</summary>
+    /// (RFC 8422 5.3 / 5.1). A non-ECDSA leaf is unconstrained here.</summary>
     function EcdsaCredentialCurveOffered(const AClientGroups: TArray<UInt16>): Boolean;
     /// <summary>Whether AScheme's signature algorithm matches the suite auth method.</summary>
     class function SchemeMatchesAuth(AScheme: TSignatureScheme;
@@ -429,7 +429,7 @@ var
   LKind: TSignatureKeyKind;
   LCurve: UInt16;
 begin
-  // RFC 8422 5.4 / RFC 4492 5.5: an ECDSA server certificate is usable only when its
+  // RFC 8422 5.3 / 5.1: an ECDSA server certificate is usable only when its
   // curve appears in the client's supported_groups. A non-ECDSA leaf (or a leaf whose
   // key we cannot classify) is not constrained here.
   Result := True;
@@ -906,7 +906,7 @@ end;
 
 function TTls12ServerStateMachine.EmittedTicketLifetime: UInt32;
 begin
-  // a server MUST NOT advertise or honour a lifetime above the RFC 8446 4.6.1 ceiling
+  // apply the TLS 1.3 seven-day ceiling (RFC 8446 4.6.1) to TLS 1.2 tickets as policy; RFC 5077 sets none
   Result := TClientSessionPolicy.ClampTicketLifetime(FParams.TicketLifetimeSeconds);
 end;
 
@@ -1127,7 +1127,7 @@ begin
         Result := Unexpected;
     TPhase.Connected:
       // this server does not renegotiate: a renegotiation ClientHello is answered with a warning
-      // no_renegotiation and the connection continues (RFC 5246 7.2.2, RFC 5746 4.2)
+      // no_renegotiation and the connection continues (RFC 5246 7.2.2)
       if LKnown and (LType = TTlsHandshakeType.ClientHello) then
         Result := RefuseRenegotiation
       else
