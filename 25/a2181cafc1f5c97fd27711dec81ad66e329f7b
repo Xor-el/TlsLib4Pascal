@@ -1,0 +1,44 @@
+TlsLib.Tests/Data/Certs/ImportKeys.txt
+  s_d27f31cd14035d::t_0f98c90242e867 14-17
+TlsLib/src/Pkix/Providers/TlpDefaultPkixProvider.pas
+  s_d27f31cd14035d::t_d6bcf87e6537af 1963
+  s_d27f31cd14035d::t_52cf7d5657f384 1964
+  s_d27f31cd14035d::t_57142e4e815eef 25
+TlsLib.Tests/src/LiveRevocationTests.pas
+  s_d27f31cd14035d::t_5612f84bca1ae4 1919
+  s_d27f31cd14035d::t_26204bcb83b07c 226,1762-1818
+  s_d27f31cd14035d::t_b76d29efab6368 1913
+  s_d27f31cd14035d::t_5ca94cd792c9ba 223-225
+  s_d27f31cd14035d::t_a39e76c2857db3 227
+  s_d27f31cd14035d::t_f9e52b1d576277 211-222
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_d27f31cd14035d::t_9d8a56a134cc0b 24
+  s_d27f31cd14035d::t_fec7da80c19919 2219
+  s_d27f31cd14035d::t_3e727c3a81fb46 2220
+TlsLib.Tests/src/CredentialImportTests.pas
+  s_d27f31cd14035d::t_3cc1992231d743 75
+  s_d27f31cd14035d::t_c65a3cadac6b8a 245-261
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  s_d27f31cd14035d::t_594e2831fbd072 160-161
+  s_d27f31cd14035d::t_eab8ec7f0a67ec 940-961
+docs/security-model.md
+  s_d27f31cd14035d::t_5225a5d116da6b 127-132
+TlsLib.Tests/Data/Certs/Pkcs1StrictDigestInfo.txt
+  s_d27f31cd14035d::t_35b56ac22b5629 1-23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "25a2181cafc1f5c97fd27711dec81ad66e329f7b",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
