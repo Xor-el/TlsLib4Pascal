@@ -118,6 +118,8 @@ type
   /// fcl-net's native VerifyPeerCert: this adapter defaults it True (secure by default, overriding
   /// fcl-net's own False), so real verification runs and fails closed when no trust source is named.
   /// Set VerifyPeerCert := False for the loud dangerous bypass (system trust is never implicit).
+  /// fcl-net's SSLType pins the version: stAny offers TLS 1.3 and 1.2, stTLSv1_2 only 1.2, and any
+  /// other value fails the handshake.
   /// </summary>
   TTlsLibSocketHandler = class(TSSLSocketHandler)
   strict private
@@ -244,7 +246,7 @@ type
       write FServerVerdictDeadlineMs;
     /// <summary>A fully-built client config that REPLACES the property-driven build: when set, the
     /// cert/trust properties (CertificateData trust/cert, UseSystemTrust, a custom store/verifier,
-    /// ALPN) are not allowed alongside it (the handler raises). The verdict resolvers
+    /// ALPN) and a pinned SSLType are not allowed alongside it (the handler raises). The verdict resolvers
     /// (VerdictResolver/ServerVerdictResolver) still apply - runtime stream hooks, not part of the
     /// frozen config - provided the supplied config itself armed the deferral
     /// (WithLiveRevocationVerdict/WithAsyncCertificateVerdict), else the handshake never parks. The
@@ -305,6 +307,8 @@ const
   WSAETIMEDOUT_CODE = 10060;
 
 resourcestring
+  SFclNetSslTypeUnsupported = 'SSLType selects a protocol this library does not implement; ' +
+    'use stAny or stTLSv1_2';
   SFclNetSendNoProgress = 'fcl-net socket send returned no progress';
   SFclNetHandshakeReadTimedOut = 'the handshake did not complete within %d ms';
   SFclNetReceiveTimedOut = 'the socket receive timeout elapsed with no data from the peer';
@@ -478,6 +482,16 @@ begin
   Result.ServerVerdictDeadlineMs := FServerVerdictDeadlineMs;
   Result.SessionResumption := FSessionResumption;
   Result.HandshakeTimeoutMs := FHandshakeTimeoutMs;
+  // a version the host pinned must narrow the offer or fail; ignoring it would silently widen it
+  case SSLType of
+    stAny:
+      ;
+    stTLSv1_2:
+      Result.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls12);
+  else
+    raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
+      @SFclNetSslTypeUnsupported);
+  end;
   Result.ClientConfig := FClientConfig;
   Result.ServerConfig := FServerConfig;
   Result.TrustSourceHint := SFclNetTrustSourceHint;
