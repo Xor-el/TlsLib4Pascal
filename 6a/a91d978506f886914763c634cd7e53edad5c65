@@ -1,0 +1,24 @@
+TlsLib.Tests/src/HelloRetryRequestTests.pas
+  s_d27f31cd14035d::t_54e97820c4c1fe 258-259
+  s_d27f31cd14035d::t_995c9d381145b5 309
+  s_d27f31cd14035d::t_c5bba28c9fb67a 100
+  s_d27f31cd14035d::t_915ef22fa31000 270-290
+  s_d27f31cd14035d::t_d3fd9a549ea3c7 72-76,740-741
+  s_d27f31cd14035d::t_1d24c8c79220cd 711-712,719-739
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6aa91d978506f886914763c634cd7e53edad5c65",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
