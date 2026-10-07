@@ -82,8 +82,8 @@ type
     /// Precondition: the first ClientHelloOuter was accepted (ProcessOuter returned Accepted);
     /// calling it otherwise is a programming error and raises.</summary>
     function ProcessRetryOuter(const AOuterFramed: TBytes): TEchStatus;
-    /// <summary>The reconstructed inner ClientHello, framed as a handshake message; a copy, since
-    /// the handshake wipes its own buffer on release.</summary>
+    /// <summary>The reconstructed inner ClientHello, framed as a handshake message; a copy; the
+    /// handshake releases its own buffer.</summary>
     function InnerFramed: TBytes;
     /// <summary>The inner ClientHello's random (a copy), cross-checked against CH2 under HRR.</summary>
     function InnerRandom: TBytes;

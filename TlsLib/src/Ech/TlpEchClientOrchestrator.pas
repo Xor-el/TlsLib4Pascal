@@ -59,7 +59,7 @@ type
     FHrrDecided: Boolean;
     FInnerRandom: TBytes;
     FInnerTranscript: ITranscriptHash;
-    // privacy plaintext, not key material: its SNI stays in the connection anyway, so it is released, not wiped
+    // privacy plaintext, not key material; its SNI outlives the handshake anyway
     FSentInnerRaw: TBytes;
     FSentOuterEchExt: TBytes;
     FGreasePskIdentities: TArray<TBytes>;
@@ -180,7 +180,7 @@ end;
 
 destructor TEchClientOrchestrator.Destroy;
 begin
-  // wipe the secrets (idempotent; the normal flow already did this at the verdict, but this covers
+  // forget the secrets (idempotent; the normal flow already did this at the verdict, but this covers
   // the abort-before-ServerHello paths), then free the handshake exactly once
   ForgetHandshakeSecrets;
   FreeAndNil(FEch);

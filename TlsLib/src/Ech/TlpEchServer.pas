@@ -50,7 +50,7 @@ type
     FKeyStore: IEchServerKeyStore;
     FTrialDecryptAll: Boolean;
     FStatus: TEchStatus;
-    // privacy plaintext, not key material: its SNI stays in the connection anyway, so it is released, not wiped
+    // privacy plaintext, not key material; its SNI outlives the handshake anyway
     FInnerFramed: TBytes;
     FInnerRandom: TBytes;
     FOpener: IHpkeOpener;
@@ -424,7 +424,7 @@ end;
 
 function TEchServerHandshake.InnerFramed: TBytes;
 begin
-  // a copy: this handshake wipes its own inner buffer on release, so the caller keeps its own
+  // a copy; the handshake releases its own buffer
   Result := System.Copy(FInnerFramed);
 end;
 
