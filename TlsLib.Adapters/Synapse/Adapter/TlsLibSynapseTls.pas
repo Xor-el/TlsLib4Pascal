@@ -166,14 +166,14 @@ type
     function GetPeerName: string; override;
     function GetPeerFingerprint: AnsiString; override;
     function GetPeerSerialNo: integer; override;
-    /// <summary>Opt this connection into the OS system-trust anchors. On a client it trusts the
-    /// server's chain against the OS store; on a server with VerifyCert it trusts an mTLS client's
-    /// chain against the OS store too - a very broad surface, since client certificates normally
-    /// chain to a private CA (prefer CertCAFile there). Alone it verifies against the OS store;
-    /// combined with a CertCAFile bundle it UNIONS the two. Synapse exposes no such switch, so it
-    /// lives here; cast Sock.SSL to TSSLTlsLib to set it. System trust is never implicit - when
-    /// VerifyCert is on you must name a source (this or CertCAFile) or the build fails closed.
-    /// Per-connection, never a process-wide global, so it composes and stays thread-safe.</summary>
+    /// <summary>Opt this connection into the OS system-trust anchors. It is a client-role source
+    /// only: it trusts the server's chain against the OS store, and a server never reads it (a
+    /// server's client-CA is always the CertCAFile bundle, see ClientAuth). Alone it verifies a
+    /// server against the OS store; combined with a CertCAFile bundle it UNIONS the two. Synapse
+    /// exposes no such switch, so it lives here; cast Sock.SSL to TSSLTlsLib to set it. System trust
+    /// is never implicit - a client with VerifyCert on must name a source (this or CertCAFile) or
+    /// the build fails closed. Per-connection, never a process-wide global, so it composes and stays
+    /// thread-safe.</summary>
     property UseSystemTrust: Boolean read FUseSystemTrust write FUseSystemTrust;
     /// <summary>Server role: whether to request a client certificate (mutual TLS). None (the
     /// default) never asks; Requested asks and tolerates a client that sends none; Required asks and
@@ -398,6 +398,7 @@ function TSSLTlsLib.DriveHandshake(AIsClient: Boolean;
 var
   LEngine: ITlsEngine;
   LResolver: TCertificateVerdictResolver;
+  LVerdictDeadlineMs: Cardinal;
 begin
   Result := False;
   try
@@ -412,12 +413,18 @@ begin
     // attach the role-correct resolver: a client parks on the server's chain, a server (client
     // auth) on the mTLS client's chain - the two bind different EKUs
     if AIsClient then
-      LResolver := GVerdictResolver
+    begin
+      LResolver := GVerdictResolver;
+      LVerdictDeadlineMs := GVerdictDeadlineMs;
+    end
     else
+    begin
       LResolver := GServerVerdictResolver;
+      LVerdictDeadlineMs := GServerVerdictDeadlineMs;
+    end;
     FConnection := TTlsConnection.Create(LEngine,
       TSynapseSocketTransport.Create(FSocket, TSystemClock.Create as ITlsClock),
-      AIsClient, AHost, LResolver);
+      AIsClient, AHost, LResolver, LVerdictDeadlineMs);
     // bound the handshake read by HandshakeTimeoutMs; the session arms and clears the cap, even
     // when the handshake raised, so a later app read is not left bounded
     FConnection.Handshake(FHandshakeTimeoutMs);

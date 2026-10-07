@@ -105,6 +105,7 @@ type
     procedure TestFloorFrontLoadsAndStops;
     procedure TestBudgetBelowFloorStillAttemptsOnce;
     procedure TestZeroBudgetLeavesTimeoutToFetcher;
+    procedure TestParkBudgetTightensTheCheckersOwn;
     procedure TestClockStepBackDoesNotGiveBackSpentTime;
     // the responder policy: request built once, URL equivalence, tunable limits
     procedure TestOcspRequestBuiltOncePerCheck;
@@ -533,6 +534,32 @@ begin
   FChecker.Evaluate(Chain);
   CheckEquals(3, FFetcher.PostCount, 'every capped attempt runs');
   CheckTimeouts([0, 0, 0], FFetcher.PostTimeouts, 'each is left to the fetcher');
+end;
+
+procedure TTestLiveRevocation.TestParkBudgetTightensTheCheckersOwn;
+
+  procedure Resolve(ACheckerMs, AParkMs: Cardinal; const AExpected: array of Cardinal;
+    const AMessage: string);
+  var
+    LCtx: TCertificateVerdictContext;
+    LAlert: TTlsAlertDescription;
+  begin
+    Arrange(TLiveRevocationMethod.Ocsp, ACheckerMs, TArray<string>.Create('http://a.test/'), nil);
+    LCtx := Default(TCertificateVerdictContext);
+    LCtx.PeerRole := TPeerRole.Server;
+    LCtx.Chain := Chain;
+    LCtx.DeadlineMs := AParkMs;
+    FChecker.ResolveVerdict(LCtx, LAlert);
+    CheckTimeouts(AExpected, FFetcher.PostTimeouts, AMessage);
+  end;
+
+begin
+  // the host's park budget bounds the fetch even when the checker was built with none or a longer
+  // one, and never extends the checker's own
+  Resolve(0, 2000, [2000], 'a park budget bounds a checker with none');
+  Resolve(5000, 2000, [2000], 'a shorter park budget wins');
+  Resolve(5000, 9000, [5000], 'a longer park budget does not extend the checker');
+  Resolve(5000, 0, [5000], 'no park budget leaves the checker as built');
 end;
 
 procedure TTestLiveRevocation.TestClockStepBackDoesNotGiveBackSpentTime;

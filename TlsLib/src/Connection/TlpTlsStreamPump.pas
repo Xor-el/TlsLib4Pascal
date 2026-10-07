@@ -80,7 +80,12 @@ type
     /// surfaces a terminal outcome its own way.</summary>
     class procedure ResolveVerdict(const AEngine: ITlsEngine;
       const ACertEvent: ICertificateReceivedEvent;
-      const AResolveVerdict: TCertificateVerdictResolver; APeerRole: TPeerRole); static;
+      const AResolveVerdict: TCertificateVerdictResolver; APeerRole: TPeerRole); overload; static;
+    /// <summary>As above, handing the resolver ADeadlineMs as its time budget (0 = none set).</summary>
+    class procedure ResolveVerdict(const AEngine: ITlsEngine;
+      const ACertEvent: ICertificateReceivedEvent;
+      const AResolveVerdict: TCertificateVerdictResolver; APeerRole: TPeerRole;
+      ADeadlineMs: Cardinal); overload; static;
     /// <summary>Raises the engine's terminal failure as the precise TLS error (its alert) when it
     /// is in a fatal state; a no-op otherwise. Lets a caller re-surface a latched handshake failure
     /// with the same alert the engine recorded.</summary>
@@ -101,6 +106,11 @@ type
     class procedure DriveHandshake(const AEngine: ITlsEngine;
       const ATransport: ITlsTransport; AIsClient: Boolean;
       const AResolveVerdict: TCertificateVerdictResolver); overload; static;
+    /// <summary>As above, handing the resolver ADeadlineMs as its time budget (0 = none set).</summary>
+    class procedure DriveHandshake(const AEngine: ITlsEngine;
+      const ATransport: ITlsTransport; AIsClient: Boolean;
+      const AResolveVerdict: TCertificateVerdictResolver;
+      ADeadlineMs: Cardinal); overload; static;
     /// <summary>One application read cycle: drains engine-buffered plaintext (which may have
     /// arrived coalesced with the final handshake flight) before blocking on the transport.
     /// Returns the count copied into ADest and, via AStatus, whether more may follow, the
@@ -243,6 +253,14 @@ end;
 class procedure TTlsStreamPump.ResolveVerdict(const AEngine: ITlsEngine;
   const ACertEvent: ICertificateReceivedEvent;
   const AResolveVerdict: TCertificateVerdictResolver; APeerRole: TPeerRole);
+begin
+  ResolveVerdict(AEngine, ACertEvent, AResolveVerdict, APeerRole, 0);
+end;
+
+class procedure TTlsStreamPump.ResolveVerdict(const AEngine: ITlsEngine;
+  const ACertEvent: ICertificateReceivedEvent;
+  const AResolveVerdict: TCertificateVerdictResolver; APeerRole: TPeerRole;
+  ADeadlineMs: Cardinal);
 var
   LAccept: Boolean;
   LAlert: TTlsAlertDescription;
@@ -259,6 +277,7 @@ begin
     LCtx.ValidatedPath := ACertEvent.ValidatedPath;
     LCtx.HostName := ACertEvent.HostName;
     LCtx.OcspStaple := ACertEvent.OcspStaple;
+    LCtx.DeadlineMs := ADeadlineMs;
     // a resolver that raises must not leave the handshake parked with no verdict: the peer gets an
     // internal_error and the engine is terminal, so the caller surfaces the failure
     try
@@ -286,6 +305,13 @@ end;
 class procedure TTlsStreamPump.DriveHandshake(const AEngine: ITlsEngine;
   const ATransport: ITlsTransport; AIsClient: Boolean;
   const AResolveVerdict: TCertificateVerdictResolver);
+begin
+  DriveHandshake(AEngine, ATransport, AIsClient, AResolveVerdict, 0);
+end;
+
+class procedure TTlsStreamPump.DriveHandshake(const AEngine: ITlsEngine;
+  const ATransport: ITlsTransport; AIsClient: Boolean;
+  const AResolveVerdict: TCertificateVerdictResolver; ADeadlineMs: Cardinal);
 var
   LBuf: TBytes;
   LGot: Int32;
@@ -315,7 +341,7 @@ begin
     // that would never return (the peer already sent the rest of its flight)
     if AEngine.AwaitingCertificateVerdict then
     begin
-      ResolveVerdict(AEngine, LCertEvent, AResolveVerdict, LPeerRole);
+      ResolveVerdict(AEngine, LCertEvent, AResolveVerdict, LPeerRole, ADeadlineMs);
       // send the resumed flight, or the abort alert of a rejected verdict, then surface the abort
       FlushThenRaiseIfFatal(AEngine, ATransport);
       LCertEvent := nil;

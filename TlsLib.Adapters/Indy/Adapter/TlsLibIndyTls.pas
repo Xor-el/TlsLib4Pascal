@@ -29,6 +29,7 @@ uses
   SysUtils,
   SyncObjs,
   IdGlobal,
+  IdExceptionCore,
   IdSSL,
   IdIOHandler,
   IdSocketHandle,
@@ -532,6 +533,7 @@ procedure TTlsLibIOHandlerSocket.DoHandshake;
 var
   LEngine: ITlsEngine;
   LResolver: TCertificateVerdictResolver;
+  LVerdictDeadlineMs: Cardinal;
 begin
   if FConnection <> nil then
     Exit; // fast path: handshake already run
@@ -546,12 +548,18 @@ begin
     // server on the mTLS client's chain - the two bind different EKUs, so one resolver cannot
     // serve both
     if not IsPeer then
-      LResolver := FOptions.VerdictResolver
+    begin
+      LResolver := FOptions.VerdictResolver;
+      LVerdictDeadlineMs := FOptions.VerdictDeadlineMs;
+    end
     else
+    begin
       LResolver := FOptions.ServerVerdictResolver;
+      LVerdictDeadlineMs := FOptions.ServerVerdictDeadlineMs;
+    end;
     FConnection := TTlsConnection.Create(LEngine,
       TIndySocketTransport.Create(Binding, TSystemClock.Create as ITlsClock),
-      not IsPeer, Host, LResolver);
+      not IsPeer, Host, LResolver, LVerdictDeadlineMs);
     // bound the handshake read by the dedicated HandshakeTimeoutMs option, NOT app ReadTimeout
     // (a short app-read deadline would wrongly abort slow-but-valid handshakes); the session
     // arms and clears the cap, even when the handshake raised
@@ -626,7 +634,15 @@ begin
     DoHandshake;
   LTmp := nil;
   SetLength(LTmp, 32768);
-  Result := FConnection.Read(LTmp[0], System.Length(LTmp));
+  // Indy checks ReadTimeout only before this call, so bytes that yield no application data (a
+  // session ticket, a key update, half a record) would keep a timed read going forever: bound the
+  // whole read by the same timeout and report its expiry the way Indy reports its own
+  try
+    Result := FConnection.Read(LTmp[0], System.Length(LTmp), ReadTimeout);
+  except
+    on E: ETlsReadTimeout do
+      raise EIdReadTimeout.Create(E.Message);
+  end;
   SetLength(ABuffer, Result);
   if Result > 0 then
     Move(LTmp[0], ABuffer[0], Result);

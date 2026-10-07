@@ -360,7 +360,8 @@ resourcestring
   SAlpnProtocolEmpty = 'an ALPN protocol name must not be empty (RFC 7301 3.1)';
   SAlpnProtocolNotAscii = 'an ALPN protocol name must be ASCII; it is sent as its ASCII bytes';
   SAlpnProtocolTooLong = 'an ALPN protocol name must not exceed 255 bytes (RFC 7301 3.1)';
-  SAlpnListTooLong = 'the ALPN protocol list must not exceed 65533 bytes on the wire (RFC 7301 3.1)';
+  SAlpnListTooLong = 'the ALPN protocol list must not exceed 16384 bytes on the wire, so the ' +
+    'ClientHello extensions block (RFC 8446 4.1.2) can always carry it';
   SNoRegisteredPreferredGroup = 'none of the preferred key-exchange groups is in the named-group ' +
     'registry, so no handshake could ever select a group';
   SAlpnProtocolDuplicate = 'the ALPN protocol "%s" is offered more than once';
@@ -418,6 +419,7 @@ const
   SessionScopeLength = Int32(16);
   MaxResumptionScopeLength = Int32(32);
   MaxServerEarlyData = UInt32(1 shl 20);
+  MaxAlpnListBytes = Int32(16384);
 
 type
   /// <summary>The immutable common settings, shared by the client and server config.</summary>
@@ -1847,9 +1849,10 @@ var
 begin
   GuardMutable;
   LWireLength := 0;
-  // an empty list offers no ALPN; otherwise each name is one ProtocolName<1..2^8-1>, offered once
-  // (RFC 7301 3.1), and ASCII because the name is sent as its ASCII bytes - so we never offer a name
-  // the wire encoding would mangle, nor a list our own decoder would refuse
+  // an empty list offers no ALPN; otherwise each name is one non-empty ProtocolName<1..2^8-1> (RFC
+  // 7301 3.1), a duplicate is refused as a misconfiguration, and the name is ASCII because it is
+  // sent as its ASCII bytes - so we never offer a name the wire encoding would mangle, nor a list
+  // our own decoder would refuse
   for LI := 0 to System.High(AProtocols) do
   begin
     if AProtocols[LI] = '' then
@@ -1859,10 +1862,11 @@ begin
         raise EArgumentTlsLibException.CreateRes(@SAlpnProtocolNotAscii);
     if System.Length(AProtocols[LI]) > 255 then
       raise EArgumentTlsLibException.CreateRes(@SAlpnProtocolTooLong);
-    // the ProtocolNameList is a uint16-prefixed vector inside the uint16-sized extension body, so
-    // it tops out two bytes short of 65535; each name costs its length byte too
+    // the list shares the one 64 KiB extensions block of the ClientHello with the key shares,
+    // groups, signature schemes and any resumption ticket, so it is held well below that; each
+    // name costs its length byte too
     Inc(LWireLength, 1 + System.Length(AProtocols[LI]));
-    if LWireLength > 65533 then
+    if LWireLength > MaxAlpnListBytes then
       raise EArgumentTlsLibException.CreateRes(@SAlpnListTooLong);
     for LJ := LI + 1 to System.High(AProtocols) do
       if AProtocols[LJ] = AProtocols[LI] then

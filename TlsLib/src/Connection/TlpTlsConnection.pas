@@ -98,6 +98,7 @@ type
     ServerVerdictDeadlineMs: Cardinal;
     SessionResumption: Boolean;                  // default True
     HandshakeTimeoutMs: Int32;                   // 0 = the library default (30 000 ms)
+    Tls12Only: Boolean;                          // offer TLS 1.2 alone, for a peer that mishandles 1.3
     ClientConfig: ITlsClientConfig;              // config-in: replaces the client build
     ServerConfig: ITlsServerConfig;              // config-in: replaces the server build
     TrustSourceHint: string;                     // client-role host knob names, spliced into the no-source message
@@ -163,7 +164,9 @@ type
   var
     FReadTimeoutMs: Int32;
     FDeadlineMs: Int64; // Unix ms the armed cap expires at
+    FApplicationRead: Boolean; // the armed cap bounds an application read, not the handshake
     FClock: ITlsClock;
+    procedure RaiseCapElapsed;
   strict protected
     /// <summary>True when at least one byte can be read within AMs ms. The default waits nowhere and
     /// returns True, for a host that bounds the socket itself (a receive timeout on the handle) and
@@ -177,6 +180,10 @@ type
     function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; virtual; abstract;
     /// <summary>One send of up to ALength bytes; returns the count sent (> 0) or raises.</summary>
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; virtual; abstract;
+    /// <summary>Raises the elapsed-cap error when an armed cap has run out, and does nothing
+    /// otherwise. A host that retries a receive inside ReceiveRaw calls it between attempts, so the
+    /// retries cannot outlive the deadline the base only checks before each Read.</summary>
+    procedure CheckReadCap;
     property ReadTimeoutMs: Int32 read FReadTimeoutMs;
   public
     /// <summary>AClock measures the handshake deadline (required; nil raises).</summary>
@@ -185,6 +192,11 @@ type
     /// (0 = block). A host that bounds its own socket (WaitReadable not overridden) can let a
     /// receive already in progress run one full receive bound past the deadline.</summary>
     procedure SetReadTimeout(AMs: Int32);
+    /// <summary>Bounds the reads that follow to AMs ms in total, as SetReadTimeout does, for a host
+    /// whose own socket wait cannot see that bytes which yield no application data (a ticket, a key
+    /// update, part of a record) keep a read going. A read past the deadline raises the retryable
+    /// ETlsReadTimeout instead of ETlsHandshakeTimeout. SetReadTimeout(0) clears it.</summary>
+    procedure SetApplicationReadTimeout(AMs: Int32);
     function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
     procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
   end;
@@ -213,13 +225,21 @@ type
   public
     constructor Create(const AEngine: ITlsEngine; const ATransport: TTlsTimedTransportBase;
       AIsClient: Boolean; const AServerName: string;
-      const AResolver: TCertificateVerdictResolver);
+      const AResolver: TCertificateVerdictResolver); overload;
+    /// <summary>As above, giving the resolver ADeadlineMs as its time budget (0 = none set).</summary>
+    constructor Create(const AEngine: ITlsEngine; const ATransport: TTlsTimedTransportBase;
+      AIsClient: Boolean; const AServerName: string;
+      const AResolver: TCertificateVerdictResolver; AVerdictDeadlineMs: Cardinal); overload;
     destructor Destroy; override;
     /// <summary>Runs the handshake with reads bounded by AHandshakeTimeoutMs (0 = the 30 s library
     /// default); the cap is cleared afterwards even when the handshake raised.</summary>
     procedure Handshake(AHandshakeTimeoutMs: Int32);
     function IsHandshakeComplete: Boolean;
-    function Read(var ABuffer; ACount: Longint): Longint;
+    function Read(var ABuffer; ACount: Longint): Longint; overload;
+    /// <summary>A read that gives up with ETlsReadTimeout when no application data has arrived
+    /// within AReadTimeoutMs in total (0 or less = block), however many bytes that wait takes in
+    /// that do not yield any. The cap is cleared afterwards.</summary>
+    function Read(var ABuffer; ACount: Longint; AReadTimeoutMs: Int32): Longint; overload;
     function Write(const ABuffer; ACount: Longint): Longint;
     function PendingReadBytes: Int32;
     /// <summary>Sends close_notify; raises like the stream does.</summary>
@@ -276,6 +296,7 @@ resourcestring
     'verdict, so the resolver would never run; enable WithLiveRevocationVerdict or ' +
     'WithAsyncCertificateVerdict on the config';
   SHandshakeReadTimedOut = 'the handshake did not complete within %d ms';
+  SApplicationReadTimedOut = 'no application data arrived within %d ms';
   SSendNoProgress = 'the host transport reported no send progress';
   STransportReceiveFailed = 'the host transport reported a receive error (%d)';
 
@@ -399,6 +420,8 @@ begin
   LCrypto := EffectiveCrypto(AOptions);
   LPkix := EffectivePkix(AOptions);
   LClient := TTlsPresets.Compatible(LCrypto, LPkix).Client;
+  if AOptions.Tls12Only then
+    LClient.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12));
   // compose peer trust from orthogonal sources: a whole-verifier REPLACES the pipeline, else the
   // anchors + the OS store + a custom store all UNION. Adding both a verifier and an anchor source
   // is left to fail as the builder's typed conflict. System trust is never implicit.
@@ -482,6 +505,8 @@ begin
   LServer := TTlsPresets.Compatible(LCrypto, LPkix).Server
     .WithCredential(TTlsCredential.Load(LCrypto, LPkix,
     Load(AOptions.Certificate), Load(AOptions.PrivateKey), AOptions.KeyPassword));
+  if AOptions.Tls12Only then
+    LServer.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12));
   if System.Length(AOptions.AlpnProtocols) > 0 then
     LServer.WithAlpnProtocols(AOptions.AlpnProtocols);
   // request + verify client certificates only under an explicit mode (a named client-CA alone never
@@ -532,12 +557,14 @@ begin
   // roots must not collapse to the same memo signature and reuse each other's frozen config
   LSig.AddPointer('systemTrust', AOptions.SystemTrust);
   LSig.AddPointer('customVerifier', AOptions.ServerCertificateVerifier);
+  // a composed store keeps the stores it was built from, so this address stays live with the config
   LSig.AddPointer('customStore', AOptions.CustomTrustStore);
   for LI := 0 to System.High(AOptions.AlpnProtocols) do
     LSig.AddText('alpn', AOptions.AlpnProtocols[LI]);
   LSig.AddMethod('verifyCb', TMethod(AOptions.VerifyCallback));
   LSig.AddFlag('asyncVerdict', Assigned(AOptions.ClientVerdictResolver));
   LSig.AddCardinal('deadline', AOptions.ClientVerdictDeadlineMs);
+  LSig.AddFlag('tls12Only', AOptions.Tls12Only);
   Result := LSig.Value;
 end;
 
@@ -570,6 +597,7 @@ begin
   LSig.AddMethod('verifyCb', TMethod(AOptions.VerifyCallback));
   LSig.AddFlag('asyncVerdict', Assigned(AOptions.ServerVerdictResolver));
   LSig.AddCardinal('deadline', AOptions.ServerVerdictDeadlineMs);
+  LSig.AddFlag('tls12Only', AOptions.Tls12Only);
   Result := LSig.Value;
 end;
 
@@ -594,7 +622,7 @@ begin
   // check is a client-only read; the server build reads peer verification and the skip-verify bypass
   // only under a client-auth mode, which already conflicts on its own below. A non-default
   // client-authentication mode is a server-only security decision the config would replace.
-  LConflict := LConflict or (not AOptions.SessionResumption);
+  LConflict := LConflict or (not AOptions.SessionResumption) or AOptions.Tls12Only;
   if AIsClient then
     LConflict := LConflict or (AOptions.ServerCertificateVerifier <> nil) or
       (AOptions.SystemTrust <> nil) or
@@ -661,9 +689,16 @@ end;
 
 procedure TTlsTimedTransportBase.SetReadTimeout(AMs: Int32);
 begin
+  FApplicationRead := False;
   FReadTimeoutMs := AMs;
   if AMs > 0 then
     FDeadlineMs := Int64(FClock.NowUnixMillis) + AMs;
+end;
+
+procedure TTlsTimedTransportBase.SetApplicationReadTimeout(AMs: Int32);
+begin
+  SetReadTimeout(AMs);
+  FApplicationRead := AMs > 0;
 end;
 
 constructor TTlsTimedTransportBase.Create(const AClock: ITlsClock);
@@ -681,6 +716,20 @@ begin
   Result := True;
 end;
 
+procedure TTlsTimedTransportBase.RaiseCapElapsed;
+begin
+  if FApplicationRead then
+    raise ETlsReadTimeout.Create(Format(SApplicationReadTimedOut, [FReadTimeoutMs]))
+  else
+    raise ETlsHandshakeTimeout.Create(Format(SHandshakeReadTimedOut, [FReadTimeoutMs]));
+end;
+
+procedure TTlsTimedTransportBase.CheckReadCap;
+begin
+  if (FReadTimeoutMs > 0) and (FDeadlineMs - Int64(FClock.NowUnixMillis) <= 0) then
+    RaiseCapElapsed;
+end;
+
 function TTlsTimedTransportBase.Read(var ABuffer: TBytes; AOffset,
   AMaxLength: Int32): Int32;
 var
@@ -695,7 +744,7 @@ begin
     if LRemaining > FReadTimeoutMs then
       LRemaining := FReadTimeoutMs;
     if (LRemaining <= 0) or (not WaitReadable(Int32(LRemaining))) then
-      raise ETlsHandshakeTimeout.Create(Format(SHandshakeReadTimedOut, [FReadTimeoutMs]));
+      RaiseCapElapsed;
   end;
   Result := ReceiveRaw(ABuffer, AOffset, AMaxLength);
   // a negative return is a genuine receive error (a reset, a broken pipe), never a peer close
@@ -727,6 +776,14 @@ constructor TTlsConnection.Create(const AEngine: ITlsEngine;
   const ATransport: TTlsTimedTransportBase; AIsClient: Boolean;
   const AServerName: string; const AResolver: TCertificateVerdictResolver);
 begin
+  Create(AEngine, ATransport, AIsClient, AServerName, AResolver, 0);
+end;
+
+constructor TTlsConnection.Create(const AEngine: ITlsEngine;
+  const ATransport: TTlsTimedTransportBase; AIsClient: Boolean;
+  const AServerName: string; const AResolver: TCertificateVerdictResolver;
+  AVerdictDeadlineMs: Cardinal);
+begin
   inherited Create;
   FEngine := AEngine;
   FTimed := ATransport;
@@ -737,7 +794,7 @@ begin
   // the caller already chose the role-correct resolver (a client parks on the server's chain, a
   // server on the mTLS client's); the session never guesses the role
   if Assigned(AResolver) then
-    FStream.SetCertificateVerdictResolver(AResolver);
+    FStream.SetCertificateVerdictResolver(AResolver, AVerdictDeadlineMs);
 end;
 
 destructor TTlsConnection.Destroy;
@@ -779,6 +836,17 @@ begin
     FStream.Handshake;
   finally
     // clear the cap even if the handshake raised, so a retried app read is not left bounded
+    FTimed.SetReadTimeout(0);
+  end;
+end;
+
+function TTlsConnection.Read(var ABuffer; ACount: Longint;
+  AReadTimeoutMs: Int32): Longint;
+begin
+  FTimed.SetApplicationReadTimeout(AReadTimeoutMs);
+  try
+    Result := Read(ABuffer, ACount);
+  finally
     FTimed.SetReadTimeout(0);
   end;
 end;

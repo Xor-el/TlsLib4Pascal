@@ -215,6 +215,9 @@ resourcestring
   SMormotInMemoryCredentialUnsupported = 'the mORMot TLS context supplies %s (an in-memory ' +
     'certificate or key), which TlsLib4Pascal does not read: pass them as PEM/DER files via ' +
     'CertificateFile and PrivateKeyFile';
+  SMormotCipherListUnsupported = 'the mORMot TLS context sets CipherList, which TlsLib4Pascal ' +
+    'does not honour: its suites come from the TlsLib configuration, so supply one through ' +
+    'SetTlsLibMormotClientConfig or SetTlsLibMormotServerConfig';
   SMormotReceiveFailed = 'mORMot socket receive failed (nr=%d)';
   SMormotReceiveTimedOut = 'the socket receive timeout elapsed with no data from the peer';
   SMormotSendFailed = 'mORMot socket send failed (nr=%d)';
@@ -338,11 +341,14 @@ begin
       nrClosed:
         Exit(0);
       nrRetry:
-        // under the handshake cap the base already bounded the wait, so read again; with no cap
-        // this is the socket's receive timeout on an idle peer, which the host retries - spinning
-        // here would hide it, and treating it as EOF would misreport a truncation
+        // under the handshake cap read again unless the deadline has gone: a wakeup with nothing
+        // to read must not outlive it; with no cap this is the socket's receive timeout on an idle
+        // peer, which the host retries - spinning here would hide it, and treating it as EOF would
+        // misreport a truncation
         if ReadTimeoutMs = 0 then
-          raise ETlsReadTimeout.Create(SMormotReceiveTimedOut);
+          raise ETlsReadTimeout.Create(SMormotReceiveTimedOut)
+        else
+          CheckReadCap;
     else
       raise ETlsStreamError.Create(Format(SMormotReceiveFailed, [Ord(LRes)]));
     end;
@@ -450,6 +456,7 @@ begin
   Result.ServerVerdictDeadlineMs := GServerVerdictDeadlineMs;
   Result.SessionResumption := GSessionResumption;
   Result.HandshakeTimeoutMs := GHandshakeTimeoutMs;
+  Result.Tls12Only := AContext.DisableTls13;
   Result.ClientConfig := GClientConfig;
   Result.ServerConfig := GServerConfig;
   Result.TrustSourceHint := SMormotTrustSourceHint;
@@ -480,6 +487,10 @@ begin
   if Assigned(AContext.OnAfterPeerValidate) then
     raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
       LHookText, ['OnAfterPeerValidate']);
+  // a cipher list is a security posture input: dropping it would negotiate a suite the host excluded
+  if AContext.CipherList <> '' then
+    raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
+      @SMormotCipherListUnsupported);
   if AContext.HostNamesCsv <> '' then
     raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
       @SMormotHostNamesUnsupported);
@@ -526,18 +537,25 @@ procedure TTlsLibNetTls.DriveHandshake(ASocket: TNetSocket;
   const AEngine: ITlsEngine; AIsClient: Boolean; const AHost: string);
 var
   LResolver: TCertificateVerdictResolver;
+  LVerdictDeadlineMs: Cardinal;
 begin
   // attach the role-correct resolver: a client parks on the server's chain, a server (client auth)
   // on the mTLS client's chain - the two bind different EKUs, so one resolver cannot serve both
   if AIsClient then
-    LResolver := GVerdictResolver
+  begin
+    LResolver := GVerdictResolver;
+    LVerdictDeadlineMs := GVerdictDeadlineMs;
+  end
   else
+  begin
     LResolver := GServerVerdictResolver;
+    LVerdictDeadlineMs := GServerVerdictDeadlineMs;
+  end;
   // bound the handshake read by the process-wide timeout (0 = the library default); the session
   // arms and clears the cap, even when the handshake raised, so a later app read is not left bounded
   FConnection := TTlsConnection.Create(AEngine,
     TMormotSocketTransport.Create(ASocket, TSystemClock.Create as ITlsClock),
-      AIsClient, AHost, LResolver);
+      AIsClient, AHost, LResolver, LVerdictDeadlineMs);
   FConnection.Handshake(GHandshakeTimeoutMs);
 end;
 

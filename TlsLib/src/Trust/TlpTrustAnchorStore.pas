@@ -34,6 +34,9 @@ type
     // read-only after Create, so concurrent verifiers may share them
     FRootIndex: TDictionary<TBytes, Boolean>;
     FDistrustIndex: TDictionary<TBytes, Boolean>;
+    // the stores a union was built from, kept alive so an identity-keyed cache of one of them
+    // cannot see its address handed to a different store while this one is in use
+    FSources: TArray<ITrustAnchorStore>;
     procedure Index(const ARoots, ADistrusted: TArray<TBytes>);
   public
     constructor Create(const ARoots: TArray<TBytes>); overload;
@@ -41,7 +44,8 @@ type
     destructor Destroy; override;
     /// <summary>One store over every child's roots and distrust. Distrust from any child beats an
     /// anchor from another, so a root one child distrusts is not an anchor of the union. Nil
-    /// children are skipped, and a single remaining child is returned as it is.</summary>
+    /// children are skipped, and a single remaining child is returned as it is. A union keeps
+    /// its children alive.</summary>
     class function Union(const AStores: TArray<ITrustAnchorStore>): ITrustAnchorStore; static;
     function AnchorCount: Int32;
     function RootCertificates: TArray<TBytes>;
@@ -110,6 +114,7 @@ var
   LI: Int32;
   LLive: TArray<ITrustAnchorStore>;
   LRoots, LDistrusted: TArray<TBytes>;
+  LUnion: TTrustAnchorStore;
 begin
   LLive := nil;
   for LI := 0 to System.High(AStores) do
@@ -124,7 +129,9 @@ begin
     LRoots := TArrayUtilities.Concat<TBytes>(LRoots, LLive[LI].RootCertificates);
     LDistrusted := TArrayUtilities.Concat<TBytes>(LDistrusted, LLive[LI].DistrustedCertificates);
   end;
-  Result := TTrustAnchorStore.Create(LRoots, LDistrusted) as ITrustAnchorStore;
+  LUnion := TTrustAnchorStore.Create(LRoots, LDistrusted);
+  Result := LUnion;
+  LUnion.FSources := LLive;
 end;
 
 function TTrustAnchorStore.AnchorCount: Int32;

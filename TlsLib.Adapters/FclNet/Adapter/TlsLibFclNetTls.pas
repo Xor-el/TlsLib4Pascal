@@ -518,6 +518,7 @@ function TTlsLibSocketHandler.DriveHandshake(AIsClient: Boolean;
 var
   LEngine: ITlsEngine;
   LResolver: TCertificateVerdictResolver;
+  LVerdictDeadlineMs: Cardinal;
   LPriorTimeoutMs, LEffectiveMs: Integer;
 begin
   Result := False;
@@ -535,12 +536,18 @@ begin
     // attach the role-correct resolver: a client parks on the server's chain, a server (client
     // auth) on the mTLS client's chain - the two bind different EKUs
     if AIsClient then
-      LResolver := FVerdictResolver
+    begin
+      LResolver := FVerdictResolver;
+      LVerdictDeadlineMs := FVerdictDeadlineMs;
+    end
     else
+    begin
       LResolver := FServerVerdictResolver;
+      LVerdictDeadlineMs := FServerVerdictDeadlineMs;
+    end;
     FConnection := TTlsConnection.Create(LEngine,
       TFclNetSocketTransport.Create(Socket.Handle, TSystemClock.Create as ITlsClock),
-      AIsClient, AHost, LResolver);
+      AIsClient, AHost, LResolver, LVerdictDeadlineMs);
     // fcl-net has no readiness wait, so the handshake read is bounded by SO_RCVTIMEO through
     // Socket.IOTimeout: the property when set, else today's IOTimeout, else the default; restore it
     // after. The session arms and clears its own read cap (used to classify the recv errno).
