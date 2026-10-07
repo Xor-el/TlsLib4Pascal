@@ -1441,10 +1441,8 @@ begin
   if FEchStatus in [TEchStatus.Accepted, TEchStatus.Backend] then
     StampEchAcceptConfirmation(LServerHelloBytes);
   FTranscript.Update(LServerHelloBytes);
-  // the decrypted inner ClientHello and the HPKE opener the ECH handshake held are no longer
-  // needed once the server flight is out (the inner is in the transcript and the accept/reject
-  // status is recorded); release it rather than keep the real SNI and key state alive for the
-  // whole connection. A HelloRetryRequest, if any, consumed the opener before this flight.
+  // the reconstructed inner and the HPKE opener are not read again once the server flight is out;
+  // a HelloRetryRequest, if any, consumed the opener before this flight
   FEch := nil;
 
   FSchedule := TTls13KeySchedule.Create(FParams.Crypto, FSelectedSuite.Common.Hash,
