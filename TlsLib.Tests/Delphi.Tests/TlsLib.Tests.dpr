@@ -176,6 +176,7 @@ uses
   TlpSessionTicketKeys in '..\..\TlsLib\src\Session\TlpSessionTicketKeys.pas',
   TlpAntiReplay in '..\..\TlsLib\src\Session\TlpAntiReplay.pas',
   TlsLibTestResourceLoader in '..\src\TlsLibTestResourceLoader.pas',
+  TlsLibTestProviders in '..\src\TlsLibTestProviders.pas',
   TlsLibTestBase in '..\src\TlsLibTestBase.pas',
   SecretTests in '..\src\SecretTests.pas',
   AlertTests in '..\src\AlertTests.pas',
@@ -264,7 +265,11 @@ uses
 begin
   Application.Initialize;
   if IsConsole then
-    TextTestRunner.RunRegisteredTests
+  begin
+    // stderr keeps the runner's own output clean
+    Writeln(ErrOutput, 'providers: ' + TTlsLibTestProviders.Describe);
+    TextTestRunner.RunRegisteredTests;
+  end
   else
     GUITestRunner.RunRegisteredTests;
 end.

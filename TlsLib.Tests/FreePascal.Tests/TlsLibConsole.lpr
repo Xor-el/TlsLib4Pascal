@@ -6,6 +6,7 @@ uses
   {$IFDEF UNIX}cthreads, cwstring,{$ENDIF}
   consoletestrunner,
   TlsLibTestResourceLoader,
+  TlsLibTestProviders,
   TlsLibTestBase,
   MockRandom,
   MockClock,
@@ -92,8 +93,23 @@ uses
 type
   TTlsLibConsoleTestRunner = class(TTestRunner)
   protected
-    // override protected methods of TTestRunner to customize behaviour
+    procedure AppendLongOpts; override;
+    procedure WriteCustomHelp; override;
   end;
+
+procedure TTlsLibConsoleTestRunner.AppendLongOpts;
+begin
+  inherited AppendLongOpts;
+  // fpcunit rejects unregistered options
+  LongOpts.Add(TTlsLibTestProviders.CryptoFlag + ':');
+  LongOpts.Add(TTlsLibTestProviders.PkixFlag + ':');
+end;
+
+procedure TTlsLibConsoleTestRunner.WriteCustomHelp;
+begin
+  Writeln('  --', TTlsLibTestProviders.CryptoFlag, '=portable|os   crypto provider');
+  Writeln('  --', TTlsLibTestProviders.PkixFlag, '=portable   PKIX provider');
+end;
 
 var
   Application: TTlsLibConsoleTestRunner;
@@ -103,6 +119,8 @@ begin
   DefaultFormat := TFormat.fPlain;
   Application := TTlsLibConsoleTestRunner.Create(nil);
   Application.Initialize;
+  // stderr keeps --format=xml output clean
+  Writeln(StdErr, 'providers: ', TTlsLibTestProviders.Describe);
   Application.Run;
   Application.Free;
 end.

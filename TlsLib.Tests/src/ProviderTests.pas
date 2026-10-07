@@ -34,9 +34,8 @@ uses
   TlpIKeyExchangePrivateKey,
   TlpAeadUtilities,
   TlpDer,
-  TlpDefaultCryptoProvider,
-  TlpOSCryptoProvider,
   TlpCryptoDomainTypes,
+  TlsLibTestProviders,
   TlsLibTestBase;
 
 type
@@ -177,7 +176,7 @@ var
 begin
   // a reusable hash object resets itself at DoFinal, so a second use of the same instance must
   // digest identically to a fresh instance
-  LProvider := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider);
+  LProvider := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS);
   LMsg := DecodeHex('616263'); // 'abc'
   LHash := LProvider.Primitives.CreateHash(THashAlgorithm.SHA_256);
   LHash.Update(LMsg, 0, System.Length(LMsg));
@@ -210,7 +209,7 @@ var
 begin
   // a reusable HMAC object re-keys with the same key at DoFinal, so a second use of the same
   // instance must match a fresh instance under the same key
-  LProvider := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider);
+  LProvider := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS);
   LKey := TSecretBuffer.From(DecodeHex('0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b'));
   LData := DecodeHex('4869205468657265'); // 'Hi There'
   LHmac := LProvider.Primitives.CreateHmac(THashAlgorithm.SHA_256);
@@ -601,7 +600,7 @@ begin
   // the OS-native overlay has its own span implementation; hold it to the same round-trip,
   // tamper-wipe and guard contract. Where no native overlay applies it falls back to the
   // portable adapter, so this stays a valid, if then redundant, run everywhere.
-  LProvider := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider);
+  LProvider := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS);
   DoAeadInPlaceRoundTrip(LProvider);
   DoAeadOpenTamperWipes(LProvider);
   DoAeadSpanGuards(LProvider);
@@ -759,8 +758,7 @@ procedure TTestCryptoProvider.TestAeadNonceReuseRejectedNativeProvider;
 begin
   // the OS-native overlay owns its own Seal; hold it to the same encrypt-side guard (where
   // no overlay applies this is a second run against the portable adapter)
-  DoAeadNonceReuseRejected(
-    TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider));
+  DoAeadNonceReuseRejected(TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS));
 end;
 
 procedure TTestCryptoProvider.TestRandomDistinctNonZero;
@@ -924,8 +922,7 @@ end;
 
 procedure TTestCryptoProvider.TestAeadSealWithoutInitRaisesTypedNativeProvider;
 begin
-  DoAeadSealWithoutInitRaisesTyped(
-    TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider));
+  DoAeadSealWithoutInitRaisesTyped(TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS));
 end;
 
 procedure TTestCryptoProvider.TestDerReadTlvRejectsOverflowAndNonMinimalLengths;

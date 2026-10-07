@@ -8,6 +8,7 @@ uses
   Forms,
   GuiTestRunner,
   TlsLibTestResourceLoader,
+  TlsLibTestProviders,
   TlsLibTestBase,
   MockRandom,
   MockClock,

@@ -23,10 +23,8 @@ uses
   TlpISecretBuffer,
   TlpIKeyExchangePrivateKey,
   TlpICryptoProvider,
-  TlpIPkixProvider,
   TlpTlsLibExceptions,
-  TlpDefaultCryptoProvider,
-  TlpDefaultPkixProvider;
+  TlpDefaultCryptoProvider;
 
 type
   /// <summary>
@@ -209,23 +207,6 @@ type
     function Hpke: IHpkeCrypto;
   end;
 
-  /// <summary>
-  /// A test PKIX provider that runs the default PKIX facets (certificate inspection,
-  /// path validation, revocation). It is a thin wrapper over the composition seam so a
-  /// fixture that wants an explicit mock PKIX provider has one; the default facets are
-  /// the real defaults.
-  /// </summary>
-  TMockPkixProvider = class(TInterfacedObject, IPkixProvider)
-  strict private
-  var
-    FComposed: IPkixProvider;
-  public
-    constructor Create;
-    function Certificates: ICertificateInspector;
-    function PathValidation: ICertificatePathValidator;
-    function Revocation: IRevocationChecker;
-  end;
-
 implementation
 
 const
@@ -329,6 +310,7 @@ begin
   FComposed := LBuilder
     .WithPrimitives(TFixedAesPrimitives.Create(AInner.Primitives, AHasHardwareAes)
       as ICryptoPrimitives)
+    .WithSigning(AInner.Signing)
     .Build;
 end;
 
@@ -469,6 +451,7 @@ begin
   FComposed := LBuilder
     .WithPrimitives(TMissingAeadPrimitives.Create(AInner.Primitives, AMissing)
       as ICryptoPrimitives)
+    .WithSigning(AInner.Signing)
     .Build;
 end;
 
@@ -482,6 +465,7 @@ begin
   FComposed := LBuilder
     .WithPrimitives(TMissingAeadPrimitives.Create(AInner.Primitives, AMissingAgreement)
       as ICryptoPrimitives)
+    .WithSigning(AInner.Signing)
     .Build;
 end;
 
@@ -494,6 +478,7 @@ begin
   FComposed := LBuilder
     .WithPrimitives(TMissingAeadPrimitives.CreateLenientKem(AInner.Primitives)
       as ICryptoPrimitives)
+    .WithSigning(AInner.Signing)
     .Build;
 end;
 
@@ -631,6 +616,7 @@ begin
   FComposed := LBuilder
     .WithPrimitives(TCappedAeadPrimitives.Create(AInner.Primitives, AUsageLimit)
       as ICryptoPrimitives)
+    .WithSigning(AInner.Signing)
     .Build;
 end;
 
@@ -647,29 +633,6 @@ end;
 function TCappedAeadProvider.Hpke: IHpkeCrypto;
 begin
   Result := FComposed.Hpke;
-end;
-
-{ TMockPkixProvider }
-
-constructor TMockPkixProvider.Create;
-begin
-  inherited Create;
-  FComposed := TDefaultPkixProvider.Create as IPkixProvider;
-end;
-
-function TMockPkixProvider.Certificates: ICertificateInspector;
-begin
-  Result := FComposed.Certificates;
-end;
-
-function TMockPkixProvider.PathValidation: ICertificatePathValidator;
-begin
-  Result := FComposed.PathValidation;
-end;
-
-function TMockPkixProvider.Revocation: IRevocationChecker;
-begin
-  Result := FComposed.Revocation;
 end;
 
 end.

@@ -30,8 +30,7 @@ uses
   TlpISecretBuffer,
   TlpSecretBuffer,
   TlpICryptoProvider,
-  TlpDefaultCryptoProvider,
-  TlpOSCryptoProvider,
+  TlsLibTestProviders,
   TlpCryptoDomainTypes,
   TlpHkdfLabel,
   TlsLibTestBase;
@@ -181,7 +180,7 @@ var
 begin
   // the OS-native overlay HKDF (self-tested at construction, portable fallback otherwise) must
   // match RFC 5869 Appendix A.1 on every host - the KAT the native HKDF-Expand is gated on
-  LCrypto := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider);
+  LCrypto := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS);
   LHkdf := LCrypto.Primitives.CreateHkdf(THashAlgorithm.SHA_256);
   LIkm := nil;
   SetLength(LIkm, 22);

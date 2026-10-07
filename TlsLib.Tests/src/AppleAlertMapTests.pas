@@ -31,8 +31,6 @@ uses
   TestFramework,
 {$ENDIF FPC}
 {$IFDEF TLSLIB_MACOS}
-  TlpIPkixProvider,
-  TlpDefaultPkixProvider,
   TlpICertificateTrust,
   TlpTrustTypes,
   TlpServerName,
@@ -113,7 +111,7 @@ begin
   // policy keep the construction valid regardless
   LPolicy := Default(TOSDelegatePolicy);
   LPolicy.ChainLimits := TCertificateChainLimits.Defaults;
-  LPolicy.Pkix := TDefaultPkixProvider.Create as IPkixProvider;
+  LPolicy.Pkix := Pkix;
   LPolicy.Clock := nil;
   LPolicy.Posture := TRevocationPosture.Soft;
   LPolicy.Fetch := TSystemTrustFetch.CacheOnly;

@@ -34,7 +34,7 @@
         <PackageName Value="FCL"/>
       </Item5>
     </RequiredPackages>
-    <Units Count="70">
+    <Units Count="81">
       <Unit0>
         <Filename Value="TlsLibConsole.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -355,6 +355,10 @@
         <Filename Value="..\src\WindowsSystemCryptoTests.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit79>
+      <Unit80>
+        <Filename Value="..\src\TlsLibTestProviders.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit80>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

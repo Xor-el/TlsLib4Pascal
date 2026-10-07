@@ -30,14 +30,13 @@ uses
   TlpArrayUtilities,
   TlpDataEncoding,
   TlpICryptoProvider,
-  TlpDefaultCryptoProvider,
   TlpIPkixProvider,
-  TlpDefaultPkixProvider,
   TlpICertificateTrust,
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
   TlpCertificateVerifier,
-  TlsLibTestResourceLoader;
+  TlsLibTestResourceLoader,
+  TlsLibTestProviders;
 
 type
   /// <summary>Shared base fixture. The runner reuses one fixture instance across suite runs, so a
@@ -66,9 +65,9 @@ type
     function GetCrypto: ICryptoProvider;
     function GetPkix: IPkixProvider;
   strict protected
-    // Overridable so a fixture can supply a different provider (e.g. a mock).
+    // The selected provider; override to pin one (e.g. a mock or a named choice).
     function CreateCrypto: ICryptoProvider; virtual;
-    // Overridable so a fixture can supply a different PKIX provider (e.g. a mock).
+    // The selected PKIX provider; override to pin one.
     function CreatePkix: IPkixProvider; virtual;
   protected
     procedure TearDown; override;
@@ -150,12 +149,12 @@ end;
 
 function TTlsLibAlgorithmTestCase.CreateCrypto: ICryptoProvider;
 begin
-  Result := TDefaultCryptoProvider.Create;
+  Result := TTlsLibTestProviders.Crypto;
 end;
 
 function TTlsLibAlgorithmTestCase.CreatePkix: IPkixProvider;
 begin
-  Result := TDefaultPkixProvider.Create;
+  Result := TTlsLibTestProviders.Pkix;
 end;
 
 function TTlsLibAlgorithmTestCase.GetCrypto: ICryptoProvider;

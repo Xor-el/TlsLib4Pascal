@@ -29,8 +29,7 @@ uses
   TlpICryptoProvider,
   TlpIPkixProvider,
   TlpISigningKey,
-  TlpDefaultCryptoProvider,
-  TlpOSCryptoProvider,
+  TlsLibTestProviders,
   TlpCryptoDomainTypes,
   TlpNegotiationTypes,
   TlpINegotiation,
@@ -277,34 +276,38 @@ const
   TestSignature = '3045022100f1abb023518351cd71d881567b1ea663ed3efcf6c5132b354f28d3b0b7d38367' +
     '0220019f4113742a2b14bd25926b49c649155f267e60d3814b4c0cc84250e46f0083';
 
-  function SignWith(const AKey: ISigningKey; const AMessage: TBytes): TBytes;
+  function SignWith(const ACrypto: ICryptoProvider; const AKey: ISigningKey;
+    const AMessage: TBytes): TBytes;
   var
     LSigner: ISignatureSigner;
   begin
-    LSigner := Crypto.Signing.CreateSignatureSigner(TSignatureScheme.ECDSA_SECP256R1_SHA256,
+    LSigner := ACrypto.Signing.CreateSignatureSigner(TSignatureScheme.ECDSA_SECP256R1_SHA256,
       AKey);
     LSigner.Update(AMessage, 0, System.Length(AMessage));
     Result := LSigner.Sign;
   end;
 
 var
+  LCrypto: ICryptoProvider;
   LKey: ISigningKey;
   LSample, LTest, LSignature: TBytes;
   LVerifier: ISignatureVerifier;
 begin
   // a random nonce would make each signature differ; matching the RFC's answers proves the
-  // portable signer derives k from the key and message
-  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(Rfc6979P256Pkcs8), nil);
+  // portable signer derives k from the key and message. Pinned to portable: native ECDSA signs
+  // with a random nonce
+  LCrypto := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable);
+  LKey := LCrypto.Signing.ImportSigningKey(DecodeHex(Rfc6979P256Pkcs8), nil);
   LSample := DecodeHex('73616d706c65'); // "sample"
   LTest := DecodeHex('74657374'); // "test"
-  LSignature := SignWith(LKey, LSample);
+  LSignature := SignWith(LCrypto, LKey, LSample);
   CheckEqualBytes('RFC 6979 A.2.5 P-256/SHA-256 "sample"', DecodeHex(SampleSignature),
     LSignature);
   CheckEqualBytes('RFC 6979 A.2.5 P-256/SHA-256 "test"', DecodeHex(TestSignature),
-    SignWith(LKey, LTest));
+    SignWith(LCrypto, LKey, LTest));
   CheckEqualBytes('signing the same message again is byte-identical', LSignature,
-    SignWith(LKey, LSample));
-  LVerifier := Crypto.Signing.CreateSignatureVerifier(TSignatureScheme.ECDSA_SECP256R1_SHA256,
+    SignWith(LCrypto, LKey, LSample));
+  LVerifier := LCrypto.Signing.CreateSignatureVerifier(TSignatureScheme.ECDSA_SECP256R1_SHA256,
     DecodeHex(Rfc6979P256Spki));
   LVerifier.Update(LSample, 0, System.Length(LSample));
   CheckTrue(LVerifier.Verify(LSignature), 'the deterministic signature is an ordinary ECDSA signature');
@@ -515,7 +518,7 @@ begin
   // signature verifies (no regression from the stricter DER check), and a signature with a
   // trailing byte after the SEQUENCE is rejected - either as a False verdict (the native decoder)
   // or by the strict DER decoder raising, so the check tolerates both
-  LCrypto := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider);
+  LCrypto := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS);
   LMessage := DecodeHex('54686520717569636b2062726f776e20666f78'); // "The quick brown fox"
   LSigner := LCrypto.Signing.CreateSignatureSigner(
     TSignatureScheme.ECDSA_SECP256R1_SHA256,
@@ -544,7 +547,7 @@ var
 begin
   // the overlay signer enforces the same CapableSchemes gate as the portable one (native where
   // present, portable fallback otherwise), so this holds on every host
-  LCrypto := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider);
+  LCrypto := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS);
   LKey := LCrypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ecdsa_key']), nil);
   LRaised := False;
   try

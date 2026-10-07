@@ -76,12 +76,12 @@ env:
   # FPC tarball, so this needs no extra deps; the other three adapters need third-party frameworks CI
   # does not install and stay out of scope. Read by that job's fclnet-build.sh step. Set false to skip.
   MAKE_RUN_FCLNET: true
-  # When true, the interop harness (self-test, fuzzer, openssl matrix and BoGo) runs against
-  # this platform's OS-native crypto facets overlaid on the portable base (TLSLIB_NATIVE_CRYPTO),
-  # instead of the pure-Pascal provider. Only Windows has native facets today, so it is a no-op
-  # elsewhere. Defaults off, so the conformance gate stays on the portable provider unless a run
-  # opts in to validate the native provider end to end.
-  MAKE_INTEROP_NATIVE_CRYPTO: true
+  # The crypto and PKIX providers the interop harness (self-test, fuzzer, openssl matrix and BoGo)
+  # runs against (TLSLIB_CRYPTO_PROVIDER / TLSLIB_PKIX_PROVIDER): portable, or os for this
+  # platform's native facets overlaid on the portable base. Only Windows has native crypto facets
+  # today, so os equals portable elsewhere, and PKIX has no os provider yet.
+  MAKE_CRYPTO_PROVIDER: os
+  MAKE_PKIX_PROVIDER: portable
   # The BoringSSL/BoGo peer commit the disable ledger is reconciled against (pins the
   # peer). Bumping it is a deliberate, reviewed change: any new test it introduces
   # surfaces as UNEXPECTED and must be triaged into pass/disable - the gate working.
@@ -175,7 +175,8 @@ jobs:
           run-interop: ${{ env.MAKE_RUN_INTEROP }}
           run-bogo: ${{ env.MAKE_RUN_BOGO }}
           run-openssl: ${{ env.MAKE_RUN_OPENSSL }}
-          native-crypto: ${{ env.MAKE_INTEROP_NATIVE_CRYPTO }}
+          crypto-provider: ${{ env.MAKE_CRYPTO_PROVIDER }}
+          pkix-provider: ${{ env.MAKE_PKIX_PROVIDER }}
           run-trust: ${{ env.MAKE_RUN_TRUST }}
           bogo-ref: ${{ env.BOGO_REF }}
 
@@ -217,7 +218,8 @@ jobs:
           run-interop: ${{ env.MAKE_RUN_INTEROP }}
           run-bogo: ${{ env.MAKE_RUN_BOGO }}
           run-openssl: ${{ env.MAKE_RUN_OPENSSL }}
-          native-crypto: ${{ env.MAKE_INTEROP_NATIVE_CRYPTO }}
+          crypto-provider: ${{ env.MAKE_CRYPTO_PROVIDER }}
+          pkix-provider: ${{ env.MAKE_PKIX_PROVIDER }}
           run-trust: ${{ env.MAKE_RUN_TRUST }}
           bogo-ref: ${{ env.BOGO_REF }}
 
@@ -305,7 +307,8 @@ jobs:
           run-interop: ${{ env.MAKE_RUN_BOGO }}
           run-bogo: ${{ env.MAKE_RUN_BOGO }}
           run-openssl: ${{ env.MAKE_RUN_OPENSSL }}
-          native-crypto: ${{ env.MAKE_INTEROP_NATIVE_CRYPTO }}
+          crypto-provider: ${{ env.MAKE_CRYPTO_PROVIDER }}
+          pkix-provider: ${{ env.MAKE_PKIX_PROVIDER }}
           run-trust: ${{ env.MAKE_RUN_TRUST }}
           bogo-ref: ${{ env.BOGO_REF }}
 
@@ -349,7 +352,8 @@ jobs:
           run-interop: ${{ env.MAKE_RUN_INTEROP }}
           run-bogo: ${{ env.MAKE_RUN_BOGO }}
           run-openssl: ${{ env.MAKE_RUN_OPENSSL }}
-          native-crypto: ${{ env.MAKE_INTEROP_NATIVE_CRYPTO }}
+          crypto-provider: ${{ env.MAKE_CRYPTO_PROVIDER }}
+          pkix-provider: ${{ env.MAKE_PKIX_PROVIDER }}
           run-trust: ${{ env.MAKE_RUN_TRUST }}
 
   macos-x64:
@@ -389,7 +393,8 @@ jobs:
           run-interop: ${{ env.MAKE_RUN_INTEROP }}
           run-bogo: ${{ env.MAKE_RUN_BOGO }}
           run-openssl: ${{ env.MAKE_RUN_OPENSSL }}
-          native-crypto: ${{ env.MAKE_INTEROP_NATIVE_CRYPTO }}
+          crypto-provider: ${{ env.MAKE_CRYPTO_PROVIDER }}
+          pkix-provider: ${{ env.MAKE_PKIX_PROVIDER }}
           run-trust: ${{ env.MAKE_RUN_TRUST }}
 
   linux-arm32:

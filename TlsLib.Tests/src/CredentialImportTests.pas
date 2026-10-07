@@ -35,6 +35,7 @@ uses
   TlpTlsLibExceptions,
   MockRandom,
   MockCryptoProvider,
+  TlsLibTestProviders,
   TlsLibTestBase;
 
 type
@@ -248,9 +249,11 @@ var
   LMessage: TBytes;
 begin
   // the signature is genuine RSASSA-PKCS1-v1_5 by rsa_pkcs8_der, over a DigestInfo that omits the
-  // NULL parameters RFC 8017 9.2 requires; the verifier must not take it for a valid signature
+  // NULL parameters RFC 8017 9.2 requires; the verifier must not take it for a valid signature.
+  // Pinned to portable: the OS-native verifier does not enforce the NULL, by design
   LMessage := DecodeHex(SMessageHex);
-  LVerifier := Crypto.Signing.CreateSignatureVerifier(TSignatureScheme.RSA_PKCS1_SHA256,
+  LVerifier := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable).Signing
+    .CreateSignatureVerifier(TSignatureScheme.RSA_PKCS1_SHA256,
     DecodeHex(FV.Values['rsa_pub']));
   LVerifier.Update(LMessage, 0, System.Length(LMessage));
   CheckFalse(LVerifier.Verify(DecodeHex(FV.Values['rsa_pkcs1_sha256_no_null_sig'])),

@@ -22,10 +22,7 @@ uses
   TlpTlsVersion,
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
-  TlpDefaultCryptoProvider,
-  TlpIPkixProvider,
-  TlpDefaultPkixProvider,
-  TlpOSCryptoProvider,
+  TlsLibTestProviders,
   TlpINamedGroup,
   TlpNamedGroups,
   TlpINegotiation,
@@ -177,11 +174,6 @@ type
     class function SignatureSchemesFromCodes(
       const ACodes: TArray<UInt16>): ISignatureSchemeRegistry; static;
   public
-    /// <summary>The default crypto provider.</summary>
-    class function DefaultCrypto: ICryptoProvider; static;
-    /// <summary>The default PKIX provider (certificate inspection, path validation,
-    /// revocation), mirroring DefaultCrypto for the crypto facets.</summary>
-    class function DefaultPkix: IPkixProvider; static;
     /// <summary>A client or server engine ready for the harness pump.</summary>
     class function Build(const ACryptoProvider: ICryptoProvider;
       const AOptions: TInteropEngineOptions): ITlsEngine; static;
@@ -253,20 +245,6 @@ end;
 
 { TInteropEngine }
 
-class function TInteropEngine.DefaultCrypto: ICryptoProvider;
-begin
-  Result := TDefaultCryptoProvider.Create as ICryptoProvider;
-  // opt-in: run the conformance matrix against this platform's OS-native facets. 'true'
-  // matches the MAKE_RUN_* toggle convention the CI uses for every other flag.
-  if SysUtils.SameText(SysUtils.GetEnvironmentVariable('TLSLIB_NATIVE_CRYPTO'), 'true') then
-    Result := TOSCryptoProvider.Compose(Result);
-end;
-
-class function TInteropEngine.DefaultPkix: IPkixProvider;
-begin
-  Result := TDefaultPkixProvider.Shared;
-end;
-
 class function TInteropEngine.OnlyPostQuantumGroups(const ACryptoProvider: ICryptoProvider;
   const ACodes: TArray<UInt16>): Boolean;
 var
@@ -334,7 +312,7 @@ var
 begin
   // Compatible seeds the suites, signature schemes, named-group registry and the
   // TLS 1.3 + hardened 1.2 version offer; the harness only overrides what a test dictates
-  LBuilder := TTlsPresets.Compatible(ACryptoProvider, DefaultPkix);
+  LBuilder := TTlsPresets.Compatible(ACryptoProvider, TTlsLibTestProviders.Pkix);
   // a curve restriction to post-quantum-only groups is implicitly 1.3-only; drop the
   // 1.2 offer so the version/group pair stays consistent (the preset default offers 1.2)
   LVersions := AOptions.SupportedVersions;

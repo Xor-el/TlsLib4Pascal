@@ -35,8 +35,7 @@ uses
   TlpArrayUtilities,
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
-  TlpDefaultCryptoProvider,
-  TlpOSCryptoProvider,
+  TlsLibTestProviders,
   MockCryptoProvider,
   TlpINamedGroup,
   TlpIKeyExchangePrivateKey,
@@ -247,8 +246,7 @@ procedure TTestNamedGroups.TestSystemX25519ImportUnclampedScalar;
 begin
   // the OS-native overlay: exercises the native X25519 import where present, portable
   // fallback elsewhere, so the KAT holds on every host while guarding the native clamp
-  CheckUnclampedScalarImport(
-    TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider));
+  CheckUnclampedScalarImport(TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS));
 end;
 
 procedure TTestNamedGroups.TestMlKem768Agreement;
@@ -262,7 +260,7 @@ var
 begin
   // the OS-native overlay: both hybrids compose over its primitives (P-256/X25519 + ML-KEM-768),
   // native where the overlay serves them and portable otherwise, so the round-trip holds on every host
-  LCrypto := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider);
+  LCrypto := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS);
   CheckAgreement(TNamedGroups.CreateX25519MlKem768(LCrypto), 64);
   CheckAgreement(TNamedGroups.CreateSecP256r1MlKem768(LCrypto), 64);
 end;

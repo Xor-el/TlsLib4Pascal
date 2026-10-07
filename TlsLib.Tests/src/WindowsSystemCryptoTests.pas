@@ -28,6 +28,7 @@ uses
 {$ENDIF FPC}
   TlpICryptoProvider,
   TlpDefaultCryptoProvider,
+  TlsLibTestProviders,
   TlpWindowsSystemCrypto,
   TlpICryptoBackendReport,
   TlpSystemCryptoTypes,
@@ -184,7 +185,7 @@ end;
 
 function TTestWindowsSystemCrypto.CreateCrypto: ICryptoProvider;
 begin
-  Result := Composed(TDefaultCryptoProvider.Create as ICryptoProvider);
+  Result := Composed(TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable));
 end;
 
 function TTestWindowsSystemCrypto.Composed(
@@ -260,7 +261,7 @@ var
 begin
   // the inner facet raises on any key import, so a correct SPKI can only have been exported
   // from the native handle
-  LBase := TDefaultCryptoProvider.Create as ICryptoProvider;
+  LBase := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable);
   LProvider := Composed((TCryptoProviderBuilder.Create as ICryptoProviderBuilder)
     .WithSigning(TThrowingInnerSigning.Create(LBase.Signing) as ISigningCrypto)
     .Build);

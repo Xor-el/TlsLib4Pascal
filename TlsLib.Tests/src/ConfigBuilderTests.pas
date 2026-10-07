@@ -68,6 +68,7 @@ uses
   TlpTlsEngineFactory,
   TlpTlsLib,
   MockCryptoProvider,
+  TlsLibTestProviders,
   TlsLibTestBase;
 
 type
@@ -77,7 +78,8 @@ type
     // the endpoint views hold a raw back-reference to their owner, so a helper that hands back a
     // view keeps the owning builder alive here for the test's duration
     FBuilders: TArray<ITlsConfigBuilder>;
-    function ServerCredential: TTlsCredential;
+    function ServerCredential: TTlsCredential; overload;
+    function ServerCredential(const ACrypto: ICryptoProvider): TTlsCredential; overload;
     // the EcP256 leaf paired with a foreign private key from ImportKeys.txt (never its own key),
     // so the key does not own the leaf
     function CredentialWithForeignKey(const AKeyField: string): TTlsCredential;
@@ -294,8 +296,13 @@ end;
 
 function TTestConfigBuilder.ServerCredential: TTlsCredential;
 begin
+  Result := ServerCredential(Crypto);
+end;
+
+function TTestConfigBuilder.ServerCredential(const ACrypto: ICryptoProvider): TTlsCredential;
+begin
   Result.CertificateChain := TArray<TBytes>.Create(DecodeHex(FCerts.Values['leaf_cert']));
-  Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(FCerts.Values['leaf_key']), nil);
+  Result.PrivateKey := ACrypto.Signing.ImportSigningKey(DecodeHex(FCerts.Values['leaf_key']), nil);
 end;
 
 function TTestConfigBuilder.ClientTrust: ITrustAnchorStore;
@@ -1780,8 +1787,10 @@ var
   LFromClient: TBytes;
 begin
   // build the config once via the facade, then create an engine per connection through the factory
+  // the facade always builds on the portable provider, so its key must come from that provider
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsLib.NewClientConfig(ClientTrust), 'localhost');
-  LServer := TTlsEngineFactory.CreateServerEngine(TTlsLib.NewServerConfig(ServerCredential));
+  LServer := TTlsEngineFactory.CreateServerEngine(TTlsLib.NewServerConfig(
+    ServerCredential(TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable))));
   RunHandshake(LClient, LServer);
 
   CheckFalse(LClient.IsHandshaking, 'the facade client completed the handshake');
