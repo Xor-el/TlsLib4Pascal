@@ -43,6 +43,7 @@ peer.SSLAcceptConnection;             // handshake
 | `OnVerifyCert` (native hook)                         | augment-only bridge (see below)          |
 | `SSLType`                                            | `LT_all` offers TLS 1.3 and 1.2; `LT_TLSv1_2` / `LT_TLSv1_3` offer that version alone; any other value fails the handshake |
 | `HandshakeTimeoutMs`                                 | bounds the handshake read (ms); `0` = 30 s default |
+| `ReadTimeoutMs` (extension)                          | bounds one `RecvBuffer` call (ms), including records with no application data; `0` (default) blocks, as Synapse's other TLS plugins do. Synapse's own timeouts only wait for the first byte, so set this on each accepted socket of a server that reads from untrusted peers, not on a client waiting on a slow server. A timeout surfaces as `WSASYSNOTREADY`, is retryable, and loses no data |
 
 A server never requests a client certificate unless you set `ClientAuth` (cast `Sock.SSL` to
 `TSSLTlsLib`); `CertCAFile` is the private client-CA a presented chain is verified against.

@@ -120,6 +120,7 @@ type
     FClientConfig: ITlsClientConfig;
     FServerConfig: ITlsServerConfig;
     FHandshakeTimeoutMs: Integer;
+    FReadTimeoutMs: Integer;
     /// <summary>The host-neutral snapshot the adapter core composes into a TLS configuration: one
     /// value per handshake, so a property changed mid-connection is never seen half-applied. The
     /// role (client vs server) is chosen by the caller when it resolves the config and attaches the
@@ -215,6 +216,16 @@ type
     /// default) uses the 30 s library default; a positive value overrides it. Cast Sock.SSL to
     /// TSSLTlsLib to set it.</summary>
     property HandshakeTimeoutMs: Integer read FHandshakeTimeoutMs write FHandshakeTimeoutMs;
+    /// <summary>The time budget (ms) for one RecvBuffer call to deliver application data. Synapse's
+    /// own timeouts only wait for the first byte, so without this a peer that sends part of a
+    /// record and goes silent parks the reading thread for good. 0 (the default) blocks, as
+    /// Synapse's other TLS plugins do; a positive value fails the read once it elapses. The
+    /// budget covers the whole call, including records that carry no application data and any wait
+    /// for a first byte, so use it on a server reading untrusted peers, not on a client that may
+    /// wait on a slow server. Synapse reports the failure as WSASYSNOTREADY; the read can be
+    /// retried and no data is lost. It is per socket: set it on each accepted socket's SSL. Cast
+    /// Sock.SSL to TSSLTlsLib to set it.</summary>
+    property ReadTimeoutMs: Integer read FReadTimeoutMs write FReadTimeoutMs;
   end;
 
 implementation
@@ -531,7 +542,7 @@ begin
   FLastErrorDesc := '';
   try
     // a clean close_notify surfaces as 0 (no error)
-    Result := FConnection.Read(PByte(Buffer)^, Len);
+    Result := FConnection.Read(PByte(Buffer)^, Len, FReadTimeoutMs);
   except
     on E: Exception do
     begin

@@ -14,7 +14,8 @@
 /// TInetServer whose accepted connections carry our TTlsLibSocketHandler (supplied through
 /// OnCreateClientSocketHandler); the client is a fcl-net TInetSocket driven with the same handler
 /// class. The server runs on a background thread, the client on the caller's thread. It asserts a
-/// full TLS 1.3 handshake and a round-tripped line - proving the fcl-net adapter end to end.
+/// full TLS 1.3 handshake, a round-tripped line and a read bounded by IOTimeout when the peer
+/// stalls mid-record - proving the fcl-net adapter end to end.
 /// </summary>
 unit FclNetLoopbackExample;
 
@@ -42,12 +43,17 @@ uses
   SysUtils,
   Classes,
   SyncObjs,
+  DateUtils,
   ssockets,
+  Sockets,
   TlpDataEncoding,
   TlsLibFclNetTls;
 
 const
   PORT = 28446;
+  STALL_HOLD_MS = 4000; // how long the server stays silent after the partial record
+  READ_CAP_MS = 800;
+  STALL_LIMIT_MS = 3000; // the socket timeout must end the wait well before the server's silence does
   PING = 'ping from the fclnet client';
 
 type
@@ -62,7 +68,8 @@ type
   end;
 
   /// <summary>The loopback server: binds 127.0.0.1:PORT, hands each accepted connection a fcl-net
-  /// TTlsLibSocketHandler carrying the leaf cert/key, then echoes the one line the client sends.</summary>
+  /// TTlsLibSocketHandler carrying the leaf cert/key, echoes the one line the client sends, then
+  /// sends part of a record and goes silent.</summary>
   TServerThread = class(TThread)
   strict private
   var
@@ -178,6 +185,12 @@ begin
     LN := AStream.Read(LBuf[0], System.Length(LBuf));
     if LN > 0 then
       AStream.Write(LBuf[0], LN); // echo it back
+    // then the first bytes of a TLS record straight on the socket, and silence: the client's
+    // socket timeout, not this thread's exit, must be what ends its wait
+    SetLength(LBuf, 3);
+    LBuf[0] := $17; LBuf[1] := $03; LBuf[2] := $03;
+    fpSend(AStream.Handle, @LBuf[0], 3, 0);
+    Sleep(STALL_HOLD_MS);
   except
     on E: Exception do
       FError := 'server connection: ' + E.ClassName + ': ' + E.Message;
@@ -236,6 +249,8 @@ var
   LOut: AnsiString;
   LBuf: TBytes;
   LN: Integer;
+  LStart: TDateTime;
+  LStallMs: Int64;
 begin
   Result := 1;
   LEcho := '';
@@ -274,6 +289,14 @@ begin
         LN := LSock.Read(LBuf[0], System.Length(LBuf));
         if LN > 0 then
           SetString(LEcho, PAnsiChar(@LBuf[0]), LN);
+        // the server now sends part of a record and stalls: the socket timeout must bound the read
+        LSock.IOTimeout := READ_CAP_MS;
+        LStart := Now;
+        LN := LSock.Read(LBuf[0], System.Length(LBuf));
+        LStallMs := MilliSecondsBetween(Now, LStart);
+        if (LN >= 0) or (LStallMs > STALL_LIMIT_MS) then
+          raise Exception.CreateFmt('a stalled record was not bounded by IOTimeout (%d ms, read %d)',
+            [LStallMs, LN]);
       finally
         LSock.Free; // frees the handler, flushes close_notify, closes the socket
       end;
@@ -287,7 +310,8 @@ begin
 
     if LEcho = PING then
     begin
-      WriteLn('FclNet loopback PASS: ', LVersion, ' handshake + echo');
+      WriteLn('FclNet loopback PASS: ', LVersion, ' handshake + echo + a stalled record bounded in ',
+        LStallMs, ' ms');
       Result := 0;
     end
     else
