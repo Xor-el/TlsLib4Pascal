@@ -360,8 +360,8 @@ resourcestring
   SAlpnProtocolEmpty = 'an ALPN protocol name must not be empty (RFC 7301 3.1)';
   SAlpnProtocolNotAscii = 'an ALPN protocol name must be ASCII; it is sent as its ASCII bytes';
   SAlpnProtocolTooLong = 'an ALPN protocol name must not exceed 255 bytes (RFC 7301 3.1)';
-  SAlpnListTooLong = 'the ALPN protocol list must not exceed 16384 bytes on the wire, so the ' +
-    'ClientHello extensions block (RFC 8446 4.1.2) can always carry it';
+  SAlpnListTooLong = 'the ALPN protocol list must not exceed 16384 bytes on the wire, so that ' +
+    'a ClientHello''s extensions block (RFC 8446 4.1.2) can always carry it';
   SNoRegisteredPreferredGroup = 'none of the preferred key-exchange groups is in the named-group ' +
     'registry, so no handshake could ever select a group';
   SAlpnProtocolDuplicate = 'the ALPN protocol "%s" is offered more than once';

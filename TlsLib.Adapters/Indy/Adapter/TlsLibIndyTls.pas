@@ -29,8 +29,8 @@ uses
   SysUtils,
   SyncObjs,
   IdGlobal,
-  IdExceptionCore,
   IdSSL,
+  IdStackConsts,
   IdIOHandler,
   IdSocketHandle,
   IdThread,
@@ -228,6 +228,7 @@ type
     FConnection: TTlsConnection;
     FServerMemo: ITlsServerConfigMemo;   // shared with the listener; server peers reuse one config
     FHandshakeLock: TCriticalSection;    // serializes the deferred first-touch handshake
+    FReadTimedOut: Boolean;              // the last RecvEnc gave up on ReadTimeout (see CheckForError)
     procedure DoHandshake;
     procedure ResetTlsSession;
     function BuildEngine(AIsClient: Boolean): ITlsEngine;
@@ -242,6 +243,7 @@ type
     procedure InitComponent; override;
     procedure SetPassThrough(const AValue: Boolean); override;
     function RecvEnc(var ABuffer: TIdBytes): Integer; override;
+    function CheckForError(ALastResult: Integer): Integer; override;
     function SendEnc(const ABuffer: TIdBytes; const AOffset, ALength: Integer): Integer; override;
   public
     destructor Destroy; override;
@@ -636,16 +638,35 @@ begin
   SetLength(LTmp, 32768);
   // Indy checks ReadTimeout only before this call, so bytes that yield no application data (a
   // session ticket, a key update, half a record) would keep a timed read going forever: bound the
-  // whole read by the same timeout and report its expiry the way Indy reports its own
+  // whole read by the same timeout and report its expiry as a failed receive that CheckForError
+  // maps to Indy's own timeout, which each caller then raises or swallows as it would for its own
+  FReadTimedOut := False;
   try
     Result := FConnection.Read(LTmp[0], System.Length(LTmp), ReadTimeout);
   except
     on E: ETlsReadTimeout do
-      raise EIdReadTimeout.Create(E.Message);
+    begin
+      FReadTimedOut := True;
+      SetLength(ABuffer, 0);
+      Exit(-1);
+    end;
   end;
   SetLength(ABuffer, Result);
   if Result > 0 then
     Move(LTmp[0], ABuffer[0], Result);
+end;
+
+function TTlsLibIOHandlerSocket.CheckForError(ALastResult: Integer): Integer;
+begin
+  // a read that gave up on ReadTimeout is the timeout Indy reports for its own; a transport error
+  // keeps the socket's own verdict
+  if (not fPassThrough) and FReadTimedOut then
+  begin
+    FReadTimedOut := False;
+    Result := Id_WSAETIMEDOUT;
+  end
+  else
+    Result := inherited CheckForError(ALastResult);
 end;
 
 function TTlsLibIOHandlerSocket.SendEnc(const ABuffer: TIdBytes;

@@ -1413,11 +1413,16 @@ end;
 procedure TTestTlsConnection.TestCapCheckBetweenRetriesHonoursTheDeadline;
 var
   LTransport: TTestMemoryTransport;
+  LTimed: ITlsTransport;
   LClockObj: TMockClock;
+  LClock: ITlsClock;
   LRaised: Boolean;
 begin
+  // both are reference counted: hold them through interfaces so they are released with the test
   LClockObj := TMockClock.Create(1000);
-  LTransport := TTestMemoryTransport.Create(nil, True, LClockObj as ITlsClock);
+  LClock := LClockObj;
+  LTransport := TTestMemoryTransport.Create(nil, True, LClock);
+  LTimed := LTransport as ITlsTransport;
   LTransport.PollCap; // no cap armed: nothing to enforce
   LTransport.SetReadTimeout(150);
   LClockObj.Advance(100);

@@ -37,7 +37,6 @@ uses
   Classes,
   DateUtils,
   IdContext,
-  IdExceptionCore,
   IdTCPServer,
   IdTCPClient,
   TlpTlsVersion,
@@ -154,8 +153,9 @@ var
   LClientIO: TTlsLibIOHandlerSocket;
   LEcho: string;
   LEchoHandler: TEchoHandler;
-  LOk, LTimedOut: Boolean;
+  LOk, LTimedOut, LTicketsArrived: Boolean;
   LStarted: TDateTime;
+  LLine: string;
 begin
   Result := 1;
   GServerError := '';
@@ -182,19 +182,15 @@ begin
     LClient.Port := PORT;
     LClient.Connect;
     try
-      // the server's session tickets are now unread in the socket, so Readable is true yet no line
-      // will ever come: a read with ReadTimeout set must still give up
-      Sleep(300);
+      // the server's session tickets arrive unread in the socket, so Readable turns true yet no
+      // line will ever come: a read with ReadTimeout set must still give up, the way Indy's own
+      // timed read does (an empty line with ReadLnTimedOut set, not an exception)
+      LTicketsArrived := LClientIO.Readable(3000);
       LClient.ReadTimeout := 500;
-      LTimedOut := False;
       LStarted := Now;
-      try
-        LClientIO.ReadLn;
-      except
-        on E: EIdReadTimeout do
-          LTimedOut := True;
-      end;
-      LTimedOut := LTimedOut and (MilliSecondsBetween(Now, LStarted) < 5000);
+      LLine := LClientIO.ReadLn;
+      LTimedOut := LTicketsArrived and LClientIO.ReadLnTimedOut and (LLine = '') and
+        (MilliSecondsBetween(Now, LStarted) < 5000);
       LClient.ReadTimeout := 0;
       LClientIO.WriteLn('ping from the indy client');
       LEcho := LClientIO.ReadLn;

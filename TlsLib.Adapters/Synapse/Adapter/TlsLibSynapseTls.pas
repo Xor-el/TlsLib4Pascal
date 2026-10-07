@@ -167,8 +167,9 @@ type
     function GetPeerFingerprint: AnsiString; override;
     function GetPeerSerialNo: integer; override;
     /// <summary>Opt this connection into the OS system-trust anchors. It is a client-role source
-    /// only: it trusts the server's chain against the OS store, and a server never reads it (a
-    /// server's client-CA is always the CertCAFile bundle, see ClientAuth). Alone it verifies a
+    /// only: it trusts the server's chain against the OS store, and a server never takes it as a
+    /// client-CA (that is always the CertCAFile bundle, see ClientAuth; a mode whose only source is
+    /// this fails the build). Alone it verifies a
     /// server against the OS store; combined with a CertCAFile bundle it UNIONS the two. Synapse
     /// exposes no such switch, so it lives here; cast Sock.SSL to TSSLTlsLib to set it. System trust
     /// is never implicit - a client with VerifyCert on must name a source (this or CertCAFile) or
