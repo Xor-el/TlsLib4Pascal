@@ -67,6 +67,21 @@ type
   end;
 
   /// <summary>
+  /// A server's frozen Encrypted Client Hello policy (RFC 9849): the role it plays and, for a
+  /// keyed server, the key store and whether it trial-decrypts. A server that serves no ECH has
+  /// no policy. Immutable and shared lock-free.
+  /// </summary>
+  IEchServerPolicy = interface(IInterface)
+    ['{419E9510-E0A5-47DE-86A6-D20DC148540B}']
+    function Role: TEchServerRole;
+    /// <summary>The key store of a Keyed server; nil for a Backend.</summary>
+    function KeyStore: IEchServerKeyStore;
+    /// <summary>Whether a Keyed server trial-decrypts against every entry rather than only the one
+    /// whose config_id matches; False for a Backend.</summary>
+    function TrialDecrypt: Boolean;
+  end;
+
+  /// <summary>
   /// The server side of one connection's Encrypted Client Hello (RFC 9849): trial-decrypts the
   /// ClientHelloOuter, reconstructs the ClientHelloInner, and carries the HPKE recipient context
   /// (reused across a HelloRetryRequest). One instance per connection.

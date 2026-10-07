@@ -64,6 +64,7 @@ uses
   TlpEchClient,
   TlpInMemoryEchKeyStore,
   TlpIEch,
+  TlpEchServer,
   TlpISession,
   TlpInMemorySessionCache,
   TlpInMemorySessionStore,
@@ -503,7 +504,8 @@ begin
   LParams.ServerRandom := Filled($22, 32);
   LParams.CredentialResolver :=
     TSniCredentialResolver.ForCredential(ServerCredential);
-  LParams.EchKeyStore := TInMemoryEchKeyStore.FromConfig(AConfigList, APrivateKey, Crypto);
+  LParams.EchPolicy := TEchServerPolicy.Keyed(Crypto,
+    TInMemoryEchKeyStore.FromConfig(AConfigList, APrivateKey, Crypto), False);
   LParams.SessionStore := AStore;
   LParams.IssueTicketCount := AIssueTickets;
   LParams.TicketLifetimeSeconds := 7200;
@@ -535,7 +537,8 @@ begin
   finally
     LVec.Free;
   end;
-  LParams.EchKeyStore := TInMemoryEchKeyStore.FromConfig(EchConfigListBytes, LSk, Crypto);
+  LParams.EchPolicy := TEchServerPolicy.Keyed(Crypto,
+    TInMemoryEchKeyStore.FromConfig(EchConfigListBytes, LSk, Crypto), False);
   if FServerKeyLog <> nil then
     LParams.KeyLog := FServerKeyLog as IKeyLog;
   Result := TTlsEngine.CreateConfigured(
@@ -559,7 +562,8 @@ begin
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
   // an is_retry config the store advertises as retry_configs; its config_id differs from the
   // client's offer, so trial-decrypt finds no match and the server rejects ECH
-  LParams.EchKeyStore := TInMemoryEchKeyStore.FromConfig(AConfigList, APrivateKey, Crypto);
+  LParams.EchPolicy := TEchServerPolicy.Keyed(Crypto,
+    TInMemoryEchKeyStore.FromConfig(AConfigList, APrivateKey, Crypto), False);
   Result := TTlsEngine.CreateConfigured(
     TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
@@ -627,7 +631,8 @@ begin
   finally
     LVec.Free;
   end;
-  LParams.EchKeyStore := TInMemoryEchKeyStore.FromConfig(EchConfigListBytes, LSk, Crypto);
+  LParams.EchPolicy := TEchServerPolicy.Keyed(Crypto,
+    TInMemoryEchKeyStore.FromConfig(EchConfigListBytes, LSk, Crypto), False);
   LParams.SessionStore := AStore;
   LParams.IssueTicketCount := AIssueTickets;
   LParams.TicketLifetimeSeconds := 7200;
@@ -687,7 +692,8 @@ begin
   LParams.CookieSecret := TSecretBuffer.From(
     Crypto.Primitives.GetRandom.GenerateBytes(32));
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
-  LParams.EchKeyStore := TInMemoryEchKeyStore.FromConfig(AConfigList, APrivateKey, Crypto);
+  LParams.EchPolicy := TEchServerPolicy.Keyed(Crypto,
+    TInMemoryEchKeyStore.FromConfig(AConfigList, APrivateKey, Crypto), False);
   Result := TTlsEngine.CreateConfigured(
     TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
@@ -749,7 +755,8 @@ begin
   finally
     LVec.Free;
   end;
-  LParams.EchKeyStore := TInMemoryEchKeyStore.FromConfig(EchConfigListBytes, LSk, Crypto);
+  LParams.EchPolicy := TEchServerPolicy.Keyed(Crypto,
+    TInMemoryEchKeyStore.FromConfig(EchConfigListBytes, LSk, Crypto), False);
   LParams.SessionStore := AStore;
   LParams.IssueTicketCount := AIssueTickets;
   LParams.TicketLifetimeSeconds := 7200;

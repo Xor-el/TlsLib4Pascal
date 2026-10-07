@@ -51,6 +51,8 @@ uses
   TlpIHandshakeMachine,
   TlpTls13ClientStateMachine,
   TlpTls13ServerStateMachine,
+  TlpIEch,
+  TlpEchServer,
   MockCryptoProvider,
   TlsLibTestBase;
 
@@ -71,7 +73,7 @@ type
     function CookieFromHrr(const AHrr: TBytes): TBytes;
     function NewSecp256r1Server(const AVerbatimCookie: TBytes): IHandshakeMachine; overload;
     function NewSecp256r1Server(const AVerbatimCookie: TBytes;
-      ASplitModeBackend: Boolean): IHandshakeMachine; overload;
+      const AEchPolicy: IEchServerPolicy): IHandshakeMachine; overload;
     /// <summary>AFramedClientHello with an inner-type ech extension appended.</summary>
     function WithInnerEch(const AFramedClientHello: TBytes): TBytes;
     function NewRetryClient: IHandshakeMachine; overload;
@@ -268,7 +270,7 @@ end;
 function TTestHelloRetryRequest.NewSecp256r1Server(
   const AVerbatimCookie: TBytes): IHandshakeMachine;
 begin
-  Result := NewSecp256r1Server(AVerbatimCookie, False);
+  Result := NewSecp256r1Server(AVerbatimCookie, nil);
 end;
 
 function TTestHelloRetryRequest.WithInnerEch(const AFramedClientHello: TBytes): TBytes;
@@ -287,7 +289,7 @@ begin
 end;
 
 function TTestHelloRetryRequest.NewSecp256r1Server(
-  const AVerbatimCookie: TBytes; ASplitModeBackend: Boolean): IHandshakeMachine;
+  const AVerbatimCookie: TBytes; const AEchPolicy: IEchServerPolicy): IHandshakeMachine;
 var
   LParams: TServerHandshakeParams;
   LCerts: TStringList;
@@ -306,7 +308,7 @@ begin
   LParams.Group := TNamedGroups.CreateNistEcdh(LParams.Crypto, 'secp256r1');
   LParams.ServerRandom := DecodeHex(StringOfChar('2', 64));
   LParams.CookieSecret := CookieSecret;
-  LParams.EchSplitModeBackend := ASplitModeBackend;
+  LParams.EchPolicy := AEchPolicy;
   // a P-256 signing key; its lone capable scheme is ecdsa_secp256r1_sha256, which the
   // negotiation needs when it processes the first ClientHello (before the retry)
   LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
@@ -727,7 +729,7 @@ begin
   // a keyless split-mode backend takes the forwarded inner hello on both flights: after the
   // HelloRetryRequest the retry's inner-type ech is accepted and the handshake continues
   TNamedGroups.CreateNistEcdh(Crypto, 'secp256r1').GenerateKeyPair(LPriv, LShare);
-  LServer := NewSecp256r1Server(nil, True);
+  LServer := NewSecp256r1Server(nil, TEchServerPolicy.Backend);
   LHrr := SendHandshakeOf(LServer.ProcessMessage(MsgFrom(WithInnerEch(Vec('client_hello_1')))))[0];
   LCookie := CookieFromHrr(LHrr);
   LCh2 := WithInnerEch(BuildClientHello2(TNamedGroupCatalog.Secp256r1, LShare, LCookie, nil,

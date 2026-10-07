@@ -86,9 +86,9 @@ type
       out APrivateKey: ISecretBuffer): TBytes; overload;
     function BuildEchConfigList(AConfigId: Byte; const APublicName: string;
       const AAeadIds: TArray<UInt16>; out APrivateKey: ISecretBuffer): TBytes; overload;
-    /// <summary>Whether a server Build over a provider without AES-128-GCM refuses an ECH store
-    /// whose one config advertises AAeadIds.</summary>
-    function EchBuildRefused(const AAeadIds: TArray<UInt16>): Boolean;
+    /// <summary>Whether giving a server builder over a provider without AES-128-GCM an ECH store
+    /// whose one config advertises AAeadIds is refused.</summary>
+    function EchKeyStoreRefused(const AAeadIds: TArray<UInt16>): Boolean;
     function BuildClientConfig(const ACryptoProvider: ICryptoProvider): ITlsClientConfig;
     function BuildServerConfig(const ACryptoProvider: ICryptoProvider): ITlsServerConfig;
     function DefaultProfile: TTlsConfigProfile;
@@ -105,7 +105,13 @@ type
     procedure TearDown; override;
   published
     procedure TestEchThroughServerBuilder;
-    procedure TestEchSplitModeBackendWithKeyStoreRejected;
+    procedure TestEchBackendThenKeyStoreRejected;
+    procedure TestEchKeyStoreThenBackendRejected;
+    procedure TestEchPolicyAbsentWithoutEch;
+    procedure TestEchBackendPolicyFrozen;
+    procedure TestEchKeyStoreTrialDecryptRecordedOnPolicy;
+    procedure TestEchKeyStoreCalledAgainReplacesThePolicy;
+    procedure TestEchNilKeyStoreRejected;
     procedure TestEchKeyStoreEntryTheProviderCannotServeRefused;
     procedure TestEchKeyStoreEveryAdvertisedSuiteMustBeServable;
     procedure TestEchKeyStoreEntryTheProviderCanServeBuilds;
@@ -375,27 +381,109 @@ begin
   Result := TEchConfigList.Encode(TArray<TEchConfig>.Create(LConfig));
 end;
 
-procedure TTestConfigBuilder.TestEchSplitModeBackendWithKeyStoreRejected;
+procedure TTestConfigBuilder.TestEchBackendThenKeyStoreRejected;
 var
   LSk: ISecretBuffer;
   LConfigList: TBytes;
   LRaised: Boolean;
 begin
-  // the split-mode backend role holds no ECH keys; pairing WithEchSplitModeBackend with
-  // WithEchKeyStore is a contradictory deployment and must be refused at Build (library policy)
+  // the split-mode backend role holds no ECH keys; pairing WithEchBackend with WithEchKeyStore is a
+  // contradictory deployment and is refused (RFC 9849 sec. 7), whichever is called second
   LConfigList := BuildEchConfigList($E1, 'cover.example', LSk);
   LRaised := False;
   try
-    NewServerBuilder.Tls13.WithEchSplitModeBackend.WithEchKeyStore(
-      TInMemoryEchKeyStore.FromConfig(LConfigList, LSk, Crypto)).Build;
+    NewServerBuilder.Tls13.WithEchBackend.WithEchKeyStore(
+      TInMemoryEchKeyStore.FromConfig(LConfigList, LSk, Crypto));
   except
     on E: EInvalidOperationTlsLibException do
       LRaised := True;
   end;
-  CheckTrue(LRaised, 'a split-mode backend combined with an ECH key store is refused');
+  CheckTrue(LRaised, 'an ECH key store after a split-mode backend is refused');
 end;
 
-function TTestConfigBuilder.EchBuildRefused(const AAeadIds: TArray<UInt16>): Boolean;
+procedure TTestConfigBuilder.TestEchKeyStoreThenBackendRejected;
+var
+  LSk: ISecretBuffer;
+  LConfigList: TBytes;
+  LRaised: Boolean;
+begin
+  LConfigList := BuildEchConfigList($E1, 'cover.example', LSk);
+  LRaised := False;
+  try
+    NewServerBuilder.Tls13.WithEchKeyStore(
+      TInMemoryEchKeyStore.FromConfig(LConfigList, LSk, Crypto)).WithEchBackend;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a split-mode backend after an ECH key store is refused');
+end;
+
+procedure TTestConfigBuilder.TestEchPolicyAbsentWithoutEch;
+begin
+  CheckTrue(NewServerBuilder.Build.EncryptedClientHello = nil,
+    'a server with no ECH configuration has no ECH policy');
+end;
+
+procedure TTestConfigBuilder.TestEchBackendPolicyFrozen;
+var
+  LPolicy: IEchServerPolicy;
+begin
+  LPolicy := NewServerBuilder.Tls13.WithEchBackend.Build.EncryptedClientHello;
+  CheckTrue(LPolicy <> nil, 'a backend server has an ECH policy');
+  CheckTrue(LPolicy.Role = TEchServerRole.Backend, 'whose role is Backend');
+  CheckTrue(LPolicy.KeyStore = nil, 'and which holds no key store');
+  CheckFalse(LPolicy.TrialDecrypt, 'and does not trial-decrypt');
+end;
+
+procedure TTestConfigBuilder.TestEchKeyStoreTrialDecryptRecordedOnPolicy;
+var
+  LSk: ISecretBuffer;
+  LStore: IEchServerKeyStore;
+  LPolicy: IEchServerPolicy;
+begin
+  LStore := TInMemoryEchKeyStore.FromConfig(BuildEchConfigList($E3, 'cover.example', LSk), LSk,
+    Crypto);
+  LPolicy := NewServerBuilder.Tls13.WithEchKeyStore(LStore).Build.EncryptedClientHello;
+  CheckTrue(LPolicy.Role = TEchServerRole.Keyed, 'a key store makes the server Keyed');
+  CheckFalse(LPolicy.TrialDecrypt, 'trial decryption is off by default');
+  LPolicy := NewServerBuilder.Tls13.WithEchKeyStore(LStore, True).Build.EncryptedClientHello;
+  CheckTrue(LPolicy.TrialDecrypt, 'the overload turns trial decryption on');
+  CheckTrue(LPolicy.KeyStore = LStore, 'and the policy carries the store');
+end;
+
+procedure TTestConfigBuilder.TestEchKeyStoreCalledAgainReplacesThePolicy;
+var
+  LSk: ISecretBuffer;
+  LFirst, LSecond: IEchServerKeyStore;
+  LFacet: ITls13ServerConfigFacet;
+  LPolicy: IEchServerPolicy;
+begin
+  LFirst := TInMemoryEchKeyStore.FromConfig(BuildEchConfigList($E4, 'cover.example', LSk), LSk,
+    Crypto);
+  LSecond := TInMemoryEchKeyStore.FromConfig(BuildEchConfigList($E5, 'cover.example', LSk), LSk,
+    Crypto);
+  LFacet := NewServerBuilder.Tls13.WithEchKeyStore(LFirst);
+  LPolicy := LFacet.WithEchKeyStore(LSecond, True).Build.EncryptedClientHello;
+  CheckTrue(LPolicy.KeyStore = LSecond, 'the second store replaces the first');
+  CheckTrue(LPolicy.TrialDecrypt, 'along with its trial-decrypt setting');
+end;
+
+procedure TTestConfigBuilder.TestEchNilKeyStoreRejected;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    NewServerBuilder.Tls13.WithEchKeyStore(nil);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a nil ECH key store is refused');
+end;
+
+function TTestConfigBuilder.EchKeyStoreRefused(const AAeadIds: TArray<UInt16>): Boolean;
 var
   LSk: ISecretBuffer;
   LStore: IEchServerKeyStore;
@@ -410,24 +498,24 @@ begin
   TArrayUtilities.Append<ITlsConfigBuilder>(FBuilders, LOwner);
   Result := False;
   try
-    LOwner.Server.WithCredential(ServerCredential).Tls13.WithEchKeyStore(LStore).Build;
+    LOwner.Server.WithCredential(ServerCredential).Tls13.WithEchKeyStore(LStore);
   except
-    on E: EInvalidOperationTlsLibException do
+    on E: EArgumentTlsLibException do
       Result := True;
   end;
 end;
 
 procedure TTestConfigBuilder.TestEchKeyStoreEntryTheProviderCannotServeRefused;
 begin
-  CheckTrue(EchBuildRefused(TArray<UInt16>.Create(THpkeAead.AES_128_GCM)),
-    'an ECH entry whose only suite the serving provider cannot build is refused at Build');
+  CheckTrue(EchKeyStoreRefused(TArray<UInt16>.Create(THpkeAead.AES_128_GCM)),
+    'an ECH entry whose only suite the serving provider cannot build is refused');
 end;
 
 procedure TTestConfigBuilder.TestEchKeyStoreEveryAdvertisedSuiteMustBeServable;
 begin
   // a client may pick any HPKE suite the config lists, so one the provider cannot build would make
   // the server decline ECH for every client that picks it even though another suite works
-  CheckTrue(EchBuildRefused(TArray<UInt16>.Create(THpkeAead.AES_128_GCM, THpkeAead.AES_256_GCM)),
+  CheckTrue(EchKeyStoreRefused(TArray<UInt16>.Create(THpkeAead.AES_128_GCM, THpkeAead.AES_256_GCM)),
     'an entry advertising one unservable suite among servable ones is refused');
 end;
 
@@ -435,7 +523,7 @@ procedure TTestConfigBuilder.TestEchKeyStoreEntryTheProviderCanServeBuilds;
 begin
   // the control: the same limited provider builds when every advertised suite is available, so the
   // refusals above are about the suite and nothing else in the setup
-  CheckFalse(EchBuildRefused(TArray<UInt16>.Create(THpkeAead.AES_256_GCM)),
+  CheckFalse(EchKeyStoreRefused(TArray<UInt16>.Create(THpkeAead.AES_256_GCM)),
     'an entry whose suites the serving provider can all build is accepted');
 end;
 
@@ -476,8 +564,8 @@ begin
     .Tls13.WithEchKeyStore(TInMemoryEchKeyStore.FromConfig(LConfigList, LSk,
     Crypto)).Build;
 
-  CheckTrue(LServerConfig.EchKeyStore <> nil,
-    'the builder froze an ECH key store onto the server config');
+  CheckTrue(LServerConfig.EncryptedClientHello <> nil,
+    'the builder froze an ECH policy onto the server config');
 
   LClient := TTlsEngineFactory.CreateClientEngine(LClientConfig, 'localhost');
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);

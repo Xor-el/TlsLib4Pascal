@@ -56,6 +56,7 @@ uses
   TlpIEch,
   TlpEchConfig,
   TlpEchClient,
+  TlpEchServer,
   TlpITlsConfig,
   TlpITlsConfigBuilder;
 
@@ -156,9 +157,7 @@ type
     FEchGrease: Boolean;
     FEchIsRetry: Boolean;
     FEchConfigured: Boolean;
-    FEchKeyStore: IEchServerKeyStore;
-    FEchTrialDecrypt: Boolean;
-    FEchSplitModeBackend: Boolean;
+    FEchServerPolicy: IEchServerPolicy;
     // whether a version's facet was explicitly configured, so a build can refuse a
     // version that is not offered (defaults are seeded directly, not through a facet)
     FTls13Configured: Boolean;
@@ -179,7 +178,6 @@ type
     /// <summary>Refuses an anchor store holding a certificate that does not parse: one such root
     /// would otherwise fail every verification against the store, far from its cause.</summary>
     procedure ValidateAnchorRoots;
-    procedure ValidateEchKeyStore;
     procedure ValidateRequiredCollaborators;
     /// <summary>Composes the server credential resolver at build: a custom resolver (exclusive
     /// of the built-in map/credential), else the SNI map plus the single credential as the
@@ -285,9 +283,10 @@ type
     function WithClientEarlyData(AEnabled: Boolean): TTlsConfigBuilder;
     function WithServerEarlyData(AMaxBytes: UInt32): TTlsConfigBuilder;
     function WithAntiReplay(const AStrategy: IAntiReplayStrategy): TTlsConfigBuilder;
-    function WithEchKeyStore(const AKeyStore: IEchServerKeyStore): TTlsConfigBuilder;
-    function WithEchTrialDecrypt(AEnabled: Boolean): TTlsConfigBuilder;
-    function WithEchSplitModeBackend: TTlsConfigBuilder;
+    function WithEchKeyStore(const AKeyStore: IEchServerKeyStore): TTlsConfigBuilder; overload;
+    function WithEchKeyStore(const AKeyStore: IEchServerKeyStore;
+      ATrialDecrypt: Boolean): TTlsConfigBuilder; overload;
+    function WithEchBackend: TTlsConfigBuilder;
 
     // the version facet instances (returned by the endpoint views and cross-accessors)
     function Client13: ITls13ClientConfigFacet;
@@ -317,11 +316,8 @@ resourcestring
   SNilPkixProvider = 'a PKIX provider is required (pass a provider, not nil)';
   SNilClock = 'a clock is required (pass a clock, not nil)';
   SBuilderFrozen = 'the configuration has been built and can no longer be changed';
-  SEchBackendWithKeyStore = 'a split-mode ECH backend holds no keys; WithEchSplitModeBackend is ' +
-    'mutually exclusive with WithEchKeyStore';
-  SEchEntryNotServable = 'ECH key store entry %d (config_id %d) cannot be served: it needs a ' +
-    'key that matches its config, a servable config, and every advertised cipher suite ' +
-    'available from the crypto provider';
+  SEchBackendWithKeyStore = 'a split-mode ECH backend holds no keys; WithEchBackend is mutually ' +
+    'exclusive with WithEchKeyStore';
   SNoTrustStore = 'a client configuration requires a trust source (no silent-insecure)';
   SEmptyTrustStore = 'a trust store was supplied but contains no root certificates; a store ' +
     'with no anchors is not a trust source (no silent-insecure)';
@@ -528,9 +524,7 @@ type
     FTicketLifetimeSeconds: UInt32;
     FTicketCount: Int32;
     FMaxEarlyData: UInt32;
-    FEchKeyStore: IEchServerKeyStore;
-    FEchTrialDecrypt: Boolean;
-    FEchSplitModeBackend: Boolean;
+    FEchServerPolicy: IEchServerPolicy;
   public
     function CertificateCompressionCache: ICertificateCompressionCache;
     function ServerNameAcknowledgement: Boolean;
@@ -547,9 +541,7 @@ type
     function TicketLifetimeSeconds: UInt32;
     function TicketCount: Int32;
     function MaxEarlyData: UInt32;
-    function EchKeyStore: IEchServerKeyStore;
-    function EchTrialDecrypt: Boolean;
-    function EchSplitModeBackend: Boolean;
+    function EncryptedClientHello: IEchServerPolicy;
   end;
 
   /// <summary>Shared view plumbing over the owning builder whose mutators the view forwards to.
@@ -715,9 +707,10 @@ type
       const ACache: ICertificateCompressionCache): ITls13ServerConfigFacet;
     function WithEarlyData(AMaxBytes: UInt32): ITls13ServerConfigFacet;
     function WithAntiReplay(const AStrategy: IAntiReplayStrategy): ITls13ServerConfigFacet;
-    function WithEchKeyStore(const AKeyStore: IEchServerKeyStore): ITls13ServerConfigFacet;
-    function WithEchTrialDecrypt(AEnabled: Boolean): ITls13ServerConfigFacet;
-    function WithEchSplitModeBackend: ITls13ServerConfigFacet;
+    function WithEchKeyStore(const AKeyStore: IEchServerKeyStore): ITls13ServerConfigFacet; overload;
+    function WithEchKeyStore(const AKeyStore: IEchServerKeyStore;
+      ATrialDecrypt: Boolean): ITls13ServerConfigFacet; overload;
+    function WithEchBackend: ITls13ServerConfigFacet;
     function Tls12: ITls12ServerConfigFacet;
     function Build: ITlsServerConfig;
   end;
@@ -987,19 +980,9 @@ begin
   Result := FMaxEarlyData;
 end;
 
-function TFrozenServerConfig.EchKeyStore: IEchServerKeyStore;
+function TFrozenServerConfig.EncryptedClientHello: IEchServerPolicy;
 begin
-  Result := FEchKeyStore;
-end;
-
-function TFrozenServerConfig.EchTrialDecrypt: Boolean;
-begin
-  Result := FEchTrialDecrypt;
-end;
-
-function TFrozenServerConfig.EchSplitModeBackend: Boolean;
-begin
-  Result := FEchSplitModeBackend;
+  Result := FEchServerPolicy;
 end;
 
 { TTlsConfigViewBase }
@@ -1648,16 +1631,16 @@ begin
   Result := Self;
 end;
 
-function TTls13ServerConfigFacet.WithEchTrialDecrypt(
-  AEnabled: Boolean): ITls13ServerConfigFacet;
+function TTls13ServerConfigFacet.WithEchKeyStore(const AKeyStore: IEchServerKeyStore;
+  ATrialDecrypt: Boolean): ITls13ServerConfigFacet;
 begin
-  FOwner.WithEchTrialDecrypt(AEnabled);
+  FOwner.WithEchKeyStore(AKeyStore, ATrialDecrypt);
   Result := Self;
 end;
 
-function TTls13ServerConfigFacet.WithEchSplitModeBackend: ITls13ServerConfigFacet;
+function TTls13ServerConfigFacet.WithEchBackend: ITls13ServerConfigFacet;
 begin
-  FOwner.WithEchSplitModeBackend;
+  FOwner.WithEchBackend;
   Result := Self;
 end;
 
@@ -2001,20 +1984,6 @@ begin
   // whole-verifier's exclusivity (the roots-based trust gate at Build is a separate concern)
   if (FVerifierCount = 1) and (System.Length(FAnchorStores) > 0) then
     raise EInvalidOperationTlsLibException.CreateRes(@SVerifierAnchorConflict);
-end;
-
-procedure TTlsConfigBuilder.ValidateEchKeyStore;
-var
-  LEntries: TArray<TEchKeyEntry>;
-  LI: Int32;
-begin
-  // any store, not just the in-memory one, is held here to what the serving provider can resolve,
-  // since an entry it cannot serve would otherwise be advertised and then decline every ECH offer
-  LEntries := FEchKeyStore.Entries;
-  for LI := 0 to System.High(LEntries) do
-    if not LEntries[LI].IsServableBy(FCrypto) then
-      raise EInvalidOperationTlsLibException.CreateResFmt(@SEchEntryNotServable,
-        [LI, LEntries[LI].Config.ConfigId]);
 end;
 
 procedure TTlsConfigBuilder.ValidateAnchorRoots;
@@ -2599,24 +2568,28 @@ end;
 function TTlsConfigBuilder.WithEchKeyStore(
   const AKeyStore: IEchServerKeyStore): TTlsConfigBuilder;
 begin
+  Result := WithEchKeyStore(AKeyStore, False);
+end;
+
+function TTlsConfigBuilder.WithEchKeyStore(const AKeyStore: IEchServerKeyStore;
+  ATrialDecrypt: Boolean): TTlsConfigBuilder;
+begin
   GuardMutable;
-  FEchKeyStore := AKeyStore;
+  // a split-mode backend holds no ECH keys, and a keyed (client-facing / shared-mode) server never
+  // accepts an inner-type ech: the two roles are mutually exclusive (RFC 9849 sec. 7)
+  if (FEchServerPolicy <> nil) and (FEchServerPolicy.Role = TEchServerRole.Backend) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SEchBackendWithKeyStore);
+  FEchServerPolicy := TEchServerPolicy.Keyed(FCrypto, AKeyStore, ATrialDecrypt);
   FTls13Configured := True;
   Result := Self;
 end;
 
-function TTlsConfigBuilder.WithEchTrialDecrypt(AEnabled: Boolean): TTlsConfigBuilder;
+function TTlsConfigBuilder.WithEchBackend: TTlsConfigBuilder;
 begin
   GuardMutable;
-  FEchTrialDecrypt := AEnabled;
-  FTls13Configured := True;
-  Result := Self;
-end;
-
-function TTlsConfigBuilder.WithEchSplitModeBackend: TTlsConfigBuilder;
-begin
-  GuardMutable;
-  FEchSplitModeBackend := True;
+  if (FEchServerPolicy <> nil) and (FEchServerPolicy.Role = TEchServerRole.Keyed) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SEchBackendWithKeyStore);
+  FEchServerPolicy := TEchServerPolicy.Backend;
   FTls13Configured := True;
   Result := Self;
 end;
@@ -2799,12 +2772,6 @@ begin
   if (not FHasCredential) and (System.Length(FSniCredentialEntries) = 0) and
     (FCredentialResolver = nil) and (System.Length(FExternalPsks) = 0) then
     raise EInvalidOperationTlsLibException.CreateRes(@SNoCredential);
-  // a split-mode backend holds no ECH keys, and a keyed (client-facing / shared-mode) server never
-  // accepts an inner-type ech: the two roles are mutually exclusive (RFC 9849 sec. 7)
-  if FEchSplitModeBackend and (FEchKeyStore <> nil) then
-    raise EInvalidOperationTlsLibException.CreateRes(@SEchBackendWithKeyStore);
-  if FEchKeyStore <> nil then
-    ValidateEchKeyStore;
   ValidateTrustComposition;
   ValidateAnchorRoots;
   // external PSKs are TLS 1.3-only (RFC 9258): a server that accepts them without offering 1.3
@@ -2913,9 +2880,7 @@ begin
   LConfig.FTicketLifetimeSeconds := FTicketLifetimeSeconds;
   LConfig.FTicketCount := FTicketCount;
   LConfig.FMaxEarlyData := FMaxEarlyData;
-  LConfig.FEchKeyStore := FEchKeyStore;
-  LConfig.FEchTrialDecrypt := FEchTrialDecrypt;
-  LConfig.FEchSplitModeBackend := FEchSplitModeBackend;
+  LConfig.FEchServerPolicy := FEchServerPolicy;
   FFrozen := True;
 end;
 

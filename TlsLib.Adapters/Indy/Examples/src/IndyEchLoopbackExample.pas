@@ -185,8 +185,7 @@ begin
     .WithCredential(TTlsCredential.Load(LCrypto, LPkix,
     TVec.Bytes('leaf_cert'), TVec.Bytes('leaf_key')));
   LServerBuilder.Tls13.WithEchKeyStore(
-    TInMemoryEchKeyStore.FromPem(LEch.Pem, LCrypto));
-  LServerBuilder.Tls13.WithEchTrialDecrypt(True);
+    TInMemoryEchKeyStore.FromPem(LEch.Pem, LCrypto), True);
   LServerConfig := LServerBuilder.Build;
 
   // client config: trust the test root, verify the inner name, and offer ECH with the config list

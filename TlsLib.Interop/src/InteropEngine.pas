@@ -483,16 +483,13 @@ begin
     // Encrypted Client Hello (RFC 9849): the key store holds a config + private key per
     // config id; trial decryption lets the server match a client that hid the config id
     if AOptions.EchKeyStore <> nil then
-    begin
-      LServer.Tls13.WithEchKeyStore(AOptions.EchKeyStore);
-      LServer.Tls13.WithEchTrialDecrypt(True);
-    end
+      LServer.Tls13.WithEchKeyStore(AOptions.EchKeyStore, True)
     // the peer's ECH tests drive a keyless server that must confirm a forwarded inner-type ech
     // (split-mode backend, RFC 9849 sec. 7.2); opt in so those cases behave as the peer expects.
     // Only when 1.3 is offered - the backend role is 1.3-only, and forcing it on a 1.2-capped
     // server would fail the build
     else if Offers13(LVersions) then
-      LServer.Tls13.WithEchSplitModeBackend;
+      LServer.Tls13.WithEchBackend;
     Result := TTlsEngineFactory.CreateServerEngine(LServer.Build);
   end;
 end;
