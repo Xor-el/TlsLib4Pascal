@@ -208,6 +208,23 @@ type
     procedure TestDelegatedResponderCertificateSignedWithSha1IsNotAuthoritative;
   end;
 
+  /// <summary>
+  /// An RSASSA-PKCS1-v1_5 signature over a DigestInfo without the NULL parameters (RFC 8017 9.2) does
+  /// not authenticate a CRL or an OCSP response: the same artifacts with the canonical DigestInfo are
+  /// authoritative.
+  /// </summary>
+  TTestStrictPkcs1RevocationSignatures = class(TTlsLibAlgorithmTestCase)
+  strict private
+    function Field(const AName: string): TBytes;
+    function CrlAuthoritative(const ACrlField: string): Boolean;
+    function OcspAuthoritative(const AResponseField: string): Boolean;
+  published
+    procedure TestCrlWithCanonicalDigestInfoIsAuthoritative;
+    procedure TestCrlWithoutDigestInfoNullIsNotAuthoritative;
+    procedure TestOcspWithCanonicalDigestInfoIsAuthoritative;
+    procedure TestOcspWithoutDigestInfoNullIsNotAuthoritative;
+  end;
+
   /// <summary>The one revocation-decision table every verifier and resolver applies (RFC 6960):
   /// a definitive Revoked rejects under every posture (certificate_revoked), a Good accepts, and an
   /// indeterminate outcome follows the effective posture - Hard rejects (bad_certificate_status_response)
@@ -1742,6 +1759,63 @@ begin
     'a responder certificate the issuer signed with SHA-1 delegates nothing');
 end;
 
+{ TTestStrictPkcs1RevocationSignatures }
+
+function TTestStrictPkcs1RevocationSignatures.Field(const AName: string): TBytes;
+var
+  LV: TStringList;
+begin
+  LV := LoadVectorFields('Certs/Pkcs1StrictDigestInfo.txt');
+  try
+    Result := DecodeHex(LV.Values[AName]);
+  finally
+    LV.Free;
+  end;
+end;
+
+function TTestStrictPkcs1RevocationSignatures.CrlAuthoritative(const ACrlField: string): Boolean;
+var
+  LRevoked: Boolean;
+  LThisUpdate, LNextUpdate: TDateTime;
+begin
+  Result := Pkix.Revocation.CheckCrlRevocation(Field('leaf_cert'), Field('ca_cert'),
+    Field(ACrlField), TDateTimeUtilities.ToUniversalTime(Now), LRevoked, LThisUpdate,
+    LNextUpdate);
+end;
+
+function TTestStrictPkcs1RevocationSignatures.OcspAuthoritative(
+  const AResponseField: string): Boolean;
+var
+  LStatus: TOcspStatus;
+  LThisUpdate, LNextUpdate: TDateTime;
+begin
+  Result := Pkix.Revocation.ValidateOcspStaple(Field('leaf_cert'), Field('ca_cert'),
+    Field(AResponseField), TDateTimeUtilities.ToUniversalTime(Now), LStatus, LThisUpdate,
+    LNextUpdate) and (LStatus = TOcspStatus.Good);
+end;
+
+procedure TTestStrictPkcs1RevocationSignatures.TestCrlWithCanonicalDigestInfoIsAuthoritative;
+begin
+  CheckTrue(CrlAuthoritative('crl_clean'), 'the control CRL is authoritative');
+end;
+
+procedure TTestStrictPkcs1RevocationSignatures.TestCrlWithoutDigestInfoNullIsNotAuthoritative;
+begin
+  CheckFalse(CrlAuthoritative('crl_clean_nonull'),
+    'a CRL whose signature omits the DigestInfo NULL does not clear the leaf');
+end;
+
+procedure TTestStrictPkcs1RevocationSignatures.TestOcspWithCanonicalDigestInfoIsAuthoritative;
+begin
+  CheckTrue(OcspAuthoritative('ocsp_good'), 'the control response is authoritative');
+end;
+
+procedure TTestStrictPkcs1RevocationSignatures.TestOcspWithoutDigestInfoNullIsNotAuthoritative;
+begin
+  CheckFalse(OcspAuthoritative('ocsp_good_nonull'),
+    'a response whose signature omits the DigestInfo NULL is not authenticated');
+end;
+
 { TTestRevocationDecision }
 
 procedure TTestRevocationDecision.TestOcspFreshness;
@@ -1836,11 +1910,13 @@ initialization
   RegisterTest(TTestLiveRevocation);
   RegisterTest(TTestCrlScope);
   RegisterTest(TTestWeakRevocationSignatures);
+  RegisterTest(TTestStrictPkcs1RevocationSignatures);
   RegisterTest(TTestRevocationDecision);
 {$ELSE}
   RegisterTest(TTestLiveRevocation.Suite);
   RegisterTest(TTestCrlScope.Suite);
   RegisterTest(TTestWeakRevocationSignatures.Suite);
+  RegisterTest(TTestStrictPkcs1RevocationSignatures.Suite);
   RegisterTest(TTestRevocationDecision.Suite);
 {$ENDIF FPC}
 

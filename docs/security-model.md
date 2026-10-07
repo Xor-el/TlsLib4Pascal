@@ -124,6 +124,15 @@ These are intentional and documented — flagging them up front so they aren't m
   only tighten, never loosen.
 - **No process-global mutable configuration.** All behavior lives in immutable, per-connection config
   objects; there is no `install_default()`-style ambient global (a footgun for a security library).
+  The one exception in the core is a crypto-backend setting TlsLib4Pascal cannot scope to a connection:
+  at unit start-up it sets `TCryptoLibConfig.Pkcs1.StrictDigestInfo := True`, so every RSASSA-PKCS1-v1_5
+  verification the crypto backend performs in the process (certificate, CRL and OCSP signatures, and
+  TLS 1.2 handshake signatures) re-encodes the DigestInfo with its NULL parameters and compares it
+  exactly (RFC 8017 8.2.2, 9.2 and B.1), where the backend alone also accepts a DigestInfo without
+  them. A host that must accept the other form sets it back to `False` after start-up. Two paths are
+  outside the setting: the optional Windows native (CNG) verifier, which only verifies handshake
+  signatures and accepts a DigestInfo without the NULL, and OS trust delegate mode, where the chain
+  and any revocation data the OS fetches are judged by the platform.
 - **The managed engine is always ours.** Native OS/JVM TLS stacks are never the handshake/record
   engine (a deliberate one-behavior / one-test-corpus stance); OS *trust* is the only sanctioned OS
   touch, and it is opt-in.
