@@ -72,6 +72,7 @@ type
     procedure TestEncryptedKeyImportsWithUtf8Passphrase;
     procedure TestPemKeyAfterOtherObjectsImports;
     procedure TestShortReadFromInjectedRandomIsRefused;
+    procedure TestPkcs1VerifierRejectsDigestInfoWithoutNullParameters;
     procedure TestLoadCertificateChainFromPemBundle;
     procedure TestLoadSingleDerCertificate;
     procedure TestConcatenatedDerRejected;
@@ -239,6 +240,23 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a short read from the random source fails the signature');
+end;
+
+procedure TTestCredentialImport.TestPkcs1VerifierRejectsDigestInfoWithoutNullParameters;
+var
+  LVerifier: ISignatureVerifier;
+  LMessage: TBytes;
+begin
+  // the signature is genuine RSASSA-PKCS1-v1_5 by rsa_pkcs8_der, over a DigestInfo that omits the
+  // NULL parameters RFC 8017 9.2 requires; the verifier must not take it for a valid signature
+  LMessage := DecodeHex(SMessageHex);
+  LVerifier := Crypto.Signing.CreateSignatureVerifier(TSignatureScheme.RSA_PKCS1_SHA256,
+    DecodeHex(FV.Values['rsa_pub']));
+  LVerifier.Update(LMessage, 0, System.Length(LMessage));
+  CheckFalse(LVerifier.Verify(DecodeHex(FV.Values['rsa_pkcs1_sha256_no_null_sig'])),
+    'a DigestInfo without NULL parameters does not verify');
+  CheckTrue(RoundTrips(TSignatureScheme.RSA_PKCS1_SHA256, Import('rsa_pkcs8_der'), 'rsa_pub'),
+    'control: a canonical signature by the same key verifies');
 end;
 
 procedure TTestCredentialImport.TestEcP384AndP521Import;

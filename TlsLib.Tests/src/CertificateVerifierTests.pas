@@ -157,6 +157,8 @@ type
     procedure TestBareVerifierRefusesSha1SignedIntermediate;
     procedure TestSha1ChainSignatureAdmittedWhenNamedInThePolicy;
     procedure TestMd5ChainSignatureRefusedEvenWhenAdmitted;
+    // a PKCS#1 v1.5 chain signature must carry the DigestInfo NULL parameters (RFC 8017 9.2)
+    procedure TestChainSignatureWithoutDigestInfoNullIsRefused;
     procedure TestSameSubjectDifferentKeyRootIgnoredForConfiguredAnchor;
     // the anchor set is fetched once per verify and shared by path validation and the chain policy
     procedure TestAnchorSetCopiedOnceAcrossVerifies;
@@ -933,6 +935,28 @@ begin
   CheckTrue(PolicyVerifierFor(Reissued('root_cert'), LAdvertised, LPolicy)
     .VerifyServerCertificate(LChain, TServerName.DnsName(''), nil, LVerified, LAlert),
     'admitting SHA-1 accepts the SHA-1-signed intermediate');
+end;
+
+procedure TTestCertificateVerifier.TestChainSignatureWithoutDigestInfoNullIsRefused;
+var
+  LVec: TStringList;
+  LRoot: TBytes;
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  LVec := LoadVectorFields('Certs/Pkcs1StrictDigestInfo.txt');
+  try
+    LRoot := DecodeHex(LVec.Values['ca_cert']);
+    CheckTrue(VerifierFor(LRoot, False).VerifyServerCertificate(
+      TArray<TBytes>.Create(DecodeHex(LVec.Values['leaf_cert'])), TServerName.DnsName(''), nil,
+      LVerified, LAlert), 'control: the canonically signed leaf is trusted');
+    CheckFalse(VerifierFor(LRoot, False).VerifyServerCertificate(
+      TArray<TBytes>.Create(DecodeHex(LVec.Values['leaf_nonull_cert'])),
+      TServerName.DnsName(''), nil, LVerified, LAlert),
+      'a leaf signed over a DigestInfo without NULL does not chain to the root');
+  finally
+    LVec.Free;
+  end;
 end;
 
 procedure TTestCertificateVerifier.TestMd5ChainSignatureRefusedEvenWhenAdmitted;

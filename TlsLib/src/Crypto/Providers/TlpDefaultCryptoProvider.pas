@@ -21,6 +21,7 @@ uses
   Rtti,
   SyncObjs,
   Generics.Collections,
+  ClpCryptoLibConfig,
   ClpISecureRandom,
   ClpSecureRandom,
   ClpIRandomGenerator,
@@ -2215,6 +2216,8 @@ end;
 class constructor TDefaultCryptoProvider.Create;
 begin
   FSharedLock := TCriticalSection.Create;
+  // RFC 8017 9.2: the DigestInfo must match exactly; process-wide, set once so a host can relax it afterwards
+  TCryptoLibConfig.Pkcs1.StrictDigestInfo := True;
 end;
 
 class destructor TDefaultCryptoProvider.Destroy;
