@@ -221,6 +221,12 @@ begin
   if VerifyClient(nil, TArray<TBytes>.Create(LLeaf), LAlert) then
     Exit('FAIL: intermediates: the same leaf verified with no intermediate supplied');
   LRefusal := LAlert;
+{$IFDEF ANDROID}
+  // the platform reports a path that ends in no configured anchor as unknown_ca
+  if LRefusal <> TTlsAlertDescription.UnknownCa then
+    Exit(Format('FAIL: intermediates: the leaf was refused with alert %d, expected unknown_ca',
+      [Ord(LRefusal)]));
+{$ENDIF}
   if not VerifyClient(TArray<TBytes>.Create(LIssuer), TArray<TBytes>.Create(LLeaf), LAlert) then
     Exit(Format('FAIL: intermediates: a leaf-only chain was refused though its issuer was ' +
       'supplied (alert %d)', [Ord(LAlert)]));

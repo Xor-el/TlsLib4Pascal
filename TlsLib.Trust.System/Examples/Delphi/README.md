@@ -49,7 +49,8 @@ headless build scripts.
   device's system roots with zero manual trust config.
 - After the GET, three offline **OS-delegate checks** run, each a `PASS:` line (`FAIL:` is a
   defect): an intermediate supplied only through the trust context completes a leaf-only chain
-  over the platform engine (and the same leaf is refused without it); an empty presented chain
+  over the platform engine (and the same leaf is refused without it, with `unknown_ca` on
+  Android); an empty presented chain
   is refused with `bad_certificate` on both roles by the delegate's own guard; and a
   live-revocation source is refused up front where the engine has no network-revocation setting,
   so a live deadline is never silently dropped. The last line reports `INFO:` where the engine
