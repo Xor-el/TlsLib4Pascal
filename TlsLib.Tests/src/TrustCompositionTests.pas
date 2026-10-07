@@ -46,10 +46,26 @@ uses
   TlsLibTestBase;
 
 type
+  /// <summary>A one-root store that reports when it is destroyed, to prove what keeps a store alive.</summary>
+  TReleaseWatchStore = class(TInterfacedObject, ITrustAnchorStore)
+  strict private
+    FRoot: TBytes;
+    FReleased: PBoolean;
+  public
+    constructor Create(const ARoot: TBytes; AReleased: PBoolean);
+    destructor Destroy; override;
+    function AnchorCount: Int32;
+    function RootCertificates: TArray<TBytes>;
+    function IsAnchor(const ACertificate: TBytes): Boolean;
+    function DistrustedCertificates: TArray<TBytes>;
+    function IsDistrusted(const ACertificate: TBytes): Boolean;
+  end;
+
   TTestTrustComposition = class(TTlsLibAlgorithmTestCase)
   private
     FCerts: TStringList;
     function StoreOf(const AFieldName: string): ITrustAnchorStore;
+    function UnionOverWatchedStore(AReleased: PBoolean): ITrustAnchorStore;
   protected
     procedure SetUp; override;
     procedure TearDown; override;
@@ -59,6 +75,7 @@ type
     procedure TestUnionCarriesAndAppliesDistrustAcrossStores;
     procedure TestBuildFreezesDistrustWithTheComposedStore;
     procedure TestUnionCollapsesDuplicatesAndSkipsNilChildren;
+    procedure TestUnionKeepsItsSourceStoresAlive;
     procedure TestAnchorMatchIsExactDer;
     procedure TestBuildRefusesAUnionWhoseDistrustRemovesEveryAnchor;
     procedure TestCertificateVerifierLandsInFrozenConfig;
@@ -125,6 +142,47 @@ function TStubClientCertificateVerifierSource.CreateClientVerifier(
   const AContext: TClientTrustContext): IClientCertificateVerifier;
 begin
   Result := TStubClientCertificateVerifier.Create as IClientCertificateVerifier;
+end;
+
+{ TReleaseWatchStore }
+
+constructor TReleaseWatchStore.Create(const ARoot: TBytes; AReleased: PBoolean);
+begin
+  inherited Create;
+  FRoot := ARoot;
+  FReleased := AReleased;
+end;
+
+destructor TReleaseWatchStore.Destroy;
+begin
+  FReleased^ := True;
+  inherited Destroy;
+end;
+
+function TReleaseWatchStore.AnchorCount: Int32;
+begin
+  Result := 1;
+end;
+
+function TReleaseWatchStore.RootCertificates: TArray<TBytes>;
+begin
+  Result := TArray<TBytes>.Create(FRoot);
+end;
+
+function TReleaseWatchStore.IsAnchor(const ACertificate: TBytes): Boolean;
+begin
+  Result := (System.Length(ACertificate) = System.Length(FRoot)) and
+    CompareMem(PByte(ACertificate), PByte(FRoot), System.Length(FRoot));
+end;
+
+function TReleaseWatchStore.DistrustedCertificates: TArray<TBytes>;
+begin
+  Result := nil;
+end;
+
+function TReleaseWatchStore.IsDistrusted(const ACertificate: TBytes): Boolean;
+begin
+  Result := False;
 end;
 
 { TTestTrustComposition }
@@ -212,6 +270,30 @@ begin
   CheckTrue(TTrustAnchorStore.Union(TArray<ITrustAnchorStore>.Create(nil, LSingle)) = LSingle,
     'one live child is returned as it is');
   CheckEquals(0, TTrustAnchorStore.Union(nil).AnchorCount, 'no child is an empty store');
+end;
+
+function TTestTrustComposition.UnionOverWatchedStore(AReleased: PBoolean): ITrustAnchorStore;
+var
+  LWatched: ITrustAnchorStore;
+begin
+  LWatched := TReleaseWatchStore.Create(DecodeHex(FCerts.Values['root_cert']), AReleased);
+  Result := TTrustAnchorStore.Union(TArray<ITrustAnchorStore>.Create(LWatched,
+    StoreOf('leaf_cert')));
+end;
+
+procedure TTestTrustComposition.TestUnionKeepsItsSourceStoresAlive;
+var
+  LUnion: ITrustAnchorStore;
+  LReleased: Boolean;
+begin
+  // an identity-keyed cache may sign a source store by address; the union must hold it so that
+  // address cannot be reused by another store while the union lives. The helper's own references
+  // are gone by the time it returns, so only the union can be keeping the store.
+  LReleased := False;
+  LUnion := UnionOverWatchedStore(@LReleased);
+  CheckFalse(LReleased, 'the union still holds the source store');
+  LUnion := nil;
+  CheckTrue(LReleased, 'the source store is released with the union');
 end;
 
 procedure TTestTrustComposition.TestAnchorMatchIsExactDer;

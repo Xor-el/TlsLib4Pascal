@@ -168,6 +168,11 @@ begin
     LCtx.PrivateKeyRaw := @LDummy;
     if not RefusesNaming(LCtx, False, 'PrivateKeyRaw') then
       Exit;
+    // a cipher list is a posture input the build would otherwise drop without a word
+    InitNetTlsContext(LCtx);
+    LCtx.CipherList := 'ECDHE-RSA-AES256-GCM-SHA384';
+    if not RefusesNaming(LCtx, False, 'CipherList') then
+      Exit;
     // a server fails at bind time, before it accepts anything, and is pointed at a built config
     InitNetTlsContext(LCtx);
     LCtx.OnEachPeerVerify := LHooks.EachPeerVerify;

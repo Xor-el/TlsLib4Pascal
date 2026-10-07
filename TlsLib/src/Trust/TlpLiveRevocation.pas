@@ -125,9 +125,11 @@ type
       ACap: Int32): TArray<string>; static;
     /// <summary>The timeout for the next attempt, given when the check began, the latest instant
     /// seen so far (so a clock stepped back never returns spent time) and how many attempts remain
-    /// to share what is left of the budget; False when the budget is spent.</summary>
+    /// to share what is left of the budget ADeadlineMs; False when the budget is spent.</summary>
     function NextTimeout(AStartMs: Int64; var ALatestMs: Int64; AAttemptsLeft: Int32;
-      out ATimeoutMs: Cardinal): Boolean;
+      ADeadlineMs: Cardinal; out ATimeoutMs: Cardinal): Boolean;
+    function EvaluateWithin(const AChain: TArray<TBytes>;
+      ADeadlineMs: Cardinal): TLiveRevocationOutcome;
   public
     /// <summary>Builds a checker over an injected provider and fetcher. APosture governs how
     /// an indeterminate result is treated (Hard rejects, Soft/Off accept). ADeadlineMs is the
@@ -299,13 +301,13 @@ begin
 end;
 
 function TLiveRevocationChecker.NextTimeout(AStartMs: Int64; var ALatestMs: Int64;
-  AAttemptsLeft: Int32; out ATimeoutMs: Cardinal): Boolean;
+  AAttemptsLeft: Int32; ADeadlineMs: Cardinal; out ATimeoutMs: Cardinal): Boolean;
 var
   LNowMs, LRemaining, LFloor, LShare: Int64;
 begin
   ATimeoutMs := 0;
   // no budget: each fetch's own timeout applies and nothing is shared
-  if FDeadlineMs = 0 then
+  if ADeadlineMs = 0 then
     Exit(True);
   // the clock is wall time: elapsed time only ever grows, so a step back cannot give back time
   // already spent, and a step forward only ends the check early (indeterminate, which the
@@ -314,12 +316,12 @@ begin
   if LNowMs < ALatestMs then
     LNowMs := ALatestMs;
   ALatestMs := LNowMs;
-  LRemaining := Int64(FDeadlineMs) - (LNowMs - AStartMs);
-  if LRemaining > Int64(FDeadlineMs) then
-    LRemaining := Int64(FDeadlineMs);
+  LRemaining := Int64(ADeadlineMs) - (LNowMs - AStartMs);
+  if LRemaining > Int64(ADeadlineMs) then
+    LRemaining := Int64(ADeadlineMs);
   LFloor := FMinAttemptMs;
-  if LFloor > Int64(FDeadlineMs) then
-    LFloor := Int64(FDeadlineMs);
+  if LFloor > Int64(ADeadlineMs) then
+    LFloor := Int64(ADeadlineMs);
   if LRemaining < LFloor then
     Exit(False);
   LShare := LRemaining div AAttemptsLeft;
@@ -401,6 +403,12 @@ end;
 
 function TLiveRevocationChecker.Evaluate(
   const AChain: TArray<TBytes>): TLiveRevocationOutcome;
+begin
+  Result := EvaluateWithin(AChain, FDeadlineMs);
+end;
+
+function TLiveRevocationChecker.EvaluateWithin(const AChain: TArray<TBytes>;
+  ADeadlineMs: Cardinal): TLiveRevocationOutcome;
 var
   LLeaf, LIssuer, LRequest: TBytes;
   LUrls, LOcspUrls, LCrlUrls: TArray<string>;
@@ -447,7 +455,7 @@ begin
   LLeft := System.Length(LOcspUrls) + System.Length(LCrlUrls);
   for LI := 0 to System.High(LOcspUrls) do
   begin
-    if not NextTimeout(LStartMs, LLatestMs, LLeft, LTimeout) then
+    if not NextTimeout(LStartMs, LLatestMs, LLeft, ADeadlineMs, LTimeout) then
       Exit(TLiveRevocationOutcome.Indeterminate);
     Result := EvaluateOcsp(LLeaf, LIssuer, LRequest, LOcspUrls[LI], LTimeout);
     if Result <> TLiveRevocationOutcome.Indeterminate then
@@ -456,7 +464,7 @@ begin
   end;
   for LI := 0 to System.High(LCrlUrls) do
   begin
-    if not NextTimeout(LStartMs, LLatestMs, LLeft, LTimeout) then
+    if not NextTimeout(LStartMs, LLatestMs, LLeft, ADeadlineMs, LTimeout) then
       Exit(TLiveRevocationOutcome.Indeterminate);
     Result := EvaluateCrl(LLeaf, LIssuer, LCrlUrls[LI], LTimeout);
     if Result <> TLiveRevocationOutcome.Indeterminate then
@@ -470,14 +478,20 @@ end;
 function TLiveRevocationChecker.ResolveVerdict(
   const ACtx: TCertificateVerdictContext;
   out ARejectAlert: TTlsAlertDescription): Boolean;
+var
+  LDeadlineMs: Cardinal;
 begin
   // authenticate against the validated path (issuer at index 1) when the pipeline produced one,
   // so the leaf's issuer comes from PKIX, not a re-guess over configured candidates. The shared
   // table sets certificate_revoked on a definitive Revoked and bad_certificate_status_response on
   // a hard-fail indeterminate; the accept paths leave the pre-set default (unused).
   ARejectAlert := TTlsAlertDescription.BadCertificate;
+  // the budget the host set for the park binds as well as the checker's own; the tighter one wins
+  LDeadlineMs := FDeadlineMs;
+  if (ACtx.DeadlineMs <> 0) and ((LDeadlineMs = 0) or (ACtx.DeadlineMs < LDeadlineMs)) then
+    LDeadlineMs := ACtx.DeadlineMs;
   Result := TRevocationDecision.Decide(
-    Evaluate(ACtx.RevocationPath), FPosture, False, ARejectAlert);
+    EvaluateWithin(ACtx.RevocationPath, LDeadlineMs), FPosture, False, ARejectAlert);
 end;
 
 end.

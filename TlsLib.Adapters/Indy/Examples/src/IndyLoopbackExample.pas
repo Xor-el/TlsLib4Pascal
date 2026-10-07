@@ -35,6 +35,7 @@ implementation
 uses
   SysUtils,
   Classes,
+  DateUtils,
   IdContext,
   IdTCPServer,
   IdTCPClient,
@@ -152,7 +153,9 @@ var
   LClientIO: TTlsLibIOHandlerSocket;
   LEcho: string;
   LEchoHandler: TEchoHandler;
-  LOk: Boolean;
+  LOk, LTimedOut, LTicketsArrived: Boolean;
+  LStarted: TDateTime;
+  LLine: string;
 begin
   Result := 1;
   GServerError := '';
@@ -179,6 +182,16 @@ begin
     LClient.Port := PORT;
     LClient.Connect;
     try
+      // the server's session tickets arrive unread in the socket, so Readable turns true yet no
+      // line will ever come: a read with ReadTimeout set must still give up, the way Indy's own
+      // timed read does (an empty line with ReadLnTimedOut set, not an exception)
+      LTicketsArrived := LClientIO.Readable(3000);
+      LClient.ReadTimeout := 500;
+      LStarted := Now;
+      LLine := LClientIO.ReadLn;
+      LTimedOut := LTicketsArrived and LClientIO.ReadLnTimedOut and (LLine = '') and
+        (MilliSecondsBetween(Now, LStarted) < 5000);
+      LClient.ReadTimeout := 0;
       LClientIO.WriteLn('ping from the indy client');
       LEcho := LClientIO.ReadLn;
     finally
@@ -187,15 +200,16 @@ begin
 
     LServer.Active := False;
 
-    LOk := (LEcho = 'ping from the indy client') and
+    LOk := LTimedOut and (LEcho = 'ping from the indy client') and
       (LClientIO.NegotiatedVersion.WireValue = TlsWireVersionTls13);
     if LOk then
     begin
-      Writeln('Indy loopback PASS: handshake + echo over TLS 1.3');
+      Writeln('Indy loopback PASS: handshake + timed idle read + echo over TLS 1.3');
       Result := 0;
     end
     else
-      Writeln('Indy loopback FAIL: echo="', LEcho, '" server="', GServerError, '"');
+      Writeln('Indy loopback FAIL: timedOut=', LTimedOut, ' echo="', LEcho, '" server="',
+        GServerError, '"');
   except
     on E: Exception do
       Writeln('Indy loopback FAIL: ', E.ClassName, ': ', E.Message,

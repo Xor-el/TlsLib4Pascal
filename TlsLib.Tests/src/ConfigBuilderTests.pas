@@ -116,6 +116,7 @@ type
     procedure TestExternalPskInnerBytesAreCopied;
     procedure TestNilClockIsRefused;
     procedure TestAlpnListBeyondWireLimitIsRefused;
+    procedure TestLargestAlpnListStillEncodesInTheClientHello;
     procedure TestServerExternalPskNeedsTls13;
     procedure TestPreferredGroupsWithNoRegisteredGroupIsRefused;
     procedure TestEmptyPreferredGroupsIsRefusedAtBuild;
@@ -661,15 +662,13 @@ var
   LI: Int32;
   LRaised: Boolean;
 begin
-  // 255 names of 255 bytes is 65280 wire bytes, and a 252-byte name takes it to exactly 65533, the
-  // most the extension can carry
-  SetLength(LNames, 256);
-  for LI := 0 to 254 do
+  // 64 names of 255 bytes is exactly 16384 wire bytes, the most the list may take
+  SetLength(LNames, 64);
+  for LI := 0 to 63 do
     LNames[LI] := Format('%.3d', [LI]) + StringOfChar('a', 252);
-  LNames[255] := '255' + StringOfChar('a', 249);
   NewClientBuilder.WithAlpnProtocols(LNames).Build;
   // one byte more no longer fits
-  LNames[255] := '255' + StringOfChar('a', 250);
+  LNames[63] := LNames[63] + 'a';
   LRaised := False;
   try
     NewClientBuilder.WithAlpnProtocols(LNames);
@@ -677,7 +676,23 @@ begin
     on E: EArgumentTlsLibException do
       LRaised := True;
   end;
-  CheckTrue(LRaised, 'an ALPN list that overflows the 16-bit wire length is refused');
+  CheckTrue(LRaised, 'an ALPN list beyond the cap is refused');
+end;
+
+procedure TTestConfigBuilder.TestLargestAlpnListStillEncodesInTheClientHello;
+var
+  LNames: TArray<string>;
+  LClient: ITlsEngine;
+  LI: Int32;
+begin
+  // the cap exists so that every list Build accepts also fits the ClientHello's extensions block
+  SetLength(LNames, 64);
+  for LI := 0 to 63 do
+    LNames[LI] := Format('%.3d', [LI]) + StringOfChar('a', 252);
+  LClient := TTlsEngineFactory.CreateClientEngine(
+    NewClientBuilder.WithAlpnProtocols(LNames).Build, 'localhost');
+  LClient.StartHandshake;
+  CheckTrue(System.Length(Drain(LClient)) > 16384, 'the ClientHello carries the whole list');
 end;
 
 procedure TTestConfigBuilder.TestServerExternalPskNeedsTls13;

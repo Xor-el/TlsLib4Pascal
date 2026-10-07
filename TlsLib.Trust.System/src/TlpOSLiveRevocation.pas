@@ -39,9 +39,10 @@ type
     FFallback: TCertificateVerdictResolver;
     /// <summary>Runs the platform trust engine live (network on) at the configured posture,
     /// classifying the outcome: True with AOutcome in {Good, Revoked, Indeterminate}; False with
-    /// ARejectAlert set on a definitive non-revocation trust failure the live path surfaced.</summary>
+    /// ARejectAlert set on a definitive non-revocation trust failure the live path surfaced.
+    /// ADeadlineMs is the host's budget for this park (0 = none), which binds beside the resolver's own.</summary>
     function EvaluateLive(const AChain: TArray<TBytes>; const AHostName: string;
-      const AStaple: TBytes; out AOutcome: TLiveRevocationOutcome;
+      const AStaple: TBytes; ADeadlineMs: Cardinal; out AOutcome: TLiveRevocationOutcome;
       out ARejectAlert: TTlsAlertDescription): Boolean; virtual; abstract;
   public
     /// <summary>AExpectedPeer is the certificate role this resolver was built to evaluate (a
@@ -96,7 +97,7 @@ begin
   // validated path (when the pipeline produced one) so the OS engine sees the path the inline pass
   // completed, not an incomplete presented chain it cannot re-assemble with AIA disabled
   if not EvaluateLive(ACtx.RevocationPath, TDelegatePostChecks.OsHostName(ACtx.HostName),
-    ACtx.OcspStaple, LOutcome, ARejectAlert) then
+    ACtx.OcspStaple, ACtx.DeadlineMs, LOutcome, ARejectAlert) then
     Exit(False);
   // an indeterminate live result (the OS could not fetch or decide) defers to the portable
   // fallback when one is wired (OCSP/CRL over the host's IHttpFetcher); otherwise the shared

@@ -141,7 +141,7 @@ type
     FPolicy: TOSDelegatePolicy;
   strict protected
     function EvaluateLive(const AChain: TArray<TBytes>; const AHostName: string;
-      const AStaple: TBytes; out AOutcome: TLiveRevocationOutcome;
+      const AStaple: TBytes; ADeadlineMs: Cardinal; out AOutcome: TLiveRevocationOutcome;
       out ARejectAlert: TTlsAlertDescription): Boolean; override;
   public
     constructor Create(const AEngine: IPlatformChainEngine; ARole: TPeerRole;
@@ -428,7 +428,7 @@ begin
 end;
 
 function TOSDelegateLiveResolver.EvaluateLive(const AChain: TArray<TBytes>;
-  const AHostName: string; const AStaple: TBytes;
+  const AHostName: string; const AStaple: TBytes; ADeadlineMs: Cardinal;
   out AOutcome: TLiveRevocationOutcome; out ARejectAlert: TTlsAlertDescription): Boolean;
 var
   LRequest: TPlatformChainRequest;
@@ -443,7 +443,10 @@ begin
   LRequest.Revocation := TPlatformRevocationCheck.RequirePositive;
   LRequest.NetworkAllowed := True;
   LRequest.Clock := FPolicy.Clock;
+  // the tighter of the resolver's own budget and the host's for this park; 0 means none
   LRequest.DeadlineMs := FPolicy.DeadlineMs;
+  if (ADeadlineMs <> 0) and ((LRequest.DeadlineMs = 0) or (ADeadlineMs < LRequest.DeadlineMs)) then
+    LRequest.DeadlineMs := ADeadlineMs;
   // the base already stripped an IP literal via OsHostName, so a non-empty host is a DNS name;
   // withhold it from a name-matching engine when the name check is off, as BuildRequest does
   if (AHostName <> '') and (FPolicy.CheckHostName or

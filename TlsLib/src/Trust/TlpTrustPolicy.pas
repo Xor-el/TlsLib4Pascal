@@ -176,6 +176,9 @@ type
     ValidatedPath: TArray<TBytes>;
     HostName: string;
     OcspStaple: TBytes;
+    /// <summary>The time budget in milliseconds the host gave the resolver for this park; 0 means
+    /// none was set. A resolver that fetches over the network keeps within it.</summary>
+    DeadlineMs: Cardinal;
     /// <summary>The path a revocation check should authenticate against: the validated path when
     /// the pipeline produced one, else the presented chain (never the reverse, so a hand-built
     /// context that set only Chain keeps its meaning).</summary>
@@ -183,10 +186,10 @@ type
   end;
 
   /// <summary>
-  /// Decides a parked peer-certificate verdict out-of-band (RFC 8446 deferred-verdict seam).
-  /// Return True to continue the handshake, False to abort it; on False, ARejectAlert selects
-  /// the abort alert (default bad_certificate; a definitive live-revocation reject sets
-  /// certificate_revoked). The resolver owns any deadline: a check that cannot decide in time
+  /// Decides a parked peer-certificate verdict out-of-band. Return True to continue the
+  /// handshake, False to abort it; on False, ARejectAlert selects the abort alert (default
+  /// bad_certificate; a definitive live-revocation reject sets certificate_revoked). The resolver
+  /// owns the deadline, within the budget the context carries: a check that cannot decide in time
   /// returns False (fail-closed). Reached only when a verdict-deferral mode is set.
   /// </summary>
   TCertificateVerdictResolver = function(const ACtx: TCertificateVerdictContext;

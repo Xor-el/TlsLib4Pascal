@@ -130,6 +130,10 @@ type
     procedure TestTransportCapIsAnAbsoluteDeadline;
     // timed transport
     procedure TestTransportTimesOutWhenSilent;
+    procedure TestApplicationReadTimeoutRaisesTheRetryableReadTimeout;
+    procedure TestCapCheckBetweenRetriesHonoursTheDeadline;
+    procedure TestTls12OnlyOptionOffersOnlyTls12;
+    procedure TestTls12OnlyConflictsWithASuppliedConfig;
     procedure TestTransportReturnsDataWhenReadable;
     procedure TestTransportCapZeroDoesNotWait;
     procedure TestTransportNegativeReceiveRaisesStreamError;
@@ -190,6 +194,8 @@ type
     constructor Create(const AInbound: TBytes; AReadable: Boolean;
       const AClock: ITlsClock); overload;
     function ArmedTimeout: Int32;
+    /// <summary>What a host does between receive retries: the base's cap check.</summary>
+    procedure PollCap;
     property Outbound: TBytes read FOutbound;
     property ReceiveNegative: Boolean read FReceiveNegative write FReceiveNegative;
     property MaxSend: Int32 read FMaxSend write FMaxSend;
@@ -254,6 +260,11 @@ end;
 function TTestMemoryTransport.ArmedTimeout: Int32;
 begin
   Result := ReadTimeoutMs;
+end;
+
+procedure TTestMemoryTransport.PollCap;
+begin
+  CheckReadCap;
 end;
 
 function TTestMemoryTransport.WaitReadable(AMs: Int32): Boolean;
@@ -1367,6 +1378,110 @@ begin
   end;
   CheckTrue(LRaised, 'a silent peer under an armed cap raises a handshake timeout');
   CheckTrue(Pos('150', LMsg) > 0, 'the timeout message carries the elapsed cap');
+end;
+
+procedure TTestTlsConnection.TestApplicationReadTimeoutRaisesTheRetryableReadTimeout;
+var
+  LSilent, LReadable: TTestMemoryTransport;
+  LTimed: ITlsTransport;
+  LBuf, LInbound: TBytes;
+  LRaised: Boolean;
+begin
+  LSilent := TTestMemoryTransport.Create(nil, False); // never readable
+  LTimed := LSilent as ITlsTransport;
+  LSilent.SetApplicationReadTimeout(150);
+  SetLength(LBuf, 16);
+  LRaised := False;
+  try
+    LTimed.Read(LBuf, 0, 16);
+  except
+    on E: ETlsReadTimeout do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a silent peer under an application-read cap raises the retryable read timeout');
+  // clearing the cap returns to blocking reads, which a readable source then satisfies
+  LInbound := nil;
+  SetLength(LInbound, 8);
+  LReadable := TTestMemoryTransport.Create(LInbound, True);
+  LTimed := LReadable as ITlsTransport;
+  LReadable.SetApplicationReadTimeout(150);
+  LReadable.SetReadTimeout(0);
+  CheckEquals(8, LTimed.Read(LBuf, 0, 16), 'a cleared cap does not bound the read');
+  CheckEquals(0, LReadable.LastWaitMs, 'and waits nowhere');
+end;
+
+procedure TTestTlsConnection.TestCapCheckBetweenRetriesHonoursTheDeadline;
+var
+  LTransport: TTestMemoryTransport;
+  LTimed: ITlsTransport;
+  LClockObj: TMockClock;
+  LClock: ITlsClock;
+  LRaised: Boolean;
+begin
+  // both are reference counted: hold them through interfaces so they are released with the test
+  LClockObj := TMockClock.Create(1000);
+  LClock := LClockObj;
+  LTransport := TTestMemoryTransport.Create(nil, True, LClock);
+  LTimed := LTransport as ITlsTransport;
+  LTransport.PollCap; // no cap armed: nothing to enforce
+  LTransport.SetReadTimeout(150);
+  LClockObj.Advance(100);
+  LTransport.PollCap; // inside the cap
+  LClockObj.Advance(100);
+  LRaised := False;
+  try
+    LTransport.PollCap;
+  except
+    on E: ETlsHandshakeTimeout do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a retry past the deadline raises the handshake timeout');
+  LTransport.SetReadTimeout(0);
+  LTransport.PollCap; // cleared: nothing to enforce
+end;
+
+procedure TTestTlsConnection.TestTls12OnlyOptionOffersOnlyTls12;
+var
+  LOpts: TTlsOptions;
+  LVersions: TArray<UInt16>;
+  LServerSignature: string;
+begin
+  LOpts := ClientOptsWithStore;
+  LVersions := TTlsConfigComposer.BuildClientConfig(LOpts).SupportedVersions;
+  CheckEquals(2, System.Length(LVersions), 'the default client offers TLS 1.3 and 1.2');
+  LOpts.Tls12Only := True;
+  LVersions := TTlsConfigComposer.BuildClientConfig(LOpts).SupportedVersions;
+  CheckEquals(1, System.Length(LVersions), 'Tls12Only narrows the client offer');
+  CheckEquals(Integer(TlsWireVersionTls12), Integer(LVersions[0]), 'to TLS 1.2');
+  CheckTrue(TTlsConfigComposer.ClientSignature(ClientOptsWithStore) <>
+    TTlsConfigComposer.ClientSignature(LOpts), 'the client memo key tells the two builds apart');
+  LOpts := ServerOptsWithCredential;
+  LServerSignature := TTlsConfigComposer.ServerSignature(LOpts);
+  LOpts.Tls12Only := True;
+  LVersions := TTlsConfigComposer.BuildServerConfig(LOpts).SupportedVersions;
+  CheckEquals(1, System.Length(LVersions), 'and the server accepts only one');
+  CheckEquals(Integer(TlsWireVersionTls12), Integer(LVersions[0]), 'TLS 1.2');
+  CheckTrue(LServerSignature <> TTlsConfigComposer.ServerSignature(LOpts),
+    'the server memo key tells the two builds apart');
+end;
+
+procedure TTestTlsConnection.TestTls12OnlyConflictsWithASuppliedConfig;
+var
+  LOpts: TTlsOptions;
+  LRaised: Boolean;
+begin
+  // Tls12Only is read by the options-driven build a supplied config replaces, so it must fail loud
+  LOpts := TTlsOptions.Default;
+  LOpts.ClientConfig := TTlsConfigComposer.BuildClientConfig(ClientOptsWithStore);
+  LOpts.Tls12Only := True;
+  LRaised := False;
+  try
+    TTlsConfigComposer.ResolveClientConfig(LOpts, TTlsConfigMemos.NewClient, 'ClientConfig');
+  except
+    on E: ETlsStreamError do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'Tls12Only alongside a supplied client config is refused');
 end;
 
 procedure TTestTlsConnection.TestTransportReturnsDataWhenReadable;
