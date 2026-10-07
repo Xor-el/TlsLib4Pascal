@@ -27,6 +27,7 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpICryptoProvider,
+  TlpIKeyExchangePrivateKey,
   TlpDefaultCryptoProvider,
   TlsLibTestProviders,
   TlpWindowsSystemCrypto,
@@ -90,6 +91,9 @@ type
     procedure TestExportedPublicKeyVerifiesNativeSignature;
     procedure TestNativeVerifierRejectsCrossFamilyScheme;
     procedure TestEcdhImportRefusesScalarsOutsideTheGroupOrder;
+    // every key-exchange primitive refuses a key minted by another primitive, and accepts its own
+    // family's key through a fresh instance
+    procedure TestKeyExchangePrimitivesRefuseEachOthersKeys;
     // both parsers agree on the key: the natively adopted PKCS#12 key's exported SPKI equals
     // the leaf certificate's SPKI (guards against crypt32 key<->cert association drift)
     procedure TestPkcs12ExportedKeyMatchesLeaf;
@@ -345,6 +349,80 @@ begin
     LRsaKey.PublicKeyInfo);
   LVerifier.Update(LMessage, 0, System.Length(LMessage));
   CheckFalse(LVerifier.Verify(LRsaSignature), 'an RSA key does not verify under an ECDSA scheme');
+end;
+
+procedure TTestWindowsSystemCrypto.TestKeyExchangePrimitivesRefuseEachOthersKeys;
+const
+  Algorithms: array [0 .. 3] of TKeyAgreementAlgorithm = (
+    TKeyAgreementAlgorithm.X25519, TKeyAgreementAlgorithm.SECP256R1,
+    TKeyAgreementAlgorithm.SECP384R1, TKeyAgreementAlgorithm.SECP521R1);
+  KemFamily = 4;
+var
+  LPrivates: array [0 .. KemFamily] of IKeyExchangePrivateKey;
+  LPublics: array [0 .. KemFamily] of TBytes;
+  LMinter: ICryptoProvider;
+  LConsumer: IKeyAgreement;
+  LKem: IKem;
+  LCiphertext: TBytes;
+  LShared, LOut: ISecretBuffer;
+  LI, LJ: Int32;
+
+  // exactly EArgument: a peer-input error (a subclass) or a raw backend error is not the refusal
+  function AgreeRefused(const AKey: IKeyExchangePrivateKey; const APeer: TBytes): Boolean;
+  begin
+    Result := False;
+    try
+      LConsumer.Agree(AKey, APeer);
+    except
+      on E: Exception do
+        Result := E.ClassType = EArgumentTlsLibException;
+    end;
+  end;
+
+  function DecapsulateRefused(const AKey: IKeyExchangePrivateKey): Boolean;
+  begin
+    Result := False;
+    try
+      LKem.Decapsulate(AKey, LCiphertext, LOut);
+    except
+      on E: Exception do
+        Result := E.ClassType = EArgumentTlsLibException;
+    end;
+  end;
+
+begin
+  // keys come from a second overlay, so a key is accepted by family and not by which instance
+  // or algorithm handle minted it
+  LMinter := Composed(TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable));
+  for LI := Low(Algorithms) to High(Algorithms) do
+    LMinter.Primitives.CreateKeyAgreement(Algorithms[LI]).GenerateKeyPair(LPrivates[LI],
+      LPublics[LI]);
+  LMinter.Primitives.CreateKem(TKemAlgorithm.ML_KEM_768).GenerateKeyPair(LPrivates[KemFamily],
+    LPublics[KemFamily]);
+  LKem := Crypto.Primitives.CreateKem(TKemAlgorithm.ML_KEM_768);
+
+  for LJ := Low(Algorithms) to High(Algorithms) do
+  begin
+    LConsumer := Crypto.Primitives.CreateKeyAgreement(Algorithms[LJ]);
+    for LI := 0 to KemFamily do
+      if LI = LJ then
+        CheckTrue(LConsumer.Agree(LPrivates[LI], LPublics[LJ]) <> nil,
+          Format('family %d key is accepted by its own primitive', [LI]))
+      else
+        CheckTrue(AgreeRefused(LPrivates[LI], LPublics[LJ]),
+          Format('family %d key at family %d primitive is refused', [LI, LJ]));
+  end;
+
+  LKem.Encapsulate(LPublics[KemFamily], LCiphertext, LShared);
+  for LI := 0 to KemFamily do
+    if LI = KemFamily then
+    begin
+      LKem.Decapsulate(LPrivates[LI], LCiphertext, LOut);
+      CheckTrue(LOut <> nil, 'the KEM key is accepted by its own primitive');
+    end
+    else
+      CheckTrue(DecapsulateRefused(LPrivates[LI]),
+        Format('family %d key at the KEM primitive is refused', [LI]));
 end;
 
 procedure TTestWindowsSystemCrypto.TestEcdhImportRefusesScalarsOutsideTheGroupOrder;
