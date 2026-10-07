@@ -69,7 +69,11 @@ type
     function BuildClientHello2(AGroup: UInt16; const AKeyShare, ACookie,
       ASessionId: TBytes; ASuite: UInt16 = 0): TBytes;
     function CookieFromHrr(const AHrr: TBytes): TBytes;
-    function NewSecp256r1Server(const AVerbatimCookie: TBytes): IHandshakeMachine;
+    function NewSecp256r1Server(const AVerbatimCookie: TBytes): IHandshakeMachine; overload;
+    function NewSecp256r1Server(const AVerbatimCookie: TBytes;
+      ASplitModeBackend: Boolean): IHandshakeMachine; overload;
+    /// <summary>AFramedClientHello with an inner-type ech extension appended.</summary>
+    function WithInnerEch(const AFramedClientHello: TBytes): TBytes;
     function NewRetryClient: IHandshakeMachine; overload;
     function NewRetryClient(ADualVersion: Boolean): IHandshakeMachine; overload;
   protected
@@ -93,6 +97,7 @@ type
     procedure TestServerRejectsRetryClientHelloThatChangesSuite;
     procedure TestServerRejectsRetryClientHelloThatChangesSessionId;
     procedure TestServerRejectsInnerEchInRetryClientHello;
+    procedure TestBackendServerAcceptsInnerEchInRetryClientHello;
   end;
 
 implementation
@@ -250,6 +255,8 @@ begin
     LContext.MarkOffered(TExtensionTypes.KeyShare);
     LContext.MarkOffered(TExtensionTypes.Cookie);
     LContext.MarkOffered(TExtensionTypes.SupportedVersions);
+    // an accepting ECH backend confirms in the HelloRetryRequest (RFC 9849 sec. 7.2.1)
+    LContext.MarkOffered(TExtensionTypes.EncryptedClientHello);
     LCodec.ConsumeBlock(LContext, TTlsExtensionContextKind.HelloRetryRequest,
       LHello.Extensions);
     Result := System.Copy(LContext.Cookie);
@@ -260,6 +267,27 @@ end;
 
 function TTestHelloRetryRequest.NewSecp256r1Server(
   const AVerbatimCookie: TBytes): IHandshakeMachine;
+begin
+  Result := NewSecp256r1Server(AVerbatimCookie, False);
+end;
+
+function TTestHelloRetryRequest.WithInnerEch(const AFramedClientHello: TBytes): TBytes;
+var
+  LHello: TTlsClientHello;
+  LExtensions: TExtensionVector;
+begin
+  LHello := THandshakeMessages.DecodeClientHello(
+    System.Copy(AFramedClientHello, 4, System.Length(AFramedClientHello) - 4));
+  LExtensions := TExtensionVector.Parse(LHello.Extensions);
+  LExtensions.Append(TExtensionEntry.Create(TExtensionTypes.EncryptedClientHello,
+    TEchExtension.EncodeInner));
+  LHello.Extensions := LExtensions.Encode;
+  Result := THandshakeFraming.Frame(TTlsHandshakeType.ClientHello,
+    THandshakeMessages.EncodeClientHello(LHello));
+end;
+
+function TTestHelloRetryRequest.NewSecp256r1Server(
+  const AVerbatimCookie: TBytes; ASplitModeBackend: Boolean): IHandshakeMachine;
 var
   LParams: TServerHandshakeParams;
   LCerts: TStringList;
@@ -278,6 +306,7 @@ begin
   LParams.Group := TNamedGroups.CreateNistEcdh(LParams.Crypto, 'secp256r1');
   LParams.ServerRandom := DecodeHex(StringOfChar('2', 64));
   LParams.CookieSecret := CookieSecret;
+  LParams.EchSplitModeBackend := ASplitModeBackend;
   // a P-256 signing key; its lone capable scheme is ecdsa_secp256r1_sha256, which the
   // negotiation needs when it processes the first ClientHello (before the retry)
   LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
@@ -671,8 +700,6 @@ var
   LServer: IHandshakeMachine;
   LHrr, LCookie, LCh2, LShare: TBytes;
   LPriv: IKeyExchangePrivateKey;
-  LHello: TTlsClientHello;
-  LExtensions: TExtensionVector;
   LAlert: TTlsAlertDescription;
 begin
   // an inner-type ech is a decrypted ClientHelloInner, which only a split-mode backend may see
@@ -681,19 +708,35 @@ begin
   LServer := NewSecp256r1Server(nil);
   LHrr := SendHandshakeOf(LServer.ProcessMessage(MsgFrom(Vec('client_hello_1'))))[0];
   LCookie := CookieFromHrr(LHrr);
-  LCh2 := BuildClientHello2(TNamedGroupCatalog.Secp256r1, LShare, LCookie, nil,
-    TCipherSuites13.Aes128GcmSha256);
-  LHello := THandshakeMessages.DecodeClientHello(System.Copy(LCh2, 4, System.Length(LCh2) - 4));
-  LExtensions := TExtensionVector.Parse(LHello.Extensions);
-  LExtensions.Append(TExtensionEntry.Create(TExtensionTypes.EncryptedClientHello,
-    TEchExtension.EncodeInner));
-  LHello.Extensions := LExtensions.Encode;
-  LCh2 := THandshakeFraming.Frame(TTlsHandshakeType.ClientHello,
-    THandshakeMessages.EncodeClientHello(LHello));
+  LCh2 := WithInnerEch(BuildClientHello2(TNamedGroupCatalog.Secp256r1, LShare, LCookie, nil,
+    TCipherSuites13.Aes128GcmSha256));
   CheckTrue(FailAlertOf(LServer.ProcessMessage(MsgFrom(LCh2)), LAlert),
     'an inner-type ech in the retry ClientHello aborts');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
     'it is illegal_parameter');
+end;
+
+procedure TTestHelloRetryRequest.TestBackendServerAcceptsInnerEchInRetryClientHello;
+var
+  LServer: IHandshakeMachine;
+  LHrr, LCookie, LCh2, LShare: TBytes;
+  LPriv: IKeyExchangePrivateKey;
+  LEffects: TArray<THandshakeEffect>;
+  LAlert: TTlsAlertDescription;
+begin
+  // a keyless split-mode backend takes the forwarded inner hello on both flights: after the
+  // HelloRetryRequest the retry's inner-type ech is accepted and the handshake continues
+  TNamedGroups.CreateNistEcdh(Crypto, 'secp256r1').GenerateKeyPair(LPriv, LShare);
+  LServer := NewSecp256r1Server(nil, True);
+  LHrr := SendHandshakeOf(LServer.ProcessMessage(MsgFrom(WithInnerEch(Vec('client_hello_1')))))[0];
+  LCookie := CookieFromHrr(LHrr);
+  LCh2 := WithInnerEch(BuildClientHello2(TNamedGroupCatalog.Secp256r1, LShare, LCookie, nil,
+    TCipherSuites13.Aes128GcmSha256));
+  LEffects := LServer.ProcessMessage(MsgFrom(LCh2));
+  CheckFalse(FailAlertOf(LEffects, LAlert),
+    'a backend server does not abort an inner-type ech in the retry ClientHello');
+  CheckTrue(System.Length(SendHandshakeOf(LEffects)) > 0,
+    'the backend answers the retry ClientHello with a ServerHello flight');
 end;
 
 initialization
