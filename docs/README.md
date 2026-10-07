@@ -1,6 +1,6 @@
 # TlsLib4Pascal — documentation
 
-**TlsLib4Pascal docs** · Home · [Getting started](getting-started.md) · [Cookbook](cookbook.md) · [Verification](certificate-verification.md) · [System trust](system-trust.md) · [Compression](certificate-compression.md) · [ECH](ech.md) · [Security model](security-model.md)
+**TlsLib4Pascal docs** · Home · [Getting started](getting-started.md) · [Cookbook](cookbook.md) · [Verification](certificate-verification.md) · [System trust](system-trust.md) · [Compression](certificate-compression.md) · [ECH](ech.md) · [Security model](security-model.md) · [Release notes](release-notes.md)
 
 TlsLib4Pascal is a fully managed, from-scratch **TLS 1.2 + TLS 1.3** stack for **Delphi** and
 **FPC / Lazarus** — no OpenSSL, no platform TLS engine, no external runtime dependency beyond its
@@ -22,6 +22,7 @@ by task, and drop into a deep-dive guide when you need the detail.
 | **[Certificate compression](certificate-compression.md)** | RFC 8879 compression and the cross-connection compression cache. |
 | **[Encrypted Client Hello](ech.md)** | RFC 9849 ECH: hide the SNI — offering it as a client, accepting it as a server, key generation, and DNS. |
 | **[Security model](security-model.md)** | The invariants, the fail-closed guarantees, and how each is tested — the auditor's map. |
+| **[Release notes](release-notes.md)** | Upgrading — the breaking changes, behaviour changes and the CryptoLib version you need. |
 | **[SECURITY.md](../SECURITY.md)** | Reporting a vulnerability + the coordinated-disclosure policy. |
 | **Adapter READMEs** (in each package) | Dropping TlsLib4Pascal into [mORMot](../TlsLib.Adapters/mORMot/README.md), [Indy](../TlsLib.Adapters/Indy/README.md), [Synapse](../TlsLib.Adapters/Synapse/README.md), or [fcl-net](../TlsLib.Adapters/FclNet/README.md). |
 
