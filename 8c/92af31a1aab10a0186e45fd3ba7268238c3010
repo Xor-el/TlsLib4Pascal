@@ -1,0 +1,47 @@
+TlsLib/src/Engine/TlpTlsEngine.pas
+  s_d27f31cd14035d::t_02ded08b139014 752-753
+  s_d27f31cd14035d::t_3b41ea95724e35 751
+TlsLib/src/Session/TlpExternalPskImporter.pas
+  s_d27f31cd14035d::t_5e8461809f8531 50-51
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_d27f31cd14035d::t_0ad7f159faac81 937
+TlsLib/src/Extensions/TlpCoreExtensions.pas
+  s_d27f31cd14035d::t_c6d128f03ec541 1144
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_d27f31cd14035d::t_1cfdb733e7a247 1511-1512
+TlsLib.Tools/EchKeyGen/src/TlpEchKeyGen.pas
+  s_d27f31cd14035d::t_22cd00db994470 63-64
+TlsLib/src/Ech/TlpEchServer.pas
+  s_d27f31cd14035d::t_1b4fe8896eea89 244
+TlsLib.Tests/src/Tls12LoopbackTests.pas
+  s_d27f31cd14035d::t_1285c987a465f5 267
+TlsLib/src/Ech/TlpEchConfig.pas
+  s_d27f31cd14035d::t_82c3bedc83223d 476-477
+TlsLib/src/Pkix/Providers/TlpDefaultPkixProvider.pas
+  s_d27f31cd14035d::t_ed5509ab947f09 1251
+  s_d27f31cd14035d::t_853f0f9838b691 1302
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_d27f31cd14035d::t_84204e35db7c0d 1130
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_d27f31cd14035d::t_c12755fc0a6633 303-304
+TlsLib/src/Handshake/TlpHandshakeMachineBase.pas
+  s_d27f31cd14035d::t_25a82e648d4bd8 66-67
+TlsLib.Tests/src/EngineSkeletonTests.pas
+  s_d27f31cd14035d::t_988915ae158881 297
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8c92af31a1aab10a0186e45fd3ba7268238c3010",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
