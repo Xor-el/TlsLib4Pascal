@@ -1,0 +1,138 @@
+TlsLib.Tests/src/WindowsSystemCryptoTests.pas
+  s_d27f31cd14035d::t_862bf75105b46f 31
+  s_d27f31cd14035d::t_128b68b3c83f5e 188
+  s_d27f31cd14035d::t_e32dc67d0d33e5 264
+TlsLib.Tests/src/SignatureTests.pas
+  s_d27f31cd14035d::t_3669dc14fa37c7 280,521,550
+  s_d27f31cd14035d::t_fd795a4b4744df 32
+  s_d27f31cd14035d::t_e98a0b61e7b119 279,284,291,297-300,303,307,309-310
+TlsLib.Interop/FreePascal.Interop/BoGoShim.lpi
+  s_d27f31cd14035d::t_e09e0728fe9f79 70
+TlsLib.Interop/FreePascal.Interop/TrustDelegateInterop.lpi
+  s_d27f31cd14035d::t_5dfd8fd91a972d 73
+TlsLib.Interop/src/TlsFuzzerRunner.pas
+  s_d27f31cd14035d::t_433169cfc1fa76 41
+  s_d27f31cd14035d::t_cefd56a0c54060 1012
+  s_d27f31cd14035d::t_e001499bf9e9a3 1013
+TlsLib.Tests/FreePascal.Tests/TlsLib.lpr
+  s_d27f31cd14035d::t_030fdbb5dc4fb3 11
+TlsLib.Tests/src/TlsLibTestProviders.pas
+  s_d27f31cd14035d::t_d9cf582e4cc23c 129-130
+  s_d27f31cd14035d::t_237b83e9ffd2a5 1-42,45-95,103-128,131-154
+  s_d27f31cd14035d::t_6e99a9b7ea1eb4 43-44
+  s_d27f31cd14035d::t_27e3bc3656ae56 96-102
+TlsLib.Tests/src/ProviderTests.pas
+  s_d27f31cd14035d::t_8dc1352038f14d 761
+  s_d27f31cd14035d::t_0e43741c5fd408 38
+  s_d27f31cd14035d::t_86cff98ffe33b8 925
+  s_d27f31cd14035d::t_f21f21574dae50 179,212,603
+TlsLib.Tests/src/HkdfLabelTests.pas
+  s_d27f31cd14035d::t_232b185c5765bf 183
+  s_d27f31cd14035d::t_a5d061624e39f5 33
+.github/workflows/ci/interop/interop-build.sh
+  s_d27f31cd14035d::t_ed751e4d43e95c 88
+  s_d27f31cd14035d::t_adff36d284b437 48
+  s_d27f31cd14035d::t_d11807b432f85e 49
+TlsLib.Interop/src/InteropEngine.pas
+  s_d27f31cd14035d::t_18b2f517e90990 25
+  s_d27f31cd14035d::t_da8d6af2664281 315
+TlsLib.Tests/src/TlsLibTestBase.pas
+  s_d27f31cd14035d::t_2b62d92d625813 152
+  s_d27f31cd14035d::t_be1301015a8d06 38-39
+  s_d27f31cd14035d::t_3469e566185e74 68,70,157
+TlsLib.Tests/src/MockCryptoProvider.pas
+  s_d27f31cd14035d::t_be28e3db860669 27
+  s_146b737ee13a35::t_7850aa7f1b29ee 313,454,468,481,619
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpr
+  s_d27f31cd14035d::t_1098898a8e6cdd 9
+  s_d27f31cd14035d::t_c89b49437757d1 96-97,100-102,104-113,123
+  s_d27f31cd14035d::t_8d9ed13a47094e 122
+  s_d27f31cd14035d::t_72770c20bbdfa5 103
+TlsLib.Tests/src/NamedGroupTests.pas
+  s_d27f31cd14035d::t_6bd625b0f5cb02 263
+  s_d27f31cd14035d::t_7c6a98045cb3c2 38,249
+TlsLib.Interop/FreePascal.Interop/TlsFuzzer.lpi
+  s_d27f31cd14035d::t_4d2b5f33a7f520 66
+.github/workflows/make.yml
+  s_d27f31cd14035d::t_52526514c532ad 79-84
+  s_d27f31cd14035d::t_c87338423fdaf5 178-179,221-222,310-311,355-356,396-397
+TlsLib.Tests/src/CredentialImportTests.pas
+  s_d27f31cd14035d::t_8316ebcf599593 253
+  s_d27f31cd14035d::t_69619b6dc8649e 252
+  s_d27f31cd14035d::t_23fe8f5b301de0 38,255-256
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_d27f31cd14035d::t_39887c5f14ff5d 159
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_d27f31cd14035d::t_1f43eef333ec4c 269
+  s_d27f31cd14035d::t_9ee147be3ef5ff 268,270-272
+  s_d27f31cd14035d::t_b98dcd0c77fafc 179
+TlsLib.Interop/src/BoGoShimRunner.pas
+  s_d27f31cd14035d::t_51ff0f4571a532 1425
+  s_d27f31cd14035d::t_1dda3d45b3741f 44
+  s_d27f31cd14035d::t_698d186b0a521d 1426
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpi
+  s_d27f31cd14035d::t_e2a13d40319c47 358-361
+  s_d27f31cd14035d::t_226fba69548ac9 37
+TlsLib.Interop/src/TrustDelegateInteropRunner.pas
+  s_d27f31cd14035d::t_71c4f8cd1598b4 195,251,411,488
+  s_d27f31cd14035d::t_c28463122d8b55 41
+  s_d27f31cd14035d::t_26941895067f25 194,250,410,487
+TlsLib.Interop/FreePascal.Interop/OpenSslInterop.lpi
+  s_d27f31cd14035d::t_51c004eb34782c 70
+TlsLib.Interop/src/InteropSelfTestRunner.pas
+  s_d27f31cd14035d::t_bdffd46fa22c0c 32
+  s_d27f31cd14035d::t_b27bf7d8e90fb9 164,230,317,426
+  s_d27f31cd14035d::t_12e1fe253ae2fa 165,318,427
+TlsLib.Interop/FreePascal.Interop/InteropSelfTest.lpi
+  s_d27f31cd14035d::t_a31d081809e286 70
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_d27f31cd14035d::t_717f96b63f2aeb 81-82,298
+  s_d27f31cd14035d::t_c512fd51e853cd 71
+  s_d27f31cd14035d::t_6a0a5b26c66ccd 299-302,305
+  s_d27f31cd14035d::t_08358da7561e90 1790,1792-1793
+TlsLib.Interop/src/OpenSslInteropRunner.pas
+  s_d27f31cd14035d::t_f92cfd01bb2bde 37
+  s_d27f31cd14035d::t_3ed49b4c6bf1ca 174,238,422,424
+  s_d27f31cd14035d::t_70c8a6d1bed3c2 239,425
+.github/workflows/ci/interop/fuzz-discovery.sh
+  s_d27f31cd14035d::t_b015b408b2a136 26
+  s_d27f31cd14035d::t_a31d588c069ff5 60
+.github/workflows/ci/interop/interop-harness/action.yml
+  s_d27f31cd14035d::t_2cf946c22bd94b 34,36-38,40-44
+  s_d27f31cd14035d::t_b6f8ef50798163 92-93
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_d27f31cd14035d::t_b8dd86902b4603 416,426,429,432,435,438,447,449,459,468,479,539,551,562,575,664,1125,1172,1197,1453,1489,1515,1536,1559,1725,1736,1813,1853,1915,2191,2257,2379
+TlsLib.Tests/FreePascal.Tests/TlsLib.Tests.lpi
+  s_d27f31cd14035d::t_e33fbd2f1007dc 364-367
+  s_d27f31cd14035d::t_54e5838251899a 43
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_d27f31cd14035d::t_002f3a137434d1 502
+TlsLib.Tests/src/AppleAlertMapTests.pas
+  s_d27f31cd14035d::t_ece96aaacaa8ad 114
+TlsLib.Tests/src/BundleTrustTests.pas
+  s_d27f31cd14035d::t_877e66491006b7 73,77,95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e7d1e0c1b3ecba29bf97f03c581011d2756368ea",
+  "prompts": {},
+  "sessions": {
+    "s_146b737ee13a35": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a600689416826c7fd",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
