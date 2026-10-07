@@ -27,6 +27,7 @@ assigns `NewNetTls`; if you prefer, assign it yourself: `NewNetTls := NewTlsLib4
 | `CertificateFile` + `PrivateKeyFile` + `PrivatePassword` | `WithCredential` (server cert/key, or client mTLS) |
 | `ClientCertificateAuthentication`        | `WithPeerAuth(Required)` + client-chain trust; `False` (default) never requests a client certificate. The client-CA is `CACertificatesFile` (`CASystemStores` is a server-cert source, ignored on a server). `Requested` (ask, tolerate absence) is available through `SetTlsLibMormotServerConfig` with a builder-driven config |
 | `IgnoreCertificateErrors`                | **`dangerous` `WithDangerousInsecureSkipVerify`** (see below) |
+| `DisableTls13`                           | offers TLS 1.2 alone (`SupportedVersions`)                |
 | `CipherName` (out)                       | filled with the negotiated suite and version (`TLS_AES_128_GCM_SHA256 TLSv1.3`) |
 
 **Certificate chain**: `CertificateFile` is the chain the server *presents* — put your leaf **followed
@@ -35,7 +36,7 @@ by any intermediates** in one PEM file so clients build a complete chain. `CACer
 there leaves the presented chain incomplete, forcing clients to fetch the missing CA.
 
 Accepted **and ignored** (documented no-ops — we are TLS 1.2+ and never renegotiate; they never
-silently weaken the connection): `DisableTls13`, `AllowDeprecatedTls`, `ClientAllowUnsafeRenegotation`,
+silently weaken the connection): `AllowDeprecatedTls`, `ClientAllowUnsafeRenegotation`,
 `ClientVerifyOnce`, `ReleaseBuffers`, `WithPeerInfo`, `CipherList` (our suites are AEAD-only) and
 `OnPrivatePassword` (set `PrivatePassword`; an encrypted key without it fails loudly at load).
 Of the output fields only `CipherName` (and a server's `LastError`) are filled; `PeerIssuer`,
@@ -125,5 +126,5 @@ and exits 0 (PASS) / 2 (SKIP, offline) / 1 (FAIL).
 `SetTlsLibMormotServerConfig` / `SetTlsLibMormotClientConfig` — an ordered, bound cipher-suite
 preference pinned to TLS 1.2, so the negotiated 1.2 (the preset would pick 1.3) proves the injected
 config replaced the built-in build. This is the escape hatch to the whole builder API (cipher
-order, groups, resumption, ALPN, …). A built config supplied alongside cert/trust options (or a
-verify callback or a crypto/PKIX provider) is refused, not silently dropped.
+order, groups, resumption, ALPN, …). A built config supplied alongside cert/trust options (or
+`DisableTls13`, a verify callback or a crypto/PKIX provider) is refused, not silently dropped.

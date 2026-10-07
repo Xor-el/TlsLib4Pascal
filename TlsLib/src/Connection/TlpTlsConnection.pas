@@ -98,7 +98,7 @@ type
     ServerVerdictDeadlineMs: Cardinal;
     SessionResumption: Boolean;                  // default True
     HandshakeTimeoutMs: Int32;                   // 0 = the library default (30 000 ms)
-    Tls12Only: Boolean;                          // offer TLS 1.2 alone, for a peer that mishandles 1.3
+    SupportedVersions: TArray<UInt16>;           // wire codes in preference order; empty = TLS 1.3 + 1.2
     ClientConfig: ITlsClientConfig;              // config-in: replaces the client build
     ServerConfig: ITlsServerConfig;              // config-in: replaces the server build
     TrustSourceHint: string;                     // client-role host knob names, spliced into the no-source message
@@ -420,8 +420,8 @@ begin
   LCrypto := EffectiveCrypto(AOptions);
   LPkix := EffectivePkix(AOptions);
   LClient := TTlsPresets.Compatible(LCrypto, LPkix).Client;
-  if AOptions.Tls12Only then
-    LClient.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12));
+  if System.Length(AOptions.SupportedVersions) > 0 then
+    LClient.WithSupportedVersions(AOptions.SupportedVersions);
   // compose peer trust from orthogonal sources: a whole-verifier REPLACES the pipeline, else the
   // anchors + the OS store + a custom store all UNION. Adding both a verifier and an anchor source
   // is left to fail as the builder's typed conflict. System trust is never implicit.
@@ -505,8 +505,8 @@ begin
   LServer := TTlsPresets.Compatible(LCrypto, LPkix).Server
     .WithCredential(TTlsCredential.Load(LCrypto, LPkix,
     Load(AOptions.Certificate), Load(AOptions.PrivateKey), AOptions.KeyPassword));
-  if AOptions.Tls12Only then
-    LServer.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12));
+  if System.Length(AOptions.SupportedVersions) > 0 then
+    LServer.WithSupportedVersions(AOptions.SupportedVersions);
   if System.Length(AOptions.AlpnProtocols) > 0 then
     LServer.WithAlpnProtocols(AOptions.AlpnProtocols);
   // request + verify client certificates only under an explicit mode (a named client-CA alone never
@@ -564,7 +564,9 @@ begin
   LSig.AddMethod('verifyCb', TMethod(AOptions.VerifyCallback));
   LSig.AddFlag('asyncVerdict', Assigned(AOptions.ClientVerdictResolver));
   LSig.AddCardinal('deadline', AOptions.ClientVerdictDeadlineMs);
-  LSig.AddFlag('tls12Only', AOptions.Tls12Only);
+  LSig.AddCardinal('versions', Cardinal(System.Length(AOptions.SupportedVersions)));
+  for LI := 0 to System.High(AOptions.SupportedVersions) do
+    LSig.AddCardinal('version', AOptions.SupportedVersions[LI]);
   Result := LSig.Value;
 end;
 
@@ -597,7 +599,9 @@ begin
   LSig.AddMethod('verifyCb', TMethod(AOptions.VerifyCallback));
   LSig.AddFlag('asyncVerdict', Assigned(AOptions.ServerVerdictResolver));
   LSig.AddCardinal('deadline', AOptions.ServerVerdictDeadlineMs);
-  LSig.AddFlag('tls12Only', AOptions.Tls12Only);
+  LSig.AddCardinal('versions', Cardinal(System.Length(AOptions.SupportedVersions)));
+  for LI := 0 to System.High(AOptions.SupportedVersions) do
+    LSig.AddCardinal('version', AOptions.SupportedVersions[LI]);
   Result := LSig.Value;
 end;
 
@@ -608,7 +612,7 @@ var
 begin
   // a supplied config owns the frozen build entirely; naming an option the same role's own build
   // would consume alongside it silently drops it, so fail loud. Credential, trust anchors, ALPN,
-  // providers and the augment callback are read by both roles (the server reads the callback under
+  // providers, the supported-versions list and the augment callback are read by both roles (the server reads the callback under
   // client auth); the server-cert verifier and system trust are client-only reads and the
   // client-cert verifier a server-only read, so flagging one on the other role would reject an
   // option that role never consumes. The verdict resolvers and the handshake timeout are runtime
@@ -622,7 +626,8 @@ begin
   // check is a client-only read; the server build reads peer verification and the skip-verify bypass
   // only under a client-auth mode, which already conflicts on its own below. A non-default
   // client-authentication mode is a server-only security decision the config would replace.
-  LConflict := LConflict or (not AOptions.SessionResumption) or AOptions.Tls12Only;
+  LConflict := LConflict or (not AOptions.SessionResumption) or
+    (System.Length(AOptions.SupportedVersions) > 0);
   if AIsClient then
     LConflict := LConflict or (AOptions.ServerCertificateVerifier <> nil) or
       (AOptions.SystemTrust <> nil) or

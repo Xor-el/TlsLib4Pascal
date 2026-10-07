@@ -50,6 +50,7 @@ uses
   TlpClock,
   TlpTlsConnection,
   TlpTlsConnectionInfo,
+  TlpTlsVersion,
   TlpNegotiationTypes,
   TlpSystemTrustFacade;
 
@@ -101,7 +102,7 @@ type
   /// TlsLib4Pascal's implementation of Synapse's TCustomSSL. Connect / Accept run the
   /// handshake; SendBuffer / RecvBuffer move application data; WaitingData reports buffered
   /// plaintext; Shutdown / BiShutdown send close_notify. It maps the TCustomSSL properties
-  /// (cert/key files, CA, VerifyCert, SNIHost) plus the per-connection extras Synapse lacks
+  /// (cert/key files, CA, VerifyCert, SNIHost, SSLType) plus the per-connection extras Synapse lacks
   /// (UseSystemTrust, a supplied config, Crypto/Pkix, resumption, the handshake read cap) onto the
   /// host-neutral adapter core.
   /// </summary>
@@ -186,7 +187,7 @@ type
     /// explicit knob. Cast Sock.SSL to TSSLTlsLib to set it.</summary>
     property ClientAuth: TClientAuthMode read FClientAuth write FClientAuth;
     /// <summary>A fully-built client config that REPLACES the property-driven build: when set, the
-    /// cert/trust properties (CertCAFile, CertificateFile, UseSystemTrust) are not allowed alongside
+    /// cert/trust properties (CertCAFile, CertificateFile, UseSystemTrust) and a pinned SSLType are not allowed alongside
     /// it (the plugin raises). The verdict resolver still applies, but only if this config armed the
     /// deferral (WithLiveRevocationVerdict/WithAsyncCertificateVerdict) - else the handshake never
     /// parks. The escape hatch to the full builder API - cipher order, groups, resumption, ALPN.
@@ -221,6 +222,8 @@ implementation
 resourcestring
   SPeerVerifyRejected = 'the OnVerifyCert handler rejected the peer certificate';
   SSynapseSendNoProgress = 'Synapse socket send returned no progress';
+  SSynapseSslTypeUnsupported = 'SSLType selects a protocol this library does not implement; ' +
+    'use LT_all, LT_TLSv1_2 or LT_TLSv1_3';
   SSynapseTrustSourceHint = 'a CertCAFile bundle and/or UseSystemTrust';
   SSynapseClientAuthSourceHint = 'a CertCAFile bundle';
 
@@ -357,6 +360,18 @@ begin
   Result.ServerVerdictDeadlineMs := GServerVerdictDeadlineMs;
   Result.SessionResumption := FSessionResumption;
   Result.HandshakeTimeoutMs := FHandshakeTimeoutMs;
+  // a version the host pinned must narrow the offer or fail; ignoring it would silently widen it
+  case SSLType of
+    LT_all:
+      ;
+    LT_TLSv1_2:
+      Result.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls12);
+    LT_TLSv1_3:
+      Result.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls13);
+  else
+    raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
+      @SSynapseSslTypeUnsupported);
+  end;
   Result.ClientConfig := FClientConfig;
   Result.ServerConfig := FServerConfig;
   Result.TrustSourceHint := SSynapseTrustSourceHint;
