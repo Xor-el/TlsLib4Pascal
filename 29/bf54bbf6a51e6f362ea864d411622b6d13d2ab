@@ -1,0 +1,31 @@
+TlsLib.Trust.System/Examples/Delphi/SystemTrustDemoFormUnit.pas
+  s_d27f31cd14035d::t_4514343dd16cda 94-100
+TlsLib.Trust.System/Examples/Delphi/README.md
+  s_d27f31cd14035d::t_26a4635b2a45cd 50-55
+  s_d27f31cd14035d::t_1fdab32fc37cd3 34
+  s_d27f31cd14035d::t_06da2a9f73b619 56-57
+TlsLib.Trust.System/Examples/Delphi/SystemTrustDemoRunner.pas
+  s_d27f31cd14035d::t_5318be569efbb5 271
+  s_d27f31cd14035d::t_22b5f1aba86bc5 140
+  s_d27f31cd14035d::t_57d6b62e5287ab 275,278
+  s_d27f31cd14035d::t_f530cf9510f3b2 219-223,227-228
+  s_d27f31cd14035d::t_52498ecba88a3d 215
+  s_d27f31cd14035d::t_11dbd39f65474c 262-266
+  s_d27f31cd14035d::t_92962cc2bb4919 15-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "29bf54bbf6a51e6f362ea864d411622b6d13d2ab",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
