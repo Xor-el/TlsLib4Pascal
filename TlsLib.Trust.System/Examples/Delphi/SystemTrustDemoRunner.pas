@@ -12,10 +12,11 @@
 /// <summary>
 /// Everything the system-trust demo does, so the form only delegates to it: a live HTTPS GET
 /// verified by the host OS trust store (an unmodified Indy TIdHTTP with UseSystemTrust), then
-/// on-device checks of the OS trust delegate against whatever platform engine the build targets
-/// (the Android X509TrustManager on a device). Each check is self-contained and needs no network:
-/// a three-tier chain is supplied as bytes, the intermediate reaches the OS engine only through
-/// the context, and the verdicts are read straight from the delegate verifiers.
+/// offline checks of the OS trust delegate over whatever platform engine the build targets (the
+/// Android X509TrustManager on a device). Each check is self-contained and needs no network: a
+/// three-tier chain is supplied as bytes, the intermediate reaches the OS engine only through the
+/// context, and the verdicts are read straight from the delegate verifiers. The empty-chain check
+/// is the delegate's own guard and never reaches the engine.
 /// </summary>
 unit SystemTrustDemoRunner;
 
@@ -136,8 +137,7 @@ begin
   LHttp := TIdHTTP.Create(nil);
   try
     LIO := TTlsLibIOHandlerSocket.Create(LHttp);
-    // Trust the OS store only - no RootCertFile, no CustomTrustStore. The platform
-    // X509TrustManager renders the verdict over JNI.
+    // Trust the OS store only - no RootCertFile, no CustomTrustStore; the platform renders the verdict
     LIO.SSLOptions.UseSystemTrust := True;
     LHttp.IOHandler := LIO;
     LHttp.HandleRedirects := True;
@@ -212,17 +212,20 @@ end;
 class function TSystemTrustDemoRunner.CheckIntermediates: string;
 var
   LLeaf, LIssuer: TBytes;
-  LAlert: TTlsAlertDescription;
+  LAlert, LRefusal: TTlsAlertDescription;
 begin
   LLeaf := TDataEncoding.HexDecode(LeafHex);
   LIssuer := TDataEncoding.HexDecode(IssuerHex);
+  // the refusal comes first so a verdict the engine remembered from the accepted chain cannot
+  // be what lets the second call pass or fail
+  if VerifyClient(nil, TArray<TBytes>.Create(LLeaf), LAlert) then
+    Exit('FAIL: intermediates: the same leaf verified with no intermediate supplied');
+  LRefusal := LAlert;
   if not VerifyClient(TArray<TBytes>.Create(LIssuer), TArray<TBytes>.Create(LLeaf), LAlert) then
     Exit(Format('FAIL: intermediates: a leaf-only chain was refused though its issuer was ' +
       'supplied (alert %d)', [Ord(LAlert)]));
-  if VerifyClient(nil, TArray<TBytes>.Create(LLeaf), LAlert) then
-    Exit('FAIL: intermediates: the same leaf verified with no intermediate supplied');
-  Result := 'PASS: intermediates: leaf-only chain verified through a supplied intermediate and ' +
-    'was refused without it';
+  Result := Format('PASS: intermediates: leaf-only chain verified through a supplied ' +
+    'intermediate and was refused without it (alert %d)', [Ord(LRefusal)]);
 end;
 
 class function TSystemTrustDemoRunner.CheckEmptyChain: string;
@@ -256,18 +259,23 @@ begin
     on E: ESystemTrustUnsupportedTlsLibException do
       Exit('PASS: live fetch: refused up front, so no live deadline is silently dropped');
   end;
-  Result := 'INFO: live fetch: accepted, so this engine fetches live revocation (expected on ' +
-    'Windows and Apple, not on Android)';
+{$IFDEF ANDROID}
+  Result := 'FAIL: live fetch: accepted, but the Android engine has no network-revocation setting';
+{$ELSE}
+  Result := 'INFO: live fetch: accepted, so this engine fetches live revocation';
+{$ENDIF}
 end;
 
 class function TSystemTrustDemoRunner.Run(const AUrl: string): TArray<string>;
 var
+  LGet: string;
   LChecks: TArray<string>;
   LI: Integer;
 begin
+  LGet := RunSystemTrustGet(AUrl);
   LChecks := RunChecks;
   SetLength(Result, System.Length(LChecks) + 2);
-  Result[0] := RunSystemTrustGet(AUrl);
+  Result[0] := LGet;
   Result[1] := 'OS-delegate checks:';
   for LI := 0 to System.High(LChecks) do
     Result[LI + 2] := '  ' + LChecks[LI];

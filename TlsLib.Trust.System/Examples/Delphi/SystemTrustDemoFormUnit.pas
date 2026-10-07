@@ -91,7 +91,13 @@ procedure TSystemTrustDemoForm.RunDemo(const AUrl: string);
 var
   LLines: TArray<string>;
 begin
-  LLines := TSystemTrustDemoRunner.Run(AUrl);
+  try
+    LLines := TSystemTrustDemoRunner.Run(AUrl);
+  except
+    // a raise must still release the busy button, so it is reported as a line
+    on E: Exception do
+      LLines := TArray<string>.Create(Format('FAIL: %s: %s', [E.ClassName, E.Message]));
+  end;
   TThread.Queue(nil,
     procedure
     begin
