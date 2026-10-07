@@ -26,7 +26,7 @@
 ///
 ///   Run C - virtual hosting: one server, two certificates keyed by SNI via WithSniCredential.
 ///           A 'localhost' host maps to the localhost leaf, and an 'other.example' host maps to
-///           a second (decoy) certificate. The client connects to 'localhost', so a broken
+///           a second certificate with its own key. The client connects to 'localhost', so a broken
 ///           selector that sent the 'other.example' certificate would fail the client's name
 ///           check. A clean, name-verified echo proves the server picked the localhost cert by
 ///           SNI - the per-host selection a single WithCredential could never do.
@@ -88,7 +88,7 @@ const
   PORT_B = 28471;
   PORT_C = 28472;
   SNI_HOST = 'localhost'; // matches the leaf's CN/SAN in the fixture
-  OTHER_HOST = 'other.example'; // the decoy virtual host (SAN of wrongname_cert)
+  OTHER_HOST = 'other.example'; // the second virtual host (SAN of otherhost_cert)
   PING = 'ping';
 
 // ---------------------------------------------------------------- fixture plumbing
@@ -429,12 +429,11 @@ end;
 // ---- Run C: virtual hosting - two certificates on one server, selected by SNI ----
 
 // Builds a server that answers for two hosts: 'localhost' -> the localhost leaf, and
-// 'other.example' -> the decoy wrongname cert. The decoy pairs the wrongname certificate with
-// the leaf key; that pairing is never exercised because a 'localhost' client never selects it,
-// but it proves the resolver keys on SNI (the leaf would fail the client's name check for
-// 'other.example', and vice-versa).
-function BuildVirtualHostServerConfig(const ALeafPem, AKeyPem,
-  AWrongNamePem: TBytes): ITlsServerConfig;
+// 'other.example' -> a second certificate with its own key. The second host is never selected
+// by a 'localhost' client, but it proves the resolver keys on SNI (the leaf would fail the
+// client's name check for 'other.example', and vice-versa).
+function BuildVirtualHostServerConfig(const ALeafPem, AKeyPem, AOtherPem,
+  AOtherKeyPem: TBytes): ITlsServerConfig;
 var
   LServer: ITlsServerConfigBuilder;
 begin
@@ -444,13 +443,13 @@ begin
   LServer.WithSniCredential(SNI_HOST, TTlsCredential.Load(TDefaultCryptoProvider.Shared,
     TDefaultPkixProvider.Shared, ALeafPem, AKeyPem));
   LServer.WithSniCredential(OTHER_HOST, TTlsCredential.Load(TDefaultCryptoProvider.Shared,
-    TDefaultPkixProvider.Shared, AWrongNamePem, AKeyPem));
+    TDefaultPkixProvider.Shared, AOtherPem, AOtherKeyPem));
   Result := LServer.Build;
 end;
 
 // Connects a 'localhost' client to the two-host server and returns True only on a clean,
 // name-verified echo - which is only possible if the server sent the localhost leaf.
-function RunVirtualHosting(const ALeafPem, AKeyPem, AWrongNamePem, ARootPem: TBytes;
+function RunVirtualHosting(const ALeafPem, AKeyPem, AOtherPem, AOtherKeyPem, ARootPem: TBytes;
   out AServerSni, AFailReason: string): Boolean;
 var
   LServer: TIdTCPServer;
@@ -469,7 +468,7 @@ begin
   try
     LServerIO := TTlsLibServerIOHandler.Create(LServer);
     LServerIO.SSLOptions.ServerConfig :=
-      BuildVirtualHostServerConfig(ALeafPem, AKeyPem, AWrongNamePem);
+      BuildVirtualHostServerConfig(ALeafPem, AKeyPem, AOtherPem, AOtherKeyPem);
     LServer.IOHandler := LServerIO;
     LServer.DefaultPort := PORT_C;
     LServer.OnExecute := LObs.DoExecute;
@@ -505,8 +504,8 @@ end;
 class function TIndyCustomizationExample.Run: Integer;
 var
   LVector: string;
-  LLeafDer, LKeyDer, LRootDer, LWrongNameDer: TBytes;
-  LLeafPem, LKeyPem, LRootPem, LWrongNamePem: TBytes;
+  LLeafDer, LKeyDer, LRootDer, LOtherDer, LOtherKeyDer: TBytes;
+  LLeafPem, LKeyPem, LRootPem, LOtherPem, LOtherKeyPem: TBytes;
   LCertFile, LKeyFile, LRootFile: string;
   LClientSuite, LClientGroup, LServerSuite, LServerGroup: UInt16;
   LServerSni, LReason: string;
@@ -518,11 +517,13 @@ begin
     LLeafDer := FieldDer(LVector, 'leaf_cert');
     LKeyDer := FieldDer(LVector, 'leaf_key');
     LRootDer := FieldDer(LVector, 'root_cert');
-    LWrongNameDer := FieldDer(LVector, 'wrongname_cert');
+    LOtherDer := FieldDer(LVector, 'otherhost_cert');
+    LOtherKeyDer := FieldDer(LVector, 'otherhost_key');
     LLeafPem := PemBytes(LLeafDer, 'CERTIFICATE');
     LKeyPem := PemBytes(LKeyDer, 'PRIVATE KEY');
     LRootPem := PemBytes(LRootDer, 'CERTIFICATE');
-    LWrongNamePem := PemBytes(LWrongNameDer, 'CERTIFICATE');
+    LOtherPem := PemBytes(LOtherDer, 'CERTIFICATE');
+    LOtherKeyPem := PemBytes(LOtherKeyDer, 'PRIVATE KEY');
 
     // ---- Run A: customization asserted through the adapter accessors ----
     if not RunEscapeHatch(LLeafPem, LKeyPem, LRootPem, LClientSuite, LClientGroup,
@@ -560,7 +561,7 @@ begin
     Writeln('Run B OK: SSLOptions.CertFile/KeyFile/RootCertFile accepted PEM files as-is');
 
     // ---- Run C: SNI-keyed virtual hosting (two certs, one server) ----
-    if not RunVirtualHosting(LLeafPem, LKeyPem, LWrongNamePem, LRootPem,
+    if not RunVirtualHosting(LLeafPem, LKeyPem, LOtherPem, LOtherKeyPem, LRootPem,
       LServerSni, LReason) then
     begin
       Writeln('Indy customization FAIL (Run C): ', LReason);
