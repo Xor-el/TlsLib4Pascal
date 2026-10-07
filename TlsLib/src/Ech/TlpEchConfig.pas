@@ -19,6 +19,7 @@ uses
   SysUtils,
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
+  TlpArrayUtilities,
   TlpISecretBuffer,
   TlpWireReader,
   TlpIWireWriter,
@@ -142,6 +143,13 @@ type
     Config: TEchConfig;
     RecipientKey: IHpkeRecipientKey;
     IsRetry: Boolean;
+    /// <summary>
+    /// Whether ACryptoProvider can serve this entry as a server: a prepared key that belongs to
+    /// the config, a servable config with a valid public key, and EVERY advertised HPKE cipher
+    /// suite resolvable. The client, not the server, picks the HPKE suite from those the config
+    /// lists, so one the provider cannot build means ECH is declined for every client that picks it.
+    /// </summary>
+    function IsServableBy(const ACryptoProvider: ICryptoProvider): Boolean;
   end;
 
   /// <summary>
@@ -380,6 +388,25 @@ var
 begin
   Result := IsStructurallyUsable(ACryptoProvider) and TrySelectSuite(ACryptoProvider, LSuite);
 end;
+
+{ TEchKeyEntry }
+
+function TEchKeyEntry.IsServableBy(const ACryptoProvider: ICryptoProvider): Boolean;
+var
+  LI: Int32;
+begin
+  Result := False;
+  if (RecipientKey = nil) or not Config.IsStructurallyUsable(ACryptoProvider) then
+    Exit;
+  for LI := 0 to System.High(Config.CipherSuites) do
+    if ACryptoProvider.Hpke.Suite(Config.KemId, Config.CipherSuites[LI].KdfId,
+      Config.CipherSuites[LI].AeadId) = nil then
+      Exit;
+  Result := (RecipientKey.Kem = Config.KemId) and
+    TArrayUtilities.AreEqual(RecipientKey.PublicKey, Config.PublicKey);
+end;
+
+{ TEchConfig }
 
 class function TEchConfig.IsAllDigitsOrHex(const ALabel: TBytes;
   AStart, ALen: Int32): Boolean;

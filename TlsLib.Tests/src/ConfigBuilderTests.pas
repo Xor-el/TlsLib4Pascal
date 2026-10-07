@@ -58,6 +58,7 @@ uses
   TlpISecretBuffer,
   TlpCryptoDomainTypes,
   TlpEchConfig,
+  TlpIEch,
   TlpInMemoryEchKeyStore,
   TlpTlsConnectionInfo,
   TlpITlsEngine,
@@ -82,7 +83,12 @@ type
     function CredentialWithForeignKey(const AKeyField: string): TTlsCredential;
     function ClientTrust: ITrustAnchorStore;
     function BuildEchConfigList(AConfigId: Byte; const APublicName: string;
-      out APrivateKey: ISecretBuffer): TBytes;
+      out APrivateKey: ISecretBuffer): TBytes; overload;
+    function BuildEchConfigList(AConfigId: Byte; const APublicName: string;
+      const AAeadIds: TArray<UInt16>; out APrivateKey: ISecretBuffer): TBytes; overload;
+    /// <summary>Whether a server Build over a provider without AES-128-GCM refuses an ECH store
+    /// whose one config advertises AAeadIds.</summary>
+    function EchBuildRefused(const AAeadIds: TArray<UInt16>): Boolean;
     function BuildClientConfig(const ACryptoProvider: ICryptoProvider): ITlsClientConfig;
     function BuildServerConfig(const ACryptoProvider: ICryptoProvider): ITlsServerConfig;
     function DefaultProfile: TTlsConfigProfile;
@@ -100,6 +106,9 @@ type
   published
     procedure TestEchThroughServerBuilder;
     procedure TestEchSplitModeBackendWithKeyStoreRejected;
+    procedure TestEchKeyStoreEntryTheProviderCannotServeRefused;
+    procedure TestEchKeyStoreEveryAdvertisedSuiteMustBeServable;
+    procedure TestEchKeyStoreEntryTheProviderCanServeBuilds;
     procedure TestEmptyEchConfigListWithoutGreaseRejectedAtBuild;
     procedure TestEchGreaseOnlyBuildsWithoutConfig;
     procedure TestEchGreaseFalseWithoutConfigIsNoOp;
@@ -338,18 +347,30 @@ end;
 
 function TTestConfigBuilder.BuildEchConfigList(AConfigId: Byte;
   const APublicName: string; out APrivateKey: ISecretBuffer): TBytes;
+begin
+  Result := BuildEchConfigList(AConfigId, APublicName,
+    TArray<UInt16>.Create(THpkeAead.AES_128_GCM), APrivateKey);
+end;
+
+function TTestConfigBuilder.BuildEchConfigList(AConfigId: Byte;
+  const APublicName: string; const AAeadIds: TArray<UInt16>;
+  out APrivateKey: ISecretBuffer): TBytes;
 var
   LPublicKey: TBytes;
   LConfig: TEchConfig;
-  LSuite: TEchCipherSuite;
+  LSuites: TArray<TEchCipherSuite>;
+  LI: Int32;
 begin
   Crypto.Hpke.GenerateKeyPair(THpkeKem.DHKEM_X25519_HKDF_SHA256, LPublicKey,
     APrivateKey);
-  LSuite.KdfId := THpkeKdf.HKDF_SHA256;
-  LSuite.AeadId := THpkeAead.AES_128_GCM;
+  SetLength(LSuites, System.Length(AAeadIds));
+  for LI := 0 to System.High(AAeadIds) do
+  begin
+    LSuites[LI].KdfId := THpkeKdf.HKDF_SHA256;
+    LSuites[LI].AeadId := AAeadIds[LI];
+  end;
   LConfig := TEchConfig.Build(TEchConfig.SupportedVersion, AConfigId,
-    THpkeKem.DHKEM_X25519_HKDF_SHA256, LPublicKey,
-    TArray<TEchCipherSuite>.Create(LSuite), 0,
+    THpkeKem.DHKEM_X25519_HKDF_SHA256, LPublicKey, LSuites, 0,
     TEncoding.ASCII.GetBytes(APublicName), nil);
   Result := TEchConfigList.Encode(TArray<TEchConfig>.Create(LConfig));
 end;
@@ -372,6 +393,50 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a split-mode backend combined with an ECH key store is refused');
+end;
+
+function TTestConfigBuilder.EchBuildRefused(const AAeadIds: TArray<UInt16>): Boolean;
+var
+  LSk: ISecretBuffer;
+  LStore: IEchServerKeyStore;
+  LServing: ICryptoProvider;
+  LOwner: ITlsConfigBuilder;
+begin
+  // the store is built with a full provider, but the one that serves the handshakes lacks AES-128-GCM
+  LStore := TInMemoryEchKeyStore.FromConfig(
+    BuildEchConfigList($E2, 'cover.example', AAeadIds, LSk), LSk, Crypto);
+  LServing := TMissingAeadProvider.Create(Crypto, TAeadAlgorithm.AES_128_GCM) as ICryptoProvider;
+  LOwner := TTlsConfigBuilder.CreateFromProfile(LServing, Pkix, DefaultProfile);
+  TArrayUtilities.Append<ITlsConfigBuilder>(FBuilders, LOwner);
+  Result := False;
+  try
+    LOwner.Server.WithCredential(ServerCredential).Tls13.WithEchKeyStore(LStore).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      Result := True;
+  end;
+end;
+
+procedure TTestConfigBuilder.TestEchKeyStoreEntryTheProviderCannotServeRefused;
+begin
+  CheckTrue(EchBuildRefused(TArray<UInt16>.Create(THpkeAead.AES_128_GCM)),
+    'an ECH entry whose only suite the serving provider cannot build is refused at Build');
+end;
+
+procedure TTestConfigBuilder.TestEchKeyStoreEveryAdvertisedSuiteMustBeServable;
+begin
+  // a client may pick any HPKE suite the config lists, so one the provider cannot build would make
+  // the server decline ECH for every client that picks it even though another suite works
+  CheckTrue(EchBuildRefused(TArray<UInt16>.Create(THpkeAead.AES_128_GCM, THpkeAead.AES_256_GCM)),
+    'an entry advertising one unservable suite among servable ones is refused');
+end;
+
+procedure TTestConfigBuilder.TestEchKeyStoreEntryTheProviderCanServeBuilds;
+begin
+  // the control: the same limited provider builds when every advertised suite is available, so the
+  // refusals above are about the suite and nothing else in the setup
+  CheckFalse(EchBuildRefused(TArray<UInt16>.Create(THpkeAead.AES_256_GCM)),
+    'an entry whose suites the serving provider can all build is accepted');
 end;
 
 procedure TTestConfigBuilder.TestEchThroughServerBuilder;
