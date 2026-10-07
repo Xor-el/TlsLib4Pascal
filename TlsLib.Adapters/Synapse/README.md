@@ -41,7 +41,7 @@ peer.SSLAcceptConnection;             // handshake
 | `VerifyCert` (default **True** here)                 | verify on/off; **False** → **`dangerous` `WithDangerousInsecureSkipVerify`** |
 | `ClientAuth` (extension, **server**) | `WithPeerAuth(None / Requested / Required)`; default `None` never requests a client certificate. Any other mode needs `VerifyCert` on and a private client-CA (`CertCAFile`), else the build fails closed. `UseSystemTrust` is a server-cert source, never a client-CA |
 | `OnVerifyCert` (native hook)                         | augment-only bridge (see below)          |
-| `SSLType`                                            | accepted and ignored (we are TLS 1.2+)   |
+| `SSLType`                                            | `LT_all` offers TLS 1.3 and 1.2; `LT_TLSv1_2` / `LT_TLSv1_3` offer that version alone; any other value fails the handshake |
 | `HandshakeTimeoutMs`                                 | bounds the handshake read (ms); `0` = 30 s default |
 
 A server never requests a client certificate unless you set `ClientAuth` (cast `Sock.SSL` to
@@ -132,4 +132,4 @@ adapter's connection-reuse path end to end.
 preference pinned to TLS 1.2, so the negotiated 1.2 (the preset would pick 1.3) proves the injected
 config replaced the built-in build. This is the escape hatch to the whole builder API (cipher
 order, groups, resumption, ALPN, …). A built config supplied alongside cert/trust options (or a
-verify callback or a crypto/PKIX provider) is refused, not silently dropped.
+pinned `SSLType`, a verify callback or a crypto/PKIX provider) is refused, not silently dropped.

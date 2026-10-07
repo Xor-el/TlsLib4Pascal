@@ -49,6 +49,7 @@ uses
   TlpClock,
   TlpTlsConnection,
   TlpTlsConnectionInfo,
+  TlpTlsVersion,
   TlpNegotiationTypes,
   TlpSystemTrustFacade;
 
@@ -75,7 +76,7 @@ procedure SetTlsLibMormotServerVerdictResolver(
   const AResolver: TCertificateVerdictResolver; ADeadlineMs: Cardinal);
 /// <summary>Sets a process-wide, fully-built client config that REPLACES the context-driven build:
 /// when set, every client handshake uses it as-is, and a TNetTlsContext that also carries cert/trust
-/// fields is not allowed alongside it (the adapter raises). The verdict resolver still applies, but
+/// fields (or DisableTls13) is not allowed alongside it (the adapter raises). The verdict resolver still applies, but
 /// only if this config armed the deferral (WithLiveRevocationVerdict/WithAsyncCertificateVerdict) -
 /// else the handshake never parks. The escape hatch to the full builder API - cipher order, groups,
 /// resumption, ALPN. nil clears it.</summary>
@@ -456,7 +457,8 @@ begin
   Result.ServerVerdictDeadlineMs := GServerVerdictDeadlineMs;
   Result.SessionResumption := GSessionResumption;
   Result.HandshakeTimeoutMs := GHandshakeTimeoutMs;
-  Result.Tls12Only := AContext.DisableTls13;
+  if AContext.DisableTls13 then
+    Result.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls12);
   Result.ClientConfig := GClientConfig;
   Result.ServerConfig := GServerConfig;
   Result.TrustSourceHint := SMormotTrustSourceHint;

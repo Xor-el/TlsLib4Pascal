@@ -132,8 +132,10 @@ type
     procedure TestTransportTimesOutWhenSilent;
     procedure TestApplicationReadTimeoutRaisesTheRetryableReadTimeout;
     procedure TestCapCheckBetweenRetriesHonoursTheDeadline;
-    procedure TestTls12OnlyOptionOffersOnlyTls12;
-    procedure TestTls12OnlyConflictsWithASuppliedConfig;
+    procedure TestSupportedVersionsOptionNarrowsTheOffer;
+    procedure TestSupportedVersionsOrderIsPartOfTheMemoKey;
+    procedure TestSupportedVersionsRefusesUnknownAndDuplicateCodes;
+    procedure TestSupportedVersionsConflictsWithASuppliedConfig;
     procedure TestTransportReturnsDataWhenReadable;
     procedure TestTransportCapZeroDoesNotWait;
     procedure TestTransportNegativeReceiveRaisesStreamError;
@@ -1440,7 +1442,7 @@ begin
   LTransport.PollCap; // cleared: nothing to enforce
 end;
 
-procedure TTestTlsConnection.TestTls12OnlyOptionOffersOnlyTls12;
+procedure TTestTlsConnection.TestSupportedVersionsOptionNarrowsTheOffer;
 var
   LOpts: TTlsOptions;
   LVersions: TArray<UInt16>;
@@ -1449,15 +1451,19 @@ begin
   LOpts := ClientOptsWithStore;
   LVersions := TTlsConfigComposer.BuildClientConfig(LOpts).SupportedVersions;
   CheckEquals(2, System.Length(LVersions), 'the default client offers TLS 1.3 and 1.2');
-  LOpts.Tls12Only := True;
+  LOpts.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls12);
   LVersions := TTlsConfigComposer.BuildClientConfig(LOpts).SupportedVersions;
-  CheckEquals(1, System.Length(LVersions), 'Tls12Only narrows the client offer');
+  CheckEquals(1, System.Length(LVersions), 'a one-entry list narrows the client offer');
   CheckEquals(Integer(TlsWireVersionTls12), Integer(LVersions[0]), 'to TLS 1.2');
   CheckTrue(TTlsConfigComposer.ClientSignature(ClientOptsWithStore) <>
     TTlsConfigComposer.ClientSignature(LOpts), 'the client memo key tells the two builds apart');
+  LOpts.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls13);
+  LVersions := TTlsConfigComposer.BuildClientConfig(LOpts).SupportedVersions;
+  CheckEquals(1, System.Length(LVersions), 'TLS 1.3 alone is expressible too');
+  CheckEquals(Integer(TlsWireVersionTls13), Integer(LVersions[0]), 'TLS 1.3');
   LOpts := ServerOptsWithCredential;
   LServerSignature := TTlsConfigComposer.ServerSignature(LOpts);
-  LOpts.Tls12Only := True;
+  LOpts.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls12);
   LVersions := TTlsConfigComposer.BuildServerConfig(LOpts).SupportedVersions;
   CheckEquals(1, System.Length(LVersions), 'and the server accepts only one');
   CheckEquals(Integer(TlsWireVersionTls12), Integer(LVersions[0]), 'TLS 1.2');
@@ -1465,15 +1471,83 @@ begin
     'the server memo key tells the two builds apart');
 end;
 
-procedure TTestTlsConnection.TestTls12OnlyConflictsWithASuppliedConfig;
+procedure TTestTlsConnection.TestSupportedVersionsOrderIsPartOfTheMemoKey;
+var
+  LForward, LReverse: TTlsOptions;
+begin
+  // order is the preference, so two orderings are two configs and must not share a memoised one
+  LForward := ClientOptsWithStore;
+  LForward.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12);
+  LReverse := ClientOptsWithStore;
+  LReverse.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls12, TlsWireVersionTls13);
+  CheckTrue(TTlsConfigComposer.ClientSignature(LForward) <>
+    TTlsConfigComposer.ClientSignature(LReverse), 'client key');
+  CheckEquals(Integer(TlsWireVersionTls12),
+    Integer(TTlsConfigComposer.BuildClientConfig(LReverse).SupportedVersions[0]),
+    'the built config keeps the preference order');
+  LForward := ServerOptsWithCredential;
+  LForward.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12);
+  LReverse := ServerOptsWithCredential;
+  LReverse.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls12, TlsWireVersionTls13);
+  CheckTrue(TTlsConfigComposer.ServerSignature(LForward) <>
+    TTlsConfigComposer.ServerSignature(LReverse), 'server key');
+end;
+
+procedure TTestTlsConnection.TestSupportedVersionsRefusesUnknownAndDuplicateCodes;
 var
   LOpts: TTlsOptions;
   LRaised: Boolean;
 begin
-  // Tls12Only is read by the options-driven build a supplied config replaces, so it must fail loud
+  LOpts := ClientOptsWithStore;
+  LOpts.SupportedVersions := TArray<UInt16>.Create(UInt16($0305));
+  LRaised := False;
+  try
+    TTlsConfigComposer.BuildClientConfig(LOpts);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an unknown version code is refused');
+  LOpts.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls11);
+  LRaised := False;
+  try
+    TTlsConfigComposer.BuildClientConfig(LOpts);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a legacy version code is refused');
+  LOpts := ServerOptsWithCredential;
+  LOpts.SupportedVersions := TArray<UInt16>.Create(UInt16($0305));
+  LRaised := False;
+  try
+    TTlsConfigComposer.BuildServerConfig(LOpts);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the server refuses an unknown version code too');
+  LOpts := ClientOptsWithStore;
+  LOpts.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls12, TlsWireVersionTls12);
+  LRaised := False;
+  try
+    TTlsConfigComposer.BuildClientConfig(LOpts);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a duplicate version code is refused');
+end;
+
+procedure TTestTlsConnection.TestSupportedVersionsConflictsWithASuppliedConfig;
+var
+  LOpts: TTlsOptions;
+  LRaised: Boolean;
+begin
+  // SupportedVersions is read by the options-driven build a supplied config replaces, so it must fail loud
   LOpts := TTlsOptions.Default;
   LOpts.ClientConfig := TTlsConfigComposer.BuildClientConfig(ClientOptsWithStore);
-  LOpts.Tls12Only := True;
+  LOpts.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls12);
   LRaised := False;
   try
     TTlsConfigComposer.ResolveClientConfig(LOpts, TTlsConfigMemos.NewClient, 'ClientConfig');
@@ -1481,7 +1555,7 @@ begin
     on E: ETlsStreamError do
       LRaised := True;
   end;
-  CheckTrue(LRaised, 'Tls12Only alongside a supplied client config is refused');
+  CheckTrue(LRaised, 'SupportedVersions alongside a supplied client config is refused');
 end;
 
 procedure TTestTlsConnection.TestTransportReturnsDataWhenReadable;
