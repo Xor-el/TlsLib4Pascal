@@ -315,9 +315,6 @@ var
   LEncoded: TBytes;
 begin
   EnsureNotSpent;
-  // start from a fresh result so the padded buffer built below is always distinct from the
-  // unpadded plaintext it copies from (which is wiped), independent of the caller's binding
-  Result := nil;
   LInner := THandshakeMessages.DecodeClientHello(AInnerBody);
   LInnerEntries := TExtensionVector.Parse(LInner.Extensions);
 
@@ -341,18 +338,12 @@ begin
   LSniLen := ServerNameLength(LInnerEntries, LHasSni);
   LPad := PaddingLength(System.Length(LEncoded), LSniLen, LHasSni,
     FConfig.MaximumNameLength);
-  // build the padded result in a fresh buffer: the encoded inner up front, then the padding tail
-  // zeroed (RFC 9849 sec. 6.1.3 padding is zeros). Then wipe the unpadded plaintext, which carries
-  // the real inner SNI.
-  try
-    SetLength(Result, System.Length(LEncoded) + LPad);
-    if System.Length(LEncoded) > 0 then
-      Move(LEncoded[0], Result[0], System.Length(LEncoded));
-    if LPad > 0 then
-      System.FillChar(Result[System.Length(LEncoded)], LPad, 0);
-  finally
-    TSecureMemory.WipeBytes(LEncoded);
-  end;
+  // the encoded inner up front, then the padding tail zeroed (RFC 9849 sec. 6.1.3)
+  SetLength(Result, System.Length(LEncoded) + LPad);
+  if System.Length(LEncoded) > 0 then
+    Move(LEncoded[0], Result[0], System.Length(LEncoded));
+  if LPad > 0 then
+    System.FillChar(Result[System.Length(LEncoded)], LPad, 0);
 end;
 
 function TEchClientHandshake.SetupSeal: TBytes;

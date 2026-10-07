@@ -50,6 +50,7 @@ type
     FKeyStore: IEchServerKeyStore;
     FTrialDecryptAll: Boolean;
     FStatus: TEchStatus;
+    // privacy plaintext, not key material: its SNI stays in the connection anyway, so it is released, not wiped
     FInnerFramed: TBytes;
     FInnerRandom: TBytes;
     FOpener: IHpkeOpener;
@@ -117,9 +118,6 @@ end;
 
 destructor TEchServerHandshake.Destroy;
 begin
-  // the reconstructed inner carries the real SNI (and, on resumption, PSK binders); wipe it
-  // rather than merely release it
-  TSecureMemory.WipeBytes(FInnerFramed);
   TSecureMemory.WipeBytes(FInnerRandom);
   inherited Destroy;
 end;
@@ -359,16 +357,11 @@ begin
     end;
     if LOpened then
     begin
-      try
-        ReconstructInner(LEncoded, AOuter, AOuterEntries);
-        FOpener := LOpener;
-        FSuite := LSuite;
-        FWireConfigId := LOuterEch.ConfigId;
-        FStatus := TEchStatus.Accepted;
-      finally
-        // the decrypted inner carries the real SNI and PSK binder - wipe once reframed
-        TSecureMemory.WipeBytes(LEncoded);
-      end;
+      ReconstructInner(LEncoded, AOuter, AOuterEntries);
+      FOpener := LOpener;
+      FSuite := LSuite;
+      FWireConfigId := LOuterEch.ConfigId;
+      FStatus := TEchStatus.Accepted;
       Exit(FStatus);
     end;
   end;
@@ -424,12 +417,7 @@ begin
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.DecryptError, @SEchRetryDecrypt);
   end;
-  try
-    ReconstructInner(LEncoded, LOuter, LEntries);
-  finally
-    // the decrypted inner carries the real SNI and PSK binder - wipe once reframed
-    TSecureMemory.WipeBytes(LEncoded);
-  end;
+  ReconstructInner(LEncoded, LOuter, LEntries);
   FStatus := TEchStatus.Accepted;
   Result := FStatus;
 end;

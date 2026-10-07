@@ -59,6 +59,7 @@ type
     FHrrDecided: Boolean;
     FInnerRandom: TBytes;
     FInnerTranscript: ITranscriptHash;
+    // privacy plaintext, not key material: its SNI stays in the connection anyway, so it is released, not wiped
     FSentInnerRaw: TBytes;
     FSentOuterEchExt: TBytes;
     FGreasePskIdentities: TArray<TBytes>;
@@ -192,7 +193,7 @@ begin
   // so this can run both at the verdict (early hygiene) and from the destructor without a double free
   if FEch <> nil then
     FEch.ForgetSecrets;
-  TSecureMemory.WipeBytes(FSentInnerRaw);
+  FSentInnerRaw := nil;
   FSentOuterEchExt := nil;
   FGreasePskIdentities := nil;
   FGreasePskAges := nil;
@@ -241,7 +242,7 @@ end;
 
 function TEchClientOrchestrator.SentInnerRaw: TBytes;
 begin
-  // a copy: the sent inner is wiped in place once the ServerHello verdict is decided
+  // a copy; the sent inner is released once the ServerHello verdict is decided
   Result := System.Copy(FSentInnerRaw);
 end;
 
@@ -470,13 +471,8 @@ begin
   LMsg.Extensions := LOuterEntries.Encode;
   LOuterBody := THandshakeMessages.EncodeClientHello(LMsg);
 
-  // seal, then patch the real payload into the outer ech extension; the plaintext inner carries
-  // the real SNI, so wipe it once sealed
-  try
-    LPayload := FEch.Seal(LOuterBody, LEncodedInner);
-  finally
-    TSecureMemory.WipeBytes(LEncodedInner);
-  end;
+  // seal, then patch the real payload into the outer ech extension
+  LPayload := FEch.Seal(LOuterBody, LEncodedInner);
   LOuterEch.Payload := LPayload;
   LOuterEntries.SetData(LEchIdx, TEchExtension.EncodeOuter(LOuterEch));
   // keep the outer ech extension so a rejecting HelloRetryRequest can echo it verbatim
@@ -526,7 +522,7 @@ begin
   else
     FStatus := TEchStatus.Rejected;
   // the verdict is set and the inner transcript adopted by the machine; the sealer and the sent
-  // inner (real SNI + binders) are not read again, so drop them now rather than at teardown
+  // inner are not read again, so release them now rather than at teardown
   ForgetHandshakeSecrets;
 end;
 
