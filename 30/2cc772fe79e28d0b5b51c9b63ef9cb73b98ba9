@@ -1,0 +1,57 @@
+TlsLib.Trust.System/Examples/Delphi/SystemTrustDemo.dproj
+  s_d27f31cd14035d::t_20f1b1cac915b3 273
+TlsLib.Trust.System/Examples/Delphi/SystemTrustDemoRunner.pas
+  s_d27f31cd14035d::t_7604eefbbe54c8 82
+  s_d27f31cd14035d::t_d526d94836b772 48-49
+  s_d27f31cd14035d::t_4bd0d05710233f 55,128-165,253,258,279,284-285,290-291,296
+  s_d27f31cd14035d::t_a47ed5dcaf8558 252,261,263-277,297
+  s_d27f31cd14035d::t_605c4930b9c474 51-54
+  s_d27f31cd14035d::t_f33a1bf8e01c71 13-20
+  s_d27f31cd14035d::t_c849992ff59643 30-34
+  s_d27f31cd14035d::t_49e43c6f4efc6d 167-251
+  s_d27f31cd14035d::t_99b6fce44c8c97 60-63
+  s_d27f31cd14035d::t_38ba5c1134789d 10-12
+  s_d27f31cd14035d::t_4f926218475e92 21-23,27-29
+  s_d27f31cd14035d::t_3badfedcbc716a 35-37,45-47
+  s_d27f31cd14035d::t_d1fedf96b30bd1 50
+  s_d27f31cd14035d::t_0097008105958c 56-59
+  s_d27f31cd14035d::t_41cb0c19bde718 64-66,79-81
+  s_d27f31cd14035d::t_397a5996674e90 83-85,125-127
+  s_d27f31cd14035d::t_07ca578e1d0f5b 166
+  s_d27f31cd14035d::t_531910c838c67e 254-257
+  s_d27f31cd14035d::t_d45df261fb06b7 259-260
+  s_d27f31cd14035d::t_6a593ec47c27a2 262
+  s_d27f31cd14035d::t_445e02ade7517a 278
+  s_d27f31cd14035d::t_b1422170b73f01 280-283
+  s_d27f31cd14035d::t_d934674f6ee085 286-289
+  s_d27f31cd14035d::t_16abeb4b37eb30 292-295
+  s_d27f31cd14035d::t_07d59fa1f8dc53 298-299
+TlsLib.Trust.System/Examples/Delphi/SystemTrustDemo.dpr
+  s_d27f31cd14035d::t_bf530809c35238 11
+TlsLib.Trust.System/Examples/Delphi/SystemTrustDemoFormUnit.pas
+  s_d27f31cd14035d::t_2969e0930d1608 95-97,99-101,103-105,108
+  s_d27f31cd14035d::t_0f299724fd9689 124
+  s_d27f31cd14035d::t_f34c980c2c023b 90,92,94,98,102,106-107
+  s_d27f31cd14035d::t_36f921eaa590f8 65
+  s_d27f31cd14035d::t_fbbfd8ac565a70 13-19
+  s_d27f31cd14035d::t_dfe7d4cb05b636 50-53
+TlsLib.Trust.System/Examples/Delphi/README.md
+  s_d27f31cd14035d::t_c08d79dff24743 24-25
+  s_d27f31cd14035d::t_e575115cb716fe 50-55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "302cc772fe79e28d0b5b51c9b63ef9cb73b98ba9",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
