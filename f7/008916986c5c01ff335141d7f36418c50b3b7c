@@ -1,0 +1,42 @@
+TlsLib.Adapters/Synapse/Adapter/TlsLibSynapseTls.pas
+  s_d27f31cd14035d::t_998f34ea114b34 228
+  s_d27f31cd14035d::t_95a5dad1388288 123
+  s_d27f31cd14035d::t_1fcd1937ddcde6 545
+  s_d27f31cd14035d::t_4d47f25de2a7c2 219-227
+TlsLib.Adapters/Synapse/Examples/src/SynapseLoopbackExample.pas
+  s_d27f31cd14035d::t_fa0d0bc7da1a24 167-169
+  s_d27f31cd14035d::t_c1e56975c436c6 194-195
+  s_d27f31cd14035d::t_d5e5f8bfb07c9e 244-245
+  s_d27f31cd14035d::t_54ccf670a69bce 166,170-172
+  s_d27f31cd14035d::t_5f6f758e182dad 226-233
+  s_d27f31cd14035d::t_6d46aa6da0a60e 41,43,50-52
+  s_d27f31cd14035d::t_201c843ef6226b 15-17
+  s_d27f31cd14035d::t_92ead4a8eebefe 145
+TlsLib.Adapters/Synapse/README.md
+  s_d27f31cd14035d::t_3ec3fa15caa1da 46
+TlsLib.Adapters/FclNet/Examples/src/FclNetLoopbackExample.pas
+  s_d27f31cd14035d::t_092930dbb3b208 46,48
+  s_d27f31cd14035d::t_192ca7840685ae 54-56
+  s_d27f31cd14035d::t_703b6c9a389066 71-72
+  s_d27f31cd14035d::t_39a943da0e7e31 252-253
+  s_d27f31cd14035d::t_15fa69b036be5d 313-314
+  s_d27f31cd14035d::t_2b313a33797b61 17-18
+  s_d27f31cd14035d::t_bcf6941bb737ff 188-193
+  s_d27f31cd14035d::t_465bdb135940b6 292-299
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f7008916986c5c01ff335141d7f36418c50b3b7c",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
