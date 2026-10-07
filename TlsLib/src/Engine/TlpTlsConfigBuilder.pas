@@ -54,6 +54,7 @@ uses
   TlpSessionTicketKeys,
   TlpAntiReplay,
   TlpIEch,
+  TlpEchConfig,
   TlpEchClient,
   TlpITlsConfig,
   TlpITlsConfigBuilder;
@@ -178,6 +179,7 @@ type
     /// <summary>Refuses an anchor store holding a certificate that does not parse: one such root
     /// would otherwise fail every verification against the store, far from its cause.</summary>
     procedure ValidateAnchorRoots;
+    procedure ValidateEchKeyStore;
     procedure ValidateRequiredCollaborators;
     /// <summary>Composes the server credential resolver at build: a custom resolver (exclusive
     /// of the built-in map/credential), else the SNI map plus the single credential as the
@@ -317,6 +319,9 @@ resourcestring
   SBuilderFrozen = 'the configuration has been built and can no longer be changed';
   SEchBackendWithKeyStore = 'a split-mode ECH backend holds no keys; WithEchSplitModeBackend is ' +
     'mutually exclusive with WithEchKeyStore';
+  SEchEntryNotServable = 'ECH key store entry %d (config_id %d) cannot be served: it needs a ' +
+    'key that matches its config, a servable config, and every advertised cipher suite ' +
+    'available from the crypto provider';
   SNoTrustStore = 'a client configuration requires a trust source (no silent-insecure)';
   SEmptyTrustStore = 'a trust store was supplied but contains no root certificates; a store ' +
     'with no anchors is not a trust source (no silent-insecure)';
@@ -1998,6 +2003,20 @@ begin
     raise EInvalidOperationTlsLibException.CreateRes(@SVerifierAnchorConflict);
 end;
 
+procedure TTlsConfigBuilder.ValidateEchKeyStore;
+var
+  LEntries: TArray<TEchKeyEntry>;
+  LI: Int32;
+begin
+  // any store, not just the in-memory one, is held here to what the serving provider can resolve,
+  // since an entry it cannot serve would otherwise be advertised and then reject every ECH offer
+  LEntries := FEchKeyStore.Entries;
+  for LI := 0 to System.High(LEntries) do
+    if not LEntries[LI].IsServableBy(FCrypto) then
+      raise EInvalidOperationTlsLibException.CreateResFmt(@SEchEntryNotServable,
+        [LI, LEntries[LI].Config.ConfigId]);
+end;
+
 procedure TTlsConfigBuilder.ValidateAnchorRoots;
 var
   LI, LJ: Int32;
@@ -2784,6 +2803,8 @@ begin
   // accepts an inner-type ech: the two roles are mutually exclusive (RFC 9849 sec. 7)
   if FEchSplitModeBackend and (FEchKeyStore <> nil) then
     raise EInvalidOperationTlsLibException.CreateRes(@SEchBackendWithKeyStore);
+  if FEchKeyStore <> nil then
+    ValidateEchKeyStore;
   ValidateTrustComposition;
   ValidateAnchorRoots;
   // external PSKs are TLS 1.3-only (RFC 9258): a server that accepts them without offering 1.3
