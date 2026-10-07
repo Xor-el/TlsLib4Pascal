@@ -2009,7 +2009,7 @@ var
   LI: Int32;
 begin
   // any store, not just the in-memory one, is held here to what the serving provider can resolve,
-  // since an entry it cannot serve would otherwise be advertised and then reject every ECH offer
+  // since an entry it cannot serve would otherwise be advertised and then decline every ECH offer
   LEntries := FEchKeyStore.Entries;
   for LI := 0 to System.High(LEntries) do
     if not LEntries[LI].IsServableBy(FCrypto) then

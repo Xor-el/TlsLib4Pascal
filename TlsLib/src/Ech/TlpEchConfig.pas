@@ -145,9 +145,9 @@ type
     IsRetry: Boolean;
     /// <summary>
     /// Whether ACryptoProvider can serve this entry as a server: a prepared key that belongs to
-    /// the config, a servable config with a valid public key, and EVERY advertised cipher suite
-    /// resolvable. A server never chooses a suite - the client picks any the config lists - so one
-    /// the provider cannot build would reject every client that picks it.
+    /// the config, a servable config with a valid public key, and EVERY advertised HPKE cipher
+    /// suite resolvable. The client, not the server, picks the HPKE suite from those the config
+    /// lists, so one the provider cannot build means ECH is declined for every client that picks it.
     /// </summary>
     function IsServableBy(const ACryptoProvider: ICryptoProvider): Boolean;
   end;

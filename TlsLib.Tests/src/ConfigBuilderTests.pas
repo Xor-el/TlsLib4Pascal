@@ -425,8 +425,8 @@ end;
 
 procedure TTestConfigBuilder.TestEchKeyStoreEveryAdvertisedSuiteMustBeServable;
 begin
-  // a client may pick any suite the config lists, so one the provider cannot build would reject
-  // every client that picks it even though another suite works
+  // a client may pick any HPKE suite the config lists, so one the provider cannot build would make
+  // the server decline ECH for every client that picks it even though another suite works
   CheckTrue(EchBuildRefused(TArray<UInt16>.Create(THpkeAead.AES_128_GCM, THpkeAead.AES_256_GCM)),
     'an entry advertising one unservable suite among servable ones is refused');
 end;
