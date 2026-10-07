@@ -1,0 +1,28 @@
+docs/security-model.md
+  s_d27f31cd14035d::t_fb7b9748cd68fb 127-135
+TlsLib/src/Pkix/Providers/TlpDefaultPkixProvider.pas
+  s_d27f31cd14035d::t_78b2c14462c02d 1963-1964
+TlsLib.Tests/Data/Certs/ImportKeys.txt
+  s_d27f31cd14035d::t_a2fa101dbdd038 15-18
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_d27f31cd14035d::t_5b92b591cd62b9 2219-2220
+TlsLib.Tests/Data/Certs/Pkcs1StrictDigestInfo.txt
+  s_d27f31cd14035d::t_b121339115f6d1 22-23
+  s_d27f31cd14035d::t_e17faeda0eeb67 13-18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5a35b07f711f294d108ccc2b3acc2f6d324264b1",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
