@@ -12,8 +12,9 @@
 /// <summary>
 /// A real loopback over Synapse's TCustomSSL seam on 127.0.0.1: both ends are TTCPBlockSocket
 /// instances created with our SSLImplementation plugin. The server runs on a background
-/// thread, the client on the caller's thread. It asserts a full handshake and a round-tripped
-/// line - proving the Synapse plugin end to end. Shared by the FreePascal and Delphi example
+/// thread, the client on the caller's thread. It asserts a full handshake, a round-tripped
+/// line and a read bounded by ReadTimeoutMs when the peer stalls mid-record - proving the
+/// Synapse plugin end to end. Shared by the FreePascal and Delphi example
 /// programs.
 /// </summary>
 unit SynapseLoopbackExample;
@@ -37,13 +38,18 @@ uses
   SysUtils,
   Classes,
   SyncObjs,
+  DateUtils,
   blcksock,
+  synsock,
   TlpDataEncoding,
   TlsLibSynapseTls;
 
 const
   PORT = '28445';
   CRLF = #13#10;
+  STALL_HOLD_MS = 4000; // how long the server stays silent after the partial record
+  READ_CAP_MS = 800;
+  STALL_LIMIT_MS = 3000; // the cap must end the wait well before the server's silence does
 
 var
   GLeafFile, GKeyFile, GRootFile: string;
@@ -136,6 +142,7 @@ procedure TServerThread.Execute;
 var
   LListener, LClient: TTCPBlockSocket;
   LLine: string;
+  LHdr: array[0..2] of Byte;
 begin
   LListener := TTCPBlockSocket.Create;
   try
@@ -156,6 +163,13 @@ begin
             raise Exception.Create('ssl accept failed: ' + LClient.SSL.LastErrorDesc);
           LLine := LClient.RecvString(5000);
           LClient.SendString(LLine + CRLF);
+          // then the first bytes of a TLS record straight on the socket, and silence: the client's
+          // read cap, not this thread's exit, must be what ends its wait. The pause keeps them from
+          // arriving in the same segment as the echo, where the client would read them early.
+          Sleep(300);
+          LHdr[0] := $17; LHdr[1] := $03; LHdr[2] := $03;
+          synsock.Send(LClient.Socket, @LHdr[0], 3, 0);
+          Sleep(STALL_HOLD_MS);
         finally
           LClient.Free;
         end;
@@ -177,6 +191,8 @@ var
   LServer: TServerThread;
   LClient: TTCPBlockSocket;
   LEcho: string;
+  LStart: TDateTime;
+  LStallMs: Int64;
 begin
   Result := 1;
   GServerError := '';
@@ -207,6 +223,14 @@ begin
         raise Exception.Create('ssl connect failed: ' + LClient.SSL.LastErrorDesc);
       LClient.SendString('ping from the synapse client' + CRLF);
       LEcho := LClient.RecvString(5000);
+      // the server now sends part of a record and stalls: with the cap set the read must fail fast
+      TSSLTlsLib(LClient.SSL).ReadTimeoutMs := READ_CAP_MS;
+      LStart := Now;
+      LClient.RecvPacket(10000);
+      LStallMs := MilliSecondsBetween(Now, LStart);
+      if (LClient.LastError = 0) or (LStallMs > STALL_LIMIT_MS) then
+        raise Exception.CreateFmt('a stalled record was not bounded by ReadTimeoutMs (%d ms, error %d)',
+          [LStallMs, LClient.LastError]);
     finally
       LClient.Free;
     end;
@@ -217,7 +241,8 @@ begin
 
     if LEcho = 'ping from the synapse client' then
     begin
-      Writeln('Synapse loopback PASS: handshake + echo');
+      Writeln('Synapse loopback PASS: handshake + echo + a stalled record bounded in ',
+        LStallMs, ' ms');
       Result := 0;
     end
     else
