@@ -116,17 +116,12 @@ type
     /// leaf CertificateEntry when the client offered status_request (RFC 8446 4.4.2.1). nil for
     /// a PSK-only server.</summary>
     CredentialResolver: ITlsServerCredentialResolver;
-    /// <summary>The Encrypted Client Hello key store (RFC 9849), or nil when ECH is not
-    /// served. When set, the server trial-decrypts an offered ech, and on success
-    /// continues with the reconstructed inner ClientHello.</summary>
-    EchKeyStore: IEchServerKeyStore;
-    /// <summary>Whether to trial-decrypt against every key regardless of config_id (the
-    /// guarded ignore-config_id mode). Off by default.</summary>
-    EchTrialDecrypt: Boolean;
-    /// <summary>Whether this server is deployed as a split-mode ECH backend (RFC 9849 sec. 7.2):
-    /// it accepts an inner-type ech forwarded by a client-facing server and confirms it. Off by
-    /// default, so an inner-type ech at a server not deployed as a backend is illegal_parameter.</summary>
-    EchSplitModeBackend: Boolean;
+    /// <summary>The Encrypted Client Hello policy (RFC 9849), or nil when ECH is not served. A
+    /// Keyed server trial-decrypts an offered ech and, on success, continues with the
+    /// reconstructed inner ClientHello; a Backend accepts the inner a split-mode client-facing
+    /// server forwards (RFC 9849 sec. 7.2) and confirms it. An inner-type ech at any other server
+    /// is illegal_parameter.</summary>
+    EchPolicy: IEchServerPolicy;
     /// <summary>Whether the server requests a client certificate (mutual TLS) and how
     /// strictly it is enforced.</summary>
     ClientAuth: TClientAuthMode;
@@ -1093,16 +1088,15 @@ begin
   // the public_name and advertises retry_configs in EncryptedExtensions.
   if DetectBackendEch(LExtensions) then
   begin
-    if (FParams.EchKeyStore <> nil) or (not FParams.EchSplitModeBackend) then
+    if (FParams.EchPolicy = nil) or (FParams.EchPolicy.Role <> TEchServerRole.Backend) then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SEchInnerNotBackend);
     FEchStatus := TEchStatus.Backend;
     FEchInnerRandom := LClientHello.Random;
   end
-  else if FParams.EchKeyStore <> nil then
+  else if (FParams.EchPolicy <> nil) and (FParams.EchPolicy.Role = TEchServerRole.Keyed) then
   begin
-    FEch := TEchServerHandshake.Create(FParams.Crypto, FParams.EchKeyStore,
-      FParams.EchTrialDecrypt);
+    FEch := TEchServerHandshake.Create(FParams.Crypto, FParams.EchPolicy);
     FEchStatus := FEch.ProcessOuter(AMessage.Raw, LClientHello, LExtensions);
     if FEchStatus = TEchStatus.Accepted then
     begin
@@ -1114,7 +1108,7 @@ begin
       LExtensions := ParseClientHelloExtensions(LClientHello);
     end
     else if FEchStatus = TEchStatus.Rejected then
-      FEchRetryConfigs := FParams.EchKeyStore.RetryConfigs;
+      FEchRetryConfigs := FParams.EchPolicy.KeyStore.RetryConfigs;
   end;
   LContext := TExtensionContext.Create;
   try
@@ -1283,7 +1277,7 @@ begin
   // an inner-type ech is held to the same gate as on the first hello: only a split-mode backend may
   // see one (an accepted outer was already checked in ProcessRetryOuter)
   if (not LEchAccepted) and DetectBackendEch(LExtensions) and
-    ((FParams.EchKeyStore <> nil) or (not FParams.EchSplitModeBackend)) then
+    ((FParams.EchPolicy = nil) or (FParams.EchPolicy.Role <> TEchServerRole.Backend)) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SEchInnerNotBackend);
   LContext := TExtensionContext.Create;

@@ -506,7 +506,7 @@ trial-decrypt:
 LStore := TInMemoryEchKeyStore.FromPem(EchPem, Crypto);
 LServer := TTlsPresets.Compatible(Crypto, Pkix).Server
   .WithCredential(TTlsCredential.Load(Crypto, Pkix, chainPem, keyPem));
-LServer.Tls13.WithEchKeyStore(LStore).WithEchTrialDecrypt(True);
+LServer.Tls13.WithEchKeyStore(LStore, True);
 ```
 
 ECH is TLS 1.3 only. Full detail — GREASE, rejection/`retry_configs`, key generation, and DNS — in

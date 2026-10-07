@@ -36,6 +36,35 @@ uses
 
 type
   /// <summary>
+  /// A server's Encrypted Client Hello policy: the role it plays and, for a keyed server, its key
+  /// store and whether it trial-decrypts. Built through Keyed or Backend, so a trial-decrypting
+  /// backend or a keyless keyed server cannot be expressed.
+  /// </summary>
+  TEchServerPolicy = class sealed(TInterfacedObject, IEchServerPolicy)
+  strict private
+  var
+    FRole: TEchServerRole;
+    FKeyStore: IEchServerKeyStore;
+    FTrialDecrypt: Boolean;
+    constructor Create(ARole: TEchServerRole; const AKeyStore: IEchServerKeyStore;
+      ATrialDecrypt: Boolean);
+  public
+    /// <summary>A server that holds ECH keys. Every entry of AKeyStore (any implementation, not
+    /// only the in-memory one) must be one ACrypto can serve: a key that belongs to its config, a
+    /// servable config with a valid public key, and every advertised HPKE suite resolvable. The
+    /// client picks the suite from those the config lists, so one ACrypto cannot build would make
+    /// the server decline ECH for every client that picks it. Raises otherwise.</summary>
+    class function Keyed(const ACrypto: ICryptoProvider; const AKeyStore: IEchServerKeyStore;
+      ATrialDecrypt: Boolean): IEchServerPolicy; static;
+    /// <summary>A split-mode backend: no keys, accepts the inner ClientHello a split-mode
+    /// client-facing server forwards.</summary>
+    class function Backend: IEchServerPolicy; static;
+    function Role: TEchServerRole;
+    function KeyStore: IEchServerKeyStore;
+    function TrialDecrypt: Boolean;
+  end;
+
+  /// <summary>
   /// The client-facing (shared-mode) server side of Encrypted Client Hello (RFC 9849
   /// sec. 7.1). Trial-decrypts the ClientHelloOuter's ech extension against the key
   /// store, reconstructs and validates the ClientHelloInner, and holds the live opener
@@ -67,7 +96,7 @@ type
       const AOuter: TTlsClientHello; const AOuterEntries: TExtensionVector);
   public
     constructor Create(const ACryptoProvider: ICryptoProvider;
-      const AKeyStore: IEchServerKeyStore; ATrialDecryptAll: Boolean);
+      const APolicy: IEchServerPolicy);
     destructor Destroy; override;
     /// <summary>
     /// Processes the framed ClientHelloOuter AOuterFramed, reusing the outer the caller already
@@ -92,6 +121,12 @@ type
 implementation
 
 resourcestring
+  SEchNilCrypto = 'a crypto provider is required (pass a provider, not nil)';
+  SEchNilKeyStore = 'a keyed ECH server needs a key store (pass one, not nil)';
+  SEchHandshakeNeedsKeyed = 'the ECH server handshake needs a Keyed policy';
+  SEchEntryNotServable = 'ECH key store entry %d (config_id %d) cannot be served: it needs a ' +
+    'key that matches its config, a servable config, and every advertised cipher suite ' +
+    'available from the crypto provider';
   SWireInnerEch = 'an inner-type encrypted_client_hello arrived at a client-facing server';
   SNonZeroPadding = 'EncodedClientHelloInner padding is not all zero';
   SInnerSessionIdNotEmpty = 'the EncodedClientHelloInner legacy_session_id is not empty';
@@ -104,15 +139,67 @@ resourcestring
   SEchRetryWithoutAccept = 'the retry ClientHelloOuter was processed without an accepted first ' +
     'ClientHelloOuter';
 
+{ TEchServerPolicy }
+
+constructor TEchServerPolicy.Create(ARole: TEchServerRole;
+  const AKeyStore: IEchServerKeyStore; ATrialDecrypt: Boolean);
+begin
+  inherited Create;
+  FRole := ARole;
+  FKeyStore := AKeyStore;
+  FTrialDecrypt := ATrialDecrypt;
+end;
+
+class function TEchServerPolicy.Keyed(const ACrypto: ICryptoProvider;
+  const AKeyStore: IEchServerKeyStore; ATrialDecrypt: Boolean): IEchServerPolicy;
+var
+  LEntries: TArray<TEchKeyEntry>;
+  LI: Int32;
+begin
+  if ACrypto = nil then
+    raise EArgumentTlsLibException.CreateRes(@SEchNilCrypto);
+  if AKeyStore = nil then
+    raise EArgumentTlsLibException.CreateRes(@SEchNilKeyStore);
+  LEntries := AKeyStore.Entries;
+  for LI := 0 to System.High(LEntries) do
+    if not LEntries[LI].IsServableBy(ACrypto) then
+      raise EArgumentTlsLibException.CreateResFmt(@SEchEntryNotServable,
+        [LI, LEntries[LI].Config.ConfigId]);
+  Result := TEchServerPolicy.Create(TEchServerRole.Keyed, AKeyStore, ATrialDecrypt)
+    as IEchServerPolicy;
+end;
+
+class function TEchServerPolicy.Backend: IEchServerPolicy;
+begin
+  Result := TEchServerPolicy.Create(TEchServerRole.Backend, nil, False) as IEchServerPolicy;
+end;
+
+function TEchServerPolicy.Role: TEchServerRole;
+begin
+  Result := FRole;
+end;
+
+function TEchServerPolicy.KeyStore: IEchServerKeyStore;
+begin
+  Result := FKeyStore;
+end;
+
+function TEchServerPolicy.TrialDecrypt: Boolean;
+begin
+  Result := FTrialDecrypt;
+end;
+
 { TEchServerHandshake }
 
 constructor TEchServerHandshake.Create(const ACryptoProvider: ICryptoProvider;
-  const AKeyStore: IEchServerKeyStore; ATrialDecryptAll: Boolean);
+  const APolicy: IEchServerPolicy);
 begin
   inherited Create;
+  if (APolicy = nil) or (APolicy.Role <> TEchServerRole.Keyed) then
+    raise EArgumentTlsLibException.CreateRes(@SEchHandshakeNeedsKeyed);
   FCrypto := ACryptoProvider;
-  FKeyStore := AKeyStore;
-  FTrialDecryptAll := ATrialDecryptAll;
+  FKeyStore := APolicy.KeyStore;
+  FTrialDecryptAll := APolicy.TrialDecrypt;
   FStatus := TEchStatus.NotOffered;
 end;
 

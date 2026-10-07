@@ -36,6 +36,14 @@ type
   /// </summary>
   TEchStatus = (NotOffered, Greased, Accepted, Rejected, Backend);
 
+  /// <summary>
+  /// The part a server plays in Encrypted Client Hello (RFC 9849 sec. 7): Keyed holds ECH keys and
+  /// decrypts the outer's ech payload itself (client-facing and shared mode), Backend holds none and
+  /// accepts an already-decrypted inner forwarded by a split-mode client-facing server. A server
+  /// that serves no ECH has no role.
+  /// </summary>
+  TEchServerRole = (Keyed, Backend);
+
   /// <summary>How a ClientHelloOuter carrying ECH is built: the first flight, an accepting
   /// HelloRetryRequest retry (re-seal at seq=1), or a rejecting one (echo CH1's ech verbatim).</summary>
   TEchChMode = (Initial, RetryAccept, RetryReject);

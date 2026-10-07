@@ -28,6 +28,7 @@ uses
   TlpNegotiationPolicy,
   TlpHandshakeMessage,
   TlpHandshakeMessages,
+  TlpEchConfig,
   TlpHandshakeEffect,
   TlpHandshakeStage,
   TlpIHandshakeMachine,
@@ -354,7 +355,8 @@ begin
   // ech while offering only 1.2 still negotiates 1.2.
   LClientSupportsTls13 := (TArrayUtilities.Contains<UInt16>(LClientVersions,
     TlsWireVersionTls13)) or ((System.Length(LClientVersions) = 0) and
-    (FParams13.EchKeyStore <> nil) and HasEncryptedClientHello(LExtensions));
+    (FParams13.EchPolicy <> nil) and (FParams13.EchPolicy.Role = TEchServerRole.Keyed) and
+    HasEncryptedClientHello(LExtensions));
 
   // RFC 7507 TLS_FALLBACK_SCSV: a client that retried at a lower version signals it in
   // cipher_suites. The client's highest version is its supported_versions (a 1.3 client

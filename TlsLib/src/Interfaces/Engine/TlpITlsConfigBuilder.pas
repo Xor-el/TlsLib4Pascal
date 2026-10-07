@@ -485,16 +485,20 @@ type
     function WithAntiReplay(const AStrategy: IAntiReplayStrategy): ITls13ServerConfigFacet;
     /// <summary>Enables Encrypted Client Hello: the key store the server decrypts offers with
     /// and advertises as retry_configs (RFC 9849), swapped to rotate keys. Build one from a
-    /// store class - e.g. TInMemoryEchKeyStore.FromPem / .FromConfig - or supply your own.</summary>
-    function WithEchKeyStore(const AKeyStore: IEchServerKeyStore): ITls13ServerConfigFacet;
-    /// <summary>Whether the server trial-decrypts an ECH offer against every key when the
-    /// config_id does not match (RFC 9849 sec. 7.1); off by default (match by config_id).</summary>
-    function WithEchTrialDecrypt(AEnabled: Boolean): ITls13ServerConfigFacet;
+    /// store class - e.g. TInMemoryEchKeyStore.FromPem / .FromConfig - or supply your own. Raises on a
+    /// nil store, or on an entry the crypto provider cannot serve; a second call replaces the first.</summary>
+    function WithEchKeyStore(const AKeyStore: IEchServerKeyStore): ITls13ServerConfigFacet; overload;
+    /// <summary>As WithEchKeyStore, and ATrialDecrypt makes the server trial-decrypt an ECH offer
+    /// against every key when the config_id does not match (RFC 9849 sec. 7.1); off by default
+    /// (match by config_id). Every entry must be one the crypto provider can serve, or this
+    /// raises.</summary>
+    function WithEchKeyStore(const AKeyStore: IEchServerKeyStore;
+      ATrialDecrypt: Boolean): ITls13ServerConfigFacet; overload;
     /// <summary>Deploys this server as a split-mode ECH backend (RFC 9849 sec. 7.2): it accepts an
     /// inner-type ech forwarded by a client-facing server and confirms it. Off by default, so an
     /// inner-type ech at a non-backend server aborts with illegal_parameter. Mutually exclusive with
-    /// WithEchKeyStore (a backend holds no ECH keys); combining them is refused at Build.</summary>
-    function WithEchSplitModeBackend: ITls13ServerConfigFacet;
+    /// WithEchKeyStore (a backend holds no ECH keys): whichever is called second raises.</summary>
+    function WithEchBackend: ITls13ServerConfigFacet;
     function Tls12: ITls12ServerConfigFacet;
     function Build: ITlsServerConfig;
   end;

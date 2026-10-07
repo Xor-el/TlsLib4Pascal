@@ -536,14 +536,10 @@ begin
   if LOffers13 then
     L13.ExternalPsks := AConfig.ExternalPsks;
 
-  // Encrypted Client Hello is TLS 1.3-only: the server decrypts offers with this store and
+  // Encrypted Client Hello is TLS 1.3-only: a keyed server decrypts offers with its store and
   // advertises its is_retry configs as retry_configs on reject (RFC 9849)
   if LOffers13 then
-  begin
-    L13.EchKeyStore := AConfig.EchKeyStore;
-    L13.EchTrialDecrypt := AConfig.EchTrialDecrypt;
-    L13.EchSplitModeBackend := AConfig.EchSplitModeBackend;
-  end;
+    L13.EchPolicy := AConfig.EncryptedClientHello;
 
   if LOffers13 and LOffers12 then
     LMachine := TServerVersionDispatchMachine.Create(L13, L12,

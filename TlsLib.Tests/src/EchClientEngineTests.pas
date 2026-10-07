@@ -352,7 +352,8 @@ begin
   LGen := TEchKeyGenerator.Generate(Crypto, 'public.example', 'origin.example', $AA,
     THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM, 0);
   LStore := TInMemoryEchKeyStore.FromPem(LGen.Pem, Crypto);
-  LEch := TEchServerHandshake.Create(Crypto, LStore, False) as IEchServerHandshake;
+  LEch := TEchServerHandshake.Create(Crypto, TEchServerPolicy.Keyed(Crypto, LStore, False))
+    as IEchServerHandshake;
   LRaised := False;
   try
     LEch.ProcessRetryOuter(OuterClientHello);
@@ -375,7 +376,8 @@ begin
   LGen := TEchKeyGenerator.Generate(Crypto, 'public.example', 'origin.example', $BB,
     THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM, 0);
   LStore := TInMemoryEchKeyStore.FromPem(LGen.Pem, Crypto);
-  LEch := TEchServerHandshake.Create(Crypto, LStore, True) as IEchServerHandshake;
+  LEch := TEchServerHandshake.Create(Crypto, TEchServerPolicy.Keyed(Crypto, LStore, True))
+    as IEchServerHandshake;
   CheckTrue(ProcessOuterFramed(LEch, OuterClientHello) = TEchStatus.Rejected,
     'the mismatched store rejects the outer ech');
   LRaised := False;
@@ -470,7 +472,8 @@ begin
   LSuite.SetupSealer(LConfig.PublicKey, LConfig.HpkeInfo, LEnc, LSealer);
   LOuterEch.Enc := LEnc;
   LStore := TInMemoryEchKeyStore.FromConfig(DecodeHex(FVec.Values['config_list']), LSk, Crypto);
-  LServer := TEchServerHandshake.Create(Crypto, LStore, True) as IEchServerHandshake;
+  LServer := TEchServerHandshake.Create(Crypto, TEchServerPolicy.Keyed(Crypto, LStore, True))
+    as IEchServerHandshake;
   CheckTrue(ProcessOuterFramed(LServer, SealOuter(LOuter, LEntries, LOuterEch, LSealer, LEncoded)) =
     TEchStatus.Accepted, 'the trial-decrypting server opens the first hello');
 
@@ -492,7 +495,8 @@ begin
   LGen := TEchKeyGenerator.Generate(Crypto, 'public.example', 'origin.example', $CC,
     THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM, 0);
   LStore := TInMemoryEchKeyStore.FromPem(LGen.Pem, Crypto);
-  LEch := TEchServerHandshake.Create(Crypto, LStore, False) as IEchServerHandshake;
+  LEch := TEchServerHandshake.Create(Crypto, TEchServerPolicy.Keyed(Crypto, LStore, False))
+    as IEchServerHandshake;
   LOuter := THandshakeMessages.DecodeClientHello(
     System.Copy(OuterClientHello, 4, System.Length(OuterClientHello) - 4));
   CheckTrue(LEch.ProcessOuter(OuterClientHello, LOuter, TExtensionVector.Empty)

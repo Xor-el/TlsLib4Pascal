@@ -94,13 +94,17 @@ them from an RFC 9934 PEM (the format `EchKeyGen` and `openssl ech` emit):
 ```pascal
 LStore := TInMemoryEchKeyStore.FromPem(LPemBytes, Crypto);
 LServer := TTlsPresets.Compatible(Crypto, Pkix).Server;
-LServer.Tls13.WithEchKeyStore(LStore).WithEchTrialDecrypt(True);
+LServer.Tls13.WithEchKeyStore(LStore, True);
 ```
 
 The server trial-decrypts the outer against its keys; on success it reconstructs the inner and
 serves the true name, on failure it serves the public name and advertises the store's `is_retry`
-configs as `retry_configs`. `WithEchTrialDecrypt(True)` tries every key (not only the one whose
-`config_id` matches), which tolerates a client that hides the id.
+configs as `retry_configs`. The second argument, `True`, tries every key (not only the one whose
+`config_id` matches), which tolerates a client that hides the id. `WithEchKeyStore` raises on a
+nil store, and on a key store entry whose key or advertised cipher suite the crypto provider cannot
+serve. A server that only receives the inner ClientHello a split-mode client-facing server forwards
+(RFC 9849 sec. 7.2) is configured with `WithEchBackend` instead; it holds no keys, so it cannot be
+combined with `WithEchKeyStore`.
 
 Rotate keys by building a fresh store and swapping it in — the store is app-driven, not
 clock-rotated, so it tracks exactly what you publish in DNS.

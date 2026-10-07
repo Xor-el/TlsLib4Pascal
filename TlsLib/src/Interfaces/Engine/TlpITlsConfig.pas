@@ -215,16 +215,10 @@ type
     function TicketCount: Int32;
     /// <summary>The 0-RTT early-data byte budget the server authorizes (0 = no early data).</summary>
     function MaxEarlyData: UInt32;
-    /// <summary>The Encrypted Client Hello key store the server decrypts with and advertises as
-    /// retry_configs (RFC 9849), or nil when ECH is not configured.</summary>
-    function EchKeyStore: IEchServerKeyStore;
-    /// <summary>Whether the server trial-decrypts an ECH offer against every key on a config_id
-    /// miss (RFC 9849 sec. 7.1).</summary>
-    function EchTrialDecrypt: Boolean;
-    /// <summary>Whether the server is deployed as a split-mode ECH backend (RFC 9849 sec. 7.2): it
-    /// accepts an inner-type ech forwarded by a client-facing server. Off by default; an inner-type
-    /// ech at a non-backend server is illegal_parameter.</summary>
-    function EchSplitModeBackend: Boolean;
+    /// <summary>The server's Encrypted Client Hello policy (RFC 9849): a keyed server's store and
+    /// trial-decrypt setting, or a split-mode backend. nil when ECH is not configured; an inner-type
+    /// ech at a server that is not a backend is illegal_parameter.</summary>
+    function EncryptedClientHello: IEchServerPolicy;
   end;
 
 implementation
