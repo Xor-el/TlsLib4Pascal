@@ -36,7 +36,7 @@ type
 
   /// <summary>
   /// Owns all extension-block wire framing and the cross-extension rules of RFC 8446
-  /// 4.2: the outer extensions vector, duplicate detection (decode_error), the
+  /// 4.2: the outer extensions vector, duplicate detection (illegal_parameter), the
   /// unknown-extension skip (which also tolerates GREASE), per-message context
   /// enforcement (wrong context -> illegal_parameter), and the response-only
   /// rule that an extension the ClientHello did not offer is fatal
@@ -178,7 +178,7 @@ begin
       // a server response must not carry a type this build does not recognize. The only type a
       // client sends that is absent from the registry is GREASE (RFC 8701), which it splices into
       // its own ClientHello and so appears "offered"; a server that echoes a GREASE value (or any
-      // unknown type) as if negotiated is fatal illegal_parameter (RFC 8701 4). (A CertificateRequest
+      // unknown type) as if negotiated is fatal illegal_parameter (RFC 8701 3.1). (A CertificateRequest
       // is not a response context: RFC 8701 lets a server GREASE it and the client ignores it.)
       if not FRegistry.TryGet(LType, LExt) then
         raise EFatalAlertTlsLibException.CreateRes(

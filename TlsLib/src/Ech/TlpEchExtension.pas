@@ -74,7 +74,7 @@ type
     /// <summary>
     /// Decodes an encrypted_client_hello body, returning its form. For the outer form
     /// AOuter is filled; for the inner form it is left empty. Raises a decode_error on a
-    /// malformed body, or illegal_parameter on an out-of-range type (RFC 9849 sec. 5).
+    /// malformed body, or illegal_parameter on an out-of-range type (RFC 9849 sec. 7).
     /// </summary>
     class procedure Decode(const AData: TBytes; out AType: TEchClientHelloType;
       out AOuter: TEchOuterClientHello); static;
@@ -160,7 +160,7 @@ var
 begin
   AOuter := Default(TEchOuterClientHello);
   LReader := TWireReader.Create(AData);
-  // an out-of-range ECHClientHelloType is illegal_parameter, not decode_error (RFC 9849 sec. 5)
+  // an out-of-range ECHClientHelloType is illegal_parameter, not decode_error (RFC 9849 sec. 7)
   if not TEchClientHelloType.TryFromByte(LReader.ReadUInt8, AType) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SUnknownEchType);

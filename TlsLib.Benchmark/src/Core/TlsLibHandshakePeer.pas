@@ -48,7 +48,7 @@ type
     FServerConfig: ITlsServerConfig;
     FScratch: TBytes;
     /// <summary>The ECDHE group to benchmark, plus the leaf certificate's own curve when it
-    /// differs: an ECDSA leaf's curve must appear in supported_groups (RFC 8422 5.4) whatever
+    /// differs: an ECDSA leaf's curve must appear in supported_groups (RFC 8422 5.3) whatever
     /// the negotiated ECDHE group. ACertGroup is 0 for a non-ECDSA leaf (no such constraint).</summary>
     class function OfferedGroups(AGroupCode, ACertGroup: UInt16): TArray<UInt16>; static;
     /// <summary>Drains everything ASrc has queued into ADst; True if any bytes moved.</summary>
@@ -94,7 +94,7 @@ begin
   inherited Create;
   SetLength(FScratch, CPumpBuffer);
 
-  // the leaf's own curve (RFC 8422 5.4 fallback), read from the certificate so the peer is
+  // the leaf's own curve (RFC 8422 5.3 fallback), read from the certificate so the peer is
   // not tied to one curve; 0 (offer nothing extra) for a non-ECDSA leaf
   LCertGroup := 0;
   if APkix.Certificates.KeyKind(ACredential.LeafCertDer, LKind, LCertCurve)

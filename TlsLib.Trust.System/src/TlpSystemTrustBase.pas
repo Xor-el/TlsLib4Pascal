@@ -58,7 +58,7 @@ type
   /// it renders a revocation outcome of its own from its cache and the handshake staple, so the inline
   /// pass decides Hard from that; an engine without it renders none, and the staple is the only inline
   /// revocation source. DnsIdentity: it matches a DNS host itself, so the host is withheld when the
-  /// name check is off; the library matches the SAN identity (SAN-only, RFC 6125) regardless, for
+  /// name check is off; the library matches the SAN identity (SAN-only, RFC 9525) regardless, for
   /// both DnsIdentity and chain-only engines.</summary>
   TPlatformChainCapability = (LiveFetch, CachedRevocation, DnsIdentity);
   TPlatformChainCapabilities = set of TPlatformChainCapability;
@@ -131,7 +131,7 @@ type
     /// the OS must never name-check - the library matches it against iPAddress SANs instead).</summary>
     class function OsHostName(const AHostName: string): string; static;
     /// <summary>True (with AAlert = bad_certificate) when a non-empty AName does not match the leaf's
-    /// dNSName / iPAddress SANs (RFC 6125), for an engine that validates the chain but not the host.
+    /// dNSName / iPAddress SANs (RFC 9525), for an engine that validates the chain but not the host.
     /// An empty name never fires. A nil provider or empty path cannot match and fails closed
     /// (bad_certificate).</summary>
     class function RejectNameMismatch(const AName: TServerName;
@@ -268,7 +268,7 @@ class function TDelegatePostChecks.RejectNameMismatch(const AName: TServerName;
   const APkix: IPkixProvider; const AOsPath: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
-  // an engine that validates the chain but not the host: the full RFC 6125 identity is matched here.
+  // an engine that validates the chain but not the host: the full RFC 9525 identity is matched here.
   // an empty name never fires; without a provider to read the SANs, or with no validated leaf, the
   // name cannot be confirmed and fails closed
   if AName.IsEmpty then

@@ -35,8 +35,8 @@ resourcestring
   SExportLabelReserved = 'the exporter label collides with a reserved TLS PRF label';
 
 const
-  // RFC 5705 4: an exporter label MUST NOT be one the TLS PRF already uses, or the derived value
-  // could coincide with a handshake secret (RFC 5246 + RFC 7627 extended_master_secret)
+  // exporter labels can collide with the TLS PRF's own labels (RFC 5705 4); refuse the reserved
+  // ones so an export can never equal a handshake secret
   ReservedPrfLabels: array [0 .. 4] of string = ('client finished', 'server finished',
     'master secret', 'key expansion', 'extended master secret');
 

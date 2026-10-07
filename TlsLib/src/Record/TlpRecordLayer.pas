@@ -194,7 +194,7 @@ type
     /// <summary>Records the negotiated protocol version once the peer's hello fixes it, so an
     /// incoming change_cipher_spec can be classified: middlebox-compat filler to drop under TLS
     /// 1.3, but out of its legal window (fatal) before any hello or under an unarmed TLS 1.2
-    /// read epoch (RFC 8446 D.4 / RFC 5246 7.1).</summary>
+    /// read epoch (RFC 8446 5 / RFC 5246 7.1).</summary>
     procedure SetNegotiatedVersion(const AVersion: TTlsVersion);
     /// <summary>When set, a cleartext application_data record is rejected as unexpected (RFC
     /// 8446 5.1). The engine sets it for a real handshake; off by default for framing tests.</summary>
@@ -231,7 +231,7 @@ type
     procedure SetEarlyReadAccepted(AActive: Boolean; AMaxBytes: Int32);
 
     /// <summary>Marks the handshake complete, after which a change_cipher_spec is no
-    /// longer in its legal window and is rejected (RFC 8446 D.4).</summary>
+    /// longer in its legal window and is rejected (RFC 8446 5).</summary>
     procedure SetHandshakeComplete;
   end;
 
@@ -408,7 +408,7 @@ begin
   if (ABodyLength <> 1) or (ARecord[ABodyOffset] <> 1) then
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.UnexpectedMessage,
       @SBadChangeCipherSpec);
-  // never legal once the handshake is complete (RFC 8446 D.4)
+  // never legal once the handshake is complete (RFC 8446 5)
   if FHandshakeComplete then
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.UnexpectedMessage,
       @SChangeCipherSpecAfterHandshake);
@@ -422,7 +422,7 @@ begin
     Exit;
   end;
   // TLS 1.3 middlebox-compatibility filler: dropped, but only a bounded number of times and only
-  // once the peer's hello has fixed the version (RFC 8446 D.4 - a change_cipher_spec before the
+  // once the peer's hello has fixed the version (RFC 8446 5 - a change_cipher_spec before the
   // peer's first hello is an unexpected record type).
   if FNegotiatedVersion.Equals(TTlsVersion.Tls13) then
   begin
@@ -434,7 +434,7 @@ begin
   end;
   // otherwise out of its legal window: before the peer's first hello (version still unknown), or
   // a TLS 1.2 change_cipher_spec with no read epoch armed (before ClientKeyExchange, or a stray
-  // extra one) (RFC 8446 D.4 / RFC 5246 7.1)
+  // extra one) (RFC 8446 5 / RFC 5246 7.1)
   raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.UnexpectedMessage,
     @SChangeCipherSpecOutOfWindow);
 end;
@@ -487,7 +487,7 @@ begin
   // only TLS 1.3 needs the heuristic (TLS 1.2 keying changes at the change_cipher_spec), only
   // until a record has ever decrypted, only a record too short to be protected, and only a fatal
   // alert other than close_notify (which closes at any level): an unauthenticated close_notify or
-  // warning must never be honoured (RFC 8446 6.1)
+  // warning must never be honoured, since it would forge the closure of RFC 8446 6.1
   Result := FNegotiatedVersion.Equals(TTlsVersion.Tls13) and (not FReadIsPlaintext) and
     (not FHasDecrypted) and (System.Length(ARecord) > 0) and
     (ARecord[0] = OuterAlert) and

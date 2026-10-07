@@ -30,7 +30,7 @@ type
   /// per leaf certificate - an EC P-256 leaf (ECDSA CertificateVerify) and an RSA-2048 leaf
   /// (RSA-PSS CertificateVerify in 1.3, ECDHE-RSA in 1.2), the Let's-Encrypt-style case that
   /// the EC-only rows never exercised. An ECDSA leaf also offers its own curve in
-  /// supported_groups (RFC 8422 5.4). Peer verification is disabled, so the figure reflects
+  /// supported_groups (RFC 8422 5.3). Peer verification is disabled, so the figure reflects
   /// the handshake proper (ECDHE key exchange + the certificate signature) rather than PKIX.
   ///
   /// Caveat by design: the handshake cost is dominated by the asymmetric crypto, which
@@ -123,7 +123,7 @@ var
   end;
 
   // the leaf's own curve, read from the certificate, so the OpenSSL groups list can include
-  // it (RFC 8422 5.4) exactly as the TlsLib peer does; 0 for a non-ECDSA leaf
+  // it (RFC 8422 5.3) exactly as the TlsLib peer does; 0 for a non-ECDSA leaf
   function CertGroupCode: UInt16;
   var
     LKind: TSignatureKeyKind;

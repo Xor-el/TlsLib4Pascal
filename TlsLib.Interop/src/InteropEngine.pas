@@ -362,7 +362,7 @@ begin
         TInteropAcceptAnyVerifier.Create as IServerCertificateVerifier)
     else
       LClient.WithTrustStore(AOptions.Trust);
-    // name checking is on by default; the shim disables the RFC 6125 match when the runner
+    // name checking is on by default; the shim disables the RFC 9525 match when the runner
     // did not ask for it (BoGo drives host identity via -expect-* assertions, not the match)
     if not AOptions.CheckServerName then
       LClient.WithDangerousDisableServerNameCheck;
@@ -475,7 +475,7 @@ begin
     if System.Length(AOptions.ResumptionScope) > 0 then
       LServer.WithResumptionScope(AOptions.ResumptionScope);
     // the injected clock drives the server's ticket-issue time and the 0-RTT ticket-age
-    // freshness window (RFC 8446 8.2), advanced between connections by -resumption-delay
+    // freshness window (RFC 8446 8.3), advanced between connections by -resumption-delay
     if AOptions.Clock <> nil then
       LServer.WithClock(AOptions.Clock);
     if AOptions.MaxEarlyData > 0 then

@@ -107,12 +107,12 @@ risk), so it lives under the `dangerous` name and is a pin-only trust posture.
 ```pascal
 LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   .WithTrustAnchors(LoadFile('my-ca.pem'))
-  .WithDangerousDisableServerNameCheck   // RFC 6125 identity check off; chain still validated
+  .WithDangerousDisableServerNameCheck   // RFC 9525 identity check off; chain still validated
   .Build;
 ```
 
 Name checking is **on by default**. A client with name checking on but no host to verify against
-is refused when the engine is created (fail-closed) rather than silently skipping RFC 6125 — pass
+is refused when the engine is created (fail-closed) rather than silently skipping RFC 9525 — pass
 the connection host, or opt out with `WithDangerousDisableServerNameCheck`.
 
 ---
@@ -271,7 +271,7 @@ builder takes no `IHttpFetcher`, by design, so the engine stays network-free. Yo
 //    .WithLiveRevocationVerdict(deadlineMs)  <-- without this the resolver never fires
 // 2. attach the live checker to the stream (the clock drives the deadline; the
 //    fetcher owns every socket):
-checker := TLiveRevocationChecker.Create(provider, clock, fetcher, TRevocationPosture.Hard,
+checker := TLiveRevocationChecker.Create(Pkix, clock, fetcher, TRevocationPosture.Hard,
   TLiveRevocationMethod.OcspThenCrl, budgetMs);
 stream.SetCertificateVerdictResolver(checker.ResolveVerdict);
 ```
@@ -296,7 +296,7 @@ The limits are tunable through `TLiveRevocationOptions` (declare one, which alre
 defaults, and set what you need), passed as the last constructor argument: `MaxOcspResponders` and
 `MaxCrlDistributionPoints` (1 to 8, default 3), `MinAttemptMs` (1 to 60000, default 250; never 0,
 which would leave a fetch unbounded), `MaxCrlBytes` (4 KiB to 256 MiB, default 32 MiB) and
-`IssuerCandidates`. A value outside its range, or a nil provider, clock or fetcher, is refused when
+`IssuerCandidates`. A value outside its range, or a nil `Pkix` provider, clock or fetcher, is refused when
 the checker is created.
 
 A **stapled** OCSP response (validated in the handshake pipeline, before the park) is preferred;

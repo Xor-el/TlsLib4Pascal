@@ -34,7 +34,7 @@ type
   /// identity/context into the wire pre_shared_key identity and derived key, bound to a
   /// target KDF hash and target protocol. A single external PSK yields one imported PSK
   /// per target hash; the resulting <see cref="IPreSharedKey" /> carries the imported
-  /// identity (5.1), the derived key (ipskx, 4.1) and the target hash, and uses the
+  /// identity (5.1), the derived key (ipskx, 5.1) and the target hash, and uses the
   /// "imp binder" label. The derivation is keyed on the PSK's provisioned hash while the
   /// target hash sets only the imported KDF id, the output length and the bound hash,
   /// so a single provisioned key imports for every supported KDF.
@@ -47,7 +47,7 @@ type
     SupportedKdfHashes: array [0 .. 1] of THashAlgorithm =
       (THashAlgorithm.SHA_256, THashAlgorithm.SHA_384);
   strict private
-    /// <summary>The RFC 8446 / IANA KDF id for a hash: HKDF-SHA256 = 1, HKDF-SHA384 = 2.</summary>
+    /// <summary>The RFC 9258 (IANA TLS KDF Identifiers, sec. 10) id for a hash: HKDF-SHA256 = 1, HKDF-SHA384 = 2.</summary>
     class function KdfId(AHash: THashAlgorithm): UInt16; static;
   public
     /// <summary>The serialized ImportedIdentity (RFC 9258 5.1): the external identity and
@@ -130,7 +130,7 @@ begin
     KdfId(ATargetHash));
 
   // the derivation is keyed on the provisioned hash (ASpec.Hash); only the output length
-  // follows the target hash (RFC 9258 4.1)
+  // follows the target hash (RFC 9258 5.1)
   LHash := ACryptoProvider.Primitives.CreateHash(ASpec.Hash);
   LHash.Update(LIdentity, 0, System.Length(LIdentity));
   LIdentityHash := LHash.DoFinal;

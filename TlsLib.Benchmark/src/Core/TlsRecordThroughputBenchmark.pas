@@ -62,7 +62,7 @@ const
   // one connection's application-data payload sealed+opened per pass; a multiple of the
   // 16 KiB record ceiling so the per-pass overhead is amortised into steady-state throughput
   BENCH_TP_PAYLOAD = 256 * 1024;
-  // X25519 for the key exchange, P-256 for the certificate's own curve (RFC 8422 5.4)
+  // X25519 for the key exchange, P-256 for the certificate's own curve (RFC 8422 5.3)
   BENCH_TP_OSSL_GROUPS = 'X25519:P-256';
   // the application-write (TLS record) sizes measured: a tiny record, an MTU-sized record
   // and the 16 KiB record ceiling - the payload is chunked into records of each size, so a

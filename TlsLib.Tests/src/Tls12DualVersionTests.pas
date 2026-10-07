@@ -179,7 +179,7 @@ begin
   Result.GroupCode := TNamedGroupCatalog.X25519;
   // the unified ClientHello carries these supported_groups; a 1.2 fallback with a P-256
   // ECDSA server certificate needs Secp256r1 listed too, since TLS 1.2 gates the ECDSA
-  // leaf's curve on supported_groups (RFC 8422 5.4). The key_share stays X25519-only
+  // leaf's curve on supported_groups (RFC 8422 5.3). The key_share stays X25519-only
   Result.OfferedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
     TNamedGroupCatalog.Secp256r1);
   Result.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Crypto);
@@ -208,7 +208,7 @@ begin
   Result.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   Result.OfferedSuites := DualSuites;
   // TLS 1.2 supported_groups gates both the ECDHE key-exchange group and the ECDSA leaf's
-  // curve (RFC 8422 5.1), so it lists X25519 and Secp256r1 (the P-256 certificate curve)
+  // curve (RFC 8422 5.3), so it lists X25519 and Secp256r1 (the P-256 certificate curve)
   Result.OfferedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
     TNamedGroupCatalog.Secp256r1);
   Result.OfferedSchemes := TArray<UInt16>.Create(
@@ -855,7 +855,7 @@ var
   LRaised: Boolean;
 begin
   // fail-closed: name checking is on by default, so creating a client engine with no host
-  // to verify the certificate against must raise rather than silently skip RFC 6125.
+  // to verify the certificate against must raise rather than silently skip RFC 9525.
   LRaised := False;
   try
     TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix)

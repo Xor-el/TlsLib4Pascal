@@ -95,8 +95,8 @@ LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client     // TLS 1.3 only, PQ-hyb
 
 | Preset | Versions | Groups | Notes |
 |---|---|---|---|
-| `Compatible` | 1.3 + hardened 1.2 | X25519, X25519MLKEM768, P-256/384/521 | The default; widest interop. |
-| `Hardened` | 1.3 only | X25519MLKEM768 (first), X25519, P-256 | Modern peers; PQ preferred. |
+| `Compatible` | 1.3 + hardened 1.2 | X25519, X25519MLKEM768, SecP256r1MLKEM768, P-256/384/521 | The default; widest interop. |
+| `Hardened` | 1.3 only | X25519MLKEM768 (first), SecP256r1MLKEM768, X25519, P-256 | Modern peers; PQ preferred. |
 | `Strict` | 1.3 only | X25519MLKEM768, X25519, secp256r1 | Fixed group allowlist, tight cert limits, resumption off. |
 
 Re-enabling a safe posture setting on `Strict` (e.g. `WithResumption(True)`) is allowed with no
@@ -514,8 +514,10 @@ ECH is TLS 1.3 only. Full detail — GREASE, rejection/`retry_configs`, key gene
 
 ## External (out-of-band) PSKs
 
-For RFC 9258 external pre-shared keys (a key both endpoints already share out of band, not from a
-prior handshake):
+For external pre-shared keys (a key both endpoints already share out of band, not from a prior
+handshake). The PSK is imported per RFC 9258, so both peers must implement the import; a peer that
+does not import the PSK as RFC 9258 describes will not interoperate (a raw PSK from another tool's
+`-psk` option, for example):
 
 ```pascal
 uses TlpSession, TlpSecretBuffer, TlpCryptoAlgorithms;   // TExternalPsk, TSecretBuffer, THashAlgorithm
@@ -524,7 +526,7 @@ var LPsk: TExternalPsk;
 begin
   LPsk.Identity := IdentityBytes;                 // agreed identity label
   LPsk.Secret   := TSecretBuffer.From(KeyBytes);  // the shared key material
-  LPsk.Context  := nil;                            // optional binder context
+  LPsk.Context  := nil;                            // optional RFC 9258 ImportedIdentity context
   LPsk.Hash     := THashAlgorithm.SHA_256;         // the PSK's bound hash
 
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
@@ -555,14 +557,14 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
 .WithDangerousDisableServerNameCheck
 
 // log every connection secret so Wireshark can decrypt a capture (SSLKEYLOGFILE, RFC 9850).
-// Debugging only — this writes your keys to disk. Keyed by the (inner, under ECH) ClientHello.random.
+// Debugging only — this writes your keys to disk. Keyed by the ClientHello.random: the inner one when ECH was accepted, otherwise the outer one (RFC 9850 2.1).
 uses TlpKeyLog;
 procedure TMyApp.OnKeyLog(const ALabel: string; const AClientRandom, ASecret: TBytes);
 begin
   FKeyLogFile.WriteLine(TNssKeyLogFormat.Line(ALabel, AClientRandom, ASecret));
 end;
 // ...
-.WithDangerousKeyLog(TCallbackKeyLog.Create(Self.OnKeyLog))
+.WithDangerousKeyLog(TCallbackKeyLog.Create(Self.OnKeyLog) as IKeyLog)
 ```
 
 Point Wireshark at the file via *Preferences → Protocols → TLS → (Pre)-Master-Secret log filename*.

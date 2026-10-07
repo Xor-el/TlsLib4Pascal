@@ -55,7 +55,7 @@ type
   /// validated (Path, with the leaf's issuer at index 1 where the validator can name it; the leaf
   /// alone under InsecureSkipVerify) and how acceptance was reached (Outcome). A verifier fills this
   /// only when it returns True; on rejection the caller reads the alert, not this record. A
-  /// key-pinning check matches against Path, never the presented chain (RFC 7469 6).</summary>
+  /// key-pinning check matches against Path, never the presented chain (RFC 7469 2.6).</summary>
   TVerifiedChain = record
     Path: TArray<TBytes>;
     Outcome: TVerificationOutcome;

@@ -101,10 +101,10 @@ type
     procedure Consume(const AContext: TExtensionContext; const AExtensionData: TBytes);
   end;
 
-  /// <summary>certificate_authorities (RFC 8446 4.2.4): a server may send it in a
-  /// CertificateRequest to constrain the acceptable client-certificate issuers. We do not
-  /// pin issuers, so it is never produced; on receipt its structure is validated (non-empty
-  /// authorities, each a non-empty DistinguishedName, no trailing data) and the content ignored.</summary>
+  /// <summary>certificate_authorities (RFC 8446 4.2.4): produced in a
+  /// CertificateRequest when issuers are configured; on receipt its structure is validated
+  /// (non-empty authorities, each a non-empty DistinguishedName, no trailing data) and the
+  /// parsed names are passed on.</summary>
   TCertificateAuthoritiesExtension = class sealed(TInterfacedObject, ITlsExtension)
   public
     function ExtensionType: UInt16;
@@ -347,8 +347,8 @@ end;
 
 function TSupportedGroupsExtension.ValidContexts: TTlsExtensionContexts;
 begin
-  // a TLS 1.2 server may echo supported_groups in the ServerHello (RFC 8422 5.1.2), and a
-  // 1.3 server in EncryptedExtensions; the client tolerates and ignores it either way
+  // a TLS 1.2 server's supported_groups in the ServerHello is tolerated and ignored (not
+  // defined there); a 1.3 server may send it in EncryptedExtensions (RFC 8446 4.2.7)
   Result := [TTlsExtensionContextKind.ClientHello,
     TTlsExtensionContextKind.ServerHello,
     TTlsExtensionContextKind.EncryptedExtensions];
@@ -1142,9 +1142,9 @@ begin
   Result.Add(TEarlyDataExtension.Create as ITlsExtension);
   // encrypted_client_hello sits immediately before pre_shared_key: last in a ClientHello
   // (else just before the PSK), and last in HelloRetryRequest / EncryptedExtensions - the exact
-  // positions the former hand-rolled ECH splices produced (RFC 9849 sec. 5)
+  // positions the former hand-rolled ECH splices produced
   Result.Add(TEncryptedClientHelloExtension.Create as ITlsExtension);
-  // pre_shared_key MUST be the last ClientHello extension (RFC 8446 4.2.11)
+  // order is local policy; pre_shared_key last per RFC 8446 4.2.11
   Result.Add(TPreSharedKeyExtension.Create as ITlsExtension);
 end;
 

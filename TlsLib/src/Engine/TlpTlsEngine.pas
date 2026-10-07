@@ -577,7 +577,7 @@ begin
   if LReceived.IsCloseNotify then
   begin
     FClosed := True;
-    // the peer's write side is closed; release any inbound state and ignore later bytes (RFC 9846 6.1)
+    // the peer's write side is closed; release any inbound state and ignore later bytes (RFC 8446 6.1)
     FRecordLayer.DiscardInbound;
     Enqueue(TTlsEvents.MakeClosed);
     Exit;
@@ -704,7 +704,7 @@ begin
   if FTerminal then
     Exit(TTlsOutcome.Fatal);
   // after an inbound close_notify the peer's write side is closed: discard anything it keeps
-  // sending rather than frame it (RFC 9846 6.1). Checked before the backlog bound so a post-close
+  // sending rather than frame it (RFC 8446 6.1). Checked before the backlog bound so a post-close
   // feed never raises. The tail below still reports any already-buffered app data / events.
   if not FClosed then
   begin
@@ -748,7 +748,7 @@ begin
     raise EInvalidOperationTlsLibException.CreateRes(@SWriteAfterClose);
   // refuse application data until the Application write epoch is in force, so it is never sealed in
   // the clear (plaintext / post-HRR-revert epoch), under the handshake keys, or under the early-data
-  // keys as replayable 0-RTT (RFC 8446 2 / 4.4.4). A TLS 1.3 server may write from its Finished
+  // keys as replayable 0-RTT (RFC 8446 4.2.10 / 4.6.1). A TLS 1.3 server may write from its Finished
   // onward (half-RTT); a 1.3 client and any TLS 1.2 endpoint must wait for the handshake to
   // complete (no False-Start). 0-RTT is sent through WriteEarlyData, not here.
   if not (FAppWriteEpoch and (IsTls13 or FHandshakeComplete)) then
@@ -1174,7 +1174,7 @@ begin
       FEarlyDataClosed := True;
     TTlsEventKind.EarlyDataRejected:
       // the early data already went out under the early keys; on a reject it is discarded, not
-      // retransmitted as 1-RTT (RFC 8446 2.3 leaves any resend to the application)
+      // retransmitted as 1-RTT (RFC 8446 4.2.10 leaves any resend to the application)
       FEarlyDataClosed := True;
   end;
   Enqueue(TTlsEvents.MakeSimple(AEvent));

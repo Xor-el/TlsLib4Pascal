@@ -294,7 +294,7 @@ class function TServerVersionDispatchMachine.HighestKnownVersion(
 var
   LVersion: UInt16;
 begin
-  // a GREASE or otherwise unknown supported_versions entry is ignored (RFC 8701 3.1 /
+  // a GREASE or otherwise unknown supported_versions entry is ignored (RFC 8701 3.2 /
   // RFC 8446 4.2.1); counting it as an offer would mask a spurious fallback (RFC 7507)
   Result := 0;
   for LVersion in AVersions do

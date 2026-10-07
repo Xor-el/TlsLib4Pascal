@@ -131,7 +131,7 @@ type
     /// <summary>Whether a client sprinkles GREASE values (RFC 8701) across its offers to keep
     /// peers tolerant of unknown values. Optional per the RFC; default True.</summary>
     function Grease: Boolean;
-    /// <summary>Whether the server certificate must match the connected host (RFC 6125).</summary>
+    /// <summary>Whether the server certificate must match the connected host (RFC 9525).</summary>
     function CheckServerName: Boolean;
     /// <summary>The source the engine builds the peer server-certificate verifier from, per
     /// connection: the built-in PKIX source by default, else a wrapped injected verifier, else

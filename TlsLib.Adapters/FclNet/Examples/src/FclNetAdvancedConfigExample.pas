@@ -129,7 +129,7 @@ begin
   LPkix := TDefaultPkixProvider.Create as IPkixProvider;
   LClient := TTlsPresets.Compatible(LCrypto, LPkix).Client;
   LClient.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12));
-  // X25519 for the ECDHE, plus the leaf's P-256 curve (RFC 8422 5.4)
+  // X25519 for the ECDHE, plus the leaf's P-256 curve (RFC 8422 5.3)
   LClient.WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
     TNamedGroupCatalog.Secp256r1));
   LClient.WithCipherSuites(OrderedSuites(LCrypto));

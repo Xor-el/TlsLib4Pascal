@@ -48,8 +48,8 @@ contents track evolving best practice.
 
 | Preset | Versions | Groups | For |
 |---|---|---|---|
-| **Compatible** *(default)* | TLS 1.3 + hardened TLS 1.2 | X25519, **X25519MLKEM768**, P-256/384/521 | The broad default. Interops widely; still PQ-hybrid capable and AEAD-only. |
-| **Hardened** | TLS 1.3 only | **X25519MLKEM768** (preferred), X25519, P-256 | Modern peers only; post-quantum hybrid preferred. |
+| **Compatible** *(default)* | TLS 1.3 + hardened TLS 1.2 | X25519, **X25519MLKEM768**, **SecP256r1MLKEM768**, P-256/384/521 | The broad default. Interops widely; still PQ-hybrid capable and AEAD-only. |
+| **Hardened** | TLS 1.3 only | **X25519MLKEM768** (preferred), **SecP256r1MLKEM768**, X25519, P-256 | Modern peers only; post-quantum hybrid preferred. |
 | **Strict** | TLS 1.3 only | **X25519MLKEM768**, X25519, secp256r1 | Locked-down posture: fixed group allowlist, tight certificate limits, resumption off. |
 
 ```pascal

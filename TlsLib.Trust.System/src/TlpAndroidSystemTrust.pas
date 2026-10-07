@@ -41,7 +41,7 @@ type
   /// OS or public-web-PKI roots). The platform TrustManager owns revocation and exposes no cached
   /// outcome and no network-revocation knob, so the engine renders an indeterminate revocation
   /// outcome and matches no host - posture, the strength policy, the staple decision and the
-  /// RFC 6125 identity belong to the delegate that owns it. The server host is passed as the
+  /// RFC 9525 identity belong to the delegate that owns it. The server host is passed as the
   /// network-security-config domain key (a null host throws once a per-domain config exists), never
   /// a name check. Construction is init-independent; the JVM is acquired lazily inside the
   /// evaluation (Delphi resolves it automatically, FPC needs TlsLibAndroidInitTrust). Stateless and
@@ -891,7 +891,7 @@ begin
   AResult := Default(TPlatformChainResult);
   // the host is the network-security-config domain key, NOT a name check (Android's host-aware
   // TrustManager requires a non-null host once per-domain configs exist), so it is passed as-is;
-  // the RFC 6125 identity is matched in-library by the delegate
+  // the RFC 9525 identity is matched in-library by the delegate
   Result := TAndroidTrustApi.Evaluate(
     TArrayUtilities.Concat<TBytes>(ARequest.Chain, ARequest.Intermediates),
     ARequest.ServerName.ToString, LOsPath, AAlert);

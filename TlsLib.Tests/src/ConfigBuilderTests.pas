@@ -361,7 +361,7 @@ var
   LRaised: Boolean;
 begin
   // the split-mode backend role holds no ECH keys; pairing WithEchSplitModeBackend with
-  // WithEchKeyStore is a contradictory deployment and must be refused at Build (RFC 9849 sec. 7)
+  // WithEchKeyStore is a contradictory deployment and must be refused at Build (library policy)
   LConfigList := BuildEchConfigList($E1, 'cover.example', LSk);
   LRaised := False;
   try

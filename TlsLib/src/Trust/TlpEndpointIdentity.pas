@@ -22,7 +22,7 @@ uses
 
 type
   /// <summary>
-  /// RFC 6125 / RFC 9525 endpoint identity matching. A DNS host is matched against the
+  /// RFC 9525 endpoint identity matching. A DNS host is matched against the
   /// certificate's dNSName SANs (a single wildcard is honored only as the entire leftmost label
   /// and only when it leaves at least two labels below it: <c>*.example.com</c> matches
   /// <c>a.example.com</c> but not <c>example.com</c>, <c>a.b.example.com</c>, or a public suffix
@@ -84,7 +84,7 @@ begin
   if not IsMatchableDnsPattern(ADnsName) then
     Exit(False);
 
-  // DNS name comparison is case-insensitive (RFC 6125 / RFC 9525)
+  // DNS name comparison is case-insensitive (RFC 9525)
   if SameText(ADnsName, AHostName) then
     Exit(True);
 
@@ -184,7 +184,8 @@ begin
     Exit(False);
   // a wildcard must leave at least two labels below it (never a public suffix such as *.com, and
   // never a bare "*"): the suffix after the leading "*" then has two dots, e.g. ".example.com"
-  // (RFC 9525 6.3 / RFC 6125 6.4.3). A well-formed name starting with "*" is "*" or "*.<rest>".
+  // (a local policy beyond RFC 9525 6.3; public-suffix protection is out of its scope, RFC 9525 7.1).
+  // A well-formed name starting with "*" is "*" or "*.<rest>".
   if (System.Length(AName) > 0) and (AName[1] = '*') then
     Result := CountDots(System.Copy(AName, 2, System.Length(AName) - 1)) >= 2
   else
@@ -217,7 +218,7 @@ class function TEndpointIdentity.Matches(const AName: TServerName;
   const ADnsNames: TArray<string>; const AIpAddresses: TArray<TBytes>): Boolean;
 begin
   if AName.IsIp then
-    // an IP-literal host matches only iPAddress SANs (RFC 6125 forbids wildcard/dNSName)
+    // an IP-literal host matches only iPAddress SANs (RFC 9525 6.4)
     Result := MatchesIp(AName.AsIpBytes, AIpAddresses)
   else
     Result := MatchesDns(AName.AsDns, ADnsNames);

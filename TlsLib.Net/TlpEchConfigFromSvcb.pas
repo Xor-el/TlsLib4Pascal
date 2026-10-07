@@ -23,7 +23,7 @@ uses
 type
   /// <summary>
   /// Extracts the ECHConfigList a zone publishes in an HTTPS/SVCB record (RFC 9460)
-  /// from the SvcParams, keyed by the "ech" SvcParamKey (5, RFC 9849). This is a pure
+  /// from the SvcParams, keyed by the "ech" SvcParamKey (5, RFC 9848 sec. 3). This is a pure
   /// decoder over bytes the application already resolved: no DNS lookup happens here,
   /// so it stays outside the TLS core and imposes no resolver dependency. Hand the
   /// resulting ECHConfigList to the client builder's Encrypted Client Hello policy.
@@ -33,7 +33,7 @@ type
   TEchConfigFromSvcb = class sealed(TObject)
   strict private
     const
-      // the "ech" SvcParamKey (RFC 9849 sec. 4); its SvcParamValue is the ECHConfigList
+      // the "ech" SvcParamKey (RFC 9848 sec. 3); its SvcParamValue is the ECHConfigList (RFC 9849 sec. 4)
       SvcParamKeyEch = UInt16(5);
     class function TryReadEch(const ARdata: TBytes;
       out AEchConfigList: TBytes): Boolean; static;

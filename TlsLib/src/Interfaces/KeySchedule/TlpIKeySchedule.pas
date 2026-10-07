@@ -26,7 +26,7 @@ type
 
   /// <summary>
   /// Which binder label a pre_shared_key derives its binder key under (RFC 8446 7.1,
-  /// RFC 9258 6): a resumption ticket uses "res binder", a raw out-of-band external PSK
+  /// RFC 9258 5.2): a resumption ticket uses "res binder", a raw out-of-band external PSK
   /// uses "ext binder", and an RFC 9258 imported external PSK uses "imp binder". The
   /// three labels domain-separate the binder so a key provisioned for one role cannot be
   /// replayed in another. External is the raw "ext binder" label; the library provisions

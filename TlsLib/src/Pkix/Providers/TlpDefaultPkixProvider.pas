@@ -1248,7 +1248,7 @@ begin
     for LI := 0 to System.High(LPoints) do
     begin
       // a point naming a separate cRLIssuer yields an indirect CRL, which the scope check
-      // never accepts (RFC 5280 6.3.3 (b)(1)), so fetching it would be wasted
+      // never accepts (RFC 5280 6.3.3 (b)(1) / (d)), so fetching it would be wasted
       if LPoints[LI].GetCrlIssuer <> nil then
         Continue;
       LDpn := LPoints[LI].GetDistributionPointName;
@@ -1299,7 +1299,7 @@ begin
   LPoints := LCdp.GetDistributionPoints;
   for LI := 0 to System.High(LPoints) do
   begin
-    // RFC 5280 6.3.3 (b)(1): a point that names a separate cRLIssuer or covers only some
+    // RFC 5280 6.3.3 (b)(1), (b)(2)(iv), (d): a point that names a separate cRLIssuer or covers only some
     // reasons does not designate this issuer's complete CRL
     if (LPoints[LI].GetCrlIssuer <> nil) or (LPoints[LI].GetReasons <> nil) then
       Continue;

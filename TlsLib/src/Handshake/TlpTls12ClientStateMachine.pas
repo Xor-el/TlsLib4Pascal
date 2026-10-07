@@ -622,8 +622,8 @@ begin
 
   if FParsedServerLeaf.KeyKind(LKind, LEcGroup) then
   begin
-    // the leaf key algorithm must match the negotiated suite's authentication method (a
-    // CertificateCipherMismatch, RFC 5246 7.4.2): an *_RSA suite needs an RSA leaf; an
+    // the leaf key algorithm must match the negotiated suite's authentication method
+    // (RFC 5246 7.4.2): an *_RSA suite needs an RSA leaf; an
     // *_ECDSA suite an EC-family leaf - ECDSA or, per RFC 8422, an EdDSA key
     if ((FSelectedSuite.Auth = TAuthMethod.Rsa) and (LKind <> TSignatureKeyKind.Rsa)) or
       ((FSelectedSuite.Auth = TAuthMethod.Ecdsa) and
@@ -631,7 +631,7 @@ begin
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SCertKeyMismatchesSuite);
     // an ECDSA leaf's curve must be one we advertised: TLS 1.2 takes the ECDSA curve from
-    // supported_groups, not the signature algorithm (RFC 8422 5.1 / CheckLeafCurve)
+    // supported_groups, not the signature algorithm (RFC 8422 5.1)
     if (LKind = TSignatureKeyKind.Ecdsa) and
       not (TArrayUtilities.Contains<UInt16>(FParams.OfferedGroups, LEcGroup)) then
       raise EFatalAlertTlsLibException.CreateRes(
@@ -746,7 +746,7 @@ begin
   AScheme := TSignatureScheme.ECDSA_SECP256R1_SHA256; // overwritten when a scheme is found
   LChain := FParams.ClientCredential.CertificateChain;
   // the leaf's certificate type must be one the server named in certificate_types, and a
-  // usable signature scheme must exist; otherwise present an empty Certificate (RFC 5246 7.4.4)
+  // usable signature scheme must exist; otherwise present an empty Certificate (RFC 5246 7.4.6)
   LCertType := 0;
   if (System.Length(LChain) > 0) and
     FParams.Inspector.KeyKind(LChain[0], LKind, LEcGroup) then

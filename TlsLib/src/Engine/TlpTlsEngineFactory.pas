@@ -221,7 +221,7 @@ begin
   LClientRandom := AConfig.Crypto.Primitives.GetRandom.GenerateBytes(32);
   LSessionId := AConfig.Crypto.Primitives.GetRandom.GenerateBytes(32);
   // fail closed: when name checking is on, a client must have a usable server name to verify
-  // the leaf against. A missing/unparsable host here would otherwise silently skip RFC 6125.
+  // the leaf against. A missing/unparsable host here would otherwise silently skip RFC 9525.
   if not TServerName.TryParse(AHost, LServerName) then
     if AConfig.CheckServerName then
       raise EArgumentTlsLibException.CreateRes(@SNoServerNameForCheck);
@@ -374,9 +374,9 @@ begin
       AConfig.ExternalPskRequired;
   end;
 
-  // a client offering Encrypted Client Hello is TLS 1.3 only (RFC 9849 sec. 6.1): the outer
-  // is 1.3-only on the wire, so it must never accept a server that selects 1.2 - a legacy or
-  // downgrading peer is refused, not silently completed to the public_name. A usable config
+  // the inner hello never offers TLS 1.2 (RFC 9849 sec. 6.1), and this client also offers only
+  // TLS 1.3 in the outer, so a server selecting 1.2 is refused - a legacy or downgrading peer
+  // is not silently completed to the public_name. A usable config
   // forces the 1.3-only machine; GREASE alone (no usable config) is decorative and does not
   // constrain the version.
   if (AConfig.EncryptedClientHello <> nil) and
@@ -453,7 +453,7 @@ begin
   if LOffers13 then
     L13.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   // the negotiation policy (built above from the same PreferredGroups/NamedGroups) selects the
-  // group by server preference among the client's supported_groups (RFC 8446 4.2.8); the state
+  // group by server preference among the client's supported_groups (RFC 8446 4.2.7); the state
   // machine resolves the selected code via GroupRegistry
   L13.GroupRegistry := AConfig.NamedGroups;
   // validate at creation that at least one preferred group is registered when 1.3 is offered (an

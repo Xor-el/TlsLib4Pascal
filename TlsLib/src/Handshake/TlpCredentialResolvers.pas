@@ -25,7 +25,7 @@ uses
 type
   /// <summary>One host-pattern to credential mapping for the built-in SNI resolver. AHost is a
   /// DNS host_name, either exact (host.example.com) or a single left-most-label wildcard
-  /// (*.example.com); matching follows RFC 6125/9525 via TEndpointIdentity.</summary>
+  /// (*.example.com); matching follows RFC 9525 via TEndpointIdentity.</summary>
   TSniCredentialEntry = record
     Host: string;
     Credential: TTlsCredential;

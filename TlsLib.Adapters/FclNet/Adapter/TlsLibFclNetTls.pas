@@ -196,7 +196,7 @@ type
     /// never a process-wide default: set it in the OnCreateClientSocketHandler hook that builds each
     /// server-side handler. Ignored on a client connection.</summary>
     property ClientAuth: TClientAuthMode read FClientAuth write FClientAuth;
-    /// <summary>Whether the peer certificate's identity is checked against the host (RFC 6125).
+    /// <summary>Whether the peer certificate's identity is checked against the host (RFC 9525).
     /// Defaults to True; set False to verify the chain but not the name.</summary>
     property CheckHostName: Boolean read FCheckHostName write FCheckHostName;
     /// <summary>The password for an encrypted CertificateData.PrivateKey, if any.</summary>
@@ -312,7 +312,7 @@ resourcestring
   SNoSelfSignedCerts = 'TlsLib4Pascal does not generate self-signed certificates; supply ' +
     'CertificateData.Certificate and CertificateData.PrivateKey';
   SNoHostForNameCheck = 'CheckHostName is on but the socket carries no host to verify the ' +
-    'certificate identity against (RFC 6125); connect through a TInetSocket that carries the ' +
+    'certificate identity against (RFC 9525); connect through a TInetSocket that carries the ' +
     'host, or set CheckHostName := False to verify the chain only';
   SFclNetTrustSourceHint = 'CertificateData.CertCA / TrustedCertificate, UseSystemTrust, or a ' +
     'CustomTrustStore/CustomVerifier';
@@ -490,7 +490,7 @@ var
 begin
   LOptions := Snapshot;
   // host-name verification requested but the socket carries no host to check against: fail closed
-  // rather than silently verifying only the chain (RFC 6125). A per-connection check, not baked
+  // rather than silently verifying only the chain (RFC 9525). A per-connection check, not baked
   // into the memoised config, so it never applies to a supplied ClientConfig.
   if FCheckHostName and VerifyPeerCert and (AHost = '') and (FClientConfig = nil) then
     raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError, @SNoHostForNameCheck);

@@ -323,7 +323,7 @@ var
   LStore: IEchServerKeyStore;
 begin
   // the DNS line is published at the origin (the name clients connect to), while the public_name
-  // lives only inside the ECHConfig (RFC 9848 sec. 3; RFC 9849 sec. 4)
+  // lives only inside the ECHConfig (RFC 9460 2.3 / 9; RFC 9849 sec. 4)
   LGen := TEchKeyGenerator.Generate(Crypto, 'public.example', 'secret.example', 7,
     THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM, 0);
   CheckEquals(1, Pos('secret.example. HTTPS 1 . ech="', LGen.DnsLine),

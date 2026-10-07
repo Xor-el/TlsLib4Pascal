@@ -118,7 +118,7 @@ EchKeyGen -public_name public.example -origin secret.example -out ech.pem
 
 `-public_name` is the client-facing name carried inside the `ECHConfig` (the outer SNI);
 `-origin` is the name clients actually connect to (the inner SNI) and is the owner of the HTTPS
-record where the config is published (RFC 9848 §3, RFC 9849 §4). It writes an RFC 9934 PEM (a
+record where the config is published (RFC 9460 §2.3 and §9, RFC 9848 §3, RFC 9849 §4). It writes an RFC 9934 PEM (a
 PKCS#8 `PRIVATE KEY` block the server store loads, plus an `ECHCONFIG` block) and prints the DNS
 presentation line, owned by the origin. The `-out` file must not already exist: it is created
 exclusively and is never overwritten or written through a symlink. On POSIX its mode is 0600; on

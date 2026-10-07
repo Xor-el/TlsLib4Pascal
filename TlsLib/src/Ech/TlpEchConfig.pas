@@ -116,7 +116,7 @@ type
     function TrySelectSuite(const ACryptoProvider: ICryptoProvider;
       out ASuite: IHpkeSuite): Boolean;
     /// <summary>
-    /// Whether a client may offer ECH with this config (RFC 9849 sec. 4.1, 6.1): a
+    /// Whether a client may offer ECH with this config (RFC 9849 sec. 4, 4.2, 6.1, 6.1.7): a
     /// supported version, a valid public_name, no duplicate or unsupported-mandatory
     /// extension, and at least one KEM/KDF/AEAD suite the provider supports. An
     /// unusable config is skipped, never fatal.
@@ -135,7 +135,7 @@ type
   /// <summary>
   /// One server ECH key: an ECHConfig, its HPKE recipient key prepared once (build it with
   /// ICryptoProvider.Hpke.ImportRecipientKey), and whether it is advertised in retry_configs.
-  /// The operator adds and removes these to track what was published in DNS (RFC 9934),
+  /// The operator adds and removes these to track what was published in DNS (RFC 9848),
   /// rotating by swapping in a new store.
   /// </summary>
   TEchKeyEntry = record
@@ -473,7 +473,7 @@ begin
   LReader.ExpectEnd;
   // the list arrives from an unauthenticated server (EE retry_configs); each config carries a
   // 4-byte header (version + length) at minimum, so Remaining div 4 bounds the count - preallocate
-  // once and trim rather than growing one entry at a time (linear-time parsing, RFC 9849 sec. 10.12.4)
+  // once and trim rather than growing one entry at a time (linear-time parsing of an unauthenticated list)
   SetLength(Result, LList.Remaining div 4);
   LCount := 0;
   while not LList.EndReached do
