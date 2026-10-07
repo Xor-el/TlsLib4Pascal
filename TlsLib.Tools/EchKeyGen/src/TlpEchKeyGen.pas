@@ -79,8 +79,8 @@ type
     class function MapAead(const AName: string; out AAead: UInt16): Boolean; static;
     class function ParseSuite(const AText: string;
       out AKem, AKdf, AAead: UInt16): Boolean; static;
-    /// <summary>Creates APath exclusively, owner-only where the platform has a file mode. Returns 0
-    /// and the handle, or the OS error.</summary>
+    /// <summary>Creates APath exclusively and owner-only. Returns 0 and the handle, or the OS
+    /// error.</summary>
     class function CreateKeyFile(const APath: string; out AHandle: THandle): Integer; static;
     /// <summary>Closes a CreateKeyFile handle. Returns 0 or the OS error; a delayed write failure
     /// surfaces here.</summary>
@@ -107,13 +107,20 @@ type
     class function RunConsole: Integer; static;
     /// <summary>Writes AData to APath. The file is created exclusively, so an existing file or
     /// symlink at APath is refused rather than overwritten or written through, and a failed write
-    /// leaves no file behind. On POSIX the mode is 0600, so the private key is never
-    /// world-readable; on Windows the file inherits the access list of its directory. Public so a
-    /// test can assert the mode.</summary>
+    /// leaves no file behind. The file is owner-only from creation, so the private key is never
+    /// readable by others: mode 0600 on POSIX, and on Windows a protected access list granting only
+    /// the file's owner. Public so a test can assert it.</summary>
     class procedure WritePrivateFile(const APath: string; const AData: TBytes); static;
   end;
 
 implementation
+
+{$IFDEF MSWINDOWS}
+// declared by neither compiler's Windows unit
+function ConvertStringSecurityDescriptorToSecurityDescriptorW(AText: PWideChar; ARevision: DWORD;
+  out ADescriptor: Pointer; ASize: PDWORD): LongBool; stdcall;
+  external 'advapi32.dll' name 'ConvertStringSecurityDescriptorToSecurityDescriptorW';
+{$ENDIF MSWINDOWS}
 
 resourcestring
   SKeyFileExists = 'the private key file "%s" already exists; it is never overwritten or ' +
@@ -256,6 +263,7 @@ var
 {$ELSE}
   LPath: UnicodeString;
   LHandle: THandle;
+  LAttributes: TSecurityAttributes;
 {$IFEND}
 begin
   AHandle := 0;
@@ -274,12 +282,23 @@ begin
     Exit(GetLastError);
   AHandle := THandle(LFd);
 {$ELSE}
-  // CREATE_NEW refuses an existing file
-  LPath := UnicodeString(APath);
-  LHandle := CreateFileW(PWideChar(LPath), GENERIC_WRITE, 0, nil, CREATE_NEW,
-    FILE_ATTRIBUTE_NORMAL, 0);
-  if LHandle = INVALID_HANDLE_VALUE then
+  // CREATE_NEW refuses an existing file. The create applies a protected access list (nothing
+  // inherited from the directory) whose one entry gives the file's owner full access, so the key
+  // is never briefly readable by others; if the list cannot be built no file is made
+  LAttributes := Default(TSecurityAttributes);
+  LAttributes.nLength := SizeOf(LAttributes);
+  if not ConvertStringSecurityDescriptorToSecurityDescriptorW('D:P(A;;FA;;;OW)', 1,
+    LAttributes.lpSecurityDescriptor, nil) then
     Exit(Integer(GetLastError));
+  try
+    LPath := UnicodeString(APath);
+    LHandle := CreateFileW(PWideChar(LPath), GENERIC_WRITE, 0, @LAttributes, CREATE_NEW,
+      FILE_ATTRIBUTE_NORMAL, 0);
+    if LHandle = INVALID_HANDLE_VALUE then
+      Exit(Integer(GetLastError));
+  finally
+    LocalFree(HLOCAL(LAttributes.lpSecurityDescriptor));
+  end;
   AHandle := LHandle;
 {$IFEND}
   Result := 0;

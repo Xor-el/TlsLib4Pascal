@@ -58,9 +58,9 @@ type
       const AEchConfigList: TBytes): TBytes;
     function BuildEchConfigFor(out APublicKey: TBytes;
       out APrivateKey: ISecretBuffer): TEchConfig;
-    /// <summary>The POSIX st_mode of APath where the platform has one (True); False on Windows,
-    /// where there is no such mode. A stat failure on POSIX fails the test rather than skipping.</summary>
-    function TryPosixMode(const APath: string; out AMode: Integer): Boolean;
+    /// <summary>Asserts APath is owner-only: mode 0600 on POSIX, and on Windows a protected access
+    /// list granting only the owner. A failure to read it fails the test rather than skipping.</summary>
+    procedure CheckOwnerOnly(const APath, AWhat: string);
   published
     procedure TestKeyGenWritesPrivateFileOwnerOnly;
     procedure TestKeyGenRefusesToOverwriteAnExistingKeyFile;
@@ -93,6 +93,21 @@ type
 
 implementation
 
+{$IFDEF MSWINDOWS}
+const
+  DACL_SECURITY_INFORMATION = 4;
+  SDDL_REVISION_1 = 1;
+
+// the two compilers' Windows units disagree on these or lack them
+function GetFileSecurityW(AName: PWideChar; AInfo: UInt32; ADescriptor: Pointer;
+  ALength: UInt32; out ANeeded: UInt32): LongBool; stdcall;
+  external 'advapi32.dll' name 'GetFileSecurityW';
+function ConvertSecurityDescriptorToStringSecurityDescriptorW(ADescriptor: Pointer;
+  ARevision, AInfo: UInt32; out AText: PWideChar; ALength: Pointer): LongBool; stdcall;
+  external 'advapi32.dll' name 'ConvertSecurityDescriptorToStringSecurityDescriptorW';
+function LocalFree(AMem: Pointer): Pointer; stdcall; external 'kernel32.dll' name 'LocalFree';
+{$ENDIF MSWINDOWS}
+
 { TTestEchTooling }
 
 function TTestEchTooling.BuildHttpsRdata(APriority: UInt16;
@@ -121,26 +136,41 @@ begin
   Result := LWriter.ToBytes;
 end;
 
-function TTestEchTooling.TryPosixMode(const APath: string;
-  out AMode: Integer): Boolean;
+procedure TTestEchTooling.CheckOwnerOnly(const APath, AWhat: string);
 {$IF DEFINED(FPC) AND DEFINED(UNIX)}
 var
   LInfo: Stat;
 {$ELSEIF DEFINED(POSIX)}
 var
   LInfo: _stat;
+{$ELSEIF DEFINED(MSWINDOWS)}
+var
+  LPath: UnicodeString;
+  LNeeded: UInt32;
+  LDescriptor: TBytes;
+  LSddl: PWideChar;
 {$IFEND}
 begin
-  Result := False;
-  AMode := 0;
 {$IF DEFINED(FPC) AND DEFINED(UNIX)}
-  CheckEquals(0, FpStat(APath, LInfo), 'stat the key file');
-  AMode := Integer(LInfo.st_mode);
-  Result := True;
+  CheckEquals(0, FpStat(APath, LInfo), 'stat ' + AWhat);
+  CheckEquals($180, Integer(LInfo.st_mode) and $1FF, AWhat + ' mode is 0600');
 {$ELSEIF DEFINED(POSIX)}
-  CheckEquals(0, stat(PAnsiChar(AnsiString(APath)), LInfo), 'stat the key file');
-  AMode := Integer(LInfo.st_mode);
-  Result := True;
+  CheckEquals(0, stat(PAnsiChar(AnsiString(APath)), LInfo), 'stat ' + AWhat);
+  CheckEquals($180, Integer(LInfo.st_mode) and $1FF, AWhat + ' mode is 0600');
+{$ELSEIF DEFINED(MSWINDOWS)}
+  LPath := UnicodeString(APath);
+  GetFileSecurityW(PWideChar(LPath), DACL_SECURITY_INFORMATION, nil, 0, LNeeded);
+  SetLength(LDescriptor, LNeeded);
+  CheckTrue(GetFileSecurityW(PWideChar(LPath), DACL_SECURITY_INFORMATION, @LDescriptor[0],
+    LNeeded, LNeeded), 'read ' + AWhat + ' access list');
+  CheckTrue(ConvertSecurityDescriptorToStringSecurityDescriptorW(@LDescriptor[0],
+    SDDL_REVISION_1, DACL_SECURITY_INFORMATION, LSddl, nil), 'format ' + AWhat + ' access list');
+  try
+    // protected (nothing inherited from the directory), one entry: full access for the owner
+    CheckEquals('D:P(A;;FA;;;OW)', string(LSddl), AWhat + ' access list');
+  finally
+    LocalFree(LSddl);
+  end;
 {$IFEND}
 end;
 
@@ -149,7 +179,6 @@ var
   LPath: string;
   LData, LReadBack: TBytes;
   LStream: TFileStream;
-  LMode: Integer;
 begin
   LData := TBytes.Create($01, $02, $03, $04, $05);
   LPath := 'tlslib_echkey_perm_test.pem';
@@ -168,11 +197,8 @@ begin
       LStream.Free;
     end;
     CheckEqualBytes('the key file round-trips', LData, LReadBack);
-    // where the platform has a POSIX mode, the key file is owner-only (0600), set before any bytes
-    // were written; on Windows there is no such mode and the round-trip above is the whole check
-    if TryPosixMode(LPath, LMode) then
-      CheckEquals($180, LMode and $1FF,
-        'the key file mode is 0600 (owner read/write only)');
+    // owner-only from creation: mode 0600 on POSIX, a protected owner-only access list on Windows
+    CheckOwnerOnly(LPath, 'the key file');
   finally
     if FileExists(LPath) then
       DeleteFile(LPath);
@@ -245,7 +271,6 @@ procedure TTestEchTooling.TestKeyGenWritesAnEmptyPrivateFile;
 var
   LPath: string;
   LStream: TFileStream;
-  LMode: Integer;
 begin
   LPath := 'tlslib_echkey_empty_test.pem';
   if FileExists(LPath) then
@@ -259,8 +284,7 @@ begin
     finally
       LStream.Free;
     end;
-    if TryPosixMode(LPath, LMode) then
-      CheckEquals($180, LMode and $1FF, 'the empty file is still owner-only');
+    CheckOwnerOnly(LPath, 'the empty file');
   finally
     if FileExists(LPath) then
       DeleteFile(LPath);
