@@ -31,13 +31,17 @@ inputs:
       CA everywhere, plus the OS trust delegate (with a machine-store root install) on Windows/macOS.
     required: false
     default: 'true'
-  native-crypto:
+  crypto-provider:
     description: >-
-      Run the harness against this platform's OS-native crypto facets (TLSLIB_NATIVE_CRYPTO)
-      overlaid on the portable base, instead of the pure-Pascal provider. No-op where the
-      platform has no native facets.
+      The crypto provider the harness runs against (TLSLIB_CRYPTO_PROVIDER): portable, or os for
+      this platform's native facets overlaid on the portable base (equals portable where the
+      platform has none).
     required: false
-    default: 'false'
+    default: 'portable'
+  pkix-provider:
+    description: The PKIX provider the harness runs against (TLSLIB_PKIX_PROVIDER).
+    required: false
+    default: 'portable'
   bogo-ref:
     description: The BoringSSL peer commit to pin the BoGo run against.
     required: false
@@ -85,7 +89,8 @@ runs:
         MAKE_RUN_BOGO: ${{ inputs.run-bogo }}
         MAKE_RUN_OPENSSL: ${{ inputs.run-openssl }}
         MAKE_RUN_TRUST: ${{ inputs.run-trust }}
-        TLSLIB_NATIVE_CRYPTO: ${{ inputs.native-crypto }}
+        TLSLIB_CRYPTO_PROVIDER: ${{ inputs.crypto-provider }}
+        TLSLIB_PKIX_PROVIDER: ${{ inputs.pkix-provider }}
         BOGO_REF: ${{ inputs.bogo-ref }}
         BOGO_WORKERS: ${{ inputs.bogo-workers }}
         FPC_TARGET: ${{ inputs.fpc-target }}

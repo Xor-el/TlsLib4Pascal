@@ -499,6 +499,7 @@
         <DCCReference Include="..\..\TlsLib\src\Session\TlpSessionTicketKeys.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Session\TlpAntiReplay.pas"/>
         <DCCReference Include="..\src\TlsLibTestResourceLoader.pas"/>
+        <DCCReference Include="..\src\TlsLibTestProviders.pas"/>
         <DCCReference Include="..\src\TlsLibTestBase.pas"/>
         <DCCReference Include="..\src\SecretTests.pas"/>
         <DCCReference Include="..\src\AlertTests.pas"/>

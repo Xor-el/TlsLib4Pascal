@@ -36,8 +36,6 @@ uses
 {$ELSE}
   TestFramework,
 {$ENDIF FPC}
-  TlpIPkixProvider,
-  TlpDefaultPkixProvider,
   TlpICertificateTrust,
   TlpITrustAnchorStore,
   TlpTrustTypes,
@@ -84,7 +82,6 @@ type
   TTestSystemTrustFixtures = class(TTlsLibAlgorithmTestCase)
   private
   var
-    FPkix: IPkixProvider;
     FDir: string;       // a throwaway fixture directory under the working dir
     FFile: string;      // a fixture bundle file holding the test root
     FMissing: string;   // a path that does not exist
@@ -126,7 +123,6 @@ type
   /// Hard/Live-need-live-revocation predicates - exercised without touching any real OS store.</summary>
   TTestDelegatePostChecks = class(TTlsLibAlgorithmTestCase)
   private
-    FPkix: IPkixProvider;
     FClock: ITlsClock;
     FOcsp: TStringList;      // OcspStapling.txt: a real chain + Good/Revoked/stale staples
     FEc: TStringList;        // EcP256Chain.txt: a DNS-only leaf and an IP-SAN leaf
@@ -176,7 +172,6 @@ type
   /// live-resolver dispatch.</summary>
   TTestOSDelegateTemplate = class(TTlsLibAlgorithmTestCase)
   strict private
-    FPkix: IPkixProvider;
     FClock: ITlsClock;
     FOcsp: TStringList;
     FCallbackInvoked: Boolean;
@@ -237,7 +232,6 @@ type
   /// automatically. Never registered on its own.</summary>
   TSystemTrustAnchorContractTestBase = class abstract(TTlsLibAlgorithmTestCase)
   strict protected
-    FPkix: IPkixProvider;
     // ---- per-OS hooks ----
     function CreateAnchorStore: ITrustAnchorStore; virtual; abstract;
     function PlatformName: string; virtual; abstract;
@@ -249,7 +243,6 @@ type
     /// a platform that tolerates it - so the caller should Exit and skip. Fails outright when an
     /// always-populated platform harvests nothing.</summary>
     function HarvestOrSkip(out ARoots: TArray<TBytes>): Boolean;
-    procedure SetUp; override;
   published
     procedure TestHarvestYieldsRoots;
     procedure TestAllHarvestedRootsWellFormed;
@@ -273,7 +266,6 @@ type
   /// and the revocation posture over crypt32's real chain engine. Windows-only.</summary>
   TTestWindowsClientDelegate = class(TTlsLibAlgorithmTestCase)
   strict private
-    FPkix: IPkixProvider;
     FChain: TStringList;    // ClientAuthChain fields (private CA + dual-EKU leaf)
     FForeign: TStringList;  // an unrelated private root
     function Leaf: TArray<TBytes>;
@@ -334,7 +326,6 @@ type
   /// Registered on macOS (the shared macOS/iOS code path; iOS has no CI runner).</summary>
   TTestAppleClientDelegate = class(TTlsLibAlgorithmTestCase)
   strict private
-    FPkix: IPkixProvider;
     FChain: TStringList;    // ClientAuthChain fields (private CA + dual-EKU leaf)
     FForeign: TStringList;  // an unrelated private root
     function Leaf: TArray<TBytes>;
@@ -389,7 +380,6 @@ implementation
 procedure TTestDelegatePostChecks.SetUp;
 begin
   inherited SetUp;
-  FPkix := TDefaultPkixProvider.Create as IPkixProvider;
   FClock := TSystemClock.Create as ITlsClock;
   FOcsp := LoadVectorFields('Certs/OcspStapling.txt');
   FEc := LoadVectorFields('Certs/EcP256Chain.txt');
@@ -423,7 +413,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   LAlert := TTlsAlertDescription.BadCertificate;
-  CheckTrue(TDelegatePostChecks.RejectStapledRevoked(FPkix, FClock, OcspChain,
+  CheckTrue(TDelegatePostChecks.RejectStapledRevoked(Pkix, FClock, OcspChain,
     Ocsp('ocsp_revoked'), LAlert), 'a definitive stapled Revoked always rejects');
   CheckEquals(Ord(TTlsAlertDescription.CertificateRevoked), Ord(LAlert),
     'the alert is certificate_revoked');
@@ -433,19 +423,19 @@ procedure TTestDelegatePostChecks.TestStapleOutcomeMapping;
 begin
   // the one staple-to-outcome mapping RejectStapledRevoked and the delegate both read
   CheckEquals(Ord(TLiveRevocationOutcome.Good),
-    Ord(TDelegatePostChecks.StapleOutcome(FPkix, FClock, OcspChain, Ocsp('ocsp_good'))),
+    Ord(TDelegatePostChecks.StapleOutcome(Pkix, FClock, OcspChain, Ocsp('ocsp_good'))),
     'a current good staple maps to Good');
   CheckEquals(Ord(TLiveRevocationOutcome.Revoked),
-    Ord(TDelegatePostChecks.StapleOutcome(FPkix, FClock, OcspChain, Ocsp('ocsp_revoked'))),
+    Ord(TDelegatePostChecks.StapleOutcome(Pkix, FClock, OcspChain, Ocsp('ocsp_revoked'))),
     'a definitive revoked staple maps to Revoked');
   CheckEquals(Ord(TLiveRevocationOutcome.Indeterminate),
-    Ord(TDelegatePostChecks.StapleOutcome(FPkix, FClock, OcspChain, Ocsp('ocsp_stale'))),
+    Ord(TDelegatePostChecks.StapleOutcome(Pkix, FClock, OcspChain, Ocsp('ocsp_stale'))),
     'a stale staple is indeterminate');
   CheckEquals(Ord(TLiveRevocationOutcome.Indeterminate),
-    Ord(TDelegatePostChecks.StapleOutcome(FPkix, FClock, OcspChain, nil)),
+    Ord(TDelegatePostChecks.StapleOutcome(Pkix, FClock, OcspChain, nil)),
     'an absent staple is indeterminate');
   CheckEquals(Ord(TLiveRevocationOutcome.Indeterminate),
-    Ord(TDelegatePostChecks.StapleOutcome(FPkix, FClock,
+    Ord(TDelegatePostChecks.StapleOutcome(Pkix, FClock,
     TArray<TBytes>.Create(Ocsp('leaf_cert')), Ocsp('ocsp_revoked'))),
     'a leaf-only path cannot render a definitive outcome');
 end;
@@ -454,9 +444,9 @@ procedure TTestDelegatePostChecks.TestGoodAndAbsentStapleDoNotFire;
 var
   LAlert: TTlsAlertDescription;
 begin
-  CheckFalse(TDelegatePostChecks.RejectStapledRevoked(FPkix, FClock, OcspChain,
+  CheckFalse(TDelegatePostChecks.RejectStapledRevoked(Pkix, FClock, OcspChain,
     Ocsp('ocsp_good'), LAlert), 'a current Good staple does not fire the Revoked post-check');
-  CheckFalse(TDelegatePostChecks.RejectStapledRevoked(FPkix, FClock, OcspChain,
+  CheckFalse(TDelegatePostChecks.RejectStapledRevoked(Pkix, FClock, OcspChain,
     nil, LAlert), 'an absent staple does not fire the Revoked post-check');
 end;
 
@@ -466,7 +456,7 @@ var
 begin
   // a stale (out-of-window) response is indeterminate, not Revoked - the posture decides it, so
   // this post-check must not fire
-  CheckFalse(TDelegatePostChecks.RejectStapledRevoked(FPkix, FClock, OcspChain,
+  CheckFalse(TDelegatePostChecks.RejectStapledRevoked(Pkix, FClock, OcspChain,
     Ocsp('ocsp_stale'), LAlert), 'a stale staple is indeterminate, not Revoked');
 end;
 
@@ -475,7 +465,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   // with no issuer to authenticate the response, the verdict is indeterminate, not Revoked
-  CheckFalse(TDelegatePostChecks.RejectStapledRevoked(FPkix, FClock,
+  CheckFalse(TDelegatePostChecks.RejectStapledRevoked(Pkix, FClock,
     TArray<TBytes>.Create(Ocsp('leaf_cert')), Ocsp('ocsp_revoked'), LAlert),
     'a leaf-only path cannot render a definitive Revoked');
 end;
@@ -486,7 +476,7 @@ var
 begin
   // a nil clock must not silently skip the check (it would otherwise make every staple
   // indeterminate); it falls back to system time
-  CheckTrue(TDelegatePostChecks.RejectStapledRevoked(FPkix, nil, OcspChain,
+  CheckTrue(TDelegatePostChecks.RejectStapledRevoked(Pkix, nil, OcspChain,
     Ocsp('ocsp_revoked'), LAlert), 'a nil clock falls back to system time, still catching Revoked');
 end;
 
@@ -546,7 +536,7 @@ var
 begin
   // the EC leaf carries DNS:localhost, so a matching DNS host does not fire
   CheckTrue(TServerName.TryParse('localhost', LName));
-  CheckFalse(TDelegatePostChecks.RejectNameMismatch(LName, FPkix,
+  CheckFalse(TDelegatePostChecks.RejectNameMismatch(LName, Pkix,
     TArray<TBytes>.Create(Ec('leaf_cert')), LAlert),
     'a DNS host matching a dNSName SAN is accepted');
 end;
@@ -558,7 +548,7 @@ var
 begin
   // full RFC 9525 identity here also matches an iPAddress SAN
   CheckTrue(TServerName.TryParse('127.0.0.1', LName));
-  CheckFalse(TDelegatePostChecks.RejectNameMismatch(LName, FPkix,
+  CheckFalse(TDelegatePostChecks.RejectNameMismatch(LName, Pkix,
     TArray<TBytes>.Create(Ec('ipsan_leaf_cert')), LAlert),
     'an IP literal matching an iPAddress SAN is accepted');
 end;
@@ -569,7 +559,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   CheckTrue(TServerName.TryParse('wrong.example', LName));
-  CheckTrue(TDelegatePostChecks.RejectNameMismatch(LName, FPkix,
+  CheckTrue(TDelegatePostChecks.RejectNameMismatch(LName, Pkix,
     TArray<TBytes>.Create(Ec('leaf_cert')), LAlert),
     'a host matching no SAN is rejected');
   CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
@@ -582,7 +572,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   LName := Default(TServerName);
-  CheckFalse(TDelegatePostChecks.RejectNameMismatch(LName, FPkix,
+  CheckFalse(TDelegatePostChecks.RejectNameMismatch(LName, Pkix,
     TArray<TBytes>.Create(Ec('leaf_cert')), LAlert),
     'an empty name never fires');
 end;
@@ -634,7 +624,6 @@ end;
 procedure TTestOSDelegateTemplate.SetUp;
 begin
   inherited SetUp;
-  FPkix := TDefaultPkixProvider.Create as IPkixProvider;
   FClock := TSystemClock.Create as ITlsClock;
   FOcsp := LoadVectorFields('Certs/OcspStapling.txt');
 end;
@@ -672,7 +661,7 @@ function TTestOSDelegateTemplate.Policy(APosture: TRevocationPosture;
 begin
   Result := Default(TOSDelegatePolicy);
   Result.ChainLimits := TCertificateChainLimits.Defaults;
-  Result.Pkix := FPkix;
+  Result.Pkix := Pkix;
   Result.Clock := FClock;
   Result.Posture := APosture;
   Result.Fetch := AFetch;
@@ -1133,7 +1122,7 @@ begin
     as IServerCertificateVerifierSource;
   LContext := Default(TServerTrustContext);
   LContext.ChainLimits := TCertificateChainLimits.Defaults;
-  LContext.Pkix := FPkix;
+  LContext.Pkix := Pkix;
   LContext.Clock := FClock;
   LContext.CheckHostName := True;
   LContext.RevocationPosture := TRevocationPosture.Soft;
@@ -1180,7 +1169,7 @@ begin
   LSource := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.Live) as IServerCertificateVerifierSource;
   LContext := Default(TServerTrustContext);
   LContext.ChainLimits := TCertificateChainLimits.Defaults;
-  LContext.Pkix := FPkix;
+  LContext.Pkix := Pkix;
   LContext.Deferral := TVerdictDeferral.None;
   LRaised := False;
   try
@@ -1205,7 +1194,7 @@ begin
   LSource := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly) as IClientCertificateVerifierSource;
   LContext := Default(TClientTrustContext);
   LContext.ChainLimits := TCertificateChainLimits.Defaults;
-  LContext.Pkix := FPkix;
+  LContext.Pkix := Pkix;
   LContext.RevocationPosture := TRevocationPosture.Hard;
   LContext.Deferral := TVerdictDeferral.None;
   LRaised := False;
@@ -1461,7 +1450,7 @@ begin
     as IServerCertificateVerifierSource;
   LContext := Default(TServerTrustContext);
   LContext.ChainLimits := TCertificateChainLimits.Defaults;
-  LContext.Pkix := FPkix;
+  LContext.Pkix := Pkix;
   LContext.Clock := FClock;
   LContext.CheckHostName := True;
   LContext.RevocationPosture := TRevocationPosture.Soft;
@@ -1497,7 +1486,7 @@ begin
     as IClientCertificateVerifierSource;
   LContext := Default(TClientTrustContext);
   LContext.ChainLimits := TCertificateChainLimits.Defaults;
-  LContext.Pkix := FPkix;
+  LContext.Pkix := Pkix;
   LContext.Clock := FClock;
   LContext.RevocationPosture := TRevocationPosture.Soft;
   LContext.Deferral := TVerdictDeferral.None;
@@ -1523,7 +1512,7 @@ begin
   // the shared filter both native harvesters use keeps one copy of a well-formed anchor and drops a
   // duplicate and any malformed bytes
   LValid := OcspChain[0];
-  LProbe := TFilterRootsProbe.Create(FPkix);
+  LProbe := TFilterRootsProbe.Create(Pkix);
   try
     LResult := LProbe.Filter(TArray<TBytes>.Create(LValid, System.Copy(LValid),
       TBytes.Create(1, 2, 3)));
@@ -1544,7 +1533,7 @@ begin
   // and a root the source also distrusts is not an anchor
   LRoot := OcspChain[0];
   LDistrusted := OcspChain[1];
-  LProbe := TFilterRootsProbe.Create(FPkix);
+  LProbe := TFilterRootsProbe.Create(Pkix);
   try
     LProbe.Harvests(TArray<TBytes>.Create(LRoot, LDistrusted),
       TArray<TBytes>.Create(LDistrusted, System.Copy(LDistrusted), TBytes.Create(1, 2, 3)));
@@ -1567,7 +1556,7 @@ function TTestSystemTrustFixtures.FileSnapshot(const AEnvFile, AEnvDir: string;
 var
   LSource: TFileSystemRootSource;
 begin
-  LSource := TFileSystemRootSource.Create(FPkix, AEnvFile, AEnvDir, AFiles, ADirs);
+  LSource := TFileSystemRootSource.Create(Pkix, AEnvFile, AEnvDir, AFiles, ADirs);
   try
     Result := LSource.Snapshot;
   finally
@@ -1594,7 +1583,6 @@ var
   LVectors: TStringList;
 begin
   inherited SetUp;
-  FPkix := TDefaultPkixProvider.Create as IPkixProvider;
   FDir := IncludeTrailingPathDelimiter(GetCurrentDir) + 'systrust_fixtures';
   ForceDirectories(FDir);
   FCertDir := IncludeTrailingPathDelimiter(FDir) + 'certsdir';
@@ -1734,7 +1722,7 @@ begin
   if TOSSystemTrust.Supports(TSystemTrustMode.Anchors) then
   begin
     try
-      CheckTrue(TOSSystemTrust.AnchorStore(FPkix) <> nil,
+      CheckTrue(TOSSystemTrust.AnchorStore(Pkix) <> nil,
         'a platform that supports Anchors hands back an anchor snapshot');
     except
       on E: ESystemTrustUnavailableTlsLibException do
@@ -1745,7 +1733,7 @@ begin
   begin
     LRaised := False;
     try
-      TOSSystemTrust.AnchorStore(FPkix);
+      TOSSystemTrust.AnchorStore(Pkix);
     except
       on E: ESystemTrustUnsupportedTlsLibException do
         LRaised := True;
@@ -1779,12 +1767,6 @@ begin
 end;
 
 { TSystemTrustAnchorContractTestBase }
-
-procedure TSystemTrustAnchorContractTestBase.SetUp;
-begin
-  inherited SetUp;
-  FPkix := TDefaultPkixProvider.Create as IPkixProvider;
-end;
 
 function TSystemTrustAnchorContractTestBase.RequiresPopulatedStore: Boolean;
 begin
@@ -1828,7 +1810,7 @@ begin
   if not HarvestOrSkip(LRoots) then
     Exit;
   for LI := 0 to System.Length(LRoots) - 1 do
-    CheckTrue(FPkix.Certificates.IsWellFormed(LRoots[LI]),
+    CheckTrue(Pkix.Certificates.IsWellFormed(LRoots[LI]),
       Format('%s harvested root #%d is a well-formed certificate', [PlatformName, LI]));
 end;
 
@@ -1868,7 +1850,7 @@ function TTestWindowsSystemTrust.CreateAnchorStore: ITrustAnchorStore;
 var
   LSource: TWindowsRootSource;
 begin
-  LSource := TWindowsRootSource.Create(FPkix);
+  LSource := TWindowsRootSource.Create(Pkix);
   try
     Result := LSource.Snapshot;
   finally
@@ -1886,7 +1868,6 @@ end;
 procedure TTestWindowsClientDelegate.SetUp;
 begin
   inherited SetUp;
-  FPkix := TDefaultPkixProvider.Create as IPkixProvider;
   FChain := LoadVectorFields('Certs/ClientAuthChain.txt');
   FForeign := LoadVectorFields('Certs/OcspStapling.txt');
 end;
@@ -1931,7 +1912,7 @@ function TTestWindowsClientDelegate.MakePolicy(const AAnchors: TArray<TBytes>;
 begin
   Result := Default(TOSDelegatePolicy);
   Result.ChainLimits := TCertificateChainLimits.Defaults;
-  Result.Pkix := FPkix;
+  Result.Pkix := Pkix;
   Result.Clock := AClock;
   Result.Posture := APosture;
   Result.Fetch := AFetch;
@@ -2207,7 +2188,7 @@ function TTestMacOSSystemTrust.CreateAnchorStore: ITrustAnchorStore;
 var
   LSource: TAppleRootSource;
 begin
-  LSource := TAppleRootSource.Create(FPkix);
+  LSource := TAppleRootSource.Create(Pkix);
   try
     Result := LSource.Snapshot;
   finally
@@ -2225,7 +2206,6 @@ end;
 procedure TTestAppleClientDelegate.SetUp;
 begin
   inherited SetUp;
-  FPkix := TDefaultPkixProvider.Create as IPkixProvider;
   FChain := LoadVectorFields('Certs/ClientAuthChain.txt');
   FForeign := LoadVectorFields('Certs/OcspStapling.txt');
 end;
@@ -2274,7 +2254,7 @@ var
 begin
   LPolicy := Default(TOSDelegatePolicy);
   LPolicy.ChainLimits := TCertificateChainLimits.Defaults;
-  LPolicy.Pkix := FPkix;
+  LPolicy.Pkix := Pkix;
   LPolicy.Clock := AClock;
   LPolicy.Posture := APosture;
   LPolicy.Fetch := TSystemTrustFetch.CacheOnly;
@@ -2396,7 +2376,7 @@ function TTestUnixSystemTrust.CreateAnchorStore: ITrustAnchorStore;
 var
   LSource: TUnixRootSource;
 begin
-  LSource := TUnixRootSource.Create(FPkix);
+  LSource := TUnixRootSource.Create(Pkix);
   try
     Result := LSource.Snapshot;
   finally

@@ -41,6 +41,7 @@ uses
   TlpHandshakeMessages,
   InteropSocket,
   InteropEngine,
+  TlsLibTestProviders,
   InteropCredentials,
   InteropPump,
   InteropUtils;
@@ -1421,8 +1422,8 @@ begin
     Exit(ShimExitUnimplemented);
   end;
 
-  LCrypto := TInteropEngine.DefaultCrypto;
-  LPkix := TInteropEngine.DefaultPkix;
+  LCrypto := TTlsLibTestProviders.Crypto;
+  LPkix := TTlsLibTestProviders.Pkix;
   // one session cache (client) / STEK (server) shared across every connection, so a
   // the client always keeps a session cache so it offers psk_key_exchange_modes and accepts
   // (and validates) the NewSessionTickets the server issues, even on a non-resume connection;
