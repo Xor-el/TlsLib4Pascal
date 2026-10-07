@@ -1,0 +1,30 @@
+TlsLib.Tools/EchKeyGen/src/TlpEchKeyGen.pas
+  s_d27f31cd14035d::t_9fe6622b1fe326 266
+  s_d27f31cd14035d::t_4e69233442beea 82-83
+  s_d27f31cd14035d::t_961f3c69e3645a 110-112
+  s_d27f31cd14035d::t_142edb627bfd6f 285-291,293-294,296-301
+  s_d27f31cd14035d::t_d7be725f79cc9d 295
+  s_d27f31cd14035d::t_d426cf5390eeba 118-124
+TlsLib.Tests/src/EchToolingTests.pas
+  s_d27f31cd14035d::t_1a923b1eefba3e 61-63
+  s_d27f31cd14035d::t_9173ee3de0828f 139,146-151,155-156,158-173
+  s_d27f31cd14035d::t_f1ff04ea8c0a62 96-110
+  s_d27f31cd14035d::t_12e9b983df0712 200-201
+  s_d27f31cd14035d::t_517cc26535a604 287
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "936c23f0be7ecb7351acd1fa4fc3772d53178770",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
