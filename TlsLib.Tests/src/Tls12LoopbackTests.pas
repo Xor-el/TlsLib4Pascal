@@ -264,7 +264,7 @@ begin
   LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Crypto);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  // an ECDHE_ECDSA suite carries an Ed448 credential (RFC 8422 2.2 / 5.3: an EdDSA-capable key)
+  // an ECDHE_ECDSA suite carries an Ed448 credential (RFC 8422 2.1 / 5.3: an EdDSA-capable key)
   LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites12.EcdheEcdsaAes128GcmSha256);
   LParams.OfferedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
     TNamedGroupCatalog.Secp256r1);

@@ -63,8 +63,8 @@ type
     /// <summary>The effect that aborts on a message arriving out of phase.</summary>
     class function Unexpected: TArray<THandshakeEffect>; static;
     /// <summary>Refuses a post-handshake renegotiation request: the first is answered with a
-    /// warning no_renegotiation (RFC 5246 7.2.2; RFC 5746 4.2 client / 4.4 server); a repeat is
-    /// fatal to bound a renegotiation loop. Used by the TLS 1.2 machines, which do not renegotiate.</summary>
+    /// warning no_renegotiation (RFC 5246 7.2.2); a repeat is fatal to bound a renegotiation
+    /// loop. Used by the TLS 1.2 machines, which do not renegotiate.</summary>
     function RefuseRenegotiation: TArray<THandshakeEffect>;
   public
     constructor Create(const AExtensionRegistry: IExtensionRegistry);

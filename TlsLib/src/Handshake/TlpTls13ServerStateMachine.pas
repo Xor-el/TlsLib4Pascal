@@ -300,7 +300,8 @@ type
       const AClientHello: TTlsClientHello): TExtensionVector; static;
     /// <summary>Whether the ClientHello extensions carry an inner-type encrypted_client_hello
     /// (the backend role, RFC 9849 sec. 7.2). Raises illegal_parameter on an unknown type and
-    /// decode_error on a malformed ech extension (a non-empty inner body). Reads the already-parsed vector.</summary>
+    /// decode_error on a malformed ech extension (a non-empty inner body). Reads the
+    /// already-parsed vector.</summary>
     class function DetectBackendEch(const AVector: TExtensionVector): Boolean; static;
     /// <summary>Stamps the HelloRetryRequest ech accept confirmation (RFC 9849 sec. 7.2.1) into the
     /// ech extension's payload (located by parsing, not assumed last), computed over

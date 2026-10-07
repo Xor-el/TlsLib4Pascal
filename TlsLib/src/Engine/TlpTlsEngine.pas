@@ -748,9 +748,9 @@ begin
     raise EInvalidOperationTlsLibException.CreateRes(@SWriteAfterClose);
   // refuse application data until the Application write epoch is in force, so it is never sealed in
   // the clear (plaintext / post-HRR-revert epoch), under the handshake keys, or under the early-data
-  // keys as replayable 0-RTT (RFC 8446 4.2.10 / 4.6.1). A TLS 1.3 server may write from its Finished
-  // onward (half-RTT); a 1.3 client and any TLS 1.2 endpoint must wait for the handshake to
-  // complete (no False-Start). 0-RTT is sent through WriteEarlyData, not here.
+  // keys as replayable 0-RTT (RFC 8446 8). A TLS 1.3 server may write from its Finished
+  // onward (half-RTT, RFC 8446 4.4.4); a 1.3 client and any TLS 1.2 endpoint must wait for the
+  // handshake to complete (no False-Start). 0-RTT is sent through WriteEarlyData, not here.
   if not (FAppWriteEpoch and (IsTls13 or FHandshakeComplete)) then
     raise EInvalidOperationTlsLibException.CreateRes(@SWriteBeforeWriteEpoch);
   // a zero-length application write is a no-op (after the close/epoch guards): it has nothing to

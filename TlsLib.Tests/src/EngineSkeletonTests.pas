@@ -294,7 +294,7 @@ begin
   CheckFalse(LEngine.WantsRead, 'no more input is wanted after close');
 
   // bytes the peer sends after its close_notify are discarded, not framed or treated as a
-  // protocol error (RFC 9846 6.1): a further feed is a clean no-op, not a fatal outcome
+  // protocol error (RFC 8446 6.1): a further feed is a clean no-op, not a fatal outcome
   CheckFalse(LEngine.ProcessInput(PeerRecord(TTlsContentType.ApplicationData,
     DecodeHex('deadbeef')), 0, 9) = TTlsOutcome.Fatal,
     'post-close input is discarded, not a fatal outcome');

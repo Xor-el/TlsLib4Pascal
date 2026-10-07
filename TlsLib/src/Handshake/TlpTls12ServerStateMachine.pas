@@ -1127,7 +1127,7 @@ begin
         Result := Unexpected;
     TPhase.Connected:
       // this server does not renegotiate: a renegotiation ClientHello is answered with a warning
-      // no_renegotiation and the connection continues (RFC 5246 7.2.2, RFC 5746 4.4)
+      // no_renegotiation and the connection continues (RFC 5246 7.2.2)
       if LKnown and (LType = TTlsHandshakeType.ClientHello) then
         Result := RefuseRenegotiation
       else

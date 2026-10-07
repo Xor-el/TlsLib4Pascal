@@ -1141,8 +1141,7 @@ begin
   Result.Add(TPskKeyExchangeModesExtension.Create as ITlsExtension);
   Result.Add(TEarlyDataExtension.Create as ITlsExtension);
   // encrypted_client_hello sits immediately before pre_shared_key: last in a ClientHello
-  // (else just before the PSK), and last in HelloRetryRequest / EncryptedExtensions - the exact
-  // positions the former hand-rolled ECH splices produced
+  // (else just before the PSK), and last in HelloRetryRequest / EncryptedExtensions
   Result.Add(TEncryptedClientHelloExtension.Create as ITlsExtension);
   // order is local policy; pre_shared_key last per RFC 8446 4.2.11
   Result.Add(TPreSharedKeyExtension.Create as ITlsExtension);

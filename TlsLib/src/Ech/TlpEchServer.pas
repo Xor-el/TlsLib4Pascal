@@ -241,7 +241,7 @@ begin
       TTlsAlertDescription.IllegalParameter, @SInnerSessionIdNotEmpty);
   LSuites := LReader.OpenVector(2);
   // each cipher suite is a 2-byte value, so Remaining div 2 is the exact count: preallocate
-  // once and trim rather than growing per entry (linear-time reconstruction, RFC 9849 sec. 5.1)
+  // once and trim rather than growing per entry, so reconstruction stays linear-time
   SetLength(LInner.CipherSuites, LSuites.Remaining div 2);
   LI := 0;
   while not LSuites.EndReached do

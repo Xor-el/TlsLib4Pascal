@@ -47,7 +47,8 @@ type
     SupportedKdfHashes: array [0 .. 1] of THashAlgorithm =
       (THashAlgorithm.SHA_256, THashAlgorithm.SHA_384);
   strict private
-    /// <summary>The RFC 9258 (IANA TLS KDF Identifiers, sec. 10) id for a hash: HKDF-SHA256 = 1, HKDF-SHA384 = 2.</summary>
+    /// <summary>The RFC 9258 (IANA TLS KDF Identifiers, sec. 10) id for a hash: HKDF-SHA256 = 1,
+    /// HKDF-SHA384 = 2.</summary>
     class function KdfId(AHash: THashAlgorithm): UInt16; static;
   public
     /// <summary>The serialized ImportedIdentity (RFC 9258 5.1): the external identity and

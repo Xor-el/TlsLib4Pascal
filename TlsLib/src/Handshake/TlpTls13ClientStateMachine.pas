@@ -934,8 +934,7 @@ begin
       TTlsDirection.ClientWrite), TRecordSide.WriteSide, LPskSuite.Common.Aead,
       TTlsVersion.Tls13, TTlsEpoch.EarlyData));
     // bound the outbound 0-RTT at the ticket's max_early_data; bytes beyond the budget are
-    // refused (WriteEarlyData returns the accepted count) and the caller resends them as 1-RTT
-    // (RFC 8446 4.2.10)
+    // refused and the caller resends them as 1-RTT (RFC 8446 4.2.10)
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.SetEarlyDataLimit(EarlyDataBudget(FPskOffers[0].MaxEarlyData)));
   end;

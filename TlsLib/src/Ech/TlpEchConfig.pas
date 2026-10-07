@@ -473,7 +473,8 @@ begin
   LReader.ExpectEnd;
   // the list arrives from an unauthenticated server (EE retry_configs); each config carries a
   // 4-byte header (version + length) at minimum, so Remaining div 4 bounds the count - preallocate
-  // once and trim rather than growing one entry at a time (linear-time parsing of an unauthenticated list)
+  // once and trim rather than growing one entry at a time (linear-time parsing of an
+  // unauthenticated list)
   SetLength(Result, LList.Remaining div 4);
   LCount := 0;
   while not LList.EndReached do

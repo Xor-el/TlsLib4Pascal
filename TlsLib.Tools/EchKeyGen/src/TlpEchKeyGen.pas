@@ -60,7 +60,8 @@ type
     /// <summary>The raw ECHConfigList a client uses as its ECH configuration.</summary>
     EchConfigList: TBytes;
     /// <summary>The DNS presentation line publishing the ECHConfigList in the origin's HTTPS
-    /// record "ech" SvcParam (the name clients connect to, RFC 9460 2.3 / 9; the "ech" key, RFC 9848 sec. 3).</summary>
+    /// record "ech" SvcParam (the name clients connect to, RFC 9460 2.3 / 9; the "ech" key,
+    /// RFC 9848 sec. 3).</summary>
     DnsLine: string;
   end;
 
