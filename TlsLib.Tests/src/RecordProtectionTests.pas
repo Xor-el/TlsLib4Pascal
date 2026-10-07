@@ -164,7 +164,7 @@ begin
     LProt := MakeTls13(LKey, LIv, TAeadAlgorithm.AES_128_GCM);
     LProduced := LProt.Protect(TTlsContentType.Handshake, LPlain, 0,
       System.Length(LPlain));
-    CheckEqualBytes('RFC 8448 1.3 record', LRecord, LProduced);
+    CheckEqualBytes('RFC 8448 section 3 TLS 1.3 record', LRecord, LProduced);
 
     LProt := MakeTls13(LKey, LIv, TAeadAlgorithm.AES_128_GCM);
     LRecovered := LProt.Unprotect(LRecord, 0, System.Length(LRecord), LType);
