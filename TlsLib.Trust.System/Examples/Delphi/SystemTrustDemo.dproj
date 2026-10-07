@@ -270,6 +270,7 @@
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
+        <DCCReference Include="SystemTrustDemoRunner.pas"/>
         <DCCReference Include="SystemTrustDemoFormUnit.pas">
             <Form>SystemTrustDemoForm</Form>
         </DCCReference>

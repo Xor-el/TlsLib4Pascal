@@ -8,6 +8,7 @@ program SystemTrustDemo;
 uses
   System.StartUpCopy,
   FMX.Forms,
+  SystemTrustDemoRunner in 'SystemTrustDemoRunner.pas',
   SystemTrustDemoFormUnit in 'SystemTrustDemoFormUnit.pas' {SystemTrustDemoForm};
 
 {$R *.res}

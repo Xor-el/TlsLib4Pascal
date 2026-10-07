@@ -10,12 +10,13 @@
 (* &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&& *)
 
 /// <summary>
-/// A live proof that TlsLib4Pascal verifies a server chain against the host OS trust
-/// store with no manual trust config: an unmodified Indy TIdHTTP does a live HTTPS GET
-/// with SSLOptions.UseSystemTrust - no pinned root, no anchors. The OS renders the
-/// verdict on every platform (Windows crypt32, macOS/iOS SecTrust, Android
-/// X509TrustManager, Unix bundle); nothing platform-specific is wired in this form, so
-/// it doubles as the seed of a single cross-platform system-trust demo.
+/// The form of the system-trust demo: a URL box, a button and a log, delegating the work to
+/// SystemTrustDemoRunner. The demo proves TlsLib4Pascal verifies a server chain against the host
+/// OS trust store with no manual trust config (a live GET with SSLOptions.UseSystemTrust - no
+/// pinned root, no anchors) and checks the OS delegate on the device. The OS renders the verdict
+/// on every platform (Windows crypt32, macOS/iOS SecTrust, Android X509TrustManager, Unix
+/// bundle); nothing platform-specific is wired in this form, so it doubles as the seed of a
+/// single cross-platform system-trust demo.
 /// </summary>
 unit SystemTrustDemoFormUnit;
 
@@ -46,9 +47,10 @@ type
   private
     procedure AppendLog(const ALine: string);
     procedure SetBusy(ABusy: Boolean);
-    /// <summary>One live GET over the OS system trust store. Returns a human line;
-    /// runs off the UI thread (mobile platforms forbid network on the UI thread).</summary>
-    function RunSystemTrustGet(const AUrl: string): string;
+    /// <summary>Runs the demo off the UI thread (mobile platforms forbid network on it) and hands
+    /// its lines to ShowResults on it.</summary>
+    procedure RunDemo(const AUrl: string);
+    procedure ShowResults(const ALines: TArray<string>);
   public
   end;
 
@@ -60,14 +62,9 @@ implementation
 {$R *.fmx}
 
 uses
-  IdHTTP,
-  IdStack,
-  TlpTlsStreamPump,
-  TlpTlsLibExceptions,
-  TlsLibIndyTls;
+  SystemTrustDemoRunner;
 
 const
-  TimeoutMs = 15000;
   DefaultUrl = 'https://postman-echo.com/get';
 
 procedure TSystemTrustDemoForm.AppendLog(const ALine: string);
@@ -90,41 +87,25 @@ begin
   AppendLog('Enter an https:// URL and tap Verify - the OS system trust store decides.');
 end;
 
-function TSystemTrustDemoForm.RunSystemTrustGet(const AUrl: string): string;
+procedure TSystemTrustDemoForm.RunDemo(const AUrl: string);
 var
-  LHttp: TIdHTTP;
-  LIO: TTlsLibIOHandlerSocket;
-  LBody: string;
+  LLines: TArray<string>;
 begin
-  LHttp := TIdHTTP.Create(nil);
-  try
-    LIO := TTlsLibIOHandlerSocket.Create(LHttp);
-    // Trust the OS store only - no RootCertFile, no CustomTrustStore. The platform
-    // X509TrustManager renders the verdict over JNI.
-    LIO.SSLOptions.UseSystemTrust := True;
-    LHttp.IOHandler := LIO;
-    LHttp.HandleRedirects := True;
-    LHttp.ConnectTimeout := TimeoutMs;
-    LHttp.ReadTimeout := TimeoutMs;
-    LHttp.Request.UserAgent := 'TlsLib4Pascal-SystemTrust';
-    try
-      LBody := LHttp.Get(AUrl);
-      Result := Format('PASS: %d bytes over OS-verified TLS (status %d)',
-        [Length(LBody), LHttp.ResponseCode]);
-    except
-      on E: EIdSocketError do
-        Result := 'SKIP: network unreachable (' + E.Message + ')';
-      on E: ETlsStreamError do
-        if E.HasAlert then
-          Result := Format('FAIL: TLS alert %d - %s', [Ord(E.Alert), E.Message])
-        else
-          Result := 'FAIL: ' + E.Message;
-      on E: Exception do
-        Result := Format('FAIL: %s: %s', [E.ClassName, E.Message]);
-    end;
-  finally
-    LHttp.Free;
-  end;
+  LLines := TSystemTrustDemoRunner.Run(AUrl);
+  TThread.Queue(nil,
+    procedure
+    begin
+      ShowResults(LLines);
+    end);
+end;
+
+procedure TSystemTrustDemoForm.ShowResults(const ALines: TArray<string>);
+var
+  LLine: string;
+begin
+  for LLine in ALines do
+    AppendLog(LLine);
+  SetBusy(False);
 end;
 
 procedure TSystemTrustDemoForm.btnRunClick(Sender: TObject);
@@ -139,16 +120,8 @@ begin
   // Network off the UI thread; report back on it.
   TTask.Run(
     procedure
-    var
-      LResult: string;
     begin
-      LResult := RunSystemTrustGet(LUrl);
-      TThread.Queue(nil,
-        procedure
-        begin
-          AppendLog(LResult);
-          SetBusy(False);
-        end);
+      RunDemo(LUrl);
     end);
 end;
 

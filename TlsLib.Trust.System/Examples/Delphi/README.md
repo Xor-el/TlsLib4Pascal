@@ -21,7 +21,8 @@ carries no platform-specific trust code.
 | File | Role |
 |---|---|
 | `SystemTrustDemo.dpr` | Program. Source-links the core, the `TlsLib.Trust.System` package and the Indy adapter. |
-| `SystemTrustDemoFormUnit.pas` / `.fmx` | The form: a button that runs the OS-verified GET off the UI thread. No platform-specific trust code. |
+| `SystemTrustDemoFormUnit.pas` / `.fmx` | The form: a URL box, a button and a log. It runs the demo off the UI thread and shows the lines it returns. No platform-specific trust code. |
+| `SystemTrustDemoRunner.pas` | Everything the demo does: the OS-verified GET, then the offline OS-delegate checks below. |
 
 ## Building it (RAD Studio, author side)
 
@@ -46,6 +47,12 @@ headless build scripts.
 
 - Default `https://postman-echo.com/get` -> **PASS**: the public chain verified against the
   device's system roots with zero manual trust config.
+- After the GET, three offline **OS-delegate checks** run against the platform engine, each a
+  `PASS:` line (a platform that cannot exercise a check reports `INFO:`; `FAIL:` is a defect):
+  an intermediate supplied only through the trust context completes a leaf-only chain (and the
+  same leaf is refused without it); an empty presented chain is refused with `bad_certificate`
+  on both roles; and a live-revocation source is refused up front where the engine has no
+  network-revocation setting (Android), so a live deadline is never silently dropped.
 - To prove **network-security-config delegation** (not just static roots), install a private
   CA on the device (Settings -> Security -> user certificate, or an MDM push) and point the
   URL at a host whose leaf chains to it - it is honored because the OS `X509TrustManager`,
