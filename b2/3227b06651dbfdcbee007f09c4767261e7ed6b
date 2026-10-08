@@ -1,0 +1,69 @@
+TlsLib.Tests/FreePascal.Tests/TlsLib.lpr
+  s_d27f31cd14035d::t_fe5490de8e0e81 68
+TlsLib.Tests/FreePascal.Tests/TlsLib.Tests.lpi
+  s_d27f31cd14035d::t_d32974141ec96b 372-375
+  s_d27f31cd14035d::t_ffebfe1999f617 43
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpi
+  s_d27f31cd14035d::t_8ef1761c927087 366-369
+  s_d27f31cd14035d::t_63fc8efcc6ab9b 37
+TlsLib.Tests/src/SecretTests.pas
+  s_d27f31cd14035d::t_bee62817fea6ba 52-53
+  s_d27f31cd14035d::t_7b4da880df8b26 276-312
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_d27f31cd14035d::t_84a7b68c379ba8 217
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_d27f31cd14035d::t_7282f82ac2172c 160-161
+  s_d27f31cd14035d::t_a960701a18a953 4108-4109,4111
+  s_d27f31cd14035d::t_68506bb9f15878 4115
+  s_d27f31cd14035d::t_eaaf29a206142d 2105
+  s_d27f31cd14035d::t_4cdad0c70c5ef9 2187
+  s_d27f31cd14035d::t_7c0119bb1d984d 3751-3753
+  s_d27f31cd14035d::t_5b64d16f711bae 4110
+  s_d27f31cd14035d::t_4c460ea60fc9cb 4136
+  s_d27f31cd14035d::t_dd65aa32ab4ba9 3543-3553,3561-3568
+  s_d27f31cd14035d::t_78a6db071d493b 3528
+  s_d27f31cd14035d::t_e1d65dd932da85 4093,4100,4107,4112-4114,4116-4117,4120-4121,4123-4126,4133,4135,4137-4138
+TlsLib.Tests/src/WindowsSystemCryptoTests.pas
+  s_d27f31cd14035d::t_bec40b0798fcc0 80
+  s_d27f31cd14035d::t_0760f24813b3f0 79,81
+  s_d27f31cd14035d::t_f69620c7ecc569 561,563,565-568,570-577,579-583,585-587,591,595-597,599-601,612-613
+  s_d27f31cd14035d::t_4c11c5ef2e8bfa 108
+  s_d27f31cd14035d::t_8ebfcf99fd055d 562,564,569
+  s_d27f31cd14035d::t_42194fc409ddd0 578,584,588-590,592-594,598,602-609
+  s_d27f31cd14035d::t_67a48185c98ede 610-611
+TlsLib.Tests/src/PemTests.pas
+  s_d27f31cd14035d::t_b9b0ac6501d38a 70-72,74,76-77
+  s_d27f31cd14035d::t_0234f726eb50af 1-39,41-69,73,75,78-86,100-114
+  s_d27f31cd14035d::t_f8876511c003da 87-99
+  s_d27f31cd14035d::t_12c4748ab14942 40
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpr
+  s_d27f31cd14035d::t_d8c71236e9385e 66
+TlsLib/src/Common/TlpPem.pas
+  s_d27f31cd14035d::t_8349d595352c8d 218-241
+  s_d27f31cd14035d::t_632965db02d9f8 61-64
+  s_d27f31cd14035d::t_398208dc273dbb 242-250,252-258
+  s_d27f31cd14035d::t_2e6fce39e02fc1 251
+  s_d27f31cd14035d::t_fafe0b1544eaba 57-60
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_d27f31cd14035d::t_4e00bc1402b99a 237
+TlsLib/src/Security/TlpSecretBuffer.pas
+  s_d27f31cd14035d::t_4f51b7667364a5 182
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_d27f31cd14035d::t_e259578ab12452 505,561
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b23227b06651dbfdcbee007f09c4767261e7ed6b",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
