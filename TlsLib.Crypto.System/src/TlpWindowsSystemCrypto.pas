@@ -43,9 +43,11 @@ uses
 type
   /// <summary>
   /// The Windows-native crypto composer - the OS factory's single entry point for this
-  /// platform. <see cref="Compose" /> overlays CNG-backed NIST-curve key agreement on a
-  /// base provider, or returns the base unchanged when CNG ECDH is unavailable on this
-  /// host (bcrypt.dll or an entry point missing, or the provider cannot be opened). All
+  /// platform. <see cref="Compose" /> overlays CNG-backed primitives (randomness, hashes, HMAC,
+  /// HKDF, the TLS 1.2 PRF, AEAD, key agreement and KEM, each only where the host supports it)
+  /// and RSA/ECDSA signing on a base provider, or returns the base unchanged when bcrypt is
+  /// unusable on this host (bcrypt.dll or an entry point missing, or the provider cannot be
+  /// opened); signing stays portable when ncrypt.dll or the KSP is unavailable. All
   /// Windows composition and the CNG bindings live in this unit's implementation, so the
   /// factory only dispatches and nothing outside sees a CNG type.
   /// </summary>
@@ -752,10 +754,10 @@ type
     function BcryptApi: TCngApi;
   end;
 
-  // The Windows-native primitives facet: forwards everything to the portable inner facet
-  // except key agreement, which it serves from CNG where the host supports it: the NIST prime
-  // curves and X25519 (its RFC 7748 raw-key format is converted at the CNG boundary). Every other
-  // primitive falls through to the inner facet unchanged.
+  // The Windows-native primitives facet: serves randomness, hashes, HMAC, HKDF, the TLS 1.2 PRF,
+  // AEAD, key agreement and KEM from CNG where the host supports each (key agreement covers the
+  // NIST prime curves and X25519, whose RFC 7748 raw-key format is converted at the CNG
+  // boundary). Anything the host lacks falls through to the portable inner facet unchanged.
   TWindowsCryptoPrimitives = class(TForwardingCryptoPrimitives)
   strict private
   var
@@ -993,9 +995,11 @@ type
   end;
 
   // The Windows-native signing facet: a decorator over the portable signing facet. It
-  // imports RSA/ECDSA PKCS#8 keys (DER or PEM, encrypted or not) into CNG and mints native
-  // signers for them; every other key (Ed25519/Ed448, PKCS#1/SEC1) and all verification
-  // delegate to the inner portable facet. The per-key backend is coherent: a key this facet
+  // imports RSA/ECDSA keys (PKCS#8, or PKCS#1/SEC1 wrapped into it; DER or PEM; PKCS#8 may be
+  // encrypted) and PKCS#12 keys into CNG and mints native signers for them. RSA/ECDSA
+  // verification is native too (CNG also accepts a PKCS#1 v1.5 DigestInfo without NULL
+  // parameters, unlike the strict portable verifier); EdDSA keys and anything the host cannot
+  // serve delegate to the inner portable facet. The per-key backend is coherent: a key this facet
   // imported carries the IWindowsSigningKey marker, so its signer is native; a foreign handle
   // routes back to the inner facet that made it.
   TWindowsSigningCrypto = class(TInterfacedObject, ISigningCrypto)
@@ -1003,8 +1007,8 @@ type
   var
     FInner: ISigningCrypto;
     FNCrypt: IWindowsNCrypt;
-    // decodes a PEM PKCS#8 block to DER and imports it natively; the decoded bytes are the
-    // plain or still-encrypted PKCS#8 the KSP accepts
+    // decodes a PEM private-key block (PKCS#8, RSA/EC PRIVATE KEY) to DER and imports it
+    // natively; the decoded bytes are the plain or still-encrypted PKCS#8 the KSP accepts
     function TryImportPemNative(const AData: TBytes; const APassword: ISecretBuffer;
       out AKey: ISigningKey): Boolean;
   public
@@ -4026,7 +4030,8 @@ begin
   LBlob.pbData := PByte(APfx);
   // an empty/absent passphrase is L"" (a pointer to a single NUL) - exactly what the prior empty
   // WideString gave, and distinct from NULL, which PFXImportCertStore may treat differently from
-  // an empty password (RFC 7292); a real one is the owned wide buffer, wiped once import returns
+  // an empty password (RFC 7292 Appendix B.1); a real one is the owned wide buffer, wiped once
+  // import returns
   LPassword := WidePassword(APassword);
   LEmptyPassword := #0;
   if System.Length(LPassword) > 0 then
@@ -4147,10 +4152,10 @@ var
   LSpki: TBytes;
   LOwner: INCryptKeyOwner;
 begin
-  // native path is an encrypted PKCS#8 (EncryptedPrivateKeyInfo) the KSP decrypts and imports
-  // - DER imported directly, PEM decoded first; an unsupported-PBE or otherwise unsupported
-  // key (or a wrong password) delegates to the portable facet, which owns the full
-  // decrypt/parse range and all error handling
+  // native path is a PKCS#8 (plain, or an EncryptedPrivateKeyInfo the KSP decrypts) or a
+  // PKCS#1/SEC1 key wrapped into one - DER imported directly, PEM decoded first; an
+  // unsupported-PBE or otherwise unsupported key (or a wrong password) delegates to the
+  // portable facet, which owns the full decrypt/parse range and all error handling
   if TPem.IsArmored(AData) then
   begin
     if not TryImportPemNative(AData, APassword, Result) then

@@ -35,7 +35,8 @@ type
   /// unknown/indeterminate outcome is treated; a definitive, authenticated Revoked is
   /// always rejected under every posture. Soft (the default) accepts a missing or
   /// indeterminate staple; Hard rejects anything short of a
-  /// current Good staple (bad_certificate_status_response); Off does not require a stapled
+  /// current Good staple (bad_certificate_status_response; a Good staple with no nextUpdate and a
+  /// thisUpdate at most 7 days old also counts as current); Off does not require a stapled
   /// OCSP response (a missing or indeterminate staple is accepted), but still rejects a
   /// definitive Revoked. Must-staple (RFC 7633) is enforced at the TLS layer independently of
   /// this setting, but only for an initial-handshake server certificate the client requested a

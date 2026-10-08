@@ -75,7 +75,8 @@ var
   LPref, LOffered: string;
 begin
   Result := '';
-  // reject mode: any client ALPN offer is refused with no_application_protocol (RFC 7301 3.2)
+  // reject mode (local policy): any client ALPN offer is refused with no_application_protocol
+  // (the alert of RFC 7301 3.2)
   if ARejectAll and (System.Length(AClientOffered) > 0) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.NoApplicationProtocol, @SNoAlpnOverlap);

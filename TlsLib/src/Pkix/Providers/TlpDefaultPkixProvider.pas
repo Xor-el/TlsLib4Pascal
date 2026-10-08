@@ -803,9 +803,9 @@ procedure TCertificatePathValidator.ValidateCertificatePath(const AChain: TArray
   end;
 
 const
-  // the builder only reconstructs an INCOMPLETE chain, which is inherently shallow (a real
-  // hierarchy is a leaf plus at most a few intermediates). Capping the built path's length
-  // keeps a hostile peer that pads its chain with many like-named certificates from driving
+  // every chain goes through the builder, and a real hierarchy is shallow (a leaf plus at most a
+  // few non-self-issued intermediates, which are what the cap counts). Capping the built path's
+  // length keeps a hostile peer that pads its chain with many like-named certificates from driving
   // the depth-first search into an expensive fan-out; depth 4 over a small pool is the real bound
   MaxBuiltPathLength = 4;
   // the builder's depth cap does not count self-issued certificates, so a peer padding its chain with
@@ -1360,8 +1360,8 @@ begin
   LIdp := TIssuingDistributionPoint.GetInstance(LExt.GetOctets);
   if LIdp = nil then
     Exit;
-  // RFC 5280 6.3.3 (b)(2): an indirect, attribute-certificate or partial-reasons CRL is
-  // not the complete CRL for this leaf
+  // an indirect (RFC 5280 6.3.3 (b)(1)), attribute-certificate ((b)(2)(iv)) or partial-reasons
+  // ((d)) CRL is not the complete CRL for this leaf
   if LIdp.IsIndirectCrl or LIdp.OnlyContainsAttributeCerts or
     (LIdp.OnlySomeReasons <> nil) then
     Exit;

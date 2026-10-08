@@ -100,7 +100,7 @@ relaxation, the `dangerous` escape hatches, and an ASP.NET Core mapping — see
   plain sockets report it. A send that stays blocked because the peer stopped reading is bounded
   (30 s) and then fails rather than retrying forever.
 - Blocking seam only (the standard mORMot `TCrtSocket` path). Async frameworks
-  (`mormot.net.async`) drive the raw Tier-1 engine off `WantsRead`/`WantsWrite` instead.
+  (`mormot.net.async`) drive the raw Tier-0 engine off `WantsRead`/`WantsWrite` instead.
 
 ## Proven
 

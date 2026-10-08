@@ -358,7 +358,7 @@ and `TOSSystemTrust.ClientVerifierSource` (above) use this path for you.
 
 ## Through the adapters
 
-Each adapter exposes system trust through *its host library's* idiom, and all three obey the
+Each adapter exposes system trust through *its host library's* idiom, and all four obey the
 never-implicit / fail-closed rule.
 
 ### Indy
@@ -413,6 +413,27 @@ LHttp.Sock.SSL.VerifyCert := True;                        // real verification
 `VerifyCert := True` with a `CertCAFile` pins to that bundle; with `UseSystemTrust` it uses the OS
 store; with both it unions them; with neither it fails closed. `VerifyCert := False` is the loud
 `InsecureSkipVerify` bypass.
+
+### fcl-net
+
+fcl-net's `TSSLData` slots have no system-trust concept either, so the handler adds
+`UseSystemTrust` as an extension property beside the native `CertificateData` trust slots. It is off
+by default; `TlsLibFclNetTrustDefaults.UseSystemTrust` turns it on for every new handler, so a plain
+`TFPHTTPClient` picks it up.
+
+```pascal
+uses TlsLibFclNetTls;
+
+TlsLibFclNetTrustDefaults.UseSystemTrust := True;        // once, at startup: OS roots for every handler
+// or per handler, inside OnCreateClientSocketHandler:
+H.UseSystemTrust := True;                                // OS roots
+// H.CertificateData.CertCA.FileName := 'private.pem';   // (optional) unions a private CA
+```
+
+`VerifyPeerCert` defaults to **True** here (stock fcl-net defaults it to `False`). With
+`UseSystemTrust` it uses the OS store; with `CertCA` / `TrustedCertificate` it pins to those
+anchors; with both it unions them; with neither it fails closed. `VerifyPeerCert := False` is the
+loud `InsecureSkipVerify` bypass.
 
 ---
 

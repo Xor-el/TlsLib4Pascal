@@ -231,7 +231,7 @@ resourcestring
   SServerNameAckNotEmpty = 'a server server_name acknowledgement must carry an empty body (RFC 6066 3)';
   SInvalidHostNameByte = 'server_name host_name holds a byte outside printable ASCII (RFC 6066 3)';
   SEmptyResponderId = 'status_request carries a zero-length responder_id (RFC 6066 8)';
-  SRenegotiationInfoNotEmpty = 'renegotiation_info is not empty on an initial handshake (RFC 5746 3.4)';
+  SRenegotiationInfoNotEmpty = 'renegotiation_info is not empty on an initial handshake (RFC 5746 3.4 / 3.6)';
 
 type
   /// <summary>Unit-private wire helpers shared by the uint16-list extensions.</summary>
@@ -970,7 +970,8 @@ begin
   // algorithms<2..2^8-2>: an empty list is a decode error (RFC 8879 3)
   if System.Length(LAlgorithms) = 0 then
     raise EDecodeErrorTlsLibException.CreateRes(@SEmptyCompressCertificate);
-  // a repeated algorithm makes the advertised list malformed (RFC 8879 3)
+  // a repeated algorithm makes the advertised list malformed (local policy; RFC 8879 3 is
+  // silent on duplicates)
   for LI := 0 to High(LAlgorithms) do
     for LJ := LI + 1 to High(LAlgorithms) do
       if LAlgorithms[LI] = LAlgorithms[LJ] then

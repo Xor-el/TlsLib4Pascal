@@ -781,7 +781,7 @@ begin
     LRecv.SetReadProtection(MakeTls13(LKey, LIv));
     LRecv.SetNegotiatedVersion(TTlsVersion.Tls13);
     // a peer that failed before it could switch keys sends handshake_failure in plaintext: it
-    // surfaces as that alert, not as our bad_record_mac (rustls accepts the same shape)
+    // surfaces as that alert, not as our bad_record_mac
     LAlert := DecodeHex('1503030002022a');
     LRecv.ProcessInput(LAlert, 0, System.Length(LAlert));
     CheckTrue(DrainOne(LRecv, LFrag), 'the plaintext alert surfaces');

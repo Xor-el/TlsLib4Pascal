@@ -121,7 +121,7 @@ begin
   LRaised := False;
   LAlert := TTlsAlertDescription.DecodeError;
   try
-    // an out-of-range ECHClientHelloType is illegal_parameter, not decode_error (RFC 9849 sec. 5)
+    // an out-of-range ECHClientHelloType is illegal_parameter, not decode_error (RFC 9849 sec. 7)
     TEchExtension.Decode(TBytes.Create(2), LType, LOuter);
   except
     on E: EFatalAlertTlsLibException do

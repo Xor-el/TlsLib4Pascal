@@ -1175,7 +1175,8 @@ procedure TTestConfigBuilder.TestRecordSizeLimitRejectsOutOfRange;
   end;
 
 begin
-  // RFC 8449 4: 64 is the minimum and 16384 the maximum a sender may ever emit; 0 opts out
+  // RFC 8449 4: 64 is the minimum; 16384 is the library's cap, legal under both 1.2 (2^14) and
+  // 1.3 (2^14+1); 0 opts out
   CheckTrue(Refused(63), 'a record_size_limit below 64 is refused');
   CheckTrue(Refused(16385), 'a record_size_limit above 16384 is refused');
   CheckFalse(Refused(0), 'a record_size_limit of 0 (opt out) is accepted');

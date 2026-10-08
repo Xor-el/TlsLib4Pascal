@@ -214,7 +214,7 @@ LServer.OnCreateClientSocketHandler := MakeHandler;   // TInetServer's event (fc
 
 Each adapter maps its host's trust/verify/ALPN options onto the library, and each exposes a
 handshake-read timeout (`HandshakeTimeoutMs`, or `SetTlsLibMormotHandshakeTimeout` for mORMot;
-`0` = 30 s default) so a stalled peer can't pin the connecting thread. See the package READMEs:
+`0` = 30 s default; fcl-net falls back to `Socket.IOTimeout` first) so a stalled peer can't pin the connecting thread. See the package READMEs:
 [mORMot](../TlsLib.Adapters/mORMot/README.md) · [Indy](../TlsLib.Adapters/Indy/README.md) ·
 [Synapse](../TlsLib.Adapters/Synapse/README.md) · [fcl-net](../TlsLib.Adapters/FclNet/README.md).
 
@@ -260,7 +260,7 @@ Once the write side is closed — you called `CloseNotify`, the connection faile
 only) the peer sent an inbound `close_notify` — a further `Write` raises
 `EInvalidOperationTlsLibException` rather than silently discarding the bytes. Under TLS 1.3 an
 inbound `close_notify` closes only the read side (RFC 8446 6.1), so you may keep writing until you
-close your own side; `WriteClosed` tells you which case you are in. The engine never reports data as
+close your own side; `ITlsEngine.WriteClosed` tells you which case you are in. The engine never reports data as
 sent that it did not send, so a write on a closed stream is always surfaced, never a phantom success.
 
 ## Drive the raw sans-IO engine
@@ -347,8 +347,9 @@ Offer protocols in preference order (client) or advertise what you support (serv
 .WithAlpnProtocols(TArray<string>.Create('h2', 'http/1.1'))
 ```
 
-Read the result off the connection afterwards (`ConnectionInfo.AlpnProtocol`, below). A server can
-also hard-reject a client that offers no protocol it supports with `.WithAlpnRejection(True)`.
+Read the result off the connection afterwards (`ConnectionInfo.AlpnProtocol`, below). A server
+already rejects an offer that shares no protocol with it; `.WithAlpnRejection(True)` rejects every
+ALPN offer.
 
 ## Inspect the connection
 
@@ -374,9 +375,9 @@ end;
 
 ## Resume sessions
 
-Resumption is `psk_dhe_ke` (forward-secret) and single-use by default. Give the **client** a session
-cache; the **server** resumes out of the box via stateless tickets, or upgrade it to a stateful,
-truly-single-use store. A `Hard`-revocation client using `WithResumeVerification(Reverify)` without
+Resumption is `psk_dhe_ke` (forward-secret). The client cache hands each ticket out once. Give the
+**client** a session cache; the **server** resumes out of the box via stateless tickets, which are
+only single-use once you upgrade it to a stateful store. A `Hard`-revocation client using `WithResumeVerification(Reverify)` without
 `WithLiveRevocationVerdict` offers no resumption (a resume carries no staple to re-check) and does a
 full handshake instead — see [certificate-verification.md](certificate-verification.md).
 
@@ -391,15 +392,16 @@ LClientConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   .WithSessionCache(TInMemorySessionCache.Create as ISessionCache)
   .Build;
 
-// SERVER: stateless STEK tickets (rotating key), the default resumption path
+// SERVER: stateless STEK tickets (rotating key), the default resumption path. WithResumption(True)
+// alone mints a default key; WithSessionTicketKeys is needed only to supply your own.
 LServerConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
   .WithCredential(TTlsCredential.Load(Crypto, Pkix, chainPem, keyPem))
   .WithResumption(True)
-  .WithSessionTicketKeys(TStekTicketKeyManager.Create(Crypto.GetRandom) as ISessionTicketKeyManager)
+  .WithSessionTicketKeys(TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager)
   .Build;
 
 // SERVER (stronger): add a stateful store to get true single-use tickets + 0-RTT anti-replay
-  .WithSessionStore(TInMemorySessionStore.Create(Crypto.GetRandom) as ISessionStore)
+  .WithSessionStore(TInMemorySessionStore.Create(Crypto.Primitives.GetRandom) as ISessionStore)
 ```
 
 Both default in-memory implementations are bounded and safe to share across connections/threads.
@@ -413,11 +415,12 @@ strategy:
 ```pascal
 uses TlpAntiReplay, TlpISession;
 
-// SERVER: authorize an early-data budget + register replays (needs resumption + a store)
+// SERVER: authorize an early-data budget + register replays (needs resumption; a default
+// anti-replay register is supplied unless you pass your own)
 LServerConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
   .WithCredential(TTlsCredential.Load(Crypto, Pkix, chainPem, keyPem))
   .WithResumption(True)
-  .WithSessionStore(TInMemorySessionStore.Create(Crypto.GetRandom) as ISessionStore)
+  .WithSessionStore(TInMemorySessionStore.Create(Crypto.Primitives.GetRandom) as ISessionStore)
   .Tls13
     .WithEarlyData({MaxBytes=}16384)
     .WithAntiReplay(TStrikeRegisterAntiReplay.Create as IAntiReplayStrategy)
@@ -535,7 +538,7 @@ does not import the PSK as RFC 9258 describes will not interoperate (a raw PSK f
 `-psk` option, for example):
 
 ```pascal
-uses TlpSession, TlpSecretBuffer, TlpCryptoAlgorithms;   // TExternalPsk, TSecretBuffer, THashAlgorithm
+uses TlpSession, TlpSecretBuffer, TlpCryptoDomainTypes;   // TExternalPsk, TSecretBuffer, THashAlgorithm
 
 var LPsk: TExternalPsk;
 begin
@@ -586,8 +589,7 @@ Point Wireshark at the file via *Preferences → Protocols → TLS → (Pre)-Mas
 
 When ECH is accepted the secrets are keyed by the *inner* ClientHello.random, but the log does not
 emit the `ECH_SECRET`/`ECH_CONFIG` lines (keyed by the outer random) a decryptor would need to recover
-that inner random, so an ECH-accepted capture is not decryptable from this log alone — the same
-limitation other stacks have today.
+that inner random, so an ECH-accepted capture is not decryptable from this log alone.
 
 An *augment-only* verify callback (`WithCertificateVerifyCallback`) can add extra rejections on top
 of normal validation but can never accept a chain the pipeline rejected — that, and how this differs

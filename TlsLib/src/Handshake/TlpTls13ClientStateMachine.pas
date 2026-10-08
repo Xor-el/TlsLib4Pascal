@@ -292,7 +292,7 @@ type
     function HashUnder(AHash: THashAlgorithm; const AData: TBytes): TBytes;
     /// <summary>After a HelloRetryRequest fixes the cipher (hence hash), drops every offered
     /// PSK whose hash differs, so the second ClientHello offers only the still-eligible ones
-    /// (RFC 8446 4.1.4). The server's selected_identity then indexes the pruned list.</summary>
+    /// (RFC 8446 4.1.2). The server's selected_identity then indexes the pruned list.</summary>
     procedure PruneOffersToHash(AHash: THashAlgorithm);
     /// <summary>
     /// Back-patches the real PSK binders into the ClientHello tail: each binder MACs the
@@ -576,7 +576,7 @@ begin
       LContext.PskModes := TBytes.Create(PskDheKeMode);
     // a dual-version client with a cache signals session_ticket support (RFC 5077) so a 1.2
     // server issues a ticket for future resumption; a held 1.2 session adds its ticket. The
-    // extended_master_secret offer is kept on (RFC 7627 5.1: a supporting client offers it in
+    // extended_master_secret offer is kept on (RFC 7627 5.2: a supporting client offers it in
     // every ClientHello, resumption included) so the 1.2 machine catches a server that resumes
     // a non-EMS session yet echoes the extension (RFC 7627 5.3). A 1.3 server ignores these
     // legacy fields.
@@ -1082,8 +1082,9 @@ begin
     // the negotiated TLS 1.3 was already confirmed before the cipher suite (above); a
     // TLS 1.3 ServerHello may carry only supported_versions, key_share and pre_shared_key;
     // anything else (e.g. ALPN, which belongs in the encrypted EncryptedExtensions) is
-    // unsupported_extension (RFC 8446 4.1.3). Checked before the decoders run, so a malformed
-    // forbidden extension is reported as forbidden.
+    // unsupported_extension (local policy: RFC 8446 4.1.3 limits the set, and 4.2 would send
+    // illegal_parameter for a recognized extension). Checked before the decoders run, so a
+    // malformed forbidden extension is reported as forbidden.
     LExtensions := TExtensionVector.Parse(LHello.Extensions);
     EnforceTls13ServerHelloExtensions(LExtensions);
     FCodec.ConsumeBlock(LContext, TTlsExtensionContextKind.ServerHello, LExtensions);
@@ -1339,7 +1340,7 @@ begin
       TTlsAlertDescription.IllegalParameter, @SBadSessionIdEcho);
 
   // the cipher (hence hash) is now fixed: drop any offered PSK bound to a different hash, so
-  // the second ClientHello offers only the still-eligible PSKs (RFC 8446 4.1.4). A single
+  // the second ClientHello offers only the still-eligible PSKs (RFC 8446 4.1.2). A single
   // resumption offer already matches; a multi-hash external offer shrinks to one entry.
   PruneOffersToHash(FSelectedSuite.Common.Hash);
 
@@ -1441,7 +1442,7 @@ begin
   end
   else
   begin
-    // a GREASE decoy is re-sent verbatim on the retry (RFC 9849 sec. 6.2); GreaseEchExt is nil
+    // a GREASE decoy is re-sent verbatim on the retry (RFC 9849 sec. 6.2.1); GreaseEchExt is nil
     // on a plain handshake
     LClientHello2 := BuildClientHello(FParams.ClientRandom, FEchOrch.GreaseEchExt);
     // recompute the binder over the retry transcript (message_hash(CH1), HRR, this

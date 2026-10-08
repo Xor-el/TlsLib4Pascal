@@ -196,7 +196,8 @@ type
     /// CertificateRequest (RFC 5246 7.4.4); surfaced for read-only connection info.</summary>
     FRequestedCertificateAuthorities: TArray<TBytes>;
     /// <summary>The client-certificate types the server will accept (RFC 5246 7.4.4
-    /// ClientCertificateType: rsa_sign=1, ecdsa_sign=64); our leaf must match one.</summary>
+    /// ClientCertificateType: rsa_sign=1, ecdsa_sign=64 per RFC 8422 5.5); our leaf must match
+    /// one.</summary>
     FClientAuthCertTypes: TBytes;
     /// <summary>The raw concatenation of every handshake message, signed over by the
     /// client CertificateVerify (RFC 5246 7.4.8).</summary>
@@ -631,7 +632,7 @@ begin
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SCertKeyMismatchesSuite);
     // an ECDSA leaf's curve must be one we advertised: TLS 1.2 takes the ECDSA curve from
-    // supported_groups, not the signature algorithm (RFC 8422 5.1)
+    // supported_groups, not the signature algorithm (RFC 8422 5.3)
     if (LKind = TSignatureKeyKind.Ecdsa) and
       not (TArrayUtilities.Contains<UInt16>(FParams.OfferedGroups, LEcGroup)) then
       raise EFatalAlertTlsLibException.CreateRes(
@@ -733,7 +734,7 @@ function TTls12ClientStateMachine.AppendClientCertificate(
   var AEffects: TArray<THandshakeEffect>; out AScheme: TSignatureScheme): Boolean;
 const
   RsaSignCertType = Byte(1); // RFC 5246 7.4.4 ClientCertificateType.rsa_sign
-  EcdsaSignCertType = Byte(64); // ecdsa_sign (RFC 8422 covers the EdDSA leaf too)
+  EcdsaSignCertType = Byte(64); // ecdsa_sign (RFC 8422 3 / 5.6 cover the EdDSA leaf too)
 var
   LScheme: TSignatureScheme;
   LChain: TArray<TBytes>;

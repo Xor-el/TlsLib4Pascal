@@ -347,7 +347,7 @@ begin
   case AAuth of
     TAuthMethod.Ecdsa:
       // an ECDHE_ECDSA suite accepts an ECDSA or an EdDSA (Ed25519/Ed448) credential: RFC 8422
-      // 5.1 requires the certificate to hold an "ECDSA- or EdDSA-capable public key"
+      // 2.1 requires the certificate to hold an "ECDSA- or EdDSA-capable public key"
       Result := AScheme in [TSignatureScheme.ECDSA_SECP256R1_SHA256,
         TSignatureScheme.ECDSA_SECP384R1_SHA384,
         TSignatureScheme.ECDSA_SECP521R1_SHA512, TSignatureScheme.ED25519,
@@ -644,7 +644,7 @@ begin
     LContext.ExtendedMasterSecret := FUseExtendedMasterSecret;
     LContext.SelectedAlpn := FSelectedAlpn;
     LContext.RenegotiationInfo := FEchoRenegotiationInfo;
-    // no acknowledgement in a resumed session (RFC 6066 3): the server SHALL NOT include
+    // no acknowledgement in a resumed session (RFC 6066 3): the server MUST NOT include
     // server_name in the ServerHello of an abbreviated handshake
     LContext.ServerNameAck := FClientSentServerName and
       FParams.ServerNameAck and not FResuming;

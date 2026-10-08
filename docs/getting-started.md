@@ -191,6 +191,8 @@ Three defaults are worth internalising up front, because they shape everything e
 
 1. **Fail-closed.** A client won't finish a handshake it can't verify, and the builder won't produce
    a client with no trust source. There is no silent-insecure mode.
-2. **PQ-hybrid on by default.** Every preset offers X25519MLKEM768; you don't opt in.
+2. **PQ-hybrid offered everywhere.** Every preset offers X25519MLKEM768; you don't opt in. It is
+   preferred (negotiated by default) under Hardened and Strict; a Compatible client also
+   negotiates it when the server prefers it.
 3. **AEAD-only, forward-secret.** No CBC, RC4, 3DES, static RSA, or TLS compression; resumption is
    `psk_dhe_ke` (forward-secret) and 0-RTT is off unless you explicitly enable it.

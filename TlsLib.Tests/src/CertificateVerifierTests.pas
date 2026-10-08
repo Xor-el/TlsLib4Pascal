@@ -1075,7 +1075,7 @@ var
   LChain: TArray<TBytes>;
 begin
   // the peer copy of the root is self-signed with SHA-1, which the chain-algorithm policy refuses
-  // on any validated edge (RFC 8446 4.4.2) - but the anchor's self-signature is not one, so a
+  // on any validated edge (RFC 8446 4.4.2.4) - but the anchor's self-signature is not one, so a
   // re-issued copy that resolves to the configured anchor is exempt exactly as the configured
   // DER itself would be
   LChain := TArray<TBytes>.Create(Reissued('leaf_cert'), Reissued('issuer_cert'),
@@ -1102,7 +1102,7 @@ var
   LVerified: TVerifiedChain;
 begin
   // a verifier built without an armed chain policy (the whole-verifier instance path) still
-  // refuses a SHA-1-signed chain certificate (RFC 8446 4.4.2)
+  // refuses a SHA-1-signed chain certificate (RFC 8446 4.4.2.4)
   CheckTrue(VerifierFor(Reissued('root_cert'), False).VerifyServerCertificate(
     TArray<TBytes>.Create(Reissued('leaf_cert'), Reissued('issuer_cert')),
     TServerName.DnsName(''), nil, LVerified, LAlert),

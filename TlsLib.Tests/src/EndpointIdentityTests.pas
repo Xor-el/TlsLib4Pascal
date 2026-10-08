@@ -120,7 +120,8 @@ end;
 
 procedure TTestEndpointIdentity.TestWildcardPublicSuffixNotMatched;
 begin
-  // *.com leaves only one label below the wildcard - it must never match (RFC 9525 6.3)
+  // *.com leaves only one label below the wildcard - local policy: it must never match
+  // (public suffixes, RFC 9525 7.1)
   CheckFalse(Matches('example.com', ['*.com']));
 end;
 
@@ -199,7 +200,7 @@ begin
     'a trailing hyphen is rejected');
   CheckTrue(TEndpointIdentity.IsValidReferenceHostName('a-b.example.com'),
     'an interior hyphen is accepted');
-  // RFC 1035: the whole name is at most 253 octets
+  // RFC 1035 2.3.4: the whole name is at most 255 wire octets (253 in text form follows)
   CheckTrue(TEndpointIdentity.IsValidReferenceHostName(StringOfChar('a', 63) + '.' +
     StringOfChar('a', 63) + '.' + StringOfChar('a', 63) + '.' + StringOfChar('a', 61)),
     'a 253-octet name is accepted');

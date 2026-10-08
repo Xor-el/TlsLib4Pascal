@@ -4,7 +4,7 @@
 
 TlsLib4Pascal is a fully managed, from-scratch **TLS 1.2 + TLS 1.3** stack for **Delphi** and
 **FPC / Lazarus** — no OpenSSL, no platform TLS engine, no external runtime dependency beyond its
-sibling Pascal libraries. **Post-quantum hybrid key exchange (X25519MLKEM768) is on by default.**
+sibling Pascal libraries. **Post-quantum hybrid key exchange (X25519MLKEM768) is offered by every preset, and preferred under Hardened and Strict.**
 Certificate path validation, the cryptographic primitives, and the CSPRNG come from
 CryptoLib4Pascal; TlsLib4Pascal owns the wire protocol, the handshake, and the trust policy.
 
@@ -32,7 +32,7 @@ engine — the difference is only who drives the socket.
 
 | Tier | Use it when | Entry point |
 |---|---|---|
-| **1 — Batteries-included facade** | You just want a config or an engine with safe defaults, fast. | `TTlsLib.NewClientConfig` / `NewServerConfig` (unit `TlpTlsLib`) |
+| **1 — Batteries-included facade** | You just want a config with safe defaults, fast. | `TTlsLib.NewClientConfig` / `NewServerConfig` (unit `TlpTlsLib`) |
 | **2 — `TTlsStream` over your transport** | You own the socket and want a `TStream` that speaks TLS over it. | `TTlsStream` (unit `TlpTlsStream`) over an `ITlsTransport` |
 | **3 — Drop-in adapter** | You already use mORMot / Indy / Synapse / fcl-net and want to swap in TLS with one line. | the adapter unit for your stack |
 | *(0 — raw sans-IO engine)* | *You drive an async/event framework and want no I/O assumptions at all.* | `ITlsEngine` via `TTlsEngineFactory` |

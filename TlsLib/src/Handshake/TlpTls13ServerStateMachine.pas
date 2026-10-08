@@ -499,7 +499,7 @@ resourcestring
 const
   PskDheKeMode = Byte(1);       // psk_key_exchange_modes: psk_dhe_ke
   TicketNonceLength = Int32(8); // per-ticket nonce for the resumption PSK derivation
-  // fallback skip budget when no ticket authorization is known (RFC 8446 4.6.1 / 5.1): one
+  // fallback skip budget when no ticket authorization is known (RFC 8446 4.2.10): one
   // record layer's worth of plaintext, beyond which a rejected-0-RTT peer is treated as
   // sending too much skipped early data
   DefaultMaxEarlyDataSkipBytes = Int32(16384);
@@ -1655,8 +1655,8 @@ begin
     // only answered when the client offered it (RFC 8446 4.2 / RFC 8449 4)
     if FPeerRecordSizeLimit > 0 then
       LContext.RecordSizeLimit := FParams.RecordSizeLimit;
-    // no acknowledgement in a resumed/PSK session (RFC 6066 3): the server SHALL NOT include
-    // server_name in the EncryptedExtensions of a resumed session
+    // no server_name acknowledgement in a resumed/PSK session (RFC 6066 3's MUST NOT for the
+    // ServerHello, applied here to EncryptedExtensions)
     LContext.ServerNameAck := FClientSentServerName and
       FParams.ServerNameAck and not FPskAccepted;
     // signal 0-RTT acceptance to the client (an empty early_data in EncryptedExtensions)

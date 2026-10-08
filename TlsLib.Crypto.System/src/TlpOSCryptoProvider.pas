@@ -28,8 +28,8 @@ type
   /// provider. Dispatch is compile-time, most-specific OS first; each platform's whole
   /// composition lives in its own unit, so this factory only picks one - a platform
   /// with no native facet returns the base unchanged, so the portable provider is
-  /// always the fallback. Only deterministic primitives (key agreement, AEAD, hashes)
-  /// and signing are ever replaced - trust, path validation, revocation and alert
+  /// always the fallback. Only primitives (randomness, key agreement, KEM, AEAD, hashes, HMAC,
+  /// KDFs) and signing are ever replaced - trust, path validation, revocation and alert
   /// behavior stay with the base, whose conformance is authoritative.
   /// </summary>
   TOSCryptoProvider = class sealed(TObject)

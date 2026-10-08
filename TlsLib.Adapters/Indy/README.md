@@ -25,7 +25,7 @@ Client.Connect;                                   // handshake runs here
 SrvIO := TTlsLibServerIOHandler.Create(Server);
 SrvIO.SSLOptions.CertFile := 'server-cert.pem';
 SrvIO.SSLOptions.KeyFile  := 'server-key.pem';
-Server.IOHandler := SrvIO;                         // each accepted peer handshakes on accept
+Server.IOHandler := SrvIO;                         // each peer handshakes on its first I/O, on its own worker thread
 ```
 
 ## STARTTLS / `PassThrough`
