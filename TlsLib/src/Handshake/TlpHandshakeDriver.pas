@@ -160,7 +160,8 @@ begin
     THandshakeEffectKind.ConnectionParams:
       if FConnectionInfoSink <> nil then
         FConnectionInfoSink.OnConnectionParams(AEffect.CipherSuite,
-          AEffect.NamedGroup, AEffect.Resumed, AEffect.ServerName);
+          AEffect.NamedGroup, AEffect.Resumed, AEffect.ExtendedMasterSecret,
+          AEffect.ServerName);
     THandshakeEffectKind.HandshakeEstablished:
       FSink.OnHandshakeEstablished;
     THandshakeEffectKind.EchAccepted:

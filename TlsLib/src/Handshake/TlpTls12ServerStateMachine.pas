@@ -1025,7 +1025,7 @@ begin
   // an abbreviated resumption performs no fresh key exchange, so there is no negotiated group
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code, 0, True,
-    FRequestedServerName),
+    FUseExtendedMasterSecret, FRequestedServerName),
     THandshakeEffects.HandshakeEstablished);
   // the read keys are installed; release the handshake-stage material
   FSchedule.ForgetHandshakeSecrets;
@@ -1079,7 +1079,7 @@ begin
   // a full TLS 1.2 handshake is always ECDHE (the only 1.2 key exchange): report FGroupCode
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code, FGroupCode, False,
-    FRequestedServerName));
+    FUseExtendedMasterSecret, FRequestedServerName));
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.HandshakeEstablished);
   // the stored session captured the master secret and the write keys are installed; release the
@@ -1143,7 +1143,7 @@ begin
   // TLS 1.2 stays gated on completion (no False Start), so query and operation agree: the master
   // exists from ClientKeyExchange, but the exporter is not offered before the handshake completes
   Result := nil;
-  if Stage <> THandshakeStage.Connected then
+  if not CanExportKeyingMaterial then
     Exit;
   Result := FSchedule.ExportKeyingMaterial(ALabel, ALength);
 end;
@@ -1152,14 +1152,17 @@ function TTls12ServerStateMachine.ExportKeyingMaterial(const ALabel: string;
   const AContext: TBytes; ALength: Int32): TBytes;
 begin
   Result := nil;
-  if Stage <> THandshakeStage.Connected then
+  if not CanExportKeyingMaterial then
     Exit;
   Result := FSchedule.ExportKeyingMaterial(ALabel, AContext, ALength);
 end;
 
 function TTls12ServerStateMachine.CanExportKeyingMaterial: Boolean;
 begin
-  Result := (Stage = THandshakeStage.Connected) and (FSchedule <> nil) and FSchedule.CanExport;
+  // without Extended Master Secret the master secret can be synchronised across connections, so an
+  // exporter would not be unique to this session (RFC 7627 5.4)
+  Result := (Stage = THandshakeStage.Connected) and (FSchedule <> nil) and FSchedule.CanExport and
+    FUseExtendedMasterSecret;
 end;
 
 end.

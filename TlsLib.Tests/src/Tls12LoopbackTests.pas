@@ -575,6 +575,25 @@ begin
   CheckFalse(LClient.IsTerminal, AMsg + ': the client did not fail');
   CheckFalse(LServer.IsTerminal, AMsg + ': the server did not fail');
 
+  // the session uses Extended Master Secret exactly when the client offered it, and only then is a
+  // keying-material exporter available (RFC 7627 5.4)
+  CheckEquals(AOfferEms, LClient.ConnectionInfo.ExtendedMasterSecret,
+    AMsg + ': the client reports whether EMS was used');
+  CheckEquals(AOfferEms, LServer.ConnectionInfo.ExtendedMasterSecret,
+    AMsg + ': the server reports whether EMS was used');
+  LFromClient := LClient.ExportKeyingMaterial('EXPORTER-test', 32);
+  LFromServer := LServer.ExportKeyingMaterial('EXPORTER-test', 32);
+  if AOfferEms then
+  begin
+    CheckEquals(32, System.Length(LFromClient), AMsg + ': the client exports with EMS');
+    CheckEqualBytes(AMsg + ': both peers export the same material', LFromClient, LFromServer);
+  end
+  else
+  begin
+    CheckEquals(0, System.Length(LFromClient), AMsg + ': the client exports nothing without EMS');
+    CheckEquals(0, System.Length(LFromServer), AMsg + ': the server exports nothing without EMS');
+  end;
+
   // real application data flows both ways over the negotiated AEAD keys
   LFromClient := DecodeHex('68656c6c6f2066726f6d2074686520636c69656e74');
   LClient.Write(LFromClient, 0, System.Length(LFromClient));

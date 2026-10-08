@@ -77,6 +77,7 @@ type
     CipherSuite: UInt16;         // ConnectionParams (the negotiated cipher suite code)
     NamedGroup: UInt16;          // ConnectionParams (0 when none / non-(EC)DHE)
     Resumed: Boolean;            // ConnectionParams (resumed)
+    ExtendedMasterSecret: Boolean; // ConnectionParams (RFC 7627 in use; always True on TLS 1.3)
     ServerName: string;          // ConnectionParams (the SNI in play; empty when none)
     Alert: TTlsAlertDescription; // Fail
     Staple: TBytes;              // AwaitCertificateVerdict (the handshake OCSP staple; empty when none)
@@ -131,9 +132,10 @@ type
     class function RequestedCertificateAuthorities(
       const AAuthorities: TArray<TBytes>): THandshakeEffect; static;
     /// <summary>Surfaces the negotiated cipher suite, named group (0 when none / non-(EC)DHE),
-    /// and whether the handshake was resumed/abbreviated, for read-only connection info.</summary>
+    /// whether the handshake was resumed/abbreviated, and whether the session used Extended Master
+    /// Secret (RFC 7627; always true on TLS 1.3), for read-only connection info.</summary>
     class function ConnectionParams(ACipherSuite, ANamedGroup: UInt16;
-      AResumed: Boolean; const AServerName: string): THandshakeEffect; static;
+      AResumed, AExtendedMasterSecret: Boolean; const AServerName: string): THandshakeEffect; static;
     class function HandshakeEstablished: THandshakeEffect; static;
     /// <summary>Emits a warning-level alert without tearing down the connection: the driver
     /// delivers it through the sink so the engine writes it under the current epoch and stays
@@ -296,13 +298,14 @@ begin
 end;
 
 class function THandshakeEffects.ConnectionParams(ACipherSuite, ANamedGroup: UInt16;
-  AResumed: Boolean; const AServerName: string): THandshakeEffect;
+  AResumed, AExtendedMasterSecret: Boolean; const AServerName: string): THandshakeEffect;
 begin
   Result := Default(THandshakeEffect);
   Result.Kind := THandshakeEffectKind.ConnectionParams;
   Result.CipherSuite := ACipherSuite;
   Result.NamedGroup := ANamedGroup;
   Result.Resumed := AResumed;
+  Result.ExtendedMasterSecret := AExtendedMasterSecret;
   Result.ServerName := AServerName;
 end;
 

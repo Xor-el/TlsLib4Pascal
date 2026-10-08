@@ -78,7 +78,8 @@ one when ECH was accepted). For debugging only — never production.
 
 - **AEAD-only, forward-secret.** No CBC-HMAC, RC4, 3DES, static-RSA/DH, or TLS-level compression —
   designing out BEAST / Lucky13 / POODLE / padding-oracle / CRIME by construction. TLS 1.2 is a
-  hardened ECDHE + AEAD + EMS profile.
+  hardened ECDHE + AEAD profile that offers Extended Master Secret; a TLS 1.2 keying-material
+  exporter is available only when the session used EMS (RFC 7627 §5.4).
 - **Post-quantum hybrid KEX on by default** (X25519MLKEM768), interop-verified against OpenSSL 3.5+
   and BoringSSL.
 - **Forward-secret resumption.** `psk_dhe_ke` only by default; `psk_ke` (no forward secrecy) is

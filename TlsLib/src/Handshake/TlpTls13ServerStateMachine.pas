@@ -369,6 +369,9 @@ type
     class function KeyShareFor(const AContext: TExtensionContext;
       AGroup: UInt16): TBytes; static;
     function HashOf(const AData: TBytes): TBytes;
+    /// <summary>The 0-RTT size accepted on this connection: the ticket's max_early_data capped by this
+    /// server's current setting, so lowering the setting binds tickets already issued.</summary>
+    function AcceptedMaxEarlyData: UInt32;
     /// <summary>The wire-byte budget for skipping rejected 0-RTT records: the ticket-authorized
     /// max_early_data plus each record's header + AEAD expansion (RFC 8446 4.6.1), counted the
     /// way the record layer debits the skip; the fixed fallback applies with no authorization.</summary>
@@ -563,6 +566,13 @@ begin
   LHash := FParams.Crypto.Primitives.CreateHash(FSelectedSuite.Common.Hash);
   LHash.Update(AData, 0, System.Length(AData));
   Result := LHash.DoFinal;
+end;
+
+function TTls13ServerStateMachine.AcceptedMaxEarlyData: UInt32;
+begin
+  Result := FResumedMaxEarlyData;
+  if FParams.MaxEarlyData < Result then
+    Result := FParams.MaxEarlyData;
 end;
 
 function TTls13ServerStateMachine.EarlyDataSkipBudget: Int32;
@@ -1519,9 +1529,10 @@ begin
       TTlsVersion.Tls13, TTlsEpoch.EarlyData));
     // the read side is on the early-data epoch: application_data (the client's 0-RTT data)
     // legitimately precedes the handshake completion until EndOfEarlyData (RFC 8446 4.2.10),
-    // bounded by the max_early_data_size of the ticket that authorized it (RFC 8446 4.6.1)
+    // bounded by the max_early_data_size of the ticket that authorized it (RFC 8446 4.6.1), and by
+    // this server's current setting
     TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.SetEarlyReadEpoch(True, EarlyDataBudget(FResumedMaxEarlyData)));
+      THandshakeEffects.SetEarlyReadEpoch(True, EarlyDataBudget(AcceptedMaxEarlyData)));
   end
   else
   begin
@@ -1872,7 +1883,7 @@ begin
     THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
     TTlsDirection.ClientWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13, TTlsEpoch.Application),
     THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code,
-    FSelectedGroup.Code, FPskAccepted, FRequestedServerName));
+    FSelectedGroup.Code, FPskAccepted, True, FRequestedServerName));
   // record the ECH status before signalling completion, so a sink reading it in the established
   // callback sees the final value (the client machine emits the status before completion too)
   if FEchStatus = TEchStatus.Accepted then
