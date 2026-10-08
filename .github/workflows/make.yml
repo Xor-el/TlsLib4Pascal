@@ -77,9 +77,10 @@ env:
   # does not install and stay out of scope. Read by that job's fclnet-build.sh step. Set false to skip.
   MAKE_RUN_FCLNET: true
   # The crypto and PKIX providers the interop harness (self-test, fuzzer, openssl matrix and BoGo)
-  # runs against (TLSLIB_CRYPTO_PROVIDER / TLSLIB_PKIX_PROVIDER): portable, or os for this
-  # platform's native facets overlaid on the portable base. Only Windows has native crypto facets
-  # today, so os equals portable elsewhere, and PKIX has no os provider yet.
+  # and the Windows unit-suite rerun use (TLSLIB_CRYPTO_PROVIDER / TLSLIB_PKIX_PROVIDER): portable,
+  # or os for this platform's native facets overlaid on the portable base. Only Windows has native
+  # crypto facets today, so os equals portable elsewhere, and PKIX has no os provider yet. With
+  # both portable the rerun is skipped.
   MAKE_CRYPTO_PROVIDER: os
   MAKE_PKIX_PROVIDER: portable
   # The BoringSSL/BoGo peer commit the disable ledger is reconciled against (pins the
@@ -284,6 +285,16 @@ jobs:
           FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['windows-x64'].fpc_target }}
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['windows-x64'].fpc_tarball_target }}
         run: bash .github/workflows/ci/native-build.sh
+
+      # The Build step runs the unit suites on the portable providers. When a non-portable
+      # provider is selected, run them again on it with the binary Build just produced.
+      - name: Unit suites (selected providers)
+        if: env.MAKE_CRYPTO_PROVIDER != 'portable' || env.MAKE_PKIX_PROVIDER != 'portable'
+        shell: bash
+        env:
+          TLSLIB_CRYPTO_PROVIDER: ${{ env.MAKE_CRYPTO_PROVIDER }}
+          TLSLIB_PKIX_PROVIDER: ${{ env.MAKE_PKIX_PROVIDER }}
+        run: bash .github/workflows/ci/provider-suites.sh
 
       # FclNet adapter: compile the fcl-net adapter + examples and run its loopbacks (no deps
       # beyond the FPC tarball). Runs after Build so the packages are already compiled.
