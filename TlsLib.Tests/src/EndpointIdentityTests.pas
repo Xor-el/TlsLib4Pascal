@@ -47,6 +47,7 @@ type
     procedure TestReferenceHostWildcardRejected;
     procedure TestReferenceHostNonLdhRejected;
     procedure TestReferenceHostUnderscoreAndALabelAccepted;
+    procedure TestNumericLookingHostsAreNotNames;
     procedure TestLabelLengthAndHyphenLimits;
     procedure TestDnsPatternPredicatesDirect;
     procedure TestFirstOfSeveralNamesMatches;
@@ -163,6 +164,25 @@ begin
   // underscore is tolerated; a punycode A-label is a normal LDH host
   CheckTrue(TServerName.TryParse('_dmarc.example.com', LName));
   CheckTrue(TServerName.TryParse('xn--nxasmq6b.example.com', LName));
+end;
+
+procedure TTestEndpointIdentity.TestNumericLookingHostsAreNotNames;
+var
+  LName: TServerName;
+begin
+  // octal-ambiguous and numeric-final-label hosts are neither an IP literal nor a DNS name
+  CheckFalse(TServerName.TryParse('010.0.0.1', LName), 'leading zero');
+  CheckFalse(TServerName.TryParse('1.2.3', LName), 'short dotted decimal');
+  CheckFalse(TServerName.TryParse('0x7f.0.0.1', LName), 'hex octet');
+  CheckFalse(TServerName.TryParse('example.0x7f', LName), 'hex final label');
+  CheckFalse(TServerName.TryParse('2130706433', LName), 'single decimal label');
+  CheckFalse(TServerName.TryParse('example.123.', LName), 'numeric final label before a root dot');
+  CheckFalse(TServerName.TryParse('example.0x', LName), 'bare hex prefix');
+  CheckTrue(TServerName.TryParse('localhost', LName), 'a single alphabetic label');
+  CheckTrue(TServerName.TryParse('0.0.0.0', LName), 'a lone zero octet is a valid IPv4');
+  CheckTrue(LName.IsIp, 'and it is an IP');
+  CheckTrue(TServerName.TryParse('example.face', LName), 'bare hex letters are an ordinary label');
+  CheckTrue(TServerName.TryParse('0x.example.com', LName), 'a numeric-looking non-final label is fine');
 end;
 
 procedure TTestEndpointIdentity.TestLabelLengthAndHyphenLimits;

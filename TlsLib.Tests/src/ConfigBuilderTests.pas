@@ -55,6 +55,7 @@ uses
   TlpICertificateCompression,
   TlpZlibCertificateCompression,
   TlpCertificateLimits,
+  TlpCertificateStrengthPolicy,
   TlpISecretBuffer,
   TlpCryptoDomainTypes,
   TlpEchConfig,
@@ -189,6 +190,7 @@ type
     procedure TestCertificateChainLimitsAreConfigurable;
     procedure TestInvalidCertificateChainLimitsRejected;
     procedure TestInvalidChainEntryCapRejected;
+    procedure TestContradictoryStrengthFloorsRejected;
     procedure TestTls13CompressorOverrideLandsInFrozenConfig;
     procedure TestClientBuilderChainBuildsClient;
     procedure TestServerBuilderChainBuildsServer;
@@ -1996,6 +1998,33 @@ begin
   CheckTrue(Accepted(255), 'the largest entry cap is accepted');
   CheckFalse(Accepted(0), 'a zero entry cap is rejected');
   CheckFalse(Accepted(256), 'an entry cap above 255 is rejected');
+end;
+
+procedure TTestConfigBuilder.TestContradictoryStrengthFloorsRejected;
+
+  function Accepted(AMin, AMax: Int32): Boolean;
+  var
+    LPolicy: TCertificateStrengthPolicy;
+  begin
+    LPolicy := TCertificateStrengthPolicy.Defaults;
+    LPolicy.MinRsaModulusBits := AMin;
+    LPolicy.MaxRsaModulusBits := AMax;
+    Result := True;
+    try
+      TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default)
+        .Client.WithMinimumCertificateStrength(LPolicy);
+    except
+      on E: EArgumentTlsLibException do
+        Result := False;
+    end;
+  end;
+
+begin
+  CheckTrue(Accepted(2048, 8192), 'the default floors are accepted');
+  CheckTrue(Accepted(3072, 0), 'no maximum is accepted');
+  CheckTrue(Accepted(4096, 4096), 'equal floors are accepted');
+  CheckFalse(Accepted(0, 8192), 'a non-positive minimum is rejected');
+  CheckFalse(Accepted(4096, 2048), 'a maximum below the minimum is rejected');
 end;
 
 procedure TTestConfigBuilder.TestInvalidCertificateChainLimitsRejected;

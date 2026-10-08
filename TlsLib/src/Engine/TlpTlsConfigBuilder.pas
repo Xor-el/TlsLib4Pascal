@@ -397,6 +397,8 @@ resourcestring
   SInvalidChainLimits = 'the certificate-chain limits must be positive, with ' +
     'MaxCertificateLength no larger than MaxTotalChainLength, which must not exceed the ' +
     '16 MiB handshake-message ceiling, and MaxChainCertificates must be between 1 and 255';
+  SInvalidStrengthFloors = 'the minimum RSA modulus must be positive and, when a maximum is ' +
+    'set (non-zero), no larger than that maximum';
   SInvalidCertificatePin = 'a certificate pin must be a 32-byte SHA-256 SubjectPublicKeyInfo ' +
     'digest; a wrong-width pin can never match and would silently fail every handshake';
   SCredentialKeyLeafMismatch = 'the credential''s private key does not match the public key in ' +
@@ -2022,6 +2024,9 @@ function TTlsConfigBuilder.WithMinimumCertificateStrength(
   const APolicy: TCertificateStrengthPolicy): TTlsConfigBuilder;
 begin
   GuardMutable;
+  if (APolicy.MinRsaModulusBits < 1) or ((APolicy.MaxRsaModulusBits <> 0) and
+    (APolicy.MaxRsaModulusBits < APolicy.MinRsaModulusBits)) then
+    raise EArgumentTlsLibException.CreateRes(@SInvalidStrengthFloors);
   FStrengthPolicy := APolicy;
   Result := Self;
 end;

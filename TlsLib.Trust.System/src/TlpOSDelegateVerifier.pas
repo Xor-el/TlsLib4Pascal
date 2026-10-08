@@ -116,7 +116,8 @@ type
   /// platform engine from the connection's trust context, so posture, clock, strength policy and (for
   /// a client certificate) the exclusive client-CA anchors are injected the same way the built-in
   /// verifier receives them. AFetch fixes the inline behaviour: CacheOnly (no socket) or Live (an
-  /// indeterminate revocation defers to the async park). Refuses at construction a Live fetch on an
+  /// indeterminate revocation defers to the async park; so does a cache-only one when the
+  /// live-revocation verdict is armed). Refuses at construction a Live fetch on an
   /// engine without live fetch, and at verifier creation a Live fetch without the live-revocation
   /// verdict, or - for an engine that renders no revocation outcome - a Hard client posture without
   /// it.</summary>
@@ -214,11 +215,10 @@ end;
 
 function TOSDelegateVerifierBase.DeferToLive: Boolean;
 begin
-  // Windows/Apple defer on a Live fetch; an engine that renders no cached revocation outcome (Android)
-  // defers when the live-revocation verdict is armed, since the staple is its only inline source
+  // an armed live-revocation verdict always parks a delegate, so a cache-only indeterminate is left to
+  // it rather than rejected inline under Hard
   Result := (FPolicy.Fetch = TSystemTrustFetch.Live) or
-    ((not (TPlatformChainCapability.CachedRevocation in FEngine.Capabilities)) and
-    (FPolicy.Deferral = TVerdictDeferral.LiveRevocation));
+    (FPolicy.Deferral = TVerdictDeferral.LiveRevocation);
 end;
 
 function TOSDelegateVerifierBase.RevocationCheck: TPlatformRevocationCheck;

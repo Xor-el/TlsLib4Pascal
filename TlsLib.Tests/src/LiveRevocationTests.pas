@@ -182,6 +182,7 @@ type
     procedure TestOnlySomeReasonsCrlIsIndeterminate;
     procedure TestIndirectCrlIsIndeterminate;
     procedure TestUnknownCriticalExtensionIsIndeterminate;
+    procedure TestCriticalExtensionOnAnotherEntryIsIndeterminate;
     procedure TestDeltaCrlIsIndeterminate;
     procedure TestRelativeNameIdpIsIndeterminate;
     procedure TestRemoveFromCrlEntryIsNotRevoked;
@@ -1613,6 +1614,16 @@ procedure TTestCrlScope.TestUnknownCriticalExtensionIsIndeterminate;
 begin
   CheckClassified('crl_unknown_critical', 'Indeterminate',
     'a CRL with an unrecognized critical extension is unusable (RFC 5280 5.2)');
+end;
+
+procedure TTestCrlScope.TestCriticalExtensionOnAnotherEntryIsIndeterminate;
+begin
+  // the leaf is not listed, but RFC 5280 5.3 bars using a CRL with an unprocessable critical
+  // entry extension to determine the status of any certificate
+  CheckClassified('crl_other_entry_critical', 'Indeterminate',
+    'a critical extension on any entry makes the whole CRL unusable');
+  CheckClassified('crl_leaf_entry_critical', 'Indeterminate',
+    'a listed leaf is not Revoked from a CRL that cannot be used');
 end;
 
 procedure TTestCrlScope.TestDeltaCrlIsIndeterminate;

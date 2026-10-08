@@ -39,6 +39,7 @@ type
       AAllowWildcard: Boolean): Boolean; static;
     class function IsWellFormedDnsName(const AName: string;
       AAllowWildcard: Boolean): Boolean; static;
+    class function HasNumericFinalLabel(const AName: string): Boolean; static;
     class function MatchesOneDns(const AHostName, ADnsName: string): Boolean; static;
     class function MatchesDns(const AHostName: string;
       const ADnsNames: TArray<string>): Boolean; static;
@@ -56,7 +57,8 @@ type
     /// name is ignored for matching; an ill-formed SNI pattern is rejected at configuration.</summary>
     class function IsValidPresentedDnsName(const AName: string): Boolean; static;
     /// <summary>Whether AName is a usable reference host to verify against: a valid DNS name
-    /// with no wildcard (a client verifies a concrete host, never a pattern).</summary>
+    /// with no wildcard (a client verifies a concrete host, never a pattern) whose last label is
+    /// not all digits or a 0x hex number, since a resolver would read that as an address.</summary>
     class function IsValidReferenceHostName(const AName: string): Boolean; static;
     /// <summary>Whether AName is a DNS pattern that can actually match at runtime: well-formed,
     /// and any wildcard leaves at least two labels below it (never a public suffix like *.com).
@@ -173,9 +175,42 @@ begin
   Result := IsWellFormedDnsName(AName, True);
 end;
 
+class function TEndpointIdentity.HasNumericFinalLabel(const AName: string): Boolean;
+var
+  LLast: string;
+  LI, LDot, LFirst: Int32;
+  LHex: Boolean;
+  LCh: Char;
+begin
+  LDot := 0;
+  for LI := System.Length(AName) downto 1 do
+    if AName[LI] = '.' then
+    begin
+      LDot := LI;
+      Break;
+    end;
+  LLast := System.Copy(AName, LDot + 1, System.Length(AName) - LDot);
+  // RFC 1123 2.1: a host name's last label is never all-numeric; 0x... is the hex form a
+  // resolver also reads as a number
+  LHex := (System.Length(LLast) >= 2) and (LLast[1] = '0') and
+    ((LLast[2] = 'x') or (LLast[2] = 'X'));
+  if LHex then
+    LFirst := 3
+  else
+    LFirst := 1;
+  Result := LLast <> '';
+  for LI := LFirst to System.Length(LLast) do
+  begin
+    LCh := LLast[LI];
+    if not (((LCh >= '0') and (LCh <= '9')) or
+      (LHex and (((LCh >= 'a') and (LCh <= 'f')) or ((LCh >= 'A') and (LCh <= 'F'))))) then
+      Exit(False);
+  end;
+end;
+
 class function TEndpointIdentity.IsValidReferenceHostName(const AName: string): Boolean;
 begin
-  Result := IsWellFormedDnsName(AName, False);
+  Result := IsWellFormedDnsName(AName, False) and not HasNumericFinalLabel(AName);
 end;
 
 class function TEndpointIdentity.IsMatchableDnsPattern(const AName: string): Boolean;
