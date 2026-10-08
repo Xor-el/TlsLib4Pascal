@@ -95,7 +95,8 @@ type
     /// default) validates the peer chain exactly as received.</summary>
     function IntermediateCertificates: TArray<TBytes>;
     /// <summary>Whether TLS 1.2 requires extended_master_secret (RFC 7627); when False,
-    /// a peer that does not offer it falls back to the plain master secret.</summary>
+    /// a peer that does not offer it falls back to the plain master secret. A server then also
+    /// applies NonEmsResumption to resumption of such sessions.</summary>
     function RequireExtendedMasterSecret: Boolean;
     /// <summary>The dangerous escape hatches for the peer-certificate decision: an
     /// InsecureSkipVerify that bypasses the built-in trust pipeline, and an augment-only
@@ -181,6 +182,10 @@ type
     /// <summary>How the server resolves the cipher suite: ServerOrder (default) imposes the
     /// server's own preference; ClientOrder honors the client's offered order.</summary>
     function CipherSuitePreference: TServerCipherPreference;
+    /// <summary>How a TLS 1.2 server treats a resumption of a session established without
+    /// extended_master_secret when the hello does not offer it either (RFC 7627 5.3); Decline by
+    /// default. Moot when RequireExtendedMasterSecret is set.</summary>
+    function NonEmsResumption: TNonEmsResumption;
     /// <summary>Whether a server rejects ALPN unconditionally: on any client ALPN offer it
     /// aborts with no_application_protocol (RFC 7301) rather than selecting or declining;
     /// default False.</summary>

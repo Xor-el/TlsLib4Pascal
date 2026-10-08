@@ -518,6 +518,14 @@ type
   ITls12ServerConfigFacet = interface(IInterface)
     ['{A1B2C3D4-1E2F-4A3B-8C5D-6E7F80912A34}']
     function WithExtendedMasterSecret(ARequire: Boolean): ITls12ServerConfigFacet;
+    /// <summary>How the server treats a ClientHello that resumes a session established without
+    /// extended_master_secret when the hello does not offer it either (RFC 7627 5.3): Decline, the
+    /// default, runs a full handshake; Abort ends the handshake with handshake_failure; Resume
+    /// performs the legacy abbreviated handshake. Decline and Abort also stop issuing resumable
+    /// sessions from a non-EMS full handshake. For a server that accepts no non-EMS client at all,
+    /// use WithExtendedMasterSecret(True), which makes this moot; combining that with Resume is
+    /// refused at Build.</summary>
+    function WithNonEmsResumption(AMode: TNonEmsResumption): ITls12ServerConfigFacet;
     function Tls13: ITls13ServerConfigFacet;
     function Build: ITlsServerConfig;
   end;

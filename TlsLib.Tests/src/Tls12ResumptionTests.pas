@@ -56,6 +56,9 @@ uses
   TlpInMemorySessionCache,
   TlpInMemorySessionStore,
   TlpSessionTicketKeys,
+  TlpTlsPresets,
+  TlpITlsConfigBuilder,
+  TlpTlsEngineFactory,
   TlpTls12ClientStateMachine,
   TlpTls12ServerStateMachine,
   TlpTls13ClientStateMachine,
@@ -91,6 +94,25 @@ type
     function NewServer(const AStore: ISessionStore;
       const AStek: ISessionTicketKeyManager; ALifetime: UInt32;
       AWithCredential: Boolean; AEmitSentinel: Boolean = False): ITlsEngine;
+    /// <summary>NewServer with an explicit policy for resuming a session established without EMS.</summary>
+    function NewPolicyServer(const AStore: ISessionStore;
+      const AStek: ISessionTicketKeyManager; ALifetime: UInt32;
+      AWithCredential, AEmitSentinel: Boolean; AMode: TNonEmsResumption): ITlsEngine;
+    /// <summary>NewPolicyServer that can also require the extension; the builder refuses Require with
+    /// Resume, but a machine built directly must still hold the line.</summary>
+    function NewServerWith(const AStore: ISessionStore;
+      const AStek: ISessionTicketKeyManager; ALifetime: UInt32;
+      AWithCredential, AEmitSentinel: Boolean; AMode: TNonEmsResumption;
+      ARequireEms: Boolean): ITlsEngine;
+    /// <summary>A full non-EMS handshake against a server that resumes such sessions, leaving the
+    /// issued session in ACache (and in AStore, or sealed under AStek): a session minted elsewhere.</summary>
+    procedure MintNonEmsSession(const ACache: ISessionCache; const AStore: ISessionStore;
+      const AStek: ISessionTicketKeyManager);
+    /// <summary>A second connection resuming the session MintNonEmsSession left behind, against a
+    /// server with the given policy; the client offers no EMS, so neither side uses the extension.</summary>
+    procedure OfferMintedSession(const ACache: ISessionCache; const AStore: ISessionStore;
+      const AStek: ISessionTicketKeyManager; AMode: TNonEmsResumption;
+      out AClient, AServer: ITlsEngine);
     function Drain(const AEngine: ITlsEngine): TBytes;
     procedure Feed(const AEngine: ITlsEngine; const AWire: TBytes);
     procedure Pump(const ASrc, ADst: ITlsEngine);
@@ -127,6 +149,16 @@ type
     procedure TestResumePreservesExtendedMasterSecretOn;
     procedure TestResumePreservesExtendedMasterSecretOff;
     procedure TestEmsSessionOfferedWithoutEmsAborts;
+    procedure TestNonEmsSessionIdDeclinedByDefault;
+    procedure TestNonEmsTicketDeclinedByDefault;
+    procedure TestNonEmsSessionIdAbortsWhenConfigured;
+    procedure TestNonEmsTicketAbortsWhenConfigured;
+    procedure TestNonEmsSessionIdResumesWhenConfigured;
+    procedure TestNonEmsTicketResumesWhenConfigured;
+    procedure TestNonEmsFullHandshakeIssuesSessionsPerPolicy;
+    procedure TestEmsRulesUnaffectedByNonEmsPolicy;
+    procedure TestRequiredEmsOverridesNonEmsPolicy;
+    procedure TestNonEmsPolicyReachesTheServerThroughTheFactory;
     procedure TestResumedEmsDifferingFromTheCachedSessionAbortsTheClient;
     procedure TestNonEmsSessionOfferedWithEmsFallsBackToFullHandshake;
     procedure TestNonEmsSessionIsOfferedWithExtendedMasterSecret;
@@ -275,10 +307,28 @@ end;
 function TTestTls12Resumption.NewServer(const AStore: ISessionStore;
   const AStek: ISessionTicketKeyManager; ALifetime: UInt32;
   AWithCredential: Boolean; AEmitSentinel: Boolean): ITlsEngine;
+begin
+  Result := NewPolicyServer(AStore, AStek, ALifetime, AWithCredential, AEmitSentinel,
+    TNonEmsResumption.Decline);
+end;
+
+function TTestTls12Resumption.NewPolicyServer(const AStore: ISessionStore;
+  const AStek: ISessionTicketKeyManager; ALifetime: UInt32;
+  AWithCredential, AEmitSentinel: Boolean; AMode: TNonEmsResumption): ITlsEngine;
+begin
+  Result := NewServerWith(AStore, AStek, ALifetime, AWithCredential, AEmitSentinel, AMode, False);
+end;
+
+function TTestTls12Resumption.NewServerWith(const AStore: ISessionStore;
+  const AStek: ISessionTicketKeyManager; ALifetime: UInt32;
+  AWithCredential, AEmitSentinel: Boolean; AMode: TNonEmsResumption;
+  ARequireEms: Boolean): ITlsEngine;
 var
   LParams: TServer12HandshakeParams;
 begin
   LParams := Default(TServer12HandshakeParams);
+  LParams.NonEmsResumption := AMode;
+  LParams.RequireExtendedMasterSecret := ARequireEms;
   LParams.Clock := TSystemClock.Create;
   LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
@@ -294,6 +344,26 @@ begin
   LParams.TicketLifetimeSeconds := ALifetime;
   Result := TTlsEngine.CreateConfigured(
     TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
+end;
+
+procedure TTestTls12Resumption.MintNonEmsSession(const ACache: ISessionCache;
+  const AStore: ISessionStore; const AStek: ISessionTicketKeyManager);
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := NewClient(ACache, False);
+  LServer := NewPolicyServer(AStore, AStek, 7200, True, False, TNonEmsResumption.Resume);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  CheckEquals(1, ACache.Count, 'a server that resumes non-EMS sessions issued one');
+end;
+
+procedure TTestTls12Resumption.OfferMintedSession(const ACache: ISessionCache;
+  const AStore: ISessionStore; const AStek: ISessionTicketKeyManager; AMode: TNonEmsResumption;
+  out AClient, AServer: ITlsEngine);
+begin
+  AClient := NewClient(ACache, False);
+  AServer := NewPolicyServer(AStore, AStek, 7200, True, False, AMode);
 end;
 
 function TTestTls12Resumption.Drain(const AEngine: ITlsEngine): TBytes;
@@ -661,20 +731,20 @@ var
   LCache: ISessionCache;
   LClient, LServer: ITlsEngine;
 begin
-  // a session established WITHOUT EMS must resume without the client offering EMS on the
-  // resumption ClientHello, or the server would decline (RFC 7627 5.3); an abbreviated
+  // a server that opts into legacy resumption (RFC 7627 5.3) resumes a session established WITHOUT
+  // EMS when the client does not offer EMS on the resumption ClientHello either; an abbreviated
   // completion proves the client aligned its EMS offer to the cached session
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
 
   LClient := NewClient(LCache, False);
-  LServer := NewServer(nil, LStek, 7200, True);
+  LServer := NewPolicyServer(nil, LStek, 7200, True, False, TNonEmsResumption.Resume);
   LClient.StartHandshake;
   PumpToCompletion(LClient, LServer);
   CheckEquals(1, LCache.Count, 'a non-EMS session was cached');
 
   LClient := NewClient(LCache, False);
-  LServer := NewServer(nil, LStek, 7200, True);
+  LServer := NewPolicyServer(nil, LStek, 7200, True, False, TNonEmsResumption.Resume);
   CheckFalse(DriveObservingServerCert(LClient, LServer),
     'a non-EMS session resumes abbreviated');
   CheckFalse(LServer.IsTerminal, 'the non-EMS resume did not fail');
@@ -685,6 +755,294 @@ begin
     'a resumed non-EMS session exports nothing on the client');
   CheckEquals(0, System.Length(LServer.ExportKeyingMaterial('EXPORTER-test', 32)),
     'nor on the server');
+end;
+
+procedure TTestTls12Resumption.TestNonEmsSessionIdDeclinedByDefault;
+var
+  LCache: ISessionCache;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+begin
+  // a session minted without EMS (by a node that resumes them) is offered to a default server:
+  // RFC 7627 5.3 says a server SHOULD abort rather than resume it, and this one declines to a full
+  // handshake instead, leaving the stored session alone
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  MintNonEmsSession(LCache, LStore, nil);
+  CheckEquals(1, LStore.Count, 'the minting server stored the session');
+  OfferMintedSession(LCache, LStore, nil, TNonEmsResumption.Decline, LClient, LServer);
+  CheckTrue(DriveObservingServerCert(LClient, LServer),
+    'a non-EMS session is declined to a full handshake (Certificate sent)');
+  CheckFalse(LServer.ConnectionInfo.Resumed, 'the server did not resume it');
+  CheckFalse(LClient.IsTerminal, 'declining is not fatal');
+  CheckFalse(LServer.IsTerminal, 'on the server either');
+  CheckFalse(LServer.ConnectionInfo.ExtendedMasterSecret, 'the new session is non-EMS too');
+  CheckAppDataFlows(LClient, LServer);
+  CheckEquals(1, LStore.Count, 'the new non-EMS handshake issued no session');
+end;
+
+procedure TTestTls12Resumption.TestNonEmsTicketDeclinedByDefault;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  MintNonEmsSession(LCache, nil, LStek);
+  OfferMintedSession(LCache, nil, LStek, TNonEmsResumption.Decline, LClient, LServer);
+  CheckTrue(DriveObservingServerCert(LClient, LServer),
+    'a non-EMS ticket is declined to a full handshake (Certificate sent)');
+  CheckFalse(LServer.ConnectionInfo.Resumed, 'the server did not resume it');
+  CheckFalse(LClient.IsTerminal, 'declining is not fatal');
+  CheckFalse(LServer.IsTerminal, 'on the server either');
+  CheckFalse(LServer.ConnectionInfo.ExtendedMasterSecret, 'the new session is non-EMS too');
+  CheckAppDataFlows(LClient, LServer);
+  CheckEquals(0, LCache.Count, 'the new non-EMS handshake issued no ticket');
+end;
+
+procedure TTestTls12Resumption.TestNonEmsSessionIdAbortsWhenConfigured;
+var
+  LCache: ISessionCache;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  MintNonEmsSession(LCache, LStore, nil);
+  OfferMintedSession(LCache, LStore, nil, TNonEmsResumption.Abort, LClient, LServer);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LServer.IsTerminal, 'a non-EMS session aborts under the Abort policy');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.HandshakeFailure)),
+    Int64(Ord(LServer.LastError.Alert.Description)), 'the abort is handshake_failure (RFC 7627 5.2)');
+  CheckTrue(LClient.IsTerminal, 'the client received the fatal alert');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.HandshakeFailure)),
+    Int64(Ord(LClient.LastError.Alert.Description)), 'handshake_failure reached the client');
+  CheckEquals(1, LStore.Count, 'the stored session was not used up');
+end;
+
+procedure TTestTls12Resumption.TestNonEmsTicketAbortsWhenConfigured;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  MintNonEmsSession(LCache, nil, LStek);
+  OfferMintedSession(LCache, nil, LStek, TNonEmsResumption.Abort, LClient, LServer);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LServer.IsTerminal, 'a non-EMS ticket aborts under the Abort policy');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.HandshakeFailure)),
+    Int64(Ord(LServer.LastError.Alert.Description)), 'the abort is handshake_failure (RFC 7627 5.2)');
+  CheckTrue(LClient.IsTerminal, 'the client received the fatal alert');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.HandshakeFailure)),
+    Int64(Ord(LClient.LastError.Alert.Description)), 'handshake_failure reached the client');
+end;
+
+procedure TTestTls12Resumption.TestNonEmsSessionIdResumesWhenConfigured;
+var
+  LCache: ISessionCache;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  MintNonEmsSession(LCache, LStore, nil);
+  OfferMintedSession(LCache, LStore, nil, TNonEmsResumption.Resume, LClient, LServer);
+  CheckFalse(DriveObservingServerCert(LClient, LServer),
+    'the legacy non-EMS session resumes abbreviated');
+  CheckTrue(LServer.ConnectionInfo.Resumed, 'the server resumed it');
+  CheckFalse(LServer.ConnectionInfo.ExtendedMasterSecret, 'without EMS');
+  CheckEquals(0, System.Length(LServer.ExportKeyingMaterial('EXPORTER-test', 32)),
+    'and the exporter stays withheld (RFC 7627 5.4)');
+  CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestTls12Resumption.TestNonEmsTicketResumesWhenConfigured;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  MintNonEmsSession(LCache, nil, LStek);
+  OfferMintedSession(LCache, nil, LStek, TNonEmsResumption.Resume, LClient, LServer);
+  CheckFalse(DriveObservingServerCert(LClient, LServer),
+    'the legacy non-EMS ticket resumes abbreviated');
+  CheckTrue(LServer.ConnectionInfo.Resumed, 'the server resumed it');
+  CheckFalse(LServer.ConnectionInfo.ExtendedMasterSecret, 'without EMS');
+  CheckEquals(0, System.Length(LServer.ExportKeyingMaterial('EXPORTER-test', 32)),
+    'and the exporter stays withheld (RFC 7627 5.4)');
+  CheckAppDataFlows(LClient, LServer);
+  CheckEquals(1, LCache.Count, 'the resumption renewed the ticket');
+end;
+
+procedure TTestTls12Resumption.TestNonEmsFullHandshakeIssuesSessionsPerPolicy;
+var
+  LStek: ISessionTicketKeyManager;
+  LStore: ISessionStore;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LMode: TNonEmsResumption;
+begin
+  // a non-EMS full handshake only leaves a session behind when this server would resume it;
+  // otherwise the client would be handed an id or ticket that is always refused
+  for LMode := Low(TNonEmsResumption) to High(TNonEmsResumption) do
+  begin
+    LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+    LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+    LCache := TInMemorySessionCache.Create;
+    LClient := NewClient(LCache, False);
+    LServer := NewPolicyServer(LStore, LStek, 7200, True, False, LMode);
+    LClient.StartHandshake;
+    PumpToCompletion(LClient, LServer);
+    CheckFalse(LServer.IsTerminal, 'the non-EMS full handshake completes under every policy');
+    if LMode = TNonEmsResumption.Resume then
+    begin
+      CheckEquals(1, LCache.Count, 'Resume issues the client a session');
+      CheckEquals(1, LStore.Count, 'and stores it');
+    end
+    else
+    begin
+      CheckEquals(0, LCache.Count, 'Decline and Abort issue the client nothing');
+      CheckEquals(0, LStore.Count, 'and store nothing');
+    end;
+
+    // control: an EMS client is issued a session whatever the policy
+    LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+    LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+    LCache := TInMemorySessionCache.Create;
+    LClient := NewClient(LCache, True);
+    LServer := NewPolicyServer(LStore, LStek, 7200, True, False, LMode);
+    LClient.StartHandshake;
+    PumpToCompletion(LClient, LServer);
+    CheckEquals(1, LCache.Count, 'an EMS client is issued a session under every policy');
+    CheckEquals(1, LStore.Count, 'and it is stored');
+  end;
+end;
+
+procedure TTestTls12Resumption.TestEmsRulesUnaffectedByNonEmsPolicy;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache, LCache2: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LSession: IResumableSession;
+  LTicket: TBytes;
+  LMode: TNonEmsResumption;
+begin
+  // RFC 7627 5.3: an EMS session resumes with an EMS hello, aborts without one, and a non-EMS session
+  // offered with EMS declines - whatever the policy for the neither-uses-EMS case
+  for LMode := Low(TNonEmsResumption) to High(TNonEmsResumption) do
+  begin
+    LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+    LCache := TInMemorySessionCache.Create;
+    LClient := NewClient(LCache, True);
+    LServer := NewPolicyServer(nil, LStek, 7200, True, False, LMode);
+    LClient.StartHandshake;
+    PumpToCompletion(LClient, LServer);
+    CheckTrue(LCache.Take(ServerHost + ':443', ServerHost,
+      (TSystemClock.Create as ITlsClock).NowUnixMillis, LSession), 'the EMS session was cached');
+    LTicket := (LSession as ITls12ResumableSession).SessionTicket;
+
+    // the real session (its own master secret), so the abbreviated handshake can complete
+    LCache2 := TInMemorySessionCache.Create;
+    LCache2.Store(ServerHost + ':443', ServerHost, LSession);
+    LClient := NewClient(LCache2, True);
+    LServer := NewPolicyServer(nil, LStek, 7200, True, False, LMode);
+    CheckFalse(DriveObservingServerCert(LClient, LServer), 'an EMS session still resumes');
+    CheckTrue(LServer.ConnectionInfo.Resumed, 'and is reported resumed');
+
+    LCache2 := TInMemorySessionCache.Create;
+    LCache2.Store(ServerHost + ':443', ServerHost, MakeTicketSession(LTicket, False));
+    LClient := NewClient(LCache2, False);
+    LServer := NewPolicyServer(nil, LStek, 7200, True, False, LMode);
+    LClient.StartHandshake;
+    PumpToCompletion(LClient, LServer);
+    CheckTrue(LServer.IsTerminal, 'an EMS session offered without EMS aborts under every policy');
+
+    // a non-EMS session offered with EMS declines, even under Resume
+    LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+    LCache := TInMemorySessionCache.Create;
+    MintNonEmsSession(LCache, nil, LStek);
+    CheckTrue(LCache.Take(ServerHost + ':443', ServerHost,
+      (TSystemClock.Create as ITlsClock).NowUnixMillis, LSession), 'the non-EMS session was cached');
+    LTicket := (LSession as ITls12ResumableSession).SessionTicket;
+    LCache2 := TInMemorySessionCache.Create;
+    LCache2.Store(ServerHost + ':443', ServerHost, MakeTicketSession(LTicket, True));
+    LClient := NewClient(LCache2, True);
+    LServer := NewPolicyServer(nil, LStek, 7200, True, False, LMode);
+    CheckTrue(DriveObservingServerCert(LClient, LServer),
+      'a non-EMS session offered with EMS declines to a full handshake under every policy');
+    CheckFalse(LServer.IsTerminal, 'and that is not fatal');
+  end;
+end;
+
+procedure TTestTls12Resumption.TestRequiredEmsOverridesNonEmsPolicy;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LMode: TNonEmsResumption;
+begin
+  // a server that requires EMS refuses every non-EMS client, so a non-EMS session is never resumed
+  // whatever the policy - including Resume, which only a directly built machine can combine with it
+  for LMode := Low(TNonEmsResumption) to High(TNonEmsResumption) do
+  begin
+    LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+    LCache := TInMemorySessionCache.Create;
+    MintNonEmsSession(LCache, nil, LStek);
+    LClient := NewClient(LCache, False);
+    LServer := NewServerWith(nil, LStek, 7200, True, False, LMode, True);
+    LClient.StartHandshake;
+    PumpToCompletion(LClient, LServer);
+    CheckTrue(LServer.IsTerminal, 'a required-EMS server refuses the non-EMS client');
+    CheckFalse(LServer.ConnectionInfo.Resumed, 'and never resumes its session');
+    CheckEquals(Int64(Ord(TTlsAlertDescription.HandshakeFailure)),
+      Int64(Ord(LServer.LastError.Alert.Description)), 'with handshake_failure');
+  end;
+end;
+
+procedure TTestTls12Resumption.TestNonEmsPolicyReachesTheServerThroughTheFactory;
+var
+  LStek: ISessionTicketKeyManager;
+  LScope: TBytes;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+
+  // a factory-built TLS 1.2 server over the shared ticket keys and scope; the machine-level client
+  // above is the only way to send a hello without EMS, which a built client always offers
+  function BuildServer(AMode: TNonEmsResumption): ITlsEngine;
+  begin
+    Result := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Compatible(Crypto, Pkix).Server
+      .WithCredential(ServerCredential).WithSessionTicketKeys(LStek)
+      .WithResumptionScope(LScope).Tls12.WithNonEmsResumption(AMode).Build);
+  end;
+
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LScope := TBytes.Create($45, $4D, $53);
+  LCache := TInMemorySessionCache.Create;
+
+  LClient := NewClient(LCache, False);
+  LServer := BuildServer(TNonEmsResumption.Resume);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  CheckEquals(1, LCache.Count, 'a built Resume server issued a non-EMS session');
+
+  LClient := NewClient(LCache, False);
+  LServer := BuildServer(TNonEmsResumption.Abort);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LServer.IsTerminal, 'a built Abort server aborts the non-EMS resumption');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.HandshakeFailure)),
+    Int64(Ord(LServer.LastError.Alert.Description)), 'with handshake_failure');
+  CheckTrue(LClient.IsTerminal, 'and the client received the fatal alert');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.HandshakeFailure)),
+    Int64(Ord(LClient.LastError.Alert.Description)), 'handshake_failure reached the client');
 end;
 
 procedure TTestTls12Resumption.TestResumedEmsDifferingFromTheCachedSessionAbortsTheClient;
@@ -773,7 +1131,9 @@ begin
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache1 := TInMemorySessionCache.Create;
   LClient := NewClient(LCache1, False);
-  LServer := NewServer(nil, LStek, 7200, True);
+  // the non-EMS session is minted by a server that resumes such sessions, since a default one
+  // issues none
+  LServer := NewPolicyServer(nil, LStek, 7200, True, False, TNonEmsResumption.Resume);
   LClient.StartHandshake;
   PumpToCompletion(LClient, LServer);
   CheckTrue(LCache1.Take(ServerHost + ':443', ServerHost,

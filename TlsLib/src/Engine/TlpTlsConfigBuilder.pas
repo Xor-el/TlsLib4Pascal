@@ -134,6 +134,7 @@ type
     FCertificateDecompressors: TArray<ICertificateDecompressor>;
     FCertificateCompressionCache: ICertificateCompressionCache;
     FRequireExtendedMasterSecret: Boolean;
+    FNonEmsResumption: TNonEmsResumption;
     FServerNameAck: Boolean;
     FCipherPreference: TServerCipherPreference;
     FAlpnRejectAll: Boolean;
@@ -251,6 +252,7 @@ type
     function WithCertificateCompressionCache(
       const ACache: ICertificateCompressionCache): TTlsConfigBuilder;
     function WithExtendedMasterSecret(ARequire: Boolean): TTlsConfigBuilder;
+    function WithNonEmsResumption(AMode: TNonEmsResumption): TTlsConfigBuilder;
     function WithServerNameAcknowledgement(ASend: Boolean): TTlsConfigBuilder;
     function WithCipherSuitePreference(APreference: TServerCipherPreference): TTlsConfigBuilder;
     function WithAlpnRejection(AReject: Boolean): TTlsConfigBuilder;
@@ -360,6 +362,8 @@ resourcestring
   SDualVerifier = 'only one custom certificate verifier may be configured';
   STls13NotOffered = 'TLS 1.3 settings were configured but TLS 1.3 is not in the offered versions';
   STls12NotOffered = 'TLS 1.2 settings were configured but TLS 1.2 is not in the offered versions';
+  SNonEmsResumeWithRequiredEms = 'legacy non-EMS resumption cannot apply when ' +
+    'extended_master_secret is required, since a non-EMS client is rejected outright';
   SNoSupportedVersions = 'at least one protocol version must be offered (TLS 1.3 and/or TLS 1.2)';
   SUnsupportedVersion = 'protocol version 0x%.4x is not negotiable; only TLS 1.3 (0x0304) and ' +
     'TLS 1.2 (0x0303) are supported';
@@ -524,6 +528,7 @@ type
     FCertificateCompressionCache: ICertificateCompressionCache;
     FServerNameAck: Boolean;
     FCipherPreference: TServerCipherPreference;
+    FNonEmsResumption: TNonEmsResumption;
     FAlpnRejectAll: Boolean;
     FClientCertificateAuthorities: TArray<TBytes>;
     FClientAuth: TClientAuthMode;
@@ -541,6 +546,7 @@ type
     function CertificateCompressionCache: ICertificateCompressionCache;
     function ServerNameAcknowledgement: Boolean;
     function CipherSuitePreference: TServerCipherPreference;
+    function NonEmsResumption: TNonEmsResumption;
     function AlpnRejectAll: Boolean;
     function ClientCertificateAuthorities: TArray<TBytes>;
     function ClientAuth: TClientAuthMode;
@@ -731,6 +737,7 @@ type
   TTls12ServerConfigFacet = class sealed(TTlsConfigViewBase, ITls12ServerConfigFacet)
   public
     function WithExtendedMasterSecret(ARequire: Boolean): ITls12ServerConfigFacet;
+    function WithNonEmsResumption(AMode: TNonEmsResumption): ITls12ServerConfigFacet;
     function Tls13: ITls13ServerConfigFacet;
     function Build: ITlsServerConfig;
   end;
@@ -936,6 +943,11 @@ end;
 function TFrozenServerConfig.CipherSuitePreference: TServerCipherPreference;
 begin
   Result := FCipherPreference;
+end;
+
+function TFrozenServerConfig.NonEmsResumption: TNonEmsResumption;
+begin
+  Result := FNonEmsResumption;
 end;
 
 function TFrozenServerConfig.AlpnRejectAll: Boolean;
@@ -1688,6 +1700,13 @@ begin
   Result := Self;
 end;
 
+function TTls12ServerConfigFacet.WithNonEmsResumption(
+  AMode: TNonEmsResumption): ITls12ServerConfigFacet;
+begin
+  FOwner.WithNonEmsResumption(AMode);
+  Result := Self;
+end;
+
 function TTls12ServerConfigFacet.Tls13: ITls13ServerConfigFacet;
 begin
   Result := FOwner.Server13;
@@ -1756,6 +1775,9 @@ begin
   FServerNameAck := True;
   // server-preference cipher selection by default; a caller may opt into honoring the client's order
   FCipherPreference := TServerCipherPreference.ServerOrder;
+  // a TLS 1.2 server never resumes a session set up without extended_master_secret by default
+  // (RFC 7627 5.3); an operator serving legacy clients opts into Resume
+  FNonEmsResumption := TNonEmsResumption.Decline;
   // configuring an external PSK is an explicit "authenticate with this key" statement, so a
   // non-PSK server response is refused by default; a caller may opt into a certificate fallback
   FExternalPskRequired := True;
@@ -2303,6 +2325,15 @@ function TTlsConfigBuilder.WithExtendedMasterSecret(
 begin
   GuardMutable;
   FRequireExtendedMasterSecret := ARequire;
+  FTls12Configured := True;
+  Result := Self;
+end;
+
+function TTlsConfigBuilder.WithNonEmsResumption(
+  AMode: TNonEmsResumption): TTlsConfigBuilder;
+begin
+  GuardMutable;
+  FNonEmsResumption := AMode;
   FTls12Configured := True;
   Result := Self;
 end;
@@ -2878,6 +2909,9 @@ begin
   if (FMaxEarlyData > 0) and (FSessionTicketKeys <> nil) and (FSessionStore = nil) and
     (FAntiReplay = nil) then
     raise EInvalidOperationTlsLibException.CreateRes(@SExplicitStekEarlyDataNeedsAntiReplay);
+  // requiring the extension rejects every non-EMS client, so legacy resumption can never apply
+  if FRequireExtendedMasterSecret and (FNonEmsResumption = TNonEmsResumption.Resume) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SNonEmsResumeWithRequiredEms);
   ValidateVersionScoping;
   ValidateRequiredCollaborators;
   LConfig := TFrozenServerConfig.Create;
@@ -2907,6 +2941,7 @@ begin
   LConfig.FRequireExtendedMasterSecret := FRequireExtendedMasterSecret;
   LConfig.FServerNameAck := FServerNameAck;
   LConfig.FCipherPreference := FCipherPreference;
+  LConfig.FNonEmsResumption := FNonEmsResumption;
   LConfig.FAlpnRejectAll := FAlpnRejectAll;
   LConfig.FClientCertificateAuthorities := FClientCertificateAuthorities;
   LConfig.FResumption := FResumption;
