@@ -50,6 +50,7 @@ type
   /// OS revocation cache / the handshake staple with no socket, inline on the engine thread.
   /// Live re-runs the OS engine with network fetch enabled, off the engine thread in the async
   /// verdict park (the inline pass then defers an indeterminate revocation so the handshake parks).
+  /// An armed live-revocation verdict defers an indeterminate cache-only outcome the same way.
   /// </summary>
   TSystemTrustFetch = (CacheOnly, Live);
 

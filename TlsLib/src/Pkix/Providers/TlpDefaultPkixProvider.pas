@@ -231,11 +231,15 @@ type
     /// </summary>
     class function IsFetchableUrl(const AUrl: string): Boolean; static;
     /// <summary>
-    /// Reads a CRL entry's reason (RFC 5280 5.3.1); False when the entry carries a critical
-    /// entry extension that cannot be processed, so the CRL is not authoritative.
+    /// Whether any entry of ACrl carries a critical extension; none is processed here, and RFC 5280
+    /// 5.3 forbids using such a CRL to determine the status of any certificate.
     /// </summary>
-    class function CrlEntryRevokes(const AEntry: IX509CrlEntry;
-      out ARevoked: Boolean): Boolean; static;
+    class function HasCriticalEntryExtension(const ACrl: IX509Crl): Boolean; static;
+    /// <summary>
+    /// Whether the listed AEntry revokes its certificate: its reason (RFC 5280 5.3.1) is not
+    /// removeFromCRL.
+    /// </summary>
+    class function CrlEntryRevokes(const AEntry: IX509CrlEntry): Boolean; static;
   public
     function ValidateOcspStaple(const ALeafCert, AIssuerCert,
       AOcspResponseDer: TBytes; const AValidationTimeUtc: TDateTime;
@@ -1377,21 +1381,28 @@ begin
   Result := IdpNameMatchesLeafDistributionPoint(LDpn, ALeaf);
 end;
 
-class function TRevocationChecker.CrlEntryRevokes(const AEntry: IX509CrlEntry;
-  out ARevoked: Boolean): Boolean;
+class function TRevocationChecker.HasCriticalEntryExtension(const ACrl: IX509Crl): Boolean;
 var
+  LEntries: TCryptoLibGenericArray<IX509CrlEntry>;
   LExts: IX509Extensions;
+  LIdx: Int32;
+begin
+  Result := False;
+  LEntries := ACrl.GetRevokedCertificates;
+  for LIdx := 0 to System.Length(LEntries) - 1 do
+  begin
+    LExts := LEntries[LIdx].CrlEntry.Extensions;
+    if (LExts <> nil) and (System.Length(LExts.GetCriticalExtensionOids) > 0) then
+      Exit(True);
+  end;
+end;
+
+class function TRevocationChecker.CrlEntryRevokes(const AEntry: IX509CrlEntry): Boolean;
+var
   LReason: IAsn1OctetString;
   LEnum: IDerEnumerated;
 begin
-  Result := False;
-  ARevoked := False;
-  LExts := AEntry.CrlEntry.Extensions;
-  // RFC 5280 5.3: no critical entry extension is processed here, so any makes the entry
-  // (and thus the CRL) unusable for this leaf
-  if (LExts <> nil) and (System.Length(LExts.GetCriticalExtensionOids) > 0) then
-    Exit;
-  ARevoked := True;
+  Result := True;
   LReason := AEntry.GetExtensionValue(TX509Extensions.ReasonCode);
   if LReason <> nil then
   begin
@@ -1400,14 +1411,13 @@ begin
       // RFC 5280 5.3.1: removeFromCRL lifts a certificateHold; every other reason, including
       // certificateHold itself and an absent reason, is a revocation
       if (LEnum <> nil) and LEnum.HasValue(TCrlReason.RemoveFromCrl) then
-        ARevoked := False;
+        Result := False;
     except
       // a malformed reasonCode does not un-list a listed entry: it stays revoked
       on E: ECryptoLibException do
-        ARevoked := True;
+        Result := True;
     end;
   end;
-  Result := True;
 end;
 
 function TRevocationChecker.CheckCrlRevocation(const ALeafCert, AIssuerCert,
@@ -1465,11 +1475,11 @@ begin
     end
     else if (LNowMs - TDateTimeUtilities.DateTimeToUnixMs(AThisUpdate)) > CrlUnboundedMaxAgeMs then
       Exit; // nextUpdate is mandatory (RFC 5280 5.1.2.5), so an omitting CRL is only briefly current
-    LEntry := LCrl.GetRevokedCertificate(LLeaf.SerialNumber);
-    if LEntry = nil then
-      ARevoked := False
-    else if not CrlEntryRevokes(LEntry, ARevoked) then
+    // RFC 5280 5.3: a critical entry extension on any entry makes the whole CRL unusable
+    if HasCriticalEntryExtension(LCrl) then
       Exit;
+    LEntry := LCrl.GetRevokedCertificate(LLeaf.SerialNumber);
+    ARevoked := (LEntry <> nil) and CrlEntryRevokes(LEntry);
     Result := True;
   except
     // an unparseable or unverifiable CRL is indeterminate, never a raise

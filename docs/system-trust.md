@@ -172,9 +172,9 @@ settings the built-in verifier does:
 - **The stapled OCSP response** from the handshake is fed to the engine as cached revocation data.
 - **The injected clock** (`WithClock`) supplies the validation time.
 
-Because it is cache-only, the delegate is synchronous — the asynchronous live-OCSP/CRL resolver
-(`WithLiveRevocationVerdict`) is **not** engaged in Delegate mode. That is by design, not a
-regression.
+Because it is cache-only, the delegate is synchronous and never touches the network on the engine
+thread. The asynchronous live-OCSP/CRL resolver (`WithLiveRevocationVerdict`) is engaged only when you
+arm it: an indeterminate cache-only outcome then defers to the park, including under `Hard`.
 
 The **macOS, iOS and Android** delegates honour the same three settings — Apple through a
 `SecPolicyCreateRevocation` policy plus `SecTrustSetVerifyDate` and the stapled response, Android
@@ -254,8 +254,9 @@ check and endpoint-identity match run over it. So the library-side post-checks b
 every platform; only the chain build/trust, the OS's own distrust inputs and its alert codes differ.
 
 **Shared by every delegate** — the same code on Windows, Apple and Android (and, unlike the built-in
-verifier, all **cache-only**: no network revocation during the handshake, so the async resolver is not
-engaged — Windows and Apple can opt into `Live`, which fetches in the async park instead):
+verifier, all **cache-only**: no network revocation during the handshake; the async resolver runs only
+when `WithLiveRevocationVerdict` is armed, and Windows and Apple can opt into `Live`, which fetches in
+the async park instead):
 
 - **Chain-strength policy** runs over the OS-built path (the OS anchor exempt): the advertised-scheme
   filter, the MD5 refusal, the default SHA-1 refusal and the key-strength floors apply under Delegate
@@ -270,7 +271,8 @@ engaged — Windows and Apple can opt into `Live`, which fetches in the async pa
   name-constraint checks) when the name check is on.
 - **Revocation posture** (`Soft`/`Hard`/`Off`) is honoured cache-only. **Hard** needs a fresh *Good*
   (a stapled leaf response, or a cached one on Windows/Apple) — a cold cache, or the intermediate that
-  a staple never covers, can make Hard reject a first handshake. A client certificate is never stapled,
+  a staple never covers, can make Hard reject a first handshake unless `WithLiveRevocationVerdict` is
+  armed, which defers that indeterminate outcome to the park. A client certificate is never stapled,
   so **Hard mTLS** needs `WithLiveRevocationVerdict` on every platform (`Build` refuses a Hard,
   client-authenticating server without it).
 - **A definitive stapled *Revoked* rejects under every posture, `Off` included** — a library post-check

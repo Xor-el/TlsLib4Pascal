@@ -200,6 +200,7 @@ type
     procedure TestEngineRevokedRejects;
     procedure TestHardIndeterminateRejectsCacheOnly;
     procedure TestHardIndeterminateAcceptsWhenDeferred;
+    procedure TestHardIndeterminateAcceptsCacheOnlyWhenLiveVerdictArmed;
     procedure TestNameMismatchRejectsWithoutDnsCapability;
     procedure TestSourceRefusesLiveWithoutLiveFetch;
     procedure TestServerSourceRefusesLiveWithoutVerdict;
@@ -714,6 +715,9 @@ begin
   CheckEquals(Ord(TPlatformRevocationCheck.BestEffort),
     Ord(Level(TRevocationPosture.Hard, TSystemTrustFetch.Live, TVerdictDeferral.LiveRevocation)),
     'Hard deferred to a live check runs best-effort inline');
+  CheckEquals(Ord(TPlatformRevocationCheck.BestEffort),
+    Ord(Level(TRevocationPosture.Hard, TSystemTrustFetch.CacheOnly, TVerdictDeferral.LiveRevocation)),
+    'Hard with the live verdict armed runs best-effort inline');
 end;
 
 procedure TTestOSDelegateTemplate.TestRequestNetworkNotAllowedInline;
@@ -947,6 +951,25 @@ begin
     as IServerCertificateVerifier;
   CheckTrue(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('localhost'), nil,
     LVerified, LAlert), 'Hard deferred to a live check accepts an indeterminate outcome inline');
+end;
+
+procedure TTestOSDelegateTemplate.TestHardIndeterminateAcceptsCacheOnlyWhenLiveVerdictArmed;
+var
+  LFake: TMockPlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  // the armed live verdict parks the handshake, so a cache-only indeterminate is not rejected inline
+  LFake := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation, TPlatformChainCapability.DnsIdentity],
+    True, Result_(TLiveRevocationOutcome.Indeterminate, OcspChain), TTlsAlertDescription.BadCertificate);
+  LEngine := LFake;
+  LVerifier := TOSDelegateServerVerifier.Create(LEngine,
+    Policy(TRevocationPosture.Hard, TSystemTrustFetch.CacheOnly, TVerdictDeferral.LiveRevocation, nil))
+    as IServerCertificateVerifier;
+  CheckTrue(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('localhost'), nil,
+    LVerified, LAlert), 'Hard with the live verdict armed defers a cache-only indeterminate to the park');
 end;
 
 procedure TTestOSDelegateTemplate.TestNameMismatchRejectsWithoutDnsCapability;

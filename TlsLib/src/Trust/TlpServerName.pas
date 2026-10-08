@@ -92,6 +92,9 @@ begin
     LPart := LParts[LI];
     if (System.Length(LPart) < 1) or (System.Length(LPart) > 3) then
       Exit;
+    // a leading zero reads as octal to a resolver, so the literal is ambiguous
+    if (System.Length(LPart) > 1) and (LPart[1] = '0') then
+      Exit;
     LValue := 0;
     for LDigit := 1 to System.Length(LPart) do
     begin

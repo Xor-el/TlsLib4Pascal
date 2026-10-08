@@ -80,6 +80,9 @@ const
   MY_ENCODING_TYPE = X509_ASN_ENCODING or PKCS_7_ASN_ENCODING;
 
   CERT_STORE_PROV_MEMORY = PAnsiChar(2);
+  CERT_STORE_PROV_SYSTEM_W = PAnsiChar(10);
+  CERT_SYSTEM_STORE_CURRENT_USER = $00010000;
+  CERT_STORE_READONLY_FLAG = $00008000;
   CERT_STORE_ADD_ALWAYS = 4;
   CERT_CHAIN_CACHE_ONLY_URL_RETRIEVAL = $00000004;
   // revocation over the whole chain except the root, bounded by one accumulative timeout so
@@ -262,8 +265,6 @@ type
     dwRevocationFreshnessTime: DWORD;
   end;
 
-  TCertOpenSystemStoreWFunc = function(AProv: Pointer;
-    ASubsystemProtocol: PWideChar): HCERTSTORE; stdcall;
   TCertCloseStoreFunc = function(ACertStore: HCERTSTORE; AFlags: DWORD)
     : BOOL; stdcall;
   TCertEnumCertificatesInStoreFunc = function(ACertStore: HCERTSTORE;
@@ -308,7 +309,6 @@ type
   class var
     FReady: Boolean;
     FModule: THandle;
-    FCertOpenSystemStoreW: TCertOpenSystemStoreWFunc;
     FCertCloseStore: TCertCloseStoreFunc;
     FCertEnumCertificatesInStore: TCertEnumCertificatesInStoreFunc;
     FCertCreateCertificateContext: TCertCreateCertificateContextFunc;
@@ -393,8 +393,6 @@ begin
   if FModule = 0 then
     Exit;
 
-  FCertOpenSystemStoreW := TCertOpenSystemStoreWFunc(
-    GetProc('CertOpenSystemStoreW'));
   FCertCloseStore := TCertCloseStoreFunc(GetProc('CertCloseStore'));
   FCertEnumCertificatesInStore := TCertEnumCertificatesInStoreFunc(
     GetProc('CertEnumCertificatesInStore'));
@@ -423,8 +421,7 @@ begin
   FCertFreeCertificateChainEngine := TCertFreeCertificateChainEngineProc(
     GetProc('CertFreeCertificateChainEngine'));
 
-  FReady := System.Assigned(FCertOpenSystemStoreW) and
-    System.Assigned(FCertCloseStore) and
+  FReady := System.Assigned(FCertCloseStore) and
     System.Assigned(FCertEnumCertificatesInStore) and
     System.Assigned(FCertCreateCertificateContext) and
     System.Assigned(FCertFreeCertificateContext) and
@@ -494,7 +491,9 @@ var
   LDer: TBytes;
 begin
   LDer := nil;
-  LStore := FCertOpenSystemStoreW(nil, AStoreName);
+  // read-only, so the harvest cannot alter the OS store
+  LStore := FCertOpenStore(CERT_STORE_PROV_SYSTEM_W, 0, nil,
+    CERT_SYSTEM_STORE_CURRENT_USER or CERT_STORE_READONLY_FLAG, AStoreName);
   if LStore = nil then
     Exit;
   try
