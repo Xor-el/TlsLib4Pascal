@@ -25,10 +25,11 @@ uses
 {$ELSE}
   TestFramework,
 {$ENDIF FPC}
-  TlpPem;
+  TlpPem,
+  TlsLibTestBase;
 
 type
-  TTestPem = class(TTestCase)
+  TTestPem = class(TTlsLibTestCase)
   private
     function Blocks(const ALabels: array of string): TArray<TPemBlock>;
   published

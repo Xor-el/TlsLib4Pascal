@@ -92,6 +92,9 @@ type
     // the exported SPKI is the public key of the handle that signs: a signature made by the
     // native key verifies under the exported SPKI
     procedure TestExportedPublicKeyVerifiesNativeSignature;
+    // importing never wipes or alters the caller's own key bytes, whether the key is imported
+    // as given, wrapped first, or handed on to the portable facet
+    procedure TestImportLeavesCallerKeyBytesIntact;
     procedure TestNativeVerifierRejectsCrossFamilyScheme;
     procedure TestEcdhImportRefusesScalarsOutsideTheGroupOrder;
     // every key-exchange primitive refuses a key minted by another primitive, and accepts its own
@@ -674,6 +677,27 @@ begin
     TArray<TSignatureScheme>.Create(TSignatureScheme.RSA_PSS_RSAE_SHA256));
   CheckEqualBytes('a narrowed copy keeps the exported public key',
     LKey.PublicKeyInfo, LNarrowed.PublicKeyInfo);
+end;
+
+procedure TTestWindowsSystemCrypto.TestImportLeavesCallerKeyBytesIntact;
+const
+  // native as given, native after wrapping (PKCS#1, SEC1), and the portable fallback, which
+  // re-reads the very same input bytes
+  Fields: array [0 .. 3] of string = ('rsa_pkcs8_der', 'rsa_pkcs1_der', 'ec256_sec1_der',
+    'ed25519_pkcs8_der');
+var
+  LI: Int32;
+  LData, LCopy: TBytes;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  for LI := Low(Fields) to High(Fields) do
+  begin
+    LData := DecodeHex(FKeys.Values[Fields[LI]]);
+    LCopy := System.Copy(LData);
+    CheckTrue(Crypto.Signing.ImportSigningKey(LData, nil) <> nil, Fields[LI] + ' imports');
+    CheckEqualBytes(Fields[LI] + ' leaves the caller''s bytes untouched', LCopy, LData);
+  end;
 end;
 
 initialization
