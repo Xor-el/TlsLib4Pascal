@@ -21,6 +21,7 @@ uses
   Windows,
   SysUtils,
   TlpArrayUtilities,
+  TlpDynamicLibrary,
   TlpDataEncoding,
   TlpCryptoDomainTypes,
   TlpPem,
@@ -394,11 +395,6 @@ type
     class procedure Check(AStatus: Integer); static;
   end;
 
-  // resolves a named entry point from a runtime-loaded module.
-  TModuleApi = class sealed(TObject)
-    class function Proc(AModule: THandle; const AName: AnsiString): Pointer; static;
-  end;
-
   // which CNG primitive minted a key-exchange key: its material imports only under that algorithm
   TCngKeyFamily = (EcdhP256, EcdhP384, EcdhP521, X25519, MlKem768);
 
@@ -707,7 +703,7 @@ type
   TWindowsCng = class(TInterfacedObject, IWindowsCng)
   strict private
   var
-    FModule: THandle;
+    FModule: NativeUInt;
     FApi: TCngApi;
     FAlgP256, FAlgP384, FAlgP521: Pointer;
     FX25519: Pointer;
@@ -719,7 +715,7 @@ type
     FMlKem: Pointer;
     FHkdfAlg: Pointer;
     FRandomOk: Boolean;
-    class function LoadApi(out AModule: THandle; out AApi: TCngApi): Boolean; static;
+    class function LoadApi(out AModule: NativeUInt; out AApi: TCngApi): Boolean; static;
     class function Curve(AAlgorithm: TKeyAgreementAlgorithm): TCngCurve; static;
     function TryOpenAlg(const AAlgId: WideString): Pointer; overload;
     function TryOpenAlg(const AAlgId: WideString; AFlags: ULONG): Pointer; overload;
@@ -925,8 +921,8 @@ type
   TWindowsNCrypt = class(TInterfacedObject, IWindowsNCrypt)
   strict private
   var
-    FModule: THandle;
-    FCrypt32: THandle;
+    FModule: NativeUInt;
+    FCrypt32: NativeUInt;
     FApi: TNCryptApi;
     FCryptApi: TCrypt32Api;
     FBcrypt: TCngApi;
@@ -935,7 +931,7 @@ type
     FVerifyReady: Boolean;
     FPfxReady: Boolean;
     FExportReady: Boolean;
-    class function LoadApi(out AModule: THandle; out AApi: TNCryptApi): Boolean; static;
+    class function LoadApi(out AModule: NativeUInt; out AApi: TNCryptApi): Boolean; static;
     // PFXImportCertStore honours PKCS12_NO_PERSIST_KEY only on Win8+/Server 2012+; on an older
     // host the flag is ignored and the key is persisted to the user's container, so native
     // PKCS#12 adoption is skipped there (the portable key stays)
@@ -1059,13 +1055,6 @@ class procedure TCngError.Check(AStatus: Integer);
 begin
   if AStatus <> STATUS_SUCCESS then
     raise ESystemCryptoBackendTlsLibException.CreateResFmt(@SCngBackendError, [AStatus]);
-end;
-
-{ TModuleApi }
-
-class function TModuleApi.Proc(AModule: THandle; const AName: AnsiString): Pointer;
-begin
-  Result := GetProcAddress(AModule, PAnsiChar(AName));
 end;
 
 { TWindowsCngKeyExchangeKey }
@@ -2210,49 +2199,51 @@ end;
 
 { TWindowsCng }
 
-class function TWindowsCng.LoadApi(out AModule: THandle;
+class function TWindowsCng.LoadApi(out AModule: NativeUInt;
   out AApi: TCngApi): Boolean;
 begin
   Result := False;
   System.FillChar(AApi, SizeOf(AApi), 0);
-  AModule := SafeLoadLibrary(BCRYPT_DLL, SEM_FAILCRITICALERRORS);
+  AModule := TDynamicLibrary.Open(BCRYPT_DLL);
   if AModule = 0 then
     Exit;
   AApi.OpenAlgorithmProvider := TBCryptOpenAlgorithmProvider(
-    TModuleApi.Proc(AModule, 'BCryptOpenAlgorithmProvider'));
+    TDynamicLibrary.Resolve(AModule, 'BCryptOpenAlgorithmProvider'));
   AApi.CloseAlgorithmProvider := TBCryptCloseAlgorithmProvider(
-    TModuleApi.Proc(AModule, 'BCryptCloseAlgorithmProvider'));
+    TDynamicLibrary.Resolve(AModule, 'BCryptCloseAlgorithmProvider'));
   AApi.GenerateKeyPair := TBCryptGenerateKeyPair(
-    TModuleApi.Proc(AModule, 'BCryptGenerateKeyPair'));
+    TDynamicLibrary.Resolve(AModule, 'BCryptGenerateKeyPair'));
   AApi.FinalizeKeyPair := TBCryptFinalizeKeyPair(
-    TModuleApi.Proc(AModule, 'BCryptFinalizeKeyPair'));
-  AApi.ExportKey := TBCryptExportKey(TModuleApi.Proc(AModule, 'BCryptExportKey'));
+    TDynamicLibrary.Resolve(AModule, 'BCryptFinalizeKeyPair'));
+  AApi.ExportKey := TBCryptExportKey(TDynamicLibrary.Resolve(AModule, 'BCryptExportKey'));
   AApi.ImportKeyPair := TBCryptImportKeyPair(
-    TModuleApi.Proc(AModule, 'BCryptImportKeyPair'));
-  AApi.DestroyKey := TBCryptDestroyKey(TModuleApi.Proc(AModule, 'BCryptDestroyKey'));
+    TDynamicLibrary.Resolve(AModule, 'BCryptImportKeyPair'));
+  AApi.DestroyKey := TBCryptDestroyKey(TDynamicLibrary.Resolve(AModule, 'BCryptDestroyKey'));
   AApi.SecretAgreement := TBCryptSecretAgreement(
-    TModuleApi.Proc(AModule, 'BCryptSecretAgreement'));
-  AApi.DeriveKey := TBCryptDeriveKey(TModuleApi.Proc(AModule, 'BCryptDeriveKey'));
+    TDynamicLibrary.Resolve(AModule, 'BCryptSecretAgreement'));
+  AApi.DeriveKey := TBCryptDeriveKey(TDynamicLibrary.Resolve(AModule, 'BCryptDeriveKey'));
   AApi.DestroySecret := TBCryptDestroySecret(
-    TModuleApi.Proc(AModule, 'BCryptDestroySecret'));
-  AApi.GenRandom := TBCryptGenRandom(TModuleApi.Proc(AModule, 'BCryptGenRandom'));
-  AApi.CreateHash := TBCryptCreateHash(TModuleApi.Proc(AModule, 'BCryptCreateHash'));
-  AApi.HashData := TBCryptHashData(TModuleApi.Proc(AModule, 'BCryptHashData'));
-  AApi.FinishHash := TBCryptFinishHash(TModuleApi.Proc(AModule, 'BCryptFinishHash'));
-  AApi.DuplicateHash := TBCryptDuplicateHash(TModuleApi.Proc(AModule, 'BCryptDuplicateHash'));
-  AApi.DestroyHash := TBCryptDestroyHash(TModuleApi.Proc(AModule, 'BCryptDestroyHash'));
-  AApi.SetProperty := TBCryptSetProperty(TModuleApi.Proc(AModule, 'BCryptSetProperty'));
+    TDynamicLibrary.Resolve(AModule, 'BCryptDestroySecret'));
+  AApi.GenRandom := TBCryptGenRandom(TDynamicLibrary.Resolve(AModule, 'BCryptGenRandom'));
+  AApi.CreateHash := TBCryptCreateHash(TDynamicLibrary.Resolve(AModule, 'BCryptCreateHash'));
+  AApi.HashData := TBCryptHashData(TDynamicLibrary.Resolve(AModule, 'BCryptHashData'));
+  AApi.FinishHash := TBCryptFinishHash(TDynamicLibrary.Resolve(AModule, 'BCryptFinishHash'));
+  AApi.DuplicateHash := TBCryptDuplicateHash(
+    TDynamicLibrary.Resolve(AModule, 'BCryptDuplicateHash'));
+  AApi.DestroyHash := TBCryptDestroyHash(TDynamicLibrary.Resolve(AModule, 'BCryptDestroyHash'));
+  AApi.SetProperty := TBCryptSetProperty(TDynamicLibrary.Resolve(AModule, 'BCryptSetProperty'));
   AApi.GenerateSymmetricKey := TBCryptGenerateSymmetricKey(
-    TModuleApi.Proc(AModule, 'BCryptGenerateSymmetricKey'));
-  AApi.Encrypt := TBCryptEncrypt(TModuleApi.Proc(AModule, 'BCryptEncrypt'));
-  AApi.Decrypt := TBCryptDecrypt(TModuleApi.Proc(AModule, 'BCryptDecrypt'));
+    TDynamicLibrary.Resolve(AModule, 'BCryptGenerateSymmetricKey'));
+  AApi.Encrypt := TBCryptEncrypt(TDynamicLibrary.Resolve(AModule, 'BCryptEncrypt'));
+  AApi.Decrypt := TBCryptDecrypt(TDynamicLibrary.Resolve(AModule, 'BCryptDecrypt'));
   // optional (Win11 24H2+); intentionally excluded from the readiness gate below
-  AApi.Encapsulate := TBCryptEncapsulate(TModuleApi.Proc(AModule, 'BCryptEncapsulate'));
-  AApi.Decapsulate := TBCryptDecapsulate(TModuleApi.Proc(AModule, 'BCryptDecapsulate'));
+  AApi.Encapsulate := TBCryptEncapsulate(TDynamicLibrary.Resolve(AModule, 'BCryptEncapsulate'));
+  AApi.Decapsulate := TBCryptDecapsulate(TDynamicLibrary.Resolve(AModule, 'BCryptDecapsulate'));
   AApi.VerifySignature := TBCryptVerifySignature(
-    TModuleApi.Proc(AModule, 'BCryptVerifySignature'));
-  AApi.GetProperty := TBCryptGetProperty(TModuleApi.Proc(AModule, 'BCryptGetProperty'));
-  AApi.KeyDerivation := TBCryptKeyDerivation(TModuleApi.Proc(AModule, 'BCryptKeyDerivation'));
+    TDynamicLibrary.Resolve(AModule, 'BCryptVerifySignature'));
+  AApi.GetProperty := TBCryptGetProperty(TDynamicLibrary.Resolve(AModule, 'BCryptGetProperty'));
+  AApi.KeyDerivation := TBCryptKeyDerivation(
+    TDynamicLibrary.Resolve(AModule, 'BCryptKeyDerivation'));
 
   // the only universal requirement: opening and closing algorithm handles. Every feature
   // entry point is optional and gated per-facet at construction, so a stripped or older
@@ -2262,7 +2253,7 @@ begin
 
   if not Result then
   begin
-    FreeLibrary(AModule);
+    TDynamicLibrary.Close(AModule);
     AModule := 0;
   end;
 end;
@@ -2468,7 +2459,7 @@ begin
     CloseAlg(FAlgP256);
   end;
   if FModule <> 0 then
-    FreeLibrary(FModule);
+    TDynamicLibrary.Close(FModule);
   inherited Destroy;
 end;
 
@@ -3266,26 +3257,26 @@ end;
 
 { TWindowsNCrypt }
 
-class function TWindowsNCrypt.LoadApi(out AModule: THandle;
+class function TWindowsNCrypt.LoadApi(out AModule: NativeUInt;
   out AApi: TNCryptApi): Boolean;
 begin
   Result := False;
   System.FillChar(AApi, SizeOf(AApi), 0);
-  AModule := SafeLoadLibrary(NCRYPT_DLL, SEM_FAILCRITICALERRORS);
+  AModule := TDynamicLibrary.Open(NCRYPT_DLL);
   if AModule = 0 then
     Exit;
   AApi.OpenStorageProvider := TNCryptOpenStorageProvider(
-    TModuleApi.Proc(AModule, 'NCryptOpenStorageProvider'));
-  AApi.ImportKey := TNCryptImportKey(TModuleApi.Proc(AModule, 'NCryptImportKey'));
-  AApi.GetProperty := TNCryptGetProperty(TModuleApi.Proc(AModule, 'NCryptGetProperty'));
-  AApi.SignHash := TNCryptSignHash(TModuleApi.Proc(AModule, 'NCryptSignHash'));
-  AApi.FreeObject := TNCryptFreeObject(TModuleApi.Proc(AModule, 'NCryptFreeObject'));
+    TDynamicLibrary.Resolve(AModule, 'NCryptOpenStorageProvider'));
+  AApi.ImportKey := TNCryptImportKey(TDynamicLibrary.Resolve(AModule, 'NCryptImportKey'));
+  AApi.GetProperty := TNCryptGetProperty(TDynamicLibrary.Resolve(AModule, 'NCryptGetProperty'));
+  AApi.SignHash := TNCryptSignHash(TDynamicLibrary.Resolve(AModule, 'NCryptSignHash'));
+  AApi.FreeObject := TNCryptFreeObject(TDynamicLibrary.Resolve(AModule, 'NCryptFreeObject'));
   Result := System.Assigned(AApi.OpenStorageProvider) and
     System.Assigned(AApi.ImportKey) and System.Assigned(AApi.GetProperty) and
     System.Assigned(AApi.SignHash) and System.Assigned(AApi.FreeObject);
   if not Result then
   begin
-    FreeLibrary(AModule);
+    TDynamicLibrary.Close(AModule);
     AModule := 0;
   end;
 end;
@@ -3591,32 +3582,32 @@ begin
   if FApi.OpenStorageProvider(FProvider, PWideChar(NCRYPT_KSP_NAME), 0)
     <> STATUS_SUCCESS then
   begin
-    FreeLibrary(FModule);
+    TDynamicLibrary.Close(FModule);
     FModule := 0;
     raise ESystemCryptoUnsupportedTlsLibException.CreateRes(@SCngUnavailable);
   end;
   // verification is a separate, optional capability (crypt32 to import the SPKI +
   // BCryptVerifySignature): if any part is absent, verification falls back to portable
-  FCrypt32 := SafeLoadLibrary(CRYPT32_DLL, SEM_FAILCRITICALERRORS);
+  FCrypt32 := TDynamicLibrary.Open(CRYPT32_DLL);
   if FCrypt32 <> 0 then
   begin
     FCryptApi.DecodeObjectEx := TCryptDecodeObjectEx(
-      TModuleApi.Proc(FCrypt32, 'CryptDecodeObjectEx'));
+      TDynamicLibrary.Resolve(FCrypt32, 'CryptDecodeObjectEx'));
     FCryptApi.ImportPublicKeyInfoEx2 := TCryptImportPublicKeyInfoEx2(
-      TModuleApi.Proc(FCrypt32, 'CryptImportPublicKeyInfoEx2'));
+      TDynamicLibrary.Resolve(FCrypt32, 'CryptImportPublicKeyInfoEx2'));
     FCryptApi.ExportPublicKeyInfoEx := TCryptExportPublicKeyInfoEx(
-      TModuleApi.Proc(FCrypt32, 'CryptExportPublicKeyInfoEx'));
+      TDynamicLibrary.Resolve(FCrypt32, 'CryptExportPublicKeyInfoEx'));
     FCryptApi.EncodeObjectEx := TCryptEncodeObjectEx(
-      TModuleApi.Proc(FCrypt32, 'CryptEncodeObjectEx'));
+      TDynamicLibrary.Resolve(FCrypt32, 'CryptEncodeObjectEx'));
     FCryptApi.PFXImportCertStore := TPFXImportCertStore(
-      TModuleApi.Proc(FCrypt32, 'PFXImportCertStore'));
+      TDynamicLibrary.Resolve(FCrypt32, 'PFXImportCertStore'));
     FCryptApi.CertFindCertificateInStore := TCertFindCertificateInStore(
-      TModuleApi.Proc(FCrypt32, 'CertFindCertificateInStore'));
+      TDynamicLibrary.Resolve(FCrypt32, 'CertFindCertificateInStore'));
     FCryptApi.GetCertContextProperty := TCertGetCertificateContextProperty(
-      TModuleApi.Proc(FCrypt32, 'CertGetCertificateContextProperty'));
+      TDynamicLibrary.Resolve(FCrypt32, 'CertGetCertificateContextProperty'));
     FCryptApi.FreeCertificateContext := TCertFreeCertificateContext(
-      TModuleApi.Proc(FCrypt32, 'CertFreeCertificateContext'));
-    FCryptApi.CloseStore := TCertCloseStore(TModuleApi.Proc(FCrypt32, 'CertCloseStore'));
+      TDynamicLibrary.Resolve(FCrypt32, 'CertFreeCertificateContext'));
+    FCryptApi.CloseStore := TCertCloseStore(TDynamicLibrary.Resolve(FCrypt32, 'CertCloseStore'));
   end;
   FVerifyReady := (FCrypt32 <> 0) and
     System.Assigned(FCryptApi.DecodeObjectEx) and
@@ -3640,9 +3631,9 @@ begin
   if (FProvider <> 0) and System.Assigned(FApi.FreeObject) then
     FApi.FreeObject(FProvider);
   if FModule <> 0 then
-    FreeLibrary(FModule);
+    TDynamicLibrary.Close(FModule);
   if FCrypt32 <> 0 then
-    FreeLibrary(FCrypt32);
+    TDynamicLibrary.Close(FCrypt32);
   inherited Destroy;
 end;
 
