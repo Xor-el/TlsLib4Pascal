@@ -498,6 +498,7 @@ begin
   LServer.SendClose;
   Pump(LServer, LClient);
   CheckTrue(LClient.IsInboundClosed, 'the client saw the inbound close_notify');
+  CheckFalse(LClient.IsTerminal, 'a close after the handshake is not a failure');
   CheckTrue(LClient.WriteClosed, 'TLS 1.2 closes the write side on an inbound close_notify');
   LRaised := False;
   try

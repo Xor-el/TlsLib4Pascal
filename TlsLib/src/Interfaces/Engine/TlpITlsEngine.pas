@@ -34,7 +34,7 @@ type
   /// <summary>The kind of a queued engine event.</summary>
   TTlsEventKind = (
     PeerAlert,          // the peer sent an alert
-    Closed,             // a close_notify was received (clean shutdown)
+    Closed,             // a close_notify was received (a failure before the handshake completes)
     SessionTicketReceived, // a resumption ticket arrived and was cached (RFC 8446 4.6.1)
     EarlyDataAccepted,  // the server accepted the client's 0-RTT early data
     EarlyDataRejected,  // the server rejected 0-RTT; the accepted early data is discarded (not replayed)
@@ -187,9 +187,10 @@ type
     /// False when async certificate verdicts are disabled (the verdict resolves inline).
     /// </summary>
     function AwaitingCertificateVerdict: Boolean;
-    /// <summary>Whether the engine has FAILED (a fatal alert was sent or received) and accepts no
-    /// more work. This is failure only - it is NOT set by a clean close_notify (under TLS 1.3 an
-    /// inbound close_notify half-closes: the write side stays open). To end a read loop use IsClosed
+    /// <summary>Whether the engine has FAILED (a fatal alert was sent or received, or the peer sent
+    /// close_notify before the handshake completed) and accepts no more work. It is NOT set by a
+    /// close_notify after the handshake (under TLS 1.3 that half-closes: the write side stays
+    /// open). To end a read loop use IsClosed
     /// (failed or peer-closed); to detect a clean inbound shutdown use IsInboundClosed.</summary>
     function IsTerminal: Boolean;
     /// <summary>Whether the engine is finished for reading: it has failed OR the peer sent

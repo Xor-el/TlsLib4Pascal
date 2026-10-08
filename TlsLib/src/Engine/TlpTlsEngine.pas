@@ -99,6 +99,9 @@ type
     // ProcessInput/ReadAppData/SetCertificateVerdict while this is set, so those fail loud
     FDraining: Boolean;
     FLastError: TTlsError;
+    // an out-of-range caller slice is misuse, refused locally rather than failed on the wire
+    class procedure RequireSlice(const AData: TBytes; AOffset, ALength: Int32;
+      AMessage: PResStringRec); static;
     procedure Enqueue(const AEvent: ITlsEvent);
     function IsTls13: Boolean;
     procedure QueueAlertRecord(const AAlert: TTlsAlert);
@@ -210,6 +213,7 @@ const
 
 resourcestring
   SPeerFatalAlert = 'the peer sent a fatal alert';
+  SPeerClosedDuringHandshake = 'the peer closed the connection during the handshake';
   SWarningAlertInTls13 = 'a warning alert other than user_canceled is not permitted in TLS 1.3';
   STooManyWarningAlerts = 'the peer sent too many warning-level alerts';
   SBogusAlertLevel = 'the alert carries a level that is neither warning nor fatal';
@@ -220,6 +224,7 @@ resourcestring
   SInboundBacklogFull =
     'the framed inbound backlog is full; pull/read before feeding more input (honor WantsRead)';
   SProcessInputSliceOutOfRange = 'the ProcessInput (offset, length) slice is out of range';
+  SWriteSliceOutOfRange = 'the Write (offset, length) slice is out of range';
   SWriteAfterClose =
     'Write after the write side was closed (close_notify sent, or received under TLS 1.2) ' +
     'or the connection failed';
@@ -569,17 +574,35 @@ begin
   Result := FTail - FHead;
 end;
 
+class procedure TTlsEngine.RequireSlice(const AData: TBytes; AOffset, ALength: Int32;
+  AMessage: PResStringRec);
+begin
+  if (AOffset < 0) or (ALength < 0) or (Int64(AOffset) + ALength > System.Length(AData)) then
+    raise EArgumentTlsLibException.CreateRes(AMessage);
+end;
+
 procedure TTlsEngine.HandleIncomingAlert(const AData: TBytes);
 var
   LReceived: TReceivedAlert;
 begin
   LReceived := TTlsAlertProtocol.Decode(AData, 0, System.Length(AData));
+  // a level that is neither warning nor fatal is malformed on the wire (RFC 5246 7.2), close_notify
+  // included
+  if (LReceived.LevelByte <> TTlsAlertLevel.Warning.ToByte) and not LReceived.IsFatalLevel then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.IllegalParameter, @SBogusAlertLevel);
   if LReceived.IsCloseNotify then
   begin
     FClosed := True;
     // the peer's write side is closed; release any inbound state and ignore later bytes (RFC 8446 6.1)
     FRecordLayer.DiscardInbound;
     Enqueue(TTlsEvents.MakeClosed);
+    // closing before the handshake completes abandons it: a failure, not a half-close
+    if not FHandshakeComplete then
+    begin
+      FTerminal := True;
+      FLastError := TTlsError.CreatePeerFatal(LReceived.DescriptionByte, SPeerClosedDuringHandshake);
+    end;
     Exit;
   end;
   // a warning-level alert is advisory: tolerated in TLS 1.2 (RFC 5246 7.2) and, in TLS 1.3,
@@ -598,10 +621,6 @@ begin
         TTlsAlertDescription.UnexpectedMessage, @STooManyWarningAlerts);
     Exit; // tolerate this warning and continue
   end;
-  // a level that is neither warning nor fatal is malformed on the wire (RFC 5246 7.2)
-  if not LReceived.IsFatalLevel then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.IllegalParameter, @SBogusAlertLevel);
   // a fatal alert is terminal; carry the peer's raw description byte so a code we do not map
   // (e.g. no_certificate, or a future one) is reported honestly rather than as our internal_error
   Enqueue(TTlsEvents.MakePeerAlert(LReceived));
@@ -698,9 +717,7 @@ begin
   // an out-of-range slice is caller misuse, not a peer fault: reject it up front rather than let it
   // reach the failure gate (where a peer-input error, which shares the argument-exception base,
   // correctly becomes a wire alert). The record layer re-checks this as its own defensive guard.
-  if (AOffset < 0) or (ALength < 0) or
-    (Int64(AOffset) + ALength > System.Length(AWire)) then
-    raise EArgumentTlsLibException.CreateRes(@SProcessInputSliceOutOfRange);
+  RequireSlice(AWire, AOffset, ALength, @SProcessInputSliceOutOfRange);
   if FTerminal then
     Exit(TTlsOutcome.Fatal);
   // after an inbound close_notify the peer's write side is closed: discard anything it keeps
@@ -739,6 +756,7 @@ procedure TTlsEngine.Write(const AData: TBytes; AOffset, ALength: Int32);
 var
   LOffset, LRemaining, LWritten: Int32;
 begin
+  RequireSlice(AData, AOffset, ALength, @SWriteSliceOutOfRange);
   // writing after our own close_notify or after a fatal is API misuse in either version. An
   // inbound close_notify closes only the read side under TLS 1.3 (RFC 8446 6.1: each half is
   // independent), so a 1.3 write continues; under TLS 1.2 it closes the connection (RFC 5246
@@ -822,6 +840,7 @@ var
   LAccept: Int32;
 begin
   Result := 0;
+  RequireSlice(AData, AOffset, ALength, @SWriteSliceOutOfRange);
   // only in the open early-data window: handshaking, a (early) write epoch installed,
   // and the client has not yet ended early data
   if FTerminal or FClosed or FSentClose or FHandshakeComplete or FEarlyDataClosed or

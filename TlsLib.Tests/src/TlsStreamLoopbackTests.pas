@@ -424,6 +424,8 @@ begin
   LServerT := TMemoryTransport.Create(LC2S, LS2C) as ITlsTransport;
   // preload the server->client pipe so the client reads the close_notify when it awaits ServerHello
   LS2C.Write(DecodeHex('15030300020100'), 0, 7);
+  // closed, so a regression fails the test instead of blocking on a read
+  LS2C.Close;
   LClient := NewClientStream(LClientT, ClientConfig(False, nil));
   try
     LRaised := False;
@@ -435,6 +437,15 @@ begin
     end;
     CheckTrue(LRaised,
       'a close_notify received during the handshake aborts rather than blocking or misreporting');
+    // the failure is latched as the same class on a later call
+    LRaised := False;
+    try
+      LClient.Handshake;
+    except
+      on E: ETlsTransportTruncated do
+        LRaised := True;
+    end;
+    CheckTrue(LRaised, 'a later call raises the same truncation');
   finally
     LClient.Free;
   end;
