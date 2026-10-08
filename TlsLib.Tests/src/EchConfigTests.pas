@@ -28,6 +28,7 @@ uses
 {$ENDIF FPC}
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
+  TlpIKeyExchangePrivateKey,
   TlpTlsLibExceptions,
   TlpEchConfig,
   TlsLibTestBase;
@@ -94,11 +95,11 @@ end;
 
 function TTestEchConfig.Pk32: TBytes;
 var
-  LI: Int32;
+  LKey: IKeyExchangePrivateKey;
 begin
-  SetLength(Result, 32);
-  for LI := 0 to 31 do
-    Result[LI] := Byte(LI + 1);
+  // a real public key: arbitrary bytes are not always a valid one
+  Crypto.Primitives.CreateKeyAgreement(TKeyAgreementAlgorithm.X25519).GenerateKeyPair(LKey,
+    Result);
 end;
 
 function TTestEchConfig.Ascii(const AText: string): TBytes;
