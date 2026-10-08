@@ -26,10 +26,11 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpEndpointIdentity,
-  TlpServerName;
+  TlpServerName,
+  TlsLibTestBase;
 
 type
-  TTestEndpointIdentity = class(TTestCase)
+  TTestEndpointIdentity = class(TTlsLibTestCase)
   private
     function Matches(const AHost: string; const ANames: array of string): Boolean;
     function MatchesIp(const AHost: string; const AIps: array of TBytes): Boolean;

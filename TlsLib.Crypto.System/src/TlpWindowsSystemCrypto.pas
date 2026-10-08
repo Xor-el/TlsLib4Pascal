@@ -955,9 +955,10 @@ type
     class function TryDerDecodeEcdsa(const ADer: TBytes; AFieldSize: Int32;
       out ARaw: TBytes): Boolean; static;
     class function Sec1CurveOid(const ASec1: TBytes; out ACurveOid: TBytes): Boolean; static;
-    // wraps a PKCS#1 (RSAPrivateKey) or SEC1 (ECPrivateKey) DER into a PKCS#8 the KSP
-    // imports; a PKCS#8 (plain or encrypted) or unrecognized blob passes through unchanged
-    class function WrapPkcs8IfNeeded(const ADer: TBytes): TBytes; static;
+    // wraps a PKCS#1 (RSAPrivateKey) or SEC1 (ECPrivateKey) DER into a fresh PKCS#8 the KSP
+    // imports, which the caller owns and wipes; False (AWrapped nil) for a PKCS#8 (plain or
+    // encrypted) or an unrecognized blob, which is imported as given and never wiped here
+    class function TryWrapPkcs8(const ADer: TBytes; out AWrapped: TBytes): Boolean; static;
     class function WidePassword(const APassword: ISecretBuffer): TArray<WideChar>; static;
     function AlgName(AKey: NativeUInt): string;
     function KeySchemes(AKey: NativeUInt;
@@ -3525,14 +3526,15 @@ begin
   end;
 end;
 
-class function TWindowsNCrypt.WrapPkcs8IfNeeded(const ADer: TBytes): TBytes;
+class function TWindowsNCrypt.TryWrapPkcs8(const ADer: TBytes; out AWrapped: TBytes): Boolean;
 var
   LTag, LTag1, LTag2: Byte;
   LSeqOfs, LSeqLen, LNext, LC1ofs, LC1len, LN1, LC2ofs, LC2len, LN2: Int32;
   LCurveOid, LAlgId, LContent, LInner: TBytes;
 begin
-  // best-effort: any parse mismatch leaves the blob unchanged for the KSP / portable facet
-  Result := ADer;
+  // best-effort: any parse mismatch leaves the blob to the KSP / portable facet as given
+  AWrapped := nil;
+  Result := False;
   if (not TDer.ReadTlv(ADer, 0, LTag, LSeqOfs, LSeqLen, LNext)) or (LTag <> $30) then
     Exit;
   // 1st element INTEGER = a version-prefixed body (PKCS#1 / SEC1 / plain PKCS#8); an
@@ -3549,9 +3551,9 @@ begin
           LContent := TArrayUtilities.Concat([TBytes.Create($02, $01, $00),
             TBytes.Create($30, $0D, $06, $09, $2A, $86, $48, $86, $F7, $0D, $01, $01, $01,
             $05, $00), LInner]);
-          Result := TDer.Tlv($30, LContent);
+          AWrapped := TDer.Tlv($30, LContent);
         finally
-          // the intermediate copies hold the plaintext key; only Result is handed on
+          // the intermediate copies hold the plaintext key; only AWrapped is handed on
           TSecureMemory.WipeBytes(LInner);
           TSecureMemory.WipeBytes(LContent);
         end;
@@ -3565,14 +3567,15 @@ begin
         LInner := TDer.Tlv($04, ADer);
         try
           LContent := TArrayUtilities.Concat([TBytes.Create($02, $01, $00), LAlgId, LInner]);
-          Result := TDer.Tlv($30, LContent);
+          AWrapped := TDer.Tlv($30, LContent);
         finally
           TSecureMemory.WipeBytes(LInner);
           TSecureMemory.WipeBytes(LContent);
         end;
       end;
-    // 2nd element SEQUENCE ($30) = plain PKCS#8, or anything else: unchanged
+    // 2nd element SEQUENCE ($30) = plain PKCS#8, or anything else: not wrapped
   end;
+  Result := AWrapped <> nil;
 end;
 
 constructor TWindowsNCrypt.Create(const ACng: IWindowsCng);
@@ -3719,21 +3722,26 @@ var
   LBuf: TNCryptBuffer;
   LDesc: TNCryptBufferDesc;
   LParam: Pointer;
-  LDer: TBytes;
+  LWrapped, LDer: TBytes;
 begin
   AKey := 0;
   ASchemes := nil;
   APublicKeyInfo := nil;
   LKey := 0;
-  // a raw PKCS#1 / SEC1 key is wrapped into the PKCS#8 the KSP imports; a PKCS#8 (plain or
-  // encrypted, as for a non-empty password) passes through unchanged
-  LDer := WrapPkcs8IfNeeded(APkcs8);
-  // a non-empty passphrase imports an encrypted PKCS#8: the KSP decrypts it from the
-  // NCRYPTBUFFER_PKCS_SECRET buffer. LPwd must outlive the ImportKey call (it does - it is
-  // this frame's local, pointed at by the buffer) and is wiped in the finally
   LParam := nil;
-  LPwd := WidePassword(APassword);
+  LPwd := nil;
+  LWrapped := nil;
   try
+    // a raw PKCS#1 / SEC1 key is wrapped into a PKCS#8 copy this call owns and wipes; a PKCS#8
+    // (plain or encrypted) is imported as given and stays the caller's to wipe
+    if TryWrapPkcs8(APkcs8, LWrapped) then
+      LDer := LWrapped
+    else
+      LDer := APkcs8;
+    // a non-empty passphrase imports an encrypted PKCS#8: the KSP decrypts it from the
+    // NCRYPTBUFFER_PKCS_SECRET buffer. LPwd must outlive the ImportKey call and is wiped in
+    // the finally
+    LPwd := WidePassword(APassword);
     if System.Length(LPwd) > 0 then
     begin
       LBuf.cbBuffer := ULONG(System.Length(LPwd)) * SizeOf(WideChar); // includes NUL
@@ -3752,9 +3760,8 @@ begin
   finally
     if System.Length(LPwd) > 0 then
       FillChar(LPwd[0], System.Length(LPwd) * SizeOf(WideChar), 0);
-    // a wrapped copy is ours to wipe; an unwrapped one is the caller's own array
-    if Pointer(LDer) <> Pointer(APkcs8) then
-      TSecureMemory.WipeBytes(LDer);
+    // only the wrapped copy is ours to wipe; APkcs8 is the caller's own array
+    TSecureMemory.WipeBytes(LWrapped);
   end;
   // the key must sign natively AND its public key must export from the handle; if either
   // fails the caller falls back to the portable facet (which owns the key end to end)
