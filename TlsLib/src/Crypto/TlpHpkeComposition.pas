@@ -594,7 +594,7 @@ const
   OidP521: array [0 .. 4] of Byte = ($2B, $81, $04, $00, $23); // 1.3.132.0.35
 var
   LOfs, LCOfs, LCLen, LNext, LAlgOfs, LAlgLen, LAlgNext, LOidOfs, LOidLen: Int32;
-  LScalar: TBytes;
+  LScalar, LRaw: TBytes;
   LX25519, LCurveOk: Boolean;
 
   procedure Fail;
@@ -665,7 +665,12 @@ begin
     // the field width
     if (LCLen = 0) or (LCLen > THpkeCore.KemNsk(AKem)) then
       Fail;
-    LScalar := LeftPad(System.Copy(APkcs8Der, LCOfs, LCLen), THpkeCore.KemNsk(AKem));
+    LRaw := System.Copy(APkcs8Der, LCOfs, LCLen);
+    try
+      LScalar := LeftPad(LRaw, THpkeCore.KemNsk(AKem));
+    finally
+      TSecureMemory.WipeBytes(LRaw);
+    end;
   end;
   try
     Result := TSecretBuffer.From(LScalar);

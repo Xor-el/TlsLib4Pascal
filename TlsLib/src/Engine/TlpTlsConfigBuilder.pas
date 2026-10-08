@@ -156,7 +156,7 @@ type
     FEchConfigList: TBytes;
     FEchGrease: Boolean;
     FEchIsRetry: Boolean;
-    FEchConfigured: Boolean;
+    FEchListSupplied: Boolean;
     FEchServerPolicy: IEchServerPolicy;
     // whether a version's facet was explicitly configured, so a build can refuse a
     // version that is not offered (defaults are seeded directly, not through a facet)
@@ -2236,7 +2236,7 @@ begin
   GuardMutable;
   FEchConfigList := AEchConfigList;
   FEchIsRetry := False;
-  FEchConfigured := True;
+  FEchListSupplied := True;
   FTls13Configured := True;
   Result := Self;
 end;
@@ -2247,7 +2247,7 @@ begin
   GuardMutable;
   FEchConfigList := AEchConfigList;
   FEchIsRetry := True;
-  FEchConfigured := True;
+  FEchListSupplied := True;
   FTls13Configured := True;
   Result := Self;
 end;
@@ -2256,11 +2256,6 @@ function TTlsConfigBuilder.WithEchGrease(AEnabled: Boolean): TTlsConfigBuilder;
 begin
   GuardMutable;
   FEchGrease := AEnabled;
-  // enabling GREASE configures ECH (GREASE-only when no config list is supplied); disabling it
-  // does not by itself configure ECH, so WithEchGrease(False) with no list stays a no-op rather
-  // than a fail-closed empty policy
-  if AEnabled then
-    FEchConfigured := True;
   FTls13Configured := True;
   Result := Self;
 end;
@@ -2709,7 +2704,9 @@ begin
     raise EInvalidOperationTlsLibException.CreateRes(@SResumeVerifyNeedsCache);
   ValidateVersionScoping;
   LEchPolicy := nil;
-  if FEchConfigured then
+  // ECH is configured by a config list, or by GREASE alone; WithEchGrease(False) with no list is a
+  // no-op, not a fail-closed empty policy
+  if FEchListSupplied or FEchGrease then
     LEchPolicy := TEchClientPolicy.Create(FCrypto, FEchConfigList, FEchGrease, FEchIsRetry)
       as IEchClientPolicy;
   ValidateRequiredCollaborators;

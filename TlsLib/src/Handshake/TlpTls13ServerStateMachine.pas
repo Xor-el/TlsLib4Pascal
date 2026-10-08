@@ -293,11 +293,14 @@ type
     /// unauthenticated block is walked once per ClientHello (outer, and again for an ECH inner).</summary>
     class function ParseClientHelloExtensions(
       const AClientHello: TTlsClientHello): TExtensionVector; static;
-    /// <summary>Whether the ClientHello extensions carry an inner-type encrypted_client_hello
-    /// (the backend role, RFC 9849 sec. 7.2). Raises illegal_parameter on an unknown type and
-    /// decode_error on a malformed ech extension (a non-empty inner body). Reads the
-    /// already-parsed vector.</summary>
-    class function DetectBackendEch(const AVector: TExtensionVector): Boolean; static;
+    /// <summary>Whether the ClientHello extensions carry an encrypted_client_hello, and its type.
+    /// Raises illegal_parameter on an unknown type and decode_error on a malformed ech extension
+    /// (a non-empty inner body). Reads the already-parsed vector.</summary>
+    class function TryEchType(const AVector: TExtensionVector;
+      out AType: TEchClientHelloType): Boolean; static;
+    /// <summary>Refuses an ech type the server's role cannot take (RFC 9849 sec. 7): an inner at
+    /// any server not deployed as a split-mode backend, an outer at a backend.</summary>
+    procedure RequireEchTypeForRole(AType: TEchClientHelloType);
     /// <summary>Stamps the HelloRetryRequest ech accept confirmation (RFC 9849 sec. 7.2.1) into the
     /// ech extension's payload (located by parsing, not assumed last), computed over
     /// message_hash(AInnerCh1Hash) then the HRR with that payload zeroed.</summary>
@@ -486,6 +489,8 @@ resourcestring
   SEchAcceptedWithoutHandshake = 'ECH is marked accepted but the handshake state is gone';
   SEchInnerNotBackend = 'an inner-type Encrypted Client Hello reached a server not deployed as ' +
     'a split-mode backend (it holds ECH keys, or did not opt into the backend role)';
+  SEchOuterAtBackend = 'an outer-type Encrypted Client Hello reached a split-mode backend ' +
+    'server, which only takes the forwarded inner ClientHello';
   SEchHrrConfirmationMissing = 'the HelloRetryRequest ech confirmation placeholder is absent';
 
 const
@@ -1070,6 +1075,8 @@ var
   LClientHello: TTlsClientHello;
   LContext: TExtensionContext;
   LSelectedGroup: UInt16;
+  LEchType: TEchClientHelloType;
+  LHasEch: Boolean;
   LClientShare, LEchRaw: TBytes;
   LExtensions: TExtensionVector;
 begin
@@ -1084,14 +1091,15 @@ begin
   // ClientHelloInner: it is legitimate only at a server explicitly deployed as a split-mode
   // backend (no ECH keys, opted in), which confirms it in the ServerHello. A client-facing or
   // shared-mode server (it holds ECH keys), or a server that did not opt into the backend role,
-  // must never accept it directly and aborts illegal_parameter. With ECH keys and an outer,
+  // must never accept it directly and aborts illegal_parameter; a backend in turn aborts an outer
+  // (RFC 9849 sec. 7). With ECH keys and an outer,
   // trial-decrypt - accept drives negotiation off the reconstructed inner, reject continues to
   // the public_name and advertises retry_configs in EncryptedExtensions.
-  if DetectBackendEch(LExtensions) then
+  LHasEch := TryEchType(LExtensions, LEchType);
+  if LHasEch then
+    RequireEchTypeForRole(LEchType);
+  if LHasEch and (LEchType = TEchClientHelloType.Inner) then
   begin
-    if (FParams.EchPolicy = nil) or (FParams.EchPolicy.Role <> TEchServerRole.Backend) then
-      raise EFatalAlertTlsLibException.CreateRes(
-        TTlsAlertDescription.IllegalParameter, @SEchInnerNotBackend);
     FEchStatus := TEchStatus.Backend;
     FEchInnerRandom := LClientHello.Random;
   end
@@ -1250,6 +1258,7 @@ var
   LSelectedGroup, LCookieGroup, LCookieSuite, LPinnedSuite: UInt16;
   LCh1Hash, LClientShare, LHrr, LCh2Raw, LEchHrrHash, LCookieSessionId: TBytes;
   LEchAccepted, LSentServerName: Boolean;
+  LEchType: TEchClientHelloType;
   LRequestedServerName: string;
   LExtensions: TExtensionVector;
 begin
@@ -1276,12 +1285,10 @@ begin
     System.Copy(LCh2Raw, 4, System.Length(LCh2Raw) - 4));
   // one parse of the retry ClientHello's extension block, reused across the consume and PSK-last
   LExtensions := ParseClientHelloExtensions(LClientHello);
-  // an inner-type ech is held to the same gate as on the first hello: only a split-mode backend may
-  // see one (an accepted outer was already checked in ProcessRetryOuter)
-  if (not LEchAccepted) and DetectBackendEch(LExtensions) and
-    ((FParams.EchPolicy = nil) or (FParams.EchPolicy.Role <> TEchServerRole.Backend)) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.IllegalParameter, @SEchInnerNotBackend);
+  // the ech type is held to the same role gate as on the first hello (an accepted outer was already
+  // checked in ProcessRetryOuter)
+  if (not LEchAccepted) and TryEchType(LExtensions, LEchType) then
+    RequireEchTypeForRole(LEchType);
   LContext := TExtensionContext.Create;
   try
     // the HelloRetryRequest named the suite selected from CH1, and the retry transcript is rebuilt
@@ -1386,24 +1393,33 @@ begin
     Result := TExtensionVector.Parse(AClientHello.Extensions);
 end;
 
-class function TTls13ServerStateMachine.DetectBackendEch(
-  const AVector: TExtensionVector): Boolean;
+class function TTls13ServerStateMachine.TryEchType(const AVector: TExtensionVector;
+  out AType: TEchClientHelloType): Boolean;
 var
   LEntry: TExtensionEntry;
-  LType: TEchClientHelloType;
   LOuter: TEchOuterClientHello;
 begin
   // an empty vector is a legacy (<=TLS 1.2) ClientHello shape (the caller passes Empty when the
   // extensions field is absent); TryFind then misses and this is False, leaving version
   // negotiation to reject it with protocol_version rather than failing here as a decode_error
-  Result := False;
-  if AVector.TryFind(TExtensionTypes.EncryptedClientHello, LEntry) then
-  begin
+  Result := AVector.TryFind(TExtensionTypes.EncryptedClientHello, LEntry);
+  if Result then
     // Decode validates the wire shape: an out-of-range type is illegal_parameter, a malformed
     // body a decode_error - the boundary maps either to the alert
-    TEchExtension.Decode(LEntry.Data, LType, LOuter);
-    Result := LType = TEchClientHelloType.Inner;
-  end;
+    TEchExtension.Decode(LEntry.Data, AType, LOuter);
+end;
+
+procedure TTls13ServerStateMachine.RequireEchTypeForRole(AType: TEchClientHelloType);
+var
+  LBackend: Boolean;
+begin
+  LBackend := (FParams.EchPolicy <> nil) and (FParams.EchPolicy.Role = TEchServerRole.Backend);
+  if (AType = TEchClientHelloType.Inner) and not LBackend then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.IllegalParameter, @SEchInnerNotBackend);
+  if (AType = TEchClientHelloType.Outer) and LBackend then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.IllegalParameter, @SEchOuterAtBackend);
 end;
 
 procedure TTls13ServerStateMachine.StampEchAcceptConfirmation(

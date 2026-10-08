@@ -114,6 +114,8 @@ type
     procedure TestEchKeyStoreTrialDecryptRecordedOnPolicy;
     procedure TestEchKeyStoreCalledAgainReplacesThePolicy;
     procedure TestEchNilKeyStoreRejected;
+    procedure TestEchEmptyKeyStoreRejected;
+    procedure TestEchKeyStoreRetryConfigsMustBeAValidList;
     procedure TestEchKeyStoreEntryTheProviderCannotServeRefused;
     procedure TestEchKeyStoreEveryAdvertisedSuiteMustBeServable;
     procedure TestEchKeyStoreEntryTheProviderCanServeBuilds;
@@ -250,6 +252,17 @@ type
 implementation
 
 type
+  // a key store that serves another store's entries but advertises the given retry configs
+  TRetryOverrideKeyStore = class(TInterfacedObject, IEchServerKeyStore)
+  strict private
+    FInner: IEchServerKeyStore;
+    FRetryConfigs: TBytes;
+  public
+    constructor Create(const AInner: IEchServerKeyStore; const ARetryConfigs: TBytes);
+    function Entries: TArray<TEchKeyEntry>;
+    function RetryConfigs: TBytes;
+  end;
+
   // an accept-all client-certificate verifier source, to exercise the Build-time roots gate
   // without a live handshake
   TAcceptAllClientVerifier = class(TInterfacedObject, IClientCertificateVerifier)
@@ -476,6 +489,71 @@ begin
   CheckTrue(LPolicy.TrialDecrypt, 'along with its trial-decrypt setting');
 end;
 
+constructor TRetryOverrideKeyStore.Create(const AInner: IEchServerKeyStore;
+  const ARetryConfigs: TBytes);
+begin
+  inherited Create;
+  FInner := AInner;
+  FRetryConfigs := ARetryConfigs;
+end;
+
+function TRetryOverrideKeyStore.Entries: TArray<TEchKeyEntry>;
+begin
+  Result := FInner.Entries;
+end;
+
+function TRetryOverrideKeyStore.RetryConfigs: TBytes;
+begin
+  Result := FRetryConfigs;
+end;
+
+procedure TTestConfigBuilder.TestEchEmptyKeyStoreRejected;
+var
+  LRaised: Boolean;
+begin
+  // with no entries a keyed server would reject every ECH offer and advertise no retry configs
+  LRaised := False;
+  try
+    NewServerBuilder.Tls13.WithEchKeyStore(
+      TInMemoryEchKeyStore.Create(nil) as IEchServerKeyStore);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an ECH key store with no entries is refused');
+end;
+
+procedure TTestConfigBuilder.TestEchKeyStoreRetryConfigsMustBeAValidList;
+var
+  LSk: ISecretBuffer;
+  LReal: IEchServerKeyStore;
+  LCase: Int32;
+  LRaised: Boolean;
+begin
+  // the retry configs go on the wire as they are: an empty or malformed list is refused up front,
+  // while the store's own list passes
+  LReal := TInMemoryEchKeyStore.FromConfig(BuildEchConfigList($E6, 'cover.example', LSk), LSk,
+    Crypto);
+  for LCase := 0 to 2 do
+  begin
+    LRaised := False;
+    try
+      case LCase of
+        0: NewServerBuilder.Tls13.WithEchKeyStore(
+             TRetryOverrideKeyStore.Create(LReal, nil) as IEchServerKeyStore);
+        1: NewServerBuilder.Tls13.WithEchKeyStore(
+             TRetryOverrideKeyStore.Create(LReal, DecodeHex('00ff0102')) as IEchServerKeyStore);
+        2: NewServerBuilder.Tls13.WithEchKeyStore(
+             TRetryOverrideKeyStore.Create(LReal, LReal.RetryConfigs) as IEchServerKeyStore);
+      end;
+    except
+      on E: EArgumentTlsLibException do
+        LRaised := True;
+    end;
+    CheckEquals(LCase < 2, LRaised, Format('retry configs case %d', [LCase]));
+  end;
+end;
+
 procedure TTestConfigBuilder.TestEchNilKeyStoreRejected;
 var
   LRaised: Boolean;
@@ -628,6 +706,9 @@ begin
   // fail-closed empty policy), so a caller passing a runtime flag is not surprised by a raise
   LConfig := NewClientBuilder.Tls13.WithEchGrease(False).Build;
   CheckTrue(LConfig.EncryptedClientHello = nil, 'no ECH policy is configured');
+  // and turning GREASE on, then off again, leaves the same no-op
+  LConfig := NewClientBuilder.Tls13.WithEchGrease(True).WithEchGrease(False).Build;
+  CheckTrue(LConfig.EncryptedClientHello = nil, 'GREASE on then off configures no ECH policy');
 end;
 
 procedure TTestConfigBuilder.TestEmptySupportedVersionsIsRefused;

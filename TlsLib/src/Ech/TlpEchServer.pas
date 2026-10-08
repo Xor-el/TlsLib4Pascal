@@ -38,7 +38,8 @@ type
   /// <summary>
   /// A server's Encrypted Client Hello policy: the role it plays and, for a keyed server, its key
   /// store and whether it trial-decrypts. Built through Keyed or Backend, so a trial-decrypting
-  /// backend or a keyless keyed server cannot be expressed.
+  /// backend or a keyless keyed server cannot be expressed. Keyed also refuses a store with no
+  /// entries or with unusable retry configs.
   /// </summary>
   TEchServerPolicy = class sealed(TInterfacedObject, IEchServerPolicy)
   strict private
@@ -123,6 +124,10 @@ implementation
 resourcestring
   SEchNilCrypto = 'a crypto provider is required (pass a provider, not nil)';
   SEchNilKeyStore = 'a keyed ECH server needs a key store (pass one, not nil)';
+  SEchEmptyKeyStore = 'a keyed ECH server needs at least one key store entry: with none it ' +
+    'rejects every ECH offer and advertises no retry configs';
+  SEchBadRetryConfigs = 'the ECH key store retry configs are empty or not a valid ' +
+    'ECHConfigList';
   SEchHandshakeNeedsKeyed = 'the ECH server handshake needs a Keyed policy';
   SEchEntryNotServable = 'ECH key store entry %d (config_id %d) cannot be served: it needs a ' +
     'key that matches its config, a servable config, and every advertised cipher suite ' +
@@ -154,6 +159,7 @@ class function TEchServerPolicy.Keyed(const ACrypto: ICryptoProvider;
   const AKeyStore: IEchServerKeyStore; ATrialDecrypt: Boolean): IEchServerPolicy;
 var
   LEntries: TArray<TEchKeyEntry>;
+  LRetry: TBytes;
   LI: Int32;
 begin
   if ACrypto = nil then
@@ -161,10 +167,20 @@ begin
   if AKeyStore = nil then
     raise EArgumentTlsLibException.CreateRes(@SEchNilKeyStore);
   LEntries := AKeyStore.Entries;
+  if System.Length(LEntries) = 0 then
+    raise EArgumentTlsLibException.CreateRes(@SEchEmptyKeyStore);
   for LI := 0 to System.High(LEntries) do
     if not LEntries[LI].IsServableBy(ACrypto) then
       raise EArgumentTlsLibException.CreateResFmt(@SEchEntryNotServable,
         [LI, LEntries[LI].Config.ConfigId]);
+  // the retry configs go on the wire as they are, so a custom store's must be a real list
+  LRetry := AKeyStore.RetryConfigs;
+  try
+    TEchConfigList.Parse(LRetry);
+  except
+    on EDecodeErrorTlsLibException do
+      raise EArgumentTlsLibException.CreateRes(@SEchBadRetryConfigs);
+  end;
   Result := TEchServerPolicy.Create(TEchServerRole.Keyed, AKeyStore, ATrialDecrypt)
     as IEchServerPolicy;
 end;
