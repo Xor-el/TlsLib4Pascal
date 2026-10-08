@@ -1,0 +1,22 @@
+TlsLib.Tests/src/EchConfigTests.pas
+  s_d27f31cd14035d::t_9279aa6d98b7f3 31-33
+  s_d27f31cd14035d::t_9e8a2f986e5c4f 339-351,353,390-393,402-406
+  s_d27f31cd14035d::t_b1c02fbb50626c 75
+  s_d27f31cd14035d::t_24ef0ab399a176 352,354-389,394-401
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2c2ca222f380dabc5159003f7fa35aea2da95010",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
