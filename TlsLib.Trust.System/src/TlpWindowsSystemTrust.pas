@@ -21,6 +21,7 @@ uses
   Windows,
   Generics.Collections,
   SysUtils,
+  TlpDynamicLibrary,
   TlpTlsAlert,
   TlpTrustPolicy,
   TlpSystemTrustBase,
@@ -300,15 +301,15 @@ type
     AUsage: Pointer; var ASize: DWORD): BOOL; stdcall;
 
   /// <summary>
-  /// Resolves the crypt32 entry points once via LoadLibrary + GetProcAddress, so
-  /// the optional package imposes no implicit crypt32 import and an absent entry
-  /// point leaves the reader not ready (callers fail closed).
+  /// Resolves the crypt32 entry points once at runtime, so the optional package imposes no
+  /// implicit crypt32 import and an absent entry point leaves the reader not ready (callers fail
+  /// closed).
   /// </summary>
   TWindowsTrustApi = class sealed
   strict private
   class var
     FReady: Boolean;
-    FModule: THandle;
+    FModule: NativeUInt;
     FCertCloseStore: TCertCloseStoreFunc;
     FCertEnumCertificatesInStore: TCertEnumCertificatesInStoreFunc;
     FCertCreateCertificateContext: TCertCreateCertificateContextFunc;
@@ -322,7 +323,6 @@ type
     FCertCreateCertificateChainEngine: TCertCreateCertificateChainEngineFunc;
     FCertFreeCertificateChainEngine: TCertFreeCertificateChainEngineProc;
     FCertGetEnhancedKeyUsage: TCertGetEnhancedKeyUsageFunc;
-    class function GetProc(const AName: AnsiString): Pointer; static;
     /// <summary>True if the root's effective enhanced key usage (its EKU extension intersected
     /// with the admin trust-purpose property) permits TLS server authentication: valid for all
     /// uses (no EKU/property), or the list contains serverAuth or anyExtendedKeyUsage. A root
@@ -381,45 +381,40 @@ type
 
 { TWindowsTrustApi }
 
-class function TWindowsTrustApi.GetProc(const AName: AnsiString): Pointer;
-begin
-  Result := GetProcAddress(FModule, PAnsiChar(AName));
-end;
-
 class procedure TWindowsTrustApi.ResolveDynamicImports;
 begin
   FReady := False;
-  FModule := SafeLoadLibrary(CRYPT32_DLL, SEM_FAILCRITICALERRORS);
+  FModule := TDynamicLibrary.Open(CRYPT32_DLL);
   if FModule = 0 then
     Exit;
 
-  FCertCloseStore := TCertCloseStoreFunc(GetProc('CertCloseStore'));
+  FCertCloseStore := TCertCloseStoreFunc(TDynamicLibrary.Resolve(FModule, 'CertCloseStore'));
   FCertEnumCertificatesInStore := TCertEnumCertificatesInStoreFunc(
-    GetProc('CertEnumCertificatesInStore'));
+    TDynamicLibrary.Resolve(FModule, 'CertEnumCertificatesInStore'));
   FCertCreateCertificateContext := TCertCreateCertificateContextFunc(
-    GetProc('CertCreateCertificateContext'));
+    TDynamicLibrary.Resolve(FModule, 'CertCreateCertificateContext'));
   FCertFreeCertificateContext := TCertFreeCertificateContextFunc(
-    GetProc('CertFreeCertificateContext'));
+    TDynamicLibrary.Resolve(FModule, 'CertFreeCertificateContext'));
   FCertSetCertificateContextProperty := TCertSetCertificateContextPropertyFunc(
-    GetProc('CertSetCertificateContextProperty'));
-  FCertOpenStore := TCertOpenStoreFunc(GetProc('CertOpenStore'));
+    TDynamicLibrary.Resolve(FModule, 'CertSetCertificateContextProperty'));
+  FCertOpenStore := TCertOpenStoreFunc(TDynamicLibrary.Resolve(FModule, 'CertOpenStore'));
   FCertAddEncodedCertificateToStore := TCertAddEncodedCertificateToStoreFunc(
-    GetProc('CertAddEncodedCertificateToStore'));
+    TDynamicLibrary.Resolve(FModule, 'CertAddEncodedCertificateToStore'));
   FCertGetCertificateChain := TCertGetCertificateChainFunc(
-    GetProc('CertGetCertificateChain'));
+    TDynamicLibrary.Resolve(FModule, 'CertGetCertificateChain'));
   FCertFreeCertificateChain := TCertFreeCertificateChainProc(
-    GetProc('CertFreeCertificateChain'));
+    TDynamicLibrary.Resolve(FModule, 'CertFreeCertificateChain'));
   FCertVerifyCertificateChainPolicy := TCertVerifyCertificateChainPolicyFunc(
-    GetProc('CertVerifyCertificateChainPolicy'));
+    TDynamicLibrary.Resolve(FModule, 'CertVerifyCertificateChainPolicy'));
   // reads the effective trust purpose so the anchor harvest keeps only server-auth roots
   FCertGetEnhancedKeyUsage := TCertGetEnhancedKeyUsageFunc(
-    GetProc('CertGetEnhancedKeyUsage'));
+    TDynamicLibrary.Resolve(FModule, 'CertGetEnhancedKeyUsage'));
   // the exclusive-root chain engine (client-auth delegate) is optional and not part of FReady:
   // an OS lacking it simply cannot serve the OS client delegate, not the whole package
   FCertCreateCertificateChainEngine := TCertCreateCertificateChainEngineFunc(
-    GetProc('CertCreateCertificateChainEngine'));
+    TDynamicLibrary.Resolve(FModule, 'CertCreateCertificateChainEngine'));
   FCertFreeCertificateChainEngine := TCertFreeCertificateChainEngineProc(
-    GetProc('CertFreeCertificateChainEngine'));
+    TDynamicLibrary.Resolve(FModule, 'CertFreeCertificateChainEngine'));
 
   FReady := System.Assigned(FCertCloseStore) and
     System.Assigned(FCertEnumCertificatesInStore) and
@@ -437,7 +432,7 @@ class procedure TWindowsTrustApi.ReleaseDynamicImports;
 begin
   if FModule <> 0 then
   begin
-    FreeLibrary(FModule);
+    TDynamicLibrary.Close(FModule);
     FModule := 0;
   end;
 end;
