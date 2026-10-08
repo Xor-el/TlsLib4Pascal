@@ -215,8 +215,9 @@ type
     /// context value (RFC 8446 7.5 / RFC 5705). Available once the exporter secret is derived: for a
     /// TLS 1.3 server that is half-RTT (after it sent its Finished) - the value binds the
     /// transcript through the server Finished and so precedes client authentication under
-    /// mutual TLS; TLS 1.2 is available only after the handshake completes. Empty before then
-    /// (and on a failed connection).</summary>
+    /// mutual TLS; TLS 1.2 is available only after the handshake completes, and only when the session
+    /// used Extended Master Secret (RFC 7627 5.4; see ConnectionInfo.ExtendedMasterSecret). Empty
+    /// otherwise (and on a failed connection).</summary>
     function ExportKeyingMaterial(const ALabel: string;
       ALength: Int32): TBytes; overload;
     /// <summary>Exported keying material derived from the connection's exporter secret and bound to

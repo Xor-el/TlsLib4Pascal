@@ -185,8 +185,8 @@ type
       const AHostName: string; const AStaple: TBytes);
     procedure OnPeerCertificateChain(const AChain, AValidatedPath: TArray<TBytes>);
     procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>);
-    procedure OnConnectionParams(ACipherSuite, ANamedGroup: UInt16; AResumed: Boolean;
-      const AServerName: string);
+    procedure OnConnectionParams(ACipherSuite, ANamedGroup: UInt16;
+      AResumed, AExtendedMasterSecret: Boolean; const AServerName: string);
     procedure OnHandshakeEstablished;
     procedure OnHandshakeFailed(AAlert: TTlsAlertDescription);
     procedure OnWarningAlert(AAlert: TTlsAlertDescription);
@@ -266,8 +266,8 @@ type
       const AHostName: string; const AStaple: TBytes);
     procedure OnPeerCertificateChain(const AChain, AValidatedPath: TArray<TBytes>);
     procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>);
-    procedure OnConnectionParams(ACipherSuite, ANamedGroup: UInt16; AResumed: Boolean;
-      const AServerName: string);
+    procedure OnConnectionParams(ACipherSuite, ANamedGroup: UInt16;
+      AResumed, AExtendedMasterSecret: Boolean; const AServerName: string);
     procedure OnHandshakeEstablished;
     procedure OnHandshakeFailed(AAlert: TTlsAlertDescription);
     procedure OnWarningAlert(AAlert: TTlsAlertDescription);
@@ -370,9 +370,11 @@ begin
 end;
 
 procedure TEngineHandshakeBridge.OnConnectionParams(ACipherSuite,
-  ANamedGroup: UInt16; AResumed: Boolean; const AServerName: string);
+  ANamedGroup: UInt16; AResumed, AExtendedMasterSecret: Boolean;
+  const AServerName: string);
 begin
-  FEngine.OnConnectionParams(ACipherSuite, ANamedGroup, AResumed, AServerName);
+  FEngine.OnConnectionParams(ACipherSuite, ANamedGroup, AResumed, AExtendedMasterSecret,
+    AServerName);
 end;
 
 procedure TEngineHandshakeBridge.OnHandshakeEstablished;
@@ -895,7 +897,7 @@ function TTlsEngine.ExportKeyingMaterial(const ALabel: string;
 begin
   // available once the connection's exporter secret is derived - for a TLS 1.3 server that is
   // half-RTT (after it sent its Finished), before the peer's Finished (RFC 8446 7.5); TLS 1.2
-  // stays gated on completion. Withheld while parked on an out-of-band peer-certificate verdict,
+  // stays gated on completion and on Extended Master Secret. Withheld while parked on an out-of-band peer-certificate verdict,
   // and a failed (terminal) connection exports nothing.
   if FTerminal or (not FConductor.CanExportKeyingMaterial) then
     Exit(nil);
@@ -1230,12 +1232,13 @@ begin
 end;
 
 procedure TTlsEngine.OnConnectionParams(ACipherSuite, ANamedGroup: UInt16;
-  AResumed: Boolean; const AServerName: string);
+  AResumed, AExtendedMasterSecret: Boolean; const AServerName: string);
 begin
   FInfo.CipherSuite := ACipherSuite;
   FInfo.NamedGroup := ANamedGroup;
   FInfo.ServerName := AServerName;
   FInfo.Resumed := AResumed;
+  FInfo.ExtendedMasterSecret := AExtendedMasterSecret;
 end;
 
 procedure TTlsEngine.OnCertificateVerdictNeeded(const AChain,

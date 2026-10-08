@@ -32,7 +32,7 @@ type
   /// <summary>
   /// The named security profiles, ordered by how much reach they trade for hardening.
   /// Compatible is the broad default, offering TLS 1.3 and the hardened TLS 1.2 profile
-  /// (ECDHE + AEAD + Extended Master Secret); Hardened is TLS 1.3 only with the
+  /// (ECDHE + AEAD, offering Extended Master Secret); Hardened is TLS 1.3 only with the
   /// post-quantum hybrid group preferred; Strict is TLS 1.3 only over a fixed group
   /// allowlist (the PQ hybrid, X25519 and secp256r1) with tight certificate limits. The names
   /// describe posture rather than an era, so their contents can track evolving best

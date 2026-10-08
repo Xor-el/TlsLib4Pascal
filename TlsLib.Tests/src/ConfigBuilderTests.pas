@@ -260,6 +260,7 @@ type
     procedure TestServerWithEmptyGroupIntersectionFailsFast;
     // the accessors relocated onto the role configs read their builder defaults
     procedure TestRoleConfigDefaultsForMovedAccessors;
+    procedure TestTls13ReportsExtendedMasterSecret;
     procedure TestVerifyCallbackRunsOverInstanceVerifier;
     procedure TestServerNameIndicationOmitReachesConfig;
     procedure TestOmittedSniSendsNoServerNameAndStillVerifiesHost;
@@ -2890,6 +2891,20 @@ function TTestConfigBuilder.RejectEveryChain(const AChain: TArray<TBytes>;
   const AHostName: string): Boolean;
 begin
   Result := False;
+end;
+
+procedure TTestConfigBuilder.TestTls13ReportsExtendedMasterSecret;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // TLS 1.3 always derives the exporter from the full transcript, so it reports EMS as in use
+  // (RFC 8446 Appendix D), including a dual-version client that settles on 1.3
+  LClient := TTlsEngineFactory.CreateClientEngine(NewClientBuilder.Build, 'localhost');
+  LServer := TTlsEngineFactory.CreateServerEngine(NewServerBuilder.Build);
+  RunHandshake(LClient, LServer);
+  CheckFalse(LClient.IsTerminal, 'the handshake completed');
+  CheckTrue(LClient.ConnectionInfo.ExtendedMasterSecret, 'the TLS 1.3 client reports EMS');
+  CheckTrue(LServer.ConnectionInfo.ExtendedMasterSecret, 'and the server');
 end;
 
 procedure TTestConfigBuilder.TestVerifyCallbackRunsOverInstanceVerifier;

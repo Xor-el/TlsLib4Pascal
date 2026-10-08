@@ -1883,7 +1883,7 @@ begin
     THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
     TTlsDirection.ClientWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13, TTlsEpoch.Application),
     THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code,
-    FSelectedGroup.Code, FPskAccepted, FRequestedServerName));
+    FSelectedGroup.Code, FPskAccepted, True, FRequestedServerName));
   // record the ECH status before signalling completion, so a sink reading it in the established
   // callback sees the final value (the client machine emits the status before completion too)
   if FEchStatus = TEchStatus.Accepted then

@@ -56,6 +56,9 @@ type
     NamedGroup: UInt16;
     /// Whether the handshake was resumed (abbreviated).
     Resumed: Boolean;
+    /// Whether the session used Extended Master Secret (RFC 7627): the negotiated value on TLS 1.2,
+    /// always True on TLS 1.3. Without it a TLS 1.2 exporter is unavailable (RFC 7627 5.4).
+    ExtendedMasterSecret: Boolean;
     /// The Encrypted Client Hello outcome (RFC 9849); see TEchStatus.
     EchStatus: TEchStatus;
     /// On a client ECH reject (RFC 9849 6.1.6): the server's retry_configs (empty when none), whether
