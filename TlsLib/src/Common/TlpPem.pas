@@ -54,6 +54,14 @@ type
     /// <summary>Whether AData is PEM-armored: a "-----BEGIN " boundary at the start of a
     /// line (so binary DER carrying those bytes mid-content does not false-positive).</summary>
     class function IsArmored(const AData: TBytes): Boolean; static;
+    /// <summary>The index of the first block whose label names a private key (one ending in
+    /// "PRIVATE KEY": PKCS#8, encrypted PKCS#8, RSA, EC), or -1 when there is none. A certificate
+    /// or parameters block ahead of it is skipped.</summary>
+    class function IndexOfPrivateKey(const ABlocks: TArray<TPemBlock>): Int32; static;
+    /// <summary>How many "-----BEGIN " boundaries AData holds anywhere, mid-line included. ReadBlocks
+    /// frames only boundaries that start a line, so a count above the number of blocks it returned
+    /// means another reader could frame the data differently.</summary>
+    class function BeginTagCount(const AData: TBytes): Int32; static;
   end;
 
 implementation
@@ -205,6 +213,47 @@ begin
     LAtLineStart := AData[LI] = Ord(#10);
     Inc(LI);
   end;
+end;
+
+class function TPem.BeginTagCount(const AData: TBytes): Int32;
+const
+  BeginTag = '-----BEGIN ';
+var
+  LI, LJ, LLen: Int32;
+begin
+  Result := 0;
+  LLen := System.Length(BeginTag);
+  LI := 0;
+  while LI <= System.Length(AData) - LLen do
+  begin
+    LJ := 0;
+    while (LJ < LLen) and (AData[LI + LJ] = Ord(BeginTag[LJ + 1])) do
+      Inc(LJ);
+    if LJ = LLen then
+    begin
+      Inc(Result);
+      Inc(LI, LLen);
+    end
+    else
+      Inc(LI);
+  end;
+end;
+
+class function TPem.IndexOfPrivateKey(const ABlocks: TArray<TPemBlock>): Int32;
+const
+  PrivateKeySuffix = 'PRIVATE KEY';
+var
+  LI, LLabelLen: Int32;
+begin
+  for LI := 0 to System.Length(ABlocks) - 1 do
+  begin
+    LLabelLen := System.Length(ABlocks[LI].PemType);
+    if (LLabelLen >= System.Length(PrivateKeySuffix)) and
+      (System.Copy(ABlocks[LI].PemType, LLabelLen - System.Length(PrivateKeySuffix) + 1,
+      System.Length(PrivateKeySuffix)) = PrivateKeySuffix) then
+      Exit(LI);
+  end;
+  Result := -1;
 end;
 
 end.

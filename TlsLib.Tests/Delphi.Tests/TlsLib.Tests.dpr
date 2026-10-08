@@ -234,6 +234,7 @@ uses
   Pkcs12ImportTests in '..\src\Pkcs12ImportTests.pas',
   TlsStreamLoopbackTests in '..\src\TlsStreamLoopbackTests.pas',
   EndpointIdentityTests in '..\src\EndpointIdentityTests.pas',
+  PemTests in '..\src\PemTests.pas',
   CertificateVerifierTests in '..\src\CertificateVerifierTests.pas',
   OcspStaplingTests in '..\src\OcspStaplingTests.pas',
   CertificateCheckTests in '..\src\CertificateCheckTests.pas',

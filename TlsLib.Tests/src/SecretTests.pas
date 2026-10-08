@@ -49,6 +49,8 @@ type
     procedure TestFromStringHoldsUtf8;
     procedure TestFromStringNonAsciiIsUtf8;
     procedure TestFromStringEmptyIsZeroLength;
+    procedure TestSliceCopiesTheRange;
+    procedure TestSliceRefusesOutOfRange;
   end;
 
 implementation
@@ -269,6 +271,43 @@ begin
   LSecret := TSecretBuffer.FromString('');
   CheckTrue(LSecret <> nil, 'FromString of an empty string returns a buffer, not nil');
   CheckEquals(0, LSecret.Len, 'the buffer is zero-length');
+end;
+
+procedure TTestSecretBuffer.TestSliceCopiesTheRange;
+var
+  LSource, LSlice: ISecretBuffer;
+begin
+  LSource := TSecretBuffer.From(TBytes.Create(1, 2, 3, 4, 5));
+  LSlice := TSecretBuffer.Slice(LSource, 1, 3);
+  CheckEqualBytes('the middle of the source', TBytes.Create(2, 3, 4), ReadBack(LSlice));
+  CheckEquals(0, TSecretBuffer.Slice(LSource, 5, 0).Len, 'an empty slice at the end');
+  CheckEquals(5, TSecretBuffer.Slice(LSource, 0, 5).Len, 'the whole source');
+end;
+
+procedure TTestSecretBuffer.TestSliceRefusesOutOfRange;
+
+  function Refused(AOffset, ALength: Int32): Boolean;
+  var
+    LSource: ISecretBuffer;
+  begin
+    LSource := TSecretBuffer.From(TBytes.Create(1, 2, 3, 4, 5));
+    Result := False;
+    try
+      TSecretBuffer.Slice(LSource, AOffset, ALength);
+    except
+      on E: EArgumentTlsLibException do
+        Result := True;
+    end;
+  end;
+
+begin
+  CheckTrue(Refused(0, 6), 'longer than the source');
+  CheckTrue(Refused(5, 1), 'starts at the end and asks for more');
+  CheckTrue(Refused(-1, 2), 'negative offset');
+  CheckTrue(Refused(0, -1), 'negative length');
+  // the sum of offset and length would wrap Int32 and pass a 32-bit bound check
+  CheckTrue(Refused(High(Int32), 2), 'offset plus length overflows Int32');
+  CheckTrue(Refused(2, High(Int32)), 'length plus offset overflows Int32');
 end;
 
 initialization

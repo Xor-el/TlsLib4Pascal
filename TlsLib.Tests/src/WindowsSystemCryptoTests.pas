@@ -76,6 +76,9 @@ type
       AScheme: TSignatureScheme): Boolean;
     // A full, valid TLS 1.3 server config built over the composed overlay with ACredential.
     function BuildServerConfig(const ACredential: TTlsCredential): ITlsServerConfig;
+    // The class and message of the exception AProvider raises importing AData, empty when it imports.
+    function ImportFailure(const AProvider: ICryptoProvider; const AData: TBytes;
+      const APassword: ISecretBuffer): string;
   strict protected
     // the fixture drives the overlay, so the crypto provider under test is the composed one
     function CreateCrypto: ICryptoProvider; override;
@@ -102,6 +105,7 @@ type
     procedure TestPkcs12ExportedKeyMatchesLeaf;
     // policy stays enforced through the overlay: a multi-key store is rejected on Windows too
     procedure TestPkcs12MultiKeyStillFailsClosed;
+    procedure TestPemFirstPrivateKeyBlockDecidesImport;
     // the credential leaf guard sees the native key's exported SPKI: a wrong leaf is refused
     procedure TestBuilderRejectsWrongLeafForNativeKey;
     // and the matching leaf builds: a native credential passes the leaf guard end to end
@@ -552,6 +556,59 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a multi-identity store is rejected through the overlay');
+end;
+
+function TTestWindowsSystemCrypto.ImportFailure(const AProvider: ICryptoProvider;
+  const AData: TBytes; const APassword: ISecretBuffer): string;
+begin
+  Result := '';
+  try
+    AProvider.Signing.ImportSigningKey(AData, APassword);
+  except
+    on E: Exception do
+      Result := E.ClassName + ': ' + E.Message;
+  end;
+end;
+
+procedure TTestWindowsSystemCrypto.TestPemFirstPrivateKeyBlockDecidesImport;
+var
+  LPortable: ICryptoProvider;
+  LData: TBytes;
+  LNativeKey, LPortableKey: ISigningKey;
+  LFailure: string;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.ECDSA_SECP256R1_SHA256) then
+    Exit;
+  LPortable := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable);
+  // the first private-key block decides, as in the portable provider: an encrypted block with no
+  // password fails closed, naming the password, even when a plain key follows it
+  LData := ConcatBytes(DecodeHex(FKeys.Values['rsa_enc_pem']),
+    DecodeHex(FKeys.Values['ec256_pkcs8_pem']));
+  LFailure := ImportFailure(LPortable, LData, nil);
+  CheckTrue(Pos('password', LFailure) > 0,
+    'the portable provider reports the missing password; got: ' + LFailure);
+  CheckEquals(LFailure, ImportFailure(Crypto, LData, nil),
+    'the overlay fails the same way instead of importing the second key');
+  // a first key the native side cannot import must not let a later key win: the portable provider
+  // owns the choice and takes the first
+  LData := ConcatBytes(DecodeHex(FKeys.Values['ed25519_pkcs8_pem']),
+    DecodeHex(FKeys.Values['rsa_pkcs8_pem']));
+  LNativeKey := Crypto.Signing.ImportSigningKey(LData, nil);
+  LPortableKey := LPortable.Signing.ImportSigningKey(LData, nil);
+  CheckEqualBytes('the overlay picks the first block', DecodeHex(FKeys.Values['ed25519_pub']),
+    LNativeKey.PublicKeyInfo);
+  CheckEqualBytes('and it is the key the portable provider picks', LPortableKey.PublicKeyInfo,
+    LNativeKey.PublicKeyInfo);
+  // a boundary after text on its line is framed by the portable reader but not by ours: the overlay
+  // defers to the portable choice rather than import a different key
+  LData := ConcatBytes(TEncoding.ASCII.GetBytes('note '), ConcatBytes(
+    DecodeHex(FKeys.Values['ed25519_pkcs8_pem']), DecodeHex(FKeys.Values['rsa_pkcs8_pem'])));
+  LNativeKey := Crypto.Signing.ImportSigningKey(LData, nil);
+  LPortableKey := LPortable.Signing.ImportSigningKey(LData, nil);
+  CheckEqualBytes('the same key as the portable provider with a mid-line boundary',
+    LPortableKey.PublicKeyInfo, LNativeKey.PublicKeyInfo);
+  CheckEqualBytes('which is the first key', DecodeHex(FKeys.Values['ed25519_pub']),
+    LNativeKey.PublicKeyInfo);
 end;
 
 procedure TTestWindowsSystemCrypto.TestBuilderRejectsWrongLeafForNativeKey;

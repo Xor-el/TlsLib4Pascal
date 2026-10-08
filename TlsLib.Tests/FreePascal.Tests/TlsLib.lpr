@@ -65,6 +65,7 @@ uses
   CredentialImportTests,
   Pkcs12ImportTests,
   EndpointIdentityTests,
+  PemTests,
   CertificateVerifierTests,
   OcspStaplingTests,
   CertificateCheckTests,
