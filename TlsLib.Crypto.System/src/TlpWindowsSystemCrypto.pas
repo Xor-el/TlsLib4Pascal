@@ -157,6 +157,8 @@ var
 
 resourcestring
   SInvalidPeerPoint = 'the peer public point is not a valid curve point';
+  SInvalidKemPublicKey = 'the peer KEM public key could not be parsed';
+  SInvalidCiphertext = 'the peer ciphertext could not be decapsulated';
   SDegenerateSharedSecret =
     'the peer key produced a degenerate all-zero shared secret';
   SCngBackendError = 'a Windows CNG operation failed (status 0x%.8x)';
@@ -2100,7 +2102,7 @@ begin
   Result := nil;
   if FApi.ImportKeyPair(FAlg, nil, PWideChar(BLOB_MLKEM_PUBLIC), Result, PByte(LBlob),
     System.Length(LBlob), 0) <> STATUS_SUCCESS then
-    raise EPeerInputTlsLibException.CreateRes(@SInvalidPeerPoint);
+    raise EPeerInputTlsLibException.CreateRes(@SInvalidKemPublicKey);
 end;
 
 function TWindowsCngKem.ImportPrivate(const APrivateBlob: TBytes): Pointer;
@@ -2182,7 +2184,7 @@ begin
       if FApi.Decapsulate(LPrivKey, PByte(ACiphertext),
         ULONG(System.Length(ACiphertext)), PByte(LSecret),
         ULONG(System.Length(LSecret)), LSecretLen, 0) <> STATUS_SUCCESS then
-        raise EPeerInputTlsLibException.CreateRes(@SInvalidPeerPoint);
+        raise EPeerInputTlsLibException.CreateRes(@SInvalidCiphertext);
       SetLength(LSecret, LSecretLen);
       ASharedSecret := TSecretBuffer.From(LSecret);
     finally
@@ -3523,7 +3525,7 @@ class function TWindowsNCrypt.WrapPkcs8IfNeeded(const ADer: TBytes): TBytes;
 var
   LTag, LTag1, LTag2: Byte;
   LSeqOfs, LSeqLen, LNext, LC1ofs, LC1len, LN1, LC2ofs, LC2len, LN2: Int32;
-  LCurveOid, LAlgId, LContent: TBytes;
+  LCurveOid, LAlgId, LContent, LInner: TBytes;
 begin
   // best-effort: any parse mismatch leaves the blob unchanged for the KSP / portable facet
   Result := ADer;
@@ -3538,10 +3540,17 @@ begin
   case LTag2 of
     $02: // 2nd element INTEGER -> PKCS#1 RSAPrivateKey (modulus): wrap with rsaEncryption
       begin
-        LContent := TArrayUtilities.Concat([TBytes.Create($02, $01, $00),
-          TBytes.Create($30, $0D, $06, $09, $2A, $86, $48, $86, $F7, $0D, $01, $01, $01,
-          $05, $00), TDer.Tlv($04, ADer)]);
-        Result := TDer.Tlv($30, LContent);
+        LInner := TDer.Tlv($04, ADer);
+        try
+          LContent := TArrayUtilities.Concat([TBytes.Create($02, $01, $00),
+            TBytes.Create($30, $0D, $06, $09, $2A, $86, $48, $86, $F7, $0D, $01, $01, $01,
+            $05, $00), LInner]);
+          Result := TDer.Tlv($30, LContent);
+        finally
+          // the intermediate copies hold the plaintext key; only Result is handed on
+          TSecureMemory.WipeBytes(LInner);
+          TSecureMemory.WipeBytes(LContent);
+        end;
       end;
     $04: // 2nd element OCTET STRING -> SEC1 ECPrivateKey: wrap with ecPublicKey + curve OID
       begin
@@ -3549,9 +3558,14 @@ begin
           Exit;
         LAlgId := TDer.Tlv($30, TArrayUtilities.Concat(
           [TBytes.Create($06, $07, $2A, $86, $48, $CE, $3D, $02, $01), LCurveOid]));
-        LContent := TArrayUtilities.Concat([TBytes.Create($02, $01, $00), LAlgId,
-          TDer.Tlv($04, ADer)]);
-        Result := TDer.Tlv($30, LContent);
+        LInner := TDer.Tlv($04, ADer);
+        try
+          LContent := TArrayUtilities.Concat([TBytes.Create($02, $01, $00), LAlgId, LInner]);
+          Result := TDer.Tlv($30, LContent);
+        finally
+          TSecureMemory.WipeBytes(LInner);
+          TSecureMemory.WipeBytes(LContent);
+        end;
       end;
     // 2nd element SEQUENCE ($30) = plain PKCS#8, or anything else: unchanged
   end;
@@ -3734,6 +3748,9 @@ begin
   finally
     if System.Length(LPwd) > 0 then
       FillChar(LPwd[0], System.Length(LPwd) * SizeOf(WideChar), 0);
+    // a wrapped copy is ours to wipe; an unwrapped one is the caller's own array
+    if Pointer(LDer) <> Pointer(APkcs8) then
+      TSecureMemory.WipeBytes(LDer);
   end;
   // the key must sign natively AND its public key must export from the handle; if either
   // fails the caller falls back to the portable facet (which owns the key end to end)
@@ -4073,40 +4090,53 @@ function TWindowsSigningCrypto.TryImportPemNative(const AData: TBytes;
   const APassword: ISecretBuffer; out AKey: ISigningKey): Boolean;
 var
   LBlocks: TArray<TPemBlock>;
-  LI: Int32;
+  LIdx, LI: Int32;
   LKey: NativeUInt;
   LSchemes: TArray<TSignatureScheme>;
   LSpki: TBytes;
   LImported: Boolean;
 begin
   AKey := nil;
+  Result := False;
   try
     LBlocks := TPem.ReadBlocks(AData);
   except
     // malformed PEM: let the portable facet re-parse and own the canonical error
     Exit(False);
   end;
-  for LI := 0 to System.Length(LBlocks) - 1 do
-  begin
+  try
+    // a boundary this framing did not see (one that follows text on its line) could be read as a
+    // block by the portable facet, which then must pick the key
+    if TPem.BeginTagCount(AData) <> System.Length(LBlocks) then
+      Exit;
+    // the first private-key block is the one the portable provider imports, and it fails closed on
+    // it, so a later block is never tried here: an unsupported or failed first block hands the
+    // whole input to the portable facet, which owns the selection and the errors
+    LIdx := TPem.IndexOfPrivateKey(LBlocks);
+    if LIdx < 0 then
+      Exit;
     // encrypted PKCS#8 needs the password; plain PKCS#8 and the raw PKCS#1/SEC1 forms
     // ("RSA/EC PRIVATE KEY", wrapped to PKCS#8 inside TryImportKey) import unkeyed
-    if LBlocks[LI].PemType = 'ENCRYPTED PRIVATE KEY' then
-      LImported := FNCrypt.TryImportKey(LBlocks[LI].Content, APassword, LKey, LSchemes,
+    if LBlocks[LIdx].PemType = 'ENCRYPTED PRIVATE KEY' then
+      LImported := FNCrypt.TryImportKey(LBlocks[LIdx].Content, APassword, LKey, LSchemes,
         LSpki)
-    else if (LBlocks[LI].PemType = 'PRIVATE KEY') or
-      (LBlocks[LI].PemType = 'RSA PRIVATE KEY') or
-      (LBlocks[LI].PemType = 'EC PRIVATE KEY') then
-      LImported := FNCrypt.TryImportKey(LBlocks[LI].Content, nil, LKey, LSchemes, LSpki)
+    else if (LBlocks[LIdx].PemType = 'PRIVATE KEY') or
+      (LBlocks[LIdx].PemType = 'RSA PRIVATE KEY') or
+      (LBlocks[LIdx].PemType = 'EC PRIVATE KEY') then
+      LImported := FNCrypt.TryImportKey(LBlocks[LIdx].Content, nil, LKey, LSchemes, LSpki)
     else
       LImported := False;
     if LImported then
     begin
       AKey := TWindowsSigningKey.Create(TNCryptKeyOwner.Create(FNCrypt, LKey)
         as INCryptKeyOwner, LSchemes, LSpki);
-      Exit(True);
+      Result := True;
     end;
+  finally
+    // a decoded block may hold plaintext private-key DER
+    for LI := 0 to System.Length(LBlocks) - 1 do
+      TSecureMemory.WipeBytes(LBlocks[LI].Content);
   end;
-  Result := False;
 end;
 
 function TWindowsSigningCrypto.ImportSigningKey(const AData: TBytes;

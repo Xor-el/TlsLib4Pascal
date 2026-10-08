@@ -179,7 +179,7 @@ class function TSecretBuffer.Slice(const ASource: ISecretBuffer;
   AOffset, ALength: Int32): ISecretBuffer;
 begin
   if (ASource = nil) or (AOffset < 0) or (ALength < 0) or
-    (AOffset + ALength > ASource.Len) then
+    (Int64(AOffset) + ALength > ASource.Len) then
     raise EArgumentTlsLibException.CreateRes(@SSliceOutOfRange);
   Result := TSecretBuffer.Create(ALength);
   if ALength > 0 then

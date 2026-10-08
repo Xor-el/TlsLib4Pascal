@@ -500,9 +500,9 @@
         <DCCReference Include="..\..\TlsLib\src\Session\TlpAntiReplay.pas"/>
         <DCCReference Include="..\src\TlsLibTestResourceLoader.pas"/>
         <DCCReference Include="..\src\TlsLibTestProviders.pas"/>
-        <DCCReference Include="..\src\TlsLibTestBase.pas"/>
         <DCCReference Include="..\src\TlsLibTestHandshakeDecoder.pas"/>
         <DCCReference Include="..\src\SecretTests.pas"/>
+        <DCCReference Include="..\src\TlsLibTestBase.pas"/>
         <DCCReference Include="..\src\AlertTests.pas"/>
         <DCCReference Include="..\src\ExceptionTests.pas"/>
         <DCCReference Include="..\src\WireCodecTests.pas"/>
@@ -558,6 +558,7 @@
         <DCCReference Include="..\src\TlsStreamLoopbackTests.pas"/>
         <DCCReference Include="..\src\EndpointIdentityTests.pas"/>
         <DCCReference Include="..\src\CertificateVerifierTests.pas"/>
+        <DCCReference Include="..\src\PemTests.pas"/>
         <DCCReference Include="..\src\OcspStaplingTests.pas"/>
         <DCCReference Include="..\src\CertificateCheckTests.pas"/>
         <DCCReference Include="..\src\HpkeProviderTests.pas"/>
