@@ -1,0 +1,83 @@
+TlsLib/src/Interfaces/Engine/TlpITlsConfig.pas
+  s_d27f31cd14035d::t_3ead781b73e2c0 98-99
+  s_d27f31cd14035d::t_cc17f07c708a0c 185-188
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_d27f31cd14035d::t_c7c1a9a6f9944b 2929-2930
+  s_d27f31cd14035d::t_922c9369692320 2316-2364
+  s_d27f31cd14035d::t_b9f2ca6df8bb19 210-212
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_d27f31cd14035d::t_cf428ecf228f78 521-528
+TlsLib.Tests/src/Tls12ResumptionTests.pas
+  s_d27f31cd14035d::t_6254d17b4f76ed 101-106
+  s_d27f31cd14035d::t_8577b9cfcb2ce4 349-368
+  s_d27f31cd14035d::t_4bd194ac508700 951,953
+  s_d27f31cd14035d::t_5a8591212f61b7 318-325,331
+  s_d27f31cd14035d::t_244ce6b9ed0959 820-821
+  s_d27f31cd14035d::t_d070e0f53e0e8b 161
+  s_d27f31cd14035d::t_6aa63920312867 310-317,330
+  s_d27f31cd14035d::t_2a17d489a4b074 760-796,800-819,822-840,843-950,952,954-983
+  s_d27f31cd14035d::t_b758bf4f79c9d7 1043-1045
+  s_d27f31cd14035d::t_01225ef62eaaf7 1134-1136
+  s_d27f31cd14035d::t_5d06182d65dc71 984-1008
+  s_d27f31cd14035d::t_6b1bba13f5835c 160
+  s_d27f31cd14035d::t_118ba87eb72626 841-842
+  s_d27f31cd14035d::t_25eabc0300e4b8 97-100,107-115
+  s_d27f31cd14035d::t_6aeecb8965de19 734-735,741,747
+  s_d27f31cd14035d::t_7b1c0d50b6a9ce 152-159
+  s_d27f31cd14035d::t_8c8d233352ce16 59-61
+  s_d27f31cd14035d::t_92842aaa8f42bd 797-799
+  s_d27f31cd14035d::t_83d7f8dc3e4b4d 1009-1042,1046-1047
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_d27f31cd14035d::t_18fbfa8c46547a 1778-1780
+  s_d27f31cd14035d::t_83d852289025c5 2912,2914
+  s_d27f31cd14035d::t_783c1d1438f8eb 255
+  s_d27f31cd14035d::t_04a894afe37088 137
+  s_d27f31cd14035d::t_173a3f190b1a16 740
+  s_d27f31cd14035d::t_8661f9cdc5ed15 365-366
+  s_d27f31cd14035d::t_929d5be55d25d5 2332-2340
+  s_d27f31cd14035d::t_4ceaa7dffb6037 2913
+  s_d27f31cd14035d::t_52a5d378c66bf6 2944
+  s_d27f31cd14035d::t_c00043f05b5788 948-952
+  s_d27f31cd14035d::t_a5afbb839c022a 531
+  s_d27f31cd14035d::t_58e07b45401f59 549
+  s_d27f31cd14035d::t_6635ceb26ed630 1703-1709
+TlsLib.Interop/src/BoGoShimRunner.pas
+  s_d27f31cd14035d::t_3733e986be2001 1005-1007
+TlsLib/src/Engine/TlpTlsEngineFactory.pas
+  s_d27f31cd14035d::t_c5d08f361e19b1 521
+TlsLib/src/Handshake/TlpTlsCredential.pas
+  s_d27f31cd14035d::t_bad6faf13b4258 87-98
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_d27f31cd14035d::t_5c311400d72184 914,916
+  s_d27f31cd14035d::t_8e03f1fcc4ea35 907-913,915,917-918
+  s_d27f31cd14035d::t_58d23d794bcfb0 246-247
+  s_d27f31cd14035d::t_1c5e7d6e8818e1 551-554,557,561
+  s_d27f31cd14035d::t_4d0dcd3c0f4f09 303-304
+  s_d27f31cd14035d::t_4769d0f97cf905 89-93
+  s_d27f31cd14035d::t_a886e389238cb7 461
+  s_d27f31cd14035d::t_c3178e97808784 555-556
+  s_d27f31cd14035d::t_882584da8a6bec 509-512
+docs/security-model.md
+  s_d27f31cd14035d::t_36bfe49398a2ef 82-86
+TlsLib.Interop/src/InteropEngine.pas
+  s_d27f31cd14035d::t_cb3eea6c6b022e 298-309
+  s_d27f31cd14035d::t_ef78c08e01960b 77-80
+  s_d27f31cd14035d::t_c6c44f2ff10f8d 176-177
+  s_d27f31cd14035d::t_89a9cd6d7e51ef 431-432
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7fae75a1a174ec71c9d8727d806f9b823ce70dbf",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
