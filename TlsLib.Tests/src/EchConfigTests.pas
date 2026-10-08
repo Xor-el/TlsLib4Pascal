@@ -28,6 +28,9 @@ uses
 {$ENDIF FPC}
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
+  TlpIKeyExchangePrivateKey,
+  TlpISecretBuffer,
+  TlpSecretBuffer,
   TlpTlsLibExceptions,
   TlpEchConfig,
   TlsLibTestBase;
@@ -69,6 +72,7 @@ type
     procedure TestMalformedListRaises;
     procedure TestEmptyListRaises;
     procedure TestLargeConfigListParses;
+    procedure TestDiagOverlay;
   end;
 
 implementation
@@ -330,6 +334,74 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'an empty ECHConfigList raises a decode error');
+end;
+
+procedure TTestEchConfig.TestDiagOverlay;
+var
+  LKa: IKeyAgreement;
+  LKey, LKey2: IKeyExchangePrivateKey;
+  LPub, LPub2, LU: TBytes;
+  LSecret: ISecretBuffer;
+  LI: Int32;
+
+  procedure Say(const S: string);
+  begin
+    Writeln('DIAG: ', S);
+  end;
+
+  procedure Step(AIndex: Int32);
+  begin
+    case AIndex of
+      0: Crypto.Primitives.CreateKeyAgreement(TKeyAgreementAlgorithm.X25519);
+      1: Crypto.Primitives.CreateKeyAgreement(TKeyAgreementAlgorithm.SECP256R1);
+      2: Crypto.Primitives.CreateHkdf(THashAlgorithm.SHA_256);
+      3: Crypto.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM);
+      4: Crypto.Primitives.CreateAead(TAeadAlgorithm.CHACHA20_POLY1305);
+      5:
+        begin
+          LKa := Crypto.Primitives.CreateKeyAgreement(TKeyAgreementAlgorithm.X25519);
+          LKa.GenerateKeyPair(LKey, LPub);
+          LKa.GenerateKeyPair(LKey2, LPub2);
+          LSecret := LKa.Agree(LKey, LPub2);
+        end;
+      6:
+        begin
+          LU := DecodeHex('e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c');
+          LKa.Agree(LKey, LU);
+        end;
+      7:
+        begin
+          LU[31] := LU[31] and $3F;
+          LKa.Agree(LKey, LU);
+        end;
+      8:
+        begin
+          LU := DecodeHex('0900000000000000000000000000000000000000000000000000000000000000');
+          LKa.Agree(LKey, LU);
+        end;
+      9:
+        begin
+          LU := DecodeHex('0500000000000000000000000000000000000000000000000000000000000000');
+          LKa.Agree(LKey, LU);
+        end;
+      10:
+        if not LKa.ValidatePublicKey(Pk32) then
+          raise Exception.Create('ValidatePublicKey false');
+    end;
+  end;
+
+begin
+  for LI := 0 to 10 do
+    try
+      Step(LI);
+      Say('step ' + IntToStr(LI) + ' ok');
+    except
+      on E: Exception do
+        Say('step ' + IntToStr(LI) + ' RAISED ' + E.ClassName + ': ' + E.Message);
+    end;
+  Say('suite x25519/sha256/aes128 nil=' + BoolToStr(Crypto.Hpke.Suite(32, 1, 1) = nil, True));
+  Say('suite x25519/sha256/chacha nil=' + BoolToStr(Crypto.Hpke.Suite(32, 1, 3) = nil, True));
+  Say('suite p256/sha256/aes128 nil=' + BoolToStr(Crypto.Hpke.Suite(16, 1, 1) = nil, True));
 end;
 
 procedure TTestEchConfig.TestLargeConfigListParses;
