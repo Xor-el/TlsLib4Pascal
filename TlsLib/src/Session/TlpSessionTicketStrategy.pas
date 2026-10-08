@@ -369,37 +369,35 @@ begin
   if not FKeys.CurrentKey(LKeyName, LKey) then
     Exit;
   LPlain := SerializeSession(ASession);
-  // a session that is neither a 1.3 nor a 1.2 sub-interface serializes to nothing: decline to seal
-  if LPlain = nil then
-    Exit;
-  // an oversized peer chain would bloat the ticket and the resumed ClientHello; decline to seal
-  // rather than degrade it, and the caller signals the decline in its protocol's terms
-  if System.Length(LPlain) > MaxSerializedSessionLength then
-  begin
-    TSecureMemory.WipeBytes(LPlain);
-    Exit;
-  end;
-  LNonce := FCrypto.Primitives.GetRandom.GenerateBytes(TicketNonceLength);
-  LAead := FCrypto.Primitives.CreateAead(TAeadAlgorithm.AES_256_GCM);
   try
-    LAead.Init(LKey);
-    // the key name is authenticated as associated data (it is not secret)
-    LCipher := TAeadUtilities.Seal(LAead, LNonce, LKeyName, LPlain);
-  except
-    // a custom manager that hands over an unusable key must not fault the handshake; decline to seal
-    on E: EBaseTlsLibException do
-    begin
-      TSecureMemory.WipeBytes(LPlain);
+    // a session that is neither a 1.3 nor a 1.2 sub-interface serializes to nothing: decline to seal
+    if LPlain = nil then
       Exit;
+    // an oversized peer chain would bloat the ticket and the resumed ClientHello; decline to seal
+    // rather than degrade it, and the caller signals the decline in its protocol's terms
+    if System.Length(LPlain) > MaxSerializedSessionLength then
+      Exit;
+    LNonce := FCrypto.Primitives.GetRandom.GenerateBytes(TicketNonceLength);
+    LAead := FCrypto.Primitives.CreateAead(TAeadAlgorithm.AES_256_GCM);
+    try
+      LAead.Init(LKey);
+      // the key name is authenticated as associated data (it is not secret)
+      LCipher := TAeadUtilities.Seal(LAead, LNonce, LKeyName, LPlain);
+    except
+      // a custom manager that hands over an unusable key must not fault the handshake; decline to seal
+      on E: EBaseTlsLibException do
+        Exit;
     end;
+    SetLength(Result, System.Length(LKeyName) + System.Length(LNonce) +
+      System.Length(LCipher));
+    Move(LKeyName[0], Result[0], System.Length(LKeyName));
+    Move(LNonce[0], Result[System.Length(LKeyName)], System.Length(LNonce));
+    Move(LCipher[0], Result[System.Length(LKeyName) + System.Length(LNonce)],
+      System.Length(LCipher));
+  finally
+    // the plaintext session holds the resumption secret, whatever the AEAD raises
+    TSecureMemory.WipeBytes(LPlain);
   end;
-  TSecureMemory.WipeBytes(LPlain);
-  SetLength(Result, System.Length(LKeyName) + System.Length(LNonce) +
-    System.Length(LCipher));
-  Move(LKeyName[0], Result[0], System.Length(LKeyName));
-  Move(LNonce[0], Result[System.Length(LKeyName)], System.Length(LNonce));
-  Move(LCipher[0], Result[System.Length(LKeyName) + System.Length(LNonce)],
-    System.Length(LCipher));
 end;
 
 function TStekTicketStrategy.Consume(const ATicket: TBytes): Boolean;

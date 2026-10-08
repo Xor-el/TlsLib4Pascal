@@ -136,6 +136,7 @@ type
     procedure TestWriteEarlyDataReturnsAcceptedCount;
     procedure TestZeroRttRejectedIsDiscardedNotReplayed;
     procedure TestZeroRttRejectAboveFixedBudgetIsSkipped;
+    procedure TestZeroRttAcceptedSizeFollowsTheServersCurrentSetting;
     procedure TestZeroRttForeignTicketKeepsFixedSkipBudget;
     procedure TestZeroRttReplayCaughtByStrikeRegister;
     procedure TestZeroRttOverTicketBudgetIsFatal;
@@ -1164,6 +1165,51 @@ begin
   CheckEquals(0, System.Length(ReadAllApp(LServer)),
     'the rejected early data is discarded');
   CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestTls13Resumption.TestZeroRttAcceptedSizeFollowsTheServersCurrentSetting;
+var
+  LStek: ISessionTicketKeyManager;
+  LAnti: IAntiReplayStrategy;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LEarly: TBytes;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LAnti := TStrikeRegisterAntiReplay.Create;
+  LCache := TInMemorySessionCache.Create;
+
+  // a ticket authorizing 40000 bytes of 0-RTT, then the server lowers its own setting to 1000: the
+  // outstanding ticket must not let a client send more than the server now accepts
+  LClient := NewClient(LCache, False);
+  LServer := BuildServer(LStek, nil, 1, 7200, True, 40000, LAnti);
+  DriveHandshake(LClient, LServer);
+
+  LClient := NewClient(LCache, True);
+  LServer := BuildServer(LStek, nil, 0, 7200, False, 1000, LAnti);
+  LEarly := Filled($5a, 2000);
+  LClient.StartHandshake;
+  CheckEquals(2000, LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly)),
+    'the client sends within the size its ticket authorized');
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LServer.IsTerminal, 'early data beyond the server''s current setting is fatal');
+  CheckTrue(LServer.LastError.Alert.Description = TTlsAlertDescription.UnexpectedMessage,
+    'the server sent unexpected_message');
+  CheckTrue(System.Length(ReadAllEarly(LServer)) <= 1000,
+    'no more than the current setting of early data was delivered');
+
+  // within the lowered setting the same ticket still works
+  LClient := NewClient(LCache, False);
+  LServer := BuildServer(LStek, nil, 1, 7200, True, 40000, LAnti);
+  DriveHandshake(LClient, LServer);
+  LClient := NewClient(LCache, True);
+  LServer := BuildServer(LStek, nil, 0, 7200, False, 1000, LAnti);
+  LEarly := Filled($5a, 500);
+  LClient.StartHandshake;
+  LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly));
+  PumpToCompletion(LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'early data within the current setting is accepted');
+  CheckEqualBytes('and delivered', LEarly, ReadAllEarly(LServer));
 end;
 
 procedure TTestTls13Resumption.TestZeroRttForeignTicketKeepsFixedSkipBudget;
