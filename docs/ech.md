@@ -82,7 +82,8 @@ LClient.Tls13.WithEchGrease(True); // send a decoy ech when no real config is us
 ```
 
 The decoy is random-but-plausible and is re-sent verbatim across a HelloRetryRequest; any ECH
-response from the server is ignored.
+response from the server is ignored. `EchStatus` reports `Greased` only when the handshake completes
+as TLS 1.3: a dual-version client whose server picks TLS 1.2 reports `NotOffered`.
 
 ---
 
@@ -101,10 +102,12 @@ The server trial-decrypts the outer against its keys; on success it reconstructs
 serves the true name, on failure it serves the public name and advertises the store's `is_retry`
 configs as `retry_configs`. The second argument, `True`, tries every key (not only the one whose
 `config_id` matches), which tolerates a client that hides the id. `WithEchKeyStore` raises on a
-nil store, and on a key store entry whose key or advertised cipher suite the crypto provider cannot
-serve. A server that only receives the inner ClientHello a split-mode client-facing server forwards
-(RFC 9849 sec. 7.2) is configured with `WithEchBackend` instead; it holds no keys, so it cannot be
-combined with `WithEchKeyStore`.
+nil store, on a store with no entries or with retry configs that are empty or not a valid list, and
+on a key store entry whose key or advertised cipher suite the crypto provider cannot serve. A server
+that only receives the inner ClientHello a split-mode client-facing server forwards (RFC 9849
+sec. 7.2) is configured with `WithEchBackend` instead; it holds no keys, so it cannot be combined
+with `WithEchKeyStore`. A backend aborts an outer-type ech with `illegal_parameter` (RFC 9849
+sec. 7), so use it only behind the client-facing server, never on a directly reachable port.
 
 Rotate keys by building a fresh store and swapping it in — the store is app-driven, not
 clock-rotated, so it tracks exactly what you publish in DNS.

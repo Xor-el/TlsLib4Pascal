@@ -61,8 +61,8 @@ type
     /// <summary>The retry_configs advertised on an ECH reject: an ECHConfigList of the
     /// entries flagged is_retry, in preference order. A server that holds any ECH keys MUST
     /// advertise retry_configs on a reject (RFC 9849 sec. 7.1), so an implementation whose
-    /// Entries is non-empty must return a non-empty list here; TInMemoryEchKeyStore enforces
-    /// this at construction.</summary>
+    /// Entries is non-empty must return a non-empty list here; the Keyed policy refuses a store
+    /// whose list is empty or malformed.</summary>
     function RetryConfigs: TBytes;
   end;
 

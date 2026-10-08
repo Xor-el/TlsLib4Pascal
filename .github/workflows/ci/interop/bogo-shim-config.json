@@ -39,6 +39,7 @@
     "*ECH-Client-SkipInvalidPublicName": "[policy-difference] the sole ECHConfig has an invalid public_name and is skipped (RFC 9849 sec. 6.1.7), leaving none usable; with GREASE off we fail closed (as rustls does) rather than fall back to cleartext as BoringSSL does. SkipInvalidPublicName-2 (a second, usable config) still accepts ECH and passes",
     "*ECH-Server-FailCallbackNeedRewind*": "[out-of-scope] BoringSSL's -fail-early-callback-ech-rewind exercises its select-certificate callback rewind API; not a wire behavior, and rustls has no such callback",
     "*ECH-Server-RewindWithNoPublicName*": "[out-of-scope] BoringSSL's early-callback ECH rewind API (-fail-early-callback-ech-rewind); not a wire behavior, and rustls has no such callback",
+    "TLS-ECH-Server-Disabled": "[policy-difference] the shim runs every keyless TLS 1.3 server as a split-mode ECH backend so the forwarded-inner (ECHInner) cases pass, and RFC 9849 sec. 7 requires a backend to abort an outer-type ech with illegal_parameter; a server with no ECH policy still ignores the outer",
     "*-PSK_WITH_*": "[out-of-scope] RFC 4279 TLS 1.2 PSK cipher suites (legacy, no forward secrecy; rustls has none)",
     "CheckECDSACurve-PSK-*": "[out-of-scope] RFC 4279 TLS 1.2 PSK cipher suite (legacy; rustls has none)",
     "ClientAuth-PSK*": "[out-of-scope] RFC 4279 TLS 1.2 PSK cipher suite (legacy; rustls has none)",
