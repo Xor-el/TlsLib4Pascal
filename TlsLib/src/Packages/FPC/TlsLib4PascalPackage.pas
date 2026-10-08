@@ -53,7 +53,7 @@ uses
   TlpKeyLog, TlpAeadUtilities, TlpClientSessionPolicy, 
   TlpIEchClientOrchestrator, TlpEchClientOrchestrator, TlpImportedCredential, 
   TlpISystemTrustInstaller, TlpExporterArgs, TlpEchConfirmation,
-  TlpITrustAnchorStore, TlpTrustAnchorStore;
+  TlpITrustAnchorStore, TlpTrustAnchorStore, TlpDynamicLibrary;
 
 implementation
 

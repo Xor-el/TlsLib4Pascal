@@ -34,7 +34,7 @@
         <PackageName Value="FCL"/>
       </Item5>
     </RequiredPackages>
-    <Units Count="83">
+    <Units Count="84">
       <Unit0>
         <Filename Value="TlsLibConsole.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -367,6 +367,10 @@
         <Filename Value="..\src\PemTests.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit82>
+      <Unit83>
+        <Filename Value="..\src\DynamicLibraryTests.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit83>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

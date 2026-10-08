@@ -26,7 +26,7 @@ uses
 {$ENDIF}
   TlpArrayUtilities,
   TlpTrustPolicy,
-  TlpPosixDynLib,
+  TlpDynamicLibrary,
   TlpSystemTrustBase,
   TlpIPlatformChainEngine,
   TlpTlsAlert;
@@ -175,15 +175,15 @@ end;
 class procedure TAndroidTrustApi.ResolveDynamicImports;
 begin
   // liblog exports __android_log_write; an absent library or symbol leaves FLogWrite nil
-  FLogLibHandle := TPosixDynLib.Open(ANDROID_LOG_LIB);
+  FLogLibHandle := TDynamicLibrary.Open(ANDROID_LOG_LIB);
   FLogWrite := TAndroidLogWriteFunc(
-    TPosixDynLib.Resolve(FLogLibHandle, '__android_log_write'));
+    TDynamicLibrary.Resolve(FLogLibHandle, '__android_log_write'));
 end;
 
 class procedure TAndroidTrustApi.ReleaseDynamicImports;
 begin
   FLogWrite := nil;
-  TPosixDynLib.Close(FLogLibHandle);
+  TDynamicLibrary.Close(FLogLibHandle);
   FLogLibHandle := 0;
 end;
 
