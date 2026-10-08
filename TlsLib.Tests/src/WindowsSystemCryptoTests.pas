@@ -38,6 +38,7 @@ uses
   TlpImportedCredential,
   TlpISecretBuffer,
   TlpSecretBuffer,
+  TlpPem,
   TlpIPkixProvider,
   TlpPkixDomainTypes,
   TlpTlsCredential,
@@ -681,21 +682,35 @@ end;
 
 procedure TTestWindowsSystemCrypto.TestImportLeavesCallerKeyBytesIntact;
 const
-  // native as given, native after wrapping (PKCS#1, SEC1), and the portable fallback, which
-  // re-reads the very same input bytes
-  Fields: array [0 .. 3] of string = ('rsa_pkcs8_der', 'rsa_pkcs1_der', 'ec256_sec1_der',
+  // native as given (a PKCS#8 decoded from the PEM fixture; the *_pkcs8_der fixtures hold the
+  // PKCS#1 / SEC1 bytes), native after wrapping (PKCS#1, SEC1), and the portable fallback,
+  // which re-reads the very same input bytes
+  Fields: array [0 .. 3] of string = ('rsa_pkcs8_pem', 'rsa_pkcs1_der', 'ec256_sec1_der',
     'ed25519_pkcs8_der');
+  // Ed25519 has no CNG path, so it must take the portable fallback
+  ExpectNative: array [0 .. 3] of Boolean = (True, True, True, False);
 var
   LI: Int32;
   LData, LCopy: TBytes;
+  LBlocks: TArray<TPemBlock>;
+  LKey: ISigningKey;
 begin
   if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
     Exit;
   for LI := Low(Fields) to High(Fields) do
   begin
     LData := DecodeHex(FKeys.Values[Fields[LI]]);
+    // a *_pem field is armored: import the DER of its first block
+    if TPem.IsArmored(LData) then
+    begin
+      LBlocks := TPem.ReadBlocks(LData);
+      LData := LBlocks[0].Content;
+    end;
     LCopy := System.Copy(LData);
-    CheckTrue(Crypto.Signing.ImportSigningKey(LData, nil) <> nil, Fields[LI] + ' imports');
+    LKey := Crypto.Signing.ImportSigningKey(LData, nil);
+    CheckTrue(LKey <> nil, Fields[LI] + ' imports');
+    CheckEquals(ExpectNative[LI], IsNativeKey(Crypto, LKey),
+      Fields[LI] + ' takes the expected backend');
     CheckEqualBytes(Fields[LI] + ' leaves the caller''s bytes untouched', LCopy, LData);
   end;
 end;
