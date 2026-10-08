@@ -1,0 +1,45 @@
+TlsLib.Tests/src/WindowsSystemCryptoTests.pas
+  s_d27f31cd14035d::t_559620e20a0b5a 357-385,387-394
+  s_d27f31cd14035d::t_a67dd68752429d 97-99
+  s_d27f31cd14035d::t_be6e096a020c61 386
+docs/security-model.md
+  s_d27f31cd14035d::t_0e8153529ac8e7 51
+TlsLib.Tests/src/EchConfigTests.pas
+  s_d27f31cd14035d::t_691993297bdc7d 98,100-102
+  s_d27f31cd14035d::t_a35fb88c505204 31
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_d27f31cd14035d::t_018a247cb05f26 1899
+  s_d27f31cd14035d::t_b1c69f4826aba2 543-547
+  s_d27f31cd14035d::t_8b05dda95266a6 1892-1893,1897-1898,1900
+  s_d27f31cd14035d::t_30fdc7f0245c92 550-551
+  s_d27f31cd14035d::t_da77da46806f4a 1896
+  s_d27f31cd14035d::t_a97e914467782b 2033-2034
+  s_d27f31cd14035d::t_28c6f5bc74b844 1870-1881
+TlsLib.Tests/Data/Crypto/Ecdh/X25519Rfc7748.txt
+  s_d27f31cd14035d::t_fd933b56d43b51 14
+  s_d27f31cd14035d::t_534e79f8ee86fe 5-8,11-12
+  s_d27f31cd14035d::t_4c8d73dc8b1331 9-10
+  s_d27f31cd14035d::t_d3261994b368cd 13
+TlsLib.Tests/src/NamedGroupTests.pas
+  s_d27f31cd14035d::t_99a2fbf104e856 73,157-159
+  s_d27f31cd14035d::t_ec2d70a61e37fe 180-182
+  s_d27f31cd14035d::t_4c7cd8a05a5440 160-179,183-184
+  s_d27f31cd14035d::t_b0e51cade5cc6f 135,144,146-147,149
+  s_d27f31cd14035d::t_d2cc9bedf59012 145
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5e1a678e50fb27d4d11b4b2c66c7cd0ca827ab60",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
