@@ -871,12 +871,12 @@ begin
   if not (TArrayUtilities.Contains<UInt16>(AHello.CipherSuites,
     LSession.CipherSuite)) then
     Exit;
-  // RFC 7627 5.3: an EMS session offered again without EMS MUST abort - the omission signals a
-  // downgrade (or an attacker stripping the extension) - while a non-EMS session now offered with
-  // EMS simply declines to a full handshake
+  // RFC 7627 5.3: an EMS session offered again without EMS MUST abort (a handshake_failure, 5.2) -
+  // the omission signals a downgrade (or an attacker stripping the extension) - while a non-EMS
+  // session now offered with EMS simply declines to a full handshake
   if L12.ExtendedMasterSecret and not AContext.ExtendedMasterSecret then
     raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.IllegalParameter, @SResumedEmsDowngrade);
+      TTlsAlertDescription.HandshakeFailure, @SResumedEmsDowngrade);
   if AContext.ExtendedMasterSecret and not L12.ExtendedMasterSecret then
     Exit;
   // a server that requires EMS must not resume a session established without it; decline to a full

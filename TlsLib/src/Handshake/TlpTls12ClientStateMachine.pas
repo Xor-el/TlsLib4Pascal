@@ -951,13 +951,14 @@ end;
 function TTls12ClientStateMachine.BeginAbbreviatedHandshake(
   const AContext: TExtensionContext): TArray<THandshakeEffect>;
 begin
-  // the server must resume with the cached suite and the same EMS choice (RFC 7627 5.3)
+  // the server must resume with the cached suite and the same EMS choice (RFC 7627 5.3); an EMS
+  // mismatch aborts with handshake_failure (5.2)
   if FSelectedSuite.Common.Code <> FResumptionOffer.CipherSuite then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SResumedSuiteMismatch);
   if AContext.ExtendedMasterSecret <> FResumptionOffer.ExtendedMasterSecret then
     raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.IllegalParameter, @SResumedEmsMismatch);
+      TTlsAlertDescription.HandshakeFailure, @SResumedEmsMismatch);
   FUseExtendedMasterSecret := FResumptionOffer.ExtendedMasterSecret;
   // resuming a non-EMS session under a required-EMS policy would silently drop the guarantee
   if FParams.RequireExtendedMasterSecret and not FUseExtendedMasterSecret then

@@ -68,8 +68,10 @@ type
       out AAlert: TTlsAlertDescription): Boolean;
     function BuildHrr(AGroup, ASuite: UInt16; const ACookie, ASessionId: TBytes;
       ASelectedVersion: UInt16 = TlsWireVersionTls13): TBytes;
+    /// <summary>The retry ClientHello; AServerName defaults to the RFC 8448 first hello's name,
+    /// and an empty one omits the extension.</summary>
     function BuildClientHello2(AGroup: UInt16; const AKeyShare, ACookie,
-      ASessionId: TBytes; ASuite: UInt16 = 0): TBytes;
+      ASessionId: TBytes; ASuite: UInt16 = 0; const AServerName: string = 'server'): TBytes;
     function CookieFromHrr(const AHrr: TBytes): TBytes;
     function NewSecp256r1Server(const AVerbatimCookie: TBytes): IHandshakeMachine; overload;
     function NewSecp256r1Server(const AVerbatimCookie: TBytes;
@@ -98,6 +100,7 @@ type
     procedure TestServerRejectsUnexpectedMessageDuringRetryWait;
     procedure TestServerRejectsRetryClientHelloThatChangesSuite;
     procedure TestServerRejectsRetryClientHelloThatChangesSessionId;
+    procedure TestServerRejectsRetryClientHelloThatChangesServerName;
     procedure TestServerRejectsInnerEchInRetryClientHello;
     procedure TestBackendServerAcceptsInnerEchInRetryClientHello;
   end;
@@ -209,7 +212,8 @@ begin
 end;
 
 function TTestHelloRetryRequest.BuildClientHello2(AGroup: UInt16;
-  const AKeyShare, ACookie, ASessionId: TBytes; ASuite: UInt16): TBytes;
+  const AKeyShare, ACookie, ASessionId: TBytes; ASuite: UInt16;
+  const AServerName: string): TBytes;
 var
   LCodec: IExtensionBlockCodec;
   LContext: TExtensionContext;
@@ -226,6 +230,7 @@ begin
     LContext.SignatureSchemes := TArray<UInt16>.Create(
       TSignatureSchemes.EcdsaSecp256r1Sha256);
     LContext.Cookie := ACookie;
+    LContext.ServerName := AServerName;
     SetLength(LContext.ClientKeyShares, 1);
     LContext.ClientKeyShares[0].Group := AGroup;
     LContext.ClientKeyShares[0].KeyExchange := AKeyShare;
@@ -673,6 +678,40 @@ begin
     TCipherSuites13.Aes128GcmSha256);
   CheckTrue(System.Length(SendHandshakeOf(LServer.ProcessMessage(MsgFrom(LCh2)))) > 0,
     'a conformant retry that keeps the suite proceeds to a ServerHello');
+end;
+
+procedure TTestHelloRetryRequest.TestServerRejectsRetryClientHelloThatChangesServerName;
+var
+  LServer: IHandshakeMachine;
+  LHrr, LCookie, LCh2, LShare: TBytes;
+  LPriv: IKeyExchangePrivateKey;
+  LAlert: TTlsAlertDescription;
+  LI: Int32;
+const
+  Names: array [0 .. 2] of string = ('other.example', '', 'server');
+begin
+  TNamedGroups.CreateNistEcdh(Crypto, 'secp256r1').GenerateKeyPair(LPriv, LShare);
+  // the first hello names "server"; a retry that renames the host, or drops the name, must abort
+  // (RFC 8446 4.1.2), else the host check made on the first hello (ticket scope) is bypassed.
+  // The last case keeps the name: the positive control that a conformant retry proceeds.
+  for LI := Low(Names) to High(Names) do
+  begin
+    LServer := NewSecp256r1Server(nil);
+    LHrr := SendHandshakeOf(LServer.ProcessMessage(MsgFrom(Vec('client_hello_1'))))[0];
+    LCookie := CookieFromHrr(LHrr);
+    LCh2 := BuildClientHello2(TNamedGroupCatalog.Secp256r1, LShare, LCookie, DecodeHex(''), 0,
+      Names[LI]);
+    if Names[LI] = 'server' then
+      CheckTrue(System.Length(SendHandshakeOf(LServer.ProcessMessage(MsgFrom(LCh2)))) > 0,
+        'a retry that keeps the server_name proceeds to a ServerHello')
+    else
+    begin
+      CheckTrue(FailAlertOf(LServer.ProcessMessage(MsgFrom(LCh2)), LAlert),
+        Format('a retry with server_name "%s" aborts', [Names[LI]]));
+      CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
+        'a changed retry server_name is illegal_parameter');
+    end;
+  end;
 end;
 
 procedure TTestHelloRetryRequest.TestServerRejectsRetryClientHelloThatChangesSessionId;

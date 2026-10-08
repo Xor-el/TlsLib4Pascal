@@ -540,11 +540,15 @@ type
 
   // X25519 (RFC 7748) key agreement via CNG's generic curve25519 ECDH. Keys are the raw
   // 32-byte little-endian u-coordinate / scalar (not SEC1); the shared secret is the CNG
-  // raw agreement byte-reversed to the RFC 7748 output. Same neutral currency and
-  // fail-closed checks as the portable X25519, so the two are interchangeable. The
-  // algorithm handle is borrowed from and kept alive by the owning context.
+  // raw agreement byte-reversed to the RFC 7748 output. Same neutral currency as the portable
+  // X25519 and the same secret for every u the OS module accepts. A non-canonical u is reduced
+  // first (RFC 7748 sec. 5); the OS module may still refuse a u outside the prime-order
+  // subgroup, which RFC 7748 sec. 7 and RFC 8446 sec. 7.4.2 allow, and an honest peer's key is
+  // never refused. The algorithm handle is borrowed from and kept alive by the owning context.
   TWindowsCngX25519 = class(TWindowsCngKeyPrimitive, IKeyAgreement)
   strict private
+    // whether the 32 bytes at AOffset, bit 255 already clear, encode a u >= p = 2^255-19
+    class function IsAtLeastFieldPrime(const ABlob: TBytes; AOffset: Int32): Boolean; static;
     function PeerBlob(const APeer: TBytes): TBytes;
     function PrivateBlob(const AScalar: TBytes): TBytes;
     function DeriveSecret(ASecret: Pointer): TBytes;
@@ -1863,6 +1867,18 @@ end;
 
 { TWindowsCngX25519 }
 
+class function TWindowsCngX25519.IsAtLeastFieldPrime(const ABlob: TBytes;
+  AOffset: Int32): Boolean;
+var
+  LI: Int32;
+begin
+  // little-endian: u >= 2^255-19 exactly when the top byte is $7F, the middle bytes are $FF and
+  // the low byte is at least $ED
+  Result := (ABlob[AOffset + X25519_KEY_SIZE - 1] = $7F) and (ABlob[AOffset] >= $ED);
+  for LI := 1 to X25519_KEY_SIZE - 2 do
+    Result := Result and (ABlob[AOffset + LI] = $FF);
+end;
+
 function TWindowsCngX25519.PeerBlob(const APeer: TBytes): TBytes;
 begin
   // generic ECDH public blob: { dwMagic; cbKey=32 } then X (the raw 32-byte little-endian
@@ -1873,10 +1889,15 @@ begin
   PULONG(@Result[4])^ := ULONG(X25519_KEY_SIZE);
   Move(APeer[0], Result[ECC_BLOB_HEADER_SIZE], X25519_KEY_SIZE);
   // RFC 7748 sec. 5: the receiver masks the u-coordinate's most-significant bit (byte 31,
-  // little-endian). CNG does not, so a non-canonical peer key would otherwise derive a
-  // secret differing from an implementation that masks (the portable one) - clear it here.
+  // little-endian) and accepts a non-canonical u. CNG does neither, so clear the bit and reduce
+  // u >= p = 2^255-19 here; the value is public, so branching on it leaks nothing.
   Result[ECC_BLOB_HEADER_SIZE + X25519_KEY_SIZE - 1] :=
     Result[ECC_BLOB_HEADER_SIZE + X25519_KEY_SIZE - 1] and $7F;
+  if IsAtLeastFieldPrime(Result, ECC_BLOB_HEADER_SIZE) then
+  begin
+    Result[ECC_BLOB_HEADER_SIZE] := Byte(Result[ECC_BLOB_HEADER_SIZE] - $ED);
+    System.FillChar(Result[ECC_BLOB_HEADER_SIZE + 1], X25519_KEY_SIZE - 1, 0);
+  end;
 end;
 
 function TWindowsCngX25519.PrivateBlob(const AScalar: TBytes): TBytes;
@@ -2009,8 +2030,8 @@ end;
 
 function TWindowsCngX25519.ValidatePublicKey(const APublicKey: TBytes): Boolean;
 begin
-  // RFC 7748: every 32-byte string is a valid u-coordinate; the low-order-point
-  // rejection is deferred to Agree's all-zero shared-secret check
+  // RFC 7748 defines X25519 on every 32-byte u; the low-order-point rejection is Agree's
+  // all-zero shared-secret check
   Result := System.Length(APublicKey) = X25519_KEY_SIZE;
 end;
 
