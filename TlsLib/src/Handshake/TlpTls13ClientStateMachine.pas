@@ -194,7 +194,7 @@ type
     FRetried: Boolean;
     /// <summary>The GREASE seed, chosen once for the first ClientHello and reused on a
     /// HelloRetryRequest retry so the retry's GREASE codepoints match the first exactly
-    /// (RFC 8446 4.1.4 requires an otherwise-identical second ClientHello). -1 until chosen.</summary>
+    /// (RFC 8446 4.1.2 requires an otherwise-identical second ClientHello). -1 until chosen.</summary>
     FGreaseSeed: Int32;
     /// <summary>Whether the HelloRetryRequest requested a key_share group change. On a group
     /// change the retry sends a single key_share for the new group (no GREASE); a cookie-only
@@ -543,7 +543,7 @@ begin
     if FParams.Grease then
     begin
       // choose the seed once; a HelloRetryRequest retry reuses it so its GREASE codepoints
-      // match the first ClientHello exactly (RFC 8446 4.1.4)
+      // match the first ClientHello exactly (RFC 8446 4.1.2)
       if FGreaseSeed < 0 then
         FGreaseSeed := FParams.Crypto.Primitives.GetRandom.GenerateBytes(1)[0];
       LSeed := FGreaseSeed;
@@ -1001,7 +1001,14 @@ begin
         TTlsAlertDescription.ProtocolVersion, @SUnsupportedSelectedVersion);
   end
   else
+  begin
+    // TLS 1.3 is selected only through supported_versions (RFC 8446 4.2.1); an unsupported version
+    // aborts with protocol_version (D.1)
+    if LHello.LegacyVersion >= TlsWireVersionTls13 then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.ProtocolVersion, @SUnsupportedSelectedVersion);
     LNegotiatedVersion := LHello.LegacyVersion;
+  end;
   if TDowngradeProtection.IsDowngradeAttack(LHello.Random, True, LNegotiatedVersion) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SDowngradeDetected);

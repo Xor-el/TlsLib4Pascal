@@ -136,6 +136,7 @@ type
     procedure TestBadServerFinishedFailsClosed;
     procedure TestServerHelloUnofferedSuiteRejected;
     procedure TestServerHelloTls12SuiteRejected;
+    procedure TestServerHelloTls13LegacyVersionWithoutSupportedVersionsRejected;
     procedure TestIntermediateUnsolicitedExtensionRejected;
     procedure TestIntermediateDuplicateExtensionRejected;
     procedure TestMalformedForbiddenServerHelloExtensionIsUnsupported;
@@ -521,6 +522,31 @@ begin
     'a TLS 1.2 suite in a TLS 1.3 ServerHello aborts the handshake');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
     'a TLS 1.2 suite in a TLS 1.3 ServerHello is illegal_parameter');
+end;
+
+procedure TTestTls13ClientReplay.TestServerHelloTls13LegacyVersionWithoutSupportedVersionsRejected;
+var
+  LHello: TTlsHandshakeMessage;
+  LAlert: TTlsAlertDescription;
+  LDual: Int32;
+begin
+  // TLS 1.3 is selected only through supported_versions (RFC 8446 4.2.1): a ServerHello that claims
+  // it through legacy_version 0x0304 alone is refused, whether or not the client also offers 1.2
+  // suites
+  for LDual := 0 to 1 do
+  begin
+    FDualVersion := LDual = 1;
+    LHello := BuildServerHello(Filled($01, 32), nil, TCipherSuites13.Aes128GcmSha256, 0,
+      TNamedGroupCatalog.X25519, Filled($02, 32));
+    LHello.Body := System.Copy(LHello.Body);
+    LHello.Raw := System.Copy(LHello.Raw);
+    LHello.Body[1] := $04;
+    LHello.Raw[5] := $04;
+    CheckTrue(ServerHelloAlert(LHello, LAlert),
+      Format('legacy_version 0x0304 without supported_versions aborts (dual-version %d)', [LDual]));
+    CheckTrue(LAlert = TTlsAlertDescription.ProtocolVersion,
+      'it is protocol_version');
+  end;
 end;
 
 function TTestTls13ClientReplay.CertificateWithIntermediateExtensions(
