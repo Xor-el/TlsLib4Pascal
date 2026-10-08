@@ -176,7 +176,8 @@ var
   LDecompressor, LFound: ICertificateDecompressor;
 begin
   Result := nil;
-  // an out-of-range declared length is a malformed wire field (RFC 8879 4), not a bad certificate
+  // an out-of-range declared length is a malformed wire field, not a bad certificate (the size
+  // ceiling is local policy; RFC 8879 4 names bad_certificate only for a length mismatch)
   if (ADeclaredLength <= 0) or (ADeclaredLength > AMaxLength) then
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.IllegalParameter,
       @SBadDeclaredLength);
@@ -192,7 +193,8 @@ begin
       LFound := LDecompressor;
       Break;
     end;
-  // an algorithm the peer did not advertise is illegal_parameter (RFC 8879 4)
+  // an algorithm the peer did not advertise is illegal_parameter (RFC 8879 4 requires a listed
+  // algorithm but names no alert; the alert is local policy)
   if LFound = nil then
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.IllegalParameter,
       @SUnsupportedAlgorithm);

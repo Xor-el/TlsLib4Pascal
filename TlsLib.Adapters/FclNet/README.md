@@ -97,7 +97,7 @@ trust the familiar way. Only what fcl-net lacks is added as extension properties
 | `VerifyCallback` | augment-only hook (chain+host → Boolean) |
 | `VerdictResolver` + `VerdictDeadlineMs` | client-role out-of-band verdict (server's chain), e.g. live OCSP/CRL |
 | `ServerVerdictResolver` + `ServerVerdictDeadlineMs` | server-role out-of-band verdict (mTLS client's chain); beside a supplied `ClientConfig` / `ServerConfig` that config must itself defer the verdict, else the connection is refused |
-| `HandshakeTimeoutMs` | bounds the handshake read (ms); `0` = 30 s default |
+| `HandshakeTimeoutMs` | bounds the handshake read (ms); `0` = `Socket.IOTimeout` when set, else the 30 s default |
 | `Socket.IOTimeout` (fcl-net native) | bounds application reads; an expiry is retryable (`Recv` returns -1 with `LastErrorDesc` set, the connection stays usable), never a truncation |
 | `OnVerifyCertificate` (fcl-net native)                | augment-only reject after our pipeline             |
 
@@ -112,7 +112,7 @@ clients to fetch the missing CA.
 this adapter's constructor defaults it to **`True`**. Trust is therefore **fail-closed**: a client
 that names **no** trust source (`CertCA`/`TrustedCertificate`, `UseSystemTrust`, `CustomTrustStore`,
 a custom verifier) **refuses to connect** — system trust is never implicit. Anchor sources UNION; a
-a custom verifier is exclusive. A server requires `CertificateData.Certificate`/`.PrivateKey`; it
+custom verifier is exclusive. A server requires `CertificateData.Certificate`/`.PrivateKey`; it
 requests + verifies client certificates only when `ClientAuth` is set (mTLS is an explicit opt-in; a
 named client-CA alone never triggers it). Set `ClientAuth` per server-side handler in the
 `OnCreateClientSocketHandler` hook, never process-wide. `UseSystemTrust` is a server-certificate

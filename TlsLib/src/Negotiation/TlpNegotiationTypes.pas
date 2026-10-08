@@ -126,8 +126,8 @@ type
   end;
 
   /// <summary>
-  /// The named-group wire codepoints (RFC 8446, RFC 9370, RFC 10024) and the mapping
-  /// between a code and the provider group name it resolves to.
+  /// The named-group wire codepoints (RFC 8446, the IANA TLS Supported Groups registry,
+  /// RFC 10024) and the mapping between a code and the provider group name it resolves to.
   /// </summary>
   TNamedGroupCatalog = class sealed(TObject)
   public const

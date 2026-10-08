@@ -148,7 +148,7 @@ begin
   FPolicy := APolicy;
   FStatus := TEchStatus.NotOffered;
   // the policy resolved the (config, suite) once at Build; with none usable but GREASE enabled,
-  // offer a decoy ech instead (RFC 9849 sec. 6.2), generated once so a HelloRetryRequest re-sends
+  // offer a decoy ech instead (RFC 9849 sec. 6.2.1), generated once so a HelloRetryRequest re-sends
   // it verbatim
   if APolicy = nil then
     Exit;
@@ -305,7 +305,7 @@ begin
   LEnc := FCrypto.Hpke.RandomEncapsulation(GreaseKem);
   if System.Length(LEnc) = 0 then
     Exit(nil);
-  // draw the suite from the ones the provider actually supports (RFC 9849 sec. 6.2), so a fixed
+  // draw the suite from the ones the provider actually supports (RFC 9849 sec. 6.2.1), so a fixed
   // value cannot fingerprint the decoy as GREASE and a newly-supported algorithm is picked up
   // automatically - the provider is the single source of the HPKE vocabulary
   LSuites := FCrypto.Hpke.SupportedSuites(GreaseKem);
@@ -433,8 +433,8 @@ begin
       TTlsAlertDescription.InternalError, @SEchExtensionUnregistered);
 
   // a rejecting HelloRetryRequest: the server ignored our ech, so CH2's outer ech extension is
-  // an exact copy of CH1's (RFC 9849 sec. 6.1.5); the rest of the outer carries the retry's new
-  // key_share and cookie, but the ech payload is never re-sealed
+  // an exact copy of CH1's (RFC 8446 4.1.2, RFC 9849 sec. 6.1.6 / 6.2.1); the rest of the outer
+  // carries the retry's new key_share and cookie, but the ech payload is never re-sealed
   if AMode = TEchChMode.RetryReject then
   begin
     LOuterEntries.SetData(LEchIdx, FSentOuterEchExt);
@@ -549,7 +549,7 @@ begin
       FRetryConfigs := AEchData;
   end
   else if AEchPresent and (FStatus = TEchStatus.Greased) then
-    // GREASE ignores the retry_configs value (RFC 9849 sec. 6.2), but the extension must still
+    // GREASE ignores the retry_configs value (RFC 9849 sec. 6.2.1), but the extension must still
     // be a well-formed ECHConfigList; a malformed one is a decode_error (Parse raises it)
     TEchConfigList.Parse(AEchData);
 end;

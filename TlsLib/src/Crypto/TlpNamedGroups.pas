@@ -71,7 +71,7 @@ const
   MlKem768CiphertextBytes = 1088;
   // the encoded polynomial vector t (3 x 256 coefficients x 12 bits) precedes the 32-byte rho
   MlKem768VectorEncodingBytes = 1152;
-  MlKemModulus = 3329; // q (FIPS 203 sec. 2.4)
+  MlKemModulus = 3329; // q (FIPS 203 sec. 2.3)
 
 resourcestring
   SInvalidPeerShare = 'invalid peer key share for group %s';

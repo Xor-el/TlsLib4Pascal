@@ -81,8 +81,9 @@ begin
     Exit(False);
 
   // an ill-formed or unmatchable presented name (empty/non-LDH label, a wildcard that is not the
-  // entire leftmost label, or a wildcard over a public suffix like *.com) is ignored entirely
-  // (RFC 9525 6.3), never compared as a literal
+  // entire leftmost label, or a wildcard over a public suffix like *.com) is ignored entirely,
+  // never compared as a literal (the wildcard shape is RFC 9525 6.3; the public-suffix floor is
+  // local policy)
   if not IsMatchableDnsPattern(ADnsName) then
     Exit(False);
 
@@ -152,7 +153,7 @@ begin
   Result := False;
   if AName = '' then
     Exit;
-  // RFC 1035: the whole name is at most 253 presentation octets
+  // RFC 1035 2.3.4: the whole name is at most 255 wire octets (253 in text form follows)
   if System.Length(AName) > 253 then
     Exit;
   LFirstLabel := True;

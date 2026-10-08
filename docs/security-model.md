@@ -49,13 +49,13 @@ principal test units (the fuzz + BoGo + KAT suites cross-cover several).
 | 2 | **Constant-time secret comparison.** Finished `verify_data`, PSK binder, session-ticket MAC/decrypt, HRR-cookie MAC, and AEAD tags use a constant-time compare — never an early-exit `=` on secret-dependent data. | timing oracle / MAC forgery | CT compare helper used at every secret-equality site | key-schedule + handshake + resumption tests (`Tls13KeyScheduleTests`, `Tls12KeyScheduleTests`, `Tls13ResumptionTests`) |
 | 3 | **Certificate decompression cap (RFC 8879).** Output is capped at the peer's `uncompressed_length`; output exceeding it or a length mismatch aborts `bad_certificate`; the same max message size applies as if uncompressed; memory is bounded during decompression. | decompression / zip bomb | centralized bomb defense in the compression policy layer (`MaxDecompressedLength = 2^18`, ratio guard `100`, exact-length match) | `CertificateCompressionCacheTests` + the compression policy tests |
 | 4 | **Peer key-share / public-key validation.** Incoming key shares are validated before use: NIST-curve points are checked on-curve and non-identity; X25519/X448 are safe by construction (the Windows CNG overlay additionally reduces a non-canonical X25519 u per RFC 7748 sec. 5, and fails closed as a peer-input error on a u the OS module refuses); ML-KEM decapsulation uses constant-time implicit rejection; the hybrid combiner concatenates so no component failure leaks. | invalid-curve / small-subgroup | the KEM-shaped `INamedGroup` seam (`ValidatePeerShare`) | `NamedGroupTests` (incl. hybrid + short-ciphertext rejection) |
-| 5 | **AEAD nonce non-reuse + usage limits.** Per-epoch nonces are monotonic and never repeat within a key; a proactive KeyUpdate rekeys before the AES-GCM record limit (~2^24.5); the sequence never wraps without a rekey. | catastrophic GCM nonce reuse | `IRecordProtection` (monotonic sequence → nonce) + the provider's `CheckNonceReuse` guard | `RecordProtectionTests`, `ProviderTests` |
+| 5 | **AEAD nonce non-reuse + usage limits.** Per-epoch nonces are monotonic and never repeat within a key; a proactive KeyUpdate rekeys before the AES-GCM record limit (~2^24.5); the sequence never wraps without a rekey. | catastrophic GCM nonce reuse | `IRecordProtection` (monotonic sequence → nonce) + the AEAD backend's own nonce-reuse rejection (`SAeadSealRejected`; the CNG overlay checks too) | `RecordProtectionTests`, `ProviderTests` |
 | 6 | **DoS / resource limits.** Hard caps on handshake-reassembly size, floods of empty records / warning alerts / KeyUpdate requests, the stateful session store, and the 0-RTT strike register. All configurable; secure defaults. A handshake parked on an async verdict buffers inbound under these same caps. | memory exhaustion / infinite-work loops | the record layer + engine bounds; the stateless HRR cookie | record/handshake tests; `TStrikeRegisterAntiReplay` bounds (`Tls13ResumptionTests`) |
-| 7 | **Secret hygiene.** All key material — schedule secrets, traffic keys, PSKs, resumption secrets, STEK/ticket keys, the HRR-cookie secret — lives in a heap-stable `ISecretBuffer`, deterministically wiped once at end-of-life through an anti-dead-store-elimination barrier. Provider intermediates (round keys, HKDF PRKs, scratch) are wiped too. | key material recovered from freed memory | `TSecretBuffer` (refcounted, single buffer, wiped on `_Release`) | `SecretTests`; the **heap-scan teardown test** asserts no key survives a closed connection |
+| 7 | **Secret hygiene.** All key material — schedule secrets, traffic keys, PSKs, resumption secrets, STEK/ticket keys, the HRR-cookie secret — lives in a heap-stable `ISecretBuffer`, deterministically wiped once at end-of-life through an anti-dead-store-elimination barrier. Provider intermediates (round keys, HKDF PRKs, scratch) are wiped too. | key material recovered from freed memory | `TSecretBuffer` (refcounted, single buffer, wiped on `_Release`) | `SecretTests` (`TestWipeOnLastRelease` asserts the buffer is zeroed when its last reference is released) |
 | 8 | **Single-threaded per connection.** An engine/connection is single-threaded (caller serializes; no internal locks). Config objects are immutable once built and freely shareable across threads. | accidental data races on connection state | stated contract; frozen config objects | design invariant; config-freeze tests |
 | 9 | **Fail-closed authentication.** A client with verification on but no trust source is refused at `Build` (`SNoTrustStore`), and a client with name checking on but no usable host is refused when the engine is created — never a silent RFC 9525 skip (disable it only via `WithDangerousDisableServerNameCheck`). A certificate whose `extendedKeyUsage` excludes the TLS role — `serverAuth` for a server, `clientAuth` for a client, over the leaf and every intermediate — is rejected as `unsupported_certificate` (required-if-present; `anyExtendedKeyUsage` is not a substitute). Anchor sources *union*; a whole verifier is *exclusive* (combining it with an anchor source is a typed error at `Build`). A parked certificate verdict that never resolves (or times out) fails the handshake — the only pass is an explicit positive verdict. A definitive, authenticated `Revoked` aborts under every revocation posture, including `Off`. | silent-insecure / fail-open trust / wrong-purpose certificate | the config builder guards + the engine factory + the trust pipeline (augment-only) | `CertificateVerifierTests`, `TrustCompositionTests`, `CertificateCheckTests`, `LiveRevocationTests`, `ServerSideLiveRevocationTests` |
 | 10 | **Downgrade protection.** The ServerHello.random downgrade sentinel is set/checked and is *cryptographically bound* (via the 1.2 SKE signature and, both versions, the Finished MAC over the transcript); a 1.3-capable client aborts `illegal_parameter` on a spurious downgrade. Server-side `TLS_FALLBACK_SCSV` aborts `inappropriate_fallback`. | version-downgrade MITM | negotiation prologue + Finished MAC + SCSV | `NegotiationTests`, `Tls12DualVersionTests` |
-| 11 | **CSPRNG hard-fail + fork safety.** A randomness failure aborts the operation with a fatal error — never a silent fallback to a weak or zero source. The default provider reseeds after a detected `fork()`. | weak / replayed randomness (post-fork nonce reuse) | the provider's RNG contract | provider RNG tests |
+| 11 | **CSPRNG hard-fail.** A randomness failure aborts the operation with a fatal error — never a silent fallback to a weak or zero source. There is no fork detection: after `fork()` the child must not use the parent's provider or any connection it inherited; build a fresh provider in the child. | weak / replayed randomness | the provider's RNG contract | provider RNG tests |
 
 ## Authentication & trust — the fail-closed core
 
@@ -84,10 +84,12 @@ one when ECH was accepted). For debugging only — never production.
   no such session (RFC 7627 §5.3). `Tls12.WithNonEmsResumption` can instead abort the handshake
   (the literal SHOULD) or resume it for legacy clients; `WithExtendedMasterSecret(True)` rejects
   every non-EMS client.
-- **Post-quantum hybrid KEX on by default** (X25519MLKEM768), interop-verified against OpenSSL 3.5+
+- **Post-quantum hybrid KEX** (X25519MLKEM768) offered by every preset and preferred under
+  Hardened and Strict, interop-verified against OpenSSL 3.5+
   and BoringSSL.
-- **Forward-secret resumption.** `psk_dhe_ke` only by default; `psk_ke` (no forward secrecy) is
-  reachable only through the dangerous surface. Single-use tickets. **0-RTT is off by default** and,
+- **Forward-secret resumption.** `psk_dhe_ke` only; `psk_ke` (no forward secrecy) is never
+  negotiated. Client-cache tickets are single-use; server tickets are single-use with a session
+  store. **0-RTT is off by default** and,
   when enabled, is bounded by an anti-replay strategy.
 - **Path validation** is delegated to the crypto backend's PKIX engine (PKITS-verified in the
   default distribution), run under a constrained web-PKI profile by default, with the full RFC 5280
@@ -113,8 +115,8 @@ The correctness/security story is enforced continuously, not once:
   X25519MLKEM768 hybrid cell).
 - **Regression suite** pinning immunity to the designed-out attacks (downgrade sentinel, no-CBC,
   decompression bomb, invalid-curve, timing).
-- **Heap-scan teardown test** — after a connection closes, freed buffers are scanned to assert no key
-  material survives.
+- **Secret-wipe test** — a secret buffer is asserted to be zeroed when its last reference is
+  released.
 - **Dual compiler.** The suite builds and runs on both Delphi and FPC.
 
 ## Deliberate design decisions an auditor should know
@@ -127,8 +129,10 @@ These are intentional and documented — flagging them up front so they aren't m
   BoringSSL's multi-key_share prediction, and the corresponding BoGo cases are disabled by policy.
 - **Augment-only custom verification** (vs the rustls/.NET "replace validation" model) — a callback can
   only tighten, never loosen.
-- **No process-global mutable configuration.** All behavior lives in immutable, per-connection config
-  objects; there is no `install_default()`-style ambient global (a footgun for a security library).
+- **No process-global mutable configuration in the core.** All behavior lives in immutable,
+  per-connection config objects; there is no `install_default()`-style ambient global (a footgun for
+  a security library). The framework adapters expose a few process-wide setters (for example the
+  mORMot handshake timeout).
 - **Strict PKCS#1 DigestInfo.** Every RSASSA-PKCS1-v1_5 verification (certificate, CRL and OCSP
   signatures, and TLS 1.2 handshake signatures) re-encodes the DigestInfo with its NULL parameters and
   compares it exactly (RFC 8017 8.2.2, 9.2 and B.1). Two paths are outside this: the optional Windows

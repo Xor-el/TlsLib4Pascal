@@ -326,7 +326,7 @@ end;
 class function TRecordLayer.IsKnownRecordType(AByte: Byte): Boolean;
 begin
   // the four outer record content types the layer accepts (RFC 8446 5.1); an
-  // unknown or unsupported outer type is rejected at framing, before it is queued
+  // unknown or unsupported outer type is rejected at framing (RFC 8446 5), before it is queued
   Result := (AByte = Byte(Ord(TTlsContentType.ChangeCipherSpec))) or
     (AByte = Byte(Ord(TTlsContentType.Alert))) or
     (AByte = Byte(Ord(TTlsContentType.Handshake))) or
@@ -521,10 +521,10 @@ begin
     TTlsContentType.ApplicationData, TTlsContentType.Handshake,
       TTlsContentType.Alert:
       begin
-        // an application_data record before the handshake completes is unexpected (RFC 8446 5.1
-        // / RFC 5246), whether empty or not - including under a real epoch installed mid-handshake
-        // (TLS 1.2 keys at the peer's ChangeCipherSpec, before its Finished). Accepted 0-RTT early
-        // data is the exception, excluded by the guard below.
+        // an application_data record before the handshake completes is unexpected (RFC 8446 2 /
+        // 4.4.4, RFC 5246 7.4.9), whether empty or not - including under a real epoch installed
+        // mid-handshake (TLS 1.2 keys at the peer's ChangeCipherSpec, before its Finished).
+        // Accepted 0-RTT early data is the exception, excluded by the guard below.
         if FStrictApplicationData and
           (AFragment.ContentType = TTlsContentType.ApplicationData) and
           (not FHandshakeComplete) and (not FEarlyReadAccepted) then

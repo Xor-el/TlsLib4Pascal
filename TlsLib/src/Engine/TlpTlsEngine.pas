@@ -78,7 +78,8 @@ type
     FSentClose: Boolean;
     FHandshakeComplete: Boolean;
     /// <summary>Count of tolerated warning-level alerts received, bounded to guard against a
-    /// peer flooding them (RFC 8446 6 leaves the level advisory but a flood is a DoS).</summary>
+    /// peer flooding them (RFC 5246 7.2 tolerates warnings, RFC 8446 6 only user_canceled; a flood
+    /// is a DoS).</summary>
     FWarningAlertCount: Int32;
     // 0-RTT: a write protection is installed (early or later) and the early-data window is
     // still open until the outcome is known
@@ -204,7 +205,8 @@ const
   PlaintextQueueMinCapacity = Int32(4096);
   PlaintextQueueRetainCapacity = Int32(1 shl 16);
   // the number of warning-level alerts tolerated before a flood is refused; the next one
-  // aborts the connection (RFC 8446 6 leaves the level advisory, but a flood is a DoS)
+  // aborts the connection (RFC 5246 7.2 tolerates warnings, RFC 8446 6 only user_canceled; a
+  // flood is a DoS)
   MaxWarningAlerts = Int32(4);
   // the most undrained events kept before the informational kinds are dropped: room for a
   // full handshake's worth plus a long run of post-handshake notices, while a caller that never
@@ -774,8 +776,8 @@ begin
   if not (FAppWriteEpoch and (IsTls13 or FHandshakeComplete)) then
     raise EInvalidOperationTlsLibException.CreateRes(@SWriteBeforeWriteEpoch);
   // a zero-length application write is a no-op (after the close/epoch guards): it has nothing to
-  // precede an owed KeyUpdate with, and must not put an empty record on the wire (RFC 8446 5.4 -
-  // an empty application_data record counts toward the peer's consecutive-empty-record bound)
+  // precede an owed KeyUpdate with, and must not put an empty record on the wire (RFC 8446 5.4
+  // permits empty application_data; the peer's consecutive-empty-record bound is local policy)
   if ALength <= 0 then
     Exit;
   // a KeyUpdate owed to a peer update_requested must precede our next application data

@@ -378,7 +378,7 @@ resourcestring
   SNoClassicalEcdheGroup = 'TLS 1.2 is offered but none of the preferred key-exchange groups is a ' +
     'registered classical ECDHE group, so no TLS 1.2 handshake could ever select a group';
   SAlpnProtocolDuplicate = 'the ALPN protocol "%s" is offered more than once';
-  SRecordSizeLimitRange = 'the record_size_limit must be 0 (not offered) or 64..16384 (RFC 8449 4)';
+  SRecordSizeLimitRange = 'the record_size_limit must be 0 (not offered) or 64..16384 (the library cap; RFC 8449 4)';
   SHardRevocationUnusable = 'a Hard revocation posture rejects a peer whose certificate has no ' +
     'stapled OCSP response, so it always-rejects unless the client obtains revocation status: ' +
     'call WithOcspStaplingRequest(True) to request a staple, or configure a live OCSP/CRL verdict ' +
@@ -1915,8 +1915,8 @@ end;
 function TTlsConfigBuilder.WithRecordSizeLimit(ALimit: Int32): TTlsConfigBuilder;
 begin
   GuardMutable;
-  // 0 offers nothing; 16384 is the largest a sender may ever emit, so one bound is legal under
-  // both TLS 1.3 (counted as TLSInnerPlaintext) and 1.2 in a dual-version config (RFC 8449 4)
+  // 0 offers nothing; 16384 is the library's cap, so one bound is legal under both TLS 1.3
+  // (2^14+1, counted as TLSInnerPlaintext) and 1.2 (2^14) in a dual-version config (RFC 8449 4)
   if (ALimit <> 0) and ((ALimit < 64) or (ALimit > 16384)) then
     raise EArgumentTlsLibException.CreateRes(@SRecordSizeLimitRange);
   FRecordSizeLimit := ALimit;

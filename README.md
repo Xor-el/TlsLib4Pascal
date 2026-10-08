@@ -35,7 +35,7 @@
 
 - **Fully managed, from-scratch** -- one pure Object Pascal TLS engine, identical on every platform
 - **TLS 1.3 + hardened TLS 1.2** -- client and server, designed together; 1.2 is an ECDHE + AEAD + Extended-Master-Secret profile only
-- **Post-quantum hybrid KEX by default** -- `X25519MLKEM768` in every preset
+- **Post-quantum hybrid KEX** -- `X25519MLKEM768` offered by every preset; preferred under Hardened and Strict
 - **AEAD-only, forward-secret** -- no CBC-HMAC, RC4, 3DES, static-RSA/DH, or TLS-level compression; 0-RTT off by default
 - **Secure by default, fail-closed** -- refuses to build an unauthenticated client, and every foot-gun lives behind one loudly-named `dangerous` surface
 - **Complete trust pipeline** -- PKIX path validation, RFC 9525 endpoint identity, public-key pinning, stapled + live OCSP/CRL revocation, and opt-in OS system trust
@@ -97,7 +97,7 @@ CPU-adaptive AEAD selection (ChaCha20-Poly1305 preferred where hardware AES is a
 <details>
 <summary><strong>Resumption, PSK &amp; 0-RTT</strong></summary>
 
-- TLS 1.3 -- forward-secret `psk_dhe_ke`, single-use tickets, stateless STEK rotation auto-upgrading to a stateful store.
+- TLS 1.3 -- forward-secret `psk_dhe_ke`, single-use client tickets (server tickets with a session store), stateless STEK rotation auto-upgrading to a stateful store.
 - TLS 1.2 -- session IDs + RFC 5077 tickets.
 - **External PSKs** -- out-of-band pre-shared keys, imported per RFC 9258. Both peers must implement the import; a peer that does not import the PSK as RFC 9258 describes will not interoperate.
 - **0-RTT early data** -- off by default, bounded by a pluggable anti-replay strategy when enabled.
@@ -114,7 +114,7 @@ CPU-adaptive AEAD selection (ChaCha20-Poly1305 preferred where hardware AES is a
 <details>
 <summary><strong>Integration tiers</strong></summary>
 
-- **Tier 1 -- batteries-included facade** (`TTlsLib`): a ready, safe config or engine in one call.
+- **Tier 1 -- batteries-included facade** (`TTlsLib`): a ready, safe config in one call.
 - **Tier 2 -- `TTlsStream`**: a `TStream` that speaks TLS over a two-method `ITlsTransport`.
 - **Tier 3 -- drop-in adapters**: mORMot, Indy, Synapse, and fcl-net, each via that stack's own SSL seam.
 - *Underneath, all three run on the raw sans-IO engine (`ITlsEngine`) — drive it directly only for async / event-loop frameworks that pump bytes themselves.*
@@ -182,7 +182,7 @@ var
   MyTransport: ITlsTransport;   // your socket, wrapped behind ITlsTransport
   Request, Response: TBytes;    // your request bytes, and a buffer for the reply
 begin
-  // Compatible preset (TLS 1.3 + hardened 1.2, PQ hybrid), verified against your CA bundle.
+  // Compatible preset (TLS 1.3 + hardened 1.2, PQ hybrid offered), verified against your CA bundle.
   LConfig := TTlsLib.NewClientConfig(LoadFile('my-ca.pem'));
   LEngine := TTlsEngineFactory.CreateClientEngine(LConfig, 'example.com');
 

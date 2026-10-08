@@ -481,8 +481,8 @@ type
   // The shape of a DER-encoded private key, distinguished by its first inner elements.
   TDerKeyShape = (Unknown, Pkcs8, EncryptedPkcs8, Pkcs1Rsa, Sec1Ec);
 
-  // Parses and normalizes imported credential key material to canonical PKCS#8 and
-  // derives the schemes a key can sign with. All backend parsing stays here, inside
+  // Parses imported credential key material into a backend key parameter (no PKCS#8 bytes are
+  // retained) and derives the schemes a key can sign with. All backend parsing stays here, inside
   // the provider boundary.
   TCredentialImport = class sealed(TObject)
   strict private
@@ -1072,10 +1072,11 @@ const
 var
   LPoint: IECPoint;
 begin
-  // the peer point must be the SEC1 uncompressed form of the exact field width: RFC 9180 7.1.1 fixes
-  // the DHKEM public-key length (Npk = 1 + 2*fieldSize) and RFC 8446 4.2.8.2 / RFC 8422 5.1.2 forbid
-  // compressed/hybrid encodings. DecodePoint alone would accept a compressed 0x02/0x03 point, so gate
-  // the form here - this path also serves HPKE Decap, where a short compressed enc would slip through.
+  // the peer point must be the SEC1 uncompressed form of the exact field width: RFC 9180 7.1 / 7.1.1
+  // fix the DHKEM public-key length (Npk = 1 + 2*fieldSize) and RFC 8446 4.2.8.2 / RFC 8422
+  // 5.1.2 forbid compressed/hybrid encodings. DecodePoint alone would accept a compressed
+  // 0x02/0x03 point, so gate the form here - this path also serves HPKE Decap, where a short
+  // compressed enc would slip through.
   if (System.Length(APeerPub) <> 1 + 2 * FFieldSize) or
     (APeerPub[0] <> UncompressedPointPrefix) then
     raise EPeerInputTlsLibException.CreateRes(@SInvalidPeerPoint);

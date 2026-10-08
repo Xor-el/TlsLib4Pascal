@@ -231,7 +231,8 @@ type
     /// <summary>
     /// Imports a signing private key in any supported encoding - PKCS#8, PKCS#1
     /// (RSAPrivateKey) or SEC1 (ECPrivateKey), in DER or PEM - into an opaque handle
-    /// that holds it as canonical PKCS#8 and reports the schemes it can sign with. An encrypted
+    /// that holds the parsed key (the PKCS#8 bytes are not retained) and reports the schemes it
+    /// can sign with. An encrypted
     /// PKCS#8 key (DER EncryptedPrivateKeyInfo or an encrypted PEM key) is decrypted with APassword,
     /// a wiped buffer of UTF-8 passphrase octets: nil expects an unencrypted key (an encrypted one
     /// then raises), a zero-length buffer is an empty passphrase. Malformed input raises

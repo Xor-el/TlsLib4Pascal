@@ -77,20 +77,21 @@ pinnable.) After the handshake this same validated path is readable as
 `ConnectionInfo.PeerCertificates`.
 
 ```pascal
-uses TlpCryptoAlgorithms, TlpICryptoProvider;
+uses TlpCryptoDomainTypes, TlpICryptoProvider, TlpIPkixProvider;
 
-function SpkiSha256(const AProvider: ICryptoProvider; const ACertDer: TBytes): TBytes;
+function SpkiSha256(const ACrypto: ICryptoProvider; const APkix: IPkixProvider;
+  const ACertDer: TBytes): TBytes;
 var LHash: IHash; LSpki: TBytes;
 begin
-  LSpki := AProvider.CertificatePublicKeyInfo(ACertDer);
-  LHash := AProvider.CreateHash(THashAlgorithm.SHA_256);
+  LSpki := APkix.Certificates.PublicKeyInfo(ACertDer);
+  LHash := ACrypto.Primitives.CreateHash(THashAlgorithm.SHA_256);
   LHash.Update(LSpki, 0, System.Length(LSpki));
   Result := LHash.DoFinal;
 end;
 
 LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   .WithTrustAnchors(LoadFile('my-ca.pem'))
-  .WithCertificatePinning( TArray<TBytes>.Create(SpkiSha256(Crypto, LoadFile('leaf.der'))) )
+  .WithCertificatePinning( TArray<TBytes>.Create(SpkiSha256(Crypto, Pkix, LoadFile('leaf.der'))) )
   .Build;
 ```
 
@@ -220,7 +221,7 @@ further, never accept-all. (See §4b.)
 
 ## 6. Through the integration adapters
 
-The [mORMot / Indy / Synapse adapters](../TlsLib.Adapters) map their host's "ignore certificate
+The [mORMot / Indy / Synapse / fcl-net adapters](../TlsLib.Adapters) map their host's "ignore certificate
 errors" flag onto `InsecureSkipVerify` for you, so the accept-any case is a one-liner:
 
 ```pascal

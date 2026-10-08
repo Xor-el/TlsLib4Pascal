@@ -1386,7 +1386,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   // a client that splices a GREASE extension into its ClientHello must reject a server that
-  // echoes that GREASE type back in EncryptedExtensions (RFC 8701 4)
+  // echoes that GREASE type back in EncryptedExtensions (RFC 8701 3.1)
   LClient := NewGreasingClientMachine;
   LServer := NewServerMachine(nil);
   LClientHello := FirstSendHandshake(LClient.Start);

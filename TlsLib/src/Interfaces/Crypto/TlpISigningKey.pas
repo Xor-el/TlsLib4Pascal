@@ -39,8 +39,7 @@ type
 
     /// <summary>The canonical DER SubjectPublicKeyInfo of this key's public half, or nil when
     /// the backend cannot export it. The public key is public data; exposing it lets a caller
-    /// confirm the key matches a certificate's public key with no private-key operation, and
-    /// seeds a raw-public-key credential (RFC 7250) from the key itself.</summary>
+    /// confirm the key matches a certificate's public key with no private-key operation.</summary>
     function PublicKeyInfo: TBytes;
 
     /// <summary>A handle over the same key whose CapableSchemes are narrowed and

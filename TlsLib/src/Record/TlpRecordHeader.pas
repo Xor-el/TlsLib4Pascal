@@ -41,7 +41,7 @@ type
   /// <summary>
   /// The 5-byte TLS record header. The content type is held as its raw wire byte
   /// so an unknown code survives the parse for the record layer's demux to reject
-  /// (RFC 8446 5.1) rather than being guessed or dropped here.
+  /// (RFC 8446 5) rather than being guessed or dropped here.
   /// </summary>
   TTlsRecordHeader = record
   strict private

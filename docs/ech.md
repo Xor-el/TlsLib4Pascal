@@ -8,8 +8,7 @@ site you are visiting — most importantly the Server Name Indication (SNI). The
 publishes in DNS, wrapped inside a **`ClientHelloOuter`** that carries a public, non-sensitive name.
 A network observer sees only the public name; the true destination stays encrypted.
 
-ECH is **TLS 1.3 only** (RFC 9849; the same stance as rustls and Go's `crypto/tls`, which refuse to
-configure ECH below 1.3). When ECH is enabled the endpoint is 1.3-only — no TLS 1.2 fallback is
+ECH is **TLS 1.3 only** (RFC 9849 6.1: the ClientHelloInner must not offer TLS 1.2 or below). When ECH is enabled the endpoint is 1.3-only — no TLS 1.2 fallback is
 offered, because a 1.2 handshake has no ECH and would defeat its purpose.
 
 ECH lives behind the **`.Tls13` facets**. Everything below is public, provider-neutral API; the HPKE
@@ -83,7 +82,8 @@ LClient.Tls13.WithEchGrease(True); // send a decoy ech when no real config is us
 ```
 
 The decoy is random-but-plausible and is re-sent verbatim across a HelloRetryRequest; any ECH
-response from the server is ignored. `EchStatus` reports `Greased` only when the handshake completes
+response from the server is ignored once it passes a syntactic check (the HelloRetryRequest `ech`
+and the EncryptedExtensions `retry_configs`; a malformed one is a decode_error). `EchStatus` reports `Greased` only when the handshake completes
 as TLS 1.3: a dual-version client whose server picks TLS 1.2 reports `NotOffered`.
 
 ---
@@ -130,7 +130,7 @@ record where the config is published (RFC 9460 §2.3 and §9, RFC 9848 §3, RFC 
 PKCS#8 `PRIVATE KEY` block the server store loads, plus an `ECHCONFIG` block) and prints the DNS
 presentation line, owned by the origin. The `-out` file must not already exist: it is created
 exclusively and is never overwritten or written through a symlink. On POSIX its mode is 0600; on
-Windows the file inherits the access list of its directory.
+Windows it gets a protected, owner-only access list.
 
 ```
 secret.example. HTTPS 1 . ech="AD7+DQA6BwAg..."

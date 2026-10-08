@@ -134,7 +134,8 @@ begin
   AContext.MessageContext := AKind;
   // an omitted extensions field (no bytes at all, distinct from a present-but-empty
   // extensions<0..> vector) carries no extensions; only a TLS 1.2 ClientHello/ServerHello may
-  // end after compression_method (RFC 5246 7.4.1) - accept it there as the empty offer it is.
+  // end after compression_method (RFC 5246 7.4.1.2 / 7.4.1.3) - accept it there as the empty
+  // offer it is.
   // Every other message (EncryptedExtensions, Certificate, ...) carries a mandatory extensions
   // vector, so an absent one is a decode_error - which TExtensionVector.Parse raises, since it
   // does not treat an empty field as the empty vector

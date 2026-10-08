@@ -334,7 +334,7 @@ end;
 procedure TTestExtensionCodec.TestGreaseEchoedInServerHelloIsIllegalParameter;
 begin
   // the client splices a GREASE extension into its own ClientHello, so it appears "offered"; a
-  // server that echoes that GREASE type in a response must be rejected (RFC 8701 4). Block: one
+  // server that echoes that GREASE type in a response must be rejected (RFC 8701 3.1). Block: one
   // empty GREASE (0x0A0A) extension, marked offered so it clears the unsolicited check.
   CheckEquals(Integer(TTlsAlertDescription.IllegalParameter),
     ConsumeAlertCode(TTlsExtensionContextKind.ServerHello, DecodeHex('00040A0A0000'), $0A0A),
@@ -917,7 +917,7 @@ end;
 procedure TTestExtensionCodec.TestRenegotiationInfoNonEmptyIsHandshakeFailure;
 begin
   // a non-empty renegotiated_connection on an initial handshake is a fatal handshake_failure
-  // (RFC 5746 3.4); we never renegotiate
+  // (RFC 5746 3.6); we never renegotiate
   CheckEquals(Integer(TTlsAlertDescription.HandshakeFailure),
     ConsumeAlertCode(TTlsExtensionContextKind.ClientHello,
     DecodeHex('0006ff01000201aa'), -1),

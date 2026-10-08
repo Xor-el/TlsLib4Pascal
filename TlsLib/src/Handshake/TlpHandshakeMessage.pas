@@ -77,7 +77,7 @@ type
   /// record layer delivers: a message may span several fragments and several
   /// messages may be coalesced in one. Bounded - a declared body length beyond
   /// MaxMessageLength is a fatal decode_error before any of it is buffered
-  /// (RFC 8446, DoS resistance). Single-threaded; the caller serializes.
+  /// (a local DoS bound). Single-threaded; the caller serializes.
   /// </summary>
   THandshakeMessageReader = class sealed(TObject)
   strict private
