@@ -70,6 +70,7 @@ type
       AClassicalShareBytes, AKemEncapsBytes: Int32; AKemFirst: Boolean);
   published
     procedure TestX25519Rfc7748Kat;
+    procedure TestX25519AcceptsNonCanonicalU;
     procedure TestX25519Agreement;
     procedure TestMlKem768Agreement;
     procedure TestHybridAgreement;
@@ -131,6 +132,7 @@ end;
 procedure TTestNamedGroups.TestX25519Rfc7748Kat;
 var
   LVec: TStringList;
+  LCrypto: ICryptoProvider;
   LGroup: INamedGroup;
   LKa: IKeyAgreement;
   LKey: IKeyExchangePrivateKey;
@@ -139,14 +141,45 @@ var
 begin
   LVec := LoadVectorFields('Crypto/Ecdh/X25519Rfc7748.txt');
   try
-    LGroup := TNamedGroups.CreateX25519(Crypto);
+    // portable: the vector's u lies outside the prime-order subgroup, refused by Windows Server
+    // 2025 CNG (build 26100)
+    LCrypto := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable);
+    LGroup := TNamedGroups.CreateX25519(LCrypto);
     // adopt the raw RFC 7748 scalar into a key; Decapsulate is then ECDH(scalar, u)
-    LKa := Crypto.Primitives.CreateKeyAgreement(TKeyAgreementAlgorithm.X25519);
+    LKa := LCrypto.Primitives.CreateKeyAgreement(TKeyAgreementAlgorithm.X25519);
     LKey := LKa.ImportPrivateKey(TSecretBuffer.From(DecodeHex(LVec.Values['scalar'])),
       TKeyAgreementUsage.Ephemeral, LPub);
     LGroup.Decapsulate(LKey, DecodeHex(LVec.Values['u']), LSecret);
     CheckEqualBytes('X25519 RFC 7748', DecodeHex(LVec.Values['output']),
       SecretBytes(LSecret));
+  finally
+    LVec.Free;
+  end;
+end;
+
+procedure TTestNamedGroups.TestX25519AcceptsNonCanonicalU;
+var
+  LVec: TStringList;
+  LKa: IKeyAgreement;
+  LKey: IKeyExchangePrivateKey;
+  LPub, LExpected: TBytes;
+begin
+  // RFC 7748 5: a receiver masks bit 255 and accepts a non-canonical u, so p+9 and 9 with
+  // bit 255 set both agree like u = 9 (Alice's public key)
+  LVec := LoadVectorFields('Crypto/Ecdh/X25519Rfc7748.txt');
+  try
+    LExpected := DecodeHex(LVec.Values['alice_public']);
+    LKa := Crypto.Primitives.CreateKeyAgreement(TKeyAgreementAlgorithm.X25519);
+    LKey := LKa.ImportPrivateKey(TSecretBuffer.From(DecodeHex(LVec.Values['alice_private'])),
+      TKeyAgreementUsage.Ephemeral, LPub);
+    CheckEqualBytes('the public key of the RFC 7748 6.1 private key', LExpected, LPub);
+    CheckEqualBytes('u = p+9 reduces to 9', LExpected,
+      SecretBytes(LKa.Agree(LKey, DecodeHex(LVec.Values['u_p_plus_9']))));
+    CheckEqualBytes('bit 255 of u is masked', LExpected,
+      SecretBytes(LKa.Agree(LKey, DecodeHex(LVec.Values['u_9_bit255']))));
+    CheckEqualBytes('RFC 7748 6.1 shared secret with Bob''s public key',
+      DecodeHex(LVec.Values['shared_k']),
+      SecretBytes(LKa.Agree(LKey, DecodeHex(LVec.Values['bob_public']))));
   finally
     LVec.Free;
   end;

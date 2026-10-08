@@ -94,6 +94,9 @@ type
     // every key-exchange primitive refuses a key minted by another primitive, and accepts its own
     // family's key through a fresh instance
     procedure TestKeyExchangePrimitivesRefuseEachOthersKeys;
+    // the overlay's X25519 returns the portable result for a u outside the prime-order subgroup,
+    // or refuses it, never a different value
+    procedure TestX25519NeverDisagreesWithPortable;
     // both parsers agree on the key: the natively adopted PKCS#12 key's exported SPKI equals
     // the leaf certificate's SPKI (guards against crypt32 key<->cert association drift)
     procedure TestPkcs12ExportedKeyMatchesLeaf;
@@ -349,6 +352,44 @@ begin
     LRsaKey.PublicKeyInfo);
   LVerifier.Update(LMessage, 0, System.Length(LMessage));
   CheckFalse(LVerifier.Verify(LRsaSignature), 'an RSA key does not verify under an ECDSA scheme');
+end;
+
+procedure TTestWindowsSystemCrypto.TestX25519NeverDisagreesWithPortable;
+const
+  Names: array [0 .. 1] of string = ('u', 'u_twist');
+var
+  LVec: TStringList;
+  LPortable, LOs: IKeyAgreement;
+  LPortableKey, LOsKey: IKeyExchangePrivateKey;
+  LPublic, LPeer, LExpected: TBytes;
+  LI: Int32;
+begin
+  // a u outside the prime-order subgroup may be refused by the OS module (RFC 7748 7), but when
+  // it is accepted the result must be the portable one
+  LVec := LoadVectorFields('Crypto/Ecdh/X25519Rfc7748.txt');
+  try
+    LPortable := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable).Primitives
+      .CreateKeyAgreement(TKeyAgreementAlgorithm.X25519);
+    LOs := Crypto.Primitives.CreateKeyAgreement(TKeyAgreementAlgorithm.X25519);
+    LPortableKey := LPortable.ImportPrivateKey(TSecretBuffer.From(DecodeHex(LVec.Values['scalar'])),
+      TKeyAgreementUsage.Ephemeral, LPublic);
+    LOsKey := LOs.ImportPrivateKey(TSecretBuffer.From(DecodeHex(LVec.Values['scalar'])),
+      TKeyAgreementUsage.Ephemeral, LPublic);
+    for LI := Low(Names) to High(Names) do
+    begin
+      LPeer := DecodeHex(LVec.Values[Names[LI]]);
+      LExpected := LPortable.Agree(LPortableKey, LPeer).ToBytes;
+      try
+        CheckEqualBytes(Format('the overlay agrees with portable on %s', [Names[LI]]),
+          LExpected, LOs.Agree(LOsKey, LPeer).ToBytes);
+      except
+        on EPeerInputTlsLibException do
+          ; // refused, which is permitted
+      end;
+    end;
+  finally
+    LVec.Free;
+  end;
 end;
 
 procedure TTestWindowsSystemCrypto.TestKeyExchangePrimitivesRefuseEachOthersKeys;
