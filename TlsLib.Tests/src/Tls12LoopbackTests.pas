@@ -581,8 +581,8 @@ begin
     AMsg + ': the client reports whether EMS was used');
   CheckEquals(AOfferEms, LServer.ConnectionInfo.ExtendedMasterSecret,
     AMsg + ': the server reports whether EMS was used');
-  LFromClient := LClient.ExportKeyingMaterial('EXPERIMENTAL tlslib test', 32);
-  LFromServer := LServer.ExportKeyingMaterial('EXPERIMENTAL tlslib test', 32);
+  LFromClient := LClient.ExportKeyingMaterial('EXPORTER-test', 32);
+  LFromServer := LServer.ExportKeyingMaterial('EXPORTER-test', 32);
   if AOfferEms then
   begin
     CheckEquals(32, System.Length(LFromClient), AMsg + ': the client exports with EMS');

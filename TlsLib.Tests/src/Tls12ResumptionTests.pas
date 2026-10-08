@@ -648,11 +648,11 @@ begin
   CheckAppDataFlows(LClient, LServer);
   CheckTrue(LClient.ConnectionInfo.ExtendedMasterSecret, 'the resumed session reports EMS');
   CheckTrue(LServer.ConnectionInfo.ExtendedMasterSecret, 'on the server too');
-  CheckEquals(32, System.Length(LClient.ExportKeyingMaterial('EXPERIMENTAL tlslib test', 32)),
+  CheckEquals(32, System.Length(LClient.ExportKeyingMaterial('EXPORTER-test', 32)),
     'the resumed EMS session exports');
   CheckEqualBytes('and both peers export the same material',
-    LClient.ExportKeyingMaterial('EXPERIMENTAL tlslib test', 32),
-    LServer.ExportKeyingMaterial('EXPERIMENTAL tlslib test', 32));
+    LClient.ExportKeyingMaterial('EXPORTER-test', 32),
+    LServer.ExportKeyingMaterial('EXPORTER-test', 32));
 end;
 
 procedure TTestTls12Resumption.TestResumePreservesExtendedMasterSecretOff;
@@ -681,9 +681,9 @@ begin
   CheckAppDataFlows(LClient, LServer);
   CheckFalse(LClient.ConnectionInfo.ExtendedMasterSecret, 'the resumed session reports no EMS');
   CheckFalse(LServer.ConnectionInfo.ExtendedMasterSecret, 'on the server too');
-  CheckEquals(0, System.Length(LClient.ExportKeyingMaterial('EXPERIMENTAL tlslib test', 32)),
+  CheckEquals(0, System.Length(LClient.ExportKeyingMaterial('EXPORTER-test', 32)),
     'a resumed non-EMS session exports nothing on the client');
-  CheckEquals(0, System.Length(LServer.ExportKeyingMaterial('EXPERIMENTAL tlslib test', 32)),
+  CheckEquals(0, System.Length(LServer.ExportKeyingMaterial('EXPORTER-test', 32)),
     'nor on the server');
 end;
 
