@@ -102,6 +102,7 @@ type
     procedure TestGarbageFirstRecordAbortsWithoutRaising;
     procedure TestFirstMessageOfTheWrongTypeIsUnexpectedMessage;
     procedure TestTls12ServerHelloWithTls13ExtensionIsRefused;
+    procedure TestServerHelloTls13LegacyVersionWithoutSupportedVersionsIsProtocolVersion;
     procedure TestServerHelloSelectingAnUnofferedVersionIsProtocolVersion;
     procedure TestScsvFromLowerClientAborts;
     procedure TestScsvFromCurrentClientDoesNotAbort;
@@ -554,6 +555,38 @@ begin
   CheckEquals(Ord(TTlsAlertDescription.UnsupportedExtension),
     Ord(LClient.LastError.Alert.Description),
     'a key_share in a 1.2 ServerHello is unsupported_extension');
+end;
+
+procedure TTestTls12DualVersion.TestServerHelloTls13LegacyVersionWithoutSupportedVersionsIsProtocolVersion;
+var
+  LClient: ITlsEngine;
+  LSh: TTlsServerHello;
+  LVec: TExtensionVector;
+  LMsg, LWire: TBytes;
+begin
+  // TLS 1.3 is selected only through supported_versions (RFC 8446 4.2.1; D.1 for the alert): the
+  // dispatcher routes legacy_version 0x0304 to the 1.3 machine, which refuses it
+  LClient := NewDualClient;
+  LClient.StartHandshake;
+  Drain(LClient);
+  LSh.Random := Filled($22, 32);
+  LSh.LegacySessionIdEcho := nil;
+  LSh.CipherSuite := TCipherSuites13.Aes128GcmSha256;
+  LVec := TExtensionVector.Empty;
+  LVec.Append(TExtensionEntry.Create(TExtensionTypes.KeyShare,
+    ConcatBytes(DecodeHex('001D0020'), Filled($33, 32))));
+  LSh.Extensions := LVec.Encode;
+  LMsg := THandshakeFraming.Frame(TTlsHandshakeType.ServerHello,
+    THandshakeMessages.EncodeServerHello(LSh));
+  // the encoder writes legacy_version 0x0303; patch it to 0x0304 behind the 4-byte handshake header
+  LMsg[5] := $04;
+  LWire := ConcatBytes(DecodeHex('160303'),
+    ConcatBytes(TBytes.Create(Byte(System.Length(LMsg) shr 8), Byte(System.Length(LMsg))), LMsg));
+  Feed(LClient, LWire);
+  CheckTrue(LClient.IsTerminal, 'the dual-version client aborts');
+  CheckEquals(Ord(TTlsAlertDescription.ProtocolVersion),
+    Ord(LClient.LastError.Alert.Description),
+    'legacy_version 0x0304 without supported_versions is protocol_version');
 end;
 
 procedure TTestTls12DualVersion.TestServerHelloSelectingAnUnofferedVersionIsProtocolVersion;

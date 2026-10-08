@@ -471,6 +471,7 @@ resourcestring
   SNoRetryKeyShare = 'the second ClientHello sent no key_share for the requested group';
   SRetrySuiteChanged =
     'the retry ClientHello does not keep the cipher suite the HelloRetryRequest selected';
+  SRetryServerNameChanged = 'the retry ClientHello changed the server_name extension';
   SBadRecordSizeLimit = 'the peer record_size_limit is below the 64-byte minimum';
   SNonNullCompression13 =
     'a TLS 1.3 ClientHello must offer only the null legacy_compression_method';
@@ -1248,7 +1249,8 @@ var
   LContext: TExtensionContext;
   LSelectedGroup, LCookieGroup, LCookieSuite, LPinnedSuite: UInt16;
   LCh1Hash, LClientShare, LHrr, LCh2Raw, LEchHrrHash, LCookieSessionId: TBytes;
-  LEchAccepted: Boolean;
+  LEchAccepted, LSentServerName: Boolean;
+  LRequestedServerName: string;
   LExtensions: TExtensionVector;
 begin
   // when ECH was accepted on CH1, the retry outer reuses the CH1 HPKE context at seq=1
@@ -1290,7 +1292,15 @@ begin
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SRetrySuiteChanged);
     // resumption is not attempted on the retry ClientHello (kept to the first flight)
+    LSentServerName := FClientSentServerName;
+    LRequestedServerName := FRequestedServerName;
     NegotiateFrom(LClientHello, LContext, LCh2Raw, LExtensions, False, LSelectedGroup);
+    // server_name is not a permitted retry change (RFC 8446 4.1.2); the ticket's host check ran on
+    // the first hello only
+    if (FClientSentServerName <> LSentServerName) or
+      not SameText(FRequestedServerName, LRequestedServerName) then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.IllegalParameter, @SRetryServerNameChanged);
     // the server must still negotiate that same suite (guards a reordered CH2 under client-preference)
     if FSelectedSuite.Common.Code <> LPinnedSuite then
       raise EFatalAlertTlsLibException.CreateRes(
