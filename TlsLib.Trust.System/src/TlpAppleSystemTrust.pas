@@ -22,7 +22,7 @@ uses
 {$LINKFRAMEWORK CoreFoundation}
 {$LINKFRAMEWORK Security}
 {$ENDIF}
-  TlpPosixDynLib,
+  TlpDynamicLibrary,
   TlpArrayUtilities,
   TlpTrustPolicy,
   TlpIClock,
@@ -386,76 +386,76 @@ begin
 
   // the CoreFoundation / Security frameworks are already linked, so the global namespace
   // (an empty soname) resolves their exports
-  LHandle := TPosixDynLib.Open('');
+  LHandle := TDynamicLibrary.Open('');
   if LHandle = 0 then
     Exit;
   try
-    FCFArrayGetCount := TCFArrayGetCountFunc(TPosixDynLib.Resolve(LHandle, 'CFArrayGetCount'));
-    FCFArrayGetValueAtIndex := TCFArrayGetValueAtIndexFunc(TPosixDynLib.Resolve(LHandle,
+    FCFArrayGetCount := TCFArrayGetCountFunc(TDynamicLibrary.Resolve(LHandle, 'CFArrayGetCount'));
+    FCFArrayGetValueAtIndex := TCFArrayGetValueAtIndexFunc(TDynamicLibrary.Resolve(LHandle,
       'CFArrayGetValueAtIndex'));
-    FCFArrayCreate := TCFArrayCreateFunc(TPosixDynLib.Resolve(LHandle, 'CFArrayCreate'));
-    FCFRelease := TCFReleaseProc(TPosixDynLib.Resolve(LHandle, 'CFRelease'));
-    FCFDataGetLength := TCFDataGetLengthFunc(TPosixDynLib.Resolve(LHandle, 'CFDataGetLength'));
-    FCFDataGetBytePtr := TCFDataGetBytePtrFunc(TPosixDynLib.Resolve(LHandle,
+    FCFArrayCreate := TCFArrayCreateFunc(TDynamicLibrary.Resolve(LHandle, 'CFArrayCreate'));
+    FCFRelease := TCFReleaseProc(TDynamicLibrary.Resolve(LHandle, 'CFRelease'));
+    FCFDataGetLength := TCFDataGetLengthFunc(TDynamicLibrary.Resolve(LHandle, 'CFDataGetLength'));
+    FCFDataGetBytePtr := TCFDataGetBytePtrFunc(TDynamicLibrary.Resolve(LHandle,
       'CFDataGetBytePtr'));
-    FCFDataCreate := TCFDataCreateFunc(TPosixDynLib.Resolve(LHandle, 'CFDataCreate'));
-    FCFStringCreateWithCString := TCFStringCreateWithCStringFunc(TPosixDynLib.Resolve(LHandle,
+    FCFDataCreate := TCFDataCreateFunc(TDynamicLibrary.Resolve(LHandle, 'CFDataCreate'));
+    FCFStringCreateWithCString := TCFStringCreateWithCStringFunc(TDynamicLibrary.Resolve(LHandle,
       'CFStringCreateWithCString'));
-    FCFDictionaryGetValue := TCFDictionaryGetValueFunc(TPosixDynLib.Resolve(LHandle,
+    FCFDictionaryGetValue := TCFDictionaryGetValueFunc(TDynamicLibrary.Resolve(LHandle,
       'CFDictionaryGetValue'));
-    FCFNumberGetValue := TCFNumberGetValueFunc(TPosixDynLib.Resolve(LHandle,
+    FCFNumberGetValue := TCFNumberGetValueFunc(TDynamicLibrary.Resolve(LHandle,
       'CFNumberGetValue'));
 
-    FSecCertificateCreateWithData := TSecCertificateCreateWithDataFunc(TPosixDynLib.Resolve(
+    FSecCertificateCreateWithData := TSecCertificateCreateWithDataFunc(TDynamicLibrary.Resolve(
       LHandle, 'SecCertificateCreateWithData'));
-    FSecCertificateCopyData := TSecCertificateCopyDataFunc(TPosixDynLib.Resolve(LHandle,
+    FSecCertificateCopyData := TSecCertificateCopyDataFunc(TDynamicLibrary.Resolve(LHandle,
       'SecCertificateCopyData'));
-    FSecPolicyCreateSSL := TSecPolicyCreateSSLFunc(TPosixDynLib.Resolve(LHandle,
+    FSecPolicyCreateSSL := TSecPolicyCreateSSLFunc(TDynamicLibrary.Resolve(LHandle,
       'SecPolicyCreateSSL'));
-    FSecTrustCreateWithCertificates := TSecTrustCreateWithCertificatesFunc(TPosixDynLib.Resolve(
+    FSecTrustCreateWithCertificates := TSecTrustCreateWithCertificatesFunc(TDynamicLibrary.Resolve(
       LHandle, 'SecTrustCreateWithCertificates'));
-    FSecTrustSetNetworkFetchAllowed := TSecTrustSetNetworkFetchAllowedFunc(TPosixDynLib.Resolve(
+    FSecTrustSetNetworkFetchAllowed := TSecTrustSetNetworkFetchAllowedFunc(TDynamicLibrary.Resolve(
       LHandle, 'SecTrustSetNetworkFetchAllowed'));
-    FSecTrustEvaluateWithError := TSecTrustEvaluateWithErrorFunc(TPosixDynLib.Resolve(LHandle,
+    FSecTrustEvaluateWithError := TSecTrustEvaluateWithErrorFunc(TDynamicLibrary.Resolve(LHandle,
       'SecTrustEvaluateWithError'));
 
-    FSecPolicyCreateRevocation := TSecPolicyCreateRevocationFunc(TPosixDynLib.Resolve(LHandle,
+    FSecPolicyCreateRevocation := TSecPolicyCreateRevocationFunc(TDynamicLibrary.Resolve(LHandle,
       'SecPolicyCreateRevocation'));
-    FSecTrustSetVerifyDate := TSecTrustSetVerifyDateFunc(TPosixDynLib.Resolve(LHandle,
+    FSecTrustSetVerifyDate := TSecTrustSetVerifyDateFunc(TDynamicLibrary.Resolve(LHandle,
       'SecTrustSetVerifyDate'));
-    FSecTrustSetOCSPResponse := TSecTrustSetOCSPResponseFunc(TPosixDynLib.Resolve(LHandle,
+    FSecTrustSetOCSPResponse := TSecTrustSetOCSPResponseFunc(TDynamicLibrary.Resolve(LHandle,
       'SecTrustSetOCSPResponse'));
-    FSecTrustSetAnchorCertificates := TSecTrustSetAnchorCertificatesFunc(TPosixDynLib.Resolve(
+    FSecTrustSetAnchorCertificates := TSecTrustSetAnchorCertificatesFunc(TDynamicLibrary.Resolve(
       LHandle, 'SecTrustSetAnchorCertificates'));
     FSecTrustSetAnchorCertificatesOnly := TSecTrustSetAnchorCertificatesOnlyFunc(
-      TPosixDynLib.Resolve(LHandle, 'SecTrustSetAnchorCertificatesOnly'));
+      TDynamicLibrary.Resolve(LHandle, 'SecTrustSetAnchorCertificatesOnly'));
     FSecTrustCopyCertificateChain := TSecTrustCopyCertificateChainFunc(
-      TPosixDynLib.Resolve(LHandle, 'SecTrustCopyCertificateChain'));
+      TDynamicLibrary.Resolve(LHandle, 'SecTrustCopyCertificateChain'));
     FSecTrustGetCertificateCount := TSecTrustGetCertificateCountFunc(
-      TPosixDynLib.Resolve(LHandle, 'SecTrustGetCertificateCount'));
+      TDynamicLibrary.Resolve(LHandle, 'SecTrustGetCertificateCount'));
     FSecTrustGetCertificateAtIndex := TSecTrustGetCertificateAtIndexFunc(
-      TPosixDynLib.Resolve(LHandle, 'SecTrustGetCertificateAtIndex'));
-    FCFDateCreate := TCFDateCreateFunc(TPosixDynLib.Resolve(LHandle, 'CFDateCreate'));
+      TDynamicLibrary.Resolve(LHandle, 'SecTrustGetCertificateAtIndex'));
+    FCFDateCreate := TCFDateCreateFunc(TDynamicLibrary.Resolve(LHandle, 'CFDateCreate'));
     // a data export whose address IS the callbacks struct CFArrayCreate wants: pass it as
     // resolved, do not dereference
-    FkCFTypeArrayCallBacks := TPosixDynLib.Resolve(LHandle, 'kCFTypeArrayCallBacks');
+    FkCFTypeArrayCallBacks := TDynamicLibrary.Resolve(LHandle, 'kCFTypeArrayCallBacks');
 
     // best-effort CFError decode symbols (may be absent); resolving them never
     // gates FReady - if any is missing the rejected-chain path just reports unknown_ca.
-    FCFErrorGetCode := TCFErrorGetCodeFunc(TPosixDynLib.Resolve(LHandle, 'CFErrorGetCode'));
-    FCFErrorGetDomain := TCFErrorGetDomainFunc(TPosixDynLib.Resolve(LHandle, 'CFErrorGetDomain'));
-    FCFEqual := TCFEqualFunc(TPosixDynLib.Resolve(LHandle, 'CFEqual'));
-    LSym := TPosixDynLib.Resolve(LHandle, 'kCFErrorDomainOSStatus');
+    FCFErrorGetCode := TCFErrorGetCodeFunc(TDynamicLibrary.Resolve(LHandle, 'CFErrorGetCode'));
+    FCFErrorGetDomain := TCFErrorGetDomainFunc(TDynamicLibrary.Resolve(LHandle, 'CFErrorGetDomain'));
+    FCFEqual := TCFEqualFunc(TDynamicLibrary.Resolve(LHandle, 'CFEqual'));
+    LSym := TDynamicLibrary.Resolve(LHandle, 'kCFErrorDomainOSStatus');
     if LSym <> nil then
       FkCFErrorDomainOSStatus := CFStringRef(PPointer(LSym)^);
 
 {$IFDEF TLSLIB_MACOS}
     FSecTrustSettingsCopyCertificates := TSecTrustSettingsCopyCertificatesFunc(
-      TPosixDynLib.Resolve(LHandle, 'SecTrustSettingsCopyCertificates'));
+      TDynamicLibrary.Resolve(LHandle, 'SecTrustSettingsCopyCertificates'));
     FSecTrustSettingsCopyTrustSettings := TSecTrustSettingsCopyTrustSettingsFunc(
-      TPosixDynLib.Resolve(LHandle, 'SecTrustSettingsCopyTrustSettings'));
+      TDynamicLibrary.Resolve(LHandle, 'SecTrustSettingsCopyTrustSettings'));
     FSecPolicyCopyProperties := TSecPolicyCopyPropertiesFunc(
-      TPosixDynLib.Resolve(LHandle, 'SecPolicyCopyProperties'));
+      TDynamicLibrary.Resolve(LHandle, 'SecPolicyCopyProperties'));
     // create (do not dlsym) the trust-settings keys - see the field declarations for why
     if System.Assigned(FCFStringCreateWithCString) then
     begin
@@ -469,15 +469,15 @@ begin
         'kSecTrustSettingsPolicyString', KCFStringEncodingUTF8);
     end;
     // kSecPolicyOid / kSecPolicyAppleSSL are genuine exported data symbols (SecPolicy.h)
-    LSym := TPosixDynLib.Resolve(LHandle, 'kSecPolicyOid');
+    LSym := TDynamicLibrary.Resolve(LHandle, 'kSecPolicyOid');
     if LSym <> nil then
       FkSecPolicyOid := CFStringRef(PPointer(LSym)^);
-    LSym := TPosixDynLib.Resolve(LHandle, 'kSecPolicyAppleSSL');
+    LSym := TDynamicLibrary.Resolve(LHandle, 'kSecPolicyAppleSSL');
     if LSym <> nil then
       FkSecPolicyAppleSSL := CFStringRef(PPointer(LSym)^);
 {$ENDIF}
   finally
-    TPosixDynLib.Close(LHandle);
+    TDynamicLibrary.Close(LHandle);
   end;
 
   FReady := System.Assigned(FCFRelease) and System.Assigned(FCFDataCreate) and

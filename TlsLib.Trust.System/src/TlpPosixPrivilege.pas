@@ -18,7 +18,7 @@ interface
 {$IF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_BSD) OR DEFINED(TLSLIB_SOLARIS)}
 
 uses
-  TlpPosixDynLib;
+  TlpDynamicLibrary;
 
 type
   // uid_t / gid_t are 32-bit unsigned on every supported target; getauxval takes and returns
@@ -60,33 +60,33 @@ var
   LGeteuid, LGetuid, LGetegid, LGetgid: TPosixIdFunc;
 begin
   Result := True;
-  LHandle := TPosixDynLib.Open('');
+  LHandle := TDynamicLibrary.Open('');
   if LHandle = 0 then
     Exit;
   try
     // strongest signal first: issetugid (BSD/Solaris) stays set across a later privilege drop;
     // then the kernel secure-execution flag; then the euid/egid comparison
-    LIssetugid := TPosixFlagFunc(TPosixDynLib.Resolve(LHandle, 'issetugid'));
+    LIssetugid := TPosixFlagFunc(TDynamicLibrary.Resolve(LHandle, 'issetugid'));
     if Assigned(LIssetugid) then
     begin
       Result := LIssetugid() <> 0;
       Exit;
     end;
-    LGetauxval := TPosixAuxvalFunc(TPosixDynLib.Resolve(LHandle, 'getauxval'));
+    LGetauxval := TPosixAuxvalFunc(TDynamicLibrary.Resolve(LHandle, 'getauxval'));
     if Assigned(LGetauxval) then
     begin
       Result := LGetauxval(AT_SECURE) <> 0;
       Exit;
     end;
-    LGeteuid := TPosixIdFunc(TPosixDynLib.Resolve(LHandle, 'geteuid'));
-    LGetuid := TPosixIdFunc(TPosixDynLib.Resolve(LHandle, 'getuid'));
-    LGetegid := TPosixIdFunc(TPosixDynLib.Resolve(LHandle, 'getegid'));
-    LGetgid := TPosixIdFunc(TPosixDynLib.Resolve(LHandle, 'getgid'));
+    LGeteuid := TPosixIdFunc(TDynamicLibrary.Resolve(LHandle, 'geteuid'));
+    LGetuid := TPosixIdFunc(TDynamicLibrary.Resolve(LHandle, 'getuid'));
+    LGetegid := TPosixIdFunc(TDynamicLibrary.Resolve(LHandle, 'getegid'));
+    LGetgid := TPosixIdFunc(TDynamicLibrary.Resolve(LHandle, 'getgid'));
     if Assigned(LGeteuid) and Assigned(LGetuid) and Assigned(LGetegid) and
       Assigned(LGetgid) then
       Result := (LGeteuid() <> LGetuid()) or (LGetegid() <> LGetgid());
   finally
-    TPosixDynLib.Close(LHandle);
+    TDynamicLibrary.Close(LHandle);
   end;
 end;
 

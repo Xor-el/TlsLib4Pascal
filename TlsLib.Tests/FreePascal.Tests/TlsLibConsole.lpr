@@ -64,6 +64,7 @@ uses
   Pkcs12ImportTests,
   EndpointIdentityTests,
   PemTests,
+  DynamicLibraryTests,
   CertificateVerifierTests,
   OcspStaplingTests,
   CertificateCheckTests,

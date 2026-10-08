@@ -40,7 +40,6 @@ contains
   TlpIPlatformChainEngine in '..\..\src\TlpIPlatformChainEngine.pas',
   TlpOSDelegateVerifier in '..\..\src\TlpOSDelegateVerifier.pas',
   TlpFileSystemTrust in '..\..\src\TlpFileSystemTrust.pas',
-  TlpPosixDynLib in '..\..\src\TlpPosixDynLib.pas',
   TlpPosixPrivilege in '..\..\src\TlpPosixPrivilege.pas',
   TlpUnixSystemTrust in '..\..\src\TlpUnixSystemTrust.pas',
   TlpWindowsSystemTrust in '..\..\src\TlpWindowsSystemTrust.pas',

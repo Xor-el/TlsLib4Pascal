@@ -182,6 +182,7 @@ contains
   TlpIHttpFetcher in '..\..\Interfaces\Trust\TlpIHttpFetcher.pas',
   TlpLiveRevocation in '..\..\Trust\TlpLiveRevocation.pas',
   TlpITrustAnchorStore in '..\..\Interfaces\Trust\TlpITrustAnchorStore.pas',
-  TlpTrustAnchorStore in '..\..\Trust\TlpTrustAnchorStore.pas';
+  TlpTrustAnchorStore in '..\..\Trust\TlpTrustAnchorStore.pas',
+  TlpDynamicLibrary in '..\..\Common\TlpDynamicLibrary.pas';
 
 end.
