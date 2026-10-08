@@ -80,6 +80,10 @@ type
     function AreEqual(const AA, AB: TBytes): Boolean;
     // A fresh array holding AA followed by AB.
     function ConcatBytes(const AA, AB: TBytes): TBytes;
+    // Whether ANeedle occurs in AHaystack (an empty needle always does).
+    function ContainsBytes(const AHaystack, ANeedle: TBytes): Boolean;
+    // Whether AText occurs in ABytes as ASCII.
+    function ContainsAscii(const ABytes: TBytes; const AText: string): Boolean;
     // Fail with a hex diff unless AActual equals AExpected.
     procedure CheckEqualBytes(const AName: string; const AExpected, AActual: TBytes);
     function LoadResourceBytes(const ARelativePath: string): TBytes;
@@ -197,6 +201,35 @@ end;
 function TTlsLibAlgorithmTestCase.ConcatBytes(const AA, AB: TBytes): TBytes;
 begin
   Result := TArrayUtilities.Concat(AA, AB);
+end;
+
+function TTlsLibAlgorithmTestCase.ContainsBytes(const AHaystack, ANeedle: TBytes): Boolean;
+var
+  LOffset, LIdx: Int32;
+begin
+  for LOffset := 0 to System.Length(AHaystack) - System.Length(ANeedle) do
+  begin
+    LIdx := 0;
+    while (LIdx < System.Length(ANeedle)) and
+      (AHaystack[LOffset + LIdx] = ANeedle[LIdx]) do
+      Inc(LIdx);
+    if LIdx = System.Length(ANeedle) then
+      Exit(True);
+  end;
+  Result := False;
+end;
+
+function TTlsLibAlgorithmTestCase.ContainsAscii(const ABytes: TBytes;
+  const AText: string): Boolean;
+var
+  LNeedle: TBytes;
+  LI: Int32;
+begin
+  LNeedle := nil;
+  SetLength(LNeedle, System.Length(AText));
+  for LI := 1 to System.Length(AText) do
+    LNeedle[LI - 1] := Byte(Ord(AText[LI]));
+  Result := ContainsBytes(ABytes, LNeedle);
 end;
 
 procedure TTlsLibAlgorithmTestCase.CheckEqualBytes(const AName: string;

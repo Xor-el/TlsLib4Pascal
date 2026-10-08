@@ -137,6 +137,10 @@ type
   public
     constructor Create(const AValue: TTCPBlockSocket); override;
     destructor Destroy; override;
+    /// <summary>Copies the base settings and, when Value is also a TSSLTlsLib, this plugin's extra
+    /// properties (ClientAuth, trust and config, providers, resumption, timeouts), so a socket
+    /// Synapse builds by Assign keeps them.</summary>
+    procedure Assign(const Value: TCustomSSL); override;
     function LibVersion: string; override;
     function LibName: string; override;
     function Connect: boolean; override;
@@ -230,11 +234,18 @@ type
 
 implementation
 
+const
+  // the stock OpenSSL plugins' initial Ciphers value, which Assign copies: not a host choice
+  SYNAPSE_DEFAULT_CIPHERS = 'DEFAULT';
+
 resourcestring
   SPeerVerifyRejected = 'the OnVerifyCert handler rejected the peer certificate';
   SSynapseSendNoProgress = 'Synapse socket send returned no progress';
   SSynapseSslTypeUnsupported = 'SSLType selects a protocol this library does not implement; ' +
     'use LT_all, LT_TLSv1_2 or LT_TLSv1_3';
+  SSynapseCiphersUnsupported = 'the Synapse Ciphers property is set, which TlsLib4Pascal does ' +
+    'not honour: leave it empty or ''%s'' and choose suites through a TlsLib configuration ' +
+    'supplied as ClientConfig or ServerConfig';
   SSynapseTrustSourceHint = 'a CertCAFile bundle and/or UseSystemTrust';
   SSynapseClientAuthSourceHint = 'a CertCAFile bundle';
 
@@ -320,6 +331,26 @@ begin
   FSessionResumption := True;
 end;
 
+procedure TSSLTlsLib.Assign(const Value: TCustomSSL);
+var
+  LSource: TSSLTlsLib;
+begin
+  inherited Assign(Value);
+  if Value is TSSLTlsLib then
+  begin
+    LSource := TSSLTlsLib(Value);
+    FUseSystemTrust := LSource.UseSystemTrust;
+    FClientAuth := LSource.ClientAuth;
+    FClientConfig := LSource.ClientConfig;
+    FServerConfig := LSource.ServerConfig;
+    FUserCrypto := LSource.Crypto;
+    FUserPkix := LSource.Pkix;
+    FSessionResumption := LSource.SessionResumption;
+    FHandshakeTimeoutMs := LSource.HandshakeTimeoutMs;
+    FReadTimeoutMs := LSource.ReadTimeoutMs;
+  end;
+end;
+
 destructor TSSLTlsLib.Destroy;
 begin
   FConnection.Free;
@@ -339,6 +370,10 @@ end;
 
 function TSSLTlsLib.Snapshot: TTlsOptions;
 begin
+  // any other list is a security posture input: dropping it would negotiate a suite the host excluded
+  if (Ciphers <> '') and (Ciphers <> SYNAPSE_DEFAULT_CIPHERS) then
+    raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+      @SSynapseCiphersUnsupported, [SYNAPSE_DEFAULT_CIPHERS]);
   Result := TTlsOptions.Default;
   Result.Crypto := FUserCrypto;
   Result.Pkix := FUserPkix;

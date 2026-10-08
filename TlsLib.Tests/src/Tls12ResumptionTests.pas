@@ -111,7 +111,6 @@ type
     /// with (or without) EMS and offers EMS iff AOfferEms.</summary>
     function CachedSessionHello(AEmsSession, AOfferEms: Boolean;
       const ATicket: TBytes): TBytes;
-    function Contains(const AHaystack, ANeedle: TBytes): Boolean;
     function MakeStoredSession(const AIdentity: TBytes; const ASecret: ISecretBuffer;
       const AHost: string): IResumableSession;
     // shared mTLS-resumption scaffolding parameterized by the resumption scope
@@ -497,22 +496,6 @@ begin
   Result := Drain(LClient);
 end;
 
-function TTestTls12Resumption.Contains(const AHaystack, ANeedle: TBytes): Boolean;
-var
-  LIdx, LOffset: Int32;
-begin
-  Result := False;
-  for LOffset := 0 to System.Length(AHaystack) - System.Length(ANeedle) do
-  begin
-    LIdx := 0;
-    while (LIdx < System.Length(ANeedle)) and
-      (AHaystack[LOffset + LIdx] = ANeedle[LIdx]) do
-      Inc(LIdx);
-    if LIdx = System.Length(ANeedle) then
-      Exit(True);
-  end;
-end;
-
 procedure TTestTls12Resumption.TestNonEmsSessionIsOfferedWithExtendedMasterSecret;
 var
   LTicket, LFlight: TBytes;
@@ -521,7 +504,7 @@ begin
   LFlight := CachedSessionHello(False, True, LTicket);
   // the abbreviated offer still carries extended_master_secret (RFC 7627 5.3); a server that
   // supports it then declines the old session and the full handshake that follows has it
-  CheckTrue(Contains(LFlight, LTicket), 'the cached ticket is offered');
+  CheckTrue(ContainsBytes(LFlight, LTicket), 'the cached ticket is offered');
   // the only difference from a hello that does not offer EMS is the empty 4-byte extension
   CheckEquals(System.Length(CachedSessionHello(False, False, LTicket)) + 4,
     System.Length(LFlight),
@@ -534,7 +517,7 @@ var
 begin
   LTicket := DecodeHex('a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5');
   // a hello without EMS must not present an EMS session (the server would abort it)
-  CheckFalse(Contains(CachedSessionHello(True, False, LTicket), LTicket),
+  CheckFalse(ContainsBytes(CachedSessionHello(True, False, LTicket), LTicket),
     'an EMS session is not offered without extended_master_secret');
 end;
 
@@ -543,9 +526,9 @@ var
   LTicket: TBytes;
 begin
   LTicket := DecodeHex('a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5');
-  CheckTrue(Contains(CachedSessionHello(True, True, LTicket), LTicket),
+  CheckTrue(ContainsBytes(CachedSessionHello(True, True, LTicket), LTicket),
     'an EMS session is offered by an EMS client');
-  CheckTrue(Contains(CachedSessionHello(False, False, LTicket), LTicket),
+  CheckTrue(ContainsBytes(CachedSessionHello(False, False, LTicket), LTicket),
     'a non-EMS session is offered by a non-EMS client');
 end;
 

@@ -9,6 +9,7 @@ uses
   GuiTestRunner,
   TlsLibTestResourceLoader,
   TlsLibTestProviders,
+  TlsLibTestHandshakeDecoder,
   TlsLibTestBase,
   MockRandom,
   MockClock,

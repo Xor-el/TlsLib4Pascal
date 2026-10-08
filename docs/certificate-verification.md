@@ -115,6 +115,11 @@ Name checking is **on by default**. A client with name checking on but no host t
 is refused when the engine is created (fail-closed) rather than silently skipping RFC 9525 — pass
 the connection host, or opt out with `WithDangerousDisableServerNameCheck`.
 
+Sending no SNI is a separate choice and keeps this check. `WithServerNameIndication(TServerNameIndication.Omit)`
+leaves the `server_name` extension out of the ClientHello while the certificate is still verified
+against the connection host (RFC 9525). A server that routes by SNI may refuse such a hello or present a
+default certificate that then fails the name check; the client never falls back to sending the name.
+
 ---
 
 ## 4. The `dangerous` escape hatches

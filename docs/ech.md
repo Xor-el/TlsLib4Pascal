@@ -31,7 +31,8 @@ LEngine := TTlsEngineFactory.CreateClientEngine(LClient.Build, 'secret.example')
 The client picks the first HPKE suite it supports from the config, builds the inner and outer, seals
 the inner, and sends the outer. Once the server confirms acceptance the handshake continues on the
 inner — the certificate is verified against the **true** name (`secret.example`), never the public
-name.
+name. With `WithServerNameIndication(TServerNameIndication.Omit)` the inner ClientHello carries no SNI at
+all, while the outer one still carries the config's public name (RFC 9849 §6.1).
 
 ### What happens on rejection
 

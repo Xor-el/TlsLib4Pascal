@@ -55,14 +55,14 @@ uses
   TlpIEch,
   TlpEchServer,
   MockCryptoProvider,
-  TlsLibTestBase;
+  TlsLibTestBase,
+  TlsLibTestHandshakeDecoder;
 
 type
   TTestHelloRetryRequest = class(TTlsLibAlgorithmTestCase)
   private
     FHrr: TStringList;
     function CookieSecret: ISecretBuffer;
-    function MsgFrom(const AFramed: TBytes): TTlsHandshakeMessage;
     function Vec(const AName: string): TBytes;
     function SendHandshakeOf(const AEffects: TArray<THandshakeEffect>): TArray<TBytes>;
     function FailAlertOf(const AEffects: TArray<THandshakeEffect>;
@@ -140,20 +140,6 @@ end;
 function TTestHelloRetryRequest.Vec(const AName: string): TBytes;
 begin
   Result := DecodeHex(FHrr.Values[AName]);
-end;
-
-function TTestHelloRetryRequest.MsgFrom(
-  const AFramed: TBytes): TTlsHandshakeMessage;
-var
-  LReader: THandshakeMessageReader;
-begin
-  LReader := THandshakeMessageReader.Create;
-  try
-    LReader.Append(AFramed, 0, System.Length(AFramed));
-    LReader.NextMessage(Result);
-  finally
-    LReader.Free;
-  end;
 end;
 
 function TTestHelloRetryRequest.SendHandshakeOf(
@@ -258,7 +244,7 @@ var
   LCodec: IExtensionBlockCodec;
   LContext: TExtensionContext;
 begin
-  LMsg := MsgFrom(AHrr);
+  LMsg := TTlsLibTestHandshakeDecoder.HandshakeMessage(AHrr);
   LHello := THandshakeMessages.DecodeServerHello(LMsg.Body);
   LCodec := TExtensionBlockCodec.Create(TCoreExtensions.CreateDefaultRegistry);
   LContext := TExtensionContext.Create;
@@ -400,7 +386,7 @@ begin
   // feed the RFC 8448 Section 5 ClientHello1; injecting the RFC's cookie as an
   // override makes the emitted HelloRetryRequest byte-exact against the RFC
   LServer := NewSecp256r1Server(Vec('cookie'));
-  LFlight := SendHandshakeOf(LServer.ProcessMessage(MsgFrom(Vec('client_hello_1'))));
+  LFlight := SendHandshakeOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(Vec('client_hello_1'))));
   CheckEquals(1, System.Length(LFlight),
     'the server answers a share-less ClientHello with a single HelloRetryRequest');
   CheckEqualBytes('HelloRetryRequest byte-exact vs RFC 8448 Section 5',
@@ -464,11 +450,11 @@ begin
   LCookie := DecodeHex('a1b2c3d4e5f6');
   LHrr := BuildHrr(TNamedGroupCatalog.Secp256r1, TCipherSuites13.Aes128GcmSha256,
     LCookie, DecodeHex(StringOfChar('3', 64)));
-  LCh2 := SendHandshakeOf(LClient.ProcessMessage(MsgFrom(LHrr)));
+  LCh2 := SendHandshakeOf(LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LHrr)));
   CheckEquals(1, System.Length(LCh2), 'the client resends a single ClientHello');
 
   // the second ClientHello key-shares the requested group and echoes the cookie
-  LHello := THandshakeMessages.DecodeClientHello(MsgFrom(LCh2[0]).Body);
+  LHello := THandshakeMessages.DecodeClientHello(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCh2[0]).Body);
   LCodec := TExtensionBlockCodec.Create(TCoreExtensions.CreateDefaultRegistry)
     as IExtensionBlockCodec;
   LContext := TExtensionContext.Create;
@@ -494,8 +480,8 @@ begin
   LHrr := BuildHrr(TNamedGroupCatalog.Secp256r1, TCipherSuites13.Aes128GcmSha256,
     DecodeHex('a1b2c3'), DecodeHex(StringOfChar('3', 64)));
   // the first retry is accepted; a second HelloRetryRequest is fatal
-  LClient.ProcessMessage(MsgFrom(LHrr));
-  CheckTrue(FailAlertOf(LClient.ProcessMessage(MsgFrom(LHrr)), LAlert),
+  LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LHrr));
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LHrr)), LAlert),
     'a second HelloRetryRequest aborts');
   CheckTrue(LAlert = TTlsAlertDescription.UnexpectedMessage,
     'a second HelloRetryRequest is unexpected_message');
@@ -514,7 +500,7 @@ begin
     DecodeHex('a1b2c3'), DecodeHex(StringOfChar('3', 64)));
   LHrr[4] := $03;
   LHrr[5] := $05;
-  CheckTrue(FailAlertOf(LClient.ProcessMessage(MsgFrom(LHrr)), LAlert),
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LHrr)), LAlert),
     'a HelloRetryRequest with a bad legacy_version aborts');
   CheckTrue(LAlert = TTlsAlertDescription.ProtocolVersion,
     'a bad HRR legacy_version is protocol_version');
@@ -530,7 +516,7 @@ begin
   LClient := NewRetryClient(True);
   LHrr := BuildHrr(TNamedGroupCatalog.Secp256r1, TCipherSuites12.EcdheRsaAes128GcmSha256,
     DecodeHex('a1b2c3'), DecodeHex(StringOfChar('3', 64)));
-  CheckTrue(FailAlertOf(LClient.ProcessMessage(MsgFrom(LHrr)), LAlert),
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LHrr)), LAlert),
     'a HelloRetryRequest selecting a TLS 1.2 suite aborts');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
     'a TLS 1.2 suite in a HelloRetryRequest is illegal_parameter');
@@ -546,7 +532,7 @@ begin
   // secp384r1 was never advertised in supported_groups
   LHrr := BuildHrr(TNamedGroupCatalog.Secp384r1, TCipherSuites13.Aes128GcmSha256,
     DecodeHex('a1b2c3'), DecodeHex(StringOfChar('3', 64)));
-  CheckTrue(FailAlertOf(LClient.ProcessMessage(MsgFrom(LHrr)), LAlert),
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LHrr)), LAlert),
     'a HelloRetryRequest for an unoffered group aborts');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
     'an unoffered retry group is illegal_parameter');
@@ -562,7 +548,7 @@ begin
   // a HelloRetryRequest is a TLS 1.3 message: one lacking supported_versions did not select 1.3
   LHrr := BuildHrr(TNamedGroupCatalog.Secp256r1, TCipherSuites13.Aes128GcmSha256,
     DecodeHex('a1b2c3'), DecodeHex(StringOfChar('3', 64)), 0);
-  CheckTrue(FailAlertOf(LClient.ProcessMessage(MsgFrom(LHrr)), LAlert),
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LHrr)), LAlert),
     'a HelloRetryRequest without supported_versions aborts');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
     'a HelloRetryRequest that does not select TLS 1.3 is illegal_parameter');
@@ -577,7 +563,7 @@ begin
   LClient := NewRetryClient;
   LHrr := BuildHrr(TNamedGroupCatalog.Secp256r1, TCipherSuites13.Aes128GcmSha256,
     DecodeHex('a1b2c3'), DecodeHex(StringOfChar('3', 64)), TlsWireVersionTls12);
-  CheckTrue(FailAlertOf(LClient.ProcessMessage(MsgFrom(LHrr)), LAlert),
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LHrr)), LAlert),
     'a HelloRetryRequest selecting TLS 1.2 aborts');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
     'a HelloRetryRequest selecting a non-1.3 version is illegal_parameter');
@@ -591,10 +577,10 @@ var
 begin
   // drive the server to expect a second ClientHello, then send one lacking the cookie
   LServer := NewSecp256r1Server(nil);
-  LServer.ProcessMessage(MsgFrom(Vec('client_hello_1')));
+  LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(Vec('client_hello_1')));
   LCh2 := BuildClientHello2(TNamedGroupCatalog.Secp256r1, DecodeHex(StringOfChar('4', 130)),
     nil, DecodeHex(''));
-  CheckTrue(FailAlertOf(LServer.ProcessMessage(MsgFrom(LCh2)), LAlert),
+  CheckTrue(FailAlertOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCh2)), LAlert),
     'a second ClientHello without a cookie aborts');
   CheckTrue(LAlert = TTlsAlertDescription.MissingExtension,
     'a missing cookie is missing_extension');
@@ -607,14 +593,14 @@ var
   LAlert: TTlsAlertDescription;
 begin
   LServer := NewSecp256r1Server(nil);
-  LHrr := SendHandshakeOf(LServer.ProcessMessage(MsgFrom(Vec('client_hello_1'))))[0];
+  LHrr := SendHandshakeOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(Vec('client_hello_1'))))[0];
   // echo the minted cookie back, but with a flipped byte
   LCookie := CookieFromHrr(LHrr);
   LCookie[System.Length(LCookie) - 1] :=
     Byte(LCookie[System.Length(LCookie) - 1] xor $01);
   LCh2 := BuildClientHello2(TNamedGroupCatalog.Secp256r1,
     DecodeHex(StringOfChar('4', 130)), LCookie, DecodeHex(''));
-  CheckTrue(FailAlertOf(LServer.ProcessMessage(MsgFrom(LCh2)), LAlert),
+  CheckTrue(FailAlertOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCh2)), LAlert),
     'a tampered cookie aborts');
   CheckTrue(LAlert = TTlsAlertDescription.DecryptError,
     'a tampered cookie is decrypt_error');
@@ -632,19 +618,19 @@ begin
   // it binds A's first hello, so B must refuse it
   TNamedGroups.CreateNistEcdh(Crypto, 'secp256r1').GenerateKeyPair(LPriv, LShare);
   LServerA := NewSecp256r1Server(nil);
-  LHrr := SendHandshakeOf(LServerA.ProcessMessage(MsgFrom(Vec('client_hello_1'))))[0];
+  LHrr := SendHandshakeOf(LServerA.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(Vec('client_hello_1'))))[0];
   LCookie := CookieFromHrr(LHrr);
   LCh2 := BuildClientHello2(TNamedGroupCatalog.Secp256r1, LShare, LCookie, DecodeHex(''),
     TCipherSuites13.Aes128GcmSha256);
   // control: the cookie on the connection that minted it proceeds to a ServerHello, so the refusal
   // below is the first-hello binding and not an earlier suite, group or session-id check
-  CheckTrue(System.Length(SendHandshakeOf(LServerA.ProcessMessage(MsgFrom(LCh2)))) > 0,
+  CheckTrue(System.Length(SendHandshakeOf(LServerA.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCh2)))) > 0,
     'the cookie is accepted on the connection that minted it');
   LCh1B := System.Copy(Vec('client_hello_1'));
   LCh1B[10] := Byte(LCh1B[10] xor $01); // inside ClientHello.random
   LServerB := NewSecp256r1Server(nil);
-  LServerB.ProcessMessage(MsgFrom(LCh1B));
-  CheckTrue(FailAlertOf(LServerB.ProcessMessage(MsgFrom(LCh2)), LAlert),
+  LServerB.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCh1B));
+  CheckTrue(FailAlertOf(LServerB.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCh2)), LAlert),
     'a cookie minted for another first ClientHello aborts');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
     'it is illegal_parameter');
@@ -658,9 +644,9 @@ begin
   // after emitting a HelloRetryRequest the server waits for the second ClientHello;
   // any other message (here a Finished) is unexpected (RFC 8446 centralized handling)
   LServer := NewSecp256r1Server(nil);
-  LServer.ProcessMessage(MsgFrom(Vec('client_hello_1')));
+  LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(Vec('client_hello_1')));
   CheckTrue(FailAlertOf(LServer.ProcessMessage(
-    MsgFrom(DecodeHex('140000200000000000000000000000000000000000000000000000000000000000000000'))),
+    TTlsLibTestHandshakeDecoder.HandshakeMessage(DecodeHex('140000200000000000000000000000000000000000000000000000000000000000000000'))),
     LAlert), 'a non-ClientHello during the retry wait aborts');
   CheckTrue(LAlert = TTlsAlertDescription.UnexpectedMessage,
     'it is unexpected_message');
@@ -681,11 +667,11 @@ begin
   // retry that offers a different suite (here ChaCha20-Poly1305, same SHA-256 hash) must abort
   // rather than re-negotiate (RFC 8446 4.1.4)
   LServer := NewSecp256r1Server(nil);
-  LHrr := SendHandshakeOf(LServer.ProcessMessage(MsgFrom(Vec('client_hello_1'))))[0];
+  LHrr := SendHandshakeOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(Vec('client_hello_1'))))[0];
   LCookie := CookieFromHrr(LHrr);
   LCh2 := BuildClientHello2(TNamedGroupCatalog.Secp256r1, LShare, LCookie, DecodeHex(''),
     TCipherSuites13.ChaCha20Poly1305Sha256);
-  CheckTrue(FailAlertOf(LServer.ProcessMessage(MsgFrom(LCh2)), LAlert),
+  CheckTrue(FailAlertOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCh2)), LAlert),
     'a retry ClientHello that changes the cipher suite aborts');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
     'a changed retry suite is illegal_parameter');
@@ -693,11 +679,11 @@ begin
   // positive control: the same retry keeping the selected suite proceeds to a ServerHello, proving
   // the pin does not trip on a conformant retry
   LServer := NewSecp256r1Server(nil);
-  LHrr := SendHandshakeOf(LServer.ProcessMessage(MsgFrom(Vec('client_hello_1'))))[0];
+  LHrr := SendHandshakeOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(Vec('client_hello_1'))))[0];
   LCookie := CookieFromHrr(LHrr);
   LCh2 := BuildClientHello2(TNamedGroupCatalog.Secp256r1, LShare, LCookie, DecodeHex(''),
     TCipherSuites13.Aes128GcmSha256);
-  CheckTrue(System.Length(SendHandshakeOf(LServer.ProcessMessage(MsgFrom(LCh2)))) > 0,
+  CheckTrue(System.Length(SendHandshakeOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCh2)))) > 0,
     'a conformant retry that keeps the suite proceeds to a ServerHello');
 end;
 
@@ -718,16 +704,16 @@ begin
   for LI := Low(Names) to High(Names) do
   begin
     LServer := NewSecp256r1Server(nil);
-    LHrr := SendHandshakeOf(LServer.ProcessMessage(MsgFrom(Vec('client_hello_1'))))[0];
+    LHrr := SendHandshakeOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(Vec('client_hello_1'))))[0];
     LCookie := CookieFromHrr(LHrr);
     LCh2 := BuildClientHello2(TNamedGroupCatalog.Secp256r1, LShare, LCookie, DecodeHex(''), 0,
       Names[LI]);
     if Names[LI] = 'server' then
-      CheckTrue(System.Length(SendHandshakeOf(LServer.ProcessMessage(MsgFrom(LCh2)))) > 0,
+      CheckTrue(System.Length(SendHandshakeOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCh2)))) > 0,
         'a retry that keeps the server_name proceeds to a ServerHello')
     else
     begin
-      CheckTrue(FailAlertOf(LServer.ProcessMessage(MsgFrom(LCh2)), LAlert),
+      CheckTrue(FailAlertOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCh2)), LAlert),
         Format('a retry with server_name "%s" aborts', [Names[LI]]));
       CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
         'a changed retry server_name is illegal_parameter');
@@ -747,11 +733,11 @@ begin
   // empty session id, which the cookie binds; CH2 here sends a 32-byte one.
   TNamedGroups.CreateNistEcdh(Crypto, 'secp256r1').GenerateKeyPair(LPriv, LShare);
   LServer := NewSecp256r1Server(nil);
-  LHrr := SendHandshakeOf(LServer.ProcessMessage(MsgFrom(Vec('client_hello_1'))))[0];
+  LHrr := SendHandshakeOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(Vec('client_hello_1'))))[0];
   LCookie := CookieFromHrr(LHrr);
   LCh2 := BuildClientHello2(TNamedGroupCatalog.Secp256r1, LShare, LCookie,
     DecodeHex(StringOfChar('a', 64)), TCipherSuites13.Aes128GcmSha256);
-  CheckTrue(FailAlertOf(LServer.ProcessMessage(MsgFrom(LCh2)), LAlert),
+  CheckTrue(FailAlertOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCh2)), LAlert),
     'a retry that changes legacy_session_id aborts');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
     'a changed retry session id is illegal_parameter');
@@ -768,11 +754,11 @@ begin
   // (RFC 9849 sec. 7); the retry ClientHello is held to the same rule as the first
   TNamedGroups.CreateNistEcdh(Crypto, 'secp256r1').GenerateKeyPair(LPriv, LShare);
   LServer := NewSecp256r1Server(nil);
-  LHrr := SendHandshakeOf(LServer.ProcessMessage(MsgFrom(Vec('client_hello_1'))))[0];
+  LHrr := SendHandshakeOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(Vec('client_hello_1'))))[0];
   LCookie := CookieFromHrr(LHrr);
   LCh2 := WithInnerEch(BuildClientHello2(TNamedGroupCatalog.Secp256r1, LShare, LCookie, nil,
     TCipherSuites13.Aes128GcmSha256));
-  CheckTrue(FailAlertOf(LServer.ProcessMessage(MsgFrom(LCh2)), LAlert),
+  CheckTrue(FailAlertOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCh2)), LAlert),
     'an inner-type ech in the retry ClientHello aborts');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
     'it is illegal_parameter');
@@ -790,11 +776,11 @@ begin
   // HelloRetryRequest the retry's inner-type ech is accepted and the handshake continues
   TNamedGroups.CreateNistEcdh(Crypto, 'secp256r1').GenerateKeyPair(LPriv, LShare);
   LServer := NewSecp256r1Server(nil, TEchServerPolicy.Backend);
-  LHrr := SendHandshakeOf(LServer.ProcessMessage(MsgFrom(WithInnerEch(Vec('client_hello_1')))))[0];
+  LHrr := SendHandshakeOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(WithInnerEch(Vec('client_hello_1')))))[0];
   LCookie := CookieFromHrr(LHrr);
   LCh2 := WithInnerEch(BuildClientHello2(TNamedGroupCatalog.Secp256r1, LShare, LCookie, nil,
     TCipherSuites13.Aes128GcmSha256));
-  LEffects := LServer.ProcessMessage(MsgFrom(LCh2));
+  LEffects := LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCh2));
   CheckFalse(FailAlertOf(LEffects, LAlert),
     'a backend server does not abort an inner-type ech in the retry ClientHello');
   CheckTrue(System.Length(SendHandshakeOf(LEffects)) > 0,
@@ -812,11 +798,11 @@ begin
   // aborts with illegal_parameter (RFC 9849 sec. 7)
   TNamedGroups.CreateNistEcdh(Crypto, 'secp256r1').GenerateKeyPair(LPriv, LShare);
   LServer := NewSecp256r1Server(nil, TEchServerPolicy.Backend);
-  LHrr := SendHandshakeOf(LServer.ProcessMessage(MsgFrom(WithInnerEch(Vec('client_hello_1')))))[0];
+  LHrr := SendHandshakeOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(WithInnerEch(Vec('client_hello_1')))))[0];
   LCookie := CookieFromHrr(LHrr);
   LCh2 := WithOuterEch(BuildClientHello2(TNamedGroupCatalog.Secp256r1, LShare, LCookie, nil,
     TCipherSuites13.Aes128GcmSha256));
-  CheckTrue(FailAlertOf(LServer.ProcessMessage(MsgFrom(LCh2)), LAlert),
+  CheckTrue(FailAlertOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCh2)), LAlert),
     'an outer-type ech in the retry ClientHello aborts at a backend');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter, 'it is illegal_parameter');
 end;

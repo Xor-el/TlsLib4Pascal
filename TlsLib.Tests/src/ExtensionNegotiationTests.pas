@@ -68,7 +68,8 @@ uses
   TlpTls12ClientStateMachine,
   TlpTls12ServerStateMachine,
   TlpTlsVersion,
-  TlsLibTestBase;
+  TlsLibTestBase,
+  TlsLibTestHandshakeDecoder;
 
 type
   TTestExtensionNegotiation = class(TTlsLibAlgorithmTestCase)
@@ -107,7 +108,6 @@ type
     function CompressibleChain: TArray<TBytes>;
     function IncompressibleChain: TArray<TBytes>;
     function ZlibCompress(const AData: TBytes): TBytes;
-    function MsgFrom(const AFramed: TBytes): TTlsHandshakeMessage;
     function FirstSendHandshake(const AEffects: TArray<THandshakeEffect>): TBytes;
     function AllSendHandshake(const AEffects: TArray<THandshakeEffect>): TArray<TBytes>;
     function FailAlertOf(const AEffects: TArray<THandshakeEffect>;
@@ -571,9 +571,9 @@ var
   LFlight: TArray<TBytes>;
 begin
   // the encrypted flight is [ServerHello, EncryptedExtensions, Certificate, ...]
-  LFlight := AllSendHandshake(AServer.ProcessMessage(MsgFrom(
+  LFlight := AllSendHandshake(AServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(
     FirstSendHandshake(AClient.Start))));
-  Result := MsgFrom(LFlight[2]);
+  Result := TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[2]);
 end;
 
 function TTestExtensionNegotiation.PlaintextCertBody(
@@ -603,20 +603,6 @@ begin
   // 32 high-entropy bytes: zlib framing makes the output larger, not smaller
   Result := TArray<TBytes>.Create(
     DecodeHex('9f1c7a4e0b62d3851fae09c7b24d6f80e5a31c9d7042bf68ac15e3902d7c4b6a'));
-end;
-
-function TTestExtensionNegotiation.MsgFrom(
-  const AFramed: TBytes): TTlsHandshakeMessage;
-var
-  LReader: THandshakeMessageReader;
-begin
-  LReader := THandshakeMessageReader.Create;
-  try
-    LReader.Append(AFramed, 0, System.Length(AFramed));
-    LReader.NextMessage(Result);
-  finally
-    LReader.Free;
-  end;
 end;
 
 function TTestExtensionNegotiation.FirstSendHandshake(
@@ -703,7 +689,7 @@ var
   LType: UInt16;
 begin
   Result := 0;
-  LHello := THandshakeMessages.DecodeClientHello(MsgFrom(AClientHelloFramed).Body);
+  LHello := THandshakeMessages.DecodeClientHello(TTlsLibTestHandshakeDecoder.HandshakeMessage(AClientHelloFramed).Body);
   LVector := TExtensionVector.Parse(LHello.Extensions);
   for LType in LVector.Types do
     if TGrease.IsGrease(LType) then
@@ -746,11 +732,11 @@ begin
   LClient := NewClientMachine(TArray<string>.Create('h2'));
   LServer := NewServerMachine(TArray<string>.Create('h2'));
   LClientHello := FirstSendHandshake(LClient.Start);
-  LServerHello := FirstSendHandshake(LServer.ProcessMessage(MsgFrom(LClientHello)));
-  LClient.ProcessMessage(MsgFrom(LServerHello));
+  LServerHello := FirstSendHandshake(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LClientHello)));
+  LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LServerHello));
 
   CheckTrue(FailAlertOf(LClient.ProcessMessage(
-    MsgFrom(BuildEncryptedExtensionsWithAlpn('http/1.1'))), LAlert),
+    TTlsLibTestHandshakeDecoder.HandshakeMessage(BuildEncryptedExtensionsWithAlpn('http/1.1'))), LAlert),
     'a server ALPN selection the client did not offer aborts');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
     'an unoffered ALPN echo is illegal_parameter');
@@ -764,7 +750,7 @@ begin
   // a client awaiting ServerHello receives an unknown handshake type (0x63, len 0)
   LClient := NewClientMachine(nil);
   LClient.Start;
-  CheckTrue(FailAlertOf(LClient.ProcessMessage(MsgFrom(DecodeHex('63000000'))), LAlert),
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(DecodeHex('63000000'))), LAlert),
     'an unknown handshake type aborts');
   CheckTrue(LAlert = TTlsAlertDescription.UnexpectedMessage,
     'an unknown handshake type is unexpected_message');
@@ -780,12 +766,12 @@ begin
   // then deliver CertificateVerify out of order (before Certificate)
   LClient := NewClientMachine(nil);
   LServer := NewServerMachine(nil);
-  LFlight := AllSendHandshake(LServer.ProcessMessage(MsgFrom(
+  LFlight := AllSendHandshake(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(
     FirstSendHandshake(LClient.Start))));
   // LFlight = [ServerHello, EncryptedExtensions, Certificate, CertificateVerify, Finished]
-  LClient.ProcessMessage(MsgFrom(LFlight[0])); // ServerHello
-  LClient.ProcessMessage(MsgFrom(LFlight[1])); // EncryptedExtensions
-  CheckTrue(FailAlertOf(LClient.ProcessMessage(MsgFrom(LFlight[3])), LAlert),
+  LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[0])); // ServerHello
+  LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[1])); // EncryptedExtensions
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[3])), LAlert),
     'CertificateVerify before Certificate aborts');
   CheckTrue(LAlert = TTlsAlertDescription.UnexpectedMessage,
     'an out-of-order CertificateVerify is unexpected_message');
@@ -799,10 +785,10 @@ begin
   // real ClientHello/ServerHello exchange, then feed ServerHello + EncryptedExtensions
   Result := NewClientMachine(nil);
   LServer := NewServerMachine(nil);
-  AServerFlight := AllSendHandshake(LServer.ProcessMessage(MsgFrom(
+  AServerFlight := AllSendHandshake(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(
     FirstSendHandshake(Result.Start))));
-  Result.ProcessMessage(MsgFrom(AServerFlight[0])); // ServerHello
-  Result.ProcessMessage(MsgFrom(AServerFlight[1])); // EncryptedExtensions
+  Result.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(AServerFlight[0])); // ServerHello
+  Result.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(AServerFlight[1])); // EncryptedExtensions
 end;
 
 function TTestExtensionNegotiation.CompressedCertificateOf(AAlgorithm: UInt16;
@@ -826,12 +812,12 @@ var
 begin
   LClient := DriveClientToWaitCertificate(LFlight);
   // compress the server's real Certificate message and deliver it compressed
-  LCertBody := MsgFrom(LFlight[2]).Body;
+  LCertBody := TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[2]).Body;
   LCompressed := ZlibCompress(LCertBody);
   LCompMsg := CompressedCertificateOf(TCertificateCompressionAlgorithms.Zlib,
     System.Length(LCertBody), LCompressed);
   // the client decompresses and trust-verifies the recovered chain (no failure)
-  CheckFalse(FailAlertOf(LClient.ProcessMessage(MsgFrom(LCompMsg)), LAlert),
+  CheckFalse(FailAlertOf(LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCompMsg)), LAlert),
     'a valid compressed certificate is accepted');
 end;
 
@@ -849,7 +835,7 @@ begin
   FillChar(LZeros[0], 60000, 0);
   LCompressed := ZlibCompress(LZeros);
   LCompMsg := CompressedCertificateOf(TCertificateCompressionAlgorithms.Zlib, 60000, LCompressed);
-  CheckTrue(FailAlertOf(LClient.ProcessMessage(MsgFrom(LCompMsg)), LAlert),
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCompMsg)), LAlert),
     'a compressed-certificate bomb aborts');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
     'a compressed-certificate bomb is illegal_parameter');
@@ -865,7 +851,7 @@ begin
   LClient := DriveClientToWaitCertificate(LFlight);
   // brotli (2) was never advertised by the client
   LCompMsg := CompressedCertificateOf(2, 100, DecodeHex('00010203'));
-  CheckTrue(FailAlertOf(LClient.ProcessMessage(MsgFrom(LCompMsg)), LAlert),
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCompMsg)), LAlert),
     'an unadvertised compression algorithm aborts');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
     'an unadvertised compression algorithm is illegal_parameter');
@@ -882,11 +868,11 @@ begin
   // the server's real Certificate re-encoded with a one-byte certificate_request_context;
   // the context SHALL be empty in the main handshake (RFC 8446 4.4.2)
   LClient := DriveClientToWaitCertificate(LFlight);
-  LCert := THandshakeMessages.DecodeCertificate(MsgFrom(LFlight[2]).Body);
+  LCert := THandshakeMessages.DecodeCertificate(TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[2]).Body);
   LCert.RequestContext := TBytes.Create($01);
   LCertMsg := THandshakeFraming.Frame(TTlsHandshakeType.Certificate,
     THandshakeMessages.EncodeCertificate(LCert));
-  CheckTrue(FailAlertOf(LClient.ProcessMessage(MsgFrom(LCertMsg)), LAlert),
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCertMsg)), LAlert),
     'a non-empty certificate_request_context aborts');
   CheckTrue(LAlert = TTlsAlertDescription.DecodeError,
     'a non-empty certificate_request_context is decode_error');
@@ -1086,12 +1072,12 @@ begin
   // ClientHello whose legacy_compression_methods is not exactly null (RFC 8446 4.1.2)
   LClientHello := FirstSendHandshake(NewClientMachine(nil).Start);
   CheckTrue(FailAlertOf(NewServerMachine(nil).ProcessMessage(
-    MsgFrom(WithExtraCompression(LClientHello))), LAlert),
+    TTlsLibTestHandshakeDecoder.HandshakeMessage(WithExtraCompression(LClientHello))), LAlert),
     'non-null legacy_compression_methods aborts');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
     'the alert is illegal_parameter');
   // control: the untampered null-only ClientHello is accepted (the server responds, no abort)
-  CheckFalse(FailAlertOf(NewServerMachine(nil).ProcessMessage(MsgFrom(LClientHello)), LAlert),
+  CheckFalse(FailAlertOf(NewServerMachine(nil).ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LClientHello)), LAlert),
     'null-only legacy_compression_methods is accepted');
 end;
 
@@ -1162,10 +1148,10 @@ begin
   // and the server applies no limit to its record layer
   LClient := NewClientMachine(nil);
   LServer := NewServerMachineLimited(nil, 512);
-  LEffects := LServer.ProcessMessage(MsgFrom(FirstSendHandshake(LClient.Start)));
+  LEffects := LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(FirstSendHandshake(LClient.Start)));
   LFlight := AllSendHandshake(LEffects);
   LVector := TExtensionVector.Parse(
-    THandshakeMessages.DecodeEncryptedExtensions(MsgFrom(LFlight[1]).Body));
+    THandshakeMessages.DecodeEncryptedExtensions(TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[1]).Body));
   CheckFalse(LVector.Contains(TExtensionTypes.RecordSizeLimit),
     'EncryptedExtensions omits an unoffered record_size_limit');
   for LEffect in LEffects do
@@ -1212,7 +1198,7 @@ begin
     if AWire[LPos] = 22 then
     begin
       Result := THandshakeMessages.DecodeServerHello(
-        MsgFrom(System.Copy(AWire, LPos + 5, LLen)).Body);
+        TTlsLibTestHandshakeDecoder.HandshakeMessage(System.Copy(AWire, LPos + 5, LLen)).Body);
       Exit;
     end;
     Inc(LPos, 5 + LLen);
@@ -1407,10 +1393,10 @@ begin
   LGreaseType := GreaseExtensionTypeOf(LClientHello);
   CheckTrue(TGrease.IsGrease(LGreaseType),
     'the greasing ClientHello carries a GREASE extension type');
-  LServerHello := FirstSendHandshake(LServer.ProcessMessage(MsgFrom(LClientHello)));
-  LClient.ProcessMessage(MsgFrom(LServerHello)); // installs handshake keys; awaits EncryptedExtensions
+  LServerHello := FirstSendHandshake(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LClientHello)));
+  LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LServerHello)); // installs handshake keys; awaits EncryptedExtensions
   LEncryptedExtensions := BuildEncryptedExtensionsWithExtension(LGreaseType);
-  CheckTrue(FailAlertOf(LClient.ProcessMessage(MsgFrom(LEncryptedExtensions)), LAlert),
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LEncryptedExtensions)), LAlert),
     'a GREASE extension type echoed in EncryptedExtensions aborts');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
     'a GREASE extension in EncryptedExtensions is illegal_parameter');
@@ -1469,7 +1455,7 @@ begin
   // appended at the very end rather than sitting ahead of server_name
   LClient := NewGreasingClientMachine;
   LClientHello := FirstSendHandshake(LClient.Start);
-  LHello := THandshakeMessages.DecodeClientHello(MsgFrom(LClientHello).Body);
+  LHello := THandshakeMessages.DecodeClientHello(TTlsLibTestHandshakeDecoder.HandshakeMessage(LClientHello).Body);
   LVector := TExtensionVector.Parse(LHello.Extensions);
   LTypes := LVector.Types;
   LGreaseIndex := -1;
@@ -1488,7 +1474,7 @@ begin
   // keys, not deployed as a split-mode backend) must refuse it with illegal_parameter (RFC 9849
   // sec. 7), rather than confirm a backend role it was never configured for
   CheckTrue(FailAlertOf(NewServerMachine(nil).ProcessMessage(
-    MsgFrom(InnerEchClientHello)), LAlert),
+    TTlsLibTestHandshakeDecoder.HandshakeMessage(InnerEchClientHello)), LAlert),
     'an inner-type ech at a non-backend server aborts');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
     'an inner-type ech at a non-backend server is illegal_parameter');
@@ -1502,7 +1488,7 @@ begin
   // a server deployed as a split-mode backend accepts the forwarded inner-type ech and drives the
   // handshake off it (RFC 9849 sec. 7.2): no abort, a ServerHello is emitted
   LEffects := NewEchServerMachine(TEchServerPolicy.Backend).ProcessMessage(
-    MsgFrom(InnerEchClientHello));
+    TTlsLibTestHandshakeDecoder.HandshakeMessage(InnerEchClientHello));
   CheckFalse(FailAlertOf(LEffects, LAlert),
     'a backend server does not abort an inner-type ech');
   CheckTrue(FirstSendHandshake(LEffects) <> nil,
@@ -1516,9 +1502,9 @@ begin
   // a split-mode backend only takes the forwarded inner hello: an outer-type ech MUST abort with
   // illegal_parameter (RFC 9849 sec. 7), while a server with no ECH policy ignores it
   CheckTrue(FailAlertOf(NewEchServerMachine(TEchServerPolicy.Backend).ProcessMessage(
-    MsgFrom(OuterEchClientHello)), LAlert), 'a backend aborts an outer-type ech');
+    TTlsLibTestHandshakeDecoder.HandshakeMessage(OuterEchClientHello)), LAlert), 'a backend aborts an outer-type ech');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter, 'with illegal_parameter');
-  CheckFalse(FailAlertOf(NewServerMachine(nil).ProcessMessage(MsgFrom(OuterEchClientHello)),
+  CheckFalse(FailAlertOf(NewServerMachine(nil).ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(OuterEchClientHello)),
     LAlert), 'a server with no ECH policy ignores an outer-type ech');
 end;
 
@@ -1534,7 +1520,7 @@ begin
     THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM, 0);
   LServer := NewEchServerMachine(TEchServerPolicy.Keyed(Crypto,
     TInMemoryEchKeyStore.FromPem(LGen.Pem, Crypto), False));
-  CheckTrue(FailAlertOf(LServer.ProcessMessage(MsgFrom(InnerEchClientHello)), LAlert),
+  CheckTrue(FailAlertOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(InnerEchClientHello)), LAlert),
     'a keyed server aborts an inner-type ech');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter, 'with illegal_parameter');
 end;

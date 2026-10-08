@@ -217,8 +217,8 @@ resourcestring
     'certificate or key), which TlsLib4Pascal does not read: pass them as PEM/DER files via ' +
     'CertificateFile and PrivateKeyFile';
   SMormotCipherListUnsupported = 'the mORMot TLS context sets CipherList, which TlsLib4Pascal ' +
-    'does not honour: its suites come from the TlsLib configuration, so supply one through ' +
-    'SetTlsLibMormotClientConfig or SetTlsLibMormotServerConfig';
+    'does not honour: leave it empty and choose suites through a TlsLib configuration supplied ' +
+    'with SetTlsLibMormotClientConfig or SetTlsLibMormotServerConfig';
   SMormotReceiveFailed = 'mORMot socket receive failed (nr=%d)';
   SMormotReceiveTimedOut = 'the socket receive timeout elapsed with no data from the peer';
   SMormotSendFailed = 'mORMot socket send failed (nr=%d)';

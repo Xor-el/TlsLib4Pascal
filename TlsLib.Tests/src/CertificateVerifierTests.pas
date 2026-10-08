@@ -38,6 +38,8 @@ uses
   TlpTrustTypes,
   TlpServerName,
   TlpCertificateVerifier,
+  TlpICertificateVerifierSource,
+  TlpCertificateVerifierSource,
   TlpCertificateLimits,
   TlpCertificateStrengthPolicy,
   TlpNegotiationTypes,
@@ -59,6 +61,45 @@ type
     function DistrustedCertificates: TArray<TBytes>;
     function IsDistrusted(const ACertificate: TBytes): Boolean;
     property Reads: Int32 read FReads;
+  end;
+
+  /// <summary>A whole-verifier instance that accepts or rejects every chain, standing in for a
+  /// caller-supplied verifier behind an instance source.</summary>
+  TFixedVerdictVerifier = class(TInterfacedObject, IServerCertificateVerifier,
+    IClientCertificateVerifier)
+  strict private
+    FAccept: Boolean;
+  public
+    constructor Create(AAccept: Boolean);
+    function VerifyServerCertificate(const AChain: TArray<TBytes>;
+      const AServerName: TServerName; const AOcspStaple: TBytes;
+      out AVerified: TVerifiedChain;
+      out AAlert: TTlsAlertDescription): Boolean;
+    function VerifyClientCertificate(const AChain: TArray<TBytes>;
+      out AVerified: TVerifiedChain;
+      out AAlert: TTlsAlertDescription): Boolean;
+  end;
+
+  /// <summary>The verify callback an instance source composes over a caller-supplied verifier.</summary>
+  TTestInstanceSourceVerifyCallback = class(TTlsLibAlgorithmTestCase)
+  strict private
+    FAccept: Boolean;
+    FCalls: Int32;
+    function Callback(const AChain: TArray<TBytes>; const AHostName: string): Boolean;
+    function Chain: TArray<TBytes>;
+    // the verifier an instance source yields over AInner, with the callback set or not
+    function ServerVerifier(const AInner: IServerCertificateVerifier;
+      AWithCallback: Boolean): IServerCertificateVerifier;
+    function ClientVerifier(const AInner: IClientCertificateVerifier;
+      AWithCallback: Boolean): IClientCertificateVerifier;
+  published
+    procedure TestServerCallbackRejectsOverAcceptingInstance;
+    procedure TestServerCallbackAcceptKeepsInstanceVerdict;
+    procedure TestServerCallbackNotRunWhenInstanceRejects;
+    procedure TestServerWithoutCallbackReturnsTheInstance;
+    procedure TestClientCallbackRejectsOverAcceptingInstance;
+    procedure TestClientCallbackNotRunWhenInstanceRejects;
+    procedure TestClientWithoutCallbackReturnsTheInstance;
   end;
 
   TTestCertificateVerifier = class(TTlsLibAlgorithmTestCase)
@@ -175,6 +216,166 @@ type
   end;
 
 implementation
+
+{ TFixedVerdictVerifier }
+
+constructor TFixedVerdictVerifier.Create(AAccept: Boolean);
+begin
+  inherited Create;
+  FAccept := AAccept;
+end;
+
+function TFixedVerdictVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
+  const AServerName: TServerName; const AOcspStaple: TBytes;
+  out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
+begin
+  AVerified := Default(TVerifiedChain);
+  AAlert := TTlsAlertDescription.BadCertificate;
+  Result := FAccept;
+  if Result then
+    AVerified.Path := AChain;
+end;
+
+function TFixedVerdictVerifier.VerifyClientCertificate(const AChain: TArray<TBytes>;
+  out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
+begin
+  Result := VerifyServerCertificate(AChain, Default(TServerName), nil, AVerified, AAlert);
+end;
+
+{ TTestInstanceSourceVerifyCallback }
+
+function TTestInstanceSourceVerifyCallback.Callback(const AChain: TArray<TBytes>;
+  const AHostName: string): Boolean;
+begin
+  System.Inc(FCalls);
+  Result := FAccept;
+end;
+
+function TTestInstanceSourceVerifyCallback.Chain: TArray<TBytes>;
+begin
+  Result := TArray<TBytes>.Create(TBytes.Create(1, 2, 3));
+end;
+
+function TTestInstanceSourceVerifyCallback.ServerVerifier(
+  const AInner: IServerCertificateVerifier; AWithCallback: Boolean): IServerCertificateVerifier;
+var
+  LContext: TServerTrustContext;
+  LSource: IServerCertificateVerifierSource;
+begin
+  LContext := Default(TServerTrustContext);
+  if AWithCallback then
+    LContext.Dangerous.VerifyCallback := Callback;
+  LSource := TInstanceServerVerifierSource.Create(AInner) as IServerCertificateVerifierSource;
+  Result := LSource.CreateServerVerifier(LContext);
+end;
+
+function TTestInstanceSourceVerifyCallback.ClientVerifier(
+  const AInner: IClientCertificateVerifier; AWithCallback: Boolean): IClientCertificateVerifier;
+var
+  LContext: TClientTrustContext;
+  LSource: IClientCertificateVerifierSource;
+begin
+  LContext := Default(TClientTrustContext);
+  if AWithCallback then
+    LContext.Dangerous.VerifyCallback := Callback;
+  LSource := TInstanceClientVerifierSource.Create(AInner) as IClientCertificateVerifierSource;
+  Result := LSource.CreateClientVerifier(LContext);
+end;
+
+procedure TTestInstanceSourceVerifyCallback.TestServerCallbackRejectsOverAcceptingInstance;
+var
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  FAccept := False;
+  LVerifier := ServerVerifier(TFixedVerdictVerifier.Create(True) as IServerCertificateVerifier,
+    True);
+  CheckFalse(LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName('host.example'), nil,
+    LVerified, LAlert), 'the callback rejects what the instance accepted');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the alert is certificate_unknown');
+  CheckEquals(0, System.Length(LVerified.Path), 'a rejection carries no validated path');
+  CheckEquals(1, FCalls, 'the callback ran once');
+end;
+
+procedure TTestInstanceSourceVerifyCallback.TestServerCallbackAcceptKeepsInstanceVerdict;
+var
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  FAccept := True;
+  LVerifier := ServerVerifier(TFixedVerdictVerifier.Create(True) as IServerCertificateVerifier,
+    True);
+  CheckTrue(LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName('host.example'), nil,
+    LVerified, LAlert), 'an accepting callback leaves the instance verdict');
+  CheckEquals(1, System.Length(LVerified.Path), 'the instance path is kept');
+end;
+
+procedure TTestInstanceSourceVerifyCallback.TestServerCallbackNotRunWhenInstanceRejects;
+var
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  FAccept := True;
+  LVerifier := ServerVerifier(TFixedVerdictVerifier.Create(False) as IServerCertificateVerifier,
+    True);
+  CheckFalse(LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName('host.example'), nil,
+    LVerified, LAlert), 'the callback cannot rescue a rejection');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
+    'the instance alert is kept');
+  CheckEquals(0, FCalls, 'the callback is not consulted');
+end;
+
+procedure TTestInstanceSourceVerifyCallback.TestServerWithoutCallbackReturnsTheInstance;
+var
+  LInstance, LVerifier: IServerCertificateVerifier;
+begin
+  LInstance := TFixedVerdictVerifier.Create(True) as IServerCertificateVerifier;
+  LVerifier := ServerVerifier(LInstance, False);
+  CheckTrue(LVerifier = LInstance, 'no callback leaves the instance undecorated');
+end;
+
+procedure TTestInstanceSourceVerifyCallback.TestClientCallbackRejectsOverAcceptingInstance;
+var
+  LVerifier: IClientCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  FAccept := False;
+  LVerifier := ClientVerifier(TFixedVerdictVerifier.Create(True) as IClientCertificateVerifier,
+    True);
+  CheckFalse(LVerifier.VerifyClientCertificate(Chain, LVerified, LAlert),
+    'the callback rejects what the instance accepted');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the alert is certificate_unknown');
+  CheckEquals(0, System.Length(LVerified.Path), 'a rejection carries no validated path');
+end;
+
+procedure TTestInstanceSourceVerifyCallback.TestClientCallbackNotRunWhenInstanceRejects;
+var
+  LVerifier: IClientCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  FAccept := True;
+  LVerifier := ClientVerifier(TFixedVerdictVerifier.Create(False) as IClientCertificateVerifier,
+    True);
+  CheckFalse(LVerifier.VerifyClientCertificate(Chain, LVerified, LAlert),
+    'the callback cannot rescue a rejection');
+  CheckEquals(0, FCalls, 'the callback is not consulted');
+end;
+
+procedure TTestInstanceSourceVerifyCallback.TestClientWithoutCallbackReturnsTheInstance;
+var
+  LInstance, LVerifier: IClientCertificateVerifier;
+begin
+  LInstance := TFixedVerdictVerifier.Create(True) as IClientCertificateVerifier;
+  LVerifier := ClientVerifier(LInstance, False);
+  CheckTrue(LVerifier = LInstance, 'no callback leaves the instance undecorated');
+end;
 
 { TCountingTrustAnchorStore }
 
@@ -1242,8 +1443,10 @@ initialization
 
 {$IFDEF FPC}
   RegisterTest(TTestCertificateVerifier);
+  RegisterTest(TTestInstanceSourceVerifyCallback);
 {$ELSE}
   RegisterTest(TTestCertificateVerifier.Suite);
+  RegisterTest(TTestInstanceSourceVerifyCallback.Suite);
 {$ENDIF FPC}
 
 end.

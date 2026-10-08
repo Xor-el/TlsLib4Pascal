@@ -313,10 +313,13 @@ begin
   // Compatible seeds the suites, signature schemes, named-group registry and the
   // TLS 1.3 + hardened 1.2 version offer; the harness only overrides what a test dictates
   LBuilder := TTlsPresets.Compatible(ACryptoProvider, TTlsLibTestProviders.Pkix);
-  // a curve restriction to post-quantum-only groups is implicitly 1.3-only; drop the
-  // 1.2 offer so the version/group pair stays consistent (the preset default offers 1.2)
+  // a curve restriction to post-quantum-only groups, and a certificate-less PSK server (external
+  // PSKs are TLS 1.3-only), are implicitly 1.3-only; drop the 1.2 offer so the version pair stays
+  // consistent (the preset default offers 1.2)
   LVersions := AOptions.SupportedVersions;
-  if OnlyPostQuantumGroups(ACryptoProvider, AOptions.OfferedGroups) then
+  if OnlyPostQuantumGroups(ACryptoProvider, AOptions.OfferedGroups) or
+    ((AOptions.Role = TInteropRole.Server) and (not AOptions.HasCredential) and
+    (System.Length(AOptions.ExternalPsks) > 0)) then
     if System.Length(LVersions) = 0 then
       LVersions := TArray<UInt16>.Create(TlsWireVersionTls13)
     else

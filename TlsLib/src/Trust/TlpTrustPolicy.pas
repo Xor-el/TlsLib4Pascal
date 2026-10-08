@@ -130,6 +130,20 @@ type
       AOptions: TDangerousTrust);
   end;
 
+  /// <summary>
+  /// The one augment-only reject rule every verifier applies after its own decision: an assigned
+  /// VerifyCallback that returns False rejects the chain. A custom rejection is an acceptability
+  /// problem rather than a corrupt certificate, so the alert is certificate_unknown (RFC 8446 6.2).
+  /// </summary>
+  TVerifyCallbackGate = class sealed(TObject)
+  public
+    /// <summary>True when ACallback is unassigned or accepts AChain; else False with AAlert set
+    /// (left untouched on True).</summary>
+    class function Admits(const ACallback: TTlsCertificateVerifyCallback;
+      const AChain: TArray<TBytes>; const AHostName: string;
+      out AAlert: TTlsAlertDescription): Boolean; static;
+  end;
+
   /// <summary>Whose certificate a parked verdict concerns. Server: we are the client and the chain
   /// is the server's, matched against HostName. Client: we are the server and the chain is an mTLS
   /// client's, with no host identity to match. A resolver that evaluates a role-specific trust
@@ -251,6 +265,15 @@ class operator TDangerousTrust.Initialize({$IFDEF FPC}var{$ELSE}out{$ENDIF}
 begin
   AOptions.InsecureSkipVerify := False;
   AOptions.VerifyCallback := nil;
+end;
+
+class function TVerifyCallbackGate.Admits(const ACallback: TTlsCertificateVerifyCallback;
+  const AChain: TArray<TBytes>; const AHostName: string;
+  out AAlert: TTlsAlertDescription): Boolean;
+begin
+  Result := (not Assigned(ACallback)) or ACallback(AChain, AHostName);
+  if not Result then
+    AAlert := TTlsAlertDescription.CertificateUnknown;
 end;
 
 function TCertificateVerdictContext.RevocationPath: TArray<TBytes>;

@@ -23,6 +23,11 @@ type
   /// <summary>Whether a server name is a DNS host or an IP-address literal.</summary>
   TServerNameKind = (Dns, Ip);
 
+  /// <summary>Whether a client sends its host as server_name (SNI, RFC 6066 sec. 3): Send, the
+  /// default, sends a DNS host and never an IP literal; Omit sends none. Independent of the
+  /// certificate name check (RFC 9525), which always uses the connection host.</summary>
+  TServerNameIndication = (Send, Omit);
+
   /// <summary>
   /// The identity a client verifies a server certificate against - a DNS host or an
   /// IP literal. The empty value (IsEmpty) means no identity is present: it arises only

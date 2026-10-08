@@ -71,8 +71,8 @@ n := sock.Read(buf[0], Length(buf));
 sock.Free;                                              // flushes close_notify, closes the socket
 ```
 
-The host passed to `TInetSocket.Create` is both the SNI name and the name the certificate is
-verified against.
+The host passed to `TInetSocket.Create` is both the SNI name (unless `SendHostAsSNI := False`) and the
+name the certificate is verified against.
 
 ## Configuring trust
 
@@ -90,6 +90,7 @@ trust the familiar way. Only what fcl-net lacks is added as extension properties
 | `ClientAuth: TClientAuthMode` (**server**)            | `WithPeerAuth(None / Requested / Required)`; default `None` never requests a client certificate. Any other mode needs a private client-CA (`CertCA` / `TrustedCertificate` / `CustomTrustStore`). `UseSystemTrust` is a server-cert source, never a client-CA |
 | `CustomServerCertificateVerifier` / `CustomClientCertificateVerifier` | `WithDangerousCertificateVerifier` — **replaces** the pipeline (role-typed) |
 | `CheckHostName: Boolean` (default True)               | on by default; off via `WithDangerousDisableServerNameCheck` |
+| `SendHostAsSNI` (fcl-net native, default True)        | `WithServerNameIndication(Send / Omit)`; False sends no SNI but the certificate is still verified against the host |
 | `AlpnProtocols: TArray<string>`                       | `WithAlpnProtocols`                                |
 | `VerifyPeerCert` (fcl-net native, default **True** here) | verify on/off; **False** → `dangerous` `WithDangerousInsecureSkipVerify` |
 | `SSLType` (fcl-net native)                            | `stAny` offers TLS 1.3 and 1.2; `stTLSv1_2` offers 1.2 alone; any other value fails the handshake |
@@ -161,4 +162,6 @@ each handler a fully-built config through `ServerConfig` / `ClientConfig` — an
 cipher-suite preference pinned to TLS 1.2, so the negotiated 1.2 (the preset would pick 1.3) proves
 the injected config replaced the built-in build. This is the escape hatch to the whole builder API
 (cipher order, groups, resumption, ALPN, …). A built config supplied alongside cert/trust options
-(or a pinned `SSLType`, a verify callback or a crypto/PKIX provider) is refused, not silently dropped.
+(or a pinned `SSLType`, a verify callback, `SendHostAsSNI := False` on a client, or a crypto/PKIX
+provider) is refused, not silently dropped. So is a `CertificateData.CipherList` other than fcl-net's
+`DEFAULT`: suites come from the TlsLib configuration.

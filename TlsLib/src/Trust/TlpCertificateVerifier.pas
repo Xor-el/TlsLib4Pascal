@@ -215,12 +215,48 @@ type
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
+  /// <summary>
+  /// Applies the augment-only VerifyCallback to a caller-supplied server-certificate verifier: the
+  /// inner verifier decides first and the callback can only additionally reject. Composed over an
+  /// instance verifier, which cannot receive the callback through its trust context.
+  /// </summary>
+  TVerifyCallbackVerifier = class sealed(TInterfacedObject, IServerCertificateVerifier)
+  strict private
+  var
+    FInner: IServerCertificateVerifier;
+    FCallback: TTlsCertificateVerifyCallback;
+  public
+    constructor Create(const AInner: IServerCertificateVerifier;
+      const ACallback: TTlsCertificateVerifyCallback);
+    function VerifyServerCertificate(const AChain: TArray<TBytes>;
+      const AServerName: TServerName; const AOcspStaple: TBytes;
+      out AVerified: TVerifiedChain;
+      out AAlert: TTlsAlertDescription): Boolean;
+  end;
+
+  /// <summary>
+  /// The client-certificate counterpart of <see cref="TVerifyCallbackVerifier" />.
+  /// </summary>
+  TClientVerifyCallbackVerifier = class sealed(TInterfacedObject, IClientCertificateVerifier)
+  strict private
+  var
+    FInner: IClientCertificateVerifier;
+    FCallback: TTlsCertificateVerifyCallback;
+  public
+    constructor Create(const AInner: IClientCertificateVerifier;
+      const ACallback: TTlsCertificateVerifyCallback);
+    function VerifyClientCertificate(const AChain: TArray<TBytes>;
+      out AVerified: TVerifiedChain;
+      out AAlert: TTlsAlertDescription): Boolean;
+  end;
+
 implementation
 
 resourcestring
   SNilVerifierInput = 'a PKIX provider and clock are required (pass instances, not nil)';
   SNilPinningInput = 'an inner verifier, a crypto provider and a PKIX provider are required ' +
     '(pass instances, not nil)';
+  SNilCallbackInput = 'an inner verifier and a verify callback are required (pass instances, not nil)';
 
 { TCertificateVerifierOptions }
 
@@ -577,15 +613,12 @@ begin
   end;
   // the augment-only hook runs last and can only additionally reject; it can never rescue a
   // chain the pipeline (when run) already rejected, since a rejection has returned above
-  if Assigned(FDangerous.VerifyCallback) then
-    if not FDangerous.VerifyCallback(AChain, AServerName.ToString) then
-    begin
-      // a custom augment verifier's rejection is an unspecified acceptability problem, not a
-      // corrupt/bad-signature certificate: certificate_unknown, not bad_certificate (RFC 8446 6.2)
-      AVerified := Default(TVerifiedChain);
-      AAlert := TTlsAlertDescription.CertificateUnknown;
-      Exit;
-    end;
+  if not TVerifyCallbackGate.Admits(FDangerous.VerifyCallback, AChain, AServerName.ToString,
+    AAlert) then
+  begin
+    AVerified := Default(TVerifiedChain);
+    Exit;
+  end;
   Result := True;
 end;
 
@@ -614,13 +647,11 @@ begin
     if LSettled then
       AVerified.Outcome := TVerificationOutcome.RevocationSettledInline;
   end;
-  if Assigned(FDangerous.VerifyCallback) then
-    if not FDangerous.VerifyCallback(AChain, '') then
-    begin
-      AVerified := Default(TVerifiedChain);
-      AAlert := TTlsAlertDescription.CertificateUnknown;
-      Exit;
-    end;
+  if not TVerifyCallbackGate.Admits(FDangerous.VerifyCallback, AChain, '', AAlert) then
+  begin
+    AVerified := Default(TVerifiedChain);
+    Exit;
+  end;
   Result := True;
 end;
 
@@ -729,6 +760,60 @@ begin
   begin
     AVerified := Default(TVerifiedChain);
     AAlert := TTlsAlertDescription.BadCertificate;
+    Result := False;
+  end;
+end;
+
+{ TVerifyCallbackVerifier }
+
+constructor TVerifyCallbackVerifier.Create(const AInner: IServerCertificateVerifier;
+  const ACallback: TTlsCertificateVerifyCallback);
+begin
+  inherited Create;
+  if (AInner = nil) or not Assigned(ACallback) then
+    raise EArgumentTlsLibException.CreateRes(@SNilCallbackInput);
+  FInner := AInner;
+  FCallback := ACallback;
+end;
+
+function TVerifyCallbackVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
+  const AServerName: TServerName; const AOcspStaple: TBytes;
+  out AVerified: TVerifiedChain;
+  out AAlert: TTlsAlertDescription): Boolean;
+begin
+  Result := FInner.VerifyServerCertificate(AChain, AServerName, AOcspStaple,
+    AVerified, AAlert);
+  if not Result then
+    Exit;
+  if not TVerifyCallbackGate.Admits(FCallback, AChain, AServerName.ToString, AAlert) then
+  begin
+    AVerified := Default(TVerifiedChain);
+    Result := False;
+  end;
+end;
+
+{ TClientVerifyCallbackVerifier }
+
+constructor TClientVerifyCallbackVerifier.Create(const AInner: IClientCertificateVerifier;
+  const ACallback: TTlsCertificateVerifyCallback);
+begin
+  inherited Create;
+  if (AInner = nil) or not Assigned(ACallback) then
+    raise EArgumentTlsLibException.CreateRes(@SNilCallbackInput);
+  FInner := AInner;
+  FCallback := ACallback;
+end;
+
+function TClientVerifyCallbackVerifier.VerifyClientCertificate(const AChain: TArray<TBytes>;
+  out AVerified: TVerifiedChain;
+  out AAlert: TTlsAlertDescription): Boolean;
+begin
+  Result := FInner.VerifyClientCertificate(AChain, AVerified, AAlert);
+  if not Result then
+    Exit;
+  if not TVerifyCallbackGate.Admits(FCallback, AChain, '', AAlert) then
+  begin
+    AVerified := Default(TVerifiedChain);
     Result := False;
   end;
 end;

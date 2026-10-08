@@ -309,16 +309,10 @@ function TOSDelegateVerifierBase.ApplyDangerous(const AChain: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
   // augment-only: the hook can only additionally reject a chain the engine trusted, never rescue one
-  // it rejected (a rejection already returned). A custom rejection is an acceptability problem, not a
-  // corrupt certificate, so certificate_unknown (RFC 8446 6.2) - the same verdict the built-in gives
-  Result := True;
-  if Assigned(FPolicy.Dangerous.VerifyCallback) then
-    if not FPolicy.Dangerous.VerifyCallback(AChain, AHostName) then
-    begin
-      AVerified := Default(TVerifiedChain);
-      AAlert := TTlsAlertDescription.CertificateUnknown;
-      Result := False;
-    end;
+  // it rejected (a rejection already returned)
+  Result := TVerifyCallbackGate.Admits(FPolicy.Dangerous.VerifyCallback, AChain, AHostName, AAlert);
+  if not Result then
+    AVerified := Default(TVerifiedChain);
 end;
 
 { TOSDelegateServerVerifier }

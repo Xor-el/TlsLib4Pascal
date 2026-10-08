@@ -114,11 +114,14 @@ type
     FClientVerifierSource: IClientCertificateVerifierSource;
     FVerifierCount: Int32;
     FCheckServerName: Boolean;
+    FServerNameIndication: TServerNameIndication;
     FRequestOcspStapling: Boolean;
     FChainLimits: TCertificateChainLimits;
     FStrengthPolicy: TCertificateStrengthPolicy;
     FCredential: TTlsCredential;
     FHasCredential: Boolean;
+    FClientViewTaken: Boolean;
+    FServerViewTaken: Boolean;
     FSniCredentialEntries: TArray<TSniCredentialEntry>;
     FCredentialResolver: ITlsServerCredentialResolver;
     FClientAuth: TClientAuthMode;
@@ -254,6 +257,7 @@ type
     function WithClientCertificateAuthorities(const AAuthorities: TArray<TBytes>): TTlsConfigBuilder;
     function WithGrease(AEnable: Boolean): TTlsConfigBuilder;
     function WithDangerousDisableServerNameCheck: TTlsConfigBuilder;
+    function WithServerNameIndication(AMode: TServerNameIndication): TTlsConfigBuilder;
     function WithOcspStaplingRequest(AEnabled: Boolean): TTlsConfigBuilder;
     function WithPeerAuth(AMode: TClientAuthMode): TTlsConfigBuilder;
     function WithRevocation(APosture: TRevocationPosture): TTlsConfigBuilder;
@@ -325,6 +329,10 @@ resourcestring
     'back to certificate authentication; keep WithExternalPskRequired(True) or add a trust source';
   SPskOnlyClientNeedsTls13Only = 'a client with external PSKs and no trust source must offer TLS ' +
     '1.3 only (external PSKs are TLS 1.3-only); use a 1.3-only preset or WithSupportedVersions([TLS 1.3])';
+  SBuilderOneEndpoint = 'a configuration builder configures one endpoint: use a separate builder ' +
+    'for the client and for the server';
+  SPskOnlyServerNeedsTls13Only = 'a server with external PSKs and no certificate must offer TLS ' +
+    '1.3 only (external PSKs are TLS 1.3-only); use a 1.3-only preset or WithSupportedVersions([TLS 1.3])';
   SNoCredential = 'a server configuration requires a certificate credential or an external PSK';
   SCredentialChainEmpty = 'a credential needs at least its leaf certificate in the chain';
   SCredentialKeyMissing = 'a credential needs a private key to sign the handshake';
@@ -343,8 +351,6 @@ resourcestring
     'SubjectAltName dNSName entries do not match the host';
   SSniResolverConflict = 'a custom WithCredentialResolver cannot be combined with ' +
     'WithCredential or WithSniCredential; supply one or the other';
-  SClientSideServerCredential = 'WithSniCredential and WithCredentialResolver select a server ' +
-    'certificate by SNI and cannot be used on a client configuration';
   SSniDuplicateHost = 'the SNI host "%s" is mapped by more than one WithSniCredential entry';
   SSniWildcardMalformed = 'the SNI host "%s" is not a supported wildcard; only a single ' +
     'left-most label wildcard (*.example.com) is allowed';
@@ -365,6 +371,8 @@ resourcestring
     'a ClientHello''s extensions block (RFC 8446 4.1.2) can always carry it';
   SNoRegisteredPreferredGroup = 'none of the preferred key-exchange groups is in the named-group ' +
     'registry, so no handshake could ever select a group';
+  SNoClassicalEcdheGroup = 'TLS 1.2 is offered but none of the preferred key-exchange groups is a ' +
+    'registered classical ECDHE group, so no TLS 1.2 handshake could ever select a group';
   SAlpnProtocolDuplicate = 'the ALPN protocol "%s" is offered more than once';
   SRecordSizeLimitRange = 'the record_size_limit must be 0 (not offered) or 64..16384 (RFC 8449 4)';
   SHardRevocationUnusable = 'a Hard revocation posture rejects a peer whose certificate has no ' +
@@ -487,6 +495,7 @@ type
   var
     FGrease: Boolean;
     FCheckServerName: Boolean;
+    FServerNameIndication: TServerNameIndication;
     FServerVerifierSource: IServerCertificateVerifierSource;
     FRequestOcspStapling: Boolean;
     FSessionCache: ISessionCache;
@@ -498,6 +507,7 @@ type
   public
     function Grease: Boolean;
     function CheckServerName: Boolean;
+    function ServerNameIndication: TServerNameIndication;
     function ServerVerifierSource: IServerCertificateVerifierSource;
     function RequestOcspStapling: Boolean;
     function SessionCache: ISessionCache;
@@ -590,6 +600,7 @@ type
     function WithIntermediateCertificates(
       const AData: TBytes): ITlsClientConfigBuilder;
     function WithDangerousDisableServerNameCheck: ITlsClientConfigBuilder;
+    function WithServerNameIndication(AMode: TServerNameIndication): ITlsClientConfigBuilder;
     function WithOcspStaplingRequest(AEnabled: Boolean): ITlsClientConfigBuilder;
     function WithDangerousInsecureSkipVerify: ITlsClientConfigBuilder;
     function WithCertificateVerifyCallback(
@@ -863,6 +874,11 @@ begin
   Result := FCheckServerName;
 end;
 
+function TFrozenClientConfig.ServerNameIndication: TServerNameIndication;
+begin
+  Result := FServerNameIndication;
+end;
+
 function TFrozenClientConfig.ServerVerifierSource: IServerCertificateVerifierSource;
 begin
   Result := FServerVerifierSource;
@@ -1127,6 +1143,13 @@ end;
 function TTlsClientConfigBuilder.WithDangerousDisableServerNameCheck: ITlsClientConfigBuilder;
 begin
   FOwner.WithDangerousDisableServerNameCheck;
+  Result := Self;
+end;
+
+function TTlsClientConfigBuilder.WithServerNameIndication(
+  AMode: TServerNameIndication): ITlsClientConfigBuilder;
+begin
+  FOwner.WithServerNameIndication(AMode);
   Result := Self;
 end;
 
@@ -1709,6 +1732,7 @@ begin
   FFrozen := False;
   FHasCredential := False;
   FCheckServerName := True;
+  FServerNameIndication := TServerNameIndication.Send;
   // the client does not offer status_request unless asked: an unsolicited staple is rejected
   FRequestOcspStapling := False;
   // soft-fail revocation is the default posture (stapled OCSP, RFC 6066 8 /
@@ -2328,6 +2352,14 @@ begin
   Result := Self;
 end;
 
+function TTlsConfigBuilder.WithServerNameIndication(
+  AMode: TServerNameIndication): TTlsConfigBuilder;
+begin
+  GuardMutable;
+  FServerNameIndication := AMode;
+  Result := Self;
+end;
+
 function TTlsConfigBuilder.WithOcspStaplingRequest(
   AEnabled: Boolean): TTlsConfigBuilder;
 begin
@@ -2616,17 +2648,26 @@ end;
 
 function TTlsConfigBuilder.Client: ITlsClientConfigBuilder;
 begin
+  // one builder configures one endpoint: the other view's settings would be silently dropped
+  if FServerViewTaken then
+    raise EInvalidOperationTlsLibException.CreateRes(@SBuilderOneEndpoint);
+  FClientViewTaken := True;
   Result := TTlsClientConfigBuilder.Create(Self);
 end;
 
 function TTlsConfigBuilder.Server: ITlsServerConfigBuilder;
 begin
+  if FClientViewTaken then
+    raise EInvalidOperationTlsLibException.CreateRes(@SBuilderOneEndpoint);
+  FServerViewTaken := True;
   Result := TTlsServerConfigBuilder.Create(Self);
 end;
 
 procedure TTlsConfigBuilder.ValidateRequiredCollaborators;
 var
   LI: Int32;
+  LGroup: INamedGroup;
+  LAnyRegistered, LEcdheRegistered: Boolean;
 begin
   if (FCipherSuites = nil) or (FSignatureSchemes = nil) or (FNamedGroups = nil) then
     raise EArgumentTlsLibException.CreateRes(@SNilNegotiationRegistry);
@@ -2635,10 +2676,21 @@ begin
   // a preferred group the registry lacks is skipped (the registry is authoritative, so a pruned
   // registry may keep a wider preference list), but with none registered no group could ever be
   // selected and every handshake would fail
+  LAnyRegistered := False;
+  LEcdheRegistered := False;
   for LI := 0 to System.High(FPreferredGroups) do
-    if FNamedGroups.Contains(FPreferredGroups[LI]) then
-      Exit;
-  raise EArgumentTlsLibException.CreateRes(@SNoRegisteredPreferredGroup);
+    if FNamedGroups.TryGet(FPreferredGroups[LI], LGroup) then
+    begin
+      LAnyRegistered := True;
+      if LGroup.Kind = TNamedGroupKind.Ecdhe then
+        LEcdheRegistered := True;
+    end;
+  if not LAnyRegistered then
+    raise EArgumentTlsLibException.CreateRes(@SNoRegisteredPreferredGroup);
+  // TLS 1.2 key exchange is classical ECDHE only (KEM and hybrid groups are 1.3-only)
+  if (not LEcdheRegistered) and
+    (TArrayUtilities.Contains<UInt16>(FSupportedVersions, TlsWireVersionTls12)) then
+    raise EArgumentTlsLibException.CreateRes(@SNoClassicalEcdheGroup);
 end;
 
 function TTlsConfigBuilder.BuildClient: ITlsClientConfig;
@@ -2649,10 +2701,6 @@ var
 begin
   // a builder is single-use
   GuardMutable;
-  // SNI-keyed server credential selection has no meaning on a client; reject it rather than
-  // silently dropping it (the raw builder exposes both facets)
-  if (System.Length(FSniCredentialEntries) > 0) or (FCredentialResolver <> nil) then
-    raise EInvalidOperationTlsLibException.CreateRes(@SClientSideServerCredential);
   // a client-authentication credential, if set, must be self-consistent (key owns its leaf)
   if FHasCredential then
     ValidateCredentialConsistency(FCredential);
@@ -2742,6 +2790,7 @@ begin
   LConfig.FResumption := FResumption;
   LConfig.FExternalPsks := FExternalPsks;
   LConfig.FCheckServerName := FCheckServerName;
+  LConfig.FServerNameIndication := FServerNameIndication;
   LConfig.FServerVerifierSource := ComposeServerVerifierSource;
   LConfig.FRequestOcspStapling := FRequestOcspStapling;
   LConfig.FSessionCache := FSessionCache;
@@ -2781,6 +2830,12 @@ begin
   if (System.Length(FExternalPsks) > 0) and
     not (TArrayUtilities.Contains<UInt16>(FSupportedVersions, TlsWireVersionTls13)) then
     raise EInvalidOperationTlsLibException.CreateRes(@SExternalPskNeedsTls13);
+  // a PSK-only server (no certificate to fall back to) cannot serve a TLS 1.2 client, which would
+  // fail every TLS 1.2 handshake
+  if (not FHasCredential) and (System.Length(FSniCredentialEntries) = 0) and
+    (FCredentialResolver = nil) and
+    (TArrayUtilities.Contains<UInt16>(FSupportedVersions, TlsWireVersionTls12)) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SPskOnlyServerNeedsTls13Only);
   // client authentication verifies the peer chain against a trust source: anchor ROOTS, a
   // whole-verifier, or an explicit skip-verify. A verifier source is NOT a source on its own - it
   // consumes the client-CA anchors as its exclusive root, so it needs roots too. Without one the

@@ -73,8 +73,10 @@ type
   TServerThread = class(TThread)
   strict private
   var
-    FLeafFile, FKeyFile, FError: string;
+    FLeafFile, FKeyFile, FError, FPeerServerName: string;
     FReady: TEvent;
+    // the accepted connection's handler; the stream owns it and frees it with the stream
+    FAccepted: TTlsLibSocketHandler;
     procedure MakeHandler(Sender: TObject; out AHandler: TSocketHandler);
     procedure HandleConnect(Sender: TObject; AStream: TSocketStream);
   protected
@@ -82,6 +84,8 @@ type
   public
     constructor Create(const ALeaf, AKey: string; AReady: TEvent);
     property Error: string read FError;
+    /// <summary>The SNI host_name the client sent, as the server saw it.</summary>
+    property PeerServerName: string read FPeerServerName;
   end;
 
 { TVectorLocator }
@@ -171,6 +175,7 @@ begin
   LHandler := TTlsLibSocketHandler.Create;
   LHandler.CertificateData.Certificate.FileName := FLeafFile;
   LHandler.CertificateData.PrivateKey.FileName := FKeyFile;
+  FAccepted := LHandler;
   AHandler := LHandler;
 end;
 
@@ -181,6 +186,7 @@ var
 begin
   // the handshake already ran during accept; move one line of plaintext through our records
   try
+    FPeerServerName := FAccepted.PeerServerName;
     SetLength(LBuf, 1024);
     LN := AStream.Read(LBuf[0], System.Length(LBuf));
     if LN > 0 then
@@ -273,6 +279,8 @@ begin
       // leaf's SAN against; the pinned root is the trust source (fail-closed without one)
       LHandler := TTlsLibSocketHandler.Create;
       LHandler.CertificateData.CertCA.FileName := LRoot; // pinned root (VerifyPeerCert defaults True)
+      // no SNI on the wire, yet the leaf is still verified for 'localhost' (SendHostAsSNI is wire-only)
+      LHandler.SendHostAsSNI := False;
       LSock := TInetSocket.Create('localhost', PORT, LHandler); // handler set => no auto-connect
       try
         try
@@ -304,6 +312,9 @@ begin
       LServer.WaitFor;
       if LServer.Error <> '' then
         raise Exception.Create(LServer.Error);
+      if LServer.PeerServerName <> '' then
+        raise Exception.Create('the server saw an SNI though SendHostAsSNI was False: ' +
+          LServer.PeerServerName);
     finally
       LServer.Free;
     end;

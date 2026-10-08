@@ -42,6 +42,7 @@ uses
   blcksock,
   synsock,
   TlpDataEncoding,
+  TlpTlsCredential,
   TlsLibSynapseTls;
 
 const
@@ -186,6 +187,29 @@ begin
   end;
 end;
 
+// Assign keeps the plugin's own properties, and a Synapse Ciphers list is refused rather than ignored
+procedure CheckAssignAndCiphers;
+var
+  LFrom, LTo: TTCPBlockSocket;
+begin
+  LFrom := TTCPBlockSocket.CreateWithSSL(SSLImplementation);
+  LTo := TTCPBlockSocket.CreateWithSSL(SSLImplementation);
+  try
+    (LFrom.SSL as TSSLTlsLib).ClientAuth := TClientAuthMode.Required;
+    LTo.SSL.Assign(LFrom.SSL);
+    if (LTo.SSL as TSSLTlsLib).ClientAuth <> TClientAuthMode.Required then
+      raise Exception.Create('Assign dropped ClientAuth');
+    LTo.SSL.Ciphers := 'HIGH';
+    if LTo.SSL.Connect then
+      raise Exception.Create('a Ciphers list was accepted');
+    if Pos('Ciphers', LTo.SSL.LastErrorDesc) = 0 then
+      raise Exception.Create('Ciphers refusal not reported: ' + LTo.SSL.LastErrorDesc);
+  finally
+    LTo.Free;
+    LFrom.Free;
+  end;
+end;
+
 class function TSynapseLoopbackExample.Run: Integer;
 var
   LServer: TServerThread;
@@ -199,6 +223,7 @@ begin
   GVector := TVectorLocator.Find;
   GReady := TEvent.Create(nil, True, False, '');
   try
+    CheckAssignAndCiphers;
     GLeafFile := TVectorLocator.WriteDer('leaf', TVectorLocator.FieldHex('leaf_cert'));
     GKeyFile := TVectorLocator.WriteDer('key', TVectorLocator.FieldHex('leaf_key'));
     GRootFile := TVectorLocator.WriteDer('root', TVectorLocator.FieldHex('root_cert'));

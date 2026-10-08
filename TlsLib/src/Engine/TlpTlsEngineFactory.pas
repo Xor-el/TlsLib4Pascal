@@ -80,6 +80,10 @@ type
     /// no staple, so a Hard posture with no live-revocation deferral would reject every resumed
     /// server. Withholding the offer yields a full handshake, which can staple.</summary>
     class function OffersResumption(const AConfig: ITlsClientConfig): Boolean; static;
+    /// <summary>The host_name a client sends in server_name: the DNS host, else empty (an IP
+    /// literal, RFC 6066 sec. 3, no host, or an Omit config).</summary>
+    class function SniHostName(const AConfig: ITlsClientConfig;
+      const AName: TServerName): string; static;
   public
     /// <summary>A client engine wired from the config, ready for StartHandshake.</summary>
     class function CreateClientEngine(const AConfig: ITlsClientConfig;
@@ -101,6 +105,15 @@ resourcestring
     'against; pass the connection host, or disable it with WithDangerousDisableServerNameCheck';
 
 { TTlsEngineFactory }
+
+class function TTlsEngineFactory.SniHostName(const AConfig: ITlsClientConfig;
+  const AName: TServerName): string;
+begin
+  if AConfig.ServerNameIndication = TServerNameIndication.Omit then
+    Result := ''
+  else
+    Result := AName.AsDns;
+end;
 
 class function TTlsEngineFactory.SuiteCodes(
   const ARegistry: ICipherSuiteRegistry): TArray<UInt16>;
@@ -292,10 +305,11 @@ begin
   L13.KeyLog := AConfig.KeyLog;
   L13.ClientRandom := LClientRandom;
   L13.LegacySessionId := LSessionId;
-  // SNI carries the DNS name only (empty for an IP literal, RFC 6066 3, or no host)
-  L13.ServerName := LServerName.AsDns;
+  // SNI carries the DNS name only (none for an IP literal, RFC 6066 sec. 3, no host, or Omit);
+  // the name check below still uses the host
+  L13.ServerName := SniHostName(AConfig, LServerName);
   // the session-cache identity is the full host (IP literals included), keeping each
-  // destination on its own cache key even though an IP is never sent as SNI
+  // destination on its own cache key even when no SNI is sent
   L13.ServerIdentity := LServerName.ToString;
   L13.CertificateVerifier := LVerifier;
   L13.CertificateChainLimits := AConfig.CertificateChainLimits;
@@ -332,7 +346,7 @@ begin
     L12.LegacySessionId := LSessionId
   else
     L12.LegacySessionId := nil;
-  L12.ServerName := LServerName.AsDns;
+  L12.ServerName := SniHostName(AConfig, LServerName);
   L12.ServerIdentity := LServerName.ToString;
   L12.OfferExtendedMasterSecret := True;
   L12.RequireExtendedMasterSecret := AConfig.RequireExtendedMasterSecret;
