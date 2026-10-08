@@ -31,6 +31,7 @@ uses
   TlpTlsAlert,
   TlpTlsVersion,
   TlpEchConfig,
+  TlpServerName,
   TlpICryptoProvider,
   TlpDefaultCryptoProvider,
   TlpIPkixProvider,
@@ -89,6 +90,7 @@ type
     VerifyPeer: Boolean;                         // default True
     InsecureSkipVerify: Boolean;                 // default False
     CheckHostName: Boolean;                      // default True
+    ServerNameIndication: TServerNameIndication; // client: Omit sends no SNI; the host is still verified
     ClientAuth: TClientAuthMode;                 // server: None never requests; a mode needs a client-trust source
     AlpnProtocols: TArray<string>;
     VerifyCallback: TTlsCertificateVerifyCallback;
@@ -104,7 +106,8 @@ type
     TrustSourceHint: string;                     // client-role host knob names, spliced into the no-source message
     ClientAuthSourceHint: string;                // server-role client-CA host knob names, same use
     /// <summary>A value with the composable defaults: VerifyPeer / CheckHostName / SessionResumption
-    /// on, client authentication opt-in (ClientAuth None). Assign it at snapshot time.</summary>
+    /// on, SNI sent, client authentication opt-in (ClientAuth None). Assign it at snapshot
+    /// time.</summary>
     class function Default: TTlsOptions; static;
   end;
 
@@ -136,11 +139,11 @@ type
     /// <summary>Raises when a fully-built config is supplied together with an option the same role's
     /// options-driven build would consume and the config therefore silently replaces (APropertyName
     /// names the config property in the message). Role-aware: only the client build reads the augment
-    /// callback, the server-cert verifier, peer verification, the skip-verify bypass and the
-    /// host-name check; only the server build reads the client-cert verifier; resumption is read by
-    /// both. A security toggle conflicts only when set away from its default - a host that both
-    /// changed a toggle and supplied a config that ignores it. The verdict resolvers and the
-    /// handshake timeout are runtime hooks and never conflict.</summary>
+    /// callback, the server-cert verifier, peer verification, the skip-verify bypass, the
+    /// host-name check and server-name indication; only the server build reads the client-cert
+    /// verifier; resumption is read by both. A security toggle conflicts only when set away from
+    /// its default - a host that both changed a toggle and supplied a config that ignores it. The
+    /// verdict resolvers and the handshake timeout are runtime hooks and never conflict.</summary>
     class procedure GuardNoConflict(const AOptions: TTlsOptions;
       AIsClient: Boolean; const APropertyName: string); static;
     /// <summary>The client config for one handshake: the supplied ClientConfig (after the conflict
@@ -328,6 +331,7 @@ begin
   Result := System.Default(TTlsOptions);
   Result.VerifyPeer := True;
   Result.CheckHostName := True;
+  Result.ServerNameIndication := TServerNameIndication.Send;
   Result.SessionResumption := True;
   // client authentication is opt-in: a server requests a client certificate only under an explicit mode
   Result.ClientAuth := TClientAuthMode.None;
@@ -444,6 +448,7 @@ begin
     LClient.WithDangerousInsecureSkipVerify;
   if not AOptions.CheckHostName then
     LClient.WithDangerousDisableServerNameCheck;
+  LClient.WithServerNameIndication(AOptions.ServerNameIndication);
   if System.Length(AOptions.AlpnProtocols) > 0 then
     LClient.WithAlpnProtocols(AOptions.AlpnProtocols);
   if not AOptions.Certificate.IsEmpty then
@@ -553,6 +558,7 @@ begin
   LSig.AddFlag('verifyPeer', AOptions.VerifyPeer);
   LSig.AddFlag('skipVerify', AOptions.InsecureSkipVerify);
   LSig.AddFlag('checkHost', AOptions.CheckHostName);
+  LSig.AddCardinal('sni', Cardinal(Ord(AOptions.ServerNameIndication)));
   // by installer identity, not a bare present/absent flag: two installers that install different
   // roots must not collapse to the same memo signature and reuse each other's frozen config
   LSig.AddPointer('systemTrust', AOptions.SystemTrust);
@@ -623,16 +629,18 @@ begin
     (AOptions.Crypto <> nil) or (AOptions.Pkix <> nil);
   // a security toggle always carries a value, so flag only a NON-DEFAULT one the host actively chose
   // that a supplied config then silently drops. Resumption is read by both role builds. The host-name
-  // check is a client-only read; the server build reads peer verification and the skip-verify bypass
-  // only under a client-auth mode, which already conflicts on its own below. A non-default
-  // client-authentication mode is a server-only security decision the config would replace.
+  // check and SNI are client-only reads; the server build reads peer verification and the
+  // skip-verify bypass only under a client-auth mode, which already conflicts on its own below. A
+  // non-default client-authentication mode is a server-only security decision the config would
+  // replace.
   LConflict := LConflict or (not AOptions.SessionResumption) or
     (System.Length(AOptions.SupportedVersions) > 0);
   if AIsClient then
     LConflict := LConflict or (AOptions.ServerCertificateVerifier <> nil) or
       (AOptions.SystemTrust <> nil) or
       Assigned(AOptions.VerifyCallback) or (not AOptions.VerifyPeer) or
-      AOptions.InsecureSkipVerify or (not AOptions.CheckHostName)
+      AOptions.InsecureSkipVerify or (not AOptions.CheckHostName) or
+      (AOptions.ServerNameIndication <> TServerNameIndication.Send)
   else
     LConflict := LConflict or (AOptions.ClientCertificateVerifier <> nil) or
       (AOptions.ClientAuth <> TClientAuthMode.None) or Assigned(AOptions.VerifyCallback);

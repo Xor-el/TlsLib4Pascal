@@ -34,6 +34,7 @@ uses
   TlpIClock,
   TlpIKeyLog,
   TlpIEch,
+  TlpServerName,
   TlpSession,
   TlpITlsConfig;
 
@@ -54,9 +55,11 @@ type
   /// </summary>
   ITlsConfigBuilder = interface(IInterface)
     ['{B3F1A0C4-7E52-4D89-9A16-0C7E3B5D2F84}']
-    /// <summary>The client-endpoint builder, seeded with the preset's defaults.</summary>
+    /// <summary>The client-endpoint builder, seeded with the preset's defaults. Raises once the
+    /// server view has been taken: one builder configures one endpoint.</summary>
     function Client: ITlsClientConfigBuilder;
-    /// <summary>The server-endpoint builder, seeded with the preset's defaults.</summary>
+    /// <summary>The server-endpoint builder, seeded with the preset's defaults. Raises once the
+    /// client view has been taken.</summary>
     function Server: ITlsServerConfigBuilder;
   end;
 
@@ -143,6 +146,14 @@ type
     /// man-in-the-middle risk. Name checking is on by default; only a deliberate pin-only
     /// trust model should disable it.</summary>
     function WithDangerousDisableServerNameCheck: ITlsClientConfigBuilder;
+    /// <summary>Whether the client sends the connection host as server_name (SNI, RFC 6066 sec.
+    /// 3). Send, the default, sends a DNS host and never an IP literal; Omit sends none, while the
+    /// server certificate is still verified against the host (RFC 9525) unless the name check is
+    /// disabled. Applies to TLS 1.3 and 1.2. Under ECH the ClientHelloOuter still carries the
+    /// public_name (RFC 9849 sec. 6.1) and Omit leaves the inner without a name. A server may
+    /// refuse a ClientHello without server_name (missing_extension, RFC 8446 sec. 9.2) or present a
+    /// default certificate that then fails the name check.</summary>
+    function WithServerNameIndication(AMode: TServerNameIndication): ITlsClientConfigBuilder;
     /// <summary>Whether the client offers status_request (OCSP stapling, RFC 6066). Off by
     /// default: without it the client requests no staple and rejects an unsolicited one.</summary>
     function WithOcspStaplingRequest(AEnabled: Boolean): ITlsClientConfigBuilder;

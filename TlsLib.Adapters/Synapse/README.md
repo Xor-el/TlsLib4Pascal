@@ -133,4 +133,6 @@ adapter's connection-reuse path end to end.
 preference pinned to TLS 1.2, so the negotiated 1.2 (the preset would pick 1.3) proves the injected
 config replaced the built-in build. This is the escape hatch to the whole builder API (cipher
 order, groups, resumption, ALPN, …). A built config supplied alongside cert/trust options (or a
-pinned `SSLType`, a verify callback or a crypto/PKIX provider) is refused, not silently dropped.
+pinned `SSLType`, a verify callback or a crypto/PKIX provider) is refused, not silently dropped. So is
+Synapse's own `Ciphers` list: suites come from the TlsLib configuration, so a `Ciphers` other than
+empty or `DEFAULT` fails the handshake rather than being ignored.

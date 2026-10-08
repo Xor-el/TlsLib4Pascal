@@ -34,6 +34,7 @@ uses
   TlpTlsAlert,
   TlpTlsVersion,
   TlpEchConfig,
+  TlpServerName,
   TlpICryptoProvider,
   TlpIPkixProvider,
   TlpICertificateTrust,
@@ -305,10 +306,15 @@ const
 {$IFEND}
   // Windows SO_RCVTIMEO expiry code; a literal so the Unix build needs no winsock symbol
   WSAETIMEDOUT_CODE = 10060;
+  // fcl-net's own initial CipherList, not a host choice
+  FCLNET_DEFAULT_CIPHER_LIST = 'DEFAULT';
 
 resourcestring
   SFclNetSslTypeUnsupported = 'SSLType selects a protocol this library does not implement; ' +
     'use stAny or stTLSv1_2';
+  SFclNetCipherListUnsupported = 'CertificateData.CipherList is set, which TlsLib4Pascal does ' +
+    'not honour: leave it at ''%s'' and choose suites through a TlsLib configuration ' +
+    'supplied as ClientConfig or ServerConfig';
   SFclNetSendNoProgress = 'fcl-net socket send returned no progress';
   SFclNetHandshakeReadTimedOut = 'the handshake did not complete within %d ms';
   SFclNetReceiveTimedOut = 'the socket receive timeout elapsed with no data from the peer';
@@ -444,12 +450,21 @@ function TTlsLibSocketHandler.Snapshot: TTlsOptions;
 var
   LAnchors: TArray<TTlsBlobSource>;
 begin
+  // any other list is a security posture input: dropping it would negotiate a suite the host excluded
+  if (CertificateData.CipherList <> '') and
+    (CertificateData.CipherList <> FCLNET_DEFAULT_CIPHER_LIST) then
+    raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+      @SFclNetCipherListUnsupported, [FCLNET_DEFAULT_CIPHER_LIST]);
   Result := TTlsOptions.Default;
   Result.Crypto := FUserCrypto;
   Result.Pkix := FUserPkix;
   Result.Certificate := SslDataBlob(CertificateData.Certificate);
   Result.PrivateKey := SslDataBlob(CertificateData.PrivateKey);
-  Result.KeyPassword := FKeyPassword;
+  // the adapter property shadows fcl-net's own KeyPassword, so honour the host's when ours is unset
+  if FKeyPassword <> '' then
+    Result.KeyPassword := FKeyPassword
+  else
+    Result.KeyPassword := CertificateData.KeyPassword;
   // fcl-net exposes two anchor slots; add each only when named so HasClientTrustSource stays honest
   LAnchors := nil;
   if not CertificateData.CertCA.Empty then
@@ -473,6 +488,11 @@ begin
   Result.VerifyPeer := VerifyPeerCert;
   Result.InsecureSkipVerify := not VerifyPeerCert;
   Result.CheckHostName := FCheckHostName;
+  // SendHostAsSNI governs only the wire; the certificate is still checked against the host
+  if SendHostAsSNI then
+    Result.ServerNameIndication := TServerNameIndication.Send
+  else
+    Result.ServerNameIndication := TServerNameIndication.Omit;
   Result.ClientAuth := FClientAuth;
   Result.AlpnProtocols := FAlpnProtocols;
   Result.VerifyCallback := FVerifyCallback;
@@ -603,7 +623,8 @@ var
 begin
   LHost := '';
   if Socket is TInetSocket then
-    LHost := TInetSocket(Socket).Host; // SNI + the name we verify the certificate for
+    // the name we verify the certificate for, and the SNI unless SendHostAsSNI is False
+    LHost := TInetSocket(Socket).Host;
   Result := DriveHandshake(True, LHost);
 end;
 

@@ -36,6 +36,7 @@ uses
   TlpIClock,
   TlpIKeyLog,
   TlpIEch,
+  TlpServerName,
   TlpSession;
 
 type
@@ -133,6 +134,9 @@ type
     function Grease: Boolean;
     /// <summary>Whether the server certificate must match the connected host (RFC 9525).</summary>
     function CheckServerName: Boolean;
+    /// <summary>Whether the client sends its host as server_name (SNI); Send by default.
+    /// Independent of CheckServerName.</summary>
+    function ServerNameIndication: TServerNameIndication;
     /// <summary>The source the engine builds the peer server-certificate verifier from, per
     /// connection: the built-in PKIX source by default, else a wrapped injected verifier, else
     /// an OS trust delegate (e.g. from TlsLib.Trust.System). Always non-nil after Build; the

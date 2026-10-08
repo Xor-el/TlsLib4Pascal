@@ -53,7 +53,8 @@ uses
   TlpInMemoryCertificateCompressionCache,
   TlpTls13ClientStateMachine,
   TlpTls13ServerStateMachine,
-  TlsLibTestBase;
+  TlsLibTestBase,
+  TlsLibTestHandshakeDecoder;
 
 type
   TTestCertificateCompressionCache = class(TTlsLibAlgorithmTestCase)
@@ -74,7 +75,6 @@ type
       const ACompressors: TArray<ICertificateCompressor>;
       const ACache: ICertificateCompressionCache): TTlsHandshakeMessage;
     function PlaintextCertBody(const AChain: TArray<TBytes>): TBytes;
-    function MsgFrom(const AFramed: TBytes): TTlsHandshakeMessage;
     function FirstSendHandshake(const AEffects: TArray<THandshakeEffect>): TBytes;
     function AllSendHandshake(const AEffects: TArray<THandshakeEffect>): TArray<TBytes>;
   published
@@ -450,9 +450,9 @@ begin
   LClient := NewClientMachine;
   LServer := NewServerMachine(AChain, ACompressors, ACache);
   // the encrypted flight is [ServerHello, EncryptedExtensions, Certificate, ...]
-  LFlight := AllSendHandshake(LServer.ProcessMessage(MsgFrom(
+  LFlight := AllSendHandshake(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(
     FirstSendHandshake(LClient.Start))));
-  Result := MsgFrom(LFlight[2]);
+  Result := TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[2]);
 end;
 
 function TTestCertificateCompressionCache.PlaintextCertBody(
@@ -460,20 +460,6 @@ function TTestCertificateCompressionCache.PlaintextCertBody(
 begin
   // a server with no compressors always sends the uncompressed Certificate body
   Result := ServerCertMessage(AChain, nil, nil).Body;
-end;
-
-function TTestCertificateCompressionCache.MsgFrom(
-  const AFramed: TBytes): TTlsHandshakeMessage;
-var
-  LReader: THandshakeMessageReader;
-begin
-  LReader := THandshakeMessageReader.Create;
-  try
-    LReader.Append(AFramed, 0, System.Length(AFramed));
-    LReader.NextMessage(Result);
-  finally
-    LReader.Free;
-  end;
 end;
 
 function TTestCertificateCompressionCache.FirstSendHandshake(

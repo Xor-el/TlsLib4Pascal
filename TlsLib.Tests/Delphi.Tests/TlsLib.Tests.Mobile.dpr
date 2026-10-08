@@ -157,6 +157,7 @@ uses
   TlpAntiReplay in '..\..\TlsLib\src\Session\TlpAntiReplay.pas',
   TlsLibTestResourceLoader in '..\src\TlsLibTestResourceLoader.pas',
   TlsLibTestProviders in '..\src\TlsLibTestProviders.pas',
+  TlsLibTestHandshakeDecoder in '..\src\TlsLibTestHandshakeDecoder.pas',
   TlsLibTestBase in '..\src\TlsLibTestBase.pas',
   SecretTests in '..\src\SecretTests.pas',
   AlertTests in '..\src\AlertTests.pas',

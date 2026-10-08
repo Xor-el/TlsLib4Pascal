@@ -21,7 +21,7 @@
 #   crl_other_entry_critical - no IDP; revokes 0x9999 (not the leaf) with a CRITICAL entry extension OID
 #                          1.3.6.1.4.1.99999.2 value NULL; built with Go crypto/x509 CreateRevocationList, signed by ca_key
 #   crl_leaf_entry_critical - as crl_other_entry_critical, but the CRITICAL-extension entry is the leaf's own (0x1234)
-#   crl_noidp_nonextupdate -crl_noidp_clean with the nextUpdate field removed and re-signed by ca_key
+#   crl_noidp_nonextupdate - crl_noidp_clean with the nextUpdate field removed and re-signed by ca_key
 #                          (thisUpdate 2020-01-01); exercises the age bound on a CRL with no nextUpdate
 # Generated with OpenSSL 4.0.1 (NB=20200101000000Z, NA=20991231000000Z; MSYS2_ARG_CONV_EXCL='*'):
 #   openssl ecparam -name prime256v1 -genkey -noout -out ca.key

@@ -67,6 +67,10 @@ uses
   TlpTlsPresets,
   TlpTlsConfigBuilder,
   TlpTlsEngineFactory,
+  TlpServerName,
+  TlpExtensionVector,
+  TlpCoreExtensions,
+  TlsLibTestHandshakeDecoder,
   TlpTlsLib,
   MockCryptoProvider,
   TlsLibTestProviders,
@@ -102,6 +106,11 @@ type
     function Drain(const AEngine: ITlsEngine): TBytes;
     procedure Feed(const AEngine: ITlsEngine; const AWire: TBytes);
     procedure RunHandshake(const AClient, AServer: ITlsEngine);
+    // the flight exchange of a handshake whose client has already started and sent its first flight
+    procedure ExchangeFlights(const AClient, AServer: ITlsEngine);
+    procedure RunEchThroughBuilder(AMode: TServerNameIndication);
+    function OmitSniClient(const AVersions: TArray<UInt16>): ITlsClientConfig;
+    function RejectEveryChain(const AChain: TArray<TBytes>; const AHostName: string): Boolean;
     function ReadAllApp(const AEngine: ITlsEngine): TBytes;
   protected
     procedure SetUp; override;
@@ -138,6 +147,9 @@ type
     procedure TestAlpnListBeyondWireLimitIsRefused;
     procedure TestLargestAlpnListStillEncodesInTheClientHello;
     procedure TestServerExternalPskNeedsTls13;
+    procedure TestPskOnlyServerMustOfferTls13Only;
+    procedure TestTls12NeedsAClassicalEcdheGroup;
+    procedure TestOneBuilderConfiguresOneEndpoint;
     procedure TestPreferredGroupsWithNoRegisteredGroupIsRefused;
     procedure TestEmptyPreferredGroupsIsRefusedAtBuild;
     procedure TestNilRegistryIsRefusedAtBuild;
@@ -235,7 +247,6 @@ type
     // RFC 8446 8: a server authorizing 0-RTT gets one anti-replay register per config (shared
     // across connections), so a replay across connections is detectable without WithAntiReplay
     procedure TestServerEarlyDataMintsSharedAntiReplayDefault;
-    procedure TestClientRejectsServerSniCredential;
     procedure TestServerRejectsPublicSuffixSniWildcard;
     // a restricted (classical-only) registry composes with a preset whose preferred order still
     // names the pruned hybrid: the engine drops it from the offer instead of failing to build,
@@ -249,6 +260,14 @@ type
     procedure TestServerWithEmptyGroupIntersectionFailsFast;
     // the accessors relocated onto the role configs read their builder defaults
     procedure TestRoleConfigDefaultsForMovedAccessors;
+    procedure TestVerifyCallbackRunsOverInstanceVerifier;
+    procedure TestServerNameIndicationOmitReachesConfig;
+    procedure TestOmittedSniSendsNoServerNameAndStillVerifiesHost;
+    procedure TestOmittedSniStillRejectsWrongHost;
+    procedure TestOmittedSniTls12SendsNoServerName;
+    procedure TestOmittedSniHrrRetryKeepsServerNameAbsent;
+    procedure TestOmittedSniKeepsSessionsApart;
+    procedure TestEchWithOmittedSniAcceptsAndVerifiesHost;
   end;
 
 implementation
@@ -279,6 +298,14 @@ type
       : IClientCertificateVerifier;
   end;
 
+  // an accept-all server-certificate verifier, standing in for a caller-supplied whole verifier
+  TAcceptAllServerVerifier = class(TInterfacedObject, IServerCertificateVerifier)
+  public
+    function VerifyServerCertificate(const AChain: TArray<TBytes>;
+      const AServerName: TServerName; const AOcspStaple: TBytes;
+      out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
+  end;
+
 function TAcceptAllClientVerifier.VerifyClientCertificate(const AChain: TArray<TBytes>;
   out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
 begin
@@ -292,6 +319,16 @@ function TAcceptAllClientVerifierSource.CreateClientVerifier(
   const AContext: TClientTrustContext): IClientCertificateVerifier;
 begin
   Result := TAcceptAllClientVerifier.Create as IClientCertificateVerifier;
+end;
+
+function TAcceptAllServerVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
+  const AServerName: TServerName; const AOcspStaple: TBytes;
+  out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
+begin
+  AVerified.Path := AChain;
+  AVerified.Outcome := TVerificationOutcome.Trusted;
+  AAlert := TTlsAlertDescription.BadCertificate;
+  Result := True;
 end;
 
 { TTestConfigBuilder }
@@ -615,6 +652,18 @@ begin
 end;
 
 procedure TTestConfigBuilder.TestEchThroughServerBuilder;
+begin
+  RunEchThroughBuilder(TServerNameIndication.Send);
+end;
+
+procedure TTestConfigBuilder.TestEchWithOmittedSniAcceptsAndVerifiesHost;
+begin
+  // the outer hello still carries the public_name and the inner none; the leaf matches only
+  // localhost, so acceptance proves the host check ran against the host, not the public_name
+  RunEchThroughBuilder(TServerNameIndication.Omit);
+end;
+
+procedure TTestConfigBuilder.RunEchThroughBuilder(AMode: TServerNameIndication);
 var
   LClientConfig: ITlsClientConfig;
   LServerConfig: ITlsServerConfig;
@@ -622,7 +671,7 @@ var
   LClientBuilder, LServerBuilder: ITlsConfigBuilder;
   LConfigList: TBytes;
   LSk: ISecretBuffer;
-  LMsg: TBytes;
+  LMsg, LOuter: TBytes;
 begin
   // ECH configured end to end through the public builder: the client offers the config list
   // (Tls13.WithEncryptedClientHello) and the server is keyed with the matching config store
@@ -639,6 +688,7 @@ begin
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13))
     .WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519))
     .WithTrustStore(ClientTrust)
+    .WithServerNameIndication(AMode)
     .Tls13.WithEncryptedClientHello(LConfigList).Build;
   LServerBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LServerConfig := LServerBuilder.Server
@@ -656,7 +706,15 @@ begin
 
   LClient := TTlsEngineFactory.CreateClientEngine(LClientConfig, 'localhost');
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
-  RunHandshake(LClient, LServer);
+  LClient.StartHandshake;
+  LOuter := Drain(LClient);
+  // the real name never rides the outer hello, whichever mode: it carries the public_name only
+  CheckTrue(ContainsAscii(LOuter, 'cover.example'),
+    'the outer hello carries the public_name');
+  CheckFalse(ContainsAscii(LOuter, 'localhost'),
+    'the outer hello does not carry the real host');
+  Feed(LServer, LOuter);
+  ExchangeFlights(LClient, LServer);
 
   // completion proves ECH was accepted: the leaf matches only the inner SNI (localhost), never
   // the public_name, so a reject would abort the client on the certificate check
@@ -666,6 +724,11 @@ begin
   CheckFalse(LServer.IsTerminal, 'the ECH server did not abort');
   CheckTrue(LClient.ConnectionInfo.EchStatus = TEchStatus.Accepted,
     'the builder-configured connection surfaced ECH Accepted');
+  // the server reads the name from the decrypted inner hello
+  if AMode = TServerNameIndication.Omit then
+    CheckEquals('', LServer.ConnectionInfo.ServerName, 'the inner hello carries no SNI')
+  else
+    CheckEquals('localhost', LServer.ConnectionInfo.ServerName, 'the inner hello carries the host');
   LMsg := DecodeHex('6563682d6f6b'); // "ech-ok"
   LClient.Write(LMsg, 0, System.Length(LMsg));
   Feed(LServer, Drain(LClient));
@@ -956,6 +1019,92 @@ begin
   CheckTrue(LRaised, 'a TLS 1.2-only server cannot honour external PSKs');
 end;
 
+procedure TTestConfigBuilder.TestPskOnlyServerMustOfferTls13Only;
+var
+  LPsks: TArray<TExternalPsk>;
+  LOwner: ITlsConfigBuilder;
+  LRaised: Boolean;
+begin
+  LPsks := TArray<TExternalPsk>.Create(MakePskSpec);
+  LOwner := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
+  LOwner.Server.WithExternalPreSharedKeys(LPsks)
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13)).Build;
+  LOwner := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
+  LRaised := False;
+  try
+    LOwner.Server.WithExternalPreSharedKeys(LPsks)
+      .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12, TlsWireVersionTls13)).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a certificate-less PSK server offering TLS 1.2 is refused');
+end;
+
+procedure TTestConfigBuilder.TestTls12NeedsAClassicalEcdheGroup;
+
+  function Accepted(const AGroups, AVersions: TArray<UInt16>): Boolean;
+  begin
+    Result := True;
+    try
+      NewClientBuilder.WithSupportedVersions(AVersions).WithPreferredGroups(AGroups).Build;
+    except
+      on E: EArgumentTlsLibException do
+        Result := False;
+    end;
+  end;
+
+var
+  LRaised: Boolean;
+begin
+  CheckTrue(Accepted(TArray<UInt16>.Create(TNamedGroupCatalog.X25519),
+    TArray<UInt16>.Create(TlsWireVersionTls12, TlsWireVersionTls13)),
+    'a classical group serves TLS 1.2');
+  CheckTrue(Accepted(TArray<UInt16>.Create(TNamedGroupCatalog.X25519MlKem768),
+    TArray<UInt16>.Create(TlsWireVersionTls13)), 'a hybrid group serves TLS 1.3 alone');
+  CheckFalse(Accepted(TArray<UInt16>.Create(TNamedGroupCatalog.X25519MlKem768),
+    TArray<UInt16>.Create(TlsWireVersionTls12, TlsWireVersionTls13)),
+    'a hybrid-only preference cannot serve the TLS 1.2 it offers');
+  LRaised := False;
+  try
+    NewServerBuilder.WithSupportedVersions(
+      TArray<UInt16>.Create(TlsWireVersionTls12, TlsWireVersionTls13))
+      .WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519MlKem768)).Build;
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the same refusal applies to a server');
+end;
+
+procedure TTestConfigBuilder.TestOneBuilderConfiguresOneEndpoint;
+var
+  LOwner: ITlsConfigBuilder;
+  LRaised: Boolean;
+begin
+  LOwner := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
+  LOwner.Client;
+  LRaised := False;
+  try
+    LOwner.Server;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the server view after the client view is refused');
+  LOwner := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
+  LOwner.Server;
+  LRaised := False;
+  try
+    LOwner.Client;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the client view after the server view is refused');
+  LOwner.Server;
+end;
+
 procedure TTestConfigBuilder.TestPreferredGroupsWithNoRegisteredGroupIsRefused;
 var
   LRaised: Boolean;
@@ -1170,10 +1319,15 @@ begin
 end;
 
 procedure TTestConfigBuilder.RunHandshake(const AClient, AServer: ITlsEngine);
+begin
+  AClient.StartHandshake;
+  ExchangeFlights(AClient, AServer);
+end;
+
+procedure TTestConfigBuilder.ExchangeFlights(const AClient, AServer: ITlsEngine);
 var
   LIterations: Int32;
 begin
-  AClient.StartHandshake;
   LIterations := 0;
   while (AClient.IsHandshaking or AServer.IsHandshaking) and (LIterations < 16) do
   begin
@@ -2612,28 +2766,6 @@ begin
     'a server authorizing 0-RTT mints a default anti-replay register at Build');
 end;
 
-procedure TTestConfigBuilder.TestClientRejectsServerSniCredential;
-var
-  LBuilder: ITlsConfigBuilder;
-  LRaised: Boolean;
-begin
-  // SNI-keyed server credential selection is server-only; building a client from a builder that
-  // carries it is a configuration error, not a silent drop
-  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
-  LBuilder.Server.WithSniCredential('localhost', ServerCredential);
-  // a trust store makes an otherwise-valid client, so the only thing that can fail Build is the
-  // server-only SNI credential guard (not a missing trust source)
-  LBuilder.Client.WithTrustStore(ClientTrust);
-  LRaised := False;
-  try
-    LBuilder.Client.Build;
-  except
-    on E: EInvalidOperationTlsLibException do
-      LRaised := True;
-  end;
-  CheckTrue(LRaised, 'a client configuration rejects server-only SNI credential settings');
-end;
-
 procedure TTestConfigBuilder.TestServerRejectsPublicSuffixSniWildcard;
 var
   LBuilder: ITlsConfigBuilder;
@@ -2742,6 +2874,213 @@ begin
     'a server imposes its own cipher order by default');
   CheckFalse(LServer.AlpnRejectAll, 'a server does not reject ALPN unconditionally by default');
   CheckTrue(LClient.Grease, 'a client greases by default');
+  CheckEquals(Ord(TServerNameIndication.Send), Ord(LClient.ServerNameIndication),
+    'a client sends SNI by default');
+end;
+
+function TTestConfigBuilder.OmitSniClient(const AVersions: TArray<UInt16>): ITlsClientConfig;
+begin
+  Result := TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithSupportedVersions(AVersions)
+    .WithTrustStore(ClientTrust)
+    .WithServerNameIndication(TServerNameIndication.Omit).Build;
+end;
+
+function TTestConfigBuilder.RejectEveryChain(const AChain: TArray<TBytes>;
+  const AHostName: string): Boolean;
+begin
+  Result := False;
+end;
+
+procedure TTestConfigBuilder.TestVerifyCallbackRunsOverInstanceVerifier;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // the callback is the host's own reject rule: it must still run when the whole verifier is a
+  // caller-supplied instance that accepts everything
+  LClient := TTlsEngineFactory.CreateClientEngine(
+    TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13))
+    .WithDangerousCertificateVerifier(TAcceptAllServerVerifier.Create as IServerCertificateVerifier)
+    .WithCertificateVerifyCallback(RejectEveryChain).Build, 'localhost');
+  LServer := TTlsEngineFactory.CreateServerEngine(NewServerBuilder.Build);
+  RunHandshake(LClient, LServer);
+  CheckTrue(LClient.IsTerminal, 'the callback rejected a chain the instance accepted');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown),
+    Ord(LClient.LastError.Alert.Description), 'the alert is certificate_unknown');
+end;
+
+procedure TTestConfigBuilder.TestServerNameIndicationOmitReachesConfig;
+var
+  LConfig: ITlsClientConfig;
+begin
+  LConfig := OmitSniClient(TArray<UInt16>.Create(TlsWireVersionTls13));
+  CheckEquals(Ord(TServerNameIndication.Omit), Ord(LConfig.ServerNameIndication),
+    'the builder choice reaches the frozen config');
+  CheckTrue(LConfig.CheckServerName, 'omitting SNI leaves the name check on');
+end;
+
+procedure TTestConfigBuilder.TestOmittedSniSendsNoServerNameAndStillVerifiesHost;
+var
+  LClient, LServer: ITlsEngine;
+  LFlight: TBytes;
+  LExts: TExtensionVector;
+  LEntry: TExtensionEntry;
+  LMsg: TBytes;
+begin
+  LClient := TTlsEngineFactory.CreateClientEngine(
+    OmitSniClient(TArray<UInt16>.Create(TlsWireVersionTls13)), 'localhost');
+  LServer := TTlsEngineFactory.CreateServerEngine(NewServerBuilder.Build);
+  LClient.StartHandshake;
+  LFlight := Drain(LClient);
+  LExts := TTlsLibTestHandshakeDecoder.ClientHelloExtensions(LFlight);
+  CheckTrue(LExts.Count > 0, 'the flight carries a ClientHello');
+  CheckFalse(LExts.TryFind(TExtensionTypes.ServerName, LEntry), 'no server_name extension');
+  CheckFalse(ContainsAscii(LFlight, 'localhost'),
+    'the host does not appear on the wire');
+  Feed(LServer, LFlight);
+  ExchangeFlights(LClient, LServer);
+  // completion proves the leaf was still checked against the host: it matches only localhost
+  CheckFalse(LClient.IsHandshaking, 'the client completed the handshake');
+  CheckFalse(LClient.IsTerminal, 'the client did not abort');
+  CheckFalse(LServer.IsTerminal, 'the server did not abort');
+  CheckEquals('', LServer.ConnectionInfo.ServerName, 'the server saw no SNI');
+  LMsg := DecodeHex('736e692d6f6d6974'); // "sni-omit"
+  LClient.Write(LMsg, 0, System.Length(LMsg));
+  Feed(LServer, Drain(LClient));
+  CheckEqualBytes('app data flows without SNI', LMsg, ReadAllApp(LServer));
+end;
+
+procedure TTestConfigBuilder.TestOmittedSniStillRejectsWrongHost;
+var
+  LClient, LServer: ITlsEngine;
+  LFlight: TBytes;
+  LExts: TExtensionVector;
+  LEntry: TExtensionEntry;
+begin
+  LClient := TTlsEngineFactory.CreateClientEngine(
+    OmitSniClient(TArray<UInt16>.Create(TlsWireVersionTls13)), 'wrong.example');
+  LServer := TTlsEngineFactory.CreateServerEngine(NewServerBuilder.Build);
+  LClient.StartHandshake;
+  LFlight := Drain(LClient);
+  LExts := TTlsLibTestHandshakeDecoder.ClientHelloExtensions(LFlight);
+  CheckFalse(LExts.TryFind(TExtensionTypes.ServerName, LEntry), 'no server_name extension');
+  Feed(LServer, LFlight);
+  ExchangeFlights(LClient, LServer);
+  CheckTrue(LClient.IsTerminal, 'omitting SNI is not a name-check bypass: the client aborts');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate),
+    Ord(LClient.LastError.Alert.Description), 'the alert is bad_certificate');
+end;
+
+procedure TTestConfigBuilder.TestOmittedSniTls12SendsNoServerName;
+var
+  LClient, LServer: ITlsEngine;
+  LFlight: TBytes;
+  LExts: TExtensionVector;
+  LEntry: TExtensionEntry;
+begin
+  LClient := TTlsEngineFactory.CreateClientEngine(
+    OmitSniClient(TArray<UInt16>.Create(TlsWireVersionTls12)), 'localhost');
+  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential).Build);
+  LClient.StartHandshake;
+  LFlight := Drain(LClient);
+  LExts := TTlsLibTestHandshakeDecoder.ClientHelloExtensions(LFlight);
+  CheckTrue(LExts.Count > 0, 'the flight carries a ClientHello');
+  CheckFalse(LExts.TryFind(TExtensionTypes.ServerName, LEntry), 'no server_name in the 1.2 hello');
+  Feed(LServer, LFlight);
+  ExchangeFlights(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking, 'the TLS 1.2 handshake completed');
+  CheckFalse(LClient.IsTerminal, 'the client did not abort: ' + LClient.LastError.Message);
+  CheckEquals(Integer(TlsWireVersionTls12), Integer(LClient.ConnectionInfo.NegotiatedVersion.WireValue),
+    'TLS 1.2 was negotiated');
+end;
+
+procedure TTestConfigBuilder.TestOmittedSniHrrRetryKeepsServerNameAbsent;
+var
+  LClient, LServer: ITlsEngine;
+  LCh1, LCh2: TBytes;
+  LExts: TExtensionVector;
+  LEntry: TExtensionEntry;
+begin
+  // the server prefers a group the client did not send a key share for, forcing a HelloRetryRequest
+  LClient := TTlsEngineFactory.CreateClientEngine(
+    TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13))
+    .WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
+    TNamedGroupCatalog.Secp256r1))
+    .WithTrustStore(ClientTrust)
+    .WithServerNameIndication(TServerNameIndication.Omit).Build, 'localhost');
+  LServer := TTlsEngineFactory.CreateServerEngine(
+    TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13))
+    .WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1))
+    .WithCredential(ServerCredential).Build);
+  LClient.StartHandshake;
+  LCh1 := Drain(LClient);
+  Feed(LServer, LCh1);
+  Feed(LClient, Drain(LServer));
+  LCh2 := Drain(LClient);
+  LExts := TTlsLibTestHandshakeDecoder.ClientHelloExtensions(LCh2);
+  CheckTrue(LExts.Count > 0, 'the retry flight carries a ClientHello');
+  CheckFalse(LExts.TryFind(TExtensionTypes.ServerName, LEntry),
+    'the second ClientHello still has no server_name');
+  Feed(LServer, LCh2);
+  ExchangeFlights(LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'the server accepted the retry ClientHello');
+  CheckFalse(LClient.IsTerminal, 'the client did not abort');
+  CheckEquals(Integer(TNamedGroupCatalog.Secp256r1), Integer(LClient.ConnectionInfo.NamedGroup),
+    'the retry moved the handshake onto the server''s group');
+end;
+
+procedure TTestConfigBuilder.TestOmittedSniKeepsSessionsApart;
+var
+  LCache: ISessionCache;
+  LScope: TBytes;
+  LServerConfig: ITlsServerConfig;
+  LOffered: Boolean;
+
+  function Resumes(AMode: TServerNameIndication): Boolean;
+  var
+    LClient, LServer: ITlsEngine;
+    LFlight: TBytes;
+    LExts: TExtensionVector;
+    LEntry: TExtensionEntry;
+  begin
+    LClient := TTlsEngineFactory.CreateClientEngine(
+      TTlsPresets.Compatible(Crypto, Pkix).Client
+      .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13))
+      .WithTrustStore(ClientTrust).WithSessionCache(LCache).WithResumptionScope(LScope)
+      .WithServerNameIndication(AMode).Build, 'localhost');
+    LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
+    LClient.StartHandshake;
+    LFlight := Drain(LClient);
+    // whether the client offered a cached session, apart from the server accepting it
+    LExts := TTlsLibTestHandshakeDecoder.ClientHelloExtensions(LFlight);
+    LOffered := LExts.TryFind(TExtensionTypes.PreSharedKey, LEntry);
+    Feed(LServer, LFlight);
+    ExchangeFlights(LClient, LServer);
+    // let the post-handshake ticket reach the client's cache
+    Feed(LClient, Drain(LServer));
+    Result := LClient.ConnectionInfo.Resumed;
+  end;
+
+begin
+  LCache := TInMemorySessionCache.Create as ISessionCache;
+  LScope := TBytes.Create($53, $4E, $49);
+  LServerConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential).WithResumptionScope(LScope).Build;
+  CheckFalse(Resumes(TServerNameIndication.Send), 'the first handshake is a full one');
+  CheckFalse(LOffered, 'nothing cached yet, so no session is offered');
+  CheckTrue(Resumes(TServerNameIndication.Send), 'a repeat with SNI resumes');
+  CheckTrue(LOffered, 'the cached session is offered');
+  // the client's own cache key keeps the two apart: it offers no session, rather than the server
+  // declining one
+  CheckFalse(Resumes(TServerNameIndication.Omit),
+    'a client that omits SNI does not resume a session made with it');
+  CheckFalse(LOffered, 'a client that omits SNI does not offer a session made with it');
+  CheckTrue(Resumes(TServerNameIndication.Omit), 'a repeat without SNI resumes its own session');
+  CheckTrue(LOffered, 'it offers its own cached session');
 end;
 
 initialization

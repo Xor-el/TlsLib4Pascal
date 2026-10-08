@@ -54,7 +54,8 @@ uses
   TlpEchKeyGen,
   TlpIEch,
   TlpTlsLibExceptions,
-  TlsLibTestBase;
+  TlsLibTestBase,
+  TlsLibTestHandshakeDecoder;
 
 type
   /// <summary>
@@ -75,8 +76,6 @@ type
     function SealOuter(var AOuter: TTlsClientHello; var AEntries: TExtensionVector;
       var AEch: TEchOuterClientHello; const ASealer: IHpkeSealer;
       const AEncoded: TBytes): TBytes;
-    function SniHost(const AServerNameData: TBytes): string;
-    function Contains(const AHaystack, ANeedle: TBytes): Boolean;
   protected
     procedure SetUp; override;
     procedure TearDown; override;
@@ -155,46 +154,6 @@ begin
   end;
 end;
 
-function TTestEchClientEngine.SniHost(const AServerNameData: TBytes): string;
-var
-  LReader, LList, LName: TWireReader;
-  LBytes: TBytes;
-  LI: Int32;
-begin
-  Result := '';
-  LReader := TWireReader.Create(AServerNameData);
-  LList := LReader.OpenVector(2);
-  if LList.ReadUInt8 <> 0 then
-    Exit;
-  LName := LList.OpenVector(2);
-  LBytes := LName.ReadBytes(LName.Remaining);
-  SetLength(Result, System.Length(LBytes));
-  for LI := 0 to System.High(LBytes) do
-    Result[LI + 1] := Char(LBytes[LI]);
-end;
-
-function TTestEchClientEngine.Contains(const AHaystack, ANeedle: TBytes): Boolean;
-var
-  LI, LJ: Int32;
-  LMatch: Boolean;
-begin
-  if System.Length(ANeedle) = 0 then
-    Exit(True);
-  for LI := 0 to System.Length(AHaystack) - System.Length(ANeedle) do
-  begin
-    LMatch := True;
-    for LJ := 0 to System.High(ANeedle) do
-      if AHaystack[LI + LJ] <> ANeedle[LJ] then
-      begin
-        LMatch := False;
-        Break;
-      end;
-    if LMatch then
-      Exit(True);
-  end;
-  Result := False;
-end;
-
 procedure TTestEchClientEngine.TestOuterHidesRealSniAndDecryptsToInner;
 var
   LOuterFramed, LOuterBody, LAad, LEncoded: TBytes;
@@ -219,7 +178,7 @@ begin
   SetLength(LRealSniBytes, System.Length(RealSni));
   for LI := 1 to System.Length(RealSni) do
     LRealSniBytes[LI - 1] := Byte(Ord(RealSni[LI]));
-  CheckFalse(Contains(LOuterFramed, LRealSniBytes),
+  CheckFalse(ContainsBytes(LOuterFramed, LRealSniBytes),
     'the true SNI is not in the outer ClientHello');
 
   LOuterBody := System.Copy(LOuterFramed, 4, System.Length(LOuterFramed) - 4);
@@ -228,7 +187,7 @@ begin
 
   // the outer offers the public_name
   CheckTrue(LEntries.TryFind(TExtensionTypes.ServerName, LSni), 'outer has SNI');
-  CheckEquals(PublicName, SniHost(LSni.Data), 'the outer SNI is the public_name');
+  CheckEquals(PublicName, TTlsLibTestHandshakeDecoder.ServerNameHost(LSni.Data), 'the outer SNI is the public_name');
 
   // decode the outer encrypted_client_hello extension
   CheckTrue(LEntries.TryFind(TExtensionTypes.EncryptedClientHello, LEch),
@@ -269,7 +228,7 @@ begin
   // the reconstructed inner carries the real SNI
   CheckTrue(LReconstructed.TryFind(TExtensionTypes.ServerName, LSni),
     'the inner has a server_name');
-  CheckEquals(RealSni, SniHost(LSni.Data),
+  CheckEquals(RealSni, TTlsLibTestHandshakeDecoder.ServerNameHost(LSni.Data),
     'the reconstructed inner SNI is the real host');
 end;
 

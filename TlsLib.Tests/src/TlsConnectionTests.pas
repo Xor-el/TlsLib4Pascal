@@ -79,6 +79,7 @@ type
     procedure TestClientInsecureSkipVerifyBuildsWithSkipFlag;
     procedure TestClientVerifyPeerOffSetsSkipFlag;
     procedure TestClientCheckHostNameOffDisablesNameCheck;
+    procedure TestClientServerNameIndicationForwarded;
     procedure TestClientAlpnForwarded;
     procedure TestClientVerifyCallbackForwarded;
     procedure TestClientVerdictResolverArmsLiveRevocation;
@@ -481,6 +482,19 @@ begin
     'CheckHostName off disables server-name checking');
 end;
 
+procedure TTestTlsConnection.TestClientServerNameIndicationForwarded;
+var
+  LOpts: TTlsOptions;
+  LConfig: ITlsClientConfig;
+begin
+  LOpts := ClientOptsWithStore;
+  LOpts.ServerNameIndication := TServerNameIndication.Omit;
+  LConfig := TTlsConfigComposer.BuildClientConfig(LOpts);
+  CheckEquals(Ord(TServerNameIndication.Omit), Ord(LConfig.ServerNameIndication),
+    'the SNI choice reaches the client config');
+  CheckTrue(LConfig.CheckServerName, 'omitting SNI leaves the name check on');
+end;
+
 procedure TTestTlsConnection.TestClientAlpnForwarded;
 var
   LOpts: TTlsOptions;
@@ -657,6 +671,8 @@ procedure TTestTlsConnection.TestDefaultOptionsRequestNoClientAuth;
 begin
   CheckEquals(Ord(TClientAuthMode.None), Ord(TTlsOptions.Default.ClientAuth),
     'client authentication is opt-in: the default mode is None');
+  CheckEquals(Ord(TServerNameIndication.Send), Ord(TTlsOptions.Default.ServerNameIndication),
+    'a client sends SNI by default');
 end;
 
 procedure TTestTlsConnection.TestServerNoClientSourceLeavesNoClientAuth;
@@ -967,6 +983,11 @@ begin
     'flipping CheckHostName changes the key');
 
   LMut := LBase;
+  LMut.ServerNameIndication := TServerNameIndication.Omit;
+  CheckFalse(TTlsConfigComposer.ClientSignature(LMut) = LBaseSig,
+    'omitting SNI changes the key');
+
+  LMut := LBase;
   LMut.KeyPassword := 'changed';
   CheckFalse(TTlsConfigComposer.ClientSignature(LMut) = LBaseSig,
     'changing the key password changes the key');
@@ -1154,6 +1175,12 @@ begin
   LOpts.CheckHostName := False;
   CheckTrue(Conflicts(LOpts, True), 'name-check off conflicts with a supplied config (client)');
   CheckFalse(Conflicts(LOpts, False), 'name-check off does not conflict on the server');
+
+  // SNI is a client-only read too: a supplied client config would drop it, a server never sends it
+  LOpts := TTlsOptions.Default;
+  LOpts.ServerNameIndication := TServerNameIndication.Omit;
+  CheckTrue(Conflicts(LOpts, True), 'omitting SNI conflicts with a supplied config (client)');
+  CheckFalse(Conflicts(LOpts, False), 'omitting SNI does not conflict on the server');
 
   // resumption is read by both role builds
   LOpts := TTlsOptions.Default;

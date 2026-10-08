@@ -71,7 +71,8 @@ uses
   TlpAntiReplay,
   TlpIKeyLog,
   MockKeyLog,
-  TlsLibTestBase;
+  TlsLibTestBase,
+  TlsLibTestHandshakeDecoder;
 
 type
   TTestTls13Loopback = class(TTlsLibAlgorithmTestCase)
@@ -881,31 +882,13 @@ end;
 
 function TTestTls13Loopback.OuterPskExtData(const AFlight: TBytes): TBytes;
 var
-  LPos, LRecLen, LHsLen: Int32;
-  LBody: TBytes;
-  LHello: TTlsClientHello;
   LVec: TExtensionVector;
   LEntry: TExtensionEntry;
 begin
   Result := nil;
-  LPos := 0;
-  // walk records: a flight can lead with a middlebox-compat ChangeCipherSpec (type 20); the
-  // ClientHello is the handshake record (type 22) whose first message is a ClientHello (type 1)
-  while LPos + 9 <= System.Length(AFlight) do
-  begin
-    LRecLen := (AFlight[LPos + 3] shl 8) or AFlight[LPos + 4];
-    if (AFlight[LPos] = 22) and (AFlight[LPos + 5] = 1) then
-    begin
-      LHsLen := (AFlight[LPos + 6] shl 16) or (AFlight[LPos + 7] shl 8) or AFlight[LPos + 8];
-      LBody := System.Copy(AFlight, LPos + 9, LHsLen);
-      LHello := THandshakeMessages.DecodeClientHello(LBody);
-      LVec := TExtensionVector.Parse(LHello.Extensions);
-      if LVec.TryFind(TExtensionTypes.PreSharedKey, LEntry) then
-        Exit(LEntry.Data);
-      Exit;
-    end;
-    Inc(LPos, 5 + LRecLen);
-  end;
+  LVec := TTlsLibTestHandshakeDecoder.ClientHelloExtensions(AFlight);
+  if LVec.TryFind(TExtensionTypes.PreSharedKey, LEntry) then
+    Result := LEntry.Data;
 end;
 
 procedure TTestTls13Loopback.TestEchGreasePskBindersDifferAcrossHrr;

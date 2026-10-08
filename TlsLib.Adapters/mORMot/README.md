@@ -37,7 +37,7 @@ there leaves the presented chain incomplete, forcing clients to fetch the missin
 
 Accepted **and ignored** (documented no-ops — we are TLS 1.2+ and never renegotiate; they never
 silently weaken the connection): `AllowDeprecatedTls`, `ClientAllowUnsafeRenegotation`,
-`ClientVerifyOnce`, `ReleaseBuffers`, `WithPeerInfo`, `CipherList` (our suites are AEAD-only) and
+`ClientVerifyOnce`, `ReleaseBuffers`, `WithPeerInfo` and
 `OnPrivatePassword` (set `PrivatePassword`; an encrypted key without it fails loudly at load).
 Of the output fields only `CipherName` (and a server's `LastError`) are filled; `PeerIssuer`,
 `PeerSubject`, `PeerInfo` and `PeerCert` stay empty.
@@ -63,7 +63,7 @@ mORMot's native peer-verify callbacks (`OnPeerValidate` / `OnEachPeerVerify` /
 `PSSL` / `PX509` pointer to dereference, so honouring them would re-couple the adapter to OpenSSL —
 the dependency it exists to avoid. Because silently ignoring one would drop a rule the app relies
 on (for example a client-certificate allow-list), a context that sets any of them — or
-`HostNamesCsv`, `OnAcceptServerName`, or an in-memory `CertificateBin` / `CertificateRaw` /
+`CipherList`, `HostNamesCsv`, `OnAcceptServerName`, or an in-memory `CertificateBin` / `CertificateRaw` /
 `PrivateKeyRaw` / `CACertificatesRaw` — **fails loudly**: a client at connect, a server at bind.
 
 Instead, the neutral hooks are process-wide setters (mORMot builds an `INetTls` per connection

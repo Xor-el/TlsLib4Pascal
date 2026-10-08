@@ -7,6 +7,7 @@ uses
   consoletestrunner,
   TlsLibTestResourceLoader,
   TlsLibTestProviders,
+  TlsLibTestHandshakeDecoder,
   TlsLibTestBase,
   MockRandom,
   MockClock,

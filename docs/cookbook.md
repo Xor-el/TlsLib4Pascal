@@ -512,6 +512,21 @@ LServer.Tls13.WithEchKeyStore(LStore, True);
 ECH is TLS 1.3 only. Full detail — GREASE, rejection/`retry_configs`, key generation, and DNS — in
 [ech.md](ech.md).
 
+## Connect without sending SNI (still verified)
+
+A client can leave the `server_name` extension out while still verifying the certificate against the
+host you connect to (RFC 9525):
+
+```pascal
+LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
+  .WithTrustAnchors(LoadFile('my-ca.pem'))
+  .WithServerNameIndication(TServerNameIndication.Omit);
+LEngine := TTlsEngineFactory.CreateClientEngine(LClient.Build, 'host.example');
+```
+
+A server that picks its certificate by SNI may refuse the hello (`missing_extension`) or serve a default
+certificate that then fails the name check; the client never retries with the name.
+
 ## External (out-of-band) PSKs
 
 For external pre-shared keys (a key both endpoints already share out of band, not from a prior
