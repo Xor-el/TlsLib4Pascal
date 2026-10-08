@@ -1,0 +1,161 @@
+docs/certificate-verification.md
+  s_d27f31cd14035d::t_32ab77ea152d22 80,82-83,86-87
+  s_d27f31cd14035d::t_c2890c14e87984 94
+  s_d27f31cd14035d::t_d0954710e0bc22 224
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_d27f31cd14035d::t_e9f1031626be8d 350
+  s_d27f31cd14035d::t_1b4c0223f8c991 647
+TlsLib/src/Engine/TlpTlsEngine.pas
+  s_d27f31cd14035d::t_440f904f337835 81-82
+  s_d27f31cd14035d::t_6d3e4c90bf8988 779-780
+  s_d27f31cd14035d::t_609a6a308174df 208-209
+docs/getting-started.md
+  s_d27f31cd14035d::t_bde77eff02232f 195-196
+  s_d27f31cd14035d::t_70f31732b76758 194
+TlsLib.Tests/src/RecordLayerTests.pas
+  s_d27f31cd14035d::t_0a44a2d2fab446 784
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_d27f31cd14035d::t_91ff9ad99829ec 1918-1919
+  s_d27f31cd14035d::t_f3c93970e0d78b 381
+TlsLib/src/Extensions/TlpExtensionBlockCodec.pas
+  s_d27f31cd14035d::t_f6345dbf2b7096 137-138
+TlsLib/src/Extensions/TlpCoreExtensions.pas
+  s_d27f31cd14035d::t_89ef1824bd1263 973-974
+  s_d27f31cd14035d::t_a2167125a241d3 234
+TlsLib/src/Crypto/TlpNamedGroups.pas
+  s_d27f31cd14035d::t_24618900f5e63e 74
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_d27f31cd14035d::t_73cc2e55a41e06 484-485
+  s_d27f31cd14035d::t_381411f8fe1686 1075
+  s_d27f31cd14035d::t_ecf80ba418f983 1076-1079
+TlsLib.Adapters/Indy/README.md
+  s_d27f31cd14035d::t_e03fccb4555677 28
+TlsLib/src/Trust/TlpChainAlgorithmPolicy.pas
+  s_d27f31cd14035d::t_0b9805aafd4a91 32-35
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  s_d27f31cd14035d::t_4f3b59a1dfd83e 1078
+  s_d27f31cd14035d::t_c707b61d4061a5 1105
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_d27f31cd14035d::t_4c851db474c98d 1178-1179
+TlsLib.Crypto.System/src/TlpOSCryptoProvider.pas
+  s_d27f31cd14035d::t_c595ef4cd73530 31-32
+TlsLib/src/Handshake/TlpServerOfferSelection.pas
+  s_d27f31cd14035d::t_083791d3ddf41b 78-79
+TlsLib/src/Pkix/Providers/TlpDefaultPkixProvider.pas
+  s_d27f31cd14035d::t_3d901416f5a046 1363-1364
+  s_d27f31cd14035d::t_bbd694f194e2c3 806
+  s_d27f31cd14035d::t_977335c7661afd 807-808
+TlsLib/src/Record/TlpRecordHeader.pas
+  s_d27f31cd14035d::t_321cf0e75300e2 44
+TlsLib/src/Record/TlpRecordLayer.pas
+  s_d27f31cd14035d::t_789c71bdb7469d 329
+  s_d27f31cd14035d::t_895532ff7f22b0 525-527
+  s_d27f31cd14035d::t_d37ed852632ae0 524
+TlsLib/src/Handshake/TlpHandshakeMessage.pas
+  s_d27f31cd14035d::t_3d80bcfdfedd6c 80
+TlsLib.Tests/src/EndpointIdentityTests.pas
+  s_d27f31cd14035d::t_4a15c03a611e83 203
+  s_d27f31cd14035d::t_7556cb79433ac0 123-124
+docs/security-model.md
+  s_d27f31cd14035d::t_887499ce0353a3 118-119
+  s_d27f31cd14035d::t_3eae86d53d3f84 132-135
+  s_d27f31cd14035d::t_621e45cc0f7a55 58
+  s_d27f31cd14035d::t_c511ef21c25aa7 54
+  s_d27f31cd14035d::t_61833b977b3351 91-92
+  s_d27f31cd14035d::t_8a2edb073ac01b 52
+  s_d27f31cd14035d::t_fb9a95e4f9ef31 87-88
+  s_d27f31cd14035d::t_11538b0a6a5914 90
+TlsLib.Trust.System/Examples/Delphi/README.md
+  s_d27f31cd14035d::t_cc441229aa6db1 35-36
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_d27f31cd14035d::t_123729344aa6eb 4033-4034
+  s_d27f31cd14035d::t_5f48340f27b40c 46-50
+  s_d27f31cd14035d::t_cd01a86abf5ba7 999-1002
+  s_d27f31cd14035d::t_e74fdfbdbd8429 4155-4156
+  s_d27f31cd14035d::t_afb45f75d2d45c 4157-4158
+  s_d27f31cd14035d::t_af211421981516 757-760
+  s_d27f31cd14035d::t_544cdafafdf6f4 998
+  s_d27f31cd14035d::t_3f880357ee241d 1010-1011
+TlsLib/src/Interfaces/Crypto/Providers/TlpICryptoProvider.pas
+  s_d27f31cd14035d::t_fdc1a3271b3c93 234-235
+TlsLib.Tests/src/ExtensionNegotiationTests.pas
+  s_d27f31cd14035d::t_92bbac583f2cec 1389
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_d27f31cd14035d::t_8f8f02def47955 1445
+  s_d27f31cd14035d::t_667f446daf5670 295
+  s_d27f31cd14035d::t_98460233e8474b 579
+  s_d27f31cd14035d::t_c6493b3aca98ec 1343
+  s_d27f31cd14035d::t_a09ed04d8fc635 1085-1087
+docs/cookbook.md
+  s_d27f31cd14035d::t_61ef08361c7678 378-380
+  s_d27f31cd14035d::t_ab41ba2d15c9b9 418-419
+  s_d27f31cd14035d::t_0173976206e58b 217
+  s_d27f31cd14035d::t_9ff9e8edf07270 263
+  s_d27f31cd14035d::t_b3139b1cadcfbb 395-396
+  s_d27f31cd14035d::t_80fb35ee2c3621 592
+  s_d27f31cd14035d::t_a6cbdc83aec561 350-352,400,404,423,541
+docs/system-trust.md
+  s_d27f31cd14035d::t_62ad4a36fae54c 361
+  s_d27f31cd14035d::t_5bacc694f0801d 417-437
+TlsLib/src/Trust/TlpEndpointIdentity.pas
+  s_d27f31cd14035d::t_435956c231601b 84-86
+  s_d27f31cd14035d::t_435ab05a9a18dd 156
+docs/ech.md
+  s_d27f31cd14035d::t_85363751e64624 133
+  s_d27f31cd14035d::t_281e4c56e0d6df 85-86
+  s_d27f31cd14035d::t_0ab69c1c35c668 11
+TlsLib.Adapters/FclNet/README.md
+  s_d27f31cd14035d::t_b54ef8ab3fbae1 100
+  s_d27f31cd14035d::t_2883a4eb51bfd4 115
+TlsLib/src/Handshake/TlpTls12ClientStateMachine.pas
+  s_d27f31cd14035d::t_7ae1702fb73f6e 199-200
+  s_d27f31cd14035d::t_f4edd8ee78cdac 737
+  s_d27f31cd14035d::t_c40daf7413d2d6 635
+TlsLib/src/Negotiation/TlpNegotiationTypes.pas
+  s_d27f31cd14035d::t_521a5858454a88 129-130
+TlsLib.Tests/src/EchExtensionTests.pas
+  s_d27f31cd14035d::t_1144a8ef4edb7b 124
+TlsLib.Tests/src/ExtensionCodecTests.pas
+  s_d27f31cd14035d::t_71ec4713281918 920
+  s_d27f31cd14035d::t_b848c807905c80 337
+TlsLib/src/Interfaces/Crypto/TlpISigningKey.pas
+  s_d27f31cd14035d::t_77556e5c003b1f 42
+docs/README.md
+  s_d27f31cd14035d::t_b58c379fe55833 35
+  s_d27f31cd14035d::t_7a4e6c9c170fef 7
+TlsLib.Adapters/mORMot/README.md
+  s_d27f31cd14035d::t_51ec230cb4be82 103
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_d27f31cd14035d::t_2d87013d455ed8 502
+  s_d27f31cd14035d::t_d281988dc0a5ec 1658-1659
+TlsLib/src/Trust/TlpTrustPolicy.pas
+  s_d27f31cd14035d::t_519f5874094c72 39
+  s_d27f31cd14035d::t_08c467a44b8354 38
+TlsLib/src/CertCompression/TlpCertificateCompression.pas
+  s_d27f31cd14035d::t_5316b7d0d2fc7f 179-180
+  s_d27f31cd14035d::t_3071dcfc9810e9 196-197
+TlsLib/src/Ech/TlpEchClientOrchestrator.pas
+  s_d27f31cd14035d::t_5ec41188d558b3 436-437
+  s_d27f31cd14035d::t_385e0cea8cbdb4 151,308,552
+README.md
+  s_d27f31cd14035d::t_e469290179d5c3 38
+  s_d27f31cd14035d::t_f056010ba097bc 117
+  s_d27f31cd14035d::t_6f88fe23e6ed5d 100
+  s_d27f31cd14035d::t_9985373b1446c7 185
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0e7edc6c8cbaa4aa1f2c51665159f63204676a00",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
