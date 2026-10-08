@@ -54,7 +54,9 @@ type
     procedure TestZeroLengthWriteBeforeEpochIsRefused;
     procedure TestOutOfRangeSliceRaisesWithoutTerminating;
     procedure TestAlertBetweenHandshakeFragmentsIsUnexpected;
-    procedure TestReceivedCloseNotify;
+    procedure TestReceivedCloseNotifyBeforeHandshakeCompletesIsTerminal;
+    procedure TestCloseNotifyWithBogusAlertLevelIsIllegalParameter;
+    procedure TestOutOfRangeWriteSliceRaisesWithoutTerminating;
     procedure TestReceivedFatalAlertIsTerminal;
     procedure TestReceivedUnknownFatalAlertIsPeerOrigin;
     procedure TestLastErrorOriginIsUnknownBeforeAnyFailure;
@@ -279,27 +281,81 @@ begin
     'an interleaved alert is a protocol failure, not a clean close');
 end;
 
-procedure TTestEngineSkeleton.TestReceivedCloseNotify;
+procedure TTestEngineSkeleton.TestReceivedCloseNotifyBeforeHandshakeCompletesIsTerminal;
 var
   LEngine: ITlsEngine;
   LEvent: ITlsEvent;
+  LRaised: Boolean;
 begin
   LEngine := NewEngine;
-  // a warning close_notify alert record (level 1, description 0)
-  LEngine.ProcessInput(PeerRecord(TTlsContentType.Alert, DecodeHex('0100')), 0, 7);
+  // a warning close_notify alert record (level 1, description 0) before the handshake finishes
+  // abandons it: the engine fails rather than sitting half-closed and handshaking forever
+  CheckEquals(Ord(TTlsOutcome.Fatal),
+    Ord(LEngine.ProcessInput(PeerRecord(TTlsContentType.Alert, DecodeHex('0100')), 0, 7)),
+    'a close before the handshake completes is fatal');
   CheckTrue(LEngine.NextEvent(LEvent), 'a close event is queued');
   CheckEquals(Ord(TTlsEventKind.Closed), Ord(LEvent.Kind), 'closed event');
-  CheckFalse(LEngine.IsTerminal, 'a clean close is not a fatal termination');
+  CheckTrue(LEngine.IsTerminal, 'the engine is terminal');
+  CheckFalse(LEngine.IsHandshaking, 'a terminal engine is no longer handshaking');
   CheckTrue(LEngine.IsInboundClosed, 'the inbound side is closed');
-  CheckFalse(LEngine.WantsRead, 'no more input is wanted after close');
+  CheckEquals(Ord(TTlsErrorOrigin.Peer), Ord(LEngine.LastError.Origin),
+    'the peer ended the handshake');
+  CheckEquals(0, LEngine.LastError.AlertByte, 'the recorded code is close_notify');
+  CheckEquals(0, System.Length(TakeAll(LEngine)), 'no alert is sent in reply to a close');
+  LRaised := False;
+  try
+    LEngine.Write(DecodeHex('00'), 0, 1);
+  except
+    on EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a terminal engine refuses writes');
+end;
 
-  // bytes the peer sends after its close_notify are discarded, not framed or treated as a
-  // protocol error (RFC 8446 6.1): a further feed is a clean no-op, not a fatal outcome
-  CheckFalse(LEngine.ProcessInput(PeerRecord(TTlsContentType.ApplicationData,
-    DecodeHex('deadbeef')), 0, 9) = TTlsOutcome.Fatal,
-    'post-close input is discarded, not a fatal outcome');
-  CheckFalse(LEngine.IsTerminal, 'post-close input does not make the engine terminal');
-  CheckTrue(LEngine.IsInboundClosed, 'the inbound side stays closed (idempotent)');
+procedure TTestEngineSkeleton.TestCloseNotifyWithBogusAlertLevelIsIllegalParameter;
+var
+  LEngine: ITlsEngine;
+begin
+  // the level check precedes the close_notify branch: a level that is neither warning nor fatal
+  // is malformed even on close_notify
+  LEngine := NewEngine;
+  CheckEquals(Ord(TTlsOutcome.Fatal),
+    Ord(LEngine.ProcessInput(PeerRecord(TTlsContentType.Alert, DecodeHex('0700')), 0, 7)),
+    'a close_notify with an invalid level is fatal');
+  CheckEquals(Ord(TTlsAlertDescription.IllegalParameter),
+    Ord(LEngine.LastError.Alert.Description), 'the alert code is illegal_parameter');
+  CheckFalse(LEngine.IsInboundClosed, 'it is not taken for an orderly close');
+end;
+
+procedure TTestEngineSkeleton.TestOutOfRangeWriteSliceRaisesWithoutTerminating;
+var
+  LEngine: ITlsEngine;
+  LData: TBytes;
+  LI: Int32;
+  LRaised: Boolean;
+begin
+  // an out-of-range (AOffset, ALength) on a write is caller misuse, like on ProcessInput: it raises
+  // an argument error, sends no alert and leaves the engine alive, even before a write epoch exists
+  LEngine := NewEngine;
+  LData := DecodeHex('0102');
+  for LI := 0 to 3 do
+  begin
+    LRaised := False;
+    try
+      case LI of
+        0: LEngine.Write(LData, 0, 3);
+        1: LEngine.Write(LData, -1, 1);
+        2: LEngine.Write(LData, 0, -1);
+        3: LEngine.WriteEarlyData(LData, 1, 2);
+      end;
+    except
+      on EArgumentTlsLibException do
+        LRaised := True;
+    end;
+    CheckTrue(LRaised, Format('write slice case %d raises an argument error', [LI]));
+  end;
+  CheckFalse(LEngine.IsTerminal, 'a caller slice error does not make the engine terminal');
+  CheckEquals(0, System.Length(TakeAll(LEngine)), 'no alert was put on the wire');
 end;
 
 procedure TTestEngineSkeleton.TestReceivedFatalAlertIsTerminal;

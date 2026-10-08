@@ -61,6 +61,9 @@ type
     /// here (the peer then reads an alert, not a truncation); once terminal it is best-effort.</summary>
     class procedure FlushThenRaiseIfFatal(const AEngine: ITlsEngine;
       const ATransport: ITlsTransport); static;
+    /// <summary>Whether the engine ended because the peer sent close_notify before the handshake
+    /// completed; that is a truncation for the caller, not a fatal alert.</summary>
+    class function PeerClosedDuringHandshake(const AEngine: ITlsEngine): Boolean; static;
     /// <summary>DrainEvents for the stream: a peer fatal alert raises ETlsStreamError with its
     /// description (internal_error for an unmapped code); reports a clean peer close via
     /// APeerClosed and captures a parked-certificate event, and returns True on a clean close.</summary>
@@ -150,6 +153,8 @@ var
 begin
   if not AEngine.IsTerminal then
     Exit;
+  if PeerClosedDuringHandshake(AEngine) then
+    raise ETlsTransportTruncated.Create(SClosedDuringHandshake);
   // a client's ECH reject aborts with ech_required (RFC 9849 sec. 6.1.6); surface the
   // retry_configs and the retry flag through a typed exception so the application can decide to
   // reconnect. keyed on the abort itself, not EchStatus - a server reads Rejected after a benign
@@ -232,6 +237,12 @@ begin
         if Supports(LEvent, ICertificateReceivedEvent, LCertEvent) then
           ACertEvent := LCertEvent;
     end;
+end;
+
+class function TTlsStreamPump.PeerClosedDuringHandshake(const AEngine: ITlsEngine): Boolean;
+begin
+  Result := AEngine.IsTerminal and (AEngine.LastError.Origin = TTlsErrorOrigin.Peer) and
+    (AEngine.LastError.AlertByte = TTlsAlertDescription.CloseNotify.ToByte);
 end;
 
 class function TTlsStreamPump.DrainEventsOrRaise(const AEngine: ITlsEngine;
@@ -354,13 +365,7 @@ begin
     Inc(LTotal, LGot);
     AEngine.ProcessInput(LBuf, 0, LGot);
     FlushThenRaiseIfFatal(AEngine, ATransport);
-    if DrainEventsOrRaise(AEngine, LPeerClosed, LCertEvent) then
-    begin
-      RaiseIfFatal(AEngine); // a fatal recorded alongside the close takes precedence
-      // a peer close while still handshaking abandons it: raise rather than loop back into a read
-      if AEngine.IsHandshaking then
-        raise ETlsTransportTruncated.Create(SClosedDuringHandshake);
-    end;
+    DrainEventsOrRaise(AEngine, LPeerClosed, LCertEvent);
   end;
   // StartHandshake itself can fail the engine (never entering the loop); surface that alert
   RaiseIfFatal(AEngine);

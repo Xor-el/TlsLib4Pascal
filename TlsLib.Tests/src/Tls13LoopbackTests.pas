@@ -2186,6 +2186,12 @@ begin
   LServer.SendClose;
   Pump(LServer, LClient);
   CheckTrue(LClient.IsInboundClosed, 'the client saw the inbound close_notify');
+  CheckFalse(LClient.IsTerminal, 'a close after the handshake is not a failure');
+  // bytes the peer sends after its close_notify are discarded, not framed (RFC 8446 6.1)
+  LMsg := DecodeHex('1703030004deadbeef');
+  CheckFalse(LClient.ProcessInput(LMsg, 0, System.Length(LMsg)) = TTlsOutcome.Fatal,
+    'input after the close is discarded');
+  CheckFalse(LClient.IsTerminal, 'post-close input does not make the engine terminal');
   // under TLS 1.3 an inbound close_notify closes only the read side (RFC 8446 6.1): the client's
   // write half stays open, so it can still write and rekey
   CheckFalse(LClient.WriteClosed, 'the TLS 1.3 write side stays open after an inbound close');
