@@ -1,0 +1,52 @@
+TlsLib.Tests/src/Tls12DualVersionTests.pas
+  s_d27f31cd14035d::t_ccc8a773ae0378 105
+  s_d27f31cd14035d::t_4097ac43ff31f2 560-580,583-591
+  s_d27f31cd14035d::t_dd7005c26572f2 581-582
+TlsLib/src/Handshake/TlpTls12ClientStateMachine.pas
+  s_d27f31cd14035d::t_6cc9ff99aa5dd7 954-955
+  s_d27f31cd14035d::t_a9476dc0de14be 961
+TlsLib.Tests/src/Tls13ClientReplayTests.pas
+  s_d27f31cd14035d::t_fc6692ba8f2969 139
+  s_d27f31cd14035d::t_c92d5b3e5bb75a 527-533,536-551
+  s_d27f31cd14035d::t_1013a6a941c7fa 534-535
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_d27f31cd14035d::t_283a5808503d0c 1004,1008-1009,1011
+  s_d27f31cd14035d::t_d0e7c55479cb32 1005-1006
+  s_d27f31cd14035d::t_78ad0397ae5f18 546
+  s_d27f31cd14035d::t_487228df936d86 1007
+  s_d27f31cd14035d::t_dbf489e7dae8cc 197
+TlsLib.Tests/src/Tls12ResumptionTests.pas
+  s_d27f31cd14035d::t_928ada7a550474 694-727
+  s_d27f31cd14035d::t_24a65f08b5c17f 757,759,762,764
+  s_d27f31cd14035d::t_ad0f186a6eae2e 131
+TlsLib.Tests/src/HelloRetryRequestTests.pas
+  s_d27f31cd14035d::t_797f280010cf6c 683-716
+  s_d27f31cd14035d::t_f4231cea9bcec9 215-216
+  s_d27f31cd14035d::t_8b98c404c98f69 233
+  s_d27f31cd14035d::t_d82f36124e4948 103
+  s_d27f31cd14035d::t_63979a175fbd8d 71-72,74
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_d27f31cd14035d::t_938a4b96153a30 879
+  s_d27f31cd14035d::t_6cfeb0cd0b0aea 874-876
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_d27f31cd14035d::t_339a601684fbd1 1300-1301
+  s_d27f31cd14035d::t_ebebd4d9306d33 1252-1253
+  s_d27f31cd14035d::t_abc284079a5adf 1295-1296,1298-1299,1302-1303
+  s_d27f31cd14035d::t_21c2b8deccf96a 474
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2a1d15878b841d64d00368702cd5b5b7f01c8b01",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
