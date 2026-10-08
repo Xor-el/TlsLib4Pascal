@@ -207,6 +207,9 @@ type
     procedure TestClientBuilderChainBuildsClient;
     procedure TestServerBuilderChainBuildsServer;
     procedure TestVersionFacetForUnofferedVersionIsRefused;
+    procedure TestNonEmsResumptionReachesFrozenConfig;
+    procedure TestNonEmsResumptionOnTls13OnlyIsRefused;
+    procedure TestRequiredEmsWithNonEmsResumeIsRefused;
     procedure TestDefaultRevocationPostureIsSoft;
     procedure TestWithRevocationSetsHardPosture;
     // server-side Hard client-certificate revocation: satisfiable only by a live resolver, so
@@ -2310,6 +2313,55 @@ begin
   CheckTrue(LRaised, 'a version facet for an unoffered version is refused at build');
 end;
 
+procedure TTestConfigBuilder.TestNonEmsResumptionReachesFrozenConfig;
+var
+  LConfig: ITlsServerConfig;
+begin
+  LConfig := NewServerBuilder
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12))
+    .Tls12.WithNonEmsResumption(TNonEmsResumption.Resume).Build;
+  CheckEquals(Ord(TNonEmsResumption.Resume), Ord(LConfig.NonEmsResumption),
+    'the .Tls12 policy reaches the frozen config');
+end;
+
+procedure TTestConfigBuilder.TestNonEmsResumptionOnTls13OnlyIsRefused;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    NewServerBuilder.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13))
+      .Tls12.WithNonEmsResumption(TNonEmsResumption.Abort).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a TLS 1.2 resumption policy on a TLS 1.3-only server is refused at build');
+end;
+
+procedure TTestConfigBuilder.TestRequiredEmsWithNonEmsResumeIsRefused;
+
+  function Builds(AMode: TNonEmsResumption): Boolean;
+  begin
+    Result := True;
+    try
+      NewServerBuilder.WithSupportedVersions(
+        TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12))
+        .Tls12.WithExtendedMasterSecret(True).WithNonEmsResumption(AMode).Build;
+    except
+      on E: EInvalidOperationTlsLibException do
+        Result := False;
+    end;
+  end;
+
+begin
+  // requiring EMS rejects every non-EMS client, so legacy resumption could never apply; the other two
+  // policies are subsumed and still build
+  CheckFalse(Builds(TNonEmsResumption.Resume), 'required EMS with legacy resumption contradicts itself');
+  CheckTrue(Builds(TNonEmsResumption.Decline), 'required EMS with Decline builds');
+  CheckTrue(Builds(TNonEmsResumption.Abort), 'required EMS with Abort builds');
+end;
+
 procedure TTestConfigBuilder.TestDefaultRevocationPostureIsSoft;
 begin
   CheckEquals(Ord(TRevocationPosture.Soft),
@@ -2874,6 +2926,8 @@ begin
   CheckEquals(Ord(TServerCipherPreference.ServerOrder), Ord(LServer.CipherSuitePreference),
     'a server imposes its own cipher order by default');
   CheckFalse(LServer.AlpnRejectAll, 'a server does not reject ALPN unconditionally by default');
+  CheckEquals(Ord(TNonEmsResumption.Decline), Ord(LServer.NonEmsResumption),
+    'a TLS 1.2 server declines non-EMS resumption by default');
   CheckTrue(LClient.Grease, 'a client greases by default');
   CheckEquals(Ord(TServerNameIndication.Send), Ord(LClient.ServerNameIndication),
     'a client sends SNI by default');

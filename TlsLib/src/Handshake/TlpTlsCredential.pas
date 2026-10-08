@@ -84,6 +84,18 @@ type
   /// client declines resumption to a full handshake, since a resume carries no staple to check.</summary>
   TResumeVerification = (ReuseOriginal, Reverify);
 
+  /// <summary>How a TLS 1.2 server treats a ClientHello that resumes a session established without
+  /// extended_master_secret when the hello does not offer it either (RFC 7627 5.3). Decline, the
+  /// default, runs a full handshake instead; Abort ends the handshake with handshake_failure;
+  /// Resume performs the legacy abbreviated handshake, which RFC 7627 5.4 leaves without secure
+  /// renegotiation or tls-unique (both already refused). Decline and Abort also stop issuing
+  /// resumable sessions from a non-EMS full handshake, so Abort differs from Decline only on a
+  /// session minted elsewhere (before an upgrade, or by a node sharing the ticket keys or store).
+  /// An EMS session offered without EMS always aborts, and a non-EMS session offered with EMS
+  /// always declines (RFC 7627 5.3), whatever this is set to. Moot when extended_master_secret is
+  /// required.</summary>
+  TNonEmsResumption = (Decline, Abort, Resume);
+
   /// <summary>A read-only snapshot of the ClientHello facts a server credential resolver may
   /// select on (SNI virtual hosting). ServerName is the raw SNI host_name (RFC 6066), empty
   /// when the client sent none; the arrays are the client's offers verbatim as IANA wire

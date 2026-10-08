@@ -74,6 +74,10 @@ type
     CheckServerName: Boolean;
     /// <summary>When set, a server omits the empty server_name acknowledgement (RFC 6066 3).</summary>
     SuppressServerNameAck: Boolean;
+    /// <summary>How a TLS 1.2 server treats resuming a session set up without
+    /// extended_master_secret (RFC 7627 5.3); the library default, Decline, unless the runner asks.
+    /// Ignored when TLS 1.2 is not offered.</summary>
+    NonEmsResumption: TNonEmsResumption;
     /// <summary>Whether a client sends GREASE (RFC 8701). Off unless the runner asks.</summary>
     Grease: Boolean;
     Credential: TTlsCredential;
@@ -169,6 +173,8 @@ type
     class function WithoutTls12(const AVersions: TArray<UInt16>): TArray<UInt16>; static;
     // whether the version list offers TLS 1.3 (an empty list = the preset default, which does)
     class function Offers13(const AVersions: TArray<UInt16>): Boolean; static;
+    // whether the version list offers TLS 1.2 (an empty list = the preset default, which does)
+    class function Offers12(const AVersions: TArray<UInt16>): Boolean; static;
     /// <summary>An ordered signature-scheme registry built from IANA codepoints (unknown
     /// codepoints are skipped), for the client's -verify-prefs offer.</summary>
     class function SignatureSchemesFromCodes(
@@ -285,6 +291,18 @@ begin
     Exit(True);
   for LVersion in AVersions do
     if LVersion = TlsWireVersionTls13 then
+      Exit(True);
+  Result := False;
+end;
+
+class function TInteropEngine.Offers12(const AVersions: TArray<UInt16>): Boolean;
+var
+  LVersion: UInt16;
+begin
+  if System.Length(AVersions) = 0 then
+    Exit(True);
+  for LVersion in AVersions do
+    if LVersion = TlsWireVersionTls12 then
       Exit(True);
   Result := False;
 end;
@@ -410,6 +428,8 @@ begin
         AOptions.ClientCertificateAuthorities);
     if AOptions.SuppressServerNameAck then
       LServer.WithServerNameAcknowledgement(False);
+    if Offers12(LVersions) and (AOptions.NonEmsResumption <> TNonEmsResumption.Decline) then
+      LServer.Tls12.WithNonEmsResumption(AOptions.NonEmsResumption);
     // the stapled OCSP rides on the credential; the server sends it when the client
     // offers status_request
     LCredential := AOptions.Credential;

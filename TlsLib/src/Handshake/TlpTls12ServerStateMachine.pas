@@ -86,6 +86,11 @@ type
     /// <summary>When set, a client that did not offer extended_master_secret (RFC 7627)
     /// is refused rather than falling back to a plain master secret.</summary>
     RequireExtendedMasterSecret: Boolean;
+    /// <summary>How a resumption of a session established without extended_master_secret is
+    /// treated when the new hello does not offer it either (RFC 7627 5.3); Decline when
+    /// unassigned. Decline and Abort also stop issuing resumable sessions from a non-EMS
+    /// full handshake.</summary>
+    NonEmsResumption: TNonEmsResumption;
     /// <summary>Whether the server echoes the empty server_name acknowledgement (RFC 6066 3)
     /// when the client offered a host_name.</summary>
     ServerNameAck: Boolean;
@@ -238,7 +243,8 @@ type
     /// <summary>Attempts to resume a TLS 1.2 session from the offered ticket (RFC 5077)
     /// or session id (RFC 5246). Validates version, freshness, suite and Extended Master
     /// Secret consistency; a mismatch returns False so the caller falls through to a full
-    /// handshake, except that an EMS session offered without EMS raises (RFC 7627 5.3). On
+    /// handshake, except that an EMS session offered without EMS raises (RFC 7627 5.3), as does a
+    /// non-EMS session under the Abort policy; a non-EMS session under Decline falls through. On
     /// success it fixes the suite, EMS use and the echoed session id.</summary>
     function TryAcceptResumption(const AHello: TTlsClientHello;
       const AContext: TExtensionContext): Boolean;
@@ -294,6 +300,8 @@ resourcestring
   SNoGroupAuthority = 'no negotiation policy or pinned group to select an ECDHE group';
   SNoExtendedMasterSecret =
     'the client did not offer extended_master_secret and it is required';
+  SNonEmsResumptionRefused =
+    'a session established without extended_master_secret is not resumed (RFC 7627 5.3)';
   SBadClientFinished = 'the client Finished did not verify';
   SClientCertificateRequired = 'client authentication is required but none was sent';
   SUntrustedClientCertificate = 'the client certificate chain was not trusted';
@@ -450,6 +458,7 @@ var
   LContext: TExtensionContext;
   LServerHello, LCertificate, LCertificateStatus, LServerKeyExchange, LCertRequest,
     LServerHelloDone, LStaple: TBytes;
+  LIssueSession: Boolean;
 begin
   LHello := THandshakeMessages.DecodeClientHello(AMessage.Body);
   FClientRandom := LHello.Random;
@@ -497,9 +506,10 @@ begin
     FRequestedServerName := LContext.ServerName;
 
     // resumption is attempted before any full-handshake negotiation; a mismatch (bad/expired
-    // ticket or session id, suite conflict, or EMS now offered for a non-EMS session) falls
-    // through to a full handshake rather than failing (RFC 5077 3.4 / RFC 5246 7.3); the one
-    // exception is an EMS session offered without EMS, which aborts (RFC 7627 5.3)
+    // ticket or session id, suite conflict, EMS now offered for a non-EMS session, or a non-EMS
+    // session under the Decline policy) falls through to a full handshake rather than failing
+    // (RFC 5077 3.4 / RFC 5246 7.3); the exceptions that abort are an EMS session offered without
+    // EMS (RFC 7627 5.3) and a non-EMS session under the Abort policy
     FResuming := TryAcceptResumption(LHello, LContext);
     if not FResuming then
     begin
@@ -538,12 +548,17 @@ begin
     Exit(EmitAbbreviatedFlight(AMessage.Raw));
 
   // a full handshake issues a fresh session id (when a store is configured) and, when
-  // the client supports tickets, a NewSessionTicket sealed under the STEK
-  if FParams.SessionStore <> nil then
+  // the client supports tickets, a NewSessionTicket sealed under the STEK. A session set up without
+  // extended_master_secret is issued only when this server resumes such sessions: otherwise the id
+  // would be empty, which is not resumable (RFC 5246 7.4.1.3), and no NewSessionTicket follows, so
+  // the ticket extension is not echoed (RFC 5077 3.2)
+  LIssueSession := FUseExtendedMasterSecret or
+    (FParams.NonEmsResumption = TNonEmsResumption.Resume);
+  if (FParams.SessionStore <> nil) and LIssueSession then
     FSessionId := FParams.Crypto.Primitives.GetRandom.GenerateBytes(SessionIdLength)
   else
     FSessionId := nil;
-  FIssueNewTicket := (FTicketStrategy <> nil) and FClientOfferedSessionTicket;
+  FIssueNewTicket := (FTicketStrategy <> nil) and FClientOfferedSessionTicket and LIssueSession;
 
   StampServerRandom;
 
@@ -889,6 +904,18 @@ begin
   if (FParams.ClientAuth = TClientAuthMode.Required) and
     (System.Length(LSession.PeerCertificates) = 0) then
     Exit;
+  // neither the session nor this hello used EMS (the checks above settled that): RFC 7627 5.3 says a
+  // server SHOULD abort, or continue only for legacy insecure resumption (5.4). Placed after the
+  // gates so an abort replaces only a resumption that would otherwise happen, and before the ticket
+  // is consumed so an abort does not use up a single-use ticket
+  if not L12.ExtendedMasterSecret then
+    case FParams.NonEmsResumption of
+      TNonEmsResumption.Decline:
+        Exit;
+      TNonEmsResumption.Abort:
+        raise EFatalAlertTlsLibException.CreateRes(
+          TTlsAlertDescription.HandshakeFailure, @SNonEmsResumptionRefused);
+    end;
 
   // commit the ticket only now that every check passed; a single-use strategy declines one that
   // another connection already used up

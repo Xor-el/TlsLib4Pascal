@@ -1002,6 +1002,9 @@ begin
     Result.AlpnReject := AConfig.RejectAlpn;
     Result.ClientCertificateAuthorities := AConfig.UseClientCaList;
     Result.SuppressServerNameAck := AConfig.SuppressServerNameAck;
+    // the reference runner expects a server to resume a session neither side set up with
+    // extended_master_secret (RFC 7627 5.3's legacy path); the library default declines it
+    Result.NonEmsResumption := TNonEmsResumption.Resume;
     // resumption: the shared STEK issues and re-opens tickets; a positive early-data
     // budget lets the server accept the client's 0-RTT. -on-resume-no-ticket drops both on the
     // resumption connection so the server cannot accept the offered session and does a full

@@ -518,6 +518,7 @@ begin
   L12.ServerRandom := LServerRandom;
   L12.CredentialResolver := AConfig.CredentialResolver;
   L12.RequireExtendedMasterSecret := AConfig.RequireExtendedMasterSecret;
+  L12.NonEmsResumption := AConfig.NonEmsResumption;
   L12.ServerNameAck := AConfig.ServerNameAcknowledgement;
   L12.AlpnRejectAll := AConfig.AlpnRejectAll;
   L12.ClientCertificateAuthorities := AConfig.ClientCertificateAuthorities;
