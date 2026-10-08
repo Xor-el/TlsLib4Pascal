@@ -1,0 +1,70 @@
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_d27f31cd14035d::t_27e2c2673c75f3 492-516,519-556
+  s_d27f31cd14035d::t_a76ca2fa12792e 517-518
+  s_d27f31cd14035d::t_af1a563c9e09b7 117-118
+  s_d27f31cd14035d::t_ea3e3c9bb81c92 255-265
+  s_d27f31cd14035d::t_53aa9c64049bc9 709-711
+TlsLib/src/Ech/TlpEchServer.pas
+  s_d27f31cd14035d::t_672ded8606bda1 41-42
+  s_d27f31cd14035d::t_aee038e2403826 127-130
+  s_d27f31cd14035d::t_66a530bd59e7f3 171,176-178,180-183
+  s_d27f31cd14035d::t_c398b8f93564ce 170
+  s_d27f31cd14035d::t_675d0918ce9a51 179
+  s_d27f31cd14035d::t_7b3e7f9f57e038 162
+docs/security-model.md
+  s_d27f31cd14035d::t_ac750aad91be4b 51
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_d27f31cd14035d::t_842d66b67935eb 1396-1397,1405-1406,1409-1419,1421-1422
+  s_d27f31cd14035d::t_b995816258aebe 1098-1101
+  s_d27f31cd14035d::t_47d31e0c414372 1290-1291
+  s_d27f31cd14035d::t_224d8a9d5485ee 1420
+  s_d27f31cd14035d::t_2fc3f0c3e695f4 1288-1289
+  s_d27f31cd14035d::t_6e2f3603367642 1261
+  s_d27f31cd14035d::t_e7b7d130f56313 1078-1079
+  s_d27f31cd14035d::t_20017ffc8f901b 296-303
+  s_d27f31cd14035d::t_91f4509af20afc 1094-1095
+  s_d27f31cd14035d::t_d5f0c430b5980a 492-493
+TlsLib/src/Interfaces/Ech/TlpIEch.pas
+  s_d27f31cd14035d::t_b44d346694f7b7 64-65
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_d27f31cd14035d::t_8724fd37cc6dd4 2239
+  s_d27f31cd14035d::t_787b718553a6bf 2250
+  s_d27f31cd14035d::t_e8c806649cf46c 2707-2709
+  s_d27f31cd14035d::t_509bf6e1bbdf3b 159
+docs/ech.md
+  s_d27f31cd14035d::t_24acca7e8ecc8d 85-86
+  s_d27f31cd14035d::t_23c308a36c81f7 105-110
+TlsLib.Tests/src/ExtensionNegotiationTests.pas
+  s_d27f31cd14035d::t_ed9bb55e96bf1b 98,100
+  s_d27f31cd14035d::t_43329a6424e06f 503,509,515,521-534,537-539
+  s_d27f31cd14035d::t_25c097992129e4 1512-1524
+  s_d27f31cd14035d::t_cfa1a26c92f8c8 158
+  s_d27f31cd14035d::t_2ba312349e5f3f 535-536
+TlsLib/src/Crypto/TlpHpkeComposition.pas
+  s_d27f31cd14035d::t_1f1a28119b943f 668-673
+  s_d27f31cd14035d::t_b99d636f2d0aaa 597
+.github/workflows/ci/interop/bogo-shim-config.json
+  s_d27f31cd14035d::t_e6e1bb1d864c2f 42
+TlsLib.Tests/src/HelloRetryRequestTests.pas
+  s_d27f31cd14035d::t_81098f7a64be2f 32
+  s_d27f31cd14035d::t_d6ef0d70c73dc0 285,293,299-316
+  s_d27f31cd14035d::t_3e09c843812282 804-823
+  s_d27f31cd14035d::t_209222e75ef2a7 80-81,83
+  s_d27f31cd14035d::t_20ce4c1d0ae690 109
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8fa05183e0e751dbae24f52170ddc670cd20cc73",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
