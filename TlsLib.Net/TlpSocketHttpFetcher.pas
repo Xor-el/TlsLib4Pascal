@@ -27,6 +27,7 @@ uses
   Classes,
   SyncObjs,
 {$IFDEF FPC}
+  ssockets,
   fphttpclient,
 {$ELSE}
   System.Net.HttpClient,
@@ -42,9 +43,11 @@ type
   /// <summary>A blocking IHttpFetcher backed by the RTL HTTP client (FPC fphttpclient /
   /// Delphi System.Net.HttpClient). Suitable for live OCSP (POST) and CRL (GET) retrieval.
   /// The timeout bounds the whole exchange once the host name is resolved, so a responder that
-  /// trickles bytes cannot hold the caller past it; name resolution itself is not bounded. The
-  /// injected clock may be read from another thread. Never raises; a failed exchange yields False
-  /// with an empty response.</summary>
+  /// trickles bytes cannot hold the caller past it; name resolution itself is not bounded. On a
+  /// target where the Free Pascal client cannot set a socket read timeout (PowerPC Linux) a
+  /// responder that goes completely silent mid-read is not bounded per read. The injected clock may
+  /// be read from another thread. Never raises; a failed exchange yields False with an empty
+  /// response.</summary>
   TSocketHttpFetcher = class sealed(TInterfacedObject, IHttpFetcher)
   strict private
     FClock: ITlsMonotonicClock;
@@ -240,7 +243,11 @@ type
   TDeadlineHttpClient = class(TFPHTTPClient)
   strict private
     FDeadline: TFetchDeadline;
+    FTimeoutsUsable: Boolean;
+    procedure HoldReadsToBudget;
   protected
+    procedure ConnectToServer(const AHost: string; APort: Integer;
+      UseSSL: Boolean = False); override;
     procedure DoDataRead; override;
   public
     constructor Create(const ADeadline: TFetchDeadline); reintroduce;
@@ -250,6 +257,29 @@ constructor TDeadlineHttpClient.Create(const ADeadline: TFetchDeadline);
 begin
   inherited Create(nil);
   FDeadline := ADeadline;
+  FTimeoutsUsable := True;
+end;
+
+procedure TDeadlineHttpClient.HoldReadsToBudget;
+begin
+  if (not FDeadline.Bounded) or (not FTimeoutsUsable) then
+    Exit;
+  try
+    IOTimeout := FDeadline.RemainingMs;
+  except
+    // the client's socket-timeout constants are wrong on some targets (PowerPC Linux numbers
+    // these options differently), so the set is refused there: carry on without per-read waits
+    // and rely on the budget check at every read
+    on ESocketError do
+      FTimeoutsUsable := False;
+  end;
+end;
+
+procedure TDeadlineHttpClient.ConnectToServer(const AHost: string; APort: Integer;
+  UseSSL: Boolean);
+begin
+  inherited ConnectToServer(AHost, APort, UseSSL);
+  HoldReadsToBudget;
 end;
 
 procedure TDeadlineHttpClient.DoDataRead;
@@ -257,8 +287,7 @@ begin
   inherited DoDataRead;
   // a trickle in any phase is cut off, and the next read waits no longer than what is left
   FDeadline.Check;
-  if FDeadline.Bounded then
-    IOTimeout := FDeadline.RemainingMs;
+  HoldReadsToBudget;
 end;
 
 class function TSocketHttpExchange.Execute(const AMethod, AUrl, AContentType: string;
@@ -268,11 +297,9 @@ var
 begin
   LClient := TDeadlineHttpClient.Create(ADeadline);
   try
+    // the read wait is applied by the client itself once connected
     if ADeadline.Bounded then
-    begin
       LClient.ConnectTimeout := ADeadline.RemainingMs;
-      LClient.IOTimeout := ADeadline.RemainingMs;
-    end;
     // the responder URL is peer-chosen; do not chase redirects it hands us
     LClient.AllowRedirect := False;
     if ABody <> nil then
