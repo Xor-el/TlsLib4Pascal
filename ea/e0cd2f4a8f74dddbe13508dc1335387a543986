@@ -1,0 +1,68 @@
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpr
+  s_d27f31cd14035d::t_3b362720347396 70
+TlsLib/src/Packages/Delphi/TlsLib4PascalPackage.dpk
+  s_d27f31cd14035d::t_f346144333e8b8 191-192
+TlsLib.Tests/src/LiveRevocationTests.pas
+  s_d27f31cd14035d::t_a40cd5c000c430 730-743
+  s_d27f31cd14035d::t_96381fe37d8cf1 966
+  s_d27f31cd14035d::t_8dd81243527dac 120
+  s_d27f31cd14035d::t_b15a5801373248 721-722
+  s_d27f31cd14035d::t_3901a9f91505cb 693
+  s_d27f31cd14035d::t_169d4d19379d65 675-676
+TlsLib/src/Common/TlpHttpUrl.pas
+  s_d27f31cd14035d::t_19898d30328103 78-282
+  s_d27f31cd14035d::t_735afe17965aab 1-77,283-286
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_d27f31cd14035d::t_d55b1958e31092 66
+  s_d27f31cd14035d::t_06998eb22857f4 248
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
+  s_d27f31cd14035d::t_af34bb623e2c56 652-655
+  s_d27f31cd14035d::t_376c25bb62763e 31
+TlsLib/src/Trust/TlpLiveRevocation.pas
+  s_d27f31cd14035d::t_483702a10016f7 26
+  s_d27f31cd14035d::t_ae87aece2e1600 119-121
+  s_d27f31cd14035d::t_f4b6a07326340a 237,244-247
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpi
+  s_d27f31cd14035d::t_f326ae0fb99dd2 382-385
+  s_d27f31cd14035d::t_4a88bae699c1c3 37
+TlsLib.Tests/src/HttpUrlTests.pas
+  s_d27f31cd14035d::t_21af9b7c45d73d 1-230
+TlsLib.Net/TlpSocketHttpFetcher.pas
+  s_d27f31cd14035d::t_84d56ef0a74e54 34
+  s_d27f31cd14035d::t_87e9f2ee14576d 219,227-229,231-243
+TlsLib/src/Pkix/Providers/TlpDefaultPkixProvider.pas
+  s_d27f31cd14035d::t_d813b5abb9f6f0 82
+  s_d27f31cd14035d::t_8a8f23094018ce 1183
+  s_d27f31cd14035d::t_4c3bd5b8aa26f7 1264-1265
+  s_d27f31cd14035d::t_4f54da4d8a975c 1207-1210
+  s_d27f31cd14035d::t_cc70295269e398 1232
+TlsLib.Tests/FreePascal.Tests/TlsLib.Tests.lpi
+  s_d27f31cd14035d::t_292085a05a67ab 388-391
+  s_d27f31cd14035d::t_a41f7cbc9fc313 43
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_d27f31cd14035d::t_fcaa29eed982db 389
+  s_d27f31cd14035d::t_89afe73c1b9de4 572
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_d27f31cd14035d::t_4152a7c10cc57f 46
+  s_d27f31cd14035d::t_919c06408bbd3b 228
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.pas
+  s_d27f31cd14035d::t_19584903ac734a 58
+TlsLib.Tests/FreePascal.Tests/TlsLib.lpr
+  s_d27f31cd14035d::t_247b5b6dcb3175 72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "eae0cd2f4a8f74dddbe13508dc1335387a543986",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
