@@ -165,6 +165,7 @@ type
     procedure TestCipherSuiteListOutsideTheConfiguredSetIsRefused;
     procedure TestCipherSuiteListIsIndependentOfCallOrder;
     procedure TestEmptyCipherSuiteListIsRefused;
+    procedure TestInjectedVerifierRefusesSettingsItIgnores;
     procedure TestOfferedVersionWithoutASuiteIsRefused;
     procedure TestServerCipherSuiteListOrderDecidesTheNegotiatedSuite;
     procedure TestClientCipherSuiteListIsTheOnlyOfferedSuite;
@@ -1282,6 +1283,39 @@ begin
     TNegotiationPolicy.SuiteOrder(LBefore.CipherSuites, TSuiteProtocol.Tls12),
     TNegotiationPolicy.SuiteOrder(LAfter.CipherSuites, TSuiteProtocol.Tls12)),
     'the list applies at Build, whichever order the setters ran in');
+end;
+
+procedure TTestConfigBuilder.TestInjectedVerifierRefusesSettingsItIgnores;
+  function ClientRefused(const ABuilder: ITlsClientConfigBuilder): Boolean;
+  begin
+    Result := False;
+    try
+      ABuilder.Build;
+    except
+      on E: EInvalidOperationTlsLibException do
+        Result := Pos('injected certificate verifier', E.Message) > 0;
+    end;
+  end;
+
+  function NewVerifierClient: ITlsClientConfigBuilder;
+  begin
+    Result := TTlsPresets.Compatible(Crypto, Pkix).Client.WithDangerousCertificateVerifier(
+      TAcceptAllServerVerifier.Create as IServerCertificateVerifier);
+  end;
+
+begin
+  // a whole-verifier replaces the built-in verification, so the settings only that verification
+  // reads are refused instead of being accepted and ignored
+  CheckTrue(ClientRefused(NewVerifierClient.WithIntermediateCertificates(EcP256RootCertificate)),
+    'intermediates beside a verifier instance');
+  CheckTrue(ClientRefused(NewVerifierClient.WithDangerousInsecureSkipVerify),
+    'skip-verify beside a verifier instance');
+  CheckTrue(ClientRefused(NewVerifierClient.WithRevocation(TRevocationPosture.Hard)),
+    'Hard revocation beside a verifier instance without a live verdict');
+  // controls: the verifier alone builds, and Hard builds when a live verdict applies it
+  CheckTrue(NewVerifierClient.Build <> nil, 'control: the verifier alone builds');
+  CheckTrue(NewVerifierClient.WithRevocation(TRevocationPosture.Hard)
+    .WithLiveRevocationVerdict(1000).Build <> nil, 'control: Hard with a live verdict builds');
 end;
 
 procedure TTestConfigBuilder.TestEmptyCipherSuiteListIsRefused;
