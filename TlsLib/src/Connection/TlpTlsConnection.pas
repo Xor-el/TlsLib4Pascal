@@ -311,6 +311,8 @@ implementation
 resourcestring
   SNilTransportClock =
     'a clock is required (pass a clock, not nil)';
+  SNilConnectionArgument =
+    'a connection needs a config and a transport (pass both, not nil)';
   SNoServerCredential =
     'no server certificate/private key was supplied';
   SNoClientAuthSource =
@@ -972,8 +974,10 @@ constructor TTlsConnection.CreateClient(const AConfig: ITlsClientConfig;
   const AServerName: string; const ATransport: TTlsTimedTransportBase;
   const AResolver: TCertificateVerdictResolver; AVerdictDeadlineMs: Cardinal);
 begin
-  // own the transport first, so a refused engine build releases it with this instance
+  // own the transport first, so a refused argument or engine build releases it with this instance
   FTransport := ATransport as ITlsTransport;
+  if (AConfig = nil) or (ATransport = nil) then
+    raise EArgumentTlsLibException.CreateRes(@SNilConnectionArgument);
   ATransport.UseClock(AConfig.MonotonicClock);
   Create(TTlsEngineFactory.CreateClientEngine(AConfig, AServerName), ATransport, True,
     AServerName, AResolver, AVerdictDeadlineMs);
@@ -984,6 +988,8 @@ constructor TTlsConnection.CreateServer(const AConfig: ITlsServerConfig;
   AVerdictDeadlineMs: Cardinal);
 begin
   FTransport := ATransport as ITlsTransport;
+  if (AConfig = nil) or (ATransport = nil) then
+    raise EArgumentTlsLibException.CreateRes(@SNilConnectionArgument);
   ATransport.UseClock(AConfig.MonotonicClock);
   Create(TTlsEngineFactory.CreateServerEngine(AConfig), ATransport, False, '', AResolver,
     AVerdictDeadlineMs);

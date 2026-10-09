@@ -75,7 +75,9 @@ type
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): ITlsClientConfigBuilder;
     /// <summary>Narrows the configured cipher suites to ASuites, in that order, per protocol: a
     /// protocol ASuites names keeps exactly the listed suites; one it does not name is unchanged.
-    /// Never widens - a code outside the configured set is refused at Build.</summary>
+    /// Never widens - a code outside the configured set is refused at Build. A list naming only
+    /// suites of a protocol version that is not offered changes nothing (a TLS 1.2 list beside a
+    /// TLS 1.3-only config is a no-op).</summary>
     function WithCipherSuiteList(const ASuites: TArray<UInt16>): ITlsClientConfigBuilder;
     function WithSignatureSchemes(const ARegistry: ISignatureSchemeRegistry): ITlsClientConfigBuilder;
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): ITlsClientConfigBuilder;
@@ -305,7 +307,9 @@ type
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): ITlsServerConfigBuilder;
     /// <summary>Narrows the configured cipher suites to ASuites, in that order, per protocol: a
     /// protocol ASuites names keeps exactly the listed suites; one it does not name is unchanged.
-    /// Never widens - a code outside the configured set is refused at Build.</summary>
+    /// Never widens - a code outside the configured set is refused at Build. A list naming only
+    /// suites of a protocol version that is not offered changes nothing (a TLS 1.2 list beside a
+    /// TLS 1.3-only config is a no-op).</summary>
     function WithCipherSuiteList(const ASuites: TArray<UInt16>): ITlsServerConfigBuilder;
     function WithSignatureSchemes(const ARegistry: ISignatureSchemeRegistry): ITlsServerConfigBuilder;
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): ITlsServerConfigBuilder;

@@ -117,6 +117,7 @@ type
     // signatures
     procedure TestSignatureEqualOptionsEqualKeys;
     procedure TestSignatureEachConcernChangesKey;
+    procedure TestConnectionRefusesANilConfigOrTransport;
     procedure TestSignatureKeysSystemTrustByIdentity;
     procedure TestSignatureExcludesResolverAndTimeout;
     procedure TestSignaturePasswordNotInClear;
@@ -1105,6 +1106,43 @@ begin
     as ISystemTrustInstaller;
   CheckFalse(TTlsConfigComposer.ClientSignature(LMut) = LBaseSig,
     'system trust changes the client key');
+end;
+
+procedure TTestTlsConnection.TestConnectionRefusesANilConfigOrTransport;
+var
+  LRaised: Boolean;
+  LConnection: TTlsConnection;
+begin
+  // a missing argument is a typed error, not an access violation
+  LRaised := False;
+  try
+    LConnection := TTlsConnection.CreateClient(nil, 'example.com', nil, nil, 0);
+    LConnection.Free;
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a client with no config and no transport is refused');
+  LRaised := False;
+  try
+    LConnection := TTlsConnection.CreateServer(nil, nil, nil, 0);
+    LConnection.Free;
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a server with no config and no transport is refused');
+  // a transport handed over with a missing config is released with the refused connection
+  LRaised := False;
+  try
+    LConnection := TTlsConnection.CreateClient(nil, 'example.com',
+      TTestMemoryTransport.Create(nil, True), nil, 0);
+    LConnection.Free;
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a client with a transport but no config is refused');
 end;
 
 procedure TTestTlsConnection.TestSignatureKeysSystemTrustByIdentity;

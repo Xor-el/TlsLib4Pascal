@@ -188,14 +188,15 @@ type
     /// would otherwise fail every verification against the store, far from its cause.</summary>
     procedure ValidateAnchorRoots;
     procedure ValidateRequiredCollaborators;
-    /// <summary>Narrows the configured cipher suites to the list WithCipherSuiteList set: per
-    /// protocol the list names, exactly the listed suites in list order; a protocol it does not
-    /// name keeps its configured suites. Never widens: a code outside the configured set is
-    /// refused.</summary>
-    procedure ApplyCipherSuiteList;
-    /// <summary>Refuses an offered protocol version for which the cipher-suite set holds no suite,
-    /// which would otherwise build and fail every handshake.</summary>
-    procedure ValidateOfferedVersionsHaveSuites;
+    /// <summary>The cipher suites a built config carries: the configured set narrowed to the list
+    /// WithCipherSuiteList set - per protocol the list names, exactly the listed suites in list
+    /// order; a protocol it does not name keeps its configured suites. Never widens: a code outside
+    /// the configured set is refused. Leaves the builder unchanged, so a Build that fails later can
+    /// be corrected and retried.</summary>
+    function EffectiveCipherSuites: ICipherSuiteRegistry;
+    /// <summary>Refuses an offered protocol version for which ASuites holds no suite, which would
+    /// otherwise build and fail every handshake.</summary>
+    procedure ValidateOfferedVersionsHaveSuites(const ASuites: ICipherSuiteRegistry);
     /// <summary>Composes the server credential resolver at build: a custom resolver (exclusive
     /// of the built-in map/credential), else the SNI map plus the single credential as the
     /// default fallback, else nil for a PSK-only server.</summary>
@@ -2793,7 +2794,7 @@ begin
   Result := TTlsServerConfigBuilder.Create(Self);
 end;
 
-procedure TTlsConfigBuilder.ApplyCipherSuiteList;
+function TTlsConfigBuilder.EffectiveCipherSuites: ICipherSuiteRegistry;
 var
   LNarrowed: ICipherSuiteRegistry;
   LProtocol: TSuiteProtocol;
@@ -2802,7 +2803,7 @@ var
   LI: Int32;
 begin
   if System.Length(FCipherSuiteList) = 0 then
-    Exit;
+    Exit(FCipherSuites);
   for LI := 0 to System.High(FCipherSuiteList) do
     if not FCipherSuites.TryGet(FCipherSuiteList[LI], LSuite) then
       raise EArgumentTlsLibException.CreateResFmt(@SCipherSuiteNotConfigured,
@@ -2823,17 +2824,16 @@ begin
         if LSuite.Protocol = LProtocol then
           LNarrowed.Add(LSuite);
   end;
-  FCipherSuites := LNarrowed;
-  FCipherSuiteList := nil;
+  Result := LNarrowed;
 end;
 
-procedure TTlsConfigBuilder.ValidateOfferedVersionsHaveSuites;
+procedure TTlsConfigBuilder.ValidateOfferedVersionsHaveSuites(const ASuites: ICipherSuiteRegistry);
 var
   LI: Int32;
   LName: string;
 begin
   for LI := 0 to System.High(FSupportedVersions) do
-    if System.Length(TNegotiationPolicy.SuiteOrder(FCipherSuites,
+    if System.Length(TNegotiationPolicy.SuiteOrder(ASuites,
       TNegotiationPolicy.ProtocolOf(FSupportedVersions[LI]))) = 0 then
     begin
       if FSupportedVersions[LI] = TlsWireVersionTls13 then
@@ -2852,8 +2852,7 @@ var
 begin
   if (FCipherSuites = nil) or (FSignatureSchemes = nil) or (FNamedGroups = nil) then
     raise EArgumentTlsLibException.CreateRes(@SNilNegotiationRegistry);
-  ApplyCipherSuiteList;
-  ValidateOfferedVersionsHaveSuites;
+  ValidateOfferedVersionsHaveSuites(EffectiveCipherSuites);
   if System.Length(FPreferredGroups) = 0 then
     raise EArgumentTlsLibException.CreateRes(@SNoPreferredGroups);
   // a preferred group the registry lacks is skipped (the registry is authoritative, so a pruned
@@ -2950,7 +2949,7 @@ begin
   Result := LConfig;
   LConfig.FCrypto := FCrypto;
   LConfig.FPkix := FPkix;
-  LConfig.FCipherSuites := FCipherSuites;
+  LConfig.FCipherSuites := EffectiveCipherSuites;
   LConfig.FSignatureSchemes := FSignatureSchemes;
   LConfig.FNamedGroups := FNamedGroups;
   LConfig.FSupportedVersions := FSupportedVersions;
@@ -3083,7 +3082,7 @@ begin
   Result := LConfig;
   LConfig.FCrypto := FCrypto;
   LConfig.FPkix := FPkix;
-  LConfig.FCipherSuites := FCipherSuites;
+  LConfig.FCipherSuites := EffectiveCipherSuites;
   LConfig.FSignatureSchemes := FSignatureSchemes;
   LConfig.FNamedGroups := FNamedGroups;
   LConfig.FSupportedVersions := FSupportedVersions;
