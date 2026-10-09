@@ -72,6 +72,8 @@ type
     function SpkiSha256(const ACertDer: TBytes): TBytes;
     function New13Client(AWithCredential: Boolean): ITlsEngine;
     function New13Server(AMode: TClientAuthMode): ITlsEngine;
+    function New13ServerWithSchemes(AMode: TClientAuthMode;
+      const ASchemes: TArray<UInt16>): ITlsEngine;
     // a 1.3 mTLS server whose client-certificate verifier is wrapped in the client-side SPKI
     // pinning decorator, as the engine factory composes it when server pins are configured
     function New13ServerPinned(AMode: TClientAuthMode;
@@ -98,6 +100,8 @@ type
     procedure TestTls13RequiredClientAuthCompletes;
     procedure TestTls13RequiredClientAuthMissingCertAborts;
     procedure TestTls13RequestedClientAuthWithoutCertCompletes;
+    procedure TestTls13RequestedClientAuthWithNoMatchingSchemeDeclines;
+    procedure TestTls13RequiredClientAuthWithNoMatchingSchemeAborts;
     procedure TestTls12RequiredClientAuthCompletes;
     procedure TestTls12RequiredClientAuthMissingCertAborts;
     procedure TestTls12RequestedClientAuthWithoutCertCompletes;
@@ -233,6 +237,13 @@ begin
 end;
 
 function TTestClientAuth.New13Server(AMode: TClientAuthMode): ITlsEngine;
+begin
+  Result := New13ServerWithSchemes(AMode,
+    TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256));
+end;
+
+function TTestClientAuth.New13ServerWithSchemes(AMode: TClientAuthMode;
+  const ASchemes: TArray<UInt16>): ITlsEngine;
 var
   LParams: TServerHandshakeParams;
 begin
@@ -247,7 +258,7 @@ begin
   LParams.ServerRandom := Filled($22, 32);
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(Credential);
   LParams.ClientAuth := AMode;
-  LParams.ClientAuthSignatureSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+  LParams.ClientAuthSignatureSchemes := ASchemes;
   LParams.ClientCertificateVerifier := PeerVerifier;
   Result := TTlsEngine.CreateConfigured(
     TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
@@ -535,6 +546,33 @@ begin
   CheckFalse(LClient.IsHandshaking or LServer.IsHandshaking,
     '1.3 requested mTLS completes without a client cert');
   CheckFalse(LClient.IsTerminal or LServer.IsTerminal, '1.3 requested mTLS: no failure');
+end;
+
+procedure TTestClientAuth.TestTls13RequestedClientAuthWithNoMatchingSchemeDeclines;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // the credential's only scheme (ECDSA P-256) is not in the server's signature_algorithms, so the
+  // client sends an empty Certificate (RFC 8446 4.4.2) and a Requested server carries on
+  LClient := New13Client(True);
+  LServer := New13ServerWithSchemes(TClientAuthMode.Requested,
+    TArray<UInt16>.Create(TSignatureSchemes.Ed25519));
+  Drive(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking or LServer.IsHandshaking,
+    'no usable scheme: a Requested handshake completes without a client certificate');
+  CheckFalse(LClient.IsTerminal or LServer.IsTerminal, 'no usable scheme: no failure');
+end;
+
+procedure TTestClientAuth.TestTls13RequiredClientAuthWithNoMatchingSchemeAborts;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // the same decline under Required is refused by the server's own policy
+  LClient := New13Client(True);
+  LServer := New13ServerWithSchemes(TClientAuthMode.Required,
+    TArray<UInt16>.Create(TSignatureSchemes.Ed25519));
+  Drive(LClient, LServer);
+  CheckTrue(LServer.IsTerminal, 'no usable scheme: a Required server fails closed');
 end;
 
 procedure TTestClientAuth.TestTls12RequiredClientAuthCompletes;
