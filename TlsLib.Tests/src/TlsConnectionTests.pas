@@ -51,6 +51,8 @@ uses
   MockClock,
   TlpTlsLibExceptions,
   TlpTlsConnection,
+  TlpNegotiationTypes,
+  TlpNegotiationPolicy,
   TlsLibTestBase;
 
 type
@@ -141,12 +143,31 @@ type
     procedure TestSupportedVersionsOrderIsPartOfTheMemoKey;
     procedure TestSupportedVersionsRefusesUnknownAndDuplicateCodes;
     procedure TestSupportedVersionsConflictsWithASuppliedConfig;
+    procedure TestHostCipherListNarrowsAndOrdersTheBuiltConfig;
+    procedure TestHostCipherListNamingNoTls12SuiteDropsTls12;
+    procedure TestHostCipherListLeavesNoUsableSuiteIsRefused;
+    procedure TestHostCipherListNamingOnlyTls12SuitesLeavesPinnedTls13Alone;
+    procedure TestHostCipherListIsPartOfTheMemoKey;
+    procedure TestHostCipherListConflictsWithASuppliedConfig;
     procedure TestTransportReturnsDataWhenReadable;
     procedure TestTransportCapZeroDoesNotWait;
     procedure TestTransportNegativeReceiveRaisesStreamError;
     procedure TestTransportZeroReceiveIsEof;
     procedure TestTransportWriteCompletesOverPartialSends;
     procedure TestTransportSetReadTimeoutIsObservable;
+  end;
+
+  TTestHostCipherList = class(TTlsLibTestCase)
+  strict private
+    function Refused(const AText: string; out AMessage: string): Boolean;
+    function Codes(const AText: string): TArray<UInt16>;
+  published
+    procedure TestIanaAndOpenSslNamesMapToTheSameCodes;
+    procedure TestSeparatorsAndRunsOfThem;
+    procedure TestCaseIsIgnoredAndDuplicatesKeepTheFirstPosition;
+    procedure TestEmptyAndDefaultMeanTheHostDefault;
+    procedure TestExpressionsAndUnimplementedSuitesAreRefused;
+    procedure TestDefaultBesideNamesIsRefused;
   end;
 
 implementation
@@ -1568,17 +1589,18 @@ procedure TTestTlsConnection.TestSupportedVersionsOptionNarrowsTheOffer;
 var
   LOpts: TTlsOptions;
   LVersions: TArray<UInt16>;
-  LServerSignature: string;
+  LServerSignature, LDefaultSignature: string;
 begin
   LOpts := ClientOptsWithStore;
+  LDefaultSignature := TTlsConfigComposer.ClientSignature(LOpts);
   LVersions := TTlsConfigComposer.BuildClientConfig(LOpts).SupportedVersions;
   CheckEquals(2, System.Length(LVersions), 'the default client offers TLS 1.3 and 1.2');
   LOpts.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls12);
   LVersions := TTlsConfigComposer.BuildClientConfig(LOpts).SupportedVersions;
   CheckEquals(1, System.Length(LVersions), 'a one-entry list narrows the client offer');
   CheckEquals(Integer(TlsWireVersionTls12), Integer(LVersions[0]), 'to TLS 1.2');
-  CheckTrue(TTlsConfigComposer.ClientSignature(ClientOptsWithStore) <>
-    TTlsConfigComposer.ClientSignature(LOpts), 'the client memo key tells the two builds apart');
+  CheckTrue(LDefaultSignature <> TTlsConfigComposer.ClientSignature(LOpts),
+    'the client memo key tells the two builds apart');
   LOpts.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls13);
   LVersions := TTlsConfigComposer.BuildClientConfig(LOpts).SupportedVersions;
   CheckEquals(1, System.Length(LVersions), 'TLS 1.3 alone is expressible too');
@@ -1595,21 +1617,24 @@ end;
 
 procedure TTestTlsConnection.TestSupportedVersionsOrderIsPartOfTheMemoKey;
 var
-  LForward, LReverse: TTlsOptions;
+  LBase, LForward, LReverse: TTlsOptions;
 begin
-  // order is the preference, so two orderings are two configs and must not share a memoised one
-  LForward := ClientOptsWithStore;
+  // order is the preference, so two orderings are two configs and must not share a memoised one;
+  // both sets copy one base, since each ClientOptsWithStore call builds a store with its own identity
+  LBase := ClientOptsWithStore;
+  LForward := LBase;
   LForward.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12);
-  LReverse := ClientOptsWithStore;
+  LReverse := LBase;
   LReverse.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls12, TlsWireVersionTls13);
   CheckTrue(TTlsConfigComposer.ClientSignature(LForward) <>
     TTlsConfigComposer.ClientSignature(LReverse), 'client key');
   CheckEquals(Integer(TlsWireVersionTls12),
     Integer(TTlsConfigComposer.BuildClientConfig(LReverse).SupportedVersions[0]),
     'the built config keeps the preference order');
-  LForward := ServerOptsWithCredential;
+  LBase := ServerOptsWithCredential;
+  LForward := LBase;
   LForward.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12);
-  LReverse := ServerOptsWithCredential;
+  LReverse := LBase;
   LReverse.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls12, TlsWireVersionTls13);
   CheckTrue(TTlsConfigComposer.ServerSignature(LForward) <>
     TTlsConfigComposer.ServerSignature(LReverse), 'server key');
@@ -1678,6 +1703,136 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'SupportedVersions alongside a supplied client config is refused');
+end;
+
+procedure TTestTlsConnection.TestHostCipherListNarrowsAndOrdersTheBuiltConfig;
+var
+  LOpts: TTlsOptions;
+  LConfig: ITlsClientConfig;
+  LServerConfig: ITlsServerConfig;
+  L12: TArray<UInt16>;
+begin
+  LOpts := ClientOptsWithStore;
+  LOpts.CipherSuites := TArray<UInt16>.Create(TCipherSuites12.EcdheRsaAes256GcmSha384,
+    TCipherSuites12.EcdheRsaAes128GcmSha256);
+  LConfig := TTlsConfigComposer.BuildClientConfig(LOpts);
+  L12 := TNegotiationPolicy.SuiteOrder(LConfig.CipherSuites, TSuiteProtocol.Tls12);
+  CheckEquals(2, System.Length(L12), 'the 1.2 suites are narrowed to the list');
+  CheckEquals(TCipherSuites12.EcdheRsaAes256GcmSha384, L12[0], 'in the host order');
+  CheckEquals(TCipherSuites12.EcdheRsaAes128GcmSha256, L12[1], 'in the host order');
+  CheckTrue(System.Length(TNegotiationPolicy.SuiteOrder(LConfig.CipherSuites,
+    TSuiteProtocol.Tls13)) > 0, 'the TLS 1.3 suites are untouched by a list that names none');
+  CheckEquals(2, System.Length(LConfig.SupportedVersions), 'both versions stay on');
+  LOpts := ServerOptsWithCredential;
+  LOpts.CipherSuites := TArray<UInt16>.Create(TCipherSuites12.EcdheRsaAes128GcmSha256);
+  LServerConfig := TTlsConfigComposer.BuildServerConfig(LOpts);
+  L12 := TNegotiationPolicy.SuiteOrder(LServerConfig.CipherSuites, TSuiteProtocol.Tls12);
+  CheckEquals(1, System.Length(L12), 'the server is narrowed too');
+  CheckEquals(TCipherSuites12.EcdheRsaAes128GcmSha256, L12[0], 'to the listed suite');
+end;
+
+procedure TTestTlsConnection.TestHostCipherListNamingNoTls12SuiteDropsTls12;
+var
+  LOpts: TTlsOptions;
+  LConfig: ITlsClientConfig;
+begin
+  LOpts := ClientOptsWithStore;
+  LOpts.CipherSuites := TArray<UInt16>.Create(TCipherSuites13.Aes256GcmSha384);
+  LConfig := TTlsConfigComposer.BuildClientConfig(LOpts);
+  CheckEquals(1, System.Length(LConfig.SupportedVersions), 'a TLS 1.3-only list turns 1.2 off');
+  CheckEquals(Integer(TlsWireVersionTls13), Integer(LConfig.SupportedVersions[0]), 'TLS 1.3');
+  CheckEquals(1, System.Length(TNegotiationPolicy.SuiteOrder(LConfig.CipherSuites,
+    TSuiteProtocol.Tls13)), 'and narrows 1.3 to the listed suite');
+end;
+
+procedure TTestTlsConnection.TestHostCipherListLeavesNoUsableSuiteIsRefused;
+var
+  LOpts: TTlsOptions;
+  LMessage: string;
+begin
+  // the host pinned TLS 1.2 and the list names only TLS 1.3 suites: nothing is left to offer
+  LOpts := ClientOptsWithStore;
+  LOpts.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls12);
+  LOpts.CipherSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
+  LOpts.CipherSuitesHint := 'CipherList';
+  CheckTrue(RaisesStreamError(LOpts, True, LMessage), 'the contradiction is refused');
+  CheckTrue(Pos('CipherList', LMessage) > 0, 'naming the host property: ' + LMessage);
+end;
+
+procedure TTestTlsConnection.TestHostCipherListNamingOnlyTls12SuitesLeavesPinnedTls13Alone;
+var
+  LOpts: TTlsOptions;
+  LConfig: ITlsClientConfig;
+begin
+  // a host list never governed TLS 1.3, so a 1.2-only list beside a 1.3-only pin is inert
+  LOpts := ClientOptsWithStore;
+  LOpts.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls13);
+  LOpts.CipherSuites := TArray<UInt16>.Create(TCipherSuites12.EcdheRsaAes128GcmSha256);
+  LConfig := TTlsConfigComposer.BuildClientConfig(LOpts);
+  CheckEquals(1, System.Length(LConfig.SupportedVersions), 'still TLS 1.3 only');
+  CheckEquals(Integer(TlsWireVersionTls13), Integer(LConfig.SupportedVersions[0]), 'TLS 1.3');
+  CheckTrue(System.Length(TNegotiationPolicy.SuiteOrder(LConfig.CipherSuites,
+    TSuiteProtocol.Tls13)) > 0, 'with its TLS 1.3 suites intact');
+end;
+
+procedure TTestTlsConnection.TestHostCipherListIsPartOfTheMemoKey;
+var
+  LBase, LNone, LOne, LOther, LReversed: TTlsOptions;
+begin
+  // two hosts that differ only in their list must never share a memoised config; every set is
+  // copied from one base, because each ClientOptsWithStore call builds a fresh store whose
+  // identity is itself part of the signature
+  LBase := ClientOptsWithStore;
+  LNone := LBase;
+  LOne := LBase;
+  LOne.CipherSuites := TArray<UInt16>.Create(TCipherSuites12.EcdheRsaAes256GcmSha384,
+    TCipherSuites12.EcdheRsaAes128GcmSha256);
+  LOther := LBase;
+  LOther.CipherSuites := TArray<UInt16>.Create(TCipherSuites12.EcdheRsaAes256GcmSha384);
+  LReversed := LBase;
+  LReversed.CipherSuites := TArray<UInt16>.Create(TCipherSuites12.EcdheRsaAes128GcmSha256,
+    TCipherSuites12.EcdheRsaAes256GcmSha384);
+  CheckTrue(TTlsConfigComposer.ClientSignature(LNone) <> TTlsConfigComposer.ClientSignature(LOne),
+    'a list differs from none');
+  CheckTrue(TTlsConfigComposer.ClientSignature(LOne) <> TTlsConfigComposer.ClientSignature(LOther),
+    'a shorter list differs');
+  CheckTrue(TTlsConfigComposer.ClientSignature(LOne) <>
+    TTlsConfigComposer.ClientSignature(LReversed), 'order is the preference');
+  LBase := ServerOptsWithCredential;
+  LNone := LBase;
+  LOne := LBase;
+  LOne.CipherSuites := TArray<UInt16>.Create(TCipherSuites12.EcdheRsaAes256GcmSha384);
+  CheckTrue(TTlsConfigComposer.ServerSignature(LNone) <> TTlsConfigComposer.ServerSignature(LOne),
+    'the server key tells them apart');
+end;
+
+procedure TTestTlsConnection.TestHostCipherListConflictsWithASuppliedConfig;
+var
+  LOpts: TTlsOptions;
+  LRaised: Boolean;
+begin
+  LOpts := TTlsOptions.Default;
+  LOpts.ClientConfig := TTlsConfigComposer.BuildClientConfig(ClientOptsWithStore);
+  LOpts.CipherSuites := TArray<UInt16>.Create(TCipherSuites12.EcdheRsaAes128GcmSha256);
+  LRaised := False;
+  try
+    TTlsConfigComposer.ResolveClientConfig(LOpts, TTlsConfigMemos.NewClient, 'ClientConfig');
+  except
+    on E: ETlsStreamError do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a cipher list beside a supplied client config is refused');
+  LOpts := TTlsOptions.Default;
+  LOpts.ServerConfig := TTlsConfigComposer.BuildServerConfig(ServerOptsWithCredential);
+  LOpts.CipherSuites := TArray<UInt16>.Create(TCipherSuites12.EcdheRsaAes128GcmSha256);
+  LRaised := False;
+  try
+    TTlsConfigComposer.ResolveServerConfig(LOpts, TTlsConfigMemos.NewServer, 'ServerConfig');
+  except
+    on E: ETlsStreamError do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'and beside a supplied server config');
 end;
 
 procedure TTestTlsConnection.TestTransportReturnsDataWhenReadable;
@@ -1780,12 +1935,108 @@ begin
   end;
 end;
 
+{ TTestHostCipherList }
+
+function TTestHostCipherList.Refused(const AText: string; out AMessage: string): Boolean;
+begin
+  Result := False;
+  AMessage := '';
+  try
+    THostCipherList.Parse(AText, 'CipherList');
+  except
+    on E: ETlsStreamError do
+    begin
+      Result := True;
+      AMessage := E.Message;
+    end;
+  end;
+end;
+
+function TTestHostCipherList.Codes(const AText: string): TArray<UInt16>;
+begin
+  Result := THostCipherList.Parse(AText, 'CipherList');
+end;
+
+procedure TTestHostCipherList.TestIanaAndOpenSslNamesMapToTheSameCodes;
+var
+  LCodes: TArray<UInt16>;
+begin
+  LCodes := Codes('TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:' +
+    'TLS_AES_128_GCM_SHA256:ECDHE-RSA-CHACHA20-POLY1305');
+  CheckEquals(4, System.Length(LCodes), 'four suites');
+  CheckEquals(TCipherSuites12.EcdheRsaAes128GcmSha256, LCodes[0], 'IANA name');
+  CheckEquals(TCipherSuites12.EcdheEcdsaAes256GcmSha384, LCodes[1], 'OpenSSL name');
+  CheckEquals(TCipherSuites13.Aes128GcmSha256, LCodes[2], 'a 1.3 suite');
+  CheckEquals(TCipherSuites12.EcdheRsaChaCha20Poly1305Sha256, LCodes[3], 'ChaCha');
+end;
+
+procedure TTestHostCipherList.TestSeparatorsAndRunsOfThem;
+var
+  LCodes: TArray<UInt16>;
+begin
+  LCodes := Codes(' :ECDHE-RSA-AES128-GCM-SHA256,, ECDHE-RSA-AES256-GCM-SHA384'#9'TLS_AES_256_GCM_SHA384:; ');
+  CheckEquals(3, System.Length(LCodes),
+    'colon, comma, semicolon, space and tab all separate; runs collapse');
+  CheckEquals(TCipherSuites12.EcdheRsaAes128GcmSha256, LCodes[0], 'first');
+  CheckEquals(TCipherSuites12.EcdheRsaAes256GcmSha384, LCodes[1], 'second');
+  CheckEquals(TCipherSuites13.Aes256GcmSha384, LCodes[2], 'third');
+end;
+
+procedure TTestHostCipherList.TestCaseIsIgnoredAndDuplicatesKeepTheFirstPosition;
+var
+  LCodes: TArray<UInt16>;
+begin
+  LCodes := Codes('ecdhe-rsa-aes256-gcm-sha384:ECDHE-RSA-AES128-GCM-SHA256:' +
+    'TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384');
+  CheckEquals(2, System.Length(LCodes), 'the repeat under the other vocabulary is dropped');
+  CheckEquals(TCipherSuites12.EcdheRsaAes256GcmSha384, LCodes[0], 'the first position wins');
+  CheckEquals(TCipherSuites12.EcdheRsaAes128GcmSha256, LCodes[1], 'and the rest keeps its order');
+end;
+
+procedure TTestHostCipherList.TestEmptyAndDefaultMeanTheHostDefault;
+begin
+  CheckEquals(0, System.Length(Codes('')), 'empty');
+  CheckEquals(0, System.Length(Codes('   ')), 'blank');
+  CheckEquals(0, System.Length(Codes('DEFAULT')), 'DEFAULT');
+  CheckEquals(0, System.Length(Codes(' default ')), 'DEFAULT in any case, trimmed');
+end;
+
+procedure TTestHostCipherList.TestExpressionsAndUnimplementedSuitesAreRefused;
+const
+  Offenders: array [0 .. 9] of string = ('HIGH', '!aNULL', '+RSA', '@STRENGTH', 'ALL',
+    '-ECDHE-RSA-AES128-GCM-SHA256', 'ECDHE-RSA-AES128-SHA', 'RC4-SHA', 'DES-CBC3-SHA',
+    'AES128-GCM-SHA256');
+var
+  LI: Int32;
+  LMessage: string;
+begin
+  for LI := Low(Offenders) to High(Offenders) do
+  begin
+    CheckTrue(Refused(Offenders[LI], LMessage), Offenders[LI] + ' is refused, never skipped');
+    CheckTrue(Pos('CipherList', LMessage) > 0, 'the message names the property');
+    CheckTrue(Pos(Offenders[LI], LMessage) > 0, 'and the offending token');
+  end;
+  CheckTrue(Refused('ECDHE-RSA-AES128-GCM-SHA256:HIGH:RC4-SHA', LMessage), 'a good name beside bad ones');
+  CheckTrue((Pos('HIGH', LMessage) > 0) and (Pos('RC4-SHA', LMessage) > 0),
+    'every offender is named: ' + LMessage);
+end;
+
+procedure TTestHostCipherList.TestDefaultBesideNamesIsRefused;
+var
+  LMessage: string;
+begin
+  CheckTrue(Refused('DEFAULT:ECDHE-RSA-AES128-GCM-SHA256', LMessage), 'DEFAULT then a name');
+  CheckTrue(Refused('ECDHE-RSA-AES128-GCM-SHA256:DEFAULT', LMessage), 'a name then DEFAULT');
+end;
+
 initialization
 
 {$IFDEF FPC}
   RegisterTest(TTestTlsConnection);
+  RegisterTest(TTestHostCipherList);
 {$ELSE}
   RegisterTest(TTestTlsConnection.Suite);
+  RegisterTest(TTestHostCipherList.Suite);
 {$ENDIF FPC}
 
 end.

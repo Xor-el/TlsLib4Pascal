@@ -169,6 +169,7 @@ uses
   TlpGrease in '..\..\TlsLib\src\Extensions\TlpGrease.pas',
   TlpNegotiationTypes in '..\..\TlsLib\src\Negotiation\TlpNegotiationTypes.pas',
   TlpINegotiation in '..\..\TlsLib\src\Interfaces\Negotiation\TlpINegotiation.pas',
+  TlpCipherSuiteCatalog in '..\..\TlsLib\src\Negotiation\TlpCipherSuiteCatalog.pas',
   TlpCipherSuiteRegistry in '..\..\TlsLib\src\Negotiation\TlpCipherSuiteRegistry.pas',
   TlpSignatureSchemeRegistry in '..\..\TlsLib\src\Negotiation\TlpSignatureSchemeRegistry.pas',
   TlpNegotiationPolicy in '..\..\TlsLib\src\Negotiation\TlpNegotiationPolicy.pas',

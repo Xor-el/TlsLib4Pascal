@@ -47,6 +47,7 @@ uses
   ssockets,
   Sockets,
   TlpDataEncoding,
+  TlpNegotiationTypes,
   TlsLibFclNetTls;
 
 const
@@ -281,6 +282,8 @@ begin
       LHandler.CertificateData.CertCA.FileName := LRoot; // pinned root (VerifyPeerCert defaults True)
       // no SNI on the wire, yet the leaf is still verified for 'localhost' (SendHostAsSNI is wire-only)
       LHandler.SendHostAsSNI := False;
+      // the client offers one suite, so a negotiated AES-256 proves the list was honoured
+      LHandler.CertificateData.CipherList := 'TLS_AES_256_GCM_SHA384';
       LSock := TInetSocket.Create('localhost', PORT, LHandler); // handler set => no auto-connect
       try
         try
@@ -291,6 +294,9 @@ begin
             raise Exception.Create('handshake failed: ' + LHandler.LastErrorDesc);
         end;
         LVersion := VersionText(LHandler.NegotiatedVersion); // read before LSock.Free drops the handler
+        if LHandler.NegotiatedCipherSuite <> TCipherSuites13.Aes256GcmSha384 then
+          raise Exception.CreateFmt('the CipherList was not honoured (suite $%.4x)',
+            [LHandler.NegotiatedCipherSuite]);
         LOut := AnsiString(PING);
         LSock.Write(LOut[1], System.Length(LOut));
         SetLength(LBuf, 1024);

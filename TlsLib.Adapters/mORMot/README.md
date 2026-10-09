@@ -63,8 +63,17 @@ mORMot's native peer-verify callbacks (`OnPeerValidate` / `OnEachPeerVerify` /
 `PSSL` / `PX509` pointer to dereference, so honouring them would re-couple the adapter to OpenSSL —
 the dependency it exists to avoid. Because silently ignoring one would drop a rule the app relies
 on (for example a client-certificate allow-list), a context that sets any of them — or
-`CipherList`, `HostNamesCsv`, `OnAcceptServerName`, or an in-memory `CertificateBin` / `CertificateRaw` /
+`HostNamesCsv`, `OnAcceptServerName`, or an in-memory `CertificateBin` / `CertificateRaw` /
 `PrivateKeyRaw` / `CACertificatesRaw` — **fails loudly**: a client at connect, a server at bind.
+
+`CipherList` is honoured: exact IANA or OpenSSL suite names, separated by `:`, `,` or spaces, in
+preference order. It narrows and reorders TlsLib's own hardened set and never widens it. A list that
+names no TLS 1.3 suite leaves TLS 1.3 on with its default suites (an OpenSSL cipher list never
+governed 1.3); a list that names TLS 1.3 suites narrows 1.3 too, and a list naming only TLS 1.3
+suites turns TLS 1.2 off. Cipher-string expressions such as `HIGH` or `!aNULL`, and suites TlsLib
+does not implement, fail loudly rather than being skipped; empty or `DEFAULT` keeps the preset, and a
+list beside a config supplied with `SetTlsLibMormotClientConfig` / `SetTlsLibMormotServerConfig` is
+refused.
 
 Instead, the neutral hooks are process-wide setters (mORMot builds an `INetTls` per connection
 through the global factory, so its hooks are set the same way):

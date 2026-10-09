@@ -492,6 +492,7 @@
         <DCCReference Include="..\..\TlsLib\src\Extensions\TlpGrease.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Negotiation\TlpNegotiationTypes.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Negotiation\TlpINegotiation.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Negotiation\TlpCipherSuiteCatalog.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Negotiation\TlpCipherSuiteRegistry.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Negotiation\TlpSignatureSchemeRegistry.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Negotiation\TlpNegotiationPolicy.pas"/>

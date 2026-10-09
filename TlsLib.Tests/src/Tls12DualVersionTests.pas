@@ -232,7 +232,7 @@ begin
   Result.Clock := TSystemClock.Create;
   Result.Crypto := Crypto;
   Result.Inspector := Pkix.Certificates;
-  Result.Policy := TNegotiationPolicy.Create(Crypto,
+  Result.Policy := TNegotiationPolicy.Create(
     TCipherSuiteRegistry.CreateDualVersion(Crypto),
     TNamedGroups.CreateDefaultRegistry(Crypto),
     TArray<UInt16>.Create(TNamedGroupCatalog.X25519),
@@ -251,6 +251,7 @@ begin
   Result.Clock := TSystemClock.Create;
   Result.Crypto := Crypto;
   Result.Inspector := Pkix.Certificates;
+  Result.Policy := TNegotiationPolicy.CreateDefault(Crypto);
   Result.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
   Result.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   Result.Group := TNamedGroups.CreateX25519(Crypto);

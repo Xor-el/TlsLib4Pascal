@@ -48,6 +48,7 @@ uses
   TlpCertificateVerifier,
   TlpNegotiationTypes,
   TlpCipherSuiteRegistry,
+  TlpNegotiationPolicy,
   TlpSignatureSchemeRegistry,
   TlpINamedGroup,
   TlpNamedGroups,
@@ -102,6 +103,7 @@ type
     function BuildServerConfig(const ACryptoProvider: ICryptoProvider): ITlsServerConfig;
     function DefaultProfile: TTlsConfigProfile;
     function ChainLimitsAccepted(AMaxCert, AMaxTotal: Int32): Boolean;
+    function SameOrder(const AA, AB: TArray<UInt16>): Boolean;
     function NewClientBuilder: ITlsClientConfigBuilder;
     function NewServerBuilder: ITlsServerConfigBuilder;
     function MakePskSpec: TExternalPsk;
@@ -157,6 +159,14 @@ type
     procedure TestPreferredGroupsWithNoRegisteredGroupIsRefused;
     procedure TestEmptyPreferredGroupsIsRefusedAtBuild;
     procedure TestNilRegistryIsRefusedAtBuild;
+    procedure TestCipherSuiteListNarrowsAndOrdersPerProtocol;
+    procedure TestCipherSuiteListLeavesAnUnnamedProtocolIntact;
+    procedure TestCipherSuiteListOutsideTheConfiguredSetIsRefused;
+    procedure TestCipherSuiteListIsIndependentOfCallOrder;
+    procedure TestEmptyCipherSuiteListIsRefused;
+    procedure TestOfferedVersionWithoutASuiteIsRefused;
+    procedure TestServerCipherSuiteListOrderDecidesTheNegotiatedSuite;
+    procedure TestClientCipherSuiteListIsTheOnlyOfferedSuite;
     procedure TestRecordSizeLimitRoundTrips;
     procedure TestRecordSizeLimitRejectsOutOfRange;
     procedure TestRecordSizeLimitCapsRecordsThroughFactory;
@@ -1192,6 +1202,146 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a nil cipher-suite registry is a typed error at Build');
+end;
+
+procedure TTestConfigBuilder.TestCipherSuiteListNarrowsAndOrdersPerProtocol;
+var
+  LConfig: ITlsClientConfig;
+  L12, L13: TArray<UInt16>;
+begin
+  LConfig := NewClientBuilder
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12))
+    .WithCipherSuiteList(TArray<UInt16>.Create(TCipherSuites12.EcdheEcdsaAes256GcmSha384,
+      TCipherSuites12.EcdheEcdsaAes128GcmSha256, TCipherSuites13.Aes256GcmSha384))
+    .Build;
+  L12 := TNegotiationPolicy.SuiteOrder(LConfig.CipherSuites, TSuiteProtocol.Tls12);
+  L13 := TNegotiationPolicy.SuiteOrder(LConfig.CipherSuites, TSuiteProtocol.Tls13);
+  CheckEquals(2, System.Length(L12), 'only the listed 1.2 suites remain');
+  CheckEquals(TCipherSuites12.EcdheEcdsaAes256GcmSha384, L12[0], 'list order is kept');
+  CheckEquals(TCipherSuites12.EcdheEcdsaAes128GcmSha256, L12[1], 'list order is kept');
+  CheckEquals(1, System.Length(L13), 'only the listed 1.3 suite remains');
+  CheckEquals(TCipherSuites13.Aes256GcmSha384, L13[0], 'the listed 1.3 suite');
+end;
+
+procedure TTestConfigBuilder.TestCipherSuiteListLeavesAnUnnamedProtocolIntact;
+var
+  LConfig: ITlsClientConfig;
+  L12, L13: TArray<UInt16>;
+begin
+  // a list naming only 1.2 suites narrows 1.2 and leaves the 1.3 set as configured
+  LConfig := NewClientBuilder
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12))
+    .WithCipherSuiteList(TArray<UInt16>.Create(TCipherSuites12.EcdheEcdsaAes128GcmSha256))
+    .Build;
+  L12 := TNegotiationPolicy.SuiteOrder(LConfig.CipherSuites, TSuiteProtocol.Tls12);
+  L13 := TNegotiationPolicy.SuiteOrder(DefaultProfile.CipherSuites, TSuiteProtocol.Tls13);
+  CheckEquals(1, System.Length(L12), 'the named protocol is narrowed');
+  CheckEquals(TCipherSuites12.EcdheEcdsaAes128GcmSha256, L12[0], 'the listed 1.2 suite');
+  CheckTrue(SameOrder(L13,
+    TNegotiationPolicy.SuiteOrder(LConfig.CipherSuites, TSuiteProtocol.Tls13)),
+    'the unnamed protocol keeps its configured suites and order');
+end;
+
+procedure TTestConfigBuilder.TestCipherSuiteListOutsideTheConfiguredSetIsRefused;
+var
+  LRaised: Boolean;
+begin
+  // the list narrows and reorders; it never admits a suite the configured set does not hold
+  LRaised := False;
+  try
+    NewClientBuilder
+      .WithCipherSuiteList(TArray<UInt16>.Create(UInt16($002F)))
+      .Build;
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a suite outside the configured set is refused at Build');
+end;
+
+procedure TTestConfigBuilder.TestCipherSuiteListIsIndependentOfCallOrder;
+var
+  LBefore, LAfter: ITlsClientConfig;
+  LList: TArray<UInt16>;
+begin
+  LList := TArray<UInt16>.Create(TCipherSuites12.EcdheEcdsaAes256GcmSha384,
+    TCipherSuites12.EcdheEcdsaAes128GcmSha256);
+  LBefore := NewClientBuilder
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
+    .WithCipherSuiteList(LList)
+    .WithCipherSuites(TCipherSuiteRegistry.CreateDualVersion(Crypto))
+    .Build;
+  LAfter := NewClientBuilder
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
+    .WithCipherSuites(TCipherSuiteRegistry.CreateDualVersion(Crypto))
+    .WithCipherSuiteList(LList)
+    .Build;
+  CheckTrue(SameOrder(
+    TNegotiationPolicy.SuiteOrder(LBefore.CipherSuites, TSuiteProtocol.Tls12),
+    TNegotiationPolicy.SuiteOrder(LAfter.CipherSuites, TSuiteProtocol.Tls12)),
+    'the list applies at Build, whichever order the setters ran in');
+end;
+
+procedure TTestConfigBuilder.TestEmptyCipherSuiteListIsRefused;
+var
+  LRaised: Boolean;
+begin
+  // an empty list must not read as "no list", which would leave the preset's full set in force
+  LRaised := False;
+  try
+    NewClientBuilder.WithCipherSuiteList(nil);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an empty cipher-suite list is a typed error');
+end;
+
+procedure TTestConfigBuilder.TestOfferedVersionWithoutASuiteIsRefused;
+var
+  LRaised: Boolean;
+begin
+  // a 1.3-only registry cannot back an offered TLS 1.2
+  LRaised := False;
+  try
+    NewClientBuilder
+      .WithCipherSuites(TCipherSuiteRegistry.CreateDefault(Crypto))
+      .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12))
+      .Build;
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an offered version with no cipher suite is refused at Build');
+end;
+
+procedure TTestConfigBuilder.TestServerCipherSuiteListOrderDecidesTheNegotiatedSuite;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // the host's order is the server's preference whatever the hardware would otherwise favour
+  LClient := TTlsEngineFactory.CreateClientEngine(NewClientBuilder.Build, 'localhost');
+  LServer := TTlsEngineFactory.CreateServerEngine(NewServerBuilder
+    .WithCipherSuiteList(TArray<UInt16>.Create(TCipherSuites13.ChaCha20Poly1305Sha256,
+      TCipherSuites13.Aes128GcmSha256)).Build);
+  RunHandshake(LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'the handshake completed');
+  CheckEquals(TCipherSuites13.ChaCha20Poly1305Sha256, LServer.ConnectionInfo.CipherSuite,
+    'the first listed suite is negotiated');
+end;
+
+procedure TTestConfigBuilder.TestClientCipherSuiteListIsTheOnlyOfferedSuite;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := TTlsEngineFactory.CreateClientEngine(NewClientBuilder
+    .WithCipherSuiteList(TArray<UInt16>.Create(TCipherSuites13.Aes256GcmSha384)).Build,
+    'localhost');
+  LServer := TTlsEngineFactory.CreateServerEngine(NewServerBuilder.Build);
+  RunHandshake(LClient, LServer);
+  CheckFalse(LClient.IsTerminal, 'the handshake completed');
+  CheckEquals(TCipherSuites13.Aes256GcmSha384, LServer.ConnectionInfo.CipherSuite,
+    'the one listed suite is negotiated');
 end;
 
 procedure TTestConfigBuilder.TestRecordSizeLimitRoundTrips;
@@ -2242,11 +2392,22 @@ end;
 function TTestConfigBuilder.DefaultProfile: TTlsConfigProfile;
 begin
   Result := TTlsConfigProfile.Default;
-  Result.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
+  Result.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
   Result.SignatureSchemes := TSignatureSchemeRegistry.CreateDefault;
   Result.NamedGroups := TNamedGroups.CreateDefaultRegistry(Crypto);
   Result.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls13);
   Result.PreferredGroups := TArray<UInt16>.Create(TNamedGroupCatalog.X25519);
+end;
+
+function TTestConfigBuilder.SameOrder(const AA, AB: TArray<UInt16>): Boolean;
+var
+  LI: Int32;
+begin
+  Result := System.Length(AA) = System.Length(AB);
+  if Result then
+    for LI := 0 to System.High(AA) do
+      if AA[LI] <> AB[LI] then
+        Exit(False);
 end;
 
 function TTestConfigBuilder.NewClientBuilder: ITlsClientConfigBuilder;

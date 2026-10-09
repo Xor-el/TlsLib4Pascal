@@ -2055,7 +2055,7 @@ var
 begin
   LClient := NewHrrClient;
   // a server that also speaks 1.2: SelectVersion alone would accept a 1.2-only retry
-  LServer := NewHrrServerWithPolicy(TNegotiationPolicy.Create(Crypto,
+  LServer := NewHrrServerWithPolicy(TNegotiationPolicy.Create(
     TCipherSuiteRegistry.CreateDefault(Crypto), TNamedGroups.CreateDefaultRegistry(Crypto),
     TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1, TNamedGroupCatalog.X25519),
     TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12),

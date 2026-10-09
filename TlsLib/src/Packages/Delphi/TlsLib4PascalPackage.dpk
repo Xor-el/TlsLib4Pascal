@@ -155,6 +155,7 @@ contains
   TlpGrease in '..\..\Extensions\TlpGrease.pas',
   TlpNegotiationTypes in '..\..\Negotiation\TlpNegotiationTypes.pas',
   TlpINegotiation in '..\..\Interfaces\Negotiation\TlpINegotiation.pas',
+  TlpCipherSuiteCatalog in '..\..\Negotiation\TlpCipherSuiteCatalog.pas',
   TlpCipherSuiteRegistry in '..\..\Negotiation\TlpCipherSuiteRegistry.pas',
   TlpSignatureSchemeRegistry in '..\..\Negotiation\TlpSignatureSchemeRegistry.pas',
   TlpNegotiationPolicy in '..\..\Negotiation\TlpNegotiationPolicy.pas',

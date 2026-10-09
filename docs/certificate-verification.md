@@ -275,10 +275,10 @@ builder takes no `IHttpFetcher`, by design, so the engine stays network-free. Yo
 // 1. enable the live-revocation verdict on the config, so the engine defers an indeterminate
 //    stapled outcome and parks for the live check: ...WithRevocation(TRevocationPosture.Hard)
 //    .WithLiveRevocationVerdict(deadlineMs)  <-- without this the resolver never fires
-// 2. attach the live checker to the stream (the clock drives the deadline; the
-//    fetcher owns every socket):
-checker := TLiveRevocationChecker.Create(Pkix, clock, fetcher, TRevocationPosture.Hard,
-  TLiveRevocationMethod.OcspThenCrl, budgetMs);
+// 2. attach the live checker to the stream (the clock dates the responses, the monotonic
+//    clock times the fetch budget; the fetcher owns every socket):
+checker := TLiveRevocationChecker.Create(Pkix, clock, config.MonotonicClock, fetcher,
+  TRevocationPosture.Hard, TLiveRevocationMethod.OcspThenCrl, budgetMs);
 stream.SetCertificateVerdictResolver(checker.ResolveVerdict);
 ```
 
@@ -403,8 +403,8 @@ The default is the real system clock (`TSystemClock`), so this only matters when
 Deadlines are a separate concern and use a separate clock. The handshake read cap and the
 live-revocation budget measure *elapsed* time on an `ITlsMonotonicClock` (default
 `TSystemMonotonicClock`), which a wall-clock step can neither stretch nor shorten. Override the
-handshake cap's clock with `WithMonotonicClock`, and the checker's with the
-`TLiveRevocationChecker` overload that takes one (pass `Config.MonotonicClock` to share it).
+handshake cap's clock with `WithMonotonicClock`; the `TLiveRevocationChecker` constructor takes its
+clock explicitly, like its other inputs (pass `Config.MonotonicClock` to share the connection's).
 Neither affects certificate, OCSP or ticket time, which stay on `ITlsClock`.
 
 ---

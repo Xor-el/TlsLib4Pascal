@@ -2106,8 +2106,9 @@ var
     LParams.Clock := TSystemClock.Create;
     LParams.Crypto := Crypto;
     LParams.Inspector := Pkix.Certificates;
-    LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
-    LParams.Policy := TNegotiationPolicy.Create(LHwAes, LParams.CipherSuites,
+    // the registry order is the server's preference, so build it under the hardware-AES provider
+    LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(LHwAes);
+    LParams.Policy := TNegotiationPolicy.Create(LParams.CipherSuites,
       TNamedGroups.CreateDefaultRegistry(Crypto),
       TArray<UInt16>.Create(TNamedGroupCatalog.X25519),
       TArray<UInt16>.Create(TlsWireVersionTls13), APreference);

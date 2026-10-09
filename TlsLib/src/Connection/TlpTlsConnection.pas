@@ -31,6 +31,9 @@ uses
   TlpClock,
   TlpTlsAlert,
   TlpTlsVersion,
+  TlpArrayUtilities,
+  TlpNegotiationTypes,
+  TlpCipherSuiteCatalog,
   TlpEchConfig,
   TlpServerName,
   TlpICryptoProvider,
@@ -102,14 +105,32 @@ type
     SessionResumption: Boolean;                  // default True
     HandshakeTimeoutMs: Int32;                   // 0 = the library default (30 000 ms)
     SupportedVersions: TArray<UInt16>;           // wire codes in preference order; empty = TLS 1.3 + 1.2
+    CipherSuites: TArray<UInt16>;                // host cipher list, wire codes in preference order; empty = the preset
     ClientConfig: ITlsClientConfig;              // config-in: replaces the client build
     ServerConfig: ITlsServerConfig;              // config-in: replaces the server build
     TrustSourceHint: string;                     // client-role host knob names, spliced into the no-source message
     ClientAuthSourceHint: string;                // server-role client-CA host knob names, same use
+    CipherSuitesHint: string;                    // the host property CipherSuites came from, spliced into build-time messages
     /// <summary>A value with the composable defaults: VerifyPeer / CheckHostName / SessionResumption
     /// on, SNI sent, client authentication opt-in (ClientAuth None). Assign it at snapshot
     /// time.</summary>
     class function Default: TTlsOptions; static;
+  end;
+
+  /// <summary>Maps a host's cipher-list string onto catalog suites: exact IANA or traditional
+  /// cipher-list names separated by ':', ',', ';', spaces or tabs, in preference order, matched
+  /// without regard to case and de-duplicated (the first position wins). Empty or HostDefault alone is the host default (an
+  /// empty result: the preset applies). Any other token - a cipher-string expression or a suite
+  /// this library does not implement - is refused, never skipped; so is HostDefault combined with
+  /// names.</summary>
+  THostCipherList = class sealed(TObject)
+  public const
+    /// <summary>The cipher-list value hosts ship as their own default; a no-op here.</summary>
+    HostDefault = 'DEFAULT';
+  public
+    /// <summary>The wire codes AText names, in order. APropertyName is the host property the string
+    /// came from, named in the refusal.</summary>
+    class function Parse(const AText, APropertyName: string): TArray<UInt16>; static;
   end;
 
   /// <summary>The single site that composes an adapter's TLS configuration from its options, memoises
@@ -123,6 +144,10 @@ type
     class function HasTrustAnchor(const AOptions: TTlsOptions): Boolean; static;
     class function HasClientTrustSource(const AOptions: TTlsOptions): Boolean; static;
     class function HasClientAuthTrustSource(const AOptions: TTlsOptions): Boolean; static;
+    /// <summary>The versions left once TLS 1.2 is dropped for a host cipher list that names no TLS
+    /// 1.2 suite; TLS 1.3 stays because a host cipher list never governed it. Raises when none
+    /// remains.</summary>
+    class function HostListVersions(const AOptions: TTlsOptions): TArray<UInt16>; static;
   public
     class function EffectiveCrypto(const AOptions: TTlsOptions): ICryptoProvider; static;
     class function EffectivePkix(const AOptions: TTlsOptions): IPkixProvider; static;
@@ -311,6 +336,17 @@ resourcestring
     'a verdict resolver is set together with %s, but that config never defers the certificate ' +
     'verdict, so the resolver would never run; enable WithLiveRevocationVerdict or ' +
     'WithAsyncCertificateVerdict on the config';
+  SHostCipherListRefused =
+    'the %s property names %s, which TlsLib4Pascal does not implement as cipher suites: list ' +
+    'exact IANA or cipher-list suite names separated by '':'', '','' or spaces (cipher-string ' +
+    'expressions such as HIGH or !aNULL are not supported), or leave it empty or %s for the ' +
+    'default';
+  SHostCipherListMixedDefault =
+    'the %s property combines %s with suite names; list exact suite names, or %s alone for the ' +
+    'default';
+  SHostCipherListNoUsableSuite =
+    'the %s property leaves no cipher suite for the enabled protocol versions: it names only ' +
+    '%s suites';
   SHandshakeReadTimedOut = 'the handshake did not complete within %d ms';
   SApplicationReadTimedOut = 'no application data arrived within %d ms';
   SSendNoProgress = 'the host transport reported no send progress';
@@ -348,6 +384,52 @@ begin
   Result.SessionResumption := True;
   // client authentication is opt-in: a server requests a client certificate only under an explicit mode
   Result.ClientAuth := TClientAuthMode.None;
+end;
+
+{ THostCipherList }
+
+class function THostCipherList.Parse(const AText, APropertyName: string): TArray<UInt16>;
+var
+  LI, LStart: Int32;
+  LToken, LUnknown: string;
+  LCode: UInt16;
+  LHasDefault: Boolean;
+begin
+  Result := nil;
+  LUnknown := '';
+  LHasDefault := False;
+  LI := 1;
+  while LI <= System.Length(AText) do
+  begin
+    if CharInSet(AText[LI], [':', ',', ';', ' ', #9]) then
+    begin
+      Inc(LI);
+      Continue;
+    end;
+    LStart := LI;
+    while (LI <= System.Length(AText)) and not CharInSet(AText[LI], [':', ',', ';', ' ', #9]) do
+      Inc(LI);
+    LToken := System.Copy(AText, LStart, LI - LStart);
+    if SameText(LToken, HostDefault) then
+      LHasDefault := True
+    else if TCipherSuiteCatalog.TryCode(LToken, LCode) then
+    begin
+      if TArrayUtilities.Contains<UInt16>(Result, LCode) = False then
+        TArrayUtilities.Append<UInt16>(Result, LCode);
+    end
+    else
+    begin
+      if LUnknown <> '' then
+        LUnknown := LUnknown + ', ';
+      LUnknown := LUnknown + '''' + LToken + '''';
+    end;
+  end;
+  if LUnknown <> '' then
+    raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+      @SHostCipherListRefused, [APropertyName, LUnknown, HostDefault]);
+  if LHasDefault and (System.Length(Result) > 0) then
+    raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+      @SHostCipherListMixedDefault, [APropertyName, HostDefault, HostDefault]);
 end;
 
 { TTlsConfigComposer }
@@ -426,6 +508,31 @@ begin
     (AOptions.CustomTrustStore <> nil);
 end;
 
+class function TTlsConfigComposer.HostListVersions(
+  const AOptions: TTlsOptions): TArray<UInt16>;
+var
+  LVersions: TArray<UInt16>;
+  LNames12: Boolean;
+  LSuite: TTlsCipherSuite;
+  LI: Int32;
+begin
+  LVersions := AOptions.SupportedVersions;
+  if System.Length(LVersions) = 0 then
+    LVersions := TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12);
+  LNames12 := False;
+  for LI := 0 to System.High(AOptions.CipherSuites) do
+    if TCipherSuiteCatalog.TryGet(AOptions.CipherSuites[LI], LSuite) and
+      (LSuite.Protocol = TSuiteProtocol.Tls12) then
+      LNames12 := True;
+  Result := nil;
+  for LI := 0 to System.High(LVersions) do
+    if LNames12 or (LVersions[LI] = TlsWireVersionTls13) then
+      TArrayUtilities.Append<UInt16>(Result, LVersions[LI]);
+  if System.Length(Result) = 0 then
+    raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+      @SHostCipherListNoUsableSuite, [AOptions.CipherSuitesHint, 'TLS 1.3']);
+end;
+
 class function TTlsConfigComposer.BuildClientConfig(
   const AOptions: TTlsOptions): ITlsClientConfig;
 var
@@ -437,7 +544,12 @@ begin
   LCrypto := EffectiveCrypto(AOptions);
   LPkix := EffectivePkix(AOptions);
   LClient := TTlsPresets.Compatible(LCrypto, LPkix).Client;
-  if System.Length(AOptions.SupportedVersions) > 0 then
+  if System.Length(AOptions.CipherSuites) > 0 then
+  begin
+    LClient.WithCipherSuiteList(AOptions.CipherSuites);
+    LClient.WithSupportedVersions(HostListVersions(AOptions));
+  end
+  else if System.Length(AOptions.SupportedVersions) > 0 then
     LClient.WithSupportedVersions(AOptions.SupportedVersions);
   // compose peer trust from orthogonal sources: a whole-verifier REPLACES the pipeline, else the
   // anchors + the OS store + a custom store all UNION. Adding both a verifier and an anchor source
@@ -523,7 +635,12 @@ begin
   LServer := TTlsPresets.Compatible(LCrypto, LPkix).Server
     .WithCredential(TTlsCredential.Load(LCrypto, LPkix,
     Load(AOptions.Certificate), Load(AOptions.PrivateKey), AOptions.KeyPassword));
-  if System.Length(AOptions.SupportedVersions) > 0 then
+  if System.Length(AOptions.CipherSuites) > 0 then
+  begin
+    LServer.WithCipherSuiteList(AOptions.CipherSuites);
+    LServer.WithSupportedVersions(HostListVersions(AOptions));
+  end
+  else if System.Length(AOptions.SupportedVersions) > 0 then
     LServer.WithSupportedVersions(AOptions.SupportedVersions);
   if System.Length(AOptions.AlpnProtocols) > 0 then
     LServer.WithAlpnProtocols(AOptions.AlpnProtocols);
@@ -586,6 +703,9 @@ begin
   LSig.AddCardinal('versions', Cardinal(System.Length(AOptions.SupportedVersions)));
   for LI := 0 to System.High(AOptions.SupportedVersions) do
     LSig.AddCardinal('version', AOptions.SupportedVersions[LI]);
+  LSig.AddCardinal('suites', Cardinal(System.Length(AOptions.CipherSuites)));
+  for LI := 0 to System.High(AOptions.CipherSuites) do
+    LSig.AddCardinal('suite', AOptions.CipherSuites[LI]);
   Result := LSig.Value;
 end;
 
@@ -621,6 +741,9 @@ begin
   LSig.AddCardinal('versions', Cardinal(System.Length(AOptions.SupportedVersions)));
   for LI := 0 to System.High(AOptions.SupportedVersions) do
     LSig.AddCardinal('version', AOptions.SupportedVersions[LI]);
+  LSig.AddCardinal('suites', Cardinal(System.Length(AOptions.CipherSuites)));
+  for LI := 0 to System.High(AOptions.CipherSuites) do
+    LSig.AddCardinal('suite', AOptions.CipherSuites[LI]);
   Result := LSig.Value;
 end;
 
@@ -631,7 +754,7 @@ var
 begin
   // a supplied config owns the frozen build entirely; naming an option the same role's own build
   // would consume alongside it silently drops it, so fail loud. Credential, trust anchors, ALPN,
-  // providers, the supported-versions list and the augment callback are read by both roles (the server reads the callback under
+  // providers, the supported-versions and cipher lists and the augment callback are read by both roles (the server reads the callback under
   // client auth); the server-cert verifier and system trust are client-only reads and the
   // client-cert verifier a server-only read, so flagging one on the other role would reject an
   // option that role never consumes. The verdict resolvers and the handshake timeout are runtime
@@ -647,7 +770,7 @@ begin
   // non-default client-authentication mode is a server-only security decision the config would
   // replace.
   LConflict := LConflict or (not AOptions.SessionResumption) or
-    (System.Length(AOptions.SupportedVersions) > 0);
+    (System.Length(AOptions.SupportedVersions) > 0) or (System.Length(AOptions.CipherSuites) > 0);
   if AIsClient then
     LConflict := LConflict or (AOptions.ServerCertificateVerifier <> nil) or
       (AOptions.SystemTrust <> nil) or

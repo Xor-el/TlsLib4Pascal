@@ -71,8 +71,12 @@ type
   /// source (no silent-insecure).
   /// </summary>
   ITlsClientConfigBuilder = interface(IInterface)
-    ['{3530FA97-6119-4A6E-B2B2-8843BE7CE27D}']
+    ['{7D726DE4-F705-4492-94C4-AA9751C02056}']
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): ITlsClientConfigBuilder;
+    /// <summary>Narrows the configured cipher suites to ASuites, in that order, per protocol: a
+    /// protocol ASuites names keeps exactly the listed suites; one it does not name is unchanged.
+    /// Never widens - a code outside the configured set is refused at Build.</summary>
+    function WithCipherSuiteList(const ASuites: TArray<UInt16>): ITlsClientConfigBuilder;
     function WithSignatureSchemes(const ARegistry: ISignatureSchemeRegistry): ITlsClientConfigBuilder;
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): ITlsClientConfigBuilder;
     function WithSupportedVersions(const AVersions: TArray<UInt16>): ITlsClientConfigBuilder;
@@ -295,8 +299,12 @@ type
   /// certificate credential.
   /// </summary>
   ITlsServerConfigBuilder = interface(IInterface)
-    ['{18A0D14A-AB24-483F-ADDF-A9A89C9EC0A4}']
+    ['{A91869D6-5E16-483A-9DA2-187E28901EC9}']
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): ITlsServerConfigBuilder;
+    /// <summary>Narrows the configured cipher suites to ASuites, in that order, per protocol: a
+    /// protocol ASuites names keeps exactly the listed suites; one it does not name is unchanged.
+    /// Never widens - a code outside the configured set is refused at Build.</summary>
+    function WithCipherSuiteList(const ASuites: TArray<UInt16>): ITlsServerConfigBuilder;
     function WithSignatureSchemes(const ARegistry: ISignatureSchemeRegistry): ITlsServerConfigBuilder;
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): ITlsServerConfigBuilder;
     function WithSupportedVersions(const AVersions: TArray<UInt16>): ITlsServerConfigBuilder;

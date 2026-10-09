@@ -33,6 +33,7 @@ uses
   TlpNamedGroups,
   TlpCryptoDomainTypes,
   TlpNegotiationTypes,
+  TlpCipherSuiteCatalog,
   TlpINegotiation,
   TlpCipherSuiteRegistry,
   TlpSignatureSchemeRegistry,
@@ -53,7 +54,9 @@ type
     procedure TestClientOrderOverridesHardwareAesTiebreak;
     procedure TestCpuAdaptiveTiebreakPrefersAesWithHardware;
     procedure TestCpuAdaptiveTiebreakPrefersChaChaWithoutHardware;
-    procedure TestSuitePreferenceOrderUnifiedAcrossProtocols;
+    procedure TestDefaultRegistryOrderFollowsHardwareAes;
+    procedure TestCustomRegistryOrderIsUsedAsGiven;
+    procedure TestCipherSuiteCatalogLookups;
     procedure TestGroupSelectionServerPreference;
     procedure TestCandidateSuitesFollowConfiguredPreference;
     procedure TestSuiteWithHashHonorsClientOrder;
@@ -113,7 +116,7 @@ begin
   // same hardware-AES setup as above (server order prefers AES-128), but with honor-client-order
   // on: the client's most-preferred suite (AES-256) wins instead of the server's AES-128
   LCrypto := TFixedAesProvider.Create(Crypto, True);
-  LPolicy := TNegotiationPolicy.Create(LCrypto,
+  LPolicy := TNegotiationPolicy.Create(
     TCipherSuiteRegistry.CreateDefault(LCrypto),
     TNamedGroups.CreateDefaultRegistry(LCrypto),
     TArray<UInt16>.Create(TNamedGroupCatalog.X25519, TNamedGroupCatalog.Secp256r1),
@@ -134,7 +137,7 @@ begin
   // AES). Under ClientOrder the client's order decides and that tiebreak is bypassed: a ChaCha-
   // first client gets ChaCha even from a hardware-AES server (the mobile-client case)
   LCrypto := TFixedAesProvider.Create(Crypto, True);
-  LPolicy := TNegotiationPolicy.Create(LCrypto,
+  LPolicy := TNegotiationPolicy.Create(
     TCipherSuiteRegistry.CreateDefault(LCrypto),
     TNamedGroups.CreateDefaultRegistry(LCrypto),
     TArray<UInt16>.Create(TNamedGroupCatalog.X25519, TNamedGroupCatalog.Secp256r1),
@@ -168,7 +171,7 @@ begin
     'no hardware AES -> ChaCha ahead of AES-GCM');
 end;
 
-procedure TTestNegotiation.TestSuitePreferenceOrderUnifiedAcrossProtocols;
+procedure TTestNegotiation.TestDefaultRegistryOrderFollowsHardwareAes;
 var
   LCiphers: ICipherSuiteRegistry;
 
@@ -178,18 +181,17 @@ var
     LOrder: TArray<UInt16>;
     LSuite: TTlsCipherSuite;
   begin
-    LOrder := TNegotiationPolicy.SuitePreferenceOrder(
-      TFixedAesProvider.Create(Crypto, AHasHardwareAes) as ICryptoProvider,
-      LCiphers, AProtocol);
+    LCiphers := TCipherSuiteRegistry.CreateDualVersion(
+      TFixedAesProvider.Create(Crypto, AHasHardwareAes) as ICryptoProvider);
+    LOrder := TNegotiationPolicy.SuiteOrder(LCiphers, AProtocol);
     CheckTrue(System.Length(LOrder) > 0, 'the preference order is non-empty');
     CheckTrue(LCiphers.TryGet(LOrder[0], LSuite), 'the first code resolves to a suite');
     Result := LSuite.Common.Aead;
   end;
 
 begin
-  // the one backbone every candidate list is built on (and the 1.2 server iterates directly):
-  // without hardware AES ChaCha20 leads for both protocols; with it AES-GCM leads for both
-  LCiphers := TCipherSuiteRegistry.CreateDualVersion(Crypto);
+  // the registry factory is the one place that orders AES-GCM against ChaCha20: without hardware
+  // AES ChaCha20 leads for both protocols; with it AES-GCM leads for both
   CheckTrue(FirstAead(False, TSuiteProtocol.Tls13) = TAeadAlgorithm.CHACHA20_POLY1305,
     'no hardware AES: the 1.3 order leads with ChaCha20');
   CheckTrue(FirstAead(False, TSuiteProtocol.Tls12) = TAeadAlgorithm.CHACHA20_POLY1305,
@@ -198,6 +200,62 @@ begin
     'hardware AES: the 1.3 order leads with AES-GCM');
   CheckFalse(FirstAead(True, TSuiteProtocol.Tls12) = TAeadAlgorithm.CHACHA20_POLY1305,
     'hardware AES: the 1.2 order leads with AES-GCM');
+end;
+
+procedure TTestNegotiation.TestCustomRegistryOrderIsUsedAsGiven;
+var
+  LCiphers: ICipherSuiteRegistry;
+  LPolicy: INegotiationPolicy;
+  LSuite: TTlsCipherSuite;
+begin
+  // a registry that lists ChaCha20 ahead of AES-128 keeps that order on a hardware-AES host: the
+  // policy no longer re-sorts the AEAD families
+  LCiphers := TCipherSuiteRegistry.Create;
+  CheckTrue(TCipherSuiteCatalog.TryGet(TCipherSuites13.ChaCha20Poly1305Sha256, LSuite), 'catalog');
+  LCiphers.Add(LSuite);
+  CheckTrue(TCipherSuiteCatalog.TryGet(TCipherSuites13.Aes128GcmSha256, LSuite), 'catalog');
+  LCiphers.Add(LSuite);
+  LPolicy := TNegotiationPolicy.Create(LCiphers,
+    TNamedGroups.CreateDefaultRegistry(Crypto),
+    TArray<UInt16>.Create(TNamedGroupCatalog.X25519),
+    TArray<UInt16>.Create(TlsWireVersionTls13), TServerCipherPreference.ServerOrder);
+  CheckEquals(TCipherSuites13.ChaCha20Poly1305Sha256,
+    LPolicy.SelectCipherSuite(TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256,
+    TCipherSuites13.ChaCha20Poly1305Sha256), TlsWireVersionTls13),
+    'the registry order, not the hardware, picks ChaCha20');
+end;
+
+procedure TTestNegotiation.TestCipherSuiteCatalogLookups;
+var
+  LCode: UInt16;
+  LSuite: TTlsCipherSuite;
+  LI: Int32;
+  LAll: TArray<TTlsCipherSuite>;
+begin
+  LAll := TCipherSuiteCatalog.All;
+  CheckEquals(9, System.Length(LAll), 'the catalog holds nine suites');
+  for LI := 0 to System.High(LAll) do
+  begin
+    CheckTrue(TCipherSuiteCatalog.TryCode(TCipherSuiteCatalog.Name(LAll[LI].Common.Code), LCode),
+      'the IANA name maps back (' + IntToStr(LI) + ')');
+    CheckEquals(LAll[LI].Common.Code, LCode, 'the IANA name maps to its own code');
+    CheckTrue(TCipherSuiteCatalog.TryCode(
+      TCipherSuiteCatalog.OpenSslName(LAll[LI].Common.Code), LCode),
+      'the OpenSSL name maps back (' + IntToStr(LI) + ')');
+    CheckEquals(LAll[LI].Common.Code, LCode, 'the OpenSSL name maps to its own code');
+  end;
+  CheckEquals('ECDHE-RSA-AES128-GCM-SHA256',
+    TCipherSuiteCatalog.OpenSslName(TCipherSuites12.EcdheRsaAes128GcmSha256), 'OpenSSL name');
+  CheckEquals('TLS_AES_128_GCM_SHA256',
+    TCipherSuiteCatalog.OpenSslName(TCipherSuites13.Aes128GcmSha256),
+    'a TLS 1.3 suite shares its IANA name');
+  CheckTrue(TCipherSuiteCatalog.TryCode('ecdhe-rsa-aes128-gcm-sha256', LCode), 'case ignored');
+  CheckEquals(TCipherSuites12.EcdheRsaAes128GcmSha256, LCode, 'the lower-case name maps');
+  CheckFalse(TCipherSuiteCatalog.TryCode('ECDHE-RSA-AES128-SHA', LCode), 'a CBC suite is unknown');
+  CheckFalse(TCipherSuiteCatalog.TryCode('HIGH', LCode), 'an expression is unknown');
+  CheckFalse(TCipherSuiteCatalog.TryGet($C013, LSuite), 'a suite outside the catalog');
+  CheckTrue(TCipherSuiteCatalog.TryGet(TCipherSuites12.EcdheEcdsaAes256GcmSha384, LSuite), 'found');
+  CheckTrue(LSuite.Protocol = TSuiteProtocol.Tls12, 'the protocol comes with the suite');
 end;
 
 procedure TTestNegotiation.TestGroupSelectionServerPreference;
@@ -233,7 +291,7 @@ begin
     PolicyWithAes(True).SelectCipherSuite(LClientOffer, TlsWireVersionTls13),
     'SelectCipherSuite is the head of the candidate list');
 
-  LPolicy := TNegotiationPolicy.Create(LCrypto, TCipherSuiteRegistry.CreateDefault(LCrypto),
+  LPolicy := TNegotiationPolicy.Create(TCipherSuiteRegistry.CreateDefault(LCrypto),
     TNamedGroups.CreateDefaultRegistry(LCrypto),
     TArray<UInt16>.Create(TNamedGroupCatalog.X25519),
     TArray<UInt16>.Create(TlsWireVersionTls13), TServerCipherPreference.ClientOrder);
@@ -265,7 +323,7 @@ begin
   CheckEquals(TCipherSuites13.Aes128GcmSha256, LSuite,
     'server order: AES-128 (hardware AES) ahead of the client''s ChaCha preference');
 
-  LPolicy := TNegotiationPolicy.Create(LCrypto, TCipherSuiteRegistry.CreateDefault(LCrypto),
+  LPolicy := TNegotiationPolicy.Create(TCipherSuiteRegistry.CreateDefault(LCrypto),
     TNamedGroups.CreateDefaultRegistry(LCrypto),
     TArray<UInt16>.Create(TNamedGroupCatalog.X25519),
     TArray<UInt16>.Create(TlsWireVersionTls13), TServerCipherPreference.ClientOrder);
@@ -323,7 +381,7 @@ begin
   LCiphers := TCipherSuiteRegistry.CreateDefault(Crypto);
   LCiphers.Prune(TCipherSuites13.Aes128GcmSha256);
   CheckFalse(LCiphers.Contains(TCipherSuites13.Aes128GcmSha256), 'AES-128 pruned from the registry');
-  LPolicy := TNegotiationPolicy.Create(Crypto, LCiphers,
+  LPolicy := TNegotiationPolicy.Create(LCiphers,
     TNamedGroups.CreateDefaultRegistry(Crypto),
     TArray<UInt16>.Create(TNamedGroupCatalog.X25519),
     TArray<UInt16>.Create(TlsWireVersionTls13), TServerCipherPreference.ServerOrder);
@@ -428,7 +486,7 @@ begin
   // the server prefers the post-quantum hybrid first, but a 1.2 negotiation must skip
   // every KEM/hybrid group and fall through to a classical ECDHE group
   LGroups := TNamedGroups.CreateDefaultRegistry(Crypto);
-  LPolicy := TNegotiationPolicy.Create(Crypto,
+  LPolicy := TNegotiationPolicy.Create(
     TCipherSuiteRegistry.CreateDualVersion(Crypto), LGroups,
     TArray<UInt16>.Create(TNamedGroupCatalog.X25519MlKem768, TNamedGroupCatalog.Secp256r1),
     TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12), TServerCipherPreference.ServerOrder);
@@ -450,7 +508,7 @@ begin
   // the client offers a TLS 1.3 suite and a hardened TLS 1.2 suite; a 1.2 negotiation
   // must only ever land on the 1.2 suite
   LCiphers := TCipherSuiteRegistry.CreateDualVersion(Crypto);
-  LPolicy := TNegotiationPolicy.Create(Crypto, LCiphers,
+  LPolicy := TNegotiationPolicy.Create(LCiphers,
     TNamedGroups.CreateDefaultRegistry(Crypto),
     TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1),
     TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12), TServerCipherPreference.ServerOrder);
@@ -473,7 +531,7 @@ begin
   // under ClientOrder a 1.2 client that lists AES-256 first gets AES-256 (SF-AR-2 - the knob is
   // version-agnostic, which is what the 1.2 server now routes through)
   LCrypto := TFixedAesProvider.Create(Crypto, True);
-  LPolicy := TNegotiationPolicy.Create(LCrypto,
+  LPolicy := TNegotiationPolicy.Create(
     TCipherSuiteRegistry.CreateDualVersion(LCrypto),
     TNamedGroups.CreateDefaultRegistry(LCrypto),
     TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1),

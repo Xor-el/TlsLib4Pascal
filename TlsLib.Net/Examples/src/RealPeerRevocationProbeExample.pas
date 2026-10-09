@@ -133,7 +133,7 @@ begin
     LFetcher := TSocketHttpFetcher.Create;
     // hard-fail posture over the live CRL distribution points
     LChecker := TLiveRevocationChecker.Create(LPkix, TSystemClock.Create as ITlsClock,
-      LFetcher, TRevocationPosture.Hard, TLiveRevocationMethod.Crl, FetchBudgetMs);
+      TSystemMonotonicClock.Create as ITlsMonotonicClock, LFetcher, TRevocationPosture.Hard, TLiveRevocationMethod.Crl, FetchBudgetMs);
 
     LRevoked := LChecker.Evaluate(LRevokedChain);
     LGood := LChecker.Evaluate(LGoodChain);

@@ -103,6 +103,25 @@ Re-enabling a safe posture setting on `Strict` (e.g. `WithResumption(True)`) is 
 guard — `psk_dhe_ke` resumption is forward-secret. Only genuine downgrades live behind the
 [dangerous surface](#the-dangerous-surface-dev-only).
 
+To narrow or reorder the cipher suites, list their wire codes (the `TCipherSuites13` /
+`TCipherSuites12` constants). The list can only **narrow and reorder** the set the preset already
+holds — a suite outside it is refused at `Build` — and applies per protocol: a protocol the list names keeps exactly the listed suites, in that
+order; one it does not name keeps its own.
+
+```pascal
+LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
+  .WithCredential(LCred)
+  .WithCipherSuiteList(TArray<UInt16>.Create(
+    TCipherSuites12.EcdheEcdsaChaCha20Poly1305Sha256, TCipherSuites12.EcdheEcdsaAes128GcmSha256))
+  .Build;     // TLS 1.2 prefers ChaCha20, then AES-128-GCM; TLS 1.3 is unchanged
+```
+
+If your suites arrive as names (a config file, a host's cipher-list string), `TCipherSuiteCatalog.TryCode`
+(unit `TlpCipherSuiteCatalog`) maps an exact IANA or OpenSSL name to its code; the framework adapters do this for their host's
+cipher-list property. The suite order in the configured registry is
+the single preference authority: the default registries put AES-GCM first only when the CPU has
+AES hardware, and a registry you supply through `WithCipherSuites` is used in the order you gave it.
+
 ## Force post-quantum-hybrid only
 
 Every preset already *offers* X25519MLKEM768. To offer **nothing but** the hybrid (a client that
@@ -214,7 +233,11 @@ LServer.OnCreateClientSocketHandler := MakeHandler;   // TInetServer's event (fc
 
 Each adapter maps its host's trust/verify/ALPN options onto the library, and each exposes a
 handshake-read timeout (`HandshakeTimeoutMs`, or `SetTlsLibMormotHandshakeTimeout` for mORMot;
-`0` = 30 s default; fcl-net falls back to `Socket.IOTimeout` first) so a stalled peer can't pin the connecting thread. See the package READMEs:
+`0` = 30 s default; fcl-net falls back to `Socket.IOTimeout` first) so a stalled peer can't pin the connecting thread.
+Each also honours its host's cipher-list property (`CipherList` on mORMot and Indy, `Ciphers` on
+Synapse, `CertificateData.CipherList` on fcl-net): exact IANA or OpenSSL suite names, in preference
+order, narrowing the hardened set exactly as `WithCipherSuiteList` does. Cipher-string expressions
+like `HIGH` or `!aNULL` are refused rather than guessed at. See the package READMEs:
 [mORMot](../TlsLib.Adapters/mORMot/README.md) · [Indy](../TlsLib.Adapters/Indy/README.md) ·
 [Synapse](../TlsLib.Adapters/Synapse/README.md) · [fcl-net](../TlsLib.Adapters/FclNet/README.md).
 

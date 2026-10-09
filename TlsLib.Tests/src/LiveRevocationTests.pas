@@ -51,6 +51,7 @@ type
   /// </summary>
   TTestLiveRevocation = class(TTlsLibAlgorithmTestCase)
   strict private
+    function SystemTicks: ITlsMonotonicClock;
     function CaCert: TBytes;
     function LeafCert: TBytes;
     function OcspGood: TBytes;
@@ -244,6 +245,11 @@ implementation
 
 { TTestLiveRevocation }
 
+function TTestLiveRevocation.SystemTicks: ITlsMonotonicClock;
+begin
+  Result := TSystemMonotonicClock.Create as ITlsMonotonicClock;
+end;
+
 function TTestLiveRevocation.Field(const AName: string): TBytes;
 var
   LV: TStringList;
@@ -301,7 +307,7 @@ function TTestLiveRevocation.NewChecker(const AFetcher: IHttpFetcher;
   AMethod: TLiveRevocationMethod): TLiveRevocationChecker;
 begin
   Result := TLiveRevocationChecker.Create(Pkix, TSystemClock.Create as ITlsClock,
-    AFetcher, APosture, AMethod, 0);
+    SystemTicks, AFetcher, APosture, AMethod, 0);
 end;
 
 function TTestLiveRevocation.Accepts(const AChecker: TLiveRevocationChecker;
@@ -619,7 +625,7 @@ begin
   Result := False;
   try
     LChecker := TLiveRevocationChecker.Create(Pkix, TSystemClock.Create as ITlsClock,
-      TMockHttpFetcher.Create as IHttpFetcher, TRevocationPosture.Hard,
+      SystemTicks, TMockHttpFetcher.Create as IHttpFetcher, TRevocationPosture.Hard,
       TLiveRevocationMethod.Ocsp, 0, AOptions);
     LChecker.Free;
   except
@@ -884,7 +890,7 @@ var
   begin
     Result := False;
     try
-      LChecker := TLiveRevocationChecker.Create(APkix, AClock, AFetcher,
+      LChecker := TLiveRevocationChecker.Create(APkix, AClock, SystemTicks, AFetcher,
         TRevocationPosture.Hard, TLiveRevocationMethod.Ocsp, 0, LOptions);
       LChecker.Free;
     except
@@ -1042,7 +1048,7 @@ begin
   LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetGet(True, CrlStale);
   LChecker := TLiveRevocationChecker.Create(Pkix,
-    TMockClock.Create(UInt64(LMidMs)) as ITlsClock, LFetcher as IHttpFetcher,
+    TMockClock.Create(UInt64(LMidMs)) as ITlsClock, SystemTicks, LFetcher as IHttpFetcher,
     TRevocationPosture.Hard, TLiveRevocationMethod.Crl, 0);
   try
     CheckTrue(Accepts(LChecker, Chain),
@@ -1158,9 +1164,9 @@ begin
   LSpy := TSpyPkixProvider.Create(Pkix);
   LSpyPkix := LSpy;
   LSoft := TLiveRevocationChecker.Create(LSpyPkix, TSystemClock.Create as ITlsClock,
-    LFetcher as IHttpFetcher, TRevocationPosture.Soft, TLiveRevocationMethod.Ocsp, 0);
+    SystemTicks, LFetcher as IHttpFetcher, TRevocationPosture.Soft, TLiveRevocationMethod.Ocsp, 0);
   LHard := TLiveRevocationChecker.Create(LSpyPkix, TSystemClock.Create as ITlsClock,
-    LFetcher as IHttpFetcher, TRevocationPosture.Hard, TLiveRevocationMethod.Ocsp, 0);
+    SystemTicks, LFetcher as IHttpFetcher, TRevocationPosture.Hard, TLiveRevocationMethod.Ocsp, 0);
   try
     CheckTrue(LSoft.Evaluate(Chain) = TLiveRevocationOutcome.Indeterminate,
       'an oversize OCSP body is indeterminate');
@@ -1180,7 +1186,7 @@ begin
   LSpy := TSpyPkixProvider.Create(Pkix);
   LSpyPkix := LSpy;
   LSized := TLiveRevocationChecker.Create(LSpyPkix, TSystemClock.Create as ITlsClock,
-    LFetcher as IHttpFetcher, TRevocationPosture.Hard, TLiveRevocationMethod.Ocsp, 0);
+    SystemTicks, LFetcher as IHttpFetcher, TRevocationPosture.Hard, TLiveRevocationMethod.Ocsp, 0);
   try
     CheckTrue(LSized.Evaluate(Chain) = TLiveRevocationOutcome.Good,
       'an in-cap Good response parses to Good');
@@ -1286,9 +1292,9 @@ begin
   LSpy := TSpyPkixProvider.Create(Pkix);
   LSpyPkix := LSpy;
   LSoft := TLiveRevocationChecker.Create(LSpyPkix, TSystemClock.Create as ITlsClock,
-    LFetcher as IHttpFetcher, TRevocationPosture.Soft, TLiveRevocationMethod.Crl, 0);
+    SystemTicks, LFetcher as IHttpFetcher, TRevocationPosture.Soft, TLiveRevocationMethod.Crl, 0);
   LHard := TLiveRevocationChecker.Create(LSpyPkix, TSystemClock.Create as ITlsClock,
-    LFetcher as IHttpFetcher, TRevocationPosture.Hard, TLiveRevocationMethod.Crl, 0);
+    SystemTicks, LFetcher as IHttpFetcher, TRevocationPosture.Hard, TLiveRevocationMethod.Crl, 0);
   try
     CheckTrue(LSoft.Evaluate(Chain) = TLiveRevocationOutcome.Indeterminate,
       'an oversize CRL is indeterminate');
@@ -1307,7 +1313,7 @@ begin
   LSpy := TSpyPkixProvider.Create(Pkix);
   LSpyPkix := LSpy;
   LSized := TLiveRevocationChecker.Create(LSpyPkix, TSystemClock.Create as ITlsClock,
-    LFetcher as IHttpFetcher, TRevocationPosture.Hard, TLiveRevocationMethod.Crl, 0);
+    SystemTicks, LFetcher as IHttpFetcher, TRevocationPosture.Hard, TLiveRevocationMethod.Crl, 0);
   try
     CheckTrue(LSized.Evaluate(Chain) = TLiveRevocationOutcome.Good,
       'an in-cap clean CRL parses to Good');
@@ -1445,7 +1451,7 @@ begin
   LFetcher.SetPost(True, LResponse);
   LChecker := TLiveRevocationChecker.Create(Pkix,
     TMockClock.Create(UInt64(TDateTimeUtilities.DateTimeToUnixMs(LThis) + 3600 * 1000))
-    as ITlsClock, LFetcher as IHttpFetcher, TRevocationPosture.Hard,
+    as ITlsClock, SystemTicks, LFetcher as IHttpFetcher, TRevocationPosture.Hard,
     TLiveRevocationMethod.Ocsp, 0);
   try
     CheckTrue(LChecker.Evaluate(TArray<TBytes>.Create(LLeaf, LCa)) =
@@ -1484,7 +1490,8 @@ begin
   LFetcher.SetPost(True, LResponse);
   LChecker := TLiveRevocationChecker.Create(Pkix,
     TMockClock.Create(UInt64(TDateTimeUtilities.DateTimeToUnixMs(LThis) +
-    TRevocationDecision.OcspUnboundedMaxAgeMs + 1)) as ITlsClock, LFetcher as IHttpFetcher,
+    TRevocationDecision.OcspUnboundedMaxAgeMs + 1)) as ITlsClock, SystemTicks,
+    LFetcher as IHttpFetcher,
     TRevocationPosture.Hard, TLiveRevocationMethod.Ocsp, 0);
   try
     CheckTrue(LChecker.Evaluate(TArray<TBytes>.Create(LLeaf, LCa)) =
@@ -1543,7 +1550,8 @@ begin
   LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetGet(True, ACrl);
   Result := TLiveRevocationChecker.Create(Pkix, TSystemClock.Create as ITlsClock,
-    LFetcher as IHttpFetcher, APosture, TLiveRevocationMethod.Crl, 0);
+    TSystemMonotonicClock.Create as ITlsMonotonicClock, LFetcher as IHttpFetcher, APosture,
+    TLiveRevocationMethod.Crl, 0);
 end;
 
 function TTestCrlScope.Accepts(const AChecker: TLiveRevocationChecker;
