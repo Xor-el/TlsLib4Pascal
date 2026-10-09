@@ -391,6 +391,7 @@ resourcestring
     'a ClientHello''s extensions block (RFC 8446 4.1.2) can always carry it';
   SNoRegisteredPreferredGroup = 'none of the preferred key-exchange groups is in the named-group ' +
     'registry, so no handshake could ever select a group';
+  SCipherSuiteListEmpty = 'a cipher-suite list must name at least one suite';
   SCipherSuiteNotConfigured = 'cipher suite %s is not in the configured cipher-suite set';
   SNoSuiteForVersion = '%s is offered but the cipher-suite set holds no %s suite';
   SNoClassicalEcdheGroup = 'TLS 1.2 is offered but none of the preferred key-exchange groups is a ' +
@@ -1892,6 +1893,9 @@ function TTlsConfigBuilder.WithCipherSuiteList(
   const ASuites: TArray<UInt16>): TTlsConfigBuilder;
 begin
   GuardMutable;
+  // an empty list would read as "no list", silently leaving the preset's full set in force
+  if System.Length(ASuites) = 0 then
+    raise EArgumentTlsLibException.CreateRes(@SCipherSuiteListEmpty);
   FCipherSuiteList := System.Copy(ASuites);
   Result := Self;
 end;

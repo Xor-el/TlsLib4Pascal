@@ -163,6 +163,7 @@ type
     procedure TestCipherSuiteListLeavesAnUnnamedProtocolIntact;
     procedure TestCipherSuiteListOutsideTheConfiguredSetIsRefused;
     procedure TestCipherSuiteListIsIndependentOfCallOrder;
+    procedure TestEmptyCipherSuiteListIsRefused;
     procedure TestOfferedVersionWithoutASuiteIsRefused;
     procedure TestServerCipherSuiteListOrderDecidesTheNegotiatedSuite;
     procedure TestClientCipherSuiteListIsTheOnlyOfferedSuite;
@@ -1279,6 +1280,21 @@ begin
     TNegotiationPolicy.SuiteOrder(LBefore.CipherSuites, TSuiteProtocol.Tls12),
     TNegotiationPolicy.SuiteOrder(LAfter.CipherSuites, TSuiteProtocol.Tls12)),
     'the list applies at Build, whichever order the setters ran in');
+end;
+
+procedure TTestConfigBuilder.TestEmptyCipherSuiteListIsRefused;
+var
+  LRaised: Boolean;
+begin
+  // an empty list must not read as "no list", which would leave the preset's full set in force
+  LRaised := False;
+  try
+    NewClientBuilder.WithCipherSuiteList(nil);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an empty cipher-suite list is a typed error');
 end;
 
 procedure TTestConfigBuilder.TestOfferedVersionWithoutASuiteIsRefused;
