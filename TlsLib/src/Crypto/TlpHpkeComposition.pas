@@ -543,7 +543,7 @@ end;
 
 function THpkeCompositionRecipientKey.PublicKey: TBytes;
 begin
-  Result := FPublicKey;
+  Result := System.Copy(FPublicKey);
 end;
 
 function THpkeCompositionRecipientKey.SetupOpener(const ASuite: IHpkeSuite;

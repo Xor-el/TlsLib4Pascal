@@ -420,8 +420,12 @@ type
   strict private
   var
     FSigner: ISigner;
+    FExactLength: Int32;
   public
-    constructor Create(const ASigner: ISigner);
+    constructor Create(const ASigner: ISigner); overload;
+    /// <summary>For RSA: a signature must be exactly this many octets, the modulus length
+    /// (RFC 8017 8.1.2 / 8.2.2 step 1), else it is rejected before the backend runs.</summary>
+    constructor Create(const ASigner: ISigner; AExactLength: Int32); overload;
     procedure Update(const AData: TBytes; AOffset, ALength: Int32);
     function Verify(const ASignature: TBytes): Boolean;
   end;
@@ -1340,6 +1344,13 @@ constructor TSignatureVerifierAdapter.Create(const ASigner: ISigner);
 begin
   inherited Create;
   FSigner := ASigner;
+  FExactLength := 0;
+end;
+
+constructor TSignatureVerifierAdapter.Create(const ASigner: ISigner; AExactLength: Int32);
+begin
+  Create(ASigner);
+  FExactLength := AExactLength;
 end;
 
 procedure TSignatureVerifierAdapter.Update(const AData: TBytes; AOffset, ALength: Int32);
@@ -1349,6 +1360,8 @@ end;
 
 function TSignatureVerifierAdapter.Verify(const ASignature: TBytes): Boolean;
 begin
+  if (FExactLength > 0) and (System.Length(ASignature) <> FExactLength) then
+    Exit(False);
   // fail-closed: any error on a malformed signature (a range/convert error from the ASN.1/bignum
   // layer, not only a backend exception) is a failed verification, never an escaping exception
   try
@@ -2073,6 +2086,7 @@ var
   LKey: IAsymmetricKeyParameter;
   LKind: TSignatureKeyKind;
   LSigner: ISigner;
+  LRsa: IRsaKeyParameters;
 begin
   // parse the SubjectPublicKeyInfo behind a typed exception (a malformed SPKI is a caller/peer
   // input problem, never a raw backend exception crossing the seam)
@@ -2099,7 +2113,12 @@ begin
     on E: ECryptoLibException do
       raise EArgumentTlsLibException.CreateRes(@SKeyUnusableForScheme);
   end;
-  Result := TSignatureVerifierAdapter.Create(LSigner);
+  // an RSA signature is exactly the modulus length (RFC 8017 8.1.2 / 8.2.2); the backend alone
+  // would accept one whose leading zero octets were stripped
+  if Supports(LKey, IRsaKeyParameters, LRsa) then
+    Result := TSignatureVerifierAdapter.Create(LSigner, (LRsa.Modulus.BitLength + 7) div 8)
+  else
+    Result := TSignatureVerifierAdapter.Create(LSigner);
 end;
 
 function TSigningCrypto.ImportPkcs12(const AData: TBytes;

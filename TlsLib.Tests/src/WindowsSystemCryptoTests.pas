@@ -97,6 +97,7 @@ type
     // as given, wrapped first, or handed on to the portable facet
     procedure TestImportLeavesCallerKeyBytesIntact;
     procedure TestNativeVerifierRejectsCrossFamilyScheme;
+    procedure TestNativeRsaVerifierRejectsShortSignature;
     procedure TestEcdhImportRefusesScalarsOutsideTheGroupOrder;
     // every key-exchange primitive refuses a key minted by another primitive, and accepts its own
     // family's key through a fresh instance
@@ -135,8 +136,12 @@ type
   TThrowingInnerSigning = class(TInterfacedObject, ISigningCrypto)
   strict private
     FReal: ISigningCrypto;
+    FThrowOnVerify: Boolean;
   public
-    constructor Create(const AReal: ISigningCrypto);
+    constructor Create(const AReal: ISigningCrypto); overload;
+    // imports and signs through the real facet but fails loudly on creating a verifier, so a
+    // test can prove a verification ran natively and not through this facet
+    constructor Create(const AReal: ISigningCrypto; AThrowOnVerify: Boolean); overload;
     function ImportSigningKey(const AData: TBytes;
       const APassword: ISecretBuffer): ISigningKey;
     function ImportPkcs12(const AData: TBytes;
@@ -156,11 +161,20 @@ constructor TThrowingInnerSigning.Create(const AReal: ISigningCrypto);
 begin
   inherited Create;
   FReal := AReal;
+  FThrowOnVerify := False;
+end;
+
+constructor TThrowingInnerSigning.Create(const AReal: ISigningCrypto; AThrowOnVerify: Boolean);
+begin
+  Create(AReal);
+  FThrowOnVerify := AThrowOnVerify;
 end;
 
 function TThrowingInnerSigning.ImportSigningKey(const AData: TBytes;
   const APassword: ISecretBuffer): ISigningKey;
 begin
+  if FThrowOnVerify then
+    Exit(FReal.ImportSigningKey(AData, APassword));
   raise Exception.CreateRes(@SPortableUsed);
 end;
 
@@ -179,6 +193,8 @@ end;
 function TThrowingInnerSigning.CreateSignatureVerifier(AScheme: TSignatureScheme;
   const APublicKeyDer: TBytes): ISignatureVerifier;
 begin
+  if FThrowOnVerify then
+    raise Exception.CreateRes(@SPortableUsed);
   Result := FReal.CreateSignatureVerifier(AScheme, APublicKeyDer);
 end;
 
@@ -360,6 +376,54 @@ begin
     LRsaKey.PublicKeyInfo);
   LVerifier.Update(LMessage, 0, System.Length(LMessage));
   CheckFalse(LVerifier.Verify(LRsaSignature), 'an RSA key does not verify under an ECDSA scheme');
+end;
+
+procedure TTestWindowsSystemCrypto.TestNativeRsaVerifierRejectsShortSignature;
+
+  procedure CheckScheme(const AProvider: ICryptoProvider; AScheme: TSignatureScheme);
+  var
+    LKey: ISigningKey;
+    LSigner: ISignatureSigner;
+    LVerifier: ISignatureVerifier;
+    LMessage, LSignature, LStripped: TBytes;
+    LCounter: Int32;
+  begin
+    LKey := AProvider.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_pkcs8_der']), nil);
+    // vary the message until the signature starts with a zero octet (about 1 in 256)
+    LSignature := nil;
+    LMessage := nil;
+    for LCounter := 0 to 4095 do
+    begin
+      LMessage := TBytes.Create(Byte(LCounter shr 8), Byte(LCounter and $FF));
+      LSigner := AProvider.Signing.CreateSignatureSigner(AScheme, LKey);
+      LSigner.Update(LMessage, 0, System.Length(LMessage));
+      LSignature := LSigner.Sign;
+      if LSignature[0] = 0 then
+        Break;
+    end;
+    CheckTrue(LSignature[0] = 0, 'a signature with a leading zero octet was found');
+    LVerifier := AProvider.Signing.CreateSignatureVerifier(AScheme, LKey.PublicKeyInfo);
+    LVerifier.Update(LMessage, 0, System.Length(LMessage));
+    CheckTrue(LVerifier.Verify(LSignature), 'the full-length signature verifies');
+    LStripped := System.Copy(LSignature, 1, System.Length(LSignature) - 1);
+    LVerifier := AProvider.Signing.CreateSignatureVerifier(AScheme, LKey.PublicKeyInfo);
+    LVerifier.Update(LMessage, 0, System.Length(LMessage));
+    CheckFalse(LVerifier.Verify(LStripped),
+      'the signature without its leading zero octet is rejected (RFC 8017 8.1.2 / 8.2.2)');
+  end;
+
+var
+  LBase, LProvider: ICryptoProvider;
+begin
+  // the inner facet raises on creating a verifier, so every verification here ran natively
+  LBase := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable);
+  LProvider := Composed((TCryptoProviderBuilder.Create as ICryptoProviderBuilder)
+    .WithSigning(TThrowingInnerSigning.Create(LBase.Signing, True) as ISigningCrypto)
+    .Build);
+  if not NativeSigningOrSkip(LProvider, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  CheckScheme(LProvider, TSignatureScheme.RSA_PSS_RSAE_SHA256);
+  CheckScheme(LProvider, TSignatureScheme.RSA_PKCS1_SHA256);
 end;
 
 procedure TTestWindowsSystemCrypto.TestX25519NeverDisagreesWithPortable;

@@ -16,7 +16,8 @@ unit TlpDer;
 interface
 
 uses
-  SysUtils;
+  SysUtils,
+  TlpBinaryPrimitives;
 
 type
   /// <summary>
@@ -34,7 +35,7 @@ type
     /// <summary>Whether the ALen bytes at AOffset equal the expected OID value bytes.</summary>
     class function OidMatches(const ADer: TBytes; AOffset, ALen: Int32;
       const AExpected: array of Byte): Boolean; static;
-    /// <summary>The DER length encoding of ALen (short form, or 0x81 / 0x82 long form).</summary>
+    /// <summary>The DER length encoding of ALen (short form, or the minimal long form 0x81-0x84).</summary>
     class function EncodeLength(ALen: Int32): TBytes; static;
     /// <summary>A tag-length-value: ATag, the encoded length of AContent, then AContent.</summary>
     class function Tlv(ATag: Byte; const AContent: TBytes): TBytes; static;
@@ -73,7 +74,7 @@ begin
     LLen := 0;
     for LI := 0 to LN - 1 do
       LLen := (LLen shl 8) or ADer[AOffset + 2 + LI];
-    // reject a non-minimal long form (DER)
+    // reject a non-minimal long form (X.690 10.1, DER)
     if ((LN = 1) and (LLen < $80)) or ((LN >= 2) and (ADer[AOffset + 2] = 0)) then
       Exit;
     AContentOffset := AOffset + 2 + LN;
@@ -101,13 +102,22 @@ begin
 end;
 
 class function TDer.EncodeLength(ALen: Int32): TBytes;
+var
+  LWide: TBytes;
+  LN: Int32;
 begin
   if ALen < $80 then
-    Result := TBytes.Create(Byte(ALen))
-  else if ALen < $100 then
-    Result := TBytes.Create($81, Byte(ALen))
-  else
-    Result := TBytes.Create($82, Byte(ALen shr 8), Byte(ALen and $FF));
+    Exit(TBytes.Create(Byte(ALen)));
+  // long form: the fewest big-endian octets that hold the length (X.690 8.1.3.5, 10.1)
+  LWide := nil;
+  SetLength(LWide, 4);
+  TBinaryPrimitives.WriteUInt32BigEndian(LWide, 0, UInt32(ALen));
+  LN := 4;
+  while LWide[4 - LN] = 0 do
+    System.Dec(LN);
+  SetLength(Result, 1 + LN);
+  Result[0] := Byte($80 or LN);
+  System.Move(LWide[4 - LN], Result[1], LN);
 end;
 
 class function TDer.Tlv(ATag: Byte; const AContent: TBytes): TBytes;
