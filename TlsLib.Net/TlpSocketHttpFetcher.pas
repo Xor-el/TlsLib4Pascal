@@ -25,12 +25,12 @@ interface
 uses
   SysUtils,
   Classes,
+  SyncObjs,
 {$IFDEF FPC}
   fphttpclient,
 {$ELSE}
   System.Net.HttpClient,
   System.Net.URLClient,
-  System.SyncObjs,
 {$ENDIF FPC}
   TlpHttpUrl,
   TlpIClock,
@@ -42,8 +42,9 @@ type
   /// <summary>A blocking IHttpFetcher backed by the RTL HTTP client (FPC fphttpclient /
   /// Delphi System.Net.HttpClient). Suitable for live OCSP (POST) and CRL (GET) retrieval.
   /// The timeout bounds the whole exchange once the host name is resolved, so a responder that
-  /// trickles bytes cannot hold the caller past it; name resolution itself is not bounded. Never
-  /// raises; a failed exchange yields False with an empty response.</summary>
+  /// trickles bytes cannot hold the caller past it; name resolution itself is not bounded. The
+  /// injected clock may be read from another thread. Never raises; a failed exchange yields False
+  /// with an empty response.</summary>
   TSocketHttpFetcher = class sealed(TInterfacedObject, IHttpFetcher)
   strict private
     FClock: ITlsMonotonicClock;
@@ -74,24 +75,19 @@ type
     FExpiresAt: Int64;
     FBounded: Boolean;
   public
-    // ATimeoutMs = 0 leaves the exchange unbounded, as before
+    // ATimeoutMs = 0 leaves the exchange unbounded
     constructor Create(const AClock: ITlsMonotonicClock; ATimeoutMs: Cardinal);
     function Expired: Boolean;
+    // raises once the budget is spent
     procedure Check;
-    // the budget left, for clamping a per-read timeout: at least 1 so it never reads as "none", and
+    // the budget left, for clamping a per-read timeout: 0 when unbounded, else at least 1 and
     // within the Int32 the RTL clients take
     function RemainingMs: Int32;
     property Bounded: Boolean read FBounded;
-{$IFDEF FPC}
-    procedure OnDataReceived(ASender: TObject; const AContentLength, ACurrentPos: Int64);
-{$ELSE}
-    procedure OnReceiveData(const ASender: TObject; AContentLength, AReadCount: Int64;
-      var AAbort: Boolean);
-{$ENDIF}
   end;
 
-  // a memory-backed sink that refuses to buffer past the cap; the overflowing Write raises, and
-  // Fetch's except turns that into the fail-closed False the contract already promises
+  // a memory-backed sink that refuses to buffer past the cap or the budget; the raise reaches
+  // Fetch's except, which turns it into the fail-closed False the contract already promises
   TBoundedMemoryStream = class(TStream)
   strict private
   const
@@ -114,24 +110,6 @@ type
     function Seek(const AOffset: Int64; AOrigin: TSeekOrigin): Int64; override;
   end;
 
-{$IFNDEF FPC}
-  // the Delphi client reports no progress while it reads the response headers, so a responder that
-  // trickles them would never reach the deadline hook; this cancels the request when the budget
-  // runs out
-  TDeadlineWatchdog = class(TThread)
-  strict private
-    FRequest: IHTTPRequest;
-    FDeadline: TFetchDeadline;
-    FFinished: TEvent;
-  protected
-    procedure Execute; override;
-  public
-    constructor Create(const ARequest: IHTTPRequest; const ADeadline: TFetchDeadline);
-    destructor Destroy; override;
-    procedure Stop;
-  end;
-{$ENDIF}
-
   // one fetch against the RTL client; the types above are private to this unit, so the steps that
   // use them live here rather than on the public class
   TSocketHttpExchange = class sealed(TObject)
@@ -143,8 +121,8 @@ type
     class function Execute(const AMethod, AUrl, AContentType: string; const ABody: TStream;
       const ADeadline: TFetchDeadline; const ASink: TStream): Integer; static;
   public
-    // the whole fail-closed contract, shared by both RTLs: request-stream lifetime, bounded response
-    // sink, the try/except that swallows every error, the 2xx gate, and the bytes-out
+    // the whole fail-closed contract: request-stream lifetime, bounded response sink, the
+    // try/except that swallows every error, the deadline, the 2xx gate, and the bytes-out
     class function Fetch(const AClock: ITlsMonotonicClock; const AMethod, AUrl,
       AContentType: string; const ABody: TBytes; ATimeoutMs: Cardinal; AMaxBytes: Int32;
       out AResponse: TBytes): Boolean; static;
@@ -185,25 +163,6 @@ begin
     LLeft := High(Int32);
   Result := Int32(LLeft);
 end;
-
-{$IFDEF FPC}
-procedure TFetchDeadline.OnDataReceived(ASender: TObject; const AContentLength,
-  ACurrentPos: Int64);
-begin
-  // every socket read, headers included, lands here, so a trickle in any phase is cut off, and the
-  // next read waits no longer than what is left
-  Check;
-  if FBounded and (ASender is TFPHTTPClient) then
-    TFPHTTPClient(ASender).IOTimeout := RemainingMs;
-end;
-{$ELSE}
-procedure TFetchDeadline.OnReceiveData(const ASender: TObject; AContentLength,
-  AReadCount: Int64; var AAbort: Boolean);
-begin
-  if Expired then
-    AAbort := True;
-end;
-{$ENDIF}
 
 { TBoundedMemoryStream }
 
@@ -251,15 +210,102 @@ begin
   Result := FInner.Write(ABuffer, ACount);
 end;
 
-function TBoundedMemoryStream.Seek(const AOffset: Int64;
-  AOrigin: TSeekOrigin): Int64;
+function TBoundedMemoryStream.Seek(const AOffset: Int64; AOrigin: TSeekOrigin): Int64;
 begin
   Result := FInner.Seek(AOffset, AOrigin);
 end;
 
-{$IFNDEF FPC}
+{ TSocketHttpExchange }
 
-{ TDeadlineWatchdog }
+class function TSocketHttpExchange.ReadStreamBytes(const AStream: TStream): TBytes;
+var
+  LLen: Int64;
+begin
+  Result := nil;
+  if AStream = nil then
+    Exit;
+  AStream.Position := 0;
+  LLen := AStream.Size;
+  if LLen <= 0 then
+    Exit;
+  SetLength(Result, LLen);
+  AStream.ReadBuffer(Result[0], LLen);
+end;
+
+// everything specific to one RTL client is in this one block
+{$IFDEF FPC}
+
+type
+  // the client calls DoDataRead on every socket read, response head included
+  TDeadlineHttpClient = class(TFPHTTPClient)
+  strict private
+    FDeadline: TFetchDeadline;
+  protected
+    procedure DoDataRead; override;
+  public
+    constructor Create(const ADeadline: TFetchDeadline); reintroduce;
+  end;
+
+constructor TDeadlineHttpClient.Create(const ADeadline: TFetchDeadline);
+begin
+  inherited Create(nil);
+  FDeadline := ADeadline;
+end;
+
+procedure TDeadlineHttpClient.DoDataRead;
+begin
+  inherited DoDataRead;
+  // a trickle in any phase is cut off, and the next read waits no longer than what is left
+  FDeadline.Check;
+  if FDeadline.Bounded then
+    IOTimeout := FDeadline.RemainingMs;
+end;
+
+class function TSocketHttpExchange.Execute(const AMethod, AUrl, AContentType: string;
+  const ABody: TStream; const ADeadline: TFetchDeadline; const ASink: TStream): Integer;
+var
+  LClient: TDeadlineHttpClient;
+begin
+  LClient := TDeadlineHttpClient.Create(ADeadline);
+  try
+    if ADeadline.Bounded then
+    begin
+      LClient.ConnectTimeout := ADeadline.RemainingMs;
+      LClient.IOTimeout := ADeadline.RemainingMs;
+    end;
+    // the responder URL is peer-chosen; do not chase redirects it hands us
+    LClient.AllowRedirect := False;
+    if ABody <> nil then
+    begin
+      LClient.AddHeader('Content-Type', AContentType);
+      LClient.RequestBody := ABody;
+    end;
+    // [] accepts any status without raising, so the 2xx gate lives once in Fetch
+    LClient.HTTPMethod(AMethod, AUrl, ASink, []);
+    Result := LClient.ResponseStatusCode;
+  finally
+    LClient.Free;
+  end;
+end;
+
+{$ELSE}
+
+type
+  // the client reports no progress while it reads the response head, so a responder that trickles
+  // it would never reach a progress hook; this cancels the request when the budget runs out. The
+  // cancel is verified on WinHTTP; other back ends rely on the deadline check after the exchange
+  TDeadlineWatchdog = class(TThread)
+  strict private
+    FRequest: IHTTPRequest;
+    FDeadline: TFetchDeadline;
+    FFinished: TEvent;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(const ARequest: IHTTPRequest; const ADeadline: TFetchDeadline);
+    destructor Destroy; override;
+    procedure Stop;
+  end;
 
 constructor TDeadlineWatchdog.Create(const ARequest: IHTTPRequest;
   const ADeadline: TFetchDeadline);
@@ -292,58 +338,6 @@ begin
   WaitFor;
 end;
 
-{$ENDIF}
-
-{ TSocketHttpExchange }
-
-class function TSocketHttpExchange.ReadStreamBytes(const AStream: TStream): TBytes;
-var
-  LLen: Int64;
-begin
-  Result := nil;
-  if AStream = nil then
-    Exit;
-  AStream.Position := 0;
-  LLen := AStream.Size;
-  if LLen <= 0 then
-    Exit;
-  SetLength(Result, LLen);
-  AStream.ReadBuffer(Result[0], LLen);
-end;
-
-{$IFDEF FPC}
-
-class function TSocketHttpExchange.Execute(const AMethod, AUrl, AContentType: string;
-  const ABody: TStream; const ADeadline: TFetchDeadline; const ASink: TStream): Integer;
-var
-  LClient: TFPHTTPClient;
-begin
-  LClient := TFPHTTPClient.Create(nil);
-  try
-    // each wait is held to what is left of the whole exchange, and re-held as reads arrive
-    if ADeadline.Bounded then
-    begin
-      LClient.ConnectTimeout := ADeadline.RemainingMs;
-      LClient.IOTimeout := ADeadline.RemainingMs;
-    end;
-    LClient.OnDataReceived := ADeadline.OnDataReceived;
-    // the responder URL is peer-chosen; do not chase redirects it hands us
-    LClient.AllowRedirect := False;
-    if ABody <> nil then
-    begin
-      LClient.AddHeader('Content-Type', AContentType);
-      LClient.RequestBody := ABody;
-    end;
-    // [] accepts any status without raising, so the 2xx gate lives once in Fetch
-    LClient.HTTPMethod(AMethod, AUrl, ASink, []);
-    Result := LClient.ResponseStatusCode;
-  finally
-    LClient.Free;
-  end;
-end;
-
-{$ELSE}
-
 class function TSocketHttpExchange.Execute(const AMethod, AUrl, AContentType: string;
   const ABody: TStream; const ADeadline: TFetchDeadline; const ASink: TStream): Integer;
 var
@@ -355,14 +349,11 @@ begin
   LClient := THTTPClient.Create;
   LWatchdog := nil;
   try
-    // each wait is held to what is left of the whole exchange; the watchdog and the progress hook
-    // cover the stretches the waits cannot
     if ADeadline.Bounded then
     begin
       LClient.ConnectionTimeout := ADeadline.RemainingMs;
       LClient.ResponseTimeout := ADeadline.RemainingMs;
     end;
-    LClient.OnReceiveData := ADeadline.OnReceiveData;
     // the responder URL is peer-chosen; do not chase redirects it hands us
     LClient.HandleRedirects := False;
     LRequest := LClient.GetRequest(AMethod, AUrl);
@@ -382,8 +373,6 @@ begin
         LWatchdog.Free;
       end;
     end;
-    // a cancel or an abort can surface as a short response rather than an error
-    ADeadline.Check;
     Result := LResponse.StatusCode;
   finally
     LClient.Free;
@@ -420,6 +409,8 @@ begin
       end;
       LSink := TBoundedMemoryStream.Create(AMaxBytes, LDeadline);
       LStatus := Execute(AMethod, LUrl.ToString, AContentType, LRequest, LDeadline, LSink);
+      // a cancel can end the exchange with a short response rather than an error
+      LDeadline.Check;
       if (LStatus >= 200) and (LStatus < 300) then
       begin
         AResponse := ReadStreamBytes(LSink);

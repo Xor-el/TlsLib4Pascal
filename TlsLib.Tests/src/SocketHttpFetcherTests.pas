@@ -52,6 +52,22 @@ type
 
 implementation
 
+{$IFDEF FPC}
+const
+  // a client that has given up must not kill the process with SIGPIPE on the next send:
+  // MSG_NOSIGNAL per send where it exists, else the SO_NOSIGPIPE option (Darwin)
+{$IF DEFINED(TLSLIB_MACOS) OR DEFINED(TLSLIB_IOS)}
+  SEND_FLAGS = 0;
+  NOSIGPIPE_SOCKOPT = SO_NOSIGPIPE;
+{$ELSEIF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_ANDROID) OR DEFINED(TLSLIB_BSD)}
+  SEND_FLAGS = MSG_NOSIGNAL;
+  NOSIGPIPE_SOCKOPT = 0;
+{$ELSE}
+  SEND_FLAGS = 0;
+  NOSIGPIPE_SOCKOPT = 0;
+{$IFEND}
+{$ENDIF}
+
 type
   // a one-connection server on 127.0.0.1; the socket calls live here and nowhere else
   TLoopbackServer = class(TObject)
@@ -108,6 +124,7 @@ var
 begin
   inherited Create;
 {$IFDEF FPC}
+  FClient := -1;
   FListener := fpSocket(AF_INET, SOCK_STREAM, 0);
   LAddr := Default(TInetSockAddr);
   LAddr.sin_family := AF_INET;
@@ -128,7 +145,8 @@ destructor TLoopbackServer.Destroy;
 begin
   Close;
 {$IFDEF FPC}
-  CloseSocket(FClient);
+  if FClient >= 0 then
+    CloseSocket(FClient);
 {$ELSE}
   // a forced close skips the shutdown that fails on a listener or a client that has gone
   if FClient <> nil then
@@ -141,10 +159,19 @@ begin
 end;
 
 function TLoopbackServer.Accept: Boolean;
+{$IFDEF FPC}
+var
+  LOn: Integer;
+{$ENDIF}
 begin
 {$IFDEF FPC}
   FClient := fpAccept(FListener, nil, nil);
   Result := FClient >= 0;
+  if Result and (NOSIGPIPE_SOCKOPT <> 0) then
+  begin
+    LOn := 1;
+    fpSetSockOpt(FClient, SOL_SOCKET, NOSIGPIPE_SOCKOPT, @LOn, SizeOf(LOn));
+  end;
 {$ELSE}
   // short waits, so a Close from another thread is noticed
   while (FClient = nil) and not FClosed do
@@ -165,7 +192,7 @@ end;
 function TLoopbackServer.Send(const ABuffer; ACount: Int32): Boolean;
 begin
 {$IFDEF FPC}
-  Result := fpSend(FClient, @ABuffer, ACount, 0) > 0;
+  Result := fpSend(FClient, @ABuffer, ACount, SEND_FLAGS) > 0;
 {$ELSE}
   Result := FClient.Send(ABuffer, ACount) > 0;
 {$ENDIF}
@@ -173,8 +200,12 @@ end;
 
 procedure TLoopbackServer.Close;
 begin
+  if FClosed then
+    Exit;
   FClosed := True;
 {$IFDEF FPC}
+  // a shutdown wakes an accept blocked in another thread, which a close alone does not on Linux
+  fpShutdown(FListener, SHUT_RDWR);
   CloseSocket(FListener);
 {$ENDIF}
 end;

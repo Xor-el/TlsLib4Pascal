@@ -48,18 +48,10 @@ var
   LMode: UINT;
   LDir: string;
   LLen: UINT;
-{$IF DEFINED(TLSLIB_I386) OR DEFINED(TLSLIB_X86_64)}
-  LX87, LMxcsr: Cardinal;
-{$IFEND}
 begin
   // a bare-name load would search the executable's directory first, where a planted library
   // could stand in for the OS trust or crypto API
   LMode := SetErrorMode(SEM_FAILCRITICALERRORS);
-{$IF DEFINED(TLSLIB_I386) OR DEFINED(TLSLIB_X86_64)}
-  // a library's initialisation can change the floating-point state; keep the caller's
-  LX87 := Get8087CW;
-  LMxcsr := GetMXCSR;
-{$IFEND}
   try
     Result := NativeUInt(LoadLibraryEx(PChar(AName), 0, LOAD_LIBRARY_SEARCH_SYSTEM32));
     // a system without the search-flag update rejects the flag: load by full system path
@@ -77,10 +69,6 @@ begin
       end;
     end;
   finally
-{$IF DEFINED(TLSLIB_I386) OR DEFINED(TLSLIB_X86_64)}
-    Set8087CW(LX87);
-    SetMXCSR(LMxcsr);
-{$IFEND}
     SetErrorMode(LMode);
   end;
 end;
