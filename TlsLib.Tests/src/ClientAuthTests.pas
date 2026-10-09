@@ -72,6 +72,8 @@ type
     function SpkiSha256(const ACertDer: TBytes): TBytes;
     function New13Client(AWithCredential: Boolean): ITlsEngine;
     function New13Server(AMode: TClientAuthMode): ITlsEngine;
+    function New13ServerWithSchemes(AMode: TClientAuthMode;
+      const ASchemes: TArray<UInt16>): ITlsEngine;
     // a 1.3 mTLS server whose client-certificate verifier is wrapped in the client-side SPKI
     // pinning decorator, as the engine factory composes it when server pins are configured
     function New13ServerPinned(AMode: TClientAuthMode;
@@ -98,6 +100,8 @@ type
     procedure TestTls13RequiredClientAuthCompletes;
     procedure TestTls13RequiredClientAuthMissingCertAborts;
     procedure TestTls13RequestedClientAuthWithoutCertCompletes;
+    procedure TestTls13RequestedClientAuthWithNoMatchingSchemeDeclines;
+    procedure TestTls13RequiredClientAuthWithNoMatchingSchemeAborts;
     procedure TestTls12RequiredClientAuthCompletes;
     procedure TestTls12RequiredClientAuthMissingCertAborts;
     procedure TestTls12RequestedClientAuthWithoutCertCompletes;
@@ -106,6 +110,7 @@ type
     procedure TestTls12ServerRejectsUnrequestedClientCertVerifyScheme;
     procedure TestTls12ClientRejectsSecondCertificateRequest;
     procedure TestTls13CertificateRequestWithoutSignatureAlgorithmsAborts;
+    procedure TestTls13CertificateRequestWithNoUsableSchemeAborts;
     procedure TestTls13ServerRejectsNonEmptyClientCertificateContext;
     procedure TestTls13ServerRejectsClientIntermediateExtension;
     procedure TestTls13ClientCertPinMatchCompletes;
@@ -233,6 +238,13 @@ begin
 end;
 
 function TTestClientAuth.New13Server(AMode: TClientAuthMode): ITlsEngine;
+begin
+  Result := New13ServerWithSchemes(AMode,
+    TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256));
+end;
+
+function TTestClientAuth.New13ServerWithSchemes(AMode: TClientAuthMode;
+  const ASchemes: TArray<UInt16>): ITlsEngine;
 var
   LParams: TServerHandshakeParams;
 begin
@@ -247,7 +259,7 @@ begin
   LParams.ServerRandom := Filled($22, 32);
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(Credential);
   LParams.ClientAuth := AMode;
-  LParams.ClientAuthSignatureSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+  LParams.ClientAuthSignatureSchemes := ASchemes;
   LParams.ClientCertificateVerifier := PeerVerifier;
   Result := TTlsEngine.CreateConfigured(
     TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
@@ -537,6 +549,36 @@ begin
   CheckFalse(LClient.IsTerminal or LServer.IsTerminal, '1.3 requested mTLS: no failure');
 end;
 
+procedure TTestClientAuth.TestTls13RequestedClientAuthWithNoMatchingSchemeDeclines;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // the credential's only scheme (ECDSA P-256) is not in the server's signature_algorithms, so the
+  // client sends an empty Certificate (RFC 8446 4.4.2) and a Requested server carries on
+  LClient := New13Client(True);
+  LServer := New13ServerWithSchemes(TClientAuthMode.Requested,
+    TArray<UInt16>.Create(TSignatureSchemes.Ed25519));
+  Drive(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking or LServer.IsHandshaking,
+    'no usable scheme: a Requested handshake completes without a client certificate');
+  CheckFalse(LClient.IsTerminal or LServer.IsTerminal, 'no usable scheme: no failure');
+end;
+
+procedure TTestClientAuth.TestTls13RequiredClientAuthWithNoMatchingSchemeAborts;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // the same decline under Required is refused by the server's own policy
+  LClient := New13Client(True);
+  LServer := New13ServerWithSchemes(TClientAuthMode.Required,
+    TArray<UInt16>.Create(TSignatureSchemes.Ed25519));
+  Drive(LClient, LServer);
+  CheckTrue(LServer.IsTerminal, 'no usable scheme: a Required server fails closed');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateRequired),
+    Ord(LServer.LastError.Alert.Description),
+    'the server refuses the empty Certificate with certificate_required, not the client aborting');
+end;
+
 procedure TTestClientAuth.TestTls12RequiredClientAuthCompletes;
 var
   LClient, LServer: ITlsEngine;
@@ -695,6 +737,40 @@ begin
     'a CertificateRequest without signature_algorithms aborts');
   CheckEquals(Int64(Ord(TTlsAlertDescription.MissingExtension)), Int64(Ord(LAlert)),
     'the abort is missing_extension');
+end;
+
+procedure TTestClientAuth.TestTls13CertificateRequestWithNoUsableSchemeAborts;
+var
+  LClient, LServer: IHandshakeMachine;
+  LFlight: TArray<TBytes>;
+  LReq: TTlsCertificateRequest13;
+  LCertReq: TBytes;
+  LAlert: TTlsAlertDescription;
+begin
+  // a request whose only scheme is rsa_pkcs1_sha256 (not usable in TLS 1.3) could never accept a
+  // CertificateVerify: the client refuses it whatever its credential
+  LClient := New13ClientMachine(True);
+  LServer := New13ServerMachine(TClientAuthMode.Required);
+  LFlight := AllSendHandshake(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(FirstSendHandshake(LClient.Start))));
+  LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[0])); // ServerHello
+  LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[1])); // EncryptedExtensions
+  LReq.RequestContext := nil;
+  // extensions: one signature_algorithms (13) carrying [rsa_pkcs1_sha256 = 0x0401]
+  LReq.Extensions := TBytes.Create($00, $08, $00, $0D, $00, $04, $00, $02, $04, $01);
+  LCertReq := THandshakeFraming.Frame(TTlsHandshakeType.CertificateRequest,
+    THandshakeMessages.EncodeCertificateRequest13(LReq));
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCertReq)), LAlert),
+    'a CertificateRequest with no TLS 1.3-usable scheme aborts');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.HandshakeFailure)), Int64(Ord(LAlert)),
+    'the abort is handshake_failure');
+  // the same request refuses a client with no credential at all
+  LClient := New13ClientMachine(False);
+  LServer := New13ServerMachine(TClientAuthMode.Required);
+  LFlight := AllSendHandshake(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(FirstSendHandshake(LClient.Start))));
+  LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[0]));
+  LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[1]));
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCertReq)), LAlert),
+    'a client without a credential refuses it too');
 end;
 
 procedure TTestClientAuth.TestTls13ServerRejectsNonEmptyClientCertificateContext;

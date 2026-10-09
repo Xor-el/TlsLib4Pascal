@@ -343,6 +343,9 @@ type
     /// <summary>Records a CertificateRequest (RFC 8446 4.3.2): the request context and
     /// the server's accepted signature schemes, folding it into the transcript.</summary>
     procedure ProcessCertificateRequest(const AMessage: TTlsHandshakeMessage);
+    /// <summary>True when any code is a known scheme usable for a TLS 1.3 handshake
+    /// signature (RFC 8446 4.2.3).</summary>
+    class function HasTls13UsableScheme(const ASchemes: TArray<UInt16>): Boolean; static;
     /// <summary>Frames the client Certificate for the request context (empty chain when
     /// no usable credential); appends the framed CertificateVerify when a chain is sent.</summary>
     procedure AppendClientAuthFlight(var AEffects: TArray<THandshakeEffect>);
@@ -428,7 +431,8 @@ resourcestring
     'the ServerHello carries an extension not permitted in a TLS 1.3 ServerHello';
   SRequestContextNotEmpty = 'the CertificateRequest carried a non-empty request context in the handshake';
   SCertificateRequestTwice = 'the server sent a second CertificateRequest';
-  SNoClientAuthScheme = 'no configured client credential scheme satisfies the server signature_algorithms';
+  SNoUsableCertificateRequestScheme =
+    'the CertificateRequest lists no signature scheme usable in TLS 1.3';
   SBadSelectedPskIdentity = 'the server selected a pre_shared_key identity index beyond the offered list';
   SPskHashMismatch = 'the selected cipher suite hash does not match the accepted pre_shared_key hash';
   SPskRequiredNotSelected = 'the server did not select a pre_shared_key and no certificate trust is configured';
@@ -1630,8 +1634,27 @@ begin
   finally
     LContext.Free;
   end;
+  // a request none of whose schemes a TLS 1.3 handshake can use (RFC 8446 4.2.3) could never
+  // accept a CertificateVerify, whatever the credential, so it is refused; a request with usable schemes
+  // none of which fits the credential is declined with an empty Certificate (RFC 8446 4.4.2)
+  if not HasTls13UsableScheme(FClientAuthSchemes) then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.HandshakeFailure, @SNoUsableCertificateRequestScheme);
   FCertificateRequested := True;
   FTranscript.Update(AMessage.Raw);
+end;
+
+class function TTls13ClientStateMachine.HasTls13UsableScheme(
+  const ASchemes: TArray<UInt16>): Boolean;
+var
+  LI: Int32;
+  LScheme: TSignatureScheme;
+begin
+  Result := False;
+  for LI := 0 to System.High(ASchemes) do
+    if TSignatureScheme.TryFromCode(ASchemes[LI], LScheme) and
+      LScheme.IsValidForHandshake(TTlsVersion.Tls13) then
+      Exit(True);
 end;
 
 procedure TTls13ClientStateMachine.AppendClientAuthFlight(
@@ -1645,10 +1668,11 @@ var
   LSigner: ISignatureSigner;
   LVerify: TTlsCertificateVerify;
 begin
-  // choose a credential scheme the server accepts; with no credential at all the client
-  // legitimately declines with an empty Certificate. On an ECH reject the handshake is with
-  // the client-facing server on the public_name, not the intended server, so the client MUST
-  // NOT present its certificate there (RFC 9849 sec. 6.1.7): it declines with an empty one.
+  // choose a credential scheme the server accepts; with no credential, or none whose scheme the
+  // server accepts, the client declines with an empty Certificate (RFC 8446 4.4.2) and the
+  // server's own policy decides. On an ECH reject the handshake is with the client-facing
+  // server on the public_name, not the intended server, so the client MUST NOT present its
+  // certificate there (RFC 9849 sec. 6.1.7): it declines with an empty one.
   LHasScheme := False;
   if (System.Length(FParams.ClientCredential.CertificateChain) > 0) and
     (FEchOrch.Status <> TEchStatus.Rejected) then
@@ -1660,11 +1684,6 @@ begin
         LHasScheme := True;
         Break;
       end;
-    // a credential is configured but none of its schemes satisfies the server's
-    // signature_algorithms: fail rather than decline
-    if not LHasScheme then
-      raise EFatalAlertTlsLibException.CreateRes(
-        TTlsAlertDescription.HandshakeFailure, @SNoClientAuthScheme);
   end;
 
   LCert.RequestContext := FRequestContext;
