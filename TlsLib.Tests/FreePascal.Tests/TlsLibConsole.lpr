@@ -65,6 +65,7 @@ uses
   EndpointIdentityTests,
   PemTests,
   DynamicLibraryTests,
+  SocketHttpFetcherTests,
   SystemTimeUtilitiesTests,
   IpLiteralTests,
   HttpUrlTests,

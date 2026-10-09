@@ -32,26 +32,24 @@ uses
   System.Net.URLClient,
 {$ENDIF FPC}
   TlpHttpUrl,
+  TlpIClock,
+  TlpClock,
+  TlpTlsLibExceptions,
   TlpIHttpFetcher;
 
 type
   /// <summary>A blocking IHttpFetcher backed by the RTL HTTP client (FPC fphttpclient /
   /// Delphi System.Net.HttpClient). Suitable for live OCSP (POST) and CRL (GET) retrieval.
-  /// Never raises; a failed exchange yields False with an empty response.</summary>
+  /// The timeout bounds the whole exchange, so a responder that trickles bytes cannot hold the
+  /// caller past it. Never raises; a failed exchange yields False with an empty response.</summary>
   TSocketHttpFetcher = class sealed(TInterfacedObject, IHttpFetcher)
   strict private
-    class function ReadStreamBytes(const AStream: TStream): TBytes; static;
-    /// <summary>Runs AMethod against AUrl, attaching ABody (nil for GET) tagged AContentType,
-    /// writing the response body into ASink and returning the HTTP status. Exceptions (incl. the
-    /// size-cap overflow) propagate to Fetch, which turns them into the fail-closed False result.</summary>
-    class function Execute(const AMethod, AUrl, AContentType: string;
-      const ABody: TStream; ATimeoutMs: Cardinal; const ASink: TStream): Integer; static;
-    /// <summary>The whole fail-closed contract, shared by both RTLs: request-stream lifetime,
-    /// bounded response sink, the try/except that swallows every error, the 2xx gate, and the
-    /// bytes-out.</summary>
-    class function Fetch(const AMethod, AUrl, AContentType: string; const ABody: TBytes;
-      ATimeoutMs: Cardinal; AMaxBytes: Int32; out AResponse: TBytes): Boolean; static;
+    FClock: ITlsMonotonicClock;
   public
+    /// <summary>A fetcher whose deadline reads the real monotonic clock.</summary>
+    constructor Create; overload;
+    /// <summary>A fetcher whose deadline reads AClock; nil raises.</summary>
+    constructor Create(const AClock: ITlsMonotonicClock); overload;
     function Get(const AUrl: string; ATimeoutMs: Cardinal; AMaxBytes: Int32;
       out AResponse: TBytes): Boolean;
     function Post(const AUrl, AContentType: string; const ABody: TBytes;
@@ -60,7 +58,32 @@ type
 
 implementation
 
+resourcestring
+  SNilClock = 'a clock is required (pass a clock, not nil)';
+
 type
+  // one exchange's whole-time budget: a timeout the RTL applies per read would let a responder that
+  // sends a byte per period hold the caller indefinitely, so progress is checked against this
+  TFetchDeadline = class sealed(TObject)
+  strict private
+    FClock: ITlsMonotonicClock;
+    FExpiresAt: Int64;
+    FBounded: Boolean;
+  public
+    // ATimeoutMs = 0 leaves the exchange unbounded, as before
+    constructor Create(const AClock: ITlsMonotonicClock; ATimeoutMs: Cardinal);
+    function Expired: Boolean;
+    procedure Check;
+    // the budget left, for clamping a per-read timeout; at least 1 so it never reads as "none"
+    function RemainingMs: Cardinal;
+{$IFDEF FPC}
+    procedure OnDataReceived(ASender: TObject; const AContentLength, ACurrentPos: Int64);
+{$ELSE}
+    procedure OnReceiveData(const ASender: TObject; AContentLength, AReadCount: Int64;
+      var AAbort: Boolean);
+{$ENDIF}
+  end;
+
   // a memory-backed sink that refuses to buffer past the cap; the overflowing Write raises, and
   // Fetch's except turns that into the fail-closed False the contract already promises
   TBoundedMemoryStream = class(TStream)
@@ -73,20 +96,76 @@ type
   var
     FInner: TMemoryStream;
     FCap: Int64;
+    FDeadline: TFetchDeadline;
   protected
     function GetSize: Int64; override;
     procedure SetSize(const ANewSize: Int64); override;
   public
-    constructor Create(AMaxBytes: Int64);
+    constructor Create(AMaxBytes: Int64; const ADeadline: TFetchDeadline);
     destructor Destroy; override;
     function Read(var ABuffer; ACount: LongInt): LongInt; override;
     function Write(const ABuffer; ACount: LongInt): LongInt; override;
     function Seek(const AOffset: Int64; AOrigin: TSeekOrigin): Int64; override;
   end;
 
-constructor TBoundedMemoryStream.Create(AMaxBytes: Int64);
+{ TFetchDeadline }
+
+constructor TFetchDeadline.Create(const AClock: ITlsMonotonicClock; ATimeoutMs: Cardinal);
 begin
   inherited Create;
+  FClock := AClock;
+  FBounded := ATimeoutMs > 0;
+  if FBounded then
+    FExpiresAt := AClock.NowMonotonicMillis + Int64(ATimeoutMs);
+end;
+
+function TFetchDeadline.Expired: Boolean;
+begin
+  Result := FBounded and (FClock.NowMonotonicMillis >= FExpiresAt);
+end;
+
+procedure TFetchDeadline.Check;
+begin
+  if Expired then
+    raise EWriteError.Create('revocation fetch exceeded its time budget');
+end;
+
+function TFetchDeadline.RemainingMs: Cardinal;
+var
+  LLeft: Int64;
+begin
+  if not FBounded then
+    Exit(0);
+  LLeft := FExpiresAt - FClock.NowMonotonicMillis;
+  if LLeft < 1 then
+    LLeft := 1;
+  if LLeft > High(Cardinal) then
+    LLeft := High(Cardinal);
+  Result := Cardinal(LLeft);
+end;
+
+{$IFDEF FPC}
+procedure TFetchDeadline.OnDataReceived(ASender: TObject; const AContentLength,
+  ACurrentPos: Int64);
+begin
+  // every socket read, headers included, lands here, so a trickle in any phase is cut off
+  Check;
+end;
+{$ELSE}
+procedure TFetchDeadline.OnReceiveData(const ASender: TObject; AContentLength,
+  AReadCount: Int64; var AAbort: Boolean);
+begin
+  if Expired then
+    AAbort := True;
+end;
+{$ENDIF}
+
+{ TBoundedMemoryStream }
+
+constructor TBoundedMemoryStream.Create(AMaxBytes: Int64; const ADeadline: TFetchDeadline);
+begin
+  inherited Create;
+  FDeadline := ADeadline;
   FInner := TMemoryStream.Create;
   // honour the caller's bound, but never above the coarse outer limit
   if (AMaxBytes > 0) and (AMaxBytes < MaxResponseBytes) then
@@ -121,6 +200,7 @@ end;
 
 function TBoundedMemoryStream.Write(const ABuffer; ACount: LongInt): LongInt;
 begin
+  FDeadline.Check;
   if (FInner.Position + ACount) > FCap then
     raise EWriteError.Create('revocation response exceeds the size cap');
   Result := FInner.Write(ABuffer, ACount);
@@ -132,9 +212,7 @@ begin
   Result := FInner.Seek(AOffset, AOrigin);
 end;
 
-{ TSocketHttpFetcher }
-
-class function TSocketHttpFetcher.ReadStreamBytes(const AStream: TStream): TBytes;
+function ReadStreamBytes(const AStream: TStream): TBytes;
 var
   LLen: Int64;
 begin
@@ -151,18 +229,23 @@ end;
 
 {$IFDEF FPC}
 
-class function TSocketHttpFetcher.Execute(const AMethod, AUrl, AContentType: string;
-  const ABody: TStream; ATimeoutMs: Cardinal; const ASink: TStream): Integer;
+// runs AMethod against AUrl, attaching ABody (nil for GET) tagged AContentType, writing the
+// response body into ASink and returning the HTTP status; a raised error, the size cap and the
+// deadline all reach Fetch's fail-closed except
+function Execute(const AMethod, AUrl, AContentType: string; const ABody: TStream;
+  const ADeadline: TFetchDeadline; const ASink: TStream): Integer;
 var
   LClient: TFPHTTPClient;
 begin
   LClient := TFPHTTPClient.Create(nil);
   try
-    if ATimeoutMs > 0 then
+    // each read waits no longer than what is left of the whole exchange
+    if ADeadline.RemainingMs > 0 then
     begin
-      LClient.ConnectTimeout := ATimeoutMs;
-      LClient.IOTimeout := ATimeoutMs;
+      LClient.ConnectTimeout := ADeadline.RemainingMs;
+      LClient.IOTimeout := ADeadline.RemainingMs;
     end;
+    LClient.OnDataReceived := ADeadline.OnDataReceived;
     // the responder URL is peer-chosen; do not chase redirects it hands us
     LClient.AllowRedirect := False;
     if ABody <> nil then
@@ -180,8 +263,9 @@ end;
 
 {$ELSE}
 
-class function TSocketHttpFetcher.Execute(const AMethod, AUrl, AContentType: string;
-  const ABody: TStream; ATimeoutMs: Cardinal; const ASink: TStream): Integer;
+// see the FPC overload
+function Execute(const AMethod, AUrl, AContentType: string; const ABody: TStream;
+  const ADeadline: TFetchDeadline; const ASink: TStream): Integer;
 var
   LClient: THTTPClient;
   LRequest: IHTTPRequest;
@@ -189,11 +273,13 @@ var
 begin
   LClient := THTTPClient.Create;
   try
-    if ATimeoutMs > 0 then
+    // each read waits no longer than what is left of the whole exchange
+    if ADeadline.RemainingMs > 0 then
     begin
-      LClient.ConnectionTimeout := ATimeoutMs;
-      LClient.ResponseTimeout := ATimeoutMs;
+      LClient.ConnectionTimeout := ADeadline.RemainingMs;
+      LClient.ResponseTimeout := ADeadline.RemainingMs;
     end;
+    LClient.OnReceiveData := ADeadline.OnReceiveData;
     // the responder URL is peer-chosen; do not chase redirects it hands us
     LClient.HandleRedirects := False;
     LRequest := LClient.GetRequest(AMethod, AUrl);
@@ -203,6 +289,8 @@ begin
       LRequest.SourceStream := ABody;
     end;
     LResponse := LClient.Execute(LRequest, ASink, nil);
+    // an abort from the progress hook can surface as a short response rather than an error
+    ADeadline.Check;
     Result := LResponse.StatusCode;
   finally
     LClient.Free;
@@ -211,11 +299,14 @@ end;
 
 {$ENDIF FPC}
 
-class function TSocketHttpFetcher.Fetch(const AMethod, AUrl, AContentType: string;
+// the whole fail-closed contract, shared by both RTLs: request-stream lifetime, bounded response
+// sink, the try/except that swallows every error, the 2xx gate, and the bytes-out
+function Fetch(const AClock: ITlsMonotonicClock; const AMethod, AUrl, AContentType: string;
   const ABody: TBytes; ATimeoutMs: Cardinal; AMaxBytes: Int32; out AResponse: TBytes): Boolean;
 var
   LRequest: TMemoryStream;
   LSink: TStream;
+  LDeadline: TFetchDeadline;
   LUrl: THttpUrl;
   LStatus: Integer;
 begin
@@ -223,6 +314,7 @@ begin
   AResponse := nil;
   LRequest := nil;
   LSink := nil;
+  LDeadline := TFetchDeadline.Create(AClock, ATimeoutMs);
   try
     // the URL is peer-chosen (AIA / CDP): a malformed one fails closed here, and the RTL client
     // only ever parses the canonical text we produce, so the two parsers cannot disagree
@@ -234,8 +326,8 @@ begin
         LRequest.WriteBuffer(ABody[0], System.Length(ABody));
         LRequest.Position := 0;
       end;
-      LSink := TBoundedMemoryStream.Create(AMaxBytes);
-      LStatus := Execute(AMethod, LUrl.ToString, AContentType, LRequest, ATimeoutMs, LSink);
+      LSink := TBoundedMemoryStream.Create(AMaxBytes, LDeadline);
+      LStatus := Execute(AMethod, LUrl.ToString, AContentType, LRequest, LDeadline, LSink);
       if (LStatus >= 200) and (LStatus < 300) then
       begin
         AResponse := ReadStreamBytes(LSink);
@@ -243,25 +335,41 @@ begin
       end;
     end;
   except
-    // fail-closed: any transport/HTTP error, or the size-cap overflow, is a failed fetch
+    // fail-closed: any transport/HTTP error, the size-cap overflow or the deadline is a failed fetch
     Result := False;
     AResponse := nil;
   end;
   LRequest.Free;
   LSink.Free;
+  LDeadline.Free;
+end;
+
+{ TSocketHttpFetcher }
+
+constructor TSocketHttpFetcher.Create;
+begin
+  Create(TSystemMonotonicClock.Create as ITlsMonotonicClock);
+end;
+
+constructor TSocketHttpFetcher.Create(const AClock: ITlsMonotonicClock);
+begin
+  inherited Create;
+  if AClock = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilClock);
+  FClock := AClock;
 end;
 
 function TSocketHttpFetcher.Get(const AUrl: string; ATimeoutMs: Cardinal;
   AMaxBytes: Int32; out AResponse: TBytes): Boolean;
 begin
-  Result := Fetch('GET', AUrl, '', nil, ATimeoutMs, AMaxBytes, AResponse);
+  Result := Fetch(FClock, 'GET', AUrl, '', nil, ATimeoutMs, AMaxBytes, AResponse);
 end;
 
 function TSocketHttpFetcher.Post(const AUrl, AContentType: string;
   const ABody: TBytes; ATimeoutMs: Cardinal; AMaxBytes: Int32;
   out AResponse: TBytes): Boolean;
 begin
-  Result := Fetch('POST', AUrl, AContentType, ABody, ATimeoutMs, AMaxBytes, AResponse);
+  Result := Fetch(FClock, 'POST', AUrl, AContentType, ABody, ATimeoutMs, AMaxBytes, AResponse);
 end;
 
 end.

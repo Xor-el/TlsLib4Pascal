@@ -569,6 +569,7 @@
         <DCCReference Include="..\src\CertificateVerifierTests.pas"/>
         <DCCReference Include="..\src\PemTests.pas"/>
         <DCCReference Include="..\src\DynamicLibraryTests.pas"/>
+        <DCCReference Include="..\src\SocketHttpFetcherTests.pas"/>
         <DCCReference Include="..\src\SystemTimeUtilitiesTests.pas"/>
         <DCCReference Include="..\src\IpLiteralTests.pas"/>
         <DCCReference Include="..\src\HttpUrlTests.pas"/>
