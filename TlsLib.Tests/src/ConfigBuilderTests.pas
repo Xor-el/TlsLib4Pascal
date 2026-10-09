@@ -104,6 +104,7 @@ type
     function DefaultProfile: TTlsConfigProfile;
     function ChainLimitsAccepted(AMaxCert, AMaxTotal: Int32): Boolean;
     function SameOrder(const AA, AB: TArray<UInt16>): Boolean;
+    function ServerBuildIsRefused(const ABuilder: ITlsServerConfigBuilder): Boolean;
     function NewClientBuilder: ITlsClientConfigBuilder;
     function NewServerBuilder: ITlsServerConfigBuilder;
     function MakePskSpec: TExternalPsk;
@@ -200,7 +201,8 @@ type
     procedure TestServerClientAuthVerifierSourceWithEmptyStoreIsRefused;
     procedure TestServerClientAuthVerifierSourceWithAnchorsBuilds;
     procedure TestServerClientAuthVerifierSourceWithEmptyStoreAndRealRootBuilds;
-    procedure TestServerVerifierSourceWithoutPeerAuthBuildsWithoutAnchors;
+    procedure TestServerVerifierSourceWithoutPeerAuthIsRefused;
+    procedure TestServerTrustInputsWithoutPeerAuthAreRefused;
     procedure TestServerClientAuthVerifierSourceWithSkipVerifyBuilds;
     // the exclusivity count runs before the roots gate, so an instance verifier plus a source is the
     // dual-verifier conflict - never the "source needs anchors" message
@@ -231,7 +233,7 @@ type
     procedure TestServerHardClientRevocationWithoutResolverIsRefused;
     procedure TestServerHardClientRevocationWithResolverBuilds;
     procedure TestServerHardClientRevocationHostDecisionIsRefused;
-    procedure TestServerHardRevocationWithoutClientAuthBuilds;
+    procedure TestServerHardRevocationWithoutClientAuthIsRefused;
     procedure TestClientHardHostDecisionWithoutStapleIsRefused;
     procedure TestClientHardLiveRevocationBuilds;
     procedure TestAsyncVerdictMapsToHostDecision;
@@ -1927,16 +1929,66 @@ begin
   CheckTrue(LConfig <> nil, 'a source with an empty store unioned with a real root builds');
 end;
 
-procedure TTestConfigBuilder.TestServerVerifierSourceWithoutPeerAuthBuildsWithoutAnchors;
-var
-  LConfig: ITlsServerConfig;
+function TTestConfigBuilder.ServerBuildIsRefused(const ABuilder: ITlsServerConfigBuilder): Boolean;
 begin
-  // client auth is off, so the source is inert and no anchors are required (parity with anchors)
-  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
+  Result := False;
+  try
+    ABuilder.Build;
+  except
+    // the reason is checked too, so a case cannot pass on some earlier, unrelated refusal
+    on E: EInvalidOperationTlsLibException do
+      Result := Pos('WithPeerAuth', E.Message) > 0;
+  end;
+end;
+
+procedure TTestConfigBuilder.TestServerVerifierSourceWithoutPeerAuthIsRefused;
+begin
+  // client auth is off, so the source would be ignored and clients admitted unauthenticated
+  CheckTrue(ServerBuildIsRefused(TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(ServerCredential)
     .WithCertificateVerifierSource(
-      TAcceptAllClientVerifierSource.Create as IClientCertificateVerifierSource).Build;
-  CheckTrue(LConfig <> nil, 'a client verifier source without client auth builds without anchors');
+      TAcceptAllClientVerifierSource.Create as IClientCertificateVerifierSource)),
+    'a client verifier source without WithPeerAuth is refused');
+end;
+
+procedure TTestConfigBuilder.TestServerTrustInputsWithoutPeerAuthAreRefused;
+begin
+  // each client-certificate trust input is inert on a server that requests no client certificate,
+  // so it is refused rather than accepted and ignored
+  CheckTrue(ServerBuildIsRefused(TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential).WithTrustStore(ClientTrust)), 'a trust store');
+  CheckTrue(ServerBuildIsRefused(TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential)
+    .WithCertificatePinning(TArray<TBytes>.Create(Crypto.Primitives.GetRandom.GenerateBytes(32)))),
+    'a certificate pin');
+  CheckTrue(ServerBuildIsRefused(TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential).WithCertificateVerifyCallback(RejectEveryChain)),
+    'a verify callback');
+  CheckTrue(ServerBuildIsRefused(TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential).WithDangerousInsecureSkipVerify),
+    'skip-verify on its own');
+  CheckTrue(ServerBuildIsRefused(TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential)
+    .WithClientCertificateAuthorities(
+      TArray<TBytes>.Create(Crypto.Primitives.GetRandom.GenerateBytes(16)))),
+    'a client-CA list');
+  CheckTrue(ServerBuildIsRefused(TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential).WithLiveRevocationVerdict(1000)), 'a live verdict');
+  CheckTrue(ServerBuildIsRefused(TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential).WithAsyncCertificateVerdict(1000)), 'an async verdict');
+  CheckTrue(ServerBuildIsRefused(TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential).WithTrustAnchors(EcP256RootCertificate)),
+    'trust anchors given as a certificate');
+  CheckTrue(ServerBuildIsRefused(TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential).WithIntermediateCertificates(EcP256RootCertificate)),
+    'intermediate certificates');
+  CheckTrue(ServerBuildIsRefused(TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential).WithDangerousCertificateVerifier(
+      TAcceptAllClientVerifier.Create as IClientCertificateVerifier)), 'a verifier instance');
+  // control: the same trust store builds once the server requests client certificates
+  CheckTrue(TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential).WithTrustStore(ClientTrust)
+    .WithPeerAuth(TClientAuthMode.Requested).Build <> nil, 'control: with WithPeerAuth');
 end;
 
 procedure TTestConfigBuilder.TestServerClientAuthVerifierSourceWithSkipVerifyBuilds;
@@ -2154,15 +2206,14 @@ begin
   CheckTrue(LRaised, 'a host-decision park does not satisfy Hard client-cert revocation');
 end;
 
-procedure TTestConfigBuilder.TestServerHardRevocationWithoutClientAuthBuilds;
+procedure TTestConfigBuilder.TestServerHardRevocationWithoutClientAuthIsRefused;
 begin
-  // with no client authentication there is no client certificate to check, so the Hard posture
-  // is inert and the guard must not fire
-  TTlsPresets.Compatible(Crypto, Pkix).Server
+  // with no client authentication there is no client certificate to check, so a Hard posture
+  // would be ignored
+  CheckTrue(ServerBuildIsRefused(TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(ServerCredential)
-    .WithRevocation(TRevocationPosture.Hard)
-    .Build;
-  Check(True, 'Hard revocation without client auth builds (guard inert)');
+    .WithRevocation(TRevocationPosture.Hard)),
+    'Hard revocation without WithPeerAuth is refused');
 end;
 
 procedure TTestConfigBuilder.TestClientHardHostDecisionWithoutStapleIsRefused;

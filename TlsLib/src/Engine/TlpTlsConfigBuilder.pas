@@ -402,6 +402,11 @@ resourcestring
     'stapled OCSP response, so it always-rejects unless the client obtains revocation status: ' +
     'call WithOcspStaplingRequest(True) to request a staple, or configure a live OCSP/CRL verdict ' +
     'resolver (WithLiveRevocationVerdict)';
+  SServerTrustNeedsPeerAuth = 'client-certificate trust settings (trust anchors or store, pins, ' +
+    'intermediates, client-CA list, verifier, verify callback, skip-verify, Hard revocation or an ' +
+    'async or live certificate verdict) are set on a server that does not request client ' +
+    'certificates, so they would be ignored and clients admitted unauthenticated; call ' +
+    'WithPeerAuth, or remove them';
   SHardServerRevocationUnusable = 'a Hard revocation posture rejects a client whose certificate ' +
     'has no revocation status; a server cannot request a client OCSP staple, so Hard ' +
     'client-certificate revocation requires a live OCSP/CRL verdict resolver ' +
@@ -3001,6 +3006,18 @@ begin
     (FCredentialResolver = nil) and
     (TArrayUtilities.Contains<UInt16>(FSupportedVersions, TlsWireVersionTls12)) then
     raise EInvalidOperationTlsLibException.CreateRes(@SPskOnlyServerNeedsTls13Only);
+  // client-certificate trust inputs act only when the server requests a client certificate; set
+  // without WithPeerAuth they would be accepted and silently ignored, and the server would admit
+  // clients unauthenticated
+  if (FClientAuth = TClientAuthMode.None) and
+    ((System.Length(FAnchorStores) > 0) or (FClientCertVerifier <> nil) or
+    (FClientVerifierSource <> nil) or (System.Length(FCertificatePins) > 0) or
+    (System.Length(FIntermediateCertificates) > 0) or
+    (System.Length(FClientCertificateAuthorities) > 0) or
+    Assigned(FDangerousTrust.VerifyCallback) or FDangerousTrust.InsecureSkipVerify or
+    (FAsyncVerdict.Deferral <> TVerdictDeferral.None) or
+    (FRevocationPosture = TRevocationPosture.Hard)) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SServerTrustNeedsPeerAuth);
   // client authentication verifies the peer chain against a trust source: anchor ROOTS, a
   // whole-verifier, or an explicit skip-verify. A verifier source is NOT a source on its own - it
   // consumes the client-CA anchors as its exclusive root, so it needs roots too. Without one the
