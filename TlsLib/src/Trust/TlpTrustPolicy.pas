@@ -280,7 +280,8 @@ end;
 function TCertificateVerdictContext.RevocationPath: TArray<TBytes>;
 begin
   // prefer the pipeline-validated path (issuer authenticated at index 1); fall back to the
-  // presented chain so a hand-built context that set only Chain still resolves
+  // presented chain so a hand-built context that set only Chain still resolves; that chain is
+  // unauthenticated, so the revocation primitives check that the issuer signed the leaf
   if System.Length(ValidatedPath) > 0 then
     Result := ValidatedPath
   else
