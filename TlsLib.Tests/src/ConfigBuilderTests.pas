@@ -1935,8 +1935,9 @@ begin
   try
     ABuilder.Build;
   except
+    // the reason is checked too, so a case cannot pass on some earlier, unrelated refusal
     on E: EInvalidOperationTlsLibException do
-      Result := True;
+      Result := Pos('WithPeerAuth', E.Message) > 0;
   end;
 end;
 
@@ -1972,7 +1973,18 @@ begin
       TArray<TBytes>.Create(Crypto.Primitives.GetRandom.GenerateBytes(16)))),
     'a client-CA list');
   CheckTrue(ServerBuildIsRefused(TTlsPresets.Compatible(Crypto, Pkix).Server
-    .WithCredential(ServerCredential).WithLiveRevocationVerdict(1000)), 'a live verdict resolver');
+    .WithCredential(ServerCredential).WithLiveRevocationVerdict(1000)), 'a live verdict');
+  CheckTrue(ServerBuildIsRefused(TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential).WithAsyncCertificateVerdict(1000)), 'an async verdict');
+  CheckTrue(ServerBuildIsRefused(TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential).WithTrustAnchors(EcP256RootCertificate)),
+    'trust anchors given as a certificate');
+  CheckTrue(ServerBuildIsRefused(TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential).WithIntermediateCertificates(EcP256RootCertificate)),
+    'intermediate certificates');
+  CheckTrue(ServerBuildIsRefused(TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential).WithDangerousCertificateVerifier(
+      TAcceptAllClientVerifier.Create as IClientCertificateVerifier)), 'a verifier instance');
   // control: the same trust store builds once the server requests client certificates
   CheckTrue(TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(ServerCredential).WithTrustStore(ClientTrust)

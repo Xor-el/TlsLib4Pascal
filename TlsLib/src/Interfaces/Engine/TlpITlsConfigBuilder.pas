@@ -377,7 +377,7 @@ type
     /// <summary>Whether the server requests a client certificate (mutual TLS) and how
     /// strictly. A server that requests one also needs a trust source (WithTrustStore). The
     /// client-certificate trust settings (trust anchors or store, pins, intermediates, client-CA
-    /// list, verifier, verify callback, skip-verify, Hard revocation, verdict resolver) take effect
+    /// list, verifier, verify callback, skip-verify, Hard revocation, async or live verdict) take effect
     /// only with a mode other than None; Build refuses them otherwise. Defaults to None.</summary>
     function WithPeerAuth(AMode: TClientAuthMode): ITlsServerConfigBuilder;
     /// <summary>The revocation posture applied to a requested client certificate (RFC 6960);

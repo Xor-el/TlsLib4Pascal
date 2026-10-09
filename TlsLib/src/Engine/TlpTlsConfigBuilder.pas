@@ -403,10 +403,11 @@ resourcestring
     'call WithOcspStaplingRequest(True) to request a staple, or configure a live OCSP/CRL verdict ' +
     'resolver (WithLiveRevocationVerdict)';
   SServerTrustNeedsPeerAuth = 'client-certificate trust settings (trust anchors or store, pins, ' +
-    'intermediates, client-CA list, verifier, verify callback, skip-verify, Hard revocation or a ' +
-    'verdict resolver) are set on a server that does not request client certificates, so they ' +
-    'would be ignored and clients admitted unauthenticated; call WithPeerAuth, or remove them';
-  SHardServerRevocationUnusable ='a Hard revocation posture rejects a client whose certificate ' +
+    'intermediates, client-CA list, verifier, verify callback, skip-verify, Hard revocation or an ' +
+    'async or live certificate verdict) are set on a server that does not request client ' +
+    'certificates, so they would be ignored and clients admitted unauthenticated; call ' +
+    'WithPeerAuth, or remove them';
+  SHardServerRevocationUnusable = 'a Hard revocation posture rejects a client whose certificate ' +
     'has no revocation status; a server cannot request a client OCSP staple, so Hard ' +
     'client-certificate revocation requires a live OCSP/CRL verdict resolver ' +
     '(WithLiveRevocationVerdict)';
