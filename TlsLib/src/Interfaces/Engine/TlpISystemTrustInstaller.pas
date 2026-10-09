@@ -29,8 +29,8 @@ type
   ISystemTrustInstaller = interface(IInterface)
     ['{B7FAF480-B5A2-42F3-B18E-9745FABFC363}']
     /// <summary>Names what this installer installs: equal for installers that install the same
-    /// trust, different otherwise, and never empty. Config caches key on it, so two installers
-    /// that install different roots must not share one.</summary>
+    /// trust, different otherwise, never empty, and stable for the installer's lifetime. Config
+    /// caches key on it, so two installers that install different roots must not share one.</summary>
     function Identity: string;
     /// <summary>Installs OS server-certificate trust into a client builder.</summary>
     procedure InstallClientTrust(const ABuilder: ITlsClientConfigBuilder;

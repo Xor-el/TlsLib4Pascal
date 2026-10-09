@@ -245,11 +245,14 @@ type
 
 constructor TFakeSystemTrustInstaller.Create(ARaise: Boolean;
   const AStore: ITrustAnchorStore);
+var
+  LGuid: TGuid;
 begin
   inherited Create;
   FRaise := ARaise;
   FStore := AStore;
-  InstallerIdentity := 'fake-' + IntToHex(NativeUInt(Pointer(Self)), 1);
+  CreateGUID(LGuid);
+  InstallerIdentity := 'fake-' + GuidToString(LGuid);
 end;
 
 function TFakeSystemTrustInstaller.Identity: string;
@@ -1108,6 +1111,7 @@ procedure TTestTlsConnection.TestSignatureKeysSystemTrustByIdentity;
 var
   LBase, LA, LB, LC: TTlsOptions;
   LFirst, LSecond: TFakeSystemTrustInstaller;
+  LRaised: Boolean;
 begin
   // the key follows what the installer installs, not where it lives: equal identities share a
   // key across distinct instances, different identities never do
@@ -1126,6 +1130,18 @@ begin
   LC := LB;
   CheckFalse(TTlsConfigComposer.ClientSignature(LA) = TTlsConfigComposer.ClientSignature(LC),
     'installers with different identities never share a key');
+  // an unnamed installer is neither a key of its own nor the same as having none
+  LSecond.InstallerIdentity := '';
+  LRaised := False;
+  try
+    TTlsConfigComposer.ClientSignature(LC);
+  except
+    on E: ETlsStreamError do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an installer with an empty identity is refused');
+  CheckFalse(TTlsConfigComposer.ClientSignature(LA) = TTlsConfigComposer.ClientSignature(LBase),
+    'an installer is not the same key as none');
 end;
 
 procedure TTestTlsConnection.TestSignatureExcludesResolverAndTimeout;

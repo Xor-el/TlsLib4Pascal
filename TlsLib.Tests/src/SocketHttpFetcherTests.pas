@@ -15,252 +15,330 @@ unit SocketHttpFetcherTests;
 
 interface
 
-{$IF DEFINED(FPC) OR DEFINED(TLSLIB_MSWINDOWS)}
-
 uses
   SysUtils,
   Classes,
+  SyncObjs,
 {$IFDEF FPC}
   fpcunit,
   testregistry,
   Sockets,
 {$ELSE}
   TestFramework,
-  Winapi.Winsock2,
+  System.Net.Socket,
 {$ENDIF FPC}
   TlpIClock,
+  TlpClock,
   TlpIHttpFetcher,
   TlpTlsLibExceptions,
   TlpSocketHttpFetcher,
+  MockClock,
   TlsLibTestBase;
 
 type
   /// <summary>
   /// The fetcher's timeout bounds the whole exchange: a responder that keeps sending, each read
-  /// inside the per-read wait, still stops at the budget. Time is a stepping clock, so the test
-  /// does not wait.
+  /// inside the per-read wait, still stops at the budget. The body case steps a mock clock so it
+  /// does not wait; the header case runs against the real clock, because no progress callback
+  /// exists in that phase on every client and the budget must come from elapsed time.
   /// </summary>
   TTestSocketHttpFetcher = class(TTlsLibTestCase)
   published
     procedure TestSteadyResponseWithinBudgetIsFetched;
     procedure TestLongResponseIsCutOffAtTheBudget;
+    procedure TestTrickledHeadersAreCutOffAtTheBudget;
     procedure TestNilClockIsRefused;
   end;
 
-{$IFEND}
-
 implementation
 
-{$IF DEFINED(FPC) OR DEFINED(TLSLIB_MSWINDOWS)}
-
 type
-  // advances by a fixed step on every read, so each progress check spends part of the budget
-  TSteppingClock = class(TInterfacedObject, ITlsMonotonicClock)
+  // a one-connection server on 127.0.0.1; the socket calls live here and nowhere else
+  TLoopbackServer = class(TObject)
   strict private
-    FNow: Int64;
-    FStep: Int64;
+    FPort: Word;
+    FClosed: Boolean;
+    FClient, FListener: TSocket;
   public
-    constructor Create(AStep: Int64);
-    function NowMonotonicMillis: Int64;
+    constructor Create;
+    destructor Destroy; override;
+    property Port: Word read FPort;
+    // waits for the client; False once the server has been closed
+    function Accept: Boolean;
+    // up to ACount bytes; 0 or less once the client has gone
+    function Receive(var ABuffer; ACount: Int32): Int32;
+    function Send(const ABuffer; ACount: Int32): Boolean;
+    // frees an Accept that is waiting
+    procedure Close;
   end;
 
-{$IFDEF FPC}
-  TSock = TSocket;
-{$ELSE}
-  TSock = Winapi.Winsock2.TSocket;
-{$ENDIF}
-
-  // a loopback HTTP responder: answers one request with a large body in small writes
-  TBodyServer = class(TThread)
+  // answers one request with a large body in small writes, or with a response head that arrives a
+  // line at a time
+  TResponder = class(TThread)
   strict private
-    FListener: TSock;
-    FPort: Word;
+  const
+    BodyChunk = 1024;
+    HeaderLines = 100;
+    HeaderPauseMs = 100;
+  var
+    FServer: TLoopbackServer;
     FBodySize: Int32;
-    procedure Serve(AClient: TSock);
+    FTrickleHeaders: Boolean;
+    FStop: TEvent;
+    function SendText(const AText: AnsiString): Boolean;
+    function ReadRequest: Boolean;
+    procedure SendHeadTrickled;
+    procedure SendBody;
   protected
     procedure Execute; override;
   public
-    constructor Create(ABodySize: Int32);
+    constructor Create(ABodySize: Int32; ATrickleHeaders: Boolean);
     destructor Destroy; override;
-    property Port: Word read FPort;
+    function Url: string;
   end;
 
-{ TSteppingClock }
+{ TLoopbackServer }
 
-constructor TSteppingClock.Create(AStep: Int64);
-begin
-  inherited Create;
-  FNow := 1000;
-  FStep := AStep;
-end;
-
-function TSteppingClock.NowMonotonicMillis: Int64;
-begin
-  Result := FNow;
-  Inc(FNow, FStep);
-end;
-
-{ TBodyServer }
-
-constructor TBodyServer.Create(ABodySize: Int32);
-var
+constructor TLoopbackServer.Create;
 {$IFDEF FPC}
+var
   LAddr: TInetSockAddr;
   LLen: TSockLen;
-{$ELSE}
-  LAddr: TSockAddrIn;
-  LLen: Integer;
-  LData: TWSAData;
 {$ENDIF}
 begin
-  FBodySize := ABodySize;
-  FreeOnTerminate := False;
+  inherited Create;
 {$IFDEF FPC}
   FListener := fpSocket(AF_INET, SOCK_STREAM, 0);
   LAddr := Default(TInetSockAddr);
   LAddr.sin_family := AF_INET;
   LAddr.sin_addr.s_addr := HToNL($7F000001);
-  LAddr.sin_port := 0;
   fpBind(FListener, @LAddr, SizeOf(LAddr));
   fpListen(FListener, 1);
   LLen := SizeOf(LAddr);
   fpGetSockName(FListener, @LAddr, @LLen);
   FPort := NToHs(LAddr.sin_port);
 {$ELSE}
-  WSAStartup($0202, LData);
-  FListener := socket(AF_INET, SOCK_STREAM, 0);
-  LAddr := Default(TSockAddrIn);
-  LAddr.sin_family := AF_INET;
-  LAddr.sin_addr.S_addr := htonl($7F000001);
-  LAddr.sin_port := 0;
-  bind(FListener, PSockAddr(@LAddr)^, SizeOf(LAddr));
-  listen(FListener, 1);
-  LLen := SizeOf(LAddr);
-  getsockname(FListener, PSockAddr(@LAddr)^, LLen);
-  FPort := ntohs(LAddr.sin_port);
+  FListener := TSocket.Create(TSocketType.TCP);
+  FListener.Listen('127.0.0.1', '', 0);
+  FPort := FListener.LocalEndpoint.Port;
 {$ENDIF}
-  inherited Create(False);
 end;
 
-destructor TBodyServer.Destroy;
+destructor TLoopbackServer.Destroy;
 begin
-  // closing the listener frees an Execute still waiting in accept
+  Close;
 {$IFDEF FPC}
-  CloseSocket(FListener);
+  CloseSocket(FClient);
 {$ELSE}
-  closesocket(FListener);
+  // a forced close skips the shutdown that fails on a listener or a client that has gone
+  if FClient <> nil then
+    FClient.Close(True);
+  FListener.Close(True);
+  FClient.Free;
+  FListener.Free;
 {$ENDIF}
-  WaitFor;
   inherited Destroy;
 end;
 
-procedure TBodyServer.Execute;
-var
-  LClient: TSock;
+function TLoopbackServer.Accept: Boolean;
 begin
 {$IFDEF FPC}
-  LClient := fpAccept(FListener, nil, nil);
-  if LClient < 0 then
-    Exit;
+  FClient := fpAccept(FListener, nil, nil);
+  Result := FClient >= 0;
 {$ELSE}
-  LClient := accept(FListener, nil, nil);
-  if LClient = INVALID_SOCKET then
-    Exit;
-{$ENDIF}
-  try
-    Serve(LClient);
-  except
-    // the client may hang up mid-body once it has given up; that is the case under test
-  end;
-{$IFDEF FPC}
-  CloseSocket(LClient);
-{$ELSE}
-  closesocket(LClient);
+  // short waits, so a Close from another thread is noticed
+  while (FClient = nil) and not FClosed do
+    FClient := FListener.Accept(100);
+  Result := FClient <> nil;
 {$ENDIF}
 end;
 
-procedure TBodyServer.Serve(AClient: TSock);
-var
-  LBuf: array [0 .. 4095] of Byte;
-  LHead, LChunk: AnsiString;
-  LSent, LCount, LGot: Int32;
-  LSeen: AnsiString;
+function TLoopbackServer.Receive(var ABuffer; ACount: Int32): Int32;
 begin
-  // read the request up to the blank line that ends its headers
+{$IFDEF FPC}
+  Result := fpRecv(FClient, @ABuffer, ACount, 0);
+{$ELSE}
+  Result := FClient.Receive(ABuffer, ACount);
+{$ENDIF}
+end;
+
+function TLoopbackServer.Send(const ABuffer; ACount: Int32): Boolean;
+begin
+{$IFDEF FPC}
+  Result := fpSend(FClient, @ABuffer, ACount, 0) > 0;
+{$ELSE}
+  Result := FClient.Send(ABuffer, ACount) > 0;
+{$ENDIF}
+end;
+
+procedure TLoopbackServer.Close;
+begin
+  FClosed := True;
+{$IFDEF FPC}
+  CloseSocket(FListener);
+{$ENDIF}
+end;
+
+{ TResponder }
+
+constructor TResponder.Create(ABodySize: Int32; ATrickleHeaders: Boolean);
+begin
+  FServer := TLoopbackServer.Create;
+  FBodySize := ABodySize;
+  FTrickleHeaders := ATrickleHeaders;
+  FStop := TEvent.Create(nil, True, False, '');
+  inherited Create(False);
+end;
+
+destructor TResponder.Destroy;
+begin
+  // the event frees a response pause, and closing the server frees an accept
+  FStop.SetEvent;
+  FServer.Close;
+  WaitFor;
+  FStop.Free;
+  FServer.Free;
+  inherited Destroy;
+end;
+
+function TResponder.Url: string;
+begin
+  Result := 'http://127.0.0.1:' + IntToStr(FServer.Port) + '/';
+end;
+
+function TResponder.SendText(const AText: AnsiString): Boolean;
+begin
+  Result := FServer.Send(AText[1], System.Length(AText));
+end;
+
+function TResponder.ReadRequest: Boolean;
+var
+  LBuffer: array [0 .. 4095] of AnsiChar;
+  LSeen, LPiece: AnsiString;
+  LGot: Int32;
+begin
+  Result := False;
   LSeen := '';
   repeat
-{$IFDEF FPC}
-    LGot := fpRecv(AClient, @LBuf[0], SizeOf(LBuf), 0);
-{$ELSE}
-    LGot := recv(AClient, LBuf[0], SizeOf(LBuf), 0);
-{$ENDIF}
+    LGot := FServer.Receive(LBuffer, SizeOf(LBuffer));
     if LGot <= 0 then
       Exit;
-    SetLength(LChunk, LGot);
-    Move(LBuf[0], LChunk[1], LGot);
-    LSeen := LSeen + LChunk;
+    SetString(LPiece, PAnsiChar(@LBuffer[0]), LGot);
+    LSeen := LSeen + LPiece;
   until Pos(#13#10#13#10, string(LSeen)) > 0;
-  LHead := AnsiString('HTTP/1.1 200 OK'#13#10'Content-Length: ' + IntToStr(FBodySize) +
-    #13#10'Connection: close'#13#10#13#10);
-{$IFDEF FPC}
-  fpSend(AClient, @LHead[1], Length(LHead), 0);
-{$ELSE}
-  send(AClient, LHead[1], Length(LHead), 0);
-{$ENDIF}
-  FillChar(LBuf, SizeOf(LBuf), $41);
+  Result := True;
+end;
+
+procedure TResponder.SendHeadTrickled;
+var
+  LI: Int32;
+begin
+  // a head that never completes, yet never leaves a gap as long as any read wait
+  if not SendText('HTTP/1.1 200 OK'#13#10) then
+    Exit;
+  for LI := 1 to HeaderLines do
+  begin
+    if not SendText('X-Pad: v'#13#10) then
+      Exit;
+    if FStop.WaitFor(HeaderPauseMs) = wrSignaled then
+      Exit;
+  end;
+end;
+
+procedure TResponder.SendBody;
+var
+  LChunk: AnsiString;
+  LSent, LCount: Int32;
+begin
+  if not SendText(AnsiString('HTTP/1.1 200 OK'#13#10'Content-Length: ' + IntToStr(FBodySize) +
+    #13#10'Connection: close'#13#10#13#10)) then
+    Exit;
+  LChunk := AnsiString(StringOfChar('A', BodyChunk));
   LSent := 0;
   while LSent < FBodySize do
   begin
     LCount := FBodySize - LSent;
-    if LCount > 1024 then
-      LCount := 1024;
-{$IFDEF FPC}
-    if fpSend(AClient, @LBuf[0], LCount, 0) <= 0 then
+    if LCount > BodyChunk then
+      LCount := BodyChunk;
+    if not FServer.Send(LChunk[1], LCount) then
       Exit;
-{$ELSE}
-    if send(AClient, LBuf[0], LCount, 0) <= 0 then
-      Exit;
-{$ENDIF}
     Inc(LSent, LCount);
   end;
+end;
+
+procedure TResponder.Execute;
+begin
+  if not FServer.Accept then
+    Exit;
+  if not ReadRequest then
+    Exit;
+  if FTrickleHeaders then
+    SendHeadTrickled
+  else
+    SendBody;
 end;
 
 { TTestSocketHttpFetcher }
 
 procedure TTestSocketHttpFetcher.TestSteadyResponseWithinBudgetIsFetched;
 var
-  LServer: TBodyServer;
+  LResponder: TResponder;
   LFetcher: IHttpFetcher;
   LResponse: TBytes;
 begin
   // a clock that never moves leaves the whole budget, so the full body arrives
-  LServer := TBodyServer.Create(256 * 1024);
+  LResponder := TResponder.Create(256 * 1024, False);
   try
-    LFetcher := TSocketHttpFetcher.Create(TSteppingClock.Create(0) as ITlsMonotonicClock);
-    CheckTrue(LFetcher.Get('http://127.0.0.1:' + IntToStr(LServer.Port) + '/', 10000,
-      1024 * 1024, LResponse), 'a response inside the budget is fetched');
+    LFetcher := TSocketHttpFetcher.Create(TMockMonotonicClock.Create(1000, 0) as ITlsMonotonicClock);
+    CheckTrue(LFetcher.Get(LResponder.Url, 10000, 1024 * 1024, LResponse),
+      'a response inside the budget is fetched');
     CheckEquals(256 * 1024, System.Length(LResponse), 'the whole body arrives');
   finally
-    LServer.Free;
+    LResponder.Free;
   end;
 end;
 
 procedure TTestSocketHttpFetcher.TestLongResponseIsCutOffAtTheBudget;
 var
-  LServer: TBodyServer;
+  LResponder: TResponder;
   LFetcher: IHttpFetcher;
   LResponse: TBytes;
 begin
-  // the same server and body, but every progress check spends 100 ms of a 1000 ms budget: each
-  // read is well inside any per-read wait, yet the exchange as a whole must stop
-  LServer := TBodyServer.Create(256 * 1024);
+  // the same body, but every progress check spends 100 ms of a 1000 ms budget: each read is well
+  // inside any per-read wait, yet the exchange as a whole must stop
+  LResponder := TResponder.Create(256 * 1024, False);
   try
-    LFetcher := TSocketHttpFetcher.Create(TSteppingClock.Create(100) as ITlsMonotonicClock);
-    CheckFalse(LFetcher.Get('http://127.0.0.1:' + IntToStr(LServer.Port) + '/', 1000,
-      1024 * 1024, LResponse), 'a response that outlasts the budget fails closed');
+    LFetcher := TSocketHttpFetcher.Create(
+      TMockMonotonicClock.Create(1000, 100) as ITlsMonotonicClock);
+    CheckFalse(LFetcher.Get(LResponder.Url, 1000, 1024 * 1024, LResponse),
+      'a response that outlasts the budget fails closed');
     CheckEquals(0, System.Length(LResponse), 'no partial body is returned');
   finally
-    LServer.Free;
+    LResponder.Free;
+  end;
+end;
+
+procedure TTestSocketHttpFetcher.TestTrickledHeadersAreCutOffAtTheBudget;
+var
+  LResponder: TResponder;
+  LFetcher: IHttpFetcher;
+  LResponse: TBytes;
+  LClock: ITlsMonotonicClock;
+  LStart: Int64;
+begin
+  // a line every 100 ms never stalls a read for the 600 ms budget, so only the exchange-wide
+  // limit can stop it
+  LResponder := TResponder.Create(1024, True);
+  try
+    LClock := TSystemMonotonicClock.Create;
+    LFetcher := TSocketHttpFetcher.Create(LClock);
+    LStart := LClock.NowMonotonicMillis;
+    CheckFalse(LFetcher.Get(LResponder.Url, 600, 1024 * 1024, LResponse),
+      'a head that outlasts the budget fails closed');
+    CheckTrue(LClock.NowMonotonicMillis - LStart < 4000,
+      'the fetch stops near the budget, not when the responder gives up');
+  finally
+    LResponder.Free;
   end;
 end;
 
@@ -285,7 +363,5 @@ initialization
 {$ELSE}
   RegisterTest(TTestSocketHttpFetcher.Suite);
 {$ENDIF FPC}
-
-{$IFEND}
 
 end.

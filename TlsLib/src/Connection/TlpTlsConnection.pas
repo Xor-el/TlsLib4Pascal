@@ -323,6 +323,8 @@ resourcestring
   SClientAuthWithoutVerify =
     'client authentication is requested but peer verification is off; turn verification on, or ' +
     'set client authentication to None';
+  SSystemTrustIdentityEmpty =
+    'the system-trust installer must name what it installs (Identity is empty)';
   SVerifierWithoutVerify =
     'a custom server-certificate verifier replaces verification, so it cannot be combined with ' +
     'peer verification switched off; keep verification on, or drop the verifier';
@@ -700,10 +702,15 @@ begin
   // by what the installer installs, not a bare present/absent flag: two installers that install
   // different roots must not collapse to the same memo signature and reuse each other's frozen
   // config. The built config does not retain the installer, so its address would not be stable.
+  LSig.AddFlag('systemTrust', AOptions.SystemTrust <> nil);
   if AOptions.SystemTrust <> nil then
-    LSig.AddText('systemTrust', AOptions.SystemTrust.Identity)
-  else
-    LSig.AddText('systemTrust', '');
+  begin
+    // an unnamed installer would collide with another unnamed one and with the absence of one
+    if AOptions.SystemTrust.Identity = '' then
+      raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
+        @SSystemTrustIdentityEmpty);
+    LSig.AddText('systemTrustId', AOptions.SystemTrust.Identity);
+  end;
   LSig.AddPointer('customVerifier', AOptions.ServerCertificateVerifier);
   // a composed store keeps the stores it was built from, so this address stays live with the config
   LSig.AddPointer('customStore', AOptions.CustomTrustStore);

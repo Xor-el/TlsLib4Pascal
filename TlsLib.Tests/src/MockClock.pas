@@ -48,8 +48,12 @@ type
   strict private
   var
     FMillis: Int64;
+    FStepPerRead: Int64;
   public
-    constructor Create(AMillis: Int64);
+    constructor Create(AMillis: Int64); overload;
+    /// <summary>A clock that also moves forward by AStepPerRead on every read, so code that polls
+    /// the time spends a budget without the test waiting.</summary>
+    constructor Create(AMillis, AStepPerRead: Int64); overload;
     /// <summary>Moves the clock forward by AMillis.</summary>
     procedure Advance(AMillis: Int64);
     function NowMonotonicMillis: Int64;
@@ -91,6 +95,13 @@ constructor TMockMonotonicClock.Create(AMillis: Int64);
 begin
   inherited Create;
   FMillis := AMillis;
+  FStepPerRead := 0;
+end;
+
+constructor TMockMonotonicClock.Create(AMillis, AStepPerRead: Int64);
+begin
+  Create(AMillis);
+  FStepPerRead := AStepPerRead;
 end;
 
 procedure TMockMonotonicClock.Advance(AMillis: Int64);
@@ -101,6 +112,7 @@ end;
 function TMockMonotonicClock.NowMonotonicMillis: Int64;
 begin
   Result := FMillis;
+  Inc(FMillis, FStepPerRead);
 end;
 
 end.
