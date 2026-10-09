@@ -167,6 +167,7 @@ type
     procedure TestCipherSuiteListOutsideTheConfiguredSetIsRefused;
     procedure TestCipherSuiteListIsIndependentOfCallOrder;
     procedure TestEmptyCipherSuiteListIsRefused;
+    procedure TestInjectedVerifierRefusesSettingsItIgnores;
     procedure TestTls13SettingsAreRefusedWhenTls13IsNotOffered;
     procedure TestOfferedVersionWithoutASuiteIsRefused;
     procedure TestServerCipherSuiteListOrderDecidesTheNegotiatedSuite;
@@ -1287,6 +1288,67 @@ begin
     TNegotiationPolicy.SuiteOrder(LBefore.CipherSuites, TSuiteProtocol.Tls12),
     TNegotiationPolicy.SuiteOrder(LAfter.CipherSuites, TSuiteProtocol.Tls12)),
     'the list applies at Build, whichever order the setters ran in');
+end;
+
+procedure TTestConfigBuilder.TestInjectedVerifierRefusesSettingsItIgnores;
+  function ClientRefused(const ABuilder: ITlsClientConfigBuilder): Boolean;
+  begin
+    Result := False;
+    try
+      ABuilder.Build;
+    except
+      on E: EInvalidOperationTlsLibException do
+        Result := Pos('injected certificate verifier', E.Message) > 0;
+    end;
+  end;
+
+  function ServerRefused(const ABuilder: ITlsServerConfigBuilder): Boolean;
+  begin
+    Result := False;
+    try
+      ABuilder.Build;
+    except
+      on E: EInvalidOperationTlsLibException do
+        Result := Pos('injected certificate verifier', E.Message) > 0;
+    end;
+  end;
+
+  function NewVerifierServer: ITlsServerConfigBuilder;
+  begin
+    Result := TTlsPresets.Compatible(Crypto, Pkix).Server.WithCredential(ServerCredential)
+      .WithPeerAuth(TClientAuthMode.Required).WithDangerousCertificateVerifier(
+      TAcceptAllClientVerifier.Create as IClientCertificateVerifier);
+  end;
+
+  function NewVerifierClient: ITlsClientConfigBuilder;
+  begin
+    Result := TTlsPresets.Compatible(Crypto, Pkix).Client.WithDangerousCertificateVerifier(
+      TAcceptAllServerVerifier.Create as IServerCertificateVerifier);
+  end;
+
+begin
+  // a whole-verifier replaces the built-in verification, so the settings only that verification
+  // reads are refused instead of being accepted and ignored
+  CheckTrue(ClientRefused(NewVerifierClient.WithIntermediateCertificates(EcP256RootCertificate)),
+    'intermediates beside a verifier instance');
+  CheckTrue(ClientRefused(NewVerifierClient.WithDangerousInsecureSkipVerify),
+    'skip-verify beside a verifier instance');
+  CheckTrue(ClientRefused(NewVerifierClient.WithRevocation(TRevocationPosture.Hard)),
+    'Hard revocation beside a verifier instance without a live verdict');
+  // controls: the verifier alone builds, and Hard builds when a live verdict applies it
+  CheckTrue(ClientRefused(NewVerifierClient.WithRevocation(TRevocationPosture.Hard)
+    .WithOcspStaplingRequest(True)), 'stapling does not rescue Hard beside a verifier instance');
+  // the server-role mirror
+  CheckTrue(ServerRefused(NewVerifierServer.WithDangerousInsecureSkipVerify),
+    'skip-verify beside a client-certificate verifier instance');
+  CheckTrue(ServerRefused(NewVerifierServer.WithIntermediateCertificates(EcP256RootCertificate)),
+    'intermediates beside a client-certificate verifier instance');
+  CheckTrue(ServerRefused(NewVerifierServer.WithRevocation(TRevocationPosture.Hard)),
+    'Hard revocation beside a client-certificate verifier instance');
+  CheckTrue(NewVerifierServer.Build <> nil, 'control: the client-certificate verifier alone builds');
+  CheckTrue(NewVerifierClient.Build <> nil, 'control: the verifier alone builds');
+  CheckTrue(NewVerifierClient.WithRevocation(TRevocationPosture.Hard)
+    .WithLiveRevocationVerdict(1000).Build <> nil, 'control: Hard with a live verdict builds');
 end;
 
 function TTestConfigBuilder.ClientBuildNeedsTls13(const AFacet: ITls13ClientConfigFacet): Boolean;

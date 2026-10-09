@@ -95,7 +95,9 @@ type
     /// <summary>DANGEROUS: injects a whole-verifier that REPLACES the built-in trust pipeline for
     /// the server certificate (e.g. an OS delegate) - the caller owns every check the pipeline would
     /// have run. Exclusive: combining it with any anchor source (WithTrustStore/WithTrustAnchors),
-    /// or setting two verifiers, is a typed error at Build.</summary>
+    /// or setting two verifiers, is a typed error at Build. The refused settings that the built-in
+    /// pipeline alone would read are intermediates, skip-verify, and a Hard revocation posture
+    /// unless a live verdict applies it.</summary>
     function WithDangerousCertificateVerifier(
       const AVerifier: IServerCertificateVerifier): ITlsClientConfigBuilder;
     /// <summary>Installs a per-connection source that builds the server-certificate verifier
@@ -338,7 +340,8 @@ type
     /// <summary>DANGEROUS: injects a whole-verifier that REPLACES the built-in trust pipeline for a
     /// requested client certificate - the caller owns every check the pipeline would have run.
     /// Exclusive: combining it with any anchor source, or setting two verifiers, is a typed error
-    /// at Build.</summary>
+    /// at Build, as are the ignored settings intermediates, skip-verify, and Hard revocation
+    /// without a live verdict.</summary>
     function WithDangerousCertificateVerifier(
       const AVerifier: IClientCertificateVerifier): ITlsServerConfigBuilder;
     /// <summary>Installs a per-connection source that builds the client-certificate verifier

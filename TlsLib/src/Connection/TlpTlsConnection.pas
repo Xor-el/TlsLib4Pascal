@@ -323,6 +323,9 @@ resourcestring
   SClientAuthWithoutVerify =
     'client authentication is requested but peer verification is off; turn verification on, or ' +
     'set client authentication to None';
+  SVerifierWithoutVerify =
+    'a custom server-certificate verifier replaces verification, so it cannot be combined with ' +
+    'peer verification switched off; keep verification on, or drop the verifier';
   SClientVerifierNeedsClientAuth =
     'a client-certificate verifier is set but client authentication is None; set a ' +
     'client-authentication mode, or drop the verifier';
@@ -541,6 +544,11 @@ var
   LClient: ITlsClientConfigBuilder;
   LI: Int32;
 begin
+  // the verifier is the whole decision, so a switched-off verification beside it is a contradiction
+  // the host should see in its own terms rather than as a builder conflict
+  if (AOptions.ServerCertificateVerifier <> nil) and
+    (AOptions.InsecureSkipVerify or (not AOptions.VerifyPeer)) then
+    raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError, @SVerifierWithoutVerify);
   LCrypto := EffectiveCrypto(AOptions);
   LPkix := EffectivePkix(AOptions);
   LClient := TTlsPresets.Compatible(LCrypto, LPkix).Client;

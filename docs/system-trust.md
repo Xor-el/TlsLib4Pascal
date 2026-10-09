@@ -349,6 +349,10 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   .Build;
 ```
 
+Because the instance replaces the pipeline, `Build` refuses the settings that would be silently
+ignored beside it: intermediate certificates, skip-verify, and a Hard revocation posture without a live revocation
+verdict. The adapters refuse a custom verifier beside switched-off peer verification the same way.
+
 A pre-built instance cannot see a connection's clock or revocation posture. When a verifier needs
 those — as the OS delegates do — install a **source** with `WithCertificateVerifierSource` instead;
 the engine builds the verifier per connection from the trust context. `TSystemTrust.WithSystemTrust`

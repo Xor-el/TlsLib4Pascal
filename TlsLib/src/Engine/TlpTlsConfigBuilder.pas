@@ -376,6 +376,9 @@ resourcestring
     'anchor source (where system trust is a delegate - Delegate mode, and always on iOS and Android - the system ' +
     'trust itself is such a verifier, so it cannot be combined with WithTrustAnchors or WithTrustStore)';
   SDualVerifier = 'only one custom certificate verifier may be configured';
+  SVerifierIgnoresSettings = 'an injected certificate verifier replaces the built-in chain ' +
+    'verification, so intermediate certificates, skip-verify and a Hard revocation posture ' +
+    '(without a live revocation verdict) would be ignored; remove them, or use a verifier source';
   STls13NotOffered = 'TLS 1.3 settings were configured but TLS 1.3 is not in the offered versions';
   STls12NotOffered = 'TLS 1.2 settings were configured but TLS 1.2 is not in the offered versions';
   SNonEmsResumeWithRequiredEms = 'legacy non-EMS resumption cannot apply when ' +
@@ -2105,6 +2108,15 @@ begin
   // whole-verifier's exclusivity (the roots-based trust gate at Build is a separate concern)
   if (FVerifierCount = 1) and (System.Length(FAnchorStores) > 0) then
     raise EInvalidOperationTlsLibException.CreateRes(@SVerifierAnchorConflict);
+  // an injected whole-verifier replaces the built-in chain verification, so the settings that
+  // only that verification reads would be ignored: refuse them rather than imply they apply. A
+  // Hard posture still has effect through the live verdict, which runs over the verifier's
+  // validated path, or the presented chain with its issuer checked.
+  if ((FServerCertVerifier <> nil) or (FClientCertVerifier <> nil)) and
+    ((System.Length(FIntermediateCertificates) > 0) or FDangerousTrust.InsecureSkipVerify or
+    ((FRevocationPosture = TRevocationPosture.Hard) and
+    (FAsyncVerdict.Deferral <> TVerdictDeferral.LiveRevocation))) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SVerifierIgnoresSettings);
 end;
 
 procedure TTlsConfigBuilder.ValidateAnchorRoots;
