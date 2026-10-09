@@ -117,6 +117,7 @@ type
     // signatures
     procedure TestSignatureEqualOptionsEqualKeys;
     procedure TestSignatureEachConcernChangesKey;
+    procedure TestSignatureKeysSystemTrustByIdentity;
     procedure TestSignatureExcludesResolverAndTimeout;
     procedure TestSignaturePasswordNotInClear;
     // resolve + memo + config-in + guard
@@ -183,7 +184,11 @@ type
   public
     ClientRoleCalled: Boolean;
     ClientPkix: IPkixProvider;
+    // unique per instance unless a test sets it, so two fakes differ the way two installers
+    // installing different roots do
+    InstallerIdentity: string;
     constructor Create(ARaise: Boolean; const AStore: ITrustAnchorStore);
+    function Identity: string;
     procedure InstallClientTrust(const ABuilder: ITlsClientConfigBuilder;
       const APkix: IPkixProvider);
   end;
@@ -244,6 +249,12 @@ begin
   inherited Create;
   FRaise := ARaise;
   FStore := AStore;
+  InstallerIdentity := 'fake-' + IntToHex(NativeUInt(Pointer(Self)), 1);
+end;
+
+function TFakeSystemTrustInstaller.Identity: string;
+begin
+  Result := InstallerIdentity;
 end;
 
 procedure TFakeSystemTrustInstaller.InstallClientTrust(
@@ -1091,6 +1102,30 @@ begin
     as ISystemTrustInstaller;
   CheckFalse(TTlsConfigComposer.ClientSignature(LMut) = LBaseSig,
     'system trust changes the client key');
+end;
+
+procedure TTestTlsConnection.TestSignatureKeysSystemTrustByIdentity;
+var
+  LBase, LA, LB, LC: TTlsOptions;
+  LFirst, LSecond: TFakeSystemTrustInstaller;
+begin
+  // the key follows what the installer installs, not where it lives: equal identities share a
+  // key across distinct instances, different identities never do
+  LBase := ClientOptsWithStore;
+  LFirst := TFakeSystemTrustInstaller.Create(False, EcP256RootStore);
+  LSecond := TFakeSystemTrustInstaller.Create(False, EcP256RootStore);
+  LA := LBase;
+  LA.SystemTrust := LFirst as ISystemTrustInstaller;
+  LB := LBase;
+  LB.SystemTrust := LSecond as ISystemTrustInstaller;
+  LFirst.InstallerIdentity := 'tenant-a';
+  LSecond.InstallerIdentity := 'tenant-a';
+  CheckEquals(TTlsConfigComposer.ClientSignature(LA), TTlsConfigComposer.ClientSignature(LB),
+    'distinct installers with one identity share a key');
+  LSecond.InstallerIdentity := 'tenant-b';
+  LC := LB;
+  CheckFalse(TTlsConfigComposer.ClientSignature(LA) = TTlsConfigComposer.ClientSignature(LC),
+    'installers with different identities never share a key');
 end;
 
 procedure TTestTlsConnection.TestSignatureExcludesResolverAndTimeout;

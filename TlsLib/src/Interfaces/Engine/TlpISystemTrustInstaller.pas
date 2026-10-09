@@ -27,7 +27,11 @@ type
   /// trust never vouches for a client certificate: a server's client-CA is always caller-supplied.
   /// </summary>
   ISystemTrustInstaller = interface(IInterface)
-    ['{F16C2C50-2E66-43E0-BB40-48A4E18994AD}']
+    ['{B7FAF480-B5A2-42F3-B18E-9745FABFC363}']
+    /// <summary>Names what this installer installs: equal for installers that install the same
+    /// trust, different otherwise, and never empty. Config caches key on it, so two installers
+    /// that install different roots must not share one.</summary>
+    function Identity: string;
     /// <summary>Installs OS server-certificate trust into a client builder.</summary>
     procedure InstallClientTrust(const ABuilder: ITlsClientConfigBuilder;
       const APkix: IPkixProvider);

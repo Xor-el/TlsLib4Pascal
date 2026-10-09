@@ -697,9 +697,13 @@ begin
   LSig.AddFlag('skipVerify', AOptions.InsecureSkipVerify);
   LSig.AddFlag('checkHost', AOptions.CheckHostName);
   LSig.AddCardinal('sni', Cardinal(Ord(AOptions.ServerNameIndication)));
-  // by installer identity, not a bare present/absent flag: two installers that install different
-  // roots must not collapse to the same memo signature and reuse each other's frozen config
-  LSig.AddPointer('systemTrust', AOptions.SystemTrust);
+  // by what the installer installs, not a bare present/absent flag: two installers that install
+  // different roots must not collapse to the same memo signature and reuse each other's frozen
+  // config. The built config does not retain the installer, so its address would not be stable.
+  if AOptions.SystemTrust <> nil then
+    LSig.AddText('systemTrust', AOptions.SystemTrust.Identity)
+  else
+    LSig.AddText('systemTrust', '');
   LSig.AddPointer('customVerifier', AOptions.ServerCertificateVerifier);
   // a composed store keeps the stores it was built from, so this address stays live with the config
   LSig.AddPointer('customStore', AOptions.CustomTrustStore);
