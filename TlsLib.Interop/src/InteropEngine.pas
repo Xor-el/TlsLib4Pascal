@@ -367,7 +367,8 @@ begin
       LClient.WithDangerousDisableServerNameCheck;
     // GREASE (RFC 8701) is optional; the shim keeps it off unless the runner enables it, so
     // deterministic assertions (e.g. exact key_share counts) are not perturbed
-    LClient.WithGrease(AOptions.Grease);
+    if Offers13(LVersions) then
+      LClient.Tls13.WithGrease(AOptions.Grease);
     LClient.WithOcspStaplingRequest(AOptions.RequestOcsp);
     if AOptions.ApplyRevocation then
       LClient.WithRevocation(AOptions.RevocationPosture);
@@ -383,8 +384,8 @@ begin
     // out-of-band external PSKs (RFC 9258): imported and offered alongside a cached session
     if System.Length(AOptions.ExternalPsks) > 0 then
     begin
-      LClient.WithExternalPreSharedKeys(AOptions.ExternalPsks);
-      LClient.WithExternalPskRequired(AOptions.ExternalPskRequired);
+      LClient.Tls13.WithExternalPreSharedKeys(AOptions.ExternalPsks);
+      LClient.Tls13.WithExternalPskRequired(AOptions.ExternalPskRequired);
     end;
     // resumption: the shared cache carries a ticket from an earlier connection; 0-RTT is
     // a separate opt-in on the 1.3 facet
@@ -441,7 +442,7 @@ begin
     // out-of-band external PSKs (RFC 9258): imported and matched against the ClientHello,
     // preferred over the certificate
     if System.Length(AOptions.ExternalPsks) > 0 then
-      LServer.WithExternalPreSharedKeys(AOptions.ExternalPsks);
+      LServer.Tls13.WithExternalPreSharedKeys(AOptions.ExternalPsks);
     // mutual TLS: request the client certificate and either verify it against the trust
     // store or, for -require-any-client-certificate, accept any chain via a whole-verifier
     if AOptions.ClientAuth <> TClientAuthMode.None then

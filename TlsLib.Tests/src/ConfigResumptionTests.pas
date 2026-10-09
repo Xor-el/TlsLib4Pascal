@@ -383,7 +383,7 @@ begin
     .WithCredential(StaplingCredential)
     .WithResumption(True)
     .WithSessionStore(AStore)
-    .WithTicketCount(AIssueTickets)
+    .Tls13.WithTicketCount(AIssueTickets)
     .Build;
   Result := TTlsEngineFactory.CreateServerEngine(LConfig);
 end;
@@ -569,7 +569,7 @@ begin
     .WithCredential(ServerCredential)
     .WithResumption(AResumption)
     .WithSessionStore(AStore)
-    .WithTicketCount(AIssueTickets)
+    .Tls13.WithTicketCount(AIssueTickets)
     .Build;
   Result := TTlsEngineFactory.CreateServerEngine(LConfig);
 end;
@@ -583,8 +583,8 @@ begin
     .WithCredential(ServerCredential)
     .WithResumption(True)
     .WithSessionStore(AStore)
-    .WithTicketCount(0)
     .WithResumptionScope(AScope)
+    .Tls13.WithTicketCount(0)
     .Build;
   Result := TTlsEngineFactory.CreateServerEngine(LConfig);
 end;
@@ -1042,7 +1042,7 @@ begin
     ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Strict(Crypto, Pkix).Server
     .WithResumption(True).WithCredential(ServerCredential).WithSessionStore(LStore)
-    .WithTicketCount(1).Build);
+    .Tls13.WithTicketCount(1).Build);
   PumpToCompletion(LClient, LServer);
   CheckEquals(1, LStore.Count, 're-enabled Strict stored a session');
 
@@ -1051,7 +1051,7 @@ begin
     ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Strict(Crypto, Pkix).Server
     .WithResumption(True).WithCredential(ServerCredential).WithSessionStore(LStore)
-    .WithTicketCount(0).Build);
+    .Tls13.WithTicketCount(0).Build);
   PumpToCompletion(LClient, LServer);
   CheckFalse(LServer.IsTerminal, 're-enabled Strict resume did not fail');
   CheckEquals(0, LStore.Count, 're-enabled Strict resumed (store consumed)');
