@@ -22,7 +22,7 @@ uses
 
 type
   /// <summary>Every cipher suite this library implements, and their names: the IANA name and the
-  /// OpenSSL name that hosts configure them by.</summary>
+  /// traditional cipher-list name that hosts configure them by.</summary>
   TCipherSuiteCatalog = class sealed(TObject)
   public
     /// <summary>Every implemented suite, in catalog order.</summary>
@@ -33,10 +33,10 @@ type
     /// logging. Empty for 0 (nothing negotiated yet); the bare hex codepoint for a suite this
     /// library never offers.</summary>
     class function Name(ACode: UInt16): string; static;
-    /// <summary>The OpenSSL name of a suite (TLS 1.3 suites share the IANA name); the bare hex
+    /// <summary>The cipher-list name of a suite (TLS 1.3 suites share the IANA name); the bare hex
     /// codepoint for one outside the catalog.</summary>
     class function OpenSslName(ACode: UInt16): string; static;
-    /// <summary>The codepoint for an IANA or OpenSSL suite name, matched without regard to ASCII
+    /// <summary>The codepoint for an IANA or cipher-list suite name, matched without regard to ASCII
     /// case; False for any name outside the catalog.</summary>
     class function TryCode(const AName: string; out ACode: UInt16): Boolean; static;
   end;

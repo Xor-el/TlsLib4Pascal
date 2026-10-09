@@ -117,9 +117,9 @@ type
     class function Default: TTlsOptions; static;
   end;
 
-  /// <summary>Maps a host's cipher-list string onto catalog suites: exact IANA or OpenSSL names
-  /// separated by ':', ',', ';', spaces or tabs, in preference order, matched without regard to case and
-  /// de-duplicated (the first position wins). Empty or HostDefault alone is the host default (an
+  /// <summary>Maps a host's cipher-list string onto catalog suites: exact IANA or traditional
+  /// cipher-list names separated by ':', ',', ';', spaces or tabs, in preference order, matched
+  /// without regard to case and de-duplicated (the first position wins). Empty or HostDefault alone is the host default (an
   /// empty result: the preset applies). Any other token - a cipher-string expression or a suite
   /// this library does not implement - is refused, never skipped; so is HostDefault combined with
   /// names.</summary>
@@ -338,7 +338,7 @@ resourcestring
     'WithAsyncCertificateVerdict on the config';
   SHostCipherListRefused =
     'the %s property names %s, which TlsLib4Pascal does not implement as cipher suites: list ' +
-    'exact IANA or OpenSSL suite names separated by '':'', '','' or spaces (cipher-string ' +
+    'exact IANA or cipher-list suite names separated by '':'', '','' or spaces (cipher-string ' +
     'expressions such as HIGH or !aNULL are not supported), or leave it empty or %s for the ' +
     'default';
   SHostCipherListMixedDefault =
