@@ -1280,6 +1280,8 @@ var
   LCdp: ICrlDistPoint;
   LPoints: TCryptoLibGenericArray<IDistributionPoint>;
   LDpn: IDistributionPointName;
+  LIdpIa5, LDpIa5: IDerIA5String;
+  LIdpUrl, LDpUrl: THttpUrl;
   LI, LJ, LK: Int32;
 begin
   Result := False;
@@ -1307,9 +1309,23 @@ begin
     LDpNames := LGns.GetNames;
     for LJ := 0 to System.High(LIdpNames) do
       for LK := 0 to System.High(LDpNames) do
+      begin
         if TArrayUtilities.AreEqual(LIdpNames[LJ].GetEncoded,
           LDpNames[LK].GetEncoded) then
           Exit(True);
+        // RFC 5280 7.4: the scheme and host of a URI compare without regard to case; the canonical
+        // form also folds a default port and an empty path (RFC 3986 6.2.3), percent-encoding case
+        // (6.2.2.1) and a fragment, which is never part of the retrieval (RFC 9110 7.1). A URI that
+        // is not a well-formed http(s) URL is compared byte for byte only, as above.
+        if (LIdpNames[LJ].GetTagNo = TGeneralName.UniformResourceIdentifier) and
+          (LDpNames[LK].GetTagNo = TGeneralName.UniformResourceIdentifier) and
+          Supports(LIdpNames[LJ].GetName, IDerIA5String, LIdpIa5) and
+          Supports(LDpNames[LK].GetName, IDerIA5String, LDpIa5) and
+          THttpUrl.TryParse(LIdpIa5.GetString, LIdpUrl) and
+          THttpUrl.TryParse(LDpIa5.GetString, LDpUrl) and
+          (LIdpUrl.ToString = LDpUrl.ToString) then
+          Exit(True);
+      end;
   end;
 end;
 

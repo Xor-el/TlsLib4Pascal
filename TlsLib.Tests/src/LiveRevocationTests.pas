@@ -182,6 +182,8 @@ type
     procedure TestInScopeCrlsAreAuthoritative;
     procedure TestCrlWithoutNextUpdateIsAgeBounded;
     procedure TestWrongShardCrlIsIndeterminate;
+    procedure TestIdpUriMatchesTheLeafUnderRfc5280UriComparison;
+    procedure TestIdpUriDifferingInPathCaseOrSchemeIsAnotherUri;
     procedure TestOnlyContainsCaCertsCrlIsIndeterminateForLeaf;
     procedure TestOnlyContainsUserCertsCrlCoversLeaf;
     procedure TestOnlySomeReasonsCrlIsIndeterminate;
@@ -1629,6 +1631,21 @@ begin
   // this read as a silent Good under every posture
   CheckClassified('crl_shard2_clean', 'Indeterminate',
     'a CRL scoped to another shard is not authoritative for the leaf');
+end;
+
+procedure TTestCrlScope.TestIdpUriMatchesTheLeafUnderRfc5280UriComparison;
+begin
+  // the IDP names the leaf's distribution point with its scheme and host in upper case and the
+  // default port written out: the same URI (RFC 5280 7.4), so the CRL is in scope and clears the leaf
+  CheckClassified('crl_idp_urlcase', 'Good',
+    'a URI that differs only in scheme and host case, and a default port, is the same URI');
+end;
+
+procedure TTestCrlScope.TestIdpUriDifferingInPathCaseOrSchemeIsAnotherUri;
+begin
+  // the path is case-sensitive and another scheme is another resource: out of scope
+  CheckClassified('crl_idp_pathcase', 'Indeterminate', 'a path that differs in case is another URI');
+  CheckClassified('crl_idp_scheme', 'Indeterminate', 'https is not http');
 end;
 
 procedure TTestCrlScope.TestOnlyContainsCaCertsCrlIsIndeterminateForLeaf;
