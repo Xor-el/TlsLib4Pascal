@@ -1,0 +1,54 @@
+TlsLib.Tests/FreePascal.Tests/TlsLib.Tests.lpi
+  s_d27f31cd14035d::t_823eb0ba3efa86 392-395
+  s_d27f31cd14035d::t_54310af07b584b 43
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpr
+  s_d27f31cd14035d::t_b97d06862fdd0f 68
+TlsLib.Tests/FreePascal.Tests/TlsLib.lpr
+  s_d27f31cd14035d::t_0485688cfd8a5f 70
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_d27f31cd14035d::t_0b5a9c2452496e 248
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_d27f31cd14035d::t_7cdcf300c2bab1 228
+TlsLib.Net/TlpSocketHttpFetcher.pas
+  s_d27f31cd14035d::t_9423473719a9b2 302-304,309,317
+  s_d27f31cd14035d::t_97528c8b8ac649 292-293
+  s_d27f31cd14035d::t_bda5f39763b63b 37
+  s_d27f31cd14035d::t_46a662e1e3f3f5 61-63
+  s_d27f31cd14035d::t_a37c3b82c7b8d8 215
+  s_d27f31cd14035d::t_73d423fa144d33 99,104
+  s_d27f31cd14035d::t_e412788b8b4cb9 65-86
+  s_d27f31cd14035d::t_87cfa83579cfa3 358
+  s_d27f31cd14035d::t_20dddc01f07924 232-236,242-243,245-246,248
+  s_d27f31cd14035d::t_6fd16377a1858e 35-36,43-44,47,49-52,345-346
+  s_d27f31cd14035d::t_07167b9e48dd89 266-268,276-277,279-280,282
+  s_d27f31cd14035d::t_25798913972b05 111-113,116-123,125-168
+  s_d27f31cd14035d::t_3273faf830d128 203
+  s_d27f31cd14035d::t_f20cc38b538ae6 124
+  s_d27f31cd14035d::t_2f26719ad503be 329-330
+  s_d27f31cd14035d::t_ecfa2c388a011f 338,344,347-357,359,365,372
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpi
+  s_d27f31cd14035d::t_f6b69507867830 386-389
+  s_d27f31cd14035d::t_ea4277ee6c7b2f 37
+TlsLib.Tests/src/SocketHttpFetcherTests.pas
+  s_d27f31cd14035d::t_e67c11fb4cf018 1-106,112-119,121-131,133-135,137-138,140-291
+  s_d27f31cd14035d::t_9c8643d491b967 132,136,139
+  s_d27f31cd14035d::t_eec95fa3aa7fb0 107-111,120
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_d27f31cd14035d::t_483faf10e7752f 572
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4571d05d41ba3f171309e979ae5569170bfa439e",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
