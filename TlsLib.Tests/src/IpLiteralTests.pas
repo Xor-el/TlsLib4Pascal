@@ -92,12 +92,16 @@ begin
   CheckEquals(16, System.Length(LBytes), 'sixteen octets');
   CheckEquals($20, LBytes[0], 'high byte');
   CheckEquals($01, LBytes[1], 'next byte');
+  CheckEquals($0D, LBytes[2], 'lower-case hex digit');
+  CheckEquals($B8, LBytes[3], 'lower-case hex digits');
   CheckEquals($01, LBytes[15], 'last byte');
   CheckTrue(TIpLiteral.TryParseIPv6('::1', LBytes), 'loopback');
   CheckEquals(0, LBytes[0], 'the compressed head is zero');
   CheckEquals(1, LBytes[15], 'the tail is kept');
   CheckTrue(V6('::') and V6('2001:DB8::'), 'the unspecified address and a trailing "::"');
-  CheckTrue(V6('FE80::1'), 'upper-case hex');
+  CheckTrue(TIpLiteral.TryParseIPv6('FE80::1', LBytes), 'upper-case hex');
+  CheckEquals($FE, LBytes[0], 'upper-case hex digits');
+  CheckEquals($80, LBytes[1], 'and the next byte');
 end;
 
 procedure TTestIpLiteral.TestIPv6EmbeddedIPv4;
@@ -110,6 +114,8 @@ begin
   CheckEquals(4, LBytes[15], 'embedded last octet');
   CheckFalse(V6('::1.2.3.4:5'), 'an embedded quad only in the final group');
   CheckFalse(V6('::ffff:1.2.3'), 'the embedded quad must itself be valid');
+  CheckFalse(V6('1.2.3.4::5'), 'an embedded quad supplies the low-order bits, never the head');
+  CheckFalse(V6('1.2.3.4::'), 'an embedded quad before a trailing "::"');
 end;
 
 procedure TTestIpLiteral.TestIPv6RefusesMalformedForms;
@@ -122,6 +128,7 @@ begin
   CheckFalse(V6('12345::1'), 'a five-digit group');
   CheckFalse(V6('g::1'), 'a non-hex digit');
   CheckFalse(V6(':1:2:3:4:5:6:7'), 'a leading single colon');
+  CheckFalse(V6('1:2:3:4:5:6:7:'), 'a trailing single colon');
   CheckFalse(V6(''), 'empty');
 end;
 

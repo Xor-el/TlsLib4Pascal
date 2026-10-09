@@ -80,7 +80,10 @@ var
   LDoubleColon: Int32;
   LEmbedded: TBytes;
 
-  function ParseGroups(const AGroups: string; out AValues: TArray<UInt16>): Boolean;
+  // an embedded IPv4 supplies the low-order 32 bits (RFC 4291 2.2), so only the side of the
+  // address that ends it may carry one
+  function ParseGroups(const AGroups: string; AEndsAddress: Boolean;
+    out AValues: TArray<UInt16>): Boolean;
   var
     LParts: TArray<string>;
     LI, LJ, LV, LCount: Int32;
@@ -98,7 +101,7 @@ var
       // a trailing embedded IPv4 (e.g. ::ffff:1.2.3.4) only in the final group
       if (LI = High(LParts)) and (Pos('.', LPart) > 0) then
       begin
-        if not TryParseIPv4(LPart, LEmbedded) then
+        if (not AEndsAddress) or (not TryParseIPv4(LPart, LEmbedded)) then
           Exit;
         SetLength(AValues, LCount + 2);
         AValues[LCount] := TBinaryPrimitives.ReadUInt16BigEndian(LEmbedded, 0);
@@ -142,9 +145,9 @@ begin
   begin
     if Pos('::', System.Copy(AText, LDoubleColon + 1, MaxInt)) > 0 then
       Exit;
-    if not ParseGroups(System.Copy(AText, 1, LDoubleColon - 1), LHead) then
+    if not ParseGroups(System.Copy(AText, 1, LDoubleColon - 1), False, LHead) then
       Exit;
-    if not ParseGroups(System.Copy(AText, LDoubleColon + 2, MaxInt), LTail) then
+    if not ParseGroups(System.Copy(AText, LDoubleColon + 2, MaxInt), True, LTail) then
       Exit;
     if System.Length(LHead) + System.Length(LTail) >= 8 then
       Exit; // "::" must stand for at least one zero group
@@ -157,7 +160,7 @@ begin
   end
   else
   begin
-    if not ParseGroups(AText, LAll) then
+    if not ParseGroups(AText, True, LAll) then
       Exit;
     if System.Length(LAll) <> 8 then
       Exit;
