@@ -182,6 +182,8 @@ type
     procedure TestInScopeCrlsAreAuthoritative;
     procedure TestCrlWithoutNextUpdateIsAgeBounded;
     procedure TestWrongShardCrlIsIndeterminate;
+    procedure TestForgedIssuerCrlIsIndeterminate;
+    procedure TestForgedIssuerOcspResponseIsIndeterminate;
     procedure TestIdpUriMatchesTheLeafUnderRfc5280UriComparison;
     procedure TestIdpUriDifferingInPathCaseOrSchemeIsAnotherUri;
     procedure TestOnlyContainsCaCertsCrlIsIndeterminateForLeaf;
@@ -1646,6 +1648,35 @@ begin
   // the path is case-sensitive and another scheme is another resource: out of scope
   CheckClassified('crl_idp_pathcase', 'Indeterminate', 'a path that differs in case is another URI');
   CheckClassified('crl_idp_scheme', 'Indeterminate', 'https is not http');
+end;
+
+procedure TTestCrlScope.TestForgedIssuerCrlIsIndeterminate;
+var
+  LRevoked: Boolean;
+  LThisUpdate, LNextUpdate: TDateTime;
+begin
+  // a CRL signed by a certificate that merely carries the issuer's name proves nothing about the
+  // leaf, so it must not clear it; the control shows the genuine issuer's empty CRL does
+  CheckTrue(Pkix.Revocation.CheckCrlRevocation(Field('leaf_cert'), Field('ca_cert'),
+    Field('crl_noidp_clean'), EncodeDate(2030, 1, 1), LRevoked, LThisUpdate, LNextUpdate),
+    'control: the genuine issuer''s CRL is authoritative');
+  CheckFalse(Pkix.Revocation.CheckCrlRevocation(Field('leaf_cert'), Field('forged_ca_cert'),
+    Field('crl_forged_empty'), EncodeDate(2030, 1, 1), LRevoked, LThisUpdate, LNextUpdate),
+    'a same-name issuer that did not sign the leaf is not authoritative');
+end;
+
+procedure TTestCrlScope.TestForgedIssuerOcspResponseIsIndeterminate;
+var
+  LStatus: TOcspStatus;
+  LThisUpdate, LNextUpdate: TDateTime;
+begin
+  CheckTrue(Pkix.Revocation.ValidateOcspStaple(Field('leaf_cert'), Field('ca_cert'),
+    Field('ocsp_real_good'), EncodeDate(2030, 1, 1), LStatus, LThisUpdate, LNextUpdate),
+    'control: the genuine issuer''s Good response is authoritative');
+  CheckTrue(LStatus = TOcspStatus.Good, 'control: Good');
+  CheckFalse(Pkix.Revocation.ValidateOcspStaple(Field('leaf_cert'), Field('forged_ca_cert'),
+    Field('ocsp_forged_good'), EncodeDate(2030, 1, 1), LStatus, LThisUpdate, LNextUpdate),
+    'a same-name issuer that did not sign the leaf cannot vouch for it');
 end;
 
 procedure TTestCrlScope.TestOnlyContainsCaCertsCrlIsIndeterminateForLeaf;

@@ -225,6 +225,12 @@ type
     class function IdpNameMatchesLeafDistributionPoint(
       const AIdpName: IDistributionPointName; const ALeaf: IX509Certificate): Boolean; static;
     /// <summary>
+    /// Whether AIssuer's key verifies ALeaf's signature. A matching distinguished name alone does not
+    /// make a certificate the issuer, so every revocation primitive that authenticates a response
+    /// under AIssuer's key first requires this.
+    /// </summary>
+    class function IssuerSignedLeaf(const ALeaf, AIssuer: IX509Certificate): Boolean; static;
+    /// <summary>
     /// Whether any entry of ACrl carries a critical extension; none is processed here, and RFC 5280
     /// 5.3 forbids using such a CRL to determine the status of any certificate.
     /// </summary>
@@ -1090,6 +1096,9 @@ begin
     LParser := TX509CertificateParser.Create;
     LLeaf := LParser.ReadCertificate(ALeafCert);
     LIssuer := LParser.ReadCertificate(AIssuerCert);
+    // a response signed under a key that did not issue the leaf says nothing about it
+    if not IssuerSignedLeaf(LLeaf, LIssuer) then
+      Exit;
 
     LResp := TOcspResp.Create(AOcspResponseDer) as IOcspResp;
     if LResp.Status <> TOcspRespStatus.Successful then
@@ -1268,6 +1277,17 @@ begin
   except
     Result := False;
     AUrls := nil;
+  end;
+end;
+
+class function TRevocationChecker.IssuerSignedLeaf(const ALeaf,
+  AIssuer: IX509Certificate): Boolean;
+begin
+  try
+    ALeaf.Verify(AIssuer.GetPublicKey);
+    Result := True;
+  except
+    Result := False;
   end;
 end;
 
@@ -1453,6 +1473,9 @@ begin
     LParser := TX509CertificateParser.Create;
     LLeaf := LParser.ReadCertificate(ALeafCert);
     LIssuer := LParser.ReadCertificate(AIssuerCert);
+    // a CRL signed under a key that did not issue the leaf says nothing about it
+    if not IssuerSignedLeaf(LLeaf, LIssuer) then
+      Exit;
     LCrlParser := TX509CrlParser.Create;
     LCrl := LCrlParser.ReadCrl(ACrlDer);
     if LCrl = nil then
@@ -1522,12 +1545,8 @@ begin
       // issuerKeyHash bound to the true signer (a wrong pick could otherwise mis-key the request)
       if not LLeaf.IssuerDN.Equivalent(LCandidate.SubjectDN, True) then
         Continue;
-      try
-        LLeaf.Verify(LCandidate.GetPublicKey);
-      except
-        // this candidate did not sign the leaf; keep looking
+      if not IssuerSignedLeaf(LLeaf, LCandidate) then
         Continue;
-      end;
       AIssuerCert := ACandidates[LI];
       Result := True;
       Exit;
