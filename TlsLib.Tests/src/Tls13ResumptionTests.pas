@@ -2107,7 +2107,7 @@ var
     LParams.Crypto := Crypto;
     LParams.Inspector := Pkix.Certificates;
     LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
-    LParams.Policy := TNegotiationPolicy.Create(LHwAes, LParams.CipherSuites,
+    LParams.Policy := TNegotiationPolicy.Create(LParams.CipherSuites,
       TNamedGroups.CreateDefaultRegistry(Crypto),
       TArray<UInt16>.Create(TNamedGroupCatalog.X25519),
       TArray<UInt16>.Create(TlsWireVersionTls13), APreference);

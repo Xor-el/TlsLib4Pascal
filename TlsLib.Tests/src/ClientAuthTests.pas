@@ -375,6 +375,7 @@ var
   LParams: TServer12HandshakeParams;
 begin
   LParams := Default(TServer12HandshakeParams);
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
   LParams.Clock := TSystemClock.Create;
   LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;

@@ -34,6 +34,7 @@ uses
   TlpTlsLibExceptions,
   TlpNamedGroups,
   TlpNegotiationTypes,
+  TlpNegotiationPolicy,
   TlpCipherSuiteRegistry,
   TlpCoreExtensions,
   TlpICryptoProvider,
@@ -123,7 +124,7 @@ type
     procedure TestEcdheEcdsaAesGcmWithExtendedMasterSecret;
     procedure TestEcdheEcdsaChaCha20WithExtendedMasterSecret;
     procedure TestClientWriteBeforeServerFinishedIsRefused;
-    procedure TestServerWithoutGroupOrPolicyFailsClosed;
+    procedure TestServerWithoutAPolicyIsRefused;
     procedure TestWriteAfterInboundCloseNotifyClosesWrite;
     procedure TestWriteAtUsageLimitClosesWhenNoRekey;
     procedure TestPlainMasterSecretWhenEmsNotOffered;
@@ -218,6 +219,7 @@ var
   LParams: TServer12HandshakeParams;
 begin
   LParams := Default(TServer12HandshakeParams);
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
   LParams.Clock := TSystemClock.Create;
   LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
@@ -287,6 +289,7 @@ var
   LParams: TServer12HandshakeParams;
 begin
   LParams := Default(TServer12HandshakeParams);
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
   LParams.Clock := TSystemClock.Create;
   LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
@@ -356,6 +359,7 @@ var
   LParams: TServer12HandshakeParams;
 begin
   LParams := Default(TServer12HandshakeParams);
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
   LParams.Clock := TSystemClock.Create;
   LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
@@ -614,13 +618,14 @@ begin
     'ECDHE-ECDSA-AES128-GCM + EMS');
 end;
 
-procedure TTestTls12Loopback.TestServerWithoutGroupOrPolicyFailsClosed;
+procedure TTestTls12Loopback.TestServerWithoutAPolicyIsRefused;
 var
-  LClient, LServer: ITlsEngine;
   LParams: TServer12HandshakeParams;
+  LMachine: IHandshakeMachine;
+  LRaised: Boolean;
 begin
-  // a raw sans-IO 1.2 server given neither a pinned Group nor a negotiation policy has no authority
-  // to select an ECDHE group: it fails closed with internal_error rather than dereferencing nil
+  // the negotiation policy selects a 1.2 server's suite and group, so a server built without one
+  // is refused at construction rather than failing on its first ClientHello
   LParams := Default(TServer12HandshakeParams);
   LParams.Clock := TSystemClock.Create;
   LParams.Crypto := Crypto;
@@ -629,15 +634,14 @@ begin
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LParams.ServerRandom := Filled($22, 32);
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
-  LServer := TTlsEngine.CreateConfigured(
-    TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
-  LClient := NewClient(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True);
-  LClient.StartHandshake;
-  Pump(LClient, LServer);
-  CheckTrue(LServer.IsTerminal, 'the server fails closed');
-  CheckEquals(Ord(TTlsAlertDescription.InternalError),
-    Ord(LServer.LastError.Alert.Description),
-    'no group authority is internal_error, not a nil dereference');
+  LRaised := False;
+  try
+    LMachine := TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine;
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a 1.2 server without a negotiation policy is refused');
 end;
 
 procedure TTestTls12Loopback.TestClientWriteBeforeServerFinishedIsRefused;
@@ -931,6 +935,7 @@ var
   LCred: TTlsCredential;
 begin
   LParams := Default(TServer12HandshakeParams);
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
   LParams.Clock := TSystemClock.Create;
   LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;

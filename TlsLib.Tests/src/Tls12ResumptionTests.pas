@@ -36,6 +36,7 @@ uses
   TlpCryptoDomainTypes,
   TlpNamedGroups,
   TlpNegotiationTypes,
+  TlpNegotiationPolicy,
   TlpCipherSuiteRegistry,
   TlpCoreExtensions,
   TlpTlsLibExceptions,
@@ -327,6 +328,7 @@ var
   LParams: TServer12HandshakeParams;
 begin
   LParams := Default(TServer12HandshakeParams);
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
   LParams.NonEmsResumption := AMode;
   LParams.RequireExtendedMasterSecret := ARequireEms;
   LParams.Clock := TSystemClock.Create;
@@ -1203,6 +1205,7 @@ var
   LParams: TServer12HandshakeParams;
 begin
   LParams := Default(TServer12HandshakeParams);
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
   LParams.Clock := TSystemClock.Create;
   LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
@@ -1517,6 +1520,7 @@ begin
   LClient := Default(TClient12HandshakeParams);
   LClient.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LServer := Default(TServer12HandshakeParams);
+  LServer.Policy := TNegotiationPolicy.CreateDefault(Crypto);
   LServer.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   LClientRaised := False;
   LServerRaised := False;
@@ -1551,6 +1555,7 @@ begin
   LClient12 := Default(TClient12HandshakeParams);
   LServer13 := Default(TServerHandshakeParams);
   LServer12 := Default(TServer12HandshakeParams);
+  LServer12.Policy := TNegotiationPolicy.CreateDefault(Crypto);
   LClientRaised := False;
   LServerRaised := False;
   try

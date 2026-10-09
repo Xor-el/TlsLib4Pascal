@@ -297,7 +297,7 @@ resourcestring
   SGroupNotOffered = 'the client did not offer the server''s ECDHE group';
   SGroupNotEcdhe = 'the configured 1.2 group is not an ECDHE group';
   SGroupNotResolvable = 'the selected ECDHE group has no registered key agreement';
-  SNoGroupAuthority = 'no negotiation policy or pinned group to select an ECDHE group';
+  SPolicyRequired = 'a negotiation policy is required (it selects the suite and the group)';
   SNoExtendedMasterSecret =
     'the client did not offer extended_master_secret and it is required';
   SNonEmsResumptionRefused =
@@ -318,6 +318,8 @@ begin
   inherited Create(AParams.ExtensionRegistry);
   if AParams.Clock = nil then
     raise EArgumentTlsLibException.CreateRes(@SClockRequired);
+  if AParams.Policy = nil then
+    raise EArgumentTlsLibException.CreateRes(@SPolicyRequired);
   FParams := AParams;
   FPhase := TPhase.Initial;
   FSelectedGroup := AParams.Group;
@@ -374,14 +376,9 @@ var
   LCandidates: TArray<UInt16>;
 begin
   Result := False;
-  // the mutually supported 1.2 suites in the configured preference order: the negotiation policy
-  // when the engine wired one (so WithCipherSuitePreference - server or client order - governs 1.2
-  // exactly as 1.3), else the static server order for a raw sans-IO caller that supplied no policy
-  if FParams.Policy <> nil then
-    LCandidates := FParams.Policy.CandidateSuites(AClientSuites, TlsWireVersionTls12)
-  else
-    LCandidates := TNegotiationPolicy.SuitePreferenceOrder(FParams.Crypto,
-      FParams.CipherSuites, TSuiteProtocol.Tls12);
+  // the mutually supported 1.2 suites in the configured preference order, so
+  // WithCipherSuitePreference - server or client order - governs 1.2 exactly as 1.3
+  LCandidates := FParams.Policy.CandidateSuites(AClientSuites, TlsWireVersionTls12);
   // a candidate is eligible only if the client offered it and the credential can sign its auth
   // with a scheme the client also offered
   for LCode in LCandidates do
@@ -422,9 +419,6 @@ begin
   end;
   // the negotiation policy selects the ECDHE group by server preference among the client's groups
   // (1.2 excludes KEM/hybrid); it raises handshake_failure when none is common
-  if FParams.Policy = nil then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.InternalError, @SNoGroupAuthority);
   FGroupCode := FParams.Policy.SelectGroup(AClientGroups, TlsWireVersionTls12);
   if not FParams.GroupRegistry.TryGet(FGroupCode, FSelectedGroup) then
     raise EFatalAlertTlsLibException.CreateRes(

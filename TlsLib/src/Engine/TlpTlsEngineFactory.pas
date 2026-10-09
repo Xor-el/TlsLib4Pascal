@@ -459,7 +459,7 @@ begin
   L13.Inspector := AConfig.Pkix.Certificates;
   L13.Clock := AConfig.Clock;
   L13.KeyLog := AConfig.KeyLog;
-  L13.Policy := TNegotiationPolicy.Create(AConfig.Crypto, AConfig.CipherSuites,
+  L13.Policy := TNegotiationPolicy.Create(AConfig.CipherSuites,
     AConfig.NamedGroups, AConfig.PreferredGroups, AConfig.SupportedVersions,
     AConfig.CipherSuitePreference);
   L13.CipherSuites := AConfig.CipherSuites;

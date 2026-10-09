@@ -33,6 +33,12 @@ type
     /// entry is offered only when runnable (or flagged mandatory-to-implement).</summary>
     class function SuiteRunnable(const ACryptoProvider: ICryptoProvider;
       AAead: TAeadAlgorithm; AHash: THashAlgorithm): Boolean; static;
+    /// <summary>Adds the catalog suites of AProtocol that the provider can run, AES-GCM ahead of
+    /// ChaCha20-Poly1305 when it has hardware AES and the reverse otherwise (a performance
+    /// ordering: the software AES-GCM path is constant-time either way), each family in catalog
+    /// order.</summary>
+    class procedure AddRunnable(const ARegistry: ICipherSuiteRegistry;
+      const ACryptoProvider: ICryptoProvider; AProtocol: TSuiteProtocol); static;
   public
     constructor Create;
 
@@ -77,82 +83,39 @@ begin
   end;
 end;
 
+class procedure TCipherSuiteRegistry.AddRunnable(const ARegistry: ICipherSuiteRegistry;
+  const ACryptoProvider: ICryptoProvider; AProtocol: TSuiteProtocol);
+var
+  LSuites: TArray<TTlsCipherSuite>;
+  LPass, LI: Int32;
+  LChaChaPass: Boolean;
+begin
+  LSuites := TCipherSuiteCatalog.All;
+  for LPass := 0 to 1 do
+  begin
+    // the first pass takes ChaCha20-Poly1305 only without hardware AES; the second the other family
+    LChaChaPass := (LPass = 0) = (not ACryptoProvider.Primitives.HasHardwareAes);
+    for LI := Low(LSuites) to High(LSuites) do
+      if (LSuites[LI].Protocol = AProtocol) and
+        ((LSuites[LI].Common.Aead = TAeadAlgorithm.CHACHA20_POLY1305) = LChaChaPass) and
+        ((LSuites[LI].Common.Code = TCipherSuites13.Aes128GcmSha256) or
+        SuiteRunnable(ACryptoProvider, LSuites[LI].Common.Aead, LSuites[LI].Common.Hash)) then
+        ARegistry.Add(LSuites[LI]);
+  end;
+end;
+
 class function TCipherSuiteRegistry.CreateDefault(const ACryptoProvider: ICryptoProvider)
   : ICipherSuiteRegistry;
-var
-  LRegistry: ICipherSuiteRegistry;
-
-  procedure Consider(ACode: UInt16; AAead: TAeadAlgorithm; AHash: THashAlgorithm;
-    AKeyLength: Int32; AAlwaysKeep: Boolean);
-  var
-    LSuite: TTlsCipherSuite;
-  begin
-    if not (AAlwaysKeep or SuiteRunnable(ACryptoProvider, AAead, AHash)) then
-      Exit;
-    LSuite.Common.Code := ACode;
-    LSuite.Common.Aead := AAead;
-    LSuite.Common.Hash := AHash;
-    LSuite.Common.KeyLength := AKeyLength;
-    LSuite.Protocol := TSuiteProtocol.Tls13;
-    LSuite.KeyExchange := TKeyExchangeMethod.Decoupled;
-    LSuite.Auth := TAuthMethod.Decoupled;
-    LSuite.Prf := AHash;
-    LRegistry.Add(LSuite);
-  end;
-
 begin
-  LRegistry := TCipherSuiteRegistry.Create;
-  Consider(TCipherSuites13.Aes128GcmSha256, TAeadAlgorithm.AES_128_GCM,
-    THashAlgorithm.SHA_256, 16, True);
-  Consider(TCipherSuites13.Aes256GcmSha384, TAeadAlgorithm.AES_256_GCM,
-    THashAlgorithm.SHA_384, 32, False);
-  Consider(TCipherSuites13.ChaCha20Poly1305Sha256, TAeadAlgorithm.CHACHA20_POLY1305,
-    THashAlgorithm.SHA_256, 32, False);
-  Result := LRegistry;
+  Result := TCipherSuiteRegistry.Create;
+  AddRunnable(Result, ACryptoProvider, TSuiteProtocol.Tls13);
 end;
 
 class function TCipherSuiteRegistry.CreateDualVersion(
   const ACryptoProvider: ICryptoProvider): ICipherSuiteRegistry;
-var
-  LRegistry: ICipherSuiteRegistry;
-
-  procedure Consider12(ACode: UInt16; AKeyExchange: TKeyExchangeMethod;
-    AAuth: TAuthMethod; AAead: TAeadAlgorithm; AHash: THashAlgorithm;
-    AKeyLength: Int32);
-  var
-    LSuite: TTlsCipherSuite;
-  begin
-    if not SuiteRunnable(ACryptoProvider, AAead, AHash) then
-      Exit;
-    LSuite.Common.Code := ACode;
-    LSuite.Common.Aead := AAead;
-    LSuite.Common.Hash := AHash;
-    LSuite.Common.KeyLength := AKeyLength;
-    LSuite.Protocol := TSuiteProtocol.Tls12;
-    LSuite.KeyExchange := AKeyExchange;
-    LSuite.Auth := AAuth;
-    LSuite.Prf := AHash;
-    LRegistry.Add(LSuite);
-  end;
-
 begin
-  LRegistry := CreateDefault(ACryptoProvider);
-  // hardened TLS 1.2 suites: ECDHE key exchange, ECDSA/RSA auth, AEAD only
-  Consider12(TCipherSuites12.EcdheEcdsaAes128GcmSha256, TKeyExchangeMethod.Ecdhe,
-    TAuthMethod.Ecdsa, TAeadAlgorithm.AES_128_GCM, THashAlgorithm.SHA_256, 16);
-  Consider12(TCipherSuites12.EcdheEcdsaAes256GcmSha384, TKeyExchangeMethod.Ecdhe,
-    TAuthMethod.Ecdsa, TAeadAlgorithm.AES_256_GCM, THashAlgorithm.SHA_384, 32);
-  Consider12(TCipherSuites12.EcdheEcdsaChaCha20Poly1305Sha256,
-    TKeyExchangeMethod.Ecdhe, TAuthMethod.Ecdsa, TAeadAlgorithm.CHACHA20_POLY1305,
-    THashAlgorithm.SHA_256, 32);
-  Consider12(TCipherSuites12.EcdheRsaAes128GcmSha256, TKeyExchangeMethod.Ecdhe,
-    TAuthMethod.Rsa, TAeadAlgorithm.AES_128_GCM, THashAlgorithm.SHA_256, 16);
-  Consider12(TCipherSuites12.EcdheRsaAes256GcmSha384, TKeyExchangeMethod.Ecdhe,
-    TAuthMethod.Rsa, TAeadAlgorithm.AES_256_GCM, THashAlgorithm.SHA_384, 32);
-  Consider12(TCipherSuites12.EcdheRsaChaCha20Poly1305Sha256,
-    TKeyExchangeMethod.Ecdhe, TAuthMethod.Rsa, TAeadAlgorithm.CHACHA20_POLY1305,
-    THashAlgorithm.SHA_256, 32);
-  Result := LRegistry;
+  Result := CreateDefault(ACryptoProvider);
+  AddRunnable(Result, ACryptoProvider, TSuiteProtocol.Tls12);
 end;
 
 end.

@@ -28,6 +28,8 @@ uses
   TlpINamedGroup,
   TlpINegotiation,
   TlpNegotiationTypes,
+  TlpCipherSuiteRegistry,
+  TlpNegotiationPolicy,
   TlpICertificateTrust,
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
@@ -97,6 +99,7 @@ type
     FCrypto: ICryptoProvider;
     FPkix: IPkixProvider;
     FCipherSuites: ICipherSuiteRegistry;
+    FCipherSuiteList: TArray<UInt16>;
     FSignatureSchemes: ISignatureSchemeRegistry;
     FNamedGroups: INamedGroupRegistry;
     FSupportedVersions: TArray<UInt16>;
@@ -184,6 +187,14 @@ type
     /// would otherwise fail every verification against the store, far from its cause.</summary>
     procedure ValidateAnchorRoots;
     procedure ValidateRequiredCollaborators;
+    /// <summary>Narrows the configured cipher suites to the list WithCipherSuiteList set: per
+    /// protocol the list names, exactly the listed suites in list order; a protocol it does not
+    /// name keeps its configured suites. Never widens: a code outside the configured set is
+    /// refused.</summary>
+    procedure ApplyCipherSuiteList;
+    /// <summary>Refuses an offered protocol version for which the cipher-suite set holds no suite,
+    /// which would otherwise build and fail every handshake.</summary>
+    procedure ValidateOfferedVersionsHaveSuites;
     /// <summary>Composes the server credential resolver at build: a custom resolver (exclusive
     /// of the built-in map/credential), else the SNI map plus the single credential as the
     /// default fallback, else nil for a PSK-only server.</summary>
@@ -217,6 +228,7 @@ type
       const APsks: TArray<TExternalPsk>): TArray<TExternalPsk>; static;
     // the single-source-of-truth mutators; reached only by the endpoint views and facets
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): TTlsConfigBuilder;
+    function WithCipherSuiteList(const ASuites: TArray<UInt16>): TTlsConfigBuilder;
     function WithSignatureSchemes(const ARegistry: ISignatureSchemeRegistry): TTlsConfigBuilder;
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): TTlsConfigBuilder;
     function WithSupportedVersions(const AVersions: TArray<UInt16>): TTlsConfigBuilder;
@@ -378,6 +390,8 @@ resourcestring
     'a ClientHello''s extensions block (RFC 8446 4.1.2) can always carry it';
   SNoRegisteredPreferredGroup = 'none of the preferred key-exchange groups is in the named-group ' +
     'registry, so no handshake could ever select a group';
+  SCipherSuiteNotConfigured = 'cipher suite %s is not in the configured cipher-suite set';
+  SNoSuiteForVersion = '%s is offered but the cipher-suite set holds no %s suite';
   SNoClassicalEcdheGroup = 'TLS 1.2 is offered but none of the preferred key-exchange groups is a ' +
     'registered classical ECDHE group, so no TLS 1.2 handshake could ever select a group';
   SAlpnProtocolDuplicate = 'the ALPN protocol "%s" is offered more than once';
@@ -582,6 +596,7 @@ type
   TTlsClientConfigBuilder = class sealed(TTlsConfigViewBase, ITlsClientConfigBuilder)
   public
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): ITlsClientConfigBuilder;
+    function WithCipherSuiteList(const ASuites: TArray<UInt16>): ITlsClientConfigBuilder;
     function WithSignatureSchemes(const ARegistry: ISignatureSchemeRegistry): ITlsClientConfigBuilder;
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): ITlsClientConfigBuilder;
     function WithSupportedVersions(const AVersions: TArray<UInt16>): ITlsClientConfigBuilder;
@@ -638,6 +653,7 @@ type
   TTlsServerConfigBuilder = class sealed(TTlsConfigViewBase, ITlsServerConfigBuilder)
   public
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): ITlsServerConfigBuilder;
+    function WithCipherSuiteList(const ASuites: TArray<UInt16>): ITlsServerConfigBuilder;
     function WithSignatureSchemes(const ARegistry: ISignatureSchemeRegistry): ITlsServerConfigBuilder;
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): ITlsServerConfigBuilder;
     function WithSupportedVersions(const AVersions: TArray<UInt16>): ITlsServerConfigBuilder;
@@ -1045,6 +1061,13 @@ begin
   Result := Self;
 end;
 
+function TTlsClientConfigBuilder.WithCipherSuiteList(
+  const ASuites: TArray<UInt16>): ITlsClientConfigBuilder;
+begin
+  FOwner.WithCipherSuiteList(ASuites);
+  Result := Self;
+end;
+
 function TTlsClientConfigBuilder.WithSignatureSchemes(
   const ARegistry: ISignatureSchemeRegistry): ITlsClientConfigBuilder;
 begin
@@ -1295,6 +1318,13 @@ function TTlsServerConfigBuilder.WithCipherSuites(
   const ARegistry: ICipherSuiteRegistry): ITlsServerConfigBuilder;
 begin
   FOwner.WithCipherSuites(ARegistry);
+  Result := Self;
+end;
+
+function TTlsServerConfigBuilder.WithCipherSuiteList(
+  const ASuites: TArray<UInt16>): ITlsServerConfigBuilder;
+begin
+  FOwner.WithCipherSuiteList(ASuites);
   Result := Self;
 end;
 
@@ -1854,6 +1884,14 @@ function TTlsConfigBuilder.WithCipherSuites(
 begin
   GuardMutable;
   FCipherSuites := ARegistry;
+  Result := Self;
+end;
+
+function TTlsConfigBuilder.WithCipherSuiteList(
+  const ASuites: TArray<UInt16>): TTlsConfigBuilder;
+begin
+  GuardMutable;
+  FCipherSuiteList := System.Copy(ASuites);
   Result := Self;
 end;
 
@@ -2731,6 +2769,57 @@ begin
   Result := TTlsServerConfigBuilder.Create(Self);
 end;
 
+procedure TTlsConfigBuilder.ApplyCipherSuiteList;
+var
+  LNarrowed: ICipherSuiteRegistry;
+  LProtocol: TSuiteProtocol;
+  LSuite, LUnused: TTlsCipherSuite;
+  LNamed: Boolean;
+  LI: Int32;
+begin
+  if System.Length(FCipherSuiteList) = 0 then
+    Exit;
+  for LI := 0 to System.High(FCipherSuiteList) do
+    if not FCipherSuites.TryGet(FCipherSuiteList[LI], LSuite) then
+      raise EArgumentTlsLibException.CreateResFmt(@SCipherSuiteNotConfigured,
+        [TCipherSuiteCatalog.Name(FCipherSuiteList[LI])]);
+  LNarrowed := TCipherSuiteRegistry.Create;
+  for LProtocol := TSuiteProtocol.Tls13 downto TSuiteProtocol.Tls12 do
+  begin
+    LNamed := False;
+    for LI := 0 to System.High(FCipherSuiteList) do
+      if FCipherSuites.TryGet(FCipherSuiteList[LI], LSuite) and (LSuite.Protocol = LProtocol) then
+      begin
+        LNamed := True;
+        if not LNarrowed.TryGet(LSuite.Common.Code, LUnused) then
+          LNarrowed.Add(LSuite);
+      end;
+    if not LNamed then
+      for LSuite in FCipherSuites.Items do
+        if LSuite.Protocol = LProtocol then
+          LNarrowed.Add(LSuite);
+  end;
+  FCipherSuites := LNarrowed;
+  FCipherSuiteList := nil;
+end;
+
+procedure TTlsConfigBuilder.ValidateOfferedVersionsHaveSuites;
+var
+  LI: Int32;
+  LName: string;
+begin
+  for LI := 0 to System.High(FSupportedVersions) do
+    if System.Length(TNegotiationPolicy.SuiteOrder(FCipherSuites,
+      TNegotiationPolicy.ProtocolOf(FSupportedVersions[LI]))) = 0 then
+    begin
+      if FSupportedVersions[LI] = TlsWireVersionTls13 then
+        LName := 'TLS 1.3'
+      else
+        LName := 'TLS 1.2';
+      raise EArgumentTlsLibException.CreateResFmt(@SNoSuiteForVersion, [LName, LName]);
+    end;
+end;
+
 procedure TTlsConfigBuilder.ValidateRequiredCollaborators;
 var
   LI: Int32;
@@ -2739,6 +2828,8 @@ var
 begin
   if (FCipherSuites = nil) or (FSignatureSchemes = nil) or (FNamedGroups = nil) then
     raise EArgumentTlsLibException.CreateRes(@SNilNegotiationRegistry);
+  ApplyCipherSuiteList;
+  ValidateOfferedVersionsHaveSuites;
   if System.Length(FPreferredGroups) = 0 then
     raise EArgumentTlsLibException.CreateRes(@SNoPreferredGroups);
   // a preferred group the registry lacks is skipped (the registry is authoritative, so a pruned
