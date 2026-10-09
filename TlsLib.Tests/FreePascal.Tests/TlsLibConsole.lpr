@@ -67,6 +67,7 @@ uses
   DynamicLibraryTests,
   SystemTimeUtilitiesTests,
   IpLiteralTests,
+  HttpUrlTests,
   CertificateVerifierTests,
   OcspStaplingTests,
   CertificateCheckTests,

@@ -23,6 +23,7 @@ uses
   TlpArrayUtilities,
   TlpIPkixProvider,
   TlpIClock,
+  TlpHttpUrl,
   TlpIHttpFetcher,
   TlpTrustPolicy,
   TlpDateTimeUtilities;
@@ -115,13 +116,9 @@ type
       ATimeoutMs: Cardinal): TLiveRevocationOutcome;
     function EvaluateCrl(const ALeaf, AIssuer: TBytes; const ACrlUrl: string;
       ATimeoutMs: Cardinal): TLiveRevocationOutcome;
-    /// <summary>The identity of a responder URL: its scheme and host in lower case, a default port
-    /// dropped and an empty path as "/", everything else exact (RFC 9110 4.2.3). Two URLs with the
-    /// same identity are one responder; the path and query are case-sensitive, so they are never
-    /// folded.</summary>
-    class function UrlIdentity(const AUrl: string): string; static;
-    /// <summary>AUrls without repeats (by identity), in order, the first spelling of each kept,
-    /// at most ACap of them.</summary>
+    /// <summary>The canonical text (THttpUrl.ToString) of AUrls without repeats, in order, at most
+    /// ACap of them. Two spellings of one responder (RFC 9110 4.2.3) are one entry, and a URL that
+    /// is not a well-formed http(s) URL is dropped.</summary>
     class function DistinctCapped(const AUrls: TArray<string>;
       ACap: Int32): TArray<string>; static;
     /// <summary>The timeout for the next attempt, given when the check began and how many
@@ -233,74 +230,21 @@ begin
   FMaxCrlBytes := AOptions.MaxCrlBytes;
 end;
 
-class function TLiveRevocationChecker.UrlIdentity(const AUrl: string): string;
-const
-  SchemeSeparator = '://';
-var
-  LSchemeEnd, LAuthorityEnd, LAt, LLength: Int32;
-  LScheme, LAuthority, LRest: string;
-begin
-  LSchemeEnd := Pos(SchemeSeparator, AUrl);
-  // not a scheme-qualified URL: nothing to normalise, compare it as it is
-  if LSchemeEnd <= 1 then
-    Exit(AUrl);
-  // a scheme is a letter then letters, digits, '+', '-' or '.' (RFC 3986 3.1); anything else before
-  // the separator means this is no scheme, so the string is compared as it is
-  for LAt := 1 to LSchemeEnd - 1 do
-    if not (((AUrl[LAt] >= 'a') and (AUrl[LAt] <= 'z')) or
-      ((AUrl[LAt] >= 'A') and (AUrl[LAt] <= 'Z')) or
-      ((LAt > 1) and (((AUrl[LAt] >= '0') and (AUrl[LAt] <= '9')) or (AUrl[LAt] = '+') or
-      (AUrl[LAt] = '-') or (AUrl[LAt] = '.')))) then
-      Exit(AUrl);
-  LScheme := LowerCase(Copy(AUrl, 1, LSchemeEnd - 1));
-  LAuthorityEnd := LSchemeEnd + System.Length(SchemeSeparator);
-  while (LAuthorityEnd <= System.Length(AUrl)) and (AUrl[LAuthorityEnd] <> '/') and
-    (AUrl[LAuthorityEnd] <> '?') and (AUrl[LAuthorityEnd] <> '#') do
-    Inc(LAuthorityEnd);
-  LAuthority := Copy(AUrl, LSchemeEnd + System.Length(SchemeSeparator),
-    LAuthorityEnd - LSchemeEnd - System.Length(SchemeSeparator));
-  LRest := Copy(AUrl, LAuthorityEnd, System.Length(AUrl));
-  // userinfo is case-sensitive; the host and port after it are not
-  LAt := System.Length(LAuthority);
-  while (LAt > 0) and (LAuthority[LAt] <> '@') do
-    Dec(LAt);
-  LAuthority := Copy(LAuthority, 1, LAt) + LowerCase(Copy(LAuthority, LAt + 1,
-    System.Length(LAuthority)));
-  // a default port, or a bare colon, names the same server as none
-  LLength := System.Length(LAuthority);
-  if (LLength > 0) and (LAuthority[LLength] = ':') then
-    Delete(LAuthority, LLength, 1)
-  else if (LScheme = 'http') and (LLength >= 3) and
-    (Copy(LAuthority, LLength - 2, 3) = ':80') then
-    Delete(LAuthority, LLength - 2, 3)
-  else if (LScheme = 'https') and (LLength >= 4) and
-    (Copy(LAuthority, LLength - 3, 4) = ':443') then
-    Delete(LAuthority, LLength - 3, 4);
-  // an empty path is the root
-  if (LRest = '') or (LRest[1] = '?') or (LRest[1] = '#') then
-    LRest := '/' + LRest;
-  Result := LScheme + SchemeSeparator + LAuthority + LRest;
-end;
-
 class function TLiveRevocationChecker.DistinctCapped(const AUrls: TArray<string>;
   ACap: Int32): TArray<string>;
 var
   LI: Int32;
-  LKeys: TArray<string>;
-  LKey: string;
+  LUrl: THttpUrl;
 begin
   Result := nil;
-  LKeys := nil;
   for LI := 0 to System.High(AUrls) do
   begin
     if System.Length(Result) >= ACap then
       Break;
-    LKey := UrlIdentity(AUrls[LI]);
-    if not (TArrayUtilities.Contains<string>(LKeys, LKey)) then
-    begin
-      TArrayUtilities.Append<string>(LKeys, LKey);
-      TArrayUtilities.Append<string>(Result, AUrls[LI]);
-    end;
+    // a URL the library could not fetch safely is dropped without using up the cap
+    if THttpUrl.TryParse(AUrls[LI], LUrl) and
+      (not (TArrayUtilities.Contains<string>(Result, LUrl.ToString))) then
+      TArrayUtilities.Append<string>(Result, LUrl.ToString);
   end;
 end;
 

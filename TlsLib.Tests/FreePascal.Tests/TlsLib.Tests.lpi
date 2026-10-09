@@ -40,7 +40,7 @@
         <PackageName Value="FCL"/>
       </Item7>
     </RequiredPackages>
-    <Units Count="86">
+    <Units Count="87">
       <Unit0>
         <Filename Value="TlsLib.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -385,6 +385,10 @@
         <Filename Value="..\src\IpLiteralTests.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit85>
+      <Unit86>
+        <Filename Value="..\src\HttpUrlTests.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit86>
     </Units>
   </ProjectOptions>
   <CompilerOptions>
