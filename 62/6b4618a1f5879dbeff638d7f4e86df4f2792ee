@@ -1,0 +1,38 @@
+TlsLib.Tests/src/MockClock.pas
+  s_d27f31cd14035d::t_0d694e009a65a4 103-109
+  s_d27f31cd14035d::t_029a588a6eb86d 21
+  s_d27f31cd14035d::t_1b86742e33495e 120-125,130-136
+  s_d27f31cd14035d::t_542422e0f27d35 53-54,57
+TlsLib.Net/TlpSocketHttpFetcher.pas
+  s_d27f31cd14035d::t_0d7987f5dfd87c 45-47
+  s_d27f31cd14035d::t_8a9e6189a215e3 239-240,243-244,246,249,251,255,257
+  s_d27f31cd14035d::t_eb273458ae11e9 295-296
+  s_d27f31cd14035d::t_d441875ae3d4e9 124-125
+  s_d27f31cd14035d::t_9f3c2bef5c0e0f 267,269
+  s_d27f31cd14035d::t_d35a084e8e1605 412-413
+  s_d27f31cd14035d::t_0c7cc800bbe2d2 28,78,81,83,89-90,213,235,238,241-242,245,247-248,250,252-254,256,258,260-263,293-294,297-340
+  s_d27f31cd14035d::t_391f54d9cc6798 259
+TlsLib.Tests/src/SocketHttpFetcherTests.pas
+  s_d27f31cd14035d::t_f25346af7037a9 127
+  s_d27f31cd14035d::t_7d7501b4fff826 55-70
+  s_d27f31cd14035d::t_3c942dbd5a04b8 162-165,170-174
+  s_d27f31cd14035d::t_527d0da3cee6ac 148-149
+  s_d27f31cd14035d::t_0f80ef80d2a330 203-204,207-208
+  s_d27f31cd14035d::t_2669ad795af4b9 195
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "626b4618a1f5879dbeff638d7f4e86df4f2792ee",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
