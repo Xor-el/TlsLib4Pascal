@@ -163,5 +163,12 @@ cipher-suite preference pinned to TLS 1.2, so the negotiated 1.2 (the preset wou
 the injected config replaced the built-in build. This is the escape hatch to the whole builder API
 (cipher order, groups, resumption, ALPN, …). A built config supplied alongside cert/trust options
 (or a pinned `SSLType`, a verify callback, `SendHostAsSNI := False` on a client, or a crypto/PKIX
-provider) is refused, not silently dropped. So is a `CertificateData.CipherList` other than fcl-net's
-`DEFAULT`: suites come from the TlsLib configuration.
+provider) is refused, not silently dropped.
+
+`CertificateData.CipherList` names the suites to use: exact IANA or OpenSSL suite names, separated
+by `:`, `,` or spaces, in preference order. It narrows and reorders TlsLib's own hardened set and
+never widens it. A list that names no TLS 1.3 suite leaves TLS 1.3 on with its default suites (an
+OpenSSL cipher list never governed 1.3); a list that names TLS 1.3 suites narrows 1.3 too, and a
+list naming only TLS 1.3 suites turns TLS 1.2 off. Cipher-string expressions such as `HIGH` or
+`!aNULL`, and suites TlsLib does not implement, are refused rather than skipped; empty or `DEFAULT`
+keeps the preset, and a list beside a supplied `ClientConfig` / `ServerConfig` is refused.
