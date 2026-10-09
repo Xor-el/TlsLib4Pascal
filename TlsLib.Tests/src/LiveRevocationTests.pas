@@ -21,6 +21,7 @@ uses
   TlpIClock,
   TlpClock,
   TlpDateTimeUtilities,
+  TlpSystemTimeUtilities,
   MockClock,
   MockHttpFetcher,
   SysUtils,
@@ -64,7 +65,6 @@ type
     // the checker's accept/reject verdict for a server-presented chain, via the resolver seam
     function Accepts(const AChecker: TLiveRevocationChecker;
       const AChain: TArray<TBytes>): Boolean;
-    function NowUtc: TDateTime;
     // scripted responders: the spy lists the URLs, the fetcher answers each one and takes time on
     // the mock clock, and the checker runs under a total budget
     procedure Arrange(AMethod: TLiveRevocationMethod; ADeadlineMs: Cardinal;
@@ -83,6 +83,8 @@ type
   var
     FClock: TMockClock;
     FClockRef: ITlsClock;
+    FTicks: TMockMonotonicClock;
+    FTicksRef: ITlsMonotonicClock;
     FFetcher: TMockHttpFetcher;
     FFetcherRef: IHttpFetcher;
     FSpy: TSpyPkixProvider;
@@ -107,6 +109,7 @@ type
     procedure TestZeroBudgetLeavesTimeoutToFetcher;
     procedure TestParkBudgetTightensTheCheckersOwn;
     procedure TestClockStepBackDoesNotGiveBackSpentTime;
+    procedure TestClockStepForwardDoesNotEndTheCheckEarly;
     // the responder policy: request built once, URL equivalence, tunable limits
     procedure TestOcspRequestBuiltOncePerCheck;
     procedure TestUnbuildableRequestSkipsOcsp;
@@ -165,7 +168,6 @@ type
   strict private
     function Field(const AName: string): TBytes;
     function Chain: TArray<TBytes>;
-    function NowUtc: TDateTime;
     /// <summary>Classifies a CRL as 'Revoked', 'Good' or 'Indeterminate' through the provider primitive.</summary>
     function Classify(const ACrlField: string): string;
     procedure CheckClassified(const ACrlField, AExpected, AWhy: string);
@@ -346,13 +348,17 @@ procedure TTestLiveRevocation.Arrange(AMethod: TLiveRevocationMethod; ADeadlineM
   const AOcspUrls, ACrlUrls: TArray<string>; const AOptions: TLiveRevocationOptions);
 begin
   FClockRef := nil;
+  FTicksRef := nil;
   FFetcherRef := nil;
   FSpyRef := nil;
-  FClock := TMockClock.Create(UInt64(TDateTimeUtilities.CurrentUnixMs));
+  FClock := TMockClock.Create(UInt64(TSystemTimeUtilities.UtcUnixMs));
   FClockRef := FClock as ITlsClock;
+  FTicks := TMockMonotonicClock.Create(0);
+  FTicksRef := FTicks as ITlsMonotonicClock;
   FFetcher := TMockHttpFetcher.Create;
   FFetcherRef := FFetcher as IHttpFetcher;
   FFetcher.AttachClock(FClock);
+  FFetcher.AttachMonotonicClock(FTicks);
   FSpy := TSpyPkixProvider.Create(Pkix);
   FSpyRef := FSpy as IPkixProvider;
   if AOcspUrls <> nil then
@@ -360,7 +366,7 @@ begin
   if ACrlUrls <> nil then
     FSpy.OverrideCrlUrls(ACrlUrls);
   FChecker := Own<TLiveRevocationChecker>(TLiveRevocationChecker.Create(FSpyRef, FClockRef,
-    FFetcherRef, TRevocationPosture.Hard, AMethod, ADeadlineMs, AOptions));
+    FTicksRef, FFetcherRef, TRevocationPosture.Hard, AMethod, ADeadlineMs, AOptions));
 end;
 
 procedure TTestLiveRevocation.TestOcspResponderUrlExtracted;
@@ -582,15 +588,28 @@ end;
 
 procedure TTestLiveRevocation.TestClockStepBackDoesNotGiveBackSpentTime;
 begin
-  // the first attempt spends 2000 of 3000 ms, then the clock steps back 5 s: the last attempt must
-  // still be offered only the 1000 ms that is left, not a restored budget
+  // the first attempt spends 2000 of 3000 ms, then the wall clock steps back 5 s: the last attempt
+  // must still be offered only the 1000 ms that is left, not a restored budget
   Arrange(TLiveRevocationMethod.Ocsp, 3000, TArray<string>.Create('http://a.test/',
     'http://b.test/', 'http://c.test/'), nil);
   FFetcher.ScriptPost('http://a.test/', False, nil, 2000);
-  FFetcher.ScriptPost('http://b.test/', False, nil, -5000);
+  FFetcher.ScriptPost('http://b.test/', False, nil, 0, -5000);
   FChecker.Evaluate(Chain);
   CheckTimeouts([1000, 500, 1000], FFetcher.PostTimeouts,
-    'time already spent is not returned by a clock step back');
+    'time already spent is not returned by a wall-clock step back');
+end;
+
+procedure TTestLiveRevocation.TestClockStepForwardDoesNotEndTheCheckEarly;
+begin
+  // each attempt spends 1000 ms and the wall clock steps forward 5 s during the first: the budget
+  // is elapsed time, so the later attempts still get their full share
+  Arrange(TLiveRevocationMethod.Ocsp, 3000, TArray<string>.Create('http://a.test/',
+    'http://b.test/', 'http://c.test/'), nil);
+  FFetcher.ScriptPost('http://a.test/', False, nil, 1000, 5000);
+  FFetcher.ScriptPost('http://b.test/', False, nil, 1000);
+  FChecker.Evaluate(Chain);
+  CheckTimeouts([1000, 1000, 1000], FFetcher.PostTimeouts,
+    'a wall-clock step forward does not shorten the budget');
 end;
 
 function TTestLiveRevocation.OptionsAreRefused(const AOptions: TLiveRevocationOptions): Boolean;
@@ -963,11 +982,6 @@ begin
   CheckTrue(Pos('localhost', LSubject) > 0, 'the subject DN carries the common name');
   CheckTrue(Pos('TlsLib Live CA', LIssuer) > 0, 'the issuer DN is the CA');
   CheckTrue(LSerialHex <> '', 'a serial number is reported');
-end;
-
-function TTestLiveRevocation.NowUtc: TDateTime;
-begin
-  Result := TDateTimeUtilities.UnixMsToDateTime(TDateTimeUtilities.CurrentUnixMs);
 end;
 
 procedure TTestLiveRevocation.TestCrlRevocationDetectsRevoked;
@@ -1424,7 +1438,7 @@ begin
   end;
   // derive the clock from the response's own thisUpdate so the vector stays durable
   CheckTrue(Pkix.Revocation.ValidateOcspStaple(LLeaf, LCa, LResponse,
-    TDateTimeUtilities.ToUniversalTime(Now), LStatus, LThis, LNext),
+    NowUtc, LStatus, LThis, LNext),
     'the CA-signed response is authoritative');
   CheckTrue(LNext = 0, 'the response carries no nextUpdate');
   LFetcher := TMockHttpFetcher.Create;
@@ -1462,7 +1476,7 @@ begin
     LV.Free;
   end;
   CheckTrue(Pkix.Revocation.ValidateOcspStaple(LLeaf, LCa, LResponse,
-    TDateTimeUtilities.ToUniversalTime(Now), LStatus, LThis, LNext),
+    NowUtc, LStatus, LThis, LNext),
     'the CA-signed response is authoritative');
   // one millisecond past the max age: a responder that promised newer information at any time
   // has not been asked for it, so a replayed old Good is not a Good
@@ -1500,11 +1514,6 @@ end;
 function TTestCrlScope.Chain: TArray<TBytes>;
 begin
   Result := TArray<TBytes>.Create(Field('leaf_cert'), Field('ca_cert'));
-end;
-
-function TTestCrlScope.NowUtc: TDateTime;
-begin
-  Result := TDateTimeUtilities.UnixMsToDateTime(TDateTimeUtilities.CurrentUnixMs);
 end;
 
 function TTestCrlScope.Classify(const ACrlField: string): string;
@@ -1710,7 +1719,7 @@ var
   LThisUpdate, LNextUpdate: TDateTime;
 begin
   Result := Pkix.Revocation.CheckCrlRevocation(Field('leaf_cert'), Field('ca_cert'),
-    Field(ACrlField), TDateTimeUtilities.ToUniversalTime(Now), ARevoked, LThisUpdate,
+    Field(ACrlField), NowUtc, ARevoked, LThisUpdate,
     LNextUpdate);
 end;
 
@@ -1720,7 +1729,7 @@ var
   LThisUpdate, LNextUpdate: TDateTime;
 begin
   Result := Pkix.Revocation.ValidateOcspStaple(Field('leaf_cert'), Field('ca_cert'),
-    Field(AResponseField), TDateTimeUtilities.ToUniversalTime(Now), AStatus, LThisUpdate,
+    Field(AResponseField), NowUtc, AStatus, LThisUpdate,
     LNextUpdate);
 end;
 
@@ -1790,7 +1799,7 @@ var
   LThisUpdate, LNextUpdate: TDateTime;
 begin
   Result := Pkix.Revocation.CheckCrlRevocation(Field('leaf_cert'), Field('ca_cert'),
-    Field(ACrlField), TDateTimeUtilities.ToUniversalTime(Now), LRevoked, LThisUpdate,
+    Field(ACrlField), NowUtc, LRevoked, LThisUpdate,
     LNextUpdate);
 end;
 
@@ -1801,7 +1810,7 @@ var
   LThisUpdate, LNextUpdate: TDateTime;
 begin
   Result := Pkix.Revocation.ValidateOcspStaple(Field('leaf_cert'), Field('ca_cert'),
-    Field(AResponseField), TDateTimeUtilities.ToUniversalTime(Now), LStatus, LThisUpdate,
+    Field(AResponseField), NowUtc, LStatus, LThisUpdate,
     LNextUpdate) and (LStatus = TOcspStatus.Good);
 end;
 

@@ -23,8 +23,7 @@ uses
 type
   /// <summary>
   /// Static date/time helpers: conversions between TDateTime and Unix milliseconds
-  /// (range-validated), ticks (100 ns), fixed-precision rounding, and local-to-UTC
-  /// conversion.
+  /// (range-validated), ticks (100 ns) and fixed-precision rounding.
   /// </summary>
   TDateTimeUtilities = class sealed(TObject)
   strict private
@@ -37,15 +36,12 @@ type
     /// Milliseconds since the Unix epoch (1 Jan 1970 UTC). The exact inverse of
     /// <see cref="UnixMsToDateTime" />: ADateTime is taken as a UTC wall-clock value
     /// and measured directly - no local/UTC guessing (TDateTime carries no kind).
-    /// Convert a local time with <see cref="ToUniversalTime" /> first.
     /// </summary>
     /// <exception cref="EArgumentTlsLibException">ADateTime is before the epoch.</exception>
     class function DateTimeToUnixMs(const ADateTime: TDateTime): Int64; static;
     /// <summary>The UTC wall-clock TDateTime AUnixMs milliseconds after the epoch.</summary>
     /// <exception cref="EArgumentTlsLibException">AUnixMs outside MinUnixMs..MaxUnixMs.</exception>
     class function UnixMsToDateTime(const AUnixMs: Int64): TDateTime; static;
-    /// <summary>The current time as milliseconds since the Unix epoch.</summary>
-    class function CurrentUnixMs: Int64; static;
     /// <summary>Ticks (100 ns) since 1 Jan 0001 00:00:00.</summary>
     class function DateTimeToTicks(const ADateTime: TDateTime): Int64; static;
     /// <summary>The TDateTime ATicks (100 ns each) after 1 Jan 0001 00:00:00.</summary>
@@ -58,8 +54,6 @@ type
     class function WithPrecisionMillisecond(const ADateTime: TDateTime): TDateTime; static;
     /// <summary>Rounds down to the second (fraction discarded).</summary>
     class function WithPrecisionSecond(const ADateTime: TDateTime): TDateTime; static;
-    /// <summary>Converts a local TDateTime to UTC.</summary>
-    class function ToUniversalTime(const ALocalDateTime: TDateTime): TDateTime; static;
 
     /// <summary>1 Jan 1970 00:00:00 UTC.</summary>
     class property UnixEpoch: TDateTime read FUnixEpoch;
@@ -107,12 +101,6 @@ begin
   if (AUnixMs < MinUnixMs) or (AUnixMs > MaxUnixMs) then
     raise EArgumentTlsLibException.CreateRes(@SUnixMsValueOutOfRange);
   Result := IncMilliSecond(UnixEpoch, AUnixMs);
-end;
-
-class function TDateTimeUtilities.CurrentUnixMs: Int64;
-begin
-  // the UTC instant now, measured against the epoch
-  Result := DateTimeToUnixMs(ToUniversalTime(Now));
 end;
 
 class function TDateTimeUtilities.DateTimeToTicks(const ADateTime: TDateTime): Int64;
@@ -174,16 +162,6 @@ begin
   DecodeDateTime(ADateTime, LYear, LMonth, LDay, LHour, LMinute, LSecond,
     LMillisecond);
   Result := EncodeDateTime(LYear, LMonth, LDay, LHour, LMinute, LSecond, 0);
-end;
-
-class function TDateTimeUtilities.ToUniversalTime(
-  const ALocalDateTime: TDateTime): TDateTime;
-begin
-{$IFDEF FPC}
-  Result := LocalTimeToUniversal(ALocalDateTime);
-{$ELSE}
-  Result := TTimeZone.Local.ToUniversalTime(ALocalDateTime);
-{$ENDIF FPC}
 end;
 
 end.

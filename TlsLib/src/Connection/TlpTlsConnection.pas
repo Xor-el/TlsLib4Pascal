@@ -28,6 +28,7 @@ uses
   SysUtils,
   Classes,
   TlpIClock,
+  TlpClock,
   TlpTlsAlert,
   TlpTlsVersion,
   TlpEchConfig,
@@ -166,9 +167,9 @@ type
   strict private
   var
     FReadTimeoutMs: Int32;
-    FDeadlineMs: Int64; // Unix ms the armed cap expires at
+    FDeadlineMs: Int64; // monotonic ms the armed cap expires at
     FApplicationRead: Boolean; // the armed cap bounds an application read, not the handshake
-    FClock: ITlsClock;
+    FClock: ITlsMonotonicClock;
     procedure RaiseCapElapsed;
   strict protected
     /// <summary>True when at least one byte can be read within AMs ms. The default waits nowhere and
@@ -189,8 +190,11 @@ type
     procedure CheckReadCap;
     property ReadTimeoutMs: Int32 read FReadTimeoutMs;
   public
-    /// <summary>AClock measures the handshake deadline (required; nil raises).</summary>
-    constructor Create(const AClock: ITlsClock);
+    /// <summary>Measures the handshake deadline on the system monotonic clock.</summary>
+    constructor Create;
+    /// <summary>Measures the handshake deadline on AClock instead (required; nil raises). Call it
+    /// before SetReadTimeout: it clears any armed cap, whose deadline belongs to the old clock.</summary>
+    procedure UseClock(const AClock: ITlsMonotonicClock);
     /// <summary>Bounds the reads that follow to AMs ms in total, as a deadline from this call
     /// (0 = block). A host that bounds its own socket (WaitReadable not overridden) can let a
     /// receive already in progress run one full receive bound past the deadline.</summary>
@@ -233,6 +237,15 @@ type
     constructor Create(const AEngine: ITlsEngine; const ATransport: TTlsTimedTransportBase;
       AIsClient: Boolean; const AServerName: string;
       const AResolver: TCertificateVerdictResolver; AVerdictDeadlineMs: Cardinal); overload;
+    /// <summary>Builds the client engine from AConfig and measures the transport's deadlines on
+    /// the config's monotonic clock; AVerdictDeadlineMs is the resolver's budget (0 = none).</summary>
+    constructor CreateClient(const AConfig: ITlsClientConfig; const AServerName: string;
+      const ATransport: TTlsTimedTransportBase; const AResolver: TCertificateVerdictResolver;
+      AVerdictDeadlineMs: Cardinal);
+    /// <summary>The server counterpart of <see cref="CreateClient" />.</summary>
+    constructor CreateServer(const AConfig: ITlsServerConfig;
+      const ATransport: TTlsTimedTransportBase; const AResolver: TCertificateVerdictResolver;
+      AVerdictDeadlineMs: Cardinal);
     destructor Destroy; override;
     /// <summary>Runs the handshake with reads bounded by AHandshakeTimeoutMs (0 = the 30 s library
     /// default); the cap is cleared afterwards even when the handshake raised.</summary>
@@ -705,7 +718,7 @@ begin
   FApplicationRead := False;
   FReadTimeoutMs := AMs;
   if AMs > 0 then
-    FDeadlineMs := Int64(FClock.NowUnixMillis) + AMs;
+    FDeadlineMs := FClock.NowMonotonicMillis + AMs;
 end;
 
 procedure TTlsTimedTransportBase.SetApplicationReadTimeout(AMs: Int32);
@@ -714,12 +727,18 @@ begin
   FApplicationRead := AMs > 0;
 end;
 
-constructor TTlsTimedTransportBase.Create(const AClock: ITlsClock);
+constructor TTlsTimedTransportBase.Create;
 begin
   inherited Create;
+  FClock := TSystemMonotonicClock.Create;
+end;
+
+procedure TTlsTimedTransportBase.UseClock(const AClock: ITlsMonotonicClock);
+begin
   if AClock = nil then
     raise EArgumentTlsLibException.CreateRes(@SNilTransportClock);
   FClock := AClock;
+  FReadTimeoutMs := 0;
 end;
 
 function TTlsTimedTransportBase.WaitReadable(AMs: Int32): Boolean;
@@ -739,7 +758,7 @@ end;
 
 procedure TTlsTimedTransportBase.CheckReadCap;
 begin
-  if (FReadTimeoutMs > 0) and (FDeadlineMs - Int64(FClock.NowUnixMillis) <= 0) then
+  if (FReadTimeoutMs > 0) and (FDeadlineMs - FClock.NowMonotonicMillis <= 0) then
     RaiseCapElapsed;
 end;
 
@@ -752,10 +771,7 @@ begin
   // deadline over the whole handshake, so a peer trickling bytes just inside each read is reaped too
   if FReadTimeoutMs > 0 then
   begin
-    LRemaining := FDeadlineMs - Int64(FClock.NowUnixMillis);
-    // a wall-clock step back must not grow the wait past the cap
-    if LRemaining > FReadTimeoutMs then
-      LRemaining := FReadTimeoutMs;
+    LRemaining := FDeadlineMs - FClock.NowMonotonicMillis;
     if (LRemaining <= 0) or (not WaitReadable(Int32(LRemaining))) then
       RaiseCapElapsed;
   end;
@@ -808,6 +824,27 @@ begin
   // server on the mTLS client's); the session never guesses the role
   if Assigned(AResolver) then
     FStream.SetCertificateVerdictResolver(AResolver, AVerdictDeadlineMs);
+end;
+
+constructor TTlsConnection.CreateClient(const AConfig: ITlsClientConfig;
+  const AServerName: string; const ATransport: TTlsTimedTransportBase;
+  const AResolver: TCertificateVerdictResolver; AVerdictDeadlineMs: Cardinal);
+begin
+  // own the transport first, so a refused engine build releases it with this instance
+  FTransport := ATransport as ITlsTransport;
+  ATransport.UseClock(AConfig.MonotonicClock);
+  Create(TTlsEngineFactory.CreateClientEngine(AConfig, AServerName), ATransport, True,
+    AServerName, AResolver, AVerdictDeadlineMs);
+end;
+
+constructor TTlsConnection.CreateServer(const AConfig: ITlsServerConfig;
+  const ATransport: TTlsTimedTransportBase; const AResolver: TCertificateVerdictResolver;
+  AVerdictDeadlineMs: Cardinal);
+begin
+  FTransport := ATransport as ITlsTransport;
+  ATransport.UseClock(AConfig.MonotonicClock);
+  Create(TTlsEngineFactory.CreateServerEngine(AConfig), ATransport, False, '', AResolver,
+    AVerdictDeadlineMs);
 end;
 
 destructor TTlsConnection.Destroy;

@@ -23,6 +23,7 @@ uses
   TlpArrayUtilities,
   TlpIPkixProvider,
   TlpIClock,
+  TlpClock,
   TlpIHttpFetcher,
   TlpTrustPolicy,
   TlpDateTimeUtilities;
@@ -100,6 +101,7 @@ type
   var
     FPkix: IPkixProvider;
     FClock: ITlsClock;
+    FTicks: ITlsMonotonicClock;
     FFetcher: IHttpFetcher;
     FPosture: TRevocationPosture;
     FMethod: TLiveRevocationMethod;
@@ -123,18 +125,19 @@ type
     /// at most ACap of them.</summary>
     class function DistinctCapped(const AUrls: TArray<string>;
       ACap: Int32): TArray<string>; static;
-    /// <summary>The timeout for the next attempt, given when the check began, the latest instant
-    /// seen so far (so a clock stepped back never returns spent time) and how many attempts remain
-    /// to share what is left of the budget ADeadlineMs; False when the budget is spent.</summary>
-    function NextTimeout(AStartMs: Int64; var ALatestMs: Int64; AAttemptsLeft: Int32;
-      ADeadlineMs: Cardinal; out ATimeoutMs: Cardinal): Boolean;
+    /// <summary>The timeout for the next attempt, given when the check began and how many
+    /// attempts remain to share what is left of the budget ADeadlineMs; False when the budget is
+    /// spent.</summary>
+    function NextTimeout(AStartMs: Int64; AAttemptsLeft: Int32; ADeadlineMs: Cardinal;
+      out ATimeoutMs: Cardinal): Boolean;
     function EvaluateWithin(const AChain: TArray<TBytes>;
       ADeadlineMs: Cardinal): TLiveRevocationOutcome;
   public
     /// <summary>Builds a checker over an injected provider and fetcher. APosture governs how
     /// an indeterminate result is treated (Hard rejects, Soft/Off accept). ADeadlineMs is the
     /// total time one check may spend fetching across every OCSP and CRL attempt, measured on
-    /// the injected clock (0 leaves each fetch's timeout to the fetcher, with no shared deadline).
+    /// the system monotonic clock (0 leaves each fetch's timeout to the fetcher, with no shared
+    /// deadline).
     /// Each attempt gets a fair share of what remains, so one dead responder cannot starve the
     /// next; a host should keep it within its async-verdict budget.</summary>
     constructor Create(const APkix: IPkixProvider; const AClock: ITlsClock;
@@ -146,6 +149,12 @@ type
     constructor Create(const APkix: IPkixProvider; const AClock: ITlsClock;
       const AFetcher: IHttpFetcher; APosture: TRevocationPosture;
       AMethod: TLiveRevocationMethod; ADeadlineMs: Cardinal;
+      const AOptions: TLiveRevocationOptions); overload;
+    /// <summary>As above, measuring the shared budget on ATicks instead of the system monotonic
+    /// clock; a nil ATicks raises like the other inputs.</summary>
+    constructor Create(const APkix: IPkixProvider; const AClock: ITlsClock;
+      const ATicks: ITlsMonotonicClock; const AFetcher: IHttpFetcher;
+      APosture: TRevocationPosture; AMethod: TLiveRevocationMethod; ADeadlineMs: Cardinal;
       const AOptions: TLiveRevocationOptions); overload;
     /// <summary>The tri-state live outcome for the leaf (leaf = AChain[0], issuer =
     /// AChain[1]); intermediates are not checked. When the chain carries no issuer entry the issuer
@@ -210,13 +219,23 @@ constructor TLiveRevocationChecker.Create(const APkix: IPkixProvider;
   AMethod: TLiveRevocationMethod; ADeadlineMs: Cardinal;
   const AOptions: TLiveRevocationOptions);
 begin
+  Create(APkix, AClock, TSystemMonotonicClock.Create as ITlsMonotonicClock, AFetcher, APosture,
+    AMethod, ADeadlineMs, AOptions);
+end;
+
+constructor TLiveRevocationChecker.Create(const APkix: IPkixProvider;
+  const AClock: ITlsClock; const ATicks: ITlsMonotonicClock; const AFetcher: IHttpFetcher;
+  APosture: TRevocationPosture; AMethod: TLiveRevocationMethod; ADeadlineMs: Cardinal;
+  const AOptions: TLiveRevocationOptions);
+begin
   inherited Create;
-  if (APkix = nil) or (AClock = nil) or (AFetcher = nil) then
+  if (APkix = nil) or (AClock = nil) or (ATicks = nil) or (AFetcher = nil) then
     raise EArgumentTlsLibException.CreateRes(@SNilLiveRevocationInput);
   if not OptionsValid(AOptions) then
     raise EArgumentTlsLibException.CreateRes(@SInvalidLiveRevocationOptions);
   FPkix := APkix;
   FClock := AClock;
+  FTicks := ATicks;
   FFetcher := AFetcher;
   FPosture := APosture;
   FMethod := AMethod;
@@ -300,25 +319,16 @@ begin
   end;
 end;
 
-function TLiveRevocationChecker.NextTimeout(AStartMs: Int64; var ALatestMs: Int64;
-  AAttemptsLeft: Int32; ADeadlineMs: Cardinal; out ATimeoutMs: Cardinal): Boolean;
+function TLiveRevocationChecker.NextTimeout(AStartMs: Int64; AAttemptsLeft: Int32;
+  ADeadlineMs: Cardinal; out ATimeoutMs: Cardinal): Boolean;
 var
-  LNowMs, LRemaining, LFloor, LShare: Int64;
+  LRemaining, LFloor, LShare: Int64;
 begin
   ATimeoutMs := 0;
   // no budget: each fetch's own timeout applies and nothing is shared
   if ADeadlineMs = 0 then
     Exit(True);
-  // the clock is wall time: elapsed time only ever grows, so a step back cannot give back time
-  // already spent, and a step forward only ends the check early (indeterminate, which the
-  // posture decides)
-  LNowMs := Int64(FClock.NowUnixMillis);
-  if LNowMs < ALatestMs then
-    LNowMs := ALatestMs;
-  ALatestMs := LNowMs;
-  LRemaining := Int64(ADeadlineMs) - (LNowMs - AStartMs);
-  if LRemaining > Int64(ADeadlineMs) then
-    LRemaining := Int64(ADeadlineMs);
+  LRemaining := Int64(ADeadlineMs) - (FTicks.NowMonotonicMillis - AStartMs);
   LFloor := FMinAttemptMs;
   if LFloor > Int64(ADeadlineMs) then
     LFloor := Int64(ADeadlineMs);
@@ -413,7 +423,7 @@ var
   LLeaf, LIssuer, LRequest: TBytes;
   LUrls, LOcspUrls, LCrlUrls: TArray<string>;
   LI, LLeft: Int32;
-  LStartMs, LLatestMs: Int64;
+  LStartMs: Int64;
   LTimeout: Cardinal;
 begin
   Result := TLiveRevocationOutcome.Indeterminate;
@@ -450,12 +460,11 @@ begin
     if not FPkix.Revocation.BuildOcspRequest(LLeaf, LIssuer, LRequest) then
       LOcspUrls := nil;
 
-  LStartMs := Int64(FClock.NowUnixMillis);
-  LLatestMs := LStartMs;
+  LStartMs := FTicks.NowMonotonicMillis;
   LLeft := System.Length(LOcspUrls) + System.Length(LCrlUrls);
   for LI := 0 to System.High(LOcspUrls) do
   begin
-    if not NextTimeout(LStartMs, LLatestMs, LLeft, ADeadlineMs, LTimeout) then
+    if not NextTimeout(LStartMs, LLeft, ADeadlineMs, LTimeout) then
       Exit(TLiveRevocationOutcome.Indeterminate);
     Result := EvaluateOcsp(LLeaf, LIssuer, LRequest, LOcspUrls[LI], LTimeout);
     if Result <> TLiveRevocationOutcome.Indeterminate then
@@ -464,7 +473,7 @@ begin
   end;
   for LI := 0 to System.High(LCrlUrls) do
   begin
-    if not NextTimeout(LStartMs, LLatestMs, LLeft, ADeadlineMs, LTimeout) then
+    if not NextTimeout(LStartMs, LLeft, ADeadlineMs, LTimeout) then
       Exit(TLiveRevocationOutcome.Indeterminate);
     Result := EvaluateCrl(LLeaf, LIssuer, LCrlUrls[LI], LTimeout);
     if Result <> TLiveRevocationOutcome.Indeterminate then

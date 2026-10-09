@@ -40,6 +40,21 @@ type
     function NowUnixMillis: UInt64;
   end;
 
+  /// <summary>
+  /// An <see cref="ITlsMonotonicClock" /> a test advances by hand, so a deadline can be driven
+  /// without waiting. It only moves forward, as the real source does. Never for production use.
+  /// </summary>
+  TMockMonotonicClock = class(TInterfacedObject, ITlsMonotonicClock)
+  strict private
+  var
+    FMillis: Int64;
+  public
+    constructor Create(AMillis: Int64);
+    /// <summary>Moves the clock forward by AMillis.</summary>
+    procedure Advance(AMillis: Int64);
+    function NowMonotonicMillis: Int64;
+  end;
+
 implementation
 
 { TMockClock }
@@ -68,6 +83,24 @@ end;
 function TMockClock.NowUnixMillis: UInt64;
 begin
   Result := FUnixMillis;
+end;
+
+{ TMockMonotonicClock }
+
+constructor TMockMonotonicClock.Create(AMillis: Int64);
+begin
+  inherited Create;
+  FMillis := AMillis;
+end;
+
+procedure TMockMonotonicClock.Advance(AMillis: Int64);
+begin
+  Inc(FMillis, AMillis);
+end;
+
+function TMockMonotonicClock.NowMonotonicMillis: Int64;
+begin
+  Result := FMillis;
 end;
 
 end.

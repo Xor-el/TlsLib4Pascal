@@ -400,6 +400,13 @@ config := TTlsPresets.Compatible(Crypto, Pkix).Client
 
 The default is the real system clock (`TSystemClock`), so this only matters when you override it.
 
+Deadlines are a separate concern and use a separate clock. The handshake read cap and the
+live-revocation budget measure *elapsed* time on an `ITlsMonotonicClock` (default
+`TSystemMonotonicClock`), which a wall-clock step can neither stretch nor shorten. Override the
+handshake cap's clock with `WithMonotonicClock`, and the checker's with the
+`TLiveRevocationChecker` overload that takes one (pass `Config.MonotonicClock` to share it).
+Neither affects certificate, OCSP or ticket time, which stay on `ITlsClock`.
+
 ---
 
 ## Rule of thumb

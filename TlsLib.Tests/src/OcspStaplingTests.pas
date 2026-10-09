@@ -189,7 +189,7 @@ var
   LThis, LNext: TDateTime;
 begin
   CheckTrue(Pkix.Revocation.ValidateOcspStaple(N('leaf_cert'), N('ca_cert'), AResponse,
-    TDateTimeUtilities.ToUniversalTime(Now), LStatus, LThis, LNext),
+    NowUtc, LStatus, LThis, LNext),
     'the CA-signed response about the leaf is authoritative');
   CheckEquals(Ord(TOcspStatus.Good), Ord(LStatus), 'the status is Good');
   Result := TDateTimeUtilities.DateTimeToUnixMs(LThis);
@@ -319,7 +319,7 @@ var
   LThis, LNext: TDateTime;
 begin
   CheckTrue(Pkix.Revocation.ValidateOcspStaple(V('leaf_cert'), V('issuer_cert'),
-    V('ocsp_good'), TDateTimeUtilities.ToUniversalTime(Now), LStatus, LThis, LNext),
+    V('ocsp_good'), NowUtc, LStatus, LThis, LNext),
     'an issuer-signed response about the leaf is authoritative');
   CheckEquals(Ord(TOcspStatus.Good), Ord(LStatus), 'the status is Good');
   CheckTrue(LNext > LThis, 'the validity window is well ordered');
@@ -331,7 +331,7 @@ var
   LThis, LNext: TDateTime;
 begin
   CheckTrue(Pkix.Revocation.ValidateOcspStaple(V('leaf_cert'), V('issuer_cert'),
-    V('ocsp_revoked'), TDateTimeUtilities.ToUniversalTime(Now), LStatus, LThis,
+    V('ocsp_revoked'), NowUtc, LStatus, LThis,
     LNext), 'a revoked response is authoritative');
   CheckEquals(Ord(TOcspStatus.Revoked), Ord(LStatus), 'the status is Revoked');
 end;
@@ -343,7 +343,7 @@ var
 begin
   // signed by an id-kp-OCSPSigning responder the issuer delegated to (RFC 6960 4.2.2.2)
   CheckTrue(Pkix.Revocation.ValidateOcspStaple(V('leaf_cert'), V('issuer_cert'),
-    V('ocsp_good_delegated'), TDateTimeUtilities.ToUniversalTime(Now), LStatus,
+    V('ocsp_good_delegated'), NowUtc, LStatus,
     LThis, LNext), 'a delegated responder is authoritative');
   CheckEquals(Ord(TOcspStatus.Good), Ord(LStatus), 'the status is Good');
 end;
@@ -355,7 +355,7 @@ var
 begin
   // signed by an unrelated CA the issuer never delegated to
   CheckFalse(Pkix.Revocation.ValidateOcspStaple(V('leaf_cert'), V('issuer_cert'),
-    V('ocsp_unauthorized'), TDateTimeUtilities.ToUniversalTime(Now), LStatus,
+    V('ocsp_unauthorized'), NowUtc, LStatus,
     LThis, LNext), 'an unauthorized signer leaves the status indeterminate');
 end;
 
@@ -366,7 +366,7 @@ var
 begin
   // the CertID names the real issuer, so it does not match an unrelated one
   CheckFalse(Pkix.Revocation.ValidateOcspStaple(V('leaf_cert'), V('other_ca_cert'),
-    V('ocsp_good'), TDateTimeUtilities.ToUniversalTime(Now), LStatus, LThis, LNext),
+    V('ocsp_good'), NowUtc, LStatus, LThis, LNext),
     'a response whose CertID does not match the issuer is indeterminate');
 end;
 
@@ -376,7 +376,7 @@ var
   LThis, LNext: TDateTime;
 begin
   CheckFalse(Pkix.Revocation.ValidateOcspStaple(V('leaf_cert'), V('issuer_cert'),
-    TBytes.Create(1, 2, 3, 4), TDateTimeUtilities.ToUniversalTime(Now), LStatus,
+    TBytes.Create(1, 2, 3, 4), NowUtc, LStatus,
     LThis, LNext), 'an unparseable response returns False, never raises');
 end;
 
@@ -815,7 +815,7 @@ var
 begin
   // the vector really carries no nextUpdate (the provider reports it as 0)
   CheckTrue(Pkix.Revocation.ValidateOcspStaple(N('leaf_cert'), N('ca_cert'),
-    N('ocsp_good_nonext'), TDateTimeUtilities.ToUniversalTime(Now), LStatus, LThis, LNext),
+    N('ocsp_good_nonext'), NowUtc, LStatus, LThis, LNext),
     'the no-nextUpdate response is authoritative');
   CheckTrue(LNext = 0, 'the response carries no nextUpdate');
   LThisMs := TDateTimeUtilities.DateTimeToUnixMs(LThis);

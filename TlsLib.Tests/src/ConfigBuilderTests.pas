@@ -27,6 +27,8 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpTlsLibExceptions,
+  TlpIClock,
+  MockClock,
   TlpTlsVersion,
   TlpArrayUtilities,
   TlpSecretBuffer,
@@ -144,6 +146,8 @@ type
     procedure TestRecordSizeLimitDefaultsToUnset;
     procedure TestExternalPskInnerBytesAreCopied;
     procedure TestNilClockIsRefused;
+    procedure TestNilMonotonicClockIsRefused;
+    procedure TestMonotonicClockDefaultsToTheSystemSourceAndIsInjectable;
     procedure TestAlpnListBeyondWireLimitIsRefused;
     procedure TestLargestAlpnListStillEncodesInTheClientHello;
     procedure TestServerExternalPskNeedsTls13;
@@ -964,6 +968,43 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a nil clock is a typed error, not a silent default');
+end;
+
+procedure TTestConfigBuilder.TestNilMonotonicClockIsRefused;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    NewClientBuilder.WithMonotonicClock(nil);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a nil monotonic clock is a typed error on a client builder');
+  LRaised := False;
+  try
+    NewServerBuilder.WithMonotonicClock(nil);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a nil monotonic clock is a typed error on a server builder');
+end;
+
+procedure TTestConfigBuilder.TestMonotonicClockDefaultsToTheSystemSourceAndIsInjectable;
+var
+  LClock: ITlsMonotonicClock;
+  LClientConfig: ITlsClientConfig;
+  LServerConfig: ITlsServerConfig;
+begin
+  CheckTrue(NewClientBuilder.Build.MonotonicClock <> nil, 'a client defaults to a clock');
+  CheckTrue(NewServerBuilder.Build.MonotonicClock <> nil, 'a server defaults to a clock');
+  LClock := TMockMonotonicClock.Create(42) as ITlsMonotonicClock;
+  LClientConfig := NewClientBuilder.WithMonotonicClock(LClock).Build;
+  CheckTrue(LClientConfig.MonotonicClock = LClock, 'the client config carries the injected clock');
+  LServerConfig := NewServerBuilder.WithMonotonicClock(LClock).Build;
+  CheckTrue(LServerConfig.MonotonicClock = LClock, 'the server config carries the injected clock');
 end;
 
 procedure TTestConfigBuilder.TestAlpnListBeyondWireLimitIsRefused;

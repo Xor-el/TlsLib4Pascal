@@ -42,6 +42,7 @@ uses
   TlpTlsCredential,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
+  TlpTlsPresets,
   TlpISystemTrustInstaller,
   TlpITlsConfigMemo,
   TlpTlsConfigMemo,
@@ -129,6 +130,9 @@ type
     procedure TestServerVerifyCallbackForwardedUnderClientAuth;
     procedure TestServerGuardFlagsVerifyCallback;
     procedure TestTransportCapIsAnAbsoluteDeadline;
+    procedure TestTransportRefusesANilClock;
+    procedure TestRefusedEngineBuildReleasesTheTransport;
+    procedure TestConnectionMeasuresTheCapOnTheConfigsMonotonicClock;
     // timed transport
     procedure TestTransportTimesOutWhenSilent;
     procedure TestApplicationReadTimeoutRaisesTheRetryableReadTimeout;
@@ -188,6 +192,7 @@ type
     FMaxSend: Int32;
     FOutbound: TBytes;
     FLastWaitMs: Int32;
+    FDestroyedFlag: PBoolean;
   strict protected
     function WaitReadable(AMs: Int32): Boolean; override;
     function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
@@ -195,7 +200,10 @@ type
   public
     constructor Create(const AInbound: TBytes; AReadable: Boolean); overload;
     constructor Create(const AInbound: TBytes; AReadable: Boolean;
-      const AClock: ITlsClock); overload;
+      const AClock: ITlsMonotonicClock); overload;
+    destructor Destroy; override;
+    /// <summary>Sets AFlag when this transport is destroyed, so a test can prove it was released.</summary>
+    procedure ReportDestructionTo(AFlag: PBoolean);
     function ArmedTimeout: Int32;
     /// <summary>What a host does between receive retries: the base's cap check.</summary>
     procedure PollCap;
@@ -245,15 +253,28 @@ end;
 
 { TTestMemoryTransport }
 
+destructor TTestMemoryTransport.Destroy;
+begin
+  if FDestroyedFlag <> nil then
+    FDestroyedFlag^ := True;
+  inherited Destroy;
+end;
+
+procedure TTestMemoryTransport.ReportDestructionTo(AFlag: PBoolean);
+begin
+  FDestroyedFlag := AFlag;
+end;
+
 constructor TTestMemoryTransport.Create(const AInbound: TBytes; AReadable: Boolean);
 begin
-  Create(AInbound, AReadable, TMockClock.Create(0) as ITlsClock);
+  Create(AInbound, AReadable, TMockMonotonicClock.Create(0) as ITlsMonotonicClock);
 end;
 
 constructor TTestMemoryTransport.Create(const AInbound: TBytes; AReadable: Boolean;
-  const AClock: ITlsClock);
+  const AClock: ITlsMonotonicClock);
 begin
-  inherited Create(AClock);
+  inherited Create;
+  UseClock(AClock);
   FInbound := AInbound;
   FInPos := 0;
   FReadable := AReadable;
@@ -1329,8 +1350,8 @@ procedure TTestTlsConnection.TestTransportCapIsAnAbsoluteDeadline;
 var
   LTransport: TTestMemoryTransport;
   LTimed: ITlsTransport;
-  LClockObj: TMockClock;
-  LClock: ITlsClock;
+  LClockObj: TMockMonotonicClock;
+  LClock: ITlsMonotonicClock;
   LBuf, LInbound: TBytes;
   LRaised: Boolean;
 begin
@@ -1338,7 +1359,7 @@ begin
   // is given only the time left, and a read past the deadline raises
   LInbound := nil;
   SetLength(LInbound, 200);
-  LClockObj := TMockClock.Create(1000);
+  LClockObj := TMockMonotonicClock.Create(1000);
   LClock := LClockObj;
   LTransport := TTestMemoryTransport.Create(LInbound, True, LClock);
   LTimed := LTransport as ITlsTransport;
@@ -1358,9 +1379,83 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a read past the deadline raises a handshake timeout');
-  LClockObj.Retreat(5000); // a clock step back must not widen the wait past the cap
-  LTimed.Read(LBuf, 0, 1);
-  CheckEquals(150, LTransport.LastWaitMs, 'the wait never exceeds the cap');
+end;
+
+procedure TTestTlsConnection.TestConnectionMeasuresTheCapOnTheConfigsMonotonicClock;
+var
+  LClockObj: TMockMonotonicClock;
+  LConfig: ITlsClientConfig;
+  LTransport: TTestMemoryTransport;
+  LTimed: ITlsTransport;
+  LConnection: TTlsConnection;
+  LRaised: Boolean;
+begin
+  LClockObj := TMockMonotonicClock.Create(1000);
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithTrustStore(EcP256RootStore)
+    .WithMonotonicClock(LClockObj as ITlsMonotonicClock).Build;
+  LTransport := TTestMemoryTransport.Create(nil, True);
+  LTimed := LTransport as ITlsTransport;
+  LConnection := TTlsConnection.CreateClient(LConfig, 'example.com', LTransport, nil, 0);
+  try
+    LTransport.SetReadTimeout(150);
+    LClockObj.Advance(100);
+    LTransport.PollCap; // inside the cap
+    LClockObj.Advance(100);
+    LRaised := False;
+    try
+      LTransport.PollCap;
+    except
+      on E: ETlsHandshakeTimeout do
+        LRaised := True;
+    end;
+    CheckTrue(LRaised, 'the transport measures its cap on the config''s monotonic clock');
+  finally
+    LConnection.Free;
+  end;
+end;
+
+procedure TTestTlsConnection.TestRefusedEngineBuildReleasesTheTransport;
+var
+  LConfig: ITlsClientConfig;
+  LTransport: TTestMemoryTransport;
+  LConnection: TTlsConnection;
+  LDestroyed, LRaised: Boolean;
+begin
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithTrustStore(EcP256RootStore).Build;
+  LTransport := TTestMemoryTransport.Create(nil, True);
+  LDestroyed := False;
+  LTransport.ReportDestructionTo(@LDestroyed);
+  LRaised := False;
+  LConnection := nil;
+  try
+    // an empty host with the name check on is refused when the engine is built; the connection
+    // is the transport's only owner here, so it must release it
+    LConnection := TTlsConnection.CreateClient(LConfig, '', LTransport, nil, 0);
+  except
+    on E: Exception do
+      LRaised := True;
+  end;
+  LConnection.Free;
+  CheckTrue(LRaised, 'the engine build is refused');
+  CheckTrue(LDestroyed, 'a refused engine build still releases the transport');
+end;
+
+procedure TTestTlsConnection.TestTransportRefusesANilClock;
+var
+  LTransport: TTestMemoryTransport;
+  LTimed: ITlsTransport;
+  LRaised: Boolean;
+begin
+  LTransport := TTestMemoryTransport.Create(nil, True);
+  LTimed := LTransport as ITlsTransport;
+  LRaised := False;
+  try
+    LTransport.UseClock(nil);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a transport needs a clock');
 end;
 
 procedure TTestTlsConnection.TestClientGuardFlagsServerCertVerifier;
@@ -1443,12 +1538,12 @@ procedure TTestTlsConnection.TestCapCheckBetweenRetriesHonoursTheDeadline;
 var
   LTransport: TTestMemoryTransport;
   LTimed: ITlsTransport;
-  LClockObj: TMockClock;
-  LClock: ITlsClock;
+  LClockObj: TMockMonotonicClock;
+  LClock: ITlsMonotonicClock;
   LRaised: Boolean;
 begin
   // both are reference counted: hold them through interfaces so they are released with the test
-  LClockObj := TMockClock.Create(1000);
+  LClockObj := TMockMonotonicClock.Create(1000);
   LClock := LClockObj;
   LTransport := TTestMemoryTransport.Create(nil, True, LClock);
   LTimed := LTransport as ITlsTransport;
