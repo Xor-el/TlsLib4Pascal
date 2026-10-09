@@ -43,6 +43,7 @@ uses
   synsock,
   TlpDataEncoding,
   TlpTlsCredential,
+  TlpNegotiationTypes,
   TlsLibSynapseTls;
 
 const
@@ -187,7 +188,8 @@ begin
   end;
 end;
 
-// Assign keeps the plugin's own properties, and a Synapse Ciphers list is refused rather than ignored
+// Assign keeps the plugin's own properties, and a Ciphers value that is not a suite name is refused
+// rather than ignored
 procedure CheckAssignAndCiphers;
 var
   LFrom, LTo: TTCPBlockSocket;
@@ -240,12 +242,16 @@ begin
       LClient.SSL.CertCAFile := GRootFile;
       LClient.SSL.VerifyCert := True;
       LClient.SSL.SNIHost := 'localhost'; // verify the leaf for its 'localhost' SAN
+      // the client offers one suite, so a negotiated AES-256 proves the list was honoured
+      LClient.SSL.Ciphers := 'TLS_AES_256_GCM_SHA384';
       LClient.Connect('127.0.0.1', PORT);
       if LClient.LastError <> 0 then
         raise Exception.Create('tcp connect failed');
       LClient.SSLDoConnect;
       if not LClient.SSL.SSLEnabled then
         raise Exception.Create('ssl connect failed: ' + LClient.SSL.LastErrorDesc);
+      if TSSLTlsLib(LClient.SSL).NegotiatedCipherSuite <> TCipherSuites13.Aes256GcmSha384 then
+        raise Exception.Create('the Ciphers list was not honoured: ' + LClient.SSL.GetCipherName);
       LClient.SendString('ping from the synapse client' + CRLF);
       LEcho := LClient.RecvString(5000);
       // the server now sends part of a record and stalls: with the cap set the read must fail fast

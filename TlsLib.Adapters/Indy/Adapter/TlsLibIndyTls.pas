@@ -86,6 +86,7 @@ type
     FPkix: IPkixProvider;
     FSessionResumption: Boolean;
     FHandshakeTimeoutMs: Integer;
+    FCipherList: string;
   public
     constructor Create;
     procedure Assign(ASource: TPersistent); override;
@@ -195,6 +196,13 @@ type
     /// IOHandler.ReadTimeout (that is an app-read deadline). 0 (default) uses the 30 s library
     /// default; set a positive value to override.</summary>
     property HandshakeTimeoutMs: Integer read FHandshakeTimeoutMs write FHandshakeTimeoutMs;
+    /// <summary>The cipher suites to offer and accept, in preference order: exact IANA or OpenSSL
+    /// names separated by ':', ',' or spaces (see THostCipherList). It narrows and reorders this
+    /// library's own hardened set and never widens it; TLS 1.3 stays on with its default suites
+    /// unless the list names a TLS 1.3 suite. Cipher-string expressions such as HIGH or !aNULL are
+    /// refused. Empty or DEFAULT keeps the preset. Not allowed alongside a supplied
+    /// ClientConfig/ServerConfig.</summary>
+    property CipherList: string read FCipherList write FCipherList;
   end;
 
   /// <summary>An ITlsTransport over an Indy socket binding: raw ciphertext moves through the
@@ -307,6 +315,7 @@ var
   GClientConfigMemo: ITlsClientConfigMemo;
 
 resourcestring
+  SIndyCipherListHint = 'CipherList';
   SIndyTrustSourceHint =
     'a RootCertFile bundle, UseSystemTrust, or a CustomTrustStore/custom verifier';
   SIndyClientAuthSourceHint =
@@ -354,6 +363,7 @@ begin
     FPkix := LSrc.FPkix;
     FSessionResumption := LSrc.FSessionResumption;
     FHandshakeTimeoutMs := LSrc.FHandshakeTimeoutMs;
+    FCipherList := LSrc.FCipherList;
   end
   else
     inherited Assign(ASource);
@@ -391,8 +401,10 @@ begin
   Result.ServerVerdictDeadlineMs := FServerVerdictDeadlineMs;
   Result.SessionResumption := FSessionResumption;
   Result.HandshakeTimeoutMs := FHandshakeTimeoutMs;
+  Result.CipherSuites := THostCipherList.Parse(FCipherList, SIndyCipherListHint);
   Result.ClientConfig := FClientConfig;
   Result.ServerConfig := FServerConfig;
+  Result.CipherSuitesHint := SIndyCipherListHint;
   Result.TrustSourceHint := SIndyTrustSourceHint;
   Result.ClientAuthSourceHint := SIndyClientAuthSourceHint;
 end;

@@ -168,9 +168,9 @@ begin
     LCtx.PrivateKeyRaw := @LDummy;
     if not RefusesNaming(LCtx, False, 'PrivateKeyRaw') then
       Exit;
-    // a cipher list is a posture input the build would otherwise drop without a word
+    // a cipher-string expression is not a suite name: refused, never skipped
     InitNetTlsContext(LCtx);
-    LCtx.CipherList := 'ECDHE-RSA-AES256-GCM-SHA384';
+    LCtx.CipherList := 'HIGH';
     if not RefusesNaming(LCtx, False, 'CipherList') then
       Exit;
     // a server fails at bind time, before it accepts anything, and is pointed at a built config
@@ -335,6 +335,8 @@ begin
 
     FillCharFast(LCtx, SizeOf(LCtx), 0);
     LCtx.CACertificatesFile := GRootFile;
+    // the client offers one suite, so a negotiated AES-256 proves the list was honoured
+    LCtx.CipherList := 'TLS_AES_256_GCM_SHA384';
     if NewSocket(HOST, PORT, nlTcp, {dobind=}False, 3000, 3000, 3000, 0, LSock) <> nrOK then
       raise Exception.Create('client connect failed');
     LTls := NewTlsLib4PascalTls;
@@ -353,7 +355,8 @@ begin
       raise Exception.Create('server: ' + GServerError);
 
     LOk := (LLen = System.Length(LPing)) and CompareMem(@LEcho[0], @LPing[0], LLen)
-      and (Pos('TLSv1.3', LTls.GetCipherName) > 0);
+      and (Pos('TLSv1.3', LTls.GetCipherName) > 0)
+      and (Pos('TLS_AES_256_GCM_SHA384', LTls.GetCipherName) > 0);
     if LOk then
       Writeln('mORMot loopback PASS: handshake + echo over ', LTls.GetCipherName)
     else

@@ -302,15 +302,11 @@ const
 {$IFEND}
   // Windows SO_RCVTIMEO expiry code; a literal so the Unix build needs no winsock symbol
   WSAETIMEDOUT_CODE = 10060;
-  // fcl-net's own initial CipherList, not a host choice
-  FCLNET_DEFAULT_CIPHER_LIST = 'DEFAULT';
 
 resourcestring
   SFclNetSslTypeUnsupported = 'SSLType selects a protocol this library does not implement; ' +
     'use stAny or stTLSv1_2';
-  SFclNetCipherListUnsupported = 'CertificateData.CipherList is set, which TlsLib4Pascal does ' +
-    'not honour: leave it at ''%s'' and choose suites through a TlsLib configuration ' +
-    'supplied as ClientConfig or ServerConfig';
+  SFclNetCipherListHint = 'CertificateData.CipherList';
   SFclNetSendNoProgress = 'fcl-net socket send returned no progress';
   SFclNetHandshakeReadTimedOut = 'the handshake did not complete within %d ms';
   SFclNetReceiveTimedOut = 'the socket receive timeout elapsed with no data from the peer';
@@ -445,11 +441,6 @@ function TTlsLibSocketHandler.Snapshot: TTlsOptions;
 var
   LAnchors: TArray<TTlsBlobSource>;
 begin
-  // any other list is a security posture input: dropping it would negotiate a suite the host excluded
-  if (CertificateData.CipherList <> '') and
-    (CertificateData.CipherList <> FCLNET_DEFAULT_CIPHER_LIST) then
-    raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
-      @SFclNetCipherListUnsupported, [FCLNET_DEFAULT_CIPHER_LIST]);
   Result := TTlsOptions.Default;
   Result.Crypto := FUserCrypto;
   Result.Pkix := FUserPkix;
@@ -507,8 +498,10 @@ begin
     raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
       @SFclNetSslTypeUnsupported);
   end;
+  Result.CipherSuites := THostCipherList.Parse(CertificateData.CipherList, SFclNetCipherListHint);
   Result.ClientConfig := FClientConfig;
   Result.ServerConfig := FServerConfig;
+  Result.CipherSuitesHint := SFclNetCipherListHint;
   Result.TrustSourceHint := SFclNetTrustSourceHint;
   Result.ClientAuthSourceHint := SFclNetClientAuthSourceHint;
 end;

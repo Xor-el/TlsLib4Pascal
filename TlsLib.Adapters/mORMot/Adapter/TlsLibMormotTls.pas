@@ -211,13 +211,11 @@ resourcestring
   SMormotInMemoryCredentialUnsupported = 'the mORMot TLS context supplies %s (an in-memory ' +
     'certificate or key), which TlsLib4Pascal does not read: pass them as PEM/DER files via ' +
     'CertificateFile and PrivateKeyFile';
-  SMormotCipherListUnsupported = 'the mORMot TLS context sets CipherList, which TlsLib4Pascal ' +
-    'does not honour: leave it empty and choose suites through a TlsLib configuration supplied ' +
-    'with SetTlsLibMormotClientConfig or SetTlsLibMormotServerConfig';
   SMormotReceiveFailed = 'mORMot socket receive failed (nr=%d)';
   SMormotReceiveTimedOut = 'the socket receive timeout elapsed with no data from the peer';
   SMormotSendFailed = 'mORMot socket send failed (nr=%d)';
   SMormotSendTimedOut = 'the peer stopped reading: the socket stayed unwritable past the send bound';
+  SMormotCipherListHint = 'CipherList';
   SMormotTrustSourceHint = 'CACertificatesFile or CASystemStores';
   SMormotClientAuthSourceHint = 'CACertificatesFile';
 
@@ -453,8 +451,11 @@ begin
   Result.HandshakeTimeoutMs := GHandshakeTimeoutMs;
   if AContext.DisableTls13 then
     Result.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls12);
+  Result.CipherSuites := THostCipherList.Parse(Utf8ToString(AContext.CipherList),
+    SMormotCipherListHint);
   Result.ClientConfig := GClientConfig;
   Result.ServerConfig := GServerConfig;
+  Result.CipherSuitesHint := SMormotCipherListHint;
   Result.TrustSourceHint := SMormotTrustSourceHint;
   Result.ClientAuthSourceHint := SMormotClientAuthSourceHint;
 end;
@@ -483,10 +484,6 @@ begin
   if Assigned(AContext.OnAfterPeerValidate) then
     raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
       LHookText, ['OnAfterPeerValidate']);
-  // a cipher list is a security posture input: dropping it would negotiate a suite the host excluded
-  if AContext.CipherList <> '' then
-    raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
-      @SMormotCipherListUnsupported);
   if AContext.HostNamesCsv <> '' then
     raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
       @SMormotHostNamesUnsupported);

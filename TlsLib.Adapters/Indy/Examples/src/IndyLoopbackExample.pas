@@ -41,6 +41,7 @@ uses
   IdTCPClient,
   TlpTlsVersion,
   TlpDataEncoding,
+  TlpNegotiationTypes,
   TlsLibIndyTls;
 
 const
@@ -145,6 +146,26 @@ begin
   end;
 end;
 
+// a cipher-string expression is not a suite name: refused naming the property, never skipped
+function CipherListRefusesExpressions: Boolean;
+var
+  LOptions: TTlsLibSSLOptions;
+begin
+  Result := False;
+  LOptions := TTlsLibSSLOptions.Create;
+  try
+    LOptions.CipherList := 'HIGH';
+    try
+      LOptions.Snapshot;
+    except
+      on E: Exception do
+        Result := Pos('CipherList', E.Message) > 0;
+    end;
+  finally
+    LOptions.Free;
+  end;
+end;
+
 class function TIndyLoopbackExample.Run: Integer;
 var
   LServer: TIdTCPServer;
@@ -156,6 +177,7 @@ var
   LOk, LTimedOut, LTicketsArrived: Boolean;
   LStarted: TDateTime;
   LLine: string;
+  LCipher: UInt16;
 begin
   Result := 1;
   GServerError := '';
@@ -177,6 +199,8 @@ begin
     LClientIO := TTlsLibIOHandlerSocket.Create(LClient);
     LClientIO.SSLOptions.RootCertFile := TVectorLocator.WriteDer('root',
       TVectorLocator.FieldHex('root_cert'));
+    // the client offers one suite, so a negotiated AES-256 proves the list was honoured
+    LClientIO.SSLOptions.CipherList := 'TLS_AES_256_GCM_SHA384';
     LClient.IOHandler := LClientIO;
     LClient.Host := 'localhost'; // verify the leaf for its 'localhost' SAN
     LClient.Port := PORT;
@@ -194,6 +218,7 @@ begin
       LClient.ReadTimeout := 0;
       LClientIO.WriteLn('ping from the indy client');
       LEcho := LClientIO.ReadLn;
+      LCipher := LClientIO.NegotiatedCipherSuite;
     finally
       LClient.Disconnect;
     end;
@@ -201,15 +226,16 @@ begin
     LServer.Active := False;
 
     LOk := LTimedOut and (LEcho = 'ping from the indy client') and
-      (LClientIO.NegotiatedVersion.WireValue = TlsWireVersionTls13);
+      (LClientIO.NegotiatedVersion.WireValue = TlsWireVersionTls13) and
+      (LCipher = TCipherSuites13.Aes256GcmSha384) and CipherListRefusesExpressions;
     if LOk then
     begin
       Writeln('Indy loopback PASS: handshake + timed idle read + echo over TLS 1.3');
       Result := 0;
     end
     else
-      Writeln('Indy loopback FAIL: timedOut=', LTimedOut, ' echo="', LEcho, '" server="',
-        GServerError, '"');
+      Writeln('Indy loopback FAIL: timedOut=', LTimedOut, ' echo="', LEcho, '" suite=', LCipher,
+        ' server="', GServerError, '"');
   except
     on E: Exception do
       Writeln('Indy loopback FAIL: ', E.ClassName, ': ', E.Message,

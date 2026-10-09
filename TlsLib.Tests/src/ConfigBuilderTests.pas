@@ -164,6 +164,8 @@ type
     procedure TestCipherSuiteListOutsideTheConfiguredSetIsRefused;
     procedure TestCipherSuiteListIsIndependentOfCallOrder;
     procedure TestOfferedVersionWithoutASuiteIsRefused;
+    procedure TestServerCipherSuiteListOrderDecidesTheNegotiatedSuite;
+    procedure TestClientCipherSuiteListIsTheOnlyOfferedSuite;
     procedure TestRecordSizeLimitRoundTrips;
     procedure TestRecordSizeLimitRejectsOutOfRange;
     procedure TestRecordSizeLimitCapsRecordsThroughFactory;
@@ -1295,6 +1297,35 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'an offered version with no cipher suite is refused at Build');
+end;
+
+procedure TTestConfigBuilder.TestServerCipherSuiteListOrderDecidesTheNegotiatedSuite;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // the host's order is the server's preference whatever the hardware would otherwise favour
+  LClient := TTlsEngineFactory.CreateClientEngine(NewClientBuilder.Build, 'localhost');
+  LServer := TTlsEngineFactory.CreateServerEngine(NewServerBuilder
+    .WithCipherSuiteList(TArray<UInt16>.Create(TCipherSuites13.ChaCha20Poly1305Sha256,
+      TCipherSuites13.Aes128GcmSha256)).Build);
+  RunHandshake(LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'the handshake completed');
+  CheckEquals(TCipherSuites13.ChaCha20Poly1305Sha256, LServer.ConnectionInfo.CipherSuite,
+    'the first listed suite is negotiated');
+end;
+
+procedure TTestConfigBuilder.TestClientCipherSuiteListIsTheOnlyOfferedSuite;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := TTlsEngineFactory.CreateClientEngine(NewClientBuilder
+    .WithCipherSuiteList(TArray<UInt16>.Create(TCipherSuites13.Aes256GcmSha384)).Build,
+    'localhost');
+  LServer := TTlsEngineFactory.CreateServerEngine(NewServerBuilder.Build);
+  RunHandshake(LClient, LServer);
+  CheckFalse(LClient.IsTerminal, 'the handshake completed');
+  CheckEquals(TCipherSuites13.Aes256GcmSha384, LServer.ConnectionInfo.CipherSuite,
+    'the one listed suite is negotiated');
 end;
 
 procedure TTestConfigBuilder.TestRecordSizeLimitRoundTrips;

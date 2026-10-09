@@ -231,18 +231,12 @@ type
 
 implementation
 
-const
-  // the stock OpenSSL plugins' initial Ciphers value, which Assign copies: not a host choice
-  SYNAPSE_DEFAULT_CIPHERS = 'DEFAULT';
-
 resourcestring
   SPeerVerifyRejected = 'the OnVerifyCert handler rejected the peer certificate';
   SSynapseSendNoProgress = 'Synapse socket send returned no progress';
   SSynapseSslTypeUnsupported = 'SSLType selects a protocol this library does not implement; ' +
     'use LT_all, LT_TLSv1_2 or LT_TLSv1_3';
-  SSynapseCiphersUnsupported = 'the Synapse Ciphers property is set, which TlsLib4Pascal does ' +
-    'not honour: leave it empty or ''%s'' and choose suites through a TlsLib configuration ' +
-    'supplied as ClientConfig or ServerConfig';
+  SSynapseCiphersHint = 'Ciphers';
   SSynapseTrustSourceHint = 'a CertCAFile bundle and/or UseSystemTrust';
   SSynapseClientAuthSourceHint = 'a CertCAFile bundle';
 
@@ -366,10 +360,6 @@ end;
 
 function TSSLTlsLib.Snapshot: TTlsOptions;
 begin
-  // any other list is a security posture input: dropping it would negotiate a suite the host excluded
-  if (Ciphers <> '') and (Ciphers <> SYNAPSE_DEFAULT_CIPHERS) then
-    raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
-      @SSynapseCiphersUnsupported, [SYNAPSE_DEFAULT_CIPHERS]);
   Result := TTlsOptions.Default;
   Result.Crypto := FUserCrypto;
   Result.Pkix := FUserPkix;
@@ -414,8 +404,10 @@ begin
     raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
       @SSynapseSslTypeUnsupported);
   end;
+  Result.CipherSuites := THostCipherList.Parse(Ciphers, SSynapseCiphersHint);
   Result.ClientConfig := FClientConfig;
   Result.ServerConfig := FServerConfig;
+  Result.CipherSuitesHint := SSynapseCiphersHint;
   Result.TrustSourceHint := SSynapseTrustSourceHint;
   Result.ClientAuthSourceHint := SSynapseClientAuthSourceHint;
 end;
