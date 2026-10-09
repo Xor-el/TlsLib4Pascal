@@ -1,0 +1,22 @@
+TlsLib/src/Record/TlpRecordLayer.pas
+  s_d27f31cd14035d::t_158995429d56d4 515-517
+TlsLib.Tests/src/RecordLayerTests.pas
+  s_d27f31cd14035d::t_d1ae86089f98bb 720-721
+  s_d27f31cd14035d::t_d82c1559bcd2fa 740
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d3b0710cb58c3ac884bdff6ce3f01fd4ce906f9c",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
