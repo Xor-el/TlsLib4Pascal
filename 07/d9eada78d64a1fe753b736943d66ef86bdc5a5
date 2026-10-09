@@ -1,0 +1,30 @@
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_d27f31cd14035d::t_1cac75f09bfdc9 3008-3019
+  s_d27f31cd14035d::t_6c334b5bd5611d 405-409
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_d27f31cd14035d::t_b3c24b91745a20 236
+  s_d27f31cd14035d::t_48968e02d5b28b 1961-1962
+  s_d27f31cd14035d::t_0c9ba70944214b 107
+  s_d27f31cd14035d::t_09df1296e1a82d 2197,2199-2201,2203-2204
+  s_d27f31cd14035d::t_b9fe5744ed3a9c 1971-1972
+  s_d27f31cd14035d::t_a173916b2ea513 1932,1934-1946,1949-1960,1963-1970,1973-1979
+  s_d27f31cd14035d::t_c9014dee8c9a40 204-205
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_d27f31cd14035d::t_7b11625256924c 378-381
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "07d9eada78d64a1fe753b736943d66ef86bdc5a5",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
