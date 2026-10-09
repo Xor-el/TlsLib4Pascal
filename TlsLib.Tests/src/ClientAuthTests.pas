@@ -110,6 +110,7 @@ type
     procedure TestTls12ServerRejectsUnrequestedClientCertVerifyScheme;
     procedure TestTls12ClientRejectsSecondCertificateRequest;
     procedure TestTls13CertificateRequestWithoutSignatureAlgorithmsAborts;
+    procedure TestTls13CertificateRequestWithNoUsableSchemeAborts;
     procedure TestTls13ServerRejectsNonEmptyClientCertificateContext;
     procedure TestTls13ServerRejectsClientIntermediateExtension;
     procedure TestTls13ClientCertPinMatchCompletes;
@@ -573,6 +574,9 @@ begin
     TArray<UInt16>.Create(TSignatureSchemes.Ed25519));
   Drive(LClient, LServer);
   CheckTrue(LServer.IsTerminal, 'no usable scheme: a Required server fails closed');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateRequired),
+    Ord(LServer.LastError.Alert.Description),
+    'the server refuses the empty Certificate with certificate_required, not the client aborting');
 end;
 
 procedure TTestClientAuth.TestTls12RequiredClientAuthCompletes;
@@ -733,6 +737,32 @@ begin
     'a CertificateRequest without signature_algorithms aborts');
   CheckEquals(Int64(Ord(TTlsAlertDescription.MissingExtension)), Int64(Ord(LAlert)),
     'the abort is missing_extension');
+end;
+
+procedure TTestClientAuth.TestTls13CertificateRequestWithNoUsableSchemeAborts;
+var
+  LClient, LServer: IHandshakeMachine;
+  LFlight: TArray<TBytes>;
+  LReq: TTlsCertificateRequest13;
+  LCertReq: TBytes;
+  LAlert: TTlsAlertDescription;
+begin
+  // a request whose only scheme is rsa_pkcs1_sha256 (not usable in TLS 1.3) could never accept a
+  // CertificateVerify: the client refuses it whatever its credential
+  LClient := New13ClientMachine(True);
+  LServer := New13ServerMachine(TClientAuthMode.Required);
+  LFlight := AllSendHandshake(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(FirstSendHandshake(LClient.Start))));
+  LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[0])); // ServerHello
+  LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[1])); // EncryptedExtensions
+  LReq.RequestContext := nil;
+  // extensions: one signature_algorithms (13) carrying [rsa_pkcs1_sha256 = 0x0401]
+  LReq.Extensions := TBytes.Create($00, $08, $00, $0D, $00, $04, $00, $02, $04, $01);
+  LCertReq := THandshakeFraming.Frame(TTlsHandshakeType.CertificateRequest,
+    THandshakeMessages.EncodeCertificateRequest13(LReq));
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCertReq)), LAlert),
+    'a CertificateRequest with no TLS 1.3-usable scheme aborts');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.HandshakeFailure)), Int64(Ord(LAlert)),
+    'the abort is handshake_failure');
 end;
 
 procedure TTestClientAuth.TestTls13ServerRejectsNonEmptyClientCertificateContext;
