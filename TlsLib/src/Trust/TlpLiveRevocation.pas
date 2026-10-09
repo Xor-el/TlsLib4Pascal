@@ -23,7 +23,6 @@ uses
   TlpArrayUtilities,
   TlpIPkixProvider,
   TlpIClock,
-  TlpClock,
   TlpIHttpFetcher,
   TlpTrustPolicy,
   TlpDateTimeUtilities;

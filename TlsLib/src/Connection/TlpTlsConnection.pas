@@ -118,7 +118,7 @@ type
   end;
 
   /// <summary>Maps a host's cipher-list string onto catalog suites: exact IANA or OpenSSL names
-  /// separated by ':', ',' or whitespace, in preference order, matched without regard to case and
+  /// separated by ':', ',', ';', spaces or tabs, in preference order, matched without regard to case and
   /// de-duplicated (the first position wins). Empty or HostDefault alone is the host default (an
   /// empty result: the preset applies). Any other token - a cipher-string expression or a suite
   /// this library does not implement - is refused, never skipped; so is HostDefault combined with
@@ -401,13 +401,13 @@ begin
   LI := 1;
   while LI <= System.Length(AText) do
   begin
-    if CharInSet(AText[LI], [':', ',', ' ', #9]) then
+    if CharInSet(AText[LI], [':', ',', ';', ' ', #9]) then
     begin
       Inc(LI);
       Continue;
     end;
     LStart := LI;
-    while (LI <= System.Length(AText)) and not CharInSet(AText[LI], [':', ',', ' ', #9]) do
+    while (LI <= System.Length(AText)) and not CharInSet(AText[LI], [':', ',', ';', ' ', #9]) do
       Inc(LI);
     LToken := System.Copy(AText, LStart, LI - LStart);
     if SameText(LToken, HostDefault) then

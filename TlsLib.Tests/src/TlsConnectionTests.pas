@@ -146,6 +146,7 @@ type
     procedure TestHostCipherListNarrowsAndOrdersTheBuiltConfig;
     procedure TestHostCipherListNamingNoTls12SuiteDropsTls12;
     procedure TestHostCipherListLeavesNoUsableSuiteIsRefused;
+    procedure TestHostCipherListNamingOnlyTls12SuitesLeavesPinnedTls13Alone;
     procedure TestHostCipherListIsPartOfTheMemoKey;
     procedure TestHostCipherListConflictsWithASuppliedConfig;
     procedure TestTransportReturnsDataWhenReadable;
@@ -1754,6 +1755,22 @@ begin
   CheckTrue(Pos('CipherList', LMessage) > 0, 'naming the host property: ' + LMessage);
 end;
 
+procedure TTestTlsConnection.TestHostCipherListNamingOnlyTls12SuitesLeavesPinnedTls13Alone;
+var
+  LOpts: TTlsOptions;
+  LConfig: ITlsClientConfig;
+begin
+  // a host list never governed TLS 1.3, so a 1.2-only list beside a 1.3-only pin is inert
+  LOpts := ClientOptsWithStore;
+  LOpts.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls13);
+  LOpts.CipherSuites := TArray<UInt16>.Create(TCipherSuites12.EcdheRsaAes128GcmSha256);
+  LConfig := TTlsConfigComposer.BuildClientConfig(LOpts);
+  CheckEquals(1, System.Length(LConfig.SupportedVersions), 'still TLS 1.3 only');
+  CheckEquals(Integer(TlsWireVersionTls13), Integer(LConfig.SupportedVersions[0]), 'TLS 1.3');
+  CheckTrue(System.Length(TNegotiationPolicy.SuiteOrder(LConfig.CipherSuites,
+    TSuiteProtocol.Tls13)) > 0, 'with its TLS 1.3 suites intact');
+end;
+
 procedure TTestTlsConnection.TestHostCipherListIsPartOfTheMemoKey;
 var
   LNone, LOne, LOther, LReversed: TTlsOptions;
@@ -1949,8 +1966,9 @@ procedure TTestHostCipherList.TestSeparatorsAndRunsOfThem;
 var
   LCodes: TArray<UInt16>;
 begin
-  LCodes := Codes(' :ECDHE-RSA-AES128-GCM-SHA256,, ECDHE-RSA-AES256-GCM-SHA384'#9'TLS_AES_256_GCM_SHA384:: ');
-  CheckEquals(3, System.Length(LCodes), 'colon, comma, space and tab all separate; runs collapse');
+  LCodes := Codes(' :ECDHE-RSA-AES128-GCM-SHA256,, ECDHE-RSA-AES256-GCM-SHA384'#9'TLS_AES_256_GCM_SHA384:; ');
+  CheckEquals(3, System.Length(LCodes),
+    'colon, comma, semicolon, space and tab all separate; runs collapse');
   CheckEquals(TCipherSuites12.EcdheRsaAes128GcmSha256, LCodes[0], 'first');
   CheckEquals(TCipherSuites12.EcdheRsaAes256GcmSha384, LCodes[1], 'second');
   CheckEquals(TCipherSuites13.Aes256GcmSha384, LCodes[2], 'third');

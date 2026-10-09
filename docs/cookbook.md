@@ -117,7 +117,7 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
 ```
 
 If your suites arrive as names (a config file, a host's cipher-list string), `TCipherSuiteCatalog.TryCode`
-maps an exact IANA or OpenSSL name to its code; the framework adapters do this for their host's
+(unit `TlpCipherSuiteCatalog`) maps an exact IANA or OpenSSL name to its code; the framework adapters do this for their host's
 cipher-list property. The suite order in the configured registry is
 the single preference authority: the default registries put AES-GCM first only when the CPU has
 AES hardware, and a registry you supply through `WithCipherSuites` is used in the order you gave it.
