@@ -1,0 +1,75 @@
+TlsLib.Adapters/Synapse/Adapter/TlsLibSynapseTls.pas
+  s_d27f31cd14035d::t_93af3dd76a0732 407,410
+  s_d27f31cd14035d::t_778e7f6e4017c2 239
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_d27f31cd14035d::t_773c397aa59021 309
+  s_d27f31cd14035d::t_ae156599e302aa 501,504
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_d27f31cd14035d::t_afe984e8cbd8b1 167-168
+  s_d27f31cd14035d::t_24caf28010307f 1302-1330
+TlsLib.Adapters/Indy/Examples/src/IndyLoopbackExample.pas
+  s_d27f31cd14035d::t_feb4a72e8f6386 44
+  s_d27f31cd14035d::t_67ce6eea16d0e6 180
+  s_d27f31cd14035d::t_250ee16e180a42 149-168
+  s_d27f31cd14035d::t_24957fcf132f2d 202-203
+  s_d27f31cd14035d::t_2b23309405a121 229-230,237-238
+  s_d27f31cd14035d::t_f1b91891359d08 221
+TlsLib.Adapters/mORMot/Examples/src/MormotLoopbackExample.pas
+  s_d27f31cd14035d::t_47d766b89c2c90 358-359
+  s_d27f31cd14035d::t_2051faa47f27bd 338-339
+  s_d27f31cd14035d::t_a63dcc9910cb22 171,173
+TlsLib.Adapters/mORMot/Adapter/TlsLibMormotTls.pas
+  s_d27f31cd14035d::t_c2b0eae24fbe56 454-455,458
+  s_d27f31cd14035d::t_269c1652bef55c 218
+TlsLib.Tests/src/TlsConnectionTests.pas
+  s_d27f31cd14035d::t_4df094d615e5e3 1913-2005,2010,2013
+  s_d27f31cd14035d::t_7a9df4bd8e2ea8 159-171
+  s_d27f31cd14035d::t_8522a765315e6c 1703-1812
+  s_d27f31cd14035d::t_cd716b046e0214 54-55
+  s_d27f31cd14035d::t_e3ac255640c325 146-150
+TlsLib.Adapters/Synapse/Examples/src/SynapseLoopbackExample.pas
+  s_d27f31cd14035d::t_886f1bafc3d5c5 245-246,253-254
+  s_d27f31cd14035d::t_a231aba88ab98b 46
+  s_d27f31cd14035d::t_b06f66e5a7603b 191-192
+TlsLib.Adapters/FclNet/Examples/src/FclNetLoopbackExample.pas
+  s_d27f31cd14035d::t_d915055129a891 50
+  s_d27f31cd14035d::t_dfb9007675a99c 285-286
+  s_d27f31cd14035d::t_386e56783cfec7 297-299
+TlsLib/src/Connection/TlpTlsConnection.pas
+  s_d27f31cd14035d::t_f42643e1551a7c 757
+  s_d27f31cd14035d::t_cee7d5eeda5b37 108
+  s_d27f31cd14035d::t_81a34a60ee6ed8 113,120-133
+  s_d27f31cd14035d::t_1dd56fc85fd86e 147-150
+  s_d27f31cd14035d::t_ff13b1d264d369 339-349
+  s_d27f31cd14035d::t_90731e25fb2927 417
+  s_d27f31cd14035d::t_6dd6eaa7cdc52e 547-552
+  s_d27f31cd14035d::t_34c718edf9c79b 638-643
+  s_d27f31cd14035d::t_7be21f54250595 706-708
+  s_d27f31cd14035d::t_6e6cd8d3968dcf 744-746
+  s_d27f31cd14035d::t_77f1d8d61b249f 34-36,134-135
+  s_d27f31cd14035d::t_e0b3ffd919b6b0 389-416,418-434
+  s_d27f31cd14035d::t_644ac1e3d69fc1 511-535
+  s_d27f31cd14035d::t_81edeb6e69dfe7 773
+TlsLib.Adapters/Indy/Adapter/TlsLibIndyTls.pas
+  s_d27f31cd14035d::t_e7a187fa9a13f7 199-205
+  s_d27f31cd14035d::t_d0caf9e201a11f 366
+  s_d27f31cd14035d::t_c2190662cd4088 318
+  s_d27f31cd14035d::t_12d9f1597a6e88 404,407
+  s_d27f31cd14035d::t_8ab152b5fe9f3e 89
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6f2be276dd2830718c655aea19545e0534682249",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
