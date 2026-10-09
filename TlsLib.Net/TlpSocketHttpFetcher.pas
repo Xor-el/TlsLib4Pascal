@@ -43,11 +43,13 @@ type
   /// <summary>A blocking IHttpFetcher backed by the RTL HTTP client (FPC fphttpclient /
   /// Delphi System.Net.HttpClient). Suitable for live OCSP (POST) and CRL (GET) retrieval.
   /// The timeout bounds the whole exchange once the host name is resolved, so a responder that
-  /// trickles bytes cannot hold the caller past it; name resolution itself is not bounded. On a
-  /// target where the Free Pascal client cannot set a socket read timeout (PowerPC Linux) a
-  /// responder that goes completely silent mid-read is not bounded per read. The injected clock may
-  /// be read from another thread. Never raises; a failed exchange yields False with an empty
-  /// response.</summary>
+  /// trickles bytes cannot hold the caller past it; name resolution itself is not bounded. The
+  /// Free Pascal client numbers its socket-option constants the same on every Linux CPU, so on
+  /// PowerPC, MIPS and SPARC it cannot set a read wait: a responder that trickles bytes is still
+  /// cut off at the budget, because every read is checked, but one that goes completely silent
+  /// blocks that fetch until TCP gives up (the handshake's own deadline is unaffected). The injected
+  /// clock may be read from another thread. Never raises; a failed exchange yields False with an
+  /// empty response.</summary>
   TSocketHttpFetcher = class sealed(TInterfacedObject, IHttpFetcher)
   strict private
     FClock: ITlsMonotonicClock;
