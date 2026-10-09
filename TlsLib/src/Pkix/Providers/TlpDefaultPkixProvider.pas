@@ -17,7 +17,6 @@ interface
 
 uses
   SysUtils,
-  StrUtils,
   Classes,
   Rtti,
   SyncObjs,
@@ -80,6 +79,7 @@ uses
   TlpPem,
   TlpBinaryPrimitives,
   TlpArrayUtilities,
+  TlpHttpUrl,
   TlpIPkixProvider,
   TlpITrustAnchorStore,
   TlpPkixDomainTypes,
@@ -224,12 +224,6 @@ type
       const ACrl: IX509Crl): Boolean; static;
     class function IdpNameMatchesLeafDistributionPoint(
       const AIdpName: IDistributionPointName; const ALeaf: IX509Certificate): Boolean; static;
-    /// <summary>
-    /// Whether AUrl is an http or https URL: the only schemes a revocation fetch follows. An
-    /// access location comes from the peer's certificate, so another scheme (file, ldap, ftp)
-    /// is never offered to the caller's fetcher.
-    /// </summary>
-    class function IsFetchableUrl(const AUrl: string): Boolean; static;
     /// <summary>
     /// Whether any entry of ACrl carries a critical extension; none is processed here, and RFC 5280
     /// 5.3 forbids using such a CRL to determine the status of any certificate.
@@ -1186,6 +1180,7 @@ var
   LDescs: TCryptoLibGenericArray<IAccessDescription>;
   LLoc: IGeneralName;
   LIa5: IDerIA5String;
+  LUrl: THttpUrl;
   LI: Int32;
 begin
   Result := False;
@@ -1209,9 +1204,10 @@ begin
         if (LLoc <> nil) and (LLoc.GetTagNo = TGeneralName.UniformResourceIdentifier) and
           Supports(LLoc.GetName, IDerIA5String, LIa5) then
         begin
-          // an entry with another scheme is skipped: a later http(s) responder may still serve it
-          if IsFetchableUrl(LIa5.GetString) then
-            TArrayUtilities.Append<string>(AUrls, LIa5.GetString);
+          // an entry that is not a well-formed http(s) URL is skipped: a later responder may still
+          // serve it, and the caller's fetcher only ever sees the canonical text
+          if THttpUrl.TryParse(LIa5.GetString, LUrl) then
+            TArrayUtilities.Append<string>(AUrls, LUrl.ToString);
         end;
       end;
     Result := System.Length(AUrls) > 0;
@@ -1233,6 +1229,7 @@ var
   LGns: IGeneralNames;
   LNames: TCryptoLibGenericArray<IGeneralName>;
   LIa5: IDerIA5String;
+  LUrl: THttpUrl;
   LI, LJ: Int32;
 begin
   Result := False;
@@ -1264,19 +1261,14 @@ begin
       for LJ := 0 to System.High(LNames) do
         if (LNames[LJ].GetTagNo = TGeneralName.UniformResourceIdentifier) and
           Supports(LNames[LJ].GetName, IDerIA5String, LIa5) and
-          IsFetchableUrl(LIa5.GetString) then
-          TArrayUtilities.Append<string>(AUrls, LIa5.GetString);
+          THttpUrl.TryParse(LIa5.GetString, LUrl) then
+          TArrayUtilities.Append<string>(AUrls, LUrl.ToString);
     end;
     Result := System.Length(AUrls) > 0;
   except
     Result := False;
     AUrls := nil;
   end;
-end;
-
-class function TRevocationChecker.IsFetchableUrl(const AUrl: string): Boolean;
-begin
-  Result := StartsText('http://', AUrl) or StartsText('https://', AUrl);
 end;
 
 class function TRevocationChecker.IdpNameMatchesLeafDistributionPoint(

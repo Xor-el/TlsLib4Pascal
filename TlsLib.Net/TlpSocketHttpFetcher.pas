@@ -31,6 +31,7 @@ uses
   System.Net.HttpClient,
   System.Net.URLClient,
 {$ENDIF FPC}
+  TlpHttpUrl,
   TlpIHttpFetcher;
 
 type
@@ -215,6 +216,7 @@ class function TSocketHttpFetcher.Fetch(const AMethod, AUrl, AContentType: strin
 var
   LRequest: TMemoryStream;
   LSink: TStream;
+  LUrl: THttpUrl;
   LStatus: Integer;
 begin
   Result := False;
@@ -222,18 +224,23 @@ begin
   LRequest := nil;
   LSink := nil;
   try
-    if System.Length(ABody) > 0 then
+    // the URL is peer-chosen (AIA / CDP): a malformed one fails closed here, and the RTL client
+    // only ever parses the canonical text we produce, so the two parsers cannot disagree
+    if THttpUrl.TryParse(AUrl, LUrl) then
     begin
-      LRequest := TMemoryStream.Create;
-      LRequest.WriteBuffer(ABody[0], System.Length(ABody));
-      LRequest.Position := 0;
-    end;
-    LSink := TBoundedMemoryStream.Create(AMaxBytes);
-    LStatus := Execute(AMethod, AUrl, AContentType, LRequest, ATimeoutMs, LSink);
-    if (LStatus >= 200) and (LStatus < 300) then
-    begin
-      AResponse := ReadStreamBytes(LSink);
-      Result := System.Length(AResponse) > 0;
+      if System.Length(ABody) > 0 then
+      begin
+        LRequest := TMemoryStream.Create;
+        LRequest.WriteBuffer(ABody[0], System.Length(ABody));
+        LRequest.Position := 0;
+      end;
+      LSink := TBoundedMemoryStream.Create(AMaxBytes);
+      LStatus := Execute(AMethod, LUrl.ToString, AContentType, LRequest, ATimeoutMs, LSink);
+      if (LStatus >= 200) and (LStatus < 300) then
+      begin
+        AResponse := ReadStreamBytes(LSink);
+        Result := System.Length(AResponse) > 0;
+      end;
     end;
   except
     // fail-closed: any transport/HTTP error, or the size-cap overflow, is a failed fetch

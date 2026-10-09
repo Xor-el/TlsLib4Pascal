@@ -117,6 +117,7 @@ type
     procedure TestDedupIgnoresSchemeAndHostCase;
     procedure TestDedupDefaultPortAndEmptyPath;
     procedure TestDedupEquivalenceEdges;
+    procedure TestUnfetchableUrlsDoNotSpendTheCap;
     procedure TestCrlDedupUsesSameEquivalence;
     procedure TestDedupHappensBeforeTheCap;
     procedure TestFreshOptionsCarryDefaults;
@@ -671,8 +672,8 @@ begin
   Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://OCSP.A.test/x',
     'HTTP://ocsp.a.test/x', 'http://b.test/'), nil);
   FChecker.Evaluate(Chain);
-  CheckUrls(['http://OCSP.A.test/x', 'http://b.test/'], FFetcher.PostUrls,
-    'scheme and host case do not make a second responder, and the first spelling is what is asked');
+  CheckUrls(['http://ocsp.a.test/x', 'http://b.test/'], FFetcher.PostUrls,
+    'scheme and host case do not make a second responder, and the canonical text is what is asked');
   // control: path and query are case-sensitive, so these are all different responders
   LOptions.MaxOcspResponders := 8;
   Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://a.test/X',
@@ -689,7 +690,7 @@ begin
   Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://a.test',
     'http://a.test:80/', 'HTTP://A.TEST:80'), nil, LOptions);
   FChecker.Evaluate(Chain);
-  CheckUrls(['http://a.test'], FFetcher.PostUrls,
+  CheckUrls(['http://a.test/'], FFetcher.PostUrls,
     'a default port and an empty path name the same responder');
   // control: another port, or another scheme, is another responder
   Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://a.test:8080/',
@@ -717,17 +718,29 @@ begin
     'an IPv6 host with the default port');
   CheckEquals(1, ResponderAttempts('http://a.test?x', 'http://a.test/?x'),
     'a query straight after the authority');
+  CheckEquals(1, ResponderAttempts('http://a.test/x#one', 'http://a.test/x#two'),
+    'the fragment is no part of the request');
   // different responders stay two attempts
-  CheckEquals(2, ResponderAttempts('http://User@a.test/', 'http://user@a.test/'),
-    'userinfo is case-sensitive');
   CheckEquals(2, ResponderAttempts('http://a.test:180/', 'http://a.test/'),
     'a port that merely ends in 80 is not the default');
   CheckEquals(2, ResponderAttempts('http://a.test:8080/', 'http://a.test/'),
     'another port');
   CheckEquals(2, ResponderAttempts('http://a.test:8080/', 'http://a.test:8000/'),
     'two non-default ports that share a prefix stay distinct');
-  CheckEquals(2, ResponderAttempts('Foo?u=http://x', 'foo?u=http://x'),
-    'a string that is not a scheme-qualified URL is compared as written');
+  // URLs the library cannot fetch safely are never asked
+  CheckEquals(0, ResponderAttempts('http://User@a.test/', 'http://user@a.test/'),
+    'userinfo is refused');
+  CheckEquals(0, ResponderAttempts('Foo?u=http://x', 'foo?u=http://x'),
+    'a string that is not an http(s) URL is dropped');
+end;
+
+procedure TTestLiveRevocation.TestUnfetchableUrlsDoNotSpendTheCap;
+begin
+  // the default cap is three; four malformed entries ahead of a good one must not exhaust it
+  Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('ftp://a.test/', 'http://u@b.test/',
+    'file:///x', 'http://c.test:0/', 'http://ok.test/'), nil);
+  FChecker.Evaluate(Chain);
+  CheckUrls(['http://ok.test/'], FFetcher.PostUrls, 'only the well-formed responder is asked');
 end;
 
 procedure TTestLiveRevocation.TestCrlDedupUsesSameEquivalence;
@@ -950,7 +963,7 @@ begin
   // ftp distribution points are dropped
   CheckTrue(Pkix.Revocation.TryGetOcspResponderUrls(Field('scheme_cert'), LOcsp),
     'the HTTP responder after the other schemes is found');
-  CheckUrls(['HTTP://ocsp.good.test/'], LOcsp, 'the http responder is the one returned');
+  CheckUrls(['http://ocsp.good.test/'], LOcsp, 'the http responder is returned as canonical text');
   CheckTrue(Pkix.Revocation.TryGetCrlDistributionPoints(Field('scheme_cert'), LUrls),
     'the https distribution point is found');
   CheckEquals(1, System.Length(LUrls), 'only the https distribution point survives');

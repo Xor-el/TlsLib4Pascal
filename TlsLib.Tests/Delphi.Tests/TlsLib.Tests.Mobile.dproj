@@ -386,6 +386,7 @@
         <DCCReference Include="..\..\TlsLib\src\Common\TlpWindowsSystemTime.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Common\TlpPosixSystemTime.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Common\TlpIpLiteral.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Common\TlpHttpUrl.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Common\TlpDateTimeUtilities.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Common\TlpIClock.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Common\TlpClock.pas"/>
@@ -568,6 +569,7 @@
         <DCCReference Include="..\src\DynamicLibraryTests.pas"/>
         <DCCReference Include="..\src\SystemTimeUtilitiesTests.pas"/>
         <DCCReference Include="..\src\IpLiteralTests.pas"/>
+        <DCCReference Include="..\src\HttpUrlTests.pas"/>
         <DCCReference Include="..\src\OcspStaplingTests.pas"/>
         <DCCReference Include="..\src\CertificateCheckTests.pas"/>
         <DCCReference Include="..\src\HpkeProviderTests.pas"/>

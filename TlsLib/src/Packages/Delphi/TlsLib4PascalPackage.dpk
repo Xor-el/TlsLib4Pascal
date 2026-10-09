@@ -188,6 +188,7 @@ contains
   TlpSystemTimeUtilities in '..\..\Common\TlpSystemTimeUtilities.pas',
   TlpWindowsSystemTime in '..\..\Common\TlpWindowsSystemTime.pas',
   TlpPosixSystemTime in '..\..\Common\TlpPosixSystemTime.pas',
-  TlpIpLiteral in '..\..\Common\TlpIpLiteral.pas';
+  TlpIpLiteral in '..\..\Common\TlpIpLiteral.pas',
+  TlpHttpUrl in '..\..\Common\TlpHttpUrl.pas';
 
 end.
