@@ -511,8 +511,10 @@ begin
   // RFC 8449: the record_size_limit caps the whole TLSInnerPlaintext (content + type +
   // padding), so measure it from the wire record - content alone would let padding hide
   // an over-limit record. Only protected records are subject to the limit (RFC 8449 4), and
-  // only once the extension has been negotiated - a plaintext read epoch is exempt.
-  if (not FReadIsPlaintext) and (FInboundRecordSizeLimit > 0) and
+  // only once the extension has been negotiated - a plaintext read epoch is exempt, and so are
+  // accepted 0-RTT records, which the client sealed before it could learn the limit (RFC 8449 4);
+  // they stay bounded by the TLSInnerPlaintext ceiling.
+  if (not FReadIsPlaintext) and (not FEarlyReadAccepted) and (FInboundRecordSizeLimit > 0) and
     ((System.Length(ARecord) - TRecordLimits.HeaderLength - FReadProtection.Overhead +
     FReadProtection.InnerContentTypeLength) > FInboundRecordSizeLimit) then
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.RecordOverflow,

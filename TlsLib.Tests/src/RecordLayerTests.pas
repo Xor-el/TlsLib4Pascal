@@ -74,6 +74,7 @@ type
     procedure TestRecordSizeLimitRejectsOversizeInbound;
     procedure TestRecordSizeLimitCountsInnerPlaintextNotContent;
     procedure TestRecordSizeLimitInnerPlaintextBoundary;
+    procedure TestRecordSizeLimitExemptsAcceptedEarlyDataRecords;
     procedure TestRecordSizeLimitExemptsPlaintextRecords;
     procedure TestSkippedPlaintextEarlyDataAcceptsFullSizeRecord;
     procedure TestPlaintextAlertBeforeFirstDecryptIsAcceptedInTls13;
@@ -703,6 +704,48 @@ begin
         LRaised := Ord(E.AlertDescription) = Ord(TTlsAlertDescription.RecordOverflow);
     end;
     CheckTrue(LRaised, 'the inner-plaintext-over-limit record is record_overflow');
+  finally
+    LSend.Free;
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestRecordSizeLimitExemptsAcceptedEarlyDataRecords;
+var
+  LSend, LRecv: TRecordLayer;
+  LKey, LIv, LData, LWire: TBytes;
+  LFrag: TTlsRecordFragment;
+  LRaised: Boolean;
+begin
+  // RFC 8449 4: a client seals 0-RTT before the server's limit reaches it in EncryptedExtensions,
+  // so an accepted early record over the limit is not an overflow; once the window closes the
+  // limit applies again
+  LSend := TRecordLayer.Create;
+  LRecv := TRecordLayer.Create;
+  try
+    LKey := DecodeHex('000102030405060708090a0b0c0d0e0f');
+    LIv := DecodeHex('101112131415161718191a1b');
+    LSend.SetWriteProtection(MakeTls13(LKey, LIv));
+    LRecv.SetReadProtection(MakeTls13(LKey, LIv));
+    LData := nil;
+    SetLength(LData, 200);
+    LSend.Write(TTlsContentType.ApplicationData, LData, 0, 200); // inner 201 > limit 64
+    LSend.Write(TTlsContentType.ApplicationData, LData, 0, 200);
+    LWire := TakeAll(LSend);
+    LRecv.SetRecordSizeLimit(TRecordLimits.MaxPlaintext, 64);
+    LRecv.SetEarlyReadAccepted(True, 1000);
+    LRecv.ProcessInput(LWire, 0, System.Length(LWire));
+    CheckTrue(DrainOne(LRecv, LFrag), 'an over-limit accepted early record is accepted');
+    CheckEquals(200, System.Length(LFrag.Data), 'the early record carries its content');
+    LRecv.SetEarlyReadAccepted(False, 0);
+    LRaised := False;
+    try
+      DrainOne(LRecv, LFrag);
+    except
+      on E: EFatalAlertTlsLibException do
+        LRaised := Ord(E.AlertDescription) = Ord(TTlsAlertDescription.RecordOverflow);
+    end;
+    CheckTrue(LRaised, 'the same record past the early window is record_overflow');
   finally
     LSend.Free;
     LRecv.Free;
