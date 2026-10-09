@@ -340,11 +340,13 @@ begin
   begin
     LOptions.IssuerCandidates := TArray<TBytes>.Create(ClientCa);
     Result := TLiveRevocationChecker.Create(Pkix, TSystemClock.Create as ITlsClock,
-      FFetcher, APosture, TLiveRevocationMethod.OcspThenCrl, 0, LOptions);
+      TSystemMonotonicClock.Create as ITlsMonotonicClock, FFetcher, APosture,
+      TLiveRevocationMethod.OcspThenCrl, 0, LOptions);
   end
   else
     Result := TLiveRevocationChecker.Create(Pkix, TSystemClock.Create as ITlsClock,
-      FFetcher, APosture, TLiveRevocationMethod.OcspThenCrl, 0);
+      TSystemMonotonicClock.Create as ITlsMonotonicClock, FFetcher, APosture,
+      TLiveRevocationMethod.OcspThenCrl, 0);
 end;
 
 function TTestServerSideLiveRevocation.StubAccept(

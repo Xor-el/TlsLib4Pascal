@@ -133,25 +133,20 @@ type
     function EvaluateWithin(const AChain: TArray<TBytes>;
       ADeadlineMs: Cardinal): TLiveRevocationOutcome;
   public
-    /// <summary>Builds a checker over an injected provider and fetcher. APosture governs how
-    /// an indeterminate result is treated (Hard rejects, Soft/Off accept). ADeadlineMs is the
+    /// <summary>Builds a checker over an injected provider, fetcher and clocks. APosture governs
+    /// how an indeterminate result is treated (Hard rejects, Soft/Off accept). ADeadlineMs is the
     /// total time one check may spend fetching across every OCSP and CRL attempt, measured on
-    /// the system monotonic clock (0 leaves each fetch's timeout to the fetcher, with no shared
-    /// deadline).
+    /// ATicks (0 leaves each fetch's timeout to the fetcher, with no shared deadline); pass
+    /// Config.MonotonicClock to share the connection's clock.
     /// Each attempt gets a fair share of what remains, so one dead responder cannot starve the
     /// next; a host should keep it within its async-verdict budget.</summary>
     constructor Create(const APkix: IPkixProvider; const AClock: ITlsClock;
-      const AFetcher: IHttpFetcher; APosture: TRevocationPosture;
-      AMethod: TLiveRevocationMethod; ADeadlineMs: Cardinal); overload;
+      const ATicks: ITlsMonotonicClock; const AFetcher: IHttpFetcher;
+      APosture: TRevocationPosture; AMethod: TLiveRevocationMethod;
+      ADeadlineMs: Cardinal); overload;
     /// <summary>As above, with the options set explicitly. Raises when a provider, clock or fetcher
     /// is nil (a missing fetcher would otherwise read as an indeterminate result, which the soft
     /// posture accepts) or when an option is outside its bounds.</summary>
-    constructor Create(const APkix: IPkixProvider; const AClock: ITlsClock;
-      const AFetcher: IHttpFetcher; APosture: TRevocationPosture;
-      AMethod: TLiveRevocationMethod; ADeadlineMs: Cardinal;
-      const AOptions: TLiveRevocationOptions); overload;
-    /// <summary>As above, measuring the shared budget on ATicks instead of the system monotonic
-    /// clock; a nil ATicks raises like the other inputs.</summary>
     constructor Create(const APkix: IPkixProvider; const AClock: ITlsClock;
       const ATicks: ITlsMonotonicClock; const AFetcher: IHttpFetcher;
       APosture: TRevocationPosture; AMethod: TLiveRevocationMethod; ADeadlineMs: Cardinal;
@@ -206,21 +201,12 @@ begin
 end;
 
 constructor TLiveRevocationChecker.Create(const APkix: IPkixProvider;
-  const AClock: ITlsClock; const AFetcher: IHttpFetcher; APosture: TRevocationPosture;
-  AMethod: TLiveRevocationMethod; ADeadlineMs: Cardinal);
+  const AClock: ITlsClock; const ATicks: ITlsMonotonicClock; const AFetcher: IHttpFetcher;
+  APosture: TRevocationPosture; AMethod: TLiveRevocationMethod; ADeadlineMs: Cardinal);
 var
   LOptions: TLiveRevocationOptions;
 begin
-  Create(APkix, AClock, AFetcher, APosture, AMethod, ADeadlineMs, LOptions);
-end;
-
-constructor TLiveRevocationChecker.Create(const APkix: IPkixProvider;
-  const AClock: ITlsClock; const AFetcher: IHttpFetcher; APosture: TRevocationPosture;
-  AMethod: TLiveRevocationMethod; ADeadlineMs: Cardinal;
-  const AOptions: TLiveRevocationOptions);
-begin
-  Create(APkix, AClock, TSystemMonotonicClock.Create as ITlsMonotonicClock, AFetcher, APosture,
-    AMethod, ADeadlineMs, AOptions);
+  Create(APkix, AClock, ATicks, AFetcher, APosture, AMethod, ADeadlineMs, LOptions);
 end;
 
 constructor TLiveRevocationChecker.Create(const APkix: IPkixProvider;
