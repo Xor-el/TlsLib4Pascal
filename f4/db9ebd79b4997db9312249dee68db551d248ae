@@ -1,0 +1,29 @@
+docs/cookbook.md
+  s_d27f31cd14035d::t_e34280fb91ef19 575,581-584
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_d27f31cd14035d::t_e34280fb91ef19 347,724-727,751-753,1587-1606,1680-1692,2461,2636,2645,2699
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_d27f31cd14035d::t_e34280fb91ef19 74,237-252,304,483-491
+TlsLib.Tests/src/ConfigResumptionTests.pas
+  s_d27f31cd14035d::t_e34280fb91ef19 386,572,587,1045,1054
+TlsLib.Interop/src/InteropEngine.pas
+  s_d27f31cd14035d::t_e34280fb91ef19 370-371,387-388,445
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_d27f31cd14035d::t_e34280fb91ef19 108-109,171,965,1071,1074-1076,1092-1093,1097-1099,1354-1399,1776,1794,1809,1932-1933,3136,3152,3167
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f4db9ebd79b4997db9312249dee68db551d248ae",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
