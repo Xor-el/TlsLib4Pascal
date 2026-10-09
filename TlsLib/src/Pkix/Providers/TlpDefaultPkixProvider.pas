@@ -1314,8 +1314,9 @@ begin
           LDpNames[LK].GetEncoded) then
           Exit(True);
         // RFC 5280 7.4: the scheme and host of a URI compare without regard to case; the canonical
-        // form also folds a default port, an empty path and a fragment (RFC 3986 6.2.3). A URI
-        // that is not a well-formed http(s) URL is compared byte for byte only, as above.
+        // form also folds a default port and an empty path (RFC 3986 6.2.3), percent-encoding case
+        // (6.2.2.1) and a fragment, which is never part of the retrieval (RFC 9110 7.1). A URI that
+        // is not a well-formed http(s) URL is compared byte for byte only, as above.
         if (LIdpNames[LJ].GetTagNo = TGeneralName.UniformResourceIdentifier) and
           (LDpNames[LK].GetTagNo = TGeneralName.UniformResourceIdentifier) and
           Supports(LIdpNames[LJ].GetName, IDerIA5String, LIdpIa5) and
