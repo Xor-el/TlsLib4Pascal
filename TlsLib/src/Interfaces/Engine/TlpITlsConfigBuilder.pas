@@ -71,7 +71,7 @@ type
   /// source (no silent-insecure).
   /// </summary>
   ITlsClientConfigBuilder = interface(IInterface)
-    ['{7D726DE4-F705-4492-94C4-AA9751C02056}']
+    ['{4F9CED92-4D5F-4508-8274-40F9CE5C1ED5}']
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): ITlsClientConfigBuilder;
     /// <summary>Narrows the configured cipher suites to ASuites, in that order, per protocol: a
     /// protocol ASuites names keeps exactly the listed suites; one it does not name is unchanged.
@@ -88,9 +88,6 @@ type
     /// <summary>Offers record_size_limit (RFC 8449): the largest record this client accepts inbound,
     /// as TLSInnerPlaintext in TLS 1.3. 0 (the default) offers nothing; otherwise 64..16384.</summary>
     function WithRecordSizeLimit(ALimit: Int32): ITlsClientConfigBuilder;
-    /// <summary>Whether the client sends GREASE values (RFC 8701). Optional per the RFC;
-    /// default True.</summary>
-    function WithGrease(AEnable: Boolean): ITlsClientConfigBuilder;
     function WithTrustStore(const AStore: ITrustAnchorStore): ITlsClientConfigBuilder;
     /// <summary>Trust anchors from a PEM block (one certificate or a bundle) or a single
     /// DER certificate, loaded through the provider.</summary>
@@ -216,18 +213,6 @@ type
     /// defaults to the system source, and nil is refused. Injectable primarily so tests can drive
     /// deterministic elapsed time.</summary>
     function WithMonotonicClock(const AClock: ITlsMonotonicClock): ITlsClientConfigBuilder;
-    /// <summary>The out-of-band external pre-shared keys (RFC 9258) the client imports and
-    /// offers in the ClientHello (TLS 1.3 only), in preference order. When set, the client
-    /// offers these instead of drawing a resumption session from the cache. Empty leaves
-    /// external PSK off.</summary>
-    function WithExternalPreSharedKeys(
-      const APsks: TArray<TExternalPsk>): ITlsClientConfigBuilder;
-    /// <summary>Whether configured external PSKs are required (default True): a non-PSK
-    /// ServerHello is fatal rather than a fall-through to certificate authentication. Set
-    /// False to let the client accept a certificate handshake as well - which then needs a
-    /// trust source, so a PSK-only client (no trust) with False is refused at Build. No effect
-    /// without configured external PSKs.</summary>
-    function WithExternalPskRequired(AEnabled: Boolean): ITlsClientConfigBuilder;
     /// <summary>Whether session resumption is engaged; defaults to the preset's posture.</summary>
     function WithResumption(AEnabled: Boolean): ITlsClientConfigBuilder;
     /// <summary>How the client verifies a resumed server: ReuseOriginal (the default) reuses the
@@ -249,7 +234,22 @@ type
   /// <summary>The TLS 1.3-only client settings; each setter returns this facet so they
   /// chain, and the endpoint build and the sibling version facet are reachable here.</summary>
   ITls13ClientConfigFacet = interface(IInterface)
-    ['{BB34A64C-9B36-435A-A380-263DCA60E186}']
+    ['{651DC9E2-62F5-451B-9524-C3C893D95EE7}']
+    /// <summary>Whether the client sends GREASE values (RFC 8701) in its TLS 1.3 ClientHello.
+    /// Optional per the RFC; default True. A TLS 1.2-only hello carries none.</summary>
+    function WithGrease(AEnable: Boolean): ITls13ClientConfigFacet;
+    /// <summary>The out-of-band external pre-shared keys (RFC 9258) the client imports and
+    /// offers in the ClientHello, in preference order. When set, the client offers these
+    /// instead of drawing a resumption session from the cache. Empty leaves external PSK
+    /// off.</summary>
+    function WithExternalPreSharedKeys(
+      const APsks: TArray<TExternalPsk>): ITls13ClientConfigFacet;
+    /// <summary>Whether configured external PSKs are required (default True): a non-PSK
+    /// ServerHello is fatal rather than a fall-through to certificate authentication. Set
+    /// False to let the client accept a certificate handshake as well - which then needs a
+    /// trust source, so a PSK-only client (no trust) with False is refused at Build. No effect
+    /// without configured external PSKs.</summary>
+    function WithExternalPskRequired(AEnabled: Boolean): ITls13ClientConfigFacet;
     /// <summary>The certificate-compression backends this endpoint advertises and can
     /// decompress (RFC 8879); empty omits compress_certificate. Defaults to zlib.</summary>
     function WithCertificateDecompressors(
@@ -301,7 +301,7 @@ type
   /// certificate credential.
   /// </summary>
   ITlsServerConfigBuilder = interface(IInterface)
-    ['{A91869D6-5E16-483A-9DA2-187E28901EC9}']
+    ['{BE031B37-F1DE-47FE-B426-54012085CE08}']
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): ITlsServerConfigBuilder;
     /// <summary>Narrows the configured cipher suites to ASuites, in that order, per protocol: a
     /// protocol ASuites names keeps exactly the listed suites; one it does not name is unchanged.
@@ -431,12 +431,6 @@ type
     /// Parks after the pipeline accepts the chain, augment-only and fail-closed. ADeadlineMs is the
     /// resolver's fetch budget. The last of this and WithAsyncCertificateVerdict wins.</summary>
     function WithLiveRevocationVerdict(ADeadlineMs: Cardinal): ITlsServerConfigBuilder;
-    /// <summary>The out-of-band external pre-shared keys (RFC 9258) the server imports and
-    /// matches an offered pre_shared_key against (TLS 1.3 only), in preference order. A
-    /// matching PSK is preferred over the server's certificate. Empty leaves external PSK
-    /// off.</summary>
-    function WithExternalPreSharedKeys(
-      const APsks: TArray<TExternalPsk>): ITlsServerConfigBuilder;
     /// <summary>The stateful session store backing session-id resumption and stateful
     /// tickets; providing one engages server resumption (subject to WithResumption). A store or
     /// ticket-key manager shared across configurations lets them resume each other's sessions;
@@ -475,8 +469,6 @@ type
     function WithMonotonicClock(const AClock: ITlsMonotonicClock): ITlsServerConfigBuilder;
     /// <summary>The lifetime advertised for issued sessions and tickets, in seconds.</summary>
     function WithTicketLifetime(ASeconds: UInt32): ITlsServerConfigBuilder;
-    /// <summary>How many TLS 1.3 NewSessionTickets to issue per handshake, 0..8 (0 issues none).</summary>
-    function WithTicketCount(ACount: Int32): ITlsServerConfigBuilder;
     /// <summary>Whether session resumption is engaged; defaults to the preset's posture.</summary>
     function WithResumption(AEnabled: Boolean): ITlsServerConfigBuilder;
     function Tls13: ITls13ServerConfigFacet;
@@ -488,7 +480,15 @@ type
 
   /// <summary>The TLS 1.3-only server settings.</summary>
   ITls13ServerConfigFacet = interface(IInterface)
-    ['{2A9D4E71-6C38-4B05-9F82-7E1C0A5D6B34}']
+    ['{8DBA71D8-F01C-4F5B-941A-960DC5474713}']
+    /// <summary>The out-of-band external pre-shared keys (RFC 9258) the server imports and
+    /// matches an offered pre_shared_key against, in preference order. A matching PSK is
+    /// preferred over the server's certificate. Empty leaves external PSK off.</summary>
+    function WithExternalPreSharedKeys(
+      const APsks: TArray<TExternalPsk>): ITls13ServerConfigFacet;
+    /// <summary>How many NewSessionTickets to issue per TLS 1.3 handshake, 0..8 (0 issues none).
+    /// TLS 1.2 tickets are governed by WithResumption alone.</summary>
+    function WithTicketCount(ACount: Int32): ITls13ServerConfigFacet;
     function WithCertificateDecompressors(
       const ADecompressors: TArray<ICertificateDecompressor>): ITls13ServerConfigFacet;
     function WithCertificateCompressors(

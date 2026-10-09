@@ -344,7 +344,7 @@ resourcestring
   SEmptyTrustStore = 'a trust store was supplied but contains no root certificates; a store ' +
     'with no anchors is not a trust source (no silent-insecure)';
   SPskOnlyClientNeedsPskRequired = 'a client with external PSKs and no trust source cannot fall ' +
-    'back to certificate authentication; keep WithExternalPskRequired(True) or add a trust source';
+    'back to certificate authentication; keep Tls13.WithExternalPskRequired(True) or add a trust source';
   SPskOnlyClientNeedsTls13Only = 'a client with external PSKs and no trust source must offer TLS ' +
     '1.3 only (external PSKs are TLS 1.3-only); use a 1.3-only preset or WithSupportedVersions([TLS 1.3])';
   SBuilderOneEndpoint = 'a configuration builder configures one endpoint: use a separate builder ' +
@@ -613,7 +613,6 @@ type
     function WithPreferredGroups(const AGroups: TArray<UInt16>): ITlsClientConfigBuilder;
     function WithAlpnProtocols(const AProtocols: TArray<string>): ITlsClientConfigBuilder;
     function WithRecordSizeLimit(ALimit: Int32): ITlsClientConfigBuilder;
-    function WithGrease(AEnable: Boolean): ITlsClientConfigBuilder;
     function WithTrustStore(const AStore: ITrustAnchorStore): ITlsClientConfigBuilder;
     function WithTrustAnchors(const AData: TBytes): ITlsClientConfigBuilder;
     function WithDangerousCertificateVerifier(
@@ -651,9 +650,6 @@ type
     function WithClock(const AClock: ITlsClock): ITlsClientConfigBuilder;
     function WithMonotonicClock(const AClock: ITlsMonotonicClock): ITlsClientConfigBuilder;
     function WithDangerousKeyLog(const AKeyLog: IKeyLog): ITlsClientConfigBuilder;
-    function WithExternalPreSharedKeys(
-      const APsks: TArray<TExternalPsk>): ITlsClientConfigBuilder;
-    function WithExternalPskRequired(AEnabled: Boolean): ITlsClientConfigBuilder;
     function WithResumption(AEnabled: Boolean): ITlsClientConfigBuilder;
     function Tls13: ITls13ClientConfigFacet;
     function Tls12: ITls12ClientConfigFacet;
@@ -709,8 +705,6 @@ type
       ADeadlineMs: Cardinal): ITlsServerConfigBuilder;
     function WithLiveRevocationVerdict(
       ADeadlineMs: Cardinal): ITlsServerConfigBuilder;
-    function WithExternalPreSharedKeys(
-      const APsks: TArray<TExternalPsk>): ITlsServerConfigBuilder;
     function WithSessionStore(const AStore: ISessionStore): ITlsServerConfigBuilder;
     function WithSessionTicketKeys(const AKeys: ISessionTicketKeyManager): ITlsServerConfigBuilder;
     function WithResumptionScope(const AScope: TBytes): ITlsServerConfigBuilder;
@@ -719,7 +713,6 @@ type
     function WithMonotonicClock(const AClock: ITlsMonotonicClock): ITlsServerConfigBuilder;
     function WithDangerousKeyLog(const AKeyLog: IKeyLog): ITlsServerConfigBuilder;
     function WithTicketLifetime(ASeconds: UInt32): ITlsServerConfigBuilder;
-    function WithTicketCount(ACount: Int32): ITlsServerConfigBuilder;
     function WithResumption(AEnabled: Boolean): ITlsServerConfigBuilder;
     function Tls13: ITls13ServerConfigFacet;
     function Tls12: ITls12ServerConfigFacet;
@@ -728,6 +721,10 @@ type
 
   TTls13ClientConfigFacet = class sealed(TTlsConfigViewBase, ITls13ClientConfigFacet)
   public
+    function WithGrease(AEnable: Boolean): ITls13ClientConfigFacet;
+    function WithExternalPreSharedKeys(
+      const APsks: TArray<TExternalPsk>): ITls13ClientConfigFacet;
+    function WithExternalPskRequired(AEnabled: Boolean): ITls13ClientConfigFacet;
     function WithCertificateDecompressors(
       const ADecompressors: TArray<ICertificateDecompressor>): ITls13ClientConfigFacet;
     function WithCertificateCompressors(
@@ -751,6 +748,9 @@ type
 
   TTls13ServerConfigFacet = class sealed(TTlsConfigViewBase, ITls13ServerConfigFacet)
   public
+    function WithExternalPreSharedKeys(
+      const APsks: TArray<TExternalPsk>): ITls13ServerConfigFacet;
+    function WithTicketCount(ACount: Int32): ITls13ServerConfigFacet;
     function WithCertificateDecompressors(
       const ADecompressors: TArray<ICertificateDecompressor>): ITls13ServerConfigFacet;
     function WithCertificateCompressors(
@@ -1120,13 +1120,6 @@ begin
   Result := Self;
 end;
 
-function TTlsClientConfigBuilder.WithGrease(
-  AEnable: Boolean): ITlsClientConfigBuilder;
-begin
-  FOwner.WithGrease(AEnable);
-  Result := Self;
-end;
-
 function TTlsClientConfigBuilder.WithTrustStore(
   const AStore: ITrustAnchorStore): ITlsClientConfigBuilder;
 begin
@@ -1283,20 +1276,6 @@ function TTlsClientConfigBuilder.WithDangerousKeyLog(
   const AKeyLog: IKeyLog): ITlsClientConfigBuilder;
 begin
   FOwner.WithDangerousKeyLog(AKeyLog);
-  Result := Self;
-end;
-
-function TTlsClientConfigBuilder.WithExternalPreSharedKeys(
-  const APsks: TArray<TExternalPsk>): ITlsClientConfigBuilder;
-begin
-  FOwner.WithExternalPreSharedKeys(APsks);
-  Result := Self;
-end;
-
-function TTlsClientConfigBuilder.WithExternalPskRequired(
-  AEnabled: Boolean): ITlsClientConfigBuilder;
-begin
-  FOwner.WithExternalPskRequired(AEnabled);
   Result := Self;
 end;
 
@@ -1526,13 +1505,6 @@ begin
   Result := Self;
 end;
 
-function TTlsServerConfigBuilder.WithExternalPreSharedKeys(
-  const APsks: TArray<TExternalPsk>): ITlsServerConfigBuilder;
-begin
-  FOwner.WithExternalPreSharedKeys(APsks);
-  Result := Self;
-end;
-
 function TTlsServerConfigBuilder.WithSessionStore(
   const AStore: ISessionStore): ITlsServerConfigBuilder;
 begin
@@ -1588,13 +1560,6 @@ begin
   Result := Self;
 end;
 
-function TTlsServerConfigBuilder.WithTicketCount(
-  ACount: Int32): ITlsServerConfigBuilder;
-begin
-  FOwner.WithTicketCount(ACount);
-  Result := Self;
-end;
-
 function TTlsServerConfigBuilder.WithResumption(
   AEnabled: Boolean): ITlsServerConfigBuilder;
 begin
@@ -1618,6 +1583,26 @@ begin
 end;
 
 { TTls13ClientConfigFacet }
+
+function TTls13ClientConfigFacet.WithGrease(AEnable: Boolean): ITls13ClientConfigFacet;
+begin
+  FOwner.WithGrease(AEnable);
+  Result := Self;
+end;
+
+function TTls13ClientConfigFacet.WithExternalPreSharedKeys(
+  const APsks: TArray<TExternalPsk>): ITls13ClientConfigFacet;
+begin
+  FOwner.WithExternalPreSharedKeys(APsks);
+  Result := Self;
+end;
+
+function TTls13ClientConfigFacet.WithExternalPskRequired(
+  AEnabled: Boolean): ITls13ClientConfigFacet;
+begin
+  FOwner.WithExternalPskRequired(AEnabled);
+  Result := Self;
+end;
 
 function TTls13ClientConfigFacet.WithCertificateDecompressors(
   const ADecompressors: TArray<ICertificateDecompressor>): ITls13ClientConfigFacet;
@@ -1691,6 +1676,19 @@ begin
 end;
 
 { TTls13ServerConfigFacet }
+
+function TTls13ServerConfigFacet.WithExternalPreSharedKeys(
+  const APsks: TArray<TExternalPsk>): ITls13ServerConfigFacet;
+begin
+  FOwner.WithExternalPreSharedKeys(APsks);
+  Result := Self;
+end;
+
+function TTls13ServerConfigFacet.WithTicketCount(ACount: Int32): ITls13ServerConfigFacet;
+begin
+  FOwner.WithTicketCount(ACount);
+  Result := Self;
+end;
 
 function TTls13ServerConfigFacet.WithCertificateDecompressors(
   const ADecompressors: TArray<ICertificateDecompressor>): ITls13ServerConfigFacet;
@@ -2460,6 +2458,7 @@ function TTlsConfigBuilder.WithGrease(AEnable: Boolean): TTlsConfigBuilder;
 begin
   GuardMutable;
   FGrease := AEnable;
+  FTls13Configured := True;
   Result := Self;
 end;
 
@@ -2634,6 +2633,7 @@ begin
   // copy so a caller mutating its arrays after Build cannot alter the frozen config (matches the
   // frozen ExternalPsks accessor); the PSK secrets are ISecretBuffer, shared by reference
   FExternalPsks := TTlsConfigBuilder.CloneExternalPsks(APsks);
+  FTls13Configured := True;
   Result := Self;
 end;
 
@@ -2642,6 +2642,7 @@ function TTlsConfigBuilder.WithExternalPskRequired(
 begin
   GuardMutable;
   FExternalPskRequired := AEnabled;
+  FTls13Configured := True;
   Result := Self;
 end;
 
@@ -2695,6 +2696,7 @@ begin
   if (ACount < 0) or (ACount > MaxTicketCount) then
     raise EArgumentTlsLibException.CreateRes(@STicketCountOutOfRange);
   FTicketCount := ACount;
+  FTls13Configured := True;
   Result := Self;
 end;
 

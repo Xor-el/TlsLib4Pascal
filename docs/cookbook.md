@@ -572,14 +572,16 @@ begin
 
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithTrustAnchors(caPem)
-    .WithExternalPreSharedKeys(TArray<TExternalPsk>.Create(LPsk))
+    .Tls13.WithExternalPreSharedKeys(TArray<TExternalPsk>.Create(LPsk))
     // .WithExternalPskRequired(True)   // refuse to proceed without one
     .Build;
 end;
 ```
 
-Both ends configure the same identity + key. Use `WithExternalPskRequired(True)` when the deployment
-must not fall back to certificate authentication.
+External PSKs are TLS 1.3 only, so they are set on the `Tls13` facet (as are `WithGrease` and the
+server's `WithTicketCount`); a config that does not offer TLS 1.3 refuses them at `Build`. Both ends
+configure the same identity + key. Use `Tls13.WithExternalPskRequired(True)` when the deployment must
+not fall back to certificate authentication.
 
 ## The dangerous surface (dev only)
 

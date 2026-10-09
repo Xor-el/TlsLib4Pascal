@@ -105,6 +105,8 @@ type
     function ChainLimitsAccepted(AMaxCert, AMaxTotal: Int32): Boolean;
     function SameOrder(const AA, AB: TArray<UInt16>): Boolean;
     function ServerBuildIsRefused(const ABuilder: ITlsServerConfigBuilder): Boolean;
+    function ClientBuildNeedsTls13(const AFacet: ITls13ClientConfigFacet): Boolean;
+    function ServerBuildNeedsTls13(const AFacet: ITls13ServerConfigFacet): Boolean;
     function NewClientBuilder: ITlsClientConfigBuilder;
     function NewServerBuilder: ITlsServerConfigBuilder;
     function MakePskSpec: TExternalPsk;
@@ -166,6 +168,7 @@ type
     procedure TestCipherSuiteListIsIndependentOfCallOrder;
     procedure TestEmptyCipherSuiteListIsRefused;
     procedure TestInjectedVerifierRefusesSettingsItIgnores;
+    procedure TestTls13SettingsAreRefusedWhenTls13IsNotOffered;
     procedure TestOfferedVersionWithoutASuiteIsRefused;
     procedure TestServerCipherSuiteListOrderDecidesTheNegotiatedSuite;
     procedure TestClientCipherSuiteListIsTheOnlyOfferedSuite;
@@ -959,7 +962,7 @@ var
 begin
   // the frozen config must not alias the caller's identity/context buffers
   LPsks := TArray<TExternalPsk>.Create(MakePskSpec);
-  LConfig := NewClientBuilder.WithExternalPreSharedKeys(LPsks).Build;
+  LConfig := NewClientBuilder.Tls13.WithExternalPreSharedKeys(LPsks).Build;
   LPsks[0].Identity[0] := $FF;
   LOut := LConfig.ExternalPsks;
   CheckEquals($61, LOut[0].Identity[0],
@@ -1065,11 +1068,12 @@ var
   LRaised: Boolean;
 begin
   LPsks := TArray<TExternalPsk>.Create(MakePskSpec);
-  NewServerBuilder.WithExternalPreSharedKeys(LPsks).Build;
+  NewServerBuilder.Tls13.WithExternalPreSharedKeys(LPsks).Build;
   LRaised := False;
   try
-    NewServerBuilder.WithExternalPreSharedKeys(LPsks)
-      .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12)).Build;
+    NewServerBuilder
+      .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
+      .Tls13.WithExternalPreSharedKeys(LPsks).Build;
   except
     on E: EInvalidOperationTlsLibException do
       LRaised := True;
@@ -1085,13 +1089,14 @@ var
 begin
   LPsks := TArray<TExternalPsk>.Create(MakePskSpec);
   LOwner := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
-  LOwner.Server.WithExternalPreSharedKeys(LPsks)
-    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13)).Build;
+  LOwner.Server.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13))
+    .Tls13.WithExternalPreSharedKeys(LPsks).Build;
   LOwner := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
   LRaised := False;
   try
-    LOwner.Server.WithExternalPreSharedKeys(LPsks)
-      .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12, TlsWireVersionTls13)).Build;
+    LOwner.Server
+      .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12, TlsWireVersionTls13))
+      .Tls13.WithExternalPreSharedKeys(LPsks).Build;
   except
     on E: EInvalidOperationTlsLibException do
       LRaised := True;
@@ -1344,6 +1349,52 @@ begin
   CheckTrue(NewVerifierClient.Build <> nil, 'control: the verifier alone builds');
   CheckTrue(NewVerifierClient.WithRevocation(TRevocationPosture.Hard)
     .WithLiveRevocationVerdict(1000).Build <> nil, 'control: Hard with a live verdict builds');
+end;
+
+function TTestConfigBuilder.ClientBuildNeedsTls13(const AFacet: ITls13ClientConfigFacet): Boolean;
+begin
+  Result := False;
+  try
+    AFacet.Build;
+  except
+    // the reason is checked too, so a case cannot pass on some unrelated refusal
+    on E: EInvalidOperationTlsLibException do
+      Result := Pos('TLS 1.3 settings', E.Message) > 0;
+  end;
+end;
+
+function TTestConfigBuilder.ServerBuildNeedsTls13(const AFacet: ITls13ServerConfigFacet): Boolean;
+begin
+  Result := False;
+  try
+    AFacet.Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      Result := Pos('TLS 1.3 settings', E.Message) > 0;
+  end;
+end;
+
+procedure TTestConfigBuilder.TestTls13SettingsAreRefusedWhenTls13IsNotOffered;
+var
+  LOnly12: TArray<UInt16>;
+begin
+  // GREASE, the ticket count and the PSK settings are read only by the TLS 1.3 machines; set on a
+  // TLS 1.2-only config they would silently do nothing, so the Tls13 facet refuses them at Build
+  LOnly12 := TArray<UInt16>.Create(TlsWireVersionTls12);
+  CheckTrue(ClientBuildNeedsTls13(NewClientBuilder.WithSupportedVersions(LOnly12)
+    .Tls13.WithGrease(True)), 'GREASE on a TLS 1.2-only client');
+  CheckTrue(ClientBuildNeedsTls13(NewClientBuilder.WithSupportedVersions(LOnly12)
+    .Tls13.WithExternalPskRequired(False)),
+    'the PSK-required switch alone, with no PSKs, on a TLS 1.2-only client');
+  CheckTrue(ServerBuildNeedsTls13(NewServerBuilder.WithSupportedVersions(LOnly12)
+    .Tls13.WithTicketCount(2)), 'a ticket count on a TLS 1.2-only server');
+  // controls: the same client and server build once TLS 1.3 is offered, or when no Tls13 setting
+  // was touched
+  CheckTrue(NewClientBuilder.WithSupportedVersions(LOnly12).Build <> nil,
+    'control: a TLS 1.2-only client without Tls13 settings builds');
+  CheckTrue(NewServerBuilder.WithSupportedVersions(
+    TArray<UInt16>.Create(TlsWireVersionTls13)).Tls13.WithTicketCount(2).Build.TicketCount = 2,
+    'control: the ticket count builds with TLS 1.3');
 end;
 
 procedure TTestConfigBuilder.TestEmptyCipherSuiteListIsRefused;
@@ -1722,7 +1773,7 @@ begin
   LBuilder := TTlsPresets.Compatible(Crypto, Pkix);
   LRaised := False;
   try
-    LBuilder.Client.WithExternalPreSharedKeys(TArray<TExternalPsk>.Create(MakePskSpec)).Build;
+    LBuilder.Client.Tls13.WithExternalPreSharedKeys(TArray<TExternalPsk>.Create(MakePskSpec)).Build;
   except
     on E: EInvalidOperationTlsLibException do
       LRaised := True;
@@ -1740,7 +1791,7 @@ begin
   LBuilder := TTlsPresets.Hardened(Crypto, Pkix);
   LRaised := False;
   try
-    LBuilder.Client.WithExternalPreSharedKeys(TArray<TExternalPsk>.Create(MakePskSpec))
+    LBuilder.Client.Tls13.WithExternalPreSharedKeys(TArray<TExternalPsk>.Create(MakePskSpec))
       .WithExternalPskRequired(False).Build;
   except
     on E: EInvalidOperationTlsLibException do
@@ -1755,7 +1806,7 @@ var
 begin
   // a required-PSK, TLS 1.3-only client with no trust source is the legitimate PSK-only case
   LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
-    .WithExternalPreSharedKeys(TArray<TExternalPsk>.Create(MakePskSpec)).Build;
+    .Tls13.WithExternalPreSharedKeys(TArray<TExternalPsk>.Create(MakePskSpec)).Build;
   CheckTrue(LConfig <> nil, 'a required-PSK TLS 1.3-only client builds without a trust source');
 end;
 
@@ -1878,8 +1929,8 @@ begin
   LRaised := False;
   try
     TTlsPresets.Compatible(Crypto, Pkix).Client
-      .WithExternalPreSharedKeys(TArray<TExternalPsk>.Create(MakePskSpec))
-      .WithTrustStore(TTrustAnchorStore.Create(nil) as ITrustAnchorStore).Build;
+      .WithTrustStore(TTrustAnchorStore.Create(nil) as ITrustAnchorStore)
+      .Tls13.WithExternalPreSharedKeys(TArray<TExternalPsk>.Create(MakePskSpec)).Build;
   except
     on E: EInvalidOperationTlsLibException do
       LRaised := True;
@@ -3082,7 +3133,7 @@ begin
   LServer := TTlsPresets.Compatible(Crypto, Pkix).Server;
   LRaised := False;
   try
-    LServer.WithTicketCount(9); // one over the cap
+    LServer.Tls13.WithTicketCount(9); // one over the cap
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
@@ -3098,7 +3149,7 @@ begin
   LServer := TTlsPresets.Compatible(Crypto, Pkix).Server;
   LRaised := False;
   try
-    LServer.WithTicketCount(-1);
+    LServer.Tls13.WithTicketCount(-1);
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
@@ -3113,7 +3164,7 @@ begin
   // the boundary value is legal; only a strictly-greater count is refused
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(ServerCredential)
-    .WithTicketCount(8)
+    .Tls13.WithTicketCount(8)
     .Build;
   CheckEquals(8, LConfig.TicketCount, 'the boundary ticket count (8) round-trips');
 end;
