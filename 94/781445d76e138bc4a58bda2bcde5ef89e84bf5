@@ -1,0 +1,40 @@
+TlsLib.Adapters/Synapse/Adapter/TlsLibSynapseTls.pas
+  s_d27f31cd14035d::t_cf05020248e49f 51
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_d27f31cd14035d::t_91765ad28c9bf9 172
+TlsLib.Adapters/mORMot/Adapter/TlsLibMormotTls.pas
+  s_d27f31cd14035d::t_c8b68902dffd62 50
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_d27f31cd14035d::t_532c37b1c2ba9c 152
+TlsLib/src/Negotiation/TlpCipherSuiteCatalog.pas
+  s_d27f31cd14035d::t_11aa3e330cd0ad 1-170
+TlsLib/src/Negotiation/TlpCipherSuiteRegistry.pas
+  s_d27f31cd14035d::t_38e8c58ed8750b 24
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_d27f31cd14035d::t_c32d6193348b98 31
+TlsLib/src/Packages/Delphi/TlsLib4PascalPackage.dpk
+  s_d27f31cd14035d::t_0e1254f3951120 158
+TlsLib.Tests/src/NegotiationTests.pas
+  s_d27f31cd14035d::t_7c0c43cafc6e50 36
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_d27f31cd14035d::t_7ed63ebd97bfd1 495
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
+  s_d27f31cd14035d::t_eef707b5dc4704 31
+  s_d27f31cd14035d::t_6d0fc404c3321d 644-647
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "94781445d76e138bc4a58bda2bcde5ef89e84bf5",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
