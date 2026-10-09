@@ -146,26 +146,6 @@ begin
   end;
 end;
 
-// a cipher-string expression is not a suite name: refused naming the property, never skipped
-function CipherListRefusesExpressions: Boolean;
-var
-  LOptions: TTlsLibSSLOptions;
-begin
-  Result := False;
-  LOptions := TTlsLibSSLOptions.Create;
-  try
-    LOptions.CipherList := 'HIGH';
-    try
-      LOptions.Snapshot;
-    except
-      on E: Exception do
-        Result := Pos('CipherList', E.Message) > 0;
-    end;
-  finally
-    LOptions.Free;
-  end;
-end;
-
 class function TIndyLoopbackExample.Run: Integer;
 var
   LServer: TIdTCPServer;
@@ -174,7 +154,7 @@ var
   LClientIO: TTlsLibIOHandlerSocket;
   LEcho: string;
   LEchoHandler: TEchoHandler;
-  LOk, LTimedOut, LTicketsArrived: Boolean;
+  LOk, LTimedOut, LTicketsArrived, LExpressionRefused: Boolean;
   LStarted: TDateTime;
   LLine: string;
   LCipher: UInt16;
@@ -225,9 +205,19 @@ begin
 
     LServer.Active := False;
 
+    // a cipher-string expression is not a suite name: refused naming the property, never skipped
+    LExpressionRefused := False;
+    LClientIO.SSLOptions.CipherList := 'HIGH';
+    try
+      LClientIO.SSLOptions.Snapshot;
+    except
+      on E: Exception do
+        LExpressionRefused := Pos('CipherList', E.Message) > 0;
+    end;
+
     LOk := LTimedOut and (LEcho = 'ping from the indy client') and
       (LClientIO.NegotiatedVersion.WireValue = TlsWireVersionTls13) and
-      (LCipher = TCipherSuites13.Aes256GcmSha384) and CipherListRefusesExpressions;
+      (LCipher = TCipherSuites13.Aes256GcmSha384) and LExpressionRefused;
     if LOk then
     begin
       Writeln('Indy loopback PASS: handshake + timed idle read + echo over TLS 1.3');
