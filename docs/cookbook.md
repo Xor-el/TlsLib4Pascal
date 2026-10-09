@@ -103,9 +103,9 @@ Re-enabling a safe posture setting on `Strict` (e.g. `WithResumption(True)`) is 
 guard — `psk_dhe_ke` resumption is forward-secret. Only genuine downgrades live behind the
 [dangerous surface](#the-dangerous-surface-dev-only).
 
-To narrow or reorder the cipher suites, list them by exact IANA or OpenSSL name. The list can only
-**narrow and reorder** the set the preset already holds — a suite outside it is refused at `Build`
-— and applies per protocol: a protocol the list names keeps exactly the listed suites, in that
+To narrow or reorder the cipher suites, list their wire codes (the `TCipherSuites13` /
+`TCipherSuites12` constants). The list can only **narrow and reorder** the set the preset already
+holds — a suite outside it is refused at `Build` — and applies per protocol: a protocol the list names keeps exactly the listed suites, in that
 order; one it does not name keeps its own.
 
 ```pascal
@@ -116,7 +116,9 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
   .Build;     // TLS 1.2 prefers ChaCha20, then AES-128-GCM; TLS 1.3 is unchanged
 ```
 
-`TCipherSuiteCatalog.TryCode` maps a name to its code. The suite order in the configured registry is
+If your suites arrive as names (a config file, a host's cipher-list string), `TCipherSuiteCatalog.TryCode`
+maps an exact IANA or OpenSSL name to its code; the framework adapters do this for their host's
+cipher-list property. The suite order in the configured registry is
 the single preference authority: the default registries put AES-GCM first only when the CPU has
 AES hardware, and a registry you supply through `WithCipherSuites` is used in the order you gave it.
 
