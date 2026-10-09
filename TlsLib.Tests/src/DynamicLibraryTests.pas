@@ -16,6 +16,9 @@ unit DynamicLibraryTests;
 interface
 
 uses
+{$IFDEF TLSLIB_MSWINDOWS}
+  Windows,
+{$ENDIF}
   SysUtils,
 {$IFDEF FPC}
   fpcunit,
@@ -35,6 +38,9 @@ type
     procedure TestResolveOnAZeroHandleIsNil;
     procedure TestCloseOfAZeroHandleDoesNotRaise;
     procedure TestRepeatedOpenAndCloseIsSafe;
+{$IFDEF TLSLIB_MSWINDOWS}
+    procedure TestLibraryBesideTheExecutableIsNotLoaded;
+{$ENDIF}
   end;
 
 implementation
@@ -102,6 +108,33 @@ begin
     TDynamicLibrary.Close(LHandle);
   end;
 end;
+
+{$IFDEF TLSLIB_MSWINDOWS}
+procedure TTestDynamicLibrary.TestLibraryBesideTheExecutableIsNotLoaded;
+var
+  LPlanted: string;
+  LDir: string;
+  LHandle: NativeUInt;
+begin
+  // a library placed beside the executable must not be found: only system libraries load
+  LDir := '';
+  SetLength(LDir, MAX_PATH);
+  SetLength(LDir, GetSystemDirectory(PChar(LDir), MAX_PATH));
+  LPlanted := ExtractFilePath(ParamStr(0)) + 'tlslib-planted.dll';
+  CheckTrue(CopyFile(PChar(LDir + '\version.dll'), PChar(LPlanted), False),
+    'the stand-in library is placed beside the executable');
+  try
+    LHandle := TDynamicLibrary.Open('tlslib-planted.dll');
+    try
+      CheckEquals(0, Int64(LHandle), 'the planted library does not load');
+    finally
+      TDynamicLibrary.Close(LHandle);
+    end;
+  finally
+    DeleteFile(PChar(LPlanted));
+  end;
+end;
+{$ENDIF}
 
 procedure TTestDynamicLibrary.TestRepeatedOpenAndCloseIsSafe;
 var

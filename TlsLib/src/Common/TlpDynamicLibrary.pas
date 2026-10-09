@@ -17,21 +17,17 @@ interface
 
 uses
 {$IFDEF TLSLIB_MSWINDOWS}
-  Windows,
-  SysUtils;
+  TlpWindowsDynamicLibrary;
 {$ELSE}
-{$IFDEF FPC}
-  dl;
-{$ELSE}
-  Posix.Dlfcn;
-{$ENDIF}
+  TlpPosixDynamicLibrary;
 {$ENDIF}
 
 type
   /// <summary>Resolves platform entry points at runtime instead of linking them statically.</summary>
   TDynamicLibrary = class sealed(TObject)
   public
-    /// <summary>Opens the named library. Returns 0 on failure. On POSIX an empty name opens the
+    /// <summary>Opens the named library. Returns 0 on failure. On Windows it resolves system
+    /// libraries only (never the executable's directory). On POSIX an empty name opens the
     /// global symbol namespace - the libraries already linked.</summary>
     class function Open(const AName: string): NativeUInt; static;
     /// <summary>The address of a symbol in an open library; nil when the handle or the symbol
@@ -43,47 +39,29 @@ type
 
 implementation
 
+type
+{$IFDEF TLSLIB_MSWINDOWS}
+  TPlatformDynamicLibrary = TWindowsDynamicLibrary;
+{$ELSE}
+  TPlatformDynamicLibrary = TPosixDynamicLibrary;
+{$ENDIF}
+
 { TDynamicLibrary }
 
 class function TDynamicLibrary.Open(const AName: string): NativeUInt;
-var
-  LAnsi: AnsiString;
 begin
-{$IFDEF TLSLIB_MSWINDOWS}
-  Result := NativeUInt(SafeLoadLibrary(AName, SEM_FAILCRITICALERRORS));
-{$ELSE}
-  // an empty name opens the global namespace (dlopen(nil))
-  if AName = '' then
-    Exit(NativeUInt(dlopen(nil, RTLD_NOW)));
-  LAnsi := AnsiString(AName);
-  Result := NativeUInt(dlopen(PAnsiChar(LAnsi), RTLD_NOW));
-{$ENDIF}
+  Result := TPlatformDynamicLibrary.Open(AName);
 end;
 
 class function TDynamicLibrary.Resolve(AHandle: NativeUInt;
   const ASymbol: string): Pointer;
-var
-  LAnsi: AnsiString;
 begin
-  if AHandle = 0 then
-    Exit(nil);
-  LAnsi := AnsiString(ASymbol);
-{$IFDEF TLSLIB_MSWINDOWS}
-  Result := GetProcAddress(HMODULE(AHandle), PAnsiChar(LAnsi));
-{$ELSE}
-  Result := dlsym(AHandle, PAnsiChar(LAnsi));
-{$ENDIF}
+  Result := TPlatformDynamicLibrary.Resolve(AHandle, ASymbol);
 end;
 
 class procedure TDynamicLibrary.Close(AHandle: NativeUInt);
 begin
-  if AHandle = 0 then
-    Exit;
-{$IFDEF TLSLIB_MSWINDOWS}
-  FreeLibrary(HMODULE(AHandle));
-{$ELSE}
-  dlclose(AHandle);
-{$ENDIF}
+  TPlatformDynamicLibrary.Close(AHandle);
 end;
 
 end.

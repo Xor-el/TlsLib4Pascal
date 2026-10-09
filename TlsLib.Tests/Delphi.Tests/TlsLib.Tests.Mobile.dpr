@@ -38,6 +38,8 @@ uses
   TlpArrayUtilities in '..\..\TlsLib\src\Common\TlpArrayUtilities.pas',
   TlpDataEncoding in '..\..\TlsLib\src\Common\TlpDataEncoding.pas',
   TlpPem in '..\..\TlsLib\src\Common\TlpPem.pas',
+  TlpWindowsDynamicLibrary in '..\..\TlsLib\src\Common\TlpWindowsDynamicLibrary.pas',
+  TlpPosixDynamicLibrary in '..\..\TlsLib\src\Common\TlpPosixDynamicLibrary.pas',
   TlpDynamicLibrary in '..\..\TlsLib\src\Common\TlpDynamicLibrary.pas',
   TlpSystemTimeUtilities in '..\..\TlsLib\src\Common\TlpSystemTimeUtilities.pas',
   TlpWindowsSystemTime in '..\..\TlsLib\src\Common\TlpWindowsSystemTime.pas',
