@@ -55,7 +55,7 @@ uses
   TlpISystemTrustInstaller, TlpExporterArgs, TlpEchConfirmation, 
   TlpITrustAnchorStore, TlpTrustAnchorStore, TlpDynamicLibrary, 
   TlpSystemTimeUtilities, TlpWindowsSystemTime, TlpPosixSystemTime, 
-  TlpCipherSuiteCatalog;
+  TlpCipherSuiteCatalog, TlpIpLiteral;
 
 implementation
 
