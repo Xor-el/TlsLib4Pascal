@@ -1,0 +1,42 @@
+TlsLib.Tests/src/DynamicLibraryTests.pas
+  s_d27f31cd14035d::t_2c30905066eca2 19-21
+  s_d27f31cd14035d::t_49366f388ea3f3 112-138
+  s_d27f31cd14035d::t_cd62d28c6f269d 41-43
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_d27f31cd14035d::t_f9aa2f9bc58c0e 41-42
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.pas
+  s_d27f31cd14035d::t_c6e399323de020 58-59
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
+  s_d27f31cd14035d::t_6d524dfcceb8af 656-663
+  s_d27f31cd14035d::t_821fd0c72a2d4d 31
+TlsLib/src/Packages/Delphi/TlsLib4PascalPackage.dpk
+  s_d27f31cd14035d::t_f7ba3bfc9ebb3c 187-188
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_d27f31cd14035d::t_e9af062c1fb5e2 384-385
+TlsLib/src/Common/TlpPosixDynamicLibrary.pas
+  s_d27f31cd14035d::t_4b9868d9a08d2f 1-77
+TlsLib/src/Common/TlpDynamicLibrary.pas
+  s_d27f31cd14035d::t_cae2ef680b9aad 29-30
+  s_d27f31cd14035d::t_610dbf7ea133b7 43,47-48
+  s_d27f31cd14035d::t_a8784a3deb043f 20,22,42,44-46,53,59,64
+TlsLib/src/Common/TlpWindowsDynamicLibrary.pas
+  s_d27f31cd14035d::t_99d9e469e02419 1-94
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_d27f31cd14035d::t_ddf7c13e8ee069 61-62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a89088834dc44043cb4ab9536b087cc54392c75e",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
