@@ -164,6 +164,7 @@ type
     procedure TestNilRegistryIsRefusedAtBuild;
     procedure TestCipherSuiteListNarrowsAndOrdersPerProtocol;
     procedure TestCipherSuiteListLeavesAnUnnamedProtocolIntact;
+    procedure TestFailedBuildLeavesTheCipherSuiteListInForce;
     procedure TestCipherSuiteListOutsideTheConfiguredSetIsRefused;
     procedure TestCipherSuiteListIsIndependentOfCallOrder;
     procedure TestEmptyCipherSuiteListIsRefused;
@@ -1229,6 +1230,34 @@ begin
   CheckEquals(TCipherSuites12.EcdheEcdsaAes128GcmSha256, L12[1], 'list order is kept');
   CheckEquals(1, System.Length(L13), 'only the listed 1.3 suite remains');
   CheckEquals(TCipherSuites13.Aes256GcmSha384, L13[0], 'the listed 1.3 suite');
+end;
+
+procedure TTestConfigBuilder.TestFailedBuildLeavesTheCipherSuiteListInForce;
+var
+  LBuilder: ITlsClientConfigBuilder;
+  LConfig: ITlsClientConfig;
+  LRaised: Boolean;
+  L13: TArray<UInt16>;
+begin
+  // a Build refused for another reason must not consume the list: a retry that also swaps in a
+  // wider registry still narrows, instead of silently carrying the full set
+  LBuilder := NewClientBuilder
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13))
+    .WithCipherSuiteList(TArray<UInt16>.Create(TCipherSuites13.Aes256GcmSha384))
+    .WithPreferredGroups(TArray<UInt16>.Create($FFFE));
+  LRaised := False;
+  try
+    LBuilder.Build;
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a preferred group nothing registers is refused');
+  LConfig := LBuilder.WithCipherSuites(TCipherSuiteRegistry.CreateDefault(Crypto))
+    .WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519)).Build;
+  L13 := TNegotiationPolicy.SuiteOrder(LConfig.CipherSuites, TSuiteProtocol.Tls13);
+  CheckEquals(1, System.Length(L13), 'the list is still in force after the failed Build');
+  CheckEquals(TCipherSuites13.Aes256GcmSha384, L13[0], 'the listed suite');
 end;
 
 procedure TTestConfigBuilder.TestCipherSuiteListLeavesAnUnnamedProtocolIntact;

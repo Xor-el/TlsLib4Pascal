@@ -83,6 +83,7 @@ type
     /// serves every connection and keeps a stable identity for callers that cache by installer.</summary>
     class function Shared: ISystemTrustInstaller; static;
 
+    function Identity: string;
     procedure InstallClientTrust(const ABuilder: ITlsClientConfigBuilder;
       const APkix: IPkixProvider);
   end;
@@ -152,6 +153,12 @@ begin
 end;
 
 { TSystemTrustInstaller }
+
+function TSystemTrustInstaller.Identity: string;
+begin
+  // stateless: every instance installs the same OS trust
+  Result := 'os-system-trust';
+end;
 
 procedure TSystemTrustInstaller.InstallClientTrust(
   const ABuilder: ITlsClientConfigBuilder; const APkix: IPkixProvider);

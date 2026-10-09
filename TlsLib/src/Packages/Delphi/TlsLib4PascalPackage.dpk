@@ -184,6 +184,8 @@ contains
   TlpLiveRevocation in '..\..\Trust\TlpLiveRevocation.pas',
   TlpITrustAnchorStore in '..\..\Interfaces\Trust\TlpITrustAnchorStore.pas',
   TlpTrustAnchorStore in '..\..\Trust\TlpTrustAnchorStore.pas',
+  TlpWindowsDynamicLibrary in '..\..\Common\TlpWindowsDynamicLibrary.pas',
+  TlpPosixDynamicLibrary in '..\..\Common\TlpPosixDynamicLibrary.pas',
   TlpDynamicLibrary in '..\..\Common\TlpDynamicLibrary.pas',
   TlpSystemTimeUtilities in '..\..\Common\TlpSystemTimeUtilities.pas',
   TlpWindowsSystemTime in '..\..\Common\TlpWindowsSystemTime.pas',

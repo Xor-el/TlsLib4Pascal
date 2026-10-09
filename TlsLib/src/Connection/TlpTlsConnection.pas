@@ -311,6 +311,8 @@ implementation
 resourcestring
   SNilTransportClock =
     'a clock is required (pass a clock, not nil)';
+  SNilConnectionArgument =
+    'a connection needs a config and a transport (pass both, not nil)';
   SNoServerCredential =
     'no server certificate/private key was supplied';
   SNoClientAuthSource =
@@ -323,6 +325,8 @@ resourcestring
   SClientAuthWithoutVerify =
     'client authentication is requested but peer verification is off; turn verification on, or ' +
     'set client authentication to None';
+  SSystemTrustIdentityEmpty =
+    'the system-trust installer must name what it installs (Identity is empty)';
   SVerifierWithoutVerify =
     'a custom server-certificate verifier replaces verification, so it cannot be combined with ' +
     'peer verification switched off; keep verification on, or drop the verifier';
@@ -697,9 +701,18 @@ begin
   LSig.AddFlag('skipVerify', AOptions.InsecureSkipVerify);
   LSig.AddFlag('checkHost', AOptions.CheckHostName);
   LSig.AddCardinal('sni', Cardinal(Ord(AOptions.ServerNameIndication)));
-  // by installer identity, not a bare present/absent flag: two installers that install different
-  // roots must not collapse to the same memo signature and reuse each other's frozen config
-  LSig.AddPointer('systemTrust', AOptions.SystemTrust);
+  // by what the installer installs, not a bare present/absent flag: two installers that install
+  // different roots must not collapse to the same memo signature and reuse each other's frozen
+  // config. The built config does not retain the installer, so its address would not be stable.
+  LSig.AddFlag('systemTrust', AOptions.SystemTrust <> nil);
+  if AOptions.SystemTrust <> nil then
+  begin
+    // an unnamed installer would collide with another unnamed one and with the absence of one
+    if AOptions.SystemTrust.Identity = '' then
+      raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
+        @SSystemTrustIdentityEmpty);
+    LSig.AddText('systemTrustId', AOptions.SystemTrust.Identity);
+  end;
   LSig.AddPointer('customVerifier', AOptions.ServerCertificateVerifier);
   // a composed store keeps the stores it was built from, so this address stays live with the config
   LSig.AddPointer('customStore', AOptions.CustomTrustStore);
@@ -961,8 +974,10 @@ constructor TTlsConnection.CreateClient(const AConfig: ITlsClientConfig;
   const AServerName: string; const ATransport: TTlsTimedTransportBase;
   const AResolver: TCertificateVerdictResolver; AVerdictDeadlineMs: Cardinal);
 begin
-  // own the transport first, so a refused engine build releases it with this instance
+  // own the transport first, so a refused argument or engine build releases it with this instance
   FTransport := ATransport as ITlsTransport;
+  if (AConfig = nil) or (ATransport = nil) then
+    raise EArgumentTlsLibException.CreateRes(@SNilConnectionArgument);
   ATransport.UseClock(AConfig.MonotonicClock);
   Create(TTlsEngineFactory.CreateClientEngine(AConfig, AServerName), ATransport, True,
     AServerName, AResolver, AVerdictDeadlineMs);
@@ -973,6 +988,8 @@ constructor TTlsConnection.CreateServer(const AConfig: ITlsServerConfig;
   AVerdictDeadlineMs: Cardinal);
 begin
   FTransport := ATransport as ITlsTransport;
+  if (AConfig = nil) or (ATransport = nil) then
+    raise EArgumentTlsLibException.CreateRes(@SNilConnectionArgument);
   ATransport.UseClock(AConfig.MonotonicClock);
   Create(TTlsEngineFactory.CreateServerEngine(AConfig), ATransport, False, '', AResolver,
     AVerdictDeadlineMs);

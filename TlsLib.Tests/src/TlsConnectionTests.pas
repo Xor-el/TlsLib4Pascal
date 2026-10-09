@@ -117,6 +117,8 @@ type
     // signatures
     procedure TestSignatureEqualOptionsEqualKeys;
     procedure TestSignatureEachConcernChangesKey;
+    procedure TestConnectionRefusesANilConfigOrTransport;
+    procedure TestSignatureKeysSystemTrustByIdentity;
     procedure TestSignatureExcludesResolverAndTimeout;
     procedure TestSignaturePasswordNotInClear;
     // resolve + memo + config-in + guard
@@ -183,7 +185,11 @@ type
   public
     ClientRoleCalled: Boolean;
     ClientPkix: IPkixProvider;
+    // unique per instance unless a test sets it, so two fakes differ the way two installers
+    // installing different roots do
+    InstallerIdentity: string;
     constructor Create(ARaise: Boolean; const AStore: ITrustAnchorStore);
+    function Identity: string;
     procedure InstallClientTrust(const ABuilder: ITlsClientConfigBuilder;
       const APkix: IPkixProvider);
   end;
@@ -240,10 +246,19 @@ type
 
 constructor TFakeSystemTrustInstaller.Create(ARaise: Boolean;
   const AStore: ITrustAnchorStore);
+var
+  LGuid: TGuid;
 begin
   inherited Create;
   FRaise := ARaise;
   FStore := AStore;
+  CreateGUID(LGuid);
+  InstallerIdentity := 'fake-' + GuidToString(LGuid);
+end;
+
+function TFakeSystemTrustInstaller.Identity: string;
+begin
+  Result := InstallerIdentity;
 end;
 
 procedure TFakeSystemTrustInstaller.InstallClientTrust(
@@ -1091,6 +1106,80 @@ begin
     as ISystemTrustInstaller;
   CheckFalse(TTlsConfigComposer.ClientSignature(LMut) = LBaseSig,
     'system trust changes the client key');
+end;
+
+procedure TTestTlsConnection.TestConnectionRefusesANilConfigOrTransport;
+var
+  LRaised: Boolean;
+  LConnection: TTlsConnection;
+begin
+  // a missing argument is a typed error, not an access violation
+  LRaised := False;
+  try
+    LConnection := TTlsConnection.CreateClient(nil, 'example.com', nil, nil, 0);
+    LConnection.Free;
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a client with no config and no transport is refused');
+  LRaised := False;
+  try
+    LConnection := TTlsConnection.CreateServer(nil, nil, nil, 0);
+    LConnection.Free;
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a server with no config and no transport is refused');
+  // a transport handed over with a missing config is released with the refused connection
+  LRaised := False;
+  try
+    LConnection := TTlsConnection.CreateClient(nil, 'example.com',
+      TTestMemoryTransport.Create(nil, True), nil, 0);
+    LConnection.Free;
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a client with a transport but no config is refused');
+end;
+
+procedure TTestTlsConnection.TestSignatureKeysSystemTrustByIdentity;
+var
+  LBase, LA, LB, LC: TTlsOptions;
+  LFirst, LSecond: TFakeSystemTrustInstaller;
+  LRaised: Boolean;
+begin
+  // the key follows what the installer installs, not where it lives: equal identities share a
+  // key across distinct instances, different identities never do
+  LBase := ClientOptsWithStore;
+  LFirst := TFakeSystemTrustInstaller.Create(False, EcP256RootStore);
+  LSecond := TFakeSystemTrustInstaller.Create(False, EcP256RootStore);
+  LA := LBase;
+  LA.SystemTrust := LFirst as ISystemTrustInstaller;
+  LB := LBase;
+  LB.SystemTrust := LSecond as ISystemTrustInstaller;
+  LFirst.InstallerIdentity := 'tenant-a';
+  LSecond.InstallerIdentity := 'tenant-a';
+  CheckEquals(TTlsConfigComposer.ClientSignature(LA), TTlsConfigComposer.ClientSignature(LB),
+    'distinct installers with one identity share a key');
+  LSecond.InstallerIdentity := 'tenant-b';
+  LC := LB;
+  CheckFalse(TTlsConfigComposer.ClientSignature(LA) = TTlsConfigComposer.ClientSignature(LC),
+    'installers with different identities never share a key');
+  // an unnamed installer is neither a key of its own nor the same as having none
+  LSecond.InstallerIdentity := '';
+  LRaised := False;
+  try
+    TTlsConfigComposer.ClientSignature(LC);
+  except
+    on E: ETlsStreamError do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an installer with an empty identity is refused');
+  CheckFalse(TTlsConfigComposer.ClientSignature(LA) = TTlsConfigComposer.ClientSignature(LBase),
+    'an installer is not the same key as none');
 end;
 
 procedure TTestTlsConnection.TestSignatureExcludesResolverAndTimeout;

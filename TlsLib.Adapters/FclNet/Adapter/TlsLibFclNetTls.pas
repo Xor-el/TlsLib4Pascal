@@ -539,6 +539,7 @@ var
   LClientConfig: ITlsClientConfig;
   LServerConfig: ITlsServerConfig;
   LPriorTimeoutMs, LEffectiveMs: Integer;
+  LTimeoutApplied: Boolean;
 begin
   Result := False;
   FLastError := 0;
@@ -573,11 +574,21 @@ begin
     if LEffectiveMs <= 0 then
       LEffectiveMs := TTlsConnection.DefaultHandshakeTimeoutMs;
     LPriorTimeoutMs := Socket.IOTimeout;
-    Socket.IOTimeout := LEffectiveMs;
+    LTimeoutApplied := True;
+    try
+      Socket.IOTimeout := LEffectiveMs;
+    except
+      // fcl-net numbers its socket-option constants the same on every Linux CPU, so on PowerPC,
+      // MIPS and SPARC the kernel refuses the read timeout: handshake without it, and leave the
+      // option alone afterwards (a restore would be refused the same way)
+      on ESocketError do
+        LTimeoutApplied := False;
+    end;
     try
       FConnection.Handshake(LEffectiveMs);
     finally
-      Socket.IOTimeout := LPriorTimeoutMs;
+      if LTimeoutApplied then
+        Socket.IOTimeout := LPriorTimeoutMs;
     end;
     // fcl-net's native OnVerifyCertificate hook runs after our pipeline accepts the chain and can
     // only additionally reject (augment-only, fail-closed)
