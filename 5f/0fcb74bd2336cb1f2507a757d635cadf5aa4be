@@ -1,0 +1,24 @@
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_d27f31cd14035d::t_f5e4680cad3004 380
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_d27f31cd14035d::t_e1e44ebc0d5e2c 406-410
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_d27f31cd14035d::t_b3e29fccac8fc3 1976-1987
+  s_d27f31cd14035d::t_841bcdd3aeb1a5 1938,1940
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5f0fcb74bd2336cb1f2507a757d635cadf5aa4be",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
