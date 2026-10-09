@@ -17,7 +17,7 @@ interface
 
 uses
   SysUtils,
-  TlpBinaryPrimitives;
+  TlpIpLiteral;
 
 type
   /// <summary>Whether a server name is a DNS host or an IP-address literal.</summary>
@@ -47,8 +47,6 @@ type
     FKind: TServerNameKind;
     FDnsName: string;
     FIpBytes: TBytes;
-    class function TryParseIPv4(const AHost: string; out ABytes: TBytes): Boolean; static;
-    class function TryParseIPv6(const AHost: string; out ABytes: TBytes): Boolean; static;
   public
     /// <summary>Parses AHost into a server name. False (and an unusable result) when
     /// AHost is empty, an unparsable IPv6-shaped literal, or otherwise not a usable
@@ -79,140 +77,6 @@ uses
 
 { TServerName }
 
-class function TServerName.TryParseIPv4(const AHost: string;
-  out ABytes: TBytes): Boolean;
-var
-  LParts: TArray<string>;
-  LPart: string;
-  LI, LValue, LDigit: Int32;
-begin
-  ABytes := nil;
-  Result := False;
-  LParts := AHost.Split(['.']);
-  if System.Length(LParts) <> 4 then
-    Exit;
-  SetLength(ABytes, 4);
-  for LI := 0 to 3 do
-  begin
-    LPart := LParts[LI];
-    if (System.Length(LPart) < 1) or (System.Length(LPart) > 3) then
-      Exit;
-    // a leading zero reads as octal to a resolver, so the literal is ambiguous
-    if (System.Length(LPart) > 1) and (LPart[1] = '0') then
-      Exit;
-    LValue := 0;
-    for LDigit := 1 to System.Length(LPart) do
-    begin
-      if (LPart[LDigit] < '0') or (LPart[LDigit] > '9') then
-        Exit;
-      LValue := (LValue * 10) + (Ord(LPart[LDigit]) - Ord('0'));
-    end;
-    if LValue > 255 then
-      Exit;
-    ABytes[LI] := Byte(LValue);
-  end;
-  Result := True;
-end;
-
-class function TServerName.TryParseIPv6(const AHost: string;
-  out ABytes: TBytes): Boolean;
-var
-  LHead, LTail: TArray<UInt16>;
-  LDoubleColon: Int32;
-  LEmbedded: TBytes;
-
-  function ParseGroups(const AText: string; out AValues: TArray<UInt16>): Boolean;
-  var
-    LParts: TArray<string>;
-    LI, LJ, LV, LCount: Int32;
-    LPart: string;
-  begin
-    AValues := nil;
-    Result := False;
-    if AText = '' then
-      Exit(True); // an empty side of "::" contributes no groups
-    LParts := AText.Split([':']);
-    LCount := 0;
-    for LI := 0 to High(LParts) do
-    begin
-      LPart := LParts[LI];
-      // a trailing embedded IPv4 (e.g. ::ffff:1.2.3.4) only in the final group
-      if (LI = High(LParts)) and (Pos('.', LPart) > 0) then
-      begin
-        if not TryParseIPv4(LPart, LEmbedded) then
-          Exit;
-        SetLength(AValues, LCount + 2);
-        AValues[LCount] := TBinaryPrimitives.ReadUInt16BigEndian(LEmbedded, 0);
-        AValues[LCount + 1] := TBinaryPrimitives.ReadUInt16BigEndian(LEmbedded, 2);
-        Inc(LCount, 2);
-        Continue;
-      end;
-      if (System.Length(LPart) < 1) or (System.Length(LPart) > 4) then
-        Exit;
-      LV := 0;
-      for LJ := 1 to System.Length(LPart) do
-      begin
-        case LPart[LJ] of
-          '0' .. '9':
-            LV := (LV shl 4) or (Ord(LPart[LJ]) - Ord('0'));
-          'a' .. 'f':
-            LV := (LV shl 4) or (Ord(LPart[LJ]) - Ord('a') + 10);
-          'A' .. 'F':
-            LV := (LV shl 4) or (Ord(LPart[LJ]) - Ord('A') + 10);
-        else
-          Exit;
-        end;
-      end;
-      SetLength(AValues, LCount + 1);
-      AValues[LCount] := UInt16(LV);
-      Inc(LCount);
-    end;
-    Result := True;
-  end;
-
-var
-  LAll: TArray<UInt16>;
-  LI, LPos, LFill: Int32;
-begin
-  ABytes := nil;
-  Result := False;
-  if Pos(':', AHost) = 0 then
-    Exit;
-  LDoubleColon := Pos('::', AHost);
-  if LDoubleColon > 0 then
-  begin
-    if Pos('::', System.Copy(AHost, LDoubleColon + 1, MaxInt)) > 0 then
-      Exit;
-    if not ParseGroups(System.Copy(AHost, 1, LDoubleColon - 1), LHead) then
-      Exit;
-    if not ParseGroups(System.Copy(AHost, LDoubleColon + 2, MaxInt), LTail) then
-      Exit;
-    if System.Length(LHead) + System.Length(LTail) >= 8 then
-      Exit; // "::" must stand for at least one zero group
-    SetLength(LAll, 8);
-    for LI := 0 to High(LHead) do
-      LAll[LI] := LHead[LI];
-    LFill := 8 - System.Length(LTail);
-    for LI := 0 to High(LTail) do
-      LAll[LFill + LI] := LTail[LI];
-  end
-  else
-  begin
-    if not ParseGroups(AHost, LAll) then
-      Exit;
-    if System.Length(LAll) <> 8 then
-      Exit;
-  end;
-  SetLength(ABytes, 16);
-  LPos := 0;
-  for LI := 0 to 7 do
-  begin
-    TBinaryPrimitives.WriteUInt16BigEndian(ABytes, LPos, LAll[LI]);
-    Inc(LPos, 2);
-  end;
-  Result := True;
-end;
-
 class function TServerName.TryParse(const AHost: string;
   out AName: TServerName): Boolean;
 var
@@ -229,7 +93,7 @@ begin
   if (System.Length(LHost) >= 2) and (LHost[1] = '[') and
     (LHost[System.Length(LHost)] = ']') then
   begin
-    if not TryParseIPv6(System.Copy(LHost, 2, System.Length(LHost) - 2), LBytes) then
+    if not TIpLiteral.TryParseIPv6(System.Copy(LHost, 2, System.Length(LHost) - 2), LBytes) then
       Exit;
     AName.FKind := TServerNameKind.Ip;
     AName.FIpBytes := LBytes;
@@ -244,7 +108,7 @@ begin
   if LHost = '' then
     Exit;
 
-  if TryParseIPv4(LHost, LBytes) or TryParseIPv6(LHost, LBytes) then
+  if TIpLiteral.TryParseIPv4(LHost, LBytes) or TIpLiteral.TryParseIPv6(LHost, LBytes) then
   begin
     AName.FKind := TServerNameKind.Ip;
     AName.FIpBytes := LBytes;

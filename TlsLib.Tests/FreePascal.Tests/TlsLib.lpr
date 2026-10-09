@@ -68,6 +68,7 @@ uses
   PemTests,
   DynamicLibraryTests,
   SystemTimeUtilitiesTests,
+  IpLiteralTests,
   CertificateVerifierTests,
   OcspStaplingTests,
   CertificateCheckTests,

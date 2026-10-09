@@ -187,6 +187,7 @@ contains
   TlpDynamicLibrary in '..\..\Common\TlpDynamicLibrary.pas',
   TlpSystemTimeUtilities in '..\..\Common\TlpSystemTimeUtilities.pas',
   TlpWindowsSystemTime in '..\..\Common\TlpWindowsSystemTime.pas',
-  TlpPosixSystemTime in '..\..\Common\TlpPosixSystemTime.pas';
+  TlpPosixSystemTime in '..\..\Common\TlpPosixSystemTime.pas',
+  TlpIpLiteral in '..\..\Common\TlpIpLiteral.pas';
 
 end.
