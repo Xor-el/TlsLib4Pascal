@@ -1297,6 +1297,24 @@ procedure TTestConfigBuilder.TestInjectedVerifierRefusesSettingsItIgnores;
     end;
   end;
 
+  function ServerRefused(const ABuilder: ITlsServerConfigBuilder): Boolean;
+  begin
+    Result := False;
+    try
+      ABuilder.Build;
+    except
+      on E: EInvalidOperationTlsLibException do
+        Result := Pos('injected certificate verifier', E.Message) > 0;
+    end;
+  end;
+
+  function NewVerifierServer: ITlsServerConfigBuilder;
+  begin
+    Result := TTlsPresets.Compatible(Crypto, Pkix).Server.WithCredential(ServerCredential)
+      .WithPeerAuth(TClientAuthMode.Required).WithDangerousCertificateVerifier(
+      TAcceptAllClientVerifier.Create as IClientCertificateVerifier);
+  end;
+
   function NewVerifierClient: ITlsClientConfigBuilder;
   begin
     Result := TTlsPresets.Compatible(Crypto, Pkix).Client.WithDangerousCertificateVerifier(
@@ -1313,6 +1331,16 @@ begin
   CheckTrue(ClientRefused(NewVerifierClient.WithRevocation(TRevocationPosture.Hard)),
     'Hard revocation beside a verifier instance without a live verdict');
   // controls: the verifier alone builds, and Hard builds when a live verdict applies it
+  CheckTrue(ClientRefused(NewVerifierClient.WithRevocation(TRevocationPosture.Hard)
+    .WithOcspStaplingRequest(True)), 'stapling does not rescue Hard beside a verifier instance');
+  // the server-role mirror
+  CheckTrue(ServerRefused(NewVerifierServer.WithDangerousInsecureSkipVerify),
+    'skip-verify beside a client-certificate verifier instance');
+  CheckTrue(ServerRefused(NewVerifierServer.WithIntermediateCertificates(EcP256RootCertificate)),
+    'intermediates beside a client-certificate verifier instance');
+  CheckTrue(ServerRefused(NewVerifierServer.WithRevocation(TRevocationPosture.Hard)),
+    'Hard revocation beside a client-certificate verifier instance');
+  CheckTrue(NewVerifierServer.Build <> nil, 'control: the client-certificate verifier alone builds');
   CheckTrue(NewVerifierClient.Build <> nil, 'control: the verifier alone builds');
   CheckTrue(NewVerifierClient.WithRevocation(TRevocationPosture.Hard)
     .WithLiveRevocationVerdict(1000).Build <> nil, 'control: Hard with a live verdict builds');

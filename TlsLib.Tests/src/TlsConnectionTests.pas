@@ -92,6 +92,7 @@ type
     procedure TestClientSystemTrustInstallerCalledForClientRole;
     procedure TestClientVerifierComposesAndBuilds;
     procedure TestClientVerifierWithAnchorConflictPropagates;
+    procedure TestClientVerifierWithVerificationOffIsRefused;
     procedure TestClientEmptyCustomStoreFailsClosed;
     procedure TestClientRaisingInstallerPropagates;
     // composer - server shape
@@ -648,6 +649,30 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a verifier plus an anchor source is the builder''s typed conflict');
+end;
+
+procedure TTestTlsConnection.TestClientVerifierWithVerificationOffIsRefused;
+  function Refused(const AOpts: TTlsOptions): Boolean;
+  begin
+    Result := False;
+    try
+      TTlsConfigComposer.BuildClientConfig(AOpts);
+    except
+      on E: ETlsStreamError do
+        Result := Pos('custom server-certificate verifier', E.Message) > 0;
+    end;
+  end;
+
+var
+  LOpts: TTlsOptions;
+begin
+  LOpts := TTlsOptions.Default;
+  LOpts.ServerCertificateVerifier := TFakeServerVerifier.Create as IServerCertificateVerifier;
+  LOpts.VerifyPeer := False;
+  CheckTrue(Refused(LOpts), 'a verifier beside VerifyPeer off is refused in adapter terms');
+  LOpts.VerifyPeer := True;
+  LOpts.InsecureSkipVerify := True;
+  CheckTrue(Refused(LOpts), 'a verifier beside skip-verify is refused in adapter terms');
 end;
 
 procedure TTestTlsConnection.TestClientEmptyCustomStoreFailsClosed;

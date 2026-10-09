@@ -2112,7 +2112,8 @@ begin
     raise EInvalidOperationTlsLibException.CreateRes(@SVerifierAnchorConflict);
   // an injected whole-verifier replaces the built-in chain verification, so the settings that
   // only that verification reads would be ignored: refuse them rather than imply they apply. A
-  // Hard posture still has effect through the live verdict, which runs over the validated path.
+  // Hard posture still has effect through the live verdict, which runs over the verifier's
+  // validated path, or the presented chain with its issuer checked.
   if ((FServerCertVerifier <> nil) or (FClientCertVerifier <> nil)) and
     ((System.Length(FIntermediateCertificates) > 0) or FDangerousTrust.InsecureSkipVerify or
     ((FRevocationPosture = TRevocationPosture.Hard) and
