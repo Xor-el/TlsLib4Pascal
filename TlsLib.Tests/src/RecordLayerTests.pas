@@ -717,8 +717,8 @@ var
   LFrag: TTlsRecordFragment;
   LRaised: Boolean;
 begin
-  // RFC 8449 4: a client seals 0-RTT before the server's limit reaches it in EncryptedExtensions,
-  // so an accepted early record over the limit is not an overflow; once the window closes the
+  // the early keys predate the limit this handshake sets in EncryptedExtensions (RFC 8449 4), so
+  // an accepted early record over the limit is not an overflow; once the window closes the
   // limit applies again
   LSend := TRecordLayer.Create;
   LRecv := TRecordLayer.Create;
@@ -737,6 +737,7 @@ begin
     LRecv.ProcessInput(LWire, 0, System.Length(LWire));
     CheckTrue(DrainOne(LRecv, LFrag), 'an over-limit accepted early record is accepted');
     CheckEquals(200, System.Length(LFrag.Data), 'the early record carries its content');
+    CheckTrue(LFrag.Early, 'the record is taken as early data');
     LRecv.SetEarlyReadAccepted(False, 0);
     LRaised := False;
     try
