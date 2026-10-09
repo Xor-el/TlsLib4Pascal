@@ -105,6 +105,8 @@ type
     function ChainLimitsAccepted(AMaxCert, AMaxTotal: Int32): Boolean;
     function SameOrder(const AA, AB: TArray<UInt16>): Boolean;
     function ServerBuildIsRefused(const ABuilder: ITlsServerConfigBuilder): Boolean;
+    function ClientBuildNeedsTls13(const AFacet: ITls13ClientConfigFacet): Boolean;
+    function ServerBuildNeedsTls13(const AFacet: ITls13ServerConfigFacet): Boolean;
     function NewClientBuilder: ITlsClientConfigBuilder;
     function NewServerBuilder: ITlsServerConfigBuilder;
     function MakePskSpec: TExternalPsk;
@@ -1287,32 +1289,50 @@ begin
     'the list applies at Build, whichever order the setters ran in');
 end;
 
+function TTestConfigBuilder.ClientBuildNeedsTls13(const AFacet: ITls13ClientConfigFacet): Boolean;
+begin
+  Result := False;
+  try
+    AFacet.Build;
+  except
+    // the reason is checked too, so a case cannot pass on some unrelated refusal
+    on E: EInvalidOperationTlsLibException do
+      Result := Pos('TLS 1.3 settings', E.Message) > 0;
+  end;
+end;
+
+function TTestConfigBuilder.ServerBuildNeedsTls13(const AFacet: ITls13ServerConfigFacet): Boolean;
+begin
+  Result := False;
+  try
+    AFacet.Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      Result := Pos('TLS 1.3 settings', E.Message) > 0;
+  end;
+end;
+
 procedure TTestConfigBuilder.TestTls13SettingsAreRefusedWhenTls13IsNotOffered;
 var
-  LRaised: Boolean;
+  LOnly12: TArray<UInt16>;
 begin
-  // GREASE and the ticket count are read only by the TLS 1.3 machines; set on a TLS 1.2-only
-  // config they would silently do nothing, so the Tls13 facet refuses them at Build
-  LRaised := False;
-  try
-    NewClientBuilder.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
-      .Tls13.WithGrease(True).Build;
-  except
-    on E: EInvalidOperationTlsLibException do
-      LRaised := True;
-  end;
-  CheckTrue(LRaised, 'GREASE on a TLS 1.2-only client is refused');
-  LRaised := False;
-  try
-    NewServerBuilder.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
-      .Tls13.WithTicketCount(2).Build;
-  except
-    on E: EInvalidOperationTlsLibException do
-      LRaised := True;
-  end;
-  CheckTrue(LRaised, 'a ticket count on a TLS 1.2-only server is refused');
-  CheckTrue(NewServerBuilder.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13))
-    .Tls13.WithTicketCount(2).Build.TicketCount = 2, 'control: the same setting builds with TLS 1.3');
+  // GREASE, the ticket count and the PSK settings are read only by the TLS 1.3 machines; set on a
+  // TLS 1.2-only config they would silently do nothing, so the Tls13 facet refuses them at Build
+  LOnly12 := TArray<UInt16>.Create(TlsWireVersionTls12);
+  CheckTrue(ClientBuildNeedsTls13(NewClientBuilder.WithSupportedVersions(LOnly12)
+    .Tls13.WithGrease(True)), 'GREASE on a TLS 1.2-only client');
+  CheckTrue(ClientBuildNeedsTls13(NewClientBuilder.WithSupportedVersions(LOnly12)
+    .Tls13.WithExternalPskRequired(False)),
+    'the PSK-required switch alone, with no PSKs, on a TLS 1.2-only client');
+  CheckTrue(ServerBuildNeedsTls13(NewServerBuilder.WithSupportedVersions(LOnly12)
+    .Tls13.WithTicketCount(2)), 'a ticket count on a TLS 1.2-only server');
+  // controls: the same client and server build once TLS 1.3 is offered, or when no Tls13 setting
+  // was touched
+  CheckTrue(NewClientBuilder.WithSupportedVersions(LOnly12).Build <> nil,
+    'control: a TLS 1.2-only client without Tls13 settings builds');
+  CheckTrue(NewServerBuilder.WithSupportedVersions(
+    TArray<UInt16>.Create(TlsWireVersionTls13)).Tls13.WithTicketCount(2).Build.TicketCount = 2,
+    'control: the ticket count builds with TLS 1.3');
 end;
 
 procedure TTestConfigBuilder.TestEmptyCipherSuiteListIsRefused;

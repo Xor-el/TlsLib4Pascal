@@ -344,7 +344,7 @@ resourcestring
   SEmptyTrustStore = 'a trust store was supplied but contains no root certificates; a store ' +
     'with no anchors is not a trust source (no silent-insecure)';
   SPskOnlyClientNeedsPskRequired = 'a client with external PSKs and no trust source cannot fall ' +
-    'back to certificate authentication; keep WithExternalPskRequired(True) or add a trust source';
+    'back to certificate authentication; keep Tls13.WithExternalPskRequired(True) or add a trust source';
   SPskOnlyClientNeedsTls13Only = 'a client with external PSKs and no trust source must offer TLS ' +
     '1.3 only (external PSKs are TLS 1.3-only); use a 1.3-only preset or WithSupportedVersions([TLS 1.3])';
   SBuilderOneEndpoint = 'a configuration builder configures one endpoint: use a separate builder ' +
