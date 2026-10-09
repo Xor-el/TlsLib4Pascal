@@ -67,6 +67,7 @@ type
     procedure SetUp; override;
     procedure TearDown; override;
   published
+    procedure TestRecipientPublicKeyIsACopy;
     procedure TestPaddingWithServerName;
     procedure TestPaddingWithoutServerName;
     procedure TestPaddingMaxNameLengthZero;
@@ -173,6 +174,21 @@ begin
   // extensions vector, followed by the padding
   AEntries := TExtensionVector.ParseFrom(LReader);
   APadding := LReader.ReadBytes(LReader.Remaining);
+end;
+
+procedure TTestEchClient.TestRecipientPublicKeyIsACopy;
+var
+  LKey: IHpkeRecipientKey;
+  LFirst, LSecond: TBytes;
+begin
+  // the key keeps its public key private: a caller changing the returned array must not alter it
+  LKey := Crypto.Hpke.ImportRecipientKey(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+    Crypto.Hpke.ImportPrivateKey(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+    DecodeHex(FVec.Values['config_private_key'])));
+  LFirst := LKey.PublicKey;
+  LFirst[0] := Byte(LFirst[0] xor $FF);
+  LSecond := LKey.PublicKey;
+  CheckTrue(LFirst[0] <> LSecond[0], 'the returned public key is a copy');
 end;
 
 procedure TTestEchClient.TestPaddingWithServerName;

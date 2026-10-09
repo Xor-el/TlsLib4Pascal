@@ -16,7 +16,8 @@ unit TlpDer;
 interface
 
 uses
-  SysUtils;
+  SysUtils,
+  TlpBinaryPrimitives;
 
 type
   /// <summary>
@@ -101,13 +102,22 @@ begin
 end;
 
 class function TDer.EncodeLength(ALen: Int32): TBytes;
+var
+  LWide: TBytes;
+  LN: Int32;
 begin
   if ALen < $80 then
-    Result := TBytes.Create(Byte(ALen))
-  else if ALen < $100 then
-    Result := TBytes.Create($81, Byte(ALen))
-  else
-    Result := TBytes.Create($82, Byte(ALen shr 8), Byte(ALen and $FF));
+    Exit(TBytes.Create(Byte(ALen)));
+  // long form: the fewest big-endian octets that hold the length (X.690 8.1.3.5)
+  LWide := nil;
+  SetLength(LWide, 4);
+  TBinaryPrimitives.WriteUInt32BigEndian(LWide, 0, UInt32(ALen));
+  LN := 4;
+  while LWide[4 - LN] = 0 do
+    System.Dec(LN);
+  SetLength(Result, 1 + LN);
+  Result[0] := Byte($80 or LN);
+  System.Move(LWide[4 - LN], Result[1], LN);
 end;
 
 class function TDer.Tlv(ATag: Byte; const AContent: TBytes): TBytes;

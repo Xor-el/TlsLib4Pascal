@@ -97,6 +97,7 @@ type
     // as given, wrapped first, or handed on to the portable facet
     procedure TestImportLeavesCallerKeyBytesIntact;
     procedure TestNativeVerifierRejectsCrossFamilyScheme;
+    procedure TestNativeRsaVerifierRejectsShortSignature;
     procedure TestEcdhImportRefusesScalarsOutsideTheGroupOrder;
     // every key-exchange primitive refuses a key minted by another primitive, and accepts its own
     // family's key through a fresh instance
@@ -360,6 +361,42 @@ begin
     LRsaKey.PublicKeyInfo);
   LVerifier.Update(LMessage, 0, System.Length(LMessage));
   CheckFalse(LVerifier.Verify(LRsaSignature), 'an RSA key does not verify under an ECDSA scheme');
+end;
+
+procedure TTestWindowsSystemCrypto.TestNativeRsaVerifierRejectsShortSignature;
+var
+  LKey: ISigningKey;
+  LSigner: ISignatureSigner;
+  LVerifier: ISignatureVerifier;
+  LMessage, LSignature, LStripped: TBytes;
+  LCounter: Int32;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_pkcs8_der']), nil);
+  // vary the message until the signature starts with a zero octet (about 1 in 256)
+  LSignature := nil;
+  LMessage := nil;
+  for LCounter := 0 to 4095 do
+  begin
+    LMessage := TBytes.Create(Byte(LCounter shr 8), Byte(LCounter and $FF));
+    LSigner := Crypto.Signing.CreateSignatureSigner(TSignatureScheme.RSA_PSS_RSAE_SHA256, LKey);
+    LSigner.Update(LMessage, 0, System.Length(LMessage));
+    LSignature := LSigner.Sign;
+    if LSignature[0] = 0 then
+      Break;
+  end;
+  CheckTrue(LSignature[0] = 0, 'a signature with a leading zero octet was found');
+  LVerifier := Crypto.Signing.CreateSignatureVerifier(TSignatureScheme.RSA_PSS_RSAE_SHA256,
+    LKey.PublicKeyInfo);
+  LVerifier.Update(LMessage, 0, System.Length(LMessage));
+  CheckTrue(LVerifier.Verify(LSignature), 'the full-length signature verifies');
+  LStripped := System.Copy(LSignature, 1, System.Length(LSignature) - 1);
+  LVerifier := Crypto.Signing.CreateSignatureVerifier(TSignatureScheme.RSA_PSS_RSAE_SHA256,
+    LKey.PublicKeyInfo);
+  LVerifier.Update(LMessage, 0, System.Length(LMessage));
+  CheckFalse(LVerifier.Verify(LStripped),
+    'the signature without its leading zero octet is rejected (RFC 8017 8.1.2)');
 end;
 
 procedure TTestWindowsSystemCrypto.TestX25519NeverDisagreesWithPortable;

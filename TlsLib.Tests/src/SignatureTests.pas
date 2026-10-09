@@ -65,6 +65,7 @@ type
     procedure TestEcdsaP256SignVerifyRoundTrip;
     procedure TestEcdsaP256TamperedSignatureFails;
     procedure TestEcdsaP256DeterministicNoncesRfc6979;
+    procedure TestRsaSignatureShorterThanModulusIsRejected;
     procedure TestRsaPssVerifiesRfc8448CertificateVerify;
     procedure TestRsaPssRejectsWrongTranscript;
     procedure TestSignatureSchemeCodesMatchCatalog;
@@ -311,6 +312,48 @@ begin
     DecodeHex(Rfc6979P256Spki));
   LVerifier.Update(LSample, 0, System.Length(LSample));
   CheckTrue(LVerifier.Verify(LSignature), 'the deterministic signature is an ordinary ECDSA signature');
+end;
+
+procedure TTestSignature.TestRsaSignatureShorterThanModulusIsRejected;
+
+  procedure CheckScheme(AScheme: TSignatureScheme);
+  var
+    LKey: ISigningKey;
+    LSigner: ISignatureSigner;
+    LVerifier: ISignatureVerifier;
+    LSpki, LMessage, LSignature, LStripped: TBytes;
+    LCounter: Int32;
+  begin
+    LSpki := Pkix.Certificates.PublicKeyInfo(DecodeHex(FKeys.Values['rsa_cert']));
+    LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_key']), nil);
+    // vary the message until the signature starts with a zero octet (about 1 in 256), the only
+    // shape whose stripped form a lenient backend still accepts
+    LMessage := nil;
+    LSignature := nil;
+    for LCounter := 0 to 4095 do
+    begin
+      LMessage := TBytes.Create(Byte(LCounter shr 8), Byte(LCounter and $FF));
+      LSigner := Crypto.Signing.CreateSignatureSigner(AScheme, LKey);
+      LSigner.Update(LMessage, 0, System.Length(LMessage));
+      LSignature := LSigner.Sign;
+      if LSignature[0] = 0 then
+        Break;
+    end;
+    CheckTrue((System.Length(LSignature) > 0) and (LSignature[0] = 0),
+      'a signature with a leading zero octet was found');
+    LVerifier := Crypto.Signing.CreateSignatureVerifier(AScheme, LSpki);
+    LVerifier.Update(LMessage, 0, System.Length(LMessage));
+    CheckTrue(LVerifier.Verify(LSignature), 'the full-length signature verifies');
+    LStripped := System.Copy(LSignature, 1, System.Length(LSignature) - 1);
+    LVerifier := Crypto.Signing.CreateSignatureVerifier(AScheme, LSpki);
+    LVerifier.Update(LMessage, 0, System.Length(LMessage));
+    CheckFalse(LVerifier.Verify(LStripped),
+      'the same signature without its leading zero octet is rejected (RFC 8017 8.1.2)');
+  end;
+
+begin
+  CheckScheme(TSignatureScheme.RSA_PKCS1_SHA256);
+  CheckScheme(TSignatureScheme.RSA_PSS_RSAE_SHA256);
 end;
 
 procedure TTestSignature.TestRsaPssVerifiesRfc8448CertificateVerify;

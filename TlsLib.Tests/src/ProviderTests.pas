@@ -90,6 +90,7 @@ type
     procedure TestAgreeRejectsForeignKeyHandle;
     procedure TestX25519AgreeRejectsWrongLengthPeerKeyAsPeerInput;
     procedure TestAgreeRejectsCompressedPeerPoint;
+    procedure TestDerEncodeLengthRoundTripsAcrossForms;
     procedure TestDerReadTlvRejectsOverflowAndNonMinimalLengths;
     procedure TestAeadSealWithoutInitRaisesTyped;
     procedure TestAeadSealWithoutInitRaisesTypedNativeProvider;
@@ -923,6 +924,37 @@ end;
 procedure TTestCryptoProvider.TestAeadSealWithoutInitRaisesTypedNativeProvider;
 begin
   DoAeadSealWithoutInitRaisesTyped(TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS));
+end;
+
+procedure TTestCryptoProvider.TestDerEncodeLengthRoundTripsAcrossForms;
+var
+  LLengths: array [0 .. 8] of Int32;
+  LI: Int32;
+  LContent, LTlv: TBytes;
+  LTag: Byte;
+  LContentOff, LContentLen, LNext: Int32;
+begin
+  // each length form (short, 0x81, 0x82, 0x83) encodes the minimal way and reads back exactly,
+  // including the 65536 boundary that the two-byte form cannot carry
+  LLengths[0] := 0;
+  LLengths[1] := $7F;
+  LLengths[2] := $80;
+  LLengths[3] := $FF;
+  LLengths[4] := $100;
+  LLengths[5] := $FFFF;
+  LLengths[6] := $10000;
+  LLengths[7] := $10001;
+  LLengths[8] := $123456;
+  for LI := 0 to System.High(LLengths) do
+  begin
+    LContent := nil;
+    SetLength(LContent, LLengths[LI]);
+    LTlv := TDer.Tlv($04, LContent);
+    CheckTrue(TDer.ReadTlv(LTlv, 0, LTag, LContentOff, LContentLen, LNext),
+      'a TLV with this length form parses');
+    CheckEquals(LLengths[LI], LContentLen, 'the encoded length reads back');
+    CheckEquals(System.Length(LTlv), LNext, 'the TLV ends where its length says');
+  end;
 end;
 
 procedure TTestCryptoProvider.TestDerReadTlvRejectsOverflowAndNonMinimalLengths;
