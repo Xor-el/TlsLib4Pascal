@@ -1589,17 +1589,18 @@ procedure TTestTlsConnection.TestSupportedVersionsOptionNarrowsTheOffer;
 var
   LOpts: TTlsOptions;
   LVersions: TArray<UInt16>;
-  LServerSignature: string;
+  LServerSignature, LDefaultSignature: string;
 begin
   LOpts := ClientOptsWithStore;
+  LDefaultSignature := TTlsConfigComposer.ClientSignature(LOpts);
   LVersions := TTlsConfigComposer.BuildClientConfig(LOpts).SupportedVersions;
   CheckEquals(2, System.Length(LVersions), 'the default client offers TLS 1.3 and 1.2');
   LOpts.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls12);
   LVersions := TTlsConfigComposer.BuildClientConfig(LOpts).SupportedVersions;
   CheckEquals(1, System.Length(LVersions), 'a one-entry list narrows the client offer');
   CheckEquals(Integer(TlsWireVersionTls12), Integer(LVersions[0]), 'to TLS 1.2');
-  CheckTrue(TTlsConfigComposer.ClientSignature(ClientOptsWithStore) <>
-    TTlsConfigComposer.ClientSignature(LOpts), 'the client memo key tells the two builds apart');
+  CheckTrue(LDefaultSignature <> TTlsConfigComposer.ClientSignature(LOpts),
+    'the client memo key tells the two builds apart');
   LOpts.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls13);
   LVersions := TTlsConfigComposer.BuildClientConfig(LOpts).SupportedVersions;
   CheckEquals(1, System.Length(LVersions), 'TLS 1.3 alone is expressible too');
@@ -1616,21 +1617,24 @@ end;
 
 procedure TTestTlsConnection.TestSupportedVersionsOrderIsPartOfTheMemoKey;
 var
-  LForward, LReverse: TTlsOptions;
+  LBase, LForward, LReverse: TTlsOptions;
 begin
-  // order is the preference, so two orderings are two configs and must not share a memoised one
-  LForward := ClientOptsWithStore;
+  // order is the preference, so two orderings are two configs and must not share a memoised one;
+  // both sets copy one base, since each ClientOptsWithStore call builds a store with its own identity
+  LBase := ClientOptsWithStore;
+  LForward := LBase;
   LForward.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12);
-  LReverse := ClientOptsWithStore;
+  LReverse := LBase;
   LReverse.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls12, TlsWireVersionTls13);
   CheckTrue(TTlsConfigComposer.ClientSignature(LForward) <>
     TTlsConfigComposer.ClientSignature(LReverse), 'client key');
   CheckEquals(Integer(TlsWireVersionTls12),
     Integer(TTlsConfigComposer.BuildClientConfig(LReverse).SupportedVersions[0]),
     'the built config keeps the preference order');
-  LForward := ServerOptsWithCredential;
+  LBase := ServerOptsWithCredential;
+  LForward := LBase;
   LForward.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12);
-  LReverse := ServerOptsWithCredential;
+  LReverse := LBase;
   LReverse.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls12, TlsWireVersionTls13);
   CheckTrue(TTlsConfigComposer.ServerSignature(LForward) <>
     TTlsConfigComposer.ServerSignature(LReverse), 'server key');
@@ -1773,16 +1777,19 @@ end;
 
 procedure TTestTlsConnection.TestHostCipherListIsPartOfTheMemoKey;
 var
-  LNone, LOne, LOther, LReversed: TTlsOptions;
+  LBase, LNone, LOne, LOther, LReversed: TTlsOptions;
 begin
-  // two hosts that differ only in their list must never share a memoised config
-  LNone := ClientOptsWithStore;
-  LOne := ClientOptsWithStore;
+  // two hosts that differ only in their list must never share a memoised config; every set is
+  // copied from one base, because each ClientOptsWithStore call builds a fresh store whose
+  // identity is itself part of the signature
+  LBase := ClientOptsWithStore;
+  LNone := LBase;
+  LOne := LBase;
   LOne.CipherSuites := TArray<UInt16>.Create(TCipherSuites12.EcdheRsaAes256GcmSha384,
     TCipherSuites12.EcdheRsaAes128GcmSha256);
-  LOther := ClientOptsWithStore;
+  LOther := LBase;
   LOther.CipherSuites := TArray<UInt16>.Create(TCipherSuites12.EcdheRsaAes256GcmSha384);
-  LReversed := ClientOptsWithStore;
+  LReversed := LBase;
   LReversed.CipherSuites := TArray<UInt16>.Create(TCipherSuites12.EcdheRsaAes128GcmSha256,
     TCipherSuites12.EcdheRsaAes256GcmSha384);
   CheckTrue(TTlsConfigComposer.ClientSignature(LNone) <> TTlsConfigComposer.ClientSignature(LOne),
@@ -1791,8 +1798,9 @@ begin
     'a shorter list differs');
   CheckTrue(TTlsConfigComposer.ClientSignature(LOne) <>
     TTlsConfigComposer.ClientSignature(LReversed), 'order is the preference');
-  LNone := ServerOptsWithCredential;
-  LOne := ServerOptsWithCredential;
+  LBase := ServerOptsWithCredential;
+  LNone := LBase;
+  LOne := LBase;
   LOne.CipherSuites := TArray<UInt16>.Create(TCipherSuites12.EcdheRsaAes256GcmSha384);
   CheckTrue(TTlsConfigComposer.ServerSignature(LNone) <> TTlsConfigComposer.ServerSignature(LOne),
     'the server key tells them apart');
