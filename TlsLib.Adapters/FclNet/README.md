@@ -99,9 +99,9 @@ trust the familiar way. Only what fcl-net lacks is added as extension properties
 | `ServerVerdictResolver` + `ServerVerdictDeadlineMs` | server-role out-of-band verdict (mTLS client's chain); beside a supplied `ClientConfig` / `ServerConfig` that config must itself defer the verdict, else the connection is refused |
 | `HandshakeTimeoutMs` | bounds the handshake read (ms); `0` = `Socket.IOTimeout` when set, else the 30 s default |
 | `Socket.IOTimeout` (fcl-net native) | bounds application reads; an expiry is retryable (`Recv` returns -1 with `LastErrorDesc` set, the connection stays usable), never a truncation |
+| `OnVerifyCertificate` (fcl-net native)                | augment-only reject after our pipeline             |
 
 **Linux PowerPC, MIPS and SPARC**: fcl-net numbers its socket-option constants the same on every Linux CPU, so the kernel refuses the read timeout there (`Socket.IOTimeout` raises `ESocketError`). The handshake then runs without a read wait, so a peer that goes completely silent blocks it until TCP gives up, and application reads are not bounded by `Socket.IOTimeout`.
-| `OnVerifyCertificate` (fcl-net native)                | augment-only reject after our pipeline             |
 
 **Certificate chain**: `CertificateData.Certificate` is the chain the server *presents* — put your leaf
 **followed by any intermediates** (a concatenated PEM, or a multi-cert byte slot) so clients build a
