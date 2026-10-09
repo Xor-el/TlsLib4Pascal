@@ -227,7 +227,9 @@ type
     /// <summary>
     /// Whether AIssuer's key verifies ALeaf's signature. A matching distinguished name alone does not
     /// make a certificate the issuer, so every revocation primitive that authenticates a response
-    /// under AIssuer's key first requires this.
+    /// under AIssuer's key first requires this (RFC 6960 4.2.2.2; RFC 5280 6.3.3 (f)). Any
+    /// verification failure, including an algorithm the backend cannot verify, counts as not
+    /// signed: the outcome is indeterminate.
     /// </summary>
     class function IssuerSignedLeaf(const ALeaf, AIssuer: IX509Certificate): Boolean; static;
     /// <summary>

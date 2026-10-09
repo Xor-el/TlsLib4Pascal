@@ -27,7 +27,8 @@
 #   crl_idp_scheme       - IDP fullName URI:https://crl.tlslib.test/shard1.crl (another scheme); empty. Out of scope
 #                          (these three: openssl ca -config ca.cnf -gencrl -crl_lastupdate NB -crl_nextupdate NA -crlexts idp_X, as above,
 #                           with the sections [idp_X] issuingDistributionPoint=critical,@idp_X_dp / [idp_X_dp] fullname=URI:<the URI above>)
-#   forged_ca_cert       - a self-signed CA certificate with the SAME subject DN as ca_cert but a different EC P-256 key (not the issuer of leaf_cert)
+#   forged_ca_cert       - a self-signed CA certificate with the SAME subject DN as ca_cert but a different EC P-256 key (not the issuer of leaf_cert);
+#                          valid 2026-10-09..2126-09-15
 #   crl_forged_empty     - an empty CRL, no IDP, 2020-01-01..2099-12-31, signed by forged_ca_cert's key (openssl ca -gencrl against the forged CA)
 #   ocsp_forged_good     - a Good OCSP response for leaf_cert (serial 0x1234) whose CertID is built from forged_ca_cert, signed by its key
 #                          (thisUpdate 2026-10-09, nextUpdate 2126-09-15; openssl ocsp -issuer forged -index <V 1234> -CA forged -rsigner forged -ndays 36500)
