@@ -21,6 +21,7 @@ uses
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpNegotiationTypes,
+  TlpCipherSuiteCatalog,
   TlpINegotiation;
 
 type

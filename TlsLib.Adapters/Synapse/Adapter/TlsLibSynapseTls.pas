@@ -48,6 +48,7 @@ uses
   TlpTlsConnectionInfo,
   TlpTlsVersion,
   TlpNegotiationTypes,
+  TlpCipherSuiteCatalog,
   TlpSystemTrustFacade;
 
 /// <summary>Sets a process-wide augment-only verify callback the plugin threads into every

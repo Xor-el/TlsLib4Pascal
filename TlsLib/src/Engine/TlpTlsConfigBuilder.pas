@@ -28,6 +28,7 @@ uses
   TlpINamedGroup,
   TlpINegotiation,
   TlpNegotiationTypes,
+  TlpCipherSuiteCatalog,
   TlpCipherSuiteRegistry,
   TlpNegotiationPolicy,
   TlpICertificateTrust,

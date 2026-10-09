@@ -33,6 +33,7 @@ uses
   TlpNamedGroups,
   TlpCryptoDomainTypes,
   TlpNegotiationTypes,
+  TlpCipherSuiteCatalog,
   TlpINegotiation,
   TlpCipherSuiteRegistry,
   TlpSignatureSchemeRegistry,

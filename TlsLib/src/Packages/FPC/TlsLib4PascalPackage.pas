@@ -52,8 +52,10 @@ uses
   TlpIKeyExchangePrivateKey, TlpTlsConnection, TlpTrustTypes, TlpIKeyLog, 
   TlpKeyLog, TlpAeadUtilities, TlpClientSessionPolicy, 
   TlpIEchClientOrchestrator, TlpEchClientOrchestrator, TlpImportedCredential, 
-  TlpISystemTrustInstaller, TlpExporterArgs, TlpEchConfirmation,
-  TlpITrustAnchorStore, TlpTrustAnchorStore, TlpDynamicLibrary, TlpSystemTimeUtilities, TlpWindowsSystemTime, TlpPosixSystemTime;
+  TlpISystemTrustInstaller, TlpExporterArgs, TlpEchConfirmation, 
+  TlpITrustAnchorStore, TlpTrustAnchorStore, TlpDynamicLibrary, 
+  TlpSystemTimeUtilities, TlpWindowsSystemTime, TlpPosixSystemTime, 
+  TlpCipherSuiteCatalog;
 
 implementation
 
