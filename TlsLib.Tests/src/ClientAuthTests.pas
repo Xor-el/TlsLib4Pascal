@@ -763,6 +763,14 @@ begin
     'a CertificateRequest with no TLS 1.3-usable scheme aborts');
   CheckEquals(Int64(Ord(TTlsAlertDescription.HandshakeFailure)), Int64(Ord(LAlert)),
     'the abort is handshake_failure');
+  // the same request refuses a client with no credential at all
+  LClient := New13ClientMachine(False);
+  LServer := New13ServerMachine(TClientAuthMode.Required);
+  LFlight := AllSendHandshake(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(FirstSendHandshake(LClient.Start))));
+  LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[0]));
+  LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[1]));
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCertReq)), LAlert),
+    'a client without a credential refuses it too');
 end;
 
 procedure TTestClientAuth.TestTls13ServerRejectsNonEmptyClientCertificateContext;
