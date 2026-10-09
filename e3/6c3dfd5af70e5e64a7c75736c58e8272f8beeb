@@ -1,0 +1,51 @@
+TlsLib.Tests/src/IpLiteralTests.pas
+  s_d27f31cd14035d::t_3698da445e0f7e 1-136
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_d27f31cd14035d::t_6da09e2b084c1f 570
+  s_d27f31cd14035d::t_91b4eb8392fd4f 388
+TlsLib/src/Trust/TlpServerName.pas
+  s_d27f31cd14035d::t_f40e78a7025dd4 96
+  s_d27f31cd14035d::t_06821d58d9c42b 20
+  s_d27f31cd14035d::t_c1b25174b836d2 111
+TlsLib.Tests/FreePascal.Tests/TlsLib.lpr
+  s_d27f31cd14035d::t_145288029c6f29 71
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpi
+  s_d27f31cd14035d::t_3b4d865b8f5dfb 37
+  s_d27f31cd14035d::t_41ed32f53f9b74 378-381
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpr
+  s_d27f31cd14035d::t_ca384772af18f1 69
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_d27f31cd14035d::t_650a31e89d9667 65
+  s_d27f31cd14035d::t_243c49fe63d51a 246
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
+  s_d27f31cd14035d::t_0bf5226015200f 31
+  s_d27f31cd14035d::t_4071de26fd42f4 648-651
+TlsLib/src/Common/TlpIpLiteral.pas
+  s_d27f31cd14035d::t_dc72c8c0239cbb 1-175
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.pas
+  s_d27f31cd14035d::t_f6261a339f77d8 58
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_d27f31cd14035d::t_7ed987c4b19d5c 45
+  s_d27f31cd14035d::t_7a84377b195fdd 226
+TlsLib/src/Packages/Delphi/TlsLib4PascalPackage.dpk
+  s_d27f31cd14035d::t_960723921c3515 190-191
+TlsLib.Tests/FreePascal.Tests/TlsLib.Tests.lpi
+  s_d27f31cd14035d::t_e4eb2272d1e2c6 43
+  s_d27f31cd14035d::t_b8bbeac460e19e 384-387
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e36c3dfd5af70e5e64a7c75736c58e8272f8beeb",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
