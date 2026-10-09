@@ -23,6 +23,10 @@ uses
   fpcunit,
   testregistry,
   Sockets,
+{$IFDEF UNIX}
+  UnixType,
+  fphttpclient, // TEMP-DIAG
+{$ENDIF}
 {$ELSE}
   TestFramework,
   System.Net.Socket,
@@ -48,6 +52,9 @@ type
     procedure TestLongResponseIsCutOffAtTheBudget;
     procedure TestTrickledHeadersAreCutOffAtTheBudget;
     procedure TestNilClockIsRefused;
+{$IFDEF UNIX}
+    procedure TestTempDiagTimeoutOption; // TEMP-DIAG
+{$ENDIF}
   end;
 
 implementation
@@ -372,6 +379,49 @@ begin
     LResponder.Free;
   end;
 end;
+
+{$IFDEF UNIX}
+// TEMP-DIAG: reports what the socket-timeout options and a plain client fetch do on this platform
+procedure TTestSocketHttpFetcher.TestTempDiagTimeoutOption;
+var
+  LSock: TSocket;
+  LTime: TTimeVal;
+  LR1, LE1, LR2, LE2: Integer;
+  LResponder: TResponder;
+  LClient: TFPHTTPClient;
+  LBody: string;
+begin
+  LSock := fpSocket(AF_INET, SOCK_STREAM, 0);
+  LTime.tv_sec := 5;
+  LTime.tv_usec := 0;
+  LR1 := fpSetSockOpt(LSock, SOL_SOCKET, SO_RCVTIMEO, @LTime, SizeOf(LTime));
+  LE1 := SocketError;
+  LR2 := fpSetSockOpt(LSock, SOL_SOCKET, SO_SNDTIMEO, @LTime, SizeOf(LTime));
+  LE2 := SocketError;
+  CloseSocket(LSock);
+  WriteLn('DIAG: SO_RCVTIMEO=', SO_RCVTIMEO, ' SO_SNDTIMEO=', SO_SNDTIMEO, ' sizeof(timeval)=',
+    SizeOf(LTime), ' rcv=', LR1, '/errno', LE1, ' snd=', LR2, '/errno', LE2);
+  LResponder := TResponder.Create(1024, False);
+  try
+    LClient := TFPHTTPClient.Create(nil);
+    try
+      try
+        LClient.IOTimeout := 5000;
+        LBody := LClient.Get(LResponder.Url);
+        WriteLn('DIAG: plain client fetch with IOTimeout ok, bytes=', Length(LBody));
+      except
+        on E: Exception do
+          WriteLn('DIAG: plain client fetch with IOTimeout raised ', E.ClassName, ': ', E.Message);
+      end;
+    finally
+      LClient.Free;
+    end;
+  finally
+    LResponder.Free;
+  end;
+  Check(True, 'diagnostic only');
+end;
+{$ENDIF}
 
 procedure TTestSocketHttpFetcher.TestNilClockIsRefused;
 var
