@@ -1,0 +1,22 @@
+TlsLib.Net/TlpSocketHttpFetcher.pas
+  s_d27f31cd14035d::t_bc5bc64f3f2e3f 46-50
+  s_d27f31cd14035d::t_70f63e250f9e01 300
+  s_d27f31cd14035d::t_08ed25f2a9b848 246-247,249-250,260-282,290
+  s_d27f31cd14035d::t_08c63e450eaa1d 30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ed5fbf4c74e5317d8f79f79d8a85939ae050414c",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
