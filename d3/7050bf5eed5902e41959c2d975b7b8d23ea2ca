@@ -1,0 +1,24 @@
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_d27f31cd14035d::t_e226ab6b85a031 542
+  s_d27f31cd14035d::t_ef98e6a11a1ee9 577-586,590-591
+TlsLib.Adapters/FclNet/README.md
+  s_d27f31cd14035d::t_9a012e70cec0b2 102-103
+TlsLib.Net/TlpSocketHttpFetcher.pas
+  s_d27f31cd14035d::t_8d15eeb9b84c5a 46-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d37050bf5eed5902e41959c2d975b7b8d23ea2ca",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
