@@ -1,0 +1,54 @@
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_d27f31cd14035d::t_75119a888c6402 74,235-250,302,480-488
+TlsLib.Tests/src/ConfigResumptionTests.pas
+  s_d27f31cd14035d::t_a0291e92ab4fe0 386
+  s_d27f31cd14035d::t_7333839ec2ee5b 1054
+  s_d27f31cd14035d::t_dd97991e1cf368 587
+  s_d27f31cd14035d::t_9a832273affc9b 572
+  s_d27f31cd14035d::t_872f157084204d 1045
+docs/cookbook.md
+  s_d27f31cd14035d::t_cef5a65c16d70d 575,581-584
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_d27f31cd14035d::t_34c99964229f0a 1677-1689
+  s_d27f31cd14035d::t_4e212a9683e95b 721-724
+  s_d27f31cd14035d::t_ecce8e4623566c 2624
+  s_d27f31cd14035d::t_c3225122112c39 748-750
+  s_d27f31cd14035d::t_e7dbbff10ab4bb 2687
+  s_d27f31cd14035d::t_363913673ffaf7 1584-1603
+  s_d27f31cd14035d::t_0e43fc62c1ff22 2633
+  s_d27f31cd14035d::t_073e5d92c6d2bd 2449
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_d27f31cd14035d::t_a67d4564b1d317 3085
+  s_d27f31cd14035d::t_f5b186b6f94803 168
+  s_d27f31cd14035d::t_afe423fa7bcf76 962
+  s_d27f31cd14035d::t_1517ca70eee1c2 1068,1071-1073
+  s_d27f31cd14035d::t_682d5b7adf00b0 1290-1317
+  s_d27f31cd14035d::t_955a3f5cb931bc 1089-1090
+  s_d27f31cd14035d::t_d74d47166df087 3054
+  s_d27f31cd14035d::t_89df5b0636eee5 1712
+  s_d27f31cd14035d::t_61d85c1c5b6c3a 1094-1096
+  s_d27f31cd14035d::t_3ecee312b2f95b 1694
+  s_d27f31cd14035d::t_a6396f5237428b 1727
+  s_d27f31cd14035d::t_4a28e52db569b6 1850-1851
+  s_d27f31cd14035d::t_adf9c481501074 3070
+TlsLib.Interop/src/InteropEngine.pas
+  s_d27f31cd14035d::t_acb01133096fe9 445
+  s_d27f31cd14035d::t_4b2d493dd85d58 370-371
+  s_d27f31cd14035d::t_771a760468f4fc 387-388
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f7014e06afaa370af3a47bf2775176179352a4a3",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
