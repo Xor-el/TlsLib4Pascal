@@ -348,7 +348,7 @@ procedure TTestSignature.TestRsaSignatureShorterThanModulusIsRejected;
     LVerifier := Crypto.Signing.CreateSignatureVerifier(AScheme, LSpki);
     LVerifier.Update(LMessage, 0, System.Length(LMessage));
     CheckFalse(LVerifier.Verify(LStripped),
-      'the same signature without its leading zero octet is rejected (RFC 8017 8.1.2)');
+      'the same signature without its leading zero octet is rejected (RFC 8017 8.1.2 / 8.2.2)');
   end;
 
 begin
