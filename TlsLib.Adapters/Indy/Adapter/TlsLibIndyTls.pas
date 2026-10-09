@@ -45,14 +45,10 @@ uses
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpISystemTrustInstaller,
-  TlpITlsEngine,
-  TlpTlsEngineFactory,
   TlpITlsConfigMemo,
   TlpTlsConfigMemo,
   TlpTlsLibExceptions,
   TlpTlsCredential,
-  TlpIClock,
-  TlpClock,
   TlpTlsConnection,
   TlpTlsConnectionInfo,
   TlpSystemTrustFacade;
@@ -213,7 +209,7 @@ type
     function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
   public
-    constructor Create(ABinding: TIdSocketHandle; const AClock: ITlsClock);
+    constructor Create(ABinding: TIdSocketHandle);
   end;
 
   /// <summary>
@@ -231,7 +227,8 @@ type
     FReadTimedOut: Boolean;              // the last RecvEnc gave up on ReadTimeout (see CheckForError)
     procedure DoHandshake;
     procedure ResetTlsSession;
-    function BuildEngine(AIsClient: Boolean): ITlsEngine;
+    function BuildClientConfig: ITlsClientConfig;
+    function BuildServerConfig: ITlsServerConfig;
   private
     /// <summary>The listener hands each server peer its shared config memo (same-unit only).</summary>
     procedure AdoptServerMemo(const AMemo: ITlsServerConfigMemo);
@@ -402,10 +399,9 @@ end;
 
 { TIndySocketTransport }
 
-constructor TIndySocketTransport.Create(ABinding: TIdSocketHandle;
-  const AClock: ITlsClock);
+constructor TIndySocketTransport.Create(ABinding: TIdSocketHandle);
 begin
-  inherited Create(AClock);
+  inherited Create;
   FBinding := ABinding;
 end;
 
@@ -510,32 +506,30 @@ begin
   FServerMemo := AMemo;
 end;
 
-function TTlsLibIOHandlerSocket.BuildEngine(AIsClient: Boolean): ITlsEngine;
-var
-  LOptions: TTlsOptions;
+function TTlsLibIOHandlerSocket.BuildClientConfig: ITlsClientConfig;
 begin
-  LOptions := FOptions.Snapshot;
   // a fully-built config supplied by the app REPLACES the options-driven build outright; the
   // composer's conflict guard fails loud when cert/trust options are named alongside it
-  if AIsClient then
-    Exit(TTlsEngineFactory.CreateClientEngine(
-      TTlsConfigComposer.ResolveClientConfig(LOptions, GClientConfigMemo,
-      'SSLOptions.ClientConfig'), Host));
+  Result := TTlsConfigComposer.ResolveClientConfig(FOptions.Snapshot, GClientConfigMemo,
+    'SSLOptions.ClientConfig');
+end;
+
+function TTlsLibIOHandlerSocket.BuildServerConfig: ITlsServerConfig;
+begin
   // a server peer reuses the listener's shared memo so all peers bind to one config identity; a
   // standalone handler doing its own accepts (no TTlsLibServerIOHandler listener) lazily owns one,
   // so its config - and the default STEK minted into it - stay stable across the connections it
   // serves (this is serialized by the handshake lock)
   if FServerMemo = nil then
     FServerMemo := TTlsConfigMemos.NewServer;
-  Result := TTlsEngineFactory.CreateServerEngine(
-    TTlsConfigComposer.ResolveServerConfig(LOptions, FServerMemo, 'SSLOptions.ServerConfig'));
+  Result := TTlsConfigComposer.ResolveServerConfig(FOptions.Snapshot, FServerMemo,
+    'SSLOptions.ServerConfig');
 end;
 
 procedure TTlsLibIOHandlerSocket.DoHandshake;
 var
-  LEngine: ITlsEngine;
-  LResolver: TCertificateVerdictResolver;
-  LVerdictDeadlineMs: Cardinal;
+  LClientConfig: ITlsClientConfig;
+  LServerConfig: ITlsServerConfig;
 begin
   if FConnection <> nil then
     Exit; // fast path: handshake already run
@@ -545,23 +539,23 @@ begin
   try
     if FConnection <> nil then
       Exit;
-    LEngine := BuildEngine(not IsPeer);
     // pick the role-correct resolver: a client (not IsPeer) parks on the server's chain, a
     // server on the mTLS client's chain - the two bind different EKUs, so one resolver cannot
     // serve both
     if not IsPeer then
     begin
-      LResolver := FOptions.VerdictResolver;
-      LVerdictDeadlineMs := FOptions.VerdictDeadlineMs;
+      LClientConfig := BuildClientConfig;
+      FConnection := TTlsConnection.CreateClient(LClientConfig, Host,
+        TIndySocketTransport.Create(Binding), FOptions.VerdictResolver,
+        FOptions.VerdictDeadlineMs);
     end
     else
     begin
-      LResolver := FOptions.ServerVerdictResolver;
-      LVerdictDeadlineMs := FOptions.ServerVerdictDeadlineMs;
+      LServerConfig := BuildServerConfig;
+      FConnection := TTlsConnection.CreateServer(LServerConfig,
+        TIndySocketTransport.Create(Binding), FOptions.ServerVerdictResolver,
+        FOptions.ServerVerdictDeadlineMs);
     end;
-    FConnection := TTlsConnection.Create(LEngine,
-      TIndySocketTransport.Create(Binding, TSystemClock.Create as ITlsClock),
-      not IsPeer, Host, LResolver, LVerdictDeadlineMs);
     // bound the handshake read by the dedicated HandshakeTimeoutMs option, NOT app ReadTimeout
     // (a short app-read deadline would wrongly abort slow-but-valid handshakes); the session
     // arms and clears the cap, even when the handshake raised

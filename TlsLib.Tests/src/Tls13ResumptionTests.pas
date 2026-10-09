@@ -53,7 +53,7 @@ uses
   TlpCredentialResolvers,
   TlpISession,
   TlpSession,
-  TlpDateTimeUtilities,
+  TlpSystemTimeUtilities,
   TlpInMemorySessionCache,
   TlpInMemorySessionStore,
   TlpSessionTicketKeys,
@@ -425,7 +425,7 @@ function TTestTls13Resumption.MakeSessionForHost(const AIdentity: TBytes;
 begin
   Result := TTls13ResumableSession.Create(TCipherSuites13.Aes128GcmSha256,
     THashAlgorithm.SHA_256, ASecret, '', AHost, AIdentity,
-    ALifetime, 0, UInt64(TDateTimeUtilities.CurrentUnixMs), AMaxEarlyData, nil, nil);
+    ALifetime, 0, UInt64(TSystemTimeUtilities.UtcUnixMs), AMaxEarlyData, nil, nil);
 end;
 
 procedure TTestTls13Resumption.TestResumptionCompletesPskDheKe;

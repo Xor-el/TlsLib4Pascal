@@ -71,7 +71,7 @@ type
   /// source (no silent-insecure).
   /// </summary>
   ITlsClientConfigBuilder = interface(IInterface)
-    ['{C71D422B-62F3-4D05-B5F9-A1CA5F0CE99C}']
+    ['{3530FA97-6119-4A6E-B2B2-8843BE7CE27D}']
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): ITlsClientConfigBuilder;
     function WithSignatureSchemes(const ARegistry: ISignatureSchemeRegistry): ITlsClientConfigBuilder;
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): ITlsClientConfigBuilder;
@@ -206,6 +206,10 @@ type
     /// ticket-lifetime expiry (RFC 8446 4.2.11 / 4.6.1); defaults to the system
     /// clock, and nil is refused. Injectable primarily so tests can drive a deterministic time.</summary>
     function WithClock(const AClock: ITlsClock): ITlsClientConfigBuilder;
+    /// <summary>The elapsed-time source the connection layer measures its handshake read cap on;
+    /// defaults to the system source, and nil is refused. Injectable primarily so tests can drive
+    /// deterministic elapsed time.</summary>
+    function WithMonotonicClock(const AClock: ITlsMonotonicClock): ITlsClientConfigBuilder;
     /// <summary>The out-of-band external pre-shared keys (RFC 9258) the client imports and
     /// offers in the ClientHello (TLS 1.3 only), in preference order. When set, the client
     /// offers these instead of drawing a resumption session from the cache. Empty leaves
@@ -291,7 +295,7 @@ type
   /// certificate credential.
   /// </summary>
   ITlsServerConfigBuilder = interface(IInterface)
-    ['{6D799A9D-DAB4-42B8-82BE-195CE6796A27}']
+    ['{18A0D14A-AB24-483F-ADDF-A9A89C9EC0A4}']
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): ITlsServerConfigBuilder;
     function WithSignatureSchemes(const ARegistry: ISignatureSchemeRegistry): ITlsServerConfigBuilder;
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): ITlsServerConfigBuilder;
@@ -452,6 +456,10 @@ type
     /// certificate/OCSP freshness; defaults to the system clock, and nil is refused. Injectable
     /// primarily so tests can drive a deterministic time.</summary>
     function WithClock(const AClock: ITlsClock): ITlsServerConfigBuilder;
+    /// <summary>The elapsed-time source the connection layer measures its handshake read cap on;
+    /// defaults to the system source, and nil is refused. Injectable primarily so tests can drive
+    /// deterministic elapsed time.</summary>
+    function WithMonotonicClock(const AClock: ITlsMonotonicClock): ITlsServerConfigBuilder;
     /// <summary>The lifetime advertised for issued sessions and tickets, in seconds.</summary>
     function WithTicketLifetime(ASeconds: UInt32): ITlsServerConfigBuilder;
     /// <summary>How many TLS 1.3 NewSessionTickets to issue per handshake, 0..8 (0 issues none).</summary>

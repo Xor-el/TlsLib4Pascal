@@ -41,13 +41,9 @@ uses
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpISystemTrustInstaller,
-  TlpITlsEngine,
-  TlpTlsEngineFactory,
   TlpITlsConfigMemo,
   TlpTlsConfigMemo,
   TlpTlsLibExceptions,
-  TlpIClock,
-  TlpClock,
   TlpTlsConnection,
   TlpTlsConnectionInfo,
   TlpTlsVersion,
@@ -95,7 +91,7 @@ type
     function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
   public
-    constructor Create(const ASocket: TTCPBlockSocket; const AClock: ITlsClock);
+    constructor Create(const ASocket: TTCPBlockSocket);
   end;
 
   /// <summary>
@@ -126,8 +122,8 @@ type
     /// role (client vs server) is chosen by the caller when it resolves the config and attaches the
     /// resolver, not here.</summary>
     function Snapshot: TTlsOptions;
-    function BuildClientEngine: ITlsEngine;
-    function BuildServerEngine: ITlsEngine;
+    function BuildClientConfig: ITlsClientConfig;
+    function BuildServerConfig: ITlsServerConfig;
     function DriveHandshake(AIsClient: Boolean; const AHost: string): Boolean;
     /// <summary>The peer leaf certificate (DER), or empty when none was presented.</summary>
     function PeerLeaf: TBytes;
@@ -291,10 +287,9 @@ end;
 
 { TSynapseSocketTransport }
 
-constructor TSynapseSocketTransport.Create(const ASocket: TTCPBlockSocket;
-  const AClock: ITlsClock);
+constructor TSynapseSocketTransport.Create(const ASocket: TTCPBlockSocket);
 begin
-  inherited Create(AClock);
+  inherited Create;
   FSocket := ASocket;
 end;
 
@@ -424,43 +419,38 @@ begin
   Result.ClientAuthSourceHint := SSynapseClientAuthSourceHint;
 end;
 
-function TSSLTlsLib.BuildClientEngine: ITlsEngine;
+function TSSLTlsLib.BuildClientConfig: ITlsClientConfig;
 var
   LOptions: TTlsOptions;
-  LConfig: ITlsClientConfig;
 begin
   LOptions := Snapshot;
   // a fully-built config supplied by the app REPLACES the property-driven build outright; the
   // composer's conflict guard fails loud when cert/trust properties are named alongside it
-  LConfig := TTlsConfigComposer.ResolveClientConfig(LOptions, GClientConfigMemo,
+  Result := TTlsConfigComposer.ResolveClientConfig(LOptions, GClientConfigMemo,
     'ClientConfig');
   // the peer-info accessors reuse the config's providers (crypto for hashing, pkix for parsing)
-  FCrypto := LConfig.Crypto;
-  FPkix := LConfig.Pkix;
-  Result := TTlsEngineFactory.CreateClientEngine(LConfig, FSNIHost);
+  FCrypto := Result.Crypto;
+  FPkix := Result.Pkix;
 end;
 
-function TSSLTlsLib.BuildServerEngine: ITlsEngine;
+function TSSLTlsLib.BuildServerConfig: ITlsServerConfig;
 var
   LOptions: TTlsOptions;
-  LConfig: ITlsServerConfig;
 begin
   LOptions := Snapshot;
   // the process-wide callback is a client-handshake hook, so a server never carries it
   LOptions.VerifyCallback := nil;
-  LConfig := TTlsConfigComposer.ResolveServerConfig(LOptions, GServerConfigMemo,
+  Result := TTlsConfigComposer.ResolveServerConfig(LOptions, GServerConfigMemo,
     'ServerConfig');
-  FCrypto := LConfig.Crypto;
-  FPkix := LConfig.Pkix;
-  Result := TTlsEngineFactory.CreateServerEngine(LConfig);
+  FCrypto := Result.Crypto;
+  FPkix := Result.Pkix;
 end;
 
 function TSSLTlsLib.DriveHandshake(AIsClient: Boolean;
   const AHost: string): Boolean;
 var
-  LEngine: ITlsEngine;
-  LResolver: TCertificateVerdictResolver;
-  LVerdictDeadlineMs: Cardinal;
+  LClientConfig: ITlsClientConfig;
+  LServerConfig: ITlsServerConfig;
 begin
   Result := False;
   try
@@ -468,25 +458,21 @@ begin
     // new socket cleanly instead of leaking the previous stream over a stale engine
     FConnection.Free;
     FConnection := nil;
-    if AIsClient then
-      LEngine := BuildClientEngine
-    else
-      LEngine := BuildServerEngine;
     // attach the role-correct resolver: a client parks on the server's chain, a server (client
     // auth) on the mTLS client's chain - the two bind different EKUs
     if AIsClient then
     begin
-      LResolver := GVerdictResolver;
-      LVerdictDeadlineMs := GVerdictDeadlineMs;
+      LClientConfig := BuildClientConfig;
+      FConnection := TTlsConnection.CreateClient(LClientConfig, AHost,
+        TSynapseSocketTransport.Create(FSocket), GVerdictResolver, GVerdictDeadlineMs);
     end
     else
     begin
-      LResolver := GServerVerdictResolver;
-      LVerdictDeadlineMs := GServerVerdictDeadlineMs;
+      LServerConfig := BuildServerConfig;
+      FConnection := TTlsConnection.CreateServer(LServerConfig,
+        TSynapseSocketTransport.Create(FSocket), GServerVerdictResolver,
+        GServerVerdictDeadlineMs);
     end;
-    FConnection := TTlsConnection.Create(LEngine,
-      TSynapseSocketTransport.Create(FSocket, TSystemClock.Create as ITlsClock),
-      AIsClient, AHost, LResolver, LVerdictDeadlineMs);
     // bound the handshake read by HandshakeTimeoutMs; the session arms and clears the cap, even
     // when the handshake raised, so a later app read is not left bounded
     FConnection.Handshake(FHandshakeTimeoutMs);

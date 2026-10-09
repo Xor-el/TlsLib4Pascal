@@ -67,6 +67,7 @@ uses
   EndpointIdentityTests,
   PemTests,
   DynamicLibraryTests,
+  SystemTimeUtilitiesTests,
   CertificateVerifierTests,
   OcspStaplingTests,
   CertificateCheckTests,

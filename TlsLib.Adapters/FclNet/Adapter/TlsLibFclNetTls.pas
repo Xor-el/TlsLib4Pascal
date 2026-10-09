@@ -43,14 +43,10 @@ uses
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpISystemTrustInstaller,
-  TlpITlsEngine,
-  TlpTlsEngineFactory,
   TlpITlsConfigMemo,
   TlpTlsConfigMemo,
   TlpTlsLibExceptions,
   TlpTlsCredential,
-  TlpIClock,
-  TlpClock,
   TlpTlsConnection,
   TlpTlsConnectionInfo,
   TlpSystemTrustFacade;
@@ -71,7 +67,7 @@ type
     function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
   public
-    constructor Create(AHandle: THandle; const AClock: ITlsClock);
+    constructor Create(AHandle: THandle);
   end;
 
   /// <summary>The benign certificate generator fcl-net's TSSLSocketHandler constructor demands:
@@ -154,8 +150,8 @@ type
     /// The role (client vs server) is chosen by the caller when it resolves the config and attaches
     /// the resolver, not here.</summary>
     function Snapshot: TTlsOptions;
-    function BuildClientEngine(const AHost: string): ITlsEngine;
-    function BuildServerEngine: ITlsEngine;
+    function BuildClientConfig(const AHost: string): ITlsClientConfig;
+    function BuildServerConfig: ITlsServerConfig;
     function DriveHandshake(AIsClient: Boolean; const AHost: string): Boolean;
   public
     constructor Create; override;
@@ -336,12 +332,11 @@ var
 
 { TFclNetSocketTransport }
 
-constructor TFclNetSocketTransport.Create(AHandle: THandle;
-  const AClock: ITlsClock);
+constructor TFclNetSocketTransport.Create(AHandle: THandle);
 var
   LOn: Integer;
 begin
-  inherited Create(AClock);
+  inherited Create;
   FHandle := AHandle;
   // Darwin arms the socket against SIGPIPE (it has no per-send MSG_NOSIGNAL)
   if NOSIGPIPE_SOCKOPT <> 0 then
@@ -518,7 +513,7 @@ begin
   Result.ClientAuthSourceHint := SFclNetClientAuthSourceHint;
 end;
 
-function TTlsLibSocketHandler.BuildClientEngine(const AHost: string): ITlsEngine;
+function TTlsLibSocketHandler.BuildClientConfig(const AHost: string): ITlsClientConfig;
 var
   LOptions: TTlsOptions;
 begin
@@ -528,11 +523,10 @@ begin
   // into the memoised config, so it never applies to a supplied ClientConfig.
   if FCheckHostName and VerifyPeerCert and (AHost = '') and (FClientConfig = nil) then
     raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError, @SNoHostForNameCheck);
-  Result := TTlsEngineFactory.CreateClientEngine(
-    TTlsConfigComposer.ResolveClientConfig(LOptions, GClientConfigMemo, 'ClientConfig'), AHost);
+  Result := TTlsConfigComposer.ResolveClientConfig(LOptions, GClientConfigMemo, 'ClientConfig');
 end;
 
-function TTlsLibSocketHandler.BuildServerEngine: ITlsEngine;
+function TTlsLibSocketHandler.BuildServerConfig: ITlsServerConfig;
 var
   LOptions: TTlsOptions;
 begin
@@ -543,16 +537,14 @@ begin
   // composer's mode-vs-verify guard
   LOptions.VerifyPeer := True;
   LOptions.InsecureSkipVerify := False;
-  Result := TTlsEngineFactory.CreateServerEngine(
-    TTlsConfigComposer.ResolveServerConfig(LOptions, GServerConfigMemo, 'ServerConfig'));
+  Result := TTlsConfigComposer.ResolveServerConfig(LOptions, GServerConfigMemo, 'ServerConfig');
 end;
 
 function TTlsLibSocketHandler.DriveHandshake(AIsClient: Boolean;
   const AHost: string): Boolean;
 var
-  LEngine: ITlsEngine;
-  LResolver: TCertificateVerdictResolver;
-  LVerdictDeadlineMs: Cardinal;
+  LClientConfig: ITlsClientConfig;
+  LServerConfig: ITlsServerConfig;
   LPriorTimeoutMs, LEffectiveMs: Integer;
 begin
   Result := False;
@@ -563,25 +555,21 @@ begin
     // leaking the previous stream over a stale engine
     FConnection.Free;
     FConnection := nil;
-    if AIsClient then
-      LEngine := BuildClientEngine(AHost)
-    else
-      LEngine := BuildServerEngine;
     // attach the role-correct resolver: a client parks on the server's chain, a server (client
     // auth) on the mTLS client's chain - the two bind different EKUs
     if AIsClient then
     begin
-      LResolver := FVerdictResolver;
-      LVerdictDeadlineMs := FVerdictDeadlineMs;
+      LClientConfig := BuildClientConfig(AHost);
+      FConnection := TTlsConnection.CreateClient(LClientConfig, AHost,
+        TFclNetSocketTransport.Create(Socket.Handle), FVerdictResolver, FVerdictDeadlineMs);
     end
     else
     begin
-      LResolver := FServerVerdictResolver;
-      LVerdictDeadlineMs := FServerVerdictDeadlineMs;
+      LServerConfig := BuildServerConfig;
+      FConnection := TTlsConnection.CreateServer(LServerConfig,
+        TFclNetSocketTransport.Create(Socket.Handle), FServerVerdictResolver,
+        FServerVerdictDeadlineMs);
     end;
-    FConnection := TTlsConnection.Create(LEngine,
-      TFclNetSocketTransport.Create(Socket.Handle, TSystemClock.Create as ITlsClock),
-      AIsClient, AHost, LResolver, LVerdictDeadlineMs);
     // fcl-net has no readiness wait, so the handshake read is bounded by SO_RCVTIMEO through
     // Socket.IOTimeout: the property when set, else today's IOTimeout, else the default; restore it
     // after. The session arms and clears its own read cap (used to classify the recv errno).

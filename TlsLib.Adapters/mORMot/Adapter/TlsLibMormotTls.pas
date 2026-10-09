@@ -39,14 +39,10 @@ uses
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpISystemTrustInstaller,
-  TlpITlsEngine,
-  TlpTlsEngineFactory,
   TlpITlsConfigMemo,
   TlpTlsConfigMemo,
   TlpTlsLibExceptions,
   TlpTlsCredential,
-  TlpIClock,
-  TlpClock,
   TlpTlsConnection,
   TlpTlsConnectionInfo,
   TlpTlsVersion,
@@ -123,7 +119,7 @@ type
     function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
   public
-    constructor Create(ASocket: TNetSocket; const AClock: ITlsClock);
+    constructor Create(ASocket: TNetSocket);
   end;
 
   /// <summary>
@@ -147,11 +143,9 @@ type
     /// rules, and an in-memory certificate or key would be reported as a missing one.</summary>
     class procedure RefuseUnsupported(const AContext: TNetTlsContext;
       AIsClient: Boolean); static;
-    class function BuildClientEngine(var AContext: TNetTlsContext;
-      const AHost: string): ITlsEngine; static;
-    class function BuildServerEngine(const AContext: TNetTlsContext): ITlsEngine; static;
-    procedure DriveHandshake(ASocket: TNetSocket; const AEngine: ITlsEngine;
-      AIsClient: Boolean; const AHost: string);
+    class function BuildClientConfig(var AContext: TNetTlsContext): ITlsClientConfig; static;
+    class function BuildServerConfig(const AContext: TNetTlsContext): ITlsServerConfig; static;
+    procedure RunHandshake;
   public
     destructor Destroy; override;
     // INetTls
@@ -309,10 +303,9 @@ end;
 
 { TMormotSocketTransport }
 
-constructor TMormotSocketTransport.Create(ASocket: TNetSocket;
-  const AClock: ITlsClock);
+constructor TMormotSocketTransport.Create(ASocket: TNetSocket);
 begin
-  inherited Create(AClock);
+  inherited Create;
   FSocket := ASocket;
 end;
 
@@ -510,54 +503,30 @@ begin
       @SMormotInMemoryCredentialUnsupported, ['PrivateKeyRaw']);
 end;
 
-class function TTlsLibNetTls.BuildClientEngine(var AContext: TNetTlsContext;
-  const AHost: string): ITlsEngine;
-var
-  LConfig: ITlsClientConfig;
+class function TTlsLibNetTls.BuildClientConfig(var AContext: TNetTlsContext): ITlsClientConfig;
 begin
   // reject before composing (none of these inputs is part of the build signature)
   RefuseUnsupported(AContext, True);
   // a process-wide config supplied via SetTlsLibMormotClientConfig REPLACES the context-driven build
   // outright; the composer's conflict guard fails loud when the context also carries cert/trust
   // fields, rather than dropping them silently
-  LConfig := TTlsConfigComposer.ResolveClientConfig(Snapshot(AContext, True),
+  Result := TTlsConfigComposer.ResolveClientConfig(Snapshot(AContext, True),
     GClientConfigMemo, 'SetTlsLibMormotClientConfig');
   AContext.Enabled := True;
-  Result := TTlsEngineFactory.CreateClientEngine(LConfig, AHost);
 end;
 
-class function TTlsLibNetTls.BuildServerEngine(
-  const AContext: TNetTlsContext): ITlsEngine;
+class function TTlsLibNetTls.BuildServerConfig(
+  const AContext: TNetTlsContext): ITlsServerConfig;
 begin
   RefuseUnsupported(AContext, False);
-  Result := TTlsEngineFactory.CreateServerEngine(
-    TTlsConfigComposer.ResolveServerConfig(Snapshot(AContext, False),
-    GServerConfigMemo, 'SetTlsLibMormotServerConfig'));
+  Result := TTlsConfigComposer.ResolveServerConfig(Snapshot(AContext, False),
+    GServerConfigMemo, 'SetTlsLibMormotServerConfig');
 end;
 
-procedure TTlsLibNetTls.DriveHandshake(ASocket: TNetSocket;
-  const AEngine: ITlsEngine; AIsClient: Boolean; const AHost: string);
-var
-  LResolver: TCertificateVerdictResolver;
-  LVerdictDeadlineMs: Cardinal;
+procedure TTlsLibNetTls.RunHandshake;
 begin
-  // attach the role-correct resolver: a client parks on the server's chain, a server (client auth)
-  // on the mTLS client's chain - the two bind different EKUs, so one resolver cannot serve both
-  if AIsClient then
-  begin
-    LResolver := GVerdictResolver;
-    LVerdictDeadlineMs := GVerdictDeadlineMs;
-  end
-  else
-  begin
-    LResolver := GServerVerdictResolver;
-    LVerdictDeadlineMs := GServerVerdictDeadlineMs;
-  end;
   // bound the handshake read by the process-wide timeout (0 = the library default); the session
   // arms and clears the cap, even when the handshake raised, so a later app read is not left bounded
-  FConnection := TTlsConnection.Create(AEngine,
-    TMormotSocketTransport.Create(ASocket, TSystemClock.Create as ITlsClock),
-      AIsClient, AHost, LResolver, LVerdictDeadlineMs);
   FConnection.Handshake(GHandshakeTimeoutMs);
 end;
 
@@ -565,9 +534,15 @@ procedure TTlsLibNetTls.AfterConnection(Socket: TNetSocket;
   var Context: TNetTlsContext; const ServerAddress: RawUtf8);
 var
   LHost: string;
+  LConfig: ITlsClientConfig;
 begin
   LHost := Utf8ToString(ServerAddress);
-  DriveHandshake(Socket, BuildClientEngine(Context, LHost), True, LHost);
+  LConfig := BuildClientConfig(Context);
+  // the client parks on the server's chain, a server (client auth) on the mTLS client's chain -
+  // the two bind different EKUs, so one resolver cannot serve both
+  FConnection := TTlsConnection.CreateClient(LConfig, LHost,
+    TMormotSocketTransport.Create(Socket), GVerdictResolver, GVerdictDeadlineMs);
+  RunHandshake;
   Context.CipherName := GetCipherName;
 end;
 
@@ -583,9 +558,14 @@ end;
 
 procedure TTlsLibNetTls.AfterAccept(Socket: TNetSocket;
   const BoundContext: TNetTlsContext; LastError, CipherName: PRawUtf8);
+var
+  LConfig: ITlsServerConfig;
 begin
   try
-    DriveHandshake(Socket, BuildServerEngine(BoundContext), False, '');
+    LConfig := BuildServerConfig(BoundContext);
+    FConnection := TTlsConnection.CreateServer(LConfig,
+      TMormotSocketTransport.Create(Socket), GServerVerdictResolver, GServerVerdictDeadlineMs);
+    RunHandshake;
     if CipherName <> nil then
       CipherName^ := GetCipherName;
   except

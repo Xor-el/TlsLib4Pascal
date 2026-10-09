@@ -52,7 +52,7 @@ uses
   TlpCredentialResolvers,
   TlpISession,
   TlpSession,
-  TlpDateTimeUtilities,
+  TlpSystemTimeUtilities,
   TlpInMemorySessionCache,
   TlpInMemorySessionStore,
   TlpSessionTicketKeys,
@@ -550,7 +550,7 @@ function TTestTls12Resumption.MakeTicketSession(const ATicket: TBytes;
 begin
   Result := TTls12ResumableSession.Create(TlsSuite, THashAlgorithm.SHA_256,
     TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(48)), nil, ATicket,
-    AExtendedMasterSecret, '', '', 7200, UInt64(TDateTimeUtilities.CurrentUnixMs), nil, nil);
+    AExtendedMasterSecret, '', '', 7200, UInt64(TSystemTimeUtilities.UtcUnixMs), nil, nil);
 end;
 
 function TTestTls12Resumption.CachedSessionHello(AEmsSession, AOfferEms: Boolean;
@@ -608,7 +608,7 @@ begin
   // a session-id session (RFC 5246 7.3): the id resumes via the store, AHost is the host it was
   // issued under and what the cross-host guard checks
   Result := TTls12ResumableSession.Create(TlsSuite, THashAlgorithm.SHA_256, ASecret, AIdentity,
-    nil, True, '', AHost, 7200, UInt64(TDateTimeUtilities.CurrentUnixMs), nil, nil);
+    nil, True, '', AHost, 7200, UInt64(TSystemTimeUtilities.UtcUnixMs), nil, nil);
 end;
 
 procedure TTestTls12Resumption.TestSessionIdResumeIsAbbreviated;

@@ -29,6 +29,19 @@ type
     function NowUnixMillis: UInt64;
   end;
 
+  /// <summary>
+  /// A source of elapsed time for deadlines: milliseconds from an arbitrary origin that never
+  /// decreases, is never stepped by a wall-clock change and keeps counting through system
+  /// suspend. Distinct from <see cref="ITlsClock" /> so a calendar time can never be measured as
+  /// elapsed time or the reverse. The default is the real system source
+  /// (<see cref="TSystemMonotonicClock" />).
+  /// </summary>
+  ITlsMonotonicClock = interface(IInterface)
+    ['{64CC00A9-7DD7-4D98-BB47-3F3333C093D9}']
+    /// <summary>Milliseconds since an arbitrary fixed origin.</summary>
+    function NowMonotonicMillis: Int64;
+  end;
+
 implementation
 
 end.

@@ -16,7 +16,7 @@ unit TlpClock;
 interface
 
 uses
-  TlpDateTimeUtilities,
+  TlpSystemTimeUtilities,
   TlpIClock;
 
 type
@@ -26,13 +26,26 @@ type
     function NowUnixMillis: UInt64;
   end;
 
+  /// <summary>The default <see cref="ITlsMonotonicClock" />: reads the real system source.</summary>
+  TSystemMonotonicClock = class sealed(TInterfacedObject, ITlsMonotonicClock)
+  public
+    function NowMonotonicMillis: Int64;
+  end;
+
 implementation
 
 { TSystemClock }
 
 function TSystemClock.NowUnixMillis: UInt64;
 begin
-  Result := UInt64(TDateTimeUtilities.CurrentUnixMs);
+  Result := UInt64(TSystemTimeUtilities.UtcUnixMs);
+end;
+
+{ TSystemMonotonicClock }
+
+function TSystemMonotonicClock.NowMonotonicMillis: Int64;
+begin
+  Result := TSystemTimeUtilities.MonotonicMs;
 end;
 
 end.

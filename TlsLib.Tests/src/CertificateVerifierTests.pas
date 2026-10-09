@@ -32,6 +32,7 @@ uses
   TlpTlsLibExceptions,
   TlpPkixDomainTypes,
   TlpDateTimeUtilities,
+  TlpSystemTimeUtilities,
   TlpICertificateTrust,
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
@@ -1206,7 +1207,7 @@ var
 begin
   Result := TTlsAlertDescription.CloseNotify; // stands for "no alert raised"
   LEffective := nil;
-  LStart := TDateTimeUtilities.CurrentUnixMs;
+  LStart := TSystemTimeUtilities.UtcUnixMs;
   try
     Pkix.PathValidation.ValidateCertificatePath(AChain,
       TTrustAnchorStore.Create(TArray<TBytes>.Create(AAnchor)) as ITrustAnchorStore, nil,
@@ -1215,7 +1216,7 @@ begin
     on E: EFatalAlertTlsLibException do
       Result := E.AlertDescription;
   end;
-  AElapsedMs := TDateTimeUtilities.CurrentUnixMs - LStart;
+  AElapsedMs := TSystemTimeUtilities.UtcUnixMs - LStart;
 end;
 
 procedure TTestCertificateVerifier.TestSelfIssuedFillerFloodFailsFast;

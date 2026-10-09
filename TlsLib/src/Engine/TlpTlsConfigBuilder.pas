@@ -147,6 +147,7 @@ type
     FSessionScope: TBytes;
     FResumeVerification: TResumeVerification;
     FClock: ITlsClock;
+    FMonotonicClock: ITlsMonotonicClock;
     FKeyLog: IKeyLog;
     FClientEarlyData: Boolean;
     FSessionStore: ISessionStore;
@@ -279,6 +280,7 @@ type
     function WithSessionScope(const AScope: TBytes): TTlsConfigBuilder;
     function WithResumeVerification(AMode: TResumeVerification): TTlsConfigBuilder;
     function WithClock(const AClock: ITlsClock): TTlsConfigBuilder;
+    function WithMonotonicClock(const AClock: ITlsMonotonicClock): TTlsConfigBuilder;
     function WithDangerousKeyLog(const AKeyLog: IKeyLog): TTlsConfigBuilder;
     function WithSessionStore(const AStore: ISessionStore): TTlsConfigBuilder;
     function WithSessionTicketKeys(const AKeys: ISessionTicketKeyManager): TTlsConfigBuilder;
@@ -321,6 +323,7 @@ implementation
 resourcestring
   SNilPkixProvider = 'a PKIX provider is required (pass a provider, not nil)';
   SNilClock = 'a clock is required (pass a clock, not nil)';
+  SNilMonotonicClock = 'a monotonic clock is required (pass a clock, not nil)';
   SBuilderFrozen = 'the configuration has been built and can no longer be changed';
   SEchBackendWithKeyStore = 'a split-mode ECH backend holds no keys; WithEchBackend is mutually ' +
     'exclusive with WithEchKeyStore';
@@ -465,6 +468,7 @@ type
     FResumption: Boolean;
     FExternalPsks: TArray<TExternalPsk>;
     FClock: ITlsClock;
+    FMonotonicClock: ITlsMonotonicClock;
     FKeyLog: IKeyLog;
   public
     function Crypto: ICryptoProvider;
@@ -491,6 +495,7 @@ type
     function Resumption: Boolean;
     function ExternalPsks: TArray<TExternalPsk>;
     function Clock: ITlsClock;
+    function MonotonicClock: ITlsMonotonicClock;
     function KeyLog: IKeyLog;
   end;
 
@@ -619,6 +624,7 @@ type
     function WithResumptionScope(const AScope: TBytes): ITlsClientConfigBuilder;
     function WithResumeVerification(AMode: TResumeVerification): ITlsClientConfigBuilder;
     function WithClock(const AClock: ITlsClock): ITlsClientConfigBuilder;
+    function WithMonotonicClock(const AClock: ITlsMonotonicClock): ITlsClientConfigBuilder;
     function WithDangerousKeyLog(const AKeyLog: IKeyLog): ITlsClientConfigBuilder;
     function WithExternalPreSharedKeys(
       const APsks: TArray<TExternalPsk>): ITlsClientConfigBuilder;
@@ -684,6 +690,7 @@ type
     function WithResumptionScope(const AScope: TBytes): ITlsServerConfigBuilder;
     function WithDefaultSessionTicketKeys: ITlsServerConfigBuilder;
     function WithClock(const AClock: ITlsClock): ITlsServerConfigBuilder;
+    function WithMonotonicClock(const AClock: ITlsMonotonicClock): ITlsServerConfigBuilder;
     function WithDangerousKeyLog(const AKeyLog: IKeyLog): ITlsServerConfigBuilder;
     function WithTicketLifetime(ASeconds: UInt32): ITlsServerConfigBuilder;
     function WithTicketCount(ACount: Int32): ITlsServerConfigBuilder;
@@ -862,6 +869,11 @@ end;
 function TFrozenCommonConfig.Clock: ITlsClock;
 begin
   Result := FClock;
+end;
+
+function TFrozenCommonConfig.MonotonicClock: ITlsMonotonicClock;
+begin
+  Result := FMonotonicClock;
 end;
 
 function TFrozenCommonConfig.KeyLog: IKeyLog;
@@ -1227,6 +1239,13 @@ begin
   Result := Self;
 end;
 
+function TTlsClientConfigBuilder.WithMonotonicClock(
+  const AClock: ITlsMonotonicClock): ITlsClientConfigBuilder;
+begin
+  FOwner.WithMonotonicClock(AClock);
+  Result := Self;
+end;
+
 function TTlsClientConfigBuilder.WithDangerousKeyLog(
   const AKeyLog: IKeyLog): ITlsClientConfigBuilder;
 begin
@@ -1508,6 +1527,13 @@ begin
   Result := Self;
 end;
 
+function TTlsServerConfigBuilder.WithMonotonicClock(
+  const AClock: ITlsMonotonicClock): ITlsServerConfigBuilder;
+begin
+  FOwner.WithMonotonicClock(AClock);
+  Result := Self;
+end;
+
 function TTlsServerConfigBuilder.WithDangerousKeyLog(
   const AKeyLog: IKeyLog): ITlsServerConfigBuilder;
 begin
@@ -1785,6 +1811,7 @@ begin
   FTicketCount := DefaultTicketCount;
   // the endpoint reads the real system clock unless a caller injects one via WithClock
   FClock := TSystemClock.Create;
+  FMonotonicClock := TSystemMonotonicClock.Create;
   // apply the profile through the same mutators the presets call, so every Build-time validation
   // runs: registries only when supplied, lists only when non-empty, the scalars always
   if AProfile.CipherSuites <> nil then
@@ -2522,6 +2549,16 @@ begin
   Result := Self;
 end;
 
+function TTlsConfigBuilder.WithMonotonicClock(
+  const AClock: ITlsMonotonicClock): TTlsConfigBuilder;
+begin
+  GuardMutable;
+  if AClock = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilMonotonicClock);
+  FMonotonicClock := AClock;
+  Result := Self;
+end;
+
 function TTlsConfigBuilder.WithDangerousKeyLog(
   const AKeyLog: IKeyLog): TTlsConfigBuilder;
 begin
@@ -2836,6 +2873,7 @@ begin
     LConfig.FSessionScope := FCrypto.Primitives.GetRandom.GenerateBytes(SessionScopeLength);
   LConfig.FResumeVerification := FResumeVerification;
   LConfig.FClock := FClock;
+  LConfig.FMonotonicClock := FMonotonicClock;
   LConfig.FKeyLog := FKeyLog;
   LConfig.FEarlyData := FClientEarlyData;
   LConfig.FExternalPskRequired := FExternalPskRequired;
@@ -2947,6 +2985,7 @@ begin
   LConfig.FResumption := FResumption;
   LConfig.FExternalPsks := FExternalPsks;
   LConfig.FClock := FClock;
+  LConfig.FMonotonicClock := FMonotonicClock;
   LConfig.FKeyLog := FKeyLog;
   LConfig.FClientAuth := FClientAuth;
   LConfig.FClientVerifierSource := ComposeClientVerifierSource;

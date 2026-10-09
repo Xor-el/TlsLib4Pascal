@@ -36,6 +36,7 @@ type
       Ok: Boolean;
       Body: TBytes;
       ElapsedMs: Int64;
+      WallStepMs: Int64;
     end;
   var
     FGetOk, FPostOk: Boolean;
@@ -45,22 +46,31 @@ type
     FLastMaxBytes: Int32;
     FPostScripts, FGetScripts: TArray<TScript>;
     FClock: TMockClock;
+    FTicks: TMockMonotonicClock;
     FPostUrls, FGetUrls: TArray<string>;
     FPostTimeouts, FGetTimeouts: TArray<Cardinal>;
     class function Find(const AScripts: TArray<TScript>; const AUrl: string;
       out AScript: TScript): Boolean; static;
-    procedure Spend(AElapsedMs: Int64);
+    procedure Spend(AElapsedMs, AWallStepMs: Int64);
   public
     constructor Create;
-    /// <summary>Scripts what a POST to AUrl returns and how long it takes on the attached clock
-    /// (negative steps the clock back).</summary>
+    /// <summary>Scripts what a POST to AUrl returns and how long it takes: the attached clocks
+    /// both advance by AElapsedMs.</summary>
     procedure ScriptPost(const AUrl: string; AOk: Boolean; const ABody: TBytes;
-      AElapsedMs: Int64);
+      AElapsedMs: Int64); overload;
+    /// <summary>As above, and the wall clock alone also steps by AWallStepMs (negative steps it
+    /// back), as an NTP or manual adjustment would.</summary>
+    procedure ScriptPost(const AUrl: string; AOk: Boolean; const ABody: TBytes;
+      AElapsedMs, AWallStepMs: Int64); overload;
     /// <summary>As ScriptPost, for a GET.</summary>
     procedure ScriptGet(const AUrl: string; AOk: Boolean; const ABody: TBytes;
-      AElapsedMs: Int64);
-    /// <summary>The clock a scripted call advances; not owned, so the caller keeps it alive.</summary>
+      AElapsedMs: Int64); overload;
+    procedure ScriptGet(const AUrl: string; AOk: Boolean; const ABody: TBytes;
+      AElapsedMs, AWallStepMs: Int64); overload;
+    /// <summary>The wall clock a scripted call advances; not owned, so the caller keeps it alive.</summary>
     procedure AttachClock(const AClock: TMockClock);
+    /// <summary>The elapsed-time clock a scripted call advances; not owned.</summary>
+    procedure AttachMonotonicClock(const AClock: TMockMonotonicClock);
     property PostUrls: TArray<string> read FPostUrls;
     property GetUrls: TArray<string> read FGetUrls;
     property PostTimeouts: TArray<Cardinal> read FPostTimeouts;
@@ -106,18 +116,29 @@ begin
   Result := False;
 end;
 
-procedure TMockHttpFetcher.Spend(AElapsedMs: Int64);
+procedure TMockHttpFetcher.Spend(AElapsedMs, AWallStepMs: Int64);
+var
+  LWallMs: Int64;
 begin
+  if FTicks <> nil then
+    FTicks.Advance(AElapsedMs);
   if FClock = nil then
     Exit;
-  if AElapsedMs >= 0 then
-    FClock.Advance(UInt64(AElapsedMs))
+  LWallMs := AElapsedMs + AWallStepMs;
+  if LWallMs >= 0 then
+    FClock.Advance(UInt64(LWallMs))
   else
-    FClock.Retreat(UInt64(-AElapsedMs));
+    FClock.Retreat(UInt64(-LWallMs));
 end;
 
 procedure TMockHttpFetcher.ScriptPost(const AUrl: string; AOk: Boolean; const ABody: TBytes;
   AElapsedMs: Int64);
+begin
+  ScriptPost(AUrl, AOk, ABody, AElapsedMs, 0);
+end;
+
+procedure TMockHttpFetcher.ScriptPost(const AUrl: string; AOk: Boolean; const ABody: TBytes;
+  AElapsedMs, AWallStepMs: Int64);
 var
   LScript: TScript;
 begin
@@ -125,11 +146,18 @@ begin
   LScript.Ok := AOk;
   LScript.Body := ABody;
   LScript.ElapsedMs := AElapsedMs;
+  LScript.WallStepMs := AWallStepMs;
   TArrayUtilities.Append<TScript>(FPostScripts, LScript);
 end;
 
 procedure TMockHttpFetcher.ScriptGet(const AUrl: string; AOk: Boolean; const ABody: TBytes;
   AElapsedMs: Int64);
+begin
+  ScriptGet(AUrl, AOk, ABody, AElapsedMs, 0);
+end;
+
+procedure TMockHttpFetcher.ScriptGet(const AUrl: string; AOk: Boolean; const ABody: TBytes;
+  AElapsedMs, AWallStepMs: Int64);
 var
   LScript: TScript;
 begin
@@ -137,12 +165,18 @@ begin
   LScript.Ok := AOk;
   LScript.Body := ABody;
   LScript.ElapsedMs := AElapsedMs;
+  LScript.WallStepMs := AWallStepMs;
   TArrayUtilities.Append<TScript>(FGetScripts, LScript);
 end;
 
 procedure TMockHttpFetcher.AttachClock(const AClock: TMockClock);
 begin
   FClock := AClock;
+end;
+
+procedure TMockHttpFetcher.AttachMonotonicClock(const AClock: TMockMonotonicClock);
+begin
+  FTicks := AClock;
 end;
 
 function TMockHttpFetcher.Get(const AUrl: string; ATimeoutMs: Cardinal;
@@ -157,7 +191,7 @@ begin
   TArrayUtilities.Append<Cardinal>(FGetTimeouts, ATimeoutMs);
   if Find(FGetScripts, AUrl, LScript) then
   begin
-    Spend(LScript.ElapsedMs);
+    Spend(LScript.ElapsedMs, LScript.WallStepMs);
     Result := LScript.Ok;
     if Result then
       AResponse := System.Copy(LScript.Body)
@@ -185,7 +219,7 @@ begin
   TArrayUtilities.Append<Cardinal>(FPostTimeouts, ATimeoutMs);
   if Find(FPostScripts, AUrl, LScript) then
   begin
-    Spend(LScript.ElapsedMs);
+    Spend(LScript.ElapsedMs, LScript.WallStepMs);
     Result := LScript.Ok;
     if Result then
       AResponse := System.Copy(LScript.Body)

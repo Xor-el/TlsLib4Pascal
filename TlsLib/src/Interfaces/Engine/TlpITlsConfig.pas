@@ -47,7 +47,7 @@ type
   /// built once, frozen, and reused.
   /// </summary>
   ITlsCommonConfig = interface(IInterface)
-    ['{42FAFBB3-C1B2-436D-8B33-C5D3585CEF8C}']
+    ['{B1854E25-E01F-451D-BE8B-BC5671D9387C}']
     function Crypto: ICryptoProvider;
     /// <summary>The PKIX provider: X.509 inspection, path validation, revocation.</summary>
     function Pkix: IPkixProvider;
@@ -123,6 +123,10 @@ type
     /// and certificate/OCSP freshness (RFC 8446 4.2.11 / 4.6.1). Never nil: the builder defaults
     /// it to the system clock.</summary>
     function Clock: ITlsClock;
+    /// <summary>The elapsed-time source the connection layer measures its handshake read cap on
+    /// (pass it to the ATicks overload of TLiveRevocationChecker to share it). The engine itself
+    /// never reads it. Never nil: the builder defaults it to the system source.</summary>
+    function MonotonicClock: ITlsMonotonicClock;
     /// <summary>The dangerous key-log sink; nil (the default) reports nothing.</summary>
     function KeyLog: IKeyLog;
   end;

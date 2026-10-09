@@ -29,6 +29,8 @@ uses
 {$ENDIF FPC}
   TlpArrayUtilities,
   TlpDataEncoding,
+  TlpDateTimeUtilities,
+  TlpSystemTimeUtilities,
   TlpICryptoProvider,
   TlpIPkixProvider,
   TlpICertificateTrust,
@@ -50,6 +52,8 @@ type
     /// <summary>Registers AInstance for disposal at TearDown and returns it, so a field reads
     /// FThing := Own&lt;TThing&gt;(TThing.Create(...)).</summary>
     function Own<T: class>(const AInstance: T): T;
+    /// <summary>The current UTC time as a TDateTime.</summary>
+    function NowUtc: TDateTime;
   public
     destructor Destroy; override;
   protected
@@ -118,6 +122,11 @@ procedure TTlsLibTestCase.TearDown;
 begin
   FreeOwnedObjects;
   inherited TearDown;
+end;
+
+function TTlsLibTestCase.NowUtc: TDateTime;
+begin
+  Result := TDateTimeUtilities.UnixMsToDateTime(TSystemTimeUtilities.UtcUnixMs);
 end;
 
 function TTlsLibTestCase.Own<T>(const AInstance: T): T;
