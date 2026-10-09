@@ -134,11 +134,17 @@ begin
   CheckTrue(Refused('http://a.example/'#$00E9), 'a non-ASCII character');
   CheckTrue(Refused('http://a.example/"'), 'a double quote');
   CheckTrue(Refused('http://a.example/<'), 'an angle bracket');
+  CheckTrue(Refused('http://a.example/[x]'), 'square brackets in the path');
+  CheckTrue(Refused('http://a.example/?q=[1]'), 'square brackets in the query');
+  CheckTrue(Refused('http://a.example/p#[f]'), 'square brackets in the fragment');
 end;
 
 procedure TTestHttpUrl.TestPercentEncodingMustBeWellFormed;
 begin
-  CheckEquals('http://a.example/%7e', Canonical('http://a.example/%7e'), 'well-formed, kept as written');
+  CheckEquals('http://a.example/%7E', Canonical('http://a.example/%7e'),
+    'well-formed, with upper-case hex digits');
+  CheckEquals(Canonical('http://a.example/%7e?q=%aB'), Canonical('http://a.example/%7E?q=%Ab'),
+    'spellings that differ only in percent-encoding case share canonical text');
   CheckTrue(Refused('http://a.example/%zz'), 'non-hex');
   CheckTrue(Refused('http://a.example/%a'), 'one digit at the end');
   CheckTrue(Refused('http://a.example/%'), 'a bare percent');

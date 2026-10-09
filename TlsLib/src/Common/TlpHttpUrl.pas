@@ -24,9 +24,11 @@ type
 
   THttpHostKind = (DnsName, IPv4, IPv6);
 
-  /// <summary>An absolute http or https URL (RFC 9110 4.2.1, 4.2.2), parsed strictly: anything a
-  /// second parser could read differently is refused rather than repaired. A value of this type is
-  /// the only URL text the library fetches, and ToString is the text it sends.</summary>
+  /// <summary>An absolute http or https URL (RFC 9110 4.2.1, 4.2.2), parsed strictly: in the scheme,
+  /// authority, port and character set, anything a second parser could read differently is
+  /// refused rather than repaired. Dot segments in the path are neither refused nor removed. A
+  /// value of this type is the only URL text the library fetches, and ToString is the text it
+  /// sends.</summary>
   THttpUrl = record
   strict private
     FScheme: THttpScheme;
@@ -40,9 +42,10 @@ type
       out APortValue: UInt16): Boolean; static;
   public
     /// <summary>False for anything but a well-formed absolute http(s) URL: another scheme, userinfo,
-    /// an empty or malformed host, a bad port, a control character, backslash or non-ASCII
-    /// character, a bad percent-encoding, or more than 8000 characters (the length RFC 9110 4.1
-    /// asks recipients to support).</summary>
+    /// an empty or malformed host (including a trailing dot or a numeric-looking name), a bad port,
+    /// a control character, backslash or non-ASCII character, a square bracket outside an IPv6
+    /// host, a bad percent-encoding, or more than 8000 characters (the length RFC 9110 4.1 asks
+    /// recipients to support).</summary>
     class function TryParse(const AText: string; out AUrl: THttpUrl): Boolean; static;
     /// <summary>The port a scheme implies when none is written (RFC 9110 4.2.1, 4.2.2).</summary>
     class function DefaultPort(AScheme: THttpScheme): UInt16; static;
@@ -56,8 +59,9 @@ type
     /// 7.1).</summary>
     function PathAndQuery: string;
     /// <summary>The canonical text: lower-case scheme and host, the default port omitted, an empty
-    /// path as '/', no fragment. Two URLs naming the same resource (RFC 3986 6.2.2.1, 6.2.3) have
-    /// equal text, so it is both the de-duplication key and the request target.</summary>
+    /// path as '/', upper-case hex digits in percent-encodings, no fragment (RFC 3986 2.1, 6.2.2.1,
+    /// 6.2.3). Spellings that differ only in those ways have equal text, so it is both the
+    /// de-duplication key and the request target.</summary>
     function ToString: string;
   end;
 
@@ -230,6 +234,17 @@ begin
     Exit;
   // the fragment is never part of the request target (RFC 9110 7.1)
   LRest := System.Copy(AText, LAuthorityEnd, MaxInt);
+  // square brackets belong to an IP-literal host only; clients disagree on them in a path or query
+  // (RFC 3986 3.3, 3.4)
+  if (Pos('[', LRest) > 0) or (Pos(']', LRest) > 0) then
+    Exit;
+  // percent-encodings are compared by their upper-case form (RFC 3986 2.1, 6.2.2.1)
+  for LI := 1 to System.Length(LRest) do
+    if LRest[LI] = '%' then
+    begin
+      LRest[LI + 1] := UpCase(LRest[LI + 1]);
+      LRest[LI + 2] := UpCase(LRest[LI + 2]);
+    end;
   LFragment := Pos('#', LRest);
   if LFragment > 0 then
     LRest := System.Copy(LRest, 1, LFragment - 1);

@@ -96,6 +96,7 @@ type
     procedure TestOcspResponderUrlExtracted;
     procedure TestOcspResponderUrlsExtractedInOrder;
     procedure TestOnlyHttpAccessLocationsAreReturned;
+    procedure TestMalformedAccessLocationsAreSkipped;
     // every responder, one shared budget
     procedure TestDeadFirstResponderFallsThroughToSecond;
     procedure TestRevokedOnSecondResponderRejects;
@@ -968,6 +969,21 @@ begin
     'the https distribution point is found');
   CheckEquals(1, System.Length(LUrls), 'only the https distribution point survives');
   CheckEquals('https://crl.good.test/ca.crl', LUrls[0], 'the https URL');
+end;
+
+procedure TTestLiveRevocation.TestMalformedAccessLocationsAreSkipped;
+var
+  LOcsp: TArray<string>;
+  LUrls: TArray<string>;
+begin
+  // userinfo, a zero port, a zone-id literal and brackets in a path never reach a fetcher, and the
+  // well-formed entry after them is still returned, as canonical text
+  CheckTrue(Pkix.Revocation.TryGetOcspResponderUrls(Field('strict_url_cert'), LOcsp),
+    'the well-formed responder after the malformed ones is found');
+  CheckUrls(['http://ok.test/o'], LOcsp, 'only the canonical well-formed responder remains');
+  CheckTrue(Pkix.Revocation.TryGetCrlDistributionPoints(Field('strict_url_cert'), LUrls),
+    'the well-formed distribution point is found');
+  CheckUrls(['https://ok.test/c.crl'], LUrls, 'only the well-formed distribution point remains');
 end;
 
 procedure TTestLiveRevocation.TestCrlDistributionPointsExtracted;
