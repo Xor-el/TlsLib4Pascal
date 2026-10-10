@@ -57,7 +57,7 @@ type
     function SupportedVersions: TArray<UInt16>;
     /// <summary>The named-group codes in preference order (the client's key_share order).</summary>
     function PreferredGroups: TArray<UInt16>;
-    function AlpnProtocols: TArray<string>;
+    function AlpnProtocols: TArray<TBytes>;
     /// <summary>The inbound-record size this endpoint offers under record_size_limit (RFC 8449);
     /// counted as TLSInnerPlaintext in TLS 1.3. 0 (the default) offers nothing.</summary>
     function RecordSizeLimit: Int32;

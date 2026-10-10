@@ -18,6 +18,7 @@ interface
 uses
   SysUtils,
   Classes,
+  TlpAlpnProtocols,
   TlpArrayUtilities,
   TlpTlsAlert,
   TlpTlsVersion,
@@ -74,7 +75,7 @@ type
     OfferedSchemes: TArray<UInt16>;
     /// <summary>The ALPN protocols the client advertised, in preference order; the
     /// server's ServerHello selection must be one of these (RFC 7301 3.2).</summary>
-    AlpnProtocols: TArray<string>;
+    AlpnProtocols: TArray<TBytes>;
     /// <summary>The versions offered in supported_versions; listing 1.3 arms downgrade
     /// detection on a 1.2 ServerHello carrying the RFC 8446 sentinel.</summary>
     OfferedVersions: TArray<UInt16>;
@@ -527,10 +528,9 @@ begin
     // a server that echoed status_request will send a CertificateStatus message
     FServerWillStaple := LContext.StatusRequestResponsePending;
     // the server's ALPN choice must be one this client offered (RFC 7301 3.2)
-    if LContext.SelectedAlpn <> '' then
+    if System.Length(LContext.SelectedAlpn) > 0 then
     begin
-      if not (TArrayUtilities.Contains<string>(FParams.AlpnProtocols,
-        LContext.SelectedAlpn)) then
+      if not TAlpnProtocols.Contains(FParams.AlpnProtocols, LContext.SelectedAlpn) then
         raise EFatalAlertTlsLibException.CreateRes(
           TTlsAlertDescription.IllegalParameter, @SUnofferedAlpn);
       TArrayUtilities.Append<THandshakeEffect>(Result,
@@ -899,7 +899,7 @@ begin
     LPeerChain := FResumptionOffer.PeerCertificates;
   LSession := TTls12ResumableSession.Create(FSelectedSuite.Common.Code,
     FSelectedSuite.Common.Hash, FSchedule.MasterSecret, FServerSessionId,
-    FReceivedTicket, FUseExtendedMasterSecret, '', FParams.ServerName,
+    FReceivedTicket, FUseExtendedMasterSecret, nil, FParams.ServerName,
     LLifetime, FParams.Clock.NowUnixMillis, LPeerChain, nil);
   FParams.SessionCache.Store(CacheServerIdentity, FParams.ServerName, LSession);
   if System.Length(FReceivedTicket) > 0 then

@@ -40,7 +40,7 @@ type
     FWarnedAlert: TTlsAlertDescription;
   public
     procedure OnHandshakeEvent(AEvent: TTlsEventKind);
-    procedure OnAlpnSelected(const AProtocol: string);
+    procedure OnAlpnSelected(const AProtocol: TBytes);
     procedure OnOcspStapleReceived(const AStaple: TBytes);
     procedure OnHandshakeEstablished;
     procedure OnHandshakeFailed(AAlert: TTlsAlertDescription);
@@ -64,7 +64,7 @@ begin
   FLastEvent := AEvent;
 end;
 
-procedure TMockHandshakeSink.OnAlpnSelected(const AProtocol: string);
+procedure TMockHandshakeSink.OnAlpnSelected(const AProtocol: TBytes);
 begin
 end;
 

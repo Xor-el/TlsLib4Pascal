@@ -17,6 +17,8 @@ interface
 
 uses
   SysUtils,
+  TlpAlpnProtocols,
+  TlpArrayUtilities,
   TlpTlsAlert,
   TlpTlsVersion,
   TlpTlsLibExceptions,
@@ -38,8 +40,8 @@ type
     /// protocol the client also offered. Returns empty when the server is not configured for
     /// ALPN or the client offered none. Aborts with no_application_protocol when the server
     /// rejects all offers, or when it is configured and the client offered but nothing overlaps.</summary>
-    class function SelectAlpn(const AServerProtocols, AClientOffered: TArray<string>;
-      ARejectAll: Boolean): string; static;
+    class function SelectAlpn(const AServerProtocols, AClientOffered: TArray<TBytes>;
+      ARejectAll: Boolean): TBytes; static;
     /// <summary>Selects the server certificate for this handshake from the client's SNI (virtual
     /// hosting) via AResolver, over the offers in AContext and ACipherSuites for AVersion. Aborts
     /// with handshake_failure when no resolver is configured, unrecognized_name when the client
@@ -70,11 +72,11 @@ resourcestring
 { TServerOfferSelection }
 
 class function TServerOfferSelection.SelectAlpn(const AServerProtocols,
-  AClientOffered: TArray<string>; ARejectAll: Boolean): string;
+  AClientOffered: TArray<TBytes>; ARejectAll: Boolean): TBytes;
 var
-  LPref, LOffered: string;
+  LPref: TBytes;
 begin
-  Result := '';
+  Result := nil;
   // reject mode (local policy): any client ALPN offer is refused with no_application_protocol
   // (the alert of RFC 7301 3.2)
   if ARejectAll and (System.Length(AClientOffered) > 0) then
@@ -84,9 +86,8 @@ begin
   if (System.Length(AServerProtocols) = 0) or (System.Length(AClientOffered) = 0) then
     Exit;
   for LPref in AServerProtocols do
-    for LOffered in AClientOffered do
-      if LPref = LOffered then
-        Exit(LPref);
+    if TAlpnProtocols.Contains(AClientOffered, LPref) then
+      Exit(LPref);
   // configured, offered, but nothing overlaps (RFC 7301 3.2)
   raise EFatalAlertTlsLibException.CreateRes(
     TTlsAlertDescription.NoApplicationProtocol, @SNoAlpnOverlap);
@@ -104,7 +105,7 @@ begin
       TTlsAlertDescription.HandshakeFailure, @SNoServerCredential);
   LInfo.ServerName := AContext.ServerName;
   LInfo.SignatureSchemes := AContext.SignatureSchemes;
-  LInfo.AlpnProtocols := AContext.AlpnProtocols;
+  LInfo.AlpnProtocols := TArrayUtilities.DeepCopy<Byte>(AContext.AlpnProtocols);
   LInfo.CipherSuites := ACipherSuites;
   LInfo.SupportedGroups := AContext.SupportedGroups;
   LInfo.ProtocolVersion := AVersion;

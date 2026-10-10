@@ -142,7 +142,7 @@ var
 begin
   LSecret := TSecretBuffer.From(TBytes.Create(1, 2, 3, 4));
   Result := TTls13ResumableSession.Create(TCipherSuites13.Aes128GcmSha256,
-    THashAlgorithm.SHA_256, LSecret, '', '',
+    THashAlgorithm.SHA_256, LSecret, nil, '',
     TBytes.Create($AB), ALifetime, 0, AIssuedAtMillis, 0, nil, nil);
 end;
 

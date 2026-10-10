@@ -91,22 +91,22 @@ type
     MinVersion: Int32;
     MaxVersion: Int32;
     Curves: TArray<UInt16>;
-    AdvertiseAlpn: TArray<string>;
-    SelectAlpn: string;
+    AdvertiseAlpn: TArray<TBytes>;
+    SelectAlpn: TBytes;
     RejectAlpn: Boolean;
     /// <summary>Per-connection ALPN, used by the 0-RTT ALPN tests where the initial and
     /// resumption handshakes negotiate different protocols: a server selects
     /// -on-initial/-on-resume-select-alpn, a client advertises -on-initial/-on-resume-advertise-alpn.
     /// The *Set flag distinguishes "select/advertise nothing" (empty) from "not overridden".</summary>
-    OnInitialSelectAlpn: string;
+    OnInitialSelectAlpn: TBytes;
     OnInitialSelectAlpnSet: Boolean;
-    OnResumeSelectAlpn: string;
+    OnResumeSelectAlpn: TBytes;
     OnResumeSelectAlpnSet: Boolean;
-    OnInitialAdvertiseAlpn: TArray<string>;
+    OnInitialAdvertiseAlpn: TArray<TBytes>;
     OnInitialAdvertiseAlpnSet: Boolean;
-    OnResumeAdvertiseAlpn: TArray<string>;
+    OnResumeAdvertiseAlpn: TArray<TBytes>;
     OnResumeAdvertiseAlpnSet: Boolean;
-    ExpectAlpn: string;
+    ExpectAlpn: TBytes;
     ShimWritesFirst: Boolean;
     ShimShutsDown: Boolean;
     /// <summary>-check-close-notify: the shim's shutdown is bidirectional - after sending its
@@ -248,7 +248,7 @@ type
     class function ShimInitialWrite: TBytes; static;
     class procedure LogArgv; static;
     class function HandleProbeFlags: Boolean; static;
-    class function ParseAlpnWire(const AWire: string): TArray<string>; static;
+    class function ParseAlpnWire(const AWire: string): TArray<TBytes>; static;
     class function TryParseArgs(out AConfig: TBoGoConfig;
       out AReason: string): Boolean; static;
     class procedure AnnounceShimId(const ASocket: TInteropSocket;
@@ -411,7 +411,7 @@ begin
     end;
 end;
 
-class function TBoGoShimRunner.ParseAlpnWire(const AWire: string): TArray<string>;
+class function TBoGoShimRunner.ParseAlpnWire(const AWire: string): TArray<TBytes>;
 var
   LPos, LLen, LI: Int32;
 begin
@@ -421,7 +421,7 @@ begin
   // round-trip, so a single-protocol value like <03>"foo" arrives as bare "foo". When
   // the leading byte cannot be a valid length prefix, treat the whole value as one name.
   if (System.Length(AWire) > 0) and (Ord(AWire[1]) >= System.Length(AWire)) then
-    Exit(TArray<string>.Create(AWire));
+    Exit(TArray<TBytes>.Create(TInteropUtils.OctetsOf(AWire)));
   LPos := 1;
   while LPos <= System.Length(AWire) do
   begin
@@ -431,7 +431,7 @@ begin
       Break;
     LI := System.Length(Result);
     SetLength(Result, LI + 1);
-    Result[LI] := System.Copy(AWire, LPos, LLen);
+    Result[LI] := TInteropUtils.OctetsOf(System.Copy(AWire, LPos, LLen));
     Inc(LPos, LLen);
   end;
 end;
@@ -686,15 +686,15 @@ begin
     else if LArg = '-advertise-alpn' then
       AConfig.AdvertiseAlpn := ParseAlpnWire(NextValue(LArg))
     else if LArg = '-select-alpn' then
-      AConfig.SelectAlpn := NextValue(LArg)
+      AConfig.SelectAlpn := TInteropUtils.OctetsOf(NextValue(LArg))
     else if LArg = '-on-initial-select-alpn' then
     begin
-      AConfig.OnInitialSelectAlpn := NextValue(LArg);
+      AConfig.OnInitialSelectAlpn := TInteropUtils.OctetsOf(NextValue(LArg));
       AConfig.OnInitialSelectAlpnSet := True;
     end
     else if LArg = '-on-resume-select-alpn' then
     begin
-      AConfig.OnResumeSelectAlpn := NextValue(LArg);
+      AConfig.OnResumeSelectAlpn := TInteropUtils.OctetsOf(NextValue(LArg));
       AConfig.OnResumeSelectAlpnSet := True;
     end
     else if LArg = '-on-initial-advertise-alpn' then
@@ -711,7 +711,7 @@ begin
       // the server rejects any client ALPN offer with no_application_protocol (RFC 7301)
       AConfig.RejectAlpn := True
     else if LArg = '-expect-alpn' then
-      AConfig.ExpectAlpn := NextValue(LArg)
+      AConfig.ExpectAlpn := TInteropUtils.OctetsOf(NextValue(LArg))
     else if LArg = '-shim-writes-first' then
     begin
       AConfig.ShimWritesFirst := True;
@@ -989,16 +989,16 @@ begin
     // connection; an empty override means "select no protocol" (0-RTT ALPN tests)
     if AIsResume and AConfig.OnResumeSelectAlpnSet then
     begin
-      if AConfig.OnResumeSelectAlpn <> '' then
-        Result.AlpnProtocols := TArray<string>.Create(AConfig.OnResumeSelectAlpn);
+      if System.Length(AConfig.OnResumeSelectAlpn) > 0 then
+        Result.AlpnProtocols := TArray<TBytes>.Create(AConfig.OnResumeSelectAlpn);
     end
     else if (not AIsResume) and AConfig.OnInitialSelectAlpnSet then
     begin
-      if AConfig.OnInitialSelectAlpn <> '' then
-        Result.AlpnProtocols := TArray<string>.Create(AConfig.OnInitialSelectAlpn);
+      if System.Length(AConfig.OnInitialSelectAlpn) > 0 then
+        Result.AlpnProtocols := TArray<TBytes>.Create(AConfig.OnInitialSelectAlpn);
     end
-    else if AConfig.SelectAlpn <> '' then
-      Result.AlpnProtocols := TArray<string>.Create(AConfig.SelectAlpn);
+    else if System.Length(AConfig.SelectAlpn) > 0 then
+      Result.AlpnProtocols := TArray<TBytes>.Create(AConfig.SelectAlpn);
     Result.AlpnReject := AConfig.RejectAlpn;
     Result.ClientCertificateAuthorities := AConfig.UseClientCaList;
     Result.SuppressServerNameAck := AConfig.SuppressServerNameAck;
@@ -1284,8 +1284,8 @@ begin
     Writeln(ErrOutput, 'the test expects a version this shim does not offer');
     Exit(ShimExitFail);
   end;
-  if (AConfig.ExpectAlpn <> '') and
-    (LInfo.AlpnProtocol <> AConfig.ExpectAlpn) then
+  if (System.Length(AConfig.ExpectAlpn) > 0) and
+    not TInteropUtils.BytesEqual(LInfo.AlpnProtocol, AConfig.ExpectAlpn) then
   begin
     Writeln(ErrOutput, 'negotiated ALPN did not match the expected protocol');
     Exit(ShimExitFail);

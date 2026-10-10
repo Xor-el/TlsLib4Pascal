@@ -52,7 +52,7 @@ type
     FHash: THashAlgorithm;
     FCipherSuite: UInt16;
     FMaxEarlyData: UInt32;
-    FAlpn: string;
+    FAlpn: TBytes;
     FBinderKind: TPskBinderKind;
     FTicketLifetime: UInt32;
     FTicketAgeAdd: UInt32;
@@ -60,7 +60,7 @@ type
   public
     constructor Create(const AIdentity: TBytes; const AKey: ISecretBuffer;
       AHash: THashAlgorithm; ACipherSuite: UInt16; AMaxEarlyData: UInt32;
-      const AAlpn: string; ABinderKind: TPskBinderKind;
+      const AAlpn: TBytes; ABinderKind: TPskBinderKind;
       ATicketLifetime, ATicketAgeAdd: UInt32; AIssuedAtMillis: UInt64);
 
     function Identity: TBytes;
@@ -68,7 +68,7 @@ type
     function Hash: THashAlgorithm;
     function CipherSuite: UInt16;
     function MaxEarlyData: UInt32;
-    function Alpn: string;
+    function Alpn: TBytes;
     function BinderKind: TPskBinderKind;
     function TicketLifetime: UInt32;
     function TicketAgeAdd: UInt32;
@@ -89,7 +89,7 @@ type
     FVersion: TTlsVersion;
     FCipherSuite: UInt16;
     FHash: THashAlgorithm;
-    FAlpn: string;
+    FAlpn: TBytes;
     FServerName: string;
     FTicketLifetime: UInt32;
     FIssuedAtMillis: UInt64;
@@ -99,7 +99,7 @@ type
     function Version: TTlsVersion;
     function CipherSuite: UInt16;
     function Hash: THashAlgorithm;
-    function Alpn: string;
+    function Alpn: TBytes;
     function ServerName: string;
     function TicketLifetime: UInt32;
     function IssuedAtMillis: UInt64;
@@ -122,7 +122,7 @@ type
     /// <summary>APeerCertificates is the peer chain verified at establishment (empty when none).
     /// AResumptionScope is the opaque server scope sealed into the ticket (empty when none).</summary>
     constructor Create(ACipherSuite: UInt16; AHash: THashAlgorithm;
-      const AResumptionSecret: ISecretBuffer; const AAlpn, AServerName: string;
+      const AResumptionSecret: ISecretBuffer; const AAlpn: TBytes; const AServerName: string;
       const ATicketIdentity: TBytes; ATicketLifetime, ATicketAgeAdd: UInt32;
       AIssuedAtMillis: UInt64; AMaxEarlyData: UInt32;
       const APeerCertificates: TArray<TBytes>; const AResumptionScope: TBytes);
@@ -151,7 +151,7 @@ type
     /// AResumptionScope is the opaque server scope sealed into the ticket (empty when none).</summary>
     constructor Create(ACipherSuite: UInt16; AHash: THashAlgorithm;
       const AMasterSecret: ISecretBuffer; const ASessionId, ASessionTicket: TBytes;
-      AExtendedMasterSecret: Boolean; const AAlpn, AServerName: string;
+      AExtendedMasterSecret: Boolean; const AAlpn: TBytes; const AServerName: string;
       ATicketLifetime: UInt32; AIssuedAtMillis: UInt64;
       const APeerCertificates: TArray<TBytes>; const AResumptionScope: TBytes);
 
@@ -167,7 +167,7 @@ implementation
 
 constructor TPreSharedKey.Create(const AIdentity: TBytes; const AKey: ISecretBuffer;
   AHash: THashAlgorithm; ACipherSuite: UInt16; AMaxEarlyData: UInt32;
-  const AAlpn: string; ABinderKind: TPskBinderKind;
+  const AAlpn: TBytes; ABinderKind: TPskBinderKind;
   ATicketLifetime, ATicketAgeAdd: UInt32; AIssuedAtMillis: UInt64);
 begin
   inherited Create;
@@ -176,7 +176,7 @@ begin
   FHash := AHash;
   FCipherSuite := ACipherSuite;
   FMaxEarlyData := AMaxEarlyData;
-  FAlpn := AAlpn;
+  FAlpn := System.Copy(AAlpn);
   FBinderKind := ABinderKind;
   FTicketLifetime := ATicketLifetime;
   FTicketAgeAdd := ATicketAgeAdd;
@@ -189,7 +189,7 @@ begin
   // bound to a hash, not a suite (CipherSuite 0): the server may pick any same-hash
   // suite the client offered. No ticket lifetime/age or ALPN - an external PSK has none.
   Result := TPreSharedKey.Create(AIdentity, AKey, AHash, 0, 0,
-    '', TPskBinderKind.Imported, 0, 0, 0);
+    nil, TPskBinderKind.Imported, 0, 0, 0);
 end;
 
 function TPreSharedKey.Identity: TBytes;
@@ -217,9 +217,9 @@ begin
   Result := FMaxEarlyData;
 end;
 
-function TPreSharedKey.Alpn: string;
+function TPreSharedKey.Alpn: TBytes;
 begin
-  Result := FAlpn;
+  Result := System.Copy(FAlpn);
 end;
 
 function TPreSharedKey.BinderKind: TPskBinderKind;
@@ -259,9 +259,9 @@ begin
   Result := FHash;
 end;
 
-function TResumableSessionBase.Alpn: string;
+function TResumableSessionBase.Alpn: TBytes;
 begin
-  Result := FAlpn;
+  Result := System.Copy(FAlpn);
 end;
 
 function TResumableSessionBase.ServerName: string;
@@ -293,7 +293,7 @@ end;
 
 constructor TTls13ResumableSession.Create(ACipherSuite: UInt16;
   AHash: THashAlgorithm; const AResumptionSecret: ISecretBuffer;
-  const AAlpn, AServerName: string; const ATicketIdentity: TBytes;
+  const AAlpn: TBytes; const AServerName: string; const ATicketIdentity: TBytes;
   ATicketLifetime, ATicketAgeAdd: UInt32; AIssuedAtMillis: UInt64;
   AMaxEarlyData: UInt32; const APeerCertificates: TArray<TBytes>;
   const AResumptionScope: TBytes);
@@ -303,7 +303,7 @@ begin
   FCipherSuite := ACipherSuite;
   FHash := AHash;
   FResumptionSecret := AResumptionSecret;
-  FAlpn := AAlpn;
+  FAlpn := System.Copy(AAlpn);
   FServerName := AServerName;
   FTicketIdentity := System.Copy(ATicketIdentity, 0, System.Length(ATicketIdentity));
   FTicketLifetime := ATicketLifetime;
@@ -354,7 +354,7 @@ end;
 constructor TTls12ResumableSession.Create(ACipherSuite: UInt16;
   AHash: THashAlgorithm; const AMasterSecret: ISecretBuffer;
   const ASessionId, ASessionTicket: TBytes; AExtendedMasterSecret: Boolean;
-  const AAlpn, AServerName: string; ATicketLifetime: UInt32;
+  const AAlpn: TBytes; const AServerName: string; ATicketLifetime: UInt32;
   AIssuedAtMillis: UInt64; const APeerCertificates: TArray<TBytes>;
   const AResumptionScope: TBytes);
 begin
@@ -366,7 +366,7 @@ begin
   FSessionId := System.Copy(ASessionId, 0, System.Length(ASessionId));
   FSessionTicket := System.Copy(ASessionTicket, 0, System.Length(ASessionTicket));
   FExtendedMasterSecret := AExtendedMasterSecret;
-  FAlpn := AAlpn;
+  FAlpn := System.Copy(AAlpn);
   FServerName := AServerName;
   FTicketLifetime := ATicketLifetime;
   FIssuedAtMillis := AIssuedAtMillis;

@@ -89,7 +89,7 @@ Presets are safe **starting points**, not locked profiles — override before `B
 ```pascal
 LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client     // TLS 1.3 only, PQ-hybrid preferred
   .WithTrustAnchors(caPem)
-  .WithAlpnProtocols(TArray<string>.Create('h2', 'http/1.1'))
+  .WithAlpnProtocols(TArray<TBytes>.Create(TAlpnProtocols.H2, TAlpnProtocols.Http11))
   .Build;
 ```
 
@@ -364,13 +364,20 @@ revocation needs a live resolver.
 
 ## Negotiate ALPN
 
-Offer protocols in preference order (client) or advertise what you support (server):
+Offer protocols in preference order (client) or advertise what you support (server). A protocol name
+is 1..255 opaque octets (RFC 7301), so the builder takes bytes; `TAlpnProtocols` supplies `H2` and
+`Http11` and turns ASCII text into octets:
 
 ```pascal
-.WithAlpnProtocols(TArray<string>.Create('h2', 'http/1.1'))
+uses TlpAlpnProtocols;
+
+.WithAlpnProtocols(TArray<TBytes>.Create(TAlpnProtocols.H2, TAlpnProtocols.Http11))
+// or, from ASCII text:
+.WithAlpnProtocols(TAlpnProtocols.FromText(TArray<string>.Create('h2', 'http/1.1')))
 ```
 
-Read the result off the connection afterwards (`ConnectionInfo.AlpnProtocol`, below). A server
+Read the result off the connection afterwards (`ConnectionInfo.AlpnProtocol`, bytes; compare with
+`TArrayUtilities.AreEqual` or turn an ASCII name back with `TAlpnProtocols.TryToText`). A server
 already rejects an offer that shares no protocol with it; `.WithAlpnRejection(True)` rejects every
 ALPN offer.
 
@@ -387,7 +394,7 @@ begin
   // LInfo.NegotiatedVersion.WireValue   $0304 = TLS 1.3, $0303 = TLS 1.2
   // LInfo.CipherSuite                    e.g. $1301 = TLS_AES_128_GCM_SHA256
   // LInfo.NamedGroup                     e.g. $001D = X25519 (default); $11EC = X25519MLKEM768 hybrid
-  // LInfo.AlpnProtocol                   negotiated ALPN, or ''
+  // LInfo.AlpnProtocol                   negotiated ALPN name (bytes), or empty
   // LInfo.ServerName                     SNI the peer sent (server side)
   // LInfo.Resumed                        True if this was a resumption
   // LInfo.PeerCertificates               peer chain as presented, leaf first (on a resume: the chain stored with the session)

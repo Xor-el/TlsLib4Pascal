@@ -74,8 +74,8 @@ type
     /// empty server_name in the ServerHello (TLS 1.2) or EncryptedExtensions (TLS 1.3) when the
     /// client offered a host_name.</summary>
     ServerNameAck: Boolean;
-    AlpnProtocols: TArray<string>;
-    SelectedAlpn: string;
+    AlpnProtocols: TArray<TBytes>;
+    SelectedAlpn: TBytes;
     Cookie: TBytes;
     RecordSizeLimit: Int32;
     CertCompressionAlgorithms: TArray<UInt16>;

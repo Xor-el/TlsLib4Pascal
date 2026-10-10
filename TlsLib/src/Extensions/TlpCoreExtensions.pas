@@ -637,7 +637,7 @@ function TAlpnExtension.Produce(const AContext: TExtensionContext;
 var
   LWriter: IWireWriter;
   LList, LName: TWireVectorMarker;
-  LProtocol: string;
+  LProtocol: TBytes;
 begin
   ABody := nil;
   LWriter := TWireWriter.Create;
@@ -646,12 +646,12 @@ begin
   if AContext.MessageContext in [TTlsExtensionContextKind.EncryptedExtensions,
     TTlsExtensionContextKind.ServerHello] then
   begin
-    Result := AContext.SelectedAlpn <> '';
+    Result := System.Length(AContext.SelectedAlpn) > 0;
     if not Result then
       Exit;
     LList := LWriter.OpenVector(2);
     LName := LWriter.OpenVector(1);
-    LWriter.WriteBytes(TEncoding.ASCII.GetBytes(AContext.SelectedAlpn));
+    LWriter.WriteBytes(AContext.SelectedAlpn);
     LWriter.CloseVector(LName);
     LWriter.CloseVector(LList);
   end
@@ -664,7 +664,7 @@ begin
     for LProtocol in AContext.AlpnProtocols do
     begin
       LName := LWriter.OpenVector(1);
-      LWriter.WriteBytes(TEncoding.ASCII.GetBytes(LProtocol));
+      LWriter.WriteBytes(LProtocol);
       LWriter.CloseVector(LName);
     end;
     LWriter.CloseVector(LList);
@@ -691,7 +691,7 @@ begin
     // the server's selection is exactly one non-empty protocol (RFC 7301 3.1)
     if System.Length(LProtocol) = 0 then
       raise EDecodeErrorTlsLibException.CreateRes(@SEmptyAlpnProtocol);
-    AContext.SelectedAlpn := TEncoding.ASCII.GetString(LProtocol);
+    AContext.SelectedAlpn := LProtocol;
   end
   else
   begin
@@ -704,7 +704,7 @@ begin
       if System.Length(LProtocol) = 0 then
         raise EDecodeErrorTlsLibException.CreateRes(@SEmptyAlpnProtocol);
       SetLength(AContext.AlpnProtocols, LCount + 1);
-      AContext.AlpnProtocols[LCount] := TEncoding.ASCII.GetString(LProtocol);
+      AContext.AlpnProtocols[LCount] := LProtocol;
       Inc(LCount);
     end;
     // the ProtocolNameList must carry at least one protocol (RFC 7301 3.1)

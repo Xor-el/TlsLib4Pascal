@@ -64,6 +64,8 @@ type
     class function ReadAllText(const AFile: string): string; static;
     /// <summary>Reads a whole file as raw bytes (e.g. a DER OCSP response).</summary>
     class function ReadAllBytes(const AFile: string): TBytes; static;
+    /// <summary>The bytes of an argument read by TInteropArgs, one per code unit.</summary>
+    class function OctetsOf(const AText: string): TBytes; static;
     /// <summary>Concatenates two byte slices.</summary>
     class function Concat(const A, B: TBytes): TBytes; static;
     /// <summary>Whether two byte slices have the same length and contents.</summary>
@@ -340,6 +342,16 @@ begin
   finally
     LStream.Free;
   end;
+end;
+
+class function TInteropUtils.OctetsOf(const AText: string): TBytes;
+var
+  LI: Int32;
+begin
+  Result := nil;
+  SetLength(Result, System.Length(AText));
+  for LI := 1 to System.Length(AText) do
+    Result[LI - 1] := Byte(Ord(AText[LI]));
 end;
 
 class function TInteropUtils.Concat(const A, B: TBytes): TBytes;

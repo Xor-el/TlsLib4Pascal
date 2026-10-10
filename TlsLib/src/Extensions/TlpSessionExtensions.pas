@@ -89,8 +89,6 @@ resourcestring
   SEmptyPskModes = 'psk_key_exchange_modes carries no modes';
   SBadEarlyData = 'early_data must be empty in this context';
   SBadSessionTicketEcho = 'a server session_ticket acknowledgement must carry an empty body (RFC 5077 3.2)';
-  SEmptyPskIdentities = 'pre_shared_key carries no identities';
-  SEmptyPskBinders = 'pre_shared_key carries no binders';
 
 { TPskKeyExchangeModesExtension }
 
@@ -326,8 +324,6 @@ begin
     AContext.OfferedPskAges[LIdCount] := LIdentities.ReadUInt32;
     Inc(LIdCount);
   end;
-  if LIdCount = 0 then
-    raise EDecodeErrorTlsLibException.CreateRes(@SEmptyPskIdentities);
   LBinders := LReader.OpenVector(2);
   LReader.ExpectEnd;
   AContext.OfferedPskBinders := nil;
@@ -339,8 +335,6 @@ begin
     AContext.OfferedPskBinders[LBinderCount] := LEntry.ReadBytes(LEntry.Remaining);
     Inc(LBinderCount);
   end;
-  if LBinderCount = 0 then
-    raise EDecodeErrorTlsLibException.CreateRes(@SEmptyPskBinders);
 end;
 
 end.

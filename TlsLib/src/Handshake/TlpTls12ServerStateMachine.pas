@@ -99,7 +99,7 @@ type
     AlpnRejectAll: Boolean;
     /// <summary>The server's ALPN preferences (RFC 7301); the first that the client also
     /// offered is selected and echoed in the ServerHello. Empty declines ALPN.</summary>
-    AlpnProtocols: TArray<string>;
+    AlpnProtocols: TArray<TBytes>;
     /// <summary>Whether the server requests a client certificate (mutual TLS) and how
     /// strictly it is enforced.</summary>
     ClientAuth: TClientAuthMode;
@@ -193,7 +193,7 @@ type
     FIssueNewTicket: Boolean;
     /// <summary>The application protocol selected from the client's ALPN offer, or empty when
     /// none was offered/configured (RFC 7301); echoed in the ServerHello.</summary>
-    FSelectedAlpn: string;
+    FSelectedAlpn: TBytes;
     /// <summary>Resumption state: whether the handshake resumes, and the accepted session.</summary>
     FResuming: Boolean;
     FResumedSession: ITls12ResumableSession;
@@ -948,7 +948,7 @@ begin
     LChainForTicket := nil;
   Result := TTls12ResumableSession.Create(FSelectedSuite.Common.Code,
     FSelectedSuite.Common.Hash, FSchedule.MasterSecret, ASessionId, nil,
-    FUseExtendedMasterSecret, '', FRequestedServerName, EmittedTicketLifetime,
+    FUseExtendedMasterSecret, nil, FRequestedServerName, EmittedTicketLifetime,
     FParams.Clock.NowUnixMillis, LChainForTicket, FParams.ResumptionScope);
 end;
 

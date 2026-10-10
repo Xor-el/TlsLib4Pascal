@@ -69,7 +69,7 @@ type
     /// <summary>The offered protocol versions (preference order); empty keeps the
     /// Compatible preset's TLS 1.3 + hardened 1.2 default.</summary>
     SupportedVersions: TArray<UInt16>;
-    AlpnProtocols: TArray<string>;
+    AlpnProtocols: TArray<TBytes>;
     Trust: ITrustAnchorStore;
     CheckServerName: Boolean;
     /// <summary>When set, a server omits the empty server_name acknowledgement (RFC 6066 3).</summary>

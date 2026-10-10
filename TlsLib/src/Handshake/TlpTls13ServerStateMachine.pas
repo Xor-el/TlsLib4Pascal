@@ -89,7 +89,7 @@ type
     /// <summary>The server's ALPN protocols in preference order. When set and the
     /// client offers ALPN, the server selects its first match, or aborts with
     /// no_application_protocol on no overlap (RFC 7301).</summary>
-    AlpnProtocols: TArray<string>;
+    AlpnProtocols: TArray<TBytes>;
     /// <summary>The record_size_limit (RFC 8449) plaintext value the server advertises,
     /// in [64, 2^14]; 0 leaves the extension unoffered.</summary>
     RecordSizeLimit: Int32;
@@ -203,10 +203,10 @@ type
     /// object for encapsulation (RFC 8446 4.2.8).</summary>
     FSelectedGroup: INamedGroup;
     FCookie: THelloRetryCookie;
-    FSelectedAlpn: string;
+    FSelectedAlpn: TBytes;
     /// <summary>The ALPN protocol bound to an accepted resumption ticket; 0-RTT is only
     /// accepted when the ALPN negotiated on the resumed handshake matches it (RFC 8446 4.2.10).</summary>
-    FAcceptedSessionAlpn: string;
+    FAcceptedSessionAlpn: TBytes;
     FClientSentServerName: Boolean;
     FRequestedServerName: string;
     // the credential the resolver selected for this handshake, from the client's SNI
@@ -350,7 +350,7 @@ type
     /// <summary>Rejects a malformed pre_shared_key that offers unequal identity and binder
     /// counts (RFC 8446 4.2.11); a no-op when no PSK is offered. Runs on every ClientHello
     /// (including the retry) so a mismatch introduced on either flight is caught.</summary>
-    procedure ValidatePskBinderCount(const AContext: TExtensionContext);
+    procedure ValidatePskOffer(const AContext: TExtensionContext);
     /// <summary>Appends the post-handshake NewSessionTicket sends (RFC 8446 4.6.1).</summary>
     procedure EmitNewSessionTickets(var AEffects: TArray<THandshakeEffect>);
     /// <summary>The serialized length of a pre_shared_key binders vector.</summary>
@@ -453,6 +453,10 @@ resourcestring
   SNoCompatibleScheme = 'the server credential cannot satisfy the client signature_algorithms';
   SBadClientFinished = 'the client Finished did not verify';
   SBadPskBinder = 'the pre_shared_key binder did not validate';
+  SEmptyPskIdentities = 'pre_shared_key carries no identities';
+  SEmptyPskBinders = 'pre_shared_key carries no binders';
+  SEmptyPskIdentity = 'a pre_shared_key identity is empty';
+  SEmptyPskBinder = 'a pre_shared_key binder is empty';
   SPskBinderCountMismatch = 'the pre_shared_key offers unequal identity and binder counts';
   SPskMissingOnRetry = 'the second ClientHello dropped the pre_shared_key the server selected';
   SPskIdentityNotFound = 'the second ClientHello no longer offers the selected pre_shared_key identity';
@@ -608,7 +612,7 @@ end;
 procedure TTls13ServerStateMachine.AppendNegotiatedInfoEffects(
   var AEffects: TArray<THandshakeEffect>);
 begin
-  if FSelectedAlpn <> '' then
+  if System.Length(FSelectedAlpn) > 0 then
     TArrayUtilities.Append<THandshakeEffect>(AEffects,
       THandshakeEffects.SelectAlpn(FSelectedAlpn));
   // pass the raw negotiated record_size_limit values (RFC 8449 TLSInnerPlaintext caps);
@@ -633,7 +637,7 @@ begin
   // AExtensions is the caller's single parse of this ClientHello's extension block, reused for
   // the structural consume and the pre_shared_key-last check below (RFC 8446 4.2)
   FCodec.ConsumeBlock(AContext, TTlsExtensionContextKind.ClientHello, AExtensions);
-  ValidatePskBinderCount(AContext);
+  ValidatePskOffer(AContext);
   // pre_shared_key MUST be the last ClientHello extension (RFC 8446 4.2.11) so the binder
   // covers a well-defined prefix; a present-but-not-last offer is illegal_parameter
   if (System.Length(AContext.OfferedPskIdentities) > 0) and
@@ -766,7 +770,8 @@ begin
   // 0-RTT is bound to the ticket's ALPN (RFC 8446 4.2.10): a resumed handshake that negotiates
   // a different protocol than the ticket carried must reject early data (the session still
   // resumes). Only applies to an accepted resumption ticket.
-  if FEarlyDataAccepted and (FSelectedAlpn <> FAcceptedSessionAlpn) then
+  if FEarlyDataAccepted and
+    not TArrayUtilities.AreEqual(FSelectedAlpn, FAcceptedSessionAlpn) then
     FEarlyDataAccepted := False;
   if AContext.RecordSizeLimit > 0 then
   begin
@@ -1001,11 +1006,28 @@ begin
   end;
 end;
 
-procedure TTls13ServerStateMachine.ValidatePskBinderCount(
+procedure TTls13ServerStateMachine.ValidatePskOffer(
   const AContext: TExtensionContext);
+var
+  LI: Int32;
 begin
-  // only meaningful when a pre_shared_key is actually offered; an empty binders vector with
-  // a present PSK is caught as decode_error while parsing, so guard on both being non-empty
+  // checked here, not in the codec, so a server that negotiates TLS 1.2 ignores a pre_shared_key it
+  // can never use. Its syntax is identity<1..2^16-1> and PskBinderEntry<32..255> (RFC 8446
+  // 4.2.11): an empty list or entry is malformed, while a binder of the wrong length fails
+  // validation as decrypt_error (RFC 8446 6.2)
+  if AContext.WasOffered(TExtensionTypes.PreSharedKey) then
+  begin
+    if System.Length(AContext.OfferedPskIdentities) = 0 then
+      raise EDecodeErrorTlsLibException.CreateRes(@SEmptyPskIdentities);
+    if System.Length(AContext.OfferedPskBinders) = 0 then
+      raise EDecodeErrorTlsLibException.CreateRes(@SEmptyPskBinders);
+  end;
+  for LI := 0 to System.High(AContext.OfferedPskIdentities) do
+    if System.Length(AContext.OfferedPskIdentities[LI]) = 0 then
+      raise EDecodeErrorTlsLibException.CreateRes(@SEmptyPskIdentity);
+  for LI := 0 to System.High(AContext.OfferedPskBinders) do
+    if System.Length(AContext.OfferedPskBinders[LI]) = 0 then
+      raise EDecodeErrorTlsLibException.CreateRes(@SEmptyPskBinder);
   if (System.Length(AContext.OfferedPskIdentities) > 0) and
     (System.Length(AContext.OfferedPskBinders) > 0) and
     (System.Length(AContext.OfferedPskIdentities) <>

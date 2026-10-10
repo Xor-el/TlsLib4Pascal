@@ -32,8 +32,9 @@ type
   TTlsConnectionInfo = record
     /// The negotiated protocol version (zero before the handshake completes).
     NegotiatedVersion: TTlsVersion;
-    /// The selected ALPN protocol; empty when none was negotiated.
-    AlpnProtocol: string;
+    /// The selected ALPN protocol name (RFC 7301 opaque octets; see TAlpnProtocols.TryToText for the
+    /// text of an ASCII name); empty when none was negotiated.
+    AlpnProtocol: TBytes;
     /// The server name in play, empty when none (see the summary for its two readers: the client's
     /// construction host through a stream, or the SNI host_name read straight off the engine).
     ServerName: string;

@@ -179,7 +179,7 @@ type
     procedure SetEarlyDataLimit(AMaxBytes: Int32);
     procedure SetEarlyReadEpoch(AActive: Boolean; AMaxBytes: Int32);
     procedure OnHandshakeEvent(AEvent: TTlsEventKind);
-    procedure OnAlpnSelected(const AProtocol: string);
+    procedure OnAlpnSelected(const AProtocol: TBytes);
     procedure OnVersionNegotiated(const AVersion: TTlsVersion);
     procedure OnOcspStapleReceived(const AStaple: TBytes);
     procedure OnCertificateVerdictNeeded(const AChain, AValidatedPath: TArray<TBytes>;
@@ -261,7 +261,7 @@ type
     procedure SetEarlyDataLimit(AMaxBytes: Int32);
     procedure SetEarlyReadEpoch(AActive: Boolean; AMaxBytes: Int32);
     procedure OnHandshakeEvent(AEvent: TTlsEventKind);
-    procedure OnAlpnSelected(const AProtocol: string);
+    procedure OnAlpnSelected(const AProtocol: TBytes);
     procedure OnVersionNegotiated(const AVersion: TTlsVersion);
     procedure OnOcspStapleReceived(const AStaple: TBytes);
     procedure OnCertificateVerdictNeeded(const AChain, AValidatedPath: TArray<TBytes>;
@@ -337,7 +337,7 @@ begin
   FEngine.OnHandshakeEvent(AEvent);
 end;
 
-procedure TEngineHandshakeBridge.OnAlpnSelected(const AProtocol: string);
+procedure TEngineHandshakeBridge.OnAlpnSelected(const AProtocol: TBytes);
 begin
   FEngine.OnAlpnSelected(AProtocol);
 end;
@@ -1127,9 +1127,11 @@ end;
 function TTlsEngine.ConnectionInfo: TTlsConnectionInfo;
 begin
   Result := FInfo;
-  // copy retry_configs so a caller re-offering it cannot mutate the engine's held bytes; the
-  // certificate, path, CA and staple arrays are shared read-only views, not copies
+  // copy retry_configs and the ALPN name so a caller cannot mutate the engine's held bytes (the
+  // name also rides a resumption ticket); the certificate, path, CA and staple arrays are shared
+  // read-only views, not copies
   Result.EchRetryConfigs := System.Copy(FInfo.EchRetryConfigs);
+  Result.AlpnProtocol := System.Copy(FInfo.AlpnProtocol);
 end;
 
 procedure TTlsEngine.InstallReadProtection(const AProtection: IRecordProtection);
@@ -1203,7 +1205,7 @@ begin
   Enqueue(TTlsEvents.MakeSimple(AEvent));
 end;
 
-procedure TTlsEngine.OnAlpnSelected(const AProtocol: string);
+procedure TTlsEngine.OnAlpnSelected(const AProtocol: TBytes);
 begin
   FInfo.AlpnProtocol := AProtocol;
 end;
