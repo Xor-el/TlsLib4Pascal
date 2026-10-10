@@ -250,8 +250,8 @@ var
 begin
   // the signature is genuine RSASSA-PKCS1-v1_5 by rsa_pkcs8_der, over a DigestInfo that omits the
   // NULL parameters RFC 8017 9.2 requires; no verifier may take it for a valid signature, the
-  // portable one or the OS one (the native overlay where the platform has one, else the same
-  // portable verifier); both are named here, so the CI provider choice does not decide what runs
+  // portable one, pinned, or the suite's own, which the CI provider choice (TLSLIB_CRYPTO_PROVIDER)
+  // makes the native overlay on a leg that runs it and the portable verifier otherwise
   LMessage := DecodeHex(SMessageHex);
   LVerifier := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable).Signing
     .CreateSignatureVerifier(TSignatureScheme.RSA_PKCS1_SHA256,
@@ -259,12 +259,11 @@ begin
   LVerifier.Update(LMessage, 0, System.Length(LMessage));
   CheckFalse(LVerifier.Verify(DecodeHex(FV.Values['rsa_pkcs1_sha256_no_null_sig'])),
     'a DigestInfo without NULL parameters does not verify (portable)');
-  LVerifier := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS).Signing
-    .CreateSignatureVerifier(TSignatureScheme.RSA_PKCS1_SHA256,
+  LVerifier := Crypto.Signing.CreateSignatureVerifier(TSignatureScheme.RSA_PKCS1_SHA256,
     DecodeHex(FV.Values['rsa_pub']));
   LVerifier.Update(LMessage, 0, System.Length(LMessage));
   CheckFalse(LVerifier.Verify(DecodeHex(FV.Values['rsa_pkcs1_sha256_no_null_sig'])),
-    'a DigestInfo without NULL parameters does not verify (the OS provider)');
+    'a DigestInfo without NULL parameters does not verify (the suite provider)');
   CheckTrue(RoundTrips(TSignatureScheme.RSA_PKCS1_SHA256, Import('rsa_pkcs8_der'), 'rsa_pub'),
     'control: a canonical signature by the same key verifies');
 end;
