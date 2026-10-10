@@ -1,0 +1,27 @@
+docs/cookbook.md
+  s_d27f31cd14035d::t_445a93607b9117 589-591
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_d27f31cd14035d::t_4904872459e3bc 1467-1478
+  s_d27f31cd14035d::t_a894a2df30f2b9 1618-1623
+  s_d27f31cd14035d::t_a8f3bf9eb661df 118-119
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_d27f31cd14035d::t_33924bc7d20e04 440
+  s_d27f31cd14035d::t_5c1053ea305150 436-437
+  s_d27f31cd14035d::t_984caf34f9c316 3090-3091,3093-3095
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "61e11c078556da478d4352a2781056e0780cbf76",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
