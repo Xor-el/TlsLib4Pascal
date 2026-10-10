@@ -1,0 +1,58 @@
+TlsLib/src/Engine/TlpTlsEngineFactory.pas
+  s_d27f31cd14035d::t_6f0d510378a209 350
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_d27f31cd14035d::t_dd3e24c73d9fdd 643,645,647-649
+.github/workflows/ci/interop/run-openssl-matrix.sh
+  s_d27f31cd14035d::t_0f8af97d0e5b00 47
+  s_d27f31cd14035d::t_52032d2cdbeebb 175-176,178-188
+  s_d27f31cd14035d::t_b88cca3c7aee66 177
+TlsLib.Interop/src/InteropEngine.pas
+  s_d27f31cd14035d::t_b5ee644332bc8c 378
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_d27f31cd14035d::t_9b3bc13037aa3a 658
+  s_d27f31cd14035d::t_d6bfc27c6e7c29 1271-1276
+docs/cookbook.md
+  s_d27f31cd14035d::t_fe98eeea79b8f2 591
+TlsLib/src/Handshake/TlpTls12ClientStateMachine.pas
+  s_d27f31cd14035d::t_70a503aca51fbd 370-371,376,380-386,389-395
+  s_d27f31cd14035d::t_c4c34fe1e983ab 41
+  s_d27f31cd14035d::t_f8182c014645d2 94-96
+  s_d27f31cd14035d::t_3c4df2bc1557cb 387-388
+  s_d27f31cd14035d::t_f19f9fb5123dd1 426-434
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_d27f31cd14035d::t_f40783d3503ac7 230-232
+TlsLib/src/Extensions/TlpGrease.pas
+  s_d27f31cd14035d::t_063e91b58d2622 42-46
+  s_d27f31cd14035d::t_52ef01338ba520 80-85
+  s_d27f31cd14035d::t_1431debe09a565 99,101
+TlsLib.Interop/src/OpenSslInteropRunner.pas
+  s_d27f31cd14035d::t_897a9aa09e3770 29
+  s_d27f31cd14035d::t_512ed7ce03dd62 261-263
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_d27f31cd14035d::t_f3822dd0179f5d 126-128
+  s_d27f31cd14035d::t_589438882c23de 1713-1715,1717
+  s_d27f31cd14035d::t_09fe59abc7a197 1634,1636
+  s_d27f31cd14035d::t_1fcef9d50c8259 79-81
+  s_d27f31cd14035d::t_1af3cb4624c4f2 1625-1633,1635,1637-1672,1677-1712,1716,1719-1754
+  s_d27f31cd14035d::t_65ac49339faeb2 1673-1676
+  s_d27f31cd14035d::t_162c971f97d4d9 1718
+  s_d27f31cd14035d::t_d0f3ff6b47308d 1506-1507
+  s_d27f31cd14035d::t_f2fca39dbc30d7 1497
+  s_d27f31cd14035d::t_5301c88c69f9b4 174-177
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "65b8a8ffb15443529026e7122587ea3378f6fd70",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
