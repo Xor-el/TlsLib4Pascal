@@ -449,7 +449,7 @@ begin
       if Echo(LPfx, LRoot, False, LError) <> '' then
         raise Exception.Create('a client with no certificate was served');
       // the rejection is the peer's alert, not a timeout or a refused connection
-      if Pos('fatal alert', LError) = 0 then
+      if Pos('the peer sent a fatal alert', LError) = 0 then
         raise Exception.Create('the client with no certificate was not sent an alert: ' + LError);
       LServer.StopServing;
       LServer.WaitFor;

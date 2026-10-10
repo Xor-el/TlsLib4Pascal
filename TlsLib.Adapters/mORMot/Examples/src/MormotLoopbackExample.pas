@@ -85,10 +85,13 @@ type
   strict private
   var
     FServed, FAttempts: Integer;
+    FRejection: string;
   protected
     procedure Execute; override;
   public
     property Served: Integer read FServed;
+    // how the server reports turning the second client away
+    property Rejection: string read FRejection;
     // connections that reached the server, so a missing one is not read as a rejection
     property Attempts: Integer read FAttempts;
   end;
@@ -386,6 +389,7 @@ begin
         end;
       except
         // a client turned away mid-handshake is the expected outcome for the no-certificate leg
+        FRejection := Utf8ToString(LLastErr);
       end;
       LTls := nil;
     end;
@@ -476,6 +480,11 @@ begin
       raise Exception.CreateFmt('the server served %d clients, expected 1', [LServer.Served]);
     if LServer.Attempts <> 2 then
       raise Exception.CreateFmt('the server saw %d clients, expected 2', [LServer.Attempts]);
+    // the server ended the handshake with its own alert, not a transport failure; the adapter
+    // reports no reason beyond that
+    if Pos('a fatal alert was sent', LServer.Rejection) = 0 then
+      raise Exception.Create('the server did not reject the client with an alert: ' +
+        LServer.Rejection);
   finally
     LServer.Free;
   end;
