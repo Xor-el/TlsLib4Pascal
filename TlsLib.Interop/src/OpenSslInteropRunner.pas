@@ -26,6 +26,7 @@ uses
   TlpITrustAnchorStore,
   TlpTrustPolicy,
   TlpNegotiationTypes,
+  TlpTlsVersion,
   TlpISession,
   TlpSessionTicketKeys,
   TlpInMemorySessionCache,
@@ -257,6 +258,9 @@ begin
   if LCache <> nil then
     LOptions.SessionScope := LCrypto.Primitives.GetRandom.GenerateBytes(16);
   LOptions.OfferedGroups := AOfferedGroups;
+  // a TLS 1.2-only client builds its own ClientHello, which the dual-version one does not
+  if HasArg('--tls12-only') then
+    LOptions.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls12);
   LOptions.EchConfigList := AEchConfigList;
   // offer status_request and pin a revocation posture so a stapled-revoked peer is evaluated
   LOptions.RequestOcsp := ARequestOcsp;

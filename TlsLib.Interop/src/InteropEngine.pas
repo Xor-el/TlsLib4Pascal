@@ -375,8 +375,7 @@ begin
       LClient.WithDangerousDisableServerNameCheck;
     // GREASE (RFC 8701) is optional; the shim keeps it off unless the runner enables it, so
     // deterministic assertions (e.g. exact key_share counts) are not perturbed
-    if Offers13(LVersions) then
-      LClient.Tls13.WithGrease(AOptions.Grease);
+    LClient.WithGrease(AOptions.Grease);
     LClient.WithOcspStaplingRequest(AOptions.RequestOcsp);
     if AOptions.ApplyRevocation then
       LClient.WithRevocation(AOptions.RevocationPosture);

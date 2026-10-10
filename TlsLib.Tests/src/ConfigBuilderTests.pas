@@ -76,6 +76,9 @@ uses
   TlpServerName,
   TlpExtensionVector,
   TlpCoreExtensions,
+  TlpGrease,
+  TlpHandshakeMessage,
+  TlpHandshakeMessages,
   TlsLibTestHandshakeDecoder,
   TlpTlsLib,
   MockCryptoProvider,
@@ -120,6 +123,9 @@ type
     function BuildRefused(const AFacet: ITls12ServerConfigFacet;
       const AReason: string): Boolean; overload;
     function HelloSuites(const AWire: TBytes): TArray<UInt16>;
+    function HelloOf(const AWire: TBytes): TTlsClientHello;
+    function NewTls12OnlyClient(AGrease: Boolean): ITlsEngine;
+    function GreaseCount(const AValues: TArray<UInt16>): Int32;
     function NewClientBuilder: ITlsClientConfigBuilder;
     function NewServerBuilder: ITlsServerConfigBuilder;
     function MakePskSpec: TExternalPsk;
@@ -165,6 +171,10 @@ type
     procedure TestAlpnRejectionWithProtocolsIsRefused;
     procedure TestResumptionSettingsAreRefusedWhenResumptionIsOff;
     procedure TestSingleVersionHelloAdvertisesOnlyThatVersionsSuites;
+    procedure TestTls12OnlyHelloCarriesGrease;
+    procedure TestGreaseOffSendsNone;
+    procedure TestTls12OnlyClientCompletesWithGrease;
+    procedure TestTls12ClientRefusesAGreaseSuiteTheServerSelects;
     procedure TestAlpnSetterCopiesCallerArray;
     procedure TestRecordSizeLimitDefaultsToUnset;
     procedure TestExternalPskInnerBytesAreCopied;
@@ -1484,19 +1494,17 @@ procedure TTestConfigBuilder.TestTls13SettingsAreRefusedWhenTls13IsNotOffered;
 var
   LOnly12: TArray<UInt16>;
 begin
-  // GREASE, the ticket count and the PSK settings are read only by the TLS 1.3 machines; set on a
+  // the ticket count and the PSK settings are read only by the TLS 1.3 machines; set on a
   // TLS 1.2-only config they would silently do nothing, so the Tls13 facet refuses them at Build
   LOnly12 := TArray<UInt16>.Create(TlsWireVersionTls12);
-  CheckTrue(ClientBuildNeedsTls13(NewClientBuilder.WithSupportedVersions(LOnly12)
-    .Tls13.WithGrease(False)), 'turning GREASE off on a TLS 1.2-only client');
   CheckTrue(ClientBuildNeedsTls13(NewClientBuilder.WithSupportedVersions(LOnly12)
     .Tls13.WithExternalPskRequired(False)),
     'the PSK-required switch alone, with no PSKs, on a TLS 1.2-only client');
   CheckTrue(ServerBuildNeedsTls13(NewServerBuilder.WithSupportedVersions(LOnly12)
     .Tls13.WithTicketCount(3)), 'a ticket count on a TLS 1.2-only server');
   // restating a default is not a setting: the facet counts as configured only by a non-default value
-  CheckTrue(NewClientBuilder.WithSupportedVersions(LOnly12).Tls13.WithGrease(True).Build <> nil,
-    'restating the GREASE default on a TLS 1.2-only client is not refused');
+  CheckTrue(NewClientBuilder.WithSupportedVersions(LOnly12).WithGrease(False).Build <> nil,
+    'GREASE applies to a TLS 1.2-only hello too, so turning it off is not refused');
   CheckTrue(NewServerBuilder.WithSupportedVersions(LOnly12).Tls13.WithTicketCount(2).Build <> nil,
     'restating the default ticket count on a TLS 1.2-only server is not refused');
   CheckTrue(NewClientBuilder.WithSupportedVersions(LOnly12).Tls13.WithEchGrease(False).Build <> nil,
@@ -1612,6 +1620,136 @@ begin
   SetLength(Result, LCount);
   for LI := 0 to LCount - 1 do
     Result[LI] := UInt16((AWire[LPos + 2 * LI] shl 8) or AWire[LPos + 2 * LI + 1]);
+end;
+
+function TTestConfigBuilder.HelloOf(const AWire: TBytes): TTlsClientHello;
+begin
+  // record header 5, handshake header 4
+  Result := THandshakeMessages.DecodeClientHello(
+    System.Copy(AWire, 9, System.Length(AWire) - 9));
+end;
+
+function TTestConfigBuilder.NewTls12OnlyClient(AGrease: Boolean): ITlsEngine;
+begin
+  Result := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
+    .WithTrustStore(ClientTrust).WithGrease(AGrease).Build, 'localhost');
+end;
+
+function TTestConfigBuilder.GreaseCount(const AValues: TArray<UInt16>): Int32;
+var
+  LValue: UInt16;
+begin
+  Result := 0;
+  for LValue in AValues do
+    if TGrease.IsGrease(LValue) then
+      Inc(Result);
+end;
+
+procedure TTestConfigBuilder.TestTls12OnlyHelloCarriesGrease;
+var
+  LClient: ITlsEngine;
+  LHello: TTlsClientHello;
+  LVector: TExtensionVector;
+  LTypes: TArray<UInt16>;
+  LEntry: TExtensionEntry;
+  LGreaseTypes: Int32;
+  LType: UInt16;
+  LBodies: array[0..1] of Int32;
+begin
+  // RFC 8701 3.1 covers every ClientHello, not just a TLS 1.3 one
+  LClient := NewTls12OnlyClient(True);
+  LClient.StartHandshake;
+  LHello := HelloOf(Drain(LClient));
+  CheckEquals(1, GreaseCount(LHello.CipherSuites), 'one GREASE cipher suite');
+  LVector := TExtensionVector.Parse(LHello.Extensions);
+  CheckTrue(LVector.TryFind(TExtensionTypes.SupportedGroups, LEntry), 'supported_groups is sent');
+  CheckTrue(TGrease.IsGrease(UInt16((LEntry.Data[2] shl 8) or LEntry.Data[3])),
+    'a GREASE group leads supported_groups');
+  CheckTrue(LVector.TryFind(TExtensionTypes.SignatureAlgorithms, LEntry),
+    'signature_algorithms is sent');
+  CheckTrue(TGrease.IsGrease(UInt16((LEntry.Data[2] shl 8) or LEntry.Data[3])),
+    'a GREASE scheme leads signature_algorithms');
+  CheckTrue(LVector.TryFind(TExtensionTypes.SupportedVersions, LEntry),
+    'supported_versions is sent');
+  CheckTrue(TGrease.IsGrease(UInt16((LEntry.Data[1] shl 8) or LEntry.Data[2])),
+    'a GREASE version leads supported_versions');
+  LTypes := LVector.Types;
+  LGreaseTypes := 0;
+  LBodies[0] := -1;
+  LBodies[1] := -1;
+  for LType in LTypes do
+    if TGrease.IsGrease(LType) then
+    begin
+      LVector.TryFind(LType, LEntry);
+      LBodies[LGreaseTypes] := System.Length(LEntry.Data);
+      Inc(LGreaseTypes);
+    end;
+  CheckEquals(2, LGreaseTypes, 'two GREASE extensions');
+  CheckEquals(0, LBodies[0] + LBodies[1] - 1, 'one empty and one one-byte, so the hello varies');
+end;
+
+procedure TTestConfigBuilder.TestGreaseOffSendsNone;
+var
+  LClient: ITlsEngine;
+  LHello: TTlsClientHello;
+  LVector: TExtensionVector;
+  LType: UInt16;
+begin
+  LClient := NewTls12OnlyClient(False);
+  LClient.StartHandshake;
+  LHello := HelloOf(Drain(LClient));
+  CheckEquals(0, GreaseCount(LHello.CipherSuites), 'no GREASE suite');
+  LVector := TExtensionVector.Parse(LHello.Extensions);
+  for LType in LVector.Types do
+    CheckFalse(TGrease.IsGrease(LType), 'no GREASE extension');
+end;
+
+procedure TTestConfigBuilder.TestTls12OnlyClientCompletesWithGrease;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // a conformant server ignores the GREASE values (RFC 8701 3.2)
+  LClient := NewTls12OnlyClient(True);
+  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential).Build);
+  RunHandshake(LClient, LServer);
+  CheckFalse(LClient.IsTerminal or LServer.IsTerminal, 'the handshake completed');
+  CheckEquals(Int64(TlsWireVersionTls12), Int64(LClient.ConnectionInfo.NegotiatedVersion.WireValue),
+    'over TLS 1.2');
+end;
+
+procedure TTestConfigBuilder.TestTls12ClientRefusesAGreaseSuiteTheServerSelects;
+var
+  LClient: ITlsEngine;
+  LHello: TTlsClientHello;
+  LMsg: TTlsServerHello;
+  LFramed, LRecord: TBytes;
+  LI, LGreaseSuite: Int32;
+begin
+  // the client must reject a GREASE value the server selects (RFC 8701 3.1): the check runs
+  // against the configured suites, which never hold one
+  LClient := NewTls12OnlyClient(True);
+  LClient.StartHandshake;
+  LHello := HelloOf(Drain(LClient));
+  LGreaseSuite := -1;
+  for LI := 0 to System.High(LHello.CipherSuites) do
+    if TGrease.IsGrease(LHello.CipherSuites[LI]) then
+      LGreaseSuite := LHello.CipherSuites[LI];
+  CheckTrue(LGreaseSuite >= 0, 'the hello offered a GREASE suite');
+  LMsg.LegacyVersion := TlsWireVersionTls12;
+  LMsg.Random := Crypto.Primitives.GetRandom.GenerateBytes(32);
+  LMsg.LegacySessionIdEcho := LHello.LegacySessionId;
+  LMsg.CipherSuite := UInt16(LGreaseSuite);
+  LMsg.Extensions := TBytes.Create(0, 0);
+  LFramed := THandshakeFraming.Frame(TTlsHandshakeType.ServerHello,
+    THandshakeMessages.EncodeServerHello(LMsg));
+  LRecord := ConcatBytes(TBytes.Create($16, $03, $03, Byte(System.Length(LFramed) shr 8),
+    Byte(System.Length(LFramed))), LFramed);
+  Feed(LClient, LRecord);
+  CheckTrue(LClient.IsTerminal, 'the client aborted');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.IllegalParameter)),
+    Int64(Ord(LClient.LastError.Alert.Description)), 'with illegal_parameter');
 end;
 
 procedure TTestConfigBuilder.TestSingleVersionHelloAdvertisesOnlyThatVersionsSuites;
