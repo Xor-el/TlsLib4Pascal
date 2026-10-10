@@ -37,6 +37,9 @@ type
     /// <summary>Whether this platform contributes at least one native facet. When
     /// False, <see cref="Compose" /> returns its argument unchanged.</summary>
     class function HasNativeFacets: Boolean; static;
+    /// <summary>The native provider this platform contributes, for logs and test reports; empty
+    /// where there is none.</summary>
+    class function PlatformName: string; static;
     /// <summary>ABase with this platform's native facets overlaid where it has them,
     /// or ABase unchanged otherwise (including where native support is compiled in but
     /// unavailable at runtime). Never nil. The caller supplies the base provider, so this
@@ -56,6 +59,15 @@ begin
   Result := True;
 {$ELSE}
   Result := False;
+{$IFEND}
+end;
+
+class function TOSCryptoProvider.PlatformName: string;
+begin
+{$IF DEFINED(TLSLIB_MSWINDOWS)}
+  Result := 'Windows CNG';
+{$ELSE}
+  Result := '';
 {$IFEND}
 end;
 

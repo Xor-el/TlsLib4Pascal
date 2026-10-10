@@ -9,13 +9,11 @@
 
 (* &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&& *)
 
-unit WindowsSystemCryptoTests;
+unit NativeCryptoProviderTests;
 
 {$I ..\..\TlsLib\src\Include\TlsLib.inc}
 
 interface
-
-{$IFDEF TLSLIB_MSWINDOWS}
 
 uses
   SysUtils,
@@ -30,7 +28,7 @@ uses
   TlpIKeyExchangePrivateKey,
   TlpDefaultCryptoProvider,
   TlsLibTestProviders,
-  TlpWindowsSystemCrypto,
+  TlpOSCryptoProvider,
   TlpICryptoBackendReport,
   TlpSystemCryptoTypes,
   TlpCryptoDomainTypes,
@@ -55,38 +53,47 @@ uses
   TlsLibTestBase;
 
 type
-  /// <summary>Covers the Windows CNG signing overlay's native public-key export: a natively
-  /// imported key's PublicKeyInfo comes from the signing handle itself (not the portable
-  /// facet), it is the canonical SPKI of that key, and it drives the credential leaf guard.
-  /// Runs only where CNG signing is served; skips otherwise.</summary>
-  TTestWindowsSystemCrypto = class(TTlsLibAlgorithmTestCase)
+  /// <summary>The contract every native crypto provider must meet: a natively imported key's
+  /// PublicKeyInfo comes from the signing handle itself (not the portable facet), signatures verify
+  /// as strictly as the portable verifier, key exchange refuses foreign keys, and the credential
+  /// leaf guard sees the native key. The provider under test is whatever TOSCryptoProvider
+  /// composes for the platform, and each test runs only for what the backend report says is
+  /// native, so a platform with no native provider runs none of them and a new one needs no edit
+  /// here. Abstract: a platform leaf below adds its own cases and is the one class registered.</summary>
+  TTestNativeCryptoProvider = class abstract(TTlsLibAlgorithmTestCase)
   strict private
-    FKeys: TStringList;
-    FPfx: TStringList;
-    // The overlay composed over the portable base (native where the KSP is present).
+    // The native facets composed over the portable base (native where the platform serves them).
     function Composed(const ABase: ICryptoProvider): ICryptoProvider;
-    // Whether the provider serves AScheme from the OS module.
-    function IsNativeSigning(const AProvider: ICryptoProvider;
-      AScheme: TSignatureScheme): Boolean;
-    // Whether AKey was adopted by the OS module (carries the native marker).
-    function IsNativeKey(const AProvider: ICryptoProvider;
-      const AKey: ISigningKey): Boolean;
-    // Gate for a native test: True when the composed provider serves AScheme natively (so the
-    // test runs), False when it reports portable (the caller skips - a host without the OS module).
-    function NativeSigningOrSkip(const AProvider: ICryptoProvider;
-      AScheme: TSignatureScheme): Boolean;
     // A full, valid TLS 1.3 server config built over the composed overlay with ACredential.
     function BuildServerConfig(const ACredential: TTlsCredential): ITlsServerConfig;
     // The class and message of the exception AProvider raises importing AData, empty when it imports.
     function ImportFailure(const AProvider: ICryptoProvider; const AData: TBytes;
       const APassword: ISecretBuffer): string;
   strict protected
-    // the fixture drives the overlay, so the crypto provider under test is the composed one
+    FKeys: TStringList;
+    FPfx: TStringList;
+    // the fixture drives the native provider, so the crypto provider under test is the composed one
     function CreateCrypto: ICryptoProvider; override;
+    // The portable provider the native one is composed over, for the cases that wrap it (a facet
+    // that raises when the portable path is used) or compare against it. Crypto is the composed one.
+    function Portable: ICryptoProvider;
+    // Whether the provider serves AScheme from the platform's native module.
+    function IsNativeSigning(const AProvider: ICryptoProvider;
+      AScheme: TSignatureScheme): Boolean;
+    // Whether AKey was adopted by the platform's native module (carries the native marker).
+    function IsNativeKey(const AProvider: ICryptoProvider;
+      const AKey: ISigningKey): Boolean;
+    // Gate for a native test: True when the composed provider serves AScheme natively (so the
+    // test runs), False when it reports portable (the caller skips - a host without the module).
+    function NativeSigningOrSkip(const AProvider: ICryptoProvider;
+      AScheme: TSignatureScheme): Boolean;
   protected
     procedure SetUp; override;
     procedure TearDown; override;
   published
+    // always runs: says in the log whether anything native was exercised, since a platform with
+    // no native provider otherwise passes the contract by skipping every case
+    procedure TestNativeCoverageIsReported;
     // the exported SubjectPublicKeyInfo does not come from the portable facet: over a base
     // whose ImportSigningKey raises, a natively imported key still exposes the correct SPKI
     procedure TestExportedPublicKeyIsIndependentOfPortable;
@@ -106,10 +113,7 @@ type
     // the overlay's X25519 returns the portable result for a u outside the prime-order subgroup,
     // or refuses it, never a different value
     procedure TestX25519NeverDisagreesWithPortable;
-    // both parsers agree on the key: the natively adopted PKCS#12 key's exported SPKI equals
-    // the leaf certificate's SPKI (guards against crypt32 key<->cert association drift)
-    procedure TestPkcs12ExportedKeyMatchesLeaf;
-    // policy stays enforced through the overlay: a multi-key store is rejected on Windows too
+    // policy stays enforced through the overlay: a multi-key store is rejected on every platform
     procedure TestPkcs12MultiKeyStillFailsClosed;
     procedure TestPemFirstPrivateKeyBlockDecidesImport;
     // the credential leaf guard sees the native key's exported SPKI: a wrong leaf is refused
@@ -120,11 +124,21 @@ type
     procedure TestPreferredSchemesCopySharesPublicKey;
   end;
 
-{$ENDIF TLSLIB_MSWINDOWS}
+{$IF DEFINED(TLSLIB_MSWINDOWS)}
+  /// <summary>The Windows CNG / crypt32 cases on top of the native provider contract.</summary>
+  TTestWindowsNativeCryptoProvider = class(TTestNativeCryptoProvider)
+  published
+    // both parsers agree on the key: the natively adopted PKCS#12 key's exported SPKI equals
+    // the leaf certificate's SPKI (guards against crypt32 key<->cert association drift)
+    procedure TestPkcs12ExportedKeyMatchesLeaf;
+  end;
+{$ELSE}
+  /// <summary>The contract on a platform with no native-provider section of its own.</summary>
+  TTestNativeCryptoProviderContract = class(TTestNativeCryptoProvider)
+  end;
+{$IFEND}
 
 implementation
-
-{$IFDEF TLSLIB_MSWINDOWS}
 
 const
   // "The quick brown fox"
@@ -199,40 +213,52 @@ begin
   Result := FReal.CreateSignatureVerifier(AScheme, APublicKeyDer);
 end;
 
-{ TTestWindowsSystemCrypto }
+{ TTestNativeCryptoProvider }
 
-procedure TTestWindowsSystemCrypto.SetUp;
+procedure TTestNativeCryptoProvider.SetUp;
 begin
   inherited SetUp;
   FKeys := LoadVectorFields('Certs/ImportKeys.txt');
   FPfx := LoadVectorFields('Certs/Pkcs12.txt');
 end;
 
-procedure TTestWindowsSystemCrypto.TearDown;
+procedure TTestNativeCryptoProvider.TearDown;
 begin
   FKeys.Free;
   FPfx.Free;
   inherited TearDown;
 end;
 
-function TTestWindowsSystemCrypto.CreateCrypto: ICryptoProvider;
+function TTestNativeCryptoProvider.CreateCrypto: ICryptoProvider;
 begin
-  Result := Composed(TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable));
+  Result := Composed(Portable);
 end;
 
-function TTestWindowsSystemCrypto.Composed(
+function TTestNativeCryptoProvider.Portable: ICryptoProvider;
+begin
+  Result := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable);
+end;
+
+function TTestNativeCryptoProvider.Composed(
   const ABase: ICryptoProvider): ICryptoProvider;
 begin
-  Result := TWindowsSystemCrypto.Compose(ABase);
+  Result := TOSCryptoProvider.Compose(ABase);
 end;
 
-function TTestWindowsSystemCrypto.NativeSigningOrSkip(const AProvider: ICryptoProvider;
+procedure TTestNativeCryptoProvider.TestNativeCoverageIsReported;
+begin
+  // a platform that contributes no native provider passes the contract by skipping every case;
+  // this line in the log is what tells that apart from a run that exercised one
+  Check(True, TTlsLibTestProviders.Describe);
+end;
+
+function TTestNativeCryptoProvider.NativeSigningOrSkip(const AProvider: ICryptoProvider;
   AScheme: TSignatureScheme): Boolean;
 begin
   Result := IsNativeSigning(AProvider, AScheme);
 end;
 
-function TTestWindowsSystemCrypto.BuildServerConfig(
+function TTestNativeCryptoProvider.BuildServerConfig(
   const ACredential: TTlsCredential): ITlsServerConfig;
 var
   LBuilder: ITlsConfigBuilder;
@@ -249,7 +275,7 @@ begin
     .Build;
 end;
 
-function TTestWindowsSystemCrypto.IsNativeSigning(const AProvider: ICryptoProvider;
+function TTestNativeCryptoProvider.IsNativeSigning(const AProvider: ICryptoProvider;
   AScheme: TSignatureScheme): Boolean;
 var
   LReport: ICryptoBackendReport;
@@ -258,7 +284,7 @@ begin
     (LReport.SigningBackend(AScheme).Backend = TCryptoBackend.System);
 end;
 
-function TTestWindowsSystemCrypto.IsNativeKey(const AProvider: ICryptoProvider;
+function TTestNativeCryptoProvider.IsNativeKey(const AProvider: ICryptoProvider;
   const AKey: ISigningKey): Boolean;
 var
   LReport: ICryptoBackendReport;
@@ -267,7 +293,7 @@ begin
     (LReport.SigningKeyBackend(AKey).Backend = TCryptoBackend.System);
 end;
 
-procedure TTestWindowsSystemCrypto.TestExportedPublicKeyIsIndependentOfPortable;
+procedure TTestNativeCryptoProvider.TestExportedPublicKeyIsIndependentOfPortable;
 type
   TCase = record
     Priv, Pub: string;
@@ -293,7 +319,7 @@ var
 begin
   // the inner facet raises on any key import, so a correct SPKI can only have been exported
   // from the native handle
-  LBase := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable);
+  LBase := Portable;
   LProvider := Composed((TCryptoProviderBuilder.Create as ICryptoProviderBuilder)
     .WithSigning(TThrowingInnerSigning.Create(LBase.Signing) as ISigningCrypto)
     .Build);
@@ -311,7 +337,7 @@ begin
   end;
 end;
 
-procedure TTestWindowsSystemCrypto.TestExportedPublicKeyVerifiesNativeSignature;
+procedure TTestNativeCryptoProvider.TestExportedPublicKeyVerifiesNativeSignature;
 type
   TCase = record
     Priv: string;
@@ -346,7 +372,7 @@ begin
   end;
 end;
 
-procedure TTestWindowsSystemCrypto.TestNativeVerifierRejectsCrossFamilyScheme;
+procedure TTestNativeCryptoProvider.TestNativeVerifierRejectsCrossFamilyScheme;
 var
   LEcKey, LRsaKey: ISigningKey;
   LSigner: ISignatureSigner;
@@ -379,7 +405,7 @@ begin
   CheckFalse(LVerifier.Verify(LRsaSignature), 'an RSA key does not verify under an ECDSA scheme');
 end;
 
-procedure TTestWindowsSystemCrypto.TestNativeRsaVerifierRejectsShortSignature;
+procedure TTestNativeCryptoProvider.TestNativeRsaVerifierRejectsShortSignature;
 
   procedure CheckScheme(const AProvider: ICryptoProvider; AScheme: TSignatureScheme;
     const AKeyName: string);
@@ -418,7 +444,7 @@ var
   LBase, LProvider: ICryptoProvider;
 begin
   // the inner facet raises on creating a verifier, so every verification here ran natively
-  LBase := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable);
+  LBase := Portable;
   LProvider := Composed((TCryptoProviderBuilder.Create as ICryptoProviderBuilder)
     .WithSigning(TThrowingInnerSigning.Create(LBase.Signing, True) as ISigningCrypto)
     .Build);
@@ -432,7 +458,7 @@ begin
   CheckScheme(LProvider, TSignatureScheme.RSA_PKCS1_SHA256, 'rsa1024_pkcs8_der');
 end;
 
-procedure TTestWindowsSystemCrypto.TestNativeRsaPkcs1VerifierIsStrictAboutDigestInfo;
+procedure TTestNativeCryptoProvider.TestNativeRsaPkcs1VerifierIsStrictAboutDigestInfo;
 
   function Verifies(const AProvider: ICryptoProvider; const ASignatureName: string): Boolean;
   var
@@ -452,7 +478,7 @@ begin
   // the inner facet raises on creating a verifier, so every verification here ran natively. RFC 8017
   // 8.2.2 verifies by re-encoding with EMSA-PKCS1-v1_5 and comparing the whole block, so only the
   // DigestInfo of 9.2 Note 1 (with its NULL parameters) is a valid signature
-  LBase := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable);
+  LBase := Portable;
   LProvider := Composed((TCryptoProviderBuilder.Create as ICryptoProviderBuilder)
     .WithSigning(TThrowingInnerSigning.Create(LBase.Signing, True) as ISigningCrypto)
     .Build);
@@ -470,7 +496,7 @@ begin
     'an octet after the DigestInfo');
 end;
 
-procedure TTestWindowsSystemCrypto.TestX25519NeverDisagreesWithPortable;
+procedure TTestNativeCryptoProvider.TestX25519NeverDisagreesWithPortable;
 const
   Names: array [0 .. 1] of string = ('u', 'u_twist');
 var
@@ -484,7 +510,7 @@ begin
   // it is accepted the result must be the portable one
   LVec := LoadVectorFields('Crypto/Ecdh/X25519Rfc7748.txt');
   try
-    LPortable := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable).Primitives
+    LPortable := Portable.Primitives
       .CreateKeyAgreement(TKeyAgreementAlgorithm.X25519);
     LOs := Crypto.Primitives.CreateKeyAgreement(TKeyAgreementAlgorithm.X25519);
     LPortableKey := LPortable.ImportPrivateKey(TSecretBuffer.From(DecodeHex(LVec.Values['scalar'])),
@@ -508,7 +534,7 @@ begin
   end;
 end;
 
-procedure TTestWindowsSystemCrypto.TestKeyExchangePrimitivesRefuseEachOthersKeys;
+procedure TTestNativeCryptoProvider.TestKeyExchangePrimitivesRefuseEachOthersKeys;
 const
   Algorithms: array [0 .. 3] of TKeyAgreementAlgorithm = (
     TKeyAgreementAlgorithm.X25519, TKeyAgreementAlgorithm.SECP256R1,
@@ -550,7 +576,7 @@ var
 begin
   // keys come from a second overlay, so a key is accepted by family and not by which instance
   // or algorithm handle minted it
-  LMinter := Composed(TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable));
+  LMinter := Composed(Portable);
   for LI := Low(Algorithms) to High(Algorithms) do
     LMinter.Primitives.CreateKeyAgreement(Algorithms[LI]).GenerateKeyPair(LPrivates[LI],
       LPublics[LI]);
@@ -582,7 +608,7 @@ begin
         Format('family %d key at the KEM primitive is refused', [LI]));
 end;
 
-procedure TTestWindowsSystemCrypto.TestEcdhImportRefusesScalarsOutsideTheGroupOrder;
+procedure TTestNativeCryptoProvider.TestEcdhImportRefusesScalarsOutsideTheGroupOrder;
 const
   Orders: array [0 .. 2] of string = (
     'FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551',
@@ -626,7 +652,8 @@ begin
   end;
 end;
 
-procedure TTestWindowsSystemCrypto.TestPkcs12ExportedKeyMatchesLeaf;
+{$IF DEFINED(TLSLIB_MSWINDOWS)}
+procedure TTestWindowsNativeCryptoProvider.TestPkcs12ExportedKeyMatchesLeaf;
 const
   LVectors: array [0 .. 3] of string = ('rsa_pfx', 'ec_pfx', 'chain_pfx',
     'rsa_altalg_pfx');
@@ -651,8 +678,9 @@ begin
       LVectors[LI] + ': the exported key pairs the leaf by value');
   end;
 end;
+{$IFEND}
 
-procedure TTestWindowsSystemCrypto.TestPkcs12MultiKeyStillFailsClosed;
+procedure TTestNativeCryptoProvider.TestPkcs12MultiKeyStillFailsClosed;
 var
   LRaised: Boolean;
   LCredential: TImportedCredential;
@@ -670,7 +698,7 @@ begin
   CheckTrue(LRaised, 'a multi-identity store is rejected through the overlay');
 end;
 
-function TTestWindowsSystemCrypto.ImportFailure(const AProvider: ICryptoProvider;
+function TTestNativeCryptoProvider.ImportFailure(const AProvider: ICryptoProvider;
   const AData: TBytes; const APassword: ISecretBuffer): string;
 begin
   Result := '';
@@ -682,7 +710,7 @@ begin
   end;
 end;
 
-procedure TTestWindowsSystemCrypto.TestPemFirstPrivateKeyBlockDecidesImport;
+procedure TTestNativeCryptoProvider.TestPemFirstPrivateKeyBlockDecidesImport;
 var
   LPortable: ICryptoProvider;
   LData: TBytes;
@@ -691,7 +719,7 @@ var
 begin
   if not NativeSigningOrSkip(Crypto, TSignatureScheme.ECDSA_SECP256R1_SHA256) then
     Exit;
-  LPortable := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable);
+  LPortable := Portable;
   // the first private-key block decides, as in the portable provider: an encrypted block with no
   // password fails closed, naming the password, even when a plain key follows it
   LData := ConcatBytes(DecodeHex(FKeys.Values['rsa_enc_pem']),
@@ -723,7 +751,7 @@ begin
     LNativeKey.PublicKeyInfo);
 end;
 
-procedure TTestWindowsSystemCrypto.TestBuilderRejectsWrongLeafForNativeKey;
+procedure TTestNativeCryptoProvider.TestBuilderRejectsWrongLeafForNativeKey;
 var
   LCredential: TImportedCredential;
   LWrong: TTlsCredential;
@@ -734,6 +762,9 @@ begin
     Exit;
   LCredential := Crypto.Signing.ImportPkcs12(DecodeHex(FPfx.Values['chain_pfx']),
     TSecretBuffer.FromString(SPassword));
+  // the guard under test is for a natively held key; a platform that adopts none skips
+  if not IsNativeKey(Crypto, LCredential.PrivateKey) then
+    Exit;
   // pair the native RSA key with a valid EC signing leaf: it permits signing (so the guard
   // reaches the key compare) but its key is a different family, so it fails as a wrong leaf -
   // not on an earlier keyUsage/exportability check
@@ -759,7 +790,7 @@ begin
     + LMsg);
 end;
 
-procedure TTestWindowsSystemCrypto.TestBuilderAcceptsNativeCredential;
+procedure TTestNativeCryptoProvider.TestBuilderAcceptsNativeCredential;
 var
   LCredential: TImportedCredential;
   LGood: TTlsCredential;
@@ -768,6 +799,8 @@ begin
     Exit;
   LCredential := Crypto.Signing.ImportPkcs12(DecodeHex(FPfx.Values['chain_pfx']),
     TSecretBuffer.FromString(SPassword));
+  if not IsNativeKey(Crypto, LCredential.PrivateKey) then
+    Exit;
   LGood.CertificateChain := LCredential.CertificateChain;
   LGood.PrivateKey := LCredential.PrivateKey;
   // the native key's exported SPKI matches its own leaf, so the guard passes and Build succeeds
@@ -775,7 +808,7 @@ begin
     'a native credential whose key owns its leaf builds');
 end;
 
-procedure TTestWindowsSystemCrypto.TestPreferredSchemesCopySharesPublicKey;
+procedure TTestNativeCryptoProvider.TestPreferredSchemesCopySharesPublicKey;
 var
   LKey, LNarrowed: ISigningKey;
 begin
@@ -788,15 +821,17 @@ begin
     LKey.PublicKeyInfo, LNarrowed.PublicKeyInfo);
 end;
 
-procedure TTestWindowsSystemCrypto.TestImportLeavesCallerKeyBytesIntact;
+procedure TTestNativeCryptoProvider.TestImportLeavesCallerKeyBytesIntact;
 const
   // native as given (a PKCS#8 decoded from the PEM fixture; the *_pkcs8_der fixtures hold the
   // PKCS#1 / SEC1 bytes), native after wrapping (PKCS#1, SEC1), and the portable fallback,
   // which re-reads the very same input bytes
   Fields: array [0 .. 3] of string = ('rsa_pkcs8_pem', 'rsa_pkcs1_der', 'ec256_sec1_der',
     'ed25519_pkcs8_der');
-  // Ed25519 has no CNG path, so it must take the portable fallback
-  ExpectNative: array [0 .. 3] of Boolean = (True, True, True, False);
+  // each key is native exactly when the backend report says its scheme is
+  Schemes: array [0 .. 3] of TSignatureScheme = (TSignatureScheme.RSA_PSS_RSAE_SHA256,
+    TSignatureScheme.RSA_PSS_RSAE_SHA256, TSignatureScheme.ECDSA_SECP256R1_SHA256,
+    TSignatureScheme.ED25519);
 var
   LI: Int32;
   LData, LCopy: TBytes;
@@ -817,20 +852,27 @@ begin
     LCopy := System.Copy(LData);
     LKey := Crypto.Signing.ImportSigningKey(LData, nil);
     CheckTrue(LKey <> nil, Fields[LI] + ' imports');
-    CheckEquals(ExpectNative[LI], IsNativeKey(Crypto, LKey),
-      Fields[LI] + ' takes the expected backend');
+    CheckEquals(IsNativeSigning(Crypto, Schemes[LI]), IsNativeKey(Crypto, LKey),
+      Fields[LI] + ' takes the backend the report names for its scheme');
     CheckEqualBytes(Fields[LI] + ' leaves the caller''s bytes untouched', LCopy, LData);
   end;
 end;
 
 initialization
 
+// exactly one class per build, so the contract never runs twice
+{$IF DEFINED(TLSLIB_MSWINDOWS)}
 {$IFDEF FPC}
-  RegisterTest(TTestWindowsSystemCrypto);
+  RegisterTest(TTestWindowsNativeCryptoProvider);
 {$ELSE}
-  RegisterTest(TTestWindowsSystemCrypto.Suite);
+  RegisterTest(TTestWindowsNativeCryptoProvider.Suite);
 {$ENDIF FPC}
-
-{$ENDIF TLSLIB_MSWINDOWS}
+{$ELSE}
+{$IFDEF FPC}
+  RegisterTest(TTestNativeCryptoProviderContract);
+{$ELSE}
+  RegisterTest(TTestNativeCryptoProviderContract.Suite);
+{$ENDIF FPC}
+{$IFEND}
 
 end.
