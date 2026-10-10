@@ -26,6 +26,7 @@ uses
 {$ENDIF FPC}
   Classes,
   SysUtils,
+  TlpPem,
   TlpTlsAlert,
   TlpAlpnProtocols,
   TlpTlsVersion,
@@ -74,7 +75,27 @@ type
     function ServerOptsWithCredential: TTlsOptions;
     function RaisesStreamError(const AOpts: TTlsOptions;
       AIsClient: Boolean; out AMessage: string): Boolean;
+    function Pkcs12Field(const AName: string): TBytes;
+    function PemChain: TBytes;
+    function Pkcs12Options(const AField: string): TTlsOptions;
   published
+    // credential forms
+    procedure TestServerBuildsFromPkcs12;
+    procedure TestPkcs12WrongPasswordRaises;
+    procedure TestMultiKeyPkcs12Raises;
+    procedure TestServerBuildsFromCredentialFiles;
+    procedure TestPkcs12WithPrivateKeyRaises;
+    procedure TestPemChainOrPkcs12ReadsPemAsChain;
+    procedure TestPemChainOrPkcs12ReadsNonPemWithoutKeyAsPkcs12;
+    procedure TestPemChainOrPkcs12ReadsNonPemWithKeyAsChain;
+    procedure TestClientKeyWithoutCertificateRaises;
+    procedure TestServerNoCredentialNamesTheHint;
+    procedure TestEncryptedKeyWithoutPasswordNamesPassword;
+    procedure TestEncryptedKeyWithPasswordIsDecrypted;
+    procedure TestInlineCredentialBytesAreNotWiped;
+    procedure TestSignatureCredentialFormChangesKey;
+    procedure TestSignaturePkcs12BytesChangeKey;
+    procedure TestGuardConflictOnCredentialFormAndPassword;
     // composer - client shape (a concern per assertion)
     procedure TestClientDefaultsToSharedProviders;
     procedure TestClientUsesInjectedProviders;
@@ -461,6 +482,296 @@ begin
       AMessage := E.Message;
     end;
   end;
+end;
+
+function TTestTlsConnection.Pkcs12Field(const AName: string): TBytes;
+var
+  LFields: TStringList;
+begin
+  LFields := LoadVectorFields('Certs/Pkcs12.txt');
+  try
+    Result := DecodeHex(LFields.Values[AName]);
+  finally
+    LFields.Free;
+  end;
+end;
+
+function TTestTlsConnection.PemChain: TBytes;
+var
+  LBlocks: TArray<TPemBlock>;
+begin
+  SetLength(LBlocks, 1);
+  LBlocks[0].PemType := 'CERTIFICATE';
+  LBlocks[0].Content := ServerCert;
+  Result := TPem.WriteBlocks(LBlocks);
+end;
+
+function TTestTlsConnection.Pkcs12Options(const AField: string): TTlsOptions;
+begin
+  Result := TTlsOptions.Default;
+  Result.Crypto := Crypto;
+  Result.Pkix := Pkix;
+  Result.Certificate := TTlsBlobSource.FromBytes(Pkcs12Field(AField));
+  Result.KeyPassword := 'tlslib';
+  Result.CredentialForm := TTlsCredentialForm.Pkcs12;
+end;
+
+procedure TTestTlsConnection.TestServerBuildsFromPkcs12;
+begin
+  CheckNotNull(TTlsConfigComposer.BuildServerConfig(Pkcs12Options('chain_pfx')),
+    'a server config builds from a PKCS#12 identity');
+end;
+
+procedure TTestTlsConnection.TestPkcs12WrongPasswordRaises;
+var
+  LOpts: TTlsOptions;
+  LRaised: Boolean;
+begin
+  LOpts := Pkcs12Options('chain_pfx');
+  LOpts.KeyPassword := 'not-the-password';
+  LRaised := False;
+  try
+    TTlsConfigComposer.BuildServerConfig(LOpts);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a wrong PKCS#12 password fails closed');
+end;
+
+procedure TTestTlsConnection.TestMultiKeyPkcs12Raises;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    TTlsConfigComposer.BuildServerConfig(Pkcs12Options('multikey_pfx'));
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a PKCS#12 store with several keys is refused');
+end;
+
+procedure TTestTlsConnection.TestServerBuildsFromCredentialFiles;
+var
+  LOpts: TTlsOptions;
+  LCertPath, LKeyPath: string;
+
+  procedure WriteFile(const APath: string; const AData: TBytes);
+  var
+    LStream: TFileStream;
+  begin
+    LStream := TFileStream.Create(APath, fmCreate);
+    try
+      LStream.WriteBuffer(AData[0], System.Length(AData));
+    finally
+      LStream.Free;
+    end;
+  end;
+
+begin
+  LCertPath := IncludeTrailingPathDelimiter(GetCurrentDir) + 'credential_fixture.crt';
+  LKeyPath := IncludeTrailingPathDelimiter(GetCurrentDir) + 'credential_fixture.key';
+  WriteFile(LCertPath, ServerCert);
+  WriteFile(LKeyPath, ServerKey);
+  try
+    LOpts := TTlsOptions.Default;
+    LOpts.Crypto := Crypto;
+    LOpts.Pkix := Pkix;
+    LOpts.Certificate := TTlsBlobSource.FromFile(LCertPath);
+    LOpts.PrivateKey := TTlsBlobSource.FromFile(LKeyPath);
+    CheckNotNull(TTlsConfigComposer.BuildServerConfig(LOpts),
+      'a server config builds from a certificate file and a key file');
+  finally
+    SysUtils.DeleteFile(LCertPath);
+    SysUtils.DeleteFile(LKeyPath);
+  end;
+end;
+
+procedure TTestTlsConnection.TestPkcs12WithPrivateKeyRaises;
+var
+  LOpts: TTlsOptions;
+  LMsg: string;
+begin
+  LOpts := Pkcs12Options('chain_pfx');
+  LOpts.PrivateKey := TTlsBlobSource.FromBytes(ServerKey);
+  CheckTrue(RaisesStreamError(LOpts, False, LMsg),
+    'a PKCS#12 identity beside a separate private key is refused');
+  CheckTrue(Pos('PKCS#12', LMsg) > 0, 'the message names PKCS#12: ' + LMsg);
+end;
+
+procedure TTestTlsConnection.TestPemChainOrPkcs12ReadsPemAsChain;
+var
+  LOpts: TTlsOptions;
+begin
+  LOpts := ServerOptsWithCredential;
+  LOpts.Certificate := TTlsBlobSource.FromBytes(PemChain);
+  LOpts.CredentialForm := TTlsCredentialForm.PemChainOrPkcs12;
+  CheckNotNull(TTlsConfigComposer.BuildServerConfig(LOpts),
+    'a PEM source with a key is read as a chain');
+end;
+
+procedure TTestTlsConnection.TestPemChainOrPkcs12ReadsNonPemWithoutKeyAsPkcs12;
+var
+  LOpts: TTlsOptions;
+begin
+  LOpts := Pkcs12Options('chain_pfx');
+  LOpts.CredentialForm := TTlsCredentialForm.PemChainOrPkcs12;
+  CheckNotNull(TTlsConfigComposer.BuildServerConfig(LOpts),
+    'a non-PEM source with no key is read as a PKCS#12 identity');
+end;
+
+procedure TTestTlsConnection.TestPemChainOrPkcs12ReadsNonPemWithKeyAsChain;
+var
+  LOpts: TTlsOptions;
+begin
+  LOpts := ServerOptsWithCredential;
+  LOpts.CredentialForm := TTlsCredentialForm.PemChainOrPkcs12;
+  CheckNotNull(TTlsConfigComposer.BuildServerConfig(LOpts),
+    'a DER certificate with a key is read as a chain');
+end;
+
+procedure TTestTlsConnection.TestClientKeyWithoutCertificateRaises;
+var
+  LOpts: TTlsOptions;
+  LMsg: string;
+begin
+  LOpts := ClientOptsWithStore;
+  LOpts.PrivateKey := TTlsBlobSource.FromBytes(ServerKey);
+  LOpts.CredentialSourceHint := 'CertificateFile';
+  CheckTrue(RaisesStreamError(LOpts, True, LMsg),
+    'a client key with no certificate is refused, not dropped');
+  CheckTrue(Pos('CertificateFile', LMsg) > 0, 'the message carries the hint: ' + LMsg);
+end;
+
+procedure TTestTlsConnection.TestServerNoCredentialNamesTheHint;
+var
+  LOpts: TTlsOptions;
+  LMsg: string;
+begin
+  LOpts := TTlsOptions.Default;
+  LOpts.CredentialSourceHint := 'CertificateFile';
+  CheckTrue(RaisesStreamError(LOpts, False, LMsg), 'a server without a certificate raises');
+  CheckTrue(Pos('CertificateFile', LMsg) > 0, 'the message carries the hint: ' + LMsg);
+end;
+
+procedure TTestTlsConnection.TestEncryptedKeyWithoutPasswordNamesPassword;
+var
+  LOpts: TTlsOptions;
+  LFields: TStringList;
+  LMsg: string;
+begin
+  LOpts := ServerOptsWithCredential;
+  LFields := LoadVectorFields('Certs/ImportKeys.txt');
+  try
+    LOpts.PrivateKey := TTlsBlobSource.FromBytes(DecodeHex(LFields.Values['rsa_enc_pem']));
+  finally
+    LFields.Free;
+  end;
+  LMsg := '';
+  try
+    TTlsConfigComposer.BuildServerConfig(LOpts);
+  except
+    on E: EArgumentTlsLibException do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('a password is required', LMsg) > 0,
+    'an encrypted key with no password names the missing password: ' + LMsg);
+end;
+
+procedure TTestTlsConnection.TestEncryptedKeyWithPasswordIsDecrypted;
+var
+  LOpts: TTlsOptions;
+  LFields: TStringList;
+  LMismatch: Boolean;
+begin
+  LOpts := ServerOptsWithCredential;
+  LFields := LoadVectorFields('Certs/ImportKeys.txt');
+  try
+    LOpts.PrivateKey := TTlsBlobSource.FromBytes(DecodeHex(LFields.Values['rsa_enc_pem']));
+  finally
+    LFields.Free;
+  end;
+  LOpts.KeyPassword := 'tlslib';
+  // the RSA key is not the EC leaf's, so a decrypted key reaches the pairing check
+  LMismatch := False;
+  try
+    TTlsConfigComposer.BuildServerConfig(LOpts);
+  except
+    on E: EInvalidOperationTlsLibException do
+      LMismatch := Pos('does not match the public key', E.Message) > 0;
+  end;
+  CheckTrue(LMismatch, 'an encrypted key is decrypted with its password');
+end;
+
+procedure TTestTlsConnection.TestInlineCredentialBytesAreNotWiped;
+var
+  LOpts: TTlsOptions;
+  LKeyBefore, LPfxBefore: TBytes;
+begin
+  LOpts := ServerOptsWithCredential;
+  LKeyBefore := System.Copy(LOpts.PrivateKey.Data);
+  TTlsConfigComposer.BuildServerConfig(LOpts);
+  CheckTrue(AreEqual(LKeyBefore, LOpts.PrivateKey.Data),
+    'inline key bytes belong to the caller and stay intact');
+  LOpts := Pkcs12Options('chain_pfx');
+  LPfxBefore := System.Copy(LOpts.Certificate.Data);
+  TTlsConfigComposer.BuildServerConfig(LOpts);
+  CheckTrue(AreEqual(LPfxBefore, LOpts.Certificate.Data),
+    'inline PKCS#12 bytes belong to the caller and stay intact');
+end;
+
+procedure TTestTlsConnection.TestSignatureCredentialFormChangesKey;
+var
+  LA, LB: TTlsOptions;
+begin
+  LA := Pkcs12Options('chain_pfx');
+  LB := LA;
+  LB.CredentialForm := TTlsCredentialForm.PemChainOrPkcs12;
+  CheckTrue(TTlsConfigComposer.ServerSignature(LA) <> TTlsConfigComposer.ServerSignature(LB),
+    'the form changes the server key');
+  CheckTrue(TTlsConfigComposer.ClientSignature(LA) <> TTlsConfigComposer.ClientSignature(LB),
+    'the form changes the client key');
+end;
+
+procedure TTestTlsConnection.TestSignaturePkcs12BytesChangeKey;
+var
+  LA, LB, LC: TTlsOptions;
+begin
+  LA := Pkcs12Options('chain_pfx');
+  LB := Pkcs12Options('rsa_pfx');
+  LC := Pkcs12Options('chain_pfx');
+  CheckTrue(TTlsConfigComposer.ServerSignature(LA) <> TTlsConfigComposer.ServerSignature(LB),
+    'different PKCS#12 stores give different keys');
+  CheckEquals(TTlsConfigComposer.ServerSignature(LA), TTlsConfigComposer.ServerSignature(LC),
+    'the same PKCS#12 bytes reuse the key');
+end;
+
+procedure TTestTlsConnection.TestGuardConflictOnCredentialFormAndPassword;
+
+  function Conflicts(const AOpts: TTlsOptions; AIsClient: Boolean): Boolean;
+  begin
+    Result := False;
+    try
+      TTlsConfigComposer.GuardNoConflict(AOpts, AIsClient, 'Config');
+    except
+      on E: ETlsStreamError do
+        Result := True;
+    end;
+  end;
+
+var
+  LOpts: TTlsOptions;
+begin
+  LOpts := TTlsOptions.Default;
+  LOpts.CredentialForm := TTlsCredentialForm.Pkcs12;
+  CheckTrue(Conflicts(LOpts, True) and Conflicts(LOpts, False),
+    'a non-default credential form conflicts with a supplied config');
+  LOpts := TTlsOptions.Default;
+  LOpts.KeyPassword := 'tlslib';
+  CheckTrue(Conflicts(LOpts, True) and Conflicts(LOpts, False),
+    'a key password conflicts with a supplied config');
 end;
 
 procedure TTestTlsConnection.TestClientDefaultsToSharedProviders;
