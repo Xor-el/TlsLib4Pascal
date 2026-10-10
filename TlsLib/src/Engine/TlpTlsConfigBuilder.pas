@@ -161,10 +161,6 @@ type
     FAntiReplay: IAntiReplayStrategy;
     FTicketLifetimeSeconds: UInt32;
     FTicketCount: Int32;
-    // set only by an explicit call, since both carry a non-zero default: a build with resumption
-    // off refuses a ticket setting the caller made, which would have no effect
-    FTicketLifetimeSet: Boolean;
-    FTicketCountSet: Boolean;
     FMaxEarlyData: UInt32;
     FEchConfigList: TBytes;
     FEchGrease: Boolean;
@@ -437,11 +433,11 @@ resourcestring
   SClientResumptionSettingNeedsResumption = 'a session cache or resumption scope was supplied but ' +
     'resumption is off, so it would have no effect: turn resumption on or leave it out';
   SServerResumptionSettingNeedsResumption = 'a session store, ticket keys, ticket lifetime or count, ' +
-    'resumption scope or anti-replay strategy was supplied but resumption is off, so it would ' +
-    'have no effect: turn resumption on or leave it out';
+    'resumption scope, anti-replay strategy or non-EMS resumption mode was supplied but ' +
+    'resumption is off, so it would have no effect: turn resumption on or leave it out';
   SAlpnRejectionWithProtocols = 'ALPN rejection refuses every client offer, so a configured ALPN ' +
     'protocol list could never be selected: drop one of them';
-  SServerEarlyDataNeedsResumption ='0-RTT early data is offered only on a resumed session; a ' +
+  SServerEarlyDataNeedsResumption = '0-RTT early data is offered only on a resumed session; a ' +
     'server early-data limit requires resumption to be enabled';
   STicketCountOutOfRange = 'the session-ticket count must be between 0 and 8 per handshake';
   SInvalidChainLimits = 'the certificate-chain limits must be positive, with ' +
@@ -2704,7 +2700,6 @@ begin
   if ASeconds > MaxTicketLifetimeSeconds then
     raise EInvalidOperationTlsLibException.CreateRes(@STicketLifetimeTooLong);
   FTicketLifetimeSeconds := ASeconds;
-  FTicketLifetimeSet := True;
   Result := Self;
 end;
 
@@ -2714,7 +2709,6 @@ begin
   if (ACount < 0) or (ACount > MaxTicketCount) then
     raise EArgumentTlsLibException.CreateRes(@STicketCountOutOfRange);
   FTicketCount := ACount;
-  FTicketCountSet := True;
   if ACount <> DefaultTicketCount then
     FTls13Configured := True;
   Result := Self;
@@ -3093,10 +3087,12 @@ begin
   // 0-RTT early data is offered only on a resumed session; a limit with resumption off is inert
   if (FMaxEarlyData > 0) and (not FResumption) then
     raise EInvalidOperationTlsLibException.CreateRes(@SServerEarlyDataNeedsResumption);
-  // every other resumption setting is equally inert with resumption off
+  // every other resumption setting is equally inert with resumption off; a ticket lifetime or count
+  // counts only when it differs from its default, like any other setting
   if (not FResumption) and ((FSessionStore <> nil) or (FSessionTicketKeys <> nil) or
-    FWantDefaultSessionTicketKeys or FTicketLifetimeSet or FTicketCountSet or
-    (System.Length(FResumptionScope) > 0) or (FAntiReplay <> nil)) then
+    FWantDefaultSessionTicketKeys or (FTicketLifetimeSeconds <> DefaultTicketLifetimeSeconds) or
+    (FTicketCount <> DefaultTicketCount) or (System.Length(FResumptionScope) > 0) or
+    (FAntiReplay <> nil) or (FNonEmsResumption <> TNonEmsResumption.Decline)) then
     raise EInvalidOperationTlsLibException.CreateRes(@SServerResumptionSettingNeedsResumption);
   // rejecting every ALPN offer and listing protocols to select from contradict each other
   if FAlpnRejectAll and (System.Length(FAlpnProtocols) > 0) then

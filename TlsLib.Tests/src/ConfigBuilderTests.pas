@@ -115,6 +115,8 @@ type
       const AReason: string): Boolean; overload;
     function BuildRefused(const AFacet: ITls13ServerConfigFacet;
       const AReason: string): Boolean; overload;
+    function BuildRefused(const AFacet: ITls12ServerConfigFacet;
+      const AReason: string): Boolean; overload;
     function HelloSuites(const AWire: TBytes): TArray<UInt16>;
     function NewClientBuilder: ITlsClientConfigBuilder;
     function NewServerBuilder: ITlsServerConfigBuilder;
@@ -1462,6 +1464,18 @@ begin
   end;
 end;
 
+function TTestConfigBuilder.BuildRefused(const AFacet: ITls12ServerConfigFacet;
+  const AReason: string): Boolean;
+begin
+  Result := False;
+  try
+    AFacet.Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      Result := Pos(AReason, E.Message) > 0;
+  end;
+end;
+
 procedure TTestConfigBuilder.TestTls13SettingsAreRefusedWhenTls13IsNotOffered;
 var
   LOnly12: TArray<UInt16>;
@@ -1601,6 +1615,12 @@ begin
     'a server scope');
   CheckTrue(BuildRefused(NewServerBuilder.WithResumption(False).WithDefaultSessionTicketKeys,
     'resumption is off'), 'default ticket keys');
+  CheckTrue(BuildRefused(NewServerBuilder.WithResumption(False)
+    .Tls12.WithNonEmsResumption(TNonEmsResumption.Resume), 'resumption is off'),
+    'a non-EMS resumption mode');
+  // restating a default is not a setting
+  CheckTrue(NewServerBuilder.WithResumption(False).WithTicketLifetime(7200)
+    .Tls13.WithTicketCount(2).Build <> nil, 'the default ticket settings build with resumption off');
   // controls: nothing supplied builds, and the same settings build with resumption on
   CheckTrue(NewClientBuilder.WithResumption(False).Build <> nil,
     'resumption off alone builds for a client');

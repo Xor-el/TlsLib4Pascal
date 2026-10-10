@@ -586,9 +586,9 @@ end;
 ```
 
 External PSKs are TLS 1.3 only, so they are set on the `Tls13` facet (as are `WithGrease` and the
-server's `WithTicketCount`); a config that does not offer TLS 1.3 refuses them at `Build`. Both ends
-configure the same identity + key. Use `Tls13.WithExternalPskRequired(True)` when the deployment must
-not fall back to certificate authentication.
+server's `WithTicketCount`); a config that does not offer TLS 1.3 refuses a non-default value of them
+at `Build`. Both ends configure the same identity + key. A client requires the PSK by default; use
+`Tls13.WithExternalPskRequired(False)` to let it fall back to certificate authentication.
 
 ## The dangerous surface (dev only)
 
