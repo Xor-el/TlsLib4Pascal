@@ -430,6 +430,13 @@ resourcestring
     'key manager needs a session store or an anti-replay strategy: the default strike ' +
     'register is per configuration, so a ticket from a shared key could be replayed against ' +
     'another instance; set WithSessionStore or WithAntiReplay';
+  SClientResumptionSettingNeedsResumption = 'a session cache or resumption scope was supplied but ' +
+    'resumption is off, so it would have no effect: turn resumption on or leave it out';
+  SServerResumptionSettingNeedsResumption = 'a session store, ticket keys, ticket lifetime or count, ' +
+    'resumption scope, anti-replay strategy or non-EMS resumption mode was supplied but ' +
+    'resumption is off, so it would have no effect: turn resumption on or leave it out';
+  SAlpnRejectionWithProtocols = 'ALPN rejection refuses every client offer, so a configured ALPN ' +
+    'protocol list could never be selected: drop one of them';
   SServerEarlyDataNeedsResumption = '0-RTT early data is offered only on a resumed session; a ' +
     'server early-data limit requires resumption to be enabled';
   STicketCountOutOfRange = 'the session-ticket count must be between 0 and 8 per handshake';
@@ -2390,7 +2397,8 @@ function TTlsConfigBuilder.WithEchGrease(AEnabled: Boolean): TTlsConfigBuilder;
 begin
   GuardMutable;
   FEchGrease := AEnabled;
-  FTls13Configured := True;
+  if AEnabled then
+    FTls13Configured := True;
   Result := Self;
 end;
 
@@ -2399,7 +2407,10 @@ function TTlsConfigBuilder.WithCertificateCompressionCache(
 begin
   GuardMutable;
   FCertificateCompressionCache := ACache;
-  FTls13Configured := True;
+  // a facet counts as configured only by a non-default value, so restating a default on a config
+  // that does not offer that version is not refused
+  if ACache <> nil then
+    FTls13Configured := True;
   Result := Self;
 end;
 
@@ -2408,7 +2419,8 @@ function TTlsConfigBuilder.WithExtendedMasterSecret(
 begin
   GuardMutable;
   FRequireExtendedMasterSecret := ARequire;
-  FTls12Configured := True;
+  if ARequire then
+    FTls12Configured := True;
   Result := Self;
 end;
 
@@ -2417,7 +2429,8 @@ function TTlsConfigBuilder.WithNonEmsResumption(
 begin
   GuardMutable;
   FNonEmsResumption := AMode;
-  FTls12Configured := True;
+  if AMode <> TNonEmsResumption.Decline then
+    FTls12Configured := True;
   Result := Self;
 end;
 
@@ -2456,7 +2469,8 @@ function TTlsConfigBuilder.WithGrease(AEnable: Boolean): TTlsConfigBuilder;
 begin
   GuardMutable;
   FGrease := AEnable;
-  FTls13Configured := True;
+  if not AEnable then
+    FTls13Configured := True;
   Result := Self;
 end;
 
@@ -2631,7 +2645,8 @@ begin
   // copy so a caller mutating its arrays after Build cannot alter the frozen config (matches the
   // frozen ExternalPsks accessor); the PSK secrets are ISecretBuffer, shared by reference
   FExternalPsks := TTlsConfigBuilder.CloneExternalPsks(APsks);
-  FTls13Configured := True;
+  if System.Length(APsks) > 0 then
+    FTls13Configured := True;
   Result := Self;
 end;
 
@@ -2640,7 +2655,8 @@ function TTlsConfigBuilder.WithExternalPskRequired(
 begin
   GuardMutable;
   FExternalPskRequired := AEnabled;
-  FTls13Configured := True;
+  if not AEnabled then
+    FTls13Configured := True;
   Result := Self;
 end;
 
@@ -2694,7 +2710,8 @@ begin
   if (ACount < 0) or (ACount > MaxTicketCount) then
     raise EArgumentTlsLibException.CreateRes(@STicketCountOutOfRange);
   FTicketCount := ACount;
-  FTls13Configured := True;
+  if ACount <> DefaultTicketCount then
+    FTls13Configured := True;
   Result := Self;
 end;
 
@@ -2702,7 +2719,8 @@ function TTlsConfigBuilder.WithClientEarlyData(AEnabled: Boolean): TTlsConfigBui
 begin
   GuardMutable;
   FClientEarlyData := AEnabled;
-  FTls13Configured := True;
+  if AEnabled then
+    FTls13Configured := True;
   Result := Self;
 end;
 
@@ -2712,7 +2730,8 @@ begin
   if AMaxBytes >= MaxServerEarlyData then
     raise EArgumentTlsLibException.CreateRes(@SServerEarlyDataTooLarge);
   FMaxEarlyData := AMaxBytes;
-  FTls13Configured := True;
+  if AMaxBytes > 0 then
+    FTls13Configured := True;
   Result := Self;
 end;
 
@@ -2721,7 +2740,8 @@ function TTlsConfigBuilder.WithAntiReplay(
 begin
   GuardMutable;
   FAntiReplay := AStrategy;
-  FTls13Configured := True;
+  if AStrategy <> nil then
+    FTls13Configured := True;
   Result := Self;
 end;
 
@@ -2934,6 +2954,9 @@ begin
   if (FResumeVerification = TResumeVerification.Reverify) and
     ((not FResumption) or (FSessionCache = nil)) then
     raise EInvalidOperationTlsLibException.CreateRes(@SResumeVerifyNeedsCache);
+  // a cache or scope the caller supplied is inert with resumption off, like the guards above
+  if (not FResumption) and ((FSessionCache <> nil) or (System.Length(FSessionScope) > 0)) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SClientResumptionSettingNeedsResumption);
   ValidateVersionScoping;
   LEchPolicy := nil;
   // ECH is configured by a config list, or by GREASE alone; WithEchGrease(False) with no list is a
@@ -3065,6 +3088,16 @@ begin
   // 0-RTT early data is offered only on a resumed session; a limit with resumption off is inert
   if (FMaxEarlyData > 0) and (not FResumption) then
     raise EInvalidOperationTlsLibException.CreateRes(@SServerEarlyDataNeedsResumption);
+  // every other resumption setting is equally inert with resumption off; a ticket lifetime or count
+  // counts only when it differs from its default, like any other setting
+  if (not FResumption) and ((FSessionStore <> nil) or (FSessionTicketKeys <> nil) or
+    FWantDefaultSessionTicketKeys or (FTicketLifetimeSeconds <> DefaultTicketLifetimeSeconds) or
+    (FTicketCount <> DefaultTicketCount) or (System.Length(FResumptionScope) > 0) or
+    (FAntiReplay <> nil) or (FNonEmsResumption <> TNonEmsResumption.Decline)) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SServerResumptionSettingNeedsResumption);
+  // rejecting every ALPN offer and listing protocols to select from contradict each other
+  if FAlpnRejectAll and (System.Length(FAlpnProtocols) > 0) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SAlpnRejectionWithProtocols);
   // an explicit (shareable) ticket-key manager with only the per-config default strike register
   // lets a ticket be replayed across instances; a session store makes tickets single-use
   if (FMaxEarlyData > 0) and (FSessionTicketKeys <> nil) and (FSessionStore = nil) and

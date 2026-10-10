@@ -27,6 +27,7 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpTlsVersion,
+  TlpTlsLibExceptions,
   TlpICryptoProvider,
   TlpICertificateTrust,
   TlpITrustAnchorStore,
@@ -1004,23 +1005,37 @@ end;
 
 procedure TTestConfigResumption.TestStrictPresetLeavesResumptionOff;
 var
-  LCache: ISessionCache;
-  LStore: ISessionStore;
   LClient, LServer: ITlsEngine;
+  LRefusedCache, LRefusedStore: Boolean;
 begin
-  // the Strict preset defaults resumption OFF: even with a cache and store supplied, the
-  // factory does not engage them, so nothing is cached or stored
-  LCache := TInMemorySessionCache.Create;
-  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  // the Strict preset defaults resumption OFF: a cache or store supplied on top would never be
+  // engaged, so Build refuses it rather than leave it silently inert
+  LRefusedCache := False;
+  try
+    TTlsPresets.Strict(Crypto, Pkix).Client.WithTrustStore(ClientTrust)
+      .WithSessionCache(TInMemorySessionCache.Create).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRefusedCache := True;
+  end;
+  CheckTrue(LRefusedCache, 'a session cache with resumption off is refused');
+  LRefusedStore := False;
+  try
+    TTlsPresets.Strict(Crypto, Pkix).Server.WithCredential(ServerCredential)
+      .WithSessionStore(TInMemorySessionStore.Create(Crypto.Primitives.GetRandom)).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRefusedStore := True;
+  end;
+  CheckTrue(LRefusedStore, 'a session store with resumption off is refused');
 
+  // control: Strict as it ships completes a handshake and resumes nothing
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Strict(Crypto, Pkix).Client
-    .WithTrustStore(ClientTrust).WithSessionCache(LCache).Build, ServerHost);
+    .WithTrustStore(ClientTrust).Build, ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Strict(Crypto, Pkix).Server
-    .WithCredential(ServerCredential).WithSessionStore(LStore).Build);
+    .WithCredential(ServerCredential).Build);
   PumpToCompletion(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the Strict handshake completed');
-  CheckEquals(0, LStore.Count, 'Strict left resumption off: nothing stored');
-  CheckEquals(0, LCache.Count, 'Strict left resumption off: nothing cached');
   CheckAppDataFlows(LClient, LServer);
 end;
 
