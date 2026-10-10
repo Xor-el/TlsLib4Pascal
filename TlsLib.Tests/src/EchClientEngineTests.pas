@@ -291,6 +291,7 @@ var
   LKdf, LAead: UInt16;
   LI: Int32;
   LSawAes, LSawChaCha: Boolean;
+  LSuite: THpkeSuiteId;
 begin
   // a decoy advertises only an HKDF-SHA256 suite with AES-128-GCM or ChaCha20-Poly1305, the
   // pairings real configs publish; draw enough that a stray suite from the provider's full
@@ -311,7 +312,14 @@ begin
     LSawAes := LSawAes or (LAead = THpkeAead.AES_128_GCM);
     LSawChaCha := LSawChaCha or (LAead = THpkeAead.CHACHA20_POLY1305);
   end;
-  CheckTrue(LSawAes and LSawChaCha, 'both AEADs are drawn across the decoys');
+  // a provider lacking one of the AEADs cannot draw it, so require only what it supports
+  for LSuite in Crypto.Hpke.SupportedSuites(THpkeKem.DHKEM_X25519_HKDF_SHA256) do
+  begin
+    if (LSuite.Kdf = THpkeKdf.HKDF_SHA256) and (LSuite.Aead = THpkeAead.AES_128_GCM) then
+      CheckTrue(LSawAes, 'AES-128-GCM is drawn when the provider supports it');
+    if (LSuite.Kdf = THpkeKdf.HKDF_SHA256) and (LSuite.Aead = THpkeAead.CHACHA20_POLY1305) then
+      CheckTrue(LSawChaCha, 'ChaCha20-Poly1305 is drawn when the provider supports it');
+  end;
 end;
 
 procedure TTestEchClientEngine.TestEmptyConfigListWithoutGreaseFailsClosed;
