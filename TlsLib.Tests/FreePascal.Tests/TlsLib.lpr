@@ -88,7 +88,7 @@ uses
   ConfigBuilderTests,
   TrustCompositionTests,
   SystemTrustTests,
-  WindowsSystemCryptoTests,
+  NativeCryptoProviderTests,
   AppleAlertMapTests,
   RootGenKeyingTests,
   EchToolingTests,

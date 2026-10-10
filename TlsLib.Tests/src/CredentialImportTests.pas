@@ -35,7 +35,6 @@ uses
   TlpTlsLibExceptions,
   MockRandom,
   MockCryptoProvider,
-  TlsLibTestProviders,
   TlsLibTestBase;
 
 type

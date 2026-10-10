@@ -30,7 +30,6 @@ uses
   TlpISecretBuffer,
   TlpSecretBuffer,
   TlpICryptoProvider,
-  TlsLibTestProviders,
   TlpCryptoDomainTypes,
   TlpHkdfLabel,
   TlsLibTestBase;

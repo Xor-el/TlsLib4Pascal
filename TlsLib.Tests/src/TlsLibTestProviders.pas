@@ -144,10 +144,16 @@ end;
 class function TTlsLibTestProviders.Describe: string;
 const
   Facets: array[Boolean] of string = ('no', 'yes');
+var
+  NativeSuffix: string;
 begin
-  Result := Format('crypto=%s (native facets: %s) pkix=%s',
+  NativeSuffix := '';
+  if TOSCryptoProvider.PlatformName <> '' then
+    NativeSuffix := ', ' + TOSCryptoProvider.PlatformName;
+  Result := Format('crypto=%s (native facets: %s%s) pkix=%s',
     [LowerCase(TEnumUtilities.GetName<TCryptoProviderChoice>(SelectedCrypto)),
     Facets[TOSCryptoProvider.HasNativeFacets],
+    NativeSuffix,
     LowerCase(TEnumUtilities.GetName<TPkixProviderChoice>(SelectedPkix))]);
 end;
 
