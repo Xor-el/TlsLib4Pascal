@@ -78,7 +78,7 @@ type
     procedure TestVerifyMalformedSignatureShapesNeverRaise;
     procedure TestSignerRejectsSchemeOutsideCapableSchemes;
     procedure TestLeafPolicyRejectsSchemeFamilyMismatch;
-    // the overlay ECDSA verifier accepts a valid signature and rejects a non-DER encoding
+    // the ECDSA verifier accepts a valid signature and rejects a non-DER encoding
     procedure TestEcdsaVerifiesValidAndRejectsTrailingBytes;
   end;
 

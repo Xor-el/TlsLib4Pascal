@@ -35,7 +35,6 @@ uses
   TlpAeadUtilities,
   TlpDer,
   TlpCryptoDomainTypes,
-  TlsLibTestProviders,
   TlsLibTestBase;
 
 type
