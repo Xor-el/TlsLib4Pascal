@@ -89,7 +89,7 @@ one when ECH was accepted). For debugging only — never production.
   (no forward secrecy, RFC 4279 §7.1), DHE_PSK and CBC variants are not implemented. An identity the
   server does not know proceeds on a stand-in secret and ends like a wrong secret (RFC 4279 §2 permits
   this), so a probe cannot enumerate identities; the identity itself is sent in the clear (RFC 4279 §7.3).
-  A PSK session resumes only while its identity is configured.
+  A PSK session resumes only while its identity is configured with the same secret.
 - **Post-quantum hybrid KEX** (X25519MLKEM768) offered by every preset and preferred under
   Hardened and Strict, interop-verified against OpenSSL 3.5+
   and BoringSSL.

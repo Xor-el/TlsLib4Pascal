@@ -107,6 +107,9 @@ type
     procedure TestKnownIdentityStandsInForRequiredClientAuth;
     procedure TestPskSessionResumes;
     procedure TestPskSessionIsNotResumedOnceItsKeyIsGone;
+    procedure TestPskSessionIsNotResumedOnceItsSecretIsRotated;
+    procedure TestConnectionInfoPskIdentityIsACopy;
+    procedure TestServerWithoutPsksNeverSelectsAPskSuite;
     procedure TestClientRefusesACertificateUnderAPskSuite;
     procedure TestClientRefusesACertificateRequestUnderAPskSuite;
     procedure TestBuilderRefusals;
@@ -612,6 +615,74 @@ begin
   LEngine := TTlsEngineFactory.CreateServerEngine(LServer);
   Run(LClient, LEngine);
   CheckFalse(LEngine.ConnectionInfo.Resumed, 'a revoked key does not resume its session');
+end;
+
+procedure TTestTls12Psk.TestPskSessionIsNotResumedOnceItsSecretIsRotated;
+var
+  LCache: ISessionCache;
+  LStore: ISessionStore;
+  LScope: TBytes;
+  LClientConfig: ITlsClientConfig;
+  LServer: ITlsServerConfig;
+  LClient, LEngine: ITlsEngine;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  LScope := BytesOf('shared-scope');
+  LClientConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithSupportedVersions(Only12)
+    .WithSessionCache(LCache).Tls12.WithPreSharedKey(Psk(Identity1, 1)).Build;
+  LServer := TTlsPresets.Compatible(Crypto, Pkix).Server.WithSupportedVersions(Only12)
+    .WithSessionStore(LStore).WithResumptionScope(LScope).Tls12.WithPreSharedKeys(
+    TArray<TTls12Psk>.Create(Psk(Identity1, 1))).Build;
+  LClient := TTlsEngineFactory.CreateClientEngine(LClientConfig, ServerHost);
+  LEngine := TTlsEngineFactory.CreateServerEngine(LServer);
+  Run(LClient, LEngine);
+  CheckFalse(LClient.IsTerminal or LEngine.IsTerminal, 'the first handshake completed');
+  Pump(LEngine, LClient);
+  // the identity is still configured, but its secret has been rotated: the old session must not resume
+  LServer := TTlsPresets.Compatible(Crypto, Pkix).Server.WithSupportedVersions(Only12)
+    .WithSessionStore(LStore).WithResumptionScope(LScope).Tls12.WithPreSharedKeys(
+    TArray<TTls12Psk>.Create(Psk(Identity1, 9))).Build;
+  LClient := TTlsEngineFactory.CreateClientEngine(LClientConfig, ServerHost);
+  LEngine := TTlsEngineFactory.CreateServerEngine(LServer);
+  Run(LClient, LEngine);
+  CheckFalse(LEngine.ConnectionInfo.Resumed, 'a rotated secret does not resume the old session');
+end;
+
+procedure TTestTls12Psk.TestConnectionInfoPskIdentityIsACopy;
+var
+  LClient, LServer: ITlsEngine;
+  LInfo: TTlsConnectionInfo;
+begin
+  LClient := NewClient(Psk(Identity1, 1));
+  LServer := NewServer(TArray<TTls12Psk>.Create(Psk(Identity1, 1)));
+  Run(LClient, LServer);
+  LInfo := LServer.ConnectionInfo;
+  LInfo.PskIdentity[0] := Byte(Ord('X'));
+  CheckEqualBytes('the engine keeps its own copy', BytesOf(Identity1),
+    LServer.ConnectionInfo.PskIdentity);
+end;
+
+procedure TTestTls12Psk.TestServerWithoutPsksNeverSelectsAPskSuite;
+var
+  LRegistry: ICipherSuiteRegistry;
+  LSuite: TTlsCipherSuite;
+  LClient, LServer: ITlsEngine;
+begin
+  // a registry that holds PSK suites is not a PSK: with no key configured the server selects a
+  // certificate suite
+  LRegistry := TCipherSuiteRegistry.CreateDualVersion(Crypto);
+  for LSuite in TCipherSuiteRegistry.CreateTls12Psk(Crypto).Items do
+    LRegistry.Add(LSuite);
+  LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithSupportedVersions(Only12).WithTrustStore(ClientTrust)
+    .Tls12.WithPreSharedKey(Psk(Identity1, 1)).WithPreSharedKeyRequired(False).Build, ServerHost);
+  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithSupportedVersions(Only12).WithCipherSuites(LRegistry).WithCredential(ServerCredential).Build);
+  Run(LClient, LServer);
+  CheckFalse(LClient.IsTerminal or LServer.IsTerminal, 'the handshake completed');
+  CheckEquals(0, System.Length(LServer.ConnectionInfo.PskIdentity), 'by certificate, not PSK');
+  CheckTrue(System.Length(LClient.ConnectionInfo.PeerCertificates) > 0, 'a certificate was sent');
 end;
 
 procedure TTestTls12Psk.TestClientRefusesACertificateUnderAPskSuite;

@@ -203,7 +203,7 @@ type
     /// <summary>A CertificateRequest was received and the schemes the server accepts.</summary>
     FCertificateRequested: Boolean;
     /// <summary>Whether the negotiated suite authenticates by pre-shared key: no server
-    /// Certificate or CertificateRequest, an unsigned ServerKeyExchange, and no cached session.</summary>
+    /// Certificate or CertificateRequest, and an unsigned ServerKeyExchange.</summary>
     FPskMode: Boolean;
     FClientAuthSchemes: TArray<UInt16>;
     /// <summary>The DER DistinguishedName certificate_authorities the server named in its
@@ -971,7 +971,7 @@ function TTls12ClientStateMachine.CacheCompletedSession: TArray<THandshakeEffect
 var
   LSession: IResumableSession;
   LPeerChain: TArray<TBytes>;
-  LPskIdentity: TBytes;
+  LPskIdentity, LPskBinding: TBytes;
   LLifetime: UInt32;
   LIssuedAt: UInt64;
 begin
@@ -1000,14 +1000,21 @@ begin
   // a PSK-authenticated session stores the identity that authenticated it, so the server can
   // refuse to resume it once that key is gone
   LPskIdentity := nil;
+  LPskBinding := nil;
   if (FResumptionOffer <> nil) and (System.Length(FResumptionOffer.PskIdentity) > 0) then
-    LPskIdentity := FResumptionOffer.PskIdentity
+  begin
+    LPskIdentity := FResumptionOffer.PskIdentity;
+    LPskBinding := FResumptionOffer.PskBinding;
+  end
   else if FPskMode then
+  begin
     LPskIdentity := FParams.ClientPsk.Identity;
+    LPskBinding := TTls12PskPremaster.SessionBinding(FParams.Crypto, FParams.ClientPsk.Secret);
+  end;
   LSession := TTls12ResumableSession.Create(FSelectedSuite.Common.Code,
     FSelectedSuite.Common.Hash, FSchedule.MasterSecret, FServerSessionId,
     FReceivedTicket, FUseExtendedMasterSecret, nil, FParams.ServerName,
-    LLifetime, LIssuedAt, LPeerChain, nil, LPskIdentity);
+    LLifetime, LIssuedAt, LPeerChain, nil, LPskIdentity, LPskBinding);
   FParams.SessionCache.Store(CacheServerIdentity, FParams.ServerName, LSession);
   if System.Length(FReceivedTicket) > 0 then
     Result := TArray<THandshakeEffect>.Create(

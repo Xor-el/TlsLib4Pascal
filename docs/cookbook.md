@@ -634,7 +634,10 @@ in no preset. The key exchange is ephemeral ECDH, so a recorded session stays fo
   for it. `ConnectionInfo.PskIdentity` names the key that authenticated a connection.
 * An identity the server does not know proceeds on a stand-in secret, so the handshake ends as it does for a
   wrong secret and a probe learns nothing about which identities exist.
-* A PSK session resumes while its identity is still configured; removing the key stops it.
+* A PSK session resumes while its identity is still configured with the same secret; removing the key
+  or rotating its secret ends the sessions it made.
+* Give a text identity as UTF-8 (RFC 4279 5.1). The config shares your secret buffer rather than
+  copying it, so keep the buffer alive for the life of the config.
 * The server sends no identity hint unless `Tls12.WithPreSharedKeyIdentityHint` sets one (RFC 4279 5.2); a
   client ignores any hint.
 * A low-entropy secret falls to an offline dictionary attack on a recorded handshake (RFC 4279 7.2); use

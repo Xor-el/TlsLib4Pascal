@@ -1138,6 +1138,7 @@ begin
   // read-only views, not copies
   Result.EchRetryConfigs := System.Copy(FInfo.EchRetryConfigs);
   Result.AlpnProtocol := System.Copy(FInfo.AlpnProtocol);
+  Result.PskIdentity := System.Copy(FInfo.PskIdentity);
 end;
 
 procedure TTlsEngine.InstallReadProtection(const AProtection: IRecordProtection);

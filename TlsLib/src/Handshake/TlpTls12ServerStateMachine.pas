@@ -143,11 +143,11 @@ type
     RecordSizeLimit: Int32;
     /// <summary>The pre-shared keys (RFC 4279 / RFC 5489) the server accepts, looked up by the
     /// identity the client presents. Empty disables the PSK suites. A PSK-authenticated session
-    /// is never stored or ticketed, so it cannot outlive the configuration that accepted it.</summary>
+    /// resumes only while its identity is still configured with the same secret.</summary>
     Psks: TArray<TTls12Psk>;
     /// <summary>The key a stand-in secret is derived from for an identity the server does not
-    /// know, so an unknown identity fails at the Finished exactly as a wrong secret does (RFC 4279
-    /// 2 leaves the choice to the server). Required whenever Psks is set.</summary>
+    /// know, so an unknown identity fails at the client's encrypted Finished exactly as a wrong
+    /// secret does (RFC 4279 2 leaves the choice to the server). Required whenever Psks is set.</summary>
     PskDummyKey: ISecretBuffer;
     /// <summary>The psk_identity_hint sent in the ServerKeyExchange (RFC 4279 5.2); empty sends
     /// none, as the RFC advises absent an application profile.</summary>
@@ -185,12 +185,15 @@ type
     FResolvedCredential: TTlsCredential;
     FRequestedServerName: string;
     FSelectedScheme: TSignatureScheme;
-    /// <summary>Whether this handshake authenticates by pre-shared key: no certificate flight, an
-    /// unsigned ServerKeyExchange, and no resumable session.</summary>
+    /// <summary>Whether this handshake authenticates by pre-shared key: no certificate flight and an
+    /// unsigned ServerKeyExchange.</summary>
     FPskMode: Boolean;
     /// <summary>The identity of the configured PSK the client presented; empty for an unknown
-    /// identity, which fails at the Finished.</summary>
+    /// identity, which fails at the client's Finished.</summary>
     FPskIdentity: TBytes;
+    /// <summary>The digest of that key's secret, sealed into the session so a rotated secret does
+    /// not resume it.</summary>
+    FPskBinding: TBytes;
     FSchedule: ITls12KeySchedule;
     /// <summary>The stateless ticket strategy (STEK) when configured; session-id
     /// resumption uses FParams.SessionStore directly.</summary>
@@ -245,8 +248,8 @@ type
     /// <summary>The secret for the identity the client presented: the configured PSK, or a
     /// stand-in derived from the dummy key when the identity is unknown.</summary>
     function PskSecretFor(const AIdentity: TBytes): ISecretBuffer;
-    /// <summary>Whether a configured PSK has this identity.</summary>
-    function PskConfigured(const AIdentity: TBytes): Boolean;
+    /// <summary>The configured PSK secret for this identity, or nil when there is none.</summary>
+    function FindPsk(const AIdentity: TBytes): ISecretBuffer;
     function BuildServerKeyExchangePsk: TBytes;
     function ProcessClientKeyExchangePsk(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>;
@@ -475,40 +478,44 @@ begin
     end;
 end;
 
-function TTls12ServerStateMachine.PskConfigured(const AIdentity: TBytes): Boolean;
+function TTls12ServerStateMachine.FindPsk(const AIdentity: TBytes): ISecretBuffer;
 var
   LI: Int32;
 begin
-  Result := False;
+  Result := nil;
+  // the identity is public, so the lookup need not be constant-time
   for LI := 0 to System.High(FParams.Psks) do
     if TArrayUtilities.AreEqual(FParams.Psks[LI].Identity, AIdentity) then
-      Exit(True);
+      Exit(FParams.Psks[LI].Secret);
 end;
 
 function TTls12ServerStateMachine.PskSecretFor(const AIdentity: TBytes): ISecretBuffer;
 var
-  LI: Int32;
   LMac: IHmac;
   LDerived: TBytes;
+  LStandIn: ISecretBuffer;
 begin
-  for LI := 0 to System.High(FParams.Psks) do
-    if TArrayUtilities.AreEqual(FParams.Psks[LI].Identity, AIdentity) then
-    begin
-      FPskIdentity := FParams.Psks[LI].Identity;
-      Exit(FParams.Psks[LI].Secret);
-    end;
   // an identity the server does not know proceeds on a stable stand-in, so the handshake ends at
-  // the client Finished with the same decrypt_error a wrong secret gives, and nothing tells the
-  // two apart (RFC 4279 2 permits either this or an unknown_psk_identity alert; local policy)
+  // the client's encrypted Finished exactly as a wrong secret does (bad_record_mac) and nothing tells
+  // the two apart (RFC 4279 2 permits this or an unknown_psk_identity alert; local policy). The
+  // stand-in is derived whether or not the identity is known, so the work does not differ either
   LMac := FParams.Crypto.Primitives.CreateHmac(THashAlgorithm.SHA_256);
   LMac.Init(FParams.PskDummyKey);
   LMac.Update(AIdentity, 0, System.Length(AIdentity));
   LDerived := LMac.DoFinal;
   try
-    Result := TSecretBuffer.From(LDerived);
+    LStandIn := TSecretBuffer.From(LDerived);
   finally
     TSecureMemory.WipeBytes(LDerived);
   end;
+  Result := FindPsk(AIdentity);
+  if Result <> nil then
+  begin
+    FPskIdentity := System.Copy(AIdentity);
+    FPskBinding := TTls12PskPremaster.SessionBinding(FParams.Crypto, Result);
+  end
+  else
+    Result := LStandIn;
 end;
 
 function TTls12ServerStateMachine.EcdsaCredentialCurveOffered(
@@ -974,6 +981,7 @@ var
   LViaTicket: Boolean;
   LNowMs: UInt64;
   LSuite: TTlsCipherSuite;
+  LPsk: ISecretBuffer;
 begin
   Result := False;
   LSession := nil;
@@ -1035,10 +1043,17 @@ begin
   if (FParams.ClientAuth = TClientAuthMode.Required) and
     (System.Length(LSession.PeerCertificates) = 0) and (System.Length(L12.PskIdentity) = 0) then
     Exit;
-  // a PSK session resumes only while its key is still configured, so removing a key revokes the
-  // sessions it authenticated
-  if (System.Length(L12.PskIdentity) > 0) and not PskConfigured(L12.PskIdentity) then
-    Exit;
+  // a PSK session resumes only while its key is still configured with the same secret, so removing
+  // or rotating a key ends the sessions it authenticated
+  if System.Length(L12.PskIdentity) > 0 then
+  begin
+    LPsk := FindPsk(L12.PskIdentity);
+    if LPsk = nil then
+      Exit;
+    if not TSecureMemory.ConstantTimeAreEqual(
+      TTls12PskPremaster.SessionBinding(FParams.Crypto, LPsk), L12.PskBinding) then
+      Exit;
+  end;
   // neither the session nor this hello used EMS (the checks above settled that): RFC 7627 5.3 says a
   // server SHOULD abort, or continue only for legacy insecure resumption (5.4). Placed after the
   // gates so an abort replaces only a resumption that would otherwise happen, and before the ticket
@@ -1059,6 +1074,7 @@ begin
 
   FResumedSession := L12;
   FPskIdentity := L12.PskIdentity;
+  FPskBinding := L12.PskBinding;
   FSelectedSuite := LSuite;
   FUseExtendedMasterSecret := L12.ExtendedMasterSecret;
   FSessionId := System.Copy(AHello.LegacySessionId);
@@ -1091,7 +1107,7 @@ begin
   Result := TTls12ResumableSession.Create(FSelectedSuite.Common.Code,
     FSelectedSuite.Common.Hash, FSchedule.MasterSecret, ASessionId, nil,
     FUseExtendedMasterSecret, nil, FRequestedServerName, EmittedTicketLifetime,
-    FParams.Clock.NowUnixMillis, LChainForTicket, FParams.ResumptionScope, FPskIdentity);
+    FParams.Clock.NowUnixMillis, LChainForTicket, FParams.ResumptionScope, FPskIdentity, FPskBinding);
 end;
 
 function TTls12ServerStateMachine.BuildNewSessionTicketMessage: TBytes;

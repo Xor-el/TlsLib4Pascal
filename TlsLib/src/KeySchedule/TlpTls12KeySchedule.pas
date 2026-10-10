@@ -99,6 +99,12 @@ type
     /// (RFC 5489 2 names the ECDHE_PSK form, RFC 4279 2 the framing). Neither secret is
     /// materialized in a non-wiped intermediate.</summary>
     class function Build(const AShared, APsk: ISecretBuffer): ISecretBuffer; static;
+    /// <summary>A short digest of APsk sealed into a PSK session, so a resumption is honoured only
+    /// while the key that authenticated it is still the configured one: rotating the secret under the
+    /// same identity ends the sessions the old secret made. It is a keyed hash of a fixed label, so it
+    /// reveals nothing usable about the secret.</summary>
+    class function SessionBinding(const ACrypto: ICryptoProvider;
+      const APsk: ISecretBuffer): TBytes; static;
   end;
 
 implementation
@@ -110,6 +116,7 @@ const
   // ChaCha20-Poly1305 has no explicit nonce; its whole 12-byte write IV comes from the
   // key_block and is XORed with the sequence number per record (RFC 7905)
   Tls12ChaChaIvLength = Int32(12);
+  PskSessionBindingLength = Int32(16);
 
 resourcestring
   SPskPremasterOperand = 'a PSK premaster operand must be present and at most 2^16-1 bytes';
@@ -351,6 +358,21 @@ class function TTls12PskPremaster.Build(const AShared, APsk: ISecretBuffer): ISe
   end;
 begin
   Result := TSecretBuffer.Join(Framed(AShared), Framed(APsk));
+end;
+
+class function TTls12PskPremaster.SessionBinding(const ACrypto: ICryptoProvider;
+  const APsk: ISecretBuffer): TBytes;
+var
+  LMac: IHmac;
+  LLabel, LFull: TBytes;
+begin
+  LLabel := TEncoding.ASCII.GetBytes('tls12 psk session');
+  LMac := ACrypto.Primitives.CreateHmac(THashAlgorithm.SHA_256);
+  LMac.Init(APsk);
+  LMac.Update(LLabel, 0, System.Length(LLabel));
+  LFull := LMac.DoFinal;
+  Result := System.Copy(LFull, 0, PskSessionBindingLength);
+  TSecureMemory.WipeBytes(LFull);
 end;
 
 end.

@@ -106,7 +106,8 @@ const
   // v7: the 1.2 tail also carries the PSK identity that authenticated the session (empty for a
   // certificate session)
   // v8: the version itself is a 4-byte field, so layout bumps cannot run out of range; a v7 ticket
-  // (a one-byte version) reads as a different number and draws a full handshake
+  // (a one-byte version) reads as a different number and draws a full handshake. The 1.2 tail also
+  // carries a digest of the PSK's secret beside the identity, so a rotated secret does not resume
   TicketFormatVersion = UInt32(8);
   TicketNonceLength = Int32(12); // AES-256-GCM nonce
   // the serialized session carries the peer chain the client volunteered; cap it so an oversized
@@ -241,6 +242,9 @@ begin
     LMarker := LWriter.OpenVector(2);
     LWriter.WriteBytes(L12.PskIdentity);
     LWriter.CloseVector(LMarker);
+    LMarker := LWriter.OpenVector(1);
+    LWriter.WriteBytes(L12.PskBinding);
+    LWriter.CloseVector(LMarker);
     LMaster := nil;
     if L12.MasterSecret <> nil then
       LMaster := L12.MasterSecret.ToBytes;
@@ -302,12 +306,13 @@ var
   LLifetime, LAgeAdd, LMaxEarly, LHi, LLo: UInt32;
   LIssued: UInt64;
   LServerName: string;
-  LAlpn, LResumption, LMaster, LScope, LPskIdentity: TBytes;
+  LAlpn, LResumption, LMaster, LScope, LPskIdentity, LPskBinding: TBytes;
   LPeerChain: TArray<TBytes>;
 begin
   ASession := nil;
   Result := False;
   LPskIdentity := nil;
+  LPskBinding := nil;
   LResumption := nil;
   LMaster := nil;
   LReader := TWireReader.Create(AData);
@@ -354,13 +359,15 @@ begin
         Exit;
       LVec := LReader.OpenVector(2);
       LPskIdentity := LVec.ReadBytes(LVec.Remaining);
+      LVec := LReader.OpenVector(1);
+      LPskBinding := LVec.ReadBytes(LVec.Remaining);
       // the master secret is the fixed-length tail; anything else is a format mismatch
       if LReader.Remaining <> Tls12MasterSecretLength then
         Exit;
       LMaster := LReader.ReadBytes(Tls12MasterSecretLength);
       ASession := TTls12ResumableSession.Create(LSuite, LHash,
         TSecretBuffer.From(LMaster), nil, nil, LEms <> 0, LAlpn, LServerName,
-        LLifetime, LIssued, LPeerChain, LScope, LPskIdentity);
+        LLifetime, LIssued, LPeerChain, LScope, LPskIdentity, LPskBinding);
     end
     else
       Exit;
