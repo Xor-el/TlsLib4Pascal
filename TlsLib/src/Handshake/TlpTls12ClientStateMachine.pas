@@ -38,6 +38,7 @@ uses
   TlpExtensionContext,
   TlpExtensionVector,
   TlpCoreExtensions,
+  TlpGrease,
   TlpITlsExtension,
   TlpHandshakeMessage,
   TlpHandshakeMessages,
@@ -90,6 +91,9 @@ type
     /// <summary>Whether to offer status_request (OCSP stapling, RFC 6066); default off, so an
     /// unsolicited server staple is rejected unless the client explicitly asked for one.</summary>
     RequestOcspStapling: Boolean;
+    /// <summary>Whether to send GREASE values (RFC 8701) in the ClientHello this machine builds;
+    /// a dispatched hello (PresentClientHello) is built by the parent and carries its own.</summary>
+    Grease: Boolean;
     /// <summary>When set, Start seeds the transcript from these framed ClientHello bytes
     /// (already sent by a version-dispatching parent) instead of building and sending a
     /// fresh ClientHello.</summary>
@@ -363,13 +367,32 @@ function TTls12ClientStateMachine.BuildClientHello: TBytes;
 var
   LContext: TExtensionContext;
   LHello: TTlsClientHello;
+  LBlock: TBytes;
+  LSeed: Int32;
 begin
   Result := nil;
   LContext := TExtensionContext.Create;
   try
+    LSeed := 0;
     LContext.SupportedVersions := FParams.OfferedVersions;
     LContext.SupportedGroups := FParams.OfferedGroups;
     LContext.SignatureSchemes := FParams.OfferedSchemes;
+    LHello.CipherSuites := FParams.OfferedSuites;
+    // distinct GREASE codepoints across the offers, on the wire only: the configured lists the
+    // server's selections are checked against stay free of them, so a server that selects one
+    // is refused (RFC 8701 3.1). There is no HelloRetryRequest in 1.2, so the seed is drawn once
+    if FParams.Grease then
+    begin
+      LSeed := FParams.Crypto.Primitives.GetRandom.GenerateBytes(1)[0];
+      LContext.SupportedVersions := TGrease.Prepend(LContext.SupportedVersions,
+        TGrease.ValueAt(LSeed));
+      LContext.SupportedGroups := TGrease.Prepend(LContext.SupportedGroups,
+        TGrease.ValueAt(LSeed + 1));
+      LContext.SignatureSchemes := TGrease.Prepend(LContext.SignatureSchemes,
+        TGrease.ValueAt(LSeed + 2));
+      LHello.CipherSuites := TGrease.Prepend(LHello.CipherSuites,
+        TGrease.ValueAt(LSeed + 3));
+    end;
     LContext.ServerName := FParams.ServerName;
     LContext.ExtendedMasterSecret := FParams.OfferExtendedMasterSecret;
     // secure-renegotiation signalling (RFC 5746), even though we never renegotiate
@@ -400,9 +423,10 @@ begin
         LHello.LegacySessionId := FOfferedSessionId;
       end;
     end;
-    LHello.CipherSuites := FParams.OfferedSuites;
-    LHello.Extensions := FCodec.ProduceBlock(LContext,
-      TTlsExtensionContextKind.ClientHello);
+    LBlock := FCodec.ProduceBlock(LContext, TTlsExtensionContextKind.ClientHello);
+    if FParams.Grease then
+      LBlock := TGrease.InjectPair(LBlock, LSeed);
+    LHello.Extensions := LBlock;
     Result := THandshakeFraming.Frame(TTlsHandshakeType.ClientHello,
       THandshakeMessages.EncodeClientHello(LHello));
   finally

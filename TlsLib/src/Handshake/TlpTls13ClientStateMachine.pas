@@ -638,10 +638,11 @@ begin
     if System.Length(AEchBody) > 0 then
       LContext.EchExtensionData := AEchBody;
     LBlock := FCodec.ProduceBlock(LContext, TTlsExtensionContextKind.ClientHello);
-    // GREASE splices one extension next to encrypted_client_hello (else before pre_shared_key,
-    // which must stay last, RFC 8446 4.2.11), so an ECH inner keeps it in one compressible run
+    // GREASE splices two extensions, one empty and one 1-byte (RFC 8701 3.1 varying length), next
+    // to encrypted_client_hello (else before pre_shared_key, which must stay last, RFC 8446
+    // 4.2.11), so an ECH inner keeps them in one compressible run
     if FParams.Grease then
-      LBlock := TGrease.InjectExtension(LBlock, TGrease.ValueAt(LSeed + 5));
+      LBlock := TGrease.InjectPair(LBlock, LSeed);
     LHello.Extensions := LBlock;
     Result := THandshakeFraming.Frame(TTlsHandshakeType.ClientHello,
       THandshakeMessages.EncodeClientHello(LHello));

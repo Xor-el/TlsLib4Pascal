@@ -227,6 +227,9 @@ type
     /// revocation status (a resume carries no staple), so the client offers no resumption and does a
     /// full handshake instead.</summary>
     function WithResumeVerification(AMode: TResumeVerification): ITlsClientConfigBuilder;
+    /// <summary>Whether the client sends GREASE values (RFC 8701) in its ClientHello, whatever
+    /// versions it offers. Optional per the RFC; default True.</summary>
+    function WithGrease(AEnable: Boolean): ITlsClientConfigBuilder;
     /// <summary>The TLS 1.3-only settings.</summary>
     function Tls13: ITls13ClientConfigFacet;
     /// <summary>The TLS 1.2-only settings.</summary>
@@ -239,9 +242,6 @@ type
   /// chain, and the endpoint build and the sibling version facet are reachable here.</summary>
   ITls13ClientConfigFacet = interface(IInterface)
     ['{651DC9E2-62F5-451B-9524-C3C893D95EE7}']
-    /// <summary>Whether the client sends GREASE values (RFC 8701) in its TLS 1.3 ClientHello.
-    /// Optional per the RFC; default True. A TLS 1.2-only hello carries none.</summary>
-    function WithGrease(AEnable: Boolean): ITls13ClientConfigFacet;
     /// <summary>The out-of-band external pre-shared keys (RFC 9258) the client imports and
     /// offers in the ClientHello, in preference order. When set, the client offers these
     /// instead of drawing a resumption session from the cache. Empty leaves external PSK

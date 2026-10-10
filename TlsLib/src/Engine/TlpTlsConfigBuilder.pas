@@ -655,6 +655,7 @@ type
     function WithSessionCache(const ACache: ISessionCache): ITlsClientConfigBuilder;
     function WithResumptionScope(const AScope: TBytes): ITlsClientConfigBuilder;
     function WithResumeVerification(AMode: TResumeVerification): ITlsClientConfigBuilder;
+    function WithGrease(AEnable: Boolean): ITlsClientConfigBuilder;
     function WithClock(const AClock: ITlsClock): ITlsClientConfigBuilder;
     function WithMonotonicClock(const AClock: ITlsMonotonicClock): ITlsClientConfigBuilder;
     function WithDangerousKeyLog(const AKeyLog: IKeyLog): ITlsClientConfigBuilder;
@@ -729,7 +730,6 @@ type
 
   TTls13ClientConfigFacet = class sealed(TTlsConfigViewBase, ITls13ClientConfigFacet)
   public
-    function WithGrease(AEnable: Boolean): ITls13ClientConfigFacet;
     function WithExternalPreSharedKeys(
       const APsks: TArray<TExternalPsk>): ITls13ClientConfigFacet;
     function WithExternalPskRequired(AEnabled: Boolean): ITls13ClientConfigFacet;
@@ -1268,6 +1268,12 @@ begin
   Result := Self;
 end;
 
+function TTlsClientConfigBuilder.WithGrease(AEnable: Boolean): ITlsClientConfigBuilder;
+begin
+  FOwner.WithGrease(AEnable);
+  Result := Self;
+end;
+
 function TTlsClientConfigBuilder.WithClock(
   const AClock: ITlsClock): ITlsClientConfigBuilder;
 begin
@@ -1593,12 +1599,6 @@ begin
 end;
 
 { TTls13ClientConfigFacet }
-
-function TTls13ClientConfigFacet.WithGrease(AEnable: Boolean): ITls13ClientConfigFacet;
-begin
-  FOwner.WithGrease(AEnable);
-  Result := Self;
-end;
 
 function TTls13ClientConfigFacet.WithExternalPreSharedKeys(
   const APsks: TArray<TExternalPsk>): ITls13ClientConfigFacet;
@@ -2481,8 +2481,6 @@ function TTlsConfigBuilder.WithGrease(AEnable: Boolean): TTlsConfigBuilder;
 begin
   GuardMutable;
   FGrease := AEnable;
-  if not AEnable then
-    FTls13Configured := True;
   Result := Self;
 end;
 

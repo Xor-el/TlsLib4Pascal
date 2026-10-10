@@ -347,6 +347,7 @@ begin
   L12.OfferedSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
   L12.AlpnProtocols := AConfig.AlpnProtocols;
   L12.RecordSizeLimit := AConfig.RecordSizeLimit;
+  L12.Grease := AConfig.Grease;
   L12.OfferedVersions := AConfig.SupportedVersions;
   L12.ClientRandom := LClientRandom;
   // the non-empty legacy_session_id is the TLS 1.3 middlebox-compatibility session id

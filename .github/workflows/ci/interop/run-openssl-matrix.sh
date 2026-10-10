@@ -44,7 +44,7 @@ trap 'rm -rf "$TMP"; kill $(jobs -p) 2>/dev/null || true' EXIT
 echo "openssl: $($OPENSSL version)"
 echo "driver:  $DRIVER"
 FAILURES=0
-TOTAL=10
+TOTAL=11
 
 # capability probe: X25519MLKEM768 needs openssl >= 3.5. Older builds skip the hybrid
 # H-cells with a logged count - never a silent pass, never a hard fail on an old runner.
@@ -169,6 +169,20 @@ if "$DRIVER" --role client --port $P4 --host localhost --ca "$TMP/srv_cert.pem" 
   echo "  PASS: TLS 1.2 handshake (we verify peer cert + hostname) + app-data"
 else
   echo "  FAIL: cell 4"; cat "$TMP/s4.log"; FAILURES=$((FAILURES+1))
+fi
+wait || true
+
+# --- Cell G12: our TLS 1.2-only client (GREASE on by default) -> openssl s_server over TLS 1.2 ---
+echo "=== cell G12: our TLS 1.2-only client  ->  openssl s_server (TLS 1.2) ==="
+PG=14530
+"$OPENSSL" s_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_2 \
+  -accept $PG -rev -naccept 1 > "$TMP/sg12.log" 2>&1 &
+for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/sg12.log" && break; sleep 0.1; done
+if "$DRIVER" --role client --port $PG --host localhost --ca "$TMP/srv_cert.pem" --tls12-only \
+     --message "hello-cell-g12" --data-dir "$DATA_DIR"; then
+  echo "  PASS: GREASE values in a TLS 1.2-only ClientHello are ignored (RFC 8701 3.2)"
+else
+  echo "  FAIL: cell G12"; cat "$TMP/sg12.log"; FAILURES=$((FAILURES+1))
 fi
 wait || true
 
