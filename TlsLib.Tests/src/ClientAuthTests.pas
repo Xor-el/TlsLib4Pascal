@@ -52,6 +52,12 @@ uses
   TlpTlsLibExceptions,
   TlpServerName,
   TlpCertificateVerifier,
+  TlpCertificateLimits,
+  TlpCertificateCompression,
+  TlpICertificateCompression,
+  TlpICertificateCompressionCache,
+  TlpInMemoryCertificateCompressionCache,
+  TlpZlibCertificateCompression,
   TlpTlsCredential,
   TlpCredentialResolvers,
   TlpTls13ClientStateMachine,
@@ -70,6 +76,14 @@ type
     function PeerVerifier: TCertificateVerifier;
     function ClientLeafCert: TBytes;
     function SpkiSha256(const ACertDer: TBytes): TBytes;
+    /// <summary>A TLS 1.3 mutual-TLS client (with credential) and a server requiring it, with the
+    /// given certificate-compression sets on each side; the server is returned through AServer.</summary>
+    function New13CompressionPair(const AClientCompressors: TArray<ICertificateCompressor>;
+      const AClientDecompressors: TArray<ICertificateDecompressor>;
+      const AClientCache: ICertificateCompressionCache;
+      const AServerCompressors: TArray<ICertificateCompressor>;
+      const AServerDecompressors: TArray<ICertificateDecompressor>;
+      out AServer: ITlsEngine): ITlsEngine;
     function New13Client(AWithCredential: Boolean): ITlsEngine;
     function New13Server(AMode: TClientAuthMode): ITlsEngine;
     function New13ServerWithSchemes(AMode: TClientAuthMode;
@@ -115,9 +129,113 @@ type
     procedure TestTls13ServerRejectsClientIntermediateExtension;
     procedure TestTls13ClientCertPinMatchCompletes;
     procedure TestTls13ClientCertPinMismatchAborts;
+    procedure TestClientCertificateIsCompressedInBothDirections;
+    procedure TestEmptyClientCompressorsSendAPlainCertificate;
+    procedure TestServerAdvertisingNothingGetsAPlainCertificate;
+    procedure TestClientCertificateCompressionIsMemoizedOnTheClient;
+    procedure TestDecliningClientCompressorSendsAPlainCertificate;
+    procedure TestCompressorReportingSuccessWithNothingFailsTheHandshake;
+    procedure TestRaisingCompressorIsNotSwallowed;
+    procedure TestFailingDecompressorIsBadCertificate;
+    procedure TestRaisingDecompressorIsBadCertificate;
+    procedure TestWrongLengthDecompressionIsBadCertificate;
   end;
 
 implementation
+
+type
+  TCompressorMode = (Normal, Decline, EmptySuccess, Throws);
+  TDecompressorMode = (Works, Fails, Raises, WrongLength);
+
+  // zlib's codepoint with a tally and a scripted misbehaviour, so a test can prove which side
+  // compressed or decompressed, and how the engine reacts to a contract breach
+  TSpyCertCompressor = class sealed(TInterfacedObject, ICertificateCompressor)
+  strict private
+    FMode: TCompressorMode;
+    FCount: Int32;
+  public
+    constructor Create(AMode: TCompressorMode);
+    function Algorithm: UInt16;
+    function TryCompress(const AData: TBytes; out ACompressed: TBytes): Boolean;
+    property Count: Int32 read FCount;
+  end;
+
+  TSpyCertDecompressor = class sealed(TInterfacedObject, ICertificateDecompressor)
+  strict private
+    FMode: TDecompressorMode;
+    FCount: Int32;
+  public
+    constructor Create(AMode: TDecompressorMode);
+    function Algorithm: UInt16;
+    function TryDecompress(const ACompressed: TBytes; AMaxLength: Int32;
+      out ADecompressed: TBytes): Boolean;
+    property Count: Int32 read FCount;
+  end;
+
+  ESpyBackend = class(Exception);
+
+constructor TSpyCertCompressor.Create(AMode: TCompressorMode);
+begin
+  inherited Create;
+  FMode := AMode;
+end;
+
+function TSpyCertCompressor.Algorithm: UInt16;
+begin
+  Result := TCertificateCompressionAlgorithms.Zlib;
+end;
+
+function TSpyCertCompressor.TryCompress(const AData: TBytes;
+  out ACompressed: TBytes): Boolean;
+begin
+  Inc(FCount);
+  ACompressed := nil;
+  case FMode of
+    TCompressorMode.Decline:
+      Result := False;
+    TCompressorMode.EmptySuccess:
+      Result := True;
+    TCompressorMode.Throws:
+      raise ESpyBackend.Create('the backend failed');
+  else
+    Result := TZlibCertificateCompression.DefaultCompressors[0].TryCompress(AData, ACompressed);
+  end;
+end;
+
+constructor TSpyCertDecompressor.Create(AMode: TDecompressorMode);
+begin
+  inherited Create;
+  FMode := AMode;
+end;
+
+function TSpyCertDecompressor.Algorithm: UInt16;
+begin
+  Result := TCertificateCompressionAlgorithms.Zlib;
+end;
+
+function TSpyCertDecompressor.TryDecompress(const ACompressed: TBytes; AMaxLength: Int32;
+  out ADecompressed: TBytes): Boolean;
+begin
+  Inc(FCount);
+  ADecompressed := nil;
+  case FMode of
+    TDecompressorMode.Fails:
+      Result := False;
+    TDecompressorMode.Raises:
+      raise ESpyBackend.Create('the backend failed');
+    TDecompressorMode.WrongLength:
+    begin
+      // a short result that is not the declared length
+      Result := TZlibCertificateCompression.DefaultDecompressors[0].TryDecompress(
+        ACompressed, AMaxLength, ADecompressed);
+      if Result and (System.Length(ADecompressed) > 0) then
+        SetLength(ADecompressed, System.Length(ADecompressed) - 1);
+    end;
+  else
+    Result := TZlibCertificateCompression.DefaultDecompressors[0].TryDecompress(
+      ACompressed, AMaxLength, ADecompressed);
+  end;
+end;
 
 { TTestClientAuth }
 
@@ -235,6 +353,60 @@ begin
     LParams.ClientCredential := Credential;
   Result := TTlsEngine.CreateConfigured(
     TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
+end;
+
+function TTestClientAuth.New13CompressionPair(
+  const AClientCompressors: TArray<ICertificateCompressor>;
+  const AClientDecompressors: TArray<ICertificateDecompressor>;
+  const AClientCache: ICertificateCompressionCache;
+  const AServerCompressors: TArray<ICertificateCompressor>;
+  const AServerDecompressors: TArray<ICertificateDecompressor>;
+  out AServer: ITlsEngine): ITlsEngine;
+var
+  LClient: TClientHandshakeParams;
+  LServer: TServerHandshakeParams;
+begin
+  LClient := Default(TClientHandshakeParams);
+  LClient.Clock := TSystemClock.Create;
+  LClient.Crypto := Crypto;
+  LClient.Inspector := Pkix.Certificates;
+  LClient.Group := TNamedGroups.CreateX25519(Crypto);
+  LClient.GroupCode := TNamedGroupCatalog.X25519;
+  LClient.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
+  LClient.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LClient.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
+  LClient.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+  LClient.ClientRandom := Filled($11, 32);
+  LClient.LegacySessionId := Filled($33, 32);
+  LClient.CertificateVerifier := PeerVerifier;
+  LClient.ExpectedServerName := TServerName.DnsName('localhost');
+  LClient.ClientCredential := Credential;
+  LClient.CertificateChainLimits := TCertificateChainLimits.Defaults;
+  LClient.CertificateCompressors := AClientCompressors;
+  LClient.CertificateDecompressors := AClientDecompressors;
+  LClient.CertificateCompressionCache := AClientCache;
+  Result := TTlsEngine.CreateConfigured(
+    TTls13ClientStateMachine.Create(LClient) as IHandshakeMachine, Crypto);
+
+  LServer := Default(TServerHandshakeParams);
+  LServer.Clock := TSystemClock.Create;
+  LServer.Crypto := Crypto;
+  LServer.Inspector := Pkix.Certificates;
+  LServer.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LServer.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
+  LServer.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LServer.Group := TNamedGroups.CreateX25519(Crypto);
+  LServer.ServerRandom := Filled($22, 32);
+  LServer.CredentialResolver := TSniCredentialResolver.ForCredential(Credential);
+  LServer.ClientAuth := TClientAuthMode.Required;
+  LServer.ClientAuthSignatureSchemes :=
+    TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+  LServer.ClientCertificateVerifier := PeerVerifier;
+  LServer.CertificateChainLimits := TCertificateChainLimits.Defaults;
+  LServer.CertificateCompressors := AServerCompressors;
+  LServer.CertificateDecompressors := AServerDecompressors;
+  AServer := TTlsEngine.CreateConfigured(
+    TTls13ServerStateMachine.Create(LServer) as IHandshakeMachine, Crypto);
 end;
 
 function TTestClientAuth.New13Server(AMode: TClientAuthMode): ITlsEngine;
@@ -871,6 +1043,200 @@ begin
   CheckEquals(Int64(Ord(TTlsAlertDescription.BadCertificate)),
     Int64(Ord(LServer.LastError.Alert.Description)),
     'a client-cert pin mismatch is bad_certificate');
+end;
+
+procedure TTestClientAuth.TestClientCertificateIsCompressedInBothDirections;
+var
+  LClient, LServer: ITlsEngine;
+  LClientCompressor, LServerCompressor: TSpyCertCompressor;
+  LClientDecompressor, LServerDecompressor: TSpyCertDecompressor;
+begin
+  // each side holds a compressor and a decompressor for zlib: the server compresses its
+  // Certificate for the client (the existing direction) and, now that its CertificateRequest
+  // advertises compress_certificate, the client compresses its own for the server
+  LClientCompressor := TSpyCertCompressor.Create(TCompressorMode.Normal);
+  LServerCompressor := TSpyCertCompressor.Create(TCompressorMode.Normal);
+  LClientDecompressor := TSpyCertDecompressor.Create(TDecompressorMode.Works);
+  LServerDecompressor := TSpyCertDecompressor.Create(TDecompressorMode.Works);
+  LClient := New13CompressionPair(
+    TArray<ICertificateCompressor>.Create(LClientCompressor as ICertificateCompressor),
+    TArray<ICertificateDecompressor>.Create(LClientDecompressor as ICertificateDecompressor),
+    nil,
+    TArray<ICertificateCompressor>.Create(LServerCompressor as ICertificateCompressor),
+    TArray<ICertificateDecompressor>.Create(LServerDecompressor as ICertificateDecompressor),
+    LServer);
+  Drive(LClient, LServer);
+  CheckFalse(LClient.IsTerminal or LServer.IsTerminal, 'the handshake completed');
+  CheckEquals(1, LServerCompressor.Count, 'the server compressed its Certificate');
+  CheckEquals(1, LClientDecompressor.Count, 'the client decompressed the server Certificate');
+  CheckEquals(1, LClientCompressor.Count, 'the client compressed its own Certificate');
+  CheckEquals(1, LServerDecompressor.Count, 'the server decompressed the client Certificate');
+end;
+
+procedure TTestClientAuth.TestEmptyClientCompressorsSendAPlainCertificate;
+var
+  LClient, LServer: ITlsEngine;
+  LServerDecompressor: TSpyCertDecompressor;
+begin
+  // an empty compressor set turns client-certificate compression off, whatever the server advertises
+  LServerDecompressor := TSpyCertDecompressor.Create(TDecompressorMode.Works);
+  LClient := New13CompressionPair(nil,
+    TZlibCertificateCompression.DefaultDecompressors, nil,
+    TZlibCertificateCompression.DefaultCompressors,
+    TArray<ICertificateDecompressor>.Create(LServerDecompressor as ICertificateDecompressor),
+    LServer);
+  Drive(LClient, LServer);
+  CheckFalse(LClient.IsTerminal or LServer.IsTerminal, 'the handshake completed');
+  CheckEquals(0, LServerDecompressor.Count, 'the client sent a plain Certificate');
+end;
+
+procedure TTestClientAuth.TestServerAdvertisingNothingGetsAPlainCertificate;
+var
+  LClient, LServer: ITlsEngine;
+  LClientCompressor: TSpyCertCompressor;
+begin
+  // a server with no decompressors advertises nothing, so there is no common algorithm to use
+  LClientCompressor := TSpyCertCompressor.Create(TCompressorMode.Normal);
+  LClient := New13CompressionPair(
+    TArray<ICertificateCompressor>.Create(LClientCompressor as ICertificateCompressor),
+    TZlibCertificateCompression.DefaultDecompressors, nil,
+    TZlibCertificateCompression.DefaultCompressors, nil, LServer);
+  Drive(LClient, LServer);
+  CheckFalse(LClient.IsTerminal or LServer.IsTerminal, 'the handshake completed');
+  CheckEquals(0, LClientCompressor.Count, 'the client had nothing to compress for');
+end;
+
+procedure TTestClientAuth.TestClientCertificateCompressionIsMemoizedOnTheClient;
+var
+  LCache: ICertificateCompressionCache;
+  LClient, LServer: ITlsEngine;
+  LClientCompressor: TSpyCertCompressor;
+  LClientCompressorRef: ICertificateCompressor;
+begin
+  // two handshakes from one client config compress the same Certificate once through a shared cache
+  LCache := TInMemoryCertificateCompressionCache.Create;
+  LClientCompressor := TSpyCertCompressor.Create(TCompressorMode.Normal);
+  LClientCompressorRef := LClientCompressor;
+  LClient := New13CompressionPair(TArray<ICertificateCompressor>.Create(LClientCompressorRef),
+    TZlibCertificateCompression.DefaultDecompressors, LCache,
+    TZlibCertificateCompression.DefaultCompressors,
+    TZlibCertificateCompression.DefaultDecompressors, LServer);
+  Drive(LClient, LServer);
+  CheckFalse(LClient.IsTerminal or LServer.IsTerminal, 'the first handshake completed');
+  LClient := New13CompressionPair(TArray<ICertificateCompressor>.Create(LClientCompressorRef),
+    TZlibCertificateCompression.DefaultDecompressors, LCache,
+    TZlibCertificateCompression.DefaultCompressors,
+    TZlibCertificateCompression.DefaultDecompressors, LServer);
+  Drive(LClient, LServer);
+  CheckFalse(LClient.IsTerminal or LServer.IsTerminal, 'the second handshake completed');
+  CheckEquals(1, LClientCompressor.Count, 'the second handshake was served from the cache');
+end;
+
+procedure TTestClientAuth.TestDecliningClientCompressorSendsAPlainCertificate;
+var
+  LClient, LServer: ITlsEngine;
+  LClientCompressor: TSpyCertCompressor;
+  LServerDecompressor: TSpyCertDecompressor;
+begin
+  // a compressor that declines (False) leaves the Certificate uncompressed: compression is a MAY
+  LClientCompressor := TSpyCertCompressor.Create(TCompressorMode.Decline);
+  LServerDecompressor := TSpyCertDecompressor.Create(TDecompressorMode.Works);
+  LClient := New13CompressionPair(
+    TArray<ICertificateCompressor>.Create(LClientCompressor as ICertificateCompressor),
+    TZlibCertificateCompression.DefaultDecompressors, nil,
+    TZlibCertificateCompression.DefaultCompressors,
+    TArray<ICertificateDecompressor>.Create(LServerDecompressor as ICertificateDecompressor),
+    LServer);
+  Drive(LClient, LServer);
+  CheckFalse(LClient.IsTerminal or LServer.IsTerminal, 'the handshake completed');
+  CheckEquals(1, LClientCompressor.Count, 'the compressor was asked');
+  CheckEquals(0, LServerDecompressor.Count, 'and the plain Certificate needed no decompression');
+end;
+
+procedure TTestClientAuth.TestCompressorReportingSuccessWithNothingFailsTheHandshake;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // True with an empty result breaks the compressor contract (RFC 8879 4: <1..2^24-1>): that is a
+  // loud internal_error, not a silent fall back to uncompressed
+  LClient := New13CompressionPair(
+    TArray<ICertificateCompressor>.Create(
+    TSpyCertCompressor.Create(TCompressorMode.EmptySuccess) as ICertificateCompressor),
+    TZlibCertificateCompression.DefaultDecompressors, nil,
+    TZlibCertificateCompression.DefaultCompressors,
+    TZlibCertificateCompression.DefaultDecompressors, LServer);
+  Drive(LClient, LServer);
+  CheckTrue(LClient.IsTerminal, 'the handshake failed on the broken compressor');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.InternalError)),
+    Int64(Ord(LClient.LastError.Alert.Description)), 'as internal_error');
+end;
+
+procedure TTestClientAuth.TestRaisingCompressorIsNotSwallowed;
+var
+  LClient, LServer: ITlsEngine;
+  LClientCompressor: TSpyCertCompressor;
+begin
+  // an exception from a compressor is a bug or an unrecoverable condition: the engine does not
+  // catch it and fall back, it fails the handshake
+  LClientCompressor := TSpyCertCompressor.Create(TCompressorMode.Throws);
+  LClient := New13CompressionPair(
+    TArray<ICertificateCompressor>.Create(LClientCompressor as ICertificateCompressor),
+    TZlibCertificateCompression.DefaultDecompressors, nil,
+    TZlibCertificateCompression.DefaultCompressors,
+    TZlibCertificateCompression.DefaultDecompressors, LServer);
+  Drive(LClient, LServer);
+  CheckTrue(LClient.IsTerminal, 'the handshake failed rather than continuing uncompressed');
+  CheckEquals(1, LClientCompressor.Count, 'the compressor was reached once');
+end;
+
+procedure TTestClientAuth.TestFailingDecompressorIsBadCertificate;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // a decompressor that cannot decompress the client's input (False) is the RFC 8879 4 bad_certificate
+  LClient := New13CompressionPair(TZlibCertificateCompression.DefaultCompressors,
+    TZlibCertificateCompression.DefaultDecompressors, nil,
+    TZlibCertificateCompression.DefaultCompressors,
+    TArray<ICertificateDecompressor>.Create(
+    TSpyCertDecompressor.Create(TDecompressorMode.Fails) as ICertificateDecompressor), LServer);
+  Drive(LClient, LServer);
+  CheckTrue(LServer.IsTerminal, 'the server aborted');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.BadCertificate)),
+    Int64(Ord(LServer.LastError.Alert.Description)), 'with bad_certificate');
+end;
+
+procedure TTestClientAuth.TestRaisingDecompressorIsBadCertificate;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // a backend that raises its own exception on the peer's input is still bad_certificate, not
+  // internal_error: the mapping lives in one place and an implementation need know nothing about TLS
+  LClient := New13CompressionPair(TZlibCertificateCompression.DefaultCompressors,
+    TZlibCertificateCompression.DefaultDecompressors, nil,
+    TZlibCertificateCompression.DefaultCompressors,
+    TArray<ICertificateDecompressor>.Create(
+    TSpyCertDecompressor.Create(TDecompressorMode.Raises) as ICertificateDecompressor), LServer);
+  Drive(LClient, LServer);
+  CheckTrue(LServer.IsTerminal, 'the server aborted');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.BadCertificate)),
+    Int64(Ord(LServer.LastError.Alert.Description)), 'with bad_certificate');
+end;
+
+procedure TTestClientAuth.TestWrongLengthDecompressionIsBadCertificate;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // a result whose length is not the declared one is bad_certificate (RFC 8879 4)
+  LClient := New13CompressionPair(TZlibCertificateCompression.DefaultCompressors,
+    TZlibCertificateCompression.DefaultDecompressors, nil,
+    TZlibCertificateCompression.DefaultCompressors,
+    TArray<ICertificateDecompressor>.Create(
+    TSpyCertDecompressor.Create(TDecompressorMode.WrongLength) as ICertificateDecompressor),
+    LServer);
+  Drive(LClient, LServer);
+  CheckTrue(LServer.IsTerminal, 'the server aborted');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.BadCertificate)),
+    Int64(Ord(LServer.LastError.Alert.Description)), 'with bad_certificate');
 end;
 
 initialization

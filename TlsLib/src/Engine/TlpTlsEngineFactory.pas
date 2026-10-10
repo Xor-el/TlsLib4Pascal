@@ -294,8 +294,11 @@ begin
   L13.OfferedSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
   L13.AlpnProtocols := AConfig.AlpnProtocols;
   L13.RecordSizeLimit := AConfig.RecordSizeLimit;
-  // the client advertises what it can decompress (RFC 8879)
+  // the client advertises what it can decompress, and compresses its own Certificate with what it
+  // holds when the server asks for one and advertises a match (RFC 8879)
   L13.CertificateDecompressors := AConfig.CertificateDecompressors;
+  L13.CertificateCompressors := AConfig.CertificateCompressors;
+  L13.CertificateCompressionCache := AConfig.CertificateCompressionCache;
   // GREASE is on by default for a client (RFC 8701 keeps peers tolerant); optional per the RFC
   L13.Grease := AConfig.Grease;
   L13.RequestOcspStapling := AConfig.RequestOcspStapling;
@@ -478,8 +481,11 @@ begin
   L13.ServerRandom := LServerRandom;
   L13.AlpnProtocols := AConfig.AlpnProtocols;
   L13.RecordSizeLimit := AConfig.RecordSizeLimit;
-  // the server compresses its Certificate with what it holds and the client advertised
+  // the server compresses its Certificate with what it holds and the client advertised, and
+  // advertises what it can decompress when it asks for a client certificate (RFC 8879)
   L13.CertificateCompressors := AConfig.CertificateCompressors;
+  L13.CertificateDecompressors := AConfig.CertificateDecompressors;
+  L13.CertificateChainLimits := AConfig.CertificateChainLimits;
   // memoize that compression across connections (a stable certificate deflates once)
   L13.CertificateCompressionCache := AConfig.CertificateCompressionCache;
   // a per-server-instance secret so the server can answer with a stateless HelloRetryRequest

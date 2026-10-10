@@ -24,8 +24,6 @@ uses
 {$ELSE}
   System.ZLib,
 {$ENDIF FPC}
-  TlpTlsAlert,
-  TlpTlsLibExceptions,
   TlpCertificateCompression,
   TlpICertificateCompression;
 
@@ -34,7 +32,7 @@ type
   TZlibCertificateCompressor = class sealed(TInterfacedObject, ICertificateCompressor)
   public
     function Algorithm: UInt16;
-    function Compress(const AData: TBytes): TBytes;
+    function TryCompress(const AData: TBytes; out ACompressed: TBytes): Boolean;
   end;
 
   /// <summary>
@@ -45,7 +43,8 @@ type
   TZlibCertificateDecompressor = class sealed(TInterfacedObject, ICertificateDecompressor)
   public
     function Algorithm: UInt16;
-    function Decompress(const ACompressed: TBytes; AMaxLength: Int32): TBytes;
+    function TryDecompress(const ACompressed: TBytes; AMaxLength: Int32;
+      out ADecompressed: TBytes): Boolean;
   end;
 
   /// <summary>
@@ -64,10 +63,6 @@ type
 
 implementation
 
-resourcestring
-  SOutputTooLarge = 'decompressed output exceeds the declared length';
-  SInflateFailed = 'certificate decompression failed';
-
 { TZlibCertificateCompressor }
 
 function TZlibCertificateCompressor.Algorithm: UInt16;
@@ -75,28 +70,40 @@ begin
   Result := TCertificateCompressionAlgorithms.Zlib;
 end;
 
-function TZlibCertificateCompressor.Compress(const AData: TBytes): TBytes;
+function TZlibCertificateCompressor.TryCompress(const AData: TBytes;
+  out ACompressed: TBytes): Boolean;
 var
   LOutput: TMemoryStream;
   LDeflate: {$IFDEF FPC}TCompressionStream{$ELSE}TZCompressionStream{$ENDIF};
 begin
-  Result := nil;
+  ACompressed := nil;
+  Result := False;
   LOutput := TMemoryStream.Create;
   try
-{$IFDEF FPC}
-    LDeflate := TCompressionStream.Create(clDefault, LOutput);
-{$ELSE}
-    LDeflate := TZCompressionStream.Create(LOutput); // default compression level
-{$ENDIF}
     try
-      if System.Length(AData) > 0 then
-        LDeflate.WriteBuffer(AData[0], System.Length(AData));
-    finally
-      LDeflate.Free; // flush on free
+{$IFDEF FPC}
+      LDeflate := TCompressionStream.Create(clDefault, LOutput);
+{$ELSE}
+      LDeflate := TZCompressionStream.Create(LOutput); // default compression level
+{$ENDIF}
+      try
+        if System.Length(AData) > 0 then
+          LDeflate.WriteBuffer(AData[0], System.Length(AData));
+      finally
+        LDeflate.Free; // flush on free
+      end;
+    except
+      // a stream error from the backend is a recoverable failure: send uncompressed
+      on E: EStreamError do
+        Exit;
+      on E: EZlibError do
+        Exit;
     end;
-    SetLength(Result, LOutput.Size);
-    if LOutput.Size > 0 then
-      Move(LOutput.Memory^, Result[0], LOutput.Size);
+    if LOutput.Size = 0 then
+      Exit;
+    SetLength(ACompressed, LOutput.Size);
+    Move(LOutput.Memory^, ACompressed[0], LOutput.Size);
+    Result := True;
   finally
     LOutput.Free;
   end;
@@ -109,8 +116,8 @@ begin
   Result := TCertificateCompressionAlgorithms.Zlib;
 end;
 
-function TZlibCertificateDecompressor.Decompress(const ACompressed: TBytes;
-  AMaxLength: Int32): TBytes;
+function TZlibCertificateDecompressor.TryDecompress(const ACompressed: TBytes;
+  AMaxLength: Int32; out ADecompressed: TBytes): Boolean;
 var
   LStrm: {$IFDEF FPC}TZStream{$ELSE}z_stream{$ENDIF};
   LChunk: TBytes;
@@ -119,16 +126,15 @@ begin
   // raw inflate rather than the stream wrapper: the wrapper buffers ahead and never notices
   // input past the deflate stream, but a CompressedCertificate body is exactly one zlib stream
   // (RFC 8879), so trailing bytes must be rejected - the leftover avail_in below catches them
-  Result := nil;
-  if System.Length(ACompressed) = 0 then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.BadCertificate, @SInflateFailed);
+  ADecompressed := nil;
+  Result := False;
+  if (System.Length(ACompressed) = 0) or (AMaxLength <= 0) then
+    Exit;
   FillChar(LStrm, SizeOf(LStrm), 0);
   if inflateInit(LStrm) <> Z_OK then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.BadCertificate, @SInflateFailed);
+    Exit;
   try
-    SetLength(Result, AMaxLength);
+    SetLength(ADecompressed, AMaxLength);
     SetLength(LChunk, 4096);
     LStrm.next_in := @ACompressed[0];
     LStrm.avail_in := System.Length(ACompressed);
@@ -139,24 +145,31 @@ begin
       LStatus := inflate(LStrm, Z_NO_FLUSH);
       // Z_BUF_ERROR (truncated input) and every hard error are a failed decompression
       if (LStatus <> Z_OK) and (LStatus <> Z_STREAM_END) then
-        raise EFatalAlertTlsLibException.CreateRes(
-          TTlsAlertDescription.BadCertificate, @SInflateFailed);
+      begin
+        ADecompressed := nil;
+        Exit;
+      end;
       LOut := System.Length(LChunk) - Int32(LStrm.avail_out);
       if LOut > 0 then
       begin
         // never let the inflated output pass the bound (bomb guard)
         if LProduced + LOut > AMaxLength then
-          raise EFatalAlertTlsLibException.CreateRes(
-            TTlsAlertDescription.BadCertificate, @SOutputTooLarge);
-        Move(LChunk[0], Result[LProduced], LOut);
+        begin
+          ADecompressed := nil;
+          Exit;
+        end;
+        Move(LChunk[0], ADecompressed[LProduced], LOut);
         Inc(LProduced, LOut);
       end;
     until LStatus = Z_STREAM_END;
     // input past the single zlib stream is malformed
     if LStrm.avail_in <> 0 then
-      raise EFatalAlertTlsLibException.CreateRes(
-        TTlsAlertDescription.BadCertificate, @SInflateFailed);
-    SetLength(Result, LProduced);
+    begin
+      ADecompressed := nil;
+      Exit;
+    end;
+    SetLength(ADecompressed, LProduced);
+    Result := True;
   finally
     inflateEnd(LStrm);
   end;

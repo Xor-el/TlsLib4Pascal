@@ -56,6 +56,7 @@ uses
   TlpCertificateVerify,
   TlpPeerAuthentication,
   TlpICertificateTrust,
+  TlpCertificateLimits,
   TlpTrustTypes,
   TlpTlsCredential,
   TlpITlsCredentialResolver,
@@ -103,10 +104,15 @@ type
     /// cookie. Required for a server that may answer with a HelloRetryRequest.</summary>
     CookieSecret: ISecretBuffer;
     /// <summary>The certificate-compression algorithms the server can compress with
-    /// (RFC 8879). When the client advertised a matching algorithm and compression
-    /// shrinks the Certificate, the server sends a CompressedCertificate; empty never
-    /// compresses.</summary>
+    /// (RFC 8879). When the client advertised a matching algorithm, the server sends a
+    /// CompressedCertificate; empty never compresses.</summary>
     CertificateCompressors: TArray<ICertificateCompressor>;
+    /// <summary>The algorithms the server can decompress a client Certificate with (RFC 8879),
+    /// advertised in its CertificateRequest when client authentication is requested; empty
+    /// advertises none, and a CompressedCertificate from the client is then unexpected.</summary>
+    CertificateDecompressors: TArray<ICertificateDecompressor>;
+    /// <summary>Bounds a decompressed client Certificate, the same budget as an uncompressed one.</summary>
+    CertificateChainLimits: TCertificateChainLimits;
     /// <summary>Memoizes the compressed Certificate across connections (RFC 8879), so a
     /// stable certificate deflates once; nil compresses on every handshake.</summary>
     CertificateCompressionCache: ICertificateCompressionCache;
@@ -218,6 +224,9 @@ type
     /// <summary>The certificate-compression algorithms the client advertised, used to
     /// pick a compressor for the Certificate flight (RFC 8879).</summary>
     FClientCertCompressionAlgorithms: TArray<UInt16>;
+    /// <summary>Whether the CertificateRequest advertised compress_certificate, which is what
+    /// makes a client CompressedCertificate legal.</summary>
+    FCertCompressionAdvertised: Boolean;
     /// <summary>The client's certificate chain (leaf first), captured for the client
     /// CertificateVerify once the client Certificate is processed.</summary>
     FClientCertChain: TArray<TBytes>;
@@ -417,6 +426,11 @@ type
     function SignCertificateVerify(const ATranscriptHash: TBytes): TBytes;
     /// <summary>Trust-verifies the client Certificate; fail-closed when auth is required
     /// and the client presented none.</summary>
+    function ProcessClientCompressedCertificate(const AMessage: TTlsHandshakeMessage)
+      : TArray<THandshakeEffect>;
+    /// <summary>Trust-verifies a decoded client Certificate body and folds ATranscriptRaw in.</summary>
+    function HandleClientCertificate(const ACertificateBody, ATranscriptRaw: TBytes)
+      : TArray<THandshakeEffect>;
     function ProcessClientCertificate(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>;
     /// <summary>Verifies the client CertificateVerify signature against the client leaf.</summary>
@@ -1702,9 +1716,7 @@ function TTls13ServerStateMachine.BuildCertificate: TBytes;
 var
   LCert: TTlsCertificate;
   LI: Int32;
-  LBody, LCompressed, LStaple: TBytes;
-  LCompressor: ICertificateCompressor;
-  LMsg: TTlsCompressedCertificate;
+  LBody, LStaple: TBytes;
 begin
   LCert.RequestContext := nil; // empty in the server's first flight
   SetLength(LCert.Entries, System.Length(FResolvedCredential.CertificateChain));
@@ -1726,25 +1738,10 @@ begin
   end;
   LBody := THandshakeMessages.EncodeCertificate(LCert);
 
-  // compress only when the client advertised an algorithm we hold AND the result is
-  // strictly smaller (RFC 8879); otherwise send the Certificate uncompressed
-  LCompressor := TCertificateCompression.SelectCompressor(
-    FParams.CertificateCompressors, FClientCertCompressionAlgorithms);
-  if LCompressor <> nil then
-  begin
-    LCompressed := TCertificateCompression.CompressWithCache(
-      FParams.CertificateCompressionCache, FParams.Crypto, LCompressor, LBody);
-    if System.Length(LCompressed) < System.Length(LBody) then
-    begin
-      LMsg.Algorithm := LCompressor.Algorithm;
-      LMsg.UncompressedLength := System.Length(LBody);
-      LMsg.Compressed := LCompressed;
-      Exit(THandshakeFraming.Frame(TTlsHandshakeType.CompressedCertificate,
-        THandshakeMessages.EncodeCompressedCertificate(LMsg)));
-    end;
-  end;
-
-  Result := THandshakeFraming.Frame(TTlsHandshakeType.Certificate, LBody);
+  // compressed when the client advertised an algorithm we hold (RFC 8879), else a plain Certificate
+  Result := TCertificateCompression.FrameCertificate(FParams.CertificateCompressors,
+    FClientCertCompressionAlgorithms, FParams.CertificateCompressionCache, FParams.Crypto,
+    LBody, System.Length(LCert.Entries) > 0);
 end;
 
 function TTls13ServerStateMachine.BuildCertificateRequest: TBytes;
@@ -1756,6 +1753,10 @@ begin
   try
     LContext.SignatureSchemes := FParams.ClientAuthSignatureSchemes;
     LContext.CertificateAuthorities := FParams.ClientCertificateAuthorities;
+    // advertise what we can decompress (RFC 8879 4): the client may then compress its Certificate
+    LContext.CertCompressionAlgorithms :=
+      TCertificateCompression.Algorithms(FParams.CertificateDecompressors);
+    FCertCompressionAdvertised := System.Length(LContext.CertCompressionAlgorithms) > 0;
     LRequest.RequestContext := nil; // empty in a first (non-resumption) handshake
     LRequest.Extensions := FCodec.ProduceBlock(LContext,
       TTlsExtensionContextKind.CertificateRequest);
@@ -1768,6 +1769,31 @@ end;
 
 function TTls13ServerStateMachine.ProcessClientCertificate(
   const AMessage: TTlsHandshakeMessage): TArray<THandshakeEffect>;
+begin
+  Result := HandleClientCertificate(AMessage.Body, AMessage.Raw);
+end;
+
+function TTls13ServerStateMachine.ProcessClientCompressedCertificate(
+  const AMessage: TTlsHandshakeMessage): TArray<THandshakeEffect>;
+var
+  LCompressed: TTlsCompressedCertificate;
+  LCertificateBody: TBytes;
+begin
+  // a CompressedCertificate is legal only if our CertificateRequest advertised compress_certificate
+  if not FCertCompressionAdvertised then
+    Exit(Unexpected);
+  LCompressed := THandshakeMessages.DecodeCompressedCertificate(AMessage.Body);
+  // the same bomb defense and message budget as the uncompressed path, before any verifier runs
+  LCertificateBody := TCertificateCompression.Decompress(
+    FParams.CertificateDecompressors, LCompressed.Algorithm,
+    LCompressed.Compressed, LCompressed.UncompressedLength,
+    FParams.CertificateChainLimits.MaxTotalChainLength);
+  // the transcript folds the message as received, never the decompressed body
+  Result := HandleClientCertificate(LCertificateBody, AMessage.Raw);
+end;
+
+function TTls13ServerStateMachine.HandleClientCertificate(
+  const ACertificateBody, ATranscriptRaw: TBytes): TArray<THandshakeEffect>;
 var
   LCert: TTlsCertificate;
   LI: Int32;
@@ -1775,13 +1801,13 @@ var
   LVerified: TVerifiedChain;
 begin
   Result := nil;
-  LCert := THandshakeMessages.DecodeCertificate(AMessage.Body);
+  LCert := THandshakeMessages.DecodeCertificate(ACertificateBody);
   // the client echoes the CertificateRequest context, which is empty in the main
   // handshake (RFC 8446 4.4.2)
   if System.Length(LCert.RequestContext) <> 0 then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.DecodeError, @SClientCertContextNotEmpty);
-  FTranscript.Update(AMessage.Raw);
+  FTranscript.Update(ATranscriptRaw);
 
   FClientCertChain := nil;
   FParsedClientLeaf := nil;
@@ -2018,6 +2044,8 @@ begin
     TPhase.WaitClientCertificate:
       if LKnown and (LType = TTlsHandshakeType.Certificate) then
         Result := ProcessClientCertificate(AMessage)
+      else if LKnown and (LType = TTlsHandshakeType.CompressedCertificate) then
+        Result := ProcessClientCompressedCertificate(AMessage)
       else
         Result := Unexpected;
     TPhase.WaitClientCertVerify:

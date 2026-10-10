@@ -36,6 +36,7 @@ uses
   TlpEchConfig,
   TlpInMemoryEchKeyStore,
   TlpIEch,
+  TlpICertificateCompression,
   TlpTlsConnectionInfo,
   TlpITlsEngine,
   TlpHandshakeMessages,
@@ -55,6 +56,18 @@ const
   ShimExitUnimplemented = 89;
 
 type
+  /// <summary>The reference runner's three mock certificate-compression algorithms (RFC 8879):
+  /// 0xff01 strips the two-byte Certificate prefix 00 00 and declines input without it, 0xff02
+  /// prepends 01 02 03 04 (so it expands), and 0xff03 prepends one random byte. They install in
+  /// the runner's preference order 0xff02, 0xff01, 0xff03.</summary>
+  TBoGoCertCompression = class sealed(TObject)
+  public
+    /// <summary>The compressors for all three algorithms, or only AOnlyAlgorithm when non-zero
+    /// (empty when it names none of them).</summary>
+    class function Compressors(AOnlyAlgorithm: Int32): TArray<ICertificateCompressor>; static;
+    class function Decompressors(AOnlyAlgorithm: Int32): TArray<ICertificateDecompressor>; static;
+  end;
+
   /// <summary>A test clock with a fixed base that only advances by explicit steps, so a
   /// resumption PSK's obfuscated_ticket_age is exactly the runner's -resumption-delay (no
   /// real-time drift). The harness advances it before each resumption connection.</summary>
@@ -86,6 +99,11 @@ type
     TrustCert: string;
     HostName: string;
     SuppressServerNameAck: Boolean;
+    /// <summary>-install-cert-compression-algs installs the runner's three test algorithms
+    /// (0xff02, 0xff01, 0xff03, in that preference order); -install-one-cert-compression-alg
+    /// installs only the one codepoint it names. Neither leaves the library defaults.</summary>
+    InstallCertCompressionAlgs: Boolean;
+    InstallOneCertCompressionAlg: Int32;
     EnableGrease: Boolean;
     ExpectVersion: Int32;
     MinVersion: Int32;
@@ -283,8 +301,30 @@ const
   XorMask = $FF;
   // the server's 0-RTT budget when early data is enabled (BoGo's test messages are small)
   EarlyDataBudget = UInt32(16384);
+  ShrinkingAlgorithm = UInt16($FF01);
+  ExpandingAlgorithm = UInt16($FF02);
+  RandomAlgorithm = UInt16($FF03);
 
 type
+  TBoGoTestCompressor = class sealed(TInterfacedObject, ICertificateCompressor)
+  strict private
+    FAlgorithm: UInt16;
+  public
+    constructor Create(AAlgorithm: UInt16);
+    function Algorithm: UInt16;
+    function TryCompress(const AData: TBytes; out ACompressed: TBytes): Boolean;
+  end;
+
+  TBoGoTestDecompressor = class sealed(TInterfacedObject, ICertificateDecompressor)
+  strict private
+    FAlgorithm: UInt16;
+  public
+    constructor Create(AAlgorithm: UInt16);
+    function Algorithm: UInt16;
+    function TryDecompress(const ACompressed: TBytes; AMaxLength: Int32;
+      out ADecompressed: TBytes): Boolean;
+  end;
+
   /// <summary>Captures a TLS 1.3 server's keying-material export in half-RTT (the first non-nil
   /// value while the handshake is still running, i.e. after the server Finished, before the
   /// client's). The captured value is written post-handshake; a nil capture on a TLS 1.3 server
@@ -340,6 +380,121 @@ begin
     FCaptured := LBytes;
     FHasCaptured := True;
   end;
+end;
+
+{ TBoGoTestCompressor }
+
+constructor TBoGoTestCompressor.Create(AAlgorithm: UInt16);
+begin
+  inherited Create;
+  FAlgorithm := AAlgorithm;
+end;
+
+function TBoGoTestCompressor.Algorithm: UInt16;
+begin
+  Result := FAlgorithm;
+end;
+
+function TBoGoTestCompressor.TryCompress(const AData: TBytes;
+  out ACompressed: TBytes): Boolean;
+begin
+  ACompressed := nil;
+  Result := True;
+  case FAlgorithm of
+    ShrinkingAlgorithm:
+      begin
+        // only a Certificate message (which starts 00 00, the empty request context) shrinks
+        if (System.Length(AData) < 2) or (AData[0] <> 0) or (AData[1] <> 0) then
+          Exit(False);
+        ACompressed := System.Copy(AData, 2, System.Length(AData) - 2);
+      end;
+    ExpandingAlgorithm:
+      ACompressed := TInteropUtils.Concat(TBytes.Create(1, 2, 3, 4), AData);
+    RandomAlgorithm:
+      ACompressed := TInteropUtils.Concat(TBytes.Create(Byte(Random(256))), AData);
+  else
+    Result := False;
+  end;
+  // a result of nothing would break the compressor contract; the shrinking case of a bare
+  // 00 00 body is the only way to get there, and it is declined instead
+  if Result and (System.Length(ACompressed) = 0) then
+  begin
+    ACompressed := nil;
+    Result := False;
+  end;
+end;
+
+{ TBoGoTestDecompressor }
+
+constructor TBoGoTestDecompressor.Create(AAlgorithm: UInt16);
+begin
+  inherited Create;
+  FAlgorithm := AAlgorithm;
+end;
+
+function TBoGoTestDecompressor.Algorithm: UInt16;
+begin
+  Result := FAlgorithm;
+end;
+
+function TBoGoTestDecompressor.TryDecompress(const ACompressed: TBytes;
+  AMaxLength: Int32; out ADecompressed: TBytes): Boolean;
+begin
+  // AMaxLength is the declared uncompressed length, which each algorithm checks against its input
+  ADecompressed := nil;
+  Result := False;
+  case FAlgorithm of
+    ShrinkingAlgorithm:
+      if AMaxLength = 2 + System.Length(ACompressed) then
+      begin
+        ADecompressed := TInteropUtils.Concat(TBytes.Create(0, 0), ACompressed);
+        Result := True;
+      end;
+    ExpandingAlgorithm:
+      if (System.Length(ACompressed) >= 4) and (ACompressed[0] = 1) and (ACompressed[1] = 2) and
+        (ACompressed[2] = 3) and (ACompressed[3] = 4) and
+        (AMaxLength = System.Length(ACompressed) - 4) then
+      begin
+        ADecompressed := System.Copy(ACompressed, 4, System.Length(ACompressed) - 4);
+        Result := True;
+      end;
+    RandomAlgorithm:
+      if AMaxLength + 1 = System.Length(ACompressed) then
+      begin
+        ADecompressed := System.Copy(ACompressed, 1, System.Length(ACompressed) - 1);
+        Result := True;
+      end;
+  end;
+end;
+
+{ TBoGoCertCompression }
+
+class function TBoGoCertCompression.Compressors(
+  AOnlyAlgorithm: Int32): TArray<ICertificateCompressor>;
+var
+  LAll: TArray<UInt16>;
+  LAlg: UInt16;
+begin
+  Result := nil;
+  LAll := TArray<UInt16>.Create(ExpandingAlgorithm, ShrinkingAlgorithm, RandomAlgorithm);
+  for LAlg in LAll do
+    if (AOnlyAlgorithm = 0) or (AOnlyAlgorithm = LAlg) then
+      TArrayUtilities.Append<ICertificateCompressor>(Result,
+        TBoGoTestCompressor.Create(LAlg) as ICertificateCompressor);
+end;
+
+class function TBoGoCertCompression.Decompressors(
+  AOnlyAlgorithm: Int32): TArray<ICertificateDecompressor>;
+var
+  LAll: TArray<UInt16>;
+  LAlg: UInt16;
+begin
+  Result := nil;
+  LAll := TArray<UInt16>.Create(ExpandingAlgorithm, ShrinkingAlgorithm, RandomAlgorithm);
+  for LAlg in LAll do
+    if (AOnlyAlgorithm = 0) or (AOnlyAlgorithm = LAlg) then
+      TArrayUtilities.Append<ICertificateDecompressor>(Result,
+        TBoGoTestDecompressor.Create(LAlg) as ICertificateDecompressor);
 end;
 
 { TInteropAdjustableClock }
@@ -559,7 +714,7 @@ begin
     // capability hooks: accept and rely on our behaviour (no shim action, no value consumed)
     if IsInList(LArg, ['-implicit-handshake', '-expect-hrr', '-expect-no-hrr',
       '-server-preference', '-permute-extensions', '-enable-signed-cert-timestamps',
-      '-expect-not-resumable-across-names', '-install-cert-compression-algs',
+      '-expect-not-resumable-across-names',
       '-expect-no-peer-cert', '-on-resume-expect-no-session', '-decline-alpn',
       '-on-resume-expect-reject-early-data',
       '-use-custom-verify-callback', '-expect-verify-result',
@@ -784,6 +939,10 @@ begin
     else if LArg = '-no-tls13' then
       // exclude TLS 1.3 from this connection: lower the version ceiling to 1.2
       AConfig.MaxVersion := WireVersionTls12
+    else if LArg = '-install-cert-compression-algs' then
+      AConfig.InstallCertCompressionAlgs := True
+    else if LArg = '-install-one-cert-compression-alg' then
+      AConfig.InstallOneCertCompressionAlg := StrToInt(NextValue(LArg))
     else if LArg = '-no-server-name-ack' then
       // the server must not echo the empty server_name acknowledgement (RFC 6066 3)
       AConfig.SuppressServerNameAck := True
@@ -958,6 +1117,15 @@ begin
   Result.AsyncVerify := AConfig.AsyncVerify;
   // out-of-band external PSKs (RFC 9258) apply to either role
   Result.ExternalPsks := AConfig.ExternalPsks;
+  // the runner's test compression algorithms replace the defaults on both roles
+  if AConfig.InstallCertCompressionAlgs or (AConfig.InstallOneCertCompressionAlg <> 0) then
+  begin
+    Result.OverrideCertCompression := True;
+    Result.CertificateCompressors := TBoGoCertCompression.Compressors(
+      AConfig.InstallOneCertCompressionAlg);
+    Result.CertificateDecompressors := TBoGoCertCompression.Decompressors(
+      AConfig.InstallOneCertCompressionAlg);
+  end;
   if AConfig.IsServer then
   begin
     Result.Role := TInteropRole.Server;

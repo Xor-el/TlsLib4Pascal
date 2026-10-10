@@ -65,8 +65,14 @@ type
     /// Certificate with (RFC 8879); empty never sends a CompressedCertificate.</summary>
     function CertificateCompressors: TArray<ICertificateCompressor>;
     /// <summary>The certificate-compression algorithms this endpoint can decompress,
-    /// advertised in compress_certificate; empty omits the extension.</summary>
+    /// advertised in compress_certificate (a client in its ClientHello, a server in its
+    /// CertificateRequest); empty omits the extension.</summary>
     function CertificateDecompressors: TArray<ICertificateDecompressor>;
+    /// <summary>The optional cross-connection cache memoizing this endpoint's compressed
+    /// Certificate (RFC 8879), so a stable certificate is deflated once rather than every
+    /// handshake. Shared across the connections built from this config; nil (the default)
+    /// compresses each time.</summary>
+    function CertificateCompressionCache: ICertificateCompressionCache;
     /// <summary>This endpoint's own credential: the server certificate, or (mutual TLS)
     /// the client certificate. Empty when the endpoint presents none.</summary>
     function Credential: TTlsCredential;
@@ -175,11 +181,6 @@ type
   /// <summary>A frozen server endpoint config: it authenticates with a certificate credential or an external PSK.</summary>
   ITlsServerConfig = interface(ITlsCommonConfig)
     ['{9A4E1C28-6D50-4B63-8F17-2E6C0A5F84D3}']
-    /// <summary>The optional cross-connection cache memoizing the server's compressed
-    /// Certificate (RFC 8879), so a stable certificate is deflated once rather than every
-    /// handshake. Shared across the connections built from this config; nil (the default)
-    /// compresses each time.</summary>
-    function CertificateCompressionCache: ICertificateCompressionCache;
     /// <summary>Whether a server that received a server_name (SNI) echoes the empty
     /// server_name acknowledgement (RFC 6066 3); default True.</summary>
     function ServerNameAcknowledgement: Boolean;

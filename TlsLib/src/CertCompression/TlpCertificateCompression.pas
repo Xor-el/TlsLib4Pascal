@@ -23,6 +23,8 @@ uses
   TlpBinaryPrimitives,
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
+  TlpHandshakeMessage,
+  TlpHandshakeMessages,
   TlpICertificateCompression,
   TlpICertificateCompressionCache;
 
@@ -58,30 +60,62 @@ type
     MaxDecompressedLength = Int32(1 shl 18);
     /// <summary>The largest declared expansion over the compressed size (bomb guard).</summary>
     MaxExpansionRatio = Int32(100);
+    /// <summary>The most algorithms one compress_certificate extension can list
+    /// (algorithms&lt;2..2^8-2&gt;, two bytes each).</summary>
+    MaxAdvertisedAlgorithms = Int32(127);
+    /// <summary>The largest compressed_certificate_message a CompressedCertificate can carry
+    /// (RFC 8879 4: &lt;1..2^24-1&gt;).</summary>
+    MaxCompressedLength = Int32((1 shl 24) - 1);
   public
+    /// <summary>Raises EArgumentTlsLibException for a compressor set that is not usable: a nil
+    /// entry, the reserved codepoint 0, or a codepoint listed twice. nil or empty is valid
+    /// (that direction is off).</summary>
+    class procedure ValidateCompressors(
+      const ACompressors: TArray<ICertificateCompressor>); static;
+    /// <summary>As ValidateCompressors, and also refuses more entries than one
+    /// compress_certificate extension can advertise.</summary>
+    class procedure ValidateDecompressors(
+      const ADecompressors: TArray<ICertificateDecompressor>); static;
     /// <summary>The algorithm codes to advertise for a set of decompressors.</summary>
     class function Algorithms(
       const ADecompressors: TArray<ICertificateDecompressor>): TArray<UInt16>; static;
-    /// <summary>The first compressor whose algorithm the peer advertised, or nil.</summary>
+    /// <summary>The first compressor, in the sender's order, whose algorithm the peer
+    /// advertised, or nil.</summary>
     class function SelectCompressor(
       const ACompressors: TArray<ICertificateCompressor>;
       const APeerAlgorithms: TArray<UInt16>): ICertificateCompressor; static;
     /// <summary>
     /// Compresses ABody with ACompressor, memoized through ACache when non-nil (keyed by
     /// a SHA-256 digest of the algorithm codepoint and ABody derived through ACryptoProvider).
-    /// Because Compress is pure, a hit returns exactly what a fresh Compress(ABody) would,
-    /// so the cache never changes the result. ACache = nil compresses directly. The caller
-    /// still applies the strictly-smaller check before framing a CompressedCertificate.
+    /// True with the output, or False when the compressor declined (nothing is cached for a
+    /// decline, which may be transient). A compressor that reports True with an empty result
+    /// breaks its contract and fails the handshake with internal_error. Because TryCompress
+    /// is pure, a hit returns exactly what a fresh call would, so the cache never changes the
+    /// result. ACache = nil compresses directly.
     /// </summary>
-    class function CompressWithCache(
+    class function TryCompressWithCache(
       const ACache: ICertificateCompressionCache; const ACryptoProvider: ICryptoProvider;
-      const ACompressor: ICertificateCompressor; const ABody: TBytes): TBytes; static;
+      const ACompressor: ICertificateCompressor; const ABody: TBytes;
+      out ACompressed: TBytes): Boolean; static;
+    /// <summary>
+    /// The framed Certificate handshake message an endpoint sends for ABody (a Certificate
+    /// message body): a CompressedCertificate when the sender holds a compressor the peer
+    /// advertised and it produced a result the wire can carry, else a plain Certificate. A
+    /// certificate list with no entries (AHasEntries False) is never compressed. Both roles
+    /// send through this, so they share one rule.
+    /// </summary>
+    class function FrameCertificate(
+      const ACompressors: TArray<ICertificateCompressor>;
+      const APeerAlgorithms: TArray<UInt16>; const ACache: ICertificateCompressionCache;
+      const ACryptoProvider: ICryptoProvider; const ABody: TBytes;
+      AHasEntries: Boolean): TBytes; static;
     /// <summary>
     /// Decompresses ACompressed under AAlgorithm using ADecompressors, bounded to
-    /// ADeclaredLength against the hard MaxDecompressedLength ceiling. Raises a
-    /// bad_certificate fatal alert on an unsupported algorithm, a declared length
-    /// outside its bounds, a ratio that reeks of a bomb, or an output whose length
-    /// does not match the declared length.
+    /// ADeclaredLength against the hard MaxDecompressedLength ceiling. Raises a fatal
+    /// alert on an unsupported algorithm or a declared length outside its bounds
+    /// (illegal_parameter), a ratio that reeks of a bomb (illegal_parameter), a
+    /// decompressor that cannot decompress the input or raises (bad_certificate), or an
+    /// output whose length does not match the declared length (bad_certificate).
     /// </summary>
     class function Decompress(
       const ADecompressors: TArray<ICertificateDecompressor>; AAlgorithm: UInt16;
@@ -103,8 +137,51 @@ resourcestring
   SBadDeclaredLength = 'the declared uncompressed length is out of range';
   SRatioTooHigh = 'the certificate compression ratio exceeds the bomb guard';
   SLengthMismatch = 'decompressed output length does not match the declared length';
+  SDecompressFailed = 'the certificate could not be decompressed';
+  SEmptyCompressorOutput = 'a certificate compressor reported success with an empty result';
+  SNilCompressionEntry = 'a certificate compression set holds a nil entry';
+  SReservedCompressionAlgorithm = 'certificate compression algorithm 0 is reserved';
+  SDuplicateCompressionAlgorithm = 'a certificate compression algorithm is listed twice';
+  STooManyCompressionAlgorithms = 'at most 127 certificate decompression algorithms can be ' +
+    'advertised';
 
 { TCertificateCompression }
+
+class procedure TCertificateCompression.ValidateCompressors(
+  const ACompressors: TArray<ICertificateCompressor>);
+var
+  LI, LJ: Int32;
+begin
+  for LI := 0 to System.High(ACompressors) do
+  begin
+    if ACompressors[LI] = nil then
+      raise EArgumentTlsLibException.CreateRes(@SNilCompressionEntry);
+    if ACompressors[LI].Algorithm = 0 then
+      raise EArgumentTlsLibException.CreateRes(@SReservedCompressionAlgorithm);
+    for LJ := 0 to LI - 1 do
+      if ACompressors[LJ].Algorithm = ACompressors[LI].Algorithm then
+        raise EArgumentTlsLibException.CreateRes(@SDuplicateCompressionAlgorithm);
+  end;
+end;
+
+class procedure TCertificateCompression.ValidateDecompressors(
+  const ADecompressors: TArray<ICertificateDecompressor>);
+var
+  LI, LJ: Int32;
+begin
+  if System.Length(ADecompressors) > MaxAdvertisedAlgorithms then
+    raise EArgumentTlsLibException.CreateRes(@STooManyCompressionAlgorithms);
+  for LI := 0 to System.High(ADecompressors) do
+  begin
+    if ADecompressors[LI] = nil then
+      raise EArgumentTlsLibException.CreateRes(@SNilCompressionEntry);
+    if ADecompressors[LI].Algorithm = 0 then
+      raise EArgumentTlsLibException.CreateRes(@SReservedCompressionAlgorithm);
+    for LJ := 0 to LI - 1 do
+      if ADecompressors[LJ].Algorithm = ADecompressors[LI].Algorithm then
+        raise EArgumentTlsLibException.CreateRes(@SDuplicateCompressionAlgorithm);
+  end;
+end;
 
 class function TCertificateCompression.Algorithms(
   const ADecompressors: TArray<ICertificateDecompressor>): TArray<UInt16>;
@@ -124,7 +201,7 @@ var
   LCompressor: ICertificateCompressor;
 begin
   Result := nil;
-  // server preference: the first configured compressor the peer can decompress
+  // sender preference: the first configured compressor the peer can decompress
   for LCompressor in ACompressors do
     if TArrayUtilities.Contains<UInt16>(APeerAlgorithms, LCompressor.Algorithm) then
       Exit(LCompressor);
@@ -144,21 +221,62 @@ begin
   Result := LHash.DoFinal;
 end;
 
-class function TCertificateCompression.CompressWithCache(
+class function TCertificateCompression.TryCompressWithCache(
   const ACache: ICertificateCompressionCache; const ACryptoProvider: ICryptoProvider;
-  const ACompressor: ICertificateCompressor; const ABody: TBytes): TBytes;
+  const ACompressor: ICertificateCompressor; const ABody: TBytes;
+  out ACompressed: TBytes): Boolean;
 var
   LKey: TBytes;
 begin
-  if ACache = nil then
-    Exit(ACompressor.Compress(ABody));
+  ACompressed := nil;
+  LKey := nil;
   // content-addressed memoization: hashing ABody is far cheaper than deflating it, so a
-  // miss still wins; a hit returns the identical bytes a fresh Compress would produce
-  LKey := DeriveKey(ACryptoProvider, ACompressor.Algorithm, ABody);
-  if ACache.TryGet(LKey, Result) then
-    Exit;
-  Result := ACompressor.Compress(ABody);
-  ACache.Put(LKey, Result);
+  // miss still wins; a hit returns the identical bytes a fresh TryCompress would produce
+  if ACache <> nil then
+  begin
+    LKey := DeriveKey(ACryptoProvider, ACompressor.Algorithm, ABody);
+    if ACache.TryGet(LKey, ACompressed) then
+      Exit(True);
+  end;
+  if not ACompressor.TryCompress(ABody, ACompressed) then
+  begin
+    ACompressed := nil;
+    Exit(False);
+  end;
+  // a success the wire cannot carry (RFC 8879 4: <1..2^24-1>) is a broken compressor, not a decline
+  if System.Length(ACompressed) = 0 then
+    raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.InternalError,
+      @SEmptyCompressorOutput);
+  if ACache <> nil then
+    ACache.Put(LKey, ACompressed);
+  Result := True;
+end;
+
+class function TCertificateCompression.FrameCertificate(
+  const ACompressors: TArray<ICertificateCompressor>;
+  const APeerAlgorithms: TArray<UInt16>; const ACache: ICertificateCompressionCache;
+  const ACryptoProvider: ICryptoProvider; const ABody: TBytes;
+  AHasEntries: Boolean): TBytes;
+var
+  LCompressor: ICertificateCompressor;
+  LCompressed: TBytes;
+  LMsg: TTlsCompressedCertificate;
+begin
+  LCompressor := nil;
+  // an empty Certificate carries nothing to shrink
+  if AHasEntries then
+    LCompressor := SelectCompressor(ACompressors, APeerAlgorithms);
+  if (LCompressor <> nil) and
+    TryCompressWithCache(ACache, ACryptoProvider, LCompressor, ABody, LCompressed) and
+    (System.Length(LCompressed) <= MaxCompressedLength) then
+  begin
+    LMsg.Algorithm := LCompressor.Algorithm;
+    LMsg.UncompressedLength := System.Length(ABody);
+    LMsg.Compressed := LCompressed;
+    Exit(THandshakeFraming.Frame(TTlsHandshakeType.CompressedCertificate,
+      THandshakeMessages.EncodeCompressedCertificate(LMsg)));
+  end;
+  Result := THandshakeFraming.Frame(TTlsHandshakeType.Certificate, ABody);
 end;
 
 class function TCertificateCompression.Decompress(
@@ -174,6 +292,7 @@ class function TCertificateCompression.Decompress(
   const ACompressed: TBytes; ADeclaredLength, AMaxLength: Int32): TBytes;
 var
   LDecompressor, LFound: ICertificateDecompressor;
+  LDone: Boolean;
 begin
   Result := nil;
   // an out-of-range declared length is a malformed wire field, not a bad certificate (the size
@@ -198,7 +317,16 @@ begin
   if LFound = nil then
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.IllegalParameter,
       @SUnsupportedAlgorithm);
-  Result := LFound.Decompress(ACompressed, ADeclaredLength);
+  // the input is the peer's, so a decompressor that fails or raises has been handed something it
+  // cannot decompress: that is the RFC 8879 4 bad_certificate, whatever its own error type
+  try
+    LDone := LFound.TryDecompress(ACompressed, ADeclaredLength, Result);
+  except
+    LDone := False;
+  end;
+  if not LDone then
+    raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.BadCertificate,
+      @SDecompressFailed);
   if System.Length(Result) <> ADeclaredLength then
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.BadCertificate,
       @SLengthMismatch);

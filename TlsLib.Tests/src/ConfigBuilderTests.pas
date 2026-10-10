@@ -57,6 +57,8 @@ uses
   TlpTrustPolicy,
   TlpITlsConfig,
   TlpICertificateCompression,
+  TlpICertificateCompressionCache,
+  TlpInMemoryCertificateCompressionCache,
   TlpZlibCertificateCompression,
   TlpCertificateLimits,
   TlpCertificateStrengthPolicy,
@@ -148,6 +150,8 @@ type
     procedure TestAlpnOverlongNameIsRefused;
     procedure TestAlpnDuplicateNameIsRefused;
     procedure TestAlpnEmptyListMeansNoAlpn;
+    procedure TestCertificateCompressionSetsAreValidated;
+    procedure TestClientCertificateCompressionCacheIsConfigurable;
     procedure TestAlpnSetterCopiesCallerArray;
     procedure TestRecordSizeLimitDefaultsToUnset;
     procedure TestExternalPskInnerBytesAreCopied;
@@ -1468,6 +1472,63 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'an offered version with no cipher suite is refused at Build');
+end;
+
+procedure TTestConfigBuilder.TestCertificateCompressionSetsAreValidated;
+var
+  LNilEntry: TArray<ICertificateCompressor>;
+  LTwice: TArray<ICertificateDecompressor>;
+  LMany: TArray<ICertificateDecompressor>;
+  LI: Int32;
+  LNilRefused, LTwiceRefused, LManyRefused: Boolean;
+begin
+  // nil, a repeated codepoint and more than the extension can carry are refused where they are set
+  SetLength(LNilEntry, 1);
+  LNilEntry[0] := nil;
+  LNilRefused := False;
+  try
+    NewClientBuilder.Tls13.WithCertificateCompressors(LNilEntry);
+  except
+    on E: EArgumentTlsLibException do
+      LNilRefused := True;
+  end;
+  CheckTrue(LNilRefused, 'a nil compressor');
+  LTwice := TArray<ICertificateDecompressor>.Create(
+    TZlibCertificateCompression.DefaultDecompressors[0],
+    TZlibCertificateCompression.DefaultDecompressors[0]);
+  LTwiceRefused := False;
+  try
+    NewServerBuilder.Tls13.WithCertificateDecompressors(LTwice);
+  except
+    on E: EArgumentTlsLibException do
+      LTwiceRefused := True;
+  end;
+  CheckTrue(LTwiceRefused, 'a repeated decompressor codepoint');
+  SetLength(LMany, 128);
+  for LI := 0 to 127 do
+    LMany[LI] := TZlibCertificateCompression.DefaultDecompressors[0];
+  LManyRefused := False;
+  try
+    NewClientBuilder.Tls13.WithCertificateDecompressors(LMany);
+  except
+    on E: EArgumentTlsLibException do
+      LManyRefused := True;
+  end;
+  CheckTrue(LManyRefused, 'more than 127 decompressors');
+  // empty or nil turns a direction off and is valid
+  CheckTrue(NewClientBuilder.Tls13.WithCertificateCompressors(nil)
+    .WithCertificateDecompressors(nil).Build <> nil, 'an empty set builds');
+end;
+
+procedure TTestConfigBuilder.TestClientCertificateCompressionCacheIsConfigurable;
+var
+  LCache: ICertificateCompressionCache;
+begin
+  LCache := TInMemoryCertificateCompressionCache.Create;
+  CheckTrue(NewClientBuilder.Build.CertificateCompressionCache = nil, 'a client defaults to no cache');
+  CheckTrue(NewServerBuilder.Build.CertificateCompressionCache = nil, 'a server defaults to no cache');
+  CheckTrue(NewClientBuilder.Tls13.WithCertificateCompressionCache(LCache).Build
+    .CertificateCompressionCache = LCache, 'a client can memoize its own compression');
 end;
 
 procedure TTestConfigBuilder.TestServerCipherSuiteListOrderDecidesTheNegotiatedSuite;

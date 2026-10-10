@@ -62,6 +62,8 @@ type
     function ByteBlob(AValue: Byte; ALength: Int32): TBytes;
     function ZlibCompressor: ICertificateCompressor;
     function DirectCompress(const ABody: TBytes): TBytes;
+    function CompressThrough(const ACache: ICertificateCompressionCache;
+      const ACompressor: ICertificateCompressor; const ABody: TBytes): TBytes;
     // low-level machine scaffold for the end-to-end loopback proof
     function TestRootCertificate: TBytes;
     function ServerCredential: TTlsCredential;
@@ -83,11 +85,12 @@ type
     procedure TestBoundedEvictionDropsOldest;
     procedure TestCompactionPreservesLiveEntriesUnderChurn;
     procedure TestConcurrentPutAndGetSmoke;
-    // policy (CompressWithCache)
+    // policy (TryCompressWithCache)
     procedure TestCacheHitAndMissEqualDirectCompress;
     procedure TestComputesOncePerBody;
     procedure TestRecomputesWhenBodyChanges;
     procedure TestNilCacheEqualsDirect;
+    procedure TestDeclineIsNotCached;
     // end-to-end loopback
     procedure TestLoopbackWireIdenticalAndSingleCompress;
     procedure TestLoopbackBodyChangeRecomputesBothWireCorrect;
@@ -96,18 +99,20 @@ type
 implementation
 
 type
-  /// <summary>A zlib compressor that tallies its Compress calls, so a test can prove the
-  /// cache computes a given body exactly once.</summary>
+  /// <summary>A zlib compressor that tallies its TryCompress calls, so a test can prove the
+  /// cache computes a given body exactly once. With Decline set it reports False instead.</summary>
   TSpyCompressor = class sealed(TInterfacedObject, ICertificateCompressor)
   strict private
   var
     FInner: ICertificateCompressor;
     FCount: Int32;
+    FDecline: Boolean;
   public
     constructor Create;
     function Algorithm: UInt16;
-    function Compress(const AData: TBytes): TBytes;
+    function TryCompress(const AData: TBytes; out ACompressed: TBytes): Boolean;
     property Count: Int32 read FCount;
+    property Decline: Boolean read FDecline write FDecline;
   end;
 
   /// <summary>Hammers one shared cache from a background thread to smoke-test the lock.</summary>
@@ -137,10 +142,13 @@ begin
   Result := FInner.Algorithm;
 end;
 
-function TSpyCompressor.Compress(const AData: TBytes): TBytes;
+function TSpyCompressor.TryCompress(const AData: TBytes; out ACompressed: TBytes): Boolean;
 begin
   Inc(FCount);
-  Result := FInner.Compress(AData);
+  ACompressed := nil;
+  if FDecline then
+    Exit(False);
+  Result := FInner.TryCompress(AData, ACompressed);
 end;
 
 { TCacheStressThread }
@@ -192,7 +200,15 @@ end;
 
 function TTestCertificateCompressionCache.DirectCompress(const ABody: TBytes): TBytes;
 begin
-  Result := ZlibCompressor.Compress(ABody);
+  CheckTrue(ZlibCompressor.TryCompress(ABody, Result), 'zlib compressed the body');
+end;
+
+function TTestCertificateCompressionCache.CompressThrough(
+  const ACache: ICertificateCompressionCache; const ACompressor: ICertificateCompressor;
+  const ABody: TBytes): TBytes;
+begin
+  CheckTrue(TCertificateCompression.TryCompressWithCache(ACache, Crypto, ACompressor, ABody,
+    Result), 'the body compressed');
 end;
 
 procedure TTestCertificateCompressionCache.TestMissThenPutThenHit;
@@ -289,8 +305,8 @@ begin
   LBody := ByteBlob($3C, 2048);
   LDirect := DirectCompress(LBody);
   // first call is a miss (computes + stores); second is a hit (returns the stored bytes)
-  LMiss := TCertificateCompression.CompressWithCache(LCache, Crypto, ZlibCompressor, LBody);
-  LHit := TCertificateCompression.CompressWithCache(LCache, Crypto, ZlibCompressor, LBody);
+  LMiss := CompressThrough(LCache, ZlibCompressor, LBody);
+  LHit := CompressThrough(LCache, ZlibCompressor, LBody);
   CheckEqualBytes('a miss equals a direct Compress', LDirect, LMiss);
   CheckEqualBytes('a hit equals a direct Compress', LDirect, LHit);
 end;
@@ -306,8 +322,8 @@ begin
   LSpy := TSpyCompressor.Create;
   LSpyRef := LSpy; // the interface reference governs lifetime; read Count off the object
   LBody := ByteBlob($77, 4096);
-  LFirst := TCertificateCompression.CompressWithCache(LCache, Crypto, LSpyRef, LBody);
-  LSecond := TCertificateCompression.CompressWithCache(LCache, Crypto, LSpyRef, LBody);
+  LFirst := CompressThrough(LCache, LSpyRef, LBody);
+  LSecond := CompressThrough(LCache, LSpyRef, LBody);
   CheckEquals(1, LSpy.Count, 'the same body is compressed exactly once');
   CheckEqualBytes('both calls return the same bytes', LFirst, LSecond);
 end;
@@ -325,9 +341,9 @@ begin
   LBodyA := ByteBlob($10, 2048);
   // a changed leaf staple changes the exact bytes handed to Compress, so the key differs
   LBodyB := ByteBlob($10, 2049);
-  LOutA := TCertificateCompression.CompressWithCache(LCache, Crypto, LSpyRef, LBodyA);
-  TCertificateCompression.CompressWithCache(LCache, Crypto, LSpyRef, LBodyA); // hit
-  LOutB := TCertificateCompression.CompressWithCache(LCache, Crypto, LSpyRef, LBodyB);
+  LOutA := CompressThrough(LCache, LSpyRef, LBodyA);
+  CompressThrough(LCache, LSpyRef, LBodyA); // hit
+  LOutB := CompressThrough(LCache, LSpyRef, LBodyB);
   CheckEquals(2, LSpy.Count, 'a distinct body forces a recompute; a repeat does not');
   CheckEqualBytes('body A stays byte-correct', DirectCompress(LBodyA), LOutA);
   CheckEqualBytes('body B stays byte-correct', DirectCompress(LBodyB), LOutB);
@@ -338,8 +354,33 @@ var
   LBody, LOut: TBytes;
 begin
   LBody := ByteBlob($5A, 1024);
-  LOut := TCertificateCompression.CompressWithCache(nil, Crypto, ZlibCompressor, LBody);
+  LOut := CompressThrough(nil, ZlibCompressor, LBody);
   CheckEqualBytes('a nil cache compresses directly', DirectCompress(LBody), LOut);
+end;
+
+procedure TTestCertificateCompressionCache.TestDeclineIsNotCached;
+var
+  LCache: ICertificateCompressionCache;
+  LSpy: TSpyCompressor;
+  LSpyRef: ICertificateCompressor;
+  LBody, LOut: TBytes;
+begin
+  // a decline may be transient, so it is not remembered: the next call asks the compressor again,
+  // and once it succeeds that result is cached like any other
+  LCache := TInMemoryCertificateCompressionCache.Create;
+  LSpy := TSpyCompressor.Create;
+  LSpyRef := LSpy;
+  LBody := ByteBlob($21, 1024);
+  LSpy.Decline := True;
+  CheckFalse(TCertificateCompression.TryCompressWithCache(LCache, Crypto, LSpyRef, LBody, LOut),
+    'a declining compressor reports False');
+  CheckFalse(TCertificateCompression.TryCompressWithCache(LCache, Crypto, LSpyRef, LBody, LOut),
+    'and is asked again rather than served a remembered decline');
+  CheckEquals(2, LSpy.Count, 'a decline is never cached');
+  LSpy.Decline := False;
+  CompressThrough(LCache, LSpyRef, LBody);
+  CompressThrough(LCache, LSpyRef, LBody);
+  CheckEquals(3, LSpy.Count, 'the first success is cached, the repeat is a hit');
 end;
 
 function TTestCertificateCompressionCache.TestRootCertificate: TBytes;
