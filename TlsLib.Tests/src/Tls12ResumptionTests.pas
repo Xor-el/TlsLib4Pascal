@@ -84,6 +84,7 @@ type
   private
     function TestRootCertificate: TBytes;
     function ServerCredential: TTlsCredential;
+    function AgedCopy(const ASession: IResumableSession; AAgeMillis: UInt64): IResumableSession;
     function NewClient(const ACache: ISessionCache; AOfferEms: Boolean): ITlsEngine;
     /// <summary>A dual-version client (offers TLS 1.3 and 1.2 in one ClientHello) drawing
     /// from and storing into ACache; against a 1.2-only server it negotiates 1.2 and can
@@ -144,6 +145,8 @@ type
       AClientAuth: TClientAuthMode; const AClientRoot, AScope: TBytes): ITlsEngine;
   published
     procedure TestSessionIdResumeIsAbbreviated;
+    procedure TestResumeWithoutNewTicketKeepsIssueTime;
+    procedure TestResumeWithNewTicketRestampsIssueTime;
     procedure TestMachinesRequireAClock;
     procedure TestDispatchersRequireAClock;
     procedure TestTicketResumeIsAbbreviated;
@@ -654,6 +657,82 @@ begin
   CheckEquals(0, System.Length(LInfo.ValidatedPath),
     'a non-reverify resumption validates no path on the client');
   CheckAppDataFlows(LClient, LServer);
+end;
+
+function TTestTls12Resumption.AgedCopy(const ASession: IResumableSession;
+  AAgeMillis: UInt64): IResumableSession;
+var
+  L12: ITls12ResumableSession;
+begin
+  L12 := ASession as ITls12ResumableSession;
+  Result := TTls12ResumableSession.Create(L12.CipherSuite, L12.Hash, L12.MasterSecret,
+    L12.SessionId, L12.SessionTicket, L12.ExtendedMasterSecret, L12.Alpn, L12.ServerName,
+    7200, UInt64(TSystemTimeUtilities.UtcUnixMs) - AAgeMillis, L12.PeerCertificates,
+    L12.ResumptionScope);
+end;
+
+procedure TTestTls12Resumption.TestResumeWithoutNewTicketKeepsIssueTime;
+const
+  AgeMillis = UInt64(3600000);
+var
+  LCache: ISessionCache;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+  LSession, LAged, LAfter: IResumableSession;
+begin
+  // a session-id resumption issues no new ticket, so the session the client re-stores is the one it
+  // offered and must keep its original issue time: restamping it every resume would let the
+  // retention cap never bite
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(LStore, nil, 7200, True);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LCache.Take(ServerHost + ':443', ServerHost,
+    (TSystemClock.Create as ITlsClock).NowUnixMillis, LSession), 'the session was cached');
+  LAged := AgedCopy(LSession, AgeMillis);
+  LCache.Store(ServerHost + ':443', ServerHost, LAged);
+
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(LStore, nil, 7200, True);
+  CheckFalse(DriveObservingServerCert(LClient, LServer), 'the resumption is abbreviated');
+  CheckTrue(LCache.Take(ServerHost + ':443', ServerHost,
+    (TSystemClock.Create as ITlsClock).NowUnixMillis, LAfter), 'the resumed session was re-cached');
+  CheckEquals(Int64(LAged.IssuedAtMillis), Int64(LAfter.IssuedAtMillis),
+    'the re-stored session keeps its original issue time');
+  CheckEquals(Int64(LAged.TicketLifetime), Int64(LAfter.TicketLifetime),
+    'and its original lifetime');
+end;
+
+procedure TTestTls12Resumption.TestResumeWithNewTicketRestampsIssueTime;
+const
+  AgeMillis = UInt64(3600000);
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LSession, LAged, LAfter: IResumableSession;
+begin
+  // a renewed ticket is a fresh credential: its issue time is the new one, not the old session's
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(nil, LStek, 7200, True);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LCache.Take(ServerHost + ':443', ServerHost,
+    (TSystemClock.Create as ITlsClock).NowUnixMillis, LSession), 'the session was cached');
+  LAged := AgedCopy(LSession, AgeMillis);
+  LCache.Store(ServerHost + ':443', ServerHost, LAged);
+
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(nil, LStek, 7200, True);
+  CheckFalse(DriveObservingServerCert(LClient, LServer), 'the resumption is abbreviated');
+  CheckTrue(LCache.Take(ServerHost + ':443', ServerHost,
+    (TSystemClock.Create as ITlsClock).NowUnixMillis, LAfter), 'the renewed session was re-cached');
+  CheckTrue(LAfter.IssuedAtMillis > LAged.IssuedAtMillis + AgeMillis div 2,
+    'a renewed ticket carries a fresh issue time');
 end;
 
 procedure TTestTls12Resumption.TestTicketResumeIsAbbreviated;

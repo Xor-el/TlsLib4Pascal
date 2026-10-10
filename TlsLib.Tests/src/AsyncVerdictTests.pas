@@ -109,6 +109,7 @@ type
     procedure TestDisabledResolvesInlineNoPark;
     procedure TestServerParkThenAcceptCompletes;
     procedure TestServerExporterWithheldWhileParked;
+    procedure TestServerExporterWithheldUntilClientFinished;
     // the server park carries the pipeline-validated client path (issuer at index 1), distinct from
     // the presented leaf-only chain, so a live resolver authenticates against the PKIX issuer
     procedure TestServerParkEventCarriesValidatedPath;
@@ -637,6 +638,28 @@ begin
   LServer.SetCertificateVerdict(True, TTlsAlertDescription.BadCertificate);
   CheckEquals(32, System.Length(LServer.ExportKeyingMaterial('EXPORTER-test', 32)),
     'the exporter is available again once the verdict clears the park, not only at Connected');
+
+  DriveToCompletion(LClient, LServer);
+  CheckFalse(LServer.IsHandshaking, 'the server handshake must complete');
+  CheckEqualBytes('client and server export the same keying material after completion',
+    LClient.ExportKeyingMaterial('EXPORTER-test', 32),
+    LServer.ExportKeyingMaterial('EXPORTER-test', 32));
+end;
+
+procedure TTestAsyncVerdict.TestServerExporterWithheldUntilClientFinished;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // without any park: under client authentication the half-RTT exporter stays withheld until the
+  // client's Finished has arrived, since until then the client's identity is unproven
+  LClient := NewMtls(False, LServer);
+  LClient.StartHandshake;
+  PumpOneWay(LClient, LServer);
+  PumpOneWay(LServer, LClient);
+  CheckFalse(LServer.IsTerminal, 'the server took the first flight');
+  CheckTrue(LServer.IsHandshaking, 'the server still waits for the client flight');
+  CheckEquals(0, System.Length(LServer.ExportKeyingMaterial('EXPORTER-test', 32)),
+    'the server withholds the half-RTT exporter while client authentication is pending');
 
   DriveToCompletion(LClient, LServer);
   CheckFalse(LServer.IsHandshaking, 'the server handshake must complete');

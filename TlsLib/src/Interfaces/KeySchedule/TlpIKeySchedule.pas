@@ -109,6 +109,10 @@ type
     /// raises EInvalidOperationTlsLibException when the early epoch has not been derived.</summary>
     function ExportEarlyKeyingMaterial(const ALabel: string; const AContext: TBytes;
       ALength: Int32): TBytes;
+    /// <summary>Drops the early_exporter_master_secret once the server cannot have derived it
+    /// (0-RTT refused, or the offer withdrawn by a HelloRetryRequest), so CanExportEarly turns
+    /// false and nothing keyed to a secret only this side holds can be exported.</summary>
+    procedure ForgetEarlyExporter;
     /// <summary>Sets the pre-shared key (omit for a 0-PSK handshake).</summary>
     procedure SetPsk(const APsk: ISecretBuffer);
     /// <summary>Sets the (EC)DHE shared secret.</summary>

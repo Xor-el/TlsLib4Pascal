@@ -101,6 +101,7 @@ type
     function CanExportEarly: Boolean;
     function ExportEarlyKeyingMaterial(const ALabel: string; const AContext: TBytes;
       ALength: Int32): TBytes;
+    procedure ForgetEarlyExporter;
     procedure SetPsk(const APsk: ISecretBuffer);
     procedure SetSharedSecret(const ASharedSecret: ISecretBuffer);
     procedure DeriveEpochSecrets(AEpoch: TTlsEpoch; const ATranscriptHash: TBytes);
@@ -458,6 +459,11 @@ function TTls13KeySchedule.ExportEarlyKeyingMaterial(const ALabel: string;
   const AContext: TBytes; ALength: Int32): TBytes;
 begin
   Result := ExportFrom(FEarlyExporterMaster, ALabel, AContext, ALength);
+end;
+
+procedure TTls13KeySchedule.ForgetEarlyExporter;
+begin
+  FEarlyExporterMaster := nil;
 end;
 
 function TTls13KeySchedule.CanExportEarly: Boolean;

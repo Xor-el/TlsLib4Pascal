@@ -32,6 +32,7 @@ uses
   TlpICryptoProvider,
   TlpTlsAlert,
   TlpTlsVersion,
+  TlpClientSessionPolicy,
   TlpNamedGroups,
   TlpNegotiationTypes,
   TlpNegotiationPolicy,
@@ -84,6 +85,11 @@ type
     function Framed(AType: TTlsHandshakeType; const ABody: TBytes): TTlsHandshakeMessage;
     function NewClient(const ACache: ISessionCache;
       AEarlyData: Boolean = False): ITlsEngine;
+    /// <summary>A client that key-shares X25519 and also lists secp256r1, and a secp256r1-only
+    /// server, so the handshake runs over a HelloRetryRequest.</summary>
+    function NewRetryClient(const ACache: ISessionCache; AEarlyData: Boolean): ITlsEngine;
+    function NewRetryServer(const AStek: ISessionTicketKeyManager; AIssueTickets: Int32;
+      AMaxEarlyData: UInt32; const AAntiReplay: IAntiReplayStrategy): ITlsEngine;
     // AWithCredential False makes the server unable to run a full handshake, so a
     // completed handshake proves the PSK was accepted (resumption).
     function BuildServer(const AStek: ISessionTicketKeyManager;
@@ -131,6 +137,7 @@ type
     procedure TestZeroRttAcceptedDeliversEarlyData;
     procedure TestZeroRttEarlyExporterMatchesAcrossPeers;
     procedure TestZeroRttRejectWithholdsClientEarlyExporter;
+    procedure TestZeroRttRetryWithholdsClientEarlyExporter;
     procedure TestZeroRttPskDeclinedWithholdsClientEarlyExporter;
     procedure TestEarlyDataInEncryptedExtensionsAfterPskDeclinedIsRejected;
     procedure TestWriteInEarlyDataWindowIsRefused;
@@ -299,6 +306,47 @@ begin
   LParams.MaxEarlyData := AMaxEarlyData;
   LParams.AntiReplay := AAntiReplay;
 
+  Result := TTlsEngine.CreateConfigured(
+    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
+end;
+
+function TTestTls13Resumption.NewRetryClient(const ACache: ISessionCache;
+  AEarlyData: Boolean): ITlsEngine;
+var
+  LParams: TClientHandshakeParams;
+begin
+  // key-shares X25519 but also lists secp256r1, so a secp256r1-only server answers with a
+  // HelloRetryRequest
+  LParams := ClientParams(ACache, AEarlyData);
+  LParams.OfferedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1,
+    TNamedGroupCatalog.X25519);
+  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Crypto);
+  Result := TTlsEngine.CreateConfigured(
+    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
+end;
+
+function TTestTls13Resumption.NewRetryServer(const AStek: ISessionTicketKeyManager;
+  AIssueTickets: Int32; AMaxEarlyData: UInt32;
+  const AAntiReplay: IAntiReplayStrategy): ITlsEngine;
+var
+  LParams: TServerHandshakeParams;
+begin
+  LParams := Default(TServerHandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Crypto := Crypto;
+  LParams.Inspector := Pkix.Certificates;
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LParams.Group := TNamedGroups.CreateNistEcdh(Crypto, 'secp256r1');
+  LParams.ServerRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
+  LParams.CookieSecret := TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32));
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
+  LParams.SessionTicketKeys := AStek;
+  LParams.IssueTicketCount := AIssueTickets;
+  LParams.TicketLifetimeSeconds := 7200;
+  LParams.MaxEarlyData := AMaxEarlyData;
+  LParams.AntiReplay := AAntiReplay;
   Result := TTlsEngine.CreateConfigured(
     TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
@@ -896,6 +944,41 @@ begin
   CheckEquals(0, System.Length(
     LClient.ExportEarlyKeyingMaterial('EXPORTER-tlslib', DecodeHex('00'), 32)),
     'a rejected 0-RTT client withholds the early exporter');
+end;
+
+procedure TTestTls13Resumption.TestZeroRttRetryWithholdsClientEarlyExporter;
+var
+  LStek: ISessionTicketKeyManager;
+  LAnti: IAntiReplayStrategy;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LEarly: TBytes;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LAnti := TStrikeRegisterAntiReplay.Create;
+  LCache := TInMemorySessionCache.Create;
+  // issue a 0-RTT-capable ticket (itself over a HelloRetryRequest), then resume offering 0-RTT: the
+  // server retries the client onto another group, which withdraws the early-data offer
+  LClient := NewRetryClient(LCache, False);
+  LServer := NewRetryServer(LStek, 1, 16384, LAnti);
+  DriveHandshake(LClient, LServer);
+  CheckEquals(1, LCache.Count, 'a 0-RTT-capable ticket was cached');
+  // the first handshake taught the cache the server's group, which would let the next ClientHello
+  // key-share it directly and skip the retry this test needs
+  LCache.SetKxHint(TClientSessionPolicy.CacheIdentity('', ServerHost, nil), ServerHost, 0);
+  LClient := NewRetryClient(LCache, True);
+  LServer := NewRetryServer(LStek, 0, 16384, LAnti);
+  LEarly := DecodeHex('7265706c617965642064617461'); // "replayed data"
+  LClient.StartHandshake;
+  LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly));
+  PumpToCompletion(LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'the retry is not fatal');
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'the handshake still resumed after the retry');
+  // the second ClientHello does not re-offer early_data, so the server derives no early exporter
+  // and the client must not hand back one that binds to nothing
+  CheckEquals(0, System.Length(
+    LClient.ExportEarlyKeyingMaterial('EXPORTER-tlslib', DecodeHex('00'), 32)),
+    'a client whose 0-RTT offer a HelloRetryRequest withdrew withholds the early exporter');
 end;
 
 function TTestTls13Resumption.Framed(AType: TTlsHandshakeType;
