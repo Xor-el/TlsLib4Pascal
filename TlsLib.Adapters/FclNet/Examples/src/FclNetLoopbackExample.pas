@@ -48,10 +48,12 @@ uses
   Sockets,
   TlpDataEncoding,
   TlpNegotiationTypes,
+  TlpTlsCredential,
   TlsLibFclNetTls;
 
 const
   PORT = 28446;
+  MUTUAL_PORT = 28456;
   STALL_HOLD_MS = 4000; // how long the server stays silent after the partial record
   READ_CAP_MS = 800;
   STALL_LIMIT_MS = 3000; // the socket timeout must end the wait well before the server's silence does
@@ -65,6 +67,8 @@ type
   public
     class procedure Locate; static;
     class function FieldHex(const AName: string): string; static;
+    /// <summary>A field of another vector file in the same folder as the main one.</summary>
+    class function FieldHexFrom(const AFile, AName: string): string; static;
     class function WriteDer(const AName, AHex: string): string; static;
   end;
 
@@ -88,6 +92,44 @@ type
     property Error: string read FError;
     /// <summary>The SNI host_name the client sent, as the server saw it.</summary>
     property PeerServerName: string read FPeerServerName;
+  end;
+
+  /// <summary>A server that requires a client certificate and serves up to two connections,
+  /// counting the ones whose handshake completed and that it could echo.</summary>
+  TMutualServerThread = class(TThread)
+  strict private
+  var
+    FPfx: TBytes;
+    FRootFile, FError: string;
+    FServed, FAttempts: Integer;
+    FReady: TEvent;
+    FServer: TInetServer;
+    procedure MakeHandler(Sender: TObject; out AHandler: TSocketHandler);
+    procedure HandleConnect(Sender: TObject; AStream: TSocketStream);
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(const APfx: TBytes; const ARootFile: string; AReady: TEvent);
+    /// <summary>Ends the accept loop; a turned-away client never counts as a handled connection,
+    /// so the loop would otherwise wait for it.</summary>
+    procedure StopServing;
+    property Error: string read FError;
+    property Served: Integer read FServed;
+    /// <summary>Connections that reached the server, so a missing one is not read as a
+    /// rejection.</summary>
+    property Attempts: Integer read FAttempts;
+  end;
+
+  TMutualTlsCheck = class sealed(TObject)
+  strict private
+    class function Echo(const APfx: TBytes; const ARootFile: string;
+      AWithIdentity: Boolean; out AError: string): string; static;
+    /// <summary>Whether a PFX beside a Certificate is refused with both properties named.</summary>
+    class function RefusesTwoSources(const APfx: TBytes; const ARootFile: string): Boolean; static;
+  public
+    /// <summary>A client that presents the PKCS#12 identity authenticates to a server requiring a
+    /// certificate, and one that presents none is turned away.</summary>
+    class procedure Run; static;
   end;
 
 { TVectorLocator }
@@ -123,6 +165,11 @@ begin
 end;
 
 class function TVectorLocator.FieldHex(const AName: string): string;
+begin
+  Result := FieldHexFrom(ExtractFileName(FVector), AName);
+end;
+
+class function TVectorLocator.FieldHexFrom(const AFile, AName: string): string;
 var
   LLines: TStringList;
   LI: Integer;
@@ -132,7 +179,7 @@ begin
   LPrefix := AName + '=';
   LLines := TStringList.Create;
   try
-    LLines.LoadFromFile(FVector);
+    LLines.LoadFromFile(ExtractFilePath(FVector) + AFile);
     for LI := 0 to LLines.Count - 1 do
       if Pos(LPrefix, LLines[LI]) = 1 then
         Exit(Copy(LLines[LI], System.Length(LPrefix) + 1, MaxInt));
@@ -233,6 +280,195 @@ begin
   end;
 end;
 
+{ TMutualServerThread }
+
+constructor TMutualServerThread.Create(const APfx: TBytes; const ARootFile: string;
+  AReady: TEvent);
+begin
+  inherited Create(True);
+  FreeOnTerminate := False;
+  FPfx := APfx;
+  FRootFile := ARootFile;
+  FReady := AReady;
+end;
+
+procedure TMutualServerThread.MakeHandler(Sender: TObject; out AHandler: TSocketHandler);
+var
+  LHandler: TTlsLibSocketHandler;
+begin
+  Inc(FAttempts);
+  LHandler := TTlsLibSocketHandler.Create;
+  LHandler.CertificateData.PFX.Value := FPfx;
+  LHandler.CertificateData.KeyPassword := 'tlslib';
+  // the test root vouches for clients, and a certificate is required
+  LHandler.CertificateData.CertCA.FileName := FRootFile;
+  LHandler.ClientAuth := TClientAuthMode.Required;
+  AHandler := LHandler;
+end;
+
+procedure TMutualServerThread.HandleConnect(Sender: TObject; AStream: TSocketStream);
+var
+  LBuf: TBytes;
+  LN: Integer;
+begin
+  try
+    SetLength(LBuf, 64);
+    LN := AStream.Read(LBuf[0], System.Length(LBuf));
+    if LN > 0 then
+    begin
+      AStream.Write(LBuf[0], LN);
+      Inc(FServed);
+    end;
+  except
+    // a client turned away mid-handshake is the expected outcome for the no-certificate leg
+  end;
+  AStream.Free;
+end;
+
+procedure TMutualServerThread.StopServing;
+begin
+  if Assigned(FServer) then
+    FServer.StopAccepting(True);
+end;
+
+procedure TMutualServerThread.Execute;
+begin
+  FServer := TInetServer.Create('127.0.0.1', MUTUAL_PORT);
+  try
+    try
+      FServer.ReuseAddress := True;
+      FServer.OnCreateClientSocketHandler := MakeHandler;
+      FServer.OnConnect := HandleConnect;
+      FServer.Listen;
+      FReady.SetEvent;
+      FServer.StartAccepting;
+    except
+      on E: Exception do
+      begin
+        FError := 'mutual server: ' + E.ClassName + ': ' + E.Message;
+        FReady.SetEvent;
+      end;
+    end;
+  finally
+    FreeAndNil(FServer);
+  end;
+end;
+
+{ TMutualTlsCheck }
+
+class function TMutualTlsCheck.Echo(const APfx: TBytes; const ARootFile: string;
+  AWithIdentity: Boolean; out AError: string): string;
+var
+  LSock: TInetSocket;
+  LHandler: TTlsLibSocketHandler;
+  LBuf: TBytes;
+  LN: Integer;
+begin
+  Result := '';
+  AError := '';
+  LHandler := TTlsLibSocketHandler.Create;
+  LHandler.CertificateData.CertCA.FileName := ARootFile;
+  if AWithIdentity then
+  begin
+    LHandler.CertificateData.PFX.Value := APfx;
+    LHandler.CertificateData.KeyPassword := 'tlslib';
+  end;
+  LSock := TInetSocket.Create('localhost', MUTUAL_PORT, LHandler);
+  try
+    try
+      LSock.Connect;
+      LSock.IOTimeout := 2000;
+      LBuf := TBytes.Create(Ord('m'), Ord('u'), Ord('t'), Ord('u'), Ord('a'), Ord('l'));
+      LSock.Write(LBuf[0], System.Length(LBuf));
+      SetLength(LBuf, 64);
+      // TLS 1.3 lets the client finish before the server judges its certificate: the answer is
+      // the echo, which a rejected client never gets
+      LN := LSock.Read(LBuf[0], System.Length(LBuf));
+      if LN > 0 then
+        SetString(Result, PAnsiChar(@LBuf[0]), LN);
+    except
+      on E: Exception do
+        AError := E.Message + ' ' + LHandler.LastErrorDesc;
+    end;
+    // a failed read reports through the handler rather than raising
+    if AError = '' then
+      AError := LHandler.LastErrorDesc;
+  finally
+    LSock.Free;
+  end;
+end;
+
+class function TMutualTlsCheck.RefusesTwoSources(const APfx: TBytes;
+  const ARootFile: string): Boolean;
+var
+  LSock: TInetSocket;
+  LHandler: TTlsLibSocketHandler;
+begin
+  LHandler := TTlsLibSocketHandler.Create;
+  LHandler.CertificateData.CertCA.FileName := ARootFile;
+  LHandler.CertificateData.PFX.Value := APfx;
+  LHandler.CertificateData.Certificate.FileName := ARootFile;
+  LSock := TInetSocket.Create('localhost', MUTUAL_PORT, LHandler);
+  try
+    try
+      LSock.Connect;
+    except
+      on E: Exception do
+        ;
+    end;
+    Result := Pos('sets PFX together with Certificate', LHandler.LastErrorDesc) > 0;
+  finally
+    LSock.Free;
+  end;
+end;
+
+class procedure TMutualTlsCheck.Run;
+var
+  LServer: TMutualServerThread;
+  LReady: TEvent;
+  LPfx: TBytes;
+  LRoot, LError: string;
+  LAfterServed: Integer;
+begin
+  LPfx := TDataEncoding.HexDecode(TVectorLocator.FieldHexFrom('ClientAuthChain.txt', 'leaf_pfx'));
+  LRoot := TVectorLocator.WriteDer('mutual_root',
+    TVectorLocator.FieldHexFrom('ClientAuthChain.txt', 'root_cert'));
+  LReady := TEvent.Create(nil, True, False, '');
+  try
+    LServer := TMutualServerThread.Create(LPfx, LRoot, LReady);
+    try
+      LServer.Start;
+      LReady.WaitFor(5000);
+      if LServer.Error <> '' then
+        raise Exception.Create(LServer.Error);
+      if not RefusesTwoSources(LPfx, LRoot) then
+        raise Exception.Create('a PFX beside a Certificate was not refused naming both');
+      if Echo(LPfx, LRoot, True, LError) <> 'mutual' then
+        raise Exception.Create('a client presenting the PFX identity was not served: ' + LError);
+      LAfterServed := LServer.Attempts;
+      if Echo(LPfx, LRoot, False, LError) <> '' then
+        raise Exception.Create('a client with no certificate was served');
+      // the rejection is the peer's alert, not a timeout or a refused connection
+      if Pos('fatal alert', LError) = 0 then
+        raise Exception.Create('the client with no certificate was not sent an alert: ' + LError);
+      LServer.StopServing;
+      LServer.WaitFor;
+      if LServer.Error <> '' then
+        raise Exception.Create(LServer.Error);
+      if LServer.Served <> 1 then
+        raise Exception.CreateFmt('the server served %d clients, expected 1', [LServer.Served]);
+      if LServer.Attempts <= LAfterServed then
+        raise Exception.Create('the client with no certificate never reached the server');
+    finally
+      // a check that raised leaves the accept loop running, which would block the free
+      LServer.StopServing;
+      LServer.Free;
+    end;
+  finally
+    LReady.Free;
+  end;
+end;
+
 { TFclNetLoopbackExample }
 
 class function TFclNetLoopbackExample.VersionText(const AVersion: TTlsVersion): string;
@@ -321,6 +557,7 @@ begin
       if LServer.PeerServerName <> '' then
         raise Exception.Create('the server saw an SNI though SendHostAsSNI was False: ' +
           LServer.PeerServerName);
+      TMutualTlsCheck.Run;
     finally
       LServer.Free;
     end;
@@ -328,7 +565,7 @@ begin
     if LEcho = PING then
     begin
       WriteLn('FclNet loopback PASS: ', LVersion, ' handshake + echo + a stalled record bounded in ',
-        LStallMs, ' ms');
+        LStallMs, ' ms + client PFX identity authenticated');
       Result := 0;
     end
     else

@@ -48,6 +48,7 @@ uses
 
 const
   PORT = '28445';
+  MUTUAL_PORT = '28455';
   CRLF = #13#10;
   STALL_HOLD_MS = 4000; // how long the server stays silent after the partial record
   READ_CAP_MS = 800;
@@ -56,6 +57,9 @@ const
 var
   GRootFile: string;
   GLeafPfx: AnsiString;
+  // the dual-EKU chain the mutual-TLS check serves and authenticates with
+  GMutualRootFile: string;
+  GMutualPfx: AnsiString;
   GReady: TEvent;
   GServerError: string;
   GVector: string;
@@ -67,12 +71,41 @@ type
   public
     class function Find: string; static;
     class function FieldHex(const AName: string): string; static;
+    /// <summary>A field of another vector file in the same folder as the main one.</summary>
+    class function FieldHexFrom(const AFile, AName: string): string; static;
     class function WriteDer(const AName, AHex: string): string; static;
   end;
 
   TServerThread = class(TThread)
   protected
     procedure Execute; override;
+  end;
+
+  /// <summary>A server that requires a client certificate and serves two connections in turn,
+  /// recording whether each handshake was accepted and the peer fingerprint it saw.</summary>
+  TMutualServerThread = class(TThread)
+  strict private
+  var
+    FSeen: array[0..1] of Boolean;
+    FAccepted: array[0..1] of Boolean;
+    FFingerprint: array[0..1] of string;
+  protected
+    procedure Execute; override;
+  public
+    /// <summary>Whether a connection reached the server, so a missing one is not read as a
+    /// rejection.</summary>
+    function Seen(AIndex: Integer): Boolean;
+    function Accepted(AIndex: Integer): Boolean;
+    function Fingerprint(AIndex: Integer): string;
+  end;
+
+  TMutualTlsCheck = class sealed(TObject)
+  strict private
+    class function Connect(AWithIdentity: Boolean; out AEcho: string): Boolean; static;
+  public
+    /// <summary>A client that presents the PKCS#12 identity authenticates to a server requiring a
+    /// certificate, and one that presents none is turned away.</summary>
+    class procedure Run; static;
   end;
 
 class function TVectorLocator.SearchFrom(const AStart: string): string;
@@ -106,6 +139,11 @@ begin
 end;
 
 class function TVectorLocator.FieldHex(const AName: string): string;
+begin
+  Result := FieldHexFrom(ExtractFileName(GVector), AName);
+end;
+
+class function TVectorLocator.FieldHexFrom(const AFile, AName: string): string;
 var
   LLines: TStringList;
   LI: Integer;
@@ -115,7 +153,7 @@ begin
   LPrefix := AName + '=';
   LLines := TStringList.Create;
   try
-    LLines.LoadFromFile(GVector);
+    LLines.LoadFromFile(ExtractFilePath(GVector) + AFile);
     for LI := 0 to LLines.Count - 1 do
       if Pos(LPrefix, LLines[LI]) = 1 then
         Exit(Copy(LLines[LI], System.Length(LPrefix) + 1, MaxInt));
@@ -187,6 +225,146 @@ begin
     end;
   finally
     LListener.Free;
+  end;
+end;
+
+{ TMutualServerThread }
+
+function TMutualServerThread.Seen(AIndex: Integer): Boolean;
+begin
+  Result := FSeen[AIndex];
+end;
+
+function TMutualServerThread.Accepted(AIndex: Integer): Boolean;
+begin
+  Result := FAccepted[AIndex];
+end;
+
+function TMutualServerThread.Fingerprint(AIndex: Integer): string;
+begin
+  Result := FFingerprint[AIndex];
+end;
+
+procedure TMutualServerThread.Execute;
+var
+  LListener, LClient: TTCPBlockSocket;
+  LI: Integer;
+begin
+  LListener := TTCPBlockSocket.Create;
+  try
+    try
+      LListener.CreateSocket;
+      LListener.SetLinger(True, 1000);
+      LListener.Bind('127.0.0.1', MUTUAL_PORT);
+      LListener.Listen;
+      GReady.SetEvent;
+      for LI := 0 to 1 do
+      begin
+        if not LListener.CanRead(5000) then
+          Break;
+        LClient := TTCPBlockSocket.CreateWithSSL(SSLImplementation);
+        try
+          LClient.Socket := LListener.Accept;
+          FSeen[LI] := True;
+          LClient.SSL.PFX := GMutualPfx;
+          LClient.SSL.KeyPassword := 'tlslib';
+          // the test root vouches for clients, and a certificate is required
+          LClient.SSL.CertCAFile := GMutualRootFile;
+          LClient.SSL.VerifyCert := True;
+          (LClient.SSL as TSSLTlsLib).ClientAuth := TClientAuthMode.Required;
+          FAccepted[LI] := LClient.SSLAcceptConnection;
+          if FAccepted[LI] then
+          begin
+            FFingerprint[LI] := LClient.SSL.GetPeerFingerprint;
+            LClient.SendString(LClient.RecvString(5000) + CRLF);
+          end;
+        finally
+          LClient.Free;
+        end;
+      end;
+    except
+      on E: Exception do
+      begin
+        GServerError := E.ClassName + ': ' + E.Message;
+        GReady.SetEvent;
+      end;
+    end;
+  finally
+    LListener.Free;
+  end;
+end;
+
+{ TMutualTlsCheck }
+
+class function TMutualTlsCheck.Connect(AWithIdentity: Boolean; out AEcho: string): Boolean;
+var
+  LClient: TTCPBlockSocket;
+begin
+  AEcho := '';
+  LClient := TTCPBlockSocket.CreateWithSSL(SSLImplementation);
+  try
+    LClient.SSL.CertCAFile := GMutualRootFile;
+    LClient.SSL.VerifyCert := True;
+    LClient.SSL.SNIHost := 'localhost';
+    if AWithIdentity then
+    begin
+      LClient.SSL.PFX := GMutualPfx;
+      LClient.SSL.KeyPassword := 'tlslib';
+    end;
+    LClient.Connect('127.0.0.1', MUTUAL_PORT);
+    LClient.SSLDoConnect;
+    Result := LClient.SSL.SSLEnabled;
+    if Result then
+    begin
+      // TLS 1.3 lets the client finish before the server judges its certificate: the answer is
+      // the echo, which a rejected client never gets
+      LClient.SendString('mutual' + CRLF);
+      AEcho := LClient.RecvString(2000);
+    end;
+  finally
+    LClient.Free;
+  end;
+end;
+
+class procedure TMutualTlsCheck.Run;
+var
+  LServer: TMutualServerThread;
+  LEcho: string;
+  LPfx: TBytes;
+begin
+  LPfx := TDataEncoding.HexDecode(TVectorLocator.FieldHexFrom('ClientAuthChain.txt', 'leaf_pfx'));
+  SetString(GMutualPfx, PAnsiChar(@LPfx[0]), System.Length(LPfx));
+  GMutualRootFile := TVectorLocator.WriteDer('mutual_root',
+    TVectorLocator.FieldHexFrom('ClientAuthChain.txt', 'root_cert'));
+  GReady.ResetEvent;
+  LServer := TMutualServerThread.Create(True);
+  LServer.FreeOnTerminate := False;
+  try
+    LServer.Start;
+    GReady.WaitFor(5000);
+    if GServerError <> '' then
+      raise Exception.Create('mutual server: ' + GServerError);
+    Connect(True, LEcho);
+    if LEcho <> 'mutual' then
+      raise Exception.Create('a client presenting the PFX identity was not served');
+    // the client side of a TLS 1.3 handshake completes before the server judges its certificate
+    if not Connect(False, LEcho) then
+      raise Exception.Create('the client with no certificate never completed its handshake');
+    if LEcho <> '' then
+      raise Exception.Create('a client with no certificate was served');
+    LServer.WaitFor;
+    if GServerError <> '' then
+      raise Exception.Create('mutual server: ' + GServerError);
+    if not LServer.Accepted(0) then
+      raise Exception.Create('the server did not accept the PFX identity');
+    if LServer.Fingerprint(0) = '' then
+      raise Exception.Create('the server saw no client certificate');
+    if not LServer.Seen(1) then
+      raise Exception.Create('the client with no certificate never reached the server');
+    if LServer.Accepted(1) then
+      raise Exception.Create('the server accepted a client with no certificate');
+  finally
+    LServer.Free;
   end;
 end;
 
@@ -281,11 +459,12 @@ begin
     LServer.WaitFor;
     if GServerError <> '' then
       raise Exception.Create('server: ' + GServerError);
+    TMutualTlsCheck.Run;
 
     if LEcho = 'ping from the synapse client' then
     begin
       Writeln('Synapse loopback PASS: handshake + echo + a stalled record bounded in ',
-        LStallMs, ' ms');
+        LStallMs, ' ms + client PFX identity authenticated');
       Result := 0;
     end
     else
