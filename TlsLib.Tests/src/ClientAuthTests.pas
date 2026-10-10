@@ -43,6 +43,7 @@ uses
   TlpICertificateTrust,
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
+  TlpTlsConnection,
   TlpICryptoProvider,
   TlpIPkixProvider,
   TlpCryptoDomainTypes,
@@ -85,6 +86,8 @@ type
       const AServerDecompressors: TArray<ICertificateDecompressor>;
       out AServer: ITlsEngine): ITlsEngine;
     function New13Client(AWithCredential: Boolean): ITlsEngine;
+    // an empty credential offers none
+    function New13ClientWith(const ACredential: TTlsCredential): ITlsEngine;
     function New13Server(AMode: TClientAuthMode): ITlsEngine;
     function New13ServerWithSchemes(AMode: TClientAuthMode;
       const ASchemes: TArray<UInt16>): ITlsEngine;
@@ -115,6 +118,7 @@ type
     procedure Drive(const AClient, AServer: ITlsEngine);
   published
     procedure TestTls13RequiredClientAuthCompletes;
+    procedure TestTls13RequiredClientAuthWithComposerPkcs12Completes;
     procedure TestTls13RequiredClientAuthMissingCertAborts;
     procedure TestTls13RequestedClientAuthWithoutCertCompletes;
     procedure TestTls13RequestedClientAuthWithNoMatchingSchemeDeclines;
@@ -345,6 +349,14 @@ begin
 end;
 
 function TTestClientAuth.New13Client(AWithCredential: Boolean): ITlsEngine;
+begin
+  if AWithCredential then
+    Result := New13ClientWith(Credential)
+  else
+    Result := New13ClientWith(Default(TTlsCredential));
+end;
+
+function TTestClientAuth.New13ClientWith(const ACredential: TTlsCredential): ITlsEngine;
 var
   LParams: TClientHandshakeParams;
 begin
@@ -362,8 +374,8 @@ begin
   LParams.LegacySessionId := Filled($33, 32);
   LParams.CertificateVerifier := PeerVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
-  if AWithCredential then
-    LParams.ClientCredential := Credential;
+  if System.Length(ACredential.CertificateChain) > 0 then
+    LParams.ClientCredential := ACredential;
   Result := TTlsEngine.CreateConfigured(
     TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
@@ -710,6 +722,39 @@ begin
   CheckFalse(LClient.IsHandshaking, '1.3 mTLS: client completed');
   CheckFalse(LServer.IsHandshaking, '1.3 mTLS: server completed');
   CheckFalse(LClient.IsTerminal or LServer.IsTerminal, '1.3 mTLS: no failure');
+end;
+
+procedure TTestClientAuth.TestTls13RequiredClientAuthWithComposerPkcs12Completes;
+var
+  LOpts: TTlsOptions;
+  LFields: TStringList;
+  LCredential: TTlsCredential;
+  LClient, LServer: ITlsEngine;
+begin
+  // the client credential the composer opens from a PKCS#12 authenticates in a real handshake
+  LFields := LoadVectorFields('Certs/ClientAuthChain.txt');
+  try
+    LOpts := TTlsOptions.Default;
+    LOpts.Crypto := Crypto;
+    LOpts.Pkix := Pkix;
+    LOpts.Certificate := TTlsBlobSource.FromBytes(DecodeHex(LFields.Values['leaf_pfx']));
+    LOpts.CredentialForm := TTlsCredentialForm.Pkcs12;
+    LOpts.KeyPassword := 'tlslib';
+  finally
+    LFields.Free;
+  end;
+  LOpts.CustomTrustStore := TTrustAnchorStore.Create(
+    TArray<TBytes>.Create(RootCert)) as ITrustAnchorStore;
+  LCredential := TTlsConfigComposer.BuildClientConfig(LOpts).Credential;
+  // the PKCS#12's leaf is the one presented, with its CA bag behind it
+  CheckEquals(2, System.Length(LCredential.CertificateChain), 'leaf and CA bag');
+  CheckTrue(AreEqual(LCredential.CertificateChain[0], ClientLeafCert), 'the PFX leaf leads');
+  LClient := New13ClientWith(LCredential);
+  LServer := New13Server(TClientAuthMode.Required);
+  Drive(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking, '1.3 mTLS from a PKCS#12: client completed');
+  CheckFalse(LServer.IsHandshaking, '1.3 mTLS from a PKCS#12: server completed');
+  CheckFalse(LClient.IsTerminal or LServer.IsTerminal, '1.3 mTLS from a PKCS#12: no failure');
 end;
 
 procedure TTestClientAuth.TestTls13RequiredClientAuthMissingCertAborts;
