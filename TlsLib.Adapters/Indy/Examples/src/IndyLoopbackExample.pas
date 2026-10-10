@@ -59,7 +59,7 @@ type
   public
     class function Find: string; static;
     class function FieldHex(const AName: string): string; static;
-    class function WriteDer(const AName, AHex: string): string; static;
+    class function WriteDer(const AName, AExt, AHex: string): string; static;
   end;
 
   TEchoHandler = class sealed(TObject)
@@ -116,14 +116,14 @@ begin
   end;
 end;
 
-class function TVectorLocator.WriteDer(const AName, AHex: string): string;
+class function TVectorLocator.WriteDer(const AName, AExt, AHex: string): string;
 var
   LBytes: TBytes;
   LFile: TFileStream;
 begin
   LBytes := TDataEncoding.HexDecode(AHex);
   Result := IncludeTrailingPathDelimiter(GetEnvironmentVariable('TEMP')) +
-    'tlslib_indy_' + AName + '.der';
+    'tlslib_indy_' + AName + AExt;
   LFile := TFileStream.Create(Result, fmCreate);
   try
     if System.Length(LBytes) > 0 then
@@ -167,17 +167,17 @@ begin
   LClient := TIdTCPClient.Create(nil);
   try
     LServerIO := TTlsLibServerIOHandler.Create(LServer);
-    LServerIO.SSLOptions.CertFile := TVectorLocator.WriteDer('leaf',
-      TVectorLocator.FieldHex('leaf_cert'));
-    LServerIO.SSLOptions.KeyFile := TVectorLocator.WriteDer('key',
-      TVectorLocator.FieldHex('leaf_key'));
+    // the server identity as a PKCS#12 file, read by its extension
+    LServerIO.SSLOptions.CertFile := TVectorLocator.WriteDer('leaf', '.pfx',
+      TVectorLocator.FieldHex('leaf_pfx'));
+    LServerIO.SSLOptions.KeyPassword := 'tlslib';
     LServer.IOHandler := LServerIO;
     LServer.DefaultPort := PORT;
     LServer.OnExecute := LEchoHandler.DoExecute;
     LServer.Active := True;
 
     LClientIO := TTlsLibIOHandlerSocket.Create(LClient);
-    LClientIO.SSLOptions.RootCertFile := TVectorLocator.WriteDer('root',
+    LClientIO.SSLOptions.RootCertFile := TVectorLocator.WriteDer('root', '.der',
       TVectorLocator.FieldHex('root_cert'));
     // the client offers one suite, so a negotiated AES-256 proves the list was honoured
     LClientIO.SSLOptions.CipherList := 'TLS_AES_256_GCM_SHA384';

@@ -81,6 +81,7 @@ type
   published
     // credential forms
     procedure TestServerBuildsFromPkcs12;
+    procedure TestClientBuildsFromPkcs12;
     procedure TestPkcs12WrongPasswordRaises;
     procedure TestMultiKeyPkcs12Raises;
     procedure TestServerBuildsFromCredentialFiles;
@@ -520,6 +521,16 @@ procedure TTestTlsConnection.TestServerBuildsFromPkcs12;
 begin
   CheckNotNull(TTlsConfigComposer.BuildServerConfig(Pkcs12Options('chain_pfx')),
     'a server config builds from a PKCS#12 identity');
+end;
+
+procedure TTestTlsConnection.TestClientBuildsFromPkcs12;
+var
+  LOpts: TTlsOptions;
+begin
+  LOpts := Pkcs12Options('chain_pfx');
+  LOpts.CustomTrustStore := EcP256RootStore;
+  CheckNotNull(TTlsConfigComposer.BuildClientConfig(LOpts),
+    'a client config builds from a PKCS#12 identity');
 end;
 
 procedure TTestTlsConnection.TestPkcs12WrongPasswordRaises;

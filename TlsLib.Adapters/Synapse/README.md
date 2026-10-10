@@ -36,7 +36,7 @@ peer.SSLAcceptConnection;             // handshake
 | Synapse `TCustomSSL` property                        | TlsLib4Pascal                            |
 |------------------------------------------------------|------------------------------------------|
 | `CertCAFile`                                         | `WithTrustAnchors` (client trust, or a server's client-auth CA) |
-| `CertificateFile` + `PrivateKeyFile` + `KeyPassword` | `WithCredential` (server cert/key)       |
+| `CertificateFile` / `Certificate` + `PrivateKeyFile` / `PrivateKey` + `KeyPassword`, or `PFX` / `PFXfile` | `WithCredential` (server cert/key, or client mTLS) |
 | `SNIHost`                                            | SNI + the verified host name             |
 | `VerifyCert` (default **True** here)                 | verify on/off; **False** → **`dangerous` `WithDangerousInsecureSkipVerify`** |
 | `ClientAuth` (extension, **server**) | `WithPeerAuth(None / Requested / Required)`; default `None` never requests a client certificate. Any other mode needs `VerifyCert` on and a private client-CA (`CertCAFile`), else the build fails closed. `UseSystemTrust` is a server-cert source, never a client-CA |
@@ -56,10 +56,14 @@ by any intermediates** in one PEM file so clients build a complete chain. `CertC
 source** (used to verify the *peer*), never part of what you send; putting intermediates only there
 leaves the presented chain incomplete, forcing clients to fetch the missing CA.
 
-**PKCS#12 (`.pfx`)**: Synapse also exposes `PFX`/`PFXfile`. To use a `.pfx`, build the credential
-with `TTlsCredential.LoadPkcs12(crypto, pfxBytes, password)` and pass it to `WithCredential` on a config
-builder you drive directly (`TTlsPresets.…(crypto, pkix).Server`); the `CertificateFile`/`PrivateKeyFile`
-path here covers PEM/DER pairs.
+**Certificate, key and PKCS#12**: `CertificateFile` / `Certificate` and `PrivateKeyFile` /
+`PrivateKey` hold a PEM or DER pair (the inline forms are raw bytes), and `PFX` / `PFXfile` hold a
+PKCS#12 opened with `KeyPassword`. Synapse applies these in sequence with the last winning, so a
+socket that sets two sources for one slot, or a PFX beside any certificate or key, **fails loudly**
+naming both properties. A PFX's CA bag is sent as part of the chain and never trusted (Synapse's
+OpenSSL plugins differ on this). `CertCA`, `TrustCertificate` and `TrustCertificateFile` are not read
+by Synapse's OpenSSL plugins and stay unread here; use `CertCAFile`. A non-ASCII `KeyPassword` is
+UTF-8 here, where Synapse uses the ANSI code page.
 
 ## Trust is ours (`dangerous` mapping)
 

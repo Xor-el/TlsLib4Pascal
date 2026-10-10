@@ -39,7 +39,7 @@ when the protocol says "go secure", set `IO.PassThrough := False` and the handsh
 | `TTlsLibSSLOptions`                | TlsLib4Pascal                                              |
 |-----------------------------------|-----------------------------------------------------------|
 | `RootCertFile`                    | `WithTrustAnchors` (client trust; on a server the client-auth CA, consulted only when `ClientAuth <> None`) |
-| `CertFile` + `KeyFile` + `KeyPassword` | `WithCredential` (server cert/key, or client mTLS)   |
+| `CertFile` + `KeyFile` + `KeyPassword` | `WithCredential` (server cert/key, or client mTLS); a `.pfx` / `.p12` `CertFile` is a PKCS#12 |
 | `ClientAuth` (server)             | `WithPeerAuth(None / Requested / Required)`; the default `None` never requests a client certificate. Any other mode needs a private client-CA (`RootCertFile` or a `CustomTrustStore`/custom verifier) and `VerifyPeer` on, else the build fails closed. `UseSystemTrust` is a server-cert source, never a client-CA |
 | `VerifyPeer = False` / `InsecureSkipVerify` | **`dangerous` `WithDangerousInsecureSkipVerify`** |
 | `VerifyCallback`                  | neutral augment-only hook (`WithCertificateVerifyCallback`) |
@@ -53,10 +53,10 @@ a **trust source** (used to verify the *peer*), never part of what you send; put
 there leaves the presented chain incomplete, forcing clients to fetch the missing CA (slow, and it fails
 where fetching is blocked).
 
-**PKCS#12 (`.pfx`)**: map a `.pfx` by building the credential with
-`TTlsCredential.LoadPkcs12(crypto, pfxBytes, password)` and passing it to `WithCredential` on a config
-builder you drive directly (`TTlsPresets.…(crypto, pkix).Server`) (the file-based `SSLOptions` cover
-PEM/DER cert+key pairs).
+**PKCS#12 (`.pfx`)**: a `CertFile` ending in `.pfx` or `.p12` is read as a PKCS#12 identity opened
+with `KeyPassword`, as in Indy's own handler; `KeyFile` must then be empty or the same file. Its CA
+bag is sent as part of the chain and never trusted. A `.pfx` on `KeyFile` beside a PEM `CertFile`
+**fails loudly**.
 
 **Mutual TLS (client certificates)**: a server requests client certificates only when you set
 `SSLOptions.ClientAuth` — `Requested` (ask, tolerate a client that sends none) or `Required` (ask,

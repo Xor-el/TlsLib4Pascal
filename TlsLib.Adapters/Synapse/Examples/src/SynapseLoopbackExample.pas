@@ -54,7 +54,8 @@ const
   STALL_LIMIT_MS = 3000; // the cap must end the wait well before the server's silence does
 
 var
-  GLeafFile, GKeyFile, GRootFile: string;
+  GRootFile: string;
+  GLeafPfx: AnsiString;
   GReady: TEvent;
   GServerError: string;
   GVector: string;
@@ -159,8 +160,9 @@ begin
         LClient := TTCPBlockSocket.CreateWithSSL(SSLImplementation);
         try
           LClient.Socket := LListener.Accept;
-          LClient.SSL.CertificateFile := GLeafFile;
-          LClient.SSL.PrivateKeyFile := GKeyFile;
+          // the server identity as an in-memory PKCS#12
+          LClient.SSL.PFX := GLeafPfx;
+          LClient.SSL.KeyPassword := 'tlslib';
           if not LClient.SSLAcceptConnection then
             raise Exception.Create('ssl accept failed: ' + LClient.SSL.LastErrorDesc);
           LLine := LClient.RecvString(5000);
@@ -206,6 +208,15 @@ begin
       raise Exception.Create('a Ciphers list was accepted');
     if Pos('Ciphers', LTo.SSL.LastErrorDesc) = 0 then
       raise Exception.Create('Ciphers refusal not reported: ' + LTo.SSL.LastErrorDesc);
+    // two sources for one credential are refused, naming both properties
+    LTo.SSL.Ciphers := '';
+    LTo.SSL.PFX := 'pfx';
+    LTo.SSL.CertificateFile := 'cert.pem';
+    if LTo.SSL.Connect then
+      raise Exception.Create('a PFX beside a CertificateFile was accepted');
+    if (Pos('PFX', LTo.SSL.LastErrorDesc) = 0) or
+      (Pos('CertificateFile', LTo.SSL.LastErrorDesc) = 0) then
+      raise Exception.Create('credential conflict not reported: ' + LTo.SSL.LastErrorDesc);
   finally
     LTo.Free;
     LFrom.Free;
@@ -217,6 +228,7 @@ var
   LServer: TServerThread;
   LClient: TTCPBlockSocket;
   LEcho: string;
+  LPfx: TBytes;
   LStart: TDateTime;
   LStallMs: Int64;
 begin
@@ -226,8 +238,8 @@ begin
   GReady := TEvent.Create(nil, True, False, '');
   try
     CheckAssignAndCiphers;
-    GLeafFile := TVectorLocator.WriteDer('leaf', TVectorLocator.FieldHex('leaf_cert'));
-    GKeyFile := TVectorLocator.WriteDer('key', TVectorLocator.FieldHex('leaf_key'));
+    LPfx := TDataEncoding.HexDecode(TVectorLocator.FieldHex('leaf_pfx'));
+    SetString(GLeafPfx, PAnsiChar(@LPfx[0]), System.Length(LPfx));
     GRootFile := TVectorLocator.WriteDer('root', TVectorLocator.FieldHex('root_cert'));
 
     LServer := TServerThread.Create(True);

@@ -74,7 +74,8 @@ type
   TServerThread = class(TThread)
   strict private
   var
-    FLeafFile, FKeyFile, FError, FPeerServerName: string;
+    FError, FPeerServerName: string;
+    FPfx: TBytes;
     FReady: TEvent;
     // the accepted connection's handler; the stream owns it and frees it with the stream
     FAccepted: TTlsLibSocketHandler;
@@ -83,7 +84,7 @@ type
   protected
     procedure Execute; override;
   public
-    constructor Create(const ALeaf, AKey: string; AReady: TEvent);
+    constructor Create(const APfx: TBytes; AReady: TEvent);
     property Error: string read FError;
     /// <summary>The SNI host_name the client sent, as the server saw it.</summary>
     property PeerServerName: string read FPeerServerName;
@@ -158,12 +159,11 @@ end;
 
 { TServerThread }
 
-constructor TServerThread.Create(const ALeaf, AKey: string; AReady: TEvent);
+constructor TServerThread.Create(const APfx: TBytes; AReady: TEvent);
 begin
   inherited Create(True);
   FreeOnTerminate := False;
-  FLeafFile := ALeaf;
-  FKeyFile := AKey;
+  FPfx := APfx;
   FReady := AReady;
 end;
 
@@ -172,10 +172,11 @@ var
   LHandler: TTlsLibSocketHandler;
 begin
   // fcl-net asks the server for a handler per accepted connection: hand it a configured one
-  // carrying the server credential (its Accept runs our server handshake automatically)
+  // carrying the server credential as an in-memory PKCS#12 (its Accept runs our server handshake
+  // automatically)
   LHandler := TTlsLibSocketHandler.Create;
-  LHandler.CertificateData.Certificate.FileName := FLeafFile;
-  LHandler.CertificateData.PrivateKey.FileName := FKeyFile;
+  LHandler.CertificateData.PFX.Value := FPfx;
+  LHandler.CertificateData.KeyPassword := 'tlslib';
   FAccepted := LHandler;
   AHandler := LHandler;
 end;
@@ -252,7 +253,7 @@ var
   LSock: TInetSocket;
   LHandler: TTlsLibSocketHandler;
   LReady: TEvent;
-  LLeaf, LKey, LRoot, LEcho, LVersion: string;
+  LRoot, LEcho, LVersion: string;
   LOut: AnsiString;
   LBuf: TBytes;
   LN: Integer;
@@ -265,11 +266,10 @@ begin
   TVectorLocator.Locate;
   LReady := TEvent.Create(nil, True, False, '');
   try
-    LLeaf := TVectorLocator.WriteDer('leaf', TVectorLocator.FieldHex('leaf_cert'));
-    LKey := TVectorLocator.WriteDer('key', TVectorLocator.FieldHex('leaf_key'));
     LRoot := TVectorLocator.WriteDer('root', TVectorLocator.FieldHex('root_cert'));
 
-    LServer := TServerThread.Create(LLeaf, LKey, LReady);
+    LServer := TServerThread.Create(TDataEncoding.HexDecode(TVectorLocator.FieldHex('leaf_pfx')),
+      LReady);
     try
       LServer.Start;
       LReady.WaitFor(5000);

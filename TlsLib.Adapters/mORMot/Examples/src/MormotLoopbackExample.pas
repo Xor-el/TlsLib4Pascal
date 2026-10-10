@@ -50,7 +50,8 @@ const
   PINGHEX = '70696e672066726f6d20746865206d6f724d6f7420636c69656e74';
 
 var
-  GLeafFile, GKeyFile, GRootFile: RawUtf8;
+  GRootFile: RawUtf8;
+  GLeafPfx: RawByteString;
   GReady: TEvent;
   GServerError: string;
   GVector: string;
@@ -158,6 +159,7 @@ begin
       Exit;
     InitNetTlsContext(LCtx);
     LCtx.CertificateBin := 'x';
+    LCtx.CertificateFile := 'cert.pem';
     if not RefusesNaming(LCtx, False, 'CertificateBin') then
       Exit;
     InitNetTlsContext(LCtx);
@@ -284,8 +286,9 @@ var
 begin
   try
     FillCharFast(LCtx, SizeOf(LCtx), 0);
-    LCtx.CertificateFile := GLeafFile;
-    LCtx.PrivateKeyFile := GKeyFile;
+    // the server identity as an in-memory PKCS#12: no key file, so the bytes are read as one
+    LCtx.CertificateBin := GLeafPfx;
+    LCtx.PrivatePassword := 'tlslib';
     if NewSocket(HOST, PORT, nlTcp, {dobind=}True, 3000, 3000, 3000, 0,
       LListener) <> nrOK then
       raise Exception.Create('server bind failed');
@@ -313,7 +316,7 @@ var
   LCtx: TNetTlsContext;
   LSock: TNetSocket;
   LTls: INetTls;
-  LPing, LEcho: TBytes;
+  LPing, LEcho, LPfx: TBytes;
   LLen: Integer;
   LOk, LRefused: Boolean;
 begin
@@ -322,8 +325,8 @@ begin
   GVector := TVectorLocator.Find;
   GReady := TEvent.Create(nil, True, False, '');
   try
-    TVectorLocator.WriteDer('leaf', TVectorLocator.FieldHex('leaf_cert'), GLeafFile);
-    TVectorLocator.WriteDer('key', TVectorLocator.FieldHex('leaf_key'), GKeyFile);
+    LPfx := TDataEncoding.HexDecode(TVectorLocator.FieldHex('leaf_pfx'));
+    SetString(GLeafPfx, PAnsiChar(@LPfx[0]), System.Length(LPfx));
     TVectorLocator.WriteDer('root', TVectorLocator.FieldHex('root_cert'), GRootFile);
 
     LServer := TServerThread.Create(True);

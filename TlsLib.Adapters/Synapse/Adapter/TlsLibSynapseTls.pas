@@ -38,6 +38,7 @@ uses
   TlpIPkixProvider,
   TlpTrustPolicy,
   TlpTlsCredential,
+  TlpSecureMemory,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpISystemTrustInstaller,
@@ -118,6 +119,14 @@ type
     FServerConfig: ITlsServerConfig;
     FHandshakeTimeoutMs: Integer;
     FReadTimeoutMs: Integer;
+    /// <summary>Refuses two sources for one credential slot, or a PFX beside any certificate or
+    /// key input: Synapse applies them in sequence with the last winning, which would hide a
+    /// misconfiguration.</summary>
+    procedure RefuseAmbiguousCredential;
+    class procedure RefuseBoth(ASetA, ASetB: Boolean; const ANameA, ANameB: string); static;
+    class function CredentialSource(const AInline: AnsiString;
+      const AFile: string): TTlsBlobSource; static;
+    class procedure WipeCopies(var AOptions: TTlsOptions); static;
     /// <summary>The host-neutral snapshot the adapter core composes into a TLS configuration: one
     /// value per handshake, so a property changed mid-connection is never seen half-applied. The
     /// role (client vs server) is chosen by the caller when it resolves the config and attaches the
@@ -236,6 +245,10 @@ resourcestring
   SSynapseSendNoProgress = 'Synapse socket send returned no progress';
   SSynapseSslTypeUnsupported = 'SSLType selects a protocol this library does not implement; ' +
     'use LT_all, LT_TLSv1_2 or LT_TLSv1_3';
+  SSynapseCredentialSourcesConflict = 'the Synapse socket sets both %s and %s; set one ' +
+    'source for the certificate, the key or the PFX';
+  SSynapseCredentialSourceHint = 'CertificateFile/Certificate and PrivateKeyFile/PrivateKey, ' +
+    'or PFX/PFXfile';
   SSynapseCiphersHint = 'Ciphers';
   SSynapseTrustSourceHint = 'a CertCAFile bundle and/or UseSystemTrust';
   SSynapseClientAuthSourceHint = 'a CertCAFile bundle';
@@ -358,14 +371,62 @@ begin
   Result := 'TlsLibSynapseTls';
 end;
 
+class procedure TSSLTlsLib.RefuseBoth(ASetA, ASetB: Boolean; const ANameA, ANameB: string);
+begin
+  if ASetA and ASetB then
+    raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+      @SSynapseCredentialSourcesConflict, [ANameA, ANameB]);
+end;
+
+class function TSSLTlsLib.CredentialSource(const AInline: AnsiString;
+  const AFile: string): TTlsBlobSource;
+begin
+  // inline bytes win over the file name, as in Synapse; BytesOf is a raw copy, DER is binary
+  if AInline <> '' then
+    Result := TTlsBlobSource.FromBytes(BytesOf(RawByteString(AInline)))
+  else
+    Result := TTlsBlobSource.FromFile(AFile);
+end;
+
+class procedure TSSLTlsLib.WipeCopies(var AOptions: TTlsOptions);
+begin
+  // the snapshot's inline bytes are our own copies of the host's strings
+  TSecureMemory.WipeBytes(AOptions.Certificate.Data);
+  TSecureMemory.WipeBytes(AOptions.PrivateKey.Data);
+end;
+
+procedure TSSLTlsLib.RefuseAmbiguousCredential;
+var
+  LPfx: Boolean;
+begin
+  RefuseBoth(FCertificate <> '', FCertificateFile <> '', 'Certificate', 'CertificateFile');
+  RefuseBoth(FPrivateKey <> '', FPrivateKeyFile <> '', 'PrivateKey', 'PrivateKeyFile');
+  RefuseBoth(FPFX <> '', FPFXfile <> '', 'PFX', 'PFXfile');
+  LPfx := (FPFX <> '') or (FPFXfile <> '');
+  RefuseBoth(LPfx, FCertificate <> '', 'PFX/PFXfile', 'Certificate');
+  RefuseBoth(LPfx, FCertificateFile <> '', 'PFX/PFXfile', 'CertificateFile');
+  RefuseBoth(LPfx, FPrivateKey <> '', 'PFX/PFXfile', 'PrivateKey');
+  RefuseBoth(LPfx, FPrivateKeyFile <> '', 'PFX/PFXfile', 'PrivateKeyFile');
+end;
+
 function TSSLTlsLib.Snapshot: TTlsOptions;
 begin
+  RefuseAmbiguousCredential;
   Result := TTlsOptions.Default;
   Result.Crypto := FUserCrypto;
   Result.Pkix := FUserPkix;
-  Result.Certificate := TTlsBlobSource.FromFile(FCertificateFile);
-  Result.PrivateKey := TTlsBlobSource.FromFile(FPrivateKeyFile);
+  if (FPFX <> '') or (FPFXfile <> '') then
+  begin
+    Result.Certificate := CredentialSource(FPFX, FPFXfile);
+    Result.CredentialForm := TTlsCredentialForm.Pkcs12;
+  end
+  else
+  begin
+    Result.Certificate := CredentialSource(FCertificate, FCertificateFile);
+    Result.PrivateKey := CredentialSource(FPrivateKey, FPrivateKeyFile);
+  end;
   Result.KeyPassword := FKeyPassword;
+  Result.CredentialSourceHint := SSynapseCredentialSourceHint;
   // Synapse gates trust on its native VerifyCert: a CertCAFile bundle and UseSystemTrust are trust
   // sources only when verifying, so a skip-verify client names none (kept off HasClientTrustSource).
   // UseSystemTrust reaches the OS store through the host-neutral installer seam, so the core never
@@ -417,10 +478,14 @@ var
   LOptions: TTlsOptions;
 begin
   LOptions := Snapshot;
-  // a fully-built config supplied by the app REPLACES the property-driven build outright; the
-  // composer's conflict guard fails loud when cert/trust properties are named alongside it
-  Result := TTlsConfigComposer.ResolveClientConfig(LOptions, GClientConfigMemo,
-    'ClientConfig');
+  try
+    // a fully-built config supplied by the app REPLACES the property-driven build outright; the
+    // composer's conflict guard fails loud when cert/trust properties are named alongside it
+    Result := TTlsConfigComposer.ResolveClientConfig(LOptions, GClientConfigMemo,
+      'ClientConfig');
+  finally
+    WipeCopies(LOptions);
+  end;
   // the peer-info accessors reuse the config's providers (crypto for hashing, pkix for parsing)
   FCrypto := Result.Crypto;
   FPkix := Result.Pkix;
@@ -433,8 +498,12 @@ begin
   LOptions := Snapshot;
   // the process-wide callback is a client-handshake hook, so a server never carries it
   LOptions.VerifyCallback := nil;
-  Result := TTlsConfigComposer.ResolveServerConfig(LOptions, GServerConfigMemo,
-    'ServerConfig');
+  try
+    Result := TTlsConfigComposer.ResolveServerConfig(LOptions, GServerConfigMemo,
+      'ServerConfig');
+  finally
+    WipeCopies(LOptions);
+  end;
   FCrypto := Result.Crypto;
   FPkix := Result.Pkix;
 end;

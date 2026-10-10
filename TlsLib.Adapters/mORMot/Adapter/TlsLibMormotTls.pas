@@ -43,6 +43,7 @@ uses
   TlpTlsConfigMemo,
   TlpTlsLibExceptions,
   TlpTlsCredential,
+  TlpSecureMemory,
   TlpTlsConnection,
   TlpTlsConnectionInfo,
   TlpTlsVersion,
@@ -137,15 +138,17 @@ type
     /// the given role: the process-wide setters overlaid with this connection's TNetTlsContext.
     /// A client always composes its peer trust from the context; a server does so only when it
     /// requests a client certificate.</summary>
-    class function Snapshot(const AContext: TNetTlsContext;
-      AIsClient: Boolean): TTlsOptions; static;
+    class function Snapshot(const AContext: TNetTlsContext; AIsClient: Boolean;
+      ASocket: TNetSocket): TTlsOptions; static;
     /// <summary>Refuses a TNetTlsContext input TlsLib4Pascal cannot honour, before any config is
     /// composed: silently ignoring a peer-verification hook would loosen the host's own trust
     /// rules, and an in-memory certificate or key would be reported as a missing one.</summary>
     class procedure RefuseUnsupported(const AContext: TNetTlsContext;
       AIsClient: Boolean); static;
-    class function BuildClientConfig(var AContext: TNetTlsContext): ITlsClientConfig; static;
-    class function BuildServerConfig(const AContext: TNetTlsContext): ITlsServerConfig; static;
+    class function BuildClientConfig(var AContext: TNetTlsContext;
+      ASocket: TNetSocket): ITlsClientConfig; static;
+    class function BuildServerConfig(const AContext: TNetTlsContext;
+      ASocket: TNetSocket): ITlsServerConfig; static;
     procedure RunHandshake;
   public
     destructor Destroy; override;
@@ -208,9 +211,12 @@ resourcestring
   SMormotSniHookUnsupported = 'the mORMot TLS context sets OnAcceptServerName, which TlsLib4Pascal ' +
     'does not honour: select certificates per host with WithSniCredential in a configuration ' +
     'supplied through SetTlsLibMormotServerConfig';
-  SMormotInMemoryCredentialUnsupported = 'the mORMot TLS context supplies %s (an in-memory ' +
-    'certificate or key), which TlsLib4Pascal does not read: pass them as PEM/DER files via ' +
-    'CertificateFile and PrivateKeyFile';
+  SMormotInMemoryCredentialUnsupported = 'the mORMot TLS context supplies %s (a live OpenSSL ' +
+    'handle), which TlsLib4Pascal cannot consume: pass the bytes via CertificateBin (a PEM chain ' +
+    'or a PKCS#12) or files via CertificateFile and PrivateKeyFile';
+  SMormotCredentialSourcesConflict = 'the mORMot TLS context sets both CertificateBin and ' +
+    'CertificateFile; set one source for the certificate';
+  SMormotCredentialSourceHint = 'CertificateFile/CertificateBin and PrivateKeyFile';
   SMormotReceiveFailed = 'mORMot socket receive failed (nr=%d)';
   SMormotReceiveTimedOut = 'the socket receive timeout elapsed with no data from the peer';
   SMormotSendFailed = 'mORMot socket send failed (nr=%d)';
@@ -387,16 +393,29 @@ begin
   inherited Destroy;
 end;
 
-class function TTlsLibNetTls.Snapshot(const AContext: TNetTlsContext;
-  AIsClient: Boolean): TTlsOptions;
+class function TTlsLibNetTls.Snapshot(const AContext: TNetTlsContext; AIsClient: Boolean;
+  ASocket: TNetSocket): TTlsOptions;
 var
   LWantTrust: Boolean;
+  LBytes: TBytes;
 begin
   Result := TTlsOptions.Default;
   Result.Crypto := GCrypto;
   Result.Pkix := GPkix;
-  Result.Certificate := TTlsBlobSource.FromFile(Utf8ToString(AContext.CertificateFile));
+  if AContext.CertificateBin <> '' then
+  begin
+    // a private copy of the host's bytes, so the build can wipe it
+    SetLength(LBytes, System.Length(AContext.CertificateBin));
+    Move(Pointer(AContext.CertificateBin)^, LBytes[0], System.Length(LBytes));
+    Result.Certificate := TTlsBlobSource.FromBytes(LBytes);
+  end
+  else
+    Result.Certificate := TTlsBlobSource.FromFile(Utf8ToString(AContext.CertificateFile));
   Result.PrivateKey := TTlsBlobSource.FromFile(Utf8ToString(AContext.PrivateKeyFile));
+  // with no key file the certificate source may be a PKCS#12, as in the stock backend; named only
+  // with a certificate, since a non-default form beside a supplied config is a conflict
+  if not Result.Certificate.IsEmpty then
+    Result.CredentialForm := TTlsCredentialForm.PemChainOrPkcs12;
   Result.KeyPassword := Utf8ToString(AContext.PrivatePassword);
   // trust sources: a client always composes them from the context; a server does so only when it
   // requests a client certificate, so a server without client auth names no source and requests
@@ -455,7 +474,13 @@ begin
     SMormotCipherListHint);
   Result.ClientConfig := GClientConfig;
   Result.ServerConfig := GServerConfig;
+  // the stock backend lets the callback win for the key file; it passes no TLS handle at setup. A
+  // supplied config replaces the build, so the host is not prompted for a password it would not use
+  if Assigned(AContext.OnPrivatePassword) and (AContext.PrivateKeyFile <> '') and
+    ((AIsClient and (GClientConfig = nil)) or ((not AIsClient) and (GServerConfig = nil))) then
+    Result.KeyPassword := Utf8ToString(AContext.OnPrivatePassword(ASocket, @AContext, nil));
   Result.CipherSuitesHint := SMormotCipherListHint;
+  Result.CredentialSourceHint := SMormotCredentialSourceHint;
   Result.TrustSourceHint := SMormotTrustSourceHint;
   Result.ClientAuthSourceHint := SMormotClientAuthSourceHint;
 end;
@@ -490,9 +515,9 @@ begin
   if Assigned(AContext.OnAcceptServerName) then
     raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
       @SMormotSniHookUnsupported);
-  if AContext.CertificateBin <> '' then
-    raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
-      @SMormotInMemoryCredentialUnsupported, ['CertificateBin']);
+  if (AContext.CertificateBin <> '') and (AContext.CertificateFile <> '') then
+    raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
+      @SMormotCredentialSourcesConflict);
   if AContext.CertificateRaw <> nil then
     raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
       @SMormotInMemoryCredentialUnsupported, ['CertificateRaw']);
@@ -501,24 +526,40 @@ begin
       @SMormotInMemoryCredentialUnsupported, ['PrivateKeyRaw']);
 end;
 
-class function TTlsLibNetTls.BuildClientConfig(var AContext: TNetTlsContext): ITlsClientConfig;
+class function TTlsLibNetTls.BuildClientConfig(var AContext: TNetTlsContext;
+  ASocket: TNetSocket): ITlsClientConfig;
+var
+  LOptions: TTlsOptions;
 begin
   // reject before composing (none of these inputs is part of the build signature)
   RefuseUnsupported(AContext, True);
   // a process-wide config supplied via SetTlsLibMormotClientConfig REPLACES the context-driven build
   // outright; the composer's conflict guard fails loud when the context also carries cert/trust
   // fields, rather than dropping them silently
-  Result := TTlsConfigComposer.ResolveClientConfig(Snapshot(AContext, True),
-    GClientConfigMemo, 'SetTlsLibMormotClientConfig');
+  LOptions := Snapshot(AContext, True, ASocket);
+  try
+    Result := TTlsConfigComposer.ResolveClientConfig(LOptions,
+      GClientConfigMemo, 'SetTlsLibMormotClientConfig');
+  finally
+    // the snapshot's bytes are our private copy of the host's
+    TSecureMemory.WipeBytes(LOptions.Certificate.Data);
+  end;
   AContext.Enabled := True;
 end;
 
-class function TTlsLibNetTls.BuildServerConfig(
-  const AContext: TNetTlsContext): ITlsServerConfig;
+class function TTlsLibNetTls.BuildServerConfig(const AContext: TNetTlsContext;
+  ASocket: TNetSocket): ITlsServerConfig;
+var
+  LOptions: TTlsOptions;
 begin
   RefuseUnsupported(AContext, False);
-  Result := TTlsConfigComposer.ResolveServerConfig(Snapshot(AContext, False),
-    GServerConfigMemo, 'SetTlsLibMormotServerConfig');
+  LOptions := Snapshot(AContext, False, ASocket);
+  try
+    Result := TTlsConfigComposer.ResolveServerConfig(LOptions,
+      GServerConfigMemo, 'SetTlsLibMormotServerConfig');
+  finally
+    TSecureMemory.WipeBytes(LOptions.Certificate.Data);
+  end;
 end;
 
 procedure TTlsLibNetTls.RunHandshake;
@@ -535,7 +576,7 @@ var
   LConfig: ITlsClientConfig;
 begin
   LHost := Utf8ToString(ServerAddress);
-  LConfig := BuildClientConfig(Context);
+  LConfig := BuildClientConfig(Context, Socket);
   // the client parks on the server's chain, a server (client auth) on the mTLS client's chain -
   // the two bind different EKUs, so one resolver cannot serve both
   FConnection := TTlsConnection.CreateClient(LConfig, LHost,
@@ -560,7 +601,8 @@ var
   LConfig: ITlsServerConfig;
 begin
   try
-    LConfig := BuildServerConfig(BoundContext);
+    // the stock backend hands its password callback no socket on the server side either
+    LConfig := BuildServerConfig(BoundContext, nil);
     FConnection := TTlsConnection.CreateServer(LConfig,
       TMormotSocketTransport.Create(Socket), GServerVerdictResolver, GServerVerdictDeadlineMs);
     RunHandshake;
