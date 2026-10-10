@@ -156,6 +156,7 @@ var
   BCRYPT_HKDF_HASH_NAME: WideString = 'HkdfHashAlgorithm';
   BCRYPT_HKDF_PRK_AND_FINALIZE: WideString = 'HkdfPrkAndFinalize';
   BCRYPT_PUBLIC_KEY_LENGTH_PROP: WideString = 'PublicKeyLength';
+  BCRYPT_KEY_LENGTH_PROP: WideString = 'KeyLength';
   BCRYPT_ALGORITHM_NAME_PROP: WideString = 'AlgorithmName';
 
 resourcestring
@@ -939,6 +940,13 @@ type
     class function HashAlgForScheme(AScheme: TSignatureScheme): THashAlgorithm; static;
     class function HashIdForScheme(AScheme: TSignatureScheme): WideString; static;
     class function HashLenForScheme(AScheme: TSignatureScheme): ULONG; static;
+    /// <summary>The DER DigestInfo T of RFC 8017 9.2 for the scheme's hash and ADigest: the Note 1
+    /// prefix, NULL parameters included, then the digest. It is the only encoding a PKCS#1 v1.5
+    /// signature may carry.</summary>
+    class function Pkcs1DigestInfo(AScheme: TSignatureScheme;
+      const ADigest: TBytes): TBytes; static;
+    /// <summary>The RSA modulus length k in octets (RFC 8017 8.2.2 step 1), 0 when unreadable.</summary>
+    function RsaModulusBytes(AKeyHandle: Pointer): Int32;
     function KeyFieldSize(AKeyHandle: Pointer): Int32;
     // whether the imported key's algorithm family (RSA / EC) is the one AScheme signs with;
     // an unreadable family is a mismatch
@@ -994,8 +1002,9 @@ type
   // The Windows-native signing facet: a decorator over the portable signing facet. It
   // imports RSA/ECDSA keys (PKCS#8, or PKCS#1/SEC1 wrapped into it; DER or PEM; PKCS#8 may be
   // encrypted) and PKCS#12 keys into CNG and mints native signers for them. RSA/ECDSA
-  // verification is native too (CNG also accepts a PKCS#1 v1.5 DigestInfo without NULL
-  // parameters, unlike the strict portable verifier); EdDSA keys and anything the host cannot
+  // verification is native too (a PKCS#1 v1.5 signature verifies only over the RFC 8017 9.2
+  // DigestInfo, NULL parameters included, as in the portable verifier, and always so whatever that
+  // verifier's own strictness is set to); EdDSA keys and anything the host cannot
   // serve delegate to the inner portable facet. The per-key backend is coherent: a key this facet
   // imported carries the IWindowsSigningKey marker, so its signer is native; a foreign handle
   // routes back to the inner facet that made it.
@@ -3322,6 +3331,47 @@ begin
   end;
 end;
 
+class function TWindowsNCrypt.Pkcs1DigestInfo(AScheme: TSignatureScheme;
+  const ADigest: TBytes): TBytes;
+const
+  // RFC 8017 9.2 Note 1: 30 len 30 0d 06 09 60 86 48 01 65 03 04 02 <hash> 05 00 04 <hashlen>
+  Sha256Prefix: array[0..18] of Byte = ($30, $31, $30, $0D, $06, $09, $60, $86, $48, $01, $65,
+    $03, $04, $02, $01, $05, $00, $04, $20);
+  Sha384Prefix: array[0..18] of Byte = ($30, $41, $30, $0D, $06, $09, $60, $86, $48, $01, $65,
+    $03, $04, $02, $02, $05, $00, $04, $30);
+  Sha512Prefix: array[0..18] of Byte = ($30, $51, $30, $0D, $06, $09, $60, $86, $48, $01, $65,
+    $03, $04, $02, $03, $05, $00, $04, $40);
+var
+  LPrefix: PByte;
+begin
+  case AScheme of
+    TSignatureScheme.RSA_PKCS1_SHA384:
+      LPrefix := @Sha384Prefix[0];
+    TSignatureScheme.RSA_PKCS1_SHA512:
+      LPrefix := @Sha512Prefix[0];
+  else
+    LPrefix := @Sha256Prefix[0];
+  end;
+  Result := nil;
+  SetLength(Result, System.Length(Sha256Prefix) + System.Length(ADigest));
+  Move(LPrefix^, Result[0], System.Length(Sha256Prefix));
+  if System.Length(ADigest) > 0 then
+    Move(ADigest[0], Result[System.Length(Sha256Prefix)], System.Length(ADigest));
+end;
+
+function TWindowsNCrypt.RsaModulusBytes(AKeyHandle: Pointer): Int32;
+var
+  LBits, LWritten: ULONG;
+begin
+  LBits := 0;
+  LWritten := 0;
+  if (not System.Assigned(FBcrypt.GetProperty)) or
+    (FBcrypt.GetProperty(AKeyHandle, PWideChar(BCRYPT_KEY_LENGTH_PROP),
+    PByte(@LBits), SizeOf(LBits), LWritten, 0) <> STATUS_SUCCESS) or (LBits = 0) then
+    Exit(0);
+  Result := Int32((LBits + 7) div 8);
+end;
+
 class function TWindowsNCrypt.IsPssScheme(AScheme: TSignatureScheme): Boolean;
 begin
   Result := AScheme in [TSignatureScheme.RSA_PSS_RSAE_SHA256,
@@ -3945,13 +3995,14 @@ var
   LPss: TBCryptPssPaddingInfo;
   LPad: Pointer;
   LFlags: ULONG;
-  LSig: TBytes;
-  LFieldSize: Int32;
+  LSig, LInput: TBytes;
+  LFieldSize, LModulusBytes: Int32;
 begin
   // the scheme must belong to the key's family: an EC key under an rsa_pss scheme, or an RSA key
   // under ecdsa, is a failed verification, never a cross-family accept
   if not KeyFamilyMatchesScheme(AKeyHandle, AScheme) then
     Exit(False);
+  LInput := ADigest;
   if IsEcdsaScheme(AScheme) then
   begin
     // BCrypt expects the fixed-width r||s (2x the KEY's field width, from the key not the
@@ -3974,14 +4025,22 @@ begin
     end
     else
     begin
-      LPkcs1.pszAlgId := PWideChar(LHashId);
+      // RFC 8017 8.2.2 verifies by re-encoding and comparing the whole block, so the only DigestInfo
+      // that may verify is the one of 9.2 Note 1. CNG's own OID handling also accepts a DigestInfo
+      // without the NULL parameters, so no OID is named (a nil pszAlgId pads the input as given) and
+      // the exact DER is passed as the input
+      LModulusBytes := RsaModulusBytes(AKeyHandle);
+      if (LModulusBytes = 0) or (System.Length(ASignature) <> LModulusBytes) then
+        Exit(False);
+      LPkcs1.pszAlgId := nil;
       LPad := @LPkcs1;
       LFlags := BCRYPT_PAD_PKCS1;
+      LInput := Pkcs1DigestInfo(AScheme, ADigest);
     end;
     LSig := ASignature;
   end;
-  Result := FBcrypt.VerifySignature(AKeyHandle, LPad, PByte(ADigest),
-    System.Length(ADigest), PByte(LSig), System.Length(LSig), LFlags) = STATUS_SUCCESS;
+  Result := FBcrypt.VerifySignature(AKeyHandle, LPad, PByte(LInput),
+    System.Length(LInput), PByte(LSig), System.Length(LSig), LFlags) = STATUS_SUCCESS;
 end;
 
 function TWindowsNCrypt.VerifyData(AKeyHandle: Pointer; AScheme: TSignatureScheme;

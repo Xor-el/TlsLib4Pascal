@@ -98,6 +98,7 @@ type
     procedure TestImportLeavesCallerKeyBytesIntact;
     procedure TestNativeVerifierRejectsCrossFamilyScheme;
     procedure TestNativeRsaVerifierRejectsShortSignature;
+    procedure TestNativeRsaPkcs1VerifierIsStrictAboutDigestInfo;
     procedure TestEcdhImportRefusesScalarsOutsideTheGroupOrder;
     // every key-exchange primitive refuses a key minted by another primitive, and accepts its own
     // family's key through a fresh instance
@@ -424,6 +425,46 @@ begin
     Exit;
   CheckScheme(LProvider, TSignatureScheme.RSA_PSS_RSAE_SHA256);
   CheckScheme(LProvider, TSignatureScheme.RSA_PKCS1_SHA256);
+  CheckScheme(LProvider, TSignatureScheme.RSA_PKCS1_SHA384);
+  CheckScheme(LProvider, TSignatureScheme.RSA_PKCS1_SHA512);
+end;
+
+procedure TTestWindowsSystemCrypto.TestNativeRsaPkcs1VerifierIsStrictAboutDigestInfo;
+
+  function Verifies(const AProvider: ICryptoProvider; const ASignatureName: string): Boolean;
+  var
+    LVerifier: ISignatureVerifier;
+    LMessage: TBytes;
+  begin
+    LMessage := DecodeHex(SMessageHex);
+    LVerifier := AProvider.Signing.CreateSignatureVerifier(TSignatureScheme.RSA_PKCS1_SHA256,
+      DecodeHex(FKeys.Values['rsa_pub']));
+    LVerifier.Update(LMessage, 0, System.Length(LMessage));
+    Result := LVerifier.Verify(DecodeHex(FKeys.Values[ASignatureName]));
+  end;
+
+var
+  LBase, LProvider: ICryptoProvider;
+begin
+  // the inner facet raises on creating a verifier, so every verification here ran natively. RFC 8017
+  // 8.2.2 verifies by re-encoding with EMSA-PKCS1-v1_5 and comparing the whole block, so only the
+  // DigestInfo of 9.2 Note 1 (with its NULL parameters) is a valid signature
+  LBase := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable);
+  LProvider := Composed((TCryptoProviderBuilder.Create as ICryptoProviderBuilder)
+    .WithSigning(TThrowingInnerSigning.Create(LBase.Signing, True) as ISigningCrypto)
+    .Build);
+  if not NativeSigningOrSkip(LProvider, TSignatureScheme.RSA_PKCS1_SHA256) then
+    Exit;
+  CheckTrue(Verifies(LProvider, 'rsa_pkcs1_sha256_raw_canonical_sig'),
+    'control: the canonical block verifies');
+  CheckFalse(Verifies(LProvider, 'rsa_pkcs1_sha256_no_null_sig'),
+    'a DigestInfo without the NULL parameters is not the encoding 8.2.2 compares against');
+  CheckFalse(Verifies(LProvider, 'rsa_pkcs1_sha256_ps_flipped_sig'),
+    'a padding octet that is not FF');
+  CheckFalse(Verifies(LProvider, 'rsa_pkcs1_sha256_wrong_oid_sig'),
+    'another hash''s DigestInfo prefix over a SHA-256 digest');
+  CheckFalse(Verifies(LProvider, 'rsa_pkcs1_sha256_trailing_sig'),
+    'an octet after the DigestInfo');
 end;
 
 procedure TTestWindowsSystemCrypto.TestX25519NeverDisagreesWithPortable;
