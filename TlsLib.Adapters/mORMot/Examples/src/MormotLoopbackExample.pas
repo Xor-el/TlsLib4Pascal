@@ -46,12 +46,16 @@ uses
 
 const
   PORT = '28443';
+  MUTUAL_PORT = '28453';
   HOST = '127.0.0.1';
   PINGHEX = '70696e672066726f6d20746865206d6f724d6f7420636c69656e74';
 
 var
   GRootFile: RawUtf8;
   GLeafPfx: RawByteString;
+  // the dual-EKU chain the mutual-TLS check serves and authenticates with
+  GMutualRootFile: RawUtf8;
+  GMutualPfx: RawByteString;
   GReady: TEvent;
   GServerError: string;
   GVector: string;
@@ -65,12 +69,38 @@ type
   public
     class function Find: string; static;
     class function FieldHex(const AName: string): string; static;
+    // a field of another vector file in the same folder as the main one
+    class function FieldHexFrom(const AFile, AName: string): string; static;
     class procedure WriteDer(const AName, AHex: string; out APath: RawUtf8); static;
   end;
 
   TServerThread = class(TThread)
   protected
     procedure Execute; override;
+  end;
+
+  // a server that requires a client certificate and serves two connections in turn, counting the
+  // ones it could echo
+  TMutualServerThread = class(TThread)
+  strict private
+  var
+    FServed, FAttempts: Integer;
+  protected
+    procedure Execute; override;
+  public
+    property Served: Integer read FServed;
+    // connections that reached the server, so a missing one is not read as a rejection
+    property Attempts: Integer read FAttempts;
+  end;
+
+  TMutualTlsCheck = class sealed(TObject)
+  strict private
+    class function Echo(AWithIdentity: Boolean; out AError: string;
+      out AReceive: TNetResult): Boolean; static;
+  public
+    // a client that presents the PKCS#12 identity authenticates to a server requiring a
+    // certificate, and one that presents none is turned away
+    class procedure Run; static;
   end;
 
   // method targets for the peer-verification hooks the adapter must refuse (never invoked)
@@ -238,6 +268,11 @@ begin
 end;
 
 class function TVectorLocator.FieldHex(const AName: string): string;
+begin
+  Result := FieldHexFrom(ExtractFileName(GVector), AName);
+end;
+
+class function TVectorLocator.FieldHexFrom(const AFile, AName: string): string;
 var
   LLines: TStringList;
   LI: Integer;
@@ -247,7 +282,7 @@ begin
   LPrefix := AName + '=';
   LLines := TStringList.Create;
   try
-    LLines.LoadFromFile(GVector);
+    LLines.LoadFromFile(ExtractFilePath(GVector) + AFile);
     for LI := 0 to LLines.Count - 1 do
       if Pos(LPrefix, LLines[LI]) = 1 then
         Exit(Copy(LLines[LI], System.Length(LPrefix) + 1, MaxInt));
@@ -310,6 +345,142 @@ begin
   end;
 end;
 
+procedure TMutualServerThread.Execute;
+var
+  LListener, LClient: TNetSocket;
+  LAddr: TNetAddr;
+  LCtx: TNetTlsContext;
+  LTls: INetTls;
+  LLastErr, LCipher: RawUtf8;
+  LBuf: TBytes;
+  LLen, LI: Integer;
+begin
+  try
+    FillCharFast(LCtx, SizeOf(LCtx), 0);
+    LCtx.CertificateBin := GMutualPfx;
+    LCtx.PrivatePassword := 'tlslib';
+    // the test root vouches for clients, and a certificate is required
+    LCtx.CACertificatesFile := GMutualRootFile;
+    LCtx.ClientCertificateAuthentication := True;
+    if NewSocket(HOST, MUTUAL_PORT, nlTcp, {dobind=}True, 3000, 3000, 3000, 0,
+      LListener) <> nrOK then
+      raise Exception.Create('mutual server bind failed');
+    GReady.SetEvent;
+    for LI := 0 to 1 do
+    begin
+      // bounded, so a client that never arrives ends the thread instead of blocking its free
+      if LListener.WaitFor(5000, [neRead]) <> [neRead] then
+        Break;
+      if LListener.Accept(LClient, LAddr, {async=}False) <> nrOK then
+        Break;
+      Inc(FAttempts);
+      LTls := NewTlsLib4PascalTls;
+      try
+        LTls.AfterAccept(LClient, LCtx, @LLastErr, @LCipher);
+        SetLength(LBuf, 4096);
+        LLen := System.Length(LBuf);
+        if LTls.Receive(@LBuf[0], LLen) = nrOK then
+        begin
+          LTls.Send(@LBuf[0], LLen);
+          Inc(FServed);
+        end;
+      except
+        // a client turned away mid-handshake is the expected outcome for the no-certificate leg
+      end;
+      LTls := nil;
+    end;
+  except
+    on E: Exception do
+    begin
+      GServerError := E.ClassName + ': ' + E.Message;
+      GReady.SetEvent;
+    end;
+  end;
+end;
+
+class function TMutualTlsCheck.Echo(AWithIdentity: Boolean; out AError: string;
+  out AReceive: TNetResult): Boolean;
+var
+  LCtx: TNetTlsContext;
+  LSock: TNetSocket;
+  LTls: INetTls;
+  LPing, LBack: TBytes;
+  LLen: Integer;
+begin
+  Result := False;
+  AError := '';
+  AReceive := nrUnknownError;
+  FillCharFast(LCtx, SizeOf(LCtx), 0);
+  LCtx.CACertificatesFile := GMutualRootFile;
+  if AWithIdentity then
+  begin
+    LCtx.CertificateBin := GMutualPfx;
+    LCtx.PrivatePassword := 'tlslib';
+  end;
+  if NewSocket(HOST, MUTUAL_PORT, nlTcp, {dobind=}False, 3000, 3000, 3000, 0, LSock) <> nrOK then
+    raise Exception.Create('mutual client connect failed');
+  LTls := NewTlsLib4PascalTls;
+  try
+    LTls.AfterConnection(LSock, LCtx, 'localhost');
+    // TLS 1.3 lets the client finish before the server judges its certificate: the answer is
+    // the echo, which a rejected client never gets
+    LPing := TDataEncoding.HexDecode(PINGHEX);
+    LLen := System.Length(LPing);
+    LTls.Send(@LPing[0], LLen);
+    SetLength(LBack, 4096);
+    LLen := System.Length(LBack);
+    AReceive := LTls.Receive(@LBack[0], LLen);
+    Result := (AReceive = nrOK) and (LLen = System.Length(LPing));
+  except
+    on E: Exception do
+    begin
+      Result := False;
+      AError := E.Message;
+    end;
+  end;
+  LTls := nil;
+end;
+
+class procedure TMutualTlsCheck.Run;
+var
+  LServer: TMutualServerThread;
+  LPfx: TBytes;
+  LError: string;
+  LReceive: TNetResult;
+begin
+  LPfx := TDataEncoding.HexDecode(TVectorLocator.FieldHexFrom('ClientAuthChain.txt', 'leaf_pfx'));
+  SetString(GMutualPfx, PAnsiChar(@LPfx[0]), System.Length(LPfx));
+  TVectorLocator.WriteDer('mutual_root',
+    TVectorLocator.FieldHexFrom('ClientAuthChain.txt', 'root_cert'), GMutualRootFile);
+  GReady.ResetEvent;
+  LServer := TMutualServerThread.Create(True);
+  LServer.FreeOnTerminate := False;
+  try
+    LServer.Start;
+    GReady.WaitFor(5000);
+    if GServerError <> '' then
+      raise Exception.Create('mutual server: ' + GServerError);
+    if not Echo(True, LError, LReceive) then
+      raise Exception.Create('a client presenting the PFX identity was not served: ' + LError);
+    if Echo(False, LError, LReceive) then
+      raise Exception.Create('a client with no certificate was served');
+    // the adapter reports a peer alert as a fatal error and an idle peer as a retry, so this
+    // is the rejection itself and not a timeout
+    if (LError <> '') or (LReceive <> nrFatalError) then
+      raise Exception.Create('the client with no certificate was not rejected by the peer: ' +
+        LError);
+    LServer.WaitFor;
+    if GServerError <> '' then
+      raise Exception.Create('mutual server: ' + GServerError);
+    if LServer.Served <> 1 then
+      raise Exception.CreateFmt('the server served %d clients, expected 1', [LServer.Served]);
+    if LServer.Attempts <> 2 then
+      raise Exception.CreateFmt('the server saw %d clients, expected 2', [LServer.Attempts]);
+  finally
+    LServer.Free;
+  end;
+end;
+
 class function TMormotLoopbackExample.Run: Integer;
 var
   LServer: TServerThread;
@@ -361,10 +532,12 @@ begin
       and (Pos('TLSv1.3', LTls.GetCipherName) > 0)
       and (Pos('TLS_AES_256_GCM_SHA384', LTls.GetCipherName) > 0);
     if LOk then
-      Writeln('mORMot loopback PASS: handshake + echo over ', LTls.GetCipherName)
+      Writeln('mORMot loopback PASS: handshake + echo over ', LTls.GetCipherName,
+        ' + client PFX identity authenticated')
     else
       Writeln('mORMot loopback FAIL: echo/version mismatch');
     LServer.Free;
+    TMutualTlsCheck.Run;
     LRefused := TRefusalChecks.AllRefused;
     if LRefused then
       Writeln('mORMot refusal checks PASS: unsupported context inputs fail loudly')
