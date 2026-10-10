@@ -430,7 +430,12 @@ begin
         AOptions.ClientCertificateAuthorities);
     if AOptions.SuppressServerNameAck then
       LServer.WithServerNameAcknowledgement(False);
-    if Offers12(LVersions) and (AOptions.NonEmsResumption <> TNonEmsResumption.Decline) then
+    // with neither ticket keys nor a store nor early data the server runs with resumption off,
+    // where a non-EMS resumption mode has nothing to act on
+    LResumptionOff := (AOptions.SessionTicketKeys = nil) and (AOptions.SessionStore = nil) and
+      (AOptions.MaxEarlyData = 0);
+    if Offers12(LVersions) and (AOptions.NonEmsResumption <> TNonEmsResumption.Decline) and
+      not LResumptionOff then
       LServer.Tls12.WithNonEmsResumption(AOptions.NonEmsResumption);
     // the stapled OCSP rides on the credential; the server sends it when the client
     // offers status_request
@@ -468,8 +473,6 @@ begin
     // lean on the engine's resume-by-default (which mints a STEK when resumption is left on).
     // Early data is the exception: it is offered only on a resumed session, so a server authorizing
     // it keeps resumption on (minting the default STEK) to issue an early-data-capable ticket.
-    LResumptionOff := (AOptions.SessionTicketKeys = nil) and (AOptions.SessionStore = nil) and
-      (AOptions.MaxEarlyData = 0);
     if LResumptionOff then
       LServer.WithResumption(False);
     if AOptions.SessionTicketKeys <> nil then
