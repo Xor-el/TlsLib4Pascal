@@ -312,7 +312,13 @@ resourcestring
   SFclNetReceiveTimedOut = 'the socket receive timeout elapsed with no data from the peer';
   SPeerVerifyRejected = 'the OnVerifyCertificate handler rejected the peer certificate';
   SNoSelfSignedCerts = 'TlsLib4Pascal does not generate self-signed certificates; supply ' +
-    'CertificateData.Certificate and CertificateData.PrivateKey';
+    'CertificateData.Certificate and CertificateData.PrivateKey, or CertificateData.PFX';
+  SFclNetCredentialSourcesConflict = 'CertificateData sets PFX together with Certificate or ' +
+    'PrivateKey; set one source for the credential';
+  SFclNetCertCASourcesConflict = 'CertificateData.CertCA sets both Value and FileName; set one ' +
+    'source for the CA';
+  SFclNetCredentialSourceHint = 'CertificateData.Certificate and PrivateKey, or ' +
+    'CertificateData.PFX';
   SNoHostForNameCheck = 'CheckHostName is on but the socket carries no host to verify the ' +
     'certificate identity against (RFC 9525); connect through a TInetSocket that carries the ' +
     'host, or set CheckHostName := False to verify the chain only';
@@ -441,11 +447,30 @@ function TTlsLibSocketHandler.Snapshot: TTlsOptions;
 var
   LAnchors: TArray<TTlsBlobSource>;
 begin
+  // fcl-net applies the PFX last, over the certificate and key, so both together hide a mistake
+  if (not CertificateData.PFX.Empty) and ((not CertificateData.Certificate.Empty) or
+    (not CertificateData.PrivateKey.Empty)) then
+    raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
+      @SFclNetCredentialSourcesConflict);
+  // stock reads only the file of CertCA, while the bytes are what this adapter would use
+  if (System.Length(CertificateData.CertCA.Value) > 0) and
+    (CertificateData.CertCA.FileName <> '') then
+    raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
+      @SFclNetCertCASourcesConflict);
   Result := TTlsOptions.Default;
   Result.Crypto := FUserCrypto;
   Result.Pkix := FUserPkix;
-  Result.Certificate := SslDataBlob(CertificateData.Certificate);
-  Result.PrivateKey := SslDataBlob(CertificateData.PrivateKey);
+  if not CertificateData.PFX.Empty then
+  begin
+    Result.Certificate := SslDataBlob(CertificateData.PFX);
+    Result.CredentialForm := TTlsCredentialForm.Pkcs12;
+  end
+  else
+  begin
+    Result.Certificate := SslDataBlob(CertificateData.Certificate);
+    Result.PrivateKey := SslDataBlob(CertificateData.PrivateKey);
+  end;
+  Result.CredentialSourceHint := SFclNetCredentialSourceHint;
   // the adapter property shadows fcl-net's own KeyPassword, so honour the host's when ours is unset
   if FKeyPassword <> '' then
     Result.KeyPassword := FKeyPassword

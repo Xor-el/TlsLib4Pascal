@@ -35,6 +35,7 @@ uses
   IdSocketHandle,
   IdThread,
   IdYarn,
+  TlpTlsAlert,
   TlpTlsVersion,
   TlpEchConfig,
   TlpICryptoProvider,
@@ -87,6 +88,7 @@ type
     FSessionResumption: Boolean;
     FHandshakeTimeoutMs: Integer;
     FCipherList: string;
+    class function IsPkcs12File(const AFileName: string): Boolean; static;
   public
     constructor Create;
     procedure Assign(ASource: TPersistent); override;
@@ -315,6 +317,9 @@ var
   GClientConfigMemo: ITlsClientConfigMemo;
 
 resourcestring
+  SIndyCredentialSourcesConflict = 'a .pfx/.p12 file is set on CertFile or KeyFile beside ' +
+    'another credential file; name it on CertFile alone, or use PEM files for both';
+  SIndyCredentialSourceHint = 'CertFile and KeyFile';
   SIndyCipherListHint = 'CipherList';
   SIndyTrustSourceHint =
     'a RootCertFile bundle, UseSystemTrust, or a CustomTrustStore/custom verifier';
@@ -369,6 +374,12 @@ begin
     inherited Assign(ASource);
 end;
 
+class function TTlsLibSSLOptions.IsPkcs12File(const AFileName: string): Boolean;
+begin
+  Result := SameText(ExtractFileExt(AFileName), '.pfx') or
+    SameText(ExtractFileExt(AFileName), '.p12');
+end;
+
 function TTlsLibSSLOptions.Snapshot: TTlsOptions;
 begin
   Result := TTlsOptions.Default;
@@ -377,6 +388,19 @@ begin
   Result.Certificate := TTlsBlobSource.FromFile(FCertFile);
   Result.PrivateKey := TTlsBlobSource.FromFile(FKeyFile);
   Result.KeyPassword := FKeyPassword;
+  Result.CredentialSourceHint := SIndyCredentialSourceHint;
+  // the stock handler reads a .pfx/.p12 by extension, from either file property
+  if IsPkcs12File(FCertFile) then
+  begin
+    if (FKeyFile <> '') and (not SameFileName(FKeyFile, FCertFile)) then
+      raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
+        @SIndyCredentialSourcesConflict);
+    Result.PrivateKey := TTlsBlobSource.FromFile('');
+    Result.CredentialForm := TTlsCredentialForm.Pkcs12;
+  end
+  else if IsPkcs12File(FKeyFile) then
+    raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
+      @SIndyCredentialSourcesConflict);
   // a named RootCertFile is one trust anchor; leaving it out keeps HasClientTrustSource honest
   if FRootCertFile <> '' then
   begin

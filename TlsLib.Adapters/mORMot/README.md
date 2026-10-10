@@ -24,7 +24,7 @@ assigns `NewNetTls`; if you prefer, assign it yourself: `NewNetTls := NewTlsLib4
 | mORMot `TNetTlsContext` field            | TlsLib4Pascal                                             |
 |------------------------------------------|----------------------------------------------------------|
 | `CACertificatesFile`                     | `WithTrustAnchors` (PEM/DER bundle)                       |
-| `CertificateFile` + `PrivateKeyFile` + `PrivatePassword` | `WithCredential` (server cert/key, or client mTLS) |
+| `CertificateFile` / `CertificateBin` + `PrivateKeyFile` + `PrivatePassword` | `WithCredential` (server cert/key, or client mTLS); a PKCS#12 when there is no `PrivateKeyFile` |
 | `ClientCertificateAuthentication`        | `WithPeerAuth(Required)` + client-chain trust; `False` (default) never requests a client certificate. The client-CA is `CACertificatesFile` (`CASystemStores` is a server-cert source, ignored on a server). `Requested` (ask, tolerate absence) is available through `SetTlsLibMormotServerConfig` with a builder-driven config |
 | `IgnoreCertificateErrors`                | **`dangerous` `WithDangerousInsecureSkipVerify`** (see below) |
 | `DisableTls13`                           | offers TLS 1.2 alone (`SupportedVersions`)                |
@@ -37,18 +37,20 @@ there leaves the presented chain incomplete, forcing clients to fetch the missin
 
 Accepted **and ignored** (documented no-ops — we are TLS 1.2+ and never renegotiate; they never
 silently weaken the connection): `AllowDeprecatedTls`, `ClientAllowUnsafeRenegotation`,
-`ClientVerifyOnce`, `ReleaseBuffers`, `WithPeerInfo` and
-`OnPrivatePassword` (set `PrivatePassword`; an encrypted key without it fails loudly at load).
+`ClientVerifyOnce`, `ReleaseBuffers` and `WithPeerInfo`.
 Of the output fields only `CipherName` (and a server's `LastError`) are filled; `PeerIssuer`,
 `PeerSubject`, `PeerInfo` and `PeerCert` stay empty.
 
 **Trust precedence** follows mORMot's OpenSSL backend: a client uses `CACertificatesFile`
 exclusively when it is set, and the `CASystemStores` OS roots only when it is not.
 
-**PKCS#12 (`.pfx`)**: mORMot passes cert/key as separate files, so map those to `WithCredential`.
-To load a `.pfx` blob instead, build the credential yourself with
-`TTlsCredential.LoadPkcs12(crypto, pfxBytes, password)` and pass it to `WithCredential` on a config
-builder you drive directly (`TTlsPresets.…(crypto, pkix).Server`).
+**Certificate and key**: `CertificateFile` or `CertificateBin` (not both) hold a PEM chain, with its
+key in `PrivateKeyFile`. With no `PrivateKeyFile` the same property may hold a PKCS#12 (`.pfx`),
+opened with `PrivatePassword`, as in mORMot's OpenSSL backend; its CA bag is sent as part of the
+chain and never trusted. `OnPrivatePassword`, when set, supplies the password for `PrivateKeyFile`
+and wins over `PrivatePassword`; it runs on every handshake (a server calls it once per accepted
+connection) and receives no TLS handle, as in mORMot. It is not called when a configuration is
+supplied through `SetTlsLibMormotClientConfig` / `SetTlsLibMormotServerConfig`.
 
 ## Trust is ours (`dangerous` mapping)
 
@@ -63,8 +65,9 @@ mORMot's native peer-verify callbacks (`OnPeerValidate` / `OnEachPeerVerify` /
 `PSSL` / `PX509` pointer to dereference, so honouring them would re-couple the adapter to OpenSSL —
 the dependency it exists to avoid. Because silently ignoring one would drop a rule the app relies
 on (for example a client-certificate allow-list), a context that sets any of them — or
-`HostNamesCsv`, `OnAcceptServerName`, or an in-memory `CertificateBin` / `CertificateRaw` /
-`PrivateKeyRaw` / `CACertificatesRaw` — **fails loudly**: a client at connect, a server at bind.
+`HostNamesCsv`, `OnAcceptServerName`, an in-memory `CertificateRaw` / `PrivateKeyRaw` /
+`CACertificatesRaw` (live OpenSSL handles), or both `CertificateBin` and `CertificateFile` —
+**fails loudly**: a client at connect, a server at bind.
 
 `CipherList` is honoured: exact IANA or OpenSSL suite names, separated by `:`, `,`, `;`, spaces or
 tabs, matched without regard to case and de-duplicated, in preference order. It narrows and
