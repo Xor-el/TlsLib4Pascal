@@ -1,0 +1,43 @@
+TlsLib/src/KeySchedule/TlpTls13KeySchedule.pas
+  s_d27f31cd14035d::t_8e8242991edce7 104,464-468
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_d27f31cd14035d::t_724b1e83057924 2050-2059
+  s_d27f31cd14035d::t_bb7abeb4b7d74a 439
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_d27f31cd14035d::t_8e8242991edce7 1192-1193,1282,1468
+TlsLib/src/Handshake/TlpTls12ClientStateMachine.pas
+  s_d27f31cd14035d::t_baf0bab08c164a 888
+  s_d27f31cd14035d::t_3e161aa2639636 976
+  s_d27f31cd14035d::t_3f1a514782b941 1026
+  s_d27f31cd14035d::t_b7ba4fd005c503 899-906
+  s_d27f31cd14035d::t_32d3042cbdcea8 915
+  s_d27f31cd14035d::t_cce655ea6733c4 190-192
+TlsLib.Tests/src/AsyncVerdictTests.pas
+  s_d27f31cd14035d::t_e6731f11f50dc4 112
+  s_d27f31cd14035d::t_970322957c2bf3 649-670
+TlsLib.Tests/src/Tls12ResumptionTests.pas
+  s_d27f31cd14035d::t_4810b2a049d352 148-149
+  s_d27f31cd14035d::t_fbc21f7a12093b 662-737
+  s_d27f31cd14035d::t_8eba036bd4051b 87
+TlsLib/src/Interfaces/KeySchedule/TlpIKeySchedule.pas
+  s_d27f31cd14035d::t_8e8242991edce7 112-115
+TlsLib.Tests/src/Tls13KeyScheduleTests.pas
+  s_d27f31cd14035d::t_173968177d9565 310-330
+  s_d27f31cd14035d::t_6eda976c75a5f8 71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e77a3301e50fe99a2d0451dc6aec7caa751a31d5",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
