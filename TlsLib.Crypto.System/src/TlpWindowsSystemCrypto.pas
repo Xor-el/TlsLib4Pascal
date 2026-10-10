@@ -156,7 +156,8 @@ var
   BCRYPT_HKDF_HASH_NAME: WideString = 'HkdfHashAlgorithm';
   BCRYPT_HKDF_PRK_AND_FINALIZE: WideString = 'HkdfPrkAndFinalize';
   BCRYPT_PUBLIC_KEY_LENGTH_PROP: WideString = 'PublicKeyLength';
-  BCRYPT_KEY_LENGTH_PROP: WideString = 'KeyLength';
+  BCRYPT_RSAPUBLIC_BLOB: WideString = 'RSAPUBLICBLOB';
+  RsaKeyBlobHeaderLength: ULONG = 24;
   BCRYPT_ALGORITHM_NAME_PROP: WideString = 'AlgorithmName';
 
 resourcestring
@@ -3343,15 +3344,30 @@ const
     $03, $04, $02, $03, $05, $00, $04, $40);
 var
   LPrefix: PByte;
+  LDigestLength: Int32;
 begin
   case AScheme of
+    TSignatureScheme.RSA_PKCS1_SHA256:
+      begin
+        LPrefix := @Sha256Prefix[0];
+        LDigestLength := 32;
+      end;
     TSignatureScheme.RSA_PKCS1_SHA384:
-      LPrefix := @Sha384Prefix[0];
+      begin
+        LPrefix := @Sha384Prefix[0];
+        LDigestLength := 48;
+      end;
     TSignatureScheme.RSA_PKCS1_SHA512:
-      LPrefix := @Sha512Prefix[0];
+      begin
+        LPrefix := @Sha512Prefix[0];
+        LDigestLength := 64;
+      end;
   else
-    LPrefix := @Sha256Prefix[0];
+    // no other scheme is an RSASSA-PKCS1-v1_5 one; the caller reads nil as a failed verification
+    Exit(nil);
   end;
+  if System.Length(ADigest) <> LDigestLength then
+    Exit(nil);
   Result := nil;
   SetLength(Result, System.Length(Sha256Prefix) + System.Length(ADigest));
   Move(LPrefix^, Result[0], System.Length(Sha256Prefix));
@@ -3361,15 +3377,23 @@ end;
 
 function TWindowsNCrypt.RsaModulusBytes(AKeyHandle: Pointer): Int32;
 var
-  LBits, LWritten: ULONG;
+  LBlob: TBytes;
+  LSize: ULONG;
 begin
-  LBits := 0;
-  LWritten := 0;
-  if (not System.Assigned(FBcrypt.GetProperty)) or
-    (FBcrypt.GetProperty(AKeyHandle, PWideChar(BCRYPT_KEY_LENGTH_PROP),
-    PByte(@LBits), SizeOf(LBits), LWritten, 0) <> STATUS_SUCCESS) or (LBits = 0) then
-    Exit(0);
-  Result := Int32((LBits + 7) div 8);
+  Result := 0;
+  // the documented source: the public blob's BCRYPT_RSAKEY_BLOB header (Magic, BitLength,
+  // cbPublicExp, cbModulus, cbPrime1, cbPrime2), whose cbModulus is k
+  LSize := 0;
+  if (not System.Assigned(FBcrypt.ExportKey)) or
+    (FBcrypt.ExportKey(AKeyHandle, nil, PWideChar(BCRYPT_RSAPUBLIC_BLOB), nil, 0, LSize,
+    0) <> STATUS_SUCCESS) or (LSize < RsaKeyBlobHeaderLength) then
+    Exit;
+  LBlob := nil;
+  SetLength(LBlob, LSize);
+  if FBcrypt.ExportKey(AKeyHandle, nil, PWideChar(BCRYPT_RSAPUBLIC_BLOB), PByte(LBlob), LSize,
+    LSize, 0) <> STATUS_SUCCESS then
+    Exit;
+  Result := Int32(PULONG(@LBlob[12])^);
 end;
 
 class function TWindowsNCrypt.IsPssScheme(AScheme: TSignatureScheme): Boolean;
@@ -4025,17 +4049,15 @@ begin
     end
     else
     begin
-      // RFC 8017 8.2.2 verifies by re-encoding and comparing the whole block, so the only DigestInfo
-      // that may verify is the one of 9.2 Note 1. CNG's own OID handling also accepts a DigestInfo
-      // without the NULL parameters, so no OID is named (a nil pszAlgId pads the input as given) and
-      // the exact DER is passed as the input
+      // only the RFC 8017 9.2 Note 1 DigestInfo may verify (8.2.2 compares the whole block); CNG's
+      // own OID handling also accepts one without NULL, so no OID is named and the exact DER is passed
       LModulusBytes := RsaModulusBytes(AKeyHandle);
-      if (LModulusBytes = 0) or (System.Length(ASignature) <> LModulusBytes) then
+      LInput := Pkcs1DigestInfo(AScheme, ADigest);
+      if (LModulusBytes = 0) or (System.Length(ASignature) <> LModulusBytes) or (LInput = nil) then
         Exit(False);
       LPkcs1.pszAlgId := nil;
       LPad := @LPkcs1;
       LFlags := BCRYPT_PAD_PKCS1;
-      LInput := Pkcs1DigestInfo(AScheme, ADigest);
     end;
     LSig := ASignature;
   end;

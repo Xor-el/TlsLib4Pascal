@@ -381,7 +381,8 @@ end;
 
 procedure TTestWindowsSystemCrypto.TestNativeRsaVerifierRejectsShortSignature;
 
-  procedure CheckScheme(const AProvider: ICryptoProvider; AScheme: TSignatureScheme);
+  procedure CheckScheme(const AProvider: ICryptoProvider; AScheme: TSignatureScheme;
+    const AKeyName: string);
   var
     LKey: ISigningKey;
     LSigner: ISignatureSigner;
@@ -389,7 +390,7 @@ procedure TTestWindowsSystemCrypto.TestNativeRsaVerifierRejectsShortSignature;
     LMessage, LSignature, LStripped: TBytes;
     LCounter: Int32;
   begin
-    LKey := AProvider.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_pkcs8_der']), nil);
+    LKey := AProvider.Signing.ImportSigningKey(DecodeHex(FKeys.Values[AKeyName]), nil);
     // vary the message until the signature starts with a zero octet (about 1 in 256)
     LSignature := nil;
     LMessage := nil;
@@ -423,10 +424,12 @@ begin
     .Build);
   if not NativeSigningOrSkip(LProvider, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
     Exit;
-  CheckScheme(LProvider, TSignatureScheme.RSA_PSS_RSAE_SHA256);
-  CheckScheme(LProvider, TSignatureScheme.RSA_PKCS1_SHA256);
-  CheckScheme(LProvider, TSignatureScheme.RSA_PKCS1_SHA384);
-  CheckScheme(LProvider, TSignatureScheme.RSA_PKCS1_SHA512);
+  CheckScheme(LProvider, TSignatureScheme.RSA_PSS_RSAE_SHA256, 'rsa_pkcs8_der');
+  CheckScheme(LProvider, TSignatureScheme.RSA_PKCS1_SHA256, 'rsa_pkcs8_der');
+  CheckScheme(LProvider, TSignatureScheme.RSA_PKCS1_SHA384, 'rsa_pkcs8_der');
+  CheckScheme(LProvider, TSignatureScheme.RSA_PKCS1_SHA512, 'rsa_pkcs8_der');
+  // a second modulus size pins k to the key, not to a 2048-bit assumption
+  CheckScheme(LProvider, TSignatureScheme.RSA_PKCS1_SHA256, 'rsa1024_pkcs8_der');
 end;
 
 procedure TTestWindowsSystemCrypto.TestNativeRsaPkcs1VerifierIsStrictAboutDigestInfo;
