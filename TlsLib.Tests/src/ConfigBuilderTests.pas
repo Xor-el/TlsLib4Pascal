@@ -108,6 +108,14 @@ type
     function ServerBuildIsRefused(const ABuilder: ITlsServerConfigBuilder): Boolean;
     function ClientBuildNeedsTls13(const AFacet: ITls13ClientConfigFacet): Boolean;
     function ServerBuildNeedsTls13(const AFacet: ITls13ServerConfigFacet): Boolean;
+    /// <summary>Whether Build is refused as invalid operation with AReason in its message.</summary>
+    function BuildRefused(const ABuilder: ITlsClientConfigBuilder;
+      const AReason: string): Boolean; overload;
+    function BuildRefused(const ABuilder: ITlsServerConfigBuilder;
+      const AReason: string): Boolean; overload;
+    function BuildRefused(const AFacet: ITls13ServerConfigFacet;
+      const AReason: string): Boolean; overload;
+    function HelloSuites(const AWire: TBytes): TArray<UInt16>;
     function NewClientBuilder: ITlsClientConfigBuilder;
     function NewServerBuilder: ITlsServerConfigBuilder;
     function MakePskSpec: TExternalPsk;
@@ -148,6 +156,9 @@ type
     procedure TestAlpnOverlongNameIsRefused;
     procedure TestAlpnDuplicateNameIsRefused;
     procedure TestAlpnEmptyListMeansNoAlpn;
+    procedure TestAlpnRejectionWithProtocolsIsRefused;
+    procedure TestResumptionSettingsAreRefusedWhenResumptionIsOff;
+    procedure TestSingleVersionHelloAdvertisesOnlyThatVersionsSuites;
     procedure TestAlpnSetterCopiesCallerArray;
     procedure TestRecordSizeLimitDefaultsToUnset;
     procedure TestExternalPskInnerBytesAreCopied;
@@ -1414,6 +1425,43 @@ begin
   end;
 end;
 
+function TTestConfigBuilder.BuildRefused(const ABuilder: ITlsClientConfigBuilder;
+  const AReason: string): Boolean;
+begin
+  Result := False;
+  try
+    ABuilder.Build;
+  except
+    // the reason is checked too, so a case cannot pass on some unrelated refusal
+    on E: EInvalidOperationTlsLibException do
+      Result := Pos(AReason, E.Message) > 0;
+  end;
+end;
+
+function TTestConfigBuilder.BuildRefused(const ABuilder: ITlsServerConfigBuilder;
+  const AReason: string): Boolean;
+begin
+  Result := False;
+  try
+    ABuilder.Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      Result := Pos(AReason, E.Message) > 0;
+  end;
+end;
+
+function TTestConfigBuilder.BuildRefused(const AFacet: ITls13ServerConfigFacet;
+  const AReason: string): Boolean;
+begin
+  Result := False;
+  try
+    AFacet.Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      Result := Pos(AReason, E.Message) > 0;
+  end;
+end;
+
 procedure TTestConfigBuilder.TestTls13SettingsAreRefusedWhenTls13IsNotOffered;
 var
   LOnly12: TArray<UInt16>;
@@ -1422,12 +1470,19 @@ begin
   // TLS 1.2-only config they would silently do nothing, so the Tls13 facet refuses them at Build
   LOnly12 := TArray<UInt16>.Create(TlsWireVersionTls12);
   CheckTrue(ClientBuildNeedsTls13(NewClientBuilder.WithSupportedVersions(LOnly12)
-    .Tls13.WithGrease(True)), 'GREASE on a TLS 1.2-only client');
+    .Tls13.WithGrease(False)), 'turning GREASE off on a TLS 1.2-only client');
   CheckTrue(ClientBuildNeedsTls13(NewClientBuilder.WithSupportedVersions(LOnly12)
     .Tls13.WithExternalPskRequired(False)),
     'the PSK-required switch alone, with no PSKs, on a TLS 1.2-only client');
   CheckTrue(ServerBuildNeedsTls13(NewServerBuilder.WithSupportedVersions(LOnly12)
-    .Tls13.WithTicketCount(2)), 'a ticket count on a TLS 1.2-only server');
+    .Tls13.WithTicketCount(3)), 'a ticket count on a TLS 1.2-only server');
+  // restating a default is not a setting: the facet counts as configured only by a non-default value
+  CheckTrue(NewClientBuilder.WithSupportedVersions(LOnly12).Tls13.WithGrease(True).Build <> nil,
+    'restating the GREASE default on a TLS 1.2-only client is not refused');
+  CheckTrue(NewServerBuilder.WithSupportedVersions(LOnly12).Tls13.WithTicketCount(2).Build <> nil,
+    'restating the default ticket count on a TLS 1.2-only server is not refused');
+  CheckTrue(NewClientBuilder.WithSupportedVersions(LOnly12).Tls13.WithEchGrease(False).Build <> nil,
+    'ECH GREASE left off on a TLS 1.2-only client is not refused');
   // controls: the same client and server build once TLS 1.3 is offered, or when no Tls13 setting
   // was touched
   CheckTrue(NewClientBuilder.WithSupportedVersions(LOnly12).Build <> nil,
@@ -1468,6 +1523,103 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'an offered version with no cipher suite is refused at Build');
+end;
+
+function TTestConfigBuilder.HelloSuites(const AWire: TBytes): TArray<UInt16>;
+var
+  LPos, LCount, LI: Int32;
+begin
+  // record header 5, handshake header 4, legacy_version 2, random 32, session id, cipher_suites
+  LPos := 5 + 4 + 2 + 32;
+  LPos := LPos + 1 + AWire[LPos];
+  LCount := ((AWire[LPos] shl 8) or AWire[LPos + 1]) div 2;
+  Inc(LPos, 2);
+  SetLength(Result, LCount);
+  for LI := 0 to LCount - 1 do
+    Result[LI] := UInt16((AWire[LPos + 2 * LI] shl 8) or AWire[LPos + 2 * LI + 1]);
+end;
+
+procedure TTestConfigBuilder.TestSingleVersionHelloAdvertisesOnlyThatVersionsSuites;
+var
+  LSuites: TArray<UInt16>;
+  LI: Int32;
+  LHas13, LHas12: Boolean;
+  LClient: ITlsEngine;
+begin
+  // a dual-version registry offered to a TLS 1.3-only client: no TLS 1.2 suite goes on the wire
+  LClient := TTlsEngineFactory.CreateClientEngine(NewClientBuilder
+    .WithCipherSuites(TCipherSuiteRegistry.CreateDualVersion(Crypto))
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13)).Build, 'localhost');
+  LClient.StartHandshake;
+  LSuites := HelloSuites(Drain(LClient));
+  LHas13 := False;
+  LHas12 := False;
+  for LI := 0 to System.High(LSuites) do
+    if (LSuites[LI] shr 8) = $13 then
+      LHas13 := True
+    // a GREASE value and the signalling suite values (RFC 8701, RFC 5746, RFC 7507) are not suites
+    else if ((LSuites[LI] and $0F0F) <> $0A0A) and (LSuites[LI] <> $00FF) and
+      (LSuites[LI] <> $5600) then
+      LHas12 := True;
+  CheckTrue(LHas13, 'a TLS 1.3 suite is advertised');
+  CheckFalse(LHas12, 'no TLS 1.2 suite is advertised to a TLS 1.3-only client');
+
+  // and the reverse: a TLS 1.2-only client advertises no TLS 1.3 suite
+  LClient := TTlsEngineFactory.CreateClientEngine(NewClientBuilder
+    .WithCipherSuites(TCipherSuiteRegistry.CreateDualVersion(Crypto))
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12)).Build, 'localhost');
+  LClient.StartHandshake;
+  LSuites := HelloSuites(Drain(LClient));
+  LHas13 := False;
+  for LI := 0 to System.High(LSuites) do
+    if (LSuites[LI] shr 8) = $13 then
+      LHas13 := True;
+  CheckFalse(LHas13, 'no TLS 1.3 suite is advertised to a TLS 1.2-only client');
+  CheckTrue(System.Length(LSuites) > 0, 'a TLS 1.2 hello still lists suites');
+end;
+
+procedure TTestConfigBuilder.TestResumptionSettingsAreRefusedWhenResumptionIsOff;
+begin
+  // a setting that only matters when resuming is refused with resumption off, in either order
+  CheckTrue(BuildRefused(NewClientBuilder.WithResumption(False)
+    .WithSessionCache(TInMemorySessionCache.Create), 'resumption is off'), 'a session cache');
+  CheckTrue(BuildRefused(NewClientBuilder.WithSessionCache(TInMemorySessionCache.Create)
+    .WithResumption(False), 'resumption is off'),
+    'a session cache set before resumption was turned off');
+  CheckTrue(BuildRefused(NewClientBuilder.WithResumption(False)
+    .WithResumptionScope(Crypto.Primitives.GetRandom.GenerateBytes(8)), 'resumption is off'),
+    'a client scope');
+  CheckTrue(BuildRefused(NewServerBuilder.WithResumption(False)
+    .WithSessionStore(TInMemorySessionStore.Create(Crypto.Primitives.GetRandom)),
+    'resumption is off'), 'a session store');
+  CheckTrue(BuildRefused(NewServerBuilder.WithResumption(False).WithTicketLifetime(600),
+    'resumption is off'), 'a ticket lifetime');
+  CheckTrue(BuildRefused(NewServerBuilder.WithResumption(False).Tls13.WithTicketCount(1),
+    'resumption is off'), 'a ticket count');
+  CheckTrue(BuildRefused(NewServerBuilder.WithResumption(False)
+    .WithResumptionScope(Crypto.Primitives.GetRandom.GenerateBytes(8)), 'resumption is off'),
+    'a server scope');
+  CheckTrue(BuildRefused(NewServerBuilder.WithResumption(False).WithDefaultSessionTicketKeys,
+    'resumption is off'), 'default ticket keys');
+  // controls: nothing supplied builds, and the same settings build with resumption on
+  CheckTrue(NewClientBuilder.WithResumption(False).Build <> nil,
+    'resumption off alone builds for a client');
+  CheckTrue(NewServerBuilder.WithResumption(False).Build <> nil,
+    'resumption off alone builds for a server');
+  CheckTrue(NewServerBuilder.WithTicketLifetime(600).Tls13.WithTicketCount(1).Build <> nil,
+    'ticket settings build with resumption on');
+end;
+
+procedure TTestConfigBuilder.TestAlpnRejectionWithProtocolsIsRefused;
+begin
+  // rejecting every ALPN offer contradicts a list of protocols to select from
+  CheckTrue(BuildRefused(NewServerBuilder.WithAlpnRejection(True)
+    .WithAlpnProtocols(TArray<TBytes>.Create(TAlpnProtocols.H2)), 'ALPN rejection'),
+    'rejection with a list');
+  CheckTrue(NewServerBuilder.WithAlpnRejection(True).Build <> nil,
+    'rejection alone builds');
+  CheckTrue(NewServerBuilder.WithAlpnProtocols(TArray<TBytes>.Create(TAlpnProtocols.H2)).Build <> nil,
+    'a list alone builds');
 end;
 
 procedure TTestConfigBuilder.TestServerCipherSuiteListOrderDecidesTheNegotiatedSuite;

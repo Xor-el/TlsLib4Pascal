@@ -327,6 +327,7 @@ var
   LServer: ITlsServerConfigBuilder;
   LVersions: TArray<UInt16>;
   LCredential: TTlsCredential;
+  LResumptionOff: Boolean;
 begin
   // Compatible seeds the suites, signature schemes, named-group registry and the
   // TLS 1.3 + hardened 1.2 version offer; the harness only overrides what a test dictates
@@ -467,14 +468,16 @@ begin
     // lean on the engine's resume-by-default (which mints a STEK when resumption is left on).
     // Early data is the exception: it is offered only on a resumed session, so a server authorizing
     // it keeps resumption on (minting the default STEK) to issue an early-data-capable ticket.
-    if (AOptions.SessionTicketKeys = nil) and (AOptions.SessionStore = nil) and
-      (AOptions.MaxEarlyData = 0) then
+    LResumptionOff := (AOptions.SessionTicketKeys = nil) and (AOptions.SessionStore = nil) and
+      (AOptions.MaxEarlyData = 0);
+    if LResumptionOff then
       LServer.WithResumption(False);
     if AOptions.SessionTicketKeys <> nil then
       LServer.WithSessionTicketKeys(AOptions.SessionTicketKeys);
     if AOptions.SessionStore <> nil then
       LServer.WithSessionStore(AOptions.SessionStore);
-    if System.Length(AOptions.ResumptionScope) > 0 then
+    // a scope partitions tickets, so it means nothing with resumption off
+    if (System.Length(AOptions.ResumptionScope) > 0) and not LResumptionOff then
       LServer.WithResumptionScope(AOptions.ResumptionScope);
     // the injected clock drives the server's ticket-issue time and the 0-RTT ticket-age
     // freshness window (RFC 8446 8.3), advanced between connections by -resumption-delay
