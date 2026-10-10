@@ -166,7 +166,7 @@ Add one only when you use its feature; the core references none of them:
 |---|---|
 | `TlsLib.Trust.System` | OS system-trust harvest + verifier delegate |
 | `TlsLib.Trust.Bundle` | A PEM/DER CA-bundle loader (`FromPem` / `FromPemFile`) |
-| `TlsLib.Crypto.System` | The Windows CNG crypto overlay (opt-in native handshake primitives) |
+| `TlsLib.Crypto.System` | Opt-in OS-native crypto primitives for the handshake |
 | `TlsLib.Adapter.mORMot` / `.Indy` / `.Synapse` / `.FclNet` | Drop-in adapters for those networking stacks |
 
 ## Quick Examples
