@@ -83,6 +83,7 @@ if you use it:
 | `TlsLib4PascalPackage` | The core library + default provider. **Requires none of the below.** |
 | `TlsLib.Trust.System` | OS system-trust harvest + delegate ([system-trust.md](system-trust.md)). |
 | `TlsLib.Trust.Bundle` | A PEM/DER CA-bundle loader (`FromPem` / `FromPemFile`). |
+| `TlsLib.Crypto.System` | The Windows CNG crypto overlay, an opt-in native provider for the handshake primitives. |
 | `TlpSocketHttpFetcher` *(unit in `TlsLib.Net/`)* | The reference socket `IHttpFetcher` for live OCSP/CRL — a loose unit, not a package. |
 | `TlsLib.Adapter.*` | The mORMot / Indy / Synapse / fcl-net drop-in adapters (package name is singular — `TlsLib.Adapter.mORMot`, `…Indy`, `…Synapse`, `…FclNet`). |
 

@@ -179,7 +179,7 @@ end;
 
 procedure TTestEchOuterExtensions.TestOuterExtensionsSelfReferenceAborts;
 begin
-  // the reference list must not name ech_outer_extensions itself (RFC 9849 5.1)
+  // the reference list must not name ech_outer_extensions itself (inferred from RFC 9849 5.1)
   CheckTrue(ReconstructAborts(
     Vec([Entry(TExtensionTypes.EchOuterExtensions, nil)]),
     Vec([OuterExtEntry(TArray<UInt16>.Create(TExtensionTypes.EchOuterExtensions))])),

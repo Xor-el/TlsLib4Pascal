@@ -3358,8 +3358,8 @@ procedure TTestConfigBuilder.TestTls13ReportsExtendedMasterSecret;
 var
   LClient, LServer: ITlsEngine;
 begin
-  // TLS 1.3 always derives the exporter from the full transcript, so it reports EMS as in use
-  // (RFC 8446 Appendix D), including a dual-version client that settles on 1.3
+  // TLS 1.3 binds every secret to the full transcript (RFC 8446 7.1), so the library reports EMS
+  // as in use, including a dual-version client that settles on 1.3
   LClient := TTlsEngineFactory.CreateClientEngine(NewClientBuilder.Build, 'localhost');
   LServer := TTlsEngineFactory.CreateServerEngine(NewServerBuilder.Build);
   RunHandshake(LClient, LServer);

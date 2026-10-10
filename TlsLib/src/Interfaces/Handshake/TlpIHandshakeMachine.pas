@@ -126,7 +126,7 @@ type
 
   /// <summary>
   /// An optional companion the driver reaches with Supports on the sink to report that the
-  /// handshake has parked for an out-of-band peer-certificate verdict (RFC 8446 - the
+  /// handshake has parked for an out-of-band peer-certificate verdict (the library's
   /// deferred-verdict seam). The driver hands over the peer chain (leaf first, DER) and the
   /// expected host name; the host later resumes with the engine's SetCertificateVerdict.
   /// Kept off IHandshakeSink so existing sinks (and their test doubles) need not implement
@@ -242,7 +242,7 @@ type
     /// </summary>
     procedure SetEarlyDataSkip(AMaxBytes: Int32);
     /// <summary>
-    /// Caps outbound 0-RTT at the ticket's max_early_data (RFC 8446 4.2.10): the client
+    /// Caps outbound 0-RTT at the ticket's max_early_data (RFC 8446 4.6.1): the client
     /// sends at most AMaxBytes of early data; WriteEarlyData returns how much was accepted and
     /// the caller resends the rest as 1-RTT once the handshake completes. Set when the client
     /// opens the early-data write window.

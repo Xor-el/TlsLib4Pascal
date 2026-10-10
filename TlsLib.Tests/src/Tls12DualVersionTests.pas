@@ -422,7 +422,7 @@ var
   LClientInfo: TTlsConnectionInfo;
 begin
   // the dual client lists X25519MLKEM768 in supported_groups, but a 1.2-only server must
-  // negotiate a classical ECDHE group - a KEM hybrid is never selected on TLS 1.2 (RFC 8446)
+  // negotiate a classical ECDHE group - a KEM hybrid is never selected on TLS 1.2 (RFC 10024)
   LClient := NewHybridOfferingDualClient;
   LServer := NewServerDispatch(TArray<UInt16>.Create(TlsWireVersionTls12));
   DriveToCompletion(LClient, LServer);
@@ -845,7 +845,8 @@ procedure TTestTls12DualVersion.TestScsvWithGreaseVersionStillDetectsFallback;
 var
   LServer: IHandshakeMachine;
 begin
-  // a GREASE codepoint (RFC 8701 3.1) in supported_versions is not an offered version: a
+  // a GREASE codepoint (RFC 8701 3.1; a server must not negotiate it, 3.2) in supported_versions
+  // is not an offered version: a
   // client that lists [GREASE, 1.2] and carries SCSV against a 1.3-capable server still
   // fell back spuriously (RFC 7507). Extensions = supported_versions [0x0A0A, 0x0303]
   LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,

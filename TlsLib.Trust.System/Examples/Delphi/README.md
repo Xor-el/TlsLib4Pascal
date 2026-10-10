@@ -10,8 +10,8 @@ demo. The project here currently targets **Android**, where the verdict comes fr
 
 ## Zero-config trust
 
-There is nothing to call. On Android the delegate resolves the JavaVM itself on the first
-verification, so `UseSystemTrust` just works. The one exception is **Android under FPC**, which has
+There is nothing to call. On Android the delegate captures the JavaVM itself from
+`System.JavaMachine` when its unit initializes, so `UseSystemTrust` just works. The one exception is **Android under FPC**, which has
 no `System.JavaMachine` to auto-resolve - there you call `TlsLibAndroidInitTrust(AJavaVM)` once at
 startup, passing the running JavaVM. This Delphi/FMX project does not need it, which is why the form
 carries no platform-specific trust code.

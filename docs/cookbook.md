@@ -26,6 +26,8 @@ Read [Getting started](getting-started.md) first.
 - [0-RTT early data](#0-rtt-early-data)
 - [Set a revocation posture](#set-a-revocation-posture)
 - [Certificate compression](#certificate-compression)
+- [Hide the SNI with Encrypted Client Hello](#hide-the-sni-with-encrypted-client-hello)
+- [Connect without sending SNI (still verified)](#connect-without-sending-sni-still-verified)
 - [External (out-of-band) PSKs](#external-out-of-band-psks)
 - [The dangerous surface (dev only)](#the-dangerous-surface-dev-only)
 
@@ -580,7 +582,7 @@ begin
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithTrustAnchors(caPem)
     .Tls13.WithExternalPreSharedKeys(TArray<TExternalPsk>.Create(LPsk))
-    // .WithExternalPskRequired(True)   // refuse to proceed without one
+    // .WithExternalPskRequired(False)  // let the client fall back to certificate authentication
     .Build;
 end;
 ```

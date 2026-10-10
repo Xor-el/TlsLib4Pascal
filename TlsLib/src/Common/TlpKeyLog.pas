@@ -22,7 +22,7 @@ uses
   TlpIKeyLog;
 
 const
-  // NSS Key Log labels (RFC 9850)
+  // SSLKEYLOGFILE labels (RFC 9850)
   KeyLogLabelClientRandom = 'CLIENT_RANDOM';
   KeyLogLabelClientEarlyTraffic = 'CLIENT_EARLY_TRAFFIC_SECRET';
   KeyLogLabelEarlyExporter = 'EARLY_EXPORTER_SECRET';

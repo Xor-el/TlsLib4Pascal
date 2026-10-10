@@ -348,7 +348,8 @@ begin
   LExtensions := ParseExtensions(LHello.Extensions);
   LClientVersions := ClientHelloVersions(LExtensions);
   // an Encrypted Client Hello whose minimal ClientHelloOuter omits supported_versions is still
-  // a TLS 1.3 client (RFC 9849 sec. 7: the version comes from the decrypted inner) - route it
+  // a TLS 1.3 client - RFC 9849 sec. 6.1 requires the outer to offer 1.3, so this is local routing
+  // for a non-conformant outer - route it
   // to the 1.3 machine, but only on a server that holds ECH keys: without them nothing could be
   // decrypted, and a client GREASE-ing ech is not offering it (RFC 9849 sec. 6.2.1). An ech
   // alongside an explicit version list does NOT override that list, so a legacy client GREASE-ing
@@ -412,7 +413,7 @@ begin
     FInner := TTls12ServerStateMachine.Create(FParams12) as IHandshakeMachine;
   end
   else
-    // the client and server share no supported protocol version (RFC 8446 4.2.1)
+    // the client and server share no supported protocol version (RFC 8446 4.2.1 / D.2)
     Exit(TArray<THandshakeEffect>.Create(
       THandshakeEffects.Fail(TTlsAlertDescription.ProtocolVersion)));
   Result := FInner.ProcessMessage(AMessage);
@@ -502,7 +503,7 @@ begin
   else
   begin
     // a PSK-only client cannot satisfy its required external PSK over TLS 1.2 (an external
-    // PSK is a TLS 1.3 construct), so a 1.2 selection is protocol_version (RFC 8446 4.2.1)
+    // PSK is a TLS 1.3 construct), so a 1.2 selection is protocol_version (local policy; RFC 8446 D.1)
     if FRequirePsk then
       Exit(TArray<THandshakeEffect>.Create(
         THandshakeEffects.Fail(TTlsAlertDescription.ProtocolVersion)));

@@ -642,7 +642,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   // after emitting a HelloRetryRequest the server waits for the second ClientHello;
-  // any other message (here a Finished) is unexpected (RFC 8446 centralized handling)
+  // any other message (here a Finished) is unexpected (RFC 8446 6.2 / 4.1.4)
   LServer := NewSecp256r1Server(nil);
   LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(Vec('client_hello_1')));
   CheckTrue(FailAlertOf(LServer.ProcessMessage(

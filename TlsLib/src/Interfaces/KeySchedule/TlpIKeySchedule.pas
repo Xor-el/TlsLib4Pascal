@@ -163,7 +163,7 @@ type
   end;
 
   /// <summary>
-  /// The TLS 1.2 key schedule (RFC 5246 6.3 / RFC 7627): the PRF-derived master
+  /// The TLS 1.2 key schedule (RFC 5246 8.1 and 6.3 / RFC 7627): the PRF-derived master
   /// secret (plain or Extended Master Secret) and the key_block split into the
   /// AEAD write keys and salts. verify_data and the traffic keys are read back
   /// through the base IKeySchedule surface.

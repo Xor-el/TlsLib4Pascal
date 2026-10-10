@@ -177,7 +177,8 @@ var
 begin
   Result := nil;
   // an out-of-range declared length is a malformed wire field, not a bad certificate (the size
-  // ceiling is local policy; RFC 8879 4 names bad_certificate only for a length mismatch)
+  // ceiling is local policy; RFC 8879 4 names bad_certificate for a length mismatch and for a
+  // message that cannot be decompressed)
   if (ADeclaredLength <= 0) or (ADeclaredLength > AMaxLength) then
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.IllegalParameter,
       @SBadDeclaredLength);

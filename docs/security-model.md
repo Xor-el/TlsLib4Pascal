@@ -137,7 +137,7 @@ These are intentional and documented — flagging them up front so they aren't m
   other than what the host wrote. An OpenSSL cipher list never governed TLS 1.3, so a
   list naming no TLS 1.3 suite leaves 1.3 on with its default suites.
 - **No process-global mutable configuration in the core.** All behavior lives in immutable,
-  per-connection config objects; there is no `install_default()`-style ambient global (a footgun for
+  per-connection config objects; there is no ambient process-wide default to install (a footgun for
   a security library). The framework adapters expose a few process-wide setters (for example the
   mORMot handshake timeout).
 - **Strict PKCS#1 DigestInfo.** Every RSASSA-PKCS1-v1_5 verification (certificate, CRL and OCSP

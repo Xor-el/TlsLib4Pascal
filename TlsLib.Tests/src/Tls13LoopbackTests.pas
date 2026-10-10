@@ -1781,7 +1781,7 @@ var
   LIterations: Int32;
 begin
   // after completion a zero-length application write is a no-op: it must not put an empty
-  // application_data record on the wire (RFC 8446 5.4)
+  // application_data record on the wire (library policy; RFC 8446 5.1 / 5.4 allow zero-length data)
   LClient := NewClient;
   LServer := NewServer;
   LClient.StartHandshake;
@@ -2245,7 +2245,7 @@ var
   LIterations: Int32;
 begin
   // the server staples a current Good OCSP response in the leaf CertificateEntry, which a
-  // hard-fail client requires (RFC 8446 4.4.2.1)
+  // hard-fail client requires (a posture of this library; the format is RFC 8446 4.4.2.1)
   LClient := NewHardRevocationClient;
   LServer := NewStaplingServer(OcspField('ocsp_good'));
   LClient.StartHandshake;

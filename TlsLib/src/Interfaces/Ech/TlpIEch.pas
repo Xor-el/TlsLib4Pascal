@@ -47,7 +47,7 @@ type
   end;
 
   /// <summary>
-  /// The server's Encrypted Client Hello key store (RFC 9849 sec. 4.1 / RFC 9934):
+  /// The server's Encrypted Client Hello key store (RFC 9849 sec. 4.1, 8.1 / RFC 9934):
   /// app-driven, immutable once frozen, holding the currently valid config/private-key
   /// entries and the retry_configs to advertise on reject. The operator manages validity
   /// out of band. Shared lock-free; the operator swaps the whole store to rotate keys.

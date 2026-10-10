@@ -718,7 +718,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   // a 1.3 ServerHello with no key_share for the (EC)DHE handshake is missing_extension, not the
-  // wrong-group illegal_parameter (RFC 8446 4.2.8 / 9.2). A nil key exchange omits the extension.
+  // wrong-group illegal_parameter (RFC 8446 4.2.8). A nil key exchange omits the extension.
   CheckTrue(ServerHelloAlert(BuildServerHello(Filled($01, 32), nil,
     TCipherSuites13.Aes128GcmSha256, TlsWireVersionTls13,
     TNamedGroupCatalog.X25519, nil), LAlert),
