@@ -68,6 +68,7 @@ type
     procedure TestExporterRejectsBadArgs;
     procedure TestEarlyExporterDeterministicAndDistinct;
     procedure TestEarlyExporterRaisesBeforeEarlyEpoch;
+    procedure TestForgetEarlyExporterWithdrawsIt;
     procedure TestBinderKeyResumptionVsExternalDiffer;
     procedure TestBinderRoundTripConstantTime;
     procedure TestPskDheKeAgreesOnBothSides;
@@ -304,6 +305,27 @@ begin
   LMain := LSched.ExportKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), 32);
   CheckFalse(AreEqual(LEarly, LMain),
     'the early exporter differs from the application exporter');
+end;
+
+procedure TTestTls13KeySchedule.TestForgetEarlyExporterWithdrawsIt;
+var
+  LSched: ITls13KeySchedule;
+  LRaised: Boolean;
+begin
+  LSched := NewSchedule;
+  LSched.DeriveEpochSecrets(TTlsEpoch.EarlyData,
+    DecodeHex('000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f'));
+  CheckTrue(LSched.CanExportEarly, 'the early exporter is derived');
+  LSched.ForgetEarlyExporter;
+  CheckFalse(LSched.CanExportEarly, 'a forgotten early exporter is gone');
+  LRaised := False;
+  try
+    LSched.ExportEarlyKeyingMaterial('EXPORTER-test', DecodeHex('00'), 32);
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'exporting after the early exporter was forgotten raises');
 end;
 
 procedure TTestTls13KeySchedule.TestEarlyExporterRaisesBeforeEarlyEpoch;

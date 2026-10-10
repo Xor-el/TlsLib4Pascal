@@ -436,6 +436,7 @@ type
     constructor Create(const AParams: TServerHandshakeParams);
     destructor Destroy; override;
     function Start: TArray<THandshakeEffect>; override;
+    function CanExportKeyingMaterial: Boolean; override;
   end;
 
 implementation
@@ -2044,6 +2045,17 @@ begin
   else
     Result := Unexpected;
   end;
+end;
+
+function TTls13ServerStateMachine.CanExportKeyingMaterial: Boolean;
+begin
+  // the exporter secret exists once the server's Finished is sent (RFC 8446 7.1), but until the
+  // client's Finished its identity is unproven (RFC 8446 4.4.4), and a value exported now would bind
+  // a channel to an unauthenticated peer. A PSK already carries the client's identity, so only a
+  // full handshake waits.
+  Result := inherited CanExportKeyingMaterial and
+    ((FParams.ClientAuth = TClientAuthMode.None) or FPskAccepted or
+    (FPhase = TPhase.Connected));
 end;
 
 function TTls13ServerStateMachine.WriteDirection: TTlsDirection;

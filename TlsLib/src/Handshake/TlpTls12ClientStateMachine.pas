@@ -187,6 +187,9 @@ type
     FServerSessionId: TBytes;
     FReceivedTicket: TBytes;
     FReceivedTicketLifetime: UInt32;
+    /// <summary>Whether this handshake resumed the offered session without the server issuing a
+    /// new ticket, so the stored session keeps its original issue time and lifetime.</summary>
+    FResumedWithoutNewTicket: Boolean;
     /// <summary>Whether the ServerHello echoed the session_ticket extension, so a plaintext
     /// NewSessionTicket precedes the server Finished (its read epoch is deferred past it).</summary>
     FExpectNewSessionTicket: Boolean;
@@ -882,6 +885,7 @@ var
   LSession: IResumableSession;
   LPeerChain: TArray<TBytes>;
   LLifetime: UInt32;
+  LIssuedAt: UInt64;
 begin
   Result := nil;
   if FParams.SessionCache = nil then
@@ -892,6 +896,14 @@ begin
   // a seven-day retention cap (local policy) bounds a stored ticket; a lifetime_hint of 0 is
   // left unspecified per RFC 5077 3.3 rather than discarded
   LLifetime := TClientSessionPolicy.ClampTicketLifetime(FReceivedTicketLifetime);
+  LIssuedAt := FParams.Clock.NowUnixMillis;
+  // a resumption that brought no fresh ticket re-stores the same session, so it keeps its original
+  // issue time and lifetime: restamping it would let a session id or ticket outlive the retention cap
+  if FResumedWithoutNewTicket then
+  begin
+    LLifetime := FResumptionOffer.TicketLifetime;
+    LIssuedAt := FResumptionOffer.IssuedAtMillis;
+  end;
   // carry the verified server chain so an opt-in ReverifyOnResume can re-check it on resume. On an
   // abbreviated handshake no Certificate was sent, so the session inherits the resumed chain
   LPeerChain := FCertChain;
@@ -900,7 +912,7 @@ begin
   LSession := TTls12ResumableSession.Create(FSelectedSuite.Common.Code,
     FSelectedSuite.Common.Hash, FSchedule.MasterSecret, FServerSessionId,
     FReceivedTicket, FUseExtendedMasterSecret, nil, FParams.ServerName,
-    LLifetime, FParams.Clock.NowUnixMillis, LPeerChain, nil);
+    LLifetime, LIssuedAt, LPeerChain, nil);
   FParams.SessionCache.Store(CacheServerIdentity, FParams.ServerName, LSession);
   if System.Length(FReceivedTicket) > 0 then
     Result := TArray<THandshakeEffect>.Create(
@@ -961,6 +973,7 @@ begin
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.HandshakeFailure, @SResumedEmsMismatch);
   FUseExtendedMasterSecret := FResumptionOffer.ExtendedMasterSecret;
+  FResumedWithoutNewTicket := True;
   // resuming a non-EMS session under a required-EMS policy would silently drop the guarantee
   if FParams.RequireExtendedMasterSecret and not FUseExtendedMasterSecret then
     raise EFatalAlertTlsLibException.CreateRes(
@@ -1010,6 +1023,7 @@ begin
   begin
     FReceivedTicket := LNst.Ticket;
     FReceivedTicketLifetime := LNst.TicketLifetimeHint;
+    FResumedWithoutNewTicket := False;
   end;
   Absorb(AMessage.Raw);
   FPhase := TPhase.WaitAbbreviatedServerFinished;

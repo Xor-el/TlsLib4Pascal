@@ -252,11 +252,6 @@ type
     FEarlyDataOffered: Boolean;
     /// <summary>Whether the server accepted the offered early data (EncryptedExtensions).</summary>
     FEarlyDataAccepted: Boolean;
-    /// <summary>Whether an offered 0-RTT was rejected (PSK/suite rejected, EncryptedExtensions
-    /// without early_data, or a HelloRetryRequest). Once rejected the early exporter is withheld:
-    /// the peer never derives the early_exporter_master_secret for this connection, so any value
-    /// the application exported would bind to nothing.</summary>
-    FEarlyDataRejected: Boolean;
     /// <summary>Whether the selected suite matches the resumption PSK's bound suite; 0-RTT
     /// is bound to the ticket's exact suite, so accepted early data under a different one
     /// is illegal (RFC 8446 4.2.10).</summary>
@@ -370,7 +365,6 @@ type
     function WriteDirection: TTlsDirection; override;
     function ReadDirection: TTlsDirection; override;
     function ContinueAfterVerdict: TArray<THandshakeEffect>; override;
-    function CanExportEarlyKeyingMaterial: Boolean; override;
   public
     constructor Create(const AParams: TClientHandshakeParams);
     function Initiates: Boolean; override;
@@ -1195,7 +1189,8 @@ begin
   // a PSK-rejected 0-RTT offer means the early data was ignored: the engine replays it
   if FEarlyDataOffered then
   begin
-    FEarlyDataRejected := True;
+    // the server never derived the early exporter for a refused offer, so drop ours
+    FSchedule.ForgetEarlyExporter;
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.RaiseEvent(TTlsEventKind.EarlyDataRejected));
   end;
@@ -1284,7 +1279,7 @@ begin
     end
     else
     begin
-      FEarlyDataRejected := True;
+      FSchedule.ForgetEarlyExporter;
       TArrayUtilities.Append<THandshakeEffect>(Result,
         THandshakeEffects.RaiseEvent(TTlsEventKind.EarlyDataRejected));
       TArrayUtilities.Append<THandshakeEffect>(Result,
@@ -1470,7 +1465,7 @@ begin
   // sent in the clear (the middlebox change_cipher_spec was already emitted with the first flight)
   if LEarlyDataWasOffered then
   begin
-    FEarlyDataRejected := True;
+    FSchedule.ForgetEarlyExporter;
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.RaiseEvent(TTlsEventKind.EarlyDataRejected));
     TArrayUtilities.Append<THandshakeEffect>(Result,
@@ -1876,11 +1871,6 @@ begin
   Result := nil;
   if FPhase = TPhase.WaitResumeVerdict then
     Result := BuildClientFinishedFlight;
-end;
-
-function TTls13ClientStateMachine.CanExportEarlyKeyingMaterial: Boolean;
-begin
-  Result := (inherited CanExportEarlyKeyingMaterial) and not FEarlyDataRejected;
 end;
 
 function TTls13ClientStateMachine.WriteDirection: TTlsDirection;
