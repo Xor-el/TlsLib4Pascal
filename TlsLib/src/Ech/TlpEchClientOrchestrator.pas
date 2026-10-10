@@ -307,7 +307,8 @@ begin
     Exit(nil);
   // draw the suite from the ones the provider supports that real configs commonly publish (RFC 9849
   // sec. 6.2.1 asks for plausible values), so a fixed value cannot fingerprint the decoy as GREASE
-  // and an HKDF-SHA384/512 pairing nobody deploys does not stand out either
+  // and an HKDF-SHA384/512 pairing that is rarely published does not stand out either; a provider
+  // with none of these sends no decoy rather than an implausible one
   LSuites := nil;
   for LSuite in FCrypto.Hpke.SupportedSuites(GreaseKem) do
     if (LSuite.Kdf = THpkeKdf.HKDF_SHA256) and
