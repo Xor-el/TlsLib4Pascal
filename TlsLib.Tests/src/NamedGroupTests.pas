@@ -92,8 +92,6 @@ type
     procedure TestKeyImportExportRoundTrip;
     procedure TestStaticUsageAgreesLikeEphemeral;
     procedure TestX25519ImportUnclampedScalar;
-    procedure TestSystemX25519ImportUnclampedScalar;
-    procedure TestSystemHybridAgreement;
   end;
 
 implementation
@@ -275,27 +273,9 @@ begin
   CheckUnclampedScalarImport(Crypto);
 end;
 
-procedure TTestNamedGroups.TestSystemX25519ImportUnclampedScalar;
-begin
-  // the OS-native overlay: exercises the native X25519 import where present, portable
-  // fallback elsewhere, so the KAT holds on every host while guarding the native clamp
-  CheckUnclampedScalarImport(TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS));
-end;
-
 procedure TTestNamedGroups.TestMlKem768Agreement;
 begin
   CheckAgreement(TNamedGroups.CreateMlKem768(Crypto), 32);
-end;
-
-procedure TTestNamedGroups.TestSystemHybridAgreement;
-var
-  LCrypto: ICryptoProvider;
-begin
-  // the OS-native overlay: both hybrids compose over its primitives (P-256/X25519 + ML-KEM-768),
-  // native where the overlay serves them and portable otherwise, so the round-trip holds on every host
-  LCrypto := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS);
-  CheckAgreement(TNamedGroups.CreateX25519MlKem768(LCrypto), 64);
-  CheckAgreement(TNamedGroups.CreateSecP256r1MlKem768(LCrypto), 64);
 end;
 
 procedure TTestNamedGroups.TestHybridAgreement;

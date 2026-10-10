@@ -2866,7 +2866,8 @@ var
   LFromClient: TBytes;
 begin
   // build the config once via the facade, then create an engine per connection through the factory
-  // the facade always builds on the portable provider, so its key must come from that provider
+  // the facade is fixed to the portable provider, so the credential's key must come from that provider
+  // whatever provider the suite runs under
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsLib.NewClientConfig(ClientTrust), 'localhost');
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsLib.NewServerConfig(
     ServerCredential(TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable))));

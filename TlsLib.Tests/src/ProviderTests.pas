@@ -65,8 +65,8 @@ type
     procedure TestSha256Kat;
     procedure TestSha384Kat;
     procedure TestHashCloneIsIndependent;
-    procedure TestHashReuseAcrossDoFinalNativeProvider;
-    procedure TestHmacReuseAcrossDoFinalNativeProvider;
+    procedure TestHashReuseAcrossDoFinal;
+    procedure TestHmacReuseAcrossDoFinal;
     procedure TestHmacSha256Kat;
     procedure TestHkdfSha256Rfc5869;
     procedure TestHkdfExpandRejectsOverCapAndNegative;
@@ -78,13 +78,11 @@ type
     procedure TestAeadInPlaceRoundTripMatchesAllocating;
     procedure TestAeadInPlaceOpenTamperWipesDestination;
     procedure TestAeadSpanGuardsRejectBadOffsetsAndOverlap;
-    procedure TestAeadInPlaceNativeProvider;
     procedure TestAeadReuseParityAes128Gcm;
     procedure TestAeadReuseParityAes256Gcm;
     procedure TestAeadReuseParityChaCha20Poly1305;
     procedure TestAeadLongConnectionRoundTrip;
     procedure TestAeadNonceReuseRejected;
-    procedure TestAeadNonceReuseRejectedNativeProvider;
     procedure TestRandomDistinctNonZero;
     procedure TestHasHardwareAesReturnsBoolean;
     procedure TestAgreeRejectsForeignKeyHandle;
@@ -93,7 +91,6 @@ type
     procedure TestDerEncodeLengthRoundTripsAcrossForms;
     procedure TestDerReadTlvRejectsOverflowAndNonMinimalLengths;
     procedure TestAeadSealWithoutInitRaisesTyped;
-    procedure TestAeadSealWithoutInitRaisesTypedNativeProvider;
   end;
 
 implementation
@@ -169,29 +166,27 @@ begin
   CheckEqualBytes('clone independent', LHash.DoFinal, LClone.DoFinal);
 end;
 
-procedure TTestCryptoProvider.TestHashReuseAcrossDoFinalNativeProvider;
+procedure TTestCryptoProvider.TestHashReuseAcrossDoFinal;
 var
-  LProvider: ICryptoProvider;
   LHash, LClone: IHash;
   LMsg, LFirst, LSecond, LFresh: TBytes;
 begin
   // a reusable hash object resets itself at DoFinal, so a second use of the same instance must
   // digest identically to a fresh instance
-  LProvider := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS);
   LMsg := DecodeHex('616263'); // 'abc'
-  LHash := LProvider.Primitives.CreateHash(THashAlgorithm.SHA_256);
+  LHash := Crypto.Primitives.CreateHash(THashAlgorithm.SHA_256);
   LHash.Update(LMsg, 0, System.Length(LMsg));
   LFirst := LHash.DoFinal;
   LHash.Update(LMsg, 0, System.Length(LMsg)); // reuse the same instance
   LSecond := LHash.DoFinal;
-  LHash := LProvider.Primitives.CreateHash(THashAlgorithm.SHA_256);
+  LHash := Crypto.Primitives.CreateHash(THashAlgorithm.SHA_256);
   LHash.Update(LMsg, 0, System.Length(LMsg));
   LFresh := LHash.DoFinal;
   CheckEqualBytes('the reused hash matches its first digest', LFirst, LSecond);
   CheckEqualBytes('and matches a fresh instance', LFresh, LSecond);
   // a clone of a reusable hash must itself reset+reuse after its own DoFinal (the duplicated
   // handle has to carry the reusable attribute)
-  LHash := LProvider.Primitives.CreateHash(THashAlgorithm.SHA_256);
+  LHash := Crypto.Primitives.CreateHash(THashAlgorithm.SHA_256);
   LHash.Update(LMsg, 0, System.Length(LMsg));
   LClone := LHash.Clone;
   LFirst := LClone.DoFinal;
@@ -201,25 +196,23 @@ begin
   CheckEqualBytes('and the reused clone matches a fresh instance', LFresh, LSecond);
 end;
 
-procedure TTestCryptoProvider.TestHmacReuseAcrossDoFinalNativeProvider;
+procedure TTestCryptoProvider.TestHmacReuseAcrossDoFinal;
 var
-  LProvider: ICryptoProvider;
   LHmac: IHmac;
   LKey: ISecretBuffer;
   LData, LFirst, LSecond, LFresh: TBytes;
 begin
   // a reusable HMAC object re-keys with the same key at DoFinal, so a second use of the same
   // instance must match a fresh instance under the same key
-  LProvider := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS);
   LKey := TSecretBuffer.From(DecodeHex('0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b'));
   LData := DecodeHex('4869205468657265'); // 'Hi There'
-  LHmac := LProvider.Primitives.CreateHmac(THashAlgorithm.SHA_256);
+  LHmac := Crypto.Primitives.CreateHmac(THashAlgorithm.SHA_256);
   LHmac.Init(LKey);
   LHmac.Update(LData, 0, System.Length(LData));
   LFirst := LHmac.DoFinal;
   LHmac.Update(LData, 0, System.Length(LData)); // reuse the same instance, same key
   LSecond := LHmac.DoFinal;
-  LHmac := LProvider.Primitives.CreateHmac(THashAlgorithm.SHA_256);
+  LHmac := Crypto.Primitives.CreateHmac(THashAlgorithm.SHA_256);
   LHmac.Init(LKey);
   LHmac.Update(LData, 0, System.Length(LData));
   LFresh := LHmac.DoFinal;
@@ -594,19 +587,6 @@ begin
   DoAeadSpanGuards(Crypto);
 end;
 
-procedure TTestCryptoProvider.TestAeadInPlaceNativeProvider;
-var
-  LProvider: ICryptoProvider;
-begin
-  // the OS-native overlay has its own span implementation; hold it to the same round-trip,
-  // tamper-wipe and guard contract. Where no native overlay applies it falls back to the
-  // portable adapter, so this stays a valid, if then redundant, run everywhere.
-  LProvider := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS);
-  DoAeadInPlaceRoundTrip(LProvider);
-  DoAeadOpenTamperWipes(LProvider);
-  DoAeadSpanGuards(LProvider);
-end;
-
 function TTestCryptoProvider.PatternBytes(ALength, ASeed: Int32): TBytes;
 var
   LI: Int32;
@@ -753,13 +733,6 @@ end;
 procedure TTestCryptoProvider.TestAeadNonceReuseRejected;
 begin
   DoAeadNonceReuseRejected(Crypto);
-end;
-
-procedure TTestCryptoProvider.TestAeadNonceReuseRejectedNativeProvider;
-begin
-  // the OS-native overlay owns its own Seal; hold it to the same encrypt-side guard (where
-  // no overlay applies this is a second run against the portable adapter)
-  DoAeadNonceReuseRejected(TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS));
 end;
 
 procedure TTestCryptoProvider.TestRandomDistinctNonZero;
@@ -919,11 +892,6 @@ end;
 procedure TTestCryptoProvider.TestAeadSealWithoutInitRaisesTyped;
 begin
   DoAeadSealWithoutInitRaisesTyped(Crypto);
-end;
-
-procedure TTestCryptoProvider.TestAeadSealWithoutInitRaisesTypedNativeProvider;
-begin
-  DoAeadSealWithoutInitRaisesTyped(TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS));
 end;
 
 procedure TTestCryptoProvider.TestDerEncodeLengthRoundTripsAcrossForms;
