@@ -1,0 +1,38 @@
+docs/certificate-verification.md
+  s_d27f31cd14035d::t_c9d48dd7398a2a 293
+TlsLib/src/Crypto/TlpCryptoDomainTypes.pas
+  s_d27f31cd14035d::t_50b6a4ff34bbab 383-384
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  s_d27f31cd14035d::t_99e1f0d10cd8f8 169-170
+  s_d27f31cd14035d::t_801e41db06cff9 187
+TlsLib/src/Extensions/TlpExtensionBlockCodec.pas
+  s_d27f31cd14035d::t_37e4412e012c8a 182-184
+TlsLib.Adapters/mORMot/README.md
+  s_d27f31cd14035d::t_22b6b881fe3838 70-71
+TlsLib/src/Handshake/TlpTls12ClientStateMachine.pas
+  s_d27f31cd14035d::t_f4c8f10e5032e3 516-518
+TlsLib/src/Common/TlpHttpUrl.pas
+  s_d27f31cd14035d::t_89187c91a15604 63-65
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_d27f31cd14035d::t_76cb2b60e4cd38 546-547
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_d27f31cd14035d::t_0bacd6975c37c0 3361-3362
+TlsLib.Tests/src/RecordLayerTests.pas
+  s_d27f31cd14035d::t_1dd633799f2382 913-914
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "88734c95eb844f36088099166830c58a077b3b4b",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
