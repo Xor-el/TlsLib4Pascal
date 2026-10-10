@@ -298,11 +298,15 @@ the async park instead):
 On Android the **client-certificate** path is a special case: `checkClientTrusted` reports no validated
 path, so the delegate takes the presented leaf alone as the validated path (the rest of the presented
 chain has no guaranteed order). Live-revocation issuer discovery therefore uses the configured client-CA
-candidates rather than a peer-sent intermediate, chain-strength is applied to the leaf, and only a
-leaf-key SPKI pin can match on this path.
+candidates rather than a peer-sent intermediate, and only a leaf-key SPKI pin can match on this path.
+The chain-algorithm and key-strength floor is applied to the leaf only: a client-certificate chain's
+intermediates are validated by the platform but not held to that floor, so on this path the floor is
+lower than on the server path and in the portable pipeline. If a deployment needs it on the whole
+chain, use the portable pipeline for client certificates.
 
-None of these differences weaken the trust decision relative to a correctly-configured OS; they are
-behavioural *differences* to weigh when you pick Delegate over the portable pipeline.
+Apart from that leaf-only floor, none of these differences weaken the trust decision relative to a
+correctly-configured OS; they are behavioural *differences* to weigh when you pick Delegate over the
+portable pipeline.
 
 ---
 
