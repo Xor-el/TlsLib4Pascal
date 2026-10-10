@@ -1,0 +1,149 @@
+TlsLib.Tests/src/Tls13LoopbackTests.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 1784,2248
+TlsLib/src/Trust/TlpTrustPolicy.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 118-119
+TlsLib/src/Common/TlpKeyLog.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 25
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 546-547
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 113-122,165-167,1434-1482,1491,1496-1503,1603-1705,3594-3595
+TlsLib/src/Interfaces/Ech/TlpIEch.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 50
+TlsLib/src/Trust/TlpCertificateVerifier.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 393-394
+TlsLib/src/Extensions/TlpExtensionContext.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 117-118
+TlsLib.Tests/src/ConfigResumptionTests.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 30,1009,1011-1030,1032,1034,1036
+TlsLib/src/Crypto/TlpCryptoDomainTypes.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 383-384
+TlsLib.Tests/src/EngineSkeletonTests.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 204
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 434-440,1848-1849,1897,2412-2413,2422-2425,2434-2435,2444-2445,2484-2485,2660-2661,2670-2671,2725-2726,2734-2735,2745-2746,2755-2756,2969-2971,3094,3105-3114
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 466,505,604-605,884
+docs/cookbook.md
+  s_d27f31cd14035d::t_d7cff46964b3bb 29-30,586,592-594
+TlsLib/src/Ech/TlpEchClientOrchestrator.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 94,362-363,445-446
+docs/security-model.md
+  s_d27f31cd14035d::t_d7cff46964b3bb 140
+  s_d27f31cd14035d::t_d8307a2eb9e377 50
+TlsLib/src/Common/TlpTlsVersion.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 22-24
+TlsLib/src/Extensions/TlpCoreExtensions.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 76-77,600
+TlsLib.Interop/src/BoGoShimRunner.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 947,1349
+docs/system-trust.md
+  s_d27f31cd14035d::t_d7cff46964b3bb 389-390,396
+TlsLib/src/CertCompression/TlpCertificateCompression.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 299-300
+TlsLib.Adapters/Indy/README.md
+  s_d27f31cd14035d::t_d7cff46964b3bb 141-142
+TlsLib/src/Ech/TlpEchClient.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 119
+TlsLib/src/Engine/TlpTlsEngine.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 767,852
+TlsLib/src/Interfaces/Ech/TlpIEchClientOrchestrator.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 49
+TlsLib.Tests/src/RecordLayerTests.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 913-914,1173-1174
+TlsLib.Tests/src/HelloRetryRequestTests.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 645
+TlsLib.Tests/src/Tls12LoopbackTests.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 542-543,1149-1150,1203
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 472-473,515,595-596,1004,1147-1148,1234
+docs/README.md
+  s_d27f31cd14035d::t_d7cff46964b3bb 86
+TlsLib/src/Interfaces/KeySchedule/TlpIKeySchedule.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 166
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 169-170
+TlsLib.Adapters/Synapse/README.md
+  s_d27f31cd14035d::t_d7cff46964b3bb 139-140
+TlsLib/src/Handshake/TlpVersionDispatchMachine.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 351-352,416,506
+docs/certificate-compression.md
+  s_d27f31cd14035d::t_84edf3e9ca4f5e 77-78
+TlsLib/src/Handshake/TlpHandshakeEffect.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 141
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 163-164,167-168,223,279-280,422-423,475-476
+TlsLib.Tests/src/EchOuterExtensionsTests.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 182
+TlsLib.Tests/src/EndpointIdentityTests.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 125
+TlsLib.Tests/src/Tls13ResumptionTests.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 1225
+TlsLib/src/Handshake/TlpHandshakeConductor.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 60-62,267-269
+TlsLib/src/Ech/TlpInMemoryEchKeyStore.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 32-33,61
+TlsLib/src/Extensions/TlpExtensionBlockCodec.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 182-184
+TlsLib/src/Common/TlpHttpUrl.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 62-65,212
+TlsLib/src/Interfaces/Negotiation/TlpINegotiation.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 75
+TlsLib/src/KeySchedule/TlpTls12KeySchedule.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 36
+TlsLib/src/Record/TlpRecordLayer.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 425-427,537-538
+docs/getting-started.md
+  s_d27f31cd14035d::t_d7cff46964b3bb 31
+README.md
+  s_d27f31cd14035d::t_d7cff46964b3bb 37,169
+TlsLib.Interop/src/InteropEngine.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 337,446-451,489,495-496
+TlsLib.Tests/src/ClientAuthTests.pas
+  s_d27f31cd14035d::t_77fc9720da8f5c 145-148
+  s_d27f31cd14035d::t_11e16855004bc4 154
+  s_d27f31cd14035d::t_a1c61de69a8bda 207-212
+  s_d27f31cd14035d::t_916ba49ed7d398 1255-1352
+  s_d27f31cd14035d::t_f471cb2d4a9a45 111-113
+  s_d27f31cd14035d::t_d7cff46964b3bb 888,974
+TlsLib.Tests/src/Tls12DualVersionTests.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 425,848-849
+TlsLib.Adapters/FclNet/README.md
+  s_d27f31cd14035d::t_d7cff46964b3bb 171-172
+TlsLib.Adapters/mORMot/README.md
+  s_d27f31cd14035d::t_d7cff46964b3bb 69-71
+TlsLib.Tests/src/Tls13ClientReplayTests.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 721
+TlsLib/src/Handshake/TlpHandshakeMessages.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 64,110,249,276,448,894
+TlsLib.Trust.System/Examples/Delphi/README.md
+  s_d27f31cd14035d::t_d7cff46964b3bb 13-14
+docs/certificate-verification.md
+  s_d27f31cd14035d::t_d7cff46964b3bb 288-294
+TlsLib/src/Handshake/TlpTls12ClientStateMachine.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 77,516-518,534,969
+.github/workflows/ci/interop/bogo-shim-config.json
+  s_d27f31cd14035d::t_d7cff46964b3bb 229
+TlsLib/src/Interfaces/Handshake/TlpIHandshakeMachine.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 129,245
+TlsLib.Tests/src/ProviderTests.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 835
+TlsLib/src/Engine/TlpTlsEngineFactory.pas
+  s_d27f31cd14035d::t_d7cff46964b3bb 60-62,121,123-124,127-134,299,343
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b40529962791649da52329e0f8e35d0f804422bc",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
