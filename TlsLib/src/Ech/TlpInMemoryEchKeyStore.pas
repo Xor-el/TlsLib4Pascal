@@ -29,7 +29,8 @@ uses
 
 type
   /// <summary>
-  /// The app-driven, immutable server ECH key store (RFC 9849 sec. 4.1): a fixed set of
+  /// The app-driven, immutable server ECH key store (RFC 9849 sec. 4.1 for the config identifiers;
+  /// rotation guidance is sec. 8.1 / 10.10.5): a fixed set of
   /// config/private-key entries and the retry_configs to advertise on reject. The operator
   /// owns the key set and rotates by building and swapping in a new store (never auto-rotated).
   /// Build one from an RFC 9934 PEM or from an explicit config plus private key.
@@ -57,7 +58,7 @@ type
       const ARecipientKey: IHpkeRecipientKey; AIsRetry: Boolean): TEchKeyEntry; static;
   public
     /// <summary>An immutable store over a fixed set of entries. Rotate keys by building and
-    /// swapping in a new store (RFC 9849 sec. 4.1); the operator owns the key set.</summary>
+    /// swapping in a new store (RFC 9849 sec. 8.1); the operator owns the key set.</summary>
     constructor Create(const AEntries: TArray<TEchKeyEntry>);
     function Entries: TArray<TEchKeyEntry>;
     function RetryConfigs: TBytes;

@@ -34,7 +34,7 @@
 ## Features
 
 - **Fully managed, from-scratch** -- one pure Object Pascal TLS engine, identical on every platform
-- **TLS 1.3 + hardened TLS 1.2** -- client and server, designed together; 1.2 is an ECDHE + AEAD + Extended-Master-Secret profile only
+- **TLS 1.3 + hardened TLS 1.2** -- client and server, designed together; 1.2 is an ECDHE + AEAD profile that offers Extended Master Secret
 - **Post-quantum hybrid KEX** -- `X25519MLKEM768` offered by every preset; preferred under Hardened and Strict
 - **AEAD-only, forward-secret** -- no CBC-HMAC, RC4, 3DES, static-RSA/DH, or TLS-level compression; 0-RTT off by default
 - **Secure by default, fail-closed** -- refuses to build an unauthenticated client, and every foot-gun lives behind one loudly-named `dangerous` surface
@@ -166,6 +166,7 @@ Add one only when you use its feature; the core references none of them:
 |---|---|
 | `TlsLib.Trust.System` | OS system-trust harvest + verifier delegate |
 | `TlsLib.Trust.Bundle` | A PEM/DER CA-bundle loader (`FromPem` / `FromPemFile`) |
+| `TlsLib.Crypto.System` | The Windows CNG crypto overlay (opt-in native handshake primitives) |
 | `TlsLib.Adapter.mORMot` / `.Indy` / `.Synapse` / `.FclNet` | Drop-in adapters for those networking stacks |
 
 ## Quick Examples

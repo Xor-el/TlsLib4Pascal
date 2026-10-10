@@ -59,9 +59,10 @@ type
     /// 7.1).</summary>
     function PathAndQuery: string;
     /// <summary>The canonical text: lower-case scheme and host, the default port omitted, an empty
-    /// path as '/', upper-case hex digits in percent-encodings, no fragment (RFC 3986 2.1, 6.2.2.1,
-    /// 6.2.3). Spellings that differ only in those ways have equal text, so it is both the
-    /// de-duplication key and the request target.</summary>
+    /// path as '/', upper-case hex digits in percent-encodings (RFC 3986 2.1, 6.2.2.1, 6.2.3), no
+    /// fragment (RFC 9110 7.1); a default port and an empty path are equivalent spellings
+    /// (RFC 9110 4.2.3). Spellings that differ only in those ways have equal text, so it is both
+    /// the de-duplication key and the request target.</summary>
     function ToString: string;
   end;
 
@@ -208,7 +209,7 @@ begin
         Exit;
       LPortPart := System.Copy(LPortPart, 2, MaxInt);
     end;
-    // a zone identifier (RFC 6874) and IPvFuture have no place in a responder URL; the strict
+    // a zone identifier (RFC 6874 syntax) and IPvFuture have no place in a responder URL; the strict
     // parser also refuses anything that is not an RFC 4291 address
     if (Pos('%', LHostPart) > 0) or not TIpLiteral.TryParseIPv6(LHostPart, LBytes) then
       Exit;

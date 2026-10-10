@@ -179,8 +179,9 @@ begin
       // a server response must not carry a type this build does not recognize. The only type a
       // client sends that is absent from the registry is GREASE (RFC 8701), which it splices into
       // its own ClientHello and so appears "offered"; a server that echoes a GREASE value (or any
-      // unknown type) as if negotiated is fatal illegal_parameter (RFC 8701 3.1). (A CertificateRequest
-      // is not a response context: RFC 8701 lets a server GREASE it and the client ignores it.)
+      // unknown type) as if negotiated fails the connection (RFC 8701 3.1), here as
+      // illegal_parameter. (A CertificateRequest is not a response context: RFC 8701 lets a
+      // server GREASE it and the client ignores it.)
       if not FRegistry.TryGet(LType, LExt) then
         raise EFatalAlertTlsLibException.CreateRes(
           TTlsAlertDescription.IllegalParameter, @SEchoedGreaseExtension);

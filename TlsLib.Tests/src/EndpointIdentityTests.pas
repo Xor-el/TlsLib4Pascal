@@ -122,7 +122,7 @@ end;
 procedure TTestEndpointIdentity.TestWildcardPublicSuffixNotMatched;
 begin
   // *.com leaves only one label below the wildcard - local policy: it must never match
-  // (public suffixes, RFC 9525 7.1)
+  // (public suffixes, out of scope per RFC 9525 7.1)
   CheckFalse(Matches('example.com', ['*.com']));
 end;
 

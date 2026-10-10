@@ -114,8 +114,8 @@ type
     /// resume (empty when only indicating support, and always empty on a server echo).</summary>
     SessionTicket: TBytes;
     /// <summary>ec_point_formats (RFC 8422 5.1.2): set true outbound to list support for
-    /// the uncompressed point format (a client offering ECC suites, or a 1.2 server that
-    /// selected an ECC suite), and set true inbound when the peer's extension is present.</summary>
+    /// the uncompressed point format (a client offering ECC suites; the 1.2 server does not echo
+    /// it, RFC 8422 5.2), and set true inbound when the peer's extension is present.</summary>
     EcPointFormatsOffered: Boolean;
     /// <summary>status_request (RFC 6066): set true outbound in the ClientHello to offer
     /// acceptance of a stapled OCSP response, and set true inbound (server side) when the

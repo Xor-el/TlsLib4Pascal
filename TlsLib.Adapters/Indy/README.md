@@ -138,7 +138,8 @@ A built config (`SSLOptions.ServerConfig` / `SSLOptions.ClientConfig`) supplied 
 options (or a verify callback or a crypto/PKIX provider) is refused, not silently dropped.
 
 `SSLOptions.CipherList` (the name Indy's own OpenSSL options use) names the suites to use: exact IANA
-or OpenSSL suite names, separated by `:`, `,` or spaces, in preference order. It narrows and reorders
+or OpenSSL suite names, separated by `:`, `,`, `;`, spaces or tabs, matched without regard to case
+and de-duplicated, in preference order. It narrows and reorders
 TlsLib's own hardened set and never widens it. A list that names no TLS 1.3 suite leaves TLS 1.3 on
 with its default suites (an OpenSSL cipher list never governed 1.3); a list that names TLS 1.3 suites
 narrows 1.3 too, and a list naming only TLS 1.3 suites turns TLS 1.2 off. Cipher-string expressions

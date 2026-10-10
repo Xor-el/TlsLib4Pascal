@@ -1222,7 +1222,7 @@ begin
 
   // resume and send 0-RTT, but the server rejects early data (MaxEarlyData 0). The rejected
   // early data went out under the early keys and the server skips it; the engine does NOT
-  // transparently replay it as 1-RTT (RFC 8446 2.3 leaves any resend to the application), so
+  // transparently replay it as 1-RTT (RFC 8446 4.2.10 leaves any resend to the application), so
   // nothing is delivered to the server for it.
   LClient := NewClient(LCache, True);
   LServer := BuildServer(LStek, nil, 0, 7200, False, 0, LAnti);

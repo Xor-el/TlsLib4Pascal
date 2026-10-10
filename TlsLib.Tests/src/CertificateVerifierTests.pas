@@ -166,7 +166,8 @@ type
     procedure TestIncompleteChainWithoutIntermediatesRejected;
     procedure TestIncompleteChainCompletedByIntermediates;
     procedure TestCompleteChainStillTrustedWithIntermediates;
-    // a trust anchor's own nameConstraints bound every path under it (RFC 5280 6.1.1 (d))
+    // a trust anchor's own nameConstraints bound every path under it (applying an anchor's
+    // constraints is RFC 5937, permitted by RFC 5280 6.2)
     procedure TestAnchorNameConstraintsAreEnforced;
     // extendedKeyUsage role enforcement (RFC 5280 4.2.1.12, required-if-present)
     procedure TestServerCertWithClientAuthOnlyEkuRejected;

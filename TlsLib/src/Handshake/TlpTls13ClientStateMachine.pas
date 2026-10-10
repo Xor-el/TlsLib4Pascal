@@ -469,7 +469,8 @@ begin
   // owns the per-connection ECH mechanics; a preset verbatim ClientHello is mutually exclusive
   // with ECH (enforced in SetVerbatimClientHello), so selection runs purely off the policy here
   FEchOrch := TEchClientOrchestrator.Create(AParams.Crypto, AParams.EchPolicy);
-  // ECH is 1.3-only (RFC 9849 sec. 6.1): a usable config cannot pair with a 1.2 offer. A GREASE-only
+  // ECH is 1.3-only (RFC 9849 sec. 6.1 restricts the inner; refusing a 1.2 offer beside a usable
+  // config is local policy): a usable config cannot pair with a 1.2 offer. A GREASE-only
   // posture (Active False) rides through - GREASE ech is permitted in any ClientHello (sec. 6.2)
   if FParams.AlsoOfferTls12 and FEchOrch.Active then
     raise EArgumentTlsLibException.CreateRes(@SEchRequiresTls13);
@@ -511,7 +512,7 @@ begin
   LSeed := 0; // only meaningful under GREASE
   LContext := TExtensionContext.Create;
   try
-    // a 1.2 offer never coexists with active ECH (the ctor rejects that pairing, RFC 9849 sec. 6.1)
+    // a 1.2 offer never coexists with active ECH (the ctor rejects that pairing by local policy)
     if FParams.AlsoOfferTls12 then
     begin
       // one unified ClientHello: the 1.3 key_share coexists with a 1.2 offer, and a
@@ -591,7 +592,8 @@ begin
     // a non-EMS session yet echoes the extension (RFC 7627 5.3). A 1.3 server ignores these
     // legacy fields.
     // the 1.2 session_ticket offer is also a TLS-1.2-only extension the ClientHelloInner MUST
-    // omit (RFC 9849 sec. 6.1); a 1.2 offer never coexists with active ECH (rejected in the ctor)
+    // omit (inferred from the inner not offering TLS 1.2 or below, RFC 9849 sec. 6.1); a 1.2 offer
+    // never coexists with active ECH (rejected in the ctor)
     if FParams.AlsoOfferTls12 and (FParams.SessionCache <> nil) then
     begin
       LContext.SessionTicketOffered := True;
@@ -999,7 +1001,7 @@ begin
   // key_share): supported_versions when present, else the legacy_version. This client offers
   // only TLS 1.3, so any other selection is not one it agreed to - a stamped downgrade is an
   // attack (illegal_parameter, RFC 8446 4.1.3), any other lower version is unsupported and
-  // reported as protocol_version (RFC 8446 4.2.1), not a cipher/decode error.
+  // reported as protocol_version (RFC 8446 D.1), not a cipher/decode error.
   LNegotiatedVersion := THandshakeMessages.ServerHelloSelectedVersion(LHello.Extensions);
   if LNegotiatedVersion <> 0 then
   begin
@@ -1142,7 +1144,8 @@ begin
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.MissingExtension, @SPskRequiredNotSelected);
     // a rejected-ECH handshake runs over the outer ClientHello, whose pre_shared_key is only a
-    // GREASE decoy the client-facing server MUST NOT select (RFC 9849 sec. 6.1.2)
+    // GREASE decoy: the client aborts with illegal_parameter if the ServerHello selects it
+    // (RFC 9849 sec. 6.1.2)
     if (FEchOrch.Status = TEchStatus.Rejected) and LContext.PskSelected then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SEchRejectPsk);
@@ -1228,7 +1231,7 @@ begin
     LEchPresent := LContext.EchPresent;
     LEchData := LContext.EchExtensionData;
 
-    // the server's ALPN choice must be one this client offered (RFC 7301 3.2)
+    // the server's ALPN choice must be one this client offered (the server's rule, RFC 7301 3.2)
     if System.Length(LContext.SelectedAlpn) > 0 then
     begin
       if not TAlpnProtocols.Contains(FParams.AlpnProtocols, LContext.SelectedAlpn) then

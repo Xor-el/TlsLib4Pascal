@@ -108,6 +108,9 @@ type
     // inserts a duplicate of the first CertificateRequest (handshake type 13) record into a wire
     // flight, right after the original, to drive a second CertificateRequest in the same phase
     function DuplicateCertificateRequest(const AWire: TBytes): TBytes;
+    // a client Certificate zlib-compressed and framed as a CompressedCertificate, for a server
+    // that never advertised compress_certificate
+    function CompressedClientCertificate: TBytes;
     procedure Pump(const ASrc, ADst: ITlsEngine);
     procedure Drive(const AClient, AServer: ITlsEngine);
   published
@@ -139,12 +142,16 @@ type
     procedure TestFailingDecompressorIsBadCertificate;
     procedure TestRaisingDecompressorIsBadCertificate;
     procedure TestWrongLengthDecompressionIsBadCertificate;
+    procedure TestClientDecompressorContractBreachesAreBadCertificate;
+    procedure TestOversizeCompressionFallsBackToAPlainCertificate;
+    procedure TestUnsolicitedCompressedCertificateIsUnexpected;
+    procedure TestCompressedCertificateWithoutClientAuthIsUnexpected;
   end;
 
 implementation
 
 type
-  TCompressorMode = (Normal, Decline, EmptySuccess, Throws);
+  TCompressorMode = (Normal, Decline, EmptySuccess, Throws, Oversize);
   TDecompressorMode = (Works, Fails, Raises, WrongLength);
 
   // zlib's codepoint with a tally and a scripted misbehaviour, so a test can prove which side
@@ -197,6 +204,12 @@ begin
       Result := True;
     TCompressorMode.Throws:
       raise ESpyBackend.Create('the backend failed');
+    TCompressorMode.Oversize:
+      begin
+        // one byte past the 2^24-1 compressed_certificate_message ceiling
+        SetLength(ACompressed, TCertificateCompression.MaxCompressedLength + 1);
+        Result := True;
+      end;
   else
     Result := TZlibCertificateCompression.DefaultCompressors[0].TryCompress(AData, ACompressed);
   end;
@@ -872,7 +885,7 @@ var
   LClient, LServer: ITlsEngine;
   LFlight: TBytes;
 begin
-  // a CertificateRequest may appear at most once (RFC 5246 7.4.4); duplicating the server's real
+  // a CertificateRequest may appear at most once (the flow of RFC 5246 7.3); duplicating the server's real
   // request in the same flight must make the client abort with unexpected_message
   LClient := New12Client(True);
   LServer := New12Server(TClientAuthMode.Required);
@@ -958,7 +971,7 @@ begin
   // drive the client through the server's whole first flight so it answers with its real
   // Certificate, then re-encode that Certificate with a one-byte certificate_request_context:
   // the context echoes the (empty) CertificateRequest context in the main handshake
-  // (RFC 8446 4.4.2), so the server must abort with decode_error
+  // (RFC 8446 4.4.2), so the server aborts; decode_error is this library's choice of alert
   LClient := New13ClientMachine(True);
   LServer := New13ServerMachine(TClientAuthMode.Required);
   LServerFlight := AllSendHandshake(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(
@@ -1237,6 +1250,104 @@ begin
   CheckTrue(LServer.IsTerminal, 'the server aborted');
   CheckEquals(Int64(Ord(TTlsAlertDescription.BadCertificate)),
     Int64(Ord(LServer.LastError.Alert.Description)), 'with bad_certificate');
+end;
+
+procedure TTestClientAuth.TestClientDecompressorContractBreachesAreBadCertificate;
+var
+  LModes: array[0..2] of TDecompressorMode;
+  LI: Int32;
+  LClient, LServer: ITlsEngine;
+begin
+  // the central mapping holds for the client receiving the server's Certificate just as for the
+  // server receiving the client's: a False, a raise, or a wrong length is bad_certificate
+  LModes[0] := TDecompressorMode.Fails;
+  LModes[1] := TDecompressorMode.Raises;
+  LModes[2] := TDecompressorMode.WrongLength;
+  for LI := 0 to 2 do
+  begin
+    LClient := New13CompressionPair(TZlibCertificateCompression.DefaultCompressors,
+      TArray<ICertificateDecompressor>.Create(
+      TSpyCertDecompressor.Create(LModes[LI]) as ICertificateDecompressor), nil,
+      TZlibCertificateCompression.DefaultCompressors,
+      TZlibCertificateCompression.DefaultDecompressors, LServer);
+    Drive(LClient, LServer);
+    CheckTrue(LClient.IsTerminal, 'the client aborted');
+    CheckEquals(Int64(Ord(TTlsAlertDescription.BadCertificate)),
+      Int64(Ord(LClient.LastError.Alert.Description)), 'with bad_certificate');
+  end;
+end;
+
+procedure TTestClientAuth.TestOversizeCompressionFallsBackToAPlainCertificate;
+var
+  LFramed: TBytes;
+begin
+  // a result past the 2^24-1 ceiling cannot be framed, so the Certificate goes out plain
+  LFramed := TCertificateCompression.FrameCertificate(
+    TArray<ICertificateCompressor>.Create(
+    TSpyCertCompressor.Create(TCompressorMode.Oversize) as ICertificateCompressor),
+    TArray<UInt16>.Create(TCertificateCompressionAlgorithms.Zlib), nil, Crypto,
+    TBytes.Create($00, $00, $00, $00), True);
+  CheckEquals(Int64(Ord(TTlsHandshakeType.Certificate)), Int64(LFramed[0]),
+    'framed as a plain Certificate');
+end;
+
+function TTestClientAuth.CompressedClientCertificate: TBytes;
+var
+  LCert: TTlsCertificate;
+  LMsg: TTlsCompressedCertificate;
+  LBody: TBytes;
+  LI: Int32;
+begin
+  LCert.RequestContext := nil;
+  SetLength(LCert.Entries, System.Length(Credential.CertificateChain));
+  for LI := 0 to High(Credential.CertificateChain) do
+  begin
+    LCert.Entries[LI].CertData := Credential.CertificateChain[LI];
+    LCert.Entries[LI].Extensions := TBytes.Create($00, $00);
+  end;
+  LBody := THandshakeMessages.EncodeCertificate(LCert);
+  LMsg.Algorithm := TCertificateCompressionAlgorithms.Zlib;
+  LMsg.UncompressedLength := System.Length(LBody);
+  CheckTrue(TZlibCertificateCompression.DefaultCompressors[0].TryCompress(LBody, LMsg.Compressed),
+    'the fixture compresses');
+  Result := THandshakeFraming.Frame(TTlsHandshakeType.CompressedCertificate,
+    THandshakeMessages.EncodeCompressedCertificate(LMsg));
+end;
+
+procedure TTestClientAuth.TestUnsolicitedCompressedCertificateIsUnexpected;
+var
+  LClient, LServer: IHandshakeMachine;
+  LServerFlight: TArray<TBytes>;
+  LAlert: TTlsAlertDescription;
+begin
+  // a server with no decompressors advertised nothing in its CertificateRequest, so a
+  // CompressedCertificate is unsolicited (RFC 8879 4)
+  LClient := New13ClientMachine(True);
+  LServer := New13ServerMachine(TClientAuthMode.Required);
+  LServerFlight := AllSendHandshake(LServer.ProcessMessage(
+    TTlsLibTestHandshakeDecoder.HandshakeMessage(FirstSendHandshake(LClient.Start))));
+  CheckTrue(FailAlertOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(
+    CompressedClientCertificate)), LAlert), 'an unsolicited CompressedCertificate aborts');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.UnexpectedMessage)), Int64(Ord(LAlert)),
+    'the abort is unexpected_message');
+end;
+
+procedure TTestClientAuth.TestCompressedCertificateWithoutClientAuthIsUnexpected;
+var
+  LClient, LServer: IHandshakeMachine;
+  LServerFlight: TArray<TBytes>;
+  LAlert: TTlsAlertDescription;
+begin
+  // a server that asked for no client certificate takes a CompressedCertificate no more than a
+  // Certificate
+  LClient := New13ClientMachine(False);
+  LServer := New13ServerMachine(TClientAuthMode.None);
+  LServerFlight := AllSendHandshake(LServer.ProcessMessage(
+    TTlsLibTestHandshakeDecoder.HandshakeMessage(FirstSendHandshake(LClient.Start))));
+  CheckTrue(FailAlertOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(
+    CompressedClientCertificate)), LAlert), 'a CompressedCertificate with no client auth aborts');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.UnexpectedMessage)), Int64(Ord(LAlert)),
+    'the abort is unexpected_message');
 end;
 
 initialization

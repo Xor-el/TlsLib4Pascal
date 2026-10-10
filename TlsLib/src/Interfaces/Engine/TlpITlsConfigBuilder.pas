@@ -160,10 +160,12 @@ type
     /// default certificate that then fails the name check.</summary>
     function WithServerNameIndication(AMode: TServerNameIndication): ITlsClientConfigBuilder;
     /// <summary>Whether the client offers status_request (OCSP stapling, RFC 6066). Off by
-    /// default: without it the client requests no staple and rejects an unsolicited one.</summary>
+    /// default, but the Hardened and Strict presets enable it: without it the client requests no
+    /// staple and rejects an unsolicited one.</summary>
     function WithOcspStaplingRequest(AEnabled: Boolean): ITlsClientConfigBuilder;
     /// <summary>DANGEROUS: when enabled, the server certificate chain is accepted without
-    /// PKIX, revocation, host-name, or pinning checks. For tests and pinned/self-signed
+    /// PKIX, revocation or host-name checks; configured SPKI pins still apply, matched against
+    /// the leaf only. For tests and pinned/self-signed
     /// development peers only - never production. Off by default. Satisfies the Build-time
     /// trust-source requirement on its own; no anchor store is needed (one supplied is kept
     /// but not consulted).</summary>
@@ -218,7 +220,7 @@ type
     /// <summary>Whether session resumption is engaged; defaults to the preset's posture.</summary>
     function WithResumption(AEnabled: Boolean): ITlsClientConfigBuilder;
     /// <summary>How the client verifies a resumed server: ReuseOriginal (the default) reuses the
-    /// original handshake's authentication (RFC 8446 2.2); Reverify re-runs the certificate
+    /// original handshake's authentication (inferred from RFC 8446 2.2); Reverify re-runs the certificate
     /// verifier against the stored peer chain, for a stricter posture that re-checks a resumed
     /// server against current trust, at the cost of the verification work on every resume. Under
     /// WithRevocation(Hard) without WithLiveRevocationVerdict a reverified resume could never obtain
@@ -274,7 +276,8 @@ type
     /// <summary>
     /// Offers Encrypted Client Hello (RFC 9849) with the application-supplied
     /// ECHConfigList (typically fetched from the DNS HTTPS/SVCB ech parameter). A
-    /// malformed list is rejected when the config is built. On an ECH reject the
+    /// malformed list is rejected when the config is built. A usable config makes the client
+    /// TLS 1.3-only (RFC 9849 sec. 6.1). On an ECH reject the
     /// handshake raises EEchRejectedTlsLibException carrying the server's retry_configs;
     /// the library never falls back to plaintext.
     /// </summary>
@@ -416,7 +419,8 @@ type
     /// valid set and refresh it with your trust configuration.</summary>
     function WithIntermediateCertificates(const AData: TBytes): ITlsServerConfigBuilder;
     /// <summary>DANGEROUS: when enabled, a requested client certificate chain is accepted
-    /// without PKIX, revocation, or pinning checks. For tests only - never production. Satisfies
+    /// without PKIX or revocation checks; configured SPKI pins still apply, matched against the
+    /// leaf only. For tests only - never production. Satisfies
     /// the Build-time client-auth trust-source requirement on its own; no anchor store is needed
     /// (one supplied is kept but not consulted).</summary>
     function WithDangerousInsecureSkipVerify: ITlsServerConfigBuilder;
@@ -468,7 +472,8 @@ type
     function WithResumptionScope(const AScope: TBytes): ITlsServerConfigBuilder;
     /// <summary>Requests a default STEK, minted at build time from this configuration's own
     /// provider RNG and clock, so stateless tickets honor an injected crypto provider rather than
-    /// any concrete default. An explicit WithSessionTicketKeys always overrides this. The keys are
+    /// any concrete default; with a session store configured it also issues stateless tickets
+    /// alongside the store. An explicit WithSessionTicketKeys always overrides this. The keys are
     /// scoped to the built config's lifetime; share a STEK across servers/a fleet via a manager's
     /// InstallKey (e.g. from a KMS).</summary>
     function WithDefaultSessionTicketKeys: ITlsServerConfigBuilder;

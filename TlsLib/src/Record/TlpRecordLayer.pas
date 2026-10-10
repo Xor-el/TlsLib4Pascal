@@ -422,8 +422,9 @@ begin
     Exit;
   end;
   // TLS 1.3 middlebox-compatibility filler: dropped, but only a bounded number of times and only
-  // once the peer's hello has fixed the version (RFC 8446 5 - a change_cipher_spec before the
-  // peer's first hello is an unexpected record type).
+  // once the peer's hello has fixed the version (local policy: RFC 8446 5 admits a
+  // change_cipher_spec only in the middlebox-compatibility window, and we stay stricter before the
+  // peer's first hello).
   if FNegotiatedVersion.Equals(TTlsVersion.Tls13) then
   begin
     Inc(FChangeCipherSpecCount);
@@ -533,8 +534,8 @@ begin
           (not FHandshakeComplete) and (not FEarlyReadAccepted) then
           raise EFatalAlertTlsLibException.CreateRes(
             TTlsAlertDescription.UnexpectedMessage, @SUnexpectedApplicationData);
-        // the server MUST NOT accept more 0-RTT than the ticket's max_early_data_size and
-        // terminates with unexpected_message past it (RFC 8446 4.6.1); the limit counts the
+        // the server MUST NOT accept more 0-RTT than the ticket's max_early_data_size and SHOULD
+        // terminate with unexpected_message past it (RFC 8446 4.6.1; we always do); the limit counts the
         // early-data payload, not the record's type byte or padding
         if FEarlyReadAccepted and
           (AFragment.ContentType = TTlsContentType.ApplicationData) then

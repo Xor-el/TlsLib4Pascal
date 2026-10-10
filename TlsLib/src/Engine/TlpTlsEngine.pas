@@ -764,8 +764,7 @@ begin
   // writing after our own close_notify or after a fatal is API misuse in either version. An
   // inbound close_notify closes only the read side under TLS 1.3 (RFC 8446 6.1: each half is
   // independent), so a 1.3 write continues; under TLS 1.2 it closes the connection (RFC 5246
-  // 7.2.1 discards pending writes - deliberately stricter than a common implementation's
-  // half-close, which we do not offer for 1.2).
+  // 7.2.1 discards pending writes, and we offer no half-close there).
   if FTerminal or FSentClose or (FClosed and not IsTls13) then
     raise EInvalidOperationTlsLibException.CreateRes(@SWriteAfterClose);
   // refuse application data until the Application write epoch is in force, so it is never sealed in
@@ -850,7 +849,7 @@ begin
   if FTerminal or FClosed or FSentClose or FHandshakeComplete or FEarlyDataClosed or
     (not FWriteProtectionInstalled) or (ALength <= 0) then
     Exit;
-  // cap outbound 0-RTT at the ticket's max_early_data (RFC 8446 4.2.10): send at most the
+  // cap outbound 0-RTT at the ticket's max_early_data (RFC 8446 4.6.1): send at most the
   // remaining budget as early data and return that count; the caller resends the rest as 1-RTT
   // once the handshake completes
   LAccept := FEarlyDataLimit - FEarlyDataSent;

@@ -74,7 +74,8 @@ The two directions differ in how far the input can be trusted, so their contract
 * **`TryDecompress`** runs on the peer's bytes. Return **False** when they cannot be decompressed:
   malformed, truncated, followed by trailing bytes, or longer than `AMaxLength` once inflated. Never
   allocate or produce more than `AMaxLength`. You need know nothing about TLS: a False **or** any
-  exception becomes the `bad_certificate` alert RFC 8879 names.
+  exception becomes the `bad_certificate` alert RFC 8879 names. That includes an access violation
+  in your own backend, so test it directly rather than through a handshake.
 
 One instance is shared by every connection built from a config, so both methods must be safe to
 call concurrently; a stateless implementation is.

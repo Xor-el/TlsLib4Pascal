@@ -46,7 +46,7 @@ type
     function BuildClientHelloOuter(AMode: TEchChMode; const AInnerFramed, AOuterRandom,
       ALegacySessionId: TBytes; const APskOffers: TArray<IPreSharedKey>): TBytes;
     /// <summary>Decides ECH accept vs reject from the ServerHello accept confirmation (RFC 9849
-    /// sec. 7.2): activates/rebuilds only the inner transcript under AHash, checks the confirmation
+    /// sec. 6.1.4 / 7.2): activates/rebuilds only the inner transcript under AHash, checks the confirmation
     /// on a clone, cross-checks any HelloRetryRequest verdict, sets Status, returns True on accept.
     /// It does NOT append the ServerHello to any transcript - the machine adopts the inner
     /// transcript and random on accept, or the public_name on reject, and appends it itself.</summary>

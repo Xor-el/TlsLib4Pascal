@@ -386,13 +386,14 @@ LHttp.IOHandler := LIO;
 ### mORMot
 
 Map mORMot's native `TNetTlsContext.CASystemStores`: naming an **anchor-bearing** store
-(`scsRoot` and/or `scsCA`) turns on the OS harvest, unioning with `CACertificatesFile`.
+(`scsRoot` and/or `scsCA`) turns on the OS harvest, but only when `CACertificatesFile` is empty: a
+CA file replaces system trust, as it does in mORMot's own OpenSSL backend.
 `scsMY`/`scsSpc` are *not* server-auth anchors and do not trigger it. (On Windows the harvest
 itself reads the `ROOT` store only — the `CA` store holds cached intermediates, not anchors — so
 `scsCA` and `scsRoot` both enable the same ROOT-only harvest.)
 
 ```pascal
-LClient.TLS.CASystemStores := [scsRoot];         // OS roots (unions with CACertificatesFile)
+LClient.TLS.CASystemStores := [scsRoot];         // OS roots (only when CACertificatesFile is empty)
 ```
 
 Two caveats:

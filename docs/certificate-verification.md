@@ -285,10 +285,13 @@ stream.SetCertificateVerdictResolver(checker.ResolveVerdict);
 The checker tries the responders a certificate lists in order — every OCSP responder URL, then every
 CRL distribution point — and stops at the first definitive answer (a current **Good** or a
 **Revoked**); an unreachable, malformed or stale answer moves on to the next. URLs that name the same
-responder are tried once: the scheme and host are compared without regard to case, a default port
-(`:80` for http, `:443` for https) or a bare `:` is the same as no port, an empty path is the same
-as `/`, and everything else — userinfo, path and query — is compared exactly. The fetcher is
-handed the first spelling it saw. By
+responder are tried once, judged on a canonical form: the scheme and host are compared without
+regard to case, a default port (`:80` for http, `:443` for https) or a bare `:` is the same as no port, an empty
+path is the same as `/`, percent-encoding hex case is normalised, and the fragment is dropped; path
+and query are otherwise compared exactly. The fetcher is handed that canonical text, not the
+original spelling. A URL carrying userinfo, or one the strict parser refuses (a bad port, a
+numeric last label, a trailing dot, a zone identifier, brackets in the path or query), is skipped without
+using up the cap. By
 default at most three OCSP responders and three CRL points are tried. `budgetMs` is the **total**
 time one check may spend fetching across all of those attempts, measured on the injected clock: each
 attempt gets a fair share of what remains (never less than 250 ms by default, or the whole budget

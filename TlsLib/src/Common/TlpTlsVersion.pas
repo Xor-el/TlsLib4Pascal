@@ -19,8 +19,9 @@ const
   /// <summary>
   /// The 2-byte version codes. Only TLS 1.2 and 1.3 are ever negotiable; the
   /// older code exists solely as a legacy wire value the format requires -
-  /// legacy_record_version is 0x0301 on the initial flight and 0x0303 after,
-  /// and legacy_version is 0x0303 even in a 1.3 handshake (RFC 8446 5.1).
+  /// legacy_record_version is 0x0301 on the initial flight and 0x0303 after
+  /// (RFC 8446 5.1), and legacy_version is 0x0303 even in a 1.3 handshake
+  /// (RFC 8446 4.1.2 / 4.1.3).
   /// </summary>
   TlsWireVersionTls10 = UInt16($0301);
   // not negotiable; names the 1.1-and-below downgrade sentinel (RFC 8446 4.1.3)

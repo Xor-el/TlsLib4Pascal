@@ -61,7 +61,7 @@ type
     /// <summary>The legacy_version field. A negotiated TLS 1.3 sets it to 0x0303 and carries
     /// the real version in supported_versions; a server that selected 1.2 or below carries
     /// its version here. Read verbatim so the client can map an unsupported selection to a
-    /// protocol_version alert rather than a decode error (RFC 8446 4.2.1).</summary>
+    /// protocol_version alert rather than a decode error (RFC 8446 D.1).</summary>
     LegacyVersion: UInt16;
     Random: TBytes;
     LegacySessionIdEcho: TBytes;
@@ -107,7 +107,7 @@ type
     Signature: TBytes;
   end;
 
-  /// <summary>A TLS 1.2 ECDHE ClientKeyExchange (RFC 4492 5.7): the client ephemeral
+  /// <summary>A TLS 1.2 ECDHE ClientKeyExchange (RFC 8422 5.7): the client ephemeral
   /// EC point.</summary>
   TTlsClientKeyExchangeEcdhe = record
     PublicKey: TBytes;
@@ -246,7 +246,7 @@ type
   end;
 
 const
-  EcCurveTypeNamedCurve = Byte(3); // RFC 4492 5.4 ECCurveType.named_curve
+  EcCurveTypeNamedCurve = Byte(3); // RFC 8422 5.4 ECCurveType.named_curve
   LegacyCompressionNull = Byte(0);
   ClientHelloRandomLength = Int32(32);
   MaxLegacySessionIdLength = Int32(32); // legacy_session_id<0..32> (RFC 8446 4.1.2)
@@ -273,7 +273,7 @@ resourcestring
   SEmptyOcspResponse = 'a CertificateStatus carries an empty OCSP response';
   SEmptyCompressedCertificate = 'a CompressedCertificate carries no compressed message (RFC 8879 4)';
   SEmptyCertRequestSigAlgs = 'a CertificateRequest names no supported_signature_algorithms ' +
-    '(RFC 5246 7.4.4 requires at least one)';
+    '(RFC 5246 7.4.1.4.1 requires at least one)';
   SEmptyDistinguishedName12 = 'a CertificateRequest certificate_authorities entry is a ' +
     'zero-length DistinguishedName (RFC 5246 7.4.4)';
 
@@ -445,7 +445,7 @@ begin
   LReader := TWireReader.Create(ABody);
   // legacy_version is read verbatim, not rejected: a server that selected TLS 1.2 or below
   // carries its version here (supported_versions absent), and the client maps an unsupported
-  // selection to a protocol_version alert during version negotiation (RFC 8446 4.2.1)
+  // selection to a protocol_version alert during version negotiation (RFC 8446 D.1)
   Result.LegacyVersion := LReader.ReadUInt16;
   Result.Random := LReader.ReadBytes(ClientHelloRandomLength);
   LSession := LReader.OpenVector(1);
@@ -891,7 +891,7 @@ begin
   LTypes := LReader.OpenVector(1);
   Result.CertificateTypes := LTypes.ReadBytes(LTypes.Remaining);
   Result.SupportedSignatureAlgorithms := ReadUInt16Vector(LReader);
-  // the list must name at least one algorithm (RFC 5246 7.4.4 <2..2^16-1>); an empty
+  // the list must name at least one algorithm (RFC 5246 7.4.1.4.1 <2..2^16-2>); an empty
   // supported_signature_algorithms is a decode error
   if System.Length(Result.SupportedSignatureAlgorithms) = 0 then
     raise EDecodeErrorTlsLibException.CreateRes(@SEmptyCertRequestSigAlgs);

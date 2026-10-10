@@ -57,9 +57,9 @@ type
     /// handshake byte may follow in the same record, whether mid-handshake or a later KeyUpdate.</summary>
     class function HasReadKeyChange(
       const AEffects: TArray<THandshakeEffect>): Boolean; static;
-    /// <summary>Whether buffered handshake bytes remain past a point where RFC 8446 5.1 requires
-    /// the peer's record to have ended: a read-key change at any time, or a flight boundary or
-    /// completion while still handshaking.</summary>
+    /// <summary>Whether buffered handshake bytes remain past a point where the peer's record must
+    /// have ended: a read-key change at any time (RFC 8446 5.1), or, as local policy, a flight
+    /// boundary or completion while still handshaking.</summary>
     function ExcessAfterBoundary(const AEffects: TArray<THandshakeEffect>;
       AWasEstablished: Boolean): Boolean;
     /// <summary>Feeds every whole buffered message into the machine, applying its effects,
@@ -264,8 +264,9 @@ begin
     if HasFail(LEffects) then
       Exit;
     // the peer must not pack the next flight's bytes into the record that ends the current one
-    // (RFC 8446 5.1), so buffered bytes past a read-key change, or past a flight boundary or
-    // completion while handshaking, are excess data. Checked per message so a complete message
+    // (a read-key change requires it, RFC 8446 5.1; a flight boundary is local policy), so buffered
+    // bytes past a read-key change, or past a flight boundary or completion while handshaking, are
+    // excess data. Checked per message so a complete message
     // behind the boundary is refused too. Post-handshake NewSessionTicket / KeyUpdate may span
     // records, so only a key change is a boundary once established.
     if ExcessAfterBoundary(LEffects, LWasEstablished) then

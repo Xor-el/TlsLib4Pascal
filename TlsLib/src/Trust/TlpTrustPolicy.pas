@@ -115,7 +115,8 @@ type
   /// <summary>
   /// The escape hatches that deliberately weaken or extend trust, grouped so they read
   /// as one loud, opt-in surface. InsecureSkipVerify makes an otherwise-untrusted chain
-  /// pass (it bypasses PKIX, revocation, endpoint identity, and pinning) and must never
+  /// pass (it bypasses PKIX, revocation and endpoint identity; configured pins still apply,
+  /// matched against the leaf only) and must never
   /// ship in production - it exists for tests and pinned/self-signed development peers.
   /// VerifyCallback is the augment-only hook (it can only additionally reject). When both
   /// are set the callback still runs, so a caller can skip the built-in pipeline yet keep

@@ -944,7 +944,7 @@ begin
     else if LArg = '-install-one-cert-compression-alg' then
       AConfig.InstallOneCertCompressionAlg := StrToInt(NextValue(LArg))
     else if LArg = '-no-server-name-ack' then
-      // the server must not echo the empty server_name acknowledgement (RFC 6066 3)
+      // suppress the RFC 6066 3 acknowledgement, as the runner asks
       AConfig.SuppressServerNameAck := True
     else if LArg = '-check-close-notify' then
       // a shim-initiated shutdown must be bidirectional: send our close_notify and wait for
@@ -1346,7 +1346,7 @@ begin
   LOptions := BuildOptions(ACryptoProvider, APkix, AConfig, AIsResume);
   LOptions.ReverifyOnResume := AConfig.ReverifyOnResume;
   // -verify-fail is fatal only under -verify-peer / -require-any-client-certificate (a hard
-  // verify); without them BoringSSL soft-fails and completes, and so do we (the valid cert
+  // verify); without them the runner expects a soft-fail completion (the valid cert
   // verifies and no reject is injected). -on-resume-verify-fail and -on-retry-verify-fail bite on
   // the resumed connection: the former on its re-verification (under -reverify-on-resume), the
   // latter on the retry after a 0-RTT reject or on the full-handshake fallback when no ticket

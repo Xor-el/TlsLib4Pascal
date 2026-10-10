@@ -26,6 +26,8 @@ Read [Getting started](getting-started.md) first.
 - [0-RTT early data](#0-rtt-early-data)
 - [Set a revocation posture](#set-a-revocation-posture)
 - [Certificate compression](#certificate-compression)
+- [Hide the SNI with Encrypted Client Hello](#hide-the-sni-with-encrypted-client-hello)
+- [Connect without sending SNI (still verified)](#connect-without-sending-sni-still-verified)
 - [External (out-of-band) PSKs](#external-out-of-band-psks)
 - [The dangerous surface (dev only)](#the-dangerous-surface-dev-only)
 
@@ -581,15 +583,15 @@ begin
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithTrustAnchors(caPem)
     .Tls13.WithExternalPreSharedKeys(TArray<TExternalPsk>.Create(LPsk))
-    // .WithExternalPskRequired(True)   // refuse to proceed without one
+    // .WithExternalPskRequired(False)  // let the client fall back to certificate authentication
     .Build;
 end;
 ```
 
 External PSKs are TLS 1.3 only, so they are set on the `Tls13` facet (as are `WithGrease` and the
-server's `WithTicketCount`); a config that does not offer TLS 1.3 refuses them at `Build`. Both ends
-configure the same identity + key. Use `Tls13.WithExternalPskRequired(True)` when the deployment must
-not fall back to certificate authentication.
+server's `WithTicketCount`); a config that does not offer TLS 1.3 refuses a non-default value of them
+at `Build`. Both ends configure the same identity + key. A client requires the PSK by default; use
+`Tls13.WithExternalPskRequired(False)` to let it fall back to certificate authentication.
 
 ## The dangerous surface (dev only)
 

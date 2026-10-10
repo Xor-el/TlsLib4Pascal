@@ -73,9 +73,8 @@ type
   end;
 
   /// <summary>ec_point_formats (RFC 8422 5.1.2): a client offering ECC cipher suites for
-  /// TLS 1.2 lists the point formats it supports (only uncompressed); a 1.2 server that
-  /// selected an ECC suite echoes it. Strict peers reject ECDHE without it. Ignored in
-  /// TLS 1.3.</summary>
+  /// TLS 1.2 lists the point formats it supports (only uncompressed); the 1.2 server does not
+  /// echo it (RFC 8422 5.2 makes the echo optional). Ignored in TLS 1.3.</summary>
   TEcPointFormatsExtension = class sealed(TInterfacedObject, ITlsExtension)
   public
     function ExtensionType: UInt16;
@@ -598,7 +597,7 @@ begin
   LReader := TWireReader.Create(AExtensionData);
   LList := LReader.OpenVector(2);
   LReader.ExpectEnd;
-  // only host_name is defined; anything else is a decode error (RFC 6066 3)
+  // only host_name is defined (RFC 6066 3); we treat anything else as a decode error
   LNameType := LList.ReadUInt8;
   if LNameType <> 0 then
     raise EDecodeErrorTlsLibException.CreateRes(@SUnknownNameType);
