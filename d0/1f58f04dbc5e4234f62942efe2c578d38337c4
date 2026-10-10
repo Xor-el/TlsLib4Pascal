@@ -1,0 +1,238 @@
+TlsLib/src/Extensions/TlpCoreExtensions.pas
+  s_d27f31cd14035d::t_8f466cb73b1b31 707
+  s_d27f31cd14035d::t_325d951fb77870 694
+  s_d27f31cd14035d::t_f1675e61adadf0 667
+  s_d27f31cd14035d::t_a5b9cdf792d2ea 640,649,654
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
+  s_d27f31cd14035d::t_ea5d970ed68f1f 664-667
+  s_d27f31cd14035d::t_fbe7ebdd2b279e 31
+TlsLib.Tests/src/ClientSessionPolicyTests.pas
+  s_d27f31cd14035d::t_3cf99d6e65352f 145
+TlsLib/src/Handshake/TlpTlsCredential.pas
+  s_d27f31cd14035d::t_605567e53bd6f0 107
+  s_d27f31cd14035d::t_99ce5dc0093960 102
+TlsLib/src/Session/TlpSessionTicketStrategy.pas
+  s_d27f31cd14035d::t_eb3fcca8adb602 205
+  s_d27f31cd14035d::t_1d66a7dc06e0e4 316
+  s_d27f31cd14035d::t_d6580faf59d4b3 295-296
+docs/cookbook.md
+  s_d27f31cd14035d::t_58034ce1eb8a38 397
+  s_d27f31cd14035d::t_49cfab0f278c47 92
+  s_d27f31cd14035d::t_c4a63de261259e 367-369,372-374,376,379-380
+  s_d27f31cd14035d::t_028990dc4133df 375
+TlsLib.Tests/src/ExtensionCodecTests.pas
+  s_d27f31cd14035d::t_d9f9f02306a46e 176
+  s_d27f31cd14035d::t_19d88c9f548ec0 465,468,471,473-474,487-488,490-493
+  s_d27f31cd14035d::t_8981cf22d1f9e0 241
+  s_d27f31cd14035d::t_3189f32e225998 464,466-467,472,476-486,489
+  s_d27f31cd14035d::t_c31ddac8363b27 192-193
+  s_d27f31cd14035d::t_7b6c54f33055fd 245
+  s_d27f31cd14035d::t_80f804a64e3e21 469-470
+  s_d27f31cd14035d::t_2cfd952303de11 475
+  s_d27f31cd14035d::t_8b22d11b450342 77
+  s_d27f31cd14035d::t_f2559ca900a1a9 33
+TlsLib.Adapters/FclNet/README.md
+  s_d27f31cd14035d::t_ba009bf5cd264b 94
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_d27f31cd14035d::t_28fbeae3c77fa9 319-322
+  s_d27f31cd14035d::t_df5a926adaad0a 87-89
+TlsLib/src/Handshake/TlpServerOfferSelection.pas
+  s_d27f31cd14035d::t_6318e1e8955c5e 108
+  s_d27f31cd14035d::t_cbc09fed2cf1a8 20
+  s_d27f31cd14035d::t_4102e63f2808ff 43-44
+  s_d27f31cd14035d::t_106083822993ca 21
+  s_d27f31cd14035d::t_67dce009df2cdc 75,77,79
+  s_d27f31cd14035d::t_e983981f0a209e 89-90
+TlsLib.Tests/src/TlsConnectionTests.pas
+  s_d27f31cd14035d::t_d70d9b453ba96a 560,566-567
+  s_d27f31cd14035d::t_31c8c0ac402d79 30
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_d27f31cd14035d::t_cf1de0ef15c51e 615
+  s_d27f31cd14035d::t_261bf4020392c4 353
+  s_d27f31cd14035d::t_5b7f30eb1dc283 456-457
+  s_d27f31cd14035d::t_dfd7e45df1e11f 773-774
+  s_d27f31cd14035d::t_74a0169305a83c 206
+  s_d27f31cd14035d::t_0db83ac05002f6 458-459
+  s_d27f31cd14035d::t_1af763b6cc621a 92
+  s_d27f31cd14035d::t_51a3ab763ab862 640
+  s_d27f31cd14035d::t_2b3a3db5d70288 1014-1024
+  s_d27f31cd14035d::t_f4431f869be0cb 209
+  s_d27f31cd14035d::t_1297dc055d50cd 1009,1011-1012,1025-1030
+TlsLib/src/Session/TlpSession.pas
+  s_d27f31cd14035d::t_79db157e223d79 192
+  s_d27f31cd14035d::t_f58bdbb2c98f14 102
+  s_d27f31cd14035d::t_de791370855f8c 92
+  s_d27f31cd14035d::t_e97b9d7f632350 264
+  s_d27f31cd14035d::t_8e0fe6d011e829 220
+  s_d27f31cd14035d::t_16a97ad46b94c6 55
+  s_d27f31cd14035d::t_9a7a859ef82a9c 154
+  s_d27f31cd14035d::t_ede0db1d7cef7e 357
+  s_d27f31cd14035d::t_cc509553de21f3 71
+  s_d27f31cd14035d::t_fbd898c5bbdf99 262
+  s_d27f31cd14035d::t_d31355ef6326ab 222
+  s_d27f31cd14035d::t_8f114e35b76111 125
+  s_d27f31cd14035d::t_14f51c5674ad15 296
+  s_d27f31cd14035d::t_4fd82da29ba7b4 63
+  s_d27f31cd14035d::t_2d90022e43bdfa 170
+  s_d27f31cd14035d::t_06cc225b49ef5a 179,306,369
+TlsLib.Tests/src/TlsStreamLoopbackTests.pas
+  s_d27f31cd14035d::t_94edda3e9b807e 72
+  s_d27f31cd14035d::t_cb6d243cff2cd8 314
+  s_d27f31cd14035d::t_406b2eaed28e84 328,759
+  s_d27f31cd14035d::t_e9907bcbfe5a56 884-885
+  s_d27f31cd14035d::t_b21d46aa649167 82
+  s_d27f31cd14035d::t_279df76999bf5e 871-872
+  s_d27f31cd14035d::t_70bceb9685e974 30
+TlsLib/src/Interfaces/Handshake/TlpIHandshakeMachine.pas
+  s_d27f31cd14035d::t_0646c7ae3cea09 99
+TlsLib.Interop/src/BoGoShimRunner.pas
+  s_d27f31cd14035d::t_71bf12ebf465a5 424
+  s_d27f31cd14035d::t_e44e78e0a3ea50 992-993,997-998,1000-1001
+  s_d27f31cd14035d::t_867dd480c63f89 101,103,105,107,109
+  s_d27f31cd14035d::t_acf5114fc30da3 1287-1288
+  s_d27f31cd14035d::t_ba5b9647df4499 714
+  s_d27f31cd14035d::t_39919ee034981d 689
+  s_d27f31cd14035d::t_b6cd434399e96a 692
+  s_d27f31cd14035d::t_ab68cd7f8b7314 251
+  s_d27f31cd14035d::t_24439b93b34a98 414
+  s_d27f31cd14035d::t_262f54ec3ba269 697
+  s_d27f31cd14035d::t_8a3176f5df6579 434
+  s_d27f31cd14035d::t_d9ec95f8487f20 94-95
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_d27f31cd14035d::t_46dbeb7fe18145 951
+  s_d27f31cd14035d::t_03961406b97fea 102
+  s_d27f31cd14035d::t_32f8581389b24a 196
+TlsLib/src/Packages/Delphi/TlsLib4PascalPackage.dpk
+  s_d27f31cd14035d::t_03514145e57171 194-195
+TlsLib.Tests/src/Tls13ResumptionTests.pas
+  s_d27f31cd14035d::t_95b2eb31f329a7 122
+  s_d27f31cd14035d::t_55d51ca7b3ff30 547-565
+  s_d27f31cd14035d::t_409c0073df8e9a 428
+TlsLib/src/Handshake/TlpHandshakeEffect.pas
+  s_d27f31cd14035d::t_116b6992c4be16 65
+  s_d27f31cd14035d::t_ea37fe3d09b8ce 210,214
+  s_d27f31cd14035d::t_29b5786bd666f5 100
+TlsLib.Interop/src/InteropEngine.pas
+  s_d27f31cd14035d::t_978facda21f4dd 72
+TlsLib.Tests/src/ExtensionNegotiationTests.pas
+  s_d27f31cd14035d::t_6d8580c04290ba 1383-1384
+  s_d27f31cd14035d::t_883d38076eee3c 43
+  s_d27f31cd14035d::t_bf0ee95050fda0 80-81,91-92,94-95,250,277,429,435,463,469
+  s_d27f31cd14035d::t_ea4e3f5ec71626 743
+  s_d27f31cd14035d::t_5d17eb876683db 950-951,955-980,982-987
+  s_d27f31cd14035d::t_b4ceab1fb0de2a 995-996
+  s_d27f31cd14035d::t_3bd38ee1807e86 981
+  s_d27f31cd14035d::t_c3242f70d7f9f0 116
+  s_d27f31cd14035d::t_4d93eb780d023b 1012-1013
+  s_d27f31cd14035d::t_ede410b253c456 129-130
+  s_d27f31cd14035d::t_92596601d76ae9 657
+  s_d27f31cd14035d::t_9332ddce910731 736-737
+TlsLib.Tests/src/MockSink.pas
+  s_d27f31cd14035d::t_813ba554eb4340 67
+  s_d27f31cd14035d::t_bd55d67252c863 43
+TlsLib/src/Interfaces/Engine/TlpITlsConfig.pas
+  s_d27f31cd14035d::t_6e8c9ba2792526 60
+TlsLib/src/Engine/TlpTlsEngine.pas
+  s_d27f31cd14035d::t_16421f99f1d2bd 1130-1132,1134
+  s_d27f31cd14035d::t_0f4b85348c22de 340
+  s_d27f31cd14035d::t_73e8e406ab68cc 1208
+  s_d27f31cd14035d::t_cce6ab3258e831 182,264
+TlsLib/src/Interfaces/Session/TlpISession.pas
+  s_d27f31cd14035d::t_b563402c4ab10e 77-78
+  s_d27f31cd14035d::t_17377ced2e9574 51
+TlsLib.Tests/src/SessionStoreTests.pas
+  s_d27f31cd14035d::t_176dd16beb7f3a 1003-1004
+  s_d27f31cd14035d::t_a4c510a570d4ef 1040
+  s_d27f31cd14035d::t_f4039a9ebee64e 226
+  s_d27f31cd14035d::t_2a0a1f89ce3cce 249
+  s_d27f31cd14035d::t_65f88732a772dc 241
+  s_d27f31cd14035d::t_f758a3709196fe 234
+  s_d27f31cd14035d::t_249ee4d85353b8 159
+  s_d27f31cd14035d::t_8a7f166b129d02 1014
+  s_d27f31cd14035d::t_974e27104d1558 182,184
+TlsLib/src/Extensions/TlpExtensionContext.pas
+  s_d27f31cd14035d::t_06e9878c1f1cc6 77-78
+TlsLib/src/Handshake/TlpTls12ClientStateMachine.pas
+  s_d27f31cd14035d::t_470ab8d4daef34 531,533
+  s_d27f31cd14035d::t_5fd021d747c053 21
+  s_d27f31cd14035d::t_379d34f7983c54 78
+  s_d27f31cd14035d::t_3b41d3b9ded891 902
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_d27f31cd14035d::t_cb13848e58ff8e 1048
+  s_d27f31cd14035d::t_bef2381ef4431f 876,880,885-890
+  s_d27f31cd14035d::t_078d1352155a06 865
+  s_d27f31cd14035d::t_d42beec5b34eef 950,952,954-956,958-959
+  s_d27f31cd14035d::t_fa8a1f35cfdcbd 1072
+  s_d27f31cd14035d::t_bed8494d47116e 33
+  s_d27f31cd14035d::t_57c9fd8cdf9b57 1053
+  s_d27f31cd14035d::t_b049526eeffac4 901-902
+  s_d27f31cd14035d::t_90892d606ac281 940
+  s_d27f31cd14035d::t_2bc6263bdf14d1 928-929
+  s_d27f31cd14035d::t_ebb36ccd52fb31 911-912
+TlsLib/src/Common/TlpAlpnProtocols.pas
+  s_d27f31cd14035d::t_5d92530f514a4e 29-30
+  s_d27f31cd14035d::t_d4bf154ecef849 1-28,31-105
+TlsLib/src/Handshake/TlpHandshakeDriver.pas
+  s_d27f31cd14035d::t_2fb08033e36294 130
+TlsLib.Tests/src/Tls12ResumptionTests.pas
+  s_d27f31cd14035d::t_08e71dbf3eb063 555
+  s_d27f31cd14035d::t_954a2ba2c048d0 613
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.pas
+  s_d27f31cd14035d::t_72f15d4d4e77d1 59
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_d27f31cd14035d::t_d4448ef87e31ef 68
+TlsLib/src/Connection/TlpTlsConnection.pas
+  s_d27f31cd14035d::t_c63450d4a1b3ad 30
+  s_d27f31cd14035d::t_c6bdedda6e8172 591
+  s_d27f31cd14035d::t_a1454aec858dfa 659
+TlsLib/src/Engine/TlpTlsConnectionInfo.pas
+  s_d27f31cd14035d::t_88f0d78b7fc09b 35-37
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_d27f31cd14035d::t_faf99d15eb4e0c 48
+TlsLib.Tests/src/EngineSkeletonTests.pas
+  s_d27f31cd14035d::t_7aad3910121f48 430
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_d27f31cd14035d::t_aacb8da953124d 391
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_d27f31cd14035d::t_63571523cc2226 1958,1960,1965-1966,1969
+  s_d27f31cd14035d::t_d2cacafbfaf084 614
+  s_d27f31cd14035d::t_659459062743c1 238
+  s_d27f31cd14035d::t_13175cf8fd0e8b 1349
+  s_d27f31cd14035d::t_09a2d2d009936d 1980-1981,1983
+  s_d27f31cd14035d::t_0fc75971b7bce5 817
+  s_d27f31cd14035d::t_a35a2133036102 108,478
+  s_d27f31cd14035d::t_30f682707f8dcd 505
+  s_d27f31cd14035d::t_634287de71dcc5 1110
+  s_d27f31cd14035d::t_6dc222501739bf 815
+  s_d27f31cd14035d::t_ece8cfda4da803 1984
+  s_d27f31cd14035d::t_6ca246d7ecdef1 402
+  s_d27f31cd14035d::t_66faf3a2be57a5 667
+docs/getting-started.md
+  s_d27f31cd14035d::t_2cfc1fbfa6729d 174-175
+  s_d27f31cd14035d::t_ec8b360d6d92d4 164,169
+TlsLib.Interop/src/InteropUtils.pas
+  s_d27f31cd14035d::t_f2018d63453952 67-68
+  s_d27f31cd14035d::t_c9d49e692442a4 347-356
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_d27f31cd14035d::t_b33b5dda7fd4df 20
+  s_d27f31cd14035d::t_26e142527a00ad 94
+  s_d27f31cd14035d::t_aed04a1ffc2e6a 272
+  s_d27f31cd14035d::t_8680b20c710506 1226,1228
+  s_d27f31cd14035d::t_6f759a317a32b3 1278
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d01f58f04dbc5e4234f62942efe2c578d38337c4",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
