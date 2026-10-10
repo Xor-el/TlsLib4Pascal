@@ -1,0 +1,65 @@
+TlsLib/src/Engine/TlpTlsEngine.pas
+  s_d27f31cd14035d::t_5095f027f8a7a6 1141
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_d27f31cd14035d::t_23569898742310 146
+  s_d27f31cd14035d::t_92fd7a2d67e83e 1110
+  s_d27f31cd14035d::t_cba6bb9b876b6a 1077
+  s_d27f31cd14035d::t_dd863e1e1cb498 192
+  s_d27f31cd14035d::t_099d279f1d7faf 149-150
+  s_d27f31cd14035d::t_c777e47edd74a3 984
+  s_d27f31cd14035d::t_aeb41b43861a06 188-189
+  s_d27f31cd14035d::t_662ed102e0bf5b 194-196
+  s_d27f31cd14035d::t_7a60b221c72aa8 1046-1056
+  s_d27f31cd14035d::t_e0c8d507b01f7b 251-252
+  s_d27f31cd14035d::t_11ca69cb905f0d 481,485-486,489,496,499-501,507,511-518
+docs/cookbook.md
+  s_d27f31cd14035d::t_8201afa871e9e5 637-640
+docs/security-model.md
+  s_d27f31cd14035d::t_e4faef10e0d201 92
+TlsLib/src/Session/TlpSession.pas
+  s_d27f31cd14035d::t_f5504954fb5712 185
+  s_d27f31cd14035d::t_9dff61ace7ff8f 172,178
+  s_d27f31cd14035d::t_391c8b702b83a0 387
+  s_d27f31cd14035d::t_cac9aea4273f0d 395,399
+  s_d27f31cd14035d::t_0df6b9872fd96c 162
+  s_d27f31cd14035d::t_b2e99ed2776f34 440-444
+TlsLib/src/KeySchedule/TlpTls12KeySchedule.pas
+  s_d27f31cd14035d::t_7d9481362fdc2a 363-377
+  s_d27f31cd14035d::t_15c3a902a8f6aa 119
+  s_d27f31cd14035d::t_6d3c444307b2c5 102-107
+TlsLib/src/Interfaces/Session/TlpISession.pas
+  s_d27f31cd14035d::t_d6fed99b6f55d8 133-134,136-138
+TlsLib/src/Session/TlpSessionTicketStrategy.pas
+  s_d27f31cd14035d::t_c21d8864f968f9 245-247
+  s_d27f31cd14035d::t_b8535cc7554d99 370
+  s_d27f31cd14035d::t_a9eac7954eea33 109-110
+  s_d27f31cd14035d::t_f030d29980d4f0 362-363
+  s_d27f31cd14035d::t_7ad109c774a718 309,315
+TlsLib/src/Handshake/TlpTls12ClientStateMachine.pas
+  s_d27f31cd14035d::t_233101236f99e6 974
+  s_d27f31cd14035d::t_9238e75cfa1902 206
+  s_d27f31cd14035d::t_3cc41418c57948 1003,1005-1008,1010,1012-1013
+  s_d27f31cd14035d::t_7c9efae3326871 1017
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_d27f31cd14035d::t_f48ec394fcda4f 309-311
+  s_d27f31cd14035d::t_320816d25dfcbf 589-592
+TlsLib.Tests/src/Tls12PskTests.pas
+  s_d27f31cd14035d::t_63fecfcc411792 620-687
+  s_d27f31cd14035d::t_ea4b27a9a353ed 110-112
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "06aee00e30fefaa55689360a74f3be573cb7532d",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
