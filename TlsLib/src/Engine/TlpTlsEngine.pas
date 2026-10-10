@@ -1054,8 +1054,8 @@ begin
   if LWant <= 0 then
     Exit(0);
   Result := LWant;
-  // no drain to resume: the early queue never counts against the app-read cap, since
-  // max_early_data already bounds it
+  // no drain to resume: the early queue never counts against the app-read cap, since the
+  // accepted max_early_data bounds it (the builder refuses a server value of 1 MiB or more)
   FEarlyQueue.Take(ADest, ADestOffset, LWant);
 end;
 
