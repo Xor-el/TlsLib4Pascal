@@ -1,0 +1,32 @@
+TlsLib.Tests/src/NativeCryptoProviderTests.pas
+  s_d27f31cd14035d::t_8bb9df86333949 250
+  s_d27f31cd14035d::t_471a8caccfb407 853,855,857-858,860,862,864
+  s_d27f31cd14035d::t_f663f6bec3ec13 276
+  s_d27f31cd14035d::t_b0adf22e8edad1 233
+  s_d27f31cd14035d::t_44d0884f8d5391 212,214
+  s_d27f31cd14035d::t_6e26079c72bd22 128-129
+  s_d27f31cd14035d::t_ed2b492a975f60 228
+  s_d27f31cd14035d::t_a4b5fde242fdf2 221
+  s_d27f31cd14035d::t_4b3604579f0970 55-61
+  s_d27f31cd14035d::t_1b5d7dd03efd2e 238
+  s_d27f31cd14035d::t_1cf981d01ebfbd 244
+  s_d27f31cd14035d::t_bc6bfb9fc1b465 87-95
+  s_d27f31cd14035d::t_9139b4c1f3049f 267
+  s_d27f31cd14035d::t_385fa78e335620 690
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3bda2e4b30fdc1675d1ae981f23afe13e21c0d90",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
