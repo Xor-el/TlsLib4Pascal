@@ -93,6 +93,8 @@ type
       AWithCallback: Boolean): IServerCertificateVerifier;
     function ClientVerifier(const AInner: IClientCertificateVerifier;
       AWithCallback: Boolean): IClientCertificateVerifier;
+  protected
+    procedure SetUp; override;
   published
     procedure TestServerCallbackRejectsOverAcceptingInstance;
     procedure TestServerCallbackAcceptKeepsInstanceVerdict;
@@ -245,6 +247,14 @@ begin
 end;
 
 { TTestInstanceSourceVerifyCallback }
+
+procedure TTestInstanceSourceVerifyCallback.SetUp;
+begin
+  inherited SetUp;
+  // a GUI re-run reuses the test instances, so the counter must not carry over
+  FCalls := 0;
+  FAccept := False;
+end;
 
 function TTestInstanceSourceVerifyCallback.Callback(const AChain: TArray<TBytes>;
   const AHostName: string): Boolean;

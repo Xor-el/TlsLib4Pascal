@@ -349,11 +349,14 @@ begin
 end;
 
 function TTestClientAuth.New13Client(AWithCredential: Boolean): ITlsEngine;
+var
+  LCredential: TTlsCredential;
 begin
   if AWithCredential then
-    Result := New13ClientWith(Credential)
+    LCredential := Credential
   else
-    Result := New13ClientWith(Default(TTlsCredential));
+    LCredential := Default(TTlsCredential);
+  Result := New13ClientWith(LCredential);
 end;
 
 function TTestClientAuth.New13ClientWith(const ACredential: TTlsCredential): ITlsEngine;
