@@ -1,0 +1,132 @@
+TlsLib/src/Interfaces/Engine/TlpITlsConfig.pas
+  s_d27f31cd14035d::t_4df4ec2034d385 68-69,71-75
+TlsLib/src/Engine/TlpTlsEngineFactory.pas
+  s_d27f31cd14035d::t_dddddc3bee49a1 297-298,300-301
+  s_d27f31cd14035d::t_744872b97ce2f5 484-485,487-488
+TlsLib/src/Handshake/TlpHandshakeMessages.pas
+  s_d27f31cd14035d::t_39e908dea78031 691-693
+  s_d27f31cd14035d::t_c5728a33265e55 274
+TlsLib.Interop/src/BoGoShimRunner.pas
+  s_d27f31cd14035d::t_de3e20dfaaab99 102-106
+  s_d27f31cd14035d::t_13b40ce2b2081f 385-499
+  s_d27f31cd14035d::t_cc13bfa9709925 304-306,309-327
+  s_d27f31cd14035d::t_9f5329b1782a02 39
+  s_d27f31cd14035d::t_d7d013363701d3 717
+  s_d27f31cd14035d::t_e38f246fc7bddd 1120-1128
+  s_d27f31cd14035d::t_b27efae0c683b6 942-945
+  s_d27f31cd14035d::t_b8f4138427b4b5 59-70
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_d27f31cd14035d::t_b525478821db80 505-508,511-514
+  s_d27f31cd14035d::t_f36db5928300a0 255-258,261-263,266-270
+docs/certificate-compression.md
+  s_d27f31cd14035d::t_ed59c7314e9f0f 5-10,12-24,27-30,32-63,66-102,107-112,114-116,120-122,131-134,136
+docs/cookbook.md
+  s_d27f31cd14035d::t_1e7f688cd186b1 502-505,507-508
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_d27f31cd14035d::t_3c3e79abe5225e 511
+  s_d27f31cd14035d::t_0cb757afc23436 838-844
+  s_d27f31cd14035d::t_2ac69ba6e5962f 1624-1630
+  s_d27f31cd14035d::t_cfe06166fb838e 2361
+  s_d27f31cd14035d::t_76f81c4cac286b 2969-2970
+  s_d27f31cd14035d::t_9680e983d9c54c 43
+  s_d27f31cd14035d::t_742629b604f1d9 733-734
+  s_d27f31cd14035d::t_6c933c0164f5d4 2372
+  s_d27f31cd14035d::t_21d6066ef35ff2 483
+TlsLib.Interop/src/TlsFuzzerRunner.pas
+  s_d27f31cd14035d::t_84141a3b3f77a1 420
+TlsLib.Tests/src/CertificateCompressionCacheTests.pas
+  s_d27f31cd14035d::t_9632e78f526cbc 102-103,109,113,115,145,148-151,203-211,308-309,325-326,344-346,357
+  s_d27f31cd14035d::t_664ee0fed586ff 65-66
+  s_d27f31cd14035d::t_1dad303dac478f 88
+  s_d27f31cd14035d::t_cbc6646858d19d 93
+  s_d27f31cd14035d::t_fc978aaecbc1b2 361-385
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_d27f31cd14035d::t_e78c65b380301b 429-433
+  s_d27f31cd14035d::t_9badd78e18c1a3 1741-1744
+  s_d27f31cd14035d::t_6498165d3686a9 2047-2048
+  s_d27f31cd14035d::t_c1eaa5ae47d7bc 1772-1796,1804,1810
+  s_d27f31cd14035d::t_3d67084f4143a4 59
+  s_d27f31cd14035d::t_5e40fd98e4d18f 227-229
+  s_d27f31cd14035d::t_134847a9e9c723 107-108,110-115
+  s_d27f31cd14035d::t_d1bca5d35b2ce3 1719
+  s_d27f31cd14035d::t_6237713a0faddc 1756-1759
+TlsLib/src/Handshake/TlpHandshakeMessage.pas
+  s_d27f31cd14035d::t_c1c58b365e6175 273-276
+  s_d27f31cd14035d::t_c7bcd4ffe9ed35 109-110
+TlsLib/src/CertCompression/TlpZlibCertificateCompression.pas
+  s_d27f31cd14035d::t_4e58eb919e92bf 35,46-47
+  s_d27f31cd14035d::t_4f0752c8918a90 73-74,79-80,83,85,87,89-100,102-106
+  s_d27f31cd14035d::t_c98977c27f2747 119-120,129-132,135,137,148-151,157-161,167-172
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_d27f31cd14035d::t_98e5dd663b9fd4 1707-1711
+  s_d27f31cd14035d::t_317ae6a2e09316 1640
+  s_d27f31cd14035d::t_937e60aab8abe4 102-108
+  s_d27f31cd14035d::t_e7d6b32eaead83 231-233
+  s_d27f31cd14035d::t_901d3de6fe54aa 52
+TlsLib/src/Interfaces/CertCompression/TlpICertificateCompression.pas
+  s_d27f31cd14035d::t_f7f21300139c85 25-27,30,33-38,42-49,52,55-59
+TlsLib.Tests/src/ExtensionNegotiationTests.pas
+  s_d27f31cd14035d::t_c0588dad9a12c3 149-150
+  s_d27f31cd14035d::t_bcab793cf33d4b 188-206
+  s_d27f31cd14035d::t_15725e239bfd2e 929,932,934-935,938-952,954
+  s_d27f31cd14035d::t_f6fa7442f0b0ae 178,184-185,212-213,218,226-227,232
+  s_d27f31cd14035d::t_7f41c4d49a898c 243
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_d27f31cd14035d::t_2a4c3efce68df3 1477-1482,1484-1487,1496-1498,1507-1509,1518-1533
+  s_d27f31cd14035d::t_8f1ddd322ce3a2 153-154
+  s_d27f31cd14035d::t_b6f208cc592d19 60-61
+  s_d27f31cd14035d::t_44de4bd1410956 1483,1488-1495,1499-1506,1510-1517
+TlsLib.Tests/src/ClientAuthTests.pas
+  s_d27f31cd14035d::t_64c68197e3b5ce 358-411
+  s_d27f31cd14035d::t_2deab27bcaf79f 57-60,239
+  s_d27f31cd14035d::t_aa5c46725badbb 55
+  s_d27f31cd14035d::t_01e1396ddb242c 147
+  s_d27f31cd14035d::t_13aa3917b74ade 56
+  s_d27f31cd14035d::t_4f1c643508161c 1048-1180,1182-1241
+  s_d27f31cd14035d::t_20a69982f6e489 1181
+  s_d27f31cd14035d::t_1ebbba6fee1c49 132-141,146,148-197,199-238
+  s_d27f31cd14035d::t_5faae518e0b6d2 79-86
+  s_d27f31cd14035d::t_081070ec4110aa 198
+TlsLib.Tests/src/ResourceLimitTests.pas
+  s_d27f31cd14035d::t_03ab16a16c9094 89
+TlsLib.Interop/src/InteropEngine.pas
+  s_d27f31cd14035d::t_a32dfb8eaf783f 41
+  s_d27f31cd14035d::t_f48a6ac7849a61 78-83
+  s_d27f31cd14035d::t_b9b5b4008484d4 420-422
+  s_d27f31cd14035d::t_7a0843736deb93 442-444
+TlsLib.Interop/src/OpenSslInteropRunner.pas
+  s_d27f31cd14035d::t_c9247063208cbb 455-464,466
+  s_d27f31cd14035d::t_77f769256f5ac7 26
+  s_d27f31cd14035d::t_abf7f28c820999 68-69
+  s_d27f31cd14035d::t_5cddf02e385027 196-197
+  s_d27f31cd14035d::t_590613c9ee1360 165-166
+  s_d27f31cd14035d::t_52be7a674cb4fe 379-380
+TlsLib/src/CertCompression/TlpCertificateCompression.pas
+  s_d27f31cd14035d::t_6326d1b55fd3a7 140-146,150-184
+  s_d27f31cd14035d::t_544084b2ff9a18 26-27,100,185
+  s_d27f31cd14035d::t_14e5f02d2d6a5a 224,226-227,231-232,234-279
+  s_d27f31cd14035d::t_1bfc77f68b7188 204
+  s_d27f31cd14035d::t_b3cbd977235040 63-68,70-78,82-83,90-94,96,98-99,101-111,114-118
+  s_d27f31cd14035d::t_3cec1625c31dfb 295
+  s_d27f31cd14035d::t_d220daf67244c9 320-329
+.github/workflows/ci/interop/run-openssl-matrix.sh
+  s_d27f31cd14035d::t_1b3fe3864d5fd4 517-523
+  s_d27f31cd14035d::t_61400325dc84c7 530
+  s_d27f31cd14035d::t_170e9041b37029 470-516,524-529,531-548
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "651128e2dbebc6792c4c0f59053e0751992fc074",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
