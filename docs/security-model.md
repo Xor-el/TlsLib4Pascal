@@ -148,10 +148,12 @@ These are intentional and documented — flagging them up front so they aren't m
   mORMot handshake timeout).
 - **Strict PKCS#1 DigestInfo.** Every RSASSA-PKCS1-v1_5 verification (certificate, CRL and OCSP
   signatures, and TLS 1.2 handshake signatures) re-encodes the DigestInfo with its NULL parameters and
-  compares it exactly (RFC 8017 8.2.2, 9.2 and B.1). Two paths are outside this: the optional Windows
-  native (CNG) verifier, which only verifies handshake signatures and accepts a DigestInfo without the
-  NULL, and OS trust delegate mode, where the chain and any revocation data the OS fetches are judged
-  by the platform.
+  compares it exactly (RFC 8017 8.2.2, 9.2 and B.1). The optional Windows native (CNG) verifier,
+  which only verifies handshake signatures, does the same: it names no hash OID and hands CNG the one
+  DigestInfo of RFC 8017 9.2 Note 1, so a DigestInfo without the NULL does not verify there either. It
+  is always strict, whatever the portable provider's strictness is set to. One path is outside this: OS
+  trust delegate mode, where the chain and any revocation data the OS fetches are judged by the
+  platform.
 - **The managed engine is always ours.** Native OS/JVM TLS stacks are never the handshake/record
   engine (a deliberate one-behavior / one-test-corpus stance); OS *trust* is the only sanctioned OS
   touch, and it is opt-in.
