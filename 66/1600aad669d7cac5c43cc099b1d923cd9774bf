@@ -1,0 +1,52 @@
+TlsLib.Tests/src/TlsConnectionTests.pas
+  s_d27f31cd14035d::t_164a4362218574 487-541,592-678,680-682,684-686,688-696,706-713,715-718,720-776
+  s_d27f31cd14035d::t_f89e3effa96299 697-702,704-705
+  s_d27f31cd14035d::t_fc066fc9491c62 703
+  s_d27f31cd14035d::t_f0bfda031c548d 714
+  s_d27f31cd14035d::t_dc62eab5e57c87 94
+  s_d27f31cd14035d::t_99f0b096bfffaf 29
+  s_d27f31cd14035d::t_637fe3f09902b5 78-80,82-84,87-93,95-98
+  s_d27f31cd14035d::t_07a4912736b06f 719
+  s_d27f31cd14035d::t_1c09e8e7f1f666 683,687
+  s_d27f31cd14035d::t_b5598ad7bd3e38 85-86
+  s_d27f31cd14035d::t_5a5a7297802c4e 679
+  s_d27f31cd14035d::t_e68261d96e6608 542-591
+TlsLib/src/Connection/TlpTlsConnection.pas
+  s_d27f31cd14035d::t_af6b9d840a8518 506-512,517-518,523,526-554
+  s_d27f31cd14035d::t_e185e56b591ee2 691-694,697
+  s_d27f31cd14035d::t_03268418038b44 79-84
+  s_d27f31cd14035d::t_7ab2962cd21c7d 36-37
+  s_d27f31cd14035d::t_bc117eaf865319 340-341
+  s_d27f31cd14035d::t_e1bc8a4d8ae550 513-516,519-521,524-525
+  s_d27f31cd14035d::t_0acc7889244fb4 522
+  s_d27f31cd14035d::t_261ab9c366fb6e 726
+  s_d27f31cd14035d::t_b4515e6a0fb9b4 332,336-337
+  s_d27f31cd14035d::t_7b82696d0098ac 775
+  s_d27f31cd14035d::t_20b8ea46139e48 826
+  s_d27f31cd14035d::t_4b7e688dff7ffe 865-867
+  s_d27f31cd14035d::t_36c268509003e7 153-157
+  s_d27f31cd14035d::t_9fdc9e7e59d0e3 695-696
+  s_d27f31cd14035d::t_a51120ad62c8bb 97
+  s_d27f31cd14035d::t_3399608a9799a1 664-665
+  s_d27f31cd14035d::t_bfd493b1d099ba 124
+  s_d27f31cd14035d::t_02bffe9197712a 70
+  s_d27f31cd14035d::t_721abc65e43f1f 334-335,338-339
+TlsLib/src/Engine/TlpTlsSignatureBuilder.pas
+  s_d27f31cd14035d::t_c9d2119446f26d 56-57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "661600aad669d7cac5c43cc099b1d923cd9774bf",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
