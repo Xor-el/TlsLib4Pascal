@@ -1,0 +1,143 @@
+.github/workflows/ci/interop/bogo-shim-config.json
+  s_d27f31cd14035d::t_3a20e80f734cb0 229
+README.md
+  s_d27f31cd14035d::t_c8d4500dcb3284 37,169
+TlsLib.Adapters/FclNet/README.md
+  s_d27f31cd14035d::t_9c2fa5e8603b52 171-172
+TlsLib.Adapters/Indy/README.md
+  s_d27f31cd14035d::t_6ec8ba85d45795 141-142
+TlsLib.Adapters/Synapse/README.md
+  s_d27f31cd14035d::t_17822903deb207 139-140
+TlsLib.Adapters/mORMot/README.md
+  s_d27f31cd14035d::t_c932aeb9c0b210 69-71
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_d27f31cd14035d::t_c93b7580d951b2 546-547
+TlsLib.Interop/src/BoGoShimRunner.pas
+  s_d27f31cd14035d::t_ef2abc5ab1301a 947,1349
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  s_d27f31cd14035d::t_1a1f8b778189d2 169-170
+TlsLib.Tests/src/ConfigResumptionTests.pas
+  s_d27f31cd14035d::t_ab7f898426450f 30,1009,1011-1030,1032,1034,1036
+TlsLib.Tests/src/EchOuterExtensionsTests.pas
+  s_d27f31cd14035d::t_267f06df9e68b7 182
+TlsLib.Tests/src/EndpointIdentityTests.pas
+  s_d27f31cd14035d::t_af7f8a716cd8d0 125
+TlsLib.Tests/src/EngineSkeletonTests.pas
+  s_d27f31cd14035d::t_6bf4e65b269a00 204
+TlsLib.Tests/src/HelloRetryRequestTests.pas
+  s_d27f31cd14035d::t_a28ffdaad79528 645
+TlsLib.Tests/src/ProviderTests.pas
+  s_d27f31cd14035d::t_49bba9159b5f4f 835
+TlsLib.Tests/src/RecordLayerTests.pas
+  s_d27f31cd14035d::t_8bc3ec48874397 913-914,1173-1174
+TlsLib.Tests/src/Tls12DualVersionTests.pas
+  s_d27f31cd14035d::t_8eabd53f3948a4 425,848-849
+TlsLib.Tests/src/Tls12LoopbackTests.pas
+  s_d27f31cd14035d::t_6ec55b6517b19b 542-543,1149-1150,1203
+TlsLib.Tests/src/Tls13ClientReplayTests.pas
+  s_d27f31cd14035d::t_1f46eb086243b8 721
+TlsLib.Tests/src/Tls13LoopbackTests.pas
+  s_d27f31cd14035d::t_fbcc5c980cdf0e 1784,2248
+TlsLib.Tests/src/Tls13ResumptionTests.pas
+  s_d27f31cd14035d::t_d3d9a1aa014234 1225
+TlsLib.Trust.System/Examples/Delphi/README.md
+  s_d27f31cd14035d::t_2e8462c680b462 13-14
+TlsLib/src/CertCompression/TlpCertificateCompression.pas
+  s_d27f31cd14035d::t_4aa26948e82697 299-300
+TlsLib/src/Common/TlpHttpUrl.pas
+  s_d27f31cd14035d::t_b94ccba222458e 62-65,212
+TlsLib/src/Common/TlpKeyLog.pas
+  s_d27f31cd14035d::t_3fd1fee20789ba 25
+TlsLib/src/Common/TlpTlsVersion.pas
+  s_d27f31cd14035d::t_9201654bdeb51d 22-24
+TlsLib/src/Crypto/TlpCryptoDomainTypes.pas
+  s_d27f31cd14035d::t_b6685e14ad47ca 383-384
+TlsLib/src/Ech/TlpEchClient.pas
+  s_d27f31cd14035d::t_6fe81afdacc527 119
+TlsLib/src/Ech/TlpEchClientOrchestrator.pas
+  s_d27f31cd14035d::t_a658aa9ed10a13 94,362-363,445-446
+TlsLib/src/Ech/TlpInMemoryEchKeyStore.pas
+  s_d27f31cd14035d::t_76819147dc996d 32-33,61
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_d27f31cd14035d::t_c2eba60ed7aec3 434-440,1848-1849,1897,2412-2413,2422-2425,2434-2435,2444-2445,2484-2485,2660-2661,2670-2671,2725-2726,2734-2735,2745-2746,2755-2756,2969-2971,3094,3105-3114
+TlsLib/src/Engine/TlpTlsEngine.pas
+  s_d27f31cd14035d::t_c14a2a44fd6537 767,852
+TlsLib/src/Engine/TlpTlsEngineFactory.pas
+  s_d27f31cd14035d::t_91ea0503b3d7e6 60-62,121,123-124,127-134,299,343
+TlsLib/src/Extensions/TlpCoreExtensions.pas
+  s_d27f31cd14035d::t_627288f06df51b 76-77,600
+TlsLib/src/Extensions/TlpExtensionBlockCodec.pas
+  s_d27f31cd14035d::t_2da62e8565156e 182-184
+TlsLib/src/Extensions/TlpExtensionContext.pas
+  s_d27f31cd14035d::t_7e5907a72a11e6 117-118
+TlsLib/src/Handshake/TlpHandshakeConductor.pas
+  s_d27f31cd14035d::t_4adabaf4d90a11 60-62,267-269
+TlsLib/src/Handshake/TlpHandshakeEffect.pas
+  s_d27f31cd14035d::t_dedaf52f723085 141
+TlsLib/src/Handshake/TlpHandshakeMessages.pas
+  s_d27f31cd14035d::t_11c5bdc6b6c56a 64,110,249,276,448,894
+TlsLib/src/Handshake/TlpTls12ClientStateMachine.pas
+  s_d27f31cd14035d::t_6950fec31b6f18 77,516-518,534,969
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_d27f31cd14035d::t_f57271584a8ebd 466,505,604-605,884
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_d27f31cd14035d::t_4790f6a9743dd4 472-473,515,595-596,1004,1147-1148,1234
+TlsLib/src/Handshake/TlpVersionDispatchMachine.pas
+  s_d27f31cd14035d::t_7be2debc7e36c4 351-352,416,506
+TlsLib/src/Interfaces/Ech/TlpIEch.pas
+  s_d27f31cd14035d::t_5ddab2c135da05 50
+TlsLib/src/Interfaces/Ech/TlpIEchClientOrchestrator.pas
+  s_d27f31cd14035d::t_933e510b31a9f1 49
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_d27f31cd14035d::t_90479b78ff9873 163-164,167-168,223,279-280,422-423,475-476
+TlsLib/src/Interfaces/Handshake/TlpIHandshakeMachine.pas
+  s_d27f31cd14035d::t_415756c0f0834e 129,245
+TlsLib/src/Interfaces/KeySchedule/TlpIKeySchedule.pas
+  s_d27f31cd14035d::t_cbf02b4ebc83d3 166
+TlsLib/src/Interfaces/Negotiation/TlpINegotiation.pas
+  s_d27f31cd14035d::t_7429041b1b11f1 75
+TlsLib/src/KeySchedule/TlpTls12KeySchedule.pas
+  s_d27f31cd14035d::t_f34c1a56d7ddc5 36
+TlsLib/src/Record/TlpRecordLayer.pas
+  s_d27f31cd14035d::t_9d65a29061adb4 425-427,537-538
+TlsLib/src/Trust/TlpCertificateVerifier.pas
+  s_d27f31cd14035d::t_7f857b3445b315 393-394
+TlsLib/src/Trust/TlpTrustPolicy.pas
+  s_d27f31cd14035d::t_5ccea7233d97fc 118-119
+docs/README.md
+  s_d27f31cd14035d::t_e02bef6ba9fd74 86
+docs/certificate-verification.md
+  s_d27f31cd14035d::t_4f3753f9f92f49 288-294
+docs/cookbook.md
+  s_d27f31cd14035d::t_c156e3b95c9a4c 29-30,586,592-594
+docs/getting-started.md
+  s_d27f31cd14035d::t_5268530c0e45e4 31
+docs/system-trust.md
+  s_d27f31cd14035d::t_d17eb0e849861e 389-390,396
+TlsLib.Interop/src/InteropEngine.pas
+  s_d27f31cd14035d::t_e5bd16d0b40c29 337,446-451,489,495-496
+TlsLib.Tests/src/ClientAuthTests.pas
+  s_d27f31cd14035d::t_4b2e7d7be6dafb 111-113,145-148,154,207-212,888,974,1255-1352
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_d27f31cd14035d::t_004527b76e141a 113-122,165-167,1434-1482,1491,1496-1503,1603-1705,3594-3595
+docs/certificate-compression.md
+  s_d27f31cd14035d::t_c6f4ce8cc3c671 77-78
+docs/security-model.md
+  s_d27f31cd14035d::t_64025224de300d 50,140
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c0cb0df8d177d86f9a3137c176b32a3a23095214",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
