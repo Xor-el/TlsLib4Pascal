@@ -352,7 +352,7 @@ end;
 
 function TEchConfig.IsServable: Boolean;
 var
-  LSeen: TArray<Boolean>;
+  LSeen: TArray<UInt32>;
   LI: Int32;
   LType: UInt16;
 begin
@@ -363,18 +363,22 @@ begin
     Exit;
   if System.Length(FCipherSuites) = 0 then
     Exit;
-  // reject an unsupported mandatory extension (high bit set) or a duplicate type; a flag per
-  // 16-bit type keeps the duplicate check linear however many extensions a config carries
+  // reject an unsupported mandatory extension (high bit set) or a duplicate type. A bit per 16-bit
+  // type keeps the duplicate check linear however many extensions a config carries, and it is only
+  // allocated when there are two or more to compare
   LSeen := nil;
-  SetLength(LSeen, 65536);
+  if System.Length(FExtensions) > 1 then
+    SetLength(LSeen, 65536 div 32);
   for LI := 0 to System.High(FExtensions) do
   begin
     LType := FExtensions[LI].ExtType;
     if (LType and MandatoryExtensionBit) <> 0 then
       Exit;
-    if LSeen[LType] then
+    if System.Length(LSeen) = 0 then
+      Continue;
+    if (LSeen[LType shr 5] and (UInt32(1) shl (LType and 31))) <> 0 then
       Exit;
-    LSeen[LType] := True;
+    LSeen[LType shr 5] := LSeen[LType shr 5] or (UInt32(1) shl (LType and 31));
   end;
   Result := True;
 end;
