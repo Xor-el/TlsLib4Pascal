@@ -59,8 +59,9 @@ type
   /// leaf guard sees the native key. The provider under test is whatever TOSCryptoProvider
   /// composes for the platform, and each test runs only for what the backend report says is
   /// native, so a platform with no native provider runs none of them and a new one needs no edit
-  /// here. Abstract: a platform leaf below adds its own cases and is the one class registered.</summary>
-  TTestNativeCryptoProvider = class abstract(TTlsLibAlgorithmTestCase)
+  /// here. A platform with its own cases registers its leaf below instead of this class, so the
+  /// contract runs once per build.</summary>
+  TTestNativeCryptoProvider = class(TTlsLibAlgorithmTestCase)
   strict private
     // The native facets composed over the portable base (native where the platform serves them).
     function Composed(const ABase: ICryptoProvider): ICryptoProvider;
@@ -131,10 +132,6 @@ type
     // both parsers agree on the key: the natively adopted PKCS#12 key's exported SPKI equals
     // the leaf certificate's SPKI (guards against crypt32 key<->cert association drift)
     procedure TestPkcs12ExportedKeyMatchesLeaf;
-  end;
-{$ELSE}
-  /// <summary>The contract on a platform with no native-provider section of its own.</summary>
-  TTestNativeCryptoProviderContract = class(TTestNativeCryptoProvider)
   end;
 {$IFEND}
 
@@ -869,9 +866,9 @@ initialization
 {$ENDIF FPC}
 {$ELSE}
 {$IFDEF FPC}
-  RegisterTest(TTestNativeCryptoProviderContract);
+  RegisterTest(TTestNativeCryptoProvider);
 {$ELSE}
-  RegisterTest(TTestNativeCryptoProviderContract.Suite);
+  RegisterTest(TTestNativeCryptoProvider.Suite);
 {$ENDIF FPC}
 {$IFEND}
 
