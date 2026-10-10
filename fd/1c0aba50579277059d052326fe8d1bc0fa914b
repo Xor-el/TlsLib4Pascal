@@ -1,0 +1,22 @@
+TlsLib.Tests/src/ClientAuthTests.pas
+  s_d27f31cd14035d::t_c85e1172e95d46 352-353,356,358-359
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  s_d27f31cd14035d::t_8aee4ee244d2f4 251-258
+  s_d27f31cd14035d::t_cd2bb2b9ce5105 96-97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fd1c0aba50579277059d052326fe8d1bc0fa914b",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
