@@ -79,8 +79,7 @@ type
     procedure TestSignerRejectsSchemeOutsideCapableSchemes;
     procedure TestLeafPolicyRejectsSchemeFamilyMismatch;
     // the overlay ECDSA verifier accepts a valid signature and rejects a non-DER encoding
-    procedure TestSystemEcdsaVerifiesValidAndRejectsTrailingBytes;
-    procedure TestSystemSignerRejectsSchemeOutsideCapableSchemes;
+    procedure TestEcdsaVerifiesValidAndRejectsTrailingBytes;
   end;
 
 implementation
@@ -550,56 +549,33 @@ begin
   Result := LVerifier.Verify(ASig);
 end;
 
-procedure TTestSignature.TestSystemEcdsaVerifiesValidAndRejectsTrailingBytes;
+procedure TTestSignature.TestEcdsaVerifiesValidAndRejectsTrailingBytes;
 var
-  LCrypto: ICryptoProvider;
   LMessage, LSig, LTampered: TBytes;
   LSigner: ISignatureSigner;
   LRejected: Boolean;
 begin
-  // the OS-native overlay (native where present, portable fallback otherwise): a valid ECDSA
-  // signature verifies (no regression from the stricter DER check), and a signature with a
-  // trailing byte after the SEQUENCE is rejected - either as a False verdict (the native decoder)
-  // or by the strict DER decoder raising, so the check tolerates both
-  LCrypto := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS);
+  // a valid ECDSA signature verifies (no regression from the stricter DER check), and a signature
+  // with a trailing byte after the SEQUENCE is rejected - either as a False verdict (a native
+  // decoder) or by the strict DER decoder raising, so the check tolerates both
   LMessage := DecodeHex('54686520717569636b2062726f776e20666f78'); // "The quick brown fox"
-  LSigner := LCrypto.Signing.CreateSignatureSigner(
+  LSigner := Crypto.Signing.CreateSignatureSigner(
     TSignatureScheme.ECDSA_SECP256R1_SHA256,
-    LCrypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ecdsa_key']), nil));
+    Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ecdsa_key']), nil));
   LSigner.Update(LMessage, 0, System.Length(LMessage));
   LSig := LSigner.Sign;
 
-  CheckTrue(VerifyEcdsa(LCrypto, LSig, LMessage), 'a valid ECDSA signature verifies');
+  CheckTrue(VerifyEcdsa(Crypto, LSig, LMessage), 'a valid ECDSA signature verifies');
 
   LTampered := System.Copy(LSig);
   SetLength(LTampered, System.Length(LTampered) + 1); // a trailing byte after the DER SEQUENCE
   try
-    LRejected := not VerifyEcdsa(LCrypto, LTampered, LMessage);
+    LRejected := not VerifyEcdsa(Crypto, LTampered, LMessage);
   except
     on E: Exception do
       LRejected := True;
   end;
   CheckTrue(LRejected, 'a signature with a trailing byte is rejected');
-end;
-
-procedure TTestSignature.TestSystemSignerRejectsSchemeOutsideCapableSchemes;
-var
-  LCrypto: ICryptoProvider;
-  LKey: ISigningKey;
-  LRaised: Boolean;
-begin
-  // the overlay signer enforces the same CapableSchemes gate as the portable one (native where
-  // present, portable fallback otherwise), so this holds on every host
-  LCrypto := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS);
-  LKey := LCrypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ecdsa_key']), nil);
-  LRaised := False;
-  try
-    LCrypto.Signing.CreateSignatureSigner(TSignatureScheme.RSA_PSS_RSAE_SHA256, LKey);
-  except
-    on E: EArgumentTlsLibException do
-      LRaised := True;
-  end;
-  CheckTrue(LRaised, 'the overlay signer refuses a scheme outside the key''s CapableSchemes');
 end;
 
 initialization

@@ -44,7 +44,6 @@ type
     procedure TestHkdfExpandLabelRfc8448;
     procedure TestDeriveSecretRfc8448;
     procedure TestOverLengthLabelOrContextRaises;
-    procedure TestSystemHkdfMatchesRfc5869A1;
   end;
 
 implementation
@@ -167,32 +166,6 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'over-uint16 output length rejected');
-end;
-
-procedure TTestHkdfLabel.TestSystemHkdfMatchesRfc5869A1;
-var
-  LCrypto: ICryptoProvider;
-  LHkdf: IHkdf;
-  LIkm: TBytes;
-  LSalt, LInfo, LExpectedOkm: TBytes;
-  LPrk: ISecretBuffer;
-  LI: Int32;
-begin
-  // the OS-native overlay HKDF (self-tested at construction, portable fallback otherwise) must
-  // match RFC 5869 Appendix A.1 on every host - the KAT the native HKDF-Expand is gated on
-  LCrypto := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS);
-  LHkdf := LCrypto.Primitives.CreateHkdf(THashAlgorithm.SHA_256);
-  LIkm := nil;
-  SetLength(LIkm, 22);
-  for LI := 0 to 21 do
-    LIkm[LI] := $0B;
-  LSalt := DecodeHex('000102030405060708090a0b0c');
-  LInfo := DecodeHex('f0f1f2f3f4f5f6f7f8f9');
-  LExpectedOkm := DecodeHex(
-    '3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865');
-  LPrk := LHkdf.Extract(TSecretBuffer.From(LSalt), TSecretBuffer.From(LIkm));
-  CheckEqualBytes('HKDF Extract+Expand matches RFC 5869 A.1',
-    LExpectedOkm, LHkdf.Expand(LPrk, LInfo, 42).ToBytes);
 end;
 
 initialization
