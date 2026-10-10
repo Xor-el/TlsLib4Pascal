@@ -33,6 +33,8 @@ uses
   TlpTlsAlert,
   TlpTlsVersion,
   TlpArrayUtilities,
+  TlpPem,
+  TlpSecureMemory,
   TlpNegotiationTypes,
   TlpCipherSuiteCatalog,
   TlpEchConfig,
@@ -65,7 +67,7 @@ type
   /// <summary>Where a certificate, key or anchor bundle comes from: inline bytes, or a file read
   /// when the config is built. Empty when neither is set. Signed by digest (bytes) or by path+stat
   /// (file) for the build-once config identity, so a rotated file rebuilds and unchanged bytes
-  /// reuse.</summary>
+  /// reuse. Inline Data is the caller's and is never modified.</summary>
   TTlsBlobSource = record
     FileName: string;
     Data: TBytes;
@@ -73,6 +75,12 @@ type
     class function FromBytes(const AData: TBytes): TTlsBlobSource; static;
     function IsEmpty: Boolean;
   end;
+
+  /// <summary>How TTlsOptions.Certificate is read. CertificateAndKey: a certificate chain (PEM, DER
+  /// or PKCS#7) with its key in PrivateKey. Pkcs12: a PKCS#12 identity (chain and key) opened with
+  /// KeyPassword; PrivateKey must be empty. PemChainOrPkcs12: a PEM-armored source is a chain with
+  /// its key in PrivateKey, and any other source with no PrivateKey is a PKCS#12 identity.</summary>
+  TTlsCredentialForm = (CertificateAndKey, Pkcs12, PemChainOrPkcs12);
 
   /// <summary>Everything a host integration maps onto the TLS configuration, in host-neutral form:
   /// the providers, the credential and trust sources, the verify posture, the neutral hooks and the
@@ -86,6 +94,7 @@ type
     Certificate: TTlsBlobSource;          // own chain (server: required; client: mTLS)
     PrivateKey: TTlsBlobSource;
     KeyPassword: string;
+    CredentialForm: TTlsCredentialForm;          // how Certificate is read
     TrustAnchors: TArray<TTlsBlobSource>; // each -> WithTrustAnchors (union)
     // client role: opt into the OS store (union); a server never reads it (system trust is not a client-CA)
     SystemTrust: ISystemTrustInstaller;
@@ -112,6 +121,7 @@ type
     TrustSourceHint: string;                     // client-role host knob names, spliced into the no-source message
     ClientAuthSourceHint: string;                // server-role client-CA host knob names, same use
     CipherSuitesHint: string;                    // the host property CipherSuites came from, spliced into build-time messages
+    CredentialSourceHint: string;                // the host credential knob names, spliced into the no-credential messages
     /// <summary>A value with the composable defaults: VerifyPeer / CheckHostName / SessionResumption
     /// on, SNI sent, client authentication opt-in (ClientAuth None). Assign it at snapshot
     /// time.</summary>
@@ -140,6 +150,11 @@ type
   TTlsConfigComposer = class sealed(TObject)
   strict private
     class function Load(const ASource: TTlsBlobSource): TBytes; static;
+    /// <summary>The credential the options name, loaded in the form CredentialForm selects. Key and
+    /// PKCS#12 bytes read from a file are wiped after the import; inline bytes belong to the caller
+    /// and are left alone.</summary>
+    class function LoadCredential(const AOptions: TTlsOptions;
+      const ACrypto: ICryptoProvider; const APkix: IPkixProvider): TTlsCredential; static;
     class procedure Sign(var ASig: TTlsSignatureBuilder; const AName: string;
       const ASource: TTlsBlobSource); static;
     class function HasTrustAnchor(const AOptions: TTlsOptions): Boolean; static;
@@ -314,8 +329,16 @@ resourcestring
     'a clock is required (pass a clock, not nil)';
   SNilConnectionArgument =
     'a connection needs a config and a transport (pass both, not nil)';
-  SNoServerCredential =
+  SNoServerCredentialBare =
     'no server certificate/private key was supplied';
+  SNoServerCredential =
+    'no server certificate/private key was supplied; set %s';
+  SKeyWithoutCertificateBare =
+    'a private key is set but no certificate was supplied';
+  SKeyWithoutCertificate =
+    'a private key is set but no certificate was supplied; set %s';
+  SPkcs12WithPrivateKey =
+    'a PKCS#12 identity carries its own key; do not also set a private key';
   SNoClientAuthSource =
     'client authentication is requested but no client-CA was named; set %s, or turn client ' +
     'authentication off';
@@ -480,6 +503,55 @@ begin
   end;
 end;
 
+class function TTlsConfigComposer.LoadCredential(const AOptions: TTlsOptions;
+  const ACrypto: ICryptoProvider; const APkix: IPkixProvider): TTlsCredential;
+var
+  LCert, LKey: TBytes;
+  LPkcs12: Boolean;
+begin
+  if AOptions.Certificate.IsEmpty then
+  begin
+    if AOptions.CredentialSourceHint = '' then
+      raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
+        @SKeyWithoutCertificateBare);
+    raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+      @SKeyWithoutCertificate, [AOptions.CredentialSourceHint]);
+  end;
+  LCert := nil;
+  LKey := nil;
+  LPkcs12 := False;
+  try
+    LCert := Load(AOptions.Certificate);
+    LKey := Load(AOptions.PrivateKey);
+    case AOptions.CredentialForm of
+      TTlsCredentialForm.Pkcs12:
+        LPkcs12 := True;
+      TTlsCredentialForm.PemChainOrPkcs12:
+        LPkcs12 := (not TPem.IsArmored(LCert)) and AOptions.PrivateKey.IsEmpty;
+    else
+      LPkcs12 := False;
+    end;
+    if LPkcs12 then
+    begin
+      if not AOptions.PrivateKey.IsEmpty then
+        raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
+          @SPkcs12WithPrivateKey);
+      Result := TTlsCredential.LoadPkcs12(ACrypto, LCert, AOptions.KeyPassword);
+    end
+    else if AOptions.KeyPassword = '' then
+      // no password reaches the provider as nil, so an encrypted key reports that it needs one
+      Result := TTlsCredential.Load(ACrypto, APkix, LCert, LKey)
+    else
+      Result := TTlsCredential.Load(ACrypto, APkix, LCert, LKey, AOptions.KeyPassword);
+  finally
+    // a file read is ours to wipe; inline bytes belong to the caller
+    if System.Length(AOptions.PrivateKey.Data) = 0 then
+      TSecureMemory.WipeBytes(LKey);
+    if LPkcs12 and (System.Length(AOptions.Certificate.Data) = 0) then
+      TSecureMemory.WipeBytes(LCert);
+  end;
+end;
+
 class procedure TTlsConfigComposer.Sign(var ASig: TTlsSignatureBuilder;
   const AName: string; const ASource: TTlsBlobSource);
 begin
@@ -589,9 +661,8 @@ begin
   LClient.WithServerNameIndication(AOptions.ServerNameIndication);
   if System.Length(AOptions.AlpnProtocols) > 0 then
     LClient.WithAlpnProtocols(TAlpnProtocols.FromText(AOptions.AlpnProtocols));
-  if not AOptions.Certificate.IsEmpty then
-    LClient.WithCredential(TTlsCredential.Load(LCrypto, LPkix,
-      Load(AOptions.Certificate), Load(AOptions.PrivateKey), AOptions.KeyPassword));
+  if (not AOptions.Certificate.IsEmpty) or (not AOptions.PrivateKey.IsEmpty) then
+    LClient.WithCredential(LoadCredential(AOptions, LCrypto, LPkix));
   // an app's augment-only verify rule, and the live-revocation verdict flag (the resolver itself is
   // a runtime stream hook attached at the session, not part of the frozen config)
   if Assigned(AOptions.VerifyCallback) then
@@ -617,7 +688,13 @@ var
   LI: Int32;
 begin
   if AOptions.Certificate.IsEmpty then
-    raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError, @SNoServerCredential);
+  begin
+    if AOptions.CredentialSourceHint = '' then
+      raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
+        @SNoServerCredentialBare);
+    raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+      @SNoServerCredential, [AOptions.CredentialSourceHint]);
+  end;
   if AOptions.ClientAuth <> TClientAuthMode.None then
   begin
     // an explicit client-auth mode with peer verification switched off, or with nothing to verify a
@@ -646,8 +723,7 @@ begin
   LCrypto := EffectiveCrypto(AOptions);
   LPkix := EffectivePkix(AOptions);
   LServer := TTlsPresets.Compatible(LCrypto, LPkix).Server
-    .WithCredential(TTlsCredential.Load(LCrypto, LPkix,
-    Load(AOptions.Certificate), Load(AOptions.PrivateKey), AOptions.KeyPassword));
+    .WithCredential(LoadCredential(AOptions, LCrypto, LPkix));
   if System.Length(AOptions.CipherSuites) > 0 then
   begin
     LServer.WithCipherSuiteList(AOptions.CipherSuites);
@@ -696,6 +772,7 @@ begin
   Sign(LSig, 'cert', AOptions.Certificate);
   Sign(LSig, 'key', AOptions.PrivateKey);
   LSig.AddSecret('keypw', AOptions.KeyPassword);
+  LSig.AddCardinal('credForm', Cardinal(Ord(AOptions.CredentialForm)));
   for LI := 0 to System.High(AOptions.TrustAnchors) do
     Sign(LSig, 'anchor', AOptions.TrustAnchors[LI]);
   LSig.AddFlag('verifyPeer', AOptions.VerifyPeer);
@@ -746,6 +823,7 @@ begin
   Sign(LSig, 'cert', AOptions.Certificate);
   Sign(LSig, 'key', AOptions.PrivateKey);
   LSig.AddSecret('keypw', AOptions.KeyPassword);
+  LSig.AddCardinal('credForm', Cardinal(Ord(AOptions.CredentialForm)));
   for LI := 0 to System.High(AOptions.TrustAnchors) do
     Sign(LSig, 'anchor', AOptions.TrustAnchors[LI]);
   LSig.AddFlag('verifyPeer', AOptions.VerifyPeer);
@@ -784,7 +862,9 @@ begin
   LConflict := (not AOptions.Certificate.IsEmpty) or (not AOptions.PrivateKey.IsEmpty) or
     HasTrustAnchor(AOptions) or
     (AOptions.CustomTrustStore <> nil) or (System.Length(AOptions.AlpnProtocols) > 0) or
-    (AOptions.Crypto <> nil) or (AOptions.Pkix <> nil);
+    (AOptions.Crypto <> nil) or (AOptions.Pkix <> nil) or
+    (AOptions.CredentialForm <> TTlsCredentialForm.CertificateAndKey) or
+    (AOptions.KeyPassword <> '');
   // a security toggle always carries a value, so flag only a NON-DEFAULT one the host actively chose
   // that a supplied config then silently drops. Resumption is read by both role builds. The host-name
   // check and SNI are client-only reads; the server build reads peer verification and the

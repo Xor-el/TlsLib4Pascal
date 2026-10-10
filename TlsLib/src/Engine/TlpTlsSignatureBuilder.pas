@@ -53,8 +53,8 @@ type
     /// <summary>Identity of an of-object callback (its code+data pair); see AddPointer's rule.</summary>
     procedure AddMethod(const AName: string; const AMethod: TMethod);
     /// <summary>A file by path + size + mtime - a stat, never a read; a rotated file changes it.
-    /// FPC/Unix mtime is second-granularity, so a same-size in-place rewrite within one second of
-    /// the last can be missed.</summary>
+    /// A filesystem timestamp can be as coarse as one second, so a same-size in-place rewrite
+    /// within a second of the last can be missed.</summary>
     procedure AddFile(const AName, APath: string);
     /// <summary>An in-memory byte input by its SHA-256 (needs a provider); empty is a stable marker.</summary>
     procedure AddBytesDigest(const AName: string; const AData: TBytes);
