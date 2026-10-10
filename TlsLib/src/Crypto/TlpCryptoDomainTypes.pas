@@ -380,8 +380,8 @@ begin
         LHashLen := 48;
       TSignatureScheme.RSA_PSS_RSAE_SHA512:
         LHashLen := 64;
-      // RSASSA-PKCS1-v1_5 needs emLen >= tLen + 11 (RFC 8017 9.2; emLen = k), tLen being the 19-byte DigestInfo
-      // prefix plus the digest
+      // RSASSA-PKCS1-v1_5 needs emLen >= tLen + 11 (RFC 8017 9.2; emLen = k), tLen being the
+      // 19-byte DigestInfo prefix plus the digest
       TSignatureScheme.RSA_PKCS1_SHA256:
         LPkcs1MinBytes := 19 + 32 + 11;
       TSignatureScheme.RSA_PKCS1_SHA384:

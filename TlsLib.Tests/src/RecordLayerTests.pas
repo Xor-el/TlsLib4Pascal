@@ -910,7 +910,8 @@ begin
       DecodeHex('101112131415161718191a1b')));
     LRecv.SetNegotiatedVersion(TTlsVersion.Tls13);
     // before anything has decrypted only a FATAL plaintext alert is accepted; a warning level
-    // alert (close_notify) is unauthenticated and would forge a truncation (library policy; see RFC 8446 6.1)
+    // alert (close_notify) is unauthenticated and would forge a truncation (library policy; see
+    // RFC 8446 6.1)
     CheckTrue(ExpectFatal(LRecv, DecodeHex('15030300020100'), TTlsAlertDescription.BadRecordMac),
       'a plaintext close_notify is refused');
   finally

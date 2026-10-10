@@ -543,9 +543,8 @@ type
   // raw agreement byte-reversed to the RFC 7748 output. Same neutral currency as the portable
   // X25519 and the same secret for every u the OS module accepts. A non-canonical u is reduced
   // first (RFC 7748 sec. 5); the OS module may still refuse a u outside the prime-order
-  // subgroup, which RFC 7748 sec. 7 permits (RFC 8446 sec. 7.4.2 mandates only the all-zero check),
-  // and an honest peer's key is
-  // never refused. The algorithm handle is borrowed from and kept alive by the owning context.
+  // subgroup, which RFC 7748 sec. 7 permits (RFC 8446 sec. 7.4.2 mandates only the all-zero
+  // check), and an honest peer's key is never refused. The algorithm handle is borrowed from and kept alive by the owning context.
   TWindowsCngX25519 = class(TWindowsCngKeyPrimitive, IKeyAgreement)
   strict private
     // whether the 32 bytes at AOffset, bit 255 already clear, encode a u >= p = 2^255-19

@@ -513,8 +513,9 @@ begin
     else
       LServerExtensions := TExtensionVector.Parse(LHello.Extensions);
     // key_share and pre_shared_key are TLS 1.3 constructs; a 1.2 server answering with either has
-    // sent an extension that has no meaning here (local policy; RFC 8446 4.2 scopes them to 1.3). The unified hello offered both, so
-    // the codec alone would accept them; judged before the codec acts on them
+    // sent an extension that has no meaning here (local policy; RFC 8446 4.2 scopes them to 1.3).
+    // The unified hello offered both, so the codec alone would accept them; judged before the
+    // codec acts on them
     if LServerExtensions.Contains(TExtensionTypes.KeyShare) or
       LServerExtensions.Contains(TExtensionTypes.PreSharedKey) then
       raise EFatalAlertTlsLibException.CreateRes(
