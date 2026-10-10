@@ -305,10 +305,17 @@ begin
   LEnc := FCrypto.Hpke.RandomEncapsulation(GreaseKem);
   if System.Length(LEnc) = 0 then
     Exit(nil);
-  // draw the suite from the ones the provider actually supports (RFC 9849 sec. 6.2.1), so a fixed
-  // value cannot fingerprint the decoy as GREASE and a newly-supported algorithm is picked up
-  // automatically - the provider is the single source of the HPKE vocabulary
-  LSuites := FCrypto.Hpke.SupportedSuites(GreaseKem);
+  // draw the suite from the ones the provider supports that real configs commonly publish (RFC 9849
+  // sec. 6.2.1 asks for plausible values), so a fixed value cannot fingerprint the decoy as GREASE
+  // and an HKDF-SHA384/512 pairing nobody deploys does not stand out either
+  LSuites := nil;
+  for LSuite in FCrypto.Hpke.SupportedSuites(GreaseKem) do
+    if (LSuite.Kdf = THpkeKdf.HKDF_SHA256) and
+      ((LSuite.Aead = THpkeAead.AES_128_GCM) or (LSuite.Aead = THpkeAead.CHACHA20_POLY1305)) then
+    begin
+      SetLength(LSuites, System.Length(LSuites) + 1);
+      LSuites[System.High(LSuites)] := LSuite;
+    end;
   if System.Length(LSuites) = 0 then
     Exit(nil);
   LSel := LRandom.GenerateBytes(2);

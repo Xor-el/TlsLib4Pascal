@@ -65,6 +65,7 @@ type
     procedure TestSkipUnknownMandatoryExtension;
     procedure TestOptionalExtensionIsUsable;
     procedure TestSkipDuplicateExtension;
+    procedure TestDuplicateCheckAcrossWordBoundaries;
     procedure TestBadPublicNames;
     procedure TestGoodPublicNames;
     procedure TestMalformedListRaises;
@@ -274,6 +275,34 @@ begin
   CheckFalse(Usable(ConfigWith(THpkeKem.DHKEM_X25519_HKDF_SHA256,
     OneSuite(THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM), 'cover.example', LExts)),
     'a duplicate extension type makes the config unusable');
+end;
+
+procedure TTestEchConfig.TestDuplicateCheckAcrossWordBoundaries;
+var
+  LExts: TArray<TEchConfigExtension>;
+  LTypes: array[0..3] of UInt16;
+  LI: Int32;
+begin
+  // the seen-set packs 32 types per word: adjacent types across a word edge are distinct, and
+  // a repeat at either edge or at the largest optional type is still a duplicate
+  LTypes[0] := $001F;
+  LTypes[1] := $0020;
+  LTypes[2] := $7FFF;
+  LTypes[3] := $0000;
+  SetLength(LExts, 4);
+  for LI := 0 to 3 do
+    LExts[LI].ExtType := LTypes[LI];
+  CheckTrue(Usable(ConfigWith(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+    OneSuite(THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM), 'cover.example', LExts)),
+    'distinct types on both sides of a word edge are all accepted');
+  for LI := 0 to 3 do
+  begin
+    SetLength(LExts, 5);
+    LExts[4].ExtType := LTypes[LI];
+    CheckFalse(Usable(ConfigWith(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+      OneSuite(THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM), 'cover.example', LExts)),
+      Format('a repeat of type $%.4x is a duplicate', [LTypes[LI]]));
+  end;
 end;
 
 procedure TTestEchConfig.TestBadPublicNames;

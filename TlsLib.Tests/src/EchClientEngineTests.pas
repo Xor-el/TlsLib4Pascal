@@ -84,6 +84,7 @@ type
     procedure TestUnusableConfigFailsClosed;
     procedure TestRetryChecksTheWireConfigIdNotTheEntrys;
     procedure TestGreaseDegradesWhenProviderLacksX25519;
+    procedure TestGreaseSuiteIsCommonlyDeployed;
     procedure TestEmptyConfigListWithoutGreaseFailsClosed;
     procedure TestServerRetryOuterBeforeAcceptFailsLoud;
     procedure TestServerRetryOuterAfterRejectFailsLoud;
@@ -281,6 +282,30 @@ begin
   LOrchestrator := TEchClientOrchestrator.Create(LCrypto,
     TEchClientPolicy.Create(LCrypto, nil, True, False) as IEchClientPolicy);
   CheckFalse(LOrchestrator.Grease, 'no decoy is offered, and nothing raised');
+end;
+
+procedure TTestEchClientEngine.TestGreaseSuiteIsCommonlyDeployed;
+var
+  LOrchestrator: IEchClientOrchestrator;
+  LExt: TBytes;
+  LKdf, LAead: UInt16;
+  LI: Int32;
+begin
+  // a decoy advertises only an HKDF-SHA256 suite with AES-128-GCM or ChaCha20-Poly1305, the
+  // pairings real configs publish; draw enough that a stray suite from the provider's full
+  // vocabulary would show up
+  for LI := 1 to 96 do
+  begin
+    LOrchestrator := TEchClientOrchestrator.Create(Crypto,
+      TEchClientPolicy.Create(Crypto, nil, True, False) as IEchClientPolicy);
+    LExt := LOrchestrator.GreaseEchExt;
+    CheckTrue(System.Length(LExt) > 5, 'a decoy is built');
+    LKdf := UInt16((LExt[1] shl 8) or LExt[2]);
+    LAead := UInt16((LExt[3] shl 8) or LExt[4]);
+    CheckEquals(Integer(THpkeKdf.HKDF_SHA256), Integer(LKdf), 'decoy KDF is HKDF-SHA256');
+    CheckTrue((LAead = THpkeAead.AES_128_GCM) or (LAead = THpkeAead.CHACHA20_POLY1305),
+      'decoy AEAD is AES-128-GCM or ChaCha20-Poly1305');
+  end;
 end;
 
 procedure TTestEchClientEngine.TestEmptyConfigListWithoutGreaseFailsClosed;
