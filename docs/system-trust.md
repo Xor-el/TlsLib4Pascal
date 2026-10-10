@@ -302,7 +302,8 @@ candidates rather than a peer-sent intermediate, and only a leaf-key SPKI pin ca
 The chain-algorithm and key-strength floor is applied to the leaf only: a client-certificate chain's
 intermediates are validated by the platform but not held to that floor, so on this path the floor is
 lower than on the server path and in the portable pipeline. If a deployment needs it on the whole
-chain, use the portable pipeline for client certificates.
+chain, leave `WithClientCertificateVerifierSource` unset and supply the client-CA anchors through the
+server builder's client-trust settings, which selects the portable pipeline for client certificates.
 
 Apart from that leaf-only floor, none of these differences weaken the trust decision relative to a
 correctly-configured OS; they are behavioural *differences* to weigh when you pick Delegate over the
