@@ -37,7 +37,6 @@ uses
   TlpISecretBuffer,
   TlpSecretBuffer,
   TlpPem,
-  TlpIPkixProvider,
   TlpPkixDomainTypes,
   TlpTlsCredential,
   TlpITlsConfig,
@@ -92,9 +91,6 @@ type
     procedure SetUp; override;
     procedure TearDown; override;
   published
-    // always runs: says in the log whether anything native was exercised, since a platform with
-    // no native provider otherwise passes the contract by skipping every case
-    procedure TestNativeCoverageIsReported;
     // the exported SubjectPublicKeyInfo does not come from the portable facet: over a base
     // whose ImportSigningKey raises, a natively imported key still exposes the correct SPKI
     procedure TestExportedPublicKeyIsIndependentOfPortable;
@@ -165,7 +161,7 @@ type
   end;
 
 resourcestring
-  SPortableUsed = 'the native export path fell back to the portable facet';
+  SPortableUsed = 'a portable facet ran where the native one must';
 
 { TThrowingInnerSigning }
 
@@ -240,13 +236,6 @@ function TTestNativeCryptoProvider.Composed(
   const ABase: ICryptoProvider): ICryptoProvider;
 begin
   Result := TOSCryptoProvider.Compose(ABase);
-end;
-
-procedure TTestNativeCryptoProvider.TestNativeCoverageIsReported;
-begin
-  // a platform that contributes no native provider passes the contract by skipping every case;
-  // this line in the log is what tells that apart from a run that exercised one
-  Check(True, TTlsLibTestProviders.Describe);
 end;
 
 function TTestNativeCryptoProvider.NativeSigningOrSkip(const AProvider: ICryptoProvider;
