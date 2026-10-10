@@ -95,6 +95,13 @@ type
     /// <summary>Whether a client with configured external PSKs requires one (rejects a
     /// certificate-only ServerHello). True unless the test also accepts a certificate.</summary>
     ExternalPskRequired: Boolean;
+    /// <summary>The TLS 1.2 pre-shared keys (RFC 4279 / RFC 5489): a client presents the first, a
+    /// server accepts them all. Empty leaves the TLS 1.2 PSK suites off.</summary>
+    Tls12Psks: TArray<TTls12Psk>;
+    /// <summary>Whether a client holding a TLS 1.2 PSK offers only the PSK suites for TLS 1.2.</summary>
+    Tls12PskRequired: Boolean;
+    /// <summary>The psk_identity_hint a server sends (RFC 4279 5.2); empty sends none.</summary>
+    Tls12PskIdentityHint: TBytes;
     /// <summary>A server's client-certificate policy (mutual TLS); None on a client.</summary>
     ClientAuth: TClientAuthMode;
     /// <summary>When True, the peer certificate chain is accepted without CA validation via
@@ -345,11 +352,15 @@ begin
   LVersions := AOptions.SupportedVersions;
   if OnlyPostQuantumGroups(ACryptoProvider, AOptions.OfferedGroups) or
     ((AOptions.Role = TInteropRole.Server) and (not AOptions.HasCredential) and
-    (System.Length(AOptions.ExternalPsks) > 0)) then
+    (System.Length(AOptions.ExternalPsks) > 0) and (System.Length(AOptions.Tls12Psks) = 0)) then
     if System.Length(LVersions) = 0 then
       LVersions := TArray<UInt16>.Create(TlsWireVersionTls13)
     else
       LVersions := WithoutTls12(LVersions);
+  // a certificate-less server holding only a TLS 1.2 PSK serves TLS 1.2 alone
+  if (AOptions.Role = TInteropRole.Server) and (not AOptions.HasCredential) and
+    (System.Length(AOptions.Tls12Psks) > 0) and (System.Length(AOptions.ExternalPsks) = 0) then
+    LVersions := TArray<UInt16>.Create(TlsWireVersionTls12);
 
   if AOptions.Role = TInteropRole.Client then
   begin
@@ -393,6 +404,12 @@ begin
     begin
       LClient.Tls13.WithExternalPreSharedKeys(AOptions.ExternalPsks);
       LClient.Tls13.WithExternalPskRequired(AOptions.ExternalPskRequired);
+    end;
+    // a TLS 1.2 PSK (RFC 5489) is presented when the server selects a PSK suite
+    if (System.Length(AOptions.Tls12Psks) > 0) and Offers12(LVersions) then
+    begin
+      LClient.Tls12.WithPreSharedKey(AOptions.Tls12Psks[0]);
+      LClient.Tls12.WithPreSharedKeyRequired(AOptions.Tls12PskRequired);
     end;
     // resumption: the shared cache carries a ticket from an earlier connection; 0-RTT is
     // a separate opt-in on the 1.3 facet
@@ -461,6 +478,12 @@ begin
     // preferred over the certificate
     if System.Length(AOptions.ExternalPsks) > 0 then
       LServer.Tls13.WithExternalPreSharedKeys(AOptions.ExternalPsks);
+    if (System.Length(AOptions.Tls12Psks) > 0) and Offers12(LVersions) then
+    begin
+      LServer.Tls12.WithPreSharedKeys(AOptions.Tls12Psks);
+      if System.Length(AOptions.Tls12PskIdentityHint) > 0 then
+        LServer.Tls12.WithPreSharedKeyIdentityHint(AOptions.Tls12PskIdentityHint);
+    end;
     // mutual TLS: request the client certificate and either verify it against the trust
     // store or, for -require-any-client-certificate, accept any chain via a whole-verifier
     if AOptions.ClientAuth <> TClientAuthMode.None then

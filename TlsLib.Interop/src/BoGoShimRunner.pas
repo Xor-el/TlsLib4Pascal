@@ -232,6 +232,11 @@ type
     /// credential list (-new-psk-credential + -psk-importer-*). A client imports and offers
     /// them; a server imports and matches an offered pre_shared_key against them.</summary>
     ExternalPsks: TArray<TExternalPsk>;
+    /// <summary>The TLS 1.2 pre-shared key (RFC 4279 / RFC 5489) from -psk and -psk-identity,
+    /// both plain text. A client presents it when the server selects a PSK suite; a server
+    /// accepts it under that identity.</summary>
+    Tls12PskSecret: TBytes;
+    Tls12PskIdentity: TBytes;
     /// <summary>Set when -expect-ocsp-response was given; the client must have received
     /// exactly ExpectOcspResponse from the peer.</summary>
     HasExpectOcsp: Boolean;
@@ -789,6 +794,10 @@ begin
       AConfig.ExternalPsks[High(AConfig.ExternalPsks)].Hash := THashAlgorithm.SHA_256
     else if LArg = '-psk-importer-sha384' then
       AConfig.ExternalPsks[High(AConfig.ExternalPsks)].Hash := THashAlgorithm.SHA_384
+    else if LArg = '-psk' then
+      AConfig.Tls12PskSecret := BytesOf(NextValue(LArg))
+    else if LArg = '-psk-identity' then
+      AConfig.Tls12PskIdentity := BytesOf(NextValue(LArg))
     else if LArg = '-trust-cert' then
       AConfig.TrustCert := NextValue(LArg)
     else if LArg = '-enable-ocsp-stapling' then
@@ -1117,6 +1126,15 @@ begin
   Result.AsyncVerify := AConfig.AsyncVerify;
   // out-of-band external PSKs (RFC 9258) apply to either role
   Result.ExternalPsks := AConfig.ExternalPsks;
+  // the TLS 1.2 pre-shared key (-psk); a missing identity is the empty string BoGo's server sends
+  if System.Length(AConfig.Tls12PskSecret) > 0 then
+  begin
+    SetLength(Result.Tls12Psks, 1);
+    Result.Tls12Psks[0].Identity := AConfig.Tls12PskIdentity;
+    Result.Tls12Psks[0].Secret := TSecretBuffer.From(AConfig.Tls12PskSecret);
+    // the runner's client requires the server's hint to equal the configured identity
+    Result.Tls12PskIdentityHint := AConfig.Tls12PskIdentity;
+  end;
   // the runner's test compression algorithms replace the defaults on both roles
   if AConfig.InstallCertCompressionAlgs or (AConfig.InstallOneCertCompressionAlg <> 0) then
   begin
@@ -1219,13 +1237,16 @@ begin
     // (GarbageCertificate-Client) before any trust decision.
     if (AConfig.TrustCert <> '') and AConfig.VerifyPeer then
       Result.Trust := TInteropCredentials.TrustFromPem(APkix, AConfig.TrustCert)
-    else if (System.Length(AConfig.ExternalPsks) = 0) or AConfig.VerifyPeer then
+    else if ((System.Length(AConfig.ExternalPsks) = 0) and (System.Length(AConfig.Tls12PskSecret) = 0)) or
+      AConfig.VerifyPeer then
       Result.AcceptAnyPeerCert := True
-    else
-      // a PSK-only client with no certificate trust offers TLS 1.3 only: external PSK is
-      // 1.3-only (RFC 9258), and a 1.2 server would drop such a client onto a certificate path
-      // it has no trust to verify, so that shape is refused at build
-      Result.SupportedVersions := TArray<UInt16>.Create(WireVersionTls13);
+    else if System.Length(AConfig.Tls12PskSecret) = 0 then
+      // a PSK-only client with no certificate trust offers only the versions it holds a key for:
+      // an external PSK is TLS 1.3-only (RFC 9258), and a 1.2 server would drop such a client onto
+      // a certificate path it has no trust to verify, so that shape is refused at build
+      Result.SupportedVersions := TArray<UInt16>.Create(WireVersionTls13)
+    else if System.Length(AConfig.ExternalPsks) = 0 then
+      Result.SupportedVersions := TArray<UInt16>.Create(WireVersionTls12);
     // per-connection ALPN advertisement overrides the fixed -advertise-alpn on the matching
     // connection (the client 0-RTT ALPN-preference-change test offers different protocols)
     if AIsResume and AConfig.OnResumeAdvertiseAlpnSet then
@@ -1258,6 +1279,7 @@ begin
     // a client with external PSKs requires one unless the test also accepts a certificate
     // (-verify-peer); then a certificate-only ServerHello is fatal (PSK-required)
     Result.ExternalPskRequired := not AConfig.VerifyPeer;
+    Result.Tls12PskRequired := not AConfig.VerifyPeer;
     // the client requests a staple when the test enables stapling or asserts a staple
     Result.RequestOcsp := AConfig.EnableOcspStapling or AConfig.HasExpectOcsp;
     // Encrypted Client Hello: offer the config list (a resumption may override it), and GREASE

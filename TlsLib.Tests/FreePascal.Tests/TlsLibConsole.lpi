@@ -34,7 +34,7 @@
         <PackageName Value="FCL"/>
       </Item5>
     </RequiredPackages>
-    <Units Count="88">
+    <Units Count="89">
       <Unit0>
         <Filename Value="TlsLibConsole.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -387,6 +387,10 @@
         <Filename Value="..\src\SocketHttpFetcherTests.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit87>
+      <Unit88>
+        <Filename Value="..\src\Tls12PskTests.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit88>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

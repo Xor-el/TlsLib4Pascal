@@ -103,7 +103,12 @@ const
   // v6: the body is version-partitioned - the common fields, then a 1.3 tail (age_add, max_early,
   // resumption_secret) or a 1.2 tail (ems, master); the dead named_group and the never-sealed
   // session_id/session_ticket are gone
-  TicketFormatVersion = Byte(6);
+  // v7: the 1.2 tail also carries the PSK identity that authenticated the session (empty for a
+  // certificate session)
+  // v8: the version itself is a 4-byte field, so layout bumps cannot run out of range; a v7 ticket
+  // (a one-byte version) reads as a different number and draws a full handshake. The 1.2 tail also
+  // carries a digest of the PSK's secret beside the identity, so a rotated secret does not resume
+  TicketFormatVersion = UInt32(8);
   TicketNonceLength = Int32(12); // AES-256-GCM nonce
   // the serialized session carries the peer chain the client volunteered; cap it so an oversized
   // chain does not bloat the ticket and the resumed ClientHello that re-presents it. Past the cap
@@ -193,7 +198,7 @@ var
 begin
   Result := nil;
   LWriter := TWireWriter.Create;
-  LWriter.WriteUInt8(TicketFormatVersion);
+  LWriter.WriteUInt32(TicketFormatVersion);
   LWriter.WriteUInt16(ASession.Version.WireValue);
   LWriter.WriteUInt16(ASession.CipherSuite);
   LWriter.WriteUInt8(HashToCode(ASession.Hash));
@@ -232,6 +237,14 @@ begin
       LWriter.WriteUInt8(1)
     else
       LWriter.WriteUInt8(0);
+    // the PSK identity that authenticated the session (empty for a certificate session), so the
+    // server resumes it only while that key is still configured
+    LMarker := LWriter.OpenVector(2);
+    LWriter.WriteBytes(L12.PskIdentity);
+    LWriter.CloseVector(LMarker);
+    LMarker := LWriter.OpenVector(1);
+    LWriter.WriteBytes(L12.PskBinding);
+    LWriter.CloseVector(LMarker);
     LMaster := nil;
     if L12.MasterSecret <> nil then
       LMaster := L12.MasterSecret.ToBytes;
@@ -293,15 +306,17 @@ var
   LLifetime, LAgeAdd, LMaxEarly, LHi, LLo: UInt32;
   LIssued: UInt64;
   LServerName: string;
-  LAlpn, LResumption, LMaster, LScope: TBytes;
+  LAlpn, LResumption, LMaster, LScope, LPskIdentity, LPskBinding: TBytes;
   LPeerChain: TArray<TBytes>;
 begin
   ASession := nil;
   Result := False;
+  LPskIdentity := nil;
+  LPskBinding := nil;
   LResumption := nil;
   LMaster := nil;
   LReader := TWireReader.Create(AData);
-  if LReader.ReadUInt8 <> TicketFormatVersion then
+  if LReader.ReadUInt32 <> TicketFormatVersion then
     Exit;
   LVersion := LReader.ReadUInt16;
   LSuite := LReader.ReadUInt16;
@@ -342,13 +357,17 @@ begin
       LEms := LReader.ReadUInt8;
       if LEms > 1 then
         Exit;
+      LVec := LReader.OpenVector(2);
+      LPskIdentity := LVec.ReadBytes(LVec.Remaining);
+      LVec := LReader.OpenVector(1);
+      LPskBinding := LVec.ReadBytes(LVec.Remaining);
       // the master secret is the fixed-length tail; anything else is a format mismatch
       if LReader.Remaining <> Tls12MasterSecretLength then
         Exit;
       LMaster := LReader.ReadBytes(Tls12MasterSecretLength);
       ASession := TTls12ResumableSession.Create(LSuite, LHash,
         TSecretBuffer.From(LMaster), nil, nil, LEms <> 0, LAlpn, LServerName,
-        LLifetime, LIssued, LPeerChain, LScope);
+        LLifetime, LIssued, LPeerChain, LScope, LPskIdentity, LPskBinding);
     end
     else
       Exit;

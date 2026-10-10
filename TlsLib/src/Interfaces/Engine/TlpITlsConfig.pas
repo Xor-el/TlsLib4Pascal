@@ -124,6 +124,11 @@ type
     /// offered pre_shared_key against them, preferring a matching PSK over its
     /// certificate. Empty leaves external PSK off. Independent of Resumption.</summary>
     function ExternalPsks: TArray<TExternalPsk>;
+    /// <summary>The TLS 1.2 pre-shared keys (RFC 4279 / RFC 5489). A client holds at most one,
+    /// which it presents when the server selects a PSK suite; a server holds the set it accepts,
+    /// looked up by the identity the client presents. Empty leaves the TLS 1.2 PSK suites off.
+    /// Distinct from ExternalPsks, which are TLS 1.3 only.</summary>
+    function Tls12Psks: TArray<TTls12Psk>;
     /// <summary>The clock this endpoint reads for time-dependent decisions - a resumption PSK's
     /// obfuscated_ticket_age and ticket-lifetime expiry, a server's 0-RTT anti-replay window,
     /// and certificate/OCSP freshness (RFC 8446 4.2.11 / 4.6.1). Never nil: the builder defaults
@@ -173,6 +178,11 @@ type
     /// than a fall-through to certificate authentication. Set False to also accept a
     /// certificate handshake. No effect without configured external PSKs.</summary>
     function ExternalPskRequired: Boolean;
+    /// <summary>Whether a client that configured a TLS 1.2 PSK offers only the PSK suites for
+    /// TLS 1.2, so a TLS 1.2 handshake cannot fall back to certificate authentication. When True
+    /// (the default) the PSK suites replace the certificate suites; when False both are offered.
+    /// No effect without a configured TLS 1.2 PSK.</summary>
+    function Tls12PreSharedKeyRequired: Boolean;
     /// <summary>The frozen Encrypted Client Hello policy (RFC 9849), or nil when ECH is
     /// not offered.</summary>
     function EncryptedClientHello: IEchClientPolicy;
@@ -227,6 +237,9 @@ type
     function TicketLifetimeSeconds: UInt32;
     /// <summary>How many TLS 1.3 NewSessionTickets to issue per handshake.</summary>
     function TicketCount: Int32;
+    /// <summary>The psk_identity_hint a server sends in its ECDHE_PSK ServerKeyExchange (RFC 4279
+    /// 5.2); empty (the default) sends none. A client ignores it.</summary>
+    function Tls12PskIdentityHint: TBytes;
     /// <summary>The 0-RTT early-data byte budget the server authorizes (0 = no early data).</summary>
     function MaxEarlyData: UInt32;
     /// <summary>The server's Encrypted Client Hello policy (RFC 9849): a keyed server's store and

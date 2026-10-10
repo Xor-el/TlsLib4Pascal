@@ -51,7 +51,7 @@ type
   end;
 
 const
-  CipherSuiteTable: array [0 .. 8] of TCipherSuiteEntry = (
+  CipherSuiteTable: array [0 .. 11] of TCipherSuiteEntry = (
     (Suite: (Common: (Code: TCipherSuites13.Aes128GcmSha256; Hash: THashAlgorithm.SHA_256;
       Aead: TAeadAlgorithm.AES_128_GCM; KeyLength: 16); Protocol: TSuiteProtocol.Tls13;
       KeyExchange: TKeyExchangeMethod.Decoupled; Auth: TAuthMethod.Decoupled;
@@ -102,7 +102,25 @@ const
       Protocol: TSuiteProtocol.Tls12; KeyExchange: TKeyExchangeMethod.Ecdhe;
       Auth: TAuthMethod.Rsa; Prf: THashAlgorithm.SHA_256);
       IanaName: 'TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256';
-      OpenSslName: 'ECDHE-RSA-CHACHA20-POLY1305'));
+      OpenSslName: 'ECDHE-RSA-CHACHA20-POLY1305'),
+    (Suite: (Common: (Code: TCipherSuites12.EcdhePskChaCha20Poly1305Sha256;
+      Hash: THashAlgorithm.SHA_256; Aead: TAeadAlgorithm.CHACHA20_POLY1305; KeyLength: 32);
+      Protocol: TSuiteProtocol.Tls12; KeyExchange: TKeyExchangeMethod.EcdhePsk;
+      Auth: TAuthMethod.Psk; Prf: THashAlgorithm.SHA_256);
+      IanaName: 'TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256';
+      OpenSslName: 'ECDHE-PSK-CHACHA20-POLY1305'),
+    (Suite: (Common: (Code: TCipherSuites12.EcdhePskAes128GcmSha256;
+      Hash: THashAlgorithm.SHA_256; Aead: TAeadAlgorithm.AES_128_GCM; KeyLength: 16);
+      Protocol: TSuiteProtocol.Tls12; KeyExchange: TKeyExchangeMethod.EcdhePsk;
+      Auth: TAuthMethod.Psk; Prf: THashAlgorithm.SHA_256);
+      IanaName: 'TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256';
+      OpenSslName: 'ECDHE-PSK-AES128-GCM-SHA256'),
+    (Suite: (Common: (Code: TCipherSuites12.EcdhePskAes256GcmSha384;
+      Hash: THashAlgorithm.SHA_384; Aead: TAeadAlgorithm.AES_256_GCM; KeyLength: 32);
+      Protocol: TSuiteProtocol.Tls12; KeyExchange: TKeyExchangeMethod.EcdhePsk;
+      Auth: TAuthMethod.Psk; Prf: THashAlgorithm.SHA_384);
+      IanaName: 'TLS_ECDHE_PSK_WITH_AES_256_GCM_SHA384';
+      OpenSslName: 'ECDHE-PSK-AES256-GCM-SHA384'));
 
 { TCipherSuiteCatalog }
 

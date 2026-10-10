@@ -593,6 +593,56 @@ server's `WithTicketCount`); a config that does not offer TLS 1.3 refuses a non-
 at `Build`. Both ends configure the same identity + key. A client requires the PSK by default; use
 `Tls13.WithExternalPskRequired(False)` to let it fall back to certificate authentication.
 
+## TLS 1.2 pre-shared keys (RFC 4279 / RFC 5489)
+
+A pre-shared key for a TLS 1.2 endpoint is a different thing from the TLS 1.3 external PSK above: it
+rides the ECDHE_PSK cipher suites, the identity travels in the ClientKeyExchange, and the secret is
+used raw (no RFC 9258 import). It has its own type, `TTls12Psk`, and its own setters on the `Tls12`
+facet. Use a secret of its own: do not feed one key to both a `TTls12Psk` and a `TExternalPsk`.
+
+```pascal
+uses TlpSession, TlpSecretBuffer;   // TTls12Psk, TSecretBuffer
+
+var LPsk: TTls12Psk;
+begin
+  LPsk.Identity := IdentityBytes;                 // 1 to 65535 bytes, sent in the clear
+  LPsk.Secret   := TSecretBuffer.From(KeyBytes);  // 1 to 65535 bytes
+
+  // client: no trust source needed, TLS 1.2 only
+  LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
+    .Tls12.WithPreSharedKey(LPsk)
+    // .WithPreSharedKeyRequired(False)  // also offer the certificate suites (needs a trust source)
+    .Build;
+
+  // server: one or more keys, looked up by identity
+  LServer := TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
+    .Tls12.WithPreSharedKeys(TArray<TTls12Psk>.Create(LPsk))
+    .Build;
+end;
+```
+
+Configuring a key brings in the ECDHE_PSK suites (ChaCha20-Poly1305, AES-128-GCM, AES-256-GCM); they are
+in no preset. The key exchange is ephemeral ECDH, so a recorded session stays forward secret. Notes:
+
+* A server prefers a configured PSK over its certificate. A client that requires its PSK (the default)
+  offers no TLS 1.2 certificate suite.
+* A server holding no certificate offers TLS 1.2 only, and a client holding no trust source offers the
+  versions it holds a key for, or `Build` refuses it.
+* The server sends no certificate and, when client authentication is required, a known identity stands in
+  for it. `ConnectionInfo.PskIdentity` names the key that authenticated a connection.
+* An identity the server does not know proceeds on a stand-in secret, so the handshake ends as it does for a
+  wrong secret and a probe learns nothing about which identities exist.
+* A PSK session resumes while its identity is still configured with the same secret; removing the key
+  or rotating its secret ends the sessions it made.
+* Give a text identity as UTF-8 (RFC 4279 5.1). The config shares your secret buffer rather than
+  copying it, so keep the buffer alive for the life of the config.
+* The server sends no identity hint unless `Tls12.WithPreSharedKeyIdentityHint` sets one (RFC 4279 5.2); a
+  client ignores any hint.
+* A low-entropy secret falls to an offline dictionary attack on a recorded handshake (RFC 4279 7.2); use
+  a random key of at least 128 bits. The identity is not private (RFC 4279 7.3).
+
 ## The dangerous surface (dev only)
 
 Everything that weakens authentication lives behind one loudly-named surface, and even then the

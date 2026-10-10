@@ -128,6 +128,14 @@ type
     function SessionTicket: TBytes;
     /// <summary>Whether Extended Master Secret (RFC 7627) bound the session.</summary>
     function ExtendedMasterSecret: Boolean;
+    /// <summary>The identity of the pre-shared key (RFC 4279) that authenticated the session;
+    /// empty for a certificate-authenticated one. A server resumes it only while that identity
+    /// is still configured with the same secret, so removing or rotating a key ends the sessions
+    /// it authenticated.</summary>
+    function PskIdentity: TBytes;
+    /// <summary>A digest of the secret of the pre-shared key that authenticated the session (empty
+    /// for a certificate session), compared on resumption so a rotated secret does not resume.</summary>
+    function PskBinding: TBytes;
   end;
 
   /// <summary>

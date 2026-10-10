@@ -46,6 +46,11 @@ type
     EcdheRsaAes256GcmSha384 = UInt16($C030);
     EcdheEcdsaChaCha20Poly1305Sha256 = UInt16($CCA9);
     EcdheRsaChaCha20Poly1305Sha256 = UInt16($CCA8);
+    // pre-shared-key authentication over an ephemeral ECDH exchange (RFC 5489 / RFC 7905 /
+    // RFC 8442); offered only when a TLS 1.2 PSK is configured
+    EcdhePskChaCha20Poly1305Sha256 = UInt16($CCAC);
+    EcdhePskAes128GcmSha256 = UInt16($D001);
+    EcdhePskAes256GcmSha384 = UInt16($D002);
   end;
 
   /// <summary>Signature-scheme wire codepoints (RFC 8446 4.2.3). Wire vocabulary only;
@@ -79,16 +84,18 @@ type
   /// <summary>
   /// A suite's key-exchange method. Decoupled means the suite does not tie the
   /// key exchange to the cipher (TLS 1.3, where key_share drives the exchange);
-  /// Ecdhe is the ephemeral ECDH exchange named by a TLS 1.2 suite.
+  /// Ecdhe is the ephemeral ECDH exchange named by a TLS 1.2 suite, and EcdhePsk the same
+  /// exchange authenticated by a pre-shared key instead of a certificate (RFC 5489).
   /// </summary>
-  TKeyExchangeMethod = (Ecdhe, Decoupled);
+  TKeyExchangeMethod = (Ecdhe, EcdhePsk, Decoupled);
 
   /// <summary>
   /// A suite's server-authentication method. Decoupled means the suite does not
   /// tie authentication to the cipher (TLS 1.3, where signature_algorithms drive
-  /// it); Ecdsa/Rsa are the authentication named by a TLS 1.2 suite.
+  /// it); Ecdsa/Rsa are the authentication named by a TLS 1.2 suite, and Psk a
+  /// TLS 1.2 suite authenticated by a pre-shared key (no certificates are sent).
   /// </summary>
-  TAuthMethod = (Ecdsa, Rsa, Decoupled);
+  TAuthMethod = (Ecdsa, Rsa, Psk, Decoupled);
 
   /// <summary>
   /// The version-neutral facts a cipher suite resolves to: its wire codepoint,

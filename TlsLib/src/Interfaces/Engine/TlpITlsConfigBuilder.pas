@@ -304,6 +304,16 @@ type
     /// offered and used when the peer supports it; True additionally refuses a peer that
     /// does not. Default False.</summary>
     function WithExtendedMasterSecret(ARequire: Boolean): ITls12ClientConfigFacet;
+    /// <summary>The pre-shared key (RFC 4279 / RFC 5489) the client presents when the server
+    /// selects an ECDHE_PSK suite; the PSK suites are offered only once this is set. The identity
+    /// and the secret are each 1 to 2^16-1 bytes (a text identity should be UTF-8, RFC 4279 5.1).
+    /// The config shares the secret buffer rather than copying it, so keep it alive for the life of
+    /// the config. Use a secret distinct from any TLS 1.3 external PSK.</summary>
+    function WithPreSharedKey(const APsk: TTls12Psk): ITls12ClientConfigFacet;
+    /// <summary>Whether a client holding a TLS 1.2 PSK offers only the PSK suites for TLS 1.2, so
+    /// no TLS 1.2 handshake can fall back to certificate authentication. Default True; False also
+    /// offers the certificate suites, which then needs a trust source. No effect without a PSK.</summary>
+    function WithPreSharedKeyRequired(AEnabled: Boolean): ITls12ClientConfigFacet;
     function Tls13: ITls13ClientConfigFacet;
     function Build: ITlsClientConfig;
   end;
@@ -573,6 +583,18 @@ type
     /// use WithExtendedMasterSecret(True), which makes this moot; combining that with Resume is
     /// refused at Build.</summary>
     function WithNonEmsResumption(AMode: TNonEmsResumption): ITls12ServerConfigFacet;
+    /// <summary>The pre-shared keys (RFC 4279 / RFC 5489) the server accepts for the ECDHE_PSK
+    /// suites, looked up by the identity the client presents. A configured PSK is preferred over
+    /// the certificate suites. An identity the server does not know ends the handshake at the
+    /// client's encrypted Finished, exactly as a wrong secret does. A known identity stands in for
+    /// client authentication when it is required. A PSK session resumes while its identity is still
+    /// configured with the same secret. Each identity and secret is 1 to 2^16-1 bytes, identities
+    /// unique; the config shares the secret buffers rather than copying them.</summary>
+    function WithPreSharedKeys(const APsks: TArray<TTls12Psk>): ITls12ServerConfigFacet;
+    /// <summary>The psk_identity_hint the server sends in its ServerKeyExchange (RFC 4279 5.2), at
+    /// most 65535 bytes; empty (the default) sends none. The hint travels in the clear and a client
+    /// ignores it, so it names a key only for a peer whose profile reads it. Needs a PSK.</summary>
+    function WithPreSharedKeyIdentityHint(const AHint: TBytes): ITls12ServerConfigFacet;
     function Tls13: ITls13ServerConfigFacet;
     function Build: ITlsServerConfig;
   end;

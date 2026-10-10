@@ -28,6 +28,8 @@ uses
   TlpNegotiationTypes,
   TlpTlsVersion,
   TlpISession,
+  TlpSession,
+  TlpSecretBuffer,
   TlpSessionTicketKeys,
   TlpInMemorySessionCache,
   TlpITlsEngine,
@@ -54,6 +56,9 @@ type
     class function ArgValue(const AName: string; const ADefault: string): string; static;
     /// <summary>True when a bare presence flag (e.g. --request-ocsp) is on the command line.</summary>
     class function HasArg(const AName: string): Boolean; static;
+    /// <summary>The TLS 1.2 pre-shared key (RFC 5489) named by --psk (hex secret) and --psk-identity
+    /// (text); empty when --psk is absent.</summary>
+    class function ReadTls12Psks: TArray<TTls12Psk>; static;
     /// <summary>Maps soft/hard/off to the revocation posture (soft when unrecognised).</summary>
     class function ParsePosture(const ASpec: string): TRevocationPosture; static;
     /// <summary>Maps a comma-separated list of group names (e.g. "X25519,X25519MLKEM768")
@@ -97,6 +102,16 @@ begin
   for LI := 1 to ParamCount - 1 do
     if ParamStr(LI) = AName then
       Exit(ParamStr(LI + 1));
+end;
+
+class function TOpenSslInteropRunner.ReadTls12Psks: TArray<TTls12Psk>;
+begin
+  Result := nil;
+  if ArgValue('--psk', '') = '' then
+    Exit;
+  SetLength(Result, 1);
+  Result[0].Identity := BytesOf(ArgValue('--psk-identity', ''));
+  Result[0].Secret := TSecretBuffer.From(TInteropUtils.DecodeHex(ArgValue('--psk', '')));
 end;
 
 class function TOpenSslInteropRunner.HasArg(const AName: string): Boolean;
@@ -190,6 +205,8 @@ begin
         LOptions.Role := TInteropRole.Server;
         LOptions.HasCredential := True;
         LOptions.Credential := ACredential;
+        // a TLS 1.2 PSK server serves PSK clients; it keeps the certificate for the others
+        LOptions.Tls12Psks := ReadTls12Psks;
         LOptions.OcspStaple := AOcspStaple;
         LOptions.SessionTicketKeys := AStek;
         LOptions.OfferedGroups := AOfferedGroups;
@@ -252,7 +269,15 @@ begin
   LOptions.Role := TInteropRole.Client;
   LOptions.ServerName := AHost;
   LOptions.CheckServerName := True;
-  LOptions.Trust := TInteropCredentials.TrustFromPem(LPkix, ACaPemFile);
+  // a client holding a TLS 1.2 PSK authenticates the server by it: no certificate trust, TLS 1.2 only
+  LOptions.Tls12Psks := ReadTls12Psks;
+  if System.Length(LOptions.Tls12Psks) > 0 then
+  begin
+    LOptions.Tls12PskRequired := True;
+    LOptions.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls12);
+  end
+  else
+    LOptions.Trust := TInteropCredentials.TrustFromPem(LPkix, ACaPemFile);
   LOptions.SessionCache := LCache;
   // a shared scope so the per-connection rebuilt client configs resume each other's sessions
   if LCache <> nil then

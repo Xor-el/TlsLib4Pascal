@@ -113,6 +113,22 @@ type
     PublicKey: TBytes;
   end;
 
+  /// <summary>A TLS 1.2 ECDHE_PSK ServerKeyExchange (RFC 5489 2): the identity hint and the
+  /// named-curve server params. Unsigned: the pre-shared key authenticates the server, through
+  /// the Finished exchange.</summary>
+  TTlsServerKeyExchangeEcdhePsk = record
+    IdentityHint: TBytes;
+    NamedCurve: UInt16;
+    PublicKey: TBytes;
+  end;
+
+  /// <summary>A TLS 1.2 ECDHE_PSK ClientKeyExchange (RFC 5489 2): the PSK identity and the
+  /// client ephemeral EC point.</summary>
+  TTlsClientKeyExchangeEcdhePsk = record
+    Identity: TBytes;
+    PublicKey: TBytes;
+  end;
+
   /// <summary>A TLS 1.3 CertificateRequest (RFC 8446 4.3.2): the request context and
   /// the raw extension block (signature_algorithms lives inside it).</summary>
   TTlsCertificateRequest13 = record
@@ -227,6 +243,14 @@ type
       const AMsg: TTlsClientKeyExchangeEcdhe): TBytes; static;
     class function DecodeClientKeyExchangeEcdhe(
       const ABody: TBytes): TTlsClientKeyExchangeEcdhe; static;
+    class function EncodeServerKeyExchangeEcdhePsk(
+      const AMsg: TTlsServerKeyExchangeEcdhePsk): TBytes; static;
+    class function DecodeServerKeyExchangeEcdhePsk(
+      const ABody: TBytes): TTlsServerKeyExchangeEcdhePsk; static;
+    class function EncodeClientKeyExchangeEcdhePsk(
+      const AMsg: TTlsClientKeyExchangeEcdhePsk): TBytes; static;
+    class function DecodeClientKeyExchangeEcdhePsk(
+      const ABody: TBytes): TTlsClientKeyExchangeEcdhePsk; static;
     class function EncodeCertificateRequest13(
       const AMsg: TTlsCertificateRequest13): TBytes; static;
     class function DecodeCertificateRequest13(
@@ -824,6 +848,67 @@ var
   LReader, LPoint: TWireReader;
 begin
   LReader := TWireReader.Create(ABody);
+  LPoint := LReader.OpenVector(1);
+  Result.PublicKey := LPoint.ReadBytes(LPoint.Remaining);
+  LReader.ExpectEnd;
+end;
+
+class function THandshakeMessages.EncodeServerKeyExchangeEcdhePsk(
+  const AMsg: TTlsServerKeyExchangeEcdhePsk): TBytes;
+var
+  LWriter: IWireWriter;
+  LHint: TWireVectorMarker;
+begin
+  Result := nil;
+  LWriter := TWireWriter.Create;
+  LHint := LWriter.OpenVector(2);
+  LWriter.WriteBytes(AMsg.IdentityHint);
+  LWriter.CloseVector(LHint);
+  LWriter.WriteBytes(EcdheServerParams(AMsg.NamedCurve, AMsg.PublicKey));
+  Result := LWriter.ToBytes;
+end;
+
+class function THandshakeMessages.DecodeServerKeyExchangeEcdhePsk(
+  const ABody: TBytes): TTlsServerKeyExchangeEcdhePsk;
+var
+  LReader, LHint, LPoint: TWireReader;
+begin
+  LReader := TWireReader.Create(ABody);
+  LHint := LReader.OpenVector(2);
+  Result.IdentityHint := LHint.ReadBytes(LHint.Remaining);
+  if LReader.ReadUInt8 <> EcCurveTypeNamedCurve then
+    raise EDecodeErrorTlsLibException.CreateRes(@SBadCurveType);
+  Result.NamedCurve := LReader.ReadUInt16;
+  LPoint := LReader.OpenVector(1);
+  Result.PublicKey := LPoint.ReadBytes(LPoint.Remaining);
+  LReader.ExpectEnd;
+end;
+
+class function THandshakeMessages.EncodeClientKeyExchangeEcdhePsk(
+  const AMsg: TTlsClientKeyExchangeEcdhePsk): TBytes;
+var
+  LWriter: IWireWriter;
+  LIdentity, LPoint: TWireVectorMarker;
+begin
+  Result := nil;
+  LWriter := TWireWriter.Create;
+  LIdentity := LWriter.OpenVector(2);
+  LWriter.WriteBytes(AMsg.Identity);
+  LWriter.CloseVector(LIdentity);
+  LPoint := LWriter.OpenVector(1);
+  LWriter.WriteBytes(AMsg.PublicKey);
+  LWriter.CloseVector(LPoint);
+  Result := LWriter.ToBytes;
+end;
+
+class function THandshakeMessages.DecodeClientKeyExchangeEcdhePsk(
+  const ABody: TBytes): TTlsClientKeyExchangeEcdhePsk;
+var
+  LReader, LIdentity, LPoint: TWireReader;
+begin
+  LReader := TWireReader.Create(ABody);
+  LIdentity := LReader.OpenVector(2);
+  Result.Identity := LIdentity.ReadBytes(LIdentity.Remaining);
   LPoint := LReader.OpenVector(1);
   Result.PublicKey := LPoint.ReadBytes(LPoint.Remaining);
   LReader.ExpectEnd;

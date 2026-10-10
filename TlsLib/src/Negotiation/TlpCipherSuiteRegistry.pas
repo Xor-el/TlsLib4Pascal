@@ -34,12 +34,13 @@ type
     /// entry is offered only when runnable (or flagged mandatory-to-implement).</summary>
     class function SuiteRunnable(const ACryptoProvider: ICryptoProvider;
       AAead: TAeadAlgorithm; AHash: THashAlgorithm): Boolean; static;
-    /// <summary>Adds the catalog suites of AProtocol that the provider can run, AES-GCM ahead of
-    /// ChaCha20-Poly1305 when it has hardware AES and the reverse otherwise (a performance
-    /// ordering: the software AES-GCM path is constant-time either way), each family in catalog
-    /// order.</summary>
+    /// <summary>Adds the catalog suites of key-exchange method AKeyExchange that the provider can
+    /// run (Decoupled is the TLS 1.3 set, Ecdhe the certificate-authenticated TLS 1.2 set, EcdhePsk
+    /// the pre-shared-key TLS 1.2 set), AES-GCM ahead of ChaCha20-Poly1305 when it has hardware AES
+    /// and the reverse otherwise (a performance ordering: the software AES-GCM path is
+    /// constant-time either way), each family in catalog order.</summary>
     class procedure AddRunnable(const ARegistry: ICipherSuiteRegistry;
-      const ACryptoProvider: ICryptoProvider; AProtocol: TSuiteProtocol); static;
+      const ACryptoProvider: ICryptoProvider; AKeyExchange: TKeyExchangeMethod); static;
   public
     constructor Create;
 
@@ -56,6 +57,14 @@ type
     /// registry holds both; selection is branched on the negotiated version.
     /// </summary>
     class function CreateDualVersion(const ACryptoProvider: ICryptoProvider)
+      : ICipherSuiteRegistry; static;
+
+    /// <summary>
+    /// The TLS 1.2 pre-shared-key suites (ECDHE_PSK over ChaCha20-Poly1305 and AES-GCM) the
+    /// provider can run, in the same performance order as the certificate suites. Never part of
+    /// a default or preset registry: configuring a TLS 1.2 PSK is what brings them in.
+    /// </summary>
+    class function CreateTls12Psk(const ACryptoProvider: ICryptoProvider)
       : ICipherSuiteRegistry; static;
   end;
 
@@ -85,7 +94,7 @@ begin
 end;
 
 class procedure TCipherSuiteRegistry.AddRunnable(const ARegistry: ICipherSuiteRegistry;
-  const ACryptoProvider: ICryptoProvider; AProtocol: TSuiteProtocol);
+  const ACryptoProvider: ICryptoProvider; AKeyExchange: TKeyExchangeMethod);
 var
   LSuites: TArray<TTlsCipherSuite>;
   LPass, LI: Int32;
@@ -97,7 +106,7 @@ begin
     // the first pass takes ChaCha20-Poly1305 only without hardware AES; the second the other family
     LChaChaPass := (LPass = 0) = (not ACryptoProvider.Primitives.HasHardwareAes);
     for LI := Low(LSuites) to High(LSuites) do
-      if (LSuites[LI].Protocol = AProtocol) and
+      if (LSuites[LI].KeyExchange = AKeyExchange) and
         ((LSuites[LI].Common.Aead = TAeadAlgorithm.CHACHA20_POLY1305) = LChaChaPass) and
         ((LSuites[LI].Common.Code = TCipherSuites13.Aes128GcmSha256) or
         SuiteRunnable(ACryptoProvider, LSuites[LI].Common.Aead, LSuites[LI].Common.Hash)) then
@@ -109,14 +118,21 @@ class function TCipherSuiteRegistry.CreateDefault(const ACryptoProvider: ICrypto
   : ICipherSuiteRegistry;
 begin
   Result := TCipherSuiteRegistry.Create;
-  AddRunnable(Result, ACryptoProvider, TSuiteProtocol.Tls13);
+  AddRunnable(Result, ACryptoProvider, TKeyExchangeMethod.Decoupled);
 end;
 
 class function TCipherSuiteRegistry.CreateDualVersion(
   const ACryptoProvider: ICryptoProvider): ICipherSuiteRegistry;
 begin
   Result := CreateDefault(ACryptoProvider);
-  AddRunnable(Result, ACryptoProvider, TSuiteProtocol.Tls12);
+  AddRunnable(Result, ACryptoProvider, TKeyExchangeMethod.Ecdhe);
+end;
+
+class function TCipherSuiteRegistry.CreateTls12Psk(
+  const ACryptoProvider: ICryptoProvider): ICipherSuiteRegistry;
+begin
+  Result := TCipherSuiteRegistry.Create;
+  AddRunnable(Result, ACryptoProvider, TKeyExchangeMethod.EcdhePsk);
 end;
 
 end.
