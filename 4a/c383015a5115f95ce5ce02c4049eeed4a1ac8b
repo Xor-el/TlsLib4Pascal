@@ -1,0 +1,36 @@
+TlsLib.Adapters/FclNet/Examples/src/FclNetLoopbackExample.pas
+  s_d27f31cd14035d::t_e6d5cc1e6a53c8 452
+TlsLib.Adapters/Indy/Examples/src/IndyLoopbackExample.pas
+  s_d27f31cd14035d::t_e4a4dec374df8b 263
+TlsLib.Tests/src/ClientAuthTests.pas
+  s_d27f31cd14035d::t_403cf8246dd25e 748-752
+  s_d27f31cd14035d::t_09320382a3bb53 121
+  s_d27f31cd14035d::t_6a5154161ace70 89-90
+  s_d27f31cd14035d::t_ea309ec61e4fb5 46
+  s_d27f31cd14035d::t_b5d211a754e947 352-359
+  s_d27f31cd14035d::t_39fa7d313d7615 377-378
+  s_d27f31cd14035d::t_3340c9458e1fc5 727-730,732-747,753-759
+  s_d27f31cd14035d::t_848f1e484cb4ce 731
+TlsLib.Adapters/mORMot/Examples/src/MormotLoopbackExample.pas
+  s_d27f31cd14035d::t_16b042e37cd3cf 483-486
+  s_d27f31cd14035d::t_d08e042b9ed40b 392
+  s_d27f31cd14035d::t_993870e7b4303b 487
+  s_d27f31cd14035d::t_b8141f67ef63fd 93
+  s_d27f31cd14035d::t_c14ec4ea140b13 88,94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4ac383015a5115f95ce5ce02c4049eeed4a1ac8b",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
