@@ -126,6 +126,10 @@ type
     function HelloOf(const AWire: TBytes): TTlsClientHello;
     function NewTls12OnlyClient(AGrease: Boolean): ITlsEngine;
     function GreaseCount(const AValues: TArray<UInt16>): Int32;
+    // overwrites the named_curve (ACurve) or the signature scheme (not ACurve) in the first
+    // plaintext ServerKeyExchange of a server flight with AValue
+    procedure PatchServerKeyExchange(var AWire: TBytes; ACurve: Boolean; AValue: UInt16);
+    procedure CheckGreaseInServerKeyExchangeIsRefused(ACurve: Boolean);
     function NewClientBuilder: ITlsClientConfigBuilder;
     function NewServerBuilder: ITlsServerConfigBuilder;
     function MakePskSpec: TExternalPsk;
@@ -175,6 +179,8 @@ type
     procedure TestGreaseOffSendsNone;
     procedure TestTls12OnlyClientCompletesWithGrease;
     procedure TestTls12ClientRefusesAGreaseSuiteTheServerSelects;
+    procedure TestTls12ClientRefusesAGreaseCurveInServerKeyExchange;
+    procedure TestTls12ClientRefusesAGreaseSchemeInServerKeyExchange;
     procedure TestAlpnSetterCopiesCallerArray;
     procedure TestRecordSizeLimitDefaultsToUnset;
     procedure TestExternalPskInnerBytesAreCopied;
@@ -1750,6 +1756,71 @@ begin
   CheckTrue(LClient.IsTerminal, 'the client aborted');
   CheckEquals(Int64(Ord(TTlsAlertDescription.IllegalParameter)),
     Int64(Ord(LClient.LastError.Alert.Description)), 'with illegal_parameter');
+end;
+
+procedure TTestConfigBuilder.PatchServerKeyExchange(var AWire: TBytes; ACurve: Boolean;
+  AValue: UInt16);
+var
+  LPos, LRecordEnd, LMsgPos, LLen, LBody, LOffset: Int32;
+begin
+  LPos := 0;
+  while LPos + 5 <= System.Length(AWire) do
+  begin
+    LRecordEnd := LPos + 5 + ((AWire[LPos + 3] shl 8) or AWire[LPos + 4]);
+    if AWire[LPos] = $16 then
+    begin
+      LMsgPos := LPos + 5;
+      while LMsgPos + 4 <= LRecordEnd do
+      begin
+        LLen := (AWire[LMsgPos + 1] shl 16) or (AWire[LMsgPos + 2] shl 8) or AWire[LMsgPos + 3];
+        if AWire[LMsgPos] = Byte(Ord(TTlsHandshakeType.ServerKeyExchange)) then
+        begin
+          // curve_type(1) named_curve(2) point_len(1) point, then the scheme(2)
+          LBody := LMsgPos + 4;
+          if ACurve then
+            LOffset := LBody + 1
+          else
+            LOffset := LBody + 4 + AWire[LBody + 3];
+          AWire[LOffset] := Byte(AValue shr 8);
+          AWire[LOffset + 1] := Byte(AValue);
+          Exit;
+        end;
+        Inc(LMsgPos, 4 + LLen);
+      end;
+    end;
+    LPos := LRecordEnd;
+  end;
+  Fail('the flight carries no plaintext ServerKeyExchange');
+end;
+
+procedure TTestConfigBuilder.CheckGreaseInServerKeyExchangeIsRefused(ACurve: Boolean);
+var
+  LClient, LServer: ITlsEngine;
+  LFlight: TBytes;
+begin
+  // RFC 8701 3.1: a client MUST reject a GREASE value the server negotiates, including the TLS 1.2
+  // ServerKeyExchange named curve and signature algorithm; patch one into a real server flight
+  LClient := NewTls12OnlyClient(True);
+  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential).Build);
+  LClient.StartHandshake;
+  Feed(LServer, Drain(LClient));
+  LFlight := Drain(LServer);
+  PatchServerKeyExchange(LFlight, ACurve, TGrease.ValueAt(5));
+  Feed(LClient, LFlight);
+  CheckTrue(LClient.IsTerminal, 'the client aborted');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.IllegalParameter)),
+    Int64(Ord(LClient.LastError.Alert.Description)), 'with illegal_parameter');
+end;
+
+procedure TTestConfigBuilder.TestTls12ClientRefusesAGreaseCurveInServerKeyExchange;
+begin
+  CheckGreaseInServerKeyExchangeIsRefused(True);
+end;
+
+procedure TTestConfigBuilder.TestTls12ClientRefusesAGreaseSchemeInServerKeyExchange;
+begin
+  CheckGreaseInServerKeyExchangeIsRefused(False);
 end;
 
 procedure TTestConfigBuilder.TestSingleVersionHelloAdvertisesOnlyThatVersionsSuites;

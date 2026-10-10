@@ -44,6 +44,10 @@ type
     /// length and contents (RFC 8701 3.1).</summary>
     class function InjectExtension(const ABlock: TBytes; AType: UInt16;
       const ABody: TBytes): TBytes; overload; static;
+    /// <summary>Splices the two GREASE extensions a hello carries, one empty and one with a
+    /// one-byte body so the hello varies in length and contents (RFC 8701 3.1), at the
+    /// position InjectExtension picks. Their types are ValueAt(ASeed + 5) and ValueAt(ASeed + 6).</summary>
+    class function InjectPair(const ABlock: TBytes; ASeed: Int32): TBytes; static;
   end;
 
 implementation
@@ -79,6 +83,12 @@ class function TGrease.InjectExtension(const ABlock: TBytes;
   AType: UInt16): TBytes;
 begin
   Result := InjectExtension(ABlock, AType, nil);
+end;
+
+class function TGrease.InjectPair(const ABlock: TBytes; ASeed: Int32): TBytes;
+begin
+  Result := InjectExtension(ABlock, ValueAt(ASeed + 5));
+  Result := InjectExtension(Result, ValueAt(ASeed + 6), TBytes.Create(0));
 end;
 
 class function TGrease.InjectExtension(const ABlock: TBytes; AType: UInt16;

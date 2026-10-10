@@ -424,13 +424,8 @@ begin
       end;
     end;
     LBlock := FCodec.ProduceBlock(LContext, TTlsExtensionContextKind.ClientHello);
-    // an empty and a one-byte GREASE extension, so the hello varies in length and contents too
     if FParams.Grease then
-    begin
-      LBlock := TGrease.InjectExtension(LBlock, TGrease.ValueAt(LSeed + 5));
-      LBlock := TGrease.InjectExtension(LBlock, TGrease.ValueAt(LSeed + 6),
-        TBytes.Create(0));
-    end;
+      LBlock := TGrease.InjectPair(LBlock, LSeed);
     LHello.Extensions := LBlock;
     Result := THandshakeFraming.Frame(TTlsHandshakeType.ClientHello,
       THandshakeMessages.EncodeClientHello(LHello));
