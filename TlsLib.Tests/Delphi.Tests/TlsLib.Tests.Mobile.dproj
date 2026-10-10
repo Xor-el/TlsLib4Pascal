@@ -555,6 +555,7 @@
         <DCCReference Include="..\src\MockSessionStores.pas"/>
         <DCCReference Include="..\src\ClientSessionPolicyTests.pas"/>
         <DCCReference Include="..\src\Tls13ResumptionTests.pas"/>
+        <DCCReference Include="..\src\Tls12PskTests.pas"/>
         <DCCReference Include="..\src\Tls12ResumptionTests.pas"/>
         <DCCReference Include="..\src\ConfigResumptionTests.pas"/>
         <DCCReference Include="..\src\Tls13KeyUpdateTests.pas"/>

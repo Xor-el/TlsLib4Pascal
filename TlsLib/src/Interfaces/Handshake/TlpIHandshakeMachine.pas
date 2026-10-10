@@ -150,6 +150,9 @@ type
     /// <summary>Reports the DER DistinguishedName certificate_authorities a peer named in its
     /// CertificateRequest (RFC 8446 4.2.4 / RFC 5246 7.4.4) - surfaced read-only on ITlsEngine.ConnectionInfo.</summary>
     procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>);
+    /// <summary>Reports the identity of the pre-shared key that authenticated the connection - surfaced
+    /// read-only on ITlsEngine.ConnectionInfo.</summary>
+    procedure OnPskIdentity(const AIdentity: TBytes);
     /// <summary>Reports the negotiated cipher suite, named group (0 when none / non-(EC)DHE),
     /// whether the handshake resumed, whether the session used Extended Master Secret (RFC 7627;
     /// always true on TLS 1.3), and the SNI server_name in play (the host a client requested, as

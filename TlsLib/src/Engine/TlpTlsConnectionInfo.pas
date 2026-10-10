@@ -51,6 +51,9 @@ type
     /// The DER DistinguishedName certificate_authorities the peer named in its CertificateRequest
     /// (RFC 8446 4.2.4 / RFC 5246 7.4.4); empty when none was requested or named.
     RequestedCertificateAuthorities: TArray<TBytes>;
+    /// The identity of the TLS 1.2 pre-shared key that authenticated the connection (RFC 4279); empty
+    /// when the connection used certificates. A server reads which of its PSKs the client proved.
+    PskIdentity: TBytes;
     /// The negotiated cipher suite (IANA code).
     CipherSuite: UInt16;
     /// The negotiated named group (IANA code); 0 for a non-(EC)DHE key exchange.

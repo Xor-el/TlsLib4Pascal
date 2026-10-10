@@ -148,6 +148,9 @@ type
     FResumption: Boolean;
     FExternalPsks: TArray<TExternalPsk>;
     FExternalPskRequired: Boolean;
+    FTls12Psks: TArray<TTls12Psk>;
+    FTls12PskRequired: Boolean;
+    FTls12PskIdentityHint: TBytes;
     FSessionCache: ISessionCache;
     FSessionScope: TBytes;
     FResumeVerification: TResumeVerification;
@@ -229,6 +232,16 @@ type
     /// buffer, shared by reference).</summary>
     class function CloneExternalPsks(
       const APsks: TArray<TExternalPsk>): TArray<TExternalPsk>; static;
+    /// <summary>The TLS 1.2 PSKs with their identity copied (the secret is an immutable buffer,
+    /// shared by reference).</summary>
+    class function CloneTls12Psks(
+      const APsks: TArray<TTls12Psk>): TArray<TTls12Psk>; static;
+    /// <summary>Raises unless every PSK has a 1 to 2^16-1 byte identity and secret and no two
+    /// share an identity.</summary>
+    class procedure ValidateTls12Psks(const APsks: TArray<TTls12Psk>); static;
+    /// <summary>ABase with the TLS 1.2 PSK suites the provider can run placed ahead of its TLS
+    /// 1.2 certificate suites, when a TLS 1.2 PSK is configured; ABase itself otherwise.</summary>
+    function WithTls12PskSuites(const ABase: ICipherSuiteRegistry): ICipherSuiteRegistry;
     // the single-source-of-truth mutators; reached only by the endpoint views and facets
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): TTlsConfigBuilder;
     function WithCipherSuiteList(const ASuites: TArray<UInt16>): TTlsConfigBuilder;
@@ -291,6 +304,9 @@ type
     function WithExternalPreSharedKeys(
       const APsks: TArray<TExternalPsk>): TTlsConfigBuilder;
     function WithExternalPskRequired(AEnabled: Boolean): TTlsConfigBuilder;
+    function WithTls12PreSharedKeys(const APsks: TArray<TTls12Psk>): TTlsConfigBuilder;
+    function WithTls12PreSharedKeyRequired(AEnabled: Boolean): TTlsConfigBuilder;
+    function WithTls12PskIdentityHint(const AHint: TBytes): TTlsConfigBuilder;
     function WithSessionCache(const ACache: ISessionCache): TTlsConfigBuilder;
     function WithSessionScope(const AScope: TBytes): TTlsConfigBuilder;
     function WithResumeVerification(AMode: TResumeVerification): TTlsConfigBuilder;
@@ -348,12 +364,29 @@ resourcestring
   SPskOnlyClientNeedsPskRequired = 'a client with external PSKs and no trust source cannot fall ' +
     'back to certificate authentication; keep Tls13.WithExternalPskRequired(True) or add a trust source';
   SPskOnlyClientNeedsTls13Only = 'a client with external PSKs and no trust source must offer TLS ' +
-    '1.3 only (external PSKs are TLS 1.3-only); use a 1.3-only preset or WithSupportedVersions([TLS 1.3])';
+    '1.3 only (external PSKs are TLS 1.3-only), or also hold a TLS 1.2 PSK; use WithSupportedVersions([TLS 1.3])';
+  SPskOnlyClientNeedsTls12Only = 'a client with only a TLS 1.2 PSK and no trust source must offer ' +
+    'TLS 1.2 only, or also hold an external PSK for TLS 1.3; use WithSupportedVersions([TLS 1.2])';
+  SPskOnlyClientNeedsTls12PskRequired = 'a client with a TLS 1.2 PSK and no trust source cannot fall ' +
+    'back to certificate authentication; keep Tls12.WithPreSharedKeyRequired(True) or add a trust source';
+  STls12PskNeedsTls12 = 'a TLS 1.2 PSK is unusable without TLS 1.2; add TLS 1.2 to the offered ' +
+    'versions or remove the PSK';
+  STls12PskIdentityLength = 'a TLS 1.2 PSK identity must be 1 to 65535 bytes';
+  STls12PskSecretLength = 'a TLS 1.2 PSK secret must be 1 to 65535 bytes';
+  STls12PskDuplicateIdentity = 'two TLS 1.2 PSKs share an identity';
+  STls12PskClientHoldsOne = 'a client presents one TLS 1.2 PSK';
+  STls12PskHintLength = 'a TLS 1.2 PSK identity hint must be at most 65535 bytes';
+  STls12PskHintNeedsPsk = 'a TLS 1.2 PSK identity hint is sent only with a PSK; configure ' +
+    'Tls12.WithPreSharedKeys or drop the hint';
+  STls12PskNeedsSuite = 'a TLS 1.2 PSK is configured but the cipher suites hold no PSK suite ' +
+    '(a cipher-suite list must name at least one TLS_ECDHE_PSK suite)';
   SBuilderOneEndpoint = 'a configuration builder configures one endpoint: use a separate builder ' +
     'for the client and for the server';
   SPskOnlyServerNeedsTls13Only = 'a server with external PSKs and no certificate must offer TLS ' +
-    '1.3 only (external PSKs are TLS 1.3-only); use a 1.3-only preset or WithSupportedVersions([TLS 1.3])';
-  SNoCredential = 'a server configuration requires a certificate credential or an external PSK';
+    '1.3 only (external PSKs are TLS 1.3-only), or also hold a TLS 1.2 PSK; use WithSupportedVersions([TLS 1.3])';
+  SPskOnlyServerNeedsTls12Only = 'a server with only TLS 1.2 PSKs and no certificate must offer ' +
+    'TLS 1.2 only, or also hold an external PSK for TLS 1.3; use WithSupportedVersions([TLS 1.2])';
+  SNoCredential = 'a server configuration requires a certificate credential or a pre-shared key';
   SCredentialChainEmpty = 'a credential needs at least its leaf certificate in the chain';
   SCredentialKeyMissing = 'a credential needs a private key to sign the handshake';
   SNilNegotiationRegistry = 'the cipher-suite, signature-scheme and named-group registries are required';
@@ -500,6 +533,7 @@ type
     FRequireExtendedMasterSecret: Boolean;
     FResumption: Boolean;
     FExternalPsks: TArray<TExternalPsk>;
+    FTls12Psks: TArray<TTls12Psk>;
     FClock: ITlsClock;
     FMonotonicClock: ITlsMonotonicClock;
     FKeyLog: IKeyLog;
@@ -528,6 +562,7 @@ type
     function RequireExtendedMasterSecret: Boolean;
     function Resumption: Boolean;
     function ExternalPsks: TArray<TExternalPsk>;
+    function Tls12Psks: TArray<TTls12Psk>;
     function Clock: ITlsClock;
     function MonotonicClock: ITlsMonotonicClock;
     function KeyLog: IKeyLog;
@@ -546,6 +581,7 @@ type
     FResumeVerification: TResumeVerification;
     FEarlyData: Boolean;
     FExternalPskRequired: Boolean;
+    FTls12PskRequired: Boolean;
     FEchPolicy: IEchClientPolicy;
   public
     function Grease: Boolean;
@@ -558,6 +594,7 @@ type
     function ResumeVerification: TResumeVerification;
     function EarlyData: Boolean;
     function ExternalPskRequired: Boolean;
+    function Tls12PreSharedKeyRequired: Boolean;
     function EncryptedClientHello: IEchClientPolicy;
   end;
 
@@ -578,6 +615,7 @@ type
     FAntiReplay: IAntiReplayStrategy;
     FTicketLifetimeSeconds: UInt32;
     FTicketCount: Int32;
+    FTls12PskIdentityHint: TBytes;
     FMaxEarlyData: UInt32;
     FEchServerPolicy: IEchServerPolicy;
   public
@@ -595,6 +633,7 @@ type
     function AntiReplay: IAntiReplayStrategy;
     function TicketLifetimeSeconds: UInt32;
     function TicketCount: Int32;
+    function Tls12PskIdentityHint: TBytes;
     function MaxEarlyData: UInt32;
     function EncryptedClientHello: IEchServerPolicy;
   end;
@@ -752,6 +791,8 @@ type
   TTls12ClientConfigFacet = class sealed(TTlsConfigViewBase, ITls12ClientConfigFacet)
   public
     function WithExtendedMasterSecret(ARequire: Boolean): ITls12ClientConfigFacet;
+    function WithPreSharedKey(const APsk: TTls12Psk): ITls12ClientConfigFacet;
+    function WithPreSharedKeyRequired(AEnabled: Boolean): ITls12ClientConfigFacet;
     function Tls13: ITls13ClientConfigFacet;
     function Build: ITlsClientConfig;
   end;
@@ -781,6 +822,8 @@ type
   public
     function WithExtendedMasterSecret(ARequire: Boolean): ITls12ServerConfigFacet;
     function WithNonEmsResumption(AMode: TNonEmsResumption): ITls12ServerConfigFacet;
+    function WithPreSharedKeys(const APsks: TArray<TTls12Psk>): ITls12ServerConfigFacet;
+    function WithPreSharedKeyIdentityHint(const AHint: TBytes): ITls12ServerConfigFacet;
     function Tls13: ITls13ServerConfigFacet;
     function Build: ITlsServerConfig;
   end;
@@ -909,6 +952,11 @@ begin
   Result := TTlsConfigBuilder.CloneExternalPsks(FExternalPsks);
 end;
 
+function TFrozenCommonConfig.Tls12Psks: TArray<TTls12Psk>;
+begin
+  Result := TTlsConfigBuilder.CloneTls12Psks(FTls12Psks);
+end;
+
 function TFrozenCommonConfig.Clock: ITlsClock;
 begin
   Result := FClock;
@@ -974,6 +1022,11 @@ end;
 function TFrozenClientConfig.ExternalPskRequired: Boolean;
 begin
   Result := FExternalPskRequired;
+end;
+
+function TFrozenClientConfig.Tls12PreSharedKeyRequired: Boolean;
+begin
+  Result := FTls12PskRequired;
 end;
 
 function TFrozenClientConfig.EncryptedClientHello: IEchClientPolicy;
@@ -1051,6 +1104,11 @@ end;
 function TFrozenServerConfig.TicketCount: Int32;
 begin
   Result := FTicketCount;
+end;
+
+function TFrozenServerConfig.Tls12PskIdentityHint: TBytes;
+begin
+  Result := System.Copy(FTls12PskIdentityHint);
 end;
 
 function TFrozenServerConfig.MaxEarlyData: UInt32;
@@ -1682,6 +1740,20 @@ begin
   Result := Self;
 end;
 
+function TTls12ClientConfigFacet.WithPreSharedKey(
+  const APsk: TTls12Psk): ITls12ClientConfigFacet;
+begin
+  FOwner.WithTls12PreSharedKeys(TArray<TTls12Psk>.Create(APsk));
+  Result := Self;
+end;
+
+function TTls12ClientConfigFacet.WithPreSharedKeyRequired(
+  AEnabled: Boolean): ITls12ClientConfigFacet;
+begin
+  FOwner.WithTls12PreSharedKeyRequired(AEnabled);
+  Result := Self;
+end;
+
 function TTls12ClientConfigFacet.Tls13: ITls13ClientConfigFacet;
 begin
   Result := FOwner.Client13;
@@ -1788,6 +1860,20 @@ begin
   Result := Self;
 end;
 
+function TTls12ServerConfigFacet.WithPreSharedKeys(
+  const APsks: TArray<TTls12Psk>): ITls12ServerConfigFacet;
+begin
+  FOwner.WithTls12PreSharedKeys(APsks);
+  Result := Self;
+end;
+
+function TTls12ServerConfigFacet.WithPreSharedKeyIdentityHint(
+  const AHint: TBytes): ITls12ServerConfigFacet;
+begin
+  FOwner.WithTls12PskIdentityHint(AHint);
+  Result := Self;
+end;
+
 function TTls12ServerConfigFacet.Tls13: ITls13ServerConfigFacet;
 begin
   Result := FOwner.Server13;
@@ -1863,6 +1949,7 @@ begin
   // configuring an external PSK is an explicit "authenticate with this key" statement, so a
   // non-PSK server response is refused by default; a caller may opt into a certificate fallback
   FExternalPskRequired := True;
+  FTls12PskRequired := True;
   FTicketLifetimeSeconds := DefaultTicketLifetimeSeconds;
   FTicketCount := DefaultTicketCount;
   // the endpoint reads the real system clock unless a caller injects one via WithClock
@@ -2670,6 +2757,93 @@ begin
   Result := Self;
 end;
 
+class function TTlsConfigBuilder.CloneTls12Psks(
+  const APsks: TArray<TTls12Psk>): TArray<TTls12Psk>;
+var
+  LI: Int32;
+begin
+  Result := System.Copy(APsks);
+  for LI := 0 to System.High(Result) do
+    Result[LI].Identity := System.Copy(APsks[LI].Identity);
+end;
+
+class procedure TTlsConfigBuilder.ValidateTls12Psks(const APsks: TArray<TTls12Psk>);
+var
+  LI, LJ: Int32;
+begin
+  for LI := 0 to System.High(APsks) do
+  begin
+    if (System.Length(APsks[LI].Identity) = 0) or (System.Length(APsks[LI].Identity) > High(UInt16)) then
+      raise EArgumentTlsLibException.CreateRes(@STls12PskIdentityLength);
+    if (APsks[LI].Secret = nil) or (APsks[LI].Secret.Len = 0) or
+      (APsks[LI].Secret.Len > High(UInt16)) then
+      raise EArgumentTlsLibException.CreateRes(@STls12PskSecretLength);
+    for LJ := 0 to LI - 1 do
+      if TArrayUtilities.AreEqual(APsks[LI].Identity, APsks[LJ].Identity) then
+        raise EArgumentTlsLibException.CreateRes(@STls12PskDuplicateIdentity);
+  end;
+end;
+
+function TTlsConfigBuilder.WithTls12PskSuites(
+  const ABase: ICipherSuiteRegistry): ICipherSuiteRegistry;
+var
+  LPsk, LSuite: TTlsCipherSuite;
+  LJoined: ICipherSuiteRegistry;
+  LUnused: TTlsCipherSuite;
+begin
+  Result := ABase;
+  if System.Length(FTls12Psks) = 0 then
+    Exit;
+  // the TLS 1.3 suites, then the PSK suites, then the TLS 1.2 certificate suites: the PSK suites
+  // lead the TLS 1.2 order, as a matching PSK outranks the certificate in TLS 1.3 too
+  LJoined := TCipherSuiteRegistry.Create;
+  for LSuite in ABase.Items do
+    if LSuite.Protocol = TSuiteProtocol.Tls13 then
+      LJoined.Add(LSuite);
+  for LPsk in TCipherSuiteRegistry.CreateTls12Psk(FCrypto).Items do
+    if not LJoined.TryGet(LPsk.Common.Code, LUnused) then
+      LJoined.Add(LPsk);
+  for LSuite in ABase.Items do
+    if (LSuite.Protocol = TSuiteProtocol.Tls12) and not LJoined.TryGet(LSuite.Common.Code, LUnused) then
+      LJoined.Add(LSuite);
+  Result := LJoined;
+end;
+
+function TTlsConfigBuilder.WithTls12PreSharedKeys(
+  const APsks: TArray<TTls12Psk>): TTlsConfigBuilder;
+begin
+  GuardMutable;
+  ValidateTls12Psks(APsks);
+  // copied so a caller mutating its arrays after Build cannot alter the frozen config; the
+  // secrets are ISecretBuffer, shared by reference
+  FTls12Psks := TTlsConfigBuilder.CloneTls12Psks(APsks);
+  if System.Length(APsks) > 0 then
+    FTls12Configured := True;
+  Result := Self;
+end;
+
+function TTlsConfigBuilder.WithTls12PskIdentityHint(
+  const AHint: TBytes): TTlsConfigBuilder;
+begin
+  GuardMutable;
+  if System.Length(AHint) > High(UInt16) then
+    raise EArgumentTlsLibException.CreateRes(@STls12PskHintLength);
+  FTls12PskIdentityHint := System.Copy(AHint);
+  if System.Length(AHint) > 0 then
+    FTls12Configured := True;
+  Result := Self;
+end;
+
+function TTlsConfigBuilder.WithTls12PreSharedKeyRequired(
+  AEnabled: Boolean): TTlsConfigBuilder;
+begin
+  GuardMutable;
+  FTls12PskRequired := AEnabled;
+  if not AEnabled then
+    FTls12Configured := True;
+  Result := Self;
+end;
+
 function TTlsConfigBuilder.WithSessionStore(
   const AStore: ISessionStore): TTlsConfigBuilder;
 begin
@@ -2823,16 +2997,18 @@ end;
 
 function TTlsConfigBuilder.EffectiveCipherSuites: ICipherSuiteRegistry;
 var
-  LNarrowed: ICipherSuiteRegistry;
+  LBase, LNarrowed: ICipherSuiteRegistry;
   LProtocol: TSuiteProtocol;
   LSuite, LUnused: TTlsCipherSuite;
   LNamed: Boolean;
   LI: Int32;
 begin
+  // a configured TLS 1.2 PSK brings its suites in; a list may then name them like any other
+  LBase := WithTls12PskSuites(FCipherSuites);
   if System.Length(FCipherSuiteList) = 0 then
-    Exit(FCipherSuites);
+    Exit(LBase);
   for LI := 0 to System.High(FCipherSuiteList) do
-    if not FCipherSuites.TryGet(FCipherSuiteList[LI], LSuite) then
+    if not LBase.TryGet(FCipherSuiteList[LI], LSuite) then
       raise EArgumentTlsLibException.CreateResFmt(@SCipherSuiteNotConfigured,
         [TCipherSuiteCatalog.Name(FCipherSuiteList[LI])]);
   LNarrowed := TCipherSuiteRegistry.Create;
@@ -2840,14 +3016,14 @@ begin
   begin
     LNamed := False;
     for LI := 0 to System.High(FCipherSuiteList) do
-      if FCipherSuites.TryGet(FCipherSuiteList[LI], LSuite) and (LSuite.Protocol = LProtocol) then
+      if LBase.TryGet(FCipherSuiteList[LI], LSuite) and (LSuite.Protocol = LProtocol) then
       begin
         LNamed := True;
         if not LNarrowed.TryGet(LSuite.Common.Code, LUnused) then
           LNarrowed.Add(LSuite);
       end;
     if not LNamed then
-      for LSuite in FCipherSuites.Items do
+      for LSuite in LBase.Items do
         if LSuite.Protocol = LProtocol then
           LNarrowed.Add(LSuite);
   end;
@@ -2858,6 +3034,8 @@ procedure TTlsConfigBuilder.ValidateOfferedVersionsHaveSuites(const ASuites: ICi
 var
   LI: Int32;
   LName: string;
+  LSuite: TTlsCipherSuite;
+  LHasPskSuite: Boolean;
 begin
   for LI := 0 to System.High(FSupportedVersions) do
     if System.Length(TNegotiationPolicy.SuiteOrder(ASuites,
@@ -2869,6 +3047,16 @@ begin
         LName := 'TLS 1.2';
       raise EArgumentTlsLibException.CreateResFmt(@SNoSuiteForVersion, [LName, LName]);
     end;
+  // a cipher-suite list that names no PSK suite leaves a configured TLS 1.2 PSK unusable
+  if System.Length(FTls12Psks) > 0 then
+  begin
+    LHasPskSuite := False;
+    for LSuite in ASuites.Items do
+      if LSuite.Auth = TAuthMethod.Psk then
+        LHasPskSuite := True;
+    if not LHasPskSuite then
+      raise EArgumentTlsLibException.CreateRes(@STls12PskNeedsSuite);
+  end;
 end;
 
 procedure TTlsConfigBuilder.ValidateRequiredCollaborators;
@@ -2922,7 +3110,7 @@ begin
   LHasTrust := HasAnchorRoots or (FServerCertVerifier <> nil) or
     (FServerVerifierSource <> nil);
   if (not LHasTrust) and (System.Length(FExternalPsks) = 0) and
-    (not FDangerousTrust.InsecureSkipVerify) then
+    (System.Length(FTls12Psks) = 0) and (not FDangerousTrust.InsecureSkipVerify) then
   begin
     // a supplied-but-empty store is a distinct misconfiguration (trust believed present but absent)
     if System.Length(FAnchorStores) > 0 then
@@ -2936,12 +3124,29 @@ begin
   // client is not PSK-only: its certificate path exists and deliberately verifies nothing.
   if (not LHasTrust) and (not FDangerousTrust.InsecureSkipVerify) then
   begin
-    if not FExternalPskRequired then
-      raise EInvalidOperationTlsLibException.CreateRes(@SPskOnlyClientNeedsPskRequired);
-    if (System.Length(FSupportedVersions) <> 1) or
-      (FSupportedVersions[0] <> TlsWireVersionTls13) then
-      raise EInvalidOperationTlsLibException.CreateRes(@SPskOnlyClientNeedsTls13Only);
+    // each version the client offers needs a PSK of that version, required, or it would reach a
+    // certificate path with nothing to verify against
+    if TArrayUtilities.Contains<UInt16>(FSupportedVersions, TlsWireVersionTls13) then
+    begin
+      if System.Length(FExternalPsks) = 0 then
+        raise EInvalidOperationTlsLibException.CreateRes(@SPskOnlyClientNeedsTls12Only);
+      if not FExternalPskRequired then
+        raise EInvalidOperationTlsLibException.CreateRes(@SPskOnlyClientNeedsPskRequired);
+    end;
+    if TArrayUtilities.Contains<UInt16>(FSupportedVersions, TlsWireVersionTls12) then
+    begin
+      if System.Length(FTls12Psks) = 0 then
+        raise EInvalidOperationTlsLibException.CreateRes(@SPskOnlyClientNeedsTls13Only);
+      if not FTls12PskRequired then
+        raise EInvalidOperationTlsLibException.CreateRes(@SPskOnlyClientNeedsTls12PskRequired);
+    end;
   end;
+  // a TLS 1.2 PSK is unusable without TLS 1.2
+  if (System.Length(FTls12Psks) > 0) and
+    not (TArrayUtilities.Contains<UInt16>(FSupportedVersions, TlsWireVersionTls12)) then
+    raise EInvalidOperationTlsLibException.CreateRes(@STls12PskNeedsTls12);
+  if System.Length(FTls12Psks) > 1 then
+    raise EInvalidOperationTlsLibException.CreateRes(@STls12PskClientHoldsOne);
   // a Hard revocation posture rejects a peer whose certificate carries no stapled OCSP response
   // (missing staple -> Indeterminate -> reject), so it silently always-rejects unless the client
   // obtains revocation status some way: by requesting a staple, or by a live OCSP/CRL verdict
@@ -3003,6 +3208,7 @@ begin
   LConfig.FGrease := FGrease;
   LConfig.FResumption := FResumption;
   LConfig.FExternalPsks := FExternalPsks;
+  LConfig.FTls12Psks := FTls12Psks;
   LConfig.FCheckServerName := FCheckServerName;
   LConfig.FServerNameIndication := FServerNameIndication;
   LConfig.FServerVerifierSource := ComposeServerVerifierSource;
@@ -3023,6 +3229,7 @@ begin
   LConfig.FKeyLog := FKeyLog;
   LConfig.FEarlyData := FClientEarlyData;
   LConfig.FExternalPskRequired := FExternalPskRequired;
+  LConfig.FTls12PskRequired := FTls12PskRequired;
   LConfig.FEchPolicy := LEchPolicy;
   FFrozen := True;
 end;
@@ -3036,7 +3243,8 @@ begin
   // a server authenticates with a certificate or an out-of-band external PSK (RFC 9258);
   // at least one must be configured (a PSK-only server presents no certificate)
   if (not FHasCredential) and (System.Length(FSniCredentialEntries) = 0) and
-    (FCredentialResolver = nil) and (System.Length(FExternalPsks) = 0) then
+    (FCredentialResolver = nil) and (System.Length(FExternalPsks) = 0) and
+    (System.Length(FTls12Psks) = 0) then
     raise EInvalidOperationTlsLibException.CreateRes(@SNoCredential);
   ValidateTrustComposition;
   ValidateAnchorRoots;
@@ -3045,12 +3253,25 @@ begin
   if (System.Length(FExternalPsks) > 0) and
     not (TArrayUtilities.Contains<UInt16>(FSupportedVersions, TlsWireVersionTls13)) then
     raise EInvalidOperationTlsLibException.CreateRes(@SExternalPskNeedsTls13);
-  // a PSK-only server (no certificate to fall back to) cannot serve a TLS 1.2 client, which would
-  // fail every TLS 1.2 handshake
+  // a TLS 1.2 PSK is unusable without TLS 1.2
+  if (System.Length(FTls12Psks) > 0) and
+    not (TArrayUtilities.Contains<UInt16>(FSupportedVersions, TlsWireVersionTls12)) then
+    raise EInvalidOperationTlsLibException.CreateRes(@STls12PskNeedsTls12);
+  // a hint with no PSK would be silently ignored
+  if (System.Length(FTls12PskIdentityHint) > 0) and (System.Length(FTls12Psks) = 0) then
+    raise EInvalidOperationTlsLibException.CreateRes(@STls12PskHintNeedsPsk);
+  // a server with no certificate can serve only the version it holds a PSK for: a version without
+  // one would fail every handshake that reached it
   if (not FHasCredential) and (System.Length(FSniCredentialEntries) = 0) and
-    (FCredentialResolver = nil) and
-    (TArrayUtilities.Contains<UInt16>(FSupportedVersions, TlsWireVersionTls12)) then
-    raise EInvalidOperationTlsLibException.CreateRes(@SPskOnlyServerNeedsTls13Only);
+    (FCredentialResolver = nil) then
+  begin
+    if (TArrayUtilities.Contains<UInt16>(FSupportedVersions, TlsWireVersionTls12)) and
+      (System.Length(FTls12Psks) = 0) then
+      raise EInvalidOperationTlsLibException.CreateRes(@SPskOnlyServerNeedsTls13Only);
+    if (TArrayUtilities.Contains<UInt16>(FSupportedVersions, TlsWireVersionTls13)) and
+      (System.Length(FExternalPsks) = 0) then
+      raise EInvalidOperationTlsLibException.CreateRes(@SPskOnlyServerNeedsTls12Only);
+  end;
   // client-certificate trust inputs act only when the server requests a client certificate; set
   // without WithPeerAuth they would be accepted and silently ignored, and the server would admit
   // clients unauthenticated
@@ -3152,6 +3373,7 @@ begin
   LConfig.FClientCertificateAuthorities := FClientCertificateAuthorities;
   LConfig.FResumption := FResumption;
   LConfig.FExternalPsks := FExternalPsks;
+  LConfig.FTls12Psks := FTls12Psks;
   LConfig.FClock := FClock;
   LConfig.FMonotonicClock := FMonotonicClock;
   LConfig.FKeyLog := FKeyLog;
@@ -3178,6 +3400,7 @@ begin
     LConfig.FAntiReplay := TStrikeRegisterAntiReplay.Create as IAntiReplayStrategy;
   LConfig.FTicketLifetimeSeconds := FTicketLifetimeSeconds;
   LConfig.FTicketCount := FTicketCount;
+  LConfig.FTls12PskIdentityHint := FTls12PskIdentityHint;
   LConfig.FMaxEarlyData := FMaxEarlyData;
   LConfig.FEchServerPolicy := FEchServerPolicy;
   FFrozen := True;

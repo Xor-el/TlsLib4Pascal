@@ -212,6 +212,7 @@ uses
   MockSessionStores in '..\src\MockSessionStores.pas',
   ClientSessionPolicyTests in '..\src\ClientSessionPolicyTests.pas',
   Tls13ResumptionTests in '..\src\Tls13ResumptionTests.pas',
+  Tls12PskTests in '..\src\Tls12PskTests.pas',
   Tls12ResumptionTests in '..\src\Tls12ResumptionTests.pas',
   ConfigResumptionTests in '..\src\ConfigResumptionTests.pas',
   Tls13KeyUpdateTests in '..\src\Tls13KeyUpdateTests.pas',

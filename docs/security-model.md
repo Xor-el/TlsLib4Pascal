@@ -84,6 +84,12 @@ one when ECH was accepted). For debugging only — never production.
   no such session (RFC 7627 §5.3). `Tls12.WithNonEmsResumption` can instead abort the handshake
   (the literal SHOULD) or resume it for legacy clients; `WithExtendedMasterSecret(True)` rejects
   every non-EMS client.
+- **Opt-in TLS 1.2 pre-shared keys.** Configuring a `TTls12Psk` adds the ECDHE_PSK suites over an AEAD
+  (RFC 5489, RFC 7905, RFC 8442); the exchange stays ephemeral, so the posture above holds. Plain PSK
+  (no forward secrecy, RFC 4279 §7.1), DHE_PSK and CBC variants are not implemented. An identity the
+  server does not know proceeds on a stand-in secret and ends like a wrong secret (RFC 4279 §2 permits
+  this), so a probe cannot enumerate identities; the identity itself is sent in the clear (RFC 4279 §7.3).
+  A PSK session resumes only while its identity is configured.
 - **Post-quantum hybrid KEX** (X25519MLKEM768) offered by every preset and preferred under
   Hardened and Strict, interop-verified against OpenSSL 3.5+
   and BoringSSL.

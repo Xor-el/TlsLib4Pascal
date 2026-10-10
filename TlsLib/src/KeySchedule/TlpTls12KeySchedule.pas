@@ -92,6 +92,15 @@ type
     function CanExport: Boolean;
   end;
 
+  /// <summary>The premaster secret of a PSK key exchange (RFC 4279 2, RFC 5489 2).</summary>
+  TTls12PskPremaster = class sealed(TObject)
+  public
+    /// <summary>uint16(len Z) || Z || uint16(len PSK) || PSK, where Z is the ECDH shared secret
+    /// (RFC 5489 2 names the ECDHE_PSK form, RFC 4279 2 the framing). Neither secret is
+    /// materialized in a non-wiped intermediate.</summary>
+    class function Build(const AShared, APsk: ISecretBuffer): ISecretBuffer; static;
+  end;
+
 implementation
 
 const
@@ -103,6 +112,7 @@ const
   Tls12ChaChaIvLength = Int32(12);
 
 resourcestring
+  SPskPremasterOperand = 'a PSK premaster operand must be present and at most 2^16-1 bytes';
   SNoSuchEpoch = 'the TLS 1.2 schedule has only an application-data epoch';
   SMasterNotDerived = 'the master secret has not been derived';
   SKeyBlockNotDerived = 'the key block is unavailable (not derived, or released after the handshake)';
@@ -323,6 +333,24 @@ begin
   FServerSalt := nil;
   FKeyLog := nil;
   FKeyLogRandom := nil;
+end;
+
+{ TTls12PskPremaster }
+
+class function TTls12PskPremaster.Build(const AShared, APsk: ISecretBuffer): ISecretBuffer;
+  function Framed(const ASecret: ISecretBuffer): ISecretBuffer;
+  var
+    LLength: TBytes;
+  begin
+    if (ASecret = nil) or (ASecret.Len > High(UInt16)) then
+      raise EArgumentTlsLibException.CreateRes(@SPskPremasterOperand);
+    LLength := nil;
+    SetLength(LLength, 2);
+    TBinaryPrimitives.WriteUInt16BigEndian(LLength, 0, UInt16(ASecret.Len));
+    Result := TSecretBuffer.Concat(LLength, ASecret);
+  end;
+begin
+  Result := TSecretBuffer.Join(Framed(AShared), Framed(APsk));
 end;
 
 end.

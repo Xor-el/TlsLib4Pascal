@@ -53,6 +53,7 @@ uses
   MockSessionStores,
   ClientSessionPolicyTests,
   Tls13ResumptionTests,
+  Tls12PskTests,
   Tls13LoopbackTests,
   Tls12LoopbackTests,
   TlsStreamLoopbackTests,

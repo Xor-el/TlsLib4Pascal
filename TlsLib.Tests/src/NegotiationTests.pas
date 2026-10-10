@@ -233,7 +233,7 @@ var
   LAll: TArray<TTlsCipherSuite>;
 begin
   LAll := TCipherSuiteCatalog.All;
-  CheckEquals(9, System.Length(LAll), 'the catalog holds nine suites');
+  CheckEquals(12, System.Length(LAll), 'the catalog holds twelve suites');
   for LI := 0 to System.High(LAll) do
   begin
     CheckTrue(TCipherSuiteCatalog.TryCode(TCipherSuiteCatalog.Name(LAll[LI].Common.Code), LCode),

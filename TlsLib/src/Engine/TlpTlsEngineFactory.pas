@@ -59,7 +59,7 @@ type
   strict private
     /// <summary>The cipher-suite codes a hello advertises: the registry's suites, in its order,
     /// for the protocol versions the config offers.</summary>
-    class function SuiteCodes(const AConfig: ITlsCommonConfig): TArray<UInt16>; static;
+    class function SuiteCodes(const AConfig: ITlsClientConfig): TArray<UInt16>; static;
     class function PreferredGroup(const AConfig: ITlsCommonConfig;
       out ACode: UInt16): INamedGroup; static;
     /// <summary>The first preferred classical ECDHE group (TLS 1.2 excludes KEM/hybrid).</summary>
@@ -118,20 +118,31 @@ begin
 end;
 
 class function TTlsEngineFactory.SuiteCodes(
-  const AConfig: ITlsCommonConfig): TArray<UInt16>;
+  const AConfig: ITlsClientConfig): TArray<UInt16>;
 var
   LSuite: TTlsCipherSuite;
-  LOffers13, LOffers12: Boolean;
+  LOffers13, LOffers12, LHasPsk, LPskOnly12, LOffered: Boolean;
 begin
   Result := nil;
   LOffers13 := Offers(AConfig, TlsWireVersionTls13);
   LOffers12 := Offers(AConfig, TlsWireVersionTls12);
+  LHasPsk := System.Length(AConfig.Tls12Psks) > 0;
+  LPskOnly12 := LHasPsk and AConfig.Tls12PreSharedKeyRequired;
   // registry order is kept; a suite of a version the config does not offer is not advertised, so a
-  // single-version hello carries no suite it could never complete
+  // single-version hello carries no suite it could never complete. The PSK suites are offered only
+  // with a PSK to present, and a client that requires its PSK offers no certificate suite for 1.2
   for LSuite in AConfig.CipherSuites.Items do
-    if ((LSuite.Protocol = TSuiteProtocol.Tls13) and LOffers13) or
-      ((LSuite.Protocol = TSuiteProtocol.Tls12) and LOffers12) then
-      TArrayUtilities.Append<UInt16>(Result, LSuite.Common.Code);
+    if (LSuite.Protocol = TSuiteProtocol.Tls13) and LOffers13 then
+      TArrayUtilities.Append<UInt16>(Result, LSuite.Common.Code)
+    else if (LSuite.Protocol = TSuiteProtocol.Tls12) and LOffers12 then
+    begin
+      if LSuite.Auth = TAuthMethod.Psk then
+        LOffered := LHasPsk
+      else
+        LOffered := not LPskOnly12;
+      if LOffered then
+        TArrayUtilities.Append<UInt16>(Result, LSuite.Common.Code);
+    end;
 end;
 
 class function TTlsEngineFactory.PreferredGroup(const AConfig: ITlsCommonConfig;
@@ -341,6 +352,8 @@ begin
   L12.Clock := AConfig.Clock;
   L12.KeyLog := AConfig.KeyLog;
   L12.OfferedSuites := SuiteCodes(AConfig);
+  if System.Length(AConfig.Tls12Psks) > 0 then
+    L12.ClientPsk := AConfig.Tls12Psks[0];
   // TLS 1.2 key exchange is ECDHE-only: a 1.2 supported_groups carries no KEM/hybrid group,
   // so a client that reaches the 1.2 path (never offering 1.3) does not advertise one
   L12.OfferedGroups := EcdheGroupCodes(AConfig, AConfig.PreferredGroups);
@@ -558,6 +571,16 @@ begin
     L12.SessionTicketKeys := AConfig.SessionTicketKeys;
     L12.ResumptionScope := AConfig.ResumptionScope;
     L12.TicketLifetimeSeconds := AConfig.TicketLifetimeSeconds;
+  end;
+
+  // TLS 1.2 PSKs (RFC 4279 / RFC 5489) are matched only on the TLS 1.2 path; an unknown identity
+  // proceeds on a stand-in derived from a key minted per engine
+  if LOffers12 and (System.Length(AConfig.Tls12Psks) > 0) then
+  begin
+    L12.Psks := AConfig.Tls12Psks;
+    L12.PskIdentityHint := AConfig.Tls12PskIdentityHint;
+    L12.PskDummyKey := TSecretBuffer.From(
+      AConfig.Crypto.Primitives.GetRandom.GenerateBytes(32));
   end;
 
   // out-of-band external PSKs (RFC 9258) are matched only on the TLS 1.3 path

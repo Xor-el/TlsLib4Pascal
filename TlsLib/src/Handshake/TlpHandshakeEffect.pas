@@ -45,7 +45,8 @@ type
     AwaitCertificateVerdict, // park the handshake for an out-of-band peer-certificate verdict
     PeerCertificateChain, // surface the presented peer chain and validated path for connection info
     RequestedCertificateAuthorities, // surface a CertificateRequest's certificate_authorities
-    ConnectionParams,     // surface the negotiated suite/group/resumed for connection info
+    PskIdentity,          // surface the identity of the pre-shared key that authenticated the connection
+    ConnectionParams,    // surface the negotiated suite/group/resumed for connection info
     HandshakeEstablished,
     EchAccepted,          // ECH was accepted: record the status for connection info
     EchGreased,           // ECH was greased (client): record the status for connection info
@@ -86,6 +87,7 @@ type
     IsRetry: Boolean;            // EchRejected (this handshake was itself a retry)
     RetryConfigs: TBytes;        // EchRejected (the server's retry_configs; empty when none)
     Authorities: TArray<TBytes>; // RequestedCertificateAuthorities (the named DistinguishedNames)
+    Identity: TBytes;            // PskIdentity (the pre-shared key's identity)
   end;
 
   /// <summary>Builds the handshake effect values.</summary>
@@ -130,6 +132,9 @@ type
     /// connection info; never blocks the handshake.</summary>
     class function RequestedCertificateAuthorities(
       const AAuthorities: TArray<TBytes>): THandshakeEffect; static;
+    /// <summary>Surfaces the identity of the pre-shared key that authenticated the connection, for
+    /// read-only connection info.</summary>
+    class function PskIdentity(const AIdentity: TBytes): THandshakeEffect; static;
     /// <summary>Surfaces the negotiated cipher suite, named group (0 when none / non-(EC)DHE),
     /// whether the handshake was resumed/abbreviated, and whether the session used Extended Master
     /// Secret (RFC 7627; always true on TLS 1.3), for read-only connection info.</summary>
@@ -294,6 +299,13 @@ begin
   Result := Default(THandshakeEffect);
   Result.Kind := THandshakeEffectKind.RequestedCertificateAuthorities;
   Result.Authorities := AAuthorities;
+end;
+
+class function THandshakeEffects.PskIdentity(const AIdentity: TBytes): THandshakeEffect;
+begin
+  Result := Default(THandshakeEffect);
+  Result.Kind := THandshakeEffectKind.PskIdentity;
+  Result.Identity := AIdentity;
 end;
 
 class function THandshakeEffects.ConnectionParams(ACipherSuite, ANamedGroup: UInt16;

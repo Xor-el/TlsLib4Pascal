@@ -186,6 +186,7 @@ type
       const AHostName: string; const AStaple: TBytes);
     procedure OnPeerCertificateChain(const AChain, AValidatedPath: TArray<TBytes>);
     procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>);
+    procedure OnPskIdentity(const AIdentity: TBytes);
     procedure OnConnectionParams(ACipherSuite, ANamedGroup: UInt16;
       AResumed, AExtendedMasterSecret: Boolean; const AServerName: string);
     procedure OnHandshakeEstablished;
@@ -268,6 +269,7 @@ type
       const AHostName: string; const AStaple: TBytes);
     procedure OnPeerCertificateChain(const AChain, AValidatedPath: TArray<TBytes>);
     procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>);
+    procedure OnPskIdentity(const AIdentity: TBytes);
     procedure OnConnectionParams(ACipherSuite, ANamedGroup: UInt16;
       AResumed, AExtendedMasterSecret: Boolean; const AServerName: string);
     procedure OnHandshakeEstablished;
@@ -369,6 +371,11 @@ procedure TEngineHandshakeBridge.OnRequestedCertificateAuthorities(
   const AAuthorities: TArray<TBytes>);
 begin
   FEngine.OnRequestedCertificateAuthorities(AAuthorities);
+end;
+
+procedure TEngineHandshakeBridge.OnPskIdentity(const AIdentity: TBytes);
+begin
+  FEngine.OnPskIdentity(AIdentity);
 end;
 
 procedure TEngineHandshakeBridge.OnConnectionParams(ACipherSuite,
@@ -1232,6 +1239,11 @@ procedure TTlsEngine.OnRequestedCertificateAuthorities(
   const AAuthorities: TArray<TBytes>);
 begin
   FInfo.RequestedCertificateAuthorities := AAuthorities;
+end;
+
+procedure TTlsEngine.OnPskIdentity(const AIdentity: TBytes);
+begin
+  FInfo.PskIdentity := AIdentity;
 end;
 
 procedure TTlsEngine.OnConnectionParams(ACipherSuite, ANamedGroup: UInt16;

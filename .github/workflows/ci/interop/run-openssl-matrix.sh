@@ -186,6 +186,43 @@ else
 fi
 wait || true
 
+# --- Cells PSK1/PSK2: TLS 1.2 ECDHE_PSK over ChaCha20-Poly1305 (RFC 5489 / RFC 7905), no certificate ---
+# openssl exercises only the ChaCha20 suite among our AEAD PSK suites; gated on an s_server that
+# knows -psk (skipped cleanly otherwise, never a silent pass)
+PSKHEX="00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+if "$OPENSSL" s_server -help 2>&1 | grep -q -- '-psk '; then
+  TOTAL=$((TOTAL+2))
+  echo "=== cell PSK1: our client  ->  openssl s_server -psk (TLS 1.2 ECDHE_PSK) ==="
+  PP1=14531
+  "$OPENSSL" s_server -nocert -tls1_2 -psk "$PSKHEX" -psk_identity luggage \
+    -cipher ECDHE-PSK-CHACHA20-POLY1305 -accept $PP1 -rev -naccept 1 > "$TMP/spsk1.log" 2>&1 &
+  for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/spsk1.log" && break; sleep 0.1; done
+  if "$DRIVER" --role client --port $PP1 --host localhost --psk "$PSKHEX" --psk-identity luggage \
+       --message "hello-cell-psk1" --data-dir "$DATA_DIR"; then
+    echo "  PASS: TLS 1.2 ECDHE_PSK handshake with no certificate + app-data"
+  else
+    echo "  FAIL: cell PSK1"; cat "$TMP/spsk1.log"; FAILURES=$((FAILURES+1))
+  fi
+  wait || true
+
+  echo "=== cell PSK2: our server  <-  openssl s_client -psk (TLS 1.2 ECDHE_PSK) ==="
+  PP2=14532
+  "$DRIVER" --role server --port $PP2 --data-dir "$DATA_DIR" --psk "$PSKHEX" \
+    --psk-identity luggage > "$TMP/spsk2.log" 2>&1 &
+  for _ in $(seq 1 100); do grep -q 'listening on' "$TMP/spsk2.log" && break; sleep 0.1; done
+  { printf 'PING-CELL-PSK2\n'; sleep 2; } | "$OPENSSL" s_client -connect 127.0.0.1:$PP2 -tls1_2 \
+       -psk "$PSKHEX" -psk_identity luggage -cipher ECDHE-PSK-CHACHA20-POLY1305 \
+       > "$TMP/cpsk2.out" 2>"$TMP/cpsk2.err" || true
+  if grep -q 'PING-CELL-PSK2' "$TMP/cpsk2.out"; then
+    echo "  PASS: TLS 1.2 ECDHE_PSK handshake (openssl proves the key) + app-data echo"
+  else
+    echo "  FAIL: cell PSK2"; cat "$TMP/spsk2.log" "$TMP/cpsk2.err"; FAILURES=$((FAILURES+1))
+  fi
+  wait || true
+else
+  echo "=== cells PSK1-PSK2 (TLS 1.2 ECDHE_PSK): SKIPPED (openssl s_server without -psk, 2 cells) ==="
+fi
+
 # --- Cell 5: our client (mutual TLS) -> openssl s_server over TLS 1.2 requesting a cert ---
 echo "=== cell 5: our client (mutual TLS) -> openssl s_server (TLS 1.2, -Verify) ==="
 P5=14505

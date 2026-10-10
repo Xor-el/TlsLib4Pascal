@@ -157,6 +157,9 @@ begin
     THandshakeEffectKind.RequestedCertificateAuthorities:
       if FConnectionInfoSink <> nil then
         FConnectionInfoSink.OnRequestedCertificateAuthorities(AEffect.Authorities);
+    THandshakeEffectKind.PskIdentity:
+      if FConnectionInfoSink <> nil then
+        FConnectionInfoSink.OnPskIdentity(AEffect.Identity);
     THandshakeEffectKind.ConnectionParams:
       if FConnectionInfoSink <> nil then
         FConnectionInfoSink.OnConnectionParams(AEffect.CipherSuite,
