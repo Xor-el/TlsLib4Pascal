@@ -1,0 +1,40 @@
+TlsLib.Tests/src/CredentialImportTests.pas
+  s_d27f31cd14035d::t_bd46057a186651 262-263,267
+  s_d27f31cd14035d::t_e970b96791e8ed 252,261,264-266
+  s_d27f31cd14035d::t_e9bf6478815167 253-254
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_d27f31cd14035d::t_efc8bea0f857e8 3334-3344,3346-3348,3350,3352,3354-3355,3358,3360-3374
+  s_d27f31cd14035d::t_e09c28dfc4364c 4005
+  s_d27f31cd14035d::t_c6ee64caf9e132 4032-4033
+  s_d27f31cd14035d::t_1c7f10978b360c 159
+  s_d27f31cd14035d::t_b8f2eef8ae1db8 4028-4031,4034-4035,4038,4042-4043
+  s_d27f31cd14035d::t_ff735f747ff8bd 3999
+  s_d27f31cd14035d::t_5e86b6b6825e12 1006-1007
+  s_d27f31cd14035d::t_59d92a80f0a036 943-949
+  s_d27f31cd14035d::t_3100a137f84137 3998
+  s_d27f31cd14035d::t_67c85eae9659d1 1005
+  s_d27f31cd14035d::t_a8ba7047c5819f 3345,3349,3351,3353,3356-3357,3359
+docs/security-model.md
+  s_d27f31cd14035d::t_0a6638c16b65b9 151-156
+TlsLib.Tests/src/WindowsSystemCryptoTests.pas
+  s_d27f31cd14035d::t_e822f713bb3ccc 101
+  s_d27f31cd14035d::t_18fdc67eeb40af 428-467
+TlsLib.Tests/Data/Certs/ImportKeys.txt
+  s_d27f31cd14035d::t_01bdd934d3900d 21-30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "33262764ef2d0eca0087d9d7e923d6e12ba03dc5",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
