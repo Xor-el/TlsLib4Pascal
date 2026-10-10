@@ -1,0 +1,97 @@
+TlsLib.Adapters/Synapse/README.md
+  s_d27f31cd14035d::t_ebf92089bf302c 39
+  s_d27f31cd14035d::t_223a9a97ea3540 59-66
+TlsLib.Adapters/Indy/README.md
+  s_d27f31cd14035d::t_e7a8f6e0fdbd7a 42
+  s_d27f31cd14035d::t_ca68b142f662e6 56-59
+TlsLib.Adapters/FclNet/README.md
+  s_d27f31cd14035d::t_72c5951584a448 88
+TlsLib.Tests/src/TlsConnectionTests.pas
+  s_d27f31cd14035d::t_a72aaeccc0f47d 526-535
+  s_d27f31cd14035d::t_39a8a8a27ab76a 84
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_d27f31cd14035d::t_6b26669e31b9d0 315-321
+  s_d27f31cd14035d::t_ee38996b664d4d 450-459,463-473
+TlsLib.Adapters/mORMot/Examples/src/MormotLoopbackExample.pas
+  s_d27f31cd14035d::t_71013dd20640c7 319
+  s_d27f31cd14035d::t_000f968c26852e 53-54
+  s_d27f31cd14035d::t_356f6414981c87 328-329
+  s_d27f31cd14035d::t_3764d0cc471fe5 289-291
+  s_d27f31cd14035d::t_12d4228b149f3f 162
+TlsLib.Adapters/Indy/Adapter/TlsLibIndyTls.pas
+  s_d27f31cd14035d::t_ea8ac03e367f32 38
+  s_d27f31cd14035d::t_a37179a883e3f6 377
+  s_d27f31cd14035d::t_185c5386164d12 378-382
+  s_d27f31cd14035d::t_4f9a120807a2a7 391-403
+  s_d27f31cd14035d::t_5928e925f159ee 320-322
+  s_d27f31cd14035d::t_d1e19a0be5c862 91
+TlsLib.Adapters/Indy/Examples/src/IndyLoopbackExample.pas
+  s_d27f31cd14035d::t_710b0efcf4a17f 180
+  s_d27f31cd14035d::t_14099d1458b3ba 170-173
+  s_d27f31cd14035d::t_c13724701ab520 62
+  s_d27f31cd14035d::t_4b0c0a087e1eff 119
+  s_d27f31cd14035d::t_4fbcffb86603ef 126
+TlsLib.Adapters/FclNet/Examples/src/FclNetLoopbackExample.pas
+  s_d27f31cd14035d::t_fc9396d8bbce9f 77-78
+  s_d27f31cd14035d::t_44de2f8e004da4 87
+  s_d27f31cd14035d::t_dd6d51e5be0802 175-176,178-179
+  s_d27f31cd14035d::t_afd7b4ef633389 271-272
+  s_d27f31cd14035d::t_068349361086eb 256
+  s_d27f31cd14035d::t_d9073f0ab4138d 162,166
+TlsLib.Adapters/Synapse/Adapter/TlsLibSynapseTls.pas
+  s_d27f31cd14035d::t_2629656829f0fd 481-488
+  s_d27f31cd14035d::t_31c0b3bc5b3d57 122-125
+  s_d27f31cd14035d::t_8f12cd081fde18 126-129
+  s_d27f31cd14035d::t_3f7c6a2c74998e 375-380,383,385,387-390,398-401,403-411,414,418-427,429
+  s_d27f31cd14035d::t_b135a6b5121cbf 248-251
+  s_d27f31cd14035d::t_ccf4d4087c3306 374,381-382,384,386,391,393
+  s_d27f31cd14035d::t_b6d46f880ca01e 402
+  s_d27f31cd14035d::t_90e37b078a3259 392,394-397
+  s_d27f31cd14035d::t_bc95607d607ebd 41
+  s_d27f31cd14035d::t_d084cbac61ead8 501-506
+TlsLib.Adapters/Synapse/Examples/src/SynapseLoopbackExample.pas
+  s_d27f31cd14035d::t_240c52fb6d67b1 57-58
+  s_d27f31cd14035d::t_162c5277a25479 163-165
+  s_d27f31cd14035d::t_c00524e9a83084 231
+  s_d27f31cd14035d::t_ed644e9982d54a 241-242
+  s_d27f31cd14035d::t_ccc4845e2d6466 211-219
+TlsLib.Adapters/mORMot/Adapter/TlsLibMormotTls.pas
+  s_d27f31cd14035d::t_2c33bd6c176461 539-546,550-553,556-562
+  s_d27f31cd14035d::t_73e811d450777e 148-151
+  s_d27f31cd14035d::t_38848a4257e37d 396-397,400,405-407,410-413
+  s_d27f31cd14035d::t_6033658873ee42 529-532
+  s_d27f31cd14035d::t_d5f1c7acc227f2 483
+  s_d27f31cd14035d::t_ab164aaf2248f8 579
+  s_d27f31cd14035d::t_6b09a83dcf3c12 141-142
+  s_d27f31cd14035d::t_34baf9eec6d5a0 604-605
+  s_d27f31cd14035d::t_8785fa15258a84 408-409
+  s_d27f31cd14035d::t_323784f7680454 415-418
+  s_d27f31cd14035d::t_821b9c2e655e9e 477-481
+  s_d27f31cd14035d::t_13e9e75cbc7649 46
+  s_d27f31cd14035d::t_ff48335e3ad32d 518-520
+  s_d27f31cd14035d::t_cf04a94352d341 214-219
+TlsLib.Adapters/mORMot/README.md
+  s_d27f31cd14035d::t_57fe6fbc21bc04 68-70
+  s_d27f31cd14035d::t_1613d44d2a8e97 40
+  s_d27f31cd14035d::t_0b8e4c9708a764 51-53
+  s_d27f31cd14035d::t_6d8f81a4a4235e 27
+  s_d27f31cd14035d::t_8e843727069e0a 47-50
+TlsLib.Tests/Data/Certs/EcP256Chain.txt
+  s_d27f31cd14035d::t_2418781ff1066e 10-13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0d476f0de5551f34995a98389b62f00acf87340d",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
