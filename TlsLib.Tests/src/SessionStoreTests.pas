@@ -156,7 +156,7 @@ type
     function Version: TTlsVersion;
     function CipherSuite: UInt16;
     function Hash: THashAlgorithm;
-    function Alpn: string;
+    function Alpn: TBytes;
     function ServerName: string;
     function TicketLifetime: UInt32;
     function IssuedAtMillis: UInt64;
@@ -179,9 +179,9 @@ begin
   Result := THashAlgorithm.SHA_256;
 end;
 
-function TBaseOnlySession.Alpn: string;
+function TBaseOnlySession.Alpn: TBytes;
 begin
-  Result := '';
+  Result := nil;
 end;
 
 function TBaseOnlySession.ServerName: string;
@@ -223,7 +223,7 @@ function TTestSessionStore.MakeSession(const ATag: TBytes): IResumableSession;
 begin
   Result := TTls13ResumableSession.Create(TCipherSuites13.Aes128GcmSha256,
     THashAlgorithm.SHA_256, TSecretBuffer.From(ATag),
-    '', '', ATag, 7200, 0, 0, 0, nil, nil);
+    nil, '', ATag, 7200, 0, 0, 0, nil, nil);
 end;
 
 function TTestSessionStore.MakeSession(const ATag: TBytes; ALifetime: UInt32;
@@ -231,14 +231,14 @@ function TTestSessionStore.MakeSession(const ATag: TBytes; ALifetime: UInt32;
 begin
   Result := TTls13ResumableSession.Create(TCipherSuites13.Aes128GcmSha256,
     THashAlgorithm.SHA_256, TSecretBuffer.From(ATag),
-    '', '', ATag, ALifetime, 0, AIssuedMillis, 0, nil, nil);
+    nil, '', ATag, ALifetime, 0, AIssuedMillis, 0, nil, nil);
 end;
 
 function TTestSessionStore.MakeTls12Session(const ATag: TBytes): IResumableSession;
 begin
   Result := TTls12ResumableSession.Create(TCipherSuites12.EcdheEcdsaAes128GcmSha256,
     THashAlgorithm.SHA_256,
-    TSecretBuffer.From(ATag), ATag, ATag, True, '', '', 7200, 0, nil, nil);
+    TSecretBuffer.From(ATag), ATag, ATag, True, nil, '', 7200, 0, nil, nil);
 end;
 
 function TTestSessionStore.MakeTls12Session(const ATag: TBytes; ALifetime: UInt32;
@@ -246,7 +246,7 @@ function TTestSessionStore.MakeTls12Session(const ATag: TBytes; ALifetime: UInt3
 begin
   Result := TTls12ResumableSession.Create(TCipherSuites12.EcdheEcdsaAes128GcmSha256,
     THashAlgorithm.SHA_256,
-    TSecretBuffer.From(ATag), ATag, ATag, True, '', '', ALifetime, AIssuedMillis, nil, nil);
+    TSecretBuffer.From(ATag), ATag, ATag, True, nil, '', ALifetime, AIssuedMillis, nil, nil);
 end;
 
 procedure TTestSessionStore.TestCacheStoreAndTakeSingleUse;
@@ -1000,8 +1000,8 @@ begin
     TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager);
   LChain := TArray<TBytes>.Create(Tag($C0, 20));
   LOriginal := TTls13ResumableSession.Create(TCipherSuites13.Aes128GcmSha256,
-    THashAlgorithm.SHA_256, TSecretBuffer.From(Tag($5E, 32)), 'h2', 'host.example',
-    Tag($AB, 4), 3600, $11223344, 1000, 4096, LChain, Tag($5C, 3));
+    THashAlgorithm.SHA_256, TSecretBuffer.From(Tag($5E, 32)), TBytes.Create($00, $FF, $B2),
+    'host.example', Tag($AB, 4), 3600, $11223344, 1000, 4096, LChain, Tag($5C, 3));
   LTicket := LStrategy.Seal(LOriginal);
   CheckTrue(System.Length(LTicket) > 0, 'a 1.3 session seals to a ticket');
   CheckTrue(LStrategy.Open(LTicket, LOpened), 'the ticket opens');
@@ -1011,7 +1011,7 @@ begin
     'a 1.3 session is not a 1.2 sub-interface');
   CheckEquals(Integer(TCipherSuites13.Aes128GcmSha256), Integer(LOpened.CipherSuite),
     'the suite round-trips');
-  CheckEquals('h2', LOpened.Alpn, 'the ALPN round-trips');
+  CheckEqualBytes('a binary ALPN name round-trips', TBytes.Create($00, $FF, $B2), LOpened.Alpn);
   CheckEquals('host.example', LOpened.ServerName, 'the SNI host round-trips');
   CheckEquals(Integer($11223344), Integer(L13.TicketAgeAdd), 'the age_add round-trips');
   CheckEquals(Integer(4096), Integer(L13.MaxEarlyData), 'max_early_data round-trips');
@@ -1037,7 +1037,7 @@ begin
   // the STEK body drops session_id / session_ticket (they are never sealed), so those must open empty
   LTicket := LStrategy.Seal(TTls12ResumableSession.Create(
     TCipherSuites12.EcdheEcdsaAes128GcmSha256, THashAlgorithm.SHA_256,
-    TSecretBuffer.From(Tag($4D, 48)), Tag($01, 32), Tag($02, 16), True, '',
+    TSecretBuffer.From(Tag($4D, 48)), Tag($01, 32), Tag($02, 16), True, nil,
     'legacy.example', 1800, 2000, nil, nil) as IResumableSession);
   CheckTrue(System.Length(LTicket) > 0, 'a 1.2 session seals to a ticket');
   CheckTrue(LStrategy.Open(LTicket, LOpened), 'the ticket opens');

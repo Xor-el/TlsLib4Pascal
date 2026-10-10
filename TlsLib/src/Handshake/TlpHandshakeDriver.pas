@@ -127,7 +127,7 @@ begin
       if FVersionSink <> nil then
         FVersionSink.OnVersionNegotiated(AEffect.Version);
     THandshakeEffectKind.SelectAlpn:
-      FSink.OnAlpnSelected(AEffect.Text);
+      FSink.OnAlpnSelected(AEffect.Bytes);
     THandshakeEffectKind.PeerOcspStaple:
       FSink.OnOcspStapleReceived(AEffect.Bytes);
     THandshakeEffectKind.SetRecordSizeLimit:

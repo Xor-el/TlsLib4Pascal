@@ -17,6 +17,7 @@ interface
 
 uses
   SysUtils,
+  TlpAlpnProtocols,
   TlpArrayUtilities,
   TlpTlsAlert,
   TlpTlsVersion,
@@ -90,7 +91,7 @@ type
     OfferedSchemes: TArray<UInt16>;
     /// <summary>The ALPN protocols to offer (RFC 7301), in preference order; empty
     /// omits the extension.</summary>
-    AlpnProtocols: TArray<string>;
+    AlpnProtocols: TArray<TBytes>;
     /// <summary>The record_size_limit (RFC 8449) plaintext value to advertise, in
     /// [64, 2^14]; 0 leaves the extension unoffered.</summary>
     RecordSizeLimit: Int32;
@@ -268,7 +269,7 @@ type
     FTranscriptPreActivated: Boolean;
     FPreActivatedHash: THashAlgorithm;
     /// <summary>The ALPN protocol negotiated in EncryptedExtensions, stored on a ticket.</summary>
-    FNegotiatedAlpn: string;
+    FNegotiatedAlpn: TBytes;
     /// <summary>Encrypted Client Hello (RFC 9849): owns the per-connection ECH mechanics and
     /// state (the sealer, inner random/transcript, GREASE-PSK decoys, accept/reject verdict) and
     /// builds the outer / decides accept from data the machine feeds it. Always assigned;
@@ -1222,10 +1223,9 @@ begin
     LEchData := LContext.EchExtensionData;
 
     // the server's ALPN choice must be one this client offered (RFC 7301 3.2)
-    if LContext.SelectedAlpn <> '' then
+    if System.Length(LContext.SelectedAlpn) > 0 then
     begin
-      if not (TArrayUtilities.Contains<string>(FParams.AlpnProtocols,
-        LContext.SelectedAlpn)) then
+      if not TAlpnProtocols.Contains(FParams.AlpnProtocols, LContext.SelectedAlpn) then
         raise EFatalAlertTlsLibException.CreateRes(
           TTlsAlertDescription.IllegalParameter, @SUnofferedAlpn);
       FNegotiatedAlpn := LContext.SelectedAlpn; // stored on any resumption ticket
@@ -1275,7 +1275,7 @@ begin
       // 0-RTT is likewise bound to the resumed session's ALPN: when the server accepts early
       // data it MUST negotiate the same ALPN protocol as that session (RFC 8446 4.2.10); a
       // changed (or dropped) protocol is illegal
-      if FNegotiatedAlpn <> FAcceptedPsk.Alpn then
+      if not TArrayUtilities.AreEqual(FNegotiatedAlpn, FAcceptedPsk.Alpn) then
         raise EFatalAlertTlsLibException.CreateRes(
           TTlsAlertDescription.IllegalParameter, @SEarlyDataAlpnMismatch);
       FEarlyDataAccepted := True;

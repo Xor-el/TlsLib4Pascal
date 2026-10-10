@@ -96,7 +96,7 @@ type
   IHandshakeSink = interface(IInterface)
     ['{8D3F6A24-5C90-4E71-B2A6-1F4E0C7B85D3}']
     procedure OnHandshakeEvent(AEvent: TTlsEventKind);
-    procedure OnAlpnSelected(const AProtocol: string);
+    procedure OnAlpnSelected(const AProtocol: TBytes);
     procedure OnOcspStapleReceived(const AStaple: TBytes);
     procedure OnHandshakeEstablished;
     procedure OnHandshakeFailed(AAlert: TTlsAlertDescription);

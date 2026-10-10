@@ -27,6 +27,7 @@ uses
   Classes,
   SysUtils,
   TlpTlsAlert,
+  TlpAlpnProtocols,
   TlpTlsVersion,
   TlpEchConfig,
   TlpIPkixProvider,
@@ -556,14 +557,14 @@ end;
 procedure TTestTlsConnection.TestClientAlpnForwarded;
 var
   LOpts: TTlsOptions;
-  LAlpn: TArray<string>;
+  LAlpn: TArray<TBytes>;
 begin
   LOpts := ClientOptsWithStore;
   LOpts.AlpnProtocols := TArray<string>.Create('h2', 'http/1.1');
   LAlpn := TTlsConfigComposer.BuildClientConfig(LOpts).AlpnProtocols;
   CheckEquals(2, System.Length(LAlpn), 'both ALPN protocols are forwarded');
-  CheckEquals('h2', LAlpn[0], 'first ALPN protocol');
-  CheckEquals('http/1.1', LAlpn[1], 'second ALPN protocol');
+  CheckEqualBytes('first ALPN protocol', TAlpnProtocols.H2, LAlpn[0]);
+  CheckEqualBytes('second ALPN protocol', TAlpnProtocols.Http11, LAlpn[1]);
 end;
 
 procedure TTestTlsConnection.TestClientVerifyCallbackForwarded;

@@ -30,6 +30,7 @@ uses
   TlpTlsVersion,
   TlpNegotiationTypes,
   TlpWireReader,
+  TlpAlpnProtocols,
   TlpExtensionContext,
   TlpExtensionVector,
   TlpITlsExtension,
@@ -73,6 +74,7 @@ type
     procedure TestServerNameNonPrintableByteIsIllegalParameter;
     procedure TestAlpnZeroLengthProtocolIsDecodeError;
     procedure TestAlpnEmptyListIsDecodeError;
+    procedure TestAlpnNamesAreOpaqueOctets;
     procedure TestDuplicateKeyShareGroupRejected;
     procedure TestClientHelloEmptyKeyExchangeIsDecodeError;
     procedure TestServerHelloEmptyKeyExchangeIsDecodeError;
@@ -171,7 +173,7 @@ begin
       TSignatureSchemes.RsaPssRsaeSha256);
     LSrc.SignatureSchemesCert := TArray<UInt16>.Create(TSignatureSchemes.RsaPkcs1Sha256);
     LSrc.ServerName := 'example.com';
-    LSrc.AlpnProtocols := TArray<string>.Create('h2', 'http/1.1');
+    LSrc.AlpnProtocols := TArray<TBytes>.Create(TAlpnProtocols.H2, TAlpnProtocols.Http11);
     SetLength(LSrc.ClientKeyShares, 1);
     LSrc.ClientKeyShares[0].Group := TNamedGroupCatalog.X25519;
     LSrc.ClientKeyShares[0].KeyExchange :=
@@ -187,8 +189,8 @@ begin
       LDst.SignatureSchemesCert);
     CheckEquals('example.com', LDst.ServerName, 'server_name');
     CheckEquals(2, System.Length(LDst.AlpnProtocols), 'alpn count');
-    CheckEquals('h2', LDst.AlpnProtocols[0], 'alpn[0]');
-    CheckEquals('http/1.1', LDst.AlpnProtocols[1], 'alpn[1]');
+    CheckEqualBytes('alpn[0]', TAlpnProtocols.H2, LDst.AlpnProtocols[0]);
+    CheckEqualBytes('alpn[1]', TAlpnProtocols.Http11, LDst.AlpnProtocols[1]);
     CheckEquals(1, System.Length(LDst.ClientKeyShares), 'key_share count');
     CheckEquals(TNamedGroupCatalog.X25519, LDst.ClientKeyShares[0].Group, 'key_share group');
     CheckEqualBytes('key_share bytes', LSrc.ClientKeyShares[0].KeyExchange,
@@ -236,11 +238,11 @@ begin
   LSrc := NewContext;
   LDst := NewContext;
   try
-    LSrc.SelectedAlpn := 'h2';
+    LSrc.SelectedAlpn := TAlpnProtocols.H2;
     LBlock := FCodec.ProduceBlock(LSrc, TTlsExtensionContextKind.EncryptedExtensions);
     LDst.MarkOffered($0010);
     FCodec.ConsumeBlock(LDst, TTlsExtensionContextKind.EncryptedExtensions, LBlock);
-    CheckEquals('h2', LDst.SelectedAlpn, 'selected ALPN');
+    CheckEqualBytes('selected ALPN', TAlpnProtocols.H2, LDst.SelectedAlpn);
   finally
     LSrc.Free;
     LDst.Free;
@@ -458,6 +460,36 @@ begin
     DecodeHex('000700100003000100')),
     'a zero-length ALPN protocol is a decode_error');
 end;
+
+procedure TTestExtensionCodec.TestAlpnNamesAreOpaqueOctets;
+var
+  LCtx, LBack: TExtensionContext;
+  LBlock: TBytes;
+begin
+  // a name is opaque octets (RFC 7301 3.1): 'h' + 0xB2 must not read as "h2", and a NUL-led or
+  // 0xFF name must decode exactly as sent
+  LCtx := NewContext;
+  LBack := NewContext;
+  try
+    FCodec.ConsumeBlock(LCtx, TTlsExtensionContextKind.ClientHello,
+      DecodeHex('000C001000080006' + '0268B2' + '020001'));
+    CheckEquals(2, System.Length(LCtx.AlpnProtocols), 'two names');
+    CheckEqualBytes('name 0', TBytes.Create($68, $B2), LCtx.AlpnProtocols[0]);
+    CheckEqualBytes('name 1', TBytes.Create($00, $01), LCtx.AlpnProtocols[1]);
+    CheckFalse(TAlpnProtocols.Contains(TArray<TBytes>.Create(TAlpnProtocols.H2),
+      LCtx.AlpnProtocols[0]), 'the name does not match "h2"');
+    LCtx.AlpnProtocols := TArray<TBytes>.Create(TBytes.Create($68, $FF), TBytes.Create($00, $01));
+    LBlock := FCodec.ProduceBlock(LCtx, TTlsExtensionContextKind.ClientHello);
+    FCodec.ConsumeBlock(LBack, TTlsExtensionContextKind.ClientHello, LBlock);
+    CheckEquals(2, System.Length(LBack.AlpnProtocols), 'the offer round-trips');
+    CheckEqualBytes('round-trip 0', TBytes.Create($68, $FF), LBack.AlpnProtocols[0]);
+    CheckEqualBytes('round-trip 1', TBytes.Create($00, $01), LBack.AlpnProtocols[1]);
+  finally
+    LCtx.Free;
+    LBack.Free;
+  end;
+end;
+
 
 procedure TTestExtensionCodec.TestAlpnEmptyListIsDecodeError;
 begin

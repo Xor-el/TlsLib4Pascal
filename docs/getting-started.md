@@ -161,16 +161,18 @@ After the handshake, `ConnectionInfo` tells you what was negotiated — a good s
 and a modern key-exchange group really engaged:
 
 ```pascal
-uses SysUtils, TlpTlsStream, TlpTlsConnectionInfo;
+uses SysUtils, TlpAlpnProtocols, TlpTlsStream, TlpTlsConnectionInfo;
 
 var
   LStream: TTlsStream;         // from step 4
   LInfo: TTlsConnectionInfo;
+  LAlpn: string;
 begin
   LInfo := LStream.ConnectionInfo;
   WriteLn('version : ', IntToHex(LInfo.NegotiatedVersion.WireValue, 4));  // $0304 = TLS 1.3
   WriteLn('group   : ', IntToHex(LInfo.NamedGroup, 4));                   // $001D X25519 (default); $11EC is the X25519MLKEM768 PQ hybrid
-  WriteLn('alpn    : ', LInfo.AlpnProtocol);
+  if TAlpnProtocols.TryToText(LInfo.AlpnProtocol, LAlpn) then
+    WriteLn('alpn    : ', LAlpn);                                           // empty when none
   WriteLn('resumed : ', BoolToStr(LInfo.Resumed, True));
   WriteLn('presented / validated : ', System.Length(LInfo.PeerCertificates), ' / ',
     System.Length(LInfo.ValidatedPath));  // validated is empty on a non-reverified resume

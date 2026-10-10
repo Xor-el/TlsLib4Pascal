@@ -62,13 +62,12 @@ type
   /// </summary>
   THandshakeEffect = record
     Kind: THandshakeEffectKind;
-    Bytes: TBytes;               // SendHandshake
+    Bytes: TBytes;               // SendHandshake / SelectAlpn (the protocol name)
     Keys: ITrafficKeys;          // InstallKeys
     Side: TRecordSide;           // InstallKeys
     Aead: TAeadAlgorithm;        // InstallKeys (the negotiated suite's AEAD)
     Version: TTlsVersion;        // InstallKeys (which record protection to build) / NegotiatedVersion
     Epoch: TTlsEpoch;            // InstallKeys (which epoch the keys belong to)
-    Text: string;                // SelectAlpn
     Outbound: Int32;             // SetRecordSizeLimit (raw outbound record_size_limit)
     Inbound: Int32;              // SetRecordSizeLimit (raw inbound record_size_limit)
     Event: TTlsEventKind;        // RaiseEvent
@@ -98,7 +97,7 @@ type
       AAead: TAeadAlgorithm; const AVersion: TTlsVersion;
       AEpoch: TTlsEpoch): THandshakeEffect; static;
     class function NegotiatedVersion(const AVersion: TTlsVersion): THandshakeEffect; static;
-    class function SelectAlpn(const AProtocol: string): THandshakeEffect; static;
+    class function SelectAlpn(const AProtocol: TBytes): THandshakeEffect; static;
     class function PeerOcspStaple(const AStaple: TBytes): THandshakeEffect; static;
     class function SetRecordSizeLimit(AOutbound, AInbound: Int32): THandshakeEffect; static;
     class function SkipEarlyData(AMaxBytes: Int32): THandshakeEffect; static;
@@ -208,11 +207,11 @@ begin
 end;
 
 class function THandshakeEffects.SelectAlpn(
-  const AProtocol: string): THandshakeEffect;
+  const AProtocol: TBytes): THandshakeEffect;
 begin
   Result := Default(THandshakeEffect);
   Result.Kind := THandshakeEffectKind.SelectAlpn;
-  Result.Text := AProtocol;
+  Result.Bytes := AProtocol;
 end;
 
 class function THandshakeEffects.PeerOcspStaple(

@@ -202,7 +202,7 @@ begin
   LWriter.WriteUInt32(UInt32(LIssued shr 32));
   LWriter.WriteUInt32(UInt32(LIssued and $FFFFFFFF));
   LMarker := LWriter.OpenVector(2);
-  LWriter.WriteBytes(TEncoding.ASCII.GetBytes(ASession.Alpn));
+  LWriter.WriteBytes(ASession.Alpn);
   LWriter.CloseVector(LMarker);
   // the SNI host_name the session was issued under, bound so a ticket cannot resume as a
   // different virtual host
@@ -292,8 +292,8 @@ var
   LHash: THashAlgorithm;
   LLifetime, LAgeAdd, LMaxEarly, LHi, LLo: UInt32;
   LIssued: UInt64;
-  LAlpn, LServerName: string;
-  LResumption, LMaster, LScope: TBytes;
+  LServerName: string;
+  LAlpn, LResumption, LMaster, LScope: TBytes;
   LPeerChain: TArray<TBytes>;
 begin
   ASession := nil;
@@ -313,7 +313,7 @@ begin
   LLo := LReader.ReadUInt32;
   LIssued := (UInt64(LHi) shl 32) or UInt64(LLo);
   LVec := LReader.OpenVector(2);
-  LAlpn := TEncoding.ASCII.GetString(LVec.ReadBytes(LVec.Remaining));
+  LAlpn := LVec.ReadBytes(LVec.Remaining);
   LVec := LReader.OpenVector(2);
   LServerName := TEncoding.UTF8.GetString(LVec.ReadBytes(LVec.Remaining));
   LPeerChain := DeserializeChain(LReader);

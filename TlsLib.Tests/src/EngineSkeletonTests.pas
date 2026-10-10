@@ -427,7 +427,7 @@ begin
   CheckFalse(LInfo.Resumed, 'not a resumed handshake');
   CheckEquals(0, LInfo.CipherSuite, 'no cipher suite negotiated');
   CheckEquals(0, LInfo.NamedGroup, 'no named group negotiated');
-  CheckEquals('', LInfo.AlpnProtocol, 'no ALPN protocol selected');
+  CheckEquals(0, System.Length(LInfo.AlpnProtocol), 'no ALPN protocol selected');
   CheckEquals('', LInfo.ServerName, 'no server name recorded');
   CheckEquals(0, System.Length(LInfo.PeerCertificates), 'no peer certificates');
   CheckEquals(0, System.Length(LInfo.ValidatedPath), 'no validated path yet');

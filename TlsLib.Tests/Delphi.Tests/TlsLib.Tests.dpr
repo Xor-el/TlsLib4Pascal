@@ -65,6 +65,7 @@ uses
   TlpWindowsSystemTime in '..\..\TlsLib\src\Common\TlpWindowsSystemTime.pas',
   TlpPosixSystemTime in '..\..\TlsLib\src\Common\TlpPosixSystemTime.pas',
   TlpIpLiteral in '..\..\TlsLib\src\Common\TlpIpLiteral.pas',
+  TlpAlpnProtocols in '..\..\TlsLib\src\Common\TlpAlpnProtocols.pas',
   TlpHttpUrl in '..\..\TlsLib\src\Common\TlpHttpUrl.pas',
   TlpDateTimeUtilities in '..\..\TlsLib\src\Common\TlpDateTimeUtilities.pas',
   TlpIClock in '..\..\TlsLib\src\Interfaces\Common\TlpIClock.pas',

@@ -91,7 +91,7 @@ trust the familiar way. Only what fcl-net lacks is added as extension properties
 | `CustomServerCertificateVerifier` / `CustomClientCertificateVerifier` | `WithDangerousCertificateVerifier` — **replaces** the pipeline (role-typed) |
 | `CheckHostName: Boolean` (default True)               | on by default; off via `WithDangerousDisableServerNameCheck` |
 | `SendHostAsSNI` (fcl-net native, default True)        | `WithServerNameIndication(Send / Omit)`; False sends no SNI but the certificate is still verified against the host |
-| `AlpnProtocols: TArray<string>`                       | `WithAlpnProtocols`                                |
+| `AlpnProtocols: TArray<string>`                       | `WithAlpnProtocols` (ASCII names, converted with `TAlpnProtocols.FromText`) |
 | `VerifyPeerCert` (fcl-net native, default **True** here) | verify on/off; **False** → `dangerous` `WithDangerousInsecureSkipVerify` |
 | `SSLType` (fcl-net native)                            | `stAny` offers TLS 1.3 and 1.2; `stTLSv1_2` offers 1.2 alone; any other value fails the handshake |
 | `VerifyCallback` | augment-only hook (chain+host → Boolean) |

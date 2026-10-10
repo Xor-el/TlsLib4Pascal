@@ -388,6 +388,7 @@
         <DCCReference Include="..\..\TlsLib\src\Common\TlpWindowsSystemTime.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Common\TlpPosixSystemTime.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Common\TlpIpLiteral.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Common\TlpAlpnProtocols.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Common\TlpHttpUrl.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Common\TlpDateTimeUtilities.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Common\TlpIClock.pas"/>

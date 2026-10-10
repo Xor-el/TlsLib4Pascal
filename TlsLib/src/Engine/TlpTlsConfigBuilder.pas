@@ -105,7 +105,7 @@ type
     FNamedGroups: INamedGroupRegistry;
     FSupportedVersions: TArray<UInt16>;
     FPreferredGroups: TArray<UInt16>;
-    FAlpnProtocols: TArray<string>;
+    FAlpnProtocols: TArray<TBytes>;
     FRecordSizeLimit: Int32;
     // anchor contributions accumulate (union); a whole-verifier is exclusive of them.
     // Only the endpoint-appropriate slot is ever set (the facet is chosen up front).
@@ -235,7 +235,7 @@ type
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): TTlsConfigBuilder;
     function WithSupportedVersions(const AVersions: TArray<UInt16>): TTlsConfigBuilder;
     function WithPreferredGroups(const AGroups: TArray<UInt16>): TTlsConfigBuilder;
-    function WithAlpnProtocols(const AProtocols: TArray<string>): TTlsConfigBuilder;
+    function WithAlpnProtocols(const AProtocols: TArray<TBytes>): TTlsConfigBuilder;
     function WithRecordSizeLimit(ALimit: Int32): TTlsConfigBuilder;
     function WithTrustStore(const AStore: ITrustAnchorStore): TTlsConfigBuilder;
     function WithTrustAnchors(const AData: TBytes): TTlsConfigBuilder;
@@ -389,7 +389,6 @@ resourcestring
     'TLS 1.2 (0x0303) are supported';
   SDuplicateVersion = 'a protocol version may be offered only once';
   SAlpnProtocolEmpty = 'an ALPN protocol name must not be empty (RFC 7301 3.1)';
-  SAlpnProtocolNotAscii = 'an ALPN protocol name must be ASCII; it is sent as its ASCII bytes';
   SAlpnProtocolTooLong = 'an ALPN protocol name must not exceed 255 bytes (RFC 7301 3.1)';
   SAlpnListTooLong = 'the ALPN protocol list must not exceed 16384 bytes on the wire, so that ' +
     'a ClientHello''s extensions block (RFC 8446 4.1.2) can always carry it';
@@ -400,7 +399,7 @@ resourcestring
   SNoSuiteForVersion = '%s is offered but the cipher-suite set holds no %s suite';
   SNoClassicalEcdheGroup = 'TLS 1.2 is offered but none of the preferred key-exchange groups is a ' +
     'registered classical ECDHE group, so no TLS 1.2 handshake could ever select a group';
-  SAlpnProtocolDuplicate = 'the ALPN protocol "%s" is offered more than once';
+  SAlpnProtocolDuplicate = 'an ALPN protocol name is offered more than once';
   SRecordSizeLimitRange = 'the record_size_limit must be 0 (not offered) or 64..16384 (the library cap; RFC 8449 4)';
   SHardRevocationUnusable = 'a Hard revocation posture rejects a peer whose certificate has no ' +
     'stapled OCSP response, so it always-rejects unless the client obtains revocation status: ' +
@@ -476,7 +475,7 @@ type
     FNamedGroups: INamedGroupRegistry;
     FSupportedVersions: TArray<UInt16>;
     FPreferredGroups: TArray<UInt16>;
-    FAlpnProtocols: TArray<string>;
+    FAlpnProtocols: TArray<TBytes>;
     FRecordSizeLimit: Int32;
     FCertificateCompressors: TArray<ICertificateCompressor>;
     FCertificateDecompressors: TArray<ICertificateDecompressor>;
@@ -503,7 +502,7 @@ type
     function NamedGroups: INamedGroupRegistry;
     function SupportedVersions: TArray<UInt16>;
     function PreferredGroups: TArray<UInt16>;
-    function AlpnProtocols: TArray<string>;
+    function AlpnProtocols: TArray<TBytes>;
     function RecordSizeLimit: Int32;
     function CertificateCompressors: TArray<ICertificateCompressor>;
     function CertificateDecompressors: TArray<ICertificateDecompressor>;
@@ -612,7 +611,7 @@ type
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): ITlsClientConfigBuilder;
     function WithSupportedVersions(const AVersions: TArray<UInt16>): ITlsClientConfigBuilder;
     function WithPreferredGroups(const AGroups: TArray<UInt16>): ITlsClientConfigBuilder;
-    function WithAlpnProtocols(const AProtocols: TArray<string>): ITlsClientConfigBuilder;
+    function WithAlpnProtocols(const AProtocols: TArray<TBytes>): ITlsClientConfigBuilder;
     function WithRecordSizeLimit(ALimit: Int32): ITlsClientConfigBuilder;
     function WithTrustStore(const AStore: ITrustAnchorStore): ITlsClientConfigBuilder;
     function WithTrustAnchors(const AData: TBytes): ITlsClientConfigBuilder;
@@ -665,7 +664,7 @@ type
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): ITlsServerConfigBuilder;
     function WithSupportedVersions(const AVersions: TArray<UInt16>): ITlsServerConfigBuilder;
     function WithPreferredGroups(const AGroups: TArray<UInt16>): ITlsServerConfigBuilder;
-    function WithAlpnProtocols(const AProtocols: TArray<string>): ITlsServerConfigBuilder;
+    function WithAlpnProtocols(const AProtocols: TArray<TBytes>): ITlsServerConfigBuilder;
     function WithRecordSizeLimit(ALimit: Int32): ITlsServerConfigBuilder;
     function WithServerNameAcknowledgement(ASend: Boolean): ITlsServerConfigBuilder;
     function WithCipherSuitePreference(APreference: TServerCipherPreference): ITlsServerConfigBuilder;
@@ -813,9 +812,9 @@ begin
   Result := System.Copy(FPreferredGroups);
 end;
 
-function TFrozenCommonConfig.AlpnProtocols: TArray<string>;
+function TFrozenCommonConfig.AlpnProtocols: TArray<TBytes>;
 begin
-  Result := System.Copy(FAlpnProtocols);
+  Result := TArrayUtilities.DeepCopy<Byte>(FAlpnProtocols);
 end;
 
 function TFrozenCommonConfig.RecordSizeLimit: Int32;
@@ -1108,7 +1107,7 @@ begin
 end;
 
 function TTlsClientConfigBuilder.WithAlpnProtocols(
-  const AProtocols: TArray<string>): ITlsClientConfigBuilder;
+  const AProtocols: TArray<TBytes>): ITlsClientConfigBuilder;
 begin
   FOwner.WithAlpnProtocols(AProtocols);
   Result := Self;
@@ -1347,7 +1346,7 @@ begin
 end;
 
 function TTlsServerConfigBuilder.WithAlpnProtocols(
-  const AProtocols: TArray<string>): ITlsServerConfigBuilder;
+  const AProtocols: TArray<TBytes>): ITlsServerConfigBuilder;
 begin
   FOwner.WithAlpnProtocols(AProtocols);
   Result := Self;
@@ -1956,23 +1955,19 @@ begin
 end;
 
 function TTlsConfigBuilder.WithAlpnProtocols(
-  const AProtocols: TArray<string>): TTlsConfigBuilder;
+  const AProtocols: TArray<TBytes>): TTlsConfigBuilder;
 var
-  LI, LJ, LK, LWireLength: Int32;
+  LI, LJ, LWireLength: Int32;
 begin
   GuardMutable;
   LWireLength := 0;
   // an empty list offers no ALPN; otherwise each name is one non-empty ProtocolName<1..2^8-1> (RFC
-  // 7301 3.1), a duplicate is refused as a misconfiguration, and the name is ASCII because it is
-  // sent as its ASCII bytes - so we never offer a name the wire encoding would mangle, nor a list
-  // our own decoder would refuse
+  // 7301 3.1) and a duplicate is refused as a misconfiguration - so we never offer a list our own
+  // decoder would refuse
   for LI := 0 to System.High(AProtocols) do
   begin
-    if AProtocols[LI] = '' then
+    if System.Length(AProtocols[LI]) = 0 then
       raise EArgumentTlsLibException.CreateRes(@SAlpnProtocolEmpty);
-    for LK := 1 to System.Length(AProtocols[LI]) do
-      if Ord(AProtocols[LI][LK]) > 127 then
-        raise EArgumentTlsLibException.CreateRes(@SAlpnProtocolNotAscii);
     if System.Length(AProtocols[LI]) > 255 then
       raise EArgumentTlsLibException.CreateRes(@SAlpnProtocolTooLong);
     // the list shares the one 64 KiB extensions block of the ClientHello with the key shares,
@@ -1982,10 +1977,11 @@ begin
     if LWireLength > MaxAlpnListBytes then
       raise EArgumentTlsLibException.CreateRes(@SAlpnListTooLong);
     for LJ := LI + 1 to System.High(AProtocols) do
-      if AProtocols[LJ] = AProtocols[LI] then
-        raise EArgumentTlsLibException.CreateResFmt(@SAlpnProtocolDuplicate, [AProtocols[LI]]);
+      if TArrayUtilities.AreEqual(AProtocols[LJ], AProtocols[LI]) then
+        raise EArgumentTlsLibException.CreateRes(@SAlpnProtocolDuplicate);
   end;
-  FAlpnProtocols := System.Copy(AProtocols);
+  // the names are copied so a caller reusing its arrays cannot change a frozen config
+  FAlpnProtocols := TArrayUtilities.DeepCopy<Byte>(AProtocols);
   Result := Self;
 end;
 

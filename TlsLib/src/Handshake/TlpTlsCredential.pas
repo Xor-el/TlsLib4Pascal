@@ -99,12 +99,12 @@ type
   /// <summary>A read-only snapshot of the ClientHello facts a server credential resolver may
   /// select on (SNI virtual hosting). ServerName is the raw SNI host_name (RFC 6066), empty
   /// when the client sent none; the arrays are the client's offers verbatim as IANA wire
-  /// codepoints (SignatureSchemes, CipherSuites, SupportedGroups) or protocol names (Alpn).
+  /// codepoints (SignatureSchemes, CipherSuites, SupportedGroups) or protocol-name octets (Alpn).
   /// ProtocolVersion is the version of the server machine performing the lookup.</summary>
   TTlsClientHelloInfo = record
     ServerName: string;
     SignatureSchemes: TArray<UInt16>;
-    AlpnProtocols: TArray<string>;
+    AlpnProtocols: TArray<TBytes>;
     CipherSuites: TArray<UInt16>;
     SupportedGroups: TArray<UInt16>;
     ProtocolVersion: TTlsVersion;

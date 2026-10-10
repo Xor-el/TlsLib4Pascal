@@ -40,6 +40,7 @@ uses
   TlpHandshakeEffect,
   TlpHandshakeMessage,
   TlpHandshakeMessages,
+  TlpAlpnProtocols,
   TlpExtensionContext,
   TlpExtensionVector,
   TlpEchExtension,
@@ -76,8 +77,8 @@ type
   private
     function TestRootCertificate: TBytes;
     function ServerCredential: TTlsCredential;
-    function NewClient(const AAlpn: TArray<string>; ARecordSizeLimit: Int32): ITlsEngine;
-    function NewServer(const AAlpn: TArray<string>; ARecordSizeLimit: Int32): ITlsEngine;
+    function NewClient(const AAlpn: TArray<TBytes>; ARecordSizeLimit: Int32): ITlsEngine;
+    function NewServer(const AAlpn: TArray<TBytes>; ARecordSizeLimit: Int32): ITlsEngine;
     function NewClient12(ARecordSizeLimit: Int32): ITlsEngine;
     function NewServer12(ARecordSizeLimit: Int32): ITlsEngine;
     function Drain(const AEngine: ITlsEngine): TBytes;
@@ -87,11 +88,11 @@ type
     procedure Handshake(const AClient, AServer: ITlsEngine);
     function MaxAppRecordLength(const AWire: TBytes): Int32;
     function AppRecordCount(const AWire: TBytes): Int32;
-    function NewClientMachine(const AAlpn: TArray<string>): IHandshakeMachine;
-    function NewClientMachineWith(const AAlpn: TArray<string>;
+    function NewClientMachine(const AAlpn: TArray<TBytes>): IHandshakeMachine;
+    function NewClientMachineWith(const AAlpn: TArray<TBytes>;
       const ADecompressors: TArray<ICertificateDecompressor>): IHandshakeMachine;
-    function NewServerMachine(const AAlpn: TArray<string>): IHandshakeMachine;
-    function NewServerMachineLimited(const AAlpn: TArray<string>;
+    function NewServerMachine(const AAlpn: TArray<TBytes>): IHandshakeMachine;
+    function NewServerMachineLimited(const AAlpn: TArray<TBytes>;
       ARecordSizeLimit: Int32): IHandshakeMachine;
     // a server machine deployed as a split-mode ECH backend (accepts an inner-type ech)
     function NewEchServerMachine(const AEchPolicy: IEchServerPolicy): IHandshakeMachine;
@@ -112,7 +113,7 @@ type
     function AllSendHandshake(const AEffects: TArray<THandshakeEffect>): TArray<TBytes>;
     function FailAlertOf(const AEffects: TArray<THandshakeEffect>;
       out AAlert: TTlsAlertDescription): Boolean;
-    function BuildEncryptedExtensionsWithAlpn(const AProtocol: string): TBytes;
+    function BuildEncryptedExtensionsWithAlpn(const AProtocol: TBytes): TBytes;
     function BuildEncryptedExtensionsWithExtension(AType: UInt16): TBytes;
     function GreaseExtensionTypeOf(const AClientHelloFramed: TBytes): UInt16;
     function NewGreasingClient: ITlsEngine;
@@ -125,6 +126,8 @@ type
   published
     procedure TestAlpnNegotiatesAndSurfaces;
     procedure TestAlpnNoOverlapAborts;
+    procedure TestAlpnBinaryNameNegotiates;
+    procedure TestAlpnLookalikeOfferDoesNotMatch;
     procedure TestNoAlpnConfiguredSurfacesEmpty;
     procedure TestClientRejectsUnofferedAlpnEcho;
     procedure TestRecordSizeLimitCapsOutboundRecords;
@@ -244,7 +247,7 @@ begin
   end;
 end;
 
-function TTestExtensionNegotiation.NewClient(const AAlpn: TArray<string>;
+function TTestExtensionNegotiation.NewClient(const AAlpn: TArray<TBytes>;
   ARecordSizeLimit: Int32): ITlsEngine;
 var
   LParams: TClientHandshakeParams;
@@ -271,7 +274,7 @@ begin
     TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
-function TTestExtensionNegotiation.NewServer(const AAlpn: TArray<string>;
+function TTestExtensionNegotiation.NewServer(const AAlpn: TArray<TBytes>;
   ARecordSizeLimit: Int32): ITlsEngine;
 var
   LParams: TServerHandshakeParams;
@@ -423,13 +426,13 @@ begin
 end;
 
 function TTestExtensionNegotiation.NewClientMachine(
-  const AAlpn: TArray<string>): IHandshakeMachine;
+  const AAlpn: TArray<TBytes>): IHandshakeMachine;
 begin
   Result := NewClientMachineWith(AAlpn, TZlibCertificateCompression.DefaultDecompressors);
 end;
 
 function TTestExtensionNegotiation.NewClientMachineWith(
-  const AAlpn: TArray<string>;
+  const AAlpn: TArray<TBytes>;
   const ADecompressors: TArray<ICertificateDecompressor>): IHandshakeMachine;
 var
   LParams: TClientHandshakeParams;
@@ -457,13 +460,13 @@ begin
 end;
 
 function TTestExtensionNegotiation.NewServerMachine(
-  const AAlpn: TArray<string>): IHandshakeMachine;
+  const AAlpn: TArray<TBytes>): IHandshakeMachine;
 begin
   Result := NewServerMachineLimited(AAlpn, 0);
 end;
 
 function TTestExtensionNegotiation.NewServerMachineLimited(
-  const AAlpn: TArray<string>; ARecordSizeLimit: Int32): IHandshakeMachine;
+  const AAlpn: TArray<TBytes>; ARecordSizeLimit: Int32): IHandshakeMachine;
 var
   LParams: TServerHandshakeParams;
 begin
@@ -651,7 +654,7 @@ begin
 end;
 
 function TTestExtensionNegotiation.BuildEncryptedExtensionsWithAlpn(
-  const AProtocol: string): TBytes;
+  const AProtocol: TBytes): TBytes;
 var
   LCodec: IExtensionBlockCodec;
   LContext: TExtensionContext;
@@ -730,14 +733,14 @@ begin
   // drive a real ClientHello/ServerHello exchange so the client reaches
   // EncryptedExtensions with handshake keys, then feed it a crafted EE whose ALPN
   // selection (http/1.1) the client never offered (it offered only h2)
-  LClient := NewClientMachine(TArray<string>.Create('h2'));
-  LServer := NewServerMachine(TArray<string>.Create('h2'));
+  LClient := NewClientMachine(TArray<TBytes>.Create(TAlpnProtocols.H2));
+  LServer := NewServerMachine(TArray<TBytes>.Create(TAlpnProtocols.H2));
   LClientHello := FirstSendHandshake(LClient.Start);
   LServerHello := FirstSendHandshake(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LClientHello)));
   LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LServerHello));
 
   CheckTrue(FailAlertOf(LClient.ProcessMessage(
-    TTlsLibTestHandshakeDecoder.HandshakeMessage(BuildEncryptedExtensionsWithAlpn('http/1.1'))), LAlert),
+    TTlsLibTestHandshakeDecoder.HandshakeMessage(BuildEncryptedExtensionsWithAlpn(TAlpnProtocols.Http11))), LAlert),
     'a server ALPN selection the client did not offer aborts');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
     'an unoffered ALPN echo is illegal_parameter');
@@ -944,13 +947,44 @@ var
 begin
   // client offers h2 then http/1.1; the server prefers http/1.1, so its first match
   // is http/1.1 and both sides surface it
-  LClient := NewClient(TArray<string>.Create('h2', 'http/1.1'), 0);
-  LServer := NewServer(TArray<string>.Create('http/1.1', 'h2'), 0);
+  LClient := NewClient(TArray<TBytes>.Create(TAlpnProtocols.H2, TAlpnProtocols.Http11), 0);
+  LServer := NewServer(TArray<TBytes>.Create(TAlpnProtocols.Http11, TAlpnProtocols.H2), 0);
   Handshake(LClient, LServer);
   CheckFalse(LClient.IsTerminal, 'the client completed');
   CheckFalse(LServer.IsTerminal, 'the server completed');
-  CheckEquals('http/1.1', LServer.ConnectionInfo.AlpnProtocol, 'server surfaces the selection');
-  CheckEquals('http/1.1', LClient.ConnectionInfo.AlpnProtocol, 'client surfaces the selection');
+  CheckEqualBytes('server surfaces the selection', TAlpnProtocols.Http11,
+    LServer.ConnectionInfo.AlpnProtocol);
+  CheckEqualBytes('client surfaces the selection', TAlpnProtocols.Http11,
+    LClient.ConnectionInfo.AlpnProtocol);
+end;
+
+procedure TTestExtensionNegotiation.TestAlpnBinaryNameNegotiates;
+var
+  LClient, LServer: ITlsEngine;
+  LName: TBytes;
+begin
+  // a name is opaque octets: one with a NUL and a high byte negotiates and surfaces exactly
+  LName := TBytes.Create($00, $FF, $68);
+  LClient := NewClient(TArray<TBytes>.Create(LName), 0);
+  LServer := NewServer(TArray<TBytes>.Create(LName), 0);
+  Handshake(LClient, LServer);
+  CheckFalse(LClient.IsTerminal, 'the client completed');
+  CheckFalse(LServer.IsTerminal, 'the server completed');
+  CheckEqualBytes('server surfaces the binary selection', LName, LServer.ConnectionInfo.AlpnProtocol);
+  CheckEqualBytes('client surfaces the binary selection', LName, LClient.ConnectionInfo.AlpnProtocol);
+end;
+
+procedure TTestExtensionNegotiation.TestAlpnLookalikeOfferDoesNotMatch;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // 'h' + 0xB2 is not "h2", so the server finds no overlap rather than selecting h2
+  LClient := NewClient(TArray<TBytes>.Create(TBytes.Create($68, $B2)), 0);
+  LServer := NewServer(TArray<TBytes>.Create(TAlpnProtocols.H2), 0);
+  Handshake(LClient, LServer);
+  CheckTrue(LServer.IsTerminal, 'the server aborts: no overlap');
+  CheckEquals(Ord(TTlsAlertDescription.NoApplicationProtocol),
+    Ord(LServer.LastError.Alert.Description), 'it is no_application_protocol');
 end;
 
 procedure TTestExtensionNegotiation.TestAlpnNoOverlapAborts;
@@ -958,8 +992,8 @@ var
   LClient, LServer: ITlsEngine;
 begin
   // the server is configured with a list, the client offers only a disjoint one
-  LClient := NewClient(TArray<string>.Create('h2'), 0);
-  LServer := NewServer(TArray<string>.Create('http/1.1'), 0);
+  LClient := NewClient(TArray<TBytes>.Create(TAlpnProtocols.H2), 0);
+  LServer := NewServer(TArray<TBytes>.Create(TAlpnProtocols.Http11), 0);
   Handshake(LClient, LServer);
   CheckTrue(LServer.IsTerminal, 'the server aborts on no ALPN overlap');
   CheckEquals(Ord(TTlsAlertDescription.NoApplicationProtocol),
@@ -975,8 +1009,8 @@ begin
   Handshake(LClient, LServer);
   CheckFalse(LClient.IsTerminal, 'the handshake is unaffected by absent ALPN');
   CheckFalse(LServer.IsTerminal, 'the handshake is unaffected by absent ALPN');
-  CheckEquals('', LClient.ConnectionInfo.AlpnProtocol, 'no ALPN negotiated');
-  CheckEquals('', LServer.ConnectionInfo.AlpnProtocol, 'no ALPN negotiated');
+  CheckEquals(0, System.Length(LClient.ConnectionInfo.AlpnProtocol), 'no ALPN negotiated');
+  CheckEquals(0, System.Length(LServer.ConnectionInfo.AlpnProtocol), 'no ALPN negotiated');
 end;
 
 procedure TTestExtensionNegotiation.TestRecordSizeLimitCapsOutboundRecords;
@@ -1346,8 +1380,8 @@ begin
   try
     LDst.MessageContext := TTlsExtensionContextKind.ServerHello;
     LExt.Consume(LDst, TBytes.Create($00, $03, $02, $68, $32));
-    CheckEquals('h2', LDst.SelectedAlpn,
-      'the server''s ServerHello ALPN selection round-trips');
+    CheckEqualBytes('the server''s ServerHello ALPN selection round-trips', TAlpnProtocols.H2,
+      LDst.SelectedAlpn);
   finally
     LDst.Free;
   end;

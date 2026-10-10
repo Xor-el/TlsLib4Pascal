@@ -84,9 +84,9 @@ type
     function WithSupportedVersions(const AVersions: TArray<UInt16>): ITlsClientConfigBuilder;
     function WithPreferredGroups(const AGroups: TArray<UInt16>): ITlsClientConfigBuilder;
     /// <summary>The application protocols offered in preference order; an empty list offers no
-    /// ALPN. Each name is a non-empty ASCII string of at most 255 bytes and is listed once;
-    /// anything else is rejected here (RFC 7301 3.1).</summary>
-    function WithAlpnProtocols(const AProtocols: TArray<string>): ITlsClientConfigBuilder;
+    /// ALPN. Each name is 1..255 opaque octets and is listed once; anything else is rejected here
+    /// (RFC 7301 3.1). TAlpnProtocols.FromText turns ASCII names such as "h2" into octets.</summary>
+    function WithAlpnProtocols(const AProtocols: TArray<TBytes>): ITlsClientConfigBuilder;
     /// <summary>Offers record_size_limit (RFC 8449): the largest record this client accepts inbound,
     /// as TLSInnerPlaintext in TLS 1.3. 0 (the default) offers nothing; otherwise 64..16384.</summary>
     function WithRecordSizeLimit(ALimit: Int32): ITlsClientConfigBuilder;
@@ -316,9 +316,10 @@ type
     function WithSupportedVersions(const AVersions: TArray<UInt16>): ITlsServerConfigBuilder;
     function WithPreferredGroups(const AGroups: TArray<UInt16>): ITlsServerConfigBuilder;
     /// <summary>The application protocols the server selects from, in preference order; an empty
-    /// list offers no ALPN. Each name is a non-empty ASCII string of at most 255 bytes and is
-    /// listed once; anything else is rejected here (RFC 7301 3.1).</summary>
-    function WithAlpnProtocols(const AProtocols: TArray<string>): ITlsServerConfigBuilder;
+    /// list offers no ALPN. Each name is 1..255 opaque octets and is listed once; anything else is
+    /// rejected here (RFC 7301 3.1). TAlpnProtocols.FromText turns ASCII names such as "h2" into
+    /// octets.</summary>
+    function WithAlpnProtocols(const AProtocols: TArray<TBytes>): ITlsServerConfigBuilder;
     /// <summary>Offers record_size_limit (RFC 8449): the largest record this server accepts inbound,
     /// as TLSInnerPlaintext in TLS 1.3. 0 (the default) offers nothing; otherwise 64..16384.</summary>
     function WithRecordSizeLimit(ALimit: Int32): ITlsServerConfigBuilder;

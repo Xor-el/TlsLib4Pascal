@@ -30,6 +30,7 @@ uses
   TlpIClock,
   MockClock,
   TlpTlsVersion,
+  TlpAlpnProtocols,
   TlpArrayUtilities,
   TlpSecretBuffer,
   TlpISession,
@@ -861,7 +862,7 @@ begin
   LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LRaised := False;
   try
-    LBuilder.Client.WithAlpnProtocols(TArray<string>.Create('h2', ''));
+    LBuilder.Client.WithAlpnProtocols(TArray<TBytes>.Create(TAlpnProtocols.H2, nil));
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
@@ -871,18 +872,22 @@ end;
 
 procedure TTestConfigBuilder.TestAlpnNonAsciiNameIsRefused;
 var
-  LBuilder: ITlsConfigBuilder;
   LRaised: Boolean;
+  LText: string;
 begin
-  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LRaised := False;
   try
-    LBuilder.Client.WithAlpnProtocols(TArray<string>.Create('h2' + #$00E9));
+    TAlpnProtocols.FromText('h2' + #$00E9);
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
   end;
-  CheckTrue(LRaised, 'a non-ASCII ALPN protocol name is refused');
+  CheckTrue(LRaised, 'a non-ASCII character has no ASCII octets and is refused');
+  // an octet above 127 is a legal name on the wire but has no text form
+  CheckFalse(TAlpnProtocols.TryToText(TBytes.Create($68, $B2), LText),
+    'a name with an octet above 127 has no text form');
+  CheckTrue(TAlpnProtocols.TryToText(TAlpnProtocols.H2, LText) and (LText = 'h2'),
+    'an ASCII name round-trips through text');
 end;
 
 procedure TTestConfigBuilder.TestAlpnOverlongNameIsRefused;
@@ -893,7 +898,8 @@ begin
   LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LRaised := False;
   try
-    LBuilder.Client.WithAlpnProtocols(TArray<string>.Create(StringOfChar('a', 256)));
+    LBuilder.Client.WithAlpnProtocols(
+      TAlpnProtocols.FromText(TArray<string>.Create(StringOfChar('a', 256))));
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
@@ -902,7 +908,8 @@ begin
   // the 255-byte boundary is legal
   LAtCapRaised := False;
   try
-    NewClientBuilder.WithAlpnProtocols(TArray<string>.Create(StringOfChar('a', 255)));
+    NewClientBuilder.WithAlpnProtocols(
+      TAlpnProtocols.FromText(TArray<string>.Create(StringOfChar('a', 255))));
   except
     on E: EArgumentTlsLibException do
       LAtCapRaised := True;
@@ -918,7 +925,8 @@ begin
   LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
   LRaised := False;
   try
-    LBuilder.Client.WithAlpnProtocols(TArray<string>.Create('h2', 'http/1.1', 'h2'));
+    LBuilder.Client.WithAlpnProtocols(
+      TAlpnProtocols.FromText(TArray<string>.Create('h2', 'http/1.1', 'h2')));
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
@@ -929,7 +937,7 @@ end;
 procedure TTestConfigBuilder.TestAlpnEmptyListMeansNoAlpn;
 var
   LConfig: ITlsClientConfig;
-  LNone: TArray<string>;
+  LNone: TArray<TBytes>;
 begin
   LNone := nil;
   LConfig := NewClientBuilder.WithAlpnProtocols(LNone).Build;
@@ -939,13 +947,16 @@ end;
 procedure TTestConfigBuilder.TestAlpnSetterCopiesCallerArray;
 var
   LConfig: ITlsClientConfig;
-  LList: TArray<string>;
+  LList: TArray<TBytes>;
 begin
-  LList := TArray<string>.Create('h2');
+  LList := TArray<TBytes>.Create(TAlpnProtocols.H2);
   LConfig := NewClientBuilder.WithAlpnProtocols(LList).Build;
-  LList[0] := 'x'; // mutating the caller's array must not reach the built config
+  // neither replacing a name nor changing an octet of the caller's arrays may reach the config
+  LList[0][0] := Ord('x');
+  LList[0] := nil;
   CheckEquals(1, System.Length(LConfig.AlpnProtocols), 'the ALPN list is preserved');
-  CheckEquals('h2', LConfig.AlpnProtocols[0], 'the ALPN list is a snapshot of the caller array');
+  CheckEqualBytes('the ALPN list is a snapshot of the caller array', TAlpnProtocols.H2,
+    LConfig.AlpnProtocols[0]);
 end;
 
 procedure TTestConfigBuilder.TestRecordSizeLimitDefaultsToUnset;
@@ -1034,12 +1045,12 @@ begin
   SetLength(LNames, 64);
   for LI := 0 to 63 do
     LNames[LI] := Format('%.3d', [LI]) + StringOfChar('a', 252);
-  NewClientBuilder.WithAlpnProtocols(LNames).Build;
+  NewClientBuilder.WithAlpnProtocols(TAlpnProtocols.FromText(LNames)).Build;
   // one byte more no longer fits
   LNames[63] := LNames[63] + 'a';
   LRaised := False;
   try
-    NewClientBuilder.WithAlpnProtocols(LNames);
+    NewClientBuilder.WithAlpnProtocols(TAlpnProtocols.FromText(LNames));
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
@@ -1058,7 +1069,7 @@ begin
   for LI := 0 to 63 do
     LNames[LI] := Format('%.3d', [LI]) + StringOfChar('a', 252);
   LClient := TTlsEngineFactory.CreateClientEngine(
-    NewClientBuilder.WithAlpnProtocols(LNames).Build, 'localhost');
+    NewClientBuilder.WithAlpnProtocols(TAlpnProtocols.FromText(LNames)).Build, 'localhost');
   LClient.StartHandshake;
   CheckTrue(System.Length(Drain(LClient)) > 16384, 'the ClientHello carries the whole list');
 end;

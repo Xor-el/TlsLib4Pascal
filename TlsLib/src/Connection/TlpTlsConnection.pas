@@ -27,6 +27,7 @@ interface
 uses
   SysUtils,
   Classes,
+  TlpAlpnProtocols,
   TlpIClock,
   TlpClock,
   TlpTlsAlert,
@@ -587,7 +588,7 @@ begin
     LClient.WithDangerousDisableServerNameCheck;
   LClient.WithServerNameIndication(AOptions.ServerNameIndication);
   if System.Length(AOptions.AlpnProtocols) > 0 then
-    LClient.WithAlpnProtocols(AOptions.AlpnProtocols);
+    LClient.WithAlpnProtocols(TAlpnProtocols.FromText(AOptions.AlpnProtocols));
   if not AOptions.Certificate.IsEmpty then
     LClient.WithCredential(TTlsCredential.Load(LCrypto, LPkix,
       Load(AOptions.Certificate), Load(AOptions.PrivateKey), AOptions.KeyPassword));
@@ -655,7 +656,7 @@ begin
   else if System.Length(AOptions.SupportedVersions) > 0 then
     LServer.WithSupportedVersions(AOptions.SupportedVersions);
   if System.Length(AOptions.AlpnProtocols) > 0 then
-    LServer.WithAlpnProtocols(AOptions.AlpnProtocols);
+    LServer.WithAlpnProtocols(TAlpnProtocols.FromText(AOptions.AlpnProtocols));
   // request + verify client certificates only under an explicit mode (a named client-CA alone never
   // triggers it; system trust is a server-cert source and is never a client-CA). The async
   // client-certificate verdict park is armed here (and only here) so the server-role resolver runs

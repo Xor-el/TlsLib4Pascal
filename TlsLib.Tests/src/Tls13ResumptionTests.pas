@@ -119,6 +119,7 @@ type
     procedure TestMachinesRequireAClock;
     procedure TestSingleUseTicketReplayRejected;
     procedure TestMismatchedBinderAbortsDecryptError;
+    procedure TestEmptyPskIdentityAbortsDecodeError;
     procedure TestExpiredTicketNotAccepted;
     procedure TestZeroLifetimeTicketIsNotCached;
     procedure TestCustomSessionCacheAndStoreAreUsed;
@@ -424,7 +425,7 @@ function TTestTls13Resumption.MakeSessionForHost(const AIdentity: TBytes;
   AMaxEarlyData: UInt32): IResumableSession;
 begin
   Result := TTls13ResumableSession.Create(TCipherSuites13.Aes128GcmSha256,
-    THashAlgorithm.SHA_256, ASecret, '', AHost, AIdentity,
+    THashAlgorithm.SHA_256, ASecret, nil, AHost, AIdentity,
     ALifetime, 0, UInt64(TSystemTimeUtilities.UtcUnixMs), AMaxEarlyData, nil, nil);
 end;
 
@@ -541,6 +542,25 @@ begin
   CheckTrue(LServer.IsTerminal, 'the server aborted on the bad binder');
   CheckTrue(LServer.LastError.Alert.Description = TTlsAlertDescription.DecryptError,
     'the server sent decrypt_error');
+end;
+
+procedure TTestTls13Resumption.TestEmptyPskIdentityAbortsDecodeError;
+var
+  LCache: ISessionCache;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+begin
+  // pre_shared_key identity<1..2^16-1> (RFC 8446 4.2.11): an empty identity is malformed
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  LCache.Store(ServerHost, ServerHost, MakeSession(nil,
+    TSecretBuffer.From(Filled($AA, 32)), 7200));
+  LClient := NewClient(LCache);
+  LServer := NewServer(LStore, 0, 7200, True);
+  DriveHandshake(LClient, LServer);
+  CheckTrue(LServer.IsTerminal, 'the server aborted on the empty identity');
+  CheckTrue(LServer.LastError.Alert.Description = TTlsAlertDescription.DecodeError,
+    'the server sent decode_error');
 end;
 
 procedure TTestTls13Resumption.TestExpiredTicketNotAccepted;

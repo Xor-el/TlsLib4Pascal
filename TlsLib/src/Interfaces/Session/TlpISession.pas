@@ -48,7 +48,7 @@ type
     /// <summary>The ALPN protocol negotiated on the session this PSK resumes (empty when none),
     /// so an accepted 0-RTT offer can enforce that the server keeps the same protocol (RFC 8446
     /// 4.2.10); external PSKs carry no ALPN.</summary>
-    function Alpn: string;
+    function Alpn: TBytes;
     /// <summary>Which binder label the PSK uses: Resumption for a ticket, Imported for an
     /// RFC 9258 external PSK. Also selects whether an obfuscated_ticket_age is offered.</summary>
     function BinderKind: TPskBinderKind;
@@ -74,8 +74,8 @@ type
     function CipherSuite: UInt16;
     /// <summary>The hash bound to the suite.</summary>
     function Hash: THashAlgorithm;
-    /// <summary>The negotiated ALPN protocol, or the empty string.</summary>
-    function Alpn: string;
+    /// <summary>The negotiated ALPN protocol name, or empty.</summary>
+    function Alpn: TBytes;
     /// <summary>The SNI host_name the session was established under (empty when none). A server
     /// binds it into the ticket and refuses a resumption whose ClientHello names a different host,
     /// so a ticket issued for one virtual host cannot resume as another.</summary>

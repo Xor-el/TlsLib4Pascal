@@ -27,6 +27,7 @@ uses
 {$ELSE}
   TestFramework,
 {$ENDIF FPC}
+  TlpAlpnProtocols,
   TlpTlsVersion,
   TlpTlsAlert,
   TlpCryptoDomainTypes,
@@ -68,7 +69,7 @@ type
     FBehavior: TServerBehavior;
     FError: string;
     FNegotiatedVersion: UInt16;
-    FAlpn: string;
+    FAlpn: TBytes;
     FBulkBytes: Int32;
   protected
     procedure Execute; override;
@@ -78,7 +79,7 @@ type
     destructor Destroy; override;
     property Error: string read FError;
     property NegotiatedVersion: UInt16 read FNegotiatedVersion;
-    property Alpn: string read FAlpn;
+    property Alpn: TBytes read FAlpn;
     // total bytes a BulkEcho server echoes back before closing
     property BulkBytes: Int32 read FBulkBytes write FBulkBytes;
   end;
@@ -310,7 +311,7 @@ var
   LClient: ITlsClientConfigBuilder;
 begin
   LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithAlpnProtocols(TArray<string>.Create('h2', 'http/1.1'));
+    .WithAlpnProtocols(TArray<TBytes>.Create(TAlpnProtocols.H2, TAlpnProtocols.Http11));
   if AInsecureSkipVerify then
     LClient.WithDangerousInsecureSkipVerify
       .WithTrustAnchors(TrustRoot) // a trust source is still required by build
@@ -324,7 +325,7 @@ end;
 function TTestTlsStreamLoopback.ServerConfig: ITlsServerConfig;
 begin
   Result := TTlsPresets.Compatible(Crypto, Pkix).Server
-    .WithAlpnProtocols(TArray<string>.Create('h2', 'http/1.1'))
+    .WithAlpnProtocols(TArray<TBytes>.Create(TAlpnProtocols.H2, TAlpnProtocols.Http11))
     .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey)).Build;
 end;
 
@@ -755,7 +756,7 @@ begin
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
     .WithCipherSuites(LSuites).Build;
   LServerConfig := TTlsPresets.Compatible(LCapped, Pkix).Server
-    .WithAlpnProtocols(TArray<string>.Create('h2', 'http/1.1'))
+    .WithAlpnProtocols(TArray<TBytes>.Create(TAlpnProtocols.H2, TAlpnProtocols.Http11))
     .WithCredential(TTlsCredential.Load(LCapped, Pkix, LeafCert, LeafKey)).Build;
 
   LC2S := TMemoryPipe.Create;
@@ -867,7 +868,8 @@ begin
     LInfo := LClient.ConnectionInfo;
     CheckEquals(Integer(TlsWireVersionTls13), Integer(LInfo.NegotiatedVersion.WireValue),
       'the client negotiated TLS 1.3');
-    CheckEquals('h2', LInfo.AlpnProtocol, 'the client negotiated the h2 ALPN protocol');
+    CheckEqualBytes('the client negotiated the h2 ALPN protocol', TAlpnProtocols.H2,
+      LInfo.AlpnProtocol);
     CheckEquals('localhost', LInfo.ServerName, 'the connection info carries the SNI host');
     // the negotiated suite and (EC)DHE group are surfaced; a fresh handshake is not resumed
     CheckTrue(LInfo.CipherSuite <> 0, 'the connection info carries the negotiated cipher suite');
@@ -879,7 +881,8 @@ begin
     CheckEquals('', LServer.Error, 'the server side ran without error');
     CheckEquals(Integer(TlsWireVersionTls13), Integer(LServer.NegotiatedVersion),
       'the server negotiated TLS 1.3');
-    CheckEquals('h2', LServer.Alpn, 'the server selected the h2 ALPN protocol');
+    CheckEqualBytes('the server selected the h2 ALPN protocol', TAlpnProtocols.H2,
+      LServer.Alpn);
   finally
     LServer.Free;
     LClient.Free;
