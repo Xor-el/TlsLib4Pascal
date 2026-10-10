@@ -91,7 +91,7 @@ type
     function BuildClientHelloOuter(AMode: TEchChMode; const AInnerFramed, AOuterRandom,
       ALegacySessionId: TBytes; const APskOffers: TArray<IPreSharedKey>): TBytes;
     /// <summary>Decides ECH accept vs reject from the ServerHello accept confirmation (RFC 9849
-    /// sec. 7.2): activates/rebuilds only the inner transcript under AHash, checks the confirmation
+    /// sec. 6.1.4 / 7.2): activates/rebuilds only the inner transcript under AHash, checks the confirmation
     /// on a clone, cross-checks any HelloRetryRequest verdict, sets Status, and returns True on
     /// accept. It does NOT append the ServerHello to any transcript - the machine adopts the inner
     /// transcript (InnerTranscript) and inner random on accept, or the public_name on reject, and
@@ -359,7 +359,8 @@ var
   LRandom: IRandom;
 begin
   // the identities and obfuscated ticket ages are the minted, retry-stable values (a real offer
-  // re-sends both across a retry); only the binders are drawn fresh here, as a real client
+  // re-sends the identities across a retry; RFC 8446 4.1.2 recomputes the ages, which this decoy
+  // deliberately keeps stable); only the binders are drawn fresh here, as a real client
   // recomputes them over the new transcript
   LRandom := FCrypto.Primitives.GetRandom;
   LWriter := TWireWriter.Create;
@@ -441,7 +442,8 @@ begin
       TTlsAlertDescription.InternalError, @SEchExtensionUnregistered);
 
   // a rejecting HelloRetryRequest: the server ignored our ech, so CH2's outer ech extension is
-  // an exact copy of CH1's (RFC 8446 4.1.2, RFC 9849 sec. 6.1.6 / 6.2.1); the rest of the outer
+  // an exact copy of CH1's (RFC 8446 4.1.2; the verbatim-copy rule of RFC 9849 sec. 6.2.1 is
+  // applied here by analogy); the rest of the outer
   // carries the retry's new key_share and cookie, but the ech payload is never re-sealed
   if AMode = TEchChMode.RetryReject then
   begin

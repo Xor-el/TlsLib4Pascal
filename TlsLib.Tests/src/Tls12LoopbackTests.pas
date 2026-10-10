@@ -539,8 +539,8 @@ begin
   CheckFalse(LClient.IsHandshaking, 'the handshake completed');
 
   // TLS 1.2 has no KeyUpdate; at the AEAD usage limit the write epoch cannot be rekeyed, so a
-  // write closes the connection and refuses rather than exceed the AEAD safety bound (RFC 8446
-  // 5.5 applies the same record limits to the 1.2 AEAD suites). The close_notify still seals
+  // write closes the connection and refuses rather than exceed the AEAD safety bound (RFC 9325
+  // 4.4 for TLS 1.2; RFC 8446 5.5 is the TLS 1.3 analogue). The close_notify still seals
   // under the current, still-valid epoch.
   LRaised := False;
   try
@@ -1146,7 +1146,8 @@ var
 begin
   // white-box: two bare 1.2 machines driven to Connected. This client does not renegotiate,
   // so a post-handshake HelloRequest is answered with a warning no_renegotiation and the
-  // connection continues; a second one is fatal (RFC 5246 7.2.2, RFC 5746 4.2)
+  // connection continues; a second one is fatal (library policy; RFC 5246 7.2.2 and RFC 5746 4.2
+  // do not make it so)
   LClient := ClientMachine(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True);
   LServer := ServerMachine(False);
   // ClientHello -> server flight -> client ClientKeyExchange+Finished -> server Finished -> client
@@ -1199,7 +1200,7 @@ var
   LIterations: Int32;
 begin
   // the server sends a CertificateStatus carrying a current Good OCSP response, which a
-  // hard-fail client requires (RFC 6066 8)
+  // hard-fail client requires (a posture of this library; the message format is RFC 6066 8)
   LClient := NewHardRevocationClient;
   LServer := NewStaplingServer(OcspField('ocsp_good'));
   LClient.StartHandshake;

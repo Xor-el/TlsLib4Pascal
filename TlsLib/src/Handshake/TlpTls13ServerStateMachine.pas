@@ -1727,7 +1727,8 @@ begin
   LBody := THandshakeMessages.EncodeCertificate(LCert);
 
   // compress only when the client advertised an algorithm we hold AND the result is
-  // strictly smaller (RFC 8879); otherwise send the Certificate uncompressed
+  // strictly smaller (local policy; RFC 8879 sets no size rule); otherwise send the Certificate
+  // uncompressed
   LCompressor := TCertificateCompression.SelectCompressor(
     FParams.CertificateCompressors, FClientCertCompressionAlgorithms);
   if LCompressor <> nil then

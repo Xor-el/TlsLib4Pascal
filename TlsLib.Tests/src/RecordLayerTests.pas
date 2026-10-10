@@ -910,7 +910,7 @@ begin
       DecodeHex('101112131415161718191a1b')));
     LRecv.SetNegotiatedVersion(TTlsVersion.Tls13);
     // before anything has decrypted only a FATAL plaintext alert is accepted; a warning level
-    // alert (close_notify) is unauthenticated and would forge a truncation (RFC 8446 6.1)
+    // alert (close_notify) is unauthenticated and would forge a truncation (library policy; see RFC 8446 6.1)
     CheckTrue(ExpectFatal(LRecv, DecodeHex('15030300020100'), TTlsAlertDescription.BadRecordMac),
       'a plaintext close_notify is refused');
   finally
@@ -1169,7 +1169,8 @@ begin
     LKey := DecodeHex('000102030405060708090a0b0c0d0e0f');
     LSalt := DecodeHex('cafebabe');
     // a validly protected TLS 1.2 record whose plaintext is one byte over 2^14 passes the
-    // framing ceiling and must be refused at decrypt time (RFC 5246 6.2.1)
+    // framing ceiling and must be refused at decrypt time (the sender's 2^14 limit, RFC 5246 6.2.1,
+    // checked on receipt)
     LPlain := MakePayload(TRecordLimits.MaxPlaintext + 1, $5A);
     LWire := MakeTls12(LKey, LSalt).Protect(TTlsContentType.ApplicationData, LPlain, 0,
       System.Length(LPlain));

@@ -138,7 +138,7 @@ type
     class function HandshakeEstablished: THandshakeEffect; static;
     /// <summary>Emits a warning-level alert without tearing down the connection: the driver
     /// delivers it through the sink so the engine writes it under the current epoch and stays
-    /// live (e.g. no_renegotiation, RFC 5246 7.2.2 / RFC 5746 4.2).</summary>
+    /// live (e.g. no_renegotiation, RFC 5246 7.2.2 / RFC 5746 4.2 and 4.4).</summary>
     class function SendWarningAlert(AAlert: TTlsAlertDescription): THandshakeEffect; static;
     class function Fail(AAlert: TTlsAlertDescription): THandshakeEffect; static;
     /// <summary>ECH was accepted (RFC 9849): record the accepted status so connection info

@@ -3359,7 +3359,8 @@ var
   LClient, LServer: ITlsEngine;
 begin
   // TLS 1.3 always derives the exporter from the full transcript, so it reports EMS as in use
-  // (RFC 8446 Appendix D), including a dual-version client that settles on 1.3
+  // (RFC 8446 7.1 derives it from the full transcript; EMS-in-use is the library's report),
+  // including a dual-version client that settles on 1.3
   LClient := TTlsEngineFactory.CreateClientEngine(NewClientBuilder.Build, 'localhost');
   LServer := TTlsEngineFactory.CreateServerEngine(NewServerBuilder.Build);
   RunHandshake(LClient, LServer);

@@ -463,7 +463,7 @@ begin
 
     // this machine only speaks TLS 1.2, so a client that offered supported_versions without 1.2,
     // or (absent the extension) a legacy_version below 1.2, shares no version with it: the client
-    // selected nothing this server supports (RFC 8446 4.2.1)
+    // selected nothing this server supports (RFC 8446 4.2.1 / D.2)
     if System.Length(LContext.SupportedVersions) > 0 then
     begin
       if not (TArrayUtilities.Contains<UInt16>(LContext.SupportedVersions,
@@ -502,7 +502,7 @@ begin
     // resumption is attempted before any full-handshake negotiation; a mismatch (bad/expired
     // ticket or session id, suite conflict, EMS now offered for a non-EMS session, or a non-EMS
     // session under the Decline policy) falls through to a full handshake rather than failing
-    // (RFC 5077 3.4 / RFC 5246 7.3); the exceptions that abort are an EMS session offered without
+    // (RFC 5077 3.1 / 3.2, RFC 5246 7.3); the exceptions that abort are an EMS session offered without
     // EMS (RFC 7627 5.3) and a non-EMS session under the Abort policy
     FResuming := TryAcceptResumption(LHello, LContext);
     if not FResuming then
@@ -601,7 +601,8 @@ begin
     THandshakeEffects.SendHandshake(LServerHello));
   // once the client offered record_size_limit, cap outbound records to its limit (and the client's
   // to ours; 0 = no inbound cap) BEFORE the possibly large Certificate is framed. The ServerHello
-  // that announced the limit is itself unrestricted (RFC 8449 4).
+  // that announced the limit is itself unrestricted (RFC 8449 4); capping before the Certificate
+  // flight is local policy, since the limit applies to records after the handshake keys.
   if FPeerRecordSizeLimit > 0 then
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.SetRecordSizeLimit(FPeerRecordSizeLimit, FParams.RecordSizeLimit));
@@ -880,7 +881,7 @@ begin
   if not (TArrayUtilities.Contains<UInt16>(AHello.CipherSuites,
     LSession.CipherSuite)) then
     Exit;
-  // RFC 7627 5.3: an EMS session offered again without EMS MUST abort (a handshake_failure, 5.2) -
+  // RFC 7627 5.3: an EMS session offered again without EMS MUST abort (a handshake_failure, 5.2 / 5.3) -
   // the omission signals a downgrade (or an attacker stripping the extension) - while a non-EMS
   // session now offered with EMS simply declines to a full handshake
   if L12.ExtendedMasterSecret and not AContext.ExtendedMasterSecret then

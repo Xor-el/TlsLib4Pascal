@@ -33,7 +33,7 @@ uses
 
 type
   /// <summary>
-  /// The TLS 1.2 key schedule (RFC 5246 6.3 / RFC 7627): PRF-derived master secret
+  /// The TLS 1.2 key schedule (RFC 5246 8.1 and 6.3 / RFC 7627): PRF-derived master secret
   /// (plain or Extended Master Secret), the key_block split into the AEAD write
   /// keys and implicit-nonce salts that feed the record layer, and the Finished
   /// verify_data. All secrets are ISecretBuffer; intermediate blocks are wiped.

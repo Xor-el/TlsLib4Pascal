@@ -116,7 +116,7 @@ type
 
     /// <summary>
     /// Whether the ECH accept confirmation over the inner transcript matches the last 8
-    /// bytes of ServerHello.random (RFC 9849 sec. 7.2), compared in constant time.
+    /// bytes of ServerHello.random (RFC 9849 sec. 6.1.4 / 7.2), compared in constant time.
     /// AInnerRandom is ClientHelloInner.random; ATranscriptEchConf is the inner
     /// transcript hash with those 8 SH.random bytes zeroed.
     /// </summary>

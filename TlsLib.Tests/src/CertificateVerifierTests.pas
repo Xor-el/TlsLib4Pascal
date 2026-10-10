@@ -183,7 +183,8 @@ type
     procedure TestMisorderedChainValidatedPathIsIssuerOrdered;
     procedure TestMisorderedChainRevokedStapleAborts;
     procedure TestReorderedChainBuildsFromPresentedFirstCert;
-    // the trust anchor is identified by subject + key, not exact encoding (RFC 5280 6.1.1(d)):
+    // the trust anchor is identified by subject + key, not exact encoding (RFC 5280 6.1.1(d); a
+    // constrained anchor is RFC 5937):
     // a peer-sent re-issued copy of the configured root collapses onto the configured DER and
     // is exempt from path policy; a same-subject different-key root is not the anchor
     procedure TestDistrustedIntermediateIsRejectedAsBadCertificate;

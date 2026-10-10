@@ -26,13 +26,14 @@ Builder.Server.Tls13
 
 Because a server's certificate is usually stable, deflating it on every handshake is wasted work.
 The server memoizes that compression across connections: the cache is keyed by a `SHA-256` digest of
-the exact uncompressed `Certificate` bytes, so a hit returns byte-for-byte what a fresh compress
+the algorithm code and the exact uncompressed `Certificate` bytes, so a hit returns byte-for-byte what a fresh compress
 would — the cache **never changes the bytes on the wire**, it only skips the recompute. A change that
 alters the message (for example a refreshed leaf OCSP staple) changes the bytes, so the key changes
 and the server simply recomputes; there is no stale-cache case.
 
-The cache is **opt-in** — `nil` by default, the same posture as the session store, session cache,
-and ticket keys, which you provision consciously. Enable it by handing the server config a cache:
+The cache is **opt-in** — `nil` by default, the same posture as the session store and the session
+cache, which you provision consciously (ticket keys differ: a server with resumption on mints a
+default set at `Build`). Enable it by handing the server config a cache:
 
 ```pascal
 Builder.Server.Tls13.WithCertificateCompressionCache(

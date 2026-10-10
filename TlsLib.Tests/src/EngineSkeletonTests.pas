@@ -201,7 +201,7 @@ var
   LRaised: Boolean;
 begin
   // no write epoch key is installed before the handshake; a Write would otherwise frame
-  // application data in the clear, so the engine refuses it (RFC 8446 2)
+  // application data in the clear, so the engine refuses it (library policy)
   LEngine := NewEngine;
   LRaised := False;
   try

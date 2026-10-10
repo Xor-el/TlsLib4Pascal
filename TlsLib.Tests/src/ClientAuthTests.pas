@@ -700,7 +700,7 @@ var
   LClient, LServer: ITlsEngine;
   LFlight: TBytes;
 begin
-  // a CertificateRequest may appear at most once (RFC 5246 7.4.4); duplicating the server's real
+  // a CertificateRequest may appear at most once (the flow of RFC 5246 7.3); duplicating the server's real
   // request in the same flight must make the client abort with unexpected_message
   LClient := New12Client(True);
   LServer := New12Server(TClientAuthMode.Required);
@@ -786,7 +786,7 @@ begin
   // drive the client through the server's whole first flight so it answers with its real
   // Certificate, then re-encode that Certificate with a one-byte certificate_request_context:
   // the context echoes the (empty) CertificateRequest context in the main handshake
-  // (RFC 8446 4.4.2), so the server must abort with decode_error
+  // (RFC 8446 4.4.2), so the server aborts; decode_error is this library's choice of alert
   LClient := New13ClientMachine(True);
   LServer := New13ServerMachine(TClientAuthMode.Required);
   LServerFlight := AllSendHandshake(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(

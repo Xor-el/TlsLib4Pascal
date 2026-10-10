@@ -832,7 +832,7 @@ begin
   LP := AProvider.Primitives.CreateKeyAgreement(TKeyAgreementAlgorithm.SECP256R1);
   LP.GenerateKeyPair(LPriv, LPub); // SEC1 uncompressed: 0x04 || X(32) || Y(32)
   // a SEC1 compressed encoding (0x02/0x03 || X, 33 bytes) is forbidden for TLS and HPKE EC points
-  // (RFC 8446 4.2.8.2 / RFC 8422 5.1.2 / RFC 9180 4.1); the agreement must reject it, never decode it
+  // (RFC 8446 4.2.8.2 / RFC 8422 5.1.2 / RFC 9180 7.1.1); the agreement must reject it, never decode it
   SetLength(LCompressed, 1 + 32);
   LCompressed[0] := $02 or (LPub[64] and 1);
   for LI := 1 to 32 do

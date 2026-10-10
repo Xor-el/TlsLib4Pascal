@@ -28,6 +28,7 @@ Add an **optional** package only when you use its feature:
 |---|---|
 | Verify against the OS root store | `TlsLib.Trust.System` |
 | An offline PEM CA bundle (loader) | `TlsLib.Trust.Bundle` |
+| Native Windows (CNG) handshake primitives | `TlsLib.Crypto.System` |
 | Live OCSP/CRL over real sockets | the `TlpSocketHttpFetcher` unit (in `TlsLib.Net/`) |
 | A mORMot / Indy / Synapse / fcl-net drop-in | the matching `TlsLib.Adapter.*` |
 

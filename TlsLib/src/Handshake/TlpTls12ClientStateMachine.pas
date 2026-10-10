@@ -74,7 +74,7 @@ type
     OfferedGroups: TArray<UInt16>;
     OfferedSchemes: TArray<UInt16>;
     /// <summary>The ALPN protocols the client advertised, in preference order; the
-    /// server's ServerHello selection must be one of these (RFC 7301 3.2).</summary>
+    /// server's ServerHello selection must be one of these (RFC 7301 3.2 binds the server).</summary>
     AlpnProtocols: TArray<TBytes>;
     /// <summary>The versions offered in supported_versions; listing 1.3 arms downgrade
     /// detection on a 1.2 ServerHello carrying the RFC 8446 sentinel.</summary>
@@ -513,7 +513,7 @@ begin
     else
       LServerExtensions := TExtensionVector.Parse(LHello.Extensions);
     // key_share and pre_shared_key are TLS 1.3 constructs; a 1.2 server answering with either has
-    // sent an extension that has no meaning here (RFC 8446 4.2). The unified hello offered both, so
+    // sent an extension that has no meaning here (local policy; RFC 8446 4.2 scopes them to 1.3). The unified hello offered both, so
     // the codec alone would accept them; judged before the codec acts on them
     if LServerExtensions.Contains(TExtensionTypes.KeyShare) or
       LServerExtensions.Contains(TExtensionTypes.PreSharedKey) then
@@ -530,7 +530,7 @@ begin
     FExpectNewSessionTicket := LContext.SessionTicketOffered;
     // a server that echoed status_request will send a CertificateStatus message
     FServerWillStaple := LContext.StatusRequestResponsePending;
-    // the server's ALPN choice must be one this client offered (RFC 7301 3.2)
+    // the server's ALPN choice must be one this client offered (the server's rule, RFC 7301 3.2)
     if System.Length(LContext.SelectedAlpn) > 0 then
     begin
       if not TAlpnProtocols.Contains(FParams.AlpnProtocols, LContext.SelectedAlpn) then
@@ -965,7 +965,7 @@ function TTls12ClientStateMachine.BeginAbbreviatedHandshake(
   const AContext: TExtensionContext): TArray<THandshakeEffect>;
 begin
   // the server must resume with the cached suite and the same EMS choice (RFC 7627 5.3); an EMS
-  // mismatch aborts with handshake_failure (5.2)
+  // mismatch aborts with handshake_failure (5.2 / 5.3)
   if FSelectedSuite.Common.Code <> FResumptionOffer.CipherSuite then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SResumedSuiteMismatch);

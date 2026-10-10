@@ -72,7 +72,7 @@ type
       ANegotiatedVersion: UInt16; AHash: THashAlgorithm; out ASuite: UInt16): Boolean;
     /// <summary>Chooses a named group by server preference order among the client's
     /// supported_groups; handshake_failure when none is shared. The client's key shares never steer
-    /// the choice (RFC 8446 4.2.8) - the caller retries with a HelloRetryRequest when the chosen
+    /// the choice (server-preference policy; RFC 8446 4.1.1) - the caller retries with a HelloRetryRequest when the chosen
     /// group has no share (4.1.1). For TLS 1.2 only classical ECDHE groups are eligible (KEM and
     /// hybrid groups are 1.3-only).</summary>
     function SelectGroup(const AClientGroups: TArray<UInt16>;

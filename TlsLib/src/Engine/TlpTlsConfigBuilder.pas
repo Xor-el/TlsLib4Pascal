@@ -1828,7 +1828,8 @@ begin
   FCertificateCompressors := TZlibCertificateCompression.DefaultCompressors;
   FCertificateDecompressors := TZlibCertificateCompression.DefaultDecompressors;
   // the cross-connection compression cache is opt-in (like the session store): nil until a
-  // caller supplies one via WithCertificateCompressionCache, so a stable body re-deflates
+  // caller supplies one via WithCertificateCompressionCache, so a stable body re-deflates on
+  // every connection until one is set
   // resumption is engaged by default (a preset may turn it off): a server then resumes out of the
   // box, minting a default STEK at build time unless explicit ticket keys or a session store were
   // supplied; a client still needs a session cache to retain the tickets it is offered
@@ -1876,7 +1877,7 @@ end;
 procedure TTlsConfigBuilder.ValidateVersionScoping;
 begin
   // a raw builder that never called WithSupportedVersions has none; a machine cannot be built
-  // without an offered version (RFC 8446 / the factory only builds TLS 1.3 and 1.2)
+  // without an offered version (RFC 8446 4.2.1; the factory only builds TLS 1.3 and 1.2)
   if System.Length(FSupportedVersions) = 0 then
     raise EInvalidOperationTlsLibException.CreateRes(@SNoSupportedVersions);
   if FTls13Configured and not (TArrayUtilities.Contains<UInt16>(FSupportedVersions,
@@ -3053,7 +3054,7 @@ begin
     raise EInvalidOperationTlsLibException.CreateRes(@SHardServerRevocationUnusable);
   // a ticket-key manager or session store is the one thing an operator can share across
   // configurations, and a resumed handshake reuses the original client authentication without
-  // re-verifying it (RFC 8446 2.2): an mTLS configuration that supplies one must partition its
+  // re-verifying it (inferred from RFC 8446 2.2): an mTLS configuration that supplies one must partition its
   // tickets with an explicit scope, or a ticket minted under another configuration's client-CA
   // trust would resume here as an authenticated identity. The per-config default STEK is exempt
   // (it is never shared), so the common case builds unchanged.
