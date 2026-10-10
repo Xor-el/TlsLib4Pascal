@@ -52,16 +52,13 @@ uses
   TlsLibTestBase;
 
 type
-  /// <summary>The contract every native crypto provider must meet: a natively imported key's
-  /// PublicKeyInfo comes from the signing handle itself (not the portable facet), signatures verify
-  /// as strictly as the portable verifier, key exchange refuses foreign keys, and the credential
-  /// leaf guard sees the native key. The provider under test is whatever TOSCryptoProvider
-  /// composes for the platform, and each test runs only for what the backend report says is
-  /// native, so a platform with no native provider runs none of them and a new one needs no edit
-  /// here. A platform with its own cases registers its leaf below instead of this class, so the
-  /// contract runs once per build.</summary>
-  TTestNativeCryptoProvider = class(TTlsLibAlgorithmTestCase)
-  strict private
+  /// <summary>What the native crypto provider suites share: the provider under test (whatever
+  /// TOSCryptoProvider composes for the platform), the fixtures and the gates that tell whether
+  /// something ran natively. It has no tests of its own and is never registered.</summary>
+  TNativeCryptoProviderTestBase = class abstract(TTlsLibAlgorithmTestCase)
+  strict protected
+    FKeys: TStringList;
+    FPfx: TStringList;
     // The native facets composed over the portable base (native where the platform serves them).
     function Composed(const ABase: ICryptoProvider): ICryptoProvider;
     // A full, valid TLS 1.3 server config built over the composed overlay with ACredential.
@@ -69,9 +66,6 @@ type
     // The class and message of the exception AProvider raises importing AData, empty when it imports.
     function ImportFailure(const AProvider: ICryptoProvider; const AData: TBytes;
       const APassword: ISecretBuffer): string;
-  strict protected
-    FKeys: TStringList;
-    FPfx: TStringList;
     // the fixture drives the native provider, so the crypto provider under test is the composed one
     function CreateCrypto: ICryptoProvider; override;
     // The portable provider the native one is composed over, for the cases that wrap it (a facet
@@ -90,6 +84,15 @@ type
   protected
     procedure SetUp; override;
     procedure TearDown; override;
+  end;
+
+  /// <summary>The contract every native crypto provider must meet: a natively imported key's
+  /// PublicKeyInfo comes from the signing handle itself (not the portable facet), signatures verify
+  /// as strictly as the portable verifier, key exchange refuses foreign keys, and the credential
+  /// leaf guard sees the native key. Each test runs only for what the backend report says is
+  /// native, so a platform with no native provider runs none of them and a new one needs no edit
+  /// here.</summary>
+  TTestNativeCryptoProvider = class(TNativeCryptoProviderTestBase)
   published
     // the exported SubjectPublicKeyInfo does not come from the portable facet: over a base
     // whose ImportSigningKey raises, a natively imported key still exposes the correct SPKI
@@ -122,8 +125,8 @@ type
   end;
 
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
-  /// <summary>The Windows CNG / crypt32 cases on top of the native provider contract.</summary>
-  TTestWindowsNativeCryptoProvider = class(TTestNativeCryptoProvider)
+  /// <summary>The Windows CNG / crypt32 cases, beside the native provider contract.</summary>
+  TTestWindowsNativeCryptoProvider = class(TNativeCryptoProviderTestBase)
   published
     // both parsers agree on the key: the natively adopted PKCS#12 key's exported SPKI equals
     // the leaf certificate's SPKI (guards against crypt32 key<->cert association drift)
@@ -206,45 +209,45 @@ begin
   Result := FReal.CreateSignatureVerifier(AScheme, APublicKeyDer);
 end;
 
-{ TTestNativeCryptoProvider }
+{ TNativeCryptoProviderTestBase }
 
-procedure TTestNativeCryptoProvider.SetUp;
+procedure TNativeCryptoProviderTestBase.SetUp;
 begin
   inherited SetUp;
   FKeys := LoadVectorFields('Certs/ImportKeys.txt');
   FPfx := LoadVectorFields('Certs/Pkcs12.txt');
 end;
 
-procedure TTestNativeCryptoProvider.TearDown;
+procedure TNativeCryptoProviderTestBase.TearDown;
 begin
   FKeys.Free;
   FPfx.Free;
   inherited TearDown;
 end;
 
-function TTestNativeCryptoProvider.CreateCrypto: ICryptoProvider;
+function TNativeCryptoProviderTestBase.CreateCrypto: ICryptoProvider;
 begin
   Result := Composed(Portable);
 end;
 
-function TTestNativeCryptoProvider.Portable: ICryptoProvider;
+function TNativeCryptoProviderTestBase.Portable: ICryptoProvider;
 begin
   Result := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable);
 end;
 
-function TTestNativeCryptoProvider.Composed(
+function TNativeCryptoProviderTestBase.Composed(
   const ABase: ICryptoProvider): ICryptoProvider;
 begin
   Result := TOSCryptoProvider.Compose(ABase);
 end;
 
-function TTestNativeCryptoProvider.NativeSigningOrSkip(const AProvider: ICryptoProvider;
+function TNativeCryptoProviderTestBase.NativeSigningOrSkip(const AProvider: ICryptoProvider;
   AScheme: TSignatureScheme): Boolean;
 begin
   Result := IsNativeSigning(AProvider, AScheme);
 end;
 
-function TTestNativeCryptoProvider.BuildServerConfig(
+function TNativeCryptoProviderTestBase.BuildServerConfig(
   const ACredential: TTlsCredential): ITlsServerConfig;
 var
   LBuilder: ITlsConfigBuilder;
@@ -261,7 +264,7 @@ begin
     .Build;
 end;
 
-function TTestNativeCryptoProvider.IsNativeSigning(const AProvider: ICryptoProvider;
+function TNativeCryptoProviderTestBase.IsNativeSigning(const AProvider: ICryptoProvider;
   AScheme: TSignatureScheme): Boolean;
 var
   LReport: ICryptoBackendReport;
@@ -270,7 +273,7 @@ begin
     (LReport.SigningBackend(AScheme).Backend = TCryptoBackend.System);
 end;
 
-function TTestNativeCryptoProvider.IsNativeKey(const AProvider: ICryptoProvider;
+function TNativeCryptoProviderTestBase.IsNativeKey(const AProvider: ICryptoProvider;
   const AKey: ISigningKey): Boolean;
 var
   LReport: ICryptoBackendReport;
@@ -684,7 +687,7 @@ begin
   CheckTrue(LRaised, 'a multi-identity store is rejected through the overlay');
 end;
 
-function TTestNativeCryptoProvider.ImportFailure(const AProvider: ICryptoProvider;
+function TNativeCryptoProviderTestBase.ImportFailure(const AProvider: ICryptoProvider;
   const AData: TBytes; const APassword: ISecretBuffer): string;
 begin
   Result := '';
@@ -846,19 +849,18 @@ end;
 
 initialization
 
-// exactly one class per build, so the contract never runs twice
-{$IF DEFINED(TLSLIB_MSWINDOWS)}
-{$IFDEF FPC}
-  RegisterTest(TTestWindowsNativeCryptoProvider);
-{$ELSE}
-  RegisterTest(TTestWindowsNativeCryptoProvider.Suite);
-{$ENDIF FPC}
-{$ELSE}
 {$IFDEF FPC}
   RegisterTest(TTestNativeCryptoProvider);
 {$ELSE}
   RegisterTest(TTestNativeCryptoProvider.Suite);
 {$ENDIF FPC}
-{$IFEND}
+
+{$IFDEF TLSLIB_MSWINDOWS}
+{$IFDEF FPC}
+  RegisterTest(TTestWindowsNativeCryptoProvider);
+{$ELSE}
+  RegisterTest(TTestWindowsNativeCryptoProvider.Suite);
+{$ENDIF FPC}
+{$ENDIF TLSLIB_MSWINDOWS}
 
 end.
