@@ -1,0 +1,28 @@
+TlsLib.Tests/src/WindowsSystemCryptoTests.pas
+  s_d27f31cd14035d::t_a1e665bfbd1c95 384-385
+  s_d27f31cd14035d::t_dbab54d769f3a0 427-432
+  s_d27f31cd14035d::t_0ccc2fcc174500 393
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_d27f31cd14035d::t_9e6a97a0e4d5ef 160
+  s_d27f31cd14035d::t_09bda86b1dfcf8 3380-3381,3383-3396
+  s_d27f31cd14035d::t_4468b9fb5f2662 4052-4053,4055-4056
+  s_d27f31cd14035d::t_4f169a900ce8e6 3350-3354,3356-3359,3361-3364,3366-3367,3369-3370
+  s_d27f31cd14035d::t_5c99eedd394fc8 3347
+  s_d27f31cd14035d::t_2c8e935ab43598 159
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c4fbb36708bd9b24811a273a659b20b209d6b5ae",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
