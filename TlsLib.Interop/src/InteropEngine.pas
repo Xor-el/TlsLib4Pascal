@@ -38,6 +38,7 @@ uses
   TlpSession,
   TlpIClock,
   TlpIEch,
+  TlpICertificateCompression,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpTlsPresets,
@@ -74,6 +75,12 @@ type
     CheckServerName: Boolean;
     /// <summary>When set, a server omits the empty server_name acknowledgement (RFC 6066 3).</summary>
     SuppressServerNameAck: Boolean;
+    /// <summary>When set, CertificateCompressors and CertificateDecompressors replace the
+    /// config's defaults for this endpoint (an empty array turns that direction off); when
+    /// clear the defaults stand.</summary>
+    OverrideCertCompression: Boolean;
+    CertificateCompressors: TArray<ICertificateCompressor>;
+    CertificateDecompressors: TArray<ICertificateDecompressor>;
     /// <summary>How a TLS 1.2 server treats resuming a session set up without
     /// extended_master_secret (RFC 7627 5.3); the library default, Decline, unless the runner asks.
     /// Ignored when TLS 1.2 is not offered.</summary>
@@ -411,6 +418,9 @@ begin
       LClient.Tls13.WithEncryptedClientHello(AOptions.EchConfigList);
     if AOptions.EchGrease then
       LClient.Tls13.WithEchGrease(True);
+    if AOptions.OverrideCertCompression then
+      LClient.Tls13.WithCertificateCompressors(AOptions.CertificateCompressors)
+        .WithCertificateDecompressors(AOptions.CertificateDecompressors);
     Result := TTlsEngineFactory.CreateClientEngine(
       LClient.Build, AOptions.ServerName);
   end
@@ -430,6 +440,9 @@ begin
         AOptions.ClientCertificateAuthorities);
     if AOptions.SuppressServerNameAck then
       LServer.WithServerNameAcknowledgement(False);
+    if AOptions.OverrideCertCompression then
+      LServer.Tls13.WithCertificateCompressors(AOptions.CertificateCompressors)
+        .WithCertificateDecompressors(AOptions.CertificateDecompressors);
     // with neither ticket keys nor a store nor early data the server runs with resumption off,
     // where a non-EMS resumption mode has nothing to act on
     LResumptionOff := (AOptions.SessionTicketKeys = nil) and (AOptions.SessionStore = nil) and

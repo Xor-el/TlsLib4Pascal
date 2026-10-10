@@ -40,6 +40,7 @@ uses
   TlpCertificateVerifierSource,
   TlpICertificateCompression,
   TlpICertificateCompressionCache,
+  TlpCertificateCompression,
   TlpZlibCertificateCompression,
   TlpCertificateLimits,
   TlpTrustPolicy,
@@ -486,6 +487,7 @@ type
     FRecordSizeLimit: Int32;
     FCertificateCompressors: TArray<ICertificateCompressor>;
     FCertificateDecompressors: TArray<ICertificateDecompressor>;
+    FCertificateCompressionCache: ICertificateCompressionCache;
     FCredential: TTlsCredential;
     FTrustStore: ITrustAnchorStore;
     FChainLimits: TCertificateChainLimits;
@@ -513,6 +515,7 @@ type
     function RecordSizeLimit: Int32;
     function CertificateCompressors: TArray<ICertificateCompressor>;
     function CertificateDecompressors: TArray<ICertificateDecompressor>;
+    function CertificateCompressionCache: ICertificateCompressionCache;
     function Credential: TTlsCredential;
     function TrustStore: ITrustAnchorStore;
     function CertificateChainLimits: TCertificateChainLimits;
@@ -561,7 +564,6 @@ type
   TFrozenServerConfig = class sealed(TFrozenCommonConfig, ITlsServerConfig)
   private
   var
-    FCertificateCompressionCache: ICertificateCompressionCache;
     FServerNameAck: Boolean;
     FCipherPreference: TServerCipherPreference;
     FNonEmsResumption: TNonEmsResumption;
@@ -579,7 +581,6 @@ type
     FMaxEarlyData: UInt32;
     FEchServerPolicy: IEchServerPolicy;
   public
-    function CertificateCompressionCache: ICertificateCompressionCache;
     function ServerNameAcknowledgement: Boolean;
     function CipherSuitePreference: TServerCipherPreference;
     function NonEmsResumption: TNonEmsResumption;
@@ -736,6 +737,8 @@ type
       const ADecompressors: TArray<ICertificateDecompressor>): ITls13ClientConfigFacet;
     function WithCertificateCompressors(
       const ACompressors: TArray<ICertificateCompressor>): ITls13ClientConfigFacet;
+    function WithCertificateCompressionCache(
+      const ACache: ICertificateCompressionCache): ITls13ClientConfigFacet;
     function WithEarlyData(AEnabled: Boolean): ITls13ClientConfigFacet;
     function WithEncryptedClientHello(
       const AEchConfigList: TBytes): ITls13ClientConfigFacet;
@@ -837,6 +840,13 @@ end;
 function TFrozenCommonConfig.CertificateDecompressors: TArray<ICertificateDecompressor>;
 begin
   Result := System.Copy(FCertificateDecompressors);
+end;
+
+function TFrozenCommonConfig.CertificateCompressionCache: ICertificateCompressionCache;
+begin
+  // the shared instance, not a copy: every connection from this config memoizes into the
+  // same cache - that cross-connection sharing is the whole point of this seam
+  Result := FCertificateCompressionCache;
 end;
 
 function TFrozenCommonConfig.Credential: TTlsCredential;
@@ -972,13 +982,6 @@ begin
 end;
 
 { TFrozenServerConfig }
-
-function TFrozenServerConfig.CertificateCompressionCache: ICertificateCompressionCache;
-begin
-  // the shared instance, not a copy: every connection from this config memoizes into the
-  // same cache - that cross-connection sharing is the whole point of this seam
-  Result := FCertificateCompressionCache;
-end;
 
 function TFrozenServerConfig.ServerNameAcknowledgement: Boolean;
 begin
@@ -1622,6 +1625,13 @@ function TTls13ClientConfigFacet.WithCertificateCompressors(
   const ACompressors: TArray<ICertificateCompressor>): ITls13ClientConfigFacet;
 begin
   FOwner.WithCertificateCompressors(ACompressors);
+  Result := Self;
+end;
+
+function TTls13ClientConfigFacet.WithCertificateCompressionCache(
+  const ACache: ICertificateCompressionCache): ITls13ClientConfigFacet;
+begin
+  FOwner.WithCertificateCompressionCache(ACache);
   Result := Self;
 end;
 
@@ -2356,6 +2366,7 @@ function TTlsConfigBuilder.WithCertificateCompressors(
   const ACompressors: TArray<ICertificateCompressor>): TTlsConfigBuilder;
 begin
   GuardMutable;
+  TCertificateCompression.ValidateCompressors(ACompressors);
   // copy so a caller mutating its array after Build cannot alter the frozen config
   FCertificateCompressors := System.Copy(ACompressors);
   FTls13Configured := True;
@@ -2366,6 +2377,7 @@ function TTlsConfigBuilder.WithCertificateDecompressors(
   const ADecompressors: TArray<ICertificateDecompressor>): TTlsConfigBuilder;
 begin
   GuardMutable;
+  TCertificateCompression.ValidateDecompressors(ADecompressors);
   FCertificateDecompressors := System.Copy(ADecompressors);
   FTls13Configured := True;
   Result := Self;
@@ -2978,6 +2990,8 @@ begin
   LConfig.FRecordSizeLimit := FRecordSizeLimit;
   LConfig.FCertificateCompressors := FCertificateCompressors;
   LConfig.FCertificateDecompressors := FCertificateDecompressors;
+  // the shared instance carries over uncopied: connections share one cache
+  LConfig.FCertificateCompressionCache := FCertificateCompressionCache;
   LConfig.FCredential := FCredential;
   LConfig.FTrustStore := ComposeTrustStore;
   LConfig.FChainLimits := FChainLimits;

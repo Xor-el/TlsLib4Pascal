@@ -23,6 +23,7 @@ uses
   TlpICryptoProvider,
   TlpIPkixProvider,
   TlpTlsCredential,
+  TlpITrustAnchorStore,
   TlpTrustPolicy,
   TlpNegotiationTypes,
   TlpISession,
@@ -64,7 +65,8 @@ type
       const AOcspStaple: TBytes; AAcceptCount: Int32;
       const AStek: ISessionTicketKeyManager;
       const AOfferedGroups: TArray<UInt16>;
-      const AEchKeyStore: IEchServerKeyStore): Int32; static;
+      const AEchKeyStore: IEchServerKeyStore; AClientAuth: TClientAuthMode;
+      const AClientTrust: ITrustAnchorStore): Int32; static;
     class function RunClient(APort: Word; const AHost, ACaPemFile, AMessage,
       AClientCredFile: string; AConnectionCount: Int32;
       const AOfferedGroups: TArray<UInt16>;
@@ -160,7 +162,8 @@ class function TOpenSslInteropRunner.RunServer(APort: Word;
   const ACredential: TTlsCredential; const AOcspStaple: TBytes;
   AAcceptCount: Int32; const AStek: ISessionTicketKeyManager;
   const AOfferedGroups: TArray<UInt16>;
-  const AEchKeyStore: IEchServerKeyStore): Int32;
+  const AEchKeyStore: IEchServerKeyStore; AClientAuth: TClientAuthMode;
+  const AClientTrust: ITrustAnchorStore): Int32;
 var
   LListener: TInteropListener;
   LSocket: TInteropSocket;
@@ -190,6 +193,8 @@ begin
         LOptions.SessionTicketKeys := AStek;
         LOptions.OfferedGroups := AOfferedGroups;
         LOptions.EchKeyStore := AEchKeyStore;
+        LOptions.ClientAuth := AClientAuth;
+        LOptions.Trust := AClientTrust;
         LEngine := TInteropEngine.Build(LCrypto, LOptions);
 
         LResult := TInteropPump.DriveHandshake(LEngine, LSocket);
@@ -371,6 +376,8 @@ var
   LPostureStr: string;
   LPosture: TRevocationPosture;
   LExpectReject: Int32;
+  LClientAuth: TClientAuthMode;
+  LClientTrust: ITrustAnchorStore;
 begin
   LRole := ArgValue('--role', 'server');
   LPort := Word(StrToIntDef(ArgValue('--port', '0'), 0));
@@ -445,8 +452,18 @@ begin
       if LEchKeyFile <> '' then
         LEchKeyStore := TInMemoryEchKeyStore.FromPem(
           BytesOf(TInteropUtils.ReadAllText(LEchKeyFile)), LCrypto);
+      // --client-auth requested|required asks the peer for a certificate, verified against the
+      // --client-ca PEM
+      LClientAuth := TClientAuthMode.None;
+      LClientTrust := nil;
+      if SameText(ArgValue('--client-auth', ''), 'required') then
+        LClientAuth := TClientAuthMode.Required
+      else if SameText(ArgValue('--client-auth', ''), 'requested') then
+        LClientAuth := TClientAuthMode.Requested;
+      if ArgValue('--client-ca', '') <> '' then
+        LClientTrust := TInteropCredentials.TrustFromPem(LPkix, ArgValue('--client-ca', ''));
       Result := RunServer(LPort, LCredential, LStaple, LResumeCount + 1, LStek,
-        LOfferedGroups, LEchKeyStore);
+        LOfferedGroups, LEchKeyStore, LClientAuth, LClientTrust);
     end;
   except
     on E: Exception do

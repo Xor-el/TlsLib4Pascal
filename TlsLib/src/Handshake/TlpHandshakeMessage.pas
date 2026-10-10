@@ -106,7 +106,8 @@ type
     property MaxMessageLength: Int32 read FMaxMessageLength;
     /// <summary>The largest Certificate-message body accepted, so a caller's configured chain
     /// budget bounds the uncompressed Certificate the same way the compressed path is bounded.
-    /// Applies only to the Certificate handshake type; every other message keeps MaxMessageLength.
+    /// Applies only to the Certificate and CompressedCertificate handshake types; every other
+    /// message keeps MaxMessageLength.
     /// Defaults to MaxMessageLength.</summary>
     property MaxCertificateMessageLength: Int32 read FMaxCertificateMessageLength
       write FMaxCertificateMessageLength;
@@ -269,8 +270,10 @@ begin
   LTypeByte := LReader.ReadUInt8;
   LBodyLength := Int32(LReader.ReadUInt24);
   // the Certificate message carries the peer chain, so it is bounded by the configured chain
-  // budget; every other message keeps the tighter default cap
-  if LTypeByte = TTlsHandshakeType.Certificate.ToByte then
+  // budget, and so is its compressed form (smaller, so within the same budget); every other
+  // message keeps the tighter default cap
+  if (LTypeByte = TTlsHandshakeType.Certificate.ToByte) or
+    (LTypeByte = TTlsHandshakeType.CompressedCertificate.ToByte) then
     LCap := FMaxCertificateMessageLength
   else
     LCap := FMaxMessageLength;

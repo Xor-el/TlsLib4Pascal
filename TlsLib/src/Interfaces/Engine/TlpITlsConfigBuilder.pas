@@ -254,14 +254,22 @@ type
     /// trust source, so a PSK-only client (no trust) with False is refused at Build. No effect
     /// without configured external PSKs.</summary>
     function WithExternalPskRequired(AEnabled: Boolean): ITls13ClientConfigFacet;
-    /// <summary>The certificate-compression backends this endpoint advertises and can
-    /// decompress (RFC 8879); empty omits compress_certificate. Defaults to zlib.</summary>
+    /// <summary>The backends the client can decompress the server's Certificate with (RFC 8879),
+    /// advertised in its ClientHello compress_certificate; empty omits the extension. Defaults to
+    /// zlib. A nil entry, the reserved codepoint 0, a codepoint listed twice, or more than 127
+    /// entries is refused.</summary>
     function WithCertificateDecompressors(
       const ADecompressors: TArray<ICertificateDecompressor>): ITls13ClientConfigFacet;
-    /// <summary>The certificate-compression backends this endpoint sends with (RFC 8879);
-    /// empty sends only uncompressed. Defaults to zlib.</summary>
+    /// <summary>The backends the client compresses its own Certificate with when a server asks
+    /// for a client certificate and advertises a matching algorithm (RFC 8879); empty sends it
+    /// uncompressed. Defaults to zlib. Refuses a nil entry, codepoint 0 or a repeated codepoint.</summary>
     function WithCertificateCompressors(
       const ACompressors: TArray<ICertificateCompressor>): ITls13ClientConfigFacet;
+    /// <summary>An optional cache memoizing the client's compressed Certificate across
+    /// connections, so a stable certificate is deflated once (an in-memory implementation ships
+    /// as TInMemoryCertificateCompressionCache). nil (the default) compresses each time.</summary>
+    function WithCertificateCompressionCache(
+      const ACache: ICertificateCompressionCache): ITls13ClientConfigFacet;
     /// <summary>Whether the client offers 0-RTT early data when a cached ticket authorizes
     /// it (TLS 1.3, RFC 8446 4.2.10). Off by default.</summary>
     function WithEarlyData(AEnabled: Boolean): ITls13ClientConfigFacet;
@@ -499,8 +507,16 @@ type
     /// <summary>How many NewSessionTickets to issue per TLS 1.3 handshake, 0..8 (0 issues none).
     /// TLS 1.2 tickets are governed by WithResumption alone.</summary>
     function WithTicketCount(ACount: Int32): ITls13ServerConfigFacet;
+    /// <summary>The backends the server can decompress a client Certificate with (RFC 8879),
+    /// advertised in its CertificateRequest when client authentication is requested; empty
+    /// advertises none. Defaults to zlib. A nil entry, the reserved codepoint 0, a codepoint
+    /// listed twice, or more than 127 entries is refused.</summary>
     function WithCertificateDecompressors(
       const ADecompressors: TArray<ICertificateDecompressor>): ITls13ServerConfigFacet;
+    /// <summary>The backends the server compresses its own Certificate with when the client
+    /// advertised a matching algorithm (RFC 8879), in the server's preference order; empty sends
+    /// it uncompressed. Defaults to zlib. Refuses a nil entry, codepoint 0 or a repeated
+    /// codepoint.</summary>
     function WithCertificateCompressors(
       const ACompressors: TArray<ICertificateCompressor>): ITls13ServerConfigFacet;
     /// <summary>A cross-connection cache memoizing the server's compressed Certificate

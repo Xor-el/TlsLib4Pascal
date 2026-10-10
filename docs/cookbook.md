@@ -501,12 +501,13 @@ posture/live-channel interaction, and server-side client-cert revocation — is 
 ## Certificate compression
 
 RFC 8879 certificate compression is **on by default** (zlib) for TLS 1.3 — most valuable for large
-chains, notably PQ certificates. Nothing to configure to benefit as a client (you decompress inbound
-automatically) or a server (you compress when the client offers a matching algorithm and it shrinks
-the message).
+chains, notably PQ certificates. Nothing to configure to benefit in either role: an endpoint
+decompresses the peer's `Certificate` automatically and compresses its own when the peer advertised
+a matching algorithm (a server compresses its certificate for a client; with mutual TLS a client
+compresses its certificate for a server that advertises it). An empty array turns a direction off.
 
-To make a busy server deflate its stable certificate **once** instead of every handshake, add the
-cross-connection cache (server, opt-in, bounded, thread-safe):
+To make a busy endpoint deflate its stable certificate **once** instead of every handshake, add the
+cross-connection cache (either role, opt-in, bounded, thread-safe):
 
 ```pascal
 uses TlpInMemoryCertificateCompressionCache, TlpICertificateCompressionCache;

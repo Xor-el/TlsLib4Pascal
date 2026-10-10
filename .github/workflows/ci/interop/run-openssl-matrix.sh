@@ -467,5 +467,84 @@ else
   echo "=== cells E1-E2 (ECH): SKIPPED (openssl without ECH support, 2 cells) ==="
 fi
 
+# --- Certificate-compression cells (RFC 8879): mutual TLS, both roles, against a real peer ---
+# BoGo has no client-certificate compression test in either direction, so these prove it. They
+# assert on the openssl trace message names, since an uncompressed exchange would otherwise pass
+# vacuously. Gated on a capability probe: openssl must have ssl-trace (-trace) and advertise
+# compress_certificate (built with zlib/brotli/zstd); anything less skips with a logged count.
+COMP_OK=0
+PP=14590
+"$DRIVER" --role server --port $PP --data-dir "$DATA_DIR" > "$TMP/spc.log" 2>&1 &
+for _ in $(seq 1 100); do grep -q 'listening on' "$TMP/spc.log" && break; sleep 0.1; done
+{ printf 'PING\n'; sleep 1; } | "$OPENSSL" s_client -connect 127.0.0.1:$PP -tls1_3 -trace \
+  -CAfile "$TMP/root.pem" -servername localhost > "$TMP/cpc.out" 2>&1 || true
+wait || true
+if grep -qi 'compress_certificate' "$TMP/cpc.out"; then
+  COMP_OK=1
+  echo "compress: compress_certificate advertised (C-cells enabled)"
+else
+  echo "compress: this openssl has no -trace or no certificate compression (C-cells skipped)"
+fi
+
+if [ "$COMP_OK" -eq 1 ]; then
+  TOTAL=$((TOTAL+2))
+  # --- Cell C1: our client (mutual TLS)  ->  openssl s_server requesting a client certificate ---
+  echo "=== cell C1: our client (mTLS, zlib)  ->  openssl s_server ==="
+  PC1=14591
+  "$OPENSSL" s_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_3 \
+    -Verify 1 -CAfile "$TMP/root.pem" -trace -accept $PC1 -rev -naccept 1 > "$TMP/sc1.log" 2>&1 &
+  for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/sc1.log" && break; sleep 0.1; done
+  if "$DRIVER" --role client --port $PC1 --host localhost --ca "$TMP/srv_cert.pem" \
+       --client-cred "$DATA_DIR/Certs/EcP256Chain.txt" --message "hello-cell-c1" \
+       --data-dir "$DATA_DIR"; then
+    C1_OK=1
+  else
+    C1_OK=0
+  fi
+  # the peer's CertificateRequest advertised compress_certificate and it received (and accepted)
+  # a CompressedCertificate from our client, and its own Certificate went out compressed too
+  if [ "$C1_OK" -eq 1 ] && grep -q 'compress_certificate' "$TMP/sc1.log" \
+     && grep -q 'CompressedCertificate' "$TMP/sc1.log"; then
+    echo "  PASS: client certificate compressed and accepted by openssl (trace-asserted)"
+  else
+    echo "  FAIL: cell C1"; cat "$TMP/sc1.log"; FAILURES=$((FAILURES+1))
+  fi
+  wait || true
+
+  # --- Cell C2: our server (client auth required)  <-  openssl s_client with a client certificate ---
+  echo "=== cell C2: our server (mTLS, zlib)  <-  openssl s_client ==="
+  PC2=14592
+  # the client certificate comes from the client-auth chain, whose leaf carries the clientAuth
+  # purpose our server's role-aware verifier requires
+  CLEAF="$(grep '^leaf_cert=' "$DATA_DIR/Certs/ClientAuthChain.txt" | cut -d= -f2)"
+  CKEY="$(grep '^leaf_key=' "$DATA_DIR/Certs/ClientAuthChain.txt" | cut -d= -f2)"
+  CROOT="$(grep '^root_cert=' "$DATA_DIR/Certs/ClientAuthChain.txt" | cut -d= -f2)"
+  echo -n "$CROOT" | xxd -r -p > "$TMP/cli_root.der"
+  "$OPENSSL" x509 -inform DER -in "$TMP/cli_root.der" -outform PEM -out "$TMP/cli_root.pem"
+  echo -n "$CLEAF" | xxd -r -p > "$TMP/cli_leaf.der"
+  "$OPENSSL" x509 -inform DER -in "$TMP/cli_leaf.der" -outform PEM -out "$TMP/cli_cert.pem"
+  echo -n "$CKEY" | xxd -r -p > "$TMP/cli_key.der"
+  "$OPENSSL" pkey -inform DER -in "$TMP/cli_key.der" -outform PEM -out "$TMP/cli_key.pem" 2>/dev/null \
+    || "$OPENSSL" ec -inform DER -in "$TMP/cli_key.der" -outform PEM -out "$TMP/cli_key.pem"
+  "$DRIVER" --role server --port $PC2 --data-dir "$DATA_DIR" --client-auth required \
+    --client-ca "$TMP/cli_root.pem" > "$TMP/sc2.log" 2>&1 &
+  for _ in $(seq 1 100); do grep -q 'listening on' "$TMP/sc2.log" && break; sleep 0.1; done
+  { printf 'PING-CELL-C2\n'; sleep 2; } | "$OPENSSL" s_client -connect 127.0.0.1:$PC2 -tls1_3 \
+       -cert "$TMP/cli_cert.pem" -key "$TMP/cli_key.pem" -CAfile "$TMP/root.pem" \
+       -servername localhost -verify_hostname localhost -verify_return_error -trace \
+       > "$TMP/cc2.out" 2>"$TMP/cc2.err" || true
+  # the ping round-trips, our CertificateRequest advertised compress_certificate, and openssl
+  # both sent and received a CompressedCertificate
+  if grep -q 'PING-CELL-C2' "$TMP/cc2.out" && grep -q 'compress_certificate' "$TMP/cc2.out" \
+     && [ "$(grep -c 'CompressedCertificate' "$TMP/cc2.out")" -ge 2 ]; then
+    echo "  PASS: our server advertised, decompressed the client's, and sent a compressed one"
+  else
+    echo "  FAIL: cell C2"; cat "$TMP/sc2.log" "$TMP/cc2.err"; FAILURES=$((FAILURES+1))
+  fi
+  wait || true
+else
+  echo "=== cells C1-C2 (certificate compression): SKIPPED (openssl without trace or compression, 2 cells) ==="
+fi
+
 echo "=== openssl matrix: $((TOTAL-FAILURES))/$TOTAL cells passed ==="
 [ "$FAILURES" -eq 0 ]

@@ -146,7 +146,8 @@ type
     procedure TestClientRejectsUnadvertisedCompressionAlgorithm;
     procedure TestClientRejectsNonEmptyCertificateRequestContext;
     procedure TestServerEmitsCompressedCertificate;
-    procedure TestServerSkipsCompressionWhenNotSmaller;
+    procedure TestServerCompressesEvenWhenLarger;
+    procedure TestServerSendsUncompressedWhenCompressorDeclines;
     procedure TestCertificateCompressionIsInjectable;
     procedure TestEcPointFormatsRoundTrip;
     procedure TestEcPointFormatsWithoutUncompressedRejected;
@@ -174,26 +175,47 @@ type
   TCustomCertCompressor = class(TInterfacedObject, ICertificateCompressor)
   public
     function Algorithm: UInt16;
-    function Compress(const AData: TBytes): TBytes;
+    function TryCompress(const AData: TBytes; out ACompressed: TBytes): Boolean;
   end;
 
   TCustomCertDecompressor = class(TInterfacedObject, ICertificateDecompressor)
   public
     function Algorithm: UInt16;
-    function Decompress(const ACompressed: TBytes; AMaxLength: Int32): TBytes;
+    function TryDecompress(const ACompressed: TBytes; AMaxLength: Int32;
+      out ADecompressed: TBytes): Boolean;
   end;
+
+  // a compressor for zlib's codepoint that always declines
+  TDecliningCertCompressor = class(TInterfacedObject, ICertificateCompressor)
+  public
+    function Algorithm: UInt16;
+    function TryCompress(const AData: TBytes; out ACompressed: TBytes): Boolean;
+  end;
+
+function TDecliningCertCompressor.Algorithm: UInt16;
+begin
+  Result := TCertificateCompressionAlgorithms.Zlib;
+end;
+
+function TDecliningCertCompressor.TryCompress(const AData: TBytes;
+  out ACompressed: TBytes): Boolean;
+begin
+  ACompressed := nil;
+  Result := False;
+end;
 
 function TCustomCertCompressor.Algorithm: UInt16;
 begin
   Result := CustomCertCompressionAlgo;
 end;
 
-function TCustomCertCompressor.Compress(const AData: TBytes): TBytes;
+function TCustomCertCompressor.TryCompress(const AData: TBytes;
+  out ACompressed: TBytes): Boolean;
 var
   LZlib: TArray<ICertificateCompressor>;
 begin
   LZlib := TZlibCertificateCompression.DefaultCompressors;
-  Result := LZlib[0].Compress(AData);
+  Result := LZlib[0].TryCompress(AData, ACompressed);
 end;
 
 function TCustomCertDecompressor.Algorithm: UInt16;
@@ -201,13 +223,13 @@ begin
   Result := CustomCertCompressionAlgo;
 end;
 
-function TCustomCertDecompressor.Decompress(const ACompressed: TBytes;
-  AMaxLength: Int32): TBytes;
+function TCustomCertDecompressor.TryDecompress(const ACompressed: TBytes;
+  AMaxLength: Int32; out ADecompressed: TBytes): Boolean;
 var
   LZlib: TArray<ICertificateDecompressor>;
 begin
   LZlib := TZlibCertificateCompression.DefaultDecompressors;
-  Result := LZlib[0].Decompress(ACompressed, AMaxLength);
+  Result := LZlib[0].TryDecompress(ACompressed, AMaxLength, ADecompressed);
 end;
 
 { TTestExtensionNegotiation }
@@ -218,7 +240,7 @@ var
 begin
   // compress a Certificate body with the built-in zlib compressor
   LCompressors := TZlibCertificateCompression.DefaultCompressors;
-  Result := LCompressors[0].Compress(AData);
+  CheckTrue(LCompressors[0].TryCompress(AData, Result), 'zlib compressed the body');
 end;
 
 function TTestExtensionNegotiation.TestRootCertificate: TBytes;
@@ -904,16 +926,32 @@ begin
     PlaintextCertBody(CompressibleChain), LRecovered);
 end;
 
-procedure TTestExtensionNegotiation.TestServerSkipsCompressionWhenNotSmaller;
+procedure TTestExtensionNegotiation.TestServerCompressesEvenWhenLarger;
+var
+  LCertMsg: TTlsHandshakeMessage;
+  LDecoded: TTlsCompressedCertificate;
+begin
+  // a tiny high-entropy chain does not shrink, but RFC 8879 sets no size rule: once a common
+  // algorithm is negotiated the Certificate is sent compressed
+  LCertMsg := DriveServerCertMessage(NewClientMachine(nil),
+    NewServerMachineWith(IncompressibleChain, TZlibCertificateCompression.DefaultCompressors));
+  CheckTrue(LCertMsg.TypeByte = Byte(Ord(TTlsHandshakeType.CompressedCertificate)),
+    'an incompressible certificate is still sent compressed');
+  LDecoded := THandshakeMessages.DecodeCompressedCertificate(LCertMsg.Body);
+  CheckTrue(System.Length(LDecoded.Compressed) >= LDecoded.UncompressedLength,
+    'the compressed form is not smaller, which is allowed');
+end;
+
+procedure TTestExtensionNegotiation.TestServerSendsUncompressedWhenCompressorDeclines;
 var
   LCertMsg: TTlsHandshakeMessage;
 begin
-  // a tiny high-entropy chain does not shrink, so the only-if-smaller guard keeps the
-  // plaintext Certificate even though both ends support compression
+  // a compressor that declines (False) sends the Certificate uncompressed: compression is a MAY
   LCertMsg := DriveServerCertMessage(NewClientMachine(nil),
-    NewServerMachineWith(IncompressibleChain, TZlibCertificateCompression.DefaultCompressors));
+    NewServerMachineWith(CompressibleChain, TArray<ICertificateCompressor>.Create(
+      TDecliningCertCompressor.Create as ICertificateCompressor)));
   CheckTrue(LCertMsg.TypeByte = Byte(Ord(TTlsHandshakeType.Certificate)),
-    'an incompressible certificate is sent uncompressed');
+    'a declined compression falls back to a plain Certificate');
 end;
 
 procedure TTestExtensionNegotiation.TestCertificateCompressionIsInjectable;

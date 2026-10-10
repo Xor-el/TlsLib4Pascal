@@ -49,6 +49,7 @@ uses
   TlpClientSessionPolicy,
   TlpCertificateCompression,
   TlpICertificateCompression,
+  TlpICertificateCompressionCache,
   TlpCertificateVerify,
   TlpPeerAuthentication,
   TlpICertificateTrust,
@@ -98,6 +99,13 @@ type
     /// <summary>The certificate-compression algorithms the client can decompress
     /// (RFC 8879), in preference order; empty omits compress_certificate.</summary>
     CertificateDecompressors: TArray<ICertificateDecompressor>;
+    /// <summary>The algorithms the client can compress its own Certificate with (RFC 8879),
+    /// used when the server's CertificateRequest advertises a matching one; empty never
+    /// compresses.</summary>
+    CertificateCompressors: TArray<ICertificateCompressor>;
+    /// <summary>Memoizes the compressed client Certificate across connections, so a stable
+    /// certificate deflates once; nil compresses on every handshake.</summary>
+    CertificateCompressionCache: ICertificateCompressionCache;
     /// <summary>Whether to sprinkle GREASE (RFC 8701) codepoints across the offers.</summary>
     Grease: Boolean;
     /// <summary>Whether the client offers the status_request (OCSP stapling) extension
@@ -220,6 +228,9 @@ type
     /// <summary>The DER DistinguishedName certificate_authorities the server named in its
     /// CertificateRequest (RFC 8446 4.2.4); surfaced for read-only connection info.</summary>
     FRequestedCertificateAuthorities: TArray<TBytes>;
+    /// <summary>The compress_certificate algorithms the server's CertificateRequest advertised
+    /// (RFC 8879), used to pick a compressor for the client Certificate.</summary>
+    FServerCertCompressionAlgorithms: TArray<UInt16>;
     /// <summary>The pre-shared keys this ClientHello offered, in offered order (empty when
     /// none): a single resumption PSK from the cache, or the imported external PSKs (RFC
     /// 9258), one entry per (external PSK, supported KDF hash). The server's selected_identity
@@ -1629,6 +1640,7 @@ begin
     FCodec.ConsumeBlock(LContext, TTlsExtensionContextKind.CertificateRequest, LExtensions);
     FClientAuthSchemes := LContext.SignatureSchemes;
     FRequestedCertificateAuthorities := LContext.CertificateAuthorities;
+    FServerCertCompressionAlgorithms := LContext.CertCompressionAlgorithms;
   finally
     LContext.Free;
   end;
@@ -1695,8 +1707,11 @@ begin
       LCert.Entries[LI].Extensions := TBytes.Create($00, $00);
     end;
   end;
-  LCertBytes := THandshakeFraming.Frame(TTlsHandshakeType.Certificate,
-    THandshakeMessages.EncodeCertificate(LCert));
+  // compressed when the server advertised an algorithm we hold (RFC 8879), else a plain Certificate;
+  // the transcript folds the message as sent
+  LCertBytes := TCertificateCompression.FrameCertificate(FParams.CertificateCompressors,
+    FServerCertCompressionAlgorithms, FParams.CertificateCompressionCache, FParams.Crypto,
+    THandshakeMessages.EncodeCertificate(LCert), LHasScheme);
   FTranscript.Update(LCertBytes);
   TArrayUtilities.Append<THandshakeEffect>(AEffects,
     THandshakeEffects.SendHandshake(LCertBytes));

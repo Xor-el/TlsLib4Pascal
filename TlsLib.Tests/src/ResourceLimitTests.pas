@@ -86,7 +86,7 @@ var
   LCompressors: TArray<ICertificateCompressor>;
 begin
   LCompressors := TZlibCertificateCompression.DefaultCompressors;
-  Result := LCompressors[0].Compress(AData);
+  CheckTrue(LCompressors[0].TryCompress(AData, Result), 'zlib compressed the body');
 end;
 
 function TTestResourceLimit.SeamDecompress(AAlgorithm: UInt16;

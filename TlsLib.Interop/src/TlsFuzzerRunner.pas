@@ -417,7 +417,7 @@ begin
       begin
         LPlain := Filler(96, $41);
         LCompressors := TZlibCertificateCompression.DefaultCompressors;
-        LDeflated := LCompressors[0].Compress(LPlain);
+        LCompressors[0].TryCompress(LPlain, LDeflated);
         LCompressed.Algorithm := TCertificateCompressionAlgorithms.Zlib;
         LCompressed.UncompressedLength := System.Length(LPlain);
         LCompressed.Compressed := LDeflated;

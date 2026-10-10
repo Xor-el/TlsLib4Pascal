@@ -271,6 +271,7 @@ resourcestring
   SBadCertificateStatusType = 'a CertificateStatus carries an unsupported status_type';
   SEmptyCertificateData = 'a certificate list entry carries an empty certificate';
   SEmptyOcspResponse = 'a CertificateStatus carries an empty OCSP response';
+  SEmptyCompressedCertificate = 'a CompressedCertificate carries no compressed message (RFC 8879 4)';
   SEmptyCertRequestSigAlgs = 'a CertificateRequest names no supported_signature_algorithms ' +
     '(RFC 5246 7.4.1.4.1 requires at least one)';
   SEmptyDistinguishedName12 = 'a CertificateRequest certificate_authorities entry is a ' +
@@ -687,6 +688,9 @@ begin
   Result.Algorithm := LReader.ReadUInt16;
   Result.UncompressedLength := Int32(LReader.ReadUInt24);
   LVec := LReader.OpenVector(3);
+  // compressed_certificate_message is <1..2^24-1> (RFC 8879 4)
+  if LVec.Remaining = 0 then
+    raise EDecodeErrorTlsLibException.CreateRes(@SEmptyCompressedCertificate);
   Result.Compressed := LVec.ReadBytes(LVec.Remaining);
   LReader.ExpectEnd;
 end;
