@@ -22,14 +22,15 @@ uses
 {$IFDEF FPC}
   fpcunit,
   testregistry,
-  Sockets,
 {$ELSE}
   TestFramework,
-  System.Net.Socket,
 {$ENDIF FPC}
   TlpIClock,
   TlpClock,
   TlpIHttpFetcher,
+  TlpITlsTransport,
+  TlpINetSocket,
+  TlpNetSocket,
   TlpTlsLibExceptions,
   TlpSocketHttpFetcher,
   MockClock,
@@ -52,42 +53,7 @@ type
 
 implementation
 
-{$IFDEF FPC}
-const
-  // a client that has given up must not kill the process with SIGPIPE on the next send:
-  // MSG_NOSIGNAL per send where it exists, else the SO_NOSIGPIPE option (Darwin)
-{$IF DEFINED(TLSLIB_MACOS) OR DEFINED(TLSLIB_IOS)}
-  SEND_FLAGS = 0;
-  NOSIGPIPE_SOCKOPT = SO_NOSIGPIPE;
-{$ELSEIF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_ANDROID) OR DEFINED(TLSLIB_BSD)}
-  SEND_FLAGS = MSG_NOSIGNAL;
-  NOSIGPIPE_SOCKOPT = 0;
-{$ELSE}
-  SEND_FLAGS = 0;
-  NOSIGPIPE_SOCKOPT = 0;
-{$IFEND}
-{$ENDIF}
-
 type
-  // a one-connection server on 127.0.0.1; the socket calls live here and nowhere else
-  TLoopbackServer = class(TObject)
-  strict private
-    FPort: Word;
-    FClosed: Boolean;
-    FClient, FListener: TSocket;
-  public
-    constructor Create;
-    destructor Destroy; override;
-    property Port: Word read FPort;
-    // waits for the client; False once the server has been closed
-    function Accept: Boolean;
-    // up to ACount bytes; 0 or less once the client has gone
-    function Receive(var ABuffer; ACount: Int32): Int32;
-    function Send(const ABuffer; ACount: Int32): Boolean;
-    // frees an Accept that is waiting
-    procedure Close;
-  end;
-
   // answers one request with a large body in small writes, or with a response head that arrives a
   // line at a time
   TResponder = class(TThread)
@@ -96,12 +62,14 @@ type
     BodyChunk = 1024;
     HeaderLines = 100;
     HeaderPauseMs = 100;
+    AcceptPollMs = 100;
   var
-    FServer: TLoopbackServer;
+    FListener: ITcpListener;
+    FStream: ITlsTimedTransport;
     FBodySize: Int32;
     FTrickleHeaders: Boolean;
     FStop: TEvent;
-    function SendText(const AText: AnsiString): Boolean;
+    function SendText(const AText: string): Boolean;
     function ReadRequest: Boolean;
     procedure SendHeadTrickled;
     procedure SendBody;
@@ -113,108 +81,11 @@ type
     function Url: string;
   end;
 
-{ TLoopbackServer }
-
-constructor TLoopbackServer.Create;
-{$IFDEF FPC}
-var
-  LAddr: TInetSockAddr;
-  LLen: TSockLen;
-{$ENDIF}
-begin
-  inherited Create;
-{$IFDEF FPC}
-  FClient := -1;
-  FListener := fpSocket(AF_INET, SOCK_STREAM, 0);
-  LAddr := Default(TInetSockAddr);
-  LAddr.sin_family := AF_INET;
-  LAddr.sin_addr.s_addr := HToNL($7F000001);
-  fpBind(FListener, @LAddr, SizeOf(LAddr));
-  fpListen(FListener, 1);
-  LLen := SizeOf(LAddr);
-  fpGetSockName(FListener, @LAddr, @LLen);
-  FPort := NToHs(LAddr.sin_port);
-{$ELSE}
-  FListener := TSocket.Create(TSocketType.TCP);
-  FListener.Listen('127.0.0.1', '', 0);
-  FPort := FListener.LocalEndpoint.Port;
-{$ENDIF}
-end;
-
-destructor TLoopbackServer.Destroy;
-begin
-  Close;
-{$IFDEF FPC}
-  if FClient >= 0 then
-    CloseSocket(FClient);
-{$ELSE}
-  // a forced close skips the shutdown that fails on a listener or a client that has gone
-  if FClient <> nil then
-    FClient.Close(True);
-  FListener.Close(True);
-  FClient.Free;
-  FListener.Free;
-{$ENDIF}
-  inherited Destroy;
-end;
-
-function TLoopbackServer.Accept: Boolean;
-{$IFDEF FPC}
-var
-  LOn: Integer;
-{$ENDIF}
-begin
-{$IFDEF FPC}
-  FClient := fpAccept(FListener, nil, nil);
-  Result := FClient >= 0;
-  if Result and (NOSIGPIPE_SOCKOPT <> 0) then
-  begin
-    LOn := 1;
-    fpSetSockOpt(FClient, SOL_SOCKET, NOSIGPIPE_SOCKOPT, @LOn, SizeOf(LOn));
-  end;
-{$ELSE}
-  // short waits, so a Close from another thread is noticed
-  while (FClient = nil) and not FClosed do
-    FClient := FListener.Accept(100);
-  Result := FClient <> nil;
-{$ENDIF}
-end;
-
-function TLoopbackServer.Receive(var ABuffer; ACount: Int32): Int32;
-begin
-{$IFDEF FPC}
-  Result := fpRecv(FClient, @ABuffer, ACount, 0);
-{$ELSE}
-  Result := FClient.Receive(ABuffer, ACount);
-{$ENDIF}
-end;
-
-function TLoopbackServer.Send(const ABuffer; ACount: Int32): Boolean;
-begin
-{$IFDEF FPC}
-  Result := fpSend(FClient, @ABuffer, ACount, SEND_FLAGS) > 0;
-{$ELSE}
-  Result := FClient.Send(ABuffer, ACount) > 0;
-{$ENDIF}
-end;
-
-procedure TLoopbackServer.Close;
-begin
-  if FClosed then
-    Exit;
-  FClosed := True;
-{$IFDEF FPC}
-  // a shutdown wakes an accept blocked in another thread, which a close alone does not on Linux
-  fpShutdown(FListener, SHUT_RDWR);
-  CloseSocket(FListener);
-{$ENDIF}
-end;
-
 { TResponder }
 
 constructor TResponder.Create(ABodySize: Int32; ATrickleHeaders: Boolean);
 begin
-  FServer := TLoopbackServer.Create;
+  FListener := TTcpListener.Create('127.0.0.1', 0) as ITcpListener;
   FBodySize := ABodySize;
   FTrickleHeaders := ATrickleHeaders;
   FStop := TEvent.Create(nil, True, False, '');
@@ -223,40 +94,55 @@ end;
 
 destructor TResponder.Destroy;
 begin
-  // the event frees a response pause, and closing the server frees an accept
+  // the event frees a response pause, and the accept loop ends on Terminated
+  Terminate;
   FStop.SetEvent;
-  FServer.Close;
   WaitFor;
   FStop.Free;
-  FServer.Free;
+  FStream := nil;
+  FListener := nil;
   inherited Destroy;
 end;
 
 function TResponder.Url: string;
 begin
-  Result := 'http://127.0.0.1:' + IntToStr(FServer.Port) + '/';
+  Result := 'http://127.0.0.1:' + IntToStr(FListener.Port) + '/';
 end;
 
-function TResponder.SendText(const AText: AnsiString): Boolean;
+function TResponder.SendText(const AText: string): Boolean;
+var
+  LBytes: TBytes;
 begin
-  Result := FServer.Send(AText[1], System.Length(AText));
+  LBytes := TEncoding.ASCII.GetBytes(AText);
+  try
+    FStream.Write(LBytes, 0, System.Length(LBytes));
+    Result := True;
+  except
+    on E: Exception do
+      Result := False;
+  end;
 end;
 
 function TResponder.ReadRequest: Boolean;
 var
-  LBuffer: array [0 .. 4095] of AnsiChar;
-  LSeen, LPiece: AnsiString;
+  LBuffer: TBytes;
+  LSeen: string;
   LGot: Int32;
 begin
   Result := False;
   LSeen := '';
-  repeat
-    LGot := FServer.Receive(LBuffer, SizeOf(LBuffer));
-    if LGot <= 0 then
+  SetLength(LBuffer, 4096);
+  try
+    repeat
+      LGot := FStream.Read(LBuffer, 0, System.Length(LBuffer));
+      if LGot <= 0 then
+        Exit;
+      LSeen := LSeen + TEncoding.ASCII.GetString(LBuffer, 0, LGot);
+    until Pos(#13#10#13#10, LSeen) > 0;
+  except
+    on E: Exception do
       Exit;
-    SetString(LPiece, PAnsiChar(@LBuffer[0]), LGot);
-    LSeen := LSeen + LPiece;
-  until Pos(#13#10#13#10, string(LSeen)) > 0;
+  end;
   Result := True;
 end;
 
@@ -278,28 +164,34 @@ end;
 
 procedure TResponder.SendBody;
 var
-  LChunk: AnsiString;
+  LChunk: TBytes;
   LSent, LCount: Int32;
 begin
-  if not SendText(AnsiString('HTTP/1.1 200 OK'#13#10'Content-Length: ' + IntToStr(FBodySize) +
-    #13#10'Connection: close'#13#10#13#10)) then
+  if not SendText('HTTP/1.1 200 OK'#13#10'Content-Length: ' + IntToStr(FBodySize) +
+    #13#10'Connection: close'#13#10#13#10) then
     Exit;
-  LChunk := AnsiString(StringOfChar('A', BodyChunk));
+  LChunk := TEncoding.ASCII.GetBytes(StringOfChar('A', BodyChunk));
   LSent := 0;
-  while LSent < FBodySize do
-  begin
-    LCount := FBodySize - LSent;
-    if LCount > BodyChunk then
-      LCount := BodyChunk;
-    if not FServer.Send(LChunk[1], LCount) then
+  try
+    while LSent < FBodySize do
+    begin
+      LCount := FBodySize - LSent;
+      if LCount > BodyChunk then
+        LCount := BodyChunk;
+      FStream.Write(LChunk, 0, LCount);
+      Inc(LSent, LCount);
+    end;
+  except
+    on E: Exception do
       Exit;
-    Inc(LSent, LCount);
   end;
 end;
 
 procedure TResponder.Execute;
 begin
-  if not FServer.Accept then
+  while (FStream = nil) and not Terminated do
+    FListener.TryAccept(AcceptPollMs, FStream);
+  if FStream = nil then
     Exit;
   if not ReadRequest then
     Exit;
@@ -325,6 +217,7 @@ begin
       'a response inside the budget is fetched');
     CheckEquals(256 * 1024, System.Length(LResponse), 'the whole body arrives');
   finally
+    LFetcher := nil;
     LResponder.Free;
   end;
 end;
@@ -345,6 +238,7 @@ begin
       'a response that outlasts the budget fails closed');
     CheckEquals(0, System.Length(LResponse), 'no partial body is returned');
   finally
+    LFetcher := nil;
     LResponder.Free;
   end;
 end;
@@ -369,6 +263,7 @@ begin
     CheckTrue(LClock.NowMonotonicMillis - LStart < 4000,
       'the fetch stops near the budget, not when the responder gives up');
   finally
+    LFetcher := nil;
     LResponder.Free;
   end;
 end;

@@ -44,6 +44,7 @@ uses
   TlpTlsLibExceptions,
   TlpTlsCredential,
   TlpSecureMemory,
+  TlpITlsTransport,
   TlpTlsConnection,
   TlpTlsConnectionInfo,
   TlpTlsVersion,
@@ -580,7 +581,8 @@ begin
   // the client parks on the server's chain, a server (client auth) on the mTLS client's chain -
   // the two bind different EKUs, so one resolver cannot serve both
   FConnection := TTlsConnection.CreateClient(LConfig, LHost,
-    TMormotSocketTransport.Create(Socket), GVerdictResolver, GVerdictDeadlineMs);
+    TMormotSocketTransport.Create(Socket) as ITlsTimedTransport, GVerdictResolver,
+    GVerdictDeadlineMs);
   RunHandshake;
   Context.CipherName := GetCipherName;
 end;
@@ -604,7 +606,8 @@ begin
     // the stock backend hands its password callback no socket on the server side either
     LConfig := BuildServerConfig(BoundContext, nil);
     FConnection := TTlsConnection.CreateServer(LConfig,
-      TMormotSocketTransport.Create(Socket), GServerVerdictResolver, GServerVerdictDeadlineMs);
+      TMormotSocketTransport.Create(Socket) as ITlsTimedTransport, GServerVerdictResolver,
+      GServerVerdictDeadlineMs);
     RunHandshake;
     if CipherName <> nil then
       CipherName^ := GetCipherName;

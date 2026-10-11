@@ -34,7 +34,7 @@
         <PackageName Value="FCL"/>
       </Item5>
     </RequiredPackages>
-    <Units Count="90">
+    <Units Count="91">
       <Unit0>
         <Filename Value="TlsLibConsole.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -395,6 +395,10 @@
         <Filename Value="..\src\MockVerifyHooks.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit89>
+      <Unit90>
+        <Filename Value="..\src\NetSocketTests.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit90>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

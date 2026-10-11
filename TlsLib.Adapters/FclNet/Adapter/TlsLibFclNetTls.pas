@@ -47,6 +47,7 @@ uses
   TlpTlsConfigMemo,
   TlpTlsLibExceptions,
   TlpTlsCredential,
+  TlpITlsTransport,
   TlpTlsConnection,
   TlpTlsConnectionInfo,
   TlpSystemTrustFacade;
@@ -580,13 +581,14 @@ begin
     begin
       LClientConfig := BuildClientConfig(AHost);
       FConnection := TTlsConnection.CreateClient(LClientConfig, AHost,
-        TFclNetSocketTransport.Create(Socket.Handle), FVerdictResolver, FVerdictDeadlineMs);
+        TFclNetSocketTransport.Create(Socket.Handle) as ITlsTimedTransport, FVerdictResolver,
+        FVerdictDeadlineMs);
     end
     else
     begin
       LServerConfig := BuildServerConfig;
       FConnection := TTlsConnection.CreateServer(LServerConfig,
-        TFclNetSocketTransport.Create(Socket.Handle), FServerVerdictResolver,
+        TFclNetSocketTransport.Create(Socket.Handle) as ITlsTimedTransport, FServerVerdictResolver,
         FServerVerdictDeadlineMs);
     end;
     // fcl-net has no readiness wait, so the handshake read is bounded by SO_RCVTIMEO through

@@ -1454,7 +1454,7 @@ begin
   LRaised := False;
   try
     LConnection := TTlsConnection.CreateClient(nil, 'example.com',
-      TTestMemoryTransport.Create(nil, True), nil, 0);
+      TTestMemoryTransport.Create(nil, True) as ITlsTimedTransport, nil, 0);
     LConnection.Free;
   except
     on E: EArgumentTlsLibException do

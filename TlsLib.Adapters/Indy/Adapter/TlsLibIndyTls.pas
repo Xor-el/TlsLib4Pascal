@@ -50,6 +50,7 @@ uses
   TlpTlsConfigMemo,
   TlpTlsLibExceptions,
   TlpTlsCredential,
+  TlpITlsTransport,
   TlpTlsConnection,
   TlpTlsConnectionInfo,
   TlpSystemTrustFacade;
@@ -582,14 +583,14 @@ begin
     begin
       LClientConfig := BuildClientConfig;
       FConnection := TTlsConnection.CreateClient(LClientConfig, Host,
-        TIndySocketTransport.Create(Binding), FOptions.VerdictResolver,
+        TIndySocketTransport.Create(Binding) as ITlsTimedTransport, FOptions.VerdictResolver,
         FOptions.VerdictDeadlineMs);
     end
     else
     begin
       LServerConfig := BuildServerConfig;
       FConnection := TTlsConnection.CreateServer(LServerConfig,
-        TIndySocketTransport.Create(Binding), FOptions.ServerVerdictResolver,
+        TIndySocketTransport.Create(Binding) as ITlsTimedTransport, FOptions.ServerVerdictResolver,
         FOptions.ServerVerdictDeadlineMs);
     end;
     // bound the handshake read by the dedicated HandshakeTimeoutMs option, NOT app ReadTimeout
