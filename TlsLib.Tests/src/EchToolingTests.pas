@@ -181,7 +181,7 @@ var
   LStream: TFileStream;
 begin
   LData := TBytes.Create($01, $02, $03, $04, $05);
-  LPath := 'tlslib_echkey_perm_test.pem';
+  LPath := TempPath('tlslib_echkey_perm_test.pem');
   // a key file is never overwritten on POSIX, so clear any leftover from an aborted run
   if FileExists(LPath) then
     DeleteFile(LPath);
@@ -212,7 +212,7 @@ var
   LStream: TFileStream;
   LByte: Byte;
 begin
-  LPath := 'tlslib_echkey_exists_test.pem';
+  LPath := TempPath('tlslib_echkey_exists_test.pem');
   if FileExists(LPath) then
     DeleteFile(LPath);
   try
@@ -250,7 +250,7 @@ var
   LPath, LMessage: string;
   LFailed: Boolean;
 begin
-  LPath := 'tlslib_echkey_no_such_dir_test' + PathDelim + 'key.pem';
+  LPath := TempPath('tlslib_echkey_no_such_dir_test') + PathDelim + 'key.pem';
   LFailed := False;
   LMessage := '';
   try
@@ -272,7 +272,7 @@ var
   LPath: string;
   LStream: TFileStream;
 begin
-  LPath := 'tlslib_echkey_empty_test.pem';
+  LPath := TempPath('tlslib_echkey_empty_test.pem');
   if FileExists(LPath) then
     DeleteFile(LPath);
   try

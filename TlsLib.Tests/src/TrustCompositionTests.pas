@@ -68,7 +68,6 @@ type
     function UnionOverWatchedStore(AReleased: PBoolean): ITrustAnchorStore;
   protected
     procedure SetUp; override;
-    procedure TearDown; override;
   published
     procedure TestTwoAnchorStoresUnionIntoComposedStore;
     procedure TestDistrustingStoreDropsDistrustedRootsAndIsImmutable;
@@ -190,13 +189,7 @@ end;
 procedure TTestTrustComposition.SetUp;
 begin
   inherited SetUp;
-  FCerts := LoadVectorFields('Certs/EcP256Chain.txt');
-end;
-
-procedure TTestTrustComposition.TearDown;
-begin
-  FCerts.Free;
-  inherited TearDown;
+  FCerts := Own<TStringList>(LoadVectorFields('Certs/EcP256Chain.txt'));
 end;
 
 function TTestTrustComposition.StoreOf(const AFieldName: string): ITrustAnchorStore;

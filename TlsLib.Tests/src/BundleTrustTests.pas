@@ -84,21 +84,17 @@ var
   LPath: string;
   LStream: TFileStream;
 begin
-  LPath := IncludeTrailingPathDelimiter(GetCurrentDir) + 'bundle_fixture.der';
+  LPath := TempPath('bundle_fixture.der');
   LStream := TFileStream.Create(LPath, fmCreate);
   try
     LStream.WriteBuffer(FRootDer[0], Length(FRootDer));
   finally
     LStream.Free;
   end;
-  try
-    LStore := TBundleTrust.FromPemFile(Pkix, LPath);
-    CheckTrue(LStore <> nil, 'FromPemFile returns an anchor store');
-    CheckEquals(1, Length(LStore.RootCertificates),
-      'the bundle file yields exactly one anchor');
-  finally
-    SysUtils.DeleteFile(LPath);
-  end;
+  LStore := TBundleTrust.FromPemFile(Pkix, LPath);
+  CheckTrue(LStore <> nil, 'FromPemFile returns an anchor store');
+  CheckEquals(1, Length(LStore.RootCertificates),
+    'the bundle file yields exactly one anchor');
 end;
 
 initialization

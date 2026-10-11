@@ -45,7 +45,6 @@ type
     function Permits(const ACertName: string; AUsage: TCertKeyUsage): Boolean;
   protected
     procedure SetUp; override;
-    procedure TearDown; override;
   published
     // keyUsage (CertificateKeyUsagePermits)
     procedure TestDigitalSignatureCertPermitsSigning;
@@ -68,13 +67,7 @@ implementation
 procedure TTestCertificateChecks.SetUp;
 begin
   inherited SetUp;
-  FVec := LoadVectorFields('Certs/KeyUsagePss.txt');
-end;
-
-procedure TTestCertificateChecks.TearDown;
-begin
-  FVec.Free;
-  inherited TearDown;
+  FVec := Own<TStringList>(LoadVectorFields('Certs/KeyUsagePss.txt'));
 end;
 
 function TTestCertificateChecks.V(const AName: string): TBytes;

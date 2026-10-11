@@ -61,7 +61,6 @@ type
     procedure CheckDerivedPublicKey(const APrivField, APubField: string);
   protected
     procedure SetUp; override;
-    procedure TearDown; override;
   published
     procedure TestRsaImportsEveryFormat;
     procedure TestEcP256ImportsEveryFormat;
@@ -115,13 +114,7 @@ const
 procedure TTestCredentialImport.SetUp;
 begin
   inherited SetUp;
-  FV := LoadVectorFields('Certs/ImportKeys.txt');
-end;
-
-procedure TTestCredentialImport.TearDown;
-begin
-  FV.Free;
-  inherited TearDown;
+  FV := Own<TStringList>(LoadVectorFields('Certs/ImportKeys.txt'));
 end;
 
 function TTestCredentialImport.Import(const AField: string): ISigningKey;

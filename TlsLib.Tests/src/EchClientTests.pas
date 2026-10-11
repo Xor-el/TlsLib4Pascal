@@ -65,7 +65,6 @@ type
       out AEntries: TExtensionVector; out APadding: TBytes);
   protected
     procedure SetUp; override;
-    procedure TearDown; override;
   published
     procedure TestRecipientPublicKeyIsACopy;
     procedure TestPaddingWithServerName;
@@ -88,13 +87,7 @@ implementation
 procedure TTestEchClient.SetUp;
 begin
   inherited SetUp;
-  FVec := LoadVectorFields('Certs/Ech.txt');
-end;
-
-procedure TTestEchClient.TearDown;
-begin
-  FVec.Free;
-  inherited TearDown;
+  FVec := Own<TStringList>(LoadVectorFields('Certs/Ech.txt'));
 end;
 
 function TTestEchClient.SelectConfig(out ASuite: IHpkeSuite): TEchConfig;

@@ -43,6 +43,7 @@ uses
   TlpLiveRevocation,
   MockTransport,
   MockHttpFetcher,
+  MockVerifyHooks,
   TlsLibTestBase;
 
 type
@@ -86,7 +87,6 @@ type
   TTestServerSideLiveRevocation = class(TTlsLibAlgorithmTestCase)
   strict private
     FFetcher: TMockHttpFetcher; // one primed fetcher per test, referenced by the checker
-    FStubPeerRole: TPeerRole;   // the role the pump handed the stub resolver at the server park
     function CertField(const AName: string): TBytes;
     function ServerRoot: TBytes;
     function ServerLeaf: TBytes;
@@ -109,8 +109,6 @@ type
     /// candidate so a leaf-only client chain resolves its issuer.</summary>
     function NewChecker(APosture: TRevocationPosture;
       AWithCandidates: Boolean): TLiveRevocationChecker;
-    function StubAccept(const ACtx: TCertificateVerdictContext;
-      out ARejectAlert: TTlsAlertDescription): Boolean;
     function StubReject(const ACtx: TCertificateVerdictContext;
       out ARejectAlert: TTlsAlertDescription): Boolean;
     /// <summary>Drives the client to completion then reads once, surfacing whatever fatal alert
@@ -347,15 +345,6 @@ begin
     Result := TLiveRevocationChecker.Create(Pkix, TSystemClock.Create as ITlsClock,
       TSystemMonotonicClock.Create as ITlsMonotonicClock, FFetcher, APosture,
       TLiveRevocationMethod.OcspThenCrl, 0);
-end;
-
-function TTestServerSideLiveRevocation.StubAccept(
-  const ACtx: TCertificateVerdictContext;
-  out ARejectAlert: TTlsAlertDescription): Boolean;
-begin
-  FStubPeerRole := ACtx.PeerRole; // record the role the pump attributed to the parked chain
-  ARejectAlert := TTlsAlertDescription.BadCertificate;
-  Result := System.Length(ACtx.Chain) > 0;
 end;
 
 function TTestServerSideLiveRevocation.StubReject(
@@ -604,11 +593,12 @@ var
   LClient: TTlsStream;
   LServer: TMtlsLiveServerRunner;
   LTransport: TMemoryTransport;
+  LSpy: TVerdictResolverSpy;
 begin
   // the server park -> resolve -> resume wiring, independent of the live checker
-  FStubPeerRole := TPeerRole.Unknown; // seed with the unset value so the assert is meaningful
+  LSpy := Own<TVerdictResolverSpy>(TVerdictResolverSpy.Create);
   RunLoopback(ClientConfig(False), ServerConfig(TRevocationPosture.Hard, False),
-    StubAccept, True, LClient, LServer, LTransport);
+    LSpy.Resolve, True, LClient, LServer, LTransport);
   try
     LClient.Handshake;
     CheckTrue(LClient.IsHandshakeComplete, 'an accepted server verdict completes the handshake');
@@ -618,7 +608,7 @@ begin
     CheckTrue(LServer.HandshakeOk, 'the server accepted the client via the stub resolver');
     CheckEquals('', LServer.Error, 'the server side ran without error');
     // the server park concerns the mTLS client's chain (WaitFor is the memory barrier)
-    CheckEquals(Ord(TPeerRole.Client), Ord(FStubPeerRole),
+    CheckEquals(Ord(TPeerRole.Client), Ord(LSpy.PeerRole),
       'a server park attributes the parked chain to the client role');
   finally
     LServer.Free;

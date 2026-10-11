@@ -83,7 +83,6 @@ type
       AScheme: TSignatureScheme): Boolean;
   protected
     procedure SetUp; override;
-    procedure TearDown; override;
   end;
 
   /// <summary>The contract every native crypto provider must meet: a natively imported key's
@@ -214,15 +213,8 @@ end;
 procedure TNativeCryptoProviderTestBase.SetUp;
 begin
   inherited SetUp;
-  FKeys := LoadVectorFields('Certs/ImportKeys.txt');
-  FPfx := LoadVectorFields('Certs/Pkcs12.txt');
-end;
-
-procedure TNativeCryptoProviderTestBase.TearDown;
-begin
-  FKeys.Free;
-  FPfx.Free;
-  inherited TearDown;
+  FKeys := Own<TStringList>(LoadVectorFields('Certs/ImportKeys.txt'));
+  FPfx := Own<TStringList>(LoadVectorFields('Certs/Pkcs12.txt'));
 end;
 
 function TNativeCryptoProviderTestBase.CreateCrypto: ICryptoProvider;

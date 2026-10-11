@@ -48,6 +48,10 @@ env:
   # When true, make.pas builds and runs console benchmarks after the test suite.
   # Override per job below, like MAKE_BUILD_BACKEND.
   MAKE_RUN_BENCHMARK: false
+  # How many times a job runs the unit suite in one process (the test binary's --repeat). Above 1
+  # a run that leaves state behind for the next fails the leg. Override per job below, like
+  # MAKE_BUILD_BACKEND.
+  MAKE_TEST_REPEAT: 1
   # When true (default), the Linux native jobs run the interop harness after their
   # build: the loopback self-test, the two-tier structure-aware parser fuzzer
   # (regression-corpus replay + a fixed-seed mutation smoke), and the always-on openssl
@@ -115,9 +119,9 @@ jobs:
         run: bash .github/workflows/ci/resolve-targets.sh
 
   # Fast source linters, gated between target resolution and the build matrix so a
-  # lint failure blocks the whole run before any expensive leg starts. Two separate
-  # scripts (kept apart for clarity) under one job; the second runs even if the first
-  # fails, so both linters' findings surface in a single pass.
+  # lint failure blocks the whole run before any expensive leg starts. Three separate
+  # scripts (kept apart for clarity) under one job; each later one runs even if an earlier
+  # one fails, so all the linters' findings surface in a single pass.
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -129,6 +133,9 @@ jobs:
       - name: Comment lint (production comments)
         if: ${{ !cancelled() }}
         run: bash .github/workflows/ci/lint/comment-lint.sh
+      - name: Teardown lint (bare field frees in test TearDown)
+        if: ${{ !cancelled() }}
+        run: bash .github/workflows/ci/lint/teardown-lint.sh
 
   # Native targets are standalone jobs (one per target) rather than a single
   # matrix job, so each can carry its own env overrides and so a single-target
@@ -434,6 +441,7 @@ jobs:
             MAKE_BUILD_BACKEND: ${{ env.MAKE_BUILD_BACKEND }}
             MAKE_PACKAGE_SCOPE: ${{ env.MAKE_PACKAGE_SCOPE }}
             MAKE_RUN_BENCHMARK: ${{ env.MAKE_RUN_BENCHMARK }}
+            MAKE_TEST_REPEAT: ${{ env.MAKE_TEST_REPEAT }}
             MAKE_LAZBUILD_GUI: ${{ env.MAKE_LAZBUILD_GUI }}
             CI_DEBUG: ${{ env.CI_DEBUG }}
           run: bash .github/workflows/ci/arm32-run.sh
@@ -461,6 +469,7 @@ jobs:
           MAKE_BUILD_BACKEND: ${{ env.MAKE_BUILD_BACKEND }}
           MAKE_PACKAGE_SCOPE: ${{ env.MAKE_PACKAGE_SCOPE }}
           MAKE_RUN_BENCHMARK: ${{ env.MAKE_RUN_BENCHMARK }}
+          MAKE_TEST_REPEAT: ${{ env.MAKE_TEST_REPEAT }}
           MAKE_LAZBUILD_GUI: ${{ env.MAKE_LAZBUILD_GUI }}
         run: bash .github/workflows/ci/ppc64-be-build.sh
 
@@ -483,7 +492,7 @@ jobs:
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['freebsd'].fpc_tarball_target }}
           FREEBSD_INSTALL_MODE: interim
         with:
-          envs: FPC_VERSION FPC_TARGET FPC_TARBALL_TARGET LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_RUN_BENCHMARK MAKE_LAZBUILD_GUI FREEBSD_INSTALL_MODE CI_DEBUG
+          envs: FPC_VERSION FPC_TARGET FPC_TARBALL_TARGET LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FREEBSD_INSTALL_MODE CI_DEBUG
           release: "15.0"
           usesh: true
           prepare: sh .github/workflows/ci/vm-freebsd-prepare.sh
@@ -507,7 +516,7 @@ jobs:
           FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['netbsd'].fpc_target }}
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['netbsd'].fpc_tarball_target }}
         with:
-          envs: FPC_VERSION LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_RUN_BENCHMARK MAKE_LAZBUILD_GUI FPC_TARGET FPC_TARBALL_TARGET CI_DEBUG
+          envs: FPC_VERSION LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FPC_TARGET FPC_TARBALL_TARGET CI_DEBUG
           prepare: sh .github/workflows/ci/vm-netbsd-prepare.sh
           run: bash .github/workflows/ci/vm-run-shared.sh
 
@@ -530,7 +539,7 @@ jobs:
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['dragonflybsd'].fpc_tarball_target }}
           LD_LIBRARY_PATH_EXTRA: /usr/local/lib
         with:
-          envs: FPC_VERSION LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_RUN_BENCHMARK MAKE_LAZBUILD_GUI FPC_TARGET FPC_TARBALL_TARGET LD_LIBRARY_PATH_EXTRA CI_DEBUG
+          envs: FPC_VERSION LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FPC_TARGET FPC_TARBALL_TARGET LD_LIBRARY_PATH_EXTRA CI_DEBUG
           usesh: true
           prepare: sh .github/workflows/ci/vm-dragonfly-prepare.sh
           run: bash .github/workflows/ci/vm-run-shared.sh
@@ -553,7 +562,7 @@ jobs:
           FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['solaris'].fpc_target }}
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['solaris'].fpc_tarball_target }}
         with:
-          envs: FPC_VERSION LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_RUN_BENCHMARK MAKE_LAZBUILD_GUI FPC_TARGET FPC_TARBALL_TARGET CI_DEBUG
+          envs: FPC_VERSION LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FPC_TARGET FPC_TARBALL_TARGET CI_DEBUG
           release: "11.4-gcc"
           usesh: true
           prepare: sh .github/workflows/ci/vm-solaris-prepare.sh

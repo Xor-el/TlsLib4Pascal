@@ -44,7 +44,6 @@ type
     procedure FeedThroughServerFinished(const ATranscript: ITranscriptHash);
   protected
     procedure SetUp; override;
-    procedure TearDown; override;
   published
     procedure TestRfc8448RunningHashes;
     procedure TestDeferredThenActivateReplays;
@@ -62,13 +61,7 @@ implementation
 procedure TTestTranscriptHash.SetUp;
 begin
   inherited SetUp;
-  FVec := LoadVectorFields('Rfc8448/HandshakeMessages.txt');
-end;
-
-procedure TTestTranscriptHash.TearDown;
-begin
-  FVec.Free;
-  inherited TearDown;
+  FVec := Own<TStringList>(LoadVectorFields('Rfc8448/HandshakeMessages.txt'));
 end;
 
 function TTestTranscriptHash.Msg(const AName: string): TBytes;

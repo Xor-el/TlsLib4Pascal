@@ -47,8 +47,14 @@ type
   TTlsLibTestCase = class abstract(TTestCase)
   strict private
     FOwned: TList<TObject>;
+    FTempDir: string;
     procedure FreeOwnedObjects;
+    procedure RemoveTree(const APath: string);
+    procedure RemoveTempDir;
   strict protected
+    /// <summary>A path for a scratch file in a directory unique to this test run; the directory
+    /// and its files are removed at TearDown.</summary>
+    function TempPath(const AName: string): string;
     /// <summary>Registers AInstance for disposal at TearDown and returns it, so a field reads
     /// FThing := Own&lt;TThing&gt;(TThing.Create(...)).</summary>
     function Own<T: class>(const AInstance: T): T;
@@ -107,20 +113,71 @@ implementation
 destructor TTlsLibTestCase.Destroy;
 begin
   FreeOwnedObjects;
+  RemoveTempDir;
   FOwned.Free;
   inherited Destroy;
+end;
+
+function TTlsLibTestCase.TempPath(const AName: string): string;
+var
+  LBase: string;
+  LId: TGUID;
+begin
+  if FTempDir = '' then
+  begin
+    LBase := GetEnvironmentVariable('TEMP');
+    if LBase = '' then
+      LBase := GetEnvironmentVariable('TMPDIR');
+    if LBase = '' then
+      LBase := GetCurrentDir;
+    CreateGUID(LId);
+    FTempDir := IncludeTrailingPathDelimiter(LBase) + 'tlslib-tests-' +
+      Copy(GUIDToString(LId), 2, 36);
+    ForceDirectories(FTempDir);
+  end;
+  Result := IncludeTrailingPathDelimiter(FTempDir) + AName;
+end;
+
+procedure TTlsLibTestCase.RemoveTree(const APath: string);
+var
+  LFind: TSearchRec;
+begin
+  if FindFirst(IncludeTrailingPathDelimiter(APath) + '*', faAnyFile, LFind) = 0 then
+  begin
+    repeat
+      if (LFind.Name = '.') or (LFind.Name = '..') then
+        Continue;
+      if (LFind.Attr and faDirectory) <> 0 then
+        RemoveTree(IncludeTrailingPathDelimiter(APath) + LFind.Name)
+      else
+        DeleteFile(IncludeTrailingPathDelimiter(APath) + LFind.Name);
+    until FindNext(LFind) <> 0;
+    FindClose(LFind);
+  end;
+  RemoveDir(APath);
+end;
+
+procedure TTlsLibTestCase.RemoveTempDir;
+begin
+  if FTempDir = '' then
+    Exit;
+  RemoveTree(FTempDir);
+  FTempDir := '';
 end;
 
 procedure TTlsLibTestCase.SetUp;
 begin
   inherited SetUp;
-  // a SetUp that raised on a prior run skips its TearDown; sweep any survivors before arranging
+  // fpcunit skips TearDown when SetUp raises, and DUnit runs it regardless; sweep any survivors
+  // before arranging so neither leaves a stale object or scratch directory behind
   FreeOwnedObjects;
+  RemoveTempDir;
 end;
 
 procedure TTlsLibTestCase.TearDown;
 begin
   FreeOwnedObjects;
+  RemoveTempDir;
   inherited TearDown;
 end;
 

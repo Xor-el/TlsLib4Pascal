@@ -53,7 +53,6 @@ type
     procedure CheckKat(const ASuite: IHpkeSuite; const APrefix: string);
   protected
     procedure SetUp; override;
-    procedure TearDown; override;
   published
     procedure TestBaseModeKatOpenSeq0;
     procedure TestBaseModeKatOpenSeq1AdvancesSequence;
@@ -88,13 +87,7 @@ implementation
 procedure TTestHpkeProvider.SetUp;
 begin
   inherited SetUp;
-  FVec := LoadVectorFields('Crypto/Hpke.txt');
-end;
-
-procedure TTestHpkeProvider.TearDown;
-begin
-  FVec.Free;
-  inherited TearDown;
+  FVec := Own<TStringList>(LoadVectorFields('Crypto/Hpke.txt'));
 end;
 
 function TTestHpkeProvider.V(const AName: string): TBytes;

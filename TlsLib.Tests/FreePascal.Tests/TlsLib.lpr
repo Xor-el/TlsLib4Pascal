@@ -18,6 +18,7 @@ uses
   MockHttpFetcher,
   SpyRevocationProvider,
   MockSink,
+  MockVerifyHooks,
   MockRecordInstaller,
   MockTransport,
   SecretTests,

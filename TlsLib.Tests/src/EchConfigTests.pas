@@ -53,7 +53,6 @@ type
     function Usable(const AConfig: TEchConfig): Boolean;
   protected
     procedure SetUp; override;
-    procedure TearDown; override;
   published
     procedure TestParseRealConfig;
     procedure TestParseEncodeRoundTrip;
@@ -80,13 +79,7 @@ implementation
 procedure TTestEchConfig.SetUp;
 begin
   inherited SetUp;
-  FVec := LoadVectorFields('Certs/Ech.txt');
-end;
-
-procedure TTestEchConfig.TearDown;
-begin
-  FVec.Free;
-  inherited TearDown;
+  FVec := Own<TStringList>(LoadVectorFields('Certs/Ech.txt'));
 end;
 
 function TTestEchConfig.ConfigList: TBytes;

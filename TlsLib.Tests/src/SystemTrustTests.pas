@@ -74,6 +74,7 @@ uses
   TlpTlsCredential,
   TlpTlsPresets,
   MockPlatformChainEngine,
+  MockVerifyHooks,
   TlsLibTestBase;
 
 type
@@ -131,7 +132,6 @@ type
     function Ec(const AName: string): TBytes;
   protected
     procedure SetUp; override;
-    procedure TearDown; override;
   published
     procedure TestRevokedStapleRejectsOverOsPath;
     procedure TestStapleOutcomeMapping;
@@ -174,19 +174,14 @@ type
   strict private
     FClock: ITlsClock;
     FOcsp: TStringList;
-    FCallbackInvoked: Boolean;
     function Ocsp(const AName: string): TBytes;
     function OcspChain: TArray<TBytes>;
     function Result_(AOutcome: TLiveRevocationOutcome;
       const APath: TArray<TBytes>): TPlatformChainResult;
     function Policy(APosture: TRevocationPosture; AFetch: TSystemTrustFetch;
       ADeferral: TVerdictDeferral; const AAnchors: TArray<TBytes>): TOSDelegatePolicy;
-    // augment-only reject / accept hooks, recording whether they ran
-    function RejectCallback(const AChain: TArray<TBytes>; const AHostName: string): Boolean;
-    function AcceptCallback(const AChain: TArray<TBytes>; const AHostName: string): Boolean;
   protected
     procedure SetUp; override;
-    procedure TearDown; override;
   published
     procedure TestRequestShapingRevocationLevels;
     procedure TestRequestNetworkNotAllowedInline;
@@ -292,7 +287,6 @@ type
       out AAlert: TTlsAlertDescription): Boolean;
   protected
     procedure SetUp; override;
-    procedure TearDown; override;
   published
     procedure TestAcceptsClientChainToConfiguredAnchor;
     procedure TestRejectsClientChainToForeignAnchor;
@@ -341,7 +335,6 @@ type
       const AAdvertised: TArray<UInt16>; out AAlert: TTlsAlertDescription): Boolean;
   protected
     procedure SetUp; override;
-    procedure TearDown; override;
   published
     procedure TestAcceptsClientChainToConfiguredAnchor;
     procedure TestRejectsClientChainToForeignAnchor;
@@ -382,15 +375,8 @@ procedure TTestDelegatePostChecks.SetUp;
 begin
   inherited SetUp;
   FClock := TSystemClock.Create as ITlsClock;
-  FOcsp := LoadVectorFields('Certs/OcspStapling.txt');
-  FEc := LoadVectorFields('Certs/EcP256Chain.txt');
-end;
-
-procedure TTestDelegatePostChecks.TearDown;
-begin
-  FEc.Free;
-  FOcsp.Free;
-  inherited TearDown;
+  FOcsp := Own<TStringList>(LoadVectorFields('Certs/OcspStapling.txt'));
+  FEc := Own<TStringList>(LoadVectorFields('Certs/EcP256Chain.txt'));
 end;
 
 function TTestDelegatePostChecks.Ocsp(const AName: string): TBytes;
@@ -626,13 +612,7 @@ procedure TTestOSDelegateTemplate.SetUp;
 begin
   inherited SetUp;
   FClock := TSystemClock.Create as ITlsClock;
-  FOcsp := LoadVectorFields('Certs/OcspStapling.txt');
-end;
-
-procedure TTestOSDelegateTemplate.TearDown;
-begin
-  FOcsp.Free;
-  inherited TearDown;
+  FOcsp := Own<TStringList>(LoadVectorFields('Certs/OcspStapling.txt'));
 end;
 
 function TTestOSDelegateTemplate.Ocsp(const AName: string): TBytes;
@@ -1344,20 +1324,6 @@ begin
     'the alert is certificate_revoked');
 end;
 
-function TTestOSDelegateTemplate.RejectCallback(const AChain: TArray<TBytes>;
-  const AHostName: string): Boolean;
-begin
-  FCallbackInvoked := True;
-  Result := False;
-end;
-
-function TTestOSDelegateTemplate.AcceptCallback(const AChain: TArray<TBytes>;
-  const AHostName: string): Boolean;
-begin
-  FCallbackInvoked := True;
-  Result := True;
-end;
-
 procedure TTestOSDelegateTemplate.TestVerifyCallbackRejectYieldsCertificateUnknown;
 var
   LEngine: IPlatformChainEngine;
@@ -1365,19 +1331,20 @@ var
   LVerifier: IServerCertificateVerifier;
   LVerified: TVerifiedChain;
   LAlert: TTlsAlertDescription;
+  LSpy: TVerifyCallbackSpy;
 begin
   // the augment-only reject hook runs after a trusting engine and turns acceptance into a
   // certificate_unknown rejection with no validated path (built-in verifier parity)
-  FCallbackInvoked := False;
+  LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(False));
   LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation,
     TPlatformChainCapability.DnsIdentity], True,
     Result_(TLiveRevocationOutcome.Good, OcspChain), TTlsAlertDescription.BadCertificate);
   LPolicy := Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil);
-  LPolicy.Dangerous.VerifyCallback := RejectCallback;
+  LPolicy.Dangerous.VerifyCallback := LSpy.Callback;
   LVerifier := TOSDelegateServerVerifier.Create(LEngine, LPolicy) as IServerCertificateVerifier;
   CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('localhost'), nil,
     LVerified, LAlert), 'the augment callback rejects an otherwise-trusted chain');
-  CheckTrue(FCallbackInvoked, 'the augment callback ran');
+  CheckTrue(LSpy.Invoked, 'the augment callback ran');
   CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
     'a custom rejection is certificate_unknown');
   CheckEquals(0, System.Length(LVerified.Path), 'the validated path is cleared on rejection');
@@ -1390,18 +1357,19 @@ var
   LVerifier: IServerCertificateVerifier;
   LVerified: TVerifiedChain;
   LAlert: TTlsAlertDescription;
+  LSpy: TVerifyCallbackSpy;
 begin
   // the hook is augment-only: an engine rejection returns first, so the callback (which could only
   // reject further) never runs and cannot rescue the chain
-  FCallbackInvoked := False;
+  LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(True));
   LEngine := TMockPlatformChainEngine.Create([], False,
     Result_(TLiveRevocationOutcome.Indeterminate, OcspChain), TTlsAlertDescription.BadCertificate);
   LPolicy := Policy(TRevocationPosture.Off, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil);
-  LPolicy.Dangerous.VerifyCallback := AcceptCallback;
+  LPolicy.Dangerous.VerifyCallback := LSpy.Callback;
   LVerifier := TOSDelegateServerVerifier.Create(LEngine, LPolicy) as IServerCertificateVerifier;
   CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('localhost'), nil,
     LVerified, LAlert), 'an engine rejection stands');
-  CheckFalse(FCallbackInvoked, 'the augment callback never ran for a rejected chain');
+  CheckFalse(LSpy.Invoked, 'the augment callback never ran for a rejected chain');
 end;
 
 procedure TTestOSDelegateTemplate.TestEmptyServerNameFailsClosedWithoutConsultingEngine;
@@ -1462,10 +1430,11 @@ var
   LVerifier: IServerCertificateVerifier;
   LVerified: TVerifiedChain;
   LAlert: TTlsAlertDescription;
+  LSpy: TVerifyCallbackSpy;
 begin
   // the source copies the context's augment callback into the delegate policy, so a config-wired
   // reject hook actually runs on the OS-delegate server path (regression guard for the copy)
-  FCallbackInvoked := False;
+  LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(False));
   LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation,
     TPlatformChainCapability.DnsIdentity], True,
     Result_(TLiveRevocationOutcome.Good, OcspChain), TTlsAlertDescription.BadCertificate);
@@ -1482,11 +1451,11 @@ begin
   LContext.AdvertisedSignatureSchemes := TArray<UInt16>.Create(
     TSignatureSchemes.EcdsaSecp256r1Sha256, TSignatureSchemes.EcdsaSecp384r1Sha384,
     TSignatureSchemes.EcdsaSecp521r1Sha512);
-  LContext.Dangerous.VerifyCallback := RejectCallback;
+  LContext.Dangerous.VerifyCallback := LSpy.Callback;
   LVerifier := LSource.CreateServerVerifier(LContext);
   CheckFalse(LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('localhost'), nil,
     LVerified, LAlert), 'the context callback rejects on the server path');
-  CheckTrue(FCallbackInvoked, 'the context callback ran');
+  CheckTrue(LSpy.Invoked, 'the context callback ran');
   CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
     'a custom rejection is certificate_unknown');
 end;
@@ -1499,10 +1468,11 @@ var
   LVerifier: IClientCertificateVerifier;
   LVerified: TVerifiedChain;
   LAlert: TTlsAlertDescription;
+  LSpy: TVerifyCallbackSpy;
 begin
   // the client twin: the source copies the callback into the client-delegate policy, and the hook
   // sees an empty host (a client certificate carries no name)
-  FCallbackInvoked := False;
+  LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(False));
   LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation], True,
     Result_(TLiveRevocationOutcome.Good, OcspChain), TTlsAlertDescription.BadCertificate);
   LSource := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly)
@@ -1517,11 +1487,11 @@ begin
   LContext.AdvertisedSignatureSchemes := TArray<UInt16>.Create(
     TSignatureSchemes.EcdsaSecp256r1Sha256, TSignatureSchemes.EcdsaSecp384r1Sha384,
     TSignatureSchemes.EcdsaSecp521r1Sha512);
-  LContext.Dangerous.VerifyCallback := RejectCallback;
+  LContext.Dangerous.VerifyCallback := LSpy.Callback;
   LVerifier := LSource.CreateClientVerifier(LContext);
   CheckFalse(LVerifier.VerifyClientCertificate(OcspChain, LVerified, LAlert),
     'the context callback rejects on the client path');
-  CheckTrue(FCallbackInvoked, 'the context callback ran');
+  CheckTrue(LSpy.Invoked, 'the context callback ran');
   CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
     'a custom rejection is certificate_unknown');
 end;
@@ -1606,7 +1576,7 @@ var
   LVectors: TStringList;
 begin
   inherited SetUp;
-  FDir := IncludeTrailingPathDelimiter(GetCurrentDir) + 'systrust_fixtures';
+  FDir := TempPath('systrust_fixtures');
   ForceDirectories(FDir);
   FCertDir := IncludeTrailingPathDelimiter(FDir) + 'certsdir';
   ForceDirectories(FCertDir);
@@ -1891,15 +1861,8 @@ end;
 procedure TTestWindowsClientDelegate.SetUp;
 begin
   inherited SetUp;
-  FChain := LoadVectorFields('Certs/ClientAuthChain.txt');
-  FForeign := LoadVectorFields('Certs/OcspStapling.txt');
-end;
-
-procedure TTestWindowsClientDelegate.TearDown;
-begin
-  FChain.Free;
-  FForeign.Free;
-  inherited TearDown;
+  FChain := Own<TStringList>(LoadVectorFields('Certs/ClientAuthChain.txt'));
+  FForeign := Own<TStringList>(LoadVectorFields('Certs/OcspStapling.txt'));
 end;
 
 function TTestWindowsClientDelegate.Leaf: TArray<TBytes>;
@@ -2229,15 +2192,8 @@ end;
 procedure TTestAppleClientDelegate.SetUp;
 begin
   inherited SetUp;
-  FChain := LoadVectorFields('Certs/ClientAuthChain.txt');
-  FForeign := LoadVectorFields('Certs/OcspStapling.txt');
-end;
-
-procedure TTestAppleClientDelegate.TearDown;
-begin
-  FChain.Free;
-  FForeign.Free;
-  inherited TearDown;
+  FChain := Own<TStringList>(LoadVectorFields('Certs/ClientAuthChain.txt'));
+  FForeign := Own<TStringList>(LoadVectorFields('Certs/OcspStapling.txt'));
 end;
 
 function TTestAppleClientDelegate.Leaf: TArray<TBytes>;

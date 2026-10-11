@@ -83,7 +83,6 @@ type
       : IServerCertificateVerifier;
   protected
     procedure SetUp; override;
-    procedure TearDown; override;
   published
     // provider verdict seam (ValidateOcspStaple / CertificateTlsFeatures)
     procedure TestValidateStapleGood;
@@ -157,15 +156,8 @@ implementation
 procedure TTestOcspStapling.SetUp;
 begin
   inherited SetUp;
-  FVec := LoadVectorFields('Certs/OcspStapling.txt');
-  FNoNext := LoadVectorFields('Certs/OcspNoNextUpdate.txt');
-end;
-
-procedure TTestOcspStapling.TearDown;
-begin
-  FVec.Free;
-  FNoNext.Free;
-  inherited TearDown;
+  FVec := Own<TStringList>(LoadVectorFields('Certs/OcspStapling.txt'));
+  FNoNext := Own<TStringList>(LoadVectorFields('Certs/OcspNoNextUpdate.txt'));
 end;
 
 function TTestOcspStapling.V(const AName: string): TBytes;

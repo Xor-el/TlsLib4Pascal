@@ -395,13 +395,12 @@ end;
 procedure TTestConfigBuilder.SetUp;
 begin
   inherited SetUp;
-  FCerts := LoadVectorFields('Certs/EcP256Chain.txt');
+  FCerts := Own<TStringList>(LoadVectorFields('Certs/EcP256Chain.txt'));
 end;
 
 procedure TTestConfigBuilder.TearDown;
 begin
   FBuilders := nil;
-  FCerts.Free;
   inherited TearDown;
 end;
 

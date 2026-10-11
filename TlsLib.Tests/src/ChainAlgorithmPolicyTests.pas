@@ -49,7 +49,6 @@ type
     function Advertised: TArray<UInt16>;
   protected
     procedure SetUp; override;
-    procedure TearDown; override;
   published
     procedure TestEcP256LeafKeyFacts;
     procedure TestRsa2048LeafKeyFacts;
@@ -143,17 +142,9 @@ end;
 procedure TTestChainAlgorithmPolicy.SetUp;
 begin
   inherited SetUp;
-  FEc := LoadVectorFields('Certs/EcP256Chain.txt');
-  FRsa := LoadVectorFields('Certs/Rsa2048Chain.txt');
-  FPss := LoadVectorFields('Certs/KeyUsagePss.txt');
-end;
-
-procedure TTestChainAlgorithmPolicy.TearDown;
-begin
-  FEc.Free;
-  FRsa.Free;
-  FPss.Free;
-  inherited TearDown;
+  FEc := Own<TStringList>(LoadVectorFields('Certs/EcP256Chain.txt'));
+  FRsa := Own<TStringList>(LoadVectorFields('Certs/Rsa2048Chain.txt'));
+  FPss := Own<TStringList>(LoadVectorFields('Certs/KeyUsagePss.txt'));
 end;
 
 function TTestChainAlgorithmPolicy.EcCert(const AName: string): TBytes;

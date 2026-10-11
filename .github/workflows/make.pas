@@ -227,6 +227,9 @@ type
     // builds and runs console benchmark projects under BenchmarkTargetFolder
     // after the test suite completes.
     FRunBenchmark: Boolean;
+    // Selected via MAKE_TEST_REPEAT (defaults to 1). Above 1 the test binary runs its suite that
+    // many times in one process, so state that leaks from one run into the next fails the leg.
+    FTestRepeat: Integer;
     // Selected via MAKE_LAZBUILD_GUI (defaults to True). Only meaningful under
     // the lazbuild backend - the fpc backend never builds GUI projects (it has
     // no widgetset). When False, LCL/GUI projects are skipped even under
@@ -1877,6 +1880,11 @@ begin
   else
     Log(CSI_Yellow, 'run benchmark: false');
 
+  FTestRepeat := StrToIntDef(Trim(GetEnvironmentVariable('MAKE_TEST_REPEAT')), 1);
+  if FTestRepeat < 1 then
+    FTestRepeat := 1;
+  Log(CSI_Yellow, 'test repeat: ' + IntToStr(FTestRepeat));
+
   FBuildGuiProjects := ParseBoolEnv('MAKE_LAZBUILD_GUI', True);
   if FBuildGuiProjects then
     Log(CSI_Yellow, 'build GUI projects (lazbuild): true')
@@ -2421,7 +2429,11 @@ begin
   if BinaryPath = '' then
     Exit;
   try
-    RunBuiltBinary(BinaryPath, ['--all', '--format=plain', '--progress'], '');
+    if FTestRepeat > 1 then
+      RunBuiltBinary(BinaryPath, ['--all', '--format=plain', '--progress',
+        '--repeat=' + IntToStr(FTestRepeat)], '')
+    else
+      RunBuiltBinary(BinaryPath, ['--all', '--format=plain', '--progress'], '');
   except
     on E: Exception do
     begin

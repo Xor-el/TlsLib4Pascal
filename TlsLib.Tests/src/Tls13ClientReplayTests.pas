@@ -128,7 +128,6 @@ type
     function BuildNewSessionTicket: TTlsHandshakeMessage;
   protected
     procedure SetUp; override;
-    procedure TearDown; override;
     function TakeAll(const ALayer: TRecordLayer): TBytes;
   published
     procedure TestRfc8448ClientReplayByteExact;
@@ -233,22 +232,15 @@ end;
 procedure TTestTls13ClientReplay.SetUp;
 begin
   inherited SetUp;
+  FDriver := nil;
+  FSm := nil;
   FDualVersion := False;
-  FHs := LoadVectorFields('Rfc8448/HandshakeMessages.txt');
-  FSched := LoadVectorFields('Rfc8448/Tls13KeySchedule.txt');
-  FRec := LoadVectorFields('Rfc8448/Tls13RecordFinished.txt');
+  FHs := Own<TStringList>(LoadVectorFields('Rfc8448/HandshakeMessages.txt'));
+  FSched := Own<TStringList>(LoadVectorFields('Rfc8448/Tls13KeySchedule.txt'));
+  FRec := Own<TStringList>(LoadVectorFields('Rfc8448/Tls13RecordFinished.txt'));
   // FDriver wraps FLayer, so Own both: the base disposes newest-first, freeing the driver
   // before the layer it references
   FLayer := Own<TRecordLayer>(TRecordLayer.Create);
-end;
-
-procedure TTestTls13ClientReplay.TearDown;
-begin
-  // reassigned in SetUp before use, so a plain free is safe; FLayer/FDriver are Own'd (base frees)
-  FHs.Free;
-  FSched.Free;
-  FRec.Free;
-  inherited TearDown;
 end;
 
 function TTestTls13ClientReplay.Msg(const AName: string): TTlsHandshakeMessage;

@@ -91,6 +91,8 @@ type
     FSpy: TSpyPkixProvider;
     FSpyRef: IPkixProvider;
     FChecker: TLiveRevocationChecker;
+  protected
+    procedure TearDown; override;
   published
     // provider primitives
     procedure TestOcspResponderUrlExtracted;
@@ -354,6 +356,20 @@ var
   LOptions: TLiveRevocationOptions;
 begin
   Arrange(AMethod, ADeadlineMs, AOcspUrls, ACrlUrls, LOptions);
+end;
+
+procedure TTestLiveRevocation.TearDown;
+begin
+  inherited TearDown;
+  FChecker := nil;
+  FClock := nil;
+  FTicks := nil;
+  FFetcher := nil;
+  FSpy := nil;
+  FClockRef := nil;
+  FTicksRef := nil;
+  FFetcherRef := nil;
+  FSpyRef := nil;
 end;
 
 procedure TTestLiveRevocation.Arrange(AMethod: TLiveRevocationMethod; ADeadlineMs: Cardinal;

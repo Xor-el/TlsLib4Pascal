@@ -527,6 +527,7 @@
         <DCCReference Include="..\src\MockHttpFetcher.pas"/>
         <DCCReference Include="..\src\SpyRevocationProvider.pas"/>
         <DCCReference Include="..\src\MockSink.pas"/>
+        <DCCReference Include="..\src\MockVerifyHooks.pas"/>
         <DCCReference Include="..\src\MockRecordInstaller.pas"/>
         <DCCReference Include="..\src\MockTransport.pas"/>
         <DCCReference Include="..\src\MockTests.pas"/>

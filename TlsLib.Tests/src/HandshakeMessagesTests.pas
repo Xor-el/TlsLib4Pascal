@@ -39,7 +39,6 @@ type
     function Body(const AName: string): TBytes;
   protected
     procedure SetUp; override;
-    procedure TearDown; override;
   published
     procedure TestClientHelloDecodeAndRoundTrip;
     procedure TestServerHelloDecodeAndRoundTrip;
@@ -63,13 +62,7 @@ implementation
 procedure TTestHandshakeMessages.SetUp;
 begin
   inherited SetUp;
-  FVec := LoadVectorFields('Rfc8448/HandshakeMessages.txt');
-end;
-
-procedure TTestHandshakeMessages.TearDown;
-begin
-  FVec.Free;
-  inherited TearDown;
+  FVec := Own<TStringList>(LoadVectorFields('Rfc8448/HandshakeMessages.txt'));
 end;
 
 function TTestHandshakeMessages.Body(const AName: string): TBytes;

@@ -89,7 +89,6 @@ type
     function ServerRefused(const AFacet: ITls12ServerConfigFacet): Boolean;
   protected
     procedure SetUp; override;
-    procedure TearDown; override;
   published
     procedure TestPremasterFraming;
     procedure TestPremasterRefusesAnOversizeOperand;
@@ -122,13 +121,7 @@ implementation
 procedure TTestTls12Psk.SetUp;
 begin
   inherited SetUp;
-  FCerts := LoadVectorFields('Certs/EcP256Chain.txt');
-end;
-
-procedure TTestTls12Psk.TearDown;
-begin
-  FCerts.Free;
-  inherited TearDown;
+  FCerts := Own<TStringList>(LoadVectorFields('Certs/EcP256Chain.txt'));
 end;
 
 function TTestTls12Psk.ServerCredential: TTlsCredential;

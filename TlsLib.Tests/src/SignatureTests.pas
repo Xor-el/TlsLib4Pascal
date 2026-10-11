@@ -56,7 +56,6 @@ type
     function CertVerifySignature: TBytes;
   protected
     procedure SetUp; override;
-    procedure TearDown; override;
   published
     procedure TestEd25519SignVerifyRoundTrip;
     procedure TestEd25519TamperedSignatureFails;
@@ -89,15 +88,8 @@ implementation
 procedure TTestSignature.SetUp;
 begin
   inherited SetUp;
-  FHs := LoadVectorFields('Rfc8448/HandshakeMessages.txt');
-  FKeys := LoadVectorFields('Certs/SignatureKeys.txt');
-end;
-
-procedure TTestSignature.TearDown;
-begin
-  FHs.Free;
-  FKeys.Free;
-  inherited TearDown;
+  FHs := Own<TStringList>(LoadVectorFields('Rfc8448/HandshakeMessages.txt'));
+  FKeys := Own<TStringList>(LoadVectorFields('Certs/SignatureKeys.txt'));
 end;
 
 function TTestSignature.SignThenVerify(AScheme: TSignatureScheme;
